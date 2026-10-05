@@ -233,41 +233,57 @@ assert len(result.stdout) == int(width) * int(height) * 3, "capture crop must co
 print(hashlib.sha256(result.stdout).hexdigest())
 PY
 }
-capture_cursor_park() {
-  local rect x y width height tooltip_delay hover_duration pause
-  rect="$(ipc smoke instanceGeometry "$(bar_key)" vgs.capture)" || return 1
-  read -r x y width height < <(python3 -c 'import json,sys; print(*json.loads(sys.argv[1]))' "$rect")
-  capture_cursor_x=$((x + width / 2))
-  capture_cursor_y=$((y + height / 2))
-  # The bar's padding returns Qt's arrow before its clickable button sends
-  # the hand. Each pair observes a new shape request from that button.
-  hover "$capture_cursor_x" "$((y + 1))" || return 1
-  expect_poll "capture's bar padding resets the pointer shape" default cursor_shape
-  expect_cursor_at "capture's button supplies the hand bitmap" pointer "$capture_cursor_x" "$capture_cursor_y"
-  hover "$capture_cursor_x" "$capture_cursor_y" || return 1
-  tooltip_delay="$(ipc smoke themeValue tooltip.delay)" || return 1
-  hover_duration="$(ipc smoke themeValue motion.duration.fast)" || return 1
-  pause="$(python3 -c 'import json,sys; print(sum(json.loads(value) for value in sys.argv[1:]) / 1000)' "$tooltip_delay" "$hover_duration")" || return 1
-  sleep "$pause"
-  expect_poll "capture's tooltip settles before its image" true ipc smoke readDescendant "$(bar_key)" vgs.capture Tooltip opened
-  capture_cursor_crop="$(python3 -c 'import sys; x,y,w,h=map(int,sys.argv[1:]); print("50x50+%d+%d"%(max(0,min(x-20,w-50)),max(0,min(y-20,h-50))))' "$capture_cursor_x" "$capture_cursor_y" "$capture_width" "$capture_height")" || return 1
+capture_cursor_position() {
+  hover "$1" "$capture_cursor_y" || return 1
+  expect_poll "the flat cursor fixture holds the pointer" true ipc smoke popupRead capture-cursor hovering
+  expect_poll "the nested compositor uses the hand shape" pointer cursor_shape
 }
 capture_cursor_pair() {
-  capture_setting cursor false
-  expect "capture notices leave the cursor baseline" 0 capture_wait_toasts
-  capture_cursor_park
-  expect "capture takes a pointer-free baseline" ok ipc vgs.capture invoke screenshot ''
-  expect_poll "the cursor baseline finishes" idle capture_phase
-  capture_cursor_baseline="$(capture_crop_hash "$(capture_path)" "$capture_cursor_crop" 50 50)" || return 1
+  local moved="${1:-move}" rect x y width height
   capture_setting cursor true
+  expect "capture notices leave the cursor baseline" 0 capture_wait_toasts
+  rect="$(ipc smoke instanceGeometry "$(bar_key)" vgs.capture)" || return 1
+  read -r x y width height < <(python3 -c 'import json,sys; print(*json.loads(sys.argv[1]))' "$rect")
+  python3 - "$sandbox/capture-cursor.qml" "$sandbox" <<'PY'
+from pathlib import Path
+import sys
+fixture, sandbox = map(Path, sys.argv[1:])
+assert fixture.parent.resolve().is_relative_to(sandbox.resolve()), "cursor fixture must stay in the sandbox"
+fixture.write_text('''import QtQuick
+Rectangle {
+    x: -160
+    y: 0
+    width: 160
+    height: parent.height
+    z: 1000
+    color: "#334455"
+    readonly property bool hovering: pointer.hovered
+    HoverHandler { id: pointer; cursorShape: Qt.PointingHandCursor }
+}
+''')
+PY
+  expect "the flat hand-cursor fixture builds on the bar" ok ipc smoke popupLoad capture-cursor "$sandbox/capture-cursor.qml" "$(bar_key)" vgs.capture '{}'
+  capture_cursor_inside=$((x - 160 + 24))
+  capture_cursor_outside=$((x - 160 + 124))
+  capture_cursor_y=$((y + height / 2))
+  capture_cursor_crop="$(python3 -c 'import sys; x,y,h,w,oh=map(int,sys.argv[1:]); left=x-160+4; top=y+(h-20)//2; assert h>=20 and left>=0 and left+50<=w and top>=0 and top+20<=oh; print("50x20+%d+%d"%(left,top))' "$x" "$y" "$height" "$capture_width" "$capture_height")" || return 1
+  # Bar padding resets the shape before this fixture supplies a new hand.
+  hover "$((x + width / 2))" "$((y + 1))" || return 1
+  expect_poll "capture's bar padding resets the pointer shape" default cursor_shape
+  expect_cursor_at "the flat fixture supplies the hand bitmap" pointer "$capture_cursor_outside" "$capture_cursor_y"
+  capture_cursor_position "$capture_cursor_outside"
+  expect "capture takes a scene with the pointer outside its crop" ok ipc vgs.capture invoke screenshot ''
+  expect_poll "the cursor baseline finishes" idle capture_phase
+  capture_cursor_baseline="$(capture_crop_hash "$(capture_path)" "$capture_cursor_crop" 50 20)" || return 1
   expect "capture notices leave before the cursor image" 0 capture_wait_toasts
-  capture_cursor_park
-  expect "capture takes the cursor image" ok ipc vgs.capture invoke screenshot ''
+  if [[ $moved == move ]]; then capture_cursor_position "$capture_cursor_inside"; else capture_cursor_position "$capture_cursor_outside"; fi
+  expect "capture takes the second scene with the hand cursor" ok ipc vgs.capture invoke screenshot ''
   expect_poll "the cursor image finishes" idle capture_phase
+  expect "the flat cursor fixture is released" ok ipc smoke popupDrop capture-cursor
 }
 capture_cursor_changed() {
   local current
-  current="$(capture_crop_hash "$(capture_path)" "$capture_cursor_crop" 50 50)" || return 1
+  current="$(capture_crop_hash "$(capture_path)" "$capture_cursor_crop" 50 20)" || return 1
   [[ $current != "$capture_cursor_baseline" ]] && echo True || echo False
 }
 capture_recorded() { python3 - "$capture_state" "$(capture_path)" <<'PY'
@@ -362,9 +378,11 @@ expect "capture accepts all enabled displays" ok ipc vgs.capture invoke screensh
 expect_poll "capture finishes all displays" idle capture_phase
 expect_poll "all-display image equals the compositor bounding box" True capture_image_box "$capture_all_box"
 capture_config real "{\"grim\": \"$capture_real_grim\"}"
-capture_cursor_pair
+capture_cursor_pair move
 expect "the cursor option reaches grim" True capture_cursor_flag
-expect "including the cursor changes pixels at the hand bitmap" True capture_cursor_changed
+expect "moving the hand cursor into the crop changes delivered pixels" True capture_cursor_changed
+capture_cursor_pair stay
+expect "control: omitting the cursor move fails the pixel-change readback" False capture_cursor_changed
 capture_setting cursor false
 capture_setting processing '"copy"'
 capture_before="$(capture_counts)"
@@ -628,9 +646,10 @@ for capture_control in smart window display all cursor copy-only save-only delay
       expect "control: dropping the bounding rectangle fails the all-display readback" False capture_image_box "$capture_all_box"
       ;;
     cursor)
-      capture_cursor_pair
-      expect "control: dropping the cursor flag fails the cursor readback" False capture_cursor_flag
-      expect "control: dropping the cursor bitmap fails the paired pixel readback" False capture_cursor_changed
+      capture_setting cursor true
+      expect "control: capture starts with the cursor flag dropped" ok ipc vgs.capture invoke screenshot ''
+      expect_poll "control: the cursor copy completes" idle capture_phase
+      expect "control: dropping the cursor flag fails the cursor argument readback" False capture_cursor_flag
       capture_setting cursor false
       ;;
     copy-only|save-only)
