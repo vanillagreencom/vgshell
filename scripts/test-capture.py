@@ -392,7 +392,7 @@ def screenshot_choices(base, source):
         ("copy-saves", 'if processing == "copy":', 'if False:', "copy"),
         ("save-copies", 'if processing != "save":', 'if True:', "save"),
         ("no-delay", 'if not self.countdown(delay, timeout):', 'if False:', "delay"),
-        ("delay-ignores-cancel", 'if ready and sys.stdin.readline().strip() in ("", "cancel"):\n                    return False', 'if ready and sys.stdin.readline().strip() == "":\n                    return False', "cancel"),
+        ("delay-ignores-cancel", 'ready, _, _ = select.select([sys.stdin], [], [], max(0, deadline - time.monotonic()))\n                if ready and sys.stdin.readline().strip() in ("", "cancel"):\n                    return False', 'ready, _, _ = select.select([sys.stdin], [], [], max(0, deadline - time.monotonic()))\n                if ready and sys.stdin.readline().strip() == "":\n                    return False', "cancel"),
         ("no-timeout", 'child.communicate(timeout=timeout)', 'child.communicate()', "timeout"),
     ]
     for name, before, after, kind in mutations:
