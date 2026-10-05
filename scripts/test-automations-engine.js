@@ -259,7 +259,7 @@ const CASES = {
         const rec = ended(w, id);
         same(calls(w, "notify-send"), [
             ["--app-name=Automations", "--urgency=low", "--print-id", "--hint=string:x-vgs-icon:play", "--hint=string:x-vgs-tone:warning", "--hint=string:x-vgs-click:none", "--", "Job started", "The automation is running."],
-            ["--app-name=Automations", "--urgency=low", "--print-id", "--hint=string:x-vgs-icon:circle-check", "--hint=string:x-vgs-tone:success", "--hint=string:x-vgs-click:open", "--hint=string:x-vgs-open:" + rec.transcript, "--replace-id=41", "--", "Job finished", "Finished in 0 s"]
+            ["--app-name=Automations", "--urgency=low", "--print-id", "--hint=string:x-vgs-icon:circle-check", "--hint=string:x-vgs-tone:success", "--hint=string:x-vgs-click:open", "--hint=string:x-vgs-open:" + rec.transcript, "--replace-id=41", "--", "Job finished", "Finished in 0s"]
         ]);
     },
 
@@ -287,7 +287,7 @@ const CASES = {
         }
         if (alive) process.kill(pid, "SIGKILL");
         assert.equal(alive, false, "the command's background child was ended too");
-        assert.match(calls(w, "notify-send")[0].slice(-1)[0], /^Timed out after 1 s/);
+        assert.match(calls(w, "notify-send")[0].slice(-1)[0], /^Timed out after 1s/);
     },
 
     "a missing working directory is a failed start"(engine) {

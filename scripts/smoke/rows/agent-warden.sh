@@ -342,7 +342,7 @@ warden_panel() { ipc smoke itemTexts panel vgs.agent-warden Panel | py_reply '
 import json, re, sys
 t = sys.stdin.read().strip()
 rows = [] if t == "absent" else json.loads(t)
-print(json.dumps([re.sub(r"^Checked \d+ (s|min) ago$", "Checked N ago", x) for x in rows[0]]) if rows else "absent")'; }
+print(json.dumps([re.sub(r"^Checked \d+[smhd] ago$", "Checked N ago", x) for x in rows[0]]) if rows else "absent")'; }
 # warden_names_nothing FIXTURE: the first scope unit or process id of
 # status-FIXTURE.json the panel or the tooltip draws, `clean` for none, or
 # `absent` with no panel to read.

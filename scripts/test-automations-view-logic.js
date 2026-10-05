@@ -24,8 +24,9 @@ function run(view, logic) {
     assert.equal(view.outcomeLabel("timeout"), "Time limit reached");
     assert.equal(view.outcomeLabel("unexpected: reason=unknown"), "Result unavailable");
     const now = Date.parse("2026-01-05T08:15:00Z");
+    const historyStartedAt = new Date(2026, 0, 5, 8, 15).getTime();
     for (const [durationMs, text] of [[null, "Running"], [undefined, "Running"], [0, "0s"], [1500, "2s"], [61000, "1m 1s"], [3661000, "1h 1m"], [345600000, "4d 0h"]])
-        assert.equal(view.historySecondary({ startedAt: now, durationMs }), "Mon 5 Jan 08:15 · " + text);
+        assert.equal(view.historySecondary({ startedAt: historyStartedAt, durationMs }), "Mon 5 Jan 08:15 · " + text);
     const draft = view.blankDraft(now, logic);
     assert.equal(draft.start, "2026-01-05");
     assert.equal(draft.times.length, 1);

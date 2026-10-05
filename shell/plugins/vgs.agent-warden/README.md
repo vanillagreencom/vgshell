@@ -24,10 +24,10 @@ The bar widget draws one shield in the tone of the service's state, with the Luc
 | State | Icon | Tone | Count | Tooltip, for example |
 |---|---|---|---|---|
 | `calm` | `shield-check` | neutral | agents running | 3 agents running within their limits |
-| `working` | `shield-check` | accent, one pulse on entering | agents running | Moved 1 agent back into limits 2 min ago |
+| `working` | `shield-check` | accent, one pulse on entering | agents running | Moved 1 agent back into limits 2m ago |
 | `look` | `shield-alert` | warning | things that need a look | claude in vgs is using a lot of memory |
 | `problem` | `shield-x` | danger | things that need attention | Agents are close to their memory limit |
-| `not-checking` | `shield-off` | neutral | none | Agent Warden hasn't checked in 3 min |
+| `not-checking` | `shield-off` | neutral | none | Agent Warden hasn't checked in 3m |
 | `not-set-up` | `shield-question-mark` | neutral | none | Agent Warden isn't set up |
 | `update-warden` | `shield-alert` | warning | none | Agent Warden needs an update |
 
