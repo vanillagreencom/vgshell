@@ -11,7 +11,7 @@
 # Tab scroll it, and a two-finger swipe moves it as far as GTK moves a list. Dispatches asked for back to back run in order behind one
 # process, the queue has a bound, and a process that cannot start does not
 # stop the queue.
-# inputs: shell/Core/PluginLogic.js shell/plugins/vgs.settings/* shell/Ui/layout/ScrollArea.qml shell/Ui/layout/TouchpadScroll.qml shell/Ui/layout/TouchpadScrollLogic.js shell/Commons/Reply.js shell/plugins/vgs.notifications/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/PluginStatus.qml bin/vgshell-scan shell/Core/TuiRunner.qml shell/Commons/SettingValues.js shell/Core/Capabilities.qml shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.jarvis/manifest.json shell/Core/Notices.qml bin/lib/qml-library.js scripts/smoke/rows/manager.sh scripts/smoke/rows/status.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh bin/vgshell-tui shell/Ui/layout/TabPages.qml shell/Ui/layout/Tabs.qml
+# inputs: shell/Core/PluginLogic.js shell/plugins/vgs.settings/* shell/Ui/layout/ScrollArea.qml shell/Ui/layout/TouchpadScroll.qml shell/Ui/layout/TouchpadScrollLogic.js shell/Commons/Reply.js shell/plugins/vgs.notifications/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/PluginStatus.qml bin/vgshell-scan shell/Core/TuiRunner.qml shell/Commons/SettingValues.js shell/Core/Capabilities.qml shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.jarvis/manifest.json shell/Core/Notices.qml bin/lib/qml-library.js scripts/smoke/rows/manager.sh scripts/smoke/rows/status.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh bin/vgshell-tui shell/Ui/layout/TabPages.qml shell/Ui/layout/Tabs.qml shell/Ui/foundation/KeyNav.qml
 set -euo pipefail
 click_centre "$(bar_key)" vgs.settings || fail "the click on the gear failed"
 expect_poll "the gear's click opens the Settings window" open settings_open
@@ -20,16 +20,20 @@ expect_poll "the page draws the fixture's fields again" '[9, 0]' page_fields
 
 # The plugin page's two pages (TabPages): an opened page shows Settings and
 # draws nothing of Details. A click on the Details tab shows Details alone
-# and a click on the Settings tab returns. On the keyboard the strip is the
-# Tab stop after the title: Right and Left on it change the page, Tab from
-# it enters the shown page, and Ctrl+Tab from a control there steps the
+# and a click on the Settings tab returns. On the keyboard Ctrl+Tab steps
+# the page from the back button, which keeps the keyboard, and the strip is
+# the Tab stop after the title: Right and Left on it change the page, Tab
+# from it enters the shown page, and Ctrl+Tab from a control there steps the
 # page and hands the strip the keyboard with its ring, so no hidden control
 # keeps the keys. A change of the manager's rows keeps the page, another
 # plugin's page opens on Settings, where a plugin with nothing below its
-# switches says so in one line, and a page change returns the body to
-# its top, read on the disabled Jarvis page, whose two pages both overflow.
+# switches says so in one line and, disabled, draws no hint to turn it on,
+# and a page change returns the body to
+# its top, read on the disabled Jarvis page, whose two pages both overflow
+# and whose Enabled switch draws that hint, the hint reader's control.
 # The control, at the row's end, is a copy of the page that opens on
-# Details and keeps its place, read by the same readers.
+# Details, keeps its place and forwards no key to its pages, read by the
+# same readers.
 # page_shown: the page's index, then whether it draws the Enabled switch of
 # Settings and the Source line of Details, the installed fixture's.
 page_shown() {
@@ -44,6 +48,9 @@ page_focus() { ipc smoke focused window vgs.settings; }
 focus_type() { page_focus | py_reply 'import json,sys; print(json.load(sys.stdin)[0])'; }
 strip_focused='["Tabs","",true,true,true]'
 page_top() { scroll_value contentY; }
+# enabled_hint NAME: whether the page draws the Enabled switch's hint to
+# turn plugin NAME on.
+enabled_hint() { settings_label "Turn on $1 to change its settings and shortcuts."; }
 # page_scrolled Y: the body moved to contentY Y, which only a page that
 # overflows by as much holds.
 page_scrolled() { ipc smoke scrollTo window vgs.settings "$1" | py_reply 'import json,sys; print(json.load(sys.stdin)[0])'; }
@@ -54,6 +61,12 @@ expect_poll "a click on the Details tab shows Details and nothing of Settings" "
 settings_tab_click Settings || fail "the click on the Settings tab failed"
 expect_poll "a click on the Settings tab returns to Settings" "0 drawn absent" page_shown
 expect "the window opens the fixture's page as a key opens it" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.probe
+expect_poll "a page a key opens holds the keyboard on its back button" IconButton focus_type
+type_keys -M ctrl -k Tab -m ctrl || fail "sending Ctrl+Tab to the back button failed"
+expect_poll "Ctrl+Tab from the back button shows Details" "1 absent drawn" page_shown
+expect "the back button keeps the keyboard across the page change" IconButton focus_type
+type_keys -M ctrl -k Tab -m ctrl || fail "sending a second Ctrl+Tab to the back button failed"
+expect_poll "Ctrl+Tab from the back button steps round to Settings" "0 drawn absent" page_shown
 type_keys -k Tab -k Tab || fail "tabbing from the back button to the strip failed"
 expect_poll "the strip is the Tab stop after the title, with its ring" "$strip_focused" page_focus
 type_keys -k Right || fail "sending Right to the strip failed"
@@ -73,8 +86,15 @@ expect_poll "the window's rows show the bare fixture enabled again" '{"acme.bare
 expect "the window opens the bare fixture's page from Details" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.bare
 expect_poll "another plugin's page opens on Settings" 0 settings_tab
 expect_poll "a plugin with nothing below its switches says so on Settings" drawn settings_label "This plugin has no other settings."
+expect "the window toggles the bare fixture off on its own page" ok ipc smoke invokeInstance window vgs.settings toggle acme.bare
+expect_poll "the window's rows show the bare fixture disabled on its page" '{"acme.bare": false, "acme.probe": true, "vgs.bar": true}' manager_rows
+expect "the disabled bare fixture's page still says it has no other settings" drawn settings_label "This plugin has no other settings."
+expect "a disabled plugin with nothing to change draws no hint to turn it on" absent enabled_hint Bare
+expect "the window toggles the bare fixture back on from its page" ok ipc smoke invokeInstance window vgs.settings toggle acme.bare
+expect_poll "the window's rows show the bare fixture enabled after its page's readings" '{"acme.bare": true, "acme.probe": true, "vgs.bar": true}' manager_rows
 expect "the window opens the Jarvis page" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.jarvis
 expect_poll "the Jarvis page opens on Settings" 0 settings_tab
+expect_poll "control: the disabled Jarvis page, with settings to change, draws the hint to turn it on" drawn enabled_hint Jarvis
 type_keys -k Tab -k Tab || fail "tabbing to the Jarvis page's strip failed"
 expect_poll "the Jarvis page's strip holds the keyboard" "$strip_focused" page_focus
 expect "the Jarvis page's Settings overflow by the scroll the row gives them" 300 page_scrolled 300
@@ -586,9 +606,10 @@ expect "disabling the Settings plugin after its rows is allowed" ok ipc shell se
 expect_poll "the Settings service released its shortcut and IPC target" False settings_lent
 
 # Control of the page rows: a copy of the Settings plugin whose page opens
-# on Details and drops the return to the top. The same readers read the
-# fixture's page open on Details, and the Jarvis page keep the scroll the
-# row gave it across a page change.
+# on Details, drops the return to the top and forwards no key to its
+# pages. The same readers read the fixture's page open on Details, Ctrl+Tab
+# from the back button leave the Jarvis page where it was, and that page
+# keep the scroll the row gave it across a page change.
 expected_errors+=('plugins: hidden by a higher-precedence plugin with the same id: vgs\.settings')
 page_copy="$home/.config/vgshell/plugins/vgs.settings"
 rm -rf -- "${page_copy:?}"
@@ -599,20 +620,23 @@ import sys
 path = sys.argv[1]
 text = open(path).read()
 for old, new in (("        tabs.currentIndex = 0;\n", "        tabs.currentIndex = 1;\n"),
-                 ("onCurrentIndexChanged: layout.scrollArea.contentY = 0\n", "onCurrentIndexChanged: {}\n")):
+                 ("onCurrentIndexChanged: layout.scrollArea.contentY = 0\n", "onCurrentIndexChanged: {}\n"),
+                 ("    Keys.forwardTo: [tabs]\n", "")):
     if text.count(old) != 1:
         sys.exit("%r occurs %d times" % (old, text.count(old)))
     text = text.replace(old, new)
 open(path, "w").write(text)
 PYCOPY
-then ok "the page control opens on Details and drops the return to the top"; else fail "the page control could not be written"; fi
+then ok "the page control opens on Details, drops the return to the top and forwards no key"; else fail "the page control could not be written"; fi
 rescan "a rescan picks the page control"
 settings_page_open acme.probe
 expect_poll "control: a page copy that opens on Details reads Details" "1 absent drawn" page_shown
 expect "control: the copy opens the Jarvis page" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.jarvis
 expect_poll "control: the copy's Jarvis page opens on Details too" 1 settings_tab
+type_keys -M ctrl -k Tab -m ctrl || fail "control: sending Ctrl+Tab to the copy's back button failed"
 type_keys -k Tab -k Tab || fail "control: tabbing to the copy's strip failed"
 expect_poll "control: the copy's strip holds the keyboard" "$strip_focused" page_focus
+expect "control: a page that forwards no key leaves Ctrl+Tab from the back button unanswered" 1 settings_tab
 expect "control: the copy's Details take the row's scroll" 300 page_scrolled 300
 type_keys -k Left || fail "control: sending Left to the copy's strip failed"
 expect_poll "control: Left shows the copy's Settings" 0 settings_tab
