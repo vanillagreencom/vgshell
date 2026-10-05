@@ -13,10 +13,6 @@ const Rule = require("./qml-library.js").load(path.join(__dirname, "../../shell/
 // budget: a parent past it is reported partial with the folders read.
 const MAX_PARENT_ENTRIES = 10000;
 
-function absoluteNormal(value) {
-    return typeof value === "string" && path.isAbsolute(value) && path.normalize(value) === value;
-}
-
 /**
  * Every account folder, in this order: each harness's explicit root from
  * its variable in env, then its default folder in home, then the account
@@ -35,8 +31,13 @@ function absoluteNormal(value) {
  * account-folders: directory=absolute-normal-path-required.
  */
 function accountFolders({ home, config, data, env }) {
-    for (const parent of [home, config, data])
-        if (!absoluteNormal(parent)) throw new Error("account-folders: directory=absolute-normal-path-required");
+    // The walk judges each parent; a default folder joined below one would
+    // read as normal whatever the parent held.
+    for (const parent of [home, config, data]) {
+        const opened = Anchored.directory(parent);
+        if (opened.kind === "directory") fs.closeSync(opened.fd);
+        if (opened.kind === "not-absolute") throw new Error("account-folders: directory=absolute-normal-path-required");
+    }
     const folders = [];
     const seen = new Set();
     let partial = "";

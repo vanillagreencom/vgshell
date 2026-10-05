@@ -207,6 +207,7 @@ function create({ denied, bounds = BOUNDS, clock }) {
         if (opened.kind === "absent" || opened.kind === "link" || opened.kind === "unreadable-or-changed") throw changed(target.path);
         if (opened.kind === "not-directory") throw failed(target.path + " is not a folder.");
         if (opened.kind === "unreadable") throw failed(target.path + " could not be read: " + opened.code + ".");
+        if (opened.kind !== "directory") throw new Error("jarvis: files=walk-kind");
         const started = clock.now();
         const needle = query.toLowerCase();
         const skipped = { links: 0, protected: 0, binary: 0, large: 0, deep: 0, unreadable: 0 };

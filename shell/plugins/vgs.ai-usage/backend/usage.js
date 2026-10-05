@@ -4,9 +4,9 @@
 // account discovery finds, through each tool's own sign-in, and prints one
 // JSON line on stdout: { accounts: [{ id, provider, label, email, plan,
 // state, windows: [{ name, usedPercent, resetsAt }] }], partial }. state is
-// ok, expired, signed-out or failed; a window the tool does not report is
-// left out, never read as 0. Diagnostics are `ai-usage: <key>=<value>`
-// lines on stderr. No token or reply body reaches either stream; of what
+// ok, expired, signed-out, no-plan for a sign-in that has no plan limits,
+// or failed; a window the tool does not report is left out, never read as
+// 0. Diagnostics are lines of `ai-usage: <key>=<value>` pairs on stderr. No token or reply body reaches either stream; of what
 // the tools report, only an account's email, plan and windows do. Nothing
 // here writes or refreshes a credential file.
 "use strict";
@@ -93,14 +93,6 @@ function codexWindows(result) {
     return { windows, plan: printable(snapshot.planType, 40) ? snapshot.planType : "" };
 }
 
-// The account's directory held open without following a link anywhere on
-// its path, as { kind: "directory", fd } or the walk's other kinds.
-function held(Anchored, directory) {
-    if (!printable(directory, 4096) || !path.isAbsolute(directory) || path.normalize(directory) !== directory)
-        return { kind: "not-absolute" };
-    return Anchored.directory(directory);
-}
-
 /**
  * The credential file FILE inside the held directory FD, read once without
  * following a link: { kind: "absent" }, { kind: "file", text } or
@@ -151,7 +143,7 @@ function get(url, headers, deadlineMs) {
  * and reads expired, as does a token the endpoint refuses.
  */
 async function readClaude(Anchored, directory, { origin = ORIGIN, now = Date.now(), deadlineMs = REQUEST_MS } = {}) {
-    const opened = held(Anchored, directory);
+    const opened = Anchored.directory(directory);
     if (opened.kind === "absent") return { state: "signed-out" };
     if (opened.kind !== "directory") return failed("directory-" + opened.kind);
     let file;
@@ -189,7 +181,7 @@ async function readClaude(Anchored, directory, { origin = ORIGIN, now = Date.now
  * when this process dies first.
  */
 async function readCodex(Anchored, directory, { command = "codex", deadlineMs = CODEX_MS, env = process.env } = {}) {
-    const opened = held(Anchored, directory);
+    const opened = Anchored.directory(directory);
     if (opened.kind === "absent") return { state: "signed-out" };
     if (opened.kind !== "directory") return failed("directory-" + opened.kind);
     let marker;
@@ -234,8 +226,12 @@ async function readCodex(Anchored, directory, { command = "codex", deadlineMs = 
                 const value = message.result.account;
                 if (value === null || value === undefined) return finish({ state: "signed-out" });
                 if (!plain(value)) return finish(failed("codex-account"));
-                account = { email: value.type === "chatgpt" && printable(value.email, 120) ? value.email : "",
-                    plan: value.type === "chatgpt" && printable(value.planType, 40) ? value.planType : "" };
+                // account is { type: "chatgpt", email, planType } or
+                // { type: "apiKey" }. Only a ChatGPT sign-in has plan limits;
+                // Codex refuses the rate-limit read for any other
+                // (codex-rs/app-server/src/request_processors/account_processor.rs).
+                if (value.type !== "chatgpt") return finish({ state: "no-plan" });
+                account = { email: printable(value.email, 120) ? value.email : "", plan: printable(value.planType, 40) ? value.planType : "" };
                 send({ id: 3, method: "account/rateLimits/read" });
             } else {
                 const read = codexWindows(message.result);
@@ -274,7 +270,7 @@ async function read(tree, env, { origin = ORIGIN } = {}) {
     const found = accountFolders({ home, config: env.XDG_CONFIG_HOME || path.join(home, ".config"),
         data: env.XDG_DATA_HOME || path.join(home, ".local/share"), env });
     const folders = found.folders.filter(folder => {
-        const opened = held(Anchored, folder.directory);
+        const opened = Anchored.directory(folder.directory);
         if (opened.kind === "directory") fs.closeSync(opened.fd);
         return opened.kind !== "absent";
     });
@@ -301,7 +297,8 @@ if (require.main === module) {
     read(path.resolve(process.argv[3]), process.env).then(result => {
         process.stdout.write(JSON.stringify(result) + "\n");
     }, error => {
-        process.stderr.write("ai-usage: read=" + (/^account-folders: ([a-z]+=[a-z-]+)$/.exec(error.message)?.[1] ?? "failed") + "\n");
+        const key = /^account-folders: ([a-z]+=[a-z-]+)$/.exec(error.message);
+        process.stderr.write("ai-usage: read=failed" + (key === null ? "" : " " + key[1]) + "\n");
         process.exitCode = 1;
     });
 }

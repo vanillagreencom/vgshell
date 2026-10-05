@@ -9,6 +9,7 @@ var WARNING_PERCENT = 80;
 var NAMES = { claude: "Claude Code", codex: "Codex" };
 // Only a Claude Code sign-in reads expired: its token is read, never refreshed.
 var EXPIRED = "Open Claude Code to refresh the sign-in";
+var NO_PLAN = "Signed in with an API key, which has no plan limits";
 
 function copyWindows(windows) {
     return windows.map(function (row) { return { name: row.name, usedPercent: row.usedPercent, resetsAt: row.resetsAt }; });
@@ -47,10 +48,11 @@ function merge(previous, reading, now) {
     }), readAt: now };
 }
 
-// The accounts with a sign-in: every one but a folder no tool signed in to.
+// The accounts with a plan sign-in: every one but a folder no tool signed
+// in to and a sign-in, such as a Codex API key, that has no plan limits.
 function signedIn(usage) {
     if (usage === null || usage === undefined) return [];
-    return usage.accounts.filter(function (row) { return row.state !== "signed-out"; });
+    return usage.accounts.filter(function (row) { return row.state !== "signed-out" && row.state !== "no-plan"; });
 }
 
 /**
@@ -80,55 +82,81 @@ function widget(usage) {
 // The Settings row of PROVIDER's sign-in: a state value, whose action, Sign
 // in, applies while none of its accounts is signed in.
 function signIn(usage, provider) {
-    var rows = signedIn(usage).filter(function (row) { return row.provider === provider; });
-    if (rows.some(function (row) { return row.state === "ok" || row.state === "stale"; }))
-        return { tone: "ok", text: rows.length === 1 ? "Signed in" : "Signed in to " + rows.length + " accounts" };
-    if (rows.some(function (row) { return row.state === "expired"; }))
+    var rows = (usage === null || usage === undefined ? [] : usage.accounts)
+        .filter(function (row) { return row.provider === provider && row.state !== "signed-out"; });
+    var plans = rows.filter(function (row) { return row.state !== "no-plan"; });
+    if (plans.some(function (row) { return row.state === "ok" || row.state === "stale"; }))
+        return { tone: "ok", text: plans.length === 1 ? "Signed in" : "Signed in to " + plans.length + " accounts" };
+    if (plans.some(function (row) { return row.state === "expired"; }))
         return { tone: "warning", text: EXPIRED };
-    if (rows.length > 0) return { tone: "danger", text: "Usage could not be read" };
+    if (plans.length > 0) return { tone: "danger", text: "Usage could not be read" };
+    if (rows.length > 0) return { tone: "info", text: NO_PLAN };
     return { tone: "info", text: "Not signed in", action: true };
 }
 
-function windowLabel(name) {
-    if (name === "five_hour") return "5-hour limit";
-    if (name === "seven_day") return "Weekly limit";
+// What a window measures: its length in minutes, null when the tool names
+// none, and the model it counts alone, "" for every model.
+function limitOf(name) {
+    if (name === "five_hour") return { minutes: 300, model: "" };
+    if (name === "seven_day") return { minutes: 10080, model: "" };
     var model = /^seven_day_([a-z0-9_]+)$/.exec(name);
-    if (model !== null) {
-        var words = model[1].split("_").filter(Boolean).join(" ");
-        return "Weekly " + words.charAt(0).toUpperCase() + words.slice(1) + " limit";
-    }
+    if (model !== null) return { minutes: 10080, model: model[1].split("_").filter(Boolean).join(" ") };
     var minutes = /^minutes_([0-9]+)$/.exec(name);
-    if (minutes !== null) {
-        var count = Number(minutes[1]);
-        return count % 1440 === 0 ? count / 1440 + "-day limit" : count % 60 === 0 ? count / 60 + "-hour limit" : count + "-minute limit";
-    }
-    return name === "primary" ? "Short limit" : "Long limit";
+    if (minutes !== null) return { minutes: Number(minutes[1]), model: "" };
+    return { minutes: null, model: "" };
 }
 
-// When a window resets, from now in milliseconds since the epoch.
-function resetText(resetsAt, now) {
-    if (resetsAt === null || resetsAt === undefined) return "No reset time";
+function windowLabel(name) {
+    var limit = limitOf(name);
+    var length = limit.minutes === null ? (name === "primary" ? "Short" : "Long")
+        : limit.minutes === 10080 ? "Weekly"
+        : limit.minutes % 1440 === 0 ? limit.minutes / 1440 + "-day"
+        : limit.minutes % 60 === 0 ? limit.minutes / 60 + "-hour" : limit.minutes + "-minute";
+    return length + (limit.model === "" ? "" : " " + limit.model.charAt(0).toUpperCase() + limit.model.slice(1)) + " limit";
+}
+
+// How long until a window resets, from now, both in milliseconds since the
+// epoch: { kind: "none" } with no reset time, { kind: "now" } once it has
+// passed, else { kind: "in", days, hours, minutes }, the whole minutes left
+// rounded up and split.
+function resetIn(resetsAt, now) {
+    if (resetsAt === null || resetsAt === undefined) return { kind: "none" };
     var minutes = Math.ceil((resetsAt - now) / 60000);
-    if (minutes <= 0) return "Resets now";
-    if (minutes < 60) return "Resets in " + minutes + " min";
-    var hours = Math.floor(minutes / 60);
-    if (hours < 24) return "Resets in " + hours + " h " + (minutes % 60) + " min";
-    return "Resets in " + Math.floor(hours / 24) + " d " + (hours % 24) + " h";
+    if (minutes <= 0) return { kind: "now" };
+    return { kind: "in", days: Math.floor(minutes / 1440), hours: Math.floor(minutes / 60) % 24, minutes: minutes % 60 };
 }
 
-// The panel's rows: one per signed-in account, its title, its detail line
-// and each window's label, share, tone and reset line.
+function resetText(resetsAt, now) {
+    var left = resetIn(resetsAt, now);
+    if (left.kind === "none") return "No reset time";
+    if (left.kind === "now") return "Resets now";
+    if (left.days > 0) return "Resets in " + left.days + " d " + left.hours + " h";
+    if (left.hours > 0) return "Resets in " + left.hours + " h " + left.minutes + " min";
+    return "Resets in " + left.minutes + " min";
+}
+
+// The only lines of the helper's stderr the service logs: its own keyed
+// `ai-usage: <key>=<value>` pairs, never a line a tool or node printed.
+function keyed(line) {
+    return /^ai-usage: [a-z]+=[a-z0-9-]+( [a-z]+=[a-z0-9-]+)*$/.test(line);
+}
+
+// The panel's rows: one per signed-in account, with its fields, its title,
+// its detail line and note, and each window's share, tone, reset time and
+// the words for them.
 function panel(usage, now) {
     return signedIn(usage).map(function (row) {
-        var title = NAMES[row.provider] + (row.label === "default" ? "" : " · " + row.label);
+        var title = NAMES[row.provider] + (row.label === "default" ? "" : " \u00b7 " + row.label);
         var detail = [row.email, row.plan === "" ? "" : row.plan.charAt(0).toUpperCase() + row.plan.slice(1) + " plan"]
-            .filter(Boolean).join(" · ");
+            .filter(Boolean).join(" \u00b7 ");
         var note = row.state === "expired" ? EXPIRED
             : row.state === "stale" ? "The last check failed. These figures may be old."
             : row.state === "failed" ? "Usage could not be read." : "";
-        return { id: row.id, title: title, detail: detail, note: note, windows: row.windows.map(function (item) {
-            return { label: windowLabel(item.name), percent: item.usedPercent, text: Math.round(item.usedPercent) + "%",
-                tone: item.usedPercent >= WARNING_PERCENT ? "warning" : "normal", reset: resetText(item.resetsAt, now) };
-        }) };
+        return { id: row.id, provider: row.provider, label: row.label, email: row.email, plan: row.plan, state: row.state,
+            title: title, detail: detail, note: note, windows: row.windows.map(function (item) {
+                return { name: item.name, percent: item.usedPercent, tone: item.usedPercent >= WARNING_PERCENT ? "warning" : "normal",
+                    resetIn: resetIn(item.resetsAt, now), label: windowLabel(item.name), text: Math.round(item.usedPercent) + "%",
+                    reset: resetText(item.resetsAt, now) };
+            }) };
     });
 }

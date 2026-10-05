@@ -17,7 +17,7 @@ Images come from `scripts/readme-shots.sh` in the nested sandbox.
 
 AI Usage finds the account folders the tools keep in your home folder and checks each one. For Claude Code, it sends the sign-in that Claude Code saved to the usage page that Claude Code reads. For Codex, it asks the Codex program for its limits. AI Usage never changes a tool's sign-in.
 
-The bar item is hidden until you sign in to one of the tools. Click it to open the panel. A limit the tool does not report is not shown. When a check fails, the panel keeps the last figures and says that they may be old. When a Claude Code sign-in has expired, open Claude Code once to refresh it.
+The bar item is hidden until you sign in to one of the tools. Click it to open the panel. A limit the tool does not report is not shown. A Codex sign-in with an API key has no plan limits, so the bar and the panel leave it out. When a check fails, the panel keeps the last figures and says that they may be old. When a Claude Code sign-in has expired, open Claude Code once to refresh it.
 
 ## Settings
 

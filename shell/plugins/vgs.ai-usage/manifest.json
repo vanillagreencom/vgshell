@@ -23,8 +23,8 @@
     "refreshMinutes": { "type": "number", "label": "Check interval", "description": "Time between usage checks. Opening the panel also checks.", "min": 5, "max": 120, "step": 5, "unit": "minutes" }
   },
   "tui": {
-    "sign-in-claude": { "script": "tui/sign-in-claude.sh", "title": "Sign in to Claude Code" },
-    "sign-in-codex": { "script": "tui/sign-in-codex.sh", "title": "Sign in to Codex" }
+    "sign-in-claude": { "script": "tui/sign-in-claude.sh", "title": "Sign in to Claude Code", "requires": ["claude", "gum"] },
+    "sign-in-codex": { "script": "tui/sign-in-codex.sh", "title": "Sign in to Codex", "requires": ["codex", "gum"] }
   },
   "status": {
     "usage": { "type": "data", "label": "Usage" },

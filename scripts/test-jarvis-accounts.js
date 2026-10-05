@@ -349,6 +349,10 @@ world(async () => {
     }
     assert.throws(() => store.add({ provider: "claude", directory: path.join(env.HOME, ".claude-link"), label: "link" }), /directory=link/);
     assert.throws(() => new Accounts(directory, { ...env, CLAUDE_CONFIG_DIR: path.join(env.HOME, ".claude-link") }).discover(), /directory=link/);
+    // The core walk refuses a root that is no absolute normal path; the
+    // judge names it by its own key.
+    for (const root of ["relative/claude", path.join(env.HOME, "x") + "/../.claude"])
+        assert.throws(() => new Accounts(directory, { ...env, CLAUDE_CONFIG_DIR: root }).discover(), /directory=absolute-normal-path-required/);
     fs.renameSync(store.file, store.file + ".saved");
     fs.symlinkSync(store.file + ".saved", store.file);
     assert.throws(() => store.discover(), /added=read-failed/);

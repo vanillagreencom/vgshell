@@ -48,13 +48,14 @@ function identity(kind, values) {
 }
 
 // The anchored walk checks each component, including explicit and hand-added
-// paths. An absent default is normal; a linked or unreadable input is not a
-// different account.
+// paths, and refuses one that is no absolute normal path. An absent default
+// is normal; a linked or unreadable input is not a different account. A
+// control character, which a name in status cannot carry, is refused first.
 function anchored(value) {
-    if (!printable(value, 4096) || Buffer.byteLength(value) > 4096
-        || !path.isAbsolute(value) || path.normalize(value) !== value)
-        fail("directory=absolute-normal-path-required");
-    return Anchored.directory(value);
+    if (!printable(value, 4096)) fail("directory=absolute-normal-path-required");
+    const opened = Anchored.directory(value);
+    if (opened.kind === "not-absolute") fail("directory=absolute-normal-path-required");
+    return opened;
 }
 function directory(value, hold = false) {
     const opened = anchored(value);

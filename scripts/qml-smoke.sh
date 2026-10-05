@@ -231,13 +231,14 @@ fi
 
 
 # Every sandbox shell finds vsys, the browser-policy writer, tesseract,
-# voxtype and voxtype-audio-bridge absent, whatever the host holds, so the
-# rows press Install all missing for vsys and Install browser theming on any
-# host, and read OCR and Voice missing without restarting the shell
-# (harness.sh's shell_hidden_commands); a row that needs one present stands
-# its own stand-in for it.
+# voxtype, voxtype-audio-bridge, claude and codex absent, whatever the
+# host holds, so the rows press Install all missing for vsys and Install
+# browser theming on any host, read OCR and Voice missing without
+# restarting the shell, and reach no host Claude Code or Codex, whose
+# sign-ins AI Usage reads (harness.sh's shell_hidden_commands); a row that
+# needs one present stands its own stand-in for it.
 # shellcheck disable=SC2034 # the harness sourced below reads it
-shell_hidden_commands=(vsys vgshell-browser-policy tesseract voxtype voxtype-audio-bridge)
+shell_hidden_commands=(vsys vgshell-browser-policy tesseract voxtype voxtype-audio-bridge claude codex)
 source "$repo/scripts/smoke/harness.sh"
 
 # smoke_row (harness.sh) sources each row and fails one whose output holds

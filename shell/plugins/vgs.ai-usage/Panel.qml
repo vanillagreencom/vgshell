@@ -11,9 +11,7 @@ Item {
     property var shell: null
     property Item initialFocus: refreshButton
     readonly property var usage: shell === null || shell.status.values.usage === undefined ? null : shell.status.values.usage
-    // The clock the reset lines are worded at.
-    readonly property real now: Time.now.getTime()
-    readonly property var rows: View.panel(usage, now)
+    readonly property var rows: View.panel(usage, Time.now.getTime())
 
     function refresh() {
         const reply = shell.ipc.call("refresh", "");

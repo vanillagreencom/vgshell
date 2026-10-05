@@ -5,10 +5,14 @@
 // codex-rs/app-server-protocol/src/protocol/v2/account.rs describe, and
 // answers `initialize`, `account/read` and `account/rateLimits/read` with
 // the hand-written replies beside it. The word in $CODEX_HOME/stand-in-mode
-// picks its answers: ok, the default; signed-out, no account; error, an
-// error for the rate limits; hang, no answer to them, staying alive until
-// it is killed. Each start appends { args, codexHome, pid } to
-// $CODEX_HOME/stand-in-calls. It never reads auth.json.
+// picks its answers: ok, the default; relative, the rate limits with each
+// reset time moved to the request's moment plus 5 h 30 min and 3 d 6 h;
+// signed-out, no account; api-key, an account signed in with an API key,
+// whose rate-limit read Codex refuses; error, an error for the rate limits;
+// hang, no answer to them, staying alive until it is killed. Each start
+// appends { args, codexHome, pid } to $CODEX_HOME/stand-in-calls, and each
+// message's method one line to $CODEX_HOME/stand-in-methods. It never
+// reads auth.json.
 "use strict";
 const fs = require("node:fs");
 const path = require("node:path");
@@ -27,12 +31,20 @@ process.stdin.on("data", chunk => {
     while ((at = tail.indexOf("\n")) >= 0) {
         const message = JSON.parse(tail.slice(0, at));
         tail = tail.slice(at + 1);
+        fs.appendFileSync(path.join(home, "stand-in-methods"), message.method + "\n");
         if (message.method === "initialize") send({ id: message.id, result: { userAgent: "stand-in" } });
         else if (message.method === "account/read")
-            send({ id: message.id, result: mode === "signed-out" ? { account: null, requiresOpenaiAuth: true } : reply("codex-account.json") });
+            send({ id: message.id, result: mode === "signed-out" ? { account: null, requiresOpenaiAuth: true }
+                : mode === "api-key" ? { account: { type: "apiKey" }, requiresOpenaiAuth: true } : reply("codex-account.json") });
         else if (message.method === "account/rateLimits/read") {
-            if (mode === "error") send({ id: message.id, error: { code: -32600, message: "stand-in refusal" } });
-            else if (mode !== "hang") send({ id: message.id, result: reply("codex-rate-limits.json") });
+            if (mode === "error" || mode === "api-key") send({ id: message.id, error: { code: -32600, message: "stand-in refusal" } });
+            else if (mode === "relative") {
+                const limits = reply("codex-rate-limits.json");
+                const now = Math.floor(Date.now() / 1000);
+                limits.rateLimits.primary.resetsAt = now + 19800;
+                limits.rateLimits.secondary.resetsAt = now + 280800;
+                send({ id: message.id, result: limits });
+            } else if (mode !== "hang") send({ id: message.id, result: reply("codex-rate-limits.json") });
         }
     }
 });

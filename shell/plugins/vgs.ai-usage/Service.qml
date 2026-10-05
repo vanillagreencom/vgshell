@@ -88,7 +88,7 @@ Item {
         }, AccountDirectories.accountVariables(name => Quickshell.env(name)))
         stdout: StdioCollector { onStreamFinished: root.output = text }
         // Only the helper's own keyed lines reach the log.
-        stderr: SplitParser { onRead: line => { if (/^ai-usage: [a-z]+=[a-z0-9-]+( [a-z]+=[a-z0-9-]+)*$/.test(line)) console.warn(line); } }
+        stderr: SplitParser { onRead: line => { if (View.keyed(line)) console.warn(line); } }
         onExited: (exitCode, exitStatus) => root.code = exitStatus === 0 ? exitCode : -1
         onRunningChanged: {
             if (running) return;
