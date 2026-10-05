@@ -6,9 +6,10 @@ The fixture config names allowed display/runtime, geometry, text and failures.
 Each tool writes `<tool>-pid-<pid>` before it runs, so a check can read
 whether that process is still alive.
 slurp reads stdin to EOF when it is not a terminal, as the real slurp does.
-The recorder logs its start, then writes `finalized`, or copies the fixture's
-`video`, only after SIGINT, never on a hard stop. ffmpeg copies its input, or
-writes a JPEG marker for a one-frame thumbnail. pw-dump prints the fixture's
+The recorder logs its start and output name, then writes `finalized`, or
+copies the fixture's `video`, only after SIGINT, never on a hard stop.
+ffmpeg copies its input, or writes a JPEG marker for a one-frame thumbnail;
+ffmpegHold holds it half way until `ffmpeg-release` exists. pw-dump prints the fixture's
 nodes. tesseract lists the fixture's languages and fails as Tesseract does
 for a requested one it does not hold.
 """
@@ -91,14 +92,16 @@ match tool:
         if "-frames:v" in sys.argv:
             target.write_bytes(b"\xff\xd8\xff fixture thumbnail")
             sys.exit(0)
-        if config.get("ffmpegFail"):
-            print("fixture ffmpeg failure", file=sys.stderr)
-            sys.exit(1)
         if config.get("ffmpegHold"):
+            # Held half way until the check writes ffmpeg-release.
             target.write_bytes(b"partial")
             (root / "ffmpeg-ready").write_text(str(os.getpid()))
-            while True:
-                signal.pause()
+            while not (root / "ffmpeg-release").exists():
+                time.sleep(0.01)
+        if config.get("ffmpegFail"):
+            target.write_bytes(b"partial")
+            print("fixture ffmpeg failure", file=sys.stderr)
+            sys.exit(1)
         shutil.copyfile(source, target)
     case "wl-copy":
         (root / "clipboard").write_bytes(sys.stdin.buffer.read())
@@ -113,7 +116,10 @@ match tool:
                 signal.pause()
     case "gpu-screen-recorder":
         target = Path(sys.argv[sys.argv.index("-o") + 1])
-        print("fixture recorder started", file=sys.stderr, flush=True)
+        print(f"fixture recorder started {target.name}", file=sys.stderr, flush=True)
+        if config.get("portalCancel"):
+            # The recorder's exit when the user cancels the portal picker.
+            sys.exit(60)
         if config.get("crash"):
             print("fixture recorder crash: no encoder", file=sys.stderr)
             sys.exit(1)

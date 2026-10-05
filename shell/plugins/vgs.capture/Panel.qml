@@ -21,7 +21,10 @@ Item {
         { name: "record-output", text: "Record focused display", icon: "monitor-play" },
         { name: "record-portal", text: "Record with the screen picker", icon: "screen-share" }
     ]
-    function open(payloadJson) { problem = ""; }
+    function open(payloadJson) {
+        problem = "";
+        if (shell !== null) shell.ipc.call("probe", "");
+    }
     function close() {}
     function invoke(name) {
         const reply = shell.ipc.call(name, "");
@@ -172,7 +175,7 @@ Item {
                 label: "Video codec"
                 Select {
                     width: parent.width
-                    model: ["Automatic", "H.264", "HEVC", "AV1", "VP8", "VP9"]
+                    model: ["Automatic", "H.264", "HEVC", "AV1", "VP9"]
                     currentIndex: root.optionIndex("codec")
                     onActivated: index => { root.save("codec", root.schemaOption("codec", index)); currentIndex = Qt.binding(() => root.optionIndex("codec")); }
                 }

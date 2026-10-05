@@ -34,7 +34,7 @@
     "audio": { "type": "enum", "label": "Recording audio", "options": ["none", "desktop", "microphone", "both"], "group": "Recording" },
     "quality": { "type": "enum", "label": "Recording quality", "options": ["medium", "high", "very_high", "ultra"], "group": "Recording" },
     "frameRate": { "type": "number", "label": "Frames per second", "min": 1, "max": 240, "step": 1, "group": "Recording" },
-    "codec": { "type": "enum", "label": "Video codec", "options": ["auto", "h264", "hevc", "av1", "vp8", "vp9"], "group": "Recording" },
+    "codec": { "type": "enum", "label": "Video codec", "options": ["auto", "h264", "hevc", "av1", "vp9"], "group": "Recording" },
     "constantFrameRate": { "type": "boolean", "label": "Constant frame rate", "description": "Some video editors need it", "group": "Recording" },
     "recordCursor": { "type": "boolean", "label": "Include pointer in recordings", "group": "Recording" },
     "audioSources": { "type": "list", "label": "Extra audio sources", "description": "Each source records as its own audio track", "group": "Recording",

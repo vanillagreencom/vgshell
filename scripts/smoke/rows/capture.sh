@@ -714,7 +714,8 @@ changes = {
     "output-match": ('target = next((r["name"] for r in request["outputs"] if (r["x"], r["y"], r["width"], r["height"]) == (x, y, width, height)), None)', 'target = None', 1),
     "options": ('*options, ', '', 1),
     "choices": ('audio.append((label, "device:" + name))', 'pass', 1),
-    "missing-check": ('report = {"missing": [code for code in languages.split("+") if code not in installed]}', 'report = {"missing": []}', 1),
+    "ocr-failures": ('for pattern, reason, message in OCR_FAILURES:', 'for pattern, reason, message in ():', 1),
+    "missing-check": ('report = {"missing": [code for code in dict.fromkeys(languages.split("+")) if code not in installed]}', 'report = {"missing": []}', 1),
 }
 source = Path(original).read_text()
 before, after, count = changes[control]
@@ -947,6 +948,94 @@ expect "control: dropping a source fails the offered choices" False capture_is c
 cp -- "$capture_state/helper-original.py" "$capture_helper"
 expect "capture closes its panel after its choices" ok ipc vgs.capture invoke toggle ''
 expect_poll "the choices panel unmaps" absent capture_panel
+# A camera plugged in while the panel is closed shows when it opens again.
+capture_plugged() { python3 - "$capture_state/config.json" "$1" <<'PY'
+import json, sys
+path, plugged = sys.argv[1], sys.argv[2] == "in"
+doc = json.load(open(path))
+doc.pop("nodes", None)
+if plugged:
+    doc["nodes"] = [
+        {"id": 40, "type": "PipeWire:Interface:Node", "info": {"props": {"media.class": "Audio/Source", "node.name": "fixture-mic", "node.description": "Fixture microphone"}}},
+        {"id": 41, "type": "PipeWire:Interface:Node", "info": {"props": {"media.class": "Audio/Sink", "node.name": "fixture-speaker", "node.description": "Fixture speaker"}}},
+        {"id": 42, "type": "PipeWire:Interface:Node", "info": {"props": {"media.class": "Video/Source", "node.name": "fixture-camera", "node.description": "Fixture camera", "api.v4l2.path": "/dev/video7"}}},
+        {"id": 44, "type": "PipeWire:Interface:Node", "info": {"props": {"media.class": "Video/Source", "node.name": "plugged-camera", "node.description": "Plugged camera", "api.v4l2.path": "/dev/video8"}}},
+    ]
+with open(path, "w") as output:
+    json.dump(doc, output)
+PY
+}
+capture_cameras() { capture_choices | py_reply 'import json,sys; print(json.dumps([c["value"] for c in json.load(sys.stdin)[1]]))'; }
+capture_plugged in
+expect "capture opens its panel after a camera is plugged in" ok ipc vgs.capture invoke toggle ''
+expect_poll "the opened panel offers the plugged-in camera" '["/dev/video7", "/dev/video8"]' capture_cameras
+expect "capture closes its panel after the plugged-in camera" ok ipc vgs.capture invoke toggle ''
+expect_poll "the plugged-in camera's panel unmaps" absent capture_panel
+capture_plugged out
+# Text in a language whose data is missing names the cause in its notice.
+capture_config languages '["eng", "osd"]'
+capture_setting ocrLanguages '"deu+eng"'
+expect "earlier notices expire before the missing-language text" 0 capture_wait_toasts
+expect "text capture starts with a missing language" ok ipc vgs.capture invoke text ''
+expect_poll "the missing-language text finishes" idle capture_phase
+expect_poll "missing language data raises Text capture unavailable" 1 capture_titles "Text capture unavailable"
+expect "the missing-language notice expires" 0 capture_wait_toasts
+capture_mutate ocr-failures
+expect "control: text capture starts without the failure table" ok ipc vgs.capture invoke text ''
+expect_poll "control: the unclassified text failure finishes" idle capture_phase
+expect_poll "control: the unclassified failure raises the general notice" 1 capture_titles "Capture failed"
+expect "control: dropping the failure table fails the Text capture unavailable readback" 0 capture_titles "Text capture unavailable"
+cp -- "$capture_state/helper-original.py" "$capture_helper"
+capture_setting ocrLanguages '"eng"'
+expect "the unclassified failure notice expires" 0 capture_wait_toasts
+# The service is idle once the recorder stops, so a capture starts while the
+# worker still post-processes; the saved notice follows the release.
+capture_held() { # LABEL ANSWER
+  rm -f -- "${capture_state:?}/ffmpeg-ready" "${capture_state:?}/ffmpeg-release"
+  capture_config ffmpegHold true
+  expect "$1: a recording starts" ok ipc vgs.capture invoke record-output ''
+  expect_poll "$1: the recording is active" recording capture_phase
+  expect "$1: a second press stops it" ok ipc vgs.capture invoke record-output ''
+  expect_poll "$1: the post-process is held half way" True capture_marker ffmpeg-ready
+  expect "$1: a screenshot during the post-process" "$2" ipc vgs.capture invoke screenshot ''
+  touch -- "$capture_state/ffmpeg-release"
+  capture_config ffmpegHold false
+  expect_poll "$1: the released post-process saves the recording" 1 capture_titles "Recording saved"
+  expect_poll "$1: capture is idle after the release" idle capture_phase
+  expect "$1: notices expire" 0 capture_wait_toasts
+}
+capture_held "held post-process" ok
+capture_stopped_service="$repo/shell/plugins/vgs.capture/Service.qml"
+expect "capture stops before the stopped-event control" ok ipc shell setPluginEnabled vgs.capture false
+expect_poll "the stopped-event control releases the original service" False record_exists vgs.capture
+python3 - "$capture_stopped_service" "$sandbox" "$capture_state/stopped-service-original.qml" <<'PY'
+from pathlib import Path
+import sys
+service, sandbox, original = map(Path, sys.argv[1:])
+assert service.resolve().is_relative_to(sandbox.resolve()), "stopped-event control must stay inside the sandbox"
+source = service.read_text()
+original.write_text(source)
+before = "            // Post-processing continues in this worker; the next capture can start.\n            lastPath = event.path;\n            finishAction(job);\n"
+assert source.count(before) == 1, "stopped-event control match"
+changed = source.replace(before, "            lastPath = event.path;\n")
+assert changed != source
+service.write_text(changed)
+PY
+rescan "the stopped-event control service is rescanned"
+expect "capture enables the stopped-event control" ok ipc shell setPluginEnabled vgs.capture true
+expect_poll "the stopped-event control is built" True record_exists vgs.capture
+capture_held "control: stopped leaves the action open" 'refused: capture=busy'
+expect "capture stops after the stopped-event control" ok ipc shell setPluginEnabled vgs.capture false
+expect_poll "the stopped-event control releases its service" False record_exists vgs.capture
+cp -- "$capture_state/stopped-service-original.qml" "$capture_stopped_service"
+rescan "the original stopped-event service is rescanned"
+expect "capture enables the restored stopped-event service" ok ipc shell setPluginEnabled vgs.capture true
+expect_poll "the restored stopped-event service is built" True record_exists vgs.capture
+expect_poll "the restored service is idle" idle capture_phase
+# A rescan publishes a new snapshot, so later helper controls edit its copy.
+capture_helper="$(capture_read helperPath | py_reply 'import json,sys; print(json.load(sys.stdin))')"
+python3 -c 'import pathlib,sys; h=pathlib.Path(sys.argv[1]).resolve(); assert any(h.is_relative_to(pathlib.Path(r).resolve()) for r in sys.argv[2:]), "capture control must stay inside the sandbox or its private runtime"' "$capture_helper" "$sandbox" "$rt_dir"
+cmp -s -- "$capture_state/helper-original.py" "$capture_helper" || fail "capture: the rescanned helper differs from the original"
 close_toplevel "$capture_record_pid" "capture's recording target closes"
 capture_config real "{\"grim\": \"$capture_real_grim\"}"
 for capture_control in no-output no-clipboard hard-stop inherited-stdin; do

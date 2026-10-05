@@ -7,8 +7,6 @@ No inherited desktop, bus or device environment reaches an offline child.
 """
 import json
 import ctypes
-import fcntl
-import importlib.util
 import os
 from pathlib import Path
 import signal
@@ -611,8 +609,10 @@ def audio_holds(root, helper, audio, sources, wanted):
 
 
 def refused_before_recorder(root, helper, payload, reason):
+    """A device refusal comes before any selection, file or recorder."""
     code, messages, err = worker(root, payload, helper, timeout=5)
     return (code == 1 and messages[-1].get("reason") == reason and not tool_calls(root, "gpu-screen-recorder")
+            and not tool_calls(root, "slurp") and not tool_calls(root, "hyprpicker")
             and not list((root / "videos").glob("*.mp4")))
 
 
@@ -656,7 +656,7 @@ def saved_holds(root, helper, audio="desktop", post=True):
     trim = ["-ss", "0.1", "-i", str(path), "-map", "0:v:0"]
     if post:
         temp = Path(processing[0][-1]) if len(processing) == 1 else None
-        audio_args = ["-map", "0:a?", "-c:v", "copy", "-af", "loudnorm=I=-14:TP=-1.5:LRA=11", "-c:a", "aac", "-b:a", "192k"] if audio != "none" else ["-c:v", "copy", "-an"]
+        audio_args = ["-map", "0:a?", "-c:v", "copy", "-af", "loudnorm=I=-14:TP=-1.5:LRA=11", "-ar", "48000", "-c:a", "aac", "-b:a", "192k"] if audio != "none" else ["-c:v", "copy", "-an"]
         if (temp is None or processing[0][processing[0].index("-ss"):-1] != trim + audio_args or temp.parent != path.parent
                 or not temp.name.startswith(".screencast-processing-") or temp.exists() or saved["processing"] != "done"):
             return False
@@ -682,61 +682,152 @@ def processing_failure_holds(root, helper):
             and Path(saved["path"]).read_bytes() == b"finalized" and not list((root / "videos").glob(".screencast-processing-*")))
 
 
-def killed_processing_holds(root, helper):
-    """Function 18: a post-process killed half way keeps the recording whole,
-    stopped reached the service before it, and the next start removes its output."""
+class Lines:
+    """JSON lines from a helper's stdout, read straight from its pipe so a
+    zero-timeout read sees every line already written."""
+
+    def __init__(self, stream):
+        self.fd, self.buffer, self.closed = stream.fileno(), b"", False
+
+    def read(self, timeout):
+        ready, _, _ = select.select([self.fd], [], [], timeout)
+        if ready:
+            chunk = os.read(self.fd, 65536)
+            self.closed = not chunk
+            self.buffer += chunk
+        *lines, self.buffer = self.buffer.split(b"\n")
+        return [json.loads(line) for line in lines]
+
+
+def held_processing(root, helper):
+    """A recording whose post-process the stand-in ffmpeg holds half way:
+    (process, its line reader, its events, the recording or None)."""
     config = json.loads((root / "config.json").read_text())
     proc = subprocess.Popen([sys.executable, str(helper), json.dumps(request(root, "record-output"))], env=environment(root, config),
-                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    lines, events = Lines(proc.stdout), []
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline and not (root / "ffmpeg-ready").exists() and not lines.closed:
+        for event in lines.read(0.05):
+            events.append(event)
+            if event["event"] == "recording":
+                proc.stdin.write(b"stop\n")
+                proc.stdin.flush()
+    if (root / "ffmpeg-ready").exists():
+        # Lines written before the hold: stopped must be the last of them.
+        events += lines.read(0)
+    stopped = bool(events) and events[-1]["event"] == "stopped" and (root / "ffmpeg-ready").exists()
+    return proc, lines, events, Path(events[-1]["path"]) if stopped else None
+
+
+def next_recording(root, helper, **config):
+    """Another recording in the same world, as the service starts the next capture."""
+    world_config = json.loads((root / "config.json").read_text())
+    (root / "config.json").write_text(json.dumps({**world_config, **config}))
+    (root / "recorder-ready").unlink(missing_ok=True)
+    return recorded(root, request(root, "record-output"), helper)
+
+
+def killed_processing_holds(root, helper, signum):
+    """Function 18: stopped reaches the service before the post-process; a
+    recording started meanwhile leaves the live output alone; a kill half way
+    keeps the recording whole and the next start removes the output; SIGTERM
+    ends the worker promptly with no ffmpeg left."""
+    proc, lines, events, first = held_processing(root, helper)
     try:
-        events = []
-        deadline = time.monotonic() + 5
-        while time.monotonic() < deadline and not (root / "ffmpeg-ready").exists():
-            ready, _, _ = select.select([proc.stdout], [], [], 0.05)
-            if ready:
-                line = proc.stdout.readline()
-                if not line:
-                    break
-                events.append(json.loads(line)["event"])
-                if events[-1] == "recording":
-                    proc.stdin.write("stop\n")
-                    proc.stdin.flush()
-        if not (root / "ffmpeg-ready").exists() or events[-1:] != ["stopped"]:
+        temps = list((root / "videos").glob(".screencast-processing-*"))
+        if first is None or len(temps) != 1:
             return False
-        proc.kill()
-        proc.communicate(timeout=5)
+        if signum == signal.SIGKILL:
+            code, messages, argv, err = next_recording(root, helper, ffmpegHold=False)
+            if code != 0 or not temps[0].exists():
+                return False
+        proc.send_signal(signum)
+        try:
+            proc.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            return False
         deadline = time.monotonic() + 5
         while alive(root, "ffmpeg") and time.monotonic() < deadline:
             time.sleep(0.01)
-        videos = root / "videos"
-        recording = next(videos.glob("*.mp4"))
-        temps = list(videos.glob(".screencast-processing-*"))
-        if alive(root, "ffmpeg") or recording.read_bytes() != b"finalized" or len(temps) != 1:
+        if alive(root, "ffmpeg") or first.read_bytes() != b"finalized":
             return False
-        config["ffmpegHold"] = False
-        (root / "config.json").write_text(json.dumps(config))
-        code, messages, argv, err = recorded(root, request(root, "record-output"), helper)
-        return code == 0 and not temps[0].exists() and recording.read_bytes() == b"finalized"
+        if signum == signal.SIGTERM:
+            return not temps[0].exists()
+        if not temps[0].exists():
+            return False
+        code, messages, argv, err = next_recording(root, helper)
+        return code == 0 and not temps[0].exists() and first.read_bytes() == b"finalized"
     finally:
         if proc.poll() is None:
             proc.kill()
             proc.communicate(timeout=5)
 
 
-def live_processing_kept(base):
-    """A post-process output another worker holds locked stays; an unheld one goes."""
-    spec = importlib.util.spec_from_file_location("capture_helper", HELPER)
-    helper = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(helper)
-    folder = base / "live-processing"
-    folder.mkdir()
-    live, stale = folder / ".screencast-processing-live.mp4", folder / ".screencast-processing-stale.mp4"
-    live.write_bytes(b"live")
-    stale.write_bytes(b"stale")
-    with live.open("rb") as held:
-        fcntl.flock(held, fcntl.LOCK_EX)
-        helper.remove_stale_processing(folder)
-    return live.exists() and not stale.exists()
+def own_log_holds(root, helper):
+    """Function 20: a post-process that fails after the next recording started
+    shows its own recording's log lines, never the next one's."""
+    proc, lines, events, first = held_processing(root, helper)
+    try:
+        if first is None:
+            return False
+        code, messages, argv, err = next_recording(root, helper, ffmpegHold=False, ffmpegFail=False)
+        if code != 0:
+            return False
+        second = Path(messages[-1]["path"])
+        (root / "ffmpeg-release").touch()
+        deadline = time.monotonic() + 5
+        while not lines.closed and time.monotonic() < deadline:
+            events += lines.read(0.05)
+        proc.wait(timeout=5)
+        saved = events[-1]
+        return (saved["event"] == "saved" and saved["path"] == str(first) and saved["processing"] == "failed"
+                and first.name in saved["detail"] and "fixture ffmpeg failure" in saved["detail"] and second.name not in saved["detail"]
+                and first.read_bytes() == b"finalized")
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.communicate(timeout=5)
+
+
+def portal_exit_holds(root, helper):
+    """Function 17: Cancel in the portal's picker ends the recorder with exit 60: no file and no notice."""
+    code, messages, err = worker(root, request(root, "record-portal"), helper, timeout=5)
+    return code == 0 and [m["event"] for m in messages] == ["cancelled"] and not list((root / "videos").glob("*"))
+
+
+def service_function(source, name):
+    start = "    function " + name + "("
+    assert source.count(start) == 1, "service function boundary: " + name
+    body = source[source.index(start):]
+    return body[:body.index("\n    }\n") + 6]
+
+
+def service_notices(source=None):
+    """Function 20: Service.qml's own saved and error notices, run in node
+    with a stand-in toast capability. Answers whether every case holds."""
+    source = source if source is not None else (HELPER.parent.parent / "Service.qml").read_text()
+    functions = "\n".join(service_function(source, name) for name in ("isRecord", "notice", "errorNotice", "savedNotice"))
+    program = r'''
+const input = JSON.parse(process.argv[1]);
+const shown = [];
+const shell = { toasts: { show: toast => shown.push(toast) } };
+const api = new Function("shell", input.functions + "; return { savedNotice, errorNotice };")(shell);
+const record = { actionName: "record-output" };
+api.savedNotice(record, { path: "/videos/a.mp4", processing: "failed", detail: "fixture tail line" });
+api.savedNotice(record, { path: "/videos/b.mp4", processing: "done", detail: "" });
+api.errorNotice({ reason: "language-data-unavailable", message: "no deu data" });
+api.errorNotice({ message: "Recording failed (exit 1)\nfixture recorder crash" });
+console.log(JSON.stringify(shown));
+'''
+    result = subprocess.run(["node", "-e", program, json.dumps({"functions": functions})], stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                            env={"PATH": os.defpath, "LC_ALL": "C"}, timeout=10)
+    assert result.returncode == 0, result.stderr
+    failed, done, language, crash = json.loads(result.stdout)
+    return (failed["title"] == done["title"] == "Recording saved" and failed["message"].startswith("/videos/a.mp4\n")
+            and failed["message"].endswith("fixture tail line") and done["message"] == "/videos/b.mp4"
+            and language["title"] == "Text capture unavailable" and language["message"] == "no deu data"
+            and crash["title"] == "Capture failed" and crash["message"] == "Recording failed (exit 1)\nfixture recorder crash")
 
 
 def failure_log_holds(root, helper, reason):
@@ -832,7 +923,7 @@ else:
     (root / "bin/gum").chmod(0o755)
     (tree / "run").mkdir()
     env = {"PATH": str(root / "bin") + ":" + os.defpath, "HOME": str(tree), "XDG_RUNTIME_DIR": str(tree / "run"), "LC_ALL": "C",
-           "VGS_TUI_LIB": str(tree / "bin/lib/tui.sh"), "VGS_PLUGIN_ID": "vgs.capture", "VGS_TUI_UNATTENDED": "1"}
+           "VGS_TUI_LIB": str(tree / "bin/lib/tui.sh"), "VGS_PLUGIN_ID": "vgs.capture", "VGS_PLUGIN_DIR": str(HELPER.parent.parent), "VGS_TUI_UNATTENDED": "1"}
     result = subprocess.run(["bash", str(script)], env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30)
     runs = [json.loads(line) for line in (root / "vgshell.calls").read_text().splitlines()] if (root / "vgshell.calls").exists() else []
     return result.returncode, result.stderr, [run for run in runs if run[:2] == ["pkg", "run"]]
@@ -906,9 +997,9 @@ def recording_functions(base, source):
     assert not audio_holds(world("audio-dropped"), mutated("no-audio-sources", 'for item in request["audioSources"]:', 'for item in []:'), "desktop", sources, wanted), "control did not fail: no-audio-sources"
     assert probe_holds(world("probe", languages=["eng", "osd"]), HELPER, "deu+eng", ["deu"]), "probe"
     assert probe_holds(world("probe-ready", languages=["eng", "deu", "osd"]), HELPER, "deu+eng", []), "probe ready"
-    assert not probe_holds(world("probe-control", languages=["eng", "osd"]), mutated("no-missing-check", 'report = {"missing": [code for code in languages.split("+") if code not in installed]}', 'report = {"missing": []}'), "deu+eng", ["deu"]), "control did not fail: no-missing-check"
+    assert not probe_holds(world("probe-control", languages=["eng", "osd"]), mutated("no-missing-check", 'report = {"missing": [code for code in dict.fromkeys(languages.split("+")) if code not in installed]}', 'report = {"missing": []}'), "deu+eng", ["deu"]), "control did not fail: no-missing-check"
     root = world("camera-absent")
-    absent = {**request(root, "record-output"), "webcam": True, "webcamDevice": "/dev/video9"}
+    absent = {**request(root, "record"), "webcam": True, "webcamDevice": "/dev/video9"}
     assert refused_before_recorder(root, HELPER, absent, "camera-unavailable"), "absent camera"
     root = world("camera-absent-control")
     assert not refused_before_recorder(root, mutated("absent-camera", 'if camera not in cameras:', 'if False:'), {**absent, "recordFolder": str(root / "videos"), "stateDir": str(root / "state")}, "camera-unavailable"), "control did not fail: absent-camera"
@@ -917,12 +1008,27 @@ def recording_functions(base, source):
     for name, audio, post in [("saved", "desktop", True), ("saved-silent", "none", True), ("saved-unprocessed", "desktop", False)]:
         assert saved_holds(world(name), HELPER, audio, post), name
     assert processing_failure_holds(world("processing-failure", ffmpegFail=True), HELPER), "processing failure keeps the recording"
-    assert killed_processing_holds(world("processing-killed", ffmpegHold=True), HELPER), "killed processing keeps the recording"
-    assert live_processing_kept(base), "a live post-process output stays"
+    for signum in (signal.SIGKILL, signal.SIGTERM):
+        assert killed_processing_holds(world("processing-" + signum.name, ffmpegHold=True), HELPER, signum), signum.name
+    assert own_log_holds(world("own-log", ffmpegHold=True, ffmpegFail=True), HELPER), "each recording reads its own log"
+    assert portal_exit_holds(world("portal-exit", portalCancel=True), HELPER), "portal picker cancel"
+    assert service_notices(), "service notices"
+    service = (HELPER.parent.parent / "Service.qml").read_text()
+    for name, before, after in [
+        ("notice-processing-ignored", 'event.processing === "failed"', 'false'),
+        ("notice-detail-dropped", 'if (event.detail !== "") message += "\\n" + event.detail.slice(-Math.max(0, 199 - message.length));', ''),
+        ("notice-reason-renamed", 'event.reason === "language-data-unavailable"', 'event.reason === "english-data-unavailable"'),
+    ]:
+        assert service.count(before) == 1, name
+        assert not service_notices(service.replace(before, after)), "control did not fail: " + name
     for name, before, after, check in [
-        ("raw-replaced", 'if child.returncode or temp.stat().st_size == 0:', 'if False:', lambda helper: processing_failure_holds(world("raw-replaced", ffmpegFail=True), helper)),
-        ("kept-processing-output", 'remove_stale_processing(folder)\n', 'pass\n', lambda helper: killed_processing_holds(world("kept-output", ffmpegHold=True), helper)),
-        ("stopped-after-processing", '            emit("stopped", path=str(path))\n', '', lambda helper: killed_processing_holds(world("late-stopped", ffmpegHold=True), helper)),
+        ("raw-replaced", 'if code or temp.stat().st_size == 0:', 'if temp.stat().st_size == 0:', lambda helper: processing_failure_holds(world("raw-replaced", ffmpegFail=True), helper)),
+        ("kept-processing-output", 'remove_stale_processing(folder)\n', 'pass\n', lambda helper: killed_processing_holds(world("kept-output", ffmpegHold=True), helper, signal.SIGKILL)),
+        ("unlocked-processing-output", 'fcntl.flock(fd, fcntl.LOCK_EX)', 'pass', lambda helper: killed_processing_holds(world("unlocked-output", ffmpegHold=True), helper, signal.SIGKILL)),
+        ("stopped-after-processing", '            emit("stopped", path=str(path))\n', '', lambda helper: killed_processing_holds(world("late-stopped", ffmpegHold=True), helper, signal.SIGKILL)),
+        ("untimed-processing-wait", 'code = self.wait(child)', 'code = child.wait()', lambda helper: killed_processing_holds(world("untimed-wait", ffmpegHold=True), helper, signal.SIGTERM)),
+        ("shared-log", '    path.unlink(missing_ok=True)\n    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_APPEND | os.O_NOFOLLOW, 0o600)', '    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND | os.O_NOFOLLOW, 0o600)', lambda helper: own_log_holds(world("shared-log", ffmpegHold=True, ffmpegFail=True), helper)),
+        ("portal-cancel-failure", 'if target.startswith("portal") and self.recorder.returncode == PORTAL_CANCELLED:', 'if False:', lambda helper: portal_exit_holds(world("portal-exit-control", portalCancel=True), helper)),
         ("no-uri-copy", 'child = self.copy(io.BytesIO((path.as_uri() + "\\r\\n").encode()), "text/uri-list")', 'child = self.spawn([sys.executable, "-c", "pass"])', lambda helper: saved_holds(world("no-uri-copy"), helper)),
         ("recorder-log-to-stderr", 'self.recorder = self.spawn(args, stdin=subprocess.DEVNULL, stdout=log, stderr=log)', 'self.recorder = self.spawn(args, stdin=subprocess.DEVNULL, stdout=log, stderr=sys.stderr)', lambda helper: saved_holds(world("log-to-stderr"), helper)),
         ("no-log-tail", 'return "\\n" + tail if tail else ""', 'return ""', lambda helper: failure_log_holds(world("no-log-tail", crash=True), helper, "fixture recorder crash: no encoder")),
@@ -947,14 +1053,15 @@ def recording_functions(base, source):
         assert not text_holds(world(name + "-control", languages=["eng", "deu", "osd"]), mutated(name, before, after), "deu+eng"), "control did not fail: " + name
     assert language_tui_holds(base, TUI), "language TUI"
     script = TUI.read_text()
-    before = "missing = [code for code in dict.fromkeys(languages.split(\"+\")) if code not in installed]"
+    before = 'print(*report["missing"])'
     assert script.count(before) == 1, "language TUI control match"
     control = base / "tui-no-missing-check.sh"
-    control.write_text(script.replace(before, "missing = list(dict.fromkeys(languages.split(\"+\")))"))
+    control.write_text(script.replace(before, 'print("eng", *report["missing"])'))
     assert not language_tui_holds(base, control, "-control"), "control did not fail: tui-installs-installed"
     return ("record-no-snap,record-no-output-match,record-window-boxes,record-no-camera,no-recorder-options,fixed-pointer,fractional-rate-accepted,"
             "no-audio-sources,no-missing-check,absent-camera,picker-ignores-cancel,raw-replaced,kept-processing-output,stopped-after-processing,"
-            "no-uri-copy,recorder-log-to-stderr,no-log-tail,invalid-languages-accepted,no-interword-spaces,english-only,tui-installs-installed,no-trim")
+            "no-uri-copy,recorder-log-to-stderr,no-log-tail,invalid-languages-accepted,no-interword-spaces,english-only,tui-installs-installed,"
+            "unlocked-processing-output,untimed-processing-wait,shared-log,portal-cancel-failure,notice-processing-ignored,notice-detail-dropped,notice-reason-renamed")
 
 
 def main():
@@ -1116,6 +1223,8 @@ def main():
         helper.write_text(source.replace(before, "if False:"))
         root = world("unowned-child")
         assert not killed_owner_holds(root, request(root, "record"), config, helper), "control did not fail: unowned child"
+    if unmeasured is None:
+        recording_controls += ",no-trim"
     controls = ("undrawn-windows,drawn-window-delegate,raw-ocr-error,no-output,no-clipboard,hard-stop,inherited-stdin,kept-freeze,unowned-child,invalid-delay-accepted,invalid-timeout-accepted,invalid-processing-accepted,empty-selection-accepted,empty-displays-accepted,smart-snap,window-boxes,display-boxes,all-bounds,no-scale,no-rotation,no-cursor,copy-saves,save-copies,no-delay,delay-ignores-cancel,no-timeout,no-selection-end," + recording_controls)
     if unmeasured is not None:
         # The rest passed, but the real post-process could not run: not a pass.

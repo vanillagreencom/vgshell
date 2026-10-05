@@ -86,6 +86,9 @@ CHOICE_LABEL_MAX = 60
 # cuts a notice message at 200 characters.
 LOG_TAIL_LINES = 4
 LOG_TAIL_CHARS = 140
+LOG_TAIL_READ = 4096
+# gpu-screen-recorder's exit status when the user cancels the portal picker.
+PORTAL_CANCELLED = 60
 
 
 class Capture:
@@ -400,6 +403,18 @@ class Capture:
     def record(self, request):
         request = {**request, "outputs": output_rectangles(request["outputs"])}
         options = recorder_options(request)
+        devices = None
+        if request["webcam"] or any(not item["source"] for item in request["audioSources"]):
+            devices = self.devices()
+        camera = None
+        if request["webcam"]:
+            cameras = [choice["value"] for choice in devices["cameras"]]
+            if not cameras:
+                raise CaptureFailure("camera-unavailable", "No camera is connected")
+            camera = request["webcamDevice"] or cameras[0]
+            if camera not in cameras:
+                raise CaptureFailure("camera-unavailable", "The chosen camera is not connected")
+        audio = recorder_audio(request, devices)
         region = None
         if request["action"] == "record-portal":
             # The recorder opens the desktop portal's own picker.
@@ -417,23 +432,14 @@ class Capture:
             target = next((r["name"] for r in request["outputs"] if (r["x"], r["y"], r["width"], r["height"]) == (x, y, width, height)), None)
             if target is None:
                 target, region = "region", f"{width}x{height}+{x}+{y}"
-        devices = None
-        if request["webcam"] or any(not item["source"] for item in request["audioSources"]):
-            devices = self.devices()
-        if request["webcam"]:
-            cameras = [choice["value"] for choice in devices["cameras"]]
-            camera = request["webcamDevice"] or next(iter(cameras), "")
-            if camera not in cameras:
-                raise CaptureFailure("camera-unavailable", "The chosen camera is not connected")
+        if camera is not None:
             target += "|v4l2:" + camera + WEBCAM
-        audio = recorder_audio(request, devices)
         state = plugin_state(request["stateDir"])
-        log_path = state / "recorder.log"
         folder = capture_folder(request["recordFolder"], "VIDEOS", "Screencasts")
         remove_stale_processing(folder)
         path = new_file(folder, "screencast", ".mp4")
         args = ["gpu-screen-recorder", "-w", target, *(["-region", region] if region else []), *options, *audio, "-o", str(path)]
-        with open_log(log_path) as log:
+        with open_log(state / "recorder.log") as log:
             try:
                 self.recorder = self.spawn(args, stdin=subprocess.DEVNULL, stdout=log, stderr=log)
             except OSError:
@@ -456,7 +462,10 @@ class Capture:
                     break
             if self.recorder.poll() is not None:
                 path.unlink(missing_ok=True)
-                raise RuntimeError(f"Recording failed to start (exit {self.recorder.returncode})" + log_tail(log_path))
+                if target.startswith("portal") and self.recorder.returncode == PORTAL_CANCELLED:
+                    emit("cancelled")
+                    return
+                raise RuntimeError(f"Recording failed to start (exit {self.recorder.returncode})" + log_tail(log))
             emit("recording", path=str(path))
             stopping = False
             while self.recorder.poll() is None:
@@ -477,19 +486,25 @@ class Capture:
             if not stopping or self.recorder.returncode not in (0, -signal.SIGINT) or path.stat().st_size == 0:
                 if path.stat().st_size == 0:
                     path.unlink()
-                raise RuntimeError(f"Recording failed (exit {self.recorder.returncode})" + log_tail(log_path))
+                raise RuntimeError(f"Recording failed (exit {self.recorder.returncode})" + log_tail(log))
             emit("stopped", path=str(path))
             processing = "off"
             if request["postProcess"]:
                 processing = "done" if self.postprocess(path, bool(audio), log) else "failed"
             thumbnail = self.thumbnail(path, state, log)
+            detail = log_tail(log).strip() if processing == "failed" else ""
         try:
             child = self.copy(io.BytesIO((path.as_uri() + "\r\n").encode()), "text/uri-list")
         except (OSError, RuntimeError) as error:
             raise RuntimeError(f"Recording saved to {path}; clipboard failed: {error}") from error
-        emit("saved", path=str(path), thumbnail=thumbnail, processing=processing,
-             detail=log_tail(log_path).strip() if processing == "failed" else "")
+        emit("saved", path=str(path), thumbnail=thumbnail, processing=processing, detail=detail)
         self.clipboard_exit(child)
+
+    def wait(self, child):
+        """Wait for a child in short polls, so SIGTERM's release can reap it."""
+        while child.poll() is None:
+            select.select([], [], [], 0.1)
+        return child.returncode
 
     def end_recorder(self):
         """Stop a recorder that never wrote its file; it saves nothing."""
@@ -513,12 +528,13 @@ class Capture:
             fcntl.flock(fd, fcntl.LOCK_EX)
             args = ["ffmpeg", "-hide_banner", "-loglevel", "warning", "-y", "-ss", "0.1", "-i", str(path), "-map", "0:v:0"]
             if audio:
-                args += ["-map", "0:a?", "-c:v", "copy", "-af", "loudnorm=I=-14:TP=-1.5:LRA=11", "-c:a", "aac", "-b:a", "192k"]
+                # loudnorm resamples to 192 kHz; AAC takes at most 96 kHz.
+                args += ["-map", "0:a?", "-c:v", "copy", "-af", "loudnorm=I=-14:TP=-1.5:LRA=11", "-ar", "48000", "-c:a", "aac", "-b:a", "192k"]
             else:
                 args += ["-c:v", "copy", "-an"]
             child = self.spawn(args + [str(temp)], stdout=log, stderr=log)
-            child.wait()
-            if child.returncode or temp.stat().st_size == 0:
+            code = self.wait(child)
+            if code or temp.stat().st_size == 0:
                 return False
             os.replace(temp, path)
             return True
@@ -533,8 +549,7 @@ class Capture:
         thumbnail = folder / (path.stem + ".jpg")
         child = self.spawn(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-ss", "1", "-i", str(path), "-frames:v", "1", str(thumbnail)],
                            stdout=log, stderr=log)
-        child.wait()
-        if child.returncode == 0 and thumbnail.is_file() and thumbnail.stat().st_size > 0:
+        if self.wait(child) == 0 and thumbnail.is_file() and thumbnail.stat().st_size > 0:
             return str(thumbnail)
         thumbnail.unlink(missing_ok=True)
         return ""
@@ -578,7 +593,7 @@ class Capture:
             except (OSError, RuntimeError) as error:
                 report = {"error": str(error)}
             else:
-                report = {"missing": [code for code in languages.split("+") if code not in installed]}
+                report = {"missing": [code for code in dict.fromkeys(languages.split("+")) if code not in installed]}
         emit("probe", devices=devices, languages=report)
 
 
@@ -635,19 +650,23 @@ def plugin_state(state_dir):
 
 @contextmanager
 def open_log(path):
-    """A fresh owner-only log; every writer appends to its end."""
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_APPEND | os.O_NOFOLLOW, 0o600)
-    os.fchmod(fd, 0o600)
-    with os.fdopen(fd, "wb") as log:
+    """This recording's own owner-only log; every writer appends to its end.
+
+    A recording that starts while an earlier one post-processes replaces the
+    name, and the earlier worker keeps writing and reading its own file.
+    """
+    path.unlink(missing_ok=True)
+    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_APPEND | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "r+b") as log:
         yield log
 
 
-def log_tail(path):
-    """The log's last lines on a new line, or "" for an empty log."""
-    try:
-        lines = [line.strip() for line in path.read_text(errors="replace").splitlines() if line.strip()]
-    except OSError:
-        return ""
+def log_tail(log):
+    """The end of this recording's log on a new line, or "" for an empty log."""
+    fd = log.fileno()
+    size = os.fstat(fd).st_size
+    text = os.pread(fd, LOG_TAIL_READ, max(0, size - LOG_TAIL_READ)).decode(errors="replace")
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
     tail = "\n".join(lines[-LOG_TAIL_LINES:])[-LOG_TAIL_CHARS:]
     return "\n" + tail if tail else ""
 

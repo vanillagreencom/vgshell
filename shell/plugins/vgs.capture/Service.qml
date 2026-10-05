@@ -68,6 +68,9 @@ Item {
             shell.shortcut.register(name, descriptions[name], () => root.invoke(name));
         }
         shell.ipc.handle("setting", arg => root.setFromRequest(arg));
+        // The panel asks again when it opens, so a device plugged in since
+        // shows there.
+        shell.ipc.handle("probe", () => { root.probe(); return "ok"; });
         publish();
         probe();
     }
@@ -293,7 +296,7 @@ Item {
             break;
         case "error":
             job.answered = true;
-            notice(event.reason === "language-data-unavailable" ? "Text capture unavailable" : "Capture failed", event.message, "danger");
+            errorNotice(event);
             finishAction(job);
             break;
         default:
@@ -304,6 +307,10 @@ Item {
 
     function notice(title, message, tone) {
         shell.toasts.show({ title: title, message: String(message).slice(0, 200), tone: tone, icon: "camera" });
+    }
+
+    function errorNotice(event) {
+        notice(event.reason === "language-data-unavailable" ? "Text capture unavailable" : "Capture failed", event.message, "danger");
     }
 
     // Every saved screenshot and recording; a failed post-process keeps the
