@@ -19,8 +19,9 @@ import "Steps.js" as Steps
 // per schema group (entries without a group first, under `Settings`), one
 // section per `list` entry, titled with its label, and the Keys section. A
 // plugin with none of those below its switches says so in one line. A
-// disabled plugin's fields are read-only and say to enable it, and its
-// setup buttons take no press.
+// disabled plugin's fields are read-only, its Enabled switch says to turn
+// it on while it has something to change, and its setup buttons take no
+// press.
 //
 // Details holds what a user reads: the description, in the hint role in
 // the muted colour, the capabilities, the listing metadata, the Update and
@@ -53,7 +54,6 @@ FocusScope {
     readonly property alias titleMenu: menu
     readonly property alias title: titleHeader.titleButton
     readonly property alias initialFocus: back
-    readonly property alias tabs: tabs
     // Whether the Settings page holds nothing below its switches.
     readonly property bool bare: row !== null && row.tuis.length === 0 && sections.length === 0 && lists.length === 0 && row.binds.length === 0
 
@@ -194,7 +194,7 @@ FocusScope {
                             width: parent.width
                             label: "Enabled"
                             inline: true
-                            hint: page.isSelf ? "Turning off Settings closes this window." : page.row !== null && !page.row.enabled ? "Turn on " + page.row.name + " to change its settings and shortcuts." : ""
+                            hint: page.isSelf ? "Turning off Settings closes this window." : page.row !== null && !page.row.enabled && !page.bare ? "Turn on " + page.row.name + " to change its settings and shortcuts." : ""
                             Switch {
                                 size: "sm"
                                 checked: page.row !== null && page.row.enabled

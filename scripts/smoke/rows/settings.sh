@@ -25,7 +25,8 @@ expect_poll "the page draws the fixture's fields again" '[9, 0]' page_fields
 # it enters the shown page, and Ctrl+Tab from a control there steps the
 # page and hands the strip the keyboard with its ring, so no hidden control
 # keeps the keys. A change of the manager's rows keeps the page, another
-# plugin's page opens on Settings, and a page change returns the body to
+# plugin's page opens on Settings, where a plugin with nothing below its
+# switches says so in one line, and a page change returns the body to
 # its top, read on the disabled Jarvis page, whose two pages both overflow.
 # The control, at the row's end, is a copy of the page that opens on
 # Details and keeps its place, read by the same readers.
@@ -47,6 +48,7 @@ page_top() { scroll_value contentY; }
 # overflows by as much holds.
 page_scrolled() { ipc smoke scrollTo window vgs.settings "$1" | py_reply 'import json,sys; print(json.load(sys.stdin)[0])'; }
 expect_poll "an opened page shows Settings and nothing of Details" "0 drawn absent" page_shown
+expect "a plugin with settings draws no line that it has none" absent settings_label "This plugin has no other settings."
 settings_details
 expect_poll "a click on the Details tab shows Details and nothing of Settings" "1 absent drawn" page_shown
 settings_tab_click Settings || fail "the click on the Settings tab failed"
@@ -68,8 +70,11 @@ expect_poll "the window's rows show the bare fixture disabled" '{"acme.bare": fa
 expect "a change of the rows that keeps the plugin keeps its Details page" "1 absent drawn" page_shown
 expect "the window toggles the bare fixture back on under Details" ok ipc smoke invokeInstance window vgs.settings toggle acme.bare
 expect_poll "the window's rows show the bare fixture enabled again" '{"acme.bare": true, "acme.probe": true, "vgs.bar": true}' manager_rows
-expect "the window opens the Jarvis page from Details" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.jarvis
+expect "the window opens the bare fixture's page from Details" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.bare
 expect_poll "another plugin's page opens on Settings" 0 settings_tab
+expect_poll "a plugin with nothing below its switches says so on Settings" drawn settings_label "This plugin has no other settings."
+expect "the window opens the Jarvis page" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.jarvis
+expect_poll "the Jarvis page opens on Settings" 0 settings_tab
 type_keys -k Tab -k Tab || fail "tabbing to the Jarvis page's strip failed"
 expect_poll "the Jarvis page's strip holds the keyboard" "$strip_focused" page_focus
 expect "the Jarvis page's Settings overflow by the scroll the row gives them" 300 page_scrolled 300
