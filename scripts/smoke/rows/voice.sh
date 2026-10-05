@@ -212,30 +212,6 @@ close_toplevel "$voice_client_pid" "the Voice client exits 0 on SIGTERM"
 hypr_lua_restore voice || fail "Voice restores hyprland.lua"
 expect "Voice key resolution restore is reloaded" ok hypr reload config-only
 rm -f -- "${voice_stub:?}" "${shim:?}/systemctl" "${shim:?}/setpriv" "${voice_installed:?}"
-voice_hidden_path="$sandbox/voice-host-path"
-python3 - "$voice_hidden_path" "$PATH" "$node_bin" <<'PY'
-import os, sys
-links, path, node = sys.argv[1], sys.argv[2], sys.argv[3]
-os.mkdir(links)
-os.symlink(node, os.path.join(links, "node"))
-taken = {"node", "voxtype"}
-for directory in path.split(":"):
-    try:
-        names = sorted(os.listdir(directory))
-    except OSError:
-        continue
-    for name in names:
-        file = os.path.join(directory, name)
-        if name in taken or not os.path.isfile(file) or not os.access(file, os.X_OK):
-            continue
-        taken.add(name)
-        os.symlink(file, os.path.join(links, name))
-PY
-shell_start_path="$shim:$voice_hidden_path"
-shell_start_words=(PATH="$shell_start_path" VGS_NOTIFICATIONS_SLACK_TEST_SECRET_TOOL_DIR="$shim")
-if stop_shell && start_shell "$repo" "$sandbox/voice-missing.log"; then
-  ok "the shell restarts with voxtype hidden for the optional requirement check"
-fi
 rescan "rescan after removing the Voice stubs"
 expect_poll "the Voice voxtype requirement is missing after stub removal" missing voice_requirement voxtype
 expect "enabling Voice without voxtype is allowed" ok ipc shell setPluginEnabled vgs.voice true

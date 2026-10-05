@@ -230,12 +230,14 @@ if [[ -n $first_bar_runs ]]; then
 fi
 
 
-# Every sandbox shell finds vsys and the browser-policy writer absent,
-# whatever the host holds, so the rows press Install all missing for vsys
-# and Install browser theming on any host (harness.sh's shell_hidden_commands); a row
-# that needs one present stands its own stand-in for it.
+# Every sandbox shell finds vsys, the browser-policy writer, tesseract and
+# voxtype absent, whatever the host holds, so the rows press Install all
+# missing for vsys and Install browser theming on any host, and read OCR and
+# Voice missing without restarting the shell (harness.sh's
+# shell_hidden_commands); a row that needs one present stands its own
+# stand-in for it.
 # shellcheck disable=SC2034 # the harness sourced below reads it
-shell_hidden_commands=(vsys vgshell-browser-policy tesseract)
+shell_hidden_commands=(vsys vgshell-browser-policy tesseract voxtype)
 source "$repo/scripts/smoke/harness.sh"
 
 # smoke_row (harness.sh) sources each row and fails one whose output holds
