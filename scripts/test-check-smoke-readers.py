@@ -72,7 +72,7 @@ CASES = [
 # row, line) findings. session is a core row in scripts/validate.
 LEAVES = [
     ("a declaring row a later row names", {"a": "# leaves: options\n:\n", "b": "# inputs: scripts/smoke/rows/a.sh\n:\n"}, ["a", "b"], []),
-    ("a declaring row a later row names by a glob", {"a": "# leaves: options\n:\n", "b": "# inputs: scripts/smoke/rows/*\n:\n"}, ["a", "b"], []),
+    ("a declaring row a later row matches only by a glob", {"a": "# leaves: options\n:\n", "b": "# inputs: scripts/smoke/rows/*\n:\n"}, ["a", "b"], [("unreachable-leaves", "a", 1)]),
     ("a declaring core row", {"session": "# leaves: layers\n:\n"}, ["session"], []),
     ("a leaves line below the leading comment block", {"a": ":\n# leaves: shim\n"}, ["a"], []),
     ("a declaring row only an earlier row names", {"a": "# inputs: scripts/smoke/rows/b.sh\n:\n", "b": "# leaves: options\n:\n"}, ["a", "b"], [("unreachable-leaves", "b", 1)]),

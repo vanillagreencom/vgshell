@@ -24,8 +24,9 @@ program in a row that parses JSON from its stdin is `py_reply`'s program:
   unreachable-leaves the row declares state it leaves on a `# leaves:`
                   line in its leading comment block, and it is no core row,
                   `smoke_core` in scripts/validate, and no later row in
-                  rows.list beside DIR names its file on its `# inputs:`
-                  line. A scoped run that holds the row and not that reader
+                  rows.list beside DIR names its file,
+                  `scripts/smoke/rows/<row>.sh`, as a word of its
+                  `# inputs:` line, the word scripts/validate follows. A scoped run that holds the row and not that reader
                   would carry the state into rows that do not read it.
 A read is `json.load(sys.stdin` or `json.loads(sys.stdin`, or any
 `sys.stdin` in a program literal that also parses JSON with `json.load`,
@@ -46,7 +47,6 @@ finding, 2 when the directory or a file cannot be read, printed as
 no row is unreadable too: an empty walk certifies nothing, and so is a
 scripts/validate without one `smoke_core=(...)` line once a row declares.
 """
-import fnmatch
 import os
 import re
 import sys
@@ -285,8 +285,8 @@ def check_leaves(root, texts, findings):
         if row in cores[0].split():
             continue
         later = order[order.index(row) + 1:] if row in order else []
-        globs = [glob for reader in later if reader + ".sh" in texts for line in header(texts[reader + ".sh"]) if line.startswith("# inputs:") for glob in line.split()[2:]]
-        if not any(fnmatch.fnmatchcase(f"scripts/smoke/rows/{name}", glob) for glob in globs):
+        words = [word for reader in later if reader + ".sh" in texts for line in header(texts[reader + ".sh"]) if line.startswith("# inputs:") for word in line.split()[2:]]
+        if f"scripts/smoke/rows/{name}" not in words:
             findings.append(f"unreachable-leaves {os.path.join(root, name)}:{number} row={row} is no core row and no later row in rows.list names it")
 
 

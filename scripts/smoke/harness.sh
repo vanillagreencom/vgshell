@@ -897,13 +897,20 @@ type_keys() { "${shell_env[@]}" wtype "$@"; }
 # the run. The configuration turns its logs on once the flag file exists,
 # and a reload reads it again; `hyprctl eval` would set the option without
 # the reload that applies it, and a reload drops what eval set. Returns 1
-# unless the reload added lines to the rolling log, which holds only the
-# lines logged before the configuration first loaded until then.
+# unless `getoption debug:disable_logs` reads false, polled every 0.1 s for
+# 5 s after the reload answers, so the change lands before the next row's
+# start reading, and the reload added lines to the rolling log, which holds
+# only the lines logged before the configuration first loaded until then.
 compositor_logs_on() {
-  local before after
+  local before after logs_off=""
   before="$(hypr rollinglog)" || return 1
   : >"$rt_dir/compositor-logs" || return 1
   [[ $(hypr reload config-only) == ok ]] || return 1
+  for _ in $(seq 1 50); do
+    logs_off="$(hypr -j getoption debug:disable_logs | py_reply 'import json,sys; print(json.load(sys.stdin)["bool"])')" && [[ $logs_off == False ]] && break
+    sleep 0.1
+  done
+  [[ $logs_off == False ]] || return 1
   after="$(hypr rollinglog)" || return 1
   [[ $after != "$before" ]]
 }
@@ -2574,11 +2581,11 @@ smoke_row() { # NAME [DIR]
   local smoke_row_out="$sandbox/rows/$1.out" smoke_row_result="$sandbox/rows/$1.result"
   smoke_row_marker="qml-smoke: row-end $1 $$ $SRANDOM"
   mkdir -p -- "$sandbox/rows"
-  leak_row_start
   # Every row starts with the pointer at rest, wherever the row before it
   # left it, so a scoped run and the full run start it alike. A row run
   # inside another row starts where that row left it, in both runs.
-  [[ ${#leak_starts[@]} -gt 1 ]] || rest_pointer || fail "$smoke_row_name: the pointer is not put at rest before the row"
+  [[ ${#leak_starts[@]} -gt 0 ]] || rest_pointer || fail "$smoke_row_name: the pointer is not put at rest before the row"
+  leak_row_start
   rm -f -- "$smoke_row_out" "$smoke_row_result"
   {
     # The row reads no argument, as when qml-smoke.sh sourced it.

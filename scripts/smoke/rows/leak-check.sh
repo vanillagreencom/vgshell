@@ -157,6 +157,7 @@ expect_poll "the planted process ends" gone lc_comm "$lc_process"
 
 cat >"$lc_plants/leak-plant-shim.sh" <<'SH'
 printf '#!/bin/sh\nexit 0\n' >"$shim/vgs-leak-plant"
+chmod 755 "$shim/vgs-leak-plant"
 SH
 expect "control: a row that leaves a file in the stand-in directory fails once" 1 lc_planted leak-plant-shim
 expect "control: the failure names the shim class and the file" 1 lc_failed leak-plant-shim "leaves shim: \\+vgs-leak-plant [0-9a-f]{12}"
