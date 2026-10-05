@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The product validation manifest, run explicitly rather than by git hooks.
 #
-# Usage: scripts/validate [AREA] [--changed BASE | --full] [--list]
+# Usage: scripts/validate [AREA] [--changed BASE | --full] [--list] [--skip-unprepared]
 #   AREA is one of: logic, manifests, boundary, cli, tools, repo, offline,
 #   unit, package, qml, nix, all (default: all). One area per call.
 #   repo holds the checks this file makes itself, the whitespace
@@ -27,6 +27,11 @@
 #   worktree, the newest commit since the branch point that holds the tree
 #   the last passing run read, else the default branch's merge base.
 #   --full explicitly selects every row in the area.
+#   A row's input `$NAME` is an environment input it cannot run without,
+#   prepared state such as local models; it matches no path. Such a row run
+#   with NAME unset exits 77. --skip-unprepared, for a host that holds no
+#   prepared state, selects no row whose `$NAME` input is unset or empty and
+#   prints `validate: unselected unset=<NAME> row=<label>` on stderr.
 #   A run that compares prints `validate: base=<commit> source=<source>` on
 #   stderr, the source one of argument, DEV_VALIDATE_BASE,
 #   VGS_VALIDATE_BASE, last-pass or merge-base, in that precedence.
@@ -80,6 +85,7 @@ area_given=false
 change_base=""
 list_only=false
 full_scope=false
+skip_unprepared=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --changed)
@@ -96,6 +102,7 @@ while [[ $# -gt 0 ]]; do
       fi
       full_scope=true; shift ;;
     --list) list_only=true; shift ;;
+    --skip-unprepared) skip_unprepared=true; shift ;;
     *)
       if [[ $area_given == true ]]; then
         printf 'validate: refused: extra-argument=%s\none area per call\n' "$1" >&2; exit 2
@@ -168,7 +175,8 @@ run() { # AREA LABEL CMD...
   esac
 }
 
-# Rows: area | label | command | additional input globs, space-delimited.
+# Rows: area | label | command | additional input globs, space-delimited,
+# and the `$NAME` environment inputs the header names.
 # The command's words that hold a slash are also inputs. Every input glob
 # counts, a root file such as VERSION included.
 rows=(
@@ -391,9 +399,9 @@ rows=(
   "tools|pinned schema checker controls|node scripts/test-schema-check.js|scripts/fixtures/schema-check.js scripts/fixtures/jarvis-brain/openai-chat.schema.json scripts/fixtures/jarvis-voice/assertions.js"
   "tools|Jarvis local artifact controls|python3 scripts/test-jarvis-local.py|shell/plugins/vgs.jarvis/* scripts/lib/jarvis-env.sh scripts/check-jarvis-local.sh scripts/fixtures/jarvis-local/*"
   "tools|Jarvis local setup controls|python3 scripts/test-jarvis-setup.py|shell/plugins/vgs.jarvis/setup-local shell/plugins/vgs.jarvis/requirements-local*.lock shell/plugins/vgs.jarvis/tui/setup-local.sh shell/plugins/vgs.jarvis/artifacts.json shell/plugins/vgs.jarvis/measure-local shell/plugins/vgs.jarvis/fixtures/* scripts/lib/jarvis-env.sh scripts/fixtures/jarvis-setup/* bin/lib/tui.sh scripts/test-install-tree.sh"
-  "tools|Jarvis actual local models|scripts/check-jarvis-local.sh|shell/plugins/vgs.jarvis/* scripts/lib/jarvis-env.sh scripts/fixtures/jarvis-local/*"
+  "tools|Jarvis actual local models|scripts/check-jarvis-local.sh|shell/plugins/vgs.jarvis/* scripts/lib/jarvis-env.sh scripts/fixtures/jarvis-local/* \$JARVIS_LOCAL_MODELS \$JARVIS_LOCAL_PYTHON"
   "tools|Jarvis local speech sidecar controls|python3 scripts/test-jarvis-local-speech.py|shell/plugins/vgs.jarvis/backend/local-speech.py shell/plugins/vgs.jarvis/setup-local shell/plugins/vgs.jarvis/measure-local shell/plugins/vgs.jarvis/artifacts.json shell/plugins/vgs.jarvis/fixtures/* scripts/lib/jarvis-env.sh scripts/check-jarvis-local-speech.sh"
-  "tools|Jarvis actual local speech models|scripts/check-jarvis-local-speech.sh|shell/plugins/vgs.jarvis/backend/local-speech.py shell/plugins/vgs.jarvis/setup-local shell/plugins/vgs.jarvis/measure-local shell/plugins/vgs.jarvis/artifacts.json shell/plugins/vgs.jarvis/fixtures/* scripts/lib/jarvis-env.sh scripts/fixtures/jarvis-local-speech/real.py"
+  "tools|Jarvis actual local speech models|scripts/check-jarvis-local-speech.sh|shell/plugins/vgs.jarvis/backend/local-speech.py shell/plugins/vgs.jarvis/setup-local shell/plugins/vgs.jarvis/measure-local shell/plugins/vgs.jarvis/artifacts.json shell/plugins/vgs.jarvis/fixtures/* scripts/lib/jarvis-env.sh scripts/fixtures/jarvis-local-speech/real.py \$JARVIS_LOCAL_MODELS \$JARVIS_LOCAL_PYTHON"
   "repo|whitespace errors against the base|whitespace_check|"
   "repo|every test file has a row|rows_cover_tests|"
   "repo|the runtime loads nothing under scripts/|runtime_reads_no_scripts|"
@@ -1443,6 +1451,7 @@ if [[ -n $change_base ]]; then
           if [[ $word == */* ]]; then patterns+=("$word"); fi
         done
         for pattern in "${patterns[@]}"; do
+          [[ $pattern == \$* ]] && continue
           if [[ $path == $pattern ]]; then affected[i]=true; known=true; break; fi
         done
       done
@@ -1475,6 +1484,18 @@ for i in "${!rows[@]}"; do
     *) [[ $area != "$row_area" ]] && continue ;;
   esac
   [[ ${affected[i]} == true || $row_area == repo ]] || continue
+  if [[ $skip_unprepared == true ]]; then
+    unprepared=""
+    read -r -a patterns <<<"$inputs"
+    for pattern in "${patterns[@]}"; do
+      name="${pattern#\$}"
+      if [[ $pattern == \$* && -z ${!name:-} ]]; then unprepared="$name"; break; fi
+    done
+    if [[ -n $unprepared ]]; then
+      printf 'validate: unselected unset=%s row=%s\n' "$unprepared" "$label" >&2
+      continue
+    fi
+  fi
   selected_count=$((selected_count + 1))
   if [[ $command == scripts/qml-smoke.sh && $smoke_scoped == true ]]; then
     smoke_rows_selected "${changed_paths[@]}"

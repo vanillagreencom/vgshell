@@ -1828,6 +1828,45 @@ row "control: on the real index a dead link in an untracked document escapes" "$
 test_area=offline
 test_args=()
 
+# A row's $NAME input: --skip-unprepared leaves the row unselected and named
+# while NAME is unset and runs it while NAME is set; without the flag, and in
+# a copy without the rule, the row runs unset and reads 77.
+d="$tmp/unprepared"; fresh "$d"
+python3 - "$d/scripts/validate" <<'PY'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+source = path.read_text()
+assert source.count('rows=(\n') == 1
+path.write_text(source.replace('rows=(\n', 'rows=(\n  "tools|prepared row|scripts/check-prepared.sh|\\$VGS_TEST_PREPARED"\n'))
+PY
+"${base_env[@]}" git -C "$d" commit -q -am prepared-row
+printf '#!/bin/sh\nexit 77\n' >"$d/scripts/check-prepared.sh"; chmod +x "$d/scripts/check-prepared.sh"
+test_area=tools
+test_args=(--changed HEAD --skip-unprepared)
+row "--skip-unprepared names an unset prepared row and runs nothing" "$d" 0 "" \
+  "validate: unselected unset=VGS_TEST_PREPARED row=prepared row" "validate: ok" '!exit=77 row=prepared row'
+row "--skip-unprepared runs a prepared row whose input is set" "$d" 77 "VGS_TEST_PREPARED=1" \
+  "validate: status=not-measured skipped=prepared row" '!validate: unselected'
+test_args=(--changed HEAD)
+row "without --skip-unprepared an unset prepared row runs" "$d" 77 "" \
+  "validate: status=not-measured skipped=prepared row" '!validate: unselected'
+python3 - "$d/scripts/validate" <<'PY'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+source = path.read_text()
+needle = 'if [[ -n $unprepared ]]; then'
+assert source.count(needle) == 1
+path.write_text(source.replace(needle, 'if false; then'))
+PY
+"${base_env[@]}" git -C "$d" commit -q -am control
+test_args=(--changed HEAD --skip-unprepared)
+row "control: a validate without the rule runs the unset prepared row" "$d" 77 "" \
+  "validate: status=not-measured skipped=prepared row"
+test_area=offline
+test_args=()
+
 d="$tmp/arguments"; fresh "$d"
 argument_cases=(
   'missing|--changed|changed-base=missing-or-repeated'
