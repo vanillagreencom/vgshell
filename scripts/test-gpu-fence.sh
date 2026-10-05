@@ -12,6 +12,12 @@
 # promises. The proof lines are pinned whole: the orchestrator reads them
 # as the evidence that a run was restricted.
 #
+# The stop cases send TERM, INT or HUP to a fence whose command has an exit
+# trap that takes a second. The command must get the signal once, and its
+# trap must have ended when the fence returns. The terminal case runs the
+# fence from a real terminal, where a command that changes the terminal's
+# mode or reads it must not stop.
+#
 # The controls plant one defect per rule in a copy of the fence and
 # require the case that rule owns to go red. The first is the fence with
 # no restriction: its namespace covers nothing, and the proof inside
@@ -50,12 +56,17 @@ fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
 # run and nothing else: `none` has no bwrap, `broken` a stand-in that
 # records its call and fails, `real` the host's bubblewrap.
 mkdir -p "$TMP_ROOT/bin-none" "$TMP_ROOT/bin-broken" "$TMP_ROOT/bin-real" "$TMP_ROOT/cwd" "$TMP_ROOT/empty"
-for tool in readlink realpath stat sh touch true; do
+for tool in readlink realpath stat sh sleep stty touch true; do
   tool_path="$(type -P "$tool")" || { echo "test-gpu-fence: missing=$tool" >&2; exit 1; }
   for bin in none broken real; do ln -s -- "$tool_path" "$TMP_ROOT/bin-$bin/$tool"; done
 done
 printf '#!/bin/sh\n: >"%s"\necho "bwrap: stand-in makes no namespace" >&2\nexit 1\n' "$TMP_ROOT/bwrap-called" >"$TMP_ROOT/bin-broken/bwrap"
 chmod +x "$TMP_ROOT/bin-broken/bwrap"
+# The terminal case runs the fence under script(1), which makes a real
+# terminal, inside a time limit.
+for tool in script timeout; do
+  type -P "$tool" >/dev/null || { echo "test-gpu-fence: missing=$tool" >&2; exit 1; }
+done
 namespace=false
 if real_bwrap="$(type -P bwrap)" && "$real_bwrap" --dev-bind / / true 2>/dev/null; then
   namespace=true
@@ -133,6 +144,25 @@ want_report="$(
   printf 'resolves %s\n' "${other_paths[@]}" char/1:3
   printf 'target ../dri/card0\npidns %s\ncwd %s\nenv kept\n' "$(readlink /proc/self/ns/pid)" "$TMP_ROOT/cwd"
 )"
+# What a stopped command does: a line for each TERM, INT or HUP it gets,
+# then an exit trap that ends with a line a second after it starts. It
+# exits as a shell the signal ended does.
+cat >"$TMP_ROOT/stop.sh" <<'SH'
+log="$1"
+trap 'kill "$idle" 2>/dev/null; echo exit-start >>"$log"; sleep 1; echo exit-end >>"$log"' EXIT
+for pair in TERM:143 INT:130 HUP:129; do
+  trap "echo ${pair%:*} >>\"\$log\"; exit ${pair#*:}" "${pair%:*}"
+done
+sleep 10 &
+idle=$!
+echo started >>"$log"
+wait "$idle"
+SH
+# A command that changes the terminal's mode and reads a line typed into it.
+cat >"$TMP_ROOT/tty.sh" <<'SH'
+stty -echo && stty echo && echo mode-set >>"$1"
+read -r line && echo "read=$line" >>"$1"
+SH
 want_proof="$(
   {
     for path in "${amd_paths[@]}"; do printf 'gpu-fence: absent path=%s/amd/dev/%s\n' "$TMP_ROOT" "$path"; done
@@ -210,6 +240,56 @@ unreadable() { # FILE
   roots junk
   stopped "$1" none "sysfs-unreadable path=$TMP_ROOT/junk/sys/class/drm/card1/dev" "${at[@]}"
 }
+# stops_once FILE HOW SIGNAL STATUS: the fence runs stop.sh in the
+# namespace, in a process group of its own as a terminal's job is, and gets
+# SIGNAL. `pid` sends it to the fence's pid and, once the command has it,
+# once more; `twice` sends it to the fence's pid twice at once, as timeout
+# does; `group` sends it to the fence's group, as timeout and a terminal
+# do. The command gets it once, and its exit trap has ended when
+# the fence returns the command's STATUS.
+stops_once() {
+  local file="$1" how="$2" signal="$3" log="$TMP_ROOT/stop.log" fenced i
+  roots amd
+  : >"$log"
+  status=0
+  set -m
+  (cd -- "$TMP_ROOT/cwd" && exec env -i PATH="$TMP_ROOT/bin-real" HOME="$TMP_ROOT" "$BASH" "$file" "${at[@]}" sh "$TMP_ROOT/stop.sh" "$log") \
+    >"$TMP_ROOT/out" 2>"$TMP_ROOT/err" &
+  set +m
+  fenced=$!
+  for ((i = 0; i < 100; i++)); do
+    [[ "$(<"$log")" != started ]] || break
+    sleep 0.05
+  done
+  if [[ $how == group ]]; then
+    kill -s "$signal" -- "-$fenced"
+  elif [[ $how == twice ]]; then
+    kill -s "$signal" -- "$fenced"
+    kill -s "$signal" -- "$fenced"
+  else
+    kill -s "$signal" -- "$fenced"
+    for ((i = 0; i < 100; i++)); do
+      [[ "$(<"$log")" != started$'\n'"$signal"* ]] || break
+      sleep 0.05
+    done
+    kill -s "$signal" -- "$fenced" 2>/dev/null || true
+  fi
+  wait "$fenced" || status=$?
+  [[ $status -eq $4 && "$(<"$log")" == "started"$'\n'"$signal"$'\n'"exit-start"$'\n'"exit-end" ]]
+# The shell reports on stderr a job a signal ended; the status says it.
+} 2>/dev/null
+# on_terminal FILE: the fence runs tty.sh from a real terminal, and a line
+# is typed into it. In a background group of the terminal's own session the
+# command would stop on its mode change or its read.
+on_terminal() {
+  local log="$TMP_ROOT/tty.log" run
+  roots amd
+  : >"$log"
+  printf -v run '%q ' env -i PATH="$TMP_ROOT/bin-real" HOME="$TMP_ROOT" "$BASH" "$1" "${at[@]}" sh "$TMP_ROOT/tty.sh" "$log"
+  status=0
+  { echo typed; sleep 2; } | timeout 5 script -qec "$run" /dev/null >"$TMP_ROOT/out" 2>"$TMP_ROOT/err" || status=$?
+  [[ $status -eq 0 && "$(<"$log")" == "mode-set"$'\n'"read=typed" ]]
+}
 refused() { # FILE WANT ARG...
   local file="$1" want="$2"
   shift 2
@@ -225,6 +305,12 @@ cases=(
   "a host with no amdgpu node runs the command directly|no|runs_directly plain"
   "a view with every amdgpu path gone runs the command directly|no|runs_directly inside"
   "the namespace hides every amdgpu path, keeps the rest and proves both|yes|hides"
+  "TERM to the fence reaches the command once and its exit trap ends before the fence returns|yes|stops_once pid TERM 143"
+  "INT to the fence reaches the command once and its exit trap ends before the fence returns|yes|stops_once pid INT 130"
+  "HUP to the fence reaches the command once and its exit trap ends before the fence returns|yes|stops_once pid HUP 129"
+  "TERM to the fence's process group reaches the command once|yes|stops_once group TERM 143"
+  "two TERMs at once to the fence reach the command once|yes|stops_once twice TERM 143"
+  "a command run from a terminal changes its mode and reads it|yes|on_terminal"
   "a host with no bubblewrap starts nothing|no|no_bwrap"
   "a namespace bubblewrap cannot make starts nothing|no|no_namespace"
   "an amdgpu path that resolves inside starts nothing|no|proof_sees"
@@ -303,8 +389,35 @@ controls=(
   'fence=(bwrap --dev-bind / /' 'fence=(bwrap --unshare-pid --dev-bind / /'
   "the namespace hides every amdgpu path, keeps the rest and proves both"
   "the command's status is lost"
-  'exec "${fence[@]}" "$@" ;;' '"${fence[@]}" "$@" || exit 1 ;;'
+  'exit "$status" ;;' 'exit $((status ? 1 : 0)) ;;'
   "the namespace hides every amdgpu path, keeps the rest and proves both"
+  "the fence hands itself to bubblewrap"
+  '"${fence[@]}" "$@" &' 'exec "${fence[@]}" "$@"'
+  "TERM to the fence reaches the command once and its exit trap ends before the fence returns"
+  "TERM is not handed on"
+  "trap 'forward TERM 143' TERM" ':'
+  "TERM to the fence reaches the command once and its exit trap ends before the fence returns"
+  "INT is not handed on"
+  "trap 'forward INT 130' INT" ':'
+  "INT to the fence reaches the command once and its exit trap ends before the fence returns"
+  "HUP is not handed on"
+  "trap 'forward HUP 129' HUP" ':'
+  "HUP to the fence reaches the command once and its exit trap ends before the fence returns"
+  "a later signal is handed on too"
+  '((forwarded++ == 0)) || return 0' ':'
+  "TERM to the fence reaches the command once and its exit trap ends before the fence returns"
+  "the fence returns when the signal arrives"
+  'while ours "$monitor"; do' 'while false; do'
+  "TERM to the fence reaches the command once and its exit trap ends before the fence returns"
+  "the fence waits once more after a signal"
+  'while ours "$monitor"; do' 'for _ in 1 2; do'
+  "two TERMs at once to the fence reach the command once"
+  "bubblewrap runs in the caller's process group"
+  $'    set -m\n    "${fence[@]}"' '    "${fence[@]}"'
+  "TERM to the fence's process group reaches the command once"
+  "the command stays in the caller's terminal session"
+  '--new-session -- "$BASH"' '-- "$BASH"'
+  "a command run from a terminal changes its mode and reads it"
   "a missing bubblewrap runs the command"
   'command -v bwrap >/dev/null 2>&1 || { fault bwrap-missing; exit 77; }' 'command -v bwrap >/dev/null 2>&1 || exec "$@"'
   "a host with no bubblewrap starts nothing"

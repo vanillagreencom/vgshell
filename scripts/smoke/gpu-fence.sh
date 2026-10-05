@@ -21,11 +21,14 @@
 # namespace maps the caller's own uid and gid, so files of another owner
 # read as nobody's. The PID namespace, the environment, the working
 # directory, the open files and XDG_RUNTIME_DIR with its Wayland socket are
-# the caller's, and the exit status is CMD's. CMD's parent is bubblewrap's
-# monitor, which forwards no signal: a signal sent to that one pid ends the
-# monitor and not CMD, and a caller's wait can return before CMD's own exit
-# handling ends, so stop a run by its process group or its unit. bubblewrap
-# sets no_new_privs, so a setuid program gains nothing inside.
+# the caller's, and the exit status is CMD's. The fence stays the parent of
+# bubblewrap's monitor, which forwards no signal. The monitor runs in a
+# process group of its own and CMD in a session of its own, with no
+# controlling terminal. The first TERM, INT or HUP the fence gets goes to
+# CMD once; the fence drops the later ones, waits for CMD's own exit
+# handling to end and returns its status. A signal to every process of a
+# unit reaches CMD directly as well. bubblewrap sets no_new_privs, so a
+# setuid program gains nothing inside.
 #
 # Before CMD starts inside the namespace, the proof stats every path, with
 # no open, and prints one line each on stderr:
@@ -235,6 +238,34 @@ inside() {
   exec "$@"
 }
 
+# ours PID: true while PID is the fence's child. The fence reaps the
+# monitor only in its own wait and starts no other child after it, so a
+# pid whose parent reads as the fence is still the monitor.
+ours() {
+  local stat=()
+  read -r -a stat 2>/dev/null <"/proc/$1/stat" && [[ ${stat[3]-} == "$$" ]]
+}
+
+# forward SIGNAL STATUS: hand the first TERM, INT or HUP to CMD, the
+# monitor's one child, and drop every later one, so CMD's exit handling
+# gets one signal. A signal can run this again inside a run of it, so the
+# count is read and raised in one command. Before the monitor starts
+# nothing has, and the fence exits with STATUS. Before the monitor has a
+# child, its group holds nothing that has started.
+forwarded=0
+forward() {
+  ((forwarded++ == 0)) || return 0
+  local monitor="${!:-}" child=""
+  [[ -n $monitor ]] || exit "$2"
+  ours "$monitor" || return 0
+  read -r child _ 2>/dev/null <"/proc/$monitor/task/$monitor/children" || true
+  if [[ -n $child ]]; then
+    kill -s "$1" -- "$child" 2>/dev/null || true
+  else
+    kill -s "$1" -- "-$monitor" 2>/dev/null || true
+  fi
+}
+
 case "$mode" in
   check)
     plan
@@ -248,7 +279,10 @@ case "$mode" in
     exposed || exec "$@"
     command -v bwrap >/dev/null 2>&1 || { fault bwrap-missing; exit 77; }
     self="$(readlink -f -- "${BASH_SOURCE[0]}")"
-    fence=(bwrap --dev-bind / / "${rebuild[@]}" -- "$BASH" "$self" --inside "${hidden[@]}" -- "${kept[@]}" --)
+    # CMD gets a session of its own: in the caller's session, with the
+    # monitor's group in the background, a terminal would stop it on a read
+    # or a mode change.
+    fence=(bwrap --dev-bind / / "${rebuild[@]}" --new-session -- "$BASH" "$self" --inside "${hidden[@]}" -- "${kept[@]}" --)
     status=0
     probe="$("${fence[@]}" true 2>&1)" || status=$?
     case "$status" in
@@ -257,5 +291,23 @@ case "$mode" in
       77) printf '%s\n' "$probe" >&2; exit 77 ;;
       *) fault namespace-failed "exit=$status"; printf '%s\n' "$probe" >&2; exit 77 ;;
     esac
-    exec "${fence[@]}" "$@" ;;
+    # bubblewrap's monitor forwards no signal, so the fence stays its parent.
+    # The monitor gets a process group of its own: `set -m` makes it in
+    # parent and child before `&` returns. A signal to the caller's group
+    # then reaches the fence alone.
+    trap 'forward TERM 143' TERM
+    trap 'forward INT 130' INT
+    trap 'forward HUP 129' HUP
+    set -m
+    "${fence[@]}" "$@" &
+    set +m
+    monitor=$!
+    # A trapped signal ends a wait early, and so can one that comes while
+    # the trap runs. The shell keeps the monitor's status for the last wait.
+    while ours "$monitor"; do
+      wait "$monitor" || true
+    done
+    status=0
+    wait "$monitor" || status=$?
+    exit "$status" ;;
 esac
