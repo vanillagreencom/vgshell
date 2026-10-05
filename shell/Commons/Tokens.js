@@ -403,7 +403,12 @@ var TOKENS = {
         },
         variant: {
             primary: variant("button.variant.primary", "{color.accent}", 700, "palette.foreground", "palette.background"),
-            secondary: variant("button.variant.secondary", "{color.inverse}", 500, "palette.background", "palette.background"),
+            secondary: merge(variant("button.variant.secondary", "alpha({palette.background}, 0)", 500, "palette.foreground", "palette.foreground"), {
+                foreground: color("{color.text}"),
+                hover: color("{color.surfaceHover}"),
+                pressed: color("{color.surfaceRaised}"),
+                border: color("{color.borderStrong}")
+            }),
             tertiary: merge(variant("button.variant.tertiary", "{color.surface}", 500, "palette.foreground", "palette.foreground"), {
                 foreground: color("{color.text}"),
                 border: color("{color.border}")
@@ -505,7 +510,9 @@ var TOKENS = {
         height: length("{size.control.md}"),
         radius: length("{radius.sm}"),
         border: length("{border.thin}"),
-        paddingX: length("{control.paddingX}"),
+        // Matches the left inset to the item role capitals' top and
+        // bottom inset inside a medium field.
+        paddingX: step(2.5),
         gap: length("{control.gap}"),
         background: color("{color.surfaceSunken}"),
         borderColor: color("{color.borderControl}"),
@@ -584,6 +591,8 @@ var TOKENS = {
             md: { height: length("{size.control.sm}"), paddingX: length("{space.md}") }
         },
         gap: length("{space.xs}"),
+        // Tracked capitals need more room after the label than before an icon.
+        paddingEnd: length(3),
         tone: {
             // A step above a raised surface, so a neutral chip keeps a
             // fill beside a toned one on every container.
@@ -680,7 +689,7 @@ var TOKENS = {
     },
 
     sectionHeader: {
-        paddingBottom: length("{stack.row}"),
+        paddingBottom: length("{space.md}"),
         gap: length("{row.lineGap}")
     },
 

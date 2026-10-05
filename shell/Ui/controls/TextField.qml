@@ -25,11 +25,20 @@ T.TextField {
     property alias actions: actionRow.data
     readonly property color outline: error ? Theme.textField.error : activeFocus ? Theme.textField.focus : hovered ? Theme.textField.hover : Theme.textField.borderColor
     readonly property real sidePadding: Theme.controlPadding(Theme.textField.paddingX, Theme.textField.radius, Math.max(Theme.textField.height, height), contentHeight)
+    readonly property real trailingGlyphEnd: glyphEndOfTrailing()
+
+    function glyphEndOfTrailing() {
+        for (let i = actionRow.children.length - 1; i >= 0; i--) {
+            const child = actionRow.children[i];
+            if (child.visible && child.width > 0) return child.glyphEnd === undefined ? 0 : child.glyphEnd;
+        }
+        return 0;
+    }
 
     implicitWidth: Theme.size.panel.sm / 2
     implicitHeight: Math.max(Theme.textField.height, contentHeight + topPadding + bottomPadding)
     leftPadding: sidePadding + (leadingIcon !== "" ? Theme.icon.size.md + Theme.textField.gap : 0)
-    rightPadding: sidePadding + (trailing.width > 0 ? trailing.width + Theme.textField.gap : 0)
+    rightPadding: sidePadding + (trailing.width > 0 ? Math.max(0, trailing.width - trailingGlyphEnd) + Theme.textField.gap : 0)
     verticalAlignment: TextInput.AlignVCenter
     echoMode: password ? TextInput.Password : TextInput.Normal
     hoverEnabled: true
@@ -91,7 +100,7 @@ T.TextField {
         id: trailing
         spacing: Theme.textField.gap
         anchors.right: parent.right
-        anchors.rightMargin: root.sidePadding
+        anchors.rightMargin: Math.max(0, root.sidePadding - root.trailingGlyphEnd)
         anchors.verticalCenter: parent.verticalCenter
         Icon {
             visible: root.trailingIcon !== ""

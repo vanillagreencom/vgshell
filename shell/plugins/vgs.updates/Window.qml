@@ -133,8 +133,8 @@ FocusScope {
                     iconName: modelData.icon
                     expandable: modelData.lines.length > 0 || modelData.more !== ""
                     Component.onCompleted: if (index === 0) sections.firstFocus = focusItem
-                    // The count stands in one column whatever the row
-                    // offers: the Update button keeps its room while hidden.
+                    // The count stands beside an Update button only for a
+                    // source that can update.
                     trailing: [
                         Badge {
                             anchors.verticalCenter: parent.verticalCenter
@@ -142,18 +142,14 @@ FocusScope {
                             text: source.modelData.badge
                             tone: source.modelData.badgeTone
                         },
-                        Item {
+                        Button {
+                            id: update
                             anchors.verticalCenter: parent.verticalCenter
-                            width: update.implicitWidth
-                            height: update.implicitHeight
-                            Button {
-                                id: update
-                                visible: source.modelData.updatable
-                                variant: "secondary"
-                                size: "sm"
-                                text: "Update"
-                                onClicked: root.run("source", source.modelData.source)
-                            }
+                            visible: source.modelData.updatable
+                            variant: "secondary"
+                            size: "sm"
+                            text: "Update"
+                            onClicked: root.run("source", source.modelData.source)
                         }
                     ]
 

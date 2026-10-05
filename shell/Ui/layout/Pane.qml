@@ -23,7 +23,7 @@ Item {
     property real cornerRadius: radiusOf(container)
     property bool fitToContent: false
     property real maximumHeight: 0
-    property real gap: Theme.stack.group
+    property real gap: container === "window" ? Theme.stack.section : Theme.stack.group
     property real bodySpacing: Theme.stack.group
     // The width of a divider under the header while the body is scrolled,
     // and its colour.

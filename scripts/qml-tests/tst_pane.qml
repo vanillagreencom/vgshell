@@ -129,6 +129,7 @@ Item {
         function test_header_body_and_footer_share_the_content_edge() {
             compare(pane.contentInset, Theme.inset.window);
             compare(headerSlot(pane).x, pane.contentInset);
+            compare(headerSlot(pane).y, pane.contentInset);
             compare(headerSlot(pane).width, pane.width - 2 * pane.contentInset);
             // The body sits on the content edge; the viewport reaches the
             // ring's room past it.
@@ -138,6 +139,17 @@ Item {
             compare(footerSlot(pane).x, pane.contentInset);
             compare(footerSlot(pane).y, scroll(pane).y + scroll(pane).height - pane.ringRoom + pane.footerGap);
             compare(footerSlot(pane).width, pane.width - 2 * pane.contentInset);
+        }
+
+        function test_container_sets_the_header_to_body_gap() {
+            const windowPane = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nPane { width: 240; height: 160; container: "window"; header: [ Item { width: 10; height: 20 } ]\nItem { width: parent.width; height: 20 } }', root, "windowPane");
+            const panelPane = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nPane { width: 240; height: 160; container: "panel"; header: [ Item { width: 10; height: 20 } ]\nItem { width: parent.width; height: 20 } }', root, "panelPane");
+            compare(windowPane.gap, Theme.stack.section);
+            compare(panelPane.gap, Theme.stack.group);
+            compare(scroll(windowPane).y + windowPane.ringRoom - (headerSlot(windowPane).y + headerSlot(windowPane).height), Theme.stack.section);
+            compare(scroll(panelPane).y + panelPane.ringRoom - (headerSlot(panelPane).y + headerSlot(panelPane).height), Theme.stack.group);
+            windowPane.destroy();
+            panelPane.destroy();
         }
 
         function test_scroll_bar_sits_inside_the_right_inset_strip() {

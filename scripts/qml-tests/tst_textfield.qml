@@ -27,6 +27,12 @@ Item {
         TextField { id: passEscape; width: parent.width; text: "saved"; committedText: "saved"; escapeReverts: true }
     }
     Field { id: field; label: "Name"; hint: "Shown in the bar"; width: 200; y: 120; TextField { id: inner; width: parent.width } }
+    FontMetrics {
+        id: itemMetrics
+        font.family: Theme.text.item.family
+        font.pixelSize: Theme.text.item.size
+        font.weight: Theme.text.item.weight
+    }
     Column {
         id: inlineGrid
         y: 220
@@ -100,9 +106,18 @@ Item {
             compare(iconed.leftPadding, Theme.textField.paddingX + Theme.icon.size.md + Theme.textField.gap);
             compare(iconed.actions.length, 1);
             verify(iconed.rightPadding > plain.rightPadding, "an action reserves space at the end");
+            const glyphRight = clear.mapToItem(iconed, clear.width - clear.glyphEnd, 0).x;
+            fuzzyCompare(glyphRight, iconed.width - Theme.textField.paddingX, 1);
             iconed.text = "abc";
             mouseClick(clear);
             compare(iconed.text, "");
+        }
+
+        function test_text_left_inset_matches_the_capital_inset() {
+            const capInset = Math.round(Theme.textField.height / 2 + itemMetrics.capitalHeight / 2) - itemMetrics.capitalHeight;
+            fuzzyCompare(plain.leftPadding, capInset, 1);
+            const placeholderLeft = placeholder().mapToItem(plain, 0, 0).x;
+            fuzzyCompare(placeholderLeft, capInset, 1);
         }
 
         function test_validator_refuses() {

@@ -8,8 +8,8 @@ import qs.Unit
 // a click on its row, or Space on the focused row, shows the content under
 // the row and turns the chevron up, and a second click hides it again; a
 // click on a control among its trailing items reaches that control and
-// toggles nothing; a row that cannot expand draws no chevron, keeps its room, and a click
-// on it shows nothing.
+// toggles nothing; a row that cannot expand draws no chevron, keeps no
+// chevron room, and a click on it shows nothing.
 Item {
     id: root
     width: 400
@@ -87,14 +87,31 @@ Item {
         }
 
         function test_a_row_that_cannot_expand_stays_closed() {
-            const trailingWidth = row().contentItem.children[2].width;
             disclosure.expandable = false;
-            compare(chevron().opacity, 0, "a row that cannot expand draws its chevron");
-            // The chevron keeps its room, so the trailing items stay put.
-            compare(row().contentItem.children[2].width, trailingWidth);
+            compare(chevron().visible, false, "a row that cannot expand draws its chevron");
             mouseClick(row(), 20, row().height / 2);
             compare(disclosure.expanded, false);
             verify(!line.visible, "a row that cannot expand shows its content");
+        }
+
+        function test_non_expandable_trailing_item_ends_on_the_row_edge() {
+            const closed = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nDisclosure { width: 300; text: "Status"; expandable: false; trailing: [ Badge { text: "ready"; anchors.verticalCenter: parent.verticalCenter } ] }', root, "closedDisclosure");
+            const open = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nDisclosure { width: 300; text: "Status"; trailing: [ Badge { text: "ready"; anchors.verticalCenter: parent.verticalCenter } ] }', root, "openDisclosure");
+            const closedRow = closed.children[0];
+            const openRow = open.children[0];
+            const closedBadge = closedRow.contentItem.children[2].children[0];
+            const openChevron = openRow.contentItem.children[2].children[1];
+            compare(closedBadge.mapToItem(closedRow, closedBadge.width, 0).x, closedRow.width - closedRow.rightPadding);
+            compare(openChevron.mapToItem(openRow, openChevron.width, 0).x, openRow.width - openRow.rightPadding);
+            closed.destroy();
+            open.destroy();
+        }
+
+        function test_list_item_ignores_a_hidden_trailing_button() {
+            const item = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nListItem { width: 300; text: "Status"; trailing: [ Badge { text: "ready"; anchors.verticalCenter: parent.verticalCenter }, Button { text: "Hidden"; visible: false; anchors.verticalCenter: parent.verticalCenter } ] }', root, "hiddenButtonRow");
+            const badge = item.contentItem.children[2].children[0];
+            compare(badge.mapToItem(item, badge.width, 0).x, item.width - item.rightPadding);
+            item.destroy();
         }
 
         function test_a_trailing_control_takes_its_own_click() {

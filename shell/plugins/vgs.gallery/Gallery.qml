@@ -852,6 +852,14 @@ Item {
                         Label { role: "code"; text: "linux 6.1 -> 6.2" }
                         Label { role: "code"; text: "mesa 25.1 -> 25.2" }
                     }
+                    Disclosure {
+                        width: parent.width
+                        text: "No details"
+                        secondary: "Trailing badge meets the row edge"
+                        iconName: "info"
+                        expandable: false
+                        trailing: [ Badge { text: "ready"; tone: "success"; anchors.verticalCenter: parent.verticalCenter } ]
+                    }
                     Divider { width: parent.width }
                     MenuItem { text: "Menu entry"; iconName: "check"; shortcut: "Enter" }
                     MenuItem { text: "Selected menu entry"; iconName: "palette"; checked: true }

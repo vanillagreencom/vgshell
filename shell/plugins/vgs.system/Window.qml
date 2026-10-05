@@ -215,7 +215,7 @@ FocusScope {
                         id: heading
                         width: parent.width
                         visible: root.row !== null
-                        implicitHeight: Math.max(Theme.size.control.md, title.implicitHeight, placed.implicitHeight)
+                        implicitHeight: Math.max(icon.implicitHeight, title.implicitHeight, placed.implicitHeight)
 
                         Icon {
                             id: icon

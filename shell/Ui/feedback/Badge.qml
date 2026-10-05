@@ -34,7 +34,7 @@ Rectangle {
         return Theme.badge.size.sm;
     }
 
-    implicitWidth: 2 * sidePadding + label.opticalWidth + (icon.visible ? icon.width + Theme.badge.gap : 0)
+    implicitWidth: 2 * sidePadding + label.opticalWidth + (icon.visible ? icon.width + Theme.badge.gap : 0) + Theme.badge.paddingEnd
     implicitHeight: sizeTokens.height
     radius: Theme.badge.radius
     color: tokens.background

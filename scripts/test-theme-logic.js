@@ -130,7 +130,7 @@ const DEFAULTS = [
     ["stack.section", 24],
     ["stack.inline", 8],
     ["button.paddingX", 12],
-    ["textField.paddingX", 12],
+    ["textField.paddingX", 10],
     ["textField.height", 32],
     ["segmented.height", 32],
     ["segmented.paddingX", 12],
@@ -157,7 +157,9 @@ const DEFAULTS = [
     ["badge.size.sm.paddingX", 6],
     ["badge.size.md.height", 24],
     ["badge.gap", 4],
+    ["badge.paddingEnd", 3],
     ["badge.size.md.paddingX", 8],
+    ["sectionHeader.paddingBottom", 8],
     ["codeLine.padding", 8],
     ["kbd.paddingX", 6],
     ["kbd.height", 20],
@@ -314,9 +316,9 @@ const ACCEPTED = [
     { tokens: { bar: { active: "#ff5a3680", onActive: "#ffffff" } }, want: [["bar.active", "#ff5a3680"], ["bar.onActive", "#ffffffff"]] },
     // One component value changes, and the values derived from it.
     { tokens: { bar: { active: "#ffffff" } }, want: [["bar.active", "#ffffffff"], ["bar.onActive", "#000000ff"], ["color.accent", "#ff5a36ff"]] },
-    { tokens: { space: { unit: 5 } }, want: [["space.xs", 5], ["space.sm", 8], ["space.xl", 20], ["bar.gap", 10], ["row.paddingX", 15], ["listItem.paddingX", 15], ["field.paddingX", 0], ["stack.row", 5], ["badge.size.sm.paddingX", 8], ["codeLine.padding", 10], ["kbd.paddingX", 8], ["control.paddingX", 15], ["control.sm.gap", 5]] },
+    { tokens: { space: { unit: 5 } }, want: [["space.xs", 5], ["space.sm", 8], ["space.xl", 20], ["bar.gap", 10], ["row.paddingX", 15], ["listItem.paddingX", 15], ["field.paddingX", 0], ["stack.row", 5], ["badge.size.sm.paddingX", 8], ["codeLine.padding", 10], ["kbd.paddingX", 8], ["control.paddingX", 15], ["control.sm.gap", 5], ["textField.paddingX", 13]] },
     // One shared token moves every control that follows the rhythm.
-    { tokens: { control: { paddingX: 12, gap: 5 } }, want: [["button.paddingX", 12], ["textField.paddingX", 12], ["segmented.paddingX", 12], ["button.gap", 5], ["textField.gap", 5], ["listItem.gap", 5], ["menu.item.gap", 5], ["toast.contentGap", 5], ["bar.item.iconGap", 5], ["bar.item.paddingX", 8]] },
+    { tokens: { control: { paddingX: 12, gap: 5 } }, want: [["button.paddingX", 12], ["textField.paddingX", 10], ["segmented.paddingX", 12], ["button.gap", 5], ["textField.gap", 5], ["listItem.gap", 5], ["menu.item.gap", 5], ["toast.contentGap", 5], ["bar.item.iconGap", 5], ["bar.item.paddingX", 8]] },
     // Control sizes move the controls and never the rows' density.
     { tokens: { size: { control: { md: 34, lg: 44 } } }, want: [["textField.height", 34], ["segmented.height", 34], ["menu.item.height", 34], ["menu.maxHeight", 306], ["row.height", 36], ["listItem.height", 36], ["listItem.twoLineHeight", 56]] },
     { tokens: { row: { height: 40, twoLineHeight: 60 } }, want: [["listItem.height", 40], ["listItem.twoLineHeight", 60], ["textField.height", 32]] },
@@ -937,6 +939,7 @@ const GRID_EXCEPTIONS = [
     [/(^border\.|\.border$|[bB]orderWidth$|^divider\.thickness$|^focusRing\.width$|^titleButton\.underline$|^tabs\.indicator$|^avatarGroup\.ringWidth$|^hyprland\.border\.size$)/, "strokes"],
     [/^(icon\.size\.|button\.size\.[^.]+\.icon$|slider\.handle$|radio\.dot$)/, "indicator and icon drawing sizes"],
     [/^(space\.xxs|segmented\.padding|segmented\.gap|toggle\.inset|focusRing\.offset|scrollArea\.barInset|titleButton\.underlineGap)$/, "2 px steps inside one component"],
+    [/^(badge\.paddingEnd|textField\.paddingX)$/, "optical insets inside one component"],
     [/^(space\.sm|badge\.size\.sm\.paddingX|kbd\.paddingX)$/, "6 px padding inside a chip or a key cap"],
     [/^motion\./, "motion distances"]
 ];

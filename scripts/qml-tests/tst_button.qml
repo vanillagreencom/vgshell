@@ -37,6 +37,9 @@ Item {
             tryCompare(primary.background, "color", Qt.color(Theme.button.variant.primary.background));
             compare(String(primary.foreground), String(Qt.color(Theme.button.variant.primary.foreground)));
             tryCompare(secondary.background, "color", Qt.color(Theme.button.variant.secondary.background));
+            compare(secondary.background.color.a, 0);
+            verify(secondary.background.border.width > 0, "the secondary button has an outline");
+            verify(secondary.background.border.color.a > 0, "the secondary button outline is visible");
             compare(primary.height, Theme.size.control.md);
             compare(primary.background.radius, Theme.button.radius);
         }

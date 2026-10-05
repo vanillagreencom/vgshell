@@ -14,7 +14,7 @@ import qs.Unit
 Item {
     id: root
     width: 400
-    height: 820
+    height: 1060
 
     Button { id: button; text: "Publish"; iconName: "check" }
     TextField { id: input; width: 200; y: 40 }
@@ -38,16 +38,28 @@ Item {
         Rectangle { width: 10; height: 10 }
         Rectangle { width: 10; height: 10 }
     }
+    Section {
+        id: describedSection
+        title: "Described"
+        description: "A short description"
+        y: 680
+        width: 300
+        Rectangle { width: 10; height: 10 }
+    }
     Disclosure {
         id: disclosure
         text: "System"
         iconName: "package"
         expanded: true
         width: 300
-        y: 680
+        y: 760
         Rectangle { id: disclosed; width: parent.width; height: 10 }
     }
-    Field { id: inlineField; label: "Version"; inline: true; width: 300; y: 760; Label { role: "item"; text: "0.1.0" } }
+    Field { id: inlineField; label: "Version"; inline: true; width: 300; y: 840; Label { role: "item"; text: "0.1.0" } }
+    Field { id: inlineSwitchSm; label: "Switch sm"; hint: "Hint"; inline: true; width: 300; y: 880; Switch { id: switchSm; size: "sm"; checked: true } }
+    Field { id: inlineSwitchMd; label: "Switch md"; hint: "Hint"; inline: true; width: 300; y: 920; Switch { id: switchMd; checked: true } }
+    Field { id: inlineSegmented; label: "Segments"; hint: "Hint"; inline: true; width: 300; y: 960; SegmentedControl { id: inlineSeg; width: parent.width; model: ["One", "Two"] } }
+    Field { id: inlineTextField; label: "Text"; hint: "Hint"; inline: true; width: 300; y: 1000; TextField { id: inlineTextInput; width: parent.width; text: "abc" } }
     Text {
         id: clearingProbeText
         text: "A message long enough to wrap after the inset grows and makes the line narrower."
@@ -78,6 +90,10 @@ Item {
             const label = item.children.find(child => child.role === "label");
             return label.x - (icon.x + icon.width);
         }
+        function hintGap(field, control) {
+            const hint = field.children[2].children[0];
+            return hint.mapToItem(field, 0, 0).y - control.mapToItem(field, 0, control.height).y;
+        }
 
         function segment(index) { return segmented.children[0].children[index]; }
 
@@ -95,8 +111,8 @@ Item {
             same(() => segmented.height, height, "segmented height");
             same(() => button.leftPadding, pad, "button padding");
             same(() => button.contentItem.x, pad, "button text x");
-            same(() => input.leftPadding, pad, "text field padding");
-            same(() => select.contentItem.x, pad, "select text x");
+            same(() => input.leftPadding, Theme.textField.paddingX, "text field padding");
+            same(() => select.contentItem.x, Theme.textField.paddingX, "select text x");
             same(() => segment(0).contentItem.x, pad, "segment text x");
             same(() => segment(0).width - segment(0).contentItem.x - segment(0).contentItem.width, pad, "segment right padding");
 
@@ -110,10 +126,11 @@ Item {
 
             const gap = Theme.control.gap;
             same(() => gapOf(button.contentItem), gap, "button icon gap");
-            same(() => iconed.leftPadding, pad + Theme.icon.size.md + gap, "text field icon gap");
+            same(() => iconed.leftPadding, Theme.textField.paddingX + Theme.icon.size.md + gap, "text field icon gap");
             same(() => gapOf(item.contentItem), Theme.listItem.iconGap, "list item icon gap");
             same(() => gapOf(entry.contentItem), gap, "menu item icon gap");
             same(() => badgeGap(badge), Theme.badge.gap, "badge icon gap");
+            same(() => badge.implicitWidth, 2 * badge.sidePadding + badge.children.find(child => child.role === "label").opticalWidth + Theme.icon.size.xs + Theme.badge.gap + Theme.badge.paddingEnd, "badge optical width");
             same(() => gapOf(toast.children[0]), gap, "toast icon gap");
             same(() => check.contentItem.leftPadding - check.indicator.width, gap, "checkbox gap");
         }
@@ -122,6 +139,7 @@ Item {
             compare(Theme.control.paddingX, 12);
             compare(Theme.control.gap, 8);
             compare(Theme.badge.gap, 4);
+            compare(Theme.badge.paddingEnd, 3);
             compare(Theme.row.paddingX, 12);
             compare(Theme.field.paddingX, 0);
             compare(Theme.listItem.iconGap, 12);
@@ -201,11 +219,27 @@ Item {
             section.rowSpacing = Theme.stack.group;
             compare(rows.spacing, Theme.stack.group);
             section.rowSpacing = Theme.stack.row;
+            const header = describedSection.children[0];
+            const first = describedSection.children[1].children[0];
+            const description = header.children[1];
+            compare(first.mapToItem(describedSection, 0, 0).y - description.mapToItem(describedSection, 0, description.height).y, Theme.space.md);
+            compare(first.mapToItem(describedSection, 0, 0).y - header.mapToItem(describedSection, 0, header.height).y, 0);
+            compare(section.children[1].children[0].mapToItem(section, 0, 0).y - section.children[0].mapToItem(section, 0, section.children[0].height).y, 0);
+            compare(header.bottomPadding, Theme.space.md);
+            compare(section.children[0].bottomPadding, describedSection.children[0].bottomPadding);
             const inset = Theme.listItem.paddingX + Theme.icon.size.md + Theme.listItem.iconGap;
             compare(disclosed.parent.x, inset);
             compare(disclosed.width, disclosure.width - inset - Theme.listItem.paddingX);
             compare(inlineField.children[1].height, Theme.row.height);
             compare(inlineField.height, Theme.row.height);
+        }
+
+        function test_inline_field_hints_start_under_the_control() {
+            const rows = [[inlineSwitchSm, switchSm], [inlineSwitchMd, switchMd], [inlineSegmented, inlineSeg], [inlineTextField, inlineTextInput]];
+            for (const row of rows) {
+                compare(row[0].children[1].height, Theme.row.height);
+                compare(hintGap(row[0], row[1]), Theme.field.gap);
+            }
         }
 
         function test_toast_text_clears_a_rounded_corner() {

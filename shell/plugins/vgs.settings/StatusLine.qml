@@ -84,7 +84,6 @@ Column {
             text: line.actionLabel
             iconName: "wrench"
             variant: "primary"
-            size: "sm"
             onClicked: line.act()
         }
         Button {
@@ -93,7 +92,6 @@ Column {
             text: "Connect"
             iconName: "plug"
             variant: "primary"
-            size: "sm"
             onClicked: line.connecting = true
         }
         Button {
@@ -102,7 +100,6 @@ Column {
             text: "Disconnect"
             iconName: "unplug"
             variant: "secondary"
-            size: "sm"
             onClicked: line.clearSecret()
         }
     }
@@ -138,7 +135,6 @@ Column {
                 enabled: secret.text !== "" && !line.busy
                 text: "Save"
                 variant: "primary"
-                size: "sm"
                 anchors.verticalCenter: parent.verticalCenter
                 onClicked: line.saveSecret(secret.text)
             }
@@ -146,7 +142,6 @@ Column {
                 id: cancel
                 text: "Cancel"
                 variant: "ghost"
-                size: "sm"
                 anchors.verticalCenter: parent.verticalCenter
                 onClicked: line.cancelConnect()
             }
