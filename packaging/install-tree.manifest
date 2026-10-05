@@ -179,6 +179,7 @@ f share/vgshell/shell/Ui/layout/ScrollBar.qml
 f share/vgshell/shell/Ui/layout/Section.qml
 f share/vgshell/shell/Ui/layout/SectionHeader.qml
 f share/vgshell/shell/Ui/layout/SlimScrollBar.qml
+f share/vgshell/shell/Ui/layout/TabPages.qml
 f share/vgshell/shell/Ui/layout/Tabs.qml
 f share/vgshell/shell/Ui/layout/TouchpadScroll.qml
 f share/vgshell/shell/Ui/layout/TouchpadScrollLogic.js
