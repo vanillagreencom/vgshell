@@ -2,7 +2,8 @@
 // Controls for scripts/check-readme.js. Every row runs this repository's
 // check with `--root` on a scratch copy under its tmp/ of the files the
 // check reads: README.md, VERSION, bin/vgshell, bin/lib/post-install.txt, install.sh,
-// docs/architecture/runtime.md, both Arch PKGBUILDs, and each shipped
+// docs/architecture/runtime.md, both Arch PKGBUILDs, the COPR project file
+// and both Fedora specs, and each shipped
 // plugin's manifest.json and README.md. The pristine copy passes. Each
 // other row plants one defect that reaches one rule in a fresh copy and
 // asserts the exit status and every output line. Every edit asserts it
@@ -25,7 +26,8 @@ const ENV = { PATH: path.dirname(process.execPath) + ":" + process.env.PATH, LC_
 
 const pristine = path.join(tmp, "pristine");
 const files = ["README.md", "VERSION", "bin/vgshell", "bin/lib/post-install.txt", "install.sh", "docs/architecture/runtime.md", "shell/Core/PackageManagers.js",
-    "packaging/arch/vgshell/PKGBUILD", "packaging/arch/vgshell-git/PKGBUILD"];
+    "packaging/arch/vgshell/PKGBUILD", "packaging/arch/vgshell-git/PKGBUILD",
+    "packaging/fedora/copr-project", "packaging/fedora/vgshell.spec", "packaging/fedora/vgshell-git.spec"];
 const plugins = fs.readdirSync(path.join(repo, "shell/plugins"))
     .filter(dir => fs.existsSync(path.join(repo, "shell/plugins", dir, "manifest.json"))).sort();
 // The plugin whose row follows vgs.bar's in the table.
@@ -88,6 +90,8 @@ function commandsWant(tree, more) {
     const v = "v" + version(tree);
     const want = Object.assign({
         "paru -S vgshell-git": ["aur", "aur:vgshell-git", null],
+        "sudo dnf copr enable vanillagreen/vgshell": ["fedora", "copr:vanillagreen/vgshell", null],
+        "sudo dnf install vgshell": ["fedora", "copr:vanillagreen/vgshell/vgshell", null],
         [CURL + " -s -- --git"]: ["curl", "none", null],
         [NIX + " -- run"]: ["nix", "none", "run"],
         "git clone https://github.com/vanillagreencom/vgshell": ["checkout", "none", null],
@@ -155,6 +159,16 @@ const ROWS = [
         1, tree => [`command README.md:${lineOf(tree, "yay -S vgshell-git")} unknown text=yay -S vgshell-git`]],
     ["an AUR package with no recipe is refused", t => replaceIn(t, "README.md", "\nparu -S vgshell-git\n", "\nparu -S vgshell-bin\n"),
         1, tree => [`command README.md:${lineOf(tree, "paru -S vgshell-bin")} channel=aur package=vgshell-bin reason=no-recipe`]],
+    ["a COPR project other than copr-project's is refused", t => replaceIn(t, "README.md", "\nsudo dnf copr enable vanillagreen/vgshell\n", "\nsudo dnf copr enable vanillagreen/vgs\n"),
+        1, tree => [`command README.md:${lineOf(tree, "sudo dnf copr enable vanillagreen/vgs")} channel=fedora project=vanillagreen/vgs want=vanillagreen/vgshell`]],
+    ["a copr-project naming another project moves the README's want", t => replaceIn(t, "packaging/fedora/copr-project", "\nproject vanillagreen/vgshell\n", "\nproject vanillagreen/planted\n"),
+        1, tree => [`command README.md:${lineOf(tree, "sudo dnf copr enable vanillagreen/vgshell")} channel=fedora project=vanillagreen/vgshell want=vanillagreen/planted`]],
+    ["a copr-project with no project line is unreadable", t => replaceIn(t, "packaging/fedora/copr-project", "\nproject vanillagreen/vgshell\n", "\n"),
+        2, () => ["check-readme: unreadable: packaging/fedora/copr-project: no `project OWNER/NAME` line"]],
+    ["a dnf package with no spec is refused", t => replaceIn(t, "README.md", "\nsudo dnf install vgshell\n", "\nsudo dnf install vgshell-bin\n"),
+        1, tree => [`command README.md:${lineOf(tree, "sudo dnf install vgshell-bin")} channel=fedora package=vgshell-bin reason=no-spec`]],
+    ["a dnf install of vgshell-git passes", t => replaceIn(t, "README.md", "\nsudo dnf install vgshell\n", "\nsudo dnf install vgshell-git\n"),
+        0, tree => [ok(tree)]],
     ["a curl option install.sh does not parse is refused", t => replaceIn(t, "README.md", "/install.sh | bash -s -- --git\n", "/install.sh | bash -s -- --planted\n"),
         1, tree => [`command README.md:${curlLine(tree, " -s -- --planted")} channel=curl option=--planted reason=not-in-install.sh`]],
     ["a curl --version other than v<VERSION> is refused", t => replaceIn(t, "README.md", "/install.sh | bash -s -- --git\n", "/install.sh | bash -s -- --version v0.0.0-planted\n"),

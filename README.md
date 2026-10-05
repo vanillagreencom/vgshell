@@ -22,6 +22,13 @@ paru -S vgshell-git
 
 On Arch, the curl install and checkout need an installed AUR helper: paru or yay.
 
+Fedora 44, answering `y` to each prompt:
+
+```bash
+sudo dnf copr enable vanillagreen/vgshell
+sudo dnf install vgshell
+```
+
 Any distribution:
 
 ```bash

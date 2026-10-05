@@ -65,7 +65,7 @@ Both take `--dry-run`, which makes every check and changes nothing outside `dist
 
    ```bash
    scripts/publish-aur.sh --dry-run vgshell vgshell-git
-   AUR_SSH_KEY_FILE=~/.ssh/aur scripts/publish-aur.sh vgshell vgshell-git
+   AUR_SSH_KEY_FILE=<the AUR account's private key> scripts/publish-aur.sh vgshell vgshell-git
    ```
 
 7. Rebuild the Fedora package: [distribution-fedora.md § Publication](architecture/distribution-fedora.md#publication).

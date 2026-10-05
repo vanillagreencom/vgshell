@@ -6,7 +6,7 @@
 //
 // DIR, this repository by default, holds the files read: README.md,
 // VERSION, bin/vgshell, bin/lib/post-install.txt, install.sh,
-// docs/architecture/runtime.md, shell/Core/PackageManagers.js, packaging/arch/ and shell/plugins/. bin/vgshell-scan always comes from this
+// docs/architecture/runtime.md, shell/Core/PackageManagers.js, packaging/arch/, packaging/fedora/ and shell/plugins/. bin/vgshell-scan always comes from this
 // script's own repository and lists DIR's plugins.
 //
 // Rules. Each finding is one line, `<rule> README.md:<line> <detail>`:
@@ -18,6 +18,10 @@
 //   command    every line of every ```bash fence in § Install, with a `#`
 //              comment removed, is one command of one channel:
 //                aur       `paru -S <pkg>`, <pkg> a directory under packaging/arch/
+//                fedora    `sudo dnf copr enable <project>`, <project> the
+//                          `project` line of packaging/fedora/copr-project,
+//                          or `sudo dnf install <pkg>`, <pkg> a spec
+//                          packaging/fedora/<pkg>.spec
 //                curl      `curl -fsSL <INSTALL_URL> | bash`, or the same with
 //                          `| bash -s -- <options>`: each option one that
 //                          install.sh's option parser accepts, and a
@@ -53,7 +57,8 @@
 // { block, line, channel, needs, vgshell, archHelpers, command }. block counts the bash
 // fences of § Install from 1. line is the command's line in README.md.
 // needs is `release:v<VERSION>` for a curl release install and a nix run
-// of the tag, `aur:<pkg>` for an AUR install, else `none`: what must be
+// of the tag, `aur:<pkg>` for an AUR install, `copr:<project>` for the COPR
+// enable, `copr:<project>/<pkg>` for a dnf install, else `none`: what must be
 // published before the command can run. vgshell is the vgshell arguments the
 // command runs, else null. archHelpers names the README prerequisites for
 // the Arch image. scripts/readme-install.sh reads these lines.
@@ -125,6 +130,14 @@ const vgshellCommands = (() => {
 })();
 
 const installText = readText("install.sh");
+
+// The COPR project, OWNER/NAME, from the `project` line of copr-project.
+const coprProject = (() => {
+    const rel = "packaging/fedora/copr-project";
+    const m = /^project (\S+\/\S+)$/m.exec(readText(rel));
+    if (m === null) unreadable(rel, "no `project OWNER/NAME` line");
+    return m[1];
+})();
 
 // The long options of the `case "$1" in` arms inside install.sh's argument
 // loop, `while (($# > 0)); do`.
@@ -271,6 +284,21 @@ function classify(command, n) {
             return null;
         }
         return { channel: "aur", needs: "aur:" + pkg, vgshell: null };
+    }
+    if ((m = /^sudo dnf copr enable (\S+)$/.exec(command)) !== null) {
+        if (m[1] !== coprProject) {
+            finding("command", n, `channel=fedora project=${m[1]} want=${coprProject}`);
+            return null;
+        }
+        return { channel: "fedora", needs: "copr:" + coprProject, vgshell: null };
+    }
+    if ((m = /^sudo dnf install (\S+)$/.exec(command)) !== null) {
+        const pkg = m[1];
+        if (!fs.existsSync(path.join(root, "packaging", "fedora", pkg + ".spec"))) {
+            finding("command", n, `channel=fedora package=${pkg} reason=no-spec`);
+            return null;
+        }
+        return { channel: "fedora", needs: `copr:${coprProject}/${pkg}`, vgshell: null };
     }
     const curl = `curl -fsSL ${INSTALL_URL} | bash`;
     if (command === curl || command.startsWith(curl + " ")) {

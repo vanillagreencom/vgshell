@@ -5,14 +5,18 @@
 # runs a copy of the runner in a scratch tree holding the files
 # scripts/check-readme.js reads, and pins the exit status and the keyed
 # first line. The rows: an unknown argument, a README check-readme refuses,
-# no podman, an AUR probe that fails or answers no result list, a release
-# probe that fails, a curl download that fails with no output, and each
-# fence in its own container. Under STUB_PODMAN_WORKS the stub podman runs
-# each `exec` on the host in a scratch home, where every command the README
-# names is a stub, and records each container it starts and each command it
-# runs. The controls: a runner copy that reads a failed release probe as an
-# answer must fail the release-probe row, and one without pipefail must
-# fail the download row.
+# no podman, an AUR probe that fails or answers no result list, a COPR
+# probe that fails or answers neither 200 nor 404, a COPR package with no
+# succeeded build, a release probe that fails, a curl download that fails
+# with no output, each fence in its own container, and dnf answered `y`.
+# Under STUB_PODMAN_WORKS the stub podman runs each `exec` on the host in a
+# scratch home, where every command the README names is a stub, and records
+# each container it starts and each command it runs. COPR answers 404 unless
+# STUB_COPR_PUBLISHED is set, so the rows that plant no COPR state skip the
+# Fedora fence. The controls: a runner copy that reads a failed release or
+# COPR probe as an answer must fail its probe row, one without pipefail must
+# fail the download row, and one that answers dnf with the default must
+# fail the `y` row.
 set -euo pipefail
 
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"
@@ -29,6 +33,7 @@ fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
 tree="$tmp/tree"
 files=(README.md VERSION bin/vgshell bin/vgshell-scan bin/lib/post-install.txt bin/lib/qml-library.js install.sh docs/architecture/runtime.md shell/Core/PackageManagers.js
   packaging/arch/vgshell/PKGBUILD packaging/arch/vgshell-git/PKGBUILD
+  packaging/fedora/copr-project packaging/fedora/vgshell.spec packaging/fedora/vgshell-git.spec
   scripts/readme-install.sh scripts/check-readme.js)
 for dir in "$repo"/shell/plugins/*/; do
   dir="${dir%/}"
@@ -81,7 +86,7 @@ case "$1" in
     done
     container="$2"
     case "$container" in
-      vgs-readme-install-2.*|vgs-readme-install-4.*) export STUB_VERSION="${STUB_CHECKOUT_VERSION:-$STUB_VERSION}" ;;
+      vgs-readme-install-3.*|vgs-readme-install-5.*) export STUB_VERSION="${STUB_CHECKOUT_VERSION:-$STUB_VERSION}" ;;
       *) export STUB_VERSION="${STUB_PACKAGE_VERSION:-$STUB_VERSION}" ;;
     esac
     [[ ! -e $STUB_RECORD.$container.nix ]] || export PATH="$STUB_NIX_PATH"
@@ -94,8 +99,20 @@ esac
 EOF
 cat >"$stubs/curl" <<'EOF'
 #!/usr/bin/env bash
-# The AUR probe answers from STUB_CURL_*; a README download from
+# The AUR probe answers from STUB_CURL_*; the COPR probe from STUB_COPR_*,
+# its body and then the status line `-w` asks for; a README download from
 # STUB_FETCH_EXIT, failing with no output, else an empty script.
+if [[ $* == *copr.fedorainfracloud.org* ]]; then
+  [[ -z ${STUB_COPR_EXIT:-} ]] || { echo "curl: (7) stub failure" >&2; exit "$STUB_COPR_EXIT"; }
+  if [[ -z ${STUB_COPR_PUBLISHED:-} ]]; then printf '{"error": "stub"}\n404'; exit 0; fi
+  if [[ $* == *packagename=* ]]; then
+    if [[ -n ${STUB_COPR_UNBUILT:-} ]]; then body='{"builds": {"latest_succeeded": null}}'; else body='{"builds": {"latest_succeeded": {"id": 1}}}'; fi
+  else
+    body='{"full_name": "vanillagreen/vgshell"}'
+  fi
+  printf '%s\n%s' "$body" "${STUB_COPR_CODE:-200}"
+  exit 0
+fi
 if [[ $* == *aur.archlinux.org* ]]; then
   [[ -z ${STUB_CURL_EXIT:-} ]] || { echo "curl: (7) stub failure" >&2; exit "$STUB_CURL_EXIT"; }
   printf '%s\n' "$STUB_CURL_OUT"
@@ -112,6 +129,19 @@ EOF
 cat >"$stubs/paru" <<'EOF'
 #!/usr/bin/env bash
 [[ ${1:-} != --version ]] || echo "vgshell $STUB_VERSION"
+exit 0
+EOF
+cat >"$stubs/sudo" <<'EOF'
+#!/usr/bin/env bash
+exec "$@"
+EOF
+cat >"$stubs/dnf" <<'EOF'
+#!/usr/bin/env bash
+# Under STUB_REQUIRE_YES, dnf's default no declines, as dnf does.
+if [[ -n ${STUB_REQUIRE_YES:-} ]]; then
+  read -r answer || exit 1
+  [[ $answer == y ]] || exit 1
+fi
 exit 0
 EOF
 cat >"$stubs/nix" <<'EOF'
@@ -178,18 +208,33 @@ curl_command="curl -fsSL $curl_url | bash -s -- --git"
 curl_line="$(grep -n -F -x -- "$curl_command" "$tree/README.md")" || { echo "test-readme-install: readme=no-curl-line"; exit 1; }
 curl_line="${curl_line%%:*}"
 download_first="readme-install: refused: line=$curl_line exit=22 command=$curl_command"
+row "a failed COPR probe is not measured" 77 "readme-install: status=not-measured reason=copr-probe need=copr:vanillagreen/vgshell" "$stubbed" STUB_CURL_OUT="$empty_aur" STUB_COPR_EXIT=7 --
+row "a COPR answer neither 200 nor 404 is not measured" 77 "readme-install: status=not-measured reason=copr-probe need=copr:vanillagreen/vgshell http=500" "$stubbed" STUB_CURL_OUT="$empty_aur" STUB_COPR_PUBLISHED=1 STUB_COPR_CODE=500 --
 row "a curl download that fails with no output is refused" 1 "$download_first" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" STUB_FETCH_EXIT=22 --
 aur_first="$(grep -n -F -x -- "paru -S vgshell-git" "$tree/README.md")" || { echo "test-readme-install: readme=no-paru-line"; exit 1; }
-row "the published commands run" 0 "readme-install: ok line=${aur_first%%:*} channel=aur exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT='{"results":[{"Name":"vgshell-git"}]}' --
+published=("$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT='{"results":[{"Name":"vgshell-git"}]}' STUB_COPR_PUBLISHED=1)
+row "the published commands run" 0 "readme-install: ok line=${aur_first%%:*} channel=aur exit=0 seconds=*" "${published[@]}" --
 # Each command the record names, after its fence's number in the README.
-fence_want=$'1 paru -S vgshell-git\n1 vgshell --version\n2 '"$curl_command"$'\n2 ~/.local/bin/vgshell --version\n2 ~/.local/bin/vgshell version --json\n3 nix run github:vanillagreencom/vgshell -- run\n3 nix run github:vanillagreencom/vgshell -- --version\n4 git clone https://github.com/vanillagreencom/vgshell\n4 vgshell/bin/vgshell run\n4 vgshell/bin/vgshell --version\n4 vgshell/bin/vgshell version --json'
+fence_want=$'1 paru -S vgshell-git\n1 vgshell --version\n2 sudo dnf copr enable vanillagreen/vgshell\n2 sudo dnf install vgshell\n2 vgshell --version\n3 '"$curl_command"$'\n3 ~/.local/bin/vgshell --version\n3 ~/.local/bin/vgshell version --json\n4 nix run github:vanillagreencom/vgshell -- run\n4 nix run github:vanillagreencom/vgshell -- --version\n5 git clone https://github.com/vanillagreencom/vgshell\n5 vgshell/bin/vgshell run\n5 vgshell/bin/vgshell --version\n5 vgshell/bin/vgshell version --json'
 fence_have="$(sed -n -E 's/^exec vgs-readme-install-([0-9]+)\.[0-9]+ /\1 /p' -- "$record")"
 fence_starts="$(sed -n -E 's/^start vgs-readme-install-([0-9]+)\.[0-9]+$/\1/p' -- "$record")"
-if [[ $fence_have == "$fence_want" && $fence_starts == $'1\n2\n3\n4' ]]; then
+if [[ $fence_have == "$fence_want" && $fence_starts == $'1\n2\n3\n4\n5' ]]; then
   ok "each fence runs in its own container"
 else
   fail "each fence runs in its own container"
   sed 's/^/        /' -- "$record"
+fi
+
+row "dnf's prompts are answered y" 0 "readme-install: ok line=${aur_first%%:*} channel=aur exit=0 seconds=*" "${published[@]}" STUB_REQUIRE_YES=1 --
+dnf_line="$(grep -n -F -x -- "sudo dnf install vgshell" "$tree/README.md")" || { echo "test-readme-install: readme=no-dnf-line"; exit 1; }
+dnf_line="${dnf_line%%:*}"
+row "a COPR package with no succeeded build is not measured" 77 "readme-install: ok line=${aur_first%%:*} channel=aur exit=0 seconds=*" "${published[@]}" STUB_COPR_UNBUILT=1 --
+if grep -qxF "readme-install: status=not-measured reason=unpublished line=$dnf_line needs=copr:vanillagreen/vgshell/vgshell" <<<"$row_output" &&
+  grep -q -E "^readme-install: ok line=$((dnf_line - 1)) channel=fedora " <<<"$row_output"; then
+  ok "the unbuilt package alone is unpublished"
+else
+  fail "the unbuilt package alone is unpublished"
+  printf '%s\n' "$row_output" | sed 's/^/        /'
 fi
 
 # readme_edit OLD NEW: replace OLD, which must occur once, in the tree's
@@ -258,6 +303,13 @@ control "a runner that reads a failed release probe as an answer" \
   "release probe" 77 "readme-install: status=not-measured reason=release-probe tag=v$version" "${release_probe[@]}"
 cp -p -- "$tmp/README.md.orig" "$tree/README.md"
 # shellcheck disable=SC2016
+control "a runner that reads a failed COPR probe as an answer" \
+  '"$url" 2>&1)" || not_measured "copr-probe need=$1" "$out"' '"$url" 2>&1)" || true' \
+  "COPR probe" 77 "readme-install: status=not-measured reason=copr-probe need=copr:vanillagreen/vgshell" "$stubbed" STUB_CURL_OUT="$empty_aur" STUB_COPR_EXIT=7 --
+# shellcheck disable=SC2016
+control "a runner that answers dnf with its default" "fedora) wrapper='yes y |" "fedora) wrapper='yes \"\" |" \
+  "dnf answer" 0 "readme-install: ok line=${aur_first%%:*} channel=aur exit=0 seconds=*" "${published[@]}" STUB_REQUIRE_YES=1 --
+# shellcheck disable=SC2016
 control "a runner without pipefail" 'printf -v argv "%q " timeout "$1" bash -o pipefail -c "$2"' 'printf -v argv "%q " timeout "$1" bash -c "$2"' \
   "download" 1 "$download_first" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" STUB_FETCH_EXIT=22 --
 
@@ -278,8 +330,8 @@ control "an unchecked packaged version" '[[ $version_out == "vgshell $(<"$repo/V
   "package version" 1 "readme-install: ok line=${aur_first%%:*} channel=aur exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT='{"results":[{"Name":"vgshell-git"}]}' STUB_PACKAGE_VERSION=broken --
 
 # shellcheck disable=SC2016
-control "the Nix image without script cannot use the Arch wrapper" '[[ ${block_image[$block]} == arch ]]' 'true' \
-  "Nix image" 0 "readme-install: ok line=${aur_first%%:*} channel=aur exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT='{"results":[{"Name":"vgshell-git"}]}' --
+control "the Nix image without script cannot use the Arch wrapper" '    arch) wrapper=' '    arch|nix) wrapper=' \
+  "Nix image" 0 "readme-install: ok line=${aur_first%%:*} channel=aur exit=0 seconds=*" "${published[@]}" --
 
 if ((failures > 0)); then
   echo "test-readme-install: failed=$failures"

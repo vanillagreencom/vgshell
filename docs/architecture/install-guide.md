@@ -9,6 +9,7 @@ Covers: README.md, scripts/check-readme.js, scripts/test-check-readme.js, script
 | Fact | Source |
 |---|---|
 | Arch: `paru -S <pkg>`, each package in its own fence | the recipes under `packaging/arch/` |
+| Fedora: `sudo dnf copr enable <project>`, then `sudo dnf install <pkg>` | the `project` line of `packaging/fedora/copr-project`, and the specs under `packaging/fedora/` |
 | The install script: `curl -fsSL <main install.sh> \| bash`, and `bash -s -- <options>` | the option parser of `install.sh`; a `--version` value is `v` plus `VERSION` |
 | Nix: `nix run github:vanillagreencom/vgshell -- <vgshell args>`, the flake on `main`, or the tag with `vgshell/v<VERSION>` | the usage header of `bin/vgshell` for the command, and `VERSION` for a tag |
 | A checkout: `git clone https://github.com/vanillagreencom/vgshell`, then `vgshell/bin/vgshell <args>` | the usage header of `bin/vgshell` |
@@ -33,7 +34,8 @@ The plugin table is generated, never written by hand. `check-readme.js --write-p
 
 - The aur, curl and checkout commands run in an `archlinux:latest` image with Quickshell, Hyprland, node, python and git. The image adds the AUR helper named by the README. They run as an unprivileged user with a controlling terminal and a login session's `HOME` and `XDG_RUNTIME_DIR`.
 - The nix command runs in `nixos/nix`.
-- Each fence runs top to bottom in one fresh container, so each alternative goes in its own fence. Every prompt gets an empty answer, so it takes its default.
+- The fedora commands run in a `fedora:44` image with sudo, as the same unprivileged user. dnf's prompts default to no, so the runner answers `y` to each, as the README tells the user to.
+- Each fence runs top to bottom in one fresh container, so each alternative goes in its own fence. Outside the Fedora image every prompt gets an empty answer, so it takes its default.
 - A command runs under `pipefail`, so a `curl ... | bash` whose download fails fails too, though bash exits 0 on an empty script.
 - After an install or a shell command, the runner checks the installed version against `VERSION`: packaged installs print it with `--version`; checkout installs report it with `version --json`, and their displayed version must match that report.
 - A command passes on exit 0. A command that runs `vgshell run` passes when it exits 78 at the Hyprland floor, because no Hyprland runs in a container.
@@ -44,7 +46,8 @@ The curl, untagged nix and checkout commands read `main` on GitHub, so the runne
 
 - A curl release install and a nix run of the tag need the tag `v<VERSION>`. The runner asks `git ls-remote --tags`.
 - An AUR install needs its package in the AUR. The runner asks the AUR RPC info query.
+- The COPR enable needs the COPR project, and a dnf install needs a succeeded build of its package there. The runner asks the COPR API; a 404 is unpublished.
 - A command whose need is not published is not measured. The rest of its fence still runs. The runner names each such command and exits 77, which is not a pass.
 - A probe that fails is not measured either. It is never read as unpublished.
 
-The README's commands need no tag. `paru -S vgshell-git` needs its AUR package; every other command needs nothing published.
+The README's commands need no tag. `paru -S vgshell-git` needs its AUR package, and the Fedora fence needs COPR `vanillagreen/vgshell` with a `vgshell` build; every other command needs nothing published.

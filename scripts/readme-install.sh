@@ -7,19 +7,21 @@
 # scripts/fedora-container.sh: docs/architecture/install-guide.md § The runner.
 # The commands come from `node scripts/check-readme.js --commands` alone, so
 # a README that check refuses is refused here first. Each command runs as
-# the README prints it, so it installs from GitHub, the AUR and the Nix
-# flake at their published state, never from this working tree: the curl,
-# untagged nix and checkout commands read `main`.
+# the README prints it, so it installs from GitHub, the AUR, COPR and the
+# Nix flake at their published state, never from this working tree: the
+# curl, untagged nix and checkout commands read `main`.
 #
 # A command whose needs are unpublished is not measured: `release:<tag>`
-# while `git ls-remote --tags` of the repository has no such tag, and
-# `aur:<pkg>` while the AUR RPC info query finds no such package. The rest
-# of its block still runs. A probe that fails is not measured either, never
-# read as unpublished.
+# while `git ls-remote --tags` of the repository has no such tag,
+# `aur:<pkg>` while the AUR RPC info query finds no such package,
+# `copr:<owner>/<project>` while the COPR API answers 404 for the project,
+# and `copr:<owner>/<project>/<pkg>` while it answers 404 for the package
+# or the package has no succeeded build. The rest of its block still runs.
+# A probe that fails is not measured either, never read as unpublished.
 #
 # Each bash fence of the section runs top to bottom in one fresh container,
 # in the home directory, with an empty line on stdin for every prompt, so
-# each prompt takes its default answer. A command runs under pipefail, so a
+# each prompt takes its default answer, except in the Fedora image. A command runs under pipefail, so a
 # `curl ... | bash` whose download fails fails, though bash exits 0 on the
 # empty script. Each fence is one alternative the README offers, in the
 # image of its channel:
@@ -33,6 +35,11 @@
 #     directory. script(1) supplies the controlling terminal for prompts.
 #   - nix commands as root in docker.io/nixos/nix:2.35.2 with flakes on and
 #     scripts/test-flake.sh's store volume, so the two share downloads.
+#   - fedora commands in a registry.fedoraproject.org/fedora:44 image
+#     prepared once per run with sudo and the user `user`, with passwordless
+#     sudo inside the container alone. The commands run as `user`, with the
+#     same HOME and XDG_RUNTIME_DIR. dnf's prompts default to no, so every
+#     prompt there gets `y`, the answer the README tells the user to give.
 # A command passes on exit 0. A command whose vgshell arguments are `run`
 # passes when it exits 78 refusing `preflight=hyprland`, since no Hyprland
 # runs in a container: with `have=unknown` in the Arch image, where hyprctl
@@ -51,8 +58,8 @@
 # Nothing runs against the host's packages, /etc or the live session. The
 # script writes under this repository's tmp/ only: tmp/readme-install.<pid>/
 # holds the logs and is removed on exit, and tmp/readme-install-cache/ holds
-# the prepared image's pacman downloads, kept so a rerun downloads no
-# package it already has. The prepared image and every container are
+# the prepared Arch image's pacman downloads, kept so a rerun downloads no
+# package it already has. The prepared images and every container are
 # removed on exit.
 #
 # Output, one keyed line each: `readme-install: ok line=<n> channel=<c>
@@ -61,7 +68,7 @@
 # first, then the command's output, exit 1: a command failed, or
 # check-readme refused the README. `readme-install: status=not-measured
 # reason=<key> ...`, exit 77: podman-missing, image-pull, container-setup,
-# container-start, release-probe, aur-probe, or `unpublished` with the
+# container-start, release-probe, aur-probe, copr-probe, or `unpublished` with the
 # command's line and needs, one line each and then a count; that is not a
 # pass. Exit 2: an argument.
 set -euo pipefail
@@ -71,6 +78,8 @@ repo="$(cd -- "$(dirname -- "$self")/.." && pwd -P)"
 arch_image='docker.io/library/archlinux:latest'
 nix_image='docker.io/nixos/nix:2.35.2'
 nix_volume='vgs-validate-nix-2.35.2'
+fedora_image='registry.fedoraproject.org/fedora:44'
+copr_api='https://copr.fedorainfracloud.org/api_3'
 repo_url='https://github.com/vanillagreencom/vgshell'
 command_seconds=1200
 
@@ -90,7 +99,7 @@ not_measured() { # REASON [DETAIL...]
 
 case "${1:-}" in
   "") ;;
-  -h|--help) sed -n '2,64{s/^# \{0,1\}//;p}' "$self"; exit 0 ;;
+  -h|--help) sed -n '2,72{s/^# \{0,1\}//;p}' "$self"; exit 0 ;;
   *) refuse 2 "argument=$1" ;;
 esac
 [[ $# -le 1 ]] || refuse 2 "argument=$2"
@@ -111,12 +120,15 @@ command -v podman >/dev/null 2>&1 || not_measured podman-missing "install podman
 scratch="$repo/tmp/readme-install.$$"
 cache="$repo/tmp/readme-install-cache"
 prepared="localhost/vgs-readme-install:$$"
+fedora_prepared="localhost/vgs-readme-install-fedora:$$"
 containers=()
 prepared_made=false
+fedora_prepared_made=false
 cleanup() {
   local name
   for name in "${containers[@]}"; do podman rm -f -t 0 -- "$name" >/dev/null 2>&1 || true; done
   [[ $prepared_made == false ]] || podman rmi -f -- "$prepared" >/dev/null 2>&1 || true
+  [[ $fedora_prepared_made == false ]] || podman rmi -f -- "$fedora_prepared" >/dev/null 2>&1 || true
   rm -rf -- "$scratch" 2>/dev/null || podman unshare rm -rf -- "$scratch"
 }
 trap cleanup EXIT
@@ -142,20 +154,48 @@ if (!Array.isArray(answer.results)) throw new Error("no results list");
 console.log(answer.results.some(r => r.Name === name) ? "yes" : "no");' "$out" "${1#aur:}" 2>&1)" ||
         not_measured "aur-probe package=${1#aur:}" "$out"
       published[$1]="$out" ;;
+    copr:*)
+      local spec="${1#copr:}" owner project pkg="" url
+      owner="${spec%%/*}" project="${spec#*/}"
+      if [[ $project == */* ]]; then pkg="${project#*/}" project="${project%%/*}"; fi
+      if [[ -n $pkg ]]; then
+        url="$copr_api/package?ownername=$owner&projectname=$project&packagename=$pkg&with_latest_succeeded_build=true"
+      else
+        url="$copr_api/project?ownername=$owner&projectname=$project"
+      fi
+      # The body, then the HTTP status on a line of its own.
+      out="$(curl -sS --max-time 20 -w '\n%{http_code}' "$url" 2>&1)" || not_measured "copr-probe need=$1" "$out"
+      case "${out##*$'\n'}" in
+        404) published[$1]=no ;;
+        200)
+          out="$(node -e '
+const [answer, pkg] = [JSON.parse(process.argv[1]), process.argv[2]];
+if (pkg === "") {
+    if (typeof answer.full_name !== "string") throw new Error("no project full_name");
+    console.log("yes");
+} else {
+    if (answer.builds === null || typeof answer.builds !== "object" || !("latest_succeeded" in answer.builds)) throw new Error("no latest_succeeded field");
+    console.log(answer.builds.latest_succeeded === null ? "no" : "yes");
+}' "${out%$'\n'*}" "$pkg" 2>&1)" || not_measured "copr-probe need=$1" "$out"
+          published[$1]="$out" ;;
+        *) not_measured "copr-probe need=$1 http=${out##*$'\n'}" "${out%$'\n'*}" ;;
+      esac ;;
     *) refuse 1 "needs=$1" "check-readme printed a needs value this runner does not know" ;;
   esac
 }
 
-# Each block's image, `nix` or `arch`; a fence that mixes them is refused
-# before anything runs.
+# Each block's image, `nix`, `fedora` or `arch`; a fence that mixes them is
+# refused before anything runs.
 declare -A block_image=()
 arch_helper=""
 for row in "${rows[@]}"; do
   IFS=$'\t' read -r block line channel needs vgshell helper command <<<"$row"
-  image=arch
-  [[ $channel != nix ]] || image=nix
+  case "$channel" in
+    nix|fedora) image="$channel" ;;
+    *) image=arch ;;
+  esac
   [[ ${block_image[$block]:-$image} == "$image" ]] ||
-    refuse 1 "block=mixed line=$line channel=$channel" "a fence mixes nix commands with others, which run in another image"
+    refuse 1 "block=mixed line=$line channel=$channel" "a fence mixes $image commands with others, which run in another image"
   block_image[$block]="$image"
   [[ -v published[$needs] ]] || probe "$needs"
   if [[ ${published[$needs]} == yes && $image == arch ]]; then
@@ -203,6 +243,31 @@ PREPARE
   podman rm -f -t 0 -- "$name" >/dev/null
 }
 
+# The Fedora image every fedora block starts from, made once.
+prepare_fedora() {
+  [[ $fedora_prepared_made == false ]] || return 0
+  pull "$fedora_image"
+  cat >"$scratch/prepare-fedora.sh" <<'PREPARE'
+#!/usr/bin/env bash
+# Runs as root in the preparing container.
+set -euo pipefail
+dnf -y install sudo
+dnf clean all
+useradd -m -u 1000 user
+printf 'user ALL=(ALL) NOPASSWD: ALL\n' >/etc/sudoers.d/user
+chmod 440 /etc/sudoers.d/user
+PREPARE
+  chmod 755 "$scratch/prepare-fedora.sh"
+  local name="vgs-readme-install-prepare-fedora.$$"
+  containers+=("$name")
+  podman run --name "$name" -v "$scratch/prepare-fedora.sh:/prepare-fedora.sh:ro" \
+    "$fedora_image" /prepare-fedora.sh >"$scratch/prepare-fedora.log" 2>&1 ||
+    not_measured "container-setup image=$fedora_image" "$(tail -n 20 -- "$scratch/prepare-fedora.log")"
+  podman commit -q -- "$name" "$fedora_prepared" >/dev/null || not_measured "container-setup step=commit"
+  fedora_prepared_made=true
+  podman rm -f -t 0 -- "$name" >/dev/null
+}
+
 measured=0
 unpublished=()
 current_block=""
@@ -214,6 +279,9 @@ run_block_start() { # BLOCK
   if [[ ${block_image[$1]} == nix ]]; then
     pull "$nix_image"
     image="$nix_image" user=root want_have=none
+  elif [[ ${block_image[$1]} == fedora ]]; then
+    prepare_fedora
+    image="$fedora_prepared" user=user want_have=unknown
   else
     prepare_arch
     image="$prepared" user=user want_have=unknown
@@ -245,11 +313,11 @@ for row in "${rows[@]}"; do
   log="$scratch/line-$line.log"
   started=$SECONDS
   status=0
-  if [[ ${block_image[$block]} == arch ]]; then
-    wrapper='printf -v argv "%q " timeout "$1" bash -o pipefail -c "$2"; while printf "\\n"; do sleep 1; done | script -qE never -ec "$argv" /dev/null'
-  else
-    wrapper='yes "" | timeout "$1" bash -o pipefail -c "$2"'
-  fi
+  case "${block_image[$block]}" in
+    arch) wrapper='printf -v argv "%q " timeout "$1" bash -o pipefail -c "$2"; while printf "\\n"; do sleep 1; done | script -qE never -ec "$argv" /dev/null' ;;
+    fedora) wrapper='yes y | timeout "$1" bash -o pipefail -c "$2"' ;;
+    *) wrapper='yes "" | timeout "$1" bash -o pipefail -c "$2"' ;;
+  esac
   podman exec --user "$user" --workdir "$home" -e HOME="$home" -e XDG_RUNTIME_DIR="$runtime" -e PARU_PAGER=cat -- "$container" \
     bash -c "$wrapper" _ "$command_seconds" "$command" >"$log" 2>&1 || status=$?
   seconds=$((SECONDS - started))
@@ -265,6 +333,7 @@ for row in "${rows[@]}"; do
   version_command=""
   case "$channel" in
     aur) version_command='vgshell --version' ;;
+    fedora) [[ $command != *' dnf install '* ]] || version_command='vgshell --version' ;;
     curl) [[ $command == *--uninstall* ]] || version_command='~/.local/bin/vgshell --version' ;;
     nix) version_command="${command% -- *} -- --version" ;;
     checkout) [[ $vgshell == - ]] || version_command='vgshell/bin/vgshell --version' ;;
