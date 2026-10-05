@@ -872,7 +872,7 @@ capture_region="${capture_rw}x${capture_rh}+${capture_rx}+${capture_ry}"
 capture_config geometry "\"$capture_rx,$capture_ry ${capture_rw}x${capture_rh}\""
 capture_record record-window "record window"
 expect "the window recording records the selected box" "$(capture_words -w region -region "$capture_region" "${capture_defaults[@]}")" capture_argv
-expect "the saved recording's link is on the clipboard" True capture_uri
+expect_poll "the saved recording's link is on the clipboard" True capture_uri
 capture_config geometry "\"$capture_display_box\""
 capture_record record-display "record display"
 expect "a box equal to the display records that output" "$(capture_words -w "$capture_output" "${capture_defaults[@]}")" capture_argv
