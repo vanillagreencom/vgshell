@@ -347,9 +347,11 @@ expect "control: ignoring presentation fails lost-host capture teardown" 2 jarvi
 jarvis_key_talk_up
 jarvis_key_stop
 jarvis_disable
+# Before the copies go back: its scan would take the source change the
+# rescan below reads.
+jarvis_restore_requirements
 cp -- "$sandbox/jarvis-bubble-before" "$jarvis_bubble_file"
 cp -- "$sandbox/jarvis-bubble-engine-before" "$jarvis_bubble_engine"
-jarvis_restore_requirements
 jarvis_rescan
 jarvis_enable
 jarvis_key_mode hold
