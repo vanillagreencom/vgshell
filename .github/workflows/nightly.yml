@@ -97,8 +97,9 @@ jobs:
           esac
           {
             printf '### %s: %s\n\nexit=%s secs=%s\n\n```\n' "$AREA" "$verdict" "$status" "$((SECONDS - started))"
-            grep -E '^validate: (secs=[0-9]+ exit=[1-9]|failed=|status=not-measured|refused:|unselected )' -- "$log" ||
+            grep -E '^validate: (secs=[0-9]+ exit=[1-9]|failed=|status=not-measured|refused:)' -- "$log" ||
               tail -n 20 -- "$log"
+            grep -E '^validate: unselected ' -- "$log" || true
             printf '```\n'
           } >>"$GITHUB_STEP_SUMMARY"
           exit "$status"
