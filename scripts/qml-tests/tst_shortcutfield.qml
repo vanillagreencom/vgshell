@@ -229,6 +229,39 @@ Item {
             compare(JSON.stringify(root.events), '["typed SUPER+K"]');
         }
 
+        // A typed key waits for its owner: a loss of focus leaves the entry
+        // open and sends nothing, `edited` follows the text against the key
+        // in effect, and `acceptTyped` from elsewhere sends the text, closes
+        // the entry and leaves the keyboard where it is, with the box as
+        // the field's focus.
+        function test_a_typed_key_waits_for_its_owner() {
+            press(field, "Type the keys");
+            compare(field.edited, false, "the key in effect is no edit");
+            for (const c of "SUPER+K") keyClick(c);
+            compare(field.edited, true);
+            after.forceActiveFocus(Qt.TabFocusReason);
+            compare(field.typing, true, "a loss of focus leaves the entry open");
+            compare(field.edited, true);
+            compare(JSON.stringify(root.events), "[]");
+            field.acceptTyped();
+            compare(JSON.stringify(root.events), '["typed SUPER+K"]');
+            compare(field.typing, false);
+            compare(field.edited, false);
+            verify(after.activeFocus, "the keyboard stays where it was");
+            field.forceActiveFocus(Qt.TabFocusReason);
+            verify(box(field).activeFocus, "the box is the field's focus");
+        }
+
+        function test_the_entry_opens_on_a_text_its_owner_hands_back() {
+            field.startTyping("SUPER+");
+            compare(field.typing, true);
+            const entry = descendant(field, item => item.escapeReverts === true);
+            compare(entry.text, "SUPER+");
+            compare(entry.selectedText, "SUPER+");
+            compare(field.edited, true);
+            verify(entry.activeFocus);
+        }
+
         function test_a_focus_preview_draws_the_ring() {
             const ring = descendant(box(field), item => item.ringColor !== undefined);
             compare(ring.visible, false);

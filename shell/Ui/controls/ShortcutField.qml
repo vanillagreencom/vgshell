@@ -23,7 +23,12 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // button swaps the box for a text field that takes the combo as `MOD+KEY`,
 // for a key the capture cannot name, the key in effect selected so typing
 // replaces it; Enter there types it, and Escape first restores the key in
-// effect, as a text field's `escapeReverts` does, then goes back to the box. `committed(key)` reports a captured combo, written as the text
+// effect, as a text field's `escapeReverts` does, then goes back to the box.
+// A loss of focus leaves the entry open on its text and sends nothing:
+// `edited` says the entry holds a text other than the key in effect,
+// `acceptTyped()` sends it as Enter does, `startTyping(text)` opens the
+// entry on a text its owner hands back, such as a key it refused, and
+// `stopTyping()` drops it. `committed(key)` reports a captured combo, written as the text
 // field's judge writes it, `typed(text)` a typed one as entered, and
 // `cleared()` the clear button. `conflict` is a hint drawn under the box in
 // the warning colour; it never blocks a combo. With `pluginId` and
@@ -53,6 +58,7 @@ FocusScope {
     property alias actions: actionRow.data
     readonly property bool capturing: capture !== null && capture.holder === root
     readonly property bool typing: entry.visible
+    readonly property bool edited: typing && entry.text.trim() !== key
     // The modifiers held while capturing, in the order a key writes them.
     property var held: []
     property string notice: ""
@@ -121,16 +127,27 @@ FocusScope {
     }
 
     // The keyboard button has the focus by now, so no capture is running.
-    function startTyping() {
-        entry.text = key;
+    // The entry opens on `text`, the key in effect when none is given.
+    function startTyping(text) {
+        entry.text = text === undefined ? key : text;
         entry.selectAll();
         entry.visible = true;
         entry.forceActiveFocus(Qt.TabFocusReason);
     }
 
+    // The box takes the keyboard when the field holds it; when a caller
+    // ends the typing from elsewhere, such as a page's Save, the keyboard
+    // stays where it is and the box is the field's focus for a later Tab.
     function stopTyping() {
         entry.visible = false;
-        box.forceActiveFocus(Qt.TabFocusReason);
+        if (root.activeFocus) box.forceActiveFocus(Qt.TabFocusReason);
+        else box.focus = true;
+    }
+
+    function acceptTyped() {
+        const text = entry.text.trim();
+        root.stopTyping();
+        if (text !== root.key) root.typed(text);
     }
 
     // Escape the text entry leaves unaccepted, with the key in effect
@@ -218,11 +235,7 @@ FocusScope {
                 placeholderText: "MOD+KEY, such as SUPER+SPACE"
                 escapeReverts: true
                 committedText: root.key
-                onAccepted: {
-                    const text = entry.text.trim();
-                    root.stopTyping();
-                    if (text !== root.key) root.typed(text);
-                }
+                onAccepted: root.acceptTyped()
             }
 
             Row {

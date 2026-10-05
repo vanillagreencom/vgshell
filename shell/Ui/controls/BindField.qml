@@ -9,7 +9,9 @@ import qs.Ui
 // unbinds it. The field names the bind, so the line under it is the
 // capture's conflict hint for the key, the same line wherever a bind is
 // shown. `found` is the capture's `conflicts` answer the hint comes from,
-// and `actions` are buttons a caller adds after the field's own.
+// `actions` are buttons a caller adds after the field's own, and
+// `shortcutField` is the field itself, for a caller that reads or ends its
+// text entry.
 Field {
     id: root
 
@@ -21,6 +23,7 @@ Field {
     property var capture: null
     property alias actions: input.actions
     readonly property var found: input.found
+    readonly property alias shortcutField: input
     signal applyKey(var key)
 
     readonly property string shown: bind.key === null || bind.key === undefined ? "" : String(bind.key)
