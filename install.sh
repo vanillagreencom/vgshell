@@ -71,7 +71,7 @@ main() {
   git_url="https://github.com/$repository.git"
   # The OpenPGP fingerprint of the key that signs a release's SHA256SUMS.
   # Empty while VGS publishes no release signing key.
-  release_key=""
+  release_key="8BC162233D519169B9574148CC6862AD90B7D7EA"
   # The seconds and bytes each fetch may take, as bin/lib/self.js bounds a
   # curl update's: the release query, then each download.
   api_seconds=10

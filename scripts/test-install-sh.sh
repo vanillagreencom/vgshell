@@ -214,7 +214,8 @@ sed -i 's/"v0.8.0"/"v0.8"/' "$releases/tags/v0.8.0"
 
 # Signed releases: v0.5.0's SHA256SUMS signed by the release key, v0.6.0's
 # by another key the keyring also holds. $signing is install.sh with the
-# release key's fingerprint set, the one change a published key makes.
+# fixture key's fingerprint in place of the published one, and $no_key is
+# install.sh with none.
 keys="$tmp/gnupg"; mkdir -m 700 "$keys"
 trap 'gpgconf --homedir "$keys" --kill gpg-agent >/dev/null 2>&1 || true; rm -rf -- "${tmp:?}"' EXIT
 gen_key() { # NAME: prints the new key's fingerprint
@@ -232,8 +233,11 @@ signed_release() { # VERSION FINGERPRINT
 signed_release 0.5.0 "$release_fpr"
 signed_release 0.6.0 "$other_fpr"
 
-copy_with signing "$installer" 'release_key=""' "release_key=\"$release_fpr\""
+published='release_key="8BC162233D519169B9574148CC6862AD90B7D7EA"'
+copy_with signing "$installer" "$published" "release_key=\"$release_fpr\""
 signing="$copy"
+copy_with no-key "$installer" "$published" 'release_key=""'
+no_key="$copy"
 
 # The rows each judge one rule, on the install.sh BIN names, so a control
 # can run them again on a copy with that rule removed.
@@ -536,7 +540,7 @@ check "a held self lock refuses with 75 and installs nothing" busy_row "$install
 
 echo "signatures"
 new_home sig-none
-run "$installer" --version 0.5.0
+run "$no_key" --version 0.5.0
 check "with no release key published the signature is unchecked" out_has "signature=unchecked reason=no-release-key"
 new_home sig-good
 RUN_GNUPG="$keys" run "$signing" --version 0.5.0
