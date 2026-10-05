@@ -18,7 +18,7 @@
 # notifications, bar, panels, devtools, system, network, vpn, bluetooth, dialog, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, capture,
 # keyhints, clipboard or voice. settings takes the
-# automations', the Jarvis and the AI Usage pages among the plugin pages,
+# automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
 # each when the tree ships its plugin. plugin-pages, taken only when named, opens every
 # plugin the Settings window lists, in that window's order, and captures
 # every screen of an overflowing page. bar is the bar with every
@@ -356,6 +356,7 @@ has_webapps=false
 has_setup_steps=false
 has_voice=false
 has_ai_usage=false
+has_tray=false
 [[ -f $tree/shell/Ui/feedback/CommandDisclosure.qml ]] && has_setup_steps=true
 [[ -f $tree/shell/plugins/vgs.agent-warden/manifest.json ]] && has_agent_warden=true
 [[ -f $tree/shell/plugins/vgs.automations/manifest.json ]] && has_automations=true
@@ -365,6 +366,7 @@ has_ai_usage=false
 [[ -f $tree/shell/plugins/vgs.bar/manifest.json ]] && has_bar_plugin=true
 [[ -f $tree/shell/plugins/vgs.voice/manifest.json ]] && has_voice=true
 [[ -f $tree/shell/plugins/vgs.ai-usage/manifest.json ]] && has_ai_usage=true
+[[ -f $tree/shell/plugins/vgs.tray/manifest.json ]] && has_tray=true
 settings_count() { surface_count "$settings_surface"; }
 
 SHOT_RUNTIME_DIR="$rt_dir"
@@ -935,6 +937,30 @@ EOF
     take "settings-$1-ai-usage"
     expect "disabling vgs.ai-usage is allowed" ok ipc shell setPluginEnabled vgs.ai-usage false
     expect_poll "vgs.ai-usage is gone" False record_exists vgs.ai-usage
+  fi
+  # The Tray page at its top, its pinned and hidden lists empty: the sandbox
+  # runs no tray app. The enablement is put back after the shot.
+  local tray_found=unread
+  if "$has_tray"; then
+    tray_found="$(plugin_enabled vgs.tray)" || tray_found=unread
+    [[ $tray_found == True || $tray_found == False ]] || fail "vgs.tray's enablement is unreadable: $tray_found"
+  fi
+  if [[ $tray_found != unread ]]; then
+    if [[ $tray_found == False ]]; then
+      expect "enabling vgs.tray is allowed" ok ipc shell setPluginEnabled vgs.tray true
+      expect_poll "vgs.tray is built" True record_exists vgs.tray
+    fi
+    expect "the window opens the Tray page as a click does" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPluginByPointer vgs.tray
+    expect_poll "the Tray page is shown" '"vgs.tray"' settings_page
+    settings_scroll_to 0 >/dev/null || fail "the Tray page did not scroll to the top"
+    expect_poll "the Tray page is at its top" True settings_at_top
+    park_pointer
+    expect "the Settings window's root takes the focus for the Tray page" focused ipc smoke invokeInstance "$settings_kind" vgs.settings focusInstance ""
+    take "settings-$1-tray"
+    if [[ $tray_found == False ]]; then
+      expect "disabling vgs.tray is allowed" ok ipc shell setPluginEnabled vgs.tray false
+      expect_poll "vgs.tray is gone" False record_exists vgs.tray
+    fi
   fi
   if "$has_bar_plugin"; then
     expect "the window opens the Bar page" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.bar

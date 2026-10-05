@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-# edit.py FILE OLD NEW: FILE, a file of the sandbox's copy of vgs.ai-usage,
-# with OLD, which must match exactly once, replaced by NEW. The ai-usage row
-# points the copy's usage endpoint at its stand-in and plants each control
-# through it; a missing or repeated match, or a link, ends with exit 1 and
-# the file unchanged.
+# edit.py FILE OLD NEW: FILE, a file of a sandbox copy of a plugin, with
+# OLD, which must match exactly once, replaced by NEW. The ai-usage row
+# points its copy's usage endpoint at its stand-in and plants each control
+# through it, and the tray row plants each of its controls; a missing or
+# repeated match, or a link, ends with exit 1 and the file unchanged.
 import sys
 from pathlib import Path
 
