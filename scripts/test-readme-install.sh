@@ -73,7 +73,7 @@ case "$1" in
     shift 2
     [[ $1 != install ]] || exit 0
     printf 'exec %s %s\n' "$container" "${@: -1}" >>"$STUB_RECORD"
-    cd -- "$STUB_HOME" && exec "$@" ;;
+    cd -- "$STUB_HOME" && HOME="$STUB_HOME" exec "$@" ;;
   *) exit 64 ;;
 esac
 EOF
