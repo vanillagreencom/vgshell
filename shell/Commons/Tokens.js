@@ -782,6 +782,15 @@ var TOKENS = {
         border: color("{color.borderStrong}")
     },
 
+    // The bar a page shows while it holds an unsaved edit: its line and its
+    // actions sit `gap` apart. After a save the line reads Saved in `saved`
+    // for `duration` milliseconds, a count that motion does not scale.
+    saveBar: {
+        gap: length("{stack.inline}"),
+        saved: color("{color.success}"),
+        duration: number(1600, 0, 60000)
+    },
+
     // A confirmation card: `gap` separates its title, message, content and
     // row of actions, `actionGap` the actions; `titleRole` and `bodyRole`
     // name the roles of `text` its title and message draw in. `margin` is

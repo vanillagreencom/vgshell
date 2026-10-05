@@ -78,6 +78,7 @@ Singleton {
     readonly property var select: published.select
     readonly property var toast: published.toast
     readonly property var osd: published.osd
+    readonly property var saveBar: published.saveBar
     readonly property var dialog: published.dialog
     readonly property var angledCard: published.angledCard
     readonly property var carousel: published.carousel

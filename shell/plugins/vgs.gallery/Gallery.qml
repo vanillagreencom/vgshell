@@ -328,6 +328,7 @@ Item {
                 CodeLine { width: parent.width; text: "~/.config/vgshell/shell.json"; copyLabel: "Copy the path" }
                 CommandDisclosure { width: parent.width; command: "vgshell plugin enable vgs.agent-warden" }
                 EmptyState { width: parent.width; iconName: "search-x"; text: "No plugin matches \"zzqx\""; actionText: "Clear search" }
+                SaveBar { width: parent.width; dirty: true }
                 Flow {
                     width: parent.width
                     spacing: Theme.stack.inline
