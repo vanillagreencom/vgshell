@@ -3,13 +3,11 @@
     "agent-browser": "no official package",
     "gpu-screen-recorder": "no official package",
     "vsys": "no official package",
-    "voxtype": "no official package",
     "mise": "no official package",
     "checkupdates": "no official package"
   },
   "nix": {
     "vsys": "no official package",
-    "voxtype": "no official package",
     "checkupdates": "no official package",
     "agent-browser": {
       "reason": "official-package-broken",

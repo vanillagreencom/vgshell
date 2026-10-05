@@ -53,7 +53,6 @@ depends=(
   'tesseract'
   'tesseract-data-eng'
   'uv'
-  'voxtype-bin'
   'vsys'
   'wireplumber'
   'wl-clipboard'
@@ -63,6 +62,7 @@ depends=(
   'xdg-utils'
 )
 optdepends=(
+  'voxtype-bin: Voice dictation engine'
   'tmux: several Jarvis coding tasks at once'
   'ydotool: Jarvis pointer fallback with an already running input service'
   'bluez-utils: bluetoothctl, the Bluetooth pairing agent that answers pairing prompts'

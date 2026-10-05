@@ -99,6 +99,8 @@ PY
 voice_setup_offered() { ipc smoke readInstance service vgs.voice setupValue | py_reply 'import json,sys; v=json.load(sys.stdin); print(v.get("action"))'; }
 voice_dictation() { ipc smoke readInstance "$(bar_key)" vgs.voice dictation; }
 voice_status_value() { ipc shell lent | py_reply 'import json,sys; r=json.load(sys.stdin)["status"].get("vgs.voice"); print("absent" if r is None else json.dumps(r["keys"]))'; }
+voice_drawn_status() { ipc smoke itemTexts window vgs.settings StatusRow | py_reply 'import json,sys; rows=[row for row in json.load(sys.stdin) if row and row[0] in ("voxtype", "Setup")]; print(json.dumps(rows))'; }
+voice_requirement_drawn() { ipc smoke itemTexts window vgs.settings RequirementRow | py_reply 'import json,sys; rows=[row for row in json.load(sys.stdin) if row and row[0] == "voxtype"]; print(json.dumps(rows[0] if rows else []))'; }
 voice_start_keyboard() {
   voice_keyboard_log="$sandbox/voice-keyboard.log"
   voice_fifo="$sandbox/voice-keyboard.fifo"
@@ -195,4 +197,37 @@ voice_stop_keyboard
 hypr_lua_restore voice || fail "Voice restores hyprland.lua"
 expect "Voice key resolution restore is reloaded" ok hypr reload config-only
 rm -f -- "${voice_stub:?}" "${shim:?}/systemctl" "${shim:?}/setpriv"
+voice_hidden_path="$sandbox/voice-host-path"
+python3 - "$voice_hidden_path" "$PATH" "$node_bin" <<'PY'
+import os, sys
+links, path, node = sys.argv[1], sys.argv[2], sys.argv[3]
+os.mkdir(links)
+os.symlink(node, os.path.join(links, "node"))
+taken = {"node", "voxtype"}
+for directory in path.split(":"):
+    try:
+        names = sorted(os.listdir(directory))
+    except OSError:
+        continue
+    for name in names:
+        file = os.path.join(directory, name)
+        if name in taken or not os.path.isfile(file) or not os.access(file, os.X_OK):
+            continue
+        taken.add(name)
+        os.symlink(file, os.path.join(links, name))
+PY
+shell_start_path="$shim:$voice_hidden_path"
+shell_start_words=(PATH="$shell_start_path" VGS_NOTIFICATIONS_SLACK_TEST_SECRET_TOOL_DIR="$shim")
+if stop_shell && start_shell "$repo" "$sandbox/voice-missing.log"; then
+  ok "the shell restarts with voxtype hidden for the optional requirement check"
+fi
 rescan "rescan after removing the Voice stubs"
+expect_poll "the Voice voxtype requirement is missing after stub removal" missing voice_requirement voxtype
+expect "enabling Voice without voxtype is allowed" ok ipc shell setPluginEnabled vgs.voice true
+expect_poll "Voice without voxtype is built" True record_exists vgs.voice
+settings_page_open vgs.voice
+expect_poll "the Voice page offers Install and withholds Set up without voxtype" '[["voxtype", "Install\u2026", true], ["setup", "Set up", false]]' offered_actions vgs.voice
+expect_poll "the Voice status row offers voxtype install" '[["voxtype", "Absent", "Voice needs voxtype to capture speech.", "Install\u2026"], ["Setup", "Install voxtype first", "Setup copies defaults, downloads the speech model and enables the service."]]' voice_drawn_status
+expect_poll "the Voice Requirements row says voxtype is missing" "$(words voxtype "Missing, optional" "Captures speech and inserts dictated text")" voice_requirement_drawn
+settings_page_close vgs.voice
+expect "disabling Voice after the missing-requirement check is allowed" ok ipc shell setPluginEnabled vgs.voice false

@@ -41,7 +41,7 @@
       "packages": {
         "aur": "voxtype-bin"
       },
-      "optional": false,
+      "optional": true,
       "purpose": "Captures speech and inserts dictated text"
     },
     {
