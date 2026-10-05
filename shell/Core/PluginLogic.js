@@ -1075,13 +1075,36 @@ function statusActionOffered(entry, value) {
 
 // What a Status row carries of ENTRY's step for its published VALUE, null
 // while unreported: null for an entry that declares none, else { label,
-// offered }, the label of the action that applies, or of the entry's one
+// offered }, the label of the action that applies, STATUS_WITHHELD_LABEL
+// while that action's TUI lacks the commands LACKING, or of the entry's one
 // `action` while it does not, "" for `actions` none of which applies.
-function statusRowAction(entry, value, missing) {
+function statusRowAction(entry, value, lacking) {
     if (entry.action === undefined && entry.actions === undefined) return null;
     var offered = value === null ? null : statusActionOffered(entry, value);
-    if (offered !== null) return { label: offered.tui !== undefined && missing.length > 0 ? "Install requirements" : offered.label, offered: true };
+    if (offered !== null) return { label: lacking.length > 0 ? STATUS_WITHHELD_LABEL : offered.label, offered: true };
     return { label: entry.action === undefined ? "" : entry.action.label, offered: false };
+}
+
+// The label a Status row's button reads while the TUI its action opens
+// lacks a command it needs; the press opens the requirement notice.
+var STATUS_WITHHELD_LABEL = "Install requirements";
+
+// The commands MANIFEST's TUI that status ENTRY offers for its published
+// VALUE needs and MISSING holds, [] while it offers no TUI.
+function statusActionLacking(manifest, entry, value, missing) {
+    if (value === null || (entry.action === undefined && entry.actions === undefined)) return [];
+    var offered = statusActionOffered(entry, value);
+    return offered !== null && offered.tui !== undefined ? tuiMissingRequirements(manifest, offered.tui, missing) : [];
+}
+
+// The hint of a Status row whose action is withheld for the commands
+// LACKING: what is missing and that the offered button installs it, in
+// place of the entry's hint and its state's text, which name the withheld
+// action.
+function statusWithheldHint(lacking) {
+    var one = lacking.length === 1;
+    var named = one ? lacking[0] : lacking.slice(0, -1).join(", ") + " and " + lacking[lacking.length - 1];
+    return named + (one ? " is" : " are") + " missing. " + STATUS_WITHHELD_LABEL + " installs " + (one ? "it." : "them.");
 }
 
 // The Status rows the plugin manager shows for a plugin: one per entry
@@ -1091,28 +1114,40 @@ function statusRowAction(entry, value, missing) {
 // statusRowAction's: null for an entry without one, else { label, offered },
 // `offered` false while unreported. `report` is `reported` with the published `value`
 // (statusRowValue) and its `tone`, or `unreported` with `value` null and
-// `tone` "" while `values` holds nothing for the key.
+// `tone` "" while `values` holds nothing for the key. While the offered
+// action's TUI lacks a command MISSING holds, `hint` is statusWithheldHint's
+// and a `state` value reads STATUS_WITHHELD_STATE with its `action`, so no
+// text names the withheld action.
 function statusRows(manifest, values, missing) {
-    var lacking = tuiMissingRequirements(manifest, missing);
     return Object.keys(manifest.status).filter(function (key) {
         return statusDisplayable(manifest.status[key]);
     }).map(function (key) {
         var entry = manifest.status[key];
         var reported = hasOwn(values, key);
+        var value = reported ? values[key] : null;
+        var lacking = statusActionLacking(manifest, entry, value, missing);
+        var hint = entry.hint === undefined ? "" : entry.hint;
+        if (lacking.length > 0) {
+            hint = statusWithheldHint(lacking);
+            if (entry.type === "state") value = Object.assign({ action: value.action }, STATUS_WITHHELD_STATE);
+        }
         return {
             key: key,
             type: entry.type,
             label: entry.label,
             group: entry.group === undefined ? "" : entry.group,
-            hint: entry.hint === undefined ? "" : entry.hint,
+            hint: hint,
             command: entry.command === undefined ? "" : entry.command,
-            action: statusRowAction(entry, reported ? values[key] : null, lacking),
+            action: statusRowAction(entry, value, lacking),
             report: reported ? "reported" : "unreported",
-            value: reported ? statusRowValue(entry.type, values[key]) : null,
-            tone: reported ? statusTone(entry.type, values[key]) : ""
+            value: reported ? statusRowValue(entry.type, value) : null,
+            tone: reported ? statusTone(entry.type, value) : ""
         };
     });
 }
+
+// What a `state` row reads while its action is withheld.
+var STATUS_WITHHELD_STATE = { tone: "warning", text: "Requirements missing" };
 
 // The one keyed line a refused status action answers:
 // `refused: action=<key> reason=<reason>`, REASON one of
@@ -1125,12 +1160,15 @@ function statusActionRefusal(key, reason) {
     return "refused: action=" + named + " reason=" + reason;
 }
 
-// Required commands missing from the active manifest, in declaration order.
-// Optional commands do not prevent a setup that works without them.
-function tuiMissingRequirements(manifest, missing) {
-    return manifest.requirements.filter(function (row) {
-        return !row.optional && missing.indexOf(row.command) !== -1;
+// The commands MANIFEST's TUI NAME needs that MISSING holds, in declaration
+// order: its `requires`, or, for a TUI that declares none, every command of
+// the active manifest that is not optional.
+function tuiMissingRequirements(manifest, name, missing) {
+    var requires = manifest.tui[name].requires;
+    var needed = requires !== null ? requires : manifest.requirements.filter(function (row) {
+        return !row.optional;
     }).map(function (row) { return row.command; });
+    return needed.filter(function (command) { return missing.indexOf(command) !== -1; });
 }
 
 // The manager's setup request keeps tuiRun's refusal and focus rules. A valid
@@ -1138,8 +1176,7 @@ function tuiMissingRequirements(manifest, missing) {
 function tuiRunFor(manifest, enabled, sourceDir, runner, name, missing) {
     var request = tuiRun(manifest, enabled, sourceDir, runner, name, []);
     if (!request.ok && request.action === "none") return request;
-    var lacking = tuiMissingRequirements(manifest, missing);
-    if (lacking.length > 0) return { ok: true, kind: "install" };
+    if (tuiMissingRequirements(manifest, name, missing).length > 0) return { ok: true, kind: "install" };
     return request;
 }
 
@@ -1947,7 +1984,7 @@ function welcomeStep(welcomeState, event) {
 // table the layer's window rules and the launcher's app-ids come from, and
 // the presentations are bin/vgshell-tui's. A title, a label and a group are one
 // printable line of at most TUI_TEXT_MAX characters.
-var TUI_KEYS = ["script", "title", "size", "presentation", "entry"];
+var TUI_KEYS = ["script", "title", "size", "presentation", "entry", "requires"];
 var TUI_ENTRY_KEYS = ["label", "icon", "group"];
 var TUI_SIZES = Object.keys(HyprlandLayer.TUI_WINDOWS);
 var TUI_PRESENTATIONS = ["full", "plain"];
@@ -2116,12 +2153,13 @@ function tuiText(value) {
 // The first defect of a manifest's `tui` key, or "": an object of at least
 // one script, each named by NAME_PATTERN and holding only TUI_KEYS; `script`
 // matches TUI_SCRIPT; `title` passes tuiText; `size` and `presentation`,
-// when present, come from TUI_SIZES and TUI_PRESENTATIONS; `entry`, when
+// when present, come from TUI_SIZES and TUI_PRESENTATIONS; `requires`, when
+// present, names the REQUIREMENTS commands the script needs; `entry`, when
 // present, holds a tuiText `label` and `group` and an `icon` of the shipped
 // set. The plugin opens its scripts through capability `tui`, which the
 // manifest must name. Whether the script is a regular executable file, and
 // no link, is bin/lib/check-manifests.js's to read on disk.
-function tuiError(tui, capabilities) {
+function tuiError(tui, capabilities, requirements) {
     if (!isPlainObject(tui))
         return "tui must be an object of script names to scripts";
     var names = Object.keys(tui);
@@ -2147,6 +2185,9 @@ function tuiError(tui, capabilities) {
         var windowError = tuiWindowError(at, row);
         if (windowError !== "")
             return windowError;
+        var requiresError = tuiRequiresError(at, row.requires, requirements);
+        if (requiresError !== "")
+            return requiresError;
         if (row.entry === undefined)
             continue;
         var entryError = tuiEntryError(at, row.entry);
@@ -2166,6 +2207,23 @@ function tuiWindowError(at, row) {
         return at + ".size must be one of " + TUI_SIZES.join(", ") + ", got " + JSON.stringify(row.size);
     if (row.presentation !== undefined && TUI_PRESENTATIONS.indexOf(row.presentation) === -1)
         return at + ".presentation must be one of " + TUI_PRESENTATIONS.join(", ") + ", got " + JSON.stringify(row.presentation);
+    return "";
+}
+
+// The first defect of the `requires` of a TUI row at AT, or "": absent, or
+// a non-empty list of commands of the manifest's REQUIREMENTS, each once.
+function tuiRequiresError(at, requires, requirements) {
+    if (requires === undefined)
+        return "";
+    if (!Array.isArray(requires) || requires.length === 0)
+        return at + ".requires must be a non-empty list of the manifest's requirement commands";
+    var declared = requirements.map(function (r) { return r.command; });
+    for (var n = 0; n < requires.length; n++) {
+        if (declared.indexOf(requires[n]) === -1)
+            return at + ".requires." + n + " must name a command of the manifest's requirements, got " + JSON.stringify(requires[n]);
+        if (requires.indexOf(requires[n]) !== n)
+            return at + ".requires." + n + " repeats " + JSON.stringify(requires[n]);
+    }
     return "";
 }
 
@@ -2231,7 +2289,8 @@ function coreTuiTable(table) {
 }
 
 // A `tui` key tuiError accepted, each entry with every key: `size`
-// "default" and `presentation` "full" when absent, `entry` null.
+// "default" and `presentation` "full" when absent, `entry` and `requires`
+// null.
 function normalTui(tui) {
     var out = {};
     Object.keys(tui).forEach(function (name) {
@@ -2241,7 +2300,8 @@ function normalTui(tui) {
             title: row.title,
             size: row.size === undefined ? "default" : row.size,
             presentation: row.presentation === undefined ? "full" : row.presentation,
-            entry: row.entry === undefined ? null : clone(row.entry)
+            entry: row.entry === undefined ? null : clone(row.entry),
+            requires: row.requires === undefined ? null : row.requires.slice()
         };
     });
     return out;
@@ -3037,7 +3097,7 @@ function validateManifest(raw, sourceDir) {
             return { ok: false, error: badHyprland };
     }
     if (raw.tui !== undefined) {
-        var badTui = tuiError(raw.tui, capabilities);
+        var badTui = tuiError(raw.tui, capabilities, requirements);
         if (badTui !== "")
             return { ok: false, error: badTui };
     }

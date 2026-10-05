@@ -41,6 +41,7 @@
     "linger": {
       "script": "tui/linger.sh",
       "title": "Run automations while logged out",
+      "requires": ["loginctl"],
       "entry": { "label": "Run automations while logged out", "icon": "calendar-clock", "group": "Automations" }
     }
   }

@@ -93,6 +93,24 @@ function suite(ctx, check) {
         check("validateManifest tui: " + name, r.ok ? null : r.error.slice(0, want === null ? 0 : want.length), want);
     }
 
+    // A script's `requires` against a manifest that declares acme-sync and
+    // the optional acme-other: [name, requires, null for accepted or the
+    // start of the refusal].
+    const requiresRows = [
+        ["requires one declared command", ["acme-sync"], null],
+        ["requires a declared optional command", ["acme-sync", "acme-other"], null],
+        ["requires an undeclared command", ["acme-sync", "gum"], "tui.hello.requires.1 must name a command of the manifest's requirements, got \"gum\""],
+        ["requires a command twice", ["acme-sync", "acme-sync"], "tui.hello.requires.1 repeats \"acme-sync\""],
+        ["requires nothing", [], "tui.hello.requires must be a non-empty list of the manifest's requirement commands"],
+        ["requires that is a string", "acme-sync", "tui.hello.requires must be a non-empty list"],
+    ];
+    for (const [name, requires, want] of requiresRows) {
+        const raw = manifestWith({ hello: Object.assign({ requires: requires }, hello) });
+        raw.requirements = [{ command: "acme-sync", purpose: "Syncs" }, { command: "acme-other", optional: true, purpose: "Others" }];
+        const r = ctx.validateManifest(raw, "/p");
+        check("validateManifest tui: " + name, r.ok ? null : r.error.slice(0, want === null ? 0 : want.length), want);
+    }
+
     // The size classes are the Hyprland layer's window table's.
     check("TUI_SIZES are the layer's size classes", ctx.TUI_SIZES, ["default", "wide", "tall"]);
 
@@ -100,8 +118,11 @@ function suite(ctx, check) {
     const plain = ctx.validateManifest(manifestWith(undefined), "/p").manifest;
     check("a manifest without tui carries an empty tui", plain.tui, {});
     const normal = ctx.validateManifest(manifestWith({ hello: hello, update: listed }), "/p").manifest;
-    check("an absent size, presentation and entry are normalized", normal.tui.hello, { script: "tui/hello.sh", title: "Hello", size: "default", presentation: "full", entry: null });
-    check("a declared size, presentation and entry are kept", normal.tui.update, listed);
+    check("an absent size, presentation, entry and requires are normalized", normal.tui.hello, { script: "tui/hello.sh", title: "Hello", size: "default", presentation: "full", entry: null, requires: null });
+    check("a declared size, presentation and entry are kept", normal.tui.update, Object.assign({}, listed, { requires: null }));
+    const requiring = manifestWith({ hello: Object.assign({ requires: ["acme-sync"] }, hello) });
+    requiring.requirements = [{ command: "acme-sync", purpose: "Syncs" }];
+    check("a declared requires is kept", ctx.validateManifest(requiring, "/p").manifest.tui.hello.requires, ["acme-sync"]);
     check("the normalized entry does not alias the raw manifest", (() => { const raw = manifestWith({ update: JSON.parse(JSON.stringify(listed)) }); const m = ctx.validateManifest(raw, "/p").manifest; m.tui.update.entry.label = "x"; return raw.tui.update.entry.label; })(), "Update the system");
 
     // tuiArgsValid: [name, args, accepted].
@@ -594,7 +615,12 @@ const CONTROLS = [
     ["the manager refuses a bundled plugin", "    case \"bundled\":\n        return { ok: false, answer: \"refused: bundled=\" + id };", "    case \"bundled\":"],
     ["the manager's update opens the plugin update", "    update: \"plugin-update\",", "    update: \"plugin-remove\","],
     ["the manager's remove opens the plugin remove", "    remove: \"plugin-remove\"\n", "    remove: \"plugin-update\"\n"],
-    ["the manifest judge runs the tui judge", "var badTui = tuiError(raw.tui, capabilities);", "var badTui = \"\";"],
+    ["the manifest judge runs the tui judge", "var badTui = tuiError(raw.tui, capabilities, requirements);", "var badTui = \"\";"],
+    ["the tui judge runs the requires judge", "        var requiresError = tuiRequiresError(at, row.requires, requirements);\n        if (requiresError !== \"\")\n            return requiresError;\n", ""],
+    ["a requires is a non-empty list", "if (!Array.isArray(requires) || requires.length === 0)\n        return at + \".requires must", "if (false)\n        return at + \".requires must"],
+    ["a required command is declared", "if (declared.indexOf(requires[n]) === -1)\n            return at + \".requires.", "if (false)\n            return at + \".requires."],
+    ["a required command is named once", "if (requires.indexOf(requires[n]) !== n)\n            return at + \".requires.", "if (false)\n            return at + \".requires."],
+    ["a normalized requires is kept", "requires: row.requires === undefined ? null : row.requires.slice()", "requires: null"],
     ["the manifest carries its tui normalized", "manifest.tui = normalTui(raw.tui === undefined ? {} : raw.tui);", "manifest.tui = raw.tui;"],
     ["an absent size is default", "size: row.size === undefined ? \"default\" : row.size", "size: row.size"],
     ["an absent presentation is full", "presentation: row.presentation === undefined ? \"full\" : row.presentation", "presentation: row.presentation"],
