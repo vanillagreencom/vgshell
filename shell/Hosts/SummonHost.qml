@@ -15,7 +15,9 @@ import "../Core/HyprlandLayer.js" as Layer
 // payload. A plugin disabled while open is closed the same way. An open()
 // that throws is logged and refuses the summon; a close() that throws is
 // logged and the surface still goes. A window the user closes through
-// Hyprland is hidden the same way.
+// Hyprland is hidden the same way. `hide` first asks an instance that has
+// a `holdsHide()`: one that answers true stays open, to ask its user about
+// what the hide would lose, and hides itself once that is answered.
 Scope {
     id: host
 
@@ -75,6 +77,8 @@ Scope {
     }
 
     function hide(id) {
+        const instance = instances[id];
+        if (instance && typeof instance.holdsHide === "function" && instance.holdsHide()) return "refused: held=" + id;
         drop(id);
         return "ok";
     }
