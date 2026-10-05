@@ -259,7 +259,7 @@ Module._load = function(file, ...args) { log(['module', file]); return load.call
 }
 
 fs.mkdirSync(path.join(repo, "tmp"), { recursive: true });
-const root = fs.mkdtempSync(path.join(repo, "tmp", "test-vgshell-theme-judge-"));
+const root = fs.mkdtempSync(path.join(repo, "tmp", "test-vgshell-theme-judge+ space-"));
 try {
     let base = path.join(root, "good");
     writePackage(base, "vgs", "vgs");
@@ -313,14 +313,14 @@ try {
     dir = writeTarget(base, "probe", Object.assign({}, target, { encoder: "hex" }), { "probe.conf": "" });
     proc = run(base);
     assert.equal(proc.status, 1, proc.stdout + proc.stderr);
-    assert.match(proc.stdout, new RegExp(`^refused  ${dir}: target=probe reason=target-schema key=encoder$`, "m"));
+    assert.match(proc.stdout, new RegExp(`^refused  ${RegExp.escape(dir)}: target=probe reason=target-schema key=encoder$`, "m"));
 
     base = path.join(root, "targets-template-missing");
     writePackage(base, "vgs", "vgs");
     dir = writeTarget(base, "probe", target, {});
     proc = run(base);
     assert.equal(proc.status, 2, proc.stdout + proc.stderr);
-    assert.match(proc.stdout, new RegExp(`vgshell-theme-judge: unreadable: ${path.join(dir, "probe.conf")}: ENOENT`));
+    assert.match(proc.stdout, new RegExp(`vgshell-theme-judge: unreadable: ${RegExp.escape(path.join(dir, "probe.conf"))}: ENOENT`));
 
     // Targets render against the vgs package's slots; without them there is
     // nothing to judge a terminal placeholder against.
@@ -330,7 +330,7 @@ try {
         writeTarget(base, "probe", target, { "probe.conf": "" });
         proc = run(base);
         assert.equal(proc.status, 2, label + ": " + proc.stdout + proc.stderr);
-        assert.match(proc.stdout, new RegExp(`vgshell-theme-judge: unreadable: ${path.join(base, "vgs")}: no accepted package with terminal slots`), label);
+        assert.match(proc.stdout, new RegExp(`vgshell-theme-judge: unreadable: ${RegExp.escape(path.join(base, "vgs"))}: no accepted package with terminal slots`), label);
     }
 
     catalogRows(CHECK, path.join(root, "catalog"));

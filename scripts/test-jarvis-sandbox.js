@@ -58,7 +58,7 @@ async function reviewFixes(w) {
     async function pairs(sandbox, opened = false) {
         const results = [];
         for (const abstract of [false, true]) {
-            await datagram(w.project, abstract, async (address, received) => {
+            await datagram(w.roots.runtime, abstract, async (address, received) => {
                 const result = await sandbox.run(request(["/usr/bin/python3", "-I",
                     path.join(w.project, "datagram.py"), "send", quoted(address)], w.project, abstract), w.roots);
                 if (opened) {
@@ -81,8 +81,17 @@ async function reviewFixes(w) {
         assert.deepEqual(results, [42, 42]);
     }
     fs.copyFileSync(path.join(tree, "scripts/fixtures/jarvis/sandbox-datagram.py"), w.project + "/datagram.py");
-    await pairs(Sandbox);
-    await control("socketpair", "[0x15, 0, 3, abi[2]]", "[0x15, 0, 3, 0xffffffff]", s => pairs(s, true));
+    // Expose only the fixture socket. Its short runtime path is otherwise
+    // hidden by bwrap, which would stop the control before socketpair.
+    const socket = path.join(w.roots.runtime, "pair.sock");
+    const exposeSocket = ['return [...args, "--json-status-fd",',
+        `return [...args, "--ro-bind-try", ${quoted(socket)}, ${quoted(socket)}, "--json-status-fd",`];
+    await moduleCopy(sourceFile, [exposeSocket], pairs);
+    await moduleCopy(sourceFile, [exposeSocket,
+        ["[0x15, 0, 3, abi[2]]", "[0x15, 0, 3, 0xffffffff]"]], async s => {
+        await assert.rejects(() => pairs(s, true), assert.AssertionError, "socketpair must turn red");
+        console.log("control=socketpair detected");
+    });
 
     // These existing gates share the changed instruction program. Keep their
     // real syscall cases and controls in the narrow fix instrument too.
@@ -221,7 +230,7 @@ async function reviewFixes(w) {
     ]], async sandbox => { await assert.rejects(() => cycle(sandbox), assert.AssertionError); });
     console.log("control=public-cycle detected");
     fs.unlinkSync(root + "/alternatives/cycle");
-    await datagram(w.project, false, async address => {
+    await datagram(w.roots.runtime, false, async address => {
         fs.symlinkSync(address, root + "/alternatives/service");
         const special = async sandbox => {
             const result = await sandbox.available();

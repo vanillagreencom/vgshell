@@ -138,7 +138,8 @@ world(async () => {
         itemId: "call_patch", startedAtMs: 1, ...extra } });
     const added = file => [{ path: file, kind: { type: "add" }, diff: "+fixture\n" }];
     const newFile = path.join(fixtures.project, "new");
-    const existing = path.join(fixtures.project, "existing");
+    const existing = path.join(fixtures.project, "existing+ space");
+    fs.renameSync(path.join(fixtures.project, "existing"), existing);
 
     const CASES = {
         // The handshake's lockdown, the scrubbed program environment and a streamed turn.
@@ -204,7 +205,7 @@ world(async () => {
             done.catch(() => {});
             await until(() => w.runner.state.approval.kind === "held", "the approval is held");
             assert.equal(w.runner.state.approval.physical, true);
-            assert.match(w.runner.state.approval.text, new RegExp("Write \\[\"" + existing + "\"\\]"));
+            assert.match(w.runner.state.approval.text, new RegExp("Write \\[\"" + RegExp.escape(existing) + "\"\\]"));
             assert.deepEqual(answered("item/fileChange/requestApproval"), [], "no answer before the user confirms");
             // A second request while one is held is refused and leaves the held one startable.
             let declined = 0;

@@ -12,7 +12,7 @@
 # lane.
 #
 # A run fetches origin, makes a detached worktree of origin/main at
-# <checkout parent>/.worktrees/<checkout name>/main-run-<root name>, and in
+# <checkout parent>/.worktrees/<checkout name>/mainrunXXXXXX, and in
 # it runs `scripts/validate --full AREA` for each area in the order given,
 # with that commit's own scripts/validate. The qml area alone runs as
 # `SLOT-CMD [ARG...] scripts/validate --full qml`: the caller passes the
@@ -179,12 +179,13 @@ not_run() {
 git -C "$checkout" fetch -q origin || not_run fetch-failed
 sha="$(git -C "$checkout" rev-parse --verify 'origin/main^{commit}')" || not_run fetch-failed
 echo "$sha" >"$out/sha"
-wt="$(dirname -- "$checkout")/.worktrees/$(basename -- "$checkout")/main-run-$(basename -- "$root")"
-if [[ -e $wt ]]; then
-  git -C "$checkout" worktree remove --force "$wt" || not_run worktree-failed
+wt_parent="$(dirname -- "$checkout")/.worktrees/$(basename -- "$checkout")"
+mkdir -p -- "$wt_parent" || not_run worktree-failed
+wt="$(mktemp -d "$wt_parent/mainrunXXXXXX")" || not_run worktree-failed
+if ! git -C "$checkout" worktree add -q --detach "$wt" "$sha"; then
+  rmdir -- "$wt" || not_run worktree-failed
+  not_run worktree-failed
 fi
-git -C "$checkout" worktree prune || not_run worktree-failed
-git -C "$checkout" worktree add -q --detach "$wt" "$sha" || not_run worktree-failed
 
 verdict=green
 {

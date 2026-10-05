@@ -17,7 +17,12 @@ tmp="$repo/tmp/test-install-tree.$$"
 failures=0
 unavailable=false
 generator_missing=false
-cleanup() { chmod -R u+rwx -- "$tmp" 2>/dev/null || true; rm -rf -- "$tmp"; }
+autostart_root=
+cleanup() {
+  chmod -R u+rwx -- "$tmp" 2>/dev/null || true
+  rm -rf -- "${tmp:?}"
+  [[ -z $autostart_root ]] || rm -rf -- "${autostart_root:?}"
+}
 trap cleanup EXIT
 rm -rf -- "$tmp"
 mkdir -p -- "$tmp"
@@ -409,7 +414,7 @@ autostart_unit() {
   fi
   if [[ ! -f $unit ]]; then echo "autostart=no-unit"; return; fi
   if [[ ! -L $root/units/xdg-desktop-autostart.target.wants/app-vgshell@autostart.service ]]; then echo "autostart=not-wanted"; return; fi
-  if ! grep -qxE -- "ExecStart=:?$root/usr/bin/vgshell run" "$unit"; then echo "autostart=exec-start"; return; fi
+  if ! grep -qxF -e "ExecStart=$root/usr/bin/vgshell run" -e "ExecStart=:$root/usr/bin/vgshell run" -- "$unit"; then echo "autostart=exec-start"; return; fi
   if ! grep -qxE -- 'ExecCondition=/[^ ]*/systemd-xdg-autostart-condition "Hyprland" ""' "$unit"; then echo "autostart=exec-condition"; return; fi
   echo "unit=ok"
 }
@@ -422,9 +427,12 @@ user_writes() {
   LC_ALL=C sort <<<"$found" | paste -sd, -
 }
 if [[ -x $generator ]]; then
-  check "the generator starts the installed vgshell run in Hyprland alone" test "$(autostart_unit "$repo/packaging/install-system.sh" "$tmp/autostart")" = unit=ok
-  check "the generated unit is wanted by xdg-desktop-autostart.target" test -L "$tmp/autostart/units/xdg-desktop-autostart.target.wants/app-vgshell@autostart.service"
-  check "the autostart install writes nothing outside its prefix" test "$(user_writes "$tmp/autostart")" = ""
+  # package-rule requires a PREFIX without sudoers syntax. The checkout
+  # path can contain other characters, so only this fixture lives in /tmp.
+  autostart_root="$(mktemp -d /tmp/vgs-autostart.XXXXXX)"
+  check "the generator starts the installed vgshell run in Hyprland alone" test "$(autostart_unit "$repo/packaging/install-system.sh" "$autostart_root/autostart")" = unit=ok
+  check "the generated unit is wanted by xdg-desktop-autostart.target" test -L "$autostart_root/autostart/units/xdg-desktop-autostart.target.wants/app-vgshell@autostart.service"
+  check "the autostart install writes nothing outside its prefix" test "$(user_writes "$autostart_root/autostart")" = ""
   # Controls: an installer whose entry has no OnlyShowIn, so it runs in
   # every desktop, and one whose entry is Hidden; each turns the row red.
   for control in "no-only-show-in|OnlyShowIn=Hyprland;|X-VGS-Control=true|autostart=exec-condition" "hidden|NoDisplay=true|Hidden=true|autostart=no-unit"; do
@@ -439,7 +447,7 @@ if text.count(needle) != 1:
     raise SystemExit("install-control: %s did not occur once" % sys.argv[3])
 pathlib.Path(sys.argv[2]).write_text(text.replace(needle, "\n" + sys.argv[4] + "\n"))
 PY
-    check "control: an entry with $name fails the generator row as $want" test "$(autostart_unit "$source_copy/packaging/install-system.sh" "$tmp/autostart-$name")" = "$want"
+    check "control: an entry with $name fails the generator row as $want" test "$(autostart_unit "$source_copy/packaging/install-system.sh" "$autostart_root/autostart-$name")" = "$want"
   done
   # Control: an installer that writes a user autostart entry. The outer
   # HOME and XDG_CONFIG_HOME name a second scratch place, so the row reads
@@ -454,9 +462,9 @@ if text.count(needle) != 1:
     raise SystemExit("install-control: autostart directory did not occur once")
 pathlib.Path(sys.argv[2]).write_text(text.replace(needle, 'autostart_dir="${XDG_CONFIG_HOME:-$HOME/.config}/autostart"'))
 PY
-  HOME="$tmp/outer-home" XDG_CONFIG_HOME="$tmp/outer-config-home" autostart_unit "$source_copy/packaging/install-system.sh" "$tmp/autostart-user" >/dev/null
+  HOME="$tmp/outer-home" XDG_CONFIG_HOME="$tmp/outer-config-home" autostart_unit "$source_copy/packaging/install-system.sh" "$autostart_root/autostart-user" >/dev/null
   check "control: an installer that writes a user entry fails the outside-prefix row" \
-    test "$(user_writes "$tmp/autostart-user")" = "config-home/autostart,config-home/autostart/vgshell.desktop"
+    test "$(user_writes "$autostart_root/autostart-user")" = "config-home/autostart,config-home/autostart/vgshell.desktop"
 else
   generator_missing=true
   echo "test-install-tree: autostart-generator=unavailable path=$generator exit=77"

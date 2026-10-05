@@ -39,6 +39,7 @@ fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
 
 table="$TMP_ROOT/table"
 calls="$TMP_ROOT/calls"
+paths="$TMP_ROOT/paths"
 clone="$TMP_ROOT/clone"
 runner="$clone/scripts/main-run.sh"
 
@@ -46,7 +47,7 @@ runner="$clone/scripts/main-run.sh"
 xenv=(env -i PATH="$PATH" HOME="$TMP_ROOT/home" LC_ALL=C
   GIT_CONFIG_NOSYSTEM=1 GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.invalid
   GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.invalid
-  MAIN_RUN_TEST_TABLE="$table" MAIN_RUN_TEST_CALLS="$calls")
+  MAIN_RUN_TEST_TABLE="$table" MAIN_RUN_TEST_CALLS="$calls" MAIN_RUN_TEST_PATHS="$paths")
 g() { "${xenv[@]}" git "$@"; }
 mkdir -p "$TMP_ROOT/home"
 
@@ -58,6 +59,8 @@ cat >"$TMP_ROOT/seed/scripts/validate" <<'EOF'
 area="$2"
 rc="$(awk -v a="$area" '$1 == a { rc = $2 } END { print rc }' "$MAIN_RUN_TEST_TABLE")"
 printf 'area=%s args=%s slot=%s\n' "$area" "$*" "${MAIN_RUN_TEST_SLOT:-0}" >>"$MAIN_RUN_TEST_CALLS"
+pwd -P >>"$MAIN_RUN_TEST_PATHS"
+while [[ -n ${MAIN_RUN_TEST_WAIT:-} && ! -f $MAIN_RUN_TEST_WAIT ]]; do sleep 0.02; done
 echo "validate: selected=1 area=$area secs=0"
 [[ ${rc:-0} -eq 0 ]] || echo "validate: secs=0 exit=$rc row=stand-in $area"
 exit "${rc:-0}"
@@ -94,6 +97,7 @@ status=0
 main() {
   status=0
   : >"$calls"
+  : >"$paths"
   (cd -- "$clone" && "${xenv[@]}" timeout 120 bash "$runner" "$@") >"$TMP_ROOT/out" 2>&1 || status=$?
 }
 
@@ -165,7 +169,50 @@ if [[ "$(<"$calls")" == $'area=unit args=--full unit slot=0\narea=qml args=--ful
 else
   fail "slot: calls=[$(<"$calls")]"
 fi
-if [[ ! -e $TMP_ROOT/.worktrees/clone/main-run-r-green ]]; then ok "the detached worktree is removed"; else fail "worktree left"; fi
+if [[ ! -e $(sed -n '1p' "$paths") ]]; then ok "the detached worktree is removed"; else fail "worktree left"; fi
+
+case_worktree_path() {
+  problems=()
+  local root="$TMP_ROOT/offline+unit+package+nix+qml with space" worktree name
+  areas 'unit 0'
+  main --root "$root" unit
+  [[ $status -eq 0 ]] || problems+=("exit=$status")
+  worktree="$(cat -- "$paths")"
+  name="${worktree##*/}"
+  [[ $name =~ ^[a-zA-Z0-9]+$ && ${#name} -le 24 ]] || problems+=("worktree-name=[$name]")
+  [[ ! -e $worktree ]] || problems+=(worktree-left)
+  [[ $(result "$root") == *$'\nresult=green' ]] || problems+=(result=wrong)
+  [[ ${#problems[@]} -eq 0 ]]
+}
+if case_worktree_path; then ok "a long record root with + and space has a short safe worktree name"; else fail "worktree path: ${problems[*]}"; fi
+
+# Distinct record roots can run together even when their last component is
+# the same. Both validate children wait until both worktrees exist.
+case_concurrent_paths() {
+  problems=()
+  local release="$TMP_ROOT/release" first second count attempt one_status=0 two_status=0
+  local one="$TMP_ROOT/one/offline+unit" two="$TMP_ROOT/two/offline+unit"
+  rm -f -- "${release:?}"
+  : >"$paths"
+  areas 'unit 0'
+  (cd -- "$clone" && "${xenv[@]}" MAIN_RUN_TEST_WAIT="$release" timeout 120 bash "$runner" --root "$one" unit) >"$TMP_ROOT/one.out" 2>&1 &
+  first=$!
+  (cd -- "$clone" && "${xenv[@]}" MAIN_RUN_TEST_WAIT="$release" timeout 120 bash "$runner" --root "$two" unit) >"$TMP_ROOT/two.out" 2>&1 &
+  second=$!
+  for ((attempt=0; attempt<500; attempt++)); do
+    count="$(wc -l <"$paths")"
+    [[ $count -lt 2 ]] || break
+    sleep 0.02 # wait for both fixture validate calls, bounded above
+  done
+  : >"$release"
+  wait "$first" || one_status=$?
+  wait "$second" || two_status=$?
+  [[ $count -eq 2 ]] || problems+=("started=$count")
+  [[ $one_status -eq 0 && $two_status -eq 0 ]] || problems+=("exits=$one_status,$two_status")
+  [[ $(sort -u "$paths" | wc -l) -eq 2 ]] || problems+=(worktrees-shared)
+  [[ ${#problems[@]} -eq 0 ]]
+}
+if case_concurrent_paths; then ok "distinct result roots with the same name have separate worktrees"; else fail "concurrent paths: ${problems[*]}"; fi
 if case_red "$TMP_ROOT/r-77" qml 77; then ok "an area exiting 77 is red and keeps last-green"; else fail "77: ${problems[*]}"; fi
 if case_red "$TMP_ROOT/r-1" unit 1; then ok "an area exiting 1 is red and keeps last-green"; else fail "1: ${problems[*]}"; fi
 if case_naming; then ok "a red run names one landing per identifier since the last green"; else fail "naming: ${problems[*]}"; fi
@@ -301,6 +348,12 @@ control "77 counted as a pass" '[[ $rc -eq 0 ]] || verdict=red' '[[ $rc -eq 0 ||
 control "a verdict that ignores area exits" '[[ $rc -eq 0 ]] || verdict=red' ': || verdict=red' \
   case_red "$TMP_ROOT/c-1" unit 1
 control "commits counted as landings" '[[ -z ${seen[$id]-} ]] || continue' ':' case_naming
+control "a worktree name copied from the record root" \
+  'wt="$(mktemp -d "$wt_parent/mainrunXXXXXX")" || not_run worktree-failed' \
+  'wt="$wt_parent/main-run-$(basename -- "$root")"' case_worktree_path
+control "a worktree shared by distinct record roots" \
+  'wt="$(mktemp -d "$wt_parent/mainrunXXXXXX")" || not_run worktree-failed' \
+  'wt="$wt_parent/main-run-fixed"' case_concurrent_paths
 control "a run with no verdict read as the last run" \
   '[[ $verdict != result=green && $verdict != result=red ]] || newest="$dir"' 'newest="$dir"' case_unfinished
 cp -- "$repo/scripts/main-run.sh" "$runner"

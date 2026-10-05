@@ -34,7 +34,7 @@ async function inside() {
     const env = { PATH: process.env.PATH, HOME: process.env.HOME, LANG: "C.UTF-8" };
     const Tasks = require(path.join(backend, "Tasks.js"));
     const Router = require(path.join(backend, "ToolRouter.js"));
-    const directories = { state: path.join(root, "state/vgshell/jarvis"), runtime: path.join(root, "run/vgshell/jarvis") };
+    const directories = { state: path.join(root, "state/vgshell/jarvis"), runtime: path.join(process.env.XDG_RUNTIME_DIR, "tasks") };
     const engine = Tasks.publish(path.join(root, "data/vgshell/jarvis"), backend);
     const marks = path.join(root, "marks");
     fs.mkdirSync(marks);
