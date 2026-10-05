@@ -1317,7 +1317,8 @@ fi
 
 d="$tmp/plan-selector"; fresh "$d"
 printf '\n' >>"$d/scripts/validate"
-selector_plan="$repo_plan"$'\nscripts/test-validate.sh'
+# The smoke reader rule reads the core row list from scripts/validate.
+selector_plan=$'python3 scripts/check-smoke-readers.py\npython3 scripts/test-check-smoke-readers.py\n'"$repo_plan"$'\nscripts/test-validate.sh'
 if out="$(cd -- "$d" && "${base_env[@]}" bash scripts/validate --list 2>"$tmp/plan.err")" && [[ $out == "$selector_plan" ]]; then
   ok "selector changes run their control without unrelated product suites"
 else
