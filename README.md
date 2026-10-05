@@ -87,6 +87,7 @@ VGS starts with Hyprland and draws the bar, panels and windows on each screen. E
 | [Updates](shell/plugins/vgs.updates/README.md) | Update your system, VGS, plugins, themes and tools. |
 | [Voice](shell/plugins/vgs.voice/README.md) | Dictate into the focused field and see the recording state in the bar. |
 | [VPN](shell/plugins/vgs.vpn/README.md) | Connect Tailscale and choose an exit node. |
+| [Web Apps](shell/plugins/vgs.webapps/README.md) | Turn a website into an app with its own window. |
 
 ## Setup
 

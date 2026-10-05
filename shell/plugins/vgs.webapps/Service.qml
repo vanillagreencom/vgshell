@@ -1,0 +1,372 @@
+import QtQuick
+import Quickshell
+import Quickshell.Hyprland
+import Quickshell.Io
+import qs.Commons
+import "WebApps.js" as WebApps
+
+// The web apps' one owner. It keeps one desktop entry per app of the
+// `apps` setting in the user's applications directory, which the launcher
+// lists as it lists every installed application, with the site's icon
+// under the configuration directory, and removes every entry and icon of
+// an app the list no longer holds, at its start too. An entry runs
+// `vgshell ipc call vgs.webapps invoke open <name>`: the service focuses
+// the app's window when one is open and opens the site in its own window
+// of a Chromium-family browser when none is.
+//
+// One step runs at a time on one Process: the saved records at start, a
+// page read, an icon read, then one write of every entry. A change of the
+// list while a step runs is taken up when it ends. A site's title and icon
+// are read once per address and icon choice and kept beside the icon, so
+// a start reads no site again. A read that fails leaves the app with the
+// host as its name and the default icon, and is tried again at the next
+// start or change of that app.
+Item {
+    id: root
+
+    property var shell: null
+
+    // How long a launch may take to map its window before a second open
+    // launches again: a browser cold start on a loaded machine takes a few
+    // seconds.
+    readonly property int launchMs: 15000
+
+    readonly property var items: shell === null ? [] : shell.settings.apps
+    readonly property string home: Quickshell.env("HOME")
+    readonly property string appsDir: (Quickshell.env("XDG_DATA_HOME") || (home + "/.local/share")) + "/applications"
+    readonly property string iconsDir: Paths.configDir + "/webapps/icons"
+    readonly property string vgshell: Quickshell.shellDir.replace(/\/+$/, "").replace(/\/[^\/]+$/, "") + "/bin/vgshell"
+    readonly property string script: decodeURIComponent(String(Qt.resolvedUrl("files.sh")).replace(/^file:\/\//, ""))
+    readonly property string fallbackIcon: decodeURIComponent(String(Qt.resolvedUrl("fallback.svg")).replace(/^file:\/\//, ""))
+
+    // App name -> { url, iconSource, title, icon, fallback, partial }: what
+    // the last read of its site gave. `partial` marks a read that failed.
+    property var records: ({})
+    // Names read in this run, so a failed read is not retried in a loop.
+    property var readNow: ({})
+    property bool started: false
+    property bool loaded: false
+    property bool wanted: false
+    // The step on the Process: { kind: "read" | "page" | "icon" | "apply",
+    // app }, or null.
+    property var step: null
+    // The page read for the app on the icon step, or null.
+    property var pageRead: null
+    // The browser the last look found: { id, name, command } or null.
+    property var browser: null
+    // Names waiting for a browser look to open.
+    property var opening: []
+    // App name -> the time its launch stops holding back another.
+    property var launching: ({})
+    // Window address, lower case without 0x -> its class, from Hyprland's
+    // openwindow and closewindow events: a toplevel Quickshell makes from
+    // an event holds no class until the next refresh of the toplevels
+    // (docs/architecture/runtime-hyprland-pads.md).
+    property var classes: ({})
+    // The window the last open brought into view, lower case without 0x,
+    // and until when a focus Hyprland gives another window takes it back
+    // once: { address, until } or null. Hyprland refuses a focus while an
+    // exclusive keyboard layer, as the launcher's overlay closing after a
+    // selection, holds the keyboard, and gives the keyboard back to the
+    // window focused before once that layer goes (read in
+    // scripts/smoke/rows/webapps.sh, Hyprland v0.56.2 nested, 2026-10-05).
+    property var revealing: null
+    readonly property int revealMs: 1000
+    readonly property var childEnvironment: ({
+        PATH: Quickshell.env("PATH"), HOME: home, LANG: "C.UTF-8",
+        XDG_CONFIG_HOME: Quickshell.env("XDG_CONFIG_HOME") || "", XDG_DATA_HOME: Quickshell.env("XDG_DATA_HOME") || "",
+        XDG_CONFIG_DIRS: Quickshell.env("XDG_CONFIG_DIRS") || "", XDG_DATA_DIRS: Quickshell.env("XDG_DATA_DIRS") || "",
+        XDG_CURRENT_DESKTOP: Quickshell.env("XDG_CURRENT_DESKTOP") || "",
+        http_proxy: Quickshell.env("http_proxy") || "", https_proxy: Quickshell.env("https_proxy") || "",
+        no_proxy: Quickshell.env("no_proxy") || ""
+    })
+
+    onShellChanged: if (shell !== null && !started) Qt.callLater(begin)
+    onItemsChanged: reconcile()
+
+    function begin() {
+        if (started || shell === null) return;
+        started = true;
+        shell.ipc.handle("open", name => root.open(String(name)));
+        Hyprland.refreshToplevels();
+        lookForBrowser();
+        run({ kind: "read" }, ["read", iconsDir]);
+    }
+
+    function run(next, args) {
+        step = next;
+        worker.command = ["bash", script].concat(args);
+        worker.running = true;
+    }
+
+    // Start the next step the list needs, if none runs.
+    function reconcile() {
+        wanted = true;
+        if (!loaded || worker.running) return;
+        wanted = false;
+        const split = current();
+        const app = split.good.find(app => needsRead(app));
+        if (app !== undefined) {
+            readNow = Object.assign({}, readNow, { [app.name]: true });
+            if (app.title === "" || app.icon === "") {
+                run({ kind: "page", app: app }, ["page", app.url.href]);
+                return;
+            }
+            pageRead = null;
+            readIcon(app);
+            return;
+        }
+        const words = [];
+        const applied = { good: split.good, bad: split.bad };
+        for (const good of applied.good) {
+            const record = records[good.name];
+            const text = WebApps.desktopEntry(good, good.title || record.title, record.icon, vgshell);
+            words.push(good.name, text, JSON.stringify(record));
+        }
+        run({ kind: "apply", applied: applied }, ["apply", appsDir, iconsDir].concat(words));
+    }
+
+    // The list's apps, read from the setting each time: a handler of
+    // `items` may run before a binding on it holds the new list
+    // (docs/architecture/runtime-qml.md).
+    function current() {
+        return WebApps.apps(shell === null ? [] : shell.settings.apps);
+    }
+
+    function needsRead(app) {
+        const record = records[app.name];
+        if (record === undefined || record.url !== app.url.href || record.iconSource !== app.icon) return true;
+        return record.partial === true && readNow[app.name] !== true;
+    }
+
+    function readIcon(app) {
+        const sources = app.icon !== "" ? WebApps.iconSources(app.icon, home) : (pageRead === null ? [WebApps.resolve(app.url, "/favicon.ico")] : pageRead.icons);
+        run({ kind: "icon", app: app, sources: sources }, ["icon", iconsDir + "/" + app.name].concat(sources, [fallbackIcon]));
+    }
+
+    function finished(code) {
+        const done = step;
+        step = null;
+        const text = output.text;
+        switch (done.kind) {
+        case "read":
+            if (code !== 0) console.warn("webapps: read=failed exit=" + code);
+            records = code === 0 ? readRecords(text) : {};
+            loaded = true;
+            break;
+        case "page":
+            pageRead = code === 0 ? WebApps.page(text, done.app.url) : null;
+            if (code !== 0) console.warn("webapps: page=failed app=" + done.app.name);
+            readIcon(done.app);
+            return;
+        case "icon":
+            keepIcon(done, code, text);
+            break;
+        case "apply":
+            if (code !== 0) console.warn("webapps: apply=failed exit=" + code);
+            publishApps(done.applied);
+            break;
+        default:
+            throw new Error("webapps: step=" + done.kind + " unknown");
+        }
+        if (wanted || done.kind !== "apply") reconcile();
+    }
+
+    // The records the read step printed whose icon file is still there.
+    function readRecords(text) {
+        const files = {};
+        const read = {};
+        for (const line of text.split("\n")) {
+            const parts = line.split("\t");
+            if (parts[0] === "file") files[parts[1]] = true;
+            else if (parts[0] === "record" && parts.length === 3) {
+                try { read[parts[1]] = JSON.parse(parts[2]); } catch (error) { console.warn("webapps: record=unreadable app=" + parts[1]); }
+            }
+        }
+        const kept = {};
+        for (const name in read) {
+            const record = read[name];
+            if (record !== null && typeof record === "object" && typeof record.icon === "string" && files[record.icon.slice(record.icon.lastIndexOf("/") + 1)] === true)
+                kept[name] = record;
+        }
+        return kept;
+    }
+
+    function keepIcon(done, code, text) {
+        const app = done.app;
+        const answer = text.trim().split("\t");
+        const index = code === 0 && answer.length === 2 ? parseInt(answer[0], 10) : -1;
+        if (index < 0) console.warn("webapps: icon=failed app=" + app.name + " exit=" + code);
+        const pageNeeded = app.title === "" || app.icon === "";
+        records = Object.assign({}, records, { [app.name]: {
+            url: app.url.href,
+            iconSource: app.icon,
+            title: pageRead === null ? "" : pageRead.title,
+            icon: index < 0 ? fallbackIcon : answer[1],
+            fallback: index < 0 || index === done.sources.length,
+            partial: pageNeeded && pageRead === null
+        } });
+        pageRead = null;
+    }
+
+    // The apps state of APPLIED, the list the last write held.
+    function publishApps(applied) {
+        const lines = [];
+        for (const app of applied.good) {
+            const record = records[app.name];
+            const name = app.title || record.title || app.url.host;
+            lines.push(name + (record.fallback ? ": Ready. The site gave no icon, so it uses the default icon." : ": Ready."));
+        }
+        for (const bad of applied.bad)
+            lines.push("Web app " + bad.name + ": Enter a web address that starts with https://.");
+        const count = applied.good.length;
+        const value = lines.length === 0
+            ? { tone: "info", text: "No web apps. Add one under Web apps." }
+            : { tone: applied.bad.length > 0 ? "warning" : "ok", text: count === 1 ? "1 web app is ready." : count + " web apps are ready.", lines: lines };
+        const reply = shell.status.set("apps", value);
+        if (reply !== "ok") console.warn("webapps: status=apps " + reply);
+    }
+
+    function lookForBrowser() {
+        if (!looker.running) looker.running = true;
+    }
+
+    // The browser that opens a web app: the default one when it is of the
+    // Chromium family, else the first such browser installed, else null.
+    function chooseBrowser(answer) {
+        const id = WebApps.entryId(answer);
+        const preferred = id === "" ? null : DesktopEntries.byId(id);
+        if (preferred !== null && preferred.command.length > 0 && WebApps.isChromium(id, preferred.command[0]))
+            return { id: id, name: preferred.name, command: Array.from(preferred.command) };
+        const others = DesktopEntries.applications.values
+            .filter(entry => entry.command.length > 0 && WebApps.isChromium(entry.id, entry.command[0]))
+            .sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+        return others.length === 0 ? null : { id: others[0].id, name: others[0].name, command: Array.from(others[0].command) };
+    }
+
+    function browserFound(answer) {
+        browser = chooseBrowser(answer);
+        const value = browser === null
+            ? { tone: "warning", text: "No browser here opens a site in its own window. Install Chromium, Google Chrome, Brave, Vivaldi or Microsoft Edge." }
+            : { tone: "ok", text: browser.name };
+        const reply = shell.status.set("browser", value);
+        if (reply !== "ok") console.warn("webapps: status=browser " + reply);
+        const waiting = opening;
+        opening = [];
+        for (const name of waiting) launch(name);
+    }
+
+    // The address of an open window of APP, "0x…", or "".
+    function windowOf(app) {
+        for (const toplevel of Hyprland.toplevels.values) {
+            const address = String(toplevel.address).toLowerCase();
+            const appClass = classes[address] || (toplevel.lastIpcObject && toplevel.lastIpcObject["class"]) || "";
+            if (address !== "" && WebApps.classMatches(appClass, app.url)) return "0x" + address;
+        }
+        return "";
+    }
+
+    // The IPC `open`: the app's window brought into view, or the site
+    // opened once a browser look ends. A launch that has not mapped its
+    // window yet holds back another.
+    function open(name) {
+        const app = current().good.find(app => app.name === name);
+        if (app === undefined) return "refused: app=" + name + " reason=unknown";
+        const address = windowOf(app);
+        if (address !== "") {
+            const next = Object.assign({}, launching);
+            delete next[name];
+            launching = next;
+            revealing = { address: address.slice(2), until: Date.now() + revealMs };
+            return shell.compositor.reveal([address], false);
+        }
+        if (launching[name] !== undefined && launching[name] > Date.now()) return "ok";
+        if (opening.indexOf(name) === -1) opening = opening.concat([name]);
+        lookForBrowser();
+        return "ok";
+    }
+
+    function launch(name) {
+        const app = current().good.find(app => app.name === name);
+        if (app === undefined) return;
+        if (browser === null) {
+            shell.toasts.show({
+                title: "Web app did not open",
+                message: "No browser here opens a site in its own window. Install Chromium, Google Chrome, Brave, Vivaldi or Microsoft Edge.",
+                tone: "warning"
+            });
+            return;
+        }
+        const reply = shell.run.detached(WebApps.browserArgv(browser.command, app.url.href));
+        if (reply !== "ok") {
+            console.warn("webapps: launch=" + name + " " + reply);
+            return;
+        }
+        launching = Object.assign({}, launching, { [name]: Date.now() + launchMs });
+    }
+
+    Process {
+        id: worker
+        clearEnvironment: true
+        environment: root.childEnvironment
+        property int code: -1
+        stdout: StdioCollector { id: output }
+        stderr: SplitParser { onRead: line => console.warn(line) }
+        onExited: (exitCode, exitStatus) => code = exitStatus === 0 ? exitCode : -1
+        onRunningChanged: {
+            if (running) return;
+            const ended = code;
+            code = -1;
+            root.finished(ended);
+        }
+    }
+
+    Connections {
+        target: Hyprland
+        function onRawEvent(event) {
+            const data = String(event.data);
+            if (event.name === "openwindow") {
+                const parts = data.split(",");
+                if (parts.length < 3) return;
+                // Only windows Quickshell still lists stay, so a missed
+                // closewindow leaves nothing behind.
+                const next = { [parts[0].toLowerCase()]: parts[2] };
+                for (const toplevel of Hyprland.toplevels.values) {
+                    const address = String(toplevel.address).toLowerCase();
+                    if (root.classes[address] !== undefined) next[address] = root.classes[address];
+                }
+                root.classes = next;
+            } else if (event.name === "activewindowv2" && root.revealing !== null) {
+                const wanted = root.revealing;
+                root.revealing = null;
+                if (data.toLowerCase() !== wanted.address && Date.now() < wanted.until) {
+                    const reply = root.shell.compositor.reveal(["0x" + wanted.address], false);
+                    if (reply !== "ok") console.warn("webapps: reveal=" + reply);
+                }
+            } else if (event.name === "closewindow") {
+                const next = Object.assign({}, root.classes);
+                delete next[data.toLowerCase()];
+                root.classes = next;
+            }
+        }
+    }
+
+    // A browser installed or removed while the shell runs changes the one
+    // a web app opens in.
+    Connections {
+        target: DesktopEntries.applications
+        function onValuesChanged() { root.lookForBrowser(); }
+    }
+
+    // The default browser, from xdg-mime: the desktop file that opens
+    // https addresses, read again before each launch so a change of
+    // default reaches the next one.
+    Process {
+        id: looker
+        clearEnvironment: true
+        environment: root.childEnvironment
+        command: ["xdg-mime", "query", "default", "x-scheme-handler/https"]
+        stdout: StdioCollector { id: lookerOutput }
+        onRunningChanged: if (!running) root.browserFound(lookerOutput.text)
+    }
+}

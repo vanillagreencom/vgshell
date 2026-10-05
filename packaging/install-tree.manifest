@@ -568,6 +568,11 @@ f share/vgshell/shell/plugins/vgs.vpn/VpnBody.qml
 f share/vgshell/shell/plugins/vgs.vpn/VpnLogic.js
 f share/vgshell/shell/plugins/vgs.vpn/Widget.qml
 f share/vgshell/shell/plugins/vgs.vpn/manifest.json
+f share/vgshell/shell/plugins/vgs.webapps/Service.qml
+f share/vgshell/shell/plugins/vgs.webapps/WebApps.js
+f share/vgshell/shell/plugins/vgs.webapps/fallback.svg
+f share/vgshell/shell/plugins/vgs.webapps/files.sh
+f share/vgshell/shell/plugins/vgs.webapps/manifest.json
 f share/vgshell/shell/shell.qml
 f share/vgshell/themes/catalog/BACKGROUNDS-ATTRIBUTION.md
 f share/vgshell/themes/catalog/THEMES-ATTRIBUTION.md

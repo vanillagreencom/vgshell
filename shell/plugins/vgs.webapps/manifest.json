@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "id": "vgs.webapps",
+  "name": "Web Apps",
+  "version": "0.1.0",
+  "author": "VanillaGreen",
+  "description": "Turn a website into an app with its own window.",
+  "license": "MIT",
+  "icon": "globe",
+  "kinds": [
+    "service"
+  ],
+  "entryPoints": {
+    "service": "Service.qml"
+  },
+  "capabilities": [
+    "compositor",
+    "ipc",
+    "run",
+    "status",
+    "toasts"
+  ],
+  "requirements": [
+    { "command": "curl", "packages": { "pacman": "curl", "dnf": "curl", "nix": "curl" }, "optional": false, "purpose": "Reads the name and icon of each site" },
+    { "command": "xdg-mime", "packages": { "pacman": "xdg-utils", "dnf": "xdg-utils", "nix": "xdg-utils" }, "optional": false, "purpose": "Finds the default browser" }
+  ],
+  "optIn": true,
+  "settings": {
+    "apps": []
+  },
+  "schema": {
+    "apps": {
+      "type": "list",
+      "label": "Web apps",
+      "description": "Each web app opens its site in its own window. Find it in the launcher by its name.",
+      "items": {
+        "url": {
+          "type": "string",
+          "label": "Address",
+          "description": "The web address of the site.",
+          "presets": [
+            { "value": "", "label": "No address" },
+            { "value": "https://mail.google.com/", "label": "Gmail" },
+            { "value": "https://calendar.google.com/", "label": "Google Calendar" },
+            { "value": "https://web.whatsapp.com/", "label": "WhatsApp" },
+            { "value": "https://chatgpt.com/", "label": "ChatGPT" },
+            { "value": "https://claude.ai/", "label": "Claude" },
+            { "value": "https://www.youtube.com/", "label": "YouTube" },
+            { "value": "https://open.spotify.com/", "label": "Spotify" }
+          ],
+          "allowCustom": true
+        },
+        "title": {
+          "type": "string",
+          "label": "Name",
+          "description": "The name the launcher shows.",
+          "presets": [
+            { "value": "", "label": "The site's own name" }
+          ],
+          "allowCustom": true
+        },
+        "icon": {
+          "type": "string",
+          "label": "Icon",
+          "description": "The site's own icon, or the path or web address of an image.",
+          "presets": [
+            { "value": "", "label": "The site's own icon" }
+          ],
+          "allowCustom": true
+        }
+      },
+      "defaults": {
+        "url": "",
+        "title": "",
+        "icon": ""
+      }
+    }
+  },
+  "status": {
+    "browser": { "type": "state", "label": "Browser", "hint": "Each web app opens in its own window of this browser." },
+    "apps": { "type": "state", "label": "Web apps" }
+  }
+}
