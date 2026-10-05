@@ -225,6 +225,51 @@ PY
 capture_timeout_clean() { [[ $(capture_phase) == idle && $(capture_counts) == "$capture_before" && $(capture_grim_left) == 0 ]] && echo True || echo False; }
 capture_marker() { [[ -f $capture_state/$1 ]] && echo True || echo False; }
 capture_active_address() { hypr -j activewindow | py_reply 'import json,sys; print(json.load(sys.stdin).get("address", ""))'; }
+capture_crop_hash() { python3 - "$imagemagick" "$1" "$2" "$3" "$4" <<'PY'
+import hashlib, subprocess, sys
+program, image, crop, width, height = sys.argv[1:]
+result = subprocess.run([program, image, "-crop", crop, "+repage", "-depth", "8", "rgb:-"], check=True, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE)
+assert len(result.stdout) == int(width) * int(height) * 3, "capture crop must contain all RGB pixels"
+print(hashlib.sha256(result.stdout).hexdigest())
+PY
+}
+capture_cursor_park() {
+  local rect x y width height tooltip_delay hover_duration pause
+  rect="$(ipc smoke instanceGeometry "$(bar_key)" vgs.capture)" || return 1
+  read -r x y width height < <(python3 -c 'import json,sys; print(*json.loads(sys.argv[1]))' "$rect")
+  capture_cursor_x=$((x + width / 2))
+  capture_cursor_y=$((y + height / 2))
+  # The bar's padding returns Qt's arrow before its clickable button sends
+  # the hand. Each pair observes a new shape request from that button.
+  hover "$capture_cursor_x" "$((y + 1))" || return 1
+  expect_poll "capture's bar padding resets the pointer shape" default cursor_shape
+  expect_cursor_at "capture's button supplies the hand bitmap" pointer "$capture_cursor_x" "$capture_cursor_y"
+  hover "$capture_cursor_x" "$capture_cursor_y" || return 1
+  tooltip_delay="$(ipc smoke themeValue tooltip.delay)" || return 1
+  hover_duration="$(ipc smoke themeValue motion.duration.fast)" || return 1
+  pause="$(python3 -c 'import json,sys; print(sum(json.loads(value) for value in sys.argv[1:]) / 1000)' "$tooltip_delay" "$hover_duration")" || return 1
+  sleep "$pause"
+  expect_poll "capture's tooltip settles before its image" true ipc smoke readDescendant "$(bar_key)" vgs.capture Tooltip opened
+  capture_cursor_crop="$(python3 -c 'import sys; x,y,w,h=map(int,sys.argv[1:]); print("50x50+%d+%d"%(max(0,min(x-20,w-50)),max(0,min(y-20,h-50))))' "$capture_cursor_x" "$capture_cursor_y" "$capture_width" "$capture_height")" || return 1
+}
+capture_cursor_pair() {
+  capture_setting cursor false
+  expect "capture notices leave the cursor baseline" 0 capture_wait_toasts
+  capture_cursor_park
+  expect "capture takes a pointer-free baseline" ok ipc vgs.capture invoke screenshot ''
+  expect_poll "the cursor baseline finishes" idle capture_phase
+  capture_cursor_baseline="$(capture_crop_hash "$(capture_path)" "$capture_cursor_crop" 50 50)" || return 1
+  capture_setting cursor true
+  expect "capture notices leave before the cursor image" 0 capture_wait_toasts
+  capture_cursor_park
+  expect "capture takes the cursor image" ok ipc vgs.capture invoke screenshot ''
+  expect_poll "the cursor image finishes" idle capture_phase
+}
+capture_cursor_changed() {
+  local current
+  current="$(capture_crop_hash "$(capture_path)" "$capture_cursor_crop" 50 50)" || return 1
+  [[ $current != "$capture_cursor_baseline" ]] && echo True || echo False
+}
 capture_recorded() { python3 - "$capture_state" "$(capture_path)" <<'PY'
 import json, pathlib, signal, sys
 root, path = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
@@ -317,18 +362,9 @@ expect "capture accepts all enabled displays" ok ipc vgs.capture invoke screensh
 expect_poll "capture finishes all displays" idle capture_phase
 expect_poll "all-display image equals the compositor bounding box" True capture_image_box "$capture_all_box"
 capture_config real "{\"grim\": \"$capture_real_grim\"}"
-expect "capture notices leave the cursor baseline" 0 capture_wait_toasts
-hover "$capture_target_cx" "$capture_target_cy" || fail "capture: the cursor could not be placed"
-expect "capture takes a pointer-free baseline" ok ipc vgs.capture invoke screenshot ''
-expect_poll "the cursor baseline finishes" idle capture_phase
-capture_cursor_baseline="$(capture_clipboard_digest)"
-capture_setting cursor true
-expect "capture notices leave before the cursor image" 0 capture_wait_toasts
-expect "capture takes the cursor image" ok ipc vgs.capture invoke screenshot ''
-expect_poll "the cursor image finishes" idle capture_phase
+capture_cursor_pair
 expect "the cursor option reaches grim" True capture_cursor_flag
-capture_cursor_changed() { [[ $(capture_clipboard_digest) != "$capture_cursor_baseline" ]] && echo True || echo False; }
-expect "including the cursor changes the image bytes" True capture_cursor_changed
+expect "including the cursor changes pixels at the hand bitmap" True capture_cursor_changed
 capture_setting cursor false
 capture_setting processing '"copy"'
 capture_before="$(capture_counts)"
@@ -421,17 +457,9 @@ capture_config grimHold false
 capture_setting timeout 10
 # Compare a small area inside the countdown card with the same desktop area
 # before it maps. The image must contain the desktop after the card closes.
-capture_crop_hash() { python3 - "$imagemagick" "$1" "$capture_countdown_crop" <<'PY'
-import hashlib, subprocess, sys
-program, image, crop = sys.argv[1:]
-result = subprocess.run([program, image, "-crop", crop, "+repage", "-depth", "8", "rgb:-"], check=True, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE)
-assert len(result.stdout) == 50 * 20 * 3, "countdown crop must contain all RGB pixels"
-print(hashlib.sha256(result.stdout).hexdigest())
-PY
-}
 capture_countdown_pixels() {
   local signature
-  signature="$(capture_crop_hash "$(capture_path)")" || return 1
+  signature="$(capture_crop_hash "$(capture_path)" "$capture_countdown_crop" 50 20)" || return 1
   [[ $signature == "$capture_countdown_baseline" ]] && echo True || echo False
 }
 capture_countdown_image() {
@@ -449,7 +477,7 @@ capture_countdown_image() {
   capture_countdown_layer="$(surface_box vgs:toast)"
   capture_countdown_card="$(ipc smoke toastWindowGeometry 0)"
   capture_countdown_crop="$(python3 -c 'import json,sys; layer,card=map(json.loads,sys.argv[1:]); print("50x20+%d+%d"%(layer[0]+card[0]+10,layer[1]+card[1]+10))' "$capture_countdown_layer" "$capture_countdown_card")" || return 1
-  capture_countdown_baseline="$(capture_crop_hash "$capture_state/countdown-baseline.png")" || return 1
+  capture_countdown_baseline="$(capture_crop_hash "$capture_state/countdown-baseline.png" "$capture_countdown_crop" 50 20)" || return 1
   expect_poll "the countdown image finishes" idle capture_phase
 }
 capture_countdown_image
@@ -600,10 +628,9 @@ for capture_control in smart window display all cursor copy-only save-only delay
       expect "control: dropping the bounding rectangle fails the all-display readback" False capture_image_box "$capture_all_box"
       ;;
     cursor)
-      capture_setting cursor true
-      expect "control: capture starts with the cursor flag dropped" ok ipc vgs.capture invoke screenshot ''
-      expect_poll "control: the cursor copy completes" idle capture_phase
+      capture_cursor_pair
       expect "control: dropping the cursor flag fails the cursor readback" False capture_cursor_flag
+      expect "control: dropping the cursor bitmap fails the paired pixel readback" False capture_cursor_changed
       capture_setting cursor false
       ;;
     copy-only|save-only)
