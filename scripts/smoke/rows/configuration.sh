@@ -1,5 +1,6 @@
 # An unreadable user file settles, keeps the bar, and refuses every write
-# until it reads again.
+# until it reads again. A user file the shell reads and the disk refuses to
+# write answers the write with the refusal and keeps its value.
 # inputs: shell/Core/Config.qml shell/Core/PluginLogic.js bin/vgshell shell/Commons/WatchedFile.qml bin/vgshell-plugin-judge scripts/smoke/rows/capability-release.sh
 set -euo pipefail
 config_user_state() { ipc shell listPlugins | py_reply 'import json,sys; print(json.load(sys.stdin)["config"]["user"])'; }
@@ -12,6 +13,30 @@ expect "the bar stays with an unreadable user file" "$monitors" bar_count
 chmod 644 "$home/.config/vgshell/shell.json"
 expect "reloading the readable user file answers ok" ok ipc shell reloadConfig
 expect_poll "the user file reads as loaded again" loaded config_user_state
+
+# A read-only user file: FileView refuses the write, the answer is the keyed
+# refusal naming the file with the error after it, and neither the plugin
+# nor the file changes. Writable again, a write answers ok and the file
+# holds it; that write is polled, since every write is refused until the
+# shell has read the file again after the failure.
+unwritable_reply() {
+  local reply
+  reply="$(ipc shell setPluginEnabled acme.tick false)" || return
+  if [[ $reply == "refused: user-config=unwritable path=$home/.config/vgshell/shell.json error="?* ]]; then echo keyed; else printf '%s\n' "$reply"; fi
+}
+file_disables() { python3 -c 'import json,sys; print(sys.argv[2] in json.load(open(sys.argv[1])).get("disabledPlugins", []))' "$home/.config/vgshell/shell.json" "$1"; }
+expected_errors+=('config: user file not written at ')
+cp -p -- "$home/.config/vgshell/shell.json" "$sandbox/configuration-unwritable.json"
+chmod 444 "$home/.config/vgshell/shell.json"
+expect "a write the disk refuses answers the unwritable refusal with its error" keyed unwritable_reply
+expect "the plugin stays enabled after the refused write" True plugin_enabled acme.tick
+expect "the read-only user file keeps its bytes" same bash -c 'cmp -s -- "$1" "$2" && echo same' _ "$sandbox/configuration-unwritable.json" "$home/.config/vgshell/shell.json"
+chmod 644 "$home/.config/vgshell/shell.json"
+expect_poll "a write to the writable user file answers ok" ok ipc shell setPluginEnabled acme.tick false
+expect "the user file holds the write" True file_disables acme.tick
+expect "enabling the plugin again answers ok" ok ipc shell setPluginEnabled acme.tick true
+expect "the user file holds the plugin enabled again" False file_disables acme.tick
+expect_widgets "the widget is back after the unwritable rows" '["acme.tick"]'
 
 # A user file that parses but fails PluginLogic.configError is malformed: the
 # defect is logged, the last good value keeps the bar, and writes are refused

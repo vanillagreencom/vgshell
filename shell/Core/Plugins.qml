@@ -500,8 +500,8 @@ Singleton {
     // Show or hide plugin `id`'s widget in the bar (PluginLogic.withPlaced).
     // disabledPlugins is never written: a plugin with another kind stays
     // enabled and keeps its service and other kinds built, and a plugin
-    // whose only kind is bar-widget reads disabled once unplaced. The reply is one keyed line the CLI prints as is: `ok` (the save is
-    // queued), `unknown: <id>`, `refused: placed=<id>
+    // whose only kind is bar-widget reads disabled once unplaced. The reply is one keyed line the CLI prints as is: `ok` (the file
+    // holds it), `unknown: <id>`, `refused: placed=<id>
     // reason=no-bar-widget|disabled` from PluginLogic.placedRefusal, or a
     // refusal naming why the user file was not written.
     function setPlaced(id, placed) {
