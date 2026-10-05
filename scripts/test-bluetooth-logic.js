@@ -114,7 +114,7 @@ function powerTrail(logic, start, steps) {
 
 function verifyPower(logic) {
     const wait = logic.POWER_WAIT_MS;
-    assert.equal(wait, 2000, "the wait is Omarchy's two seconds");
+    assert.equal(wait, 2000, "the wait is two seconds");
     const SOFT = { powered: false, rfkill: READ(true, false) };
     const DOWN = { powered: false, rfkill: READ(false, false) };
     const UP = { powered: true, rfkill: READ(false, false) };
@@ -218,8 +218,8 @@ function discoveryTrail(logic, label, steps) {
 }
 
 function verifyDiscovery(logic) {
-    assert.equal(logic.DISCOVERY_TICK_MS, 1000, "Omarchy's 1 s stop interval");
-    assert.equal(logic.DISCOVERY_STOP_ATTEMPTS, 3, "Omarchy's three stops");
+    assert.equal(logic.DISCOVERY_TICK_MS, 1000, "a 1 s stop interval");
+    assert.equal(logic.DISCOVERY_STOP_ATTEMPTS, 3, "three stops");
 
     let run = discoveryTrail(logic, "a start confirmed after the last release is still stopped", [
         ["begin", null, true, false],

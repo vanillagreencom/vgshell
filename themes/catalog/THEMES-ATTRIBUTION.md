@@ -1,6 +1,8 @@
-# Built-in theme provenance (Omarchy community imports)
+# Theme attribution
 
-VGS catalog theme packages listed below were ported from community Omarchy theme repositories. Palettes and terminal colours are taken from the source, apart from the readability overrides in `docs/architecture/theme-catalog.md` § Readability. The catalog ships no curated application files. Wallpapers stay in the pinned release archives, and the shipped thumbnails come from those sources (see BACKGROUNDS-ATTRIBUTION.md).
+## Community theme imports
+
+Each package's palette and terminal colours come from its source repository, apart from the readability overrides in `docs/architecture/theme-catalog.md` § Readability. Wallpapers are credited in `BACKGROUNDS-ATTRIBUTION.md`.
 
 | VGS theme | Source repository | License |
 |-----------|-------------------|---------|
@@ -51,7 +53,7 @@ VGS catalog theme packages listed below were ported from community Omarchy theme
 | `vurple` | https://github.com/tahfizhabib/omarchy-vurple-theme | no LICENSE file |
 | `x-1632` | https://github.com/OldJobobo/omarchy-x-1632-theme | no LICENSE file |
 
-`synthwave84` is the one exception to the palette sentence above: its palette and terminal colours come from the upstream extension, not from the Omarchy source.
+`synthwave84` takes its palette and terminal colours from the extension under Vendor ports.
 
 ## Vendor ports
 

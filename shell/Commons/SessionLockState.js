@@ -11,7 +11,7 @@
 // monitor names LOCK and a monitor that has a workspace names none, since
 // Hyprland stops at the first reason and a monitor still coming up reports
 // WORKSPACE before it would reach LOCK; "unknown" otherwise, unreadable
-// text included. Omarchy's bin/omarchy-hyprland-session-locked reads it so.
+// text included.
 function read(text) {
     var monitors;
     try {

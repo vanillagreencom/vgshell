@@ -4,7 +4,7 @@
 // ThemeLogic.acceptAppearance judges. Every value here is the Spotlight
 // launcher's (px13 dotfiles, spotlight/Theme.qml, the method.menu Menu.qml
 // literals and hooks/theme-set.d/spotlight-menu-tokens.sh), with each
-// Omarchy style value the reference read stated as the value it resolved to
+// style value the reference read stated as the value it resolved to
 // there: Style.space(n) is n at the default spacing scale, and the font
 // sizes are the Style.font steps at the 12 px base (caption 10, bodySmall
 // 11, body 12, heading 16). The active theme reaches this table through

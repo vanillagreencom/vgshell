@@ -3,10 +3,9 @@
 -- under VGS_GREETER_ROOT, the install tree the greetd configuration names.
 -- When the login screen ends, after it hands greetd a session or fails,
 -- Hyprland exits, so greetd can start the session or the greeter again.
--- No logo, no splash and no animations, as Omarchy's greeter compositor.
+-- No logo, no splash and no animations.
 
--- The system keyboard layout, as Omarchy's default/sddm/hyprland.lua reads
--- it: the XKB keys of /etc/vconsole.conf, which `localectl
+-- The system keyboard layout: the XKB keys of /etc/vconsole.conf, which `localectl
 -- set-x11-keymap` writes on systemd systems, else `us`. A password is
 -- typed here before any user's own configuration loads.
 local function read_vconsole()
@@ -28,7 +27,7 @@ local function read_vconsole()
     return values
 end
 
--- Layouts that cannot type Latin letters, Omarchy's list: a greeter on one
+-- Layouts that cannot type Latin letters: a greeter on one
 -- of them puts `us` first, Left Alt + Right Alt switching between the two,
 -- since an account name and most passwords need Latin letters.
 local non_latin_layouts =

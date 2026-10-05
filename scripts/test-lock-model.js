@@ -17,7 +17,7 @@ const stack = fs.readFileSync(path.join(__dirname, "..", "shell", "plugins", "vg
 const same = (got, want, message) => assert.deepEqual(JSON.parse(JSON.stringify(got)), JSON.parse(JSON.stringify(want)), message || "");
 
 function verify(model) {
-    // The shipped stack is Omarchy's: ten failures, then two minutes.
+    // The shipped stack: ten failures, then two minutes.
     same(model.faillockPolicy(stack), { deny: 10, unlockSeconds: 120 }, "the shipped stack's pause");
     const POLICIES = [
         ["the authfail line is the source", "auth required pam_faillock.so preauth silent deny=3 unlock_time=60\nauth [default=die] pam_faillock.so authfail deny=5 unlock_time=90", { deny: 5, unlockSeconds: 90 }],

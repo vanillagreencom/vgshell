@@ -91,7 +91,7 @@ function resolvedKeys(text, count, requireTranslation) {
 }
 
 // hyprctl names no device class, so a pointer is a touchpad when its name
-// says so, as Omarchy's omarchy-hw-touchpad reads it.
+// says so.
 var TOUCHPAD = /touchpad|trackpad/i;
 
 // The modifier bits of a bind's `modmask` a Hyprland key can name, in

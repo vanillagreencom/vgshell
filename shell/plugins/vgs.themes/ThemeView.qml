@@ -340,7 +340,7 @@ FocusScope {
     // Keys the carousel passes on.
     Keys.onPressed: event => root.handleKey(event)
 
-    // One inset box centred on the output, as Omarchy centres its picker:
+    // One inset box centred on the output:
     // the tabs and the scope in the header, the rail in the body, and the
     // selected card's name, badges and filter, the running step, the
     // failures and the keys in the footer.

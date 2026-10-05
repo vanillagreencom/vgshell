@@ -1970,7 +1970,7 @@ var TUI_RUN_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
 // presentation, entry }, `argv` the core command the terminal runs and the
 // rest as a normalized manifest `tui` entry has them. coreTuiTable judges
 // the table when this file loads. The package pickers run in the default
-// size, the window Omarchy's floating terminal gives omarchy-pkg-install.
+// size.
 // `requirements-install` is not listed: the requirement notice opens it
 // through tuiCore with the arguments PluginLogic.noticeView names. `system`
 // is not listed either: the `manager` capability's act opens it with

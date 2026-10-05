@@ -1,8 +1,8 @@
 #%PAM-1.0
 # The lock screen's password check, read by the lock's PamContext from this
 # directory (its configDirectory), so no file under /etc is installed. It is
-# Omarchy's omarchy-lock-password stack, auth lines only, since PamContext
-# runs only the auth type: pam_faillock allows ten wrong passwords before a
+# a faillock stack, auth lines only, since PamContext runs only the auth
+# type: pam_faillock allows ten wrong passwords before a
 # two-minute pause, and a success clears the count.
 auth       required                    pam_faillock.so preauth silent deny=10 unlock_time=120
 -auth      [success=2 default=ignore]  pam_systemd_home.so

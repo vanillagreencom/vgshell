@@ -20,9 +20,7 @@ import "SetupLogic.js" as SetupLogic
 //                                            `hyprland` binds (README)
 //   shortcut vgs.themes:wallpapers          SUPER+W, the same way
 //   shortcut vgs.themes:panel               SUPER+CTRL+J from the manifest's
-//                                            `hyprland` binds; Omarchy leaves
-//                                            it unbound and uses
-//                                            SUPER+CTRL+T
+//                                            `hyprland` binds
 //   shortcut vgs.themes:gaps                SUPER+SHIFT+BACKSPACE from the
 //                                            manifest's `hyprland` binds;
 //                                            the launcher's Style row runs

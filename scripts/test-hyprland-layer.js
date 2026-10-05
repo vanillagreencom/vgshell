@@ -55,8 +55,8 @@ const APP_SECTION = [
     "-- Application windows: the shell's windows float, centred, at the size they ask.",
     "hl.window_rule({ name = \"vgs:window\", match = { class = \"^org\\\\.vgs\\\\.shell$\" }, float = true, center = true })"
 ];
-// The session lock's restore, byte for byte: Omarchy's looknfeel.lua
-// setting, so a shell started after a crash while locked locks again.
+// The session lock's restore, byte for byte, so a shell started after a
+// crash while locked locks again.
 const LOCK_SECTION = [
     "-- Session lock: a restarted shell takes over a lock whose client died.",
     "hl.config({ misc = { allow_session_lock_restore = true } })"

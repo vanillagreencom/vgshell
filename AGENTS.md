@@ -25,7 +25,6 @@ A desktop shell for Hyprland, built on Quickshell 0.3.1. A small fixed core star
 - No manual commands: a user-facing setup step is automatic or one click, a step that asks or elevates runs in a floating TUI or the requirement notice that button starts, a secret goes into a masked field VGS stores in libsecret, and a command shows only behind "Show command". `scripts/check-user-commands.py` enforces the text: `docs/decisions/D061-no-manual-commands.md`.
 - Consumer features need no developer setup. A feature that needs an app, API key or token the user must create first is an owner-only extra: declared in the manifest's `extras`, off by default, absent from the Settings page and documented only under "Extras (not supported)" in its plugin's README: `docs/decisions/D075-consumer-features-need-no-developer-setup.md`.
 - Before writing or changing code, load the code-quality skill. Before writing a plugin, load the vgs-plugin skill.
-- Before designing a plugin, a theme target or any system integration, check how the latest Omarchy (`basecamp/omarchy`, its default branch) solves the same problem. Take its approach where it is simpler or more robust; where VGS differs, say why in the issue or decision record.
 
 ## Read next
 

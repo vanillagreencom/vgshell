@@ -11,8 +11,7 @@ import "SoundLogic.js" as Logic
 // The lists are snapshots `refresh` takes a short time after PipeWire's
 // node or link lists change, never a binding or a Repeater on the live
 // model: rebuilding from the removal signal while Quickshell dispatches it
-// has crashed Quickshell's PipeWire service (Omarchy's
-// shell/plugins/panels/audio/Panel.qml), and that crash would end the whole
+// has crashed Quickshell's PipeWire service, and that crash would end the whole
 // shell. An output, input or app row is { name, label, node }.
 //
 // `volumeSink` is the sink a volume change reaches: the default output, or

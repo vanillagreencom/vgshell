@@ -8,12 +8,11 @@
 // (docs/architecture/displays.md).
 
 // A slider, a key and a scroll never go below 1 %: a kernel backlight at
-// 0 % turns its panel off, as Omarchy's clampBrightness also holds.
+// 0 % turns its panel off.
 var MIN_PERCENT = 1;
 var MAX_PERCENT = 100;
 // At the dark end a brightness key moves 1 % at a time: up from below
-// this level and down from it or below, as Omarchy's
-// omarchy-brightness-display does.
+// this level and down from it or below.
 var FINE_STEP_AT = 5;
 // A helper run is stopped after this long, so a display that never answers
 // cannot hold the queue. It is a bound, not a measured duration.

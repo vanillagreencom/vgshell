@@ -25,6 +25,6 @@ Share QR code reads the chosen saved profile only after you select it. The QR co
 
 Connection details and sharing use installed tools. The Network section offers Install details tool when its reader is missing. Share QR code opens the installation notice if a sharing tool is missing. Package installs include both tools.
 
-## Omarchy comparison
+## Scope
 
-VGS follows Omarchy's Network model and Wi-Fi QR plugin at commit `5c4da021469517449770579793b37ce26d0a0d48`: saved-profile joining first, reprompt after failed credentials, and a QR encoder that takes its Wi-Fi payload through stdin. One VGS service owns scanning for all open Network views. The QR owner exists only while its view is open and has no password reveal or clipboard action. Band preference and adapter restart are outside this Network scope. A band preference needs a saved-profile editor; an adapter restart needs a declared privileged system step. Network uses the existing backend without replacing it.
+Network joins with a saved profile first and asks for the password again after failed credentials. The QR encoder takes its Wi-Fi payload through stdin. One service owns scanning for all open Network views. The QR owner exists only while its view is open and has no password reveal or clipboard action. Band preference and adapter restart are outside this scope: a band preference needs a saved-profile editor, and an adapter restart needs a declared privileged system step. Network uses the existing NetworkManager backend without replacing it.

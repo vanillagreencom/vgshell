@@ -24,8 +24,8 @@ const TIMEOUT = 12000;
 const SINK = "@DEFAULT_AUDIO_SINK@";
 // An explicit type: without one wl-copy runs xdg-mime to infer it.
 const TEXT_TYPE = "text/plain;charset=utf-8";
-// Password managers offer this type beside a copied secret. Omarchy's
-// clipboard capture skips such a copy; this read refuses it.
+// Password managers offer this type beside a copied secret; this read
+// refuses such a copy.
 const PASSWORD_HINT = "x-kde-passwordManagerHint";
 // wl-paste's words for a selection with no offer, compared with the first
 // line of its stderr (wl-clipboard 2.3.0 src/wl-paste.c). Not a failure.
@@ -65,7 +65,7 @@ const ARGV = {
 // The tools these executors run; the registration seam probes only their commands.
 const TOOLS = Object.freeze(Object.keys(ARGV));
 
-// Omarchy's clipboard capture reads these offers as text.
+// The offers read as text.
 const textOffer = type => type.startsWith("text/") || type === "UTF8_STRING" || type === "STRING";
 const answer = (outcome, value) => ({ outcome, content: typeof value === "string" ? value : JSON.stringify(value) });
 const refuse = reason => answer("failed", { kind: "refuse", reason });

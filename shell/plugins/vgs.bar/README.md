@@ -15,7 +15,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 - Three sections for plugin widgets, after the built-ins in each section. Enabling a plugin on its Settings page places its widget in the section its manifest names; `bar.layout` in `~/.config/vgshell/shell.json` places it anywhere. The shipped layout puts the Settings gear, `vgs.settings`, in the right section.
 - Colours, the font and every size follow the design tokens, so `~/.config/vgshell/theme.json` restyles the bar.
 - Hide top bar, in the launcher's Style menu, hides the bar on every screen and gives its space to windows; the row then reads Show top bar and shows it again. The choice is the Hide top bar setting, kept in `~/.config/vgshell/shell.json`, so it holds across a restart and a login. The row sits under the Style category `vgs.themes` adds, so it is absent while that plugin is disabled.
-- `SUPER+SHIFT+SPACE` hides or shows the bar the same way; Omarchy uses the same key for its bar toggle. Change it under Keys on the plugin's Settings page. `vgshell ipc call vgs.bar invoke toggle ''` is the same toggle over IPC. The bar's service registers both, `vgs.bar:toggle` and the IPC function, while the bar is the active one.
+- `SUPER+SHIFT+SPACE` hides or shows the bar the same way. Change it under Keys on the plugin's Settings page. `vgshell ipc call vgs.bar invoke toggle ''` is the same toggle over IPC. The bar's service registers both, `vgs.bar:toggle` and the IPC function, while the bar is the active one.
 
 ## Settings
 

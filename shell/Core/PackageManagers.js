@@ -80,8 +80,7 @@ var MANAGERS = [
         owner: null,
         installed: null,
         removable: null,
-        // pacman's remove picker lists the AUR's packages too, as
-        // omarchy-pkg-remove's does.
+        // pacman's remove picker lists the AUR's packages too.
         picker: { install: { list: ["{bin}", "-Slqa"], preview: ["{bin}", "-Siia", "{name}"] }, remove: null }
     },
     // apt lists what the package lists held at the last `apt update`, which
@@ -164,7 +163,7 @@ var MANAGERS = [
         picker: { install: null, remove: null }
     },
     // An upgrade is the user asking for current versions now, so it waives
-    // mise's release-age cooldown, as omarchy-update-mise does; the check
+    // mise's release-age cooldown; the check
     // waives it too, so it counts what the upgrade installs.
     {
         id: "mise", role: "source", family: [], requires: null, binaries: ["mise"], elevate: false,

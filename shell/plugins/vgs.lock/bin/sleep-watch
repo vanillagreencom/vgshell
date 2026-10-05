@@ -22,9 +22,9 @@
 # Then it asks logind whether a preparation is already under way,
 # PreparingForSleep, and takes one for a sleep; `ready` follows that check.
 #
-# The budget follows Omarchy's bin/omarchy-system-sleep-lock: logind's
-# InhibitDelayMaxUSec less a fifth of it, at least 1000 ms kept for logind,
-# capped at 12000 ms; 5 s, logind's default, when the window is unreadable.
+# The budget is logind's InhibitDelayMaxUSec less a fifth of it, at least
+# 1000 ms kept for logind, capped at 12000 ms; 5 s, logind's default, when
+# the window is unreadable.
 # An overrun is what the budget prevents: past its window logind stops
 # honouring the inhibitor and suspends with the lock half taken.
 #

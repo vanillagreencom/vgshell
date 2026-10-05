@@ -35,8 +35,8 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 
 - `SUPER+T`: open or close the full-screen theme browser. In the wallpaper browser, open the theme browser.
 - `SUPER+W`: open or close the full-screen wallpaper browser. In the theme browser, open the wallpaper browser.
-- `SUPER+CTRL+J`: open or close the Themes panel. VGS does not use `SUPER+CTRL+T` because Omarchy binds it to Activity.
-- `SUPER+SHIFT+BACKSPACE`: turn window gaps off or back on, as the launcher's gaps row does; Omarchy uses the same key for its gaps toggle. Change it under Keys on the plugin's Settings page. `vgshell ipc call vgs.themes invoke gaps ''` is the same toggle over IPC.
+- `SUPER+CTRL+J`: open or close the Themes panel.
+- `SUPER+SHIFT+BACKSPACE`: turn window gaps off or back on, as the launcher's gaps row does. Change it under Keys on the plugin's Settings page. `vgshell ipc call vgs.themes invoke gaps ''` is the same toggle over IPC.
 
 In the Themes panel:
 

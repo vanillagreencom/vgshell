@@ -827,10 +827,9 @@ var TOKENS = {
     // Cards within `band` slices past the ones shown stay built. The
     // selected card and its neighbours decode at their drawn size in
     // device pixels, the longer side no more than `decodeCap`, and the
-    // rail moves over `duration`. The card is Omarchy's image picker card,
-    // 768 by 475, moved onto the 4 px grid at 476, which keeps its 1.61
-    // ratio; the slices overlap by the card's lean, so neighbours meet on
-    // one edge where Omarchy's 30 overlaps them by 2 pixels.
+    // rail moves over `duration`. The card is 768 by 476, on the 4 px grid
+    // at a 1.61 ratio; the slices overlap by the card's lean, so neighbours
+    // meet on one edge.
     carousel: {
         expandedWidth: length(768),
         expandedHeight: length(476),

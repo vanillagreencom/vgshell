@@ -104,7 +104,7 @@ function parseSinkInputs(text) {
 // A stream without application.name is no app's; EasyEffects' output and a
 // filter chain's output, which shares its node.link-group with the
 // filter's sink, carry processed sound to a device, and moving one would
-// rewire the processing (Omarchy's bin/omarchy-audio-output-set-default).
+// rewire the processing.
 function isAppStream(app, linkGroup) {
     return app !== "" && app !== EASYEFFECTS_APP && linkGroup === "";
 }
@@ -123,7 +123,7 @@ function streamsToMove(inputs) {
 // what goes into its processing, so its volume would move while the
 // speakers did not: the change goes to the device the DSP sink's output
 // stream plays to, followed through a chain of them, else to SINKNAME
-// itself (Omarchy's shell/plugins/panels/audio/Panel.qml, `volumeSink`).
+// itself.
 // A filter chain's output stream shares the filter sink's node.link-group;
 // EasyEffects' is the stream its app name names. "" for no default.
 function volumeTarget(sinkName, nodes, links) {

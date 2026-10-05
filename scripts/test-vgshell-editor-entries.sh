@@ -32,19 +32,19 @@ with_stubs="$stubs:$theme_path"; with_upstream="$upstream:$theme_path"
 
 # `dusk` and `nord` carry no terminal.json, so every slot is the shipped vgs
 # slot: color1 #f43f5e, color2 #b4c96f. `curated` ships a file for each
-# editor, vscode's a colour theme; `omarchy` ships vscode.json as Omarchy's
-# packages do, naming an extension, which is no colour theme.
+# editor, vscode's a colour theme; `sample` ships a vscode.json naming an
+# extension, which is no colour theme.
 theme_pkg "$tree/themes/dusk" '{ "schemaVersion": 1, "name": "dusk", "tokens": { "palette": { "accent": "#111111" } } }'
 theme_pkg "$tree/themes/nord" '{ "schemaVersion": 1, "name": "nord", "tokens": { "palette": { "accent": "#222222" } } }'
 theme_pkg "$tree/themes/dawn" '{ "schemaVersion": 1, "name": "dawn", "tokens": { "palette": { "accent": "#333333" } } }'
-for pkg in curated omarchy; do
+for pkg in curated sample; do
   theme_pkg "$tree/themes/$pkg" "{ \"schemaVersion\": 1, \"name\": \"$pkg\", \"tokens\": {} }"
   mkdir -p "$tree/themes/$pkg/targets"
 done
 printf '"ui.background" = { bg = "#123456" }\n' >"$tree/themes/curated/targets/helix.toml"
 printf '{ "name": "mine", "author": "me", "themes": [] }\n' >"$tree/themes/curated/targets/zed.json"
 printf '{ "name": "mine", "type": "dark", "colors": { "editor.background": "#123456" } }\n' >"$tree/themes/curated/targets/vscode.json"
-printf '{\n  "name": "Tokyo Night",\n  "extension": "enkia.tokyo-night"\n}\n' >"$tree/themes/omarchy/targets/vscode.json"
+printf '{\n  "name": "Tokyo Night",\n  "extension": "enkia.tokyo-night"\n}\n' >"$tree/themes/sample/targets/vscode.json"
 # flexoki-light, a light package: the tree copy's catalog package, copied
 # beside the shipped packages so every tree copy below can apply it.
 cp -R -- "$tree/themes/catalog/flexoki-light" "$tree/themes/flexoki-light"
@@ -111,7 +111,7 @@ THEME_PATH="$with_stubs" tinst "a package's curated editor files land" "$cfg" "$
 check "helix takes the curated theme byte for byte" cmp -s -- "$tree/themes/curated/targets/helix.toml" "$helix_link"
 check "zed takes the curated theme byte for byte" cmp -s -- "$tree/themes/curated/targets/zed.json" "$zed_link"
 check "vscode takes a curated colour theme byte for byte" cmp -s -- "$tree/themes/curated/targets/vscode.json" "$ext/vgs-color-theme.json"
-THEME_PATH="$with_stubs" tinst "a package whose vscode.json names an extension" "$cfg" "$rt_empty" 0 "$any_out" "" theme apply --json omarchy
+THEME_PATH="$with_stubs" tinst "a package whose vscode.json names an extension" "$cfg" "$rt_empty" 0 "$any_out" "" theme apply --json sample
 check "vscode renders its own theme in place of an extension pointer" json_value "$ext/vgs-color-theme.json" 'd["colors"]["focusBorder"]' '#ff5a36ff'
 
 # Each package marks both editors' themes with its scheme.mode: vgs dark,
@@ -165,8 +165,8 @@ check "the vscode hex6 mutant's theme is linked" test -s "$ext/vgs-color-theme.j
 check "the vscode hex6 mutant's colours are not #rrggbbaa" turned colours_are "$ext/vgs-color-theme.json" '[0-9a-f]{8}'
 tree_control vscode-any-curated themes/targets/vscode/target.json ', "curatedKeys": ["colors", "tokenColors", "semanticTokenColors"]' ''
 control_cfg vscode-any-curated
-THEME_PATH="$with_stubs" tinst "the any-curated mutant applies the extension pointer" "$cfg" "$rt_empty" 0 "$any_out" "" theme apply omarchy
-check "the any-curated mutant takes the extension pointer as its theme" cmp -s -- "$tree/themes/omarchy/targets/vscode.json" "$ext/vgs-color-theme.json"
+THEME_PATH="$with_stubs" tinst "the any-curated mutant applies the extension pointer" "$cfg" "$rt_empty" 0 "$any_out" "" theme apply sample
+check "the any-curated mutant takes the extension pointer as its theme" cmp -s -- "$tree/themes/sample/targets/vscode.json" "$ext/vgs-color-theme.json"
 check "the any-curated mutant's theme is not the render" turned json_value "$ext/vgs-color-theme.json" 'd["colors"]["focusBorder"]' '#ff5a36ff'
 tree_control vscode-config-base themes/targets/vscode/target.json '"base": "home"' '"base": "config"'
 control_cfg vscode-config-base

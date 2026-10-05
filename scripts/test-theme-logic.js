@@ -186,11 +186,11 @@ const DEFAULTS = [
     ["osd.barWidth", 144],
     ["osd.labelMaxWidth", 192],
     // It stands 16 grid steps, 64 px, above the free room's bottom and
-    // shows for 1.2 s, Omarchy's OSD default.
+    // shows for 1.2 s.
     ["osd.margin", 64],
     ["osd.duration", 1200],
     // A device's battery warns at a fifth of a charge and is in danger at
-    // a tenth, Omarchy's low-battery warning.
+    // a tenth.
     ["deviceRow.battery.warning", 0.2],
     ["deviceRow.battery.danger", 0.1],
     ["iconButton.restOpacity", 0.6],
@@ -250,7 +250,7 @@ const DEFAULTS = [
     ["dialog.background", "#101010ff"],
     ["dialog.titleRole", "h3"],
     ["dialog.bodyRole", "body"],
-    // The angled card: Omarchy's 28 pixel lean and 3 pixel selected
+    // The angled card: a 28 pixel lean and a 3 pixel selected
     // outline; its outline is borderStrong, mix(#000000, #d7d7d9, 0.27):
     // 215 * 0.27 = 58.05, 217 * 0.27 = 58.59, and textMuted under the
     // pointer; its wash the background at 0.42: 255 * 0.42 = 107.1, and at
@@ -263,7 +263,7 @@ const DEFAULTS = [
     ["angledCard.selectedBorder", "#ff5a36ff"],
     ["angledCard.selectedBorderWidth", 3],
     ["angledCard.dim", "#0000006b"],
-    // The carousel: Omarchy's 768 by 475 card on the grid at 476 and its
+    // The carousel: a 768 by 476 card on the grid and
     // 108 by 432 slices, overlapping by the card's 28 pixel lean; the
     // reference rail, 768 + 13 * (108 - 28) + 2 * 20 = 1848, its unit held
     // from 0.35 to 2, two cards built past the shown ones and a decode of
@@ -963,9 +963,9 @@ function gridShortfalls(values) {
     assert.equal(moved.ok, true, "the grid control document is accepted");
     assert.deepEqual(gridShortfalls(moved.values), ["row.height=30", "listItem.height=30"], "control: a row height off the grid is named with the list row that reads it");
     // The theme browser's reference geometry is walked like every other
-    // group: Omarchy's own card height and overlap are named.
-    const omarchy = judge.accept(TOKENS, document({ carousel: { expandedHeight: 475, overlap: 30 } }));
-    assert.equal(omarchy.ok, true, "the browser grid control document is accepted");
-    assert.deepEqual(gridShortfalls(omarchy.values), ["carousel.expandedHeight=475", "carousel.overlap=30"], "control: the carousel's off-grid card height and overlap are named");
+    // group: a card height and an overlap off the grid are named.
+    const offGrid = judge.accept(TOKENS, document({ carousel: { expandedHeight: 475, overlap: 30 } }));
+    assert.equal(offGrid.ok, true, "the browser grid control document is accepted");
+    assert.deepEqual(gridShortfalls(offGrid.values), ["carousel.expandedHeight=475", "carousel.overlap=30"], "control: the carousel's off-grid card height and overlap are named");
 }
 console.log(`test-theme-logic: ok documents=${ACCEPTED.length + REFUSED.length} controls=${CONTROLS.length}`);

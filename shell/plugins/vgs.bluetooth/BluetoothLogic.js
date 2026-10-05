@@ -6,8 +6,8 @@
 // owns the processes, the timers and the Quickshell Bluetooth objects, and
 // runs each effect these return.
 //
-// Power is one operation in which the rfkill soft block is the state, as
-// Omarchy's bin/omarchy-bluetooth-power has it: BlueZ never keeps an
+// Power is one operation in which the rfkill soft block is the state:
+// BlueZ never keeps an
 // adapter's Powered across a boot, and systemd-rfkill keeps the block.
 // On unblocks, then waits POWER_WAIT_MS for any adapter to report powered,
 // then sets each adapter's Powered itself and waits again, then fails. Off
@@ -21,12 +21,9 @@
 // start is unconfirmed is dropped. The debt (`owes`) records that this
 // plugin started or adopted a session; after the last lease ends, a stop is
 // written each DISCOVERY_TICK_MS while BlueZ still confirms discovering, at
-// most DISCOVERY_STOP_ATTEMPTS times, as Omarchy's
-// shell/plugins/panels/bluetooth/Panel.qml does.
+// most DISCOVERY_STOP_ATTEMPTS times.
 
-// Omarchy's POWER_WAIT_SECONDS, bin/omarchy-bluetooth-power.
 var POWER_WAIT_MS = 2000;
-// Omarchy's discoveryStop interval and attempts, Panel.qml.
 var DISCOVERY_TICK_MS = 1000;
 var DISCOVERY_STOP_ATTEMPTS = 3;
 // How long a Pair call that ended without the device reading paired, and
@@ -551,8 +548,7 @@ function deviceName(device) {
 }
 
 // Whether a nearby device names itself: an alias that is only its address
-// or a UUID is a beacon or a phone's random address, which Omarchy hides
-// too (Model.js hasHumanName).
+// or a UUID is a beacon or a phone's random address, which the list hides.
 function namesItself(device) {
     var label = String(device.name || device.deviceName || "").trim();
     if (label === "") return false;
@@ -571,8 +567,7 @@ function deviceAt(devices, address) {
 // { mine, nearby }, each sorted by name, in the shape a qs.Ui DeviceList
 // takes ({ key, text, secondary, iconName, battery }) plus `connected`,
 // `trusted` and `pairing`. A row holds primitives alone, so no delegate
-// keeps a device object BlueZ may remove while it is built (Omarchy
-// Model.js deviceRow); actions find the device by address, the key.
+// keeps a device object BlueZ may remove while it is built; actions find the device by address, the key.
 // `mine` is every paired, bonded or trusted device; `nearby` every other
 // device that names itself.
 function deviceRows(devices) {

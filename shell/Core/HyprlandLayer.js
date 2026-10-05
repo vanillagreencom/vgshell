@@ -120,9 +120,9 @@ var DEVICE_NAME = /^[\x20\x21\x23-\x5b\x5d-\x7e]+$/;
 var APPEARANCE_GROUPS = ["borders", "radius", "motion", "noGaps"];
 var APPEARANCE_DEFAULTS = { borders: true, radius: true, motion: false, noGaps: false };
 
-// Hyprland animation presets VGS owns. `smooth` takes Omarchy's
-// default-branch window, layer and fade timings; VGS also gives workspaces a
-// leaf so the preset is complete for this layer's scope.
+// Hyprland animation presets VGS owns. `smooth` sets window, layer and fade
+// timings and gives workspaces a leaf too, so the preset is complete for
+// this layer's scope.
 var MOTION = {
     none: { curves: {}, animations: [] },
     snappy: {
@@ -542,7 +542,7 @@ function overlayCaptureLines(plan) {
 
 // The session lock: a new lock client may take over a lock whose client
 // died, so a shell started after a crash while locked locks the session
-// again, as Omarchy's looknfeel.lua sets it. Hyprland keeps the session
+// again. Hyprland keeps the session
 // locked either way; without it only a TTY clears the dead lock.
 function sessionLockLines() {
     return [

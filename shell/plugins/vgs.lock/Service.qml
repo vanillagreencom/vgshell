@@ -18,14 +18,14 @@ import "LockModel.js" as LockModel
 // calls, an idle watch after `idleLockSeconds` without input, and the
 // before-sleep hook bin/sleep-watch under a logind delay inhibitor. At start
 // it reads Hyprland's monitors and locks again a session a shell that died
-// left locked, as Omarchy's lock service does.
+// left locked.
 //
 // A lock the compositor refuses or ends, as while another locker such as
 // hyprlock holds the session or releases it under this lock, drops the
 // core's request (SessionLock); the service publishes it in the `lock`
 // status, and a sleep waiting on it is released as refused. A suspend that went ahead unconfirmed is published in
 // `lastSleep`, logged, and shown as a toast once the user is back at the
-// desktop, as Omarchy sends a critical notification.
+// desktop.
 //
 // The password lives in `password` while it is typed and in PAM's answer
 // while it is checked, and is never logged, published or answered over IPC.

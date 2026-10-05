@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Controls for the login screen's compositor configuration,
 # config/system/greeter/hyprland.lua: the keyboard layout it reads from
-# /etc/vconsole.conf, as Omarchy's greeter does. Each row runs the file
+# /etc/vconsole.conf. Each row runs the file
 # under the system's lua with a stand-in `hl` that prints the `input`
 # table it is handed, and with io.open answering a fixture for
 # /etc/vconsole.conf; nothing reads the real file or starts Hyprland. Each

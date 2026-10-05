@@ -5,7 +5,7 @@
 // notification stack's (px13 dotfiles, method.notifications Service.qml,
 // components/NotificationCard.qml and InboxHeader.qml, spotlight/Theme.qml,
 // GlassSurface.qml, EdgeLight.qml, PillButton.qml and Switch.qml, and
-// hooks/theme-set.d/spotlight-menu-tokens.sh), with each Omarchy style value
+// hooks/theme-set.d/spotlight-menu-tokens.sh), with each style value
 // the reference read stated as the value it resolved to there: Style.space(n)
 // is n at the default spacing scale, Style.gapsOut is 5, the font sizes are
 // the Style.font steps at the 12 px base (bodySmall 11, title 14) and the
@@ -175,10 +175,8 @@ var TOKENS = {
     // cropped to the square with corners of `radius`, an application icon
     // is drawn `icon` wide in the middle, a hinted Lucide icon `glyph` wide
     // in the middle, and people fill it as faces.
-    // `regular` keeps the reference's 40 px icon slot, the one slot
-    // Omarchy's notification card draws every image and icon in
-    // (shell/plugins/notifications/components/NotificationCard.qml on
-    // quattro, read 2026-09-29); `compact` is 28, so a one-line card with
+    // `regular` is a 40 px icon slot, the one slot every image and icon is
+    // drawn in; `compact` is 28, so a one-line card with
     // media is 28 plus twice `card.pad` tall.
     media: {
         compact: { size: length(28), icon: length(24), radius: length(6), glyph: length(20) },

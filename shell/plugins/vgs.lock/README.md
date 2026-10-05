@@ -24,7 +24,7 @@ The plugin ships with VGS and is enabled by default. Its password check needs no
 ## How it works
 
 1. A lock request asks the shell's core for the one session lock. The core draws this plugin's lock screen on every screen, and Hyprland confirms the lock.
-2. Enter checks the password through PAM with the plugin's `pam/vgs-lock` stack, which is Omarchy's lock stack. Nothing is checked until you press Enter.
+2. Enter checks the password through PAM with the plugin's `pam/vgs-lock` stack. Nothing is checked until you press Enter.
 3. A correct password unlocks. Disabling or updating the plugin while locked keeps the session locked, and the lock screen comes back with the plugin.
 4. The shell keeps a logind delay on every suspend while it runs. When logind announces a suspend, the plugin locks and lets the suspend go once Hyprland confirms the lock.
 5. When a shell starts, the plugin asks Hyprland whether a session lock is still held by a lock screen that is gone, and locks again if so.

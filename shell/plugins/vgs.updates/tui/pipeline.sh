@@ -5,7 +5,7 @@
 # run leaves out is skipped where its step would stand. bin/vgshell-tui runs
 # both from a private copy of the plugin's snapshot, so bin/facts is beside
 # this file's directory, and the VGS tree is the one VGS_TUI_LIB lies in.
-# The order is omarchy-update's (basecamp/omarchy e332dc97):
+# The order:
 #
 #   1. the log, script(1) into $XDG_STATE_HOME/vgshell/updates/update.log, then
 #      the lock vgs-tui-updates; the run writes a file of its own that

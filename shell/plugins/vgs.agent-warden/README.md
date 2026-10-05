@@ -31,7 +31,7 @@ The bar widget draws one shield in the tone of the service's state, with the Luc
 | `not-set-up` | `shield-question-mark` | neutral | none | Agent Warden isn't set up |
 | `update-warden` | `shield-alert` | warning | none | Agent Warden needs an update |
 
-A count of zero is not drawn. A click opens or closes the panel under the shield. The global shortcut `vgs.agent-warden:toggle`, bound to `SUPER+CTRL+Y` by default, opens the same panel at the plugin's placement. VGS does not use `SUPER+CTRL+A` because Omarchy binds that key to Audio.
+A count of zero is not drawn. A click opens or closes the panel under the shield. The global shortcut `vgs.agent-warden:toggle`, bound to `SUPER+CTRL+Y` by default, opens the same panel at the plugin's placement.
 
 | Setting | Default | Effect |
 |---|---|---|

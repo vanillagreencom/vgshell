@@ -641,7 +641,7 @@ async function main() {
     const CONTROLS = [
         ["Screen.js", "mask-removed", "if (part === null) continue;", "continue;", "masks"],
         ["Screen.js", "transform-ignored", "const turned = monitor.transform % 2 === 1;", "const turned = false;", "masks"],
-        // Omarchy's monitor rule: only transforms 1 and 3 turn, and the size floors.
+        // Near-miss rules: only transforms 1 and 3 turn, and the size floors.
         ["Screen.js", "flipped-unturned", "const turned = monitor.transform % 2 === 1;",
             "const turned = monitor.transform === 1 || monitor.transform === 3;", "geometry"],
         ["Screen.js", "size-floored", [

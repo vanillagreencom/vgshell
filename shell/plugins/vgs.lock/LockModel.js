@@ -83,8 +83,7 @@ var UNTIL_DISMISSED = 0;
 // What the hook's last release, REASON of sleepLine, says of the last
 // suspend: the `lastSleep` status as { tone, text }, and for anything but
 // a confirmed lock the options of the toast the user sees once back at the
-// desktop, which stays until dismissed as Omarchy's critical notification
-// does; null for a confirmed lock.
+// desktop, which stays until dismissed; null for a confirmed lock.
 function lastSleep(reason) {
     const warn = message => ({ title: "The session was not locked before sleep", message: message, tone: "danger", icon: "lock-open", duration: UNTIL_DISMISSED });
     switch (reason) {

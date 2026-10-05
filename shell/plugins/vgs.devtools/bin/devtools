@@ -758,9 +758,8 @@ function launcherLine(state, command) {
 // present probe fails), and runs the row's executable with the buildEnv
 // dropped again, so a pin the build needed never reaches the programs the
 // tool starts. It records nothing when mise already holds the install.
-// `mise x` takes SPEC, the row's default channel, as Omarchy's wrappers
-// take the whole spec. A row with `exec` runs that file
-// under the root `mise where` names; any other runs `mise x`, whose
+// `mise x` takes SPEC, the row's default channel, as the whole spec. A
+// row with `exec` runs that file under the root `mise where` names; any other runs `mise x`, whose
 // fall-through to this same file on PATH, for an install with no such
 // executable, is caught by process id.
 function launcherText(row, spec) {

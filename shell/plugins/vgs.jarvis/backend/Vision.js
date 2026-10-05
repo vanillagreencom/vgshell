@@ -31,8 +31,8 @@ const SETTLE_MS = 800;
 // stays under Session's 60 s thinking deadline.
 const DEADLINES = Object.freeze({ grim: 5000, slurp: 15000, magick: 5000, tesseract: 15000 });
 const SLACK_MS = 1000;
-// Omarchy's capture-text flags, with automatic page segmentation for a
-// whole screen in place of its single block.
+// tesseract's flags, with automatic page segmentation for a whole screen
+// rather than a single block.
 const OCR = ["--oem", "1", "--psm", "3", "--dpi", "300", "-l", "eng", "-c", "preserve_interword_spaces=1"];
 // slurp's default format, pinned: layout coordinates (slurp main.c).
 const AREA_FORMAT = "%x,%y %wx%h";

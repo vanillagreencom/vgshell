@@ -64,7 +64,7 @@ The file-opening TUI records its refusal keys in `$XDG_STATE_HOME/vgshell/notifi
 
 The core's notification server takes the `org.freedesktop.Notifications` name while the plugin is enabled. Another notification daemon must not run beside it.
 
-Screenshots come from `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2. VGS uses a summoned panel to give the list keyboard focus. Omarchy uses its own notification surfaces. VGS does not port the `omarchy-glyph`, `omarchy-exec-argv` or `omarchy-action` contracts because VGS has no sender for them.
+Screenshots come from `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2. VGS uses a summoned panel to give the list keyboard focus.
 
 The service registers `vgs.notifications:inbox`. The manifest binds it to `SUPER+N` in the generated Hyprland layer. The IPC entry is `vgshell ipc call vgs.notifications invoke <name> <arg>`.
 

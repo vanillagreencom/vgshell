@@ -24,6 +24,8 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 
 The catalog's sections, fields, install routes, mise specs and security rules are in [docs/architecture/devtools-catalog.md](../../../docs/architecture/devtools-catalog.md).
 
+Each tool is a `catalog.json` row with a `present` probe, installed through a package-manager id, a mise spec, a named installer route or container data, so the engine lists, installs and removes tools from one data file and parses no shell snippets. The PHP row installs the mise spec `github:nunomaduro/static-php-builds`, because bare `php` builds PHP from source and needs many system development packages.
+
 ## Engine
 
 `bin/devtools --tree <dir> <verb>` runs against the VGS tree at `<dir>`. Its header states each verb, its output and its refusals. The verbs are `list --json`, `install`, `update` and `remove` for one row or, with `--mise <key>`, for a tool that only the owner's global mise config declares, and `launchers refresh|remove`.
@@ -35,6 +37,7 @@ The catalog's sections, fields, install routes, mise specs and security rules ar
 - The engine never installs a tool that only the owner's mise config declares, so that config stays the source of truth.
 - A named installer downloads its upstream script to a temporary file and runs it with `sh`; no shell string passes through the engine. `rustup` removes itself with `rustup self uninstall -y`. The `opam` binary that the opam installer puts in `/usr/local/bin` stays after a removal, because only root can delete it.
 - A removal whose row's `present` probe still holds is refused with `present=remains`: something VGS did not install provides it.
+- A database row runs the first container runtime of the row on `PATH`, without `sudo`, so a user without access to that runtime sees its error in the TUI.
 
 ## Window and service
 
@@ -51,21 +54,9 @@ The service owns every command the plugin runs in the background. The window dra
 
 ## Launchers
 
-A launcher is a script at `~/.local/bin/<command>` that installs its row through mise on the first run and then runs it. The plugin's `writeLaunchers` setting, off by default, asks for them. The window's switch writes it. The service runs `launchers refresh` while it is on and `launchers remove` while it is off, at start, when it changes and after each TUI run.
+A launcher is a script at `~/.local/bin/<command>` that installs its row through mise on the first run and then runs it. The plugin's `writeLaunchers` setting, off by default because mise's shims and the owner's own `agent-cli` link already run each tool, asks for them. The window's switch writes it. The service runs `launchers refresh` while it is on and `launchers remove` while it is off, at start, when it changes and after each TUI run.
 
 - A launcher's second line is `# vgs.devtools launcher`. A file without that mark, a link included, belongs to the owner: the engine never replaces or deletes it, so the owner's `agent-cli` links stay the owner's.
 - The engine writes no launcher where the command already answers on `PATH` outside `~/.local/bin` and mise's data directory, because the launcher would hide that copy; it reports that launcher `shadowed`.
 - A row with `exec`, such as Cursor, installs with an empty `bin_path=`, so mise puts nothing on `PATH`. Its launcher runs the `exec` file below the directory `mise where` names. The engine writes it after each install and update whatever the setting, and `launchers remove` keeps it while the row is installed.
 - A launcher runs the row's default channel.
-
-## Omarchy comparison
-
-Omarchy uses `omarchy-install-dev-env` case arms and `omarchy-menu.jsonc` rows with bash `disabled` checks. Its Install › Development menu shows no version and no source, and removal is a second menu. VGS shows every row in one window with its state, and lists it again when the TUI ends.
-
-VGS uses `catalog.json` rows plus `present` probes. The engine can list, install and remove tools from one data file without parsing menu shell snippets.
-
-VGS keeps Omarchy's environment set, editor set, terminal set and Docker database defaults. VGS changes the install representation to package-manager ids, mise specs, named installer routes and container data.
-
-Omarchy sets the PHP mise alias to `github:nunomaduro/static-php-builds` before installing PHP. VGS uses that spec directly, because bare `php` can build PHP from source and needs many system development packages.
-
-Omarchy's `omarchy-mise-install` writes a wrapper for each agent at setup. VGS writes launchers only when the owner asks for them, because mise's shims and the owner's own `agent-cli` link already run each tool. Omarchy's `install/user/mise.sh` sets `upgrade.auto_prune` false once at setup; the engine sets it before its first `mise use` or `mise up`. Omarchy runs `sudo docker run` for its databases; the engine runs the first container runtime of the row on `PATH` without `sudo`, so a user without access to that runtime sees its error in the TUI.

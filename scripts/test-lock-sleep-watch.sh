@@ -9,7 +9,7 @@
 # the monitor prints the bus's NameAcquired, then one PrepareForSleep
 # unless STUB_NO_SIGNAL or STUB_QUIET is set, nothing with STUB_SILENT. No
 # row reaches logind or the system bus. Expected values are computed by
-# hand from Omarchy's rule.
+# hand from the budget rule below.
 set -euo pipefail
 
 TMP_ROOT="$(mktemp -d)" || { echo "test-lock-sleep-watch: scratch=mktemp-failed" >&2; exit 1; }
@@ -68,7 +68,7 @@ watch_row() {
   if [[ $status == "$want_exit" && $out == "$want_out" && $err == "$want_err" ]]; then ok "$name"; else fail "$name: exit=$status want=$want_exit out=[$out] want=[$want_out] err=[$err] want=[$want_err]"; fi
 }
 
-# Omarchy's rule: the window less a fifth of it, at least 1000 ms, capped at
+# The budget rule: the window less a fifth of it, at least 1000 ms, capped at
 # 12000 ms, 5 s when unreadable. A row's writer answers half a second after
 # the script starts, once it announced the sleep; a silent one holds stdin
 # open past the budget.

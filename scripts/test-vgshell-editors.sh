@@ -25,7 +25,7 @@ with_stubs="$stubs:$theme_path"
 
 # `dusk` and `nord` carry no terminal.json, so every slot is the shipped vgs
 # slot: color0 #0b0b0b, color1 #f43f5e, color2 #b4c96f, color3 #ffb000.
-# `curated` ships both editors' files, neovim's as Omarchy's packages do.
+# `curated` ships both editors' files, neovim's a lazy.nvim plugin spec.
 theme_pkg "$tree/themes/dusk" '{ "schemaVersion": 1, "name": "dusk", "tokens": { "palette": { "accent": "#111111" } } }'
 theme_pkg "$tree/themes/nord" '{ "schemaVersion": 1, "name": "nord", "tokens": { "palette": { "accent": "#222222" } } }'
 theme_pkg "$tree/themes/curated" '{ "schemaVersion": 1, "name": "curated", "tokens": {} }'

@@ -440,7 +440,7 @@ function placeholderText(logic, tokens, input, name, encode) {
 // Whether BYTES, a package's curated file for the accepted `files` entry
 // FILE, stand in for its render. With `curatedKeys` they must be a JSON
 // object holding one of those keys, so a package file of another shape at
-// that name, such as Omarchy's vscode.json naming an extension, is not taken.
+// that name, such as a vscode.json naming an extension, is not taken.
 function curatedTaken(logic, file, bytes) {
     if (!logic.hasOwn(file, CURATED_KEYS_KEY)) return true;
     let document;

@@ -441,7 +441,7 @@ function pickerManager(action) {
     return fzf(["--prompt=" + (action === "install" ? "Install from" : "Remove from") + "> ", "--color=pointer:" + tone], offered);
 }
 
-// Omarchy's picker, omarchy-pkg-install and omarchy-pkg-remove: several
+// The package picker: several
 // names, the preview under the list, and its keys, in the theme's success
 // colour for an install and its danger colour for a removal.
 function pick(action, manager) {

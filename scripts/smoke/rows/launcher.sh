@@ -272,7 +272,7 @@ expect_poll "the user's label replaced the shipped one" True launcher_has_row me
 missing_row() { rows_of unavailable | py_reply 'import json,sys; print(json.dumps([r for r in json.load(sys.stdin) if r[0] == "Smoke missing"]))'; }
 expect_poll "a row with a missing command is unavailable and names it" '[["Smoke missing", "needs no-such-command-smoke"]]' missing_row
 expected_errors+=('launcher: menu refused: file=.*/launcher/menu\.json items\.bad-item has unknown key "action"')
-write_menu '{ "schemaVersion": 1, "items": { "bad-item": { "action": "omarchy-menu" } } }'
+write_menu '{ "schemaVersion": 1, "items": { "bad-item": { "action": "other-menu" } } }'
 expect_log "a user menu the judge refuses is logged with its defect" 1 'launcher: menu refused: file=.*/launcher/menu\.json items\.bad-item has unknown key "action"'
 expect_poll "the refused user menu shows as a notice" True launcher_has_row notice "Your menu is unavailable"
 expect_poll "the shipped menu stands after the refusal" True launcher_has_row menu System
@@ -327,7 +327,7 @@ if launcher_mutant "the unwatched control" 'onChanged: read()' 'onChanged: {}'; 
   focused "the unwatched control holds the keyboard"
   type_keys -M ctrl -k b -m ctrl || fail "sending Ctrl+B failed"
   expect_poll "the unwatched control read the user menu it was built with" True launcher_has_row menu Power
-  write_menu '{ "schemaVersion": 1, "items": { "bad-item": { "action": "omarchy-menu" } } }'
+  write_menu '{ "schemaVersion": 1, "items": { "bad-item": { "action": "other-menu" } } }'
   sleep 5
   expect "the unwatched control keeps the menu it was built with" True launcher_has_row menu Power
   expect "the host hides the unwatched control" ok ipc shell hide overlay vgs.launcher

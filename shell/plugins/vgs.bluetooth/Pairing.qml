@@ -7,8 +7,7 @@ import "BluetoothLogic.js" as Logic
 // through the core's pairing agent, capability `bluetoothAgent`.
 // BluetoothLogic.pairStep decides each step; this runs them. It holds the
 // agent lease while a pairing runs, calls Pair once the lease reads ready,
-// and trusts and connects the device once it reads paired, as Omarchy's
-// bin/omarchy-bluetooth-device pairs one. A code to type on the device is
+// and trusts and connects the device once it reads paired. A code to type on the device is
 // dismissed when the pairing ends, and the lease goes with the instance.
 //
 // It also answers the agent's prompts, the first it lists, which come from

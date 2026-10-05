@@ -32,14 +32,8 @@ The TUIs read the plugin's settings with `vgshell plugin settings vgs.updates`, 
 
 When a run ends, the service checks again ([README.md § Cadence](README.md#cadence)).
 
-## Omarchy comparison
+## Scope
 
-`bin/omarchy-update` (basecamp/omarchy `e332dc97`) is the model. VGS takes its order and its safety steps: the `script` log, the lock, the free-space check, the confirm box, one sudo authorization with a keepalive, the snapshot with a missing tool as a quiet skip, mise with `MISE_MINIMUM_RELEASE_AGE=0`, the credential dropped before the AUR, the orphan question with default no, and the reboot question for a new kernel or a replaced Hyprland. `OMARCHY_UPDATE_SUDO_SESSION` is the model for the nested session that `vgshell pkg run` joins.
+Low free space is a warning, not a refusal, so a user with a small disk can still update.
 
-VGS differs in these ways:
-
-- Low free space is a warning, not a refusal, so a user with a small disk can still update. Omarchy refuses below 10 GiB.
-- The package steps are the package table's plans, with no `--noconfirm`, so each manager asks its own questions.
-- Each plugin and theme update shows its diff and asks.
-- The AUR runs after the credential is dropped, and it is dropped again after. The `sudo-no-update` wrapper is not copied.
-- Not copied: migrations, the keyring step, channels and the ALPM guard. These are distribution work, and VGS is not the distribution. The stay-awake step is not copied yet. A later `systemd-inhibit` step can add it.
+The pipeline runs no migrations, keyring step, channels or ALPM guard: those are a distribution's work, and VGS is not a distribution. A run does not hold the system awake.

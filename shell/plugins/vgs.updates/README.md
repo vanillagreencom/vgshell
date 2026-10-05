@@ -63,6 +63,8 @@ The full package list stays in `status.json`.
 
 ## Counts
 
+The badge counts every source, because it represents the whole system.
+
 Package-manager rows count packages.
 
 VGS counts as one update when `vgshell self status --json` reports `behind: true`.
@@ -136,16 +138,6 @@ The commands it runs can touch the network:
 
 The shell never elevates for a check.
 
-## Omarchy comparison
-
-Omarchy's `SystemUpdate.qml` checks at startup, every six hours and after an update run.
-
-VGS uses the same cadence.
-
-Omarchy checks only whether Omarchy itself has an update.
-
-VGS counts every source because the badge represents the whole system.
-
 ## Bar widget and flyout
 
 The widget and the flyout read the status values alone. `UpdatesLogic.js` decides what each draws, and neither runs a check.
@@ -176,17 +168,9 @@ The widget is always visible by default. `hideWhenCurrent`, off by default, hide
 
 The reason is that a hidden icon makes "up to date" look the same as "never checked" or "check failed". The widget is also the way to Refresh and to the time of the last check. The count stays quiet because it has no colour when nothing needs action, not because it disappears. A failed, stale, running or missing check always shows, with `hideWhenCurrent` on too.
 
-### Omarchy comparison
-
-Omarchy's `shell/plugins/bar/widgets/SystemUpdate.qml` (basecamp/omarchy `e332dc97`) sets `visible: updateAvailable`. The icon appears only when Omarchy itself has an update, and a click runs `omarchy-update`. A failed or never-run check is hidden the same way as "up to date". VGS keeps the icon visible and calm, so the user never takes a failed check for an up-to-date system. `hideWhenCurrent` gives Omarchy's quiet bar to a user who wants it.
-
-Omarchy's one click runs the update. VGS puts that click on the middle button and opens the flyout on the left button. Omarchy has no flyout.
-
-Omarchy's `omarchy-debug` shows its log with `less`. The `log` TUI does the same for the update log. Nothing in Omarchy opens its update log, `/tmp/omarchy-update.log`, for the user: only `omarchy-update-analyze-logs` reads it, for known failures.
-
 ## Update pipeline
 
-The update TUIs, the steps a run takes in order and how they compare with Omarchy's are in [pipeline.md](pipeline.md).
+The update TUIs and the steps a run takes in order are in [pipeline.md](pipeline.md).
 
 ## Validation
 

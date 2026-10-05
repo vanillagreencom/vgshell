@@ -1,6 +1,6 @@
 # Releasing
 
-The maintainer cuts every release from their own machine, with their own gpg key, GitHub login and AUR SSH key. VGS has no CI workflow for releases or package publication: [D040](decisions/D040-one-shared-install-tree.md). Two scripts do the work. Their headers, which `--help` prints, state every refusal, output line and exit status.
+The maintainer cuts every release from their own machine, with their own gpg key, GitHub login and AUR SSH key. VGS has no CI workflow for releases or package publication: [D040](decisions/D040-one-shared-install-tree.md). The package recipes live beside the source under `packaging/`, so one checkout both tags the release and publishes the recipes that build it. Two scripts do the work. Their headers, which `--help` prints, state every refusal, output line and exit status.
 
 - `scripts/release X.Y.Z` makes the GitHub release `vX.Y.Z` from the pushed tag: the source archive `vgshell-X.Y.Z.tar.gz`, `install.sh`, `SHA256SUMS` and its detached signature `SHA256SUMS.asc`, written to `dist/`.
 - `scripts/publish-aur.sh vgshell vgshell-git` pushes the recipes under `packaging/arch/` to the AUR. It holds `vgshell` back until the release asset's sha256 is the one the recipe pins.
@@ -105,7 +105,3 @@ podman run --rm -e NIX_CONFIG='experimental-features = nix-command flakes' docke
 ```
 
 Every command prints `vgshell X.Y.Z`: an installed tree is not a checkout, so `vgshell-git` prints its `VERSION` too. Then run `vgshell run` from each install inside the nested sandbox: [validation-smoke.md](architecture/validation-smoke.md).
-
-## Omarchy comparison
-
-At `basecamp/omarchy` `main` `e332dc9`, the repository holds no release or publish script. Omarchy builds its packages in the separate `omarchy-pkgs` repository and serves them from its own pacman repository. VGS keeps its recipes beside the source, so one checkout both tags the release and publishes the recipes that build it.

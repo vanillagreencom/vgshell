@@ -565,9 +565,8 @@ git        present ^git[[:space:]]version[[:space:]]([0-9]+(\.[0-9]+)*)        g
 #   streak with its exit.
 # - supervise_compositor_tries and supervise_compositor_gap: how many times,
 #   and how many seconds apart, `run` asks Hyprland for its monitors before
-#   it reads Hyprland as gone. Omarchy's compositor_alive asks so: a
-#   compositor busy reconfiguring outputs, which is when a shell dies, can
-#   miss one query without being gone.
+#   it reads Hyprland as gone. A compositor busy reconfiguring outputs,
+#   which is when a shell dies, can miss one query without being gone.
 # - supervise_notice_ms and supervise_notice: how long the give-up notice
 #   shows and its text, the count of exits in its %d.
 supervise_delays=(0.5 1 2 4 8)

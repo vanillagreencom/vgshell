@@ -455,8 +455,8 @@ function verify(render) {
     assert.deepEqual(one("hex6", "@{palette.nope}", probe, new Map([["probe.conf", curatedBytes]])).reason, "placeholder");
 
     // With curatedKeys, a curated file is taken only as a JSON object holding
-    // one of them; any other file at that name, Omarchy's vscode.json naming
-    // an extension included, leaves the render in place.
+    // one of them; any other file at that name, a vscode.json naming an
+    // extension included, leaves the render in place.
     const keyed = accepted("probe", targetText({ files: [{ template: "probe.conf", destination: "probe.conf", curatedKeys: ["colors", "tokenColors"] }] }));
     const keyedFile = bytes => {
         const result = render.renderTarget(logic, TOKENS, keyed, new Map([["probe.conf", "a=@{palette.accent}"]]), { values: probe.values, slots: defaults.terminal, curated: new Map([["probe.conf", Buffer.from(bytes)]]), installed: false });
