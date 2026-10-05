@@ -47,8 +47,7 @@ stand_in_vgshell() {
     && chmod 755 -- "$repo/bin/vgshell.next" && mv -T -- "$repo/bin/vgshell.next" "$repo/bin/vgshell"
 }
 
-# Preserve placements as well as enablement. Re-enabling a widget through
-# the manager places it, which would change the panel block's precondition.
+# Preserve the fixture placements and plugin enablement for the panel block.
 expect_poll "configuration saves settle before the core snapshot" true ipc smoke configSettled
 cp -p -- "$home/.config/vgshell/shell.json" "$sandbox/theme-core-shell.json"
 restore_theme_core_config() {
@@ -335,11 +334,10 @@ expect_poll "the browser service restores before its panel rows" false ipc smoke
 trap - ERR
 if [[ -n $theme_core_previous_error_trap ]]; then eval "$theme_core_previous_error_trap"; fi
 
-# ---- vgs.themes: the themes widget and panel ------------------------------
-# The first-party themes plugin, reached the way a user reaches it: `vgshell
-# plugin enable vgs.themes` places its widget in its default section, a
-# click on the widget opens the panel under it, and a click on a row
-# applies that package. The panel is read back through what it draws: each
+# ---- vgs.themes: the themes panel ----------------------------------------
+# The first-party themes plugin: its shortcut opens an unanchored panel,
+# and a click on a row applies that package. The panel is read back
+# through what it draws: each
 # ThemeRow's visible texts (name, source, badges, then one line per
 # problem of the last result) and its swatch colours. An installed copy of
 # dawn, a renamed copy of the catalog's flexoki-light under a name no
@@ -348,9 +346,8 @@ if [[ -n $theme_core_previous_error_trap ]]; then eval "$theme_core_previous_err
 # refused `mismatch` the rows above left. A fixture target that fails gives
 # the result a failed target, one that runs code a file the apply dropped
 # from `smoke`, and a stand-in runner a target state the panel names
-# nowhere. The block leaves vgs applied and the widget placed
-# for the wallpaper block after it, which disables the plugin.
-layout_section_of() { ipc shell listShellConfig | py_reply 'import json,sys; l=json.load(sys.stdin)["bar"]["layout"]; print(([s for s in ("left","center","right") if any(e["id"]==sys.argv[1] for e in l.get(s,[]))] + ["none"])[0])' "$1"; }
+# nowhere. The block leaves vgs applied for the wallpaper block after it,
+# which disables the plugin.
 theme_rows() { ipc smoke itemTexts panel vgs.themes ThemeRow | py_reply 'import json,sys; print(json.dumps(sorted(json.load(sys.stdin))))'; }
 # The rows whose name is NAME, in tree order.
 theme_row() { ipc smoke itemTexts panel vgs.themes ThemeRow | py_reply 'import json,sys; print(json.dumps([r for r in json.load(sys.stdin) if r[0]==sys.argv[1]]))' "$1"; }
@@ -391,21 +388,46 @@ click_button() {
 # away from the right section the panel opens under.
 click_outside() { click "$((mon_w / 4))" "$((mon_h * 3 / 4))"; }
 
-expect "the themes panel is enabled as first-party before any placement" True plugin_enabled vgs.themes
-expect "the themes panel summons before its widget is placed" ok ipc shell summon panel vgs.themes '{}'
+expect "the themes panel is enabled as first-party" True plugin_enabled vgs.themes
+expect "the unanchored themes panel summons" ok ipc shell summon panel vgs.themes '{}'
 expect_poll "the unanchored themes panel maps one panel surface" 1 layer_count vgs:panel
 expect "hiding the unanchored themes panel is allowed" ok ipc shell hide panel vgs.themes
 expect_poll "the unanchored themes panel's surface is gone" 0 layer_count vgs:panel
-expect "the themes widget has no placement before it is enabled" none layout_section_of vgs.themes
-expect "vgshell plugin enable places the themes widget" ok "${shell_env[@]}" "$repo/bin/vgshell" plugin enable vgs.themes
-expect_poll "the themes widget lands in its default section" right layout_section_of vgs.themes
-themes_key="$(bar_key)"
-expect_poll "the themes widget is built on the bar" '"vgs.themes"' ipc smoke readInstance "$themes_key" vgs.themes moduleName
+# A user file can retain the former bar entry. The bar skips it while the
+# panel and service stay enabled, and a configuration reload preserves it.
+expect_poll "configuration saves settle before the former bar entry" true ipc smoke configSettled
+cp -p -- "$home/.config/vgshell/shell.json" "$sandbox/themes-bar-shell.json"
+python3 - "$home/.config/vgshell/shell.json" <<'PYENTRY'
+import json, os, sys
+path = sys.argv[1]
+with open(path) as source: doc = json.load(source)
+layout = doc["bar"]["layout"]
+assert all(entry["id"] != "vgs.themes" for entries in layout.values() for entry in entries)
+layout["right"].append({"id": "vgs.themes"})
+with open(path + ".next", "w") as output: json.dump(doc, output)
+os.replace(path + ".next", path)
+PYENTRY
+cp -p -- "$home/.config/vgshell/shell.json" "$sandbox/themes-bar-entry.json"
+former_themes_entry() { ipc shell listShellConfig | py_reply 'import json,sys; print(any(e["id"] == "vgs.themes" for entries in json.load(sys.stdin)["bar"]["layout"].values() for e in entries))'; }
+former_entry_preserved() { cmp -s -- "$sandbox/themes-bar-entry.json" "$home/.config/vgshell/shell.json" && echo same || echo differs; }
+widget_absent() { bar_widget_ids | py_reply 'import json,sys; rows=json.load(sys.stdin); print(bool(rows) and all(sys.argv[1] not in ids for ids in rows))' "$1"; }
+expect "the shell reads the former themes bar entry" ok ipc shell reloadConfig
+expect_poll "the effective configuration retains the former themes bar entry" True former_themes_entry
+expect_poll "every bar holds no themes widget with its former entry present" True widget_absent vgs.themes
+widget_absence_control() { (failures=0 behaviour_failures=0; expect "the mounted fixture is absent" True widget_absent acme.tick >"$sandbox/themes-widget-absence-control.log"; echo "$failures"); }
+expect "control: the no-widget assertion rejects a mounted fixture" 1 widget_absence_control
+expect "the themes service stays built with its former bar entry" True record_exists vgs.themes
+expect "reloading preserves the user's former themes bar entry" same former_entry_preserved
+expect_poll "configuration saves settle before the bar entry restoration" true ipc smoke configSettled
+cp -p -- "$sandbox/themes-bar-shell.json" "$home/.config/vgshell/shell.json.next"
+mv -T -- "$home/.config/vgshell/shell.json.next" "$home/.config/vgshell/shell.json"
+expect "the shell reads the restored bar entries" ok ipc shell reloadConfig
+expect_poll "the former themes bar entry is removed from the fixture configuration" False former_themes_entry
 themes_panel_bind() { hypr -j binds | py_reply 'import json,sys; print(json.dumps([[b["modmask"], b["key"]] for b in json.load(sys.stdin) if b["description"] == "vgs.themes:panel" and b.get("submap", "") in ("", "default")]))'; }
 expect_poll "the nested instance binds SUPER+CTRL+J to the themes panel" '[[68, "J"]]' themes_panel_bind
 # Every vgs.themes instance a rescan rebuilds with the panel closed: the
-# background and the placed widget on every screen, and the service.
-themes_instances=$((2 * monitors + 1))
+# background on every screen, and the service.
+themes_instances=$((monitors + 1))
 
 terminal_stand_in
 expect_poll "the themes TUI probe is not running" false lent tui.probing
@@ -657,8 +679,8 @@ case \${2:-} in
 esac"
 plant_flexoki_light "$repo/themes" dawn || fail "the shipped dawn copy could not be planted"
 plant_flexoki_light "$installed" dawn || fail "the installed dawn copy could not be planted"
-click_centre "$themes_key" vgs.themes || fail "the click on the themes widget failed"
-expect_poll "a click on the widget opens the themes panel" open panel_open
+expect "the shortcut opens the themes panel" ok hypr dispatch 'hl.dsp.global("vgs.themes:panel")'
+expect_poll "the shortcut opens the themes panel for its content checks" open panel_open
 expect_poll "the panel lists every package with its source and badges" '[["catalog-row-smoke", "light, no wallpapers", "Install"], ["catalog-smoke", "dark, wallpapers 13 MB", "Install"], ["dawn", "installed"], ["dawn", "shipped", "Hidden by another copy"], ["mismatch", "installed, The theme name does not match its folder. Choose another theme.", "Unavailable"], ["smoke", "installed"], ["vgs", "shipped", "Displayed"]]' theme_rows
 expect "an accepted package's row draws its palette" '[7, true]' theme_swatch smoke installed '#12ab34ff'
 expect "a refused package's row draws no swatch" '[0, false]' theme_swatch mismatch "installed, The theme name does not match its folder. Choose another theme." '#12ab34ff'
@@ -686,7 +708,7 @@ panel_source() {
   rescan "a rescan builds $1"
   expect_poll "$1 rebuilds every vgs.themes instance" "$((before + themes_instances))" builds
   expect "the follow the rescan for $1 queued ends" idle theme_idle
-  click_centre "$themes_key" vgs.themes || { fail "$1: the click opening the themes panel failed"; return 1; }
+  expect "$1: the shortcut opens the themes panel" ok hypr dispatch 'hl.dsp.global("vgs.themes:panel")'
   expect_poll "$1 opens" open panel_open
 }
 step() {
@@ -728,7 +750,7 @@ rm -f -- "$catalog_wallpapers" "$catalog_wallpapers_gate"
 expect "the synthetic wallpaper removal refreshes the retained catalog" '' ipc smoke invokeInstance service vgs.themes refreshData ''
 click_outside || fail "the click closing the themes panel after clicked wallpaper download failed"
 expect_poll "the themes panel closes after clicked wallpaper download" closed panel_open
-click_centre "$themes_key" vgs.themes || fail "the click reopening the themes panel after clicked wallpaper download failed"
+expect "the shortcut opens the themes panel" ok hypr dispatch 'hl.dsp.global("vgs.themes:panel")'
 expect_poll "the themes panel reopens after removing the clicked wallpaper fixture" open panel_open
 expect_poll "the catalog wallpaper row offers Download wallpapers again" '[["catalog-smoke", "dark, wallpapers 13 MB", "Installed", "Download wallpapers"]]' theme_row catalog-smoke
 scroll_themes 10000
@@ -738,7 +760,7 @@ type_keys -M alt -k d -m alt || fail "sending Alt+D on the catalog wallpaper row
 expect_poll "the catalog wallpaper download shows the browser progress text" '[["catalog-smoke", "dark, wallpapers 13 MB", "Installed", "Downloading 3 of 13 MB", "Alt", "D", "Download wallpapers"]]' theme_row catalog-smoke
 click_outside || fail "the click closing the themes panel during wallpaper download failed"
 expect_poll "the themes panel closes during wallpaper download" closed panel_open
-click_centre "$themes_key" vgs.themes || fail "the click reopening the themes panel during wallpaper download failed"
+expect "the shortcut opens the themes panel" ok hypr dispatch 'hl.dsp.global("vgs.themes:panel")'
 expect_poll "the themes panel reopens during wallpaper download" open panel_open
 expect_poll "the reopened panel reads the wallpaper download progress" '[["catalog-smoke", "dark, wallpapers 13 MB", "Installed", "Downloading 3 of 13 MB", "Download wallpapers"]]' theme_row catalog-smoke
 touch -- "$catalog_wallpapers_gate"
@@ -963,7 +985,7 @@ click_outside || fail "the click outside the themes panel failed"
 expect_poll "a click outside closes the panel during the apply" closed panel_open
 touch -- "$panel_gate"
 expect_poll "the apply completes with the panel closed" '[]' theme_jobs
-click_centre "$themes_key" vgs.themes || fail "the click reopening the themes panel failed"
+expect "the shortcut opens the themes panel" ok hypr dispatch 'hl.dsp.global("vgs.themes:panel")'
 expect_poll "the reopened panel shows the apply's result" '[["dawn", "installed", "Displayed"], ["dawn", "shipped", "Hidden by another copy"]]' theme_row dawn
 expect "the theme changed while the panel was closed" dawn ipc smoke themeName
 
@@ -978,7 +1000,7 @@ click_row vgs || fail "the click on the vgs row failed"
 expect_poll "the vgs row shows its apply running" '[["vgs", "shipped", "Applying"]]' theme_row vgs
 click_outside || fail "the click outside the themes panel failed"
 expect_poll "the panel closes during the vgs apply" closed panel_open
-click_centre "$themes_key" vgs.themes || fail "the click reopening the themes panel during the apply failed"
+expect "the shortcut opens the themes panel" ok hypr dispatch 'hl.dsp.global("vgs.themes:panel")'
 expect_poll "the panel reopened during the apply reads it from last" True panel_label "Applying vgs"
 touch -- "$novel_gate"
 expect_poll "the reopened panel shows a target state it names nowhere" '[["vgs", "shipped", "smoke-novel: The theme action failed. Try again or choose another theme."]]' theme_row vgs
@@ -1149,7 +1171,7 @@ expect_poll "the surface goes with the image" 0 layer_count vgs:background
 # The panel's wallpaper section: the current image's name and a step to
 # the next or the previous one through the theme capability, disabled
 # while no image is current. It follows the CLI as well as its own clicks.
-click_centre "$themes_key" vgs.themes || fail "the click opening the themes panel for the wallpaper rows failed"
+expect "the shortcut opens the themes panel" ok hypr dispatch 'hl.dsp.global("vgs.themes:panel")'
 expect_poll "the themes panel opens for the wallpaper rows" open panel_open
 expect_poll "the panel names no wallpaper while none is current" True panel_label None
 expect "Next is disabled while no wallpaper is current" disabled wallpaper_button "Next wallpaper"
@@ -1270,7 +1292,7 @@ else
 fi
 
 expect "no current wallpaper is left for later rows" null bg_current
-expect "vgshell plugin disable takes the themes widget and the background away" ok "${shell_env[@]}" "$repo/bin/vgshell" plugin disable vgs.themes
+expect "vgshell plugin disable takes the themes panel and background away" ok "${shell_env[@]}" "$repo/bin/vgshell" plugin disable vgs.themes
 expect_poll "every vgs.themes instance is gone" False record_exists vgs.themes
 # Disabling the plugin queues a scan and follow; the next row's apply must not race that theme lock.
 expect "the follow after disabling the themes plugin ends" idle theme_idle

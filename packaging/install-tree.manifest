@@ -529,7 +529,6 @@ f share/vgshell/shell/plugins/vgs.themes/ThemesPanel.qml
 f share/vgshell/shell/plugins/vgs.themes/WallpaperCard.qml
 f share/vgshell/shell/plugins/vgs.themes/WallpaperState.qml
 f share/vgshell/shell/plugins/vgs.themes/WallpaperView.qml
-f share/vgshell/shell/plugins/vgs.themes/Widget.qml
 f share/vgshell/shell/plugins/vgs.themes/manifest.json
 f share/vgshell/shell/plugins/vgs.themes/tui/browser-policy.sh
 f share/vgshell/shell/plugins/vgs.updates/NormalizeCheck.js

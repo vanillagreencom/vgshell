@@ -24,8 +24,8 @@
 # every screen of an overflowing page. bar is the bar with every
 # first-party widget and each widget's tooltip or
 # hover; panels is the Agent Warden panel, the Updates window and the
-# themes panel, each opened from its widget over planted status or
-# packages, the themes panel's apply held and answered by a stand-in
+# themes panel over planted status or packages, the themes panel's
+# apply held and answered by a stand-in
 # runner that changes no theme; devtools is the Dev Tools window; system
 # is the System window as it opens with no System section enabled, then
 # System → Displays over the device fakes when the tree ships it, and
@@ -66,8 +66,8 @@
 # with the runtime helpers a revision before bin/lib kept under scripts/,
 # under this checkout's harness and probe, for a before shot; the plugin
 # fixtures a scene installs are that revision's, which its judge accepts.
-# A scene reaches what that tree ships: the gear's and the launcher and
-# themes entries' item types, a search cleared by keys where no Clear
+# A scene reaches what that tree ships: the gear's and the launcher
+# entries' item types, a search cleared by keys where no Clear
 # search exists, and Install where a Dev Tools row has no Details.
 # --scale is 1, the default, or 2: at 2 the harness holds the nested
 # output at double its mode and scale 2 before the shell starts
@@ -227,8 +227,6 @@ devtools_hover=Install
 has_tab_pages=false
 tree_has shell/plugins/vgs.settings/PluginPage.qml "TabPages {" && has_tab_pages=true
 page_details() { ! "$has_tab_pages" || settings_details; }
-themes_entry_type=IconButton
-tree_has shell/plugins/vgs.themes/Widget.qml "BarItem {" && themes_entry_type=BarItem
 tree_has shell/plugins/vgs.devtools/ToolRow.qml '"Details"' && devtools_hover=Details
 card_hover_state=false
 tree_has shell/Ui/layout/AngledCard.qml "property bool hovered" && card_hover_state=true
@@ -1470,7 +1468,6 @@ hover_widget() {
   read -r x y <<<"$at"
   if ! hover "$((x - 6))" "$y" || ! hover "$x" "$y"; then fail "$1: the hover failed"; return 1; fi
 }
-themes_widget_placed() { [[ $(ipc smoke instanceGeometry "$(bar_key)" vgs.themes) == \[* ]] && echo placed || echo absent; }
 tooltip_opened() { ipc smoke readDescendant "$(bar_key)" "$1" Tooltip opened; }
 warden_detail_state() { ipc vgs.agent-warden invoke status '' | py_reply 'import json,sys; d=json.load(sys.stdin).get("detail"); print(d["state"] if d else "unpublished")'; }
 # warden_status NAME STATE: the warden's status-NAME.json written fresh,
@@ -1480,8 +1477,7 @@ warden_status() {
   expect_poll "the warden reads its $1 status as $2" "$2" warden_detail_state
 }
 # The pointer on each bar widget: the tooltip of each widget that declares
-# one, open, and the hover of the themes widget and the launcher's, which
-# declare none; then
+# one, open, and the hover of the launcher's widget, which declares none; then
 # the bar at rest, which a run that starts with this scene has drawn since
 # before its first shot.
 scene_bar() { # MODE
@@ -1494,10 +1490,6 @@ scene_bar() { # MODE
     park_pointer
     expect_poll "the $id tooltip closes" false tooltip_opened "$id"
   done
-  hover_widget "the pointer rests on the themes widget" vgs.themes \
-    && { [[ $themes_entry_type != BarItem ]] || expect_poll "the themes widget shows its hover" true ipc smoke readDescendant "$(bar_key)" vgs.themes BarItem hovered; } \
-    && take "bar-$1-hover-themes"
-  park_pointer
   hover_widget "the pointer rests on the launcher's widget" vgs.launcher \
     && { ! "$launcher_entry_item" || expect_poll "the launcher's widget shows its hover" true ipc smoke readDescendant "$(bar_key)" vgs.launcher BarItem hovered; } \
     && take "bar-$1-hover-launcher"
@@ -1609,7 +1601,7 @@ EOF
 }
 voice_level_flowing() { ipc smoke readInstance service vgs.voice level | py_reply 'import json,sys; print(str(json.load(sys.stdin) > 0).lower())'; }
 
-# The themes panel opened from its widget over the shipped and catalog
+# The themes panel summoned over the shipped and catalog
 # packages and a refused one: its top, the pointer on a row, its catalog
 # scrolled into view, a click on the vgs row held behind a gate and the
 # partial result the gate lets through. The stand-in runner answers every
@@ -1637,8 +1629,8 @@ SH
 scene_themes_panel() { # MODE
   mkdir -p -- "$themes_mismatch"
   printf '%s\n' '{ "schemaVersion": 1, "name": "other", "tokens": {} }' >"$themes_mismatch/theme.json"
-  click_centre "$(bar_key)" vgs.themes || fail "the click on the themes widget failed"
-  expect_poll "the widget opens the themes panel" True themes_panel_listed
+  expect "the unanchored themes panel summons" ok ipc shell summon panel vgs.themes '{}'
+  expect_poll "the themes panel lists its catalog" True themes_panel_listed
   park_pointer
   take "panels-$1-themes"
   hover_on "the pointer rests on the themes panel's vgs row" panel vgs.themes ListItem vgs && take "panels-$1-themes-hover"
@@ -2106,14 +2098,9 @@ for scene in "${setups[@]}"; do
         expect_poll "$id is built for the Key Hints image" True record_exists "$id"
       done ;;
     bar)
-      # The gear, the Settings plugin's widget, and the themes widget: the
-      # sandbox starts vgs.themes enabled and unplaced, and enabling a
-      # plugin places its unplaced widget in its default section.
       expect "enabling vgs.settings is allowed" ok ipc shell setPluginEnabled vgs.settings true
       expect_poll "vgs.settings is built" True record_exists vgs.settings
-      expect "disabling vgs.themes is allowed" ok ipc shell setPluginEnabled vgs.themes false
-      expect "enabling vgs.themes places its widget" ok ipc shell setPluginEnabled vgs.themes true
-      expect_poll "the themes widget is in the bar" placed themes_widget_placed ;;
+      ;;
     panels)
       # The warden reads a fresh status from its runtime dir, with a vsys
       # whose summary names one warning and a notify-send that sends
@@ -2144,11 +2131,7 @@ PY2
       done
       expect_poll "the updates service reads the planted snapshot" 6 updates_pending
       expect "the updates service runs no check" False updates_checking
-      # The themes widget: the sandbox starts vgs.themes enabled and
-      # unplaced, and enabling a plugin places its unplaced widget.
-      expect "disabling vgs.themes is allowed" ok ipc shell setPluginEnabled vgs.themes false
-      expect "enabling vgs.themes places its widget" ok ipc shell setPluginEnabled vgs.themes true
-      expect_poll "the themes widget is in the bar" placed themes_widget_placed ;;
+      expect "enabling vgs.themes for its panel is allowed" ok ipc shell setPluginEnabled vgs.themes true ;;
     devtools)
       devtools_stand_ins
       tree_rescan "the Dev Tools stand-ins are scanned"

@@ -8,7 +8,6 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 
 ## Features
 
-- A Themes button for the bar. The shipped bar does not show it: enabling the plugin on its Settings page adds it to the right section.
 - One row per package, shipped and installed, with its colours, the package the shell displays, and a package that is refused or hidden by an installed one of the same name.
 - A Catalog section with every catalog theme, its colours, mode and the same wallpaper archive size text as the browser. Install adds the theme definition. Download wallpapers fetches the archive for an installed catalog theme that has no wallpapers.
 - A catalog row shows Installing while an install runs. It shows the browser's progress text while a wallpaper download runs. A click on an installed catalog row applies it.
@@ -28,7 +27,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 - A Wallpaper section in the panel names the current image, and its Previous and Next buttons show the package's previous or next image and remember it for the package, as `bin/vgshell theme background previous` and `next` do. Applying the package again shows the remembered image.
 - `~/.local/state/vgshell/background` links to the same image, for a lock screen or any other application that draws it.
 - Style in the launcher: Theme opens the theme browser and Wallpaper the wallpaper browser, as `SUPER+T` and `SUPER+W` do. No window gaps removes the space around and between tiled windows on every workspace, over any gaps your own Hyprland settings set; the row then reads Default window gaps, which gives your own or Hyprland's gaps back. A theme carries no gaps, so applying another theme leaves the choice as it is. The choice is the No window gaps setting, kept in `~/.config/vgshell/shell.json`, so it holds across a restart and a login.
-- Disabling the plugin on its Settings page turns off the button, the panel, the wallpaper and the launcher's Style category.
+- Disabling the plugin on its Settings page turns off the panel, the wallpaper and the launcher's Style category.
 - Browser theming: Chromium, Google Chrome, Microsoft Edge and Brave take the theme's background colour through a managed policy. The Arch and Fedora packages install its writer for every user, so these browsers follow the theme with no setup. A home install sets the writer up once. The plugin's Settings page shows whether it is there, and while a Chromium-family browser is found without it, **Install browser theming** opens a floating terminal where sudo asks for your password ([theme-browsers.md § Chromium](../../../docs/architecture/theme-browsers.md#chromium)).
 
 ## Keys
@@ -81,7 +80,7 @@ The plugin declares the browser and panel shortcuts in its manifest. The generat
 
 On the plugin's row in `plugins` in `~/.config/vgshell/shell.json`, for example `{ "id": "vgs.themes", "placement": "top-right" }`:
 
-- `placement`: where the panel opens when it is summoned without the button, for example from `bin/vgshell ipc call shell summon panel vgs.themes '{}'`, one of `top-left`, `top`, `top-right`, `left`, `center`, `right`, `bottom-left`, `bottom` and `bottom-right`. The plugin's Settings page offers the same list. Default: `top-right`.
+- `placement`: where the panel opens, for example from `bin/vgshell ipc call shell summon panel vgs.themes '{}'`, one of `top-left`, `top`, `top-right`, `left`, `center`, `right`, `bottom-left`, `bottom` and `bottom-right`. The plugin's Settings page offers the same list. Default: `top-right`.
 - `noWindowGaps`: no gaps around or between tiled windows on any workspace, which the Hyprland layer writes as a workspace rule ([hyprland.md](../../../docs/architecture/hyprland.md)). The launcher's gaps row and its shortcut flip it. Default: `false`.
 - `setWindowBorders`: whether themes set Hyprland border colours, border thickness and shadow colour. A user's own Hyprland setting after the VGS include line still wins. Default: `true`.
 - `setCornerRadius`: whether themes set Hyprland window radius, rounding power and grouped-window tab radius. A user's own Hyprland setting after the VGS include line still wins. Default: `true`.

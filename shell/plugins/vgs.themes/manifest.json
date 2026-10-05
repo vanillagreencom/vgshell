@@ -8,14 +8,12 @@
   "license": "MIT",
   "icon": "palette",
   "kinds": [
-    "bar-widget",
     "panel",
     "background",
     "overlay",
     "service"
   ],
   "entryPoints": {
-    "bar-widget": "Widget.qml",
     "panel": "ThemesPanel.qml",
     "background": "Background.qml",
     "overlay": "Browser.qml",
@@ -33,7 +31,6 @@
     "status",
     "ipc"
   ],
-  "defaultSection": "right",
   "settings": {
     "placement": "top-right",
     "setWindowBorders": true,
