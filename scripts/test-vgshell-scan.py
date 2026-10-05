@@ -22,7 +22,6 @@ import json
 import os
 import pathlib
 import select
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -31,13 +30,6 @@ import time
 SCAN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "bin", "vgshell-scan")
 MANIFEST = '{"id": "acme.widget"}'
 ENV = {"PATH": os.environ.get("PATH", ""), "LC_ALL": "C"}
-TMP_PARENT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tmp", "test-vgshell-scan")
-
-
-def temp_dir():
-    os.makedirs(TMP_PARENT, exist_ok=True)
-    return tempfile.TemporaryDirectory(dir=TMP_PARENT)
-
 # listing rows: name, files {relative path: text or bytes}, modes {relative path: mode}, base (relative),
 # want [(dir, "text" | "error:<prefix>"[, failing path])], options, links {relative path: target}
 ROWS = [
@@ -103,7 +95,7 @@ def scan(*args, script=SCAN, env=ENV):
 
 
 def run_row(name, files, modes, base, want, options=(), links=None):
-    with temp_dir() as tmp:
+    with tempfile.TemporaryDirectory() as tmp:
         plant(tmp, files, links)
         try:
             for rel, mode in modes.items():
@@ -139,7 +131,7 @@ def one_entry(proc):
 def revision_rows():
     """Revisions, snapshots and pruning, read back from one tree the rows edit in place."""
     results = []
-    with temp_dir() as tmp:
+    with tempfile.TemporaryDirectory() as tmp:
         base = os.path.join(tmp, "plugins")
         plugin = os.path.join(base, "a")
         root = os.path.join(tmp, "snapshots")
@@ -221,7 +213,7 @@ def probe_rows(script=SCAN, quiet=False):
     """Each probe row's verdict, run against SCRIPT."""
     results = []
     for name, manifests, want in PROBE_ROWS:
-        with temp_dir() as tmp:
+        with tempfile.TemporaryDirectory() as tmp:
             files = {os.path.join("plugins", d, "manifest.json"): (m if isinstance(m, str) else json.dumps(m)) for d, m in manifests.items()}
             files["stubs/here"] = "#!/bin/sh\n"
             files["stubs/inert"] = "#!/bin/sh\n"
@@ -245,7 +237,7 @@ def mutant_control(label, needle, replacement, rows):
         source = fh.read()
     if source.count(needle) != 1:
         return report(f"control: {needle!r} occurs once in the scanner", False, f" (count={source.count(needle)})")
-    with temp_dir() as tmp:
+    with tempfile.TemporaryDirectory() as tmp:
         mutant = os.path.join(tmp, "vgshell-scan")
         with open(mutant, "w", encoding="utf-8") as fh:
             fh.write(source.replace(needle, replacement))
@@ -276,7 +268,7 @@ def core_rows(script=SCAN, quiet=False):
     """Each core row's verdict, run against SCRIPT."""
     results = []
     for name, core, manifests, want_core, want_plugins in CORE_ROWS:
-        with temp_dir() as tmp:
+        with tempfile.TemporaryDirectory() as tmp:
             files = {os.path.join("plugins", d, "manifest.json"): json.dumps(m) for d, m in manifests.items()}
             files["stubs/here"] = "#!/bin/sh\n"
             if core is not None:
@@ -366,7 +358,7 @@ def append_text(path, text):
 def watch_rows(script=SCAN, quiet=False):
     results = []
     core_edit = "Item { property int core: 1 }\n"
-    with temp_dir() as tmp:
+    with tempfile.TemporaryDirectory() as tmp:
         plant(tmp, WATCH_TREE)
         source = os.path.join(tmp, "shell")
         proc = start_watch(source, script)
@@ -375,7 +367,7 @@ def watch_rows(script=SCAN, quiet=False):
         changed = read_revision(proc)
         good = armed is not None and changed is not None and changed != armed and wait_success(proc)
         results.append(good if quiet else report("an append to an existing core file prints a new revision and exits", good, f" (armed={armed} changed={changed})"))
-    with temp_dir() as tmp:
+    with tempfile.TemporaryDirectory() as tmp:
         plant(tmp, WATCH_TREE)
         source = os.path.join(tmp, "shell")
         proc = start_watch(source, script)
@@ -385,13 +377,13 @@ def watch_rows(script=SCAN, quiet=False):
             fh.write("Item {}\n")
         append_text(os.path.join(source, "Ui", "Card.qml"), core_edit)
         changed = read_revision(proc)
-        with temp_dir() as expect_tmp:
+        with tempfile.TemporaryDirectory() as expect_tmp:
             plant(expect_tmp, WATCH_TREE)
             append_text(os.path.join(expect_tmp, "shell", "Ui", "Card.qml"), core_edit)
             expected = fresh_revision(os.path.join(expect_tmp, "shell"), script)
         good = armed is not None and changed is not None and changed == expected and wait_success(proc)
         results.append(good if quiet else report("an added file in a new subdirectory is ignored by the armed hash set", good, f" (armed={armed} changed={changed} expected={expected})"))
-    with temp_dir() as tmp:
+    with tempfile.TemporaryDirectory() as tmp:
         plant(tmp, WATCH_TREE)
         source = os.path.join(tmp, "shell")
         proc = start_watch(source, script)
@@ -400,7 +392,7 @@ def watch_rows(script=SCAN, quiet=False):
         changed = read_revision(proc)
         good = armed is not None and changed is not None and changed != armed and wait_success(proc)
         results.append(good if quiet else report("removing an existing core file prints a new revision and exits", good, f" (armed={armed} changed={changed})"))
-    with temp_dir() as tmp:
+    with tempfile.TemporaryDirectory() as tmp:
         plant(tmp, WATCH_TREE)
         source = os.path.join(tmp, "shell")
         proc = start_watch(source, script)
@@ -408,14 +400,14 @@ def watch_rows(script=SCAN, quiet=False):
         append_text(os.path.join(source, "plugins", "a", "Widget.qml"), "Item { property int pluginOnly: 1 }\n")
         append_text(os.path.join(source, "Ui", "Card.qml"), core_edit)
         changed = read_revision(proc)
-        with temp_dir() as expect_tmp:
+        with tempfile.TemporaryDirectory() as expect_tmp:
             plant(expect_tmp, WATCH_TREE)
             append_text(os.path.join(expect_tmp, "shell", "Ui", "Card.qml"), core_edit)
             expected = fresh_revision(os.path.join(expect_tmp, "shell"), script)
         good = armed is not None and changed == expected and wait_success(proc)
         results.append(good if quiet else report("an edit under top-level plugins is neither watched nor hashed", good,
                                                  f" (armed={armed} changed={changed} expected={expected})"))
-    with temp_dir() as tmp:
+    with tempfile.TemporaryDirectory() as tmp:
         missing = os.path.join(tmp, "absent")
         proc = scan("--watch-core", missing, script=script)
         good = proc.returncode == 1 and proc.stdout == "" and proc.stderr.startswith("vgshell-scan: core-watch=failed")
@@ -456,7 +448,7 @@ sys.stderr.write(json.dumps({"status": status, "urllib.request": "urllib.request
 def url_spelling_rows(script=SCAN, quiet=False):
     """The URL spelling row, run against SCRIPT: pathlib's as_uri, which the
     scanner must not call, is the oracle."""
-    with temp_dir() as tmp:
+    with tempfile.TemporaryDirectory() as tmp:
         plant(tmp, {"plugins/a/manifest.json": MANIFEST})
         root = os.path.join(tmp, AWKWARD_ROOT)
         entry = one_entry(scan("--snapshot-dir", root, os.path.join(tmp, "plugins"), script=script))
@@ -467,7 +459,7 @@ def url_spelling_rows(script=SCAN, quiet=False):
 
 def url_import_rows(script=SCAN, quiet=False):
     """The import row, run against SCRIPT in a child interpreter."""
-    with temp_dir() as tmp:
+    with tempfile.TemporaryDirectory() as tmp:
         plant(tmp, {"plugins/a/manifest.json": MANIFEST})
         base = os.path.join(tmp, "plugins")
         # -I keeps the child's imports to the interpreter's own: no user
@@ -503,26 +495,23 @@ def main():
     if os.geteuid() == 0:
         print("status=not-measured reason=euid-0")
         return 77
-    try:
-        results = [run_row(*row) for row in ROWS]
-        results += revision_rows()
-        results += probe_rows()
-        results.append(probe_control())
-        results += core_rows()
-        results.append(core_control())
-        results += watch_rows()
-        results += watch_controls()
-        results += url_spelling_rows()
-        results += url_import_rows()
-        results.append(url_quote_control())
-        results.append(url_import_control())
-        if all(results):
-            print("test-vgshell-scan: ok")
-            return 0
-        print("test-vgshell-scan: failing")
-        return 1
-    finally:
-        shutil.rmtree(TMP_PARENT, ignore_errors=True)
+    results = [run_row(*row) for row in ROWS]
+    results += revision_rows()
+    results += probe_rows()
+    results.append(probe_control())
+    results += core_rows()
+    results.append(core_control())
+    results += watch_rows()
+    results += watch_controls()
+    results += url_spelling_rows()
+    results += url_import_rows()
+    results.append(url_quote_control())
+    results.append(url_import_control())
+    if all(results):
+        print("test-vgshell-scan: ok")
+        return 0
+    print("test-vgshell-scan: failing")
+    return 1
 
 
 if __name__ == "__main__":

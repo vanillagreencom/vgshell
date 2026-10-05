@@ -285,8 +285,6 @@ def armed_core_revision(directory, paths):
                 files.append((relative, bool(mode & stat.S_IXUSR), source.read()))
         except FileNotFoundError:
             changed = True
-        except OSError:
-            raise
     return source_revision(files), changed
 
 
