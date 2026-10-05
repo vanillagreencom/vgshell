@@ -294,6 +294,16 @@ Scope {
         return descendants(panel).find(item => item.pluginId === id && item.key === key && typeof item.apply === "function") || null;
     }
 
+    // A Select's list as drawn: whether it is open, the texts its open
+    // window shows, the entries it can choose and its `emptyText`.
+    function selectList(select) {
+        const content = select.tracker.popup.contentItem;
+        const view = descendants(content).find(child => child instanceof ListView);
+        return { open: select.listOpen, empty: select.emptyText,
+            lines: select.listOpen ? descendants(content).filter(child => child instanceof Text && child.text !== "" && visibleInTree(child)).map(child => child.text) : [],
+            entries: view === undefined ? -1 : view.count };
+    }
+
     function visibleInTree(child) {
         for (let at = child; at !== null; at = at.parent)
             if (at.visible === false) return false;
@@ -410,7 +420,7 @@ Scope {
             const a = JSON.parse(arg);
             return IpcPages.answer(item.writeSetting(a.id, a.key, a.value));
         }
-        if (name === "fieldChoice" || name === "chooseField") {
+        if (name === "fieldChoice" || name === "chooseField" || name === "openField") {
             const a = JSON.parse(arg);
             const field = fieldOf(item, a.id, a.key);
             if (field === null) return "absent";
@@ -420,7 +430,12 @@ Scope {
                 editor.choose(a.index);
                 return "chosen";
             }
-            return root.json({ model: editor.model, index: editor.currentIndex, text: editor.currentText, value: field.value, enabled: editor.enabled });
+            if (name === "openField") {
+                editor.openList();
+                return "opened";
+            }
+            return root.json({ model: editor.model, index: editor.currentIndex, text: editor.currentText, value: field.value, enabled: editor.enabled,
+                list: root.selectList(editor) });
         }
         if (name === "fieldCustom" || name === "editFieldCustom") {
             const a = JSON.parse(arg);
@@ -1793,6 +1808,11 @@ Scope {
             if (copy === undefined) return "absent";
             copy[verb]();
             return "ok";
+        }
+        // The list of Select copy NAME as selectList reads it, or `absent`.
+        function popupSelectList(name: string): string {
+            const copy = root.popupCopies[name];
+            return copy === undefined ? "absent" : root.json(root.selectList(copy));
         }
         // PROPERTY of copy NAME as JSON, or `absent`.
         function popupRead(name: string, property: string): string {

@@ -191,7 +191,7 @@ device_state() { device_field | py_reply 'import json,sys; d=json.load(sys.stdin
 device_model() { device_field | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["model"]))'; }
 choose_device() { ipc smoke invokeInstance window vgs.settings chooseField "{\"id\":\"acme.status\",\"key\":\"device\",\"index\":$1}"; }
 user_device() { python3 -c 'import json,sys; print(json.dumps(next(r["device"] for r in json.load(open(sys.argv[1]))["plugins"] if r["id"]=="acme.status")))' "$home/.config/vgshell/shell.json"; }
-expect_poll "unreported choices draw an automatic Select" '[0, "First offered (none available)", "", true]' device_state
+expect_poll "unreported choices draw an empty Select" '[-1, "", "", true]' device_state
 expect "the fixture offers labeled device ids" ok ipc acme.status invoke set 'devices=[{"label":"Alpha","value":"a"},{"label":"Beta","value":"b"}]'
 expect_poll "the Select draws the status labels and keeps automatic empty string" '[0, "First offered: Alpha", "", true]' device_state
 expect "the Select contains the offered ids" '[{"label": "First offered: Alpha", "value": ""}, {"label": "Alpha", "value": "a"}, {"label": "Beta", "value": "b"}]' device_model
@@ -208,8 +208,10 @@ expect "the fixture offers the configured id again, with a new label and order" 
 expect_poll "the existing value follows its id rather than its old index" '[1, "Beta renamed", "b", true]' device_state
 expect "a label and order refresh writes no configuration" "$choices_changes" config_changes
 expect "the fixture publishes an empty choices list" ok ipc acme.status invoke set 'devices=[]'
-expect_poll "an empty list also keeps the configured id" '[1, "b (unavailable)", "b", true]' device_state
+expect_poll "an empty list keeps the configured id alone" '[0, "b (unavailable)", "b", true]' device_state
 expect "an empty list writes no configuration" "$choices_changes" config_changes
+expect "the fixture offers a device again" ok ipc acme.status invoke set 'devices=[{"label":"Beta renamed","value":"b"}]'
+expect_poll "an offered device brings back the automatic entry" '[1, "Beta renamed", "b", true]' device_state
 expect "the user can return to automatic selection" chosen choose_device 0
 expect_poll "automatic selection stores empty string, not the first id" '""' user_device
 expect "the fixture offers a new first device" ok ipc acme.status invoke set 'devices=[{"label":"Alpha","value":"a"}]'
@@ -311,7 +313,7 @@ done
 expect "dropping the controls restores the Settings source revision" "$choice_revision_before" choice_source_revision
 expect "the window opens the status fixture's page again" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.status
 expect "disabling the status fixture from its page is allowed" ok ipc smoke invokeInstance window vgs.settings toggle acme.status
-expect_poll "a disabled plugin's dynamic Select is read-only and has no offered choices" '[0, "First offered (none available)", "", false]' device_state
+expect_poll "a disabled plugin's dynamic Select is read-only and has no offered choices" '[-1, "", "", false]' device_state
 expect_poll "a disabled plugin's rows all read not reported" '[["Check", "Not reported"], ["Last check", "Not reported"], ["Note", "Not reported"], ["Token", "Not reported", "Needed for the fixture'"'"'s sync"], ["Pending", "Not reported"]]' drawn_status
 expect "the window opens the notifications' page" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.notifications
 slack_tokens_hint="Connect each workspace to show sender photos."

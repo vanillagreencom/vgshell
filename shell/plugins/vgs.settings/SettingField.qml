@@ -186,6 +186,7 @@ Column {
             readonly property int configuredIndex: dynamic ? root.choices.findIndex(option => option.value === root.value) : root.spec.options.indexOf(root.value)
             model: dynamic ? root.choices : root.spec.options
             textRole: dynamic ? "label" : ""
+            emptyText: dynamic ? "None found yet" : ""
             currentIndex: configuredIndex
             enabled: root.editable
             onActivated: index => {

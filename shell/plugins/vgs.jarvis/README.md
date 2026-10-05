@@ -1,6 +1,6 @@
 # Jarvis
 
-Jarvis runs a service-owned Node child and shows its health in Settings. The child tracks session state and saves safety records on your computer. Jarvis stores provider keys in your desktop keyring and finds account login hints. It can verify an API, local or Claude Code account when you request it. After local voice setup and with a Brain account selected, Jarvis hears you, answers through that account and speaks on your computer.
+Jarvis runs a service-owned Node child and shows its health in Settings. The child tracks session state and saves safety records on your computer. Jarvis stores provider keys in your desktop keyring and finds account login hints. It can verify an API, local or Claude Code account when you request it. After local voice setup and with an AI model selected, Jarvis hears you, answers through that account and speaks on your computer.
 
 ![The Jarvis daemon's status on its Settings page](../../../docs/images/plugins/vgs.jarvis-page.webp)
 
@@ -28,7 +28,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 - Settings and the launcher open local voice setup in a floating terminal.
 - Local setup verifies downloaded models and runs a bundled test clip without opening audio devices.
 - Local voice turns your speech into text and speaks replies on your computer, with no network access.
-- Accounts finds nested account directories and lets you add another directory.
+- Accounts finds the account folders in your home, config and data folders, such as `.claude-work` or `.2codex`, and lets you add another directory.
 - Accounts can remember a key another tool stored without copying its value.
 - Login hints and local-server presence are not verified inference access.
 - Jarvis watches its recorded coding tasks and shows how many are running in Settings.
@@ -64,7 +64,7 @@ Task terminal chooses where a coding task opens. Auto uses tmux when it is insta
 
 Screen to cloud decides whether a screenshot or its text goes to a brain or voice outside your computer: Ask, the default, withholds it unless granted, Allow sends it and Never withholds it. When the brain and the voice both run on your computer, they always receive it. Private windows lists the words that mark a window to paint out, matched in its class or title.
 
-Talk mode defaults to Hold. Toggle keeps conversation demand open until the next press. No mode captures audio until local voice is set up, a Brain account is selected and the listening bubble has drawn.
+Talk mode defaults to Hold. Toggle keeps conversation demand open until the next press. No mode captures audio until local voice is set up, an AI model is selected and the listening bubble has drawn.
 
 Turn on Show in bar on the Jarvis page to put the Jarvis icon in the bar's right section. Its tooltip names the state and what a click does.
 
@@ -76,7 +76,7 @@ Open Jarvis in Settings and select Add key. Use the provider's origin, such as `
 
 Select Set up local voice in Settings or the launcher's Jarvis group. The terminal lists only the tiers this computer can run, each with what it is for and its download size, and recommends the first. Setup checks free space, then downloads its models and a private runtime. A failed setup removes them and says how much download cache it kept for the next attempt. Settings reports Ready only after file verification and the bundled probe succeed. Jarvis then hears and speaks with local voice. Setup cannot run while Jarvis is in a conversation.
 
-Brain account keeps the account you select. Jarvis starts it when a conversation starts. Settings retains a saved selection when discovery no longer offers it.
+AI model keeps the account you select. Jarvis starts it when a conversation starts. Settings retains a saved selection when discovery no longer offers it.
 
 Select Accounts to add a directory, choose an existing keyring item by label or inspect login hints. Verify asks for a model and consent because a real inference request may cost money. API and local verification send one small request. A Claude Code account sends one small request through its own installed program, which keeps its login. Other subscriptions and speech-only verification remain unavailable. A login hint never proves inference access.
 

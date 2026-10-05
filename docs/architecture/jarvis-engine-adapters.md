@@ -26,7 +26,7 @@ The daemon creates the chained engine with the router and the audit writer on th
 | Step | Source | Cause when it fails |
 |---|---|---|
 | Speech | The first ready row of the speech table, in table order | `speech=no-adapter`, or the first row's own cause |
-| Brain account | The `brain` setting through `Accounts::resolve`: a keyring reference, a local server or a Codex directory, with no vendor command or port read | `brain=unselected`, `brain=account-unavailable`; a keyed account or key reader failure is `brain=accounts-unreadable` with that failure as `detail` |
+| AI model | The `brain` setting through `Accounts::resolve`: a keyring reference, a local server or a Codex directory, with no vendor command or port read | `brain=unselected`, `brain=account-unavailable`; a keyed account or key reader failure is `brain=accounts-unreadable` with that failure as `detail` |
 | Model | The provider declaration's Verify probe model in `AccountProviders.js`; a subscription's program uses its own default | `brain=model-required` for a key or local account |
 | Driver and recipient | The `Providers.js` row; its base origin is the brain recipient. `codex-app-server` is the [Codex harness](jarvis-codex.md), created with the account's directory, the generation and the daemon's bridge and gate | A row outside the driver table is an invariant error |
 | Guidance class | `local` for a loopback base, else `text` | none |

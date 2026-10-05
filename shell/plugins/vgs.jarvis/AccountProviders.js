@@ -2,9 +2,9 @@
 // Login tokens belong to the vendor program, never to the key picker.
 var PROVIDERS = [
     { id: "claude", label: "Claude Code", kind: "cli", variable: "CLAUDE_CONFIG_DIR", origin: "https://api.anthropic.com",
-        prefix: ".claude", marker: ".credentials.json", command: ["claude", "auth", "status"] },
+        folder: "claude", marker: ".credentials.json", command: ["claude", "auth", "status"] },
     { id: "codex", label: "Codex", kind: "cli", variable: "CODEX_HOME",
-        prefix: ".codex", marker: "auth.json", command: ["codex", "login", "status"] },
+        folder: "codex", marker: "auth.json", command: ["codex", "login", "status"] },
     { id: "openai", label: "OpenAI", kind: "key", variable: "OPENAI_API_KEY", origin: "https://api.openai.com",
         probe: { driver: "chat", path: "/v1/chat/completions", model: "gpt-4.1-nano", limit: "max_completion_tokens", header: "authorization", prefix: "Bearer " } },
     { id: "anthropic", label: "Anthropic", kind: "key", variable: "ANTHROPIC_API_KEY", origin: "https://api.anthropic.com",
@@ -38,8 +38,10 @@ function runtimeDirectory(base) {
 /**
  * The account directory name rule, shared by discovery and the protected
  * path judge. An entry `depth` levels below HOME, the XDG config home or the
- * XDG data home is an account directory when its name starts with a CLI
- * provider's prefix and depth is 1 to ACCOUNT_DEPTH. Returns that provider's
+ * XDG data home is an account directory when depth is 1 to ACCOUNT_DEPTH
+ * and its name is ".", a tag of up to 8 lowercase letters or digits, a CLI
+ * provider's `folder` name and anything after it: `.claude`, `.claude-work`,
+ * `.5claude` and `.2codex` are account directories. Returns that provider's
  * row, else null. The caller supplies the three bases and the depth.
  */
 var ACCOUNT_DEPTH = 2;
@@ -47,7 +49,7 @@ function accountDirectory(name, depth) {
     if (depth < 1 || depth > ACCOUNT_DEPTH) return null;
     for (var i = 0; i < PROVIDERS.length; i++) {
         var row = PROVIDERS[i];
-        if (row.kind === "cli" && name.indexOf(row.prefix) === 0) return row;
+        if (row.kind === "cli" && new RegExp("^\\.[a-z0-9]{0,8}" + row.folder).test(name)) return row;
     }
     return null;
 }
@@ -82,7 +84,7 @@ var FAILURE_KEYS = {
     "jarvis-accounts": {
         directory: ["absolute-normal-path-required", "unreadable", "link", "not-directory", "unreadable-or-changed"],
         added: ["shape", "size", "json", "limit", "duplicate", "read-failed", "directory-absent", "write-failed", "cleanup-failed"],
-        discovery: ["entry-limit", "directory-unreadable", "account-limit"],
+        discovery: ["directory-unreadable"],
         "key-presence": ["shape"],
         ports: ["reply"],
         reference: ["provider", "item-unavailable", "vendor-login-or-provider"],

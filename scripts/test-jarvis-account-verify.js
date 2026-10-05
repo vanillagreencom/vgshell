@@ -208,8 +208,8 @@ world(async () => {
             assert.equal(calls.length, before);
         };
         await noDiscoveryRequest(plugin);
-        await mutant("backend/Accounts.js", "verify-during-discovery", "this.accounts = result;\n        return this.accounts;",
-            'this.accounts = result;\n        void this.verify(result.find(item => item.source.kind === "keyring").id, "user");\n        return this.accounts;',
+        await mutant("backend/Accounts.js", "verify-during-discovery", "this.accounts = result.slice(0, MAX_ROWS);\n        return this.accounts;",
+            'this.accounts = result.slice(0, MAX_ROWS);\n        void this.verify(result.find(item => item.source.kind === "keyring").id, "user");\n        return this.accounts;',
             noDiscoveryRequest);
         controls++;
 

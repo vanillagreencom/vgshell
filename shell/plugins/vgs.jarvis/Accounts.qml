@@ -2,8 +2,11 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import "AccountProviders.js" as Providers
+import "AccountStatus.js" as Words
 
 // One metadata reader. An accounts TUI end invalidates its old discovery.
+// It publishes the accounts, the brain choices and the search's outcome in
+// the page's words; a failure's safe cause goes to the log alone.
 Item {
     id: root
     property var shell: null
@@ -31,18 +34,20 @@ Item {
         probe.running = true;
     }
     function publish() {
-        let value;
         const code = completion.kind === "exited" ? completion.code : -1;
         try {
             if (code !== 0) throw new Error("probe");
-            value = JSON.parse(output);
-            if (shell.status.set("accounts", value.accounts) !== "ok"
-                || shell.status.set("brains", value.brains) !== "ok") throw new Error("status");
+            const value = JSON.parse(output);
+            const accounts = value.accounts.map(item => ({ label: item.label, value: item.value, hint: Words.accountHint(item) }));
+            const search = Words.searchValue({ kind: "found", found: value.search.found, partial: value.search.partial });
+            if (shell.status.set("accounts", accounts) !== "ok" || shell.status.set("brains", value.brains) !== "ok"
+                || shell.status.set("accountSearch", search) !== "ok") throw new Error("status");
         } catch (error) {
-            const reply = shell.status.set("accounts", [{ label: "Account discovery", value: "unavailable",
-                hint: Providers.probeFailure(completion, diagnostic) }]);
-            const choices = shell.status.set("brains", []);
-            if (reply !== "ok" || choices !== "ok") throw new Error("jarvis-accounts: status=refused");
+            const reason = Providers.probeFailure(completion, diagnostic);
+            console.warn(reason);
+            const replies = [shell.status.set("accounts", []), shell.status.set("brains", []),
+                shell.status.set("accountSearch", Words.searchValue({ kind: "failed", reason: reason }))];
+            if (replies.some(reply => reply !== "ok")) throw new Error("jarvis-accounts: status=refused");
         }
     }
     Process {

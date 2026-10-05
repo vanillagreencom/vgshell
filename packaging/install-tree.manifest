@@ -286,6 +286,7 @@ f share/vgshell/shell/plugins/vgs.greeter/bin/copy-theme
 f share/vgshell/shell/plugins/vgs.greeter/bin/sessions
 f share/vgshell/shell/plugins/vgs.greeter/manifest.json
 f share/vgshell/shell/plugins/vgs.jarvis/AccountProviders.js
+f share/vgshell/shell/plugins/vgs.jarvis/AccountStatus.js
 f share/vgshell/shell/plugins/vgs.jarvis/Accounts.qml
 f share/vgshell/shell/plugins/vgs.jarvis/BrowserRuntime.qml
 f share/vgshell/shell/plugins/vgs.jarvis/Bubble.qml
@@ -298,6 +299,7 @@ f share/vgshell/shell/plugins/vgs.jarvis/SetupGate.js
 f share/vgshell/shell/plugins/vgs.jarvis/Widget.qml
 f share/vgshell/shell/plugins/vgs.jarvis/WidgetView.js
 f share/vgshell/shell/plugins/vgs.jarvis/artifacts.json
+f share/vgshell/shell/plugins/vgs.jarvis/backend/AccountFolders.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/Accounts.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/AgentProfiles.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/Anchored.js

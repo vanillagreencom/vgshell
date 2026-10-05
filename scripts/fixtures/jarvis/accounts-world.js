@@ -142,7 +142,8 @@ async function mutant(relative, name, needle, replacement, check) {
     const folder = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "mutation-"));
     fs.mkdirSync(path.join(folder, "backend"));
     fs.mkdirSync(path.join(folder, "tui"));
-    for (const file of ["AccountProviders.js", "backend/Accounts.js", "backend/Anchored.js", "backend/Secrets.js", "backend/accounts.js",
+    for (const file of ["AccountProviders.js", "AccountStatus.js", "backend/Accounts.js", "backend/AccountFolders.js",
+        "backend/Anchored.js", "backend/Secrets.js", "backend/accounts.js",
         "tui/accounts.sh", "backend/net.js", "backend/Policy.js", "backend/Audit.js", "backend/Private.js", "backend/Redact.js",
         "backend/Tools.js", "backend/ClaudeCode.js", "backend/Providers.js", "backend/CodexHarness.js", "backend/CodexAppServer.js"])
         fs.copyFileSync(path.join(plugin, file), path.join(folder, file));
@@ -167,17 +168,20 @@ if (require.main === module) {
             : "jarvis-accounts: added=json\n" + "x".repeat(1024) + "fixture-secret-private");
         process.exit(1);
     }
-    const candidate = path.join(env.HOME, ".claude-team");
-    fs.mkdirSync(candidate);
-    fs.writeFileSync(path.join(env.XDG_STATE_HOME, "claude-mode"), mode === "found" ? "found" : "signed-in");
+    // "none" leaves no account: no folder, no signed-in default and no
+    // listening local server.
+    if (mode !== "none") fs.mkdirSync(path.join(env.HOME, ".claude-team"));
+    fs.writeFileSync(path.join(env.XDG_STATE_HOME, "claude-mode"), ["found", "none"].includes(mode) ? "found" : "signed-in");
+    if (mode === "none") {
+        fs.writeFileSync(path.join(env.XDG_STATE_HOME, "codex-mode"), "found");
+        fs.writeFileSync(path.join(env.XDG_STATE_HOME, "ports-mode"), "absent");
+    }
     const directory = path.join(env.XDG_STATE_HOME, "vgshell/jarvis");
     fs.mkdirSync(directory, { recursive: true });
     if (mode === "failed") fs.writeFileSync(path.join(directory, "accounts.json"), "broken");
-    if (mode === "entry-limit") {
-        const many = path.join(env.HOME, "many");
-        fs.mkdirSync(many);
-        for (let index = 0; index < 201; index++) fs.writeFileSync(path.join(many, String(index)), "");
-    }
+    // More names than AccountFolders.js MAX_PARENT_ENTRIES: a partial search.
+    if (mode === "entry-limit")
+        for (let index = 0; index <= 10000; index++) fs.writeFileSync(path.join(env.HOME, String(index)), "");
     const result = cp.spawnSync("node", [process.argv[2], "presence", process.argv[4]], {
         env, stdio: "inherit" });
     process.exit(result.status ?? 1);

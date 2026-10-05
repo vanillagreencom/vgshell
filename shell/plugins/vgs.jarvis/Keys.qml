@@ -2,8 +2,11 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import "AccountStatus.js" as Words
 
 // One presence reader, refreshed after the core reports an add-key TUI end.
+// It publishes the key list and the keyring's outcome in the page's words; a
+// failure's cause goes to the log alone.
 Item {
     id: root
     property var shell: null
@@ -28,19 +31,18 @@ Item {
         probe.running = true;
     }
     function publish() {
-        let rows;
+        let rows = null;
         try {
             if (code !== 0) throw new Error("probe");
             rows = JSON.parse(output);
         } catch (error) {
-            rows = [{ label: "Key references", value: "unavailable", hint: "jarvis-keys: presence=failed" }];
+            console.warn("jarvis-keys: presence=failed");
         }
-        let answer = shell.status.set("keys", rows);
-        if (answer !== "ok") {
-            answer = shell.status.set("keys", [{ label: "Key references", value: "unavailable",
-                hint: "jarvis-keys: presence=invalid" }]);
-            if (answer !== "ok") throw new Error("jarvis-keys: status=refused");
-        }
+        if (rows !== null && shell.status.set("keys", rows) === "ok"
+            && shell.status.set("keyStore", Words.keysValue({ kind: "listed", count: rows.length })) === "ok") return;
+        if (rows !== null) console.warn("jarvis-keys: presence=invalid");
+        if (shell.status.set("keys", []) !== "ok"
+            || shell.status.set("keyStore", Words.keysValue({ kind: "failed" })) !== "ok") throw new Error("jarvis-keys: status=refused");
     }
     Process {
         id: probe

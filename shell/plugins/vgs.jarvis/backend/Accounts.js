@@ -4,15 +4,15 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const cp = require("node:child_process");
 const { Secrets, childEnvironment } = require("./Secrets.js");
-const { PROVIDERS, ACCOUNT_DEPTH, accountDirectory, keyPresence, keyProvider, runtimeDirectory } = require("../AccountProviders.js");
+const { PROVIDERS, keyPresence, keyProvider, runtimeDirectory } = require("../AccountProviders.js");
 const Anchored = require("./Anchored.js");
+const { accountFolders } = require("./AccountFolders.js");
 const Net = require("./net.js");
 const Policy = require("./Policy.js");
 const Audit = require("./Audit.js");
 const ClaudeCode = require("./ClaudeCode.js");
 const Providers = require("./Providers.js");
 const CodexHarness = require("./CodexHarness.js");
-const MAX_ENTRIES = 200;
 const MAX_ROWS = 32; // The core's presenceList and choices ceiling.
 const MAX_BYTES = 64 * 1024;
 const PROBE_TEXT = "Reply OK.";
@@ -164,6 +164,7 @@ class Accounts {
         this.presence = { ...presence };
         this.secrets = new Secrets(stateDirectory, this.env);
         this.accounts = [];
+        this.partial = "";
         this.epoch = 0;
         this.operation = 0;
     }
@@ -198,6 +199,11 @@ class Accounts {
         }
     }
 
+    /**
+     * The CLI account candidates: explicit roots, each provider's default
+     * folder, hand-added rows and the account folders beside them, as
+     * { candidates, partial }, partial the folder search's.
+     */
     candidates() {
         const candidates = new Map();
         const insert = (row, dir, label) => {
@@ -208,42 +214,16 @@ class Accounts {
         const cli = PROVIDERS.filter(row => row.kind === "cli");
         for (const row of cli) {
             if (this.explicit[row.id]) insert(row, this.explicit[row.id], path.basename(this.explicit[row.id]));
-            insert(row, path.join(this.home, row.prefix), "default");
+            insert(row, path.join(this.home, "." + row.folder), "default");
         }
         // Hand-added labels win over a generated label for the same path.
         for (const item of this.added()) {
             insert(provider(item.provider), item.directory, item.label);
             candidates.set(item.provider + "\0" + item.directory, item);
         }
-        const visited = new Set();
-        const scanned = new Map();
-        const scan = (root, depth) => {
-            if ((scanned.get(root) ?? Infinity) <= depth) return;
-            scanned.set(root, depth);
-            const opened = directory(root, true);
-            if (opened.kind === "absent") return;
-            let stream;
-            try {
-                stream = fs.opendirSync("/proc/self/fd/" + opened.fd);
-                for (let entry; (entry = stream.readSync()) !== null;) {
-                    visited.add(path.join(root, entry.name));
-                    if (visited.size > MAX_ENTRIES) fail("discovery=entry-limit");
-                    if (entry.isSymbolicLink() || !entry.isDirectory()) continue;
-                    const dir = path.join(root, entry.name);
-                    const row = accountDirectory(entry.name, depth);
-                    if (row) insert(row, dir, entry.name.slice(row.prefix.length).replace(/^[-_.]+/, "") || "default");
-                    else if (depth < ACCOUNT_DEPTH) scan(dir, depth + 1);
-                }
-            } catch (error) {
-                if (error.message.startsWith("jarvis-accounts:")) throw error;
-                fail("discovery=directory-unreadable");
-            } finally {
-                if (stream) stream.closeSync();
-                fs.closeSync(opened.fd);
-            }
-        };
-        for (const root of new Set([this.home, this.config, this.data])) scan(root, 1);
-        return Array.from(candidates.values());
+        const found = accountFolders({ home: this.home, config: this.config, data: this.data });
+        for (const folder of found.folders) insert(provider(folder.provider), folder.directory, folder.label);
+        return { candidates: Array.from(candidates.values()), partial: found.partial };
     }
 
     run(command, args, extra = {}) {
@@ -342,12 +322,15 @@ class Accounts {
             source, state, identity: { kind: "match" } };
     }
 
+    // Past MAX_ROWS candidates or accounts, the first MAX_ROWS are kept and
+    // the search is partial "account-limit".
     discover() {
         this.epoch++;
         this.accounts = [];
-        const candidates = this.candidates();
-        if (candidates.length > MAX_ROWS) fail("discovery=account-limit");
-        const result = candidates.map(item => this.cliAccount(item)).filter(Boolean);
+        const { candidates, partial } = this.candidates();
+        this.partial = partial;
+        if (candidates.length > MAX_ROWS) this.partial ||= "account-limit";
+        const result = candidates.slice(0, MAX_ROWS).map(item => this.cliAccount(item)).filter(Boolean);
         for (const row of PROVIDERS) if (keyProvider(row) && this.presence[row.variable])
             result.push(this.account(row, "environment", { kind: "found" }, { kind: "variable", name: row.variable, origin: row.origin }));
         for (const { row, label, source } of this.keyringRows()) {
@@ -361,8 +344,8 @@ class Accounts {
             result.push(this.account(row, label, state, source));
         }
         result.push(...this.localAccounts());
-        if (result.length > MAX_ROWS) fail("discovery=account-limit");
-        this.accounts = result;
+        if (result.length > MAX_ROWS) this.partial ||= "account-limit";
+        this.accounts = result.slice(0, MAX_ROWS);
         return this.accounts;
     }
 
@@ -381,7 +364,7 @@ class Accounts {
             if ((source.kind === "keyring" && !keyProvider(row)) || !brainRow(row)) return null;
             return { id, provider: row.id, label, source, model: row.probe.model };
         }
-        for (const candidate of this.candidates()) {
+        for (const candidate of this.candidates().candidates) {
             if (identity("cli", [candidate.provider, candidate.directory]) !== id) continue;
             if (!HARNESS_BRAINS.includes(candidate.provider)) return null;
             return { id, provider: candidate.provider, label: candidate.label.slice(0, 60),
@@ -591,6 +574,11 @@ class Accounts {
         } finally { audit.close(); }
     }
 
+    /**
+     * The page's account facts: each account's label, presence and the
+     * typed facts AccountStatus.js words its hint from, the brain choices,
+     * and the search's found count and partial reason. No reason code leaves.
+     */
     status() {
         const accounts = this.accounts.map(item => {
             const row = provider(item.provider);
@@ -601,14 +589,14 @@ class Accounts {
             case "unavailable": value = "unavailable"; break;
             default: fail("state=unknown");
             }
-            const facts = [item.state.kind, item.state.reason || "", item.plan || "", item.email || "",
-                item.identity.kind === "mismatch" ? "Identity mismatch" : ""].filter(Boolean);
-            return { label: (row.label + " / " + item.label).slice(0, 60), value, hint: facts.join("; ").slice(0, 240) };
+            return { label: (row.label + " / " + item.label).slice(0, 60), value, state: item.state.kind,
+                source: item.source.kind, plan: item.plan || "", email: item.email || "",
+                mismatch: item.identity.kind === "mismatch" };
         });
         const brains = this.accounts.filter(item => brainRow(provider(item.provider))
             && ["found", "signed-in", "verified"].includes(item.state.kind))
             .map(item => ({ value: item.id, label: (provider(item.provider).label + " / " + item.label).slice(0, 60) }));
-        return { accounts, brains };
+        return { accounts, brains, search: { found: accounts.length, partial: this.partial } };
     }
 }
 

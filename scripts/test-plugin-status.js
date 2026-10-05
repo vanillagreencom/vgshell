@@ -237,15 +237,14 @@ function suite(ctx, check) {
     const offered = [{ label: "Alpha", value: "a" }, { label: "Beta", value: "b" }];
     const automatic = { label: "First offered: Alpha", value: "" };
     const unavailable = { label: "gone (unavailable)", value: "gone" };
-    const empty = { label: "First offered (none available)", value: "" };
     for (const [name, publishedChoices, configured, want] of [
-        ["unreported", {}, "", [empty]],
-        ["reported empty", { devices: [] }, "", [empty]],
+        ["unreported", {}, "", []],
+        ["reported empty", { devices: [] }, "", []],
         ["first offered stays empty", { devices: offered }, "", [automatic, ...offered]],
         ["configured offered", { devices: offered }, "b", [automatic, ...offered]],
         ["removed configured value stays", { devices: offered }, "gone", [automatic, ...offered, unavailable]],
-        ["empty list keeps configured value", { devices: [] }, "gone", [empty, unavailable]],
-        ["unreported keeps configured value", {}, "gone", [empty, unavailable]],
+        ["empty list keeps configured value", { devices: [] }, "gone", [unavailable]],
+        ["unreported keeps configured value", {}, "gone", [unavailable]],
         ["reordered list changes the first offered label only", { devices: offered.slice().reverse() }, "", [{ label: "First offered: Beta", value: "" }, ...offered.slice().reverse()]]
     ]) {
         const settings = { device: configured, plain: "text" };
@@ -401,6 +400,7 @@ const CONTROLS = [
     ["choices value is bounded non-empty printable text", "if (!isPrintableLine(choice.value, STATUS_TEXT_MAX)) return false;", "if (false) return false;"],
     ["choices values are distinct", "if (seen.indexOf(choice.value) !== -1) return false;", "if (false) return false;"],
     ["choices preserves an unavailable id", "model.push({ label: configured + \" (unavailable)\", value: configured });", "model.push({ label: configured + \" (unavailable)\", value: \"\" });"],
+    ["no offer adds no automatic entry", "offered.length === 0 ? [] : [{", "offered.length === 0 ? [{ label: \"First offered\", value: \"\" }] : [{"],
     ["choices exposes the automatic empty string", "value: \"\" }];\n        offered.forEach", "value: \"auto\" }];\n        offered.forEach"],
     ["choices copies offered labels", "model.push({ label: choice.label, value: choice.value });", "model.push({ label: choice.value, value: choice.value });"],
     ["a write needs a declared key", "if (typeof key !== \"string\" || !hasOwn(manifest.status, key))\n        return refused(\"undeclared\");", "if (false)\n        return refused(\"undeclared\");"],

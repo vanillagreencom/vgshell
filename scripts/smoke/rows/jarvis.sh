@@ -7,6 +7,9 @@ expected_errors+=('WARN qml: jarvis: stderr=.*Killed.*')
 expected_errors+=('WARN qml: jarvis: stderr=jarvis: node=21[.]0[.]0 need=22')
 expected_errors+=('WARN qml: jarvis: hello=timeout')
 expected_errors+=('.*jarvis-account-missing-helper.*')
+# The readers log a failed check's safe cause; the page shows plain words.
+expected_errors+=('WARN qml: jarvis-accounts: (process|output|diagnostic|added|directory|discovery)=[a-z-]+')
+expected_errors+=('WARN qml: jarvis-keys: presence=(failed|invalid)')
 
 # Read the actual daemon below the Process-owned J09 launcher. PIDs come
 # only from that launcher's /proc descendants, never a name-based search.
@@ -281,12 +284,33 @@ print("matched" if rows == expected else "pending")
 ' "$1"
 }
 
+# A failed key check: no key rows, and the keyring row's warning that
+# still offers Add key.
 jarvis_key_unavailable() {
   ipc smoke jarvisProcess | py_reply '
 import json,sys
-rows=json.load(sys.stdin)["status"].get("keys", [])
-expected=[{"label":"Key references", "value":"unavailable", "hint":"jarvis-keys: presence=failed"}]
-print("matched" if rows == expected else "pending")
+status=json.load(sys.stdin)["status"]
+store=status.get("keyStore", {})
+print("matched" if status.get("keys") == [] and store.get("tone") == "warning" and store.get("action") is True else "pending")
+'
+}
+# The count of instance log lines holding TEXT, and `logged` once it
+# passes BEFORE: a reader's safe cause reaches the log, not the page.
+jarvis_log_count() { grep -c -F -- "$1" "$instance_log" || :; }
+jarvis_logged() { # TEXT BEFORE
+  local now
+  now="$(jarvis_log_count "$1")"
+  if (( now > $2 )); then echo logged; else echo pending; fi
+}
+# `plain` while no key or account row's hint or state text carries a
+# key=value diagnostic or a helper's key prefix.
+jarvis_status_plain() {
+  ipc smoke jarvisProcess | py_reply '
+import json,sys
+status=json.load(sys.stdin)["status"]
+texts=[item.get("hint", "") for key in ("keys", "accounts") for item in status.get(key, [])]
+texts+=[status.get(key, {}).get("text", "") for key in ("keyStore", "accountSearch")]
+print("plain" if not any("=" in t or "jarvis-" in t for t in texts) else "diagnostic")
 '
 }
 
@@ -647,8 +671,11 @@ printf 'present\n' >"$sandbox/jarvis-world/key-mode"
 jarvis_open_key
 expect_poll "the key row is present before the whole-probe failure" matched jarvis_key_value present
 printf 'probe-failed\n' >"$sandbox/jarvis-world/key-mode"
+key_failures_logged="$(jarvis_log_count "jarvis-keys: presence=failed")"
 jarvis_open_key
-expect_poll "a nonzero whole probe replaces present rows with unavailable" matched jarvis_key_unavailable
+expect_poll "a nonzero whole probe clears the key rows and warns on the keyring row" matched jarvis_key_unavailable
+expect_poll "the failed key check's cause reaches the log" logged jarvis_logged "jarvis-keys: presence=failed" "$key_failures_logged"
+expect "the failed key check shows no diagnostic" plain jarvis_status_plain
 printf 'present\n' >"$sandbox/jarvis-world/key-mode"
 jarvis_open_key
 expect_poll "restoring the probe replaces unavailable with present" matched jarvis_key_value present
@@ -658,9 +685,9 @@ import sys
 p=Path(sys.argv[1])
 assert not p.is_symlink()
 s=p.read_text()
-needle='rows = [{ label: "Key references", value: "unavailable", hint: "jarvis-keys: presence=failed" }];'
+needle='if (code !== 0) throw new Error("probe");'
 assert s.count(needle)==1
-changed=s.replace(needle, "if (code !== 0) return;\n            " + needle)
+changed=s.replace(needle, "if (code !== 0) return;")
 assert changed != s
 p.write_text(changed)
 PY
@@ -712,35 +739,41 @@ cp -- "$jarvis_accounts" "$sandbox/jarvis-accounts-original"
 cp -- "$repo/shell/plugins/vgs.jarvis/tui/accounts.sh" "$sandbox/jarvis-accounts-tui-original"
 cp -- "$repo/scripts/smoke/fixtures/tui/vgs.jarvis/tui/accounts.sh" "$repo/shell/plugins/vgs.jarvis/tui/accounts.sh"
 jarvis_rescan
+# The hint AccountStatus.js words for the fixture's Claude Code / team in
+# STATE: signed in on plan pro as team@example.invalid, which differs from
+# its folder name, or found with neither.
+jarvis_hint_of() { # STATE
+  "$node_bin" -e '
+const words = require(process.argv[1]);
+const state = process.argv[2];
+process.stdout.write(words.accountHint(state === "signed-in"
+    ? { state, source: "cli", plan: "pro", email: "team@example.invalid", mismatch: true }
+    : { state, source: "cli", plan: "", email: "", mismatch: false }));' "$source_repo/shell/plugins/vgs.jarvis/AccountStatus.js" "$1"
+}
 jarvis_account_hint() {
+  local want
+  want="$(jarvis_hint_of "$1")" || return 1
   ipc smoke jarvisProcess | py_reply '
 import json,sys
 rows=json.load(sys.stdin)["status"].get("accounts", [])
 row=next((item for item in rows if item["label"] == "Claude Code / team"), None)
-ok=row is not None and row["value"] == "present" and row["hint"].split(";")[0] == sys.argv[1]
+ok=row is not None and row["value"] == "present" and row["hint"] == sys.argv[1]
 print("matched" if ok else "pending")
-' "$1"
+' "$want"
 }
+# The search row's tone and whether it offers Accounts, as JSON, with the
+# accounts and choices it publishes beside it emptied or not.
+jarvis_account_search() {
+  ipc smoke jarvisProcess | py_reply '
+import json,sys
+status=json.load(sys.stdin)["status"]
+search=status.get("accountSearch", {})
+print(json.dumps([search.get("tone"), search.get("action"), status.get("accounts") == [], status.get("brains") == []]))
+'
+}
+# A failed check: no accounts or choices, and a danger row without Accounts.
 jarvis_account_failed() {
-  ipc smoke jarvisProcess | py_reply '
-import json,sys
-status=json.load(sys.stdin)["status"]
-want=[{"label":"Account discovery", "value":"unavailable", "hint":sys.argv[1]}]
-print("matched" if status.get("accounts") == want and status.get("brains") == [] else "pending")
-' "${1:-jarvis-accounts: added=json}"
-}
-# A failed discovery published under a cause other than CAUSE: what a
-# control that changes the cause publishes once its probe has ended, so
-# the control waits for it and then reads its assertion once.
-jarvis_account_unsafe() { # CAUSE
-  ipc smoke jarvisProcess | py_reply '
-import json,sys
-status=json.load(sys.stdin)["status"]
-rows=status.get("accounts", [])
-ok=(len(rows) == 1 and rows[0].get("label") == "Account discovery" and rows[0].get("value") == "unavailable"
-    and rows[0].get("hint") not in (None, "", sys.argv[1]) and status.get("brains") == [])
-print("matched" if ok else "pending")
-' "$1"
+  [[ "$(jarvis_account_search)" == '["danger", false, true, true]' ]] && echo matched || echo pending
 }
 jarvis_open_accounts() {
   local revision snapshot
@@ -755,6 +788,7 @@ jarvis_open_accounts() {
   expect_run_end "the no-auth Accounts terminal ends" vgs.jarvis/accounts
 }
 expect_poll "account status shows a login hint, not verification" matched jarvis_account_hint signed-in
+expect_poll "the search reports the accounts it found and offers Accounts" '["ok", true, false, false]' jarvis_account_search
 printf 'found\n' >"$sandbox/jarvis-world/account-mode"
 jarvis_open_accounts
 expect_poll "Accounts end refreshes account metadata" matched jarvis_account_hint found
@@ -764,59 +798,80 @@ expect_poll "failed discovery clears both stale accounts and choices" matched ja
 printf 'signed-in\n' >"$sandbox/jarvis-world/account-mode"
 jarvis_open_accounts
 expect_poll "restored discovery reports login hints" matched jarvis_account_hint signed-in
+# A home folder too large to search whole is a partial search: the
+# accounts read stay, and the row warns and offers Accounts.
+printf 'entry-limit\n' >"$sandbox/jarvis-world/account-mode"
+jarvis_open_accounts
+expect_poll "a partial search keeps its accounts and warns" '["warning", true, false, false]' jarvis_account_search
+expect "the partial search shows no diagnostic" plain jarvis_status_plain
+# Each failure shows the page's words alone; its safe cause reaches the log.
 for diagnostic_case in \
-  'entry-limit|jarvis-accounts: discovery=entry-limit' \
   'raw-error|jarvis-accounts: process=failed' \
   'oversize-error|jarvis-accounts: diagnostic=oversize' \
   'invalid-output|jarvis-accounts: output=invalid' \
   'failed|jarvis-accounts: added=json'; do
-  IFS='|' read -r diagnostic_mode diagnostic_hint <<<"$diagnostic_case"
+  IFS='|' read -r diagnostic_mode diagnostic_cause <<<"$diagnostic_case"
+  printf 'signed-in\n' >"$sandbox/jarvis-world/account-mode"
+  jarvis_open_accounts
+  expect_poll "discovery is restored before the $diagnostic_mode failure" matched jarvis_account_hint signed-in
+  cause_logged="$(jarvis_log_count "$diagnostic_cause")"
   printf '%s\n' "$diagnostic_mode" >"$sandbox/jarvis-world/account-mode"
   jarvis_open_accounts
-  expect_poll "account discovery keeps only its safe cause: $diagnostic_mode" matched jarvis_account_failed "$diagnostic_hint"
+  expect_poll "a failed check clears its rows and offers no Accounts: $diagnostic_mode" matched jarvis_account_failed
+  expect_poll "the safe cause reaches the log: $diagnostic_mode" logged jarvis_logged "$diagnostic_cause" "$cause_logged"
+  expect "the failure shows no diagnostic: $diagnostic_mode" plain jarvis_status_plain
 done
+# A copy that logs a generic cause in place of the helper's: the page
+# reads the same, and only the log read finds the loss.
 python3 - "$jarvis_accounts" <<'PY'
 from pathlib import Path
 import sys
 p=Path(sys.argv[1])
 assert not p.is_symlink()
 s=p.read_text()
-needle="hint: Providers.probeFailure(completion, diagnostic)"
+needle="const reason = Providers.probeFailure(completion, diagnostic);"
 assert s.count(needle)==1
-changed=s.replace(needle, 'hint: "jarvis-accounts: process=failed"')
+changed=s.replace(needle, 'const reason = "jarvis-accounts: process=failed";')
 assert changed != s
 p.write_text(changed)
 PY
+printf 'signed-in\n' >"$sandbox/jarvis-world/account-mode"
 jarvis_rescan
+expect_poll "the cause control first reports login hints" matched jarvis_account_hint signed-in
+cause_logged="$(jarvis_log_count "jarvis-accounts: added=json")"
+printf 'failed\n' >"$sandbox/jarvis-world/account-mode"
+jarvis_open_accounts
+expect_poll "the cause control publishes its failed discovery" matched jarvis_account_failed
 jarvis_account_cause_control() {
   (failures=0 behaviour_failures=0
-   expect "the named helper cause must survive" matched jarvis_account_failed >"$sandbox/jarvis-account-cause-control.log"
+   expect "the named helper cause must reach the log" logged jarvis_logged "jarvis-accounts: added=json" "$cause_logged" >"$sandbox/jarvis-account-cause-control.log"
    echo "$failures")
 }
-expect_poll "the cause control publishes its failed discovery under another cause" matched jarvis_account_unsafe "jarvis-accounts: added=json"
-expect "discarding the named helper cause breaks its consumer assertion" 1 jarvis_account_cause_control
+expect "discarding the named helper cause breaks its log assertion" 1 jarvis_account_cause_control
 cp -- "$sandbox/jarvis-accounts-original" "$jarvis_accounts"
+# A copy that forwards the safe cause into the search row: the plain-words
+# read must refuse it.
 python3 - "$jarvis_accounts" <<'PY'
 from pathlib import Path
 import sys
 p=Path(sys.argv[1])
 assert not p.is_symlink()
 s=p.read_text()
-needle="hint: Providers.probeFailure(completion, diagnostic)"
+needle='Words.searchValue({ kind: "failed", reason: reason })'
 assert s.count(needle)==1
-changed=s.replace(needle, "hint: diagnostic.text")
+changed=s.replace(needle, '({ tone: "danger", text: reason, action: false })')
 assert changed != s
 p.write_text(changed)
 PY
-printf 'raw-error\n' >"$sandbox/jarvis-world/account-mode"
+printf 'failed\n' >"$sandbox/jarvis-world/account-mode"
 jarvis_rescan
+expect_poll "the raw control publishes its failed discovery" matched jarvis_account_failed
 jarvis_account_raw_control() {
   (failures=0 behaviour_failures=0
-   expect "raw stderr must not reach account status" matched jarvis_account_failed "jarvis-accounts: process=failed" >"$sandbox/jarvis-account-raw-control.log"
+   expect "the failed check's cause must stay off the page" plain jarvis_status_plain >"$sandbox/jarvis-account-raw-control.log"
    echo "$failures")
 }
-expect_poll "the raw control publishes its failed discovery under another cause" matched jarvis_account_unsafe "jarvis-accounts: process=failed"
-expect "forwarding raw stderr breaks its safe-cause assertion" 1 jarvis_account_raw_control
+expect "forwarding the cause into status breaks its plain-words assertion" 1 jarvis_account_raw_control
 cp -- "$sandbox/jarvis-accounts-original" "$jarvis_accounts"
 python3 - "$jarvis_accounts" <<'PY'
 from pathlib import Path
@@ -832,12 +887,14 @@ changed="\n".join(lines)+"\n"
 assert changed != s
 p.write_text(changed)
 PY
+cause_logged="$(jarvis_log_count "jarvis-accounts: process=start-failed")"
 jarvis_rescan
-expect_poll "a process that cannot start has its own safe cause" matched jarvis_account_failed "jarvis-accounts: process=start-failed"
+expect_poll "a process that cannot start clears its rows" matched jarvis_account_failed
+expect_poll "a process that cannot start logs its own safe cause" logged jarvis_logged "jarvis-accounts: process=start-failed" "$cause_logged"
 cp -- "$sandbox/jarvis-accounts-original" "$jarvis_accounts"
 printf 'signed-in\n' >"$sandbox/jarvis-world/account-mode"
 jarvis_rescan
-expect_poll "restored reader clears the prior failure cause" matched jarvis_account_hint signed-in
+expect_poll "restored reader clears the prior failure" matched jarvis_account_hint signed-in
 python3 - "$jarvis_accounts" <<'PY'
 from pathlib import Path
 import sys

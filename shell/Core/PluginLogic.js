@@ -1015,7 +1015,7 @@ function settingChoices(manifest, values, settings) {
     var out = {};
     var choices = function (from, configured) {
         var offered = hasOwn(values, from) ? values[from] : [];
-        var model = [{ label: offered.length === 0 ? "First offered (none available)" : "First offered: " + offered[0].label, value: "" }];
+        var model = offered.length === 0 ? [] : [{ label: "First offered: " + offered[0].label, value: "" }];
         offered.forEach(function (choice) { model.push({ label: choice.label, value: choice.value }); });
         if (configured !== "" && !offered.some(function (choice) { return choice.value === configured; }))
             model.push({ label: configured + " (unavailable)", value: configured });

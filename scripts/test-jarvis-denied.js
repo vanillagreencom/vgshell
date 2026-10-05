@@ -124,14 +124,16 @@ world(() => {
     assert.throws(() => Denied.create({ ...options, accountRoots: null }), { message: "jarvis: paths=account-roots" });
     assert.throws(() => Denied.create({ ...options, accountRoots: [dangling] }), /ENOENT/);
 
-    // The account name rule: a .claude* or .codex* entry one or two levels
-    // below HOME, the config home or the data home, judged by name alone.
+    // The account name rule: a .claude* or .codex* entry, or one with a
+    // short tag before the name such as .5claude, one or two levels below
+    // HOME, the config home or the data home, judged by name alone.
     // J09's config and data homes lie outside HOME, where the rule still
     // answers protected-path before outside-home.
     const ruleBases = { home, config: roots.config, data: roots.data };
     const ruleCases = Object.entries(ruleBases).flatMap(([base, root]) => [
         [base + "-depth-1", path.join(root, ".claude-" + base, "file"), "protected-path"],
         [base + "-depth-2", path.join(root, "group-" + base, ".codex-" + base, "file"), "protected-path"],
+        [base + "-tagged", path.join(root, ".5claude", "file"), "protected-path"],
         [base + "-depth-3", path.join(root, "deep-" + base, "inner", ".claude-" + base, "file"),
             base === "home" ? null : "outside-home"]
     ]);
