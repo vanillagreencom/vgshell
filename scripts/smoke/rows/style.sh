@@ -6,16 +6,18 @@
 # workspace rule, which a tiled toplevel and `hyprctl workspacerules` read
 # back with a user `general` gaps line after the loading line, across a
 # theme apply; the bar toggle writes vgs.bar's `hidden`, which unmaps every
-# bar and frees the space it reserved. Both toggles hold across a restart,
-# and two tree copies are the controls of that restart: one whose bar host
-# maps a hidden bar, and one whose service gate waits on a hidden bar.
+# bar and frees the space it reserved. Both toggles hold across a restart
+# whose stop follows the second toggle's answer at once, and three tree
+# copies are the controls of that restart: one whose bar host maps a hidden
+# bar, one whose service gate waits on a hidden bar, and one whose write
+# comes after its answer, which loses the edit at the stop.
 # Disabling vgs.themes takes the Style category and the bar's row under it
 # away. Each label the launcher draws follows its setting. A user menu file
 # that relabels a plugin row is the control of the row list. It runs in the
 # tail, since it restarts the shell, and leaves the launcher disabled,
 # vgs.themes enabled only when it found it so, the gaps and the bar as they
 # were and hyprland.lua as it found it.
-# inputs: shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.themes/Service.qml shell/plugins/vgs.bar/* shell/plugins/vgs.launcher/* shell/Core/ShortcutRegistry.qml shell/Core/Registry.qml shell/Core/PluginLogic.js shell/Core/HyprlandLayer.js shell/Core/ServiceGate.qml shell/Hosts/BarHost.qml scripts/smoke/toplevel/* scripts/smoke/rows/launcher.sh scripts/smoke/rows/hyprland.sh scripts/smoke/rows/themes.sh themes/catalog/flexoki-light/*
+# inputs: shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.themes/Service.qml shell/plugins/vgs.bar/* shell/plugins/vgs.launcher/* shell/Core/ShortcutRegistry.qml shell/Core/Registry.qml shell/Core/PluginLogic.js shell/Core/HyprlandLayer.js shell/Core/ServiceGate.qml shell/Core/Config.qml shell/Commons/WatchedFile.qml shell/Hosts/BarHost.qml scripts/smoke/toplevel/* scripts/smoke/rows/launcher.sh scripts/smoke/rows/hyprland.sh scripts/smoke/rows/themes.sh themes/catalog/flexoki-light/*
 set -euo pipefail
 user_config="$home/.config/vgshell/shell.json"
 # The value of setting KEY in plugin ID's `plugins` row of the user file,
@@ -163,14 +165,17 @@ expect_poll "the bar reserves its space again" "$bar_reserved" bar_top
 # reserved space, and the services start at once, since no shown bar has a
 # frame to wait for. A copy whose bar host maps a hidden bar, and one whose
 # service gate waits for a hidden bar, are the controls.
-expect "the gaps toggle turns gaps off for the restart" ok ipc vgs.themes invoke gaps ''
 expect "the bar toggle hides the bar for the restart" ok ipc vgs.bar invoke toggle ''
 expect_poll "the bar is hidden before the restart" 0 bar_count
-# A toggle answers ok once its save is queued (Config.writeUser), and the
-# second waits behind the first: the stop below would end the shell with
-# that save unwritten, and the restart would read the old file.
-expect_poll "the gaps toggle is in shell.json before the restart" true user_setting vgs.themes noWindowGaps
-expect_poll "the bar toggle is in shell.json before the restart" true user_setting vgs.bar hidden
+# A toggle's ok means shell.json holds the edit (Config.writeUser), so the
+# stop follows the second toggle's answer with nothing between, and the file
+# is read once the shell has ended. stop_shell fails the row itself when the
+# instance lock stays held. A copy whose write comes 5 s after its answer
+# is the control: its stop loses the edit.
+expect "the gaps toggle turns gaps off for the restart" ok ipc vgs.themes invoke gaps ''
+stop_shell || :
+expect "the stopped shell left the gaps toggle in shell.json" true user_setting vgs.themes noWindowGaps
+expect "the stopped shell left the bar toggle in shell.json" true user_setting vgs.bar hidden
 restart_hidden() { # TREE LABEL
   if stop_shell && start_shell "$1" "$sandbox/style-$2.log" no-bar; then
     expect_poll "$2: the services start" true bash -c '[[ -n $(grep -o "plugins: services released" -- "$1") ]] && echo true' _ "$instance_log"
@@ -194,6 +199,13 @@ if edit_tree style-service-gate shell/Core/ServiceGate.qml ' && Logic.barShown(r
   restart_hidden "$sandbox/tree-style-service-gate" control-service-gate
   expect "control: a service gate that waits on a hidden bar releases at its deadline" deadline services_released
   expected_errors+=('plugins: services released reason=deadline')
+fi
+copy_tree style-late-save
+if edit_tree style-late-save shell/Commons/WatchedFile.qml '        view.setText(content);' "        Qt.createQmlObject('import QtQuick; Timer { interval: 5000; running: true }', file).triggered.connect(() => view.setText(content));"; then
+  restart_hidden "$sandbox/tree-style-late-save" control-late-save
+  expect "control: the copy's gaps toggle answers ok" ok ipc vgs.themes invoke gaps ''
+  stop_shell || :
+  expect "control: a shell that defers the write loses the edit at the stop" true user_setting vgs.themes noWindowGaps
 fi
 restart_hidden "$repo" restored
 expect "the bar IPC verb shows the bar after the restarts" ok ipc vgs.bar invoke toggle ''
