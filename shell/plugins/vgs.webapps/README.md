@@ -2,6 +2,10 @@
 
 Turn a website into an app. Each web app has its own name and icon in the launcher, and opens its site in its own window of the browser you already have.
 
+![The Web Apps page in Settings](../../../docs/images/plugins/vgs.webapps-page.webp)
+
+Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2.
+
 ## Features
 
 - Add, change and remove web apps on the Web Apps page in Settings. No file to edit.

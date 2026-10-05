@@ -25,6 +25,7 @@ vgs.greeter-screen.webp	greeter	greeter-dark	full
 vgs.keyhints-window.webp	keyhints	keyhints-dark	content
 vgs.clipboard-history.webp	clipboard	clipboard-dark	full
 vgs.scratchpads-page.webp	settings	settings-dark-scratchpads	content
+vgs.webapps-page.webp	settings	settings-dark-webapps	content
 vgs.vpn-pane.webp	vpn	vpn-dark-pane	content
 vgs.voice-page.webp	settings	settings-dark-voice	content
 vgs.voice-osd.webp	voice	voice-dark-osd	content
