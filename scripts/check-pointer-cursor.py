@@ -2,8 +2,8 @@
 """Enforce the pointer rules docs/architecture/components.md states.
 
 Every element of shipped QML that takes a click shows the pointing hand
-through `PointerCursor` from qs.Ui, the one owner of the hand, and no view
-scrolls by a mouse drag:
+through `PointerCursor` from qs.Ui, the one owner of the hand. Each view
+disables mouse dragging and declares its touchpad scroll handler:
   cursor-missing   an element that takes a click declares no PointerCursor
                    among its direct children. A TapHandler holds no
                    children, so it takes one among its parent's. The
@@ -24,6 +24,9 @@ scrolls by a mouse drag:
                    among its own properties, so a mouse press and drag
                    scrolls it. ScrollArea in qs.Ui sets it once for every
                    use. No marker exempts it.
+  touchpad-scroll an element of DRAG_VIEWS that has no direct TouchpadScroll
+                   child with `view` bound to the view's own `id`. Qualified
+                   component names count too. No marker exempts it.
 The rules read code with comments blanked, through scripts/qml_source.py;
 the structure is read with string contents blanked too, so a brace inside a
 string opens no block.
@@ -33,7 +36,11 @@ With no directory, the repository's shell/ and the vgs-plugin skill
 templates, which a plugin author copies. `vgs-plugin check` passes one
 plugin directory.
 
-Every finding is one line: `<rule> <file>:<line> <detail>`. The pass is
+Every finding is one line: `<rule> <file>:<line> <detail>`. A touchpad-scroll
+detail names the view type and has `id=<id>` and
+`required="TouchpadScroll { view: <id> }"` fields; the control suite reads
+these fields. A view without an id uses `<missing>` and `<view-id>`.
+The pass is
 `check-pointer-cursor: ok files=<n> clickable=<n> exempt=<n> views=<n>`,
 `views` counting the elements of DRAG_VIEWS read. Exit 0 when clean, 1 on
 any finding, 2 when a directory or file cannot be read, printed as
@@ -60,6 +67,8 @@ DRAG_VIEWS = frozenset(("Flickable", "ListView", "GridView", "TableView", "TreeV
 
 LITERAL = re.compile(r"\bQt\.PointingHandCursor\b")
 EXEMPT = re.compile(r"^\s*//\s*pointer-cursor-exempt:\s*\S")
+VIEW_ID = re.compile(r"(?:^|[;\n])\s*id\s*:\s*([A-Za-z_]\w*)\s*(?=;|\n|$)")
+SCROLL_VIEW = re.compile(r"(?:^|[;\n])\s*view\s*:\s*([A-Za-z_]\w*)\s*(?=;|\n|$)")
 
 
 def declares_cursor(block):
@@ -84,8 +93,18 @@ def check_tree(root, findings, counts):
                 continue
             if base_type(block.type, None) in DRAG_VIEWS:
                 counts["views"] += 1
-                if NO_BUTTON.search(block.own_text()) is None:
+                own = block.own_text()
+                if NO_BUTTON.search(own) is None:
                     findings.append(f"mouse-drag {path}:{block.line} {block.type}: it does not set acceptedButtons: Qt.NoButton")
+                view_id = VIEW_ID.search(own)
+                name = view_id.group(1) if view_id else None
+                if name is None or not any(
+                    base_type(child.type, None) == "TouchpadScroll"
+                    and (binding := SCROLL_VIEW.search(child.own_text())) is not None
+                    and binding.group(1) == name
+                    for child in block.children
+                ):
+                    findings.append(f'touchpad-scroll {path}:{block.line} {block.type} id={name or "<missing>"} required="TouchpadScroll {{ view: {name or "<view-id>"} }}"')
             if not takes_click(block, alias):
                 continue
             counts["clickable"] += 1

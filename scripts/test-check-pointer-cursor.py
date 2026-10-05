@@ -27,8 +27,8 @@ CLEAN = HEAD + """Item {
     HoverHandler {}
     T.TextField {}
     T.ProgressBar {}
-    Flickable { acceptedButtons: Qt.NoButton }
-    ListView { acceptedButtons: Qt.NoButton }
+    Flickable { id: area; acceptedButtons: Qt.NoButton; TouchpadScroll { view: area } }
+    ListView { id: list; acceptedButtons: Qt.NoButton; TouchpadScroll { view: list } }
 }
 """
 
@@ -68,16 +68,44 @@ ROWS = [
     ("an area after a JavaScript block is read", body("    function f() { if (true) { return; } }\n    MouseArea { }\n"), "cursor-missing", 6),
     ("the hand named outside the owner", body("    MouseArea { cursorShape: Qt.PointingHandCursor; PointerCursor {} }\n"), "cursor-literal", 5),
     ("the hand named in a comment is no finding", body("    // cursorShape: Qt.PointingHandCursor\n"), None, None),
-    ("a Flickable that drags with the mouse", body("    Flickable { clip: true }\n"), "mouse-drag", 5),
-    ("a ListView set as a property value", body("    property Item c: ListView { }\n"), "mouse-drag", 5),
-    ("a GridView that takes the left button", body("    GridView { acceptedButtons: Qt.LeftButton }\n"), "mouse-drag", 5),
-    ("a TableView without the setting", body("    TableView { }\n"), "mouse-drag", 5),
-    ("a view named through an aliased import", "import QtQuick as Q\nQ.Item {\n    Q.ListView { }\n}\n", "mouse-drag", 3),
-    ("a NoButton inside a child object does not excuse the view", body("    Flickable {\n        Item { property int acceptedButtons: Qt.NoButton }\n    }\n"), "mouse-drag", 5),
-    ("a NoButton in a comment does not excuse the view", body("    ListView {\n        // acceptedButtons: Qt.NoButton\n    }\n"), "mouse-drag", 5),
-    ("the cursor marker exempts no view", body("    // pointer-cursor-exempt: a list\n    Flickable { }\n"), "mouse-drag", 6),
-    ("a view that takes no mouse button", body("    GridView { acceptedButtons: Qt.NoButton }\n"), None, None),
+    ("a Flickable that drags with the mouse", body("    Flickable { id: area; clip: true; TouchpadScroll { view: area } }\n"), "mouse-drag", 5),
+    ("a ListView set as a property value", body("    property Item c: ListView { id: list; TouchpadScroll { view: list } }\n"), "mouse-drag", 5),
+    ("a GridView that takes the left button", body("    GridView { id: grid; acceptedButtons: Qt.LeftButton; TouchpadScroll { view: grid } }\n"), "mouse-drag", 5),
+    ("a TableView without the setting", body("    TableView { id: table; TouchpadScroll { view: table } }\n"), "mouse-drag", 5),
+    ("a view named through an aliased import", "import QtQuick as Q\nimport qs.Ui as Ui\nQ.Item {\n    Q.ListView { id: list; Ui.TouchpadScroll { view: list } }\n}\n", "mouse-drag", 4),
+    ("a NoButton inside a child object does not excuse the view", body("    Flickable { id: area; TouchpadScroll { view: area }\n        Item { property int acceptedButtons: Qt.NoButton }\n    }\n"), "mouse-drag", 5),
+    ("a NoButton in a comment does not excuse the view", body("    ListView { id: list; TouchpadScroll { view: list }\n        // acceptedButtons: Qt.NoButton\n    }\n"), "mouse-drag", 5),
+    ("the cursor marker exempts no view", body("    // pointer-cursor-exempt: a list\n    Flickable { id: area; TouchpadScroll { view: area } }\n"), "mouse-drag", 6),
+    ("a view that takes no mouse button", body("    GridView { id: grid; acceptedButtons: Qt.NoButton; TouchpadScroll { view: grid } }\n"), None, None),
     ("a view named in a comment is no finding", body("    // Flickable { }\n"), None, None),
+]
+
+SCROLL_ROWS = [
+    ("a Flickable without TouchpadScroll", body("    Flickable { id: entries; acceptedButtons: Qt.NoButton }\n"), "touchpad-scroll", 5, "entries"),
+    ("a ListView without TouchpadScroll", body("    ListView { id: entries; acceptedButtons: Qt.NoButton }\n"), "touchpad-scroll", 5, "entries"),
+    ("a GridView without TouchpadScroll", body("    GridView { id: entries; acceptedButtons: Qt.NoButton }\n"), "touchpad-scroll", 5, "entries"),
+    ("TouchpadScroll bound to another view", body("    ListView { id: entries; acceptedButtons: Qt.NoButton; TouchpadScroll { view: other } }\n"), "touchpad-scroll", 5, "entries"),
+    ("TouchpadScroll without a view binding", body("    ListView { id: entries; acceptedButtons: Qt.NoButton; TouchpadScroll {} }\n"), "touchpad-scroll", 5, "entries"),
+    ("a view without its own id", body("    ListView { acceptedButtons: Qt.NoButton; TouchpadScroll { view: entries } }\n"), "touchpad-scroll", 5, "<missing>"),
+    ("an id on a child does not name the view", body("    ListView { acceptedButtons: Qt.NoButton; Item { id: entries } TouchpadScroll { view: entries } }\n"), "touchpad-scroll", 5, "<missing>"),
+    ("a nested TouchpadScroll is no direct child", body("    ListView { id: entries; acceptedButtons: Qt.NoButton; Item { TouchpadScroll { view: entries } } }\n"), "touchpad-scroll", 5, "entries"),
+    ("a nested view's handler does not serve the outer view", body("    Flickable { id: entries; acceptedButtons: Qt.NoButton\n        ListView { id: inner; acceptedButtons: Qt.NoButton; TouchpadScroll { view: inner } }\n    }\n"), "touchpad-scroll", 5, "entries"),
+    ("a child property does not bind TouchpadScroll", body("    ListView { id: entries; acceptedButtons: Qt.NoButton; TouchpadScroll { Item { property var view: entries } } }\n"), "touchpad-scroll", 5, "entries"),
+    ("a commented TouchpadScroll does not count", body("    ListView { id: entries; acceptedButtons: Qt.NoButton\n        // TouchpadScroll { view: entries }\n    }\n"), "touchpad-scroll", 5, "entries"),
+    ("a commented view binding does not count", body("    ListView { id: entries; acceptedButtons: Qt.NoButton; TouchpadScroll {\n        /* view: entries */\n    } }\n"), "touchpad-scroll", 5, "entries"),
+    ("a TouchpadScroll in a string does not count", body('    ListView { id: entries; acceptedButtons: Qt.NoButton; property string hint: "TouchpadScroll { view: entries }" }\n'), "touchpad-scroll", 5, "entries"),
+    ("a quoted id is no view binding", body('    ListView { id: entries; acceptedButtons: Qt.NoButton; TouchpadScroll { view: "entries" } }\n'), "touchpad-scroll", 5, "entries"),
+    ("a member of the view is no view binding", body("    ListView { id: entries; acceptedButtons: Qt.NoButton; TouchpadScroll { view: entries.contentItem } }\n"), "touchpad-scroll", 5, "entries"),
+    ("a conditional expression is no direct id binding", body("    ListView { id: entries; acceptedButtons: Qt.NoButton; TouchpadScroll { view: entries || other } }\n"), "touchpad-scroll", 5, "entries"),
+    ("a cursor exemption does not exempt TouchpadScroll", body("    // pointer-cursor-exempt: a list\n    ListView { id: entries; acceptedButtons: Qt.NoButton }\n"), "touchpad-scroll", 6, "entries"),
+    ("both scroll rules report their own finding", body("    ListView { id: entries }\n"), ("mouse-drag", "touchpad-scroll"), 5, "entries"),
+    ("aliased views and TouchpadScroll pass", "import QtQuick as Q\nimport qs.Ui as Ui\nQ.Item {\n    Q.ListView { id: entries; acceptedButtons: Qt.NoButton; Ui.TouchpadScroll { view: entries } }\n}\n", None, None, None),
+    ("multiline bindings with comments pass", body("    ListView {\n        id: /* name */ entries\n        acceptedButtons: Qt.NoButton\n        TouchpadScroll {\n            view: /* target */ entries // this list\n        }\n    }\n"), None, None, None),
+    ("nested views with their own handlers pass", body("    Flickable { id: outer; acceptedButtons: Qt.NoButton; TouchpadScroll { view: outer }\n        ListView { id: inner; acceptedButtons: Qt.NoButton; TouchpadScroll { view: inner } }\n    }\n"), None, None, None),
+]
+SCROLL_ROWS += [
+    (f"{kind} with its own handler passes", body(f"    {kind} {{ id: entries; acceptedButtons: Qt.NoButton; TouchpadScroll {{ view: entries }} }}\n"), None, None, None)
+    for kind in ("Flickable", "ListView", "GridView", "TableView", "TreeView", "HorizontalHeaderView", "VerticalHeaderView")
 ]
 
 JS_ROWS = [
@@ -102,7 +130,7 @@ def report(name, good, proc):
     return good
 
 
-def run_row(name, qml, want, line, js=None):
+def run_row(name, qml, want, line, js=None, view_id=None):
     with tempfile.TemporaryDirectory() as tmp:
         root = build(tmp, qml, js)
         proc = subprocess.run([sys.executable, CHECK, root], capture_output=True, text=True, check=False, env=ENV)
@@ -111,7 +139,19 @@ def run_row(name, qml, want, line, js=None):
             good = proc.returncode == 0 and not findings and proc.stdout.startswith("check-pointer-cursor: ok ")
         else:
             where = os.path.join(root, "plugins", "acme.widget", "logic.js" if js is not None else "Widget.qml")
-            good = proc.returncode == 1 and len(findings) == 1 and findings[0].startswith(f"{want} {where}:{line} ")
+            keys = (want,) if isinstance(want, str) else want
+            good = proc.returncode == 1 and len(findings) == len(keys) and all(
+                finding.startswith(f"{key} {where}:{line} ") for key, finding in zip(keys, findings)
+            )
+            if view_id is not None:
+                # This suite reads the check's documented diagnostic fields.
+                target = "<view-id>" if view_id == "<missing>" else view_id
+                good = good and any(
+                    finding.startswith("touchpad-scroll ")
+                    and f" id={view_id} " in finding
+                    and f'required="TouchpadScroll {{ view: {target} }}"' in finding
+                    for finding in findings
+                )
         return report(name, good, proc)
 
 
@@ -164,6 +204,7 @@ def run_repository_floor():
 
 def main():
     results = [run_row(*row) for row in ROWS]
+    results += [run_row(name, qml, want, line, view_id=view_id) for name, qml, want, line, view_id in SCROLL_ROWS]
     results += [run_row(name, CLEAN, want, line, js) for name, js, want, line in JS_ROWS]
     results += run_unreadable_rows()
     results.append(run_impostor_owner_row())
