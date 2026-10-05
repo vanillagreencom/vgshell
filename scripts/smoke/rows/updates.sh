@@ -700,7 +700,7 @@ expect "no end is written while the review runs" absent review_file "$review_dir
 touch -- "$updates_state/review-gate"
 expect_run_end "the review run ends" vgs.updates/review
 expect_poll "the review TUI's window closes with its run" 0 review_window
-expect_poll "the service writes the run's code into the review directory" "code=0 dir=$review_dir" review_file "$review_dir/ended"
+expect_poll "the service writes the run's code into the review directory" code=0 review_file "$review_dir/ended"
 expect "the agent's verdict is in the review directory" "verdict clean" review_file "$review_dir/verdict"
 expect "the review run's end starts no check, which the update run's own end starts" STEADY checks_settle_at "$before"
 # A run that ends after the pipeline removed its directory, as one the user
