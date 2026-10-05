@@ -162,6 +162,34 @@
         "Priority": 20
       }
     },
+    "nodekey:1414141414141414141414141414141414141414141414141414141414141414": {
+      "ID": "nFIXTURE0014CNTRL",
+      "PublicKey": "nodekey:1414141414141414141414141414141414141414141414141414141414141414",
+      "HostName": "ch-zrh-wg-014",
+      "DNSName": "ch-zrh-wg-014.mullvad.ts.net.",
+      "OS": "linux",
+      "UserID": 2002,
+      "TailscaleIPs": [
+        "100.64.0.14",
+        "fd7a:115c:a1e0::14"
+      ],
+      "Tags": [
+        "tag:mullvad-exit-node"
+      ],
+      "Online": true,
+      "ExitNode": false,
+      "ExitNodeOption": true,
+      "Active": false,
+      "Location": {
+        "Country": "Switzerland",
+        "CountryCode": "CH",
+        "City": "Zurich",
+        "CityCode": "ZRH",
+        "Latitude": 0,
+        "Longitude": 0,
+        "Priority": 90
+      }
+    },
     "nodekey:0505050505050505050505050505050505050505050505050505050505050505": {
       "ID": "nFIXTURE0005CNTRL",
       "PublicKey": "nodekey:0505050505050505050505050505050505050505050505050505050505050505",

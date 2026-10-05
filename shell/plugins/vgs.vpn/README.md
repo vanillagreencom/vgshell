@@ -49,4 +49,4 @@ The bar takes no keyboard focus. `SUPER+COMMA` opens the System window: type "vp
 
 ## Validation
 
-`scripts/test-vpn-logic.js` holds the exit-node target rule, the poll's one-in-flight and watchdog rules, each command's words, the setup steps and the size of the published record, each rule with a control. `scripts/smoke/rows/vpn.sh` runs the plugin in the nested sandbox over a stand-in `tailscale` and a stand-in `xdg-open`: the switch, an exit node set by its DNS name, Allow, a held read stopped at 10 seconds, the read interval open and closed, sign-in, and the keyboard path.
+`scripts/test-vpn-logic.js` holds the exit-node target rule, the poll's one-in-flight and watchdog rules, each command's words, the setup steps and the size of the published record, with a control for the target, poll and bound rules. `scripts/smoke/rows/vpn.sh` runs the plugin in the nested sandbox over a stand-in `tailscale` and a stand-in `xdg-open`: the switch, an exit node set by its DNS name, Allow, a held read stopped at 10 seconds, the read interval open and closed, sign-in, and the keyboard path.

@@ -7,21 +7,26 @@
 # fakes' system tree and removes. The row stands over the tailscale
 # stand-in with a wrapper that records each call through it and then, on
 # the row's markers alone, holds one poll open, answers as a daemon that
-# is off, or prints a sign-in address and waits.
+# is off, refuses one `set` or one sign-in with the CLI's access-denied
+# text, or prints a sign-in address and waits.
 #
 # Rows: the service publishes the fixture's state to the widget, the
 # flyout and the pane; an unset operator offers Allow, which the keyboard
 # presses and which hands the terminal `vgshell system apply
 # tailscale-operator`; keys alone then toggle the connection, `down` and
 # `up`, and choose an exit node, `set --exit-node=<dns name>`, with no peer
-# id in any argv; the poll interval is 3 s while a view is open and the
+# id in any argv; a change that ends with a plain exit 1, a change the CLI
+# denies and a sign-in it denies each leave a problem, the denied ones
+# another than the plain one; the poll interval is 3 s while a view is open and the
 # setting's 30 s while none is; every `status --json` call the stand-in
 # records is one the service started; a held poll is killed 10 s after its
 # start while a refresh arrives every second; sign-in hands the printed
 # address to the xdg-open stand-in; a daemon that is off offers Enable.
-# Controls, a copy of the plugin whose widget polls on its own and whose
-# refresh restarts the watchdog: the stand-in records a call the service
-# did not start, and the held poll outlives 20 s of refreshes.
+# Controls, a copy of the plugin whose widget polls on its own, whose
+# refresh restarts the watchdog and which does not know the access-denied
+# text: the stand-in records a call the service did not start, the held
+# poll outlives 20 s of refreshes, and the denied change leaves the plain
+# one's problem.
 #
 # The held poll's wait is the service's own 10 s watchdog, read on the
 # wall clock with a refresh every second; the row accepts 9 s to 20 s,
@@ -38,6 +43,7 @@ vpn_login_url="https://login.fixture.example/a/smoke0123456789"
 vpn_system_link="$devices_system_root/usr/bin/tailscale"
 mkdir -p -- "$vpn_dir"
 cp -- "$vpn_fixtures/service-off.txt" "$vpn_dir/service-off.text"
+cp -- "$vpn_fixtures/access-denied.txt" "$vpn_dir/access-denied.text"
 {
   printf '#!/usr/bin/env bash\ndir=%q saved=%q url=%q\n' "$vpn_dir" "$(sentinel_saved "$shim/tailscale")" "$vpn_login_url"
   cat <<'EOF'
@@ -54,11 +60,19 @@ if [[ "$*" == "status --json" ]]; then
   fi
 elif [[ "$*" == "login --timeout 0" ]]; then
   "$saved" "$@" >/dev/null 2>&1 || true
+  if mv -- "$dir/login-denied" "$dir/login-denied.taken" 2>/dev/null; then
+    cat -- "$dir/access-denied.text" >&2
+    exit 1
+  fi
   printf 'To authenticate, visit:\n\n\t%s\n\n' "$url" >&2
   for _ in $(seq 1 300); do
     if [[ -e $dir/login-release ]]; then exit 0; fi
     sleep 0.1
   done
+  exit 1
+elif [[ ${1:-} == set ]] && mv -- "$dir/denied" "$dir/denied.taken" 2>/dev/null; then
+  "$saved" "$@" >/dev/null 2>&1 || true
+  cat -- "$dir/access-denied.text" >&2
   exit 1
 fi
 exec "$saved" "$@"
@@ -96,6 +110,36 @@ vpn_opens() { device_calls xdg-open | py_reply 'import json,sys; print(json.dump
 vpn_record() { ipc shell lent | py_reply 'import json,sys; print("held" if "vgs.vpn" in json.load(sys.stdin)["status"] else "absent")'; }
 vpn_refresh() { ipc vgs.vpn invoke refresh ""; }
 vpn_act() { ipc vgs.vpn invoke action "{\"kind\":\"$1\",\"id\":\"${2:-}\"}"; }
+# Sends the action KIND and prints the problem its run left once FIELD
+# reads IDLE again, `""` for none: `refused` for an action the service
+# does not take, `unended` when the run has not ended after 10 s.
+vpn_problem_after() { # KIND FIELD IDLE
+  local now
+  [[ $(vpn_act "$1") == ok ]] || { echo refused; return 0; }
+  for _ in $(seq 1 50); do
+    now="$(vpn_value "$2")" || return 1
+    if [[ $now == "$3" ]]; then vpn_value problem; return; fi
+    sleep 0.2
+  done
+  echo unended
+}
+# Fails one change with a plain exit 1, one change with the CLI's
+# access-denied text and one sign-in with that text: `told-apart` when
+# each change leaves a problem, the two differ and the sign-in leaves the
+# denied change's; `same` when the two changes leave one problem.
+vpn_failures() {
+  local plain denied login
+  plain="$(vpn_problem_after exit-node action '""')" || return 1
+  : >"$vpn_dir/denied"
+  denied="$(vpn_problem_after exit-node action '""')" || return 1
+  : >"$vpn_dir/login-denied"
+  login="$(vpn_problem_after login login '"idle"')" || return 1
+  if [[ $plain != \"?*\" || $denied != \"?*\" ]]; then echo "unset plain=$plain denied=$denied"
+  elif [[ $plain == "$denied" ]]; then echo same
+  elif [[ $login != "$denied" ]]; then echo "login=$login denied=$denied"
+  else echo told-apart
+  fi
+}
 # `grew` once the service has started two more polls, within 10 s.
 vpn_polls_grow() {
   local first now
@@ -166,13 +210,14 @@ device_reply tailscale 0 "" get operator
 device_reply tailscale 0 "" down
 device_reply tailscale 0 "" up
 device_reply tailscale 0 "" set --exit-node=gateway.tail-fixture.ts.net
+device_reply tailscale 1 "" set --exit-node=
 device_reply systemctl 0 "" is-active --quiet tailscaled.service
 device_reply xdg-open 0 "" "$vpn_login_url"
 expect "the core's system steps resolve in the fakes' tree" prefixed devices_system_tree
 ln -sfn -- "$shim/tailscale" "$vpn_system_link"
 expect "the shell resolves tailscale to the stand-in" "$shim/tailscale" shell_resolves tailscale
 expect "the shell resolves xdg-open to the stand-in" "$shim/xdg-open" shell_resolves xdg-open
-expected_errors+=('vpn: poll killed after 10000 ms')
+expected_errors+=('vpn: poll killed after 10000 ms' 'vpn: (exit-node|login) failed kind=(access-denied|other) ')
 # The default set starts the plugin; the row counts one service's polls
 # from its first, so it starts from a disabled plugin.
 expect "VPN disables before its row" ok ipc shell setPluginEnabled vgs.vpn false
@@ -254,6 +299,7 @@ expect_poll "Enter on a node sets it by its DNS name" \
   '[["down"], ["up"], ["set", "--exit-node=gateway.tail-fixture.ts.net"]]' vpn_changes "$vpn_calls_before"
 expect "no peer id reached a tailscale argv" 0 vpn_argv_ids "$vpn_calls_before"
 expect_poll "the change ends" '""' vpn_value action
+expect "a denied change and a denied sign-in leave another problem than a plain failure" told-apart vpn_failures
 vpn_leave_pane "keys"
 hypr_lua_restore vpn
 
@@ -302,17 +348,17 @@ rm -f -- "${vpn_dir:?}/service-off"
 device_reply systemctl 0 "" is-active --quiet tailscaled.service
 vpn_use mullvad.json
 
-# Controls, on a copy: a widget that polls on its own, and a refresh that
-# restarts the watchdog.
+# Controls, on a copy: a widget that polls on its own, a refresh that
+# restarts the watchdog, and a failure table without the access-denied text.
 expect "VPN disables before its control copy" ok ipc shell setPluginEnabled vgs.vpn false
 expect_poll "the disabled service's build record is gone" False record_exists vgs.vpn
 expect_poll "the disabled plugin holds no status record" absent vpn_record
 vpn_copy="$home/.config/vgshell/plugins/vgs.vpn"
 mkdir -p -- "$vpn_copy"
 cp -R -- "$repo/shell/plugins/vgs.vpn/." "$vpn_copy/"
-python3 - "$vpn_copy/Widget.qml" "$vpn_copy/Service.qml" <<'PYCONTROL'
+python3 - "$vpn_copy/Widget.qml" "$vpn_copy/Service.qml" "$vpn_copy/VpnLogic.js" <<'PYCONTROL'
 import pathlib, sys
-widget, service = map(pathlib.Path, sys.argv[1:])
+widget, service, logic = map(pathlib.Path, sys.argv[1:])
 text = widget.read_text()
 for old, new in (("import QtQuick\n", "import QtQuick\nimport Quickshell.Io\n"),
                  ("    BarItem {\n", "    Process { command: [\"tailscale\", \"status\", \"--json\"]; running: true }\n\n    BarItem {\n")):
@@ -323,6 +369,10 @@ text = service.read_text()
 old = "        runPoll(\"refresh\");\n        readAccounts();\n"
 assert text.count(old) == 1, old
 service.write_text(text.replace(old, "        if (watchdog.running) watchdog.restart();\n" + old))
+text = logic.read_text()
+old = "pattern: /access denied/i"
+assert text.count(old) == 1, old
+logic.write_text(text.replace(old, "pattern: /prefs refused/i"))
 PYCONTROL
 rescan "the control copy is discovered"
 vpn_control_before="$(vpn_status_calls)" || { fail "vpn: the tailscale stand-in's calls are unreadable"; return 0; }
@@ -330,6 +380,7 @@ expect "the control copy enables" ok ipc shell setPluginEnabled vgs.vpn true
 expect_poll "the control's service is built" True record_exists vgs.vpn
 expect_poll "the control's service reads the tailnet" '"running"' vpn_value state
 expect_poll "control: a widget that polls on its own is a call the service did not start" extra vpn_surplus "$vpn_control_before"
+expect "control: a service that does not know the access-denied text leaves the plain failure's problem" same vpn_failures
 expect "control: a refresh that restarts the watchdog holds the poll past 20 s" postponed vpn_hang
 expect "the control copy disables" ok ipc shell setPluginEnabled vgs.vpn false
 expect_poll "the control's service is gone" False record_exists vgs.vpn

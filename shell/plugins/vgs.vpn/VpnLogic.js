@@ -13,6 +13,8 @@ var OPEN_POLL_MS = 3000;
 var ACTION_MS = 30000;
 // A sign-in the user has not finished is ended after this long.
 var LOGIN_MS = 300000;
+// The most the service keeps of what a sign-in run prints, in characters.
+var LOGIN_SAID_MAX = 4096;
 // The ceilings of the published lists and of each drawn line, which keep
 // the `vpn` value under the core's 64 KiB status ceiling whatever a
 // tailnet holds (status.md); scripts/test-vpn-logic.js builds the largest
@@ -214,10 +216,13 @@ function snapshot(code, stdout, stderr) {
 
 // The accounts `tailscale switch --list` prints: a header line starting
 // `ID`, then one line an account, its columns two or more spaces apart
-// and the account in use ending in `*`. [] for any other output.
+// and the account in use ending in `*`. Answers { rows, fault }: `fault`
+// is "" for a list this read, `failed` for a run that did not end with
+// code 0 and `header` for output without that header, both with no rows.
 function accounts(code, stdout) {
     var lines = String(stdout).split("\n").filter(function (text) { return text.trim() !== ""; });
-    if (code !== 0 || lines.length === 0 || !/^ID\s/.test(lines[0])) return [];
+    if (code !== 0) return { rows: [], fault: "failed" };
+    if (lines.length === 0 || !/^ID\s/.test(lines[0])) return { rows: [], fault: "header" };
     var rows = [];
     lines.slice(1).forEach(function (text) {
         var columns = text.trim().split(/\s{2,}|\t+/);
@@ -225,7 +230,7 @@ function accounts(code, stdout) {
         var current = /\*$/.test(columns[2]);
         rows.push({ id: columns[0], tailnet: line(columns[1]), account: line(columns[2].replace(/\*$/, "")), current: current });
     });
-    return rows;
+    return { rows: rows, fault: "" };
 }
 
 // The first https address in a line `tailscale login` prints, "" for none.
@@ -278,6 +283,9 @@ function setup(context) {
             : { tone: "warning", text: "The Tailscale service is not available.", action: "" };
     if (stepOffered(context.operator)) return { tone: "warning", text: "Your account cannot change Tailscale.", action: "allow" };
     if (context.operator === "denied") return { tone: "warning", text: "Another account controls Tailscale.", action: "" };
+    // The core's probe could not read the operator, so Ready would be a guess.
+    if (context.operator === "unknown" && REACHED.indexOf(context.state) !== -1)
+        return { tone: "warning", text: "VGS could not read who controls Tailscale.", action: "" };
     return { tone: "ok", text: "Ready", action: "" };
 }
 

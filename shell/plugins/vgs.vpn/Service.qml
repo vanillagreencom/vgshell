@@ -40,10 +40,15 @@ Item {
     property int pollsKilled: 0
     property var snapshot: Logic.emptySnapshot("checking")
     property var accounts: []
+    // Why the last accounts read gave no list, "" for one that did.
+    property string accountsFault: ""
     // The command that runs now, "" for none.
     property string action: ""
     // `idle`, `waiting` for the sign-in page's address, or `opened`.
     property string login: "idle"
+    // The lines the sign-in run printed that hold no address, which name
+    // a failed run's cause.
+    property string loginSaid: ""
     // The line the last failed command left, "" for none.
     property string problem: ""
 
@@ -165,7 +170,12 @@ Item {
         onExited: (code, status) => { reader.completion = { code: code, status: status }; }
         onRunningChanged: {
             if (running) return;
-            root.snapshot = Logic.snapshot(root.codeOf(completion), statusText.text, statusErrors.text);
+            const code = root.codeOf(completion);
+            const next = Logic.snapshot(code, statusText.text, statusErrors.text);
+            // One line a change into the state, not one a poll.
+            if (next.state === "unavailable" && root.snapshot.state !== "unavailable")
+                console.info("vpn: status=unavailable code=" + code + " " + statusErrors.text.trim());
+            root.snapshot = next;
             root.runPoll("exit");
         }
     }
@@ -193,11 +203,17 @@ Item {
         property bool again: false
         command: ["tailscale", "switch", "--list"]
         stdout: StdioCollector { id: accountsText; waitForEnd: true }
+        stderr: StdioCollector { id: accountsErrors; waitForEnd: true }
         onExited: (code, status) => { accountsReader.completion = { code: code, status: status }; }
         onRunningChanged: {
             if (running) return;
             accountsDeadline.stop();
-            root.accounts = Logic.accounts(root.codeOf(completion), accountsText.text);
+            const code = root.codeOf(completion);
+            const read = Logic.accounts(code, accountsText.text);
+            if (read.fault !== "" && read.fault !== root.accountsFault)
+                console.info("vpn: accounts=" + read.fault + " code=" + code + " " + accountsErrors.text.trim());
+            root.accountsFault = read.fault;
+            root.accounts = read.rows;
             if (again) {
                 again = false;
                 root.readAccounts();
@@ -210,7 +226,7 @@ Item {
         const request = JSON.parse(arg);
         if (request.kind === "cancel-login") {
             login = "idle";
-            if (signIn.running) signIn.running = false;
+            if (signIn.running) root.endLogin();
             return "ok";
         }
         if (commandMissing()) return "refused: action=" + request.kind + " state=missing";
@@ -263,16 +279,28 @@ Item {
         }
         login = "waiting";
         problem = "";
+        loginSaid = "";
+        signIn.completion = null;
+        signIn.ended = false;
         signIn.command = argv;
         signIn.running = true;
         loginDeadline.restart();
         return "ok";
     }
 
+    // Ends the sign-in run as the service's own stop, which is no failure.
+    function endLogin() {
+        signIn.ended = true;
+        signIn.running = false;
+    }
+
     function loginLine(text) {
-        if (login !== "waiting") return;
         const url = Logic.loginUrl(text);
-        if (url === "") return;
+        if (url === "") {
+            if (loginSaid.length < Logic.LOGIN_SAID_MAX) loginSaid += text + "\n";
+            return;
+        }
+        if (login !== "waiting") return;
         const reply = shell.run.detached(["xdg-open", url]);
         if (reply === "ok") {
             login = "opened";
@@ -280,7 +308,7 @@ Item {
         }
         console.warn("vpn: sign-in page " + reply);
         problem = "VGS could not open the sign-in page.";
-        signIn.running = false;
+        endLogin();
     }
 
     Timer {
@@ -292,12 +320,23 @@ Item {
 
     Process {
         id: signIn
+        property var completion: null
+        // Whether the service ended this run itself.
+        property bool ended: false
         stdout: SplitParser { onRead: text => root.loginLine(text) }
         stderr: SplitParser { onRead: text => root.loginLine(text) }
+        onExited: (code, status) => { signIn.completion = { code: code, status: status }; }
         onRunningChanged: {
             if (running) return;
             loginDeadline.stop();
-            if (root.login === "waiting" && root.problem === "") root.problem = "Tailscale gave no sign-in page.";
+            const code = root.codeOf(completion);
+            if (!ended && code !== 0) {
+                const kind = code === -1 ? "timeout" : Logic.failureKind(root.loginSaid);
+                console.warn("vpn: login failed kind=" + kind + " " + root.loginSaid.trim());
+                root.problem = Logic.failureText(kind);
+            } else if (!ended && root.login === "waiting") {
+                root.problem = "Tailscale gave no sign-in page.";
+            }
             root.login = "idle";
             root.refresh();
         }

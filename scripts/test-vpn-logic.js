@@ -31,7 +31,7 @@ function suite(logic) {
     assert.equal(running.account, "owner@fixture.example");
     assert.deepEqual(running.exit, { id: "nFIXTURE0002CNTRL", name: "gateway" });
     assert.deepEqual(running.peers.map(row => [row.name, row.online]),
-        [["100.64.0.4", true], ["attic box", true], ["gateway", true], ["laptop", true], ["old-phone", false]]);
+        [["100.64.0.4", true], ["attic box", true], ["gateway", true], ["laptop", true], ["backup", false]]);
     assert.equal(running.peerCount, 5);
     const stopped = read("stopped.json");
     assert.equal(stopped.state, "stopped");
@@ -78,18 +78,22 @@ function suite(logic) {
     }
 
     // Every command's argv, and the refusals.
-    const accounts = plain(logic.accounts(0, text("accounts.txt")));
+    const listed = plain(logic.accounts(0, text("accounts.txt")));
+    const accounts = listed.rows;
+    assert.equal(listed.fault, "");
     assert.deepEqual(accounts, [
         { id: "f1a0", tailnet: "fixture.example", account: "owner@fixture.example", current: true },
         { id: "f1a1", tailnet: "second.example", account: "owner@second.example", current: false }
     ]);
-    for (const [code, stdout] of [[1, text("accounts.txt")], [0, ""], [0, "owner@fixture.example *\n"]]) assert.deepEqual(plain(logic.accounts(code, stdout)), []);
+    for (const [code, stdout, fault] of [[1, text("accounts.txt"), "failed"], [0, "", "header"], [0, "owner@fixture.example *\n", "header"]])
+        assert.deepEqual(plain(logic.accounts(code, stdout)), { rows: [], fault: fault });
     const held = state => ({ state: state, exitNodes: running.exitNodes, accounts: accounts });
     for (const [request, state, want] of [
         [{ kind: "connect" }, "stopped", { argv: ["tailscale", "up"] }],
         [{ kind: "connect" }, "running", { refusal: "refused: action=connect state=running" }],
         [{ kind: "connect" }, "signed-out", { refusal: "refused: action=connect state=signed-out" }],
         [{ kind: "disconnect" }, "running", { argv: ["tailscale", "down"] }],
+        [{ kind: "disconnect" }, "starting", { argv: ["tailscale", "down"] }],
         [{ kind: "disconnect" }, "stopped", { refusal: "refused: action=disconnect state=stopped" }],
         [{ kind: "exit-node", id: "" }, "running", { argv: ["tailscale", "set", "--exit-node="] }],
         [{ kind: "exit-node", id: "gateway.tail-fixture.ts.net" }, "running", { refusal: "refused: exit-node=absent" }],
@@ -135,20 +139,21 @@ function suite(logic) {
         ["To authenticate, visit:", ""], ["", ""], ["http://login.fixture.example/a/0123", ""], ["file:///etc/passwd", ""]
     ]) assert.equal(logic.loginUrl(printed), want);
 
-    // Setup: one step at a time, and Allow while access is denied.
-    for (const [context, want] of [
-        [{ missing: true, state: "checking", service: "absent", operator: "absent" }, "install"],
-        [{ missing: false, state: "service-off", service: "needed", operator: "unknown" }, "enable"],
-        [{ missing: false, state: "service-off", service: "nixos", operator: "unknown" }, "enable"],
-        [{ missing: false, state: "service-off", service: "absent", operator: "unknown" }, ""],
-        [{ missing: false, state: "running", service: "ready", operator: "needed" }, "allow"],
-        [{ missing: false, state: "stopped", service: "ready", operator: "nixos" }, "allow"],
-        [{ missing: false, state: "running", service: "ready", operator: "denied" }, ""],
-        [{ missing: false, state: "running", service: "ready", operator: "ready" }, ""],
-        [{ missing: false, state: "running", service: "", operator: "" }, ""]
-    ]) assert.equal(logic.setup(context).action, want, JSON.stringify(context));
-    assert.equal(logic.setup({ missing: false, state: "running", service: "ready", operator: "ready" }).tone, "ok");
-    assert.equal(logic.setup({ missing: false, state: "running", service: "ready", operator: "denied" }).tone, "warning");
+    // Setup: one step at a time, Allow while access is denied, and no
+    // Ready over an operator the core could not read.
+    for (const [context, action, tone] of [
+        [{ missing: true, state: "checking", service: "absent", operator: "absent" }, "install", "warning"],
+        [{ missing: false, state: "service-off", service: "needed", operator: "unknown" }, "enable", "warning"],
+        [{ missing: false, state: "service-off", service: "nixos", operator: "unknown" }, "enable", "warning"],
+        [{ missing: false, state: "service-off", service: "absent", operator: "unknown" }, "", "warning"],
+        [{ missing: false, state: "running", service: "ready", operator: "needed" }, "allow", "warning"],
+        [{ missing: false, state: "stopped", service: "ready", operator: "nixos" }, "allow", "warning"],
+        [{ missing: false, state: "running", service: "ready", operator: "denied" }, "", "warning"],
+        [{ missing: false, state: "running", service: "ready", operator: "unknown" }, "", "warning"],
+        [{ missing: false, state: "stopped", service: "ready", operator: "unknown" }, "", "warning"],
+        [{ missing: false, state: "running", service: "ready", operator: "ready" }, "", "ok"],
+        [{ missing: false, state: "running", service: "", operator: "" }, "", "ok"]
+    ]) assert.deepEqual([logic.setup(context).action, logic.setup(context).tone], [action, tone], JSON.stringify(context));
 
     // The connection line and the bar icon.
     const states = ["missing", "checking", "service-off", "unavailable", "signed-out", "needs-approval", "starting", "stopped", "running"];
@@ -197,7 +202,7 @@ function suite(logic) {
     assert.equal(largest.exitNodes.filter(row => row.active).length, 1, "the node in use is kept");
     assert.equal(largest.peers.length, logic.PEER_MAX);
     assert.equal(largest.peerCount, 300);
-    const manyAccounts = plain(logic.accounts(0, "ID  Tailnet  Account\n" + Array.from({ length: 40 }, (_, i) => "a".repeat(63) + (i % 10) + "  " + wide + "  " + wide).join("\n")));
+    const manyAccounts = plain(logic.accounts(0, "ID  Tailnet  Account\n" + Array.from({ length: 40 }, (_, i) => "a".repeat(63) + (i % 10) + "  " + wide + "  " + wide).join("\n"))).rows;
     assert.equal(manyAccounts.length, logic.ACCOUNT_MAX);
     const bytes = Buffer.byteLength(JSON.stringify(logic.published(false, largest, ready, { accounts: manyAccounts, action: "exit-node", login: "opened", problem: wide.slice(0, 200) })));
     assert.ok(bytes < STATUS_MAX_BYTES, "the largest vpn value is " + bytes + " bytes, the ceiling " + STATUS_MAX_BYTES);
@@ -218,10 +223,12 @@ try {
         ["an open view polls fast", "return open ? OPEN_POLL_MS : idleSeconds * 1000;", "return idleSeconds * 1000;"],
         ["access denied is told apart", '{ kind: "access-denied", pattern: /access denied/i }', '{ kind: "access-denied", pattern: /prefs denied/i }'],
         ["a needed operator offers Allow", 'action: "allow" };', 'action: "" };'],
+        ["an unread operator is not Ready", 'context.operator === "unknown" && REACHED', 'context.operator === "unread" && REACHED'],
         ["an exit node goes by its target", '"--exit-node=" + node.target]', '"--exit-node=" + node.id]'],
         ["the exit nodes are bounded", "var rows = all.slice(0, EXIT_MAX);", "var rows = all.slice(0);"],
         ["the node in use survives the bound", "rows[rows.length - 1] = active;", ""],
         ["one Mullvad node a city", "(row.active || rank > held.rank)", "false"],
+        ["the node in use keeps its city", "!held.row.active && ", ""],
         ["only an https sign-in page opens", "/https:\\/\\/[^\\s\"'<>]+/", "/[a-z]+:\\/\\/[^\\s\"'<>]+/"],
         ["a drawn line holds no markup start", "\\u007f<]/g", "\\u007f]/g"]
     ]) {

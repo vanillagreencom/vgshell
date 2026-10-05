@@ -104,8 +104,8 @@
     "nodekey:0606060606060606060606060606060606060606060606060606060606060606": {
       "ID": "nFIXTURE0006CNTRL",
       "PublicKey": "nodekey:0606060606060606060606060606060606060606060606060606060606060606",
-      "HostName": "old-phone",
-      "DNSName": "old-phone.tail-fixture.ts.net.",
+      "HostName": "backup",
+      "DNSName": "backup.tail-fixture.ts.net.",
       "OS": "linux",
       "UserID": 1001,
       "TailscaleIPs": [
