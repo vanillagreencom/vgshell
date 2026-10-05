@@ -1721,8 +1721,8 @@ doc_fixture() {
 test_area=tools
 test_args=()
 d="$tmp/doc-small"; doc_fixture "$d"
-printf 'small\n' >"$d/small.md"
-row "an untracked document under its ceiling is measured and passes" "$d" 0 "" \
+printf 'small\n' >"$d/AGENTS.md"
+row "an untracked load-point document under its ceiling is measured and passes" "$d" 0 "" \
   "notice=documents-checked count=1" "!notice=argument-retired" "validate: ok"
 d="$tmp/doc-big"; doc_fixture "$d"
 head -c 2000 /dev/zero | tr '\0' x >"$d/AGENTS.md"
@@ -1735,8 +1735,8 @@ else
 fi
 d="$tmp/doc-budget"; doc_fixture "$d"
 head -c 2000 /dev/zero | tr '\0' x >"$d/big.md"
-row "an untracked document over its ceiling that no agent loads warns and passes" "$d" 0 "" \
-  "notice=document-over-budget path=big.md" "validate: ok"
+row "an untracked document over its ceiling that no agent loads is not measured" "$d" 0 "" \
+  "notice=documents-checked count=0" "!path=big.md" "validate: ok"
 d="$tmp/doc-no-checker"; fresh "$d"; printf 'doc\n' >"$d/a.md"
 row "a document change with no checker exits 77" "$d" 77 "" \
   "doc-limits: status=not-measured reason=checker-missing path=.agents/skills/doc-limits/scripts/doc-limits" \
