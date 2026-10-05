@@ -523,6 +523,13 @@ f share/vgshell/shell/plugins/vgs.updates/tui/log.sh
 f share/vgshell/shell/plugins/vgs.updates/tui/pipeline.sh
 f share/vgshell/shell/plugins/vgs.updates/tui/update-source.sh
 f share/vgshell/shell/plugins/vgs.updates/tui/update.sh
+f share/vgshell/shell/plugins/vgs.vpn/Pane.qml
+f share/vgshell/shell/plugins/vgs.vpn/Panel.qml
+f share/vgshell/shell/plugins/vgs.vpn/Service.qml
+f share/vgshell/shell/plugins/vgs.vpn/VpnBody.qml
+f share/vgshell/shell/plugins/vgs.vpn/VpnLogic.js
+f share/vgshell/shell/plugins/vgs.vpn/Widget.qml
+f share/vgshell/shell/plugins/vgs.vpn/manifest.json
 f share/vgshell/shell/shell.qml
 f share/vgshell/themes/catalog/BACKGROUNDS-ATTRIBUTION.md
 f share/vgshell/themes/catalog/THEMES-ATTRIBUTION.md

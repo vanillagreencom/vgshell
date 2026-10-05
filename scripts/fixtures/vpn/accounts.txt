@@ -1,0 +1,3 @@
+ID    Tailnet           Account
+f1a0  fixture.example   owner@fixture.example*
+f1a1  second.example    owner@second.example

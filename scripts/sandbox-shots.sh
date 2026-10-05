@@ -15,7 +15,7 @@
 #
 
 # SCENE is gallery, settings, focus, plugin-pages, manager, launcher,
-# notifications, bar, panels, devtools, system, network, bluetooth, dialog, lock, polkit,
+# notifications, bar, panels, devtools, system, network, vpn, bluetooth, dialog, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, capture,
 # keyhints or clipboard. settings takes the
 # automations' and the Jarvis pages among the plugin pages, each when the
@@ -30,7 +30,8 @@
 # is the System window as it opens with no System section enabled, then
 # System → Displays over the device fakes when the tree ships it, and
 # its Sound section over the sandbox's private PipeWire; bluetooth is
-# its Bluetooth section over the device fakes; keyhints is the
+# its Bluetooth section over the device fakes; vpn is its VPN section over
+# the tailscale stand-in; keyhints is the
 # Key Hints window over the Launcher's, Settings' and Themes' shortcuts and
 # its own; clipboard is the clipboard history over copies made on the
 # nested instance's own clipboard, taken only when named; focus is
@@ -159,7 +160,7 @@ while [[ $# -gt 0 ]]; do
     --keep) keep=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    gallery|settings|focus|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|devtools|system|network|bluetooth|dialog|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations) scenes+=("$1"); shift ;;
+    gallery|settings|focus|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|devtools|system|network|vpn|bluetooth|dialog|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -250,6 +251,7 @@ scene_ships() {
     devtools) ships_plugin vgs.devtools ;;
     system) ships_plugin vgs.system ;;
     network) ships_plugin vgs.system vgs.network ;;
+    vpn) ships_plugin vgs.system vgs.vpn ;;
     bluetooth) ships_plugin vgs.system vgs.bluetooth ;;
     theme-browser|wallpaper-browser) ships_plugin vgs.themes ;;
     dialog) [[ -f $tree/shell/Hosts/NoticeHost.qml ]] ;;
@@ -265,7 +267,7 @@ if [[ ${#scenes[@]} -eq 0 ]]; then
     scenes=(gallery)
     [[ -z $manager_scene ]] || scenes+=("$manager_scene")
   else
-    for scene in gallery settings focus launcher notifications bar panels devtools system network bluetooth dialog lock polkit greeter automations narrow; do
+    for scene in gallery settings focus launcher notifications bar panels devtools system network vpn bluetooth dialog lock polkit greeter automations narrow; do
       if scene_ships "$scene"; then scenes+=("$scene"); fi
     done
   fi
@@ -1707,6 +1709,27 @@ scene_network() { # MODE
   device_reply_clear nmcli
   device_reply_clear systemctl
 }
+# VPN reads the tailscale stand-in, which answers a running tailnet with
+# Mullvad nodes from scripts/fixtures/vpn/. The core's system tree holds
+# no tailscale, so the operator step reads absent and no setup step shows.
+scene_vpn() { # MODE
+  devices_ready vpn-shot || return 0
+  device_reply tailscale 0 "$(<"$repo/scripts/fixtures/vpn/mullvad.json")" status --json
+  device_reply tailscale 0 "$(<"$repo/scripts/fixtures/vpn/accounts.txt")" switch --list
+  expect "VPN enables for its shot" ok ipc shell setPluginEnabled vgs.vpn true
+  expect "System enables for the VPN shot" ok ipc shell setPluginEnabled vgs.system true
+  expect "VPN's pane summons" ok ipc shell summon window vgs.system '{"pane":"vgs.vpn"}'
+  expect_poll "VPN's pane is mounted" shown vpn_shot_shown
+  expect_poll "VPN's pane reads the stand-in's tailnet" '["running", 2]' vpn_shot_read
+  park_pointer
+  take "vpn-$1-pane"
+  expect "the VPN System window closes" ok ipc shell hide window vgs.system
+  expect "VPN disables after its shot" ok ipc shell setPluginEnabled vgs.vpn false
+  expect "System disables after the VPN shot" ok ipc shell setPluginEnabled vgs.system false
+  device_reply_clear tailscale
+}
+vpn_shot_shown() { [[ $(ipc smoke instanceGeometry window vgs.vpn) != absent ]] && echo shown || echo hidden; }
+vpn_shot_read() { ipc smoke readDescendant window vgs.vpn VpnBody vpn | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps([v["state"], len(v["accounts"])]))'; }
 network_shot_shown() { [[ $(ipc smoke instanceGeometry window vgs.network) != absent ]] && echo shown || echo hidden; }
 network_shot_names() { ipc smoke readDescendant window vgs.network NetworkBody rows | py_reply 'import json,sys; print(json.dumps([[r["name"],r["security"],r["known"]] for r in json.load(sys.stdin)]))'; }
 

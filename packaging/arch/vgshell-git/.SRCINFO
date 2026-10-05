@@ -70,5 +70,6 @@ pkgbase = vgshell-git
 	optdepends = xorg-xinit: startx, for X11 sessions on the login screen
 	optdepends = glibc: getent, the accounts on the login screen
 	optdepends = polkit: pkexec, so applications can ask for administrator access
+	optdepends = tailscale: the Tailscale connection in the VPN plugin
 
 pkgname = vgshell-git

@@ -1,0 +1,3 @@
+Access denied: prefs write access denied
+
+Use 'sudo tailscale set --exit-node=gateway.tail-fixture.ts.net' or 'tailscale up --operator=$USER' to not require root.

@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "id": "vgs.vpn",
+  "name": "VPN",
+  "version": "0.1.0",
+  "author": "VanillaGreen",
+  "description": "Connect Tailscale and choose an exit node.",
+  "license": "MIT",
+  "icon": "shield-check",
+  "kinds": ["service", "bar-widget", "panel", "pane"],
+  "entryPoints": { "service": "Service.qml", "bar-widget": "Widget.qml", "panel": "Panel.qml", "pane": "Pane.qml" },
+  "capabilities": ["configure", "ipc", "requirements", "run", "status", "surfaces", "system"],
+  "defaultSection": "right",
+  "pane": { "group": "Connectivity", "order": 30 },
+  "settings": {
+    "pollSeconds": 30
+  },
+  "schema": {
+    "pollSeconds": { "type": "number", "label": "Check every", "description": "How often VGS reads Tailscale while its views are closed", "unit": "seconds", "presets": [{ "value": 10 }, { "value": 30 }, { "value": 60 }], "group": "Updates" }
+  },
+  "requirements": [
+    { "command": "tailscale", "packages": { "pacman": "tailscale", "dnf": "tailscale", "xbps": "tailscale", "emerge": "net-vpn/tailscale", "nix": "tailscale" }, "optional": true, "purpose": "Reads and controls your Tailscale connection" },
+    { "command": "xdg-open", "packages": { "pacman": "xdg-utils", "apt": "xdg-utils", "dnf": "xdg-utils", "nix": "xdg-utils" }, "optional": false, "purpose": "Opens the Tailscale sign-in page in your browser" }
+  ],
+  "systemSteps": ["service-tailscaled", "tailscale-operator"],
+  "status": {
+    "connection": { "type": "state", "label": "Connection" },
+    "setup": {
+      "type": "state",
+      "label": "Setup",
+      "actions": {
+        "install": { "label": "Install", "install": ["tailscale"] },
+        "enable": { "label": "Enable", "system": "service-tailscaled" },
+        "allow": { "label": "Allow", "system": "tailscale-operator" }
+      }
+    },
+    "vpn": { "type": "data", "label": "VPN" }
+  }
+}

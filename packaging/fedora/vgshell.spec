@@ -68,6 +68,7 @@ Recommends:     ddcutil
 Recommends:     glibc-common
 Recommends:     greetd
 Recommends:     polkit
+Recommends:     tailscale
 Recommends:     xorg-x11-xinit
 Recommends:     tmux
 Recommends:     ydotool

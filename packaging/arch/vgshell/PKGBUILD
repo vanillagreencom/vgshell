@@ -78,6 +78,7 @@ optdepends=(
   'xorg-xinit: startx, for X11 sessions on the login screen'
   'glibc: getent, the accounts on the login screen'
   'polkit: pkexec, so applications can ask for administrator access'
+  'tailscale: the Tailscale connection in the VPN plugin'
 )
 source=("vgshell-$pkgver.tar.gz::$url/releases/download/v$pkgver/vgshell-$pkgver.tar.gz")
 sha256sums=('SKIP')

@@ -1,0 +1,26 @@
+{
+  "Version": "1.0.0-fixture",
+  "TUN": true,
+  "BackendState": "NeedsLogin",
+  "HaveNodeKey": false,
+  "AuthURL": "",
+  "TailscaleIPs": null,
+  "Self": {
+    "ID": "",
+    "PublicKey": "nodekey:0000000000000000000000000000000000000000000000000000000000000000",
+    "HostName": "desk",
+    "DNSName": "",
+    "OS": "linux",
+    "UserID": 0,
+    "TailscaleIPs": null,
+    "Online": false,
+    "ExitNode": false,
+    "ExitNodeOption": false
+  },
+  "Health": [],
+  "MagicDNSSuffix": "",
+  "CurrentTailnet": null,
+  "Peer": null,
+  "User": null,
+  "ClientVersion": null
+}

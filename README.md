@@ -74,6 +74,7 @@ VGS starts with Hyprland and draws the bar, panels and windows on each screen. E
 | [System](shell/plugins/vgs.system/README.md) | Sound, displays, network and other system settings in one window. |
 | [Themes](shell/plugins/vgs.themes/README.md) | Choose themes and wallpapers. |
 | [Updates](shell/plugins/vgs.updates/README.md) | Update your system, VGS, plugins, themes and tools. |
+| [VPN](shell/plugins/vgs.vpn/README.md) | Connect Tailscale and choose an exit node. |
 
 ## Setup
 

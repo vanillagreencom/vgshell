@@ -1,0 +1,67 @@
+{
+  "Version": "1.0.0-fixture",
+  "TUN": true,
+  "BackendState": "Stopped",
+  "HaveNodeKey": true,
+  "AuthURL": "",
+  "TailscaleIPs": [
+    "100.64.0.1",
+    "fd7a:115c:a1e0::1"
+  ],
+  "Self": {
+    "ID": "nFIXTURE0001CNTRL",
+    "PublicKey": "nodekey:0101010101010101010101010101010101010101010101010101010101010101",
+    "HostName": "desk",
+    "DNSName": "desk.tail-fixture.ts.net.",
+    "OS": "linux",
+    "UserID": 1001,
+    "TailscaleIPs": [
+      "100.64.0.1",
+      "fd7a:115c:a1e0::1"
+    ],
+    "Tags": null,
+    "Online": false,
+    "ExitNode": false,
+    "ExitNodeOption": false,
+    "Active": false
+  },
+  "Health": [],
+  "MagicDNSSuffix": "tail-fixture.ts.net",
+  "CurrentTailnet": {
+    "Name": "fixture.example",
+    "MagicDNSSuffix": "tail-fixture.ts.net",
+    "MagicDNSEnabled": true
+  },
+  "Peer": {
+    "nodekey:0505050505050505050505050505050505050505050505050505050505050505": {
+      "ID": "nFIXTURE0005CNTRL",
+      "PublicKey": "nodekey:0505050505050505050505050505050505050505050505050505050505050505",
+      "HostName": "laptop",
+      "DNSName": "laptop.tail-fixture.ts.net.",
+      "OS": "linux",
+      "UserID": 1001,
+      "TailscaleIPs": [
+        "100.64.0.5",
+        "fd7a:115c:a1e0::5"
+      ],
+      "Tags": null,
+      "Online": false,
+      "ExitNode": false,
+      "ExitNodeOption": false,
+      "Active": false
+    }
+  },
+  "User": {
+    "1001": {
+      "ID": 1001,
+      "LoginName": "owner@fixture.example",
+      "DisplayName": "Fixture Owner"
+    },
+    "2002": {
+      "ID": 2002,
+      "LoginName": "tagged-devices",
+      "DisplayName": "Tagged Devices"
+    }
+  },
+  "ClientVersion": null
+}
