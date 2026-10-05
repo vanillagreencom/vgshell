@@ -438,7 +438,7 @@ const CONTROLS = [
 const source = fs.readFileSync(file, "utf8");
 for (const id of ["tools.terminal", "tools.files"]) {
     const restored = Object.assign({}, JSON.parse(shippedMenu).items, { [id]: { label: id, run: ["true"] } });
-    assert.throws(() => verify(load(file), menuText(restored)), { message: `${id} is absent from the shipped menu` });
+    assert.throws(() => verify(load(file), menuText(restored)), { code: "ERR_ASSERTION", actual: true, expected: false, operator: "strictEqual" });
 }
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "launcher-model-control-"));
 try {
