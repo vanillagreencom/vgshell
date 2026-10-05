@@ -35,6 +35,45 @@ print(found[0])
 PY
 }
 
+# Positive Settings setup cases need the plugin's required commands present.
+# These scanner-facing stand-ins exit if called; J09 owns executable doubles.
+jarvis_setup_requirements() {
+  local commands command
+  jarvis_requirement_standins=()
+  commands="$(python3 - "$repo/shell/plugins/vgs.jarvis/manifest.json" <<'PYTHON'
+import json,sys
+with open(sys.argv[1]) as source:
+    manifest=json.load(source)
+for row in manifest["requirements"]:
+    if not row.get("optional", False):
+        print(row["command"])
+PYTHON
+)" || return 1
+  while IFS= read -r command; do
+    [[ $(shell_resolves "$command") == none ]] || continue
+    printf '#!/bin/sh\nexit 99\n' >"$shim/$command"
+    chmod 755 "$shim/$command"
+    jarvis_requirement_standins+=("$command")
+  done <<<"$commands"
+}
+# A published ready value can precede the reader's queued initialization
+# check. Wait for that check before changing the control's probe answer.
+jarvis_setup_reader_idle() { # QML_TYPE
+  ipc smoke itemValues service vgs.jarvis "$1" pending,code | py_reply '
+import json,sys
+rows=json.load(sys.stdin)
+print("idle" if len(rows)==1 and rows[0]=={"pending":False,"code":0} else "pending")
+'
+}
+
+jarvis_restore_requirements() {
+  local command
+  for command in "${jarvis_requirement_standins[@]}"; do
+    rm -f -- "${shim:?}/$command"
+  done
+  rescan "the setup requirement stand-ins are removed"
+}
+
 jarvis_enable() {
   expect "Jarvis enables" ok ipc shell setPluginEnabled vgs.jarvis true
   expect "the real Jarvis daemon answers hello" ready jarvis_wait_ready

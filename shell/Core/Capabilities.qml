@@ -180,7 +180,7 @@ Singleton {
         status: ctx => ({
             set: (key, value) => PluginStatus.set(ctx, key, value),
             act: key => root.managerAct(ctx.id, key),
-            get rows() { return Logic.statusRows(Registry.activeManifestOf(ctx.id), PluginStatus.valuesOf(ctx.id)); },
+            get rows() { return Logic.statusRows(Registry.activeManifestOf(ctx.id), PluginStatus.valuesOf(ctx.id), Notices.missingOf(ctx.id)); },
             get values() { return PluginStatus.valuesOf(ctx.id); },
             get revision() { return PluginStatus.revisionOf(ctx.id); }
         }),

@@ -51,7 +51,7 @@ const logic = load(file);
 for (const [label, text, code, want] of ROWS) {
     const value = JSON.parse(JSON.stringify(logic.browserTheming(text, code)));
     assert.equal(pluginLogic.statusWrite(judged.manifest, {}, "browserTheming", value).ok, true, "the core publishes the row of " + label);
-    const row = pluginLogic.statusRows(judged.manifest, { browserTheming: value })[0];
+    const row = pluginLogic.statusRows(judged.manifest, { browserTheming: value }, [])[0];
     same(row.action, { label: "Install browser theming", offered: want.action === true }, "the action of " + label);
 }
 

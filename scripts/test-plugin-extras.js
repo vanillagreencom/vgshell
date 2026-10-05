@@ -113,8 +113,8 @@ function suite(ctx, check) {
 
     const values = ctx.statusWrite(m, ctx.statusWrite(m, {}, "tokens", [{ label: "Acme", value: "absent", secret: "acme:T1" }]).values, "health", { tone: "ok", text: "Fine" }).values;
     check("a status write judges the whole manifest, so a plugin writes an extra's entry", Object.keys(values).sort(), ["health", "tokens"]);
-    check("statusRows: an extra that is off draws no row", ctx.statusRows(off, values).map(r => r.key), ["health"]);
-    check("statusRows: an extra that is on draws its rows", ctx.statusRows(on, values).map(r => r.key), ["tokens", "health"]);
+    check("statusRows: an extra that is off draws no row", ctx.statusRows(off, values, []).map(r => r.key), ["health"]);
+    check("statusRows: an extra that is on draws its rows", ctx.statusRows(on, values, []).map(r => r.key), ["tokens", "health"]);
     check("secretRequest: an extra that is off stores nothing", ctx.secretRequest(off, "acme.extras", true, values, "tokens", "acme:T1", "store", "x"), { ok: false, answer: "refused: secret=acme:T1 reason=undeclared" });
     check("secretRequest: an extra that is on stores its account", ctx.secretRequest(on, "acme.extras", true, values, "tokens", "acme:T1", "store", "x").ok, true);
     check("requirementRows: an extra that is off lists none of its commands", ctx.requirementRows(off, ["curl", "secret-tool"]).map(r => r.command), ["git"]);

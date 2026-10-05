@@ -9,7 +9,7 @@
 # Tab scroll it, and a two-finger swipe moves it as far as GTK moves a list. Dispatches asked for back to back run in order behind one
 # process, the queue has a bound, and a process that cannot start does not
 # stop the queue.
-# inputs: shell/plugins/vgs.settings/* shell/Ui/layout/ScrollArea.qml shell/Ui/layout/TouchpadScroll.qml shell/Ui/layout/TouchpadScrollLogic.js shell/Commons/Reply.js shell/plugins/vgs.notifications/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/PluginStatus.qml bin/vgshell-scan shell/Core/TuiRunner.qml shell/Commons/SettingValues.js shell/Core/Capabilities.qml shell/plugins/vgs.bar/manifest.json shell/Core/Notices.qml bin/lib/qml-library.js scripts/smoke/rows/manager.sh scripts/smoke/rows/status.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh bin/vgshell-tui
+# inputs: shell/Core/PluginLogic.js shell/plugins/vgs.settings/* shell/Ui/layout/ScrollArea.qml shell/Ui/layout/TouchpadScroll.qml shell/Ui/layout/TouchpadScrollLogic.js shell/Commons/Reply.js shell/plugins/vgs.notifications/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/PluginStatus.qml bin/vgshell-scan shell/Core/TuiRunner.qml shell/Commons/SettingValues.js shell/Core/Capabilities.qml shell/plugins/vgs.bar/manifest.json shell/Core/Notices.qml bin/lib/qml-library.js scripts/smoke/rows/manager.sh scripts/smoke/rows/status.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh bin/vgshell-tui
 set -euo pipefail
 click_centre "$(bar_key)" vgs.settings || fail "the click on the gear failed"
 expect_poll "the gear's click opens the Settings window" open settings_open
@@ -180,6 +180,35 @@ expect "Install the tool leaves the Settings window open under the notice" 1 win
 expect_poll "the action's notice holds the keyboard" true ipc smoke noticeFocused
 type_keys -k Escape || fail "sending Escape to the action's notice failed"
 expect_poll "Escape closes the action's notice" null notice_shown
+
+
+# The same offered status step must use the requirement notice at the run
+# boundary when its declared command is required and absent.
+status_manifest="$status_dir/manifest.json"
+cp -- "$status_manifest" "$sandbox/status-action-manifest"
+python3 - "$status_manifest" <<'PYTHON'
+from pathlib import Path
+import json, sys
+path=Path(sys.argv[1])
+assert not path.is_symlink()
+manifest=json.loads(path.read_text())
+requirement=next(row for row in manifest["requirements"] if row["command"]=="vgs-smoke-absent")
+assert requirement["optional"] is True
+requirement["optional"]=False
+path.write_text(json.dumps(manifest))
+PYTHON
+rescan "the fixture now declares its missing command required"
+expect "the fixture republishes an absent token" ok ipc acme.status invoke set 'token="absent"'
+expect_poll "Settings replaces the unavailable setup step with install" '[["token", "Install requirements", true], ["check", "Install the tool", false]]' offered_actions acme.status
+forget_record
+settings_press "Install requirements" || fail "the click on Install requirements failed"
+expect_poll "the withheld TUI opens the existing requirement notice" '["acme.status", ["vgs-smoke-absent"], ["vgs-smoke-absent"], false]' notice_shown
+expect "a missing requirement starts no setup terminal" absent recorded
+# No install button is pressed. Escape dismisses the requirement notice.
+type_keys -k Escape || fail "sending Escape to the required action's notice failed"
+expect_poll "Escape closes the required action's notice" null notice_shown
+cp -- "$sandbox/status-action-manifest" "$status_manifest"
+rescan "the fixture restores its optional requirement"
 
 
 # The editor reads the service's choices, writes stable values rather than

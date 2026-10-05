@@ -7,6 +7,7 @@ local_tui="$repo/shell/plugins/vgs.jarvis/tui/setup-local.sh"
 cp -- "$local_reader" "$sandbox/local-reader-original"
 cp -- "$local_tui" "$sandbox/local-tui-original"
 cp -- "$source_repo/scripts/smoke/fixtures/tui/vgs.jarvis/tui/setup-local.sh" "$local_tui"
+jarvis_setup_requirements
 terminal_stand_in
 terminal_ready "Jarvis local setup"
 jarvis_rescan
@@ -72,6 +73,7 @@ PY
 printf 'ready\n' >"$sandbox/jarvis-world/local-mode"
 jarvis_rescan
 expect_poll "the refresh control first reads ready" matched local_value ready
+expect_poll "the refresh control first reads ready: reader is idle" idle jarvis_setup_reader_idle LocalRuntime
 printf 'failed\n' >"$sandbox/jarvis-world/local-mode"
 local_open launcher
 local_refresh_control() {
@@ -104,6 +106,7 @@ PY
 printf 'ready\n' >"$sandbox/jarvis-world/local-mode"
 jarvis_rescan
 expect_poll "the failed-probe control first reads ready" matched local_value ready
+expect_poll "the failed-probe control first reads ready: reader is idle" idle jarvis_setup_reader_idle LocalRuntime
 printf 'failed\n' >"$sandbox/jarvis-world/local-mode"
 local_open launcher
 local_failure_control() {
@@ -119,3 +122,4 @@ jarvis_rescan
 expect_poll "the restored setup action is offered" matched local_value absent
 settings_page_close vgs.jarvis
 jarvis_disable
+jarvis_restore_requirements

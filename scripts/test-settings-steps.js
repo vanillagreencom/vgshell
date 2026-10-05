@@ -60,11 +60,11 @@ const ITEMS = [
 
 function verify(logic) {
     for (const [label, key, values, want] of ENTRIES) {
-        const row = producer.statusRows(MANIFEST, values).find(entry => entry.key === key);
+        const row = producer.statusRows(MANIFEST, values, []).find(entry => entry.key === key);
         same(logic.statusStep(row), want, label);
     }
     for (const [label, item, want] of ITEMS) {
-        const row = producer.statusRows(MANIFEST, { accounts: [item] }).find(entry => entry.key === "accounts");
+        const row = producer.statusRows(MANIFEST, { accounts: [item] }, []).find(entry => entry.key === "accounts");
         assert.equal(logic.itemCommand(row.value[0]), want, label);
     }
     const requirements = producer.requirementRows({ requirements: producer.normalRequirements(MANIFEST.requirements) }, ["acme-tool"]);

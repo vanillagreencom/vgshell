@@ -1077,10 +1077,10 @@ function statusActionOffered(entry, value) {
 // while unreported: null for an entry that declares none, else { label,
 // offered }, the label of the action that applies, or of the entry's one
 // `action` while it does not, "" for `actions` none of which applies.
-function statusRowAction(entry, value) {
+function statusRowAction(entry, value, missing) {
     if (entry.action === undefined && entry.actions === undefined) return null;
     var offered = value === null ? null : statusActionOffered(entry, value);
-    if (offered !== null) return { label: offered.label, offered: true };
+    if (offered !== null) return { label: offered.tui !== undefined && missing.length > 0 ? "Install requirements" : offered.label, offered: true };
     return { label: entry.action === undefined ? "" : entry.action.label, offered: false };
 }
 
@@ -1092,7 +1092,8 @@ function statusRowAction(entry, value) {
 // `offered` false while unreported. `report` is `reported` with the published `value`
 // (statusRowValue) and its `tone`, or `unreported` with `value` null and
 // `tone` "" while `values` holds nothing for the key.
-function statusRows(manifest, values) {
+function statusRows(manifest, values, missing) {
+    var lacking = tuiMissingRequirements(manifest, missing);
     return Object.keys(manifest.status).filter(function (key) {
         return statusDisplayable(manifest.status[key]);
     }).map(function (key) {
@@ -1105,7 +1106,7 @@ function statusRows(manifest, values) {
             group: entry.group === undefined ? "" : entry.group,
             hint: entry.hint === undefined ? "" : entry.hint,
             command: entry.command === undefined ? "" : entry.command,
-            action: statusRowAction(entry, reported ? values[key] : null),
+            action: statusRowAction(entry, reported ? values[key] : null, lacking),
             report: reported ? "reported" : "unreported",
             value: reported ? statusRowValue(entry.type, values[key]) : null,
             tone: reported ? statusTone(entry.type, values[key]) : ""
@@ -1122,6 +1123,24 @@ function statusActionRefusal(key, reason) {
         throw new Error("statusActionRefusal: reason " + JSON.stringify(reason) + " is not one of " + STATUS_ACTION_REASONS.join(", "));
     var named = typeof key === "string" && STATUS_KEY_PATTERN.test(key) ? key : JSON.stringify(String(key));
     return "refused: action=" + named + " reason=" + reason;
+}
+
+// Required commands missing from the active manifest, in declaration order.
+// Optional commands do not prevent a setup that works without them.
+function tuiMissingRequirements(manifest, missing) {
+    return manifest.requirements.filter(function (row) {
+        return !row.optional && missing.indexOf(row.command) !== -1;
+    }).map(function (row) { return row.command; });
+}
+
+// The manager's setup request keeps tuiRun's refusal and focus rules. A valid
+// step with missing requirements goes to the existing requirement notice.
+function tuiRunFor(manifest, enabled, sourceDir, runner, name, missing) {
+    var request = tuiRun(manifest, enabled, sourceDir, runner, name, []);
+    if (!request.ok && request.action === "none") return request;
+    var lacking = tuiMissingRequirements(manifest, missing);
+    if (lacking.length > 0) return { ok: true, kind: "install", commands: lacking };
+    return request;
 }
 
 // What the `manager` capability's `act(id, key)` does for status entry KEY

@@ -4,6 +4,7 @@ set -euo pipefail
 input_tui="$repo/shell/plugins/vgs.jarvis/tui/setup-input.sh"
 cp -- "$input_tui" "$sandbox/input-tui-original"
 cp -- "$source_repo/scripts/smoke/fixtures/tui/vgs.jarvis/tui/setup-input.sh" "$input_tui"
+jarvis_setup_requirements
 terminal_stand_in
 terminal_ready "Jarvis input check"
 jarvis_rescan
@@ -33,3 +34,4 @@ cp -- "$sandbox/input-tui-original" "$input_tui"
 jarvis_rescan
 settings_page_close vgs.jarvis
 jarvis_disable
+jarvis_restore_requirements

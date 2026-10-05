@@ -7,6 +7,7 @@ browser_tui="$repo/shell/plugins/vgs.jarvis/tui/setup-browser.sh"
 cp -- "$browser_reader" "$sandbox/browser-reader-original"
 cp -- "$browser_tui" "$sandbox/browser-tui-original"
 cp -- "$source_repo/scripts/smoke/fixtures/tui/vgs.jarvis/tui/setup-browser.sh" "$browser_tui"
+jarvis_setup_requirements
 terminal_stand_in
 terminal_ready "Jarvis browser setup"
 # A stand-in driver on the sandbox PATH, so every read until the row's end
@@ -93,6 +94,7 @@ PY
 printf 'ready\n' >"$sandbox/jarvis-world/browser-mode"
 jarvis_rescan
 expect_poll "the refresh control first reads ready" matched browser_value ready
+expect_poll "the refresh control first reads ready: reader is idle" idle jarvis_setup_reader_idle BrowserRuntime
 printf 'failed\n' >"$sandbox/jarvis-world/browser-mode"
 browser_open launcher
 browser_refresh_control() {
@@ -125,6 +127,7 @@ PY
 printf 'ready\n' >"$sandbox/jarvis-world/browser-mode"
 jarvis_rescan
 expect_poll "the failed-probe control first reads ready" matched browser_value ready
+expect_poll "the failed-probe control first reads ready: reader is idle" idle jarvis_setup_reader_idle BrowserRuntime
 printf 'failed\n' >"$sandbox/jarvis-world/browser-mode"
 browser_open launcher
 browser_failure_control() {
@@ -149,6 +152,7 @@ PY
 printf 'ready\n' >"$sandbox/jarvis-world/browser-mode"
 jarvis_rescan
 expect_poll "the scan refresh control first reads ready" matched browser_value ready
+expect_poll "the scan refresh control first reads ready: reader is idle" idle jarvis_setup_reader_idle BrowserRuntime
 printf 'failed\n' >"$sandbox/jarvis-world/browser-mode"
 rescan "the control's rescan starts"
 browser_scan_control() {
@@ -176,3 +180,4 @@ else
 fi
 settings_page_close vgs.jarvis
 jarvis_disable
+jarvis_restore_requirements

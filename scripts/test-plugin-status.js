@@ -11,6 +11,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { load } = require("../bin/lib/qml-library.js");
+const { spawnSync } = require("node:child_process");
 
 const LOGIC = path.join(__dirname, "..", "shell", "Core", "PluginLogic.js");
 const LUCIDE = path.join(__dirname, "..", "shell", "Ui", "icons", "Lucide.js");
@@ -57,6 +58,63 @@ function suite(ctx, check) {
     const judgedBare = ctx.validateManifest(bare, "/p");
     if (!judgedBare.ok) throw new Error("the fixture manifest without secrets is refused: " + judgedBare.error);
     const mBare = judgedBare.manifest;
+
+    // Settings uses this actual Jarvis declaration. Only stand-in PATH entries
+    // are probed; no executable, installer or authentication prompt runs.
+    const jarvisRaw = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "manifest.json"), "utf8"));
+    const jarvis = ctx.validateManifest(jarvisRaw, "/jarvis").manifest;
+    const voiceValues = { localRuntime: { tone: "warning", text: "Setup needed", action: true } };
+    const commands = fs.mkdtempSync(path.join(os.tmpdir(), "settings-tui-path-"));
+    try {
+        for (const requirement of jarvis.requirements)
+            fs.writeFileSync(path.join(commands, requirement.command), "#!/bin/sh\nexit 99\n", { mode: 0o700 });
+        for (const absent of ["gum", "uv", "curl"]) {
+            const file = path.join(commands, absent);
+            fs.unlinkSync(file);
+            const probe = spawnSync("/bin/bash", ["--noprofile", "--norc", "-c",
+                'for command; do command -v "$command" >/dev/null || printf "%s\\n" "$command"; done',
+                "requirements", ...jarvis.requirements.map(row => row.command)],
+                { env: { PATH: commands }, encoding: "utf8" });
+            if (probe.status !== 0) throw new Error("stand-in PATH probe failed: " + probe.stderr);
+            const missing = probe.stdout.trim().split("\n");
+            check("Jarvis stand-in PATH misses only " + absent, missing, [absent]);
+            check("Settings routes local voice to install while " + absent + " is absent",
+                ctx.tuiRunFor(jarvis, true, "/sources", { launcher: "present", busy: [], run: "test" }, "setup-local", missing),
+                { ok: true, kind: "install", commands: [absent] });
+            check("Settings withholds local voice and offers install while " + absent + " is absent",
+                ctx.statusRows(jarvis, voiceValues, missing).find(row => row.key === "localRuntime").action,
+                { label: "Install requirements", offered: true });
+            fs.writeFileSync(file, "#!/bin/sh\nexit 99\n", { mode: 0o700 });
+        }
+    } finally {
+        fs.rmSync(commands, { recursive: true, force: true });
+    }
+
+    const runner = { launcher: "present", busy: [], run: "test" };
+    const optional = Object.assign({}, m, { requirements: [{ command: "acme-sync", optional: true }] });
+    const setupCases = [
+        ["requirements present", m, true, "setup", [], "run"],
+        ["undeclared missing command", m, true, "setup", ["other"], "run"],
+        ["optional command missing", optional, true, "setup", ["acme-sync"], "run"],
+        ["required command missing", m, true, "setup", ["other", "acme-sync"], "install"],
+        ["disabled plugin", m, false, "setup", ["acme-sync"], "disabled"],
+        ["undeclared TUI", m, true, "other", ["acme-sync"], "undeclared"]
+    ];
+    for (const [label, manifest, enabled, name, missing, want] of setupCases) {
+        const got = ctx.tuiRunFor(manifest, enabled, "/sources", runner, name, missing);
+        if (want === "run") {
+            check("manager setup: " + label, [got.ok, got.key, got.argv.slice(-1)], [true, "acme.status/setup", ["tui/setup.sh"]]);
+        } else if (want === "install") {
+            check("manager setup: " + label, got, { ok: true, kind: "install", commands: ["acme-sync"] });
+        } else {
+            check("manager setup: " + label, got, { ok: false, answer: "refused: tui=" + name + " reason=" + want, action: "none", key: null });
+        }
+    }
+    check("missing requirements offer no step while status is unreported",
+        ctx.statusRows(m, {}, ["acme-sync"])[0].action.offered, false);
+    check("missing requirements preserve an existing install action",
+        ctx.statusRows(m, { check: { tone: "warning", text: "Missing", action: true } }, ["acme-sync"])[2].action,
+        { label: "Install sync", offered: true });
 
     // statusWrite: [name, key, value, want], `want` the error line or "ok".
     const writeRows = [
@@ -192,16 +250,16 @@ function suite(ctx, check) {
     // statusRows: every displayable entry in manifest order, `data` and
     // hidden entries left out.
     const values = ctx.statusWrite(m, ctx.statusWrite(m, ctx.statusWrite(m, {}, "token", "locked").values, "check", { tone: "ok", text: "Up to date" }).values, "pending", 0).values;
-    const rows = ctx.statusRows(m, values);
+    const rows = ctx.statusRows(m, values, []);
     check("statusRows: one row per displayable entry, in manifest order", rows.map(r => r.key), ["token", "tokens", "check", "note", "pending", "lastCheck", "health"]);
     check("statusRows: a reported presence carries its tone and the declaration", rows[0], { key: "token", type: "presence", label: "Token", group: "Keys", hint: "Needed", command: "secret-tool store x", action: { label: "Set up token", offered: false }, report: "reported", value: "locked", tone: "info" });
     check("statusRows: a reported state carries its tone", [rows[2].report, rows[2].value, rows[2].tone], ["reported", { tone: "ok", text: "Up to date" }, "success"]);
     check("statusRows: an unreported entry has no value and no tone", rows[3], { key: "note", type: "text", label: "Note", group: "", hint: "", command: "", action: null, report: "unreported", value: null, tone: "" });
     check("statusRows: a reported count of 0 is reported, drawn without a tone", [rows[4].report, rows[4].value, rows[4].tone], ["reported", 0, ""]);
-    check("statusRows: nothing published leaves every row unreported", ctx.statusRows(m, {}).map(r => r.report), ["unreported", "unreported", "unreported", "unreported", "unreported", "unreported", "unreported"]);
+    check("statusRows: nothing published leaves every row unreported", ctx.statusRows(m, {}, []).map(r => r.report), ["unreported", "unreported", "unreported", "unreported", "unreported", "unreported", "unreported"]);
     // An action is offered while the published value calls for it: a
     // presence while absent, a state while it says so, never unreported.
-    const actionsOffered = values => ctx.statusRows(m, values).filter(r => r.action !== null).map(r => [r.key, r.action.offered]);
+    const actionsOffered = values => ctx.statusRows(m, values, []).filter(r => r.action !== null).map(r => [r.key, r.action.offered]);
     check("statusRows: nothing published offers no action", actionsOffered({}), [["token", false], ["check", false]]);
     for (const [presence, want] of [["absent", true], ["present", false], ["locked", false], ["unavailable", false], ["unsafe", false]])
         check("statusRows: a presence " + presence + (want ? " offers" : " offers no") + " action", actionsOffered(ctx.statusWrite(m, {}, "token", presence).values)[0], ["token", want]);
@@ -210,7 +268,7 @@ function suite(ctx, check) {
     check("statusRows: a state that says nothing offers none", actionsOffered(ctx.statusWrite(m, {}, "check", { tone: "warning", text: "t" }).values)[1], ["check", false]);
     // A presence list's row carries each item with its own tone, an omitted
     // hint or command as "", and no tone of its own.
-    const listed = ctx.statusRows(m, ctx.statusWrite(m, {}, "tokens", [{ label: "Acme (acme)", value: "present", secret: "acme:T1", command: "secret-tool store y" }, { label: "Globex", value: "locked", hint: "Served elsewhere", secret: "acme:T2" }, { label: "Initech", value: "absent", secret: "acme:T3" }, { label: "Hooli", value: "unavailable", secret: "acme:T4" }, { label: "Umbrella", value: "unsafe", secret: "acme:T5" }, { label: "Plain", value: "absent" }]).values)[1];
+    const listed = ctx.statusRows(m, ctx.statusWrite(m, {}, "tokens", [{ label: "Acme (acme)", value: "present", secret: "acme:T1", command: "secret-tool store y" }, { label: "Globex", value: "locked", hint: "Served elsewhere", secret: "acme:T2" }, { label: "Initech", value: "absent", secret: "acme:T3" }, { label: "Hooli", value: "unavailable", secret: "acme:T4" }, { label: "Umbrella", value: "unsafe", secret: "acme:T5" }, { label: "Plain", value: "absent" }]).values, [])[1];
     check("statusRows: a presence list carries each item with its tone and its secret's access", [listed.report, listed.tone, listed.value], ["reported", "", [
         { label: "Acme (acme)", value: "present", hint: "", command: "secret-tool store y", tone: "success", secret: "acme:T1", access: "disconnect" },
         { label: "Globex", value: "locked", hint: "Served elsewhere", command: "", tone: "info", secret: "acme:T2", access: "disconnect" },
@@ -219,9 +277,9 @@ function suite(ctx, check) {
         { label: "Umbrella", value: "unsafe", hint: "", command: "", tone: "danger", secret: "acme:T5", access: "disconnect" },
         { label: "Plain", value: "absent", hint: "", command: "", tone: "warning", secret: "", access: "" }
     ]]);
-    check("statusRows: an empty presence list is reported empty", ctx.statusRows(m, ctx.statusWrite(m, {}, "tokens", []).values)[1].value, []);
+    check("statusRows: an empty presence list is reported empty", ctx.statusRows(m, ctx.statusWrite(m, {}, "tokens", []).values, [])[1].value, []);
     const noStatus = ctx.validateManifest({ schemaVersion: 1, id: "acme.none", name: "N", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "S.qml" } }, "/p").manifest;
-    check("statusRows: a plugin without a status key has none", ctx.statusRows(noStatus, {}), []);
+    check("statusRows: a plugin without a status key has none", ctx.statusRows(noStatus, {}, []), []);
 
     // The tone tables: each presence and state value has one badge tone, the
     // set the Badge component draws.
@@ -317,7 +375,7 @@ function suite(ctx, check) {
         ["33 further lines", "agent", { tone: "warning", text: "t", lines: new Array(33).fill("u") }, refusedAgent],
     ]) check("statusWrite: " + name, named(key, value), want);
     const namedValues = action => ctx.statusWrite(mNamed, {}, "agent", action === null ? { tone: "ok", text: "t" } : { tone: "warning", text: "t", action }).values;
-    const agentAction = values => ctx.statusRows(mNamed, values)[0].action;
+    const agentAction = values => ctx.statusRows(mNamed, values, [])[0].action;
     check("statusRows: a named action carries its own label", [agentAction(namedValues("remove")), agentAction(namedValues("get"))], [{ label: "Uninstall", offered: true }, { label: "Install", offered: true }]);
     check("statusRows: named actions none of which applies offer nothing", [agentAction(namedValues(null)), agentAction({})], [{ label: "", offered: false }, { label: "", offered: false }]);
     check("statusActionRequest: a named TUI action opens it", ctx.statusActionRequest(mNamed, "acme.agent", true, namedValues("remove"), "agent"), { ok: true, kind: "tui", name: "remove" });
@@ -391,6 +449,10 @@ suite(load(LOGIC), report);
 // Each control removes one rule from a copy of the judge and keeps the text
 // around it; the suite must fail on every copy.
 const CONTROLS = [
+    ["a setup ignores optional commands", "return !row.optional && missing.indexOf(row.command) !== -1;", "return missing.indexOf(row.command) !== -1;"],
+    ["a setup installs only missing declared commands", "missing.indexOf(row.command) !== -1;", "true;"],
+    ["a missing required command routes setup to install", "if (lacking.length > 0) return { ok: true, kind: \"install\", commands: lacking };", "if (false && lacking.length > 0) return { ok: true, kind: \"install\", commands: lacking };"],
+    ["the row withholds the TUI label while requirements are missing", 'offered.tui !== undefined && missing.length > 0', 'false && offered.tui !== undefined && missing.length > 0'],
     ["a list's fields take their choices", "if (entry.type === \"list\") out[key] = Pads.listChoices(entry, settings[key], choices);", "if (false) out[key] = Pads.listChoices(entry, settings[key], choices);"],
     ["choices is a list", "if (!Array.isArray(value) || value.length > STATUS_LIST_MAX) return false;\n        var seen", "if (value.length > STATUS_LIST_MAX) return false;\n        var seen"],
     ["choices is bounded", "if (!Array.isArray(value) || value.length > STATUS_LIST_MAX) return false;\n        var seen", "if (!Array.isArray(value)) return false;\n        var seen"],
@@ -456,7 +518,7 @@ const CONTROLS = [
     ["a state offers its action while it says so", "return value.action === true ? entry.action : null;", "return entry.action;"],
     ["a state offers the one of its actions it names", "return typeof value.action === \"string\" ? entry.actions[value.action] : null;", "return entry.actions[Object.keys(entry.actions)[0]];"],
     ["an unreported row offers nothing", "var offered = value === null ? null : statusActionOffered(entry, value);", "var offered = value === null ? entry.action || null : statusActionOffered(entry, value);"],
-    ["a row whose action does not apply is not offered", "if (offered !== null) return { label: offered.label, offered: true };", "if (offered !== null || entry.action !== undefined) return { label: entry.action.label, offered: true };"],
+    ["a row whose action does not apply is not offered", "if (offered !== null) return { label: offered.tui", "if (offered === null && entry.action !== undefined) offered = entry.action;\n    if (offered !== null) return { label: offered.tui"],
     ["an act needs a declared action", "if (typeof key !== \"string\" || !hasOwn(manifest.status, key) || statusEntryActions(manifest.status[key]).length === 0)\n        return { ok: false, answer: statusActionRefusal(key, \"undeclared\") };", ""],
     ["an act needs an enabled plugin", "if (!enabled)\n        return { ok: false, answer: statusActionRefusal(key, \"disabled\") };", ""],
     ["an act needs its offer", "if (action === null)\n        return { ok: false, answer: statusActionRefusal(key, \"not-offered\") };", "if (action === null) action = statusEntryActions(manifest.status[key])[0].action;"],

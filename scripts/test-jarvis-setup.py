@@ -396,7 +396,7 @@ class Setup(unittest.TestCase):
         # first, recommended row. The actual TUI still reads the installer's
         # choices and executes the real installer.
         library = self.root / "tui-lib.sh"
-        library.write_text('vgs_tui_header() { :; }\nvgs_tui_choose() {\n'
+        library.write_text('vgs_tui_header() { :; }\nvgs_tui_error() { :; }\nvgs_tui_choose() {\n'
                            '  [[ $# == 1 && $1 == --label-delimiter=$\'\\t\' ]] || return 9\n'
                            '  local row; IFS= read -r row; printf "%s\\n" "${row#*$\'\\t\'}"\n}\n')
         env = dict(self.env, VGS_TUI_LIB=str(library), VGS_PLUGIN_DIR=str(self.plugin))
@@ -522,29 +522,56 @@ class Setup(unittest.TestCase):
         self.install(1)
         self.assertTrue((self.data / "venv").exists(), "cleanup control did not reach the runtime")
 
-    def test_missing_gum_with_real_tui_library(self):
+    def test_missing_setup_requirement_and_control(self):
         script = self.plugin / "tui/setup-local.sh"
-        env = dict(self.env, VGS_TUI_LIB=str(REPO / "bin/lib/tui.sh"),
-                   VGS_PLUGIN_DIR=str(self.plugin))
-        (self.commands / "gum").unlink()
-        run = lambda: subprocess.run(["bash", str(script)], env=env,
-            capture_output=True, text=True, check=False, timeout=30)
-        result = run()
-        self.assertEqual(result.returncode, 77, result.stderr)
-        self.assertEqual(result.stderr.strip(), "jarvis-setup: command=missing name=gum")
-        self.assertEqual(result.stdout, "")
-        self.assertFalse((self.data / "calls.jsonl").exists())
         source = script.read_text()
-        header = next(line for line in source.splitlines() if line.startswith("vgs_tui_header "))
-        self.assertEqual(source.count(header), 1)
-        self.assertEqual(source.count("for tool in gum"), 1)
-        changed = source.replace(header + "\n", "").replace("for tool in gum", header + "\nfor tool in gum")
+        # The presentation boundary records all attempted setup work. Every
+        # executable in PATH is a stand-in and none reaches an installer.
+        commands = self.root / "tui-commands"
+        commands.mkdir()
+        required = ("gum", "uv", "curl", "unshare", "python3")
+        declared = {row["command"] for row in json.loads(
+            (self.plugin / "manifest.json").read_text())["requirements"]}
+        self.assertTrue(set(required) <= declared)
+        for tool in required:
+            path = commands / tool
+            path.write_text('#!/bin/sh\nprintf "%s\\n" called >>"$SETUP_CALLS"\nexit 99\n')
+            path.chmod(0o700)
+        calls = self.root / "setup-calls"
+        library = self.root / "setup-library"
+        library.write_text((REPO / "bin/lib/tui.sh").read_text() +
+            '\nvgs_tui_header() { printf "header\\n" >>"$SETUP_CALLS"; }\n'
+            'vgs_tui_choose() { printf "choose\\n" >>"$SETUP_CALLS"; return 99; }\n')
+        env = dict(self.env, PATH=str(commands), VGS_TUI_LIB=str(library),
+                   VGS_PLUGIN_DIR=str(self.plugin), SETUP_CALLS=str(calls))
+        def run():
+            return subprocess.run(["/bin/bash", str(script)], env=env,
+                capture_output=True, text=True, check=False, timeout=30)
+        def assert_withheld(tool):
+            result = run()
+            self.assertEqual(result.returncode, 77, result.stderr)
+            self.assertEqual(result.stderr.splitlines()[0],
+                             "jarvis-setup: command=missing name=" + tool)
+            self.assertEqual(result.stdout, "")
+            self.assertFalse(calls.exists(), "missing requirement started setup")
+        for tool in required:
+            with self.subTest(tool=tool):
+                path = commands / tool
+                original = path.read_text()
+                path.unlink()
+                assert_withheld(tool)
+                path.write_text(original)
+                path.chmod(0o700)
+        needle = 'command -v "$tool" >/dev/null || {'
+        self.assertEqual(source.count(needle), 1)
+        changed = source.replace(needle, 'true || {')
         self.assertNotEqual(changed, source)
         self.assertFalse(script.is_symlink())
         script.write_text(changed)
-        result = run()
-        self.assertEqual(result.returncode, 127, result.stderr)
-        self.assertNotIn("jarvis-setup: command=missing name=gum", result.stderr)
+        (commands / "gum").unlink()
+        with self.assertRaises(AssertionError):
+            assert_withheld("gum")
+        self.assertTrue(calls.exists(), "guard control never started setup")
 
     def test_install_tree_namespace_result_controls(self):
         # Copy the real installation assertions, namespace consumer and closing

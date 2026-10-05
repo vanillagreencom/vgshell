@@ -4,7 +4,11 @@ set -euo pipefail
 source "$VGS_TUI_LIB"
 [[ $# == 0 ]] || { printf 'jarvis-setup: arguments=none\n' >&2; exit 2; }
 for tool in gum uv curl unshare python3; do
-  command -v "$tool" >/dev/null || { printf 'jarvis-setup: command=missing name=%s\n' "$tool" >&2; exit 77; }
+  command -v "$tool" >/dev/null || {
+    printf 'jarvis-setup: command=missing name=%s\n' "$tool" >&2
+    vgs_tui_error "Install requirements in Jarvis Settings before setting up local voice."
+    exit 77
+  }
 done
 vgs_tui_header "Set up local voice" "Downloads the selected models and a private Python runtime; each choice shows its download size." "No microphone, speaker or system settings are opened."
 # One LABEL<TAB>TIER row per tier this computer can run; gum prints the TIER.

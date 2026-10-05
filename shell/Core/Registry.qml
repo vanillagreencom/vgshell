@@ -414,7 +414,7 @@ Singleton {
                 settings: settings,
                 settingChoices: Logic.settingChoices(m, values, settings),
                 binds: Logic.bindRows(config, m, descriptions),
-                status: Logic.statusRows(Logic.activeManifest(m, settings), values),
+                status: Logic.statusRows(Logic.activeManifest(m, settings), values, Logic.hasOwn(missingCommands, id) ? missingCommands[id] : []),
                 secretLabel: m.secrets === undefined ? "" : m.secrets.label,
                 requirements: requirementsOf(id),
                 errors: errors
