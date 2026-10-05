@@ -57,7 +57,10 @@ FocusScope {
     property bool focusPreview: false
     property alias actions: actionRow.data
     readonly property bool capturing: capture !== null && capture.holder === root
-    readonly property bool typing: entry.visible
+    // Whether the text entry is open: stored, since the entry's own
+    // `visible` reads false under a hidden ancestor, and a typed key is
+    // an edit there too.
+    readonly property alias typing: entry.open
     readonly property bool edited: typing && entry.text.trim() !== key
     // The modifiers held while capturing, in the order a key writes them.
     property var held: []
@@ -126,12 +129,13 @@ FocusScope {
         if (gone.kind === "held") held = held.filter(mod => gone.modifiers.indexOf(mod) === -1);
     }
 
-    // The keyboard button has the focus by now, so no capture is running.
-    // The entry opens on `text`, the key in effect when none is given.
+    // No capture outlives the opening: the box ends one when it commits
+    // a key and when it loses the focus, which the entry takes here. The
+    // entry opens on `text`, the key in effect when none is given.
     function startTyping(text) {
         entry.text = text === undefined ? key : text;
         entry.selectAll();
-        entry.visible = true;
+        entry.open = true;
         entry.forceActiveFocus(Qt.TabFocusReason);
     }
 
@@ -139,7 +143,7 @@ FocusScope {
     // ends the typing from elsewhere, such as a page's Save, the keyboard
     // stays where it is and the box is the field's focus for a later Tab.
     function stopTyping() {
-        entry.visible = false;
+        entry.open = false;
         if (root.activeFocus) box.forceActiveFocus(Qt.TabFocusReason);
         else box.focus = true;
     }
@@ -180,7 +184,7 @@ FocusScope {
             T.AbstractButton {
                 id: box
                 readonly property bool focusPreview: root.focusPreview
-                visible: !entry.visible
+                visible: !root.typing
                 focus: true
                 width: line.width - tools.width - line.spacing
                 implicitHeight: Theme.textField.height
@@ -230,7 +234,8 @@ FocusScope {
 
             TextField {
                 id: entry
-                visible: false
+                property bool open: false
+                visible: open
                 width: box.width
                 placeholderText: "MOD+KEY, such as SUPER+SPACE"
                 escapeReverts: true
@@ -246,7 +251,7 @@ FocusScope {
                     iconName: "keyboard"
                     label: "Type the keys"
                     size: "sm"
-                    visible: root.editable && !entry.visible
+                    visible: root.editable && !root.typing
                     onClicked: root.startTyping()
                 }
                 IconButton {

@@ -52,6 +52,7 @@ Item {
     property int escapes: 0
 
     Column {
+        id: column
         width: parent.width
         spacing: Theme.space.md
         Keys.onEscapePressed: root.escapes += 1
@@ -84,6 +85,7 @@ Item {
             field.notice = "";
             field.conflict = "";
             field.capture = capture;
+            column.visible = true;
             field.stopTyping();
             before.forceActiveFocus(Qt.TabFocusReason);
         }
@@ -250,6 +252,20 @@ Item {
             verify(after.activeFocus, "the keyboard stays where it was");
             field.forceActiveFocus(Qt.TabFocusReason);
             verify(box(field).activeFocus, "the box is the field's focus");
+        }
+
+        // A hidden ancestor, as a tab page that is not shown is to its
+        // fields, closes no entry and drops no edit.
+        function test_a_typed_key_outlives_a_hidden_ancestor() {
+            field.startTyping();
+            for (const c of "SUPER+K") keyClick(c);
+            column.visible = false;
+            compare(field.typing, true);
+            compare(field.edited, true);
+            column.visible = true;
+            const entry = descendant(field, item => item.escapeReverts === true);
+            compare(entry.visible, true, "the entry draws again");
+            compare(entry.text, "SUPER+K");
         }
 
         function test_the_entry_opens_on_a_text_its_owner_hands_back() {
