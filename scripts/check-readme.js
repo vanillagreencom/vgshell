@@ -6,7 +6,7 @@
 //
 // DIR, this repository by default, holds the files read: README.md,
 // VERSION, bin/vgshell, bin/lib/post-install.txt, install.sh,
-// docs/architecture/runtime.md, packaging/arch/ and shell/plugins/. bin/vgshell-scan always comes from this
+// docs/architecture/runtime.md, shell/Core/PackageManagers.js, packaging/arch/ and shell/plugins/. bin/vgshell-scan always comes from this
 // script's own repository and lists DIR's plugins.
 //
 // Rules. Each finding is one line, `<rule> README.md:<line> <detail>`:
@@ -50,12 +50,13 @@
 // nothing else. It runs no other rule.
 //
 // --commands prints, when every rule passes, one JSON line per command:
-// { block, line, channel, needs, vgshell, command }. block counts the bash
+// { block, line, channel, needs, vgshell, archHelpers, command }. block counts the bash
 // fences of § Install from 1. line is the command's line in README.md.
 // needs is `release:v<VERSION>` for a curl release install and a nix run
 // of the tag, `aur:<pkg>` for an AUR install, else `none`: what must be
 // published before the command can run. vgshell is the vgshell arguments the
-// command runs, else null. scripts/readme-install.sh reads these lines.
+// command runs, else null. archHelpers names the README prerequisites for
+// the Arch image. scripts/readme-install.sh reads these lines.
 //
 // Exit 0 prints `check-readme: ok commands=<n> plugins=<n>`, the JSON
 // lines under --commands, or `check-readme: wrote README.md plugins=<n>`
@@ -325,8 +326,27 @@ function checkCommands(install) {
             const command = line.text.replace(/(^|\s)#.*$/, "").trim();
             if (command === "") continue;
             const judged = classify(command, line.n);
-            if (judged !== null) commands.push({ block, line: line.n, ...judged, command });
+            if (judged !== null) commands.push({ block, line: line.n, ...judged, archHelpers: [], command });
         }
+    }
+    if (commands.some(row => ["curl", "checkout"].includes(row.channel))) {
+        // Package detection owns the helper names; the README owns prerequisites.
+        const managers = require(path.join(codeRoot, "bin/lib/qml-library.js")).load(path.join(root, "shell/Core/PackageManagers.js"));
+        const supported = managers.managerRow("aur").binaries;
+        const declarations = install.lines.filter(line => line.text.startsWith("On Arch, the curl install and checkout need an installed AUR helper:"));
+        let archHelpers = [];
+        if (declarations.length !== 1) finding("command", install.n, "arch-helper=declarations have=" + declarations.length + " want=1");
+        else {
+            const match = /^On Arch, the curl install and checkout need an installed AUR helper: ([a-z][a-z0-9-]*(?: or [a-z][a-z0-9-]*)*)\.$/.exec(declarations[0].text);
+            if (match === null) finding("command", declarations[0].n, "arch-helper=unreadable");
+            else {
+                archHelpers = match[1].split(" or ");
+                for (const helper of archHelpers)
+                    if (!supported.includes(helper)) finding("command", declarations[0].n, "arch-helper=" + helper + " reason=not-in-package-detection");
+            }
+        }
+        for (const row of commands)
+            if (["curl", "checkout"].includes(row.channel)) row.archHelpers = archHelpers;
     }
     if (commands.length === 0 && !findings.some(f => f.startsWith("command "))) finding("command", install.n, "count=0");
     return commands;
@@ -413,7 +433,7 @@ if (findings.length > 0) {
 }
 if (mode === "commands") {
     for (const c of commands)
-        process.stdout.write(JSON.stringify({ block: c.block, line: c.line, channel: c.channel, needs: c.needs, vgshell: c.vgshell, command: c.command }) + "\n");
+        process.stdout.write(JSON.stringify({ block: c.block, line: c.line, channel: c.channel, needs: c.needs, vgshell: c.vgshell, archHelpers: c.archHelpers, command: c.command }) + "\n");
 } else {
     console.log(`check-readme: ok commands=${commands.length} plugins=${plugins.length}`);
 }

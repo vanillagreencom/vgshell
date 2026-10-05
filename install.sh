@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Install VGS files into your home directory. Required system packages
-# install in a floating terminal through the package runner, which owns
+# install in the caller's terminal or a floating terminal through the
+# package runner, which owns
 # elevation and its authentication prompt.
 #
 #   curl -fsSL https://raw.githubusercontent.com/vanillagreencom/vgshell/main/install.sh | bash
@@ -21,7 +22,8 @@
 # installed system package (/usr/bin/vgshell, or vgshell or vgshell-git in the pacman,
 # rpm or dpkg database) and a ~/.local/bin/vgshell it did not make; --force
 # skips the last two. It checks the floor: Quickshell 0.3.1, Hyprland 0.56,
-# node 18, python3, git, flock and setpriv, plus xdg-terminal-exec and
+# node 18, python3, git, flock and setpriv, plus xdg-terminal-exec when
+# the caller has no terminal, and
 # curl, tar, gzip and
 # sha256sum for a release. Each version probe runs under a private runtime
 # directory, so a shell with no login session reads the true floor. On a
@@ -30,7 +32,7 @@
 # A tool it finds but whose version it cannot read is named with the
 # probe's exit status and last error lines instead of an install command.
 # Required runtime packages install through the staged tree's existing
-# floating TUI and package runner before the tree is published.
+# presenter and package runner before the tree is published.
 #
 # A release is read from the GitHub API and downloaded over HTTPS into a
 # temporary directory. The archive must match its one line in SHA256SUMS;
@@ -102,8 +104,13 @@ git        present ^git[[:space:]]version[[:space:]]([0-9]+(\.[0-9]+)*)         
 flock      present ^flock[[:space:]]from[[:space:]]util-linux[[:space:]]([0-9]+(\.[0-9]+)*)     flock --version
 setpriv    present ^setpriv[[:space:]]from[[:space:]]util-linux[[:space:]]([0-9]+(\.[0-9]+)*)   setpriv --version
 '
-  # The floating package installer needs its launcher before staging.
+  # A caller without a controlling terminal needs the floating launcher.
   start_tools=(xdg-terminal-exec)
+  install_terminal=false
+  if { : 2>/dev/null <>/dev/tty; }; then
+    install_terminal=true
+    start_tools=()
+  fi
   # The tools a release install runs besides the floor: presence alone.
   release_tools=(curl tar gzip sha256sum)
 
@@ -321,12 +328,12 @@ EOF
     exit 78
   }
 
-  # The existing floating presenter owns elevation and the install result.
+  # The existing presenter runs the package runner, which owns elevation.
   # The staged tree stays until its recorded run ends. Publication follows
   # only after every required install group succeeds.
   runtime_install() { # TREE
     local tree="$1" detected selection manager names record code run row rest manifest id key="core/requirements-install"
-    local -a groups packages
+    local -a groups packages command
     detected="$("$tree/bin/vgshell" pkg detect --json)" || refuse 1 "requirements=detect-failed"
     selection="$(node -e '
 const found = JSON.parse(process.argv[1]);
@@ -364,15 +371,21 @@ process.stdout.write([...missing].sort().join(" "));
         continue
       fi
       read -ra packages <<<"$names"
-      run="install-$$-$manager"
-      "$tree/bin/vgshell-tui" launch --title "Install requirements" --record "$key" --run "$run" -- \
-        "$tree/bin/vgshell" pkg run install --manager "$manager" "${packages[@]}" || refuse 1 "requirements=launch-failed manager=$manager"
-      record="$("$tree/bin/vgshell-tui" wait --record "$key" --run "$run")" || refuse 1 "requirements=wait-failed manager=$manager"
-      code="$(node -e '
+      command=("$tree/bin/vgshell" pkg run install --manager "$manager" "${packages[@]}")
+      if [[ $install_terminal == true ]]; then
+        code=0
+        "$tree/bin/vgshell-tui" present --presentation plain -- "${command[@]}" </dev/tty || code=$?
+      else
+        run="install-$$-$manager"
+        "$tree/bin/vgshell-tui" launch --title "Install requirements" --record "$key" --run "$run" -- \
+          "${command[@]}" || refuse 1 "requirements=launch-failed manager=$manager"
+        record="$("$tree/bin/vgshell-tui" wait --record "$key" --run "$run")" || refuse 1 "requirements=wait-failed manager=$manager"
+        code="$(node -e '
 const record = JSON.parse(process.argv[1]);
 if (record.state !== "ended" || !Number.isInteger(record.code)) process.exit(1);
 process.stdout.write(String(record.code));
 ' "$record")" || refuse 1 "requirements=result-unreadable manager=$manager"
+      fi
       [[ $code == 0 ]] || refuse 1 "requirements=install-failed manager=$manager code=$code"
     done
   }

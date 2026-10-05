@@ -93,11 +93,8 @@ for pkg in vgshell vgshell-git; do
     vgshell --version' _ "$pkg"
 done
 
-# The curl installer, as a user, on Arch.
-podman run --rm docker.io/library/archlinux:latest bash -euc '
-  pacman -Syu --noconfirm --needed quickshell hyprland nodejs python git curl
-  useradd -m user
-  runuser -u user -- bash -c "curl -fsSL https://raw.githubusercontent.com/vanillagreencom/vgshell/main/install.sh | bash && ~/.local/bin/vgshell --version"'
+# The README's published installs, including curl in its prepared Arch image.
+scripts/readme-install.sh
 
 # The flake at the tag.
 podman run --rm -e NIX_CONFIG='experimental-features = nix-command flakes' docker.io/nixos/nix:2.35.2 \

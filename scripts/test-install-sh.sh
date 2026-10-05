@@ -40,7 +40,7 @@ installer="$repo/install.sh"
 # the distribution rows leave missing.
 stubs="$tmp/stubs"; tools="$tmp/tools"; tools_nogit="$tmp/tools-nogit"
 mkdir -p "$stubs" "$tools" "$tools_nogit"
-for tool in bash sh env readlink dirname mkdir rmdir mktemp mv rm ln cp cat head sed uname flock setpriv git python3 curl tar gzip sha256sum gpg unshare mount id; do
+for tool in bash sh env readlink dirname mkdir rmdir mktemp mv rm ln cp cat head sed uname flock setpriv git python3 curl tar gzip sha256sum gpg unshare mount id setsid script; do
   tool_bin="$(command -v "$tool")" || not_measured "$tool"
   ln -s -- "$tool_bin" "$tools/$tool"
   [[ $tool == git ]] || ln -s -- "$tool_bin" "$tools_nogit/$tool"
@@ -105,9 +105,10 @@ installer_source_tree() {
     cp -- "$manifest" "$1/shell/plugins/$plugin/"
   done
   cat >"$1/bin/vgshell-tui" <<'PRESENTER'
-#!/bin/sh
+#!/bin/bash
+set -e
 case "$1" in
-  launch)
+  launch|present)
     printf '%s\n' "$@" >>"$VGS_INSTALL_LOG"
     node - "$VGS_INSTALL_EXPECTED" "$0" "$@" <<'JS'
 const fs = require("fs"), path = require("path");
@@ -118,6 +119,7 @@ const manager = command[5];
 const expected = JSON.parse(fs.readFileSync(file, "utf8"))[manager];
 if (separator < 0 || command[0] !== path.join(path.dirname(presenter), "vgshell") || JSON.stringify(command.slice(1, 5)) !== JSON.stringify(["pkg", "run", "install", "--manager"]) || !Array.isArray(expected) || JSON.stringify(command.slice(6).sort()) !== JSON.stringify(expected.sort())) process.exit(2);
 JS
+    [[ $1 != present ]] || exit "${VGS_INSTALL_CODE:-0}"
     ;;
   wait) printf '{"state":"ended","code":%s}\n' "${VGS_INSTALL_CODE:-0}" ;;
   *) exit 2 ;;
@@ -149,10 +151,17 @@ run() {
     wrap=(unshare -rm sh -c 'mount --bind "$1" /etc/os-release && u="$2" g="$3" && shift 3 && exec unshare --map-user="$u" --map-group="$g" "$@"' sh "$default_os" "$uid" "$gid")
   fi
   status=0
-  env -i PATH="${RUN_PATH:-$run_path}" HOME="$h" TMPDIR="$scratch" VGS_TEST_RUN=1 VGS_RELEASE_API="file://$www" \
+  local -a invocation=(env -i PATH="${RUN_PATH:-$run_path}" HOME="$h" TMPDIR="$scratch" VGS_TEST_RUN=1 VGS_RELEASE_API="file://$www" \
     XDG_RUNTIME_DIR="${RUN_RT:-$rt_empty}" GIT_CONFIG_NOSYSTEM=1 GNUPGHOME="${RUN_GNUPG:-$gnupg_empty}" \
     VGS_INSTALL_LOG="$install_log" VGS_INSTALL_EXPECTED="$install_expected" VGS_INSTALL_CODE="${RUN_INSTALL_CODE:-0}" \
-    "${wrap[@]}" bash "$bin" "$@" >"$tmp/out" 2>"$tmp/err" </dev/null || status=$?
+    "${wrap[@]}" bash "$bin" "$@")
+  if [[ ${RUN_TTY:-false} == true ]]; then
+    local terminal_command
+    printf -v terminal_command '%q ' "${invocation[@]}"
+    script -qec "$terminal_command" /dev/null >"$tmp/out" 2>"$tmp/err" </dev/null || status=$?
+  else
+    setsid -w "${invocation[@]}" >"$tmp/out" 2>"$tmp/err" </dev/null || status=$?
+  fi
 }
 first_err() { local line=""; [[ -s $tmp/err ]] && IFS= read -r line <"$tmp/err"; printf '%s' "$line"; }
 out_has() { grep -qxF -- "$1" "$tmp/out"; }
@@ -471,6 +480,21 @@ nix_missing_row() { # BIN: only the absent available package blocks publication
     err_has "Add these required packages to the Nix configuration: qrencode" &&
     [[ ! -e $d/current && ! -e $d/0.1.0 && ! -s $install_log ]] && no_stage && scratch_empty
 }
+
+terminal_row() { # BIN: no launcher is needed in the caller's terminal
+  new_home terminal-install
+  : >"$install_log"
+  RUN_PATH="$missing_launcher:$install_managers:$tools" RUN_TTY=true run "$1" --version 0.1.0
+  [[ $status == 0 && $(readlink -- "$d/current") == 0.1.0 ]] || return 1
+  grep -qxF present "$install_log" && ! grep -qxF launch "$install_log" || return 1
+  for arg in --presentation plain xdg-terminal-exec --manager pacman aur; do
+    grep -qxF -- "$arg" "$install_log" || return 1
+  done
+  RUN_TTY=true RUN_INSTALL_CODE=42 run "$1" --version 0.2.0
+  [[ $status == 1 && $(readlink -- "$d/current") == 0.1.0 && ! -e $d/0.2.0 ]] &&
+    grep -q 'requirements=install-failed manager=pacman code=42' "$tmp/out" && no_stage
+}
+check "the caller's terminal installs launcher packages and preserves failed-install status" terminal_row "$installer"
 
 runtime_failure_row() { # BIN: a failed recorded install leaves current unchanged
   new_home runtime-failure
@@ -841,6 +865,7 @@ rule runtime-packages packages_row 'runtime_install() { # TREE' 'runtime_install
 rule runtime-result runtime_failure_row '[[ $code == 0 ]] || refuse 1' '[[ $code == "$code" ]] || refuse 1'
 rule package-verb packages_row '"$tree/bin/vgshell" pkg run install' '"$tree/bin/vgshell" pkg plan install'
 rule launcher-prerequisite launcher_row 'start_tools=(xdg-terminal-exec)' 'start_tools=()'
+rule caller-terminal terminal_row 'if { : 2>/dev/null <>/dev/tty; }; then' 'if false; then'
 rule nix-present nix_present_row '[[ -z $names ]] || refuse 78 "requirements=configuration manager=nix"' '[[ -n $names ]] || refuse 78 "requirements=configuration manager=nix"'
 rule nix-missing nix_missing_row 'row.state === "missing"' 'row.state === "present"'
 rule nix-optional nix_present_row '!row.optional && row.state' 'true && row.state'

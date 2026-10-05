@@ -26,11 +26,11 @@
 #   - aur, curl and checkout commands in an archlinux:latest image prepared
 #     once per run: base-devel, git, sudo, quickshell, hyprland, nodejs and
 #     python, the unprivileged user `user` with passwordless sudo inside the
-#     container alone, and paru built from the AUR's paru-bin when an aur
-#     command is measured. The commands run as `user`, with HOME and the
+#     container alone, and the AUR helper named by the README when a curl,
+#     checkout or aur command is measured. The commands run as `user`, with HOME and the
 #     XDG_RUNTIME_DIR a login session sets, as a user's terminal has them:
 #     `vgshell run` keeps its instance lock and runtime files in that
-#     directory.
+#     directory. script(1) supplies the controlling terminal for prompts.
 #   - nix commands as root in docker.io/nixos/nix:2.35.2 with flakes on and
 #     scripts/test-flake.sh's store volume, so the two share downloads.
 # A command passes on exit 0. A command whose vgshell arguments are `run`
@@ -101,7 +101,7 @@ commands_out="$(node "$repo/scripts/check-readme.js" --commands)" || refuse 1 "c
 rows_out="$(node -e '
 for (const line of require("fs").readFileSync(0, "utf8").split("\n").filter(Boolean)) {
     const c = JSON.parse(line);
-    console.log([c.block, c.line, c.channel, c.needs, c.vgshell === null ? "-" : c.vgshell, c.command].join("\t"));
+    console.log([c.block, c.line, c.channel, c.needs, c.vgshell === null ? "-" : c.vgshell, c.archHelpers.length === 0 ? "-" : c.archHelpers[0], c.command].join("\t"));
 }' <<<"$commands_out")" || refuse 1 "commands=unreadable" "$commands_out"
 mapfile -t rows <<<"$rows_out"
 [[ ${#rows[@]} -gt 0 && -n ${rows[0]} ]] || refuse 1 "commands=none" "check-readme printed no command"
@@ -149,16 +149,19 @@ console.log(answer.results.some(r => r.Name === name) ? "yes" : "no");' "$out" "
 # Each block's image, `nix` or `arch`; a fence that mixes them is refused
 # before anything runs.
 declare -A block_image=()
-with_paru=false
+arch_helper=""
 for row in "${rows[@]}"; do
-  IFS=$'\t' read -r block line channel needs vgshell command <<<"$row"
+  IFS=$'\t' read -r block line channel needs vgshell helper command <<<"$row"
   image=arch
   [[ $channel != nix ]] || image=nix
   [[ ${block_image[$block]:-$image} == "$image" ]] ||
     refuse 1 "block=mixed line=$line channel=$channel" "a fence mixes nix commands with others, which run in another image"
   block_image[$block]="$image"
   [[ -v published[$needs] ]] || probe "$needs"
-  [[ $channel != aur || ${published[$needs]} != yes ]] || with_paru=true
+  if [[ ${published[$needs]} == yes && $image == arch ]]; then
+    if [[ $channel == aur ]]; then arch_helper=${command%% *};
+    elif [[ $helper != - ]]; then arch_helper=$helper; fi
+  fi
 done
 
 pull() { # IMAGE
@@ -173,9 +176,9 @@ prepare_arch() {
   pull "$arch_image"
   cat >"$scratch/prepare.sh" <<'PREPARE'
 #!/usr/bin/env bash
-# Runs as root in the preparing container. Argument: whether to build paru.
+# Runs as root in the preparing container. Argument: the README AUR helper.
 set -euo pipefail
-with_paru="$1"
+helper="$1"
 # The cache is the host's tmp/readme-install-cache, and root here is the
 # host user, so pacman downloads as root.
 sed -i 's/^DownloadUser/#DownloadUser/' /etc/pacman.conf
@@ -185,15 +188,15 @@ rm -rf /var/cache/pacman/pkg/download-*
 useradd -m -u 1000 user
 printf 'user ALL=(ALL) NOPASSWD: ALL\n' >/etc/sudoers.d/user
 chmod 440 /etc/sudoers.d/user
-if [[ $with_paru == true ]]; then
-  runuser -u user -- bash -c 'cd && git clone -q https://aur.archlinux.org/paru-bin.git && cd paru-bin && makepkg -si --noconfirm && cd && rm -rf paru-bin'
+if [[ -n $helper ]]; then
+  runuser -u user -- bash -c 'cd && git clone -q "https://aur.archlinux.org/$1-bin.git" && cd "$1-bin" && makepkg -si --noconfirm && cd && rm -rf -- "$1-bin"' _ "$helper"
 fi
 PREPARE
   chmod 755 "$scratch/prepare.sh"
   local name="vgs-readme-install-prepare.$$"
   containers+=("$name")
   podman run --name "$name" -v "$scratch/prepare.sh:/prepare.sh:ro" -v "$cache:/var/cache/pacman/pkg" \
-    "$arch_image" /prepare.sh "$with_paru" >"$scratch/prepare.log" 2>&1 ||
+    "$arch_image" /prepare.sh "$arch_helper" >"$scratch/prepare.log" 2>&1 ||
     not_measured "container-setup image=$arch_image" "$(tail -n 20 -- "$scratch/prepare.log")"
   podman commit -q -- "$name" "$prepared" >/dev/null || not_measured "container-setup step=commit"
   prepared_made=true
@@ -227,7 +230,7 @@ run_block_start() { # BLOCK
 }
 
 for row in "${rows[@]}"; do
-  IFS=$'\t' read -r block line channel needs vgshell command <<<"$row"
+  IFS=$'\t' read -r block line channel needs vgshell helper command <<<"$row"
   if [[ ${published[$needs]} != yes ]]; then
     unpublished+=("line=$line needs=$needs")
     continue
@@ -243,7 +246,7 @@ for row in "${rows[@]}"; do
   started=$SECONDS
   status=0
   podman exec --user "$user" --workdir "$home" -e HOME="$home" -e XDG_RUNTIME_DIR="$runtime" -- "$container" \
-    bash -c 'yes "" | timeout "$1" bash -o pipefail -c "$2"' _ "$command_seconds" "$command" >"$log" 2>&1 || status=$?
+    bash -c 'printf -v argv "%q " timeout "$1" bash -o pipefail -c "$2"; while printf "\\n"; do sleep 1; done | script -qE never -ec "$argv" /dev/null' _ "$command_seconds" "$command" >"$log" 2>&1 || status=$?
   seconds=$((SECONDS - started))
   if [[ $vgshell == run ]]; then
     grep -q -E "^vgshell: refused: preflight=hyprland have=$want_have need=" -- "$log" && [[ $status -eq 78 ]] ||
@@ -254,6 +257,19 @@ for row in "${rows[@]}"; do
     [[ $status -eq 0 ]] || refuse 1 "line=$line exit=$status command=$command" "$(tail -n 40 -- "$log")"
   fi
   echo "readme-install: ok line=$line channel=$channel exit=$status seconds=$seconds"
+  version_command=""
+  case "$channel" in
+    aur) version_command='vgshell --version' ;;
+    curl) [[ $command == *--uninstall* ]] || version_command='~/.local/bin/vgshell --version' ;;
+    nix) version_command="${command% -- *} -- --version" ;;
+    checkout) [[ $vgshell == - ]] || version_command='vgshell/bin/vgshell --version' ;;
+  esac
+  if [[ -n $version_command ]]; then
+    version_out="$(podman exec --user "$user" --workdir "$home" -e HOME="$home" -e XDG_RUNTIME_DIR="$runtime" -- "$container" \
+      timeout "$command_seconds" bash -o pipefail -c "$version_command" 2>&1)" || refuse 1 "line=$line version=failed" "$version_out"
+    [[ $version_out == "vgshell $(<"$repo/VERSION")" ]] || refuse 1 "line=$line version=unexpected" "$version_out"
+    echo "readme-install: version line=$line channel=$channel value=$version_out"
+  fi
   measured=$((measured + 1))
 done
 

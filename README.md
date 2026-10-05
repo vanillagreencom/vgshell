@@ -20,6 +20,8 @@ Arch Linux:
 paru -S vgshell-git
 ```
 
+On Arch, the curl install and checkout need an installed AUR helper: paru or yay.
+
 Any distribution:
 
 ```bash

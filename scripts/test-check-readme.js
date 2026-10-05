@@ -24,7 +24,7 @@ process.on("exit", () => fs.rmSync(tmp, { recursive: true, force: true }));
 const ENV = { PATH: path.dirname(process.execPath) + ":" + process.env.PATH, LC_ALL: "C", HOME: tmp, TMPDIR: tmp };
 
 const pristine = path.join(tmp, "pristine");
-const files = ["README.md", "VERSION", "bin/vgshell", "bin/lib/post-install.txt", "install.sh", "docs/architecture/runtime.md",
+const files = ["README.md", "VERSION", "bin/vgshell", "bin/lib/post-install.txt", "install.sh", "docs/architecture/runtime.md", "shell/Core/PackageManagers.js",
     "packaging/arch/vgshell/PKGBUILD", "packaging/arch/vgshell-git/PKGBUILD"];
 const plugins = fs.readdirSync(path.join(repo, "shell/plugins"))
     .filter(dir => fs.existsSync(path.join(repo, "shell/plugins", dir, "manifest.json"))).sort();
@@ -98,7 +98,7 @@ function commandsWant(tree, more) {
     return commands.map(command => {
         if (want[command] === undefined) throw new Error("commands: refused: unnamed=" + command);
         const [channel, needs, vgshell] = want[command];
-        return JSON.stringify({ line: commandLineOf(tree, command), channel, needs, vgshell, command });
+        return JSON.stringify({ line: commandLineOf(tree, command), channel, needs, vgshell, archHelpers: ["curl", "checkout"].includes(channel) ? ["paru", "yay"] : [], command });
     });
 }
 const pluginRow = (dir, name, description) => `| [${name}](shell/plugins/${dir}/README.md) | ${description} |`;
@@ -147,6 +147,10 @@ function commandLines(tree) {
 const ROWS = [
     ["the committed README passes", () => {}, 0, tree => [ok(tree)]],
     // command
+    ["an absent Arch helper prerequisite is refused", t => replaceIn(t, "README.md", "On Arch, the curl install and checkout need an installed AUR helper: paru or yay.", ""),
+        1, tree => [`command README.md:${lineOf(tree, "## Install")} arch-helper=declarations have=0 want=1`]],
+    ["an unsupported Arch helper is refused", t => replaceIn(t, "README.md", "AUR helper: paru or yay.", "AUR helper: unknown."),
+        1, tree => [`command README.md:${lineOf(tree, "On Arch, the curl install and checkout need an installed AUR helper: unknown.")} arch-helper=unknown reason=not-in-package-detection`]],
     ["an AUR command through yay is refused", t => replaceIn(t, "README.md", "\nparu -S vgshell-git\n", "\nyay -S vgshell-git\n"),
         1, tree => [`command README.md:${lineOf(tree, "yay -S vgshell-git")} unknown text=yay -S vgshell-git`]],
     ["an AUR package with no recipe is refused", t => replaceIn(t, "README.md", "\nparu -S vgshell-git\n", "\nparu -S vgshell-bin\n"),
@@ -302,7 +306,7 @@ ROWS.forEach(([name, setup, wantExit, wantLines, args, after], i) => {
                 const parsed = JSON.parse(line);
                 const fences = readme.slice(0, parsed.line - 1).filter(text => text === "```bash").length;
                 if (parsed.block !== fences) return "block=" + parsed.block + " want=" + fences + " line=" + parsed.line;
-                return JSON.stringify({ line: parsed.line, channel: parsed.channel, needs: parsed.needs, vgshell: parsed.vgshell, command: parsed.command });
+                return JSON.stringify({ line: parsed.line, channel: parsed.channel, needs: parsed.needs, vgshell: parsed.vgshell, archHelpers: parsed.archHelpers, command: parsed.command });
             });
         }
         if (run.status === wantExit && have.join("\n") === want.join("\n")) {
@@ -317,6 +321,24 @@ ROWS.forEach(([name, setup, wantExit, wantLines, args, after], i) => {
     failures += 1;
     if (out !== "") console.log(out.replace(/^/gm, "        "));
 });
+// A missing declaration and an unsupported helper each fail their own guard.
+for (const [name, old, replacement, setup, reason] of [
+    ["missing-helper", 'finding("command", install.n, "arch-helper=declarations have=" + declarations.length + " want=1")', 'void 0',
+        t => replaceIn(t, "README.md", "On Arch, the curl install and checkout need an installed AUR helper: paru or yay.", ""), "arch-helper=declarations"],
+    ["unknown-helper", '!supported.includes(helper)', 'false',
+        t => replaceIn(t, "README.md", "AUR helper: paru or yay.", "AUR helper: unknown."), "arch-helper=unknown"],
+]) {
+    const tree = fresh("control-" + name);
+    setup(tree);
+    for (const rel of ["scripts/check-readme.js", "bin/lib/qml-library.js", "bin/vgshell-scan"]) {
+        fs.mkdirSync(path.dirname(path.join(tree, rel)), { recursive: true });
+        fs.copyFileSync(path.join(repo, rel), path.join(tree, rel));
+    }
+    replaceIn(tree, "scripts/check-readme.js", old, replacement);
+    const run = childProcess.spawnSync(process.execPath, [path.join(tree, "scripts/check-readme.js"), "--root", tree], { encoding: "utf8", env: ENV });
+    if (run.status === 0 && !run.stdout.includes(reason)) console.log("  ok    control: " + name + " rejects its defect only with the guard");
+    else { failures++; console.log("  FAIL  control: " + name + " status=" + run.status + " " + run.stdout + run.stderr); }
+}
 if (failures > 0) {
     console.log("test-check-readme: failed=" + failures);
     process.exit(1);

@@ -660,7 +660,7 @@ if out="$(cd -- "$d" && "${base_env[@]}" bash scripts/validate offline --changed
 d="$tmp/plan-shared"; fresh "$d"
 mkdir -p "$d/bin/lib"; printf 'changed\n' >"$d/bin/lib/qml-library.js"
 out="$(cd -- "$d" && "${base_env[@]}" bash scripts/validate offline --changed HEAD --list 2>"$tmp/plan.err")"
-for consumer in 'node scripts/test-plugin-logic.js' 'node scripts/test-dispatch.js' 'node scripts/test-lifetime.js' 'node scripts/test-qml-library.js' 'node scripts/test-key-nav-logic.js' 'node scripts/test-clipboard-history.js' 'node bin/lib/check-manifests.js' 'node scripts/test-check-manifests.js' 'node scripts/test-jarvis-audio-daemon.js' 'scripts/test-vgshell.sh' 'scripts/test-install-tree.sh' 'python3 scripts/test-vgs-plugin.py' 'scripts/test-validate.sh'; do
+for consumer in 'node scripts/test-plugin-logic.js' 'node scripts/test-dispatch.js' 'node scripts/test-lifetime.js' 'node scripts/test-qml-library.js' 'node scripts/test-key-nav-logic.js' 'node scripts/test-clipboard-history.js' 'node bin/lib/check-manifests.js' 'node scripts/test-check-manifests.js' 'node scripts/test-jarvis-audio-daemon.js' 'scripts/test-vgshell.sh' 'scripts/test-install-tree.sh' 'python3 scripts/test-vgs-plugin.py' 'node scripts/test-check-readme.js' 'scripts/test-readme-install.sh' 'scripts/test-validate.sh'; do
   if grep -qxF "$consumer" <<<"$out"; then ok "shared loader selects $consumer"; else fail "shared loader omitted $consumer"; fi
 done
 if grep -qxF 'node scripts/test-inset.js' <<<"$out"; then ok "shared loader selects node scripts/test-inset.js"; else fail "shared loader omitted node scripts/test-inset.js"; fi
