@@ -2189,8 +2189,9 @@ window_panes() { ipc shell built | py_reply 'import json,sys; print(json.dumps([
 # SOURCE under scripts/smoke/fixtures/plugins installed as plugin ID named
 # NAME in the user's plugins directory, replacing any copy there; a pane
 # fixture's `pane` takes ORDER, 10 by default, and GROUP when given. The
-# shell finds it on the next rescan, disabled, as every installed plugin
-# starts.
+# shell finds it on the next rescan: placed and enabled when it has a bar
+# widget the user file names nowhere (PluginLogic.firstPresence), disabled
+# otherwise, as every installed plugin starts.
 install_plugin_copy() { # SOURCE ID NAME [ORDER [GROUP]]
   local source="$1" id="$2" name="$3" order="${4:-10}" group="${5:-}" target
   target="$home/.config/vgshell/plugins/$id"

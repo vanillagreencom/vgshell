@@ -26,7 +26,7 @@
 # lists its fixtures alone, and leaves the user file, vgs.system's and
 # each shipped section's enablement, the plugins directory and the shell's
 # PATH directory as it found them.
-# inputs: shell/plugins/vgs.system/* shell/plugins/*/manifest.json scripts/smoke/fixtures/plugins/acme.pane/* shell/Hosts/PaneHost.qml shell/Hosts/AppWindow.qml shell/Core/Capabilities.qml scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/plugins/vgs.system/* shell/Core/PluginLogic.js shell/plugins/*/manifest.json scripts/smoke/fixtures/plugins/acme.pane/* shell/Hosts/PaneHost.qml shell/Hosts/AppWindow.qml shell/Core/Capabilities.qml scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 
 sys_file="$home/.config/vgshell/shell.json"
@@ -137,7 +137,12 @@ assert text.count(old) == 1, old
 open(qml, "w").write(text.replace(old, "implicitHeight: Theme.size.control.lg * 60"))
 PY
 rescan "rescan after adding the System fixtures answers ok"
-expect_poll "the last System fixture is discovered disabled" False plugin_enabled acme.pane-off
+# A copy with a bar widget is placed and enabled once it is discovered
+# (PluginLogic.firstPresence); Pane Off is disabled so the sidebar leaves
+# it out, and Pane Net, with no widget, waits for Enable below.
+expect_poll "the last System fixture is discovered enabled" True plugin_enabled acme.pane-off
+expect "disabling the last System fixture is allowed" ok ipc shell setPluginEnabled acme.pane-off false
+expect "Pane Net, with no bar widget, is discovered disabled" False plugin_enabled acme.pane-net
 for id in acme.pane acme.pane-alt acme.pane-net; do
   expect "enabling $id for the System window is allowed" ok ipc shell setPluginEnabled "$id" true
 done

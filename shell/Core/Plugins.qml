@@ -61,6 +61,7 @@ Singleton {
     Connections {
         target: Config
         function onEffectiveChanged() { root.reconcile(); }
+        function onReadyChanged() { Qt.callLater(root.giveFirstPresence); }
     }
     Connections {
         target: Registry
@@ -68,7 +69,23 @@ Singleton {
         function onChanged() {
             root.pruneFailures();
             Qt.callLater(root.reconcile);
+            Qt.callLater(root.giveFirstPresence);
         }
+    }
+
+    // Place every widget that has no presence yet (PluginLogic.firstPresence)
+    // in one user-file write: after a scan that changed the plugin set and
+    // when the configuration turns ready, so a plugin shows in the bar when
+    // it is installed or first discovered. The write names each placed
+    // widget, so the next call finds nothing to do. A refused write is
+    // logged and the next scan tries again.
+    function giveFirstPresence() {
+        if (!Config.ready || !Registry.scanned) return;
+        const named = Logic.firstPresence(Registry.manifests, Config.effective);
+        if (named.length === 0) return;
+        const written = Config.writeUser(Logic.withFirstPresence(Config.user, Registry.manifests, Config.effective));
+        if (written === "ok") console.info("plugins: first presence placed=" + named.join(","));
+        else console.error("plugins: first presence not written: " + written);
     }
     Connections {
         target: Quickshell
@@ -196,7 +213,10 @@ Singleton {
     }
 
     // A bar widget: built like any instance on its bar's screen, then given
-    // the three properties BarWidget declares. `locator` is { section, nth }:
+    // the four properties BarWidget declares. `frame` is what the shared
+    // widget frame's Hide reads and calls: the plugin's name, the keys in
+    // effect, whether hiding also turns the plugin off, and the unplace.
+    // `locator` is { section, nth }:
     // which layout entry with this id the widget reads, for its configure
     // capability. A widget that does not declare them is destroyed.
     function createWidget(id, parent, barRow, entry, hostKey, locator) {
@@ -207,6 +227,7 @@ Singleton {
             instance.bar = barRow.instance;
             instance.moduleName = id;
             instance.settings = instance.shell.settings;
+            instance.frame = { describe: () => root.frameFacts(id), hide: () => root.setPlaced(id, false) };
         } catch (e) {
             const error = "bar-widget not built: " + e.message;
             console.error("plugins: " + id + " " + error);
@@ -215,6 +236,16 @@ Singleton {
             return null;
         }
         return instance;
+    }
+
+    // What the widget frame's Hide dialog says about plugin `id`, read when it
+    // opens: { name, keys, stops }, `keys` the keys in effect of its bound
+    // shortcuts and `stops` true when hiding the widget also turns the
+    // plugin off (PluginLogic.enablementRule "widget").
+    function frameFacts(id) {
+        const m = Registry.manifests[id];
+        const keys = Logic.bindRows(Config.effective, m, Capabilities.shortcutDescriptions).map(row => row.key).filter(key => key !== null);
+        return { name: m.name, keys: keys, stops: Logic.enablementRule(m) === "widget" };
     }
 
     // Destroy an instance the core built. A bar's mounted widgets go first,

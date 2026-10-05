@@ -35,6 +35,7 @@ Declare it as `property var shell: null`, or inherit it from `BarWidget`.
 | `bar` | object | the bar API below |
 | `moduleName` | string | the plugin id; the core assigns it after creation |
 | `settings` | object | the manifest's `settings` under the widget's layout entry, for example `{ "units": "metric" }`; the entry id is excluded; reassigned when the entry changes |
+| `frame` | object | what `BarWidget`'s right-click Hide reads and calls; a widget reads nothing from it |
 
 `BarWidget` adds `barSize` and `setting(name, fallback)`.
 
@@ -213,7 +214,7 @@ Types refused as an instantiation anywhere in a plugin's QML or JS: `PanelWindow
 | `Menu`, `MenuItem` | `Item`, `T.MenuItem` | `MenuItem` children with `text`, `iconName`, `shortcut`, `checked` (a check mark), `triggered`; `maxHeight`; `open()`, `close()`, `toggle()`; typed letters jump to an entry |
 | `TitleButton` | `T.AbstractButton` | `text`, `role` (a group of `Theme.text`, `h3` by default), `menu`: a `Menu` declared inside it, which a click, Enter or Down opens |
 | `Toast` | `Rectangle` | `title`, `message`, `tone`, `iconName`, `dismissed`; the core's toast host draws it, a plugin shows one through `shell.toasts` |
-| `Dialog` | `FocusScope` | `title`, `message`, `actions` (each `{ label, role, variant, enabled }`, `role` `accept` or `cancel`), `busy`, `modal`, `accepted`, `rejected`; content as children, under the message; a card its host places and hides |
+| `Dialog` | `FocusScope` | `title`, `message`, `actions` (each `{ label, role, variant, enabled, focused }`, `role` `accept` or `cancel`, `focused: true` on the action that takes the focus in the accept action's place), `busy`, `modal`, `accepted`, `rejected`; content as children, under the message; a card its host places and hides |
 | `AngledCard` | `Item` | content as children, clipped to a parallelogram; `skew` (negative leans left), `selected`, `dimmed` (by default while not selected); `corners`, the parallelogram in the card's coordinates; the caller sizes and places it |
 | `CardCarousel` | `Item` | `model`, as a Repeater takes it; `delegate`, one card's content, whose root declares `required property var modelData` and `required property size decodeSize`, the size an image in it decodes at, or the card stays empty with one warning; `currentIndex`, `activated(index)` on a click of the current card, `step(delta)`, wrapping; `devicePixelRatio`, the screen's by default; takes the keys once it has the focus; the caller sizes and places it |
 | `PointerCursor` | `HoverHandler` | nothing; declared inside an item that takes a click, such as a plugin's own `MouseArea`, it shows the pointing hand while the pointer rests there and the item is enabled. Every `qs.Ui` control that takes a click holds one; `scripts/check-pointer-cursor.py` refuses shipped click areas without it, `vgs-plugin check` holds a plugin to the same rule, and an area that is a click away, not a control, carries `// pointer-cursor-exempt: <reason>` above it |

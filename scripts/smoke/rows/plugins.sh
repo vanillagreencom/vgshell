@@ -16,7 +16,7 @@
 # tree whose Registry names the revision before its scan, run as the
 # guarded shell, lets rescan read the last scan's state. That copy stops
 # the row's shell and the row starts the sandbox's tree again after it.
-# inputs: scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/fixtures/plugins/acme.tick/* shell/plugins/vgs.bar/* shell/shell.qml shell/Core/Plugins.qml shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Hosts/ServiceHost.qml bin/vgshell bin/vgshell-scan bin/vgshell-plugin-judge
+# inputs: shell/Core/PluginLogic.js scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/fixtures/plugins/acme.tick/* shell/plugins/vgs.bar/* shell/shell.qml shell/Core/Plugins.qml shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Hosts/ServiceHost.qml bin/vgshell bin/vgshell-scan bin/vgshell-plugin-judge
 set -euo pipefail
 fixture="$sandbox/src/acme.probe"
 mkdir -p "$fixture"
@@ -36,8 +36,12 @@ if add_out="$("${shell_env[@]}" "$repo/bin/vgshell" plugin add "file://$fixture"
 else
   fail "vgshell plugin add: $add_out"
 fi
-expect_poll "user-directory plugin discovered and disabled until enabled" False plugin_enabled acme.probe
-expect "enabling the fixture is allowed" ok ipc shell setPluginEnabled acme.probe true
+# A plugin with a bar widget is placed in its default section and enabled
+# once the rescan finds it, with no further step (PluginLogic.firstPresence);
+# one without a widget, the bare fixture, stays disabled until enabled.
+probe_listed() { ipc shell listPlugins | py_reply 'import json,sys; r=[p for p in json.load(sys.stdin)["plugins"] if p["id"] == sys.argv[1]]; print(json.dumps([r[0]["enabled"], r[0]["placed"]]) if r else "absent")' "$1"; }
+expect_poll "the installed fixture with a widget is enabled and placed with no further step" '[true, true]' probe_listed acme.probe
+expect "the user-directory plugin without a widget is discovered disabled" False plugin_enabled acme.bare
 expect "enabling the bare fixture is allowed" ok ipc shell setPluginEnabled acme.bare true
 # The scan probes each declared command on the shell's PATH: `sh` is on
 # every sandbox's, `vgs-smoke-absent` on none. listPlugins carries the

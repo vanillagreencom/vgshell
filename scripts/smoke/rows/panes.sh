@@ -31,8 +31,9 @@ install_plugin_copy acme.panehost acme.panehost "Pane Host" 0
 install_plugin_copy acme.pane acme.pane "Pane" 10
 rescan "rescan after adding the pane fixtures answers ok"
 expect_poll "the pane host fixture is discovered" False plugin_enabled acme.panehost
-expect_poll "the pane fixture is discovered" False plugin_enabled acme.pane
-expect "enabling the pane fixture is allowed" ok ipc shell setPluginEnabled acme.pane true
+# A plugin with a bar widget is placed and enabled once it is discovered
+# (PluginLogic.firstPresence); the window-only pane host waits for Enable.
+expect_poll "the pane fixture with a widget is discovered enabled" True plugin_enabled acme.pane
 expect_poll "the pane service is built" True record_exists acme.pane
 expect "own-pane summon is refused while no panes holder is enabled" "refused: panes=no-holder" ipc smoke invokeInstance service acme.pane summonPane ''
 expect "enabling the pane host is allowed" ok ipc shell setPluginEnabled acme.panehost true
@@ -64,8 +65,7 @@ expect "the mounted pane received the direct payload" '"{}"' ipc smoke readInsta
 
 install_plugin_copy acme.pane acme.pane-alt "Pane Alt" 20
 rescan "rescan after adding the second pane answers ok"
-expect_poll "the second pane is discovered" False plugin_enabled acme.pane-alt
-expect "enabling the second pane is allowed" ok ipc shell setPluginEnabled acme.pane-alt true
+expect_poll "the second pane is discovered enabled" True plugin_enabled acme.pane-alt
 expect_poll "the holder lists both panes in order" '["acme.pane","acme.pane-alt"]' host_list_ids
 expect "the first mounted pane owns one idle watch" '["acme.pane"]' pane_idle_watches
 expect "switching to the second pane is allowed" ok ipc smoke invokeInstance window acme.panehost mountPane 'acme.pane-alt'

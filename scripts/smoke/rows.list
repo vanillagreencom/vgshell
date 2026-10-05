@@ -22,6 +22,7 @@ manager
 updates
 settings
 placement
+widget-hide
 windows
 compositor-dispatchers
 compositor-reveal

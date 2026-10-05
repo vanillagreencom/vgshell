@@ -3524,12 +3524,13 @@ function placedRefusal(config, manifest, defaultBarId) {
 //
 // Placing an unplaced widget is placeWidget. Unplacing seeds the user `bar`
 // and removes every layout entry with the plugin's id from every section.
-// A plugin of another kind stays enabled: a "row" plugin (enablementRule)
-// with no plugins[] row is enabled only by its placement, so unplacing
-// lists it, the row seeded with the first removed entry's settings. A
-// "widget" plugin has nothing left once unplaced: it reads as disabled
-// until enabling places it again. A widget already as asked changes
-// nothing but the version stamp.
+// It lists a plugin with no plugins[] row there, the row seeded with the
+// first removed entry's settings: the row is the record firstPresence reads
+// as the user's choice, so a hidden widget stays hidden, and a "row" plugin
+// (enablementRule), enabled only by its placement, stays enabled through
+// it. A "widget" plugin has nothing left once unplaced: it reads as
+// disabled until enabling places it again. A widget already as asked
+// changes nothing but the version stamp.
 function withPlaced(user, manifest, placed, effective) {
     var out = isPlainObject(user) ? clone(user) : {};
     if (out.version === undefined) out.version = CONFIG_VERSION;
@@ -3540,7 +3541,7 @@ function withPlaced(user, manifest, placed, effective) {
         return out;
     }
     seedUserBar(out, effective);
-    if (enablementRule(manifest) === "row" && pluginRow(effective, manifest.id) === undefined) {
+    if (pluginRow(effective, manifest.id) === undefined) {
         var row = copyEntrySettings({ id: manifest.id }, layoutEntryOf(out, manifest.id));
         out.plugins = (Array.isArray(out.plugins) ? out.plugins : []).concat([row]);
     }
@@ -3549,6 +3550,33 @@ function withPlaced(user, manifest, placed, effective) {
         if (Array.isArray(entries))
             out.bar.layout[section] = entries.filter(function (entry) { return entry.id !== manifest.id; });
     });
+    return out;
+}
+
+// The ids of the plugins in MANIFESTS whose widget takes its first presence
+// under EFFECTIVE, sorted: each declares kind bar-widget, sets no `optIn`,
+// is not in disabledPlugins, is placed in no section and has no plugins[]
+// row. A plugin the user disabled or hid (withPlaced leaves its row) keeps
+// its state, and an `optIn` plugin waits for Enable. So every widget a
+// plugin brings shows in the bar when the plugin is installed or first
+// discovered, with no step in Settings.
+function firstPresence(manifests, effective) {
+    var disabled = Array.isArray(effective.disabledPlugins) ? effective.disabledPlugins : [];
+    return Object.keys(manifests).sort().filter(function (id) {
+        var m = manifests[id];
+        if (m.kinds.indexOf("bar-widget") === -1 || m.optIn === true || disabled.indexOf(id) !== -1)
+            return false;
+        return !isPlaced(effective, m) && pluginRow(effective, id) === undefined;
+    });
+}
+
+// The user-file change that places every widget firstPresence names, each
+// at the end of its default section (placeWidget). Returns the new user
+// object; the caller writes it when firstPresence names any.
+function withFirstPresence(user, manifests, effective) {
+    var out = isPlainObject(user) ? clone(user) : {};
+    if (out.version === undefined) out.version = CONFIG_VERSION;
+    firstPresence(manifests, effective).forEach(function (id) { placeWidget(out, manifests[id], effective); });
     return out;
 }
 

@@ -4,7 +4,7 @@
 
 **Date**: 2026-09-21
 
-**Status**: Active (system-package declaration → D035)
+**Status**: Active (system-package declaration → D035; a bar widget lands placed)
 
 **Research**: —
 
@@ -26,3 +26,7 @@
 ## Revisit Outcome (2026-09-28)
 
 The first revisit condition is met: plugins need system packages, and [D035](D035-manifest-requirements.md) lets a manifest declare them as `requirements`, which replaces "the manifest has no key for it". The rest holds. Install still runs no plugin code, lands the plugin disabled and asks for no privilege; the manager reads `requirements` as data and reports each command's state. Installing a missing package is a core TUI the user starts, where the package manager asks for root in the user's terminal ([D034](D034-one-package-manager-table.md)).
+
+## Revisit Outcome (2026-10-05)
+
+Owner ruling: a plugin with a bar widget does not land disabled. The first scan that finds it places its widget in its default section, which enables it, so it shows in the bar with no step in Settings ([placement.md](../architecture/placement.md)). Install still runs no plugin code; a plugin without a bar widget, and one whose manifest sets `optIn`, still lands disabled.

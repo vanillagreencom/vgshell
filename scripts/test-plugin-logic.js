@@ -543,8 +543,8 @@ function suite(ctx, check) {
         ["unplace seeds the user bar from the effective bar", null, shipped, "vgs.clock", false, "bar.layout", { left: [{ id: "vgs.workspaces" }], center: [], right: [] }],
         ["unplace a third-party widget-plus-service lists it with its first entry's settings", placedBoth, ctx.effectiveConfig(shipped, placedBoth), "acme.both", false, "plugins", [{ id: "acme.both", label: "left" }]],
         ["unplace a listed third-party widget-plus-service keeps its row", Object.assign({ plugins: [{ id: "acme.both", label: "row" }] }, placedBoth), ctx.effectiveConfig(shipped, Object.assign({ plugins: [{ id: "acme.both", label: "row" }] }, placedBoth)), "acme.both", false, "plugins", [{ id: "acme.both", label: "row" }]],
-        ["unplace a first-party widget-plus-panel lists nothing", placedPanel, ctx.effectiveConfig(shipped, placedPanel), "vgs.widgetpanel", false, "plugins", undefined],
-        ["unplace a widget-only plugin lists nothing", null, shipped, "vgs.clock", false, "plugins", undefined],
+        ["unplace a first-party widget-plus-panel lists it", placedPanel, ctx.effectiveConfig(shipped, placedPanel), "vgs.widgetpanel", false, "plugins", [{ id: "vgs.widgetpanel" }]],
+        ["unplace a widget-only plugin lists it", null, shipped, "vgs.clock", false, "plugins", [{ id: "vgs.clock" }]],
         ["unplace an unplaced widget changes nothing", null, shipped, "acme.both", false, "bar", undefined],
         ["unplace keeps the user's disabled list", Object.assign({ disabledPlugins: ["vgs.svc"] }, placedBoth), ctx.effectiveConfig(shipped, Object.assign({ disabledPlugins: ["vgs.svc"] }, placedBoth)), "acme.both", false, "disabledPlugins", ["vgs.svc"]],
         ["unplace writes no inherited disabled list", null, inheritedDisabled, "vgs.clock", false, "disabledPlugins", undefined],
@@ -566,13 +566,44 @@ function suite(ctx, check) {
     check("withPlaced: unplacing twice is unplacing once", twice(placedBoth, "acme.both", false), true);
     check("withPlaced does not alias the user file on place", (() => { const u = { bar: { layout: { left: [], center: [], right: [] } } }; ctx.withPlaced(u, manifests["acme.both"], true, ctx.effectiveConfig(shipped, u)); return u.bar.layout.right; })(), []);
     check("withPlaced does not alias the effective plugins row it seeds the entry from", (() => { const e = ctx.effectiveConfig(shipped, { plugins: [{ id: "acme.both", tags: ["z"] }] }); const out = ctx.withPlaced(null, manifests["acme.both"], true, e); out.bar.layout.right[0].tags.push("y"); return ctx.pluginRow(e, "acme.both").tags; })(), ["z"]);
-    // A third-party plugin whose only kind is bar-widget: unplacing lists no
-    // row, so it reads disabled, and the disabled list stays the user's.
+    // A third-party plugin whose only kind is bar-widget: unplacing lists a
+    // row with its settings, it still reads disabled, and the disabled list
+    // stays the user's.
     const placedWidget = { version: 1, disabledPlugins: ["vgs.svc"], bar: { id: "vgs.bar", layout: { left: [], center: [{ id: "vgs.clock" }], right: [{ id: "acme.widget", size: 5 }] } } };
     const unplacedWidget = ctx.withPlaced(placedWidget, manifests["acme.widget"], false, ctx.effectiveConfig(shipped, placedWidget));
-    check("withPlaced: unplace a third-party widget-only plugin lists nothing", unplacedWidget.plugins, undefined);
+    check("withPlaced: unplace a third-party widget-only plugin lists it with its entry's settings", unplacedWidget.plugins, [{ id: "acme.widget", size: 5 }]);
     check("withPlaced: unplace a third-party widget-only plugin keeps the user's disabled list", unplacedWidget.disabledPlugins, ["vgs.svc"]);
     check("withPlaced: a third-party widget-only plugin reads disabled once unplaced", ctx.isEnabled(ctx.effectiveConfig(shipped, unplacedWidget), manifests["acme.widget"], "vgs.bar"), false);
+
+    // firstPresence: an unnamed widget is placed; a plugin the user
+    // disabled, hid (its row), already placed, marked optIn or without a
+    // widget is not.
+    const optInWidget = ctx.validateManifest({ schemaVersion: 1, id: "vgs.optinwidget", name: "O", version: "1", author: "a", description: "d", kinds: ["service", "bar-widget"], entryPoints: { service: "S.qml", "bar-widget": "W.qml" }, optIn: true }, "/p").manifest;
+    if (optInWidget === undefined) throw new Error("fixture manifest refused: vgs.optinwidget");
+    const withOptIn = Object.assign({}, manifests, { "vgs.optinwidget": optInWidget });
+    const presenceRows = [
+        ["every unnamed widget, sorted", shipped, ["acme.both", "acme.pane", "acme.widget", "vgs.widgetpanel"]],
+        ["a widget with a plugins row keeps no presence", ctx.effectiveConfig(shipped, { plugins: [{ id: "acme.both" }] }), ["acme.pane", "acme.widget", "vgs.widgetpanel"]],
+        ["a disabled widget keeps no presence", ctx.effectiveConfig(shipped, { disabledPlugins: ["acme.widget"] }), ["acme.both", "acme.pane", "vgs.widgetpanel"]],
+        ["a placed widget is not placed again", ctx.effectiveConfig(shipped, { bar: { id: "vgs.bar", layout: { left: [], center: [], right: [{ id: "acme.pane" }] } } }), ["acme.both", "acme.widget", "vgs.clock", "vgs.widgetpanel", "vgs.workspaces"]],
+    ];
+    for (const [name, config, want] of presenceRows) check("firstPresence: " + name, ctx.firstPresence(withOptIn, config), want);
+    check("firstPresence: a plugin with no widget is never placed", ctx.firstPresence({ "vgs.svc": manifests["vgs.svc"] }, shipped), []);
+    const given = ctx.withFirstPresence(null, manifests, shipped);
+    check("withFirstPresence: places each widget at the end of its default section", given.bar.layout, { left: [{ id: "vgs.workspaces" }], center: [{ id: "vgs.clock" }, { id: "acme.widget" }], right: [{ id: "acme.both" }, { id: "acme.pane" }, { id: "vgs.widgetpanel" }] });
+    check("withFirstPresence: lists nothing and disables nothing", [given.plugins, given.disabledPlugins], [undefined, undefined]);
+    check("withFirstPresence: every placed widget reads enabled", ["acme.both", "acme.widget", "vgs.widgetpanel"].map(id => ctx.isEnabled(ctx.effectiveConfig(shipped, given), manifests[id], "vgs.bar")), [true, true, true]);
+    check("withFirstPresence: a second pass names nothing", ctx.firstPresence(manifests, ctx.effectiveConfig(shipped, given)), []);
+    // A widget the user hid stays out when an update brings a new widget:
+    // only the new one is placed, and a restart, which reads the same file,
+    // names nothing.
+    const hidden = ctx.withPlaced(given, manifests["vgs.widgetpanel"], false, ctx.effectiveConfig(shipped, given));
+    const fresh = ctx.validateManifest(Object.assign({}, clock, { id: "vgs.fresh", defaultSection: "right" }), "/p").manifest;
+    const updated = Object.assign({}, manifests, { "vgs.fresh": fresh });
+    check("firstPresence: after a hide and an update only the new widget is named", ctx.firstPresence(updated, ctx.effectiveConfig(shipped, hidden)), ["vgs.fresh"]);
+    const afterUpdate = ctx.withFirstPresence(hidden, updated, ctx.effectiveConfig(shipped, hidden));
+    check("withFirstPresence: after a hide and an update the new widget is placed and the hidden one is not", ["vgs.fresh", "vgs.widgetpanel"].map(id => ctx.isPlaced(ctx.effectiveConfig(shipped, afterUpdate), updated[id])), [true, false]);
+    check("firstPresence: a restart over the written file names nothing", ctx.firstPresence(updated, ctx.effectiveConfig(shipped, afterUpdate)), []);
 
     // enablementRule rows: [id, want].
     for (const [id, want] of [["vgs.bar", "bar"], ["vgs.barpanel", "bar"], ["vgs.clock", "widget"], ["acme.widget", "widget"], ["vgs.svc", "first-party"], ["vgs.widgetpanel", "first-party"], ["acme.svc", "row"], ["acme.both", "row"]])
@@ -1134,7 +1165,14 @@ const CONTROLS = [
     ["placing never writes disabledPlugins", "function withPlaced(user, manifest, placed, effective) {\n    var out = isPlainObject(user) ? clone(user) : {};", "function withPlaced(user, manifest, placed, effective) {\n    var out = isPlainObject(user) ? clone(user) : {};\n    out.disabledPlugins = Array.isArray(effective.disabledPlugins) ? effective.disabledPlugins.slice() : [];"],
     ["a widget already as asked changes nothing", "if (placed === isPlaced(effective, manifest))\n        return out;", "if (false)\n        return out;"],
     ["unplacing removes the entries", "return entry.id !== manifest.id; });", "return true; });"],
-    ["unplacing lists a third-party plugin enabled by its placement", "if (enablementRule(manifest) === \"row\" && pluginRow(effective, manifest.id) === undefined) {", "if (false) {"],
+    ["unplacing lists a plugin with no row", "    seedUserBar(out, effective);\n    if (pluginRow(effective, manifest.id) === undefined) {", "    seedUserBar(out, effective);\n    if (false) {"],
+    ["an unnamed widget takes its first presence", "return !isPlaced(effective, m) && pluginRow(effective, id) === undefined;", "return false;"],
+    ["a widget with a plugins row keeps no presence", "return !isPlaced(effective, m) && pluginRow(effective, id) === undefined;", "return !isPlaced(effective, m);"],
+    ["a placed widget takes no second presence", "return !isPlaced(effective, m) && pluginRow(effective, id) === undefined;", "return pluginRow(effective, id) === undefined;"],
+    ["a disabled widget keeps no presence", " || m.optIn === true || disabled.indexOf(id) !== -1)", " || m.optIn === true)"],
+    ["an optIn widget waits for Enable", "m.kinds.indexOf(\"bar-widget\") === -1 || m.optIn === true || ", "m.kinds.indexOf(\"bar-widget\") === -1 || "],
+    ["a plugin with no widget takes no presence", "if (m.kinds.indexOf(\"bar-widget\") === -1 || m.optIn", "if (m.optIn"],
+    ["the first presence places each widget", "forEach(function (id) { placeWidget(out, manifests[id], effective); });", "forEach(function (id) {});"],
     ["a third-party plugin of another kind is enabled by its row", "return manifest.id.indexOf(FIRST_PARTY_PREFIX) === 0 ? \"first-party\" : \"row\";", "return \"first-party\";"],
     ["a first-party plugin with optIn is enabled by its row", "if (manifest.optIn === true) return \"row\";", ""],
     ["optIn is a manifest key", "\"extras\", \"optIn\"];", "\"extras\"];"],

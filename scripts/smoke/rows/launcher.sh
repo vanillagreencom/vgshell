@@ -8,7 +8,7 @@
 # Install, Remove and Update rows open floating TUIs, read back from the
 # stand-in terminal scripts/smoke/rows/tui.sh left. The row ends with the
 # plugin disabled and every registration released.
-# inputs: shell/plugins/vgs.launcher/* scripts/smoke/fixtures/plugins/acme.tui/* shell/Ui/layout/ListCursor.qml shell/Core/TuiRunner.qml bin/vgshell-tui shell/Commons/DesktopLaunch.js scripts/smoke/rows/capabilities.sh scripts/smoke/rows/tui.sh
+# inputs: shell/plugins/vgs.launcher/* shell/Ui/BarWidget.qml scripts/smoke/fixtures/plugins/acme.tui/* shell/Ui/layout/ListCursor.qml shell/Core/TuiRunner.qml bin/vgshell-tui shell/Commons/DesktopLaunch.js scripts/smoke/rows/capabilities.sh scripts/smoke/rows/tui.sh
 set -euo pipefail
 launcher() { ipc vgs.launcher invoke "$1" "${2:-}"; }
 read_launcher() { ipc smoke readInstance overlay vgs.launcher "$1"; }
@@ -503,18 +503,20 @@ focused "the bar entry's launcher holds the keyboard"
 hover 10 "$((mon_h - 10))" || fail "moving the pointer off the card failed"
 click 10 "$((mon_h - 10))" || fail "the click outside the card failed"
 expect_poll "a click outside the card closed it" 0 layer_count vgs:overlay
-# A right click on the bar entry opens a terminal: the stand-in
-# xdg-terminal-exec records a run with no words, and no launcher opens.
-# The left click above is the control: it recorded no run.
+# A right click on the bar entry opens the widget frame's Hide menu, as on
+# every bar widget, and neither a terminal nor the launcher: the stand-in
+# xdg-terminal-exec records no run. Escape closes the menu.
 expect "a left click on the bar entry opens no terminal" absent recorded
 entry_box="$(ipc smoke instanceGeometry "$(bar_key)" vgs.launcher)" || entry_box=absent
 if [[ $entry_box == \[* ]] && read -r ex ey < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(int(x+w/2), int(y+h/2))' "$entry_box") && hover "$((ex - 1))" "$ey" && right_click "$ex" "$ey"; then
-  expect_poll "a right click on the bar entry opens a terminal" '[]' recorded
+  expect_poll "a right click on the bar entry opens the Hide menu" true ipc smoke readInstance "$(bar_key)" vgs.launcher menuOpen
+  expect "a right click on the bar entry opens no terminal" absent recorded
   expect "a right click on the bar entry opens no launcher" 0 layer_count vgs:overlay
+  type_keys -k Escape || fail "Escape to the Hide menu failed"
+  expect_poll "Escape closes the Hide menu" false ipc smoke readInstance "$(bar_key)" vgs.launcher menuOpen
 else
   fail "the right click on the bar entry failed"
 fi
-forget_record
 
 # A row shows the hand.
 expect "the launcher opens its System menu" ok ipc shell summon overlay vgs.launcher '{"menu":"system"}'
