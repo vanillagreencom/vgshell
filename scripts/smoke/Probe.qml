@@ -459,7 +459,6 @@ Scope {
                 if (editor === undefined) return "absent";
                 editor.forceActiveFocus();
                 editor.text = a.text;
-                editor.editingFinished();
                 return "edited";
             }
             return root.json({
