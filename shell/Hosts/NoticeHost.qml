@@ -19,7 +19,8 @@ import qs.Ui
 // Restart runs Notices.restartShell; so are the reset question, from
 // Notices.resetView, whose Reset runs Notices.resetVgs, and the "VGS was
 // reset" notice, from Notices.resetDoneView, whose Restore previous
-// settings runs Notices.restoreReset. While the
+// settings runs Notices.restoreReset and whose Escape runs
+// Notices.hideResetDone. While the
 // shown notice's install runs the window is gone, so the floating TUI it
 // opened, centred on the same monitor, shows whole; a notice the scan
 // after the run keeps comes back as a new window that takes the keyboard. The window fills the area other
@@ -151,6 +152,16 @@ Scope {
                     visible: win.consentMode ? win.consent.failure !== "" : Notices.failure !== ""
                     text: win.consentMode ? "The last connection did not finish: " + win.consent.failure : "The last install did not finish: " + Notices.failure
                 }
+            }
+
+            // Escape on the "VGS was reset" notice hides it for this run and
+            // keeps the restore for the next start, while Keep these, its
+            // cancel action, forgets it. The shortcut takes Escape before the
+            // dialog's own Escape, which rejects.
+            Shortcut {
+                sequence: "Escape"
+                enabled: win.consentMode && Notices.showingResetDone
+                onActivated: Notices.hideResetDone()
             }
 
             // Each notice that comes to the front takes the keyboard.

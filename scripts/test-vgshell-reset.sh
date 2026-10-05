@@ -11,15 +11,18 @@
 # applied theme, welcome-seen, migrations, the Hyprland layer, plugin
 # state), data folders beside a curl install's own entries, and cache
 # files. No shell runs, so every reset ends with shell=not-running. The
-# PATH holds only the tools the verbs run, so the theme apply detects no
-# application target and writes no file outside the fixture.
+# PATH holds only the tools the verbs run and the stand-in command of one
+# fixture target, `wired`, so the theme apply detects that target alone and
+# writes its include line into the fixture home's own wired/wired.conf.
 #
 # A reset moves every path into one backup byte for byte and leaves the
 # link, the theme lock and the install entries; a restore returns every
 # file, the hand-edited theme file included, with only the backups folder
 # new. `n` on a terminal and a run with neither a terminal nor a shell move
 # nothing. The controls run copies of bin/vgshell with one rule changed and
-# a row must fail against each.
+# a row must fail against each. A home where no theme was ever applied
+# holds no include line, and reset and restore leave every file outside
+# VGS's own directories as they found it.
 set -euo pipefail
 
 # shellcheck source=scripts/vgshell-rows.sh
@@ -32,11 +35,15 @@ for tool in date rmdir realpath cp head script; do
   tool_bin="$(command -v "$tool")" || { echo "test-vgshell-reset: status=not-measured missing=$tool"; exit 77; }
   ln -s -- "$tool_bin" "$theme_path/$tool"
 done
+target_dir wired '{ "app": "wired", "runsCode": false, "encoder": "hex6", "files": [{ "template": "wired.conf", "destination": "wired.conf" }], "detect": ["wiredapp"], "wiring": { "file": "wired/wired.conf", "line": "include @{state}/wired.conf", "create": true }, "reload": null }' $'accent=@{palette.accent}\n'
+printf '#!/bin/sh\nexit 0\n' >"$theme_path/wiredapp"
+chmod 755 "$theme_path/wiredapp"
 
-# fixture NAME: a fresh home at $f, filled with every class of path, and
-# its snapshot at $f/snap, taken before any verb under test runs. The
-# planting apply runs the tree's own vgshell, never the copy under test.
-fixture() { # NAME
+# fixture NAME [unthemed]: a fresh home at $f, filled with every class of
+# path, and its snapshot at $f/snap, taken before any verb under test runs.
+# The planting apply runs the tree's own vgshell, never the copy under
+# test; an unthemed home has no theme applied and no theme file.
+fixture() { # NAME [unthemed]
   f="$tmp/fixtures/$1"
   home="$f/home"
   cfg="$home/.config/vgshell" st="$home/.local/state/vgshell" dat="$home/.local/share/vgshell" cch="$home/.cache/vgshell"
@@ -45,9 +52,12 @@ fixture() { # NAME
   ln -s ../dotfiles/vgshell/.config/vgshell "$cfg"
   mkdir -p "$cfg/themes/moss" "$cfg/plugins/acme.probe" "$cfg/launcher" "$cfg/automations" "$cfg/backgrounds"
   doc moss >"$cfg/themes/moss/theme.json"
-  run_in "$tree/bin/vgshell" theme apply moss >/dev/null 2>&1 || { echo "test-vgshell-reset: fixture=theme-apply status=$run_status" >&2; exit 1; }
-  # A hand edit of the applied theme file, which restore keeps.
-  printf '\n' >>"$cfg/theme.json"
+  if [[ ${2:-} != unthemed ]]; then
+    run_in "$tree/bin/vgshell" theme apply moss
+    [[ $run_status == 0 && -f $home/.config/wired/wired.conf ]] || { echo "test-vgshell-reset: fixture=theme-apply status=$run_status" >&2; cat -- "$tmp/out" "$tmp/err" >&2; exit 1; }
+    # A hand edit of the applied theme file, which restore keeps.
+    printf '\n' >>"$cfg/theme.json"
+  fi
   printf '{ "version": 1, "bar": { "layout": { "left": [{ "id": "acme.probe" }] } }, "disabledPlugins": ["vgs.launcher"] }\n' >"$cfg/shell.json"
   manifest acme.probe 0.1.0 >"$cfg/plugins/acme.probe/manifest.json"
   printf 'launcher\n' >"$cfg/launcher/pins.json"
@@ -236,11 +246,28 @@ row_restore_none() {
   [[ $run_status == 1 ]] && err_first "vgshell: refused: backup=none path=$dat/backups" && unchanged
 }
 
+# A home where no theme was ever applied: reset applies nothing, so no
+# application gains an include line, and restore returns the home whole.
+row_unthemed() {
+  local bin="$1"
+  fixture unthemed unthemed
+  run_in "$bin" reset --yes
+  [[ $run_status == 0 ]] && out_has "shell=not-running" || return 1
+  [[ ! -e $st/theme.name && ! -e $cfg/theme.json && ! -e $home/.config/wired ]] || return 1
+  # Every file outside VGS's own directories as the snapshot holds it.
+  diff -r -x vgshell -- "$f/snap/home" "$home" >/dev/null || return 1
+  run_in "$bin" reset restore --yes
+  # The theme lock reset holds is created once and never removed, so this
+  # home, which had none, keeps it.
+  [[ $run_status == 0 && -e $cfg/theme.lock ]] && diff -r -x backups -x theme.lock -- "$f/snap/home" "$home" >/dev/null && link_kept
+}
+
 # rows: label | function. Each runs against the vgshell it is handed.
 declare -a ROWS=(
   "reset --yes moves every path into one backup and keeps the link, the lock and the install|row_reset_yes"
   "restore --yes returns every file and moves what the reset made aside|row_restore_yes"
   "restore without a folder takes the newest backup|row_restore_newest"
+  "reset and restore of a home with no theme applied leave the applications alone|row_unthemed"
   "n on a terminal moves nothing|row_declined"
   "y on a terminal resets|row_confirmed"
   "no terminal, no --yes and no shell moves nothing|row_no_terminal"
@@ -274,6 +301,7 @@ declare -a CONTROLS=(
   "restore puts the restored theme file back" '      mv -fT -- "$saved/$i" "${restore_kept[i]}" || refuse 1 "keep=failed path=${restore_kept[i]}"' '      :' row_restore_yes
   "restore takes the newest backup" '    set -- "${folders[-1]}"' '    set -- "${folders[0]}"' row_restore_newest
   "no terminal and no shell moves nothing" '    shell_pid >/dev/null 2>&1 ||' '    true ||' row_no_terminal
+  "reset applies the defaults only over an applied package" '  [[ $applied == false ]] ||' '  false ||' row_unthemed
 )
 for ((i = 0; i < ${#CONTROLS[@]}; i += 4)); do
   label="${CONTROLS[i]}" fn="${CONTROLS[i + 3]}"

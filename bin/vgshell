@@ -405,10 +405,12 @@
 # One of those four directories that is a symlink stays one: the entries
 # inside its target move. The runtime directory, hyprland.lua, libsecret,
 # the sudo grant, the browser policy and the system steps stay. It then
-# writes the folder's path to reset-backup in the state directory, prints
-# `ok reset backup=<folder>`, and applies the `vgs` package as `theme apply
-# vgs` does, so every themed application draws the defaults; a partial apply
-# exits 3 once the shell is back. It holds the theme lock from before the
+# writes the folder's path to reset-backup in the state directory and prints
+# `ok reset backup=<folder>`. When the moved state named an applied package
+# in theme.name, it applies the `vgs` package as `theme apply vgs` does, so
+# every themed application draws the defaults; a partial apply exits 3 once
+# the shell is back. A state that named none had wired no application and
+# gets no apply, as a fresh install has none. It holds the theme lock from before the
 # move to the end, refused reset=vgs reason=busy while another theme command
 # holds it. A running shell is checked and stopped as `restart` does before
 # anything moves, and started again after the apply, with restart's line;
@@ -1773,7 +1775,7 @@ reset_keeps() { # CLASS ENTRY
   case "$1:$2" in
     config:theme.lock | data:backups | data:current | data:git | data:.self.lock | data:.self-update-*) return 0 ;;
   esac
-  [[ $1 == data && $2 =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+  [[ $1 == data && $2 =~ $version_re ]]
 }
 
 # Sets reset_names to the entries of DIR, CLASS's directory, that reset
@@ -1867,17 +1869,20 @@ reset_say() {
 }
 
 # The reset, under the theme lock with no shell running: the move, the
-# marker the next shell offers the restore from, and the defaults applied
-# by the theme judge under the lock this process holds. Returns the
-# apply's status.
+# marker the next shell offers the restore from, and, when the moved state
+# named an applied package, the defaults applied by the theme judge under
+# the lock this process holds, so the applications that package wired draw
+# them. A state with no applied package wired no application, as on a fresh
+# install, and gets no apply. Returns the apply's status.
 reset_step() {
-  local status=0
+  local status=0 applied=false
+  [[ -e $state_home/vgshell/theme.name ]] && applied=true
   reset_folder_new
   reset_move_out "$reset_folder"
   { mkdir -p -- "$state_home/vgshell" && printf '%s\n' "$reset_folder" >"$reset_marker"; } ||
     refuse 1 "marker=unwritable path=$reset_marker"
   printf 'ok reset backup=%s\n' "$reset_folder"
-  node "$theme_judge" apply text "$config_home/vgshell" "$state_home/vgshell" held vgs || status=$?
+  [[ $applied == false ]] || node "$theme_judge" apply text "$config_home/vgshell" "$state_home/vgshell" held vgs || status=$?
   return "$status"
 }
 

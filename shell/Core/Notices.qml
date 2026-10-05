@@ -360,12 +360,19 @@ Singleton {
         Quickshell.execDetached([Quickshell.shellDir + "/../bin/vgshell", "reset", "restore", "--yes", folder]);
     }
 
+    // Escape on the "VGS was reset" notice, which NoticeHost takes before
+    // the dialog's own Escape: the notice goes for this run and the marker
+    // stays, so the restore is offered again at the next start.
+    function hideResetDone() {
+        if (showingResetDone) resetBackup = "";
+    }
+
     // Not now, Escape or Close: the shown notice goes, and its owner's own
     // offers rest; a `doctor` request, the user's press, never rests. The
     // restart notice goes until another refused first build raises it, and
-    // the reset question until the next ask. Keep these, or Escape, on the
-    // "VGS was reset" notice removes the marker, so the notice does not come
-    // back; the backup folder stays for `vgshell reset restore`.
+    // the reset question until the next ask. Keep these on the "VGS was
+    // reset" notice removes the marker, so the notice does not come back;
+    // the backup folder stays for `vgshell reset restore`.
     function dismiss() {
         const notice = current;
         if (notice === null) {

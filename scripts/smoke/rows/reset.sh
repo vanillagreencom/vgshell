@@ -20,7 +20,9 @@
 # plugin and vgs.launcher enabled, the theme is the default, the welcome is
 # unseen and the "VGS was reset" notice offers Restore previous settings,
 # Keep these holding the keyboard, its command behind Show command.
-# Hyprland lists no config error. Restore previous settings brings another
+# Hyprland lists no config error. Escape hides that notice and keeps its
+# marker, so the shell `vgshell restart` brings next offers the restore
+# again. Restore previous settings brings another
 # new shell over the planted files, the theme file byte for byte: the user
 # layer is in effect, the welcome is seen, no notice shows and Hyprland
 # lists no config error. The row then puts back the user file and theme
@@ -75,12 +77,10 @@ reset_sandboxed() {
   if [[ $held == "$shell_qs_pid" ]]; then echo sandboxed; else echo "lock=[$held] shell=$shell_qs_pid"; fi
 }
 # reset_press LABEL: Return on the notice's action LABEL once the shell is
-# the sandbox's own, then the new shell taken up as start_shell takes one:
-# its runner's process group joins the teardown's, as in
-# rows/core-drift.sh. Returns 1, with the row failed, when no new shell
-# answers.
+# the sandbox's own, then the new shell taken up as reset_adopt does.
+# Returns 1, with the row failed, when no new shell answers.
 reset_press() { # LABEL
-  local old="$shell_qs_pid" new=none where runner pgid
+  local old="$shell_qs_pid" where
   where="$(reset_sandboxed)" || where=unreadable
   if [[ $where != sandboxed ]]; then
     fail "$1 is not pressed: $where"
@@ -88,6 +88,15 @@ reset_press() { # LABEL
   fi
   expect_poll "$1 holds the keyboard" "\"$1\"" reset_drawn focused
   type_keys -k Return || { fail "sending Return to $1 failed"; return 1; }
+  reset_adopt "$old" "$1"
+}
+# reset_adopt OLD_PID LABEL: the shell that replaced OLD_PID, taken up as
+# start_shell takes one: its runner's process group joins the teardown's,
+# as in rows/core-drift.sh. Returns 1, with the row failed, when no new
+# shell answers.
+reset_adopt() { # OLD_PID LABEL
+  local old="$1" new=none runner pgid
+  shift
   for _ in $(seq 1 $((timeout_s * 5))); do
     new="$(reset_relaunched "$old")"
     [[ $new == none ]] || break
@@ -103,6 +112,13 @@ reset_press() { # LABEL
   shell_pid="$runner"
   shell_answers "$reset_tree" "$shell_log"
 }
+# `true` once `vgshell restart` of the reset tree brought a shell other
+# than OLD_PID, stdin closed; else what it printed.
+reset_restart() { # OLD_PID
+  local out
+  out="$("${shell_env[@]}" "$reset_tree/bin/vgshell" restart </dev/null 2>&1)" || { echo "exit: $out"; return 0; }
+  [[ $out =~ ^ok\ pid=([0-9]+)$ && ${BASH_REMATCH[1]} != "$1" ]] && echo true || echo "$out"
+}
 # `vgshell reset` from no terminal, stdin closed, as a key bind runs it.
 reset_ask() { "${shell_env[@]}" "$reset_tree/bin/vgshell" reset </dev/null; }
 reset_button() { ipc smoke windowGeometry window vgs.settings Button "$1" | py_reply 'import sys; print("absent" if sys.stdin.read().strip() == "absent" else "drawn")'; }
@@ -116,7 +132,7 @@ reset_layer() {
 }
 
 reset_run_row() {
-  local file name reset_folder
+  local file name reset_folder reset_where reset_old reset_back reset_themed
   # What the row puts back at its end: the user file, the theme file and the
   # stand-ins the shim held.
   for file in "$reset_user" "$reset_theme"; do
@@ -168,6 +184,7 @@ PY
     # Taken once the planted shell has settled, since its first presence may
     # rewrite the user file at start.
     cp -p -- "$reset_user" "$reset_saved/planted-shell.json"
+    reset_themed="$(reset_file "$reset_state/theme.name")"
     expect "reset with no terminal and no --yes asks the running shell" shell=asked reset_ask
     expect_poll "the reset question is owed" '{"asked": true, "backup": null}' reset_record
     expect_poll "the reset question is the one notice surface" 1 layer_count vgs:notice
@@ -199,7 +216,13 @@ PY
       expect "the backup holds the installed fixture" present reset_file "$reset_folder/config/plugins/acme.tick/manifest.json"
       expect "the backup holds welcome-seen" present reset_file "$reset_folder/state/welcome-seen"
       expect "the backup holds the Hyprland layer" present reset_file "$reset_folder/state/hypr/vgs.lua"
-      expect "the theme file holds the shipped defaults" same reset_same "$repo/themes/vgs/theme.json" "$reset_theme"
+      # The defaults are applied only over a state that named an applied
+      # package; with none, no theme file is written, as on a fresh install.
+      if [[ $reset_themed == present ]]; then
+        expect "the theme file holds the shipped defaults" same reset_same "$repo/themes/vgs/theme.json" "$reset_theme"
+      else
+        expect "a state with no applied package gets no theme file" absent reset_file "$reset_theme"
+      fi
       expect "the reset shell draws the default theme" vgs ipc smoke themeName
       expect "the reset shell finds no installed plugin" False plugin_known acme.tick
       expect_poll "the reset shell's bars draw no user widget" '[false]' reset_tick_in_bars
@@ -215,8 +238,28 @@ PY
       expect_poll "the reset shell writes the Hyprland layer again" present reset_file "$reset_state/hypr/vgs.lua"
       expect_poll "Hyprland lists no config error after the reset" '[]' hypr_config_errors
 
-      type_keys -M shift -k Tab -m shift || fail "sending Shift+Tab to the reset's notice failed"
-      if reset_press "Restore previous settings"; then
+      # Escape hides the notice for this run and keeps the marker, so the
+      # next start offers the restore again; only Keep these forgets it.
+      type_keys -k Escape || fail "sending Escape to the reset's notice failed"
+      expect_poll "Escape hides the reset's notice" '{"asked": false, "backup": null}' reset_record
+      expect_poll "the welcome the reset's notice held back shows next" '"Welcome to VGS"' reset_drawn title
+      expect "Escape keeps the reset marker" present reset_file "$reset_marker"
+      reset_back=false
+      reset_where="$(reset_sandboxed)" || reset_where=unreadable
+      if [[ $reset_where == sandboxed ]]; then
+        reset_old="$shell_qs_pid"
+        expect "the sandbox's shell restarts over the kept marker" true reset_restart "$reset_old"
+        reset_adopt "$reset_old" "the restart" && reset_back=true
+      else
+        fail "the shell is not restarted: $reset_where"
+      fi
+      if [[ $reset_back == true ]]; then
+        expect_poll "the next start offers the restore again" "{\"asked\": false, \"backup\": \"$reset_folder\"}" reset_record
+        expect_poll "the reset's notice shows again" '"VGS was reset"' reset_drawn title
+        expect_poll "Keep these holds the keyboard again" '"Keep these"' reset_drawn focused
+        type_keys -M shift -k Tab -m shift || fail "sending Shift+Tab to the reset's notice failed"
+      fi
+      if [[ $reset_back == true ]] && reset_press "Restore previous settings"; then
         expect "the restore puts the user file back byte for byte" same reset_same "$reset_saved/planted-shell.json" "$reset_user"
         expect "the restore puts the theme file back byte for byte" same reset_same "$reset_saved/planted-theme.json" "$reset_theme"
         expect "the restore puts the installed fixture back" present reset_file "$reset_config/plugins/acme.tick/manifest.json"
