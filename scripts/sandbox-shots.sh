@@ -893,6 +893,7 @@ EOF
     expect_poll "vgs.ai-usage is built" True record_exists vgs.ai-usage
     expect "the window opens the AI Usage page" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.ai-usage
     expect_poll "the AI Usage page is shown" '"vgs.ai-usage"' settings_page
+    page_details
     expect_poll "the AI Usage sign-in rows are reported" True page_reported vgs.ai-usage
     # The Sign-in section's heading at the top.
     if section="$(settings_section Sign-in SectionHeader Sign-in)"; then
