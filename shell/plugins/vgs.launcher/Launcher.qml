@@ -334,6 +334,9 @@ Item {
     property string filterText: ""
     property int selectedIndex: 0
     property bool cursorActive: false
+    // The selection a hover took, handed back when the pointer leaves the
+    // list; an index of -1 hands nothing back, as after a click.
+    property var pointerFrom: ({ index: -1, active: false })
     property var navStack: []
     // The root opens as a bare search field; its categories show while
     // this is on (Ctrl+B or the menu button).
@@ -830,8 +833,23 @@ Item {
     // list's ListCursor judges a motion.
     function selectFromPointer(index, item, mouse) {
         if (!cursorPlate.hoverTakes(item.mapToItem(null, mouse.x, mouse.y))) return;
+        if (cursorPlate.hovered === null) pointerFrom = { index: selectedIndex, active: cursorActive };
+        cursorPlate.hover(item);
         cursorActive = true;
         selectedIndex = index;
+    }
+
+    // A click chooses the row: leaving the list keeps it.
+    function selectFromClick(index) {
+        pointerFrom = { index: -1, active: false };
+        cursorActive = true;
+        selectedIndex = index;
+    }
+
+    function pointerLeft() {
+        if (pointerFrom.index < 0 || pointerFrom.index >= displayModel.count) return;
+        selectedIndex = pointerFrom.index;
+        cursorActive = pointerFrom.active;
     }
 
     // ------------------------------------------------------------ geometry
@@ -1087,6 +1105,7 @@ Item {
                         // A rebuild destroys the row under the plate; the
                         // plate stays for the row that takes the cursor next.
                         shown: root.cursorActive && displayModel.count > 0
+                        onPointerLeft: root.pointerLeft()
                     }
 
                     delegate: LauncherRow {

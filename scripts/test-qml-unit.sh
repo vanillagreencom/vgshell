@@ -614,6 +614,7 @@ mutations=(
   "the plate ignores the row under the pointer|layout/ListCursor.qml|readonly property Item placed: state.hovered !== null ? state.hovered : state.target|readonly property Item placed: state.target|tst_listcursor.qml"
   "the plate stays when the pointer leaves the list|layout/ListCursor.qml|function onHoveredChanged() { if (!root.parentHovered.hovered) root.pointerLeave(); }|function onHoveredChanged() {}|tst_listcursor.qml"
   "a pick list keeps the hovered selection after the pointer leaves|layout/ListCursor.qml|if (back !== null && over !== null && state.target === over && back.parent !== over) back.pointed();|if (false) back.pointed();|tst_listcursor.qml"
+  "a click is handed back when the pointer leaves|layout/ListCursor.qml|onPressedChanged: if (pressed) state.restore = null|onPressedChanged: {}|tst_listcursor.qml"
   "a key leaves the plate on the hovered row|layout/ListCursor.qml|if (state.hovering) state.endHover();|if (false) state.endHover();|tst_listcursor.qml"
   "a disabled row takes the plate|layout/ListCursorRow.qml|readonly property bool takes: cursor !== null && parent.enabled|readonly property bool takes: cursor !== null|tst_listcursor.qml"
   "an active row loses the accent|layout/ListItem.qml|    property bool active: false|    property bool active: false; onActiveChanged: active = false|tst_listcursor.qml"

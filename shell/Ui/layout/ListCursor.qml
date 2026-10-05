@@ -64,6 +64,9 @@ Item {
     // last `disarm()`.
     readonly property alias armed: state.armed
     property bool shown: state.hovered !== null || state.target !== null
+    // A press on the row under the pointer chooses it: leaving the list
+    // afterwards hands nothing back.
+    onPressedChanged: if (pressed) state.restore = null
 
     // The pointer left the cursor's parent after a hover took the plate. A
     // list that clears its selection then, as a menu with no keyboard
@@ -167,22 +170,25 @@ Item {
         return out;
     }
     // The ListCursorRow side of `follow`: `row` is the handler, whose
-    // parent is the row, so the cursor can hand the row the selection back.
+    // parent is the row, so the cursor can hand the row the selection back
+    // through the handler's `pointed`.
     function followRow(row, holds) {
         follow(row.parent, holds);
         if (holds && state.target === row.parent) state.holder = row;
         else if (!holds && state.holder === row) state.holder = null;
     }
 
-    // A hover that `hoverTakes` let through puts the plate on the row of
-    // ListCursorRow `row`; the first of a hover keeps the row that held
-    // the selection.
+    // A hover that `hoverTakes` let through puts the plate on `row`; the
+    // first of a hover keeps the ListCursorRow of the row that held the
+    // selection. A list whose rows are not rows of qs.Ui, such as the
+    // launcher's, calls it from its own pointer path and keeps what it
+    // hands back itself, on `pointerLeft()`.
     function hover(row) {
         if (!state.hovering) {
             state.hovering = true;
             state.restore = state.target !== null && state.holder !== null && state.holder.parent === state.target ? state.holder : null;
         }
-        if (chainOf(row.parent) !== null) state.hovered = row.parent;
+        if (chainOf(row) !== null) state.hovered = row;
     }
 
     function pointerLeave() {
@@ -210,10 +216,7 @@ Item {
         parentHovered = parent === null ? null : parentHover.createObject(parent);
     }
 
-    readonly property var chain: {
-        const row = state.hovered !== null ? state.hovered : state.target;
-        return row === null ? [] : chainOf(row) ?? [];
-    }
+    readonly property var chain: placed === null ? [] : chainOf(placed) ?? []
     onChainChanged: place()
 
     Instantiator {

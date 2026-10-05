@@ -12,9 +12,9 @@ import qs.Unit
 // hover moves the selection only once the pointer moved since the cursor
 // was disarmed; the plate sits on the row under the pointer, goes back to
 // the selection when the pointer leaves the list or a key disarms it, and
-// a pick list's selection goes back to the row that held it; a disabled
-// row takes no plate; an active row keeps the accent; a row in a cursor
-// list draws no fill of its own and enters staggered, and stands in place
+// a pick list's selection goes back to the row that held it unless a
+// click chose the hovered row; a disabled row takes no plate; an active
+// row keeps the accent; a row in a cursor list draws no fill of its own and enters staggered, and stands in place
 // at once while motion is stilled; a plugin's own background and bezier
 // step are taken.
 Item {
@@ -259,6 +259,18 @@ Item {
             compare(root.current, 1, "leaving hands the selection back to the row that held it");
             verify(plate.target === row(1) && plate.hovered === null);
             compare(plate.y, rows.y + row(1).y);
+        }
+
+        // A click chooses the row under the pointer: leaving keeps it.
+        function test_a_click_keeps_the_pointer_choice_when_it_leaves() {
+            root.current = 1;
+            plate.arm();
+            mouseMove(row(3), 20, 10);
+            compare(root.current, 3);
+            mouseClick(row(3), 20, 10);
+            mouseMove(root, 390, 590);
+            compare(root.current, 3, "leaving after a click keeps the clicked row");
+            verify(plate.target === row(3) && plate.hovered === null);
         }
 
         // A key disarms the pointer: the plate shows the keyboard's

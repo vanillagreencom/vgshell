@@ -180,8 +180,7 @@ Item {
         onEntered: row.launcher.selectFromPointer(row.index, row, { x: mouseX, y: mouseY })
         onPositionChanged: mouse => row.launcher.selectFromPointer(row.index, row, mouse)
         onClicked: mouse => {
-            row.launcher.cursorActive = true;
-            row.launcher.selectedIndex = row.index;
+            row.launcher.selectFromClick(row.index);
             if (mouse.button === Qt.RightButton) {
                 if (row.kind === "file" || row.kind === "folder") {
                     const at = mapToItem(row.launcher, mouse.x, mouse.y);

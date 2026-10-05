@@ -4,7 +4,8 @@
 # contrast that proves the reader sees motion; at motion.scale 0 it lands at
 # once, with no reading between; at the shipped motion a hover moves the
 # Settings list's plate on its first frame and rests it within a ceiling
-# the old travel misses. The rows run with the plugins disabled as the rows
+# the old travel misses, and the launcher's selection goes back to the
+# keys' row when the pointer leaves the list. The rows run with the plugins disabled as the rows
 # before left them, and leave them so, with the default theme.
 # inputs: shell/Ui/layout/ListCursor* shell/Ui/layout/ListItem.qml shell/Commons/Tokens.js scripts/smoke/fixtures/list-cursor/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/plugins/vgs.launcher/*
 set -euo pipefail
@@ -72,8 +73,9 @@ expect "disabling the Settings plugin after the list motion is allowed" ok ipc s
 # does, until the selection takes the row, then waits for the plate to
 # rest, and prints the milliseconds from the selection to the first frame
 # that moved the plate and to the first frame that shows it at rest, or a
-# word naming what it missed: `late` when a frame after the selection
-# still drew the plate where it stood. On host cachy on 2026-10-05, nested
+# word naming what it missed: `late` when neither of the first two frames
+# swapped after the selection moved the plate. The first may have been
+# drawn before the selection and only swapped after it. On host cachy on 2026-10-05, nested
 # frames 33 ms apart, main 85858b4 (travel 250 ms outQuint) read the rest
 # at 166 to 193 ms over 16 hovers and the first moved frame 4 to 37 ms
 # after the selection; the ceiling sits under the old travel's lowest
@@ -106,14 +108,16 @@ before = [f for f in frames if f[0] < t0]
 start = before[-1][1] if before else moves[0][1]
 after = [f for f in frames if f[0] >= t0]
 if not after: print("undrawn"); sys.exit()
-if abs(after[0][1] - start) < 0.5: print("late"); sys.exit()
+moved = [f for f in after[:2] if abs(f[1] - start) >= 0.5]
+if not moved: print("late"); sys.exit()
 rest = [f for f in after if abs(f[1] - final) < 0.5]
-print("%d %s" % (after[0][0] - t0, (rest[0][0] - t0) if rest else "unrested"))
+print("%d %s" % (moved[0][0] - t0, (rest[0][0] - t0) if rest else "unrested"))
 PY
 }
 # hover_readings N: N hover_travel readings, alternating the second row and
 # the first, one per line; hover_verdict: `fast` when every reading moved
-# on its first frame and rested within the ceiling, else the readings.
+# on its first frame and rested within the ceiling, `slow` when every
+# reading was read and one rested past it, else `unread`.
 hover_readings() {
   local n
   for n in $(seq 1 "$1"); do
@@ -128,8 +132,8 @@ hover_verdict() {
 import sys
 ceiling = int(sys.argv[1])
 rows = [line.split() for line in sys.argv[2].splitlines() if line.strip()]
-ok = len(rows) == 6 and all(len(r) == 2 and r[1].isdigit() and int(r[1]) <= ceiling for r in rows)
-print("fast" if ok else "slow")
+if len(rows) != 6 or not all(len(r) == 2 and r[0].isdigit() and r[1].isdigit() for r in rows): print("unread")
+else: print("fast" if all(int(r[1]) <= ceiling for r in rows) else "slow")
 PY
 }
 
@@ -141,7 +145,7 @@ expect_poll "the Settings list's cursor holds a row for the hover travel" true i
 expect "the probe builds the cursor frame trace" ok ipc smoke popupLoad cursor-frames "$hover_fixture" window vgs.settings '{"host":"@instance"}'
 hover_rows="$(ipc smoke itemTexts window vgs.settings ListItem)" || hover_rows='[]'
 for hover_row in 0 1; do
-  hover_name="$(py_reply "import json,sys; r=json.load(sys.stdin); print(r[$hover_row][0] if len(r) > $hover_row else '')" <<<"$hover_rows")" || hover_name=""
+  hover_name="$(py_reply 'import json,sys; r=json.load(sys.stdin); i=int(sys.argv[1]); print(r[i][0] if len(r) > i else "")' "$hover_row" <<<"$hover_rows")" || hover_name=""
   read -r "hover_x[$hover_row]" "hover_y[$hover_row]" < <(at_centre window:Settings "$(ipc smoke windowGeometry window vgs.settings ListItem "$hover_name")") || fail "the Settings list's row $hover_row is unplaced: ${hover_name:-unread}"
 done
 if [[ -n ${hover_x[0]:-} && -n ${hover_x[1]:-} ]]; then
@@ -174,6 +178,22 @@ render expect "the launcher's cursor travels to the next row under a slowed scal
 write_motion_theme '{ "schemaVersion": 1, "name": "still", "tokens": { "motion": { "scale": 0 } } }'
 expect_poll "motion scale 0 reaches the launcher's list motion" 0 launcher_travel
 expect "at motion scale 0 the launcher's cursor lands on the row at once" still glide_seen overlay vgs.launcher Down
+# The pointer takes another category and leaves the card: the launcher's
+# selection goes back to the row the keys left it on. The hovered reading
+# is the contrast.
+launcher_index() { ipc smoke readInstance overlay vgs.launcher selectedIndex; }
+launcher_keyed="$(launcher_index)" || launcher_keyed=""
+launcher_other=0; [[ $launcher_keyed == 0 ]] && launcher_other=1
+launcher_texts="$(ipc smoke itemTexts overlay vgs.launcher LauncherRow)" || launcher_texts='[]'
+launcher_name="$(py_reply 'import json,sys; r=json.load(sys.stdin); i=int(sys.argv[1]); print(r[i][0] if len(r) > i and r[i] else "")' "$launcher_other" <<<"$launcher_texts")" || launcher_name=""
+if [[ $launcher_keyed =~ ^[0-9]+$ ]] && read -r lx ly < <(at_centre vgs:overlay "$(ipc smoke windowGeometry overlay vgs.launcher LauncherRow "$launcher_name")"); then
+  hover "$((lx - 6))" "$ly"; hover "$lx" "$ly"
+  expect_poll "a hover moves the launcher's selection to $launcher_name" "$launcher_other" launcher_index
+  rest_pointer || fail "moving the pointer off the launcher failed"
+  expect_poll "with the pointer off the list the launcher's selection is back on the keys' row" "$launcher_keyed" launcher_index
+else
+  fail "the launcher's row ${launcher_name:-unread} is unplaced, or its selection ${launcher_keyed:-unread} unread"
+fi
 type_keys -k Escape -k Escape || fail "closing the launcher failed"
 expect_poll "the launcher closes after the list motion" 0 layer_count vgs:overlay
 expect "disabling the launcher after the list motion is allowed" ok ipc shell setPluginEnabled vgs.launcher false

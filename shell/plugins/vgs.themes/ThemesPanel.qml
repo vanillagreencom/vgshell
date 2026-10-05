@@ -317,9 +317,11 @@ Item {
             }
         ]
 
+        // In the item that holds the theme rows alone, so the pointer on
+        // the wallpaper buttons is off the list.
         ListCursor {
             id: themeCursor
-            parent: layout.scrollArea.contentItem
+            parent: themeList
         }
 
         // focus-indicator: the ListCursor plate marks the selected theme row.

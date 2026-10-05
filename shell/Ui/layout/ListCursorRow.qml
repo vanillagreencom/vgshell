@@ -32,7 +32,7 @@ HoverHandler {
 
     onPointChanged: {
         if (!hovered || !takes || !cursor.hoverTakes(point.scenePosition)) return;
-        cursor.hover(root);
+        cursor.hover(parent);
         pointed();
     }
 }
