@@ -1,0 +1,34 @@
+# Attribution
+
+The tray's behaviour and the stand-in tray app of its smoke row are adapted from Omarchy.
+
+- Source repository: <https://github.com/basecamp/omarchy>
+- Version: release v4.0.4, and the behaviour of `main` at commit `821ae589059ffdadc970315f866c94b55d268af7` where the two differ.
+- Files:
+  - `shell/plugins/bar/widgets/Tray.qml` and `shell/plugins/bar/widgets/TrayModel.js`: the bucket rule, the drawer, the manage popup and the menu with its submenu levels, adapted in `Widget.qml`, `TrayButton.qml`, `TrayMenu.qml`, `ManageRow.qml`, `TrayIcon.qml` and `TrayLogic.js`.
+  - `test/shell.d/fixtures/tray-menu-activation/mock-sni.py`: adapted as `scripts/smoke/fixtures/tray/mock-sni.py`, which carries this notice in its header.
+  - `test/shell.d/tray-test.sh` and `test/shell.d/tray-menu-test.sh`: the checks `scripts/smoke/rows/tray.sh` and `scripts/test-tray-logic.js` follow.
+- Licence: MIT.
+
+```text
+Copyright (c) David Heinemeier Hansson
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```

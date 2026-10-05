@@ -189,6 +189,7 @@ rows=(
   "logic|network snapshot decisions|node scripts/test-network-logic.js|shell/plugins/vgs.network/NetworkLogic.js bin/lib/qml-library.js"
   "logic|network QR secret transport controls|python3 scripts/test-network-share.py|shell/plugins/vgs.network/bin/share-qr scripts/smoke/fixtures/devices/network-qr-tools.py"
   "logic|VPN decisions|node scripts/test-vpn-logic.js|shell/plugins/vgs.vpn/VpnLogic.js scripts/fixtures/vpn/* bin/lib/qml-library.js"
+  "logic|tray decisions|node scripts/test-tray-logic.js|shell/plugins/vgs.tray/TrayLogic.js bin/lib/qml-library.js"
   "logic|plugin logic table|node scripts/test-plugin-logic.js|shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js bin/lib/qml-library.js config/shell.json config/requirements.json"
   "logic|pads and list settings judge|node scripts/test-pads.js|shell/Core/Pads.js shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js bin/lib/qml-library.js"
   "logic|plugin status judge|node scripts/test-plugin-status.js|shell/plugins/vgs.jarvis/manifest.json shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js bin/lib/qml-library.js"

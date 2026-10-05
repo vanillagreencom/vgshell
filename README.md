@@ -84,6 +84,7 @@ VGS starts with Hyprland and draws the bar, panels and windows on each screen. E
 | [Sound](shell/plugins/vgs.sound/README.md) | Set the volume, the sound devices and each app's volume. |
 | [System](shell/plugins/vgs.system/README.md) | Sound, displays, network and other system settings in one window. |
 | [Themes](shell/plugins/vgs.themes/README.md) | Choose themes and wallpapers. |
+| [Tray](shell/plugins/vgs.tray/README.md) | Show the tray icons of your apps in the bar, with their menus. |
 | [Updates](shell/plugins/vgs.updates/README.md) | Update your system, VGS, plugins, themes and tools. |
 | [Voice](shell/plugins/vgs.voice/README.md) | Dictate into the focused field and see the recording state in the bar. |
 | [VPN](shell/plugins/vgs.vpn/README.md) | Connect Tailscale and choose an exit node. |

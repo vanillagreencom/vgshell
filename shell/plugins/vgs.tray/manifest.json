@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "id": "vgs.tray",
+  "name": "Tray",
+  "version": "0.1.0",
+  "author": "VanillaGreen",
+  "description": "Show the tray icons of your apps in the bar, with their menus.",
+  "license": "MIT",
+  "icon": "inbox",
+  "kinds": ["bar-widget", "service"],
+  "entryPoints": { "bar-widget": "Widget.qml", "service": "Service.qml" },
+  "capabilities": ["configure", "ipc", "status"],
+  "defaultSection": "right",
+  "settings": {
+    "pinned": [],
+    "hidden": []
+  },
+  "schema": {
+    "pinned": {
+      "type": "list",
+      "label": "Pinned icons",
+      "description": "These icons always show in the bar. The others wait behind the arrow.",
+      "items": {
+        "item": { "type": "string", "label": "Icon", "description": "The app whose tray icon stays in the bar.", "optionsFrom": "items" }
+      },
+      "defaults": { "item": "" }
+    },
+    "hidden": {
+      "type": "list",
+      "label": "Hidden icons",
+      "description": "These icons never show in the bar.",
+      "items": {
+        "item": { "type": "string", "label": "Icon", "description": "The app whose tray icon stays out of the bar.", "optionsFrom": "items" }
+      },
+      "defaults": { "item": "" }
+    }
+  },
+  "status": {
+    "items": { "type": "choices", "label": "Tray icons" }
+  }
+}
