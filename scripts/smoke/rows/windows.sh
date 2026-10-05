@@ -19,7 +19,7 @@
 # and the manifests' list holds Updates and not Themes. The row enables the
 # Settings plugin and leaves it disabled, each other window's plugin as it
 # found it, hyprland.lua as it found it and no window open.
-# inputs: shell/plugins/vgs.settings/* shell/plugins/*/manifest.json shell/Commons/Reply.js shell/plugins/vgs.themes/* shell/Hosts/AppWindow.qml shell/Core/HyprlandLayer.js scripts/smoke/toplevel/* scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/plugins/vgs.settings/* shell/plugins/*/manifest.json shell/plugins/vgs.automations/* shell/plugins/vgs.devtools/* shell/plugins/vgs.gallery/* shell/plugins/vgs.keyhints/* shell/plugins/vgs.system/* shell/plugins/vgs.updates/* shell/Commons/Reply.js shell/plugins/vgs.themes/* shell/Hosts/AppWindow.qml shell/Core/HyprlandLayer.js scripts/smoke/toplevel/* scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 windows_lua="$home/.config/hypr/hyprland.lua"
 cp -- "$windows_lua" "$sandbox/hyprland-before-windows.lua"

@@ -367,6 +367,20 @@ Item {
             odd.destroy();
         }
 
+        // New actions rebuild the buttons, so none holds the focus.
+        function test_enter_rejects_once_the_actions_become_one_cancel_action() {
+            const held = Qt.createQmlObject("import qs.Ui\nDialog { actions: [{ label: \"Decline\", role: \"cancel\" }, { label: \"Pair\", role: \"accept\" }] }", root);
+            const spy = Qt.createQmlObject("import QtTest\nSignalSpy { signalName: \"rejected\" }", root);
+            spy.target = held;
+            held.forceActiveFocus();
+            held.actions = [{ label: "OK", role: "cancel" }];
+            compare(held.acceptIndex, -1);
+            keyClick(Qt.Key_Return);
+            compare(spy.count, 1);
+            spy.destroy();
+            held.destroy();
+        }
+
         // expected-log: Dialog: no action of role cancel among ["Go"] -- the test builds a dialog with no cancel action on purpose
         function test_actions_without_a_cancel_action_are_logged() {
             const stuck = Qt.createQmlObject("import qs.Ui\nDialog { actions: [{ label: \"Go\", role: \"accept\" }] }", root);

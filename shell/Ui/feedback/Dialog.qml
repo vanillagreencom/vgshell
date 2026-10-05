@@ -30,10 +30,11 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // initial focus item when the list does not hold it, other focusable
 // content and the enabled actions, and wrap while `modal` holds. Enter and
 // Return press the focused action, or a focused item with a `clicked`
-// signal, such as a disclosure's toggle, or else the accept action, the
-// initial focus item included when it leaves the key unaccepted, and Escape
-// rejects while `modal` holds. While `busy` holds, every action is disabled,
-// a Spinner turns beside them, and no key and no press answers.
+// signal, such as a disclosure's toggle, or else the accept action, or the
+// first enabled action when none accepts, the initial focus item included
+// when it leaves the key unaccepted, and Escape rejects while `modal`
+// holds. While `busy` holds, every action is disabled, a Spinner turns
+// beside them, and no key and no press answers.
 FocusScope {
     id: root
 
@@ -122,7 +123,8 @@ FocusScope {
             return;
         }
         const focused = buttons().findIndex(button => button.activeFocus);
-        trigger(focused !== -1 ? focused : acceptIndex);
+        if (focused !== -1) trigger(focused);
+        else trigger(acceptIndex !== -1 ? acceptIndex : entries.findIndex(entry => entry.enabled));
     }
 
     function shown(item) {
