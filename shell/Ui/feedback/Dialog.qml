@@ -18,7 +18,9 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // action never accepts. `variant` names a Button variant, by default
 // `primary` for an accept action and `tertiary` for a cancel action;
 // `enabled` is true unless stated false. The first accept action is the
-// accept action.
+// accept action. A dialog with actions always offers a way out: at least
+// one of them has role `cancel`, with the label its caller chose for the
+// message, and a list without one is logged.
 //
 // The accept action takes the focus each time the dialog does, or
 // `initialFocus` when set: an enabled item of the content that takes typing,
@@ -46,7 +48,7 @@ FocusScope {
     // screen height, so the cap remains relative to the surface it draws on.
     property real availableHeight: 0
     default property alias content: body.data
-    readonly property var entries: actions.map(entryOf)
+    readonly property var entries: dismissable(actions.map(entryOf))
     readonly property int acceptIndex: entries.findIndex(entry => entry.role === "accept")
     readonly property real maximumHeight: {
         const height = availableHeight > 0 ? availableHeight : root.screenHeight();
@@ -68,6 +70,13 @@ FocusScope {
             variant: action.variant !== undefined ? action.variant : role === "accept" ? "primary" : "tertiary",
             enabled: action.enabled !== false
         };
+    }
+
+    // `list` as given, logged when it has actions and none of role `cancel`.
+    function dismissable(list) {
+        if (list.length > 0 && !list.some(entry => entry.role === "cancel"))
+            console.error("Dialog: no action of role cancel among " + JSON.stringify(list.map(entry => entry.label)));
+        return list;
     }
 
     function screenHeight() {

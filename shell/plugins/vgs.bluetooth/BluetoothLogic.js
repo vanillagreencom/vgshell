@@ -421,11 +421,12 @@ function pairText(state) {
 // Each prompt of the pairing dialog, by kind: the agent's request kinds
 // (docs/architecture/bluetooth-agent.md § Requests) and `rename`. `field`
 // is what the dialog's text field takes, "" for no field; `accept` how
-// Pair, Allow, OK or Rename answers: `true`, the field's text, the field's
+// Pair, Allow or Rename answers: `true`, the field's text, the field's
 // number, or the field's name (`alias`); `dismiss` the value Cancel,
-// Decline or Escape sends the agent, and `cancels` whether it ends the
-// pairing. `actions` are the Dialog's, the accept action last; its
-// `needsField` is disabled while the field is empty.
+// Decline, OK or Escape sends the agent, and `cancels` whether it ends the
+// pairing. `actions` are the Dialog's, each kind with one of role
+// `cancel` and the accept action last; its `needsField` is disabled while
+// the field is empty.
 var PROMPTS = {
     "confirm": {
         field: "", accept: "true", dismiss: false, cancels: true,
@@ -461,7 +462,7 @@ var PROMPTS = {
         field: "", accept: "true", dismiss: true, cancels: false,
         title: function (who, entry) { return "Pairing was canceled"; },
         message: function (who, entry) { return "The other device ended pairing."; },
-        actions: [{ label: "OK", role: "accept" }]
+        actions: [{ label: "OK", role: "cancel" }]
     },
     "rename": {
         field: "Name", accept: "alias", dismiss: null, cancels: false,

@@ -384,6 +384,7 @@ function verifyPrompts(logic) {
         assert.ok(view.title.length > 0 && view.message.length > 0, "prompt " + kind + ": a title and a message");
         same(logic.promptAccept(kind, text, utf8Bytes), accepted, "prompt " + kind + ": its accept answer");
         same(logic.promptDismiss(kind), dismissed, "prompt " + kind + ": its dismissal");
+        assert.ok(view.actions.some(a => a.role === "cancel"), "prompt " + kind + ": an action that dismisses it");
     }
     assert.ok(logic.promptView("confirm", "Phone", entry("confirm", { code: "004821" }), "").message.includes("004821"), "a confirm prompt shows its code");
     assert.ok(logic.promptView("passkey-display", "Phone", entry("passkey-display", { code: "246810", entered: 2 }), "").message.includes("246810"), "a code to type shows the code");
@@ -504,6 +505,7 @@ const controls = [
     ["a paired event needs a pairing", "        if (!pairActive(state)) return { state: state, effects: [] };\n        return { state: pairWith(state, { phase: \"done\" })", "        return { state: pairWith(state, { phase: \"done\" })", "a device paired with no pairing running does nothing"],
     ["a dismissed code to type is answered true", '"passkey-display": {\n        field: "", accept: "true", dismiss: true,', '"passkey-display": {\n        field: "", accept: "true", dismiss: false,', "prompt passkey-display: its dismissal"],
     ["a dismissed cancel ends no pairing", 'field: "", accept: "true", dismiss: true, cancels: false,', 'field: "", accept: "true", dismiss: true, cancels: true,', "prompt cancel: its dismissal"],
+    ["the cancel prompt's OK dismisses it", 'actions: [{ label: "OK", role: "cancel" }]', 'actions: [{ label: "OK", role: "accept" }]', "prompt cancel: an action that dismisses it"],
     ["a passkey is a number", 'case "number":\n        if (!/^[0-9]{1,6}$/.test(fieldText)) return { error: "Enter a number from 0 to 999999." };\n        return { answer: Number(fieldText) };', 'case "number":\n        return { answer: fieldText };', "prompt passkey-entry: its accept answer"],
     ["an accept that needs the field is disabled while it is blank", "enabled: !(action.needsField === true && blank)", "enabled: true", "a blank PIN disables Pair"],
     ["an empty name is refused as empty", 'if (value === "") return { refused: "empty" };', "", "an empty name is refused as empty"],

@@ -10,7 +10,8 @@ import qs.Unit
 // pressing the focused action or the accept action, Escape rejecting; Tab
 // and Backtab cycling the enabled actions with the ring and never leaving
 // the dialog; a press answering with the action's role; the default
-// variant per role and an unknown role read as cancel; `busy` and a
+// variant per role and an unknown role read as cancel; actions with no
+// cancel action logged, and with one, or no action at all, not; `busy` and a
 // disabled action answering nothing and fading; content under the message;
 // an initial focus field taking the focus and the typing, its Enter and
 // Escape answering and Tab cycling through it; a Select listed in
@@ -364,6 +365,23 @@ Item {
             compare(spy.count, 1);
             spy.destroy();
             odd.destroy();
+        }
+
+        // expected-log: Dialog: no action of role cancel among ["Go"] -- the test builds a dialog with no cancel action on purpose
+        function test_actions_without_a_cancel_action_are_logged() {
+            const stuck = Qt.createQmlObject("import qs.Ui\nDialog { actions: [{ label: \"Go\", role: \"accept\" }] }", root);
+            compare(stuck.entries.length, 1);
+            compare(stuck.acceptIndex, 0);
+            stuck.destroy();
+        }
+
+        // Any log fails the file, so these two build clean or not at all.
+        function test_a_cancel_action_or_no_action_is_not_logged() {
+            for (const actions of ["[{ label: \"Go\", role: \"accept\" }, { label: \"Close\", role: \"cancel\" }]", "[]"]) {
+                const fine = Qt.createQmlObject("import qs.Ui\nDialog { actions: " + actions + " }", root);
+                compare(fine.entries.length, actions === "[]" ? 0 : 2);
+                fine.destroy();
+            }
         }
 
         function test_busy_disables_the_actions_and_answers_nothing() {

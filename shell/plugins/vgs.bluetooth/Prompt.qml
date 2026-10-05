@@ -8,7 +8,7 @@ import "BluetoothLogic.js" as Logic
 // bluetooth-agent.md § Requests), else a rename. BluetoothLogic.PROMPTS
 // holds each kind's title, message, field and actions, and promptAccept
 // turns the field into the answer, which goes out as `answered`; Cancel,
-// Decline, Escape and a click on the scrim emit `dismissed`. The Dialog
+// Decline, OK, Escape and a click on the scrim emit `dismissed`. The Dialog
 // owns Enter, and refuses an accept action its field leaves disabled.
 //
 // The agent lists a new copy of its prompts after every line bluetoothctl
