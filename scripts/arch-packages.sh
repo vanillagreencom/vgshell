@@ -104,7 +104,7 @@ git init -q --bare "$scratch/in/srcrepo.git" || refuse 1 "git=init path=$scratch
 git -C "$repo" push -q "$scratch/in/srcrepo.git" "$commit:refs/heads/main" 'refs/tags/*:refs/tags/*' ||
   refuse 1 "git=push path=$scratch/in/srcrepo.git"
 # Without it the server ignores --filter=blob:none and sends every blob.
-git -C "$scratch/in/srcrepo.git" config uploadpack.allowFilter true || refuse 1 "git=config path=$scratch/in/srcrepo.git"
+git --git-dir="$scratch/in/srcrepo.git" config uploadpack.allowFilter true || refuse 1 "git=config path=$scratch/in/srcrepo.git"
 
 # Copy a recipe, replacing the one match of PATTERN with REPLACEMENT.
 recipe_copy() { # RECIPE PATTERN REPLACEMENT

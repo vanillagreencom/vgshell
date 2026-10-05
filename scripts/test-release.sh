@@ -114,12 +114,13 @@ key_line() { sed -i "s/^  release_key=.*/  release_key=\"$1\"/" "$r/install.sh" 
 # $tmp/err, the exit status in $status; the stubs' records start empty.
 # RUN_SECRET replaces the key the stub gpg holds. run ARGS... runs
 # $r/scripts/release.
+run_git_env=()
 run_file() {
   rm -rf -- "${record:?}"/*
   status=0
   env -i PATH="$stubs:$base_path" HOME="$h" GIT_CONFIG_NOSYSTEM=1 GNUPGHOME="$gnupg" TMPDIR="$scratch" \
     STUB_RECORD="$record" STUB_GPG_SECRET="${RUN_SECRET-$fpr}" STUB_GPG_FAIL="${RUN_GPG_FAIL:-}" STUB_GH_EXIT="${RUN_GH_EXIT:-0}" \
-    bash "$@" >"$tmp/out" 2>"$tmp/err" </dev/null || status=$?
+    "${run_git_env[@]}" bash "$@" >"$tmp/out" 2>"$tmp/err" </dev/null || status=$?
 }
 run() { run_file "$r/scripts/release" "$@"; }
 first_err() { local line=""; [[ -s $tmp/err ]] && IFS= read -r line <"$tmp/err"; printf '%s' "$line"; }
@@ -222,6 +223,25 @@ parity_row() { # BUILDER CHANNEL [SCRIPT]: the tarball CHANNEL hands its contain
   [[ -z $recipe ]] || grep -qxF -- "${pin//%s/$sum}" "$record/mount/$recipe"
 }
 
+# The Copilot harness sets this protected git option in its tool shells.
+# Exercise both the host runner and the generated recipe's real clone.
+arch_bare_row() { # SCRIPT
+  local result=0 head
+  run_git_env=(GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.bareRepository GIT_CONFIG_VALUE_0=explicit)
+  parity_row "$builder" arch "$1" || result=$?
+  if [[ $result == 0 ]]; then
+    head="$(g -C "$r" rev-parse HEAD)" &&
+      sed "s|file:///build/srcrepo.git|file://$record/mount/srcrepo.git|" \
+      "$record/mount/vgshell-git/PKGBUILD" >"$tmp/arch-PKGBUILD" &&
+      mkdir -p "$r/clone-src" &&
+      env -i PATH="$base_path" HOME="$h" GIT_CONFIG_NOSYSTEM=1 "${run_git_env[@]}" \
+        bash -c 'source "$1"; srcdir="$2"; prepare && [[ $(git -C "$srcdir/vgshell" rev-parse HEAD) == "$3" ]]' \
+        _ "$tmp/arch-PKGBUILD" "$r/clone-src" "$head" || result=$?
+  fi
+  run_git_env=()
+  return "$result"
+}
+
 # Refusals before anything is written: name | the fixture change | the
 # arguments | exit status | the first stderr line, %r the repository and
 # %h its HEAD. Each leaves no dist/ and calls no gh.
@@ -275,6 +295,7 @@ check "a failed gh refuses" gh_failure_row "$script"
 for name in $(printf '%s\n' "${!channels[@]}" | LC_ALL=C sort); do
   check "parity: the $name build hands its container the release asset of its commit" parity_row "$builder" "$name"
 done
+check "Arch host preparation and recipe clone accept explicit bare repositories" arch_bare_row "$repo/scripts/arch-packages.sh"
 for name in $(printf '%s\n' "${!refusals[@]}" | LC_ALL=C sort); do
   check "refusal: $name" refusal_row "$script" "$name"
 done
@@ -313,6 +334,15 @@ PY
 check "the dry run on this working tree builds an archive that installs" real_tree_row
 
 echo "controls"
+copy_with arch-bare "$repo/scripts/arch-packages.sh" \
+  'git --git-dir="$scratch/in/srcrepo.git" config' 'git -C "$scratch/in/srcrepo.git" config'
+if arch_bare_row "$copy" >/dev/null; then
+  fail "control: implicit bare repository passed the Arch row"
+elif [[ $status == 1 ]] && grep -q '^arch-packages: refused: git=config path=' "$tmp/out"; then
+  ok "control: implicit bare repository fails at host config"
+else
+  fail "control: implicit bare repository failed outside host config"
+fi
 # rule NAME ROW NEEDLE REPLACEMENT [ROW_ARG]: a copy of the script without
 # one rule, NEEDLE replaced, on which ROW must fail.
 rule() {
