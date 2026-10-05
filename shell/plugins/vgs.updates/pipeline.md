@@ -10,27 +10,40 @@ Both take `-y`, which skips the start question only. They share `tui/pipeline.sh
 1. The log and the lock. `script` writes the run to `${XDG_STATE_HOME}/vgshell/updates/update.log`. The lock is `${XDG_RUNTIME_DIR}/vgs-tui-updates.lock`. A second run exits 75 and leaves the first run's log as it is.
 2. A warning when `/` has less than 10 GiB free.
 3. The plan box: the snapshot tool, each source with the commands it runs, and the log path. Then `Start the update?`, unless `-y`.
-4. One sudo session, when a snapshot or the system step needs root and the elevation command is `sudo`. `vgshell pkg run` joins it, so the password is asked once. The elevation command is the one `vgshell pkg plan upgrade <primary>` names: `packages.elevate` in `shell.json`, else the first of `sudo`, `doas` and `run0` on `PATH`. `doas` and `run0` ask as their own rules say.
-5. A snapshot through snapper, else timeshift, behind the elevation command. It comes before any step that replaces a package: the system upgrade, the AUR upgrade or the `vgshell-git` rebuild. No snapshot is taken when the `snapshot` setting is `off`, when neither tool is on `PATH` or when no elevation command resolves. The plan box says which. A tool that fails or has no configuration prints a warning, and the update continues without a snapshot.
-6. VGS itself: `vgshell self update` for a checkout or a curl install. It restarts a running shell. The `vgs` package updates with its package manager, and a Nix tree with its flake.
-7. The system: `vgshell pkg run upgrade --manager <primary>`.
-8. Flatpak and mise: `vgshell pkg run upgrade --manager flatpak`, then `--manager mise`.
-9. Each plugin, then each theme, that is behind its upstream: `vgshell plugin update <id>` and `vgshell theme update <name>`. Each shows its diff and asks `[y/N]`. The pipeline passes `--yes` only when `trustPluginUpdates` is on. A declined or failed update prints a warning and the run continues.
-10. The end of the sudo session. The credential is dropped.
-11. The AUR, last: the `aurCommand` setting's words, else `vgshell pkg run upgrade --manager aur` (`paru -Sua` or `yay -Sua`). No AUR build runs under the update's credential. When VGS is the `vgshell-git` package and behind, `<helper> -S vgshell-git` follows, because an AUR helper rebuilds a `-git` package only when its recipe's version changes. The helper asks `sudo` itself. The credential it caches is dropped when this step ends, fails or is interrupted.
-12. On pacman, after a system or AUR upgrade, the orphaned packages from `pacman -Qtdq`, with `Remove N orphaned package(s)?`, default no. A yes runs `vgshell pkg run remove --manager pacman`.
-13. A shell restart, when a package step or the `vgshell-git` rebuild replaced the VGS package.
-14. A reboot question, when the kernel or the running Hyprland binary was replaced (`vgs_tui_reboot_check`).
+4. The review of third-party packages, when `reviewThirdParty` is on: [§ Third-party review](#third-party-review).
+5. One sudo session, when a snapshot or the system step needs root and the elevation command is `sudo`. `vgshell pkg run` joins it, so the password is asked once. The elevation command is the one `vgshell pkg plan upgrade <primary>` names: `packages.elevate` in `shell.json`, else the first of `sudo`, `doas` and `run0` on `PATH`. `doas` and `run0` ask as their own rules say.
+6. A snapshot through snapper, else timeshift, behind the elevation command. It comes before any step that replaces a package: the system upgrade, the AUR upgrade or the `vgshell-git` rebuild. No snapshot is taken when the `snapshot` setting is `off`, when neither tool is on `PATH` or when no elevation command resolves. The plan box says which. A tool that fails or has no configuration prints a warning, and the update continues without a snapshot.
+7. VGS itself: `vgshell self update` for a checkout or a curl install. It restarts a running shell. The `vgs` package updates with its package manager, and a Nix tree with its flake.
+8. The system: `vgshell pkg run upgrade --manager <primary>`.
+9. Flatpak and mise: `vgshell pkg run upgrade --manager flatpak`, then `--manager mise`.
+10. Each plugin, then each theme, that is behind its upstream: `vgshell plugin update <id>` and `vgshell theme update <name>`. Each shows its diff and asks `[y/N]`. The pipeline passes `--yes` only when `trustPluginUpdates` is on. A declined or failed update prints a warning and the run continues.
+11. The end of the sudo session. The credential is dropped.
+12. The AUR, last: the `aurCommand` setting's words, else `vgshell pkg run upgrade --manager aur` (`paru -Sua` or `yay -Sua`). No AUR build runs under the update's credential. When VGS is the `vgshell-git` package and behind, `<helper> -S vgshell-git` follows, because an AUR helper rebuilds a `-git` package only when its recipe's version changes. The helper asks `sudo` itself. The credential it caches is dropped when this step ends, fails or is interrupted.
+13. On pacman, after a system or AUR upgrade, the orphaned packages from `pacman -Qtdq`, with `Remove N orphaned package(s)?`, default no. A yes runs `vgshell pkg run remove --manager pacman`.
+14. A shell restart, when a package step or the `vgshell-git` rebuild replaced the VGS package.
+15. A reboot question, when the kernel or the running Hyprland binary was replaced (`vgs_tui_reboot_check`).
 
 Every package step is the package table's own plan, from `vgshell pkg plan upgrade <id>`. The steps take no `-y`, so each manager asks its own questions in the terminal. A package source without an upgrade plan, such as `nix`, is left out of the run with the reason in the plan box.
 
-With `-y`, the orphan list and the reboot reason are printed instead of asked.
+With `-y`, the orphan list and the reboot reason are printed instead of asked. The review's questions are still asked.
 
 A failing step stops the run. The terminal then shows `updates: failed exit=<n> log=<file>` and how to recover. The sudo session, or the guard around the AUR, drops the credential on the way out.
 
 The TUIs read the plugin's settings with `vgshell plugin settings vgs.updates`, since `shell.tui.open` hands a script no arguments. `bin/facts` reads each `vgshell` JSON answer for the shell script. It decides whether VGS, a plugin or a theme is behind through `UpdatesLogic.js`, as the service does.
 
 When a run ends, the service checks again ([README.md § Cadence](README.md#cadence)).
+
+## Third-party review
+
+When `reviewThirdParty` is on, an AI agent reviews the packages from outside the distribution's official repositories before any step installs them. The review covers pacman systems only.
+
+- **The agent.** `reviewCommand`, when set, runs as written: its words split on spaces, never through a shell. When it is empty, the agent `reviewAgent` names runs, else the first one on `PATH`, `claude` before `codex`, each with its default command. `UpdatesLogic.REVIEW_AGENTS` holds the table and `UpdatesLogic.reviewPlan` the choice. With no agent found, or a chosen agent that is not installed, the run takes no review.
+- **The packages.** The AUR's pending updates from `vgshell pkg check --json --source aur`, when the run takes the AUR. The system's pending updates from `vgshell pkg check --json --source pacman` that a repository of `pacman-conf --repo-list` holds, by `pacman -Sl <repository>`, when that repository is not official: `core`, `extra`, `multilib` and each `cachyos*` repository are (`UpdatesLogic.officialRepository`). Each such repository's servers and signature level come from `pacman-conf --repo`. With nothing pending, no review runs.
+- **The plan box** names the agent and the packages. A list that cannot be read is named there too, and counts as no verdict.
+- **The window.** After the start question and before the sudo session, the run makes `${XDG_RUNTIME_DIR}/vgshell/updates/review.<pid>`, mode 0700, by an exclusive `mkdir`. It writes `command`, one word a line, and `packages.txt` into it, and calls `vgshell ipc call vgs.updates invoke review <dir>`. The service opens the `review` TUI, `tui/review.sh <dir>`, with `shell.tui.run`, and writes `<dir>/ended` with the run's code when it ends. `tui/review.sh` holds `<dir>/review.lock`, writes `<dir>/started` and runs the command with the text of `review/third-party.md` as its last argument, from the directory. The agent has no install step and no elevation.
+- **The wait.** The run waits up to 60 s for `started` or `ended`, then for the lock, which is free once the agent exits or the user closes the window.
+- **The verdict.** The agent writes `<dir>/verdict`: `verdict clean`, or `verdict flagged` and one `flag <package> <concern>` line per flagged package. `UpdatesLogic.parseVerdict` judges it. A clean verdict goes on. Each flag asks `Skip <package>?`. A yes keeps the package out of its upgrade step and out of the `vgshell-git` rebuild: `vgshell pkg run upgrade --manager pacman|aur --ignore <name>...`, or the `aurCommand` words with `--ignore <name>` per package. A no stops the run, which exits 0. No verdict file, or any other text, asks `Continue without a review?`, default no, and a no stops the run.
+- The run removes the directory once it has read the verdict, and when it exits.
 
 ## Scope
 

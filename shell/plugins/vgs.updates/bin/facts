@@ -1,9 +1,12 @@
 #!/usr/bin/env node
-// vgs.updates facts: reads one vgshell JSON answer on stdin and prints the
-// facts the update pipeline, tui/pipeline.sh, acts on, one `<key> <value>`
-// line each, so bash never parses JSON. Whether VGS, a plugin or a theme
-// is behind is UpdatesLogic.js's decision, the one the service counts
-// with, loaded through the core's qml-library loader.
+// vgs.updates facts: reads one answer on stdin, a vgshell JSON answer or
+// the text a verb names, and prints the facts the update pipeline,
+// tui/pipeline.sh, acts on, one `<key> <value>` line each, so bash never
+// parses JSON. Whether VGS, a plugin or a theme is behind, which agent
+// reviews third-party packages and what its verdict says are
+// UpdatesLogic.js's decisions, the ones the service acts on too, loaded
+// through the core's qml-library loader. A command is found on PATH as
+// bin/lib/judge-files.js, beside the loader, finds it.
 //
 //   facts <loader> detect           `vgshell pkg detect --json`
 //       `primary <id>` when a primary serves the system, then
@@ -24,6 +27,23 @@
 //       `error <text>` naming each checkout whose probe failed
 //   facts <loader> settings         `vgshell plugin settings vgs.updates`
 //       `aur-command <text>`, `snapshot auto|off`, `trust true|false`
+//   facts <loader> review           `vgshell plugin settings vgs.updates`
+//       the review UpdatesLogic.reviewPlan answers with the agents on
+//       PATH: `review <state>`, `agent <id>` when it names one, `label
+//       <text>` when it has one, then `word <word>` per word of its command
+//   facts <loader> agents           no stdin
+//       `agent <id>` per agent CLI of UpdatesLogic.REVIEW_AGENTS on PATH,
+//       in the table's order; the service runs this to offer them
+//   facts <loader> pending          `vgshell pkg check --json --source <id>`
+//       `pending <name> <old|?> <new>` per package of the one source row
+//   facts <loader> third-party <repository>...
+//                                   no stdin
+//       `third-party <repository>` per repository that is not official
+//   facts <loader> verdict <package>...
+//                                   the text of a review's verdict file
+//       `verdict clean|flagged`, then `flag <package> <concern>` per
+//       flagged package, or `verdict none` and `reason <error>` for text
+//       UpdatesLogic.parseVerdict refuses against the packages named
 //
 // Every refusal is one line on stderr, `updates-facts: refused: <key>=<value>`,
 // and exit 2 for a bad invocation, 1 for an answer it cannot read. A value
@@ -40,11 +60,20 @@ function refuse(first, status) {
 const [loaderPath, verb, source] = process.argv.slice(2);
 if (loaderPath === undefined || verb === undefined) refuse("arguments=want-loader-verb", 2);
 
-let answer;
-try {
-    answer = JSON.parse(fs.readFileSync(0, "utf8"));
-} catch (e) {
-    refuse(verb + "=unparseable", 1);
+// The answer on stdin, read only by the verbs that take one.
+function text() {
+    try {
+        return fs.readFileSync(0, "utf8");
+    } catch (e) {
+        refuse(verb + "=unreadable", 1);
+    }
+}
+function json() {
+    try {
+        return JSON.parse(text());
+    } catch (e) {
+        refuse(verb + "=unparseable", 1);
+    }
 }
 
 const lines = [];
@@ -59,15 +88,22 @@ function isObject(value) {
 function logic() {
     return require(loaderPath).load(path.join(__dirname, "..", "UpdatesLogic.js"));
 }
+// The ids of the review agents on PATH.
+function agentsFound(table) {
+    const { onPath } = require(path.join(path.dirname(loaderPath), "judge-files.js"));
+    return table.REVIEW_AGENTS.map(row => row.id).filter(onPath);
+}
 
 switch (verb) {
 case "detect": {
+    const answer = json();
     if (!isObject(answer) || !Array.isArray(answer.overlays) || !Array.isArray(answer.sources)) refuse("detect=malformed", 1);
     if (answer.primary !== null) line("primary", answer.primary.id);
     for (const row of answer.overlays.concat(answer.sources)) line("present", row.id + " " + row.binary);
     break;
 }
 case "plan": {
+    const answer = json();
     if (!isObject(answer) || typeof answer.elevate !== "boolean" || !Array.isArray(answer.steps)) refuse("plan=malformed", 1);
     // null exactly when the plan does not elevate, else the table's answer.
     const elevator = answer.elevator;
@@ -80,6 +116,7 @@ case "plan": {
     break;
 }
 case "self": {
+    const answer = json();
     if (!isObject(answer) || typeof answer.method !== "string") refuse("self=malformed", 1);
     const row = logic().normalizeSelf({ status: 0, stdout: JSON.stringify(answer), stderr: "" }, 0);
     line("method", answer.method);
@@ -90,11 +127,13 @@ case "self": {
     break;
 }
 case "owner": {
+    const answer = json();
     if (!isObject(answer) || typeof answer.version !== "string") refuse("owner=malformed", 1);
     line("version", answer.version);
     break;
 }
 case "outdated": {
+    const answer = json();
     if (source !== "plugins" && source !== "themes") refuse("outdated=" + (source || "missing"), 2);
     const row = logic().normalizeOutdated(source, { status: 0, stdout: JSON.stringify(answer), stderr: "" }, 0);
     if (row.count === null) refuse("outdated=" + source + " reason=" + row.error, 1);
@@ -103,12 +142,53 @@ case "outdated": {
     break;
 }
 case "settings": {
+    const answer = json();
     if (!isObject(answer) || typeof answer.aurCommand !== "string" || typeof answer.trustPluginUpdates !== "boolean"
         || (answer.snapshot !== "auto" && answer.snapshot !== "off"))
         refuse("settings=malformed", 1);
     line("aur-command", answer.aurCommand);
     line("snapshot", answer.snapshot);
     line("trust", answer.trustPluginUpdates);
+    break;
+}
+case "review": {
+    const answer = json();
+    if (!isObject(answer) || typeof answer.reviewThirdParty !== "boolean" || typeof answer.reviewAgent !== "string" || typeof answer.reviewCommand !== "string")
+        refuse("review=malformed", 1);
+    const table = logic();
+    const plan = table.reviewPlan(answer, agentsFound(table));
+    line("review", plan.state);
+    if (plan.agent !== null) line("agent", plan.agent);
+    if (plan.label !== "") line("label", plan.label);
+    for (const word of plan.command || []) line("word", word);
+    break;
+}
+case "agents": {
+    for (const id of agentsFound(logic())) line("agent", id);
+    break;
+}
+case "pending": {
+    const answer = json();
+    if (!Array.isArray(answer) || answer.length !== 1 || !isObject(answer[0]) || !Array.isArray(answer[0].packages)) refuse("pending=malformed", 1);
+    const row = answer[0];
+    if (row.error !== null) refuse("pending=" + row.source + " reason=" + row.error, 1);
+    for (const pkg of row.packages) line("pending", pkg.name + " " + (pkg.old === null ? "?" : pkg.old) + " " + pkg.new);
+    break;
+}
+case "third-party": {
+    const table = logic();
+    for (const repository of process.argv.slice(4)) if (repository !== "" && !table.officialRepository(repository)) line("third-party", repository);
+    break;
+}
+case "verdict": {
+    const judged = logic().parseVerdict(text(), process.argv.slice(4));
+    if (!judged.ok) {
+        line("verdict", "none");
+        line("reason", judged.error);
+        break;
+    }
+    line("verdict", judged.verdict);
+    for (const flag of judged.flags) line("flag", flag.name + " " + flag.concern);
     break;
 }
 default:

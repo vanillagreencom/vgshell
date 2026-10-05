@@ -33,6 +33,9 @@
 //   install, remove, upgrade
 //             the steps, each an argv template run in order; null when VGS
 //             plans none for the manager
+//   ignore    the option that keeps one package out of an upgrade, put
+//             with the package's name after each upgrade step once per
+//             package; null when VGS keeps none out for the manager
 //   owner     the query naming the package that owns a file, or null:
 //             { argv, read }, argv a template taking "{path}" and read the
 //             pattern whose first group is the package's name in the first
@@ -63,6 +66,7 @@ var MANAGERS = [
         install: [["{bin}", "-S", "--needed", "--", "{names}"]],
         remove: [["{bin}", "-Rns", "--", "{names}"]],
         upgrade: [["{bin}", "-Syu"]],
+        ignore: "--ignore",
         owner: { argv: ["{bin}", "-Qoq", "{path}"], read: /^(\S+)$/ },
         installed: { argv: ["{bin}", "-Q", "--", "{name}"], read: /^\S+ (?:[0-9]+:)?(\S+)-[^-\s]+$/ },
         removable: { argv: ["{bin}", "-Rs", "--print", "--", "{name}"] },
@@ -77,6 +81,7 @@ var MANAGERS = [
         install: [["{bin}", "-S", "--needed", "--", "{names}"]],
         remove: [["{bin}", "-Rns", "--", "{names}"]],
         upgrade: [["{bin}", "-Sua"]],
+        ignore: "--ignore",
         owner: null,
         installed: null,
         removable: null,
@@ -91,6 +96,7 @@ var MANAGERS = [
         install: [["{bin}", "install", "{names}"]],
         remove: [["{bin}", "remove", "{names}"]],
         upgrade: [["{bin}", "update"], ["{bin}", "full-upgrade"]],
+        ignore: null,
         owner: { argv: ["dpkg", "-S", "{path}"], read: /^([a-z0-9][a-z0-9+.-]*)(?::[a-z0-9-]+)?: / },
         installed: { argv: ["dpkg-query", "-W", "--showformat=${Version}\n", "--", "{name}"], read: /^(?:[0-9]+:)?(\S+?)(?:-[^-\s]+)?$/ },
         removable: null,
@@ -108,6 +114,7 @@ var MANAGERS = [
         install: [["{bin}", "install", "{names}"]],
         remove: [["{bin}", "remove", "{names}"]],
         upgrade: [["{bin}", "upgrade"]],
+        ignore: null,
         owner: { argv: ["rpm", "-qf", "--queryformat", "%{NAME}\n", "{path}"], read: /^(\S+)$/ },
         installed: { argv: ["rpm", "-q", "--queryformat", "%{VERSION}\n", "--", "{name}"], read: /^(\S+)$/ },
         removable: null,
@@ -126,6 +133,7 @@ var MANAGERS = [
         install: [["{bin}", "-S", "{names}"]],
         remove: [["xbps-remove", "-R", "{names}"]],
         upgrade: [["{bin}", "-Su"]],
+        ignore: null,
         owner: { argv: ["xbps-query", "-o", "{path}"], read: /^(\S+)-[^-\s]+_[0-9]+: / },
         installed: null,
         removable: null,
@@ -139,6 +147,7 @@ var MANAGERS = [
         install: [["{bin}", "--ask", "--noreplace", "{names}"]],
         remove: [["{bin}", "--ask", "--depclean", "{names}"]],
         upgrade: [["{bin}", "--sync"], ["{bin}", "--ask", "--update", "--deep", "--newuse", "@world"]],
+        ignore: null,
         owner: { argv: ["qfile", "{path}"], read: /^(\S+) \(/ },
         installed: null,
         removable: null,
@@ -148,7 +157,7 @@ var MANAGERS = [
     // step and has no read-only update query for it.
     {
         id: "nix", role: "primary", family: ["nixos"], requires: null, binaries: ["nix"], elevate: false,
-        check: null, install: null, remove: null, upgrade: null, owner: null, installed: null, removable: null,
+        check: null, install: null, remove: null, upgrade: null, ignore: null, owner: null, installed: null, removable: null,
         picker: { install: null, remove: null }
     },
     {
@@ -157,6 +166,7 @@ var MANAGERS = [
         install: [["{bin}", "install", "{names}"]],
         remove: [["{bin}", "uninstall", "{names}"]],
         upgrade: [["{bin}", "update"]],
+        ignore: null,
         owner: null,
         installed: null,
         removable: null,
@@ -171,6 +181,7 @@ var MANAGERS = [
         install: [["{bin}", "use", "--global", "{names}"]],
         remove: [["{bin}", "unuse", "--global", "{names}"]],
         upgrade: [["env", "MISE_MINIMUM_RELEASE_AGE=0", "{bin}", "upgrade"]],
+        ignore: null,
         owner: null,
         installed: null,
         removable: null,
@@ -349,14 +360,20 @@ function presentManager(id, onPath) {
 // or `{ ok: false, error }`, the error the keyed first line of a refusal.
 // ACTION is one of ACTIONS and NAMES holds at least one name for install
 // and remove and none for upgrade; the caller refuses any other call as a
-// bad invocation.
-function plan(id, action, names, onPath) {
+// bad invocation. IGNORED, absent or empty but for an upgrade, names the
+// packages the upgrade keeps out, through the row's `ignore`: a manager
+// without one refuses them as `manager=<id> option=ignore
+// reason=unsupported`.
+function plan(id, action, names, onPath, ignored) {
     var found = presentManager(id, onPath);
     if (!found.ok) return found;
     var template = found.row[action];
     if (template === null) return { ok: false, error: "manager=" + id + " action=" + action + " reason=unsupported" };
-    for (var i = 0; i < names.length; i++)
-        if (!validName(names[i])) return { ok: false, error: "name=" + JSON.stringify(names[i]) + " reason=grammar" };
+    var kept = ignored === undefined ? [] : ignored;
+    if (kept.length > 0 && found.row.ignore === null) return { ok: false, error: "manager=" + id + " option=ignore reason=unsupported" };
+    var all = names.concat(kept);
+    for (var i = 0; i < all.length; i++)
+        if (!validName(all[i])) return { ok: false, error: "name=" + JSON.stringify(all[i]) + " reason=grammar" };
     var binary = found.binary;
     var row = found.row;
     var steps = template.map(function (step) {
@@ -366,6 +383,7 @@ function plan(id, action, names, onPath) {
             else if (step[j] === "{names}") argv.push.apply(argv, names);
             else argv.push(step[j]);
         }
+        for (var k = 0; k < kept.length; k++) argv.push(row.ignore, kept[k]);
         return argv;
     });
     return { ok: true, plan: { manager: id, binary: binary, action: action, elevate: row.elevate, steps: steps } };

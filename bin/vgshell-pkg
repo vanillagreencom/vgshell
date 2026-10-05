@@ -38,8 +38,11 @@
 //       SIGTERM or SIGHUP prints nothing and exits 128 plus the signal's
 //       number once every query has ended.
 //   vgshell-pkg run install|remove|upgrade [--manager <id>] [names...]
+//   vgshell-pkg run upgrade [--manager <id>] --ignore <name>...
 //       run the plan for manager <id>, else the detected primary, in this
 //       terminal: install and remove take one name or more, upgrade none.
+//       An upgrade keeps each package after --ignore out, through the
+//       table row's `ignore` option; a row without one refuses.
 //       Each step of a row whose `elevate` is true runs behind the
 //       elevation command: shell.json's `packages.elevate` when set, else
 //       the first of sudo, doas and run0 on PATH (the table's ELEVATORS).
@@ -94,7 +97,8 @@
 // through bin/lib/judge-files.js. Exit 1 for a refusal: `manager=<id>
 // reason=unknown`, `manager=<id> action=<action> reason=unsupported` (the
 // table plans nothing for it), `manager=<id> reason=absent
-// binaries=<list>`, `name=<json> reason=grammar`,
+// binaries=<list>`, `manager=<id> option=ignore reason=unsupported`,
+// `name=<json> reason=grammar`,
 // `os-release=unreadable path=<file> error=<code>`, `runtime-dir=unset`
 // and `lock=failed path=<file> error=<code>`, and for `owner`:
 // `manager=none` (no primary serves the system), `manager=<id>
@@ -150,7 +154,7 @@ const FRESH_MS = 10 * 60 * 1000;
 const QUERY_TIMEOUT = 30;
 
 function usage(first) {
-    process.stderr.write("vgshell: refused: " + first + "\nusage: vgshell pkg detect [--json] | present <command>... | plan install|remove|upgrade <manager> [names...] | run install|remove|upgrade [--manager <id>] [names...] | install|remove [--manager <id>] [names...] | check [--json] [--source <manager>] | owner <path> | removable <package>\n");
+    process.stderr.write("vgshell: refused: " + first + "\nusage: vgshell pkg detect [--json] | present <command>... | plan install|remove|upgrade <manager> [names...] | run install|remove|upgrade [--manager <id>] [names...] | run upgrade [--manager <id>] --ignore <name>... | install|remove [--manager <id>] [names...] | check [--json] [--source <manager>] | owner <path> | removable <package>\n");
     process.exit(2);
 }
 
@@ -339,8 +343,8 @@ function planElevator(plan) {
 // so no shell reads them, and run from $HOME, as a check's queries do, so
 // no project's configuration in the caller's directory (a mise.toml) makes
 // a step do other than what the check counted.
-function run(action, manager, names) {
-    const r = table.plan(manager, action, names, onPath);
+function run(action, manager, names, ignored) {
+    const r = table.plan(manager, action, names, onPath, ignored);
     if (!r.ok) refuse(r.error);
     let command = "none";
     const chosen = planElevator(r.plan);
@@ -502,11 +506,17 @@ main(() => {
     case "run": {
         const [action, ...rest] = args;
         if (!table.ACTIONS.includes(action)) usage("action=" + (action === undefined ? "missing" : action));
-        const { manager, names } = managerAndNames(rest);
+        let { manager, names } = managerAndNames(rest);
+        let ignored = [];
+        if (action === "upgrade" && names[0] === "--ignore") {
+            ignored = names.slice(1);
+            names = [];
+            if (ignored.length === 0) usage("option=--ignore value=missing");
+        }
         if (action === "upgrade" && names.length > 0) usage("argument=" + names[0]);
         if (action !== "upgrade" && names.length === 0) usage("names=missing");
         refuseOutsideTerminal(verb, SHELL_CALLER);
-        return run(action, manager === null ? primaryId() : manager, names);
+        return run(action, manager === null ? primaryId() : manager, names, ignored);
     }
     case "install":
     case "remove": {

@@ -49,6 +49,18 @@
 # expect_poll fails once on its traceback. The controls of smoke_row's
 # traceback rule run here too, over rows planted in the sandbox that read
 # the status record outside every expect.
+#
+# The third-party review's window: the service's `review` handler opens
+# the shipped tui/review.sh in the review TUI's window, which runs a
+# stand-in agent from the review directory with the bundled prompt, and
+# its end lands in the directory as the run's code. The stand-in terminal
+# runs a plugin script only when it is byte for byte a fixture's, so
+# scripts/smoke/fixtures/tui/vgs.updates/tui/review.sh is an exact copy of
+# the shipped script, read equal first: the script the presenter runs is
+# the shipped one. The presenter has the shell's environment, not this
+# row's PATH, so the review directory's command names the stand-in agent
+# by its absolute path, as an edited review command may. The pipeline's
+# side of the review is scripts/test-updates-pipeline.sh's.
 # inputs: shell/plugins/vgs.updates/* shell/Hosts/AppWindow.qml shell/Ui/overlay/OverlayState.qml shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/updates-bin/* scripts/smoke/fixtures/tui/vgs.updates/* bin/vgshell bin/vgshell-pkg bin/lib/qml-library.js shell/Core/PackageManagers.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml bin/lib/self.js scripts/smoke/rows/manager.sh scripts/smoke/rows/capabilities.sh bin/vgshell-tui
 set -euo pipefail
 updates_dir="$home/.config/vgshell/plugins/vgs.updates"
@@ -644,6 +656,62 @@ before="$(checks)"
 expect "a check with no package manager starts" started ipc vgs.updates invoke check ''
 expect_poll "with no manager detected only the VGS rows remain" '["vgs", "plugins", "themes"]' updates_source_names
 expect "no package query ran" STEADY checks_settle_at "$before"
+
+# ---- The third-party review's window ----------------------------------------
+# The stand-in agent takes this row's state directory as its first word,
+# records the rest of its argv but the prompt, whether the prompt is the
+# bundled one, and the directory it runs in, and then waits for the gate,
+# up to 2400 polls of 0.05 s, a ceiling past the reads below and not a
+# measurement, before it writes a clean verdict and exits.
+review_fixture="$repo/scripts/smoke/fixtures/tui/vgs.updates/tui/review.sh"
+same_review_script() { if cmp -s -- "$review_fixture" "$repo/shell/plugins/vgs.updates/tui/review.sh"; then echo same; else echo differs; fi; }
+expect "the review fixture is the shipped review script, byte for byte" same same_review_script
+review_dir="$updates_state/review.smoke"
+review_bin="$updates_state/review-bin"
+rm -rf -- "${review_dir:?}" "${review_bin:?}"
+rm -f -- "$updates_state/review-gate" "$updates_state/review-argv" "$updates_state/review-prompt" "$updates_state/review-cwd"
+mkdir -p -- "$review_dir" "$review_bin"
+cp -- "$updates_dir/review/third-party.md" "$updates_state/review-prompt.expected"
+cat >"$review_bin/agent" <<'SH'
+#!/bin/sh
+state="$1"
+shift
+n=$#
+i=0
+: >"$state/review-argv.next"
+for a; do i=$((i + 1)); [ "$i" -lt "$n" ] && printf '%s\n' "$a" >>"$state/review-argv.next"; done
+mv -f -- "$state/review-argv.next" "$state/review-argv"
+eval "last=\${$n}"
+if [ "$last" = "$(cat "$state/review-prompt.expected")" ]; then echo same; else echo differs; fi >"$state/review-prompt"
+pwd >"$state/review-cwd"
+polls=0
+while [ ! -e "$state/review-gate" ] && [ "$polls" -lt 2400 ]; do sleep 0.05; polls=$((polls + 1)); done
+printf 'verdict clean\n' >verdict
+SH
+chmod 755 "$review_bin/agent"
+printf '%s\n' "$review_bin/agent" "$updates_state" --effort medium >"$review_dir/command"
+printf 'aur tool-bin 1.0-1 1.1-1\n' >"$review_dir/packages.txt"
+review_file() { if [[ -f $1 ]]; then cat -- "$1"; else echo absent; fi; } # FILE
+review_argv() { python3 -c 'import json,os,sys; p=sys.argv[1]; print(json.dumps(open(p).read().split("\n")[:-1]) if os.path.exists(p) else "absent")' "$updates_state/review-argv"; }
+review_window() { hypr -j clients | py_reply 'import json,sys; print(sum(1 for c in json.load(sys.stdin) if c["class"] == "org.vgs.tui.tall" and c["title"] == "VGS · Review third-party packages"))'; }
+review_started() { if [[ -e $review_dir/started ]]; then echo started; else echo waiting; fi; }
+before="$(checks)"
+expect "the review handler opens the review TUI" ok ipc vgs.updates invoke review "$review_dir"
+expect_poll "the shipped review script holds its lock and says it started" started review_started
+expect_poll "the review TUI's window is open" 1 review_window
+expect_poll "the agent runs from the review directory" "$review_dir" review_file "$updates_state/review-cwd"
+expect "the agent gets the command's words" '["--effort", "medium"]' review_argv
+expect "the agent's last argument is the bundled prompt" same review_file "$updates_state/review-prompt"
+expect "no end is written while the review runs" absent review_file "$review_dir/ended"
+touch -- "$updates_state/review-gate"
+expect_run_end "the review run ends" vgs.updates/review
+expect_poll "the review TUI's window closes with its run" 0 review_window
+expect_poll "the service writes the run's code into the review directory" "code=0 dir=$review_dir" review_file "$review_dir/ended"
+expect "the agent's verdict is in the review directory" "verdict clean" review_file "$review_dir/verdict"
+expect_poll "the review run's end starts one check" "$((before + 1))" checks
+expect_poll "the service is idle after the review run's check" idle updates_idle
+rm -rf -- "${review_dir:?}" "${review_bin:?}"
+rm -f -- "$updates_state/review-gate" "$updates_state/review-argv" "$updates_state/review-prompt" "$updates_state/review-prompt.expected" "$updates_state/review-cwd"
 
 # Leave the later rows the shipped plugin, disabled.
 expect "disabling the updates service is allowed" ok ipc shell setPluginEnabled vgs.updates false

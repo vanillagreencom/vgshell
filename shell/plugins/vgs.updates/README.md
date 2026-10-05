@@ -110,10 +110,14 @@ The service publishes these status keys:
 - `checkState`: `ok`, `info`, `warning` or `danger`, with a short reason.
 - `checking`: whether a check process runs. It is the widget's spinner, since `info` also means "not checked".
 - `sources`: the source rows for the bar widget and the window.
+- `reviewAgent`: the agent that reviews third-party packages, in words: its name, `Custom:` and the edited command's first word, that the chosen agent is not installed, `None found`, or `Off`.
+- `reviewAgents`: the agents found on `PATH`, the choices of the `reviewAgent` setting.
 
-The Settings page shows the first three rows as read-only status.
+The Settings page shows `pending`, `lastCheck`, `checkState` and `reviewAgent` as read-only status.
 
 `checking` and `sources` are data for the widget and the window.
+
+The service finds the agents with `bin/facts agents` when it starts, after each check and when its settings change.
 
 ## IPC
 
@@ -124,6 +128,8 @@ It returns `started` or `queued`.
 The window's Refresh reaches the same handler through `shell.ipc.call("check", "")`, so the service stays the one owner of every probe.
 
 `status` returns the values currently published through plugin status.
+
+`review <dir>` opens the `review` TUI for an update run's review directory and returns `shell.tui.run`'s answer. When the run ends it writes `<dir>/ended`: [pipeline.md § Third-party review](pipeline.md#third-party-review).
 
 ## Privacy and network
 
@@ -172,6 +178,20 @@ The reason is that a hidden icon makes "up to date" look the same as "never chec
 
 The update TUIs and the steps a run takes in order are in [pipeline.md](pipeline.md).
 
+## Third-party review
+
+Before an update installs packages from outside the distribution's official repositories, an AI agent reviews them for supply-chain risk. On Arch these are AUR packages and packages from a pacman repository other than `core`, `extra`, `multilib` and the CachyOS repositories. The agent runs in a second window, so you can talk to it. When it is done, it tells you to close the window, and the update continues.
+
+The update installs what the review allows. A flagged package asks you to skip it or stop the update. A review that ends without a result asks you to continue without a review or stop, and stops by default. The agent installs nothing and never gets administrator access.
+
+The settings, in the Update options group:
+
+- `reviewThirdParty`, **Review third-party packages**, on by default.
+- `reviewAgent`, **AI agent**: Claude Code or Codex, from the agents found. Empty takes the first one found, Claude Code first.
+- `reviewCommand`, **Review command**: Automatic runs the agent's default command, and an edited command runs as written. The review instructions, `review/third-party.md`, follow as its first prompt.
+
+With no agent found, the setting does nothing, the `reviewAgent` status says so, and updates install without a review. [pipeline.md § Third-party review](pipeline.md#third-party-review) holds the steps.
+
 ## Validation
 
-`scripts/test-updates-logic.js` pins every decision in `UpdatesLogic.js` with a control. `scripts/test-updates-check.sh` pins `bin/check`'s argv, concurrency and signal handling. `scripts/test-updates-pipeline.sh` runs the update TUIs on a pseudo-terminal against stand-in commands. It pins the order and argv of every step, `--yes` only with `trustPluginUpdates`, the quiet skip with no snapshot tool, the recovery message, the credential dropped after a failed AUR step, the `doas` path with no sudo session, the snapshot and restart around a `vgshell-git` rebuild alone, the orphan and reboot questions, and the busy lock. Its controls include a copy that runs the AUR before the sudo session ends, a copy that always passes `--yes`, a copy with no guard around the AUR, copies that ignore the elevation command, and a copy that leaves the rebuild out of the snapshot and restart checks. `scripts/test-updates-logic.js` also pins what the widget and the window draw for each state. `scripts/test-updates-pipeline.sh` also runs `tui/log.sh`: it opens the pipeline's log in `less` and refuses before any run wrote one. `scripts/smoke/rows/updates.sh` runs the service, the widget and the window in the nested sandbox against stand-in package managers and git. It reads back the widget's icon, colour, spinner and badge for pending, checking, failed, stale and current values, `hideWhenCurrent` hiding the widget only while current, the window's rows, the argv each button opens, and Refresh starting one check. Its control is a copy of the widget's judge that hides on a failed check.
+`scripts/test-updates-logic.js` pins every decision in `UpdatesLogic.js` with a control. `scripts/test-updates-check.sh` pins `bin/check`'s argv, concurrency and signal handling. `scripts/test-updates-pipeline.sh` runs the update TUIs on a pseudo-terminal against stand-in commands. It pins the order and argv of every step, `--yes` only with `trustPluginUpdates`, the quiet skip with no snapshot tool, the recovery message, the credential dropped after a failed AUR step, the `doas` path with no sudo session, the snapshot and restart around a `vgshell-git` rebuild alone, the orphan and reboot questions, and the busy lock. Its review rows pin a review that is off or finds no agent leaving the run as it is, no window with nothing third-party pending, a clean verdict running the default command with the bundled prompt from the review directory before the sudo session, a skipped package reaching its upgrade step as `--ignore`, no verdict asking with default no, and an edited command run as written, each with a control. Its controls include a copy that runs the AUR before the sudo session ends, a copy that always passes `--yes`, a copy with no guard around the AUR, copies that ignore the elevation command, and a copy that leaves the rebuild out of the snapshot and restart checks. `scripts/test-updates-logic.js` also pins what the widget and the window draw for each state. `scripts/test-updates-pipeline.sh` also runs `tui/log.sh`: it opens the pipeline's log in `less` and refuses before any run wrote one. `scripts/smoke/rows/updates.sh` runs the service, the widget and the window in the nested sandbox against stand-in package managers and git. It reads back the widget's icon, colour, spinner and badge for pending, checking, failed, stale and current values, `hideWhenCurrent` hiding the widget only while current, the window's rows, the argv each button opens, and Refresh starting one check. It opens the shipped `tui/review.sh` through the `review` handler, with a stand-in agent, and reads its window open and then closed, the agent's argv, prompt and directory, and the run's code in the directory. Its control is a copy of the widget's judge that hides on a failed check.

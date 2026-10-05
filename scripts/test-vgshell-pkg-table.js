@@ -170,6 +170,19 @@ const PLAN_ROWS = [
     ["a name past 256 characters", "pacman", "install", ["a".repeat(257)], ["pacman"], "name=\"" + "a".repeat(257) + "\" reason=grammar"]
 ];
 
+// Upgrade rows that keep packages out: name, manager, the packages kept
+// out, the commands on PATH, and the plan's steps or the refusal. Every
+// manager with upgrade steps and no row here must refuse a kept package
+// (verifyTable reads the managers from the table).
+const IGNORE_ROWS = [
+    ["pacman keeps two packages out of -Syu", "pacman", ["foo", "bar"], ["pacman"], [["pacman", "-Syu", "--ignore", "foo", "--ignore", "bar"]]],
+    ["paru keeps an AUR package out of -Sua", "aur", ["tool-bin"], ["paru"], [["paru", "-Sua", "--ignore", "tool-bin"]]],
+    ["yay keeps an AUR package out of -Sua", "aur", ["tool-bin"], ["yay"], [["yay", "-Sua", "--ignore", "tool-bin"]]],
+    ["no package kept out leaves the upgrade as it is", "pacman", [], ["pacman"], [["pacman", "-Syu"]]],
+    ["a kept package that starts with a dash", "pacman", ["-Sy"], ["pacman"], "name=\"-Sy\" reason=grammar"],
+    ["apt keeps no package out", "apt", ["foo"], ["apt-get"], "manager=apt option=ignore reason=unsupported"]
+];
+
 // pickerFor rows: name, manager, action, the commands on PATH, `{ list,
 // preview }` or the refusal.
 const PICKER_ROWS = [
@@ -388,6 +401,20 @@ function verifyTable(t) {
     }
     for (const row of t.MANAGERS) for (const action of t.ACTIONS)
         if (!covered.has(row.id + " " + action)) failures.push("plan: no row for " + row.id + " " + action);
+    const ignoring = new Set();
+    for (const [name, manager, ignored, commands, want] of IGNORE_ROWS) {
+        const got = t.plan(manager, "upgrade", [], onPathOf(commands), ignored);
+        const binary = commands[0];
+        const expected = typeof want === "string" ? { ok: false, error: want } : { ok: true, plan: { manager, binary, action: "upgrade", elevate: manager === "pacman", steps: want } };
+        if (!same(got, expected)) failures.push("ignore: " + name + ": got " + JSON.stringify(got));
+        if (typeof want !== "string" && ignored.length > 0) ignoring.add(manager);
+    }
+    for (const required of ["pacman", "aur"]) if (!ignoring.has(required)) failures.push("ignore: no row keeps a package out of a " + required + " upgrade");
+    for (const row of t.MANAGERS) {
+        if (row.upgrade === null || ignoring.has(row.id)) continue;
+        const got = t.plan(row.id, "upgrade", [], () => true, ["foo"]);
+        if (!same(got, { ok: false, error: "manager=" + row.id + " option=ignore reason=unsupported" })) failures.push("ignore: " + row.id + " keeps a package out: got " + JSON.stringify(got));
+    }
     const queried = new Set();
     for (const [name, manager, query, value, commands, want] of QUERY_ROWS) {
         const got = t.queryArgv(manager, query, value, onPathOf(commands));
@@ -467,6 +494,9 @@ const CONTROLS = [
     ["rule:elevation command", "a step elevates", TABLE, "[\"{bin}\", \"full-upgrade\"]", "[\"sudo\", \"{bin}\", \"full-upgrade\"]"],
     ["rule:brace", "a preview word holds an fzf placeholder", TABLE, "preview: [\"{bin}\", \"-Sii\", \"{name}\"]", "preview: [\"{bin}\", \"-Sii\", \"--x={q}\", \"{name}\"]"],
     ["rule:elevation command", "a picker's list elevates", TABLE, "list: [\"{bin}\", \"-Slq\"]", "list: [\"sudo\", \"{bin}\", \"-Slq\"]"],
+    ["table", "an upgrade drops the packages it keeps out", TABLE, "for (var k = 0; k < kept.length; k++) argv.push(row.ignore, kept[k]);", ""],
+    ["table", "a manager without the option keeps a package out", TABLE, "if (kept.length > 0 && found.row.ignore === null) return", "if (false) return"],
+    ["table", "a kept package's name is not judged", TABLE, "var all = names.concat(kept);", "var all = names;"],
     ["table", "a picker keeps the binary placeholder", TABLE, "var fill = function (token) { return token === \"{bin}\" ? found.binary : token; };", "var fill = function (token) { return token; };"],
     ["table", "the elevation order changes", TABLE, "var ELEVATORS = [\"sudo\", \"doas\", \"run0\"];", "var ELEVATORS = [\"doas\", \"sudo\", \"run0\"];"],
     ["table", "a configured elevation command is ignored", TABLE, "        if (onPath(configured)) return { ok: true, command: configured };\n", ""],
@@ -521,7 +551,7 @@ function main() {
         report("table", verifyTable(load(TABLE)));
         CONTROLS.forEach((control, index) => runControl(tmp, control, index));
         if (failed) process.exitCode = 1;
-        else console.log("test-vgshell-pkg-table: ok detect=" + DETECT_ROWS.length + " ids=" + ID_ROWS.length + " plans=" + PLAN_ROWS.length + " queries=" + QUERY_ROWS.length + " answers=" + ANSWER_ROWS.length + " pickers=" + PICKER_ROWS.length + " elevators=" + ELEVATOR_ROWS.length + " picks=" + PACKAGE_FOR_ROWS.length + " groups=" + INSTALL_GROUP_ROWS.length + " parses=" + PARSE_ROWS.length + " checks=" + CHECK_ROWS.length + " outcomes=" + OUTCOME_ROWS.length + " controls=" + CONTROLS.length);
+        else console.log("test-vgshell-pkg-table: ok detect=" + DETECT_ROWS.length + " ids=" + ID_ROWS.length + " plans=" + PLAN_ROWS.length + " ignores=" + IGNORE_ROWS.length + " queries=" + QUERY_ROWS.length + " answers=" + ANSWER_ROWS.length + " pickers=" + PICKER_ROWS.length + " elevators=" + ELEVATOR_ROWS.length + " picks=" + PACKAGE_FOR_ROWS.length + " groups=" + INSTALL_GROUP_ROWS.length + " parses=" + PARSE_ROWS.length + " checks=" + CHECK_ROWS.length + " outcomes=" + OUTCOME_ROWS.length + " controls=" + CONTROLS.length);
     } finally {
         fs.rmSync(tmp, { recursive: true, force: true });
     }

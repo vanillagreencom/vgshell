@@ -26,7 +26,7 @@ One row per manager: `pacman`, `aur`, `apt`, `dnf`, `xbps`, `emerge`, `nix`, `fl
 
 ## Running a plan
 
-`vgshell pkg run install|remove|upgrade [--manager <id>] [names...]` runs a plan in the terminal it is typed in. Without `--manager` it takes the detected primary. `vgshell pkg install` and `remove` with names do the same.
+`vgshell pkg run install|remove|upgrade [--manager <id>] [names...]` runs a plan in the terminal it is typed in. Without `--manager` it takes the detected primary. `vgshell pkg install` and `remove` with names do the same. `run upgrade --ignore <name>...` keeps the packages named out of the upgrade through a row's `ignore` option, which pacman and the AUR alone have.
 
 - **Where it runs.** Before it reads anything, `run` refuses `caller=shell` when `VGSHELL_RUNNER_PID` is set, and `<verb>=no-terminal` when `/dev/tty` does not open. `vgshell run` exports that variable to the shell, so every process the shell starts carries it. The shell removes it only from the programs it opens for the user: `shell.run.detached` and a floating TUI's terminal ([tui.md](tui.md)). So a plugin process never elevates, and a terminal the user opened from the shell does not refuse.
 - **Elevation.** Each step of a row whose `elevate` is true runs behind one command from the table's `ELEVATORS`: `packages.elevate` in `shell.json` ([configuration.md](configuration.md)) when set, else the first of `sudo`, `doas` and `run0` on PATH. A configured command that is absent, or no command at all, is refused before any step runs. A row whose `elevate` is false runs with no elevation command.

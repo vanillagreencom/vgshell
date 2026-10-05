@@ -13,44 +13,52 @@
 #      busy never truncates the log of the run it found
 #   2. a warning when / has less than 10 GiB free
 #   3. the plan box, then one question unless -y
-#   4. one sudo session, when the package layer's elevation command is
+#   4. the review of third-party packages, when the `reviewThirdParty`
+#      setting is on, an agent resolves (UpdatesLogic.reviewPlan through
+#      bin/facts review) and the AUR or a pacman repository that is not
+#      official has an update pending: the agent runs in a second window,
+#      the `review` TUI, which the service opens; the run waits for it and
+#      acts on its verdict, so a flagged package the user skips reaches
+#      its upgrade step as `--ignore <name>`. The review runs before any
+#      credential is cached: pipeline.md § Third-party review
+#   5. one sudo session, when the package layer's elevation command is
 #      sudo and a snapshot or the system step needs root. That command is
 #      the one `vgshell pkg plan upgrade <primary>` names, from shell.json's
 #      `packages.elevate`, else the first of sudo, doas and run0 on PATH;
 #      doas and run0 ask as their own rules say, as bin/lib/pkg-run.sh does
-#   5. a snapshot through snapper or timeshift behind that command, before
+#   6. a snapshot through snapper or timeshift behind that command, before
 #      any step that replaces a package: the system's, the AUR's or the
 #      vgshell-git rebuild. None is taken when the plugin's `snapshot` setting
 #      is off, when neither tool is on PATH or when no elevation command
 #      resolves, and the plan box says which; a failed snapshot warns and
 #      the update goes on
-#   6. VGS itself: `vgshell self update` for a checkout or a curl install
-#   7. the system: `vgshell pkg run upgrade --manager <primary>`, which joins
+#   7. VGS itself: `vgshell self update` for a checkout or a curl install
+#   8. the system: `vgshell pkg run upgrade --manager <primary>`, which joins
 #      the session
-#   8. Flatpak and mise: `vgshell pkg run upgrade --manager flatpak|mise`
-#   9. each plugin, then each theme, behind its upstream:
+#   9. Flatpak and mise: `vgshell pkg run upgrade --manager flatpak|mise`
+#  10. each plugin, then each theme, behind its upstream:
 #      `vgshell plugin|theme update <id>`, which shows its diff and asks
 #      [y/N]; `--yes` only when the `trustPluginUpdates` setting is on
-#  10. the end of the sudo session, which drops the credential
-#  11. the AUR, last, so no PKGBUILD runs under the update's credential:
+#  11. the end of the sudo session, which drops the credential
+#  12. the AUR, last, so no PKGBUILD runs under the update's credential:
 #      the `aurCommand` setting's words, else `vgshell pkg run upgrade
 #      --manager aur`, then `<helper> -S vgshell-git` when VGS is that package
 #      and behind, since an AUR helper rebuilds a -git package only when
 #      its recipe's version changes. The helper asks sudo itself, so the
 #      phase runs under tui.sh's sudo guard: the credential it caches is
 #      dropped when the phase ends, fails or is interrupted
-#  12. pacman's orphaned packages, removed only on a yes, default no, after
+#  13. pacman's orphaned packages, removed only on a yes, default no, after
 #      a system or AUR upgrade
-#  13. a shell restart when a package step or the rebuild replaced the VGS
+#  14. a shell restart when a package step or the rebuild replaced the VGS
 #      package
-#  14. a reboot question when the kernel or the running Hyprland was
+#  15. a reboot question when the kernel or the running Hyprland was
 #      replaced (tui.sh's vgs_tui_reboot_check)
 #
 # The package steps are the package-manager table's own plans, read with
 # `vgshell pkg plan` and run with `vgshell pkg run`: they take no -y, so each
 # manager asks its own questions in this terminal. -y answers only the
 # pipeline's own start question; the orphan and reboot questions are then
-# reported instead of asked. A plugin or theme update that fails or is
+# reported instead of asked, and the review's questions are still asked. A plugin or theme update that fails or is
 # declined warns and the run goes on. Any other failing step ends the run:
 # the ERR trap prints `updates: failed exit=<n> log=<file>` and how to
 # recover, and the session's or the guard's EXIT trap drops the credential.
@@ -293,6 +301,176 @@ _updates_in() { # WORD LIST...
   return 1
 }
 
+# The agent a review runs, from SETTINGS, the plugin's settings answer:
+# _updates_review_state, _updates_review_label and _updates_review_words,
+# the command's words, as bin/facts review prints UpdatesLogic.reviewPlan.
+_updates_review_agent() { # SETTINGS
+  local facts key value
+  _updates_review_state="" _updates_review_label="" _updates_review_words=()
+  facts="$(_updates_facts review <<<"$1")"
+  while read -r key value; do
+    case "$key" in
+      review) _updates_review_state="$value" ;;
+      label) _updates_review_label="$value" ;;
+      word) _updates_review_words+=("$value") ;;
+    esac
+  done <<<"$facts"
+}
+
+# The third-party packages a review checks: the AUR's pending updates when
+# AUR is 1, through HELPER, and when REPO is 1 the system's pending updates
+# that a pacman repository outside the official ones holds, with each such
+# repository's servers and signature level. Sets _updates_review_lines, the
+# lines of packages.txt (review/third-party.md names their form), and
+# _updates_review_aur and _updates_review_repo, the names. Returns 1 after a
+# diagnostic when a list cannot be read.
+_updates_review_list() { # AUR REPO HELPER
+  local out facts key name old new repo repos=() listed line
+  local -A pending=()
+  _updates_review_lines=() _updates_review_aur=() _updates_review_repo=()
+  if [[ $1 == 1 ]]; then
+    if ! out="$("$_updates_vgshell" pkg check --json --source aur)" || ! facts="$(_updates_facts pending <<<"$out")"; then
+      _updates_diagnostic "updates: review=unlisted source=aur"; return 1
+    fi
+    while read -r key name old new; do
+      [[ $key == pending ]] || continue
+      _updates_review_lines+=("aur $name $old $new")
+      _updates_review_aur+=("$name")
+    done <<<"$facts"
+    if [[ ${#_updates_review_aur[@]} -gt 0 ]]; then _updates_review_lines=("helper $3" "${_updates_review_lines[@]}"); fi
+  fi
+  [[ $2 == 1 ]] || return 0
+  if ! out="$("$_updates_vgshell" pkg check --json --source pacman)" || ! facts="$(_updates_facts pending <<<"$out")"; then
+    _updates_diagnostic "updates: review=unlisted source=pacman"; return 1
+  fi
+  while read -r key name old new; do
+    if [[ $key == pending ]]; then pending[$name]="$old $new"; fi
+  done <<<"$facts"
+  [[ ${#pending[@]} -gt 0 ]] || return 0
+  if ! out="$(pacman-conf --repo-list)"; then _updates_diagnostic "updates: review=unlisted query=repo-list"; return 1; fi
+  mapfile -t repos <<<"$out"
+  facts="$(_updates_facts third-party "${repos[@]}")"
+  while read -r key repo; do
+    [[ $key == third-party ]] || continue
+    if ! out="$(pacman -Sl "$repo")"; then _updates_diagnostic "updates: review=unlisted repository=$repo"; return 1; fi
+    listed=0
+    while read -r _ name _; do
+      [[ -n $name && -n ${pending[$name]+set} ]] || continue
+      _updates_review_lines+=("repo $repo $name ${pending[$name]}")
+      _updates_review_repo+=("$name")
+      listed=1
+    done <<<"$out"
+    [[ $listed == 1 ]] || continue
+    if ! out="$(pacman-conf --repo "$repo" Server)"; then _updates_diagnostic "updates: review=unlisted servers=$repo"; return 1; fi
+    while read -r line; do
+      if [[ -n $line ]]; then _updates_review_lines+=("server $repo $line"); fi
+    done <<<"$out"
+    # A repository with no SigLevel of its own takes pacman's default.
+    if ! out="$(pacman-conf --repo "$repo" SigLevel)" || { [[ -z $out ]] && ! out="$(pacman-conf SigLevel)"; }; then
+      _updates_diagnostic "updates: review=unlisted siglevel=$repo"; return 1
+    fi
+    _updates_review_lines+=("siglevel $repo ${out//$'\n'/ }")
+  done <<<"$facts"
+}
+
+# The review in the second window, through the service's `review` IPC
+# handler, which opens the `review` TUI with the review directory: a 0700
+# directory of this run's own, made by an exclusive mkdir and removed when
+# the review ends or the run exits. NAMEs are the packages listed. Sets
+# _updates_review_verdict to clean, flagged or none, _updates_review_flags
+# to `<name> <concern>` per flag and _updates_review_reason, for the
+# developer log, when there is no verdict.
+_updates_review_run() { # NAME...
+  local dir reply status=0 polls=0 facts key value lock
+  _updates_review_verdict=none _updates_review_reason="" _updates_review_flags=()
+  dir="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/vgshell/updates/review.$$"
+  mkdir -p -- "${dir%/*}"
+  if ! mkdir -m 700 -- "$dir" 2>/dev/null; then _updates_review_reason="dir=taken path=$dir"; return 0; fi
+  _updates_review_dir="$dir"
+  trap 'rm -rf -- "${_updates_review_dir:?}"' EXIT
+  printf '%s\n' "${_updates_review_words[@]}" >"$dir/command"
+  printf '%s\n' "${_updates_review_lines[@]}" >"$dir/packages.txt"
+  reply="$("$_updates_vgshell" ipc call "$VGS_PLUGIN_ID" invoke review "$dir" 2>&1)" || status=$?
+  if [[ $status -ne 0 || $reply != ok ]]; then _updates_review_reason="open=${reply%%$'\n'*} exit=$status"; return 0; fi
+  # tui/review.sh writes `started` once it holds the lock, and the service
+  # writes `ended` when the run ends, a run that never started included.
+  # Read every 0.2 s up to 300 times: a 60 s ceiling on a terminal's start,
+  # not a measurement of one.
+  while [[ ! -e $dir/started && ! -e $dir/ended ]] && ((polls < 300)); do
+    sleep 0.2
+    polls=$((polls + 1))
+  done
+  if [[ ! -e $dir/started ]]; then
+    _updates_review_reason="start=none ended=$(cat -- "$dir/ended" 2>/dev/null || echo absent)"; return 0
+  fi
+  # The lock is free once tui/review.sh has ended: its agent exited, or
+  # the user closed the window.
+  exec {lock}>>"$dir/review.lock"
+  flock "$lock"
+  exec {lock}>&-
+  if [[ ! -f $dir/verdict ]]; then _updates_review_reason="verdict=absent"; return 0; fi
+  if ! facts="$(_updates_facts verdict "$@" <"$dir/verdict")"; then _updates_review_reason="verdict=unreadable"; return 0; fi
+  while read -r key value; do
+    case "$key" in
+      verdict) _updates_review_verdict="$value" ;;
+      flag) _updates_review_flags+=("$value") ;;
+      reason) _updates_review_reason="verdict=$value" ;;
+    esac
+  done <<<"$facts"
+}
+
+# The review and what its verdict leads to: a clean verdict goes on; each
+# flagged package asks to be skipped, a yes adding it to _updates_skip_aur
+# or _updates_skip_repo and a no stopping the run; no verdict asks to go on
+# without a review, default no. A stopped run exits 0. LISTED is 0 when the
+# packages could not be listed, which is no verdict.
+_updates_review() { # LISTED
+  local status flag name
+  if [[ $1 == 1 ]]; then
+    vgs_tui_step "Reviewing third-party packages in a second window"
+    _updates_review_run "${_updates_review_aur[@]}" "${_updates_review_repo[@]}"
+  else
+    _updates_review_verdict=none _updates_review_reason="list=unreadable" _updates_review_flags=()
+  fi
+  if [[ -n ${_updates_review_dir:-} ]]; then
+    rm -rf -- "${_updates_review_dir:?}"
+    _updates_review_dir=""
+    trap - EXIT
+  fi
+  case "$_updates_review_verdict" in
+    clean) echo "The review found no risk." ;;
+    flagged)
+      for flag in "${_updates_review_flags[@]}"; do
+        name="${flag%% *}"
+        vgs_tui_warn "$name: ${flag#* }"
+        status=0
+        vgs_tui_confirm "Skip $name?" || status=$?
+        case "$status" in
+          0)
+            if _updates_in "$name" "${_updates_review_aur[@]}"; then _updates_skip_aur+=("$name"); fi
+            if _updates_in "$name" "${_updates_review_repo[@]}"; then _updates_skip_repo+=("$name"); fi
+            ;;
+          1) echo "Update stopped."; exit 0 ;;
+          *) exit "$status" ;;
+        esac
+      done
+      ;;
+    *)
+      _updates_diagnostic "updates: review=none $_updates_review_reason"
+      if [[ $1 == 1 ]]; then vgs_tui_warn "The review ended without a result."
+      else vgs_tui_warn "Could not list the third-party packages."
+      fi
+      status=0
+      vgs_tui_confirm "Continue without a review?" --default=false || status=$?
+      case "$status" in
+        0) ;;
+        1) echo "Update stopped."; exit 0 ;;
+        *) exit "$status" ;;
+      esac
+      ;;
+  esac
+}
+
 # updates_main all ARG... | updates_main source SOURCE ARG...: the pipeline
 # over every source, or over SOURCE alone, named as a status row names it:
 # the primary manager's id, aur, flatpak, mise, vgs, plugins or themes. The
@@ -348,8 +526,9 @@ updates_main() {
 
   # What the run acts on: the plugin's settings and the system's managers.
   local out facts key value aur_command=() snapshot_setting="" trust=false
-  out="$("$_updates_vgshell" plugin settings "$VGS_PLUGIN_ID")"
-  facts="$(_updates_facts settings <<<"$out")"
+  local settings
+  settings="$("$_updates_vgshell" plugin settings "$VGS_PLUGIN_ID")"
+  facts="$(_updates_facts settings <<<"$settings")"
   while read -r key value; do
     case "$key" in
       aur-command) read -r -a aur_command <<<"$value" ;;
@@ -502,9 +681,35 @@ updates_main() {
   elif ((avail < 10 * 1024 * 1024 * 1024)); then
     vgs_tui_warn "Less than 10 GiB is free on /. An update can fail when the disk fills up."
   fi
+  # The review: 1 when one runs, 2 when its packages could not be listed,
+  # and its line in the box.
+  local review=0 review_line="" review_aur=0 review_repo=0 reviewed=() listing="" name
+  _updates_skip_aur=() _updates_skip_repo=()
+  _updates_review_agent "$settings"
+  if [[ $_updates_review_state == command || $_updates_review_state == agent ]]; then
+    if _updates_in aur "${run[@]}"; then review_aur=1; fi
+    if [[ $primary == pacman ]] && _updates_in pacman "${run[@]}"; then review_repo=1; fi
+    if [[ -n $primary && $primary != pacman ]] && _updates_in "$primary" "${run[@]}"; then review_line="Review: VGS reviews Arch packages only"; fi
+    if [[ $review_aur == 1 || $review_repo == 1 ]]; then
+      if _updates_review_list "$review_aur" "$review_repo" "$aur_binary"; then
+        reviewed=("${_updates_review_aur[@]}" "${_updates_review_repo[@]}")
+        if [[ ${#reviewed[@]} -gt 0 ]]; then
+          review=1
+          for name in "${reviewed[@]:0:6}"; do listing+="${listing:+, }$name"; done
+          if [[ ${#reviewed[@]} -gt 6 ]]; then listing+=", and $((${#reviewed[@]} - 6)) more"; fi
+          review_line="Review: $_updates_review_label checks ${#reviewed[@]} third-party package$([[ ${#reviewed[@]} == 1 ]] || echo s): $listing"
+        fi
+      else
+        review=2
+        review_line="Review: the third-party packages could not be listed"
+      fi
+    fi
+  fi
+
   local box=("Update ${only:-everything}" "")
   [[ -z $snapshot_line ]] || box+=("$snapshot_line")
   box+=("${plan[@]}")
+  [[ -z $review_line ]] || box+=("$review_line")
   if [[ $rebuild == 1 ]] || _updates_in aur "${run[@]}"; then box+=("The AUR runs last, after every step that runs as root."); fi
   box+=("" "Log: $_updates_log")
   vgs_tui_header "${box[@]}"
@@ -519,6 +724,9 @@ updates_main() {
   fi
 
   # The run.
+  if [[ $review == 1 ]]; then _updates_review 1
+  elif [[ $review == 2 ]]; then _updates_review 0
+  fi
   local vgs_before=""
   if [[ $replaces == 1 ]]; then vgs_before="$(_updates_vgs_package_version)"; fi
   if [[ $session == 1 ]]; then vgs_tui_sudo_session start; fi
@@ -536,10 +744,15 @@ updates_main() {
     vgs_tui_step "Updating VGS"
     "$_updates_vgshell" self update
   fi
+  local ignore=()
   for id in "${run[@]}"; do
     case "$id" in
       vgs|plugins|themes|aur) ;;
-      *) "$_updates_vgshell" pkg run upgrade --manager "$id" ;;
+      *)
+        ignore=()
+        if [[ $id == pacman && ${#_updates_skip_repo[@]} -gt 0 ]]; then ignore=(--ignore "${_updates_skip_repo[@]}"); fi
+        "$_updates_vgshell" pkg run upgrade --manager "$id" "${ignore[@]}"
+        ;;
     esac
   done
   if [[ ${#plugins[@]} -gt 0 ]]; then _updates_update_each plugin "${plugins[@]}"; fi
@@ -553,13 +766,16 @@ updates_main() {
       guarded=1
     fi
     if _updates_in aur "${run[@]}"; then
+      ignore=()
       if [[ ${#aur_command[@]} -gt 0 ]]; then
-        _updates_run "Updating AUR packages" "${aur_command[@]}"
+        for name in "${_updates_skip_aur[@]}"; do ignore+=(--ignore "$name"); done
+        _updates_run "Updating AUR packages" "${aur_command[@]}" "${ignore[@]}"
       else
-        "$_updates_vgshell" pkg run upgrade --manager aur
+        if [[ ${#_updates_skip_aur[@]} -gt 0 ]]; then ignore=(--ignore "${_updates_skip_aur[@]}"); fi
+        "$_updates_vgshell" pkg run upgrade --manager aur "${ignore[@]}"
       fi
     fi
-    if [[ $rebuild == 1 ]]; then _updates_run "Rebuilding VGS" "$aur_binary" -S vgshell-git; fi
+    if [[ $rebuild == 1 ]] && ! _updates_in vgshell-git "${_updates_skip_aur[@]}"; then _updates_run "Rebuilding VGS" "$aur_binary" -S vgshell-git; fi
     if [[ $guarded == 1 ]]; then vgs_tui_sudo_session end; fi
   fi
 

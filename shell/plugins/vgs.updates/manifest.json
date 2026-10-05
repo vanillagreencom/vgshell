@@ -15,19 +15,26 @@
     { "command": "checkupdates", "packages": { "pacman": "pacman-contrib" }, "optional": false, "purpose": "Checks Arch system updates" },
     { "command": "snapper", "packages": { "pacman": "snapper" }, "optional": true, "purpose": "Saves a system snapshot before updates" },
     { "command": "timeshift", "packages": { "pacman": "timeshift" }, "optional": true, "purpose": "Saves a system snapshot when Snapper is unavailable" },
-    { "command": "less", "packages": { "pacman": "less", "apt": "less", "dnf": "less", "xbps": "less", "emerge": "sys-apps/less", "nix": "less" }, "optional": false, "purpose": "Shows the last update log" }
+    { "command": "less", "packages": { "pacman": "less", "apt": "less", "dnf": "less", "xbps": "less", "emerge": "sys-apps/less", "nix": "less" }, "optional": false, "purpose": "Shows the last update log" },
+    { "command": "pacman-conf", "packages": { "pacman": "pacman" }, "optional": false, "purpose": "Lists the package repositories outside the official ones for the review" },
+    { "command": "claude", "packages": {}, "optional": true, "purpose": "Reviews third-party packages before they install" },
+    { "command": "codex", "packages": {}, "optional": true, "purpose": "Reviews third-party packages before they install" }
   ],
   "tui": {
     "update": { "script": "tui/update.sh", "title": "Update everything", "size": "tall", "entry": { "label": "Update everything", "icon": "refresh-cw", "group": "Update" } },
     "update-source": { "script": "tui/update-source.sh", "title": "Update one source", "size": "tall" },
-    "log": { "script": "tui/log.sh", "title": "Last update log", "size": "tall", "presentation": "plain" }
+    "log": { "script": "tui/log.sh", "title": "Last update log", "size": "tall", "presentation": "plain" },
+    "review": { "script": "tui/review.sh", "title": "Review third-party packages", "size": "tall" }
   },
   "settings": {
     "intervalHours": 6,
     "hideWhenCurrent": false,
     "aurCommand": "",
     "snapshot": "auto",
-    "trustPluginUpdates": false
+    "trustPluginUpdates": false,
+    "reviewThirdParty": true,
+    "reviewAgent": "",
+    "reviewCommand": ""
   },
   "schema": {
     "intervalHours": { "type": "number", "label": "Check interval", "description": "Time between automatic update checks", "min": 1, "max": 48, "step": 1, "unit": "hours", "group": "Schedule" },
@@ -45,7 +52,21 @@
       ]
     },
     "snapshot": { "type": "enum", "label": "System snapshot", "description": "Save a system snapshot before updates when a snapshot tool is available", "options": ["auto", "off"], "group": "Update options" },
-    "trustPluginUpdates": { "type": "boolean", "label": "Trust plugin and theme updates", "description": "Show plugin and theme changes and apply them without confirmation", "group": "Update options" }
+    "trustPluginUpdates": { "type": "boolean", "label": "Trust plugin and theme updates", "description": "Show plugin and theme changes and apply them without confirmation", "group": "Update options" },
+    "reviewThirdParty": { "type": "boolean", "label": "Review third-party packages", "description": "An AI agent checks packages from outside your distribution's official repositories before they install.", "group": "Update options" },
+    "reviewAgent": { "type": "string", "label": "AI agent", "description": "Choose the AI agent that checks the packages", "group": "Update options", "optionsFrom": "reviewAgents" },
+    "reviewCommand": {
+      "type": "string",
+      "label": "Review command",
+      "description": "Choose the command that starts the review agent",
+      "group": "Update options",
+      "allowCustom": true,
+      "presets": [
+        { "value": "", "label": "Automatic" },
+        { "value": "claude --model opus --effort medium" },
+        { "value": "codex -m gpt-6.1-sol -c model_reasoning_effort=medium" }
+      ]
+    }
   },
   "hyprland": {
     "binds": [
@@ -57,6 +78,8 @@
     "lastCheck": { "type": "time", "label": "Last checked" },
     "checkState": { "type": "state", "label": "Check" },
     "checking": { "type": "data", "label": "Checking" },
-    "sources": { "type": "data", "label": "Sources" }
+    "sources": { "type": "data", "label": "Sources" },
+    "reviewAgents": { "type": "choices", "label": "Review agents" },
+    "reviewAgent": { "type": "text", "label": "Review agent" }
   }
 }

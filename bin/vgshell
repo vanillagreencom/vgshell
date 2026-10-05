@@ -62,6 +62,8 @@
 #                                  count each manager's pending updates without root
 #   vgshell pkg run install|remove|upgrade [--manager <id>] [names...]
 #                                  run the plan in this terminal, elevating through sudo, doas or run0
+#   vgshell pkg run upgrade [--manager <id>] --ignore <name>...
+#                                  upgrade without the packages named; pacman and the AUR alone
 #   vgshell pkg install|remove [--manager <id>] [names...]
 #                                  run install or remove; without names, pick them in fzf
 #   vgshell doctor [--json]           the core's and every enabled plugin's requirements, each with its state and package,

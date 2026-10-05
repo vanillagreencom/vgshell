@@ -4,8 +4,9 @@ import Quickshell.Io
 import "UpdatesLogic.js" as Logic
 
 // Owns vgs.updates runtime state: cached snapshot readback, one check
-// process, cadence timers, IPC and every status write. The widget and the
-// window read status only; this service is the single writer.
+// process, cadence timers, the review agents' detection, the review TUI the
+// pipeline asks for, IPC and every status write. The widget and the window
+// read status only; this service is the single writer.
 Item {
     id: root
 
@@ -23,14 +24,23 @@ Item {
     property string checkFailure: ""
     property double failedAt: -1
     property var reported: ({})
+    // The review agents on PATH, bin/facts agents' last answer: null before
+    // the first one.
+    property var agents: null
+    property bool detectQueued: false
     readonly property string stateDir: (Quickshell.env("XDG_STATE_HOME") || (Quickshell.env("HOME") + "/.local/state")) + "/vgshell/updates"
     readonly property string statusPath: stateDir + "/status.json"
     readonly property string checkScript: String(Qt.resolvedUrl("bin/check")).replace(/^file:\/\//, "")
     readonly property string vgshellPath: Quickshell.shellDir + "/../bin/vgshell"
+    readonly property string factsScript: String(Qt.resolvedUrl("bin/facts")).replace(/^file:\/\//, "")
+    readonly property string loaderPath: Quickshell.shellDir + "/../bin/lib/qml-library.js"
     readonly property int currentIntervalMs: Logic.intervalMs(shell === null ? null : shell.settings)
     readonly property var currentTuiState: shell === null || shell.tui === undefined ? ({}) : shell.tui.state
 
-    onShellChanged: start()
+    onShellChanged: {
+        start();
+        detectAgents();
+    }
     onCurrentIntervalMsChanged: schedule()
     // Only a run that ends after this instance first read the state starts
     // a check: `shell` arrives with every run an earlier instance saw end,
@@ -51,9 +61,34 @@ Item {
         shell.shortcut.register("toggle", "Open or close Updates", () => root.toggleWindow());
         shell.ipc.handle("check", () => root.requestCheck("ipc"));
         shell.ipc.handle("status", () => JSON.stringify(shell.status.values));
+        shell.ipc.handle("review", dir => root.openReview(dir));
         cacheReader.path = statusPath;
         if (lastTuiState === null) lastTuiState = shell.tui.state;
         publishNow();
+    }
+
+    // tui/pipeline.sh asks for its review through `review` with its review
+    // directory, and waits for <dir>/ended, which names the run's code or
+    // the reason it never ran, as `done` receives them; the answer is
+    // shell.tui.run's.
+    function openReview(dir) {
+        return shell.tui.run("review", [dir], result => {
+            endedWriter.path = dir + "/ended";
+            // The directory is in the text, so two runs' writes never hold
+            // the same bytes, which setText would skip
+            // (docs/architecture/runtime-qml.md).
+            endedWriter.setText((result.code === null ? "reason=" + result.reason : "code=" + result.code) + " dir=" + dir + "\n");
+        });
+    }
+
+    function detectAgents() {
+        if (shell === null) return;
+        if (agentsProc.running) {
+            detectQueued = true;
+            return;
+        }
+        agentsProc.command = [factsScript, loaderPath, "agents"];
+        agentsProc.running = true;
     }
 
     function toggleWindow() {
@@ -105,7 +140,7 @@ Item {
 
     function publishNow() {
         if (shell === null) return;
-        const values = Logic.publishValues(snapshot, checking, Date.now(), currentIntervalMs, checkFailure);
+        const values = Object.assign(Logic.publishValues(snapshot, checking, Date.now(), currentIntervalMs, checkFailure), Logic.reviewValues(shell.settings, agents));
         const writes = Logic.statusWrites(reported, values);
         if (writes.length === 0) return;
         const next = Object.assign({}, reported);
@@ -156,11 +191,44 @@ Item {
                 root.publishNow();
                 root.schedule();
             }
+            root.detectAgents();
             if (root.queued) {
                 root.queued = false;
                 root.requestCheck("queued");
             }
         }
+    }
+
+    Process {
+        id: agentsProc
+        stdout: StdioCollector { id: agentsOut }
+        stderr: StdioCollector { id: agentsErr }
+        property var completion: null
+        onExited: (code, status) => { completion = { code: code, status: status }; }
+        onRunningChanged: {
+            if (running) return;
+            const done = completion;
+            completion = null;
+            if (done !== null && done.code === 0) {
+                root.agents = String(agentsOut.text).split("\n").filter(line => line.startsWith("agent ")).map(line => line.slice("agent ".length));
+                root.publishNow();
+            } else {
+                console.error("updates: agents " + (done === null ? "start=failed" : "exit=" + done.code) + " " + String(agentsErr.text || "").split("\n")[0]);
+            }
+            if (root.detectQueued) {
+                root.detectQueued = false;
+                root.detectAgents();
+            }
+        }
+    }
+
+    FileView {
+        id: endedWriter
+        preload: false
+        blockWrites: true
+        atomicWrites: true
+        printErrors: false
+        onSaveFailed: error => console.error("updates: review end write failed: file=" + path + " error=" + error)
     }
 
     Timer {

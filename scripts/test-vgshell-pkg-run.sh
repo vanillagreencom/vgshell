@@ -149,6 +149,23 @@ row_apt_upgrade() {
     "sudo [apt-get] [full-upgrade]" "apt-get [full-upgrade]" \
     "sudo [-k]")"
 }
+# An upgrade keeps the packages after --ignore out, through the table's
+# option, and a manager without one refuses them before any step.
+row_pacman_ignore() {
+  pkg "$1" "$sudo_path" -- run upgrade --manager pacman --ignore foo bar
+  [[ $status == 0 ]] && log_is "$(lines \
+    "sudo [-k]" "sudo [/usr/bin/true]" \
+    "sudo [pacman] [-Syu] [--ignore] [foo] [--ignore] [bar]" "pacman [-Syu] [--ignore] [foo] [--ignore] [bar]" \
+    "sudo [-k]")"
+}
+row_aur_ignore() {
+  pkg "$1" "$managers:$tmp/elevate-sudo" -- run upgrade --manager aur --ignore aurpkg
+  [[ $status == 0 ]] && log_is "paru [-Sua] [--ignore] [aurpkg]"
+}
+row_ignore_unsupported() {
+  pkg "$1" "$sudo_path" -- run upgrade --manager apt --ignore foo
+  [[ $status == 1 ]] && out_has "vgshell: refused: manager=apt option=ignore reason=unsupported" && log_is ""
+}
 row_first_failure() {
   pkg "$1" "$sudo_path" STUB_FAIL=update -- run upgrade --manager apt
   [[ $status == 7 ]] && log_is "$(lines \
@@ -240,7 +257,7 @@ row_picker_without_fzf() {
   [[ $status == 1 ]] && out_has "vgshell: refused: picker=fzf reason=absent" && log_is ""
 }
 
-rows=(no_terminal shell_process pacman_install apt_upgrade first_failure doas run0 configured configured_absent
+rows=(no_terminal shell_process pacman_install apt_upgrade pacman_ignore aur_ignore ignore_unsupported first_failure doas run0 configured configured_absent
   configured_unknown no_elevator literal_name aur_unelevated picker_install picker_remove picker_cancelled
   picker_nothing aur_picker picker_unsupported picker_without_fzf dnf_picker home_directory)
 for r in "${rows[@]}"; do
@@ -296,6 +313,7 @@ control unquoted-preview bin/lib/judge-files.js '    return "'"'"'" + word.repla
 control fixed-colour bin/vgshell-pkg 'return value !== undefined && HEX_COLOUR.test(value) ? value : fallback;' 'return fallback;' picker_install
 control dnf-notice shell/Core/PackageManagers.js 'list: ["{bin}", "-q", "repoquery", "--available",' 'list: ["{bin}", "repoquery", "--available",' dnf_picker
 control fzf-looked-up-late bin/vgshell-pkg '        if (!onPath("fzf")) refuse("picker=fzf reason=absent");' '' picker_without_fzf
+control drops-ignore bin/vgshell-pkg 'return run(action, manager === null ? primaryId() : manager, names, ignored);' 'return run(action, manager === null ? primaryId() : manager, names);' pacman_ignore
 control cancel-runs-nothing bin/vgshell-pkg '    if (r.status === 130) return { cancelled: true };' '' picker_cancelled
 
 if [[ $failures -gt 0 ]]; then echo "test-vgshell-pkg-run: failed=$failures"; exit 1; fi

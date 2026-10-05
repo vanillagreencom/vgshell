@@ -85,6 +85,7 @@ function verifyCli(texts, tmp) {
         "{\"manager\":\"aur\",\"binary\":\"yay\",\"action\":\"install\",\"elevate\":false,\"steps\":[[\"yay\",\"-S\",\"--needed\",\"--\",\"gum-bin\"]],\"elevator\":null}\n", "");
     expectCommand("plan install without names is a bad invocation", run(scripts.pkg, ["plan", "install", "pacman"]), 2, "", "vgshell: refused: names=missing\n");
     expectCommand("plan upgrade with a name is a bad invocation", run(scripts.pkg, ["plan", "upgrade", "pacman", "gum"]), 2, "", "vgshell: refused: argument=gum\n");
+    expectCommand("run upgrade --ignore without a name is a bad invocation", run(scripts.pkg, ["run", "upgrade", "--manager", "pacman", "--ignore"]), 2, "", "vgshell: refused: option=--ignore value=missing\n");
     expectCommand("plan refuses an unknown action", run(scripts.pkg, ["plan", "sync", "pacman"]), 2, "", "vgshell: refused: action=sync\n");
     expectCommand("plan refuses a manager whose binary is absent", run(scripts.pkg, ["plan", "upgrade", "apt"]), 1, "", "vgshell: refused: manager=apt reason=absent binaries=apt-get\n");
     expectCommand("vgshell pkg reaches vgshell-pkg with its arguments", run(scripts.vgshell, ["pkg", "plan", "upgrade", "pacman"]), 0,

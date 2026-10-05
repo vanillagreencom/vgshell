@@ -176,6 +176,51 @@ function verifyView(logic) {
   same(["ok", "started", "queued", "refused: tui=update reason=busy"].map(logic.replyLine), ["", "", "", ""]);
   assert.equal(logic.replyLine("refused: tui=update reason=launcher-missing"), "The setup window could not open. VGS is missing its terminal launcher, xdg-terminal-exec. Reinstall VGS to restore it.");
   assert.equal(logic.replyLine("refused: tui=update reason=launcher-failed"), "VGS could not open the update action. Try again.");
+
+  // The third-party review. Expected values are written from the issue's
+  // rulings: claude before codex, each with the owner's default command.
+  const claude = ["claude", "--model", "opus", "--effort", "medium"];
+  const codex = ["codex", "-m", "gpt-6.1-sol", "-c", "model_reasoning_effort=medium"];
+  const on = (agent, command) => ({ reviewThirdParty: true, reviewAgent: agent, reviewCommand: command });
+  // [name, settings, agents found, plan, status text]
+  const reviewRows = [
+    ["off", { reviewThirdParty: false, reviewAgent: "", reviewCommand: "" }, ["claude"], { state: "off", agent: null, label: "", command: null }, "Off"],
+    ["claude before codex", on("", ""), ["codex", "claude"], { state: "agent", agent: "claude", label: "Claude Code", command: claude }, "Claude Code"],
+    ["codex alone", on("", ""), ["codex"], { state: "agent", agent: "codex", label: "Codex", command: codex }, "Codex"],
+    ["a chosen agent", on("codex", ""), ["claude", "codex"], { state: "agent", agent: "codex", label: "Codex", command: codex }, "Codex"],
+    ["a chosen agent not found", on("codex", ""), ["claude"], { state: "missing", agent: "codex", label: "Codex", command: null }, "Codex is not installed. Updates install without a review."],
+    ["no agent found", on("", ""), [], { state: "none", agent: null, label: "", command: null }, "None found. Updates install without a review."],
+    ["a command runs as written", on("", "  /opt/bin/agent   --flag  x "), [], { state: "command", agent: null, label: "/opt/bin/agent", command: ["/opt/bin/agent", "--flag", "x"] }, "Custom: /opt/bin/agent"],
+    ["a command naming an agent", on("codex", "claude --model sonnet"), ["codex"], { state: "command", agent: "claude", label: "Claude Code", command: ["claude", "--model", "sonnet"] }, "Claude Code"]
+  ];
+  for (const [name, settings, found, plan, text] of reviewRows) {
+    same(logic.reviewPlan(settings, found), plan, "review plan: " + name);
+    assert.equal(logic.reviewAgentText(logic.reviewPlan(settings, found)), text, "review text: " + name);
+  }
+  same(logic.reviewChoices(["codex", "claude"]), [{ label: "Claude Code", value: "claude" }, { label: "Codex", value: "codex" }]);
+  same(logic.reviewChoices([]), []);
+  same(logic.reviewValues(on("", ""), null), { reviewAgents: null, reviewAgent: null });
+  same(logic.reviewValues(on("", ""), ["codex"]), { reviewAgents: [{ label: "Codex", value: "codex" }], reviewAgent: "Codex" });
+  same(logic.statusWrites({}, { reviewAgents: [], reviewAgent: "Off" }).map(w => w.key), ["reviewAgents", "reviewAgent"]);
+  // The manifest's presets are the table's default commands.
+  const manifest = JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8"));
+  same(manifest.schema.reviewCommand.presets.map(p => p.value), ["", claude.join(" "), codex.join(" ")]);
+  for (const [repo, official] of [["core", true], ["extra", true], ["multilib", true], ["cachyos", true], ["cachyos-extra-znver4", true], ["chaotic-aur", false], ["core-testing", false], ["mycore", false]])
+    assert.equal(logic.officialRepository(repo), official, "official repository: " + repo);
+  // [name, verdict text, the packages reviewed, the judgement]
+  const verdictRows = [
+    ["clean", "verdict clean\n", ["a"], { ok: true, verdict: "clean", flags: [] }],
+    ["flagged", "verdict flagged\nflag a A new source domain.\nflag b It runs curl into sh.\n", ["a", "b", "c"], { ok: true, verdict: "flagged", flags: [{ name: "a", concern: "A new source domain." }, { name: "b", concern: "It runs curl into sh." }] }],
+    ["empty", "", ["a"], { ok: false, error: "line=1" }],
+    ["another first line", "all good\n", ["a"], { ok: false, error: "line=1" }],
+    ["clean with a flag", "verdict clean\nflag a x\n", ["a"], { ok: false, error: "verdict=clean flags=1" }],
+    ["flagged with no flag", "verdict flagged\n", ["a"], { ok: false, error: "verdict=flagged flags=0" }],
+    ["a flag for a package not reviewed", "verdict flagged\nflag z x\n", ["a"], { ok: false, error: "line=2" }],
+    ["a package flagged twice", "verdict flagged\nflag a x\nflag a y\n", ["a"], { ok: false, error: "line=3" }],
+    ["a flag with no concern", "verdict flagged\nflag a\n", ["a"], { ok: false, error: "line=2" }],
+    ["a control character", "verdict flagged\nflag a x\ty\n", ["a"], { ok: false, error: "control-character" }]
+  ];
+  for (const [name, text, reviewed, want] of verdictRows) same(logic.parseVerdict(text, reviewed), want, "verdict: " + name);
 }
 
 verify(load(file));
@@ -215,6 +260,16 @@ const controls = [
   ["a first TUI state read counts no ended run", "if (previous === null) return false;", "if (false) return false;"],
   ["no timer before the cache read answers", "if (cacheRead !== true) return null;", "if (false) return null;"],
   ["the service publishes whether it checks", "checking: checking === true,", "checking: false,"],
+  ["the review offers claude before codex", 'var REVIEW_AGENTS = [\n    { id: "claude", label: "Claude Code", command: ["claude", "--model", "opus", "--effort", "medium"] },\n    { id: "codex", label: "Codex", command: ["codex", "-m", "gpt-6.1-sol", "-c", "model_reasoning_effort=medium"] }\n];', 'var REVIEW_AGENTS = [\n    { id: "codex", label: "Codex", command: ["codex", "-m", "gpt-6.1-sol", "-c", "model_reasoning_effort=medium"] },\n    { id: "claude", label: "Claude Code", command: ["claude", "--model", "opus", "--effort", "medium"] }\n];'],
+  ["a review command runs as written", "if (words.length > 0) {", "if (false) {"],
+  ["a chosen agent must be found", "if (row === null || found.indexOf(chosen) < 0) return", "if (row === null) return"],
+  ["the review is off with its setting", "if (s.reviewThirdParty !== true) return", "if (false) return"],
+  ["a custom command says Custom", "(plan.agent !== null ? plan.label : \"Custom: \" + plan.label)", "plan.label"],
+  ["the review statuses are written", '"sources", "reviewAgents", "reviewAgent"]', '"sources"]'],
+  ["a CachyOS repository is official", "/^(core|extra|multilib|cachyos.*)$/", "/^(core|extra|multilib)$/"],
+  ["a flag names a reviewed package", "reviewed.indexOf(m[1]) < 0 || ", ""],
+  ["a clean verdict holds no flag", "if ((head[1] === \"clean\") !== (flags.length === 0))", "if (false)"],
+  ["a verdict holds no control character", "if (/[\\u0000-\\u0009\\u000b-\\u001f\\u007f]/.test(String(text))) return", "if (false) return"],
   ["failed probe is reported", "if (!probe || probe.status !== 0) return { ok: false, error: commandError(name, probe || { status: null, stderr: \"\" }) };", "if (!probe || probe.status !== 0) return { ok: true, value: [] };"],
 ];
 
