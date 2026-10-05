@@ -614,6 +614,7 @@ cases=(
   "jarvis-poll-harness|scripts/smoke/harness.sh|all|node scripts/test-jarvis-daemon.js"$'\npython3 scripts/check-smoke-readers.py\npython3 scripts/test-check-smoke-readers.py\nsmoke_reads_named\nscripts/test-smoke-teardown.sh\nscripts/test-sandbox-shots.sh\nscripts/test-gpu-fence.sh\nnode scripts/test-jarvis-env.js\n'"$repo_plan"$'\nscripts/qml-smoke.sh\nscripts/measure-shader.sh'
   "shortcut-provider|shell/Core/ShortcutRegistry.qml|unit|scripts/qml-unit.sh"$'\nscripts/test-qml-unit.sh'
   "key-capture-owner|shell/Core/KeyCapture.qml|unit|scripts/qml-unit.sh"$'\nscripts/test-qml-unit.sh'
+  "settings-edit-set|shell/plugins/vgs.settings/EditSet.qml|unit|scripts/qml-unit.sh"$'\nscripts/test-qml-unit.sh'
   "harness-render|.agents/skills/review-gate/scripts/review-policy|all|$repo_plan"
   "harness-hook|.claude/hooks/example.sh|all|$repo_plan"
   "harness-settings|kendex.local.toml|all|$repo_plan"
