@@ -233,17 +233,20 @@ assert len(result.stdout) == int(width) * int(height) * 3, "capture crop must co
 print(hashlib.sha256(result.stdout).hexdigest())
 PY
 }
+capture_cursor_width() { ipc smoke instanceGeometry "$(bar_key)" vgs.capture | py_reply 'import json,sys; print(json.load(sys.stdin)[2])'; }
 capture_cursor_position() {
+  hover "$capture_cursor_inside" "$capture_cursor_y" || return 1
+  expect_poll "the flat cursor fixture holds the priming pointer" true ipc smoke popupRead capture-cursor hovering
+  hover "$capture_cursor_gap_x" "$capture_cursor_gap_y" || return 1
+  expect_poll "the adjacent bar gap requests a fresh arrow" default cursor_shape
+  expect_cursor_at "the flat fixture requests a fresh hand bitmap" pointer "$1" "$capture_cursor_y"
   hover "$1" "$capture_cursor_y" || return 1
-  expect_poll "the flat cursor fixture holds the pointer" true ipc smoke popupRead capture-cursor hovering
-  expect_poll "the nested compositor uses the hand shape" pointer cursor_shape
+  expect_poll "the flat cursor fixture holds the capture pointer" true ipc smoke popupRead capture-cursor hovering
 }
 capture_cursor_pair() {
   local moved="${1:-move}" rect x y width height
   capture_setting cursor true
   expect "capture notices leave the cursor baseline" 0 capture_wait_toasts
-  rect="$(ipc smoke instanceGeometry "$(bar_key)" vgs.capture)" || return 1
-  read -r x y width height < <(python3 -c 'import json,sys; print(*json.loads(sys.argv[1]))' "$rect")
   python3 - "$sandbox/capture-cursor.qml" "$sandbox" <<'PY'
 from pathlib import Path
 import sys
@@ -251,26 +254,39 @@ fixture, sandbox = map(Path, sys.argv[1:])
 assert fixture.parent.resolve().is_relative_to(sandbox.resolve()), "cursor fixture must stay in the sandbox"
 fixture.write_text('''import QtQuick
 Rectangle {
-    x: -160
+    x: 0
     y: 0
     width: 160
     height: parent.height
     z: 1000
     color: "#334455"
+    property Item owner: null
+    property Item button: null
     readonly property bool hovering: pointer.hovered
+    Component.onCompleted: {
+        owner = parent;
+        button = owner.children[0];
+        owner.implicitWidth = 160;
+    }
+    Component.onDestruction: {
+        const original = button;
+        if (owner !== null && original !== null)
+            owner.implicitWidth = Qt.binding(() => original.implicitWidth);
+    }
     HoverHandler { id: pointer; cursorShape: Qt.PointingHandCursor }
 }
 ''')
 PY
   expect "the flat hand-cursor fixture builds on the bar" ok ipc smoke popupLoad capture-cursor "$sandbox/capture-cursor.qml" "$(bar_key)" vgs.capture '{}'
-  capture_cursor_inside=$((x - 160 + 24))
-  capture_cursor_outside=$((x - 160 + 124))
+  expect_poll "the bar gives the cursor fixture its input width" 160 capture_cursor_width
+  rect="$(ipc smoke instanceGeometry "$(bar_key)" vgs.capture)" || return 1
+  read -r x y width height < <(python3 -c 'import json,sys; print(*json.loads(sys.argv[1]))' "$rect")
+  capture_cursor_inside=$((x + 24))
+  capture_cursor_outside=$((x + 124))
   capture_cursor_y=$((y + height / 2))
-  capture_cursor_crop="$(python3 -c 'import sys; x,y,h,w,oh=map(int,sys.argv[1:]); left=x-160+4; top=y+(h-20)//2; assert h>=20 and left>=0 and left+50<=w and top>=0 and top+20<=oh; print("50x20+%d+%d"%(left,top))' "$x" "$y" "$height" "$capture_width" "$capture_height")" || return 1
-  # Bar padding resets the shape before this fixture supplies a new hand.
-  hover "$((x + width / 2))" "$((y + 1))" || return 1
-  expect_poll "capture's bar padding resets the pointer shape" default cursor_shape
-  expect_cursor_at "the flat fixture supplies the hand bitmap" pointer "$capture_cursor_outside" "$capture_cursor_y"
+  capture_cursor_gap_x=$((x - 1))
+  capture_cursor_gap_y=$((y + 1))
+  capture_cursor_crop="$(python3 -c 'import sys; x,y,h,w,oh=map(int,sys.argv[1:]); left=x+4; top=y+(h-20)//2; assert h>=20 and left>=0 and left+50<=w and top>=0 and top+20<=oh; print("50x20+%d+%d"%(left,top))' "$x" "$y" "$height" "$capture_width" "$capture_height")" || return 1
   capture_cursor_position "$capture_cursor_outside"
   expect "capture takes a scene with the pointer outside its crop" ok ipc vgs.capture invoke screenshot ''
   expect_poll "the cursor baseline finishes" idle capture_phase
