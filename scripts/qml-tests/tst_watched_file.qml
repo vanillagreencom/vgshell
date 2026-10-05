@@ -2,12 +2,14 @@ import QtQuick
 import QtTest
 import qs.Commons
 
-// WatchedFile against the stand-in FileView, whose operations the test
-// finishes by hand: a change or a read() during a read drops that read's
-// result and reads again, a failed read included; a change while no read
-// is in flight is reported and starts nothing; the watching view is never
-// read or reloaded and the reading view watches nothing; and a read or a
-// write asked from a result handler still reaches the view.
+// WatchedFile against the stand-in FileView, whose reads the test finishes
+// by hand: a change or a read() during a read drops that read's result and
+// reads again, a failed read included; a change while no read is in flight
+// is reported and starts nothing; the watching view is never read or
+// reloaded and the reading view watches nothing; a write is on the view and
+// reported before write() returns, a failed one included; a write during a
+// read is followed by a read; and a read or a write asked from a result
+// handler still reaches the view.
 Item {
     id: root
 
@@ -33,6 +35,7 @@ Item {
             file.loaded.connect(content => events.push("loaded:" + content));
             file.loadFailed.connect(error => events.push("failed:" + error));
             file.saved.connect(() => events.push("saved"));
+            file.saveFailed.connect(error => events.push("save-failed:" + error));
             file.changed.connect(() => events.push("changed"));
         }
 
@@ -101,14 +104,31 @@ Item {
             compare(reader.reads, 1);
         }
 
-        function test_change_during_write_is_reported() {
+        function test_write_is_reported_before_it_returns() {
             settleFirst();
             file.write("w");
-            tryCompare(reader, "live", "write");
-            watcher.change();
-            compare(events, ["changed"]);
-            reader.finishWrite();
-            compare(events, ["changed", "saved"]);
+            compare(reader.written, "w");
+            compare(events, ["saved"]);
+            compare(file.busy, false);
+        }
+
+        function test_failed_write_is_reported_before_it_returns() {
+            settleFirst();
+            reader.failNextWrite = 7;
+            file.write("w");
+            compare(events, ["save-failed:7"]);
+            compare(file.busy, false);
+        }
+
+        function test_write_during_read_is_followed_by_a_read() {
+            file.write("w");
+            compare(reader.written, "w");
+            compare(events, ["saved"]);
+            compare(reader.live, "");
+            tryCompare(reader, "reads", 2);
+            compare(events, ["saved"]);
+            reader.finishRead("w");
+            compare(events, ["saved", "loaded:w"]);
             compare(file.busy, false);
         }
 
@@ -129,9 +149,7 @@ Item {
             let asked = false;
             file.loaded.connect(() => { if (!asked) { asked = true; file.write("w"); } });
             reader.finishRead("x");
-            tryCompare(reader, "live", "write");
             compare(reader.written, "w");
-            reader.finishWrite();
             compare(events, ["loaded:x", "saved"]);
             compare(file.busy, false);
         }

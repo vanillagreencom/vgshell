@@ -14,9 +14,8 @@ import "PluginLogic.js" as Logic
 // unread edits. Nothing is built before `ready`: the shipped file has
 // loaded once and the user file has settled, so a bar never draws from the
 // user file alone. Each file is a WatchedFile, so an edit that lands during
-// a read is read again. One operation on the user file is in flight at a
-// time and later edits coalesce behind it; a file notification is read once
-// the save lands.
+// a read is read again. An edit of the user file is on the disk before its
+// write answers.
 Singleton {
     id: root
 
@@ -83,127 +82,67 @@ Singleton {
     WatchedFile {
         id: userView
         path: root.userPath
-        // A read that lands while an edit waits for its save updates only
-        // what the disk is known to hold; the edit is written next and
-        // wins, as the later of the two.
+        onChanged: read()
         onLoaded: content => {
-            if (content === root.persistedUser.text && root.persistedUser.state === "loaded") {
+            root.saveError = "";
+            if (content === root.userText) {
                 // The disk holds what it held: a write's own notification,
                 // or a file readable again.
                 root.userState = "loaded";
-            } else {
-                const r = root.judge(path, content);
-                if (r.state === "loaded") {
-                    const settled = root.userText === root.persistedUser.text;
-                    root.persistedUser = { value: r.value, text: content, state: "loaded" };
-                    if (settled) {
-                        root.user = r.value;
-                        root.userText = content;
-                    }
-                } else {
-                    root.persistedUser = { value: root.persistedUser.value, text: root.persistedUser.text, state: r.state };
-                }
-                root.userState = r.state;
+                return;
             }
-            Qt.callLater(root.flushSave);
+            const r = root.judge(path, content);
+            if (r.state === "loaded") {
+                root.user = r.value;
+                root.userText = content;
+            }
+            root.userState = r.state;
         }
         onLoadFailed: error => {
+            root.saveError = "";
             if (error === FileViewError.FileNotFound) {
-                const settled = root.userText === root.persistedUser.text;
-                root.persistedUser = { value: null, text: null, state: "absent" };
-                if (settled) {
-                    root.user = null;
-                    root.userText = null;
-                }
+                root.user = null;
+                root.userText = null;
                 root.userState = "absent";
             } else {
                 console.error("config: user file unreadable at " + path + ": " + error);
                 root.userState = "unreadable";
             }
-            Qt.callLater(root.flushSave);
-        }
-        onChanged: root.reloadUser()
-        onSaved: {
-            root.persistedUser = { value: root.activeSave.value, text: root.activeSave.text, state: "loaded" };
-            root.userState = "loaded";
-            root.activeSave = null;
-            Qt.callLater(root.flushSave);
         }
         onSaveFailed: error => {
             console.error("config: user file not written at " + path + ": " + error);
-            root.lastSaveError = String(error);
-            root.user = root.persistedUser.value;
-            root.userText = root.persistedUser.text;
-            root.activeSave = null;
+            root.saveError = String(error);
             // FileView keeps the bytes of a failed write and skips a later
-            // write of the same bytes, so the file is read again first.
-            root.reloadRequested = true;
-            Qt.callLater(root.flushSave);
+            // write of the same bytes, so the file is read again before
+            // another write is taken.
+            read();
         }
     }
 
-    // What the disk is known to hold: the last judged content of the user
-    // file, its text (null when absent) and its state. `user` and
-    // `userText` run ahead of it while an edit waits for its save.
-    property var persistedUser: ({ value: null, text: null, state: "pending" })
-    // The save in flight as { value, text }, or null.
-    property var activeSave: null
-    // A read wanted once the operation in flight ends.
-    property bool reloadRequested: false
-    property string lastSaveError: ""
-    // Run the one operation the file may carry: FileView completes a write
-    // in flight synchronously inside a second setText, and a read during a
-    // write starts nothing, so a read and a write never overlap. A wanted
-    // read goes first; then the latest edit, when it differs from what the
-    // disk holds. An edit that waits behind a file the shell can no longer
-    // read is dropped and logged, never written unread.
-    function flushSave() {
-        if (userView.busy) return;
-        if (reloadRequested) {
-            reloadRequested = false;
-            userView.read();
-            return;
-        }
-        if (userText === persistedUser.text) return;
-        if (userState !== "loaded" && userState !== "absent") {
-            console.error("config: edit dropped, user file " + userState + " at " + userPath);
-            user = persistedUser.value;
-            userText = persistedUser.text;
-            return;
-        }
-        activeSave = { value: user, text: userText };
-        userView.write(userText);
-    }
-
-    function reloadUser() {
-        reloadRequested = true;
-        flushSave();
-    }
+    // The error of a write the disk refused, held until the file is read
+    // again.
+    property string saveError: ""
 
     // Replace the user file whole. Refused unless the file was read or is
     // absent, so an unparseable, malformed or unreadable file is never
-    // overwritten unread. The in-memory value moves first so the screen
-    // reacts at once; a failed save restores it and is reported once, by
-    // refusing the next write with the error. `ok` means the save was
-    // queued: a save in flight is followed by one more with the latest
-    // edit. Returns `ok` or the keyed refusal.
+    // overwritten unread, and after a write the disk refused until the file
+    // is read again. `ok` means the file holds the value. Returns `ok` or
+    // the keyed refusal.
     function writeUser(value) {
         if (userState !== "loaded" && userState !== "absent") return "refused: user-config=" + userState + " path=" + userPath;
-        if (lastSaveError !== "") {
-            const error = lastSaveError;
-            lastSaveError = "";
-            return "refused: user-config=unwritable path=" + userPath + " error=" + error;
-        }
+        if (saveError !== "") return "refused: user-config=unwritable path=" + userPath + " error=" + saveError;
         const content = JSON.stringify(value, null, 2) + "\n";
         if (content === userText) return "ok";
-        root.user = value;
-        root.userText = content;
-        flushSave();
+        userView.write(content);
+        if (saveError !== "") return "refused: user-config=unwritable path=" + userPath + " error=" + saveError;
+        user = value;
+        userText = content;
+        userState = "loaded";
         return "ok";
     }
 
     function reload() {
         shippedView.read();
-        reloadUser();
+        userView.read();
     }
 }

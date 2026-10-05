@@ -515,7 +515,7 @@ Singleton {
     // Write one setting of one plugin into each configuration entry in
     // `targets` ("layout", "plugins"); `locator` { section, nth } narrows
     // "layout" to one entry. The value is checked against the manifest's
-    // schema first. The reply is one keyed line: `ok` (the save is queued),
+    // schema first. The reply is one keyed line: `ok` (the file holds it),
     // `unknown: <id>` or a refusal.
     function writeSetting(id, key, value, targets, locator) {
         if (!Registry.has(id)) return "unknown: " + id;
@@ -539,7 +539,7 @@ Singleton {
     // its plugins row, for the plugin manager: a key string rebinds, null
     // unbinds, undefined resets to the manifest's key. The Hyprland layer
     // alone reads the row's keys. A disabled plugin is refused, as for a
-    // setting. The reply is one keyed line: `ok` (the save is queued),
+    // setting. The reply is one keyed line: `ok` (the file holds it),
     // `unknown: <id>` or a refusal.
     function setKey(id, shortcut, key) {
         if (!Registry.has(id)) return "unknown: " + id;

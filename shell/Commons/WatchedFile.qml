@@ -13,21 +13,22 @@ import Quickshell.Io
 // stale: its result is dropped unreported and the file is read again once
 // the handler returns, so `loaded` and `loadFailed` report only a read no
 // change overtook. The first read starts when the view is built. The view
-// reports a result while it still holds that operation, and a reload or a
-// write asked from an owner's handler then starts nothing or is lost, so
-// every read and write reaches the view once the handler returns.
+// reports a read's result while it still holds that read, and a reload
+// asked from an owner's handler then starts nothing, so every read reaches
+// the view once the handler returns.
 //
-// A read asked during a write starts nothing either, so the owner sequences
-// the two: read() and write() are refused while a write is in flight, and a
-// change seen then is reported through `changed` for the owner to read once
-// the write lands.
+// A write is on the disk, and reported, before write() returns: SIGTERM
+// ends the shell with no handler run, so a write still waiting when the
+// owner answered would be lost with the shell. The view therefore blocks on
+// its writes. Such a write drops a read in flight unreported, so the file
+// is read again after it.
 Scope {
     id: file
 
     required property string path
     // The one operation on the file: `reading` from the first, which the
     // reading view starts when `path` is set; `stale` when a change or a
-    // read() landed during the read; `writing`; `idle`.
+    // read() landed during the read; `writing` inside write(); `idle`.
     property string operation: "reading"
     readonly property bool busy: operation !== "idle"
     readonly property bool inRead: operation === "reading" || operation === "stale"
@@ -49,23 +50,19 @@ Scope {
         case "stale":
             operation = "stale";
             return;
-        case "writing":
-            console.error("watched-file: refused: read operation=writing path=" + path);
-            return;
         }
         console.error("watched-file: unknown operation=" + operation + " path=" + path);
     }
 
-    // Replace the file with `content`. FileView skips a write of the bytes it
-    // last read or wrote, and a skipped write reports nothing, so the owner
-    // writes only bytes that differ from those.
+    // Replace the file with `content`: `saved` or `saveFailed` is emitted
+    // before this returns. FileView skips a write of the bytes it last read
+    // or wrote, and a skipped write reports nothing, so the owner writes only
+    // bytes that differ from those.
     function write(content) {
-        if (operation !== "idle") {
-            console.error("watched-file: refused: write operation=" + operation + " path=" + path);
-            return;
-        }
+        const overtaken = inRead;
         operation = "writing";
-        Qt.callLater(() => view.setText(content));
+        view.setText(content);
+        if (overtaken) readLater();
     }
 
     function readLater() {
@@ -105,6 +102,7 @@ Scope {
         id: view
         path: file.path
         printErrors: false
+        blockWrites: true
         onLoaded: if (file.settle()) file.loaded(text())
         onLoadFailed: error => { if (file.settle()) file.loadFailed(error); }
         onSaved: {

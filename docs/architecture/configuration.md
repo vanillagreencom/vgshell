@@ -36,8 +36,8 @@ An id `disabledPlugins` or `plugins` lists that no discovered plugin has, as a r
 - The configuration is ready once the shipped file has loaded once and the user file has settled. Nothing is built before that, so a bar never draws from the user file alone.
 - A file that fails after one load keeps its last good value, so the shell draws from what it has and the log names the cause.
 - Each layer retains its accepted text. A reload of identical text keeps the value object, so a manager write and its file notification produce one configuration change.
-- Every write is refused unless the user file is `loaded` or `absent`, so a file the shell could not read is never overwritten unread. A write the disk refuses restores the value in memory and refuses the next write once with the error; `ok` from a write means the save was queued.
-- One asynchronous save owns the confirmed value. Edits during that save update the screen at once and coalesce into the next save. A failed save restores the confirmed value, discards unsaved edits and reloads the file before another write. File notifications wait until saves settle.
+- Every write is refused unless the user file is `loaded` or `absent`, so a file the shell could not read is never overwritten unread. `ok` from a write means the file holds the edit: the shell writes before it answers, so a stop right after the answer keeps it. `scripts/smoke/rows/style.sh` stops the shell as a toggle answers and reads the file.
+- A write the disk refuses answers `refused: user-config=unwritable` with the error and leaves the value in memory as it was. Every write is refused that way until the shell has read the file again.
 - An edit to either file that lands while the shell reads it is read again, so the last edit is the one the configuration holds.
 
 ## Theme

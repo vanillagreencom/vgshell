@@ -1127,7 +1127,7 @@ Scope {
         function failedBuilds(hostKey: string): int {
             return Object.keys(Plugins.failedBuilds).filter(key => JSON.parse(key)[0] === hostKey).length;
         }
-        function configSettled(): bool { return !Config.smokeUserView.busy && !Config.reloadRequested; }
+        function configSettled(): bool { return !Config.smokeUserView.busy; }
         function readInstance(hostKey: string, id: string, property: string): string { return root.read(hostKey, id, property); }
         // The core's session lock, taken and released without a password,
         // for rows/lock.sh: a sandbox row never runs PAM against the real
