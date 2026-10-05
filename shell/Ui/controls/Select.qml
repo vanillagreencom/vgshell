@@ -99,22 +99,17 @@ T.AbstractButton {
     opacity: enabled ? 1 : Theme.opacity.disabled
     Accessible.name: showsEmpty ? emptyText : currentText
     onClicked: if (list.visible) list.visible = false; else openList()
-    Keys.onPressed: event => { event.accepted = closedNav.handle(event) || emptyNav.handle(event); }
+    Keys.onPressed: event => { event.accepted = closedNav.handle(event); }
 
     property KeyNav closedNav: KeyNav {
-        count: root.count
-        currentIndex: root.currentIndex
+        // With nothing to choose, the one empty line is what Enter or Space
+        // opens; a move lands on it and choose() ignores an index past the
+        // model.
+        count: root.showsEmpty ? 1 : root.count
+        currentIndex: root.showsEmpty ? 0 : root.currentIndex
         wrap: false /* closed select */
         labelAt: index => root.textAt(index)
         onMoved: index => root.choose(index)
-        onActivated: root.openList()
-    }
-
-    // The empty state's own activation: one entry that only opens the list.
-    property KeyNav emptyNav: KeyNav {
-        count: root.showsEmpty ? 1 : 0
-        currentIndex: 0
-        wrap: false /* empty select */
         onActivated: root.openList()
     }
 
