@@ -40,6 +40,16 @@ readers() {
 # while they differ.
 agreed() { readers "$1" | py_reply 'import json,sys; r=json.load(sys.stdin); print(json.dumps(r[0]) if len(r) >= 4 and all(v == r[0] for v in r) else "readers=" + json.dumps(r))'; }
 
+# Listed disabled first, so the first presence does not place the fixture
+# at the rescan: the row's own enable places it once its monitor is up.
+python3 - "$home/.config/vgshell/shell.json" <<'PY'
+import json, os, sys
+p = sys.argv[1]
+d = json.load(open(p))
+d["disabledPlugins"] = [i for i in d.get("disabledPlugins", []) if i != "acme.status"] + ["acme.status"]
+json.dump(d, open(p + ".tmp", "w"), indent=2)
+os.replace(p + ".tmp", p)
+PY
 rescan "rescan after adding the status fixture answers ok"
 expect_poll "the status fixture is discovered" True plugin_known acme.status
 status_output=SMOKE-STATUS

@@ -785,9 +785,12 @@ PY
 
 # default_set_prepare PLUGINS_JSON [DISABLED_JSON]: what a start over the
 # default set needs before the shell starts. The user file names no bar
-# and disables nothing, so the shipped bar and every first-party plugin
-# build; it enables the third-party plugins PLUGINS_JSON lists, a JSON
-# list of ids, and disables those DISABLED_JSON lists.
+# and disables no first-party plugin, so the shipped bar and every
+# first-party plugin build; it enables the third-party plugins PLUGINS_JSON
+# lists, a JSON list of ids, and disables those DISABLED_JSON lists and
+# every other plugin installed under the user's plugins directory, which an
+# earlier row left there, so the first presence places none of their
+# widgets.
 # Every host command a default-set service runs at start reaches a
 # stand-in or does not run: vgs.devtools's queries reach
 # devtools_stand_ins; vgs.updates reads updates_cache_fresh's status cache;
@@ -802,6 +805,9 @@ default_set_prepare() { # PLUGINS_JSON [DISABLED_JSON]
   python3 - "$home/.config/vgshell/shell.json" "$1" "${2:-[]}" <<'PY'
 import json, os, sys
 user, plugins, disabled = sys.argv[1], json.loads(sys.argv[2]), json.loads(sys.argv[3])
+installed = os.path.join(os.path.dirname(user), "plugins")
+left = sorted(d for d in os.listdir(installed) if d not in plugins and d not in disabled) if os.path.isdir(installed) else []
+disabled = disabled + left
 with open(user + ".tmp", "w") as out:
     json.dump({"version": 1, "plugins": [{"id": p} for p in plugins], "disabledPlugins": disabled}, out)
 os.replace(user + ".tmp", user)
