@@ -94,6 +94,9 @@ keyhints
 # to; it restarts the shell for its control, so it runs with the tail rows
 # that do the same.
 scratchpads
+# It installs its own fixture and restarts the shell for a control, so it
+# runs with the tail rows that do the same.
+settings-unsaved
 # This row restarts the shell for its controls, so it runs with the tail rows that do the same.
 panes
 # After panes, which removes its fixture holder: vgs.system holds `panes`

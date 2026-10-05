@@ -499,7 +499,8 @@ expect "the empty string stays in the file" '""' user_device
 # Preset fields: the Bar clock format is a datetime preset Select with a
 # trailing Custom… entry. Presets write their stable format string. Custom…
 # opens the custom row without writing, invalid datetime formats show the
-# shared problem text and do not write, and a valid custom format writes.
+# shared problem text and do not write, and a valid custom format writes
+# once Enter is pressed in its field.
 clock_field() { ipc smoke invokeInstance window vgs.settings fieldChoice '{"id":"vgs.bar","key":"clockFormat"}'; }
 clock_state() { clock_field | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([len(d["model"]), d["model"][-1]["label"], d["enabled"]]))'; }
 clock_model() { clock_field | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["model"]))'; }
@@ -522,11 +523,14 @@ clock_changes="$(config_changes)" || fail "configuration counter unreadable befo
 expect "choosing Custom opens the row" chosen choose_clock 8
 expect "choosing Custom writes no configuration" "$clock_changes" config_changes
 expect_poll "the Custom row opens with the configured format and a drawn preview" '[true, "HH:mm", "", true, true]' clock_custom_state
-expect "an invalid custom clock edit is accepted by the editor" edited edit_clock_custom "'abc"
+expect "an invalid custom clock edit is typed into the editor" edited edit_clock_custom "'abc"
+type_keys -k Return || fail "sending Return to the invalid custom clock format failed"
 expect_poll "the invalid custom clock format shows the shared problem" '[true, "'\''abc", "Close the quoted text.", true, false]' clock_custom_state
 expect "the invalid custom clock format writes nothing" "$clock_changes" config_changes
 expect "the invalid custom clock format raises no manager refusal" '""' bar_reply
-expect "a valid custom clock edit is accepted by the editor" edited edit_clock_custom "yyyy-MM-dd HH:mm:ss"
+expect "a valid custom clock edit is typed into the editor" edited edit_clock_custom "yyyy-MM-dd HH:mm:ss"
+expect "a typed custom clock format is not written before Enter" "$clock_changes" config_changes
+type_keys -k Return || fail "sending Return to the valid custom clock format failed"
 expect_poll "the valid custom clock format writes" '"yyyy-MM-dd HH:mm:ss"' user_clock
 expect_poll "the custom clock save settles" true config_settled
 
@@ -687,7 +691,7 @@ import sys
 path = sys.argv[1]
 text = open(path).read()
 for old, new in (("        tabs.currentIndex = 0;\n", "        tabs.currentIndex = 1;\n"),
-                 ("onCurrentIndexChanged: layout.scrollArea.contentY = 0\n", "onCurrentIndexChanged: {}\n"),
+                 ("                        layout.scrollArea.contentY = 0;\n", ""),
                  ("    Keys.forwardTo: [tabs]\n", "")):
     if text.count(old) != 1:
         sys.exit("%r occurs %d times" % (old, text.count(old)))

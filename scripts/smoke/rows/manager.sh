@@ -682,6 +682,12 @@ expected_errors+=('settings: vgs\.settings refused: key=toggle has an empty part
 expect "a malformed key typed in the Keys row is sent" applied ipc smoke invokeInstance window vgs.settings applyKey '{"id":"vgs.settings","shortcut":"toggle","key":"SUPER+"}'
 expect "the page shows the key's refusal" '{"vgs.settings":"The shortcut needs a key. Select the field and press its new keys."}' ipc smoke readInstance window vgs.settings replies
 expect "the refused key left shell.json alone" absent user_key
+# The refused key returns to the row's text entry as an unsaved edit: the
+# Settings tab shows it over the save bar, whose Discard drops it.
+settings_tab_click Settings || fail "the click back to the Settings tab failed"
+expect_poll "the refused key returns to the Keys row's text entry" true settings_key_field typing
+click_scoped_in window:Settings window vgs.settings SaveBar "Unsaved changes" Button Discard || fail "the click on Discard for the refused key failed"
+expect_poll "Discard drops the refused key" false settings_key_field typing
 expect "a reset after the refusal is applied" applied ipc smoke invokeInstance window vgs.settings applyKey '{"id":"vgs.settings","shortcut":"toggle"}'
 expect "the accepted key clears the page's refusal" '{}' ipc smoke readInstance window vgs.settings replies
 # A problem the Hyprland layer reports for a plugin, a `keys` name its

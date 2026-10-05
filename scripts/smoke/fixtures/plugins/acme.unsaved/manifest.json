@@ -1,0 +1,9 @@
+{ "schemaVersion": 1, "id": "acme.unsaved", "name": "Unsaved", "version": "0.1.0", "author": "acme", "description": "smoke fixture of the unsaved edits",
+  "icon": "flask-conical",
+  "kinds": ["service"], "entryPoints": { "service": "Service.qml" },
+  "settings": { "gap": 4, "label": "probe", "compact": false },
+  "schema": {
+    "gap": { "type": "number", "label": "Gap", "description": "An unbounded number, drawn as a text field" },
+    "label": { "type": "string", "label": "Label", "allowCustom": true, "presets": [{ "value": "alpha", "label": "Alpha" }, { "value": "beta", "label": "Beta" }] },
+    "compact": { "type": "boolean", "label": "Compact" }
+  } }
