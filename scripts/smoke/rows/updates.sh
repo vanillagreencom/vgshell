@@ -636,14 +636,16 @@ BarWidget {
     }
 }
 EOF
-rescan "rescan after adding the per-widget control answers ok"
-expect_poll "the per-widget control is discovered" True plugin_known acme.updates-control
-expect_poll "the scan's theme follow ends before the per-widget control checks" idle theme_idle
+# A new bar widget lands enabled and placed on discovery, so its widgets
+# check as the scan builds them: the monitor and its bar come first and
+# the count is read before the scan.
 control_output=SMOKE-UPDATES-CONTROL
 expect "the nested compositor adds a monitor for the control" ok hypr output create headless "$control_output"
 expect_poll "the control monitor gets a bar" "$((monitors + 1))" bar_count
 before="$(checks)"
-expect "enabling the per-widget control is allowed" ok ipc shell setPluginEnabled acme.updates-control true
+rescan "rescan after adding the per-widget control answers ok"
+expect_poll "the per-widget control lands enabled, as a new bar widget does" True plugin_enabled acme.updates-control
+expect_poll "the scan's theme follow ends before the per-widget control checks" idle theme_idle
 control_widgets() { ipc shell built | py_reply 'import json,sys; print(sum(1 for rows in json.load(sys.stdin).values() for r in rows if r["id"] == "acme.updates-control"))'; }
 expect_poll "the control is built on every bar" "$((monitors + 1))" control_widgets
 expect_poll "the control probes once per widget, not once per check" "$((before + monitors + 1))" checks
