@@ -31,9 +31,11 @@ Item {
     implicitHeight: rowHeight
     height: rowHeight
 
+    // A hidden item, such as a plugin page's Open for a plugin with no
+    // window or panel, takes no room from the title.
     function largestImplicit(items, axis) {
         let found = 0;
-        for (const item of items) found = Math.max(found, item[axis]);
+        for (const item of items) if (item.visible) found = Math.max(found, item[axis]);
         return found;
     }
 

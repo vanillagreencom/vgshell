@@ -152,7 +152,6 @@ expect_poll "the Themes panel is gone after Open" closed themes_panel_open
 expect "the window opens the Dev Tools page for the Open control" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.devtools
 expect_poll "the Dev Tools page draws Open" drawn shown_open_button
 expect "the disabled Dev Tools Open takes no press" absent open_button
-expect "the window returns to the fixture's page after the Open rows" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.probe
 expect "the window opens the fixture's page again for the edit rows" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.probe
 expect_poll "the fixture's page opens on Settings for the edit rows" "0 drawn absent" page_shown
 held_rect="$(ipc smoke invokeInstance window vgs.settings holdField '{"id":"acme.probe","key":"label","text":"draft"}')" || fail "holdField failed"
