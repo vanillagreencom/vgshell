@@ -11,6 +11,7 @@ pane_file="$home/.config/vgshell/shell.json"
 pane_saved="$sandbox/shell-before-panes.json"
 pane_bar_key=""
 cp -- "$pane_file" "$pane_saved"
+pane_settings_was="$(plugin_enabled vgs.settings)" || fail "vgs.settings's enabled state is unreadable"
 
 # The fixture holder needs the exclusive `panes` capability, which
 # vgs.system holds while enabled, as it is in the default set
@@ -252,8 +253,15 @@ expect "configure restore: Settings opens the pane plugin page" ok ipc shell sum
 expect "configure restore: pane edit is accepted" ok ipc smoke invokeInstance window acme.pane setLabel restored-configure
 expect_poll "configure restore: four-view readback is green" '["restored-configure","restored-configure","restored-configure","restored-configure"]' four_view_labels
 
+# The windows the controls' tail opened close before the restore, so the
+# row leaves no client and no focus behind.
+expect "hiding Settings after the pane rows is allowed" ok ipc shell hide window vgs.settings
+expect_poll "the Settings window is gone after the pane rows" 0 window_count Settings
+expect "hiding the pane host after the pane rows is allowed" ok ipc shell hide window acme.panehost
+expect_poll "the pane host window is gone after the pane rows" 0 window_count "Pane Host"
 cp -- "$pane_saved" "$pane_file.tmp" && mv -T -- "$pane_file.tmp" "$pane_file"
 rm -rf -- "${home:?}/.config/vgshell/plugins/acme.panehost" "${home:?}/.config/vgshell/plugins/acme.pane" "${home:?}/.config/vgshell/plugins/acme.pane-alt" "${home:?}/.config/vgshell/plugins/acme.panehost2"
 rescan "rescan after removing the pane fixtures answers ok"
 expect_poll "the pane fixture is gone after restore" absent plugin_enabled acme.pane
+expect_poll "vgs.settings is enabled as the row found it" "$pane_settings_was" plugin_enabled vgs.settings
 expect_poll "each shipped section the row set aside is enabled again" "$pane_aside" shipped_panes_enabled
