@@ -42,6 +42,13 @@ on_tty() {
     </dev/null >"$tmp/out" 2>&1 || status=$?
 }
 err_first() { local line=""; [[ -s $tmp/err ]] && IFS= read -r line <"$tmp/err"; printf '%s' "$line"; }
+starts_one_blank() { # FILE
+  python3 - "$1" <<'PY'
+import pathlib, sys
+text = pathlib.Path(sys.argv[1]).read_text().replace("\r\n", "\n")
+sys.exit(0 if text.startswith("\n") and not text.startswith("\n\n") else 1)
+PY
+}
 esc=$'\033'
 
 # Colours: a #rrggbb value becomes a truecolor escape, anything else the
@@ -73,12 +80,13 @@ check "an error without a theme is ANSI red" test "$(cat "$tmp/err")" == "${esc}
 
 run 'vgs_tui_header "-Title" "a line"'
 check "a header is one bordered gum style" test "$(cat "$tmp/gum")" == "$(printf '%s\n' style --border normal --padding "1 2" -- -Title "a line")"
+check "a header starts with one blank line" starts_one_blank "$tmp/out"
 
 # Questions need the terminal; unattended, confirm answers yes and asks nothing.
 rm -f -- "$tmp/gum"
 run 'vgs_tui_confirm "Remove it?" --default=false' VGS_TUI_UNATTENDED=1
 check "an unattended confirm answers yes" test "$status" == 0
-check "an unattended confirm prints its answer" test "$(cat "$tmp/out")" == "Remove it? yes (unattended)"
+check "an unattended confirm prints its answer after a blank line" test "$(cat "$tmp/out")" == $'\nRemove it? yes (unattended)'
 check "an unattended confirm runs no gum" test ! -e "$tmp/gum"
 for fn in confirm choose input filter; do
   run "vgs_tui_$fn 'Question?'"
@@ -89,12 +97,18 @@ done
 on_tty 'vgs_tui_confirm "Remove it?" --default=false'
 check "a confirm on a terminal asks gum" test "$(cat "$tmp/gum")" == "$(printf '%s\n' confirm --default=false -- "Remove it?")"
 check "a confirm answers gum's yes" test "$status" == 0
+check "a confirm on a terminal starts with one blank line" starts_one_blank "$tmp/out"
 echo 1 >"$tmp/gum-exit"
 on_tty 'vgs_tui_confirm "Remove it?"'
 check "a confirm answers gum's no" test "$status" == 1
 rm -f -- "$tmp/gum-exit"
 on_tty 'printf "a\nb\n" | vgs_tui_choose --header Pick'
 check "a choose on a terminal hands gum its arguments" test "$(cat "$tmp/gum")" == "$(printf '%s\n' choose --header Pick)"
+check "a choose on a terminal starts with one blank line on the terminal stream" starts_one_blank "$tmp/out"
+on_tty 'vgs_tui_input --placeholder Name'
+check "an input on a terminal starts with one blank line on the terminal stream" starts_one_blank "$tmp/out"
+on_tty 'printf "a\nb\n" | vgs_tui_filter --placeholder Search'
+check "a filter on a terminal starts with one blank line on the terminal stream" starts_one_blank "$tmp/out"
 
 # The sudo session: drop the credential, authorize once, keep it alive in
 # the background, and drop it again at end, on exit and on a signal, with
@@ -297,6 +311,9 @@ control joins-the-dead '&& kill -0 "$outer" 2>/dev/null; then' '; then'
 check "the joins-the-dead mutant fails a nested row" test "$(nested_rows quiet && echo green || echo red)" == red
 control unguarded 'guard) _vgs_tui_sudo_traps ;;' 'guard) ;;'
 check "the unguarded mutant fails a guard row" test "$(guard_rows quiet && echo green || echo red)" == red
+control no-prompt-blank "_vgs_tui_prompt_gap() { printf '\\n' >&2; }" "_vgs_tui_prompt_gap() { :; }"
+on_tty 'vgs_tui_confirm "Remove it?"'
+check "the no-prompt-blank mutant fails the prompt blank row" test "$(starts_one_blank "$tmp/out" && echo green || echo red)" == red
 LIB="$lib"
 
 # The template's control: a copy that turns every confirm status into success.

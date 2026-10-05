@@ -10,7 +10,8 @@
 # `vgs-tui: refused: <key>=<value>`. A function that refuses returns 2 for a
 # missing terminal or a bad argument, 75 for a held lock, 1 otherwise.
 #
-#   vgs_tui_header TITLE [LINE...]   a bordered box: TITLE, then each LINE
+#   vgs_tui_header TITLE [LINE...]   one blank line, then a bordered box:
+#                                    TITLE, then each LINE
 #   vgs_tui_step TEXT                a bold accent line after a blank line
 #   vgs_tui_warn TEXT                a warning line on stderr
 #   vgs_tui_error TEXT               an error line on stderr
@@ -60,8 +61,10 @@ _vgs_tui_has_terminal() { : 2>/dev/null <>/dev/tty; }
 _vgs_tui_terminal() { # KEY
   _vgs_tui_has_terminal || _vgs_tui_refuse 2 "$1=no-terminal" "run this in a terminal"
 }
+_vgs_tui_prompt_gap() { printf '\n' >&2; }
 
 vgs_tui_header() { # TITLE [LINE...]
+  printf '\n'
   gum style --border normal --padding "1 2" -- "$@"
 }
 
@@ -84,16 +87,17 @@ vgs_tui_confirm() { # QUESTION [GUM_FLAG...]
   local question="$1"
   shift
   if [[ ${VGS_TUI_UNATTENDED:-} == 1 ]]; then
-    printf '%s yes (unattended)\n' "$question"
+    printf '\n%s yes (unattended)\n' "$question"
     return 0
   fi
   _vgs_tui_terminal confirm || return
+  _vgs_tui_prompt_gap
   gum confirm "$@" -- "$question"
 }
 
-vgs_tui_choose() { _vgs_tui_terminal choose || return; gum choose "$@"; }
-vgs_tui_input() { _vgs_tui_terminal input || return; gum input "$@"; }
-vgs_tui_filter() { _vgs_tui_terminal filter || return; gum filter "$@"; }
+vgs_tui_choose() { _vgs_tui_terminal choose || return; _vgs_tui_prompt_gap; gum choose "$@"; }
+vgs_tui_input() { _vgs_tui_terminal input || return; _vgs_tui_prompt_gap; gum input "$@"; }
+vgs_tui_filter() { _vgs_tui_terminal filter || return; _vgs_tui_prompt_gap; gum filter "$@"; }
 
 _vgs_tui_keepalive_pid=""
 _vgs_tui_lock_fd=""
