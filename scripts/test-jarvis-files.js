@@ -626,20 +626,35 @@ world(async () => {
     };
     await deleteDepth(require(file));
     // An entry replaced between the walk and its removal stops the removal.
+    // The replacement is given the freed inode number whenever no descriptor
+    // of this process still holds the original, as a filesystem that reuses
+    // numbers (ext4) may do; a held inode is never freed, so never reused.
+    const heldHere = (dev, ino) => fs.readdirSync("/proc/self/fd").some(fd => {
+        try { const stat = fs.fstatSync(Number(fd)); return stat.dev === dev && stat.ino === ino; }
+        catch { return false; }
+    });
     const deleteInode = async Files => {
         plantZone();
         let armed = true;
+        let freed = null;
+        let replacement = null;
         let pending;
         try {
-            fsFault("unlinkSync", (original, target, ...rest) => {
+            fsFault("lstatSync", (original, target, ...rest) => {
+                const stat = original(target, ...rest);
+                if (replacement === null || stat.dev !== replacement.dev || stat.ino !== replacement.ino || heldHere(freed.dev, freed.ino)) return stat;
+                return Object.assign(Object.create(Object.getPrototypeOf(stat)), stat, { ino: freed.ino });
+            }, () => fsFault("unlinkSync", (original, target, ...rest) => {
                 if (armed) {
                     armed = false;
                     const other = path.basename(target) === "one" ? path.join(zone, "two") : path.join(zone, "a", "one");
+                    freed = fs.lstatSync(other);
                     original(other);
                     fs.writeFileSync(other, "replaced");
+                    replacement = fs.lstatSync(other);
                 }
                 return original(target, ...rest);
-            }, () => { pending = make(Files).run("files.delete", { path: zone }); });
+            }, () => { pending = make(Files).run("files.delete", { path: zone }); }));
             const answer = await pending;
             assert.equal(answer.outcome, "failed");
             assert.match(answer.content, /^Removed \d of 4 entries under .*, then stopped: Refused: path-changed for /);
@@ -648,6 +663,52 @@ world(async () => {
         } finally { fs.rmSync(zone, { recursive: true, force: true }); }
     };
     await deleteInode(require(file));
+
+    // The hold opens each file with O_PATH: it reads no content, runs no
+    // open of a fifo or device and holds a link itself.
+    const oPath = 0o10000000;
+    const pathOpen = () => {
+        plantZone();
+        try {
+            const fd = fs.openSync(path.join(zone, "two"), oPath | fs.constants.O_NOFOLLOW);
+            try { assert.throws(() => fs.readSync(fd, Buffer.alloc(1)), { code: "EBADF" }); }
+            finally { fs.closeSync(fd); }
+            fs.symlinkSync(path.join(zone, "two"), path.join(zone, "link"));
+            const link = fs.openSync(path.join(zone, "link"), oPath | fs.constants.O_NOFOLLOW);
+            try { assert.equal(fs.fstatSync(link).ino, fs.lstatSync(path.join(zone, "link")).ino); }
+            finally { fs.closeSync(link); }
+            cases++;
+        } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+    };
+    pathOpen();
+    const deleteFifo = async Files => {
+        plantZone();
+        cp.execFileSync("/usr/bin/mkfifo", [path.join(zone, "a", "pipe")]);
+        try {
+            const answer = await make(Files).run("files.delete", { path: zone });
+            assert.equal(answer.outcome, "completed", answer.content);
+            assert.equal(fs.existsSync(zone), false);
+            cases++;
+        } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+    };
+    await deleteFifo(require(file));
+    // A hold that cannot open refuses the whole call and keeps no descriptor.
+    const deleteHoldFails = async Files => {
+        plantZone();
+        const before = fs.readdirSync("/proc/self/fd").length;
+        try {
+            const answer = await fsFaultAsync("openSync", (original, target, flags, ...rest) => {
+                if (typeof flags === "number" && (flags & oPath) !== 0) throw Object.assign(new Error("EMFILE"), { code: "EMFILE" });
+                return original(target, flags, ...rest);
+            }, () => make(Files).run("files.delete", { path: zone }));
+            assert.equal(answer.outcome, "failed");
+            assert.match(answer.content, /could not be opened: EMFILE\.$/);
+            zoneIntact();
+            assert.equal(fs.readdirSync("/proc/self/fd").length, before);
+            cases++;
+        } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+    };
+    await deleteHoldFails(require(file));
 
     // A call made while no snapshot builds is refused with its cause.
     const brokenSnapshot = async Files => {
@@ -750,12 +811,16 @@ world(async () => {
     await control("move-destination", [["if (!to.exists && entry(folder, name) !== null)", "if (false)"]], moveAppeared);
     await control("move-same-entry", [["if (from.path === to.path) throw failed(", "if (false) throw failed("]], sameEntry);
     await control("other-executor", [["if (refined.kind !== \"call\" || refined.executor !== \"files\")", "if (refined.kind !== \"call\")"]], otherExecutor);
-    await control("delete-walk-first", [["const tree = walk(parent, name, target.path, snapshot, 0, count);\n                    total += count.value;\n                    prune(parent, name, target.path, tree, removed);",
+    await control("delete-walk-first", [["const tree = walk(held, parent, name, target.path, snapshot, 0, count);\n                    total += count.value;\n                    prune(parent, name, target.path, tree, removed);",
         "fs.rmSync(Anchored.child(parent, name), { recursive: true }); removed.value++;"]], deleteProtected);
     await control("delete-child-judge", [["if (verdict.kind !== \"path\") throw failed(\"Refused: \"", "if (false) throw failed(\"Refused: \""]], deleteProtected);
     await control("delete-bound", [["if (++count.value > bounds.deleteEntries)", "if (false)"]], deleteBound);
     await control("delete-depth", [["if (depth > bounds.deleteDepth) throw failed(", "if (false) throw failed("]], deleteDepth);
-    await control("delete-inode", [["if (now === null || now.ino !== item.ino || now.isDirectory())", "if (now === null || now.isDirectory())"]], deleteInode);
+    await control("delete-inode", [["if (now === null || now.dev !== item.dev || now.ino !== item.ino || now.isDirectory())", "if (now === null || now.isDirectory())"]], deleteInode);
+    await control("delete-hold", [["const heldStat = hold(held, fd, child, childPath, O_PATH).stat;",
+        "const heldStat = fs.fstatSync(held[held.push(openIn(fd, child, childPath, O_PATH)) - 1]); fs.closeSync(held.pop());"]], deleteInode);
+    await control("delete-hold-refusal", [["const fd = openIn(parent, name, file, flags);",
+        "let fd; try { fd = openIn(parent, name, file, flags); } catch { return { fd: -1, stat: entry(parent, name) }; }"]], deleteHoldFails);
     await control("registration", [["const files = create(options);\n    router.register(",
         "const files = create(options);\n    try { options.denied(); } catch { return { close: files.close }; }\n    router.register("]], registered);
     await control("exdev", [["if (error.code === \"EXDEV\") throw failed(", "if (false) throw failed("]], exdevMove);

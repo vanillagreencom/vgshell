@@ -9,6 +9,10 @@ const crypto = require("node:crypto");
 const Tools = require("./Tools.js");
 const Anchored = require("./Anchored.js");
 const { O_RDONLY, O_WRONLY, O_CREAT, O_EXCL, O_DIRECTORY, O_NOFOLLOW, O_NONBLOCK, O_NOCTTY } = fs.constants;
+// Linux open(2) O_PATH, which Node's fs.constants does not export. Such a
+// descriptor reads no content and runs no device driver's open, and with
+// O_NOFOLLOW it holds a link itself: https://man7.org/linux/man-pages/man2/open.2.html
+const O_PATH = 0o10000000;
 
 /**
  * Production bounds in entries, bytes, levels and milliseconds. They are
@@ -434,31 +438,47 @@ function create({ denied, bounds = BOUNDS, clock }) {
         }, () => failed("The folder of " + to.path + " does not exist; files.move creates no folders.")));
     }
 
+    /**
+     * Open a walked entry and keep it open in held until the removal ends. A
+     * filesystem may give a freed inode number to the next file it creates,
+     * and an open inode is never freed, so a replacement made after the walk
+     * cannot carry the number prune compares. The hold costs one descriptor
+     * per entry: at most bounds.deleteEntries (4096) entries at
+     * bounds.deleteDepth (32) levels, past which the walk refuses with
+     * nothing removed. A failed open, EMFILE included, refuses the same way.
+     */
+    function hold(held, parent, name, file, flags) {
+        const fd = openIn(parent, name, file, flags);
+        held.push(fd);
+        return { fd, stat: fs.fstatSync(fd) };
+    }
+
     // Walk a whole tree before removing anything: every child is judged, and
     // any refusal, link swap or bound ends the call with nothing removed.
-    function walk(parent, name, file, snapshot, depth, count) {
+    function walk(held, parent, name, file, snapshot, depth, count) {
         if (depth > bounds.deleteDepth) throw failed(file + " is deeper than " + bounds.deleteDepth + " levels; nothing was removed.");
-        const fd = openIn(parent, name, file, O_RDONLY | O_DIRECTORY);
-        try {
-            const stat = fs.fstatSync(fd);
-            const node = { dev: stat.dev, ino: stat.ino, entries: [] };
-            let names;
-            try { names = fs.readdirSync(Anchored.child(fd, ".")); }
-            catch (error) { throw failed(file + " could not be listed: " + cause(error) + "; nothing was removed."); }
-            for (const child of names) {
-                if (++count.value > bounds.deleteEntries)
-                    throw failed(file + " holds more than " + bounds.deleteEntries + " entries; nothing was removed.");
-                const childPath = path.join(file, child);
-                const verdict = snapshot.inspect(childPath, "remove");
-                if (verdict.kind !== "path") throw failed("Refused: " + verdict.reason + " for " + childPath + "; nothing was removed.");
-                const childStat = entry(fd, child);
-                if (childStat === null) throw changed(childPath);
-                node.entries.push(childStat.isDirectory()
-                    ? { name: child, node: walk(fd, child, childPath, snapshot, depth + 1, count) }
-                    : { name: child, ino: childStat.ino });
+        const { fd, stat } = hold(held, parent, name, file, O_RDONLY | O_DIRECTORY);
+        const node = { dev: stat.dev, ino: stat.ino, entries: [] };
+        let names;
+        try { names = fs.readdirSync(Anchored.child(fd, ".")); }
+        catch (error) { throw failed(file + " could not be listed: " + cause(error) + "; nothing was removed."); }
+        for (const child of names) {
+            if (++count.value > bounds.deleteEntries)
+                throw failed(file + " holds more than " + bounds.deleteEntries + " entries; nothing was removed.");
+            const childPath = path.join(file, child);
+            const verdict = snapshot.inspect(childPath, "remove");
+            if (verdict.kind !== "path") throw failed("Refused: " + verdict.reason + " for " + childPath + "; nothing was removed.");
+            const childStat = entry(fd, child);
+            if (childStat === null) throw changed(childPath);
+            if (childStat.isDirectory()) {
+                node.entries.push({ name: child, node: walk(held, fd, child, childPath, snapshot, depth + 1, count) });
+                continue;
             }
-            return node;
-        } finally { fs.closeSync(fd); }
+            const heldStat = hold(held, fd, child, childPath, O_PATH).stat;
+            if (heldStat.dev !== childStat.dev || heldStat.ino !== childStat.ino) throw changed(childPath);
+            node.entries.push({ name: child, dev: heldStat.dev, ino: heldStat.ino });
+        }
+        return node;
     }
 
     // Remove bottom-up through held folders, matching each walked inode.
@@ -471,7 +491,7 @@ function create({ denied, bounds = BOUNDS, clock }) {
                 if (item.node !== undefined) prune(fd, item.name, path.join(file, item.name), item.node, removed);
                 else {
                     const now = entry(fd, item.name);
-                    if (now === null || now.ino !== item.ino || now.isDirectory()) throw changed(path.join(file, item.name));
+                    if (now === null || now.dev !== item.dev || now.ino !== item.ino || now.isDirectory()) throw changed(path.join(file, item.name));
                     fs.unlinkSync(Anchored.child(fd, item.name));
                     removed.value++;
                 }
@@ -487,11 +507,12 @@ function create({ denied, bounds = BOUNDS, clock }) {
             const stat = entry(parent, name);
             if (stat === null) throw changed(target.path);
             const removed = { value: 0 };
+            const held = [];
             let total = 1;
             try {
                 if (stat.isDirectory()) {
                     const count = { value: 0 };
-                    const tree = walk(parent, name, target.path, snapshot, 0, count);
+                    const tree = walk(held, parent, name, target.path, snapshot, 0, count);
                     total += count.value;
                     prune(parent, name, target.path, tree, removed);
                 } else {
@@ -506,6 +527,8 @@ function create({ denied, bounds = BOUNDS, clock }) {
                 }
                 const reason = error instanceof Ended ? error.value.content : cause(error) + ".";
                 throw failed("Removed " + removed.value + " of " + total + " entries under " + target.path + ", then stopped: " + reason);
+            } finally {
+                for (const fd of held) fs.closeSync(fd);
             }
             let present;
             try { present = entry(parent, name) !== null; }
