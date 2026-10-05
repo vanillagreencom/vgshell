@@ -214,6 +214,17 @@ LUA
 # on every load, so a reload applies the held rule again.
 mode_hold_file="$rt_dir/monitor-hold.lua"
 printf 'local hold_file = "%s"\nlocal hold = io.open(hold_file)\nif hold then hold:close(); dofile(hold_file) end\n' "$mode_hold_file" >>"$home/.config/hypr/hyprland.lua"
+# The host's own pointer reaches the nested compositor as one mouse, the
+# Wayland backend's wl_pointer, whenever the host shows the nested window
+# and the host's pointer crosses it; its motion and presses then land
+# between a row's hover and its click. Detached, it moves nothing here, so
+# the pointer helper's virtual pointer is the sandbox's one pointer. The
+# seat keeps its pointer capability, since a detached device stays listed.
+# Read on 2026-10-05 with Hyprland 0.56.2: under `enabled = false` the
+# helper's own virtual pointer, which is not libinput's either, moved the
+# cursor no more (`hyprctl cursorpos`).
+host_pointer="wl_pointer"
+printf 'hl.device({ name = "%s", enabled = false })\n' "$host_pointer" >>"$home/.config/hypr/hyprland.lua"
 # The consent row wires this file, so later rows compare it with the
 # harness's own text.
 cp -- "$home/.config/hypr/hyprland.lua" "$sandbox/hyprland-harness.lua"
@@ -574,6 +585,19 @@ elif [[ -n $monitors_seen ]]; then
   exit 77
 else
   printf 'qml-smoke: status=not-measured missing=nested-monitor\n'; exit 77
+fi
+# hl.device takes a name no device carries without an error, so the run
+# reads that the device it detaches is the compositor's one mouse before
+# the pointer helper adds its own; the backend adds it once the host's
+# seat announces a pointer.
+mice_seen=""
+for _ in $(seq 1 50); do
+  mice_seen="$(hypr -j devices 2>/dev/null | python3 -c 'import json,sys; print(json.dumps([m["name"] for m in json.load(sys.stdin)["mice"]]))' 2>/dev/null)" || mice_seen=unreadable
+  [[ $mice_seen == "[\"$host_pointer\"]" ]] && break
+  sleep 0.2
+done
+if [[ $mice_seen == "[\"$host_pointer\"]" ]]; then ok "the nested compositor's one mouse is the host's pointer, which it detaches: $host_pointer"
+else fail "the nested compositor's one mouse is the host's pointer, which it detaches: got $mice_seen want [\"$host_pointer\"]"
 fi
 # The shipped bar carries its clock and workspaces as built-ins, so the
 # widget rows use a third-party widget placed in the user file before the
