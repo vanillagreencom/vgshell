@@ -158,8 +158,16 @@ jarvis_bubble_engine="$repo/shell/plugins/vgs.jarvis/backend/ChainedEngine.js"
 cp -- "$jarvis_bubble_engine" "$sandbox/jarvis-bubble-engine-before"
 jarvis_disable
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/scripted.js" --chained-engine "$jarvis_bubble_engine"
+# Every sandbox shell lacks a required Jarvis command (tesseract is in
+# qml-smoke.sh's shell_hidden_commands), so an enable raises the core
+# requirement notice, which under the pointer keeps the keyboard from the
+# client opened below. The stand-ins rows/jarvis-setup.sh stands let the
+# enables here raise none, and the scan that finds them closes a notice an
+# earlier enable left.
+jarvis_setup_requirements
 jarvis_rescan
 jarvis_enable
+expect_poll "no requirement notice stands over the bubble's client" null notice_shown
 expect_poll "ready idle maps no bubble" 0 layer_count vgs:layer
 expect "the Jarvis widget unplaces without disabling its service" ok ipc shell setPluginPlaced vgs.jarvis false
 expect "the build contains no Jarvis bar widget" 0 jarvis_bubble_widgets
@@ -341,6 +349,7 @@ jarvis_key_stop
 jarvis_disable
 cp -- "$sandbox/jarvis-bubble-before" "$jarvis_bubble_file"
 cp -- "$sandbox/jarvis-bubble-engine-before" "$jarvis_bubble_engine"
+jarvis_restore_requirements
 jarvis_rescan
 jarvis_enable
 jarvis_key_mode hold

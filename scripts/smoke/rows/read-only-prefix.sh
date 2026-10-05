@@ -96,6 +96,15 @@ if stop_shell && start_shell "$readonly_dest/usr" "$sandbox/read-only-qs.log" ba
 fi
 expect "Jarvis enables from the non-writable installed prefix" ok ipc shell setPluginEnabled vgs.jarvis true
 expect "Jarvis answers hello without retries from the non-writable installed prefix" ready jarvis_wait_ready 0
+# Every sandbox shell lacks a required Jarvis command (tesseract is in
+# qml-smoke.sh's shell_hidden_commands), so the enable raises the core
+# requirement notice. Left standing it covers the Gallery's orbs read
+# below, so the row answers it Not now.
+installed_notice_owner() { notice_shown | py_reply 'import json,sys; shown=json.load(sys.stdin); print("none" if shown is None else shown[0])'; }
+expect_poll "enabling Jarvis raises its requirement notice in the installed shell" vgs.jarvis installed_notice_owner
+expect_poll "the installed shell's Jarvis notice holds the keyboard" true ipc smoke noticeFocused
+type_keys -k Escape || fail "sending Escape to the installed shell's Jarvis notice failed"
+expect_poll "Escape closes the installed shell's Jarvis notice" null notice_shown
 expect "task events use a private data engine from the read-only prefix" "task-prefix=ok" "$node_bin" "$source_repo/scripts/test-task-event.js" --prefix "$readonly_dest/usr/share/vgshell/shell/plugins/vgs.jarvis/backend"
 expect_poll "installed Jarvis discovers device choices without writing the prefix" devices jarvis_devices
 
