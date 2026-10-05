@@ -10,8 +10,9 @@ import qs.Ui
 // reads and calls: `describe()` answers { name, keys, stops } and `hide()`
 // takes the widget out of every bar section.
 //
-// Every widget gets the same right-click menu with one entry, Hide, with no
-// code in the plugin. Hide asks first in a small dialog under the widget,
+// Every widget gets the same right-click menu, with no code in the plugin:
+// Hide, then the entries the widget hands in `frameActions`, each
+// { label, action }, which a click or Enter runs. Hide asks first in a small dialog under the widget,
 // which says how to bring the widget back, shows the shortcuts that keep
 // working, and says when hiding also turns the plugin off. Cancel holds the
 // focus, so Enter and Escape change nothing; a press outside closes it too.
@@ -25,10 +26,14 @@ Item {
     property string moduleName: ""
     property var settings: ({})
     property var frame: null
+    // The widget's own menu entries after Hide, each { label, action }.
+    property var frameActions: []
 
     readonly property int barSize: bar ? bar.barSize : Theme.bar.height
     readonly property bool frameMenuOpen: frameUi.item !== null && frameUi.item.menuOpened
     readonly property bool frameDialogOpen: frameUi.item !== null && frameUi.item.dialogOpened
+    // The texts of the open menu's entries, in order; [] while it is closed.
+    readonly property var frameMenuEntries: frameUi.item !== null ? frameUi.item.menuEntries : []
 
     // One setting with a fallback for a missing or null value.
     function setting(name, fallback) {
@@ -62,6 +67,7 @@ Item {
 
             readonly property bool menuOpened: hideMenu.opened
             readonly property bool dialogOpened: dialogWindow.visible
+            readonly property var menuEntries: hideMenu.opened ? hideMenu.items().map(entry => entry.text) : []
             // Hide was chosen and the dialog has not opened yet.
             property bool asking: false
             // What the open dialog says, read from `frame` when it opens.
@@ -99,6 +105,17 @@ Item {
                     onTriggered: {
                         ui.asking = true;
                         Qt.callLater(ui.askHide);
+                    }
+                }
+                Repeater {
+                    model: root.frameActions
+                    MenuItem {
+                        required property var modelData
+                        required property int index
+                        text: modelData.label
+                        // Read from the list itself: a model entry is a copy
+                        // that need not keep the function.
+                        onTriggered: root.frameActions[index].action()
                     }
                 }
             }

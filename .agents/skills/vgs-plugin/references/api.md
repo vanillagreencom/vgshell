@@ -37,7 +37,7 @@ Declare it as `property var shell: null`, or inherit it from `BarWidget`.
 | `settings` | object | the manifest's `settings` under the widget's layout entry, for example `{ "units": "metric" }`; the entry id is excluded; reassigned when the entry changes |
 | `frame` | object | what `BarWidget`'s right-click Hide reads and calls; a widget reads nothing from it |
 
-`BarWidget` adds `barSize` and `setting(name, fallback)`.
+`BarWidget` adds `barSize`, `setting(name, fallback)` and `frameActions`, a list of `{ label, action }` the widget's right-click menu shows after Hide.
 
 ## Properties a bar also receives and declares
 

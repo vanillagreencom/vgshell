@@ -503,20 +503,44 @@ focused "the bar entry's launcher holds the keyboard"
 hover 10 "$((mon_h - 10))" || fail "moving the pointer off the card failed"
 click 10 "$((mon_h - 10))" || fail "the click outside the card failed"
 expect_poll "a click outside the card closed it" 0 layer_count vgs:overlay
-# A right click on the bar entry opens the widget frame's Hide menu, as on
-# every bar widget, and neither a terminal nor the launcher: the stand-in
-# xdg-terminal-exec records no run. Escape closes the menu.
+# A right click on the bar entry opens the widget frame's menu: Hide, as on
+# every bar widget, then the launcher's Open terminal. The right click
+# itself opens neither a terminal nor the launcher; Escape closes the menu.
+# Open terminal runs the stand-in xdg-terminal-exec, which records a run
+# with no words. The left click above is the control for the record: it
+# recorded no run.
 expect "a left click on the bar entry opens no terminal" absent recorded
-entry_box="$(ipc smoke instanceGeometry "$(bar_key)" vgs.launcher)" || entry_box=absent
-if [[ $entry_box == \[* ]] && read -r ex ey < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(int(x+w/2), int(y+h/2))' "$entry_box") && hover "$((ex - 1))" "$ey" && right_click "$ex" "$ey"; then
-  expect_poll "a right click on the bar entry opens the Hide menu" true ipc smoke readInstance "$(bar_key)" vgs.launcher frameMenuOpen
+launcher_menu() { ipc smoke readInstance "$(bar_key)" vgs.launcher "$1"; }
+launcher_right_click() {
+  local box x y
+  box="$(ipc smoke instanceGeometry "$(bar_key)" vgs.launcher)" || return 1
+  [[ $box == \[* ]] || return 1
+  read -r x y < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(int(x+w/2), int(y+h/2))' "$box") || return 1
+  hover "$((x - 1))" "$y" && right_click "$x" "$y"
+}
+launcher_pointer="$pointer_at"
+if launcher_right_click; then
+  expect_poll "a right click on the bar entry opens its menu" true launcher_menu frameMenuOpen
+  expect "the menu holds Hide, then Open terminal" '["Hide","Open terminal"]' launcher_menu frameMenuEntries
   expect "a right click on the bar entry opens no terminal" absent recorded
   expect "a right click on the bar entry opens no launcher" 0 layer_count vgs:overlay
-  type_keys -k Escape || fail "Escape to the Hide menu failed"
-  expect_poll "Escape closes the Hide menu" false ipc smoke readInstance "$(bar_key)" vgs.launcher frameMenuOpen
+  type_keys -k Escape || fail "Escape to the bar entry's menu failed"
+  expect_poll "Escape closes the menu" false launcher_menu frameMenuOpen
 else
   fail "the right click on the bar entry failed"
 fi
+if launcher_right_click; then
+  expect_poll "a second right click opens the menu again" true launcher_menu frameMenuOpen
+  type_keys -k Down -k Return || fail "Down and Return on the bar entry's menu failed"
+  expect_poll "Open terminal opens a terminal" '[]' recorded
+  expect_poll "Open terminal closes the menu" false launcher_menu frameMenuOpen
+  expect "Open terminal opens no launcher" 0 layer_count vgs:overlay
+else
+  fail "the second right click on the bar entry failed"
+fi
+forget_record
+read -r launcher_x launcher_y <<<"${launcher_pointer:-10 $((mon_h - 10))}"
+hover "$launcher_x" "$launcher_y" || fail "putting the pointer back after the bar entry's menu failed"
 
 # A row shows the hand.
 expect "the launcher opens its System menu" ok ipc shell summon overlay vgs.launcher '{"menu":"system"}'
