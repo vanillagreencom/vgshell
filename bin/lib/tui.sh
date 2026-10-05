@@ -62,9 +62,10 @@ _vgs_tui_terminal() { # KEY
   _vgs_tui_has_terminal || _vgs_tui_refuse 2 "$1=no-terminal" "run this in a terminal"
 }
 _vgs_tui_prompt_gap() { printf '\n' >&2; }
+_vgs_tui_header_gap() { printf '\n'; }
 
 vgs_tui_header() { # TITLE [LINE...]
-  printf '\n'
+  _vgs_tui_header_gap
   gum style --border normal --padding "1 2" -- "$@"
 }
 

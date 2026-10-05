@@ -15,8 +15,9 @@ lib="$repo/bin/lib/tui.sh"
 stubs="$tmp/stubs"; rt="$tmp/rt"
 mkdir -p "$stubs" "$rt"
 stub() { printf '#!/bin/sh\n%s\n' "$2" >"$stubs/$1"; chmod +x "$stubs/$1"; } # NAME BODY
-# gum records its argv, one per line, and exits with $tmp/gum-exit, 0 when absent.
-stub gum ": >\"$tmp/gum\"; for a; do printf '%s\\n' \"\$a\" >>\"$tmp/gum\"; done; st=0; [ -f \"$tmp/gum-exit\" ] && read -r st <\"$tmp/gum-exit\"; exit \"\$st\""
+# gum records its argv, one per line, prints an answer for captured prompts,
+# and exits with $tmp/gum-exit, 0 when absent.
+stub gum ": >\"$tmp/gum\"; cmd=\"\$1\"; for a; do printf '%s\\n' \"\$a\" >>\"$tmp/gum\"; done; case \"\$cmd\" in choose|input|filter) printf 'gum-answer\\n';; esac; st=0; [ -f \"$tmp/gum-exit\" ] && read -r st <\"$tmp/gum-exit\"; exit \"\$st\""
 # sudo records each call; `sudo /usr/bin/true` exits 1 while $tmp/sudo-deny exists.
 stub sudo "printf '%s\\n' \"\$*\" >>\"$tmp/sudo\"; [ \"\$*\" = /usr/bin/true ] && [ -e \"$tmp/sudo-deny\" ] && exit 1; exit 0"
 # uname -r prints $tmp/release; pgrep prints $tmp/pids and exits with $tmp/pgrep-exit, else 1.
@@ -39,6 +40,12 @@ run() {
 on_tty() {
   status=0
   "${lib_env[@]}" script -qec "$(printf '%q ' "$BASH" -c "set -euo pipefail; source $(printf '%q' "$LIB"); $1")" /dev/null \
+    </dev/null >"$tmp/out" 2>&1 || status=$?
+}
+on_tty_capture() {
+  status=0
+  rm -f -- "$tmp/captured"
+  "${lib_env[@]}" CAPTURE="$tmp/captured" script -qec "$(printf '%q ' "$BASH" -c "set -euo pipefail; source $(printf '%q' "$LIB"); $1 >\"\$CAPTURE\"")" /dev/null \
     </dev/null >"$tmp/out" 2>&1 || status=$?
 }
 err_first() { local line=""; [[ -s $tmp/err ]] && IFS= read -r line <"$tmp/err"; printf '%s' "$line"; }
@@ -86,7 +93,8 @@ check "a header starts with one blank line" starts_one_blank "$tmp/out"
 rm -f -- "$tmp/gum"
 run 'vgs_tui_confirm "Remove it?" --default=false' VGS_TUI_UNATTENDED=1
 check "an unattended confirm answers yes" test "$status" == 0
-check "an unattended confirm prints its answer after a blank line" test "$(cat "$tmp/out")" == $'\nRemove it? yes (unattended)'
+check "an unattended confirm starts with one blank line" starts_one_blank "$tmp/out"
+check "an unattended confirm includes the caller's question" grep -Fq "Remove it?" "$tmp/out"
 check "an unattended confirm runs no gum" test ! -e "$tmp/gum"
 for fn in confirm choose input filter; do
   run "vgs_tui_$fn 'Question?'"
@@ -109,6 +117,12 @@ on_tty 'vgs_tui_input --placeholder Name'
 check "an input on a terminal starts with one blank line on the terminal stream" starts_one_blank "$tmp/out"
 on_tty 'printf "a\nb\n" | vgs_tui_filter --placeholder Search'
 check "a filter on a terminal starts with one blank line on the terminal stream" starts_one_blank "$tmp/out"
+on_tty_capture 'printf "a\nb\n" | vgs_tui_choose --header Pick'
+check "a choose answer has no prompt blank on stdout" test "$(cat "$tmp/captured")" == gum-answer
+on_tty_capture 'vgs_tui_input --placeholder Name'
+check "an input answer has no prompt blank on stdout" test "$(cat "$tmp/captured")" == gum-answer
+on_tty_capture 'printf "a\nb\n" | vgs_tui_filter --placeholder Search'
+check "a filter answer has no prompt blank on stdout" test "$(cat "$tmp/captured")" == gum-answer
 
 # The sudo session: drop the credential, authorize once, keep it alive in
 # the background, and drop it again at end, on exit and on a signal, with
@@ -311,6 +325,9 @@ control joins-the-dead '&& kill -0 "$outer" 2>/dev/null; then' '; then'
 check "the joins-the-dead mutant fails a nested row" test "$(nested_rows quiet && echo green || echo red)" == red
 control unguarded 'guard) _vgs_tui_sudo_traps ;;' 'guard) ;;'
 check "the unguarded mutant fails a guard row" test "$(guard_rows quiet && echo green || echo red)" == red
+control no-header-blank "_vgs_tui_header_gap() { printf '\\n'; }" "_vgs_tui_header_gap() { :; }"
+run 'vgs_tui_header "-Title" "a line"'
+check "the no-header-blank mutant fails the header blank row" test "$(starts_one_blank "$tmp/out" && echo green || echo red)" == red
 control no-prompt-blank "_vgs_tui_prompt_gap() { printf '\\n' >&2; }" "_vgs_tui_prompt_gap() { :; }"
 on_tty 'vgs_tui_confirm "Remove it?"'
 check "the no-prompt-blank mutant fails the prompt blank row" test "$(starts_one_blank "$tmp/out" && echo green || echo red)" == red

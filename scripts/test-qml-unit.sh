@@ -214,7 +214,7 @@ mutations=(
   "text field Escape does not restore the committed text|controls/TextField.qml|if (escapeReverts && text !== committedText) {|if (false && escapeReverts && text !== committedText) {|tst_textfield.qml"
   "text field Escape no longer reaches the owner|controls/TextField.qml|event.accepted = false;|event.accepted = true;|tst_textfield.qml"
   "a text field uses the old side inset|../Commons/Tokens.js|paddingX: step(2.5)|paddingX: length(\"{control.paddingX}\")|tst_textfield.qml"
-  "a text field aligns the action box, not the glyph|controls/TextField.qml|anchors.rightMargin: Math.max(0, root.sidePadding - root.trailingGlyphEnd)|anchors.rightMargin: root.sidePadding|tst_textfield.qml"
+  "a text field aligns the action box, not the glyph|controls/TextField.qml|anchors.rightMargin: Math.max(0, root.sidePadding - glyphEnd)|anchors.rightMargin: root.sidePadding|tst_textfield.qml"
   "an inline field keeps the hint under the row|controls/Field.qml|y: -hintSlot.slack|y: 0|tst_spacing.qml"
   "a section header keeps the old bottom rhythm|../Commons/Tokens.js|paddingBottom: length(\"{space.md}\")|paddingBottom: length(\"{stack.row}\")|tst_spacing.qml"
   "a badge drops the optical end padding|feedback/Badge.qml| + Theme.badge.paddingEnd| |tst_spacing.qml"

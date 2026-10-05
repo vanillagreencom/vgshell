@@ -418,14 +418,14 @@ expect_poll "the window draws one row per source" \
   '[["System", "2 updates", "2", "Update"], ["AUR", "1 update", "1", "Update"], ["Flatpak", "1 update", "1", "Update"], ["mise", "1 update", "1", "Update"], ["VGS", "1 update", "1", "Update"], ["Plugins", "1 update", "1", "Update"], ["Themes", "Up to date", "0"]]' updates_rows
 click_in window:Updates window vgs.updates ListItem System || fail "the click on the window's System row failed"
 expect_poll "a click on a row lists its packages" '["System", "2 updates", "2", "Update", "coreutils 9.11-2 → 9.12-1", "linux 6.1 → 6.2"]' updates_row 0
-# The window's geometry with a row expanded: every source's count Badge
-# ends on one right edge, whether its row offers Update or not, and the
-# footer's buttons lie inside the window, below its body, while the body
-# scrolls. Each check holds within one
-# pixel. The footer's controls are the unit mutations of tst_pane (the
-# footer outside the body); the count column is
-# the window's own reserved slot, and its control moves one count 8 px left
-# in a copy of the same reading, which the check refuses. `[]` is the pass.
+# The window's geometry with a row expanded: each source row's last
+# trailing item, the chevron, the Update button or the count badge, ends on
+# that row's right content edge. The footer's buttons lie inside the
+# window, below its body, while the body scrolls. Each check holds within
+# one pixel. The footer's controls are the unit mutations of tst_pane (the
+# footer outside the body); the row-edge control moves one trailing item 8
+# px left in a copy of the same reading, which the check refuses. `[]` is
+# the pass.
 updates_geometry() {
   local rows
   rows="$(ipc smoke descendantGeometry window vgs.updates)" || return
@@ -444,13 +444,23 @@ def inside(j, i):
 def shown(r): return r["box"][2] > 0 and r["box"][3] > 0
 panel = rows[0]["box"]
 sources = [i for i, r in enumerate(rows) if r["type"] == "Disclosure" and shown(r)]
-edges = []
+bad = []
 for i in sources:
-    badges = [r for j, r in enumerate(rows) if r["type"] == "Badge" and inside(j, i) and shown(r)]
-    if len(badges) != 1: out.append("row%d badges=%d" % (len(edges), len(badges))); continue
-    edges.append(badges[0]["box"][0] + badges[0]["box"][2] - (8 if plant and not edges else 0))
-if len(edges) < 2: out.append("rows=%d" % len(edges))
-elif max(edges) - min(edges) > 1: out.append("count.right=%s" % edges)
+    items = [j for j, r in enumerate(rows) if r["type"] == "ListItem" and inside(j, i) and shown(r)]
+    if len(items) != 1: out.append("row%d listItems=%d" % (len(bad), len(items))); continue
+    item = rows[items[0]]
+    controls = [(j, rows[j]) for j, r in enumerate(rows) if r["type"] in ("Badge", "Button", "Icon") and inside(j, items[0]) and shown(r)]
+    icons = [r for _, r in controls if r["type"] == "Icon"]
+    if not icons: out.append("row%d icons=0" % len(bad)); continue
+    lead = min(icons, key=lambda r: r["box"][0])
+    pad = lead["box"][0] - item["box"][0]
+    want = item["box"][0] + item["box"][2] - pad
+    trailing = [r for _, r in controls if r is not lead]
+    if not trailing: out.append("row%d trailing=0" % len(bad)); continue
+    got = max(r["box"][0] + r["box"][2] for r in trailing) - (8 if plant and not bad else 0)
+    if abs(got - want) > 1: bad.append("row%d.trailing=%.2f want=%.2f" % (len(bad), got, want))
+if len(sources) < 2: out.append("rows=%d" % len(sources))
+out += bad
 for text in ("Refresh", "Open last log"):
     found = [r for r in rows if r["type"] == "Button" and r.get("text") == text and shown(r)]
     if len(found) != 1: out.append("%s=%d" % (text, len(found))); continue
@@ -459,9 +469,9 @@ for text in ("Refresh", "Open last log"):
 print(json.dumps(out))
 PY
 }
-geometry expect_poll "the window's counts share one right edge and its footer stays inside it" '[]' updates_geometry
-updates_shifted() { updates_geometry shift | py_reply 'import json,sys; print(any(e.startswith("count.right") for e in json.load(sys.stdin)))'; }
-expect "control: a count moved off the column is refused" True updates_shifted
+geometry expect_poll "the window's trailing items end on their row edge and its footer stays inside it" '[]' updates_geometry
+updates_shifted() { updates_geometry shift | py_reply 'import json,sys; print(any(".trailing=" in e for e in json.load(sys.stdin)))'; }
+expect "control: a trailing item moved off its row edge is refused" True updates_shifted
 
 # A monitor too short and narrow for the window, 480 by 360: the window
 # asks for the output less `size.window.gutter` a side, lays out at that

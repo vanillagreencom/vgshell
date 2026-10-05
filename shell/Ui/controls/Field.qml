@@ -24,14 +24,6 @@ Column {
     // its children.
     readonly property real bodyWidth: width - leftPadding - rightPadding
     readonly property real valueX: leftPadding + controlRow.valueX
-    function inlineHintSlack() {
-        if (!inline) return 0;
-        let bottom = 0;
-        for (const child of controlRow.children) {
-            if (child.visible) bottom = Math.max(bottom, child.y + child.height);
-        }
-        return Math.max(0, controlRow.height - bottom);
-    }
 
     leftPadding: Theme.field.paddingX
     rightPadding: Theme.field.paddingX
@@ -56,7 +48,14 @@ Column {
         id: hintSlot
         visible: hintLine.text !== ""
         width: root.bodyWidth
-        readonly property real slack: root.inlineHintSlack()
+        readonly property real slack: {
+            if (!root.inline) return 0;
+            let bottom = 0;
+            for (const child of controlRow.children) {
+                if (child.visible) bottom = Math.max(bottom, child.y + child.height);
+            }
+            return Math.max(0, controlRow.height - bottom);
+        }
         height: Math.max(0, hintLine.implicitHeight - slack)
 
         Label {

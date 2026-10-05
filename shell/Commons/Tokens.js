@@ -307,10 +307,11 @@ var TOKENS = {
     text: TEXT,
 
     // The rhythm every one-line control follows: a button, a text field, a
-    // select and a segmented control are `size.control.md` tall, with
-    // `paddingX` a side and `gap` between an icon and its text. `sm` and
-    // `lg` hold the same two for a button of that size. The values are
-    // Radix Themes' button sizes 1, 2 and 3 on the 4 px unit.
+    // select and a segmented control are `size.control.md` tall. A button
+    // and a segment use `control.paddingX`; a field and select use their
+    // optical inset. `control.gap` stands between an icon and its text.
+    // `sm` and `lg` hold the same two for a button of that size. The
+    // values are Radix Themes' button sizes 1, 2 and 3 on the 4 px unit.
     control: {
         paddingX: step(3),
         gap: step(2),

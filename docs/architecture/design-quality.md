@@ -6,8 +6,8 @@ The standard every surface is judged against, and the evidence that proves a sur
 
 ## Grid
 
-- Every layout dimension is a multiple of 4 px: a gap, a padding, an inset, a control's height and a row's height. The shipped scale moved onto this grid in [D063](../decisions/D063-design-scale-on-the-4-px-grid.md).
-- Inside one component a 2 px step is allowed: a segment's inset (`segmented.padding`), a switch knob's inset (`toggle.inset`), a focus ring's offset (`focusRing.offset`), a scroll bar's inset (`scrollArea.barInset`) and the gap between a title and its underline (`titleButton.underlineGap`). Inside a chip or a key cap, a 6 px side padding, `space.sm`, is allowed: `badge.size.sm.paddingX` and `kbd.paddingX`.
+- Every layout dimension is a multiple of 4 px: a gap, a padding, an inset, a control's height and a row's height, except the optical insets this section names. The shipped scale moved onto this grid in [D063](../decisions/D063-design-scale-on-the-4-px-grid.md).
+- Inside one component a 2 px step is allowed: a segment's inset (`segmented.padding`), a switch knob's inset (`toggle.inset`), a focus ring's offset (`focusRing.offset`), a scroll bar's inset (`scrollArea.barInset`) and the gap between a title and its underline (`titleButton.underlineGap`). Inside a chip or a key cap, a 6 px side padding, `space.sm`, is allowed: `badge.size.sm.paddingX` and `kbd.paddingX`. Optical text insets may use their measured values: `textField.paddingX` and `badge.paddingEnd`.
 - The grid does not govern type, strokes, icon and indicator drawing sizes (`icon.size`, `slider.handle`, `radio.dot`), motion distances or computed corner clearance. A font size and its line box follow § Type. An icon's painted bounds follow the glyph (`IconBounds.js`). A stroke is `border.thin` or `border.thick`. A corner clearance is `Inset.clearing` by `inset.cornerStep`.
 - The theme browser's card geometry follows the grid: the `carousel` card is Omarchy's 768 by 475 at 476 tall, and its slices overlap by the card's 28 pixel lean where Omarchy's overlap by 30 ([components-media.md](components-media.md)). The desktop preview's reference display, 1600 by 900, is a length and on the grid; a share or a scale, such as `desktopPreview.terminalWidthShare` or `carousel.minScale`, is no length.
 - `scripts/test-theme-logic.js` walks every length token of the shipped table and fails on a value off the grid outside these named classes, with a control that moves `row.height` off it and one that puts the carousel back on Omarchy's 475 and 30.
@@ -55,7 +55,7 @@ The heights, paddings and gaps are Radix Themes 3.3.0 button sizes 1, 2 and 3. `
 
 | Class | Inset | Title row | Header to body | Fit |
 |---|---|---|---|---|
-| window | `inset.window` 16 | `h3` in a `size.control.md` row | `stack.group` 12 | the window host sizes it |
+| window | `inset.window` 16 | `h3` in a row that fits its items | `stack.section` 24 | the window host sizes it |
 | dialog | `inset.dialog` 16 | `h3` | `dialog.gap` 12 | content, to `dialog.maxHeightShare` |
 | panel (a summoned flyout) | `inset.panel` 12, on a `Surface` | `h3` | `stack.group` 12 | content, to `size.panel.maxHeight` and the output's room; refits when content changes |
 | popover (`qs.Ui` `Popover`) | `inset.popover` 12 | `h3` | `stack.group` 12, `popover.gap` 4 from its anchor | content, to `popover.maxHeightShare` |
@@ -66,7 +66,7 @@ The heights, paddings and gaps are Radix Themes 3.3.0 button sizes 1, 2 and 3. `
 
 - Every window, panel, popover, dialog and overlay composes `Pane` ([D050](../decisions/D050-container-layout-contract.md), [design-layout.md](design-layout.md)). Left and right insets are equal, and the scroll bar sits inside the right inset.
 - A menu and a select list have no inset box: their rows fill the list inside the border, each row insets its own text, and the scroll bar draws over a strip each row keeps clear ([design-layout.md § Lists in a popover](design-layout.md#lists-in-a-popover), [D078](../decisions/D078-lists-in-a-popover-carry-no-inset.md)).
-- A header row's height is its control size. Every item in it centres on the row, and a title centres by its capital height.
+- A header row's height is its control size unless a taller item needs more room. Every item in it centres on the row, and a title centres by its capital height.
 - A back or close `IconButton` at the start or end of a header puts its glyph's painted bounds, not its box, on the content edge ([design-layout.md § Headers](design-layout.md#headers)).
 - A title that opens a menu draws its caret at rest and its underline on hover, on focus and while the menu is open.
 - A footer is a `Pane` footer. It stays in view while the body scrolls, and its controls share one size.

@@ -56,9 +56,12 @@ FocusScope {
         if (!network.wifiEnabled) closeShare();
         const detail = network.detail || {};
         if (detail.interface !== undefined && detail.interface !== "" && detail.state === "ready") {
-            const kept = Object.assign({}, readyDetails);
-            kept[detail.interface] = detail.rows || [];
-            readyDetails = kept;
+            const rows = detail.rows || [];
+            if (JSON.stringify(readyDetails[detail.interface] || []) !== JSON.stringify(rows)) {
+                const kept = Object.assign({}, readyDetails);
+                kept[detail.interface] = rows;
+                readyDetails = kept;
+            }
         }
         const next = network.prompt ? network.prompt.key : "";
         if (next === promptKey) return;
@@ -99,13 +102,14 @@ FocusScope {
         list.forceActiveFocus(Qt.ShortcutFocusReason);
     }
     function showDetails(interfaceName) {
-        if (shell !== null) answered(shell.ipc.call("details", interfaceName));
+        if (shell === null) return "unavailable";
+        return answered(shell.ipc.call("details", interfaceName));
     }
     function openDeviceDetails(interfaceName) {
         if (interfaceName === "") return;
-        root.expanded = true;
+        const previous = openDetails;
         openDetails = interfaceName;
-        showDetails(interfaceName);
+        if (showDetails(interfaceName) !== "ok") openDetails = previous;
     }
     function detailRowsFor(interfaceName) {
         const detail = network.detail || {};
@@ -132,6 +136,69 @@ FocusScope {
     function closeShare() {
         if (shareLoader.item !== null) shareLoader.item.clear();
         shareTarget = null;
+    }
+
+    component DeviceDetails: Disclosure {
+        id: details
+
+        required property string device
+        property string label: ""
+        property string stateLine: ""
+        property string glyph: "network"
+        readonly property bool shouldOpen: device !== "" && root.openDetails === device
+
+        width: parent.width
+        text: label
+        secondary: stateLine
+        iconName: glyph
+        expandable: !!root.values.detailsTool && root.values.detailsTool.action === false
+        Component.onCompleted: expanded = shouldOpen
+        onShouldOpenChanged: expanded = shouldOpen
+        onExpandedChanged: {
+            if (expanded) {
+                if (!shouldOpen) root.openDeviceDetails(device);
+            } else if (shouldOpen) {
+                root.openDetails = "";
+            }
+        }
+
+        Column {
+            objectName: details.expanded ? "network-details" : ""
+            width: parent.width
+            spacing: Theme.stack.row
+            readonly property var rows: root.detailRowsFor(details.device)
+            readonly property string detailState: root.detailStateFor(details.device)
+            Label {
+                width: parent.width
+                visible: parent.detailState === "loading" && parent.rows.length === 0
+                role: "hint"
+                text: "Loading…"
+            }
+            Label {
+                width: parent.width
+                visible: parent.detailState === "failed"
+                role: "hint"
+                color: Theme.color.danger
+                text: "Connection details could not be read."
+                wrapMode: Text.Wrap
+            }
+            Repeater {
+                model: parent.detailState === "failed" ? [] : parent.rows
+                Field {
+                    id: deviceDetailRow
+                    required property var modelData
+                    width: parent.width
+                    inline: true
+                    label: modelData.key
+                    Label {
+                        text: deviceDetailRow.modelData.value
+                        role: "value"
+                        width: parent.width
+                        elide: Text.ElideRight
+                    }
+                }
+            }
+        }
     }
 
     Loader {
@@ -275,54 +342,18 @@ FocusScope {
                     onClicked: { root.action("autoconnect", { interface: root.network.wifiInterface }); }
                 }
             }
-            Disclosure {
-                id: wifiDetails
-                width: parent.width
-                text: "Wi-Fi device"
-                secondary: root.network.wifiInterface
-                iconName: "wifi"
-                expandable: !!root.values.detailsTool && root.values.detailsTool.action === false
-                Component.onCompleted: expanded = root.openDetails === root.network.wifiInterface
-                onExpandedChanged: {
-                    if (expanded) {
-                        const already = root.openDetails === root.network.wifiInterface;
-                        root.openDetails = root.network.wifiInterface;
-                        if (!already) root.showDetails(root.network.wifiInterface);
-                    } else if (root.openDetails === root.network.wifiInterface) {
-                        root.openDetails = "";
-                    }
-                }
-                Connections {
-                    target: root
-                    function onOpenDetailsChanged() { wifiDetails.expanded = root.openDetails === root.network.wifiInterface; }
-                }
-
-                Column {
-                    objectName: wifiDetails.expanded ? "network-details" : ""
-                    width: parent.width
-                    spacing: Theme.stack.row
-                    readonly property var rows: root.detailRowsFor(root.network.wifiInterface)
-                    readonly property string state: root.detailStateFor(root.network.wifiInterface)
-                    Label { width: parent.width; visible: parent.state === "loading" && parent.rows.length === 0; role: "hint"; text: "Loading…" }
-                    Label { width: parent.width; visible: parent.state === "failed"; role: "hint"; color: Theme.color.danger; text: "Connection details could not be read."; wrapMode: Text.Wrap }
-                    Repeater {
-                        model: parent.rows
-                        Field {
-                            id: wifiDetailRow
-                            required property var modelData
-                            width: parent.width
-                            inline: true
-                            label: modelData.key
-                            Label { text: wifiDetailRow.modelData.value; role: "value"; width: parent.width; elide: Text.ElideRight }
-                        }
-                    }
-                }
-            }
             Row {
                 spacing: Theme.control.gap
                 Button { text: "Forget"; variant: "secondary"; enabled: root.selected !== null && root.selected.known && !root.busy; onClicked: root.action("forget", root.selected) }
                 Button { text: "Share QR code"; variant: "secondary"; enabled: Logic.shareable(root.selected); onClicked: root.share(root.selected) }
             }
+        }
+        DeviceDetails {
+            device: root.network.wifiInterface
+            label: "Wi-Fi device"
+            stateLine: root.network.wifiInterface
+            glyph: "wifi"
+            visible: !!root.network.hasWifi && root.network.wifiInterface !== "" && (root.expanded || root.openDetails === root.network.wifiInterface)
         }
         Section {
             width: parent.width
@@ -330,50 +361,13 @@ FocusScope {
             visible: root.expanded
             description: (root.network.ethernet || []).length ? "" : "No Ethernet device detected."
             Repeater {
-                model: root.network.ethernet || []
-                Disclosure {
-                    id: ethernetRow
+                model: ScriptModel { values: root.network.ethernet || []; objectProp: "name" }
+                DeviceDetails {
                     required property var modelData
-                    width: parent.width
-                    text: modelData.name
-                    secondary: !modelData.managed ? Logic.stateText("unmanaged") : modelData.connected ? "Connected" : modelData.link ? "Not connected" : "Cable not connected"
-                    iconName: "ethernet-port"
-                    expandable: !!root.values.detailsTool && root.values.detailsTool.action === false
-                    Component.onCompleted: expanded = root.openDetails === modelData.name
-                    onExpandedChanged: {
-                        if (expanded) {
-                            const already = root.openDetails === modelData.name;
-                            root.openDetails = modelData.name;
-                            if (!already) root.showDetails(modelData.name);
-                        } else if (root.openDetails === modelData.name) {
-                            root.openDetails = "";
-                        }
-                    }
-                    Connections {
-                        target: root
-                        function onOpenDetailsChanged() { ethernetRow.expanded = root.openDetails === ethernetRow.modelData.name; }
-                    }
-
-                    Column {
-                        objectName: ethernetRow.expanded ? "network-details" : ""
-                        width: parent.width
-                        spacing: Theme.stack.row
-                        readonly property var rows: root.detailRowsFor(ethernetRow.modelData.name)
-                        readonly property string state: root.detailStateFor(ethernetRow.modelData.name)
-                        Label { width: parent.width; visible: parent.state === "loading" && parent.rows.length === 0; role: "hint"; text: "Loading…" }
-                        Label { width: parent.width; visible: parent.state === "failed"; role: "hint"; color: Theme.color.danger; text: "Connection details could not be read."; wrapMode: Text.Wrap }
-                        Repeater {
-                            model: parent.rows
-                            Field {
-                                id: ethernetDetailRow
-                                required property var modelData
-                                width: parent.width
-                                inline: true
-                                label: modelData.key
-                                Label { text: ethernetDetailRow.modelData.value; role: "value"; width: parent.width; elide: Text.ElideRight }
-                            }
-                        }
-                    }
+                    device: modelData.name
+                    label: modelData.name
+                    stateLine: !modelData.managed ? Logic.stateText("unmanaged") : modelData.connected ? "Connected" : modelData.link ? "Not connected" : "Cable not connected"
+                    glyph: "ethernet-port"
                 }
             }
         }

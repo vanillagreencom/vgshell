@@ -4,11 +4,11 @@ import qs.Ui
 
 // A status chip. `size` is `sm`, the default, or `md`. The label is
 // placed by capital height, and the width uses the label's optical width,
-// so tracked text has equal left and right ink insets. `tone` names a
-// group of `Theme.badge.tone`: `neutral`, `accent`, `success`, `warning`,
-// `danger` or `info`; an unknown tone is logged and drawn neutral.
-// `iconName` draws a Lucide icon before the text. Under a rounded theme
-// the side padding grows until the content clears the drawn corner.
+// with extra room after the label's tracked capitals. `tone` names a group
+// of `Theme.badge.tone`: `neutral`, `accent`, `success`, `warning`,
+// `danger` or `info`; an unknown tone is logged and drawn neutral. `iconName`
+// draws a Lucide icon before the text. Under a rounded theme the side
+// padding grows until the content clears the drawn corner.
 Rectangle {
     id: root
 
