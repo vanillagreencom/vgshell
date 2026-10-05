@@ -4,7 +4,8 @@
 # stub model is missing and withheld when the stub reports it installed, then
 # disables the plugin and checks its shortcuts and status child are gone. The
 # key delivery uses physical code overrides for the row, so the helper reaches
-# the same generated bind path that hold-shortcuts.sh exercises.
+# the same generated bind path that hold-shortcuts.sh exercises. It closes its
+# client window and puts back the shell.json it found.
 # inputs: shell/plugins/vgs.voice/* shell/Core/ShortcutRegistry.qml shell/Core/HyprlandLayer.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml shell/plugins/vgs.settings/* scripts/smoke/keyboard/* scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 
@@ -156,6 +157,8 @@ voice_hold_pair() {
   [[ $got == "record start|record stop" ]] && echo ok || echo "$got"
 }
 
+voice_saved_config="$sandbox/shell-before-voice.json"
+cp -- "$home/.config/vgshell/shell.json" "$voice_saved_config"
 voice_ensure_hypr_wired
 hypr_lua_save voice
 printf '%s\n' 'hl.config({ input = { resolve_binds_by_sym = false } })' >>"$home/.config/hypr/hyprland.lua"
@@ -180,7 +183,8 @@ expect_poll "the recording state reaches dictation status" '"recording"' ipc smo
 expect_poll "Set up is offered while the model is missing" True voice_setup_offered
 
 open_toplevel "$sandbox/voice-client.log" smoke.voice-client "Voice client"
-voice_client_address="$(toplevel_address "$toplevel_pid")"
+voice_client_pid="$toplevel_pid"
+voice_client_address="$(toplevel_address "$voice_client_pid")"
 expect "the Voice client is focused" ok hypr dispatch "hl.dsp.focus({ window = \"address:$voice_client_address\" })"
 expect_poll "the Voice client has keyboard focus" '["smoke.voice-client", "Voice client"]' active_window
 voice_start_keyboard
@@ -204,9 +208,10 @@ expect_poll "disabling Voice removes its shortcuts" 0 voice_shortcuts
 expect_poll "disabling Voice clears its status" absent voice_status_value
 expect_poll "disabling Voice stops the status child" gone voice_status_alive
 voice_stop_keyboard
+close_toplevel "$voice_client_pid" "the Voice client exits 0 on SIGTERM"
 hypr_lua_restore voice || fail "Voice restores hyprland.lua"
 expect "Voice key resolution restore is reloaded" ok hypr reload config-only
-rm -f -- "${voice_stub:?}" "${shim:?}/systemctl" "${shim:?}/setpriv"
+rm -f -- "${voice_stub:?}" "${shim:?}/systemctl" "${shim:?}/setpriv" "${voice_installed:?}"
 voice_hidden_path="$sandbox/voice-host-path"
 python3 - "$voice_hidden_path" "$PATH" "$node_bin" <<'PY'
 import os, sys
@@ -242,3 +247,5 @@ expect_poll "the Voice status row offers voxtype install" '[["voxtype", "Absent"
 expect_poll "the Voice Requirements row says voxtype is missing" "$(words voxtype "Missing, optional" "Captures speech and inserts dictated text")" voice_requirement_drawn
 settings_page_close vgs.voice
 expect "disabling Voice after the missing-requirement check is allowed" ok ipc shell setPluginEnabled vgs.voice false
+cp -- "$voice_saved_config" "$home/.config/vgshell/shell.json.next" && mv -T -- "$home/.config/vgshell/shell.json.next" "$home/.config/vgshell/shell.json"
+expect "the shell.json Voice found is reloaded" ok ipc shell reloadConfig
