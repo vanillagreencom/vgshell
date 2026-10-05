@@ -194,8 +194,9 @@ expect "the theme service enables for latency readings" ok ipc shell setPluginEn
 expect_poll "the theme service builds" false ipc smoke readInstance service vgs.themes setupPending
 expect_poll "the catalog answer is held behind installed rows" held latency_catalog_held
 
-# Instrument only the sandbox copies to separate view work, image readiness
-# and rail layout from the window's presented frame.
+# Instrument only the sandbox plugin copies to separate view work and image
+# readiness from the window's presented frame. The row instruments no core
+# file because editing a live core file owes a restart (plugins.md).
 python3 - "$repo" "$sandbox" <<'PY'
 from pathlib import Path
 import shutil, sys
@@ -204,7 +205,6 @@ changes = {
     'shell/plugins/vgs.themes/Browser.qml': [('onLoaded: {', 'onLoaded: { console.log("theme-latency-stage page-loaded " + Date.now());')],
     'shell/plugins/vgs.themes/ThemeView.qml': [('started = true;', 'console.log("theme-latency-stage view-start " + Date.now()); started = true;'), ('        focusRail();\n    }\n\n    Component.onCompleted: start()', '        focusRail();\n        console.log("theme-latency-stage view-ready " + Date.now());\n    }\n\n    Component.onCompleted: start()')],
     'shell/plugins/vgs.themes/ThemeCard.qml': [('onStatusChanged: if (status === Image.Error)', 'onStatusChanged: { if (status === Image.Ready) console.log("theme-latency-stage image-ready " + Date.now() + " " + root.modelData.name); if (status === Image.Error)'), ('console.warn("themes: card image unreadable path=" + root.cheapImage)', 'console.warn("themes: card image unreadable path=" + root.cheapImage); }')],
-    'shell/Ui/layout/CardCarousel.qml': [('function settle() { settled = ready; }', 'function settle() { settled = ready; console.log("theme-latency-stage layout-ready " + Date.now()); }')],
 }
 for name, replacements in changes.items():
     target = repo / name
@@ -363,7 +363,7 @@ python3 - "$repo" "$sandbox" <<'PY'
 from pathlib import Path
 import shutil, sys
 repo, saved = map(Path, sys.argv[1:])
-for name in ('shell/plugins/vgs.themes/Browser.qml', 'shell/plugins/vgs.themes/ThemeView.qml', 'shell/plugins/vgs.themes/ThemeCard.qml', 'shell/Ui/layout/CardCarousel.qml'):
+for name in ('shell/plugins/vgs.themes/Browser.qml', 'shell/plugins/vgs.themes/ThemeView.qml', 'shell/plugins/vgs.themes/ThemeCard.qml'):
     target = repo / name
     shutil.copy2(saved / (target.name + '.latency-original'), target)
 PY

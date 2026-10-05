@@ -202,7 +202,8 @@ Singleton {
         }
         for (const e of errs) console.error("plugins: " + e.dir + ": " + e.error);
         const mapChanged = JSON.stringify(next) !== JSON.stringify(root.manifests);
-        const isChanged = mapChanged && !root.coreChanged;
+        const holdMap = root.scanned && root.coreChanged;
+        const isChanged = mapChanged && !holdMap;
         if (JSON.stringify(cols) !== JSON.stringify(root.collisions))
             for (const c of cols) console.warn("plugins: hidden by a higher-precedence plugin with the same id: " + c);
         root.errors = errs;
@@ -220,7 +221,7 @@ Singleton {
         // One line per completed scan, the smoke's readback for a scan that
         // changed nothing and so leaves no other trace.
         console.info("plugins: scan complete changed=" + isChanged);
-        if (mapChanged && root.coreChanged) console.info("plugins: scan held reason=core-changed");
+        if (mapChanged && holdMap) console.info("plugins: scan held reason=core-changed");
     }
 
     function applyCoreRevision(line) {
@@ -235,8 +236,10 @@ Singleton {
             coreWatchFailed("output carries no revision");
             return;
         }
-        if (startCoreRevision === "") startCoreRevision = entry.revision;
+        // Set coreRevision first so the initial watch line cannot make
+        // coreChanged true for one binding turn.
         coreRevision = entry.revision;
+        if (startCoreRevision === "") startCoreRevision = entry.revision;
     }
 
     function coreWatchFailed(error) {
