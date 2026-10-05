@@ -4,8 +4,9 @@ import qs.Commons
 import qs.Ui
 import qs.Unit
 
-// LevelSlider: the button, the slider and the readout sit `stack.inline`
-// apart in one row, the slider taking the width the others leave; the
+// LevelSlider: the slider starts `stack.inline` past the button's box less
+// its end padding, whatever the icon, and ends `stack.inline` before the
+// readout; the
 // slider follows `value` while it is not held and never while a drag holds
 // it; the arrows step it by `stepSize` and hand each new share to `moved`;
 // a drag reports `began`; the readout reads the value as a percentage
@@ -43,7 +44,8 @@ Item {
 
         function test_the_parts_sit_in_one_row() {
             const b = button(level), s = level.slider, r = readout(level);
-            compare(s.x, b.x + b.width + Theme.stack.inline);
+            compare(s.x, b.width - b.leftPadding + Theme.stack.inline, "the slider starts after the icon column");
+            compare(flush.slider.x, s.x, "sliders with different icons start together");
             compare(r.x, s.x + s.width + Theme.stack.inline);
             compare(r.x + r.width, level.width, "the readout ends on the row's end edge");
             compare(r.width, r.children[0].implicitWidth, "the readout is as wide as 100%");

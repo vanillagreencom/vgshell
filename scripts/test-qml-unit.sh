@@ -777,6 +777,7 @@ mutations=(
   "a level slider reports no move|controls/LevelSlider.qml|onMoved: root.moved(value)|onMoved: {}|tst_levelslider.qml"
   "a level slider reports no drag|controls/LevelSlider.qml|onPressedChanged: if (pressed) root.began()|onPressedChanged: {}|tst_levelslider.qml"
   "a level slider's glyph sits inside its box|controls/LevelSlider.qml|x: -Math.round(glyphStart)|x: 0|tst_levelslider.qml"
+  "a level slider's slider follows the glyph|controls/LevelSlider.qml|x: button.width - button.leftPadding + root.spacing|x: button.x + button.width + root.spacing|tst_levelslider.qml"
   "a level slider's button fills on hover|controls/LevelSlider.qml|        background: Item {|        property Item unusedBackground: Item {|tst_levelslider.qml"
   "a level slider ignores its step|controls/LevelSlider.qml|stepSize: root.stepSize|stepSize: 0.2|tst_levelslider.qml"
   "a level slider reads no percentage|controls/LevelSlider.qml|property string text: Math.round(value * 100) + \"%\"|property string text: \"\"|tst_levelslider.qml"

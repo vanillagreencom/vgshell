@@ -4,12 +4,13 @@ import qs.Ui
 
 // One level a user sets, such as a device's volume or a display's
 // brightness: an IconButton, a Slider from 0 to 1 that the arrows move by
-// `stepSize`, and a LevelLabel readout, `stack.inline` apart, the slider
-// taking the width the button and the readout leave. The button's glyph,
-// not its box, sits on the row's start edge, so it lines up with the
-// controls above and below it; the box draws no fill, so hover and press
-// change only the icon's colour, and it keeps its click target and focus
-// ring. The slider follows `value` whenever it is not held, so a change
+// `stepSize`, and a LevelLabel readout. The button's glyph, not its box,
+// sits on the row's start edge, so it lines up with the controls above and
+// below it; the box draws no fill, so hover and press change only the
+// icon's colour, and it keeps its click target and focus ring. The slider
+// starts `stack.inline` past the button's box less its end padding, the
+// same place whatever the icon, and ends `stack.inline` before the
+// readout. The slider follows `value` whenever it is not held, so a change
 // made elsewhere moves it, and a drag in progress is never pulled back.
 // `text` reads `value` as a percentage unless the caller names it, such as
 // Muted, and a value above 1 reads as it is while the slider stands at its
@@ -51,7 +52,8 @@ Item {
 
     Slider {
         id: bar
-        x: button.x + button.width + root.spacing
+        // One start for every icon, so the sliders of a page line up.
+        x: button.width - button.leftPadding + root.spacing
         anchors.verticalCenter: parent.verticalCenter
         width: readout.x - root.spacing - x
         from: 0
