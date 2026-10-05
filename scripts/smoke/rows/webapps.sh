@@ -6,23 +6,35 @@
 # with a title and an icon link and one with neither; a stand-in browser
 # that logs its arguments and runs the harness's toplevel helper with the
 # class a Chromium-family browser gives a site opened with --app; its
-# desktop entry, chromium.desktop, whose Exec names it by its path; and a
-# mimeapps.list that makes it the https default. No real browser runs and
-# no shell is started again: the PATH stays the harness's.
+# desktop entry, vgs-smoke-browser.desktop, a web browser whose Exec names
+# it by its path; and a mimeapps.list that makes it the https default. No
+# host browser can open: before Web Apps starts, the row hides each host
+# desktop entry the service would take for a browser behind a Hidden=true
+# shadow in the sandbox's data home (scripts/smoke/webapps-browsers.sh),
+# and every selection first reads the browser the service names, the
+# stand-in or none, and selects nothing when it names another. No shell is
+# started again: the PATH stays the harness's.
 # Read back: the desktop entry the service writes, its Name the page's
 # title and its Icon the page's icon, byte for byte; the launcher's row by
 # that name with its icon drawn; one launch with --app=<address> and one
 # window of the class; a second selection from the launcher that launches
 # nothing and gives that window the keyboard; Remove taking the entry, the
-# icon and the launcher's row away. The controls: a page with no icon,
-# whose app takes the plugin's default icon, so the first icon reading
-# cannot pass on the default; and a window of another class open before
-# the first selection, which still launches.
+# icon and the launcher's row away. The controls: with the shadows up and
+# the stand-in's entry not yet written, the service names no browser and a
+# selection shows its message, launches nothing and maps no window; a page
+# with no icon, whose app takes the plugin's default icon, so the first
+# icon reading cannot pass on the default; and a window of another class
+# open before the first selection, which still launches.
 # The row closes every window it opened or the stand-in browser mapped,
-# stops the site, removes what it planted and leaves Web Apps, the
-# launcher and Settings as it found them, and shell.json as it was.
-# No latency is measured; each reading polls every 200 ms for up to 5 s.
-# inputs: shell/plugins/vgs.webapps/* shell/plugins/vgs.settings/* shell/plugins/vgs.launcher/* shell/Hosts/SummonLayer.qml shell/Commons/DesktopLaunch.js shell/Core/Compositor.qml shell/Core/Dispatch.js
+# stops the site, removes what it planted, on every exit path for what it
+# planted in the data home, and leaves Web Apps, the launcher and Settings
+# as it found them, and shell.json as it was.
+# No latency is measured; each reading polls every 200 ms for up to 5 s,
+# but for what Quickshell's desktop entry index gives, which follows a
+# write in the data home late in the full row order: the service's browser
+# and the launcher's first listing are polled every 200 ms for up to
+# wa_index_s.
+# inputs: scripts/smoke/webapps-browsers.sh shell/plugins/vgs.webapps/* shell/plugins/vgs.settings/* shell/plugins/vgs.launcher/* shell/Hosts/SummonLayer.qml shell/Commons/DesktopLaunch.js shell/Core/Compositor.qml shell/Core/Dispatch.js bin/lib/qml-library.js
 set -euo pipefail
 
 wa_id=vgs.webapps
@@ -32,6 +44,9 @@ wa_icons="$home/.config/vgshell/webapps/icons"
 wa_user="$home/.config/vgshell/shell.json"
 wa_mime="$home/.config/mimeapps.list"
 wa_launches="$wa_dir/launches"
+wa_browser_entry="$wa_apps/vgs-smoke-browser.desktop"
+wa_index_s=30
+source "$repo/scripts/smoke/webapps-browsers.sh"
 
 # wa_list VERB ARG: one of the probe's list verbs on the Web apps field.
 wa_list() { ipc smoke invokeInstance window vgs.settings "$1" "$2"; }
@@ -49,7 +64,12 @@ print(v[0] if v else "no-key")' "$wa_apps/vgs-webapp-$1.desktop" "$2"; }
 wa_same() { if cmp -s -- "$1" "$2"; then echo same; elif [[ -e $1 ]]; then echo differs; else echo absent; fi; }
 # wa_planted: what the service keeps for the row's apps, as names.
 wa_planted() { python3 -c 'import os,sys; print(" ".join(sorted([f for f in os.listdir(sys.argv[1]) if f.startswith("vgs-webapp-")] + (os.listdir(sys.argv[2]) if os.path.isdir(sys.argv[2]) else []))) or "none")' "$wa_apps" "$wa_icons"; }
-wa_browser() { ipc smoke statusValues "$wa_id" | py_reply 'import json,sys; v=json.load(sys.stdin).get("browser"); print(json.dumps(v if v is None else [v["tone"], v["text"]]))'; }
+# wa_world_left: `absent` while the data home holds no shadow and no
+# stand-in entry of the row's.
+wa_world_left() { if [[ -e $wa_browser_entry || -e $webapps_shadows ]]; then echo present; else echo absent; fi; }
+# wa_browser_named: `stand-in` while the service names the stand-in
+# browser, `none` while it names none, else what it names.
+wa_browser_named() { ipc smoke statusValues "$wa_id" | py_reply 'import json,sys; v=json.load(sys.stdin).get("browser"); print("none" if v is not None and v["tone"] == "warning" else "stand-in" if v == {"tone": "ok", "text": "Smoke Browser"} else json.dumps(v))'; }
 wa_rows() { ipc smoke launcherRows overlay vgs.launcher | py_reply 'import json,sys; t=sys.stdin.read(); print(json.dumps(json.loads(t)) if t.startswith("[") else t.strip())'; }
 wa_first_row() { wa_rows | py_reply 'import json,sys; r=json.load(sys.stdin); print(json.dumps(r[0][:2]) if r else "none")'; }
 wa_has_row() { wa_rows | py_reply 'import json,sys; print(any(r[0] == "app" and r[1] == sys.argv[1] for r in json.load(sys.stdin)))' "$1"; }
@@ -58,11 +78,38 @@ wa_icon_drawn() { ipc smoke images overlay vgs.launcher | py_reply 'import json,
 wa_launch_count() { if [[ -f $wa_launches ]]; then wc -l <"$wa_launches"; else echo 0; fi; }
 # wa_windows CLASS: how many mapped windows of CLASS Hyprland lists.
 wa_windows() { hypr -j clients | py_reply 'import json,sys; print(sum(1 for c in json.load(sys.stdin) if c["class"] == sys.argv[1] and c["mapped"]))' "$1"; }
+wa_client_count() { hypr -j clients | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
 wa_active_class() { hypr -j activewindow | py_reply 'import json,sys; d=json.load(sys.stdin); print(d.get("class") or "none")'; }
+wa_toast_count() { ipc shell lent | py_reply 'import json,sys; t=json.load(sys.stdin)["toasts"]; print(sum(1 for e in t["visible"] + t["waiting"] if e["title"] == sys.argv[1]))' "$1"; }
 wa_focused() { expect_poll "$1" true ipc smoke activeFocusIn overlay vgs.launcher; }
-# wa_select TEXT LABEL: the launcher summoned with TEXT searched and
-# Enter on its first row, which must be the app TEXT names.
+# wa_index_poll LABEL WANT CMD...: as expect_poll, for up to wa_index_s;
+# 1 when CMD never answers WANT.
+wa_index_poll() {
+  local label="$1" want="$2" got="" err="$sandbox/reader-$BASHPID.stderr"
+  shift 2
+  for _ in $(seq 1 $((wa_index_s * 5))); do
+    if got="$("$@" 2>"$err")" && [[ $got == "$want" ]]; then
+      reader_stderr "$label" "$err" || return 1
+      ok "$label"
+      return 0
+    fi
+    reader_stderr "$label" "$err" || return 1
+    sleep 0.2
+  done
+  fail "$label: got $got want $want after $wa_index_s s"
+  return 1
+}
+# wa_select TEXT LABEL BROWSER: the launcher summoned with TEXT searched
+# and Enter on its first row, which must be the app TEXT names, only while
+# the service names BROWSER, wa_browser_named's answer; 1, with the row
+# failed and nothing selected, otherwise.
 wa_select() {
+  local named
+  named="$(wa_browser_named)" || named=unread
+  if [[ $named != "$3" ]]; then
+    fail "the service names the browser $3 before the selection $2: got $named, so nothing is selected"
+    return 1
+  fi
   expect "the launcher opens searching for $1 $2" ok ipc shell summon overlay vgs.launcher "{\"query\":\"$1\"}"
   wa_focused "the launcher holds the keyboard $2"
   expect_poll "the launcher ranks $1 first $2" "[\"app\", \"$1\"]" wa_first_row
@@ -72,8 +119,7 @@ wa_select() {
 # wa_close_class CLASS: every window of CLASS the stand-in browser mapped,
 # closed by its pid once that pid is the toplevel helper's.
 wa_close_class() {
-  local pid
-  local pids
+  local pid pids
   pids="$(hypr -j clients | py_reply 'import json,sys; print(" ".join(str(c["pid"]) for c in json.load(sys.stdin) if c["class"] == sys.argv[1]) or "none")' "$1")" || { fail "the clients of class $1 are unreadable"; return; }
   [[ $pids == none ]] && pids=""
   for pid in $pids; do
@@ -85,10 +131,27 @@ wa_close_class() {
   done
   expect_poll "no window of class $1 is left" 0 wa_windows "$1"
 }
+# What the row plants in the data home goes on every exit path; the
+# harness's own exit trap, cleanup, runs after it.
+wa_unplant() {
+  webapps_shadows_remove
+  rm -f -- "${wa_browser_entry:?}"
+}
+wa_previous_exit_trap="$(trap -p EXIT)"
+trap 'wa_unplant; cleanup' EXIT
 
-# The world: the site, the stand-in browser, its entry and the default.
+# The world: the shadows first, then the site, the stand-in browser and
+# the default, whose entry is written after the control below.
 mkdir -p -- "$wa_dir/site/app" "$wa_dir/site/bare" "$wa_apps"
-rm -f -- "$wa_launches"
+if webapps_shadows_plant; then
+  ok "each host browser entry has a Hidden shadow in the data home"
+else
+  fail "the host browser entries could not be shadowed, so Web Apps is not started"
+  wa_unplant
+  trap - EXIT
+  eval "$wa_previous_exit_trap"
+  return 0
+fi
 printf '<!doctype html><html><head><title>Smoke Mail</title><link rel="stylesheet" href="style.css"><link rel="icon" href="icon.png" sizes="32x32"></head><body>mail</body></html>\n' >"$wa_dir/site/app/index.html"
 printf '<!doctype html><html><head><title>Bare Site</title></head><body>bare</body></html>\n' >"$wa_dir/site/bare/index.html"
 solid_png "$wa_dir/site/app/icon.png" 32 32 40 120 200
@@ -101,10 +164,9 @@ class="\$(python3 -c 'import sys, urllib.parse; u = urllib.parse.urlsplit(sys.ar
 exec $(printf '%q' "$sandbox/toplevel") "\$class" "Web app"
 EOF
 chmod 755 "$wa_dir/chromium"
-printf '[Desktop Entry]\nType=Application\nName=Smoke Browser\nExec=%s %%U\n' "$wa_dir/chromium" >"$wa_apps/chromium.desktop"
 wa_mime_before=absent
 if [[ -e $wa_mime ]]; then cp -p -- "$wa_mime" "$wa_dir/mimeapps.list.before"; wa_mime_before=kept; fi
-printf '[Default Applications]\nx-scheme-handler/https=chromium.desktop\nx-scheme-handler/http=chromium.desktop\n' >"$wa_mime"
+printf '[Default Applications]\nx-scheme-handler/https=vgs-smoke-browser.desktop\nx-scheme-handler/http=vgs-smoke-browser.desktop\n' >"$wa_mime"
 expect_poll "configuration saves settle before the row keeps shell.json" true ipc smoke configSettled
 cp -p -- "$wa_user" "$wa_dir/shell.json.before"
 spawn "$wa_dir/server.log" python3 -u -m http.server --bind 127.0.0.1 --directory "$wa_dir/site" 0
@@ -125,7 +187,9 @@ wa_launcher_before="$(plugin_enabled vgs.launcher)" || wa_launcher_before=unread
 expect "Web Apps starts off in the sandbox" False printf '%s\n' "$wa_before"
 expect "enabling Web Apps is allowed" ok ipc shell setPluginEnabled "$wa_id" true
 expect_poll "the Web Apps service is built" True record_exists "$wa_id"
-expect_poll "the service finds the stand-in browser as the default one" '["ok", "Smoke Browser"]' wa_browser
+# A host browser entry the index still held would be named here; none is
+# once the index holds the shadows.
+wa_index_poll "with the host browsers hidden and no stand-in, the service names no browser" none wa_browser_named || true
 
 # Adding from Settings: the site's title names the entry and its icon draws it.
 settings_page_open "$wa_id"
@@ -151,29 +215,45 @@ if [[ $wa_launcher_before != True ]]; then
   expect_poll "the launcher's service is built" True record_exists vgs.launcher
 fi
 expect "the launcher opens searching for Smoke Mail" ok ipc shell summon overlay vgs.launcher '{"query":"Smoke Mail"}'
-expect_poll "the launcher lists the web app by its name" '["app", "Smoke Mail"]' wa_first_row
+wa_index_poll "the launcher lists the web app by its name" '["app", "Smoke Mail"]' wa_first_row || true
 expect_poll "the launcher draws the web app's icon" ready wa_icon_drawn "$wa_icons/1.png"
 wa_focused "the launcher holds the keyboard before Escape"
 type_keys -k Escape -k Escape || fail "sending Escape in the launcher failed"
 expect_poll "Escape closes the launcher" 0 layer_count vgs:overlay
 
+# Control: with no browser, a selection shows its message, launches
+# nothing and maps no window.
+wa_clients_before="$(wa_client_count)" || wa_clients_before=unread
+if wa_select "Smoke Mail" "with no browser" none; then
+  expect_poll "control: the selection with no browser shows its message" 1 wa_toast_count "Web app did not open"
+  expect "control: the selection with no browser launches nothing" 0 wa_launch_count
+  expect "control: no window maps for the selection with no browser" "$wa_clients_before" wa_client_count
+fi
+
+# The stand-in browser's entry: once the service names it, a selection
+# launches it.
+printf '[Desktop Entry]\nType=Application\nName=Smoke Browser\nCategories=Network;WebBrowser;\nExec=%s %%U\n' "$wa_dir/chromium" >"$wa_browser_entry"
+wa_index_poll "the service names the stand-in browser" stand-in wa_browser_named || true
+
 # Control: a window of another class open before the first selection.
 open_toplevel "$wa_dir/other.log" smoke.webapps-other "Other window" || fail "the other class's window maps"
 wa_other_pid="$toplevel_pid"
 expect "no web app window is open before the first selection" 0 wa_windows "$wa_class"
-wa_select "Smoke Mail" "for the first selection"
-expect_poll "the first selection launches the browser once" 1 wa_launch_count
-expect "the launch opens the site as an app" "--app=$wa_url" cat -- "$wa_launches"
-expect_poll "one window of the web app's class maps" 1 wa_windows "$wa_class"
+if wa_select "Smoke Mail" "for the first selection" stand-in; then
+  expect_poll "the first selection launches the browser once" 1 wa_launch_count
+  expect "the launch opens the site as an app" "--app=$wa_url" cat -- "$wa_launches"
+  expect_poll "one window of the web app's class maps" 1 wa_windows "$wa_class"
+fi
 
 # A second selection focuses that window and launches nothing.
 open_toplevel "$wa_dir/cover.log" smoke.webapps-cover "Cover window" || fail "the cover window maps"
 wa_cover_pid="$toplevel_pid"
 expect_poll "the cover window has the keyboard" smoke.webapps-cover wa_active_class
-wa_select "Smoke Mail" "for the second selection"
-expect_poll "the second selection gives the web app's window the keyboard" "$wa_class" wa_active_class
-expect "the second selection launches nothing" 1 wa_launch_count
-expect "the web app still has one window" 1 wa_windows "$wa_class"
+if wa_select "Smoke Mail" "for the second selection" stand-in; then
+  expect_poll "the second selection gives the web app's window the keyboard" "$wa_class" wa_active_class
+  expect "the second selection launches nothing" 1 wa_launch_count
+  expect "the web app still has one window" 1 wa_windows "$wa_class"
+fi
 
 # Remove takes the entry, the icon and the launcher's row away.
 settings_page_open "$wa_id"
@@ -211,10 +291,13 @@ case "$wa_before" in
     ;;
   *) fail "Web Apps' enabled state before the row: got $wa_before" ;;
 esac
-rm -f -- "$wa_apps/chromium.desktop"
-if [[ $wa_mime_before == kept ]]; then mv -f -- "$wa_dir/mimeapps.list.before" "$wa_mime"; else rm -f -- "$wa_mime"; fi
+wa_unplant
+trap - EXIT
+eval "$wa_previous_exit_trap"
+if [[ $wa_mime_before == kept ]]; then mv -f -- "$wa_dir/mimeapps.list.before" "$wa_mime"; else rm -f -- "${wa_mime:?}"; fi
 rmdir -- "$wa_icons" "${wa_icons%/icons}" 2>/dev/null || true
 expect "the row leaves no web app entry or icon" none wa_planted
+expect "the row leaves no shadow or browser entry" absent wa_world_left
 # The plugins rows the enable and the list wrote go with the kept file.
 expect_poll "configuration saves settle before the row puts shell.json back" true ipc smoke configSettled
 cp -p -- "$wa_dir/shell.json.before" "$wa_user.next"

@@ -374,6 +374,7 @@ ok "grim captures only $SHOT_SOCKET"
 # Each shot records whether the host showed the nested window while it was
 # taken: the one read this runner makes of the host compositor.
 source "$checkout/scripts/smoke/host-window.sh"
+source "$checkout/scripts/smoke/webapps-browsers.sh"
 nested_window_state() { host_window_state "$compositor_pid"; }
 SHOT_WINDOW_READER=nested_window_state
 SHOT_WINDOW_REQUIRE="$require_window"
@@ -1040,11 +1041,19 @@ EOF
   # one web app written through the window. Its address is the loopback
   # discard port, where nothing listens, so the service's read of the site
   # reaches no network and fails at once; the shot shows the list field.
-  # The web apps and the enablement are put back after the shot.
+  # Each host browser entry hides behind a shadow while Web Apps runs, as
+  # in scripts/smoke/rows/webapps.sh, though the scene opens no web app.
+  # The web apps, their entry, the shadows and the enablement are put back
+  # after the shot.
   local webapps_found=unread
   if "$has_webapps"; then
     webapps_found="$(plugin_enabled vgs.webapps)" || webapps_found=unread
     [[ $webapps_found == True || $webapps_found == False ]] || fail "vgs.webapps' enablement is unreadable: $webapps_found"
+  fi
+  if [[ $webapps_found != unread ]] && ! webapps_shadows_plant; then
+    fail "the host browser entries could not be shadowed, so Web Apps is not started"
+    webapps_shadows_remove
+    webapps_found=unread
   fi
   if [[ $webapps_found != unread ]]; then
     if [[ $webapps_found == False ]]; then
@@ -1066,10 +1075,12 @@ EOF
     expect "no notice covers the Web Apps page" null notice_shown
     take "settings-$1-webapps"
     expect "the web app is removed after the shot" ok ipc smoke invokeInstance "$settings_kind" vgs.settings applySetting '{"id":"vgs.webapps","key":"apps","value":[]}'
+    expect_poll "the removed web app's entry is gone" absent bash -c '[[ -e $1 ]] && echo present || echo absent' _ "$home/.local/share/applications/vgs-webapp-1.desktop"
     if [[ $webapps_found == False ]]; then
       expect "disabling vgs.webapps is allowed" ok ipc shell setPluginEnabled vgs.webapps false
       expect_poll "vgs.webapps is gone" False record_exists vgs.webapps
     fi
+    webapps_shadows_remove
   fi
   expect "the window opens the launcher's page again" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.launcher
   expect_poll "the launcher's page is shown again" '"vgs.launcher"' settings_page
