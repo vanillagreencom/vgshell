@@ -124,6 +124,8 @@ window_listed() { local status=0; grep -c -x -F -- "$1" <<<"$window_list" || sta
 window_list="$(window_plugins)" || fail "the bundled manifests are unreadable"
 expect "the manifests list the Updates window" 1 window_listed $'vgs.updates\tUpdates'
 expect "control: the manifests list no window for the themes panel" 0 window_listed $'vgs.themes\tThemes'
+# What $shim holds now; the devtools stand-ins added here go at the end.
+windows_shim_before=("${shim:?}"/*)
 devtools_stand_ins
 updates_cache_fresh
 automations_stand_ins "$sandbox/windows-automations-stub"
@@ -178,3 +180,6 @@ expect_poll "the themes panel's surface is gone after the window rows" 0 layer_c
 restore_windows_lua || fail "hyprland.lua is put back after the window rows"
 expect "the nested instance reloads hyprland.lua as the row found it" ok hypr reload config-only
 expect "disabling the Settings plugin after the window rows is allowed" ok ipc shell setPluginEnabled vgs.settings false
+for windows_file in "${shim:?}"/*; do
+  [[ " ${windows_shim_before[*]} " == *" $windows_file "* ]] || rm -f -- "$windows_file"
+done

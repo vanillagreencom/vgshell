@@ -128,5 +128,6 @@ if copy_tree no-give-up && edit_tree no-give-up bin/vgshell \
   if [[ $loop_result == "kills=6 running" ]]; then ok "control: a runner with no reachable limit still runs after six kills"; else fail "control: the no-give-up copy read $loop_result"; fi
 fi
 shim_hyprctl real
+rm -f -- "${shim:?}/hyprctl.notify-log"
 stop_shell || :
 start_shell "$repo" "$sandbox/supervise-qs.log" || fail "the supervision row leaves a live shell"

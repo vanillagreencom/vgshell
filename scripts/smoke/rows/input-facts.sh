@@ -137,6 +137,7 @@ EOF
   input_facts_control_failures="$(sed -n 's/^control-failures=//p' "$sandbox/input-facts-layer-control.log")" || exit 1
   expect "dropping observed layers makes the protection assertion fail once" 1 printf '%s' "$input_facts_control_failures"
   shim_hyprctl real
+  rm -f -- "${shim:?}/hyprctl.input-no-layers"
   expect "the passive fixture releases its overlay" ok layered undraw
   expect_poll "the released overlay leaves the compositor" 0 layer_count vgs:layer
   expect "the passive overlay fixture disables" ok ipc shell setPluginEnabled acme.layers false

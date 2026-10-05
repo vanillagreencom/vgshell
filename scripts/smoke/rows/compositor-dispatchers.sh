@@ -165,3 +165,4 @@ else
   fail "the target dispatch window maps"
 fi
 expect "the dispatch row returns to workspace 1" ok probe dispatch "focusWorkspace 1"
+rm -f -- "${shim:?}/hyprctl.dispatch-noop"

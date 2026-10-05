@@ -75,6 +75,10 @@ start_unguarded() { # LOG SHELL_DIR NAME
   done
   fail "$3: guarded=$answer"
 }
+# The applied theme's colours reach Hyprland through the shell's layer;
+# the row reads the active border it starts with and ends on it again.
+guard_active_border() { hypr -j getoption general:col.active_border | py_reply 'import json,sys; print(json.load(sys.stdin)["gradient"])'; }
+guard_border_before="$(guard_active_border)" || guard_border_before=unread
 mkdir -p -- "$guard_pkg"; guard_doc '#12ab38'
 expect "no theme job runs before the follow guard rows" idle theme_idle
 expect "the runner applies a package for the follow guard" "ok theme=guardfollow state=applied shell=applied" "${shell_env[@]}" "$repo/bin/vgshell" theme apply guardfollow
@@ -106,3 +110,4 @@ else
 fi
 rm -r -- "$guard_pkg"
 expect "vgs applies after the follow guard rows" "ok theme=vgs state=applied shell=applied" "${shell_env[@]}" "$repo/bin/vgshell" theme apply vgs
+expect_poll "Hyprland's active border is back to the row's start" "$guard_border_before" guard_active_border

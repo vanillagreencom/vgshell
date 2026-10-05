@@ -417,3 +417,4 @@ expect "the restored nested keys have no configuration errors" '[]' config_error
 expect "the scripted control leaves no Jarvis state file" False \
   python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).exists())' "$home/.local/state/vgshell/jarvis/mute.json"
 jarvis_disable
+jarvis_notice_close
