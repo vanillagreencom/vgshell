@@ -101,6 +101,16 @@ voice_dictation() { ipc smoke readInstance "$(bar_key)" vgs.voice dictation; }
 voice_status_value() { ipc shell lent | py_reply 'import json,sys; r=json.load(sys.stdin)["status"].get("vgs.voice"); print("absent" if r is None else json.dumps(r["keys"]))'; }
 voice_drawn_status() { ipc smoke itemTexts window vgs.settings StatusRow | py_reply 'import json,sys; rows=[row for row in json.load(sys.stdin) if row and row[0] in ("voxtype", "Setup")]; print(json.dumps(rows))'; }
 voice_requirement_drawn() { ipc smoke itemTexts window vgs.settings RequirementRow | py_reply 'import json,sys; rows=[row for row in json.load(sys.stdin) if row and row[0] == "voxtype"]; print(json.dumps(rows[0] if rows else []))'; }
+voice_ensure_hypr_wired() {
+  local phase wires
+  phase="$(hypr_consent_phase)" || return
+  wires="$(hypr_wire_count)" || return
+  if [[ $phase == wired || $wires == 1 ]]; then
+    ok "Voice row finds Hyprland consent already wired"
+    return 0
+  fi
+  hypr_consent_connect "Voice row answers Hyprland consent"
+}
 voice_start_keyboard() {
   voice_keyboard_log="$sandbox/voice-keyboard.log"
   voice_fifo="$sandbox/voice-keyboard.fifo"
@@ -146,7 +156,7 @@ voice_hold_pair() {
   [[ $got == "record start|record stop" ]] && echo ok || echo "$got"
 }
 
-hypr_consent_connect "Voice row answers Hyprland consent"
+voice_ensure_hypr_wired
 hypr_lua_save voice
 printf '%s\n' 'hl.config({ input = { resolve_binds_by_sym = false } })' >>"$home/.config/hypr/hyprland.lua"
 expect "Voice key resolution is reloaded" ok hypr reload config-only
