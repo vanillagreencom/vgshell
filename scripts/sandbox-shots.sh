@@ -1632,8 +1632,11 @@ scene_devtools() { # MODE
 # system-<mode>-sound, over the sandbox's private PipeWire
 # (scripts/smoke/devices.sh), with a test stream that plays in the
 # sandbox's environment alone, enabled for the shot and disabled again.
-# Displays stays enabled through the Sound shot, so its sidebar shows the
-# Hardware group as a user with both sections sees it.
+# A tree that ships vgs.mouse then takes its Mouse section,
+# system-<mode>-mouse, over Hyprland's nested pointer list, enabled for
+# the shot and disabled again. Displays stays enabled through the other
+# Hardware shots, so the sidebar shows the group as a user with several
+# sections sees it.
 system_shown() { [[ $(ipc smoke instanceGeometry window vgs.system) != absent ]] && echo shown || echo hidden; }
 displays_listed() { ipc smoke readInstance service vgs.displays values | py_reply 'import json,sys; print(len(json.load(sys.stdin)["displays"]["items"]))'; }
 scene_system() { # MODE
@@ -1683,6 +1686,16 @@ scene_system() { # MODE
       expect "disabling vgs.sound after its shot is allowed" ok ipc shell setPluginEnabled vgs.sound false
       kill -- "-$devices_player_pid" 2>/dev/null || true
     fi
+  fi
+  if ships_plugin vgs.mouse; then
+    expect "enabling vgs.mouse for its shot is allowed" ok ipc shell setPluginEnabled vgs.mouse true
+    expect "System → Mouse summons" ok ipc shell summon window vgs.system '{"pane":"vgs.mouse"}'
+    expect_poll "System → Mouse is shown" '["vgs.mouse"]' window_panes
+    park_pointer
+    take "system-$1-mouse"
+    expect "the System window hides after Mouse" ok ipc shell hide window vgs.system
+    expect_poll "the System window is gone after Mouse" hidden system_shown
+    expect "disabling vgs.mouse after its shot is allowed" ok ipc shell setPluginEnabled vgs.mouse false
   fi
   if [[ $displays_on == true ]]; then
     expect "disabling vgs.displays after the System shots is allowed" ok ipc shell setPluginEnabled vgs.displays false

@@ -98,6 +98,8 @@ panes
 # After panes, which removes its fixture holder: vgs.system holds `panes`
 # here, and this row restarts the shell for a control too.
 system-window
+# After system-window, whose vgs.system it enables again for the Mouse pane.
+mouse
 # After system-window, whose vgs.system it enables again for the displays
 # pane, and after device-fakes, which leaves the XDR's report at 40 %, the
 # level the row reads first.

@@ -5,7 +5,6 @@
 "use strict";
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
-const os = require("node:os");
 const path = require("node:path");
 const { load } = require("../bin/lib/qml-library.js");
 
@@ -21,7 +20,8 @@ function verify(values) {
         ["0 seconds", 0, "seconds", "0 seconds"],
         ["120 minutes", 120, "minutes", "2 hours"],
         ["5 percent", 5, "%", "5%"],
-        ["100 percent", 100, "%", "100%"]
+        ["100 percent", 100, "%", "100%"],
+        ["1.25 factor", 1.25, "×", "1.25×"]
     ];
     for (const [name, value, unit, want] of quantities)
         assert.equal(values.quantityText(value, unit), want, "quantityText: " + name);
@@ -64,6 +64,7 @@ const CONTROLS = [
     ["unit conversion", "if (value % factor === 0) {", "if (false) {"],
     ["zero keeps declared unit", "if (value !== 0) {", "if (true) {"],
     ["percent is drawn with its sign", "if (unit === \"%\") return String(value) + \"%\";", "if (unit === \"%\") return String(value) + \" percent\";"],
+    ["factor is drawn with its sign", "if (unit === \"×\") return String(value) + \"×\";", "if (unit === \"×\") return String(value);"],
     ["datetime field letters", "if (!quoted && DATETIME_FIELD.test(ch))", "if (false)"],
     ["quoted text", "quoted = !quoted;", "quoted = quoted;"],
     ["problem text table", "\"no-field\": \"Use at least one date or time field, such as HH, mm or ddd.\"", "\"no-field\": \"\""],
@@ -75,7 +76,9 @@ const CONTROLS = [
 ];
 
 const source = fs.readFileSync(file, "utf8");
-const temp = fs.mkdtempSync(path.join(os.tmpdir(), "setting-values-control-"));
+const tempRoot = path.join(repo, "tmp");
+fs.mkdirSync(tempRoot, { recursive: true });
+const temp = fs.mkdtempSync(path.join(tempRoot, "setting-values-control-"));
 try {
     for (const [label, needle, replacement] of CONTROLS) {
         assert.equal(source.split(needle).length, 2, `control "${label}": the text to replace must occur once`);

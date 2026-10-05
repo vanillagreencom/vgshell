@@ -419,6 +419,7 @@ arch_recipe_plan=$'node scripts/check-packaging.js\nnode scripts/test-check-pack
 settings_core_prefix=$'node scripts/test-plugin-logic.js\nnode scripts/test-pads.js\nnode scripts/test-plugin-status.js\nnode scripts/test-plugin-extras.js\nnode scripts/test-plugin-menu.js\nnode scripts/test-key-capture.js\nnode scripts/test-tui-logic.js\nnode scripts/test-ipc-logic.js\nnode scripts/test-notice-logic.js\nnode scripts/test-hyprland-layer.js\nnode scripts/test-hyprland-state.js\nnode scripts/test-input-facts.js\n'
 settings_theme_rows=$'bin/vgshell-theme-judge packages themes\n'
 settings_plugin_rows=$'node scripts/test-themes-setup.js\nnode scripts/test-notifications-logic.js\nnode scripts/test-greeter-logic.js\nnode scripts/test-polkit-model.js\n'
+settings_mouse_row=$'node scripts/test-mouse-logic.js\n'
 settings_catalog_rows=$'node scripts/test-check-devtools-catalog.js\n'
 settings_reply_row='node scripts/test-settings-reply.js'
 settings_steps_row='node scripts/test-settings-steps.js'
@@ -438,11 +439,11 @@ cases=(
   "settings-reply-shots|scripts/sandbox-shots.sh|logic|$settings_reply_row"
   "settings-reply-fixture|scripts/smoke/fixtures/plugins/acme.hyprland/manifest.json|logic|$settings_reply_row"
   "settings-reply-layer-binding|shell/Core/HyprlandLayer.qml|logic|$settings_reply_row"
-  "settings-reply-producer|shell/Core/PluginLogic.js|logic|$settings_core_prefix$settings_theme_rows$settings_plugin_rows$settings_reply_row"$'\n'"$settings_steps_row"
-  "settings-reply-layer|shell/Core/HyprlandLayer.js|logic|$settings_core_prefix"$'node scripts/test-dispatch.js\n'"$settings_theme_rows$settings_plugin_rows$settings_reply_row"$'\n'"$settings_steps_row"
-  "settings-reply-values|shell/Commons/SettingValues.js|logic|$settings_core_prefix"$'node scripts/test-setting-values.js\n'"$settings_theme_rows$settings_plugin_rows"$'node scripts/test-bluetooth-logic.js\n'"$settings_reply_row"$'\n'"$settings_steps_row"
-  "settings-reply-packages|shell/Core/PackageManagers.js|logic|$settings_core_prefix$settings_theme_rows$settings_plugin_rows$settings_catalog_rows$settings_reply_row"$'\n'"$settings_steps_row"
-  "settings-reply-icons|shell/Ui/icons/Lucide.js|logic|$settings_core_prefix"$'node scripts/test-icon-bounds.js\n'"$settings_theme_rows"$'node scripts/test-lucide-data.js\n'"$settings_plugin_rows"$'node scripts/test-jarvis-widget.js\n'"$settings_catalog_rows"$'node scripts/test-agent-warden-view.js\n'"$settings_reply_row"$'\n'"$settings_steps_row"
+  "settings-reply-producer|shell/Core/PluginLogic.js|logic|$settings_core_prefix$settings_theme_rows$settings_plugin_rows$settings_mouse_row$settings_reply_row"$'\n'"$settings_steps_row"
+  "settings-reply-layer|shell/Core/HyprlandLayer.js|logic|$settings_core_prefix"$'node scripts/test-dispatch.js\n'"$settings_theme_rows$settings_plugin_rows$settings_mouse_row$settings_reply_row"$'\n'"$settings_steps_row"
+  "settings-reply-values|shell/Commons/SettingValues.js|logic|$settings_core_prefix"$'node scripts/test-setting-values.js\n'"$settings_theme_rows$settings_plugin_rows"$'node scripts/test-bluetooth-logic.js\n'"$settings_mouse_row$settings_reply_row"$'\n'"$settings_steps_row"
+  "settings-reply-packages|shell/Core/PackageManagers.js|logic|$settings_core_prefix$settings_theme_rows$settings_plugin_rows$settings_mouse_row$settings_catalog_rows$settings_reply_row"$'\n'"$settings_steps_row"
+  "settings-reply-icons|shell/Ui/icons/Lucide.js|logic|$settings_core_prefix"$'node scripts/test-icon-bounds.js\n'"$settings_theme_rows"$'node scripts/test-lucide-data.js\n'"$settings_plugin_rows$settings_mouse_row"$'node scripts/test-jarvis-widget.js\n'"$settings_catalog_rows"$'node scripts/test-agent-warden-view.js\n'"$settings_reply_row"$'\n'"$settings_steps_row"
   "catalog-judge|themes/catalog/index.json|tools|node scripts/test-vgshell-theme-judge.js"
   "catalog-contrast|themes/catalog/index.json|logic|node scripts/test-theme-logic.js"$'\n'"$settings_theme_rows"'node scripts/test-check-theme-contrast.js'
   "orb-source|shell/Ui/feedback/shaders/voiceorb.frag|all|$orb_shader_plan"

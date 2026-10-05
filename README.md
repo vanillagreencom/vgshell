@@ -67,6 +67,7 @@ VGS starts with Hyprland and draws the bar, panels and windows on each screen. E
 | [Key Hints](shell/plugins/vgs.keyhints/README.md) | See and change every shortcut VGS adds. |
 | [Launcher](shell/plugins/vgs.launcher/README.md) | Find and open apps, files and system actions. |
 | [Lock](shell/plugins/vgs.lock/README.md) | Lock your screen. |
+| [Mouse](shell/plugins/vgs.mouse/README.md) | Set pointer and touchpad behavior. |
 | [Network](shell/plugins/vgs.network/README.md) | Join Wi-Fi and see your network connections. |
 | [Notifications](shell/plugins/vgs.notifications/README.md) | Read and silence your notifications. |
 | [Polkit](shell/plugins/vgs.polkit/README.md) | Enter your password when an app needs administrator access. |
