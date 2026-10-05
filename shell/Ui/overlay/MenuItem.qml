@@ -16,6 +16,10 @@ import qs.Ui
 // entry's own side padding. `barRoom` is the strip at the entry's end the
 // menu's scroll bar draws over while the entries overflow: the text, the
 // shortcut and the check mark keep clear of it, and the fill still spans it.
+// An entry that `opensSubmenu` draws a chevron at its end in place of the
+// check mark. Its trigger, and that of any entry that `keepsOpen`, such as
+// one that goes back a level, leaves the menu open, so the menu's owner
+// can change the entries it shows.
 // keyboard-path: Menu owns keys and triggers its highlighted item
 // focus-indicator: Menu's ListCursor plate shows the highlighted item
 T.MenuItem {
@@ -25,6 +29,8 @@ T.MenuItem {
     property string shortcut: ""
     property ListCursor cursor: null
     property real barRoom: 0
+    property bool opensSubmenu: false
+    property bool keepsOpen: opensSubmenu
 
     signal pointed()
 
@@ -35,7 +41,9 @@ T.MenuItem {
     // clears the drawn corner.
     readonly property real sidePadding: Theme.controlPadding(Theme.menu.item.paddingX, Theme.menu.item.radius, Math.max(Theme.menu.item.height, height), implicitContentHeight)
     leftPadding: sidePadding
-    rightPadding: sidePadding + barRoom + (checked ? Theme.icon.size.sm + spacing : 0)
+    // The check mark or the chevron stands at the end.
+    readonly property bool endMark: checked ? true : opensSubmenu
+    rightPadding: sidePadding + barRoom + (endMark ? Theme.icon.size.sm + spacing : 0)
     spacing: Theme.menu.item.gap
     hoverEnabled: true
     focusPolicy: Qt.NoFocus
@@ -89,11 +97,21 @@ T.MenuItem {
     // while the entry is checked.
     indicator: Icon {
         name: "check"
-        visible: root.checked
+        visible: root.checked && !root.opensSubmenu
         size: Theme.icon.size.sm
         color: Theme.menu.item.check
         x: root.width - root.sidePadding - root.barRoom - width
         y: Math.round((root.height - height) / 2)
+    }
+
+    // The submenu's chevron stands where the check mark would.
+    Icon {
+        name: "chevron-right"
+        visible: root.opensSubmenu
+        size: Theme.icon.size.sm
+        color: Theme.menu.item.shortcut
+        x: root.indicator.x
+        y: root.indicator.y
     }
 
     background: Rectangle {

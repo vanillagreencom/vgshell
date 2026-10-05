@@ -8,7 +8,8 @@ import qs.Ui
 // surface. One ListCursor draws the highlight and travels between entries.
 // Up and Down move the highlight, a hover moves it once the pointer moves
 // (ListCursor), Enter triggers the highlighted entry, a click triggers an
-// entry, and any trigger closes the menu; a
+// entry, and a trigger closes the menu unless the entry `keepsOpen`, as
+// one that opens a submenu does; a
 // press outside and Escape close it too (DismissScope). Typing letters highlights the
 // first reachable entry whose text starts with them, the letters kept for
 // `menu.typeahead` milliseconds. Entries taller than `maxHeight` scroll
@@ -139,13 +140,14 @@ Item {
         }
     }
 
-    // Every entry's trigger closes the menu, by click or by key.
+    // An entry's trigger closes the menu, by click or by key, unless the
+    // entry keeps it open for its owner to change the entries.
     readonly property Instantiator closers: Instantiator {
         model: root.opened ? root.items() : []
         delegate: Connections {
             required property var modelData
             target: modelData
-            function onTriggered() { root.close(); }
+            function onTriggered() { if (!modelData.keepsOpen) root.close(); }
         }
     }
 

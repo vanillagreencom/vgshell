@@ -6,7 +6,8 @@ import qs.Unit
 
 // The overlays through the stand-in popup window: a popover opens and
 // closes and counts in OverlayState, a menu moves its highlight and
-// triggers by key and closes on a trigger, a select chooses by index and
+// triggers by key and closes on a trigger but that of an entry that opens a
+// submenu, which draws a chevron, or keeps the menu open, a select chooses by index and
 // reads its text role, a tooltip opens after the delay while the pointer
 // rests and not under an open overlay, and a toast draws its tone. A menu
 // taller than its maximum scrolls with the highlight kept in view, jumps
@@ -37,6 +38,11 @@ Item {
             MenuItem { text: "Off"; enabled: false; onTriggered: root.triggered = 2 }
             MenuItem { id: wide; text: "An entry far wider than the menu's minimum width, with a shortcut"; shortcut: "Ctrl+Shift+W" }
         }
+        Menu { id: nested
+            MenuItem { id: submenuEntry; text: "Accounts"; opensSubmenu: true; onTriggered: root.triggered = 10 }
+            MenuItem { id: backEntry; text: "Back"; keepsOpen: true; onTriggered: root.triggered = 11 }
+            MenuItem { id: leafEntry; text: "Quit"; onTriggered: root.triggered = 12 }
+        }
         Menu { id: mid
             MenuItem { text: "Rescan every plugin"; iconName: "refresh-cw"; shortcut: "R" }
         }
@@ -66,7 +72,7 @@ Item {
         name: "overlays"
         when: windowShown
 
-        function init() { UnitTheme.reset(); popover.close(); menu.close(); select.choose(0); root.triggered = -1; dismissals.clear(); }
+        function init() { UnitTheme.reset(); popover.close(); menu.close(); nested.close(); select.choose(0); root.triggered = -1; dismissals.clear(); }
 
         function test_popover_opens_and_counts() {
             compare(popover.opened, false);
@@ -358,6 +364,35 @@ Item {
             made.destroy();
             wait(50);
             compare(OverlayState.open, 0);
+        }
+
+        // An entry that opens a submenu draws a chevron where the check
+        // mark stands and leaves the menu open, by click and by key, as an
+        // entry that keeps it open does; any other entry still closes it.
+        function test_a_submenu_entry_keeps_the_menu_open() {
+            const chevron = entry => entry.children.find(child => child.name === "chevron-right");
+            nested.open();
+            compare(chevron(submenuEntry).visible, true);
+            compare(chevron(submenuEntry).x + chevron(submenuEntry).width, submenuEntry.width - submenuEntry.sidePadding - submenuEntry.barRoom, "the chevron ends a side padding before the bar");
+            compare(submenuEntry.rightPadding, submenuEntry.sidePadding + submenuEntry.barRoom + Theme.icon.size.sm + submenuEntry.spacing, "the chevron takes the check mark's room");
+            compare(submenuEntry.indicator.visible, false);
+            compare(chevron(backEntry).visible, false);
+            compare(chevron(leafEntry).visible, false);
+            submenuEntry.clicked();
+            compare(root.triggered, 10);
+            wait(50);
+            compare(nested.opened, true, "a submenu entry's click leaves the menu open");
+            nested.currentIndex = 0;
+            nested.triggerCurrent();
+            wait(50);
+            compare(nested.opened, true, "a submenu entry's key leaves the menu open");
+            backEntry.clicked();
+            compare(root.triggered, 11);
+            wait(50);
+            compare(nested.opened, true, "an entry that keeps the menu open leaves it open");
+            leafEntry.clicked();
+            compare(root.triggered, 12);
+            tryCompare(nested, "opened", false);
         }
 
         function test_menu_click_triggers_and_closes() {
