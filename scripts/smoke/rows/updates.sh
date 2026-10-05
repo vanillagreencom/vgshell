@@ -120,7 +120,7 @@ doc = json.loads(manifest.read_text())
 assert "finish" not in doc["tui"], doc["tui"]
 doc["tui"]["finish"] = {"script": "tui/finish.sh", "title": "Updates smoke", "size": "default", "presentation": "plain", "entry": {"label": "Updates smoke", "icon": "terminal", "group": "Smoke"}}
 manifest.write_text(json.dumps(doc))
-assert sorted(doc["tui"]) == ["finish", "log", "update", "update-source"], sorted(doc["tui"])
+assert sorted(doc["tui"]) == ["finish", "log", "review", "update", "update-source"], sorted(doc["tui"])
 service = plugin / "Service.qml"
 lines = service.read_text().splitlines()
 hits = [i for i, line in enumerate(lines) if line.startswith("    readonly property string vgshellPath:")]
@@ -650,13 +650,6 @@ expect "disabling the per-widget control is allowed" ok ipc shell setPluginEnabl
 expect "the nested compositor removes the control monitor" ok hypr output remove "$control_output"
 expect_poll "the control monitor's bar is gone" "$monitors" bar_count
 
-# No manager detected: only the VGS rows remain.
-use_identity none
-before="$(checks)"
-expect "a check with no package manager starts" started ipc vgs.updates invoke check ''
-expect_poll "with no manager detected only the VGS rows remain" '["vgs", "plugins", "themes"]' updates_source_names
-expect "no package query ran" STEADY checks_settle_at "$before"
-
 # ---- The third-party review's window ----------------------------------------
 # The stand-in agent takes this row's state directory as its first word,
 # records the rest of its argv but the prompt, whether the prompt is the
@@ -712,6 +705,13 @@ expect_poll "the review run's end starts one check" "$((before + 1))" checks
 expect_poll "the service is idle after the review run's check" idle updates_idle
 rm -rf -- "${review_dir:?}" "${review_bin:?}"
 rm -f -- "$updates_state/review-gate" "$updates_state/review-argv" "$updates_state/review-prompt" "$updates_state/review-prompt.expected" "$updates_state/review-cwd"
+
+# No manager detected: only the VGS rows remain.
+use_identity none
+before="$(checks)"
+expect "a check with no package manager starts" started ipc vgs.updates invoke check ''
+expect_poll "with no manager detected only the VGS rows remain" '["vgs", "plugins", "themes"]' updates_source_names
+expect "no package query ran" STEADY checks_settle_at "$before"
 
 # Leave the later rows the shipped plugin, disabled.
 expect "disabling the updates service is allowed" ok ipc shell setPluginEnabled vgs.updates false
