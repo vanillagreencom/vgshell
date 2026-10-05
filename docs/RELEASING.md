@@ -83,13 +83,15 @@ gh release download vX.Y.Z --repo vanillagreencom/vgshell --dir /tmp/vgshell-X.Y
 # The AUR's view of both packages.
 curl -fsS 'https://aur.archlinux.org/rpc/v5/info?arg[]=vgshell&arg[]=vgshell-git'
 
-# Each AUR package, built and installed in a clean Arch container.
+# Each AUR package, installed through paru in a clean Arch container, as a
+# user does: paru also builds the depends only the AUR holds.
 for pkg in vgshell vgshell-git; do
   podman run --rm docker.io/library/archlinux:latest bash -euc '
     pacman -Syu --noconfirm --needed base-devel git sudo
     useradd -m builder
     echo "builder ALL=(ALL) NOPASSWD: ALL" >/etc/sudoers.d/builder
-    runuser -u builder -- bash -c "cd && git clone https://aur.archlinux.org/$1.git && cd $1 && makepkg -si --noconfirm"
+    runuser -u builder -- bash -c "cd && git clone https://aur.archlinux.org/paru.git && cd paru && makepkg -si --noconfirm"
+    runuser -u builder -- bash -c "cd && paru -S --noconfirm --skipreview $1"
     vgshell --version' _ "$pkg"
 done
 
