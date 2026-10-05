@@ -67,15 +67,15 @@ print(json.dumps([named, [button for button in named if button not in offered]])
 '
 }
 expect_poll "every text that names Add key has the button offered" '[["Add key"], []]' page_named_buttons
-# A manifest copy whose keyring step reads another label: the key list's
-# hint then names a button the page lacks.
+# A manifest copy whose keyring step reads another label: the keyring
+# row's own hint then names a button the page lacks.
 python3 - "$page_manifest" <<'PY'
 from pathlib import Path
 import sys
 p=Path(sys.argv[1])
 assert not p.is_symlink()
 s=p.read_text()
-needle='"keyStore": { "type": "state", "label": "API keys", "group": "AI model", "action": { "label": "Add key", "tui": "add-key" } }'
+needle='"keyStore": { "type": "state", "label": "API keys", "group": "AI model", "hint": "Add key stores a new provider key in your keyring.", "action": { "label": "Add key", "tui": "add-key" } }'
 assert s.count(needle)==1
 changed=s.replace(needle, needle.replace('"label": "Add key"', '"label": "Add an API key"'))
 assert changed != s
