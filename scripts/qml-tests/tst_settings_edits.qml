@@ -10,9 +10,11 @@ import "../../shell/plugins/vgs.settings"
 // writes the field it is pressed in, a loss of focus writes nothing, a
 // refused text stays, an accepted one draws what the configuration holds,
 // and a read-only field and a hidden custom row hold no edit. The set
-// saves one field or every field, says when a save wrote its last edit and
-// forgets a destroyed field. A Keys row's typed key waits the same way and
-// returns to its text entry when its owner refuses it. The owner here
+// saves every field, says when an accepted write of an edit leaves it
+// empty, whether its save or Enter in the field sent it, and forgets a
+// destroyed field. A Keys row's typed key waits the same way, returns to
+// its text entry when its owner refuses it and leaves a read-only row; a
+// key the row sends without its text entry is no edit. The owner here
 // stands in for the page: it records each write and takes it or refuses it.
 Item {
     id: root
@@ -74,6 +76,15 @@ Item {
         }
     }
 
+    Component {
+        id: disposableKey
+        KeyField {
+            pluginId: "acme.unit"
+            bind: ({ shortcut: "spare", key: "SUPER+N", default: "SUPER+N", description: "Spare" })
+            edits: unsaved
+        }
+    }
+
     TestCase {
         name: "settingsEdits"
         when: windowShown
@@ -86,6 +97,7 @@ Item {
             size.value = 12;
             clock.value = "HH:mm:ss";
             gap.editable = true;
+            keyRow.editable = true;
             root.writes = [];
             root.keys = [];
             saved.clear();
@@ -118,6 +130,10 @@ Item {
         }
 
         function test_enter_writes_the_field_it_is_pressed_in() {
+            editor(gap).forceActiveFocus(Qt.TabFocusReason);
+            keyClick(Qt.Key_Return);
+            compare(root.writes, [], "Enter in an untouched field writes nothing");
+            compare(saved.count, 0);
             type(size, "20");
             type(gap, "73");
             keyClick(Qt.Key_Return);
@@ -165,11 +181,6 @@ Item {
             verify(!unsaved.edited);
             compare(root.writes.length, 2);
             compare(saved.count, 1, "a discard is no save");
-        }
-
-        function test_a_save_of_nothing_is_no_save() {
-            compare(unsaved.save(), true);
-            compare(saved.count, 0);
         }
 
         function test_a_read_only_field_holds_no_edit() {
@@ -228,6 +239,59 @@ Item {
             compare(root.keys, ["SUPER+K", "SUPER+K"]);
             verify(!field.typing, "the accepted key closes the entry");
             compare(saved.count, 1);
+        }
+
+        function test_enter_in_a_key_row_is_a_save_once_accepted() {
+            const field = keyRow.shortcutField;
+            root.accepts = false;
+            field.startTyping();
+            for (const c of "SUPER+K") keyClick(c);
+            keyClick(Qt.Key_Return);
+            compare(root.keys, ["SUPER+K"]);
+            verify(keyRow.edited, "the refused key is back in the text entry");
+            compare(saved.count, 0, "a refused key is no save");
+            root.accepts = true;
+            keyClick(Qt.Key_Return);
+            compare(root.keys, ["SUPER+K", "SUPER+K"]);
+            verify(!unsaved.edited);
+            compare(saved.count, 1, "the accepted key is a save");
+            root.accepts = false;
+            field.startTyping();
+            for (const c of "SUPER+J") keyClick(c);
+            keyClick(Qt.Key_Return);
+            compare(saved.count, 1, "a key refused after an accepted one is no save");
+            keyRow.discard();
+            field.startTyping();
+            keyClick(Qt.Key_Backspace);
+            keyClick(Qt.Key_Return);
+            compare(root.keys, ["SUPER+K", "SUPER+K", "SUPER+J", null], "an emptied entry sends the unbind");
+            verify(!unsaved.edited, "a refused unbind returns to no entry");
+            compare(saved.count, 1, "and is no save");
+        }
+
+        function test_a_key_sent_without_the_text_entry_is_no_save() {
+            keyRow.applyKey("SUPER+J");
+            compare(root.keys, ["SUPER+J"]);
+            compare(saved.count, 0);
+        }
+
+        function test_a_read_only_key_row_holds_no_edit() {
+            keyRow.shortcutField.startTyping();
+            for (const c of "SUPER+K") keyClick(c);
+            verify(unsaved.edited);
+            keyRow.editable = false;
+            verify(!keyRow.shortcutField.typing && !unsaved.edited, "the entry closed with its key");
+            compare(root.keys, []);
+        }
+
+        function test_a_destroyed_key_row_leaves_the_set() {
+            const spare = disposableKey.createObject(root);
+            verify(spare !== null);
+            spare.shortcutField.startTyping();
+            for (const c of "SUPER+J") keyClick(c);
+            verify(unsaved.edited);
+            spare.destroy();
+            tryCompare(unsaved, "edited", false);
         }
 
         function test_discard_drops_a_typed_key() {

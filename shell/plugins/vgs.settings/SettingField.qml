@@ -17,7 +17,8 @@ import qs.Ui
 // and `discard()` puts the configuration's back. A text the manager
 // refuses, or the custom editor's own check does, stays in its editor, so
 // the field stays edited. `edits` is the page's set of unsaved edits
-// (EditSet), which the field joins while edited and Enter saves through.
+// (EditSet), which the field joins while edited and tells of each write
+// of its text the manager accepted.
 Column {
     id: root
 
@@ -96,19 +97,16 @@ Column {
     function discard() {
         for (const editor of [loader.item, customLoader.item]) if (editing(editor)) editor.revert();
     }
-    // Enter in a text editor: the page's set saves this field, so the page
-    // hears of a save; a field with no set writes for itself.
-    function enter() {
-        if (edits !== null) edits.save(root);
-        else save();
-    }
     // Write the text of `input`. The manager's rows come back before
     // `apply` returns, so the value is the typed one exactly when the write
-    // was accepted, and the editor then shows what the configuration holds.
+    // was accepted; the editor then shows what the configuration holds, and
+    // the set hears of the write.
     function commit(input) {
         const typed = spec.type === "number" ? (input.text.trim() === "" ? NaN : Number(input.text)) : input.text;
         apply(typed);
-        if (sameValue(typed, value)) input.text = heldText;
+        if (!sameValue(typed, value)) return;
+        input.text = heldText;
+        if (edits !== null) edits.wrote();
     }
 
     Field {
@@ -147,26 +145,36 @@ Column {
         }
     }
 
+    // The text field of both text editors of `field`, a SettingField: it
+    // keeps what is typed until it is saved. It shows the field's
+    // `heldText` at first and again whenever that changes, and no binding
+    // holds the text, so a draft outlives every other change. `edited`
+    // says the text is not the held one, `revert()` and Escape put the
+    // held one back, and Enter saves the field.
+    component DraftField: TextField {
+        id: draft
+        required property Item field
+        readonly property bool edited: text !== field.heldText
+        function revert() { text = field.heldText; }
+        readOnly: !field.editable
+        escapeReverts: true
+        committedText: field.heldText
+        onAccepted: field.save()
+        Component.onCompleted: text = field.heldText
+        Connections {
+            target: draft.field
+            function onHeldTextChanged() { draft.text = draft.field.heldText; }
+        }
+    }
+
     Component {
         id: text
-        TextField {
+        DraftField {
             id: input
-            readonly property bool edited: text !== root.heldText
             function save() { root.commit(input); }
-            function revert() { text = root.heldText; }
+            field: root
             width: parent.width
-            readOnly: !root.editable
             focusPolicy: root.editable ? Qt.StrongFocus : Qt.NoFocus
-            escapeReverts: true
-            committedText: root.heldText
-            onAccepted: root.enter()
-            // The text follows the configuration's value when that changes,
-            // and no binding holds it, so a draft outlives every other change.
-            Component.onCompleted: text = root.heldText
-            Connections {
-                target: root
-                function onHeldTextChanged() { input.text = root.heldText; }
-            }
         }
     }
 
@@ -178,25 +186,17 @@ Column {
             implicitHeight: Math.max(input.implicitHeight, preview.implicitHeight)
             readonly property string problemCode: root.spec.format === "datetime" ? SettingValues.datetimeFormatProblem(input.text) : ""
             readonly property string problemText: problemCode === "" ? "" : SettingValues.PROBLEM_TEXT[problemCode]
-            readonly property bool edited: input.text !== root.heldText
+            readonly property bool edited: input.edited
             function save() { if (problemText === "") root.commit(input); }
-            function revert() { input.text = root.heldText; }
+            function revert() { input.revert(); }
 
-            TextField {
+            DraftField {
                 id: input
-                readOnly: !root.editable
+                field: root
                 error: custom.problemText !== ""
                 width: preview.visible ? Math.max(Theme.size.panel.sm / 3, parent.width - preview.width - Theme.stack.inline) : parent.width
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
-                escapeReverts: true
-                committedText: root.heldText
-                onAccepted: root.enter()
-                Component.onCompleted: text = root.heldText
-                Connections {
-                    target: root
-                    function onHeldTextChanged() { input.text = root.heldText; }
-                }
             }
 
             Label {

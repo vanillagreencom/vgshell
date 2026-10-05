@@ -16,7 +16,8 @@ import qs.Ui
 // through `settle` whether the manager accepted each key it sent, and a
 // refused key returns to the text entry, so it stays an unsaved edit the
 // user corrects. `edits` is the page's set of unsaved edits (EditSet),
-// which the row joins while edited.
+// which the row joins while edited and tells of each typed key the
+// manager accepted; a pressed key is no edit, so the set hears of none.
 BindField {
     id: root
 
@@ -27,12 +28,26 @@ BindField {
     function save() { shortcutField.acceptTyped(); }
     function discard() { shortcutField.stopTyping(); }
     function settle(key, accepted) {
+        sent.accepted = accepted;
         if (!accepted && typeof key === "string") shortcutField.startTyping(key);
     }
 
     Component.onDestruction: if (edits !== null) edits.forget(root)
     onEditedChanged: if (edits !== null) edits.track(root)
     onEditableChanged: if (!editable) discard()
+
+    QtObject {
+        id: sent
+        // Whether the manager accepted the key the row sent last.
+        property bool accepted: false
+    }
+
+    // BindField's own handler of `typed` is connected first, so the typed
+    // key is sent and settled before this one runs.
+    Connections {
+        target: root.shortcutField
+        function onTyped() { if (root.edits !== null && sent.accepted) root.edits.wrote(); }
+    }
 
     hint: bind["default"] === null ? "No default shortcut." : "Default shortcut: " + bind["default"] + "."
 

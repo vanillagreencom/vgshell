@@ -3,10 +3,11 @@ import QtQuick
 // The fields of one page that hold an unsaved edit, in the order each
 // began. A field joins through `track`, which it calls whenever its
 // `edited` changes, and leaves through `forget` when it is destroyed.
-// `save()` asks every field to write its edit, or `only` alone, as Enter
-// in that field does, and answers whether none is left: a field whose
-// value was refused stays edited. `saved()` follows a save that wrote the
-// set's last edit. `discard()` asks every field to put back what the
+// `save()` asks every field to write its edit and answers whether none
+// is left: a field whose value was refused stays edited. A field calls
+// `wrote()` once a write of its edit was accepted, whether `save()` or
+// Enter in the field sent it, and `saved()` follows the one that leaves
+// the set empty. `discard()` asks every field to put back what the
 // configuration holds.
 QtObject {
     id: root
@@ -24,11 +25,13 @@ QtObject {
         fields = fields.filter(held => held !== field);
     }
 
-    function save(only) {
-        const held = only === undefined ? fields.slice() : fields.filter(field => field === only);
-        for (const field of held) field.save();
-        if (held.length > 0 && !edited) saved();
-        return !edited;
+    function save() {
+        for (const field of fields.slice()) field.save();
+        return fields.length === 0;
+    }
+
+    function wrote() {
+        if (fields.length === 0) saved();
     }
 
     function discard() {
