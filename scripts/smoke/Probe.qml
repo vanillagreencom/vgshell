@@ -402,11 +402,16 @@ Scope {
         const item = instance(hostKey, id);
         if (item === null) return "absent";
         // A Settings step as its button hands it to the window (D061):
-        // `act` {id, key}, `storeSecret` {id, key, account, secret} and
-        // `clearSecret` {id, key, account}; each answers the manager.
+        // `act` {id, key}, `openTui` {id, name}, `storeSecret` {id, key,
+        // account, secret} and `clearSecret` {id, key, account}; each
+        // answers the manager.
         if (name === "act") {
             const a = JSON.parse(arg);
             return item.act(a.id, a.key);
+        }
+        if (name === "openTui") {
+            const a = JSON.parse(arg);
+            return item.openTui(a.id, a.name);
         }
         if (name === "storeSecret") {
             const a = JSON.parse(arg);

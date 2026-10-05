@@ -18,9 +18,10 @@ import qs.Ui
 // setting and a key go through the manager capability; the rows come back
 // from the core, so the window shows what the configuration holds. Adding,
 // updating and removing a plugin open the manager's core TUIs, a floating
-// terminal where each question stays a question, and Install shows the
-// core's requirement notice; the window stays open behind them, and its
-// rows change once the command there ends. Each open asks the manager for
+// terminal where each question stays a question, a plugin's setup button
+// opens its own TUI, and Install shows the core's requirement notice; the
+// window stays open behind them, and its rows change once the command
+// there ends. Each open asks the manager for
 // a scan, so a command installed or a setup run from a terminal while the
 // shell ran reads as it now is: each scan raises the requirements revision
 // a plugin's service re-reads its own state on.
@@ -41,8 +42,9 @@ FocusScope {
     // The key capture a Keys row's field asks to press a combo.
     readonly property var capture: shell === null ? null : shell.shortcut.capture
     // The last refusal or failure the manager answered, by stepKey: a call
-    // for a plugin, shown on its page, and a status step (D061), shown under
-    // its line, each until a later call there succeeds.
+    // for a plugin, shown on its page, a status step (D061), shown under
+    // its line, and a setup screen, shown under its buttons, each until a
+    // later call there succeeds.
     property var replies: ({})
     // The stepKey of the secret write running, or "".
     property string writing: ""
@@ -123,13 +125,14 @@ FocusScope {
         list.focusSearch(reason);
     }
 
-    // Open the page of plugin `id`; answers `ok` or `unknown: <id>`.
+    // Open the page of plugin `id`, on its Settings page; answers `ok` or
+    // `unknown: <id>`.
     function openPlugin(id, reason) {
         if (rowOf(id) === null) return "unknown: " + id;
         notice = "";
         drawn = id;
         page = id;
-        detail.focusBack(reason === undefined ? Qt.TabFocusReason : reason);
+        detail.open(reason === undefined ? Qt.TabFocusReason : reason);
         return "ok";
     }
 
@@ -177,6 +180,20 @@ FocusScope {
     // or the requirement notice; answers the manager's reply (D061).
     function act(id, key) {
         return keep(stepKey(id, key), shell.manager.act(id, key));
+    }
+
+    // The step key of setup screen `name`, which `replyOf` reads its reply
+    // under: a status key holds no colon, so a screen and a status entry of
+    // one name keep their replies apart.
+    function tuiKey(name) {
+        return "tui:" + name;
+    }
+
+    // Open plugin `id`'s setup screen `name`, a TUI its manifest lists,
+    // through the manager, which opens it as it opens a status step's;
+    // answers the manager's reply.
+    function openTui(id, name) {
+        return keep(stepKey(id, tuiKey(name)), shell.manager.openTui(id, name));
     }
 
     // Store what the user typed as plugin `id`'s secret `account`, listed

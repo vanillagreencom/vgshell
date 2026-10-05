@@ -285,6 +285,7 @@ expect_run_end "the linger IPC's run ends" vgs.automations/linger
 # act once lingering is on, and starts nothing.
 expected_errors+=('settings: vgs\.automations/linger refused: action=linger reason=not-offered')
 settings_page_open vgs.automations
+settings_details
 expect_poll "lingering off offers Enable while logged out" '[["linger", "Enable while logged out", true]]' offered_actions vgs.automations
 forget_record
 # The stand-in terminal runs no linger TUI, so the row itself turns

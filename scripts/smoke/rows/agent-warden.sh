@@ -263,6 +263,7 @@ expect "disabling the Settings plugin after the rows is allowed" ok ipc shell se
 # control of Install all missing, D061: its call with nothing missing is
 # refused and raises no notice.
 settings_page_open vgs.agent-warden
+settings_details
 expect_poll "a checking warden with vsys present offers no Set up" '[["warden", "Set up", false]]' offered_actions vgs.agent-warden
 expect_poll "the Warden row draws Running, its hint and no step" "$(words Warden Running "$warden_hint")" warden_drawn
 expect_poll "the vsys requirement draws Present" "$(words vsys Present "Shows your agents and provides Agent Warden")" vsys_drawn
@@ -443,6 +444,7 @@ expect_run_end "the setup run ends" vgs.agent-warden/setup
 # command the page draws, and its button opens the same setup TUI. The
 # same readers read the healthy page above as drawing neither.
 settings_page_open vgs.agent-warden
+settings_details
 expect_poll "a warden not set up offers Set up" '[["warden", "Set up", true]]' offered_actions vgs.agent-warden
 expect_poll "the Warden row draws Set up and Show command" "$(words Warden "Not set up" "$warden_hint" "Set up" "Show command")" warden_drawn
 expect "the page draws the one command disclosure, closed" '[["Show command"]]' page_commands
@@ -701,6 +703,7 @@ if [[ $vsys_first == missing ]]; then
   # notice and rests nothing, where Not now would rest the plugin's own
   # offers and hold back the panel's Get vsys below.
   settings_page_open vgs.agent-warden
+  settings_details
   expect_poll "a warden not set up without vsys offers no Set up" '[["warden", "Set up", false]]' offered_actions vgs.agent-warden
   expect_poll "the vsys requirement draws Missing" "$(words vsys "Missing" "Shows your agents and provides Agent Warden")" vsys_drawn
   expect "the page without vsys draws no command" '[]' page_commands

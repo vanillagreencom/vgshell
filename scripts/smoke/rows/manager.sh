@@ -8,7 +8,9 @@
 # per plugin whose settings, keys and enablement it writes through the
 # manager capability; the title's menu jumps between pages, the back button
 # and Escape return, a deep link opens one page, and the page's scroll bar
-# drags. An installed plugin's Update and Remove buttons, the list's Add
+# drags. An installed plugin's Update and Remove buttons, on its Details
+# page, where the keyboard's Right on the tab strip and a click on its tab
+# lead, the list's Add
 # plugin button and a missing requirement's Install all missing button each open the
 # manager's core floating TUI for that plugin, read back from the stand-in
 # terminal's recorded argv, which runs none of them, and the window stays
@@ -16,7 +18,7 @@
 # page draws neither button, and each requirement row reads back with its
 # state and purpose. rows/settings.sh continues with the same window and
 # disables the plugin again.
-# inputs: shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Ui/controls/BindField.qml shell/Core/Plugins.qml shell/Core/TuiRunner.qml shell/Core/Notices.qml shell/Hosts/AppWindow.qml shell/Ui/foundation/PointerCursor.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* config/shell.json shell/Core/Capabilities.qml shell/Core/Registry.qml scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui
+# inputs: shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Ui/controls/BindField.qml shell/Core/Plugins.qml shell/Core/TuiRunner.qml shell/Core/Notices.qml shell/Hosts/AppWindow.qml shell/Ui/foundation/PointerCursor.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* config/shell.json shell/Core/Capabilities.qml shell/Core/Registry.qml scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/layout/TabPages.qml shell/Ui/layout/Tabs.qml
 set -euo pipefail
 read -r mon_w mon_h bar_reserved < <(monitor_size)
 
@@ -306,8 +308,8 @@ def shown(i):
 print(sum(1 for i,r in enumerate(rows) if r["type"] == "Slider" and shown(i)))'; }
 expect "the two bounded numbers draw sliders" 2 sliders
 # page_alignment SETTINGS KEYS: [] when the shown page draws SETTINGS
-# setting fields and KEYS key rows and every inline field, the details and
-# commands included, leaves equal insets around the content box, starts a
+# setting fields and KEYS key rows and every inline field it shows, the
+# switches included, leaves equal insets around the content box, starts a
 # field label on the content edge and its control `field.labelWidth` plus
 # `field.labelGap` past that, ends the control on the content edge, puts
 # section headers on the same edge and leaves the scroll bar inside the
@@ -437,7 +439,9 @@ fi
 terminal_stand_in
 terminal_ready "Settings' TUIs"
 # settings_button TEXT: whether the window draws a shown Button TEXT.
+# settings_label TEXT: the same for a Label.
 settings_button() { ipc smoke windowGeometry window vgs.settings Button "$1" | py_reply 'import sys; print("absent" if sys.stdin.read().strip() == "absent" else "drawn")'; }
+settings_label() { ipc smoke windowGeometry window vgs.settings Label "$1" | py_reply 'import sys; print("absent" if sys.stdin.read().strip() == "absent" else "drawn")'; }
 # How many floating TUI windows the nested instance maps.
 tui_windows() { hypr -j clients | py_reply 'import json,sys; print(sum(1 for c in json.load(sys.stdin) if c["class"].startswith("org.vgs.tui")))'; }
 settings_focused="[\"$shell_class\", \"Settings\"]"
@@ -465,11 +469,22 @@ expect "the scrolled window hides" ok ipc shell hide window vgs.settings
 expect_poll "the scrolled window is gone" 0 window_count Settings
 settings_show acme.probe
 settings_keyboard_update() {
-  local focus label seen=()
+  local focus label shown seen=()
   for _ in $(seq 1 80); do
     type_keys -k Tab || return 1
     focus="$(ipc smoke focused window vgs.settings)" || return 1
     if [[ $focus != \[* ]]; then printf 'focus=%s\n' "$focus"; return; fi
+    # The strip is one Tab stop; Right on it shows Details, where Update is.
+    if [[ $focus == '["Tabs",'* ]]; then
+      type_keys -k Right || return 1
+      # expect_poll's own window, 5 s at 0.2 s.
+      for _ in $(seq 1 25); do
+        shown="$(settings_tab)" || return 1
+        [[ $shown == 1 ]] && break
+        sleep 0.2
+      done
+      [[ $shown == 1 ]] || { printf 'strip-right page=%s\n' "$shown"; return; }
+    fi
     if ! python3 - "$focus" <<'PY'
 import json, sys
 row = json.loads(sys.argv[1])
@@ -490,7 +505,7 @@ PY
 }
 forget_record
 hold_runs
-expect "the Settings Tab tour reaches Update with its ring in view and Return runs it" ok settings_keyboard_update
+expect "the Settings Tab tour reaches the strip, whose Right shows Details, then Update with its ring in view, and Return runs it" ok settings_keyboard_update
 expect_poll "Return opens vgshell plugin update for the plugin in the wide floating TUI" \
   "$(core_words core/plugin-update "Update a plugin" org.vgs.tui.wide plugin update acme.probe)" recorded
 expect "the keyboard Update leaves the Settings window open behind the terminal" 1 window_count Settings
@@ -566,6 +581,7 @@ expect "control: the same row reaches an enabled Update button" '["Button","Upda
 expect "the enabled Update control is released" ok ipc smoke popupDrop settings-enabled-update
 rm -r -- "${repo:?}/shell/Core/EnabledUpdateControl" || fail "removing the enabled Update control failed"
 settings_show acme.probe
+settings_details
 forget_record
 hold_runs
 settings_click Button Update || fail "the click on Update failed"
@@ -622,7 +638,9 @@ settings_show acme.probe
 
 # The title's menu lists every plugin with the current one checked, scrolls
 # past its maximum height under its own bar, and typed letters then Enter
-# jump to another plugin's page.
+# jump to another plugin's page, which opens on Settings whatever page the
+# one left showed: the row opens the menu from Details.
+settings_details
 title_menu() { ipc smoke menus window vgs.settings | py_reply 'import json,sys; m=json.load(sys.stdin); print(json.dumps([m[0][k] for k in sys.argv[1:]]) if len(m) == 1 else "menus=%d" % len(m))' "$@"; }
 settings_click TitleButton Probe || fail "the click on the page's title failed"
 expect_poll "a click on the title opens its menu on the current plugin" '[true, ["Probe"], "Probe"]' title_menu opened checked current
@@ -638,10 +656,13 @@ type_keys set || fail "typing into the title's menu failed"
 expect_poll "typed letters highlight the plugin whose name starts with them" '["Settings"]' title_menu current
 type_keys -k Return || fail "sending Return to the title's menu failed"
 expect_poll "Enter jumps to that plugin's page" '"vgs.settings"' settings_page
-expect_poll "a bundled plugin's page draws no Update button" absent settings_button Update
-expect "a bundled plugin's page draws no Remove button" absent settings_button Remove
+expect_poll "the jump from a page on Details opens the other page on Settings" 0 settings_tab
 geometry expect_poll "the Settings page's key row ends on the settings fields' right edge, its label on its field" '[]' page_alignment 0 1
 expect_poll "the jump closes the menu" '[false]' title_menu opened
+settings_details
+expect_poll "a bundled plugin's Details draw its listing" drawn settings_label "Included with VGS"
+expect "a bundled plugin's Details draw no Update button" absent settings_button Update
+expect "a bundled plugin's Details draw no Remove button" absent settings_button Remove
 
 # Keys: the Settings plugin's own page edits its shortcut's key. A key
 # rebinds, an emptied field unbinds, the reset button returns to the
@@ -741,6 +762,7 @@ expect_poll "the add's terminal closes" 0 tui_windows
 # optional one included, over the window, which stays open; Escape closes
 # the notice.
 settings_show acme.bare
+settings_details
 has_section() { ipc smoke itemTexts window vgs.settings SectionHeader | py_reply 'import json,sys; print(sys.argv[1] in [t[0] for t in json.load(sys.stdin) if t])' "$1"; }
 expect_poll "the page draws a Requirements section" True has_section Requirements
 requirement_texts() { ipc smoke itemTexts window vgs.settings RequirementRow | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)))'; }
@@ -830,9 +852,10 @@ expect_poll "Escape closes the Settings request's notice" null notice_shown
 settings_show ""
 expect "a row opens its page by name" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.probe
 expect_poll "the page is open again" '"acme.probe"' settings_page
-# The plugin page's header and metadata. The header row is at least
+settings_details
+# The plugin page's header and metadata, on its Details page. The header row is at least
 # `size.control.md` tall; the back button's glyph, not its box, sits on the
-# content edge the description starts at; the title's capital centre sits
+# content edge the page's first hint line starts at; the title's capital centre sits
 # on the row's centre; each read-only metadata row (Author, Version,
 # Source) use the same `row.height` as the Enabled row and setting rows,
 # and consecutive metadata rows sit `stack.row` apart. Each check holds

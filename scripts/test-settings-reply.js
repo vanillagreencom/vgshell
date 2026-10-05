@@ -135,7 +135,7 @@ function verify(logic) {
 // Like the Dev Tools handler test, execute the QML source under Node with
 // capability doubles. No second implementation or QML parsing library.
 function windowContext(logic, source) {
-    const names = ["stepKey", "replyOf", "keep", "secretStep", "addPlugin", "storeSecret", "clearSecret"];
+    const names = ["stepKey", "replyOf", "keep", "secretStep", "addPlugin", "storeSecret", "clearSecret", "tuiKey", "openTui"];
     const functions = names.map(name => {
         const found = [...source.matchAll(new RegExp("^    function " + name + "\\([^\\n]*\\) \\{\\n[\\s\\S]*?^    \\}", "gm"))];
         assert.equal(found.length, 1, `extractor: one actual Window.${name}`);
@@ -190,6 +190,18 @@ function verifyCallers(logic, source, page) {
     assert.equal(ctx.writing, "other", "a refused write leaves the current owner alone");
     done({ ok: false, reason: "exit=1" });
     assert.equal(ctx.writing, "other", "another owner's completion cannot clear this owner");
+
+    // A setup screen and a status entry can have one name, as Jarvis's
+    // `accounts` are: each keeps its own reply.
+    const refusedScreen = "refused: tui=accounts reason=disabled";
+    ctx.shell.manager.openTui = (id, name) => { same([id, name], ["plugin", "accounts"]); return refusedScreen; };
+    ctx.keep("plugin/accounts", "ok");
+    assert.equal(ctx.openTui("plugin", "accounts"), refusedScreen, "a setup screen's open returns the unchanged machine reply");
+    assert.equal(ctx.replyOf("plugin", ctx.tuiKey("accounts")), logic.line(refusedScreen), "the page reads the mapped refusal under the screen's step");
+    assert.equal(ctx.replyOf("plugin", "accounts"), "", "a setup screen's refusal reads under the status entry of its name");
+    ctx.shell.manager.openTui = () => "ok";
+    assert.equal(ctx.openTui("plugin", "accounts"), "ok");
+    assert.equal(ctx.replyOf("plugin", ctx.tuiKey("accounts")), "", "an opened screen clears its refusal");
 
     const bindings = [...page.matchAll(/required property string modelData\n\s+role: "hint"\n\s+text: ([^\n]+)/g)];
     assert.equal(bindings.length, 1, "extractor: the Registry error delegate has one display binding");
@@ -278,7 +290,9 @@ try {
     for (const [needle, replacement] of [
         ["next[step] = Reply.line(reply);", "next[step] = reply;"],
         ["notice = Reply.line(reply);", 'notice = Reply.isOk(reply) ? "" : reply;'],
-        ['root.keep(step, result.ok ? "ok" : "refused: secret write failed " + result.reason);', 'root.keep(step, "ok");']
+        ['root.keep(step, result.ok ? "ok" : "refused: secret write failed " + result.reason);', 'root.keep(step, "ok");'],
+        ['return "tui:" + name;', 'return name;'],
+        ['return keep(stepKey(id, tuiKey(name)), shell.manager.openTui(id, name));', 'return shell.manager.openTui(id, name);']
     ]) {
         assert.equal(windowSource.split(needle).length, 2);
         assert.throws(() => verifyCallers(logic, windowSource.replace(needle, replacement), pageSource));
@@ -291,4 +305,4 @@ try {
 } finally {
     fs.rmSync(temp, { recursive: true, force: true });
 }
-console.log(`test-settings-reply: ok causes=${CASES.length} unknown=${UNKNOWN.length} hyprland=${HYPRLAND.length} controls=${controls} keys=actual-Probe-windowGeometry actual-callers=keep,add,secret,errors`);
+console.log(`test-settings-reply: ok causes=${CASES.length} unknown=${UNKNOWN.length} hyprland=${HYPRLAND.length} controls=${controls} keys=actual-Probe-windowGeometry actual-callers=keep,add,secret,tui,errors`);

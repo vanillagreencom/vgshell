@@ -1895,6 +1895,7 @@ restart_notes() {
 expect "enabling the Settings plugin for the token rows is allowed" ok ipc shell setPluginEnabled vgs.settings true
 expect_poll "the Settings service is built for the token rows" True record_exists vgs.settings
 expect "the notifications' Settings page opens" ok ipc shell summon window vgs.settings '{"plugin":"vgs.notifications"}'
+settings_details
 first_items="slack:T0ACME,present;slack:T0GLOBEX,present,served;slack,present"
 expect_poll "the page reads each workspace's token, globex served by the single-workspace one" "$(want_rows rows "$first_items")" token_row
 expect_poll "the page draws a line per account with its step, and no command for a stored token" "$(want_rows drawn "$first_items")" drawn_token_row
@@ -1955,6 +1956,7 @@ expect_poll "the page reads the other plugin's write" '"unrelated"' fixture_note
 expect "the field outlives the write with what was typed and the keyboard" "[[${#typed_token}, true]]" row_fields
 expect "the Settings window hides for the field's control" ok ipc shell hide window vgs.settings
 expect "the Settings window is summoned again on the notifications' page" ok ipc shell summon window vgs.settings '{"plugin":"vgs.notifications"}'
+settings_details
 expect_poll "control: a page built anew holds no field" '[]' row_fields
 expect "disabling the status fixture beside the token rows is allowed" ok ipc shell setPluginEnabled acme.status false
 settings_press "Connect" StatusLine "Acme Corp (acme)" || fail "the second click on Acme's Connect failed"
@@ -2042,6 +2044,7 @@ expect "with the extra off the service publishes no token rows" False lent_has_t
 expect "enabling the Settings plugin with the extra off is allowed" ok ipc shell setPluginEnabled vgs.settings true
 expect_poll "the Settings service is built with the extra off" True record_exists vgs.settings
 expect "the notifications' Settings page opens with the extra off" ok ipc shell summon window vgs.settings '{"plugin":"vgs.notifications"}'
+settings_details
 settings_view() { ipc smoke readInstance window vgs.settings plugins | py_reply 'import json,sys; p=[p for p in json.load(sys.stdin) if p["id"] == "vgs.notifications"][0]; print(json.dumps([[s["key"] for s in p["status"]], [r["command"] for r in p["requirements"]], sorted(p["schema"])]))'; }
 expect_poll "the page lists no token row and none of the extra's commands" '[[], ["xdg-open", "node", "convert"], ["customEmoji", "duration"]]' settings_view
 expect "the page draws no Status row with the extra off" '[]' drawn_token_row

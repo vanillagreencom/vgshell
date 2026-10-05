@@ -334,6 +334,8 @@ missing_count() { in_shell_env "$repo/bin/vgshell" doctor --json | py_reply 'imp
 expect "enabling Settings is allowed" ok ipc shell setPluginEnabled vgs.settings true
 expect_poll "the Settings service is built" True record_exists vgs.settings
 expect "Settings opens the Dev Tools page" ok ipc vgs.settings invoke open '{"plugin":"vgs.devtools"}'
+expect_poll "the Settings window shows the Dev Tools page" '"vgs.devtools"' ipc smoke readInstance window vgs.settings page
+settings_details
 # The sandbox's tree is no install VGS knows, so the self-status the
 # service reads reports its method unknown, and Checks reports a failure.
 checks_text="Checks failed"

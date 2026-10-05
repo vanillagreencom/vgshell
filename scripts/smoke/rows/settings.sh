@@ -5,16 +5,83 @@
 # An unrelated change keeps an edit in progress: the same drawn field, its
 # focus, its text and its cursor. The plugin is disabled again at the end,
 # so the later rows' lending records hold no Settings shortcut or IPC
-# target. A mouse drag leaves a page where it was, while a wheel notch and
+# target. A plugin's page opens on Settings, and its tab strip shows
+# Details and returns by the pointer and by the keyboard; a copy that opens
+# on Details is the control. A mouse drag leaves a page where it was, while a wheel notch and
 # Tab scroll it, and a two-finger swipe moves it as far as GTK moves a list. Dispatches asked for back to back run in order behind one
 # process, the queue has a bound, and a process that cannot start does not
 # stop the queue.
-# inputs: shell/Core/PluginLogic.js shell/plugins/vgs.settings/* shell/Ui/layout/ScrollArea.qml shell/Ui/layout/TouchpadScroll.qml shell/Ui/layout/TouchpadScrollLogic.js shell/Commons/Reply.js shell/plugins/vgs.notifications/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/PluginStatus.qml bin/vgshell-scan shell/Core/TuiRunner.qml shell/Commons/SettingValues.js shell/Core/Capabilities.qml shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.jarvis/manifest.json shell/Core/Notices.qml bin/lib/qml-library.js scripts/smoke/rows/manager.sh scripts/smoke/rows/status.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh bin/vgshell-tui
+# inputs: shell/Core/PluginLogic.js shell/plugins/vgs.settings/* shell/Ui/layout/ScrollArea.qml shell/Ui/layout/TouchpadScroll.qml shell/Ui/layout/TouchpadScrollLogic.js shell/Commons/Reply.js shell/plugins/vgs.notifications/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/PluginStatus.qml bin/vgshell-scan shell/Core/TuiRunner.qml shell/Commons/SettingValues.js shell/Core/Capabilities.qml shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.jarvis/manifest.json shell/Core/Notices.qml bin/lib/qml-library.js scripts/smoke/rows/manager.sh scripts/smoke/rows/status.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh bin/vgshell-tui shell/Ui/layout/TabPages.qml shell/Ui/layout/Tabs.qml
 set -euo pipefail
 click_centre "$(bar_key)" vgs.settings || fail "the click on the gear failed"
 expect_poll "the gear's click opens the Settings window" open settings_open
 expect "the window opens the fixture's page" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.probe
 expect_poll "the page draws the fixture's fields again" '[9, 0]' page_fields
+
+# The plugin page's two pages (TabPages): an opened page shows Settings and
+# draws nothing of Details. A click on the Details tab shows Details alone
+# and a click on the Settings tab returns. On the keyboard the strip is the
+# Tab stop after the title: Right and Left on it change the page, Tab from
+# it enters the shown page, and Ctrl+Tab from a control there steps the
+# page and hands the strip the keyboard with its ring, so no hidden control
+# keeps the keys. A change of the manager's rows keeps the page, another
+# plugin's page opens on Settings, and a page change returns the body to
+# its top, read on the disabled Jarvis page, whose two pages both overflow.
+# The control, at the row's end, is a copy of the page that opens on
+# Details and keeps its place, read by the same readers.
+# page_shown: the page's index, then whether it draws the Enabled switch of
+# Settings and the Source line of Details, the installed fixture's.
+page_shown() {
+  local index enabled listing
+  index="$(settings_tab)" || return
+  enabled="$(ipc smoke scopedWindowGeometry window vgs.settings Field Enabled Switch "")" || return
+  [[ $enabled == \[* ]] && enabled=drawn
+  listing="$(settings_label Installed)" || return
+  printf '%s %s %s\n' "$index" "$enabled" "$listing"
+}
+page_focus() { ipc smoke focused window vgs.settings; }
+focus_type() { page_focus | py_reply 'import json,sys; print(json.load(sys.stdin)[0])'; }
+strip_focused='["Tabs","",true,true,true]'
+page_top() { scroll_value contentY; }
+# page_scrolled Y: the body moved to contentY Y, which only a page that
+# overflows by as much holds.
+page_scrolled() { ipc smoke scrollTo window vgs.settings "$1" | py_reply 'import json,sys; print(json.load(sys.stdin)[0])'; }
+expect_poll "an opened page shows Settings and nothing of Details" "0 drawn absent" page_shown
+settings_details
+expect_poll "a click on the Details tab shows Details and nothing of Settings" "1 absent drawn" page_shown
+settings_tab_click Settings || fail "the click on the Settings tab failed"
+expect_poll "a click on the Settings tab returns to Settings" "0 drawn absent" page_shown
+expect "the window opens the fixture's page as a key opens it" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.probe
+type_keys -k Tab -k Tab || fail "tabbing from the back button to the strip failed"
+expect_poll "the strip is the Tab stop after the title, with its ring" "$strip_focused" page_focus
+type_keys -k Right || fail "sending Right to the strip failed"
+expect_poll "Right on the strip shows Details" "1 absent drawn" page_shown
+type_keys -k Left || fail "sending Left to the strip failed"
+expect_poll "Left on the strip returns to Settings" "0 drawn absent" page_shown
+type_keys -k Tab || fail "tabbing from the strip into the page failed"
+expect_poll "Tab from the strip enters the shown page at its Enabled switch" Switch focus_type
+type_keys -M ctrl -k Tab -m ctrl || fail "sending Ctrl+Tab to the page failed"
+expect_poll "Ctrl+Tab from a control of the page shows Details" "1 absent drawn" page_shown
+expect_poll "the strip takes the keyboard from the page that hid, with its ring" "$strip_focused" page_focus
+expect "the window toggles the bare fixture off under Details" ok ipc smoke invokeInstance window vgs.settings toggle acme.bare
+expect_poll "the window's rows show the bare fixture disabled" '{"acme.bare": false, "acme.probe": true, "vgs.bar": true}' manager_rows
+expect "a change of the rows that keeps the plugin keeps its Details page" "1 absent drawn" page_shown
+expect "the window toggles the bare fixture back on under Details" ok ipc smoke invokeInstance window vgs.settings toggle acme.bare
+expect_poll "the window's rows show the bare fixture enabled again" '{"acme.bare": true, "acme.probe": true, "vgs.bar": true}' manager_rows
+expect "the window opens the Jarvis page from Details" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.jarvis
+expect_poll "another plugin's page opens on Settings" 0 settings_tab
+type_keys -k Tab -k Tab || fail "tabbing to the Jarvis page's strip failed"
+expect_poll "the Jarvis page's strip holds the keyboard" "$strip_focused" page_focus
+expect "the Jarvis page's Settings overflow by the scroll the row gives them" 300 page_scrolled 300
+type_keys -k Right || fail "sending Right to the scrolled page's strip failed"
+expect_poll "Right shows the Jarvis page's Details" 1 settings_tab
+expect_poll "a page change returns the body to its top" '[0]' page_top
+expect "the Jarvis page's Details overflow by the scroll the row gives them" 300 page_scrolled 300
+type_keys -k Left || fail "sending Left to the scrolled page's strip failed"
+expect_poll "Left shows the Jarvis page's Settings" 0 settings_tab
+expect_poll "the page change back returns the body to its top" '[0]' page_top
+expect "the window opens the fixture's page again for the edit rows" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.probe
+expect_poll "the fixture's page opens on Settings for the edit rows" "0 drawn absent" page_shown
 held_rect="$(ipc smoke invokeInstance window vgs.settings holdField '{"id":"acme.probe","key":"label","text":"draft"}')" || fail "holdField failed"
 if [[ $held_rect == \[* ]]; then ok "an edit begins in the fixture's label field"; else fail "an edit begins in the fixture's label field: got $held_rect"; fi
 read -r field_cx field_cy < <(at_centre window:Settings "$held_rect")
@@ -92,9 +159,11 @@ expect "the fixture publishes a count" ok ipc acme.status invoke set 'pending=3'
 expect "the fixture publishes a time" ok ipc acme.status invoke set "lastCheck=$fixture_time"
 expect "the fixture publishes data" ok ipc acme.status invoke detail ''
 expect "the window opens the status fixture's page" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.status
+expect_poll "the status fixture's Settings page heads its one settings section" '["Settings"]' section_names
+settings_details
 expect_poll "the manager row lists each drawn entry in manifest order, with its value and tone" "$(python3 -c 'import json,sys; print(json.dumps([["Token", "reported", "present", "success", sys.argv[1]], ["Check", "reported", {"tone": "warning", "text": "Two sources failed"}, "warning", ""], ["Pending", "reported", 3, "", ""], ["Last check", "reported", int(sys.argv[2]), "", ""], ["Note", "unreported", None, "", ""]]))' "$fixture_command" "$fixture_time")" status_of acme.status
 expect_poll "the page draws the ungrouped entries, then each group's, read-only, and no command for the present token" '[["Check", "Two sources failed"], ["Last check", "time"], ["Note", "Not reported"], ["Token", "Present", "Needed for the fixture'"'"'s sync"], ["Pending", "3"]]' drawn_status_timeless
-expect_poll "the page heads the status sections before any other" '["Status", "Sync", "Requirements", "Settings"]' section_names
+expect_poll "Details head the status sections, then Requirements" '["Status", "Sync", "Requirements"]' section_names
 expect "no Status row takes an edit" '[[],[],[],[],[]]' ipc smoke statusRowInputs window vgs.settings
 expect "the page draws the choices setting only" '[1, 0]' page_fields_of acme.status
 # The control of that reading: two disposable copies of StatusRow.qml, each
@@ -301,6 +370,8 @@ rescan "the fixture restores its optional requirement"
 # labels, and never writes on a status refresh. A missing configured value
 # remains visible and stored. Node judge controls pin the shape, distinct
 # ids, list and text bounds, empty-string reservation and retained values.
+settings_tab_click Settings || fail "the click back to the status fixture's Settings failed"
+expect_poll "the status fixture's page shows Settings for its editor" 0 settings_tab
 device_field() { ipc smoke invokeInstance window vgs.settings fieldChoice '{"id":"acme.status","key":"device"}'; }
 device_state() { device_field | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([d["index"],d["text"],d["value"],d["enabled"]]))'; }
 device_model() { device_field | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["model"]))'; }
@@ -429,8 +500,10 @@ expect "dropping the controls restores the Settings source revision" "$choice_re
 expect "the window opens the status fixture's page again" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.status
 expect "disabling the status fixture from its page is allowed" ok ipc smoke invokeInstance window vgs.settings toggle acme.status
 expect_poll "a disabled plugin's dynamic Select is read-only and has no offered choices" '[-1, "", "", false]' device_state
+settings_details
 expect_poll "a disabled plugin's rows all read not reported" '[["Check", "Not reported"], ["Last check", "Not reported"], ["Note", "Not reported"], ["Token", "Not reported", "Needed for the fixture'"'"'s sync"], ["Pending", "Not reported"]]' drawn_status
 expect "the window opens the notifications' page" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.notifications
+settings_details
 slack_tokens_hint="Connect each workspace to show sender photos."
 # The Slack tokens row belongs to the owner-only Slack photos extra,
 # off on a fresh profile: the page lists no row of it
@@ -506,6 +579,42 @@ expect "the gear closes the Settings window after the edit rows" ok ipc smoke in
 expect_poll "the Settings window is gone after the edit rows" 0 window_count Settings
 expect "disabling the Settings plugin after its rows is allowed" ok ipc shell setPluginEnabled vgs.settings false
 expect_poll "the Settings service released its shortcut and IPC target" False settings_lent
+
+# Control of the page rows: a copy of the Settings plugin whose page opens
+# on Details and drops the return to the top. The same readers read the
+# fixture's page open on Details, and the Jarvis page keep the scroll the
+# row gave it across a page change.
+expected_errors+=('plugins: hidden by a higher-precedence plugin with the same id: vgs\.settings')
+page_copy="$home/.config/vgshell/plugins/vgs.settings"
+rm -rf -- "${page_copy:?}"
+mkdir -p -- "$(dirname -- "$page_copy")"
+cp -R -- "$repo/shell/plugins/vgs.settings" "$page_copy"
+if python3 - "$page_copy/PluginPage.qml" <<'PYCOPY'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+for old, new in (("        tabs.currentIndex = 0;\n", "        tabs.currentIndex = 1;\n"),
+                 ("onCurrentIndexChanged: layout.scrollArea.contentY = 0\n", "onCurrentIndexChanged: {}\n")):
+    if text.count(old) != 1:
+        sys.exit("%r occurs %d times" % (old, text.count(old)))
+    text = text.replace(old, new)
+open(path, "w").write(text)
+PYCOPY
+then ok "the page control opens on Details and drops the return to the top"; else fail "the page control could not be written"; fi
+rescan "a rescan picks the page control"
+settings_page_open acme.probe
+expect_poll "control: a page copy that opens on Details reads Details" "1 absent drawn" page_shown
+expect "control: the copy opens the Jarvis page" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.jarvis
+expect_poll "control: the copy's Jarvis page opens on Details too" 1 settings_tab
+type_keys -k Tab -k Tab || fail "control: tabbing to the copy's strip failed"
+expect_poll "control: the copy's strip holds the keyboard" "$strip_focused" page_focus
+expect "control: the copy's Details take the row's scroll" 300 page_scrolled 300
+type_keys -k Left || fail "control: sending Left to the copy's strip failed"
+expect_poll "control: Left shows the copy's Settings" 0 settings_tab
+expect "control: a page that drops the return keeps its scroll across the page change" '[300]' page_top
+settings_page_close acme.probe
+rm -rf -- "${page_copy:?}"
+rescan "a rescan drops the page control"
 
 # The dispatch queue, driven through the fixture's compositor capability.
 # Every queue row ends on workspace 2 and is reset to workspace 1 without

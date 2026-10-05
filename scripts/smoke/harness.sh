@@ -1960,6 +1960,32 @@ settings_page_close() {
   expect "disabling Settings after $1's steps is allowed" ok ipc shell setPluginEnabled vgs.settings false
   expect_poll "the Settings service is gone after $1's steps" False record_exists vgs.settings
 }
+# A plugin page's two pages (TabPages): every opened page shows Settings,
+# and its description, listing, Manage, Status and Requirements are on
+# Details. settings_tab: the index of the page shown, 0 for Settings and 1
+# for Details. settings_tab_click TEXT: a real click on the strip's tab
+# TEXT, brought into view first; the pointer moves there a pixel off
+# before it presses, since a window mapped since the last press takes no
+# click until the pointer moves (validation-smoke.md). settings_details:
+# the mapped window's page moved to Details by that click, for every row
+# that reads or presses something drawn there.
+settings_tab() { ipc smoke readDescendant window vgs.settings TabPages currentIndex; }
+settings_tab_click() {
+  local shown rect x y
+  shown="$(ipc smoke revealText window vgs.settings QQuickTabButton "$1")" || return 1
+  [[ $shown =~ ^[0-9.]+$ ]] || { echo "settings_tab_click: no tab $1 to reveal: $shown" >&2; return 1; }
+  sleep 0.2
+  rect="$(ipc smoke windowGeometry window vgs.settings QQuickTabButton "$1")" || return 1
+  [[ $rect == \[* ]] || { echo "settings_tab_click: no tab $1: $rect" >&2; return 1; }
+  read -r x y < <(at_centre window:Settings "$rect") || return 1
+  hover "$((x + 1))" "$y" || return 1
+  click "$x" "$y"
+}
+settings_details() {
+  expect_poll "the Settings window is mapped for its Details page" 1 window_count Settings
+  settings_tab_click Details || fail "the click on the Details tab failed"
+  expect_poll "the plugin page shows Details" 1 settings_tab
+}
 # hypr_lua_save NAME: the nested hyprland.lua copied to
 # $sandbox/hyprland-NAME.lua before a row appends its own lines;
 # hypr_lua_restore NAME: that copy put back by rename, so the row leaves
@@ -2000,6 +2026,9 @@ offered_actions() { status_rows "$1" | py_reply 'import json,sys; print(json.dum
 # settings_act ID KEY: the manager's answer to the step of ID's entry KEY,
 # as its button hands it on.
 settings_act() { ipc smoke invokeInstance window vgs.settings act "{\"id\":\"$1\",\"key\":\"$2\"}"; }
+# settings_open_tui ID NAME: the manager's answer to the open of ID's setup
+# screen NAME, as its Setup button hands it on.
+settings_open_tui() { ipc smoke invokeInstance window vgs.settings openTui "{\"id\":\"$1\",\"name\":\"$2\"}"; }
 # settings_press [--type TYPE] TEXT [SCOPE_TYPE SCOPE_TEXT]: a real click
 # on the Settings window's shown, enabled item of TYPE, Button unless given,
 # reading TEXT, inside the first shown SCOPE_TYPE drawing SCOPE_TEXT when

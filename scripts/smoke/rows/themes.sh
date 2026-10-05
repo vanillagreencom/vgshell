@@ -439,6 +439,7 @@ browser_text() { status_row vgs.themes browserTheming | py_reply 'import json,sy
 themes_source_dir() { ipc shell listPlugins | py_reply 'import json,sys; print(next((p["dir"] for p in json.load(sys.stdin)["plugins"] if p["id"] == "vgs.themes"), "absent"))'; }
 expected_errors+=('settings: vgs\.themes/browserTheming refused: action=browserTheming reason=not-offered')
 settings_page_open vgs.themes
+settings_details
 expect_poll "a tree that ships no target reads browser theming not shipped" '"This version of VGS does not support browser themes"' browser_text
 expect "the manager refuses the install while no target ships" "refused: action=browserTheming reason=not-offered" settings_act vgs.themes browserTheming
 printf '#!/bin/sh\nexit 1\n' >"$shim/chromium"

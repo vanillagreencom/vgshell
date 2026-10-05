@@ -193,6 +193,7 @@ expect_poll "the stand-in polkitd is on the sandbox's system bus" ready polkit_s
 terminal_stand_in
 terminal_ready "the polkit steps"
 settings_page_open vgs.polkit
+settings_details
 
 polkit_behind "a package nothing requires"
 expect_poll "one other agent draws one Badge" '["Another app is showing password prompts: acme-polkit."]' polkit_badges
