@@ -14,12 +14,18 @@
 # runs, so /proc names its executable deleted.
 #
 # The review rows put stand-in agent CLIs on PATH, each recording its argv
-# but the prompt, which it keeps beside its working directory and the
-# packages.txt it was handed, and writing the verdict the row planted. The
+# but the prompt, which it keeps beside its working directory, the
+# packages.txt it was handed and the build files it found, and writing the
+# verdict the row planted. An agent writes its verdict only once the
+# pipeline's lock wait is recorded, or once the pipeline asked to go on
+# without one: a barrier on the stand-in flock's record, not a sleep. The
 # stand-in vgshell answers the service's `review` IPC call by running the
 # shipped tui/review.sh of the copy in the background, as the review TUI
 # would, and writes the review directory's `ended` after it, as the
-# service's `done` does. No row reaches a real agent or the network.
+# service's `done` does; `ipc-refuses` answers a refusal, and `ipc-ended`
+# writes `ended` alone, as a terminal that failed after the answer does.
+# The stand-in paru's -G writes a PKGBUILD per package. No row reaches a
+# real agent or the network.
 #
 # Each control runs a row against a copy of the plugin whose
 # tui/pipeline.sh drops one rule, and that row must fail.
@@ -82,6 +88,7 @@ stub "$tree/bin" vgshell 'case "$1 $2" in
     fi ;;
   "ipc call")
     if [ -e "$FIX/ipc-refuses" ]; then echo "refused: tui=review reason=launcher-missing"; exit 0; fi
+    if [ -e "$FIX/ipc-ended" ]; then echo "reason=launcher-failed" >"$6/ended"; echo ok; exit 0; fi
     ( bash "$VGS_PLUGIN_DIR/tui/review.sh" "$6"; echo "code=$?" >"$6/ended" ) </dev/null >/dev/null 2>&1 &
     echo ok ;;
   "pkg owner")
@@ -136,17 +143,31 @@ eval "last=\${$n}"
 printf '%s' "$last" >"$FIX/prompt-seen"
 pwd >"$FIX/agent-cwd"
 cat packages.txt >"$FIX/packages-seen"
-sleep 0.5
+for f in build/*/PKGBUILD; do [ ! -e "$f" ] || echo "$f"; done >"$FIX/build-seen"
+polls=0
+while [ "$polls" -lt 600 ]; do
+  seen=0
+  while IFS= read -r l; do
+    case "$l" in "flock "[0123456789]*|*"Continue without a review?") seen=1 ;; esac
+  done <"$CALLS"
+  [ "$seen" = 0 ] || break
+  sleep 0.05
+  polls=$((polls + 1))
+done
 [ ! -e "$FIX/verdict" ] || cat "$FIX/verdict" >verdict
 SH
   chmod +x "$agents/$agent"
 done
+# flock records its call and runs the real one.
+stub "$stubs" flock "exec '$tools/flock' \"\$@\""
+stub "$stubs" pikaur ''
 stub "$stubs" df 'a=99999999999; [ ! -e "$FIX/avail" ] || read -r a <"$FIX/avail"; printf "  Avail\n%s\n" "$a"'
 stub "$stubs" pgrep '[ -e "$FIX/pids" ] || exit 1; cat "$FIX/pids"'
 stub "$stubs" uname "echo $kernel"
 stub "$stubs" systemctl ''
 # paru authorizes through sudo and fails with 7 while $FIX/fail-paru exists.
-stub "$stubs" paru '[ ! -e "$FIX/fail-paru" ] || { sudo /usr/bin/true; exit 7; }'
+stub "$stubs" paru 'if [ "$1" = -G ]; then shift; for p; do mkdir -p "$p"; echo "pkgname=$p" >"$p/PKGBUILD"; done; exit 0; fi
+[ ! -e "$FIX/fail-paru" ] || { sudo /usr/bin/true; exit 7; }'
 stub "$stubs" less ''
 for tool in bash env readlink dirname mkdir mv rm script flock sleep cat id; do
   found="$(command -v "$tool")" || { echo "test-updates-pipeline: status=not-measured missing=$tool"; exit 77; }
@@ -189,7 +210,7 @@ third_party() {
   printf '[{"source":"pacman","count":2,"packages":[{"name":"linux","old":"6.1-1","new":"6.2-1"},{"name":"foo","old":"2-1","new":"3-1"}],"checkedAt":"x","error":null}]\n' >"$fix/check-pacman.json"
   printf 'core\nextra\ncachyos-extra-znver4\nchaotic\n' >"$fix/repos"
   printf 'chaotic foo 3-1 [installed: 2-1]\nchaotic bar 1-1\n' >"$fix/sl-chaotic"
-  printf 'https://chaotic.example/x86_64\n' >"$fix/server-chaotic"
+  printf 'https://mirror:s3cret@chaotic.example/x86_64\n' >"$fix/server-chaotic"
   printf 'Optional\nTrustAll\n' >"$fix/siglevel-chaotic"
 }
 
@@ -206,13 +227,24 @@ pipeline() {
     XDG_STATE_HOME="$state" XDG_RUNTIME_DIR="$rt" CALLS="$calls" FIX="$fix" \
     script -qec "$(printf '%q ' "$BASH" "$script_path" "$@")" /dev/null <"$tmp/terminal-input" {terminal_input}>&- >"$tmp/out" 2>&1 || status=$?
   local filtered=0
-  grep -v -e '^df ' -e '^uname ' -e '^pgrep ' -e '^gum style' "$calls" >"$tmp/seq" || filtered=$?
+  grep -v -e '^df ' -e '^uname ' -e '^pgrep ' -e '^gum style' -e '^flock ' "$calls" >"$tmp/seq" || filtered=$?
   # grep -v exits 1 when every call is filtered out, and above 1 when it failed.
   [[ $filtered -le 1 ]] || { echo "test-updates-pipeline: calls=unreadable exit=$filtered" >&2; exit 1; }
 }
 seq_is() { [[ "$(cat "$tmp/seq")" == "$(printf '%s\n' "$@")" ]]; } # LINE...
 has_call() { grep -qxF -- "$1" "$tmp/seq"; }
 no_call() { ! grep -q -- "^$1" "$tmp/seq"; } # PREFIX
+# Whether no call starting with PREFIX comes before the first call
+# starting with LINE, which is there.
+none_before() { # PREFIX LINE
+  local l
+  grep -q -- "^$2" "$tmp/seq" || return 1
+  while IFS= read -r l; do
+    [[ $l != "$2"* ]] || return 0
+    [[ $l != "$1"* ]] || return 1
+  done <"$tmp/seq"
+}
+diag_has() { grep -qxF -- "$1" "$state/vgshell/updates/diagnostics.log" 2>/dev/null; }
 out_has() { grep -qF -- "$1" "$tmp/out"; }
 out_lacks() { ! grep -qF -- "$1" "$tmp/out"; }
 # Whether the first call A comes before the last call B.
@@ -428,7 +460,7 @@ log_tui() {
       script -qec "$(printf '%q ' "$BASH" "$script_path" "$@")" /dev/null >"$tmp/out" 2>&1
   status=${PIPESTATUS[1]}
   set -e
-  grep -v -e '^df ' -e '^uname ' -e '^pgrep ' -e '^gum style' "$calls" >"$tmp/seq" || filtered=$?
+  grep -v -e '^df ' -e '^uname ' -e '^pgrep ' -e '^gum style' -e '^flock ' "$calls" >"$tmp/seq" || filtered=$?
   [[ $filtered -le 1 ]] || { echo "test-updates-pipeline: calls=unreadable exit=$filtered" >&2; exit 1; }
 }
 # The first line of the output, without the typed keys the terminal echoed
@@ -507,11 +539,13 @@ row_review_clean() {
   dir="$(review_dir)"
   assert "a clean review exits 0" test "$status" == 0
   assert "the review directory is the run's own" test "${dir%.*}" == "$rt/vgshell/updates/review"
-  assert "the box names the agent and the packages" out_has "Review: Claude Code checks 2 third-party packages: tool-bin, foo"
-  assert "the agent runs the default command" has_call "claude --model opus --effort medium"
+  assert "the agent runs the default command in its restricted mode" has_call "claude --model opus --effort medium --permission-mode default"
+  assert "the run fetches the AUR build files itself" has_call "paru -G tool-bin"
+  assert "the agent finds the fetched build files" test "$(cat "$fix/build-seen" 2>/dev/null)" == "build/tool-bin/PKGBUILD"
   assert "the agent's last argument is the bundled prompt" test "$(cat "$fix/prompt-seen" 2>/dev/null)" == "$(cat "$plugin/review/third-party.md")"
   assert "the agent runs in the review directory" test "$(cat "$fix/agent-cwd" 2>/dev/null)" == "$dir"
   assert "the agent is handed the third-party packages alone" test "$(cat "$fix/packages-seen" 2>/dev/null)" == "$(printf '%s\n' "helper paru" "aur tool-bin 1.0-1 1.1-1" "repo chaotic foo 2-1 3-1" "server chaotic https://chaotic.example/x86_64" "siglevel chaotic Optional TrustAll")"
+  assert "no credential is asked before the review" none_before "sudo" "$review_call"
   assert "the review comes before the sudo session" before "$review_call$dir" "sudo /usr/bin/true"
   assert "a clean verdict asks nothing more" no_call "gum confirm --default=false -- Continue without a review?"
   assert "a clean verdict runs the system step as it is" has_call "vgshell pkg run upgrade --manager pacman"
@@ -530,11 +564,22 @@ row_review_flagged() {
   assert "a skipped AUR package is kept out of the AUR step" has_call "vgshell pkg run upgrade --manager aur --ignore tool-bin"
   settings "paru -Sua --devel" false
   PIPE_PATH="$agents" pipeline update.sh
-  assert "a skipped AUR package is kept out of the aurCommand" has_call "paru -Sua --devel --ignore tool-bin"
+  assert "both skipped packages are kept out of the aurCommand, which may sync the system" has_call "paru -Sua --devel --ignore tool-bin --ignore foo"
   echo 1 >"$fix/answer-skip"
   PIPE_PATH="$agents" pipeline update.sh
   assert "a flagged package not skipped stops the run with 0" test "$status" == 0
   assert "a stopped run upgrades nothing and asks no credential" test "$(grep -c -e '^sudo' -e 'pkg run' "$tmp/seq")" == 0
+  # A behind vgshell-git, as row_vgs_git's, is reviewed for its rebuild,
+  # and skipping it keeps the rebuild out.
+  reset_fix
+  third_party
+  self_json package '"vgshell-git"' true
+  touch "$fix/owner" "$fix/owner-changes" "$fix/running"
+  printf 'verdict flagged\nflag vgshell-git Its source moved to a new domain.\n' >"$fix/verdict"
+  PIPE_PATH="$agents" pipeline update.sh
+  assert "the rebuilt vgshell-git is reviewed" grep -qxF "aur vgshell-git ? ?" "$fix/packages-seen"
+  assert "a skipped vgshell-git is not rebuilt" no_call "paru -S vgshell-git"
+  assert "a skipped vgshell-git leaves the AUR step to the rest" has_call "vgshell pkg run upgrade --manager aur --ignore vgshell-git"
 }
 # r5: no verdict asks to go on without a review, default no; a no stops
 # the run. A review the service refuses to open is no verdict too.
@@ -546,10 +591,39 @@ row_review_no_verdict() {
   assert "no verdict asks to go on, default no" has_call "gum confirm --default=false -- Continue without a review?"
   assert "no verdict stopped exits 0" test "$status" == 0
   assert "no verdict stopped upgrades nothing" test "$(grep -c -e '^sudo' -e 'pkg run' "$tmp/seq")" == 0
+  assert "no verdict names its cause in the developer log" diag_has "updates: review=none verdict=absent"
+  # The service refuses to open the window.
   touch "$fix/ipc-refuses"
   PIPE_PATH="$agents" pipeline update.sh
-  assert "a refused review window starts no agent" no_call "claude"
   assert "a refused review window asks to go on" has_call "gum confirm --default=false -- Continue without a review?"
+  assert "a refused review window names the refusal in the developer log" diag_has "updates: review=none open=refused: tui=review reason=launcher-missing exit=0"
+  # The window's run ends without starting: the wait ends on `ended`.
+  rm -f -- "$fix/ipc-refuses"
+  touch "$fix/ipc-ended"
+  PIPE_PATH="$agents" pipeline update.sh
+  assert "a review run that never started asks to go on" has_call "gum confirm --default=false -- Continue without a review?"
+  assert "a review run that never started names its end in the developer log" diag_has "updates: review=none start=none ended=reason=launcher-failed"
+  # The packages cannot be listed.
+  rm -f -- "$fix/ipc-ended"
+  printf '[{"source":"aur","count":null,"packages":[],"checkedAt":"x","error":"exit=1"}]\n' >"$fix/check-aur.json"
+  PIPE_PATH="$agents" pipeline update.sh
+  assert "an unreadable list asks to go on" has_call "gum confirm --default=false -- Continue without a review?"
+  assert "an unreadable list stopped upgrades nothing" test "$(grep -c -e '^sudo' -e 'pkg run' "$tmp/seq")" == 0
+  assert "an unreadable list opens no review" no_call "$review_call"
+  assert "an unreadable list names its cause in the developer log" diag_has "updates: review=none list=unreadable"
+}
+# The AUR through an aurCommand helper the table does not know: the AUR is
+# not reviewed, and the repository packages still are.
+row_review_no_helper() {
+  reset_fix
+  third_party
+  printf 'verdict clean\n' >"$fix/verdict"
+  printf '{"primary":{"id":"pacman","binary":"pacman"},"overlays":[{"id":"flatpak","binary":"flatpak"}],"sources":[]}\n' >"$fix/detect.json"
+  settings "pikaur -Sua" false
+  PIPE_PATH="$agents" pipeline update.sh
+  assert "an unknown helper's AUR is not listed" no_call "vgshell pkg check --json --source aur"
+  assert "an unknown helper's AUR still has the repository packages reviewed" test "$(cat "$fix/packages-seen" 2>/dev/null)" == "$(printf '%s\n' "repo chaotic foo 2-1 3-1" "server chaotic https://chaotic.example/x86_64" "siglevel chaotic Optional TrustAll")"
+  assert "an unknown helper's AUR step still runs" has_call "pikaur -Sua"
 }
 # r7: an edited command runs as written.
 row_review_custom() {
@@ -564,7 +638,7 @@ row_review_custom() {
 
 row_full; row_trusted; row_snapshot; row_failure; row_reboot; row_orphans; row_yes
 row_declined; row_busy; row_aur_command; row_aur_failure; row_doas; row_vgs_only; row_vgs_git; row_source; row_log
-row_review_off; row_review_no_agent; row_review_none_pending; row_review_clean; row_review_flagged; row_review_no_verdict; row_review_custom
+row_review_off; row_review_no_agent; row_review_none_pending; row_review_clean; row_review_flagged; row_review_no_verdict; row_review_no_helper; row_review_custom
 
 # Controls: each runs one row against a plugin copy whose FILE, relative
 # to the plugin and tui/pipeline.sh unless named, drops one rule, quietly,
@@ -602,5 +676,15 @@ control verdict-before-unlock '  flock "$lock"' '  :' row_review_clean
 control skip-not-passed 'ignore=(--ignore "${_updates_skip_repo[@]}")' 'ignore=()' row_review_flagged
 control no-verdict-continues '"Continue without a review?" --default=false || status=$?' '"Continue without a review?" || status=$?' row_review_no_verdict
 control custom-replaced 'if (words.length > 0) {' 'if (false) {' row_review_custom UpdatesLogic.js
+control list-failure-unreviewed '        review=2' '        review=0' row_review_no_verdict
+control refusal-unread 'if [[ $status -ne 0 || $reply != ok ]]; then _updates_review_reason=' 'if false; then _updates_review_reason=' row_review_no_verdict
+control end-unread 'while [[ ! -e $dir/started && ! -e $dir/ended ]] && ((polls < 300)); do' 'while [[ ! -e $dir/started ]] && ((polls < 300)); do' row_review_no_verdict
+control rebuild-of-skipped 'if [[ $rebuild == 1 ]] && ! _updates_in vgshell-git "${_updates_skip_aur[@]}"; then' 'if [[ $rebuild == 1 ]]; then' row_review_flagged
+control rebuild-unreviewed 'if [[ $4 == 1 ]] && ! _updates_in vgshell-git' 'if false && ! _updates_in vgshell-git' row_review_flagged
+control session-before-review '  if [[ $review == 1 ]]; then _updates_review 1' '  if [[ $session == 1 ]]; then vgs_tui_sudo_session start; fi; if [[ $review == 1 ]]; then _updates_review 1' row_review_clean
+control credentials-kept 'if [[ $line =~ ^([^:/]+://)[^/@]*@(.*)$ ]]; then' 'if false; then' row_review_clean
+control agent-fetches 'if ! (cd -- "$dir/build" && "$_updates_review_helper" -G "${_updates_review_aur[@]}"); then' 'if false; then' row_review_clean
+control aur-command-keeps-repository 'for name in "${_updates_skip_aur[@]}" "${_updates_skip_repo[@]}"; do' 'for name in "${_updates_skip_aur[@]}"; do' row_review_flagged
+control aur-reviewed-without-helper '      if [[ -n $aur_binary ]]; then review_aur=1' '      if true; then review_aur=1' row_review_no_helper
 
 rows_done test-updates-pipeline

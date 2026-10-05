@@ -334,6 +334,7 @@ function checkRows(scripts, quick, tools, tmp, expect, failures) {
 // text one of the copy's failures must hold, for a control that proves one
 // particular assertion can fail.
 const CONTROLS = [
+    ["cli", "run --ignore with no name is accepted", PKG, "            if (ignored.length === 0) usage(\"option=--ignore value=missing\");\n", "", "run upgrade --ignore without a name is a bad invocation"],
     ["cli", "plan names no elevator", PKG, "elevator: planElevator(r.plan)", "elevator: null", "plan names the configured elevator"],
     ["cli", "owner asks no installed version", PKG, "const version = table.managerRow(id).installed === null ? null : query(", "const version = null && query("],
     ["cli", "removable answers true whatever the dry run's exit", PKG, "removable: run.status === 0 }", "removable: true }"],

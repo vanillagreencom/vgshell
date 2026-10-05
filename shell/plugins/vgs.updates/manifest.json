@@ -62,8 +62,8 @@
       "allowCustom": true,
       "presets": [
         { "value": "", "label": "Automatic" },
-        { "value": "claude --model opus --effort medium" },
-        { "value": "codex -m gpt-6.1-sol -c model_reasoning_effort=medium" }
+        { "value": "claude --model opus --effort medium --permission-mode default" },
+        { "value": "codex -m gpt-6.1-sol -c model_reasoning_effort=medium --sandbox workspace-write --ask-for-approval on-request" }
       ]
     }
   },

@@ -70,14 +70,14 @@ Item {
     // tui/pipeline.sh asks for its review through `review` with its review
     // directory, and waits for <dir>/ended, which names the run's code or
     // the reason it never ran, as `done` receives them; the answer is
-    // shell.tui.run's.
+    // shell.tui.run's. The run can end after the pipeline removed the
+    // directory, and a FileView write makes the directories it lacks, so a
+    // shell redirect writes, which fails on a directory that is gone.
     function openReview(dir) {
         return shell.tui.run("review", [dir], result => {
-            endedWriter.path = dir + "/ended";
-            // The directory is in the text, so two runs' writes never hold
-            // the same bytes, which setText would skip
-            // (docs/architecture/runtime-qml.md).
-            endedWriter.setText((result.code === null ? "reason=" + result.reason : "code=" + result.code) + " dir=" + dir + "\n");
+            const text = result.code === null ? "reason=" + result.reason : "code=" + result.code;
+            endedProc.command = ["sh", "-c", "[ -d \"$1\" ] || exit 0; printf '%s\\n' \"$2\" >\"$1/ended\"", "sh", dir, text];
+            endedProc.running = true;
         });
     }
 
@@ -222,13 +222,12 @@ Item {
         }
     }
 
-    FileView {
-        id: endedWriter
-        preload: false
-        blockWrites: true
-        atomicWrites: true
-        printErrors: false
-        onSaveFailed: error => console.error("updates: review end write failed: file=" + path + " error=" + error)
+    // One review runs at a time, so one writer serves every run's end.
+    Process {
+        id: endedProc
+        onExited: (code, status) => {
+            if (code !== 0) console.error("updates: review end write exit=" + code);
+        }
     }
 
     Timer {

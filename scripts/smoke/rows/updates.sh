@@ -57,7 +57,8 @@
 # runs a plugin script only when it is byte for byte a fixture's, so
 # scripts/smoke/fixtures/tui/vgs.updates/tui/review.sh is an exact copy of
 # the shipped script, read equal first: the script the presenter runs is
-# the shipped one. The presenter has the shell's environment, not this
+# the shipped one. Its end starts no check, and a run that ends after its
+# directory went makes none. The presenter has the shell's environment, not this
 # row's PATH, so the review directory's command names the stand-in agent
 # by its absolute path, as an edited review command may. The pipeline's
 # side of the review is scripts/test-updates-pipeline.sh's.
@@ -701,8 +702,23 @@ expect_run_end "the review run ends" vgs.updates/review
 expect_poll "the review TUI's window closes with its run" 0 review_window
 expect_poll "the service writes the run's code into the review directory" "code=0 dir=$review_dir" review_file "$review_dir/ended"
 expect "the agent's verdict is in the review directory" "verdict clean" review_file "$review_dir/verdict"
-expect_poll "the review run's end starts one check" "$((before + 1))" checks
-expect_poll "the service is idle after the review run's check" idle updates_idle
+expect "the review run's end starts no check, which the update run's own end starts" STEADY checks_settle_at "$before"
+# A run that ends after the pipeline removed its directory, as one the user
+# leaves from the agent's closing prompt does, leaves no directory behind:
+# the service writes `ended` only into a directory that is there. The
+# reader waits 1 s after the run's end for that write, a margin over a
+# process start, not a measurement.
+rm -f -- "${updates_state:?}/review-gate"
+mkdir -p -- "$review_dir"
+printf '%s\n' "$review_bin/agent" "$updates_state" --effort medium >"$review_dir/command"
+expect "the review handler opens a second review" ok ipc vgs.updates invoke review "$review_dir"
+expect_poll "the second review's script started" started review_started
+rm -rf -- "${review_dir:?}"
+touch -- "$updates_state/review-gate"
+expect_run_end "the second review run ends" vgs.updates/review
+expect_poll "the second review TUI's window closes with its run" 0 review_window
+review_gone() { sleep 1; if [[ -e $review_dir ]]; then echo present; else echo absent; fi; }
+expect "the run's end does not make its removed directory again" absent review_gone
 rm -rf -- "${review_dir:?}" "${review_bin:?}"
 rm -f -- "$updates_state/review-gate" "$updates_state/review-argv" "$updates_state/review-prompt" "$updates_state/review-prompt.expected" "$updates_state/review-cwd"
 

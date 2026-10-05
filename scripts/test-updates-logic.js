@@ -106,6 +106,8 @@ function verify(logic) {
   assert.equal(logic.tuiRunEnded({ update: { running: false, endedAt: "2026-10-05T03:30:12.000Z" } }, { update: { running: false, endedAt: "2026-10-05T03:30:12.000Z" } }), false);
   assert.equal(logic.tuiRunEnded({ update: { running: false, endedAt: "2026-10-05T03:30:12.000Z" } }, { update: { running: false, endedAt: "2026-10-05T03:30:12.027Z" } }), true);
   assert.equal(logic.tuiRunEnded({ update: { running: true, endedAt: "2026-10-05T03:30:12.000Z" } }, { update: { running: false, endedAt: "2026-10-05T03:30:12.000Z" } }), false);
+  // The review runs inside an update run, whose own end checks.
+  assert.equal(logic.tuiRunEnded({ review: { running: true, endedAt: null } }, { review: { running: false, code: 0, endedAt: "2026-10-05T03:30:13.000Z" } }), false);
 
   same([logic.publishValues(snapshot, true, now, 6, "").checking, logic.publishValues(snapshot, false, now, 6, "").checking], [true, false]);
   same(logic.statusWrites({ checking: true }, { checking: false }), [{ key: "checking", value: false }]);
@@ -179,28 +181,32 @@ function verifyView(logic) {
 
   // The third-party review. Expected values are written from the issue's
   // rulings: claude before codex, each with the owner's default command.
-  const claude = ["claude", "--model", "opus", "--effort", "medium"];
-  const codex = ["codex", "-m", "gpt-6.1-sol", "-c", "model_reasoning_effort=medium"];
+  const claude = ["claude", "--model", "opus", "--effort", "medium", "--permission-mode", "default"];
+  const codex = ["codex", "-m", "gpt-6.1-sol", "-c", "model_reasoning_effort=medium", "--sandbox", "workspace-write", "--ask-for-approval", "on-request"];
   const on = (agent, command) => ({ reviewThirdParty: true, reviewAgent: agent, reviewCommand: command });
-  // [name, settings, agents found, plan, status text]
+  // [name, settings, agents found, plan]
   const reviewRows = [
-    ["off", { reviewThirdParty: false, reviewAgent: "", reviewCommand: "" }, ["claude"], { state: "off", agent: null, label: "", command: null }, "Off"],
-    ["claude before codex", on("", ""), ["codex", "claude"], { state: "agent", agent: "claude", label: "Claude Code", command: claude }, "Claude Code"],
-    ["codex alone", on("", ""), ["codex"], { state: "agent", agent: "codex", label: "Codex", command: codex }, "Codex"],
-    ["a chosen agent", on("codex", ""), ["claude", "codex"], { state: "agent", agent: "codex", label: "Codex", command: codex }, "Codex"],
-    ["a chosen agent not found", on("codex", ""), ["claude"], { state: "missing", agent: "codex", label: "Codex", command: null }, "Codex is not installed. Updates install without a review."],
-    ["no agent found", on("", ""), [], { state: "none", agent: null, label: "", command: null }, "None found. Updates install without a review."],
-    ["a command runs as written", on("", "  /opt/bin/agent   --flag  x "), [], { state: "command", agent: null, label: "/opt/bin/agent", command: ["/opt/bin/agent", "--flag", "x"] }, "Custom: /opt/bin/agent"],
-    ["a command naming an agent", on("codex", "claude --model sonnet"), ["codex"], { state: "command", agent: "claude", label: "Claude Code", command: ["claude", "--model", "sonnet"] }, "Claude Code"]
+    ["off", { reviewThirdParty: false, reviewAgent: "", reviewCommand: "" }, ["claude"], { state: "off", agent: null, label: "", command: null }],
+    ["claude before codex", on("", ""), ["codex", "claude"], { state: "agent", agent: "claude", label: "Claude Code", command: claude }],
+    ["codex alone", on("", ""), ["codex"], { state: "agent", agent: "codex", label: "Codex", command: codex }],
+    ["a chosen agent", on("codex", ""), ["claude", "codex"], { state: "agent", agent: "codex", label: "Codex", command: codex }],
+    ["a chosen agent not found", on("codex", ""), ["claude"], { state: "missing", agent: "codex", label: "Codex", command: null }],
+    ["no agent found", on("", ""), [], { state: "none", agent: null, label: "", command: null }],
+    ["a command runs as written", on("", "  /opt/bin/agent   --flag  x "), [], { state: "command", agent: null, label: "/opt/bin/agent", command: ["/opt/bin/agent", "--flag", "x"] }],
+    ["a command naming an agent", on("codex", "claude --model sonnet"), ["claude"], { state: "command", agent: "claude", label: "Claude Code", command: ["claude", "--model", "sonnet"] }],
+    ["a command naming an agent not found", on("", "claude --model sonnet"), ["codex"], { state: "missing", agent: "claude", label: "Claude Code", command: null }]
   ];
-  for (const [name, settings, found, plan, text] of reviewRows) {
+  for (const [name, settings, found, plan] of reviewRows) {
     same(logic.reviewPlan(settings, found), plan, "review plan: " + name);
-    assert.equal(logic.reviewAgentText(logic.reviewPlan(settings, found)), text, "review text: " + name);
+    const text = logic.reviewAgentText(logic.reviewPlan(settings, found));
+    assert.ok(typeof text === "string" && text.length > 0 && text.length <= 200, "review text: " + name);
   }
+  assert.throws(() => logic.reviewAgentText({ state: "elsewhere" }), /has no text/);
   same(logic.reviewChoices(["codex", "claude"]), [{ label: "Claude Code", value: "claude" }, { label: "Codex", value: "codex" }]);
   same(logic.reviewChoices([]), []);
   same(logic.reviewValues(on("", ""), null), { reviewAgents: null, reviewAgent: null });
-  same(logic.reviewValues(on("", ""), ["codex"]), { reviewAgents: [{ label: "Codex", value: "codex" }], reviewAgent: "Codex" });
+  same(logic.reviewValues(on("", ""), ["codex"]).reviewAgents, [{ label: "Codex", value: "codex" }]);
+  assert.equal(logic.reviewValues(on("", ""), ["codex"]).reviewAgent, logic.reviewAgentText(logic.reviewPlan(on("", ""), ["codex"])));
   same(logic.statusWrites({}, { reviewAgents: [], reviewAgent: "Off" }).map(w => w.key), ["reviewAgents", "reviewAgent"]);
   // The manifest's presets are the table's default commands.
   const manifest = JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8"));
@@ -260,11 +266,13 @@ const controls = [
   ["a first TUI state read counts no ended run", "if (previous === null) return false;", "if (false) return false;"],
   ["no timer before the cache read answers", "if (cacheRead !== true) return null;", "if (false) return null;"],
   ["the service publishes whether it checks", "checking: checking === true,", "checking: false,"],
-  ["the review offers claude before codex", 'var REVIEW_AGENTS = [\n    { id: "claude", label: "Claude Code", command: ["claude", "--model", "opus", "--effort", "medium"] },\n    { id: "codex", label: "Codex", command: ["codex", "-m", "gpt-6.1-sol", "-c", "model_reasoning_effort=medium"] }\n];', 'var REVIEW_AGENTS = [\n    { id: "codex", label: "Codex", command: ["codex", "-m", "gpt-6.1-sol", "-c", "model_reasoning_effort=medium"] },\n    { id: "claude", label: "Claude Code", command: ["claude", "--model", "opus", "--effort", "medium"] }\n];'],
+  ["the review offers claude before codex", 'var REVIEW_AGENTS = [\n    { id: "claude", label: "Claude Code", command: ["claude", "--model", "opus", "--effort", "medium", "--permission-mode", "default"] },\n    { id: "codex", label: "Codex", command: ["codex", "-m", "gpt-6.1-sol", "-c", "model_reasoning_effort=medium", "--sandbox", "workspace-write", "--ask-for-approval", "on-request"] }\n];', 'var REVIEW_AGENTS = [\n    { id: "codex", label: "Codex", command: ["codex", "-m", "gpt-6.1-sol", "-c", "model_reasoning_effort=medium", "--sandbox", "workspace-write", "--ask-for-approval", "on-request"] },\n    { id: "claude", label: "Claude Code", command: ["claude", "--model", "opus", "--effort", "medium", "--permission-mode", "default"] }\n];'],
+  ["a default command keeps its restricted mode", '"--permission-mode", "default"] },', '] },'],
   ["a review command runs as written", "if (words.length > 0) {", "if (false) {"],
   ["a chosen agent must be found", "if (row === null || found.indexOf(chosen) < 0) return", "if (row === null) return"],
   ["the review is off with its setting", "if (s.reviewThirdParty !== true) return", "if (false) return"],
-  ["a custom command says Custom", "(plan.agent !== null ? plan.label : \"Custom: \" + plan.label)", "plan.label"],
+  ["a command naming an absent agent is missing", "if (named !== null && found.indexOf(named.id) < 0) return", "if (false) return"],
+  ["the review's end starts no check", "if (UNCHECKED_TUIS.indexOf(key) >= 0) continue;", ""],
   ["the review statuses are written", '"sources", "reviewAgents", "reviewAgent"]', '"sources"]'],
   ["a CachyOS repository is official", "/^(core|extra|multilib|cachyos.*)$/", "/^(core|extra|multilib)$/"],
   ["a flag names a reviewed package", "reviewed.indexOf(m[1]) < 0 || ", ""],

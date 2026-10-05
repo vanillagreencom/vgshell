@@ -327,7 +327,11 @@ function shouldRunCheck(snapshot, checking, now, interval, failedAt) {
 // count. A run's end is its key's later `endedAt`, the record's ISO 8601
 // UTC time, which orders as text. `running` decides nothing: a short run
 // can end before any read shows it running, and an earlier run's running
-// record can be listed after a later run's end.
+// record can be listed after a later run's end. A run of a TUI of
+// UNCHECKED_TUIS counts for nothing: the review runs inside an update run,
+// whose own end starts the check.
+var UNCHECKED_TUIS = ["review"];
+
 function tuiRunEnded(previous, current) {
     if (previous === null) return false;
     var before = previous || {};
@@ -335,6 +339,7 @@ function tuiRunEnded(previous, current) {
     var keys = Object.keys(after);
     for (var i = 0; i < keys.length; i++) {
         var key = keys[i];
+        if (UNCHECKED_TUIS.indexOf(key) >= 0) continue;
         var next = after[key] || {};
         var prior = before[key] || {};
         if (next.endedAt !== null && next.endedAt !== undefined) {
@@ -351,11 +356,13 @@ function tuiRunEnded(previous, current) {
 
 // The agent CLIs a review runs, in the order the first one found is
 // offered: `id` is the command looked up on PATH, and `command` the words
-// its default launch runs before the prompt. The manifest's `reviewCommand`
-// presets are the same words (scripts/test-updates-logic.js).
+// its default launch runs before the prompt. Each default asks before the
+// agent runs a command and keeps its writes to the review directory, so a
+// build file that tells the agent to act cannot act unasked. The manifest's
+// `reviewCommand` presets are the same words (scripts/test-updates-logic.js).
 var REVIEW_AGENTS = [
-    { id: "claude", label: "Claude Code", command: ["claude", "--model", "opus", "--effort", "medium"] },
-    { id: "codex", label: "Codex", command: ["codex", "-m", "gpt-6.1-sol", "-c", "model_reasoning_effort=medium"] }
+    { id: "claude", label: "Claude Code", command: ["claude", "--model", "opus", "--effort", "medium", "--permission-mode", "default"] },
+    { id: "codex", label: "Codex", command: ["codex", "-m", "gpt-6.1-sol", "-c", "model_reasoning_effort=medium", "--sandbox", "workspace-write", "--ask-for-approval", "on-request"] }
 ];
 
 // The distribution's own pacman repositories on Arch and CachyOS. A
@@ -394,7 +401,8 @@ function reviewChoices(found) {
 //             row its first word names, else null
 //   agent     the agent reviewAgent names, or the first found for "", with
 //             its default command
-//   missing   reviewAgent names an agent that is not found
+//   missing   reviewAgent names an agent that is not found, or
+//             reviewCommand's first word is a table agent that is not found
 //   none      no agent is found
 // `command` is null unless the state is command or agent.
 function reviewPlan(settings, found) {
@@ -403,6 +411,7 @@ function reviewPlan(settings, found) {
     var words = commandWords(typeof s.reviewCommand === "string" ? s.reviewCommand : "");
     if (words.length > 0) {
         var named = reviewAgentRow(words[0]);
+        if (named !== null && found.indexOf(named.id) < 0) return { state: "missing", agent: named.id, label: named.label, command: null };
         return { state: "command", agent: named === null ? null : named.id, label: named === null ? words[0] : named.label, command: words };
     }
     var chosen = typeof s.reviewAgent === "string" ? s.reviewAgent : "";

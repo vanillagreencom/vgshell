@@ -16,8 +16,9 @@
 #   4. the review of third-party packages, when the `reviewThirdParty`
 #      setting is on, an agent resolves (UpdatesLogic.reviewPlan through
 #      bin/facts review) and the AUR or a pacman repository that is not
-#      official has an update pending: the agent runs in a second window,
-#      the `review` TUI, which the service opens; the run waits for it and
+#      official has an update pending: the run fetches the AUR build files
+#      itself, and the agent runs in a second window, the `review` TUI,
+#      which the service opens; the run waits for it and
 #      acts on its verdict, so a flagged package the user skips reaches
 #      its upgrade step as `--ignore <name>`. The review runs before any
 #      credential is cached: shell/plugins/vgs.updates/pipeline.md § Third-party review
@@ -318,16 +319,19 @@ _updates_review_agent() { # SETTINGS
 }
 
 # The third-party packages a review checks: the AUR's pending updates when
-# AUR is 1, through HELPER, and when REPO is 1 the system's pending updates
-# that a pacman repository outside the official ones holds, with each such
-# repository's servers and signature level. Sets _updates_review_lines, the
-# lines of packages.txt (review/third-party.md names their form), and
-# _updates_review_aur and _updates_review_repo, the names. Returns 1 after a
-# diagnostic when a list cannot be read.
-_updates_review_list() { # AUR REPO HELPER
+# AUR is 1, through HELPER, with vgshell-git when REBUILD is 1, since the
+# rebuild builds it whether or not its recipe's version changed; and when
+# REPO is 1 the system's pending updates that a pacman repository outside
+# the official ones holds, with each such repository's servers, without the
+# credentials a URL can carry, and signature level. Sets
+# _updates_review_lines, the lines of packages.txt (review/third-party.md
+# names their form), _updates_review_aur and _updates_review_repo, the
+# names, and _updates_review_helper. Returns 1 after a diagnostic when a
+# list cannot be read.
+_updates_review_list() { # AUR REPO HELPER REBUILD
   local out facts key name old new repo repos=() listed line
   local -A pending=()
-  _updates_review_lines=() _updates_review_aur=() _updates_review_repo=()
+  _updates_review_lines=() _updates_review_aur=() _updates_review_repo=() _updates_review_helper="$3"
   if [[ $1 == 1 ]]; then
     if ! out="$("$_updates_vgshell" pkg check --json --source aur)" || ! facts="$(_updates_facts pending <<<"$out")"; then
       _updates_diagnostic "updates: review=unlisted source=aur"; return 1
@@ -337,8 +341,12 @@ _updates_review_list() { # AUR REPO HELPER
       _updates_review_lines+=("aur $name $old $new")
       _updates_review_aur+=("$name")
     done <<<"$facts"
-    if [[ ${#_updates_review_aur[@]} -gt 0 ]]; then _updates_review_lines=("helper $3" "${_updates_review_lines[@]}"); fi
   fi
+  if [[ $4 == 1 ]] && ! _updates_in vgshell-git "${_updates_review_aur[@]}"; then
+    _updates_review_lines+=("aur vgshell-git ? ?")
+    _updates_review_aur+=(vgshell-git)
+  fi
+  if [[ ${#_updates_review_aur[@]} -gt 0 ]]; then _updates_review_lines=("helper $3" "${_updates_review_lines[@]}"); fi
   [[ $2 == 1 ]] || return 0
   if ! out="$("$_updates_vgshell" pkg check --json --source pacman)" || ! facts="$(_updates_facts pending <<<"$out")"; then
     _updates_diagnostic "updates: review=unlisted source=pacman"; return 1
@@ -363,7 +371,9 @@ _updates_review_list() { # AUR REPO HELPER
     [[ $listed == 1 ]] || continue
     if ! out="$(pacman-conf --repo "$repo" Server)"; then _updates_diagnostic "updates: review=unlisted servers=$repo"; return 1; fi
     while read -r line; do
-      if [[ -n $line ]]; then _updates_review_lines+=("server $repo $line"); fi
+      [[ -n $line ]] || continue
+      if [[ $line =~ ^([^:/]+://)[^/@]*@(.*)$ ]]; then line="${BASH_REMATCH[1]}${BASH_REMATCH[2]}"; fi
+      _updates_review_lines+=("server $repo $line")
     done <<<"$out"
     # A repository with no SigLevel of its own takes pacman's default.
     if ! out="$(pacman-conf --repo "$repo" SigLevel)" || { [[ -z $out ]] && ! out="$(pacman-conf SigLevel)"; }; then
@@ -373,10 +383,26 @@ _updates_review_list() { # AUR REPO HELPER
   done <<<"$facts"
 }
 
+# Removes the review directory. The service writes `ended` with a shell
+# redirect, which makes no directory, so a write after the directory is gone
+# fails; a write while rm runs leaves rm's last rmdir a name, and the next
+# pass removes it. The service writes once per run, so 5 passes are a
+# ceiling, not a measurement.
+_updates_review_remove() {
+  local passes=0
+  while [[ -e ${_updates_review_dir:?} ]] && ((passes < 5)); do
+    rm -rf -- "${_updates_review_dir:?}" 2>/dev/null || :
+    passes=$((passes + 1))
+  done
+}
+
 # The review in the second window, through the service's `review` IPC
 # handler, which opens the `review` TUI with the review directory: a 0700
 # directory of this run's own, made by an exclusive mkdir and removed when
-# the review ends or the run exits. NAMEs are the packages listed. Sets
+# the review ends or the run exits. The run fetches the AUR build files
+# into its build/ first, through the helper as the user, so the agent
+# reads them offline; a fetch runs no package code. NAMEs are the packages
+# listed. Sets
 # _updates_review_verdict to clean, flagged or none, _updates_review_flags
 # to `<name> <concern>` per flag and _updates_review_reason, for the
 # developer log, when there is no verdict.
@@ -387,9 +413,16 @@ _updates_review_run() { # NAME...
   mkdir -p -- "${dir%/*}"
   if ! mkdir -m 700 -- "$dir" 2>/dev/null; then _updates_review_reason="dir=taken path=$dir"; return 0; fi
   _updates_review_dir="$dir"
-  trap 'rm -rf -- "${_updates_review_dir:?}"' EXIT
+  trap '_updates_review_remove' EXIT
   printf '%s\n' "${_updates_review_words[@]}" >"$dir/command"
   printf '%s\n' "${_updates_review_lines[@]}" >"$dir/packages.txt"
+  if [[ ${#_updates_review_aur[@]} -gt 0 ]]; then
+    mkdir -m 700 -- "$dir/build"
+    vgs_tui_step "Fetching the AUR build files"
+    if ! (cd -- "$dir/build" && "$_updates_review_helper" -G "${_updates_review_aur[@]}"); then
+      _updates_review_reason="fetch=failed helper=$_updates_review_helper"; return 0
+    fi
+  fi
   reply="$("$_updates_vgshell" ipc call "$VGS_PLUGIN_ID" invoke review "$dir" 2>&1)" || status=$?
   if [[ $status -ne 0 || $reply != ok ]]; then _updates_review_reason="open=${reply%%$'\n'*} exit=$status"; return 0; fi
   # tui/review.sh writes `started` once it holds the lock, and the service
@@ -401,7 +434,7 @@ _updates_review_run() { # NAME...
     polls=$((polls + 1))
   done
   if [[ ! -e $dir/started ]]; then
-    _updates_review_reason="start=none ended=$(cat -- "$dir/ended" 2>/dev/null || echo absent)"; return 0
+    _updates_review_reason="start=$( ((polls < 300)) && echo none || echo timeout) ended=$(cat -- "$dir/ended" 2>/dev/null || echo absent)"; return 0
   fi
   # The lock is free once tui/review.sh has ended: its agent exited, or
   # the user closed the window.
@@ -433,12 +466,13 @@ _updates_review() { # LISTED
     _updates_review_verdict=none _updates_review_reason="list=unreadable" _updates_review_flags=()
   fi
   if [[ -n ${_updates_review_dir:-} ]]; then
-    rm -rf -- "${_updates_review_dir:?}"
+    _updates_review_remove
     _updates_review_dir=""
     trap - EXIT
   fi
+  local count=$((${#_updates_review_aur[@]} + ${#_updates_review_repo[@]}))
   case "$_updates_review_verdict" in
-    clean) echo "The review found no risk." ;;
+    clean) echo "The review found no risk in the $count package$([[ $count == 1 ]] || echo s) it listed." ;;
     flagged)
       for flag in "${_updates_review_flags[@]}"; do
         name="${flag%% *}"
@@ -683,15 +717,22 @@ updates_main() {
   fi
   # The review: 1 when one runs, 2 when its packages could not be listed,
   # and its line in the box.
-  local review=0 review_line="" review_aur=0 review_repo=0 reviewed=() listing="" name
+  # The AUR is reviewed through a helper of the package table alone: the
+  # helper fetches its build files.
+  local box_review_aur="" review=0 review_line="" review_aur=0 review_repo=0 review_rebuild=0 reviewed=() listing="" name
   _updates_skip_aur=() _updates_skip_repo=()
   _updates_review_agent "$settings"
   if [[ $_updates_review_state == command || $_updates_review_state == agent ]]; then
-    if _updates_in aur "${run[@]}"; then review_aur=1; fi
+    if _updates_in aur "${run[@]}"; then
+      if [[ -n $aur_binary ]]; then review_aur=1
+      else box_review_aur="Review: the AUR is not reviewed without paru or yay"
+      fi
+    fi
+    if [[ $rebuild == 1 ]]; then review_rebuild=1; fi
     if [[ $primary == pacman ]] && _updates_in pacman "${run[@]}"; then review_repo=1; fi
     if [[ -n $primary && $primary != pacman ]] && _updates_in "$primary" "${run[@]}"; then review_line="Review: VGS reviews Arch packages only"; fi
-    if [[ $review_aur == 1 || $review_repo == 1 ]]; then
-      if _updates_review_list "$review_aur" "$review_repo" "$aur_binary"; then
+    if [[ $review_aur == 1 || $review_repo == 1 || $review_rebuild == 1 ]]; then
+      if _updates_review_list "$review_aur" "$review_repo" "$aur_binary" "$review_rebuild"; then
         reviewed=("${_updates_review_aur[@]}" "${_updates_review_repo[@]}")
         if [[ ${#reviewed[@]} -gt 0 ]]; then
           review=1
@@ -710,6 +751,7 @@ updates_main() {
   [[ -z $snapshot_line ]] || box+=("$snapshot_line")
   box+=("${plan[@]}")
   [[ -z $review_line ]] || box+=("$review_line")
+  [[ -z $box_review_aur ]] || box+=("$box_review_aur")
   if [[ $rebuild == 1 ]] || _updates_in aur "${run[@]}"; then box+=("The AUR runs last, after every step that runs as root."); fi
   box+=("" "Log: $_updates_log")
   vgs_tui_header "${box[@]}"
@@ -768,7 +810,8 @@ updates_main() {
     if _updates_in aur "${run[@]}"; then
       ignore=()
       if [[ ${#aur_command[@]} -gt 0 ]]; then
-        for name in "${_updates_skip_aur[@]}"; do ignore+=(--ignore "$name"); done
+        # The words may sync the system too, so both lists are kept out.
+        for name in "${_updates_skip_aur[@]}" "${_updates_skip_repo[@]}"; do ignore+=(--ignore "$name"); done
         _updates_run "Updating AUR packages" "${aur_command[@]}" "${ignore[@]}"
       else
         if [[ ${#_updates_skip_aur[@]} -gt 0 ]]; then ignore=(--ignore "${_updates_skip_aur[@]}"); fi
