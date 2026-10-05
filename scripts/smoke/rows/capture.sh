@@ -831,49 +831,6 @@ for capture_control in smart window display all cursor copy-only save-only delay
 done
 close_toplevel "$capture_disturbance_pid" "capture's focus disturbance closes"
 close_toplevel "$capture_target_pid" "capture's screenshot target closes"
-capture_config real "{\"grim\": \"$capture_real_grim\"}"
-for capture_control in no-output no-clipboard hard-stop inherited-stdin; do
-  python3 - "$capture_state/helper-original.py" "$capture_helper" "$capture_control" <<'PY'
-from pathlib import Path
-import sys
-original, helper, control = sys.argv[1:]
-changes = {
-    "no-output": ('args = ["grim", "-o", request["output"]]', 'args = ["grim"]'),
-    "no-clipboard": ('child = self.spawn(["wl-copy", "--foreground", "--type", mime], stdin=subprocess.PIPE, stderr=subprocess.PIPE)', 'child = self.spawn([sys.executable, "-c", "import sys; sys.stdin.buffer.read()"], stdin=subprocess.PIPE, stderr=subprocess.PIPE)'),
-    "hard-stop": ('self.recorder.send_signal(signal.SIGINT)\n                    stopping = True', 'self.recorder.send_signal(signal.SIGKILL)\n                    stopping = True'),
-    "inherited-stdin": ('kwargs.setdefault("stdin", subprocess.DEVNULL)', 'pass'),
-}
-source = Path(original).read_text()
-before, after = changes[control]
-assert source.count(before) == 1, control
-changed = source.replace(before, after)
-assert changed != source, control
-Path(helper).write_text(changed)
-PY
-  : >"$capture_state/calls.jsonl"
-  rm -f -- "$capture_state/signal"
-  if [[ $capture_control == hard-stop ]]; then
-    expect "control: the recorder starts before a hard stop" ok ipc vgs.capture invoke record ''
-    expect_poll "control: the recorder is active before a hard stop" recording capture_phase
-    expect "control: the service asks the hard-stop copy to stop" ok ipc vgs.capture invoke record ''
-    expect_poll "control: the hard-stop copy finishes" idle capture_phase
-    expect "control: SIGKILL fails the recording row" False capture_recorded
-  elif [[ $capture_control == inherited-stdin ]]; then
-    capture_setting smart false
-    capture_config real "{\"grim\": \"$capture_real_grim\", \"slurp\": \"$capture_real_slurp\", \"hyprpicker\": \"$capture_real_picker\"}"
-    expect "control: the inherited-stdin copy starts a selection" ok ipc vgs.capture invoke screenshot-area ''
-    # The held worker stays until the plugin is disabled below, which ends
-    # it as a shell stop does.
-    expect "control: an inherited stdin fails the selection row" False capture_selecting
-    capture_config real "{\"grim\": \"$capture_real_grim\"}"
-  else
-    printf 'previous clipboard' >"$capture_state/clipboard"
-    expect "control: the screenshot copy starts" ok ipc vgs.capture invoke screenshot ''
-    expect_poll "control: the screenshot copy finishes" idle capture_phase
-    expect "control: $capture_control fails the screenshot row" False capture_png
-  fi
-done
-cp -- "$capture_state/helper-original.py" "$capture_helper"
 # Recording modes, settings, devices, post-processing and languages, each
 # through service IPC. The fixture slurp answers the configured geometry,
 # the stand-in recorder logs its argv, and the stand-in ffmpeg keeps the
@@ -991,6 +948,49 @@ cp -- "$capture_state/helper-original.py" "$capture_helper"
 expect "capture closes its panel after its choices" ok ipc vgs.capture invoke toggle ''
 expect_poll "the choices panel unmaps" absent capture_panel
 close_toplevel "$capture_record_pid" "capture's recording target closes"
+capture_config real "{\"grim\": \"$capture_real_grim\"}"
+for capture_control in no-output no-clipboard hard-stop inherited-stdin; do
+  python3 - "$capture_state/helper-original.py" "$capture_helper" "$capture_control" <<'PY'
+from pathlib import Path
+import sys
+original, helper, control = sys.argv[1:]
+changes = {
+    "no-output": ('args = ["grim", "-o", request["output"]]', 'args = ["grim"]'),
+    "no-clipboard": ('child = self.spawn(["wl-copy", "--foreground", "--type", mime], stdin=subprocess.PIPE, stderr=subprocess.PIPE)', 'child = self.spawn([sys.executable, "-c", "import sys; sys.stdin.buffer.read()"], stdin=subprocess.PIPE, stderr=subprocess.PIPE)'),
+    "hard-stop": ('self.recorder.send_signal(signal.SIGINT)\n                    stopping = True', 'self.recorder.send_signal(signal.SIGKILL)\n                    stopping = True'),
+    "inherited-stdin": ('kwargs.setdefault("stdin", subprocess.DEVNULL)', 'pass'),
+}
+source = Path(original).read_text()
+before, after = changes[control]
+assert source.count(before) == 1, control
+changed = source.replace(before, after)
+assert changed != source, control
+Path(helper).write_text(changed)
+PY
+  : >"$capture_state/calls.jsonl"
+  rm -f -- "$capture_state/signal"
+  if [[ $capture_control == hard-stop ]]; then
+    expect "control: the recorder starts before a hard stop" ok ipc vgs.capture invoke record ''
+    expect_poll "control: the recorder is active before a hard stop" recording capture_phase
+    expect "control: the service asks the hard-stop copy to stop" ok ipc vgs.capture invoke record ''
+    expect_poll "control: the hard-stop copy finishes" idle capture_phase
+    expect "control: SIGKILL fails the recording row" False capture_recorded
+  elif [[ $capture_control == inherited-stdin ]]; then
+    capture_setting smart false
+    capture_config real "{\"grim\": \"$capture_real_grim\", \"slurp\": \"$capture_real_slurp\", \"hyprpicker\": \"$capture_real_picker\"}"
+    expect "control: the inherited-stdin copy starts a selection" ok ipc vgs.capture invoke screenshot-area ''
+    # The held worker stays until the plugin is disabled below, which ends
+    # it as a shell stop does.
+    expect "control: an inherited stdin fails the selection row" False capture_selecting
+    capture_config real "{\"grim\": \"$capture_real_grim\"}"
+  else
+    printf 'previous clipboard' >"$capture_state/clipboard"
+    expect "control: the screenshot copy starts" ok ipc vgs.capture invoke screenshot ''
+    expect_poll "control: the screenshot copy finishes" idle capture_phase
+    expect "control: $capture_control fails the screenshot row" False capture_png
+  fi
+done
+cp -- "$capture_state/helper-original.py" "$capture_helper"
 expect "capture is disabled after the row" ok ipc shell setPluginEnabled vgs.capture false
 expect_poll "disabled capture releases its service" False record_exists vgs.capture
 expect_poll "disabling capture ends a held selection's selector and freeze" 0 capture_left

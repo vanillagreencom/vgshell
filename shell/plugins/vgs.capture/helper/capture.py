@@ -427,11 +427,11 @@ class Capture:
                 raise CaptureFailure("camera-unavailable", "The chosen camera is not connected")
             target += "|v4l2:" + camera + WEBCAM
         audio = recorder_audio(request, devices)
+        state = plugin_state(request["stateDir"])
+        log_path = state / "recorder.log"
         folder = capture_folder(request["recordFolder"], "VIDEOS", "Screencasts")
         remove_stale_processing(folder)
         path = new_file(folder, "screencast", ".mp4")
-        state = plugin_state(request["stateDir"])
-        log_path = state / "recorder.log"
         args = ["gpu-screen-recorder", "-w", target, *(["-region", region] if region else []), *options, *audio, "-o", str(path)]
         with open_log(log_path) as log:
             try:
