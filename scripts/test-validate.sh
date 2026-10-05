@@ -1830,7 +1830,8 @@ test_args=()
 
 # A row's $NAME input: --skip-unprepared leaves the row unselected and named
 # while NAME is unset and runs it while NAME is set; without the flag, and in
-# a copy without the rule, the row runs unset and reads 77.
+# a copy without the rule, the row runs unset and reads 77. A run that left a
+# row out records no last pass; a copy without that rule records one.
 d="$tmp/unprepared"; fresh "$d"
 python3 - "$d/scripts/validate" <<'PY'
 from pathlib import Path
@@ -1838,11 +1839,11 @@ import sys
 path = Path(sys.argv[1])
 source = path.read_text()
 assert source.count('rows=(\n') == 1
-path.write_text(source.replace('rows=(\n', 'rows=(\n  "tools|prepared row|scripts/check-prepared.sh|\\$VGS_TEST_PREPARED"\n'))
+path.write_text(source.replace('rows=(\n', 'rows=(\n  "logic|prepared row|scripts/check-prepared.sh|\\$VGS_TEST_PREPARED"\n'))
 PY
 "${base_env[@]}" git -C "$d" commit -q -am prepared-row
 printf '#!/bin/sh\nexit 77\n' >"$d/scripts/check-prepared.sh"; chmod +x "$d/scripts/check-prepared.sh"
-test_area=tools
+test_area=logic
 test_args=(--changed HEAD --skip-unprepared)
 row "--skip-unprepared names an unset prepared row and runs nothing" "$d" 0 "" \
   "validate: unselected unset=VGS_TEST_PREPARED row=prepared row" "validate: ok" '!exit=77 row=prepared row'
@@ -1851,6 +1852,27 @@ row "--skip-unprepared runs a prepared row whose input is set" "$d" 77 "VGS_TEST
 test_args=(--changed HEAD)
 row "without --skip-unprepared an unset prepared row runs" "$d" 77 "" \
   "validate: status=not-measured skipped=prepared row" '!validate: unselected'
+cp -a -- "$d" "$d-record"
+test_args=(--skip-unprepared)
+row "a run that left a row out records no last pass" "$d" 0 "" \
+  "validate: last-pass=unrecorded reason=unselected" "validate: ok"
+if [[ -e $("${base_env[@]}" git -C "$d" rev-parse --absolute-git-dir)/vgs-validated-logic ]]; then
+  fail "a run that left a row out wrote a last-pass record"
+else
+  ok "a run that left a row out wrote no last-pass record"
+fi
+python3 - "$d-record/scripts/validate" <<'PY'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+source = path.read_text()
+needle = 'if [[ $unselected == true ]]; then'
+assert source.count(needle) == 1
+path.write_text(source.replace(needle, 'if false; then'))
+PY
+"${base_env[@]}" git -C "$d-record" commit -q -am control
+row_re "control: a validate without the rule records a run that left a row out" "$d-record" 0 "" \
+  "~validate: last-pass=recorded area=logic tree="
 python3 - "$d/scripts/validate" <<'PY'
 from pathlib import Path
 import sys

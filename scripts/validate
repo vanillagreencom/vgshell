@@ -31,7 +31,9 @@
 #   prepared state such as local models; it matches no path. Such a row run
 #   with NAME unset exits 77. --skip-unprepared, for a host that holds no
 #   prepared state, selects no row whose `$NAME` input is unset or empty and
-#   prints `validate: unselected unset=<NAME> row=<label>` on stderr.
+#   prints `validate: unselected unset=<NAME> row=<label>` on stderr; such a
+#   run records no last pass, `validate: last-pass=unrecorded
+#   reason=unselected`.
 #   A run that compares prints `validate: base=<commit> source=<source>` on
 #   stderr, the source one of argument, DEV_VALIDATE_BASE,
 #   VGS_VALIDATE_BASE, last-pass or merge-base, in that precedence.
@@ -86,6 +88,7 @@ change_base=""
 list_only=false
 full_scope=false
 skip_unprepared=false
+unselected=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --changed)
@@ -1493,6 +1496,7 @@ for i in "${!rows[@]}"; do
     done
     if [[ -n $unprepared ]]; then
       printf 'validate: unselected unset=%s row=%s\n' "$unprepared" "$label" >&2
+      unselected=true
       continue
     fi
   fi
@@ -1522,5 +1526,9 @@ if [[ ${#skipped[@]} -gt 0 ]]; then
   printf 'validate: status=not-measured skipped=%s\n' "$(IFS=';'; echo "${skipped[*]}")"
   exit 77
 fi
-last_pass_record
+if [[ $unselected == true ]]; then
+  echo 'validate: last-pass=unrecorded reason=unselected' >&2
+else
+  last_pass_record
+fi
 echo "validate: ok"
