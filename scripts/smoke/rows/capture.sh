@@ -35,6 +35,19 @@ capture_status() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(
 capture_clipboard() { python3 -c 'import pathlib,sys; p=pathlib.Path(sys.argv[1]); print(p.read_text() if p.exists() else "absent")' "$capture_state/clipboard"; }
 capture_counts() { python3 -c 'import pathlib,sys; p=pathlib.Path(sys.argv[1]); print(len(list(p.glob("*.png"))))' "$home/Pictures/Screenshots"; }
 capture_toasts() { ipc shell lent | py_reply 'import json,sys; rows=json.load(sys.stdin)["toasts"]; print(sum(r["plugin"] == "vgs.capture" for k in ("visible", "waiting") for r in rows[k]))'; }
+capture_wait_toasts() {
+  local count duration deadline now
+  count="$(capture_toasts)" || return 1
+  duration="$(ipc smoke themeValue toast.duration)" || return 1
+  deadline="$(python3 -c 'import json,sys,time; print(time.monotonic() + (int(sys.argv[1]) + 1) * json.loads(sys.argv[2]) / 1000)' "$count" "$duration")" || return 1
+  while ((count > 0)); do
+    now="$(python3 -c 'import sys,time; print(time.monotonic() >= float(sys.argv[1]))' "$deadline")" || return 1
+    [[ $now == False ]] || break
+    sleep 0.2
+    count="$(capture_toasts)" || return 1
+  done
+  echo "$count"
+}
 capture_notice() { ipc smoke noticeDrawn | py_reply 'import json,sys; v=json.load(sys.stdin); print("tesseract" if any("tesseract" in r for r in v["rows"]) else "other")'; }
 capture_missing() { capture_read missing | py_reply 'import json,sys; print("tesseract" in json.load(sys.stdin))'; }
 capture_workers() { python3 - "$capture_state" <<'PY'
@@ -235,7 +248,7 @@ expect "capture takes the selected area" ok ipc vgs.capture invoke screenshot-ar
 expect_poll "capture finishes the selected area" idle capture_phase
 expect "area geometry reaches grim unchanged" "['-g', '10,20 80x60']" capture_geometry
 capture_before="$(capture_counts)"
-expect_poll "earlier capture notices expire before cancellation" 0 capture_toasts
+expect "earlier capture notices expire before cancellation" 0 capture_wait_toasts
 capture_config cancel true
 expect "capture accepts an area selection that is cancelled" ok ipc vgs.capture invoke screenshot-area ''
 expect_poll "cancelled selection leaves capture idle" idle capture_phase
@@ -304,13 +317,13 @@ expect "capture accepts all enabled displays" ok ipc vgs.capture invoke screensh
 expect_poll "capture finishes all displays" idle capture_phase
 expect_poll "all-display image equals the compositor bounding box" True capture_image_box "$capture_all_box"
 capture_config real "{\"grim\": \"$capture_real_grim\"}"
-expect_poll "capture notices leave the cursor baseline" 0 capture_toasts
+expect "capture notices leave the cursor baseline" 0 capture_wait_toasts
 hover "$capture_target_cx" "$capture_target_cy" || fail "capture: the cursor could not be placed"
 expect "capture takes a pointer-free baseline" ok ipc vgs.capture invoke screenshot ''
 expect_poll "the cursor baseline finishes" idle capture_phase
 capture_cursor_baseline="$(capture_clipboard_digest)"
 capture_setting cursor true
-expect_poll "capture notices leave before the cursor image" 0 capture_toasts
+expect "capture notices leave before the cursor image" 0 capture_wait_toasts
 expect "capture takes the cursor image" ok ipc vgs.capture invoke screenshot ''
 expect_poll "the cursor image finishes" idle capture_phase
 expect "the cursor option reaches grim" True capture_cursor_flag
@@ -329,6 +342,14 @@ printf 'previous clipboard' >"$capture_state/clipboard"
 expect "capture accepts save-only processing" ok ipc vgs.capture invoke screenshot ''
 expect_poll "save-only capture finishes" idle capture_phase
 expect "save-only keeps the clipboard and writes the PNG" True capture_save_only
+python3 - "$shell_host_path" "$sandbox" <<'PY'
+from pathlib import Path
+import sys
+host, sandbox = map(Path, sys.argv[1:])
+assert host.resolve().is_relative_to(sandbox.resolve()), "clipboard control must use the sandbox command directory"
+assert (host / "wl-copy").is_symlink(), "clipboard control requires the private host-command link"
+PY
+mv -- "$shell_host_path/wl-copy" "$capture_state/host-wl-copy"
 rm -f -- "${shim:?}/wl-copy"
 rescan "the missing clipboard command is rescanned for save-only"
 capture_missing_clipboard() { capture_read missing | py_reply 'import json,sys; print("wl-copy" in json.load(sys.stdin))'; }
@@ -337,6 +358,7 @@ capture_before="$(capture_counts)"
 expect "save-only remains available without the clipboard tool" ok ipc vgs.capture invoke screenshot ''
 expect_poll "save-only without the clipboard tool finishes" idle capture_phase
 expect "save-only without wl-copy keeps both deliverables correct" True capture_save_only
+mv -- "$capture_state/host-wl-copy" "$shell_host_path/wl-copy"
 ln -s -- "$capture_state/bin/wl-copy" "$shim/wl-copy"
 rescan "the restored clipboard command is rescanned"
 expect_poll "the service finds the restored clipboard command" False capture_missing_clipboard
@@ -399,19 +421,27 @@ capture_config grimHold false
 capture_setting timeout 10
 # Compare a small area inside the countdown card with the same desktop area
 # before it maps. The image must contain the desktop after the card closes.
+capture_crop_hash() { python3 - "$imagemagick" "$1" "$capture_countdown_crop" <<'PY'
+import hashlib, subprocess, sys
+program, image, crop = sys.argv[1:]
+result = subprocess.run([program, image, "-crop", crop, "+repage", "-depth", "8", "rgb:-"], check=True, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE)
+assert len(result.stdout) == 50 * 20 * 3, "countdown crop must contain all RGB pixels"
+print(hashlib.sha256(result.stdout).hexdigest())
+PY
+}
 capture_countdown_pixels() {
   local signature
-  signature="$("$imagemagick" "$(capture_path)" -crop "$capture_countdown_crop" +repage -format '%[signature]' info:)" || return 1
+  signature="$(capture_crop_hash "$(capture_path)")" || return 1
   [[ $signature == "$capture_countdown_baseline" ]] && echo True || echo False
 }
 capture_countdown_image() {
   capture_config real "{\"grim\": \"$capture_real_grim\"}"
   capture_setting delay 0
-  expect_poll "earlier capture notices expire before countdown pixels" 0 capture_toasts
+  expect "earlier capture notices expire before countdown pixels" 0 capture_wait_toasts
   expect "capture takes the desktop before the countdown" ok ipc vgs.capture invoke screenshot ''
   expect_poll "the countdown baseline finishes" idle capture_phase
   cp -- "$(capture_path)" "$capture_state/countdown-baseline.png"
-  expect_poll "the baseline's notice expires before the countdown" 0 capture_toasts
+  expect "the baseline's notice expires before the countdown" 0 capture_wait_toasts
   capture_setting delay 2
   expect "capture starts the countdown for image readback" ok ipc vgs.capture invoke screenshot ''
   expect_poll "the countdown image reaches its delay" delaying capture_phase
@@ -419,7 +449,7 @@ capture_countdown_image() {
   capture_countdown_layer="$(surface_box vgs:toast)"
   capture_countdown_card="$(ipc smoke toastWindowGeometry 0)"
   capture_countdown_crop="$(python3 -c 'import json,sys; layer,card=map(json.loads,sys.argv[1:]); print("50x20+%d+%d"%(layer[0]+card[0]+10,layer[1]+card[1]+10))' "$capture_countdown_layer" "$capture_countdown_card")" || return 1
-  capture_countdown_baseline="$("$imagemagick" "$capture_state/countdown-baseline.png" -crop "$capture_countdown_crop" +repage -format '%[signature]' info:)" || return 1
+  capture_countdown_baseline="$(capture_crop_hash "$capture_state/countdown-baseline.png")" || return 1
   expect_poll "the countdown image finishes" idle capture_phase
 }
 capture_countdown_image

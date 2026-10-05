@@ -183,7 +183,7 @@ Item {
     function restoreFocus(job) {
         const address = job.focusAddress;
         job.focusAddress = "";
-        if (address !== "" && Hyprland.toplevels.values.some(t => t.address === address) && (Hyprland.activeToplevel === null || Hyprland.activeToplevel.address !== address)) shell.compositor.focusWindow(address);
+        if (address !== "" && Hyprland.toplevels.values.some(t => t.address === address) && (Hyprland.activeToplevel === null || Hyprland.activeToplevel.address !== address)) shell.compositor.focusWindow("0x" + address);
     }
 
     function clearCountdown() {
