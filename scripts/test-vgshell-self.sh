@@ -237,7 +237,7 @@ cat >"$tmp/bound-vgshell" <<EOF
 exec $unshare_bin -rm $tools/sh -c 'mount_bin=\$1 fixture=\$2; shift 2; "\$mount_bin" --bind "\$fixture" /etc/os-release && exec "\$@"' sh $mount_bin $tmp/os-release $pkg_root/bin/vgshell "\$@"
 EOF
 chmod +x "$tmp/bound-vgshell"
-g config --global "url.$upstream.insteadOf" https://github.com/vanillagreencom/vgshell.git
+g config --file "$tmp/home/.gitconfig" "url.$upstream.insteadOf" https://github.com/vanillagreencom/vgshell.git
 main_commit="$(g -C "$upstream" rev-parse main)"
 built="$version_text.r7.g${main_commit:0:7}"
 inst_env+=(STUB_OWNED="$pkg_root/VERSION" STUB_PACKAGE=vgshell-git STUB_PKGVER="$built")

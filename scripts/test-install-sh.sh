@@ -61,6 +61,14 @@ stub "$install_managers" pacman "" 1
 stub "$install_managers" paru "" 1
 run_path="$stubs:$install_managers:$tools"
 
+# A direct run inherits the caller's XDG_CONFIG_HOME, where git writes its
+# global file when the fixture home holds no .gitconfig. The suite points it
+# at a planted git/config, and the last row holds that file unchanged.
+caller_config="$tmp/caller-config"; mkdir -p "$caller_config/git"
+printf '[user]\n\tname = caller\n' >"$caller_config/git/config"
+cp -- "$caller_config/git/config" "$tmp/caller-git-config"
+export XDG_CONFIG_HOME="$caller_config"
+
 scratch="$tmp/scratch"; mkdir -p "$scratch"
 gnupg_empty="$tmp/gnupg-empty"; mkdir -m 700 "$gnupg_empty"
 default_os="$tmp/default-os"; printf 'ID=arch\n' >"$default_os"
@@ -301,7 +309,7 @@ g init -q --bare "$bare"; g -C "$seed" push -q "$bare" main
 # git_home NAME: a new home with release v0.1.0 and a --git clone installed.
 git_home() {
   new_home "$1"
-  HOME="$h" GIT_CONFIG_NOSYSTEM=1 git config --global url."file://$bare".insteadOf https://github.com/vanillagreencom/vgshell.git
+  git config --file "$h/.gitconfig" url."file://$bare".insteadOf https://github.com/vanillagreencom/vgshell.git
   run "$installer" --version 0.1.0
   [[ $status == 0 ]] || { echo "$suite: fixture=release status=$status" >&2; cat "$tmp/err" >&2; exit 1; }
   run "$installer" --git
@@ -445,7 +453,7 @@ nix_present_row() { # BIN: installed available requirements allow release, curre
   [[ $status == 0 && $(readlink -- "$d/current") == 0.1.0 ]] || { RUN_WRAP=(); return 1; }
   RUN_PATH="$nix_present:$nix_manager:$tools" run "$1" --version 0.1.0
   [[ $status == 0 ]] && out_has "ok up-to-date=vgshell version=0.1.0 path=$d/0.1.0" || { RUN_WRAP=(); return 1; }
-  HOME="$h" GIT_CONFIG_NOSYSTEM=1 git config --global url."file://$bare".insteadOf https://github.com/vanillagreencom/vgshell.git || { RUN_WRAP=(); return 1; }
+  git config --file "$h/.gitconfig" url."file://$bare".insteadOf https://github.com/vanillagreencom/vgshell.git || { RUN_WRAP=(); return 1; }
   RUN_PATH="$nix_present:$nix_manager:$tools" run "$1" --git
   RUN_WRAP=()
   [[ $status == 0 && -f $d/git/bin/vgshell && ! -s $install_log ]] || return 1
@@ -842,5 +850,7 @@ copy_with manager-order "$installer" 'fedora        dnf5,dnf' 'fedora        dnf
 control "a copy that prefers dnf 4 over dnf5" distro_row "fedora with dnf5" "ID=fedora" "$pm_all"
 copy_with any-key "$signing" '[[ ${field[2]} == "$release_key" ||' '[[ -n ${field[2]} ||'
 control "a copy that accepts a signature by any key in the keyring" signature_other_row
+
+check "the rows' git writes leave the caller's XDG git configuration unchanged" cmp -s -- "$tmp/caller-git-config" "$caller_config/git/config"
 
 rows_done "$suite"
