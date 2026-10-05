@@ -15,10 +15,12 @@ Item {
     property string activeVerb: ""
     property var recordCompletion: null
     readonly property var missing: shell === null ? [] : shell.requirements.missing
+    readonly property int requirementsRevision: shell === null ? 0 : shell.requirements.revision
     readonly property bool voxtypePresent: shell !== null && missing.indexOf("voxtype") === -1
     readonly property bool systemctlPresent: shell !== null && missing.indexOf("systemctl") === -1
     readonly property var tuiState: shell === null ? null : shell.tui.state
     readonly property bool statusRunning: statusProcess.running
+    readonly property string dictationStatus: shell === null || shell.status.values.dictation === undefined ? "" : String(shell.status.values.dictation.text)
 
     onShellChanged: {
         if (shell === null) return;
@@ -27,14 +29,14 @@ Item {
             shell.shortcut.register("toggle", "Start or stop dictation", () => root.record("toggle"));
             shell.shortcut.register("talk", "Dictate while held", () => root.record("start"), () => root.record("stop"));
         }
-        if (voxtypePresent) statusProcess.running = true;
+        if (voxtypePresent) Qt.callLater(root.startStatus);
         publishPresence();
         refreshSetup();
     }
     onVoxtypePresentChanged: {
         publishPresence();
         if (voxtypePresent) {
-            statusProcess.running = true;
+            root.startStatus();
             refreshSetup();
         } else {
             statusProcess.running = false;
@@ -45,6 +47,7 @@ Item {
         publishPresence();
         refreshSetup();
     }
+    onRequirementsRevisionChanged: refreshSetup()
     onTuiStateChanged: refreshSetup()
 
     function publishPresence() {
@@ -58,7 +61,7 @@ Item {
     }
 
     function publishDictation(state) {
-        const tone = state === "recording" ? "warning" : state === "transcribing" ? "info" : "ok";
+        const tone = state === "recording" ? "warning" : state === "transcribing" ? "info" : state === "stopped" ? "warning" : "ok";
         publish("dictation", { tone: tone, text: state });
     }
 
@@ -66,6 +69,12 @@ Item {
         const value = { tone: setupValue.tone, text: setupValue.text, action: setupValue.action };
         if (setupValue.lines !== undefined && setupValue.lines.length > 0) value.lines = setupValue.lines;
         return value;
+    }
+
+    function startStatus() {
+        if (!voxtypePresent || statusProcess.running) return;
+        statusProcess.command = ["setpriv", "--pdeathsig", "TERM", "--", "voxtype", "status", "--follow", "--extended", "--format", "json"];
+        statusProcess.running = true;
     }
 
     function applyStatus(line) {
@@ -153,8 +162,6 @@ Item {
 
     Process {
         id: statusProcess
-        command: ["setpriv", "--pdeathsig", "TERM", "--", "voxtype", "status", "--follow", "--extended", "--format", "json"]
-        running: root.voxtypePresent
         stdout: SplitParser { onRead: line => root.applyStatus(line) }
         stderr: SplitParser { onRead: line => console.warn("voice: status " + line) }
     }

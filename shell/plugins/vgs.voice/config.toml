@@ -82,12 +82,3 @@ filler_words = ["uh", "um"]
 "Codeks" = "Codex"
 "Graptile" = "Greptile"
 "Versel" = "Vercel"
-
-[meeting]
-enabled = false
-
-[meeting.diarization]
-enabled = false
-
-[meeting.audio]
-source = "mic"

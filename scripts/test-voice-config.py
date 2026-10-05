@@ -23,6 +23,7 @@ def verify(path: pathlib.Path):
     assert data["engine"] == "parakeet"
     assert data["osd"]["enabled"] is False
     assert data["parakeet"]["model"] == "parakeet-tdt-0.6b-v3"
+    assert "meeting" not in data
     replacements = data["text"]["replacements"]
     for key, value in required.items():
         assert replacements.get(key) == value, key

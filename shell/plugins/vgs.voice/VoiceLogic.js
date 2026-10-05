@@ -1,6 +1,6 @@
 .pragma library
 
-var STATES = ["idle", "recording", "transcribing"];
+var STATES = ["idle", "recording", "transcribing", "stopped"];
 var DEFAULT_ENGINE = "parakeet";
 var DEFAULT_MODEL = "parakeet-tdt-0.6b-v3";
 
@@ -28,8 +28,8 @@ function configValue(text, fallback) {
     return fallback;
 }
 
-function statusState(data) {
-    var raw = asString(data.state) || asString(data.alt) || asString(data.class) || asString(data.status);
+function stateOf(raw) {
+    if (raw === "streaming") return "recording";
     return STATES.indexOf(raw) === -1 ? "idle" : raw;
 }
 
@@ -37,82 +37,34 @@ function parseStatus(line) {
     var data = parseJson(line, null);
     if (!isObject(data)) return { ok: false, reason: "json" };
     var raw = asString(data.state) || asString(data.alt) || asString(data.class) || asString(data.status) || "idle";
-    var state = STATES.indexOf(raw) === -1 ? "idle" : raw;
-    var engine = asString(data.engine) || asString(data.backend);
-    var model = asString(data.model) || asString(data.model_name) || asString(data.variant);
-    return { ok: true, state: state, rawState: raw, unknown: state !== raw, engine: engine, model: model };
+    var state = stateOf(raw);
+    var model = asString(data.model);
+    var backend = asString(data.backend);
+    var device = asString(data.device);
+    return { ok: true, state: state, rawState: raw, unknown: state === "idle" && raw !== "idle", backend: backend, device: device, model: model };
 }
 
-function listOf(value, keys) {
-    if (Array.isArray(value)) return value;
-    if (!isObject(value)) return [];
-    for (var i = 0; i < keys.length; i++) {
-        var item = value[keys[i]];
-        if (Array.isArray(item)) return item;
-    }
-    return [];
-}
-
-function field(row, names) {
-    if (!isObject(row)) return "";
-    for (var i = 0; i < names.length; i++) {
-        var value = row[names[i]];
-        if (value !== undefined && value !== null) return String(value);
-    }
-    return "";
-}
-
-function affirmative(row, names) {
-    if (!isObject(row)) return false;
-    for (var i = 0; i < names.length; i++) {
-        if (row[names[i]] === true) return true;
-        if (typeof row[names[i]] === "string") {
-            var text = row[names[i]].toLowerCase();
-            if (text === "installed" || text === "present" || text === "ready" || text === "downloaded" || text === "available") return true;
-        }
-    }
-    return false;
-}
-
-function modelInstalled(modelsText, wanted) {
+function modelRows(modelsText, engine) {
     var data = parseJson(modelsText, null);
-    var models = listOf(data, ["models", "items", "available"]);
+    if (!isObject(data) || !isObject(data.engines) || !isObject(data.engines[engine]) || !Array.isArray(data.engines[engine].models)) return [];
+    return data.engines[engine].models;
+}
+
+function modelInstalled(modelsText, engine, wanted) {
+    var models = modelRows(modelsText, engine);
     for (var i = 0; i < models.length; i++) {
         var row = models[i];
-        var name = field(row, ["name", "id", "model", "model_name"]);
-        if (name === wanted && affirmative(row, ["installed", "downloaded", "present", "ready", "status"])) return true;
+        if (isObject(row) && row.name === wanted && row.installed === true) return true;
     }
     return false;
-}
-
-function modelSize(modelsText, wanted) {
-    var data = parseJson(modelsText, null);
-    var models = listOf(data, ["models", "items", "available"]);
-    for (var i = 0; i < models.length; i++) {
-        var row = models[i];
-        var name = field(row, ["name", "id", "model", "model_name"]);
-        if (name === wanted) return field(row, ["size", "size_human", "download_size", "download"]);
-    }
-    return "";
 }
 
 function engineAvailable(enginesText, wanted) {
-    var data = parseJson(enginesText, null);
-    if (Array.isArray(data)) return engineListHas(data, wanted);
-    if (!isObject(data)) return false;
-    if (Array.isArray(data.features) && data.features.indexOf(wanted) !== -1) return true;
-    if (Array.isArray(data.enabled) && data.enabled.indexOf(wanted) !== -1) return true;
-    if (typeof data.active === "string" && data.active === wanted) return true;
-    var engines = listOf(data, ["engines", "items", "available"]);
-    return engineListHas(engines, wanted);
-}
-
-function engineListHas(engines, wanted) {
+    var engines = parseJson(enginesText, null);
+    if (!Array.isArray(engines)) return false;
     for (var i = 0; i < engines.length; i++) {
         var row = engines[i];
-        if (typeof row === "string" && row === wanted) return true;
-        var name = field(row, ["name", "id", "engine"]);
-        if (name === wanted && row.available !== false && row.enabled !== false && row.present !== false) return true;
+        if (isObject(row) && row.name === wanted) return row.compiled === true;
     }
     return false;
 }
@@ -125,7 +77,7 @@ function unitEnabled(text) {
 function setupState(reads) {
     var engine = configValue(reads.engine || "", DEFAULT_ENGINE);
     var model = configValue(reads.model || "", DEFAULT_MODEL);
-    var installed = modelInstalled(reads.models || "", model);
+    var installed = modelInstalled(reads.models || "", engine, model);
     var available = engineAvailable(reads.engines || "", engine);
     var unit = unitEnabled(reads.unit || "");
     var lines = [];
@@ -137,7 +89,7 @@ function setupState(reads) {
 }
 
 function modelData(status, setup) {
-    var engine = status && status.engine ? status.engine : setup && setup.engine ? setup.engine : DEFAULT_ENGINE;
-    var model = status && status.model ? status.model : setup && setup.model ? setup.model : DEFAULT_MODEL;
+    var engine = setup && setup.engine ? setup.engine : DEFAULT_ENGINE;
+    var model = setup && setup.model ? setup.model : status && status.model ? status.model : DEFAULT_MODEL;
     return { engine: engine, model: model };
 }

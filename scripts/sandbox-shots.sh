@@ -848,11 +848,11 @@ scene_settings() { # MODE
     cat >"$shim/voxtype" <<'EOF'
 #!/usr/bin/env bash
 case "$*" in
-  'status --follow --extended --format json') printf '{"state":"idle","engine":"parakeet","model":"parakeet-tdt-0.6b-v3"}\n' ;;
+  'status --follow --extended --format json') printf '{"state":"idle","backend":"ONNX CPU","device":"default","model":"parakeet-tdt-0.6b-v3"}\n' ;;
   'config get engine --json') printf '{"value":"parakeet"}\n' ;;
   'config get parakeet.model --json') printf '{"value":"parakeet-tdt-0.6b-v3"}\n' ;;
-  'info models --json') printf '{"models":[{"name":"parakeet-tdt-0.6b-v3","installed":false,"size":"600 MB"}]}\n' ;;
-  'info engines --json') printf '{"engines":[{"name":"parakeet","available":true}]}\n' ;;
+  'info models --json') printf '{"engines":{"parakeet":{"models":[{"name":"parakeet-tdt-0.6b-v3","installed":false,"downloadable":true,"download_arg":"parakeet-tdt-0.6b-v3"}],"default":"parakeet-tdt-0.6b-v3"}},"verified":true}\n' ;;
+  'info engines --json') printf '[{"name":"whisper","compiled":true,"active":false},{"name":"parakeet","compiled":true,"active":true}]\n' ;;
 esac
 EOF
     chmod 755 "$shim/voxtype"

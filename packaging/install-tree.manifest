@@ -523,6 +523,17 @@ f share/vgshell/shell/plugins/vgs.updates/tui/log.sh
 f share/vgshell/shell/plugins/vgs.updates/tui/pipeline.sh
 f share/vgshell/shell/plugins/vgs.updates/tui/update-source.sh
 f share/vgshell/shell/plugins/vgs.updates/tui/update.sh
+f share/vgshell/shell/plugins/vgs.voice/Service.qml
+f share/vgshell/shell/plugins/vgs.voice/VoiceLogic.js
+f share/vgshell/shell/plugins/vgs.voice/Widget.qml
+f share/vgshell/shell/plugins/vgs.voice/config.toml
+f share/vgshell/shell/plugins/vgs.voice/manifest.json
+f share/vgshell/shell/plugins/vgs.voice/sounds/bloop/error.wav
+f share/vgshell/shell/plugins/vgs.voice/sounds/bloop/start.wav
+f share/vgshell/shell/plugins/vgs.voice/sounds/bloop/stop.wav
+f share/vgshell/shell/plugins/vgs.voice/tui/configure.sh
+f share/vgshell/shell/plugins/vgs.voice/tui/model.sh
+f share/vgshell/shell/plugins/vgs.voice/tui/setup.sh
 f share/vgshell/shell/plugins/vgs.vpn/Pane.qml
 f share/vgshell/shell/plugins/vgs.vpn/Panel.qml
 f share/vgshell/shell/plugins/vgs.vpn/Service.qml

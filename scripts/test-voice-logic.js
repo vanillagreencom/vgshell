@@ -9,63 +9,48 @@ const repo = path.join(__dirname, "..");
 const file = path.join(repo, "shell", "plugins", "vgs.voice", "VoiceLogic.js");
 const same = (got, want, message) => assert.deepEqual(JSON.parse(JSON.stringify(got)), want, message);
 
-const readsReady = {
-  engine: '{"value":"parakeet"}',
-  model: '{"value":"parakeet-tdt-0.6b-v3"}',
-  models: '{"models":[{"name":"parakeet-tdt-0.6b-v3","installed":true,"size":"600 MB"}]}',
-  engines: '{"engines":[{"name":"parakeet","available":true}]}',
-  unit: 'enabled\n'
-};
-const readsMissing = {
-  engine: '{"value":"parakeet"}',
-  model: '{"value":"parakeet-tdt-0.6b-v3"}',
-  models: '{"models":[{"name":"parakeet-tdt-0.6b-v3","installed":false,"size":"600 MB"}]}',
-  engines: '{"engines":[{"name":"parakeet","available":false}]}',
-  unit: 'disabled\n'
-};
+const modelsReady = '{"engines":{"parakeet":{"models":[{"name":"parakeet-tdt-0.6b-v3","installed":true,"downloadable":true,"download_arg":"parakeet-tdt-0.6b-v3"}],"default":"parakeet-tdt-0.6b-v3"}},"verified":true}';
+const modelsMissing = '{"engines":{"parakeet":{"models":[{"name":"parakeet-tdt-0.6b-v3","installed":false,"downloadable":true,"download_arg":"parakeet-tdt-0.6b-v3"}],"default":"parakeet-tdt-0.6b-v3"}},"verified":true}';
+const enginesReady = '[{"name":"whisper","compiled":true,"active":false},{"name":"parakeet","compiled":true,"active":true}]';
+const enginesMissing = '[{"name":"whisper","compiled":true,"active":true},{"name":"parakeet","compiled":false,"active":false}]';
+const readsReady = { engine: '{"value":"parakeet"}', model: '{"value":"parakeet-tdt-0.6b-v3"}', models: modelsReady, engines: enginesReady, unit: 'enabled\n' };
+const readsMissing = { engine: '{"value":"parakeet"}', model: '{"value":"parakeet-tdt-0.6b-v3"}', models: modelsMissing, engines: enginesMissing, unit: 'disabled\n' };
 
 function verify(logic) {
-  same(logic.parseStatus('{"alt":"recording","engine":"parakeet","model":"voice-model"}'),
-    { ok: true, state: "recording", rawState: "recording", unknown: false, engine: "parakeet", model: "voice-model" },
-    "recording status parses");
+  same(logic.parseStatus('{"state":"recording","backend":"ONNX CPU","model":"parakeet-tdt-0.6b-v3","device":"default"}'),
+    { ok: true, state: "recording", rawState: "recording", unknown: false, backend: "ONNX CPU", device: "default", model: "parakeet-tdt-0.6b-v3" }, "recording status parses");
   same(logic.parseStatus('{'), { ok: false, reason: "json" }, "malformed status is refused");
   same(logic.parseStatus('{"state":"paused"}'),
-    { ok: true, state: "idle", rawState: "paused", unknown: true, engine: "", model: "" },
-    "unknown status falls back to idle and reports the raw state");
+    { ok: true, state: "idle", rawState: "paused", unknown: true, backend: "", device: "", model: "" }, "unknown status falls back to idle and reports the raw state");
+  same(logic.parseStatus('{"state":"streaming"}').state, "recording", "streaming shows as recording");
+  same(logic.parseStatus('{"state":"stopped"}').state, "stopped", "stopped is distinct");
 
-  same(logic.setupState(readsReady),
-    { tone: "ok", text: "Ready", action: false, engine: "parakeet", model: "parakeet-tdt-0.6b-v3", reasons: [] },
-    "ready setup state");
-  same(logic.setupState(readsMissing),
-    { tone: "warning", text: "Set up needed", lines: [
-      "The active build cannot use parakeet.",
-      "The speech model is missing.",
-      "The service is not enabled."
-    ], action: true, engine: "parakeet", model: "parakeet-tdt-0.6b-v3", reasons: [
-      "The active build cannot use parakeet.",
-      "The speech model is missing.",
-      "The service is not enabled."
-    ] },
-    "missing setup state lists every setup reason");
-  assert.equal(logic.modelInstalled(readsReady.models, "parakeet-tdt-0.6b-v3"), true, "installed model is found");
-  assert.equal(logic.modelInstalled(readsMissing.models, "parakeet-tdt-0.6b-v3"), false, "missing model is detected");
-  assert.equal(logic.engineAvailable(readsReady.engines, "parakeet"), true, "engine is found");
-  assert.equal(logic.engineAvailable(readsMissing.engines, "parakeet"), false, "unavailable engine is detected");
+  same(logic.setupState(readsReady), { tone: "ok", text: "Ready", action: false, engine: "parakeet", model: "parakeet-tdt-0.6b-v3", reasons: [] }, "ready setup state");
+  same(logic.setupState(readsMissing), { tone: "warning", text: "Set up needed", lines: [
+    "The active build cannot use parakeet.", "The speech model is missing.", "The service is not enabled."
+  ], action: true, engine: "parakeet", model: "parakeet-tdt-0.6b-v3", reasons: [
+    "The active build cannot use parakeet.", "The speech model is missing.", "The service is not enabled."
+  ] }, "missing setup state lists every setup reason");
+  assert.equal(logic.modelInstalled(modelsReady, "parakeet", "parakeet-tdt-0.6b-v3"), true, "installed model is found");
+  assert.equal(logic.modelInstalled(modelsMissing, "parakeet", "parakeet-tdt-0.6b-v3"), false, "missing model is detected");
+  assert.equal(logic.engineAvailable(enginesReady, "parakeet"), true, "compiled engine is found");
+  assert.equal(logic.engineAvailable(enginesMissing, "parakeet"), false, "uncompiled engine is detected");
   assert.equal(logic.unitEnabled("enabled\n"), true, "enabled unit is accepted");
   assert.equal(logic.unitEnabled("disabled\n"), false, "disabled unit is detected");
-  same(logic.modelData({ engine: "", model: "" }, logic.setupState(readsReady)),
-    { engine: "parakeet", model: "parakeet-tdt-0.6b-v3" }, "model data falls back to setup");
+  same(logic.modelData({ model: "old" }, logic.setupState(readsReady)), { engine: "parakeet", model: "parakeet-tdt-0.6b-v3" }, "fresh probe wins for model row");
 }
 
 verify(load(file));
 
 const controls = [
-  ["malformed lines accepted", "if (!isObject(data)) return { ok: false, reason: \"json\" };", "if (false) return { ok: false, reason: \"json\" };"] ,
-  ["unknown state kept", "var state = STATES.indexOf(raw) === -1 ? \"idle\" : raw;", "var state = raw;"],
-  ["model presence ignored", "if (name === wanted && affirmative(row, [\"installed\", \"downloaded\", \"present\", \"ready\", \"status\"])) return true;", "if (name === wanted) return true;"],
-  ["engine availability ignored", "if (name === wanted && row.available !== false && row.enabled !== false && row.present !== false) return true;", "if (name === wanted) return true;"],
+  ["malformed lines accepted", "if (!isObject(data)) return { ok: false, reason: \"json\" };", "if (false) return { ok: false, reason: \"json\" };"],
+  ["unknown state kept", "return STATES.indexOf(raw) === -1 ? \"idle\" : raw;", "return raw;"],
+  ["model presence ignored", "row.name === wanted && row.installed === true", "row.name === wanted"],
+  ["engine compiled ignored", "return row.compiled === true;", "return true;"],
   ["unit disabled accepted", "return value === \"enabled\" || value === \"static\";", "return true;"],
-  ["setup never offers action", "return { tone: \"warning\", text: \"Set up needed\", lines: lines, action: true, engine: engine, model: model, reasons: lines };", "return { tone: \"warning\", text: \"Set up needed\", lines: lines, action: false, engine: engine, model: model, reasons: lines };"]
+  ["setup never offers action", "return { tone: \"warning\", text: \"Set up needed\", lines: lines, action: true, engine: engine, model: model, reasons: lines };", "return { tone: \"warning\", text: \"Set up needed\", lines: lines, action: false, engine: engine, model: model, reasons: lines };"],
+  ["streaming not mapped", "if (raw === \"streaming\") return \"recording\";", "if (false) return \"recording\";"],
+  ["stream model wins", "var model = setup && setup.model ? setup.model : status && status.model ? status.model : DEFAULT_MODEL;", "var model = status && status.model ? status.model : setup && setup.model ? setup.model : DEFAULT_MODEL;"]
 ];
 const source = fs.readFileSync(file, "utf8");
 const scratchRoot = path.join(repo, "tmp");

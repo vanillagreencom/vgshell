@@ -13,7 +13,7 @@ failures=0
 ok() { printf '  ok    %s\n' "$*"; }
 fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
 
-for tool in bash sleep python3 tr sed mkdir cp grep; do
+for tool in bash sleep python3 sed mkdir cp grep paste; do
   if ! command -v "$tool" >/dev/null 2>&1; then
     printf 'test-voice-tui: status=not-measured missing=%s\n' "$tool"
     exit 77
@@ -22,23 +22,18 @@ done
 
 tools="$TMP_ROOT/tools"
 mkdir -p -- "$tools"
-ln -s -- "$(command -v bash)" "$tools/bash"
-ln -s -- "$(command -v sleep)" "$tools/sleep"
-ln -s -- "$(command -v tr)" "$tools/tr"
-ln -s -- "$(command -v sed)" "$tools/sed"
-ln -s -- "$(command -v mkdir)" "$tools/mkdir"
-ln -s -- "$(command -v cp)" "$tools/cp"
-ln -s -- "$(command -v grep)" "$tools/grep"
+for tool in bash sleep python3 sed mkdir cp grep paste; do ln -s -- "$(command -v "$tool")" "$tools/$tool"; done
 cat >"$tools/gum" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*"
 SH
-cat >"$tools/sudo" <<'SH'
+cat >"$tools/sudo" <<SH
 #!/usr/bin/env bash
-if [[ ${1:-} == -k ]]; then exit 0; fi
-if [[ ${1:-} == -n ]]; then shift; fi
-if [[ $# -gt 0 ]]; then exit 0; fi
-exit 0
+if [[ \${1:-} == -k ]]; then exit 0; fi
+if [[ \${1:-} == -n ]]; then shift; fi
+if [[ \$* == /usr/bin/true ]]; then exit 0; fi
+printf 'sudo %s\n' "\$*" >>"$TMP_ROOT/calls"
+exec "\$@"
 SH
 cat >"$tools/systemctl" <<SH
 #!/usr/bin/env bash
@@ -49,21 +44,23 @@ cat >"$tools/voxtype" <<SH
 #!/usr/bin/env bash
 printf 'voxtype %s\n' "\$*" >>"$TMP_ROOT/calls"
 case "\$*" in
-  'config get engine --json') printf '{"value":"parakeet"}\n' ;;
+  'config get engine --json')
+    if [[ -f \${XDG_CONFIG_HOME:-\$HOME/.config}/voxtype/config.toml ]]; then printf '{"value":"parakeet"}\n'; else printf '{"value":"whisper"}\n'; fi ;;
   'config get parakeet.model --json') printf '{"value":"parakeet-tdt-0.6b-v3"}\n' ;;
-  'info models --json') printf '{"models":[{"name":"parakeet-tdt-0.6b-v3","installed":false,"size":"600 MB"}]}\n' ;;
-  'info engines --json') printf '{"engines":[{"name":"parakeet","available":false}]}\n' ;;
+  'config get whisper.model --json') printf '{"value":"base.en"}\n' ;;
+  'info models --json') printf '{"engines":{"parakeet":{"models":[{"name":"parakeet-tdt-0.6b-v3","installed":false,"downloadable":true,"download_arg":"parakeet-tdt-0.6b-v3"}],"default":"parakeet-tdt-0.6b-v3"}},"verified":true}\n' ;;
+  'info engines --json') printf '[{"name":"whisper","compiled":true,"active":true},{"name":"parakeet","compiled":false,"active":false}]\n' ;;
   *) ;;
 esac
 SH
 chmod 755 "$tools/gum" "$tools/sudo" "$tools/systemctl" "$tools/voxtype"
 
 run_setup() {
-  local home="$1"
+  local home="$1" script="${2:-$plugin/tui/setup.sh}"
   : >"$TMP_ROOT/calls"
   mkdir -p -- "$home"
   status=0
-  env -i PATH="$tools" HOME="$home" XDG_CONFIG_HOME="$home/.config" VGS_TUI_UNATTENDED=1 VGS_TUI_LIB="$repo/bin/lib/tui.sh" VGS_PLUGIN_DIR="$plugin" bash "$plugin/tui/setup.sh" >"$TMP_ROOT/out" 2>"$TMP_ROOT/err" || status=$?
+  env -i PATH="$tools" HOME="$home" XDG_CONFIG_HOME="$home/.config" VGS_TUI_UNATTENDED=1 VGS_TUI_LIB="$repo/bin/lib/tui.sh" VGS_PLUGIN_DIR="$plugin" bash "$script" >"$TMP_ROOT/out" 2>"$TMP_ROOT/err" || status=$?
   calls="$(cat "$TMP_ROOT/calls")"
 }
 
@@ -71,11 +68,12 @@ home1="$TMP_ROOT/home1"
 run_setup "$home1"
 config1="$home1/.config/voxtype/config.toml"
 if [[ $status == 0 && -f $config1 ]]; then ok "setup copies default config when absent"; else fail "setup copy: status=$status err=$(cat "$TMP_ROOT/err")"; fi
+if grep -q 'Download and set up the parakeet-tdt-0.6b-v3 speech model?' "$TMP_ROOT/out" && ! grep -q 'base.en\|size unknown' "$TMP_ROOT/out"; then ok "setup confirm names the copied default model and no guessed size"; else fail "setup confirm text: $(cat "$TMP_ROOT/out")"; fi
 if [[ -f $home1/.config/voxtype/sounds/bloop/start.wav && -f $home1/.config/voxtype/sounds/bloop/stop.wav && -f $home1/.config/voxtype/sounds/bloop/error.wav ]]; then ok "setup copies the bloop sounds"; else fail "setup did not copy every sound"; fi
 if grep -q "__VGS_VOICE_BLOOP_THEME__" "$config1"; then fail "setup left the sound placeholder in config"; else ok "setup writes the absolute sound path"; fi
-order="$(grep -E 'voxtype setup (onnx --enable|--download --model parakeet-tdt-0.6b-v3 --no-post-install|systemd)|systemctl --user restart voxtype' "$TMP_ROOT/calls" | paste -sd '|' -)"
-want='voxtype setup onnx --enable|voxtype setup --download --model parakeet-tdt-0.6b-v3 --no-post-install|voxtype setup systemd|systemctl --user restart voxtype'
-if [[ $order == "$want" ]]; then ok "setup calls engine, download, systemd and restart in order"; else fail "setup order: got [$order]"; fi
+order="$(grep -E 'sudo voxtype setup onnx --enable|voxtype setup (--download --model parakeet-tdt-0.6b-v3 --no-post-install|systemd)|systemctl --user restart voxtype' "$TMP_ROOT/calls" | paste -sd '|' -)"
+want='sudo voxtype setup onnx --enable|voxtype setup --download --model parakeet-tdt-0.6b-v3 --no-post-install|voxtype setup systemd|systemctl --user restart voxtype'
+if [[ $order == "$want" ]]; then ok "setup calls sudo engine, download, systemd and restart in order"; else fail "setup order: got [$order]"; fi
 
 home2="$TMP_ROOT/home2"
 mkdir -p -- "$home2/.config/voxtype" "$TMP_ROOT/dotfiles"
@@ -94,27 +92,23 @@ if source.count(needle) != 1:
 open(sys.argv[2], 'w').write(source.replace(needle, 'if true; then'))
 PY
 chmod 755 "$control"
-: >"$TMP_ROOT/calls"
-status=0
-env -i PATH="$tools" HOME="$home2" XDG_CONFIG_HOME="$home2/.config" VGS_TUI_UNATTENDED=1 VGS_TUI_LIB="$repo/bin/lib/tui.sh" VGS_PLUGIN_DIR="$plugin" bash "$control" >"$TMP_ROOT/out" 2>"$TMP_ROOT/err" || status=$?
+run_setup "$home2" "$control"
 if [[ -L $home2/.config/voxtype/config.toml ]]; then fail "control symlink rewrite: setup still left the symlink"; else ok "control symlink rewrite turns the symlink case red"; fi
 
-control="$TMP_ROOT/setup-order.sh"
+control="$TMP_ROOT/setup-nosudo.sh"
 python3 - "$plugin/tui/setup.sh" "$control" <<'PY'
 import sys
 source = open(sys.argv[1]).read()
-needle = 'voxtype setup onnx --enable\n  vgs_tui_sudo_session end'
+needle = 'sudo voxtype setup onnx --enable'
 if source.count(needle) != 1:
-    raise SystemExit('order line count')
-open(sys.argv[2], 'w').write(source.replace(needle, ':\n  vgs_tui_sudo_session end'))
+    raise SystemExit('sudo line count')
+open(sys.argv[2], 'w').write(source.replace(needle, 'voxtype setup onnx --enable'))
 PY
 chmod 755 "$control"
 rm -rf -- "${TMP_ROOT:?}/home3"
-: >"$TMP_ROOT/calls"
-status=0
-env -i PATH="$tools" HOME="$TMP_ROOT/home3" XDG_CONFIG_HOME="$TMP_ROOT/home3/.config" VGS_TUI_UNATTENDED=1 VGS_TUI_LIB="$repo/bin/lib/tui.sh" VGS_PLUGIN_DIR="$plugin" bash "$control" >"$TMP_ROOT/out" 2>"$TMP_ROOT/err" || status=$?
-order="$(grep -E 'voxtype setup (onnx --enable|--download --model parakeet-tdt-0.6b-v3 --no-post-install|systemd)|systemctl --user restart voxtype' "$TMP_ROOT/calls" | paste -sd '|' -)"
-if [[ $order == "$want" ]]; then fail "control order: setup still matched the required order"; else ok "control order turns the call order case red"; fi
+run_setup "$TMP_ROOT/home3" "$control"
+order="$(grep -E 'sudo voxtype setup onnx --enable|voxtype setup (--download --model parakeet-tdt-0.6b-v3 --no-post-install|systemd)|systemctl --user restart voxtype' "$TMP_ROOT/calls" | paste -sd '|' -)"
+if [[ $order == "$want" ]]; then fail "control sudo: setup still routed onnx through sudo"; else ok "control sudo turns the sudo route case red"; fi
 
 if [[ $failures -gt 0 ]]; then
   printf 'test-voice-tui: failures=%d\n' "$failures"
