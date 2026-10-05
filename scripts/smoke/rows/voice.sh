@@ -530,6 +530,11 @@ expect_poll "a click under the ring reaches the client with press and release" o
 expect "the default osd setting is restored" ok voice_set_osd default
 expect_poll "the default draws the plasma orb again" "plasma=1 ring=0" voice_osd_drawn
 voice_osd_orb=Plasma
+# Monitor focus held while the second output comes and goes, as sound.sh
+# holds it: under Hyprland's default mouse focus the add and the remove move
+# the cursor and the focus that the later rows' selectors and pads start from.
+printf '%s\n' 'hl.config({ input = { follow_mouse = 0 }, cursor = { no_warps = true }, misc = { mouse_move_focuses_monitor = false } })' >>"$home/.config/hypr/hyprland.lua"
+expect "the nested instance holds monitor focus for the second output" ok hypr reload config-only
 expect "the nested compositor adds a second output for Voice" ok hypr output create headless SMOKE-VOICE
 expect_poll "the second output gets its own display copy" 2 voice_osd_copies
 expect_poll "only the focused output shows the display" focused voice_osd_focused

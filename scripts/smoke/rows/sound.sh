@@ -76,6 +76,8 @@ snd_audio() { devices_audio | py_reply 'import json,sys; d=json.load(sys.stdin);
 snd_volume() { devices_audio | py_reply 'import json,sys; n=json.load(sys.stdin)["nodes"].get(sys.argv[1]); print(round(n[0] * 100) if n else "absent")' "$1"; }
 snd_muted() { snd_audio "[\"nodes\"][\"$1\"][1]"; }
 snd_widget() { ipc smoke readInstance "$(bar_key)" vgs.sound "$1"; }
+# The Settings page's buttons that draw Use my binding.
+snd_use_mine() { ipc smoke itemTexts window vgs.settings Button | py_reply 'import json,sys; print(sum("Use my binding" in texts for texts in json.load(sys.stdin)))'; }
 snd_status() { ipc smoke statusValues vgs.sound | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get("streams"), sort_keys=True))'; }
 snd_binds() { hypr -j binds | py_reply 'import json,sys; print(json.dumps(sorted([b["key"], b["description"]] for b in json.load(sys.stdin) if b["description"].startswith("vgs.sound:") and b.get("submap", "") in ("", "default"))))'; }
 snd_pactl() { device_calls pactl; }
@@ -322,7 +324,7 @@ expect_poll "the service reads the 5% step again" 5 ipc smoke readInstance servi
 # Use my binding: the user's own bind holds XF86AudioMicMute.
 settings_page_open vgs.sound
 expect_poll "the microphone mute key names the user's bind" '"Also used by your other shortcuts."' key_field vgs.sound mic-mute conflict
-expect "only the key a user bind holds offers Use my binding" 1 ipc smoke itemTextCount window vgs.settings Button "Use my binding"
+expect "only the key a user bind holds offers Use my binding" 1 snd_use_mine
 settings_press "Use my binding" || fail "the click on Use my binding failed"
 expect_poll "Use my binding unbinds the microphone mute shortcut" null snd_key mic-mute
 expect_poll "the Hyprland layer no longer binds XF86AudioMicMute" \
@@ -352,7 +354,7 @@ PY
 rescan "rescan picks the Settings copy"
 settings_page_open vgs.sound
 expect_poll "control: the copy's microphone mute key names the user's bind" '"Also used by your other shortcuts."' key_field vgs.sound mic-mute conflict
-expect_poll "control: the copy offers Use my binding too" 1 ipc smoke itemTextCount window vgs.settings Button "Use my binding"
+expect_poll "control: the copy offers Use my binding too" 1 snd_use_mine
 # The window mapped where the last press was, so the pointer moves before
 # it presses (validation-smoke.md).
 rest_pointer || fail "control: resting the pointer failed"
