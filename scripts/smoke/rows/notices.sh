@@ -122,8 +122,8 @@ expect "the layer under the notice takes input everywhere" ok layered full 1
 # pluginInstalled: add lands the plugin disabled, the shell scans and then
 # raises the notice for the commands the scan did not find.
 add_out=""
-if add_out="$("${shell_env[@]}" "$repo/bin/vgshell" plugin add "file://$needs_src" 2>>"$sandbox/ipc.log")" \
-  && [[ $add_out == "ok added=acme.needs path=$home/.config/vgshell/plugins/acme.needs config=unchanged"$'\n'"shell=rescan-started"$'\n'"requires vgs-smoke-needs (vgs-smoke-needs-pkg)"$'\n'"requires vgs-smoke-extra (vgs-smoke-extra-git) optional"$'\n'"requires vgs-smoke-unmapped optional"$'\n'"install: vgshell pkg run install vgs-smoke-needs-pkg"$'\n'"install: vgshell pkg run install --manager aur vgs-smoke-extra-git" ]]; then
+if add_out="$("${shell_env[@]}" "$repo/bin/vgshell" plugin add --yes "file://$needs_src" 2>>"$sandbox/ipc.log")" \
+  && [[ $add_out == "ok added=acme.needs path=$home/.config/vgshell/plugins/acme.needs config=unchanged lands=disabled"$'\n'"shell=rescan-started"$'\n'"requires vgs-smoke-needs (vgs-smoke-needs-pkg)"$'\n'"requires vgs-smoke-extra (vgs-smoke-extra-git) optional"$'\n'"requires vgs-smoke-unmapped optional"$'\n'"install: vgshell pkg run install vgs-smoke-needs-pkg"$'\n'"install: vgshell pkg run install --manager aur vgs-smoke-extra-git" ]]; then
   ok "vgshell plugin add installs the needs fixture and names its missing packages"
 else
   fail "vgshell plugin add of the needs fixture: $add_out"
