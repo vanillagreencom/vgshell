@@ -342,7 +342,7 @@ mutations=(
   "Tab skips the dialog's listed content items|feedback/Dialog.qml|const items = Array.from(tabItems).filter(item => item.enabled && shown(item));|const items = [];|tst_dialog.qml"
   "Tab reaches a hidden listed content item|feedback/Dialog.qml|filter(item => item.enabled && shown(item))|filter(item => item.enabled)|tst_dialog.qml"
   "Tab skips the dialog's initial focus item|feedback/Dialog.qml|const lead = initialFocus !== null && initialFocus.enabled && !items.includes(initialFocus) ? [initialFocus] : [];|const lead = [];|tst_dialog.qml"
-  "the dialog's first action takes the focus|feedback/Dialog.qml|const target = accept !== undefined && accept.enabled ? accept : enabled[0];|const target = enabled[0];|tst_dialog.qml"
+  "the dialog's first action takes the focus|feedback/Dialog.qml|const target = first !== undefined && first.enabled ? first : enabled[0];|const target = enabled[0];|tst_dialog.qml"
   "Tab stops at the dialog's last action|feedback/Dialog.qml|reach[(at + step + reach.length) % reach.length]|reach[Math.max(0, Math.min(at + step, reach.length - 1))]|tst_dialog.qml"
   "modal dialog lets Tab leave|feedback/Dialog.qml|property bool modal: true|property bool modal: false|tst_dialog.qml"
   "Tab focus draws no ring in the dialog|feedback/Dialog.qml|next.forceActiveFocus(step > 0 ? Qt.TabFocusReason : Qt.BacktabFocusReason)|next.forceActiveFocus()|tst_dialog.qml"
