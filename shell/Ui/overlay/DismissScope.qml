@@ -3,12 +3,15 @@ import QtQuick.Window
 
 // The root of a grabbing popup's content, shared by Popover, Menu and the
 // list of Select: an Escape no item inside accepts closes the popup, and so
-// does a press anywhere in the window its anchor draws in. The compositor's
-// grab dismisses the popup on a press outside that window but hands a press
-// inside it to the shell like any other (runtime-pointer.md), so while the
-// popup is open one item over that window's content takes the press. It
-// closes the popup and keeps the press from what lies under it, as the
-// compositor's dismissal does; hover and the wheel still reach the window.
+// does a press anywhere in the window its anchor draws in. The popup grab
+// is an owner-events grab (xdg_popup.grab in xdg-shell.xml): Hyprland
+// dismisses the popup on a press outside that window but hands a press
+// inside it to the shell like any other, so while the popup is open one
+// item over that window's content takes the press. It closes the popup and
+// keeps the press from the items under it, as the compositor's dismissal
+// does; a pointer handler under it, such as a TapHandler, is still offered
+// the press, since Qt hands an accepted press on to the handlers below.
+// Hover and the wheel still reach the window.
 FocusScope {
     id: scope
 

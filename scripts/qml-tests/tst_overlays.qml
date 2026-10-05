@@ -21,7 +21,7 @@ import qs.Unit
 // window's rounded interior, so a filled row half scrolled past the top and
 // the bar's thumb at the top stay inside the curve; a square list draws no
 // layer.
-// A press in the anchor's window closes each overlay and reaches nothing
+// A press in the anchor's window closes each overlay and reaches no item
 // under it. The nested sandbox proves placement, real keys and the
 // compositor's dismissal.
 Item {
@@ -130,7 +130,7 @@ Item {
         }
 
         // A press anywhere in the window an overlay's anchor draws in closes
-        // it and reaches nothing under it; once it is closed, a press
+        // it and reaches no item under it; once it is closed, a press
         // reaches the window again.
         function test_a_press_in_the_anchor_window_closes_the_overlay() {
             const overlays = [
@@ -144,7 +144,7 @@ Item {
                 compare(overlay.opened(), true, overlay.name + " opens");
                 mouseClick(under);
                 compare(overlay.opened(), false, "a press in the window closes the " + overlay.name);
-                compare(root.reached, 0, "the press that closes the " + overlay.name + " reaches nothing under it");
+                compare(root.reached, 0, "the press that closes the " + overlay.name + " reaches no item under it");
                 mouseClick(under);
                 compare(root.reached, 1, "with the " + overlay.name + " closed a press reaches the window");
             }

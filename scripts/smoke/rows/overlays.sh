@@ -12,9 +12,9 @@
 # same widget, stays open through it. A press in the window the select sits
 # in, which the grab hands to the shell, and Escape close its list, in an
 # application window and in a bar flyout, through the DismissScope the
-# three share: a select copy whose scope takes the press without closing,
-# and one whose scope drops Escape, stay open through the same press and
-# key.
+# three share: in the application window, a select copy whose scope takes
+# the press without closing, and one whose scope drops Escape, stay open
+# through the same press and key.
 # inputs: scripts/smoke/fixtures/plugins/acme.overlays/* shell/Ui/overlay/* shell/Ui/controls/Select.qml
 set -euo pipefail
 ov="$home/.config/vgshell/plugins/acme.overlays"
