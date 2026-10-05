@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import zlib
 
 HERE = Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location("shader_check", HERE / "check-voiceorb-shader.py")
@@ -33,6 +34,9 @@ class ShaderControls(unittest.TestCase):
             ("invalid", "not glsl;", 1, "voiceorb-shader: compile-failed"),
             ("source-changed", original.replace("max(ring, arcs)", "min(ring, arcs)"), 1, "voiceorb-shader: stale"),
             ("pack-changed", None, 1, "voiceorb-shader: stale"),
+            ("pack-recompressed", None, 0, "voiceorb-shader: ok"),
+            ("pack-other-shader", None, 1, "voiceorb-shader: stale"),
+            ("pack-length-wrong", None, 1, "voiceorb-shader: stale"),
             ("missing-pack", None, 1, "voiceorb-shader: unreadable"),
             ("loop", original.replace("float ring =", "for (int i = 0; i < 5; ++i) { radius += pixel; }\n    float ring ="), 1, "voiceorb-shader: refused rule=loop"),
             ("texture", original + "\nlayout(binding=1) uniform sampler2D source;\n", 1, "voiceorb-shader: refused rule=texture"),
@@ -47,6 +51,14 @@ class ShaderControls(unittest.TestCase):
                 shutil.copyfile(checker.SOURCE.with_suffix(".frag.qsb"), pack)
                 if name == "pack-changed":
                     pack.write_bytes(b"invalid pack")
+                if name in ("pack-recompressed", "pack-other-shader", "pack-length-wrong"):
+                    shipped = pack.read_bytes()
+                    held = zlib.decompress(shipped[4:])
+                    if name == "pack-other-shader":
+                        held = held[:-1] + bytes([held[-1] ^ 1])
+                    prefix = len(held) + (1 if name == "pack-length-wrong" else 0)
+                    pack.write_bytes(prefix.to_bytes(4, "big") + zlib.compress(held, 1))
+                    self.assertNotEqual(pack.read_bytes(), shipped)
                 if name == "missing-pack":
                     pack.unlink()
                 if name == "missing-source":
@@ -64,7 +76,7 @@ class ShaderControls(unittest.TestCase):
         with tempfile.TemporaryDirectory() as scratch:
             script = Path(scratch) / "check.py"
             text = (HERE / "check-voiceorb-shader.py").read_text()
-            needle = "elif compiled.read_bytes() != fresh:"
+            needle = "elif (held := shader(compiled.read_bytes())) is None or held != shader(fresh):"
             self.assertEqual(text.count(needle), 1)
             changed = text.replace(needle, "elif False:")
             self.assertNotEqual(text, changed)

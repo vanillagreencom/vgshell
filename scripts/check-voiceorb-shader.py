@@ -6,6 +6,10 @@ or in Qt's Linux tool directories; QSB overrides the lookup for test copies.
 Exit 77 when it is absent. Exit 1 on unreadable, invalid, stale or forbidden
 source. --write regenerates the pack. --source selects a disposable copy.
 The qsb --qt6 targets and --qsbversion 64 are the reproducible build contract.
+A pack is fresh when it holds the shader a fresh compile holds. A pack is
+qCompress output, a 4-byte big-endian length and a zlib stream, and two zlib
+builds deflate one shader to different bytes (zlib 1.3.2 on Arch, zlib-ng
+2.3.3 on CachyOS), so the pack is compared decompressed.
 """
 import argparse
 import os
@@ -14,6 +18,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import zlib
 
 SOURCE = Path(__file__).resolve().parents[1] / "shell/Ui/feedback/shaders/voiceorb.frag"
 OPTIONS = ("--qt6", "--qsbversion", "64")
@@ -27,6 +32,15 @@ def qsb_tool():
     return shutil.which("qsb") or next(
         (str(p) for p in (Path("/usr/lib/qt6/bin/qsb"), Path("/usr/lib64/qt6/bin/qsb"))
          if p.is_file() and os.access(p, os.X_OK)), None)
+
+
+def shader(pack):
+    """The serialized shader a qCompress pack holds, or None."""
+    try:
+        held = zlib.decompress(pack[4:])
+    except zlib.error:
+        return None
+    return held if len(pack) >= 4 and int.from_bytes(pack[:4], "big") == len(held) else None
 
 
 def check(source, write=False):
@@ -60,7 +74,7 @@ def check(source, write=False):
             fresh = output.read_bytes()
             if write:
                 compiled.write_bytes(fresh)
-            elif compiled.read_bytes() != fresh:
+            elif (held := shader(compiled.read_bytes())) is None or held != shader(fresh):
                 print(f"voiceorb-shader: stale pack={compiled}")
                 return 1
     except (OSError, UnicodeError) as error:
