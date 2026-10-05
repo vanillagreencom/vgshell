@@ -39,6 +39,14 @@ import "Steps.js" as Steps
 // and each inline value draws at line height 1, centred on its label. The
 // switches, and the listing metadata with Manage, are each one key/value
 // group `stack.row` apart, with one key/value row height.
+//
+// A text field and a key typed as text wait for a save (EditSet): while one
+// holds an unsaved edit the footer shows the save bar, whose Save, and
+// Ctrl+S anywhere on the page, write every such edit, and whose Discard
+// puts the configuration's values back. The bar reads Saved once the last
+// edit is written, and a refused one keeps its field edited and the bar
+// shown. A change to Details with an unsaved edit returns to Settings and
+// asks the panel first.
 FocusScope {
     id: page
 
@@ -57,6 +65,8 @@ FocusScope {
     readonly property alias initialFocus: back
     // Whether the Settings page holds nothing below its switches.
     readonly property bool bare: row !== null && row.tuis.length === 0 && sections.length === 0 && lists.length === 0 && row.binds.length === 0
+    // Whether a field of the page holds an unsaved edit.
+    readonly property bool dirty: unsaved.edited
 
     // The schema's keys by section: [{ group, keys }], entries without a
     // group first under "", then each group in the order its first entry
@@ -107,9 +117,31 @@ FocusScope {
         back.forceActiveFocus(reason);
     }
 
+    // Write every unsaved edit; answers whether none is left.
+    function save() {
+        return unsaved.save();
+    }
+
+    function discard() {
+        unsaved.discard();
+    }
+
+    EditSet {
+        id: unsaved
+        onSaved: saveBar.confirm()
+        // The bar's actions leave with the last edit, so the keyboard one
+        // of them holds goes to the strip, as a page that hides hands it on.
+        onEditedChanged: if (!edited && saveBar.activeFocus) tabs.tabs.forceActiveFocus(Qt.TabFocusReason)
+    }
+
     // The back button and the title sit outside the tab pages, so the keys
     // they leave go to the pages, which step on the tab keys.
     Keys.forwardTo: [tabs]
+    Keys.onPressed: event => {
+        if (event.key !== Qt.Key_S || event.modifiers !== Qt.ControlModifier) return;
+        save();
+        event.accepted = true;
+    }
 
     Pane {
         id: layout
@@ -197,7 +229,20 @@ FocusScope {
                 id: tabs
                 width: parent.width
                 model: ["Settings", "Details"]
-                onCurrentIndexChanged: layout.scrollArea.contentY = 0
+                // True while the handler puts Settings back.
+                property bool returning: false
+                onCurrentIndexChanged: {
+                    if (returning) return;
+                    if (currentIndex === 0 || !page.dirty) {
+                        layout.scrollArea.contentY = 0;
+                        return;
+                    }
+                    const wanted = currentIndex;
+                    returning = true;
+                    currentIndex = 0;
+                    returning = false;
+                    page.panel.leave(() => { tabs.currentIndex = wanted; });
+                }
 
                 Column {
                     id: settingsPage
@@ -339,9 +384,7 @@ FocusScope {
                                     value: page.row.settings[modelData]
                                     choices: page.row.settingChoices[modelData] || []
                                     editable: page.editable
-                                    // An editor loses focus while the page is torn
-                                    // down and emits apply into a page that is
-                                    // gone; that edit was never committed.
+                                    edits: unsaved
                                     onApply: v => { if (page !== null && page.row !== null) page.panel.writeSetting(pluginId, key, v); }
                                 }
                             }
@@ -367,6 +410,7 @@ FocusScope {
                                 value: page.row.settings[listSection.modelData]
                                 choices: page.row.settingChoices[listSection.modelData] || []
                                 editable: page.editable
+                                edits: unsaved
                                 onApply: v => { if (page !== null && page.row !== null) page.panel.writeSetting(pluginId, key, v); }
                             }
                         }
@@ -390,7 +434,8 @@ FocusScope {
                                 bind: modelData
                                 editable: page.editable
                                 capture: page.panel.capture
-                                onApplyKey: key => { if (page !== null && page.row !== null) page.panel.writeKey(pluginId, modelData.shortcut, key); }
+                                edits: unsaved
+                                onApplyKey: key => { if (page !== null && page.row !== null) settle(key, Reply.isOk(page.panel.writeKey(pluginId, modelData.shortcut, key))); }
                             }
                         }
                     }
@@ -534,5 +579,15 @@ FocusScope {
                 }
             }
         }
+
+        footer: [
+            SaveBar {
+                id: saveBar
+                width: parent.width
+                dirty: page.dirty
+                onSave: page.save()
+                onDiscard: page.discard()
+            }
+        ]
     }
 }

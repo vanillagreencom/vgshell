@@ -8,11 +8,31 @@ import qs.Ui
 // manifest's key applies. While a user Hyprland bind holds the key, Use my
 // binding sends null, which unbinds the shortcut so the user's own bind
 // keeps the key, in one click. The field then shows what the configuration
-// holds again, so a refused key leaves the old one in place.
+// holds again.
+//
+// A key typed as text waits in the text entry until it is saved: `edited`
+// says the entry holds a key other than the one in effect, `save()` sends
+// it as Enter there does and `discard()` drops it. The page tells the row
+// through `settle` whether the manager accepted each key it sent, and a
+// refused key returns to the text entry, so it stays an unsaved edit the
+// user corrects. `edits` is the page's set of unsaved edits (EditSet),
+// which the row joins while edited.
 BindField {
     id: root
 
+    property var edits: null
+    readonly property bool edited: shortcutField.edited
     readonly property bool userHolds: found !== null && found.user === true
+
+    function save() { shortcutField.acceptTyped(); }
+    function discard() { shortcutField.stopTyping(); }
+    function settle(key, accepted) {
+        if (!accepted && typeof key === "string") shortcutField.startTyping(key);
+    }
+
+    Component.onDestruction: if (edits !== null) edits.forget(root)
+    onEditedChanged: if (edits !== null) edits.track(root)
+    onEditableChanged: if (!editable) discard()
 
     hint: bind["default"] === null ? "No default shortcut." : "Default shortcut: " + bind["default"] + "."
 

@@ -32,6 +32,17 @@ import qs.Ui
 // open(), which refuses the summon. A plugin that leaves the manager's rows
 // while its page is shown, as a removal's rescan does, returns the window
 // to the list with a notice naming it.
+//
+// A plugin page that holds an unsaved edit is left only after a prompt:
+// the back button, Escape, the title's menu, a deep link to another page,
+// the Details tab and a hide by the shell each ask once, Save, Discard or
+// Cancel, over a scrim. Save writes every edit and leaves when each was
+// accepted, Discard drops them and leaves, and Cancel, Escape and a press
+// on the scrim stay. A request that comes while the prompt shows replaces
+// the one it waits on, so no second prompt opens. The window host asks
+// `holdsHide()` before it hides the window, and the window hides itself
+// through its `surfaces` capability once the prompt is answered. A close
+// through Hyprland asks nothing: the window is gone, and its edits with it.
 FocusScope {
     id: root
 
@@ -59,8 +70,16 @@ FocusScope {
     // without a slide.
     property bool sliding: false
 
+    // What leaving the page waits on while the prompt asks: a function
+    // that leaves, or null while no prompt shows.
+    property var pending: null
+    // The item that held the keyboard when the prompt opened, and how it
+    // took it, so an answer hands the keyboard back with its ring.
+    property Item askedFrom: null
+    property int askedReason: Qt.OtherFocusReason
+
     readonly property var current: rowOf(drawn)
-    property Item initialFocus: page === "" ? list.initialFocus : detail.initialFocus
+    property Item initialFocus: pending !== null ? prompt : page === "" ? list.initialFocus : detail.initialFocus
 
     implicitWidth: Math.floor(Math.min(Theme.size.window.width, OverlayState.room(screen).width))
     implicitHeight: screen === null ? Theme.size.panel.maxHeight : Math.floor(Theme.size.window.heightShare * screen.height)
@@ -71,8 +90,49 @@ FocusScope {
     onPluginsChanged: {
         if (page === "" || rowOf(page) !== null) return;
         const gone = page;
+        // Its fields went with its row, so nothing is left to ask about.
+        pending = null;
+        askedFrom = null;
         showList();
         notice = gone + " is no longer listed.";
+    }
+
+    // Run `then`, which leaves the shown plugin page: now when the page
+    // holds no unsaved edit, else once the prompt is answered Save or
+    // Discard. Answers whether it ran now.
+    function leave(then) {
+        if (!detail.dirty) {
+            then();
+            return true;
+        }
+        if (pending === null) {
+            askedFrom = root.Window.activeFocusItem;
+            askedReason = askedFrom !== null && askedFrom.focusReason !== undefined ? askedFrom.focusReason : Qt.OtherFocusReason;
+        }
+        pending = then;
+        return false;
+    }
+
+    // The prompt's answer: `save`, `discard` or `cancel`.
+    function answer(choice) {
+        const then = pending;
+        const left = choice === "save" ? detail.save() : choice === "discard";
+        if (choice === "discard") detail.discard();
+        // A refused key takes the keyboard to its field; else it returns
+        // to the item the prompt took it from.
+        const held = prompt.activeFocus;
+        pending = null;
+        if (held && askedFrom !== null) askedFrom.forceActiveFocus(askedReason);
+        askedFrom = null;
+        if (left) then();
+    }
+
+    // The window host asks before it hides the window: true keeps it open
+    // while the prompt asks about the page's unsaved edit.
+    function holdsHide() {
+        if (!detail.dirty) return false;
+        leave(() => Qt.callLater(() => root.shell.surfaces.hide("window")));
+        return true;
     }
 
     // Where a reply is kept: plugin `id`, then, for a status step, its
@@ -108,14 +168,21 @@ FocusScope {
         // Each open reads the system again: a scan asked for while one runs
         // starts when it ends, so `ok` and `busy` both mean a fresh one.
         shell.manager.rescan();
-        sliding = false;
-        notice = "";
-        if (payload.plugin === undefined) showList(Qt.ShortcutFocusReason);
-        else if (rowOf(payload.plugin) === null) {
-            showList(Qt.ShortcutFocusReason);
-            notice = "No plugin named " + payload.plugin + " is available.";
-        } else openPlugin(payload.plugin, Qt.ShortcutFocusReason);
-        Qt.callLater(() => { root.sliding = true; });
+        // A summon of the page already shown leaves nothing.
+        if (page !== "" && payload.plugin === page) {
+            show(page, Qt.ShortcutFocusReason);
+            return;
+        }
+        leave(() => {
+            sliding = false;
+            notice = "";
+            if (payload.plugin === undefined) showList(Qt.ShortcutFocusReason);
+            else if (rowOf(payload.plugin) === null) {
+                showList(Qt.ShortcutFocusReason);
+                notice = "No plugin named " + payload.plugin + " is available.";
+            } else show(payload.plugin, Qt.ShortcutFocusReason);
+            Qt.callLater(() => { root.sliding = true; });
+        });
     }
 
     function close() {}
@@ -125,21 +192,31 @@ FocusScope {
         list.focusSearch(reason);
     }
 
-    // Open the page of plugin `id`, on its Settings page; answers `ok` or
-    // `unknown: <id>`.
-    function openPlugin(id, reason) {
-        if (rowOf(id) === null) return "unknown: " + id;
+    function show(id, reason) {
         notice = "";
         drawn = id;
         page = id;
         detail.open(reason === undefined ? Qt.TabFocusReason : reason);
-        return "ok";
     }
 
-    // Pop the plugin page to the list; answers `ok`.
+    // Open the page of plugin `id`, on its Settings page; answers `ok`,
+    // `unknown: <id>`, or `refused: unsaved=<page>` while the prompt asks
+    // about the shown page's unsaved edit first.
+    function openPlugin(id, reason) {
+        if (rowOf(id) === null) return "unknown: " + id;
+        if (id === page) {
+            show(id, reason);
+            return "ok";
+        }
+        const from = page;
+        return leave(() => show(id, reason)) ? "ok" : "refused: unsaved=" + from;
+    }
+
+    // Pop the plugin page to the list; answers `ok`, or `refused:
+    // unsaved=<page>` while the prompt asks first.
     function back() {
-        showList(Qt.TabFocusReason);
-        return "ok";
+        const from = page;
+        return leave(() => showList(Qt.TabFocusReason)) ? "ok" : "refused: unsaved=" + from;
     }
 
     // Enable or disable plugin `id`, the opposite of its state now; answers
@@ -282,6 +359,35 @@ FocusScope {
                 visible: root.page !== "" || slide.running
                 focus: root.page !== ""
             }
+        }
+    }
+
+    Scrim {
+        visible: root.pending !== null
+        onClicked: root.answer("cancel")
+    }
+
+    Dialog {
+        id: prompt
+        anchors.centerIn: parent
+        visible: root.pending !== null
+        availableHeight: root.height
+        title: "Save your changes?"
+        message: root.current === null ? "" : root.current.name + " has unsaved changes."
+        actions: [
+            { label: "Save", role: "accept" },
+            { label: "Cancel", role: "cancel" }
+        ]
+        tabItems: [discardChanges]
+        onVisibleChanged: if (visible) forceActiveFocus()
+        onAccepted: root.answer("save")
+        onRejected: root.answer("cancel")
+
+        Button {
+            id: discardChanges
+            text: "Discard"
+            variant: "tertiary"
+            onClicked: root.answer("discard")
         }
     }
 }

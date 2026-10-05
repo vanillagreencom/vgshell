@@ -10,6 +10,8 @@ import qs.Ui
 // Every edit sends the whole list through `apply`, which the page writes
 // through the manager's set-setting path, so the configuration's judge
 // sees each change and a refused one leaves the drawn list as it was.
+// `edits` is the page's set of unsaved edits, which each item field joins
+// while its text editor holds one.
 Column {
     id: root
 
@@ -21,6 +23,7 @@ Column {
     // `settingChoices` for this key.
     property var choices: []
     property bool editable: true
+    property var edits: null
     signal apply(var value)
 
     readonly property var items: Array.isArray(value) ? value : []
@@ -99,6 +102,7 @@ Column {
                         value: itemGroup.modelData[modelData]
                         choices: root.choices[itemGroup.index] === undefined || root.choices[itemGroup.index][modelData] === undefined ? [] : root.choices[itemGroup.index][modelData]
                         editable: root.editable
+                        edits: root.edits
                         onApply: v => root.setField(itemGroup.modelData.name, modelData, v)
                     }
                 }

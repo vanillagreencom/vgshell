@@ -9,6 +9,15 @@ import qs.Ui
 // and number presets use Select, with Custom… last when custom values are
 // allowed. A custom datetime string validates before it writes. A bounded
 // number uses Slider, and a unit makes its value read as a quantity.
+//
+// Every editor but a text one writes at once. A text editor keeps what is
+// typed until it is saved: Enter in it writes it, a loss of focus writes
+// nothing, and Escape puts back what the configuration holds. `edited` says
+// a text editor holds a text the configuration does not, `save()` writes it
+// and `discard()` puts the configuration's back. A text the manager
+// refuses, or the custom editor's own check does, stays in its editor, so
+// the field stays edited. `edits` is the page's set of unsaved edits
+// (EditSet), which the field joins while edited and Enter saves through.
 Column {
     id: root
 
@@ -18,6 +27,7 @@ Column {
     property var value
     property var choices: []
     property bool editable: true
+    property var edits: null
     property bool customChosen: false
     property var presetModel: []
     readonly property int segmentedLimit: 3 // More choices read better in a vertical Select list.
@@ -28,12 +38,20 @@ Column {
     readonly property bool customVisible: allowCustom && (customChosen || selectedPresetIndex < 0)
     readonly property string labelText: spec.label !== undefined ? String(spec.label) : key
     readonly property string hintText: spec.description !== undefined ? String(spec.description) : ""
+    // What the configuration holds, as a text editor shows it.
+    readonly property string heldText: value === undefined ? "" : String(value)
+    readonly property bool edited: editing(loader.item) || editing(customLoader.item)
     signal apply(var value)
 
     width: parent === null ? implicitWidth : parent.width
     spacing: Theme.field.gap
 
     Component.onCompleted: rebuildPresetModel()
+    Component.onDestruction: if (edits !== null) edits.forget(root)
+    onEditedChanged: if (edits !== null) edits.track(root)
+    // A read-only field and a hidden custom row hold no edit.
+    onEditableChanged: if (!editable) discard()
+    onCustomVisibleChanged: if (!customVisible && editing(customLoader.item)) customLoader.item.revert()
     onSpecChanged: rebuildPresetModel()
     onChoicesChanged: rebuildPresetModel()
     onValueChanged: {
@@ -70,6 +88,28 @@ Column {
         return -1;
     }
     function displayNumber(v) { return spec.unit === undefined ? String(v) : SettingValues.quantityText(v, spec.unit); }
+
+    function editing(editor) { return editor !== null && editor.edited === true; }
+    function save() {
+        for (const editor of [loader.item, customLoader.item]) if (editing(editor)) editor.save();
+    }
+    function discard() {
+        for (const editor of [loader.item, customLoader.item]) if (editing(editor)) editor.revert();
+    }
+    // Enter in a text editor: the page's set saves this field, so the page
+    // hears of a save; a field with no set writes for itself.
+    function enter() {
+        if (edits !== null) edits.save(root);
+        else save();
+    }
+    // Write the text of `input`. The manager's rows come back before
+    // `apply` returns, so the value is the typed one exactly when the write
+    // was accepted, and the editor then shows what the configuration holds.
+    function commit(input) {
+        const typed = spec.type === "number" ? (input.text.trim() === "" ? NaN : Number(input.text)) : input.text;
+        apply(typed);
+        if (sameValue(typed, value)) input.text = heldText;
+    }
 
     Field {
         id: primary
@@ -111,16 +151,21 @@ Column {
         id: text
         TextField {
             id: input
+            readonly property bool edited: text !== root.heldText
+            function save() { root.commit(input); }
+            function revert() { text = root.heldText; }
             width: parent.width
-            text: root.value === undefined ? "" : String(root.value)
             readOnly: !root.editable
             focusPolicy: root.editable ? Qt.StrongFocus : Qt.NoFocus
             escapeReverts: true
-            committedText: String(root.value)
-            onEditingFinished: {
-                const typed = text;
-                text = Qt.binding(() => root.value === undefined ? "" : String(root.value));
-                root.apply(root.spec.type === "number" ? (typed.trim() === "" ? NaN : Number(typed)) : typed);
+            committedText: root.heldText
+            onAccepted: root.enter()
+            // The text follows the configuration's value when that changes,
+            // and no binding holds it, so a draft outlives every other change.
+            Component.onCompleted: text = root.heldText
+            Connections {
+                target: root
+                function onHeldTextChanged() { input.text = root.heldText; }
             }
         }
     }
@@ -133,20 +178,24 @@ Column {
             implicitHeight: Math.max(input.implicitHeight, preview.implicitHeight)
             readonly property string problemCode: root.spec.format === "datetime" ? SettingValues.datetimeFormatProblem(input.text) : ""
             readonly property string problemText: problemCode === "" ? "" : SettingValues.PROBLEM_TEXT[problemCode]
+            readonly property bool edited: input.text !== root.heldText
+            function save() { if (problemText === "") root.commit(input); }
+            function revert() { input.text = root.heldText; }
 
             TextField {
                 id: input
-                text: root.value === undefined ? "" : String(root.value)
                 readOnly: !root.editable
                 error: custom.problemText !== ""
                 width: preview.visible ? Math.max(Theme.size.panel.sm / 3, parent.width - preview.width - Theme.stack.inline) : parent.width
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
-                onEditingFinished: {
-                    const typed = text;
-                    if (custom.problemText !== "") return;
-                    text = Qt.binding(() => root.value === undefined ? "" : String(root.value));
-                    root.apply(root.spec.type === "number" ? (typed.trim() === "" ? NaN : Number(typed)) : typed);
+                escapeReverts: true
+                committedText: root.heldText
+                onAccepted: root.enter()
+                Component.onCompleted: text = root.heldText
+                Connections {
+                    target: root
+                    function onHeldTextChanged() { input.text = root.heldText; }
                 }
             }
 
