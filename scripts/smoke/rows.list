@@ -137,6 +137,10 @@ style
 # relaunches the shell through the nested Hyprland, and it starts the
 # sandbox's tree again before it ends.
 core-drift
+# After core-drift, with the tail rows that restart the shell: its Reset and
+# Restore relaunch the shell through the nested Hyprland, and it starts the
+# sandbox's tree again over the user file it found before it ends.
+reset
 # This row restarts the shell for its hidden widget and its control, so it runs with the tail rows that do the same.
 widget-hide
 # After every row that opens a TUI: the stand-in terminal ran no plugin
