@@ -135,7 +135,7 @@ function verify(logic) {
 // Like the Dev Tools handler test, execute the QML source under Node with
 // capability doubles. No second implementation or QML parsing library.
 function windowContext(logic, source) {
-    const names = ["stepKey", "replyOf", "keep", "secretStep", "addPlugin", "storeSecret", "clearSecret", "tuiKey", "openTui"];
+    const names = ["stepKey", "replyOf", "keep", "secretStep", "listStep", "addPlugin", "resetVgs", "storeSecret", "clearSecret", "tuiKey", "openTui"];
     const functions = names.map(name => {
         const found = [...source.matchAll(new RegExp("^    function " + name + "\\([^\\n]*\\) \\{\\n[\\s\\S]*?^    \\}", "gm"))];
         assert.equal(found.length, 1, `extractor: one actual Window.${name}`);
@@ -159,6 +159,10 @@ function verifyCallers(logic, source, page) {
         assert.equal(ctx.addPlugin(), raw, "add returns the unchanged machine reply");
         assert.equal(ctx.notice, logic.line(raw), "the list reads the mapped refusal");
         assert.equal(logs.at(-1), "settings: add " + raw);
+        ctx.shell.manager.reset = () => raw;
+        assert.equal(ctx.resetVgs(), raw, "reset returns the unchanged machine reply");
+        assert.equal(ctx.notice, logic.line(raw), "the list reads the mapped refusal");
+        assert.equal(logs.at(-1), "settings: reset " + raw);
     }
     for (const raw of ["ok", "ok hidden=acme.widget"]) {
         const before = logs.length;
@@ -166,6 +170,9 @@ function verifyCallers(logic, source, page) {
         assert.equal(ctx.replyOf("plugin"), "");
         ctx.shell.manager.add = () => raw;
         assert.equal(ctx.addPlugin(), raw);
+        assert.equal(ctx.notice, "");
+        ctx.shell.manager.reset = () => raw;
+        assert.equal(ctx.resetVgs(), raw);
         assert.equal(ctx.notice, "");
         assert.equal(logs.length, before, "success clears the message without a refusal log");
     }

@@ -300,22 +300,26 @@ FocusScope {
         return reply;
     }
 
-    // Open the add of a plugin from a git URL in a floating terminal through
-    // the manager; a refusal stays over the list until a later add opens.
-    function addPlugin() {
-        const reply = shell.manager.add();
+    // One of the list heading's manager steps, VERB, run by CALL: its
+    // refusal stays over the list until a later step answers, and the log
+    // keeps the machine reply; answers that reply.
+    function listStep(verb, call) {
+        const reply = call();
         notice = Reply.line(reply);
-        if (notice !== "") console.warn("settings: add " + reply);
+        if (notice !== "") console.warn("settings: " + verb + " " + reply);
         return reply;
+    }
+
+    // Open the add of a plugin from a git URL in a floating terminal through
+    // the manager.
+    function addPlugin() {
+        return listStep("add", () => shell.manager.add());
     }
 
     // Ask the core's reset question through the manager; the notice sits on
     // a layer over every window, so this window stays open behind it.
     function resetVgs() {
-        const reply = shell.manager.reset();
-        notice = Reply.line(reply);
-        if (notice !== "") console.warn("settings: reset " + reply);
-        return reply;
+        return listStep("reset", () => shell.manager.reset());
     }
 
     // Set the key of shortcut `shortcut` of plugin `id`: a key string
