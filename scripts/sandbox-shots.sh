@@ -986,6 +986,10 @@ EOF
   if "$has_jarvis"; then
     expect "enabling vgs.jarvis is allowed" ok ipc shell setPluginEnabled vgs.jarvis true
     expect_poll "the Jarvis daemon answers hello without a restart" ready jarvis_started
+    # Jarvis requires wlrctl, which the shell finds absent, so enabling it
+    # raises its requirement notice, which closes before the shot.
+    for _ in $(seq 1 25); do [[ $(notice_shown) != null ]] && break; sleep 0.2; done
+    close_notices
     expect "the window opens the Jarvis page" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.jarvis
     expect_poll "the Jarvis page is shown" '"vgs.jarvis"' settings_page
     page_details
@@ -1857,6 +1861,25 @@ bluetooth_nearby() { ipc smoke readInstance window vgs.bluetooth lists | py_repl
 # fixture, which misses a command it needs; Escape closes it, and the
 # fixture is disabled again so the next mode raises it anew.
 notice_plugin() { notice_shown | py_reply 'import json,sys; s=json.load(sys.stdin); print(json.dumps(s[0] if s else None))'; }
+# notice_moved_from PLUGIN: `closed` once the shown notice is no longer
+# PLUGIN's, JSON-quoted as notice_plugin prints it.
+notice_moved_from() { local now; now="$(notice_plugin)" || return 1; if [[ $now != "$1" ]]; then echo closed; else echo "$now"; fi; }
+# close_notices: every requirement notice the scene's enabling raised
+# closed in queue order, at most four. The notices queue and show one at a
+# time; Escape closes the shown one once its layer maps and its dialog
+# holds the keyboard, and the next then shows.
+close_notices() {
+  local shown
+  for _ in 1 2 3 4; do
+    shown="$(notice_plugin)" || shown=unread
+    [[ $shown == null ]] && break
+    expect_poll "the requirement notice of $shown maps" 1 layer_count vgs:notice
+    expect_poll "the requirement notice of $shown holds the keyboard" true ipc smoke noticeFocused
+    type_keys -k Escape || fail "sending Escape to the requirement notice of $shown failed"
+    expect_poll "Escape closes the requirement notice of $shown" closed notice_moved_from "$shown"
+  done
+  expect_poll "Escape closed every requirement notice" null notice_shown
+}
 # Network reads S08's mock and command stand-ins. Its pane is a real
 # System section, so this shot includes the holder's sidebar and inset.
 scene_network() { # MODE
@@ -2311,14 +2334,11 @@ PY
           expect "enabling $id is allowed" ok ipc shell setPluginEnabled "$id" true
           expect_poll "$id is built" True record_exists "$id"
         done
-        # Dev Tools requires mise, which the shell finds absent, so enabling
-        # it raises the core's requirement notice; Escape closes it before
-        # any shot.
+        # Agent Warden and Dev Tools require vsys and mise, which the shell
+        # finds absent, so enabling them raises the core's requirement
+        # notice for each; every one closes before any shot.
         for _ in $(seq 1 25); do [[ $(notice_shown) != null ]] && break; sleep 0.2; done
-        if [[ $(notice_shown) != null ]]; then
-          type_keys -k Escape || fail "sending Escape to the requirement notice failed"
-          expect_poll "Escape closes the requirement notice" null notice_shown
-        fi
+        close_notices
         expect "the themes plugin is disabled to read the shipped target" ok ipc shell setPluginEnabled vgs.themes false
         expect_poll "the themes service is gone" False record_exists vgs.themes
         expect "the themes plugin is enabled with the target shipped" ok ipc shell setPluginEnabled vgs.themes true
