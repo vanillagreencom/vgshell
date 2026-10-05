@@ -80,6 +80,10 @@ case "$1" in
       shift
     done
     container="$2"
+    case "$container" in
+      vgs-readme-install-2.*|vgs-readme-install-4.*) export STUB_VERSION="${STUB_CHECKOUT_VERSION:-$STUB_VERSION}" ;;
+      *) export STUB_VERSION="${STUB_PACKAGE_VERSION:-$STUB_VERSION}" ;;
+    esac
     [[ ! -e $STUB_RECORD.$container.nix ]] || export PATH="$STUB_NIX_PATH"
     shift 2
     [[ $1 != install ]] || exit 0
@@ -210,7 +214,7 @@ row "curl receives a noninteractive recipe pager" 77 "readme-install: ok line=$c
 row "checkout versions use the canonical version and describe report" 77 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" STUB_DESCRIBE="$version.r14.g797b0cb" --
 if grep -qxF "readme-install: version line=$curl_line channel=curl value=vgshell $version.r14.g797b0cb" <<<"$row_output"; then ok "the checkout display is logged without alteration"; else fail "the checkout display was not logged"; fi
 row "an inconsistent checkout version display is refused" 1 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" STUB_DISPLAY=broken --
-row "an unexpected installed version is refused" 1 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" STUB_VERSION=broken --
+row "an unexpected installed version is refused" 1 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" STUB_CHECKOUT_VERSION=broken --
 if grep -qxF "readme-install: refused: line=$curl_line version=unexpected" <<<"$row_output"; then ok "the installed version refusal names its cause"; else fail "the installed version refusal has another cause"; fi
 readme_edit "paru -S vgshell-git" "yay -S vgshell-git"
 row "a README check-readme refuses is refused" 1 "readme-install: refused: check-readme=refused" "$stubbed" --
@@ -265,13 +269,13 @@ control "an interactive recipe pager" '-e PARU_PAGER=cat ' '' \
   "pager" 77 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" STUB_REQUIRE_PAGER=1 --
 # shellcheck disable=SC2016
 control "an unchecked checkout base version" 'if (report.version !== process.argv[2]) process.exit(1);' '' \
-  "version" 1 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" STUB_VERSION=broken --
+  "version" 1 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" STUB_CHECKOUT_VERSION=broken --
 # shellcheck disable=SC2016
 control "an unchecked checkout display" 'if (process.argv[3] !== `vgshell ${report.describe ?? report.version}`) process.exit(1);' '' \
   "display" 1 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" STUB_DISPLAY=broken --
 # shellcheck disable=SC2016
 control "an unchecked packaged version" '[[ $version_out == "vgshell $(<"$repo/VERSION")" ]]' 'true' \
-  "package version" 1 "readme-install: ok line=${aur_first%%:*} channel=aur exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT='{"results":[{"Name":"vgshell-git"}]}' STUB_VERSION=broken --
+  "package version" 1 "readme-install: ok line=${aur_first%%:*} channel=aur exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT='{"results":[{"Name":"vgshell-git"}]}' STUB_PACKAGE_VERSION=broken --
 
 # shellcheck disable=SC2016
 control "the Nix image without script cannot use the Arch wrapper" '[[ ${block_image[$block]} == arch ]]' 'true' \
