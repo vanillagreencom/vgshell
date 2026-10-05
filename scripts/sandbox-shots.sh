@@ -350,6 +350,7 @@ has_bar_plugin=false
 has_automations=false
 has_jarvis=false
 has_scratchpads=false
+has_webapps=false
 has_setup_steps=false
 has_voice=false
 has_ai_usage=false
@@ -358,6 +359,7 @@ has_ai_usage=false
 [[ -f $tree/shell/plugins/vgs.automations/manifest.json ]] && has_automations=true
 [[ -f $tree/shell/plugins/vgs.jarvis/manifest.json ]] && has_jarvis=true
 [[ -f $tree/shell/plugins/vgs.scratchpads/manifest.json ]] && has_scratchpads=true
+[[ -f $tree/shell/plugins/vgs.webapps/manifest.json ]] && has_webapps=true
 [[ -f $tree/shell/plugins/vgs.bar/manifest.json ]] && has_bar_plugin=true
 [[ -f $tree/shell/plugins/vgs.voice/manifest.json ]] && has_voice=true
 [[ -f $tree/shell/plugins/vgs.ai-usage/manifest.json ]] && has_ai_usage=true
@@ -1028,6 +1030,41 @@ EOF
     if [[ $pads_found == False ]]; then
       expect "disabling vgs.scratchpads is allowed" ok ipc shell setPluginEnabled vgs.scratchpads false
       expect_poll "vgs.scratchpads is gone" False record_exists vgs.scratchpads
+    fi
+  fi
+  # The Web Apps page at its Web apps section, opened as a click opens it,
+  # one web app written through the window. Its address is the loopback
+  # discard port, where nothing listens, so the service's read of the site
+  # reaches no network and fails at once; the shot shows the list field.
+  # The web apps and the enablement are put back after the shot.
+  local webapps_found=unread
+  if "$has_webapps"; then
+    webapps_found="$(plugin_enabled vgs.webapps)" || webapps_found=unread
+    [[ $webapps_found == True || $webapps_found == False ]] || fail "vgs.webapps' enablement is unreadable: $webapps_found"
+  fi
+  if [[ $webapps_found != unread ]]; then
+    if [[ $webapps_found == False ]]; then
+      expect "enabling vgs.webapps is allowed" ok ipc shell setPluginEnabled vgs.webapps true
+      expect_poll "vgs.webapps is built" True record_exists vgs.webapps
+    fi
+    expect "the window opens the Web Apps page as a click does" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPluginByPointer vgs.webapps
+    expect_poll "the Web Apps page is shown" '"vgs.webapps"' settings_page
+    expect "the Web apps field's Add is clicked" clicked ipc smoke invokeInstance "$settings_kind" vgs.settings listAdd '{"id":"vgs.webapps","key":"apps"}'
+    expect "the web app's address and name are written" ok ipc smoke invokeInstance "$settings_kind" vgs.settings applySetting '{"id":"vgs.webapps","key":"apps","value":[{"name":"1","url":"http://127.0.0.1:9/","title":"Mail","icon":""}]}'
+    if section="$(settings_section "Web apps" Button Add)"; then
+      read -r start _ _ <<<"$section"
+      settings_scroll_to "$((start - 3 * margin))" || fail "the scroll to the Web apps section failed"
+    else
+      fail "the Web apps section is unreadable: $section"
+    fi
+    park_pointer
+    expect "the Settings window's root takes the focus" focused ipc smoke invokeInstance "$settings_kind" vgs.settings focusInstance ""
+    expect "no notice covers the Web Apps page" null notice_shown
+    take "settings-$1-webapps"
+    expect "the web app is removed after the shot" ok ipc smoke invokeInstance "$settings_kind" vgs.settings applySetting '{"id":"vgs.webapps","key":"apps","value":[]}'
+    if [[ $webapps_found == False ]]; then
+      expect "disabling vgs.webapps is allowed" ok ipc shell setPluginEnabled vgs.webapps false
+      expect_poll "vgs.webapps is gone" False record_exists vgs.webapps
     fi
   fi
   expect "the window opens the launcher's page again" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.launcher
