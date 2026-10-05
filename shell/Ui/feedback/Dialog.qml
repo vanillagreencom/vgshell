@@ -12,18 +12,20 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // and the wheel while `modal` holds, so nothing under it answers, such as a
 // scrim that rejects the dialog on a click away.
 //
-// `actions` is a list of `{ label, role, variant, enabled }`. `role` is
+// `actions` is a list of `{ label, role, variant, enabled, focused }`. `role` is
 // `accept` or `cancel`, and pressing the action emits `accepted` or
 // `rejected`; an unknown role is logged and read as `cancel`, so a mistyped
 // action never accepts. `variant` names a Button variant, by default
 // `primary` for an accept action and `tertiary` for a cancel action;
 // `enabled` is true unless stated false. The first accept action is the
-// accept action. A dialog with actions always offers a way out: at least
+// accept action. `focused: true` names the action that takes the focus in
+// the accept action's place, such as a cancel action a destructive accept
+// action should not hold. A dialog with actions always offers a way out: at least
 // one of them has role `cancel`, with the label its caller chose for the
 // message, and a list without one is logged.
 //
-// The accept action takes the focus each time the dialog does, or
-// `initialFocus` when set: an enabled item of the content that takes typing,
+// The accept action, or the action marked `focused`, takes the focus each
+// time the dialog does, or `initialFocus` when set: an enabled item of the content that takes typing,
 // such as a password field. `tabItems` lists further content items that
 // take the keys, such as a Select ahead of that field, in their order. Tab
 // and Backtab move the focus through the shown and enabled `tabItems`, the
@@ -51,6 +53,7 @@ FocusScope {
     default property alias content: body.data
     readonly property var entries: dismissable(actions.map(entryOf))
     readonly property int acceptIndex: entries.findIndex(entry => entry.role === "accept")
+    readonly property int focusIndex: entries.findIndex(entry => entry.focused)
     readonly property real maximumHeight: {
         const height = availableHeight > 0 ? availableHeight : root.screenHeight();
         return height > 0 ? height * Theme.dialog.maxHeightShare : Theme.size.panel.maxHeight;
@@ -69,7 +72,8 @@ FocusScope {
             label: String(action.label),
             role: role,
             variant: action.variant !== undefined ? action.variant : role === "accept" ? "primary" : "tertiary",
-            enabled: action.enabled !== false
+            enabled: action.enabled !== false,
+            focused: action.focused === true
         };
     }
 
@@ -101,11 +105,12 @@ FocusScope {
         if (entry.role === "accept") accepted(); else rejected();
     }
 
-    // Hand the focus to the accept action, else to the first enabled action.
+    // Hand the focus to the action marked `focused`, else the accept action,
+    // else the first enabled action.
     function focusInitial(reason) {
         const enabled = buttons().filter(button => button.enabled);
-        const accept = buttons()[acceptIndex];
-        const target = accept !== undefined && accept.enabled ? accept : enabled[0];
+        const first = buttons()[focusIndex !== -1 ? focusIndex : acceptIndex];
+        const target = first !== undefined && first.enabled ? first : enabled[0];
         if (target !== undefined) target.forceActiveFocus(reason === undefined ? Qt.TabFocusReason : reason);
     }
 

@@ -6,7 +6,8 @@ import qs.Ui
 import qs.Unit
 
 // Dialog: the card, the title and the message drawn from the `dialog`
-// tokens; the accept action focused first with a ring; Enter and Return
+// tokens; the accept action focused first with a ring, or the action
+// marked `focused`; Enter and Return
 // pressing the focused action or the accept action, Escape rejecting; Tab
 // and Backtab cycling the enabled actions with the ring and never leaving
 // the dialog; a press answering with the action's role; the default
@@ -365,6 +366,26 @@ Item {
             compare(spy.count, 1);
             spy.destroy();
             odd.destroy();
+        }
+
+        // A destructive accept action leaves the focus to the action marked
+        // `focused`, so Enter and Return press that one.
+        function test_the_action_marked_focused_takes_the_focus_and_enter() {
+            const asks = Qt.createQmlObject("import qs.Ui\nDialog { actions: [{ label: \"Cancel\", role: \"cancel\", focused: true }, { label: \"Hide\", role: \"accept\", variant: \"danger\" }] }", root);
+            const rejected = Qt.createQmlObject("import QtTest\nSignalSpy { signalName: \"rejected\" }", root);
+            const accepted = Qt.createQmlObject("import QtTest\nSignalSpy { signalName: \"accepted\" }", root);
+            rejected.target = asks;
+            accepted.target = asks;
+            asks.forceActiveFocus();
+            const [cancel, hide] = asks.buttons();
+            compare(cancel.activeFocus, true);
+            compare(hide.activeFocus, false);
+            keyClick(Qt.Key_Return);
+            compare(rejected.count, 1);
+            compare(accepted.count, 0);
+            rejected.destroy();
+            accepted.destroy();
+            asks.destroy();
         }
 
         // New actions rebuild the buttons, so none holds the focus.

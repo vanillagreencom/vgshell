@@ -333,6 +333,7 @@ mutations=(
   "the wheel on the dialog's card reaches what lies under it|feedback/Dialog.qml|onWheel: wheel => { wheel.accepted = root.modal; }|onWheel: wheel => { wheel.accepted = false; }|tst_dialog.qml"
   "an inline dialog's card keeps the wheel from the page under it|feedback/Dialog.qml|onWheel: wheel => { wheel.accepted = root.modal; }|onWheel: wheel => { wheel.accepted = true; }|tst_dialog.qml"
   "Enter answers no dialog left with one cancel action|feedback/Dialog.qml|acceptIndex !== -1 ? acceptIndex : entries.findIndex(entry => entry.enabled)|acceptIndex|tst_dialog.qml"
+  "the action marked focused leaves the focus to the accept action|feedback/Dialog.qml|buttons()[focusIndex !== -1 ? focusIndex : acceptIndex]|buttons()[acceptIndex]|tst_dialog.qml"
   "Return answers no dialog|feedback/Dialog.qml|Keys.onReturnPressed: pressFocused()|Keys.onReturnPressed: {}|tst_dialog.qml"
   "Escape leaves the dialog unanswered|feedback/Dialog.qml|Keys.onEscapePressed: event => { if (modal && !busy) rejected(); else event.accepted = false; }|Keys.onEscapePressed: event => { event.accepted = false; }|tst_dialog.qml"
   "Escape answers a busy dialog|feedback/Dialog.qml|Keys.onEscapePressed: event => { if (modal && !busy) rejected(); else event.accepted = false; }|Keys.onEscapePressed: event => { if (modal) rejected(); else event.accepted = false; }|tst_dialog.qml"
