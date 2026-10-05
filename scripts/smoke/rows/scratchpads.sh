@@ -175,6 +175,22 @@ data = json.load(sys.stdin)
 rows = data[0] if data and isinstance(data[0], list) else data
 row = next((r for r in rows if r.get("name") == sys.argv[1]), None)
 print("absent" if row is None else json.dumps([row.get("enabled"), row.get("style", "")]))' "$1"; }
+# sp_pad_loaded LUA: `loaded` once the layer Hyprland has loaded holds pad
+# 1 with the Lua condition LUA over `pad` true, else `not-loaded` and
+# hyprctl's reply. The shell reloads Hyprland in a Process after it writes
+# the layer file, so the file can hold a change Hyprland has not loaded;
+# a press before that load toggles the old pad, and the load after it sets
+# the special workspace leaves back to the configuration's
+# (docs/architecture/runtime-hyprland-pads.md § Motion). A function run
+# through `hyprctl dispatch` that raises answers its error text, not `ok`.
+sp_pad_loaded() {
+  local reply
+  if reply="$(hypr dispatch "function() local pad = hl.__vgs_pads ~= nil and hl.__vgs_pads.list[\"1\"] or nil if pad == nil or not ($1) then error(\"vgs-pad=not-loaded\") end end" 2>&1)" && [[ $reply == ok ]]; then
+    echo loaded
+  else
+    printf 'not-loaded reply=[%s]\n' "$reply"
+  fi
+}
 # The `activespecial` lines of Hyprland's event socket since line N of
 # its log, as `<workspace>@<monitor>` words.
 sp_specials_since() { tail -n "+$(($1 + 1))" -- "$sp_events" | sed -n 's/^activespecial>>\(.*\),\(.*\)$/\1@\2/p' | tr '\n' ' ' | sed 's/ $//'; }
@@ -403,6 +419,9 @@ for pair in "width 80" "height 30" "position \"bottom-left\"" "margin 5" "entry 
 done
 expect "the Settings window is hidden after the changes" ok ipc shell hide window vgs.settings
 expect_poll "the layer holds the changed pad" yes sp_layer_has 'pads.list["1"] = { x = "start", y = "end", width = 80, height = 30, margin = 5, entry = "left", motion = "slide" }'
+expect_poll "Hyprland loads the changed pad's layer" loaded sp_pad_loaded 'pad.x == "start" and pad.y == "end" and pad.width == 80 and pad.height == 30 and pad.margin == 5 and pad.entry == "left" and pad.motion == "slide"'
+sp_unloaded="$(sp_pad_loaded 'pad.motion == "fade"')"
+expect "control: the loaded-layer reader refuses a pad Hyprland does not hold" not-loaded echo "${sp_unloaded%% *}"
 sp_press || fail "typing the pad's key after the changes failed"
 expect_poll "the next press shows the changed pad" shown sp_state
 geometry expect_poll "the changed pad sits at its new shares" '[0, 0, 0, 0]' sp_box 80 30 5 start end
@@ -415,6 +434,7 @@ expect "the pad's motion editor takes none" applied sp_field motion '"none"'
 expect "the pad's position editor takes center" applied sp_field position '"center"'
 expect "the Settings window is hidden after the motion change" ok ipc shell hide window vgs.settings
 expect_poll "the layer holds the motionless pad" yes sp_layer_has 'motion = "none" }'
+expect_poll "Hyprland loads the motionless pad's layer" loaded sp_pad_loaded 'pad.x == "center" and pad.y == "center" and pad.motion == "none"'
 sp_press || fail "typing the pad's key after the motion change failed"
 expect_poll "the motionless pad shows" shown sp_state
 expect "the pad shows with no special workspace animation" '[false, ""]' sp_leaf specialWorkspaceIn
