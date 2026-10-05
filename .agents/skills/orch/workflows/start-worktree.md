@@ -22,8 +22,7 @@ The full session from inside a worktree: implement → review → submit → fin
 3. **Refuse containers** — Linear only, before any state exists. Apply the Ancestor gate ([references/skill-rules.md § Coordination](../references/skill-rules.md#coordination)) to:
 
    ```bash
-   .agents/skills/linear/scripts/linear.sh sync --reconcile
-   .agents/skills/linear/scripts/linear.sh cache issues get [ISSUE_ID] --with-bundle
+   .agents/skills/linear/scripts/linear.sh issues get [ISSUE_ID] --with-bundle
    ```
 
    A container, a blocked child, or a `(one PR)` promotion all STOP here without leasing or initializing anything. A promotion: point the operator at `/orch start [PARENT_ID]`. A container: list its unblocked children and say this worktree should not exist for it. A blocked child: name the live blockers.
@@ -31,10 +30,10 @@ The full session from inside a worktree: implement → review → submit → fin
 4. **Claim the worktree.** **Skip if** `WORKTREE_PATH` is the main checkout — the guard refuses it.
 
    ```bash
-   .agents/skills/worktree/scripts/worktree-session-guard claim [WORKTREE_PATH] --owner [ISSUE_ID]
+   .agents/skills/worktree/scripts/worktree-session-guard claim [WORKTREE_PATH] --owner [ISSUE_ID] --adopt
    ```
 
-   Do **not** pass `--repo` (`claim` and `refresh` reject it). Exit 75 means another session holds the lease — coordinate with that owner instead of proceeding. A flock-less host still serializes through the guard's mkdir mutex; exit 1 means the guard itself failed — stop and read its message, never continue unguarded.
+   `--adopt` takes over the lease the session-start hook took under this session's environment owner. Do **not** pass `--repo` (`claim` and `refresh` reject it). Exit 75 means another session holds the lease — coordinate with that owner instead of proceeding. A flock-less host still serializes through the guard's mkdir mutex; exit 1 means the guard itself failed — stop and read its message, never continue unguarded.
 
 5. **Initialize state unless it exists.** `init` overwrites, and a restarted item's state file carries its round history (`cycles`, `fixed_items`, `patched_causes`), so read existence and the branch first:
 

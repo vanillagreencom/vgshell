@@ -64,9 +64,10 @@ Then gather decisions:
 
 ```bash
 .agents/skills/decider/scripts/decisions search --issue [ISSUE_ID]
+.agents/skills/decider/scripts/decisions search "[KEYWORDS_OF_THE_CHANGED_AREA]"
 ```
 
-The `path` fields in that JSON are the ONLY authorized source for decision file paths — never compose or recall one from memory. Verify each before injecting it, one command per path:
+The `path` fields in that JSON are the ONLY authorized source for decision file paths — never compose or recall one from memory. A decision binds only after its full record and status are read: one marked superseded binds only what its status leaves active, and a retired one binds nothing. Verify each before injecting it, one command per path:
 
 ```bash
 test -f [DECISION_FILE_PATH]
@@ -415,7 +416,7 @@ A line whose `commit_id` is `[HEAD_SHA]` and whose `state` is `APPROVED` ends th
   env -u GH_REPO -u GITHUB_REPOSITORY .agents/skills/orch/scripts/approval-wait [PR_NUMBER] --request-review --base-checkout [REVIEW_BASE_CHECKOUT]
   ```
 
-  Route the answer per [Copilot requests](../references/gates.md#copilot-requests) before recording the head or starting the wait.
+  Route the answer per [Copilot requests](../references/gates.md#copilot-requests) before recording the head or starting the wait. On `fallback`, record the head and start no wait. Under `cause=refused`, send the notice `copilot-fallback PR #[PR_NUMBER] head [HEAD_SHA] [CAUSE]`, `[CAUSE]` and the line under it as that section sets, which asks for the overseer's fallback approval; under `cause=off` send nothing, since the caller's approval wait sends it.
 
   ```bash
   .agents/skills/orch/scripts/workflow-state update [ISSUE_ID] '.pr_approval.copilot_rerequest_head = "[HEAD_SHA]"'

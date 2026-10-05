@@ -34,9 +34,10 @@ An answer ending `cause=classifier class=trivial`, a measured trivial branch, go
 
 ```bash
 .agents/skills/decider/scripts/decisions search --issue [ISSUE_ID]
+.agents/skills/decider/scripts/decisions search "[KEYWORDS_OF_THE_CHANGED_AREA]"
 ```
 
-The `path` fields in that JSON are the ONLY authorized source for decision file paths — never compose or recall one from memory. Verify each before injecting it, one command per path:
+The `path` fields in that JSON are the ONLY authorized source for decision file paths — never compose or recall one from memory. A decision binds only after its full record and status are read: one marked superseded binds only what its status leaves active, and a retired one binds nothing. Verify each before injecting it, one command per path:
 
 ```bash
 test -f [DECISION_FILE_PATH]
@@ -62,7 +63,7 @@ Refresh the size report for the current `HEAD` on each entry to this section:
 
 On a nonzero exit, report the failure and stop. Read the resulting `pr.size_check` report. Its verdict and counts inform the reviewer's or orchestrator's cut decision under [finding-disposition.md § Decision flow](../references/finding-disposition.md#decision-flow). They do not gate review.
 
-`[AGENTS]` is the caller's `agents` context when provided. Otherwise it is the first-cycle panel: the reviewers this harness exposes whose domains the whole diff, `origin/[BASE_BRANCH]...HEAD`, or the issue's Done-when touches, by [§ 4's scoped-panel rule](#bounded-re-review). Read the Done-when first: `linear.sh cache issues get [ISSUE_ID]` `.description` for Linear, `gh issue view [N] --repo [OWNER/REPO] --json body --jq .body` for GitHub. A failed read, or a `pr-N` key, selects from the diff alone, and `[PANEL_REASON]` says so. On a § 1 entry, record the panel before any spawn, `[PANEL_REASON]` naming the domains touched, or `caller panel` for a caller's `agents`:
+`[AGENTS]` is the caller's `agents` context when provided. Otherwise it is the first-cycle panel: the reviewers this harness exposes whose domains the whole diff, `origin/[BASE_BRANCH]...HEAD`, or the issue's Done-when touches, by [§ 4's scoped-panel rule](#bounded-re-review). Read the Done-when first: `linear.sh issues get [ISSUE_ID]` `.description` for Linear, `gh issue view [N] --repo [OWNER/REPO] --json body --jq .body` for GitHub. A failed read, or a `pr-N` key, selects from the diff alone, and `[PANEL_REASON]` says so. On a § 1 entry, record the panel before any spawn, `[PANEL_REASON]` naming the domains touched, or `caller panel` for a caller's `agents`:
 
 ```bash
 .agents/skills/orch/scripts/workflow-state set [ISSUE_ID] first_panel '{"agents": [PANEL_AGENTS_JSON], "reason": "[PANEL_REASON]"}'

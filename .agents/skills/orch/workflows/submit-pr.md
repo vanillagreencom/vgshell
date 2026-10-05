@@ -37,7 +37,7 @@ git -C "[WORKTREE_PATH]" status --porcelain
 git -C "[WORKTREE_PATH]" diff "origin/[BASE_BRANCH_FROM_PREVIOUS_COMMAND]"...HEAD --stat
 ```
 
-Stop before pushing when the branch is empty (detached HEAD), equals the base branch, the working tree is dirty, or the committed diff against the base is empty. Then run `.agents/skills/preflight/scripts/preflight --base "origin/[BASE_BRANCH_FROM_PREVIOUS_COMMAND]" --repo [WORKTREE_PATH]` when installed. Reuse a successful validation result for the current commit whose mode is `full`, from an accepted dev completion artifact's `validate_mode` or this submit session. A `range` pass is never reused, because it covers one fix round's changes and not the branch: submit then runs `DEV_VALIDATE_CMD` for the current commit as when no dev result exists. A failing dev validation artifact blocks submission and is reported without another validation run. A dev `no-verdict` result for the current commit, `full` or `range`, is not re-run: its battery already hit the bound, its `validate_note` names the scoped suites that passed, and CI is the full record. A run submit starts that ends `no-verdict` takes the fallback [dev-implement.md § 5. Validate](../../dev/workflows/dev-implement.md#5-validate) gives the dev round: its scoped suites once each, one red blocking the push and all green pushing with those suites named in the PR body; a diff whose fallback selects no suite file is a failing result and blocks the push. When no dev result exists, run the project's `DEV_VALIDATE_CMD` through `.agents/skills/orch/scripts/dev-validate-run`, started and polled as [dev SKILL.md § Long-Running Validation](../../dev/SKILL.md#long-running-validation) sets out, the same route [dev-implement.md § 5. Validate](../../dev/workflows/dev-implement.md#5-validate) takes. What the runner hands the command, and whose failure a full battery the class does not need is, are that section's. A changed commit needs a new result. Either check failing blocks the push. In managed lifecycle, return the failed preflight to the caller so the dev agent can normalize the branch and clean the worktree. Never create a PR from dirty or detached state.
+Stop before pushing when the branch is empty (detached HEAD), equals the base branch, the working tree is dirty, or the committed diff against the base is empty. Then run `.agents/skills/preflight/scripts/preflight --base "origin/[BASE_BRANCH_FROM_PREVIOUS_COMMAND]" --repo [WORKTREE_PATH]` when installed. Reuse a successful validation result for the current commit whose mode is `full` and whose class covered the whole branch, from an accepted dev completion artifact's `validate_mode` with a `null` `validate_class_base`, or this submit session. A `range` pass, or a `full` pass with a `validate_class_base`, is never reused, because it covers one fix round's changes and not the branch: submit then runs `DEV_VALIDATE_CMD` for the current commit as when no dev result exists. A failing dev validation artifact blocks submission and is reported without another validation run. A dev `no-verdict` result for the current commit, `full` or `range`, is not re-run: its battery already hit the bound, its `validate_note` names the scoped suites that passed, and CI is the full record. A run submit starts that ends `no-verdict` takes the fallback [dev-implement.md § 5. Validate](../../dev/workflows/dev-implement.md#5-validate) gives the dev round: its scoped suites once each, one red blocking the push and all green pushing with those suites named in the PR body; a diff whose fallback selects no suite file is a failing result and blocks the push. When no dev result exists, run the project's `DEV_VALIDATE_CMD` through `.agents/skills/orch/scripts/dev-validate-run`, started and polled as [dev SKILL.md § Long-Running Validation](../../dev/SKILL.md#long-running-validation) sets out, the same route [dev-implement.md § 5. Validate](../../dev/workflows/dev-implement.md#5-validate) takes. What the runner hands the command, and whose failure a full battery the class does not need is, are that section's. A changed commit needs a new result. Either check failing blocks the push. In managed lifecycle, return the failed preflight to the caller so the dev agent can normalize the branch and clean the worktree. Never create a PR from dirty or detached state.
 
 ### 1.2 Local Pre-PR Review
 
@@ -68,7 +68,7 @@ Use the epoch output as `LOCAL_STARTED_AT`:
 
 Route the findings per the `review-finding` schema. Disposition every finding per [references/finding-disposition.md](../references/finding-disposition.md) § Decision flow, Step 0 first, and only what survives it enters the fix set. No blockers and no `category: "fix"` or `category: "issue"` suggestions → § 2. Otherwise delegate any blockers and fix-category suggestions: `⤵ workflows/dev-fix.md § 1-3 → § 1.2 tail` with context `worktree`, `lifecycle: "managed"`, `issue_id`, `items` (blockers plus fix-category suggestions), `source: local-review`. `category: "issue"` suggestions and the fix round's escalated items that clear the filing bar ([references/finding-disposition.md](../references/finding-disposition.md)) build an audit-input file at `tmp/audit-local-review-YYYYMMDD-HHMMSS.json` per `.agents/skills/project-management/schemas/audit-issues-input.md` with `source: "local-review"`, then apply [skill-rules.md § Coordination](../references/skill-rules.md#coordination) before `⤵ .agents/skills/project-management/workflows/audit-issues.md --issues [FILE_PATH] § 1-9`, each escalated item taking the `origin` its `outcome` maps to in [`review-pr.md`](review-pr.md) § 8, with the created IDs listed in the PR body.
 
-**The loop is bounded at one confirming pass.** If dev-fix applied commits, run the review once more over the updated diff, then run § 1.1's validation for the new HEAD under § 1.1's rules for a `range` pass and a `no-verdict` result, then → § 2 regardless of what the review found. If nothing was applied, → § 2.
+**The loop is bounded at one confirming pass.** If dev-fix applied commits, run the review once more over the updated diff, then run § 1.1's validation for the new HEAD under § 1.1's rules for a pass that covers one fix round's changes and a `no-verdict` result, then → § 2 regardless of what the review found. If nothing was applied, → § 2.
 
 ---
 
@@ -151,7 +151,7 @@ When a cut follows the last review pass, set the existing `pre_delegate_sha` wor
    .agents/skills/github/scripts/github.sh -C "[WORKTREE_PATH]" pr-edit-body "$PR_NUM" --body-file "$BODY_FILE"
    ```
 
-   `[ISSUE_TITLE]` comes from `linear.sh cache issues get [ISSUE_ID]` or `gh issue view [N] --json title --jq '.title'`.
+   `[ISSUE_TITLE]` comes from `linear.sh issues get [ISSUE_ID]` or `gh issue view [N] --json title --jq '.title'`.
 
 5. **Arm auto-merge** as soon as the PR exists, on every pass through this section, for a PR that will take the queue: the arm reads [merge-pr.md](merge-pr.md) § 5 step 1's merge route and arms nothing where that route takes the PR past the queue. **Skip if** `orch-env ORCH_MERGE_AUTONOMY auto` prints anything but `auto`: the arm is the merge consent that setting holds back.
 
@@ -211,7 +211,7 @@ At 2 or more → § 3.2 with the note "max re-submit cycles reached, the re-subm
 
 ### 3.2 Golden Baselines
 
-**Skip if** the issue does not carry the `design` label (`linear.sh cache issues get [ISSUE_ID] --format=compact`, or `gh issue view [N] --json labels`).
+**Skip if** the issue does not carry the `design` label (`linear.sh issues get [ISSUE_ID] --format=compact`, or `gh issue view [N] --json labels`).
 
 Capture golden baselines in the worktree with the project's visual QA tooling; if the project has no baseline-capable target, skip and report why. Commit and push without retriggering CI:
 
@@ -245,7 +245,7 @@ For `off`, skip the wait and go to § 5. The internal review, CI, and comment-hy
 
 A retarget changes the base without touching the head, so every path below that re-resolves the mode runs this section's command again and records what it prints, and § 6.1 re-runs it before gate 4.
 
-**Who acts.** The lane waits and triages under its own credential, and never approves its own PR. The overseer approves a head only as [copilot-head-notices.md](../references/copilot-head-notices.md) sets, reached by pr-watch's `awaiting-stale` line ([oversee-events.md](../references/oversee-events.md), `pr-watch`) or a Copilot notice from [review-pr-comments.md](review-pr-comments.md#72-copilot-head-route) § 7.2. The lane's own `timeout` row below keeps it waiting or asks the user. An approval that arrives ends the wait as `approved`.
+**Who acts.** The lane waits and triages under its own credential, and never approves its own PR. The overseer approves a head only as [copilot-head-notices.md](../references/copilot-head-notices.md) sets, reached by pr-watch's `awaiting-stale` line ([oversee-events.md](../references/oversee-events.md), `pr-watch`) or a Copilot notice from a lane: [review-pr-comments.md](review-pr-comments.md#72-copilot-head-route) § 7.2 sends each kind, [gates.md § Copilot requests](../references/gates.md#copilot-requests) sends `copilot-fallback` on a refused request, and under `PR_COPILOT_REQUESTS=off` the wait in step 1 sends it itself, once per head (`approval-wait --help`). The lane's own `timeout` row below keeps it waiting or asks the user. An approval that arrives ends the wait as `approved`.
 
 1. **Wait.** Poll for the verdict and new comments together:
 
@@ -253,14 +253,14 @@ A retarget changes the base without touching the head, so every path below that 
    env -u GH_REPO -u GITHUB_REPOSITORY .agents/skills/orch/scripts/approval-wait [PR_NUMBER] 30 --json --mode [GATE_MODE] --item [ISSUE_ID]
    ```
 
-   No `max_wait` positional: the budget resolves through `PR_REVIEW_WAIT_SECS`. approval-wait emits a JSON result on every exit but `5`.
+   No `max_wait` positional: the budget resolves through `PR_REVIEW_WAIT_SECS`. approval-wait emits a JSON result on every exit but `2` and `5`. Exit `2` is a stop: report its stderr line.
 
    | `status` | Action |
    |----------|--------|
    | `approved` | Clear the review-wait budget, then → step 2. An approval returns only with zero unresolved threads: one standing open returns `comments` |
    | `proceeded` | Reviewer-down degrade under `PR_REVIEW_ON_TIMEOUT=proceed`. Clear the review-wait budget, record `pr_approval.reviewer_down` (below), then → step 2. CI and gate 3 still apply in full. Orch posts no status and manufactures no review evidence |
    | `changes_requested` or `comments` | Run the triage pass, then the Restart check |
-   | `unreviewable` | No automatic reviewer targets this PR's base ([references/gates.md](../references/gates.md) § Stacked pull requests). Run the [Copilot request owner](../references/gates.md#copilot-requests) once. On `approval`, enter the Restart check. On `off`, go to § 5. If the wait returns `unreviewable` again, `auto-recommended` records `review-gate-unreviewable`; `ask` presents `Force merge` \| `Keep waiting` \| `Stop here`, with `Stop here` recommended, and routes the answer by the override paragraph below |
+   | `unreviewable` | No automatic reviewer targets this PR's base ([references/gates.md](../references/gates.md) § Stacked pull requests). Run the [Copilot request owner](../references/gates.md#copilot-requests) once. On `approval`, enter the Restart check. On `fallback`, route as that owner says, then enter the Restart check. On `off`, go to § 5. If the wait returns `unreviewable` again, `auto-recommended` records `review-gate-unreviewable`; `ask` presents `Force merge` \| `Keep waiting` \| `Stop here`, with `Stop here` recommended, and routes the answer by the override paragraph below |
    | `timeout` | `auto-recommended` logs `Keep waiting` and enters the Restart check; `ask` presents `Force merge` \| `Keep waiting` \| `Stop here`, with `Keep waiting` recommended, and routes the answer by the override paragraph below |
    | `error` | Re-run step 1 once. If it repeats, `auto-recommended` records `review-gate-read-failed`; `ask` presents `Keep waiting` \| `Stop here`, with `Keep waiting` recommended |
 

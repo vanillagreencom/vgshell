@@ -16,8 +16,7 @@ Run `pwd -P` before the first repo-relative command; it must print the delegatio
 **A bundle needs an explicit single-PR marker.** A parent with children is a CONTAINER unless one of exactly three markers is present: `(one PR)` in its title, `Audit Bundle: yes` in the delegation, or a leaf issue carrying an internal checklist. The title marker outranks an `agent:multi` label. With none present, stop and report the mis-delegation. Check the marker against the delegation's `Parent Title:` line; when a bundled delegation omits that line, read the title first — never classify from labels and children alone:
 
 ```bash
-.agents/skills/linear/scripts/linear.sh sync --reconcile
-.agents/skills/linear/scripts/linear.sh cache issues get [PARENT_ID]
+.agents/skills/linear/scripts/linear.sh issues get [PARENT_ID]
 ```
 
 In the sub-issue tree, complete blockers before the issues they block; entries marked `(completed)` are context only and are skipped in the § 4 loop.
@@ -46,13 +45,12 @@ Determine the tracker: `Issue:`/`Parent: ABC-123` → Linear; `GitHub Issue: OWN
 Linear only — activate the issue, or the parent alone if bundled (sub-issues activate individually in § 4):
 
 ```bash
-.agents/skills/linear/scripts/linear.sh sync --reconcile
 .agents/skills/linear/scripts/linear.sh issues activate [ISSUE_ID] --agent [AGENT_TYPE]
-.agents/skills/linear/scripts/linear.sh cache issues get [ISSUE_ID]
-.agents/skills/linear/scripts/linear.sh cache comments list [ISSUE_ID]
+.agents/skills/linear/scripts/linear.sh issues get [ISSUE_ID]
+.agents/skills/linear/scripts/linear.sh comments list [ISSUE_ID]
 ```
 
-The sync must succeed before activation or any cache read. A missing cache before that command is expected in a fresh worktree. If the sync fails, stop and preserve its exact diagnostic: that is a sync/auth/API/config failure, not a missing-cache result. If a mandatory cache read reports `No cache found` after sync succeeded, stop and report a cache-initialization defect. Never run this Linear preflight for GitHub-tracked or ad-hoc work.
+Every read is live. A failed read or activation stops the round with its exact diagnostic, an auth, API or configuration failure; a rate-limited activation is held under the linear skill's `patterns/workflow-actions.md` § Quota Holds. Never run this Linear preflight for GitHub-tracked or ad-hoc work.
 
 GitHub only:
 
@@ -62,13 +60,13 @@ gh issue view [N] --repo [OWNER/REPO] --json number,title,body,comments,labels,u
 
 Ad-hoc: no tracker reads.
 
-**If bundled with completed siblings**, read their comments too, all of them in one `linear.sh cache comments bulk-list [COMPLETED_SIBLING_ID_1] [COMPLETED_SIBLING_ID_2]` call, for handoff notes. A refusal carrying `missing` names siblings the cache does not hold, because they are archived, deleted, mistyped or unsynced: stop and report those identifiers. One carrying `path` is a corrupt cache file, which `linear.sh sync --full` repairs.
+**If bundled with completed siblings**, read their comments too, all of them in one `linear.sh comments bulk-list [COMPLETED_SIBLING_ID_1] [COMPLETED_SIBLING_ID_2]` call, for handoff notes. A refusal carrying `missing` names siblings Linear has no issue for, because they are deleted or mistyped: stop and report those identifiers.
 
 ### 2.2 Research Context
 
-Read the issue description — `.description` from the cache read above, or `gh issue view [N] --repo [OWNER/REPO] --json body --jq .body`. For a sub-issue, read the parent's description too; for a bundle, read the unique paths across its sub-issues.
+Read the issue description — `.description` from the read above, or `gh issue view [N] --repo [OWNER/REPO] --json body --jq .body`. For a sub-issue, read the parent's description too; for a bundle, read the unique paths across its sub-issues.
 
-Cited research, decision, and context files are mandatory reading; how the research applies is yours to decide. Evaluate it against existing patterns and architecture docs, updating those docs when it changes documented patterns, and add anything project-specific worth persisting to `kendex.toml`. Reference an already-recorded decision (`.agents/skills/decider/scripts/decisions search --issue [RESEARCH_ISSUE_ID]`) rather than duplicating it; record a new one only for a decision your evaluation newly reveals.
+Cited research, decision, and context files are mandatory reading; how the research applies is yours to decide. Evaluate it against existing patterns and the principle docs; a doc whose claim the change makes false is updated in the change. Reference an already-recorded decision (`.agents/skills/decider/scripts/decisions search --issue [RESEARCH_ISSUE_ID]`, and `decisions search "[KEYWORDS]"` for the area) rather than duplicating it, reading the full record and its status before treating it as binding; record a new one only under the decider bar.
 
 For a missing planning or research path in a Linear brief, follow the linear skill's SKILL.md § Resolve a cited artifact before classifying the context as missing.
 
@@ -148,9 +146,9 @@ For every callee whose call the change deletes, run `git grep -n -F --untracked 
 
 ### 4.3 Update Documentation And Decisions
 
-Update docs when the implementation changes a documented API or architecture.
+Update a doc when the implementation makes a claim in it false. A code change alone owes no doc change.
 
-**Skip decision recording if** no alternatives were considered and no trade-offs made. Otherwise follow the decider skill's create-decision workflow: `.agents/skills/decider/scripts/decisions next-id`, a template from `templates/decision-entry.md`, the file per `schemas/decision-format.md`, the INDEX.md row per `templates/index-row.md`, `// REVISIT(DXXX):` markers in code where applicable, and the decision ID cited in the § 9 summary.
+**Skip decision recording if** the choice is below the decider bar, the decider skill's `SKILL.md` § What warrants a decision record, and why: that reason is a comment at the code. Otherwise follow the decider skill's create-decision workflow: `.agents/skills/decider/scripts/decisions next-id`, the file per `schemas/decision-format.md` from `templates/decision-entry.md`, the INDEX.md row per `templates/index-row.md`, `// REVISIT(DXXX):` markers in code where applicable, and the decision ID cited in the § 9 summary.
 
 ### 4.4 Reflect
 
@@ -171,6 +169,7 @@ The validation gate is this complete list:
 - The affected suite passes. It consists of installed preflight and doc-limits gates, the delegation's required verification commands in their § 2.4 normalized form, and Visual QA under the current workflow's rule below.
 - One must-fail control per changed behavioral surface with a test turns that surface's test red once, or carries the statement [code-quality § Tests](../../code-quality/SKILL.md#tests) takes in its place where no production edit reddens the test. A workflow sentence has no test and adds no control. A production gate or guard change keeps the per-rule control that [code-quality § Prove Your Guards](../../code-quality/SKILL.md#prove-your-guards) requires inside this item.
 - `DEV_VALIDATE_CMD` passes once against the round's final worktree contents, run through `.agents/skills/orch/scripts/dev-validate-run` as [dev SKILL.md § Long-Running Validation](../SKILL.md#long-running-validation) sets out. The runner hands the command the diff's change class as `DEV_VALIDATE_CLASS`, with the docs verdict and changed paths beside it (`dev-validate-run --help`). A full battery the class does not need is a failure of the project's `DEV_VALIDATE_CMD` configuration, which reads the class to stand lanes down; the round's verdict is still the run's `validate=` value, and the agent never picks a class or a narrower command by hand. An empty value is a validation failure named `DEV_VALIDATE_CMD`, which that runner refuses before starting anything, with the note `DEV_VALIDATE_CMD is empty; set it in kendex.settings.toml [env] to the project's full test, lint and typecheck command`. Run nothing in its place.
+- A project whose own policy forbids `dev-validate-run` and requires its validation entry point in the foreground runs that entry point here, in the foreground as the policy sets out, in place of `dev-validate-run`, and records the run in `[WORKTREE_PATH]/tmp/validate-record-[ARTIFACT_KEY]-[DEV_ROUND_ID]`. Before the entry point starts, write the lines `validate-mode=full`, `head=` with `git -C [WORKTREE_PATH] rev-parse HEAD`, and `started-at=` with `date -u +%Y-%m-%dT%H:%M:%SZ`. After it ends, add `ended-at=` the same way, `exit=` with its exit status, and `selection=` and `lanes=` from its `validate:` line, or `selection=unreported` where it printed none. A run cut off before its exit status is known writes no record and is `FAILING: [ENTRY_POINT]`. `dev-return-write --help` gives each line's grammar.
 - A run the bound cut off prints `validate=no-verdict`: neither a pass nor a failure. This is the one exception to the rule above against a narrower command by hand: run each suite file that exercises a script the diff changes once, each as its own orch job under [dev SKILL.md § Long-Running Validation](../SKILL.md#long-running-validation). A red suite, or an interrupted suite run, is `FAILING: [SUITE]` and never green. A diff that changes no script selects no suite file: that is `FAILING: DEV_VALIDATE_CMD timed out, no scoped suite`, never `no-verdict`. All green is `--validate no-verdict` with the cut-off run's `run-dir=` as `--validate-run-dir` and a `--validate-note` naming the suites, and the return reads `Validate: no-verdict: [SUITES]`. CI is the full record.
 - `fleet-mac-run test` passes once for an item the Apple gate in `dev-return-write --help` names, run through the orch job runner as [dev SKILL.md § Long-Running Validation](../SKILL.md#long-running-validation) sets out. The gate names an item when the base branch holds its workflow and an entry of the delegation's `Labels:` line, or a path the branch changes, matches its trigger. Fleet installs `fleet-mac-run` on the `PATH` of a lane in a repository it runs Apple builds for. A nonzero exit, or no `fleet-mac-run` on `PATH`, is `FAILING: mac run test`. A pass is the `--validate-note` line `mac run test: pass run=[RUN_ID]`, with the run id `fleet-mac-run` prints. An item the gate does not name runs nothing here.
 - After the dev agent returns its local result, the orchestrator gets green CI and a passing review gate. The dev agent does not claim or reproduce these downstream results.
@@ -193,7 +192,7 @@ Use the same orch job runner route for doc-limits when installed (`test -x .agen
 .agents/skills/doc-limits/scripts/doc-limits
 ```
 
-Run the delegation's required verification commands through their route in [dev SKILL.md § Long-Running Validation](../SKILL.md#long-running-validation). Then run `DEV_VALIDATE_CMD` through `dev-validate-run`. Record the full validation result in the completion artifact for submit to reuse on the same contents.
+Run the delegation's required verification commands through their route in [dev SKILL.md § Long-Running Validation](../SKILL.md#long-running-validation). Then run `DEV_VALIDATE_CMD` through `dev-validate-run`, or the project's entry point by the foreground route above. Record the full validation result in the completion artifact for submit to reuse on the same contents.
 
 A script written only to produce a number for the issue is not committed; report its result in the return for the orchestrator to put in the PR body. An uncommitted measurement is not a check the change adds or modifies.
 
@@ -281,7 +280,7 @@ Omit any section that has nothing in it. Discovered Work is backlog work beyond 
 
 **Skip if** the tracker is not Linear, this issue blocks nothing, or completion alone unblocks the downstream work.
 
-Read `.blocks` from `linear.sh cache issues get [ISSUE_ID]`. Post to a downstream issue **only if** this work changed an API, interface, file, or contract it depends on: write `tmp/downstream-handoff-[ISSUE_ID]-to-[DOWNSTREAM_ISSUE_ID].md` naming what changed and what downstream needs to know, then post it with `linear.sh comments create [DOWNSTREAM_ISSUE_ID] --body-file [THAT_FILE]`. Never post it to the completed issue.
+Read `.blocks` from `linear.sh issues get [ISSUE_ID]`. Post to a downstream issue **only if** this work changed an API, interface, file, or contract it depends on: write `tmp/downstream-handoff-[ISSUE_ID]-to-[DOWNSTREAM_ISSUE_ID].md` naming what changed and what downstream needs to know, then post it with `linear.sh comments create [DOWNSTREAM_ISSUE_ID] --body-file [THAT_FILE]`. Never post it to the completed issue.
 
 ---
 
@@ -292,10 +291,10 @@ With every applicable section above complete, write the artifact per [dev SKILL.
 `[BASE_BRANCH]` is what § 1's `resolve-base-branch` reported; `--near-ceiling-base` takes it as `origin/[BASE_BRANCH]` because § 1 fetched that remote ref and left the local branch where it was.
 
 ```bash
-.agents/skills/orch/scripts/dev-return-write --worktree [WORKTREE_PATH] --kind implement --issue [ARTIFACT_KEY] --round-id [DEV_ROUND_ID] --branch [BRANCH] --commit [HEAD_SHA_AFTER_COMMIT] --validate [pass|no-verdict|"FAILING: check1,check2"] [--validate-run-dir [RUN_DIR]] [--validate-note [TEXT]] [--label [LABEL]]... [--no-labels] [--qa-label [LABEL]]... --near-ceiling-base origin/[BASE_BRANCH]
+.agents/skills/orch/scripts/dev-return-write --worktree [WORKTREE_PATH] --kind implement --issue [ARTIFACT_KEY] --round-id [DEV_ROUND_ID] --branch [BRANCH] --commit [HEAD_SHA_AFTER_COMMIT] --validate [pass|no-verdict|"FAILING: check1,check2"] [--validate-run-dir [RUN_DIR] | --validate-record [FILE]] [--validate-note [TEXT]] [--label [LABEL]]... [--no-labels] [--qa-label [LABEL]]... --near-ceiling-base origin/[BASE_BRANCH]
 ```
 
-`[RUN_DIR]` is the `run-dir=` value `dev-validate-run` printed, and a `pass` needs that run to have passed, a `no-verdict` that run to have been cut off; omit the flag only when validation failed before any run started.
+`[RUN_DIR]` is the `run-dir=` value `dev-validate-run` printed, and a `pass` needs that run to have passed, a `no-verdict` that run to have been cut off; omit the flag only when validation failed before any run started. A project whose own policy forbids `dev-validate-run` and runs its validation entry point in the foreground passes `--validate-record [FILE]` in place of `--validate-run-dir`, `[FILE]` being the record § 5's foreground route wrote.
 
 One `--qa-label` per § 8 signal, none if nothing triggered. One `--label` per entry of the delegation's `Labels:` line, or `--no-labels` when it reads `none`.
 
@@ -343,7 +342,7 @@ Summary: [ISSUE_ID] ✓
 3. **Write the artifact**, keyed to the Parent ID, with that group's `Round ID:` when the bundle was delegated in groups:
 
    ```bash
-   .agents/skills/orch/scripts/dev-return-write --worktree [WORKTREE_PATH] --kind implement --issue [ARTIFACT_KEY] --round-id [DEV_ROUND_ID] --branch [BRANCH] --commit [LAST_SUBISSUE_HEAD_SHA] --validate [pass|no-verdict|"FAILING: check1,check2"] [--validate-run-dir [RUN_DIR]] [--validate-note [TEXT]] --summary-file tmp/bundle-summary-[PARENT_ID].md --bundled --item [N] [DECISION] [REASONING] [--item ...] [--label [LABEL]]... [--no-labels] [--qa-label [LABEL]]... --near-ceiling-base origin/[BASE_BRANCH]
+   .agents/skills/orch/scripts/dev-return-write --worktree [WORKTREE_PATH] --kind implement --issue [ARTIFACT_KEY] --round-id [DEV_ROUND_ID] --branch [BRANCH] --commit [LAST_SUBISSUE_HEAD_SHA] --validate [pass|no-verdict|"FAILING: check1,check2"] [--validate-run-dir [RUN_DIR] | --validate-record [FILE]] [--validate-note [TEXT]] --summary-file tmp/bundle-summary-[PARENT_ID].md --bundled --item [N] [DECISION] [REASONING] [--item ...] [--label [LABEL]]... [--no-labels] [--qa-label [LABEL]]... --near-ceiling-base origin/[BASE_BRANCH]
    ```
 
    `--bundled` requires one `--item` per sub-issue result — `DECISION` is Applied, Skipped, or Blocked and `REASONING` non-empty plain text with no backticks — populated from the sub-issue tree. `--commit` is the last sub-issue's HEAD.

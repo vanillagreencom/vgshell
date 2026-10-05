@@ -53,6 +53,12 @@ PR_REVIEW_WAIT_SECS = "900"
 # values: proceed | block
 PR_REVIEW_ON_TIMEOUT = "proceed"
 
+# Whether orch asks Copilot for a review or re-review. "off" sends no
+# request; a lane's approval wait asks the overseer for each head's approval
+# instead, once per head. Set it when the Copilot review budget is spent.
+# values: on | off
+PR_COPILOT_REQUESTS = "on"
+
 # Seconds to keep waiting for the build to start before treating its
 # absence as a failure. Raise it where a build needs approval before it
 # begins.
@@ -151,9 +157,10 @@ ORCH_TMUX_VERIFY_SECS = "15"
 # ORCH_TMUX_SESSION = "kendex"
 
 # Seconds a lane on another machine waits for that machine to answer after
-# the login line is sent. It is a separate bound because it measures a
-# network route coming up and a remote login. A value above 300 is reported
-# and cut back to 300.
+# the login line is sent, and a Claude cloud session launch waits for its
+# session URL. It is a separate bound because it measures a network route
+# coming up and a remote login, or a cloud machine provisioned. A value above
+# 300 is reported and cut back to 300.
 ORCH_LANE_SSH_PROMPT_SECS = "60"
 
 # Provider processes lane-host runs at once, per home: every overseer and

@@ -6,7 +6,7 @@ license: MIT
 user-invocable: true
 dependencies:
   optional: [github]
-argument-hint: "create <ID> [<branch>] [--base <branch>|--from <ref>|--pr <N>] [--reuse|--restack] [--replay] [--hosted] | create <ID> --transfer <branch> (not with <branch>, --base, --from, --pr, --reuse, --restack, or --replay) | restack continue|skip|abort <ID|path> | list | remove <ID|path>"
+argument-hint: "create <ID> [<branch>] [--base <branch>|--from <ref>|--pr <N>] [--reuse [--keep-on-conflict]|--restack] [--replay] [--hosted] | create <ID> --transfer <branch> (not with <branch>, --base, --from, --pr, --reuse, --restack, or --replay) | restack continue|skip|abort <ID|path> | list | remove <ID|path>"
 metadata:
   author: vanillagreen
   source: kendex
@@ -57,6 +57,8 @@ When an execution policy rejects top-level `git rebase` porcelain, never retry t
 
 A branch is rebased only through `worktree push`, `create --restack`, or `create --reuse`, never a bare `git rebase`; use this section's replay fallback for recovery.
 
+`create --reuse --keep-on-conflict` aborts a conflicting rebase and hands the tree back on its pre-rebase head with exit 76, for a relaunch that must start the session before the restack; a caller that needs the base omits the flag and keeps the failure (`create --help`).
+
 A branch whose pull request the merge lookup confirms merged is not rebased by `create`. A squash merge rewrites the branch into a fresh commit, so a rebase replays the merged work onto its own squash and stops on conflicts: `create --reuse` keeps the tree as it stands, and `create --restack` and `create --replay` refuse, all three naming the merge commit. When the lookup cannot answer, `create` records `worktree-merge-unverified` and rebases as for a branch in flight (`merged --help`).
 
 ## Recovering a broken `.agents` entry
@@ -72,7 +74,7 @@ A consumer wanting this file locally gets a pointer, never a copy: `cat "$(dirna
 
 ## Session guard (ownership leases)
 
-`scripts/worktree-session-guard` stops cleanup from destroying a claimed worktree, using a native Git worktree lock whose reason line carries the owner and a heartbeat. Who claims and when, what staleness measures, and the guard's limits: [references/session-guard.md](references/session-guard.md); commands, exit codes and `--repo` scope: `worktree-session-guard --help`.
+`scripts/worktree-session-guard` stops cleanup from destroying a claimed worktree, using a native Git worktree lock whose reason line carries the owner and a heartbeat. The catalog's `worktree-session-claim` hook claims, when a session starts in it, a worktree carrying the `kendex-issue` record every tree `create` returns carries, one adopted through `--reuse` or `--restack` included, and the orchestrating workflow's `claim --owner <ISSUE_ID> --adopt` takes that lease over. Who claims and when, what staleness measures, and the guard's limits: [references/session-guard.md](references/session-guard.md); commands, exit codes and `--repo` scope: `worktree-session-guard --help`.
 
 ## Reclaiming build output
 

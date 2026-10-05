@@ -38,6 +38,10 @@ fi
 source "$MESSAGE_DIR/lib/messages.sh"
 
 readonly ACTIVE_WORK_EXIT=75
+# create --reuse --keep-on-conflict handed back a tree its conflicting rebase
+# left where it stood: the path is on stdout as for exit 0, and the caller
+# learns the tree is not on the base without parsing a notice.
+readonly REUSE_UNREBASED_EXIT=76
 
 # shellcheck source=lib/help.sh
 source "$MESSAGE_DIR/lib/help.sh"
@@ -1155,6 +1159,8 @@ issue_branch_name() {
 # private git dir. It is the one route from an issue ID to a hosted tree that
 # does not go through HEAD: the hosted path carries no issue ID, and a paused
 # restack leaves the tree detached, so its branch is not registered to it.
+# Its presence is also how the worktree-session-claim hook knows `create`
+# returned the tree, without running this script.
 readonly WORKTREE_ISSUE_RECORD="kendex-issue"
 
 record_worktree_issue() { # WT ISSUE
@@ -1171,6 +1177,30 @@ record_worktree_issue() { # WT ISSUE
 report_created_worktree() {
   record_worktree_issue "$WT_PATH" "$ISSUE" || exit 1
   printf '%s\n' "$WT_PATH"
+}
+
+# The --keep-on-conflict exit, reached once a conflicting reuse rebase or
+# replay has been aborted cleanly: the tree is back on its pre-rebase head and
+# is handed back there, set up as a completed reuse would be, for a caller that
+# needs a session in it more than a rebased branch. A caller needing the base
+# omits the flag and keeps the failure.
+keep_unrebased_worktree() { # rebase|replay CONFLICT_FILES
+  local operation restack_flags
+  case "$1" in
+    rebase) operation="Rebase" restack_flags="--restack" ;;
+    replay) operation="Cherry-pick replay" restack_flags="--restack --replay" ;;
+    *) worktree_message keep-operation-unknown "$1" >&2; exit 1 ;;
+  esac
+  release_issue_claim_lock
+  setup_app_worktree "$WT_PATH" || exit 1
+  worktree_message reuse-unrebased "$WT_PATH" "$operation onto origin/$DEFAULT_BRANCH conflicts, so it was aborted and $WT_PATH is kept on its pre-$1 head." >&2
+  if [[ -n "$2" ]]; then
+    echo "Conflicting files:" >&2
+    sed 's/^/  /' <<<"$2" >&2
+  fi
+  echo "Restack it when ready: $0 create $ISSUE $restack_flags" >&2
+  report_created_worktree
+  exit "$REUSE_UNREBASED_EXIT"
 }
 
 recorded_worktree_issue() { # WT
@@ -2002,11 +2032,11 @@ session_guard_owner() {
 }
 
 # Owner identity carried by an issue-addressed command (`remove <ID>`,
-# `create <ID> --reuse`). The documented claim the orchestrating workflow makes
-# is `claim [WORKTREE_PATH] --owner [ISSUE_ID]`, so on a default install — where no
-# session-owner env var is set — the issue ID IS the identity the lease
-# carries, and deriving it from the command's own argument is what makes claim
-# and release agree without any session env plumbing. Prints nothing
+# `create <ID> --reuse`). The orchestrating workflow claims under the issue
+# ID, so on a default install — where no session-owner env var is set — the
+# issue ID IS the identity the lease carries, and deriving it from the
+# command's own argument is what makes claim and release agree without any
+# session env plumbing. Prints nothing
 # when the ID cannot be a lease owner: the guard caps owners at 64 characters
 # (the issue-ID charset is already a subset of the owner charset), and an
 # unusable owner would turn every probe into a usage failure.
@@ -2529,6 +2559,7 @@ case "${1:-}" in
     REUSE=false
     RESTACK=false
     REPLAY=false
+    KEEP_ON_CONFLICT=false
     HOST_KIND=local
     while [[ $# -gt 0 ]]; do
       case "$1" in
@@ -2540,6 +2571,7 @@ case "${1:-}" in
         --reuse) REUSE=true; shift ;;
         --restack) RESTACK=true; shift ;;
         --replay) REPLAY=true; shift ;;
+        --keep-on-conflict) KEEP_ON_CONFLICT=true; shift ;;
         # An unknown --flag must fail rather than be silently captured as a
         # branch name. A legitimate positional branch name (not leading with
         # '-') still falls through to the permissive arm below.
@@ -2553,6 +2585,10 @@ case "${1:-}" in
     done
     if [[ "$REPLAY" == true && "$REUSE" != true && "$RESTACK" != true ]]; then
       worktree_message replay-mode-required "--replay" "Error: --replay selects the restack engine for --reuse/--restack; combine it with one of them." >&2
+      exit 1
+    fi
+    if [[ "$KEEP_ON_CONFLICT" == true && ( "$REUSE" != true || "$RESTACK" == true ) ]]; then
+      worktree_message keep-mode-required "--keep-on-conflict" "Error: --keep-on-conflict keeps a --reuse tree whose rebase conflicts; combine it with --reuse and not --restack." >&2
       exit 1
     fi
     if [[ -n "$TRANSFER" ]] && { [[ -n "$BASE" || -n "$FROM" || -n "$PR" || -n "$BRANCH" ]] || [[ "$REUSE" == true || "$RESTACK" == true || "$REPLAY" == true ]]; }; then
@@ -2748,6 +2784,9 @@ case "${1:-}" in
               fi
               if [[ "$ABORT_OK" == true ]] && ! replay_in_progress "$WT_PATH"; then
                 cancel_pending_restack_authorization "$WT_PATH"
+                if [[ "$KEEP_ON_CONFLICT" == true ]]; then
+                  keep_unrebased_worktree replay "$CONFLICT_FILES"
+                fi
                 restore_unshadowed_worktree_setup "$WT_PATH"
               fi
               worktree_message replay-failed "$WT_PATH" "Error: Cherry-pick replay onto origin/$DEFAULT_BRANCH failed for $WT_PATH (conflicts)." >&2
@@ -2821,6 +2860,9 @@ case "${1:-}" in
             git -C "$WT_PATH" rebase --abort >/dev/null 2>&1 || ABORT_OK=false
             if [[ "$ABORT_OK" == true ]] && ! rebase_in_progress "$WT_PATH"; then
               cancel_pending_restack_authorization "$WT_PATH"
+              if [[ "$KEEP_ON_CONFLICT" == true ]]; then
+                keep_unrebased_worktree rebase "$CONFLICT_FILES"
+              fi
               restore_unshadowed_worktree_setup "$WT_PATH"
             fi
             worktree_message rebase-failed "$WT_PATH" "Error: Rebase onto origin/$DEFAULT_BRANCH failed for $WT_PATH (conflicts)." >&2

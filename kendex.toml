@@ -279,9 +279,6 @@ enabled = true
 source = "kendex"
 enabled = true
 
-[hooks.doc-drift-check]
-source = "kendex"
-
 [hooks.reviewer-read-only]
 source = "kendex"
 

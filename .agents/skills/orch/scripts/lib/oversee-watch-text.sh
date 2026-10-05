@@ -59,14 +59,15 @@ The long pass's events, checked and reported in this order:
                              `record`, the exit status `overseer-run`
                              wrote into the fleet state's overseer.exit once
                              the launch line returned, over a bare shell with
-                             nothing under it; `rows`, a SessionEnd row its
-                             harness wrote to the file the fleet state's
-                             overseer.session_rows names, over that same bare
-                             shell; `process`, a pane whose process is a bare
-                             shell with nothing under it; `pane`, the named
-                             fallback where no row can judge, the pane
-                             captured and read by the shared judge, with an
-                             overseer-fallback notice naming the cause.
+                             nothing but shells under it; `rows`, a SessionEnd
+                             row its harness wrote to the file the fleet
+                             state's overseer.session_rows names, over that
+                             same bare shell; `process`, a pane whose process
+                             is a bare shell with nothing but shells under it;
+                             `pane`, the named fallback where no row can
+                             judge, the pane captured and read by the shared
+                             judge, with an overseer-fallback notice naming
+                             the cause.
                              record= is carried where no successor is launched
                              for want of a line: the fleet state's overseer
                              record by its server and pane, or none. Nothing
@@ -253,12 +254,15 @@ The long pass's events, checked and reported in this order:
                              A cause is permission, vanillagreen-overseer
                              lacking that alert permission; credential, its
                              supplied token file unavailable or invalid;
-                             feature-off, the alert feature
-                             turned off on that repository; http-<status> or
+                             feature-off, Dependabot alerts turned off on
+                             that repository; http-<status> or
                              exit-<N> for any other failure; or invalid.
                              Printed on every long pass a read fails, and
                              ends the run only when the set of failed reads
-                             changes. The rows of a failed source stand
+                             changes. Code or secret scanning answering
+                             feature-off, as on a repository without GitHub's
+                             paid security products, is off: no line, on
+                             stdout or stderr. The rows of a failed source stand
   EVENT lane-ready <item>    a lane open-terminal handed to a background job
                              while its host prepared it is launched: its
                              record reads running, and the watch carries it
@@ -305,9 +309,10 @@ The long pass's events, checked and reported in this order:
   EVENT window-gone <lane>   the tmux window no longer exists. Nothing follows
                              the line: the remedy is one relaunch, which
                              reads the item's worktree and PR, not a screen
-  EVENT lane-exited <lane>   childless local shell on two consecutive passes, or
-                             provider exit now despite live SSH, for a listed
-                             hosted lane whose running record names the harness.
+  EVENT lane-exited <lane>   local shell with nothing but shells under it on two
+                             consecutive passes, or provider exit now despite
+                             live SSH, for a listed hosted lane whose running
+                             record names the harness.
                              Closing lines follow. Failed provider reads stay
                              unjudged; unusable local probes keep the lane watched
   EVENT lane-closed <item>   under a lane-exited whose window watches a --hosted
@@ -574,7 +579,9 @@ Options:
   --repo OWNER/REPO   repository; repeatable and case-normalized. Every
                       check reads all of them; triage and lane rows persist
                       in the first one's baseline, mail rows in the file
-                      beside it
+                      beside it. ORCH_CONNECTED_REPOS below adds more after
+                      them; with none given, the first is the repository
+                      this checkout resolves to
   --hosted ITEM=REMOTE_ROOT
                       the item's lane lives on another host; its mailbox is
                       read through `lane-host` against REMOTE_ROOT rather
@@ -618,9 +625,9 @@ Options:
                       no server at the socket among them, as tmux-failed
                       naming that socket
   --harness H         the OVERSEER's harness, claude, codex, copilot or pi,
-                      handed to each oversee-succeed call; a Codex or Copilot
-                      CLI pane reads node and a pi pane pi, which the pane
-                      reader maps to no one harness
+                      handed to each oversee-succeed call, whose help states
+                      when a pane needs it (`oversee-succeed --help`,
+                      --harness)
   -- OVERSEER_FLAGS...
                       the flags the OVERSEER itself runs under — its
                       permission flags, plus its current model and effort
@@ -798,6 +805,21 @@ Environment:
                               credential, keeps prior rows and makes no alert
                               API call. With ORCH_SECURITY_ALERTS=off it is
                               not read
+  ORCH_CONNECTED_REPOS        blank-separated OWNER/REPO list, read through
+                              orch-env in this checkout, an inherited value
+                              and KENDEX_ENV_FILE honored, since the watch
+                              runs in the overseer's own checkout: each entry
+                              is a watched repository after the --repo values,
+                              an entry they already name skipped. Each one
+                              adds its reads to every long pass, as a --repo
+                              does. After a change, restart the watch: its
+                              start exports the value it loaded, which every
+                              repeat pass inherits. An unreadable setting
+                              exits 2, in repeat mode before the first pass.
+                              open-terminal reads it in the overseer's
+                              directory without those two: open-terminal
+                              --help. oversee-report reads it as this watch
+                              does
   ORCH_STATE_DIR              workflow-state directory; relative paths join
                               the project root; absolute paths stay unchanged
   ORCH_WATCH_TAIL_LINES       most lines any one event's pane payload prints,
@@ -961,13 +983,14 @@ ow_message() { # REASON FIELD=VALUE...
     auth-failed) text='No configured GitHub credential works. Run gh auth login.' ;;
     repo-unresolved) text='Specify a repository because GitHub could not resolve it.' ;;
     repo-duplicate) text='Name each repository once.' ;;
+    connected-repos-unread) text='orch-env could not read ORCH_CONNECTED_REPOS in this checkout, so the watched repositories are unknown. Its own words are above.' ;;
     pr-list-failed) text='The GitHub PR list command failed.' ;;
     pr-list-invalid) text='The GitHub PR list output could not be parsed.' ;;
     outside-list-failed) text='The GitHub list of open issues and pull requests the outside-contribution check reads failed.' ;;
     outside-list-invalid) text='The GitHub list of open issues and pull requests carried a line the outside-contribution check cannot read: a number, a pr or issue kind, a login, and a pull request head commit.' ;;
     external-triage-invalid) text='ORCH_EXTERNAL_TRIAGE takes on or off.' ;;
     security-alerts-invalid) text='ORCH_SECURITY_ALERTS takes on or off.' ;;
-    security-alerts-read-failed) text='A read the security-alert check needs failed, so the named source is not judged this pass and its baseline rows stand. Cause permission means vanillagreen-overseer lacks that alert permission; the owner adds it to the app and accepts it on each installation. Cause credential means ORCH_SECURITY_ALERT_TOKEN_FILE supplies no usable installation token; the control VM must supply and renew it for a hosted overseer, the fleet worker for a local one. Cause feature-off means the alert feature is off on that repository. The failed reader'"'"'s own words follow where it printed any.' ;;
+    security-alerts-read-failed) text='A read the security-alert check needs failed, so the named source is not judged this pass and its baseline rows stand. Cause permission means vanillagreen-overseer lacks that alert permission; the owner adds it to the app and accepts it on each installation. Cause credential means ORCH_SECURITY_ALERT_TOKEN_FILE supplies no usable installation token; the control VM must supply and renew it for a hosted overseer, the fleet worker for a local one. Cause feature-off means Dependabot alerts are off on that repository. The failed reader'"'"'s own words follow where it printed any.' ;;
     triage-state-failed) text='The fleet triage verdict log could not be read.' ;;
     triage-item-invalid) text='The fleet triage log contains an invalid issue identifier.' ;;
     time-failed) text='The current UTC time could not be read.' ;;

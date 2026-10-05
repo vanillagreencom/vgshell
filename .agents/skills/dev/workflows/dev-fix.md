@@ -15,8 +15,8 @@ Confirm the shell's real working directory is the delegation's `Worktree:` path 
 **Skip if** the delegation is ad-hoc: it carries no `Issue:` line, or its `Artifact Key:` is a `pr-N` or `local-` key, which names no issue whatever `Issue:` repeats. In such a round, `[ISSUE_ID]` in the commit header and the proposed-rule path below takes the `Artifact Key:` value. Otherwise read prior work, decisions, and handoff notes before evaluating any item.
 
 ```bash
-.agents/skills/linear/scripts/linear.sh cache issues get [ISSUE_ID]
-.agents/skills/linear/scripts/linear.sh cache comments list [ISSUE_ID]
+.agents/skills/linear/scripts/linear.sh issues get [ISSUE_ID]
+.agents/skills/linear/scripts/linear.sh comments list [ISSUE_ID]
 ```
 
 GitHub: `gh issue view [N] --repo [OWNER/REPO] --json number,title,body,comments,labels,url`
@@ -40,7 +40,7 @@ Before writing a refusal, a validator, a lock, a retry, or a test, read [dev SKI
 
 An item asking for a test takes the fix-round rule there.
 
-Update the architecture docs when a fix changes an invariant, boundary or decision they state; the `docs-writing` skill says what belongs there. For **UI lifecycle or cache fixes** — cached or mirrored UI state, changed window or event handling — trace every invalidation and event-entry path before returning, prefer extending an existing listener over a parallel subscription for the same event family, and add regression coverage for the non-obvious paths you touched.
+Update a principle doc or a decision record when a fix makes a claim in it false; the `docs-writing` skill says what each holds. For **UI lifecycle or cache fixes** — cached or mirrored UI state, changed window or event handling — trace every invalidation and event-entry path before returning, prefer extending an existing listener over a parallel subscription for the same event family, and add regression coverage for the non-obvious paths you touched.
 
 Before a fix returns, grep for every other reader of the field, caller of the helper, or surface stating the rule the fix changed, and fix each one; name the sweep in the item reasoning. A fix at one site with its sibling untouched comes back as the next round.
 
@@ -54,9 +54,9 @@ Follow [dev SKILL.md § Reflect](../SKILL.md#reflect). Complete every repository
 
 ## 3. Validate And Commit
 
-Follow [dev-implement.md § 5. Validate](./dev-implement.md#5-validate) from the worktree root, with two changes. Its `DEV_VALIDATE_CMD` item validates this round's changes only: start it as `.agents/skills/orch/scripts/dev-validate-run --worktree [WORKTREE_PATH] --validate-mode [MODE] --base [BASE_SHA]`, where `[MODE]` is `ci` for a `Source: pr-comments` round, whose pull request is open, and `range` for every other source, and `[BASE_SHA]` is the `base_sha` of `[WORKTREE_PATH]/tmp/dev-round-[ARTIFACT_KEY]-[DEV_ROUND_ID].json`, and poll it the same way. Use the Visual QA rule below.
+Follow [dev-implement.md § 5. Validate](./dev-implement.md#5-validate) from the worktree root, with two changes. Its `DEV_VALIDATE_CMD` item validates this round's changes only: start it as `.agents/skills/orch/scripts/dev-validate-run --worktree [WORKTREE_PATH] --validate-mode [MODE] --base [BASE_SHA]`, where `[MODE]` is `ci` for a `Source: pr-comments` round, whose pull request is open, and `range` for every other source, and `[BASE_SHA]` is the `base_sha` of `[WORKTREE_PATH]/tmp/dev-round-[ARTIFACT_KEY]-[DEV_ROUND_ID].json`, and poll it the same way. A project whose policy forbids `dev-validate-run` takes that section's foreground route instead, with the record's line `validate-mode=range` where the project sets `DEV_VALIDATE_RANGE_CMD` and `validate-mode=full` where it does not, the mode `dev-artifact-check` holds the round to. Use the Visual QA rule below.
 
-The run records the mode that ran, and § 5's `dev-return-write` reads it from the run directory: `range`, `full` in a project that sets no `DEV_VALIDATE_RANGE_CMD`, or `ci`, a run that passes with no command because the pull request CI on the pushed head validates the round. `dev-validate-run --help` states which changes a `ci` run leaves to that CI, and that it does so only where `DEV_VALIDATE_CI_CONTEXT` names a status check context the pull request's own base branch requires, through a ruleset or classic branch protection; elsewhere a `ci` request runs as `range` and its start record names why as `ci-fallback=`.
+The run records the mode that ran, and § 5's `dev-return-write` reads it from the run directory: `range`, `full` in a project that sets no `DEV_VALIDATE_RANGE_CMD`, or `ci`, a run that passes with no command because the pull request CI on the pushed head validates the round. `dev-validate-run --help` states when a `ci` request leaves the round to that CI, and what it runs and hands the command anywhere else.
 
 **Visual QA** — **skip if** the issue has no `design` label or the fix touches no UI code. Otherwise confirm what the fix changes renders correctly, not the full checklist.
 
@@ -95,12 +95,12 @@ If the validation list misses a rule, write `tmp/proposed-rule-[ISSUE_ID].md` wi
 `[BASE_BRANCH]` is what `.agents/skills/orch/scripts/resolve-base-branch [WORKTREE_PATH]` reports; `--near-ceiling-base` takes it as `origin/[BASE_BRANCH]` because the local branch may sit behind the remote, and in a fresh clone may not exist at all.
 
 ```bash
-.agents/skills/orch/scripts/dev-return-write --worktree [WORKTREE_PATH] --kind fix --issue [ARTIFACT_KEY] --round-id [DEV_ROUND_ID] --branch [BRANCH] --commit [HEAD_SHA_AFTER_COMMIT] --validate [pass|no-verdict|"FAILING: check1,check2"] [--validate-run-dir [RUN_DIR]] [--validate-note [TEXT]] [--label [LABEL]]... [--no-labels] --no-summary [--summary-file tmp/proposed-rule-[ISSUE_ID].md] --item [N] [DECISION] [REASONING] [--item ...] --near-ceiling-base origin/[BASE_BRANCH]
+.agents/skills/orch/scripts/dev-return-write --worktree [WORKTREE_PATH] --kind fix --issue [ARTIFACT_KEY] --round-id [DEV_ROUND_ID] --branch [BRANCH] --commit [HEAD_SHA_AFTER_COMMIT] --validate [pass|no-verdict|"FAILING: check1,check2"] [--validate-run-dir [RUN_DIR] | --validate-record [FILE]] [--validate-note [TEXT]] [--label [LABEL]]... [--no-labels] --no-summary [--summary-file tmp/proposed-rule-[ISSUE_ID].md] --item [N] [DECISION] [REASONING] [--item ...] --near-ceiling-base origin/[BASE_BRANCH]
 ```
 
 One `--label` per entry of the delegation's `Labels:` line, or `--no-labels` when it reads `none`; the Apple gate in `dev-return-write --help` reads them, and [dev-implement.md § 5. Validate](./dev-implement.md#5-validate) names the `mac run test` it holds an Apple item to.
 
-One `--item N DECISION REASONING` per **delegated** item — Applied, Skipped, and Blocked alike; the artifact must cover exactly the delegated set, `N` being the item's `#[N]` number (value shapes: `dev-return-write --help`; keep `REASONING` free of backticks). `--commit` is HEAD after the commit, or the prior HEAD when no commit was needed. `[RUN_DIR]` is the `run-dir=` value `dev-validate-run` printed in this round's § 3; the writer refuses a run from an earlier round, one that started at a HEAD without the round's `base_sha`, unless the run records that base as the one a rebase left off the branch, or one that started before the round was delegated. A `pass` needs that run to have passed, a `no-verdict` that run to have been cut off; omit the flag only when validation failed before any run started.
+One `--item N DECISION REASONING` per **delegated** item — Applied, Skipped, and Blocked alike; the artifact must cover exactly the delegated set, `N` being the item's `#[N]` number (value shapes: `dev-return-write --help`; keep `REASONING` free of backticks). `--commit` is HEAD after the commit, or the prior HEAD when no commit was needed. `[RUN_DIR]` is the `run-dir=` value `dev-validate-run` printed in this round's § 3; the writer refuses a run from an earlier round, one that started at a HEAD without the round's `base_sha`, unless the run records that base as the one a rebase left off the branch, or one that started before the round was delegated. A `pass` needs that run to have passed, a `no-verdict` that run to have been cut off; omit the flag only when validation failed before any run started. A project whose own policy forbids `dev-validate-run` and runs its validation entry point in the foreground passes `--validate-record [FILE]` in place of `--validate-run-dir`, `[FILE]` being the record § 3's foreground route wrote.
 
 **Respawned mid-round without the `Review items:` list?** Do not reconstruct it from the raw review JSONs and do not guess. Read `[WORKTREE_PATH]/tmp/dev-round-[ARTIFACT_KEY]-[DEV_ROUND_ID].json`, whose `items[]` entries each carry the delegated number `n`, the item's full text, and the `reach` the orchestrator recorded, and write one `--item` per entry. If that file is missing too, report the gap and write no artifact.
 

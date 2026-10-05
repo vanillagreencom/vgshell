@@ -2,14 +2,6 @@
 
 orch takes Linear or GitHub issues from implementation to merge with coding and review agents. An overseer can run many issues at once, each in its own agent session, called a lane.
 
-## Install
-
-```bash
-kendex add vanillagreencom/kendex --skill orch
-```
-
-Requires jq, Bash 3.2, Python 3.8+, flock, setsid and timeout or gtimeout. Local lane-mail and the included SSH host provider use Python on the controlling machine. kendex installs the required skills. Add linear for Linear issues. Second-opinion and review-gate are optional.
-
 ## Features
 
 - `orch start` takes one issue from its worktree to merge.
@@ -28,11 +20,19 @@ Dependabot security updates open the fleet's fix pull requests; an organization 
 
 A directive is handed over at the lane's turn end where the harness runs hooks, and at the lane's next wait point where it does not. Delivery is checked on every harness kendex installs the mailbox hook on. That check runs on one machine at a time and is started by hand, so run it on a fleet's control machine to cover it.
 
+## Install
+
+```bash
+kendex add vanillagreencom/kendex --skill orch
+```
+
 ## How it works
 
 The primary agent opens the PR and, by the merge policy, arms auto-merge where the base requires the review gate. `oversee-watch` waits until a lane needs attention, and the overseer then answers the lane's question, relaunches a stopped lane, or runs the post-merge steps after a merge.
 
-## Settings
+## Setup
+
+Requires jq, Bash 3.2, Python 3.8+, flock, setsid and timeout or gtimeout. Local lane-mail and the included SSH host provider use Python on the controlling machine. kendex installs the required skills. Add linear for Linear issues. Second-opinion and review-gate are optional.
 
 Set defaults in `kendex.settings.toml` `[env]` and secrets in `.env.local`; installation adds no settings ([guide](kendex.settings.toml.example)).
 
@@ -51,10 +51,11 @@ Until KEN-2466 lands, the Claude Code agent renderer maps `haiku` to `sonnet` an
 | `ORCH_USER_MODE` | `ceo` or `engineer`, and what each asks: [communication-modes.md](references/communication-modes.md) | `ceo` |
 | `ORCH_DECISION_MODE` | `ask` presents decision points; `auto-recommended` takes the recommended one | `auto-recommended` |
 | `ORCH_MERGE_AUTONOMY` | `auto` merges once every gate is green on authorization already given; `ask` requires it per merge | `auto` |
-| `PM_CREATE_AUTONOMY` | Audit creation and cancellation: [project-management settings](../project-management/README.md#settings) | `ask`; `auto` under `ceo` |
+| `PM_CREATE_AUTONOMY` | Audit creation and cancellation: [project-management settings](../project-management/README.md#setup) | `ask`; `auto` under `ceo` |
 | `ORCH_POST_MERGE_CMD` | Bash command that `scripts/post-merge` runs in the base checkout after synchronization. `ORCH_POST_MERGE_BEFORE` is the base before the oldest unprocessed synchronization; `ORCH_POST_MERGE_AFTER` is the current synchronized head. `sync-base` saves the first in `refs/kendex/post-merge-base`; only a successful or empty command advances it. A failed command stops before project refresh and verification and keeps the range for retry | empty |
 | `PR_REVIEW_ON_TIMEOUT` | `proceed` advances only when no reviewer engaged and no thread is open; `block` reports the timeout | `proceed` |
 | `ORCH_OVERSEER_LANES` | Fleet lane cap: `open-terminal --help` | `3` |
+| `ORCH_CONNECTED_REPOS` | Blank-separated `OWNER/REPO` list of repositories the overseer may launch lanes in beside its own. `open-terminal` reads it in the overseer's checkout without the launcher's own value or `KENDEX_ENV_FILE`, which can be the launch checkout's, and matches it to a launch checkout's origin remote: `open-terminal --help`. `oversee-watch` and `oversee-report` run in the overseer's checkout, honor both, and read each one after their `--repo` values: `oversee-watch --help`, `oversee-report --help` | empty |
 | `ORCH_WAKE_PROCESS` | `pgrep -f` wake pattern for `lane-mail-check`. Empty disables the check with no watch record | empty |
 | `ORCH_WAKE_START` | Wake start command printed by the turn-end refusal. Empty disables the check with no watch record | empty |
 | `ORCH_LANE_OUTPUT` | Lane pane output: [skill-rules.md](references/skill-rules.md) § Lane Output | `quiet` |
@@ -80,7 +81,7 @@ Until KEN-2466 lands, the Claude Code agent renderer maps `haiku` to `sonnet` an
 | `QA_PERF_PATHS` | Space-separated path globs whose modification adds the `needs-perf-test` QA signal | empty |
 | `RECONCILE_STALE_HOURS` | Hours before an In Progress or In Review item counts as started-stale in `reconcile-work-items` sweeps | `24` |
 | `WORKTREE_CLI` | Path to the worktree CLI `open-terminal` drives; empty resolves the installed worktree skill's script | resolved |
-| Review-gate settings | `PR_REVIEW_WAIT_SECS`: [references/gates.md](references/gates.md) | |
+| Review-gate settings | `PR_REVIEW_WAIT_SECS`, `PR_COPILOT_REQUESTS`: [references/gates.md](references/gates.md) | |
 | `ORCH_LANE_MAX_PCT` | Usage share at or above which `lanes pick` refuses an account, Codex credits exempt; bucket, overrides, other lane settings: `lanes --help`, `open-terminal --help` | `95` |
 | `ORCH_LANE_CODEX_CREDIT_FLOOR` | Credits a spent Codex account must exceed to stay pickable, after plan room, since credits never reset. Provisional; lane-day arithmetic: [guide](kendex.settings.toml.example) | `5000` |
 | `ORCH_SIZE_RENDER_ROOTS` | Render-mirror roots excluded from production and test counts when their source changes in the same branch | `.agents .claude .codex .pi` |
@@ -93,3 +94,7 @@ Launch settings and Codex compaction limits: [skill-rules.md](references/skill-r
 Every lane merges its own pull request, past the merge queue or through it, as the github skill's `pr-merge --help` § Merge route says.
 
 Maintainer notes and test entry point: [DEVELOPMENT.md](https://github.com/vanillagreencom/kendex/blob/main/skills/orch/DEVELOPMENT.md).
+
+## Licence
+
+MIT, in the repository's LICENSE file.
