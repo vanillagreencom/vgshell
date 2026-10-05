@@ -2609,11 +2609,13 @@ source "$repo/scripts/smoke/leaks.sh"
 # never prints the marker, and passes every later line on until its input
 # closes. The harness polls for that count, for smoke_row_drain_s at most.
 # The locals carry a prefix, since the row runs in their scope.
-# rows/updates.sh holds the controls.
+# rows/updates.sh holds the controls. A row that returns prints
+# `qml-smoke: row-secs row=NAME secs=<whole seconds>`, its harness steps
+# included, the reading scripts/smoke/rows.secs is refreshed from.
 smoke_row_drain_s=5
 smoke_row() { # NAME [DIR]
   local smoke_row_name="$1" smoke_row_dir="${2:-$repo/scripts/smoke/rows}" smoke_row_marker smoke_row_count=""
-  local smoke_row_out="$sandbox/rows/$1.out" smoke_row_result="$sandbox/rows/$1.result"
+  local smoke_row_out="$sandbox/rows/$1.out" smoke_row_result="$sandbox/rows/$1.result" smoke_row_started=$EPOCHSECONDS
   smoke_row_marker="qml-smoke: row-end $1 $$ $SRANDOM"
   mkdir -p -- "$sandbox/rows"
   # Every row starts with the pointer at rest, wherever the row before it
@@ -2644,6 +2646,7 @@ smoke_row() { # NAME [DIR]
   fi
   ipc_oversize_check "$smoke_row_name"
   leak_row_end "$smoke_row_name" "$smoke_row_dir"
+  printf 'qml-smoke: row-secs row=%s secs=%s\n' "$smoke_row_name" "$((EPOCHSECONDS - smoke_row_started))"
 }
 
 smoke_finish() {

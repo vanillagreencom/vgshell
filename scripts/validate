@@ -47,7 +47,9 @@
 #   A diff-scoped run that selects the nested smoke passes it the rows the
 #   change reaches as `scripts/qml-smoke.sh --rows <row>,...`, or no --rows
 #   for every row, and prints `validate: smoke-rows=some selected=<n>
-#   total=<m>` or `validate: smoke-rows=all reason=<reason>` and the
+#   total=<m> skipped=<k>` or `validate: smoke-rows=all reason=<reason>`, a
+#   `validate: smoke-row skipped=over-bound row=<row>` line for each row
+#   left out over the lane bound, and the
 #   `validate: smoke-input row=<row> ...` self-check lines on stderr:
 #   smoke_rows_selected below. Those lines leave that run's exit status
 #   alone; the tools row `smoke rows name the rows they read` fails on a
@@ -433,15 +435,15 @@ rows=(
   "qml|shader GPU cost|scripts/measure-shader.sh|scripts/measure-shader.sh scripts/shader/* scripts/check-voiceorb-shader.py shell/Ui/feedback/VoiceOrb.qml shell/Ui/feedback/shaders/* shell/plugins/vgs.voice/Plasma.qml shell/plugins/vgs.voice/Appearance.js shell/plugins/vgs.voice/shaders/* shell/Commons/* config/shell.json bin/lib/qml-library.js shell/Core/HyprlandLayer.js scripts/smoke/harness.sh scripts/smoke/gpu-fence.sh scripts/smoke/devices.sh scripts/smoke/fixtures/devices/* scripts/smoke/mode-hold.sh scripts/smoke/teardown.sh scripts/smoke/verdict.sh scripts/smoke/tree.sh scripts/smoke/shot.sh scripts/smoke/app-window.sh scripts/smoke/pointer/* scripts/smoke/toplevel/* scripts/smoke/keyboard/*"
 )
 
-# The branch point, printed on stdout: the merge base of HEAD with the
-# remote-tracking copy of the project's base branch, WORKTREE_DEFAULT_BRANCH
+# The branch point, printed on stdout: the merge base of COMMIT, HEAD by
+# default, with the remote-tracking copy of the project's base branch, WORKTREE_DEFAULT_BRANCH
 # from the environment or from kendex.settings.toml (read by the kendex
 # settings loader, so the file has one reader). Exactly one remote may carry
 # that branch; none or several is missing, never a guess, so no ref that
 # merely contains HEAD is taken for its base. On failure it prints what is
 # missing as key=value and returns 1.
-branch_point() {
-  local branch="${WORKTREE_DEFAULT_BRANCH:-}" loader="$repo/.agents/skills/orch/scripts/lib/kendex-env.sh" ref refs=()
+branch_point() { # [COMMIT]
+  local commit="${1:-HEAD}" branch="${WORKTREE_DEFAULT_BRANCH:-}" loader="$repo/.agents/skills/orch/scripts/lib/kendex-env.sh" ref refs=()
   if [[ -z $branch && -f $repo/kendex.settings.toml ]]; then
     # shellcheck source=/dev/null
     branch="$(source "$loader" && kendex_load_settings_file "$repo/kendex.settings.toml" && printf '%s' "${WORKTREE_DEFAULT_BRANCH:-}")" || branch=""
@@ -457,7 +459,7 @@ branch_point() {
     echo "missing=base-ref branch=$branch remote-refs=${#refs[@]}"
     return 1
   fi
-  if ! git merge-base HEAD "${refs[0]}"; then
+  if ! git merge-base "$commit" "${refs[0]}"; then
     echo "missing=merge-base ref=${refs[0]}"
     return 1
   fi
@@ -759,6 +761,35 @@ private_keys_check() {
 # first shell raises, the start order and auth-sentinel, whose reading
 # covers every row the run held.
 smoke_core=(bar hyprland-consent session start-order auth-sentinel)
+
+# The lane bound: a diff-scoped run leaves out a row whose median in
+# scripts/smoke/rows.secs exceeds this many seconds, and the batch run on
+# main, which runs --full, runs it. In the measurement that file names
+# (cachy, 2026-10-05) the core rows and the rows they read took 67 s
+# together, auth-sentinel unmeasured, so no lane pays more for one row than
+# for the whole core.
+smoke_bound_secs=60
+
+# smoke_secs_read: read scripts/smoke/rows.secs, one `<row> <seconds>` line
+# per measured row after its comment lines, into smoke_secs and return 0.
+# A file that cannot be read, or a line of another form, prints
+# `validate: smoke-secs=unreadable` or `smoke-secs=malformed` and returns
+# 1, and the caller then leaves every row in: a reading that cannot be
+# trusted never narrows a run. Reads smoke_secs from smoke_rows_selected.
+smoke_secs_read() {
+  local file=scripts/smoke/rows.secs line number=0 lines=()
+  if ! mapfile -t lines <"$file"; then
+    printf 'validate: smoke-secs=unreadable path=%s\n' "$file" >&2; return 1
+  fi
+  for line in "${lines[@]}"; do
+    number=$((number + 1))
+    [[ $line == '#'* || -z $line ]] && continue
+    if [[ ! $line =~ ^([a-z0-9-]+)\ (0|[1-9][0-9]*)$ ]]; then
+      printf 'validate: smoke-secs=malformed line=%s path=%s\n' "$number" "$file" >&2; return 1
+    fi
+    smoke_secs[${BASH_REMATCH[1]}]="${BASH_REMATCH[2]}"
+  done
+}
 
 # smoke_input_read KEY FILE: read FILE's one `# inputs: GLOB [GLOB...]`
 # line, in its leading comment block (the lines from its first that start
@@ -1220,12 +1251,15 @@ smoke_list_rows() {
 # harness input: a change to it runs the rows its added lines name, read
 # from the diff against the change base, so a moved row runs and a comment
 # runs nothing, and a row its removed lines unlist brings each row that
-# names its file. The self-check lines smoke_input_read prints never change
-# the exit status.
+# names its file. A row over smoke_bound_secs leaves a selection of some
+# rows, printed as `validate: smoke-row skipped=over-bound row=<row>`,
+# unless it is a core row, its own file changed or a selected row reads
+# it; --full, which passes no --rows, runs it. The self-check lines
+# smoke_input_read prints never change the exit status.
 smoke_rows_selected() { # CHANGED_PATH...
-  local listed row file path glob needed count every="" smoke_list=scripts/smoke/rows.list
-  local -a names tracked smoke_globs unlisted=()
-  local -A want=() reads=() hits=() lines=()
+  local listed row file path glob needed count secs every="" smoke_list=scripts/smoke/rows.list
+  local -a names tracked smoke_globs unlisted=() over=() skipped=()
+  local -A want=() reads=() hits=() lines=() smoke_secs=()
   local smoke_glob_unmatched
   smoke_only=""
   if ! listed="$(scripts/qml-smoke.sh --list-rows)" || [[ -z $listed ]]; then
@@ -1278,6 +1312,21 @@ smoke_rows_selected() { # CHANGED_PATH...
   if [[ -n $every ]]; then
     printf 'validate: smoke-rows=all %s\n' "$every" >&2; return 0
   fi
+  # A row over the lane bound leaves the selection unless it is a core row
+  # or the change edits its own file; the closure below brings it back when
+  # a row that stays reads it.
+  if smoke_secs_read; then
+    for row in "${!want[@]}"; do
+      secs="${smoke_secs[$row]-}"
+      [[ -n $secs && $secs -gt $smoke_bound_secs ]] || continue
+      [[ " ${smoke_core[*]} " != *" $row "* ]] || continue
+      for path in "$@"; do
+        [[ $path != "scripts/smoke/rows/$row.sh" ]] || continue 2
+      done
+      over+=("$row")
+    done
+    for row in "${over[@]}"; do unset "want[$row]"; done
+  fi
   # A row that runs brings the rows it reads, and theirs in turn.
   count=-1
   while [[ $count -ne ${#want[@]} ]]; do
@@ -1286,10 +1335,15 @@ smoke_rows_selected() { # CHANGED_PATH...
       for needed in ${reads[$row]-}; do want[$needed]=1; done
     done
   done
+  for row in "${names[@]}"; do
+    [[ " ${over[*]} " == *" $row "* && -z ${want[$row]-} ]] || continue
+    skipped+=("$row")
+    printf 'validate: smoke-row skipped=over-bound row=%s secs=%s bound=%s\n' "$row" "${smoke_secs[$row]}" "$smoke_bound_secs" >&2
+  done
   if [[ ${#want[@]} -eq ${#names[@]} ]]; then
     printf 'validate: smoke-rows=all reason=every-row-reached total=%s\n' "${#names[@]}" >&2; return 0
   fi
-  printf 'validate: smoke-rows=some selected=%s total=%s\n' "${#want[@]}" "${#names[@]}" >&2
+  printf 'validate: smoke-rows=some selected=%s total=%s skipped=%s\n' "${#want[@]}" "${#names[@]}" "${#skipped[@]}" >&2
   for row in "${names[@]}"; do
     [[ -z ${want[$row]-} ]] || smoke_only+="${smoke_only:+,}$row"
   done
@@ -1435,6 +1489,36 @@ if [[ -n $change_base ]]; then
   if ! base_commit="$(git rev-parse --verify --quiet "$change_base^{commit}")"; then base_commit="$change_base"; fi
   printf 'validate: base=%s source=%s\n' "$base_commit" "$base_source" >&2
 fi
+
+# rebased_scope FILE: when the change base is a commit HEAD no longer holds,
+# as after a rebase moved the branch onto a newer main, keep in FILE, the
+# NUL-delimited changed paths, only the paths the branch itself changes:
+# against its branch point before (the base's) or now (the worktree's), or
+# untracked. Main's changes in between are the batch run's, and the paths
+# the branch changes, main's edits to them included, still select. A base
+# HEAD holds keeps every path. Prints `validate: scope=rebased base=<commit>
+# old-point=<commit> point=<commit>`; returns 1 when a point or a diff
+# cannot be read, and the caller then selects the full area.
+rebased_scope() { # FILE
+  local file="$1" old_point point path status=0
+  local -a paths own_paths
+  local -A own=()
+  git merge-base --is-ancestor "$base_commit" HEAD 2>/dev/null || status=$?
+  [[ $status -eq 1 ]] || return 0
+  if ! old_point="$(branch_point "$base_commit")" || ! point="$(branch_point)"; then
+    printf 'validate: scope=unreadable reason=branch-point base=%s\n' "$base_commit" >&2; return 1
+  fi
+  if ! mapfile -d '' -t own_paths < <(git diff --name-only --no-renames -z "$old_point" "$base_commit" -- &&
+       git diff --name-only --no-renames -z "$point" -- && git ls-files -z --others --exclude-standard) || ! wait "$!" ||
+     ! mapfile -d '' -t paths <"$file"; then
+    printf 'validate: scope=unreadable reason=diff base=%s\n' "$base_commit" >&2; return 1
+  fi
+  for path in "${own_paths[@]}"; do own[$path]=1; done
+  for path in "${paths[@]}"; do
+    [[ -z ${own[$path]-} ]] || printf '%s\0' "$path"
+  done >"$file"
+  printf 'validate: scope=rebased base=%s old-point=%s point=%s\n' "$base_commit" "$old_point" "$point" >&2
+}
 # The tree a passing run records is read before the diff that selects its
 # rows, so an edit after that diff changes the end tree and records nothing.
 [[ $list_only == true ]] || pass_tree="$(worktree_tree)"
@@ -1446,7 +1530,8 @@ if [[ -n $change_base ]]; then
   paths_file="$(mktemp)"
   trap 'rm -f -- "${paths_file:?}"' EXIT
   if ! git diff --name-only --no-renames -z "$change_base" -- >"$paths_file" ||
-     ! git ls-files -z --others --exclude-standard >>"$paths_file"; then
+     ! git ls-files -z --others --exclude-standard >>"$paths_file" ||
+     ! rebased_scope "$paths_file"; then
     echo 'validate: selection=full reason=diff-unreadable' >&2
   else
     mapfile -d '' -t changed_paths <"$paths_file"

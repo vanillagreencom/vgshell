@@ -1,0 +1,105 @@
+# The median seconds each nested smoke row takes, one `<row> <seconds>` line
+# per measured row. scripts/validate reads it: a diff-scoped run leaves out a
+# row over its bound, smoke_bound_secs, which --full and the batch run on
+# main still run. A row with no line counts as fast and runs.
+#
+# Measured on cachy on 2026-10-05, on main and on lane branches: the time
+# from the start of each row's output file under the sandbox's rows/ to the
+# start of the next row's, read from 19 nested smoke runs, one batch run of
+# every row and lane runs of some rows, the row's harness steps included.
+# The medians of the 88 rows measured add up to 2112 s; the 2026-10-05
+# 20:12Z batch run's nested smoke row took 2119 s.
+#
+# Refresh: take the `qml-smoke: row-secs row=<row> secs=<seconds>` lines
+# that scripts/smoke/harness.sh prints for each row, from the qml.log of the
+# batch runs under the main checkout's tmp/main-run/, keep the rows
+# scripts/smoke/rows.list names, and write each row's median over those
+# runs, in the order of rows.list.
+bar 2
+hyprland-consent 2
+plugins 11
+sources 4
+capabilities 4
+leak-check 3
+session 1
+status 3
+manager 28
+updates 41
+settings 33
+placement 3
+windows 14
+compositor-dispatchers 2
+compositor-reveal 6
+agent-warden 42
+capability-release 2
+surfaces 13
+failed-builds 3
+monitors 1
+configuration 1
+theme 1
+themes 84
+theme-browse 18
+theme-browser 60
+theme-latency 25
+toasts 5
+layers 12
+shader-frames 11
+tui 9
+notices 8
+devtools 47
+overlays 9
+gallery 22
+launcher 37
+webapps 7
+list-motion 3
+notifications 90
+notifications-keys 76
+automations 27
+polkit 10
+device-fakes 2
+system-steps 4
+greeter 2
+bluetooth-agent 4
+jarvis 136
+jarvis-setup 27
+jarvis-page 13
+jarvis-input 4
+jarvis-browser 37
+jarvis-tasks 50
+hyprland 15
+hyprland-options 10
+input-facts 4
+clipboard 33
+monitor-outputs 1
+hold-shortcuts 4
+voice 33
+jarvis-keys 82
+jarvis-widget 46
+jarvis-desktop 14
+instance-guard 4
+diagnostics 3
+supervise 35
+lock 21
+read-only-prefix 7
+hyprland-consent-decline 13
+notices-control 2
+hidpi 27
+start-order 45
+overlay-capture 28
+key-capture 9
+key-passthrough 59
+keyhints 23
+scratchpads 71
+settings-unsaved 42
+panes 36
+system-window 20
+mouse 4
+displays 31
+sound 49
+capture 133
+ai-usage 10
+network 16
+bluetooth 44
+vpn 58
+style 13
+core-drift 8

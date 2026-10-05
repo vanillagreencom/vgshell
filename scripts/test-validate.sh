@@ -751,6 +751,11 @@ smoke_fixture() { # DIR [VARIANT]
   printf '# inputs: shell/plugins/acme.gone/*\n' >"$dir/scripts/smoke/rows/stale.sh"
   printf '# inputs: shell/plugins/acme.other/*\n# inputs: shell/Core/Keys.qml\ncat <<EOF\nnever closed\n' >"$dir/scripts/smoke/rows/twice.sh"
   printf '# inputs:\n' >"$dir/scripts/smoke/rows/blank.sh"
+  case "$variant" in
+    slow|slow-malformed)
+      printf '%s\n' '# Measured seconds.' 'bar 99' 'launcher 61' 'notifications 90' 'notifications-keys 10' 'other 60' >"$dir/scripts/smoke/rows.secs" ;;&
+    slow-malformed) printf 'stale sixty\n' >>"$dir/scripts/smoke/rows.secs" ;;
+  esac
   "${base_env[@]}" git -C "$dir" add -A
   "${base_env[@]}" git -C "$dir" commit -q -m smoke-rows
 }
@@ -788,6 +793,19 @@ smoke_cases=(
   "control: an unknown input no longer runs every row|shell/plugins/acme.launcher/Panel.qml new-source.bin|changed|$smoke_launcher|unknown|rows"
   "--full runs every row|shell/plugins/acme.launcher/Panel.qml|full|scripts/qml-smoke.sh||rows"
   "control: --full no longer runs every row|shell/plugins/acme.launcher/Panel.qml|full|$smoke_none|full|rows"
+  "a row over the bound leaves a diff-scoped selection|shell/plugins/acme.launcher/Panel.qml|changed|$smoke_none||slow"
+  "control: a row over the bound no longer leaves|shell/plugins/acme.launcher/Panel.qml|changed|$smoke_launcher|bound|slow"
+  "a row at the bound stays|shell/plugins/acme.other/Panel.qml|changed|scripts/qml-smoke.sh --rows $smoke_core,other,$smoke_always,$smoke_tail||slow"
+  "control: a row at the bound leaves|shell/plugins/acme.other/Panel.qml|changed|$smoke_none|at-bound|slow"
+  "control: a core row over the bound leaves|shell/plugins/acme.launcher/Panel.qml|changed|scripts/qml-smoke.sh --rows hyprland-consent,session,$smoke_always,$smoke_tail|core-bound|slow"
+  "a row over the bound whose own file changed stays|scripts/smoke/rows/launcher.sh|changed|$smoke_launcher||slow"
+  "control: a row over the bound whose own file changed leaves|scripts/smoke/rows/launcher.sh|changed|$smoke_none|own|slow"
+  "a row over the bound that a selected row reads stays|shell/plugins/acme.notify/Panel.qml shell/Core/Keys.qml|changed|$smoke_notify||slow"
+  "control: a row over the bound that a selected row reads leaves|shell/plugins/acme.notify/Panel.qml shell/Core/Keys.qml|changed|scripts/qml-smoke.sh --rows $smoke_core,notifications-keys,$smoke_always,$smoke_tail|read-back|slow"
+  "a malformed seconds file leaves every row in|shell/plugins/acme.launcher/Panel.qml|changed|$smoke_launcher||slow-malformed"
+  "control: a malformed seconds file still narrows|shell/plugins/acme.launcher/Panel.qml|changed|$smoke_none|malformed|slow-malformed"
+  "--full runs a row over the bound|shell/plugins/acme.launcher/Panel.qml|full|scripts/qml-smoke.sh||slow"
+  "control: --full no longer runs a row over the bound|shell/plugins/acme.launcher/Panel.qml|full|$smoke_none|full|slow"
 )
 # Each mutant: the text it replaces in validate, then its replacement.
 declare -A smoke_mutant_old=(
@@ -806,6 +824,12 @@ declare -A smoke_mutant_old=(
   [harness-line]="    every='reason=harness-line-unreadable'"
   [unknown]=$'      export VGS_VALIDATE_CHANGED="$paths_file"\n      smoke_scoped=true\n    fi'
   [full]=$'smoke_scoped=false\naffected=()'
+  [bound]='      over+=("$row")'
+  [at-bound]='$secs -gt $smoke_bound_secs'
+  [core-bound]='      [[ " ${smoke_core[*]} " != *" $row "* ]] || continue'
+  [own]='        [[ $path != "scripts/smoke/rows/$row.sh" ]] || continue 2'
+  [read-back]='      for needed in ${reads[$row]-}; do want[$needed]=1; done'
+  [malformed]='"$number" "$file" >&2; return 1'
 )
 declare -A smoke_mutant_new=(
   [missing]=$'"$key" "$file" >&2; return 0\n  fi\n  if [[ $count -gt 1 ]]'
@@ -823,6 +847,12 @@ declare -A smoke_mutant_new=(
   [harness-line]='    :'
   [unknown]=$'      export VGS_VALIDATE_CHANGED="$paths_file"\n    fi\n    smoke_scoped=true'
   [full]=$'smoke_scoped=true\naffected=()'
+  [bound]='      :'
+  [at-bound]='$secs -ge $smoke_bound_secs'
+  [core-bound]='      :'
+  [own]='        :'
+  [read-back]='      for needed in ${reads[$row]-}; do [[ " ${over[*]} " == *" $needed "* ]] || want[$needed]=1; done'
+  [malformed]='"$number" "$file" >&2; continue'
 )
 for spec in "${smoke_cases[@]}"; do
   IFS='|' read -r name files scope wanted mutant variant <<<"$spec"
@@ -846,6 +876,66 @@ PY
   out="$(cd -- "$d" && "${base_env[@]}" bash scripts/validate qml "${scope_args[@]}" --list 2>"$tmp/smoke-rows.err")" || status=$?
   plan="$(grep '^scripts/qml-smoke.sh' <<<"$out" || true)"
   if [[ $status == 0 && $plan == "$wanted" ]]; then ok "$name"; else fail "$name: exit=$status plan=$plan"; sed 's/^/        /' "$tmp/smoke-rows.err"; fi
+done
+# The lines a row over the bound leaves: one per row and the count in the
+# summary, which the lanes and the overseer read.
+test_area=qml
+test_args=(--changed HEAD --list)
+d="$tmp/smoke-rows-skip-lines"; smoke_fixture "$d" slow
+printf '# changed\n' >>"$d/shell/plugins/acme.launcher/Panel.qml"
+row "a row over the bound is named as skipped" "$d" 0 "" \
+  "validate: smoke-row skipped=over-bound row=launcher secs=61 bound=60" \
+  "validate: smoke-rows=some selected=10 total=14 skipped=1" '!skipped=over-bound row=bar' '!skipped=over-bound row=other'
+# A fix round after a rebase: the lane validated its launcher change at
+# $lane, main then changed acme.notify, the lane rebased onto it and edits
+# launcher again. --changed $lane selects the lane's own paths only; a base
+# HEAD still holds, main's old tip, selects every path since. Each control
+# removes one side of the ancestor test and wants the other side's plan.
+rebase_fixture() { # DIR
+  local dir="$1"
+  smoke_fixture "$dir"
+  "${base_env[@]}" git -C "$dir" branch -q -f trunk HEAD
+  "${base_env[@]}" git -C "$dir" update-ref refs/remotes/origin/trunk HEAD
+  printf 'lane\n' >>"$dir/shell/plugins/acme.launcher/Panel.qml"
+  "${base_env[@]}" git -C "$dir" commit -q -am lane
+  "${base_env[@]}" git -C "$dir" checkout -q trunk
+  printf 'main\n' >>"$dir/shell/plugins/acme.notify/Panel.qml"
+  "${base_env[@]}" git -C "$dir" commit -q -am main
+  "${base_env[@]}" git -C "$dir" update-ref refs/remotes/origin/trunk HEAD
+  "${base_env[@]}" git -C "$dir" checkout -q feature
+}
+smoke_both="scripts/qml-smoke.sh --rows $smoke_core,launcher,notifications,notifications-keys,$smoke_always,$smoke_tail"
+# name~base (lane or old-main)~wanted plan~mutant old~mutant new
+rebase_cases=(
+  "a fix round after a rebase selects the lane's own paths~lane~$smoke_launcher~~"
+  "control: a rebased base no longer narrows~lane~$smoke_both~  [[ \$status -eq 1 ]] || return 0~  return 0"
+  "a base HEAD holds selects every path since~old-main~$smoke_both~~"
+  "control: a base HEAD holds narrows too~old-main~$smoke_launcher~  [[ \$status -eq 1 ]] || return 0~  :"
+)
+for spec in "${rebase_cases[@]}"; do
+  IFS='~' read -r name base_kind wanted old new <<<"$spec"
+  d="$tmp/smoke-rebase-$base_kind-${old:+control}"; rebase_fixture "$d"
+  lane="$("${base_env[@]}" git -C "$d" rev-parse HEAD)"
+  old_main="$("${base_env[@]}" git -C "$d" rev-parse HEAD^)"
+  if [[ -n $old ]]; then
+    python3 - "$d/scripts/validate" "$old" "$new" <<'PY'
+from pathlib import Path
+import sys
+path, old, new = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+source = path.read_text()
+assert source.count(old) == 1, old
+path.write_text(source.replace(old, new))
+PY
+    "${base_env[@]}" git -C "$d" commit -q -am control
+    lane="$("${base_env[@]}" git -C "$d" rev-parse HEAD)"
+  fi
+  "${base_env[@]}" git -C "$d" rebase -q trunk
+  printf 'fix\n' >>"$d/shell/plugins/acme.launcher/Panel.qml"
+  base="$lane"; [[ $base_kind == lane ]] || base="$old_main"
+  status=0
+  out="$(cd -- "$d" && "${base_env[@]}" bash scripts/validate qml --changed "$base" --list 2>"$tmp/smoke-rebase.err")" || status=$?
+  plan="$(grep '^scripts/qml-smoke.sh' <<<"$out" || true)"
+  if [[ $status == 0 && $plan == "$wanted" ]]; then ok "$name"; else fail "$name: exit=$status plan=$plan"; sed 's/^/        /' "$tmp/smoke-rebase.err"; fi
 done
 # A runner that lists no row runs every row and names why; with that branch
 # removed, the empty list reaches the core check, which names another
