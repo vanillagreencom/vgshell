@@ -256,6 +256,8 @@ function verify(logic) {
     "Access could not be checked", { tone: "info", text: "Not needed", action: false }]);
   same(logic.statusWrites({ displays: values.displays, ddcTool: { tone: "ok", text: "Installed", action: false } }, values).map(w => w.key),
     ["assignments", "appleAccess", "ddcAccess", "ddcTool", "backlightTool"], "only changed values are written");
+  const needed = [["ok", false], ["info", false], ["warning", true], ["danger", true]];
+  for (const [tone, want] of needed) assert.equal(logic.accessNeeded({ tone: tone, text: "t", action: false }), want, "accessNeeded: " + tone);
   const noAccess = (backend) => ({ id: backend + ":x", backend: backend, state: "no-access" });
   const accessKeys = [[noAccess("hidraw"), "appleAccess"], [noAccess("ddc"), "ddcAccess"], [noAccess("backlight"), null], [shown[0], null]];
   for (const [display, want] of accessKeys) same(logic.accessKey(display), want, "accessKey: " + display.backend + " " + display.state);
@@ -297,6 +299,8 @@ const CONTROLS = [
   ["an allowed step offers Allow", "case \"ready\": return { tone: \"ok\", text: \"Allowed\", action: false };", "case \"ready\": return { tone: \"ok\", text: \"Allowed\", action: true };"],
   ["an entry takes an output another display lights", "group.names.some(function (name) { return lit[name] === true; })", "group.names.some(function (name) { return false; })"],
   ["the level in flight is not shown", "runs.busy.id === id) return runs.busy.percent;", "runs.busy.id === id) return null;"],
+  ["the pane shows a step that is ready", "return value.tone === \"warning\" || value.tone === \"danger\";", "return true;"],
+  ["the pane hides a step the system blocks", "return value.tone === \"warning\" || value.tone === \"danger\";", "return value.tone === \"warning\";"],
   ["a no-access Apple display offers the DDC step", "case \"hidraw\": return \"appleAccess\";", "case \"hidraw\": return \"ddcAccess\";"],
   ["brightnessctl is never offered", "backends !== null && backends.backlight.state === \"missing\"", "false"],
   ["a screen the helper lit is a choice", "return helperLit[name] === true;", "return false;"],

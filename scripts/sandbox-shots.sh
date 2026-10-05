@@ -1777,11 +1777,46 @@ scene_devtools() { # MODE
 # sandbox's environment alone, enabled for the shot and disabled again.
 # A tree that ships vgs.mouse then takes its Mouse section,
 # system-<mode>-mouse, over Hyprland's nested pointer list, enabled for
-# the shot and disabled again. Displays stays enabled through the other
-# Hardware shots, so the sidebar shows the group as a user with several
-# sections sees it.
+# the shot and disabled again, and the same section with Pointer speed
+# overridden, system-<mode>-mouse-overridden: the user file sets the
+# speed, so the layer writes the option, and a line after the VGS loading
+# line of hyprland.lua sets another, as rows/mouse.sh plants it. Both
+# files go back as the take found them. Displays stays enabled through the
+# other Hardware shots, so the sidebar shows the group as a user with
+# several sections sees it.
 system_shown() { [[ $(ipc smoke instanceGeometry window vgs.system) != absent ]] && echo shown || echo hidden; }
 displays_listed() { ipc smoke readInstance service vgs.displays values | py_reply 'import json,sys; print(len(json.load(sys.stdin)["displays"]["items"]))'; }
+mouse_speed() { hypr -j getoption input:sensitivity | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps([v.get("float"), v["set"]]))'; }
+take_mouse_overridden() { # MODE
+  local user="$home/.config/vgshell/shell.json" saved="$sandbox/shell-before-mouse-shot.json"
+  cp -- "$user" "$saved"
+  hypr_lua_save mouse-shot
+  python3 - "$user" <<'PY' || fail "the user file took no pointer speed"
+import json, os, sys
+path = sys.argv[1]
+config = json.load(open(path))
+rows = config.setdefault("plugins", [])
+row = next((r for r in rows if r.get("id") == "vgs.mouse"), None)
+if row is None:
+    row = {"id": "vgs.mouse"}
+    rows.append(row)
+row["sensitivity"] = 0.5
+with open(path + ".tmp", "w") as out:
+    json.dump(config, out)
+os.replace(path + ".tmp", path)
+PY
+  expect "the configuration reloads with a pointer speed" ok ipc shell reloadConfig
+  expect_poll "the layer's pointer speed reaches Hyprland" '[0.5, true]' mouse_speed
+  printf '%s\n' 'hl.config({ input = { sensitivity = -0.5 } })' >>"$home/.config/hypr/hyprland.lua"
+  expect "the nested instance reloads with the user's pointer speed" ok hypr reload config-only
+  expect_poll "the Pointer speed row shows its message" 1 ipc smoke itemTextCount window vgs.mouse FormRow 'Overridden by your Hyprland config'
+  park_pointer
+  take "system-$1-mouse-overridden"
+  hypr_lua_restore mouse-shot || fail "hyprland.lua is put back after the overridden Mouse shot"
+  expect "the nested instance reloads without the user's pointer speed" ok hypr reload config-only
+  cp -- "$saved" "$user.next" && mv -T -- "$user.next" "$user" || fail "the user file is put back after the overridden Mouse shot"
+  expect "the configuration reloads as the Mouse shot found it" ok ipc shell reloadConfig
+}
 scene_system() { # MODE
   local status=0 tree_state first_output displays_on=false
   expect "enabling vgs.system for its shot is allowed" ok ipc shell setPluginEnabled vgs.system true
@@ -1836,6 +1871,7 @@ scene_system() { # MODE
     expect_poll "System → Mouse is shown" '["vgs.mouse"]' window_panes
     park_pointer
     take "system-$1-mouse"
+    take_mouse_overridden "$1"
     expect "the System window hides after Mouse" ok ipc shell hide window vgs.system
     expect_poll "the System window is gone after Mouse" hidden system_shown
     expect "disabling vgs.mouse after its shot is allowed" ok ipc shell setPluginEnabled vgs.mouse false

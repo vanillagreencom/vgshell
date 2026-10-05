@@ -2,7 +2,9 @@ import QtQuick
 import qs.Commons
 import qs.Ui
 
-// A status chip. `size` is `sm`, the default, or `md`. The label is
+// A status chip, for a state tag or for a state the user must act on now
+// with its action beside it; a light message in a form is FormRow's
+// `warning` line. `size` is `sm`, the default, or `md`. The label is
 // placed by capital height, and the width uses the label's optical width,
 // with extra room after the label's tracked capitals. `tone` names a group
 // of `Theme.badge.tone`: `neutral`, `accent`, `success`, `warning`,

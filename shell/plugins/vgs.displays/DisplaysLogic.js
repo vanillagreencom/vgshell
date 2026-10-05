@@ -489,6 +489,14 @@ function toolState(missing, command, needed) {
     return { tone: "warning", text: "Not installed", action: true };
 }
 
+// Whether an access entry's published VALUE is a step the pane shows: one
+// the user has yet to take or cannot take, `warning` or `danger`. A step
+// that is ready, `ok`, and one nothing connected uses, `info`, show
+// nothing.
+function accessNeeded(value) {
+    return value.tone === "warning" || value.tone === "danger";
+}
+
 // Every status value the service publishes. RESOLVED is the helper's last
 // list with the assignments applied, null before the first list or while
 // the outputs are unread; BACKENDS its backend states; RUNS the helper's

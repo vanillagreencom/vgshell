@@ -21,29 +21,35 @@
 # also after a second press during the first, and keeps a level set while
 # it runs; a closed hidraw2 reads no-access after a plugin scan, the Apple
 # access entry offers Allow, the pane's access row reads it through
-# `status.rows`, and the pane's Allow, through `status.act`, hands the
-# stand-in terminal `vgshell system apply apple-displays`; the choices
-# persist in the assignments file and come back after the service is
-# rebuilt, and the second Studio Display still waits for its own; a stub
-# kernel backlight, which the brightnessctl stand-in lists and sets, reads
-# as a laptop panel, and a mouse drag on its slider in System → Displays
-# sets it while the drag moves and leaves it at the drag's end, 1 %;
-# after another program sets the panel to 80 %, a brightness key steps it
-# down and up by one step from that level, to 75 % and back to 80 %.
+# `status.rows` and draws it as the one line of its Access section, with
+# Allow, and the pane's Allow, through `status.act`, hands the stand-in
+# terminal `vgshell system apply apple-displays`; with hidraw2 open again
+# the pane draws no Access section; the choices persist in the assignments
+# file and come back after the service is rebuilt, and the second Studio
+# Display still waits for its own; a stub kernel backlight, which the
+# brightnessctl stand-in lists and sets, reads as a laptop panel, and a
+# mouse drag on its slider in System → Displays sets it while the drag
+# moves and leaves it at the drag's end, 1 %; after another program sets
+# the panel to 80 %, a brightness key steps it down and up by one step
+# from that level, to 75 % and back to 80 %.
 #
 # Control: the same 10 notches from 1 %, each sent once the run before it
 # ended, make 10 helper runs and reach the same 51 %, so the burst's
 # reading is the coalescing's and not a counter that cannot see more, and
 # a lost or repeated notch shows in the level, which stays under the 100 %
 # ceiling. A click on the panel's slider with no move sets it once, so
-# the drag's two or more sets are its moves. The helper runs and their
+# the drag's two or more sets are its moves. Three copies of the pane,
+# built under the shown pane with its `shell`, are read as the pane is: the
+# copy as shipped draws no Access section, the copy that takes every entry
+# as needed draws the ready Apple entry, and the copy that never hides the
+# section keeps its heading over no line. The helper runs and their
 # levels are read from the HID fake's log, every feature report it
 # served, and from the brightnessctl stand-in's calls. Every
 # reading is expect_poll's: 25 reads 0.2 s apart. The row puts back the
 # user file, so vgs.system and vgs.displays are as it found them, and
 # removes the output, the assignments file and the stub backlight and
 # gives hidraw2 its mode back.
-# inputs: shell/plugins/vgs.displays/* shell/plugins/vgs.system/* scripts/smoke/fixtures/devices/* shell/Core/SystemSteps.qml shell/Core/MonitorState.qml shell/Hosts/PaneHost.qml bin/vgshell-system scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh bin/vgshell-tui
+# inputs: shell/plugins/vgs.displays/* shell/plugins/vgs.system/* scripts/smoke/fixtures/devices/* shell/Core/SystemSteps.qml shell/Core/MonitorState.qml shell/Hosts/PaneHost.qml shell/Ui/controls/FormRow.qml bin/vgshell-system scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh bin/vgshell-tui
 set -euo pipefail
 devices_ready displays || return 0
 # The core probes the system steps once vgs.displays holds `system`, and
@@ -102,6 +108,35 @@ disp_access_row() { ipc smoke readInstance window vgs.displays accessRows | py_r
 import json, sys
 row = [r for r in json.load(sys.stdin) if r["key"] == sys.argv[1]]
 print(json.dumps([row[0]["tone"], row[0]["value"]["text"], row[0]["action"]["label"], row[0]["action"]["offered"]]) if row else "absent")' "$1"; }
+# The Access section as SCOPE draws it, the pane or, by its type's name, a
+# copy of the pane built under it: whether its heading shows, and each
+# shown row as [label, message, the shown button's text or null].
+disp_access_copies=(PaneAsShipped PaneReadyDrawn PaneHeaderKept)
+disp_access_drawn() { ipc smoke descendantGeometry window vgs.displays | py_reply '
+import json, sys
+scope, copies = sys.argv[1], sys.argv[2:]
+items = json.load(sys.stdin)
+def owner(at):
+    while at > 0:
+        if items[at]["type"] in copies: return items[at]["type"]
+        at = items[at]["parent"]
+    return ""
+def under(at, top):
+    while at > 0:
+        at = items[at]["parent"]
+        if at == top: return True
+    return False
+mine = [n for n in range(len(items)) if owner(n) == scope]
+headers = [n for n in mine if items[n]["type"] == "SectionHeader" and items[n].get("text") == "Access"]
+if len(headers) != 1:
+    print("headers=%d" % len(headers)); sys.exit()
+lines = []
+for row in mine:
+    if items[row].get("name") != "fieldRow" or items[row]["parent"] != items[headers[0]]["parent"] or not items[row]["visible"]: continue
+    parts = [items[n] for n in mine if items[n]["visible"] and under(n, row)]
+    line = lambda role: next((p.get("text") for p in parts if p["type"] == "Label" and p.get("role") == role and p["parent"] == row), None)
+    lines.append([line("label"), line("hint"), next((p.get("text") for p in parts if p["type"] == "Button"), None)])
+print(json.dumps({"header": items[headers[0]]["visible"], "lines": lines}))' "${1:-}" "${disp_access_copies[@]}"; }
 disp_file_entries() { python3 -c 'import json,sys; print(json.dumps(sorted([e["device"], e["output"]] for e in json.load(open(sys.argv[1]))["assignments"])))' "$disp_file"; }
 
 disp_main="$(hypr -j monitors | py_reply 'import json,sys; print(sorted(json.load(sys.stdin), key=lambda m: m["id"])[0]["name"])')" || { fail "displays: the main output is unreadable"; return 0; }
@@ -254,6 +289,7 @@ terminal_ready "displays"
 expect "the deep link opens System → Displays again" ok ipc shell summon window vgs.system '{"pane":"vgs.displays"}'
 expect_poll "the System window mounts the displays pane again" '["vgs.displays"]' window_panes
 expect_poll "the pane's Apple access row, from status.rows, offers Allow in the warning tone" '["warning", "Needs your permission", "Allow", true]' disp_access_row appleAccess
+expect_poll "the pane draws the one step that is needed as one line with its action" '{"header": true, "lines": [["Apple displays", "Needs your permission", "Allow"]]}' disp_access_drawn
 forget_record
 expect "the pane's Allow, through status.act, answers ok" ok ipc smoke invokeInstance window vgs.displays runAction appleAccess
 expect_poll "Allow hands the terminal vgshell system apply apple-displays" \
@@ -264,6 +300,39 @@ chmod "$disp_hidraw2_mode" "$disp_hidraw2"
 rescan "a rescan with hidraw2 open again answers ok"
 expect_poll "the Apple access entry reads allowed again" '{"action": false, "text": "Allowed", "tone": "ok"}' disp_value appleAccess
 expect_poll "Studio B reads ready again" '["hidraw2", "ready", 70, [], false]' disp_item hidraw2
+expect_poll "with every step ready the pane draws no Access section" '{"header": false, "lines": []}' disp_access_drawn
+# Copies of the shipped pane, built under the shown pane and reading its
+# `shell`: one as shipped, one that takes every access entry as needed and
+# one whose Access section never hides. The type loader keeps the listing
+# of a directory it has read (runtime-qml.md), so the copies go in a fresh
+# folder, named as the types they make, and import the plugin's directory
+# for its rows and its logic. A copy takes no focus from the pane.
+disp_copy_dir="$repo/shell/plugins/vgs.displays/access-copies"
+mkdir -- "$disp_copy_dir"
+python3 - "$repo/shell/plugins/vgs.displays/Pane.qml" "$disp_copy_dir" "${disp_access_copies[@]}" <<'PY'
+import pathlib, sys
+source, folder, shipped, ready_drawn, header_kept = pathlib.Path(sys.argv[1]).read_text(), pathlib.Path(sys.argv[2]), *sys.argv[3:]
+def swap(text, needle, replacement):
+    assert text.count(needle) == 1, needle
+    return text.replace(needle, replacement)
+copy = swap(source, 'import "DisplaysLogic.js" as Logic\n', 'import ".."\nimport "../DisplaysLogic.js" as Logic\n')
+copy = swap(copy, "    property var shell: null\n", "    property var shell: parent.shell\n")
+copy = swap(copy, "    focus: true\n", "    focus: false\n")
+(folder / (shipped + ".qml")).write_text(copy)
+(folder / (ready_drawn + ".qml")).write_text(swap(copy, "Logic.accessNeeded(r.value)", "true"))
+(folder / (header_kept + ".qml")).write_text(swap(copy, "            visible: root.accessRows.length > 0\n", "            visible: true\n"))
+PY
+disp_ready_drawn() { disp_access_drawn PaneReadyDrawn | py_reply 'import json,sys; d=json.load(sys.stdin); print(d["header"] and ["Apple displays", "Allowed", None] in d["lines"])'; }
+for disp_copy in "${disp_access_copies[@]}"; do
+  expect "the probe builds the pane copy $disp_copy" ok ipc smoke popupLoad "displays-$disp_copy" "$disp_copy_dir/$disp_copy.qml" window vgs.displays '{"width": 600}'
+done
+expect_poll "the pane copy as shipped draws no Access section" '{"header": false, "lines": []}' disp_access_drawn PaneAsShipped
+expect_poll "control: a pane that takes every entry as needed draws the ready Apple entry" True disp_ready_drawn
+expect_poll "control: a pane that never hides the section keeps its heading over no line" '{"header": true, "lines": []}' disp_access_drawn PaneHeaderKept
+for disp_copy in "${disp_access_copies[@]}"; do
+  expect "the probe drops the pane copy $disp_copy" ok ipc smoke popupDrop "displays-$disp_copy"
+done
+rm -r -- "${disp_copy_dir:?}" || fail "removing the pane copies failed"
 expect "hiding the System window is allowed" ok ipc shell hide window vgs.system
 
 # The choices persist: the file holds both, and a rebuilt service applies

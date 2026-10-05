@@ -9,13 +9,14 @@ import "DisplaysLogic.js" as Logic
 // placed by the user's choice, the screen it shows on, picked from the
 // outputs Hyprland reads, and Identify, which shows each screen's name and
 // flashes that display; Link displays; the saved choices whose display or
-// screen is gone, each with Forget; and the access entries the plugin's
-// status publishes, each with its action while offered. The holder draws
-// the title, the inset and the scrolling. It draws the status the service
-// publishes and asks the service, or the core through `status.act`, for
-// every change; it runs nothing itself. Each access entry's tone and
-// offered action come from the core's status rows (`status.rows`). Tab moves through the controls in
-// reading order; the arrows move a slider and a closed Select.
+// screen is gone, each with Forget; and, while a step is needed, the
+// access entries that need one (`accessNeeded`), each as one line with its
+// action while offered. The holder draws the title, the inset and the
+// scrolling. It draws the status the service publishes and asks the
+// service, or the core through `status.act`, for every change; it runs
+// nothing itself. Each access entry's tone and offered action come from
+// the core's status rows (`status.rows`). Tab moves through the controls
+// in reading order; the arrows move a slider and a closed Select.
 FocusScope {
     id: root
 
@@ -26,9 +27,9 @@ FocusScope {
     readonly property var stale: assignments.entries.filter(e => e.state === "stale")
     readonly property var outputs: shell === null || shell.monitors.outputs === null ? [] : shell.monitors.outputs
     readonly property var screenChoices: Logic.screenChoices(list.items, outputs)
-    // The access entries the service has published, as the Settings page
-    // draws them.
-    readonly property var accessRows: shell === null ? [] : shell.status.rows.filter(r => r.group === "Access" && r.report === "reported")
+    // The access entries that need a step, as the core's status rows give
+    // them.
+    readonly property var accessRows: shell === null ? [] : shell.status.rows.filter(r => r.group === "Access" && r.report === "reported" && Logic.accessNeeded(r.value))
     // The refusal the last step was answered with, "" for none.
     property string problem: ""
     readonly property Item initialFocus: displaysColumn.firstFocus !== null ? displaysColumn.firstFocus : linkRow.toggle
@@ -226,6 +227,7 @@ FocusScope {
             id: accessColumn
             width: parent.width
             spacing: Theme.stack.group
+            visible: root.accessRows.length > 0
 
             SectionHeader {
                 width: parent.width
@@ -243,24 +245,15 @@ FocusScope {
                     required property var modelData
                     width: accessColumn.width
                     label: modelData.label
+                    warning: modelData.value.text
+                    warningTone: modelData.tone
 
-                    Row {
-                        width: parent.width
-                        spacing: Theme.stack.inline
-
-                        Badge {
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: accessRow.modelData.value.text
-                            tone: accessRow.modelData.tone
-                        }
-                        Button {
-                            visible: accessRow.modelData.action !== null && accessRow.modelData.action.offered
-                            anchors.verticalCenter: parent.verticalCenter
-                            variant: "secondary"
-                            size: "sm"
-                            text: accessRow.modelData.action === null ? "" : accessRow.modelData.action.label
-                            onClicked: root.runAction(accessRow.modelData.key)
-                        }
+                    Button {
+                        visible: accessRow.modelData.action !== null && accessRow.modelData.action.offered
+                        variant: "secondary"
+                        size: "sm"
+                        text: accessRow.modelData.action === null ? "" : accessRow.modelData.action.label
+                        onClicked: root.runAction(accessRow.modelData.key)
                     }
                 }
             }

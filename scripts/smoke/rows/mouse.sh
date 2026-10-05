@@ -2,11 +2,12 @@
 # layer. The row runs in the nested sandbox only. It enables the plugin,
 # drives the pane's real pointer-speed slider through the probe geometry and
 # a click, reads the nested Hyprland option, checks an untouched option, adds
-# a user line after the VGS loading line to prove the overridden badge, waits
-# for Hyprland devices before checking the no-touchpad view and published
-# status, clicks the bar widget to open the flyout through surfaces, changes
-# the same slider from the keyboard, and installs a disposable vgs.mouse copy
-# whose pane writes sensitivity with hyprctl instead of configure.set.
+# a user line after the VGS loading line to prove the overridden message
+# under the row and the slider's unchanged width, waits for Hyprland devices
+# before checking the no-touchpad view and published status, clicks the bar
+# widget to open the flyout through surfaces, changes the same slider from
+# the keyboard, and installs a disposable vgs.mouse copy whose pane writes
+# sensitivity with hyprctl instead of configure.set.
 #
 # Control run on 2026-10-05, host cachy, through this row with
 # hyprland-consent: the disposable vgs.mouse copy removed hyprland.options for
@@ -30,6 +31,13 @@ mouse_was="$(plugin_enabled vgs.mouse)" || fail "vgs.mouse's enabled state is un
 mouse_option() { hypr -j getoption "$1" | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps([v.get(sys.argv[1]), v["set"]]))' "$2"; }
 mouse_placed() { bar_widget_ids | py_reply 'import json,sys; print(any("vgs.mouse" in ids for ids in json.load(sys.stdin)))'; }
 mouse_text_count() { ipc smoke itemTextCount window vgs.mouse "$1" "$2"; }
+# How many shown hint lines directly under a key/value row of the pane
+# read TEXT: a row's message, and no chip's label.
+mouse_messages() { ipc smoke descendantGeometry window vgs.mouse | py_reply '
+import json, sys
+items = json.load(sys.stdin)
+print(sum(1 for i in items if i["type"] == "Label" and i.get("role") == "hint" and i["visible"] and i.get("text") == sys.argv[1] and items[i["parent"]].get("name") == "fieldRow"))' "$1"; }
+mouse_slider_width() { ipc smoke descendantGeometry window vgs.mouse | py_reply 'import json,sys; r=[i["box"][2] for i in json.load(sys.stdin) if i["type"] == "Slider" and i["visible"]]; print(r[0] if r else "absent")'; }
 mouse_layer_mentions() { if grep -qF -- "$1" "$mouse_layer"; then echo yes; else echo no; fi; }
 mouse_status_published() { ipc smoke statusValues vgs.mouse | py_reply 'import json,sys; d=json.load(sys.stdin).get("devices"); print("ok" if isinstance(d, dict) and d.get("hasTouchpad") is False and isinstance(d.get("devices"), list) else "bad")'; }
 mouse_slider_point() {
@@ -71,10 +79,13 @@ expect "an untouched natural-scroll option keeps Hyprland's default" '[false, fa
 expect "the layer writes no untouched natural-scroll option" no mouse_layer_mentions natural_scroll
 expect_poll "the Mouse layer records the sensitivity option" ok mouse_contract '[0.55, true]'
 
+mouse_width="$(mouse_slider_width)" || fail "the Mouse pointer-speed slider's width is unreadable"
+expect "the pane shows no message before the user line" 0 mouse_messages 'Overridden by your Hyprland config'
 printf '%s\n' 'hl.config({ input = { sensitivity = -0.5 } })' >>"$mouse_hypr"
 expect "the nested instance reloads with the user Mouse line" ok hypr reload config-only
 expect_poll "the user Mouse line wins" '[-0.5, true]' mouse_option input:sensitivity float
-expect_poll "the pane shows the overridden badge" 1 mouse_text_count Badge 'Overridden by your Hyprland config'
+expect_poll "the pane shows the overridden message under its row" 1 mouse_messages 'Overridden by your Hyprland config'
+expect "the message leaves the pointer-speed slider its width" "$mouse_width" mouse_slider_width
 hypr_lua_restore mouse || fail "hyprland.lua is put back after the Mouse override read"
 expect "the nested instance reloads without the Mouse override line" ok hypr reload config-only
 

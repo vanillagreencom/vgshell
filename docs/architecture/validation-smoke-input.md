@@ -12,7 +12,7 @@ The probe readers, disposable QML controls and input helpers that smoke rows use
 
 - The Network Share reader returns only creation state, matrix dimensions, module size and visibility. It never returns a matrix, password or process collector. A typed Item observer retains the Share view across Close and becomes null when the view is destroyed. The owner-retention mutation must keep that observer alive. An open popup can still lack keyboard focus, so the row repeats the idempotent End key until the menu reader observes Share QR code, then reads the intended entry before Enter. A held private encoder proves that Close also stops buffered work before it can restore a matrix: [network.md § Evidence](network.md#evidence).
 
-- `galleryColour` reads the first shown example of the requested type in its section. A `FormRow` without a warning keeps its hidden badge out of that reading, so the theme row compares the visible badge with its token.
+- `galleryColour` reads the first shown example of the requested type in its section.
 
 - A row that writes a disposable QML control after shell startup writes it in a fresh subdirectory and loads the file whose basename matches the type it creates. It never writes a new `.qml` file directly into `shell/Core`, `shell/Ui` or a plugin directory after the engine may have listed that directory, because Qt caches directory listings and a later `Qt.createComponent` can fail with `File name case mismatch` ([runtime-qml.md](runtime-qml.md)).
 

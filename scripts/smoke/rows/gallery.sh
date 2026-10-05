@@ -16,11 +16,11 @@ expect "the gallery maps no layer surface" 0 layer_count vgs:panel
 expect_poll "the gallery draws every component of the module" '[]' ipc smoke galleryMissing window vgs.gallery
 # The key/value row, the device row and the level display draw with a
 # size in each state the gallery shows: a form row with and without its
-# warning badge, a device row per badge (a battery, a low battery by its
+# message, a device row per badge (a battery, a low battery by its
 # text, a level), and a level display read as a percentage, as Muted and
 # as a device's name, each read back by type and text. The control
 # flattens the first box, which the check names. `[]` is the pass.
-gallery_drawn_rows=("FormRow|Natural scroll" "FormRow|Pointer speed" "Badge|Overridden" "DeviceRow|Headphones" "DeviceRow|Mouse" "Badge|8%" "DeviceRow|Speaker" "LevelOsd|45%" "LevelOsd|Muted" "LevelOsd|Studio Display" "LevelSlider|60%" "LevelSlider|Muted")
+gallery_drawn_rows=("FormRow|Natural scroll" "FormRow|Pointer speed" "Label|Overridden" "DeviceRow|Headphones" "DeviceRow|Mouse" "Badge|8%" "DeviceRow|Speaker" "LevelOsd|45%" "LevelOsd|Muted" "LevelOsd|Studio Display" "LevelSlider|60%" "LevelSlider|Muted")
 gallery_drawn() {
   local boxes=() entry
   for entry in "${gallery_drawn_rows[@]}"; do boxes+=("$entry=$(ipc smoke shownWindowGeometry window vgs.gallery "${entry%%|*}" "${entry#*|}")"); done
@@ -41,6 +41,7 @@ PY
 gallery_drawn_planted() { gallery_drawn flat | py_reply 'import json,sys; print(json.load(sys.stdin) == ["FormRow|Natural scroll.height=0"])'; }
 geometry expect_poll "the gallery draws its form rows, device rows, level displays and level sliders" '[]' gallery_drawn
 expect "control: a form row drawn flat is named" True gallery_drawn_planted
+expect "the form row draws its message as no chip" absent ipc smoke shownWindowGeometry window vgs.gallery Badge Overridden
 
 # The Gallery's DeviceList owns movement; only its selected row takes a
 # Tab stop. A reading is the focused item's type, the list's example name,
