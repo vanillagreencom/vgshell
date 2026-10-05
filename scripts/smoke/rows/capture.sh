@@ -243,8 +243,19 @@ capture_cursor_position() {
   hover "$1" "$capture_cursor_y" || return 1
   expect_poll "the flat cursor fixture holds the capture pointer" true ipc smoke popupRead capture-cursor hovering
 }
-capture_cursor_pair() {
-  local moved="${1:-move}" rect x y width height
+capture_cursor_geometry() {
+  local previous="" current="" i
+  for i in $(seq 1 50); do
+    current="$(ipc smoke instanceGeometry "$(bar_key)" vgs.capture)" || return 1
+    if [[ $current == \[* && $current == "$previous" ]]; then echo "$current"; return; fi
+    previous="$current"
+    sleep 0.1
+  done
+  printf 'capture: cursor-geometry=unsettled value=%s\n' "$current" >&2
+  return 1
+}
+capture_cursor_setup() {
+  local rect x y width height
   capture_setting cursor true
   expect "capture notices leave the cursor baseline" 0 capture_wait_toasts
   python3 - "$sandbox/capture-cursor.qml" "$sandbox" <<'PY'
@@ -279,7 +290,7 @@ Rectangle {
 PY
   expect "the flat hand-cursor fixture builds on the bar" ok ipc smoke popupLoad capture-cursor "$sandbox/capture-cursor.qml" "$(bar_key)" vgs.capture '{}'
   expect_poll "the bar gives the cursor fixture its input width" 160 capture_cursor_width
-  rect="$(ipc smoke instanceGeometry "$(bar_key)" vgs.capture)" || return 1
+  rect="$(capture_cursor_geometry)" || return 1
   read -r x y width height < <(python3 -c 'import json,sys; print(*json.loads(sys.argv[1]))' "$rect")
   capture_cursor_inside=$((x + 24))
   capture_cursor_outside=$((x + 124))
@@ -287,6 +298,10 @@ PY
   capture_cursor_gap_x=$((x - 1))
   capture_cursor_gap_y=$((y + 1))
   capture_cursor_crop="$(python3 -c 'import sys; x,y,h,w,oh=map(int,sys.argv[1:]); left=x+4; top=y+(h-20)//2; assert h>=20 and left>=0 and left+50<=w and top>=0 and top+20<=oh; print("50x20+%d+%d"%(left,top))' "$x" "$y" "$height" "$capture_width" "$capture_height")" || return 1
+}
+capture_cursor_pair() {
+  local moved="${1:-move}"
+  expect "capture notices leave the cursor baseline" 0 capture_wait_toasts
   capture_cursor_position "$capture_cursor_outside"
   expect "capture takes a scene with the pointer outside its crop" ok ipc vgs.capture invoke screenshot ''
   expect_poll "the cursor baseline finishes" idle capture_phase
@@ -295,8 +310,8 @@ PY
   if [[ $moved == move ]]; then capture_cursor_position "$capture_cursor_inside"; else capture_cursor_position "$capture_cursor_outside"; fi
   expect "capture takes the second scene with the hand cursor" ok ipc vgs.capture invoke screenshot ''
   expect_poll "the cursor image finishes" idle capture_phase
-  expect "the flat cursor fixture is released" ok ipc smoke popupDrop capture-cursor
 }
+capture_cursor_release() { expect "the flat cursor fixture is released" ok ipc smoke popupDrop capture-cursor; }
 capture_cursor_changed() {
   local current
   current="$(capture_crop_hash "$(capture_path)" "$capture_cursor_crop" 50 20)" || return 1
@@ -394,11 +409,13 @@ expect "capture accepts all enabled displays" ok ipc vgs.capture invoke screensh
 expect_poll "capture finishes all displays" idle capture_phase
 expect_poll "all-display image equals the compositor bounding box" True capture_image_box "$capture_all_box"
 capture_config real "{\"grim\": \"$capture_real_grim\"}"
+capture_cursor_setup
 capture_cursor_pair move
 expect "the cursor option reaches grim" True capture_cursor_flag
 expect "moving the hand cursor into the crop changes delivered pixels" True capture_cursor_changed
 capture_cursor_pair stay
 expect "control: omitting the cursor move fails the pixel-change readback" False capture_cursor_changed
+capture_cursor_release
 capture_setting cursor false
 capture_setting processing '"copy"'
 capture_before="$(capture_counts)"
