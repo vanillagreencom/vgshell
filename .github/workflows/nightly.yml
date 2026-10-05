@@ -60,7 +60,7 @@ jobs:
           pacman -Syu --noconfirm --needed \
             git base-devel nodejs python python-dbus python-numpy jq \
             qt6-declarative quickshell util-linux bubblewrap lua gnupg \
-            libsecret sudo tmux fd fzf file glib2 xdg-utils imagemagick \
+            libsecret sudo tmux fd fzf file glib2 xdg-utils imagemagick ffmpeg \
             qt6-shadertools pipewire pipewire-audio ttf-dejavu
           useradd --create-home ci
           # Ubuntu restricts user namespaces to processes an AppArmor profile
