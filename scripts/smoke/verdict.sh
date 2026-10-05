@@ -26,8 +26,9 @@ row_class=behaviour
 # runs under `hold`: it measured an output the sandbox reset
 # (held_mode_state in mode-hold.sh). A row that fails while the output
 # reads the host window's own size in place of a held mode of another
-# size counts in mode_resets under every class, `hold` included: only a
-# host configure gives the output that size (held_mode_host_sized).
+# size counts in mode_resets under every class, `hold` included: the
+# output read the held mode once the hold began, so a host configure
+# moved it back (held_mode_host_sized).
 mode_hold=()
 mode_hold_window=""
 mode_resets=0

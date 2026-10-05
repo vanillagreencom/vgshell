@@ -10,7 +10,9 @@
 # window size the hold records, the rules applied and the first line
 # printed. A second table runs
 # whole_scale_mode, the mode and scale a hold above scale 1 takes, and
-# pins its output and exit status. The controls at the end plant one
+# pins its output and exit status. A third runs held_mode_host_sized, whether
+# a taken hold reads the host window's own size, over the stub monitor. The
+# controls at the end plant one
 # defect per rule in a copy of the file and require the case that rule
 # owns to go red.
 #
@@ -80,6 +82,11 @@ case "$stub_call" in
     mode_hold=(WAYLAND-1 "3510x1866 scale=2")
     hold_restore || status=$? ;;
   restore-none) hold_restore || status=$? ;;
+  hold-release)
+    expect() { :; }
+    expect_poll() { :; }
+    hold_mode "the case" WAYLAND-1 3510x1866 2
+    release_mode "the release" WAYLAND-1 1755x933 ;;
 esac
 file=absent; [[ -f $mode_hold_file ]] && file=present
 state=none; [[ ${#mode_hold[@]} -eq 0 ]] || state="$(held_mode_state)"
@@ -98,17 +105,17 @@ printf "result status=%s failures=%s resets=%s held=[%s] window=[%s] state=%s fi
 
 # Rows: label | call | eval reply | readings after each rule, comma
 # separated | result | rules applied | first line.
-# The output reads 1755x933 at scale 1 before any rule, the host window's
-# own size. A hold that never reads its mode is a mode reset when its last
-# reading is that size, and a failure when it is any other.
+# The output reads 1755x933 at scale 1 before any rule, the size a taken
+# hold records as the host window's.
 cases=(
   "a hold the output takes at once is held|hold|ok|take|status=0 failures=0 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[1755x933] state=held file=present|1|ok the case: WAYLAND-1 reads 3510x1866 scale=2, attempts=1 got=[3510x1866 scale=2]"
   "a hold the host resets once is applied again and held|hold|ok|1755x933 scale=1.5,take|status=0 failures=0 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[1755x933] state=held file=present|2|ok the case: WAYLAND-1 reads 3510x1866 scale=2, attempts=2 got=[3510x1866 scale=2]"
-  "a hold the host always sizes to its window is a mode reset after the bound|hold|ok|1755x933 scale=1.5|status=0 failures=1 resets=1 held=[] window=[] state=none file=absent|3|  SKIP  the case: WAYLAND-1 does not read 3510x1866 scale=2: attempts=3 got=[1755x933 scale=1.5]: not measured: WAYLAND-1 reads the host window's own size 1755x933"
+  "a hold the host always resets fails after the bound|hold|ok|1755x933 scale=1.5|status=0 failures=1 resets=0 held=[] window=[] state=none file=absent|3|  FAIL  the case: WAYLAND-1 does not read 3510x1866 scale=2: attempts=3 got=[1755x933 scale=1.5]"
   "a hold that reads another mode fails after the bound|hold|ok|1700x900 scale=1|status=0 failures=1 resets=0 held=[] window=[] state=none file=absent|3|  FAIL  the case: WAYLAND-1 does not read 3510x1866 scale=2: attempts=3 got=[1700x900 scale=1]"
   "a refused rule fails at once|hold|error|take|status=0 failures=1 resets=0 held=[] window=[] state=none file=absent|0|  FAIL  the case: WAYLAND-1 does not read 3510x1866 scale=2: attempts=1 eval=[error]"
   "a restore after a reset takes the held mode and scale|restore|ok|1755x933 scale=1.5,take|status=0 failures=0 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[] state=held file=present|2|result status=0 failures=0 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[] state=held file=present"
   "a restore the host always resets fails after the bound|restore|ok|1755x933 scale=1.5|status=1 failures=0 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[] state=reset file=present|3|hold-restore: not-held output=WAYLAND-1 want=[3510x1866 scale=2] attempts=3 got=[1755x933 scale=1.5]"
+  "a release empties the recorded window size|hold-release|ok|take|status=0 failures=0 resets=0 held=[] window=[] state=none file=absent|1|ok the case: WAYLAND-1 reads 3510x1866 scale=2, attempts=1 got=[3510x1866 scale=2]"
   "a restore with no hold is refused|restore-none|ok|take|status=1 failures=0 resets=0 held=[] window=[] state=none file=absent|0|hold-restore: refused hold=none"
 )
 for row in "${cases[@]}"; do
@@ -150,6 +157,46 @@ for row in "${scale_cases[@]}"; do
   if scale_case "$subject" "$row"; then ok "${row%%|*}"; else fail "${row%%|*}"; fi
 done
 
+# sized_case FILE ROW: true when held_mode_host_sized, as FILE defines it,
+# answers the row's word for a hold of the row's mode and recorded window
+# size, while a stub hypr lists WAYLAND-1 at the row's reading, so the
+# real mode_scale_of runs. `unreadable` lists no monitor.
+sized_case() {
+  local label held window reading want got status=0
+  IFS='|' read -r label held window reading want <<<"$2"
+  got="$(env -i PATH="$PATH" bash -c '
+set -euo pipefail
+source "$1/scripts/smoke/verdict.sh"
+source "$2"
+stub_reading="$5"
+hypr() {
+  if [[ $stub_reading == unreadable ]]; then echo "[]"; return 0; fi
+  printf "[{\"name\": \"WAYLAND-1\", \"width\": %s, \"height\": %s, \"scale\": %s}]\n" \
+    "${stub_reading%%x*}" "$(r="${stub_reading#*x}"; echo "${r% scale=*}")" "${stub_reading##*scale=}"
+}
+mode_hold=(WAYLAND-1 "$3")
+mode_hold_window="$4"
+if held_mode_host_sized; then echo true; else echo false; fi
+' _ "$repo" "$1" "$held" "$window" "$reading")" || status=$?
+  [[ $status -eq 0 && $got == "$want" ]] && return 0
+  printf '        %s: exit=%s got [%s] want [%s]\n' "$label" "$status" "$got" "$want"
+  return 1
+}
+
+# Rows: label | held mode and scale | recorded window size | what the
+# monitor reads | whether the hold reads host-sized.
+sized_cases=(
+  "the window's size under another held mode is host-sized|3510x1866 scale=2|1755x933|1755x933 scale=1.5|true"
+  "the held mode is not host-sized|3510x1866 scale=2|1755x933|3510x1866 scale=2|false"
+  "another size is not host-sized|3510x1866 scale=2|1755x933|1700x900 scale=1|false"
+  "a hold at the window's own size is never host-sized|1755x933 scale=3|1755x933|1755x933 scale=1|false"
+  "an unreadable monitor is not host-sized|3510x1866 scale=2|1755x933|unreadable|false"
+  "no recorded window size is not host-sized|3510x1866 scale=2||1755x933 scale=1|false"
+)
+for row in "${sized_cases[@]}"; do
+  if sized_case "$subject" "$row"; then ok "${row%%|*}"; else fail "${row%%|*}"; fi
+done
+
 # mutate OLD NEW OUT: a copy of the hold with OLD, which must occur once,
 # replaced by NEW.
 mutate() {
@@ -170,10 +217,11 @@ mutate() {
 # field holds no `|`, the separator.
 controls=(
   "take_mode applies the rule once|attempt <= mode_attempts; attempt++|attempt <= 1; attempt++|a hold the host resets once is applied again and held"
-  "take_mode applies the rule past the bound|mode_attempts=3|mode_attempts=4|a hold the host always sizes to its window is a mode reset after the bound"
+  "take_mode applies the rule past the bound|mode_attempts=3|mode_attempts=4|a hold the host always resets fails after the bound"
   "hold_mode records no window size|    mode_hold_window=\"\$window\"|    mode_hold_window=\"\"|a hold the output takes at once is held"
-  "hold_mode reads no host-sized reading|\${BASH_REMATCH[1]} == \"\$window\"|\${BASH_REMATCH[1]} == never|a hold the host always sizes to its window is a mode reset after the bound"
-  "hold_mode excuses any reading|&& \${BASH_REMATCH[1]} == \"\$window\" ]]; then|]]; then|a hold that reads another mode fails after the bound"
+  "release_mode keeps the window size|  mode_hold_window=\"\"|  mode_hold_window=\"\$mode_hold_window\"|a release empties the recorded window size"
+  "held_mode_host_sized always answers true|held_mode_host_sized() {|held_mode_host_sized() { return 0|the held mode is not host-sized"
+  "held_mode_host_sized reads a hold at the window's own size|[[ \$mode_hold_window != \"\${mode_hold[1]% scale=*}\" ]]|true|a hold at the window's own size is never host-sized"
   "take_mode polls after a refused rule|[[ \$reply != ok ]]|[[ \$reply == never ]]|a refused rule fails at once"
   "hold_restore drops the held scale|\"\${mode_hold[1]##*scale=}\"|\"1\"|a restore after a reset takes the held mode and scale"
   "hold_restore runs with no hold|if [[ \${#mode_hold[@]} -eq 0 ]]; then|if [[ \${#mode_hold[@]} -eq -1 ]]; then|a restore with no hold is refused"
@@ -189,6 +237,7 @@ for i in "${!controls[@]}"; do
   row="" runner=""
   for candidate in "${cases[@]}"; do [[ ${candidate%%|*} == "$target" ]] && row="$candidate" runner=run_case; done
   for candidate in "${scale_cases[@]}"; do [[ ${candidate%%|*} == "$target" ]] && row="$candidate" runner=scale_case; done
+  for candidate in "${sized_cases[@]}"; do [[ ${candidate%%|*} == "$target" ]] && row="$candidate" runner=sized_case; done
   if [[ -z $row ]]; then fail "control: $label names no case: $target"; continue; fi
   if "$runner" "$mutant" "$row" >/dev/null 2>&1; then fail "control: $label left '$target' green"; else ok "control: $label"; fi
 done
