@@ -74,11 +74,16 @@
 # to an unsized nested monitor. The 22 readings, each a start with no
 # compiled QML cache, were 253 to 310 ms with cpu_some_pct at most 1.3.
 # VGSHELL_SMOKE_DEFAULT_FIRST_BAR_BUDGET_MS: the same ceiling for the start
-# over the default set that rows/start-order.sh reads. The default is twice
-# the highest reading of two passes of --first-bar-runs 12 --plugin-set
-# default on the same machine on 2026-09-29, at load average 4 to 8; each
-# pass lost one start to an unsized nested monitor. The 22 readings were
-# 206 to 271 ms with cpu_some_pct at most 1.3.
+# over the default set that rows/start-order.sh reads, where every bundled
+# plugin's bar widget now takes its first presence. The default is twice
+# the highest kept reading of two passes of --first-bar-runs 6
+# --plugin-set default on the same machine on 2026-10-05, at load average
+# 11 to 15, interleaved with passes over origin/main at d1ff7b3: a pass is
+# kept when every run read cpu_some_pct at most 1.3. This tree's 12 kept
+# readings were 553 to 713 ms (cpu_some_pct 0.5 to 1.2); main's 11 kept
+# readings, one start lost to an unsized nested monitor, were 363 to 467 ms
+# (0.5 to 1.3). A pass of each with a run over 1.3 read 646 to 790 ms here
+# and 412 to 523 ms on main, and is not kept.
 # VGSHELL_SMOKE_RECONCILE_BUDGET_MS: ceiling on the time from a
 # setPluginEnabled reply to the build records no longer listing the
 # disabled widget, polled with qs ipc. The default is twice the highest
@@ -174,7 +179,7 @@ fi
 "$repo/scripts/smoke/gpu-fence.sh" --check || exec "$repo/scripts/smoke/gpu-fence.sh" "$self" "${argv[@]}"
 rss_ceiling_kib="${VGSHELL_SMOKE_RSS_CEILING_KIB:-1174016}"
 first_bar_budget_ms="${VGSHELL_SMOKE_FIRST_BAR_BUDGET_MS:-620}"
-default_first_bar_budget_ms="${VGSHELL_SMOKE_DEFAULT_FIRST_BAR_BUDGET_MS:-542}"
+default_first_bar_budget_ms="${VGSHELL_SMOKE_DEFAULT_FIRST_BAR_BUDGET_MS:-1426}"
 reconcile_budget_ms="${VGSHELL_SMOKE_RECONCILE_BUDGET_MS:-30}"
 emoji_toast_budget_ms="${VGSHELL_SMOKE_EMOJI_TOAST_BUDGET_MS:-100}"
 emoji_inbox_budget_ms="${VGSHELL_SMOKE_EMOJI_INBOX_BUDGET_MS:-1376}"
