@@ -430,6 +430,7 @@ Item {
             compare(menu.currentIndex, 0, "a key disarms the pointer");
             mouseMove(items[2], 12, 5);
             compare(menu.currentIndex, 0, "a hover highlights no disabled entry");
+            verify(plate.hovered !== items[2], "a disabled entry takes no plate");
             menu.close();
         }
 
