@@ -24,7 +24,7 @@ Item {
     property bool fitToContent: false
     property real maximumHeight: 0
     property real gap: container === "window" ? Theme.stack.section : Theme.stack.group
-    property real bodySpacing: Theme.stack.group
+    property real bodySpacing: container === "window" ? Theme.stack.page : Theme.stack.group
     // The width of a divider under the header while the body is scrolled,
     // and its colour.
     property real dividerWidth: Theme.divider.thickness

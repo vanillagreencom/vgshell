@@ -7,7 +7,8 @@ import qs.Ui
 // is the page shown. Each page takes the component's width and only the
 // shown one is visible, so Tab from the strip enters that page alone and
 // Shift+Tab returns. The height is the strip, `spacing` and the shown
-// page. Left and Right on the strip change the page, and Ctrl+Tab,
+// page; `spacing` is `stack.page`, since tab pages are a window's pages.
+// Left and Right on the strip change the page, and Ctrl+Tab,
 // Ctrl+Shift+Tab, Ctrl+PageDown and Ctrl+PageUp step it, round the ends,
 // from the strip and from a control of the shown page that leaves the
 // key: a ShortcutField that captures takes it as the combo, and an open
@@ -20,7 +21,7 @@ FocusScope {
     property alias model: strip.model
     property alias currentIndex: strip.currentIndex
     default property alias pages: stack.data
-    property real spacing: Theme.stack.group
+    property real spacing: Theme.stack.page
     readonly property int count: stack.children.length
     readonly property Item currentPage: currentIndex >= 0 && currentIndex < count ? stack.children[currentIndex] : null
     readonly property alias tabs: strip

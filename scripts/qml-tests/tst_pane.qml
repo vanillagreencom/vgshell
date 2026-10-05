@@ -152,6 +152,17 @@ Item {
             panelPane.destroy();
         }
 
+        function test_container_sets_the_gap_between_body_blocks() {
+            const windowPane = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nPane { width: 240; height: 160; container: "window"\nItem { width: parent.width; height: 20 }\nItem { width: parent.width; height: 20 } }', root, "windowBody");
+            const panelPane = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nPane { width: 240; height: 160; container: "panel"\nItem { width: parent.width; height: 20 }\nItem { width: parent.width; height: 20 } }', root, "panelBody");
+            waitForRendering(windowPane);
+            waitForRendering(panelPane);
+            compare(body(windowPane).children[1].y - body(windowPane).children[0].height, Theme.stack.page);
+            compare(body(panelPane).children[1].y - body(panelPane).children[0].height, Theme.stack.group);
+            windowPane.destroy();
+            panelPane.destroy();
+        }
+
         function test_scroll_bar_sits_inside_the_right_inset_strip() {
             const contentRight = body(pane).mapToItem(pane, 0, 0).x + body(pane).width;
             const insetRight = pane.width - pane.contentInset;

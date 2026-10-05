@@ -349,11 +349,14 @@ var TOKENS = {
     },
 
     // The gaps of a body: `row` between rows of one group, `group` between
-    // its blocks, `section` before a section, and `inline` between
-    // controls side by side in one group, such as a row of buttons.
+    // its blocks, `page` between the blocks of a window's page, which a
+    // reader holds longer than a flyout, `section` before a section, and
+    // `inline` between controls side by side in one group, such as a row
+    // of buttons.
     stack: {
         row: length("{space.xs}"),
         group: length("{space.lg}"),
+        page: length("{space.xl}"),
         section: length("{space.xxl}"),
         inline: length("{space.md}")
     },

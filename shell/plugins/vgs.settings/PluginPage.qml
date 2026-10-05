@@ -201,7 +201,7 @@ FocusScope {
         Column {
             id: body
             width: parent.width
-            spacing: Theme.stack.group
+            spacing: Theme.stack.page
             visible: page.row !== null
 
             Repeater {
@@ -246,7 +246,7 @@ FocusScope {
 
                 Column {
                     id: settingsPage
-                    spacing: Theme.stack.group
+                    spacing: Theme.stack.page
 
                     Column {
                         width: parent.width
@@ -443,7 +443,7 @@ FocusScope {
 
                 Column {
                     id: detailsPage
-                    spacing: Theme.stack.group
+                    spacing: Theme.stack.page
 
                     Label {
                         role: "hint"

@@ -127,6 +127,7 @@ const DEFAULTS = [
     ["row.lineGap", 4],
     ["stack.row", 4],
     ["stack.group", 12],
+    ["stack.page", 16],
     ["stack.section", 24],
     ["stack.inline", 8],
     ["button.paddingX", 12],
