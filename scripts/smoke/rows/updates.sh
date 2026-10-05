@@ -442,23 +442,25 @@ def inside(j, i):
         j = rows[j]["parent"]
     return False
 def shown(r): return r["box"][2] > 0 and r["box"][3] > 0
+# A hidden item keeps its last box, so a drawn item is shown and visible.
+def drawn(r): return shown(r) and r.get("visible", True)
 panel = rows[0]["box"]
 sources = [i for i, r in enumerate(rows) if r["type"] == "Disclosure" and shown(r)]
 bad = []
-for i in sources:
+for n, i in enumerate(sources):
     items = [j for j, r in enumerate(rows) if r["type"] == "ListItem" and inside(j, i) and shown(r)]
-    if len(items) != 1: out.append("row%d listItems=%d" % (len(bad), len(items))); continue
+    if len(items) != 1: out.append("row%d listItems=%d" % (n, len(items))); continue
     item = rows[items[0]]
-    controls = [(j, rows[j]) for j, r in enumerate(rows) if r["type"] in ("Badge", "Button", "Icon") and inside(j, items[0]) and shown(r)]
+    controls = [(j, rows[j]) for j, r in enumerate(rows) if r["type"] in ("Badge", "Button", "Icon") and inside(j, items[0]) and drawn(r)]
     icons = [r for _, r in controls if r["type"] == "Icon"]
-    if not icons: out.append("row%d icons=0" % len(bad)); continue
+    if not icons: out.append("row%d icons=0" % n); continue
     lead = min(icons, key=lambda r: r["box"][0])
     pad = lead["box"][0] - item["box"][0]
     want = item["box"][0] + item["box"][2] - pad
     trailing = [r for _, r in controls if r is not lead]
-    if not trailing: out.append("row%d trailing=0" % len(bad)); continue
-    got = max(r["box"][0] + r["box"][2] for r in trailing) - (8 if plant and not bad else 0)
-    if abs(got - want) > 1: bad.append("row%d.trailing=%.2f want=%.2f" % (len(bad), got, want))
+    if not trailing: out.append("row%d trailing=0" % n); continue
+    got = max(r["box"][0] + r["box"][2] for r in trailing) - (8 if plant and n == 0 else 0)
+    if abs(got - want) > 1: bad.append("row%d.trailing=%.2f want=%.2f" % (n, got, want))
 if len(sources) < 2: out.append("rows=%d" % len(sources))
 out += bad
 for text in ("Refresh", "Open last log"):

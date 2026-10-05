@@ -351,7 +351,7 @@ if plant:
     segment_planted = False
     for j, r in enumerate(rows):
         if r["type"] == "Slider" and inside(j, page[0]) and not slider_planted:
-            labels_after = [q for q, row in enumerate(rows) if row["type"] == "Label" and row.get("role") == "label" and row["box"][0] > right(r) and inside(q, page[0])]
+            labels_after = [q for q, row in enumerate(rows) if row["type"] == "Label" and row.get("role") == "label" and row["box"][0] > right(r) and inside(q, page[0]) and visible(q)]
             if labels_after:
                 rows[labels_after[0]] = dict(rows[labels_after[0]], box=[right(r) + label_gap - 8] + rows[labels_after[0]]["box"][1:])
                 slider_planted = True
