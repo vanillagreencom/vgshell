@@ -823,8 +823,18 @@ Item {
                 Section {
                     title: "Lists"
                     rowSpacing: Theme.stack.group
-                    description: "Tabs, rows, expanded details and dividers"
+                    description: "Tabs, tab pages, rows, expanded details and dividers"
                 Tabs { model: ["Installed", "Available", "Updates"] }
+                TabPages {
+                    width: parent.width
+                    model: ["Settings", "Details"]
+                    Column {
+                        spacing: Theme.stack.row
+                        Field { label: "Enabled"; inline: true; width: parent.width; Switch { size: "sm"; checked: true } }
+                        Field { label: "Show in bar"; inline: true; width: parent.width; Switch { size: "sm" } }
+                    }
+                    Label { role: "hint"; text: "TabPages shows the open page alone. Ctrl+Tab steps the page from any control in it."; wrapMode: Text.Wrap }
+                }
                 Column {
                     width: parent.width
                     ListItem { text: "Plugin updates"; secondary: "1 update available"; iconName: "package"; width: parent.width; trailing: [ Badge { text: "new"; tone: "accent" } ] }

@@ -49,6 +49,7 @@ TouchpadScroll 1.0 layout/TouchpadScroll.qml
 SlimScrollBar 1.0 layout/SlimScrollBar.qml
 Pane 1.0 layout/Pane.qml
 Tabs 1.0 layout/Tabs.qml
+TabPages 1.0 layout/TabPages.qml
 ListItem 1.0 layout/ListItem.qml
 DeviceRow 1.0 layout/DeviceRow.qml
 DeviceList 1.0 layout/DeviceList.qml
