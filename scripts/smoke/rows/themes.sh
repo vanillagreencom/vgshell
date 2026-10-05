@@ -358,6 +358,23 @@ theme_swatch() {
   texts="$(ipc smoke itemTexts panel vgs.themes ThemeRow)" && colours="$(ipc smoke itemColours panel vgs.themes ThemeRow Surface)" || return
   python3 -c 'import json,sys; t,c=json.loads(sys.argv[1]),json.loads(sys.argv[2]); m=[c[i] for i,r in enumerate(t) if r[:2]==sys.argv[3:5]]; print(json.dumps([len(m[0]), sys.argv[5] in m[0]]) if len(m)==1 else "rows=%d" % len(m))' "$texts" "$colours" "$1" "$2" "$3"
 }
+# The unanchored layer starts below the reserved bar. Qt reports an
+# item's box inside that layer; add the compositor's layer position.
+themes_item_box() {
+  local rect layer
+  rect="$(ipc smoke windowGeometry panel vgs.themes "$1" "$2")" || return 1
+  if [[ $rect == absent ]]; then echo absent; return; fi
+  layer="$(surface_box vgs:panel)" || return 1
+  python3 -c 'import json,sys; l=json.loads(sys.argv[1]); r=json.loads(sys.argv[2]); print(json.dumps([l[0] + r[0], l[1] + r[1], r[2], r[3]]))' "$layer" "$rect"
+}
+# Keep point_item's moving-box and hover checks with the layer's position.
+# The lookup override stays inside this click and cannot affect later rows.
+themes_click_item() {
+  (
+    control_box() { themes_item_box "$3" "$4"; }
+    click_item panel vgs.themes "$@"
+  )
+}
 # click_row NAME: one click_item on the enabled list item NAME, which is
 # waited for for up to 5 s while a running apply disables the rows.
 click_row() {
@@ -368,7 +385,7 @@ click_row() {
     sleep 0.2
   done
   ipc smoke revealText panel vgs.themes ListItem "$1" >/dev/null || true
-  click_item panel vgs.themes ListItem "$1"
+  themes_click_item ListItem "$1"
 }
 # Whether the panel draws a label reading TEXT: True or False.
 panel_label() { ipc smoke itemTexts panel vgs.themes Label | py_reply 'import json,sys; print([sys.argv[1]] in json.load(sys.stdin))' "$1"; }
@@ -382,7 +399,7 @@ click_button() {
     [[ $(ipc smoke itemGeometry panel vgs.themes Button "$1") != absent ]] && break
     sleep 0.2
   done
-  click_item panel vgs.themes Button "$1"
+  themes_click_item Button "$1"
 }
 # A click the panel does not cover: the lower-left quarter of the screen,
 # away from the right section the panel opens under.
@@ -886,7 +903,7 @@ planted_click() {
       fi
       planted_hover "$@"
     }
-    click_item panel vgs.themes ListItem "$2"
+    themes_click_item ListItem "$2"
   )
 }
 # Whether the plant moved the vgs item by more than its own height: True
@@ -927,7 +944,7 @@ fi
 if vgs_rect="$(ipc smoke itemGeometry panel vgs.themes ListItem vgs)" && [[ $vgs_rect != absent ]] \
   && smoke_rect="$(ipc smoke itemGeometry panel vgs.themes ListItem smoke)" && [[ $smoke_rect != absent ]]; then
   read -r vx vy < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); sx,sy=json.loads(sys.argv[2])[:2]; print(int(x+w/2-sx), int(y+h/2-sy))' "$vgs_rect" "$smoke_rect")
-  if click_item panel vgs.themes ListItem smoke "$vx" "$vy"; then
+  if themes_click_item ListItem smoke "$vx" "$vy"; then
     fail "click_item clicked for the smoke row at the vgs row's centre"
   else
     ok "click_item clicks nothing at a point the smoke row does not report the pointer over"
@@ -1061,7 +1078,7 @@ click_wallpaper() {
   local rect=absent cx cy
   for _ in $(seq 1 25); do
     ipc smoke revealText panel vgs.themes IconButton "$1" >/dev/null
-    rect="$(ipc smoke labelledGeometry panel vgs.themes IconButton "$1")" && [[ $rect != absent ]] && break
+    rect="$(themes_item_box IconButton "$1")" && [[ $rect != absent ]] && break
     sleep 0.2
   done
   [[ $rect != absent ]] || return 1

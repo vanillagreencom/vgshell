@@ -1633,14 +1633,14 @@ scene_themes_panel() { # MODE
   expect_poll "the themes panel lists its catalog" True themes_panel_listed
   park_pointer
   take "panels-$1-themes"
-  hover_on "the pointer rests on the themes panel's vgs row" panel vgs.themes ListItem vgs && take "panels-$1-themes-hover"
+  hover_on "the pointer rests on the themes panel's vgs row" panel vgs.themes ListItem vgs vgs:panel && take "panels-$1-themes-hover"
   park_pointer
   ipc smoke scrollTo panel vgs.themes 100000 >/dev/null || fail "the themes panel did not scroll to its catalog"
   take "panels-$1-themes-catalog"
   ipc smoke scrollTo panel vgs.themes 0 >/dev/null || fail "the themes panel did not scroll to its top"
   rm -f -- "$themes_gate"
   themes_stand_in || fail "the themes panel's stand-in runner could not be written"
-  click_item panel vgs.themes ListItem vgs || fail "the click on the themes panel's vgs row failed"
+  click_in vgs:panel panel vgs.themes ListItem vgs || fail "the click on the themes panel's vgs row failed"
   expect_poll "the themes panel shows the held apply" applying themes_panel_last
   park_pointer
   take "panels-$1-themes-applying"
