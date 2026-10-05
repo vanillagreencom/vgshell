@@ -209,6 +209,14 @@ f share/vgshell/shell/plugins/vgs.agent-warden/Widget.qml
 f share/vgshell/shell/plugins/vgs.agent-warden/manifest.json
 f share/vgshell/shell/plugins/vgs.agent-warden/tui/setup.sh
 f share/vgshell/shell/plugins/vgs.agent-warden/tui/vsys.sh
+f share/vgshell/shell/plugins/vgs.ai-usage/Panel.qml
+f share/vgshell/shell/plugins/vgs.ai-usage/Service.qml
+f share/vgshell/shell/plugins/vgs.ai-usage/UsageView.js
+f share/vgshell/shell/plugins/vgs.ai-usage/Widget.qml
+f share/vgshell/shell/plugins/vgs.ai-usage/backend/usage.js
+f share/vgshell/shell/plugins/vgs.ai-usage/manifest.json
+f share/vgshell/shell/plugins/vgs.ai-usage/tui/sign-in-claude.sh
+f share/vgshell/shell/plugins/vgs.ai-usage/tui/sign-in-codex.sh
 f share/vgshell/shell/plugins/vgs.automations/AutomationEditorPage.qml
 f share/vgshell/shell/plugins/vgs.automations/AutomationListPage.qml
 f share/vgshell/shell/plugins/vgs.automations/AutomationRow.qml

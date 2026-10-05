@@ -109,6 +109,9 @@ displays
 # the System window's holder.
 sound
 capture
+# After capture, before tui-guard: its Sign in reaches the stand-in
+# terminal, and it reads no state another row leaves.
+ai-usage
 network
 # After system-window, which leaves vgs.system as this row finds it, and
 # over the device fakes; it reads no state the displays row leaves.

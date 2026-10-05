@@ -54,6 +54,7 @@ VGS starts with Hyprland and draws the bar, panels and windows on each screen. E
 | Plugin | What it does |
 |---|---|
 | [Agent Warden](shell/plugins/vgs.agent-warden/README.md) | Keep your AI agents within their memory and process limits. |
+| [AI Usage](shell/plugins/vgs.ai-usage/README.md) | Show how much of your Claude Code and Codex plan limits you have used. |
 | [Automations](shell/plugins/vgs.automations/README.md) | Run your commands on a schedule. |
 | [Bar](shell/plugins/vgs.bar/README.md) | Workspaces, clock and plugin buttons on each screen. |
 | [Bluetooth](shell/plugins/vgs.bluetooth/README.md) | Pair and connect your Bluetooth devices. |

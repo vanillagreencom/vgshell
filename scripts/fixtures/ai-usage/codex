@@ -1,0 +1,38 @@
+#!/usr/bin/env node
+// A stand-in for `codex app-server`, for scripts/test-ai-usage.js and
+// scripts/smoke/rows/ai-usage.sh: it speaks the app-server's JSON-RPC on
+// stdio, one message a line, as codex-rs/app-server/README.md and
+// codex-rs/app-server-protocol/src/protocol/v2/account.rs describe, and
+// answers `initialize`, `account/read` and `account/rateLimits/read` with
+// the hand-written replies beside it. The word in $CODEX_HOME/stand-in-mode
+// picks its answers: ok, the default; signed-out, no account; error, an
+// error for the rate limits; hang, no answer to them, staying alive until
+// it is killed. Each start appends { args, codexHome, pid } to
+// $CODEX_HOME/stand-in-calls. It never reads auth.json.
+"use strict";
+const fs = require("node:fs");
+const path = require("node:path");
+const home = process.env.CODEX_HOME;
+fs.appendFileSync(path.join(home, "stand-in-calls"), JSON.stringify({ args: process.argv.slice(2), codexHome: home, pid: process.pid }) + "\n");
+if (process.argv[2] !== "app-server" || process.argv.length !== 3) process.exit(9);
+let mode = "ok";
+try { mode = fs.readFileSync(path.join(home, "stand-in-mode"), "utf8").trim(); } catch (error) { if (error.code !== "ENOENT") throw error; }
+const reply = name => JSON.parse(fs.readFileSync(path.join(__dirname, name), "utf8"));
+const send = message => process.stdout.write(JSON.stringify(message) + "\n");
+if (mode === "hang") setInterval(() => {}, 1000);
+let tail = "";
+process.stdin.on("data", chunk => {
+    tail += chunk;
+    let at;
+    while ((at = tail.indexOf("\n")) >= 0) {
+        const message = JSON.parse(tail.slice(0, at));
+        tail = tail.slice(at + 1);
+        if (message.method === "initialize") send({ id: message.id, result: { userAgent: "stand-in" } });
+        else if (message.method === "account/read")
+            send({ id: message.id, result: mode === "signed-out" ? { account: null, requiresOpenaiAuth: true } : reply("codex-account.json") });
+        else if (message.method === "account/rateLimits/read") {
+            if (mode === "error") send({ id: message.id, error: { code: -32600, message: "stand-in refusal" } });
+            else if (mode !== "hang") send({ id: message.id, result: reply("codex-rate-limits.json") });
+        }
+    }
+});

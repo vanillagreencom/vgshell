@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "id": "vgs.ai-usage",
+  "name": "AI Usage",
+  "version": "0.1.0",
+  "author": "VanillaGreen",
+  "description": "Show how much of your Claude Code and Codex plan limits you have used.",
+  "license": "MIT",
+  "icon": "gauge",
+  "kinds": ["service", "bar-widget", "panel"],
+  "entryPoints": { "service": "Service.qml", "bar-widget": "Widget.qml", "panel": "Panel.qml" },
+  "capabilities": ["ipc", "status", "surfaces", "tui"],
+  "defaultSection": "right",
+  "requirements": [
+    { "command": "node", "packages": { "pacman": "nodejs", "apt": "nodejs", "dnf": "nodejs", "nix": "nodejs" }, "optional": false, "purpose": "Reads the plan limits of each signed-in account" },
+    { "command": "setpriv", "packages": { "pacman": "util-linux", "apt": "util-linux", "dnf": "util-linux", "nix": "util-linux" }, "optional": false, "purpose": "Stops the Codex program when a usage check ends" },
+    { "command": "gum", "packages": { "pacman": "gum", "apt": "gum", "dnf": "gum", "nix": "gum" }, "optional": false, "purpose": "Draws the header of the sign-in terminal" },
+    { "command": "claude", "packages": {}, "optional": true, "purpose": "Signs in to Claude Code" },
+    { "command": "codex", "packages": {}, "optional": true, "purpose": "Signs in to Codex and reports its plan limits" }
+  ],
+  "settings": { "refreshMinutes": 15 },
+  "schema": {
+    "refreshMinutes": { "type": "number", "label": "Check interval", "description": "Time between usage checks. Opening the panel also checks.", "min": 5, "max": 120, "step": 5, "unit": "minutes" }
+  },
+  "tui": {
+    "sign-in-claude": { "script": "tui/sign-in-claude.sh", "title": "Sign in to Claude Code" },
+    "sign-in-codex": { "script": "tui/sign-in-codex.sh", "title": "Sign in to Codex" }
+  },
+  "status": {
+    "usage": { "type": "data", "label": "Usage" },
+    "claude": { "type": "state", "label": "Claude Code", "group": "Sign-in", "action": { "label": "Sign in", "tui": "sign-in-claude" }, "command": "claude auth login" },
+    "codex": { "type": "state", "label": "Codex", "group": "Sign-in", "action": { "label": "Sign in", "tui": "sign-in-codex" }, "command": "codex login" }
+  }
+}

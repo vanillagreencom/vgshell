@@ -18,8 +18,8 @@
 # notifications, bar, panels, devtools, system, network, vpn, bluetooth, dialog, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, capture,
 # keyhints, clipboard or voice. settings takes the
-# automations' and the Jarvis pages among the plugin pages, each when the
-# tree ships its plugin. plugin-pages, taken only when named, opens every
+# automations', the Jarvis and the AI Usage pages among the plugin pages,
+# each when the tree ships its plugin. plugin-pages, taken only when named, opens every
 # plugin the Settings window lists, in that window's order, and captures
 # every screen of an overflowing page. bar is the bar with every
 # first-party widget and each widget's tooltip or
@@ -350,6 +350,7 @@ has_jarvis=false
 has_scratchpads=false
 has_setup_steps=false
 has_voice=false
+has_ai_usage=false
 [[ -f $tree/shell/Ui/feedback/CommandDisclosure.qml ]] && has_setup_steps=true
 [[ -f $tree/shell/plugins/vgs.agent-warden/manifest.json ]] && has_agent_warden=true
 [[ -f $tree/shell/plugins/vgs.automations/manifest.json ]] && has_automations=true
@@ -357,6 +358,7 @@ has_voice=false
 [[ -f $tree/shell/plugins/vgs.scratchpads/manifest.json ]] && has_scratchpads=true
 [[ -f $tree/shell/plugins/vgs.bar/manifest.json ]] && has_bar_plugin=true
 [[ -f $tree/shell/plugins/vgs.voice/manifest.json ]] && has_voice=true
+[[ -f $tree/shell/plugins/vgs.ai-usage/manifest.json ]] && has_ai_usage=true
 settings_count() { surface_count "$settings_surface"; }
 
 SHOT_RUNTIME_DIR="$rt_dir"
@@ -883,6 +885,26 @@ EOF
     expect_poll "vgs.voice is gone" False record_exists vgs.voice
     rm -f -- "$shim/voxtype"
     rescan "the Voice voxtype stand-in is removed"
+  fi
+  # The AI Usage page with its Sign in offered: the sandbox HOME holds no
+  # account folder, so its helper runs no tool and sends no request.
+  if "$has_ai_usage"; then
+    expect "enabling vgs.ai-usage is allowed" ok ipc shell setPluginEnabled vgs.ai-usage true
+    expect_poll "vgs.ai-usage is built" True record_exists vgs.ai-usage
+    expect "the window opens the AI Usage page" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.ai-usage
+    expect_poll "the AI Usage page is shown" '"vgs.ai-usage"' settings_page
+    expect_poll "the AI Usage sign-in rows are reported" True page_reported vgs.ai-usage
+    # The Sign-in section's heading at the top.
+    if section="$(settings_section Sign-in SectionHeader Sign-in)"; then
+      read -r start _ _ <<<"$section"
+      settings_scroll_to "$((start - margin))" || fail "the scroll to AI Usage's Sign-in section failed"
+    else
+      fail "AI Usage's Sign-in section is unreadable: $section"
+    fi
+    park_pointer
+    take "settings-$1-ai-usage"
+    expect "disabling vgs.ai-usage is allowed" ok ipc shell setPluginEnabled vgs.ai-usage false
+    expect_poll "vgs.ai-usage is gone" False record_exists vgs.ai-usage
   fi
   if "$has_bar_plugin"; then
     expect "the window opens the Bar page" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.bar
