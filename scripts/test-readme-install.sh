@@ -254,7 +254,7 @@ control "a runner that reads a failed release probe as an answer" \
   "release probe" 77 "readme-install: status=not-measured reason=release-probe tag=v$version" "${release_probe[@]}"
 cp -p -- "$tmp/README.md.orig" "$tree/README.md"
 # shellcheck disable=SC2016
-control "a runner without pipefail" 'bash -o pipefail -c "$2"' 'bash -c "$2"' \
+control "a runner without pipefail" 'printf -v argv "%q " timeout "$1" bash -o pipefail -c "$2"' 'printf -v argv "%q " timeout "$1" bash -c "$2"' \
   "download" 1 "$download_first" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" STUB_FETCH_EXIT=22 --
 
 # shellcheck disable=SC2016
