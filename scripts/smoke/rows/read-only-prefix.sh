@@ -3,7 +3,7 @@
 # start_shell, with the process-signalling stand-ins first on its PATH,
 # so it reuses the smoke startup poll intervals: 10 ms for the first bar
 # and one `vgshell ipc` round trip for readiness.
-# inputs: packaging/* scripts/check-install-tree.sh VERSION LICENSE README.md bin/* shell/* config/* themes/* scripts/fixtures/jarvis/* scripts/fixtures/jarvis-voice/* scripts/fixtures/jarvis-setup/* scripts/lib/jarvis-env.sh scripts/test-task-event.js scripts/smoke/rows/gallery.sh
+# inputs: packaging/* scripts/check-install-tree.sh VERSION LICENSE README.md bin/* shell/* config/* themes/* scripts/fixtures/jarvis/* scripts/fixtures/jarvis-voice/* scripts/fixtures/jarvis-setup/* scripts/lib/jarvis-env.sh scripts/test-task-event.js
 set -euo pipefail
 
 read_only_prefix_signal_path() { # DIR

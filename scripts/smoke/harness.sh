@@ -1203,6 +1203,66 @@ print("devices" if all(status.get(k)==v for k,v in expected.items()) else "pendi
 '
 }
 
+# Property readback is separate from the engine's compiled shader status.
+orb_examples_ok() { ipc smoke galleryOrbs window vgs.gallery '' | py_reply 'import json,sys
+rows=json.load(sys.stdin)
+print(len(rows)==9 and {r["tone"] for r in rows[:6]}=={"accent","info","success","warning","danger","muted"} and all(r["width"]>0 and r["height"]>0 for r in rows) and all(r["active"] for r in rows[:6]) and not rows[6]["active"] and rows[7]["level"]==1 and rows[7]["secondaryLevel"]==1 and 0<rows[8]["level"]<1)'; }
+orb_pixels() {
+  local rows window sample geometry colour socket count
+  rows="$(ipc smoke galleryOrbs window vgs.gallery "$1")" || return 1
+  window="$(surface_box "window:VGS Components")" || return 1
+  if [[ $window != \[* ]]; then printf '%s\n' "$window"; return; fi
+  sample="$(py_reply 'import json,sys
+rows=json.load(sys.stdin); window=json.loads(sys.argv[1]); index=int(sys.argv[2])
+if not isinstance(rows,list) or index>=len(rows): print("absent"); sys.exit()
+orb=rows[index]
+if not orb["visible"] or not orb["windowVisible"] or not orb["url"].endswith("/voiceorb.frag.qsb"):
+    print("not-drawn"); sys.exit()
+x,y,w,h=orb["box"]
+print("%d,%d %dx%d|%s" % (round(window[0]+x),round(window[1]+y),round(w),round(h),orb["ink"][1:7]))' "$window" "$2" <<<"$rows")" || return 1
+  if [[ $sample != *'|'* ]]; then printf '%s\n' "$sample"; return; fi
+  IFS='|' read -r geometry colour <<<"$sample"
+  socket="$(shot_socket "$rt_dir" "$nested_socket" "$host_socket")" || return 1
+  count="$(shot_grim "$socket" "$rt_dir" -g "$geometry" -t ppm - | python3 -c 'import sys
+data=sys.stdin.buffer.read().split(b"\n",3)
+if len(data)!=4 or data[0]!=b"P6" or data[2]!=b"255": print("unreadable"); sys.exit(1)
+w,h=map(int,data[1].split()); pixels=data[3]
+if len(pixels)!=w*h*3: print("unreadable"); sys.exit(1)
+colour=bytes.fromhex(sys.argv[1])
+print(sum(pixels[i:i+3]==colour for i in range(0,len(pixels),3)))' "$colour")" || return 1
+  printf '%s\n' "$count"
+}
+orb_drawn() {
+  local count
+  count="$(orb_pixels "$1" "$2")" || return 1
+  if [[ ! $count =~ ^[0-9]+$ ]]; then printf '%s\n' "$count"; return; fi
+  [[ $count -gt 0 ]] && echo True || echo False
+}
+gallery_orb_offset() { ipc smoke galleryOrbs window vgs.gallery '' | py_reply 'import json,sys
+orbs=json.load(sys.stdin)
+index=int(sys.argv[1])
+print("absent" if index>=len(orbs) or orbs[index]["scrollOffset"] is None else orbs[index]["scrollOffset"])' "$1"; }
+gallery_draw_orbs() {
+  local label="$1" count index position offset failed_before
+  count="$(ipc smoke galleryOrbs window vgs.gallery '' | py_reply 'import json,sys; print(len(json.load(sys.stdin)))')" || return 1
+  if [[ $count != 9 ]]; then fail "$label: orb inventory=$count want=9"; return 1; fi
+  # Qt's shared shader-info cache leaves some managers Uncompiled even
+  # after drawing. Read real pixels in each example's own box instead.
+  for ((index=0; index<count; index++)); do
+    if ! position="$(ipc smoke scrollTo window vgs.gallery 0)" || [[ $position != \[* ]] ||
+       ! offset="$(gallery_orb_offset "$index")" || [[ ! $offset =~ ^-?[0-9]+$ ]] ||
+       ! position="$(ipc smoke scrollTo window vgs.gallery "$offset")" || [[ $position != \[* ]]; then
+      fail "$label: orb=$index did not scroll into view"; return 1
+    fi
+    printf '  orb-scroll index=%s requested=%s actual=%s\n' "$index" "$offset" "$position"
+    failed_before="$failures"
+    render expect_poll "$label: orb=$index draws its tone" True orb_drawn '' "$index"
+    if [[ $failures -gt $failed_before ]]; then
+      ipc smoke galleryOrbs window vgs.gallery '' || return 1
+    fi
+  done
+}
+
 # qs_list ARG...: `qs list ARG... -j` in the sandbox, its JSON reply, or
 # the word `none` when qs answers in plain text that no instance runs:
 # `No running instances for "<dir>/shell.qml"` with a hint line under -p,
