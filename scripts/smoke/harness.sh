@@ -32,7 +32,7 @@ if [[ ! -S $host_socket ]]; then
   exit 77
 fi
 # The caller entered scripts/smoke/gpu-fence.sh before it sourced this
-# file. Where it did not and an amdgpu node is visible, nothing starts.
+# file. Where it did not, nothing starts.
 if ! "$repo/scripts/smoke/gpu-fence.sh" --check; then
   printf 'qml-smoke: status=not-measured missing=gpu-fence\n'
   exit 77
@@ -125,9 +125,13 @@ check_unexpected_log() { # LABEL LOG
 # exists and removes only what was made.
 source "$repo/scripts/smoke/teardown.sh"
 
+# The fence's ledger names both directories, so the fence removes them
+# once its namespace has ended, after a SIGKILL of this shell too.
 sandbox="$(mktemp -d "${TMPDIR:-/tmp}/vgshell-smoke.XXXXXX")"
+[[ $keep == true ]] || printf '%s\n' "$sandbox" >>"$VGSHELL_FENCE_LEDGER"
 # Keep the runtime path short to leave room for Hyprland's IPC socket names.
 rt_dir="$(mktemp -d "$XDG_RUNTIME_DIR/vs.XXXXXX")"
+[[ $keep == true ]] || printf '%s\n' "$rt_dir" >>"$VGSHELL_FENCE_LEDGER"
 home="$sandbox/home"; mkdir -p "$home/.config/hypr"
 
 # Add the observer to a copy; the live checkout never imports test code.

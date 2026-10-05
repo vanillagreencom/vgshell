@@ -200,6 +200,8 @@ if [[ -n $rev ]]; then
   git -C "$checkout" rev-parse --verify --quiet "$rev^{commit}" >/dev/null || { printf 'sandbox-shots: refused: rev=%s\n' "$rev" >&2; exit 2; }
   mkdir -p -- "${TMPDIR:-$checkout/tmp}"
   source_tree="$(mktemp -d "${TMPDIR:-$checkout/tmp}/vgshell-shots-tree.XXXXXX")"
+  # The fence removes it once its namespace has ended, after a SIGKILL too.
+  printf '%s\n' "$source_tree" >>"$VGSHELL_FENCE_LEDGER"
   if ! tree_export "$checkout" "$rev" "$source_tree"; then
     rm -rf -- "$source_tree"
     printf 'sandbox-shots: refused: rev-export=%s\n' "$rev" >&2

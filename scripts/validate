@@ -402,6 +402,7 @@ rows=(
   "tools|smoke teardown controls|scripts/test-smoke-teardown.sh|scripts/smoke/teardown.sh scripts/smoke/harness.sh scripts/smoke/rows/read-only-prefix.sh"
   "tools|sandbox shot controls|scripts/test-sandbox-shots.sh|scripts/smoke/shot.sh scripts/smoke/host-window.sh scripts/smoke/tree.sh scripts/sandbox-shots.sh scripts/smoke/harness.sh scripts/smoke/gpu-fence.sh bin/lib/ipc-reply.sh"
   "tools|GPU fence controls|scripts/test-gpu-fence.sh|scripts/smoke/gpu-fence.sh scripts/smoke/harness.sh scripts/qml-smoke.sh scripts/smoke/rows.list scripts/sandbox-shots.sh scripts/measure-shader.sh scripts/qml-unit.sh"
+  "tools|smoke owner controls|scripts/test-smoke-owner.sh|scripts/smoke/gpu-fence.sh scripts/smoke/teardown.sh"
   "tools|plugin README images|python3 scripts/check-readme-images.py|shell/plugins/* docs/images/*"
   "tools|plugin README image controls|python3 scripts/test-check-readme-images.py|scripts/check-readme-images.py"
   "tools|README shot controls|scripts/test-readme-shots.sh|scripts/readme-shots.sh scripts/check-readme-images.py scripts/smoke/shot.sh"

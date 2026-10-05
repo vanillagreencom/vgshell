@@ -10,7 +10,8 @@
 # sandbox behind, as when a timeout signals the runner and then the stopping
 # systemd unit signals every process in it. The trap ignores the three
 # signals first, and the commands it starts inherit that. SIGKILL cannot be
-# ignored, so a run killed with it leaves the sandbox behind.
+# ignored: scripts/smoke/gpu-fence.sh then ends the sandbox's processes and
+# removes the directories the harness named in its ledger.
 set -euo pipefail
 
 # teardown_step KEY PATH CMD...: run CMD. On failure print

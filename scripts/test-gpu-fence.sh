@@ -16,7 +16,11 @@
 # trap that takes a second. The command must get the signal once, and its
 # trap must have ended when the fence returns. The terminal case runs the
 # fence from a real terminal, where a command that changes the terminal's
-# mode or reads it must not stop.
+# mode or reads it must not stop. A SIGKILL of the fence must end every
+# process its command started, one in another session and one stopped
+# included. The cases that can leave a process run in a PID namespace of
+# their own that util-linux unshare makes, whose end ends what a defect
+# leaves.
 #
 # The controls plant one defect per rule in a copy of the fence and
 # require the case that rule owns to go red. The first is the fence with
@@ -56,7 +60,7 @@ fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
 # run and nothing else: `none` has no bwrap, `broken` a stand-in that
 # records its call and fails, `real` the host's bubblewrap.
 mkdir -p "$TMP_ROOT/bin-none" "$TMP_ROOT/bin-broken" "$TMP_ROOT/bin-real" "$TMP_ROOT/cwd" "$TMP_ROOT/empty"
-for tool in readlink realpath stat sh sleep stty touch true; do
+for tool in chmod mktemp readlink realpath rm sed seq setsid stat sh sleep stty touch true; do
   tool_path="$(type -P "$tool")" || { echo "test-gpu-fence: missing=$tool" >&2; exit 1; }
   for bin in none broken real; do ln -s -- "$tool_path" "$TMP_ROOT/bin-$bin/$tool"; done
 done
@@ -64,14 +68,22 @@ printf '#!/bin/sh\n: >"%s"\necho "bwrap: stand-in makes no namespace" >&2\nexit 
 chmod +x "$TMP_ROOT/bin-broken/bwrap"
 # The terminal case runs the fence under script(1), which makes a real
 # terminal, inside a time limit.
-for tool in script timeout; do
+for tool in script timeout python3; do
   type -P "$tool" >/dev/null || { echo "test-gpu-fence: missing=$tool" >&2; exit 1; }
 done
+# contain: the case's own PID namespace. --kill-child ends its PID 1 when
+# unshare ends, and the kernel then ends every process in it. unshare
+# blocks TERM and INT while it waits, so a time limit over it ends it with
+# KILL after its grace.
+contain=(unshare --user --map-current-user --pid --fork --kill-child --mount-proc)
 namespace=false
-if real_bwrap="$(type -P bwrap)" && "$real_bwrap" --dev-bind / / true 2>/dev/null; then
+if real_bwrap="$(type -P bwrap)" && "$real_bwrap" --dev-bind / / --unshare-pid --proc /proc true 2>/dev/null &&
+   "${contain[@]}" true 2>/dev/null; then
   namespace=true
   ln -s -- "$real_bwrap" "$TMP_ROOT/bin-real/bwrap"
 fi
+own_pidns="$(readlink /proc/self/ns/pid)" || { echo "test-gpu-fence: pidns=unreadable" >&2; exit 1; }
+: >"$TMP_ROOT/ledger"
 
 # The paths of the device tree, by what the namespace must do with each.
 amd_paths=(dri/card1 char/226:1 dri/renderD128 char/226:128
@@ -142,15 +154,21 @@ SH
 want_report="$(
   printf 'none %s\n' "${amd_paths[@]}"
   printf 'resolves %s\n' "${other_paths[@]}" char/1:3
-  printf 'target ../dri/card0\npidns %s\ncwd %s\nenv kept\n' "$(readlink /proc/self/ns/pid)" "$TMP_ROOT/cwd"
+  printf 'target ../dri/card0\npidns other\ncwd %s\nenv kept\n' "$TMP_ROOT/cwd"
+)"
+# What the report reads where no node is hidden: every path resolves.
+want_plain="$(
+  printf 'resolves %s\n' "${amd_paths[@]}" "${other_paths[@]}" char/1:3
+  printf 'target ../dri/card0\npidns other\ncwd %s\nenv kept\n' "$TMP_ROOT/cwd"
 )"
 # What a stopped command does: a line for each TERM, INT or HUP it gets,
 # then an exit trap that ends with a line a second after it starts. It
-# exits as a shell the signal ended does.
+# exits with a status a signal never gives, so a fence that returns the
+# status of its own interrupted wait shows.
 cat >"$TMP_ROOT/stop.sh" <<'SH'
 log="$1"
 trap 'kill "$idle" 2>/dev/null; echo exit-start >>"$log"; sleep 1; echo exit-end >>"$log"' EXIT
-for pair in TERM:143 INT:130 HUP:129; do
+for pair in TERM:43 INT:30 HUP:29; do
   trap "echo ${pair%:*} >>\"\$log\"; exit ${pair#*:}" "${pair%:*}"
 done
 sleep 10 &
@@ -159,7 +177,9 @@ echo started >>"$log"
 wait "$idle"
 SH
 # A command that changes the terminal's mode and reads a line typed into it.
+# It first records its PID namespace beside its log.
 cat >"$TMP_ROOT/tty.sh" <<'SH'
+readlink /proc/self/ns/pid >"$1.ns"
 stty -echo && stty echo && echo mode-set >>"$1"
 read -r line && echo "read=$line" >>"$1"
 SH
@@ -172,16 +192,25 @@ want_proof="$(
 
 # run_fence FILE BIN ARG...: FILE with ARG... from the scratch working
 # directory, under an environment that holds PATH, the BIN directory alone,
-# HOME and the report's variable. Sets status; the streams are
-# $TMP_ROOT/out and $TMP_ROOT/err.
+# HOME, TMPDIR, the report's variable and the words in `placed`, which the
+# call empties. Sets status; the streams are $TMP_ROOT/out and
+# $TMP_ROOT/err.
+placed=()
 run_fence() {
-  local file="$1" bin="$2"
+  local file="$1" bin="$2" words=("${placed[@]}")
   shift 2
+  placed=()
   rm -f -- "$TMP_ROOT/marker" "$TMP_ROOT/bwrap-called"
   status=0
-  (cd -- "$TMP_ROOT/cwd" && env -i PATH="$TMP_ROOT/bin-$bin" HOME="$TMP_ROOT" FENCE_TEST_VALUE=kept "$BASH" "$file" "$@") \
+  (cd -- "$TMP_ROOT/cwd" && env -i PATH="$TMP_ROOT/bin-$bin" HOME="$TMP_ROOT" TMPDIR="$TMP_ROOT" FENCE_TEST_VALUE=kept "${words[@]}" "$BASH" "$file" "$@") \
     >"$TMP_ROOT/out" 2>"$TMP_ROOT/err" || status=$?
 }
+# place WHERE: `fenced` puts the next run inside a fence's namespace, which
+# names an existing ledger there; anything else puts it outside.
+place() { placed=(); [[ $1 != fenced ]] || placed=(VGSHELL_FENCE_LEDGER="$TMP_ROOT/ledger"); }
+# seen_report: the report with its PID namespace read as the test's own,
+# `same`, or `other`.
+seen_report() { awk -v mine="pidns $own_pidns" '/^pidns / { print ($0 == mine ? "pidns same" : "pidns other"); next } { print }' "$TMP_ROOT/out"; }
 # roots WORLD: sets at, the words that point the fence at WORLD's trees.
 roots() { at=(--sys "$TMP_ROOT/$1/sys" --dev "$TMP_ROOT/$1/dev"); }
 first_error() { local line=""; read -r line <"$TMP_ROOT/err" || true; printf '%s\n' "$line"; }
@@ -195,20 +224,80 @@ stopped() {
 }
 
 # The cases. Each takes the fence file first.
-check_is() { # FILE WORLD STATUS
+check_is() { # FILE WORLD STATUS WHERE
   roots "$2"
+  place "$4"
   run_fence "$1" none "${at[@]}" --check
   [[ $status -eq $3 && ! -s $TMP_ROOT/out && ! -s $TMP_ROOT/err ]]
 }
 runs_directly() { # FILE WORLD
   roots "$2"
+  place fenced
   run_fence "$1" broken "${at[@]}" sh -c 'touch "$1"; exit 9' _ "$TMP_ROOT/marker"
   [[ $status -eq 9 && -e $TMP_ROOT/marker && ! -e $TMP_ROOT/bwrap-called && ! -s $TMP_ROOT/err ]]
 }
 hides() { # FILE
+  local seen
   roots amd
   run_fence "$1" real "${at[@]}" sh "$TMP_ROOT/report.sh" "$TMP_ROOT/amd/dev" "${amd_paths[@]}" "${other_paths[@]}" char/1:3
-  [[ $status -eq 9 && "$(<"$TMP_ROOT/out")" == "$want_report" && "$(LC_ALL=C sort -- "$TMP_ROOT/err")" == "$want_proof" ]]
+  seen="$(seen_report)" || return 1
+  [[ $status -eq 9 && $seen == "$want_report" && "$(LC_ALL=C sort -- "$TMP_ROOT/err")" == "$want_proof" ]]
+}
+# plain_namespace FILE: outside a fence on a host with no amdgpu node the
+# command runs in a PID namespace of its own, with every path as it was
+# and no proof line.
+plain_namespace() {
+  local seen
+  roots plain
+  run_fence "$1" real "${at[@]}" sh "$TMP_ROOT/report.sh" "$TMP_ROOT/plain/dev" "${amd_paths[@]}" "${other_paths[@]}" char/1:3
+  seen="$(seen_report)" || return 1
+  [[ $status -eq 9 && $seen == "$want_plain" && ! -s $TMP_ROOT/err ]]
+}
+# A command that leaves a process in another session and a stopped one,
+# then says it is ready.
+cat >"$TMP_ROOT/leave.sh" <<'SH'
+setsid sleep 300 &
+sleep 301 &
+kill -STOP $!
+echo ready >"$1"
+while :; do sleep 0.1; done
+SH
+# killed.sh FENCE VERDICT ARG...: PID 1 of the case's namespace. It runs the
+# fence over ARG... with leave.sh, sends the fence SIGKILL once leave.sh is
+# ready, and writes to VERDICT how many processes but its own are left in
+# the namespace once none is, or after 5 s. A zombie has ended.
+cat >"$TMP_ROOT/killed.sh" <<'SH'
+fence="$1" verdict="$2" ready="$2.ready" bin="$3" home="$4"
+shift 4
+env -i PATH="$bin" HOME="$home" TMPDIR="$home" "$BASH" "$fence" "$@" sh "$home/leave.sh" "$ready" >/dev/null 2>&1 &
+pid=$!
+for _ in $(seq 1 100); do [[ -s $ready ]] && break; sleep 0.05; done
+[[ -s $ready ]] || { echo unready >"$verdict"; exit 0; }
+kill -KILL "$pid"
+wait "$pid" 2>/dev/null
+for _ in $(seq 1 100); do
+  left=0
+  for entry in /proc/[0-9]*; do
+    [[ ${entry#/proc/} != 1 ]] || continue
+    read -r line 2>/dev/null <"$entry/stat" || continue
+    rest="${line##*) }"
+    [[ ${rest%% *} == Z ]] || left=$((left + 1))
+  done
+  ((left == 0)) && break
+  sleep 0.05
+done
+echo "left=$left" >"$verdict"
+SH
+# fence_killed FILE: a SIGKILL of the fence leaves no process its command
+# started.
+fence_killed() {
+  local verdict="$TMP_ROOT/killed.verdict"
+  roots plain
+  rm -f -- "$verdict" "$verdict.ready"
+  status=0
+  timeout -k 2 20 "${contain[@]}" "$BASH" "$TMP_ROOT/killed.sh" "$1" "$verdict" "$TMP_ROOT/bin-real" "$TMP_ROOT" "${at[@]}" \
+    >"$TMP_ROOT/out" 2>"$TMP_ROOT/err" || status=$?
+  [[ $status -eq 0 && -r $verdict && "$(<"$verdict")" == left=0 ]]
 }
 no_bwrap() { # FILE
   roots amd
@@ -243,10 +332,10 @@ unreadable() { # FILE
 # stops_once FILE HOW SIGNAL STATUS: the fence runs stop.sh in the
 # namespace, in a process group of its own as a terminal's job is, and gets
 # SIGNAL. `pid` sends it to the fence's pid and, once the command has it,
-# once more; `twice` sends it to the fence's pid twice at once, as timeout
-# does; `group` sends it to the fence's group, as timeout and a terminal
-# do. The command gets it once, and its exit trap has ended when
-# the fence returns the command's STATUS.
+# twice more, 0.2 s apart, so each lands on its own; `twice` sends it to
+# the fence's pid twice at once, as timeout does; `group` sends it to the
+# fence's group, as timeout and a terminal do. The command gets it once,
+# and its exit trap has ended when the fence returns the command's STATUS.
 stops_once() {
   local file="$1" how="$2" signal="$3" log="$TMP_ROOT/stop.log" fenced i
   roots amd
@@ -273,6 +362,8 @@ stops_once() {
       sleep 0.05
     done
     kill -s "$signal" -- "$fenced" 2>/dev/null || true
+    sleep 0.2
+    kill -s "$signal" -- "$fenced" 2>/dev/null || true
   fi
   wait "$fenced" || status=$?
   [[ $status -eq $4 && "$(<"$log")" == "started"$'\n'"$signal"$'\n'"exit-start"$'\n'"exit-end" ]]
@@ -281,14 +372,37 @@ stops_once() {
 # on_terminal FILE: the fence runs tty.sh from a real terminal, and a line
 # is typed into it. In a background group of the terminal's own session the
 # command would stop on its mode change or its read.
+# The terminal runs in the case's own PID namespace: timeout ends unshare,
+# which ends the namespace, a command a terminal stopped included.
 on_terminal() {
   local log="$TMP_ROOT/tty.log" run
   roots amd
   : >"$log"
-  printf -v run '%q ' env -i PATH="$TMP_ROOT/bin-real" HOME="$TMP_ROOT" "$BASH" "$1" "${at[@]}" sh "$TMP_ROOT/tty.sh" "$log"
+  rm -f -- "$log.ns"
+  printf -v run '%q ' env -i PATH="$TMP_ROOT/bin-real" HOME="$TMP_ROOT" TMPDIR="$TMP_ROOT" "$BASH" "$1" "${at[@]}" sh "$TMP_ROOT/tty.sh" "$log"
   status=0
-  { echo typed; sleep 2; } | timeout 5 script -qec "$run" /dev/null >"$TMP_ROOT/out" 2>"$TMP_ROOT/err" || status=$?
+  terminal_started=$SECONDS
+  # The shell reports on stderr a job a signal ended; the status says it.
+  { { echo typed; sleep 2; } | timeout -k 2 5 "${contain[@]}" script -qec "$run" /dev/null >"$TMP_ROOT/out" 2>"$TMP_ROOT/err" || status=$?; } 2>/dev/null
+  terminal_secs=$((SECONDS - terminal_started))
   [[ $status -eq 0 && "$(<"$log")" == "mode-set"$'\n'"read=typed" ]]
+}
+# terminal_ends FILE: the terminal case over FILE, whatever its verdict,
+# returns within 9 s, timeout's 5 s, its 2 s grace and the time to end
+# the namespace, and
+# leaves no process in the PID namespace tty.sh ran in.
+terminal_ends() {
+  local ns left
+  on_terminal "$1" || true
+  ns="$(<"$TMP_ROOT/tty.log.ns")" || return 1
+  left="$(python3 -c 'import os, sys
+for pid in filter(str.isdigit, os.listdir("/proc")):
+    try:
+        if os.readlink(f"/proc/{pid}/ns/pid") == sys.argv[1]:
+            print(pid)
+    except OSError:
+        pass' "$ns")" || return 1
+  [[ $terminal_secs -le 9 && -z $left ]]
 }
 refused() { # FILE WANT ARG...
   local file="$1" want="$2"
@@ -299,17 +413,21 @@ refused() { # FILE WANT ARG...
 
 # Rows: label | whether the case makes a namespace | the case and its words.
 cases=(
-  "a visible amdgpu node needs the fence|no|check_is amd 1"
-  "a host with no amdgpu node needs none|no|check_is plain 0"
-  "a view with every amdgpu path gone needs none|no|check_is inside 0"
-  "a host with no amdgpu node runs the command directly|no|runs_directly plain"
-  "a view with every amdgpu path gone runs the command directly|no|runs_directly inside"
+  "a visible amdgpu node needs the fence|no|check_is amd 1 outside"
+  "a visible amdgpu node inside a fence needs the fence|no|check_is amd 1 fenced"
+  "a host with no amdgpu node needs the fence|no|check_is plain 1 outside"
+  "inside a fence a host with no amdgpu node needs none|no|check_is plain 0 fenced"
+  "inside a fence a view with every amdgpu path gone needs none|no|check_is inside 0 fenced"
+  "inside a fence a host with no amdgpu node runs the command directly|no|runs_directly plain"
+  "inside a fence a view with every amdgpu path gone runs the command directly|no|runs_directly inside"
   "the namespace hides every amdgpu path, keeps the rest and proves both|yes|hides"
-  "TERM to the fence reaches the command once and its exit trap ends before the fence returns|yes|stops_once pid TERM 143"
-  "INT to the fence reaches the command once and its exit trap ends before the fence returns|yes|stops_once pid INT 130"
-  "HUP to the fence reaches the command once and its exit trap ends before the fence returns|yes|stops_once pid HUP 129"
-  "TERM to the fence's process group reaches the command once|yes|stops_once group TERM 143"
-  "two TERMs at once to the fence reach the command once|yes|stops_once twice TERM 143"
+  "a host with no amdgpu node runs the command in a PID namespace with every path kept|yes|plain_namespace"
+  "a SIGKILL of the fence ends every process its command started|yes|fence_killed"
+  "TERM to the fence reaches the command once and its exit trap ends before the fence returns|yes|stops_once pid TERM 43"
+  "INT to the fence reaches the command once and its exit trap ends before the fence returns|yes|stops_once pid INT 30"
+  "HUP to the fence reaches the command once and its exit trap ends before the fence returns|yes|stops_once pid HUP 29"
+  "TERM to the fence's process group reaches the command once|yes|stops_once group TERM 43"
+  "two TERMs at once to the fence reach the command once|yes|stops_once twice TERM 43"
   "a command run from a terminal changes its mode and reads it|yes|on_terminal"
   "a host with no bubblewrap starts nothing|no|no_bwrap"
   "a namespace bubblewrap cannot make starts nothing|no|no_namespace"
@@ -371,11 +489,20 @@ controls=(
   'fence=(bwrap --dev-bind / / "${rebuild[@]}" --' 'fence=(bwrap --dev-bind / / --'
   "the namespace hides every amdgpu path, keeps the rest and proves both"
   "a host with a visible amdgpu node runs the command directly"
-  'exposed || exec "$@"' 'exec "$@"'
+  '! fenced || exposed || exec "$@"' 'exec "$@"'
   "the namespace hides every amdgpu path, keeps the rest and proves both"
+  "outside a fence a host with no amdgpu node runs the command directly"
+  '! fenced || exposed || exec "$@"' 'exposed || exec "$@"'
+  "a host with no amdgpu node runs the command in a PID namespace with every path kept"
+  "the check passes outside a fence"
+  'if exposed || ! fenced; then exit 1; fi' 'if exposed; then exit 1; fi'
+  "a host with no amdgpu node needs the fence"
+  "the check passes a visible amdgpu node inside a fence"
+  'if exposed || ! fenced; then exit 1; fi' 'if ! fenced; then exit 1; fi'
+  "a visible amdgpu node inside a fence needs the fence"
   "the amdgpu nodes are the ones of a fixed number"
   'if [[ $driver == amdgpu ]]; then' 'if [[ $name == card0 || $name == renderD129 ]]; then'
-  "a view with every amdgpu path gone needs none"
+  "inside a fence a view with every amdgpu path gone needs none"
   "a link to an amdgpu node is made again"
   'elif [[ -n ${amd_target[$target]:-} ]]; then' 'elif false; then'
   "the namespace hides every amdgpu path, keeps the rest and proves both"
@@ -385,14 +512,17 @@ controls=(
   "no link is made again"
   'rebuild+=("${symlinks[@]}")' ':'
   "the namespace hides every amdgpu path, keeps the rest and proves both"
-  "the namespace is a PID namespace too"
-  'fence=(bwrap --dev-bind / /' 'fence=(bwrap --unshare-pid --dev-bind / /'
+  "the namespace is no PID namespace"
+  ' --unshare-pid --proc /proc' ''
   "the namespace hides every amdgpu path, keeps the rest and proves both"
+  "bubblewrap outlives the fence"
+  '--proc /proc --die-with-parent --new-session' '--proc /proc --new-session'
+  "a SIGKILL of the fence ends every process its command started"
   "the command's status is lost"
   'exit "$status" ;;' 'exit $((status ? 1 : 0)) ;;'
   "the namespace hides every amdgpu path, keeps the rest and proves both"
   "the fence hands itself to bubblewrap"
-  '"${fence[@]}" "$@" &' 'exec "${fence[@]}" "$@"'
+  '"${fence[@]}" --info-fd 3 "${proof[@]}" "$@" 3>"$fence_dir/info" &' 'exec "${fence[@]}" "${proof[@]}" "$@"'
   "TERM to the fence reaches the command once and its exit trap ends before the fence returns"
   "TERM is not handed on"
   "trap 'forward TERM 143' TERM" ':'
@@ -403,20 +533,23 @@ controls=(
   "HUP is not handed on"
   "trap 'forward HUP 129' HUP" ':'
   "HUP to the fence reaches the command once and its exit trap ends before the fence returns"
+  "a signal goes to the namespace's init"
+  '[[ -z $init ]] || read -r child _ 2>/dev/null <"/proc/$init/task/$init/children" || true' 'child="$init"'
+  "TERM to the fence reaches the command once and its exit trap ends before the fence returns"
   "a later signal is handed on too"
   '((forwarded++ == 0)) || return 0' ':'
   "TERM to the fence reaches the command once and its exit trap ends before the fence returns"
   "the fence returns when the signal arrives"
   'while ours "$monitor"; do' 'while false; do'
   "TERM to the fence reaches the command once and its exit trap ends before the fence returns"
-  "the fence waits once more after a signal"
+  "the fence waits a fixed number of times"
   'while ours "$monitor"; do' 'for _ in 1 2; do'
-  "two TERMs at once to the fence reach the command once"
+  "TERM to the fence reaches the command once and its exit trap ends before the fence returns"
   "bubblewrap runs in the caller's process group"
   $'    set -m\n    "${fence[@]}"' '    "${fence[@]}"'
   "TERM to the fence's process group reaches the command once"
   "the command stays in the caller's terminal session"
-  '--new-session -- "$BASH"' '-- "$BASH"'
+  '--die-with-parent --new-session' '--die-with-parent'
   "a command run from a terminal changes its mode and reads it"
   "a missing bubblewrap runs the command"
   'command -v bwrap >/dev/null 2>&1 || { fault bwrap-missing; exit 77; }' 'command -v bwrap >/dev/null 2>&1 || exec "$@"'
@@ -477,6 +610,22 @@ if [[ $planted_out == "  FAIL  control: a control with no case names no case: no
   ok "control: a control that names no case fails the controls loop"
 else
   fail "control: a control that names no case fails the controls loop"; printf '%s\n' "$planted_out" | sed 's/^/        /'
+fi
+
+# A fence whose command stays in the terminal's session stops on its mode
+# change. The terminal case over it must still end within its bound and
+# leave no process, stopped or not.
+if [[ $namespace == true ]]; then
+  if ! mutate "$fence" '--die-with-parent --new-session' '--die-with-parent' "$TMP_ROOT/stops-on-terminal.sh"; then
+    fail "a command a terminal stops ends with the terminal case"
+  elif terminal_ends "$TMP_ROOT/stops-on-terminal.sh"; then
+    ok "a command a terminal stops ends with the terminal case, within its bound"
+  else
+    fail "a command a terminal stops ends with the terminal case, within its bound (${terminal_secs}s)"; show
+  fi
+else
+  unmeasured=$((unmeasured + 1))
+  printf '  skip  a command a terminal stops ends with the terminal case\n'
 fi
 
 # The fence with no restriction, read for what it reports: every amdgpu

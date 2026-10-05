@@ -14,14 +14,30 @@
 # holds the device number and `device/driver` names the driver. A node
 # whose driver is amdgpu is an AMD node; no number is fixed.
 #
-# With an AMD path visible, CMD runs in a user namespace and a mount
-# namespace bubblewrap makes: a tmpfs covers /dev/dri and /dev/char, every
-# other node is bound back, and every link that does not resolve to an AMD
-# node is made again, the /dev/dri/by-path ones included. The user
-# namespace maps the caller's own uid and gid, so files of another owner
-# read as nobody's. The PID namespace, the environment, the working
-# directory, the open files and XDG_RUNTIME_DIR with its Wayland socket are
-# the caller's, and the exit status is CMD's. The fence stays the parent of
+# CMD runs in a user, mount and PID namespace bubblewrap makes. With an
+# AMD path visible, a tmpfs covers /dev/dri and /dev/char, every other node
+# is bound back, and every link that does not resolve to an AMD node is
+# made again, the /dev/dri/by-path ones included. The user namespace maps
+# the caller's own uid and gid, so files of another owner read as nobody's.
+# The environment, the working directory, the open files and
+# XDG_RUNTIME_DIR with its Wayland socket are the caller's, and the exit
+# status is CMD's.
+#
+# The fence owns every process CMD starts. The PID namespace has its own
+# /proc, and bubblewrap's init is its PID 1. The init ends once CMD has
+# ended and bubblewrap's monitor has returned, or at once when the fence
+# dies (--die-with-parent, SIGKILL included). The kernel then kills every
+# process left in the namespace, one in another session or one a terminal
+# stopped included. The fence names a ledger file in VGSHELL_FENCE_LEDGER;
+# a command appends one absolute path a line for each directory it makes
+# and wants gone. Once the namespace has ended, the fence gives the owner
+# read, write and search back on each path and removes it, so a run
+# ended by a signal, CMD's SIGKILL included, leaves no directory it named.
+# A failed step prints `gpu-fence: cleanup=chmod-failed path=<path>` or
+# `gpu-fence: cleanup=rm-failed path=<path>` on stderr. A SIGKILL of the
+# fence itself ends every process and leaves the paths.
+#
+# The fence stays the parent of
 # bubblewrap's monitor, which forwards no signal. The monitor runs in a
 # process group of its own and CMD in a session of its own, with no
 # controlling terminal. The first TERM, INT or HUP the fence gets goes to
@@ -39,11 +55,12 @@
 # line. A namespace made around `true` runs the same proof first, so a
 # failure there is the namespace's and never CMD's.
 #
-# With no amdgpu node, or with none visible because the caller already
-# runs inside the namespace, CMD runs directly and nothing is printed.
+# Inside a fence's namespace, where VGSHELL_FENCE_LEDGER names a file and
+# no AMD path is visible, CMD runs directly and nothing is printed.
 #
-# --check asks whether the caller needs the namespace: exit 0 when no AMD
-# path resolves here, exit 1 when one does, nothing printed. An entry
+# --check asks whether the caller needs the namespace: exit 0 inside a
+# fence's namespace where no AMD path resolves, exit 1 otherwise, nothing
+# printed. An entry
 # point that starts a compositor, the shell, qmltestrunner or a browser
 # goes on only after
 #   gpu-fence.sh --check || exec gpu-fence.sh "$self" "${argv[@]}"
@@ -52,10 +69,9 @@
 # of /sys and /dev: scripts/test-gpu-fence.sh hands it trees of ordinary
 # files.
 #
-# The namespace hides the paths under /dev. A path through another
-# process's root or open files, /proc/<pid>/root and /proc/<pid>/fd of a
-# process outside it, still reaches the node: the PID namespace is the
-# caller's so that the harness reads /proc.
+# The namespace hides the paths under /dev. Its /proc lists no process
+# outside it, so /proc/<pid>/root and /proc/<pid>/fd reach no node through
+# one.
 #
 # The amdgpu nodes that are no DRM nodes stay visible: /dev/fb*,
 # /dev/drm_dp_aux* and /dev/kfd. The recorded fault's call path is the DRM
@@ -66,6 +82,7 @@
 # Exit: CMD's status. 2 on a refused argument. 77 when nothing was started,
 # never a run outside the namespace; the first line on stderr names why:
 #   gpu-fence: status=not-measured reason=bwrap-missing
+#   gpu-fence: status=not-measured reason=ledger-failed
 #   gpu-fence: status=not-measured reason=namespace-failed exit=<status>
 #   gpu-fence: status=not-measured reason=amd-node-visible path=<path>
 #   gpu-fence: status=not-measured reason=node-missing path=<path>
@@ -82,8 +99,9 @@ fault() {
   shift
   note "status=not-measured reason=$reason${*:+ $*}"
   case "$reason" in
-    bwrap-missing) note "  an amdgpu node is visible and bubblewrap, which hides it, is not on PATH" ;;
-    namespace-failed) note "  bubblewrap could not make the mount namespace; its output follows" ;;
+    bwrap-missing) note "  bubblewrap, which makes the namespace, is not on PATH" ;;
+    ledger-failed) note "  the fence could not make the scratch directory that holds its ledger" ;;
+    namespace-failed) note "  bubblewrap could not make the namespace; its output follows" ;;
     amd-node-visible) note "  a path to an amdgpu node resolves inside the namespace" ;;
     node-missing) note "  a node or link the host had does not resolve inside the namespace" ;;
     sysfs-unreadable) note "  a DRM node's device number or driver could not be read" ;;
@@ -211,6 +229,38 @@ exposed() {
   return 1
 }
 
+# fenced: true inside a fence's namespace, which names its ledger there.
+fenced() { [[ -n ${VGSHELL_FENCE_LEDGER-} && -f $VGSHELL_FENCE_LEDGER ]]; }
+
+# release: once the namespace has ended, give the owner bits back on each
+# path the ledger names and remove it, then the fence's scratch directory.
+# bubblewrap's monitor returns once CMD has ended, and the init it leaves
+# is killed by --die-with-parent as the monitor exits, so the rest of the
+# namespace can outlive the monitor by a moment. The namespace is empty
+# once its init has left it: the kernel kills and reaps every other
+# process before PID 1 exits. --info-fd names the init and its namespace.
+release() {
+  local init="" ns="" path _
+  [[ -n ${fence_dir-} ]] || return 0
+  if [[ -s $fence_dir/info ]]; then
+    init="$(sed -n 's/^ *"child-pid": *\([0-9]*\),*$/\1/p' "$fence_dir/info")" || init=""
+    ns="$(sed -n 's/^ *"pid-namespace": *\([0-9]*\),*$/\1/p' "$fence_dir/info")" || ns=""
+  fi
+  if [[ -n $init && -n $ns ]]; then
+    # A real wait: the kernel ends the namespace within milliseconds.
+    for _ in $(seq 1 100); do
+      [[ "$(readlink "/proc/$init/ns/pid" 2>/dev/null)" == "pid:[$ns]" ]] || break
+      sleep 0.05
+    done
+  fi
+  while IFS= read -r path; do
+    [[ $path == /* ]] && [[ -e $path || -L $path ]] || continue
+    chmod -R u+rwX -- "$path" 2>/dev/null || note "cleanup=chmod-failed path=$path"
+    rm -rf -- "${path:?}" 2>/dev/null || note "cleanup=rm-failed path=$path"
+  done <"$fence_dir/ledger"
+  rm -rf -- "${fence_dir:?}"
+}
+
 # inside ABSENT... -- PRESENT... -- CMD...: the proof, then CMD. Every path
 # is read before the verdict, so the lines hold the whole view. A fault's
 # lines are printed as it is found and the proof lines after the last
@@ -246,19 +296,20 @@ ours() {
   read -r -a stat 2>/dev/null <"/proc/$1/stat" && [[ ${stat[3]-} == "$$" ]]
 }
 
-# forward SIGNAL STATUS: hand the first TERM, INT or HUP to CMD, the
-# monitor's one child, and drop every later one, so CMD's exit handling
-# gets one signal. A signal can run this again inside a run of it, so the
-# count is read and raised in one command. Before the monitor starts
-# nothing has, and the fence exits with STATUS. Before the monitor has a
-# child, its group holds nothing that has started.
+# forward SIGNAL STATUS: hand the first TERM, INT or HUP to CMD, the one
+# child of the namespace's init, which is the monitor's one child, and drop
+# every later one, so CMD's exit handling gets one signal. A signal can run
+# this again inside a run of it, so the count is read and raised in one
+# command. Before the monitor starts nothing has, and the fence exits with
+# STATUS. Before CMD has started, the monitor's group holds what has.
 forwarded=0
 forward() {
   ((forwarded++ == 0)) || return 0
-  local monitor="${!:-}" child=""
+  local monitor="${!:-}" init="" child=""
   [[ -n $monitor ]] || exit "$2"
   ours "$monitor" || return 0
-  read -r child _ 2>/dev/null <"/proc/$monitor/task/$monitor/children" || true
+  read -r init _ 2>/dev/null <"/proc/$monitor/task/$monitor/children" || true
+  [[ -z $init ]] || read -r child _ 2>/dev/null <"/proc/$init/task/$init/children" || true
   if [[ -n $child ]]; then
     kill -s "$1" -- "$child" 2>/dev/null || true
   else
@@ -269,22 +320,29 @@ forward() {
 case "$mode" in
   check)
     plan
-    if exposed; then exit 1; fi
+    if exposed || ! fenced; then exit 1; fi
     exit 0 ;;
   inside)
     inside "$@" ;;
   run)
     (($#)) || { note "refused: argument=missing-command"; exit 2; }
     plan
-    exposed || exec "$@"
+    ! fenced || exposed || exec "$@"
     command -v bwrap >/dev/null 2>&1 || { fault bwrap-missing; exit 77; }
     self="$(readlink -f -- "${BASH_SOURCE[0]}")"
+    fence_dir="$(mktemp -d "${TMPDIR:-/tmp}/vgshell-fence.XXXXXX")" || { fault ledger-failed; exit 77; }
+    trap release EXIT
+    : >"$fence_dir/ledger"
+    # With no AMD node nothing under /dev changes, and nothing is proved.
+    if ((${#hidden[@]} == 0)); then rebuild=(); kept=(); fi
     # CMD gets a session of its own: in the caller's session, with the
     # monitor's group in the background, a terminal would stop it on a read
     # or a mode change.
-    fence=(bwrap --dev-bind / / "${rebuild[@]}" --new-session -- "$BASH" "$self" --inside "${hidden[@]}" -- "${kept[@]}" --)
+    fence=(bwrap --dev-bind / / "${rebuild[@]}" --unshare-pid --proc /proc --die-with-parent --new-session
+      --setenv VGSHELL_FENCE_LEDGER "$fence_dir/ledger")
+    proof=(-- "$BASH" "$self" --inside "${hidden[@]}" -- "${kept[@]}" --)
     status=0
-    probe="$("${fence[@]}" true 2>&1)" || status=$?
+    probe="$("${fence[@]}" "${proof[@]}" true 2>&1)" || status=$?
     case "$status" in
       0) ;;
       # The proof inside the probe named its own reason.
@@ -299,7 +357,7 @@ case "$mode" in
     trap 'forward INT 130' INT
     trap 'forward HUP 129' HUP
     set -m
-    "${fence[@]}" "$@" &
+    "${fence[@]}" --info-fd 3 "${proof[@]}" "$@" 3>"$fence_dir/info" &
     set +m
     monitor=$!
     # A trapped signal ends a wait early, and so can one that comes while
