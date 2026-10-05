@@ -462,7 +462,8 @@ row_log() {
   assert "the log TUI refuses an argument" test "$status:$(first_line)" == "2:This update request is invalid. Open Updates and try again."
 }
 
-# The third-party review (pipeline.md § Third-party review). Each row has
+# The third-party review
+# (shell/plugins/vgs.updates/pipeline.md § Third-party review). Each row has
 # the third-party updates pending; review_dir is the review directory the
 # run asked the service to open, from its recorded IPC call.
 review_call="vgshell ipc call vgs.updates invoke review "

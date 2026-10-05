@@ -541,8 +541,10 @@ f share/vgshell/shell/plugins/vgs.updates/Window.qml
 f share/vgshell/shell/plugins/vgs.updates/bin/check
 f share/vgshell/shell/plugins/vgs.updates/bin/facts
 f share/vgshell/shell/plugins/vgs.updates/manifest.json
+f share/vgshell/shell/plugins/vgs.updates/review/third-party.md
 f share/vgshell/shell/plugins/vgs.updates/tui/log.sh
 f share/vgshell/shell/plugins/vgs.updates/tui/pipeline.sh
+f share/vgshell/shell/plugins/vgs.updates/tui/review.sh
 f share/vgshell/shell/plugins/vgs.updates/tui/update-source.sh
 f share/vgshell/shell/plugins/vgs.updates/tui/update.sh
 f share/vgshell/shell/plugins/vgs.voice/Appearance.js

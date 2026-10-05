@@ -20,7 +20,7 @@
 #      the `review` TUI, which the service opens; the run waits for it and
 #      acts on its verdict, so a flagged package the user skips reaches
 #      its upgrade step as `--ignore <name>`. The review runs before any
-#      credential is cached: pipeline.md § Third-party review
+#      credential is cached: shell/plugins/vgs.updates/pipeline.md § Third-party review
 #   5. one sudo session, when the package layer's elevation command is
 #      sudo and a snapshot or the system step needs root. That command is
 #      the one `vgshell pkg plan upgrade <primary>` names, from shell.json's

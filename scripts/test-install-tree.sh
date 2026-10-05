@@ -56,6 +56,7 @@ check "shell AGENTS.md is not installed" test ! -e "$dest/usr/share/vgshell/shel
 check "shell CLAUDE.md is not installed" test ! -e "$dest/usr/share/vgshell/shell/CLAUDE.md"
 check "shell plugin README.md is not installed" test ! -e "$dest/usr/share/vgshell/shell/plugins/vgs.bar/README.md"
 check "a plugin's other Markdown is not installed" test ! -e "$dest/usr/share/vgshell/shell/plugins/vgs.updates/pipeline.md"
+check "the Updates review's instructions are installed" test -e "$dest/usr/share/vgshell/shell/plugins/vgs.updates/review/third-party.md"
 check "the core input resolver is installed" test -e "$dest/usr/share/vgshell/bin/lib/xkb-keys.py"
 check "Jarvis input guidance is installed" test -e "$dest/usr/share/vgshell/shell/plugins/vgs.jarvis/backend/skills/computer/input.md"
 check "Jarvis screen guidance is installed" test -e "$dest/usr/share/vgshell/shell/plugins/vgs.jarvis/backend/skills/computer/vision.md"
@@ -290,6 +291,26 @@ check "the manifest catches dropped runtime guidance" test "$status" = 1
 check "the dropped core layer is reported as missing" grep_out "install-tree=missing entry=f share/vgshell/shell/plugins/vgs.jarvis/backend/skills/voice/core.md" "$tmp/voice-check.out"
 run_capture "$tmp/voice-compose.out" "$tmp/voice-compose.err" status "${voice_command[@]}" "$mutant_dest/usr/share/vgshell"
 check "the dropped-guidance mutant breaks the installed consumer" test "$status" = 1
+
+python3 - "$source_copy/packaging/install-system.sh" "$repo/packaging/install-system.sh" <<'PY'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+text = pathlib.Path(sys.argv[2]).read_text()
+needle = '  [[ $1 == shell/plugins/vgs.updates/review/*.md ]] && return 1\n'
+if text.count(needle) != 1:
+    raise SystemExit("install-control: review exception did not occur once")
+changed = text.replace(needle, '  [[ $1 == shell/plugins/vgs.updates/review/*.md ]] && return 0\n')
+if changed == text:
+    raise SystemExit("install-control: review exception did not change")
+path.write_text(changed)
+PY
+mutant_dest="$tmp/review-mutant"
+run_capture "$tmp/review-install.out" "$tmp/review-install.err" status env DESTDIR="$mutant_dest" PREFIX=/usr "$source_copy/packaging/install-system.sh"
+check "the review-dropping mutant still installs" test "$status" = 0
+run_capture "$tmp/review-check.out" "$tmp/review-check.err" status "$repo/scripts/check-install-tree.sh" "$mutant_dest" /usr
+check "the manifest catches dropped review instructions" grep_out "install-tree=missing entry=f share/vgshell/shell/plugins/vgs.updates/review/third-party.md" "$tmp/review-check.out"
 
 # A system package's install: SYSCONFDIR adds the browser theme writer, a
 # real copy, and the sudoers rule it prints for the prefix. A tree without

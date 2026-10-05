@@ -2,7 +2,8 @@
 # The vgs.updates `review` floating TUI: the AI agent that reviews one
 # update run's third-party packages, in a window of its own, so the user
 # can talk to it. tui/pipeline.sh opens it through the service's `review`
-# IPC handler and waits for it to end: pipeline.md § Third-party review.
+# IPC handler and waits for it to end:
+# shell/plugins/vgs.updates/pipeline.md § Third-party review.
 #
 #   review.sh <dir>
 #

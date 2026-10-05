@@ -9,7 +9,8 @@
 # $DESTDIR$PREFIX/bin/vgshell and points to ../share/vgshell/bin/vgshell. Root README.md
 # and LICENSE land under share/doc/vgshell and share/licenses/vgshell.
 # The installed shell tree drops developer Markdown under shell/.
-# Jarvis's backend/skills Markdown is runtime guidance and ships.
+# Jarvis's backend/skills Markdown is runtime guidance and ships, and so
+# are the Updates review's instructions, vgs.updates/review/*.md.
 # SYSCONFDIR, set by a system package alone, also installs the browser
 # theme writer, a copy of bin/vgshell-browser-policy at
 # $DESTDIR$PREFIX/bin/vgshell-browser-policy, 0755, and the sudoers rule it
@@ -70,6 +71,7 @@ skip_shell_markdown() { # RELATIVE_PATH
   [[ $1 == shell/plugins/vgs.jarvis/backend/skills/voice/*.md ]] && return 1
   [[ $1 == shell/plugins/vgs.jarvis/backend/skills/computer/*.md ]] && return 1
   [[ $1 == shell/plugins/vgs.jarvis/backend/skills/browser/SKILL.md ]] && return 1
+  [[ $1 == shell/plugins/vgs.updates/review/*.md ]] && return 1
   [[ $1 == *.md ]]
 }
 
