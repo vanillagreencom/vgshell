@@ -1,8 +1,9 @@
 # Sourced by harness.sh after verdict.sh; the mode and scale a row holds on
 # a nested output. It reads the nested compositor through hypr, which
-# harness.sh defines, and writes mode_hold and mode_hold_file, which
-# verdict.sh and harness.sh declare. release_mode reports through expect
-# and expect_poll, and hold_mode through ok and fail.
+# harness.sh defines, and writes mode_hold, mode_hold_window and
+# mode_hold_file, which verdict.sh and harness.sh declare. release_mode
+# reports through expect and expect_poll, and hold_mode through ok, fail
+# and mode_reset.
 
 # monitor_rule NAME MODE [SCALE]: the Lua monitor rule that gives output
 # NAME the mode MODE, such as 480x720, at SCALE, 1 by default, and the
@@ -88,13 +89,18 @@ take_mode() {
 }
 # hold_mode LABEL NAME MODE [SCALE]: output NAME takes MODE at SCALE, 1 by
 # default, and the rows after it hold that mode and scale until
-# release_mode. The rule goes into mode_hold_file, which every load of the
-# configuration runs, and take_mode applies it now. The hold begins once
-# the monitor reads both; a mode or a scale never taken is a failure,
-# holds nothing and leaves no hold file.
+# release_mode. The output's own WxH, read before the rule, is the host
+# window's size (mode_hold_window). The rule goes into mode_hold_file,
+# which every load of the configuration runs, and take_mode applies it
+# now. The hold begins once the monitor reads both; a mode or a scale
+# never taken holds nothing and leaves no hold file. It is a mode reset
+# when take_mode's last reading is the window's own WxH and MODE is
+# another: only a host configure gives the output that size
+# (held_mode_state). Any other is a failure.
 hold_mode() {
-  local label="$1" output="$2" want="$3 scale=${4:-1}" taken
+  local label="$1" output="$2" want="$3 scale=${4:-1}" taken window
   [[ ${#mode_hold[@]} -eq 0 ]] || { fail "$label: ${mode_hold[0]} already holds ${mode_hold[1]}; hold_mode does not nest"; return; }
+  if window="$(mode_scale_of "$output")"; then window="${window% scale=*}"; else window=""; fi
   if ! monitor_rule "$output" "$3" "${4:-1}" >"$mode_hold_file.next" || ! mv -T -- "$mode_hold_file.next" "$mode_hold_file"; then
     fail "$label: the hold file $mode_hold_file is not written"
     rm -f -- "$mode_hold_file.next" || fail "$label: the partial hold file $mode_hold_file.next is not removed"
@@ -102,9 +108,14 @@ hold_mode() {
   fi
   if taken="$(take_mode "$output" "$3" "${4:-1}")"; then
     mode_hold=("$output" "$want")
+    mode_hold_window="$window"
     ok "$label: $output reads $want, $taken"
   else
-    fail "$label: $output does not read $want: $taken"
+    if [[ -n $window && $window != "$3" && $taken =~ got=\[([0-9]+x[0-9]+)\ scale= && ${BASH_REMATCH[1]} == "$window" ]]; then
+      mode_reset "$label: $output does not read $want: $taken" "$output reads the host window's own size $window"
+    else
+      fail "$label: $output does not read $want: $taken"
+    fi
     rm -f -- "$mode_hold_file" || fail "$label: the hold file $mode_hold_file of a hold never taken is not removed"
   fi
   return 0
@@ -160,11 +171,23 @@ held_mode_state() {
   state="$(mode_scale_of "${mode_hold[0]}")" || { echo unreadable; return; }
   if [[ $state == "${mode_hold[1]}" ]]; then echo held; else echo reset; fi
 }
+# held_mode_host_sized: true when the held output reads the host window's
+# own WxH, mode_hold_window, and the held mode is another WxH. Only a host
+# configure gives the output that size (held_mode_state), so a reading
+# then measured the sandbox, not the hold or the shell. False when the
+# monitor cannot be read.
+held_mode_host_sized() {
+  local state
+  [[ -n $mode_hold_window && $mode_hold_window != "${mode_hold[1]% scale=*}" ]] || return 1
+  state="$(mode_scale_of "${mode_hold[0]}")" || return 1
+  [[ ${state% scale=*} == "$mode_hold_window" ]]
+}
 # release_mode LABEL NAME MODE [SCALE]: any hold ends, its file goes, and
 # output NAME takes MODE at SCALE, 1 by default, again, whether or not
 # hold_mode's mode was taken, and reads both before the rows go on.
 release_mode() {
   mode_hold=()
+  mode_hold_window=""
   rm -f -- "$mode_hold_file" || fail "$1: the hold file $mode_hold_file is not removed"
   expect "$1" ok output_mode "$2" "$3" "${4:-1}"
   expect_poll "$2 reads $3 scale=${4:-1}" "$3 scale=${4:-1}" mode_scale_of "$2"

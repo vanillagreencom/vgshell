@@ -401,7 +401,7 @@ measure_held_scene 2 on "$HOME/scale-2-on"
             ("reset", "failed", 0, 1, 1, 1, [self.RESET % 1, "hold-restore: not-held output=WAYLAND-1"],
              "shader-cost: failed output=not-restored scene=on scale=2"),
             ("unreadable", "ok", 0, 1, 1, 0, [], "shader-cost: failed output=unreadable"),
-            ("reset", "ok", 1, 1, 3, 2, [self.RESET % 1, self.RESET % 2, self.RESET % 3], "qml-smoke: failed=2"),
+            ("reset", "ok", 1, 1, 3, 2, [self.RESET % 1, self.RESET % 2, self.RESET % 3], "qml-smoke: failed=1 mode-resets=1"),
         )
 
     def assert_held_case(self, text, case):

@@ -1,8 +1,9 @@
 # Sourced by harness.sh and by scripts/test-smoke-verdict.sh; defines the
 # failure tally the rows write, the count reading that fails a row in
 # place of ending the run, and the smoke's closing verdict, and reads no
-# sandbox state of its own: fail asks held_mode_state, which mode-hold.sh
-# defines, only while a row holds a mode.
+# sandbox state of its own: fail asks held_mode_state and
+# held_mode_host_sized, which mode-hold.sh defines, only while a row holds
+# a mode.
 
 failures=0
 # A row that reads positions, sizes or reserved space from the compositor
@@ -18,11 +19,17 @@ stalled_render=false
 row_class=behaviour
 # A mode a row holds on a nested output, as (OUTPUT STATE), STATE its mode
 # and scale as mode_scale_of in mode-hold.sh reads them, empty when no row
-# holds one; hold_mode and release_mode alone write it. A row that fails
-# after the output left the held mode counts in mode_resets and never as
-# behaviour, unless it runs under `hold`: it measured an output the sandbox
-# reset (held_mode_state in mode-hold.sh).
+# holds one, and mode_hold_window, the output's own WxH before the hold,
+# the host window's size, empty when no row holds one; hold_mode and
+# release_mode alone write them. A row that fails after the output left
+# the held mode counts in mode_resets and never as behaviour, unless it
+# runs under `hold`: it measured an output the sandbox reset
+# (held_mode_state in mode-hold.sh). A row that fails while the output
+# reads the host window's own size in place of a held mode of another
+# size counts in mode_resets under every class, `hold` included: only a
+# host configure gives the output that size (held_mode_host_sized).
 mode_hold=()
+mode_hold_window=""
 mode_resets=0
 # A row that could not measure on this host, as `ROW:REASON` words, which
 # not_measured alone writes: a prerequisite the row needs is missing, or a
@@ -35,15 +42,22 @@ not_measured() {
   not_measured_rows+=("$1:$2")
   printf '  SKIP  %s: not measured: %s\n' "$1" "$2"
 }
+# mode_reset MESSAGE REASON: one failed row counted as a mode reset and
+# printed in not_measured's form, never as `  FAIL`: scripts/main-run.sh
+# reports every line that starts `  FAIL` as a failure.
+mode_reset() {
+  local message="$1" reason="$2"
+  failures=$((failures + 1))
+  mode_resets=$((mode_resets + 1))
+  printf '  SKIP  %s: not measured: %s\n' "$message" "$reason"
+}
 # fail MESSAGE: one failed row, counted by its class and printed.
 fail() {
-  failures=$((failures + 1))
-  if [[ $row_class != hold && ${#mode_hold[@]} -gt 0 && $(held_mode_state) == reset ]]; then
-    mode_resets=$((mode_resets + 1))
-    printf '  FAIL  %s\n' "$*"
-    printf '        %s left the held mode %s: not measured\n' "${mode_hold[0]}" "${mode_hold[1]}"
+  if [[ ${#mode_hold[@]} -gt 0 ]] && { [[ $row_class != hold && $(held_mode_state) == reset ]] || held_mode_host_sized; }; then
+    mode_reset "$*" "${mode_hold[0]} left the held mode ${mode_hold[1]}"
     return
   fi
+  failures=$((failures + 1))
   [[ $row_class == geometry || $row_class == render ]] || behaviour_failures=$((behaviour_failures + 1))
   printf '  FAIL  %s\n' "$*"
 }
@@ -93,7 +107,8 @@ nested_output_unallocated() {
 # nested window's output could not allocate its buffers; it reports
 # not-measured, which is never a pass, and names the cause. Any behaviour
 # failure is a failure. A run with no failure whose not_measured_rows
-# holds a row is not measured, and its line names each row and reason.
+# holds a row is not measured, and its line names each row and reason. A
+# failing run with mode resets names them apart from the other failures.
 smoke_verdict() {
   local failures="$1" behaviour_failures="$2" stalled_render="$3" mode_resets="$4"
   shift 4
@@ -119,6 +134,10 @@ smoke_verdict() {
     printf 'qml-smoke: status=not-measured nested-compositor=buffer-allocation-failed failed=%s\n' "$failures"
     return 77
   fi
-  echo "qml-smoke: failed=$failures"
+  if [[ $mode_resets -gt 0 ]]; then
+    printf 'qml-smoke: failed=%s mode-resets=%s\n' "$((failures - mode_resets))" "$mode_resets"
+  else
+    echo "qml-smoke: failed=$failures"
+  fi
   return 1
 }

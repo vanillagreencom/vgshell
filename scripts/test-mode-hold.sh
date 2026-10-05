@@ -5,9 +5,10 @@
 # `ok`, records the rule; `hypr -j monitors` lists WAYLAND-1 at the mode
 # and scale the case plans for the rules applied so far, so the real
 # monitor_rule, output_mode and mode_scale_of run. A stub sleep keeps the
-# 5 s polls instant. Each case pins the exit status, the tallies, the
-# hold's state as held_mode_state reads it, the rules
-# applied and the first line printed. A second table runs
+# 5 s polls instant. Each case pins the exit status, the tallies, mode
+# resets among them, the hold's state as held_mode_state reads it, the
+# window size the hold records, the rules applied and the first line
+# printed. A second table runs
 # whole_scale_mode, the mode and scale a hold above scale 1 takes, and
 # pins its output and exit status. The controls at the end plant one
 # defect per rule in a copy of the file and require the case that rule
@@ -82,7 +83,7 @@ case "$stub_call" in
 esac
 file=absent; [[ -f $mode_hold_file ]] && file=present
 state=none; [[ ${#mode_hold[@]} -eq 0 ]] || state="$(held_mode_state)"
-printf "result status=%s failures=%s held=[%s] state=%s file=%s\n" "$status" "$failures" "${mode_hold[*]:-}" "$state" "$file"
+printf "result status=%s failures=%s resets=%s held=[%s] window=[%s] state=%s file=%s\n" "$status" "$failures" "$mode_resets" "${mode_hold[*]:-}" "$mode_hold_window" "$state" "$file"
 ' _ "$repo" "$file" "$dir" "$reply" "$plan" "$call")" || status=$?
   got_state="$(grep -m 1 '^result ' <<<"$out")" || got_state=""
   got_rules=0; [[ -f $dir/rules ]] && got_rules="$(wc -l <"$dir/rules")"
@@ -97,14 +98,18 @@ printf "result status=%s failures=%s held=[%s] state=%s file=%s\n" "$status" "$f
 
 # Rows: label | call | eval reply | readings after each rule, comma
 # separated | result | rules applied | first line.
+# The output reads 1755x933 at scale 1 before any rule, the host window's
+# own size. A hold that never reads its mode is a mode reset when its last
+# reading is that size, and a failure when it is any other.
 cases=(
-  "a hold the output takes at once is held|hold|ok|take|status=0 failures=0 held=[WAYLAND-1 3510x1866 scale=2] state=held file=present|1|ok the case: WAYLAND-1 reads 3510x1866 scale=2, attempts=1 got=[3510x1866 scale=2]"
-  "a hold the host resets once is applied again and held|hold|ok|1755x933 scale=1.5,take|status=0 failures=0 held=[WAYLAND-1 3510x1866 scale=2] state=held file=present|2|ok the case: WAYLAND-1 reads 3510x1866 scale=2, attempts=2 got=[3510x1866 scale=2]"
-  "a hold the host always resets fails after the bound|hold|ok|1755x933 scale=1.5|status=0 failures=1 held=[] state=none file=absent|3|  FAIL  the case: WAYLAND-1 does not read 3510x1866 scale=2: attempts=3 got=[1755x933 scale=1.5]"
-  "a refused rule fails at once|hold|error|take|status=0 failures=1 held=[] state=none file=absent|0|  FAIL  the case: WAYLAND-1 does not read 3510x1866 scale=2: attempts=1 eval=[error]"
-  "a restore after a reset takes the held mode and scale|restore|ok|1755x933 scale=1.5,take|status=0 failures=0 held=[WAYLAND-1 3510x1866 scale=2] state=held file=present|2|result status=0 failures=0 held=[WAYLAND-1 3510x1866 scale=2] state=held file=present"
-  "a restore the host always resets fails after the bound|restore|ok|1755x933 scale=1.5|status=1 failures=0 held=[WAYLAND-1 3510x1866 scale=2] state=reset file=present|3|hold-restore: not-held output=WAYLAND-1 want=[3510x1866 scale=2] attempts=3 got=[1755x933 scale=1.5]"
-  "a restore with no hold is refused|restore-none|ok|take|status=1 failures=0 held=[] state=none file=absent|0|hold-restore: refused hold=none"
+  "a hold the output takes at once is held|hold|ok|take|status=0 failures=0 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[1755x933] state=held file=present|1|ok the case: WAYLAND-1 reads 3510x1866 scale=2, attempts=1 got=[3510x1866 scale=2]"
+  "a hold the host resets once is applied again and held|hold|ok|1755x933 scale=1.5,take|status=0 failures=0 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[1755x933] state=held file=present|2|ok the case: WAYLAND-1 reads 3510x1866 scale=2, attempts=2 got=[3510x1866 scale=2]"
+  "a hold the host always sizes to its window is a mode reset after the bound|hold|ok|1755x933 scale=1.5|status=0 failures=1 resets=1 held=[] window=[] state=none file=absent|3|  SKIP  the case: WAYLAND-1 does not read 3510x1866 scale=2: attempts=3 got=[1755x933 scale=1.5]: not measured: WAYLAND-1 reads the host window's own size 1755x933"
+  "a hold that reads another mode fails after the bound|hold|ok|1700x900 scale=1|status=0 failures=1 resets=0 held=[] window=[] state=none file=absent|3|  FAIL  the case: WAYLAND-1 does not read 3510x1866 scale=2: attempts=3 got=[1700x900 scale=1]"
+  "a refused rule fails at once|hold|error|take|status=0 failures=1 resets=0 held=[] window=[] state=none file=absent|0|  FAIL  the case: WAYLAND-1 does not read 3510x1866 scale=2: attempts=1 eval=[error]"
+  "a restore after a reset takes the held mode and scale|restore|ok|1755x933 scale=1.5,take|status=0 failures=0 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[] state=held file=present|2|result status=0 failures=0 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[] state=held file=present"
+  "a restore the host always resets fails after the bound|restore|ok|1755x933 scale=1.5|status=1 failures=0 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[] state=reset file=present|3|hold-restore: not-held output=WAYLAND-1 want=[3510x1866 scale=2] attempts=3 got=[1755x933 scale=1.5]"
+  "a restore with no hold is refused|restore-none|ok|take|status=1 failures=0 resets=0 held=[] window=[] state=none file=absent|0|hold-restore: refused hold=none"
 )
 for row in "${cases[@]}"; do
   if run_case "$subject" "$row"; then ok "${row%%|*}"; else fail "${row%%|*}"; fi
@@ -165,7 +170,10 @@ mutate() {
 # field holds no `|`, the separator.
 controls=(
   "take_mode applies the rule once|attempt <= mode_attempts; attempt++|attempt <= 1; attempt++|a hold the host resets once is applied again and held"
-  "take_mode applies the rule past the bound|mode_attempts=3|mode_attempts=4|a hold the host always resets fails after the bound"
+  "take_mode applies the rule past the bound|mode_attempts=3|mode_attempts=4|a hold the host always sizes to its window is a mode reset after the bound"
+  "hold_mode records no window size|    mode_hold_window=\"\$window\"|    mode_hold_window=\"\"|a hold the output takes at once is held"
+  "hold_mode reads no host-sized reading|\${BASH_REMATCH[1]} == \"\$window\"|\${BASH_REMATCH[1]} == never|a hold the host always sizes to its window is a mode reset after the bound"
+  "hold_mode excuses any reading|&& \${BASH_REMATCH[1]} == \"\$window\" ]]; then|]]; then|a hold that reads another mode fails after the bound"
   "take_mode polls after a refused rule|[[ \$reply != ok ]]|[[ \$reply == never ]]|a refused rule fails at once"
   "hold_restore drops the held scale|\"\${mode_hold[1]##*scale=}\"|\"1\"|a restore after a reset takes the held mode and scale"
   "hold_restore runs with no hold|if [[ \${#mode_hold[@]} -eq 0 ]]; then|if [[ \${#mode_hold[@]} -eq -1 ]]; then|a restore with no hold is refused"

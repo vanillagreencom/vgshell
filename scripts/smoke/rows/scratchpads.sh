@@ -495,15 +495,23 @@ for hold in "1440x900 1" "3008x1692 2"; do
   release_mode "the nested compositor gives $sp_monitor_name its own mode after $mode" "$sp_monitor_name" "$sp_base_mode"
 done
 # sp_refit_rows LABEL_PREFIX WANT: the pad shown at 1440x900, then the
-# mode given back while it shows; WANT is sp_away's reading after it.
+# mode given back while it shows; WANT is sp_away's reading after it. A
+# hold never taken leaves no mode change to read, so only the release
+# runs.
 sp_refit_rows() {
+  local held=false
   hold_mode "$1the nested compositor holds $sp_monitor_name at 1440x900 before the pad shows" "$sp_monitor_name" 1440x900
-  sp_press || fail "$1typing the pad's key before the mode change failed"
-  expect_poll "$1the pad shows before the mode change" shown sp_state
+  [[ ${#mode_hold[@]} -eq 0 ]] || held=true
+  if [[ $held == true ]]; then
+    sp_press || fail "$1typing the pad's key before the mode change failed"
+    expect_poll "$1the pad shows before the mode change" shown sp_state
+  fi
   release_mode "$1the nested compositor gives $sp_monitor_name its own mode while the pad shows" "$sp_monitor_name" "$sp_base_mode"
-  geometry expect_poll "$1after a mode change while shown the pad $2" "$2" sp_away 80 30 5 center center
-  sp_press || fail "$1typing the pad's key after the mode change failed"
-  expect_poll "$1the key hides the pad after the mode change" hidden sp_state
+  if [[ $held == true ]]; then
+    geometry expect_poll "$1after a mode change while shown the pad $2" "$2" sp_away 80 30 5 center center
+    sp_press || fail "$1typing the pad's key after the mode change failed"
+    expect_poll "$1the key hides the pad after the mode change" hidden sp_state
+  fi
 }
 sp_refit_rows "" sits
 
