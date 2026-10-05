@@ -40,7 +40,6 @@
 # last control's copy, whose gate holds them.
 # inputs: shell/shell.qml shell/Core/ServiceGate.qml shell/Hosts/ServiceHost.qml shell/Hosts/BackgroundHost.qml shell/Hosts/BarHost.qml shell/Core/Registry.qml shell/plugins/* scripts/smoke/fixtures/plugins/acme.contention/* scripts/smoke/fixtures/plugins/acme.locker/* bin/vgshell scripts/smoke/rows/capabilities.sh scripts/smoke/rows/device-fakes.sh
 set -euo pipefail
-ipc() { ipc_via "$repo/bin/vgshell" "$@"; }
 for fixture in acme.locker acme.contention; do
   rm -rf -- "$home/.config/vgshell/plugins/$fixture"
   mkdir -p -- "$home/.config/vgshell/plugins/$fixture"

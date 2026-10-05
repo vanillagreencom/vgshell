@@ -165,20 +165,30 @@ scan_started_seen() { if [[ -e $scan_started ]]; then echo started; else echo wa
 # true when the opener read the named scan unreached, else what it read.
 scan_opened_short() { local read; read="$(cat -- "$scan_opened")" || return; if [[ $read == scan=* ]]; then echo true; else echo "read=$read"; fi; }
 plant_absent() { printf '#!/bin/sh\nexit 0\n' >"$shim/vgs-smoke-absent" && chmod 755 "$shim/vgs-smoke-absent"; }
-# While a row runs rescan, scan_ipc_vgshell's ipc also writes each
+# While a row runs plugins_rescan, plugins_scan_ipc also writes each
 # rescanPlugins reply to $scan_asked. scan_open_when_asked, in the
 # background, opens the gate once that reply is in and scanRevision still
 # reads short of the scan it names, and writes what it read to
 # $scan_opened; at its bound it opens the gate all the same, so no scan
 # stays held past the row.
 scan_ipc_vgshell="$repo/bin/vgshell"
-ipc() {
+plugins_scan_ipc() {
   local reply status=0
   reply="$(ipc_via "$scan_ipc_vgshell" "$@")" || status=$?
   if [[ ${2:-} == rescanPlugins ]]; then printf '%s\n' "$reply" >"$scan_asked"; fi
   printf '%s\n' "$reply"
   return "$status"
 }
+# Keep the harness's rescan body and change only the private IPC caller
+# that records the scan reply for the opener.
+scan_ipc_call='$(ipc shell rescanPlugins)'
+if scan_helper="$(declare -f rescan)" && [[ $scan_helper == "rescan ()"* && ${scan_helper#*"$scan_ipc_call"} != "$scan_helper" && ${scan_helper#*"$scan_ipc_call"} != *"$scan_ipc_call"* ]]; then
+  scan_helper="plugins_rescan ()${scan_helper#rescan ()}"
+  eval "${scan_helper/"$scan_ipc_call"/\$(plugins_scan_ipc shell rescanPlugins)}"
+else
+  fail "the harness's rescan does not call ipc shell rescanPlugins once"
+  return 1
+fi
 scan_open_when_asked() {
   local reply short
   for _ in $(seq 1 200); do
@@ -200,7 +210,7 @@ scan_hold
 gated_scanner "$scan_bin" before
 plant_absent
 if held_before="$(ipc shell scanRevision)" && [[ $held_before =~ ^[0-9]+$ ]]; then
-  expect "control held scan: the reply names the next scan revision" "ok scan=$((held_before + 1))" ipc shell rescanPlugins
+  expect "control held scan: the reply names the next scan revision" "ok scan=$((held_before + 1))" plugins_scan_ipc shell rescanPlugins
   expect_poll "control held scan: the held scanner has started" started scan_started_seen
   expect "control held scan: scanRevision stays short of the named scan while it is held" "$held_before" ipc shell scanRevision
   expect "control held scan: listPlugins keeps the last scan's state while it is held" "$bare_absent" bare_requirements
@@ -218,8 +228,8 @@ fi
 scan_hold
 rm -f -- "${shim:?}/vgs-smoke-absent"
 scan_poll='expect_poll "$1" landed scan_landed'
-if scan_helper="$(declare -f rescan)" && [[ $scan_helper == "rescan ()"* && ${scan_helper#*"$scan_poll"} != "$scan_helper" && ${scan_helper#*"$scan_poll"} != *"$scan_poll"* ]]; then
-  scan_helper="rescan_unwaited ()${scan_helper#rescan ()}"
+if scan_helper="$(declare -f plugins_rescan)" && [[ $scan_helper == "plugins_rescan ()"* && ${scan_helper#*"$scan_poll"} != "$scan_helper" && ${scan_helper#*"$scan_poll"} != *"$scan_poll"* ]]; then
+  scan_helper="rescan_unwaited ()${scan_helper#plugins_rescan ()}"
   eval "${scan_helper/"$scan_poll"/ok \"\$1\"; :}"
   rescan_unwaited "control unwaited: the rescan without its wait is accepted"
   expect "control: a rescan that does not wait reads the last scan's state while the scan is held" "$bare_present" bare_requirements
@@ -230,7 +240,7 @@ fi
 rm -f -- "${sandbox:?}/plugins-scan-asked"
 scan_open_when_asked &
 scan_opener=$!
-rescan "a rescan over a held scan waits for it"
+plugins_rescan "a rescan over a held scan waits for it"
 wait "$scan_opener" || true
 expect "the gate opened while the scan the rescan named was unreached" true scan_opened_short
 expect "the waited rescan lists the removed command missing" "$bare_absent" bare_requirements
@@ -242,13 +252,13 @@ expect "the waited rescan lists the removed command missing" "$bare_absent" bare
 scan_hold
 gated_scanner "$scan_bin" after
 if busy_before="$(ipc shell scanRevision)" && [[ $busy_before =~ ^[0-9]+$ ]]; then
-  expect "control busy: the held scan's reply names the next scan revision" "ok scan=$((busy_before + 1))" ipc shell rescanPlugins
+  expect "control busy: the held scan's reply names the next scan revision" "ok scan=$((busy_before + 1))" plugins_scan_ipc shell rescanPlugins
   expect_poll "control busy: the held scan has read the files" started scan_started_seen
   plant_absent
   rm -f -- "${sandbox:?}/plugins-scan-asked"
   scan_open_when_asked &
   scan_opener=$!
-  rescan "a rescan behind a held scan waits for the queued scan"
+  plugins_rescan "a rescan behind a held scan waits for the queued scan"
   wait "$scan_opener" || true
   expect "the rescan behind the held scan was queued for the revision after it" "busy scan=$((busy_before + 2))" cat -- "$scan_asked"
   expect "the gate opened while the queued scan was unreached" true scan_opened_short
@@ -258,7 +268,7 @@ else
 fi
 cp -p -- "$scan_real" "$scan_bin"
 rm -f -- "${shim:?}/vgs-smoke-absent"
-rescan "a rescan after the busy control's command goes"
+plugins_rescan "a rescan after the busy control's command goes"
 expect "the busy control's command reads missing again" "$bare_absent" bare_requirements
 
 # Control: a copy of the tree whose Registry names, for a scan it starts,
@@ -276,7 +286,7 @@ if edit_tree rescan-current shell/Core/Registry.qml '        const scan = requir
     expect "control rescan-current: the copy's first scan reads the command missing" "$bare_absent" bare_requirements
     scan_hold
     plant_absent
-    rescan "control rescan-current: the copy's rescan is accepted"
+    plugins_rescan "control rescan-current: the copy's rescan is accepted"
     expect "control: a Registry naming the revision before its scan lets rescan read the last scan's state" "$bare_absent" bare_requirements
     : >"$scan_gate"
     expect_poll "control rescan-current: the held scan lists the planted command once let end" "$bare_present" bare_requirements
@@ -287,7 +297,7 @@ if edit_tree rescan-current shell/Core/Registry.qml '        const scan = requir
   expect "the restarted shell lists the planted command" "$bare_present" bare_requirements
 fi
 rm -f -- "${shim:?}/vgs-smoke-absent"
-rescan "a rescan after the controls' command goes"
+plugins_rescan "a rescan after the controls' command goes"
 expect "the controls' command reads missing again" "$bare_absent" bare_requirements
 scan_hold
-ipc() { ipc_via "$repo/bin/vgshell" "$@"; }
+unset -f plugins_rescan

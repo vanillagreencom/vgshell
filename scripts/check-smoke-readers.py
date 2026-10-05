@@ -17,6 +17,10 @@ program in a row that parses JSON from its stdin is `py_reply`'s program:
   raw-qs-list     the row runs `qs list` itself, not `qs_list`. qs answers
                   that no instance runs in plain text, which `qs_list` in
                   scripts/smoke/harness.sh reads as the word `none`.
+  harness-function the row defines a function the harness or a file it
+                  sources defines, replacing it for every later row.
+                  Definitions inside subshells or command substitutions
+                  cannot replace the sourcing shell's function.
 A read is `json.load(sys.stdin` or `json.loads(sys.stdin`, or any
 `sys.stdin` in a program literal that also parses JSON with `json.load`,
 `json.loads` or `raw_decode`. Its command is the nearest `py_reply` or
@@ -40,6 +44,12 @@ import re
 import sys
 
 ROWS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "smoke", "rows")
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+HARNESS = os.path.join(REPO, "scripts", "smoke", "harness.sh")
+FUNCTION = re.compile(r"(?<![\w=])(?:function\s+)?([A-Za-z_][\w.-]*)\s*\(\s*\)\s*[{(]|\bfunction\s+([A-Za-z_][\w.-]*)\s*[{(]")
+SOURCE = re.compile(r"(?m)^[ \t]*(source|\.)[ \t]+(?:\"([^\"\n]+)\"|'([^'\n]+)'|([^\s;]+))")
+HEREDOC = re.compile(r"<<(-?)[ \t]*(['\"]?)\\?([A-Za-z_][A-Za-z0-9_]*)\2")
+CASE_WORD = re.compile(r"(case|esac)\b")
 STDIN = re.compile(r"\bsys\.stdin\b")
 DIRECT = re.compile(r"json\.loads?\(\s*$")
 PARSES_JSON = re.compile(r"\bjson\.loads?\(|\braw_decode\(")
@@ -70,12 +80,147 @@ def in_comment(text, offset):
     return text[line_start:offset].lstrip().startswith("#")
 
 
-def check_file(path, findings):
+def read_file(path):
     try:
         with open(path, encoding="utf-8") as source:
             text = source.read()
     except (OSError, UnicodeDecodeError) as exc:
         raise Unreadable(path, getattr(exc, "strerror", None) or str(exc)) from exc
+    return text
+
+
+def shell_code(text):
+    """Keep shared shell code, masking literals, heredocs and subshells.
+
+    Rows write stand-in shell programs inside literals and heredocs; their
+    functions belong to those programs, not the shell sourcing the row.
+    """
+    masked = list(text)
+    pending = []
+
+    def hide(start, end):
+        for at in range(start, end):
+            if text[at] != "\n":
+                masked[at] = " "
+
+    def code(i, closing=None):
+        cases = 0
+        while i < len(text):
+            start = i
+            word = CASE_WORD.match(text, i)
+            if word:
+                command_start = max(text.rfind(mark, 0, i) for mark in "\n;|&({}") + 1
+                if not text[command_start:i].strip():
+                    cases += 1 if word.group(1) == "case" else -1
+                    if cases < 0:
+                        raise ValueError("undecidable case enclosure")
+                    i = word.end()
+                    continue
+            if closing and text[i] == closing and not cases:
+                return i + 1
+            if text[i] == "\\":
+                i = min(i + 2, len(text))
+                hide(start, i)
+            elif text[i] in "'\"":
+                quote = text[i]
+                ansi = quote == "'" and i > 0 and text[i - 1] == "$"
+                hide(i, i + 1)
+                i += 1
+                while i < len(text) and text[i] != quote:
+                    start = i
+                    if quote == '"' and text.startswith("$(", i):
+                        i = code(i + 2, ")")
+                        hide(start, i)
+                        continue
+                    i = min(i + (2 if text[i] == "\\" and (quote == '"' or ansi) else 1), len(text))
+                    hide(start, i)
+                if i >= len(text):
+                    raise ValueError("unclosed quote")
+                hide(i, i + 1)
+                i += 1
+            elif text[i] == "#" and (i == 0 or text[i - 1] in " \t\n;|&()"):
+                end = text.find("\n", i)
+                i = len(text) if end < 0 else end
+                hide(start, i)
+            elif text.startswith("<<", i) and not text.startswith("<<<", i) and (i == 0 or text[i - 1] != "<"):
+                match = HEREDOC.match(text, i)
+                if match is None:
+                    raise ValueError("unreadable heredoc delimiter")
+                pending.append((match.group(3), bool(match.group(1))))
+                i = match.end()
+                hide(start, i)
+            elif text[i] == "\n" and pending:
+                i += 1
+                while pending:
+                    delimiter, strip_tabs = pending.pop(0)
+                    start = i
+                    while i < len(text):
+                        end = text.find("\n", i)
+                        end = len(text) if end < 0 else end
+                        line = text[i:end]
+                        i = min(end + 1, len(text))
+                        if (line.lstrip("\t") if strip_tabs else line) == delimiter:
+                            break
+                    else:
+                        raise ValueError("unclosed heredoc")
+                    hide(start, i)
+            elif text[i] == "(":
+                i = code(i + 1, ")")
+                hide(start + 1, i - 1)
+            elif text[i] == "`":
+                i = code(i + 1, "`")
+                hide(start, i)
+            else:
+                i += 1
+        if closing or pending or cases:
+            raise ValueError("unclosed substitution, case or heredoc")
+        return i
+
+    code(0)
+    return "".join(masked)
+
+
+def definitions(path, text):
+    try:
+        code = shell_code(text)
+    except ValueError as exc:
+        raise Unreadable(path, str(exc)) from exc
+    return code, [(match.group(1) or match.group(2), line_of(text, match.start())) for match in FUNCTION.finditer(code)]
+
+
+def harness_functions():
+    functions = {}
+    queue = [HARNESS]
+    seen = set()
+    while queue:
+        path = os.path.abspath(queue.pop(0))
+        if path in seen:
+            continue
+        seen.add(path)
+        text = read_file(path)
+        code, defined = definitions(path, text)
+        for name, line in defined:
+            functions.setdefault(name, []).append((path, line))
+        for source in SOURCE.finditer(text):
+            if code[source.start(1):source.end(1)] != source.group(1):
+                continue
+            operand = next(value for value in source.groups()[1:] if value is not None)
+            # smoke_row sources this separately checked directory at runtime.
+            if operand.startswith("$smoke_row_dir/"):
+                continue
+            operand = re.sub(r"^\$(?:repo\b|\{repo\})", lambda _: REPO, operand)
+            if "$" in operand or "`" in operand:
+                raise Unreadable(path, f"unresolved source: {operand}")
+            queue.append(os.path.join(REPO, operand))
+    return functions
+
+
+def check_file(path, findings, functions):
+    text = read_file(path)
+    _, defined = definitions(path, text)
+    for name, number in defined:
+        for owner, line in functions.get(name, []):
+            findings.append(f"harness-function {path}:{number} function={name} defined={owner}:{line}")
     readers = 0
     for run in QS_LIST.finditer(text):
         if not in_comment(text, run.start()):
@@ -121,8 +266,9 @@ def main(argv):
             raise Unreadable(root, exc.strerror) from exc
         if not names:
             raise Unreadable(root, "no row found")
+        functions = harness_functions()
         for name in names:
-            readers += check_file(os.path.join(root, name), findings)
+            readers += check_file(os.path.join(root, name), findings, functions)
     except Unreadable as exc:
         print(f"check-smoke-readers: unreadable: {exc.path}: {exc.strerror}")
         return 2

@@ -19,7 +19,6 @@
 # real hyprctl in the stand-in directory.
 # inputs: bin/vgshell
 set -euo pipefail
-ipc() { ipc_via "$repo/bin/vgshell" "$@"; }
 
 # The ceiling on latency_relaunch_ms, the time from the SIGKILL to the new
 # shell answering ping, read through harness.sh's adopt_shell, which polls

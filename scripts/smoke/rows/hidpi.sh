@@ -42,7 +42,6 @@
 # 10 ms for the first bar and one `vgshell ipc` round trip for readiness.
 # inputs: shell/plugins/vgs.themes/* shell/plugins/vgs.gallery/* shell/plugins/vgs.notifications/* shell/Ui/foundation/ImageText* shell/Ui/foundation/ImagePool.qml scripts/smoke/rows/notifications-keys.sh scripts/smoke/rows/notifications.sh scripts/smoke/rows/device-fakes.sh
 set -euo pipefail
-ipc() { ipc_via "$repo/bin/vgshell" "$@"; }
 # stop_shell fails the row itself when the instance lock stays held; the
 # start below then fails on the held lock too, and the row goes on.
 stop_shell || :

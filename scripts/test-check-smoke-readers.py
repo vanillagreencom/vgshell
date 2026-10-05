@@ -8,6 +8,7 @@ holding one row, runs the check on it and asserts the exact set of rule
 keys and lines, and the exit status."""
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -44,13 +45,32 @@ CASES = [
     ("a label saying qs lists", "expect \"qs lists the target\" 1 r\n", []),
     ("qs list read through py_reply", f"r() {{ :; }}\nc() {{ qs list -p x -j | py_reply '{READ}'; }}\n", [("raw-qs-list", 2)]),
     ("qs list read by python3", f"r() {{ qs list --all -j | python3 -c '{READ}'; }}\n", [("raw-qs-list", 1), ("inline-reader", 1)]),
+    ("a planted copy_tree definition", "copy_tree() { :; }\n", [("harness-function", 1)]),
+    ("a function keyword definition", "function copy_tree { :; }\n", [("harness-function", 1)]),
+    ("a function keyword with parentheses", "function copy_tree () { :; }\n", [("harness-function", 1)]),
+    ("a spaced multiline definition", "copy_tree ( )\n{ :; }\n", [("harness-function", 1)]),
+    ("a definition inside a brace group", "{ copy_tree() { :; }; :; }\n", [("harness-function", 1)]),
+    ("a definition inside a function brace body", "control() { copy_tree() { :; }; :; }\n", [("harness-function", 1)]),
+    ("a function with an isolated body still binds its name", "copy_tree() ( :; )\n", [("harness-function", 1)]),
+    ("a definition inside a control subshell", "control() { ( copy_tree() { :; }; : ); }\n", []),
+    ("a definition inside an isolated function body", "control() ( copy_tree() { :; }; : )\n", []),
+    ("a definition inside a quoted substitution", 'value="$(copy_tree() { :; }; :)"\n', []),
+    ("a definition inside an unquoted substitution", 'value=$(copy_tree() { :; }; :)\n', []),
+    ("a definition inside a backtick substitution", 'value=`copy_tree() { :; }; :`\n', []),
+    ("a case arm does not end a subshell", '( case "$1" in\nreal) ;;\n*) : ;;\nesac\ncopy_tree() { :; }\n)\n', []),
+    ("a definition after a subshell is shared", "( : ); copy_tree() { :; }\n", [("harness-function", 1)]),
+    ("a function call uses its harness owner", "copy_tree target\n", []),
+    ("function text in a comment", "# copy_tree() { :; }\n", []),
+    ("function text in quoted programs", "a='copy_tree() { :; }'\nb=\"function copy_tree { :; }\"\n", []),
+    ("function text in heredocs", "cat <<'SH' <<-EOF\ncopy_tree() { :; }\nSH\n\tfunction copy_tree { :; }\n\tEOF\n", []),
+    ("an array is not a function", "copy_tree=()\nnot_measured_rows=()\n", []),
 ]
 
 failures = 0
 
 
-def run(args):
-    return subprocess.run([sys.executable, CHECK, *args], capture_output=True, text=True, env=ENV)
+def run(args, checker=CHECK):
+    return subprocess.run([sys.executable, checker, *args], capture_output=True, text=True, env=ENV, timeout=30)
 
 
 def check(name, condition, result):
@@ -88,6 +108,39 @@ with tempfile.TemporaryDirectory() as tmp:
         else:
             want = sorted((rule, f"{os.path.join(rows, 'row.sh')}:{line}") for rule, line in expected)
             check(name, result.returncode == 1 and findings(result) == want, result)
+            if any(rule == "harness-function" for rule, _ in expected):
+                owners = re.findall(r"function=(\S+) defined=(.+):\d+$", result.stdout, re.M)
+                check(name + " names the function and both files", owners == [("copy_tree", os.path.join(HERE, "smoke", "harness.sh"))], result)
+
+    # Copy the real checker into a disposable repository so source discovery
+    # reads the fixture harness without expanding the checker's public API.
+    fixture = os.path.join(tmp, "harness-tree")
+    smoke = os.path.join(fixture, "scripts", "smoke")
+    library = os.path.join(fixture, "bin", "lib")
+    os.makedirs(smoke)
+    os.makedirs(library)
+    checker = os.path.join(fixture, "scripts", "check-smoke-readers.py")
+    shutil.copyfile(CHECK, checker)
+    harness = os.path.join(smoke, "harness.sh")
+    helper = os.path.join(smoke, "helper.sh")
+    nested = os.path.join(library, "nested.sh")
+    with open(harness, "w") as source:
+        source.write('source "$repo/scripts/smoke/helper.sh"\n# source "$repo/missing-comment.sh"\ncat <<\'SH\'\nsource "$repo/missing-heredoc.sh"\nphantom() { :; }\nSH\n')
+    with open(helper, "w") as source:
+        source.write('. "${repo}/bin/lib/nested.sh"\n')
+    with open(nested, "w") as source:
+        source.write('nested_helper() { :; }\n. "$repo/scripts/smoke/harness.sh"\n')
+    rows = plant(fixture, "nested_helper() { :; }\n")
+    result = run([rows], checker)
+    want = [("harness-function", f"{os.path.join(rows, 'row.sh')}:1")]
+    owners = re.findall(r"function=(\S+) defined=(.+):\d+$", result.stdout, re.M)
+    check("a recursively dot-sourced helper is owned and source cycles terminate", result.returncode == 1 and findings(result) == want and owners == [("nested_helper", nested)], result)
+    rows = plant(fixture, "phantom() { :; }\n")
+    result = run([rows], checker)
+    check("a stand-in function in a harness heredoc is not shared", result.returncode == 0, result)
+    os.remove(nested)
+    result = run([rows], checker)
+    check("a missing sourced helper cannot certify the rows", result.returncode == 2 and result.stdout.startswith("check-smoke-readers: unreadable: " + nested + ":"), result)
 
     result = run([os.path.join(tmp, "missing")])
     check("a missing directory is unreadable", result.returncode == 2 and result.stdout.startswith("check-smoke-readers: unreadable: "), result)
@@ -97,6 +150,10 @@ with tempfile.TemporaryDirectory() as tmp:
     check("a directory with no row is unreadable", result.returncode == 2 and "no row found" in result.stdout, result)
     result = run([empty, empty])
     check("a second directory is refused", result.returncode == 2 and result.stdout.startswith("check-smoke-readers: refused: argument="), result)
+    for name, text in [("an unclosed subshell", "( copy_tree() { :; }\n"), ("an unclosed case", "( case x in\nx) :;;\n)\n")]:
+        rows = plant(os.path.join(tmp, name), text)
+        result = run([rows])
+        check(name + " cannot certify isolation", result.returncode == 2 and result.stdout.startswith("check-smoke-readers: unreadable: "), result)
 
     # The repository's rows pass, above a floor of the files and readers
     # they held when the rule landed, 39 rows and 264 reads, less a margin

@@ -8,7 +8,6 @@
 # inputs: shell/Core/HyprlandLayer.js shell/Hosts/SummonLayer.qml shell/plugins/vgs.launcher/* shell/plugins/vgs.themes/* bin/vgshell scripts/smoke/toplevel/* shell/Core/ShortcutRegistry.qml shell/Core/Plugins.qml scripts/smoke/rows/theme-browser.sh scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 
-ipc() { ipc_via "$repo/bin/vgshell" "$@"; }
 press_themes() { type_keys -M logo -k t -m logo; }
 press_exec() { type_keys -M logo -k k -m logo; }
 press_focus_right() { type_keys -M logo -k d -m logo; }
