@@ -2,7 +2,7 @@
 
 Updates checks your system, VGS, plugins, themes and developer tools. Open its bar button to view available updates and install them.
 
-![The updates flyout with its System row open](../../../docs/images/plugins/vgs.updates-flyout.webp)
+![The Updates window with its System row open](../../../docs/images/plugins/vgs.updates-flyout.webp)
 
 Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2.
 
@@ -71,7 +71,7 @@ VGS counts as one update when `vgshell self status --json` reports `behind: true
 
 Plugins and themes count one update per checkout or catalog package that is behind.
 
-Their package rows keep the commit count as `behind` for the flyout.
+Their package rows keep the commit count as `behind` for the window.
 
 An installed directory that is not its own git checkout, such as a copied plugin, has no upstream and `vgshell plugin update` refuses it too, so it is not an update source and is left out.
 
@@ -109,11 +109,11 @@ The service publishes these status keys:
 - `lastCheck`: the last successful snapshot time.
 - `checkState`: `ok`, `info`, `warning` or `danger`, with a short reason.
 - `checking`: whether a check process runs. It is the widget's spinner, since `info` also means "not checked".
-- `sources`: the source rows for the bar widget and the flyout.
+- `sources`: the source rows for the bar widget and the window.
 
 The Settings page shows the first three rows as read-only status.
 
-`checking` and `sources` are data for the widget and the flyout.
+`checking` and `sources` are data for the widget and the window.
 
 ## IPC
 
@@ -121,7 +121,7 @@ The Settings page shows the first three rows as read-only status.
 
 It returns `started` or `queued`.
 
-The flyout's Refresh reaches the same handler through `shell.ipc.call("check", "")`, so the service stays the one owner of every probe.
+The window's Refresh reaches the same handler through `shell.ipc.call("check", "")`, so the service stays the one owner of every probe.
 
 `status` returns the values currently published through plugin status.
 
@@ -138,9 +138,9 @@ The commands it runs can touch the network:
 
 The shell never elevates for a check.
 
-## Bar widget and flyout
+## Bar widget and window
 
-The widget and the flyout read the status values alone. `UpdatesLogic.js` decides what each draws, and neither runs a check.
+The widget and the window read the status values alone. `UpdatesLogic.js` decides what each draws, and neither runs a check.
 
 The widget has five states:
 
@@ -156,11 +156,11 @@ The count badge shows at most `99+`.
 
 The tooltip lists the state, each source's count and the time of the last check.
 
-A left click opens or closes the flyout under the widget. The global shortcut `vgs.updates:toggle`, bound to `SUPER+CTRL+U` by default, opens the same flyout at the plugin's `placement`. A middle click opens the `update` TUI for every source; the flyout's Update everything button is its keyboard path.
+A left click opens or closes the Updates window, a Hyprland window like any other: Hyprland draws its border and moves it, and Escape closes it. The global shortcut `vgs.updates:toggle`, bound to `SUPER+CTRL+U` by default, opens or closes the same window. A middle click opens the `update` TUI for every source; the window's Update everything button is its keyboard path.
 
-The flyout has one row per source, in the order the service publishes them. It opens with keyboard focus on the first source row. Each row shows its count badge and its error, if it has one. A source with updates has its own **Update**, which opens `update-source` with the row's source. A click or Space on a row lists its packages as `name old → new`, or `name: N commits behind` for a plugin or theme. The list holds the twelve packages the shared status keeps and a `+N more` line for the rest.
+The window has one row per source, in the order the service publishes them. It opens with keyboard focus on the first source row. Each row shows its count badge and its error, if it has one. A source with updates has its own **Update**, which opens `update-source` with the row's source. A click or Space on a row lists its packages as `name old → new`, or `name: N commits behind` for a plugin or theme. The list holds the twelve packages the shared status keeps and a `+N more` line for the rest.
 
-**Update everything** opens `update`. The footer has **Refresh**, the time of the last check, and **Open last log**. **Open last log** opens the `log` TUI, `tui/log.sh`. It shows the last run's log in `less -R`, from its end, and names the path when no run has written a log. The flyout has no command text field.
+**Update everything** opens `update`. The footer has **Refresh**, the time of the last check, and **Open last log**. **Open last log** opens the `log` TUI, `tui/log.sh`. It shows the last run's log in `less -R`, from its end, and names the path when no run has written a log. The window has no command text field.
 
 ### Visibility
 
@@ -174,4 +174,4 @@ The update TUIs and the steps a run takes in order are in [pipeline.md](pipeline
 
 ## Validation
 
-`scripts/test-updates-logic.js` pins every decision in `UpdatesLogic.js` with a control. `scripts/test-updates-check.sh` pins `bin/check`'s argv, concurrency and signal handling. `scripts/test-updates-pipeline.sh` runs the update TUIs on a pseudo-terminal against stand-in commands. It pins the order and argv of every step, `--yes` only with `trustPluginUpdates`, the quiet skip with no snapshot tool, the recovery message, the credential dropped after a failed AUR step, the `doas` path with no sudo session, the snapshot and restart around a `vgshell-git` rebuild alone, the orphan and reboot questions, and the busy lock. Its controls include a copy that runs the AUR before the sudo session ends, a copy that always passes `--yes`, a copy with no guard around the AUR, copies that ignore the elevation command, and a copy that leaves the rebuild out of the snapshot and restart checks. `scripts/test-updates-logic.js` also pins what the widget and the flyout draw for each state. `scripts/test-updates-pipeline.sh` also runs `tui/log.sh`: it opens the pipeline's log in `less` and refuses before any run wrote one. `scripts/smoke/rows/updates.sh` runs the service, the widget and the flyout in the nested sandbox against stand-in package managers and git. It reads back the widget's icon, colour, spinner and badge for pending, checking, failed, stale and current values, `hideWhenCurrent` hiding the widget only while current, the flyout's rows, the argv each button opens, and Refresh starting one check. Its control is a copy of the widget's judge that hides on a failed check.
+`scripts/test-updates-logic.js` pins every decision in `UpdatesLogic.js` with a control. `scripts/test-updates-check.sh` pins `bin/check`'s argv, concurrency and signal handling. `scripts/test-updates-pipeline.sh` runs the update TUIs on a pseudo-terminal against stand-in commands. It pins the order and argv of every step, `--yes` only with `trustPluginUpdates`, the quiet skip with no snapshot tool, the recovery message, the credential dropped after a failed AUR step, the `doas` path with no sudo session, the snapshot and restart around a `vgshell-git` rebuild alone, the orphan and reboot questions, and the busy lock. Its controls include a copy that runs the AUR before the sudo session ends, a copy that always passes `--yes`, a copy with no guard around the AUR, copies that ignore the elevation command, and a copy that leaves the rebuild out of the snapshot and restart checks. `scripts/test-updates-logic.js` also pins what the widget and the window draw for each state. `scripts/test-updates-pipeline.sh` also runs `tui/log.sh`: it opens the pipeline's log in `less` and refuses before any run wrote one. `scripts/smoke/rows/updates.sh` runs the service, the widget and the window in the nested sandbox against stand-in package managers and git. It reads back the widget's icon, colour, spinner and badge for pending, checking, failed, stale and current values, `hideWhenCurrent` hiding the widget only while current, the window's rows, the argv each button opens, and Refresh starting one check. Its control is a copy of the widget's judge that hides on a failed check.

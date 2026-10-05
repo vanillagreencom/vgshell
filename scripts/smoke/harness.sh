@@ -790,25 +790,34 @@ PY
 # list of ids, and disables those DISABLED_JSON lists.
 # Every host command a default-set service runs at start reaches a
 # stand-in or does not run: vgs.devtools's queries reach
-# devtools_stand_ins; vgs.updates reads a status cache written as a check
-# that ended now and listed nothing, so its service starts no check for
-# hours, since each probe of a check runs a host package manager or a git
-# fetch, which only rows/updates.sh's copy confines; vgs.agent-warden
-# notifies only once the warden's status file exists, which no start
-# finds; vgs.notifications reads its token only through the secret-tool
-# sentinel, which answers every search with nothing stored and every
-# lookup with no secret.
+# devtools_stand_ins; vgs.updates reads updates_cache_fresh's status cache;
+# vgs.agent-warden notifies only once the warden's status file exists,
+# which no start finds; vgs.notifications reads its token only through the
+# secret-tool sentinel, which answers every search with nothing stored and
+# every lookup with no secret.
 default_set_prepare() { # PLUGINS_JSON [DISABLED_JSON]
   devtools_stand_ins
+  updates_cache_fresh
+  python3 - "$home/.config/vgshell/shell.json" "$1" "${2:-[]}" <<'PY'
+import json, os, sys
+user, plugins, disabled = sys.argv[1], json.loads(sys.argv[2]), json.loads(sys.argv[3])
+with open(user + ".tmp", "w") as out:
+    json.dump({"version": 1, "plugins": [{"id": p} for p in plugins], "disabledPlugins": disabled}, out)
+os.replace(user + ".tmp", user)
+PY
+}
+# updates_cache_fresh: the shipped vgs.updates's status cache written as a
+# check that ended now and listed nothing, so its service starts no check
+# for hours: each probe of a check runs a host package manager or a git
+# fetch, which only rows/updates.sh's copy confines.
+updates_cache_fresh() {
   mkdir -p "$home/.local/state/vgshell/updates"
-  python3 - "$home/.local/state/vgshell/updates/status.json" "$home/.config/vgshell/shell.json" "$1" "${2:-[]}" <<'PY'
+  python3 - "$home/.local/state/vgshell/updates/status.json" <<'PY'
 import json, os, sys, time
-cache, user, plugins, disabled = sys.argv[1], sys.argv[2], json.loads(sys.argv[3]), json.loads(sys.argv[4])
-for path, doc in ((cache, {"checkedAt": int(time.time() * 1000), "sources": []}),
-                  (user, {"version": 1, "plugins": [{"id": p} for p in plugins], "disabledPlugins": disabled})):
-    with open(path + ".tmp", "w") as out:
-        json.dump(doc, out)
-    os.replace(path + ".tmp", path)
+cache = sys.argv[1]
+with open(cache + ".tmp", "w") as out:
+    json.dump({"checkedAt": int(time.time() * 1000), "sources": []}, out)
+os.replace(cache + ".tmp", cache)
 PY
 }
 
@@ -977,7 +986,7 @@ point_item() { # LOOKUP [DX DY]
 }
 # click_item LOOKUP [DX DY]: point_item, then one click at the point it
 # settled on; returns 1, with no click, when point_item does. The rows that
-# click through it: agent-warden.sh, updates.sh, themes.sh (its click_row
+# click through it: agent-warden.sh, themes.sh (its click_row
 # and click_button, and the helper's controls) and notifications.sh (the
 # Reply pill, a card's default action, Mark read and Clear history).
 click_item() { # LOOKUP [DX DY]

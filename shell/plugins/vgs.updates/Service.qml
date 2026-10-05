@@ -4,8 +4,8 @@ import Quickshell.Io
 import "UpdatesLogic.js" as Logic
 
 // Owns vgs.updates runtime state: cached snapshot readback, one check
-// process, cadence timers, IPC and every status write. Widgets and panels
-// read status only; this service is the single writer.
+// process, cadence timers, IPC and every status write. The widget and the
+// window read status only; this service is the single writer.
 Item {
     id: root
 
@@ -48,7 +48,7 @@ Item {
     function start() {
         if (shell === null || registered) return;
         registered = true;
-        shell.shortcut.register("toggle", "Open or close Updates", () => root.togglePanel());
+        shell.shortcut.register("toggle", "Open or close Updates", () => root.toggleWindow());
         shell.ipc.handle("check", () => root.requestCheck("ipc"));
         shell.ipc.handle("status", () => JSON.stringify(shell.status.values));
         cacheReader.path = statusPath;
@@ -56,9 +56,9 @@ Item {
         publishNow();
     }
 
-    function togglePanel() {
-        const reply = shell.surfaces.toggle("panel", "{}");
-        if (reply !== "ok") console.warn("updates: panel " + reply);
+    function toggleWindow() {
+        const reply = shell.surfaces.toggle("window", "{}");
+        if (reply !== "ok") console.warn("updates: window " + reply);
         return reply;
     }
 

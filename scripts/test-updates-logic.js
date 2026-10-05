@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Table-driven checks for vgs.updates pure decisions: probe normalization,
 // snapshot judging, status values, cadence, staleness, TUI end detection, and
-// what the bar widget and the flyout draw from the published values.
+// what the bar widget and the window draw from the published values.
 // Controls edit a copy of the logic and require this suite to fail.
 "use strict";
 const assert = require("node:assert/strict");
@@ -100,18 +100,19 @@ function verify(logic) {
   same(failedPkg.sources[0], { source: "packages", label: "Packages", count: null, packages: [], checkedAt: null, error: "exit=1 lock=failed" });
 
   assert.equal(logic.tuiRunEnded({}, {}), false);
-  assert.equal(logic.tuiRunEnded(null, { update: { running: false, code: 0, endedAt: 10 } }), false);
-  assert.equal(logic.tuiRunEnded({}, { update: { running: false, code: 0, endedAt: 10 } }), true);
-  assert.equal(logic.tuiRunEnded({ update: { running: true, endedAt: null } }, { update: { running: false, code: 0, endedAt: 11 } }), true);
-  assert.equal(logic.tuiRunEnded({ update: { running: false, endedAt: 12 } }, { update: { running: false, endedAt: 12 } }), false);
-  assert.equal(logic.tuiRunEnded({ update: { running: false, endedAt: 12 } }, { update: { running: false, endedAt: 13 } }), true);
+  assert.equal(logic.tuiRunEnded(null, { update: { running: false, code: 0, endedAt: "2026-10-05T03:30:10.000Z" } }), false);
+  assert.equal(logic.tuiRunEnded({}, { update: { running: false, code: 0, endedAt: "2026-10-05T03:30:10.000Z" } }), true);
+  assert.equal(logic.tuiRunEnded({ update: { running: true, endedAt: null } }, { update: { running: false, code: 0, endedAt: "2026-10-05T03:30:11.000Z" } }), true);
+  assert.equal(logic.tuiRunEnded({ update: { running: false, endedAt: "2026-10-05T03:30:12.000Z" } }, { update: { running: false, endedAt: "2026-10-05T03:30:12.000Z" } }), false);
+  assert.equal(logic.tuiRunEnded({ update: { running: false, endedAt: "2026-10-05T03:30:12.000Z" } }, { update: { running: false, endedAt: "2026-10-05T03:30:12.027Z" } }), true);
+  assert.equal(logic.tuiRunEnded({ update: { running: true, endedAt: "2026-10-05T03:30:12.000Z" } }, { update: { running: false, endedAt: "2026-10-05T03:30:12.000Z" } }), false);
 
   same([logic.publishValues(snapshot, true, now, 6, "").checking, logic.publishValues(snapshot, false, now, 6, "").checking], [true, false]);
   same(logic.statusWrites({ checking: true }, { checking: false }), [{ key: "checking", value: false }]);
   verifyView(logic);
 }
 
-// The widget and the flyout, from published values as the service writes
+// The widget and the window, from published values as the service writes
 // them. Each row: [name, values, hideWhenCurrent, the widget's view].
 function verifyView(logic) {
   const ok = { tone: "ok", text: "Up to date" };
@@ -158,14 +159,14 @@ function verifyView(logic) {
   const values = { pending: 4, lastCheck: today, checkState: { tone: "warning", text: "AUR: exit=1 network down" }, checking: false, sources };
   assert.equal(logic.widgetTooltip(values, now, when), ["AUR: exit=1 network down", "System: 2", "AUR: check failed", "Flatpak: 0", "Plugins: 1", "later: 1", "Checked 14:02"].join("\n"));
   assert.equal(logic.widgetTooltip({}, now, when), "Not checked yet\nNever checked");
-  same(logic.panelRows(values), [
+  same(logic.windowRows(values), [
     { key: "pacman", source: "pacman", label: "System", icon: "package", secondary: "2 updates", badge: "2", badgeTone: "accent", updatable: true, lines: ["linux 6.1 → 6.2", "mesa → 25.2"], more: "+3 more" },
     { key: "aur", source: "aur", label: "AUR", icon: "package-open", secondary: "The update check failed. Select Refresh to try again.", badge: "Failed", badgeTone: "warning", updatable: false, lines: [], more: "" },
     { key: "flatpak", source: "flatpak", label: "Flatpak", icon: "boxes", secondary: "Up to date", badge: "0", badgeTone: "neutral", updatable: false, lines: [], more: "" },
     { key: "plugins", source: "plugins", label: "Plugins", icon: "puzzle", secondary: "The update source could not be reached. Check your connection and select Refresh.", badge: "1", badgeTone: "warning", updatable: true, lines: ["acme.one: 2 commits behind"], more: "" },
     { key: "later", source: "later", label: "later", icon: "package", secondary: "1 update", badge: "1", badgeTone: "accent", updatable: true, lines: ["x"], more: "" }
   ]);
-  same(logic.panelRows({}), []);
+  same(logic.windowRows({}), []);
 
   same(logic.tuiRequest("all"), { name: "update", args: [] });
   same(logic.tuiRequest("source", "aur"), { name: "update-source", args: ["aur"] });
@@ -194,7 +195,8 @@ const controls = [
   ["published package text is bounded", "return text.length > PUBLISHED_PACKAGE_TEXT_MAX ? text.slice(0, PUBLISHED_PACKAGE_TEXT_MAX) : text;", "return text;"],
   ["source errors set warning", "if (source !== null) return { tone: \"warning\", text: ((source.label || source.source) + \": \" + errorText(source.error)).slice(0, 200) };", "if (false) return { tone: \"warning\", text: \"\" };"] ,
   ["stale after twice the interval", "now - snapshot.checkedAt >= 2 * intervalMs", "now - snapshot.checkedAt > 3 * intervalMs"],
-  ["TUI endedAt advances", "if (Number(next.endedAt) > Number(prior.endedAt)) return true;", "if (false) return true;"],
+  ["TUI endedAt advances", "if (next.endedAt > prior.endedAt) return true;", "if (false) return true;"],
+  ["a running record that goes ends no run", "if (next.endedAt > prior.endedAt) return true;", "if (next.endedAt > prior.endedAt || prior.running === true) return true;"],
   ["outdated error makes a source error", "if (!UNTRACKED_REFUSAL.test(String(row.error))) errors.push(row.id + \": \" + row.error);", "count += 0;"],
   ["an untracked directory is not a source error", "var UNTRACKED_REFUSAL = /^not-a-checkout=/;", "var UNTRACKED_REFUSAL = /^$never/;"],
   ["one failing checkout keeps the others' count", "return sourceRow(source, count, packages, checkedAt, errors.length > 0 ? errors.join(\"; \") : null);", "return sourceRow(source, errors.length > 0 ? null : count, packages, checkedAt, errors.length > 0 ? errors.join(\"; \") : null);"],

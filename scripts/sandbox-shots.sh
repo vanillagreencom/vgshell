@@ -23,7 +23,7 @@
 # plugin the Settings window lists, in that window's order, and captures
 # every screen of an overflowing page. bar is the bar with every
 # first-party widget and each widget's tooltip or
-# hover; panels is the Agent Warden panel, the updates flyout and the
+# hover; panels is the Agent Warden panel, the Updates window and the
 # themes panel, each opened from its widget over planted status or
 # packages, the themes panel's apply held and answered by a stand-in
 # runner that changes no theme; devtools is the Dev Tools window; system
@@ -1483,12 +1483,12 @@ scene_bar() { # MODE
 }
 
 # The Agent Warden panel opened from its shield over a calm status and then
-# a problem one, and the updates flyout opened from its widget over the
+# a problem one, and the Updates window opened from its widget over the
 # planted snapshot, with its System row expanded and then the pointer on
 # a row. Nothing presses Refresh, so no check runs.
 warden_panel_texts() { ipc smoke itemTexts panel vgs.agent-warden Panel; }
 warden_panel_lines() { warden_panel_texts | py_reply 'import json,sys; print(sys.argv[1] in json.load(sys.stdin)[0])' "$shots_vsys_line"; }
-updates_flyout() { [[ $(ipc smoke readInstance panel vgs.updates rows) != absent ]] && echo open || echo closed; }
+updates_window() { [[ $(ipc smoke readInstance window vgs.updates rows) != absent ]] && echo open || echo closed; }
 updates_pending() { ipc vgs.updates invoke status '' | py_reply 'import json,sys; print(json.load(sys.stdin).get("pending"))'; }
 updates_checking() { ipc vgs.updates invoke status '' | py_reply 'import json,sys; print(json.load(sys.stdin).get("checking"))'; }
 scene_panels() { # MODE
@@ -1505,17 +1505,17 @@ scene_panels() { # MODE
   expect_poll "the warden's panel is gone" absent warden_panel_texts
   warden_status calm calm
   click_centre "$(bar_key)" vgs.updates || fail "the click on the updates widget failed"
-  expect_poll "the widget opens the updates flyout" open updates_flyout
+  expect_poll "the widget opens the Updates window" open updates_window
   park_pointer
   take "panels-$1-updates"
-  click_item panel vgs.updates ListItem System || fail "the click on the flyout's System row failed"
+  click_in window:Updates window vgs.updates ListItem System || fail "the click on the window's System row failed"
   park_pointer
   take "panels-$1-updates-open"
-  hover_on "the pointer rests on the flyout's VGS row" panel vgs.updates ListItem VGS && take "panels-$1-updates-hover"
+  hover_on "the pointer rests on the window's VGS row" window vgs.updates ListItem VGS window:Updates && take "panels-$1-updates-hover"
   park_pointer
-  expect "the updates flyout hides" ok ipc shell hide panel vgs.updates
-  expect_poll "the updates flyout is gone" closed updates_flyout
-  expect "the flyout started no check" False updates_checking
+  expect "the Updates window hides" ok ipc shell hide window vgs.updates
+  expect_poll "the Updates window is gone" closed updates_window
+  expect "the window started no check" False updates_checking
   scene_themes_panel "$1"
 }
 

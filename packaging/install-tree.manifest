@@ -523,10 +523,10 @@ f share/vgshell/shell/plugins/vgs.themes/Widget.qml
 f share/vgshell/shell/plugins/vgs.themes/manifest.json
 f share/vgshell/shell/plugins/vgs.themes/tui/browser-policy.sh
 f share/vgshell/shell/plugins/vgs.updates/NormalizeCheck.js
-f share/vgshell/shell/plugins/vgs.updates/Panel.qml
 f share/vgshell/shell/plugins/vgs.updates/Service.qml
 f share/vgshell/shell/plugins/vgs.updates/UpdatesLogic.js
 f share/vgshell/shell/plugins/vgs.updates/Widget.qml
+f share/vgshell/shell/plugins/vgs.updates/Window.qml
 f share/vgshell/shell/plugins/vgs.updates/bin/check
 f share/vgshell/shell/plugins/vgs.updates/bin/facts
 f share/vgshell/shell/plugins/vgs.updates/manifest.json

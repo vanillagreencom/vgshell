@@ -9,7 +9,7 @@ Quickshell + Hyprland. Everything is a plugin. Try it, you might like it.
 - Settings window (SUPER+M): every plugin's settings, keys and an on/off switch.
 - Add a plugin from a git URL; it stays off until you turn it on.
 - Themes: one click changes colours, fonts, wallpaper and window borders.
-- Updates for your system, VGS, plugins and themes in one panel.
+- Updates for your system, VGS, plugins and themes in one window.
 - Plugins do not depend on each other: turn one off and the others keep running.
 
 ## Install

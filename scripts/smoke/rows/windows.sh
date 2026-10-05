@@ -12,9 +12,14 @@
 # the field; and a close through Hyprland closes it. The themes panel, a
 # panel the host draws as a layer surface, is the control of the class,
 # the border and the move: it is no client, its edge draws no border and a
-# dispatch aimed at it moves nothing. The row enables the Settings plugin
-# and leaves it disabled, hyprland.lua as it found it and no window open.
-# inputs: shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/plugins/vgs.themes/* shell/Hosts/AppWindow.qml shell/Core/HyprlandLayer.js scripts/smoke/toplevel/* scripts/smoke/rows/hyprland-consent.sh
+# dispatch aimed at it moves nothing. Every bundled plugin whose manifest
+# has kind `window`, read from the manifests, Updates among them, opens as
+# one client of the shell's class and closes on an Escape typed while it
+# has the keyboard; the themes panel is the control of that reading too,
+# and the manifests' list holds Updates and not Themes. The row enables the
+# Settings plugin and leaves it disabled, each other window's plugin as it
+# found it, hyprland.lua as it found it and no window open.
+# inputs: shell/plugins/vgs.settings/* shell/plugins/*/manifest.json shell/Commons/Reply.js shell/plugins/vgs.themes/* shell/Hosts/AppWindow.qml shell/Core/HyprlandLayer.js scripts/smoke/toplevel/* scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 windows_lua="$home/.config/hypr/hyprland.lua"
 cp -- "$windows_lua" "$sandbox/hyprland-before-windows.lua"
@@ -102,6 +107,42 @@ else
   fail "the toplevel helper maps the other window"
 fi
 
+# Every bundled window, from the manifests: `id<TAB>name` for each plugin
+# under shell/plugins whose kinds hold `window`. Each opens as one client
+# of the shell's class titled with its name, takes the keyboard and closes
+# on Escape, and its plugin is left enabled or disabled as it was. Dev
+# Tools, Automations and Updates start over the stand-ins their own rows
+# and the default set use, so no host command runs.
+window_plugins() {
+  python3 -c '
+import glob, json, os, sys
+for path in sorted(glob.glob(os.path.join(sys.argv[1], "*", "manifest.json"))):
+    with open(path) as source: doc = json.load(source)
+    if "window" in doc["kinds"]: print(doc["id"] + "\t" + doc["name"])' "$repo/shell/plugins"
+}
+window_listed() { local status=0; grep -c -x -F -- "$1" <<<"$window_list" || status=$?; [[ $status -le 1 ]]; }
+window_list="$(window_plugins)" || fail "the bundled manifests are unreadable"
+expect "the manifests list the Updates window" 1 window_listed $'vgs.updates\tUpdates'
+expect "control: the manifests list no window for the themes panel" 0 window_listed $'vgs.themes\tThemes'
+devtools_stand_ins
+updates_cache_fresh
+automations_stand_ins "$sandbox/windows-automations-stub"
+while IFS=$'\t' read -r -u 3 window_id window_title; do
+  window_was="$(plugin_enabled "$window_id")" || window_was=unread
+  [[ $window_was == True ]] || expect "enabling $window_id for its window is allowed" ok ipc shell setPluginEnabled "$window_id" true
+  expect_poll "the IPC opens the $window_title window" ok ipc shell summon window "$window_id" '{}'
+  expect_poll "$window_title opens as one client of the shell's class" 1 window_count "$window_title"
+  expect_poll "the $window_title window takes the focus" "[\"$shell_class\", \"$window_title\"]" active_window
+  expect_poll "the shell reads the $window_title window holding the keyboard" true window_keyboard "$window_id"
+  type_keys -k Escape || fail "typing Escape into the $window_title window failed"
+  expect_poll "an Escape typed into the $window_title window closes it" 0 window_count "$window_title"
+  expect_poll "the host dropped the $window_title window's instance" absent ipc smoke instanceGeometry window "$window_id"
+  # A failed reading above can leave the window open; the next starts with none.
+  [[ $(window_count "$window_title") == 0 ]] || ipc shell hide window "$window_id" >/dev/null || true
+  [[ $window_was == True ]] || expect "disabling $window_id after its window is allowed" ok ipc shell setPluginEnabled "$window_id" false
+done 3<<<"$window_list"
+automations_stand_ins_restore "$sandbox/windows-automations-stub"
+
 # Controls: the themes panel, a layer panel, opens beside a Settings
 # window and is no client; under the same border as app_window_rows reads,
 # its layer edge draws neither border colour, and a move aimed at its
@@ -113,6 +154,7 @@ expect_poll "the Settings window maps beside the layer panel" 1 window_count Set
 expect "the themes panel, a layer panel, opens" ok ipc shell summon panel vgs.themes '{}'
 expect_poll "the themes panel maps one layer surface" 1 layer_count vgs:panel
 expect "the shell's only client is the Settings window, not the themes panel" '["Settings"]' shell_clients
+expect "control: the themes panel, read as each bundled window is, is no client" 0 window_count Themes
 expect "hiding the Settings window before the layer controls is allowed" ok ipc shell hide window vgs.settings
 expect_poll "the Settings window is gone before the layer controls" 0 window_count Settings
 window_border_on

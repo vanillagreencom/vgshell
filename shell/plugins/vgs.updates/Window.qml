@@ -4,23 +4,27 @@ import qs.Commons
 import qs.Ui
 import "UpdatesLogic.js" as Logic
 
-// The Updates flyout: where updates stand, one row per source the service
+// The Updates window: where updates stand, one row per source the service
 // published with its count, the packages it lists when opened and its own
 // Update when it has updates, and a footer with Update everything over
 // Refresh, the last check's time and the last run's log. It draws the
 // status the service publishes and runs nothing itself: Refresh asks the
 // service's `check` through the plugin's own IPC, and every update and the
-// log open the plugin's floating TUIs (UpdatesLogic.tuiRequest). It is
-// built on summon and destroyed on hide, and takes no payload.
-Item {
+// log open the plugin's floating TUIs (UpdatesLogic.tuiRequest). The
+// window asks to be `size.panel.lg` wide and `size.panel.maxHeight` tall,
+// or the room its screen leaves when that is less, and the sources scroll
+// in whatever size Hyprland gives it after. An Escape nothing here takes
+// goes on to the window host, which closes the window. It takes no payload.
+FocusScope {
     id: root
 
     // The core assigns the plugin's scoped shell object after creation, and
     // again when the plugin's settings change.
     property var shell: null
+    readonly property var screen: shell === null ? null : shell.screens.current
     readonly property var values: shell === null ? ({}) : shell.status.values
     readonly property var view: Logic.widgetView(values, false)
-    readonly property var rows: Logic.panelRows(values)
+    readonly property var rows: Logic.windowRows(values)
     // The refusal the last action was answered with, "" for none.
     property string problem: ""
     property Item initialFocus: sections.firstFocus
@@ -50,27 +54,22 @@ Item {
 
     function answered(reply) {
         problem = Logic.replyLine(reply);
-        if (problem !== "") console.warn("updates panel: " + reply);
+        if (problem !== "") console.warn("updates window: " + reply);
         return reply;
     }
 
-    implicitWidth: Theme.size.panel.lg
-    implicitHeight: layout.implicitHeight
-
-    Surface {
-        anchors.fill: parent
-    }
+    implicitWidth: Math.floor(Math.min(Theme.size.panel.lg, OverlayState.room(screen).width))
+    implicitHeight: Math.floor(Math.min(Theme.size.panel.maxHeight, OverlayState.room(screen).height))
+    focus: true
 
     // One inset box: the heading, the scrolling sources, and a footer
     // with Update everything, Refresh and the last log that stays in view
     // while the sources scroll; Pane draws the divider over it while more
-    // sources lie below. The panel fits its content up to `size.panel.maxHeight`.
+    // sources lie below.
     Pane {
         id: layout
         anchors.fill: parent
-        container: "panel"
-        fitToContent: true
-        maximumHeight: Theme.size.panel.maxHeight
+        container: "window"
 
         header: [
             Column {

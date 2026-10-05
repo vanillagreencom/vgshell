@@ -7,9 +7,9 @@
   "description": "Update your system, VGS, plugins, themes and tools.",
   "license": "MIT",
   "icon": "refresh-cw",
-  "kinds": ["service", "bar-widget", "panel"],
-  "entryPoints": { "service": "Service.qml", "bar-widget": "Widget.qml", "panel": "Panel.qml" },
-  "capabilities": ["ipc", "shortcut", "status", "surfaces", "tui"],
+  "kinds": ["service", "bar-widget", "window"],
+  "entryPoints": { "service": "Service.qml", "bar-widget": "Widget.qml", "window": "Window.qml" },
+  "capabilities": ["ipc", "screens", "shortcut", "status", "surfaces", "tui"],
   "defaultSection": "right",
   "requirements": [
     { "command": "checkupdates", "packages": { "pacman": "pacman-contrib" }, "optional": false, "purpose": "Checks Arch system updates" },
@@ -27,8 +27,7 @@
     "hideWhenCurrent": false,
     "aurCommand": "",
     "snapshot": "auto",
-    "trustPluginUpdates": false,
-    "placement": "center"
+    "trustPluginUpdates": false
   },
   "schema": {
     "intervalHours": { "type": "number", "label": "Check interval", "description": "Time between automatic update checks", "min": 1, "max": 48, "step": 1, "unit": "hours", "group": "Schedule" },
@@ -46,8 +45,7 @@
       ]
     },
     "snapshot": { "type": "enum", "label": "System snapshot", "description": "Save a system snapshot before updates when a snapshot tool is available", "options": ["auto", "off"], "group": "Update options" },
-    "trustPluginUpdates": { "type": "boolean", "label": "Trust plugin and theme updates", "description": "Show plugin and theme changes and apply them without confirmation", "group": "Update options" },
-    "placement": { "type": "enum", "label": "Panel position", "description": "Where the updates panel opens when you use its shortcut", "options": ["top-left", "top", "top-right", "left", "center", "right", "bottom-left", "bottom", "bottom-right"], "group": "Display" }
+    "trustPluginUpdates": { "type": "boolean", "label": "Trust plugin and theme updates", "description": "Show plugin and theme changes and apply them without confirmation", "group": "Update options" }
   },
   "hyprland": {
     "binds": [

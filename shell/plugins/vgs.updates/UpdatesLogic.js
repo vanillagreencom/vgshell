@@ -2,12 +2,12 @@
 
 // Pure decisions for vgs.updates: probe normalization, snapshot judging,
 // status derivation, publish diffs, check cadence, failure retry and TUI run
-// end detection for the service, and what the bar widget and the flyout draw
+// end detection for the service, and what the bar widget and the window draw
 // from the published status. QML owns I/O and timers; bin/check owns
 // processes and disk.
 
 // Every source a status row can name, with the label the service publishes
-// and the Lucide icon the flyout draws it with. `packages` is the one row a
+// and the Lucide icon the window draws it with. `packages` is the one row a
 // failed `vgshell pkg check` leaves. A source outside the table is labelled by
 // its own name and drawn with the `package` icon.
 var SOURCES = {
@@ -323,7 +323,10 @@ function shouldRunCheck(snapshot, checking, now, interval, failedAt) {
 // Whether a run of one of the plugin's TUIs ended between PREVIOUS and
 // CURRENT, two reads of `shell.tui.state`. PREVIOUS null is no read yet:
 // the first read carries the runs that ended before it, which it does not
-// count.
+// count. A run's end is its key's later `endedAt`, the record's ISO 8601
+// UTC time, which orders as text. `running` decides nothing: a short run
+// can end before any read shows it running, and an earlier run's running
+// record can be listed after a later run's end.
 function tuiRunEnded(previous, current) {
     if (previous === null) return false;
     var before = previous || {};
@@ -335,14 +338,13 @@ function tuiRunEnded(previous, current) {
         var prior = before[key] || {};
         if (next.endedAt !== null && next.endedAt !== undefined) {
             if (prior.endedAt === null || prior.endedAt === undefined) return true;
-            if (Number(next.endedAt) > Number(prior.endedAt)) return true;
+            if (next.endedAt > prior.endedAt) return true;
         }
-        if (prior.running === true && next.running === false && next.endedAt !== null && next.endedAt !== undefined) return true;
     }
     return false;
 }
 
-// ---- What the bar widget and the flyout draw --------------------------------
+// ---- What the bar widget and the window draw --------------------------------
 // Both read the published status values alone; nothing here runs a check.
 
 // The widget's look in each state of the published status: the icon, its
@@ -414,7 +416,7 @@ function widgetView(values, hideWhenCurrent) {
 }
 
 // The one line that says where updates stand, as the tooltip and the
-// flyout's heading show it.
+// window's heading show it.
 function summaryText(values) {
     var state = widgetState(values);
     switch (state) {
@@ -453,7 +455,7 @@ function widgetTooltip(values, now, formatWhen) {
     return lines.join("\n");
 }
 
-// One package of a source as the flyout lists it: `name old → new`, or
+// One package of a source as the window lists it: `name old → new`, or
 // `name: N commits behind` for a plugin or theme checkout, whose old and
 // new are commit ids.
 function packageLine(pkg) {
@@ -463,13 +465,13 @@ function packageLine(pkg) {
     return pkg.name;
 }
 
-// The flyout's rows, one per published source in the service's order:
+// The window's rows, one per published source in the service's order:
 // { key, source, label, icon, secondary, badge, badgeTone, updatable,
 // lines, more }. `lines` are the packages the shared status lists, `more`
 // the `+N more` it omitted, "" for none. A source with an error keeps its
 // row and names the error; only a source with a count above zero offers
 // its own Update.
-function panelRows(values) {
+function windowRows(values) {
     var sources = sourcesOf(values);
     var rows = [];
     for (var i = 0; i < sources.length; i++) {
@@ -493,7 +495,7 @@ function panelRows(values) {
     return rows;
 }
 
-// The argv `shell.tui.run` takes for a flyout action: `update` for every
+// The argv `shell.tui.run` takes for a window action: `update` for every
 // source, `update-source` with the row's source for one, `log` for the
 // last run's log.
 function tuiRequest(action, source) {
@@ -507,7 +509,7 @@ function tuiRequest(action, source) {
     }
 }
 
-// The line a refused request leaves in the flyout, "" for `ok` and for the
+// The line a refused request leaves in the window, "" for `ok` and for the
 // answers `check` gives, `started` and `queued`.
 function replyLine(reply) {
     if (reply === "ok" || reply === "started" || reply === "queued" || /^refused: tui=\S+ reason=busy$/.test(reply)) return "";

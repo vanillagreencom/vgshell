@@ -1,7 +1,7 @@
 # vgs.updates, the service that owns every update probe, its bar widget
-# and its flyout. A copy of the plugin in the user directory, which wins
+# and its window. A copy of the plugin in the user directory, which wins
 # the id over the shipped one, runs the shipped Service.qml, Widget.qml,
-# Panel.qml and bin/check against the shipped bin/vgshell, with two changes
+# Window.qml and bin/check against the shipped bin/vgshell, with two changes
 # only: one fixture `tui` script beside the declared update TUIs,
 # scripts/smoke/fixtures/tui/vgs.updates/tui/finish.sh, a run of which the
 # row holds open until it opens a gate, listed with an entry so `openTui`
@@ -30,12 +30,14 @@
 # the VGS rows where no manager is detected. The control is a bar widget
 # that runs the check itself: on two bars it probes twice for one check.
 #
-# The widget and the flyout are read back from what they draw: the icon,
+# The widget and the window are read back from what they draw: the icon,
 # its colour, the spinner and the badge for pending, checking, failed,
 # stale and current values, `hideWhenCurrent` hiding the widget only while
-# current, the tooltip's lines, the flyout's rows and a row's packages, the
+# current, the tooltip's lines, the window's rows and a row's packages, the
 # argv each button hands the terminal, and Refresh starting one check of
-# the service. The pending, checking and failed values come from real
+# the service. The window is read as every application window is
+# (app_window_rows, scripts/smoke/app-window.sh). The pending, checking and
+# failed values come from real
 # checks; the stale and current ones are written through the service's own
 # status provider, since the service marks a snapshot stale only after
 # twice the interval, and a rebuild of the plugin publishes the real ones
@@ -47,7 +49,7 @@
 # expect_poll fails once on its traceback. The controls of smoke_row's
 # traceback rule run here too, over rows planted in the sandbox that read
 # the status record outside every expect.
-# inputs: shell/plugins/vgs.updates/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/updates-bin/* scripts/smoke/fixtures/tui/vgs.updates/* bin/vgshell bin/vgshell-pkg bin/lib/qml-library.js shell/Core/PackageManagers.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml bin/lib/self.js scripts/smoke/rows/manager.sh scripts/smoke/rows/capabilities.sh bin/vgshell-tui
+# inputs: shell/plugins/vgs.updates/* shell/Hosts/AppWindow.qml shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/updates-bin/* scripts/smoke/fixtures/tui/vgs.updates/* bin/vgshell bin/vgshell-pkg bin/lib/qml-library.js shell/Core/PackageManagers.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml bin/lib/self.js scripts/smoke/rows/manager.sh scripts/smoke/rows/capabilities.sh bin/vgshell-tui
 set -euo pipefail
 updates_dir="$home/.config/vgshell/plugins/vgs.updates"
 updates_state="$home/.local/state/vgshell/updates-smoke"
@@ -226,7 +228,7 @@ expect_poll "the TUI's end starts a check" "$((before + 1))" checks
 expect "the TUI's end starts exactly one check" STEADY checks_settle_at "$((before + 1))"
 expect_poll "the service is idle after the TUI check" idle updates_idle
 
-# ---- The bar widget and the flyout ------------------------------------------
+# ---- The bar widget and the window ------------------------------------------
 # Enabling the plugin placed its widget in its default section. The
 # stand-in terminal runs each TUI a button opens as `true`, which exits at
 # once; its end starts one check of
@@ -266,7 +268,7 @@ widget_visible() { ipc smoke readInstance "$widget_key" vgs.updates visible; }
 widget_tip() { ipc smoke readInstance "$widget_key" vgs.updates tooltip | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).split("\n")[:-1]))'; }
 widget_tip_line() { widget_tip | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[int(sys.argv[1])]))' "$1"; }
 widget_tip_last() { ipc smoke readInstance "$widget_key" vgs.updates tooltip | py_reply 'import json,re,sys; print(bool(re.fullmatch(r"Checked \S.*", json.load(sys.stdin).split("\n")[-1])))'; }
-updates_focused() { ipc smoke focused panel vgs.updates | py_reply 'import json,sys; t=sys.stdin.read().strip(); print(t if not t.startswith("[") else json.dumps([json.loads(t)[1], json.loads(t)[2], json.loads(t)[3], json.loads(t)[4]]))'; }
+updates_focused() { ipc smoke focused window vgs.updates | py_reply 'import json,sys; t=sys.stdin.read().strip(); print(t if not t.startswith("[") else json.dumps([json.loads(t)[1], json.loads(t)[2], json.loads(t)[3], json.loads(t)[4]]))'; }
 # hideWhenCurrent in the widget's layout entry of the user file, written
 # whole and moved into place.
 widget_hide_when_current() { # true|false
@@ -281,15 +283,27 @@ open(path + ".next", "w").write(json.dumps(doc))
 os.replace(path + ".next", path)' "$home/.config/vgshell/shell.json" "$1"
 }
 widget_setting() { ipc smoke readInstance "$widget_key" vgs.updates settings | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get("hideWhenCurrent")))'; }
-flyout_rows() { ipc smoke itemTexts panel vgs.updates Disclosure | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin), ensure_ascii=False))'; }
-flyout_row() { flyout_rows | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[int(sys.argv[1])], ensure_ascii=False))' "$1"; }
-flyout_open() { [[ $(ipc smoke readInstance panel vgs.updates rows) != absent ]] && echo open || echo closed; }
-# Open the flyout with a click on the widget, unless it is open: a TUI's
-# window takes the focus, which closes the popup.
-open_flyout() {
-  [[ $(flyout_open) == open ]] && return 0
+updates_rows() { ipc smoke itemTexts window vgs.updates Disclosure | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin), ensure_ascii=False))'; }
+updates_row() { updates_rows | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[int(sys.argv[1])], ensure_ascii=False))' "$1"; }
+updates_open() { [[ $(ipc smoke readInstance window vgs.updates rows) != absent ]] && echo open || echo closed; }
+# Open the window with a click on the widget, unless it is open: the
+# click toggles it, and a TUI's window leaves it open.
+open_updates() {
+  [[ $(updates_open) == open ]] && return 0
   click_centre "$widget_key" vgs.updates || fail "the click on the updates widget failed"
-  expect_poll "the widget's click opens the flyout" open flyout_open
+  expect_poll "the widget's click opens the Updates window" open updates_open
+}
+# A fresh Updates window, summoned over IPC, with the keyboard: an open
+# one keeps the focus item its last key left, so it is hidden first.
+fresh_updates() { # LABEL
+  expect "the Updates window is closed before $1" ok ipc shell hide window vgs.updates
+  expect_poll "no Updates window is left before $1" 0 window_count Updates
+  expect "the Updates window opens for $1" ok ipc shell summon window vgs.updates '{}'
+  updates_keyboard "$1"
+}
+updates_keyboard() { # LABEL
+  expect_poll "the Updates window is focused for $1" "[\"$shell_class\", \"Updates\"]" active_window
+  expect_poll "the shell reads the Updates window holding the keyboard for $1" true window_keyboard vgs.updates
 }
 # The words after the presenter's `--`, the last `--` in the record: the
 # script's file name and its arguments, as JSON; `absent` before a record
@@ -299,16 +313,16 @@ w=json.load(sys.stdin)
 a=w[len(w) - w[::-1].index("--"):] if "--" in w else []
 if not a: print("partial"); sys.exit()
 print(json.dumps([os.path.basename(a[0])] + a[1:]))'; }
-# Click the flyout button reading TEXT, read the argv it launched, WANT,
+# Click the window's button reading TEXT, read the argv it launched, WANT,
 # and wait for its run of KEY, and the check its end starts, to end.
 press_and_launch() { # TEXT KEY WANT
   local before
-  open_flyout
+  open_updates
   forget_record
   before="$(checks)"
-  click_item panel vgs.updates Button "$1" || fail "the click on the flyout's $1 failed"
-  expect_poll "the flyout's $1 opens its TUI with its argv" "$3" launched
-  expect_run_end "the flyout's $1 run ends" "$2"
+  click_in window:Updates window vgs.updates Button "$1" || fail "the click on the window's $1 failed"
+  expect_poll "the window's $1 opens its TUI with its argv" "$3" launched
+  expect_run_end "the window's $1 run ends" "$2"
   expect_poll "the $1 run's end starts one check" "$((before + 1))" checks
   expect_poll "the service is idle after the $1 run" idle updates_idle
 }
@@ -368,49 +382,53 @@ expect "the widget draws the icon in the accent colour with the count" '["refres
 expect "the tooltip lists every source's count" '["7 updates waiting", "System: 2", "AUR: 1", "Flatpak: 1", "mise: 1", "VGS: 1", "Plugins: 1", "Themes: 0"]' widget_tip
 expect "the tooltip ends with the check's time" True widget_tip_last
 
-# The flyout: one row per source with its count and its own Update when it
+# The window: one row per source with its count and its own Update when it
 # has updates; a click on a row lists its packages.
 # Keyboard-only path.
-expect "the updates panel is closed before the keyboard path" ok ipc shell hide panel vgs.updates
-expect "the updates shortcut opens the flyout" ok hypr dispatch 'hl.dsp.global("vgs.updates:toggle")'
+expect "the Updates window is closed before the keyboard path" ok ipc shell hide window vgs.updates
+expect "the updates shortcut opens the window" ok hypr dispatch 'hl.dsp.global("vgs.updates:toggle")'
+updates_keyboard "the shortcut's keys"
 expect_poll "the shortcut opens on the first source row with a visible focus ring" '["System", true, true, true]' updates_focused
 forget_record
 type_keys -k Left || fail "sending Left to the updates row control failed"
 type_keys -k Space || fail "sending Space to expand the first updates row failed"
-expect_poll "Space expands the first updates row" '["System", "2 updates", "2", "Update", "coreutils 9.11-2 → 9.12-1", "linux 6.1 → 6.2"]' flyout_row 0
+expect_poll "Space expands the first updates row" '["System", "2 updates", "2", "Update", "coreutils 9.11-2 → 9.12-1", "linux 6.1 → 6.2"]' updates_row 0
 expect "control: Left on the source row runs no TUI" absent launched
 forget_record
 type_keys -k Tab -k Return || fail "sending Tab and Return to the source Update button failed"
 expect_poll "Return on the source Update button opens the source update TUI" '["update-source.sh", "pacman"]' launched
 expect_run_end "the keyboard source Update run ends" vgs.updates/update-source
 expect_poll "the service is idle after the keyboard source update run" idle updates_idle
-expect "the updates panel reopens for the Update everything keyboard path" ok ipc shell summon panel vgs.updates '{}'
-expect_poll "the reopened updates panel starts on the first row" '["System", true, true, true]' updates_focused
+fresh_updates "the Update everything keyboard path"
+expect_poll "the reopened Updates window starts on the first row" '["System", true, true, true]' updates_focused
 forget_record
 type_keys -k Tab -k Tab -k Tab -k Tab -k Tab -k Tab -k Tab -k Tab -k Tab -k Tab -k Tab -k Tab -k Tab -k Return || fail "sending Tab and Return to Update everything failed"
 expect_poll "Return on Update everything opens the update TUI with no argument" '["update.sh"]' launched
 expect_run_end "the keyboard Update everything run ends" vgs.updates/update
 expect_poll "the service is idle after the keyboard update run" idle updates_idle
-expect "the updates panel opens for Escape" ok ipc shell summon panel vgs.updates '{}'
-expect_poll "the updates panel is open before Escape" open flyout_open
-type_keys -k Escape || fail "sending Escape to the updates panel failed"
-expect_poll "Escape closes the updates panel" closed flyout_open
-open_flyout
-expect_poll "the flyout draws one row per source" \
-  '[["System", "2 updates", "2", "Update"], ["AUR", "1 update", "1", "Update"], ["Flatpak", "1 update", "1", "Update"], ["mise", "1 update", "1", "Update"], ["VGS", "1 update", "1", "Update"], ["Plugins", "1 update", "1", "Update"], ["Themes", "Up to date", "0"]]' flyout_rows
-click_item panel vgs.updates ListItem System || fail "the click on the flyout's System row failed"
-expect_poll "a click on a row lists its packages" '["System", "2 updates", "2", "Update", "coreutils 9.11-2 → 9.12-1", "linux 6.1 → 6.2"]' flyout_row 0
-# The flyout's geometry with a row expanded: every source's count Badge
+fresh_updates "Escape"
+type_keys -k Escape || fail "sending Escape to the Updates window failed"
+expect_poll "Escape closes the Updates window" closed updates_open
+# The window is a Hyprland window like any other: its border, a move and
+# the keyboard, as app_window_rows reads every application window.
+expect "the Updates window opens for the window rows" ok ipc shell summon window vgs.updates '{}'
+app_window_rows Updates vgs.updates
+open_updates
+expect_poll "the window draws one row per source" \
+  '[["System", "2 updates", "2", "Update"], ["AUR", "1 update", "1", "Update"], ["Flatpak", "1 update", "1", "Update"], ["mise", "1 update", "1", "Update"], ["VGS", "1 update", "1", "Update"], ["Plugins", "1 update", "1", "Update"], ["Themes", "Up to date", "0"]]' updates_rows
+click_in window:Updates window vgs.updates ListItem System || fail "the click on the window's System row failed"
+expect_poll "a click on a row lists its packages" '["System", "2 updates", "2", "Update", "coreutils 9.11-2 → 9.12-1", "linux 6.1 → 6.2"]' updates_row 0
+# The window's geometry with a row expanded: every source's count Badge
 # ends on one right edge, whether its row offers Update or not, and the
-# footer's buttons lie inside the panel, below its body, while the body
-# grows toward its cap and scrolls past it. Each check holds within one
+# footer's buttons lie inside the window, below its body, while the body
+# scrolls. Each check holds within one
 # pixel. The footer's controls are the unit mutations of tst_pane (the
-# footer outside the body, the pane's fitted height); the count column is
-# the panel's own reserved slot, and its control moves one count 8 px left
+# footer outside the body); the count column is
+# the window's own reserved slot, and its control moves one count 8 px left
 # in a copy of the same reading, which the check refuses. `[]` is the pass.
-flyout_geometry() {
+updates_geometry() {
   local rows
-  rows="$(ipc smoke descendantGeometry panel vgs.updates)" || return
+  rows="$(ipc smoke descendantGeometry window vgs.updates)" || return
   python3 - "$rows" "${1:-}" <<'PY'
 import json, sys
 # A failure word from the probe is the answer, never a traceback.
@@ -441,35 +459,32 @@ for text in ("Refresh", "Open last log"):
 print(json.dumps(out))
 PY
 }
-geometry expect_poll "the flyout's counts share one right edge and its footer stays inside the panel" '[]' flyout_geometry
-flyout_shifted() { flyout_geometry shift | py_reply 'import json,sys; print(any(e.startswith("count.right") for e in json.load(sys.stdin)))'; }
-expect "control: a count moved off the column is refused" True flyout_shifted
+geometry expect_poll "the window's counts share one right edge and its footer stays inside it" '[]' updates_geometry
+updates_shifted() { updates_geometry shift | py_reply 'import json,sys; print(any(e.startswith("count.right") for e in json.load(sys.stdin)))'; }
+expect "control: a count moved off the column is refused" True updates_shifted
 
-# A monitor too short and narrow for the flyout, 480 by 360: the summon
-# host holds the popup to the output less `size.window.gutter` a side, the
-# flyout lays out at that size, its body scrolls and its footer stays
-# inside it. The held mode is released after, so later rows meet the
-# monitor they read at the start. The footer rule's control is the Pane
-# mutation "a fitted pane lays out past a shorter host" (tst_pane.qml);
-# the size rule's control widens the panel's reading by 8 px, which the
-# check refuses. `[]` is the pass.
+# A monitor too short and narrow for the window, 480 by 360: the window
+# asks for the output less `size.window.gutter` a side, lays out at that
+# size, its body scrolls and its footer stays inside it. The held mode is released after, so later rows meet the
+# monitor they read at the start. The size rule's control widens the
+# window's reading by 8 px, which the check refuses. `[]` is the pass.
 short_mode=480x360
 short_monitor="$(first_name)" || fail "the monitor is unreadable"
 short_main_mode="$(first_mode)" || fail "the monitor's mode is unreadable"
 short_gutter="$(ipc smoke themeValue size.window.gutter)" || { fail "the gutter token is unreadable"; short_gutter=unreadable; }
-expect "the flyout hides before the short monitor" ok ipc shell hide panel vgs.updates
-expect_poll "the flyout is closed before the short monitor" closed flyout_open
+expect "the window hides before the short monitor" ok ipc shell hide window vgs.updates
+expect_poll "the window is closed before the short monitor" closed updates_open
 hold_mode "the nested compositor makes its monitor short and narrow" "$short_monitor" "$short_mode"
 expect_poll "the monitor is 480 logical pixels wide" 480 first_width
 # The pointer helpers take the held size while it holds.
 short_saved_w="$mon_w" short_saved_h="$mon_h"
 mon_w=480 mon_h=360
-open_flyout
-panel_room() { # [PLANT]
-  python3 - "$(ipc smoke instanceGeometry panel vgs.updates)" "$short_gutter" "${1:-}" <<'PY'
+open_updates
+window_room() { # [PLANT]
+  python3 - "$(ipc smoke instanceGeometry window vgs.updates)" "$short_gutter" "${1:-}" <<'PY'
 import json, sys
 if not sys.argv[1].startswith("[") or not sys.argv[2].isdigit():
-    print(json.dumps(["panel=%s gutter=%s" % (sys.argv[1], sys.argv[2])])); sys.exit()
+    print(json.dumps(["window=%s gutter=%s" % (sys.argv[1], sys.argv[2])])); sys.exit()
 box, gutter, plant = sys.argv[1], int(sys.argv[2]), sys.argv[3] == "wide"
 x, y, w, h = json.loads(box)
 if plant: w += 8
@@ -479,12 +494,12 @@ if h > 360 - 2 * gutter + 1: out.append("height=%d room=%d" % (h, 360 - 2 * gutt
 print(json.dumps(out))
 PY
 }
-panel_widened() { panel_room wide | py_reply 'import json,sys; print(any(e.startswith("width=") for e in json.load(sys.stdin)))'; }
-geometry expect_poll "the flyout keeps the room of a short, narrow monitor" '[]' panel_room
-expect "control: a panel wider than the room is refused" True panel_widened
-geometry expect_poll "the flyout's footer stays inside it on the short monitor" '[]' flyout_geometry
-expect "the flyout hides before the monitor's mode returns" ok ipc shell hide panel vgs.updates
-expect_poll "the flyout is closed before the monitor's mode returns" closed flyout_open
+window_widened() { window_room wide | py_reply 'import json,sys; print(any(e.startswith("width=") for e in json.load(sys.stdin)))'; }
+geometry expect_poll "the window keeps the room of a short, narrow monitor" '[]' window_room
+expect "control: a window wider than the room is refused" True window_widened
+geometry expect_poll "the window's footer stays inside it on the short monitor" '[]' updates_geometry
+expect "the window hides before the monitor's mode returns" ok ipc shell hide window vgs.updates
+expect_poll "the window is closed before the monitor's mode returns" closed updates_open
 release_mode "the nested compositor restores its monitor's mode" "$short_monitor" "$short_main_mode"
 mon_w="$short_saved_w" mon_h="$short_saved_h"
 expect_poll "the monitor has its width back" "$mon_w" first_width
@@ -501,13 +516,13 @@ expect_poll "the widget opens the update TUI with no argument" '["update.sh"]' l
 expect_run_end "the widget's update run ends" vgs.updates/update
 expect_poll "the widget's run's end starts one check" "$((before + 1))" checks
 expect_poll "the service is idle after the widget's run" idle updates_idle
-open_flyout
+open_updates
 before="$(checks)"
-click_item panel vgs.updates Button Refresh || fail "the click on the flyout's Refresh failed"
+click_in window:Updates window vgs.updates Button Refresh || fail "the click on the window's Refresh failed"
 expect_poll "Refresh starts the service's check" "$((before + 1))" checks
 expect "Refresh starts one check" STEADY checks_settle_at "$((before + 1))"
 expect_poll "the service is idle after Refresh" idle updates_idle
-expect "the flyout closes" ok ipc shell hide panel vgs.updates
+expect "the window closes" ok ipc shell hide window vgs.updates
 
 # Checking: the spinner stands in for the icon, the count stays.
 touch "$updates_state/slow-checkupdates"

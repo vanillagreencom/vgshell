@@ -9,7 +9,7 @@ import "UpdatesLogic.js" as Logic
 // when the check failed, a source failed or the check is stale, and a
 // spinner while a check runs (UpdatesLogic.widgetView decides). The
 // `hideWhenCurrent` setting hides it only while the last check succeeded
-// and nothing waits. A left click opens or closes the flyout under it; a
+// and nothing waits. A left click opens or closes the Updates window; a
 // middle click opens the `update` TUI for every source. The tooltip lists
 // each source's count and when the last check ran. It is one BarItem, the
 // count drawn beside the icon in the icon's tone.
@@ -43,11 +43,10 @@ BarWidget {
         }
     }
 
-    // Open or close the flyout under this widget; answers the panel host's
-    // reply.
+    // Open or close the Updates window; answers the window host's reply.
     function toggle() {
-        const reply = shell.surfaces.toggle("panel", "{}", widget);
-        if (reply !== "ok") console.warn("updates widget: panel " + reply);
+        const reply = shell.surfaces.toggle("window", "{}");
+        if (reply !== "ok") console.warn("updates widget: window " + reply);
         return reply;
     }
 
@@ -72,7 +71,7 @@ BarWidget {
         shortcut: widget.shortcut
         onClicked: widget.toggle()
 
-        // keyboard-path: the flyout's Update everything button runs the same TUI as the middle click
+        // keyboard-path: the window's Update everything button runs the same TUI as the middle click
         // pointer-cursor-exempt: it adds the middle click to the Button it sits in, whose own PointerCursor shows the hand
         TapHandler {
             acceptedButtons: Qt.MiddleButton
