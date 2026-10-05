@@ -77,9 +77,12 @@ Scope {
     // (Capabilities.managerStep): its act on a status action (D061) and
     // its open of a listed setup screen, the Settings page's Setup button.
     // Judged as the plugin's own run, so a disabled plugin's or an
-    // undeclared script is refused. Answers `ok` when the request starts
-    // the TUI or focuses its live window, as PluginLogic.tuiShownAnswer
-    // decides. The plugin reads the run's end from its `state`.
+    // undeclared script is refused. A script that would run while the
+    // plugin lacks a required command raises its requirement notice
+    // instead (PluginLogic.tuiRunFor), for both steps. Answers `ok` when
+    // the request starts the TUI or focuses its live window, as
+    // PluginLogic.tuiShownAnswer decides. The plugin reads the run's end
+    // from its `state`.
     function runFor(id, name) {
         const request = Logic.tuiRunFor(Registry.activeManifestOf(id), Registry.isEnabled(id), Registry.sourceDir, runner(), name, Notices.missingOf(id));
         if (request.kind === "install") return Notices.requested(id);
