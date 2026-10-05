@@ -183,6 +183,7 @@ f share/vgshell/shell/Ui/layout/Tabs.qml
 f share/vgshell/shell/Ui/layout/TouchpadScroll.qml
 f share/vgshell/shell/Ui/layout/TouchpadScrollLogic.js
 f share/vgshell/shell/Ui/overlay/AnchorTracker.qml
+f share/vgshell/shell/Ui/overlay/DismissScope.qml
 f share/vgshell/shell/Ui/overlay/ListMask.qml
 f share/vgshell/shell/Ui/overlay/Menu.qml
 f share/vgshell/shell/Ui/overlay/MenuItem.qml

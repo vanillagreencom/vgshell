@@ -6,8 +6,8 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 
 // A popup under the item it is declared in: its own surface anchored to
 // that item, so it leaves a bar of any height; it takes keyboard focus
-// while open, and closes on a press outside, on Escape, and when its
-// anchor hides. It follows the anchor when that moves. Content goes in
+// while open, and closes on a press outside and on Escape (DismissScope),
+// and when its anchor hides. It follows the anchor when that moves. Content goes in
 // the body; `width` is the author's, the height follows the content. The
 // declaring item is an invisible, sizeless member of its parent.
 Item {
@@ -70,11 +70,10 @@ Item {
         implicitHeight: Math.max(1, pane.implicitHeight)
         onVisibleChanged: root.share(visible)
 
-        FocusScope {
+        DismissScope {
             id: scope
-            anchors.fill: parent
-            focus: true
-            Keys.onEscapePressed: root.close()
+            popup: window
+            anchor: root.anchorItem
 
             Rectangle {
                 anchors.fill: parent

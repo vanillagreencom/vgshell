@@ -209,7 +209,8 @@ Item {
             let list = null;
             for (const child of long.resources) if (child.anchor !== undefined) list = child;
             verify(list !== null, "the select holds its list window");
-            const view = list.contentItem.children.find(child => child.overflowing !== undefined);
+            const scope = list.contentItem.children.find(child => child.popup !== undefined);
+            const view = scope.children.find(child => child.overflowing !== undefined);
             verify(view !== undefined, "the list holds its view");
             compare(view.overflowing, true);
             tryCompare(view, "width", list.width - 2 * Theme.border.thin);

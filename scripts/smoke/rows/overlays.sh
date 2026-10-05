@@ -1,14 +1,20 @@
 # The overlay components, from a fixture bar widget holding a popover, a
 # tooltip, a menu and a select, and a fixture panel with a select nested in
-# a summoned surface. Each overlay is a Qt window popup: it leaves the bar,
-# takes keys through the nested seat, follows its anchor and closes on a
-# press outside, on Escape and when its anchor hides; a select's list shows
-# the hand over its entries. Popup rectangles are
-# read through the popup's content item in the bar window's coordinates,
-# the same coordinates a click takes, since the bar sits at the origin.
+# a summoned surface, summoned too as an application window. Each overlay
+# is a Qt window popup: it leaves the bar, takes keys through the nested
+# seat, follows its anchor and closes on a press outside, on Escape and
+# when its anchor hides; a select's list shows the hand over its entries.
+# Popup rectangles are read through the popup's content item in the bar
+# window's coordinates, the same coordinates a click takes, since the bar
+# sits at the origin.
 # The press outside closes each one through its focus grab: a copy of each
 # without the grab, written beside the shipped file and built under the
-# same widget, stays open through it.
+# same widget, stays open through it. A press in the window the select sits
+# in, which the grab hands to the shell, and Escape close its list, in an
+# application window and in a bar flyout, through the DismissScope the
+# three share: a select copy whose scope takes the press without closing,
+# and one whose scope drops Escape, stay open through the same press and
+# key.
 # inputs: scripts/smoke/fixtures/plugins/acme.overlays/* shell/Ui/overlay/* shell/Ui/controls/Select.qml
 set -euo pipefail
 ov="$home/.config/vgshell/plugins/acme.overlays"
@@ -123,6 +129,27 @@ declare -A nograb_copy=(
   [menu]="$repo/shell/Ui/overlay/Menu.qml|$repo/shell/Ui/overlay/MenuNoGrab.qml"
   [select]="$repo/shell/Ui/controls/Select.qml|$repo/shell/Ui/overlay/SelectNoGrab.qml"
 )
+# name -> the line of DismissScope the copy plants a defect in, and what
+# replaces it.
+declare -A scope_defect=(
+  [NoCatch]='onPressed: scope.popup.visible = false|onPressed: {}'
+  [NoEscape]='Keys.onEscapePressed: popup.visible = false|Keys.onEscapePressed: {}'
+)
+for defect in NoCatch NoEscape; do
+  python3 - "$repo/shell/Ui/overlay/DismissScope.qml" "$repo/shell/Ui/overlay/DismissScope$defect.qml" "${scope_defect[$defect]}" "$repo/shell/Ui/controls/Select.qml" "$repo/shell/Ui/overlay/Select$defect.qml" "$defect" <<'PYEDIT'
+import pathlib, sys
+scope, scope_copy, defect, select, select_copy, name = sys.argv[1:]
+old, new = defect.split("|")
+text = pathlib.Path(scope).read_text()
+assert text.count(old) == 1, "the defect's line must occur once in DismissScope.qml"
+pathlib.Path(scope_copy).write_text(text.replace(old, new))
+text = pathlib.Path(select).read_text()
+for line, replacement in (("import qs.Ui\n", "import qs.Ui\nimport \"../layout\"\n"), ("        DismissScope {\n", "        DismissScope" + name + " {\n")):
+    assert text.count(line) == 1, line + " must occur once in Select.qml"
+    text = text.replace(line, replacement)
+pathlib.Path(select_copy).write_text(text)
+PYEDIT
+done
 for name in popover menu select; do
   python3 - "${nograb_copy[$name]%%|*}" "${nograb_copy[$name]##*|}" "$name" <<'PYEDIT'
 import pathlib, sys
@@ -158,6 +185,41 @@ for name in popover menu select; do
   expect "the probe drops the $name copy" ok ipc smoke popupDrop "$name-nograb"
 done
 
+# A press in the application window the select sits in closes its list, as
+# Escape does, and the window stays open. The press lands in the window's
+# corner, clear of the select and its list.
+expect "the overlay fixture summons as a window" ok ipc shell summon window acme.overlays '{}'
+expect_poll "the overlay window maps" 1 window_count Overlays
+read -r wx wy ww _ < <(rect "$(one_window Overlays)")
+expect "the window opens its select" ok ipc smoke invokeInstance window acme.overlays openSelect ''
+expect_poll "the window's select list is open" true ipc smoke readInstance window acme.overlays selectOpen
+click "$((wx + ww - 10))" "$((wy + 10))" || fail "the press in the window failed"
+expect_poll "a press in the window closes the select list" false ipc smoke readInstance window acme.overlays selectOpen
+expect "the window opens its select for Escape" ok ipc smoke invokeInstance window acme.overlays openSelect ''
+expect_poll "the window's select list is open before Escape" true ipc smoke readInstance window acme.overlays selectOpen
+type_keys -k Escape || fail "sending Escape failed"
+expect_poll "Escape closes the window's select list" false ipc smoke readInstance window acme.overlays selectOpen
+expect "the window stays open through the press and Escape" 1 window_count Overlays
+# The controls open one at a time: a second grabbing popup would end the
+# first one's grab. Each reading waits a second, past the time the shipped
+# list took to close.
+copy_props='{"x":20,"y":70,"width":40,"height":20,"model":["one","two"]}'
+expect "the probe builds the select copy without the catch" ok ipc smoke popupLoad select-NoCatch "$repo/shell/Ui/overlay/SelectNoCatch.qml" window acme.overlays "$copy_props"
+expect "the select copy without the catch opens" ok ipc smoke popupCall select-NoCatch openList
+expect_poll "the select copy without the catch is open" true ipc smoke popupRead select-NoCatch listOpen
+click "$((wx + ww - 10))" "$((wy + 10))" || fail "the press in the window beside the copy failed"
+sleep 1
+expect "the press in the window leaves the select copy without the catch open" true ipc smoke popupRead select-NoCatch listOpen
+expect "the probe drops the select copy without the catch" ok ipc smoke popupDrop select-NoCatch
+expect "the probe builds the select copy without Escape" ok ipc smoke popupLoad select-NoEscape "$repo/shell/Ui/overlay/SelectNoEscape.qml" window acme.overlays "$copy_props"
+expect "the select copy without Escape opens" ok ipc smoke popupCall select-NoEscape openList
+expect_poll "the select copy without Escape is open" true ipc smoke popupRead select-NoEscape listOpen
+type_keys -k Escape || fail "sending Escape to the copy failed"
+sleep 1
+expect "Escape leaves the select copy without Escape open" true ipc smoke popupRead select-NoEscape listOpen
+expect "the probe drops the select copy without Escape" ok ipc smoke popupDrop select-NoEscape
+expect "hiding the overlay window is allowed" ok ipc shell hide window acme.overlays
+
 # A select inside a summoned panel opens its list over the panel's popup
 # and the panel stays open through the choice.
 expect "the widget summons the fixture panel" ok ovw summonHere
@@ -168,6 +230,18 @@ read -r nx ny nw nh < <(rect "$(ipc smoke invokeInstance panel acme.overlays sel
 click "$((nx + nw / 2))" "$((ny + nh / 2))" || fail "the click on the nested entry failed"
 expect_poll "the nested list chooses on click" 1 ipc smoke readInstance panel acme.overlays selected
 expect "the panel stays open through the choice" 1 ipc smoke readInstance panel acme.overlays opened
+# A press in the flyout beside the select closes its list, as Escape does,
+# and the flyout stays open through both.
+read -r px py pw ph < <(rect "$(ipc smoke invokeInstance panel acme.overlays geometry '')")
+expect "the panel opens its select for the press" ok ipc smoke invokeInstance panel acme.overlays openSelect ''
+expect_poll "the nested list is open before the press" true ipc smoke readInstance panel acme.overlays selectOpen
+click "$((px + pw - 10))" "$((py + ph - 10))" || fail "the press in the flyout failed"
+expect_poll "a press in the flyout closes the nested list" false ipc smoke readInstance panel acme.overlays selectOpen
+expect "the panel opens its select for Escape" ok ipc smoke invokeInstance panel acme.overlays openSelect ''
+expect_poll "the nested list is open before Escape" true ipc smoke readInstance panel acme.overlays selectOpen
+type_keys -k Escape || fail "sending Escape to the nested list failed"
+expect_poll "Escape closes the nested list" false ipc smoke readInstance panel acme.overlays selectOpen
+expect "the flyout stays open through the press and Escape" 1 ipc smoke readInstance panel acme.overlays opened
 expect "hiding the panel is allowed" ok ipc shell hide panel acme.overlays
 
 # Disabling the plugin with a popover open leaves no record and no error;

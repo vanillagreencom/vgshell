@@ -9,7 +9,7 @@ import qs.Ui
 // `textRole` naming the text; `currentIndex` is the choice. A click, Space
 // or Enter opens the list in its own surface under the control; Up and
 // Down move the highlight there and Enter chooses, a click chooses, and a
-// press outside or Escape closes it. One ListCursor draws the highlight
+// press outside or Escape closes it (DismissScope). One ListCursor draws the highlight
 // and travels between entries, and a hover moves it once the pointer moves
 // (ListCursor). With the list closed, Up and Down on the focused control
 // move the choice. The list opens on the control's edges, as wide as it,
@@ -145,120 +145,124 @@ T.AbstractButton {
         implicitHeight: Math.max(1, Math.min(Theme.menu.maxHeight, entries.contentHeight) + 2 * root.listInset)
         onVisibleChanged: root.share(visible)
 
-        Rectangle {
-            anchors.fill: parent
-            radius: Theme.menu.radius
-            color: Theme.menu.background
-            border.width: Theme.border.thin
-            border.color: Theme.menu.border
-        }
+        DismissScope {
+            popup: list
+            anchor: root
 
-        ListView {
-            id: entries
-            anchors.fill: parent
-            anchors.topMargin: root.listInset
-            anchors.bottomMargin: root.listInset
-            anchors.leftMargin: Theme.border.thin
-            anchors.rightMargin: Theme.border.thin
-            model: root.model
-            clip: true
-            // Under a rounded corner the list is cut to the curve of the
-            // interior.
-            layer.enabled: listMask.cuts
-            layer.smooth: true
-            layer.effect: MultiEffect {
-                maskEnabled: true
-                maskSource: listMask
-                maskThresholdMin: 0.5
-                maskSpreadAtMin: 1
+            Rectangle {
+                anchors.fill: parent
+                radius: Theme.menu.radius
+                color: Theme.menu.background
+                border.width: Theme.border.thin
+                border.color: Theme.menu.border
             }
-            focus: true
-            keyNavigationEnabled: true
-            keyNavigationWraps: false
-            boundsBehavior: Flickable.StopAtBounds
-            acceptedButtons: Qt.NoButton
-            TouchpadScroll { view: entries }
-            // The bar's own test, so an entry keeps the bar's strip exactly
-            // while the bar shows.
-            readonly property bool overflowing: listBar.needed
-            // A key moves the highlight: the pointer resting over the list
-            // takes it again only once it moves. The key goes on to the view.
-            Keys.onEscapePressed: list.visible = false
-            Keys.onPressed: event => { event.accepted = openNav.handle(event); }
 
-            property KeyNav openNav: KeyNav {
-                count: entries.count
-                currentIndex: entries.currentIndex
-                wrap: false /* open select */
-                viewHeight: entries.height
-                rowHeight: Theme.menu.item.height
-                labelAt: index => root.textAt(index)
-                cursor: plate
-                onMoved: index => {
-                    entries.currentIndex = index;
-                    entries.positionViewAtIndex(index, ListView.Contain);
+            ListView {
+                id: entries
+                anchors.fill: parent
+                anchors.topMargin: root.listInset
+                anchors.bottomMargin: root.listInset
+                anchors.leftMargin: Theme.border.thin
+                anchors.rightMargin: Theme.border.thin
+                model: root.model
+                clip: true
+                // Under a rounded corner the list is cut to the curve of the
+                // interior.
+                layer.enabled: listMask.cuts
+                layer.smooth: true
+                layer.effect: MultiEffect {
+                    maskEnabled: true
+                    maskSource: listMask
+                    maskThresholdMin: 0.5
+                    maskSpreadAtMin: 1
                 }
-                onActivated: index => root.choose(index)
-            }
+                focus: true
+                keyNavigationEnabled: true
+                keyNavigationWraps: false
+                boundsBehavior: Flickable.StopAtBounds
+                acceptedButtons: Qt.NoButton
+                TouchpadScroll { view: entries }
+                // The bar's own test, so an entry keeps the bar's strip exactly
+                // while the bar shows.
+                readonly property bool overflowing: listBar.needed
+                // A key moves the highlight: the pointer resting over the list
+                // takes it again only once it moves. The key goes on to the view.
+                Keys.onPressed: event => { event.accepted = openNav.handle(event); }
 
-            delegate: T.ItemDelegate {
-                id: entry
-                required property int index
-                readonly property bool chosen: index === root.currentIndex
-
-                width: ListView.view.width
-                implicitHeight: Theme.menu.item.height
-                leftPadding: root.sidePadding - Theme.border.thin
-                rightPadding: root.sidePadding - Theme.border.thin + (entries.overflowing ? Theme.scrollArea.gutter : 0)
-                text: root.textAt(index)
-                highlighted: ListView.isCurrentItem
-                hoverEnabled: true
-                PointerCursor {}
-                Accessible.name: text
-                onClicked: root.choose(index)
-
-                ListCursorRow {
+                property KeyNav openNav: KeyNav {
+                    count: entries.count
+                    currentIndex: entries.currentIndex
+                    wrap: false /* open select */
+                    viewHeight: entries.height
+                    rowHeight: Theme.menu.item.height
+                    labelAt: index => root.textAt(index)
                     cursor: plate
-                    holds: entry.highlighted
-                    onPointed: entries.currentIndex = entry.index
+                    onMoved: index => {
+                        entries.currentIndex = index;
+                        entries.positionViewAtIndex(index, ListView.Contain);
+                    }
+                    onActivated: index => root.choose(index)
                 }
 
-                contentItem: Label {
-                    role: "item"
-                    text: entry.text
-                    color: entry.chosen ? Theme.select.selectedForeground : Theme.menu.item.foreground
-                    verticalAlignment: Text.AlignVCenter
-                    elide: Text.ElideRight
+                delegate: T.ItemDelegate {
+                    id: entry
+                    required property int index
+                    readonly property bool chosen: index === root.currentIndex
+
+                    width: ListView.view.width
+                    implicitHeight: Theme.menu.item.height
+                    leftPadding: root.sidePadding - Theme.border.thin
+                    rightPadding: root.sidePadding - Theme.border.thin + (entries.overflowing ? Theme.scrollArea.gutter : 0)
+                    text: root.textAt(index)
+                    highlighted: ListView.isCurrentItem
+                    hoverEnabled: true
+                    PointerCursor {}
+                    Accessible.name: text
+                    onClicked: root.choose(index)
+
+                    ListCursorRow {
+                        cursor: plate
+                        holds: entry.highlighted
+                        onPointed: entries.currentIndex = entry.index
+                    }
+
+                    contentItem: Label {
+                        role: "item"
+                        text: entry.text
+                        color: entry.chosen ? Theme.select.selectedForeground : Theme.menu.item.foreground
+                        verticalAlignment: Text.AlignVCenter
+                        elide: Text.ElideRight
+                    }
+
+                    background: Rectangle {
+                        radius: Theme.menu.item.radius
+                        color: entry.chosen ? Theme.select.selected : "transparent"
+                    }
                 }
 
-                background: Rectangle {
+                ListCursor {
+                    id: plate
+                    parent: entries.contentItem
+                    color: Theme.select.highlight
+                    pressedColor: Theme.menu.item.pressed
                     radius: Theme.menu.item.radius
-                    color: entry.chosen ? Theme.select.selected : "transparent"
+                }
+
+                HoverHandler { id: listHover }
+
+                ScrollBar {
+                    id: listBar
+                    flickable: entries
+                    hovered: listHover.hovered
                 }
             }
 
-            ListCursor {
-                id: plate
-                parent: entries.contentItem
-                color: Theme.select.highlight
-                pressedColor: Theme.menu.item.pressed
-                radius: Theme.menu.item.radius
+            ListMask {
+                id: listMask
+                anchors.fill: entries
+                frameWidth: list.width
+                frameHeight: list.height
             }
-
-            HoverHandler { id: listHover }
-
-            ScrollBar {
-                id: listBar
-                flickable: entries
-                hovered: listHover.hovered
-            }
-        }
-
-        ListMask {
-            id: listMask
-            anchors.fill: entries
-            frameWidth: list.width
-            frameHeight: list.height
         }
     }
 

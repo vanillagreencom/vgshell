@@ -21,7 +21,9 @@ import qs.Unit
 // window's rounded interior, so a filled row half scrolled past the top and
 // the bar's thumb at the top stay inside the curve; a square list draws no
 // layer.
-// The nested sandbox proves placement, real keys and dismissal.
+// A press in the anchor's window closes each overlay and reaches nothing
+// under it. The nested sandbox proves placement, real keys and the
+// compositor's dismissal.
 Item {
     id: root
     width: 300
@@ -55,6 +57,8 @@ Item {
     Select { id: longSelect; y: 160; model: ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p"] }
     Toast { id: toast; y: 120; title: "Saved"; message: "to disk"; tone: "success"; iconName: "check" }
     property int triggered: -1
+    property int reached: 0
+    MouseArea { id: under; x: 250; width: 50; height: 30; onPressed: root.reached += 1 }
     SignalSpy { id: dismissals; target: toast; signalName: "dismissed" }
     SignalSpy { id: activations; target: roled; signalName: "activated" }
 
@@ -123,6 +127,27 @@ Item {
             menu.triggerCurrent();
             compare(root.triggered, -1, "a disabled entry never triggers");
             menu.close();
+        }
+
+        // A press anywhere in the window an overlay's anchor draws in closes
+        // it and reaches nothing under it; once it is closed, a press
+        // reaches the window again.
+        function test_a_press_in_the_anchor_window_closes_the_overlay() {
+            const overlays = [
+                { name: "popover", open: () => popover.open(), opened: () => popover.opened },
+                { name: "menu", open: () => menu.open(), opened: () => menu.opened },
+                { name: "select", open: () => select.openList(), opened: () => select.listOpen }
+            ];
+            for (const overlay of overlays) {
+                root.reached = 0;
+                overlay.open();
+                compare(overlay.opened(), true, overlay.name + " opens");
+                mouseClick(under);
+                compare(overlay.opened(), false, "a press in the window closes the " + overlay.name);
+                compare(root.reached, 0, "the press that closes the " + overlay.name + " reaches nothing under it");
+                mouseClick(under);
+                compare(root.reached, 1, "with the " + overlay.name + " closed a press reaches the window");
+            }
         }
 
         // An output's room is its size less `size.window.gutter` a side;
@@ -371,7 +396,9 @@ Item {
             let window = null;
             for (let i = 0; i < owner.resources.length; i++)
                 if (owner.resources[i].anchor !== undefined) window = owner.resources[i];
-            return window.contentItem.children.find(child => child.currentIndex !== undefined);
+            // The list's content sits in the popup's DismissScope.
+            const scope = window.contentItem.children.find(child => child.popup !== undefined);
+            return scope.children.find(child => child.currentIndex !== undefined);
         }
 
         function test_select_list_highlights_through_its_cursor() {

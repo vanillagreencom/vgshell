@@ -9,7 +9,7 @@ import qs.Ui
 // Up and Down move the highlight, a hover moves it once the pointer moves
 // (ListCursor), Enter triggers the highlighted entry, a click triggers an
 // entry, and any trigger closes the menu; a
-// press outside and Escape close it too. Typing letters highlights the
+// press outside and Escape close it too (DismissScope). Typing letters highlights the
 // first reachable entry whose text starts with them, the letters kept for
 // `menu.typeahead` milliseconds. Entries taller than `maxHeight` scroll
 // inside the menu, and the highlighted entry is kept in view; opening
@@ -167,11 +167,10 @@ Item {
         implicitHeight: Math.max(1, Math.min(column.implicitHeight, root.maxHeight) + 2 * root.listInset)
         onVisibleChanged: root.share(visible)
 
-        FocusScope {
+        DismissScope {
             id: scope
-            anchors.fill: parent
-            focus: true
-            Keys.onEscapePressed: root.close()
+            popup: window
+            anchor: root.anchorItem
             Keys.onTabPressed: event => event.accepted = true
             Keys.onBacktabPressed: event => event.accepted = true
             Keys.onPressed: event => {
