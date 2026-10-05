@@ -64,7 +64,7 @@ world(async () => {
     assert.equal(fs.statSync(store.file).mode & 0o777, 0o600);
     let cases = 0, controls = 0;
     const diagnosticCases = [
-        ["jarvis-accounts: discovery=directory-unreadable\n", "jarvis-accounts: discovery=directory-unreadable"],
+        ["jarvis-accounts: directory=link\n", "jarvis-accounts: directory=link"],
         ["jarvis-accounts: added=json\n", "jarvis-accounts: added=json"],
         ["jarvis-keys: busctl=missing\n", "jarvis-keys: busctl=missing"],
         ["jarvis-accounts: discovery=" + privateValue, ""],
@@ -138,7 +138,7 @@ world(async () => {
             "a name outside the rule");
         assert.equal(rows.some(item => item.source.directory?.includes("link")), false, "links excluded");
         assert.equal(rows.find(item => item.source.directory === nestedClaude).state.kind, "signed-in");
-        assert.equal(rows.find(item => item.source.directory === nestedClaude).identity.kind, "mismatch");
+        assert.equal(rows.find(item => item.source.directory === nestedClaude).identity.kind, "match", "a folder name names no identity");
         assert.ok(rows.some(item => item.source.kind === "variable" && item.provider === "openai"));
         assert.ok(rows.some(item => item.source.kind === "local" && item.provider === "ollama"));
         assert.equal(rows.some(item => item.state.kind === "verified"), false, "discovery is never verification");
@@ -400,28 +400,120 @@ world(async () => {
         "const MAX_PARENT_ENTRIES = 200;", crowdedSearch);
     controls++;
     cases++;
+    // A home past the bound: the folders among the names read before it,
+    // as fs.opendirSync hands them out, plus every other parent's.
     const full = worldOf("full");
-    const fullFolder = seed(full.env.HOME, ".claude-first");
+    const fullConfig = seed(full.env.XDG_CONFIG_HOME, ".claude-config");
+    for (let i = 0; i < 12; i++) seed(full.env.HOME, ".claude-" + i);
     for (let i = 0; i <= 10000; i++) fs.writeFileSync(path.join(full.env.HOME, String(i)), "");
+    const readFirst = [];
+    const listing = fs.opendirSync(full.env.HOME);
+    try {
+        for (let entry; readFirst.length < 10000 && (entry = listing.readSync()) !== null;)
+            readFirst.push(entry);
+    } finally { listing.closeSync(); }
+    const expectedHome = readFirst.filter(entry => entry.isDirectory() && /^\.claude-[0-9]+$/.test(entry.name))
+        .map(entry => path.join(full.env.HOME, entry.name)).sort();
+    assert.ok(expectedHome.length > 0, "the names read before the bound hold an account folder");
     const boundReached = folder => {
         const { accountFolders } = require(path.join(folder, "backend/AccountFolders.js"));
         let found;
         assert.doesNotThrow(() => { found = accountFolders({ home: full.env.HOME, config: full.env.XDG_CONFIG_HOME, data: full.env.XDG_DATA_HOME }); });
         assert.equal(found.partial, "entry-limit");
-        assert.ok(found.folders.every(item => item.directory === fullFolder), "only folders read before the bound");
+        assert.deepEqual(found.folders.filter(item => path.dirname(item.directory) === full.env.HOME).map(item => item.directory).sort(),
+            expectedHome, "the home folders read before the bound");
+        assert.ok(found.folders.some(item => item.directory === fullConfig), "the next parent is still read");
         const judge = new (judgeIn(folder))(full.state, full.env);
         assert.doesNotThrow(() => judge.discover());
         assert.equal(judge.status().search.partial, "entry-limit");
     };
     boundReached(plugin);
     for (const [name, replacement] of [
-        ["entry-bound-throws", 'if (++read > MAX_PARENT_ENTRIES) fail("discovery=directory-unreadable");'],
-        ["entry-bound-unmarked", "if (++read > MAX_PARENT_ENTRIES) break;"]
+        ["entry-bound-throws", 'if (++read > MAX_PARENT_ENTRIES) throw new Error("jarvis-accounts: discovery=entry-limit");'],
+        ["entry-bound-unmarked", "if (++read > MAX_PARENT_ENTRIES) break;"],
+        ["entry-bound-drops", 'if (++read > MAX_PARENT_ENTRIES) { partial ||= "entry-limit"; folders.length = 0; break; }'],
+        ["entry-bound-stops", 'if (++read > MAX_PARENT_ENTRIES) { partial ||= "entry-limit"; return { folders, partial }; }']
     ]) {
-        await mutant("backend/AccountFolders.js", name, 'if (++read > MAX_PARENT_ENTRIES) { partial = "entry-limit"; break; }',
+        await mutant("backend/AccountFolders.js", name, 'if (++read > MAX_PARENT_ENTRIES) { partial ||= "entry-limit"; break; }',
             replacement, boundReached);
         controls++;
     }
+    cases++;
+    // Exactly the bound is a whole search.
+    const exact = worldOf("exact");
+    const exactFolder = seed(exact.env.HOME, ".claude-exact");
+    for (let i = 0; i < 9999; i++) fs.writeFileSync(path.join(exact.env.HOME, String(i)), "");
+    assert.equal(fs.readdirSync(exact.env.HOME).length, 10000);
+    const exactBound = folder => {
+        const found = require(path.join(folder, "backend/AccountFolders.js")).accountFolders(
+            { home: exact.env.HOME, config: exact.env.XDG_CONFIG_HOME, data: exact.env.XDG_DATA_HOME });
+        assert.deepEqual([found.partial, found.folders.map(item => item.directory)], ["", [exactFolder]]);
+    };
+    exactBound(plugin);
+    await mutant("backend/AccountFolders.js", "entry-bound-off-by-one", "if (++read > MAX_PARENT_ENTRIES)", "if (++read >= MAX_PARENT_ENTRIES)", exactBound);
+    controls++;
+    cases++;
+    // A linked parent is never followed and one that is no directory is not
+    // read: the search is partial and keeps the other parents' folders. A
+    // mode-000 folder is readable inside J09's user namespace, so the kinds
+    // read here are a link and a file.
+    for (const kind of ["link", "file"]) {
+        const odd = worldOf("parent-" + kind);
+        const oddHome = seed(odd.env.HOME, ".claude-home");
+        const target = seed(process.env.JARVIS_TEST_ROOT, "parent-target-" + kind);
+        seed(target, ".claude-behind");
+        fs.rmSync(odd.env.XDG_CONFIG_HOME, { recursive: true });
+        if (kind === "link") fs.symlinkSync(target, odd.env.XDG_CONFIG_HOME);
+        else fs.writeFileSync(odd.env.XDG_CONFIG_HOME, "");
+        const oddParent = folder => {
+            let found;
+            assert.doesNotThrow(() => { found = require(path.join(folder, "backend/AccountFolders.js")).accountFolders(
+                { home: odd.env.HOME, config: odd.env.XDG_CONFIG_HOME, data: odd.env.XDG_DATA_HOME }); });
+            assert.deepEqual([found.partial, found.folders.map(item => item.directory)], ["parent-unreadable", [oddHome]]);
+            const judge = new (judgeIn(folder))(odd.state, odd.env);
+            assert.doesNotThrow(() => judge.discover());
+            assert.equal(judge.status().search.partial, "parent-unreadable");
+        };
+        oddParent(plugin);
+        await mutant("backend/AccountFolders.js", "parent-" + kind + "-throws",
+            'if (opened.kind !== "directory") { partial ||= "parent-unreadable"; continue; }',
+            'if (opened.kind !== "directory") throw new Error("jarvis-accounts: directory=" + opened.kind);', oddParent);
+        controls++;
+        cases++;
+    }
+    // A linked home leaves its default folders out, partial, and throws nothing.
+    const linkedHome = worldOf("linked-home");
+    const homeTarget = seed(process.env.JARVIS_TEST_ROOT, "linked-home-target");
+    seed(homeTarget, ".claude");
+    fs.rmSync(linkedHome.env.HOME, { recursive: true });
+    fs.symlinkSync(homeTarget, linkedHome.env.HOME);
+    const linkedDefault = folder => {
+        const judge = new (judgeIn(folder))(linkedHome.state, linkedHome.env);
+        let found;
+        assert.doesNotThrow(() => { found = judge.discover(); });
+        assert.equal(found.some(item => item.source.kind === "cli"), false, "nothing behind the link");
+        assert.equal(judge.status().search.partial, "parent-unreadable");
+    };
+    linkedDefault(plugin);
+    await mutant("backend/Accounts.js", "default-under-link", 'else partial ||= "parent-unreadable";', "else insert(row, fallback, \"default\");", linkedDefault);
+    controls++;
+    cases++;
+    // Only a label that is an email names an identity to compare.
+    const labelled = worldOf("email-label");
+    const emailFolder = seed(labelled.env.HOME, "by-hand");
+    new Accounts(labelled.state, labelled.env).add({ provider: "claude", directory: emailFolder, label: "other@example.invalid" });
+    seed(labelled.env.HOME, ".claude-team");
+    const identities = folder => {
+        const found = new (judgeIn(folder))(labelled.state, labelled.env).discover();
+        assert.deepEqual([found.find(item => item.source.directory === emailFolder).identity.kind,
+            found.find(item => item.label === "team").identity.kind], ["mismatch", "match"]);
+    };
+    identities(plugin);
+    await mutant("backend/Accounts.js", "identity-any-label", 'email && label.includes("@") && email !== label',
+        'email && label !== "default" && email !== label', identities);
+    controls++;
+    await mutant("backend/Accounts.js", "identity-never", 'email && label.includes("@") && email !== label', "false", identities);
+    controls++;
     cases++;
     const many = worldOf("many");
     for (let i = 0; i < 33; i++) seed(many.env.HOME, ".claude-" + i);
@@ -601,10 +693,10 @@ world(async () => {
     assert.deepEqual(keyPresence(() => ""), keyPresence(() => undefined));
 
     // The page's words: each outcome's tone and whether Accounts or Add key
-    // is offered. Every failure key the helper can name is judged by its
-    // field: a home folder the search cannot read leaves Accounts, the saved
-    // list Accounts edits and every other cause do not. The words carry no
-    // diagnostic key.
+    // is offered. A search, whole or partial, offers Accounts; every
+    // failure key the helper can name, read from the helper's own table,
+    // and every cause the reader names itself is a failed check that does
+    // not. The words carry no diagnostic key.
     const plain = value => {
         const text = typeof value === "string" ? value : value.text;
         assert.equal(/=|jarvis-/.test(text) || text === "", false, "user words: " + text);
@@ -612,20 +704,21 @@ world(async () => {
     const failed = reason => ({ kind: "failed", reason });
     const pageWords = folder => {
         const Words = require(path.join(folder, "AccountStatus.js"));
-        const reasons = ["directory=unreadable", "directory=link", "directory=not-directory", "discovery=directory-unreadable",
-            "added=json", "added=read-failed", "added=limit", "key-presence=shape", "ports=reply", "reference=item-unavailable",
-            "arguments=presence", "state=unknown", "operation=failed"].map(reason => [reason.split("=")[0], "jarvis-accounts: " + reason]);
+        const { FAILURE_KEYS } = require(path.join(folder, "AccountProviders.js"));
+        const reasons = Object.entries(FAILURE_KEYS).flatMap(([owner, fields]) => Object.entries(fields)
+            .flatMap(([field, codes]) => codes.map(code => owner + ": " + field + "=" + code)));
+        assert.ok(["jarvis-accounts: added=json", "jarvis-accounts: directory=link", "jarvis-keys: busctl=missing"]
+            .every(reason => reasons.includes(reason)), "the helper's table holds its known failures");
         const searchCases = [
             [{ kind: "found", found: 3, partial: "" }, "ok", true],
             [{ kind: "found", found: 1, partial: "" }, "ok", true],
             [{ kind: "found", found: 0, partial: "" }, "info", true],
             [{ kind: "found", found: 2, partial: "entry-limit" }, "warning", true],
+            [{ kind: "found", found: 2, partial: "parent-unreadable" }, "warning", true],
             [{ kind: "found", found: 32, partial: "account-limit" }, "warning", true],
-            ...reasons.map(([field, reason]) => [failed(reason), ["directory", "discovery"].includes(field) ? "warning" : "danger",
-                ["directory", "discovery"].includes(field)]),
+            ...reasons.map(reason => [failed(reason), "danger", false]),
             ...["process=start-failed", "process=crashed", "output=invalid", "diagnostic=oversize", "process=failed"]
                 .map(reason => [failed("jarvis-accounts: " + reason), "danger", false]),
-            [failed("jarvis-keys: busctl=missing"), "danger", false],
             [failed(""), "danger", false]
         ];
         for (const [outcome, tone, action] of searchCases) {
@@ -633,11 +726,20 @@ world(async () => {
             assert.deepEqual([value.tone, value.action], [tone, action], JSON.stringify(outcome));
             plain(value);
         }
-        for (const [outcome, tone] of [[{ kind: "listed", count: 2 }, "ok"], [{ kind: "listed", count: 0 }, "info"], [{ kind: "failed" }, "warning"]]) {
+        const keyRow = value => ({ label: "fixture / test", value });
+        for (const [outcome, tone] of [
+            [{ kind: "listed", rows: [keyRow("present"), keyRow("present")] }, "ok"],
+            [{ kind: "listed", rows: [] }, "info"],
+            [{ kind: "listed", rows: [keyRow("present"), keyRow("locked")] }, "warning"],
+            [{ kind: "listed", rows: [keyRow("unavailable")] }, "warning"],
+            [{ kind: "failed" }, "warning"]
+        ]) {
             const value = Words.keysValue(outcome);
             assert.deepEqual([value.tone, value.action], [tone, true], JSON.stringify(outcome));
             plain(value);
         }
+        for (const value of ["present", "absent", "locked"]) assert.equal(Words.keyHint(keyRow(value)), "", value);
+        plain(Words.keyHint({ label: "fixture / test", value: "unavailable", hint: "jarvis-keys: busctl=failed" }));
         const hints = [];
         for (const state of ["signed-in", "found", "verifying", "verified", "locked", "unavailable"])
             for (const source of ["cli", "variable", "keyring", "local"])

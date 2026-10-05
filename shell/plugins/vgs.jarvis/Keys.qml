@@ -31,16 +31,20 @@ Item {
         probe.running = true;
     }
     function publish() {
-        let rows = null;
+        let shown = null;
         try {
             if (code !== 0) throw new Error("probe");
-            rows = JSON.parse(output);
+            const rows = JSON.parse(output);
+            shown = rows.map(row => Words.keyHint(row) === "" ? { label: row.label, value: row.value }
+                : { label: row.label, value: row.value, hint: Words.keyHint(row) });
+            // A row's diagnostic key goes to the log; the page shows words.
+            for (const row of rows) if (typeof row.hint === "string") console.warn(row.hint);
         } catch (error) {
             console.warn("jarvis-keys: presence=failed");
         }
-        if (rows !== null && shell.status.set("keys", rows) === "ok"
-            && shell.status.set("keyStore", Words.keysValue({ kind: "listed", count: rows.length })) === "ok") return;
-        if (rows !== null) console.warn("jarvis-keys: presence=invalid");
+        if (shown !== null && shell.status.set("keys", shown) === "ok"
+            && shell.status.set("keyStore", Words.keysValue({ kind: "listed", rows: shown })) === "ok") return;
+        if (shown !== null) console.warn("jarvis-keys: presence=invalid");
         if (shell.status.set("keys", []) !== "ok"
             || shell.status.set("keyStore", Words.keysValue({ kind: "failed" })) !== "ok") throw new Error("jarvis-keys: status=refused");
     }

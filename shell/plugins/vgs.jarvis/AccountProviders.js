@@ -84,7 +84,6 @@ var FAILURE_KEYS = {
     "jarvis-accounts": {
         directory: ["absolute-normal-path-required", "unreadable", "link", "not-directory", "unreadable-or-changed"],
         added: ["shape", "size", "json", "limit", "duplicate", "read-failed", "directory-absent", "write-failed", "cleanup-failed"],
-        discovery: ["directory-unreadable"],
         "key-presence": ["shape"],
         ports: ["reply"],
         reference: ["provider", "item-unavailable", "vendor-login-or-provider"],
@@ -135,4 +134,5 @@ function probeFailure(completion, diagnostic) {
 
 if (typeof module !== "undefined") module.exports = { PROVIDERS: PROVIDERS, runtimeDirectory: runtimeDirectory,
     ACCOUNT_DEPTH: ACCOUNT_DEPTH, accountDirectory: accountDirectory, accountVariables: accountVariables,
-    keyPresence: keyPresence, keyProvider: keyProvider, feedDiagnostic: feedDiagnostic, helperFailure: helperFailure, probeFailure: probeFailure };
+    keyPresence: keyPresence, keyProvider: keyProvider, FAILURE_KEYS: FAILURE_KEYS, feedDiagnostic: feedDiagnostic,
+    helperFailure: helperFailure, probeFailure: probeFailure };

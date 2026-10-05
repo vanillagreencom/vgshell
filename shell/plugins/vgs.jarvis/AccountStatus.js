@@ -2,50 +2,62 @@
 // (docs/architecture/copy.md). A diagnostic key never reaches a value here;
 // the readers log it. Shared by Accounts.qml, Keys.qml and their tests.
 
-// Accounts.js MAX_ROWS: the most accounts one search shows.
-var SHOWN_ACCOUNTS = 32;
-
 function counted(count, one, many) {
     return count === 1 ? "1 " + one : count + " " + many;
 }
 
 /**
  * The `accountSearch` state for an outcome: { kind: "found", found,
- * partial } with partial "", "entry-limit" or "account-limit", or
- * { kind: "failed", reason }, reason the reader's safe failure key
- * (AccountProviders.probeFailure). Accounts is offered unless the saved
- * list it edits is unreadable or Jarvis could not run the check. Any other
- * outcome reads as a failed check.
+ * partial } with partial "", "entry-limit", "parent-unreadable" or
+ * "account-limit", or { kind: "failed", reason }, reason the reader's safe
+ * failure key (AccountProviders.probeFailure). A search, whole or partial,
+ * offers Accounts; a failed check does not, since the folders or saved list
+ * Accounts works on could not be read or Jarvis could not run the check.
+ * Any other outcome reads as a failed check.
  */
 function searchValue(outcome) {
     if (outcome.kind === "found") {
         var found = counted(outcome.found, "account found", "accounts found");
         if (outcome.partial === "entry-limit")
             return { tone: "warning", text: found + ". Your home folder is too large to search fully. Add an account by hand with Accounts.", action: true };
+        if (outcome.partial === "parent-unreadable")
+            return { tone: "warning", text: found + ". Some of your folders could not be read. Add an account by hand with Accounts.", action: true };
         if (outcome.partial === "account-limit")
-            return { tone: "warning", text: "Showing the first " + SHOWN_ACCOUNTS + " accounts found", action: true };
+            return { tone: "warning", text: found + ". Jarvis shows no more than these.", action: true };
         if (outcome.partial === "")
             return outcome.found > 0 ? { tone: "ok", text: found, action: true }
                 : { tone: "info", text: "No account found yet", action: true };
     }
-    var match = outcome.kind === "failed" ? /^jarvis-accounts: ([a-z-]+)=([a-z0-9-]+)$/.exec(outcome.reason) : null;
+    var match = outcome.kind === "failed" ? /^jarvis-accounts: ([a-z-]+)=/.exec(outcome.reason) : null;
     var field = match === null ? "" : match[1];
-    if (field === "directory" || (field === "discovery" && match[2] === "directory-unreadable"))
-        return { tone: "warning", text: "Could not read your home folder. Add an account by hand with Accounts.", action: true };
+    if (field === "directory")
+        return { tone: "danger", text: "Could not read an account folder you named", action: false };
     if (field === "added")
         return { tone: "danger", text: "Could not read your saved accounts", action: false };
     return { tone: "danger", text: "Jarvis could not check for accounts", action: false };
 }
 
 /**
- * The `keyStore` state for { kind: "listed", count } or { kind: "failed" }.
- * Add key is offered in both: it opens the keyring itself.
+ * The `keyStore` state for { kind: "listed", rows }, rows the key presence
+ * reader's, or { kind: "failed" }. Add key is offered in each: it opens the
+ * keyring itself.
  */
 function keysValue(outcome) {
-    if (outcome.kind === "listed")
-        return outcome.count > 0 ? { tone: "ok", text: counted(outcome.count, "key stored", "keys stored"), action: true }
-            : { tone: "info", text: "No key stored yet", action: true };
-    return { tone: "warning", text: "Could not check your keyring", action: true };
+    if (outcome.kind !== "listed") return { tone: "warning", text: "Could not check your keyring", action: true };
+    var rows = outcome.rows;
+    if (rows.length === 0) return { tone: "info", text: "No key stored yet", action: true };
+    var stored = counted(rows.length, "key stored", "keys stored");
+    for (var i = 0; i < rows.length; i++)
+        if (rows[i].value !== "present") return { tone: "warning", text: stored + ". Some are not ready to use.", action: true };
+    return { tone: "ok", text: stored, action: true };
+}
+
+/**
+ * The hint of one key row, "" for none: a row that could not be checked
+ * says so, in place of the reader's diagnostic key.
+ */
+function keyHint(row) {
+    return row.value === "unavailable" ? "Could not check this key." : "";
 }
 
 /**
@@ -73,4 +85,4 @@ function accountHint(account) {
     return text.slice(0, 200);
 }
 
-if (typeof module !== "undefined") module.exports = { searchValue: searchValue, keysValue: keysValue, accountHint: accountHint };
+if (typeof module !== "undefined") module.exports = { searchValue: searchValue, keysValue: keysValue, keyHint: keyHint, accountHint: accountHint };

@@ -48,11 +48,14 @@ function identity(kind, values) {
 // The anchored walk checks each component, including explicit and hand-added
 // paths. An absent default is normal; a linked or unreadable input is not a
 // different account.
-function directory(value, hold = false) {
+function anchored(value) {
     if (!printable(value, 4096) || Buffer.byteLength(value) > 4096
         || !path.isAbsolute(value) || path.normalize(value) !== value)
         fail("directory=absolute-normal-path-required");
-    const opened = Anchored.directory(value);
+    return Anchored.directory(value);
+}
+function directory(value, hold = false) {
+    const opened = anchored(value);
     switch (opened.kind) {
     case "absent": return { kind: "absent" };
     case "directory":
@@ -202,10 +205,13 @@ class Accounts {
     /**
      * The CLI account candidates: explicit roots, each provider's default
      * folder, hand-added rows and the account folders beside them, as
-     * { candidates, partial }, partial the folder search's.
+     * { candidates, partial }. A default folder the user did not name that
+     * is linked or unreadable, or lies under such a home, makes the search
+     * partial "parent-unreadable"; else partial is the folder search's.
      */
     candidates() {
         const candidates = new Map();
+        let partial = "";
         const insert = (row, dir, label) => {
             directory(dir);
             const key = row.id + "\0" + dir;
@@ -214,7 +220,11 @@ class Accounts {
         const cli = PROVIDERS.filter(row => row.kind === "cli");
         for (const row of cli) {
             if (this.explicit[row.id]) insert(row, this.explicit[row.id], path.basename(this.explicit[row.id]));
-            insert(row, path.join(this.home, "." + row.folder), "default");
+            const fallback = path.join(this.home, "." + row.folder);
+            const opened = anchored(fallback);
+            if (opened.kind === "directory") fs.closeSync(opened.fd);
+            if (opened.kind === "directory" || opened.kind === "absent") insert(row, fallback, "default");
+            else partial ||= "parent-unreadable";
         }
         // Hand-added labels win over a generated label for the same path.
         for (const item of this.added()) {
@@ -223,7 +233,7 @@ class Accounts {
         }
         const found = accountFolders({ home: this.home, config: this.config, data: this.data });
         for (const folder of found.folders) insert(provider(folder.provider), folder.directory, folder.label);
-        return { candidates: Array.from(candidates.values()), partial: found.partial };
+        return { candidates: Array.from(candidates.values()), partial: partial || found.partial };
     }
 
     run(command, args, extra = {}) {
@@ -261,7 +271,8 @@ class Accounts {
         return { id: identity("cli", [row.id, candidate.directory]), provider: row.id, label,
             source: { kind: "cli", directory: candidate.directory }, state, marker,
             email, plan,
-            identity: { kind: email && label !== "default" && email !== label ? "mismatch" : "match" } };
+            // Only a label that is itself an email names an identity.
+            identity: { kind: email && label.includes("@") && email !== label ? "mismatch" : "match" } };
     }
 
     // Secret Service labels/attributes only. CLI login items are not API keys.

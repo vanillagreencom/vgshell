@@ -179,9 +179,29 @@ if (require.main === module) {
     const directory = path.join(env.XDG_STATE_HOME, "vgshell/jarvis");
     fs.mkdirSync(directory, { recursive: true });
     if (mode === "failed") fs.writeFileSync(path.join(directory, "accounts.json"), "broken");
-    // More names than AccountFolders.js MAX_PARENT_ENTRIES: a partial search.
-    if (mode === "entry-limit")
+    // More home names than AccountFolders.js MAX_PARENT_ENTRIES, and a
+    // folder in the config home: a partial search. The labels of the folders
+    // among the first 10000 home names fs.opendirSync hands out, and the
+    // config home's, go beside the mode file for the row to compare.
+    if (mode === "entry-limit") {
+        for (let index = 0; index < 8; index++) fs.mkdirSync(path.join(env.HOME, ".claude-" + index));
         for (let index = 0; index <= 10000; index++) fs.writeFileSync(path.join(env.HOME, String(index)), "");
+        fs.mkdirSync(path.join(env.XDG_CONFIG_HOME, ".claude-work"), { recursive: true });
+        const labels = ["work"];
+        const listing = fs.opendirSync(env.HOME);
+        try {
+            for (let read = 0, entry; read < 10000 && (entry = listing.readSync()) !== null; read++)
+                if (entry.isDirectory() && entry.name.startsWith(".claude-")) labels.push(entry.name.slice(".claude-".length));
+        } finally { listing.closeSync(); }
+        fs.writeFileSync(path.join(path.dirname(process.argv[3]), "account-labels"), JSON.stringify(labels.sort()) + "\n");
+    }
+    // A linked config home: the search does not follow it.
+    if (mode === "parent-unreadable") {
+        const target = path.join(env.HOME, "config-target");
+        fs.mkdirSync(path.join(target, ".claude-behind"), { recursive: true });
+        fs.rmSync(env.XDG_CONFIG_HOME, { recursive: true, force: true });
+        fs.symlinkSync(target, env.XDG_CONFIG_HOME);
+    }
     const result = cp.spawnSync("node", [process.argv[2], "presence", process.argv[4]], {
         env, stdio: "inherit" });
     process.exit(result.status ?? 1);

@@ -9,7 +9,7 @@ expected_errors+=('WARN qml: jarvis: hello=timeout')
 expected_errors+=('.*jarvis-account-missing-helper.*')
 # The readers log a failed check's safe cause; the page shows plain words.
 expected_errors+=('WARN qml: jarvis-accounts: (process|output|diagnostic|added|directory|discovery)=[a-z-]+')
-expected_errors+=('WARN qml: jarvis-keys: presence=(failed|invalid)')
+expected_errors+=('WARN qml: jarvis-keys: (presence|busctl)=[a-z-]+')
 
 # Read the actual daemon below the Process-owned J09 launcher. PIDs come
 # only from that launcher's /proc descendants, never a name-based search.
@@ -667,6 +667,25 @@ expect_poll "the key row starts present" matched jarvis_key_value present
 printf 'locked\n' >"$sandbox/jarvis-world/key-mode"
 jarvis_open_key
 expect_poll "the service checks presence after Add key ends" matched jarvis_key_value locked
+# A key the keyring cannot answer for reads unavailable with plain words;
+# the presence check's own key reaches the log alone.
+jarvis_key_unchecked() {
+  ipc smoke jarvisProcess | py_reply '
+import json,sys
+status=json.load(sys.stdin)["status"]
+rows=status.get("keys", [])
+store=status.get("keyStore", {})
+ok=(len(rows) == 1 and rows[0].get("value") == "unavailable" and rows[0].get("hint", "") != ""
+    and store.get("tone") == "warning" and store.get("action") is True)
+print("matched" if ok else "pending")
+'
+}
+printf 'failed\n' >"$sandbox/jarvis-world/key-mode"
+bus_failures_logged="$(jarvis_log_count "jarvis-keys: busctl=failed")"
+jarvis_open_key
+expect_poll "a key the keyring cannot check reads unavailable and warns" matched jarvis_key_unchecked
+expect_poll "the key check's own cause reaches the log" logged jarvis_logged "jarvis-keys: busctl=failed" "$bus_failures_logged"
+expect "the unchecked key shows no diagnostic" plain jarvis_status_plain
 printf 'present\n' >"$sandbox/jarvis-world/key-mode"
 jarvis_open_key
 expect_poll "the key row is present before the whole-probe failure" matched jarvis_key_value present
@@ -740,14 +759,14 @@ cp -- "$repo/shell/plugins/vgs.jarvis/tui/accounts.sh" "$sandbox/jarvis-accounts
 cp -- "$repo/scripts/smoke/fixtures/tui/vgs.jarvis/tui/accounts.sh" "$repo/shell/plugins/vgs.jarvis/tui/accounts.sh"
 jarvis_rescan
 # The hint AccountStatus.js words for the fixture's Claude Code / team in
-# STATE: signed in on plan pro as team@example.invalid, which differs from
-# its folder name, or found with neither.
+# STATE: signed in on plan pro as team@example.invalid, whose folder name
+# names no identity, or found with neither.
 jarvis_hint_of() { # STATE
   "$node_bin" -e '
 const words = require(process.argv[1]);
 const state = process.argv[2];
 process.stdout.write(words.accountHint(state === "signed-in"
-    ? { state, source: "cli", plan: "pro", email: "team@example.invalid", mismatch: true }
+    ? { state, source: "cli", plan: "pro", email: "team@example.invalid", mismatch: false }
     : { state, source: "cli", plan: "", email: "", mismatch: false }));' "$source_repo/shell/plugins/vgs.jarvis/AccountStatus.js" "$1"
 }
 jarvis_account_hint() {
@@ -799,11 +818,58 @@ printf 'signed-in\n' >"$sandbox/jarvis-world/account-mode"
 jarvis_open_accounts
 expect_poll "restored discovery reports login hints" matched jarvis_account_hint signed-in
 # A home folder too large to search whole is a partial search: the
-# accounts read stay, and the row warns and offers Accounts.
+# folders read before the bound and the config home's stay, and the row
+# warns and offers Accounts. The fixture writes the labels of those
+# folders, read from its own listing, beside the mode file.
+jarvis_account_labels() {
+  ipc smoke jarvisProcess | py_reply '
+import json,sys
+rows=json.load(sys.stdin)["status"].get("accounts", [])
+labels=sorted(row["label"][len("Claude Code / "):] for row in rows if row["label"].startswith("Claude Code / "))
+want=json.load(open(sys.argv[1]))
+print("matched" if [label for label in labels if label != "default"] == want else "pending")
+' "$sandbox/jarvis-world/account-labels"
+}
+rm -f -- "${sandbox:?}/jarvis-world/account-labels"
 printf 'entry-limit\n' >"$sandbox/jarvis-world/account-mode"
 jarvis_open_accounts
-expect_poll "a partial search keeps its accounts and warns" '["warning", true, false, false]' jarvis_account_search
+expect_poll "a partial search warns and offers Accounts" '["warning", true, false, false]' jarvis_account_search
+expect_poll "a partial search keeps the folders read before its bound" matched jarvis_account_labels
 expect "the partial search shows no diagnostic" plain jarvis_status_plain
+# A copy that drops the folders read once the bound is met.
+jarvis_folders="$repo/shell/plugins/vgs.jarvis/backend/AccountFolders.js"
+cp -- "$jarvis_folders" "$sandbox/jarvis-folders-original"
+python3 - "$jarvis_folders" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1])
+assert not p.is_symlink()
+s=p.read_text()
+needle='{ partial ||= "entry-limit"; break; }'
+assert s.count(needle)==1
+changed=s.replace(needle, '{ partial ||= "entry-limit"; folders.length = 0; break; }')
+assert changed != s
+p.write_text(changed)
+PY
+rm -f -- "${sandbox:?}/jarvis-world/account-labels"
+jarvis_rescan
+expect_poll "the bound control publishes its partial search" '["warning", true, false, false]' jarvis_account_search
+jarvis_account_bound_control() {
+  (failures=0 behaviour_failures=0
+   expect "the folders read before the bound must stay" matched jarvis_account_labels >"$sandbox/jarvis-account-bound-control.log"
+   echo "$failures")
+}
+expect "dropping the folders read before the bound breaks the folder read" 1 jarvis_account_bound_control
+cp -- "$sandbox/jarvis-folders-original" "$jarvis_folders"
+jarvis_rescan
+expect_poll "the restored search keeps its folders again" matched jarvis_account_labels
+# A linked config home is not followed: the search is partial, keeps the
+# home's folders, warns and offers Accounts.
+printf 'parent-unreadable\n' >"$sandbox/jarvis-world/account-mode"
+jarvis_open_accounts
+expect_poll "a linked parent makes the search partial" '["warning", true, false, false]' jarvis_account_search
+expect_poll "the home's folders stay beside a linked parent" matched jarvis_account_hint signed-in
+expect "the linked parent shows no diagnostic" plain jarvis_status_plain
 # Each failure shows the page's words alone; its safe cause reaches the log.
 for diagnostic_case in \
   'raw-error|jarvis-accounts: process=failed' \
