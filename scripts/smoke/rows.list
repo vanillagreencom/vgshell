@@ -45,6 +45,9 @@ devtools
 overlays
 gallery
 launcher
+# After launcher, which leaves the launcher disabled: this row enables it
+# to find the web app it adds, and disables it again.
+webapps
 list-motion
 notifications
 # After notifications, whose readers and helpers it uses.

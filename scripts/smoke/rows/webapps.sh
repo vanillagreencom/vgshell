@@ -73,7 +73,10 @@ wa_select() {
 # closed by its pid once that pid is the toplevel helper's.
 wa_close_class() {
   local pid
-  for pid in $(hypr -j clients | python3 -c 'import json,sys; print(" ".join(str(c["pid"]) for c in json.load(sys.stdin) if c["class"] == sys.argv[1]))' "$1"); do
+  local pids
+  pids="$(hypr -j clients | py_reply 'import json,sys; print(" ".join(str(c["pid"]) for c in json.load(sys.stdin) if c["class"] == sys.argv[1]) or "none")' "$1")" || { fail "the clients of class $1 are unreadable"; return; }
+  [[ $pids == none ]] && pids=""
+  for pid in $pids; do
     if [[ "$(tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null)" == "$sandbox/toplevel "* ]]; then
       kill -TERM -- "$pid" 2>/dev/null || true
     else
