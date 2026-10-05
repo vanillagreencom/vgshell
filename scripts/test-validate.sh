@@ -455,7 +455,7 @@ cases=(
   "shader-tests|scripts/test-measure-shader.py|offline|python3 scripts/test-measure-shader.py"$'\n'"$repo_plan"
   "keyboard-source|scripts/smoke/keyboard/keyboard.c|all|$keyboard_plan"
   "keyboard-protocol|scripts/smoke/keyboard/virtual-keyboard-unstable-v1.xml|all|$keyboard_plan"
-  "device-fakes-harness|scripts/smoke/devices.sh|all|$keyboard_plan"
+  "device-fakes-harness|scripts/smoke/devices.sh|all|python3 scripts/check-smoke-readers.py"$'\npython3 scripts/test-check-smoke-readers.py\n'"$keyboard_plan"
   "device-fakes-fixture|scripts/smoke/fixtures/devices/stand-in.py|all|python3 scripts/test-displays-brightness.py"$'\n'"$fixture_plan"$'\nscripts/measure-shader.sh'
   "docs|docs/architecture/overview.md|offline|$repo_plan"$'\ndoc_limits_check'
   "runtime-doc|docs/architecture/runtime.md|offline|$readme_plan"$'\ndoc_limits_check'
@@ -611,7 +611,7 @@ cases=(
   "smoke-row|scripts/smoke/rows/example.sh|all|$smoke_plan"
   "capture-worker-suite|scripts/test-capture.py|cli|python3 scripts/test-capture.py"
   "jarvis-key-smoke|scripts/smoke/rows/jarvis-keys.sh|all|node scripts/test-jarvis-daemon.js"$'\n'"$smoke_plan"
-  "jarvis-poll-harness|scripts/smoke/harness.sh|all|node scripts/test-jarvis-daemon.js"$'\nsmoke_reads_named\nscripts/test-smoke-teardown.sh\nscripts/test-sandbox-shots.sh\nscripts/test-gpu-fence.sh\nnode scripts/test-jarvis-env.js\n'"$repo_plan"$'\nscripts/qml-smoke.sh\nscripts/measure-shader.sh'
+  "jarvis-poll-harness|scripts/smoke/harness.sh|all|node scripts/test-jarvis-daemon.js"$'\npython3 scripts/check-smoke-readers.py\npython3 scripts/test-check-smoke-readers.py\nsmoke_reads_named\nscripts/test-smoke-teardown.sh\nscripts/test-sandbox-shots.sh\nscripts/test-gpu-fence.sh\nnode scripts/test-jarvis-env.js\n'"$repo_plan"$'\nscripts/qml-smoke.sh\nscripts/measure-shader.sh'
   "shortcut-provider|shell/Core/ShortcutRegistry.qml|unit|scripts/qml-unit.sh"$'\nscripts/test-qml-unit.sh'
   "key-capture-owner|shell/Core/KeyCapture.qml|unit|scripts/qml-unit.sh"$'\nscripts/test-qml-unit.sh'
   "harness-render|.agents/skills/review-gate/scripts/review-policy|all|$repo_plan"
