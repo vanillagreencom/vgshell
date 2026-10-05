@@ -143,6 +143,10 @@ core-drift
 reset
 # This row restarts the shell for its hidden widget and its control, so it runs with the tail rows that do the same.
 widget-hide
+# It restarts the shell for its pin check and a control, so it runs with the
+# tail rows that do the same; its stand-in tray apps run on the sandbox's
+# private bus and stop before it ends.
+tray
 # After every row that opens a TUI: the stand-in terminal ran no plugin
 # script but a fixture's.
 tui-guard

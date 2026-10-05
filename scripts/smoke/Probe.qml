@@ -273,6 +273,31 @@ Scope {
         return found === undefined ? null : found;
     }
 
+    // The first visible, enabled item named `type` that reads `text`
+    // (reads) inside an open overlay of an instance, a Menu, a Popover or a
+    // Select's list, whose content lives in its own popup window, found
+    // through the overlay's AnchorTracker; inside the first item named
+    // `scopeType` that draws `scopeText` when `scopeType` is not empty, as
+    // scopedItem scopes. null when there is none.
+    function popupItem(hostKey, id, scopeType, scopeText, type, text) {
+        const item = root.instance(hostKey, id);
+        if (item === null) return null;
+        const draws = node => root.descendants(node).some(child => child instanceof Text && root.visibleInTree(child) && child.text === scopeText);
+        for (const owner of root.descendants(item)) {
+            const popup = owner.tracker !== undefined && owner.tracker !== null ? owner.tracker.popup : null;
+            if (popup === null || popup === undefined || !popup.visible) continue;
+            let within = popup.contentItem;
+            if (scopeType !== "") {
+                const scope = root.descendants(within).find(child => root.typeName(child) === scopeType && root.visibleInTree(child) && draws(child));
+                if (scope === undefined) continue;
+                within = scope;
+            }
+            const found = root.descendants(within).find(child => root.typeName(child) === type && root.reads(child, text) && root.visibleInTree(child) && child.enabled);
+            if (found !== undefined) return found;
+        }
+        return null;
+    }
+
     // Whether an item reads `text`: its `text`, its `name` for an icon,
     // its `label` for an icon button, or its `currentText` for a Select,
     // which draws its choice and holds no text of its own.
@@ -1450,6 +1475,16 @@ Scope {
         // whose `text`, or `label` for an icon button, is `text`, as its
         // box in its window's coordinates, or "absent".
         // windowGeometry for the item scopedItem finds.
+        // popupItem's box in screen coordinates, so a row clicks an entry
+        // of an open menu or a control in an open popover, and whether it
+        // reports the pointer over it: "true", "false", or "absent".
+        function popupItemGeometry(hostKey: string, id: string, scopeType: string, scopeText: string, type: string, text: string): string {
+            return root.geometry(root.popupItem(hostKey, id, scopeType, scopeText, type, text));
+        }
+        function popupItemHovered(hostKey: string, id: string, scopeType: string, scopeText: string, type: string, text: string): string {
+            const found = root.popupItem(hostKey, id, scopeType, scopeText, type, text);
+            return found === null ? "absent" : String(found.hovered === true);
+        }
         function scopedWindowGeometry(hostKey: string, id: string, scopeType: string, scopeText: string, type: string, text: string): string {
             const found = root.scopedItem(hostKey, id, scopeType, scopeText, type, text);
             return found === null ? "absent" : root.json(root.windowBox(found));

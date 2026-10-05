@@ -863,7 +863,7 @@ case "$plugin_set" in
     mkdir -p "$tick"
     cp -R "$repo/scripts/smoke/fixtures/plugins/acme.tick/." "$tick/"
     cat >"$home/.config/vgshell/shell.json" <<'JSON'
-{ "version": 1, "bar": { "id": "vgs.bar", "layout": { "left": [], "center": [{ "id": "acme.tick", "format": "ddd d MMM  HH:mm" }], "right": [] } }, "disabledPlugins": ["vgs.launcher", "vgs.notifications", "vgs.settings", "vgs.updates", "vgs.agent-warden", "vgs.devtools", "vgs.automations", "vgs.polkit", "vgs.lock", "vgs.jarvis", "vgs.system", "vgs.sound", "vgs.bluetooth", "vgs.network", "vgs.vpn", "vgs.displays", "vgs.mouse", "vgs.keyboard", "vgs.capture", "vgs.greeter", "vgs.keyhints", "vgs.scratchpads", "vgs.ai-usage"] }
+{ "version": 1, "bar": { "id": "vgs.bar", "layout": { "left": [], "center": [{ "id": "acme.tick", "format": "ddd d MMM  HH:mm" }], "right": [] } }, "disabledPlugins": ["vgs.launcher", "vgs.notifications", "vgs.settings", "vgs.updates", "vgs.agent-warden", "vgs.devtools", "vgs.automations", "vgs.polkit", "vgs.lock", "vgs.jarvis", "vgs.system", "vgs.sound", "vgs.bluetooth", "vgs.network", "vgs.vpn", "vgs.displays", "vgs.mouse", "vgs.keyboard", "vgs.capture", "vgs.greeter", "vgs.keyhints", "vgs.scratchpads", "vgs.ai-usage", "vgs.tray"] }
 JSON
     ;;
   default) default_set_prepare '[]' ;;
@@ -966,11 +966,15 @@ click_centre() {
 # TEXT for the first visible, enabled control TYPE reading TEXT under a
 # built instance, or NAMESPACE ID TYPE PROPERTY VALUE, NAMESPACE a
 # layer's vgs:<name>, for the first visible, enabled item TYPE whose
-# PROPERTY reads VALUE in plugin ID's copies of that layer. The probe
-# answers a layer item's box in its window, so the layer's position from
-# the compositor is added.
+# PROPERTY reads VALUE in plugin ID's copies of that layer, or
+# popup:HOST_KEY ID SCOPE_TYPE SCOPE_TEXT TYPE TEXT for the first visible,
+# enabled control TYPE reading TEXT in an open menu or popover of a built
+# instance, inside the item SCOPE_TYPE drawing SCOPE_TEXT unless SCOPE_TYPE
+# is empty (the probe's popupItem). The probe answers a layer item's box in
+# its window, so the layer's position from the compositor is added.
 control_box() {
   local rect layer
+  if [[ $1 == popup:* ]]; then ipc smoke popupItemGeometry "${1#popup:}" "$2" "$3" "$4" "$5" "$6"; return; fi
   if [[ $1 != vgs:* ]]; then ipc smoke itemGeometry "$1" "$2" "$3" "$4"; return; fi
   rect="$(ipc smoke layerItemGeometry "$2" "$3" "$4" "$5")" || return 1
   if [[ $rect == absent ]]; then echo absent; return; fi
@@ -978,7 +982,8 @@ control_box() {
   python3 -c 'import json,sys; l=json.loads(sys.argv[1]); r=json.loads(sys.argv[2]); print(json.dumps([l[0] + r[0], l[1] + r[1], r[2], r[3]]))' "$layer" "$rect"
 }
 control_hovered() {
-  if [[ $1 == vgs:* ]]; then ipc smoke layerItemHovered "$2" "$3" "$4" "$5"
+  if [[ $1 == popup:* ]]; then ipc smoke popupItemHovered "${1#popup:}" "$2" "$3" "$4" "$5" "$6"
+  elif [[ $1 == vgs:* ]]; then ipc smoke layerItemHovered "$2" "$3" "$4" "$5"
   else ipc smoke itemHovered "$1" "$2" "$3" "$4"
   fi
 }
@@ -1004,6 +1009,7 @@ control_hovered() {
 point_item() { # LOOKUP [DX DY]
   local n=4 lookup rect seen="" x="" y="" px hovered held=0 i
   [[ $1 == vgs:* ]] && n=5
+  [[ $1 == popup:* ]] && n=6
   if (( $# != n && $# != n + 2 )); then echo "point_item: refused: arguments=$# lookup=$n" >&2; return 1; fi
   lookup=("${@:1:n}")
   shift "$n"
