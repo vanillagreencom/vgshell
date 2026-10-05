@@ -8,8 +8,10 @@ import qs.Ui
 // shown one is visible, so Tab from the strip enters that page alone and
 // Shift+Tab returns. The height is the strip, `spacing` and the shown
 // page. Left and Right on the strip change the page, and Ctrl+Tab,
-// Ctrl+Shift+Tab, Ctrl+PageDown and Ctrl+PageUp step it from the strip
-// and from any control of the shown page, round the ends. A hidden item
+// Ctrl+Shift+Tab, Ctrl+PageDown and Ctrl+PageUp step it, round the ends,
+// from the strip and from a control of the shown page that leaves the
+// key: a ShortcutField that captures takes it as the combo, and an open
+// list or menu holds the keyboard in its own surface. A hidden item
 // keeps the keyboard it holds, so when the page that hides holds it the
 // strip takes it with the Tab focus reason, and its ring shows.
 FocusScope {
@@ -26,10 +28,6 @@ FocusScope {
     implicitWidth: Math.max(strip.implicitWidth, currentPage === null ? 0 : currentPage.implicitWidth)
     implicitHeight: strip.height + (currentPage === null ? 0 : spacing + currentPage.height)
 
-    function step(delta) {
-        if (count > 0) currentIndex = (currentIndex + delta + count) % count;
-    }
-
     function show() {
         for (let i = 0; i < stack.children.length; i++) stack.children[i].visible = i === currentIndex;
     }
@@ -45,16 +43,11 @@ FocusScope {
         show();
     }
 
-    // The tab keys a control of the shown page leaves: the strip's
-    // navigator steps for them as it does for its own.
+    // The tab keys a control of the shown page leaves: the strip steps
+    // for them as it does for its own.
     Keys.onPressed: event => {
         const action = KeyNavLogic.intent(event.key, event.modifiers, "horizontal", false);
         if (action === "tabPrev" || action === "tabNext") event.accepted = strip.nav.handle(event);
-    }
-
-    Connections {
-        target: strip.nav
-        function onTabStepped(delta) { root.step(delta); }
     }
 
     Tabs {

@@ -93,6 +93,7 @@ Item {
         currentIndex: root.currentIndex
         orientation: "horizontal"
         wrap: true
+        stepsTabs: true
         spaceActivates: root.spaceActivates
         onMoved: index => root.currentIndex = index
         onActivated: index => root.activated(index)

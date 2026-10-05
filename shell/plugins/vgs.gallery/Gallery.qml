@@ -833,7 +833,7 @@ Item {
                         Field { label: "Enabled"; inline: true; width: parent.width; Switch { size: "sm"; checked: true } }
                         Field { label: "Show in bar"; inline: true; width: parent.width; Switch { size: "sm" } }
                     }
-                    Label { role: "hint"; text: "TabPages shows the open page alone. Ctrl+Tab steps the page from any control in it."; wrapMode: Text.Wrap }
+                    Label { role: "hint"; text: "TabPages shows the open page alone. Ctrl+Tab steps the page from the strip and from a control in the page."; wrapMode: Text.Wrap }
                 }
                 Column {
                     width: parent.width

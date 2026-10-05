@@ -7,7 +7,9 @@ import qs.Ui
 // one. The template owns the index, the left and right keys and the click;
 // this file draws each tab, its label centred `tabs.paddingX` in from each
 // side, and the indicator under the open one. Hover lifts a closed tab's
-// label, a press fills the tab, and a disabled row fades.
+// label, a press fills the tab, and a disabled row fades. While the row
+// holds the keyboard, Ctrl+Tab, Ctrl+Shift+Tab, Ctrl+PageDown and
+// Ctrl+PageUp step the open tab, round the ends.
 T.TabBar {
     id: root
 
@@ -25,7 +27,9 @@ T.TabBar {
         currentIndex: root.currentIndex
         orientation: "horizontal"
         wrap: true
+        stepsTabs: true
         onMoved: index => root.currentIndex = index
+        onTabStepped: delta => moveBy(delta)
     }
 
     contentItem: ListView {

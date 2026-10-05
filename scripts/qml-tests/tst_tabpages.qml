@@ -9,14 +9,16 @@ import qs.Unit
 // Right on the strip show another page and hide the rest; Tab from the
 // strip enters the shown page alone and Shift+Tab returns; Ctrl+Tab,
 // Ctrl+Shift+Tab, Ctrl+PageDown and Ctrl+PageUp step the page from the
-// strip and from a control of the shown page, round the ends; a page that
+// strip, each its own way and round the ends, and from a control of the
+// shown page, where a Select, a SegmentedControl and a Slider keep the
+// value they hold; a page that
 // hides while it holds the keyboard hands it to the strip with its ring,
 // and one that hides while the keyboard is elsewhere leaves the strip the
 // component's focus, which the strip is from the start.
 Item {
     id: root
     width: 400
-    height: 400
+    height: 460
 
     Button { id: before; text: "Before" }
     TabPages {
@@ -28,6 +30,9 @@ Item {
             id: first
             Button { id: save; text: "Save" }
             TextField { id: field; width: parent.width }
+            Select { id: choice; model: ["one", "two", "three"]; currentIndex: 1 }
+            SegmentedControl { id: segments; model: ["a", "b", "c"]; currentIndex: 1 }
+            Slider { id: level; from: 0; to: 100; value: 50; width: parent.width }
         }
         Column {
             id: second
@@ -36,6 +41,7 @@ Item {
     }
     Button { id: after; y: 320; text: "After" }
     TabPages { id: untouched; y: 360; width: 300; model: ["One"]; Item {} }
+    TabPages { id: three; y: 400; width: 300; model: ["One", "Two", "Three"]; Item {} Item {} Item {} }
 
     TestCase {
         name: "tabpages"
@@ -101,18 +107,21 @@ Item {
             compare(after.activeFocus, true, "a hidden page's control is a Tab stop");
         }
 
+        // Three pages tell a step forward from a step back.
         function test_the_tab_keys_step_from_the_strip_round_the_ends() {
-            focusStrip();
+            three.currentIndex = 0;
+            three.tabs.forceActiveFocus(Qt.TabFocusReason);
+            tryCompare(three.tabs, "activeFocus", true);
             keyClick(Qt.Key_Tab, Qt.ControlModifier);
-            compare(pages.currentIndex, 1);
-            keyClick(Qt.Key_Tab, Qt.ControlModifier);
-            compare(pages.currentIndex, 0, "Ctrl+Tab stops at the last page");
-            keyClick(Qt.Key_Backtab, Qt.ControlModifier | Qt.ShiftModifier);
-            compare(pages.currentIndex, 1, "Ctrl+Shift+Tab stops at the first page");
-            keyClick(Qt.Key_PageUp, Qt.ControlModifier);
-            compare(pages.currentIndex, 0);
+            compare(three.currentIndex, 1);
             keyClick(Qt.Key_PageDown, Qt.ControlModifier);
-            compare(pages.currentIndex, 1);
+            compare(three.currentIndex, 2);
+            keyClick(Qt.Key_Tab, Qt.ControlModifier);
+            compare(three.currentIndex, 0, "Ctrl+Tab stops at the last page");
+            keyClick(Qt.Key_Backtab, Qt.ControlModifier | Qt.ShiftModifier);
+            compare(three.currentIndex, 2, "Ctrl+Shift+Tab stops at the first page");
+            keyClick(Qt.Key_PageUp, Qt.ControlModifier);
+            compare(three.currentIndex, 1);
         }
 
         function test_the_tab_keys_step_from_a_control_of_the_page() {
@@ -123,6 +132,34 @@ Item {
             field.forceActiveFocus(Qt.TabFocusReason);
             keyClick(Qt.Key_Tab, Qt.ControlModifier);
             compare(pages.currentIndex, 1, "a text field keeps Ctrl+Tab");
+        }
+
+        function test_the_tab_keys_step_from_a_control_with_keys_of_its_own_data() {
+            return [
+                { tag: "Select", control: choice, value: "currentIndex" },
+                { tag: "SegmentedControl", control: segments, value: "currentIndex" },
+                { tag: "Slider", control: level, value: "value" }
+            ];
+        }
+
+        // Each control starts mid-range, so a key it took as its own, either
+        // way, would move the value it holds.
+        function test_the_tab_keys_step_from_a_control_with_keys_of_its_own(data) {
+            const keys = [
+                [Qt.Key_Tab, Qt.ControlModifier],
+                [Qt.Key_Backtab, Qt.ControlModifier | Qt.ShiftModifier],
+                [Qt.Key_PageDown, Qt.ControlModifier],
+                [Qt.Key_PageUp, Qt.ControlModifier]
+            ];
+            const held = data.control[data.value];
+            for (const [key, modifiers] of keys) {
+                pages.currentIndex = 0;
+                data.control.forceActiveFocus(Qt.TabFocusReason);
+                compare(data.control.activeFocus, true);
+                keyClick(key, modifiers);
+                compare(pages.currentIndex, 1, "key " + key + " with " + modifiers + " stays in the control");
+                compare(data.control[data.value], held, "key " + key + " with " + modifiers + " moves the control");
+            }
         }
 
         function test_the_strip_is_the_components_focus() {

@@ -106,6 +106,10 @@ FocusScope {
         back.forceActiveFocus(reason);
     }
 
+    // The back button and the title sit outside the tab pages, so the keys
+    // they leave go to the pages, which step on the tab keys.
+    Keys.forwardTo: [tabs]
+
     Pane {
         id: layout
         anchors.fill: parent

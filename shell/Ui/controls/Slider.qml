@@ -37,12 +37,15 @@ T.Slider {
     PointerCursor {}
     opacity: enabled ? 1 : Theme.opacity.disabled
     Keys.onPressed: event => {
+        // Ctrl+PageUp and Ctrl+PageDown switch tabs (keyboard.md K3), so
+        // the slider leaves them.
+        const paging = !(event.modifiers & Qt.ControlModifier);
         if (event.key === Qt.Key_Up) commit(value + (stepSize > 0 ? stepSize : pageStep));
         else if (event.key === Qt.Key_Down) commit(value - (stepSize > 0 ? stepSize : pageStep));
         else if (event.key === Qt.Key_Home) commit(from);
         else if (event.key === Qt.Key_End) commit(to);
-        else if (event.key === Qt.Key_PageUp) commit(value + pageStep);
-        else if (event.key === Qt.Key_PageDown) commit(value - pageStep);
+        else if (paging && event.key === Qt.Key_PageUp) commit(value + pageStep);
+        else if (paging && event.key === Qt.Key_PageDown) commit(value - pageStep);
         else {
             event.accepted = false;
             return;

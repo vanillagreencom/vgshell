@@ -30,6 +30,10 @@ Item {
     property bool spaceActivates: true
     // Whether Left and Right cross to choices inside the current vertical row.
     property bool crossAxis: false
+    // Whether the owner steps tabs. An owner that does not leaves
+    // Ctrl+Tab, Ctrl+Shift+Tab, Ctrl+PageDown and Ctrl+PageUp to the
+    // tabbed surface around it.
+    property bool stepsTabs: false
     // Rows moved by PageUp and PageDown.
     property int pageSize: 0
     // Optional viewport height for deriving a page size.
@@ -59,7 +63,7 @@ Item {
     signal removed(int index)
     // Emitted when the selected item's context menu should open.
     signal menuRequested(int index)
-    // Emitted when a tabbed owner should step by `delta`.
+    // Emitted when an owner that `stepsTabs` should step by `delta`.
     signal tabStepped(int delta)
     // Emitted when a row with horizontal choices should step by `delta`.
     signal crossed(int delta)
@@ -153,6 +157,7 @@ Item {
             }
             return false;
         } else if (action === "tabPrev" || action === "tabNext") {
+            if (!stepsTabs) return false;
             tabStepped(action === "tabPrev" ? -1 : 1);
             return true;
         } else if (action === "crossPrev" || action === "crossNext") {

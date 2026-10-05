@@ -75,6 +75,7 @@ Item {
         delegate: content
     }
     SignalSpy { id: activations; target: carousel; signalName: "activated" }
+    SignalSpy { id: tabSteps; target: carousel; signalName: "tabStepped" }
 
     TestCase {
         name: "carousel"
@@ -323,6 +324,18 @@ Item {
                 compare(carousel.currentIndex, want, "key " + key + " with " + modifiers);
             }
             verify(carousel.activeFocus, "Tab stays in the carousel");
+        }
+
+        // Ctrl+PageDown and Ctrl+PageUp are the owner's tabs: the carousel
+        // asks for the step and moves no card.
+        function test_the_tab_keys_ask_the_owner_for_a_step() {
+            tabSteps.clear();
+            keyClick(Qt.Key_PageDown, Qt.ControlModifier);
+            keyClick(Qt.Key_PageUp, Qt.ControlModifier);
+            compare(tabSteps.count, 2);
+            compare(tabSteps.signalArguments[0][0], 1);
+            compare(tabSteps.signalArguments[1][0], -1);
+            compare(carousel.currentIndex, 20);
         }
 
         function test_the_wheel_steps_by_the_notch() {
