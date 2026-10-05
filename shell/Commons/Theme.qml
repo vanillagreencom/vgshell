@@ -69,7 +69,6 @@ Singleton {
     readonly property var listItem: published.listItem
     readonly property var deviceRow: published.deviceRow
     readonly property var sectionHeader: published.sectionHeader
-    readonly property var iconButton: published.iconButton
     readonly property var scrollArea: published.scrollArea
     readonly property var titleButton: published.titleButton
     readonly property var popover: published.popover

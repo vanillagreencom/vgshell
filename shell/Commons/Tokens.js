@@ -694,10 +694,6 @@ var TOKENS = {
         gap: length("{row.lineGap}")
     },
 
-    iconButton: {
-        restOpacity: share(0.6)
-    },
-
     popover: {
         radius: length("{radius.md}"),
         padding: length("{inset.popover}"),

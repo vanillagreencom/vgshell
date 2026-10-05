@@ -25,6 +25,7 @@ Item {
     Button { id: small; text: "Small"; iconName: "check"; size: "sm"; y: 320 }
     Button { id: large; text: "Large"; iconName: "check"; size: "lg"; y: 350 }
     IconButton { id: smallIcon; iconName: "chevron-left"; label: "Back"; size: "sm"; y: 400 }
+    IconButton { id: dangerIcon; iconName: "x"; label: "Close"; variant: "danger"; x: 200; y: 400 }
     SignalSpy { id: clicks; target: primary; signalName: "clicked" }
 
     TestCase {
@@ -155,32 +156,41 @@ Item {
             unnamed.destroy();
         }
 
-        function test_icon_button_opacity_states() {
-            fuzzyCompare(iconOnly.contentItem.opacity, Theme.iconButton.restOpacity, 0.001);
+        // A ghost icon rests in the muted text colour, opaque, and takes its
+        // foreground on hover, focus, press or checked; a disabled button
+        // fades once, on the whole control.
+        function test_icon_button_colour_states() {
+            const rest = String(Qt.color(Theme.color.textMuted));
+            const full = button => String(Qt.color(button.foreground));
+            compare(String(iconOnly.contentItem.color), rest);
+            compare(iconOnly.contentItem.opacity, 1, "the resting icon is opaque");
+            compare(String(dangerIcon.contentItem.color), full(dangerIcon), "a filled variant's icon rests in its foreground");
+            verify(rest !== full(iconOnly), "rest and foreground differ");
             mouseMove(root, root.width - 1, root.height - 1);
             focusIcon.forceActiveFocus(Qt.TabFocusReason);
             tryCompare(focusIcon, "visualFocus", true);
-            tryCompare(focusIcon.contentItem, "opacity", 1);
+            tryVerify(() => String(focusIcon.contentItem.color) === full(focusIcon));
             focusIcon.focus = false;
-            tryCompare(focusIcon.contentItem, "opacity", Theme.iconButton.restOpacity);
-            tryCompare(pressedIcon.contentItem, "opacity", 1);
+            tryVerify(() => String(focusIcon.contentItem.color) === rest);
+            tryVerify(() => String(pressedIcon.contentItem.color) === full(pressedIcon));
             pressedIcon.down = false;
-            tryCompare(pressedIcon.contentItem, "opacity", Theme.iconButton.restOpacity);
-            tryCompare(checkedIcon.contentItem, "opacity", 1);
+            tryVerify(() => String(pressedIcon.contentItem.color) === rest);
+            tryVerify(() => String(checkedIcon.contentItem.color) === full(checkedIcon));
             checkedIcon.checked = false;
-            tryCompare(checkedIcon.contentItem, "opacity", Theme.iconButton.restOpacity);
+            tryVerify(() => String(checkedIcon.contentItem.color) === rest);
             mouseMove(iconOnly, iconOnly.width / 2, iconOnly.height / 2);
-            tryCompare(iconOnly.contentItem, "opacity", 1);
+            tryVerify(() => String(iconOnly.contentItem.color) === full(iconOnly));
             mouseMove(root, 0, root.height - 1);
-            tryCompare(iconOnly.contentItem, "opacity", Theme.iconButton.restOpacity);
+            tryVerify(() => String(iconOnly.contentItem.color) === rest);
             mouseMove(root, root.width - 1, 1);
             tryCompare(disabledIcon, "hovered", false);
             compare(disabledIcon.opacity, Theme.opacity.disabled);
-            fuzzyCompare(disabledIcon.contentItem.opacity, 1, 0.001);
-            compare(UnitTheme.override({ iconButton: { restOpacity: 0.25 } }), "ok");
+            compare(disabledIcon.contentItem.opacity, 1);
+            compare(String(disabledIcon.contentItem.color), full(disabledIcon), "a disabled icon fades once, with its control");
+            compare(UnitTheme.override({ color: { textMuted: "#336699ff" } }), "ok");
             iconOnly.focus = false;
             mouseMove(root, 0, root.height - 1);
-            tryCompare(iconOnly.contentItem, "opacity", 0.25);
+            tryVerify(() => String(iconOnly.contentItem.color) === String(Qt.color(Theme.color.textMuted)));
         }
 
         function test_theme_change_keeps_the_text_readable() {

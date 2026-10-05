@@ -57,7 +57,7 @@ Each value is read from one rule of the stylesheet. A measured value is the reso
 | `Tooltip` | line + 8, wrapping at 280 | 8 | 4 from the anchor | 0 | `tooltip.paddingX`, `tooltip.paddingY`, `tooltip.gap`, `tooltip.maxWidth` | `.control-tooltip` | padding 5 7 | padding 4 8, Radix Tooltip |
 | `Toast` | content + 16 | 8 | 8 between icon, text and close; 8 between toasts | 0 | `toast.padding`, `toast.contentGap`, `toast.gap` | `.toast` | padding 9 12 | padding 8 |
 | `Checkbox`, `Radio`, `Switch` | indicator 16, 16, Switch sm 28 × 16 and md 36 × 20; input at least 24 | | 8 | 0; round for `Radio` and `Switch` | `checkbox.gap`, `radio.gap`, `toggle.size`, `toggle.gap`, `size.control.sm` | Radix Switch size 1 and 2 | 28 × 16 and 35 × 20 | md width is 36 |
-| `IconButton` rest | as `IconButton` | | | 0 | `iconButton.restOpacity` | Geist and Linear icon-only buttons | muted at rest, opaque on interaction | rest opacity 0.6 |
+| `IconButton` rest | as `IconButton` | | | 0 | `color.textMuted` | Geist and Linear icon-only buttons | muted at rest, opaque on interaction | the muted text colour, opaque |
 | `Slider` | 14 handle, 4 track; input at least 24 | | | round | `slider.handle`, `slider.track`, `size.control.sm` | none | | |
 | `Popover` | content + 24 | 12 | 4 from the anchor | 0 | `popover.padding`, `popover.gap` | none | | |
 | `Dialog` | content + 32 | 16 | 12 between the title, the message, the content and the actions; 8 between actions | 0 | `dialog.width`, `dialog.padding`, `dialog.gap`, `dialog.actionGap` | none | | 360 wide |

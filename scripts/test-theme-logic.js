@@ -195,7 +195,6 @@ const DEFAULTS = [
     // a tenth.
     ["deviceRow.battery.warning", 0.2],
     ["deviceRow.battery.danger", 0.1],
-    ["iconButton.restOpacity", 0.6],
     ["voiceOrb.size", 96],
     ["voiceOrb.radius", 0.28],
     ["voiceOrb.gap", 0.045],

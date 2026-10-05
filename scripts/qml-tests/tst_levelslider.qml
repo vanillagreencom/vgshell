@@ -10,12 +10,15 @@ import qs.Unit
 // it; the arrows step it by `stepSize` and hand each new share to `moved`;
 // a drag reports `began`; the readout reads the value as a percentage
 // unless the caller names it, a value above 1 as it is, in a column as wide
-// as "100%"; the button and the slider are each a tab stop.
+// as "100%"; the button and the slider are each a tab stop; the button's
+// glyph starts on the row's start edge, and hover draws no fill.
 Item {
     id: root
     width: 600
-    height: 200
+    height: 300
 
+    Rectangle { id: ground; y: 200; width: root.width; height: 100; color: "black" }
+    LevelSlider { id: flush; x: 100; y: 230; width: 400; iconName: "mic"; buttonLabel: "Mute input"; value: 0.5 }
     LevelSlider { id: level; width: 400; iconName: "volume-2"; buttonLabel: "Mute output"; value: 0.45; stepSize: 0.05 }
     LevelSlider { id: named; y: 100; width: 400; iconName: "volume-x"; buttonLabel: "Unmute output"; value: 0.3; text: "Muted" }
     SignalSpy { id: moves; target: level; signalName: "moved" }
@@ -76,6 +79,48 @@ Item {
             compare(readout(level).text, "150%", "a level above full reads as it is");
             compare(level.slider.value, 1, "the slider stands at its end");
             compare(readout(named).text, "Muted");
+        }
+
+        // The first column of the band the button covers that holds ink,
+        // read from the drawn frame. The glyph's left edge stands within
+        // the half pixel its whole-pixel placement leaves of the row's
+        // start edge, x = 100; the button's box reaches past that edge.
+        function test_the_glyph_starts_on_the_row_edge() {
+            wait(100);
+            const b = button(flush);
+            const top = b.mapToItem(ground, 0, 0).y;
+            const img = grabImage(ground);
+            let first = -1;
+            for (let x = 0; x < flush.x + b.x + b.width && first < 0; x++)
+                for (let y = Math.floor(top); y < top + b.height; y++)
+                    if (img.red(x, y) > 40) { first = x; break; }
+            verify(first >= 0, "the glyph drew");
+            verify(Math.abs(first - flush.x) <= 1, "the glyph's ink starts at " + first + ", not on the row's edge " + flush.x);
+            verify(Math.abs(b.x + b.glyphStart) <= 0.5, "the glyph's painted edge is " + (b.x + b.glyphStart) + " from the row's edge");
+        }
+
+        // Hover and press change the icon's colour and draw no fill: over
+        // a black ground, every pixel of the button's box outside its icon
+        // stays black.
+        function test_hover_draws_no_fill() {
+            const b = button(flush);
+            const rest = String(b.contentItem.color);
+            mouseMove(b, b.width / 2, b.height / 2);
+            tryCompare(b, "hovered", true);
+            tryVerify(() => String(b.contentItem.color) === String(Qt.color(b.foreground)), 1000, "hover takes the full colour");
+            verify(rest !== String(b.contentItem.color), "hover changes the icon's colour");
+            mousePress(b, b.width / 2, b.height / 2);
+            wait(Theme.motion.duration.fast + 50);
+            const box = b.mapToItem(ground, 0, 0), icon = b.contentItem.mapToItem(ground, 0, 0);
+            const img = grabImage(ground);
+            mouseRelease(b, b.width / 2, b.height / 2);
+            let filled = 0;
+            for (let x = Math.max(0, Math.round(box.x)); x < box.x + b.width; x++)
+                for (let y = Math.round(box.y); y < box.y + b.height; y++) {
+                    const inIcon = x >= icon.x - 1 && x <= icon.x + b.contentItem.width && y >= icon.y - 1 && y <= icon.y + b.contentItem.height;
+                    if (!inIcon && (img.red(x, y) > 0 || img.green(x, y) > 0 || img.blue(x, y) > 0)) filled++;
+                }
+            compare(filled, 0, "the hovered, pressed button draws a fill");
         }
 
         function test_the_button_and_the_slider_are_tab_stops() {
