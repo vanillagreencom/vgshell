@@ -50,12 +50,12 @@
 // pacman (packaging/arch/{vgshell,vgshell-git}/.SRCINFO): depends and optdepends;
 // optdepends may name more than the requirements. Hard dependencies are
 // exactly the required union. vgshell: pkgver is VERSION's
-// line; arch is any; no replaces; source is the release tarball URL; one sha256sums entry, SKIP
+// line; arch is any; source is the release tarball URL; one sha256sums entry, SKIP
 // only while the tag v<pkgver> does not exist, otherwise 64 lower-case hex
-// digits. vgshell-git: arch is any; provides holds vgshell=<pkgver>; makedepends holds git; no
-// replaces; no source; url is the repository URL; the PKGBUILD's prepare()
-// holds GIT_CLONE, the clone of main alone. Conflicts are exactly vgshell on
-// vgshell-git and none on vgshell: a missing or an extra entry is refused. Both: install is <pkgname>.install,
+// digits. vgshell-git: arch is any; makedepends holds git; no source; url is
+// the repository URL; the PKGBUILD's prepare() holds GIT_CLONE, the clone of
+// main alone. Both: no conflicts, replaces or provides entry, refused as
+// <tag>=<value> recipe=<name>; install is <pkgname>.install,
 // the scriptlet beside the PKGBUILD; its post_install prints MESSAGE under
 // /usr; the two scriptlets are the same text; the PKGBUILD's package()
 // holds PACMAN_INSTALL, the system install with SYSCONFDIR, so the package
@@ -72,8 +72,9 @@
 // the browser theme writer, its sudoers rule, 0440 and noreplace, and the
 // XDG autostart entry, noreplace, in %files, and print MESSAGE from %post on a first install only. vgshell.spec's Version is VERSION's line and
 // its newest %changelog entry is that version at its Release. vgshell-git.spec
-// provides vgshell at its version, conflicts with vgshell and ends with an empty
-// %changelog, which packaging/fedora/srpm.sh fills.
+// ends with an empty %changelog, which packaging/fedora/srpm.sh fills. Neither
+// spec has a Conflicts, Obsoletes or Provides tag, refused as
+// <tag lowercase>=<value> spec=<file>.
 // Licence, after every channel: the package licence expression
 // docs/architecture/distribution.md § Licence states, its line
 // "- The SPDX licence expression of a VGS package is `<expr>`.", equals
@@ -314,14 +315,9 @@ function pacmanRules(recipes, reads, version) {
     if (scriptlets.some(text => text !== scriptlets[0])) refuse("scriptlet=differs recipes=" + recipes.map(r => r.name).join(","));
     recipes.forEach((recipe, i) => {
         const info = reads[i].info;
-        const has = (key, value) => (info[key] || []).includes(value);
         if (one(info.arch) !== "any") refuse("arch=" + one(info.arch) + " recipe=" + recipe.name);
-        if ((info.replaces || []).length > 0) refuse("replaces=" + one(info.replaces) + " recipe=" + recipe.name);
-        const conflicts = recipe.name === "vgshell-git" ? ["vgshell"] : [];
-        for (const conflict of conflicts)
-            if (!has("conflicts", conflict)) refuse("conflicts=missing package=" + conflict + " recipe=" + recipe.name);
-        for (const conflict of info.conflicts || [])
-            if (!conflicts.includes(conflict)) refuse("conflicts=extra package=" + conflict + " recipe=" + recipe.name);
+        for (const tag of ["conflicts", "replaces", "provides"])
+            if ((info[tag] || []).length > 0) refuse(tag + "=" + one(info[tag]) + " recipe=" + recipe.name);
         const pkgver = one(info.pkgver);
         if (recipe.name === "vgshell") {
             if (pkgver !== version) refuse("pkgver=" + pkgver + " version=" + version + " recipe=vgshell");
@@ -337,7 +333,6 @@ function pacmanRules(recipes, reads, version) {
         } else {
             if ((info.source || []).length > 0) refuse("source=" + one(info.source) + " recipe=vgshell-git", "want none: prepare() clones main alone");
             if (one(info.url) !== REPO_URL) refuse("url=" + (one(info.url) || "missing") + " recipe=vgshell-git", "want " + REPO_URL + ": prepare() clones $url.git");
-            if (!has("provides", "vgshell=" + pkgver)) refuse("provides=missing want=vgshell=" + pkgver + " recipe=vgshell-git");
             if (!(info.makedepends || []).some(text => pacmanEntry(text).name === "git")) refuse("makedepends=missing package=git recipe=vgshell-git");
         }
     });
@@ -418,6 +413,8 @@ function dnfRules(recipes, reads, version) {
         if (name !== recipe.name) refuse(`name=mismatch spec=${recipe.spec} have=${name} want=${recipe.name}`);
         const arch = tagOne(reads[i], "BuildArch", recipe.spec);
         if (arch !== "noarch") refuse(`buildarch=${arch} spec=${recipe.spec} want=noarch`);
+        for (const tag of ["Conflicts", "Obsoletes", "Provides"])
+            if ((reads[i].tags[tag] || []).length > 0) refuse(tag.toLowerCase() + "=" + one(reads[i].tags[tag]) + " spec=" + recipe.spec);
     });
     for (const tag of ["License", "URL", "BuildRequires"]) {
         const a = (rel.tags[tag] || []).slice().sort(), b = (git.tags[tag] || []).slice().sort();
@@ -439,8 +436,6 @@ function dnfRules(recipes, reads, version) {
     const wantEntry = `- ${relVersion}-${release}`;
     if (entries.length === 0 || !entries[0].endsWith(wantEntry))
         refuse(`changelog=mismatch spec=vgshell.spec want=...${wantEntry} have=${entries.length > 0 ? entries[0] : "none"}`);
-    if (!(git.tags.Provides || []).includes("vgshell = %{version}")) refuse("provides=missing spec=vgshell-git.spec want=vgshell = %{version}");
-    if (!(git.tags.Conflicts || []).includes("vgshell")) refuse("conflicts=missing spec=vgshell-git.spec want=vgshell");
     if (git.sections["%changelog"] === undefined) refuse("changelog=missing spec=vgshell-git.spec");
     if (git.sections["%changelog"].some(line => line.trim() !== "")) refuse("changelog=entries spec=vgshell-git.spec", "want empty: srpm.sh writes the entry");
 }

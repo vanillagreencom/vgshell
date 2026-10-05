@@ -23,9 +23,6 @@ BuildRequires:  bash
 BuildRequires:  coreutils
 BuildRequires:  python3
 
-Provides:       vgshell = %{version}
-Conflicts:      vgshell
-
 # begin runtime dependencies
 Requires:       quickshell >= 0.3.1
 Requires:       hyprland >= 0.56
@@ -87,7 +84,7 @@ VGS is a desktop shell for Hyprland, built on Quickshell. A small fixed core
 starts the shell, talks to Hyprland, hosts surfaces and loads plugins; the
 bar, its widgets, every panel and every background service are plugins.
 
-This package follows the main branch. It provides and conflicts with vgs.
+This package follows the main branch.
 
 %prep
 %autosetup -n vgshell-%{vgs_commit}

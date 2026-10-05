@@ -20,6 +20,11 @@ defaults:
 jobs:
   validate:
     name: ${{ matrix.area }}
+    # Runs only when the repository variable NIGHTLY is "on", which is set
+    # while the repository is public. An unset variable reads as an empty
+    # string (https://docs.github.com/en/actions/reference/workflows-and-actions/contexts,
+    # `vars` context), so a private repository skips the job and bills nothing.
+    if: vars.NIGHTLY == 'on'
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false

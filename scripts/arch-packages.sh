@@ -24,18 +24,19 @@
 # Official packages come from pacman. AUR dependencies build as builder
 # after their own declared dependencies install in this container. Then
 # build vgshell and vgshell-git with makepkg as an unprivileged user and no network.
-# Install vgshell with `pacman -U --ask 4`: `vgshell --version` must print `vgshell
+# Install vgshell with `pacman -U`: `vgshell --version` must print `vgshell
 # <VERSION>`, /usr/bin/vgshell must link to ../share/vgshell/bin/vgshell, pacman's
 # output must hold every line of the first-install text, and the browser
 # theme writer /usr/bin/vgshell-browser-policy must be a regular file root:root
 # 0755 beside the rule /etc/sudoers.d/vgshell-theme-browser, root:root 0440,
 # that `visudo -cf` accepts and that grants every user the writer with six
 # hex classes; `vgshell theme setup` must read the chromium setup not-detected
-# without a browser and done with a stand-in chromium on PATH. Then vgshell-git
-# the same way, where `--ask 4` answers yes to the conflict question: its
-# build must have made a partial clone, vgshell must be gone, the pkgver must be
-# X.Y.Z.r<N>.g<hash> with the hash a prefix of the built commit, vgshell-git
-# must provide vgshell=<pkgver>, and the vgshell checks must hold again.
+# without a browser and done with a stand-in chromium on PATH. Then remove
+# vgshell with `pacman -R` and check it is gone, since neither recipe
+# declares conflicts, replaces or provides and both own the same files, and
+# install vgshell-git the same way: its build must have made a partial clone,
+# the pkgver must be X.Y.Z.r<N>.g<hash> with the hash a prefix of the built
+# commit, and the vgshell checks must hold again.
 #
 # Exit 0 prints `arch-packages: ok commit=<sha> vgshell=<version> vgshell-git=<pkgver>`.
 # Exit 1 prints `arch-packages: refused: <key>=<value> ...` first: a
@@ -65,7 +66,7 @@ not_measured() { # REASON [DETAIL...]
 
 case "${1:-}" in
   "") ;;
-  -h|--help) sed -n '2,45{s/^# \{0,1\}//;p}' "$self"; exit 0 ;;
+  -h|--help) sed -n '2,46{s/^# \{0,1\}//;p}' "$self"; exit 0 ;;
   *) refuse 2 "argument=$1" ;;
 esac
 [[ $# -le 1 ]] || refuse 2 "argument=$2"
@@ -220,7 +221,7 @@ installed() { # NAME
   grep -qxF -e "$1" <<<"$names"
 }
 install_pkg() { # FILE NAME
-  pacman -U --noconfirm --ask 4 "$1" >"/tmp/install-$2.log" 2>&1 ||
+  pacman -U --noconfirm "$1" >"/tmp/install-$2.log" 2>&1 ||
     refuse "install=failed package=$2" "$(tail -n 40 "/tmp/install-$2.log")"
   installed "$2" || refuse "install=absent package=$2"
 }
@@ -290,13 +291,13 @@ link="$(readlink /usr/bin/vgshell)" || refuse "link=missing path=/usr/bin/vgshel
 browser_policy vgshell
 vgs_ver="$(pacman -Q vgshell)"; vgs_ver="${vgs_ver#vgshell }"
 
+pacman -R --noconfirm vgshell >/tmp/remove-vgshell.log 2>&1 ||
+  refuse "remove=failed package=vgshell" "$(tail -n 40 /tmp/remove-vgshell.log)"
+! installed vgshell || refuse "remove=kept package=vgshell"
 install_pkg "$git_pkg" vgshell-git
-! installed vgshell || refuse "conflict=kept package=vgshell by=vgshell-git" "$(pacman -Q)"
 full="$(pacman -Q vgshell-git)"; full="${full#vgshell-git }"; pkgver="${full%-*}"
 [[ $pkgver =~ ^[0-9]+\.[0-9]+\.[0-9]+\.r[0-9]+\.g([0-9a-f]{7,})$ && $commit == "${BASH_REMATCH[1]}"* ]] ||
   refuse "pkgver=$pkgver commit=$commit package=vgshell-git"
-provides="$(LC_ALL=C pacman -Qi vgshell-git | sed -n 's/^Provides *: //p')"
-[[ " $provides " == *" vgshell=$pkgver "* ]] || refuse "provides=${provides// /,} want=vgshell=$pkgver package=vgshell-git"
 vgshell_version vgshell-git
 doctor_holds vgshell-git
 message_printed vgshell-git

@@ -24,11 +24,10 @@
 # /etc/sudoers.d/vgshell-theme-browser root:root 0440 that `visudo -cf`
 # accepts, granting every user the writer with six hex classes, with
 # `vgshell theme setup` reading the chromium setup not-detected without a
-# browser and done with a stand-in chromium on PATH; proves vgshell-git
-# refuses to install beside vgshell,
-# replaces it with --allowerasing, provides vgshell at its own version, and
-# passes the same checks; and proves vgshell then refuses to install beside
-# vgshell-git.
+# browser and done with a stand-in chromium on PATH; then removes vgshell,
+# since neither spec declares Conflicts, Obsoletes or Provides and both own
+# the same files, installs vgshell-git, checks its version and runs the same
+# checks.
 #
 # The preflight runs twice per package. `vgshell run` with no Hyprland must
 # refuse at hyprland alone, so the installed Quickshell met its floor. Then
@@ -57,13 +56,6 @@ inside() {
     fi
     line="$(tail -n 1 -- "/work/logs/$name.log")"
   }
-  # True when installing RPM failed because of the vgshell conflict, not for
-  # any other cause; prints dnf's conflict line.
-  refused_as_conflict() { # NAME RPM
-    ! dnf -y install "$2" >"/work/logs/$1.log" 2>&1 &&
-      grep -m 1 -E 'conflicts with vgshell provided by vgshell(-git)?-[0-9]' "/work/logs/$1.log" | sed 's/^ */fedora-container: refused as wanted: /'
-  }
-
   cd /work/src
   mkdir -p /work/logs /work/out
   version="$(cat VERSION)"
@@ -181,18 +173,13 @@ EOF
   done < <(sed -n '/^# begin runtime dependencies$/,/^# end runtime dependencies$/p' packaging/fedora/vgshell.spec)
   checks vgshell
 
-  refused_as_conflict refuse-vgshell-git "$(echo "$rpms"/vgshell-git-*.noarch.rpm)" ||
-    fail "vgshell-git beside vgshell was not refused as a conflict: $(tail -n 5 /work/logs/refuse-vgshell-git.log)"
-  logged install-vgshell-git dnf -y install --allowerasing "$rpms"/vgshell-git-*.noarch.rpm
-  ! rpm -q vgshell >/dev/null || fail "vgshell is still installed beside vgshell-git"
+  logged remove-vgs dnf -y remove vgshell
+  ! rpm -q vgshell >/dev/null || fail "vgshell is still installed after dnf removed it"
+  logged install-vgshell-git dnf -y install "$rpms"/vgshell-git-*.noarch.rpm
   out="$(rpm -q --qf '%{VERSION}' vgshell-git)"
   [[ $out == "$git_version" ]] || fail "vgshell-git version [$out], want [$git_version]"
-  out="$(rpm -q --whatprovides --qf '%{NAME} %{VERSION}\n' vgshell)"
-  [[ $out == "vgshell-git $git_version" ]] || fail "vgshell provided by [$out]"
   checks vgshell-git
 
-  refused_as_conflict refuse-vgs "$(echo "$rpms/vgshell-$version-"*.noarch.rpm)" ||
-    fail "vgshell beside vgshell-git was not refused as a conflict: $(tail -n 5 /work/logs/refuse-vgs.log)"
   step "ok vgshell=$version vgshell-git=$git_version"
 }
 
@@ -204,7 +191,7 @@ fi
 image=registry.fedoraproject.org/fedora:44
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -h|--help) sed -n '2,40{s/^# \{0,1\}//;p}' "$self"; exit 0 ;;
+    -h|--help) sed -n '2,39{s/^# \{0,1\}//;p}' "$self"; exit 0 ;;
     --image)
       [[ $# -ge 2 && -n $2 ]] || { echo 'fedora-container: refused: argument=--image value=missing' >&2; exit 2; }
       image="$2"; shift 2 ;;

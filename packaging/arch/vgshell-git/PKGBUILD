@@ -79,8 +79,6 @@ optdepends=(
   'polkit: pkexec, so applications can ask for administrator access'
 )
 makedepends=('git')
-provides=("vgshell=$pkgver")
-conflicts=('vgshell')
 install=vgshell-git.install
 
 # No git+ source: makepkg clones one as a mirror of every ref the remote

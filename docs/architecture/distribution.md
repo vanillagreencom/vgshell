@@ -61,7 +61,7 @@ Debian, Ubuntu, openSUSE, Gentoo and Void get no channel until their repositorie
 
 - `bin/lib/post-install.txt` is the text a package prints on a first install. It names the command, `vgshell`, and says that `vgs` is LVM's command from `lvm2`. It says that a uwsm session starts VGS at login, and names `vgshell run`, the autostart line a session without uwsm needs for `~/.config/hypr/hyprland.lua`, that Chromium, Chrome, Edge and Brave follow the theme, and the installed README's path. The install tree ships it at `share/vgshell/bin/lib/post-install.txt`.
 - A package's scriptlet prints that file and holds no text of its own: `post_install` in the Arch recipes ([distribution-arch.md](distribution-arch.md)) and `%post` in the Fedora specs ([distribution-fedora.md](distribution-fedora.md)). `scripts/check-packaging.js` refuses a recipe whose scriptlet does not print it, and an install tree manifest without the file.
-- A package prints it on a first install, and when it takes the place of a package it conflicts with. An upgrade prints nothing: a user who upgrades has started the shell before.
+- A package prints it on a first install. An upgrade prints nothing: a user who upgrades has started the shell before.
 - `scripts/check-readme.js` holds the README's autostart line to the file's line ([install-guide.md](install-guide.md)).
 - `install.sh` prints its own line, because it fills in the absolute path of the `vgshell` it installed ([distribution-curl.md](distribution-curl.md)).
 

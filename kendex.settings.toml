@@ -9,7 +9,7 @@ CI_FIX_MAX_CYCLES = "6"
 PR_REVIEW_GATE = "off"
 DECISIONS_DIR = "docs/decisions"
 DECISIONS_BASE_REF = "origin/main"
-# Issue branches use the vgs Linear identifier: vgshell-<n>-<slug>.
+# Issue branches use the vgs Linear identifier: vgs-<n>-<slug>.
 GH_ISSUE_PATTERN = "vgs-[0-9]+"
 LINEAR_FORMAT = "safe"
 ORCH_STATE_DIR = "tmp"
