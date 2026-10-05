@@ -9,7 +9,7 @@
   "icon": "camera",
   "kinds": ["service", "bar-widget", "panel"],
   "entryPoints": { "service": "Service.qml", "bar-widget": "Widget.qml", "panel": "Panel.qml" },
-  "capabilities": ["compositor", "configure", "ipc", "monitors", "requirements", "shortcut", "status", "surfaces", "toasts", "tui"],
+  "capabilities": ["compositor", "configure", "ipc", "monitors", "requirements", "run", "shortcut", "status", "surfaces", "toasts", "tui"],
   "defaultSection": "right",
   "requirements": [
     { "command": "grim", "packages": { "pacman": "grim", "dnf": "grim", "nix": "grim" }, "optional": false, "purpose": "Captures screenshots and images for text recognition" },
@@ -19,10 +19,16 @@
     { "command": "tesseract", "packages": { "pacman": "tesseract", "dnf": "tesseract", "nix": "tesseract" }, "optional": false, "purpose": "Recognizes text in a captured area" },
     { "command": "gpu-screen-recorder", "packages": { "pacman": "gpu-screen-recorder", "nix": "gpu-screen-recorder" }, "optional": false, "purpose": "Records an area, a window or a whole output on Arch" },
     { "command": "ffmpeg", "packages": { "pacman": "ffmpeg", "dnf": "ffmpeg-free", "nix": "ffmpeg" }, "optional": false, "purpose": "Trims and levels a finished recording and makes its thumbnail" },
-    { "command": "pw-dump", "packages": { "pacman": "pipewire", "apt": "pipewire-bin", "dnf": "pipewire-utils", "nix": "pipewire" }, "optional": false, "purpose": "Lists the audio sources and cameras a recording can use, without opening them" }
+    { "command": "pw-dump", "packages": { "pacman": "pipewire", "apt": "pipewire-bin", "dnf": "pipewire-utils", "nix": "pipewire" }, "optional": false, "purpose": "Lists the audio sources and cameras a recording can use, without opening them" },
+    { "command": "notify-send", "packages": { "pacman": "libnotify", "dnf": "libnotify", "nix": "libnotify" }, "optional": false, "purpose": "Shows the notification of a finished capture" },
+    { "command": "gdbus", "packages": { "pacman": "glib2", "dnf": "glib2", "nix": "glib" }, "optional": false, "purpose": "Closes Capture's notifications when Capture stops" },
+    { "command": "imv", "packages": { "pacman": "imv", "dnf": "imv", "nix": "imv" }, "optional": true, "purpose": "Opens a saved screenshot from its notification" },
+    { "command": "satty", "packages": { "pacman": "satty", "nix": "satty" }, "optional": true, "purpose": "Edits a saved screenshot from its notification" },
+    { "command": "mpv", "packages": { "pacman": "mpv", "dnf": "mpv", "nix": "mpv" }, "optional": true, "purpose": "Plays a saved recording from its notification" }
   ],
   "settings": { "folder": "", "recordFolder": "", "audio": "desktop", "smart": true, "delay": 0, "cursor": false, "processing": "save-copy", "timeout": 10,
-    "quality": "very_high", "frameRate": 60, "codec": "auto", "constantFrameRate": true, "recordCursor": false, "audioSources": [], "webcam": false, "webcamDevice": "", "postProcess": true, "ocrLanguages": "eng" },
+    "quality": "very_high", "frameRate": 60, "codec": "auto", "constantFrameRate": true, "recordCursor": false, "audioSources": [], "webcam": false, "webcamDevice": "", "postProcess": true, "ocrLanguages": "eng",
+    "viewer": "imv %f", "editor": "satty --filename %f --output-filename %f", "player": "mpv %f" },
   "schema": {
     "smart": { "type": "boolean", "label": "Click to select a window or display", "group": "Screenshots" },
     "delay": { "type": "number", "label": "Screenshot delay", "min": 0, "max": 60, "step": 1, "unit": "seconds", "group": "Screenshots" },
@@ -57,7 +63,13 @@
         { "value": "chi_sim", "label": "Chinese, simplified" },
         { "value": "jpn", "label": "Japanese" },
         { "value": "kor", "label": "Korean" }
-      ], "allowCustom": true }
+      ], "allowCustom": true },
+    "viewer": { "type": "string", "label": "Image viewer", "description": "Opens a saved screenshot, with %f as the file", "group": "Open with",
+      "presets": [{ "value": "imv %f", "label": "imv" }], "allowCustom": true },
+    "editor": { "type": "string", "label": "Image editor", "description": "Edits a saved screenshot, with %f as the file", "group": "Open with",
+      "presets": [{ "value": "satty --filename %f --output-filename %f", "label": "Satty" }], "allowCustom": true },
+    "player": { "type": "string", "label": "Video player", "description": "Plays a saved recording, with %f as the file", "group": "Open with",
+      "presets": [{ "value": "mpv %f", "label": "mpv" }], "allowCustom": true }
   },
   "hyprland": { "binds": [
     { "shortcut": "screenshot", "key": "PRINT" },
@@ -74,6 +86,6 @@
     "languages": { "type": "state", "label": "Text languages", "hint": "English is installed with Capture. Install languages adds the data for the other chosen text languages.", "action": { "label": "Install languages", "tui": "install-languages" } }
   },
   "tui": {
-    "install-languages": { "script": "tui/install-languages.sh", "title": "Install text languages" }
+    "install-languages": { "script": "tui/install-languages.sh", "title": "Install text languages", "requires": ["tesseract"] }
   }
 }

@@ -8,6 +8,7 @@ import qs.Commons
 // One service owns the worker, every IPC and shortcut, and all status writes.
 // The worker's stdin carries recording stop; its lifetime owns every tool.
 // A probe worker reads the offered devices and missing languages for status.
+// A finished capture raises a notification through one notify-send run each.
 Item {
     id: root
     property var shell: null
@@ -21,6 +22,13 @@ Item {
     property var countdownToast: null
     property var waitingWindows: []
     property var waitingMonitors: []
+    // The notify-send runs that offer buttons, oldest first. A run waits for
+    // its notification to close, and vgs.notifications keeps an expired
+    // toast's notification open for its History row
+    // (NotificationLogic.heldAfterLeave), so a run can wait for good: past
+    // noticesMax the oldest run's notification closes.
+    property var notices: []
+    readonly property int noticesMax: 8
     readonly property var settings: shell === null ? ({}) : shell.settings
     readonly property string helperPath: decodeURIComponent(String(Qt.resolvedUrl("helper/capture.py")).replace(/^file:\/\//, ""))
     readonly property var outputs: shell === null ? null : shell.monitors.outputs
@@ -116,7 +124,8 @@ Item {
     }
 
     function requiredTools(name) {
-        const required = tools[name];
+        // Every finished capture raises its notification through notify-send.
+        const required = tools[name].concat(["notify-send"]);
         if (name.indexOf("screenshot") === 0 && shell.settings.processing !== "save") return required.concat(["wl-copy"]);
         // The worker asks PipeWire for the camera, and for the first offered
         // source of an empty audio source.
@@ -215,7 +224,7 @@ Item {
         const s = shell.settings;
         const request = { action: name, output: output, folder: s.folder, recordFolder: s.recordFolder, audio: s.audio, smart: s.smart, delay: s.delay, cursor: s.cursor, processing: s.processing, timeout: s.timeout,
             quality: s.quality, frameRate: s.frameRate, codec: s.codec, constantFrameRate: s.constantFrameRate, recordCursor: s.recordCursor, audioSources: s.audioSources, webcam: s.webcam, webcamDevice: s.webcamDevice,
-            postProcess: s.postProcess, ocrLanguages: s.ocrLanguages, stateDir: Paths.stateDir, windows: selection ? windowRectangles() : [], outputs: outputRectangles() };
+            postProcess: s.postProcess, ocrLanguages: s.ocrLanguages, editor: s.editor, viewer: s.viewer, player: s.player, stateDir: Paths.stateDir, windows: selection ? windowRectangles() : [], outputs: outputRectangles() };
         const job = workerComponent.createObject(root, { actionName: name, focusAddress: focused === null ? "" : focused.address, command: ["python3", helperPath, JSON.stringify(request)] });
         if (job === null) {
             phase = "idle";
@@ -282,12 +291,12 @@ Item {
         case "saved":
             job.answered = true;
             lastPath = event.path;
-            savedNotice(job, event);
+            notify(noticeCommand(job, event, Quickshell.processId), event.actions);
             finishAction(job);
             break;
         case "copied":
             job.answered = true;
-            notice(job.actionName === "text" ? "Text copied" : "Screenshot copied", job.actionName === "text" ? "Text from the selected area is on the clipboard" : "The screenshot is on the clipboard", "success");
+            notify(noticeCommand(job, event, Quickshell.processId), []);
             finishAction(job);
             break;
         case "cancelled":
@@ -313,16 +322,89 @@ Item {
         notice(event.reason === "language-data-unavailable" ? "Text capture unavailable" : "Capture failed", event.message, "danger");
     }
 
-    // Every saved screenshot and recording; a failed post-process keeps the
-    // recording as recorded and shows the end of the recorder log.
-    function savedNotice(job, event) {
+    // The notify-send argv for a saved or copied capture, run as a child of
+    // PARENT, the shell. It execs through the helper's parent-death
+    // trampoline, so the shell's end sends notify-send SIGINT, which closes
+    // the notification. A saved file is its image, a recording's thumbnail;
+    // each of the worker's actions is a button, and notify-send prints the
+    // id of the one pressed. A failed post-process keeps the recording as
+    // recorded and shows the end of the recorder log.
+    function noticeCommand(job, event, parent) {
         const recording = isRecord(job.actionName);
-        let message = event.path;
-        if (recording && event.processing === "failed") {
-            message += "\nProcessing failed, so the recording is kept as recorded.";
-            if (event.detail !== "") message += "\n" + event.detail.slice(-Math.max(0, 199 - message.length));
+        const text = job.actionName === "text";
+        let title = text ? "Text copied" : "Screenshot copied";
+        let message = text ? "Text from the selected area is on the clipboard" : "The screenshot is on the clipboard";
+        let image = "";
+        if (event.event === "saved") {
+            title = recording ? "Recording saved" : "Screenshot saved";
+            message = event.path;
+            image = recording ? event.thumbnail : event.path;
+            if (recording && event.processing === "failed") {
+                message += "\nProcessing failed, so the recording is kept as recorded.";
+                if (event.detail !== "") message += "\n" + event.detail.slice(-Math.max(0, 199 - message.length));
+            }
         }
-        notice(recording ? "Recording saved" : "Screenshot saved", message, "success");
+        const command = ["python3", helperPath, "--owned", "2", String(parent), "notify-send", "--print-id", "--app-name=Capture"];
+        if (image !== "") command.push("--hint=string:image-path:" + image);
+        for (const action of event.actions || []) command.push("--action=" + action.id + "=" + action.label);
+        return command.concat(["--", title, message.slice(0, 200)]);
+    }
+
+    // One notification run. A run with ACTIONS waits for a press, so past
+    // noticesMax the oldest waiting run gets SIGINT and its notification
+    // closes.
+    function notify(command, actions) {
+        // A list crosses createObject's initial properties as something
+        // else (runtime-qml.md), so the run takes its lists after creation.
+        const run = noticeComponent.createObject(root);
+        if (run === null) {
+            console.error("capture: notice=unsent cause=process");
+            return;
+        }
+        run.actions = actions;
+        run.command = command;
+        if (actions.length > 0) {
+            if (notices.length >= noticesMax) {
+                notices[0].signal(2);
+                notices = notices.slice(1);
+            }
+            notices = notices.concat([run]);
+        }
+        run.running = true;
+    }
+
+    // notify-send prints the notification's id, then the id of the button
+    // pressed, whose program opens as the user's own.
+    function noticeLine(run, line) {
+        if (run.noticeId === "") {
+            run.noticeId = line.trim();
+            return;
+        }
+        const action = run.actions.find(item => item.id === line.trim());
+        if (action === undefined) return;
+        const reply = shell.run.detached(action.argv);
+        if (reply !== "ok") console.error("capture: action=" + action.id + " " + reply);
+    }
+
+    // A run ended: COMPLETION is its exit, null when it did not start. With
+    // no notification server on the bus notify-send fails, and the capture
+    // stands without its notification.
+    function noticeEnded(run, completion, complaint) {
+        notices = notices.filter(item => item !== run);
+        if (completion === null || completion.code !== 0 || completion.status !== 0)
+            console.info("capture: notice=unsent exit=" + JSON.stringify(completion) + " " + complaint.trim().replace(/\s+/g, " ").slice(0, 200));
+        Qt.callLater(() => run.destroy());
+    }
+
+    // Quickshell kills a destroyed service's runs with SIGKILL, which
+    // closes no notification, so its buttons would stay and do nothing:
+    // each waiting notification closes on the server first.
+    Component.onDestruction: {
+        for (const run of notices) {
+            if (run.noticeId !== "")
+                Quickshell.execDetached(["gdbus", "call", "--session", "--dest", "org.freedesktop.Notifications", "--object-path", "/org/freedesktop/Notifications",
+                    "--method", "org.freedesktop.Notifications.CloseNotification", run.noticeId]);
+        }
     }
 
     function finished(job, error) {
@@ -348,6 +430,20 @@ Item {
             stdout: SplitParser { onRead: line => root.accept(worker, line) }
             stderr: StdioCollector { id: errors }
             onRunningChanged: if (!running && armed) root.finished(worker, errors.text)
+        }
+    }
+
+    Component {
+        id: noticeComponent
+        Process {
+            id: run
+            property var actions: []
+            property string noticeId: ""
+            property var completion: null
+            stdout: SplitParser { onRead: line => root.noticeLine(run, line) }
+            stderr: StdioCollector { id: complaint }
+            onExited: (code, status) => { completion = { code: code, status: status }; }
+            onRunningChanged: if (!running) root.noticeEnded(run, completion, complaint.text)
         }
     }
 

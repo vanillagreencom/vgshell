@@ -80,6 +80,9 @@ optdepends=(
   'glibc: getent, the accounts on the login screen'
   'polkit: pkexec, so applications can ask for administrator access'
   'tailscale: the Tailscale connection in the VPN plugin'
+  'imv: opens a saved screenshot from its Capture notification'
+  'satty: edits a saved screenshot from its Capture notification'
+  'mpv: plays a saved recording from its Capture notification'
 )
 makedepends=('git')
 install=vgshell-git.install

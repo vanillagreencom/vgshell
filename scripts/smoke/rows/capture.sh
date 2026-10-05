@@ -1,7 +1,11 @@
 # The capture service uses real nested tools for image and selection readings.
 # Stand-ins hold tool failures, countdown frames, OCR, the recorder, ffmpeg
-# and the PipeWire device list.
-# inputs: shell/plugins/vgs.capture/* shell/Core/Capabilities.qml shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/IpcRegistry.qml shell/Core/Lifetime.js shell/Core/MonitorLogic.js shell/Core/MonitorState.qml shell/Core/Notices.qml shell/Core/PackageManagers.js shell/Core/PluginLogic.js shell/Core/Plugins.qml shell/Core/PluginStatus.qml shell/Core/Registry.qml shell/Core/ServiceGate.qml shell/Core/ShortcutRegistry.qml shell/Core/Toasts.qml shell/Core/TuiRecords.qml shell/Core/TuiRunner.qml bin/vgshell-tui shell/Hosts/BarHost.qml shell/Hosts/NoticeHost.qml shell/Hosts/OverlaySurface.qml shell/Hosts/PluginSlot.qml shell/Hosts/ServiceHost.qml shell/Hosts/Summon* shell/Hosts/ToastHost.qml shell/Ui/* shell/Commons/* bin/vgshell-scan bin/lib/check-manifests.js bin/lib/qml-library.js scripts/test-capture.py scripts/smoke/fixtures/capture/*
+# and the PipeWire device list. vgs.notifications runs as the row finds it,
+# disabled in the smoke set and enabled in the default set a restarted
+# shell runs; capture_wait_toasts dismisses its cards before an image
+# reading. Late in the row it is enabled for the notification readings, and
+# shell.json's restore at the end puts it back as found.
+# inputs: shell/plugins/vgs.capture/* shell/plugins/vgs.notifications/* shell/Core/NotificationHub.qml shell/Core/Layers.qml shell/Core/Capabilities.qml shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/IpcRegistry.qml shell/Core/Lifetime.js shell/Core/MonitorLogic.js shell/Core/MonitorState.qml shell/Core/Notices.qml shell/Core/PackageManagers.js shell/Core/PluginLogic.js shell/Core/Plugins.qml shell/Core/PluginStatus.qml shell/Core/Registry.qml shell/Core/ServiceGate.qml shell/Core/ShortcutRegistry.qml shell/Core/Toasts.qml shell/Core/TuiRecords.qml shell/Core/TuiRunner.qml bin/vgshell-tui shell/Hosts/BarHost.qml shell/Hosts/NoticeHost.qml shell/Hosts/OverlaySurface.qml shell/Hosts/PluginSlot.qml shell/Hosts/ServiceHost.qml shell/Hosts/Summon* shell/Hosts/ToastHost.qml shell/Ui/* shell/Commons/* bin/vgshell-scan bin/lib/check-manifests.js bin/lib/qml-library.js scripts/test-capture.py scripts/smoke/fixtures/capture/*
 # Expected rectangles come from Hyprland. Disposable copies remove each
 # screenshot choice, countdown cleanup and the owned tool deadline.
 # Readbacks use the harness's state poll, with no capture latency budget.
@@ -35,9 +39,23 @@ capture_panel_geometry() { layers_of vgs:panel | py_reply 'import json,sys; rows
 capture_status() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["status"].get("vgs.capture")))'; }
 capture_clipboard() { python3 -c 'import pathlib,sys; p=pathlib.Path(sys.argv[1]); print(p.read_text() if p.exists() else "absent")' "$capture_state/clipboard"; }
 capture_counts() { python3 -c 'import pathlib,sys; p=pathlib.Path(sys.argv[1]); print(len(list(p.glob("*.png"))))' "$home/Pictures/Screenshots"; }
-capture_toasts() { ipc shell lent | py_reply 'import json,sys; rows=json.load(sys.stdin)["toasts"]; print(sum(r["plugin"] == "vgs.capture" for k in ("visible", "waiting") for r in rows[k]))'; }
+# capture_cards: Capture's notifications vgs.notifications shows and is not
+# taking off, as [summary, ...]; [] while it is not built.
+capture_cards() {
+  local raw
+  raw="$(ipc smoke modelRows vgs.notifications rows app,summary,leaving)" || return 1
+  if [[ $raw == absent ]]; then echo '[]'; return; fi
+  py_reply 'import json,sys; print(json.dumps([r[1] for r in json.load(sys.stdin) if r[0] == "Capture" and r[2] == ""]))' <<<"$raw"
+}
+# capture_toasts: Capture's core toasts and notifications on screen.
+capture_toasts() {
+  local cards
+  cards="$(capture_cards)" || return 1
+  ipc shell lent | py_reply 'import json,sys; rows=json.load(sys.stdin)["toasts"]; print(sum(r["plugin"] == "vgs.capture" for k in ("visible", "waiting") for r in rows[k]) + len(json.loads(sys.argv[1])))' "$cards"
+}
 capture_wait_toasts() {
   local count duration deadline now
+  if [[ $(record_exists vgs.notifications) == True ]]; then ipc vgs.notifications invoke dismiss-all '' >/dev/null || return 1; fi
   count="$(capture_toasts)" || return 1
   duration="$(ipc smoke themeValue toast.duration)" || return 1
   deadline="$(python3 -c 'import json,sys,time; print(time.monotonic() + (int(sys.argv[1]) + 1) * json.loads(sys.argv[2]) / 1000)' "$count" "$duration")" || return 1
@@ -330,6 +348,7 @@ read -r capture_output capture_width capture_height < <(hypr -j monitors | py_re
 rescan "capture stand-ins are found after rescan"
 expect "capture service is enabled" ok ipc shell setPluginEnabled vgs.capture true
 expect "capture widget is placed" ok ipc shell setPluginPlaced vgs.capture true
+capture_notes_found="$(record_exists vgs.notifications)"
 expect_poll "capture service is built" True record_exists vgs.capture
 expect_poll "capture is idle" idle capture_phase
 expect_poll "capture has the focused nested output" True capture_outputs
@@ -777,6 +796,7 @@ for capture_control in smart window display all cursor copy-only save-only delay
       capture_setting processing '"save-copy"'
       ;;
     delay)
+      expect "control: notices leave before the screen settles" 0 capture_wait_toasts
       capture_setting delay 3
       capture_before="$(capture_counts)"
       capture_delay_started="$(python3 -c 'import time; print(time.time())')"
@@ -786,6 +806,7 @@ for capture_control in smart window display all cursor copy-only save-only delay
       capture_setting delay 0
       ;;
     cancel-delay)
+      expect "control: notices leave before the countdown" 0 capture_wait_toasts
       capture_setting delay 2
       capture_before="$(capture_counts)"
       expect "control: the countdown starts with cancellation dropped" ok ipc vgs.capture invoke screenshot ''
@@ -863,7 +884,11 @@ PY
 }
 capture_choices() { ipc smoke readInstance panel vgs.capture values | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps([v.get("audioSources"), v.get("cameras")]))'; }
 capture_languages() { ipc smoke readInstance panel vgs.capture languagesRow | py_reply 'import json,sys; r=json.load(sys.stdin); print("absent" if r is None or r["action"] is None else json.dumps([r["tone"], r["action"]["offered"]]))'; }
-capture_titles() { ipc shell lent | py_reply 'import json,sys; rows=json.load(sys.stdin)["toasts"]; print(sum(r["plugin"] == "vgs.capture" and r["title"] == sys.argv[1] for k in ("visible", "waiting") for r in rows[k]))' "$1"; }
+capture_titles() {
+  local cards
+  cards="$(capture_cards)" || return 1
+  ipc shell lent | py_reply 'import json,sys; rows=json.load(sys.stdin)["toasts"]; print(sum(r["plugin"] == "vgs.capture" and r["title"] == sys.argv[1] for k in ("visible", "waiting") for r in rows[k]) + json.loads(sys.argv[2]).count(sys.argv[1]))' "$1" "$cards"
+}
 capture_log_holds() { python3 -c 'import pathlib,sys; p=pathlib.Path(sys.argv[1]); print(p.is_file() and sys.argv[2] in p.read_text() and p.stat().st_mode & 0o777 == 0o600)' "$home/.local/state/vgshell/plugins/vgs.capture/recorder.log" "$1"; }
 open_toplevel "$sandbox/capture-record-target.log" smoke.capture-record "Capture record target" || fail "capture: the recording target did not map"
 capture_record_pid="$toplevel_pid"
@@ -908,6 +933,164 @@ for capture_reset in 'quality "very_high"' 'frameRate 60' 'codec "auto"' 'consta
   capture_setting ${capture_reset%% *} "${capture_reset#* }"
 done
 expect "earlier capture notices expire before the failure notices" 0 capture_wait_toasts
+# Notifications. vgs.notifications now shows each finished capture with the
+# worker's buttons. Stand-ins for the viewer, the editor and the player, in
+# the row's own folder, record their argv; nothing opens a real program.
+capture_open="$capture_state/open-with"
+mkdir -p -- "$capture_open"
+for capture_program in viewer editor player; do
+  printf '#!%s\nimport json, sys\nwith open(%s, "a") as log:\n    log.write(json.dumps(sys.argv[1:]) + "\\n")\n' "$(command -v python3)" "'$capture_open/$capture_program.calls'" >"$capture_open/$capture_program"
+  chmod 755 -- "$capture_open/$capture_program"
+done
+capture_setting viewer "\"$capture_open/viewer %f\""
+capture_setting editor "\"$capture_open/editor --filename %f --output-filename %f\""
+capture_setting player "\"$capture_open/player\""
+expect "notifications are enabled for capture's notifications" ok ipc shell setPluginEnabled vgs.notifications true
+expect_poll "the notifications service is built" True record_exists vgs.notifications
+# capture_pills SUMMARY: the newest Capture notification's buttons as the
+# History panel lists them, ["key", [label, ...]], or none.
+capture_pills() {
+  local rows i
+  ipc vgs.notifications invoke history '' >/dev/null || return 1
+  for i in $(seq 1 30); do
+    rows="$(ipc smoke readInstance panel vgs.notifications rows)" || return 1
+    [[ $rows == absent ]] || break
+    sleep 0.1 # the summoned panel builds on its own schedule
+  done
+  ipc vgs.notifications invoke close '' >/dev/null || return 1
+  python3 -c 'import json,sys; t=sys.argv[2]; rows=[] if t == "absent" else json.loads(t); r=next((r for r in rows if r["app"] == "Capture" and r["summary"] == sys.argv[1] and r["origin"] == "live"), None); print("none" if r is None else json.dumps([r["key"], [a["label"] for a in r["actions"]]]))' "$1" "$rows"
+}
+capture_labels() { capture_pills "$1" | py_reply 'import json,sys; t=sys.stdin.read().strip(); print("none" if t == "none" else json.dumps(json.loads(t)[1]))'; }
+capture_choose() { # SUMMARY CHOICE
+  local key
+  key="$(capture_pills "$1" | py_reply 'import json,sys; print(json.load(sys.stdin)[0])')" || return 1
+  ipc smoke invokeInstance service vgs.notifications chooseFromPanel "$(python3 -c 'import json,sys; print(json.dumps({"key": sys.argv[1], "choice": sys.argv[2]}))' "$key" "$2")"
+}
+capture_opened() { python3 -c 'import json,pathlib,sys; p=pathlib.Path(sys.argv[1]); print(json.dumps([json.loads(l) for l in p.read_text().splitlines()][-1] if p.exists() else None))' "$capture_open/$1.calls"; }
+capture_held_count() { ipc vgs.notifications invoke status '' | py_reply 'import json,sys; print(json.load(sys.stdin)["held"])'; }
+# capture_notify_left: the notify-send processes on the sandbox's session
+# bus, read from /proc.
+capture_notify_left() { python3 - "unix:path=$rt_dir/bus" <<'PY'
+import os, sys
+bus = ("DBUS_SESSION_BUS_ADDRESS=" + sys.argv[1]).encode()
+left = 0
+for pid in filter(str.isdigit, os.listdir("/proc")):
+    try:
+        argv = open(f"/proc/{pid}/cmdline", "rb").read().split(b"\0")
+        env = open(f"/proc/{pid}/environ", "rb").read().split(b"\0")
+    except OSError:
+        continue
+    if os.path.basename(argv[0]) == b"notify-send" and bus in env:
+        left += 1
+print(left)
+PY
+}
+capture_quiet() {
+  expect "$1: earlier notifications leave" 0 capture_wait_toasts
+  expect "$1: the history lets go of its notifications" ok ipc vgs.notifications invoke clear-history ''
+  expect_poll "$1: no Capture notification is held" 0 capture_held_count
+  expect_poll "$1: no notify-send run waits" 0 capture_notify_left
+}
+capture_quiet "screenshot notification"
+expect "a screenshot for its notification" ok ipc vgs.capture invoke screenshot ''
+expect_poll "the screenshot for its notification finishes" idle capture_phase
+expect_poll "the saved screenshot offers Open, Edit and Dismiss" '["Open", "Edit", "Dismiss"]' capture_labels "Screenshot saved"
+expect "Edit is chosen on the screenshot's notification" left capture_choose "Screenshot saved" action:edit
+expect_poll "Edit hands the editor the saved file" "$(python3 -c 'import json,sys; print(json.dumps(["--filename", sys.argv[1], "--output-filename", sys.argv[1]]))' "$(capture_path)")" capture_opened editor
+capture_quiet "screenshot click"
+expect "a screenshot for a click on its notification" ok ipc vgs.capture invoke screenshot ''
+expect_poll "the clicked screenshot finishes" idle capture_phase
+expect_poll "the clicked screenshot's notification shows" '["Open", "Edit", "Dismiss"]' capture_labels "Screenshot saved"
+expect "a click opens the screenshot's notification" left capture_choose "Screenshot saved" open
+expect_poll "a click hands the viewer the saved file" "$(capture_words "$(capture_path)")" capture_opened viewer
+capture_quiet "recording notification"
+capture_record record-output "notification"
+expect_poll "the saved recording offers Open and Dismiss" '["Open", "Dismiss"]' capture_labels "Recording saved"
+expect "Open is chosen on the recording's notification" left capture_choose "Recording saved" action:default
+expect_poll "Open hands the player the saved file last" "$(capture_words "$(capture_path)")" capture_opened player
+expect "the recording's link is on the clipboard" True capture_uri
+capture_quiet "text notification"
+expect "text capture for its notification" ok ipc vgs.capture invoke text ''
+expect_poll "the text capture finishes" idle capture_phase
+expect_poll "copied text offers Dismiss alone" '["Dismiss"]' capture_labels "Text copied"
+# A disabled service ends its waiting run and closes its notification.
+capture_waiting() { # LABEL
+  capture_quiet "$1"
+  expect "$1: a screenshot whose notification waits" ok ipc vgs.capture invoke screenshot ''
+  expect_poll "$1: the screenshot finishes" idle capture_phase
+  expect_poll "$1: one notify-send run waits" 1 capture_notify_left
+  expect_poll "$1: vgs.notifications holds its notification" 1 capture_held_count
+  expect "$1: capture is disabled" ok ipc shell setPluginEnabled vgs.capture false
+  expect_poll "$1: the disabled service is released" False record_exists vgs.capture
+  expect_poll "$1: no notify-send run is left" 0 capture_notify_left
+}
+capture_waiting "disabled capture"
+expect_poll "disabling capture closes its notification" 0 capture_held_count
+expect "capture is enabled after its notification closes" ok ipc shell setPluginEnabled vgs.capture true
+expect_poll "capture is built after its notification closes" True record_exists vgs.capture
+# Disposable Service copies: one without the buttons, one that closes no
+# notification when it goes.
+capture_notice_service="$repo/shell/plugins/vgs.capture/Service.qml"
+capture_notice_control() { # NAME
+  expect "capture stops before the $1 control" ok ipc shell setPluginEnabled vgs.capture false
+  expect_poll "the $1 control releases the original service" False record_exists vgs.capture
+  python3 - "$capture_notice_service" "$sandbox" "$capture_state/notice-service-original.qml" "$1" <<'PY'
+from pathlib import Path
+import sys
+service, sandbox, original, control = sys.argv[1:]
+service, sandbox, original = Path(service), Path(sandbox), Path(original)
+assert service.resolve().is_relative_to(sandbox.resolve()), "notification control must stay inside the sandbox"
+source = original.read_text() if original.exists() else service.read_text()
+original.write_text(source)
+before = {
+    "no-buttons": '        for (const action of event.actions || []) command.push("--action=" + action.id + "=" + action.label);\n',
+    "no-close": "        for (const run of notices) {\n",
+}[control]
+after = {"no-buttons": "", "no-close": "        for (const run of []) {\n"}[control]
+assert source.count(before) == 1, control
+changed = source.replace(before, after)
+assert changed != source
+service.write_text(changed)
+PY
+  rescan "the $1 control service is rescanned"
+  expect "capture enables the $1 control" ok ipc shell setPluginEnabled vgs.capture true
+  expect_poll "the $1 control is built" True record_exists vgs.capture
+}
+capture_notice_restore() { # NAME
+  expect "capture stops after the $1 control" ok ipc shell setPluginEnabled vgs.capture false
+  expect_poll "the $1 control releases its service" False record_exists vgs.capture
+  cp -- "$capture_state/notice-service-original.qml" "$capture_notice_service"
+  rescan "the original service is rescanned after the $1 control"
+  expect "capture enables the restored service after the $1 control" ok ipc shell setPluginEnabled vgs.capture true
+  expect_poll "the restored service is built after the $1 control" True record_exists vgs.capture
+}
+capture_notice_control no-buttons
+capture_quiet "control: no buttons"
+expect "control: a screenshot without buttons" ok ipc vgs.capture invoke screenshot ''
+expect_poll "control: the screenshot without buttons finishes" idle capture_phase
+expect_poll "control: the copy's notification shows" '["Dismiss"]' capture_labels "Screenshot saved"
+capture_screenshot_labels() { capture_labels "Screenshot saved"; }
+expect "control: dropping the buttons fails the Open, Edit and Dismiss readback" False capture_is capture_screenshot_labels '["Open", "Edit", "Dismiss"]'
+capture_notice_restore no-buttons
+capture_notice_control no-close
+capture_waiting "control: no close"
+expect "control: a notification the copy left open stays held" 1 capture_held_count
+cp -- "$capture_state/notice-service-original.qml" "$capture_notice_service"
+rescan "the original service is rescanned after the no-close control"
+expect "capture enables the restored service after the no-close control" ok ipc shell setPluginEnabled vgs.capture true
+expect_poll "the restored service is built after the no-close control" True record_exists vgs.capture
+# With vgs.notifications disabled no server answers: the capture still
+# saves its file and the service returns to idle.
+capture_quiet "no notification server"
+expect "notifications are disabled for the no-server capture" ok ipc shell setPluginEnabled vgs.notifications false
+expect_poll "the notifications service is released" False record_exists vgs.notifications
+capture_before="$(capture_counts)"
+expect "a screenshot with no notification server" ok ipc vgs.capture invoke screenshot ''
+expect_poll "the screenshot with no notification server finishes" idle capture_phase
+expect "the screenshot with no notification server is saved" "$((capture_before + 1))" capture_counts
+expect_poll "no notify-send run waits with no server" 0 capture_notify_left
+expect "notifications are enabled again" ok ipc shell setPluginEnabled vgs.notifications true
+expect_poll "the notifications service is built again" True record_exists vgs.notifications
 capture_config crash true
 capture_record_crash() {
   : >"$capture_state/calls.jsonl"
@@ -1080,6 +1263,10 @@ PY
   fi
 done
 cp -- "$capture_state/helper-original.py" "$capture_helper"
+expect "the capture notifications leave" 0 capture_wait_toasts
+expect "the capture notifications leave the history" ok ipc vgs.notifications invoke clear-history ''
+expect "notifications are disabled after the row" ok ipc shell setPluginEnabled vgs.notifications false
+expect_poll "the notifications service is released after the row" False record_exists vgs.notifications
 expect "capture is disabled after the row" ok ipc shell setPluginEnabled vgs.capture false
 expect_poll "disabled capture releases its service" False record_exists vgs.capture
 expect_poll "disabling capture ends a held selection's selector and freeze" 0 capture_left
@@ -1091,3 +1278,4 @@ for capture_tool in grim slurp hyprpicker tesseract wl-copy gpu-screen-recorder 
 done
 cp -- "$capture_saved" "$home/.config/vgshell/shell.json.next" && mv -T -- "$home/.config/vgshell/shell.json.next" "$home/.config/vgshell/shell.json"
 rescan "the capture fixture cleanup is rescanned"
+expect_poll "the notifications service is as the row found it" "$capture_notes_found" record_exists vgs.notifications

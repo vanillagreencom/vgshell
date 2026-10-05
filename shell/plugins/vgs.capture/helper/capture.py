@@ -10,6 +10,8 @@ removed. Until the recorder writes its file, `cancel` or stdin EOF ends it with
 no file; then one `stop` line or stdin EOF sends SIGINT to the owned recorder.
 A recording emits stopped once the recorder ends, so the service can start the
 next capture while this worker post-processes, then saved.
+saved carries `actions`, its notification's buttons: one `{id, label, argv}`
+for each program that opens the file and is installed; `default` opens it.
 probe emits the offered audio sources and cameras and the missing languages.
 SIGTERM releases all owned children, including during service replacement.
 """
@@ -299,7 +301,7 @@ class Capture:
         if path is None:
             emit("copied")
         else:
-            emit("saved", path=str(path))
+            emit("saved", path=str(path), actions=actions(request, path, (("default", "Open", "viewer"), ("edit", "Edit", "editor"))))
         if child is not None:
             self.clipboard_exit(child)
 
@@ -497,7 +499,8 @@ class Capture:
             child = self.copy(io.BytesIO((path.as_uri() + "\r\n").encode()), "text/uri-list")
         except (OSError, RuntimeError) as error:
             raise RuntimeError(f"Recording saved to {path}; clipboard failed: {error}") from error
-        emit("saved", path=str(path), thumbnail=thumbnail, processing=processing, detail=detail)
+        emit("saved", path=str(path), thumbnail=thumbnail, processing=processing, detail=detail,
+             actions=actions(request, path, (("default", "Open", "player"),)))
         self.clipboard_exit(child)
 
     def wait(self, child):
@@ -636,6 +639,33 @@ def recorder_audio(request, devices):
         sources.append(source)
     args = [arg for source in sources for arg in ("-a", source)]
     return args + (["-ac", "aac"] if args else [])
+
+
+def open_with(setting, path):
+    """The argv that opens PATH with SETTING, the command a setting names, or
+    None when its program is not installed.
+
+    The command splits on white space and no shell reads it. Each word that is
+    exactly %f, the Desktop Entry field code, becomes PATH as one argument;
+    with none, PATH is the last argument.
+    """
+    words = setting.split()
+    if not words or shutil.which(words[0]) is None:
+        return None
+    if "%f" not in words:
+        return [*words, str(path)]
+    return [str(path) if word == "%f" else word for word in words]
+
+
+def actions(request, path, offered):
+    """The notification buttons for PATH: each (id, label, setting) of OFFERED
+    whose setting names an installed program."""
+    out = []
+    for action_id, label, setting in offered:
+        argv = open_with(request[setting], path)
+        if argv is not None:
+            out.append({"id": action_id, "label": label, "argv": argv})
+    return out
 
 
 def plugin_state(state_dir):

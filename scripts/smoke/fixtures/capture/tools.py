@@ -8,7 +8,7 @@ whether that process is still alive.
 slurp reads stdin to EOF when it is not a terminal, as the real slurp does.
 The recorder logs its start and output name, then writes `finalized`, or
 copies the fixture's `video`, only after SIGINT, never on a hard stop.
-ffmpeg copies its input, or writes a JPEG marker for a one-frame thumbnail;
+ffmpeg copies its input, or writes a small JPEG for a one-frame thumbnail;
 ffmpegHold holds it half way until `ffmpeg-release` exists. pw-dump prints the fixture's
 nodes. tesseract lists the fixture's languages and fails as Tesseract does
 for a requested one it does not hold.
@@ -22,7 +22,13 @@ import struct
 import subprocess
 import sys
 import time
+import zlib
 
+# A grey 4x4 JPEG from ImageMagick, which an image reader decodes.
+THUMBNAIL = bytes.fromhex(
+    "ffd8ffe000104a46494600010100000100010000ffdb004300100b0c0e0c0a100e0d0e1211101318281a181616183123251d283a333d3c3933383740"
+    "485c4e404457453738506d51575f626768673e4d71797064785c656763ffc0000b080004000401011100ffc40014000100000000000000000000000000"
+    "000000ffc40014100100000000000000000000000000000000ffda0008010100003f003fffd9")
 root = Path(os.environ["VGS_CAPTURE_FIXTURE"])
 tool = os.environ["VGS_CAPTURE_TOOL"]
 config = json.loads((root / "config.json").read_text())
@@ -59,7 +65,13 @@ match tool:
         if config.get("grimHold"):
             (root / "grim-ready").write_text(str(os.getpid()))
             signal.pause()
-        data = b"\x89PNG\r\n\x1a\n" + struct.pack(">I", 13) + b"IHDR" + struct.pack(">II", 320, 240)
+        # A whole grey 320x240 PNG, which an image reader decodes, then the
+        # frame token, which a PNG reader ignores past IEND.
+        def chunk(kind, body):
+            return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body))
+        rows = b"".join(b"\x00" + b"\x80" * (320 * 3) for _ in range(240))
+        data = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 320, 240, 8, 2, 0, 0, 0))
+                + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
         data += str(config.get("frame", "")).encode()
         if sys.argv[-1] == "-":
             sys.stdout.buffer.write(data)
@@ -90,7 +102,7 @@ match tool:
     case "ffmpeg":
         source, target = Path(sys.argv[sys.argv.index("-i") + 1]), Path(sys.argv[-1])
         if "-frames:v" in sys.argv:
-            target.write_bytes(b"\xff\xd8\xff fixture thumbnail")
+            target.write_bytes(THUMBNAIL)
             sys.exit(0)
         if config.get("ffmpegHold"):
             # Held half way until the check writes ffmpeg-release.

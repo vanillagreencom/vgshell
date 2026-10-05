@@ -111,6 +111,7 @@ def request(root, action):
     return {"action": action, "output": "NESTED", "folder": str(root / "pictures"), "recordFolder": str(root / "videos"), "audio": "desktop", "smart": False,
             "quality": "very_high", "frameRate": 60, "codec": "auto", "constantFrameRate": True, "recordCursor": False, "audioSources": [],
             "webcam": False, "webcamDevice": "", "postProcess": True, "ocrLanguages": "eng", "stateDir": str(root / "state"),
+            "viewer": "imv %f", "editor": "satty --filename %f --output-filename %f", "player": "mpv %f",
             "outputs": [{"x": 0, "y": 0, "width": 320, "height": 240, "name": "NESTED", "scale": 1, "transform": 0}]}
 
 
@@ -804,30 +805,194 @@ def service_function(source, name):
 
 
 def service_notices(source=None):
-    """Function 20: Service.qml's own saved and error notices, run in node
-    with a stand-in toast capability. Answers whether every case holds."""
+    """Function 20: Service.qml's notification argv for saved and copied
+    captures and its error toasts, run in node with a stand-in toast
+    capability. Answers whether every case holds."""
     source = source if source is not None else (HELPER.parent.parent / "Service.qml").read_text()
-    functions = "\n".join(service_function(source, name) for name in ("isRecord", "notice", "errorNotice", "savedNotice"))
+    functions = "\n".join(service_function(source, name) for name in ("isRecord", "notice", "errorNotice", "noticeCommand"))
     program = r'''
 const input = JSON.parse(process.argv[1]);
 const shown = [];
 const shell = { toasts: { show: toast => shown.push(toast) } };
-const api = new Function("shell", input.functions + "; return { savedNotice, errorNotice };")(shell);
+const api = new Function("shell", "helperPath", input.functions + "; return { noticeCommand, errorNotice };")(shell, "/helper/capture.py");
 const record = { actionName: "record-output" };
-api.savedNotice(record, { path: "/videos/a.mp4", processing: "failed", detail: "fixture tail line" });
-api.savedNotice(record, { path: "/videos/b.mp4", processing: "done", detail: "" });
+const actions = [{ id: "default", label: "Open", argv: ["imv", "/pictures/a.png"] }, { id: "edit", label: "Edit", argv: ["satty", "/pictures/a.png"] }];
+const commands = [
+    api.noticeCommand({ actionName: "screenshot-area" }, { event: "saved", path: "/pictures/a.png", actions: actions }, 41),
+    api.noticeCommand(record, { event: "saved", path: "/videos/a.mp4", thumbnail: "/state/a.jpg", processing: "failed", detail: "fixture tail line", actions: [] }, 41),
+    api.noticeCommand(record, { event: "saved", path: "/videos/b.mp4", thumbnail: "", processing: "done", detail: "", actions: [actions[0]] }, 41),
+    api.noticeCommand({ actionName: "text" }, { event: "copied" }, 41),
+    api.noticeCommand({ actionName: "screenshot" }, { event: "copied" }, 41),
+];
 api.errorNotice({ reason: "language-data-unavailable", message: "no deu data" });
 api.errorNotice({ message: "Recording failed (exit 1)\nfixture recorder crash" });
-console.log(JSON.stringify(shown));
+console.log(JSON.stringify([commands, shown]));
 '''
     result = subprocess.run(["node", "-e", program, json.dumps({"functions": functions})], stdin=subprocess.DEVNULL, capture_output=True, text=True,
                             env={"PATH": os.defpath, "LC_ALL": "C"}, timeout=10)
     assert result.returncode == 0, result.stderr
-    failed, done, language, crash = json.loads(result.stdout)
-    return (failed["title"] == done["title"] == "Recording saved" and failed["message"].startswith("/videos/a.mp4\n")
-            and failed["message"].endswith("fixture tail line") and done["message"] == "/videos/b.mp4"
+    (screenshot, failed, done, text, copied), (language, crash) = json.loads(result.stdout)
+    owned = ["python3", "/helper/capture.py", "--owned", str(int(signal.SIGINT)), "41", "notify-send", "--print-id", "--app-name=Capture"]
+    return (screenshot == owned + ["--hint=string:image-path:/pictures/a.png", "--action=default=Open", "--action=edit=Edit", "--", "Screenshot saved", "/pictures/a.png"]
+            and failed[:-2] == owned + ["--hint=string:image-path:/state/a.jpg", "--"] and failed[-2] == "Recording saved"
+            and failed[-1].startswith("/videos/a.mp4\n") and failed[-1].endswith("fixture tail line")
+            and done == owned + ["--action=default=Open", "--", "Recording saved", "/videos/b.mp4"]
+            and text == owned + ["--", "Text copied", "Text from the selected area is on the clipboard"]
+            and copied == owned + ["--", "Screenshot copied", "The screenshot is on the clipboard"]
             and language["title"] == "Text capture unavailable" and language["message"] == "no deu data"
             and crash["title"] == "Capture failed" and crash["message"] == "Recording failed (exit 1)\nfixture recorder crash")
+
+
+def notice_command(source, root, parent):
+    """Service.qml's notification argv for a saved screenshot with one
+    button, as a child of PARENT."""
+    program = r'''
+const input = JSON.parse(process.argv[1]);
+const api = new Function("helperPath", input.functions + "; return { noticeCommand };")(input.helper);
+console.log(JSON.stringify(api.noticeCommand({ actionName: "screenshot" }, { event: "saved", path: input.path, actions: [{ id: "default", label: "Open", argv: ["imv", input.path] }] }, input.parent)));
+'''
+    functions = "\n".join(service_function(source, name) for name in ("isRecord", "noticeCommand"))
+    payload = {"functions": functions, "helper": str(HELPER), "path": str(root / "a.png"), "parent": parent}
+    result = subprocess.run(["node", "-e", program, json.dumps(payload)], stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                            env={"PATH": os.defpath, "LC_ALL": "C"}, timeout=10)
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
+
+
+# A notify-send stand-in that offers its buttons and waits, as notify-send
+# waits for its notification to close: it records its pid, then the signal
+# that ends the wait.
+NOTIFY_STAND_IN = """#!{python}
+import os, signal, sys
+from pathlib import Path
+root = Path({root!r})
+def ended(signum, frame):
+    (root / "notify-signal").write_text(str(signum))
+    sys.exit(0)
+signal.signal(signal.SIGINT, ended)
+signal.signal(signal.SIGTERM, ended)
+print(7, flush=True)
+(root / "notify-pid").write_text(str(os.getpid()))
+signal.pause()
+"""
+
+
+def notice_owner_holds(base, name, source):
+    """The shell's end closes a waiting notification: the service's argv,
+    started by a stand-in shell that is then killed, ends its notify-send
+    with SIGINT, which closes the notification."""
+    root = base / name
+    (root / "bin").mkdir(parents=True)
+    stand_in = root / "bin/notify-send"
+    stand_in.write_text(NOTIFY_STAND_IN.format(python=sys.executable, root=str(root)))
+    stand_in.chmod(0o755)
+    shell = subprocess.Popen([sys.executable, "-c", "import json, subprocess, sys, signal\nsubprocess.Popen(json.loads(sys.stdin.readline()))\nsignal.pause()"],
+                             env={"PATH": str(root / "bin") + os.pathsep + os.defpath, "LC_ALL": "C"}, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, text=True)
+    pid = None
+    try:
+        command = notice_command(source, root, shell.pid)
+        shell.stdin.write(json.dumps(command) + "\n")
+        shell.stdin.flush()
+        deadline = time.monotonic() + 5
+        while not (root / "notify-pid").exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        pid = int((root / "notify-pid").read_text())
+        shell.kill()
+        shell.wait(timeout=5)
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline and not process_ended(pid):
+            time.sleep(0.01)
+        if process_ended(pid):
+            pid = None
+        signalled = root / "notify-signal"
+        return pid is None and signalled.exists() and signalled.read_text() == str(int(signal.SIGINT))
+    finally:
+        if shell.poll() is None:
+            shell.kill()
+            shell.wait()
+        if pid is not None:
+            os.kill(pid, signal.SIGKILL)
+            while not process_ended(pid):
+                time.sleep(0.01)
+
+
+def process_ended(pid):
+    """Whether PID has exited; a child adopted by this subreaper is reaped."""
+    try:
+        return os.waitpid(pid, os.WNOHANG)[0] == pid
+    except ChildProcessError:
+        pass
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return True
+    return False
+
+
+def open_with_holds(root, helper, action, installed, folder, wanted):
+    """The worker's buttons for one saved or copied capture: WANTED lists
+    (id, label, argv) with argv's "FILE" the saved path. INSTALLED names
+    the stand-in programs on the worker's PATH; FOLDER holds the file."""
+    for program in installed:
+        stand_in = root / "bin" / program
+        stand_in.write_text("#!/bin/sh\nexit 0\n")
+        stand_in.chmod(0o755)
+    payload = request(root, action)
+    payload["folder"] = payload["recordFolder"] = str(root / folder)
+    payload["editor"] = "satty --filename %f --output-filename %f"
+    payload["viewer"] = "imv --title=%f %f"
+    payload["player"] = "mpv"
+    code, messages, err = worker(root, payload, helper, recording=action.startswith("record"))
+    if code != 0 or not messages or messages[-1]["event"] not in ("saved", "copied"):
+        return False
+    last = messages[-1]
+    if last["event"] == "copied":
+        return "actions" not in last and wanted == []
+    path = last["path"]
+    expected = [{"id": i, "label": label, "argv": [path if word == "FILE" else word for word in argv]} for i, label, argv in wanted]
+    return last["actions"] == expected
+
+
+def open_with_cases():
+    """Each row: name, action, installed programs, folder, and the buttons."""
+    return [
+        ("screenshot-tools", "screenshot", ("imv", "satty"), "pictures",
+         [("default", "Open", ["imv", "--title=%f", "FILE"]), ("edit", "Edit", ["satty", "--filename", "FILE", "--output-filename", "FILE"])]),
+        ("screenshot-spaced-path", "screenshot", ("imv", "satty"), "my pictures",
+         [("default", "Open", ["imv", "--title=%f", "FILE"]), ("edit", "Edit", ["satty", "--filename", "FILE", "--output-filename", "FILE"])]),
+        ("screenshot-no-editor", "screenshot", ("imv",), "pictures", [("default", "Open", ["imv", "--title=%f", "FILE"])]),
+        ("screenshot-no-tools", "screenshot", (), "pictures", []),
+        ("recording-player", "record-output", ("imv", "satty", "mpv"), "pictures", [("default", "Open", ["mpv", "FILE"])]),
+        ("recording-no-player", "record-output", ("imv", "satty"), "pictures", []),
+        ("text", "text", ("imv", "satty", "mpv"), "pictures", []),
+    ]
+
+
+def notification_functions(base, source, plant_world):
+    """The buttons each finished capture offers, the shell's end closing a
+    waiting notification, and the control that removes each."""
+    def holds(name, helper):
+        _, action, installed, folder, wanted = cases[name]
+        return open_with_holds(plant_world(name + "-" + helper.stem), helper, action, installed, folder, wanted)
+    cases = {case[0]: case for case in open_with_cases()}
+    for name in cases:
+        assert holds(name, HELPER), name
+    def mutated(name, before, after):
+        assert source.count(before) == 1, name
+        changed = source.replace(before, after)
+        assert changed != source, name
+        helper = base / (name + ".py")
+        helper.write_text(changed)
+        return helper
+    assert not holds("screenshot-no-editor", mutated("absent-tool-offered", "if not words or shutil.which(words[0]) is None:", "if not words:")), "control did not fail: absent-tool-offered"
+    assert not holds("screenshot-tools", mutated("file-appended", 'if "%f" not in words:', "if True:")), "control did not fail: file-appended"
+    assert not holds("screenshot-spaced-path", mutated("file-split", "return [str(path) if word == \"%f\" else word for word in words]", "return \" \".join(str(path) if word == \"%f\" else word for word in words).split()")), "control did not fail: file-split"
+    service = (HELPER.parent.parent / "Service.qml").read_text()
+    assert notice_owner_holds(base, "notice-owner", service), "the shell's end closes a waiting notification"
+    before = '["python3", helperPath, "--owned", "2", String(parent), "notify-send"'
+    assert service.count(before) == 1, "notice owner control match"
+    assert not notice_owner_holds(base, "notice-unowned", service.replace(before, '["notify-send"')), "control did not fail: notice-unowned"
+    return "absent-tool-offered,file-appended,file-split,notice-unowned"
 
 
 def failure_log_holds(root, helper, reason):
@@ -1140,6 +1305,7 @@ def main():
         source = HELPER.read_text()
         screenshot_choices(base, source)
         recording_controls = recording_functions(base, source)
+        notification_controls = notification_functions(base, source, world)
         unmeasured = real_processing(base, source)
         for name, installed, languages in [("english-data-missing", ["osd"], "eng"), ("german-data-missing", ["eng", "osd"], "deu+eng")]:
             root = world(name, languages=installed)
@@ -1225,7 +1391,7 @@ def main():
         assert not killed_owner_holds(root, request(root, "record"), config, helper), "control did not fail: unowned child"
     if unmeasured is None:
         recording_controls += ",no-trim"
-    controls = ("undrawn-windows,drawn-window-delegate,raw-ocr-error,no-output,no-clipboard,hard-stop,inherited-stdin,kept-freeze,unowned-child,invalid-delay-accepted,invalid-timeout-accepted,invalid-processing-accepted,empty-selection-accepted,empty-displays-accepted,smart-snap,window-boxes,display-boxes,all-bounds,no-scale,no-rotation,no-cursor,copy-saves,save-copies,no-delay,delay-ignores-cancel,no-timeout,no-selection-end," + recording_controls)
+    controls = ("undrawn-windows,drawn-window-delegate,raw-ocr-error,no-output,no-clipboard,hard-stop,inherited-stdin,kept-freeze,unowned-child,invalid-delay-accepted,invalid-timeout-accepted,invalid-processing-accepted,empty-selection-accepted,empty-displays-accepted,smart-snap,window-boxes,display-boxes,all-bounds,no-scale,no-rotation,no-cursor,copy-saves,save-copies,no-delay,delay-ignores-cancel,no-timeout,no-selection-end," + recording_controls + "," + notification_controls)
     if unmeasured is not None:
         # The rest passed, but the real post-process could not run: not a pass.
         print(f"test-capture: status=not-measured cause={unmeasured}; controls={controls}")

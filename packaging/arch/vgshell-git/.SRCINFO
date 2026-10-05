@@ -73,5 +73,8 @@ pkgbase = vgshell-git
 	optdepends = glibc: getent, the accounts on the login screen
 	optdepends = polkit: pkexec, so applications can ask for administrator access
 	optdepends = tailscale: the Tailscale connection in the VPN plugin
+	optdepends = imv: opens a saved screenshot from its Capture notification
+	optdepends = satty: edits a saved screenshot from its Capture notification
+	optdepends = mpv: plays a saved recording from its Capture notification
 
 pkgname = vgshell-git

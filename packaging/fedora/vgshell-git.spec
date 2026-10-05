@@ -79,6 +79,8 @@ Recommends:     tailscale
 Recommends:     xorg-x11-xinit
 Recommends:     tmux
 Recommends:     ydotool
+Recommends:     imv
+Recommends:     mpv
 # end runtime dependencies
 
 %description
