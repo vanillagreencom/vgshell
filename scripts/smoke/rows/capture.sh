@@ -1,9 +1,8 @@
-# The capture service runs stand-ins. grim always, and slurp and hyprpicker for
-# the dragged area, run as the real tools on the nested socket.
-# inputs: shell/plugins/vgs.capture/* shell/Core/Capabilities.qml shell/Core/Config.qml shell/Core/IpcRegistry.qml shell/Core/Lifetime.js shell/Core/MonitorLogic.js shell/Core/MonitorState.qml shell/Core/Notices.qml shell/Core/PackageManagers.js shell/Core/PluginLogic.js shell/Core/Plugins.qml shell/Core/PluginStatus.qml shell/Core/Registry.qml shell/Core/ServiceGate.qml shell/Core/ShortcutRegistry.qml shell/Core/Toasts.qml shell/Hosts/BarHost.qml shell/Hosts/NoticeHost.qml shell/Hosts/OverlaySurface.qml shell/Hosts/PluginSlot.qml shell/Hosts/ServiceHost.qml shell/Hosts/Summon* shell/Hosts/ToastHost.qml shell/Ui/* shell/Commons/* bin/vgshell-scan bin/lib/check-manifests.js bin/lib/qml-library.js scripts/test-capture.py scripts/smoke/fixtures/capture/*
-# Mode dimensions come from Hyprland. The row plants dropped-output,
-# dropped-clipboard, SIGKILL and inherited-stdin controls and requires each
-# assertion to fail.
+# The capture service uses real nested tools for image and selection readings.
+# Stand-ins hold tool failures, countdown frames, OCR and the recorder.
+# inputs: shell/plugins/vgs.capture/* shell/Core/Capabilities.qml shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/IpcRegistry.qml shell/Core/Lifetime.js shell/Core/MonitorLogic.js shell/Core/MonitorState.qml shell/Core/Notices.qml shell/Core/PackageManagers.js shell/Core/PluginLogic.js shell/Core/Plugins.qml shell/Core/PluginStatus.qml shell/Core/Registry.qml shell/Core/ServiceGate.qml shell/Core/ShortcutRegistry.qml shell/Core/Toasts.qml shell/Hosts/BarHost.qml shell/Hosts/NoticeHost.qml shell/Hosts/OverlaySurface.qml shell/Hosts/PluginSlot.qml shell/Hosts/ServiceHost.qml shell/Hosts/Summon* shell/Hosts/ToastHost.qml shell/Ui/* shell/Commons/* bin/vgshell-scan bin/lib/check-manifests.js bin/lib/qml-library.js scripts/test-capture.py scripts/smoke/fixtures/capture/*
+# Expected rectangles come from Hyprland. Disposable copies remove each
+# screenshot choice, countdown cleanup and the owned tool deadline.
 # Readbacks use the harness's state poll, with no capture latency budget.
 set -euo pipefail
 capture_state="$sandbox/capture-world"
@@ -131,7 +130,88 @@ except ProcessLookupError:
     print(False)
 else:
     print(True)' "$capture_state"; }
-capture_geometry() { python3 -c 'import json,sys; rows=[json.loads(l) for l in open(sys.argv[1])]; print([r["args"] for r in rows if r["tool"]=="grim"][-1][:2])' "$capture_state/calls.jsonl"; }
+capture_geometry() { python3 -c 'import json,sys; rows=[json.loads(l) for l in open(sys.argv[1])]; a=[r["args"] for r in rows if r["tool"]=="grim"][-1]; print(a[a.index("-g"):a.index("-g")+2] if "-g" in a else a[:2])' "$capture_state/calls.jsonl"; }
+capture_setting_value() { capture_read settings | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[sys.argv[1]]))' "$1"; }
+capture_setting() {
+  local payload
+  payload="$(python3 -c 'import json,sys; print(json.dumps({"key":sys.argv[1],"value":json.loads(sys.argv[2])}))' "$1" "$2")" || return 1
+  expect "capture setting $1 is accepted" ok ipc vgs.capture invoke setting "$payload"
+  expect_poll "capture setting $1 reaches its service" "$2" capture_setting_value "$1"
+}
+capture_image_box() { python3 - "$capture_state" "$(capture_path)" "$1" <<'PY'
+import json, pathlib, struct, sys
+root, path = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+expected = sys.argv[3]
+rows = [json.loads(line) for line in (root / "calls.jsonl").read_text().splitlines()]
+grims = [r["args"] for r in rows if r["tool"] == "grim"]
+args = grims[-1] if grims else []
+data = path.read_bytes() if path.is_file() else b""
+size = tuple(map(int, expected.split()[1].split("x")))
+print("-g" in args and args[args.index("-g") + 1] == expected and data[:8] == b"\x89PNG\r\n\x1a\n" and struct.unpack(">II", data[16:24]) == size and (root / "clipboard").read_bytes() == data)
+PY
+}
+capture_copy_only() { python3 - "$capture_state" "$home/Pictures/Screenshots" "$capture_before" <<'PY'
+from pathlib import Path
+import sys
+root, folder, before = Path(sys.argv[1]), Path(sys.argv[2]), int(sys.argv[3])
+data = (root / "clipboard").read_bytes()
+print(data.startswith(b"\x89PNG\r\n\x1a\n") and len(list(folder.glob("*.png"))) == before)
+PY
+}
+capture_save_only() { python3 - "$capture_state" "$(capture_path)" "$home/Pictures/Screenshots" "$capture_before" <<'PY'
+from pathlib import Path
+import sys
+root, image, folder, before = Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3]), int(sys.argv[4])
+print(image.is_file() and image.read_bytes().startswith(b"\x89PNG\r\n\x1a\n") and (root / "clipboard").read_bytes() == b"previous clipboard" and len(list(folder.glob("*.png"))) == before + 1)
+PY
+}
+capture_cursor_flag() { python3 - "$capture_state/calls.jsonl" <<'PY'
+import json, sys
+rows = [json.loads(line) for line in open(sys.argv[1])]
+args = [r["args"] for r in rows if r["tool"] == "grim"][-1]
+print("-c" in args)
+PY
+}
+capture_clipboard_digest() { python3 -c 'import hashlib,pathlib,sys; print(hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest())' "$capture_state/clipboard"; }
+capture_delay_elapsed() { python3 - "$(capture_path)" "$capture_delay_started" "$1" <<'CONTROL'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+print(path.is_file() and path.stat().st_mtime - float(sys.argv[2]) >= float(sys.argv[3]))
+CONTROL
+}
+capture_grim_past_limit() { python3 - "$capture_state/grim-ready" <<'CONTROL'
+from pathlib import Path
+import sys, time
+path = Path(sys.argv[1])
+print(path.is_file() and time.time() - path.stat().st_mtime >= 2)
+CONTROL
+}
+capture_delay_held() { [[ $(capture_phase) == delaying && $(capture_counts) == "$capture_before" ]] && echo True || echo False; }
+capture_countdown() { capture_read remaining | py_reply 'import json,sys; v=json.load(sys.stdin); print(isinstance(v,int) and v > 0)'; }
+capture_fresh_frame() { python3 - "$(capture_path)" <<'PY'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+print(path.is_file() and path.read_bytes().endswith(b"after countdown"))
+PY
+}
+capture_grim_left() { python3 - "$capture_state" <<'PY'
+import os, sys
+from pathlib import Path
+left = 0
+for marker in Path(sys.argv[1]).glob("grim-pid-*"):
+    try:
+        os.kill(int(marker.name.rsplit("-", 1)[1]), 0)
+    except ProcessLookupError:
+        continue
+    left += 1
+print(left)
+PY
+}
+capture_timeout_clean() { [[ $(capture_phase) == idle && $(capture_counts) == "$capture_before" && $(capture_grim_left) == 0 ]] && echo True || echo False; }
+capture_marker() { [[ -f $capture_state/$1 ]] && echo True || echo False; }
+capture_active_address() { hypr -j activewindow | py_reply 'import json,sys; print(json.load(sys.stdin).get("address", ""))'; }
 capture_recorded() { python3 - "$capture_state" "$(capture_path)" <<'PY'
 import json, pathlib, signal, sys
 root, path = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
@@ -190,6 +270,204 @@ expect_poll "the second press leaves capture idle" idle capture_phase
 expect_poll "the second press leaves no selector or freeze" 0 capture_left
 expect "cancelled real selections write no file" "$capture_before" capture_counts
 capture_config real "{\"grim\": \"$capture_real_grim\"}"
+# Expected rectangles come from the nested compositor, independently of the
+# helper's rectangle list. Both owned windows close before this row exits.
+open_toplevel "$sandbox/capture-target.log" smoke.capture-target "Capture target" || fail "capture: the screenshot target did not map"
+capture_target_pid="$toplevel_pid"
+capture_target_address="$(toplevel_address "$capture_target_pid")"
+read -r capture_target_x capture_target_y capture_target_w capture_target_h < <(hypr -j clients | py_reply 'import json,sys; w=next(w for w in json.load(sys.stdin) if w["address"]==sys.argv[1]); print(*w["at"],*w["size"])' "$capture_target_address")
+capture_target_box="$capture_target_x,$capture_target_y ${capture_target_w}x${capture_target_h}"
+capture_target_cx=$((capture_target_x + capture_target_w / 2))
+capture_target_cy=$((capture_target_y + capture_target_h / 2))
+read -r capture_display_x capture_display_y capture_display_w capture_display_h < <(hypr -j monitors | py_reply 'import json,sys; m=next(m for m in json.load(sys.stdin) if m["name"]==sys.argv[1]); w,h=m["width"],m["height"]; w,h=(h,w) if m["transform"]%2 else (w,h); print(m["x"],m["y"],int(w/m["scale"]),int(h/m["scale"]))' "$capture_output")
+capture_display_box="$capture_display_x,$capture_display_y ${capture_display_w}x${capture_display_h}"
+capture_all_box="$(hypr -j monitors | py_reply 'import json,sys; rects=[]
+for m in json.load(sys.stdin):
+ if m.get("disabled",False): continue
+ w,h=m["width"],m["height"]
+ if m["transform"]%2: w,h=h,w
+ rects.append((m["x"],m["y"],int(w/m["scale"]),int(h/m["scale"])))
+l=min(r[0] for r in rects); t=min(r[1] for r in rects); r=max(r[0]+r[2] for r in rects); b=max(r[1]+r[3] for r in rects); print("%d,%d %dx%d"%(l,t,r-l,b-t))')"
+capture_config real "{\"grim\": \"$capture_real_grim\", \"slurp\": \"$capture_real_slurp\", \"hyprpicker\": \"$capture_real_picker\"}"
+for capture_selection in screenshot-area screenshot-window screenshot-display; do
+  : >"$capture_state/calls.jsonl"
+  expect "capture starts $capture_selection by click" ok ipc vgs.capture invoke "$capture_selection" ''
+  expect "the $capture_selection selector maps" True capture_selecting
+  click "$capture_target_cx" "$capture_target_cy" || fail "capture: the selection click failed"
+  expect_poll "the $capture_selection click finishes" idle capture_phase
+  if [[ $capture_selection == screenshot-display ]]; then capture_expected_box="$capture_display_box"; else capture_expected_box="$capture_target_box"; fi
+  expect_poll "the $capture_selection image equals its selected rectangle" True capture_image_box "$capture_expected_box"
+  expect_poll "the $capture_selection leaves no selector or freeze" 0 capture_left
+done
+: >"$capture_state/calls.jsonl"
+expect "capture accepts all enabled displays" ok ipc vgs.capture invoke screenshot-all ''
+expect_poll "capture finishes all displays" idle capture_phase
+expect_poll "all-display image equals the compositor bounding box" True capture_image_box "$capture_all_box"
+capture_config real "{\"grim\": \"$capture_real_grim\"}"
+expect_poll "capture notices leave the cursor baseline" 0 capture_toasts
+hover "$capture_target_cx" "$capture_target_cy" || fail "capture: the cursor could not be placed"
+expect "capture takes a pointer-free baseline" ok ipc vgs.capture invoke screenshot ''
+expect_poll "the cursor baseline finishes" idle capture_phase
+capture_cursor_baseline="$(capture_clipboard_digest)"
+capture_setting cursor true
+expect_poll "capture notices leave before the cursor image" 0 capture_toasts
+expect "capture takes the cursor image" ok ipc vgs.capture invoke screenshot ''
+expect_poll "the cursor image finishes" idle capture_phase
+expect "the cursor option reaches grim" True capture_cursor_flag
+capture_cursor_changed() { [[ $(capture_clipboard_digest) != "$capture_cursor_baseline" ]] && echo True || echo False; }
+expect "including the cursor changes the image bytes" True capture_cursor_changed
+capture_setting cursor false
+capture_setting processing '"copy"'
+capture_before="$(capture_counts)"
+printf 'previous clipboard' >"$capture_state/clipboard"
+expect "capture accepts copy-only processing" ok ipc vgs.capture invoke screenshot ''
+expect_poll "copy-only capture finishes" idle capture_phase
+expect_poll "copy-only delivers PNG bytes without a Pictures file" True capture_copy_only
+capture_setting processing '"save"'
+capture_before="$(capture_counts)"
+printf 'previous clipboard' >"$capture_state/clipboard"
+expect "capture accepts save-only processing" ok ipc vgs.capture invoke screenshot ''
+expect_poll "save-only capture finishes" idle capture_phase
+expect "save-only keeps the clipboard and writes the PNG" True capture_save_only
+rm -f -- "${shim:?}/wl-copy"
+rescan "the missing clipboard command is rescanned for save-only"
+capture_missing_clipboard() { capture_read missing | py_reply 'import json,sys; print("wl-copy" in json.load(sys.stdin))'; }
+expect_poll "the service reads the missing clipboard command" True capture_missing_clipboard
+capture_before="$(capture_counts)"
+expect "save-only remains available without the clipboard tool" ok ipc vgs.capture invoke screenshot ''
+expect_poll "save-only without the clipboard tool finishes" idle capture_phase
+expect "save-only without wl-copy keeps both deliverables correct" True capture_save_only
+ln -s -- "$capture_state/bin/wl-copy" "$shim/wl-copy"
+rescan "the restored clipboard command is rescanned"
+expect_poll "the service finds the restored clipboard command" False capture_missing_clipboard
+capture_setting processing '"save-copy"'
+capture_config geometry "\"$capture_target_cx,$capture_target_cy 1x1\""
+expect "smart capture accepts a tiny selected point" ok ipc vgs.capture invoke screenshot-area ''
+expect_poll "smart capture finishes the selected point" idle capture_phase
+expect "smart capture expands a tiny point to its window" True capture_image_box "$capture_target_box"
+capture_setting smart false
+expect "plain area capture accepts the same tiny point" ok ipc vgs.capture invoke screenshot-area ''
+expect_poll "plain area capture finishes the selected point" idle capture_phase
+expect "plain area capture keeps the tiny geometry" True capture_image_box "$capture_target_cx,$capture_target_cy 1x1"
+capture_setting smart true
+capture_config geometry "\"$capture_display_x,$capture_display_y 1x1\""
+expect "smart capture accepts a point outside all windows" ok ipc vgs.capture invoke screenshot-area ''
+expect_poll "smart capture finishes the output point" idle capture_phase
+expect "smart capture expands an empty desktop point to its output" True capture_image_box "$capture_display_box"
+capture_config geometry '"10,20 80x60"'
+# A changing token in the fake frame separates the selected frame from the
+# image read after the countdown. The real compositor checks stay above.
+capture_config real '{}'
+capture_config frame '"before countdown"'
+capture_setting delay 3
+capture_before="$(capture_counts)"
+capture_delay_started="$(python3 -c 'import time; print(time.time())')"
+expect "capture accepts a delayed area" ok ipc vgs.capture invoke screenshot-area ''
+expect_poll "delay begins after the selection" True capture_delay_held
+expect "the countdown exposes remaining time" True capture_countdown
+expect "the widget shows countdown state" true ipc smoke readInstance "$(bar_key)" vgs.capture delaying
+expect_poll "the countdown releases the selector and freeze" 0 capture_left
+capture_config frame '"after countdown"'
+expect_poll "the delayed screenshot completes" idle capture_phase
+expect "the delayed screenshot reads the new frame" True capture_fresh_frame
+expect "the delayed screenshot waits for the configured duration" True capture_delay_elapsed 3
+for capture_cancel in key widget; do
+  capture_before="$(capture_counts)"
+  capture_cancel_clipboard="$(capture_clipboard_digest)"
+  expect "capture starts a countdown for $capture_cancel cancellation" ok ipc vgs.capture invoke screenshot ''
+  expect_poll "the $capture_cancel cancellation reaches the countdown" True capture_delay_held
+  if [[ $capture_cancel == key ]]; then
+    expect "the same capture action cancels its countdown" ok ipc vgs.capture invoke screenshot ''
+  else
+    click_centre "$(bar_key)" vgs.capture || fail "capture: the countdown widget could not be clicked"
+  fi
+  expect_poll "the $capture_cancel cancellation leaves capture idle" idle capture_phase
+  expect "the $capture_cancel cancellation writes no file" "$capture_before" capture_counts
+  expect "the $capture_cancel cancellation keeps the clipboard" "$capture_cancel_clipboard" capture_clipboard_digest
+  expect "the $capture_cancel cancellation removes its countdown" 0 capture_read remaining
+done
+capture_setting delay 0
+capture_config frame '""'
+capture_setting timeout 1
+capture_config grimHold true
+capture_before="$(capture_counts)"
+rm -f -- "${capture_state:?}/grim-ready"
+expect "capture starts a tool held beyond its time limit" ok ipc vgs.capture invoke screenshot ''
+expect_poll "the held screenshot reaches grim" True capture_marker grim-ready
+expect_poll "the time limit ends the held capture and owned tool" True capture_timeout_clean
+capture_config grimHold false
+capture_setting timeout 10
+# Compare a small area inside the countdown card with the same desktop area
+# before it maps. The image must contain the desktop after the card closes.
+capture_countdown_pixels() {
+  local signature
+  signature="$("$imagemagick" "$(capture_path)" -crop "$capture_countdown_crop" +repage -format '%[signature]' info:)" || return 1
+  [[ $signature == "$capture_countdown_baseline" ]] && echo True || echo False
+}
+capture_countdown_image() {
+  capture_config real "{\"grim\": \"$capture_real_grim\"}"
+  capture_setting delay 0
+  expect_poll "earlier capture notices expire before countdown pixels" 0 capture_toasts
+  expect "capture takes the desktop before the countdown" ok ipc vgs.capture invoke screenshot ''
+  expect_poll "the countdown baseline finishes" idle capture_phase
+  cp -- "$(capture_path)" "$capture_state/countdown-baseline.png"
+  expect_poll "the baseline's notice expires before the countdown" 0 capture_toasts
+  capture_setting delay 2
+  expect "capture starts the countdown for image readback" ok ipc vgs.capture invoke screenshot ''
+  expect_poll "the countdown image reaches its delay" delaying capture_phase
+  expect_poll "the countdown maps its toast" 1 layer_count vgs:toast
+  capture_countdown_layer="$(surface_box vgs:toast)"
+  capture_countdown_card="$(ipc smoke toastWindowGeometry 0)"
+  capture_countdown_crop="$(python3 -c 'import json,sys; layer,card=map(json.loads,sys.argv[1:]); print("50x20+%d+%d"%(layer[0]+card[0]+10,layer[1]+card[1]+10))' "$capture_countdown_layer" "$capture_countdown_card")" || return 1
+  capture_countdown_baseline="$("$imagemagick" "$capture_state/countdown-baseline.png" -crop "$capture_countdown_crop" +repage -format '%[signature]' info:)" || return 1
+  expect_poll "the countdown image finishes" idle capture_phase
+}
+capture_countdown_image
+expect "the delayed PNG contains no countdown card" True capture_countdown_pixels
+capture_setting delay 0
+capture_source_service="$repo/shell/plugins/vgs.capture/Service.qml"
+python3 - "$capture_source_service" "$sandbox" "$rt_dir" "$capture_state/service-original.qml" <<'PY'
+from pathlib import Path
+import sys
+service, sandbox, runtime, original = map(Path, sys.argv[1:])
+assert any(service.resolve().is_relative_to(root.resolve()) for root in (sandbox, runtime)), "countdown control must stay inside the sandbox"
+source = service.read_text()
+original.write_text(source)
+before = "if (countdownToast !== null) countdownToast();"
+assert source.count(before) == 1, "countdown disposer control"
+changed = source.replace(before, "if (false) countdownToast();")
+assert changed != source
+service.write_text(changed)
+PY
+expect "capture stops before the retained-countdown control" ok ipc shell setPluginEnabled vgs.capture false
+expect_poll "the original capture service is released" False record_exists vgs.capture
+rescan "the retained-countdown service copy is rescanned"
+expect "capture enables the retained-countdown service" ok ipc shell setPluginEnabled vgs.capture true
+expect_poll "the retained-countdown service is built" True record_exists vgs.capture
+capture_countdown_image
+expect "control: keeping the countdown fails the image readback" False capture_countdown_pixels
+expect "capture stops after the retained-countdown control" ok ipc shell setPluginEnabled vgs.capture false
+expect_poll "the retained-countdown service is released" False record_exists vgs.capture
+cp -- "$capture_state/service-original.qml" "$capture_source_service"
+rescan "the original capture service is rescanned"
+expect "capture enables the restored service" ok ipc shell setPluginEnabled vgs.capture true
+expect_poll "the restored capture service is built" True record_exists vgs.capture
+capture_setting delay 0
+capture_config slurpRelease true
+capture_config real "{\"grim\": \"$capture_real_grim\"}"
+rm -f -- "${capture_state:?}/slurp-ready" "${capture_state:?}/slurp-release"
+expect "the target receives focus before selection" ok hypr dispatch "hl.dsp.focus({ window = \"address:$capture_target_address\" })"
+expect_poll "capture reads its focus target" "$capture_target_address" capture_active_address
+expect "capture starts a held selector for focus restoration" ok ipc vgs.capture invoke screenshot-area ''
+expect_poll "the held selector is ready" True capture_marker slurp-ready
+open_toplevel "$sandbox/capture-disturbance.log" smoke.capture-disturbance "Capture disturbance" || fail "capture: the focus disturbance did not map"
+capture_disturbance_pid="$toplevel_pid"
+capture_disturbance_address="$(toplevel_address "$capture_disturbance_pid")"
+expect_poll "the second window changes focus during selection" "$capture_disturbance_address" capture_active_address
+touch -- "$capture_state/slurp-release"
+expect_poll "the held selection finishes" idle capture_phase
+expect_poll "selection restores the still-open window's focus" "$capture_target_address" capture_active_address
+capture_config slurpRelease false
 expect "capture recognizes selected text" ok ipc vgs.capture invoke text ''
 expect_poll "capture finishes text recognition" idle capture_phase
 expect "text reaches the clipboard" "Nested capture text" capture_clipboard
@@ -235,14 +513,147 @@ helper, sandbox, runtime, original = map(Path, sys.argv[1:])
 assert any(helper.resolve().is_relative_to(root.resolve()) for root in (sandbox, runtime)), "capture control must stay inside the sandbox or its private runtime"
 original.write_bytes(helper.read_bytes())
 PY
+capture_mutate() { python3 - "$capture_state/helper-original.py" "$capture_helper" "$1" <<'PY'
+from pathlib import Path
+import sys
+original, helper, control = sys.argv[1:]
+changes = {
+    "smart": ('picked = rectangle_geometry(target), tuple(str(target[k]) for k in ("x", "y", "width", "height"))', 'picked = picked', 1),
+    "window": ('boxes = windows', 'boxes = outputs', 1),
+    "display": ('boxes = outputs', 'boxes = windows', 1),
+    "all": ('args = ["grim", "-g", f"{left},{top} {right - left}x{bottom - top}"]', 'args = ["grim", "-o", ""]', 1),
+    "delay": ('if not self.countdown(delay, timeout):', 'if False:', 1),
+    "cancel-delay": ('("", "cancel")', '("",)', 4),
+    "cursor": ('args = args + (["-c"] if request.get("cursor", False) else [])', 'args = args', 1),
+    "copy-only": ('if processing == "copy":', 'if False:', 1),
+    "save-only": ('if processing != "save":', 'if True:', 1),
+    "focus": ('emit("selection-ended")', 'pass', 2),
+    "timeout": ('child.communicate(timeout=timeout)', 'child.communicate()', 1),
+}
+source = Path(original).read_text()
+before, after, count = changes[control]
+assert source.count(before) == count, control
+changed = source.replace(before, after)
+assert changed != source, control
+Path(helper).write_text(changed)
+PY
+}
+capture_count_unchanged() { [[ $(capture_counts) == "$capture_before" ]] && echo True || echo False; }
+for capture_control in smart window display all cursor copy-only save-only delay cancel-delay focus timeout; do
+  capture_mutate "$capture_control"
+  : >"$capture_state/calls.jsonl"
+  capture_config real "{\"grim\": \"$capture_real_grim\"}"
+  case "$capture_control" in
+    smart)
+      read -r capture_target_x capture_target_y capture_target_w capture_target_h < <(hypr -j clients | py_reply 'import json,sys; w=next(w for w in json.load(sys.stdin) if w["address"]==sys.argv[1]); print(*w["at"],*w["size"])' "$capture_target_address")
+      capture_target_box="$capture_target_x,$capture_target_y ${capture_target_w}x${capture_target_h}"
+      capture_target_cx=$((capture_target_x + capture_target_w / 2))
+      capture_target_cy=$((capture_target_y + capture_target_h / 2))
+      capture_config geometry "\"$capture_target_cx,$capture_target_cy 1x1\""
+      expect "control: smart capture starts with a tiny click" ok ipc vgs.capture invoke screenshot-area ''
+      expect_poll "control: the unsnapped click completes" idle capture_phase
+      expect "control: dropping click snapping fails the window image readback" False capture_image_box "$capture_target_box"
+      capture_config geometry '"10,20 80x60"'
+      ;;
+    window|display)
+      capture_config real "{\"grim\": \"$capture_real_grim\", \"slurp\": \"$capture_real_slurp\", \"hyprpicker\": \"$capture_real_picker\"}"
+      expect "control: the $capture_control selection starts" ok ipc vgs.capture invoke "screenshot-$capture_control" ''
+      expect "control: the wrong rectangle selector maps" True capture_selecting
+      click "$capture_target_cx" "$capture_target_cy" || fail "capture: the control click failed"
+      expect_poll "control: the wrong rectangle capture finishes" idle capture_phase
+      if [[ $capture_control == display ]]; then capture_expected_box="$capture_display_box"; else capture_expected_box="$capture_target_box"; fi
+      expect "control: wrong $capture_control rectangles fail the selected image" False capture_image_box "$capture_expected_box"
+      ;;
+    all)
+      expect "control: all-display capture starts without its bounding box" ok ipc vgs.capture invoke screenshot-all ''
+      expect_poll "control: the bounding-box copy finishes" idle capture_phase
+      expect "control: dropping the bounding rectangle fails the all-display readback" False capture_image_box "$capture_all_box"
+      ;;
+    cursor)
+      capture_setting cursor true
+      expect "control: capture starts with the cursor flag dropped" ok ipc vgs.capture invoke screenshot ''
+      expect_poll "control: the cursor copy completes" idle capture_phase
+      expect "control: dropping the cursor flag fails the cursor readback" False capture_cursor_flag
+      capture_setting cursor false
+      ;;
+    copy-only|save-only)
+      if [[ $capture_control == copy-only ]]; then capture_setting processing '"copy"'; else capture_setting processing '"save"'; fi
+      capture_before="$(capture_counts)"
+      printf 'previous clipboard' >"$capture_state/clipboard"
+      expect "control: the $capture_control screenshot starts" ok ipc vgs.capture invoke screenshot ''
+      expect_poll "control: the $capture_control screenshot completes" idle capture_phase
+      if [[ $capture_control == copy-only ]]; then
+        expect "control: saving copy-only fails its deliverable readback" False capture_copy_only
+      else
+        expect "control: copying save-only fails its deliverable readback" False capture_save_only
+      fi
+      capture_setting processing '"save-copy"'
+      ;;
+    delay)
+      capture_setting delay 3
+      capture_before="$(capture_counts)"
+      capture_delay_started="$(python3 -c 'import time; print(time.time())')"
+      expect "control: a delayed action starts without a countdown" ok ipc vgs.capture invoke screenshot ''
+      expect_poll "control: the early capture completes" idle capture_phase
+      expect "control: removing the delay fails the elapsed-time readback" False capture_delay_elapsed 3
+      capture_setting delay 0
+      ;;
+    cancel-delay)
+      capture_setting delay 2
+      capture_before="$(capture_counts)"
+      expect "control: the countdown starts with cancellation dropped" ok ipc vgs.capture invoke screenshot ''
+      expect_poll "control: the countdown awaits cancellation" True capture_delay_held
+      expect "control: the same action sends cancellation" ok ipc vgs.capture invoke screenshot ''
+      expect_poll "control: the ignored cancellation finishes" idle capture_phase
+      expect "control: ignoring countdown cancellation fails the no-file readback" False capture_count_unchanged
+      capture_setting delay 0
+      ;;
+    focus)
+      capture_config slurpRelease true
+      rm -f -- "${capture_state:?}/slurp-ready" "${capture_state:?}/slurp-release"
+      expect "control: target focus is set before selection" ok hypr dispatch "hl.dsp.focus({ window = \"address:$capture_target_address\" })"
+      expect_poll "control: the target has focus" "$capture_target_address" capture_active_address
+      expect "control: selection starts with its end event dropped" ok ipc vgs.capture invoke screenshot-area ''
+      expect_poll "control: the selector awaits focus disturbance" True capture_marker slurp-ready
+      expect "control: the other window receives focus during selection" ok hypr dispatch "hl.dsp.focus({ window = \"address:$capture_disturbance_address\" })"
+      expect_poll "control: the other window has focus" "$capture_disturbance_address" capture_active_address
+      touch -- "$capture_state/slurp-release"
+      expect_poll "control: selection without focus restoration completes" idle capture_phase
+      expect "control: dropping selection-end fails the original-window readback" "$capture_disturbance_address" capture_active_address
+      capture_config slurpRelease false
+      ;;
+    timeout)
+      capture_config real '{}'
+      capture_setting timeout 1
+      capture_config grimHold true
+      capture_before="$(capture_counts)"
+      rm -f -- "${capture_state:?}/grim-ready"
+      expect "control: the screenshot starts without its tool deadline" ok ipc vgs.capture invoke screenshot ''
+      expect_poll "control: the unbounded tool has started" True capture_marker grim-ready
+      expect_poll "control: the held tool crosses the configured deadline" True capture_grim_past_limit
+      expect "control: dropping the deadline fails the bounded cleanup readback" False capture_timeout_clean
+      cp -- "$capture_state/helper-original.py" "$capture_helper"
+      expect "control: disabling capture ends the unbounded tool" ok ipc shell setPluginEnabled vgs.capture false
+      expect_poll "control: the unbounded tool is gone" 0 capture_grim_left
+      capture_config grimHold false
+      expect "capture is enabled after the timeout control" ok ipc shell setPluginEnabled vgs.capture true
+      expect_poll "capture is idle after the timeout control" idle capture_phase
+      capture_setting timeout 10
+      ;;
+  esac
+  cp -- "$capture_state/helper-original.py" "$capture_helper"
+done
+close_toplevel "$capture_disturbance_pid" "capture's focus disturbance closes"
+close_toplevel "$capture_target_pid" "capture's screenshot target closes"
+capture_config real "{\"grim\": \"$capture_real_grim\"}"
 for capture_control in no-output no-clipboard hard-stop inherited-stdin; do
   python3 - "$capture_state/helper-original.py" "$capture_helper" "$capture_control" <<'PY'
 from pathlib import Path
 import sys
 original, helper, control = sys.argv[1:]
 changes = {
-    "no-output": ('path = self.grab(request, ["grim", "-o", request["output"]])', 'path = self.grab(request, ["grim"])'),
-    "no-clipboard": ('child = self.copy(image, "image/png")', 'child = self.spawn([sys.executable, "-c", "import sys; sys.stdin.buffer.read()"], stdin=image, stderr=subprocess.PIPE)'),
+    "no-output": ('args = ["grim", "-o", request["output"]]', 'args = ["grim"]'),
+    "no-clipboard": ('child = self.spawn(["wl-copy", "--foreground", "--type", mime], stdin=subprocess.PIPE, stderr=subprocess.PIPE)', 'child = self.spawn([sys.executable, "-c", "import sys; sys.stdin.buffer.read()"], stdin=subprocess.PIPE, stderr=subprocess.PIPE)'),
     "hard-stop": ('self.recorder.send_signal(signal.SIGINT)', 'self.recorder.send_signal(signal.SIGKILL)'),
     "inherited-stdin": ('kwargs.setdefault("stdin", subprocess.DEVNULL)', 'pass'),
 }
@@ -262,6 +673,7 @@ PY
     expect_poll "control: the hard-stop copy finishes" idle capture_phase
     expect "control: SIGKILL fails the recording row" False capture_recorded
   elif [[ $capture_control == inherited-stdin ]]; then
+    capture_setting smart false
     capture_config real "{\"grim\": \"$capture_real_grim\", \"slurp\": \"$capture_real_slurp\", \"hyprpicker\": \"$capture_real_picker\"}"
     expect "control: the inherited-stdin copy starts a selection" ok ipc vgs.capture invoke screenshot-area ''
     # The held worker stays until the plugin is disabled below, which ends

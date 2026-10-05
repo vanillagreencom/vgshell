@@ -36,8 +36,63 @@ Item {
         Column {
             width: layout.contentWidth
             spacing: Theme.stack.row
-            Button { id: screenshot; width: parent.width; text: "Screenshot"; iconName: "camera"; onClicked: root.invoke("screenshot") }
+            Button { id: screenshot; width: parent.width; text: "Screenshot focused display"; iconName: "camera"; onClicked: root.invoke("screenshot") }
             Button { width: parent.width; text: "Screenshot area"; iconName: "scan"; onClicked: root.invoke("screenshot-area") }
+            Button { width: parent.width; text: "Screenshot window"; iconName: "app-window"; onClicked: root.invoke("screenshot-window") }
+            Button { width: parent.width; text: "Screenshot selected display"; iconName: "monitor"; onClicked: root.invoke("screenshot-display") }
+            Button { width: parent.width; text: "Screenshot all displays"; iconName: "camera"; onClicked: root.invoke("screenshot-all") }
+            Switch {
+                width: parent.width
+                text: "Click to select a window or display"
+                checked: root.shell !== null && root.shell.settings.smart
+                onClicked: { root.save("smart", checked); checked = Qt.binding(() => root.shell.settings.smart); }
+            }
+            Field {
+                width: parent.width
+                label: "Screenshot result"
+                Select {
+                    width: parent.width
+                    model: ["Save and copy", "Copy only", "Save only"]
+                    currentIndex: root.shell === null ? 0 : root.shell.manifest.schema.processing.options.indexOf(root.shell.settings.processing)
+                    onActivated: index => { root.save("processing", root.shell.manifest.schema.processing.options[index]); currentIndex = Qt.binding(() => root.shell.manifest.schema.processing.options.indexOf(root.shell.settings.processing)); }
+                }
+            }
+            Switch {
+                width: parent.width
+                text: "Include pointer"
+                checked: root.shell !== null && root.shell.settings.cursor
+                onClicked: { root.save("cursor", checked); checked = Qt.binding(() => root.shell.settings.cursor); }
+            }
+            Field {
+                width: parent.width
+                label: "Screenshot delay"
+                hint: root.shell === null ? "" : root.shell.settings.delay + " seconds"
+                Slider {
+                    width: parent.width
+                    from: root.shell === null ? 0 : root.shell.manifest.schema.delay.min
+                    to: root.shell === null ? 0 : root.shell.manifest.schema.delay.max
+                    stepSize: root.shell === null ? 1 : root.shell.manifest.schema.delay.step
+                    value: root.shell === null ? 0 : root.shell.settings.delay
+                    function commitSetting() { root.save("delay", Math.round(value)); value = Qt.binding(() => root.shell.settings.delay); }
+                    onMoved: if (!pressed) commitSetting()
+                    onPressedChanged: if (!pressed) commitSetting()
+                }
+            }
+            Field {
+                width: parent.width
+                label: "Capture time limit"
+                hint: root.shell === null ? "" : root.shell.settings.timeout + " seconds"
+                Slider {
+                    width: parent.width
+                    from: root.shell === null ? 1 : root.shell.manifest.schema.timeout.min
+                    to: root.shell === null ? 1 : root.shell.manifest.schema.timeout.max
+                    stepSize: root.shell === null ? 1 : root.shell.manifest.schema.timeout.step
+                    value: root.shell === null ? 1 : root.shell.settings.timeout
+                    function commitSetting() { root.save("timeout", Math.round(value)); value = Qt.binding(() => root.shell.settings.timeout); }
+                    onMoved: if (!pressed) commitSetting()
+                    onPressedChanged: if (!pressed) commitSetting()
+                }
+            }
             Button { width: parent.width; text: root.recording ? "Stop recording" : root.capture.available.record === false ? "Recording unavailable" : "Record screen"; iconName: "video"; enabled: root.capture.phase !== "stopping"; onClicked: root.invoke("record") }
             Button { width: parent.width; text: "Copy text from area"; iconName: "text-cursor"; onClicked: root.invoke("text") }
             Label { role: "hint"; text: "Screenshot folder" }

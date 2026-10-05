@@ -6,16 +6,17 @@ BarWidget {
     id: root
     readonly property var capture: shell === null || shell.status.values.capture === undefined ? ({ phase: "idle" }) : shell.status.values.capture
     readonly property bool recording: capture.phase === "recording" || capture.phase === "stopping"
+    readonly property bool delaying: capture.phase === "delaying"
     implicitWidth: button.implicitWidth
     implicitHeight: barSize
 
     BarItem {
         id: button
         anchors.centerIn: parent
-        label: root.recording ? "Recording" : "Capture"
-        iconName: root.recording ? "circle-stop" : "camera"
+        label: root.recording ? "Recording" : root.delaying ? "Capture in " + root.capture.remaining + "s" : "Capture"
+        iconName: root.recording || root.delaying ? "circle-stop" : "camera"
         tone: root.recording ? Theme.color.danger : root.bar ? root.bar.foreground : Theme.color.text
-        tooltip: root.capture.phase === "stopping" ? "Saving recording" : root.recording ? "Stop recording" : "Capture options"
-        onClicked: root.shell.ipc.call(root.recording ? "record" : "toggle", "")
+        tooltip: root.capture.phase === "stopping" ? "Saving recording" : root.recording ? "Stop recording" : root.delaying ? "Cancel screenshot" : "Capture options"
+        onClicked: root.shell.ipc.call(root.recording ? "record" : root.delaying ? root.capture.action : "toggle", "")
     }
 }

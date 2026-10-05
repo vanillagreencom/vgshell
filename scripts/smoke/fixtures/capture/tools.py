@@ -34,7 +34,11 @@ if real:
 match tool:
     case "slurp":
         if not sys.stdin.isatty():
-            sys.stdin.read()
+            (root / "slurp-input").write_text(sys.stdin.read())
+        if config.get("slurpRelease"):
+            (root / "slurp-ready").touch()
+            while not (root / "slurp-release").exists():
+                time.sleep(0.01)
         if config.get("hold"):
             (root / "slurp-ready").touch()
             signal.pause()
@@ -46,7 +50,11 @@ match tool:
     case "hyprpicker":
         signal.pause()
     case "grim":
+        if config.get("grimHold"):
+            (root / "grim-ready").write_text(str(os.getpid()))
+            signal.pause()
         data = b"\x89PNG\r\n\x1a\n" + struct.pack(">I", 13) + b"IHDR" + struct.pack(">II", 320, 240)
+        data += str(config.get("frame", "")).encode()
         if sys.argv[-1] == "-":
             sys.stdout.buffer.write(data)
         else:
