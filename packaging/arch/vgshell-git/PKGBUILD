@@ -28,6 +28,7 @@ depends=(
   'curl'
   'dbus'
   'fd'
+  'ffmpeg'
   'file'
   'fzf'
   'glib2'

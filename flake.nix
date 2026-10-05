@@ -19,6 +19,7 @@
         pkgs.curl
         pkgs.dbus
         pkgs.fd
+        pkgs.ffmpeg
         pkgs.file
         pkgs.fzf
         pkgs.git

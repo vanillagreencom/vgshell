@@ -22,6 +22,7 @@ pkgbase = vgshell
 	depends = curl
 	depends = dbus
 	depends = fd
+	depends = ffmpeg
 	depends = file
 	depends = fzf
 	depends = glib2

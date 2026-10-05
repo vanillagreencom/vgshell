@@ -3,9 +3,11 @@ import QtQml.Models
 import Quickshell
 import Quickshell.Io
 import Quickshell.Hyprland
+import qs.Commons
 
 // One service owns the worker, every IPC and shortcut, and all status writes.
 // The worker's stdin carries recording stop; its lifetime owns every tool.
+// A probe worker reads the offered devices and missing languages for status.
 Item {
     id: root
     property var shell: null
@@ -23,28 +25,80 @@ Item {
     readonly property string helperPath: decodeURIComponent(String(Qt.resolvedUrl("helper/capture.py")).replace(/^file:\/\//, ""))
     readonly property var outputs: shell === null ? null : shell.monitors.outputs
     readonly property var missing: shell === null ? [] : shell.requirements.missing
+    readonly property string ocrLanguages: shell === null ? "" : shell.settings.ocrLanguages
+    readonly property var languagesInstalled: shell === null || shell.tui.state["install-languages"] === undefined ? null : shell.tui.state["install-languages"].endedAt
     readonly property var tools: ({
         "screenshot": ["grim"],
         "screenshot-area": ["grim", "slurp", "hyprpicker"],
         "screenshot-window": ["grim", "slurp", "hyprpicker"],
         "screenshot-display": ["grim", "slurp", "hyprpicker"],
         "screenshot-all": ["grim"],
-        "record": ["grim", "slurp", "hyprpicker", "gpu-screen-recorder"],
+        "record": ["grim", "slurp", "hyprpicker", "gpu-screen-recorder", "ffmpeg", "wl-copy"],
+        "record-window": ["grim", "slurp", "hyprpicker", "gpu-screen-recorder", "ffmpeg", "wl-copy"],
+        "record-display": ["grim", "slurp", "hyprpicker", "gpu-screen-recorder", "ffmpeg", "wl-copy"],
+        "record-output": ["gpu-screen-recorder", "ffmpeg", "wl-copy"],
+        "record-portal": ["gpu-screen-recorder", "ffmpeg", "wl-copy"],
         "text": ["slurp", "hyprpicker", "grim", "tesseract", "wl-copy"]
+    })
+    readonly property var descriptions: ({
+        "screenshot": "Capture the focused output",
+        "screenshot-area": "Capture an area",
+        "screenshot-window": "Capture a window",
+        "screenshot-display": "Choose a display to capture",
+        "screenshot-all": "Capture all displays",
+        "record": "Start or stop recording an area",
+        "record-window": "Start or stop recording a window",
+        "record-display": "Start or stop recording a chosen display",
+        "record-output": "Start or stop recording the focused display",
+        "record-portal": "Start or stop recording what the screen picker shares",
+        "text": "Copy text from an area",
+        "toggle": "Open or close Capture"
     })
 
     onShellChanged: { start(); publish(); }
-    onMissingChanged: publish()
+    onMissingChanged: { publish(); probe(); }
+    onOcrLanguagesChanged: probe()
+    onLanguagesInstalledChanged: probe()
 
     function start() {
         if (shell === null || registered) return;
         registered = true;
-        for (const name of ["screenshot", "screenshot-area", "screenshot-window", "screenshot-display", "screenshot-all", "record", "text", "toggle"]) {
+        for (const name of Object.keys(descriptions)) {
             shell.ipc.handle(name, () => root.invoke(name));
-            shell.shortcut.register(name, name === "toggle" ? "Open or close Capture" : name === "record" ? "Start or stop recording" : name === "text" ? "Copy text from an area" : name === "screenshot-area" ? "Capture an area" : name === "screenshot-window" ? "Capture a window" : name === "screenshot-display" ? "Choose a display to capture" : name === "screenshot-all" ? "Capture all displays" : "Capture the focused output", () => root.invoke(name));
+            shell.shortcut.register(name, descriptions[name], () => root.invoke(name));
         }
         shell.ipc.handle("setting", arg => root.setFromRequest(arg));
         publish();
+        probe();
+    }
+
+    function isRecord(name) { return name.indexOf("record") === 0; }
+
+    // The worker answers one probe line; a request during a run reruns it.
+    function probe() {
+        if (shell === null) return;
+        if (prober.running) {
+            prober.again = true;
+            return;
+        }
+        prober.command = ["python3", helperPath, JSON.stringify({ action: "probe", ocrLanguages: shell.settings.ocrLanguages })];
+        prober.running = true;
+    }
+
+    function probed(line) {
+        let event;
+        try { event = JSON.parse(line); } catch (error) { return; }
+        if (event.event !== "probe") return;
+        if (event.devices.error === undefined) {
+            shell.status.set("audioSources", event.devices.audioSources);
+            shell.status.set("cameras", event.devices.cameras);
+        }
+        const report = event.languages;
+        shell.status.set("languages", report.missing === undefined
+            ? { tone: "danger", text: report.invalid ? "The language list is not valid" : "Installed languages could not be read" }
+            : report.missing.length > 0
+            ? { tone: "warning", text: ("Missing: " + report.missing.join(", ")).slice(0, 200), action: true }
+            : { tone: "info", text: "Ready" });
     }
 
     // Widgets and panels use this state rather than probing tools or processes.
@@ -54,12 +108,17 @@ Item {
         for (const name of Object.keys(tools)) available[name] = requiredTools(name).every(tool => missing.indexOf(tool) < 0);
         shell.status.set("capture", { phase: phase, action: action, path: lastPath, remaining: remaining, available: available });
         const recording = phase === "recording" || phase === "stopping";
-        shell.status.set("recording", { tone: recording ? "warning" : "info", text: phase === "stopping" ? "Saving recording" : recording ? "Recording" : available.record ? "Ready" : "Unavailable: recording needs gpu-screen-recorder on Arch" });
+        const needed = requiredTools("record").filter(tool => missing.indexOf(tool) >= 0);
+        shell.status.set("recording", { tone: recording ? "warning" : "info", text: phase === "stopping" ? "Saving recording" : recording ? "Recording" : available.record ? "Ready" : "Unavailable: recording needs " + needed.join(", ") });
     }
 
     function requiredTools(name) {
         const required = tools[name];
-        return name.indexOf("screenshot") === 0 && shell.settings.processing !== "save" ? required.concat(["wl-copy"]) : required;
+        if (name.indexOf("screenshot") === 0 && shell.settings.processing !== "save") return required.concat(["wl-copy"]);
+        // The worker asks PipeWire for the camera, and for the first offered
+        // source of an empty audio source.
+        if (isRecord(name) && (shell.settings.webcam || shell.settings.audioSources.some(item => item.source === ""))) return required.concat(["pw-dump"]);
+        return required;
     }
 
     function setFromRequest(arg) {
@@ -71,7 +130,7 @@ Item {
 
     function invoke(name) {
         if (name === "toggle") return shell.surfaces.toggle("panel", "{}");
-        if (name === "record" && phase === "recording") {
+        if (isRecord(name) && tools[name] !== undefined && phase === "recording") {
             phase = "stopping";
             activeJob.write("stop\n");
             publish();
@@ -98,7 +157,7 @@ Item {
             return "refused: capture=missing " + needed.join(",");
         }
         let output = "";
-        if (name === "screenshot") {
+        if (name === "screenshot" || name === "record-output") {
             const focused = Hyprland.focusedMonitor;
             const found = focused === null || outputs === null ? null : outputs.find(item => item.name === focused.name && !item.disabled);
             if (found === null || found === undefined) return "refused: capture=output-unavailable";
@@ -106,7 +165,7 @@ Item {
         }
         phase = "capturing";
         action = name;
-        if (name === "screenshot-window" || (name === "screenshot-area" && shell.settings.smart)) {
+        if (name === "screenshot-window" || name === "record-window" || ((name === "screenshot-area" || name === "record") && shell.settings.smart)) {
             waitingWindows = Hyprland.toplevels.values.filter(t => t.address !== "").map(t => t.address);
             waitingMonitors = Hyprland.monitors.values.map(m => m.name);
             if (waitingWindows.length > 0 || waitingMonitors.length > 0) {
@@ -148,9 +207,12 @@ Item {
     }
 
     function launch(name, output) {
-        const selection = name === "screenshot-area" || name === "screenshot-window" || name === "screenshot-display";
+        const selection = ["screenshot-area", "screenshot-window", "screenshot-display", "record", "record-window", "record-display"].indexOf(name) >= 0;
         const focused = selection ? Hyprland.activeToplevel : null;
-        const request = { action: name, output: output, folder: shell.settings.folder, recordFolder: shell.settings.recordFolder, audio: shell.settings.audio, smart: shell.settings.smart, delay: shell.settings.delay, cursor: shell.settings.cursor, processing: shell.settings.processing, timeout: shell.settings.timeout, windows: selection ? windowRectangles() : [], outputs: outputRectangles() };
+        const s = shell.settings;
+        const request = { action: name, output: output, folder: s.folder, recordFolder: s.recordFolder, audio: s.audio, smart: s.smart, delay: s.delay, cursor: s.cursor, processing: s.processing, timeout: s.timeout,
+            quality: s.quality, frameRate: s.frameRate, codec: s.codec, constantFrameRate: s.constantFrameRate, recordCursor: s.recordCursor, audioSources: s.audioSources, webcam: s.webcam, webcamDevice: s.webcamDevice,
+            postProcess: s.postProcess, ocrLanguages: s.ocrLanguages, stateDir: Paths.stateDir, windows: selection ? windowRectangles() : [], outputs: outputRectangles() };
         const job = workerComponent.createObject(root, { actionName: name, focusAddress: focused === null ? "" : focused.address, command: ["python3", helperPath, JSON.stringify(request)] });
         if (job === null) {
             phase = "idle";
@@ -209,10 +271,15 @@ Item {
             phase = "recording";
             lastPath = event.path;
             break;
+        case "stopped":
+            // Post-processing continues in this worker; the next capture can start.
+            lastPath = event.path;
+            finishAction(job);
+            break;
         case "saved":
             job.answered = true;
             lastPath = event.path;
-            notice(job.actionName === "record" ? "Recording saved" : "Screenshot saved", event.path, "success");
+            savedNotice(job, event);
             finishAction(job);
             break;
         case "copied":
@@ -226,7 +293,7 @@ Item {
             break;
         case "error":
             job.answered = true;
-            notice(event.reason === "english-data-unavailable" ? "Text capture unavailable" : "Capture failed", event.message, "danger");
+            notice(event.reason === "language-data-unavailable" ? "Text capture unavailable" : "Capture failed", event.message, "danger");
             finishAction(job);
             break;
         default:
@@ -237,6 +304,18 @@ Item {
 
     function notice(title, message, tone) {
         shell.toasts.show({ title: title, message: String(message).slice(0, 200), tone: tone, icon: "camera" });
+    }
+
+    // Every saved screenshot and recording; a failed post-process keeps the
+    // recording as recorded and shows the end of the recorder log.
+    function savedNotice(job, event) {
+        const recording = isRecord(job.actionName);
+        let message = event.path;
+        if (recording && event.processing === "failed") {
+            message += "\nProcessing failed, so the recording is kept as recorded.";
+            if (event.detail !== "") message += "\n" + event.detail.slice(-Math.max(0, 199 - message.length));
+        }
+        notice(recording ? "Recording saved" : "Screenshot saved", message, "success");
     }
 
     function finished(job, error) {
@@ -263,6 +342,13 @@ Item {
             stderr: StdioCollector { id: errors }
             onRunningChanged: if (!running && armed) root.finished(worker, errors.text)
         }
+    }
+
+    Process {
+        id: prober
+        property bool again: false
+        stdout: SplitParser { onRead: line => root.probed(line) }
+        onRunningChanged: if (!running && again) { again = false; root.probe(); }
     }
 
     Instantiator {

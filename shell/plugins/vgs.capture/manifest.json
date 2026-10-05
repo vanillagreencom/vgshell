@@ -9,17 +9,20 @@
   "icon": "camera",
   "kinds": ["service", "bar-widget", "panel"],
   "entryPoints": { "service": "Service.qml", "bar-widget": "Widget.qml", "panel": "Panel.qml" },
-  "capabilities": ["compositor", "configure", "ipc", "monitors", "requirements", "shortcut", "status", "surfaces", "toasts"],
+  "capabilities": ["compositor", "configure", "ipc", "monitors", "requirements", "shortcut", "status", "surfaces", "toasts", "tui"],
   "defaultSection": "right",
   "requirements": [
     { "command": "grim", "packages": { "pacman": "grim", "dnf": "grim", "nix": "grim" }, "optional": false, "purpose": "Captures screenshots and images for text recognition" },
     { "command": "slurp", "packages": { "pacman": "slurp", "dnf": "slurp", "nix": "slurp" }, "optional": false, "purpose": "Selects an area or a whole output to capture" },
     { "command": "hyprpicker", "packages": { "pacman": "hyprpicker", "dnf": "hyprpicker", "nix": "hyprpicker" }, "optional": false, "purpose": "Holds the screen still while you select an area" },
     { "command": "wl-copy", "packages": { "pacman": "wl-clipboard", "dnf": "wl-clipboard", "nix": "wl-clipboard" }, "optional": false, "purpose": "Copies captured images and text to the clipboard" },
-    { "command": "tesseract", "packages": { "pacman": "tesseract", "dnf": "tesseract", "nix": "tesseract" }, "optional": false, "purpose": "Recognizes English text in a captured area" },
-    { "command": "gpu-screen-recorder", "packages": { "pacman": "gpu-screen-recorder", "nix": "gpu-screen-recorder" }, "optional": false, "purpose": "Records an area or a whole output on Arch" }
+    { "command": "tesseract", "packages": { "pacman": "tesseract", "dnf": "tesseract", "nix": "tesseract" }, "optional": false, "purpose": "Recognizes text in a captured area" },
+    { "command": "gpu-screen-recorder", "packages": { "pacman": "gpu-screen-recorder", "nix": "gpu-screen-recorder" }, "optional": false, "purpose": "Records an area, a window or a whole output on Arch" },
+    { "command": "ffmpeg", "packages": { "pacman": "ffmpeg", "dnf": "ffmpeg-free", "nix": "ffmpeg" }, "optional": false, "purpose": "Trims and levels a finished recording and makes its thumbnail" },
+    { "command": "pw-dump", "packages": { "pacman": "pipewire", "apt": "pipewire-bin", "dnf": "pipewire-utils", "nix": "pipewire" }, "optional": false, "purpose": "Lists the audio sources and cameras a recording can use, without opening them" }
   ],
-  "settings": { "folder": "", "recordFolder": "", "audio": "desktop", "smart": true, "delay": 0, "cursor": false, "processing": "save-copy", "timeout": 10 },
+  "settings": { "folder": "", "recordFolder": "", "audio": "desktop", "smart": true, "delay": 0, "cursor": false, "processing": "save-copy", "timeout": 10,
+    "quality": "very_high", "frameRate": 60, "codec": "auto", "constantFrameRate": true, "recordCursor": false, "audioSources": [], "webcam": false, "webcamDevice": "", "postProcess": true, "ocrLanguages": "eng" },
   "schema": {
     "smart": { "type": "boolean", "label": "Click to select a window or display", "group": "Screenshots" },
     "delay": { "type": "number", "label": "Screenshot delay", "min": 0, "max": 60, "step": 1, "unit": "seconds", "group": "Screenshots" },
@@ -28,7 +31,33 @@
     "timeout": { "type": "number", "label": "Capture time limit", "min": 1, "max": 60, "step": 1, "unit": "seconds", "group": "Screenshots" },
     "folder": { "type": "string", "label": "Screenshot folder", "description": "Empty uses Screenshots in your Pictures folder", "presets": [{ "value": "", "label": "Pictures / Screenshots" }], "allowCustom": true, "group": "Folders" },
     "recordFolder": { "type": "string", "label": "Recording folder", "description": "Empty uses Screencasts in your Videos folder", "presets": [{ "value": "", "label": "Videos / Screencasts" }], "allowCustom": true, "group": "Folders" },
-    "audio": { "type": "enum", "label": "Recording audio", "options": ["none", "desktop", "microphone", "both"], "group": "Recording" }
+    "audio": { "type": "enum", "label": "Recording audio", "options": ["none", "desktop", "microphone", "both"], "group": "Recording" },
+    "quality": { "type": "enum", "label": "Recording quality", "options": ["medium", "high", "very_high", "ultra"], "group": "Recording" },
+    "frameRate": { "type": "number", "label": "Frames per second", "min": 1, "max": 240, "step": 1, "group": "Recording" },
+    "codec": { "type": "enum", "label": "Video codec", "options": ["auto", "h264", "hevc", "av1", "vp8", "vp9"], "group": "Recording" },
+    "constantFrameRate": { "type": "boolean", "label": "Constant frame rate", "description": "Some video editors need it", "group": "Recording" },
+    "recordCursor": { "type": "boolean", "label": "Include pointer in recordings", "group": "Recording" },
+    "audioSources": { "type": "list", "label": "Extra audio sources", "description": "Each source records as its own audio track", "group": "Recording",
+      "items": { "source": { "type": "string", "label": "Source", "optionsFrom": "audioSources" } }, "defaults": { "source": "" } },
+    "webcam": { "type": "boolean", "label": "Show the camera in recordings", "group": "Recording" },
+    "webcamDevice": { "type": "string", "label": "Camera", "optionsFrom": "cameras", "group": "Recording" },
+    "postProcess": { "type": "boolean", "label": "Trim and level finished recordings", "description": "Removes the first tenth of a second and evens out the volume", "group": "Recording" },
+    "ocrLanguages": { "type": "string", "label": "Text languages", "description": "Codes joined by +, such as eng+deu", "group": "Text",
+      "presets": [
+        { "value": "eng", "label": "English" },
+        { "value": "deu", "label": "German" },
+        { "value": "fra", "label": "French" },
+        { "value": "spa", "label": "Spanish" },
+        { "value": "ita", "label": "Italian" },
+        { "value": "por", "label": "Portuguese" },
+        { "value": "nld", "label": "Dutch" },
+        { "value": "pol", "label": "Polish" },
+        { "value": "rus", "label": "Russian" },
+        { "value": "ukr", "label": "Ukrainian" },
+        { "value": "chi_sim", "label": "Chinese, simplified" },
+        { "value": "jpn", "label": "Japanese" },
+        { "value": "kor", "label": "Korean" }
+      ], "allowCustom": true }
   },
   "hyprland": { "binds": [
     { "shortcut": "screenshot", "key": "PRINT" },
@@ -39,6 +68,12 @@
   ] },
   "status": {
     "capture": { "type": "data", "label": "Capture state" },
-    "recording": { "type": "state", "label": "Recording" }
+    "recording": { "type": "state", "label": "Recording" },
+    "audioSources": { "type": "choices", "label": "Audio sources" },
+    "cameras": { "type": "choices", "label": "Cameras" },
+    "languages": { "type": "state", "label": "Text languages", "hint": "English is installed with Capture. Install languages adds the data for the other chosen text languages.", "action": { "label": "Install languages", "tui": "install-languages" } }
+  },
+  "tui": {
+    "install-languages": { "script": "tui/install-languages.sh", "title": "Install text languages" }
   }
 }

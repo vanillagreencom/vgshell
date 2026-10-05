@@ -7,10 +7,13 @@ No inherited desktop, bus or device environment reaches an offline child.
 """
 import json
 import ctypes
+import fcntl
+import importlib.util
 import os
 from pathlib import Path
 import signal
 import select
+import shutil
 import struct
 import subprocess
 import sys
@@ -20,7 +23,7 @@ import time
 REPO = Path(__file__).resolve().parent.parent
 HELPER = REPO / "shell/plugins/vgs.capture/helper/capture.py"
 FIXTURE = REPO / "scripts/smoke/fixtures/capture/tools.py"
-TOOLS = ("grim", "slurp", "hyprpicker", "tesseract", "wl-copy", "gpu-screen-recorder")
+TOOLS = ("grim", "slurp", "hyprpicker", "tesseract", "wl-copy", "gpu-screen-recorder", "ffmpeg", "pw-dump")
 
 
 def service_rectangles():
@@ -106,7 +109,10 @@ def calls(root):
 
 
 def request(root, action):
+    """The service's request with the manifest's default settings."""
     return {"action": action, "output": "NESTED", "folder": str(root / "pictures"), "recordFolder": str(root / "videos"), "audio": "desktop", "smart": False,
+            "quality": "very_high", "frameRate": 60, "codec": "auto", "constantFrameRate": True, "recordCursor": False, "audioSources": [],
+            "webcam": False, "webcamDevice": "", "postProcess": True, "ocrLanguages": "eng", "stateDir": str(root / "state"),
             "outputs": [{"x": 0, "y": 0, "width": 320, "height": 240, "name": "NESTED", "scale": 1, "transform": 0}]}
 
 
@@ -124,10 +130,10 @@ def wait_for(path, proc):
         time.sleep(0.01)
 
 
-def worker(root, payload, helper=HELPER, recording=False, line=None, timeout=10):
+def worker(root, payload, helper=HELPER, recording=False, line=None, timeout=10, ready="slurp-ready"):
     """Run the helper with its control pipe held open, as the service holds it.
 
-    LINE is written once the slurp stand-in waits; recording writes `stop`.
+    LINE is written once the READY marker exists; recording writes `stop`.
     A helper still running after TIMEOUT is killed and answers None.
     """
     config = json.loads((root / "config.json").read_text())
@@ -136,11 +142,15 @@ def worker(root, payload, helper=HELPER, recording=False, line=None, timeout=10)
     os.close(control)
     try:
         if line is not None:
-            wait_for(root / "slurp-ready", proc)
+            wait_for(root / ready, proc)
             os.write(writer, line.encode())
         if recording:
             wait_for(root / "recorder-ready", proc)
-            os.write(writer, b"stop\n")
+            try:
+                os.write(writer, b"stop\n")
+            except BrokenPipeError:
+                # The helper already ended, as after a recorder failure.
+                pass
         try:
             out, err = proc.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
@@ -207,12 +217,14 @@ def record_holds(root, payload, helper):
             and (root / "signal").read_text() == str(signal.SIGINT))
 
 
-def english_data_error_holds(root, helper):
-    """An installed OCR tool without English data reports its cause and keeps the clipboard."""
+def language_data_error_holds(root, helper, languages="eng"):
+    """An installed OCR tool without a language's data reports its cause and keeps the clipboard."""
     (root / "clipboard").write_bytes(b"previous clipboard")
-    code, output, err = worker(root, request(root, "text"), helper)
+    payload = request(root, "text")
+    payload["ocrLanguages"] = languages
+    code, output, err = worker(root, payload, helper)
     return (code == 1 and len(output) == 1 and output[0]["event"] == "error"
-            and output[0].get("reason") == "english-data-unavailable"
+            and output[0].get("reason") == "language-data-unavailable"
             and (root / "clipboard").read_bytes() == b"previous clipboard"
             and not any(call["tool"] == "wl-copy" for call in calls(root)))
 
@@ -442,7 +454,7 @@ def screenshot_choices(base, source):
         ("invalid-delay-accepted", 'if type(delay) is not int or not 0 <= delay <= 60:', 'if False:', "invalid-delay"),
         ("invalid-timeout-accepted", 'if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not math.isfinite(timeout) or not 1 <= timeout <= 60:', 'if False:', "invalid-timeout"),
         ("invalid-processing-accepted", 'if processing not in ("save-copy", "copy", "save"):', 'if False:', "invalid-processing"),
-        ("empty-selection-accepted", 'if action in ("screenshot-window", "screenshot-display") and not boxes:', 'if False:', "empty-selection"),
+        ("empty-selection-accepted", 'if mode in ("window", "display") and not boxes:', 'if False:', "empty-selection"),
         ("empty-displays-accepted", 'if not outputs:', 'if False:', "empty-displays"),
         ("smart-snap", 'picked = rectangle_geometry(target), tuple(str(target[k]) for k in ("x", "y", "width", "height"))', 'picked = picked', "smart"),
         ("window-boxes", 'boxes = windows\n', 'boxes = outputs\n', "window"),
@@ -515,6 +527,434 @@ def screenshot_choices(base, source):
     root = world("no-selection-end")
     code, messages, err = worker(root, request(root, "screenshot-area"), helper)
     assert [m["event"] for m in messages] != ["selection-ended", "saved"], "control did not fail: selection-end"
+
+TUI = HELPER.parent.parent / "tui/install-languages.sh"
+WEBCAM = ";x=74%;y=69%;width=22%;height=22%;camera_fps=30"
+OUTPUTS = [{"x": -160, "y": -40, "width": 160, "height": 240, "name": "LEFT", "scale": 1, "transform": 0},
+           {"x": 0, "y": 20, "width": 320, "height": 180, "name": "NESTED", "scale": 1, "transform": 0}]
+WINDOW = {"x": 10, "y": 20, "width": 80, "height": 60, "address": "0x1"}
+
+
+def tool_calls(root, tool):
+    return [row["args"] for row in calls(root) if row["tool"] == tool]
+
+
+def option(args, flag):
+    return args[args.index(flag) + 1] if args is not None and flag in args else None
+
+
+def recorded(root, payload, helper):
+    """One recording stopped once it writes: (exit, events, recorder argv, stderr)."""
+    code, messages, err = worker(root, payload, helper, recording=True)
+    argv = tool_calls(root, "gpu-screen-recorder")
+    return code, messages, argv[-1] if argv else None, err
+
+
+def target_holds(root, helper, payload, target, region, slurp, boxes):
+    """The recorder's -w and -region for one mode; SLURP is None for no
+    selector, "slurp" for offered boxes, or the flag that limits them."""
+    code, messages, argv, err = recorded(root, payload, helper)
+    slurps = tool_calls(root, "slurp")
+    if slurp is None:
+        selector = not slurps and not tool_calls(root, "hyprpicker")
+    else:
+        offered = (root / "slurp-input").read_text() if (root / "slurp-input").exists() else None
+        selector = len(slurps) == 1 and [arg for arg in slurps[0] if arg in ("-r", "-o")] == ([] if slurp == "slurp" else [slurp]) and offered == boxes
+    return (code == 0 and messages[-1]["event"] == "saved" and argv[:2] == ["-w", target]
+            and option(argv, "-region") == region and selector)
+
+
+def mode_cases():
+    """Function 12: each record action's argv; a box equal to an output records it."""
+    window = "region|v4l2:/dev/video7" + WEBCAM
+    windows, outputs = "10,20 80x60\n", "-160,-40 160x240\n0,20 320x180\n"
+    return [
+        # name, action, extra, slurp geometry, -w, -region, selector, offered boxes
+        ("record-smart-window", "record", {"smart": True}, "30,40 1x1", "region", "80x60+10+20", "slurp", windows + outputs),
+        ("record-smart-output", "record", {"smart": True}, "250,40 1x1", "NESTED", None, "slurp", windows + outputs),
+        ("record-area", "record", {}, "30,40 5x4", "region", "5x4+30+40", "-o", ""),
+        ("record-area-output", "record", {}, "0,20 320x180", "NESTED", None, "-o", ""),
+        ("record-window", "record-window", {}, "10,20 80x60", "region", "80x60+10+20", "-r", windows),
+        ("record-display", "record-display", {}, "-160,-40 160x240", "LEFT", None, "-r", outputs),
+        ("record-output", "record-output", {}, None, "NESTED", None, None, None),
+        ("record-portal", "record-portal", {}, None, "portal", None, None, None),
+        ("record-webcam", "record", {"webcam": True}, "30,40 5x4", window, "5x4+30+40", "-o", ""),
+        ("record-output-webcam", "record-output", {"webcam": True, "webcamDevice": "/dev/video7"}, None, "NESTED|v4l2:/dev/video7" + WEBCAM, None, None, None),
+    ]
+
+
+def options_cases():
+    """Functions 13 and 14: quality, frame rate, codec, frame rate mode and pointer."""
+    return [
+        ("defaults", {}, {"-q": "very_high", "-f": "60", "-k": "auto", "-fm": "cfr", "-cursor": "no"}),
+        ("chosen", {"quality": "ultra", "frameRate": 144, "codec": "hevc", "constantFrameRate": False, "recordCursor": True},
+         {"-q": "ultra", "-f": "144", "-k": "hevc", "-fm": "vfr", "-cursor": "yes"}),
+    ]
+
+
+def options_hold(root, helper, extra, wanted):
+    payload = request(root, "record-output")
+    payload.update(extra)
+    code, messages, argv, err = recorded(root, payload, helper)
+    return code == 0 and argv is not None and {flag: option(argv, flag) for flag in wanted} == wanted
+
+
+def audio_holds(root, helper, audio, sources, wanted):
+    """Function 15: one -a per source, the audio choice first, aac whenever any."""
+    payload = request(root, "record-output")
+    payload.update(audio=audio, audioSources=sources)
+    code, messages, argv, err = recorded(root, payload, helper)
+    if code != 0 or argv is None:
+        return False
+    given = [argv[i + 1] for i, arg in enumerate(argv) if arg == "-a"]
+    return given == wanted and (option(argv, "-ac") == "aac") == bool(wanted)
+
+
+def refused_before_recorder(root, helper, payload, reason):
+    code, messages, err = worker(root, payload, helper, timeout=5)
+    return (code == 1 and messages[-1].get("reason") == reason and not tool_calls(root, "gpu-screen-recorder")
+            and not list((root / "videos").glob("*.mp4")))
+
+
+def probe_holds(root, helper, languages, missing):
+    """Functions 15, 16 and 22: the offered sources and cameras and the missing languages."""
+    code, messages, err = worker(root, {"action": "probe", "ocrLanguages": languages}, helper, timeout=5)
+    if code != 0 or [m["event"] for m in messages] != ["probe"]:
+        return False
+    event = messages[0]
+    return (event["devices"] == {"audioSources": [{"label": "Fixture microphone", "value": "device:fixture-mic"},
+                                                  {"label": "Monitor of Fixture speaker", "value": "device:fixture-speaker.monitor"}],
+                                 "cameras": [{"label": "Fixture camera", "value": "/dev/video7"}]}
+            and event["languages"] == {"missing": missing}
+            and tool_calls(root, "pw-dump") == [[]] and tool_calls(root, "tesseract") == [["--list-langs"]])
+
+
+def portal_cancel_holds(root, helper):
+    """Function 17: a cancel while the picker is open ends the recorder with no file."""
+    code, messages, err = worker(root, request(root, "record-portal"), helper, line="cancel\n", ready="picker-ready", timeout=5)
+    pid = (root / "picker-ready").read_text() if (root / "picker-ready").exists() else None
+    return (code == 0 and [m["event"] for m in messages] == ["cancelled"] and option(tool_calls(root, "gpu-screen-recorder")[-1], "-w") == "portal"
+            and not list((root / "videos").glob("*")) and (root / "signal").read_text() == str(signal.SIGINT) and pid is not None
+            and not alive(root, "gpu-screen-recorder"))
+
+
+def saved_holds(root, helper, audio="desktop", post=True):
+    """Functions 18, 19 and 20: stopped before post-processing, then saved with
+    the trimmed file, its thumbnail and its URI on the clipboard."""
+    payload = request(root, "record-output")
+    payload.update(audio=audio, postProcess=post)
+    code, messages, argv, err = recorded(root, payload, helper)
+    events = [m["event"] for m in messages]
+    if code != 0 or events[-3:] != ["recording", "stopped", "saved"]:
+        return False
+    saved = messages[-1]
+    path = Path(saved["path"])
+    state = root / "state/plugins/vgs.capture"
+    ffmpeg = tool_calls(root, "ffmpeg")
+    processing = [args for args in ffmpeg if "-frames:v" not in args]
+    thumbnail = [args for args in ffmpeg if "-frames:v" in args]
+    trim = ["-ss", "0.1", "-i", str(path), "-map", "0:v:0"]
+    if post:
+        temp = Path(processing[0][-1]) if len(processing) == 1 else None
+        audio_args = ["-map", "0:a?", "-c:v", "copy", "-af", "loudnorm=I=-14:TP=-1.5:LRA=11", "-c:a", "aac", "-b:a", "192k"] if audio != "none" else ["-c:v", "copy", "-an"]
+        if (temp is None or processing[0][processing[0].index("-ss"):-1] != trim + audio_args or temp.parent != path.parent
+                or not temp.name.startswith(".screencast-processing-") or temp.exists() or saved["processing"] != "done"):
+            return False
+    elif processing or saved["processing"] != "off":
+        return False
+    clipboard = (root / "clipboard").read_bytes() if (root / "clipboard").exists() else b""
+    return (path.read_bytes() == b"finalized" and saved["thumbnail"] == str(state / "thumbnails" / (path.stem + ".jpg"))
+            and Path(saved["thumbnail"]).read_bytes().startswith(b"\xff\xd8\xff") and len(thumbnail) == 1
+            and clipboard == (path.as_uri() + "\r\n").encode() and tool_calls(root, "wl-copy")[-1] == ["--foreground", "--type", "text/uri-list"]
+            and stat_mode(state) == 0o700 and stat_mode(state / "recorder.log") == 0o600
+            and "fixture recorder started" in (state / "recorder.log").read_text() and "fixture recorder" not in err)
+
+
+def stat_mode(path):
+    return path.stat().st_mode & 0o777
+
+
+def processing_failure_holds(root, helper):
+    """Function 18: a failed post-process keeps the recording whole and says so with the log's end."""
+    code, messages, argv, err = recorded(root, request(root, "record-output"), helper)
+    saved = messages[-1] if messages else {}
+    return (code == 0 and saved.get("event") == "saved" and saved["processing"] == "failed" and "fixture ffmpeg failure" in saved["detail"]
+            and Path(saved["path"]).read_bytes() == b"finalized" and not list((root / "videos").glob(".screencast-processing-*")))
+
+
+def killed_processing_holds(root, helper):
+    """Function 18: a post-process killed half way keeps the recording whole,
+    stopped reached the service before it, and the next start removes its output."""
+    config = json.loads((root / "config.json").read_text())
+    proc = subprocess.Popen([sys.executable, str(helper), json.dumps(request(root, "record-output"))], env=environment(root, config),
+                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        events = []
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and not (root / "ffmpeg-ready").exists():
+            ready, _, _ = select.select([proc.stdout], [], [], 0.05)
+            if ready:
+                line = proc.stdout.readline()
+                if not line:
+                    break
+                events.append(json.loads(line)["event"])
+                if events[-1] == "recording":
+                    proc.stdin.write("stop\n")
+                    proc.stdin.flush()
+        if not (root / "ffmpeg-ready").exists() or events[-1:] != ["stopped"]:
+            return False
+        proc.kill()
+        proc.communicate(timeout=5)
+        deadline = time.monotonic() + 5
+        while alive(root, "ffmpeg") and time.monotonic() < deadline:
+            time.sleep(0.01)
+        videos = root / "videos"
+        recording = next(videos.glob("*.mp4"))
+        temps = list(videos.glob(".screencast-processing-*"))
+        if alive(root, "ffmpeg") or recording.read_bytes() != b"finalized" or len(temps) != 1:
+            return False
+        config["ffmpegHold"] = False
+        (root / "config.json").write_text(json.dumps(config))
+        code, messages, argv, err = recorded(root, request(root, "record-output"), helper)
+        return code == 0 and not temps[0].exists() and recording.read_bytes() == b"finalized"
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.communicate(timeout=5)
+
+
+def live_processing_kept(base):
+    """A post-process output another worker holds locked stays; an unheld one goes."""
+    spec = importlib.util.spec_from_file_location("capture_helper", HELPER)
+    helper = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(helper)
+    folder = base / "live-processing"
+    folder.mkdir()
+    live, stale = folder / ".screencast-processing-live.mp4", folder / ".screencast-processing-stale.mp4"
+    live.write_bytes(b"live")
+    stale.write_bytes(b"stale")
+    with live.open("rb") as held:
+        fcntl.flock(held, fcntl.LOCK_EX)
+        helper.remove_stale_processing(folder)
+    return live.exists() and not stale.exists()
+
+
+def failure_log_holds(root, helper, reason):
+    """Function 20: a failed start or a crash shows the end of the recorder log, which stays out of the worker's stderr."""
+    code, messages, argv, err = recorded(root, request(root, "record-output"), helper)
+    log = root / "state/plugins/vgs.capture/recorder.log"
+    return (code == 1 and messages[-1]["event"] == "error" and reason in messages[-1]["message"] and reason in log.read_text()
+            and reason not in err and stat_mode(log) == 0o600 and not list((root / "videos").glob("*.mp4")))
+
+
+def text_holds(root, helper, languages):
+    """Functions 21 and 22: Tesseract reads the chosen languages and keeps inter-word spaces."""
+    payload = request(root, "text")
+    payload["ocrLanguages"] = languages
+    code, messages, err = worker(root, payload, helper)
+    reads = tool_calls(root, "tesseract")
+    return (code == 0 and messages[-1]["event"] == "copied" and len(reads) == 1 and option(reads[0], "-l") == languages
+            and option(reads[0], "-c") == "preserve_interword_spaces=1")
+
+
+def media(ffprobe, path):
+    result = subprocess.run([ffprobe, "-v", "error", "-show_entries", "format=duration:stream=codec_type,codec_name", "-of", "json", str(path)],
+                            stdin=subprocess.DEVNULL, capture_output=True, text=True, env={"PATH": os.defpath, "LC_ALL": "C"}, timeout=20)
+    assert result.returncode == 0, result.stderr
+    info = json.loads(result.stdout)
+    return float(info["format"]["duration"]), sorted((s["codec_type"], s["codec_name"]) for s in info["streams"])
+
+
+def real_processing(base, source):
+    """Function 18 with the real ffmpeg on a 2 s fixture video this check makes:
+    the saved file is 0.1 s shorter, its audio AAC, its thumbnail a JPEG.
+    Answers the cause when ffmpeg or its lavfi source is absent, else None."""
+    ffmpeg, ffprobe = shutil.which("ffmpeg"), shutil.which("ffprobe")
+    if ffmpeg is None or ffprobe is None:
+        return "ffmpeg-unavailable"
+    fixture = base / "real-fixture.mp4"
+    made = subprocess.run([ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc=duration=2:size=160x120:rate=30",
+                           "-f", "lavfi", "-i", "sine=frequency=440:duration=2", "-c:v", "mpeg4", "-g", "1", "-c:a", "aac", "-shortest", str(fixture)],
+                          stdin=subprocess.DEVNULL, capture_output=True, env={"PATH": os.defpath, "LC_ALL": "C"}, timeout=60)
+    if made.returncode != 0:
+        return "lavfi-unavailable"
+    def run(name, helper, audio):
+        root = base / name
+        plant(root, {"video": str(fixture)})
+        (root / "bin/ffmpeg").unlink()
+        (root / "bin/ffmpeg").symlink_to(ffmpeg)
+        payload = request(root, "record-output")
+        payload["audio"] = audio
+        code, messages, argv, err = recorded(root, payload, helper)
+        assert code == 0 and messages[-1]["event"] == "saved", (name, messages, err)
+        thumbnail = Path(messages[-1]["thumbnail"]).read_bytes() if messages[-1]["thumbnail"] else b""
+        return messages[-1]["processing"], *media(ffprobe, messages[-1]["path"]), thumbnail[:3] == b"\xff\xd8\xff"
+    def trimmed(result, streams):
+        processing, duration, codecs, thumbnail = result
+        return processing == "done" and 1.8 <= duration <= 1.95 and codecs == streams and thumbnail
+    assert media(ffprobe, fixture)[0] >= 1.99, "fixture video length"
+    assert trimmed(run("real-audio", HELPER, "desktop"), [("audio", "aac"), ("video", "mpeg4")]), "real ffmpeg trim and loudness"
+    assert trimmed(run("real-silent", HELPER, "none"), [("video", "mpeg4")]), "real ffmpeg drops audio"
+    before = '"-ss", "0.1", '
+    assert source.count(before) == 1, "trim control match"
+    helper = base / "no-trim.py"
+    helper.write_text(source.replace(before, ""))
+    assert not trimmed(run("real-no-trim", helper, "desktop"), [("audio", "aac"), ("video", "mpeg4")]), "control did not fail: no-trim"
+    return None
+
+
+def languages_tui(base, script, name, manager, chosen, installed):
+    """Run the language TUI against a stand-in core: (exit, stderr, pkg run argv)."""
+    tree = base / ("tui-" + name)
+    root = tree / "world"
+    plant(root, {"languages": installed})
+    (tree / "bin/lib").mkdir(parents=True)
+    shutil.copyfile(REPO / "bin/lib/tui.sh", tree / "bin/lib/tui.sh")
+    (tree / "bin/vgshell").write_text(f"""#!{sys.executable}
+import json, sys
+from pathlib import Path
+root, args = Path({str(root)!r}), sys.argv[1:]
+with (root / "vgshell.calls").open("a") as log:
+    log.write(json.dumps(args) + "\\n")
+if args == ["plugin", "settings", "vgs.capture"]:
+    print(json.dumps({{"ocrLanguages": {chosen!r}}}))
+elif args == ["plugin", "requirements", "--json", "vgs.capture"]:
+    print(json.dumps([{{"command": "tesseract", "package": {{"manager": {manager!r}, "name": "tesseract"}}}}]))
+elif args[:3] == ["pkg", "run", "install"]:
+    config = json.loads((root / "config.json").read_text())
+    config["languages"] += [package.rsplit("-", 1)[1] for package in args[5:]]
+    (root / "config.json").write_text(json.dumps(config))
+else:
+    sys.exit("vgshell stand-in: " + " ".join(args))
+""")
+    (tree / "bin/vgshell").chmod(0o755)
+    (root / "bin/gum").write_text("#!/bin/sh\nexit 0\n")
+    (root / "bin/gum").chmod(0o755)
+    (tree / "run").mkdir()
+    env = {"PATH": str(root / "bin") + ":" + os.defpath, "HOME": str(tree), "XDG_RUNTIME_DIR": str(tree / "run"), "LC_ALL": "C",
+           "VGS_TUI_LIB": str(tree / "bin/lib/tui.sh"), "VGS_PLUGIN_ID": "vgs.capture", "VGS_TUI_UNATTENDED": "1"}
+    result = subprocess.run(["bash", str(script)], env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30)
+    runs = [json.loads(line) for line in (root / "vgshell.calls").read_text().splitlines()] if (root / "vgshell.calls").exists() else []
+    return result.returncode, result.stderr, [run for run in runs if run[:2] == ["pkg", "run"]]
+
+
+def language_tui_holds(base, script, suffix=""):
+    """Function 22: the TUI installs each missing chosen language's package for this system's manager."""
+    cases = [
+        ("pacman", "pacman", "deu+eng", ["eng", "osd"], 0, [["pkg", "run", "install", "--manager", "pacman", "tesseract-data-deu"]]),
+        ("dnf", "dnf", "deu+chi_sim+eng", ["eng", "osd"], 0, [["pkg", "run", "install", "--manager", "dnf", "tesseract-langpack-deu", "tesseract-langpack-chi_sim"]]),
+        ("installed", "pacman", "eng", ["eng", "osd"], 0, []),
+        ("nix", "nix", "deu+eng", ["eng", "osd"], 1, []),
+    ]
+    for name, manager, chosen, installed, status, runs in cases:
+        code, err, ran = languages_tui(base, script, name + suffix, manager, chosen, installed)
+        if code != status or ran != runs:
+            return False
+        if name == "nix" and "capture: languages=by-hand manager=nix codes=deu\n" not in err:
+            return False
+    return True
+
+
+def recording_functions(base, source):
+    """Functions 12 to 22, each with the control that removes it."""
+    def world(name, **config):
+        root = base / ("rec-" + name)
+        plant(root, config)
+        return root
+    def mutated(name, before, after, count=1):
+        assert source.count(before) == count, name
+        changed = source.replace(before, after)
+        assert changed != source, name
+        helper = base / (name + ".py")
+        helper.write_text(changed)
+        return helper
+    def mode_payload(root, action, extra):
+        payload = request(root, action)
+        payload.update(windows=[WINDOW], outputs=OUTPUTS, **extra)
+        return payload
+    modes = {case[0]: case for case in mode_cases()}
+    def mode_holds(name, helper):
+        _, action, extra, geometry, target, region, slurp, boxes = modes[name]
+        root = world(name + "-" + helper.stem, **({"geometry": geometry} if geometry else {}))
+        return target_holds(root, helper, mode_payload(root, action, extra), target, region, slurp, boxes)
+    for name in modes:
+        assert mode_holds(name, HELPER), name
+    for name, case, before, after in [
+        ("record-no-snap", "record-smart-window", 'picked = rectangle_geometry(target), tuple(str(target[k]) for k in ("x", "y", "width", "height"))', 'picked = picked'),
+        ("record-no-output-match", "record-display", 'target = next((r["name"] for r in request["outputs"] if (r["x"], r["y"], r["width"], r["height"]) == (x, y, width, height)), None)', 'target = None'),
+        ("record-window-boxes", "record-window", 'boxes = windows\n', 'boxes = outputs\n'),
+        ("record-no-camera", "record-webcam", 'target += "|v4l2:" + camera + WEBCAM', 'pass'),
+    ]:
+        assert not mode_holds(case, mutated(name, before, after)), "control did not fail: " + name
+    for name, extra, wanted in options_cases():
+        assert options_hold(world("options-" + name), HELPER, extra, wanted), name
+    payload = request(world("fractional-rate"), "record-output")
+    payload["frameRate"] = 59.5
+    assert refused_before_recorder(base / "rec-fractional-rate", HELPER, payload, "invalid-frame-rate"), "fractional frame rate"
+    for name, before, after, check in [
+        ("no-recorder-options", '*options, ', '', lambda helper: options_hold(world("no-options"), helper, *options_cases()[1][1:])),
+        ("fixed-pointer", '"yes" if request["recordCursor"] else "no"', '"yes"', lambda helper: options_hold(world("fixed-pointer"), helper, *options_cases()[0][1:])),
+        ("fractional-rate-accepted", 'raise CaptureFailure("invalid-frame-rate", "Invalid recording frame rate")', 'pass',
+         lambda helper: refused_before_recorder(base / "rec-fractional-rate-control", helper, {**payload, "recordFolder": str(world("fractional-rate-control") / "videos")}, "invalid-frame-rate")),
+    ]:
+        assert not check(mutated(name, before, after)), "control did not fail: " + name
+    sources = [{"name": "source-1", "source": "device:fixture-speaker.monitor"}, {"name": "source-2", "source": ""}]
+    wanted = ["default_output", "device:fixture-speaker.monitor", "device:fixture-mic"]
+    assert audio_holds(world("audio-sources"), HELPER, "desktop", sources, wanted), "audio sources"
+    assert audio_holds(world("audio-none"), HELPER, "none", [], []), "no audio"
+    assert refused_before_recorder(world("audio-unoffered", nodes=[]), HELPER, {**request(base / "rec-audio-unoffered", "record-output"), "audioSources": [{"name": "source-1", "source": ""}]}, "audio-unavailable"), "no offered source"
+    assert not audio_holds(world("audio-dropped"), mutated("no-audio-sources", 'for item in request["audioSources"]:', 'for item in []:'), "desktop", sources, wanted), "control did not fail: no-audio-sources"
+    assert probe_holds(world("probe", languages=["eng", "osd"]), HELPER, "deu+eng", ["deu"]), "probe"
+    assert probe_holds(world("probe-ready", languages=["eng", "deu", "osd"]), HELPER, "deu+eng", []), "probe ready"
+    assert not probe_holds(world("probe-control", languages=["eng", "osd"]), mutated("no-missing-check", 'report = {"missing": [code for code in languages.split("+") if code not in installed]}', 'report = {"missing": []}'), "deu+eng", ["deu"]), "control did not fail: no-missing-check"
+    root = world("camera-absent")
+    absent = {**request(root, "record-output"), "webcam": True, "webcamDevice": "/dev/video9"}
+    assert refused_before_recorder(root, HELPER, absent, "camera-unavailable"), "absent camera"
+    root = world("camera-absent-control")
+    assert not refused_before_recorder(root, mutated("absent-camera", 'if camera not in cameras:', 'if False:'), {**absent, "recordFolder": str(root / "videos"), "stateDir": str(root / "state")}, "camera-unavailable"), "control did not fail: absent-camera"
+    assert portal_cancel_holds(world("portal-cancel", picker=True), HELPER), "portal cancel"
+    assert not portal_cancel_holds(world("portal-cancel-control", picker=True), mutated("picker-ignores-cancel", 'if line in ("", "cancel") or path.stat().st_size == 0:', 'if False:')), "control did not fail: picker-ignores-cancel"
+    for name, audio, post in [("saved", "desktop", True), ("saved-silent", "none", True), ("saved-unprocessed", "desktop", False)]:
+        assert saved_holds(world(name), HELPER, audio, post), name
+    assert processing_failure_holds(world("processing-failure", ffmpegFail=True), HELPER), "processing failure keeps the recording"
+    assert killed_processing_holds(world("processing-killed", ffmpegHold=True), HELPER), "killed processing keeps the recording"
+    assert live_processing_kept(base), "a live post-process output stays"
+    for name, before, after, check in [
+        ("raw-replaced", 'if child.returncode or temp.stat().st_size == 0:', 'if False:', lambda helper: processing_failure_holds(world("raw-replaced", ffmpegFail=True), helper)),
+        ("kept-processing-output", 'remove_stale_processing(folder)\n', 'pass\n', lambda helper: killed_processing_holds(world("kept-output", ffmpegHold=True), helper)),
+        ("stopped-after-processing", '            emit("stopped", path=str(path))\n', '', lambda helper: killed_processing_holds(world("late-stopped", ffmpegHold=True), helper)),
+        ("no-uri-copy", 'child = self.copy(io.BytesIO((path.as_uri() + "\\r\\n").encode()), "text/uri-list")', 'child = self.spawn([sys.executable, "-c", "pass"])', lambda helper: saved_holds(world("no-uri-copy"), helper)),
+        ("recorder-log-to-stderr", 'self.recorder = self.spawn(args, stdin=subprocess.DEVNULL, stdout=log, stderr=log)', 'self.recorder = self.spawn(args, stdin=subprocess.DEVNULL, stdout=log, stderr=sys.stderr)', lambda helper: saved_holds(world("log-to-stderr"), helper)),
+        ("no-log-tail", 'return "\\n" + tail if tail else ""', 'return ""', lambda helper: failure_log_holds(world("no-log-tail", crash=True), helper, "fixture recorder crash: no encoder")),
+    ]:
+        assert not check(mutated(name, before, after)), "control did not fail: " + name
+    assert failure_log_holds(world("crash", crash=True), HELPER, "fixture recorder crash: no encoder"), "crash log tail"
+    assert failure_log_holds(world("start-failure", fail="gpu-screen-recorder"), HELPER, "fixture failure"), "failed start log tail"
+    for name, languages in [("text-english", "eng"), ("text-german", "deu+eng")]:
+        assert text_holds(world(name, languages=["eng", "deu", "osd"]), HELPER, languages), name
+    root = world("text-invalid")
+    payload = {**request(root, "text"), "ocrLanguages": "eng;deu"}
+    code, messages, err = worker(root, payload)
+    assert code == 1 and messages[-1].get("reason") == "invalid-languages" and not calls(root), "invalid languages"
+    helper = mutated("invalid-languages-accepted", 'raise CaptureFailure("invalid-languages", "Invalid text recognition languages")', 'pass')
+    root = world("text-invalid-control")
+    code, messages, err = worker(root, {**request(root, "text"), "ocrLanguages": "eng;deu"}, helper)
+    assert not (code == 1 and messages[-1].get("reason") == "invalid-languages" and not calls(root)), "control did not fail: invalid-languages-accepted"
+    for name, before, after in [
+        ("no-interword-spaces", ', "-c", "preserve_interword_spaces=1"', ''),
+        ("english-only", '"-l", languages,', '"-l", "eng",'),
+    ]:
+        assert not text_holds(world(name + "-control", languages=["eng", "deu", "osd"]), mutated(name, before, after), "deu+eng"), "control did not fail: " + name
+    assert language_tui_holds(base, TUI), "language TUI"
+    script = TUI.read_text()
+    before = "missing = [code for code in dict.fromkeys(languages.split(\"+\")) if code not in installed]"
+    assert script.count(before) == 1, "language TUI control match"
+    control = base / "tui-no-missing-check.sh"
+    control.write_text(script.replace(before, "missing = list(dict.fromkeys(languages.split(\"+\")))"))
+    assert not language_tui_holds(base, control, "-control"), "control did not fail: tui-installs-installed"
+    return ("record-no-snap,record-no-output-match,record-window-boxes,record-no-camera,no-recorder-options,fixed-pointer,fractional-rate-accepted,"
+            "no-audio-sources,no-missing-check,absent-camera,picker-ignores-cancel,raw-replaced,kept-processing-output,stopped-after-processing,"
+            "no-uri-copy,recorder-log-to-stderr,no-log-tail,invalid-languages-accepted,no-interword-spaces,english-only,tui-installs-installed,no-trim")
 
 
 def main():
@@ -592,20 +1032,23 @@ def main():
         assert code == 1 and messages[-1]["event"] == "error" and not (root / "clipboard").exists()
         source = HELPER.read_text()
         screenshot_choices(base, source)
-        root = world("english-data-missing", englishDataMissing=True)
-        assert english_data_error_holds(root, HELPER), "OCR English data failure"
+        recording_controls = recording_functions(base, source)
+        unmeasured = real_processing(base, source)
+        for name, installed, languages in [("english-data-missing", ["osd"], "eng"), ("german-data-missing", ["eng", "osd"], "deu+eng")]:
+            root = world(name, languages=installed)
+            assert language_data_error_holds(root, HELPER, languages), name
         before = "for pattern, reason, message in OCR_FAILURES:"
         assert source.count(before) == 1, "OCR error classification control match"
         changed = source.replace(before, "for pattern, reason, message in ():")
         assert changed != source
         helper = base / "raw-ocr-error.py"
         helper.write_text(changed)
-        root = world("raw-ocr-error", englishDataMissing=True)
-        assert not english_data_error_holds(root, helper), "control did not fail: raw OCR error"
+        root = world("raw-ocr-error", languages=["eng"])
+        assert not language_data_error_holds(root, helper, "deu+eng"), "control did not fail: raw OCR error"
         mutations = [
             ("no-output", 'args = ["grim", "-o", request["output"]]', 'args = ["grim"]', "screenshot"),
             ("no-clipboard", 'child = self.spawn(["wl-copy", "--foreground", "--type", mime], stdin=subprocess.PIPE, stderr=subprocess.PIPE)', 'child = self.spawn([sys.executable, "-c", "import sys; sys.stdin.buffer.read()"], stdin=subprocess.PIPE, stderr=subprocess.PIPE)', "screenshot"),
-            ("hard-stop", 'self.recorder.send_signal(signal.SIGINT)', 'self.recorder.send_signal(signal.SIGKILL)', "record"),
+            ("hard-stop", 'self.recorder.send_signal(signal.SIGINT)\n                    stopping = True', 'self.recorder.send_signal(signal.SIGKILL)\n                    stopping = True', "record"),
         ]
         for name, before, after, action in mutations:
             assert source.count(before) == 1, name
@@ -673,7 +1116,12 @@ def main():
         helper.write_text(source.replace(before, "if False:"))
         root = world("unowned-child")
         assert not killed_owner_holds(root, request(root, "record"), config, helper), "control did not fail: unowned child"
-    print("test-capture: pass; controls=undrawn-windows,drawn-window-delegate,raw-ocr-error,no-output,no-clipboard,hard-stop,inherited-stdin,kept-freeze,unowned-child,invalid-delay-accepted,invalid-timeout-accepted,invalid-processing-accepted,empty-selection-accepted,empty-displays-accepted,smart-snap,window-boxes,display-boxes,all-bounds,no-scale,no-rotation,no-cursor,copy-saves,save-copies,no-delay,delay-ignores-cancel,no-timeout,no-selection-end")
+    controls = ("undrawn-windows,drawn-window-delegate,raw-ocr-error,no-output,no-clipboard,hard-stop,inherited-stdin,kept-freeze,unowned-child,invalid-delay-accepted,invalid-timeout-accepted,invalid-processing-accepted,empty-selection-accepted,empty-displays-accepted,smart-snap,window-boxes,display-boxes,all-bounds,no-scale,no-rotation,no-cursor,copy-saves,save-copies,no-delay,delay-ignores-cancel,no-timeout,no-selection-end," + recording_controls)
+    if unmeasured is not None:
+        # The rest passed, but the real post-process could not run: not a pass.
+        print(f"test-capture: status=not-measured cause={unmeasured}; controls={controls}")
+        sys.exit(77)
+    print("test-capture: pass; controls=" + controls)
 
 
 if __name__ == "__main__":

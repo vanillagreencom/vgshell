@@ -1,6 +1,7 @@
 # The capture service uses real nested tools for image and selection readings.
-# Stand-ins hold tool failures, countdown frames, OCR and the recorder.
-# inputs: shell/plugins/vgs.capture/* shell/Core/Capabilities.qml shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/IpcRegistry.qml shell/Core/Lifetime.js shell/Core/MonitorLogic.js shell/Core/MonitorState.qml shell/Core/Notices.qml shell/Core/PackageManagers.js shell/Core/PluginLogic.js shell/Core/Plugins.qml shell/Core/PluginStatus.qml shell/Core/Registry.qml shell/Core/ServiceGate.qml shell/Core/ShortcutRegistry.qml shell/Core/Toasts.qml shell/Hosts/BarHost.qml shell/Hosts/NoticeHost.qml shell/Hosts/OverlaySurface.qml shell/Hosts/PluginSlot.qml shell/Hosts/ServiceHost.qml shell/Hosts/Summon* shell/Hosts/ToastHost.qml shell/Ui/* shell/Commons/* bin/vgshell-scan bin/lib/check-manifests.js bin/lib/qml-library.js scripts/test-capture.py scripts/smoke/fixtures/capture/*
+# Stand-ins hold tool failures, countdown frames, OCR, the recorder, ffmpeg
+# and the PipeWire device list.
+# inputs: shell/plugins/vgs.capture/* shell/Core/Capabilities.qml shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/IpcRegistry.qml shell/Core/Lifetime.js shell/Core/MonitorLogic.js shell/Core/MonitorState.qml shell/Core/Notices.qml shell/Core/PackageManagers.js shell/Core/PluginLogic.js shell/Core/Plugins.qml shell/Core/PluginStatus.qml shell/Core/Registry.qml shell/Core/ServiceGate.qml shell/Core/ShortcutRegistry.qml shell/Core/Toasts.qml shell/Core/TuiRecords.qml shell/Core/TuiRunner.qml bin/vgshell-tui shell/Hosts/BarHost.qml shell/Hosts/NoticeHost.qml shell/Hosts/OverlaySurface.qml shell/Hosts/PluginSlot.qml shell/Hosts/ServiceHost.qml shell/Hosts/Summon* shell/Hosts/ToastHost.qml shell/Ui/* shell/Commons/* bin/vgshell-scan bin/lib/check-manifests.js bin/lib/qml-library.js scripts/test-capture.py scripts/smoke/fixtures/capture/*
 # Expected rectangles come from Hyprland. Disposable copies remove each
 # screenshot choice, countdown cleanup and the owned tool deadline.
 # Readbacks use the harness's state poll, with no capture latency budget.
@@ -12,7 +13,7 @@ capture_real_slurp="$(command -v slurp)" || { fail "capture: slurp is unavailabl
 capture_real_picker="$(command -v hyprpicker)" || { fail "capture: hyprpicker is unavailable"; return 0; }
 cp -- "$home/.config/vgshell/shell.json" "$capture_saved"
 mkdir -p "$capture_state/saved-shims"
-for capture_tool in grim slurp hyprpicker tesseract wl-copy gpu-screen-recorder; do
+for capture_tool in grim slurp hyprpicker tesseract wl-copy gpu-screen-recorder ffmpeg pw-dump; do
   if [[ -e $shim/$capture_tool ]]; then mv -- "$shim/$capture_tool" "$capture_state/saved-shims/$capture_tool"; fi
 done
 python3 - "$source_repo/scripts/test-capture.py" "$capture_state" "$shim" "$capture_real_grim" "$nested_socket" "$rt_dir" <<'PY'
@@ -710,6 +711,10 @@ changes = {
     "save-only": ('if processing != "save":', 'if True:', 1),
     "focus": ('emit("selection-ended")', 'pass', 2),
     "timeout": ('child.communicate(timeout=timeout)', 'child.communicate()', 1),
+    "output-match": ('target = next((r["name"] for r in request["outputs"] if (r["x"], r["y"], r["width"], r["height"]) == (x, y, width, height)), None)', 'target = None', 1),
+    "options": ('*options, ', '', 1),
+    "choices": ('audio.append((label, "device:" + name))', 'pass', 1),
+    "missing-check": ('report = {"missing": [code for code in languages.split("+") if code not in installed]}', 'report = {"missing": []}', 1),
 }
 source = Path(original).read_text()
 before, after, count = changes[control]
@@ -835,7 +840,7 @@ original, helper, control = sys.argv[1:]
 changes = {
     "no-output": ('args = ["grim", "-o", request["output"]]', 'args = ["grim"]'),
     "no-clipboard": ('child = self.spawn(["wl-copy", "--foreground", "--type", mime], stdin=subprocess.PIPE, stderr=subprocess.PIPE)', 'child = self.spawn([sys.executable, "-c", "import sys; sys.stdin.buffer.read()"], stdin=subprocess.PIPE, stderr=subprocess.PIPE)'),
-    "hard-stop": ('self.recorder.send_signal(signal.SIGINT)', 'self.recorder.send_signal(signal.SIGKILL)'),
+    "hard-stop": ('self.recorder.send_signal(signal.SIGINT)\n                    stopping = True', 'self.recorder.send_signal(signal.SIGKILL)\n                    stopping = True'),
     "inherited-stdin": ('kwargs.setdefault("stdin", subprocess.DEVNULL)', 'pass'),
 }
 source = Path(original).read_text()
@@ -869,12 +874,129 @@ PY
   fi
 done
 cp -- "$capture_state/helper-original.py" "$capture_helper"
+# Recording modes, settings, devices, post-processing and languages, each
+# through service IPC. The fixture slurp answers the configured geometry,
+# the stand-in recorder logs its argv, and the stand-in ffmpeg keeps the
+# recorded bytes. Each control copy of the helper fails the readback above it.
+capture_argv() { python3 - "$capture_state/calls.jsonl" <<'PY'
+import json, sys
+rows = [json.loads(line) for line in open(sys.argv[1])]
+argv = [row["args"] for row in rows if row["tool"] == "gpu-screen-recorder"]
+print(json.dumps(argv[-1][:-2] if argv and argv[-1][-2] == "-o" else None))
+PY
+}
+capture_words() { python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "$@"; }
+# capture_is READER EXPECTED: True when READER prints EXPECTED.
+capture_is() { [[ "$($1)" == "$2" ]] && echo True || echo False; }
+capture_defaults=(-f 60 -k auto -q very_high -fm cfr -cursor no -a default_output -ac aac)
+capture_record() { # ACTION LABEL
+  : >"$capture_state/calls.jsonl"
+  expect "$2: $1 starts" ok ipc vgs.capture invoke "$1" ''
+  expect_poll "$2: $1 is recording" recording capture_phase
+  expect "$2: a second $1 press stops it" ok ipc vgs.capture invoke "$1" ''
+  expect_poll "$2: $1 is saved" idle capture_phase
+}
+capture_uri() { python3 - "$capture_state/clipboard" "$(capture_path)" <<'PY'
+from pathlib import Path
+import sys
+clipboard, path = Path(sys.argv[1]), Path(sys.argv[2])
+print(path.is_file() and path.read_bytes() == b"finalized" and clipboard.read_bytes() == (path.as_uri() + "\r\n").encode())
+PY
+}
+capture_choices() { ipc smoke readInstance panel vgs.capture values | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps([v.get("audioSources"), v.get("cameras")]))'; }
+capture_languages() { ipc smoke readInstance panel vgs.capture languagesRow | py_reply 'import json,sys; r=json.load(sys.stdin); print("absent" if r is None or r["action"] is None else json.dumps([r["tone"], r["action"]["offered"]]))'; }
+capture_titles() { ipc shell lent | py_reply 'import json,sys; rows=json.load(sys.stdin)["toasts"]; print(sum(r["plugin"] == "vgs.capture" and r["title"] == sys.argv[1] for k in ("visible", "waiting") for r in rows[k]))' "$1"; }
+capture_log_holds() { python3 -c 'import pathlib,sys; p=pathlib.Path(sys.argv[1]); print(p.is_file() and sys.argv[2] in p.read_text() and p.stat().st_mode & 0o777 == 0o600)' "$home/.local/state/vgshell/plugins/vgs.capture/recorder.log" "$1"; }
+open_toplevel "$sandbox/capture-record-target.log" smoke.capture-record "Capture record target" || fail "capture: the recording target did not map"
+capture_record_pid="$toplevel_pid"
+capture_record_address="$(toplevel_address "$capture_record_pid")"
+read -r capture_rx capture_ry capture_rw capture_rh < <(hypr -j clients | py_reply 'import json,sys; w=next(w for w in json.load(sys.stdin) if w["address"]==sys.argv[1]); print(*w["at"],*w["size"])' "$capture_record_address")
+capture_region="${capture_rw}x${capture_rh}+${capture_rx}+${capture_ry}"
+capture_config geometry "\"$capture_rx,$capture_ry ${capture_rw}x${capture_rh}\""
+capture_record record-window "record window"
+expect "the window recording records the selected box" "$(capture_words -w region -region "$capture_region" "${capture_defaults[@]}")" capture_argv
+expect "the saved recording's link is on the clipboard" True capture_uri
+capture_config geometry "\"$capture_display_box\""
+capture_record record-display "record display"
+expect "a box equal to the display records that output" "$(capture_words -w "$capture_output" "${capture_defaults[@]}")" capture_argv
+capture_record record-output "record output"
+expect "the focused display records that output" "$(capture_words -w "$capture_output" "${capture_defaults[@]}")" capture_argv
+capture_record record-portal "record portal"
+expect "portal recording hands the recorder the portal" "$(capture_words -w portal "${capture_defaults[@]}")" capture_argv
+capture_mutate output-match
+capture_record record-display "control: output match dropped"
+expect "control: dropping the output match fails the display argv" False capture_is capture_argv "$(capture_words -w "$capture_output" "${capture_defaults[@]}")"
+cp -- "$capture_state/helper-original.py" "$capture_helper"
+capture_setting quality '"ultra"'
+capture_setting frameRate 30
+capture_setting codec '"hevc"'
+capture_setting constantFrameRate false
+capture_setting recordCursor true
+capture_setting audioSources '[{"name": "source-1", "source": "device:fixture-speaker.monitor"}]'
+capture_setting webcam true
+capture_chosen="$(capture_words -w "$capture_output|v4l2:/dev/video7;x=74%;y=69%;width=22%;height=22%;camera_fps=30" -f 30 -k hevc -q ultra -fm vfr -cursor yes -a default_output -a device:fixture-speaker.monitor -ac aac)"
+capture_record record-output "record settings"
+expect "every recording setting reaches the recorder" "$capture_chosen" capture_argv
+capture_mutate options
+capture_record record-output "control: options dropped"
+expect "control: dropping the recorder options fails the settings argv" False capture_is capture_argv "$capture_chosen"
+cp -- "$capture_state/helper-original.py" "$capture_helper"
+capture_setting webcamDevice '"/dev/video9"'
+: >"$capture_state/calls.jsonl"
+expect "a camera that is not connected refuses before recording" ok ipc vgs.capture invoke record-output ''
+expect_poll "the refused camera leaves capture idle" idle capture_phase
+expect "the refused camera starts no recorder" null capture_argv
+for capture_reset in 'quality "very_high"' 'frameRate 60' 'codec "auto"' 'constantFrameRate true' 'recordCursor false' 'audioSources []' 'webcam false' 'webcamDevice ""'; do
+  capture_setting ${capture_reset%% *} "${capture_reset#* }"
+done
+expect "earlier capture notices expire before the failure notices" 0 capture_wait_toasts
+capture_config crash true
+capture_record_crash() {
+  : >"$capture_state/calls.jsonl"
+  expect "a crashing recorder starts" ok ipc vgs.capture invoke record-output ''
+  expect_poll "the crashed recording leaves capture idle" idle capture_phase
+}
+capture_record_crash
+expect_poll "the crash raises the failure notice" 1 capture_titles "Capture failed"
+expect "the recorder log keeps the crash line, owner-only" True capture_log_holds "fixture recorder crash: no encoder"
+capture_config crash false
+expect "the crash notice expires" 0 capture_wait_toasts
+capture_config ffmpegFail true
+capture_record record-output "failed processing"
+expect_poll "a failed post-process still notices the saved recording" 1 capture_titles "Recording saved"
+expect "a failed post-process keeps the recording as recorded" True capture_uri
+capture_config ffmpegFail false
+expect "capture opens its panel for its choices" ok ipc vgs.capture invoke toggle ''
+expect_poll "the panel maps for its choices" false capture_panel
+capture_offered='[[{"label": "Fixture microphone", "value": "device:fixture-mic"}, {"label": "Monitor of Fixture speaker", "value": "device:fixture-speaker.monitor"}], [{"label": "Fixture camera", "value": "/dev/video7"}]]'
+expect_poll "the panel offers the fixture's audio sources and camera" "$capture_offered" capture_choices
+capture_setting ocrLanguages '"deu+eng"'
+expect_poll "a missing chosen language offers Install languages" '["warning", true]' capture_languages
+capture_config languages '["eng", "deu", "osd"]'
+forget_record
+expect "Install languages answers ok" ok ipc smoke invokeInstance panel vgs.capture installLanguages '{}'
+expect_poll "the terminal is handed the language TUI" "$(words vgs.capture/install-languages tui/install-languages.sh)" recorded_tail
+expect_poll "the ended TUI run reads the languages again" '["info", false]' capture_languages
+capture_setting ocrLanguages '"fra+eng"'
+expect_poll "another missing language offers Install languages again" '["warning", true]' capture_languages
+capture_mutate missing-check
+capture_setting ocrLanguages '"fra+deu+eng"'
+expect_poll "control: the missing-check copy reads the new languages" '["info", false]' capture_languages
+expect "control: dropping the missing check fails the offered readback" False capture_is capture_languages '["warning", true]'
+capture_mutate choices
+capture_setting ocrLanguages '"eng"'
+expect_poll "control: the choices copy probes again" '[[{"label": "Monitor of Fixture speaker", "value": "device:fixture-speaker.monitor"}], [{"label": "Fixture camera", "value": "/dev/video7"}]]' capture_choices
+expect "control: dropping a source fails the offered choices" False capture_is capture_choices "$capture_offered"
+cp -- "$capture_state/helper-original.py" "$capture_helper"
+expect "capture closes its panel after its choices" ok ipc vgs.capture invoke toggle ''
+expect_poll "the choices panel unmaps" absent capture_panel
+close_toplevel "$capture_record_pid" "capture's recording target closes"
 expect "capture is disabled after the row" ok ipc shell setPluginEnabled vgs.capture false
 expect_poll "disabled capture releases its service" False record_exists vgs.capture
 expect_poll "disabling capture ends a held selection's selector and freeze" 0 capture_left
 expect_poll "disabled capture releases its status" null capture_status
 expect_poll "disabling capture releases all owned clipboard providers" True capture_released
-for capture_tool in grim slurp hyprpicker tesseract wl-copy gpu-screen-recorder; do
+for capture_tool in grim slurp hyprpicker tesseract wl-copy gpu-screen-recorder ffmpeg pw-dump; do
   rm -f -- "${shim:?}/$capture_tool"
   if [[ -e $capture_state/saved-shims/$capture_tool ]]; then mv -- "$capture_state/saved-shims/$capture_tool" "$shim/$capture_tool"; fi
 done

@@ -34,6 +34,7 @@ Requires:       coreutils
 Requires:       curl
 Requires:       dbus-tools
 Requires:       fd-find
+Requires:       ffmpeg-free
 Requires:       file
 Requires:       fzf
 Requires:       glib2
