@@ -227,6 +227,10 @@ devtools_hover=Install
 has_tab_pages=false
 tree_has shell/plugins/vgs.settings/PluginPage.qml "TabPages {" && has_tab_pages=true
 page_details() { ! "$has_tab_pages" || settings_details; }
+# A tree whose plugin page holds a save bar keeps a typed value until it is
+# saved and asks before a page with one is left.
+has_save_bar=false
+tree_has shell/plugins/vgs.settings/PluginPage.qml "SaveBar {" && has_save_bar=true
 tree_has shell/plugins/vgs.devtools/ToolRow.qml '"Details"' && devtools_hover=Details
 card_hover_state=false
 tree_has shell/Ui/layout/AngledCard.qml "property bool hovered" && card_hover_state=true
@@ -769,7 +773,8 @@ scene_setup_steps() { # MODE
   take "setup-$1-settings-command"
 }
 # The Settings window: the list opened from the gear, the pointer on the
-# gear; a search nothing matches; a plugin page with many grouped settings at its top, dragged down
+# gear; a search nothing matches; a plugin page with many grouped settings at its top, with a typed
+# value over its save bar, under the prompt the back button then raises, dragged down
 # its scroll bar, and with its Mode select open; a plugin with keys; the
 # automations' page at its Status section; the Jarvis page with its
 # daemon ready; the Scratchpads page at its Pads section, holding one pad; the
@@ -809,6 +814,27 @@ scene_settings() { # MODE
   expect_poll "the probe's page is shown" '"acme.probe"' settings_page
   take "settings-$1-page"
   park_pointer
+  # An unsaved edit: the save bar under the page, then the prompt the back
+  # button raises, answered Discard through the window, as its button
+  # answers, whatever holds the keyboard; the page is then opened again.
+  if "$has_save_bar"; then
+    settings_unsaved() { ipc smoke readDescendant "$settings_kind" vgs.settings SaveBar dirty; }
+    settings_prompt() { ipc smoke dialogCard "$settings_kind" vgs.settings | py_reply 'import json,sys; print(json.load(sys.stdin)["shown"])'; }
+    if [[ $(ipc smoke invokeInstance "$settings_kind" vgs.settings holdField '{"id":"acme.probe","key":"gap","text":"12"}') == \[* ]]; then
+      expect_poll "the typed Gap shows the save bar" true settings_unsaved
+      take "settings-$1-unsaved"
+      expect "the back button is held by the unsaved edit" "refused: unsaved=acme.probe" ipc smoke invokeInstance "$settings_kind" vgs.settings back ''
+      expect_poll "the back button raises the prompt" True settings_prompt
+      take "settings-$1-leave-prompt"
+      ipc smoke invokeInstance "$settings_kind" vgs.settings answer discard >/dev/null || fail "answering the prompt Discard failed"
+      expect_poll "Discard closes the prompt" False settings_prompt
+      expect_poll "Discard leaves the page for the list" '""' settings_page
+      expect "the window opens the probe's page again" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin acme.probe
+      expect_poll "the probe's page is shown again" '"acme.probe"' settings_page
+    else
+      fail "the probe's Gap field took no edit"
+    fi
+  fi
   if area="$(settings_scroll)" && [[ $area == \{* ]]; then
     read -r tx ty < <(at_centre "$settings_surface" "$(python3 -c 'import json,sys; print(json.dumps(json.loads(sys.argv[1])["thumb"]))' "$area")")
     drag "$tx" "$ty" "$tx" "$((ty + 120))" || fail "the drag on the page's thumb failed"
