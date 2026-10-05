@@ -167,7 +167,6 @@ chmod 755 "$wa_dir/chromium"
 wa_mime_before=absent
 if [[ -e $wa_mime ]]; then cp -p -- "$wa_mime" "$wa_dir/mimeapps.list.before"; wa_mime_before=kept; fi
 printf '[Default Applications]\nx-scheme-handler/https=vgs-smoke-browser.desktop\nx-scheme-handler/http=vgs-smoke-browser.desktop\n' >"$wa_mime"
-expect_poll "configuration saves settle before the row keeps shell.json" true ipc smoke configSettled
 cp -p -- "$wa_user" "$wa_dir/shell.json.before"
 spawn "$wa_dir/server.log" python3 -u -m http.server --bind 127.0.0.1 --directory "$wa_dir/site" 0
 wa_server_pid="$spawn_pid"
@@ -299,11 +298,10 @@ rmdir -- "$wa_icons" "${wa_icons%/icons}" 2>/dev/null || true
 expect "the row leaves no web app entry or icon" none wa_planted
 expect "the row leaves no shadow or browser entry" absent wa_world_left
 # The plugins rows the enable and the list wrote go with the kept file.
-expect_poll "configuration saves settle before the row puts shell.json back" true ipc smoke configSettled
 cp -p -- "$wa_dir/shell.json.before" "$wa_user.next"
 mv -T -- "$wa_user.next" "$wa_user"
 expect "the shell reads the kept configuration" ok ipc shell reloadConfig
-expect_poll "the kept configuration settles" true ipc smoke configSettled
+expect_poll "the shell has read the kept configuration" true ipc smoke configSettled
 expect "shell.json is as the row found it" same wa_same "$wa_user" "$wa_dir/shell.json.before"
 expect "Web Apps is off as the row found it" False plugin_enabled "$wa_id"
 rm -rf -- "${wa_dir:?}"

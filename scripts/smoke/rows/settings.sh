@@ -175,24 +175,21 @@ expect "the edit in progress survives the second unrelated change" "$held_before
 
 config_changes() { ipc smoke configChanges; }
 user_loads() { ipc smoke configUserLoads; }
-config_settled() { ipc smoke configSettled; }
 user_label() { python3 -c 'import json,sys; print([e.get("label") for e in json.load(open(sys.argv[1])).get("plugins", []) if e["id"]=="acme.probe"][0])' "$home/.config/vgshell/shell.json"; }
 if changes_before="$(config_changes)" && loads_before="$(user_loads)"; then
   expect "the window writes the fixture's setting" ok ipc smoke invokeInstance window vgs.settings applySetting '{"id":"acme.probe","key":"label","value":"published-once"}'
   expect_poll "the write's own file notification was read" "$((loads_before + 1))" user_loads
-  expect_poll "the save settled" true config_settled
   expect "the user file holds the written setting" published-once user_label
   expect "one write is published once" "$((changes_before + 1))" config_changes
   expect_poll "the running service received the written setting" '"published-once"' read_service label
 else
   fail "configuration counters unreadable before the write rows"
 fi
-# Two writes back to back: the second waits for the first save and wins.
+# Two writes back to back: each lands before it answers, and the later one wins.
 if changes_before="$(config_changes)"; then
   expect "the first of two rapid writes is accepted" ok ipc smoke invokeInstance window vgs.settings applySetting '{"id":"acme.probe","key":"label","value":"rapid-first"}'
   expect "the second of two rapid writes is accepted" ok ipc smoke invokeInstance window vgs.settings applySetting '{"id":"acme.probe","key":"label","value":"rapid-second"}'
   expect_poll "the user file holds the later of two rapid writes" rapid-second user_label
-  expect_poll "the rapid writes settled" true config_settled
   expect "each rapid write is published once" "$((changes_before + 2))" config_changes
   expect "the running service holds the later rapid write" '"rapid-second"' read_service label
 else
@@ -476,7 +473,6 @@ expect "the Select contains the offered ids" '[{"label": "First offered: Alpha",
 expect "choosing the second offered device is allowed" chosen choose_device 2
 expect_poll "the file stores the stable id, not its label" '"b"' user_device
 expect_poll "the service receives the chosen id" '"b"' ipc smoke readInstance service acme.status configuredDevice
-expect_poll "the choice save settles" true config_settled
 choices_changes="$(config_changes)" || fail "configuration counter unreadable before choices refresh"
 expect "the fixture removes the chosen id" ok ipc acme.status invoke set 'devices=[{"label":"Alpha","value":"a"}]'
 expect_poll "the removed id remains selected and marked unavailable" '[2, "b (unavailable)", "b", true]' device_state
@@ -518,7 +514,6 @@ expect "the clock preset model carries the current default first and Custom last
 expect_poll "every clock preset previews with Qt.formatDateTime" '[]' clock_previews
 expect "choosing a clock preset is accepted" chosen choose_clock 4
 expect_poll "the chosen clock preset writes its format" '"HH:mm"' user_clock
-expect_poll "the clock preset save settles" true config_settled
 clock_changes="$(config_changes)" || fail "configuration counter unreadable before clock Custom"
 expect "choosing Custom opens the row" chosen choose_clock 8
 expect "choosing Custom writes no configuration" "$clock_changes" config_changes
@@ -532,7 +527,6 @@ expect "a valid custom clock edit is typed into the editor" edited edit_clock_cu
 expect "a typed custom clock format is not written before Enter" "$clock_changes" config_changes
 type_keys -k Return || fail "sending Return to the valid custom clock format failed"
 expect_poll "the valid custom clock format writes" '"yyyy-MM-dd HH:mm:ss"' user_clock
-expect_poll "the custom clock save settles" true config_settled
 
 # A disposable SettingField keeps the same editor and observes apply.
 # Each mutation keeps the code it tests and removes one guarantee.

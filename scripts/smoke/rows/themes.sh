@@ -48,53 +48,13 @@ stand_in_vgshell() {
 }
 
 # Preserve the fixture placements and plugin enablement for the panel block.
-expect_poll "configuration saves settle before the core snapshot" true ipc smoke configSettled
 cp -p -- "$home/.config/vgshell/shell.json" "$sandbox/theme-core-shell.json"
 restore_theme_core_config() {
-  local restore_home="${1:-$home}" restore_sandbox="${2:-$sandbox}"
-  expect_poll "queued configuration saves settle before restoration" true ipc smoke configSettled
-  cp -p -- "$restore_sandbox/theme-core-shell.json" "$restore_home/.config/vgshell/shell.json.next"
-  mv -T -- "$restore_home/.config/vgshell/shell.json.next" "$restore_home/.config/vgshell/shell.json"
+  cp -p -- "$sandbox/theme-core-shell.json" "$home/.config/vgshell/shell.json.next"
+  mv -T -- "$home/.config/vgshell/shell.json.next" "$home/.config/vgshell/shell.json"
   expect "the shell reads the restored configuration" ok ipc shell reloadConfig
-  expect_poll "the restored configuration settles" true ipc smoke configSettled
+  expect_poll "the shell has read the restored configuration" true ipc smoke configSettled
 }
-# A queued writer overwrites an external restore unless that restore waits.
-# Run this row's actual helper against a private file and an IPC stand-in.
-restore_config_case() (
-  local source="$1" case_root="$sandbox/restore-config-$2"
-  mkdir -p -- "$case_root/home/.config/vgshell" "$case_root/sandbox"
-  local restore_case_home="$case_root/home" restore_case_sandbox="$case_root/sandbox"
-  printf '%s\n' '{"disabledPlugins":[]}' >"$restore_case_sandbox/theme-core-shell.json"
-  printf '%s\n' '{"disabledPlugins":["vgs.themes"]}' >"$restore_case_home/.config/vgshell/shell.json"
-  touch "$restore_case_sandbox/queued-save"
-  ipc() {
-    if [[ $* == 'smoke configSettled' || $* == 'shell reloadConfig' ]]; then
-      if [[ -e $restore_case_sandbox/queued-save ]]; then
-        printf '%s\n' '{"disabledPlugins":["vgs.themes"]}' >"$restore_case_home/.config/vgshell/shell.json"
-        rm -- "${restore_case_sandbox:?}/queued-save"
-      fi
-      if [[ $1 == smoke ]]; then printf 'true\n'; else printf 'ok\n'; fi
-      return
-    fi
-    printf 'restore-config: ipc=unknown call=%s\n' "$*" >&2
-    return 1
-  }
-  eval "$source"
-  restore_theme_core_config "$restore_case_home" "$restore_case_sandbox"
-  cmp -s -- "$restore_case_sandbox/theme-core-shell.json" "$restore_case_home/.config/vgshell/shell.json"
-)
-restore_source="$(declare -f restore_theme_core_config)" || return 1
-printf '%s\n' "$restore_source" >"$sandbox/restore-config-source.sh"
-python3 - "$sandbox/restore-config-source.sh" "$sandbox/restore-config-control.sh" <<'PYCONTROL'
-import pathlib, sys
-source = pathlib.Path(sys.argv[1]).read_text()
-needle = 'expect_poll "queued configuration saves settle before restoration" true ipc smoke configSettled'
-assert source.count(needle) == 1
-pathlib.Path(sys.argv[2]).write_text(source.replace(needle, ':'))
-PYCONTROL
-if restore_config_case "$restore_source" settled; then ok "a settled queued save cannot overwrite the restored configuration"; else fail "the restored configuration was overwritten after settlement"; fi
-restore_control="$(cat -- "$sandbox/restore-config-control.sh")" || return 1
-if restore_config_case "$restore_control" queued; then fail "control: restoration without settlement survived a queued write"; else ok "control: removing settlement lets a queued write overwrite restoration"; fi
 theme_core_previous_error_trap="$(trap -p ERR)"
 trap 'restore_theme_core_config' ERR
 expect "enabling the fixture for the theme rows is allowed" ok ipc shell setPluginEnabled acme.probe true
@@ -412,7 +372,6 @@ expect "hiding the unanchored themes panel is allowed" ok ipc shell hide panel v
 expect_poll "the unanchored themes panel's surface is gone" 0 layer_count vgs:panel
 # A user file can retain the former bar entry. The bar skips it while the
 # panel and service stay enabled, and a configuration reload preserves it.
-expect_poll "configuration saves settle before the former bar entry" true ipc smoke configSettled
 cp -p -- "$home/.config/vgshell/shell.json" "$sandbox/themes-bar-shell.json"
 python3 - "$home/.config/vgshell/shell.json" <<'PYENTRY'
 import json, os, sys
@@ -435,7 +394,6 @@ widget_absence_control() { (failures=0 behaviour_failures=0; expect "the mounted
 expect "control: the no-widget assertion rejects a mounted fixture" 1 widget_absence_control
 expect "the themes service stays built with its former bar entry" True record_exists vgs.themes
 expect "reloading preserves the user's former themes bar entry" same former_entry_preserved
-expect_poll "configuration saves settle before the bar entry restoration" true ipc smoke configSettled
 cp -p -- "$sandbox/themes-bar-shell.json" "$home/.config/vgshell/shell.json.next"
 mv -T -- "$home/.config/vgshell/shell.json.next" "$home/.config/vgshell/shell.json"
 expect "the shell reads the restored bar entries" ok ipc shell reloadConfig
