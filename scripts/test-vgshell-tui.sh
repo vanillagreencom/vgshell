@@ -18,7 +18,9 @@ source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/vgshell-rows.sh"
 command -v script >/dev/null || { echo "test-vgshell-tui: status=not-measured missing=script"; exit 77; }
 command -v timeout >/dev/null || { echo "test-vgshell-tui: status=not-measured missing=timeout"; exit 77; }
 subject="$repo/bin/vgshell-tui"
-stubs="$tmp/stubs"; state="$tmp/state"; rt="$tmp/rt"; snap="$tmp/snapshot"
+# The record directory contains a run ID too, so changing the next run's
+# ID must leave this path unchanged.
+stubs="$tmp/stubs"; state="$tmp/state"; rt="$tmp/rt-1-1"; snap="$tmp/snapshot"
 gum_env="$state/vgshell/theme/gum.env"
 mkdir -p "$stubs" "$state/vgshell/theme" "$rt"
 tui_env=("${base_env[@]}" PATH="$stubs:$base_path" SHELL="$BASH" XDG_STATE_HOME="$state" XDG_RUNTIME_DIR="$rt")
@@ -282,7 +284,7 @@ stub leaver "sleep 30 </dev/null >/dev/null 2>&1 & echo \$! >\"$tmp/leaver\""
 # fdlocks counts the lock files it holds open.
 stub fdlocks "for f in /proc/\$\$/fd/*; do readlink \"\$f\"; done | grep -c '\\.lock\$' >\"$tmp/fdlocks\""
 title_words='VGS · Hi "q" \x'
-record_opts=(--record acme.tui/hello --run 1-1 --record-dir "$rdir" --app-id org.vgs.tui --window-title "$title_words")
+record_opts=(--record acme.tui/hello --record-dir "$rdir" --app-id org.vgs.tui --window-title "$title_words")
 # record_of FILE: the record's fields as one JSON line, timestamps replaced
 # by whether each has the shape present writes, or `absent`.
 record_of() {
@@ -308,7 +310,7 @@ printf '{}\n' >"$rdir/acme.tui@hello@0-2.ended.json"
 printf '{}\n' >"$rdir/acme.tui@other@0-3.running.json"
 : >"$rdir/acme.tui@hello@0-4.lock"
 : >"$rdir/acme.tui@other@0-3.lock"
-plain_run "$subject" present --presentation plain "${record_opts[@]}" -- during "$rdir"
+plain_run "$subject" present --presentation plain "${record_opts[@]}" --run 1-1 -- during "$rdir"
 check "a recorded run exits with the command's code" test "$plain_status" == 0
 check "the running record and the run lock are in place while the command runs" test "$(cat "$tmp/during")" == "$(printf '%s\n' acme.tui@hello.lock acme.tui@hello@0-2.ended.json acme.tui@hello@1-1.lock acme.tui@hello@1-1.running.json acme.tui@other@0-3.lock acme.tui@other@0-3.running.json)"
 printf '%s\n' "$(cat "$tmp/during-record")" >"$tmp/during.json"
@@ -316,23 +318,23 @@ check "the running record carries the key, the run and the window" test "$(recor
 check "the ended record carries the command's code" test "$(record_of "$rdir/acme.tui@hello@1-1.ended.json")" == "$(want_record ended 0)"
 check "the run removes its run lock and leaves its records, the key lock and another key's files alone" test "$(LC_ALL=C ls -A "$rdir")" == "$(printf '%s\n' acme.tui@hello.lock acme.tui@hello@1-1.ended.json acme.tui@hello@1-1.running.json acme.tui@other@0-3.lock acme.tui@other@0-3.running.json)"
 rm -f -- "$rdir/acme.tui@other@0-3.lock"
-plain_run "$subject" present --presentation plain "${record_opts[@]/1-1/1-2}" -- exits 3
+plain_run "$subject" present --presentation plain "${record_opts[@]}" --run 1-2 -- exits 3
 check "a failed recorded run exits with its code" test "$plain_status" == 3
 check "the next run removes the last run's records and keeps its own" test "$(LC_ALL=C ls -A "$rdir" | grep 'acme\.tui@hello@')" == "$(printf '%s\n' acme.tui@hello@1-2.ended.json acme.tui@hello@1-2.running.json)"
 check "the next run's ended record carries its code" test "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["code"])' "$rdir/acme.tui@hello@1-2.ended.json")" == 3
 # A process the command leaves behind does not hold the key.
-plain_run "$subject" present --presentation plain "${record_opts[@]}" -- leaver
+plain_run "$subject" present --presentation plain "${record_opts[@]}" --run 1-1 -- leaver
 key_free() { flock -n "$rdir/acme.tui@hello.lock" true; }
 check "a process the command left behind does not hold the key" key_free
 [[ -s $tmp/leaver ]] && kill "$(cat "$tmp/leaver")" 2>/dev/null
 # The command holds neither the key lock nor the run lock open.
-plain_run "$subject" present --presentation plain "${record_opts[@]}" -- fdlocks
+plain_run "$subject" present --presentation plain "${record_opts[@]}" --run 1-1 -- fdlocks
 check "the command inherits no lock" test "$(cat "$tmp/fdlocks")" == 0
 # Another presenter of the key is refused before the logo, with no record.
 exec {held}>>"$rdir/acme.tui@hello.lock"
 flock "$held"
 rm -f -- "$rdir"/*.json
-plain_run "$subject" present "${record_opts[@]}" -- exits 0
+plain_run "$subject" present "${record_opts[@]}" --run 1-1 -- exits 0
 check "a presenter of a held key exits 75" test "$plain_status" == 75
 check "a presenter of a held key names it" test "$(err_first)" == "vgshell-tui: refused: record=acme.tui/hello reason=busy"
 check "a presenter of a held key runs nothing and draws no logo" test "$(grep -c -e 'ran 0' -e "$logo_line" "$tmp/out")" == 0
@@ -340,7 +342,7 @@ check "a presenter of a held key writes no record" test -z "$(ls "$rdir" | grep 
 exec {held}>&-
 # A termination while the command runs ends the record with present's code.
 rm -f -- "$tmp/child"
-"${tui_env[@]}" "$subject" present --presentation plain "${record_opts[@]}" -- waitint 2 </dev/null >/dev/null 2>&1 &
+"${tui_env[@]}" "$subject" present --presentation plain "${record_opts[@]}" --run 1-1 -- waitint 2 </dev/null >/dev/null 2>&1 &
 present_pid=$!
 for _ in $(seq 1 100); do [[ -s $tmp/child ]] && break; sleep 0.05; done
 kill -TERM "$present_pid"
@@ -820,33 +822,33 @@ control no-wait vgshell-tui '  [[ -z $record_key ]] || await_record' '  :'
 plain_run "$control_bin" launch --title t --record acme.tui/hello --run 3-1 -- exits 0
 check "the no-wait mutant returns 0 with no record" test "$plain_status:$(ls "$rdir" | grep -c '3-1')" == "0:0"
 control unended-record vgshell-tui '  if [[ $record_active == 1 ]]; then record_end "${ran_code:-$status}"; fi' '  :'
-plain_run "$control_bin" present --presentation plain "${record_opts[@]}" -- exits 0
+plain_run "$control_bin" present --presentation plain "${record_opts[@]}" --run 1-1 -- exits 0
 check "the unended-record mutant leaves no ended record" test ! -e "$rdir/acme.tui@hello@1-1.ended.json"
 rm -f -- "$rdir"/*.json
 control inherited-lock vgshell-tui 'then "${argv[@]}" {record_fd}>&- {run_fd}>&-; else' 'then "${argv[@]}" {run_fd}>&-; else'
-plain_run "$control_bin" present --presentation plain "${record_opts[@]}" -- leaver
+plain_run "$control_bin" present --presentation plain "${record_opts[@]}" --run 1-1 -- leaver
 check "the inherited-lock mutant leaves the key held by the process left behind" test "$(key_free && echo free || echo held)" == held
 [[ -s $tmp/leaver ]] && kill "$(cat "$tmp/leaver")" 2>/dev/null
 rm -f -- "$rdir"/*.json
 control inherited-run-lock vgshell-tui 'then "${argv[@]}" {record_fd}>&- {run_fd}>&-; else' 'then "${argv[@]}" {record_fd}>&-; else'
-plain_run "$control_bin" present --presentation plain "${record_opts[@]}" -- fdlocks
+plain_run "$control_bin" present --presentation plain "${record_opts[@]}" --run 1-1 -- fdlocks
 check "the inherited-run-lock mutant hands the command the run lock" test "$(cat "$tmp/fdlocks")" == 1
 rm -f -- "$rdir"/*.json
 control kept-run-lock vgshell-tui '  [[ -z $run_lock ]] || rm -f -- "$run_lock"' '  :'
-plain_run "$control_bin" present --presentation plain "${record_opts[@]}" -- exits 0
+plain_run "$control_bin" present --presentation plain "${record_opts[@]}" --run 1-1 -- exits 0
 check "the kept-run-lock mutant leaves the run lock's name" test -e "$rdir/acme.tui@hello@1-1.lock"
 rm -f -- "$rdir"/*.json "$rdir"/*@*@*.lock
 control unlocked vgshell-tui 'flock -n -E 75 "$record_fd" || status=$?' ':'
 exec {held}>>"$rdir/acme.tui@hello.lock"
 flock "$held"
-plain_run "$control_bin" present --presentation plain "${record_opts[@]}" -- exits 0
+plain_run "$control_bin" present --presentation plain "${record_opts[@]}" --run 1-1 -- exits 0
 check "the unlocked mutant runs a second presenter of a held key" test "$plain_status" == 0
 exec {held}>&-
 rm -f -- "$rdir"/*.json
 control stale-kept vgshell-tui '    if [[ -e $stale ]]; then rm -f -- "$stale"; fi' '    :'
 printf '{}\n' >"$rdir/acme.tui@hello@0-1.running.json"
 : >"$rdir/acme.tui@hello@0-4.lock"
-plain_run "$control_bin" present --presentation plain "${record_opts[@]}" -- exits 0
+plain_run "$control_bin" present --presentation plain "${record_opts[@]}" --run 1-1 -- exits 0
 check "the stale-kept mutant keeps a dead presenter's running record" test -e "$rdir/acme.tui@hello@0-1.running.json"
 check "the stale-kept mutant keeps an earlier run's lock" test -e "$rdir/acme.tui@hello@0-4.lock"
 rm -f -- "$rdir"/*.json "$rdir"/*@*@*.lock
