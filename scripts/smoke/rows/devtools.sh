@@ -11,7 +11,8 @@
 # writes the key mise then holds itself, before the click.
 # Rows: the service publishes the status its manifest declares; IPC open
 # summons the window, which is read as every application window is
-# (app_window_rows, scripts/smoke/app-window.sh) and, opened again, draws
+# (app_window_rows, scripts/smoke/app-window.sh, floated by the `vgs:window`
+# rule rows/hyprland-consent.sh's Connect wires) and, opened again, draws
 # the VGS section and every catalog section from the published catalog; a
 # click on the agent's Install records the install TUI's argv, and the list
 # is read again once that run ended; the window's switch writes
@@ -25,7 +26,7 @@
 # plants leaves unknown draw Details too; and, as the controls, a copy of
 # the plugin whose service ignores a run's end and a change of the scan's
 # missing commands leaves the list as it was after each.
-# inputs: shell/plugins/vgs.devtools/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/plugins/acme.requires/* shell/Core/Notices.qml shell/Core/PluginStatus.qml shell/Core/PackageManagers.js shell/Core/TuiRunner.qml shell/Hosts/AppWindow.qml bin/vgshell VERSION config/requirements.json bin/lib/qml-library.js scripts/smoke/rows/status.sh bin/vgshell-tui scripts/smoke/rows/settings.sh
+# inputs: shell/plugins/vgs.devtools/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/plugins/acme.requires/* shell/Core/Notices.qml shell/Core/PluginStatus.qml shell/Core/PackageManagers.js shell/Core/TuiRunner.qml shell/Hosts/AppWindow.qml bin/vgshell VERSION config/requirements.json bin/lib/qml-library.js scripts/smoke/rows/status.sh bin/vgshell-tui scripts/smoke/rows/settings.sh scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 devtools_stand_ins
 requires_dir="$home/.config/vgshell/plugins/acme.requires"
@@ -127,15 +128,29 @@ PY
   done
   printf 'missing-install seen=%s\n' "$(IFS=,; echo "${seen[*]}")"
 }
+# keyboard_back: true while the shell reads the Dev Tools window holding
+# the keyboard, else its reading and the window the compositor names active.
+keyboard_back() {
+  local held
+  held="$(window_keyboard vgs.devtools)" || return
+  if [[ $held == true ]]; then echo true; else echo "$held active=$(active_window)"; fi
+}
 install_before="$(ended_record vgs.devtools/install)"
 forget_record
+# The stand-in's run ends at once, so its terminal would take the keyboard
+# and give it back before the shell read the leave, which Qt's Wayland
+# client can drop (docs/architecture/runtime-qml-focus.md). The run is held
+# live, as a user's TUI is, until the shell reads the keyboard gone.
+hold_runs
 expect "the Dev Tools Tab tour reveals each focused action and Return reaches Install" ok devtools_keyboard_install
 expect_poll "Return on the focused Install hands the install TUI the row's id" "$(words vgs.devtools/install tui/install.sh "$agent_id")" recorded_tail
+expect_poll "the shell reads the Dev Tools window without the keyboard while the run's terminal holds it" false window_keyboard vgs.devtools
+release_runs
 expect_poll "the keyboard install run's presenter exits" moved ended_record_moved vgs.devtools/install "$install_before"
 expect_run_end "the keyboard install run ends" vgs.devtools/install
 # The run's terminal took the keyboard; Escape waits until Hyprland hands
 # it back to the window, or it reaches whatever holds it meanwhile.
-expect_poll "the Dev Tools window holds the keyboard again after the run" true ipc smoke windowFocused window vgs.devtools
+expect_poll "the Dev Tools window holds the keyboard again after the run" true keyboard_back
 type_keys -k Escape || fail "Escape after the Dev Tools keyboard path failed"
 expect "Escape closes the Dev Tools window after the keyboard path" hidden window_shown
 expect_poll "the Dev Tools window is gone after Escape-equivalent hide" hidden window_shown
