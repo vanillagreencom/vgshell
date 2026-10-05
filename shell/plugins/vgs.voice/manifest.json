@@ -16,12 +16,29 @@
     "bar-widget": "Widget.qml"
   },
   "capabilities": [
+    "layers",
     "requirements",
     "shortcut",
     "status",
     "tui"
   ],
   "defaultSection": "right",
+  "settings": {
+    "osd": "plasma"
+  },
+  "schema": {
+    "osd": {
+      "type": "enum",
+      "label": "On-screen display",
+      "description": "Shown at the bottom of the focused screen while you dictate",
+      "options": [
+        "plasma",
+        "ring",
+        "off"
+      ],
+      "group": "Display"
+    }
+  },
   "hyprland": {
     "binds": [
       {
@@ -43,6 +60,14 @@
       },
       "optional": true,
       "purpose": "Captures speech and inserts dictated text"
+    },
+    {
+      "command": "voxtype-audio-bridge",
+      "packages": {
+        "aur": "voxtype-bin"
+      },
+      "optional": true,
+      "purpose": "Reads voice levels for the on-screen display"
     },
     {
       "command": "wtype",
@@ -138,5 +163,6 @@
       }
     }
   },
+  "appearance": "Appearance.js",
   "optIn": true
 }

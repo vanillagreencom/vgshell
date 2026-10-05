@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Read Qt 6.11 threaded-render-loop logs from one standalone layer.
 
+Each directory holds one pass of one shader, the one --shader names; its
+record is that shader's entry under `shaders` in the ceilings file.
+
 Qt's window-addressed sync/render log is CPU submission, in integer ms.
 QSG_RHI_PROFILE supplies GPU timestamp frame durations, independent of
 Wayland frame callback pacing. Presentation is the layer's frameSwapped
@@ -9,8 +12,9 @@ Each stream discards 120 warmup readings and retains 600 samples, and
 its reading is their nearest-rank 90th percentile, so a few frames a
 busy host delays do not set it. The report's GPU cost is paired
 on-minus-off GPU frame time, not CPU time or presentation interval.
-Calibration reads one directory per pass and derives each ceiling from
-the highest reading over every pass; check mode judges one directory.
+Calibration reads one directory per pass, derives each ceiling from the
+highest reading over every pass and writes the shader's record into the
+file, keeping every other shader's; check mode judges one directory.
 Software devices exit 77; absent samples fail.
 """
 import argparse
@@ -179,7 +183,7 @@ def calibrate(roots):
     runs = []
     for root in roots:
         run = measure(root, runs[0] if runs else None)
-        run["run"] = f"{root.parent.name}/{root.name}"
+        run["run"] = "/".join(root.parts[-3:])
         runs.append(run)
     readings = {scale: {name: max(run["readings"][scale][name] for run in runs) for name in READINGS}
                 for scale in ("1", "2")}
@@ -194,6 +198,7 @@ def calibrate(roots):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory", type=Path, nargs="+")
+    parser.add_argument("--shader", required=True)
     choice = parser.add_mutually_exclusive_group(required=True)
     choice.add_argument("--calibrate", type=Path)
     choice.add_argument("--check", type=Path)
@@ -203,16 +208,21 @@ def main():
         return 2
     try:
         if args.check:
-            result = check(args.directory[0], json.loads(args.check.read_text()))
+            records = json.loads(args.check.read_text())["shaders"]
+            if args.shader not in records:
+                raise ValueError("baseline=absent")
+            result = check(args.directory[0], records[args.shader])
         else:
             result = calibrate(args.directory)
-            args.calibrate.write_text(json.dumps(result, indent=2) + "\n")
+            records = json.loads(args.calibrate.read_text()) if args.calibrate.exists() else {"shaders": {}}
+            records["shaders"][args.shader] = result
+            args.calibrate.write_text(json.dumps(records, indent=2) + "\n")
         print(json.dumps(result, indent=2))
     except Unmeasured as error:
-        print(f"shader-cost: status=not-measured {error}")
+        print(f"shader-cost: status=not-measured shader={args.shader} {error}")
         return 77
     except (OSError, ValueError, KeyError, TypeError) as error:
-        print(f"shader-cost: failed {error}")
+        print(f"shader-cost: failed shader={args.shader} {error}")
         return 1
     return 0
 

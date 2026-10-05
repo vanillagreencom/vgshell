@@ -25,6 +25,18 @@ Set up copies the default voxtype config only when no config exists. It also cop
 
 The Configure and Choose model entries open voxtype's own screens. Voice warns first when the config is a symlink, because those screens can replace it with a regular file.
 
+## On-screen display
+
+While Voice records, a plasma orb shows at the bottom centre of the focused screen. It swells and swirls with your voice. It turns cool and pulses while voxtype transcribes the words, then it goes away.
+
+![The plasma orb at the bottom of the screen while Voice records](../../../docs/images/plugins/vgs.voice-osd.webp)
+
+The orb takes no key and no click. Dictated text goes into the field you typed in, and a click goes to the window below the orb.
+
+Set On-screen display in the Display section of the Voice page to `plasma`, the default, to `ring` for the VGS voice ring, or to `off`.
+
+The orb reads your voice level from voxtype-audio-bridge, which comes with voxtype.
+
 ## Bar mic
 
 The mic uses the accent tone while recording. It spins while speech is being transcribed. A click opens Configure.

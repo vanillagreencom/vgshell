@@ -90,11 +90,11 @@ class ShaderReadings(unittest.TestCase):
             fixture(root)
             (root / "scale-1-off.log").write_text(log().replace("type 2)", "type 4)"))
             result = subprocess.run(
-                [sys.executable, str(READER), str(root), "--calibrate", str(root / "baseline.json")],
+                [sys.executable, str(READER), str(root), "--shader", "voiceorb", "--calibrate", str(root / "baseline.json")],
                 env={"PATH": "/usr/bin:/bin", "HOME": scratch, "LC_ALL": "C"},
                 text=True, capture_output=True, check=False)
             self.assertEqual(result.returncode, 77, result.stdout + result.stderr)
-            self.assertIn("shader-cost: status=not-measured backend=software", result.stdout)
+            self.assertIn("shader-cost: status=not-measured shader=voiceorb backend=software", result.stdout)
             self.assertFalse((root / "baseline.json").exists())
 
     def test_costly_control_and_each_ceiling(self):
@@ -130,14 +130,14 @@ class ShaderReadings(unittest.TestCase):
                         with self.assertRaisesRegex(ValueError, error):
                             reader.check(root, baseline)
                     path = root / "baseline.json"
-                    path.write_text(json.dumps(baseline))
+                    path.write_text(json.dumps({"shaders": {"voiceorb": baseline}}))
                     result = subprocess.run(
-                        [sys.executable, str(READER), str(root), "--check", str(path)],
+                        [sys.executable, str(READER), str(root), "--shader", "voiceorb", "--check", str(path)],
                         env={"PATH": "/usr/bin:/bin", "HOME": scratch, "LC_ALL": "C"},
                         text=True, capture_output=True, check=False)
                     self.assertEqual(result.returncode, 1 if error else 0, result.stdout + result.stderr)
                     if error:
-                        self.assertIn("shader-cost: failed " + error, result.stdout)
+                        self.assertIn("shader-cost: failed shader=voiceorb " + error, result.stdout)
                     else:
                         self.assertEqual(json.loads(result.stdout)["ceilings"], baseline["ceilings"])
 
@@ -157,13 +157,13 @@ class ShaderReadings(unittest.TestCase):
                     with self.assertRaisesRegex(reader.Unmeasured, "calibration=identity-mismatch"):
                         reader.check(root, baseline)
                     path = root / "baseline.json"
-                    path.write_text(json.dumps(baseline))
+                    path.write_text(json.dumps({"shaders": {"voiceorb": baseline}}))
                     result = subprocess.run(
-                        [sys.executable, str(READER), str(root), "--check", str(path)],
+                        [sys.executable, str(READER), str(root), "--shader", "voiceorb", "--check", str(path)],
                         env={"PATH": "/usr/bin:/bin", "HOME": scratch, "LC_ALL": "C"},
                         text=True, capture_output=True, check=False)
                     self.assertEqual(result.returncode, 77, result.stdout + result.stderr)
-                    self.assertIn("shader-cost: status=not-measured calibration=identity-mismatch", result.stdout)
+                    self.assertIn("shader-cost: status=not-measured shader=voiceorb calibration=identity-mismatch", result.stdout)
 
     def test_percentile_ignores_a_spike(self):
         # Nearest rank: the smallest sample with at least 90 percent of
@@ -208,9 +208,9 @@ class ShaderReadings(unittest.TestCase):
 
     def test_calibration_over_passes(self):
         with tempfile.TemporaryDirectory() as scratch:
-            first, second, weak = (Path(scratch) / name for name in ("run-1", "run-2", "run-3"))
+            first, second, weak = (Path(scratch) / name / "plasma" for name in ("run-1", "run-2", "run-3"))
             for root in (first, second, weak):
-                root.mkdir()
+                root.mkdir(parents=True)
                 fixture(root)
             (second / "scale-2-on.log").write_text(log(0.25))
             (weak / "scale-1-costly.log").write_text(log(0.35))
@@ -219,13 +219,13 @@ class ShaderReadings(unittest.TestCase):
             self.assertAlmostEqual(result["readings"]["2"]["gpu_cost_ms"], 0.15)
             self.assertAlmostEqual(result["readings"]["1"]["gpu_cost_ms"], 0.1)
             self.assertEqual([run["run"] for run in result["calibration_runs"]],
-                             [f"{Path(scratch).name}/run-1", f"{Path(scratch).name}/run-2"])
+                             [f"{Path(scratch).name}/run-1/plasma", f"{Path(scratch).name}/run-2/plasma"])
             self.assertAlmostEqual(result["calibration_runs"][0]["readings"]["2"]["gpu_cost_ms"], 0.1)
-            with self.assertRaisesRegex(ValueError, f"costly-control=accepted scale=1 .* run={Path(scratch).name}/run-3$"):
+            with self.assertRaisesRegex(ValueError, f"costly-control=accepted scale=1 .* run={Path(scratch).name}/run-3/plasma$"):
                 reader.calibrate([first, second, weak])
             # A later pass is matched to the first pass's device.
-            other = Path(scratch) / "run-4"
-            other.mkdir()
+            other = Path(scratch) / "run-4" / "plasma"
+            other.mkdir(parents=True)
             fixture(other)
             path = other / "scale-2-off.log"
             path.write_text(path.read_text().replace("'Test GPU'", "'Other GPU'"))
@@ -241,16 +241,52 @@ class ShaderReadings(unittest.TestCase):
                 root.mkdir()
                 fixture(root)
             path = Path(scratch) / "baseline.json"
-            path.write_text(json.dumps(BASELINE))
+            path.write_text(json.dumps({"shaders": {"voiceorb": BASELINE}}))
             for roots, status in (([first], 0), ([first, second], 2)):
                 with self.subTest(directories=len(roots)):
                     result = subprocess.run(
-                        [sys.executable, str(READER), *map(str, roots), "--check", str(path)],
+                        [sys.executable, str(READER), *map(str, roots), "--shader", "voiceorb", "--check", str(path)],
                         env={"PATH": "/usr/bin:/bin", "HOME": scratch, "LC_ALL": "C"},
                         text=True, capture_output=True, check=False)
                     self.assertEqual(result.returncode, status, result.stdout + result.stderr)
                     if status:
                         self.assertEqual(result.stdout, "shader-cost: refused directories=2 check=1\n")
+
+    def test_shader_records(self):
+        # Each shader is judged against its own record, and calibrating one
+        # shader keeps every other shader's record as it was.
+        def run(root, path, shader, choice):
+            return subprocess.run(
+                [sys.executable, str(READER), str(root), "--shader", shader, choice, str(path)],
+                env={"PATH": "/usr/bin:/bin", "HOME": str(root), "LC_ALL": "C"},
+                text=True, capture_output=True, check=False)
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            fixture(root)
+            tight = dict(BASELINE, ceilings=dict(BASELINE["ceilings"], gpu_cost_ms=0.05))
+            path = root / "ceilings.json"
+            path.write_text(json.dumps({"shaders": {"voiceorb": BASELINE, "plasma": tight}}))
+            rows = (
+                ("voiceorb", 0, None),
+                ("plasma", 1, "shader-cost: failed shader=plasma ceiling=exceeded scale=1 readings=gpu_cost_ms"),
+                ("absent", 1, "shader-cost: failed shader=absent baseline=absent"),
+            )
+            for shader, status, line in rows:
+                with self.subTest(check=shader):
+                    result = run(root, path, shader, "--check")
+                    self.assertEqual(result.returncode, status, result.stdout + result.stderr)
+                    if line is not None:
+                        self.assertEqual(result.stdout, line + "\n")
+            kept = path.read_text()
+            result = run(root, path, "plasma", "--calibrate")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            records = json.loads(path.read_text())["shaders"]
+            self.assertEqual(records["voiceorb"], json.loads(kept)["shaders"]["voiceorb"])
+            self.assertEqual(records["plasma"]["ceilings"], reader.calibrate([root])["ceilings"])
+            path.unlink()
+            result = run(root, path, "plasma", "--calibrate")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(list(json.loads(path.read_text())["shaders"]), ["plasma"])
 
     def test_sample_and_ceiling_mutants_turn_tests_red(self):
         plants = (
@@ -277,6 +313,13 @@ class ShaderReadings(unittest.TestCase):
              "    for run in runs[:1]:\n        prove_control(", "test_calibration_over_passes"),
             ("check reads one directory", "if args.check and len(args.directory) != 1:",
              "if args.check and len(args.directory) != len(args.directory):", "test_check_takes_one_directory"),
+            ("check reads another shader's record", "check(args.directory[0], records[args.shader])",
+             "check(args.directory[0], records[next(iter(records))])", "test_shader_records"),
+            ("an absent record passes", 'raise ValueError("baseline=absent")', 'records[args.shader] = records["voiceorb"]',
+             "test_shader_records"),
+            ("calibration drops other records",
+             'json.loads(args.calibrate.read_text()) if args.calibrate.exists() else {"shaders": {}}',
+             '{"shaders": {}}', "test_shader_records"),
         )
         source = READER.read_text()
         suite = Path(__file__).read_text()
@@ -402,6 +445,7 @@ measure_held_scene 2 on "$HOME/scale-2-on"
         (scripts / "shader").mkdir()
         (root / "home").mkdir()
         (root / "shell/Ui/feedback/shaders").mkdir(parents=True)
+        (root / "shell/plugins/vgs.voice/shaders").mkdir(parents=True)
         script = scripts / "measure-shader.sh"
         script.write_text(text)
         owner = (ROOT / "check-voiceorb-shader.py").read_text()
@@ -417,7 +461,8 @@ measure_held_scene 2 on "$HOME/scale-2-on"
             (scripts / "shader/measure-scene.sh").write_text(scene)
         if readings is not None:
             (scripts / "shader/readings.py").write_text(readings)
-        shutil.copyfile(ROOT.parent / "shell/Ui/feedback/shaders/voiceorb.frag", root / "shell/Ui/feedback/shaders/voiceorb.frag")
+        for shader in ("shell/Ui/feedback/shaders/voiceorb.frag", "shell/plugins/vgs.voice/shaders/plasma.frag"):
+            shutil.copyfile(ROOT.parent / shader, root / shader)
         (scripts / "smoke/harness.sh").write_text(harness)
         # The runner asks the fence before it makes anything; this stand-in
         # answers that no amdgpu node is visible. scripts/test-gpu-fence.sh
@@ -429,6 +474,8 @@ measure_held_scene 2 on "$HOME/scale-2-on"
         compiler.write_text(f"""#!{sys.executable}
 import json, os, pathlib, sys
 pathlib.Path(os.environ["HOME"], "compiler-args.json").write_text(json.dumps(sys.argv[1:]))
+with open(pathlib.Path(os.environ["HOME"], "compiler-calls"), "a") as calls:
+    calls.write(json.dumps(sys.argv[1:]) + "\\n")
 """)
         compiler.chmod(0o755)
         return subprocess.run(
@@ -462,6 +509,8 @@ exit 0
             (["--runs", "2"], "shader-cost: refused argument=--runs without=--calibrate"),
             (["--calibrate", "out.json", "--runs", "0"], "shader-cost: refused argument=--runs value=0"),
             (["--calibrate", "out.json", "--runs"], "shader-cost: refused argument=--runs value="),
+            (["--shader", "other"], "shader-cost: refused argument=--shader value=other"),
+            (["--shader"], "shader-cost: refused argument=--shader value="),
         )
         text = RUNNER.read_text()
         old = "${choice[0]} != --calibrate"
@@ -497,16 +546,18 @@ measure_held_scene() { printf 'held %s %s %s\\n' "$1" "$2" "${3#"$logs"/}" >>"$h
 measure_scene() { printf 'bare %s %s %s\\n' "$1" "$2" "${3#"$logs"/}" >>"$home/scenes"; }
 """
         readings = """import json, pathlib, sys
-pathlib.Path(__file__).with_name("readings-args.json").write_text(json.dumps(sys.argv[1:]))
+with open(pathlib.Path(__file__).with_name("readings-args"), "a") as calls:
+    calls.write(json.dumps(sys.argv[1:]) + "\\n")
 """
         passes = 2
-        want = [f"held {scale} {mode} run-{run}/scale-{scale}-{mode}"
-                for run in range(1, passes + 1) for scale in (1, 2) for mode in ("off", "on", "costly")]
         text = RUNNER.read_text()
         plants = (
             ('measure_held_scene "$scale" "$scene"', 'measure_scene "$scale" "$scene"'),
             ("run <= runs;", "run <= 1;"),
-            ('"${passes[@]}"', '"${passes[0]}"'),
+            ('"${passes[@]/%//$shader}"', '"${passes[0]}/$shader"'),
+            ('    for shader in "${shaders[@]}"; do\n      mkdir', '    for shader in "${shaders[@]:0:1}"; do\n      mkdir'),
+            ('"$pass/$shader/scale-$scale-$scene"', '"$pass/scale-$scale-$scene"'),
+            ('--shader "$shader" "${choice[@]}"', '--shader voiceorb "${choice[@]}"'),
         )
         sources = [text]
         for old, new in plants:
@@ -514,20 +565,66 @@ pathlib.Path(__file__).with_name("readings-args.json").write_text(json.dumps(sys
             sources.append(text.replace(old, new))
             self.assertNotEqual(sources[-1], text)
         with tempfile.TemporaryDirectory() as scratch:
-            for index, source in enumerate(sources):
-                with self.subTest(mutant=index):
-                    root = Path(scratch) / str(index)
-                    result = self.runner_copy(root, harness, source, ["--calibrate", "out.json", "--runs", str(passes)],
-                                              scene, readings)
-                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                    logs = [line.split("=", 1)[1] for line in result.stdout.splitlines()
-                            if line.startswith("shader-cost: logs=")]
-                    self.assertEqual(len(logs), 1, result.stdout)
-                    scenes = (root / "home/scenes").read_text().splitlines()
-                    args = json.loads((root / "scripts/shader/readings-args.json").read_text())
-                    held = (scenes == want
-                            and args == [f"{logs[0]}/run-{run}" for run in range(1, passes + 1)] + ["--calibrate", "out.json"])
-                    self.assertEqual(held, index == 0, f"scenes={scenes} readings={args}")
+            for chosen in ((), ("plasma",)):
+                shaders = chosen or ("voiceorb", "plasma")
+                want = [f"held {scale} {mode} run-{run}/{shader}/scale-{scale}-{mode}"
+                        for run in range(1, passes + 1) for scale in (1, 2) for shader in shaders
+                        for mode in ("off", "on", "costly")]
+                for index, source in enumerate(sources):
+                    with self.subTest(shaders=chosen, mutant=index):
+                        root = Path(scratch) / f"{len(chosen)}-{index}"
+                        args = [*(["--shader", *chosen] if chosen else []), "--calibrate", "out.json", "--runs", str(passes)]
+                        result = self.runner_copy(root, harness, source, args, scene, readings)
+                        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                        logs = [line.split("=", 1)[1] for line in result.stdout.splitlines()
+                                if line.startswith("shader-cost: logs=")]
+                        self.assertEqual(len(logs), 1, result.stdout)
+                        scenes = (root / "home/scenes").read_text().splitlines()
+                        calls = [json.loads(line) for line in (root / "scripts/shader/readings-args").read_text().splitlines()]
+                        held = (scenes == want and calls == [
+                            [f"{logs[0]}/run-{run}/{shader}" for run in range(1, passes + 1)]
+                            + ["--shader", shader, "--calibrate", "out.json"] for shader in shaders])
+                        # The fourth plant drops every shader but the first,
+                        # which one chosen shader cannot see.
+                        self.assertEqual(held, index == 0 or (chosen != () and index == 4),
+                                         f"scenes={scenes} readings={calls}")
+
+    def test_verdict_over_shaders(self):
+        # Every shader is judged, and a failure outranks a shader that
+        # could not be measured, whichever comes first.
+        harness = """
+home="$HOME"; sandbox="$HOME/sandbox"
+shell_env=(env -i PATH=/usr/bin:/bin HOME="$HOME")
+mkdir -p -- "$sandbox"
+failures=0; mode_hold=()
+first_name() { echo WAYLAND-1; }
+unscaled_mode_of() { echo 1755x933; }
+hidpi_mode_of() { echo 3510x1866; }
+hold_mode() { mode_hold=("$2" "$3 scale=$4"); }
+release_mode() { mode_hold=(); }
+"""
+        scene = "measure_held_scene() { :; }\n"
+        readings = """import os, pathlib, sys
+shader = sys.argv[sys.argv.index("--shader") + 1]
+with open(pathlib.Path(__file__).with_name("judged"), "a") as judged:
+    judged.write(shader + "\\n")
+# The run directory, run-<voiceorb exit>-<plasma exit>, names each exit.
+sys.exit(int(pathlib.Path(os.environ["HOME"]).parent.name.split("-")[1 if shader == "voiceorb" else 2]))
+"""
+        rows = (("0", "0", 0), ("77", "0", 77), ("0", "77", 77), ("77", "1", 1), ("1", "77", 1), ("2", "1", 2))
+        text = RUNNER.read_text()
+        old = "( $verdict -eq 0 || $verdict -eq 77 )"
+        self.assertEqual(text.count(old), 1)
+        last = text.replace(old, "1 -eq 1")
+        with tempfile.TemporaryDirectory() as scratch:
+            for orb, plasma, status in rows:
+                with self.subTest(voiceorb=orb, plasma=plasma):
+                    root = Path(scratch) / f"run-{orb}-{plasma}"
+                    result = self.runner_copy(root, harness, text, [], scene, readings)
+                    self.assertEqual(result.returncode, status, result.stdout + result.stderr)
+                    self.assertEqual((root / "scripts/shader/judged").read_text().split(), ["voiceorb", "plasma"])
+            root = Path(scratch) / "mutant-1-77"
+            self.assertEqual(self.runner_copy(root, harness, last, [], scene, readings).returncode, 77)
 
     def test_compiler_consumes_owner_options(self):
         # Stop before any compositor or QML process. The compiler only
@@ -553,6 +650,34 @@ first_name() { echo 'shader-test: stop-after-compile' >&2; return 1; }
                     self.assertEqual("--test-owner-option" in args, includes_options)
                     if includes_options:
                         self.assertEqual(args[:2], ["--test-owner-option", "--test option with spaces"])
+                    calls = [json.loads(line) for line in (root / "home/compiler-calls").read_text().splitlines()]
+                    self.assertEqual([call[-3:-1] for call in calls], [
+                        ["-o", f"{root}/shell/costly-{shader}.frag.qsb"] for shader in ("voiceorb", "plasma")])
+
+    def test_costly_copy_of_each_shader(self):
+        # Each costly source is its own shader with the 256-step loop added
+        # before its output.
+        harness = """
+home="$HOME"; sandbox="$HOME/sandbox"
+shell_env=(env -i PATH=/usr/bin:/bin HOME="$HOME")
+mkdir -p -- "$sandbox"
+first_name() { echo 'shader-test: stop-after-compile' >&2; return 1; }
+"""
+        rows = (("voiceorb", "shell/Ui/feedback/shaders/voiceorb.frag", "cost = angle + phase;"),
+                ("plasma", "shell/plugins/vgs.voice/shaders/plasma.frag", "cost = ang + uTime;"))
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            result = self.runner_copy(root, harness, RUNNER.read_text())
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            for shader, source, seed in rows:
+                with self.subTest(shader=shader):
+                    costly = (root / f"home/sandbox/costly-{shader}.frag").read_text()
+                    original = (ROOT.parent / source).read_text()
+                    self.assertIn(seed, costly)
+                    self.assertIn("for (int i = 0; i < 256; ++i)", costly)
+                    self.assertNotIn("for (int i = 0; i < 256; ++i)", original)
+                    # Everything before the planted loop is the shader's own source.
+                    self.assertTrue(original.startswith(costly[:costly.index("float cost =")].rstrip()))
 
 
 if __name__ == "__main__":

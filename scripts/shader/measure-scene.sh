@@ -1,7 +1,8 @@
 # Sourced by scripts/measure-shader.sh after scripts/smoke/harness.sh and
 # scripts/smoke/verdict.sh; measures one scene of the shader instrument
 # under the nested output's held mode. It reads the harness's sandbox, its
-# spawn and its process-group leases, and the hold's readers.
+# spawn and its process-group leases, the hold's readers, and the runner's
+# `shader`, the shader the scene draws.
 
 # scene_attempts: how many times measure_held_scene measures one scene
 # whose output left the held mode. Each reset needs a host configure of
@@ -11,17 +12,18 @@
 scene_attempts=3
 
 # measure_scene SCALE SCENE STEM: one standalone layer, VGS_SHADER_MODE
-# SCENE, until its result reads complete or timeout_s passes. Writes
-# STEM.launch.log, the instance log as STEM.log and the result as
-# STEM.json, reaps the layer and ends its process group's lease, and sets
-# scene_cpu_some_pct to cpu_some_pct of the scene's window. Exits 1, with
-# the cause, when the layer leaves no instance, exits other than by the
-# TERM it is sent, or never completes its samples.
+# SCENE and VGS_SHADER_NAME shader, until its result reads complete or
+# timeout_s passes. Writes STEM.launch.log, the instance log as STEM.log
+# and the result as STEM.json, reaps the layer and ends its process
+# group's lease, and sets scene_cpu_some_pct to cpu_some_pct of the
+# scene's window. Exits 1, with the cause, when the layer leaves no
+# instance, exits other than by the TERM it is sent, or never completes its
+# samples.
 measure_scene() {
   local scale="$1" scene="$2" stem="$3" scene_pid result done=false instance scene_exit=0 start_us start_ms poll group remaining=()
   start_us="$(cpu_some_us)"
   start_ms="$(now_ms)"
-  spawn "$stem.launch.log" "${shell_env[@]}" VGS_SHADER_MODE="$scene" \
+  spawn "$stem.launch.log" "${shell_env[@]}" VGS_SHADER_MODE="$scene" VGS_SHADER_NAME="$shader" \
     QSG_RHI_BACKEND=vulkan QSG_RHI_PROFILE=1 QSG_NO_VSYNC=1 \
     QT_LOGGING_RULES='qt.scenegraph.time.renderloop.debug=true;qt.scenegraph.general=true;qt.rhi.general=true' \
     qs -p "$repo/shell/ShaderScene.qml"

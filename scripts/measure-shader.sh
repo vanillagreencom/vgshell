@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
-# Measure the passive VoiceOrb layer on a real GPU in the nested sandbox.
-# Usage: scripts/measure-shader.sh [--calibrate FILE [--runs N]] [--keep]
-# Default: check scripts/shader/ceilings.json and prove the 256-step control.
+# Measure each passive shader layer on a real GPU in the nested sandbox:
+# VoiceOrb and Voice's plasma orb.
+# Usage: scripts/measure-shader.sh [--shader NAME] [--calibrate FILE [--runs N]] [--keep]
+# Default: check every shader against its record in
+# scripts/shader/ceilings.json and prove its 256-step control. --shader
+# measures one, voiceorb or plasma.
 # Calibration measures N passes, 1 by default, in one sandbox and derives
-# each ceiling as twice the highest reading over every pass and scale.
+# each shader's ceilings as twice its highest reading over every pass and
+# scale, written as that shader's record in FILE beside the others.
 # Each CPU, GPU, and presentation stream discards 120 warmup readings and
 # keeps 600 samples; a reading is their 90th percentile. GPU timestamps
 # keep compositor pacing out of GPU cost.
@@ -21,6 +25,7 @@ repo="$(cd -- "$(dirname -- "$self")/.." && pwd -P)" || exit 1
 choice=(--check "$repo/scripts/shader/ceilings.json")
 keep=false
 runs=""
+shaders=(voiceorb plasma)
 argv=("$@")
 while (($#)); do
   case "$1" in
@@ -30,6 +35,9 @@ while (($#)); do
     --runs)
       [[ $# -ge 2 && $2 =~ ^[1-9][0-9]*$ ]] || { printf 'shader-cost: refused argument=--runs value=%s\n' "${2:-}"; exit 2; }
       runs="$2"; shift 2 ;;
+    --shader)
+      [[ $# -ge 2 && ( $2 == voiceorb || $2 == plasma ) ]] || { printf 'shader-cost: refused argument=--shader value=%s\n' "${2:-}"; exit 2; }
+      shaders=("$2"); shift 2 ;;
     --keep) keep=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$self"; exit 0 ;;
     *) printf 'shader-cost: refused argument=%s\n' "$1"; exit 2 ;;
@@ -65,25 +73,43 @@ plugin_set=smoke
 harness_scene_only=true
 source "$repo/scripts/smoke/harness.sh"
 cp -- "$source_repo/scripts/shader/Scene.qml" "$repo/shell/ShaderScene.qml"
-python3 - "$repo/shell/Ui/feedback/shaders/voiceorb.frag" "$sandbox/costly.frag" <<'PY'
+# Each shader's costly copy adds a 256-step dependent loop before its
+# output, each step made of that shader's own work: VoiceOrb's trigonometry,
+# and two of the plasma's four-octave noises. On host cachy on 2026-10-05
+# the trigonometric loop added 0.026 ms of GPU cost to the plasma's
+# 0.127 ms at scale 1, under the plasma's 0.548 ms ceiling (run
+# shader-cost-1791193446-3856419), and one noise a step read 0.642 ms
+# against a 0.513 ms ceiling (run shader-cost-1791193734-224301).
+for shader in "${shaders[@]}"; do
+  python3 - "$shader" "$repo" "$sandbox/costly-$shader.frag" <<'PY'
 from pathlib import Path
 import sys
-source, output = map(Path, sys.argv[1:])
-text = source.read_text()
-needle = "fragColor = ink * max(ring, arcs) * qt_Opacity;"
+shader, repo, output = sys.argv[1], Path(sys.argv[2]), Path(sys.argv[3])
+source, needle, seed, step, scaled = {
+    "voiceorb": ("shell/Ui/feedback/shaders/voiceorb.frag",
+                 "fragColor = ink * max(ring, arcs) * qt_Opacity;", "angle + phase",
+                 "sin(cost * 1.31 + float(i)) + cos(cost * 0.73 + radius) + atan(cost, 0.71)",
+                 "fragColor = ink * max(ring, arcs) * qt_Opacity * (0.99 + 0.01 * sin(cost));"),
+    "plasma": ("shell/plugins/vgs.voice/shaders/plasma.frag",
+               "fragColor = vec4(outc, clamp(a, 0.0, 1.0)) * qt_Opacity;", "ang + uTime",
+               "fbm(vec3(uv * 3.0, cost + float(i) * 0.37)) + fbm(vec3(uv.yx * 2.0, cost - float(i) * 0.21))",
+               "fragColor = vec4(outc, clamp(a, 0.0, 1.0)) * qt_Opacity * (0.99 + 0.01 * sin(cost));"),
+}[shader]
+text = (repo / source).read_text()
 assert text.count(needle) == 1, "costly shader: output must match once"
-changed = text.replace(needle, """
-float cost = angle + phase;
+changed = text.replace(needle, f"""
+float cost = {seed};
 for (int i = 0; i < 256; ++i)
-    cost = sin(cost * 1.31 + float(i)) + cos(cost * 0.73 + radius) + atan(cost, 0.71);
-fragColor = ink * max(ring, arcs) * qt_Opacity * (0.99 + 0.01 * sin(cost));
+    cost = {step};
+{scaled}
 """)
 assert changed != text
 output.write_text(changed)
 PY
-if ! env -i PATH=/usr/bin:/bin HOME="$home" LC_ALL=C "${compiler_words[@]}" -o "$repo/shell/costly.frag.qsb" "$sandbox/costly.frag"; then
-  echo 'shader-cost: failed costly-shader=compile'; exit 1
-fi
+  if ! env -i PATH=/usr/bin:/bin HOME="$home" LC_ALL=C "${compiler_words[@]}" -o "$repo/shell/costly-$shader.frag.qsb" "$sandbox/costly-$shader.frag"; then
+    printf 'shader-cost: failed costly-shader=compile shader=%s\n' "$shader"; exit 1
+  fi
+done
 logs="$source_repo/tmp/shader-cost-$(date +%s)-$$"
 mkdir -p -- "$logs"
 printf 'shader-cost: logs=%s\n' "$logs"
@@ -101,11 +127,22 @@ for ((run = 1; run <= runs; run++)); do
     [[ $scale == 1 ]] || target_mode="$double"
     hold_mode "shader scale $scale" "$output" "$target_mode" "$scale"
     [[ ${#mode_hold[@]} -gt 0 ]] || { echo 'shader-cost: failed output=not-held'; exit 1; }
-    for scene in off on costly; do
-      measure_held_scene "$scale" "$scene" "$pass/scale-$scale-$scene"
+    for shader in "${shaders[@]}"; do
+      mkdir -p -- "$pass/$shader"
+      for scene in off on costly; do
+        measure_held_scene "$scale" "$scene" "$pass/$shader/scale-$scale-$scene"
+      done
     done
     release_mode "release shader scale $scale" "$output" "$mode" 1
     [[ $failures -eq 0 ]] || { echo 'shader-cost: failed output=release'; exit 1; }
   done
 done
-python3 "$source_repo/scripts/shader/readings.py" "${passes[@]}" "${choice[@]}"
+# Every shader is judged; a failure outranks a shader that could not be
+# measured.
+verdict=0
+for shader in "${shaders[@]}"; do
+  status=0
+  python3 "$source_repo/scripts/shader/readings.py" "${passes[@]/%//$shader}" --shader "$shader" "${choice[@]}" || status=$?
+  if [[ $status -ne 0 && ( $verdict -eq 0 || $verdict -eq 77 ) ]]; then verdict=$status; fi
+done
+exit "$verdict"

@@ -17,7 +17,7 @@
 # SCENE is gallery, settings, focus, plugin-pages, manager, launcher,
 # notifications, bar, panels, devtools, system, network, vpn, bluetooth, dialog, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, capture,
-# keyhints or clipboard. settings takes the
+# keyhints, clipboard or voice. settings takes the
 # automations' and the Jarvis pages among the plugin pages, each when the
 # tree ships its plugin. plugin-pages, taken only when named, opens every
 # plugin the Settings window lists, in that window's order, and captures
@@ -34,7 +34,10 @@
 # the tailscale stand-in; keyhints is the
 # Key Hints window over the Launcher's, Settings' and Themes' shortcuts and
 # its own; clipboard is the clipboard history over copies made on the
-# nested instance's own clipboard, taken only when named; focus is
+# nested instance's own clipboard, taken only when named; voice is Voice's
+# on-screen display while dictating, its plasma orb fed by stand-ins for
+# voxtype's status stream and audio bridge, so no audio device opens, taken
+# only when named; focus is
 # the keyboard focus proof set; dialog is the core's requirement notice;
 # lock is the vgs.lock screen, locked and after wrong attempts; polkit is
 # the vgs.polkit prompt, asking and after a failed attempt; greeter is the
@@ -160,7 +163,7 @@ while [[ $# -gt 0 ]]; do
     --keep) keep=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    gallery|settings|focus|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|devtools|system|network|vpn|bluetooth|dialog|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations) scenes+=("$1"); shift ;;
+    gallery|settings|focus|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|devtools|system|network|vpn|bluetooth|dialog|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -254,6 +257,7 @@ scene_ships() {
     capture) ships_plugin vgs.capture ;;
     keyhints) ships_plugin vgs.keyhints vgs.launcher vgs.settings vgs.themes ;;
     clipboard) ships_plugin vgs.clipboard ;;
+    voice) ships_plugin vgs.voice ;;
     devtools) ships_plugin vgs.devtools ;;
     system) ships_plugin vgs.system ;;
     network) ships_plugin vgs.system vgs.network ;;
@@ -1551,6 +1555,36 @@ scene_clipboard() { # MODE
   type_keys -k Escape || fail "sending Escape failed"
   expect_poll "the clipboard history closes" 0 layer_count vgs:overlay
 }
+
+# Voice's on-screen display over the bare desktop: the stand-in status
+# stream holds recording and the stand-in bridge prints a frame every
+# 50 ms, then both are removed with the plugin disabled.
+scene_voice() { # MODE
+  cat >"$shim/voxtype" <<'EOF'
+#!/usr/bin/env bash
+[[ $* == 'status --follow --extended --format json' ]] || exit 0
+printf '{"state":"recording","backend":"ONNX CPU","device":"default","model":"parakeet-tdt-0.6b-v3"}\n'
+exec sleep infinity
+EOF
+  cat >"$shim/voxtype-audio-bridge" <<'EOF'
+#!/usr/bin/env bash
+printf '{"status":"connected"}\n'
+trap 'exit 0' TERM
+while :; do printf '{"peak":0.42,"rms":0.18,"vad":1,"ts_ms":0}\n'; sleep 0.05; done
+EOF
+  chmod 755 "$shim/voxtype" "$shim/voxtype-audio-bridge"
+  rescan "the Voice stand-ins are scanned"
+  expect "enabling vgs.voice for its display is allowed" ok ipc shell setPluginEnabled vgs.voice true
+  expect_poll "Voice draws its plasma orb while recording" 1 ipc smoke layerItemsWith vgs.voice Plasma active true
+  expect_poll "the stand-in's frames reach Voice" true voice_level_flowing
+  park_pointer
+  take "voice-$1-osd"
+  expect "disabling vgs.voice after its display is allowed" ok ipc shell setPluginEnabled vgs.voice false
+  expect_poll "Voice's display is gone" 0 ipc smoke layerItemsWith vgs.voice Plasma active true
+  rm -f -- "${shim:?}/voxtype" "${shim:?}/voxtype-audio-bridge"
+  rescan "the Voice stand-ins are removed"
+}
+voice_level_flowing() { ipc smoke readInstance service vgs.voice level | py_reply 'import json,sys; print(str(json.load(sys.stdin) > 0).lower())'; }
 
 # The themes panel opened from its widget over the shipped and catalog
 # packages and a refused one: its top, the pointer on a row, its catalog

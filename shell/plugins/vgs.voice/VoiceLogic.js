@@ -88,6 +88,32 @@ function setupState(reads) {
     return { tone: "warning", text: "Set up needed", lines: lines, action: true, engine: engine, model: model, reasons: lines };
 }
 
+// The on-screen display's level from one voxtype-audio-bridge frame, as the
+// owner's plasma design reads it: the louder of the peak and RMS_WEIGHT times
+// the RMS, times LEVEL_GAIN, raised to LEVEL_GAMMA. The gamma under 1 lifts
+// quiet speech without moving silence, and ordinary speech reaches 1.
+var RMS_WEIGHT = 1.7;
+var LEVEL_GAIN = 6.0;
+var LEVEL_GAMMA = 0.62;
+
+function amplitude(value) {
+    return typeof value === "number" && isFinite(value) && value >= 0;
+}
+
+// One stdout line of voxtype-audio-bridge: a frame with `peak` and `rms`, or
+// a `connected` or `disconnected` status line.
+function parseFrame(line) {
+    var frame = parseJson(line, null);
+    if (!isObject(frame)) return { ok: false, reason: "json" };
+    if (frame.status === "connected" || frame.status === "disconnected") return { ok: true, kind: frame.status };
+    if (!amplitude(frame.peak) || !amplitude(frame.rms)) return { ok: false, reason: "frame" };
+    return { ok: true, kind: "frame", peak: frame.peak, rms: frame.rms };
+}
+
+function frameLevel(peak, rms) {
+    return Math.min(1, Math.pow(Math.max(peak, rms * RMS_WEIGHT) * LEVEL_GAIN, LEVEL_GAMMA));
+}
+
 function modelData(status, setup) {
     var engine = setup && setup.engine ? setup.engine : DEFAULT_ENGINE;
     var model = setup && setup.model ? setup.model : status && status.model ? status.model : DEFAULT_MODEL;
