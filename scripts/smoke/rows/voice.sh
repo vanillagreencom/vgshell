@@ -5,8 +5,11 @@
 # when the stub reports it installed, then disables the plugin and checks its
 # shortcuts, its status child and its bridge child are gone. The key delivery
 # uses physical code overrides for the row, so the helper reaches the same
-# generated bind path that hold-shortcuts.sh exercises. It closes its client
-# window and puts back the shell.json it found.
+# generated bind path that hold-shortcuts.sh exercises. The device
+# stand-in systemctl answers the service probe from a planted reply. It
+# closes its client window and puts back the shell.json and the pointer
+# position it found: its Settings clicks leave the pointer over the centre,
+# where a later row's requirement notice would keep the keyboard.
 # The on-screen display: the stub status stream follows a file the row
 # appends states to, and the stub bridge prints the bridge's frames, and a
 # disconnected line on request. The row reads the layer presented on the
@@ -80,14 +83,7 @@ while :; do
 done
 EOF_BRIDGE
 chmod 755 "$voice_bridge_stub"
-cat >"$shim/systemctl" <<'EOF_SYSTEMCTL'
-#!/usr/bin/env bash
-case "$*" in
-  '--user is-enabled voxtype') printf 'enabled\n' ;;
-  *) ;;
-esac
-EOF_SYSTEMCTL
-chmod 755 "$shim/systemctl"
+device_reply systemctl 0 enabled --user is-enabled voxtype
 cat >"$shim/setpriv" <<'EOF_SETPRIV'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"__VOICE_SETPRIV_LOG__"
@@ -424,6 +420,7 @@ voice_hold_pair() {
 }
 
 voice_saved_config="$sandbox/shell-before-voice.json"
+voice_pointer="$(hypr -j cursorpos | py_reply 'import json,sys; p=json.load(sys.stdin); print(p["x"], p["y"])')"
 cp -- "$home/.config/vgshell/shell.json" "$voice_saved_config"
 voice_ensure_hypr_wired
 hypr_lua_save voice
@@ -602,7 +599,8 @@ voice_stop_keyboard
 close_toplevel "$voice_client_pid" "the Voice client exits 0 on SIGTERM"
 hypr_lua_restore voice || fail "Voice restores hyprland.lua"
 expect "Voice key resolution restore is reloaded" ok hypr reload config-only
-rm -f -- "${voice_stub:?}" "${voice_bridge_stub:?}" "${shim:?}/systemctl" "${shim:?}/setpriv" "${voice_installed:?}"
+rm -f -- "${voice_stub:?}" "${voice_bridge_stub:?}" "${shim:?}/setpriv" "${voice_installed:?}"
+device_reply_clear systemctl
 rescan "rescan after removing the Voice stubs"
 expect_poll "the Voice voxtype requirement is missing after stub removal" missing voice_requirement voxtype
 expect "enabling Voice without voxtype is allowed" ok ipc shell setPluginEnabled vgs.voice true
@@ -616,3 +614,5 @@ settings_page_close vgs.voice
 expect "disabling Voice after the missing-requirement check is allowed" ok ipc shell setPluginEnabled vgs.voice false
 cp -- "$voice_saved_config" "$home/.config/vgshell/shell.json.next" && mv -T -- "$home/.config/vgshell/shell.json.next" "$home/.config/vgshell/shell.json"
 expect "the shell.json Voice found is reloaded" ok ipc shell reloadConfig
+read -r voice_pointer_x voice_pointer_y <<<"$voice_pointer"
+hover "$voice_pointer_x" "$voice_pointer_y" || fail "Voice puts the pointer back where it found it"
