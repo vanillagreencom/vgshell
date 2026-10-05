@@ -12,9 +12,7 @@
     "tools": { "icon": "terminal", "label": "Tools" },
     "tools.automations": { "icon": "calendar-clock", "label": "Automations", "description": "View schedules and run history", "run": ["vgshell", "ipc", "call", "vgs.automations", "invoke", "open", "{}"] },
     "tools.automations-new": { "icon": "calendar-plus", "label": "New automation", "description": "Schedule a command", "run": ["vgshell", "ipc", "call", "vgs.automations", "invoke", "new", "{}"] },
-    "tools.terminal": { "icon": "terminal", "label": "Terminal", "requires": ["xdg-terminal-exec"], "run": ["xdg-terminal-exec"] },
     "tools.screenshot": { "icon": "camera", "label": "Screenshot", "description": "Save a region and copy it", "run": ["vgshell", "ipc", "call", "vgs.capture", "invoke", "screenshot-area", "{}"] },
-    "tools.files": { "icon": "folder", "label": "Files", "requires": ["xdg-open"], "run": ["sh", "-c", "exec xdg-open \"$HOME\""] },
     "install": { "icon": "package", "label": "Install", "tui": "core/pkg-install" },
     "remove": { "icon": "package", "label": "Remove", "aliases": ["uninstall"], "tui": "core/pkg-remove" },
     "update": { "icon": "refresh-cw", "label": "Update", "tuiGroup": "Update" }

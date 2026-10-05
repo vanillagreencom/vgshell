@@ -92,7 +92,7 @@ const PAYLOAD_REFUSED = [
     ["more options than the card holds", JSON.stringify({ mode: "select", options: Array(2001).fill("x"), selectionFile: RUNTIME + "/a", doneFile: RUNTIME + "/b" }), "payload=options count=2001 max=2000"]
 ];
 
-function verify(model) {
+function verify(model, menu = shippedMenu) {
     assert.equal(model.actionErrorText("refused: tui=core/pkg-install reason=launcher-missing"), "The setup window could not open. VGS is missing its terminal launcher, xdg-terminal-exec. Reinstall VGS to restore it.");
     assert.equal(model.actionErrorText("refused: tui=core/pkg-install reason=launcher-failed"), "VGS could not open this action. Try again.");
     // Producer diagnostics never cross the display boundary.
@@ -103,12 +103,15 @@ function verify(model) {
     }
 
     // The shipped menu is accepted and merges alone.
-    const shipped = model.parseMenu(shippedMenu);
+    const shipped = model.parseMenu(menu);
     assert.equal(shipped.ok, true, shipped.error);
     const alone = model.mergeMenuSources(shipped.entries, []);
     assert.equal(alone.ok, true, alone.error);
     assert.equal(alone.itemOrder[0], "root", "a menu without a root gets one first");
     assert.equal(alone.items.apps.provider, "apps");
+    for (const id of ["tools.terminal", "tools.files"]) {
+        assert.equal(Object.hasOwn(alone.items, id), false, `${id} is absent from the shipped menu`);
+    }
     same(alone.items["tools.screenshot"].run, ["vgshell", "ipc", "call", "vgs.capture", "invoke", "screenshot-area", "{}"], "Screenshot asks the capture service");
     assert.equal(alone.items["system.reboot"].kind, "action");
     assert.equal(alone.items["system.reboot"].parent, "system");
@@ -433,6 +436,10 @@ const CONTROLS = [
 ];
 
 const source = fs.readFileSync(file, "utf8");
+for (const id of ["tools.terminal", "tools.files"]) {
+    const restored = Object.assign({}, JSON.parse(shippedMenu).items, { [id]: { label: id, run: ["true"] } });
+    assert.throws(() => verify(load(file), menuText(restored)), { message: `${id} is absent from the shipped menu` });
+}
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "launcher-model-control-"));
 try {
     for (const [label, needle, replacement] of CONTROLS) {

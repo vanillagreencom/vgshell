@@ -32,7 +32,7 @@
     { "command": "flock", "packages": { "pacman": "util-linux", "dnf": "util-linux-core", "nix": "util-linux" }, "optional": false, "purpose": "Locks the file search index" },
     { "command": "gio", "packages": { "pacman": "glib2", "dnf": "glib2", "nix": "glib" }, "optional": false, "purpose": "Lists the applications that can open a file" },
     { "command": "xdg-mime", "packages": { "pacman": "xdg-utils", "dnf": "xdg-utils", "nix": "xdg-utils" }, "optional": false, "purpose": "Finds the default application for a file" },
-    { "command": "xdg-open", "packages": { "pacman": "xdg-utils", "dnf": "xdg-utils", "nix": "xdg-utils" }, "optional": false, "purpose": "Opens Files and selected files with the default application" },
+    { "command": "xdg-open", "packages": { "pacman": "xdg-utils", "dnf": "xdg-utils", "nix": "xdg-utils" }, "optional": false, "purpose": "Opens selected files with the default application" },
     { "command": "wl-copy", "packages": { "pacman": "wl-clipboard", "dnf": "wl-clipboard", "nix": "wl-clipboard" }, "optional": false, "purpose": "Copies file paths and screenshots" },
     { "command": "grim", "packages": { "pacman": "grim", "dnf": "grim", "nix": "grim" }, "optional": false, "purpose": "Captures the image for the Screenshot action" },
     { "command": "slurp", "packages": { "pacman": "slurp", "dnf": "slurp", "nix": "slurp" }, "optional": false, "purpose": "Selects the area for the Screenshot action" }
