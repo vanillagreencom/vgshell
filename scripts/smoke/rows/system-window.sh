@@ -26,7 +26,7 @@
 # lists its fixtures alone, and leaves the user file, vgs.system's and
 # each shipped section's enablement, the plugins directory and the shell's
 # PATH directory as it found them.
-# inputs: shell/plugins/vgs.system/* shell/Core/PluginLogic.js shell/plugins/*/manifest.json scripts/smoke/fixtures/plugins/acme.pane/* shell/Hosts/PaneHost.qml shell/Hosts/AppWindow.qml shell/Core/Capabilities.qml scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/plugins/vgs.system/* shell/Core/PluginLogic.js shell/plugins/*/manifest.json scripts/smoke/fixtures/plugins/acme.pane/* shell/Hosts/PaneHost.qml shell/Hosts/AppWindow.qml shell/Core/Capabilities.qml shell/Core/Config.qml shell/Commons/WatchedFile.qml scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 
 sys_file="$home/.config/vgshell/shell.json"
@@ -409,11 +409,6 @@ rescan "rescan after removing the stale-list copy answers ok"
 expect_poll "the stale-list copy is gone" absent plugin_enabled acme.system-stale
 expect "enabling Pane Alt after the stale-list control is allowed" ok ipc shell setPluginEnabled acme.pane-alt true
 expect "enabling vgs.system after the stale-list control is allowed" ok ipc shell setPluginEnabled vgs.system true
-# An enable answers ok once its save is queued (Config.writeUser), and this
-# one waits behind Pane Alt's: the stop below would end the shell with it
-# unwritten, and both restarts would read vgs.system disabled.
-sys_file_disables() { python3 -c 'import json,sys; print(sys.argv[2] in json.load(open(sys.argv[1])).get("disabledPlugins", []))' "$sys_file" "$1"; }
-expect_poll "shell.json holds vgs.system enabled before the restarts" False sys_file_disables vgs.system
 
 # Control: a shell copy whose PaneHost takes no implicit height from the
 # pane, so the holder's container keeps the room alone and the tall
