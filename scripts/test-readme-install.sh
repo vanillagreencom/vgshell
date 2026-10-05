@@ -27,7 +27,7 @@ fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
 
 # --- the tree ---------------------------------------------------------------
 tree="$tmp/tree"
-files=(README.md VERSION bin/vgshell bin/vgshell-scan bin/lib/post-install.txt install.sh docs/architecture/runtime.md shell/Core/PackageManagers.js
+files=(README.md VERSION bin/vgshell bin/vgshell-scan bin/lib/post-install.txt bin/lib/qml-library.js install.sh docs/architecture/runtime.md shell/Core/PackageManagers.js
   packaging/arch/vgshell/PKGBUILD packaging/arch/vgshell-git/PKGBUILD
   scripts/readme-install.sh scripts/check-readme.js)
 for dir in "$repo"/shell/plugins/*/; do

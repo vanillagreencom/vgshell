@@ -189,7 +189,7 @@ useradd -m -u 1000 user
 printf 'user ALL=(ALL) NOPASSWD: ALL\n' >/etc/sudoers.d/user
 chmod 440 /etc/sudoers.d/user
 if [[ -n $helper ]]; then
-  runuser -u user -- bash -c 'cd && git clone -q "https://aur.archlinux.org/$1-bin.git" && cd "$1-bin" && makepkg -si --noconfirm && cd && rm -rf -- "$1-bin"' _ "$helper"
+  runuser -u user -- bash -c 'cd && git clone -q "https://aur.archlinux.org/$1.git" && cd "${1:?}" && makepkg -si --noconfirm && cd && rm -rf -- "${1:?}"' _ "$helper"
 fi
 PREPARE
   chmod 755 "$scratch/prepare.sh"
