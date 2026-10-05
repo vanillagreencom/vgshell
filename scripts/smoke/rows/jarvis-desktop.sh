@@ -257,3 +257,4 @@ cp -- "$sandbox/jarvis-desktop-backend-before" "$jd_backend"
 rm -f -- "$home/.local/state/vgshell/jarvis/mute.json"
 [[ $jd_audit_before == true ]] || rm -rf -- "${jd_audit:?}"
 jarvis_rescan
+jarvis_notice_close

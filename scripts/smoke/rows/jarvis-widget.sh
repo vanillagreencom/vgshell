@@ -248,3 +248,4 @@ expect "the widget row leaves no Jarvis state file" False \
   python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).exists())' "$home/.local/state/vgshell/jarvis/mute.json"
 jarvis_disable
 expect_poll "disable removes the widget" absent ipc smoke readInstance "$jarvis_widget_key" vgs.jarvis moduleName
+jarvis_notice_close
