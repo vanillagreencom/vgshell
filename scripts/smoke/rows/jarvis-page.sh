@@ -23,8 +23,14 @@ jarvis_rescan
 jarvis_enable
 settings_page_open vgs.jarvis
 
-# KEY's action as the page offers it, and its row's tone.
-page_offered() { status_row vgs.jarvis "$1" | py_reply 'import json,sys; r=json.load(sys.stdin); print(json.dumps([r["action"]["label"], r["action"]["offered"], r["value"]["tone"]]))'; }
+# KEY's action as the page offers it, and its row's tone; `pending` until
+# a rescanned service has reported the row.
+page_offered() { status_row vgs.jarvis "$1" | py_reply '
+import json,sys
+r=json.load(sys.stdin)
+reported=r.get("report") == "reported" and isinstance(r.get("value"), dict)
+print(json.dumps([r["action"]["label"], r["action"]["offered"], r["value"]["tone"]]) if reported else "pending")
+'; }
 # Settings starts KEY's action, which hands the terminal TUI's declared
 # fixture script under TITLE.
 page_open() { # KEY TUI TITLE
@@ -122,16 +128,22 @@ expect_poll "the restored search finds nothing and offers Accounts" '["Accounts"
 # line reading the Select's own emptyText.
 page_empty_line() { py_reply 'import json,sys; d=json.load(sys.stdin); print("one-line" if d["open"] and d["entries"] == 0 and d["empty"] != "" and d["lines"] == [d["empty"]] else "no-line")'; }
 page_copy_line() { ipc smoke popupSelectList "$1" | page_empty_line; }
-# Copies beside AnchorTracker, as rows/overlays.sh builds its Select: one
-# as shipped and one whose empty line never draws, an empty popup. Both
-# are written before the first is built (runtime-qml.md), and each closes
+# Copies of the shipped Select, one as shipped and one whose empty line
+# never draws, an empty popup. The type loader keeps the listing of a
+# directory it has read, so a .qml file written later beside the shipped
+# ones is refused as a file name case mismatch (runtime-qml.md): the copies
+# go in a fresh folder under overlay/, named as the types they make, and
+# import the two directories whose internal types the Select draws
+# (AnchorTracker and ListMask, ScrollBar and ListCursorRow). Each closes
 # with its drop before the next opens.
-page_copies=("$repo/shell/Ui/overlay/SelectEmptyLine.qml" "$repo/shell/Ui/overlay/SelectNoEmptyLine.qml")
+page_copy_dir="$repo/shell/Ui/overlay/jarvis-page-copies"
+mkdir -- "$page_copy_dir"
+page_copies=("$page_copy_dir/SelectEmptyLine.qml" "$page_copy_dir/SelectNoEmptyLine.qml")
 python3 - "$repo/shell/Ui/controls/Select.qml" "${page_copies[@]}" <<'PY'
 import pathlib, sys
 source = pathlib.Path(sys.argv[1]).read_text()
 assert source.count("import qs.Ui\n") == 1
-copy = source.replace("import qs.Ui\n", "import qs.Ui\nimport \"../layout\"\n")
+copy = source.replace("import qs.Ui\n", "import qs.Ui\nimport \"..\"\nimport \"../../layout\"\n")
 needle = "            visible: root.showsEmpty\n"
 assert copy.count(needle) == 1
 pathlib.Path(sys.argv[2]).write_text(copy)
@@ -152,7 +164,7 @@ page_line_control() {
 }
 expect "an empty popup breaks the empty-line read" 1 page_line_control
 expect "the probe drops the control copy" ok ipc smoke popupDrop page-no-line
-rm -- "${page_copies[@]}" || fail "removing the Select copies failed"
+rm -- "${page_copies[@]}" && rmdir -- "$page_copy_dir" || fail "removing the Select copies failed"
 
 page_field() { ipc smoke invokeInstance window vgs.settings fieldChoice '{"id":"vgs.jarvis","key":"brain"}'; }
 page_field_state() { page_field | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([d["model"], d["value"], d["list"]["open"], d["list"]["empty"] != "" and d["shown"] == d["list"]["empty"]]))'; }
