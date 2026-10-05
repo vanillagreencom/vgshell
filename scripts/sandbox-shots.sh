@@ -218,6 +218,12 @@ tree_has shell/plugins/vgs.launcher/Widget.qml "BarItem {" && launcher_entry_ite
 has_clear_search=false
 tree_has shell/plugins/vgs.settings/ListPage.qml '"Clear search"' && has_clear_search=true
 devtools_hover=Install
+# A tree whose plugin page has two pages draws Status and Requirements on
+# Details; page_details moves the open page there, and an older tree's one
+# page needs no move.
+has_tab_pages=false
+tree_has shell/plugins/vgs.settings/PluginPage.qml "TabPages {" && has_tab_pages=true
+page_details() { ! "$has_tab_pages" || settings_details; }
 themes_entry_type=IconButton
 tree_has shell/plugins/vgs.themes/Widget.qml "BarItem {" && themes_entry_type=BarItem
 tree_has shell/plugins/vgs.devtools/ToolRow.qml '"Details"' && devtools_hover=Details
@@ -694,6 +700,7 @@ step_shot() {
   local shown offered=false _
   expect "the window opens the $2 page" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin "$2"
   expect_poll "the $2 page is shown" "\"$2\"" settings_page
+  page_details
   # expect_poll's own window, 5 s at 0.2 s.
   for _ in $(seq 1 25); do
     [[ $(step_offered "$2" "$3") == true ]] && { offered=true; break; }
@@ -726,6 +733,7 @@ scene_setup_steps() { # MODE
   expect "the status fixture publishes a check that offers its install" ok ipc acme.status invoke set 'check={"tone":"warning","text":"Tool missing","action":true}'
   expect "the window opens the status fixture's page" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin acme.status
   expect_poll "the status fixture's page is shown" '"acme.status"' settings_page
+  page_details
   settings_press "Show command" || fail "the click on the Token's Show command failed"
   park_pointer
   take "setup-$1-actions"
@@ -900,6 +908,7 @@ EOF
     fi
     expect "the window opens the automations' page" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.automations
     expect_poll "the automations' page is shown" '"vgs.automations"' settings_page
+    page_details
     expect_poll "the automations' status rows are reported" True page_reported vgs.automations
     # The Status section's heading at the top.
     if section="$(settings_section Status SectionHeader Status)"; then
@@ -925,6 +934,7 @@ EOF
     expect_poll "the Jarvis daemon answers hello without a restart" ready jarvis_started
     expect "the window opens the Jarvis page" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.jarvis
     expect_poll "the Jarvis page is shown" '"vgs.jarvis"' settings_page
+    page_details
     expect_poll "the Jarvis page shows its daemon ready" True jarvis_page_ready
     settings_scroll_to 0 >/dev/null || fail "the Jarvis page did not scroll to the top"
     expect_poll "the Jarvis page is at its top" True settings_at_top
@@ -999,6 +1009,7 @@ EOF
   park_pointer
   expect "the window opens the notifications' page" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.notifications
   expect_poll "the notifications' page is shown" '"vgs.notifications"' settings_page
+  page_details
   expect_poll "the notifications' status rows are reported" True page_reported vgs.notifications
   # The Slack section in view: its heading at the top, and, when the
   # section is taller than the area, a second shot with its last line at
