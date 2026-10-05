@@ -3,7 +3,7 @@
 # keyring unlock or a failed password a row caused would count against the
 # owner's own account. harness.sh stands a sentinel for every command that
 # asks for one in the PATH directory every sandbox shell starts with, and
-# replaces the sandbox tree's bin/vgsh-browser-policy, which runs sudo from
+# replaces the sandbox tree's bin/vgshell-browser-policy, which runs sudo from
 # the system directories alone, with one more. This row, the last, reads
 # that each sentinel resolves first on that PATH, or a stub a row stood
 # over it that never authenticates, that the tree's writer is still the
@@ -19,7 +19,7 @@ sentinel_of() { if grep -q -F -- "$auth_log" "$1"; then echo sentinel; else echo
 for name in "${auth_sentinels[@]}"; do
   expect "$name is the sentinel again, no row's stand-in" sentinel sentinel_of "$shim/$name"
 done
-expect "the sandbox tree's browser-policy writer is the sentinel" sentinel sentinel_of "$repo/bin/vgsh-browser-policy"
+expect "the sandbox tree's browser-policy writer is the sentinel" sentinel sentinel_of "$repo/bin/vgshell-browser-policy"
 expect "no row left a sentinel stood over" "" cat -- "$sentinels_stood"
 auth_calls() { if [[ -e $auth_log ]]; then cat -- "$auth_log"; fi; }
 expect "no row reached sudo, doas, run0, pkexec, su, a mutating loginctl or secret-tool, or the privileged writer" "" auth_calls

@@ -17,7 +17,7 @@ Item {
     property url wallpaper: ""
     property size decodeSize: Qt.size(width, height)
     property string title: "Theme"
-    property string commandLine: "vgsh theme apply"
+    property string commandLine: "vgshell theme apply"
     property var terminalLines: []
     property var fetchLines: []
     property var codeLines: []

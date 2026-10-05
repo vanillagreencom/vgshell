@@ -6,7 +6,7 @@
 # gains or loses its surface; the disposer and a disable release every one.
 # inputs: scripts/smoke/fixtures/plugins/acme.layers/* shell/Core/Layers.qml shell/Hosts/OverlaySurface.qml shell/Hosts/LayerHost.qml scripts/smoke/toplevel/* scripts/smoke/rows/capabilities.sh
 set -euo pipefail
-layers_dir="$home/.config/vgs/plugins/acme.layers"
+layers_dir="$home/.config/vgshell/plugins/acme.layers"
 mkdir -p "$layers_dir"
 cp -R "$repo/scripts/smoke/fixtures/plugins/acme.layers/." "$layers_dir/"
 # JSON the shell answers, respaced as python prints it, so a row compares values.

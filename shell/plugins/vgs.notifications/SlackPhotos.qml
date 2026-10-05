@@ -29,7 +29,7 @@ import "NotificationLogic.js" as Logic
 Scope {
     id: photos
 
-    readonly property string dir: (Quickshell.env("XDG_CACHE_HOME") || (Quickshell.env("HOME") + "/.cache")) + "/vgs/notifications/slack-photos"
+    readonly property string dir: (Quickshell.env("XDG_CACHE_HOME") || (Quickshell.env("HOME") + "/.cache")) + "/vgshell/notifications/slack-photos"
     readonly property string script: String(Qt.resolvedUrl("slack-photos.js")).replace(/^file:\/\//, "")
     readonly property string tokenScript: String(Qt.resolvedUrl("token-status.sh")).replace(/^file:\/\//, "")
     // Slack's disk cache, the one WorkspaceIcons reads its icons from.

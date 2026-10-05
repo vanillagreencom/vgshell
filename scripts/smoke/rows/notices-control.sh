@@ -8,7 +8,7 @@
 # scan, so pluginInstalled's one scan lands and raises no notice. The notice
 # is raised in the turn the revision reaches the scan, so a read once
 # scanRevision reaches it is decisive. The copy
-# holds its own bin/, since bin/vgsh finds the tree from its own real path,
+# holds its own bin/, since bin/vgshell finds the tree from its own real path,
 # and its own shell/; config/ and themes/ are links to the sandbox's. The
 # row stops the shell rows/read-only-prefix.sh started, starts the copy
 # through harness.sh's start_shell and leaves it running for
@@ -54,10 +54,10 @@ fi
 
 # acme.needs sits in the user plugin directory before the copy starts, so
 # its first scan finds it and its missing command.
-mkdir -p -- "$home/.config/vgs/plugins/acme.needs"
-cp -R -- "$repo/scripts/smoke/fixtures/plugins/acme.needs/." "$home/.config/vgs/plugins/acme.needs/"
+mkdir -p -- "$home/.config/vgshell/plugins/acme.needs"
+cp -R -- "$repo/scripts/smoke/fixtures/plugins/acme.needs/." "$home/.config/vgshell/plugins/acme.needs/"
 
-ipc() { ipc_via "$mutant/bin/vgsh" "$@"; }
+ipc() { ipc_via "$mutant/bin/vgshell" "$@"; }
 if stop_shell && start_shell "$mutant" "$sandbox/notice-mutant-qs.log"; then
   ok "the control copy starts as the guarded shell"
 fi

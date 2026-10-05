@@ -1,28 +1,28 @@
 #!/usr/bin/env node
-// vgs.updates facts: reads one vgsh JSON answer on stdin and prints the
+// vgs.updates facts: reads one vgshell JSON answer on stdin and prints the
 // facts the update pipeline, tui/pipeline.sh, acts on, one `<key> <value>`
 // line each, so bash never parses JSON. Whether VGS, a plugin or a theme
 // is behind is UpdatesLogic.js's decision, the one the service counts
 // with, loaded through the core's qml-library loader.
 //
-//   facts <loader> detect           `vgsh pkg detect --json`
+//   facts <loader> detect           `vgshell pkg detect --json`
 //       `primary <id>` when a primary serves the system, then
 //       `present <id> <binary>` for each overlay and source
-//   facts <loader> plan             `vgsh pkg plan upgrade <id>`
+//   facts <loader> plan             `vgshell pkg plan upgrade <id>`
 //       `elevate true|false`, `elevator <command>` or
 //       `elevator-refused <refusal>` when the plan elevates, then
 //       `step <argv joined by spaces>` per step
-//   facts <loader> self             `vgsh self status --json`
+//   facts <loader> self             `vgshell self status --json`
 //       `method <method>`, `package <name>` when a package owns the tree,
 //       `current <version>`, `behind true|false`, and `error <refusal>`
 //       when the status names one
-//   facts <loader> owner            `vgsh pkg owner <path>`
+//   facts <loader> owner            `vgshell pkg owner <path>`
 //       `version <version>`
 //   facts <loader> outdated plugins|themes
-//                                   `vgsh plugin|theme outdated --json`
+//                                   `vgshell plugin|theme outdated --json`
 //       `update <id>` for each checkout behind its upstream, then
 //       `error <text>` naming each checkout whose probe failed
-//   facts <loader> settings         `vgsh plugin settings vgs.updates`
+//   facts <loader> settings         `vgshell plugin settings vgs.updates`
 //       `aur-command <text>`, `snapshot auto|off`, `trust true|false`
 //
 // Every refusal is one line on stderr, `updates-facts: refused: <key>=<value>`,

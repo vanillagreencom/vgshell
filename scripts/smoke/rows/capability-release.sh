@@ -2,7 +2,7 @@
 # plugin disabled, so its widget is out of the centre section.
 # inputs: scripts/smoke/fixtures/plugins/acme.locker/* scripts/smoke/fixtures/plugins/acme.contention/* shell/plugins/vgs.themes/manifest.json shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Core/Lifetime.js scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* shell/Core/ShortcutRegistry.qml shell/Core/IpcRegistry.qml shell/Core/IdleRegistry.qml shell/Core/NotificationHub.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/settings.sh
 set -euo pipefail
-locker="$home/.config/vgs/plugins/acme.locker"
+locker="$home/.config/vgshell/plugins/acme.locker"
 mkdir -p "$locker"
 cp -R "$repo/scripts/smoke/fixtures/plugins/acme.locker/." "$locker/"
 rescan "rescan after adding the lock fixture answers ok"
@@ -36,7 +36,7 @@ expect "disabling the bare fixture is allowed" ok ipc shell setPluginEnabled acm
 
 # Both backgrounds become eligible in one configuration update, before the
 # registry's deferred lending snapshot sees the first holder.
-python3 - "$repo/scripts/smoke/fixtures/plugins/acme.contention" "$home/.config/vgs/plugins" <<'PY'
+python3 - "$repo/scripts/smoke/fixtures/plugins/acme.contention" "$home/.config/vgshell/plugins" <<'PY'
 import json, pathlib, shutil, sys
 for suffix in ("a", "b"):
     plugin_id = "acme.contend-" + suffix
@@ -50,7 +50,7 @@ PY
 rescan "rescan discovers the contending backgrounds"
 expect_poll "both contending backgrounds are known" True plugin_known acme.contend-b
 expected_errors+=('plugins: acme\.contend-[ab] refused: capability=lock held-by=acme\.contend-[ab]')
-python3 - "$home/.config/vgs/shell.json" <<'PY'
+python3 - "$home/.config/vgshell/shell.json" <<'PY'
 import json, os, sys
 p = sys.argv[1]
 data = json.load(open(p))

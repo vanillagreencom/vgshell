@@ -9,8 +9,8 @@
 # the rows must fail.
 set -euo pipefail
 
-# shellcheck source=scripts/vgsh-rows.sh
-source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/vgsh-rows.sh"
+# shellcheck source=scripts/vgshell-rows.sh
+source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/vgshell-rows.sh"
 suite=test-greeter-compositor
 config="$repo/config/system/greeter/hyprland.lua"
 lua_bin="$(command -v lua)" || { echo "$suite: status=not-measured missing=lua"; exit 77; }

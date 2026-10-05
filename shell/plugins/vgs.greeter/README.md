@@ -16,8 +16,8 @@ Setup needs greetd and its greeter account, which the greetd package makes, and 
 <summary>Show command</summary>
 
 ```sh
-vgsh system apply greeter
-vgsh system undo greeter
+vgshell system apply greeter
+vgshell system undo greeter
 ```
 
 </details>

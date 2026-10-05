@@ -5,8 +5,8 @@ import QtQuick
 // disposer is the core's, so disabling the plugin releases them.
 //   shortcut vgs.launcher:toggle            SUPER+SPACE from the manifest's
 //                                            `hyprland` binds (README)
-//   vgsh ipc call vgs.launcher invoke toggle '<payload>'
-//   vgsh ipc call vgs.launcher invoke summon '<payload>'
+//   vgshell ipc call vgs.launcher invoke toggle '<payload>'
+//   vgshell ipc call vgs.launcher invoke summon '<payload>'
 // A payload is the overlay's (README); an empty argument is `{}`.
 Item {
     id: root

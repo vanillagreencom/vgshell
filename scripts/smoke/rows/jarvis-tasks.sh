@@ -7,13 +7,13 @@
 # daemon fixture, and the one task record is a synthetic starting record.
 # No latency ceiling. Reads poll once per nested IPC round trip; the
 # fixture polls its gates every 10 ms.
-# inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* shell/Core/TuiRunner.qml shell/Core/PluginStatus.qml shell/Core/Toasts.qml scripts/smoke/rows/jarvis.sh bin/vgsh-tui
+# inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* shell/Core/TuiRunner.qml shell/Core/PluginStatus.qml shell/Core/Toasts.qml scripts/smoke/rows/jarvis.sh bin/vgshell-tui
 set -euo pipefail
 expected_errors+=('WARN qml: jarvis: task-stop=not-alive task=smoke-task-[0-9]+')
 task_daemon="$repo/shell/plugins/vgs.jarvis/backend/jarvisd.js"
 task_service="$repo/shell/plugins/vgs.jarvis/Service.qml"
 task_gates="$sandbox/jarvis-task-gates"
-task_state="$home/.local/state/vgs/jarvis"
+task_state="$home/.local/state/vgshell/jarvis"
 task_round=0
 mkdir -p -- "$task_gates"
 cp -- "$task_daemon" "$sandbox/jarvis-task-daemon-original"

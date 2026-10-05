@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
-# Write the source RPM of one Fedora package of COPR vanillagreen/vgs.
+# Write the source RPM of one Fedora package of COPR vanillagreen/vgshell.
 #
 # Usage: packaging/fedora/srpm.sh --spec SPEC --outdir DIR [--tarball FILE]
 #
-# SPEC is packaging/fedora/vgs.spec or packaging/fedora/vgs-git.spec, taken
+# SPEC is packaging/fedora/vgshell.spec or packaging/fedora/vgshell-git.spec, taken
 # from the checkout this script sits in. COPR runs it through .copr/Makefile
 # (the make_srpm method); a maintainer or scripts/fedora-container.sh runs it
 # directly.
 #
-# vgs.spec, the release: the checkout must sit at tag v<VERSION>, and the
+# vgshell.spec, the release: the checkout must sit at tag v<VERSION>, and the
 # spec's Version must be VERSION's line. Source0 is the release tarball,
 # downloaded over HTTPS from the URL the spec names, or FILE with --tarball,
-# which must unpack to vgs-<VERSION>/ holding that VERSION.
+# which must unpack to vgshell-<VERSION>/ holding that VERSION.
 #
-# vgs-git.spec, main: the version is the RPM form of `vgsh version`'s
+# vgshell-git.spec, main: the version is the RPM form of `vgshell version`'s
 # describe, X.Y.Z^<count>.git<hash> for X.Y.Z.r<count>.g<hash>, so the
-# package and `vgsh --version` in the checkout agree. The script packs HEAD
-# as vgs-<commit>.tar.gz with scripts/lib/release-tarball.sh, the release's
+# package and `vgshell --version` in the checkout agree. The script packs HEAD
+# as vgshell-<commit>.tar.gz with scripts/lib/release-tarball.sh, the release's
 # builder, and writes a spec copy that defines vgs_version and vgs_commit
 # ahead of the template and ends its %changelog with one entry of the
 # commit's author and UTC date. A shallow clone is refused, since its
@@ -61,11 +61,11 @@ done
 spec="$(readlink -f -- "$spec_arg")" || refuse 1 "spec=missing path=$spec_arg"
 [[ -f $spec ]] || refuse 1 "spec=missing path=$spec_arg"
 case "$spec" in
-  "$root/packaging/fedora/vgs.spec") package=vgs ;;
-  "$root/packaging/fedora/vgs-git.spec") package=vgs-git ;;
-  *) refuse 1 "spec=unknown path=$spec" "use packaging/fedora/vgs.spec or packaging/fedora/vgs-git.spec of this checkout" ;;
+  "$root/packaging/fedora/vgshell.spec") package=vgshell ;;
+  "$root/packaging/fedora/vgshell-git.spec") package=vgshell-git ;;
+  *) refuse 1 "spec=unknown path=$spec" "use packaging/fedora/vgshell.spec or packaging/fedora/vgshell-git.spec of this checkout" ;;
 esac
-[[ -z $tarball || $package == vgs ]] || refuse 2 "argument=--tarball package=$package" "--tarball applies to the release package only"
+[[ -z $tarball || $package == vgshell ]] || refuse 2 "argument=--tarball package=$package" "--tarball applies to the release package only"
 
 for tool in git gzip rpmbuild rpmspec; do
   command -v -- "$tool" >/dev/null || refuse 1 "tool=missing name=$tool"
@@ -73,7 +73,7 @@ done
 
 # COPR's make_srpm runs as root in a mock chroot over a clone another user
 # owns, where git refuses the repository as dubious. Trusting this one
-# checkout, through the environment so vgsh's git calls inherit it too,
+# checkout, through the environment so vgshell's git calls inherit it too,
 # keeps every caller-set entry.
 n="${GIT_CONFIG_COUNT:-0}"
 [[ $n =~ ^[0-9]+$ ]] || refuse 1 "git-config-count=$n"
@@ -84,10 +84,10 @@ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR
 top="$(git -C "$root" rev-parse --show-toplevel 2>/dev/null)" && [[ $top == "$root" ]] ||
   refuse 1 "checkout=missing path=$root" "srpm.sh builds from the git checkout it sits in"
 
-# `vgsh version --json` prints {"version":"X.Y.Z","describe":"X.Y.Z.rN.gHASH"}.
-version_json="$("$root/bin/vgsh" version --json)" || refuse 1 "vgsh=version path=$root/bin/vgsh"
+# `vgshell version --json` prints {"version":"X.Y.Z","describe":"X.Y.Z.rN.gHASH"}.
+version_json="$("$root/bin/vgshell" version --json)" || refuse 1 "vgshell=version path=$root/bin/vgshell"
 [[ $version_json =~ ^\{\"version\":\"([0-9.]+)\",\"describe\":\"([0-9.]+)\.r([0-9]+)\.g([0-9a-f]+)\"\}$ ]] ||
-  refuse 1 "describe=unreadable" "vgsh version --json printed: $version_json"
+  refuse 1 "describe=unreadable" "vgshell version --json printed: $version_json"
 version="${BASH_REMATCH[1]}" tag_version="${BASH_REMATCH[2]}" count="${BASH_REMATCH[3]}" hash="${BASH_REMATCH[4]}"
 [[ $version =~ $version_re ]] || refuse 1 "version=malformed value=$version"
 
@@ -119,15 +119,15 @@ spec_source0() { # SPEC
 }
 
 case "$package" in
-  vgs)
+  vgshell)
     spec_version="$(spec_field "$spec" VERSION)"
     [[ $spec_version == "$version" ]] ||
-      refuse 1 "spec-version=$spec_version version=$version" "set Version in packaging/fedora/vgs.spec to VERSION's line"
+      refuse 1 "spec-version=$spec_version version=$version" "set Version in packaging/fedora/vgshell.spec to VERSION's line"
     [[ $count == 0 && $tag_version == "$version" ]] ||
       refuse 1 "checkout=not-at-tag want=v$version describe=$tag_version.r$count.g$hash" "build the release package from a checkout at its release tag"
     source_url="$(spec_source0 "$spec")"
     source_file="$sources/${source_url##*/}"
-    [[ ${source_url##*/} == "vgs-$version.tar.gz" ]] || refuse 1 "source0=unexpected url=$source_url"
+    [[ ${source_url##*/} == "vgshell-$version.tar.gz" ]] || refuse 1 "source0=unexpected url=$source_url"
     if [[ -n $tarball ]]; then
       [[ -f $tarball ]] || refuse 1 "tarball=missing path=$tarball"
       cp -- "$tarball" "$source_file"
@@ -137,23 +137,23 @@ case "$package" in
       curl --proto '=https' --tlsv1.2 -fsSL -o "$source_file" -- "$source_url" ||
         refuse 1 "download=failed url=$source_url"
     fi
-    # The tarball must be this release: vgs-<VERSION>/VERSION holds it.
-    packed="$(tar -xzOf "$source_file" "vgs-$version/VERSION" 2>/dev/null)" ||
-      refuse 1 "tarball=unreadable want=vgs-$version/VERSION"
+    # The tarball must be this release: vgshell-<VERSION>/VERSION holds it.
+    packed="$(tar -xzOf "$source_file" "vgshell-$version/VERSION" 2>/dev/null)" ||
+      refuse 1 "tarball=unreadable want=vgshell-$version/VERSION"
     [[ $packed == "$version" ]] || refuse 1 "tarball-version=$packed version=$version"
-    build_spec="$work/vgs.spec"
+    build_spec="$work/vgshell.spec"
     cp -- "$spec" "$build_spec"
     rpm_version="$version"
     ;;
-  vgs-git)
+  vgshell-git)
     [[ $(git -C "$root" rev-parse --is-shallow-repository) == false ]] ||
       refuse 1 "clone=shallow path=$root" "the commit count needs the whole history: git fetch --unshallow"
     commit="$(git -C "$root" rev-parse --verify 'HEAD^{commit}')" || refuse 1 "git=rev-parse path=$root"
     [[ $commit == "$hash"* ]] || refuse 1 "describe=stale hash=$hash head=$commit"
     rpm_version="$tag_version^$count.git$hash"
-    "$root/scripts/lib/release-tarball.sh" "$commit" "$commit" "$sources/vgs-$commit.tar.gz" >/dev/null ||
+    "$root/scripts/lib/release-tarball.sh" "$commit" "$commit" "$sources/vgshell-$commit.tar.gz" >/dev/null ||
       refuse 1 "git=archive commit=$commit"
-    build_spec="$work/vgs-git.spec"
+    build_spec="$work/vgshell-git.spec"
     # The entry's date, the commit's in UTC, is the build's
     # SOURCE_DATE_EPOCH, so one commit always builds the same package.
     entry="$(TZ=UTC git -C "$root" log -1 --format='* %cd %an <%ae> - '"$rpm_version"'-1%n- Snapshot of commit %H' \

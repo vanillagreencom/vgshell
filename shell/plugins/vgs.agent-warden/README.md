@@ -78,7 +78,7 @@ The service sends one desktop notification when something starts to need a look,
 |---|---|
 | `status` | The published values as one JSON line. |
 
-`bin/vgsh ipc call vgs.agent-warden invoke status`
+`bin/vgshell ipc call vgs.agent-warden invoke status`
 
 ## Validation
 

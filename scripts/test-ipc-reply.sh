@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Controls for bin/lib/ipc-reply.sh, the one judge of Quickshell 0.3.1
-# client failure lines and the one page loop that bin/vgsh and the smoke
+# client failure lines and the one page loop that bin/vgshell and the smoke
 # harness share. The table pins each failure form's reason key and the
 # replies that are no failure. Each rule kind of the judge, `contains`,
 # `exact` and `prefix`, has a must-fail control on a copy of the library,

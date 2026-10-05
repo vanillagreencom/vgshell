@@ -4,18 +4,18 @@
 # comes inside the first-start welcome. The welcome must fit a 1440x900
 # output without scrolling; a 1440x320 output, where it cannot, is that
 # reading's control.
-# inputs: shell/Core/HyprlandLayer.* shell/Core/Notices.qml shell/Core/PluginLogic.js config/shell.json bin/vgsh shell/Hosts/NoticeHost.qml shell/Ui/feedback/CommandDisclosure.qml shell/Ui/feedback/Dialog.qml shell/Ui/layout/Pane.qml
+# inputs: shell/Core/HyprlandLayer.* shell/Core/Notices.qml shell/Core/PluginLogic.js config/shell.json bin/vgshell shell/Hosts/NoticeHost.qml shell/Ui/feedback/CommandDisclosure.qml shell/Ui/feedback/Dialog.qml shell/Ui/layout/Pane.qml
 set -euo pipefail
 
 hypr_lua="$home/.config/hypr/hyprland.lua"
-hypr_layer="$home/.local/state/vgs/hypr/vgs.lua"
+hypr_layer="$home/.local/state/vgshell/hypr/vgs.lua"
 wire_line="pcall(dofile, \"$hypr_layer\")"
 
 wire_count() { grep -cxF -- "$wire_line" "$hypr_lua" || true; }
 tail_matches_harness() { tail -n +2 -- "$hypr_lua" | cmp -s - "$sandbox/hyprland-harness.lua" && echo same || echo differs; }
 config_errors() { hypr -j configerrors | py_reply 'import json,sys; print(json.dumps([e for e in json.load(sys.stdin) if e]))'; }
 welcome_record() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["notices"]["welcome"]))'; }
-welcome_marker() { [[ -e $home/.local/state/vgs/welcome-seen ]] && echo present || echo absent; }
+welcome_marker() { [[ -e $home/.local/state/vgshell/welcome-seen ]] && echo present || echo absent; }
 # notice_fit HEIGHT: `fits` while the notice dialog is no taller than its
 # surface, nothing in it scrolls and the surface is at most HEIGHT high,
 # so it reads the held output; otherwise the reading.
@@ -27,13 +27,13 @@ welcome_lines='["VGS is a bar and a set of plugins on top of your Hyprland. Turn
 
 expect "the harness starts without the VGS loading line" 0 wire_count
 expect "the sandbox starts without the welcome-seen marker" absent welcome_marker
-expect_poll "the first start's welcome asks the Hyprland question" '{"title": "Welcome to VGS", "command": "vgsh hypr wire", "failure": ""}' hypr_consent_record
+expect_poll "the first start's welcome asks the Hyprland question" '{"title": "Welcome to VGS", "command": "vgshell hypr wire", "failure": ""}' hypr_consent_record
 # No key-hints plugin is installed, so its line is absent; the themes
 # plugin binds Super+T.
 expect_poll "the welcome is recorded with its lines and Connect, Not now" "{\"state\": \"unseen\", \"lines\": $welcome_lines, \"actions\": [\"Connect\", \"Not now\"]}" welcome_record
 expect_poll "the welcome maps" 1 layer_count vgs:notice
 expect_poll "the welcome holds the keyboard" true ipc smoke noticeFocused
-expect_poll "the welcome draws its lines, Connect, Not now and the closed command disclosure" '{"title":"Welcome to VGS","message":"","rows":["VGS is a bar and a set of plugins on top of your Hyprland. Turn plugins on and off from the plugins button at the top right of the bar.","VGS adds one line to the top of your hyprland.lua. It loads a file VGS generates. Your own settings come after it and win. VGS changes nothing else in that file.","Super+T picks a theme."],"command":{"toggle":"Show command","expanded":false,"text":"vgsh hypr wire"},"focused":"Connect","actions":["Connect","Not now"],"busy":false}' ipc smoke noticeDrawn
+expect_poll "the welcome draws its lines, Connect, Not now and the closed command disclosure" '{"title":"Welcome to VGS","message":"","rows":["VGS is a bar and a set of plugins on top of your Hyprland. Turn plugins on and off from the plugins button at the top right of the bar.","VGS adds one line to the top of your hyprland.lua. It loads a file VGS generates. Your own settings come after it and win. VGS changes nothing else in that file.","Super+T picks a theme."],"command":{"toggle":"Show command","expanded":false,"text":"vgshell hypr wire"},"focused":"Connect","actions":["Connect","Not now"],"busy":false}' ipc smoke noticeDrawn
 fit_monitor="$(first_name)" || fail "the first monitor's name is unreadable"
 fit_base_mode="$(first_mode)" || fail "the first monitor's mode is unreadable"
 hold_mode "the nested compositor holds $fit_monitor at 1440x900 for the welcome" "$fit_monitor" 1440x900

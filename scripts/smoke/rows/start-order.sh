@@ -23,14 +23,14 @@
 # follow that runs only while the services are held queues none for a
 # rescan. Before the restart with no bar, the row reads the instance
 # lock, D053, with a planted process that outlives the shell and stands in
-# for a download: the shell holds no descriptor on the lock; `vgsh
+# for a download: the shell holds no descriptor on the lock; `vgshell
 # restart` during that process brings a guarded shell back; after a
 # SIGKILL to the shell the same runner starts a new shell, D069, and
 # holds the lock while the planted process holds none; and harness.sh's
 # stop_shell returns with a relaunched runner's lock free.
 # Its controls are a copy of the tree whose runner execs qs with the
 # lock's descriptor open, whose restart refuses stop=timeout and after
-# whose crash the planted process holds the lock and `vgsh run` exits 75;
+# whose crash the planted process holds the lock and `vgshell run` exits 75;
 # a stop with no
 # lock wait, which returns with the lock held while the shell is stopped
 # with SIGSTOP; and a stop that times out on the lock, which fails and
@@ -38,13 +38,13 @@
 # sandbox's own tree over the same default set, so whichever rows a run
 # selects after it read a live shell with its services built, never the
 # last control's copy, whose gate holds them.
-# inputs: shell/shell.qml shell/Core/ServiceGate.qml shell/Hosts/ServiceHost.qml shell/Hosts/BackgroundHost.qml shell/Hosts/BarHost.qml shell/Core/Registry.qml shell/plugins/* scripts/smoke/fixtures/plugins/acme.contention/* scripts/smoke/fixtures/plugins/acme.locker/* bin/vgsh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/device-fakes.sh
+# inputs: shell/shell.qml shell/Core/ServiceGate.qml shell/Hosts/ServiceHost.qml shell/Hosts/BackgroundHost.qml shell/Hosts/BarHost.qml shell/Core/Registry.qml shell/plugins/* scripts/smoke/fixtures/plugins/acme.contention/* scripts/smoke/fixtures/plugins/acme.locker/* bin/vgshell scripts/smoke/rows/capabilities.sh scripts/smoke/rows/device-fakes.sh
 set -euo pipefail
-ipc() { ipc_via "$repo/bin/vgsh" "$@"; }
+ipc() { ipc_via "$repo/bin/vgshell" "$@"; }
 for fixture in acme.locker acme.contention; do
-  rm -rf -- "$home/.config/vgs/plugins/$fixture"
-  mkdir -p -- "$home/.config/vgs/plugins/$fixture"
-  cp -R -- "$repo/scripts/smoke/fixtures/plugins/$fixture/." "$home/.config/vgs/plugins/$fixture/"
+  rm -rf -- "$home/.config/vgshell/plugins/$fixture"
+  mkdir -p -- "$home/.config/vgshell/plugins/$fixture"
+  cp -R -- "$repo/scripts/smoke/fixtures/plugins/$fixture/." "$home/.config/vgshell/plugins/$fixture/"
 done
 
 # restart_over TREE LOG [DISABLED_JSON BAR]: the running shell stopped
@@ -174,7 +174,7 @@ fi
 stop_holder_bound_s=30
 lock_state() {
   local status=0
-  flock -n -E 75 "$rt_dir/vgsh.lock" true || status=$?
+  flock -n -E 75 "$rt_dir/vgshell.lock" true || status=$?
   case "$status" in
     0) echo free ;;
     75) echo held ;;
@@ -195,11 +195,11 @@ plant() { # NAME
   expect_poll "the planted process runs ($1)" running holder_state "$gate"
 }
 # How many lines of harness.sh's /proc scan of the lock's holders name PID.
-holders_named() { lock_holders "$rt_dir/vgsh.lock" | grep -c -F -- "holder pid=$1 comm=" || :; } # PID
+holders_named() { lock_holders "$rt_dir/vgshell.lock" | grep -c -F -- "holder pid=$1 comm=" || :; } # PID
 # Whether a process that waits for the gate plant made holds the lock.
 planted_holds() {
   local holders
-  holders="$(lock_holders "$rt_dir/vgsh.lock")" || return
+  holders="$(lock_holders "$rt_dir/vgshell.lock")" || return
   if grep -q -F -- "$gate" <<<"$holders"; then echo yes; else echo no; fi
 }
 
@@ -221,7 +221,7 @@ expect "control: a stop whose TERM misses the runner fails once on the held lock
 expect "control: the timed-out stop names the runner as a lock holder" 1 grep -c -F -- "holder pid=$shell_pid comm=" "$stop_timeout_log"
 expect "the shell holds no descriptor on the instance lock" 0 holders_named "$shell_qs_pid"
 
-# `vgsh restart`, the real command, while a stand-in download runs: it
+# `vgshell restart`, the real command, while a stand-in download runs: it
 # stops the shell, the lock frees with the planted process still running,
 # and the shell the nested Hyprland's dispatch relaunches answers as the
 # guarded instance. That runner is no child of the harness, so its process
@@ -229,15 +229,15 @@ expect "the shell holds no descriptor on the instance lock" 0 holders_named "$sh
 restart_err="$sandbox/restart.err"
 plant restart
 restart_status=0
-restart_out="$("${shell_env[@]}" "$repo/bin/vgsh" restart 2>"$restart_err")" || restart_status=$?
+restart_out="$("${shell_env[@]}" "$repo/bin/vgshell" restart 2>"$restart_err")" || restart_status=$?
 if [[ $restart_status == 0 && $restart_out =~ ^ok\ pid=([0-9]+)$ && ${BASH_REMATCH[1]} != "$shell_qs_pid" ]]; then
-  ok "vgsh restart during a live child brings the shell back: $restart_out"
+  ok "vgshell restart during a live child brings the shell back: $restart_out"
   shell_qs_pid="${BASH_REMATCH[1]}"
   shell_pid="$(awk '$1 == "PPid:" { print $2 }' "/proc/$shell_qs_pid/status")" || shell_pid=""
   if [[ $shell_pid =~ ^[0-9]+$ ]] && pgid="$(ps -o pgid= -p "$shell_pid")"; then pgids+=("${pgid// /}"); else fail "the relaunched shell's runner is unreadable: [$shell_pid]"; fi
   expect "the relaunched shell answers as the guarded instance" true ipc shell guarded
 else
-  fail "vgsh restart during a live child: exit=$restart_status out=[$restart_out] stderr=[$(head -n 1 -- "$restart_err")]"
+  fail "vgshell restart during a live child: exit=$restart_status out=[$restart_out] stderr=[$(head -n 1 -- "$restart_err")]"
 fi
 expect "the planted process still runs after the restart" running holder_state "$gate"
 # stop_shell waits on the lock, not on the runner's pid, since a relaunched
@@ -270,21 +270,21 @@ fi
 # shell starts holds the lock. start_inherited stops the running shell
 # and starts the copy through start_shell, whose runner's pid is its
 # shell's.
-IFS= read -r -d '' runner_now <<'VGSH' || :
+IFS= read -r -d '' runner_now <<'VGSHELL' || :
   (
     printf '%s\n' "$BASHPID" >&9
     exec 9>&-
-    VGSH_RUNNER_PID=$BASHPID QS_DISABLE_FILE_WATCHER=1 QS_NO_RELOAD_POPUP=1 exec setpriv --pdeathsig TERM -- qs -p "$shell_dir"
+    VGSHELL_RUNNER_PID=$BASHPID QS_DISABLE_FILE_WATCHER=1 QS_NO_RELOAD_POPUP=1 exec setpriv --pdeathsig TERM -- qs -p "$shell_dir"
   ) &
-VGSH
-IFS= read -r -d '' runner_inherited <<'VGSH' || :
+VGSHELL
+IFS= read -r -d '' runner_inherited <<'VGSHELL' || :
   printf '%s\n' "$$" >&9
-  VGSH_RUNNER_PID=$$ QS_DISABLE_FILE_WATCHER=1 QS_NO_RELOAD_POPUP=1 exec qs -p "$shell_dir"
-VGSH
-inherited_bin="$sandbox/tree-inherited/bin/vgsh"
+  VGSHELL_RUNNER_PID=$$ QS_DISABLE_FILE_WATCHER=1 QS_NO_RELOAD_POPUP=1 exec qs -p "$shell_dir"
+VGSHELL
+inherited_bin="$sandbox/tree-inherited/bin/vgshell"
 start_inherited() { stop_shell && start_shell "$sandbox/tree-inherited" "$1"; } # LOG
 restart_refusal() { printf '%s %s\n' "$restart_status" "$(head -n 1 -- "$restart_err")"; }
-# The status of `vgsh run` from BIN, its output in LOG, or `running` when
+# The status of `vgshell run` from BIN, its output in LOG, or `running` when
 # it did not end within 5 s; a run that started is stopped.
 run_status() { # BIN LOG
   local pid status=0
@@ -297,18 +297,18 @@ run_status() { # BIN LOG
   kill -TERM "$pid" 2>/dev/null || :
   echo running
 }
-if copy_tree inherited && edit_tree inherited bin/vgsh "$runner_now" "$runner_inherited"; then
+if copy_tree inherited && edit_tree inherited bin/vgshell "$runner_now" "$runner_inherited"; then
   # The copy's restart during a live child stops the shell, then times out
   # on the lock the planted process keeps and starts none.
   if start_inherited "$sandbox/start-order-inherited-qs.log"; then
     plant inherited-restart
     restart_status=0
     "${shell_env[@]}" "$inherited_bin" restart >/dev/null 2>"$restart_err" || restart_status=$?
-    expect "control: the inherited-lock copy's restart refuses on the lock a live child keeps" "1 vgsh: refused: stop=timeout pid=$shell_qs_pid" restart_refusal
+    expect "control: the inherited-lock copy's restart refuses on the lock a live child keeps" "1 vgshell: refused: stop=timeout pid=$shell_qs_pid" restart_refusal
     : >"$gate"
   fi
   # After a crash, the planted process keeps the lock the copy's runner
-  # handed it, so `vgsh run` refuses while it runs.
+  # handed it, so `vgshell run` refuses while it runs.
   if start_inherited "$sandbox/start-order-inherited-crash-qs.log"; then
     plant inherited-crash
     kill -KILL "$shell_qs_pid"

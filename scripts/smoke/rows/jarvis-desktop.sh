@@ -18,7 +18,7 @@ jd_driver="$sandbox/jarvis-desktop-driver"
 jd_gates="$sandbox/jarvis-desktop-gates"
 jd_standin="$sandbox/jarvis-world/standins/hyprctl"
 jd_entry="$home/.local/share/applications/smoke-jarvis-app.desktop"
-jd_audit="$home/.local/state/vgs/jarvis/audit"
+jd_audit="$home/.local/state/vgshell/jarvis/audit"
 mkdir -p -- "$jd_driver"
 cp -- "$jd_backend" "$sandbox/jarvis-desktop-backend-before"
 cp -- "$jd_desktop" "$sandbox/jarvis-desktop-desktop-before"
@@ -254,6 +254,6 @@ expect "every routed call was proposed" none \
 jarvis_disable
 rm -- "$jd_standin" "$jd_entry" "$shim/hyprctl.jarvis-noop" "$jd_dir/backend/desktop-driver-fixture.js" "$jd_dir/backend/scripted-fixture.js"
 cp -- "$sandbox/jarvis-desktop-backend-before" "$jd_backend"
-rm -f -- "$home/.local/state/vgs/jarvis/mute.json"
+rm -f -- "$home/.local/state/vgshell/jarvis/mute.json"
 [[ $jd_audit_before == true ]] || rm -rf -- "${jd_audit:?}"
 jarvis_rescan

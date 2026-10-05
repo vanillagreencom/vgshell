@@ -1,7 +1,7 @@
 # Control: a bare qs beside the runner must refuse to draw, to write and to
 # follow the applied theme package, and the runner's CLI must keep
 # addressing the guarded instance.
-# inputs: shell/shell.qml shell/Core/Registry.qml shell/Core/ThemeRunner.qml bin/vgsh bin/vgsh-theme-judge
+# inputs: shell/shell.qml shell/Core/Registry.qml shell/Core/ThemeRunner.qml bin/vgshell bin/vgshell-theme-judge
 set -euo pipefail
 spawn "$sandbox/bare.log" "${shell_env[@]}" qs -p "$repo/shell"
 bare_pid="$spawn_pid"
@@ -19,7 +19,7 @@ done
 if [[ $bare_guarded == false ]]; then ok "a bare qs beside the runner refuses to draw"; else fail "bare qs guarded=$bare_guarded"; fi
 sleep 0.5
 if bars_after="$(bar_count)" && [[ $bars_after == "$bars" ]]; then ok "the bare qs mapped no bar surface"; else fail "bar surfaces after bare qs: ${bars_after:-unreadable}"; fi
-user_before="$(cat "$home/.config/vgs/shell.json")"
+user_before="$(cat "$home/.config/vgshell/shell.json")"
 expect "the bare qs refuses to write configuration" "refused: guard=unowned pid=$bare_pid" bare_ipc shell setPluginEnabled acme.tick false
 expect "the bare qs refuses to reload configuration" "refused: guard=unowned pid=$bare_pid" bare_ipc shell reloadConfig
 expect "the bare qs refuses to rescan" "refused: guard=unowned pid=$bare_pid" bare_ipc shell rescanPlugins
@@ -27,7 +27,7 @@ expect "the bare qs refuses to rescan" "refused: guard=unowned pid=$bare_pid" ba
 bare_scan_revision() { local reply; reply="$(bare_ipc shell scanRevision)" || return; if [[ $reply =~ ^[0-9]+$ ]]; then echo number; else echo "reply=$reply"; fi; }
 expect "the bare qs answers its scan revision" number bare_scan_revision
 expect "the bare qs refuses to summon" "refused: guard=unowned pid=$bare_pid" bare_ipc shell summon panel acme.probe '{}'
-if [[ "$(cat "$home/.config/vgs/shell.json")" == "$user_before" ]]; then ok "the refused write left the user file alone"; else fail "the bare qs changed the user file"; fi
+if [[ "$(cat "$home/.config/vgshell/shell.json")" == "$user_before" ]]; then ok "the refused write left the user file alone"; else fail "the bare qs changed the user file"; fi
 expect "the runner's CLI still reaches the guarded instance beside a bare one" true ipc shell guarded
 expect "the runner's CLI reports the session unlocked" false ipc shell locked
 kill -TERM "$bare_pid" 2>/dev/null || true
@@ -56,8 +56,8 @@ fi
 # control starts from the same state: a copy of the shell whose follow is
 # not gated on the guard follows the changed package. The copy's bin,
 # config, themes and scripts are the sandbox's own.
-theme_file="$home/.config/vgs/theme.json"
-guard_pkg="$home/.config/vgs/themes/guardfollow"
+theme_file="$home/.config/vgshell/theme.json"
+guard_pkg="$home/.config/vgshell/themes/guardfollow"
 guard_doc() { printf '{ "schemaVersion": 1, "name": "guardfollow", "tokens": { "palette": { "accent": "%s" } } }\n' "$1" >"$guard_pkg/theme.json"; }
 same_bytes() { cmp -s -- "$1" "$2" && echo same || echo differ; }
 scanned_at() { ipc_at "$1" shell listPlugins | py_reply 'import json,sys; print(json.load(sys.stdin)["scanned"])'; }
@@ -77,7 +77,7 @@ start_unguarded() { # LOG SHELL_DIR NAME
 }
 mkdir -p -- "$guard_pkg"; guard_doc '#12ab38'
 expect "no theme job runs before the follow guard rows" idle theme_idle
-expect "the runner applies a package for the follow guard" "ok theme=guardfollow state=applied shell=applied" "${shell_env[@]}" "$repo/bin/vgsh" theme apply guardfollow
+expect "the runner applies a package for the follow guard" "ok theme=guardfollow state=applied shell=applied" "${shell_env[@]}" "$repo/bin/vgshell" theme apply guardfollow
 cp -- "$theme_file" "$sandbox/guard-applied.json"
 guard_doc '#12ab39'
 start_unguarded "$sandbox/bare-follow.log" "$repo/shell" "a bare qs started over a due follow is unguarded"
@@ -105,4 +105,4 @@ else
   fail "the follow gate's text occurs once in $guard_mutant/shell/shell.qml"
 fi
 rm -r -- "$guard_pkg"
-expect "vgs applies after the follow guard rows" "ok theme=vgs state=applied shell=applied" "${shell_env[@]}" "$repo/bin/vgsh" theme apply vgs
+expect "vgs applies after the follow guard rows" "ok theme=vgs state=applied shell=applied" "${shell_env[@]}" "$repo/bin/vgshell" theme apply vgs

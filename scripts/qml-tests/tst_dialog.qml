@@ -88,7 +88,7 @@ Item {
         title: "Needs one command"
         tabItems: [shown.toggle, shown.copyButton]
         actions: [{ label: "Install", role: "accept" }, { label: "Not now", role: "cancel" }]
-        CommandDisclosure { id: shown; width: parent.width; command: "vgsh pkg run install acme" }
+        CommandDisclosure { id: shown; width: parent.width; command: "vgshell pkg run install acme" }
     }
     SignalSpy { id: disclosedAccepts; target: disclosed; signalName: "accepted" }
     SignalSpy { id: accepts; target: dialog; signalName: "accepted" }

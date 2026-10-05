@@ -2,7 +2,7 @@
 
 // The one reading of whether Hyprland holds a session lock, from the text
 // `hyprctl -j monitors` prints. The core's session lock, the lock plugin's
-// stranded-lock check and the runner, bin/vgsh, which runs this file under
+// stranded-lock check and the runner, bin/vgshell, which runs this file under
 // node through bin/lib/qml-library.js, all read it here.
 //
 // read(TEXT): "locked" when a monitor names LOCK among the reasons it

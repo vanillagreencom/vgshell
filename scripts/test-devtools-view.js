@@ -78,7 +78,7 @@ function verifySettingHandler(logic, source) {
 // Failures read from a command: [label, code, stderr, error].
 const FAILURES = [
     ["a command that did not start", null, "", "start=failed"],
-    ["a refusal line", 1, "fatal: noise\nvgsh: refused: manager=mise reason=absent binaries=mise\n", "manager=mise reason=absent binaries=mise"],
+    ["a refusal line", 1, "fatal: noise\nvgshell: refused: manager=mise reason=absent binaries=mise\n", "manager=mise reason=absent binaries=mise"],
     ["the engine's refusal", 1, "devtools: refused: mise=failed args=ls,--json exit=2\n", "mise=failed args=ls,--json exit=2"],
     ["the first line without a refusal", 3, "\nboom\nmore\n", "boom"],
     ["no stderr", 4, "", "exit=4"],
@@ -139,9 +139,9 @@ function verify(logic) {
     same(logic.queryArgv("launchers", "/t", "/p", true), ["/p/bin/devtools", "--tree", "/t", "launchers", "refresh"]);
     same(logic.queryArgv("launchers", "/t", "/p", false), ["/p/bin/devtools", "--tree", "/t", "launchers", "remove"]);
     same(logic.queryArgv("catalog", "/t", "/p", false), ["/p/bin/devtools", "--tree", "/t", "list", "--json"]);
-    same(logic.queryArgv("requirements", "/t", "/p", false), ["/t/bin/vgsh", "doctor", "--json"]);
-    same(logic.queryArgv("vgs", "/t", "/p", false), ["/t/bin/vgsh", "self", "status", "--json"]);
-    same(logic.queryArgv("updates", "/t", "/p", false), ["/t/bin/vgsh", "pkg", "check", "--json", "--source", "mise"]);
+    same(logic.queryArgv("requirements", "/t", "/p", false), ["/t/bin/vgshell", "doctor", "--json"]);
+    same(logic.queryArgv("vgs", "/t", "/p", false), ["/t/bin/vgshell", "self", "status", "--json"]);
+    same(logic.queryArgv("updates", "/t", "/p", false), ["/t/bin/vgshell", "pkg", "check", "--json", "--source", "mise"]);
     assert.throws(() => logic.queryArgv("nope", "/t", "/p", false), /query "nope" is not one of/);
 
     // Answers.
@@ -223,7 +223,7 @@ function verify(logic) {
     same(vgs(ok(self({ behind: true })), "acme.updates/update"),
         ["0.1.0.r3.gabc1234 · Git checkout", [{ text: "Update to 0.1.1", tone: "warning" }], [{ kind: "entry", verb: "acme.updates/update", label: "Update", variant: "primary" }], []]);
     same(vgs(ok(self({ behind: true })), "")[3], ["Enable Updates in Settings to update VGS here."]);
-    same(vgs(ok(self({ method: "package", package: "vgs-git" })), ""), ["0.1.0.r3.gabc1234 · Package vgs-git", [{ text: "Up to date", tone: "success" }], [], []]);
+    same(vgs(ok(self({ method: "package", package: "vgshell-git" })), ""), ["0.1.0.r3.gabc1234 · Package vgshell-git", [{ text: "Up to date", tone: "success" }], [], []]);
     same(vgs(ok(self({ method: null, current: null, latest: null, behind: null, error: "method=unknown path=/t" })), ""),
         ["0.1.0 · Unknown install", [{ text: "Unknown", tone: "neutral" }], [], ["The check failed. Open Dev Tools again after 10 minutes to retry."]]);
 

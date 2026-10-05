@@ -46,7 +46,7 @@ expect "configure refuses an undeclared setting" "refused: setting=tags undeclar
 
 # A widget placed twice writes only the layout entry it reads.
 right_entries() {
-  python3 - "$home/.config/vgs/shell.json" "$1" <<'PY'
+  python3 - "$home/.config/vgshell/shell.json" "$1" <<'PY'
 import json, os, sys
 p, action = sys.argv[1], sys.argv[2]
 d = json.load(open(p))
@@ -75,11 +75,11 @@ expect "run starts a detached process" ok probe touch "$sandbox/touched-by-run"
 touched() { [[ -f $sandbox/touched-by-run ]] && echo yes || echo no; }
 expect_poll "the detached process ran" yes touched
 # A detached program is the user's, not the shell's: it starts without the
-# shell's marker, which `vgsh pkg run` refuses, and with the rest of the
+# shell's marker, which `vgshell pkg run` refuses, and with the rest of the
 # shell's environment.
 expect "run starts a process that writes its environment" ok probe environ "$sandbox/detached-env"
-detached_env() { [[ -s $sandbox/detached-env ]] || { echo pending; return; }; grep -q '^PATH=' "$sandbox/detached-env" && ! grep -q '^VGSH_RUNNER_PID=' "$sandbox/detached-env" && echo clean || echo marked; }
-expect_poll "the detached process has no VGSH_RUNNER_PID" clean detached_env
+detached_env() { [[ -s $sandbox/detached-env ]] || { echo pending; return; }; grep -q '^PATH=' "$sandbox/detached-env" && ! grep -q '^VGSHELL_RUNNER_PID=' "$sandbox/detached-env" && echo clean || echo marked; }
+expect_poll "the detached process has no VGSHELL_RUNNER_PID" clean detached_env
 
 bus_owner() { "${shell_env[@]}" gdbus call --session --dest org.freedesktop.DBus --object-path /org/freedesktop/DBus --method org.freedesktop.DBus.NameHasOwner "$1" 2>>"$sandbox/ipc.log"; }
 expect_poll "the core's notification server owns the bus name" "(true,)" bus_owner org.freedesktop.Notifications
@@ -96,7 +96,7 @@ expect "the fixture locks the session" ok probe lock
 expect_poll "the compositor confirms the lock" true read_service lockSecure
 # A rebuild while locked keeps the session locked, and the rebuilt holder
 # hands its screen over again. Change the holder's own source revision.
-python3 - "$home/.config/vgs/plugins/acme.probe/manifest.json" <<'PY'
+python3 - "$home/.config/vgshell/plugins/acme.probe/manifest.json" <<'PY'
 import json, os, sys
 p = sys.argv[1]
 d = json.load(open(p))

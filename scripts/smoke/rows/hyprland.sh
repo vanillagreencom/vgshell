@@ -1,6 +1,6 @@
 # The Hyprland layer, shell/Core/HyprlandLayer.qml: the Lua file the shell
 # writes from the theme's border colours, the floating TUIs' window rules
-# and every enabled plugin's `hyprland` manifest data, the line `vgsh hypr
+# and every enabled plugin's `hyprland` manifest data, the line `vgshell hypr
 # wire` keeps first in hyprland.lua, and the `hyprctl reload` after each
 # write. The consent row connected the harness's hyprland.lua before this
 # row runs. Every row reads the nested instance back
@@ -19,16 +19,16 @@
 # (docs/architecture/runtime-hyprland.md), so the rows hold the layer rules
 # through the written file and an empty configerrors, where Hyprland lists a
 # field it refuses.
-# inputs: shell/Core/HyprlandLayer.* bin/vgsh-hypr-judge bin/vgsh shell/plugins/vgs.launcher/* shell/plugins/vgs.notifications/* shell/plugins/vgs.themes/* shell/plugins/*/manifest.json themes/vgs/* themes/catalog/flexoki-light/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js bin/vgsh-theme-judge scripts/smoke/toplevel/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/hyprland-consent.sh scripts/smoke/rows/themes.sh scripts/smoke/rows/capabilities.sh
+# inputs: shell/Core/HyprlandLayer.* bin/vgshell-hypr-judge bin/vgshell shell/plugins/vgs.launcher/* shell/plugins/vgs.notifications/* shell/plugins/vgs.themes/* shell/plugins/*/manifest.json themes/vgs/* themes/catalog/flexoki-light/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js bin/vgshell-theme-judge scripts/smoke/toplevel/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/hyprland-consent.sh scripts/smoke/rows/themes.sh scripts/smoke/rows/capabilities.sh
 set -euo pipefail
 hypr_lua="$home/.config/hypr/hyprland.lua"
-hypr_layer="$home/.local/state/vgs/hypr/vgs.lua"
-user_config="$home/.config/vgs/shell.json"
+hypr_layer="$home/.local/state/vgshell/hypr/vgs.lua"
+user_config="$home/.config/vgshell/shell.json"
 wire_line="pcall(dofile, \"$hypr_layer\")"
-vgsh_run() { "${shell_env[@]}" "$repo/bin/vgsh" "$@"; }
+vgshell_run() { "${shell_env[@]}" "$repo/bin/vgshell" "$@"; }
 # A theme apply's verdict and package, `ok theme=<name>`, whatever it
 # changed.
-applied() { local out; out="$(vgsh_run theme apply "$1")" || return; printf '%s\n' "${out##*$'\n'}" | cut -d' ' -f1-2; }
+applied() { local out; out="$(vgshell_run theme apply "$1")" || return; printf '%s\n' "${out##*$'\n'}" | cut -d' ' -f1-2; }
 # The binds whose description names a vgs shortcut, as [modmask, key,
 # dispatcher, description]: a Lua bind's dispatcher is `__lua`, so the
 # description is what names its shortcut. vgs_binds leaves out the active
@@ -263,7 +263,7 @@ rebound='[[72, "SPACE", "__lua", "vgs.launcher:toggle"]]'
 # The consent row's Connect answer.
 expect "consent wired the loading line first in the sandbox's hyprland.lua" "$wire_line" head -n 1 -- "$hypr_lua"
 expect "consent changed nothing else in hyprland.lua" same bash -c 'tail -n +2 -- "$1" | cmp -s - "$2" && echo same' _ "$hypr_lua" "$sandbox/hyprland-harness.lua"
-expect "the layer's header names the command that writes it again" yes bash -c 'grep -qF -- "\`vgsh hypr render\`" "$1" && echo yes' _ "$hypr_layer"
+expect "the layer's header names the command that writes it again" yes bash -c 'grep -qF -- "\`vgshell hypr render\`" "$1" && echo yes' _ "$hypr_layer"
 expect "no plugin declaring Hyprland data but the active bar is enabled, so its section alone is written" 1 section_count
 expect "the active bar's section names its id and version" yes layer_has "$(section_of vgs.bar)"
 expect_poll "the active bar's toggle is bound to SUPER+SHIFT+SPACE" '[[65, "SPACE", "__lua", "vgs.bar:toggle"]]' active_bar_binds
@@ -274,7 +274,7 @@ border_before="$(hypr_option general:border_size)" || fail "the nested border_si
 radius_before="$(hypr_option decoration:rounding)" || fail "the nested rounding is readable"
 cp -- "$user_config" "$sandbox/shell-before-appearance.json"
 expect "enabling the themes plugin for the appearance switch rows is allowed" ok ipc shell setPluginEnabled vgs.themes true
-probe_theme="$home/.config/vgs/themes/hyprland-probe"
+probe_theme="$home/.config/vgshell/themes/hyprland-probe"
 mkdir -p "$probe_theme"
 cat >"$probe_theme/theme.json" <<'JSON'
 {
@@ -441,7 +441,7 @@ expect_poll "SUPER+N closes the inbox again" '""' inbox_mode
 # The shared fixture stays neutral for the earlier Settings and capability
 # rows. Only this row adds its bind, then restores both borrowed files and
 # the enabled state before continuing with the other plugins.
-probe_manifest="$home/.config/vgs/plugins/acme.probe/manifest.json"
+probe_manifest="$home/.config/vgshell/plugins/acme.probe/manifest.json"
 probe_enabled_before="$(plugin_enabled acme.probe)"
 cp -- "$probe_manifest" "$sandbox/probe-before-keycode.json"
 cp -- "$user_config" "$sandbox/shell-before-keycode.json"
@@ -509,7 +509,7 @@ expect_poll "the disabled plugin's conflict is no longer reported" '[]' hypr_pro
 
 # The border colours follow a theme apply: an installed copy of the
 # catalog's flexoki-light, removed once vgs applies again.
-if light_accent="$(resolved_token themes/catalog/flexoki-light palette.accent)" && plant_flexoki_light "$home/.config/vgs/themes"; then
+if light_accent="$(resolved_token themes/catalog/flexoki-light palette.accent)" && plant_flexoki_light "$home/.config/vgshell/themes"; then
   expect "the flexoki-light package applies" "ok theme=flexoki-light" applied flexoki-light
   expect_poll "the nested active border follows the flexoki-light accent" "$(gradient_of "$light_accent")" hypr_gradient general:col.active_border
   expect "vgs applies again" "ok theme=vgs" applied vgs
@@ -517,17 +517,17 @@ if light_accent="$(resolved_token themes/catalog/flexoki-light palette.accent)" 
 else
   fail "the judge resolves palette.accent for the flexoki-light package, and its copy is installed"
 fi
-rm -rf -- "${home:?}/.config/vgs/themes/flexoki-light"
+rm -rf -- "${home:?}/.config/vgshell/themes/flexoki-light"
 
 # The runner's verbs: render writes a removed layer again, and the line is
 # what loads the layer.
 rm -- "$hypr_layer"
-expect "vgsh hypr render is answered ok" ok vgsh_run hypr render
+expect "vgshell hypr render is answered ok" ok vgshell_run hypr render
 expect_poll "render writes the removed layer again" yes layer_has "$(section_of vgs.launcher)"
-expect "vgsh hypr unwire removes the line" "ok hypr=unwired path=$hypr_lua" vgsh_run hypr unwire
+expect "vgshell hypr unwire removes the line" "ok hypr=unwired path=$hypr_lua" vgshell_run hypr unwire
 expect "the nested instance reloads without the line" ok hypr reload config-only
 expect_poll "without the line the nested instance holds no vgs bind" '[]' vgs_binds
-expect "vgsh hypr wire keeps the line again" "ok hypr=wired path=$hypr_lua" vgsh_run hypr wire
+expect "vgshell hypr wire keeps the line again" "ok hypr=wired path=$hypr_lua" vgshell_run hypr wire
 expect "the line is first again" "$wire_line" head -n 1 -- "$hypr_lua"
 expect "the nested instance reloads with the line" ok hypr reload config-only
 expect_poll "with the line the launcher's bind is back" "$rebound" vgs_binds

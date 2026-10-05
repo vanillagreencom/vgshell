@@ -31,8 +31,8 @@ These optional commands address the service on a running VGS session.
 
 | Action | Command | Shortcut name | Default key |
 |---|---|---|---|
-| Focused-output screenshot | `vgsh ipc call vgs.capture invoke screenshot ''` | `vgs.capture:screenshot` | Print |
-| Area screenshot | `vgsh ipc call vgs.capture invoke screenshot-area ''` | `vgs.capture:screenshot-area` | Super+Shift+S |
-| Start or stop recording | `vgsh ipc call vgs.capture invoke record ''` | `vgs.capture:record` | Super+Shift+R |
-| Copy text | `vgsh ipc call vgs.capture invoke text ''` | `vgs.capture:text` | Super+Ctrl+Print |
-| Open or close options | `vgsh ipc call vgs.capture invoke toggle ''` | `vgs.capture:toggle` | Super+Ctrl+Shift+S |
+| Focused-output screenshot | `vgshell ipc call vgs.capture invoke screenshot ''` | `vgs.capture:screenshot` | Print |
+| Area screenshot | `vgshell ipc call vgs.capture invoke screenshot-area ''` | `vgs.capture:screenshot-area` | Super+Shift+S |
+| Start or stop recording | `vgshell ipc call vgs.capture invoke record ''` | `vgs.capture:record` | Super+Shift+R |
+| Copy text | `vgshell ipc call vgs.capture invoke text ''` | `vgs.capture:text` | Super+Ctrl+Print |
+| Open or close options | `vgshell ipc call vgs.capture invoke toggle ''` | `vgs.capture:toggle` | Super+Ctrl+Shift+S |

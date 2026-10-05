@@ -37,7 +37,7 @@ const repo = path.join(__dirname, "..");
 const pluginDir = path.join(repo, "shell", "plugins", "vgs.automations");
 const Logic = load(path.join(pluginDir, "AutomationsLogic.js"));
 const scratch = path.join(repo, "tmp", "test-automations-engine-" + process.pid);
-// The host tools a case may run: the engine's own, the ones vgsh plugin
+// The host tools a case may run: the engine's own, the ones vgshell plugin
 // settings needs, and the ones the commands under test use. systemctl,
 // systemd-run, loginctl, crontab and notify-send are stand-ins alone.
 const TOOLS = ["bash", "sh", "env", "flock", "sleep", "yes", "head", "cat", "python3", "systemd-analyze", "dirname", "readlink", "basename", "mkdir", "rm", "mv", "cp", "ls", "id", "date", "sed", "grep", "tr", "mktemp", "true", "false", "realpath", "stat", "sort", "uname", "wc", "cut", "awk", "touch", "chmod", "ln", "find", "tail", "tee", "kill", "setsid", "printf", "test"];
@@ -127,9 +127,9 @@ function world(options) {
     const home = path.join(root, "home");
     return {
         root, stub, home,
-        runs: path.join(home, ".local", "state", "vgs", "automations", "runs"),
+        runs: path.join(home, ".local", "state", "vgshell", "automations", "runs"),
         units: path.join(home, ".config", "systemd", "user"),
-        store: path.join(home, ".config", "vgs", "automations", "automations.json"),
+        store: path.join(home, ".config", "vgshell", "automations", "automations.json"),
         env: { HOME: home, PATH: bin + ":" + tools, XDG_RUNTIME_DIR: path.join(root, "run"), STUB: stub, LANG: "C.UTF-8", TZ: "UTC" }
     };
 }
@@ -192,7 +192,7 @@ const CASES = {
         assert.match(exec, /^"[^"]*\/flock" "-n" "-E" "75" "-o" "[^"]*\/locks\/back-up\.lock" "[^"]*node[^"]*" "[^"]*\/engine\/[0-9a-f]{16}\/bin\/automations" "--tree" "[^"]*" "run" "--scheduled" "back-up"$/);
         const engineCopy = /"([^"]*\/engine\/[0-9a-f]{16})\/bin\/automations"/.exec(exec)[1];
         assert.equal(fs.readFileSync(path.join(engineCopy, "AutomationsLogic.js"), "utf8"), fs.readFileSync(path.join(pluginDir, "AutomationsLogic.js"), "utf8"), "the units run a copy of the judge");
-        assert.ok(JSON.parse(fs.readFileSync(path.join(w.home, ".local", "state", "vgs", "automations", "guard", "back-up.json"), "utf8")).handledThrough > Date.now() - 60000, "add marks the past handled");
+        assert.ok(JSON.parse(fs.readFileSync(path.join(w.home, ".local", "state", "vgshell", "automations", "guard", "back-up.json"), "utf8")).handledThrough > Date.now() - 60000, "add marks the past handled");
         const multi = cli(w, engine, ["add", "--definition", JSON.stringify(def({ name: "Multi", command: "a=1\necho $a" }))]);
         assert.equal(multi.status, 0);
         const refused = cli(w, engine, ["add", "--definition", JSON.stringify(def({ command: "a\u0000b" }))]);
@@ -380,12 +380,12 @@ const CASES = {
         const skipped = cli(w, engine, ["run", "--scheduled", id]);
         same([skipped.status, skipped.first], [0, "automations: skipped=job reason=handled"], "add marked the occurrence due now handled");
         same(runFiles(w), []);
-        write(path.join(w.home, ".local", "state", "vgs", "automations", "guard", "job.json"), JSON.stringify({ handledThrough: 0 }));
+        write(path.join(w.home, ".local", "state", "vgshell", "automations", "guard", "job.json"), JSON.stringify({ handledThrough: 0 }));
         assert.equal(cli(w, engine, ["run", "--scheduled", id]).status, 0);
         const rec = ended(w, id);
         same([rec.trigger, typeof rec.slot], ["scheduled", "number"]);
         assert.equal(cli(w, engine, ["run", "--scheduled", id]).first, "automations: skipped=job reason=handled", "one occurrence runs once");
-        assert.equal(JSON.parse(fs.readFileSync(path.join(w.home, ".local", "state", "vgs", "automations", "guard", "job.json"), "utf8")).handledThrough, rec.slot);
+        assert.equal(JSON.parse(fs.readFileSync(path.join(w.home, ".local", "state", "vgshell", "automations", "guard", "job.json"), "utf8")).handledThrough, rec.slot);
         assert.equal(cli(w, engine, ["disable", id]).status, 0);
         assert.equal(cli(w, engine, ["run", "--scheduled", id]).first, "automations: skipped=job reason=paused");
     },
@@ -402,7 +402,7 @@ const CASES = {
         same(call.slice(7, 13).map(a => a.replace(/^.*\//, "")), ["--", "flock", "-n", "-E", "75", "-o"]);
         same(call.slice(-3), ["run", "--manual", "job"]);
         same(ended(w, id).trigger, "manual");
-        const lock = path.join(w.home, ".local", "state", "vgs", "automations", "locks", "job.lock");
+        const lock = path.join(w.home, ".local", "state", "vgshell", "automations", "locks", "job.lock");
         const release = holdLock(w, lock);
         try {
             const busy = cli(w, engine, ["run-now", id]);
@@ -416,7 +416,7 @@ const CASES = {
     "history names a running and a vanished run"(engine) {
         const w = world();
         const id = add(w, engine, { command: "sleep 5" });
-        const lock = path.join(w.home, ".local", "state", "vgs", "automations", "locks", "job.lock");
+        const lock = path.join(w.home, ".local", "state", "vgshell", "automations", "locks", "job.lock");
         const runner = childProcess.spawn("flock", ["-n", "-E", "75", "-o", lock, engine, "--tree", repo, "run", "--manual", id], { stdio: "ignore", env: w.env, detached: true });
         try {
             // flock takes the lock before the runner starts, so the lock is
@@ -440,13 +440,13 @@ const CASES = {
         for (const [id, age] of [["a", 31], ["a", 2], ["b", 40], ["b", 0]]) plant(w, id, Date.now() - age * DAY - 1000);
         assert.equal(cli(w, engine, ["prune", "--days", "30"]).stdout, "pruned=2\n");
         same(runFiles(w).map(n => n.replace(/@\d+-\d+/, "@R")), ["a@R.ended.json", "a@R.log", "b@R.ended.json", "b@R.log"]);
-        // The plugin's historyDays setting, read through vgsh plugin settings.
-        write(path.join(w.home, ".config", "vgs", "shell.json"), JSON.stringify({ version: 1, plugins: [{ id: "vgs.automations", historyDays: 1 }] }));
+        // The plugin's historyDays setting, read through vgshell plugin settings.
+        write(path.join(w.home, ".config", "vgshell", "shell.json"), JSON.stringify({ version: 1, plugins: [{ id: "vgs.automations", historyDays: 1 }] }));
         const pruned = cli(w, engine, ["prune"]);
         assert.equal(pruned.stdout, "pruned=1\n", pruned.stderr);
         same(runFiles(w).map(n => n.slice(0, 2)), ["b@", "b@"]);
         plant(w, "b", Date.now() - 5000, true);
-        const lock = path.join(w.home, ".local", "state", "vgs", "automations", "locks", "b.lock");
+        const lock = path.join(w.home, ".local", "state", "vgshell", "automations", "locks", "b.lock");
         const release = holdLock(w, lock);
         try {
             assert.ok(JSON.parse(cli(w, engine, ["history", "--json"]).stdout).rows.some(r => r.outcome === "running"), "the held lock is a running run");
@@ -489,7 +489,7 @@ const CASES = {
         assert.equal(startup.length, 1, "one startup line, for the automation that catches up: " + startup.join(" | "));
         assert.match(startup[0], /^@reboot env '[^']*' '[^']*' '[^']*' '[^']*\/flock' '-n' '-E' '75' '-o' '[^']*\/late\.lock' .* 'run' '--scheduled' 'late'$/, "the startup line runs the locked scheduled trigger");
         // Nothing was handled since before the missed occurrence.
-        for (const id of [late, strict]) write(path.join(w.home, ".local", "state", "vgs", "automations", "guard", id + ".json"), JSON.stringify({ handledThrough: 0 }));
+        for (const id of [late, strict]) write(path.join(w.home, ".local", "state", "vgshell", "automations", "guard", id + ".json"), JSON.stringify({ handledThrough: 0 }));
         const boot = childProcess.spawnSync("sh", ["-c", startup[0].slice("@reboot ".length)], { encoding: "utf8", env: w.env, cwd: w.home, timeout: 60000 });
         assert.equal(boot.status, 0, "the startup line runs: " + boot.stderr);
         const rec = ended(w, late);

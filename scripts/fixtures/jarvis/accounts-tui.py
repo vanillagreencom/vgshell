@@ -18,7 +18,7 @@ env["VGS_TUI_LIB"] = sys.argv[2]
 env["VGS_PLUGIN_DIR"] = sys.argv[3]
 env["VGS_PLUGIN_ID"] = "vgs.jarvis"
 env["OPENAI_API_KEY"] = "fixture-secret-private"
-env["VGSH_RUNNER_PID"] = "999"
+env["VGSHELL_RUNNER_PID"] = "999"
 
 def terminal():
     os.setsid()

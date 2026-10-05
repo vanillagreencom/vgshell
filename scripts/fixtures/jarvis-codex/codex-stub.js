@@ -36,7 +36,7 @@ let interrupted = null;
 
 // Jarvis's audit lines at this moment: a release record precedes a Verify turn.
 function auditLines() {
-    const directory = path.join(state, "vgs/jarvis/audit");
+    const directory = path.join(state, "vgshell/jarvis/audit");
     if (!fs.existsSync(directory)) return 0;
     return fs.readdirSync(directory).reduce((count, name) =>
         count + fs.readFileSync(path.join(directory, name), "utf8").split("\n").filter(Boolean).length, 0);

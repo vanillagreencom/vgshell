@@ -2,9 +2,9 @@
 # one command it needs and two optional ones. Runs after rows/tui.sh and
 # reuses the stand-in xdg-terminal-exec harness.sh's terminal_stand_in
 # wrote, which records the argv the core's TUI launch hands the terminal
-# and runs the core's command as `true`, and the harness's helpers. A stand-in bin/vgsh-pkg answers detection with pacman and
+# and runs the core's command as `true`, and the harness's helpers. A stand-in bin/vgshell-pkg answers detection with pacman and
 # paru, whatever the host runs. The Settings plugin is disabled throughout:
-# the notice is the core's. Rows: `vgsh plugin add` raises the notice
+# the notice is the core's. Rows: `vgshell plugin add` raises the notice
 # through pluginInstalled, which maps one surface on the focused monitor
 # holding the keyboard and drawing each missing command with this system's
 # package; the surface fills the monitor less the bar's reserved space less
@@ -17,7 +17,7 @@
 # enabling the plugin raises it again; the plugin's offer merges into a
 # held notice and is refused while it rests, for a command it did not
 # declare and for a value that is no list of commands; Install hands the
-# terminal `vgsh pkg run install` with the primary's package, the notice
+# terminal `vgshell pkg run install` with the primary's package, the notice
 # has no surface while the run is live, and comes back with the keyboard
 # when the rescan after the run still misses the command; a scan that finds
 # the command while the run is live keeps the installing notice in front of
@@ -26,7 +26,7 @@
 # alone with Close. The enable trigger's control is
 # scripts/smoke/rows/notices-control.sh, the suite's last row: a shell copy
 # without the trigger raises no notice.
-# inputs: scripts/smoke/fixtures/plugins/acme.needs/* shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Core/PackageManagers.js bin/vgsh-pkg bin/vgsh shell/Ui/feedback/CommandDisclosure.qml shell/Core/PluginLogic.js scripts/smoke/fixtures/plugins/acme.layers/* scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/rows/toasts.sh scripts/smoke/rows/manager.sh scripts/smoke/rows/settings.sh bin/vgsh-tui
+# inputs: scripts/smoke/fixtures/plugins/acme.needs/* shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Core/PackageManagers.js bin/vgshell-pkg bin/vgshell shell/Ui/feedback/CommandDisclosure.qml shell/Core/PluginLogic.js scripts/smoke/fixtures/plugins/acme.layers/* scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/rows/toasts.sh scripts/smoke/rows/manager.sh scripts/smoke/rows/settings.sh bin/vgshell-tui
 set -euo pipefail
 needs_src="$sandbox/src/acme.needs"
 mkdir -p "$needs_src"
@@ -34,10 +34,10 @@ cp -R "$repo/scripts/smoke/fixtures/plugins/acme.needs/." "$needs_src/"
 needs_git() { "${sandbox_env[@]}" git -C "$needs_src" -c user.name=smoke -c user.email=smoke@invalid "$@" >>"$sandbox/git.log" 2>&1; }
 if needs_git init -q && needs_git add -A && needs_git commit -q -m fixture; then ok "the needs fixture is committed to a local repository"; else fail "needs fixture repository: $(tail -n 3 "$sandbox/git.log")"; fi
 
-# Detection answers through bin/vgsh-pkg, which the shell and the add's
+# Detection answers through bin/vgshell-pkg, which the shell and the add's
 # judge both run under node; each stand-in is swapped in whole.
-pkg_real="$sandbox/vgsh-pkg.real"
-cp -- "$repo/bin/vgsh-pkg" "$pkg_real"
+pkg_real="$sandbox/vgshell-pkg.real"
+cp -- "$repo/bin/vgshell-pkg" "$pkg_real"
 pkg_stub() { # DETECT_JSON, or "" for a detection that fails
   local body
   if [[ -n $1 ]]; then
@@ -45,9 +45,9 @@ pkg_stub() { # DETECT_JSON, or "" for a detection that fails
   else
     body=""
   fi
-  printf '#!/usr/bin/env node\n%s\nprocess.stderr.write("vgsh: refused: stub=vgsh-pkg\\n");\nprocess.exit(70);\n' "$body" >"$sandbox/vgsh-pkg.stub"
-  chmod 755 "$sandbox/vgsh-pkg.stub"
-  cp -- "$sandbox/vgsh-pkg.stub" "$repo/bin/vgsh-pkg.next" && mv -T -- "$repo/bin/vgsh-pkg.next" "$repo/bin/vgsh-pkg"
+  printf '#!/usr/bin/env node\n%s\nprocess.stderr.write("vgshell: refused: stub=vgshell-pkg\\n");\nprocess.exit(70);\n' "$body" >"$sandbox/vgshell-pkg.stub"
+  chmod 755 "$sandbox/vgshell-pkg.stub"
+  cp -- "$sandbox/vgshell-pkg.stub" "$repo/bin/vgshell-pkg.next" && mv -T -- "$repo/bin/vgshell-pkg.next" "$repo/bin/vgshell-pkg"
 }
 pkg_stub '{"primary":{"id":"pacman","binary":"pacman"},"overlays":[{"id":"aur","binary":"paru"}],"sources":[]}'
 
@@ -97,14 +97,14 @@ print(int(l[0] + c[0] / 2), int(l[1] + c[1] + c[3] / 2))' "$layer" "$card"
 }
 install_words() {
   words --app-id=org.vgs.tui "--title=VGS · Install requirements" -- "$tui_self" present --presentation full \
-    --record core/requirements-install --run RUN --record-dir "$rt_dir/vgs/tui" --app-id org.vgs.tui --window-title "VGS · Install requirements" -- "$core_vgsh" pkg run install "$@"
+    --record core/requirements-install --run RUN --record-dir "$rt_dir/vgshell/tui" --app-id org.vgs.tui --window-title "VGS · Install requirements" -- "$core_vgshell" pkg run install "$@"
 }
 # Each listed requirement reads as its purpose, then a hint naming its
 # command, this system's package and whether it is optional (D061), as
 # `drawn` prints them, the middle dot escaped; the command Install runs is
 # only behind Show command, read on its own.
 needs_rows='["The command the fixture runs", "vgs-smoke-needs \u00b7 package vgs-smoke-needs-pkg", "An extra the fixture can do without", "vgs-smoke-extra \u00b7 package vgs-smoke-extra-git \u00b7 optional", "A command no manager here provides", "vgs-smoke-unmapped \u00b7 optional"]'
-needs_command_line="vgsh pkg run install vgs-smoke-needs-pkg"
+needs_command_line="vgshell pkg run install vgs-smoke-needs-pkg"
 # Whether any drawn row of the notice's body holds TEXT: the command line
 # Install runs is drawn only behind Show command.
 rows_hold() { ipc smoke noticeDrawn | py_reply 'import json,sys; print(str(any(sys.argv[1] in r for r in json.load(sys.stdin)["rows"])).lower())' "$1"; }
@@ -122,11 +122,11 @@ expect "the layer under the notice takes input everywhere" ok layered full 1
 # pluginInstalled: add lands the plugin disabled, the shell scans and then
 # raises the notice for the commands the scan did not find.
 add_out=""
-if add_out="$("${shell_env[@]}" "$repo/bin/vgsh" plugin add "file://$needs_src" 2>>"$sandbox/ipc.log")" \
-  && [[ $add_out == "ok added=acme.needs path=$home/.config/vgs/plugins/acme.needs config=unchanged"$'\n'"shell=rescan-started"$'\n'"requires vgs-smoke-needs (vgs-smoke-needs-pkg)"$'\n'"requires vgs-smoke-extra (vgs-smoke-extra-git) optional"$'\n'"requires vgs-smoke-unmapped optional"$'\n'"install: vgsh pkg run install vgs-smoke-needs-pkg"$'\n'"install: vgsh pkg run install --manager aur vgs-smoke-extra-git" ]]; then
-  ok "vgsh plugin add installs the needs fixture and names its missing packages"
+if add_out="$("${shell_env[@]}" "$repo/bin/vgshell" plugin add "file://$needs_src" 2>>"$sandbox/ipc.log")" \
+  && [[ $add_out == "ok added=acme.needs path=$home/.config/vgshell/plugins/acme.needs config=unchanged"$'\n'"shell=rescan-started"$'\n'"requires vgs-smoke-needs (vgs-smoke-needs-pkg)"$'\n'"requires vgs-smoke-extra (vgs-smoke-extra-git) optional"$'\n'"requires vgs-smoke-unmapped optional"$'\n'"install: vgshell pkg run install vgs-smoke-needs-pkg"$'\n'"install: vgshell pkg run install --manager aur vgs-smoke-extra-git" ]]; then
+  ok "vgshell plugin add installs the needs fixture and names its missing packages"
 else
-  fail "vgsh plugin add of the needs fixture: $add_out"
+  fail "vgshell plugin add of the needs fixture: $add_out"
 fi
 expect_poll "pluginInstalled raises the notice for every missing command" "[\"acme.needs\", $all_needs, [\"vgs-smoke-needs\"], false]" notice_shown
 expect_poll "the notice host maps one surface" 1 layer_count vgs:notice
@@ -238,7 +238,7 @@ expect "no install ran before the rows" idle key_idle core/requirements-install
 hold_runs
 forget_record
 type_keys -k Return || fail "sending Return failed"
-expect_poll "Install hands the terminal vgsh pkg run install with the primary's package" "$(install_words vgs-smoke-needs-pkg)" recorded
+expect_poll "Install hands the terminal vgshell pkg run install with the primary's package" "$(install_words vgs-smoke-needs-pkg)" recorded
 expect_poll "the notice records its install running" "[\"acme.needs\", $all_needs, [\"vgs-smoke-needs\"], true]" notice_shown
 expect_poll "a live install leaves the notice no surface" 0 layer_count vgs:notice
 expect "the install's run is live while the notice is gone" busy key_idle core/requirements-install
@@ -252,10 +252,10 @@ expect "the notice still offers Install" '["Install", "Not now"]' drawn actions
 
 # A second plugin's notice waits behind the install. The installed
 # command appears and a scan runs while the install's terminal is still
-# open, as `vgsh pkg run` asks for one when its steps end: the installing
+# open, as `vgshell pkg run` asks for one when its steps end: the installing
 # notice stays and the waiting one stays behind it until the run ends.
 # acme.other is acme.needs under another id, needing vgs-smoke-other.
-other_dir="$home/.config/vgs/plugins/acme.other"
+other_dir="$home/.config/vgshell/plugins/acme.other"
 mkdir -p -- "$other_dir"
 cp -R -- "$repo/scripts/smoke/fixtures/plugins/acme.needs/." "$other_dir/"
 if python3 -c '
@@ -295,7 +295,7 @@ type_keys -k Escape || fail "sending Escape failed"
 expect_poll "Escape closes acme.other's notice" null notice_shown
 expect_poll "no notice leaves a surface" 0 layer_count vgs:notice
 expect "disabling acme.other is allowed" ok ipc shell setPluginEnabled acme.other false
-other_removed() { local out; out="$("${shell_env[@]}" "$repo/bin/vgsh" plugin remove --yes acme.other 2>>"$sandbox/ipc.log")" || return 1; printf '%s\n' "${out%%$'\n'*}"; }
+other_removed() { local out; out="$("${shell_env[@]}" "$repo/bin/vgshell" plugin remove --yes acme.other 2>>"$sandbox/ipc.log")" || return 1; printf '%s\n' "${out%%$'\n'*}"; }
 expect "acme.other is removed" "ok removed=acme.other" other_removed
 expect_poll "acme.other leaves the list" False plugin_known acme.other
 rm -f -- "$shim/vgs-smoke-needs"
@@ -306,10 +306,10 @@ expect_poll "the capability lists the removed command again" '["vgs-smoke-needs"
 # A detection that fails: the notice lists the commands with no package
 # and offers Close alone.
 pkg_stub ""
-expected_errors+=('notices: detect=failed exit=70 status=0 vgsh: refused: stub=vgsh-pkg')
+expected_errors+=('notices: detect=failed exit=70 status=0 vgshell: refused: stub=vgshell-pkg')
 expect "enabling the fixture while detection fails raises the notice" ok ipc shell setPluginEnabled acme.needs true
 expect_poll "the notice shows with detection failed" 1 layer_count vgs:notice
-expect_log "the failed detection is logged" 1 'notices: detect=failed exit=70 status=0 vgsh: refused: stub=vgsh-pkg'
+expect_log "the failed detection is logged" 1 'notices: detect=failed exit=70 status=0 vgshell: refused: stub=vgshell-pkg'
 expect "a notice without managers draws each requirement without a package" '["The command the fixture runs", "vgs-smoke-needs", "An extra the fixture can do without", "vgs-smoke-extra \u00b7 optional", "A command no manager here provides", "vgs-smoke-unmapped \u00b7 optional"]' drawn rows
 expect "a notice without an install has no command to show" null drawn command
 expect "a notice without an install offers Close alone" '["Close"]' drawn actions
@@ -318,8 +318,8 @@ expect_poll "the notice without an install holds the keyboard" true ipc smoke no
 type_keys -k Escape || fail "sending Escape failed"
 expect_poll "Escape closes the notice without an install" 0 layer_count vgs:notice
 
-cp -- "$pkg_real" "$repo/bin/vgsh-pkg.next" && mv -T -- "$repo/bin/vgsh-pkg.next" "$repo/bin/vgsh-pkg"
+cp -- "$pkg_real" "$repo/bin/vgshell-pkg.next" && mv -T -- "$repo/bin/vgshell-pkg.next" "$repo/bin/vgshell-pkg"
 expect "disabling the needs fixture is allowed" ok ipc shell setPluginEnabled acme.needs false
-remove_out() { local out; out="$("${shell_env[@]}" "$repo/bin/vgsh" plugin remove --yes acme.needs 2>>"$sandbox/ipc.log")" || return 1; printf '%s\n' "${out%%$'\n'*}"; }
+remove_out() { local out; out="$("${shell_env[@]}" "$repo/bin/vgshell" plugin remove --yes acme.needs 2>>"$sandbox/ipc.log")" || return 1; printf '%s\n' "${out%%$'\n'*}"; }
 expect "the needs fixture is removed" "ok removed=acme.needs" remove_out
 expect_poll "the removed fixture leaves the list" False plugin_known acme.needs

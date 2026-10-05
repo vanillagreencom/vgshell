@@ -9,7 +9,7 @@ CI_FIX_MAX_CYCLES = "6"
 PR_REVIEW_GATE = "off"
 DECISIONS_DIR = "docs/decisions"
 DECISIONS_BASE_REF = "origin/main"
-# Issue branches use the vgs Linear identifier: vgs-<n>-<slug>.
+# Issue branches use the vgs Linear identifier: vgshell-<n>-<slug>.
 GH_ISSUE_PATTERN = "vgs-[0-9]+"
 LINEAR_FORMAT = "safe"
 ORCH_STATE_DIR = "tmp"
@@ -33,7 +33,7 @@ SECOND_OPINION_CLAUDE_CMD = "env COPILOT_ALLOW_ALL=false 1copilot --model claude
 SECOND_OPINION_CODEX_MODEL = "gpt-6.1-sol"
 SECOND_OPINION_CODEX_CMD = "env COPILOT_ALLOW_ALL=false 1copilot --model gpt-6.1-sol --reasoning-effort medium --silent --no-ask-user --disable-builtin-mcps --available-tools bash view rg glob --deny-tool write"
 SECOND_OPINION_TIMEOUT = "1080"
-WORKTREE_BASE_DIR = "~/dev/.worktrees/vgs"
+WORKTREE_BASE_DIR = "~/dev/.worktrees/vgshell"
 WORKTREE_COPIES = ""
 WORKTREE_DEFAULT_BRANCH = "main"
 WORKTREE_MKDIRS = "tmp"
@@ -146,7 +146,7 @@ COMMIT_GUARDS_MD_REFS_PATHS = "*.md"
 # md-refs reads source comments for `<path>.md § Heading` citations. The
 # default list is extensions only, so this is that list plus the
 # extensionless scripts, whose grammar their `#!` line names.
-COMMIT_GUARDS_MD_REFS_SOURCE_PATHS = "*.rs *.go *.c *.h *.cc *.cpp *.hpp *.java *.kt *.kts *.swift *.wgsl *.js *.mjs *.cjs *.jsx *.ts *.tsx *.css *.scss *.less *.sh *.bash *.zsh *.py *.rb *.toml *.yml *.yaml *.sql *.lua *.html *.htm *.xml *.svg *.vue *.svelte Makefile */Makefile *.mk Dockerfile */Dockerfile bin/vgsh* shell/plugins/*/bin/* scripts/smoke/fixtures/updates-bin/* scripts/validate scripts/release scripts/vendor-lucide"
+COMMIT_GUARDS_MD_REFS_SOURCE_PATHS = "*.rs *.go *.c *.h *.cc *.cpp *.hpp *.java *.kt *.kts *.swift *.wgsl *.js *.mjs *.cjs *.jsx *.ts *.tsx *.css *.scss *.less *.sh *.bash *.zsh *.py *.rb *.toml *.yml *.yaml *.sql *.lua *.html *.htm *.xml *.svg *.vue *.svelte Makefile */Makefile *.mk Dockerfile */Dockerfile bin/vgshell* shell/plugins/*/bin/* scripts/smoke/fixtures/updates-bin/* scripts/validate scripts/release scripts/vendor-lucide"
 
 # Max re-review cycles per issue before the verdict pass; the re-review
 # re-entry refuses once cycles is past it.

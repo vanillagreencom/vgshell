@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // The shipped gum target, themes/targets/gum, against the one reader of the
-// file it writes: bin/vgsh-tui present, which parses gum.env and never
+// file it writes: bin/vgshell-tui present, which parses gum.env and never
 // sources it. The target renders under the shipped vgs package and the
 // catalog's flexoki-light, a light package; present must export every line
 // of each render and warn nothing. The expected colours are pinned literals
@@ -23,7 +23,7 @@ const repo = path.join(__dirname, "..");
 const logic = load(path.join(repo, "shell", "Commons", "ThemeLogic.js"));
 const TOKENS = load(path.join(repo, "shell", "Commons", "Tokens.js")).TOKENS;
 const targetDir = path.join(repo, "themes", "targets", "gum");
-const presenter = path.join(repo, "bin", "vgsh-tui");
+const presenter = path.join(repo, "bin", "vgshell-tui");
 
 // The package in DIR, a directory under themes/, judged as shipped when
 // SHIPPED holds and as the installed package a catalog entry becomes
@@ -59,8 +59,8 @@ const rendered = (pkg, text) => {
 // and runtime directories, never the developer's.
 const presented = (root, text) => {
     const state = path.join(root, "state");
-    fs.mkdirSync(path.join(state, "vgs", "theme"), { recursive: true });
-    fs.writeFileSync(path.join(state, "vgs", "theme", "gum.env"), text);
+    fs.mkdirSync(path.join(state, "vgshell", "theme"), { recursive: true });
+    fs.writeFileSync(path.join(state, "vgshell", "theme", "gum.env"), text);
     const run = spawnSync(presenter, ["present", "--presentation", "plain", "--", "env"], {
         encoding: "utf8",
         env: { PATH: process.env.PATH, HOME: root, XDG_STATE_HOME: state, XDG_RUNTIME_DIR: root }

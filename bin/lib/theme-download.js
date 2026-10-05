@@ -1,17 +1,17 @@
-// The verified fetch and the tar reader of `vgsh theme wallpapers` and
-// `vgsh theme preview` (bin/vgsh-theme-judge): a theme's wallpaper
+// The verified fetch and the tar reader of `vgshell theme wallpapers` and
+// `vgshell theme preview` (bin/vgshell-theme-judge): a theme's wallpaper
 // archive, pinned by a catalog entry's `imagery` `{ repo, release,
 // archive, size, sha256 }`, streamed into the cache, checked against the
 // pin, then read member by member. Each caller keeps its own
 // member policy and its own refusal lines; this file refuses through
 // AssetRefusal, which names the step and a stable reason.
 //
-// The cache is `${XDG_CACHE_HOME:-$HOME/.cache}/vgs/theme-assets/`: a
+// The cache is `${XDG_CACHE_HOME:-$HOME/.cache}/vgshell/theme-assets/`: a
 // download streams into `<sha256>.tar.gz.part`, hashed and counted as it
 // is written and cut off once it passes the pinned size, and the caller
 // removes it once it has read it. `download.lock` there is the lock every
 // caller of fetchArchive holds for the whole fetch, since the part's path
-// is fixed: bin/vgsh takes it with flock(1).
+// is fixed: bin/vgshell takes it with flock(1).
 // docs/architecture/theme-wallpapers.md.
 "use strict";
 const crypto = require("crypto");
@@ -52,7 +52,7 @@ class AssetRefusal extends Error {
 
 // The theme-asset cache directory, from the environment ENV.
 function cacheDir(env = process.env) {
-    return path.join(env.XDG_CACHE_HOME || path.join(env.HOME || os.homedir(), ".cache"), "vgs", "theme-assets");
+    return path.join(env.XDG_CACHE_HOME || path.join(env.HOME || os.homedir(), ".cache"), "vgshell", "theme-assets");
 }
 
 // The URL of PIN's archive, `<base>/<release>/<archive>`, BASE defaulting to
@@ -101,7 +101,7 @@ function idleDeadline() {
 // each to HTTPS only.
 function httpsResponse(url, redirects, idle) {
     return new Promise((resolve, reject) => {
-        const request = https.get(url, { headers: { "User-Agent": "vgsh" } }, response => {
+        const request = https.get(url, { headers: { "User-Agent": "vgshell" } }, response => {
             const status = response.statusCode;
             if (REDIRECTS.includes(status)) {
                 response.resume();

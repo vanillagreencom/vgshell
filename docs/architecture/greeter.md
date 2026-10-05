@@ -8,7 +8,7 @@ The login screen: greetd runs Hyprland with `config/system/greeter/hyprland.lua`
 
 - **Greeter host**: `shell/greeter.qml`, a second Quickshell root beside `shell.qml`. It holds no registry, plugin scan, capability or runner guard.
 - **View**: `shell/plugins/vgs.greeter/Greeter.qml`, a plain file of the plugin and no entry point, as `vgs.lock`'s `pam/` and `bin/` are. `GreeterLogic.js` holds every decision it makes.
-- **Theme copy**: `theme.json` and the current background image under `/var/lib/vgs/greeter/theme/vgs`, which the plugin's service writes and the greeter reads as its `Paths.configDir`. The step makes `theme` root's and only `vgs` the owner's.
+- **Theme copy**: `theme.json` and the current background image under `/var/lib/vgshell/greeter/theme/vgshell`, which the plugin's service writes and the greeter reads as its `Paths.configDir`. The step makes `theme` root's and only `vgshell` the owner's.
 
 ## The host
 
@@ -34,7 +34,7 @@ The login screen: greetd runs Hyprland with `config/system/greeter/hyprland.lua`
 ## The service
 
 - The service publishes `greeter`, the step's reading, with Set up offered while it reads `needed` or `nixos`, and `theme`, the last copy's result.
-- While the step reads ready, `bin/copy-theme` copies `Paths.configDir/theme.json` and the image `Paths.stateDir/background` links to into `GreeterLogic.THEME_DIR/vgs`, with the arguments `GreeterLogic.copyArguments` gives, null while the step reads anything else: once when the step turns ready, and again after each change to `theme.json` or `backgrounds.json`, which the theme runner replaces on every background change. Each file is copied byte for byte, mode 0644, to a temporary file renamed into place, only when its bytes differ; a source that is gone removes its copy. One copy runs at a time.
+- While the step reads ready, `bin/copy-theme` copies `Paths.configDir/theme.json` and the image `Paths.stateDir/background` links to into `GreeterLogic.THEME_DIR/vgshell`, with the arguments `GreeterLogic.copyArguments` gives, null while the step reads anything else: once when the step turns ready, and again after each change to `theme.json` or `backgrounds.json`, which the theme runner replaces on every background change. Each file is copied byte for byte, mode 0644, to a temporary file renamed into place, only when its bytes differ; a source that is gone removes its copy. One copy runs at a time.
 
 ## The login conversation in the sandbox
 

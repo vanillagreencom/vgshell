@@ -13,13 +13,13 @@ import "SoundLogic.js" as Logic
 // plugin's own IPC, for what it owns:
 //   shortcut vgs.sound:volume-up, volume-down  a step of `volumeStep`
 //   shortcut vgs.sound:mute, mic-mute          output and input mute
-//   vgsh ipc call vgs.sound invoke step up|down     the same step; answers
+//   vgshell ipc call vgs.sound invoke step up|down     the same step; answers
 //                                                   the new percentage
-//   vgsh ipc call vgs.sound invoke mute ''          answers muted|unmuted
-//   vgsh ipc call vgs.sound invoke mic-mute ''      answers muted|unmuted
-//   vgsh ipc call vgs.sound invoke output <sink>    makes the sink the
+//   vgshell ipc call vgs.sound invoke mute ''          answers muted|unmuted
+//   vgshell ipc call vgs.sound invoke mic-mute ''      answers muted|unmuted
+//   vgshell ipc call vgs.sound invoke output <sink>    makes the sink the
 //                                                   default output
-//   vgsh ipc call vgs.sound invoke input <source>   makes the source the
+//   vgshell ipc call vgs.sound invoke input <source>   makes the source the
 //                                                   default input
 // A step and a mute show the display on the focused screen for
 // `osd.duration`. A step, mute or choice with no PipeWire answers

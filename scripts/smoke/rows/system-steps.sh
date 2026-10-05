@@ -1,5 +1,5 @@
 # System steps, D081, over the sandbox's device fakes
-# (docs/architecture/validation-smoke-devices.md). bin/vgsh-system pins its
+# (docs/architecture/validation-smoke-devices.md). bin/vgshell-system pins its
 # PATH to the system directories and derives every path from its
 # `prefix=` line, so before the fixture is enabled devices_system_tree
 # rewrites the sandbox copy's line to the fakes' tree. That tree's sys and
@@ -23,7 +23,7 @@
 # its state as status. Rows: the core probes once the fixture holds
 # `system` and lends the declared step alone; the step reads needed and
 # offers Allow; Allow, through the manager's act, hands the stand-in
-# terminal `vgsh system apply apple-displays` as the core TUI core/system;
+# terminal `vgshell system apply apple-displays` as the core TUI core/system;
 # while that run is held, the row runs the same command on a terminal
 # over a sudo stand-in it stands over the tree's sentinel with
 # sentinel_stand_over, puts the sentinel back with sentinel_restore, and
@@ -39,7 +39,7 @@
 # reads undeclared and starts no terminal, its control.
 # rows/auth-sentinel.sh, the last row, reads the log empty. Every reading
 # is expect_poll's: 25 reads 0.2 s apart.
-# inputs: scripts/smoke/fixtures/plugins/acme.system/* shell/Core/SystemSteps.qml bin/vgsh-system bin/vgsh config/system/* scripts/smoke/fixtures/devices/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/plugins/acme.status/* bin/vgsh-tui bin/lib/tui.sh shell/Core/PluginLogic.js scripts/smoke/rows/device-fakes.sh
+# inputs: scripts/smoke/fixtures/plugins/acme.system/* shell/Core/SystemSteps.qml bin/vgshell-system bin/vgshell config/system/* scripts/smoke/fixtures/devices/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/plugins/acme.status/* bin/vgshell-tui bin/lib/tui.sh shell/Core/PluginLogic.js scripts/smoke/rows/device-fakes.sh
 set -euo pipefail
 devices_ready system-steps || return 0
 if ! command -v unshare >/dev/null 2>&1 || ! unshare -r true 2>/dev/null; then
@@ -69,7 +69,7 @@ device_reply udevadm 0 "" trigger --subsystem-match=hidraw --action=change --set
 sentinel_of() { if grep -q -F -- "$auth_log" "$1"; then echo sentinel; else echo replaced; fi; }
 expect "the tree's sudo is the harness's sentinel" sentinel sentinel_of "$system_bin/sudo"
 
-system_dir="$home/.config/vgs/plugins/acme.system"
+system_dir="$home/.config/vgshell/plugins/acme.system"
 mkdir -p "$system_dir"
 cp -R "$repo/scripts/smoke/fixtures/plugins/acme.system/." "$system_dir/"
 system_core() { ipc shell lent | py_reply 'import json,sys; s=json.load(sys.stdin)["system"]["steps"]["apple-displays"]; print(s["state"] + " " + s["reason"])'; }
@@ -92,7 +92,7 @@ expect_poll "a needed step offers Allow" '[["apple", "Allow", true]]' offered_ac
 hold_runs
 forget_record
 expect "Allow, through the manager's act, answers ok" ok settings_act acme.system apple
-expect_poll "Allow hands the terminal vgsh system apply with its step" \
+expect_poll "Allow hands the terminal vgshell system apply with its step" \
   "$(core_words core/system "System setup" org.vgs.tui system apply apple-displays)" recorded
 
 # The command the TUI runs, on a terminal, over the row's sudo stand-in.
@@ -110,7 +110,7 @@ printf '#!/bin/sh\nif [ "$1" = trigger ] && [ -e %q ]; then chmod 0600 %q; fi\ne
   "$system_rule" "$system_hidraw" "$(sentinel_saved "$shim/udevadm")" | sentinel_stand_over "$shim/udevadm"
 system_apply() {
   local status=0
-  "${sandbox_env[@]}" "${shell_start_words[@]}" SHELL="$BASH" script -qec "$(printf '%q ' "$repo/bin/vgsh" system apply apple-displays)" /dev/null \
+  "${sandbox_env[@]}" "${shell_start_words[@]}" SHELL="$BASH" script -qec "$(printf '%q ' "$repo/bin/vgshell" system apply apple-displays)" /dev/null \
     </dev/null >"$sandbox/system-apply.out" 2>&1 || status=$?
   tr -d '\r' <"$sandbox/system-apply.out" | tail -n 1
   return "$status"
@@ -147,7 +147,7 @@ expect "the refused act on another plugin's key started no terminal" absent reco
 expect_poll "the needed step offers the fixture's own Allow again" '{"apple": {"tone": "warning", "text": "needed hidraw-denied", "action": true}}' system_status
 hold_runs
 expect "the fixture's own Allow, through status.act, answers ok" ok system_act apple
-expect_poll "status.act hands the terminal vgsh system apply with its step" \
+expect_poll "status.act hands the terminal vgshell system apply with its step" \
   "$(core_words core/system "System setup" org.vgs.tui system apply apple-displays)" recorded
 release_runs
 expect_run_end "the status.act core/system run ends" core/system

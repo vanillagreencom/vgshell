@@ -267,7 +267,7 @@ async function main() {
     // Every mask from the real owner, including physical account aliases.
     assert(denied.masks.length > 0, "Denied mask discovery must not be empty");
     assert(denied.masks.includes(w.home + "/.ssh"));
-    assert(denied.masks.includes(w.roots.config + "/vgs"));
+    assert(denied.masks.includes(w.roots.config + "/vgshell"));
     for (const root of denied.masks) for (const operation of ["read", "write"])
         await forbidden(Sandbox, w, root + "/sentinel", operation);
     for (const operation of ["read", "write"]) await forbidden(Sandbox, w, w.project + "/credential-alias/sentinel", operation);
@@ -301,7 +301,7 @@ async function main() {
     exited(await run(session), 42);
     const device = js('process.exit(require("node:fs").existsSync("/dev/uinput") || require("node:fs").existsSync("/dev/dri") || require("node:fs").existsSync("/dev/snd") ? 0 : 42)');
     exited(await run(device), 42);
-    const clean = js('process.exit(["DBUS_SESSION_BUS_ADDRESS","WAYLAND_DISPLAY","HYPRLAND_INSTANCE_SIGNATURE","PULSE_SERVER","VGSH_RUNNER_PID","JARVIS_TEST_ROOT"].some(k=>Object.hasOwn(process.env,k))?0:42)');
+    const clean = js('process.exit(["DBUS_SESSION_BUS_ADDRESS","WAYLAND_DISPLAY","HYPRLAND_INSTANCE_SIGNATURE","PULSE_SERVER","VGSHELL_RUNNER_PID","JARVIS_TEST_ROOT"].some(k=>Object.hasOwn(process.env,k))?0:42)');
     exited(await run(clean), 42);
     const childEnv = await run(js('process.stdout.write(JSON.stringify(process.env))'));
     exited(childEnv, 0);
@@ -341,8 +341,8 @@ async function main() {
     const omitMask = file => "mounts(args, [...denied.masks.filter(p => p !== " + quoted(file) + "), roots.runtime, privateRuntime], home, target.path)";
     await control("credential-mask", maskCall, omitMask(w.home + "/.ssh"),
         s => forbidden(s, w, w.home + "/.ssh/sentinel", "read"));
-    await control("policy-mask", maskCall, omitMask(w.roots.config + "/vgs"),
-        s => forbidden(s, w, w.roots.config + "/vgs/policy", "read"));
+    await control("policy-mask", maskCall, omitMask(w.roots.config + "/vgshell"),
+        s => forbidden(s, w, w.roots.config + "/vgshell/policy", "read"));
     await control("physical-alias", maskCall, omitMask(w.home + "/physical-account"),
         s => forbidden(s, w, w.home + "/physical-account/sentinel", "read"));
     await control("symlink-preservation", 'args.push("--symlink", fs.readlinkSync(file), file)',

@@ -43,7 +43,7 @@ Each command runs as `setpriv --pdeathsig KILL -- <file> <argv>`, `<file>` the a
 | `grim`, `slurp` | `WAYLAND_DISPLAY`, `XDG_RUNTIME_DIR` |
 | `magick`, `tesseract` | none; the [vision executor](jarvis-vision.md#owners) gives `magick` `MAGICK_TEMPORARY_PATH` |
 
-No other daemon variable reaches a child: no key, no `VGSH_RUNNER_PID`.
+No other daemon variable reaches a child: no key, no `VGSHELL_RUNNER_PID`.
 
 ## Clipboard
 

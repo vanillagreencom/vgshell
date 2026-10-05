@@ -2,7 +2,7 @@
 
 `check-plugin-boundary.py`, `check-design-tokens.py` and
 `check-pointer-cursor.py` walk the same files the way the shell lists them,
-through `bin/vgsh-scan`, and read code only: line comments, block comments
+through `bin/vgshell-scan`, and read code only: line comments, block comments
 and trailing comments are blanked before matching, with line numbers kept. String literals stay, so a name inside a string handed
 to `Qt.createQmlObject` is still a finding.
 
@@ -13,7 +13,7 @@ import os
 import re
 import runpy
 
-SCAN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "bin", "vgsh-scan")
+SCAN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "bin", "vgshell-scan")
 scan_sources = runpy.run_path(SCAN)["source_files"]
 
 # A `/` after one of these characters, after one of these keywords, or at the

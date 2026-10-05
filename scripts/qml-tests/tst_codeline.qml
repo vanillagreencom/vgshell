@@ -19,7 +19,7 @@ Item {
         text: "secret-tool store --label='VGS notifications Slack token' service vgs-notifications account slack"
         copyLabel: "Copy the command"
     }
-    CodeLine { id: short; y: 120; width: 360; text: "vgsh plugin update acme.weather" }
+    CodeLine { id: short; y: 120; width: 360; text: "vgshell plugin update acme.weather" }
     // Reads the clipboard back.
     TextEdit { id: paste; y: 200; width: 360; height: 20 }
     SignalSpy { id: copies; target: line; signalName: "copied" }
@@ -41,7 +41,7 @@ Item {
 
         function test_copy_puts_the_text_on_the_clipboard() {
             short.copy();
-            compare(clipboardText(), "vgsh plugin update acme.weather", "a known text is on the clipboard first");
+            compare(clipboardText(), "vgshell plugin update acme.weather", "a known text is on the clipboard first");
             mouseClick(button(line));
             compare(copies.count, 1);
             compare(clipboardText(), line.text);

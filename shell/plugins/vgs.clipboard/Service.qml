@@ -9,10 +9,10 @@ import "ClipboardHistory.js" as History
 // and is read once, as the service is built. The overlay holds no history:
 // it asks for its rows and for every change through the plugin's own IPC.
 //   shortcut vgs.clipboard:toggle           SUPER+CTRL+V from the manifest
-//   vgsh ipc call vgs.clipboard invoke toggle ''
-//   vgsh ipc call vgs.clipboard invoke rows '<filter>'   { images, total, rows }
-//   vgsh ipc call vgs.clipboard invoke paste|copy|pin|delete '<entry id>'
-//   vgsh ipc call vgs.clipboard invoke clear ''
+//   vgshell ipc call vgs.clipboard invoke toggle ''
+//   vgshell ipc call vgs.clipboard invoke rows '<filter>'   { images, total, rows }
+//   vgshell ipc call vgs.clipboard invoke paste|copy|pin|delete '<entry id>'
+//   vgshell ipc call vgs.clipboard invoke clear ''
 // Each change answers `ok` or a keyed `refused:` line, and a refusal shows
 // a toast.
 //

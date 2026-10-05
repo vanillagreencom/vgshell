@@ -10,8 +10,8 @@
 #   - `nix flake check` passes with the committed flake.lock unchanged.
 #   - `nix build` succeeds. The build runs scripts/check-install-tree.sh on the
 #     installed tree, so it ships the tree every other channel ships.
-#   - `nix run .# -- --version` prints `vgs <VERSION>`.
-#   - For the file $out/bin/vgsh resolves to and for bin/vgsh-tui, the PATH
+#   - `nix run .# -- --version` prints `vgshell <VERSION>`.
+#   - For the file $out/bin/vgshell resolves to and for bin/vgshell-tui, the PATH
 #     row: the one `# vgs-nix-path` line, run in an empty environment,
 #     resolves the mapped required commands in the core and all shipped
 #     manifests and `qs`, but
@@ -24,10 +24,10 @@
 #     the PATH row on every requirement.
 #   - the closure without qrencode must fail the PATH row for
 #     the saved-network sharing command.
-#   - bin/vgsh-tui from the build with its PATH line removed must fail the
+#   - bin/vgshell-tui from the build with its PATH line removed must fail the
 #     PATH row.
-#   - flake.nix whose insertion loop reaches only bin/vgsh must fail the
-#     build with vgsh-tui's `nix-path=missing` line.
+#   - flake.nix whose insertion loop reaches only bin/vgshell must fail the
+#     build with vgshell-tui's `nix-path=missing` line.
 #   - packaging/install-tree.manifest with a planted entry must fail the build
 #     with that entry's `install-tree=missing` line.
 #
@@ -132,16 +132,16 @@ else cat /tmp/check.log; fail "nix flake check passes"
 fi
 if out="$(nix build "${flags[@]}" path:/src 2>/tmp/build.log)"; then
   ok "nix build succeeds and checks the install tree"
-  if version="$(nix run --no-update-lock-file path:/src -- --version 2>&1)" && [[ $version == "vgs $VGS_VERSION" ]]; then
-    ok "nix run -- --version prints vgs $VGS_VERSION"
-  else fail "nix run -- --version prints vgs $VGS_VERSION, got [$version]"
+  if version="$(nix run --no-update-lock-file path:/src -- --version 2>&1)" && [[ $version == "vgshell $VGS_VERSION" ]]; then
+    ok "nix run -- --version prints vgshell $VGS_VERSION"
+  else fail "nix run -- --version prints vgshell $VGS_VERSION, got [$version]"
   fi
-  vgsh="$(readlink -f "$out/bin/vgsh")"
-  language_path="$(grep -F -- "$marker" "$vgsh")"
+  vgshell="$(readlink -f "$out/bin/vgshell")"
+  language_path="$(grep -F -- "$marker" "$vgshell")"
   languages="$(env -i "$(command -v bash)" -c 'PATH=; eval "$1"; tesseract --list-langs' _ "$language_path" 2>&1)" || languages=""
   if grep -qxF eng <<<"$languages"; then ok "Capture English OCR data is installed"
   else fail "Capture English OCR data is installed"; fi
-  for spec in "$vgsh|/src/bin/vgsh" "$out/share/vgs/bin/vgsh-tui|/src/bin/vgsh-tui"; do
+  for spec in "$vgshell|/src/bin/vgshell" "$out/share/vgshell/bin/vgshell-tui|/src/bin/vgshell-tui"; do
     entry="${spec%%|*}"; source="${spec#*|}"
     if path_holds "$entry"; then ok "${source#/src/}'s PATH line resolves qs and every requirement, not hyprctl, and adds itself once"
     else fail "${source#/src/}'s PATH line resolves qs and every requirement, not hyprctl, and adds itself once"
@@ -151,8 +151,8 @@ if out="$(nix build "${flags[@]}" path:/src 2>/tmp/build.log)"; then
     fi
   done
   # Control: an entry point without its PATH line.
-  grep -vF -- "$marker" "$out/share/vgs/bin/vgsh-tui" >/tmp/vgsh-tui-bare
-  if [[ $(path_holds /tmp/vgsh-tui-bare) == 'flake: nix-path=missing path=/tmp/vgsh-tui-bare' ]]; then
+  grep -vF -- "$marker" "$out/share/vgshell/bin/vgshell-tui" >/tmp/vgshell-tui-bare
+  if [[ $(path_holds /tmp/vgshell-tui-bare) == 'flake: nix-path=missing path=/tmp/vgshell-tui-bare' ]]; then
     ok "control: an entry point without its PATH line fails the PATH row"
   else fail "control: an entry point without its PATH line fails the PATH row"
   fi
@@ -185,7 +185,7 @@ else
   if [[ $(</tmp/no-requirements/flake.nix) == "$flake" ]]; then fail "control: the requirements cut changed flake.nix"
   elif ! mutant="$(nix build "${flags[@]}" path:/tmp/no-requirements 2>/tmp/mutant.log)"; then
     cat /tmp/mutant.log; fail "control: the cut flake builds"
-  elif [[ $(path_holds "$(readlink -f "$mutant/bin/vgsh")") == "flake: unresolved=${VGS_COMMANDS// /,}" ]]; then
+  elif [[ $(path_holds "$(readlink -f "$mutant/bin/vgshell")") == "flake: unresolved=${VGS_COMMANDS// /,}" ]]; then
     ok "control: dropping the requirements fails the PATH row"
   else fail "control: dropping the requirements fails the PATH row on every requirement"
   fi
@@ -203,36 +203,36 @@ else
     fail "control: the QR removal changed flake.nix"
   elif ! mutant="$(nix build "${flags[@]}" path:/tmp/no-network-qr 2>/tmp/no-network-qr.log)"; then
     cat /tmp/no-network-qr.log; fail "control: the package without the QR requirement builds"
-  elif [[ $(path_holds "$(readlink -f "$mutant/bin/vgsh")") == 'flake: unresolved=qrencode' ]]; then
+  elif [[ $(path_holds "$(readlink -f "$mutant/bin/vgshell")") == 'flake: unresolved=qrencode' ]]; then
     ok "control: removing the QR requirement loses qrencode from the installed PATH"
   else fail "control: removing the QR requirement loses qrencode from the installed PATH"
   fi
 fi
 
-# Control: the build's guard, with the insertion loop reaching only vgsh.
-cp -r /src /tmp/vgsh-only
-loop='for entry in $out/share/vgs/bin/*; do'
-narrow='for entry in $out/share/vgs/bin/vgsh; do'
-if [[ $(grep -cF -- "$loop" /tmp/vgsh-only/flake.nix) != 1 ]] || ! flake="$(</src/flake.nix)"; then
+# Control: the build's guard, with the insertion loop reaching only vgshell.
+cp -r /src /tmp/vgshell-only
+loop='for entry in $out/share/vgshell/bin/*; do'
+narrow='for entry in $out/share/vgshell/bin/vgshell; do'
+if [[ $(grep -cF -- "$loop" /tmp/vgshell-only/flake.nix) != 1 ]] || ! flake="$(</src/flake.nix)"; then
   fail "control: the insertion loop appears once in flake.nix"
 else
-  printf '%s\n' "${flake/"$loop"/"$narrow"}" >/tmp/vgsh-only/flake.nix
-  if [[ $(</tmp/vgsh-only/flake.nix) == "$flake" ]]; then fail "control: the loop cut changed flake.nix"
-  elif nix build "${flags[@]}" path:/tmp/vgsh-only >/dev/null 2>/tmp/vgsh-only.log; then
+  printf '%s\n' "${flake/"$loop"/"$narrow"}" >/tmp/vgshell-only/flake.nix
+  if [[ $(</tmp/vgshell-only/flake.nix) == "$flake" ]]; then fail "control: the loop cut changed flake.nix"
+  elif nix build "${flags[@]}" path:/tmp/vgshell-only >/dev/null 2>/tmp/vgshell-only.log; then
     fail "control: an entry point left without its PATH line fails the build"
-  elif grep -qE 'flake: refused: nix-path=missing path=/nix/store/[^/]+/share/vgs/bin/vgsh-tui$' /tmp/vgsh-only.log; then
+  elif grep -qE 'flake: refused: nix-path=missing path=/nix/store/[^/]+/share/vgshell/bin/vgshell-tui$' /tmp/vgshell-only.log; then
     ok "control: an entry point left without its PATH line fails the build"
   else
-    cat /tmp/vgsh-only.log; fail "control: an entry point left without its PATH line fails the build with its nix-path line"
+    cat /tmp/vgshell-only.log; fail "control: an entry point left without its PATH line fails the build with its nix-path line"
   fi
 fi
 
 # Control: a manifest entry the installer never writes.
 cp -r /src /tmp/planted
-echo 'f share/vgs/planted' >>/tmp/planted/packaging/install-tree.manifest
+echo 'f share/vgshell/planted' >>/tmp/planted/packaging/install-tree.manifest
 if nix build "${flags[@]}" path:/tmp/planted >/dev/null 2>/tmp/planted.log; then
   fail "control: a planted manifest entry fails the build"
-elif grep -qF 'install-tree=missing entry=f share/vgs/planted' /tmp/planted.log; then
+elif grep -qF 'install-tree=missing entry=f share/vgshell/planted' /tmp/planted.log; then
   ok "control: a planted manifest entry fails the build"
 else
   cat /tmp/planted.log; fail "control: a planted manifest entry fails the build with its install-tree line"

@@ -195,7 +195,7 @@ trap '[[ -z $source_tree ]] || rm -rf -- "$source_tree"' EXIT
 if [[ -n $rev ]]; then
   git -C "$checkout" rev-parse --verify --quiet "$rev^{commit}" >/dev/null || { printf 'sandbox-shots: refused: rev=%s\n' "$rev" >&2; exit 2; }
   mkdir -p -- "${TMPDIR:-$checkout/tmp}"
-  source_tree="$(mktemp -d "${TMPDIR:-$checkout/tmp}/vgsh-shots-tree.XXXXXX")"
+  source_tree="$(mktemp -d "${TMPDIR:-$checkout/tmp}/vgshell-shots-tree.XXXXXX")"
   if ! tree_export "$checkout" "$rev" "$source_tree"; then
     rm -rf -- "$source_tree"
     printf 'sandbox-shots: refused: rev-export=%s\n' "$rev" >&2
@@ -291,7 +291,7 @@ shell_output_scale="$scale"
 # still finds it, and the shot of that button is then skipped.
 if [[ " ${scenes[*]} " == *" settings "* && -f $tree/shell/Ui/feedback/CommandDisclosure.qml ]]; then
   # shellcheck disable=SC2034 # the harness sourced below reads it
-  shell_hidden_commands=(vsys mise vgs-browser-policy)
+  shell_hidden_commands=(vsys mise vgshell-browser-policy)
 fi
 source "$checkout/scripts/smoke/harness.sh"
 # The harness copied the tree into the sandbox; the export is no longer
@@ -512,7 +512,7 @@ narrow_end() {
   mon_w="$run_w" mon_h="$run_h"
 }
 
-theme_file="$home/.config/vgs/theme.json"
+theme_file="$home/.config/vgshell/theme.json"
 set_mode() { # dark|light|rounded
   local name
   case $1 in
@@ -1050,17 +1050,17 @@ theme_view_count() { ipc smoke readDescendant overlay vgs.themes ThemeView shown
 theme_view_problem() { ipc smoke readDescendant overlay vgs.themes ThemeView problem | py_reply 'import json,sys; print(json.load(sys.stdin) != "")'; }
 theme_view_offer() { ipc smoke readDescendant overlay vgs.themes ThemeView offer | py_reply 'import json,sys; o=json.load(sys.stdin); print(json.dumps(None if o is None else o["name"]))'; }
 wallpaper_selected_kind() { ipc smoke readDescendant overlay vgs.themes WallpaperView selected | py_reply 'import json,sys; s=json.load(sys.stdin); print(json.dumps(None if s is None else s["kind"]))'; }
-# sandbox_vgsh ARGS...: bin/vgsh in the sandbox on the PATH every sandbox
+# sandbox_vgshell ARGS...: bin/vgshell in the sandbox on the PATH every sandbox
 # shell starts with, so the runner meets the commands the shell meets. The
 # host's PATH can hold the browser-policy writer the run hides from every
 # shell (shell_hidden_commands); the CLI would then judge the chromium
 # target the settings scene ships set up and run its reload hook, which
 # the theme judge refuses under the test-run marker, failing the apply.
-sandbox_vgsh() { "${shell_env[@]}" PATH="$shell_start_path" "$repo/bin/vgsh" "$@"; }
+sandbox_vgshell() { "${shell_env[@]}" PATH="$shell_start_path" "$repo/bin/vgshell" "$@"; }
 # themes_restore MODE LABEL: vgs applied, which draws no background, then
 # the mode's theme, after a scene applied another package.
 themes_restore() {
-  sandbox_vgsh theme apply vgs >/dev/null || fail "vgs applies after $2"
+  sandbox_vgshell theme apply vgs >/dev/null || fail "vgs applies after $2"
   expect_poll "no background is drawn after $2" 0 layer_count vgs:background
   set_mode "$1"
 }
@@ -1185,11 +1185,11 @@ scene_theme-browser() { # MODE
   expect "the theme browser hides before the installed shot" ok ipc shell hide overlay vgs.themes
   expect_poll "the theme browser is gone before the installed shot" 0 layer_count vgs:overlay
   themes_restore "$1" "the theme browser's install"
-  rm -rf -- "${home:?}/.config/vgs/themes/${theme_card:?}"
-  mkdir -p -- "$home/.config/vgs/themes/$theme_card/backgrounds"
-  cp -- "$repo/themes/catalog/$theme_card/theme.json" "$home/.config/vgs/themes/$theme_card/theme.json"
-  [[ ! -f $repo/themes/catalog/$theme_card/terminal.json ]] || cp -- "$repo/themes/catalog/$theme_card/terminal.json" "$home/.config/vgs/themes/$theme_card/terminal.json"
-  "$imagemagick" "$repo/themes/catalog/thumbnails/$theme_card.jpg" -resize 2560x1440\! "$home/.config/vgs/themes/$theme_card/backgrounds/preview.jpg"
+  rm -rf -- "${home:?}/.config/vgshell/themes/${theme_card:?}"
+  mkdir -p -- "$home/.config/vgshell/themes/$theme_card/backgrounds"
+  cp -- "$repo/themes/catalog/$theme_card/theme.json" "$home/.config/vgshell/themes/$theme_card/theme.json"
+  [[ ! -f $repo/themes/catalog/$theme_card/terminal.json ]] || cp -- "$repo/themes/catalog/$theme_card/terminal.json" "$home/.config/vgshell/themes/$theme_card/terminal.json"
+  "$imagemagick" "$repo/themes/catalog/thumbnails/$theme_card.jpg" -resize 2560x1440\! "$home/.config/vgshell/themes/$theme_card/backgrounds/preview.jpg"
   expect "the theme browser opens for the installed shot" ok ipc shell summon overlay vgs.themes '{"view":"themes"}'
   expect_poll "the installed theme browser reads its cards" true ipc smoke readDescendant overlay vgs.themes ThemeView loaded
   type_keys "$theme_card" || fail "typing the installed theme-browser card failed"
@@ -1199,7 +1199,7 @@ scene_theme-browser() { # MODE
   expect "the theme browser hides" ok ipc shell hide overlay vgs.themes
   expect_poll "the theme browser is gone" 0 layer_count vgs:overlay
   # The next mode's catalog shot must show the card as the catalog has it.
-  rm -rf -- "${home:?}/.config/vgs/themes/${theme_card:?}" "${themes_mismatch:?}"
+  rm -rf -- "${home:?}/.config/vgshell/themes/${theme_card:?}" "${themes_mismatch:?}"
 }
 
 # The wallpaper browser over nord, applied with two images, and a second
@@ -1210,15 +1210,15 @@ wallpaper_output="VGS-SHOT"
 # overlays_on OUTPUT: the live vgs:overlay layers on that output.
 overlays_on() { hypr -j layers | python3 -c 'import json,sys; m=json.load(sys.stdin).get(sys.argv[1]); print(0 if m is None else sum(1 for lv in m["levels"].values() for l in lv if l["namespace"]=="vgs:overlay" and l["pid"]!=-1))' "$1"; }
 scene_wallpaper-browser() { # MODE
-  local theme_dir="$home/.config/vgs/themes/nord"
+  local theme_dir="$home/.config/vgshell/themes/nord"
   # The runner's install writes the catalog marker, with no wallpapers, so
   # the Theme source ends on the download card.
   rm -rf -- "${theme_dir:?}"
-  sandbox_vgsh theme install nord >/dev/null || fail "nord installs for the wallpaper browser shot"
+  sandbox_vgshell theme install nord >/dev/null || fail "nord installs for the wallpaper browser shot"
   mkdir -p -- "$theme_dir/backgrounds"
   cp -- "$checkout/themes/catalog/thumbnails/nord.jpg" "$theme_dir/backgrounds/a.jpg"
   cp -- "$checkout/themes/catalog/thumbnails/akane.jpg" "$theme_dir/backgrounds/b.jpg"
-  sandbox_vgsh theme apply nord >/dev/null || fail "nord applies for the wallpaper browser shot"
+  sandbox_vgshell theme apply nord >/dev/null || fail "nord applies for the wallpaper browser shot"
   expect_poll "nord is published for the wallpaper browser shot" nord ipc smoke themeName
   expect "the nested compositor adds a monitor for the wallpaper browser shot" ok hypr output create headless "$wallpaper_output"
   expect "vgs.themes enables for the wallpaper browser shot" ok ipc shell setPluginEnabled vgs.themes true
@@ -1243,7 +1243,7 @@ scene_wallpaper-browser() { # MODE
   expect_poll "the wallpaper browser is gone" 0 layer_count vgs:overlay
   expect "the wallpaper browser shot's monitor is removed" ok hypr output remove "$wallpaper_output"
   # vgs has no backgrounds, so applying it removes nord's image.
-  sandbox_vgsh theme apply vgs >/dev/null || fail "vgs applies after the wallpaper browser shot"
+  sandbox_vgshell theme apply vgs >/dev/null || fail "vgs applies after the wallpaper browser shot"
   expect_poll "no background is drawn after the wallpaper browser shot" 0 layer_count vgs:background
   rm -rf -- "${theme_dir:?}"
   set_mode "$1"
@@ -1515,24 +1515,24 @@ scene_clipboard() { # MODE
 # partial result the gate lets through. The stand-in runner answers every
 # apply with that result, which changes no theme, polls the gate every
 # 50 ms for at most 10 s and hands every other command to the real runner.
-themes_mismatch="$home/.config/vgs/themes/mismatch"
+themes_mismatch="$home/.config/vgshell/themes/mismatch"
 themes_gate="$sandbox/shots-themes-gate"
 themes_result='{"state":"partial","shell":"unchanged","targets":[{"name":"kitty","state":"failed","reason":"placeholder"}],"theme":"vgs","reason":null}'
 themes_panel_listed() { ipc smoke readInstance panel vgs.themes catalogEntries | py_reply 'import json,sys; t=sys.stdin.read(); print(t.startswith("[") and len(json.loads(t)) > 0)'; }
 themes_panel_shown() { [[ $(ipc smoke readInstance panel vgs.themes packages) != absent ]] && echo open || echo closed; }
 themes_panel_last() { ipc smoke readInstance panel vgs.themes last | py_reply 'import json,sys; l=json.load(sys.stdin); print("applying" if l["applying"] else "result" if l["result"] else "none")'; }
 themes_stand_in() {
-  cp -p -- "$repo/bin/vgsh" "$repo/bin/vgsh.real" || return 1
-  cat >"$repo/bin/vgsh.next" <<SH || return 1
+  cp -p -- "$repo/bin/vgshell" "$repo/bin/vgshell.real" || return 1
+  cat >"$repo/bin/vgshell.next" <<SH || return 1
 #!/usr/bin/env bash
 if [[ \${1:-} == theme && \${2:-} == apply ]]; then
   for _ in \$(seq 1 200); do [[ -e $(printf %q "$themes_gate") ]] && break; sleep 0.05; done
   printf '%s\n' $(printf %q "$themes_result")
   exit 3
 fi
-exec $(printf %q "$repo/bin/vgsh.real") "\$@"
+exec $(printf %q "$repo/bin/vgshell.real") "\$@"
 SH
-  chmod 755 -- "$repo/bin/vgsh.next" && mv -T -- "$repo/bin/vgsh.next" "$repo/bin/vgsh"
+  chmod 755 -- "$repo/bin/vgshell.next" && mv -T -- "$repo/bin/vgshell.next" "$repo/bin/vgshell"
 }
 scene_themes_panel() { # MODE
   mkdir -p -- "$themes_mismatch"
@@ -1555,7 +1555,7 @@ scene_themes_panel() { # MODE
   touch -- "$themes_gate"
   expect_poll "the themes panel shows the partial result" result themes_panel_last
   take "panels-$1-themes-failure"
-  mv -T -- "$repo/bin/vgsh.real" "$repo/bin/vgsh" || fail "the real runner could not be restored"
+  mv -T -- "$repo/bin/vgshell.real" "$repo/bin/vgshell" || fail "the real runner could not be restored"
   rm -f -- "$themes_gate"
   expect "the themes panel hides" ok ipc shell hide panel vgs.themes
   expect_poll "the themes panel is gone" closed themes_panel_shown
@@ -1655,7 +1655,7 @@ scene_system() { # MODE
   fi
   if [[ $displays_on == true ]]; then
     expect "disabling vgs.displays after the System shots is allowed" ok ipc shell setPluginEnabled vgs.displays false
-    rm -f -- "${home:?}/.local/state/vgs/plugins/vgs.displays/assignments.json"
+    rm -f -- "${home:?}/.local/state/vgshell/plugins/vgs.displays/assignments.json"
   fi
   expect "disabling vgs.system after its shot is allowed" ok ipc shell setPluginEnabled vgs.system false
 }
@@ -1800,8 +1800,8 @@ scene_polkit() { # MODE
 # mode's theme file and one fixture account.
 scene_greeter() { # MODE
   local dir="$sandbox/shots-greeter-$1" word base_path="" pid ready=false
-  mkdir -p -- "$dir/config/vgs" "$dir/state" "$dir/bin"
-  if [[ -f $home/.config/vgs/theme.json ]]; then cp -- "$home/.config/vgs/theme.json" "$dir/config/vgs/theme.json"; fi
+  mkdir -p -- "$dir/config/vgshell" "$dir/state" "$dir/bin"
+  if [[ -f $home/.config/vgshell/theme.json ]]; then cp -- "$home/.config/vgshell/theme.json" "$dir/config/vgshell/theme.json"; fi
   printf '#!/bin/sh\n[ "$1" = passwd ] || exit 2\necho "alex:x:1000:1000:Alex Doe:/home/alex:/bin/bash"\n' >"$dir/bin/getent"
   chmod 755 "$dir/bin/getent"
   for word in "${shell_env[@]}"; do [[ $word != PATH=* ]] || base_path="${word#PATH=}"; done
@@ -1992,9 +1992,9 @@ for scene in "${setups[@]}"; do
 printf '%s\n' '{"schema": "vsys.summary.v1", "time": 1, "verdict": [{"cause": "memory-high", "level": "warn", "subject": "/agents.slice"}], "meters": [], "errors": []}'
 SH
       chmod 755 "$shim/notify-send" "$shim/vsys"
-      mkdir -p -- "$warden_dir" "$home/.local/state/vgs/updates"
+      mkdir -p -- "$warden_dir" "$home/.local/state/vgshell/updates"
       warden_put calm 0 >/dev/null || fail "writing the warden's calm status failed"
-      python3 - "$checkout/scripts/smoke/fixtures/updates-status.json" "$home/.local/state/vgs/updates/status.json" <<'PY2' || fail "planting the updates snapshot failed"
+      python3 - "$checkout/scripts/smoke/fixtures/updates-status.json" "$home/.local/state/vgshell/updates/status.json" <<'PY2' || fail "planting the updates snapshot failed"
 import json, sys, time
 doc = json.load(open(sys.argv[1]))
 now = int(time.time() * 1000)
@@ -2021,14 +2021,14 @@ PY2
       expect "enabling vgs.devtools is allowed" ok ipc shell setPluginEnabled vgs.devtools true
       expect_poll "vgs.devtools is built" True record_exists vgs.devtools ;;
     dialog)
-      mkdir -p "$home/.config/vgs/plugins/acme.needs"
-      cp -R -- "$fixtures/acme.needs/." "$home/.config/vgs/plugins/acme.needs/"
+      mkdir -p "$home/.config/vgshell/plugins/acme.needs"
+      cp -R -- "$fixtures/acme.needs/." "$home/.config/vgshell/plugins/acme.needs/"
       tree_rescan "the needs fixture is scanned"
       expect_poll "the needs fixture is listed" True plugin_known acme.needs ;;
     lock)
       # The sleep hook and the idle watch stay off: no logind stand-in runs
       # here, and an idle lock would cover the other scenes.
-      python3 - "$home/.config/vgs/shell.json" <<'PY'
+      python3 - "$home/.config/vgshell/shell.json" <<'PY'
 import json, os, sys
 path = sys.argv[1]
 config = json.load(open(path))
@@ -2063,8 +2063,8 @@ PY
       # plugin list longer than the title menu's nine rows, so the menu
       # scrolls.
       for fixture in acme.probe acme.bare acme.idle acme.locker; do
-        mkdir -p "$home/.config/vgs/plugins/$fixture"
-        cp -R -- "$fixtures/$fixture/." "$home/.config/vgs/plugins/$fixture/"
+        mkdir -p "$home/.config/vgshell/plugins/$fixture"
+        cp -R -- "$fixtures/$fixture/." "$home/.config/vgshell/plugins/$fixture/"
       done
       # The notifications' page reads the synthetic Slack's workspace list
       # and a stub libsecret, whose `<account> <state>` lines answer the
@@ -2092,7 +2092,7 @@ SH
       # (docs/decisions/D075-consumer-features-need-no-developer-setup.md),
       # off by default: the plugins row turns it on, so the page shows the
       # rows. A tree from before the extra passes the key on unread.
-      python3 - "$home/.config/vgs/shell.json" <<'PY'
+      python3 - "$home/.config/vgshell/shell.json" <<'PY'
 import json, os, sys
 path = sys.argv[1]
 config = json.load(open(path))
@@ -2118,8 +2118,8 @@ PY
         # a systemctl stand-in that reaches no systemd, and Themes with the
         # chromium target shipped, so a host with a Chromium-family browser
         # and no writer offers its install.
-        mkdir -p "$home/.config/vgs/plugins/acme.status"
-        cp -R -- "$fixtures/acme.status/." "$home/.config/vgs/plugins/acme.status/"
+        mkdir -p "$home/.config/vgshell/plugins/acme.status"
+        cp -R -- "$fixtures/acme.status/." "$home/.config/vgshell/plugins/acme.status/"
         printf '#!/usr/bin/env bash\nexit 0\n' >"$shim/systemctl"
         chmod 755 "$shim/systemctl"
         cp -R -- "$checkout/themes/targets/chromium" "$repo/themes/targets/chromium"

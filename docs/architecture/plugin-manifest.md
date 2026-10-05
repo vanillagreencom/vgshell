@@ -1,12 +1,12 @@
 # Plugin manifest
 
-Covers: shell/plugins/**/manifest.json, shell/Core/PluginLogic.js, shell/Core/Pads.js, shell/Commons/SettingValues.js, shell/Core/PackageManagers.js, shell/Ui/icons/Lucide.js, bin/vgsh-scan, bin/lib/check-manifests.js, scripts/test-plugin-logic.js, scripts/test-setting-values.js, scripts/test-plugin-extras.js, scripts/test-plugin-menu.js, scripts/test-hyprland-layer.js, scripts/test-pads.js, scripts/test-check-manifests.js
+Covers: shell/plugins/**/manifest.json, shell/Core/PluginLogic.js, shell/Core/Pads.js, shell/Commons/SettingValues.js, shell/Core/PackageManagers.js, shell/Ui/icons/Lucide.js, bin/vgshell-scan, bin/lib/check-manifests.js, scripts/test-plugin-logic.js, scripts/test-setting-values.js, scripts/test-plugin-extras.js, scripts/test-plugin-menu.js, scripts/test-hyprland-layer.js, scripts/test-pads.js, scripts/test-check-manifests.js
 
 The manifest contract for a plugin directory. The broader plugin lifecycle, kinds, capabilities and isolation rules are in [plugins.md](plugins.md).
 
 ## Manifest
 
-A plugin is a directory with `manifest.json` at its root. `shell/Core/PluginLogic.js` is the one judge of a manifest; `bin/lib/check-manifests.js` and `vgsh plugin validate` run that judge offline, and `scripts/test-plugin-logic.js` pins each refusal by its text, the `hyprland` key's in `scripts/test-hyprland-layer.js` but for `hyprland.options`, whose stay in `scripts/test-plugin-logic.js`, and the `menu` key's in `scripts/test-plugin-menu.js`. A key not in this table refuses the manifest, so a misspelt key fails loudly instead of being carried and ignored.
+A plugin is a directory with `manifest.json` at its root. `shell/Core/PluginLogic.js` is the one judge of a manifest; `bin/lib/check-manifests.js` and `vgshell plugin validate` run that judge offline, and `scripts/test-plugin-logic.js` pins each refusal by its text, the `hyprland` key's in `scripts/test-hyprland-layer.js` but for `hyprland.options`, whose stay in `scripts/test-plugin-logic.js`, and the `menu` key's in `scripts/test-plugin-menu.js`. A key not in this table refuses the manifest, so a misspelt key fails loudly instead of being carried and ignored.
 
 | Field | Required | Meaning |
 |---|---|---|
@@ -20,7 +20,7 @@ A plugin is a directory with `manifest.json` at its root. `shell/Core/PluginLogi
 | `capabilities` | no | Core APIs the plugin uses beyond its kinds, from the table under § Capabilities. |
 | `settings` | no | The plugin's default settings, an object without an `id` or a `keys` key. The configuration entry for the plugin overrides them key by key. `placement` is reserved: the core reads it for a summoned panel or menu, and a value outside `PluginLogic.PLACEMENTS` refuses the manifest. |
 | `schema` | no | The settings a user or the plugin itself may change, keyed by setting name. [Settings schema](#settings-schema) defines entry keys, presets, runtime choices, units and fields. Required with capability `configure`. |
-| `defaultSection` | no | `left`, `center` or `right`: where `vgsh plugin enable` places a bar widget that has no placement. Needs kind `bar-widget`; `center` when absent. |
+| `defaultSection` | no | `left`, `center` or `right`: where `vgshell plugin enable` places a bar widget that has no placement. Needs kind `bar-widget`; `center` when absent. |
 | `optIn` | no | Boolean. `true` keeps a first-party plugin off until it is enabled: it takes the `row` rule of `PluginLogic.enablementRule` ([manager.md](manager.md)). Refused for kind `bar` and for a plugin whose only kind is `bar-widget`. |
 | `pane` | no | `{ group, order }` for kind `pane`. `group` is the section heading the panes holder lists the plugin under, and `order` sorts it inside that group. Needs kind `pane`; kind `pane` needs it. |
 | `appearance` | no | A `.js` file inside the plugin holding the plugin's own look, which the theme reaches through its mode and accent alone: [appearance.md](appearance.md). |

@@ -9,7 +9,7 @@
 # the one the shell started over: the engine loaded the fixture's files.
 # inputs: scripts/smoke/fixtures/plugins/acme.broken/* scripts/smoke/fixtures/plugins/acme.nowidget/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/Notices.qml shell/Hosts/BackgroundHost.qml scripts/smoke/rows/manager.sh scripts/smoke/rows/sources.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/capability-release.sh
 set -euo pipefail
-broken="$home/.config/vgs/plugins/acme.broken"
+broken="$home/.config/vgshell/plugins/acme.broken"
 mkdir -p "$broken"
 cp -R "$repo/scripts/smoke/fixtures/plugins/acme.broken/." "$broken/"
 expected_errors+=('plugins: acme\.broken (service|background) not built: ')
@@ -70,13 +70,13 @@ expect_poll "removing the plugin releases its background failure record" 0 backg
 # A bar widget that cannot take what the core assigns is not built, and the
 # section's entries stay aligned with the layout: an edit to the entry after
 # it reaches that entry's own widget, never a neighbour's settings.
-nowidget="$home/.config/vgs/plugins/acme.nowidget"
+nowidget="$home/.config/vgshell/plugins/acme.nowidget"
 mkdir -p "$nowidget"
 cp -R "$repo/scripts/smoke/fixtures/plugins/acme.nowidget/." "$nowidget/"
 expected_errors+=('plugins: acme\.nowidget bar-widget not built: ')
 rescan "rescan after adding the widget that cannot be built answers ok"
 expect_poll "the widget that cannot be built is discovered" True plugin_known acme.nowidget
-python3 - "$home/.config/vgs/shell.json" <<'PY'
+python3 - "$home/.config/vgshell/shell.json" <<'PY'
 import json, os, sys
 p = sys.argv[1]
 d = json.load(open(p))
@@ -86,7 +86,7 @@ os.replace(p + ".tmp", p)
 PY
 expect_log "the core logged the refused widget build on every bar" "$monitors" 'plugins: acme\.nowidget bar-widget not built: '
 expect_widgets "the section shows the widget after the one that failed" '["acme.tick"]'
-python3 - "$home/.config/vgs/shell.json" <<'PY'
+python3 - "$home/.config/vgshell/shell.json" <<'PY'
 import json, os, sys
 p = sys.argv[1]
 d = json.load(open(p))
@@ -95,7 +95,7 @@ json.dump(d, open(p + ".tmp", "w"), indent=2)
 os.replace(p + ".tmp", p)
 PY
 expect_poll "an edit after a failed entry reaches its own widget" '"aligned"' read_tick format
-python3 - "$home/.config/vgs/shell.json" <<'PY'
+python3 - "$home/.config/vgshell/shell.json" <<'PY'
 import json, os, sys
 p = sys.argv[1]
 d = json.load(open(p))

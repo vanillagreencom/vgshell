@@ -16,24 +16,24 @@
 # leave that plugin either way, so the row enables it for those starts. The
 # row leaves hyprland.lua wired, the welcome seen, vgs.themes disabled only
 # when it found it so and the real shell running.
-# inputs: shell/Core/HyprlandLayer.* shell/Core/Notices.qml bin/vgsh bin/vgsh-hypr-judge shell/Hosts/NoticeHost.qml shell/Core/PluginLogic.js config/shell.json shell/plugins/vgs.themes/manifest.json scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/Core/HyprlandLayer.* shell/Core/Notices.qml bin/vgshell bin/vgshell-hypr-judge shell/Hosts/NoticeHost.qml shell/Core/PluginLogic.js config/shell.json shell/plugins/vgs.themes/manifest.json scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 
 hypr_lua="$home/.config/hypr/hyprland.lua"
-hypr_layer="$home/.local/state/vgs/hypr/vgs.lua"
-marker="$rt_dir/vgs/hypr/consent-declined"
+hypr_layer="$home/.local/state/vgshell/hypr/vgs.lua"
+marker="$rt_dir/vgshell/hypr/consent-declined"
 wire_line="pcall(dofile, \"$hypr_layer\")"
-vgsh_run() { "${shell_env[@]}" "$repo/bin/vgsh" "$@"; }
+vgshell_run() { "${shell_env[@]}" "$repo/bin/vgshell" "$@"; }
 wire_count() { grep -cxF -- "$wire_line" "$hypr_lua" || true; }
 tail_matches_harness() { tail -n +2 -- "$hypr_lua" | cmp -s - "$sandbox/hyprland-harness.lua" && echo same || echo differs; }
 marker_content() { cat -- "$marker" 2>/dev/null || true; }
-prepare_unwired_start() { vgsh_run hypr unwire >/dev/null; }
+prepare_unwired_start() { vgshell_run hypr unwire >/dev/null; }
 welcome_record() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["notices"]["welcome"]))'; }
-welcome_seen="$home/.local/state/vgs/welcome-seen"
+welcome_seen="$home/.local/state/vgshell/welcome-seen"
 welcome_marker() { [[ -e $welcome_seen ]] && echo present || echo absent; }
 # Whether the user file on disk lists vgs.themes as disabled, which the
 # next start reads; with no user file the shipped set holds it enabled.
-themes_on_disk() { [[ -e $home/.config/vgs/shell.json ]] || { echo enabled; return; }; python3 -c 'import json,sys; print("disabled" if "vgs.themes" in json.load(open(sys.argv[1])).get("disabledPlugins", []) else "enabled")' "$home/.config/vgs/shell.json"; }
+themes_on_disk() { [[ -e $home/.config/vgshell/shell.json ]] || { echo enabled; return; }; python3 -c 'import json,sys; print("disabled" if "vgs.themes" in json.load(open(sys.argv[1])).get("disabledPlugins", []) else "enabled")' "$home/.config/vgshell/shell.json"; }
 # The consent phase, its queued answer and the slot's title, while an
 # answer runs.
 decline_view() { ipc shell lent | py_reply 'import json,sys; n=json.load(sys.stdin)["notices"]; s=n.get("consentState") or {}; c=n["consent"]; print(json.dumps({"phase": s.get("phase"), "queued": s.get("queued"), "title": None if c is None else c["title"]}))'; }
@@ -43,14 +43,14 @@ prepare_unwired_start
 if stop_shell && start_shell "$repo" "$sandbox/hypr-consent-decline.log"; then
   ok "the real shell restarts for the consent decline row"
 fi
-expect_poll "the restarted shell asks before wiring an unchanged layer" '{"title": "Let VGS manage its Hyprland settings?", "command": "vgsh hypr wire", "failure": ""}' hypr_consent_record
+expect_poll "the restarted shell asks before wiring an unchanged layer" '{"title": "Let VGS manage its Hyprland settings?", "command": "vgshell hypr wire", "failure": ""}' hypr_consent_record
 expect "a later start with the welcome seen draws no welcome" '{"state": "seen", "lines": null, "actions": null}' welcome_record
 type_keys -k Escape || fail "sending Escape to the Hyprland consent notice failed"
 expect_poll "Not now reaches the declined consent state" declined hypr_consent_phase
 expect_poll "Not now closes the Hyprland consent notice" null hypr_consent_record
 expect_poll "Not now leaves hyprland.lua unwired" 0 wire_count
 expect_poll "Not now writes this Hyprland session's marker" "$signature" marker_content
-expect "a forced render after Not now is accepted" ok vgsh_run hypr render
+expect "a forced render after Not now is accepted" ok vgshell_run hypr render
 expect_poll "the forced render leaves hyprland.lua unwired" 0 wire_count
 rescan "a rescan after Not now is accepted"
 expect_poll "the rescan after Not now keeps the declined consent state" declined hypr_consent_phase
@@ -86,14 +86,14 @@ if stop_shell && start_shell "$mutant" "$sandbox/hypr-consent-mutant.log"; then
   ok "the decline control copy starts"
 fi
 expect_poll "control: ignoring the marker reaches the asking consent state" asking hypr_consent_phase
-expect_poll "control: ignoring the marker asks again after restart" '{"title": "Let VGS manage its Hyprland settings?", "command": "vgsh hypr wire", "failure": ""}' hypr_consent_record
+expect_poll "control: ignoring the marker asks again after restart" '{"title": "Let VGS manage its Hyprland settings?", "command": "vgshell hypr wire", "failure": ""}' hypr_consent_record
 
 printf '%s\n' "other-session" >"$marker"
 if stop_shell && start_shell "$repo" "$sandbox/hypr-consent-other-session.log"; then
   ok "the real shell restarts with another session's marker"
 fi
 expect_poll "a marker from another Hyprland session is ignored" asking hypr_consent_phase
-expect_poll "a marker from another Hyprland session asks again" '{"title": "Let VGS manage its Hyprland settings?", "command": "vgsh hypr wire", "failure": ""}' hypr_consent_record
+expect_poll "a marker from another Hyprland session asks again" '{"title": "Let VGS manage its Hyprland settings?", "command": "vgshell hypr wire", "failure": ""}' hypr_consent_record
 
 # Escape on the welcome that asks. The slow copy's decline marker write
 # sleeps 2 s first, so the readings between the answer and the decline see
@@ -106,7 +106,7 @@ rm -f -- "${marker:?}" "${welcome_seen:?}"
 if stop_shell && start_shell "$sandbox/tree-welcome-slow" "$sandbox/hypr-welcome-decline.log"; then
   ok "the slow welcome copy starts without either marker"
 fi
-expect_poll "an unwired start without the welcome-seen marker asks inside the welcome" '{"title": "Welcome to VGS", "command": "vgsh hypr wire", "failure": ""}' hypr_consent_record
+expect_poll "an unwired start without the welcome-seen marker asks inside the welcome" '{"title": "Welcome to VGS", "command": "vgshell hypr wire", "failure": ""}' hypr_consent_record
 expect_poll "the asking welcome holds the keyboard" true ipc smoke noticeFocused
 type_keys -k Escape || fail "sending Escape to the asking welcome failed"
 expect_poll "the welcome stays, busy, while its decline runs" '{"phase": "asking", "queued": "decline", "title": "Welcome to VGS"}' decline_view
@@ -124,7 +124,7 @@ rm -f -- "${marker:?}" "${welcome_seen:?}"
 if stop_shell && start_shell "$sandbox/tree-welcome-early" "$sandbox/hypr-welcome-early.log"; then
   ok "the welcome control copy starts without either marker"
 fi
-expect_poll "control: the copy asks inside the welcome" '{"title": "Welcome to VGS", "command": "vgsh hypr wire", "failure": ""}' hypr_consent_record
+expect_poll "control: the copy asks inside the welcome" '{"title": "Welcome to VGS", "command": "vgshell hypr wire", "failure": ""}' hypr_consent_record
 expect_poll "control: the copy's welcome holds the keyboard" true ipc smoke noticeFocused
 type_keys -k Escape || fail "sending Escape to the control copy's welcome failed"
 expect_poll "control: marking the welcome seen on the answer shows the plain question while the decline runs" '{"phase": "asking", "queued": "decline", "title": "Let VGS manage its Hyprland settings?"}' decline_view
@@ -134,7 +134,7 @@ rm -f -- "$marker"
 if stop_shell && start_shell "$repo" "$sandbox/hypr-consent-final.log"; then
   ok "the real shell restarts after the decline control"
 fi
-expect_poll "the real shell asks again after the marker is removed" '{"title": "Let VGS manage its Hyprland settings?", "command": "vgsh hypr wire", "failure": ""}' hypr_consent_record
+expect_poll "the real shell asks again after the marker is removed" '{"title": "Let VGS manage its Hyprland settings?", "command": "vgshell hypr wire", "failure": ""}' hypr_consent_record
 type_keys -k Return || fail "sending Return to the final Hyprland consent notice failed"
 expect_poll "the final Connect reaches the wired consent state" wired hypr_consent_phase
 expect_poll "the final Connect closes the Hyprland consent notice" null hypr_consent_record

@@ -10,10 +10,10 @@ import "ViewLogic.js" as ViewLogic
 // writeLaunchers setting asks for. ViewLogic decides which queries each
 // trigger runs:
 //   the first shell            everything
-//   vgsh ipc call vgs.devtools invoke open
+//   vgshell ipc call vgs.devtools invoke open
 //                              summons the window, then everything, a
 //                              network query only when its answer is stale
-//   vgsh ipc call vgs.devtools invoke refresh
+//   vgshell ipc call vgs.devtools invoke refresh
 //                              everything
 //   a run of one of the plugin's TUIs ending (shell.tui.state), whichever
 //   instance started it       the launchers, the list, the requirements and

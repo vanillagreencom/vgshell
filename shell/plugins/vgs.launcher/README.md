@@ -10,9 +10,9 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 
 | Path | How |
 |---|---|
-| Shortcut | The service registers `vgs.launcher:toggle`, and the manifest binds it to `SUPER+SPACE` in the Hyprland layer the shell writes while the plugin is enabled ([hyprland.md](../../../docs/architecture/hyprland.md)). To change the key, edit it under Keys on the plugin's Settings page, or give the plugin's row in `~/.config/vgs/shell.json` a `keys` entry, `{ "id": "vgs.launcher", "keys": { "toggle": "SUPER+ALT+SPACE" } }`; `null` in place of the key unbinds it. |
+| Shortcut | The service registers `vgs.launcher:toggle`, and the manifest binds it to `SUPER+SPACE` in the Hyprland layer the shell writes while the plugin is enabled ([hyprland.md](../../../docs/architecture/hyprland.md)). To change the key, edit it under Keys on the plugin's Settings page, or give the plugin's row in `~/.config/vgshell/shell.json` a `keys` entry, `{ "id": "vgs.launcher", "keys": { "toggle": "SUPER+ALT+SPACE" } }`; `null` in place of the key unbinds it. |
 | Bar entry | Enabling the plugin on its Settings page places the magnifier in the bar's left section. A left click toggles the launcher on that screen; a right click runs `xdg-terminal-exec`. |
-| IPC | `vgsh ipc call vgs.launcher invoke toggle '<payload>'` or `... invoke summon '<payload>'`, or the host's own `vgsh ipc call shell summon overlay vgs.launcher '<payload>'`. |
+| IPC | `vgshell ipc call vgs.launcher invoke toggle '<payload>'` or `... invoke summon '<payload>'`, or the host's own `vgshell ipc call shell summon overlay vgs.launcher '<payload>'`. |
 
 A closed launcher holds no surface: the overlay host builds it on summon and destroys it on hide.
 
@@ -32,14 +32,14 @@ A picker answers once. A pick writes the label (and a tab and its detail, when i
 
 ```bash
 sel="$XDG_RUNTIME_DIR/pick.sel"; done="$XDG_RUNTIME_DIR/pick.done"
-vgsh ipc call shell summon overlay vgs.launcher "{\"mode\":\"select\",\"prompt\":\"Pick\",\"options\":[\"one\",\"two\"],\"selectionFile\":\"$sel\",\"doneFile\":\"$done\"}"
+vgshell ipc call shell summon overlay vgs.launcher "{\"mode\":\"select\",\"prompt\":\"Pick\",\"options\":[\"one\",\"two\"],\"selectionFile\":\"$sel\",\"doneFile\":\"$done\"}"
 until [[ -s $done ]]; do sleep 0.05; done
 [[ $(<"$done") == ok ]] && cat "$sel"
 ```
 
 ## Menu
 
-`menu.json` is the shipped menu. `~/.config/vgs/launcher/menu.json` merges over it by id and per key, so a user file can change one label without restating the row; the file is watched, and the launcher makes `~/.config/vgs/launcher/` when it opens, so a file first created there while it is open is read. Both are `{ "schemaVersion": 1, "items": { "<id>": { ... } } }`, and a dotted id names its parent. `MenuModel.ITEM_KEYS` lists the keys an item may set:
+`menu.json` is the shipped menu. `~/.config/vgshell/launcher/menu.json` merges over it by id and per key, so a user file can change one label without restating the row; the file is watched, and the launcher makes `~/.config/vgshell/launcher/` when it opens, so a file first created there while it is open is read. Both are `{ "schemaVersion": 1, "items": { "<id>": { ... } } }`, and a dotted id names its parent. `MenuModel.ITEM_KEYS` lists the keys an item may set:
 
 - `run`: an argument list the `run` capability starts, with no shell unless the list names one.
 - `target`: a link to another menu. `provider`: `apps` for installed applications, `themes` for the theme packages. The shipped menu does not use `themes`; it stays for an owner's own menu file.
@@ -55,13 +55,13 @@ Enabled plugins add rows of their own from their manifests' `menu` key, which `s
 
 A file the judge refuses is logged as `launcher: menu refused: file=<path> <defect>` and shows as a notice row; the shipped menu stands.
 
-Omarchy's own menu actions are not ported: they run Omarchy scripts. The shipped menu maps what a Hyprland session has everywhere (lock with `vgsh lock`, which asks `vgs.lock`, since a logind lock request reaches no listener in the shell: [lock-polkit.md](../../../docs/architecture/lock-polkit.md); suspend, hibernate, log out, reboot, shut down; a terminal, a screenshot). Delete on an application points at the Remove row instead of removing it: `shell.tui.open` opens the remove picker with no arguments, so the launcher cannot name the application's package.
+Omarchy's own menu actions are not ported: they run Omarchy scripts. The shipped menu maps what a Hyprland session has everywhere (lock with `vgshell lock`, which asks `vgs.lock`, since a logind lock request reaches no listener in the shell: [lock-polkit.md](../../../docs/architecture/lock-polkit.md); suspend, hibernate, log out, reboot, shut down; a terminal, a screenshot). Delete on an application points at the Remove row instead of removing it: `shell.tui.open` opens the remove picker with no arguments, so the launcher cannot name the application's package.
 
 Install opens `core/pkg-install` and Remove `core/pkg-remove`, the core's package pickers ([packages.md § Pickers](../../../docs/architecture/packages.md#pickers)). Update opens the first listed entry of the group `Update`, which an updates plugin declares for its pipeline, and is hidden while no enabled plugin declares one. Automations and New automation call the automations service IPC, which opens that plugin's window. Omarchy's Install › Package and Remove › Package rows are action strings, `xdg-terminal-exec --app-id=org.omarchy.terminal omarchy-pkg-install`, and Update › Omarchy runs `omarchy-launch-floating-terminal-with-presentation omarchy-update` (`default/omarchy/omarchy-menu.jsonc`, basecamp/omarchy `e332dc97`). VGS names an entry instead: the core builds the argv and the window from the TUI's declaration, so no menu text becomes shell code. The rows sit at the top level rather than one level down, since the shell has one installer, one remover and one update entry to offer. The Terminal row still runs `xdg-terminal-exec`.
 
 ## Files
 
-`f:` and `F:` run `file-search.sh` from the plugin's published revision; its header states its protocol and every refusal. The index lives in `$XDG_CACHE_HOME/vgs/launcher/`, holds at most 200000 entries, and refreshes each time the launcher enters `f:` or `F:`. A query shows at most 40 results; hits with one name sit together, newest first. Enter opens the pick with its default application; Shift+Enter or a right click lists the applications that open it, with Show in folder and Copy path. A helper that fails shows its keyed line as a notice row. It needs `fd`, `fzf`, `file`, `flock`, `gio`, `xdg-mime` and `wl-copy`.
+`f:` and `F:` run `file-search.sh` from the plugin's published revision; its header states its protocol and every refusal. The index lives in `$XDG_CACHE_HOME/vgshell/launcher/`, holds at most 200000 entries, and refreshes each time the launcher enters `f:` or `F:`. A query shows at most 40 results; hits with one name sit together, newest first. Enter opens the pick with its default application; Shift+Enter or a right click lists the applications that open it, with Show in folder and Copy path. A helper that fails shows its keyed line as a notice row. It needs `fd`, `fzf`, `file`, `flock`, `gio`, `xdg-mime` and `wl-copy`.
 
 ## Keys
 
@@ -87,7 +87,7 @@ Hyprland blurs what is behind the glass only when a layer rule asks it to, for t
 hl.layer_rule({ name = "vgs.launcher:overlay", match = { namespace = "^vgs:overlay$" }, blur = true, ignore_alpha = 0.6 })
 ```
 
-`hyprland.lua` runs the layer from the line `vgsh hypr wire` keeps first in it, so your own settings after that line win. To change the rule, call `hl.layer_rule` with its name and new values after the line; `enabled = false` turns it off.
+`hyprland.lua` runs the layer from the line `vgshell hypr wire` keeps first in it, so your own settings after that line win. To change the rule, call `hl.layer_rule` with its name and new values after the line; `enabled = false` turns it off.
 
 ## Shader
 

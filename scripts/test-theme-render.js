@@ -127,7 +127,7 @@ const REFUSED_TARGETS = [
     ["probe", targetText({ wiring: { file: "probe/probe.conf", line: "include=@{state}/probe.conf" } }), "target-schema", "key=wiring"],
     ["probe", targetText({ wiring: Object.assign({}, wiring, { file: "../probe.conf" }) }), "target-schema", "key=wiring.file"],
     ["probe", targetText({ wiring: Object.assign({}, wiring, { file: "/etc/probe.conf" }) }), "target-schema", "key=wiring.file"],
-    ["probe", targetText({ wiring: Object.assign({}, wiring, { line: "include=~/.local/state/vgs/theme/probe.conf" }) }), "target-schema", "key=wiring.line"],
+    ["probe", targetText({ wiring: Object.assign({}, wiring, { line: "include=~/.local/state/vgshell/theme/probe.conf" }) }), "target-schema", "key=wiring.line"],
     ["probe", targetText({ wiring: Object.assign({}, wiring, { line: "include=@{palette.accent}" }) }), "target-schema", "key=wiring.line"],
     ["probe", targetText({ wiring: Object.assign({}, wiring, { line: "include=@{state}/a\ninclude=b" }) }), "target-schema", "key=wiring.line"],
     ["probe", targetText({ wiring: Object.assign({}, wiring, { create: "yes" }) }), "target-schema", "key=wiring.create"],
@@ -512,7 +512,7 @@ function verify(render) {
     assert.throws(() => render.renderTarget(logic, TOKENS, target("hex6"), new Map([["probe.conf", ""]]), { values: probe.values, slots: defaults.terminal, curated: new Map() }), /without the package's source/);
 
     // The wiring line names the state directory; `@@{` stays a literal.
-    assert.equal(render.wiringLine(target("hex6"), "/s/vgs/theme"), "include=/s/vgs/theme/probe.conf");
+    assert.equal(render.wiringLine(target("hex6"), "/s/vgshell/theme"), "include=/s/vgshell/theme/probe.conf");
     const escaped = accepted("probe", targetText({ wiring: Object.assign({}, wiring, { line: "a=@@{x} source @{state}/b @{state}/c" }) }));
     assert.equal(render.wiringLine(escaped, "/s"), "a=@{x} source /s/b /s/c");
     for (const [text, want] of WIRED)
@@ -539,8 +539,8 @@ function verify(render) {
     const copied = accepted("probe", copyEntryText());
     assert.equal(render.wiringForm(linked.wiring), "entry");
     assert.equal(render.wiringForm(target("hex6").wiring), "include");
-    assert.deepEqual(render.entryItems(linked, "/s/vgs/theme"), [{ kind: "link", name: "vgs.conf", destination: "probe.conf", to: "/s/vgs/theme/probe.conf" }, { kind: "link", name: "package.json", destination: "probe.pkg.json", to: "/s/vgs/theme/probe.pkg.json" }]);
-    assert.deepEqual(render.entryItems(copied, "/s/vgs/theme"), [{ kind: "copy", name: "vgs.conf", destination: "probe.conf", to: "/s/vgs/theme/probe.conf" }]);
+    assert.deepEqual(render.entryItems(linked, "/s/vgshell/theme"), [{ kind: "link", name: "vgs.conf", destination: "probe.conf", to: "/s/vgshell/theme/probe.conf" }, { kind: "link", name: "package.json", destination: "probe.pkg.json", to: "/s/vgshell/theme/probe.pkg.json" }]);
+    assert.deepEqual(render.entryItems(copied, "/s/vgshell/theme"), [{ kind: "copy", name: "vgs.conf", destination: "probe.conf", to: "/s/vgshell/theme/probe.conf" }]);
     assert.throws(() => render.wiringLine(linked, "/s"), /has wiring form entry/);
     assert.throws(() => render.entryItems(target("hex6"), "/s"), /has wiring form include/);
 
@@ -554,12 +554,12 @@ function verify(render) {
     // without profiles, the wiring file; `@@{` stays a literal. `always`
     // alone makes a hook due on every apply.
     const hooked = accepted("probe", targetText({ reload: { command: ["probe", "--file=@{state}/probe.conf", "@@{x}"], timeoutMs: 2000, always: true } }));
-    assert.deepEqual(render.reloadCommand(hooked, "/s/vgs/theme"), ["probe", "--file=/s/vgs/theme/probe.conf", "@{x}"]);
+    assert.deepEqual(render.reloadCommand(hooked, "/s/vgshell/theme"), ["probe", "--file=/s/vgshell/theme/probe.conf", "@{x}"]);
     assert.equal(render.reloadNamesWiring(hooked), false);
     const wiringHook = accepted("probe", targetText({ reload: { command: ["touch", "-c", "--", "@{wiring}", "@{state}", "@@{x}"], timeoutMs: 2000 } }));
     assert.equal(render.reloadNamesWiring(wiringHook), true);
-    assert.deepEqual(render.reloadCommand(wiringHook, "/s/vgs/theme", "/home/u/.wezterm.lua"), ["touch", "-c", "--", "/home/u/.wezterm.lua", "/s/vgs/theme", "@{x}"]);
-    assert.throws(() => render.reloadCommand(wiringHook, "/s/vgs/theme"), /names placeholder wiring/);
+    assert.deepEqual(render.reloadCommand(wiringHook, "/s/vgshell/theme", "/home/u/.wezterm.lua"), ["touch", "-c", "--", "/home/u/.wezterm.lua", "/s/vgshell/theme", "@{x}"]);
+    assert.throws(() => render.reloadCommand(wiringHook, "/s/vgshell/theme"), /names placeholder wiring/);
     assert.deepEqual(render.reloadCommand(target("hex6"), "/s"), ["probe", "--reload"]);
     assert.equal(render.reloadNamesWiring(target("hex6")), false);
     assert.equal(render.reloadAlways(hooked), true);

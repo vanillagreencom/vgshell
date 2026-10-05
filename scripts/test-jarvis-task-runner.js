@@ -34,8 +34,8 @@ async function inside() {
     const env = { PATH: process.env.PATH, HOME: process.env.HOME, LANG: "C.UTF-8" };
     const Tasks = require(path.join(backend, "Tasks.js"));
     const Router = require(path.join(backend, "ToolRouter.js"));
-    const directories = { state: path.join(root, "state/vgs/jarvis"), runtime: path.join(root, "run/vgs/jarvis") };
-    const engine = Tasks.publish(path.join(root, "data/vgs/jarvis"), backend);
+    const directories = { state: path.join(root, "state/vgshell/jarvis"), runtime: path.join(root, "run/vgshell/jarvis") };
+    const engine = Tasks.publish(path.join(root, "data/vgshell/jarvis"), backend);
     const marks = path.join(root, "marks");
     fs.mkdirSync(marks);
     const cwd = path.join(root, "home");
@@ -104,7 +104,7 @@ async function inside() {
             engine: options.engine ?? engine, backend, profiles,
             settings: () => ({ taskTerminal: options.terminal ?? "floating" }), display,
             count: value => seen.counts.push(value), failed: error => seen.failures.push(error.message),
-            environment: { ...env, XDG_RUNTIME_DIR: path.join(root, "run"), VGSH_RUNNER_PID: "1", FIXTURE_SECRET: "x" },
+            environment: { ...env, XDG_RUNTIME_DIR: path.join(root, "run"), VGSHELL_RUNNER_PID: "1", FIXTURE_SECRET: "x" },
             lookup: command => command === "fixture-agent" || (command === "tmux" && options.tmuxPresent !== false),
             tmux: options.tmux ?? path.join(root, "bootstrap/tmux"),
             clock: { now: () => Date.now() + (options.offset ?? 0), set: setTimeout, clear: clearTimeout },
@@ -551,7 +551,7 @@ const answer = spawnFixture("python3", ["-I", "-c", "import os; os._exit(23)"],
             assert.deepEqual([task.identity.pid, task.identity.pgid, task.identity.sid], [agent.leader, Number(pgid), Number(sid)]);
             assert.equal(agent.cwd, cwd);
             assert.ok(Object.hasOwn(agent.env, "TERM"), "the pane's TERM reaches the agent");
-            assert.equal(Object.hasOwn(agent.env, "VGSH_RUNNER_PID") || Object.hasOwn(agent.env, "FIXTURE_SECRET"), false);
+            assert.equal(Object.hasOwn(agent.env, "VGSHELL_RUNNER_PID") || Object.hasOwn(agent.env, "FIXTURE_SECRET"), false);
         }
         assert.equal(one.agent.env.FIXTURE_ACCOUNT, path.join(root, "account"));
         assert.equal(Object.hasOwn(two.agent.env, "FIXTURE_ACCOUNT"), false);

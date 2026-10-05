@@ -101,7 +101,7 @@ world(async () => {
                 : { kind: "local", provider: "local", account: "" }] });
         const net = kit.Net.create(recipients);
         doors.push(net);
-        const secrets = new kit.Secrets.Secrets(path.join(env.XDG_STATE_HOME, "vgs/jarvis"), env);
+        const secrets = new kit.Secrets.Secrets(path.join(env.XDG_STATE_HOME, "vgshell/jarvis"), env);
         const model = "fixture-" + ++counter;
         scripts.set(model, clone(sequence));
         const brain = kit.Brain.create({ provider, model, net: wrap(net), recipients,
@@ -404,7 +404,7 @@ world(async () => {
         const recipients = Policy.recipients({ conversation: "fixture", profile: "standard", cloudVision: "ask",
             brain: { kind: "network", provider: "anthropic", account: "fixture", origin: "https://api.anthropic.com" },
             speech: [{ kind: "local", provider: "local", account: "" }] });
-        const secrets = new kit.Secrets.Secrets(path.join(env.XDG_STATE_HOME, "vgs/jarvis"), env);
+        const secrets = new kit.Secrets.Secrets(path.join(env.XDG_STATE_HOME, "vgshell/jarvis"), env);
         const sent = [];
         let closed = false;
         const options = { provider: Providers.select("anthropic"), model: "fixture-model", recipients,

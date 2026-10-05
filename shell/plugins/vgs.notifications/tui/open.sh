@@ -10,7 +10,7 @@
 #   open.sh <absolute path>
 #
 # Exits with the editor's or xdg-open's status. Presented refusals keep their
-# keyed line in $XDG_STATE_HOME/vgs/notifications/diagnostics.log and show
+# keyed line in $XDG_STATE_HOME/vgshell/notifications/diagnostics.log and show
 # a plain explanation. Outside the presenter, the keyed line goes to stderr.
 # Keys: `notifications: refused: tui=missing`, exit 2, outside the
 # presenter; `notifications: refused: argument=<count>`, exit 2;
@@ -25,7 +25,7 @@ set -Eeuo pipefail
 refuse() { # STATUS FIRST_LINE [ENGLISH...]
   local status="$1"
   if [[ -n ${VGS_TUI_LIB:-} ]]; then
-    local dir="${XDG_STATE_HOME:-$HOME/.local/state}/vgs/notifications"
+    local dir="${XDG_STATE_HOME:-$HOME/.local/state}/vgshell/notifications"
     if ! { mkdir -p -- "$dir" && printf 'notifications: refused: %s\n' "$2" >>"$dir/diagnostics.log"; } 2>/dev/null; then
       printf 'VGS could not save the error details.\n' >&2
     fi

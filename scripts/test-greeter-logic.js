@@ -203,9 +203,9 @@ function verify(logic) {
     // The service's copy: nothing until the step reads ready, then the
     // theme file, the background link and the step's directory, in that
     // order.
-    assert.equal(logic.copyArguments(false, "/home/a/.config/vgs", "/home/a/.local/state/vgs"), null, "no copy before the step reads ready");
-    same(logic.copyArguments(true, "/home/a/.config/vgs", "/home/a/.local/state/vgs"),
-        ["/home/a/.config/vgs/theme.json", "/home/a/.local/state/vgs/background", "/var/lib/vgs/greeter/theme"], "the copy's arguments");
+    assert.equal(logic.copyArguments(false, "/home/a/.config/vgshell", "/home/a/.local/state/vgshell"), null, "no copy before the step reads ready");
+    same(logic.copyArguments(true, "/home/a/.config/vgshell", "/home/a/.local/state/vgshell"),
+        ["/home/a/.config/vgshell/theme.json", "/home/a/.local/state/vgshell/background", "/var/lib/vgshell/greeter/theme"], "the copy's arguments");
     same(logic.copyLine("theme=copied background=removed\n"), { theme: "copied", background: "removed" }, "the copy's line");
     assert.equal(logic.copyLine("theme=copied"), null, "a cut line");
     same(logic.themeState(false, null), { tone: "info", text: "Waits for the login screen" }, "no copy before setup");

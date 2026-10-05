@@ -31,7 +31,7 @@
 
 **Revisit When**: An application refuses to follow a symlink in its theme or extension directory, or a target needs a file the application reads that is not one of its files in `theme/`.
 
-**Verification**: `scripts/test-theme-render.js` covers the form's schema with a control per rule. `scripts/test-vgsh-entries.sh` covers the links, the symlinked directory, the occupied paths and the removal. Its controls are judge copies that take any symlink as managed, skip the occupancy check, never remove or recursively remove the owned directory, remove any path at a link's name, misplace a `home` directory and ignore `XDG_CACHE_HOME` for a `cache` one.
+**Verification**: `scripts/test-theme-render.js` covers the form's schema with a control per rule. `scripts/test-vgshell-entries.sh` covers the links, the symlinked directory, the occupied paths and the removal. Its controls are judge copies that take any symlink as managed, skip the occupancy check, never remove or recursively remove the owned directory, remove any path at a link's name, misplace a `home` directory and ignore `XDG_CACHE_HOME` for a `cache` one.
 
 ## Revisit Outcome (2026-09-27)
 

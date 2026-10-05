@@ -170,7 +170,7 @@ if (require.main === module) {
     const candidate = path.join(env.HOME, ".claude-team");
     fs.mkdirSync(candidate);
     fs.writeFileSync(path.join(env.XDG_STATE_HOME, "claude-mode"), mode === "found" ? "found" : "signed-in");
-    const directory = path.join(env.XDG_STATE_HOME, "vgs/jarvis");
+    const directory = path.join(env.XDG_STATE_HOME, "vgshell/jarvis");
     fs.mkdirSync(directory, { recursive: true });
     if (mode === "failed") fs.writeFileSync(path.join(directory, "accounts.json"), "broken");
     if (mode === "entry-limit") {

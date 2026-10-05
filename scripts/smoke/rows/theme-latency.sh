@@ -12,7 +12,7 @@
 # 89/108/132 ms. Six at load 8.6: 171, 93, 158, 116, 108, 121 ms,
 # CPU pressure 0.3 to 0.8%, compositor logs on.
 # Wallpaper keeps its 150 ms bound.
-# inputs: shell/plugins/vgs.themes/* shell/Core/ThemeRunner.qml shell/Commons/Theme* shell/Ui/layout/CardCarousel.qml themes/* bin/vgsh bin/vgsh-theme-judge bin/lib/* scripts/smoke/rows/hyprland-consent.sh scripts/smoke/ThemeLatencyProbe.qml
+# inputs: shell/plugins/vgs.themes/* shell/Core/ThemeRunner.qml shell/Commons/Theme* shell/Ui/layout/CardCarousel.qml themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/* scripts/smoke/rows/hyprland-consent.sh scripts/smoke/ThemeLatencyProbe.qml
 set -euo pipefail
 # Exercise the actual QML reader under Node with controlled presented frames.
 # These controls hold dismissal, wallpaper readiness and selected content.
@@ -165,30 +165,30 @@ latency_wall_value() { ipc smoke readDescendant overlay vgs.themes WallpaperView
 
 expect "the theme service retires before the cold reading" ok ipc shell setPluginEnabled vgs.themes false
 expect "the existing theme reads settle" idle theme_idle
-mkdir -p -- "$home/.config/vgs/themes/latency/backgrounds"
-printf '%s\n' '{"schemaVersion":1,"name":"latency","tokens":{"palette":{"accent":"#12ab34"}}}' >"$home/.config/vgs/themes/latency/theme.json"
-cp -- "$repo/themes/catalog/thumbnails/nord.jpg" "$home/.config/vgs/themes/latency/backgrounds/a.jpg"
-cp -- "$repo/themes/catalog/thumbnails/akane.jpg" "$home/.config/vgs/themes/latency/backgrounds/b.jpg"
-mkdir -p -- "$home/.config/vgs/themes/sample-peer/backgrounds"
-printf '%s\n' '{"schemaVersion":1,"name":"sample-peer","tokens":{"palette":{"accent":"#ab1234"}}}' >"$home/.config/vgs/themes/sample-peer/theme.json"
-cp -- "$home/.config/vgs/themes/latency/backgrounds/"*.jpg "$home/.config/vgs/themes/sample-peer/backgrounds/"
+mkdir -p -- "$home/.config/vgshell/themes/latency/backgrounds"
+printf '%s\n' '{"schemaVersion":1,"name":"latency","tokens":{"palette":{"accent":"#12ab34"}}}' >"$home/.config/vgshell/themes/latency/theme.json"
+cp -- "$repo/themes/catalog/thumbnails/nord.jpg" "$home/.config/vgshell/themes/latency/backgrounds/a.jpg"
+cp -- "$repo/themes/catalog/thumbnails/akane.jpg" "$home/.config/vgshell/themes/latency/backgrounds/b.jpg"
+mkdir -p -- "$home/.config/vgshell/themes/sample-peer/backgrounds"
+printf '%s\n' '{"schemaVersion":1,"name":"sample-peer","tokens":{"palette":{"accent":"#ab1234"}}}' >"$home/.config/vgshell/themes/sample-peer/theme.json"
+cp -- "$home/.config/vgshell/themes/latency/backgrounds/"*.jpg "$home/.config/vgshell/themes/sample-peer/backgrounds/"
 cp -p -- "$hypr_lua" "$sandbox/hyprland-before-latency.lua"
 printf '%s\n' 'hl.config({ input = { resolve_binds_by_sym = true } })' >>"$hypr_lua"
 expect "latency input bindings reload" ok hypr reload config-only
 # Hold the first catalog answer. Installed rows must draw before it ends.
-cp -p -- "$repo/bin/vgsh" "$sandbox/vgsh-before-latency"
-cp -p -- "$repo/bin/vgsh" "$repo/bin/vgsh.latency-real"
+cp -p -- "$repo/bin/vgshell" "$sandbox/vgshell-before-latency"
+cp -p -- "$repo/bin/vgshell" "$repo/bin/vgshell.latency-real"
 latency_gate="$sandbox/latency-catalog-gate"
 latency_started="$sandbox/latency-catalog-started"
-cat >"$repo/bin/vgsh" <<EOF
+cat >"$repo/bin/vgshell" <<EOF
 #!/usr/bin/env bash
 if [[ \${1-} == theme && \${2-} == catalog ]]; then
   touch '$latency_started'
   while [[ ! -e '$latency_gate' ]]; do sleep 0.01; done
 fi
-exec '$repo/bin/vgsh.latency-real' "\$@"
+exec '$repo/bin/vgshell.latency-real' "\$@"
 EOF
-chmod +x "$repo/bin/vgsh"
+chmod +x "$repo/bin/vgshell"
 latency_catalog_held() { [[ -e $latency_started ]] && echo held || echo pending; }
 expect "the theme service enables for latency readings" ok ipc shell setPluginEnabled vgs.themes true
 expect_poll "the theme service builds" false ipc smoke readInstance service vgs.themes setupPending
@@ -264,7 +264,7 @@ expect "a read-only queue change starts behind the held catalog" ok ipc theme-la
 expect "a read-only queue change leaves apply state unchanged" "$latency_read_last" latency_service_value themeLastText
 expect "a read-only queue change leaves the browser revision unchanged" "$latency_read_revision" latency_service_value dataRevision
 expect "a read-only queue change leaves precomputed cards unchanged" "$latency_read_cards" latency_service_value cards
-expect "the theme change reader arms" ok ipc theme-latency themeLatencyBegin theme latency "file://$home/.config/vgs/themes/latency/backgrounds/a.jpg"
+expect "the theme change reader arms" ok ipc theme-latency themeLatencyBegin theme latency "file://$home/.config/vgshell/themes/latency/backgrounds/a.jpg"
 latency_pressure_start
 type_keys -k Return || fail "the apply key failed"
 expect_poll "the desktop presents the applied theme" drawn latency_done
@@ -282,7 +282,7 @@ for latency_package in sample-peer latency sample-peer latency sample-peer; do
   type_keys "$latency_package" || fail "the repeated apply filter failed"
   expect_poll "the repeated apply card is selected" "\"$latency_package\"" latency_theme_value selectedName
   expect "the next sample starts from a different published theme" "$latency_previous" ipc smoke themeName
-  expect "the repeated theme reader arms" ok ipc theme-latency themeLatencyBegin theme "$latency_package" "file://$home/.config/vgs/themes/$latency_package/backgrounds/a.jpg"
+  expect "the repeated theme reader arms" ok ipc theme-latency themeLatencyBegin theme "$latency_package" "file://$home/.config/vgshell/themes/$latency_package/backgrounds/a.jpg"
   latency_pressure_start
   type_keys -k Return || fail "the repeated theme apply key failed"
   expect_poll "the repeated desktop presents the changed theme" drawn latency_done
@@ -301,7 +301,7 @@ type_keys -M logo -k w -m logo || fail "the wallpaper browser open failed"
 expect_poll "the wallpaper browser reads cards" true latency_wall_value loaded
 expect_poll "the wallpaper browser holds the keyboard" true latency_wall_value activeFocus
 type_keys -k Right || fail "the wallpaper selection key failed"
-expect "the wallpaper change reader arms" ok ipc theme-latency themeLatencyBegin wallpaper "file://$home/.config/vgs/themes/$latency_previous/backgrounds/b.jpg" ''
+expect "the wallpaper change reader arms" ok ipc theme-latency themeLatencyBegin wallpaper "file://$home/.config/vgshell/themes/$latency_previous/backgrounds/b.jpg" ''
 latency_pressure_start
 type_keys -k Return || fail "the wallpaper apply key failed"
 expect_poll "the desktop presents the selected wallpaper" drawn latency_done
@@ -326,15 +326,15 @@ expect_poll "the refresh card is selected" '"latency"' latency_theme_value selec
 latency_stamp() { latency_theme_value generations | py_reply 'import json,sys; print(json.load(sys.stdin).get("latency",0))'; }
 latency_unchanged_stamp="$(latency_stamp)"
 latency_extra() { latency_theme_value cards | py_reply 'import json,sys; cards=json.load(sys.stdin); found=next((c for c in cards if c["name"]=="latency-extra"),None); print("absent" if found is None else found["palette"]["accent"])'; }
-mkdir -p -- "$home/.config/vgs/themes/latency-extra"
-printf '%s\n' '{"schemaVersion":1,"name":"latency-extra","tokens":{"palette":{"accent":"#abcdef"}}}' >"$home/.config/vgs/themes/latency-extra/theme.json"
+mkdir -p -- "$home/.config/vgshell/themes/latency-extra"
+printf '%s\n' '{"schemaVersion":1,"name":"latency-extra","tokens":{"palette":{"accent":"#abcdef"}}}' >"$home/.config/vgshell/themes/latency-extra/theme.json"
 expect_poll "an installed package reaches the open list" '#abcdefff' latency_extra
 expect "install keeps the selected theme" '"latency"' latency_theme_value selectedName
-printf '%s\n' '{"schemaVersion":1,"name":"latency-extra","tokens":{"palette":{"accent":"#fedcba"}}}' >"$home/.config/vgs/themes/latency-extra/theme.json"
+printf '%s\n' '{"schemaVersion":1,"name":"latency-extra","tokens":{"palette":{"accent":"#fedcba"}}}' >"$home/.config/vgshell/themes/latency-extra/theme.json"
 expect_poll "an updated package reaches the open list" '#fedcbaff' latency_extra
 expect "update keeps the selected theme" '"latency"' latency_theme_value selectedName
-rm -- "${home:?}/.config/vgs/themes/latency-extra/theme.json"
-rmdir -- "${home:?}/.config/vgs/themes/latency-extra"
+rm -- "${home:?}/.config/vgshell/themes/latency-extra/theme.json"
+rmdir -- "${home:?}/.config/vgshell/themes/latency-extra"
 expect_poll "a removed package leaves the open list" absent latency_extra
 expect "removal keeps the selected theme" '"latency"' latency_theme_value selectedName
 expect "unrelated changes keep the installed thumbnail cache URL" "$latency_unchanged_stamp" latency_stamp
@@ -348,14 +348,14 @@ expect "timer refresh keeps the selected theme" '"latency"' latency_theme_value 
 type_keys -k Escape -k Escape || fail "the refresh browser close failed"
 expect_poll "the refresh browser closes" 0 layer_count vgs:overlay
 
-cp -p -- "$sandbox/vgsh-before-latency" "$repo/bin/vgsh"
-rm -- "$repo/bin/vgsh.latency-real"
+cp -p -- "$sandbox/vgshell-before-latency" "$repo/bin/vgshell"
+rm -- "$repo/bin/vgshell.latency-real"
 expect "the theme service disables after latency readings" ok ipc shell setPluginEnabled vgs.themes false
-expect "vgs restores after latency readings" 'ok theme=vgs state=applied shell=applied' "${shell_env[@]}" "$repo/bin/vgsh" theme apply vgs
+expect "vgs restores after latency readings" 'ok theme=vgs state=applied shell=applied' "${shell_env[@]}" "$repo/bin/vgshell" theme apply vgs
 expect_poll "vgs restores the shell" vgs ipc smoke themeName
 cp -p -- "$sandbox/hyprland-before-latency.lua" "$hypr_lua"
 expect "latency input bindings restore" ok hypr reload config-only
-rm -r -- "${home:?}/.config/vgs/themes/latency" "${home:?}/.config/vgs/themes/sample-peer"
+rm -r -- "${home:?}/.config/vgshell/themes/latency" "${home:?}/.config/vgshell/themes/sample-peer"
 
 expect "the latency observer drops" ok ipc smoke runnerDrop
 rm -- "$repo/shell/ThemeLatencyProbe.qml"

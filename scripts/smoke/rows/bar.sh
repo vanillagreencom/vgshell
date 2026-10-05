@@ -11,7 +11,7 @@ done
 # A bundled plugin is enabled unless the harness's user file disables it or
 # its shipped manifest sets `optIn`; one that sets it is off here, where no
 # plugins row names it.
-if python3 - "$plugins_json" "$home/.config/vgs/shell.json" "$repo/shell/plugins" <<'PY'
+if python3 - "$plugins_json" "$home/.config/vgshell/shell.json" "$repo/shell/plugins" <<'PY'
 import json, os, sys
 d = json.loads(sys.argv[1])
 harness_disabled = json.load(open(sys.argv[2])).get("disabledPlugins", [])
@@ -116,7 +116,7 @@ if disable_reply="$(ipc shell setPluginEnabled acme.tick false)"; then
 fi
 if [[ $disable_reply == ok ]]; then ok "disabling a widget is allowed"; else fail "disabling a widget is allowed: got $disable_reply"; fi
 tick_entry() { ipc shell listShellConfig | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([e for e in d["bar"]["layout"]["center"] if e["id"]=="acme.tick"]))'; }
-user_keys() { python3 -c 'import json,sys; print(",".join(sorted(json.load(open(sys.argv[1])).keys())))' "$home/.config/vgs/shell.json"; }
+user_keys() { python3 -c 'import json,sys; print(",".join(sorted(json.load(open(sys.argv[1])).keys())))' "$home/.config/vgshell/shell.json"; }
 expect_widgets "the bar dropped the disabled widget" '[]'
 expect_builtins "the built-ins stay while a plugin widget leaves" '["vgs.bar/center-clock","vgs.bar/left-workspaces"]'
 expect "widget reads disabled after the user file changed" False plugin_enabled acme.tick
@@ -150,7 +150,7 @@ for _ in $(seq 1 50); do
   sleep 0.2
 done
 if [[ $reserved -gt 0 ]]; then ok "the re-enabled bar reserves screen space again"; else geometry fail "reserved space after re-enable: $reserved"; fi
-if [[ -f "$home/.config/vgs/shell.json" ]]; then ok "manager wrote the user file"; else fail "user file missing"; fi
+if [[ -f "$home/.config/vgshell/shell.json" ]]; then ok "manager wrote the user file"; else fail "user file missing"; fi
 
 # An unrelated key in the user file builds nothing: the shell is seen to
 # have read the write (the key is in the effective configuration) before
@@ -158,7 +158,7 @@ if [[ -f "$home/.config/vgs/shell.json" ]]; then ok "manager wrote the user file
 # is a rename, so the watching shell never reads half a file.
 unrelated_key() { ipc shell listShellConfig | py_reply 'import json,sys; print(json.load(sys.stdin).get("unrelated"))'; }
 if before="$(builds)"; then
-  python3 - "$home/.config/vgs/shell.json" <<'PY'
+  python3 - "$home/.config/vgshell/shell.json" <<'PY'
 import json, os, sys
 p = sys.argv[1]
 d = json.load(open(p))
@@ -181,7 +181,7 @@ PY
   # A rescan that adds a plugin nothing enables changes the set but moves
   # no other plugin's slot key, so nothing is built: not the bars, not
   # the placed widget, not the new plugin.
-  idle="$home/.config/vgs/plugins/acme.idle"
+  idle="$home/.config/vgshell/plugins/acme.idle"
   mkdir -p "$idle"
   cp -R "$repo/scripts/smoke/fixtures/plugins/acme.idle/." "$idle/"
   rescan "a rescan after adding a plugin answers ok"

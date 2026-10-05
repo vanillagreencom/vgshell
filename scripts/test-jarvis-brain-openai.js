@@ -365,7 +365,7 @@ world(async () => {
     }
 
     async function keys(kit) {
-        const store = new kit.Secrets.Secrets(path.join(childEnv.XDG_STATE_HOME, "vgs/jarvis"), childEnv);
+        const store = new kit.Secrets.Secrets(path.join(childEnv.XDG_STATE_HOME, "vgshell/jarvis"), childEnv);
         const handed = [];
         const secrets = { lookup: reference => { const value = store.lookup(reference); handed.push(value); return value; } };
         const reference = kit.Secrets.ownReference("fixture", "test", first);
@@ -473,7 +473,7 @@ world(async () => {
         gemini: ["https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {}]
     };
     async function cloudRows(kit) {
-        const store = new kit.Secrets.Secrets(path.join(childEnv.XDG_STATE_HOME, "vgs/jarvis"), childEnv);
+        const store = new kit.Secrets.Secrets(path.join(childEnv.XDG_STATE_HOME, "vgshell/jarvis"), childEnv);
         for (const [id, [url, extensions]] of Object.entries(cloud)) {
             const sent = [];
             const wrap = () => ({ request: async (item, options) => {

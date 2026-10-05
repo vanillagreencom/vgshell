@@ -2,7 +2,7 @@
 # The vgs.polkit floating TUI behind the status row's Uninstall: removes the
 # package of each other polkit agent, in the terminal the user watches, so
 # the package manager's questions and password prompt show there, then ends
-# the agent. bin/agents states the step and its refusals; bin/vgsh-tui runs
+# the agent. bin/agents states the step and its refusals; bin/vgshell-tui runs
 # this from a private copy of the plugin's snapshot, so the script is under
 # VGS_PLUGIN_DIR and the VGS tree is the one VGS_TUI_LIB lies in.
 #

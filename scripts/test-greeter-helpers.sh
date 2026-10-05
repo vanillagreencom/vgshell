@@ -7,8 +7,8 @@
 # rows must fail.
 set -euo pipefail
 
-# shellcheck source=scripts/vgsh-rows.sh
-source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/vgsh-rows.sh"
+# shellcheck source=scripts/vgshell-rows.sh
+source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/vgshell-rows.sh"
 suite=test-greeter-helpers
 plugin="$repo/shell/plugins/vgs.greeter"
 why="$tmp/why"
@@ -25,14 +25,14 @@ done
 c="$tmp/copy"
 copy_world() {
   rm -rf -- "${c:?}"
-  mkdir -p "$c/config/vgs" "$c/state/vgs" "$c/images" "$c/dest"
-  printf '{"schemaVersion":1}\n' >"$c/config/vgs/theme.json"
+  mkdir -p "$c/config/vgshell" "$c/state/vgshell" "$c/images" "$c/dest"
+  printf '{"schemaVersion":1}\n' >"$c/config/vgshell/theme.json"
   printf 'image one' >"$c/images/one.png"
-  ln -s "$c/images/one.png" "$c/state/vgs/background"
+  ln -s "$c/images/one.png" "$c/state/vgshell/background"
 }
 copy_run() { # HELPER [PATH]: copy-theme's stdout in $tmp/out, stderr in $tmp/err, exit in $status
   status=0
-  env -i PATH="${2:-$base_path}" bash "$1" "$c/config/vgs/theme.json" "$c/state/vgs/background" "$c/dest" >"$tmp/out" 2>"$tmp/err" || status=$?
+  env -i PATH="${2:-$base_path}" bash "$1" "$c/config/vgshell/theme.json" "$c/state/vgshell/background" "$c/dest" >"$tmp/out" 2>"$tmp/err" || status=$?
 }
 out_is() { [[ "$(cat -- "$tmp/out")" == "$1" ]] || { printf 'out=[%s] want=[%s] err=[%s]\n' "$(cat -- "$tmp/out")" "$1" "$(cat -- "$tmp/err")" >"$why"; return 1; }; }
 first_err_is() { [[ "$(head -n 1 -- "$tmp/err")" == "$1" ]] || { printf 'err=[%s] want=[%s]\n' "$(cat -- "$tmp/err")" "$1" >"$why"; return 1; }; }
@@ -41,31 +41,31 @@ inode() { stat -c %i -- "$1"; }
 row_copy_first() {
   copy_world; copy_run "$1"
   [[ $status == 0 ]] && out_is "theme=copied background=copied" || return 1
-  cmp -s -- "$c/config/vgs/theme.json" "$c/dest/vgs/theme.json" && cmp -s -- "$c/images/one.png" "$c/dest/vgs/background"
+  cmp -s -- "$c/config/vgshell/theme.json" "$c/dest/vgshell/theme.json" && cmp -s -- "$c/images/one.png" "$c/dest/vgshell/background"
 }
 row_copy_mode() {
   copy_world; copy_run "$1"
-  [[ "$(stat -c %a -- "$c/dest/vgs/theme.json") $(stat -c %a -- "$c/dest/vgs/background")" == "644 644" ]]
+  [[ "$(stat -c %a -- "$c/dest/vgshell/theme.json") $(stat -c %a -- "$c/dest/vgshell/background")" == "644 644" ]]
 }
 row_copy_unchanged() {
   local before
-  copy_world; copy_run "$1"; before="$(inode "$c/dest/vgs/theme.json")"
+  copy_world; copy_run "$1"; before="$(inode "$c/dest/vgshell/theme.json")"
   copy_run "$1"
-  [[ $status == 0 ]] && out_is "theme=unchanged background=unchanged" && [[ $(inode "$c/dest/vgs/theme.json") == "$before" ]]
+  [[ $status == 0 ]] && out_is "theme=unchanged background=unchanged" && [[ $(inode "$c/dest/vgshell/theme.json") == "$before" ]]
 }
 row_copy_renamed() {
   local before
-  copy_world; copy_run "$1"; before="$(inode "$c/dest/vgs/theme.json")"
-  printf '{"schemaVersion":1,"name":"b"}\n' >"$c/config/vgs/theme.json"
+  copy_world; copy_run "$1"; before="$(inode "$c/dest/vgshell/theme.json")"
+  printf '{"schemaVersion":1,"name":"b"}\n' >"$c/config/vgshell/theme.json"
   copy_run "$1"
-  [[ $status == 0 ]] && out_is "theme=copied background=unchanged" && cmp -s -- "$c/config/vgs/theme.json" "$c/dest/vgs/theme.json" \
-    && [[ $(inode "$c/dest/vgs/theme.json") != "$before" && "$(ls -A -- "$c/dest/vgs" | tr '\n' ' ')" == "background theme.json " ]]
+  [[ $status == 0 ]] && out_is "theme=copied background=unchanged" && cmp -s -- "$c/config/vgshell/theme.json" "$c/dest/vgshell/theme.json" \
+    && [[ $(inode "$c/dest/vgshell/theme.json") != "$before" && "$(ls -A -- "$c/dest/vgshell" | tr '\n' ' ')" == "background theme.json " ]]
 }
 row_copy_removed() {
   copy_world; copy_run "$1"
-  rm -f -- "$c/state/vgs/background" "$c/config/vgs/theme.json"
+  rm -f -- "$c/state/vgshell/background" "$c/config/vgshell/theme.json"
   copy_run "$1"
-  [[ $status == 0 ]] && out_is "theme=removed background=removed" && [[ ! -e $c/dest/vgs/background && ! -e $c/dest/vgs/theme.json ]]
+  [[ $status == 0 ]] && out_is "theme=removed background=removed" && [[ ! -e $c/dest/vgshell/background && ! -e $c/dest/vgshell/theme.json ]]
 }
 row_copy_dangling() {
   copy_world; copy_run "$1"
@@ -74,9 +74,9 @@ row_copy_dangling() {
   [[ $status == 0 ]] && out_is "theme=unchanged background=removed"
 }
 row_copy_symlink() {
-  copy_world; mkdir -p "$c/dest/vgs"; ln -s "$c/elsewhere" "$c/dest/vgs/theme.json"
+  copy_world; mkdir -p "$c/dest/vgshell"; ln -s "$c/elsewhere" "$c/dest/vgshell/theme.json"
   copy_run "$1"
-  [[ $status == 1 ]] && first_err_is "copy-theme: refused: dest=symlink path=$c/dest/vgs/theme.json" && [[ ! -e $c/elsewhere ]]
+  [[ $status == 1 ]] && first_err_is "copy-theme: refused: dest=symlink path=$c/dest/vgshell/theme.json" && [[ ! -e $c/elsewhere ]]
 }
 row_copy_no_dest() {
   copy_world; rmdir -- "$c/dest"
@@ -86,7 +86,7 @@ row_copy_no_dest() {
 row_copy_unresolved() {
   copy_world; copy_run "$1"
   copy_run "$1" "$no_readlink"
-  [[ $status == 1 ]] && first_err_is "copy-theme: refused: background=unresolved path=$c/state/vgs/background" && [[ -e $c/dest/vgs/background ]]
+  [[ $status == 1 ]] && first_err_is "copy-theme: refused: background=unresolved path=$c/state/vgshell/background" && [[ -e $c/dest/vgshell/background ]]
 }
 
 # sessions' world: two data directories, the first with a file the second

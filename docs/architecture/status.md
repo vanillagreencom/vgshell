@@ -55,7 +55,7 @@ A string schema entry's `optionsFrom` names a `choices` status key of the same p
 - `shell.status.rows` is the plugin's own Status rows as the Settings page draws them, `PluginLogic.statusRows` over its active manifest and published values: each displayable entry's label, group, tone and `action` with its label and whether it is offered. A plugin's own surface that draws an entry takes these, so the tone and the offered rule have one owner. It reads `shell.status.values`, so a binding on it follows every write.
 - `shell.status.values` is the plugin's published values, and an empty object before the first write. Each read answers a deep-frozen copy of its own, which neither the writer nor another reader can reach: the engine lets a frozen array be written in place ([runtime-qml.md](runtime-qml.md)), so a reader that changes an array changes only its copy. `shell.status.revision` is the serial of the last write, 0 before one. Both are bindable: a binding that reads them re-evaluates on every write.
 - `PluginStatus.qml` holds one record per plugin id. The record lives while the plugin is enabled at the source revision that wrote it. Disabling the plugin, or a rescan that gives it a new revision, drops it, and the rebuilt service publishes again from nothing. Nothing is written to disk.
-- The lending record, `vgsh ipc call shell lent`, lists each record under `status` with its keys, its revision and its size in bytes.
+- The lending record, `vgshell ipc call shell lent`, lists each record under `status` with its keys, its revision and its size in bytes.
 
 ## Convention
 

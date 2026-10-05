@@ -8,7 +8,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 
 ## Opening it
 
-`vgsh ipc call shell summon window vgs.gallery '{}'` opens it on the focused monitor. `vgsh ipc call shell hide window vgs.gallery` closes it, and `... toggle window vgs.gallery '{}'` does either.
+`vgshell ipc call shell summon window vgs.gallery '{}'` opens it on the focused monitor. `vgshell ipc call shell hide window vgs.gallery` closes it, and `... toggle window vgs.gallery '{}'` does either.
 
 ## The window
 

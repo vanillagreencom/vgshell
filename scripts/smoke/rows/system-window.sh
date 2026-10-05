@@ -15,7 +15,7 @@
 # scripts/smoke/app-window.sh); its edges within one pixel; and a keyboard
 # path from SUPER+COMMA to every step and back out. Shell & Plugins hands
 # the Settings summon command (docs/architecture/settings-window.md) to a
-# stand-in vgsh in the shell's own PATH directory, which records its argv
+# stand-in vgshell in the shell's own PATH directory, which records its argv
 # and runs nothing.
 #
 # Controls: a copy of the window that keeps the list it read when it
@@ -29,17 +29,17 @@
 # inputs: shell/plugins/vgs.system/* shell/plugins/*/manifest.json scripts/smoke/fixtures/plugins/acme.pane/* shell/Hosts/PaneHost.qml shell/Hosts/AppWindow.qml shell/Core/Capabilities.qml scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 
-sys_file="$home/.config/vgs/shell.json"
+sys_file="$home/.config/vgshell/shell.json"
 sys_saved="$sandbox/shell-before-system.json"
-sys_calls="$sandbox/system-vgsh.calls"
+sys_calls="$sandbox/system-vgshell.calls"
 cp -- "$sys_file" "$sys_saved"
 rm -f -- "$sys_calls"
-if [[ -e $shim/vgsh ]]; then mv -- "$shim/vgsh" "$sandbox/system-vgsh.saved"; fi
-cat >"$shim/vgsh" <<EOF
+if [[ -e $shim/vgshell ]]; then mv -- "$shim/vgshell" "$sandbox/system-vgshell.saved"; fi
+cat >"$shim/vgshell" <<EOF
 #!/usr/bin/env bash
 python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "\$@" >>"$sys_calls"
 EOF
-chmod 755 "$shim/vgsh"
+chmod 755 "$shim/vgshell"
 
 # The sidebar as drawn, top to bottom: its group headings, then its rows'
 # titles. A Repeater adds its rows after the items declared beside it, so
@@ -72,7 +72,7 @@ sys_focus() { ipc smoke focused window vgs.system | py_reply 'import json,sys; r
 sys_switch() { ipc smoke itemTexts window vgs.system Switch | py_reply 'import json,sys; print(json.dumps([t != [] for t in json.load(sys.stdin)]))'; }
 sys_switch_checked() { ipc smoke readDescendant window vgs.system Switch checked; }
 sys_payload() { ipc smoke readInstance window "$1" payload; }
-# Every argv the stand-in vgsh received, one JSON list per call.
+# Every argv the stand-in vgshell received, one JSON list per call.
 sys_calls_all() { [[ -s $sys_calls ]] && python3 -c 'import json,sys; print(json.dumps([json.loads(l) for l in open(sys.argv[1])]))' "$sys_calls" || echo '[]'; }
 widget_placed() { bar_widget_ids | py_reply 'import json,sys; print(any(sys.argv[1] in ids for ids in json.load(sys.stdin)))' "$1"; }
 sys_binds() { hypr -j binds | py_reply 'import json,sys; print(json.dumps(sorted([b["modmask"], b["key"]] for b in json.load(sys.stdin) if b["description"] == "vgs.system:toggle" and b.get("submap", "") in ("", "default"))))'; }
@@ -120,7 +120,7 @@ install_plugin_copy acme.pane acme.pane-alt "Pane Alt" 5
 install_plugin_copy acme.pane acme.pane-net "Pane Net" 10 Connectivity
 install_plugin_copy acme.pane acme.pane-off "Pane Off" 1
 # Pane Net has no bar widget and is taller than any room.
-python3 - "$home/.config/vgs/plugins/acme.pane-net" <<'PY'
+python3 - "$home/.config/vgshell/plugins/acme.pane-net" <<'PY'
 import json, os, sys
 root = sys.argv[1]
 path = os.path.join(root, "manifest.json")
@@ -349,7 +349,7 @@ expect_poll "Escape returns the keyboard to the search field again" "pane" sys_f
 type_keys -M ctrl -k End -m ctrl || fail "typing Ctrl+End in the System search failed"
 expect_poll "Ctrl+End selects Shell & Plugins" 3 sys_current
 type_keys -k Right -k Return || fail "typing Right and Return on Shell & Plugins failed"
-expect_poll "Return on Shell & Plugins alone hands vgsh the Settings summon, Right before it none" '[["ipc", "call", "shell", "summon", "window", "vgs.settings", "{}"]]' sys_calls_all
+expect_poll "Return on Shell & Plugins alone hands vgshell the Settings summon, Right before it none" '[["ipc", "call", "shell", "summon", "window", "vgs.settings", "{}"]]' sys_calls_all
 type_keys zz || fail "typing into the System search failed"
 expect_poll "typing filters every section out" '[[],["Shell & Plugins"]]' sys_sidebar
 type_keys -k Escape || fail "typing Escape in the System search failed"
@@ -358,7 +358,7 @@ expect "Escape with a query keeps the window open" 1 window_count System
 type_keys -k Escape || fail "typing Escape in the empty System search failed"
 expect_poll "Escape with no query closes the System window" 0 window_count System
 expect_poll "closing the window drops its section" '[]' window_panes
-expect "vgsh still holds that one call once the window closed" '[["ipc", "call", "shell", "summon", "window", "vgs.settings", "{}"]]' sys_calls_all
+expect "vgshell still holds that one call once the window closed" '[["ipc", "call", "shell", "summon", "window", "vgs.settings", "{}"]]' sys_calls_all
 press_system || fail "typing SUPER+COMMA again failed"
 expect_poll "SUPER+COMMA reopens on the section shown last" '["acme.pane-alt"]' window_panes
 expect_poll "the reopened window starts with an empty query" '""' sys_search
@@ -370,7 +370,7 @@ expect "the nested instance reloads hyprland.lua as the row found it" ok hypr re
 # Control: a copy of the window that keeps the list it read when it
 # opened. A section disabled while it is open stays listed, and the
 # sidebar reading names it.
-stale_dir="$home/.config/vgs/plugins/acme.system-stale"
+stale_dir="$home/.config/vgshell/plugins/acme.system-stale"
 rm -rf -- "${stale_dir:?}"
 cp -R -- "$repo/shell/plugins/vgs.system" "$stale_dir"
 python3 - "$stale_dir" <<'PY'
@@ -426,9 +426,9 @@ expect "hiding the System window after the controls is allowed" ok ipc shell hid
 expect_poll "the System window is gone after the controls" 0 window_count System
 
 cp -- "$sys_saved" "$sys_file.tmp" && mv -T -- "$sys_file.tmp" "$sys_file"
-rm -rf -- "${home:?}/.config/vgs/plugins/acme.pane" "${home:?}/.config/vgs/plugins/acme.pane-alt" "${home:?}/.config/vgs/plugins/acme.pane-net" "${home:?}/.config/vgs/plugins/acme.pane-off"
-rm -f -- "$shim/vgsh"
-if [[ -e $sandbox/system-vgsh.saved ]]; then mv -- "$sandbox/system-vgsh.saved" "$shim/vgsh"; fi
+rm -rf -- "${home:?}/.config/vgshell/plugins/acme.pane" "${home:?}/.config/vgshell/plugins/acme.pane-alt" "${home:?}/.config/vgshell/plugins/acme.pane-net" "${home:?}/.config/vgshell/plugins/acme.pane-off"
+rm -f -- "$shim/vgshell"
+if [[ -e $sandbox/system-vgshell.saved ]]; then mv -- "$sandbox/system-vgshell.saved" "$shim/vgshell"; fi
 rescan "rescan after removing the System fixtures answers ok"
 expect_poll "the System fixtures are gone after restore" absent plugin_enabled acme.pane
 expect_poll "vgs.system is enabled again as the row found it" "$sys_was" plugin_enabled vgs.system

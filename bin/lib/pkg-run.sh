@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # bin/lib/pkg-run.sh: runs the steps of one package plan in the terminal
-# the user sees. bin/vgsh-pkg's `run` decides everything first (the caller,
+# the user sees. bin/vgshell-pkg's `run` decides everything first (the caller,
 # the terminal, the plan and the elevation command) and then starts this
 # file with bash, so the steps run under bin/lib/tui.sh's sudo session. The
 # vgs.devtools engine starts it with ELEVATOR none for its mise, container
@@ -13,7 +13,7 @@
 # reach this file as argv from node, never as a shell string, and run as
 # lists: a package name holding `$(...)` stays one literal word.
 #
-# The steps run in the directory this file starts in, which bin/vgsh-pkg
+# The steps run in the directory this file starts in, which bin/vgshell-pkg
 # sets to $HOME. Each step runs in order with ELEVATOR before it, unless
 # ELEVATOR is none,
 # after a step line in the theme accent. The first step that fails ends the
@@ -21,21 +21,21 @@
 # (tui.sh's vgs_tui_sudo_session): the password is asked once, before the
 # first step, and the credential is dropped when the run ends, whatever the
 # number of steps. A run started inside another script's sudo session, as
-# the Updates pipeline starts `vgsh pkg run upgrade`, joins that session and
+# the Updates pipeline starts `vgshell pkg run upgrade`, joins that session and
 # leaves the credential to its owner. doas and run0 get no keepalive: each
 # step asks as the system's own rules say, doas.conf's `persist` or polkit's
 # `auth_admin_keep`, since neither has a command that refreshes a
 # credential without running a program as root.
 #
-# The ending, Done or Failed, is `vgsh-tui present`'s: this file prints no
-# verdict. A bad invocation prints `vgsh: refused: pkg-run=<key>` and exits
+# The ending, Done or Failed, is `vgshell-tui present`'s: this file prints no
+# verdict. A bad invocation prints `vgshell: refused: pkg-run=<key>` and exits
 # 2; a sudo session that cannot start exits 1 after tui.sh's refusal line.
 set -euo pipefail
 
 # shellcheck source=tui.sh
 source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/tui.sh"
 
-bad() { printf 'vgsh: refused: pkg-run=%s\n' "$1" >&2; exit 2; }
+bad() { printf 'vgshell: refused: pkg-run=%s\n' "$1" >&2; exit 2; }
 
 elevator="${1:-}"
 [[ $# -gt 0 ]] && shift

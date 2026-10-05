@@ -17,7 +17,7 @@ Item {
     CommandDisclosure { id: disclosure; width: 360; command: "loginctl enable-linger" }
     CommandDisclosure { id: empty; y: 200; width: 360; command: "" }
     // Never toggled, so it reads the state a disclosure starts in.
-    CommandDisclosure { id: untouched; y: 230; width: 360; command: "vgsh plugin enable vgs.settings" }
+    CommandDisclosure { id: untouched; y: 230; width: 360; command: "vgshell plugin enable vgs.settings" }
     TextField { id: secret; y: 260; width: 200; password: true }
     // Reads the clipboard back.
     TextEdit { id: paste; y: 320; width: 360; height: 20 }

@@ -6,7 +6,7 @@
 # names it, true or false, is the user's own choice and stays.
 #
 # A token was in use when the photo helper's cache records an account it
-# served, accounts.json under $XDG_CACHE_HOME/vgs/notifications/slack-photos,
+# served, accounts.json under $XDG_CACHE_HOME/vgshell/notifications/slack-photos,
 # or else when libsecret holds an item of service vgs-notifications. The
 # keyring is asked with `secret-tool search` without --unlock, as
 # shell/plugins/vgs.notifications/token-status.sh asks it: its stdout, where
@@ -29,7 +29,7 @@
 set -euo pipefail
 
 config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
-accounts="${XDG_CACHE_HOME:-$HOME/.cache}/vgs/notifications/slack-photos/accounts.json"
+accounts="${XDG_CACHE_HOME:-$HOME/.cache}/vgshell/notifications/slack-photos/accounts.json"
 # A search that hangs on the bus is abandoned; a store answers in well
 # under a second.
 limit=10
@@ -75,6 +75,6 @@ if [[ $evidence == none ]]; then
   printf 'slack-photos: extra=off evidence=none%s\n' "$keyring"
   exit 0
 fi
-result="$(node "$VGS_ROOT/bin/vgsh-plugin-judge" seed-setting "$VGS_ROOT/config/shell.json" "$config_home/vgs/shell.json" \
+result="$(node "$VGS_ROOT/bin/vgshell-plugin-judge" seed-setting "$VGS_ROOT/config/shell.json" "$config_home/vgshell/shell.json" \
   "$VGS_ROOT/shell/plugins/vgs.notifications" slackPhotos true)"
 printf 'slack-photos: extra=%s evidence=%s\n' "$result" "$evidence"

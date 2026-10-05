@@ -2,10 +2,10 @@
 # Drive scripts/sample-shell-memory.sh: its --report mode, its argument
 # refusals, its pid resolution and its row builder. No case needs a live shell.
 # The report mode reads a TSV and prints keyed lines, so every report case is a
-# fixture log. Pid resolution asks the checkout's bin/vgsh, which reads
-# $XDG_RUNTIME_DIR/vgsh.lock, then runs `qs list -p <checkout>/shell -j`, so its
+# fixture log. Pid resolution asks the checkout's bin/vgshell, which reads
+# $XDG_RUNTIME_DIR/vgshell.lock, then runs `qs list -p <checkout>/shell -j`, so its
 # cases run the sampler under an explicit environment whose runtime dir holds a
-# lock file this test writes, whose checkout holds a copy of bin/vgsh and whose
+# lock file this test writes, whose checkout holds a copy of bin/vgshell and whose
 # PATH holds a stub qs that replies what the case says. The row builder
 # reads /proc for whatever pid it holds, so it is driven against a process this
 # file spawns, and one sampling run is driven end to end against that process.
@@ -19,7 +19,7 @@
 # only part that asks the runner, runs qs or names the checkout. Staging a
 # checkout-shaped tree here would hide a --report that started to depend on one,
 # so the copies stay bare on purpose; the pid-resolution cases alone stage
-# bin/vgsh under the copy's checkout, the copy's parent directory.
+# bin/vgshell under the copy's checkout, the copy's parent directory.
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -383,8 +383,8 @@ arg_case "an unreadable log is refused with its path" "unreadable-log=$tmp/missi
 
 echo "=== pid resolution ==="
 
-# The sampler asks its checkout's bin/vgsh for the shell's pid, which reads
-# $XDG_RUNTIME_DIR/vgsh.lock, and confirms the pid against
+# The sampler asks its checkout's bin/vgshell for the shell's pid, which reads
+# $XDG_RUNTIME_DIR/vgshell.lock, and confirms the pid against
 # `qs list -p <checkout>/shell -j`. Every input is staged: the runner is a copy
 # under the sampler copy's checkout, the runtime dir is a directory here, and
 # qs is a stub on a PATH that holds the tools the sampler and the runner need
@@ -394,9 +394,9 @@ toolbin="$tmp/toolbin"
 qsbin="$tmp/qsbin"
 rt="$tmp/rt"
 mkdir -p "$toolbin" "$qsbin" "$rt" "$tmp/home" "$tmp/bin/lib"
-cp "$repo_root/bin/vgsh" "$tmp/bin/vgsh"
+cp "$repo_root/bin/vgshell" "$tmp/bin/vgshell"
 cp "$repo_root/bin/lib/ipc-reply.sh" "$tmp/bin/lib/ipc-reply.sh"
-chmod +x "$tmp/bin/vgsh"
+chmod +x "$tmp/bin/vgshell"
 for tool in bash env awk grep find date getconf python3 mkdir dirname cat sleep id readlink head; do
   ln -s "$(command -v "$tool")" "$toolbin/$tool" ||
     fail "pid resolution" "could not stage $tool on the sampler's PATH"
@@ -413,7 +413,7 @@ chmod +x "$qsbin/qs"
 # The copy under test computes its checkout as its parent directory, so the
 # shell path it hands qs is that parent's shell/.
 shell_dir="$(cd -- "$(dirname -- "$sampler")/.." && pwd)/shell"
-lock="$rt/vgsh.lock"
+lock="$rt/vgshell.lock"
 # A pid no process can hold: pid_max is the exclusive upper bound.
 no_such_pid="$(( $(cat /proc/sys/kernel/pid_max) + 1 ))"
 
@@ -426,7 +426,7 @@ run_resolve() {
   shift 5
   local path="$toolbin"
   [[ "$with_qs" == yes ]] && path="$toolbin:$qsbin"
-  rm -f -- "${rt:?}/vgsh.lock"
+  rm -f -- "${rt:?}/vgshell.lock"
   [[ "$lock_content" == none ]] || printf '%s' "$lock_content" >"$lock"
   rc=0
   env -i PATH="$path" HOME="$tmp/home" XDG_RUNTIME_DIR="$rt" XDG_CACHE_HOME="$tmp/cache" \
@@ -492,9 +492,9 @@ mkdir -p "$tmp/norunner/scripts"
 cp "$repo_root/scripts/sample-shell-memory.sh" "$tmp/norunner/scripts/sampler.sh"
 chmod +x "$tmp/norunner/scripts/sampler.sh"
 run_resolve "$tmp/norunner/scripts/sampler.sh" "$victim" "$listed" 0 yes --log "$tmp/resolve-log.tsv"
-[[ "$rc" == 2 ]] || fail "a checkout without bin/vgsh refuses" "expected exit 2, got $rc (stderr: $err)"
-expect_contains "$err" "runner=missing path=$tmp/norunner/bin/vgsh" "a checkout without bin/vgsh refuses"
-ok "a checkout without bin/vgsh refuses"
+[[ "$rc" == 2 ]] || fail "a checkout without bin/vgshell refuses" "expected exit 2, got $rc (stderr: $err)"
+expect_contains "$err" "runner=missing path=$tmp/norunner/bin/vgshell" "a checkout without bin/vgshell refuses"
+ok "a checkout without bin/vgshell refuses"
 
 # The positive side: a listed pid is accepted, and the refusals past resolution
 # name it. A log whose last row belongs to another session refuses with both
@@ -516,7 +516,7 @@ ok "a log path under a non-directory refuses as unwritable"
 # until the victim exits, then reports the log it wrote. Ending the victim is
 # the only way the run ends without a signal to the sampler.
 label="a sampling run logs the resolved process and reports its session"
-rm -f -- "${rt:?}/vgsh.lock" "${tmp:?}/run-log.tsv"
+rm -f -- "${rt:?}/vgshell.lock" "${tmp:?}/run-log.tsv"
 printf '%s\n' "$victim" >"$lock"
 env -i PATH="$toolbin:$qsbin" HOME="$tmp/home" XDG_RUNTIME_DIR="$rt" XDG_CACHE_HOME="$tmp/cache" \
   QS_STUB_PATH="$shell_dir" QS_STUB_REPLY="$listed" QS_STUB_STATUS=0 \
@@ -549,7 +549,7 @@ sleep 300 &
 counted=$!
 trap 'kill "$victim" "$counted" 2>/dev/null || true; rm -rf "${tmp:?}"' EXIT INT TERM
 counted_listed="[{\"config_path\": \"$shell_dir/shell.qml\", \"pid\": $counted}]"
-rm -f -- "${rt:?}/vgsh.lock" "${tmp:?}/count-log.tsv"
+rm -f -- "${rt:?}/vgshell.lock" "${tmp:?}/count-log.tsv"
 printf '%s\n' "$counted" >"$lock"
 rc=0
 timeout 30 env -i PATH="$toolbin:$qsbin" HOME="$tmp/home" XDG_RUNTIME_DIR="$rt" XDG_CACHE_HOME="$tmp/cache" \
@@ -568,7 +568,7 @@ sleep 300 &
 short=$!
 trap 'kill "$victim" "$counted" "$short" 2>/dev/null || true; rm -rf "${tmp:?}"' EXIT INT TERM
 short_listed="[{\"config_path\": \"$shell_dir/shell.qml\", \"pid\": $short}]"
-rm -f -- "${rt:?}/vgsh.lock" "${tmp:?}/short-log.tsv"
+rm -f -- "${rt:?}/vgshell.lock" "${tmp:?}/short-log.tsv"
 printf '%s\n' "$short" >"$lock"
 env -i PATH="$toolbin:$qsbin" HOME="$tmp/home" XDG_RUNTIME_DIR="$rt" XDG_CACHE_HOME="$tmp/cache" \
   QS_STUB_PATH="$shell_dir" QS_STUB_REPLY="$short_listed" QS_STUB_STATUS=0 \
@@ -727,7 +727,7 @@ trap 'kill "$victim" 2>/dev/null || true; rm -rf "${tmp:?}"' EXIT INT TERM
 listed="[{\"config_path\": \"$shell_dir/shell.qml\", \"pid\": $victim}]"
 listed_no_such="[{\"config_path\": \"$shell_dir/shell.qml\", \"pid\": $no_such_pid}]"
 
-# The lock file's rules live in the runner (scripts/test-vgsh.sh pins them);
+# The lock file's rules live in the runner (scripts/test-vgshell.sh pins them);
 # what the sampler owns is passing the runner's key on unchanged. A copy that
 # answers with a key of its own reaches the refusal (that key is the liveness
 # clause) and no longer shows the runner's.

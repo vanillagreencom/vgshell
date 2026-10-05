@@ -19,12 +19,12 @@ How `vgs.automations` turns a recurrence into systemd user timers, runs a comman
 
 | Path | Holds | Writer |
 |---|---|---|
-| `$XDG_CONFIG_HOME/vgs/automations/automations.json` | The store: `{ version: 1, automations }`; `list --json` makes its directory and names it, which the service watches | the engine, under `locks/store.lock` |
+| `$XDG_CONFIG_HOME/vgshell/automations/automations.json` | The store: `{ version: 1, automations }`; `list --json` makes its directory and names it, which the service watches | the engine, under `locks/store.lock` |
 | `$XDG_CONFIG_HOME/systemd/user/vgs-automation-<id>.timer`, `.service` | One pair per enabled automation | `sync` |
-| `$XDG_STATE_HOME/vgs/automations/runs/<id>@<run>.started.json`, `.ended.json`, `.log` | One run: its records and its transcript; `<run>` is `<start ms>-<runner pid>` | the runner |
-| `$XDG_STATE_HOME/vgs/automations/guard/<id>.json` | `{ handledThrough }`: the last occurrence the guard decided on | `add`, `enable` and the runner |
-| `$XDG_STATE_HOME/vgs/automations/locks/<id>.lock` | The lock one run holds | `flock` |
-| `$XDG_DATA_HOME/vgs/automations/engine/<hash>/` | The copy of the engine and the judge the units run | `sync` |
+| `$XDG_STATE_HOME/vgshell/automations/runs/<id>@<run>.started.json`, `.ended.json`, `.log` | One run: its records and its transcript; `<run>` is `<start ms>-<runner pid>` | the runner |
+| `$XDG_STATE_HOME/vgshell/automations/guard/<id>.json` | `{ handledThrough }`: the last occurrence the guard decided on | `add`, `enable` and the runner |
+| `$XDG_STATE_HOME/vgshell/automations/locks/<id>.lock` | The lock one run holds | `flock` |
+| `$XDG_DATA_HOME/vgshell/automations/engine/<hash>/` | The copy of the engine and the judge the units run | `sync` |
 
 Every file the engine writes is written whole under a hidden name in its directory and renamed into place. A record is never rewritten: a run's end is a new file, so a directory listing notices it ([runtime-qml-folders.md](runtime-qml-folders.md)).
 
@@ -77,7 +77,7 @@ A unit, a crontab line and Run now all start `flock -n -E 75 -o <lock> <node> <e
 - At the timeout the runner sends SIGTERM to the command's group and SIGKILL 10 seconds later. A timed-out run ends only once the whole group is gone, so a descendant that ignores SIGTERM and let go of the output pipes still meets the SIGKILL while the lock is held. A group still alive 30 seconds after SIGKILL, a process in uninterruptible sleep, ends the run with `group=survived` in its reason.
 - The transcript holds a header, one `HH:MM:SS.mmm out|err | <line>` line per line of output as it arrives, and a footer with the outcome and the duration. A line longer than 8192 characters, output with no line break included, arrives in pieces of that length, so the runner holds one piece of a stream at a time while both pipes drain. Past 1 MiB it writes one marker line and drops the rest; the footer is always written. The snippet keeps the last 20 lines of each stream, each cut to 400 characters.
 - The outcome is `succeeded` on exit 0, `failed` on another exit or a signal, `timeout`, or `failed-start` when the command never ran: a missing working directory or login shell, a spawn error, or a store or guard file the judge refuses.
-- After the ended record, the runner prunes its automation's history with the plugin's `historyDays`, read through `vgsh plugin settings`. A read that fails logs `automations: prune=skipped` and prunes nothing.
+- After the ended record, the runner prunes its automation's history with the plugin's `historyDays`, read through `vgshell plugin settings`. A read that fails logs `automations: prune=skipped` and prunes nothing.
 
 ## History
 

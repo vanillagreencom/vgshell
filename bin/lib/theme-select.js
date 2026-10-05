@@ -1,4 +1,4 @@
-// The selection edit bin/vgsh-theme-judge keeps in an application's own
+// The selection edit bin/vgshell-theme-judge keeps in an application's own
 // settings file: each key a target's `select` names, set to its value,
 // with every other byte of the file kept. Nothing here reads or writes a
 // file. docs/architecture/theme-agents.md § Selection holds the rules.

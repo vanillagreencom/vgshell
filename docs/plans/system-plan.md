@@ -59,7 +59,7 @@ Omarchy ships one plugin per section, each a bar widget with a flyout (`shell/pl
 The plugin has kind `window`, so it is a Hyprland toplevel (D044) titled "System". Capabilities: `panes`, `screens`, `shortcut`, `surfaces`, `ipc`, `run`.
 
 - **Layout.** A `Pane` (D050) with two columns.
-  - Sidebar: a search `TextField`, then `ListItem` rows with one `ListCursor` (D054), grouped under `SectionHeader`s and ordered by `pane.order`. At the foot, "Shell & Plugins" opens `vgs.settings` with `run.detached(["vgsh","ipc","call","shell","summon","window","vgs.settings","{}"])`, the path `settings-window.md` § Payload prescribes.
+  - Sidebar: a search `TextField`, then `ListItem` rows with one `ListCursor` (D054), grouped under `SectionHeader`s and ordered by `pane.order`. At the foot, "Shell & Plugins" opens `vgs.settings` with `run.detached(["vgshell","ipc","call","shell","summon","window","vgs.settings","{}"])`, the path `settings-window.md` § Payload prescribes.
   - Detail: a header (icon, name, "Show in bar" `Switch` through `panes.setPlaced`), then the mounted pane in a `ScrollArea`.
 - **Keyboard (the keyboard-first record (VGS-597, pending)).** Up/Down move the sidebar cursor. Enter or Right enter the pane. Type-ahead goes through `KeyNav`. Escape leaves the pane, then closes the window. Ctrl+F focuses search. The `toggle` shortcut's key is Q1.
 - **Payload.** `{}` opens the last section, held in memory. `{"pane":"<id>", ...}` opens that section and hands the rest to `pane.open()`. An unknown id opens with a notice.
@@ -101,9 +101,9 @@ Enabling places a widget and disabling removes the whole plugin (`manager.md`). 
 | S02 | `setPlaced` placement rule | Enablement and placement are decided once in `PluginLogic` (invariant 6). |
 | S03 | `qs.Ui` `FormRow`, `DeviceRow`, `LevelOsd`; `vgs.settings` adopts `FormRow` | Pane rows must match Settings rows (the settings-UX record (VGS-686, pending)) without one-offs. |
 | S04 | Manifest `hyprland.options` rendered into the layer when set; capability `hyprland` with `overridden`, `devices`, `foreignBinds` and `switchKeyboardLayout()` on its own top-level `hyprctl` transport | No plugin writes Hyprland configuration (D028). `switchxkblayout` is not a dispatcher, so the `hyprctl dispatch` path cannot carry it. |
-| S05 | Capability `monitors`: `~/.config/vgs/monitors.json`, `MonitorLogic.js`, layer `hl.monitor` rules, `outputs`, `overridden` | Session-wide rules must outlive any plugin. |
+| S05 | Capability `monitors`: `~/.config/vgshell/monitors.json`, `MonitorLogic.js`, layer `hl.monitor` rules, `outputs`, `overridden` | Session-wide rules must outlive any plugin. |
 | S06 | Monitor preview, with a **detached core guard** that restores the captured pre-preview state | Recovery must not depend on the QML event loop, the shell, or the runner (§3.5). |
-| S07 | **System steps**: `bin/vgsh-system`, a closed table, core TUI `core/system`, capability `system`, the `system:<step>` action, the `systemSteps` key | Root actions live in the core with stand-in-sudo tests, like D036's `vgsh-sudo-grant`. |
+| S07 | **System steps**: `bin/vgshell-system`, a closed table, core TUI `core/system`, capability `system`, the `system:<step>` action, the `systemSteps` key | Root actions live in the core with stand-in-sudo tests, like D036's `vgshell-sudo-grant`. |
 | S22 | Capability `bluetoothAgent` (exclusive): the core owns the BlueZ agent registration through one `bluetoothctl` child per lease | `default-agent` is a session-wide role. D012 puts session roles in the core, as with the polkit agent (D062). |
 | S08 | (Validation, not shell core) sandbox device fakes and host-leak guards | No row may reach the host's audio, radios, network, VPN, DDC or hidraw. |
 
@@ -186,7 +186,7 @@ Every number declares `unit` and every string declares `presets` or `optionsFrom
   1. The USB serial equals the Hyprland/EDID `serial`. VGS-705 found this never fires on the owner's displays: Hyprland reports the EDID binary serial in hex and the EDID holds no serial string ([displays.md](../architecture/displays.md#output-mapping)).
   2. Otherwise, exactly one physical device of a product matches exactly one monitor whose model is `ProDisplayXDR` or `StudioDisplay`. Outputs sharing make, model and serial are one monitor: the XDR is tiled over two outputs.
   3. Otherwise the display is **unassigned** until the user picks with Identify.
-- **Assignments.** The schema cannot hold a map, so assignments go in the plugin's own judged state file, `${XDG_STATE_HOME}/vgs/plugins/vgs.displays/assignments.json`. It maps physical identity to an output identifier.
+- **Assignments.** The schema cannot hold a map, so assignments go in the plugin's own judged state file, `${XDG_STATE_HOME}/vgshell/plugins/vgs.displays/assignments.json`. It maps physical identity to an output identifier.
   - A stale entry (device or output gone) is kept, marked stale and never applied.
   - A re-cabled indistinguishable unit asks again.
   - It is not a `configure` key.
@@ -208,15 +208,15 @@ Every number declares `unit` and every string declares `presets` or `optionsFrom
   - Identify through `layers`.
 - **Preview contract (S06).**
   1. **Capture** the effective state of every affected output from `hyprctl -j monitors all`: mode, position, scale, transform, vrr, disabled, mirror.
-  2. **Write the recovery record** `$XDG_RUNTIME_DIR/vgs/monitors-preview.json` with token, deadline, captured state, and Hyprland signature.
-  3. **Arm the guard.** `bin/vgsh-monitor-guard` runs in a new session with no inherited lock fd (D053), sleeps until the deadline, and restores unless the record is gone or confirmed.
+  2. **Write the recovery record** `$XDG_RUNTIME_DIR/vgshell/monitors-preview.json` with token, deadline, captured state, and Hyprland signature.
+  3. **Arm the guard.** `bin/vgshell-monitor-guard` runs in a new session with no inherited lock fd (D053), sleeps until the deadline, and restores unless the record is gone or confirmed.
   4. **Apply** through `hyprctl eval hl.monitor(...)`.
   5. **Verify** the readback.
 
   Revert and the guard **restore the captured state explicitly** with `eval` and verify it. Reapplying saved rules is not enough: an eval'd mode survives `reload config-only` when no file rule names the output (`runtime-hyprland.md:14`), and on first use there is no saved rule. Restoring the session (the captured state) and the saved document (`monitors.json`, untouched until Keep) are separate operations. Outputs that were unplugged are skipped, and a partial apply restores every touched output. A hung shell (SIGSTOP), a stopped runner or a clean shell exit does not stop the guard. A leftover record at shell start is handed to the guard.
 - **Failure modes.** Disabling the last display is refused. A mode can vanish. The layer can be unwired (the core's Connect). A later user line can override (`overridden` → "Set by your Hyprland configuration").
 
-**Display rules in `outputs.lua` (S24).** When `~/.config/hypr/vgs/outputs.lua` and its exact include lines in `hyprland.lua` exist, the pane offers **"Move display settings into VGS"**: one click, confirmed in a `Dialog`.
+**Display rules in `outputs.lua` (S24).** When `~/.config/hypr/vgshell/outputs.lua` and its exact include lines in `hyprland.lua` exist, the pane offers **"Move display settings into VGS"**: one click, confirmed in a `Dialog`.
 - Imports the file's `hl.monitor` rules into `monitors.json` through the judge.
 - Removes only the exact include lines (`package.loaded["vgs.outputs"] = nil` / `require("vgs.outputs")`), after a timestamped backup.
 - Leaves every other line alone and reloads.
@@ -299,8 +299,8 @@ Each row reads back from instances and probes, walks a keyboard-only path (the k
 
 **Offline tests.**
 - `test-plugin-logic.js`: pane, `panes`, multi-target configure, `setPlaced`, `hyprland.options`, `systemSteps`.
-- `test-hyprland-layer.js`, `test-monitor-logic.js`, `test-vgsh-monitor-guard.sh`.
-- `test-vgsh-system.sh`: stand-in sudo, NixOS rows.
+- `test-hyprland-layer.js`, `test-monitor-logic.js`, `test-vgshell-monitor-guard.sh`.
+- `test-vgshell-system.sh`: stand-in sudo, NixOS rows.
 - `test-bluetooth-agent.js`: transcripts, including display-passkey and inbound requests.
 - `test-displays-brightness.py`: bytes, ioctls, identity, mapping, coalescing.
 - `test-network-enterprise.sh`, `test-vpn-import.sh`, plus one `test-<plugin>-logic.js` per plugin.
@@ -351,7 +351,7 @@ The sections fan out after S09 and S08.
 
 1. **System sections are `pane` plugins mounted by the one `panes` holder; panes write every settings entry their plugin reads** (S01; refines D013, D032, D044).
 2. **Hyprland options and monitor rules are rendered from data and written only when set. Monitor previews are guarded by a detached core process that restores the captured state** (S04–S06; refines D028, D053).
-3. **Privileged one-time setup is a closed core table of system steps** (S07; refines D036, D061). On NixOS the state reads "Needs your NixOS configuration", with the snippet behind Show command, as `vgsh sudo` does (D036).
+3. **Privileged one-time setup is a closed core table of system steps** (S07; refines D036, D061). On NixOS the state reads "Needs your NixOS configuration", with the snippet behind Show command, as `vgshell sudo` does (D036).
 4. **Brightness uses a one-shot plugin helper over hidraw, DDC and backlight, with a uaccess-only rule** (S15; the D010 helper justification).
 5. **The Bluetooth agent is a core-lent exclusive capability over `bluetoothctl`, held per lease** (S22; refines D012; differs from Omarchy's always-on `bt-agent` unit because VGS installs no user unit by default).
 6. **Network is NetworkManager-only, VGS never switches stacks, and Wi-Fi secrets live in NetworkManager's store** (S12/S23; a D061 exception).

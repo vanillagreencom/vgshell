@@ -92,7 +92,7 @@ world(() => {
     }
     function browserHelp(implementation) {
         browserFixture.mode({});
-        const marker = path.join(process.env.XDG_DATA_HOME, "vgs/jarvis/browser-ready.json");
+        const marker = path.join(process.env.XDG_DATA_HOME, "vgshell/jarvis/browser-ready.json");
         fs.mkdirSync(path.dirname(marker), { recursive: true });
         fs.writeFileSync(marker, JSON.stringify({ version: "0.38.1" }));
         try {

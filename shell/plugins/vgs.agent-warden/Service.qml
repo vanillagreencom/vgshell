@@ -12,7 +12,7 @@ import "Notices.js" as Notices
 // publishes it as plugin status (manifest `status`, D037), which the
 // plugin's other instances and its Settings page read. It never runs,
 // starts or changes the warden.
-//   vgsh ipc call vgs.agent-warden invoke status
+//   vgshell ipc call vgs.agent-warden invoke status
 //     the published values as one JSON line
 //
 // The derivation runs again when a file changes and when one timer fires

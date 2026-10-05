@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Table-driven checks for the `ipc` capability's decisions in
-// shell/Core/PluginLogic.js: the answer a handler gives, through `vgsh ipc
+// shell/Core/PluginLogic.js: the answer a handler gives, through `vgshell ipc
 // call <id> invoke` or a plugin's own `shell.ipc.call`, and the refusal of
 // a `call` whose argument is not text. The file loads under node through
 // bin/lib/qml-library.js, as the shell loads it. The controls at the end

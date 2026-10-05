@@ -6,9 +6,9 @@ import "PluginLogic.js" as Logic
 
 // Owns the `tui` capability's provider, the list of floating TUIs it
 // publishes, the launcher state and every launch process it starts: one
-// `bin/vgsh-tui launch` per accepted request and at most one
-// `bin/vgsh-tui check` probe. TuiRecords owns the record listing, reaper and
-// one `bin/vgsh-tui wait` process per live run. PluginLogic decides which
+// `bin/vgshell-tui launch` per accepted request and at most one
+// `bin/vgshell-tui check` probe. TuiRecords owns the record listing, reaper and
+// one `bin/vgshell-tui wait` process per live run. PluginLogic decides which
 // TUI a request names, whether its plugin is enabled, the arguments, whether
 // the key is busy or the launcher state refuses it, the launcher's argv, how
 // each exit moves the state, what the records say, which waits run and what
@@ -32,10 +32,10 @@ Scope {
     property string launcher: "unknown"
     property int launches: 0
 
-    // The directory bin/vgsh-tui writes the records in. `bin/vgsh run`
+    // The directory bin/vgshell-tui writes the records in. `bin/vgshell run`
     // creates it before the shell starts: FolderListModel lists the working
     // directory for a folder that is absent (runtime-qml-folders.md).
-    readonly property string recordDir: Quickshell.env("XDG_RUNTIME_DIR") + "/vgs/tui"
+    readonly property string recordDir: Quickshell.env("XDG_RUNTIME_DIR") + "/vgshell/tui"
     // The core's bin/ beside the shell directory, where a core TUI's command
     // lives: the shell's PATH need not hold it.
     readonly property string coreBin: Quickshell.shellDir + "/../bin"
@@ -136,7 +136,7 @@ Scope {
         process.run = launch.run;
         // Assigned after creation: a list handed to createObject crosses a
         // QVariant conversion (runtime-qml.md).
-        process.command = [root.coreBin + "/vgsh-tui"].concat(launch.argv);
+        process.command = [root.coreBin + "/vgshell-tui"].concat(launch.argv);
         if (done !== undefined) wait(ctx, launch.run, done);
         pending = pending.concat([{ key: launch.key, run: launch.run }]);
         launching = launching.concat([process]);
@@ -176,7 +176,7 @@ Scope {
     // Brings the window of KEY's live run into view. A key busy only because its
     // launcher still waits has no window yet. A live run with no window is
     // looked for among the dead once: a presenter killed outright leaves a
-    // running record that only `vgsh-tui reap` ends.
+    // running record that only `vgshell-tui reap` ends.
     function focus(key) {
         const slot = Object.prototype.hasOwnProperty.call(recordStore.runs.keys, key) ? recordStore.runs.keys[key] : null;
         if (slot === null || slot.running === null) return;
@@ -253,7 +253,7 @@ Scope {
     Process {
         id: prober
         property var completion: null
-        command: [root.coreBin + "/vgsh-tui", "check"]
+        command: [root.coreBin + "/vgshell-tui", "check"]
         stderr: StdioCollector { id: probeErrors }
         onExited: (code, status) => { prober.completion = { code: code, status: status }; }
         onRunningChanged: {

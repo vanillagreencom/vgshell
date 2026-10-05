@@ -3,12 +3,12 @@
 # tui/update-source.sh over tui/pipeline.sh and bin/facts, and tui/log.sh,
 # which shows the log the pipeline writes. Each row runs a
 # copy of the plugin on a pseudo-terminal script(1) opens, as
-# `vgsh-tui present` runs it, under an explicit environment whose PATH
+# `vgshell-tui present` runs it, under an explicit environment whose PATH
 # holds only stand-ins and the few tools the pipeline runs. VGS_TUI_LIB
 # names a fixture tree holding the shipped bin/lib/tui.sh and a stand-in
-# vgsh. Every stand-in appends its name and arguments to one calls file, so
+# vgshell. Every stand-in appends its name and arguments to one calls file, so
 # a row reads the order of every step and its argv. No row reaches a real
-# vgsh, package manager, sudo, doas, snapshot tool or live session. The reboot
+# vgshell, package manager, sudo, doas, snapshot tool or live session. The reboot
 # rows stand a copied `sleep` in for Hyprland and remove its file while it
 # runs, so /proc names its executable deleted.
 #
@@ -16,8 +16,8 @@
 # tui/pipeline.sh drops one rule, and that row must fail.
 set -euo pipefail
 
-# shellcheck source=scripts/vgsh-rows.sh
-source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/vgsh-rows.sh"
+# shellcheck source=scripts/vgshell-rows.sh
+source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/vgshell-rows.sh"
 for tool in script flock; do
   command -v "$tool" >/dev/null || { echo "test-updates-pipeline: status=not-measured missing=$tool"; exit 77; }
 done
@@ -33,7 +33,7 @@ cp -- "$repo/bin/lib/tui.sh" "$repo/bin/lib/qml-library.js" "$tree/bin/lib/"
 printf '0.1.0\n' >"$tree/VERSION"
 calls="$tmp/calls"; fix="$tmp/fix"; rt="$tmp/rt"; state="$tmp/state"
 mkdir -p "$fix" "$rt" "$state"
-log="$state/vgs/updates/update.log"
+log="$state/vgshell/updates/update.log"
 # Keep the test terminal's input open like a live terminal. An early EOF
 # from /dev/null can be echoed by the nested script(1) log recorder.
 mkfifo "$tmp/terminal-input"
@@ -47,11 +47,11 @@ stub() { # DIR NAME BODY
   printf '#!/bin/sh\n%s\n%s\n' "$record" "$3" >"$1/$2"
   chmod +x "$1/$2"
 }
-# vgsh answers each read from $FIX; pacman's plan names the elevator in
+# vgshell answers each read from $FIX; pacman's plan names the elevator in
 # $FIX/elevator; `pkg run` fails with 9 for a manager $FIX/fail-<id> names;
 # `pkg owner` answers only while $FIX/owner exists, with a new version after
 # its first answer when $FIX/owner-changes does.
-stub "$tree/bin" vgsh 'case "$1 $2" in
+stub "$tree/bin" vgshell 'case "$1 $2" in
   "plugin settings") cat "$FIX/settings.json" ;;
   "pkg detect") cat "$FIX/detect.json" ;;
   "pkg plan")
@@ -60,7 +60,7 @@ stub "$tree/bin" vgsh 'case "$1 $2" in
       flatpak) echo "{\"manager\":\"flatpak\",\"binary\":\"flatpak\",\"action\":\"upgrade\",\"elevate\":false,\"steps\":[[\"flatpak\",\"update\"]],\"elevator\":null}" ;;
       mise) echo "{\"manager\":\"mise\",\"binary\":\"mise\",\"action\":\"upgrade\",\"elevate\":false,\"steps\":[[\"env\",\"MISE_MINIMUM_RELEASE_AGE=0\",\"mise\",\"upgrade\"]],\"elevator\":null}" ;;
       aur) echo "{\"manager\":\"aur\",\"binary\":\"paru\",\"action\":\"upgrade\",\"elevate\":false,\"steps\":[[\"paru\",\"-Sua\"]],\"elevator\":null}" ;;
-      *) echo "vgsh: refused: manager=$4 action=upgrade reason=unsupported" >&2; exit 1 ;;
+      *) echo "vgshell: refused: manager=$4 action=upgrade reason=unsupported" >&2; exit 1 ;;
     esac ;;
   "self status") cat "$FIX/self.json" ;;
   "self update") echo "ok updated=vgs from=a to=b" ;;
@@ -72,7 +72,7 @@ stub "$tree/bin" vgsh 'case "$1 $2" in
     v=1
     if [ -e "$FIX/owner-asked" ] && [ -e "$FIX/owner-changes" ]; then v=2; fi
     : >"$FIX/owner-asked"
-    echo "{\"manager\":\"pacman\",\"package\":\"vgs-git\",\"version\":\"0.1.0.r$v\"}" ;;
+    echo "{\"manager\":\"pacman\",\"package\":\"vgshell-git\",\"version\":\"0.1.0.r$v\"}" ;;
   "pid ") [ -e "$FIX/running" ] || exit 69; echo 42 ;;
 esac'
 # gum confirm answers the exit status in $FIX/answer-<question>, 0 when
@@ -125,7 +125,7 @@ self_json() { # METHOD PACKAGE_JSON BEHIND
 # Flatpak and mise; a checkout one commit behind; one plugin and one theme
 # behind; no snapshot tool, no orphan, no replaced Hyprland, every answer yes.
 reset_fix() {
-  rm -rf -- "${fix:?}" "$state/vgs"
+  rm -rf -- "${fix:?}" "$state/vgshell"
   mkdir -p "$fix"
   settings "" false
   echo sudo >"$fix/elevator"
@@ -187,14 +187,14 @@ row_full() {
   pipeline update.sh
   assert "a full run exits 0" test "$status" == 0
   assert "a full run takes every step in order, the AUR after the session ends" seq_is \
-    "vgsh plugin settings vgs.updates" "vgsh pkg detect --json" "vgsh self status --json" \
-    "vgsh pkg plan upgrade pacman" "vgsh pkg plan upgrade flatpak" "vgsh pkg plan upgrade mise" "vgsh pkg plan upgrade aur" \
-    "vgsh plugin outdated --json" "vgsh theme outdated --json" "gum confirm -- Start the update?" \
-    "vgsh pkg owner $tree/VERSION" "sudo -k" "sudo /usr/bin/true" "vgsh self update" \
-    "vgsh pkg run upgrade --manager pacman" "vgsh pkg run upgrade --manager flatpak" "vgsh pkg run upgrade --manager mise" \
-    "vgsh plugin update acme.one" "vgsh theme update night" "sudo -k" \
-    "vgsh pkg run upgrade --manager aur" "sudo -k" "pacman -Qtdq"
-  assert "a plugin update gets no --yes by default" has_call "vgsh plugin update acme.one"
+    "vgshell plugin settings vgs.updates" "vgshell pkg detect --json" "vgshell self status --json" \
+    "vgshell pkg plan upgrade pacman" "vgshell pkg plan upgrade flatpak" "vgshell pkg plan upgrade mise" "vgshell pkg plan upgrade aur" \
+    "vgshell plugin outdated --json" "vgshell theme outdated --json" "gum confirm -- Start the update?" \
+    "vgshell pkg owner $tree/VERSION" "sudo -k" "sudo /usr/bin/true" "vgshell self update" \
+    "vgshell pkg run upgrade --manager pacman" "vgshell pkg run upgrade --manager flatpak" "vgshell pkg run upgrade --manager mise" \
+    "vgshell plugin update acme.one" "vgshell theme update night" "sudo -k" \
+    "vgshell pkg run upgrade --manager aur" "sudo -k" "pacman -Qtdq"
+  assert "a plugin update gets no --yes by default" has_call "vgshell plugin update acme.one"
   assert "no snapshot tool warns nothing" out_lacks "snapshot=failed"
   assert "no snapshot tool keeps the update going quietly" out_lacks "without a snapshot"
   assert "the log keeps the plan box" grep -qF "Update everything" "$log"
@@ -203,18 +203,18 @@ row_trusted() {
   reset_fix
   settings "" true
   pipeline update.sh
-  assert "trustPluginUpdates passes --yes to the plugin update" has_call "vgsh plugin update --yes acme.one"
-  assert "trustPluginUpdates passes --yes to the theme update" has_call "vgsh theme update --yes night"
+  assert "trustPluginUpdates passes --yes to the plugin update" has_call "vgshell plugin update --yes acme.one"
+  assert "trustPluginUpdates passes --yes to the theme update" has_call "vgshell theme update --yes night"
 }
 row_snapshot() {
   reset_fix
   PIPE_PATH="$snapper_dir" pipeline update.sh
   assert "a snapper configuration takes a snapshot inside the session" before "sudo /usr/bin/true" "sudo snapper -c root create -c number -d VGS update"
-  assert "the snapshot comes before VGS" before "sudo snapper -c root cleanup number" "vgsh self update"
+  assert "the snapshot comes before VGS" before "sudo snapper -c root cleanup number" "vgshell self update"
   touch "$fix/fail-snapper"
   PIPE_PATH="$snapper_dir" pipeline update.sh
   assert "a failed snapshot warns" out_has "The snapshot failed."
-  assert "a failed snapshot does not stop the update" has_call "vgsh pkg run upgrade --manager pacman"
+  assert "a failed snapshot does not stop the update" has_call "vgshell pkg run upgrade --manager pacman"
   assert "a failed snapshot leaves the exit 0" test "$status" == 0
 }
 row_failure() {
@@ -223,7 +223,7 @@ row_failure() {
   pipeline update.sh
   assert "a failed system step ends the run with its status" test "$status" == 9
   assert "a failed step names the log in its recovery message" out_has "Select Open last log in Updates to read this run's output."
-  assert "the failure code stays in the developer log" grep -qF "updates: failed exit=9" "$state/vgs/updates/diagnostics.log"
+  assert "the failure code stays in the developer log" grep -qF "updates: failed exit=9" "$state/vgshell/updates/diagnostics.log"
   assert "a failed step drops the credential last" test "$(tail -n 1 "$tmp/seq")" == "sudo -k"
   assert "a failed step runs no AUR" test "$(grep -c 'manager aur' "$tmp/seq")" == 0
 }
@@ -246,7 +246,7 @@ row_orphans() {
   assert "a no removes no orphan" test "$(grep -c 'pkg run remove' "$tmp/seq")" == 0
   rm -f -- "$fix/answer-orphans"
   pipeline update.sh
-  assert "a yes removes the orphans through the package table" has_call "vgsh pkg run remove --manager pacman foo bar"
+  assert "a yes removes the orphans through the package table" has_call "vgshell pkg run remove --manager pacman foo bar"
 }
 row_yes() {
   reset_fix
@@ -254,7 +254,7 @@ row_yes() {
   pipeline update.sh -y
   assert "-y asks no start question" test "$(grep -c 'Start the update' "$tmp/seq")" == 0
   assert "-y reports orphans instead of asking" test "$(grep -c 'orphaned' "$tmp/seq")" == 0
-  assert "-y still runs the system step" has_call "vgsh pkg run upgrade --manager pacman"
+  assert "-y still runs the system step" has_call "vgshell pkg run upgrade --manager pacman"
 }
 row_declined() {
   reset_fix
@@ -265,7 +265,7 @@ row_declined() {
 }
 row_busy() {
   reset_fix
-  mkdir -p "$state/vgs/updates"
+  mkdir -p "$state/vgshell/updates"
   printf 'earlier run\n' >"$log"
   # This suite's own shell holds the lock, so closing its descriptor frees it.
   local held
@@ -275,14 +275,14 @@ row_busy() {
   exec {held}>&-
   assert "a second run is refused busy" test "$status" == 75
   assert "a busy run leaves the running run's log" test "$(cat "$log")" == "earlier run"
-  assert "a busy run asks vgsh nothing" test ! -s "$tmp/seq"
+  assert "a busy run asks vgshell nothing" test ! -s "$tmp/seq"
 }
 row_aur_command() {
   reset_fix
   settings "paru -Sua --devel" false
   pipeline update.sh
   assert "aurCommand replaces the table's AUR plan" test "$(grep -c 'plan upgrade aur' "$tmp/seq")" == 0
-  assert "aurCommand runs after the session ends" before "vgsh theme update night" "paru -Sua --devel"
+  assert "aurCommand runs after the session ends" before "vgshell theme update night" "paru -Sua --devel"
 }
 # An AUR helper that caches a sudo credential and then fails still has it
 # dropped, after it, and the run ends with the helper's status and the
@@ -308,47 +308,47 @@ row_doas() {
   assert "a doas update starts no sudo session" test "$(grep -c '^sudo /usr/bin/true' "$tmp/seq")" == 0
   assert "a doas update takes its snapshot through doas" has_call "doas snapper -c root create -c number -d VGS update"
   assert "a doas update names doas in the plan box" out_has "Snapshot: snapper through doas, first"
-  assert "a doas update runs the system step" has_call "vgsh pkg run upgrade --manager pacman"
+  assert "a doas update runs the system step" has_call "vgshell pkg run upgrade --manager pacman"
 }
-# update-source.sh vgs on a vgs-git behind: the rebuild replaces the
+# update-source.sh vgs on a vgshell-git behind: the rebuild replaces the
 # package, so a snapshot comes first and the running shell restarts on the
 # new version, and no other package is upgraded.
 row_vgs_only() {
   reset_fix
-  self_json package '"vgs-git"' true
+  self_json package '"vgshell-git"' true
   touch "$fix/owner" "$fix/owner-changes" "$fix/running"
   PIPE_PATH="$snapper_dir" pipeline update-source.sh vgs
   assert "a VGS rebuild alone exits 0" test "$status" == 0
-  assert "a VGS rebuild alone takes a snapshot before it" before "sudo snapper -c root create -c number -d VGS update" "paru -S vgs-git"
-  assert "a VGS rebuild alone drops the credential after it" before "paru -S vgs-git" "sudo -k"
-  assert "a VGS rebuild alone restarts the running shell" has_call "vgsh restart"
+  assert "a VGS rebuild alone takes a snapshot before it" before "sudo snapper -c root create -c number -d VGS update" "paru -S vgshell-git"
+  assert "a VGS rebuild alone drops the credential after it" before "paru -S vgshell-git" "sudo -k"
+  assert "a VGS rebuild alone restarts the running shell" has_call "vgshell restart"
   assert "a VGS rebuild alone upgrades no other package" test "$(grep -c -e 'pkg run' -e '^pacman' "$tmp/seq")" == 0
 }
 row_vgs_git() {
   reset_fix
-  self_json package '"vgs-git"' true
+  self_json package '"vgshell-git"' true
   touch "$fix/owner" "$fix/owner-changes" "$fix/running"
   pipeline update.sh
   assert "a package tree runs no self update" test "$(grep -c 'self update' "$tmp/seq")" == 0
-  assert "a behind vgs-git is rebuilt after the AUR" before "vgsh pkg run upgrade --manager aur" "paru -S vgs-git"
-  assert "the credential is dropped after the rebuild" before "paru -S vgs-git" "sudo -k"
-  assert "a replaced VGS package restarts the running shell" has_call "vgsh restart"
+  assert "a behind vgshell-git is rebuilt after the AUR" before "vgshell pkg run upgrade --manager aur" "paru -S vgshell-git"
+  assert "the credential is dropped after the rebuild" before "paru -S vgshell-git" "sudo -k"
+  assert "a replaced VGS package restarts the running shell" has_call "vgshell restart"
 }
 row_source() {
   reset_fix
   pipeline update-source.sh flatpak
   assert "one source runs its step alone" seq_is \
-    "vgsh plugin settings vgs.updates" "vgsh pkg detect --json" "vgsh pkg plan upgrade flatpak" \
-    "gum confirm -- Start the update?" "vgsh pkg run upgrade --manager flatpak"
+    "vgshell plugin settings vgs.updates" "vgshell pkg detect --json" "vgshell pkg plan upgrade flatpak" \
+    "gum confirm -- Start the update?" "vgshell pkg run upgrade --manager flatpak"
   pipeline update-source.sh aur
   assert "the AUR alone holds no session" test "$(grep -c '^sudo /usr/bin/true' "$tmp/seq")" == 0
-  assert "the AUR alone drops the credential after it" before "vgsh pkg run upgrade --manager aur" "sudo -k"
+  assert "the AUR alone drops the credential after it" before "vgshell pkg run upgrade --manager aur" "sudo -k"
   pipeline update-source.sh nope
   assert "an unknown source is refused" test "$status:$(head -n 1 "$tmp/out" | tr -d '\r')" == "2:This update request is invalid. Open Updates and try again."
   assert "an unknown source starts no update or authorization" seq_is \
-    "vgsh plugin settings vgs.updates" "vgsh pkg detect --json"
+    "vgshell plugin settings vgs.updates" "vgshell pkg detect --json"
   assert "an unknown source keeps its diagnostic in the developer log" grep -qxF \
-    "updates: refused: source=nope reason=unknown" "$state/vgs/updates/diagnostics.log"
+    "updates: refused: source=nope reason=unknown" "$state/vgshell/updates/diagnostics.log"
   pipeline update-source.sh
   assert "a missing source is refused" test "$status:$(head -n 1 "$tmp/out" | tr -d '\r')" == "2:No update source was selected. Open Updates and choose a source."
 }
@@ -419,7 +419,7 @@ control() { # NAME NEEDLE REPLACEMENT ROW [FILE]
   check "the $1 mutant fails $4" test "$red" -gt 0
 }
 control aur-before-revoke 'if [[ $session == 1 ]]; then vgs_tui_sudo_session end; fi' \
-  'if [[ $session == 1 ]]; then "$_updates_vgsh" pkg run upgrade --manager aur; vgs_tui_sudo_session end; fi' row_full
+  'if [[ $session == 1 ]]; then "$_updates_vgshell" pkg run upgrade --manager aur; vgs_tui_sudo_session end; fi' row_full
 control passes-yes '_updates_yes_flag=()' '_updates_yes_flag=(--yes)' row_full
 control aur-unguarded '      vgs_tui_sudo_session guard' '      :' row_aur_failure
 control session-ignores-elevator 'if [[ $elevator == sudo ]]; then session=1; fi' 'if command -v sudo >/dev/null; then session=1; fi' row_doas

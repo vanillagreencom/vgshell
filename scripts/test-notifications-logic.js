@@ -23,7 +23,7 @@ const appearance = load(path.join(__dirname, "..", "shell", "plugins", "vgs.noti
 // The core's status judge, which the Slack token rows the service publishes
 // must pass.
 const pluginLogic = load(path.join(__dirname, "..", "shell", "Core", "PluginLogic.js"));
-const IMAGES = "/state/vgs/notifications/images";
+const IMAGES = "/state/vgshell/notifications/images";
 // The logic runs in its own context, whose arrays and objects are not this
 // one's; values are compared as JSON.
 const same = (got, want, message) => assert.deepEqual(JSON.parse(JSON.stringify(got)), want, message === undefined ? JSON.stringify(want) : message);

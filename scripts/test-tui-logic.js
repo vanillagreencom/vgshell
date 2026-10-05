@@ -162,10 +162,10 @@ function suite(ctx, check) {
     const other = Object.assign({ __revision: "r2" }, ctx.validateManifest(Object.assign(manifestWith({ fix: { script: "tui/fix.sh", title: "Fix", entry: { label: "Fix it", icon: "wrench", group: "Tools" } } }), { id: "acme.other" }), "/q").manifest);
     const manifests = { "acme.tui": running, "acme.other": other };
     const core = {
-        doctor: { argv: ["vgsh", "doctor"], title: "Doctor", size: "tall", presentation: "full", entry: { label: "Check the system", icon: "stethoscope", group: "System" } },
+        doctor: { argv: ["vgshell", "doctor"], title: "Doctor", size: "tall", presentation: "full", entry: { label: "Check the system", icon: "stethoscope", group: "System" } },
         quiet: { argv: ["true"], title: "Quiet", size: "default", presentation: "plain", entry: null },
     };
-    const doctorArgv = ["launch", "--title", "Doctor", "--size", "tall", "--presentation", "full", "--record", "core/doctor", "--run", "7-1", "--", "/core/bin/vgsh", "doctor"];
+    const doctorArgv = ["launch", "--title", "Doctor", "--size", "tall", "--presentation", "full", "--record", "core/doctor", "--run", "7-1", "--", "/core/bin/vgshell", "doctor"];
     // tuiOpen: [name, enabled ids, launcher state, busy keys, key, argv, or
     // the answer and the action it asks for].
     const openRows = [
@@ -236,22 +236,22 @@ function suite(ctx, check) {
     const coreRows = [
         ["a row with every key", "doctor", doctor, null],
         ["a row without an entry", "quiet", coreRow({ entry: null }), null],
-        ["a command with arguments at the limit", "doctor", coreRow({ argv: ["vgsh"].concat(Array(16).fill("a")) }), null],
-        ["a helper of the core's bin/", "doctor", coreRow({ argv: ["vgsh-sudo-grant", "status"] }), null],
+        ["a command with arguments at the limit", "doctor", coreRow({ argv: ["vgshell"].concat(Array(16).fill("a")) }), null],
+        ["a helper of the core's bin/", "doctor", coreRow({ argv: ["vgshell-sudo-grant", "status"] }), null],
         ["a name with an upper case letter", "Doctor", doctor, "core TUI name \"Doctor\" must be lower case letters, digits and dashes"],
-        ["a row that is a string", "doctor", "vgsh doctor", "core/doctor must be an object"],
+        ["a row that is a string", "doctor", "vgshell doctor", "core/doctor must be an object"],
         ["a row with a script", "doctor", coreRow({ script: "tui/x.sh" }), "core/doctor has unknown key \"script\""],
         ["a row without an entry key", "doctor", without("entry"), "core/doctor needs key entry"],
         ["a row without a size", "doctor", without("size"), "core/doctor needs key size"],
         ["a row without a presentation", "doctor", without("presentation"), "core/doctor needs key presentation"],
-        ["an argv that is a string", "doctor", coreRow({ argv: "vgsh doctor" }), "core/doctor.argv must start with a command of the core's bin/ directory, got \"vgsh doctor\""],
+        ["an argv that is a string", "doctor", coreRow({ argv: "vgshell doctor" }), "core/doctor.argv must start with a command of the core's bin/ directory, got \"vgshell doctor\""],
         ["an empty argv", "doctor", coreRow({ argv: [] }), "core/doctor.argv must start with a command of the core's bin/ directory"],
-        ["a command that is a path", "doctor", coreRow({ argv: ["/usr/bin/vgsh", "doctor"] }), "core/doctor.argv must start with a command of the core's bin/ directory"],
+        ["a command that is a path", "doctor", coreRow({ argv: ["/usr/bin/vgshell", "doctor"] }), "core/doctor.argv must start with a command of the core's bin/ directory"],
         ["a command outside the core", "doctor", coreRow({ argv: ["sh", "-c", "x"] }), "core/doctor.argv must start with a command of the core's bin/ directory"],
-        ["a command with a trailing dash", "doctor", coreRow({ argv: ["vgsh-"] }), "core/doctor.argv must start with a command of the core's bin/ directory"],
-        ["an empty argument", "doctor", coreRow({ argv: ["vgsh", ""] }), "core/doctor.argv takes at most 16 arguments of 1 to 256 characters with no control character"],
-        ["an argument with a control character", "doctor", coreRow({ argv: ["vgsh", "a\nb"] }), "core/doctor.argv takes at most 16 arguments"],
-        ["seventeen arguments", "doctor", coreRow({ argv: ["vgsh"].concat(Array(17).fill("a")) }), "core/doctor.argv takes at most 16 arguments"],
+        ["a command with a trailing dash", "doctor", coreRow({ argv: ["vgshell-"] }), "core/doctor.argv must start with a command of the core's bin/ directory"],
+        ["an empty argument", "doctor", coreRow({ argv: ["vgshell", ""] }), "core/doctor.argv takes at most 16 arguments of 1 to 256 characters with no control character"],
+        ["an argument with a control character", "doctor", coreRow({ argv: ["vgshell", "a\nb"] }), "core/doctor.argv takes at most 16 arguments"],
+        ["seventeen arguments", "doctor", coreRow({ argv: ["vgshell"].concat(Array(17).fill("a")) }), "core/doctor.argv takes at most 16 arguments"],
         ["a blank title", "doctor", coreRow({ title: " " }), "core/doctor.title must be one printable line"],
         ["a size no window class has", "doctor", coreRow({ size: "huge" }), "core/doctor.size must be one of default, wide, tall"],
         ["an unknown presentation", "doctor", coreRow({ presentation: "loud" }), "core/doctor.presentation must be one of full, plain"],
@@ -271,16 +271,16 @@ function suite(ctx, check) {
     // the requirement notice's install and the plugin manager's rows for one plugin, each
     // command a file of the core's bin/ its owner may run.
     const shipped = {
-        "pkg-install": { argv: ["vgsh", "pkg", "install"], title: "Install packages", size: "default", presentation: "full", entry: { label: "Install packages", icon: "package-plus", group: "Packages" } },
-        "pkg-remove": { argv: ["vgsh", "pkg", "remove"], title: "Remove packages", size: "default", presentation: "full", entry: { label: "Remove packages", icon: "package-minus", group: "Packages" } },
-        "sudo-grant": { argv: ["vgsh", "sudo", "grant"], title: "Passwordless sudo", size: "default", presentation: "full", entry: { label: "Passwordless sudo", icon: "shield-alert", group: "System" } },
-        "doctor": { argv: ["vgsh", "doctor"], title: "Requirements", size: "default", presentation: "full", entry: { label: "Check requirements", icon: "stethoscope", group: "System" } },
-        "plugin-add": { argv: ["vgsh", "plugin", "add"], title: "Add a plugin", size: "default", presentation: "full", entry: { label: "Add a plugin", icon: "circle-plus", group: "Plugins" } },
-        "theme-add": { argv: ["vgsh", "theme", "add"], title: "Add a theme", size: "default", presentation: "full", entry: { label: "Add a theme", icon: "palette", group: "Themes" } },
-        "system": { argv: ["vgsh", "system"], title: "System setup", size: "default", presentation: "full", entry: null },
-        "requirements-install": { argv: ["vgsh", "pkg", "run", "install"], title: "Install requirements", size: "default", presentation: "full", entry: null },
-        "plugin-update": { argv: ["vgsh", "plugin", "update"], title: "Update a plugin", size: "wide", presentation: "full", entry: null },
-        "plugin-remove": { argv: ["vgsh", "plugin", "remove"], title: "Remove a plugin", size: "default", presentation: "full", entry: null },
+        "pkg-install": { argv: ["vgshell", "pkg", "install"], title: "Install packages", size: "default", presentation: "full", entry: { label: "Install packages", icon: "package-plus", group: "Packages" } },
+        "pkg-remove": { argv: ["vgshell", "pkg", "remove"], title: "Remove packages", size: "default", presentation: "full", entry: { label: "Remove packages", icon: "package-minus", group: "Packages" } },
+        "sudo-grant": { argv: ["vgshell", "sudo", "grant"], title: "Passwordless sudo", size: "default", presentation: "full", entry: { label: "Passwordless sudo", icon: "shield-alert", group: "System" } },
+        "doctor": { argv: ["vgshell", "doctor"], title: "Requirements", size: "default", presentation: "full", entry: { label: "Check requirements", icon: "stethoscope", group: "System" } },
+        "plugin-add": { argv: ["vgshell", "plugin", "add"], title: "Add a plugin", size: "default", presentation: "full", entry: { label: "Add a plugin", icon: "circle-plus", group: "Plugins" } },
+        "theme-add": { argv: ["vgshell", "theme", "add"], title: "Add a theme", size: "default", presentation: "full", entry: { label: "Add a theme", icon: "palette", group: "Themes" } },
+        "system": { argv: ["vgshell", "system"], title: "System setup", size: "default", presentation: "full", entry: null },
+        "requirements-install": { argv: ["vgshell", "pkg", "run", "install"], title: "Install requirements", size: "default", presentation: "full", entry: null },
+        "plugin-update": { argv: ["vgshell", "plugin", "update"], title: "Update a plugin", size: "wide", presentation: "full", entry: null },
+        "plugin-remove": { argv: ["vgshell", "plugin", "remove"], title: "Remove a plugin", size: "default", presentation: "full", entry: null },
     };
     check("the core's TUI table holds its rows and no other", Object.keys(ctx.CORE_TUIS).sort(), Object.keys(shipped).sort());
     for (const name of Object.keys(shipped))
@@ -329,9 +329,9 @@ function suite(ctx, check) {
     // tuiLaunchOutcome: [name, completion, stderr, log line].
     const outcomeRows = [
         ["a launcher that handed the terminal its command", { code: 0, status: 0 }, "", ""],
-        ["no xdg-terminal-exec on PATH", { code: 69, status: 0 }, "vgsh-tui: refused: terminal=missing\nxdg-terminal-exec is not on PATH", "tui: refused: tui=acme.tui/hello reason=launcher-missing"],
+        ["no xdg-terminal-exec on PATH", { code: 69, status: 0 }, "vgshell-tui: refused: terminal=missing\nxdg-terminal-exec is not on PATH", "tui: refused: tui=acme.tui/hello reason=launcher-missing"],
         ["a launcher that never started", null, "", "tui: launcher=unstarted tui=acme.tui/hello"],
-        ["a bad invocation", { code: 2, status: 0 }, "vgsh-tui: refused: size=huge\nusage", "tui: launcher=failed tui=acme.tui/hello exit=2 status=0 vgsh-tui: refused: size=huge"],
+        ["a bad invocation", { code: 2, status: 0 }, "vgshell-tui: refused: size=huge\nusage", "tui: launcher=failed tui=acme.tui/hello exit=2 status=0 vgshell-tui: refused: size=huge"],
         ["a launcher that crashed", { code: 0, status: 1 }, "", "tui: launcher=failed tui=acme.tui/hello exit=0 status=1 "],
     ];
     for (const [name, completion, stderr, want] of outcomeRows)
@@ -353,9 +353,9 @@ function suite(ctx, check) {
     // tuiProbeOutcome: [name, completion, stderr, log line].
     const probeRows = [
         ["a probe that found the terminal", { code: 0, status: 0 }, "", ""],
-        ["a probe that found none is recorded, not logged", { code: 69, status: 0 }, "vgsh-tui: refused: terminal=missing", ""],
+        ["a probe that found none is recorded, not logged", { code: 69, status: 0 }, "vgshell-tui: refused: terminal=missing", ""],
         ["a probe that never started", null, "", "tui: probe=unstarted"],
-        ["a probe with a bad invocation", { code: 2, status: 0 }, "vgsh-tui: refused: argument=x\nusage", "tui: probe=failed exit=2 status=0 vgsh-tui: refused: argument=x"],
+        ["a probe with a bad invocation", { code: 2, status: 0 }, "vgshell-tui: refused: argument=x\nusage", "tui: probe=failed exit=2 status=0 vgshell-tui: refused: argument=x"],
         ["a probe that crashed", { code: 0, status: 1 }, "", "tui: probe=failed exit=0 status=1 "],
     ];
     for (const [name, completion, stderr, want] of probeRows)
@@ -457,13 +457,13 @@ function suite(ctx, check) {
     // this run ended.
     const waited = [{ key: "acme.tui/hello", run: "2-1" }];
     const laterOnly = [{ key: "acme.tui/hello", run: "3-1" }];
-    const goneLine = "vgsh-tui: refused: wait=acme.tui/hello run=2-1 reason=gone\n";
+    const goneLine = "vgshell-tui: refused: wait=acme.tui/hello run=2-1 reason=gone\n";
     check("tuiWaitOutcome: accepts one ended record for this run", ctx.tuiWaitOutcome("acme.tui/hello", "2-1", waited, { code: 0, status: 0 }, waitEnded + "\n", ""), { record: rec("acme.tui/hello", "2-1", "ended", 7, "03", "08"), logs: [] });
     check("tuiWaitOutcome: a vanished record is accepted", ctx.tuiWaitOutcome("acme.tui/hello", "2-1", waited, { code: 0, status: 0 }, JSON.stringify(rec("acme.tui/hello", "2-1", "ended", null, "03", "08")) + "\n", ""), { record: rec("acme.tui/hello", "2-1", "ended", null, "03", "08"), logs: [] });
-    check("tuiWaitOutcome: a failed wait is logged", ctx.tuiWaitOutcome("acme.tui/hello", "2-1", waited, { code: 1, status: 0 }, "", "vgsh-tui: refused: wait=acme.tui/hello run=2-1 reason=lock-unopenable\n"), { record: null, logs: ["tui: wait=acme.tui/hello run=2-1 reason=failed exit=1 status=0 vgsh-tui: refused: wait=acme.tui/hello run=2-1 reason=lock-unopenable"] });
+    check("tuiWaitOutcome: a failed wait is logged", ctx.tuiWaitOutcome("acme.tui/hello", "2-1", waited, { code: 1, status: 0 }, "", "vgshell-tui: refused: wait=acme.tui/hello run=2-1 reason=lock-unopenable\n"), { record: null, logs: ["tui: wait=acme.tui/hello run=2-1 reason=failed exit=1 status=0 vgshell-tui: refused: wait=acme.tui/hello run=2-1 reason=lock-unopenable"] });
     check("tuiWaitOutcome: a gone run no longer awaited is a normal end", ctx.tuiWaitOutcome("acme.tui/hello", "2-1", laterOnly, { code: 3, status: 0 }, "", goneLine), { record: null, logs: [] });
     check("tuiWaitOutcome: a gone run nothing awaits is a normal end", ctx.tuiWaitOutcome("acme.tui/hello", "2-1", [], { code: 3, status: 0 }, "", goneLine), { record: null, logs: [] });
-    check("tuiWaitOutcome: a gone run still awaited is logged", ctx.tuiWaitOutcome("acme.tui/hello", "2-1", waited.concat(laterOnly), { code: 3, status: 0 }, "", goneLine), { record: null, logs: ["tui: wait=acme.tui/hello run=2-1 reason=gone vgsh-tui: refused: wait=acme.tui/hello run=2-1 reason=gone"] });
+    check("tuiWaitOutcome: a gone run still awaited is logged", ctx.tuiWaitOutcome("acme.tui/hello", "2-1", waited.concat(laterOnly), { code: 3, status: 0 }, "", goneLine), { record: null, logs: ["tui: wait=acme.tui/hello run=2-1 reason=gone vgshell-tui: refused: wait=acme.tui/hello run=2-1 reason=gone"] });
     check("tuiWaitOutcome: a gone run is matched by its key as well as its run", ctx.tuiWaitOutcome("acme.tui/hello", "2-1", [{ key: "acme.tui/other", run: "2-1" }], { code: 3, status: 0 }, "", goneLine), { record: null, logs: [] });
     check("tuiWaitOutcome: exit 3 from a crashed wait is a failure", ctx.tuiWaitOutcome("acme.tui/hello", "2-1", laterOnly, { code: 3, status: 1 }, "", ""), { record: null, logs: ["tui: wait=acme.tui/hello run=2-1 reason=failed exit=3 status=1 "] });
     check("tuiWaitOutcome: stdout must hold one line", ctx.tuiWaitOutcome("acme.tui/hello", "2-1", waited, { code: 0, status: 0 }, waitEnded + "\n" + waitEnded + "\n", ""), { record: null, logs: ["tui: wait=acme.tui/hello run=2-1 reason=stdout-lines count=2"] });
@@ -508,7 +508,7 @@ function suite(ctx, check) {
         ["a reap that ended nothing", { code: 0, status: 0 }, "", "", []],
         ["a reap that ended two runs", { code: 0, status: 0 }, "reaped=acme.tui/hello run=2-1\nreaped=core/doctor run=3-1\n", "", [{ level: "info", text: "tui: reaped=acme.tui/hello run=2-1" }, { level: "info", text: "tui: reaped=core/doctor run=3-1" }]],
         ["a line no reap prints", { code: 0, status: 0 }, "reaped everything\n", "", [{ level: "error", text: "tui: reap=unparsed line=\"reaped everything\"" }]],
-        ["a reap that failed on one record", { code: 1, status: 0 }, "reaped=core/doctor run=3-1\n", "vgsh-tui: refused: reap=/r/x reason=malformed\n", [{ level: "info", text: "tui: reaped=core/doctor run=3-1" }, { level: "error", text: "tui: reap=failed exit=1 status=0 vgsh-tui: refused: reap=/r/x reason=malformed" }]],
+        ["a reap that failed on one record", { code: 1, status: 0 }, "reaped=core/doctor run=3-1\n", "vgshell-tui: refused: reap=/r/x reason=malformed\n", [{ level: "info", text: "tui: reaped=core/doctor run=3-1" }, { level: "error", text: "tui: reap=failed exit=1 status=0 vgshell-tui: refused: reap=/r/x reason=malformed" }]],
         ["a reap that crashed", { code: 0, status: 1 }, "", "", [{ level: "error", text: "tui: reap=failed exit=0 status=1 " }]],
         ["a reap that never started", null, "", "", [{ level: "error", text: "tui: reap=unstarted" }]],
     ];
@@ -551,7 +551,7 @@ const CONTROLS = [
     ["a core row holds known keys", "if (CORE_TUI_KEYS.indexOf(keys[k]) === -1)", "if (false)"],
     ["a core row holds every key", "if (row[CORE_TUI_KEYS[m]] === undefined)", "if (false)"],
     ["a core command is judged", " || !CORE_TUI_COMMAND.test(row.argv[0]))", ")"],
-    ["a core command is a core file name", "var CORE_TUI_COMMAND = /^vgsh(-[a-z]+)*$/;", "var CORE_TUI_COMMAND = /^[a-z\\/-]+$/;"],
+    ["a core command is a core file name", "var CORE_TUI_COMMAND = /^vgshell(-[a-z]+)*$/;", "var CORE_TUI_COMMAND = /^[a-z\\/-]+$/;"],
     ["a core row's arguments are judged", "if (!tuiArgsValid(row.argv.slice(1)))", "if (false)"],
     ["a core row's window is judged", "    var windowError = tuiWindowError(at, row);\n    if (windowError !== \"\")\n        return windowError;\n    return row.entry", "    return row.entry"],
     ["a core row's entry is judged", "return row.entry === null ? \"\" : tuiEntryError(at, row.entry);", "return \"\";"],
@@ -560,8 +560,8 @@ const CONTROLS = [
     ["open resolves a core command under the core's bin/", "[coreBin + \"/\" + row.argv[0]]", "[row.argv[0]]"],
     ["the manager's actions are a table", "if (!hasOwn(MANAGER_TUIS, action))", "if (false)"],
     ["the manager refuses an unknown id", "if (typeof id !== \"string\" || source === null)", "if (false)"],
-    ["the plugin update asks before it fast-forwards", "argv: [\"vgsh\", \"plugin\", \"update\"],", "argv: [\"vgsh\", \"plugin\", \"update\", \"--yes\"],"],
-    ["the plugin remove asks before it deletes", "argv: [\"vgsh\", \"plugin\", \"remove\"],", "argv: [\"vgsh\", \"plugin\", \"remove\", \"--yes\"],"],
+    ["the plugin update asks before it fast-forwards", "argv: [\"vgshell\", \"plugin\", \"update\"],", "argv: [\"vgshell\", \"plugin\", \"update\", \"--yes\"],"],
+    ["the plugin remove asks before it deletes", "argv: [\"vgshell\", \"plugin\", \"remove\"],", "argv: [\"vgshell\", \"plugin\", \"remove\", \"--yes\"],"],
     ["the shared answer maps a focused live window", "return answer === tuiRefusal(key, \"busy\").answer ? \"ok\" : answer;", "return answer;"],
     ["the shared answer maps only its own busy key", "return answer === tuiRefusal(key, \"busy\").answer ? \"ok\" : answer;", "return /reason=busy$/.test(answer) ? \"ok\" : answer;"],
     ["the plugin update opens wide", "title: \"Update a plugin\",\n        size: \"wide\",", "title: \"Update a plugin\",\n        size: \"default\","],
@@ -586,7 +586,7 @@ const CONTROLS = [
     ["run starts from the published snapshot", "dir: sourceDir + \"/\" + manifest.__revision", "dir: manifest.__sourceDir"],
     ["the launch names the plugin", "argv.push(\"--plugin\", plugin.id, \"--dir\", plugin.dir);", "argv.push(\"--dir\", plugin.dir);"],
     ["open needs a key with a slash", "if (slash === -1)\n        return tuiRefusal(key, \"undeclared\");", "if (false)\n        return tuiRefusal(key, \"undeclared\");"],
-    ["the core's install picker runs vgsh pkg install", "argv: [\"vgsh\", \"pkg\", \"install\"]", "argv: [\"vgsh\", \"pkg\", \"remove\"]"],
+    ["the core's install picker runs vgshell pkg install", "argv: [\"vgshell\", \"pkg\", \"install\"]", "argv: [\"vgshell\", \"pkg\", \"remove\"]"],
     ["a core TUI is found in the table by its own key", "if (typeof name !== \"string\" || !hasOwn(core, name))", "if (typeof name !== \"string\" || core[name] === undefined)"],
     ["open lists only a core TUI with an entry", "if (!hasOwn(core, name) || core[name].entry === null)", "if (!hasOwn(core, name))"],
     ["open needs an entry", " || manifests[owner].tui[name].entry === null)", ")"],

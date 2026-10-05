@@ -202,7 +202,7 @@ FocusScope {
                     x: enabledField.valueX
                     width: parent.width - x - enabledField.rightPadding
                     visible: page.isSelf
-                    command: page.row === null ? "" : "vgsh plugin enable " + page.row.id
+                    command: page.row === null ? "" : "vgshell plugin enable " + page.row.id
                 }
 
                 Field {

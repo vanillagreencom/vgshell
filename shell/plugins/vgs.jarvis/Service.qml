@@ -45,10 +45,10 @@ Item {
                 () => intent("talk-down"), () => intent("talk-up"));
             shell.shortcut.register("mute", "Mute Jarvis", () => intent("mute"));
             shell.shortcut.register("stop", "Stop Jarvis", () => intent("stop"));
-            // The bar widget's click and `vgsh ipc call vgs.jarvis invoke
+            // The bar widget's click and `vgshell ipc call vgs.jarvis invoke
             // mute` reach the Mute key's intent.
             shell.ipc.handle("mute", () => { intent("mute"); return "ok"; });
-            // The console's Stop button and `vgsh ipc call vgs.jarvis
+            // The console's Stop button and `vgshell ipc call vgs.jarvis
             // stop-task <id>` stop one coding task. The Stop key does not.
             shell.ipc.handle("stop-task", task => stopTask(task));
             shell.layers.show(bubble);
@@ -146,7 +146,7 @@ Item {
             settings: shell.settings,
             directories: {
                 state: Paths.stateDir + "/jarvis",
-                data: (Quickshell.env("XDG_DATA_HOME") || home + "/.local/share") + "/vgs/jarvis",
+                data: (Quickshell.env("XDG_DATA_HOME") || home + "/.local/share") + "/vgshell/jarvis",
                 runtime: Providers.runtimeDirectory(Quickshell.env("XDG_RUNTIME_DIR"))
             },
             revision: shell.manifest.__revision,

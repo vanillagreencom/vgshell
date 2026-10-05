@@ -155,7 +155,7 @@ function suite(ctx, check) {
     for (const [name, missing, notice, found, want] of viewRows) {
         const v = ctx.noticeView(needs, missing, notice, found);
         check("noticeView: " + name, [v.satisfied, v.rows.map(rowText), v.install, v.byHand], want);
-        check("noticeView's command line, the one the notice keeps behind Show command: " + name, v.commandLine, want[2] === null ? "" : ["vgsh", "pkg", "run", "install"].concat(want[2]).join(" "));
+        check("noticeView's command line, the one the notice keeps behind Show command: " + name, v.commandLine, want[2] === null ? "" : ["vgshell", "pkg", "run", "install"].concat(want[2]).join(" "));
     }
     const coreView = ctx.noticeView(core, ["gum"], n("core", ["gum"], ["gum"]), ARCH);
     check("noticeView: the core's notice installs its package", [coreView.satisfied, coreView.rows.map(rowText), coreView.install], [false, ["gum (pacman/gum) optional: Dialogs"], ["gum"]]);
@@ -186,7 +186,7 @@ function suite(ctx, check) {
         ["a detection that answered", ok, arch + "\n", "", ARCH],
         ["a system with no primary", ok, JSON.stringify({ primary: null, overlays: [{ id: "flatpak", binary: "flatpak" }], sources: [] }), "", { primary: null, overlays: [{ id: "flatpak", binary: "flatpak" }], sources: [] }],
         ["a detection that never started", null, "", "", "notices: detect=unstarted"],
-        ["a detection that failed", { code: 1, status: 0 }, "", "vgsh: refused: os-release=unreadable\nmore", "notices: detect=failed exit=1 status=0 vgsh: refused: os-release=unreadable"],
+        ["a detection that failed", { code: 1, status: 0 }, "", "vgshell: refused: os-release=unreadable\nmore", "notices: detect=failed exit=1 status=0 vgshell: refused: os-release=unreadable"],
         ["a detection that crashed", { code: 0, status: 1 }, arch, "", "notices: detect=failed exit=0 status=1 "],
         ["output that does not parse", ok, "primary=pacman", "", "notices: detect=unparseable"],
         ["a manager the table does not know", ok, JSON.stringify({ primary: { id: "brew", binary: "brew" }, overlays: [], sources: [] }), "", "notices: detect=malformed"],
@@ -221,8 +221,8 @@ function suite(ctx, check) {
     const CONNECT = [{ label: "Connect", role: "accept", answer: "connect" }, { label: "Not now", role: "cancel", answer: "decline" }];
     const CLOSE = [{ label: "Close", role: "cancel", answer: "close" }];
     const phase = (name, queued, failure) => ({ phase: name, queued: queued || "", failure: failure || "" });
-    const welcome = (lines, asking, failure, busy) => ({ welcome: true, title: "Welcome to VGS", message: "", lines: [PLUGINS_LINE, LINE_LINE].concat(lines), disclosure: asking ? "vgsh hypr wire" : "", actions: asking ? CONNECT : CLOSE, failure: failure || "", busy: busy === true });
-    const question = { welcome: false, title: QUESTION, message: QUESTION_MESSAGE, lines: [], disclosure: "vgsh hypr wire", actions: CONNECT, failure: "", busy: false };
+    const welcome = (lines, asking, failure, busy) => ({ welcome: true, title: "Welcome to VGS", message: "", lines: [PLUGINS_LINE, LINE_LINE].concat(lines), disclosure: asking ? "vgshell hypr wire" : "", actions: asking ? CONNECT : CLOSE, failure: failure || "", busy: busy === true });
+    const question = { welcome: false, title: QUESTION, message: QUESTION_MESSAGE, lines: [], disclosure: "vgshell hypr wire", actions: CONNECT, failure: "", busy: false };
     // [name, consent, welcome state, shipped, sections, want].
     const slotRows = [
         ["an unseen welcome asks with Connect and Not now", phase("asking"), "unseen", shipped, [keyhints, themes], welcome([KEYS_LINE, THEME_LINE], true)],
@@ -310,7 +310,7 @@ const CONTROLS = [
     ["a view lists only missing commands", "return row.state === \"missing\" && notice.commands.indexOf(row.command) !== -1; });\n    var satisfied", "return notice.commands.indexOf(row.command) !== -1; });\n    var satisfied"],
     ["a view is satisfied only without a required command", "var satisfied = !notice.required.some(", "var satisfied = notice.required.some("],
     ["a view's command line is the install TUI's argv and its arguments", "CORE_TUIS[\"requirements-install\"].argv.concat(install).join(\" \")", "install.join(\" \")"],
-    ["a view with no install has no command line", "commandLine: install === null ? \"\" :", "commandLine: install === null ? \"vgsh pkg run install\" :"],
+    ["a view with no install has no command line", "commandLine: install === null ? \"\" :", "commandLine: install === null ? \"vgshell pkg run install\" :"],
     ["a view installs only through an installing manager", "var installable = plan.groups.filter(function (g) { return g.installs; });", "var installable = plan.groups;"],
     ["a settle keeps the installing notice", "        if (n.id === installing)\n            return true;\n", ""],
     ["a settle drops a notice whose owner went", "        if (!hasOwn(owners, n.id))\n            return false;\n", ""],

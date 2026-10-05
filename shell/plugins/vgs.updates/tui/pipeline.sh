@@ -2,12 +2,12 @@
 # tui/pipeline.sh: the Updates pipeline, sourced by tui/update.sh, which
 # runs every source, and tui/update-source.sh, which runs one. Both hold one
 # lock and one log and run the same steps in the same order; a source the
-# run leaves out is skipped where its step would stand. bin/vgsh-tui runs
+# run leaves out is skipped where its step would stand. bin/vgshell-tui runs
 # both from a private copy of the plugin's snapshot, so bin/facts is beside
 # this file's directory, and the VGS tree is the one VGS_TUI_LIB lies in.
 # The order is omarchy-update's (basecamp/omarchy e332dc97):
 #
-#   1. the log, script(1) into $XDG_STATE_HOME/vgs/updates/update.log, then
+#   1. the log, script(1) into $XDG_STATE_HOME/vgshell/updates/update.log, then
 #      the lock vgs-tui-updates; the run writes a file of its own that
 #      becomes update.log once it holds the lock, so a second run refused
 #      busy never truncates the log of the run it found
@@ -15,26 +15,26 @@
 #   3. the plan box, then one question unless -y
 #   4. one sudo session, when the package layer's elevation command is
 #      sudo and a snapshot or the system step needs root. That command is
-#      the one `vgsh pkg plan upgrade <primary>` names, from shell.json's
+#      the one `vgshell pkg plan upgrade <primary>` names, from shell.json's
 #      `packages.elevate`, else the first of sudo, doas and run0 on PATH;
 #      doas and run0 ask as their own rules say, as bin/lib/pkg-run.sh does
 #   5. a snapshot through snapper or timeshift behind that command, before
 #      any step that replaces a package: the system's, the AUR's or the
-#      vgs-git rebuild. None is taken when the plugin's `snapshot` setting
+#      vgshell-git rebuild. None is taken when the plugin's `snapshot` setting
 #      is off, when neither tool is on PATH or when no elevation command
 #      resolves, and the plan box says which; a failed snapshot warns and
 #      the update goes on
-#   6. VGS itself: `vgsh self update` for a checkout or a curl install
-#   7. the system: `vgsh pkg run upgrade --manager <primary>`, which joins
+#   6. VGS itself: `vgshell self update` for a checkout or a curl install
+#   7. the system: `vgshell pkg run upgrade --manager <primary>`, which joins
 #      the session
-#   8. Flatpak and mise: `vgsh pkg run upgrade --manager flatpak|mise`
+#   8. Flatpak and mise: `vgshell pkg run upgrade --manager flatpak|mise`
 #   9. each plugin, then each theme, behind its upstream:
-#      `vgsh plugin|theme update <id>`, which shows its diff and asks
+#      `vgshell plugin|theme update <id>`, which shows its diff and asks
 #      [y/N]; `--yes` only when the `trustPluginUpdates` setting is on
 #  10. the end of the sudo session, which drops the credential
 #  11. the AUR, last, so no PKGBUILD runs under the update's credential:
-#      the `aurCommand` setting's words, else `vgsh pkg run upgrade
-#      --manager aur`, then `<helper> -S vgs-git` when VGS is that package
+#      the `aurCommand` setting's words, else `vgshell pkg run upgrade
+#      --manager aur`, then `<helper> -S vgshell-git` when VGS is that package
 #      and behind, since an AUR helper rebuilds a -git package only when
 #      its recipe's version changes. The helper asks sudo itself, so the
 #      phase runs under tui.sh's sudo guard: the credential it caches is
@@ -47,7 +47,7 @@
 #      replaced (tui.sh's vgs_tui_reboot_check)
 #
 # The package steps are the package-manager table's own plans, read with
-# `vgsh pkg plan` and run with `vgsh pkg run`: they take no -y, so each
+# `vgshell pkg plan` and run with `vgshell pkg run`: they take no -y, so each
 # manager asks its own questions in this terminal. -y answers only the
 # pipeline's own start question; the orphan and reboot questions are then
 # reported instead of asked. A plugin or theme update that fails or is
@@ -100,7 +100,7 @@ _updates_failed() { # STATUS
   vgs_tui_error "Select Open last log in Updates to read this run's output."
 }
 
-# Runs ARGV from $HOME after a step line, as vgsh pkg run runs its steps,
+# Runs ARGV from $HOME after a step line, as vgshell pkg run runs its steps,
 # so a project's configuration in the caller's directory changes nothing.
 _updates_run() { # LABEL ARGV...
   vgs_tui_step "$1"
@@ -111,7 +111,7 @@ _updates_run() { # LABEL ARGV...
 # The directory a run writes its log in, and the last run's log in it,
 # which tui/log.sh shows.
 updates_state_dir() {
-  printf '%s\n' "${XDG_STATE_HOME:-$HOME/.local/state}/vgs/updates"
+  printf '%s\n' "${XDG_STATE_HOME:-$HOME/.local/state}/vgshell/updates"
 }
 updates_log_file() {
   printf '%s\n' "$(updates_state_dir)/update.log"
@@ -122,7 +122,7 @@ _updates_facts() {
   "$_updates_facts_bin" "$_updates_loader" "$@"
 }
 
-# `vgsh pkg plan upgrade ID`: sets _updates_plan_text, the steps joined by
+# `vgshell pkg plan upgrade ID`: sets _updates_plan_text, the steps joined by
 # `; `, and _updates_plan_elevator, the elevation command the steps run
 # behind, empty when they need none or none resolves; or returns 1 with the
 # refusal's first line in _updates_plan_text. A refusal that leaves no
@@ -133,7 +133,7 @@ _updates_plan() { # ID
   _updates_plan_text=""
   _updates_plan_elevator=""
   _updates_plan_elevator_refused=""
-  if ! out="$("$_updates_vgsh" pkg plan upgrade "$1" 2>&1)"; then
+  if ! out="$("$_updates_vgshell" pkg plan upgrade "$1" 2>&1)"; then
     _updates_plan_text="${out%%$'\n'*}"
     _updates_plan_elevator_refused="$_updates_plan_text"
     return 1
@@ -196,7 +196,7 @@ _updates_snapshot() { # snapper|timeshift ELEVATOR
 # owner query refuses.
 _updates_vgs_package_version() {
   local out facts key value
-  out="$("$_updates_vgsh" pkg owner "$_updates_tree/VERSION" 2>/dev/null)" || return 0
+  out="$("$_updates_vgshell" pkg owner "$_updates_tree/VERSION" 2>/dev/null)" || return 0
   facts="$(_updates_facts owner <<<"$out")"
   while read -r key value; do
     if [[ $key == version ]]; then printf '%s' "$value"; fi
@@ -209,7 +209,7 @@ _updates_vgs_package_version() {
 _updates_outdated() { # plugin|theme SOURCE
   local out facts key value
   _updates_behind=()
-  if ! out="$("$_updates_vgsh" "$1" outdated --json)"; then
+  if ! out="$("$_updates_vgshell" "$1" outdated --json)"; then
     _updates_diagnostic "updates: skipped=$2 reason=outdated-failed"; vgs_tui_warn "Could not check $2 for updates. This step was skipped."
     return 0
   fi
@@ -228,7 +228,7 @@ _updates_update_each() { # plugin|theme ID...
   for id in "$@"; do
     vgs_tui_step "Updating the $kind $id"
     status=0
-    "$_updates_vgsh" "$kind" update "${_updates_yes_flag[@]}" "$id" || status=$?
+    "$_updates_vgshell" "$kind" update "${_updates_yes_flag[@]}" "$id" || status=$?
     if [[ $status -ne 0 ]]; then _updates_diagnostic "updates: $kind=$id exit=$status"; vgs_tui_warn "Could not update $id. The update continues."; fi
   done
 }
@@ -252,7 +252,7 @@ _updates_orphans() {
   status=0
   vgs_tui_confirm "Remove ${#orphans[@]} orphaned package(s)?" --default=false || status=$?
   case "$status" in
-    0) "$_updates_vgsh" pkg run remove --manager pacman "${orphans[@]}" || { _updates_diagnostic "updates: orphans=remove-failed exit=$?"; vgs_tui_warn "Could not remove the unused packages. Try again from Updates."; } ;;
+    0) "$_updates_vgshell" pkg run remove --manager pacman "${orphans[@]}" || { _updates_diagnostic "updates: orphans=remove-failed exit=$?"; vgs_tui_warn "Could not remove the unused packages. Try again from Updates."; } ;;
     1) echo "Keeping the orphaned packages." ;;
     *) exit "$status" ;;
   esac
@@ -324,7 +324,7 @@ updates_main() {
   fi
   # shellcheck source=SCRIPTDIR/../../../../bin/lib/tui.sh
   source "$lib"
-  _updates_vgsh="$_updates_tree/bin/vgsh"
+  _updates_vgshell="$_updates_tree/bin/vgshell"
   _updates_loader="$_updates_tree/bin/lib/qml-library.js"
   _updates_facts_bin="$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/.." && pwd)/bin/facts"
 
@@ -348,7 +348,7 @@ updates_main() {
 
   # What the run acts on: the plugin's settings and the system's managers.
   local out facts key value aur_command=() snapshot_setting="" trust=false
-  out="$("$_updates_vgsh" plugin settings "$VGS_PLUGIN_ID")"
+  out="$("$_updates_vgshell" plugin settings "$VGS_PLUGIN_ID")"
   facts="$(_updates_facts settings <<<"$out")"
   while read -r key value; do
     case "$key" in
@@ -361,7 +361,7 @@ updates_main() {
   if [[ $trust == true ]]; then _updates_yes_flag=(--yes); fi
 
   local primary="" present=() aur_binary=""
-  out="$("$_updates_vgsh" pkg detect --json)"
+  out="$("$_updates_vgshell" pkg detect --json)"
   facts="$(_updates_facts detect <<<"$out")"
   while read -r key value; do
     case "$key" in
@@ -402,7 +402,7 @@ updates_main() {
   local primary_planned=0 elevator="" elevator_refused=""
   local _updates_plan_text _updates_plan_elevator _updates_plan_elevator_refused
   if _updates_in vgs "${run[@]}"; then
-    out="$("$_updates_vgsh" self status --json)"
+    out="$("$_updates_vgshell" self status --json)"
     facts="$(_updates_facts self <<<"$out")"
     while read -r key value; do
       case "$key" in
@@ -414,9 +414,9 @@ updates_main() {
     done <<<"$facts"
     case "$vgs_method:$vgs_behind:$vgs_package" in
       checkout:true:*|curl:true:*) plan+=("VGS: update VGS") ;;
-      package:true:vgs-git)
+      package:true:vgshell-git)
         if [[ -n $aur_binary ]]; then plan+=("VGS: rebuild the VGS package after AUR updates")
-        else plan+=("VGS: vgs-git is behind, and no AUR helper is here to rebuild it")
+        else plan+=("VGS: vgshell-git is behind, and no AUR helper is here to rebuild it")
         fi
         ;;
       package:true:*) plan+=("VGS: the $vgs_package package updates with its package manager") ;;
@@ -459,11 +459,11 @@ updates_main() {
   fi
 
   # A snapshot and the VGS version check guard every step that replaces
-  # packages: the upgrades, the system's and the AUR's, and the vgs-git
+  # packages: the upgrades, the system's and the AUR's, and the vgshell-git
   # rebuild. The orphans follow the upgrades alone.
   local upgrades=0 rebuild=0 replaces=0
   if _updates_in aur "${run[@]}" || { [[ -n $primary ]] && _updates_in "$primary" "${run[@]}"; }; then upgrades=1; fi
-  if _updates_in vgs "${run[@]}" && [[ $vgs_method:$vgs_behind:$vgs_package == package:true:vgs-git && -n $aur_binary ]]; then rebuild=1; fi
+  if _updates_in vgs "${run[@]}" && [[ $vgs_method:$vgs_behind:$vgs_package == package:true:vgshell-git && -n $aur_binary ]]; then rebuild=1; fi
   if [[ $upgrades == 1 || $rebuild == 1 ]]; then replaces=1; fi
   local snapshot_line="" snapshot_tool=""
   if [[ $replaces == 1 ]]; then
@@ -534,12 +534,12 @@ updates_main() {
   fi
   if _updates_in vgs "${run[@]}" && [[ $vgs_behind == true && ( $vgs_method == checkout || $vgs_method == curl ) ]]; then
     vgs_tui_step "Updating VGS"
-    "$_updates_vgsh" self update
+    "$_updates_vgshell" self update
   fi
   for id in "${run[@]}"; do
     case "$id" in
       vgs|plugins|themes|aur) ;;
-      *) "$_updates_vgsh" pkg run upgrade --manager "$id" ;;
+      *) "$_updates_vgshell" pkg run upgrade --manager "$id" ;;
     esac
   done
   if [[ ${#plugins[@]} -gt 0 ]]; then _updates_update_each plugin "${plugins[@]}"; fi
@@ -556,17 +556,17 @@ updates_main() {
       if [[ ${#aur_command[@]} -gt 0 ]]; then
         _updates_run "Updating AUR packages" "${aur_command[@]}"
       else
-        "$_updates_vgsh" pkg run upgrade --manager aur
+        "$_updates_vgshell" pkg run upgrade --manager aur
       fi
     fi
-    if [[ $rebuild == 1 ]]; then _updates_run "Rebuilding VGS" "$aur_binary" -S vgs-git; fi
+    if [[ $rebuild == 1 ]]; then _updates_run "Rebuilding VGS" "$aur_binary" -S vgshell-git; fi
     if [[ $guarded == 1 ]]; then vgs_tui_sudo_session end; fi
   fi
 
   if [[ $primary == pacman ]] && [[ $upgrades == 1 ]]; then _updates_orphans; fi
-  if [[ -n $vgs_before ]] && [[ "$(_updates_vgs_package_version)" != "$vgs_before" ]] && "$_updates_vgsh" pid >/dev/null 2>&1; then
+  if [[ -n $vgs_before ]] && [[ "$(_updates_vgs_package_version)" != "$vgs_before" ]] && "$_updates_vgshell" pid >/dev/null 2>&1; then
     vgs_tui_step "Restarting the shell on the updated VGS"
-    "$_updates_vgsh" restart || { _updates_diagnostic "updates: restart=failed exit=$?"; vgs_tui_warn "VGS could not restart. Save your work and restart the computer."; }
+    "$_updates_vgshell" restart || { _updates_diagnostic "updates: restart=failed exit=$?"; vgs_tui_warn "VGS could not restart. Save your work and restart the computer."; }
   fi
   _updates_reboot
 }

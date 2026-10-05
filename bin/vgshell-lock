@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+# vgshell-lock: ask the running shell's lock plugin to lock the session.
+#
+#   vgshell lock
+#       call `lock` on vgs.lock's IPC target and wait for the compositor
+#
+# It is the route a user script, an idle daemon or a lid-switch bind calls;
+# the shortcut, the launcher's Lock row, the plugin's idle watch and its
+# before-sleep hook reach the same function inside the shell. The plugin
+# answers `ok` once it asked the core for the lock; the compositor answers
+# after that, so the command reads the plugin's `status` reply every 100 ms
+# for up to 2 s. It prints `ok` once the lock is confirmed (`secure`), and
+# refuses when the compositor refused the lock (`refusals` grew), as
+# Hyprland does while another lock screen holds the session with
+# misc:allow_session_lock_restore off, or never confirmed it:
+# docs/architecture/lock-polkit.md.
+#
+# Refusals, each one keyed first line on stderr:
+#   vgshell: refused: argument=<arg>              exit 2; lock takes no argument
+#   vgshell: refused: shell=not-running ...       exit 69; vgshell pid's refusal
+#   vgshell: refused: lock=no-answer pid=<pid>    exit 1; the shell runs but no
+#                                              vgs.lock answered, as when it
+#                                              is disabled and qs answers
+#                                              `Target not found.`
+#   vgshell: refused: ipc-judge=failed            exit 70; bin/lib/ipc-reply.sh
+#                                              could not classify a reply
+#   vgshell: refused: <refusal>                   exit 1; the plugin's own refusal,
+#                                              its `refused: ` prefix dropped
+#   vgshell: refused: lock=refused-by-compositor  exit 1; the compositor refused
+#                                              or ended the lock
+#   vgshell: refused: lock=unconfirmed            exit 1; no confirmation in 2 s
+set -euo pipefail
+
+self="$(readlink -f -- "${BASH_SOURCE[0]}")"
+vgshell="$(dirname -- "$self")/vgshell"
+ipc_judge="$(dirname -- "$self")/lib/ipc-reply.sh"
+
+refuse() { # STATUS KEY [DETAIL]
+  printf 'vgshell: refused: %s\n' "$2" >&2
+  [[ -z ${3:-} ]] || printf '%s\n' "$3" >&2
+  exit "$1"
+}
+
+[[ $# -eq 0 ]] || refuse 2 "argument=$1" "vgshell lock takes no argument"
+# shellcheck source=bin/lib/ipc-reply.sh
+source "$ipc_judge" || refuse 1 "library=missing path=$ipc_judge"
+
+pid="$("$vgshell" pid)" || exit $?
+# One call on vgs.lock's target: qs prints its own log lines on stdout
+# ahead of the reply, so the reply is the last line. Quickshell 0.3.1's
+# client exits 0 on its own failures, such as `Target not found.` while
+# vgs.lock is disabled, so bin/lib/ipc-reply.sh judges that line, as
+# `vgshell ipc` does. Returns 1 when no vgs.lock answered: a failed call or a
+# client failure line; 70 when the judge could not classify the line.
+call() { # FUNCTION
+  local out status=0
+  out="$(qs ipc --pid "$pid" call vgs.lock invoke "$1" "" 2>/dev/null)" || return 1
+  vgs_ipc_last_line_into "$out"
+  vgs_ipc_reply_failure "$vgs_ipc_last_line" >/dev/null || status=$?
+  [[ $status != 0 ]] || return 1
+  [[ $status == 1 ]] || return 70
+  printf '%s\n' "$vgs_ipc_last_line"
+}
+# The whole number after `"refusals":` in a status reply, -1 for none.
+refusals_of() { [[ $1 =~ \"refusals\":([0-9]+) ]] && echo "${BASH_REMATCH[1]}" || echo -1; }
+
+no_answer() { refuse 1 "lock=no-answer pid=$pid" "vgs.lock is disabled, or the shell did not answer; enable it in the Settings window"; }
+# After a failed call: its status, 70 for a reply the judge could not
+# classify, else no answer.
+unanswered() { # STATUS
+  [[ $1 != 70 ]] || refuse 70 "ipc-judge=failed" "bin/lib/ipc-reply.sh could not classify vgs.lock's reply"
+  no_answer
+}
+
+before="$(call status)" || unanswered $?
+reply="$(call lock)" || unanswered $?
+case "$reply" in
+  ok) ;;
+  "unknown: lock"|"unknown: status") refuse 1 "lock=no-answer pid=$pid" "vgs.lock has not registered its functions yet" ;;
+  *) refuse 1 "${reply#refused: }" ;;
+esac
+refusals="$(refusals_of "$before")"
+for _ in $(seq 1 20); do
+  now="$(call status)" || { status=$?; [[ $status != 70 ]] || unanswered 70; now=""; }
+  if [[ $now == *'"secure":true'* ]]; then echo ok; exit 0; fi
+  if (( refusals >= 0 )) && (( $(refusals_of "$now") > refusals )); then
+    refuse 1 "lock=refused-by-compositor" "Hyprland refused the lock: another lock screen, such as hyprlock, holds the session, and misc:allow_session_lock_restore is off"
+  fi
+  sleep 0.1
+done
+refuse 1 "lock=unconfirmed" "the compositor did not confirm the lock within 2 s"

@@ -39,7 +39,7 @@ Item {
             MenuItem { text: "Rescan every plugin"; iconName: "refresh-cw"; shortcut: "R" }
         }
         Tooltip { id: tip; text: "hint" }
-        Tooltip { id: longTip; text: "method=unknown path=/home/user/.local/share/vgs/repo is where VGS runs from, and no package manager owns it" }
+        Tooltip { id: longTip; text: "method=unknown path=/home/user/.local/share/vgshell/repo is where VGS runs from, and no package manager owns it" }
         Menu { id: long
             Repeater {
                 model: ["Bar", "Gallery", "Launcher", "Notifications", "Settings", "Themes", "Beta", "Clock", "Dock", "Echo", "Files", "Grid", "Help", "Inbox", "Jobs"]

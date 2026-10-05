@@ -27,8 +27,8 @@ fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
 
 # --- the tree ---------------------------------------------------------------
 tree="$tmp/tree"
-files=(README.md VERSION bin/vgsh bin/vgsh-scan bin/lib/post-install.txt install.sh docs/architecture/runtime.md
-  packaging/arch/vgs/PKGBUILD packaging/arch/vgs-git/PKGBUILD
+files=(README.md VERSION bin/vgshell bin/vgshell-scan bin/lib/post-install.txt install.sh docs/architecture/runtime.md
+  packaging/arch/vgshell/PKGBUILD packaging/arch/vgshell-git/PKGBUILD
   scripts/readme-install.sh scripts/check-readme.js)
 for dir in "$repo"/shell/plugins/*/; do
   dir="${dir%/}"
@@ -94,17 +94,17 @@ exit 0
 EOF
 cat >"$stubs/nix" <<'EOF'
 #!/usr/bin/env bash
-echo 'vgsh: refused: preflight=hyprland have=none need=0.56' >&2
+echo 'vgshell: refused: preflight=hyprland have=none need=0.56' >&2
 exit 78
 EOF
 home="$tmp/home"
-mkdir -p -- "$home/vgs/bin"
-cat >"$home/vgs/bin/vgsh" <<'EOF'
+mkdir -p -- "$home/vgshell/bin"
+cat >"$home/vgshell/bin/vgshell" <<'EOF'
 #!/usr/bin/env bash
-echo 'vgsh: refused: preflight=hyprland have=unknown need=0.56' >&2
+echo 'vgshell: refused: preflight=hyprland have=unknown need=0.56' >&2
 exit 78
 EOF
-chmod 755 "$home/vgs/bin/vgsh"
+chmod 755 "$home/vgshell/bin/vgshell"
 record="$tmp/record"
 cat >"$stubs/git" <<'EOF'
 #!/usr/bin/env bash
@@ -139,18 +139,18 @@ empty_aur='{"results":[]}'
 
 row "an unknown argument is refused" 2 "readme-install: refused: argument=--bogus" "$stubbed" -- --bogus
 row "no podman is not measured" 77 "readme-install: status=not-measured reason=podman-missing" "$farm" --
-row "a failed AUR probe is not measured" 77 "readme-install: status=not-measured reason=aur-probe package=vgs-git" "$stubbed" STUB_CURL_EXIT=7 --
-row "an AUR answer with no result list is not measured" 77 "readme-install: status=not-measured reason=aur-probe package=vgs-git" "$stubbed" STUB_CURL_OUT='{}' --
-curl_url='https://raw.githubusercontent.com/vanillagreencom/vgs/main/install.sh'
+row "a failed AUR probe is not measured" 77 "readme-install: status=not-measured reason=aur-probe package=vgshell-git" "$stubbed" STUB_CURL_EXIT=7 --
+row "an AUR answer with no result list is not measured" 77 "readme-install: status=not-measured reason=aur-probe package=vgshell-git" "$stubbed" STUB_CURL_OUT='{}' --
+curl_url='https://raw.githubusercontent.com/vanillagreencom/vgshell/main/install.sh'
 curl_command="curl -fsSL $curl_url | bash -s -- --git"
 curl_line="$(grep -n -F -x -- "$curl_command" "$tree/README.md")" || { echo "test-readme-install: readme=no-curl-line"; exit 1; }
 curl_line="${curl_line%%:*}"
 download_first="readme-install: refused: line=$curl_line exit=22 command=$curl_command"
 row "a curl download that fails with no output is refused" 1 "$download_first" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" STUB_FETCH_EXIT=22 --
-aur_first="$(grep -n -F -x -- "paru -S vgs-git" "$tree/README.md")" || { echo "test-readme-install: readme=no-paru-line"; exit 1; }
-row "the published commands run" 0 "readme-install: ok line=${aur_first%%:*} channel=aur exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT='{"results":[{"Name":"vgs-git"}]}' --
+aur_first="$(grep -n -F -x -- "paru -S vgshell-git" "$tree/README.md")" || { echo "test-readme-install: readme=no-paru-line"; exit 1; }
+row "the published commands run" 0 "readme-install: ok line=${aur_first%%:*} channel=aur exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT='{"results":[{"Name":"vgshell-git"}]}' --
 # Each command the record names, after its fence's number in the README.
-fence_want=$'1 paru -S vgs-git\n2 '"$curl_command"$'\n3 nix run github:vanillagreencom/vgs -- run\n4 git clone https://github.com/vanillagreencom/vgs\n4 vgs/bin/vgsh run'
+fence_want=$'1 paru -S vgshell-git\n2 '"$curl_command"$'\n3 nix run github:vanillagreencom/vgshell -- run\n4 git clone https://github.com/vanillagreencom/vgshell\n4 vgshell/bin/vgshell run'
 fence_have="$(sed -n -E 's/^exec vgs-readme-install-([0-9]+)\.[0-9]+ /\1 /p' -- "$record")"
 fence_starts="$(sed -n -E 's/^start vgs-readme-install-([0-9]+)\.[0-9]+$/\1/p' -- "$record")"
 if [[ $fence_have == "$fence_want" && $fence_starts == $'1\n2\n3\n4' ]]; then
@@ -173,7 +173,7 @@ path.write_text(text.replace(old, new))
 PY
 }
 cp -p -- "$tree/README.md" "$tmp/README.md.orig"
-readme_edit "paru -S vgs-git" "yay -S vgs-git"
+readme_edit "paru -S vgshell-git" "yay -S vgshell-git"
 row "a README check-readme refuses is refused" 1 "readme-install: refused: check-readme=refused" "$stubbed" --
 cp -p -- "$tmp/README.md.orig" "$tree/README.md"
 # The README's commands need no release, so the release probe rows plant

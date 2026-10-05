@@ -1,5 +1,5 @@
-// The catalog marker bin/vgsh-theme-judge writes into every package `vgsh
-// theme install` lands, and the install state `vgsh theme catalog` reports
+// The catalog marker bin/vgshell-theme-judge writes into every package `vgshell
+// theme install` lands, and the install state `vgshell theme catalog` reports
 // for a catalog entry from it. No I/O: the judge reads and writes the
 // files and passes their text, with ThemeLogic.js as LOGIC.
 //

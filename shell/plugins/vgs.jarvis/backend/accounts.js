@@ -6,7 +6,7 @@ const { PROVIDERS, keyProvider, helperFailure } = require("../AccountProviders.j
 
 async function main() {
     const args = process.argv.slice(2);
-    const state = path.join(process.env.XDG_STATE_HOME || path.join(process.env.HOME, ".local/state"), "vgs/jarvis");
+    const state = path.join(process.env.XDG_STATE_HOME || path.join(process.env.HOME, ".local/state"), "vgshell/jarvis");
     const snapshot = args[0] === "presence" && args.length === 2 ? JSON.parse(args[1]) : undefined;
     const judge = new Accounts(state, process.env, snapshot);
     let value;

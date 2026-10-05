@@ -1,4 +1,4 @@
-// The target renderer bin/vgsh-theme-judge runs: the judge of a target's
+// The target renderer bin/vgshell-theme-judge runs: the judge of a target's
 // target.json, the template renderer and the terminal fallback. Nothing here
 // reads or writes a file; the caller reads target.json, the templates and a
 // package's curated files and hands over their text or bytes.

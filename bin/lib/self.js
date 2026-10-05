@@ -1,7 +1,7 @@
-// vgsh self: how this VGS tree was installed, what its channel offers now,
-// and the update of a curl install (D040). bin/vgsh runs it under node and
+// vgshell self: how this VGS tree was installed, what its channel offers now,
+// and the update of a curl install (D040). bin/vgshell runs it under node and
 // owns the git calls: it hands in whether the tree is its own checkout and,
-// for a checkout or a vgs-git package, the commits git read.
+// for a checkout or a vgshell-git package, the commits git read.
 //
 //   self.js detect <root> <data-home> <version> <checkout>
 //       the install method: one line `<method> <package> <current>
@@ -19,10 +19,10 @@
 // The methods, judged in this order on the real path of the tree:
 //   checkout  the tree is the top level of its own git checkout
 //   nix       the tree lies in the Nix store: $NIX_STORE_DIR, else /nix/store
-//   curl      <data-home>/vgs/current resolves to the tree, a directory of
-//             <data-home>/vgs
+//   curl      <data-home>/vgshell/current resolves to the tree, a directory of
+//             <data-home>/vgshell
 //   package   the system's primary package manager owns the tree's VERSION
-//             (`vgsh pkg owner`), as the package vgs or vgs-git
+//             (`vgshell pkg owner`), as the package vgshell or vgshell-git
 // Any other tree is refused as `method=unknown path=<root>`.
 //
 // The release API is https://api.github.com. VGS_RELEASE_API replaces it
@@ -30,7 +30,7 @@
 // http://127.0.0.1:<port>; anything else set there is refused. A download
 // is https, or on the loopback base's origin.
 //
-// Every refusal is one line on stderr, `vgsh: refused: <key>=<value>`,
+// Every refusal is one line on stderr, `vgshell: refused: <key>=<value>`,
 // through bin/lib/judge-files.js, exit 1; a bad invocation exits 2.
 // docs/architecture/distribution-methods.md.
 "use strict";
@@ -44,10 +44,10 @@ const { pipeline } = require("stream/promises");
 const { Refusal, refuse, main, writing } = require(path.join(__dirname, "judge-files.js"));
 
 const VERSION_PATTERN = /^[0-9]+\.[0-9]+\.[0-9]+$/;
-// A vgs-git package's version ends in the commit it was built from: the
+// A vgshell-git package's version ends in the commit it was built from: the
 // AUR form X.Y.Z.r<N>.g<hash> and the COPR form X.Y.Z^<N>.git<hash>.
 const GIT_PACKAGE_PATTERN = /^[0-9]+\.[0-9]+\.[0-9]+(?:\.r|\^)[0-9]+\.g(?:it)?([0-9a-f]{7,40})$/;
-const PACKAGES = ["vgs", "vgs-git"];
+const PACKAGES = ["vgshell", "vgshell-git"];
 const API = "https://api.github.com";
 // The seconds the release query may take, and the seconds and bytes one
 // download may take. The release archive was 5.5 MB at 0.1.0.
@@ -57,7 +57,7 @@ const MAX_ARCHIVE = 128 * 1024 * 1024;
 const MAX_SUMS = 64 * 1024;
 
 function usage(first) {
-    process.stderr.write("vgsh: refused: " + first + "\nusage: self.js detect|latest|report|install ...\n");
+    process.stderr.write("vgshell: refused: " + first + "\nusage: self.js detect|latest|report|install ...\n");
     process.exit(2);
 }
 
@@ -75,10 +75,10 @@ function inside(file, dir) {
     return dir !== null && file.startsWith(dir.endsWith("/") ? dir : dir + "/");
 }
 
-// The package that owns ROOT's VERSION, through `vgsh pkg owner`, the
+// The package that owns ROOT's VERSION, through `vgshell pkg owner`, the
 // package layer's one owner query: `{ manager, package, version }`.
 function owner(root) {
-    const run = childProcess.spawnSync(process.execPath, [path.join(__dirname, "..", "vgsh-pkg"), "owner", path.join(root, "VERSION")], { encoding: "utf8" });
+    const run = childProcess.spawnSync(process.execPath, [path.join(__dirname, "..", "vgshell-pkg"), "owner", path.join(root, "VERSION")], { encoding: "utf8" });
     if (run.error !== undefined) refuse("pkg=failed error=" + run.error.code);
     if (run.status !== 0) refuse("method=unknown path=" + root, undefined, 1, run.stderr);
     try {
@@ -94,12 +94,12 @@ function detect(root, dataHome, version, checkout) {
     const tree = real(root);
     if (tree === null) refuse("path=unreadable path=" + root);
     if (inside(tree, real(process.env.NIX_STORE_DIR || "/nix/store"))) return ["nix", "-", version, "-"];
-    const vgsData = real(path.join(dataHome, "vgs"));
+    const vgsData = real(path.join(dataHome, "vgshell"));
     if (vgsData !== null && real(path.join(vgsData, "current")) === tree && path.dirname(tree) === vgsData) return ["curl", "-", version, "-"];
     const found = owner(tree);
     if (!PACKAGES.includes(found.package)) refuse("package=" + found.package + " manager=" + found.manager + " reason=not-vgs");
     if (found.version === null) refuse("package=" + found.package + " manager=" + found.manager + " reason=version-unknown");
-    const pattern = found.package === "vgs" ? VERSION_PATTERN : GIT_PACKAGE_PATTERN;
+    const pattern = found.package === "vgshell" ? VERSION_PATTERN : GIT_PACKAGE_PATTERN;
     if (!pattern.test(found.version)) refuse("package=" + found.package + " version=" + found.version + " reason=not-a-version");
     return ["package", found.package, found.version, found.manager];
 }
@@ -135,7 +135,7 @@ async function get(url, seconds, key, api) {
     if (parsed.protocol !== "https:" && parsed.origin !== api.origin) refuse(key + "=insecure url=" + url);
     let response;
     try {
-        response = await fetch(url, { headers: { "Accept": "application/vnd.github+json", "User-Agent": "vgsh" }, redirect: "follow", signal: AbortSignal.timeout(seconds * 1000) });
+        response = await fetch(url, { headers: { "Accept": "application/vnd.github+json", "User-Agent": "vgshell" }, redirect: "follow", signal: AbortSignal.timeout(seconds * 1000) });
     } catch (e) {
         if (e.name === "TimeoutError") refuse(key + "=timeout seconds=" + seconds + " url=" + url);
         refuse(key + "=unreachable url=" + url, undefined, 1, String(e.cause || e.message));
@@ -219,14 +219,14 @@ function run(argv, options, key) {
 // renaming a new `current` link over the old one. ROOT and SHELL_TREE, the
 // tree a running shell was started from, stay, since a shell whose restart
 // was refused still runs from a tree `current` no longer names; every other
-// version directory is removed. bin/vgsh holds DATA/.self.lock around the
+// version directory is removed. bin/vgshell holds DATA/.self.lock around the
 // call.
 async function install(repository, dataHome, root, current, shellTree) {
-    const data = path.join(dataHome, "vgs");
+    const data = path.join(dataHome, "vgshell");
     const api = apiBase();
     const release = await latestRelease(repository, api);
     if (!newer(release.version, current)) {
-        process.stdout.write("ok up-to-date=vgs version=" + current + "\n");
+        process.stdout.write("ok up-to-date=vgshell version=" + current + "\n");
         return;
     }
     const target = path.join(data, release.version);
@@ -237,7 +237,7 @@ async function install(repository, dataHome, root, current, shellTree) {
         if (e.code !== "ENOENT") refuse("target=unreadable path=" + target + " error=" + e.code);
         taken = false;
     }
-    if (taken) refuse("target=exists path=" + target, undefined, 1, "remove it and run vgsh self update again");
+    if (taken) refuse("target=exists path=" + target, undefined, 1, "remove it and run vgshell self update again");
     let stage;
     writing(data, "data", () => {
         // Under the lock, a staging directory left behind is a dead run's.
@@ -246,7 +246,7 @@ async function install(repository, dataHome, root, current, shellTree) {
         stage = fs.mkdtempSync(path.join(data, ".self-update-"));
     });
     try {
-        const archive = "vgs-" + release.version + ".tar.gz";
+        const archive = "vgshell-" + release.version + ".tar.gz";
         const sums = path.join(stage, "SHA256SUMS");
         await download(release, "SHA256SUMS", sums, MAX_SUMS, api);
         const got = await download(release, archive, path.join(stage, archive), MAX_ARCHIVE, api);
@@ -256,8 +256,8 @@ async function install(repository, dataHome, root, current, shellTree) {
         writing(source, "stage", () => fs.mkdirSync(source));
         run(["tar", "-xzf", path.join(stage, archive), "-C", source], {}, "archive=unpack name=" + archive);
         const top = fs.readdirSync(source);
-        const unpacked = path.join(source, "vgs-" + release.version);
-        if (top.length !== 1 || top[0] !== "vgs-" + release.version || !fs.lstatSync(unpacked).isDirectory())
+        const unpacked = path.join(source, "vgshell-" + release.version);
+        if (top.length !== 1 || top[0] !== "vgshell-" + release.version || !fs.lstatSync(unpacked).isDirectory())
             refuse("archive=layout name=" + archive + " top=" + JSON.stringify(top));
         let shipped;
         try {
@@ -267,8 +267,8 @@ async function install(repository, dataHome, root, current, shellTree) {
         }
         if (shipped !== release.version + "\n") refuse("archive=version name=" + archive + " version=" + JSON.stringify(shipped));
         const destdir = path.join(stage, "tree");
-        run(["bash", path.join(unpacked, "packaging", "install-system.sh")], { env: Object.assign({}, process.env, { DESTDIR: destdir, PREFIX: "/vgs" }) }, "install=failed name=" + archive);
-        writing(target, "target", () => fs.renameSync(path.join(destdir, "vgs", "share", "vgs"), target));
+        run(["bash", path.join(unpacked, "packaging", "install-system.sh")], { env: Object.assign({}, process.env, { DESTDIR: destdir, PREFIX: "/vgshell" }) }, "install=failed name=" + archive);
+        writing(target, "target", () => fs.renameSync(path.join(destdir, "vgshell", "share", "vgshell"), target));
         const link = path.join(stage, "current");
         writing(path.join(data, "current"), "current", () => {
             fs.symlinkSync(release.version, link);
@@ -287,16 +287,16 @@ async function install(repository, dataHome, root, current, shellTree) {
             if (fs.lstatSync(dir).isDirectory()) fs.rmSync(dir, { recursive: true, force: true });
         }
     });
-    process.stdout.write("ok updated=vgs from=" + current + " to=" + release.version + " path=" + target + "\n");
+    process.stdout.write("ok updated=vgshell from=" + current + " to=" + release.version + " path=" + target + "\n");
 }
 
-// `behind` from the facts bin/vgsh gathered: a checkout is behind while its
-// upstream holds commits it lacks, a vgs-git package while main is not the
+// `behind` from the facts bin/vgshell gathered: a checkout is behind while its
+// upstream holds commits it lacks, a vgshell-git package while main is not the
 // commit it was built from, and every other install while the newest
 // release is newer than its version. null when an error stopped the read.
 function behind(method, pkg, current, latest, count) {
     if (method === "checkout") return Number(count) > 0;
-    if (pkg === "vgs-git") return !latest.startsWith(GIT_PACKAGE_PATTERN.exec(current)[1]);
+    if (pkg === "vgshell-git") return !latest.startsWith(GIT_PACKAGE_PATTERN.exec(current)[1]);
     return newer(latest, current);
 }
 

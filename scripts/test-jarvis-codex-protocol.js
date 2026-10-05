@@ -34,8 +34,8 @@ function refused(fn, code, label) { assert.throws(fn, { message: "jarvis: brain=
 world(() => {
     const Codex = require(file);
     const bridge = { command: "/usr/bin/node", args: ["/plugin/backend/mcp-shim"],
-        env: { VGS_JARVIS_TOOLS_SOCKET: "/run/vgs/jarvis/tools.sock", VGS_JARVIS_TOOLS_TOKEN: "f".repeat(64) } };
-    const cwd = "/home/fixture/.local/state/vgs/jarvis/codex-cwd";
+        env: { VGS_JARVIS_TOOLS_SOCKET: "/run/vgshell/jarvis/tools.sock", VGS_JARVIS_TOOLS_TOKEN: "f".repeat(64) } };
+    const cwd = "/home/fixture/.local/state/vgshell/jarvis/codex-cwd";
 
     function builders(logic) {
         const init = logic.initialize(1);
@@ -125,7 +125,7 @@ world(() => {
         const turnId = "01a0fbb0-fc93-7da0-a43c-46f6c70998cb", threadId = "01a0fbb0-fc74-7383-b55a-3b1d89059cb8";
         const announced = patch.find(v => v.kind === "notification" && v.event.kind === "item-started" && v.event.item.kind === "file-change");
         assert.deepEqual(announced.event.item, { kind: "file-change", id: "call_patch", status: "inProgress",
-            changes: [{ path: "/home/fixture/.local/state/vgs/jarvis/codex-cwd/hello.txt", change: "add", movePath: null, diff: "hi\n" }] });
+            changes: [{ path: "/home/fixture/.local/state/vgshell/jarvis/codex-cwd/hello.txt", change: "add", movePath: null, diff: "hi\n" }] });
         assert.deepEqual(patch.find(v => v.kind === "request"),
             { kind: "request", id: 0, request: { kind: "file-change", threadId, turnId, itemId: "call_patch" } });
         assert.deepEqual(patch.filter(v => v.kind === "notification" && v.event.kind === "delta").map(v => v.event),

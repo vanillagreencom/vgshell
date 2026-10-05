@@ -2,7 +2,7 @@
 # The vgs.polkit floating TUI behind the status row's Stop: ends each other
 # polkit agent and records its program, so VGS ends it again in a later
 # session, and changes no package. bin/agents states the step and its
-# refusals; bin/vgsh-tui runs this from a private copy of the plugin's
+# refusals; bin/vgshell-tui runs this from a private copy of the plugin's
 # snapshot, so the script is under VGS_PLUGIN_DIR and the VGS tree is the
 # one VGS_TUI_LIB lies in.
 #

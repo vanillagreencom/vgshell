@@ -19,7 +19,7 @@ import sys
 
 import dbus
 
-PATH = "/org/vgs/Smoke/OtherAgent"
+PATH = "/org/vgshell/Smoke/OtherAgent"
 
 
 def main():

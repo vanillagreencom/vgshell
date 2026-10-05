@@ -8,8 +8,8 @@ import QtQuick
 // IPC open the window on the focused monitor.
 //   shortcut vgs.system:toggle            SUPER+COMMA from the manifest's
 //                                          `hyprland` binds
-//   vgsh ipc call vgs.system invoke toggle '<payload>'
-//   vgsh ipc call vgs.system invoke open '<payload>'
+//   vgshell ipc call vgs.system invoke toggle '<payload>'
+//   vgshell ipc call vgs.system invoke open '<payload>'
 // A payload is the window's, `{}` or `{"pane":"<id>", ...}`; an empty
 // argument is `{}`.
 Item {

@@ -8,9 +8,9 @@ function cases({ home, project, roots }) {
             calls: [{ id: "shell.argv", args: { argv: ["sudo", "fixture-only"], cwd: project, network: false } }] },
         ...[
             ["credentials", home + "/.ssh/sentinel"],
-            ["policy", roots.config + "/vgs/policy"],
-            ["audit", roots.state + "/vgs/jarvis/audit/sentinel"],
-            ["settings", roots.config + "/vgs/shell.json"]
+            ["policy", roots.config + "/vgshell/policy"],
+            ["audit", roots.state + "/vgshell/jarvis/audit/sentinel"],
+            ["settings", roots.config + "/vgshell/shell.json"]
         ].map(([name, file]) => ({ name, file, reason: "protected-path", calls: [
             { id: "files.read", args: { path: file } },
             { id: "files.write", args: { path: file, text: "fixture" } },

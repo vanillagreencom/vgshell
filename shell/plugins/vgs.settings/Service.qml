@@ -6,8 +6,8 @@ import QtQuick
 // them. The shortcut and the IPC open the window on the focused monitor.
 //   shortcut vgs.settings:toggle            SUPER+M from the manifest's
 //                                            `hyprland` binds
-//   vgsh ipc call vgs.settings invoke toggle '<payload>'
-//   vgsh ipc call vgs.settings invoke open '<payload>'
+//   vgshell ipc call vgs.settings invoke toggle '<payload>'
+//   vgshell ipc call vgs.settings invoke open '<payload>'
 // A payload is the window's, `{}` or `{"plugin":"<id>"}`; an empty argument
 // is `{}`.
 Item {

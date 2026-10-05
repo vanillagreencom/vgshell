@@ -8,7 +8,7 @@
 
 // Every source a status row can name, with the label the service publishes
 // and the Lucide icon the flyout draws it with. `packages` is the one row a
-// failed `vgsh pkg check` leaves. A source outside the table is labelled by
+// failed `vgshell pkg check` leaves. A source outside the table is labelled by
 // its own name and drawn with the `package` icon.
 var SOURCES = {
     pacman: { label: "System", icon: "package" },
@@ -97,7 +97,7 @@ function sourceRow(source, count, packages, checkedAt, error) {
 function commandError(name, probe) {
     var reason = probe.status === null ? "spawn=failed" : "exit=" + probe.status;
     var stderr = String(probe.stderr || "").split("\n").filter(function (line) { return line !== ""; })[0] || "";
-    return reason + (stderr !== "" ? " " + stderr.replace(/^vgsh: refused: /, "") : "");
+    return reason + (stderr !== "" ? " " + stderr.replace(/^vgshell: refused: /, "") : "");
 }
 
 function parseProbeJson(name, probe) {
@@ -109,7 +109,7 @@ function parseProbeJson(name, probe) {
     }
 }
 
-// `vgsh pkg check --json` rows, primary first. With no manager detected it
+// `vgshell pkg check --json` rows, primary first. With no manager detected it
 // prints `[]`, so the snapshot holds only the VGS rows; a probe that failed
 // as a whole is one `packages` row carrying the failure.
 function normalizePkg(probe) {
@@ -137,12 +137,12 @@ function normalizeSelf(probe, checkedAt) {
 }
 
 // An installed directory that is not its own git checkout (a copied or
-// hand-made plugin) has no upstream, and `vgsh plugin update` refuses it
+// hand-made plugin) has no upstream, and `vgshell plugin update` refuses it
 // the same way: it is not an update source, so its row is left out rather
 // than failing the whole source.
 var UNTRACKED_REFUSAL = /^not-a-checkout=/;
 
-// Plugins or themes from `vgsh plugin|theme outdated --json`: one update per
+// Plugins or themes from `vgshell plugin|theme outdated --json`: one update per
 // checkout that is behind, its commit count kept as `behind`. A checkout
 // whose own probe failed names itself in the source's error; the others
 // still count, so one unreachable remote does not hide the rest.
@@ -222,7 +222,7 @@ function firstSourceError(snapshot) {
     return null;
 }
 
-// vgsh and bin/check keep these diagnostics in the snapshot. The status
+// vgshell and bin/check keep these diagnostics in the snapshot. The status
 // line and source rows use words; the log keeps the source's full result.
 var CHECK_ERRORS = [
     [/spawn=failed|start=failed|start-failed/, "The update check could not start. Select Refresh to try again."],

@@ -8,9 +8,9 @@
 
 **Research**: VGS-458
 
-**Context**: `vgsh theme apply` changes two readers at once: applications that read rendered files from a stable path, and the shell, which watches `~/.config/vgs/theme.json`. Two callers may apply at once, a terminal and the shell's own panel, and they need not share `XDG_RUNTIME_DIR`.
+**Context**: `vgshell theme apply` changes two readers at once: applications that read rendered files from a stable path, and the shell, which watches `~/.config/vgshell/theme.json`. Two callers may apply at once, a terminal and the shell's own panel, and they need not share `XDG_RUNTIME_DIR`.
 
-**Decision**: Apply renders into `~/.local/state/vgs/next-theme/` and swaps it over `theme/` by moving the old directory aside and renaming the stage into place, then writes `theme.name`, then copies the package's `theme.json` bytes over the shell's file by rename. One `flock` on `~/.config/vgs/theme.lock`, beside the file it guards, covers the whole apply; the file is never removed. An installed package hides the shipped package of its name even when the installed one is refused, except a reserved `vgs`.
+**Decision**: Apply renders into `~/.local/state/vgshell/next-theme/` and swaps it over `theme/` by moving the old directory aside and renaming the stage into place, then writes `theme.name`, then copies the package's `theme.json` bytes over the shell's file by rename. One `flock` on `~/.config/vgshell/theme.lock`, beside the file it guards, covers the whole apply; the file is never removed. An installed package hides the shipped package of its name even when the installed one is refused, except a reserved `vgs`.
 
 **Rationale**:
 
@@ -21,6 +21,6 @@
 
 **Revisit When**: Applications need `theme/` present at every instant, which a symlink swap would give, or the lock must cover commands other than apply.
 
-**Verification**: `scripts/test-vgsh.sh` covers the busy refusal with a lockless control, the byte copy with a re-serialising control, the stale stage, the shadowing and the reserved name.
+**Verification**: `scripts/test-vgshell.sh` covers the busy refusal with a lockless control, the byte copy with a re-serialising control, the stale stage, the shadowing and the reserved name.
 
 **References**: [D019](D019-theme-packages-carry-plugin-trust.md)

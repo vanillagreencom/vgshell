@@ -34,6 +34,6 @@
 
 **Revisit When**: A CLI names its theme in a file this edit refuses in its common form, such as JSON with comments, or takes its theme from a place other than a settings key.
 
-**Verification**: `scripts/test-theme-select.js` covers every edit and refusal for each format and the `select` schema, with a control per rule on copies of `theme-select.js` and `theme-render.js`. `scripts/test-vgsh-agents.sh` covers the seven targets, the byte-for-byte edit through a symlink with its mode, the skipped absent and refused files, the restored key and the disabled target. Its controls are judge copies that drop the plan's skip and never keep the selection.
+**Verification**: `scripts/test-theme-select.js` covers every edit and refusal for each format and the `select` schema, with a control per rule on copies of `theme-select.js` and `theme-render.js`. `scripts/test-vgshell-agents.sh` covers the seven targets, the byte-for-byte edit through a symlink with its mode, the skipped absent and refused files, the restored key and the disabled target. Its controls are judge copies that drop the plan's skip and never keep the selection.
 
 **References**: [D022](D022-theme-apply-keeps-managed-links-in-application-directories.md), [D021](D021-theme-apply-writes-beside-each-destination.md)

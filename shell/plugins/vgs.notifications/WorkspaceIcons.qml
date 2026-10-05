@@ -20,7 +20,7 @@ Scope {
     required property string modelData
     readonly property string ruleId: modelData
     readonly property string configHome: Quickshell.env("XDG_CONFIG_HOME") || (Quickshell.env("HOME") + "/.config")
-    readonly property string dir: (Quickshell.env("XDG_CACHE_HOME") || (Quickshell.env("HOME") + "/.cache")) + "/vgs/notifications/workspaces/" + ruleId
+    readonly property string dir: (Quickshell.env("XDG_CACHE_HOME") || (Quickshell.env("HOME") + "/.cache")) + "/vgshell/notifications/workspaces/" + ruleId
     readonly property string script: String(Qt.resolvedUrl("slack-cache.js")).replace(/^file:\/\//, "")
 
     // Workspace name, case folded -> its icon's file URL, or "" for none

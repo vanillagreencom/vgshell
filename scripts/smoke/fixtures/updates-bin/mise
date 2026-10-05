@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Stand-in mise for rows/updates.sh: `outdated --json` lists one tool.
 set -euo pipefail
-root="${XDG_STATE_HOME:?}/vgs/updates-smoke"
+root="${XDG_STATE_HOME:?}/vgshell/updates-smoke"
 mkdir -p -- "$root"
 printf 'mise %s\n' "$*" >>"$root/calls.log"
 cat <<'JSON'

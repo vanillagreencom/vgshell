@@ -17,10 +17,10 @@ world(() => {
     const protectedPaths = [
         ...[".ssh", ".gnupg", ".claude", ".codex", ".gemini", ".copilot", ".agent-browser", ".mozilla", ".pki", ".netrc", ".git-credentials",
             ".aws", ".azure", ".kube", ".docker/config.json", ".npmrc", ".pypirc", ".cargo/credentials.toml", ".cargo/credentials"].map(name => path.join(home, name)),
-        ...["gh", "git/credentials", "claude", "codex", "gemini", "copilot", "opencode", "kwalletd", "chromium", "google-chrome", "BraveSoftware", "microsoft-edge", "vivaldi", "mozilla", "vgs",
+        ...["gh", "git/credentials", "claude", "codex", "gemini", "copilot", "opencode", "kwalletd", "chromium", "google-chrome", "BraveSoftware", "microsoft-edge", "vivaldi", "mozilla", "vgshell",
             "gcloud", "rclone"].map(name => path.join(roots.config, name)),
-        ...["opencode", "keyrings", "kwalletd", "vgs"].map(name => path.join(roots.data, name)),
-        path.join(roots.state, "vgs"), path.join(roots.runtime, "vgs"), roots.install, account
+        ...["opencode", "keyrings", "kwalletd", "vgshell"].map(name => path.join(roots.data, name)),
+        path.join(roots.state, "vgshell"), path.join(roots.runtime, "vgshell"), roots.install, account
     ];
     for (const target of protectedPaths) {
         for (const role of ["read", "tree-read", "write", "move", "remove", "workspace"])
@@ -45,7 +45,7 @@ world(() => {
     assert.equal(Object.isFrozen(aliasJudge.masks), true);
     assert.equal(aliasJudge.masks.includes(accountAlias), true);
     assert.equal(aliasJudge.masks.includes(realAccount), true);
-    assert.equal(denied.masks.includes(path.join(roots.state, "vgs")), true);
+    assert.equal(denied.masks.includes(path.join(roots.state, "vgshell")), true);
     for (const role of ["write", "move", "remove", "workspace", "tree-read"])
         refused(denied, home, role, "protected-path");
     // One-level list names are permitted. Each opened child needs its own check.
@@ -405,11 +405,11 @@ world(() => {
             });
     }
     for (const base of ["config", "data", "state", "runtime"]) {
-        const needle = `path.join(${base}, "vgs")`;
-        control("vgs-" + base, needle, `path.join(${base}, "vgs-unprotected")`,
-            logic => refused(logic.create(localOptions), path.join(localOptions[base], "vgs"), "read", "protected-path"));
+        const needle = `path.join(${base}, "vgshell")`;
+        control("vgshell-" + base, needle, `path.join(${base}, "vgs-unprotected")`,
+            logic => refused(logic.create(localOptions), path.join(localOptions[base], "vgshell"), "read", "protected-path"));
     }
-    control("vgs-install", 'path.join(runtime, "vgs"), install', 'path.join(runtime, "vgs"), install + "-unprotected"',
+    control("vgs-install", 'path.join(runtime, "vgshell"), install', 'path.join(runtime, "vgshell"), install + "-unprotected"',
         logic => refused(logic.create(localOptions), localOptions.install, "read", "protected-path"));
     const executionInventory = [
         ...[".profile", ".bash_profile", ".bash_login", ".bashrc", ".zprofile", ".zshrc", ".zshenv", ".xprofile", ".local/bin"].map(name => ["home", name]),

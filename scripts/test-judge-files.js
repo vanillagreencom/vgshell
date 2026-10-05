@@ -20,7 +20,7 @@ const os = require("node:os");
 const path = require("node:path");
 
 const helperFile = path.join(__dirname, "..", "bin", "lib", "judge-files.js");
-const STAGING = /\.vgsh-[0-9]+$/;
+const STAGING = /\.vgshell-[0-9]+$/;
 process.umask(0o022);
 
 // Each staging file's permission bits the moment writeFileSync has created
@@ -58,9 +58,9 @@ const ROWS = [
 
 // main rows: the name, the command's body, the exit status, the stderr.
 const MAIN_ROWS = [
-    ["a refusal prints its line", "main(() => refuse(\"k=v\"))", 1, "vgsh: refused: k=v\n"],
-    ["a refusal's detail follows its line", "main(() => refuse(\"k=v\", undefined, 3, \"why\"))", 3, "vgsh: refused: k=v\nwhy\n"],
-    ["a rejected promise's refusal ends the process the same way", "main(async () => { await null; refuse(\"k=v\", undefined, 4, \"late\\n\"); })", 4, "vgsh: refused: k=v\nlate\n"]
+    ["a refusal prints its line", "main(() => refuse(\"k=v\"))", 1, "vgshell: refused: k=v\n"],
+    ["a refusal's detail follows its line", "main(() => refuse(\"k=v\", undefined, 3, \"why\"))", 3, "vgshell: refused: k=v\nwhy\n"],
+    ["a rejected promise's refusal ends the process the same way", "main(async () => { await null; refuse(\"k=v\", undefined, 4, \"late\\n\"); })", 4, "vgshell: refused: k=v\nlate\n"]
 ];
 
 function verify(helper, root, file) {
@@ -72,7 +72,7 @@ function verify(helper, root, file) {
     for (const [name, mode, stale, stagedMode, finalMode] of ROWS) {
         const dir = fs.mkdtempSync(path.join(root, "row-"));
         const file = path.join(dir, "settings.json");
-        if (stale) fs.writeFileSync(file + ".vgsh-" + process.pid, "stale", { mode: 0o644 });
+        if (stale) fs.writeFileSync(file + ".vgshell-" + process.pid, "stale", { mode: 0o644 });
         staged.length = 0;
         helper.replaceFile(file, "secret\n", "probe", mode);
         assert.deepEqual(staged.slice(-1), [stagedMode], name + ": the staging file's mode at creation");

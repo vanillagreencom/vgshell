@@ -16,7 +16,7 @@
 # page draws neither button, and each requirement row reads back with its
 # state and purpose. rows/settings.sh continues with the same window and
 # disables the plugin again.
-# inputs: shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Ui/controls/BindField.qml shell/Core/Plugins.qml shell/Core/TuiRunner.qml shell/Core/Notices.qml shell/Hosts/AppWindow.qml shell/Ui/foundation/PointerCursor.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* config/shell.json shell/Core/Capabilities.qml shell/Core/Registry.qml scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh bin/vgsh-tui
+# inputs: shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Ui/controls/BindField.qml shell/Core/Plugins.qml shell/Core/TuiRunner.qml shell/Core/Notices.qml shell/Hosts/AppWindow.qml shell/Ui/foundation/PointerCursor.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* config/shell.json shell/Core/Capabilities.qml shell/Core/Registry.qml scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui
 set -euo pipefail
 read -r mon_w mon_h bar_reserved < <(monitor_size)
 
@@ -32,7 +32,7 @@ settings_page() { ipc smoke readInstance window vgs.settings page; }
 settings_open() { [[ $(ipc smoke instanceGeometry window vgs.settings) != absent ]] && echo open || echo closed; }
 settings_layer() { one_window Settings; }
 settings_click() { click_in window:Settings window vgs.settings "$1" "$2"; }
-user_file="$home/.config/vgs/shell.json"
+user_file="$home/.config/vgshell/shell.json"
 # The key the user file gives vgs.settings' shortcut: its value as JSON, or
 # `absent` when the row holds no entry.
 user_key() { python3 -c 'import json,sys; rows=[r for r in json.load(open(sys.argv[1])).get("plugins", []) if r["id"] == "vgs.settings"]; k=rows[0].get("keys", {}) if rows else {}; print(json.dumps(k["toggle"]) if "toggle" in k else "absent")' "$user_file"; }
@@ -491,7 +491,7 @@ PY
 forget_record
 hold_runs
 expect "the Settings Tab tour reaches Update with its ring in view and Return runs it" ok settings_keyboard_update
-expect_poll "Return opens vgsh plugin update for the plugin in the wide floating TUI" \
+expect_poll "Return opens vgshell plugin update for the plugin in the wide floating TUI" \
   "$(core_words core/plugin-update "Update a plugin" org.vgs.tui.wide plugin update acme.probe)" recorded
 expect "the keyboard Update leaves the Settings window open behind the terminal" 1 window_count Settings
 release_runs
@@ -569,7 +569,7 @@ settings_show acme.probe
 forget_record
 hold_runs
 settings_click Button Update || fail "the click on Update failed"
-expect_poll "Update opens vgsh plugin update for the plugin in the wide floating TUI" \
+expect_poll "Update opens vgshell plugin update for the plugin in the wide floating TUI" \
   "$(core_words core/plugin-update "Update a plugin" org.vgs.tui.wide plugin update acme.probe)" recorded
 expect_poll "the update's terminal is focused over the Settings window" '["org.vgs.tui.wide", "VGS · Update a plugin"]' active_window
 expect "Update leaves the Settings window open behind the terminal" 1 window_count Settings
@@ -580,7 +580,7 @@ expect_poll "the Settings window takes the focus back" "$settings_focused" activ
 expect "the window still shows the plugin's page" '"acme.probe"' settings_page
 forget_record
 settings_click Button Remove || fail "the click on Remove failed"
-expect_poll "Remove opens vgsh plugin remove for the plugin in the floating TUI" \
+expect_poll "Remove opens vgshell plugin remove for the plugin in the floating TUI" \
   "$(core_words core/plugin-remove "Remove a plugin" org.vgs.tui plugin remove acme.probe)" recorded
 expect "Remove leaves the Settings window open" 1 window_count Settings
 expect_run_end "the remove's run ends" core/plugin-remove
@@ -595,7 +595,7 @@ expect_poll "the Settings window has the focus after the remove" "$settings_focu
 # plugin, another plugin's setting written and put back, keeps its page and
 # shows no notice, so the return reads the plugin leaving and not a change
 # of the rows.
-gone_dir="$home/.config/vgs/plugins/acme.gone"
+gone_dir="$home/.config/vgshell/plugins/acme.gone"
 mkdir -p -- "$gone_dir"
 printf '%s\n' '{ "schemaVersion": 1, "id": "acme.gone", "name": "Gone", "version": "0.1.0", "author": "acme", "description": "a plugin the Settings rows remove", "kinds": ["service"], "entryPoints": { "service": "Service.qml" } }' >"$gone_dir/manifest.json"
 printf '%s\n' 'import QtQuick' 'Item { property var shell: null }' >"$gone_dir/Service.qml"
@@ -707,7 +707,7 @@ expect_poll "the plugin's errors clear with the problem" '[[]]' row_of vgs.setti
 forget_record
 hold_runs
 settings_click Button "Add plugin" || fail "the click on Add plugin failed"
-expect_poll "Add plugin opens vgsh plugin add in the floating TUI" "$(core_words core/plugin-add "Add a plugin" org.vgs.tui plugin add)" recorded
+expect_poll "Add plugin opens vgshell plugin add in the floating TUI" "$(core_words core/plugin-add "Add a plugin" org.vgs.tui plugin add)" recorded
 expect_poll "the add's terminal is focused over the Settings window" '["org.vgs.tui", "VGS · Add a plugin"]' active_window
 expect "Add plugin leaves the Settings window open" 1 window_count Settings
 # The colour at the Settings window's centre: the stand-in terminal, the
@@ -993,7 +993,7 @@ expect "a later write clears the refusal" ok ipc smoke invokeInstance window vgs
 expect "the window opens its own page" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.settings
 # No window is left to turn Settings on again once it is off, so its own
 # page keeps the command that does behind Show command (D061).
-code_line() { ipc smoke windowGeometry window vgs.settings CodeLine "vgsh plugin enable vgs.settings" | py_reply 'import sys; print("absent" if sys.stdin.read().strip() == "absent" else "drawn")'; }
+code_line() { ipc smoke windowGeometry window vgs.settings CodeLine "vgshell plugin enable vgs.settings" | py_reply 'import sys; print("absent" if sys.stdin.read().strip() == "absent" else "drawn")'; }
 expect_poll "its own page draws Show command" drawn settings_button "Show command"
 settings_press "Show command" || fail "the click on the own page's Show command failed"
 expect_poll "Show command reveals the command that enables Settings again" drawn code_line
@@ -1011,7 +1011,7 @@ expect_poll "the gear is back in every bar" True gear_placed
 bar_row() { # [SECTION] JSON list of built-ins for that section, right by default
   local section=right
   [[ $# -eq 2 ]] && { section="$1"; shift; }
-  python3 - "$home/.config/vgs/shell.json" "$1" "$section" <<'PY'
+  python3 - "$home/.config/vgshell/shell.json" "$1" "$section" <<'PY'
 import json, os, sys
 p = sys.argv[1]
 d = json.load(open(p))
@@ -1025,9 +1025,9 @@ json.dump(d, open(p + ".tmp", "w"), indent=2)
 os.replace(p + ".tmp", p)
 PY
 }
-expected_errors+=('bar: no built-in widget named "manager": the plugin manager moved to the Settings plugin, vgs\.settings; `vgsh plugin enable vgs\.settings` places its gear in the bar')
+expected_errors+=('bar: no built-in widget named "manager": the plugin manager moved to the Settings plugin, vgs\.settings; `vgshell plugin enable vgs\.settings` places its gear in the bar')
 bar_row '["manager"]'
-expect_log "a user row naming the retired manager built-in is logged by every bar" "$monitors" 'the plugin manager moved to the Settings plugin, vgs\.settings; `vgsh plugin enable vgs\.settings` places its gear in the bar'
+expect_log "a user row naming the retired manager built-in is logged by every bar" "$monitors" 'the plugin manager moved to the Settings plugin, vgs\.settings; `vgshell plugin enable vgs\.settings` places its gear in the bar'
 expect_builtins "the retired manager built-in draws nothing" '["vgs.bar/center-clock","vgs.bar/left-workspaces"]'
 bar_row '["clock"]'
 expect_builtins "a built-in listed in the right section registers there" '["vgs.bar/center-clock","vgs.bar/left-workspaces","vgs.bar/right-clock"]'

@@ -3,7 +3,7 @@
 # scripts/test-session-lock.sh holds the owner's must-fail controls.
 # inputs: scripts/smoke/fixtures/plugins/acme.session/* scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/SessionLock.qml shell/Commons/SessionLockState.js scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh
 set -euo pipefail
-session_dir="$home/.config/vgs/plugins/acme.session"
+session_dir="$home/.config/vgshell/plugins/acme.session"
 mkdir -p "$session_dir"
 cp -R "$repo/scripts/smoke/fixtures/plugins/acme.session/." "$session_dir/"
 rescan "rescan discovers the session reader"

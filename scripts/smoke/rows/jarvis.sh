@@ -1,7 +1,7 @@
 # This row has no latency ceiling. It polls once per nested IPC round trip.
 # The real child runs inside J09, with synthetic audio commands and no
 # account, real audio or desktop endpoint.
-# inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml shell/Core/SessionLock.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh bin/vgsh-tui
+# inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml shell/Core/SessionLock.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh bin/vgshell-tui
 set -euo pipefail
 expected_errors+=('WARN qml: jarvis: stderr=.*Killed.*')
 expected_errors+=('WARN qml: jarvis: stderr=jarvis: node=21[.]0[.]0 need=22')
@@ -630,12 +630,12 @@ expect "the key-entry action is listed" listed jarvis_listed_key
 jarvis_open_key() {
   local revision snapshot
   revision="$(jarvis_revision)" || return 1
-  snapshot="$rt_dir/vgsh-sources-$shell_qs_pid/$revision"
+  snapshot="$rt_dir/vgshell-sources-$shell_qs_pid/$revision"
   forget_record
   expect "Add key opens by its core TUI key" ok ipc shell openTui vgs.jarvis/add-key
   expect_poll "Add key hands the terminal only its declared script" \
     "$(words --app-id=org.vgs.tui "--title=VGS · Add Jarvis key" -- "$tui_self" present --presentation full \
-      --plugin vgs.jarvis --dir "$snapshot" --record vgs.jarvis/add-key --run RUN --record-dir "$rt_dir/vgs/tui" \
+      --plugin vgs.jarvis --dir "$snapshot" --record vgs.jarvis/add-key --run RUN --record-dir "$rt_dir/vgshell/tui" \
       --app-id org.vgs.tui --window-title "VGS · Add Jarvis key" -- tui/add-key.sh)" recorded
   expect_run_end "the fixture Add key terminal ends" vgs.jarvis/add-key
 }
@@ -745,12 +745,12 @@ print("matched" if ok else "pending")
 jarvis_open_accounts() {
   local revision snapshot
   revision="$(jarvis_revision)" || return 1
-  snapshot="$rt_dir/vgsh-sources-$shell_qs_pid/$revision"
+  snapshot="$rt_dir/vgshell-sources-$shell_qs_pid/$revision"
   forget_record
   expect "Accounts opens through its core TUI key" ok ipc shell openTui vgs.jarvis/accounts
   expect_poll "Accounts hands the terminal only its declared fixture script" \
     "$(words --app-id=org.vgs.tui "--title=VGS · Jarvis accounts" -- "$tui_self" present --presentation full \
-      --plugin vgs.jarvis --dir "$snapshot" --record vgs.jarvis/accounts --run RUN --record-dir "$rt_dir/vgs/tui" \
+      --plugin vgs.jarvis --dir "$snapshot" --record vgs.jarvis/accounts --run RUN --record-dir "$rt_dir/vgshell/tui" \
       --app-id org.vgs.tui --window-title "VGS · Jarvis accounts" -- tui/accounts.sh)" recorded
   expect_run_end "the no-auth Accounts terminal ends" vgs.jarvis/accounts
 }

@@ -16,37 +16,37 @@
 # tree whose Registry names the revision before its scan, run as the
 # guarded shell, lets rescan read the last scan's state. That copy stops
 # the row's shell and the row starts the sandbox's tree again after it.
-# inputs: scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/fixtures/plugins/acme.tick/* shell/plugins/vgs.bar/* shell/shell.qml shell/Core/Plugins.qml shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Hosts/ServiceHost.qml bin/vgsh bin/vgsh-scan bin/vgsh-plugin-judge
+# inputs: scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/fixtures/plugins/acme.tick/* shell/plugins/vgs.bar/* shell/shell.qml shell/Core/Plugins.qml shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Hosts/ServiceHost.qml bin/vgshell bin/vgshell-scan bin/vgshell-plugin-judge
 set -euo pipefail
 fixture="$sandbox/src/acme.probe"
 mkdir -p "$fixture"
 cp -R "$repo/scripts/smoke/fixtures/plugins/acme.probe/." "$fixture/"
 # A second user plugin naming no capability, beside the fixture.
-bare="$home/.config/vgs/plugins/acme.bare"
+bare="$home/.config/vgshell/plugins/acme.bare"
 mkdir -p "$bare"
 cp -R "$repo/scripts/smoke/fixtures/plugins/acme.bare/." "$bare/"
 # The fixture reaches the user directory the way a user's plugin does:
-# committed to a repository and installed with `vgsh plugin add`.
+# committed to a repository and installed with `vgshell plugin add`.
 fixture_git() { "${sandbox_env[@]}" git -C "$fixture" -c user.name=smoke -c user.email=smoke@invalid "$@" >>"$sandbox/git.log" 2>&1; }
 if fixture_git init -q && fixture_git add -A && fixture_git commit -q -m fixture; then ok "fixture committed to a local repository"; else fail "fixture repository: $(tail -n 3 "$sandbox/git.log")"; fi
 add_out=""
-if add_out="$("${shell_env[@]}" "$repo/bin/vgsh" plugin add "file://$fixture" 2>>"$sandbox/ipc.log")" \
-  && [[ $add_out == $'ok added=acme.probe path='"$home/.config/vgs/plugins/acme.probe"$' config=unchanged\nshell=rescan-started' ]]; then
-  ok "vgsh plugin add installs the fixture and rescans the shell"
+if add_out="$("${shell_env[@]}" "$repo/bin/vgshell" plugin add "file://$fixture" 2>>"$sandbox/ipc.log")" \
+  && [[ $add_out == $'ok added=acme.probe path='"$home/.config/vgshell/plugins/acme.probe"$' config=unchanged\nshell=rescan-started' ]]; then
+  ok "vgshell plugin add installs the fixture and rescans the shell"
 else
-  fail "vgsh plugin add: $add_out"
+  fail "vgshell plugin add: $add_out"
 fi
 expect_poll "user-directory plugin discovered and disabled until enabled" False plugin_enabled acme.probe
 expect "enabling the fixture is allowed" ok ipc shell setPluginEnabled acme.probe true
 expect "enabling the bare fixture is allowed" ok ipc shell setPluginEnabled acme.bare true
 # The scan probes each declared command on the shell's PATH: `sh` is on
 # every sandbox's, `vgs-smoke-absent` on none. listPlugins carries the
-# states and `vgsh plugin list` names the missing one. It is optional, so
+# states and `vgshell plugin list` names the missing one. It is optional, so
 # enabling the fixture raises no requirement notice over the later rows.
 bare_requirements() { ipc shell listPlugins | py_reply 'import json,sys; print(json.dumps([[r["command"], r["state"]] for p in json.load(sys.stdin)["plugins"] if p["id"] == "acme.bare" for r in p["requirements"]]))'; }
 expect_poll "listPlugins reports each declared command's state" '[["sh", "present"], ["vgs-smoke-absent", "missing"]]' bare_requirements
-bare_missing_line() { "${shell_env[@]}" "$repo/bin/vgsh" plugin list | grep -F 'missing acme.' || true; }
-expect "vgsh plugin list names the missing command" "missing acme.bare vgs-smoke-absent optional" bare_missing_line
+bare_missing_line() { "${shell_env[@]}" "$repo/bin/vgshell" plugin list | grep -F 'missing acme.' || true; }
+expect "vgshell plugin list names the missing command" "missing acme.bare vgs-smoke-absent optional" bare_missing_line
 # A command that appears on the shell's PATH is present after the next
 # rescan, and missing again once it goes; the plugin's files did not
 # change, so neither rescan builds anything. $shim leads the shell's PATH.
@@ -88,7 +88,7 @@ active_ws() { hypr -j activeworkspace | py_reply 'import json,sys; print(json.lo
 # A settings change reaches the running instance and builds nothing: the
 # service's plugins[] row, then the clock's layout entry.
 if before="$(builds)"; then
-  python3 - "$home/.config/vgs/shell.json" <<'PY'
+  python3 - "$home/.config/vgshell/shell.json" <<'PY'
 import json, os, sys
 p = sys.argv[1]
 d = json.load(open(p))
@@ -99,7 +99,7 @@ PY
   expect_poll "the running service received its changed setting" '"changed-service-setting"' read_service label
   expect "the fixture widget keeps the manifest default its entry does not override" '"probe"' read_widget label
   expect "a service settings change rebuilds nothing" "$before" builds
-  python3 - "$home/.config/vgs/shell.json" <<'PY'
+  python3 - "$home/.config/vgshell/shell.json" <<'PY'
 import json, os, sys
 p = sys.argv[1]
 d = json.load(open(p))
@@ -110,7 +110,7 @@ os.replace(p + ".tmp", p)
 PY
   expect_poll "the running widget received its changed layout entry" '"HH:mm:ss"' read_tick format
   expect "a widget settings change rebuilds nothing" "$before" builds
-  python3 - "$home/.config/vgs/shell.json" <<'PY'
+  python3 - "$home/.config/vgshell/shell.json" <<'PY'
 import json, os, sys
 p = sys.argv[1]
 d = json.load(open(p))
@@ -136,14 +136,14 @@ else
   fail "buildCount unreadable before the settings rows"
 fi
 
-# Controls: bin/vgsh-scan, in the sandbox copy, held behind a gate file.
-# gated_scanner PATH MODE makes PATH a vgsh-scan that touches
+# Controls: bin/vgshell-scan, in the sandbox copy, held behind a gate file.
+# gated_scanner PATH MODE makes PATH a vgshell-scan that touches
 # $scan_started and then waits for $scan_gate, up to 60 s: before it scans
 # when MODE is `before`, so the held scan reads the files the gate opens
 # on, and after it scans when MODE is `after`, so it hands over what it
 # read before the gate opened. The real scanner is kept in $scan_real.
-scan_bin="$repo/bin/vgsh-scan"
-scan_real="$sandbox/vgsh-scan.plugins-kept"
+scan_bin="$repo/bin/vgshell-scan"
+scan_real="$sandbox/vgshell-scan.plugins-kept"
 scan_gate="${sandbox:?}/plugins-scan-gate"
 scan_started="${sandbox:?}/plugins-scan-started"
 scan_asked="${sandbox:?}/plugins-scan-asked"
@@ -165,16 +165,16 @@ scan_started_seen() { if [[ -e $scan_started ]]; then echo started; else echo wa
 # true when the opener read the named scan unreached, else what it read.
 scan_opened_short() { local read; read="$(cat -- "$scan_opened")" || return; if [[ $read == scan=* ]]; then echo true; else echo "read=$read"; fi; }
 plant_absent() { printf '#!/bin/sh\nexit 0\n' >"$shim/vgs-smoke-absent" && chmod 755 "$shim/vgs-smoke-absent"; }
-# While a row runs rescan, scan_ipc_vgsh's ipc also writes each
+# While a row runs rescan, scan_ipc_vgshell's ipc also writes each
 # rescanPlugins reply to $scan_asked. scan_open_when_asked, in the
 # background, opens the gate once that reply is in and scanRevision still
 # reads short of the scan it names, and writes what it read to
 # $scan_opened; at its bound it opens the gate all the same, so no scan
 # stays held past the row.
-scan_ipc_vgsh="$repo/bin/vgsh"
+scan_ipc_vgshell="$repo/bin/vgshell"
 ipc() {
   local reply status=0
-  reply="$(ipc_via "$scan_ipc_vgsh" "$@")" || status=$?
+  reply="$(ipc_via "$scan_ipc_vgshell" "$@")" || status=$?
   if [[ ${2:-} == rescanPlugins ]]; then printf '%s\n' "$reply" >"$scan_asked"; fi
   printf '%s\n' "$reply"
   return "$status"
@@ -267,10 +267,10 @@ expect "the busy control's command reads missing again" "$bare_absent" bare_requ
 # scan as landed at once and reads the last scan's state.
 copy_tree rescan-current
 if edit_tree rescan-current shell/Core/Registry.qml '        const scan = requirementsRevision + 1;' '        const scan = requirementsRevision;'; then
-  gated_scanner "$sandbox/tree-rescan-current/bin/vgsh-scan" before
+  gated_scanner "$sandbox/tree-rescan-current/bin/vgshell-scan" before
   scan_hold
   : >"$scan_gate"
-  scan_ipc_vgsh="$sandbox/tree-rescan-current/bin/vgsh"
+  scan_ipc_vgshell="$sandbox/tree-rescan-current/bin/vgshell"
   if stop_shell && start_shell "$sandbox/tree-rescan-current" "$sandbox/plugins-rescan-current-qs.log"; then
     expect "control rescan-current: the copy is the guarded shell" true ipc shell guarded
     expect "control rescan-current: the copy's first scan reads the command missing" "$bare_absent" bare_requirements
@@ -281,7 +281,7 @@ if edit_tree rescan-current shell/Core/Registry.qml '        const scan = requir
     : >"$scan_gate"
     expect_poll "control rescan-current: the held scan lists the planted command once let end" "$bare_present" bare_requirements
   fi
-  scan_ipc_vgsh="$repo/bin/vgsh"
+  scan_ipc_vgshell="$repo/bin/vgshell"
   stop_shell || :
   start_shell "$repo" "$sandbox/plugins-restart-qs.log" || fail "the shell starts again after the rescan-current control"
   expect "the restarted shell lists the planted command" "$bare_present" bare_requirements
@@ -290,4 +290,4 @@ rm -f -- "${shim:?}/vgs-smoke-absent"
 rescan "a rescan after the controls' command goes"
 expect "the controls' command reads missing again" "$bare_absent" bare_requirements
 scan_hold
-ipc() { ipc_via "$repo/bin/vgsh" "$@"; }
+ipc() { ipc_via "$repo/bin/vgshell" "$@"; }

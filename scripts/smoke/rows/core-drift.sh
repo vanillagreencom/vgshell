@@ -13,7 +13,7 @@
 # is refused build-failed and owes no notice, since the engine loaded its
 # files. With the panel as it was the load fails and owes the notice
 # again, and after Escape so does one more summon, which the recorded
-# failure refuses with no new build. Return on Restart runs `vgsh restart` from inside the shell: the
+# failure refuses with no new build. Return on Restart runs `vgshell restart` from inside the shell: the
 # row presses it only once it has read that the shell which draws the
 # notice runs in the sandbox's runtime directory and is the pid the
 # sandbox's instance lock names, so the restart reaches no other shell.
@@ -21,9 +21,9 @@
 # panel and owes no notice. The row then removes the fixture and the type
 # and starts the sandbox's tree again, so the rows after it run over the
 # core their shell started with.
-# inputs: scripts/smoke/fixtures/plugins/acme.drift/* bin/vgsh-scan bin/vgsh shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Ui/qmldir scripts/smoke/rows/hyprland-consent.sh
+# inputs: scripts/smoke/fixtures/plugins/acme.drift/* bin/vgshell-scan bin/vgshell shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Ui/qmldir scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
-drift="$home/.config/vgs/plugins/acme.drift"
+drift="$home/.config/vgshell/plugins/acme.drift"
 drift_qmldir="$repo/shell/Ui/qmldir"
 drift_type="$repo/shell/Ui/DriftMark.qml"
 drift_owed() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["notices"]["restart"]))'; }
@@ -33,14 +33,14 @@ drift_drawn() { ipc smoke noticeDrawn | py_reply 'import json,sys; d=json.load(s
 drift_sandboxed() {
   local held
   grep -q -z -x -F -e "XDG_RUNTIME_DIR=$rt_dir" -- "/proc/$shell_qs_pid/environ" || { echo "runtime-dir=other"; return; }
-  IFS= read -r held <"$rt_dir/vgsh.lock" || held=""
+  IFS= read -r held <"$rt_dir/vgshell.lock" || held=""
   if [[ $held == "$shell_qs_pid" ]]; then echo sandboxed; else echo "lock=[$held] shell=$shell_qs_pid"; fi
 }
 # The live pid the sandbox's lock names once it is no longer OLD_PID, the
 # relaunched shell's, else `none`.
 drift_relaunched() { # OLD_PID
   local pid
-  if IFS= read -r pid 2>/dev/null <"$rt_dir/vgsh.lock" && [[ $pid =~ ^[0-9]+$ && $pid != "$1" && -d /proc/$pid ]]; then echo "$pid"; else echo none; fi
+  if IFS= read -r pid 2>/dev/null <"$rt_dir/vgshell.lock" && [[ $pid =~ ^[0-9]+$ && $pid != "$1" && -d /proc/$pid ]]; then echo "$pid"; else echo none; fi
 }
 
 [[ $shell_tree == "$repo" ]] || fail "the row needs the sandbox's own tree as the running shell, found $shell_tree"
@@ -73,7 +73,7 @@ expect "a build failure over a changed core owes the restart notice" true drift_
 expect_poll "the restart notice is the one notice surface" 1 layer_count vgs:notice
 expect_poll "the restart notice names the fix" '"Restart VGS to finish the update"' drift_drawn title
 expect "the restart notice offers Restart and Not now" '["Restart", "Not now"]' drift_drawn actions
-expect "the command Restart runs is behind Show command, closed" '{"toggle": "Show command", "expanded": false, "text": "vgsh restart"}' drift_drawn command
+expect "the command Restart runs is behind Show command, closed" '{"toggle": "Show command", "expanded": false, "text": "vgshell restart"}' drift_drawn command
 expect "no row of the notice's body draws a command" '[]' drift_drawn rows
 type_keys -k Escape || fail "sending Escape to the restart notice failed"
 expect_poll "Escape closes the restart notice" false drift_owed
@@ -129,7 +129,7 @@ if [[ $drift_new != none ]]; then
     expect "the panel hides after the restart" ok ipc shell hide panel acme.drift
   fi
 elif [[ $drift_where == sandboxed ]]; then
-  fail "Restart brought no new shell within ${timeout_s}s: the lock names [$(cat -- "$rt_dir/vgsh.lock" 2>/dev/null)]"
+  fail "Restart brought no new shell within ${timeout_s}s: the lock names [$(cat -- "$rt_dir/vgshell.lock" 2>/dev/null)]"
 fi
 
 # The fixture and the type go, and the sandbox's tree starts again over

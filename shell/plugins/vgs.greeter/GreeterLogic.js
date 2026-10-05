@@ -6,12 +6,12 @@
 // the processes, the files, greetd and the password; no password passes
 // through here.
 
-// The directory bin/vgsh-system's greeter step makes for the theme copy,
+// The directory bin/vgshell-system's greeter step makes for the theme copy,
 // root's, with a `vgs` directory the caller owns: the service copies into
 // that `vgs` directory, and the greeter's XDG_CONFIG_HOME names this one,
-// so Paths.configDir reads the copy. scripts/test-vgsh-system.sh reads it
+// so Paths.configDir reads the copy. scripts/test-vgshell-system.sh reads it
 // against the step's own path.
-var THEME_DIR = "/var/lib/vgs/greeter/theme";
+var THEME_DIR = "/var/lib/vgshell/greeter/theme";
 // The copied background image's name in that `vgs` directory.
 var BACKGROUND = "background";
 

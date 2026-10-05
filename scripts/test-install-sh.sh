@@ -11,19 +11,19 @@
 # root.
 #
 # The drift rows hold the script's floor and package tables to their
-# sources, bin/vgsh's preflight_floor and config/requirements.json, read by
+# sources, bin/vgshell's preflight_floor and config/requirements.json, read by
 # node below, and its package-manager choice and install command to
-# `vgsh pkg detect` and `vgsh pkg plan` under the same os-release.
+# `vgshell pkg detect` and `vgshell pkg plan` under the same os-release.
 #
-# /usr/bin/vgsh is not planted: no user namespace can create a file there,
+# /usr/bin/vgshell is not planted: no user namespace can create a file there,
 # so the system-package rows use a stub pacman database instead.
 #
 # The controls at the end run copies of install.sh with one rule removed
 # each, and every row that judges that rule must turn red on its copy.
 set -euo pipefail
 
-# shellcheck source=scripts/vgsh-rows.sh
-source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/vgsh-rows.sh"
+# shellcheck source=scripts/vgshell-rows.sh
+source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/vgshell-rows.sh"
 
 suite=test-install-sh
 not_measured() { echo "$suite: status=not-measured missing=$1"; exit 77; }
@@ -78,8 +78,8 @@ for (const plugin of fs.readdirSync(path.join(root, "shell/plugins"), { withFile
     const manifest = JSON.parse(fs.readFileSync(path.join(root, "shell/plugins", plugin.name, "manifest.json"), "utf8"));
     for (const row of manifest.requirements || []) if (row.packages?.aur) aur.add(row.packages.aur);
 }
-const hard = [...fs.readFileSync(path.join(root, "packaging/arch/vgs/.SRCINFO"), "utf8").matchAll(/^\tdepends = (\S+)$/gm)].map(match => match[1].split(/[<>=]/)[0]);
-const fedora = [...fs.readFileSync(path.join(root, "packaging/fedora/vgs.spec"), "utf8").matchAll(/^Requires:\s+(\S+)/gm)].map(match => match[1]);
+const hard = [...fs.readFileSync(path.join(root, "packaging/arch/vgshell/.SRCINFO"), "utf8").matchAll(/^\tdepends = (\S+)$/gm)].map(match => match[1].split(/[<>=]/)[0]);
+const fedora = [...fs.readFileSync(path.join(root, "packaging/fedora/vgshell.spec"), "utf8").matchAll(/^Requires:\s+(\S+)/gm)].map(match => match[1]);
 if (hard.length < 6 || fedora.length < 6 || !hard.includes("tesseract-data-eng") || !hard.includes("agent-browser-bin") || !fedora.includes("qrencode")) throw Error("package group extractor is broken");
 process.stdout.write(JSON.stringify({ pacman: hard.filter(name => !aur.has(name)), aur: hard.filter(name => aur.has(name)), dnf: fedora }));
 JS
@@ -96,7 +96,7 @@ installer_source_tree() {
     mkdir -p "$1/shell/plugins/$plugin"
     cp -- "$manifest" "$1/shell/plugins/$plugin/"
   done
-  cat >"$1/bin/vgsh-tui" <<'PRESENTER'
+  cat >"$1/bin/vgshell-tui" <<'PRESENTER'
 #!/bin/sh
 case "$1" in
   launch)
@@ -108,23 +108,23 @@ const separator = args.indexOf("--");
 const command = args.slice(separator + 1);
 const manager = command[5];
 const expected = JSON.parse(fs.readFileSync(file, "utf8"))[manager];
-if (separator < 0 || command[0] !== path.join(path.dirname(presenter), "vgsh") || JSON.stringify(command.slice(1, 5)) !== JSON.stringify(["pkg", "run", "install", "--manager"]) || !Array.isArray(expected) || JSON.stringify(command.slice(6).sort()) !== JSON.stringify(expected.sort())) process.exit(2);
+if (separator < 0 || command[0] !== path.join(path.dirname(presenter), "vgshell") || JSON.stringify(command.slice(1, 5)) !== JSON.stringify(["pkg", "run", "install", "--manager"]) || !Array.isArray(expected) || JSON.stringify(command.slice(6).sort()) !== JSON.stringify(expected.sort())) process.exit(2);
 JS
     ;;
   wait) printf '{"state":"ended","code":%s}\n' "${VGS_INSTALL_CODE:-0}" ;;
   *) exit 2 ;;
 esac
 PRESENTER
-  chmod +x "$1/bin/vgsh-tui"
+  chmod +x "$1/bin/vgshell-tui"
 }
 
-# new_home NAME: sets h to a new, empty fixture home and d to its vgs data
+# new_home NAME: sets h to a new, empty fixture home and d to its vgshell data
 # directory.
 homes=0
 new_home() {
   homes=$((homes + 1))
   h="$tmp/homes/$homes-$1"
-  d="$h/.local/share/vgs"
+  d="$h/.local/share/vgshell"
   mkdir -p "$h"
 }
 
@@ -161,24 +161,24 @@ with_os() {
 }
 
 # The release fixture. Each release is a document under
-# repos/vanillagreencom/vgs/releases/tags/v<X.Y.Z> naming its assets under
+# repos/vanillagreencom/vgshell/releases/tags/v<X.Y.Z> naming its assets under
 # dl/v<X.Y.Z>/; releases/latest is v0.2.0's.
-www="$tmp/www"; releases="$www/repos/vanillagreencom/vgs/releases"; mkdir -p "$releases/tags"
+www="$tmp/www"; releases="$www/repos/vanillagreencom/vgshell/releases"; mkdir -p "$releases/tags"
 release_doc() { # TAG ASSET...
   local tag="$1" name out=""
   shift
   for name in "$@"; do out+="${out:+,}{\"name\":\"$name\",\"browser_download_url\":\"file://$www/dl/$tag/$name\"}"; done
   printf '{"tag_name":"%s","assets":[%s]}\n' "$tag" "$out" >"$releases/tags/$tag"
 }
-# release VERSION [TOP_DIR]: the archive vgs-VERSION.tar.gz, whose one top
-# directory is TOP_DIR, default vgs-VERSION, and its SHA256SUMS line.
+# release VERSION [TOP_DIR]: the archive vgshell-VERSION.tar.gz, whose one top
+# directory is TOP_DIR, default vgshell-VERSION, and its SHA256SUMS line.
 release() {
-  local v="$1" top="${2:-vgs-$1}" dir="$www/dl/v$1"
+  local v="$1" top="${2:-vgshell-$1}" dir="$www/dl/v$1"
   mkdir -p "$dir" "$tmp/rel/$v"
   installer_source_tree "$tmp/rel/$v/$top" "$v"
-  tar -C "$tmp/rel/$v" -czf "$dir/vgs-$v.tar.gz" "$top"
-  (cd "$dir" && sha256sum "vgs-$v.tar.gz" >SHA256SUMS)
-  release_doc "v$v" "vgs-$v.tar.gz" SHA256SUMS
+  tar -C "$tmp/rel/$v" -czf "$dir/vgshell-$v.tar.gz" "$top"
+  (cd "$dir" && sha256sum "vgshell-$v.tar.gz" >SHA256SUMS)
+  release_doc "v$v" "vgshell-$v.tar.gz" SHA256SUMS
 }
 release 0.1.0
 release 0.2.0
@@ -186,9 +186,9 @@ cp -- "$releases/tags/v0.2.0" "$releases/latest"
 # v0.3.0's archive differs from its SHA256SUMS line, and v0.4.0's
 # SHA256SUMS lists another file.
 release 0.3.0
-printf 'tampered\n' >>"$www/dl/v0.3.0/vgs-0.3.0.tar.gz"
+printf 'tampered\n' >>"$www/dl/v0.3.0/vgshell-0.3.0.tar.gz"
 release 0.4.0
-printf '%064d  vgs-9.9.9.tar.gz\n' 0 >"$www/dl/v0.4.0/SHA256SUMS"
+printf '%064d  vgshell-9.9.9.tar.gz\n' 0 >"$www/dl/v0.4.0/SHA256SUMS"
 # v0.7.0 unpacks to a top directory of another name; v0.8.0's tag is no
 # version.
 release 0.7.0 vgs-main
@@ -210,7 +210,7 @@ other_fpr="$(gen_key "Another key")"
 signed_release() { # VERSION FINGERPRINT
   release "$1"
   GNUPGHOME="$keys" gpg --batch --quiet --local-user "$2" --armor --detach-sign --output "$www/dl/v$1/SHA256SUMS.asc" "$www/dl/v$1/SHA256SUMS"
-  release_doc "v$1" "vgs-$1.tar.gz" SHA256SUMS SHA256SUMS.asc
+  release_doc "v$1" "vgshell-$1.tar.gz" SHA256SUMS SHA256SUMS.asc
 }
 signed_release 0.5.0 "$release_fpr"
 signed_release 0.6.0 "$other_fpr"
@@ -224,13 +224,13 @@ signing="$copy"
 mismatch_row() { # BIN: a checksum mismatch refuses and leaves nothing
   new_home mismatch
   run "$1" --version 0.3.0
-  [[ $status == 1 && $(first_err) == "install.sh: refused: checksum=mismatch name=vgs-0.3.0.tar.gz "* ]] &&
+  [[ $status == 1 && $(first_err) == "install.sh: refused: checksum=mismatch name=vgshell-0.3.0.tar.gz "* ]] &&
     [[ ! -e $h/.local ]] && scratch_empty
 }
 unlisted_row() { # BIN: an archive SHA256SUMS does not list refuses
   new_home unlisted
   run "$1" --version 0.4.0
-  refused 1 "install.sh: refused: checksum=unlisted name=vgs-0.4.0.tar.gz count=0" && [[ ! -e $h/.local ]]
+  refused 1 "install.sh: refused: checksum=unlisted name=vgshell-0.4.0.tar.gz count=0" && [[ ! -e $h/.local ]]
 }
 tag_row() { # BIN
   new_home tag
@@ -241,7 +241,7 @@ layout_row() { # BIN: an archive with another top directory refuses under the lo
   new_home layout
   run "$1" --version 0.1.0
   run "$1" --version 0.7.0
-  refused 1 "install.sh: refused: archive=layout name=vgs-0.7.0.tar.gz top=vgs-main" &&
+  refused 1 "install.sh: refused: archive=layout name=vgshell-0.7.0.tar.gz top=vgs-main" &&
     [[ $(readlink -- "$d/current") == 0.1.0 && ! -e $d/0.7.0 ]] && no_stage
 }
 busy_row() { # BIN
@@ -274,22 +274,22 @@ os_row() { # BIN
 vgs_db="$tmp/vgs-db"; mkdir -p "$vgs_db"
 cat >"$vgs_db/pacman" <<'SH'
 #!/bin/sh
-[ "$1" = -Q ] && [ "$3" = vgs-git ] && { echo "vgs-git 0.1.0.r1.gabc1234-1"; exit 0; }
+[ "$1" = -Q ] && [ "$3" = vgshell-git ] && { echo "vgshell-git 0.1.0.r1.gabc1234-1"; exit 0; }
 exit 1
 SH
 chmod +x "$vgs_db/pacman"
-system_row() { # BIN: vgs-git in the pacman database refuses
+system_row() { # BIN: vgshell-git in the pacman database refuses
   new_home system
   RUN_PATH="$vgs_db:$run_path" run "$1"
-  refused 1 "install.sh: refused: system=package manager=pacman package=vgs-git" && [[ ! -e $h/.local ]]
+  refused 1 "install.sh: refused: system=package manager=pacman package=vgshell-git" && [[ ! -e $h/.local ]]
 }
-foreign_row() { # BIN: a ~/.local/bin/vgsh install.sh did not make refuses and stays
+foreign_row() { # BIN: a ~/.local/bin/vgshell install.sh did not make refuses and stays
   new_home foreign
   mkdir -p "$h/.local/bin"
-  ln -s /opt/elsewhere/vgsh "$h/.local/bin/vgsh"
+  ln -s /opt/elsewhere/vgshell "$h/.local/bin/vgshell"
   run "$1"
-  refused 1 "install.sh: refused: link=foreign path=$h/.local/bin/vgsh" &&
-    [[ $(readlink -- "$h/.local/bin/vgsh") == /opt/elsewhere/vgsh && ! -e $d ]]
+  refused 1 "install.sh: refused: link=foreign path=$h/.local/bin/vgshell" &&
+    [[ $(readlink -- "$h/.local/bin/vgshell") == /opt/elsewhere/vgshell && ! -e $d ]]
 }
 
 # The --git fixture: a bare repository main is cloned from, through the
@@ -301,7 +301,7 @@ g init -q --bare "$bare"; g -C "$seed" push -q "$bare" main
 # git_home NAME: a new home with release v0.1.0 and a --git clone installed.
 git_home() {
   new_home "$1"
-  HOME="$h" GIT_CONFIG_NOSYSTEM=1 git config --global url."file://$bare".insteadOf https://github.com/vanillagreencom/vgs.git
+  HOME="$h" GIT_CONFIG_NOSYSTEM=1 git config --global url."file://$bare".insteadOf https://github.com/vanillagreencom/vgshell.git
   run "$installer" --version 0.1.0
   [[ $status == 0 ]] || { echo "$suite: fixture=release status=$status" >&2; cat "$tmp/err" >&2; exit 1; }
   run "$installer" --git
@@ -311,7 +311,7 @@ modified_row() { # BIN: --uninstall refuses a clone with changes
   git_home modified
   printf 'change\n' >>"$d/git/VERSION"
   run "$1" --uninstall
-  refused 1 "install.sh: refused: modified=$d/git" && [[ -d $d/git && -d $d/0.1.0 && -L $h/.local/bin/vgsh ]]
+  refused 1 "install.sh: refused: modified=$d/git" && [[ -d $d/git && -d $d/0.1.0 && -L $h/.local/bin/vgshell ]]
 }
 unpublished_row() { # BIN: --uninstall refuses a clone with a commit on HEAD no remote branch has
   git_home unpublished
@@ -342,7 +342,7 @@ running_row() { # BIN: --uninstall refuses while the running shell was started f
   # the tree as `qs -p <tree>/shell` does, ended once the row has run.
   python3 -c 'import time; time.sleep(30)' -p "$d/0.1.0/shell" </dev/null >/dev/null 2>&1 &
   pid=$!
-  printf '%s\n' "$pid" >"$rt_shell/vgsh.lock"
+  printf '%s\n' "$pid" >"$rt_shell/vgshell.lock"
   RUN_RT="$rt_shell" run "$1" --uninstall --force
   kill "$pid" 2>/dev/null || true
   wait "$pid" 2>/dev/null || true
@@ -352,28 +352,28 @@ running_row() { # BIN: --uninstall refuses while the running shell was started f
 keep_foreign_row() { # BIN: --uninstall removes the install and keeps a foreign link
   new_home keep-foreign
   run "$installer"
-  ln -sfn /opt/elsewhere/vgsh "$h/.local/bin/vgsh"
+  ln -sfn /opt/elsewhere/vgshell "$h/.local/bin/vgshell"
   run "$1" --uninstall
-  [[ $status == 0 && ! -e $d/current && ! -e $d/0.2.0 && $(readlink -- "$h/.local/bin/vgsh") == /opt/elsewhere/vgsh ]] &&
-    out_has "kept=$h/.local/bin/vgsh reason=foreign"
+  [[ $status == 0 && ! -e $d/current && ! -e $d/0.2.0 && $(readlink -- "$h/.local/bin/vgshell") == /opt/elsewhere/vgshell ]] &&
+    out_has "kept=$h/.local/bin/vgshell reason=foreign"
 }
 
 echo "releases"
 new_home latest
 run "$installer"
 check "the newest release installs" test "$status" = 0
-check "it names the release it installed" out_has "ok installed=vgs version=0.2.0 path=$d/0.2.0"
+check "it names the release it installed" out_has "ok installed=vgshell version=0.2.0 path=$d/0.2.0"
 check "a release with no signature says so" out_has "signature=unchecked reason=no-signature"
-check "the version directory holds the release's runtime tree" test -f "$d/0.2.0/bin/vgsh" -a -f "$d/0.2.0/VERSION" -a ! -e "$d/0.2.0/share"
+check "the version directory holds the release's runtime tree" test -f "$d/0.2.0/bin/vgshell" -a -f "$d/0.2.0/VERSION" -a ! -e "$d/0.2.0/share"
 check "current is a relative link to the version" test -L "$d/current" -a "$(readlink -- "$d/current")" = 0.2.0
-check "the command links to current's vgsh" test -L "$h/.local/bin/vgsh" -a "$(readlink -- "$h/.local/bin/vgsh")" = "$d/current/bin/vgsh"
-check "it prints the Hyprland autostart line" out_has "  hl.on(\"hyprland.start\", function () hl.exec_cmd(\"$h/.local/bin/vgsh run\") end)"
-check "it names a command directory missing from PATH" out_has "path=missing dir=$h/.local/bin: add it to PATH to run vgsh by name"
+check "the command links to current's vgshell" test -L "$h/.local/bin/vgshell" -a "$(readlink -- "$h/.local/bin/vgshell")" = "$d/current/bin/vgshell"
+check "it prints the Hyprland autostart line" out_has "  hl.on(\"hyprland.start\", function () hl.exec_cmd(\"$h/.local/bin/vgshell run\") end)"
+check "it names a command directory missing from PATH" out_has "path=missing dir=$h/.local/bin: add it to PATH to run vgshell by name"
 check "it leaves no staging directory" no_stage
 check "it leaves nothing in TMPDIR" scratch_empty
-check "the linked vgsh runs the installed tree" test "$("${base_env[@]}" HOME="$h" "$h/.local/bin/vgsh" --version)" = "vgs 0.2.0"
-"${base_env[@]}" HOME="$h" XDG_CONFIG_HOME="$h/.config" VGS_RELEASE_API=http://127.0.0.1:9 "$h/.local/bin/vgsh" self status --json >"$tmp/status.json" 2>/dev/null
-check "vgsh self status judges the layout a curl install" json_is "$tmp/status.json" 'd["method"] == "curl" and d["version"] == "0.2.0" and d["current"] == "0.2.0"'
+check "the linked vgshell runs the installed tree" test "$("${base_env[@]}" HOME="$h" "$h/.local/bin/vgshell" --version)" = "vgshell 0.2.0"
+"${base_env[@]}" HOME="$h" XDG_CONFIG_HOME="$h/.config" VGS_RELEASE_API=http://127.0.0.1:9 "$h/.local/bin/vgshell" self status --json >"$tmp/status.json" 2>/dev/null
+check "vgshell self status judges the layout a curl install" json_is "$tmp/status.json" 'd["method"] == "curl" and d["version"] == "0.2.0" and d["current"] == "0.2.0"'
 
 packages_row() { # BIN: required packages use the existing floating presenter
   new_home runtime-packages
@@ -409,10 +409,10 @@ launcher_row() { # BIN: prerequisite and real presenter both stop before launch
     err_has "Install them as root: pacman -S --needed -- xdg-terminal-exec" &&
     [[ ! -e $h/.local && ! -s $tmp/launcher-fetches && ! -s $install_log ]] && scratch_empty || return 1
   env -i PATH="$missing_launcher:$tools" HOME="$h" XDG_RUNTIME_DIR="$rt_empty" \
-    "$repo/bin/vgsh-tui" launch --title "Prerequisite fixture" -- "$tools/sh" -c ':' \
+    "$repo/bin/vgshell-tui" launch --title "Prerequisite fixture" -- "$tools/sh" -c ':' \
     >"$tmp/presenter-out" 2>"$tmp/presenter-err" </dev/null || presenter_status=$?
   [[ $presenter_status == 69 && ! -s $tmp/launcher-starts ]] &&
-    [[ $(sed -n '1p' "$tmp/presenter-err") == "vgsh-tui: refused: terminal=missing" ]]
+    [[ $(sed -n '1p' "$tmp/presenter-err") == "vgshell-tui: refused: terminal=missing" ]]
 }
 
 # Real reports read a PATH made only from fixture providers and bootstrap
@@ -444,11 +444,11 @@ nix_present_row() { # BIN: installed available requirements allow release, curre
   RUN_PATH="$nix_present:$nix_manager:$tools" run "$1" --version 0.1.0
   [[ $status == 0 && $(readlink -- "$d/current") == 0.1.0 ]] || { RUN_WRAP=(); return 1; }
   RUN_PATH="$nix_present:$nix_manager:$tools" run "$1" --version 0.1.0
-  [[ $status == 0 ]] && out_has "ok up-to-date=vgs version=0.1.0 path=$d/0.1.0" || { RUN_WRAP=(); return 1; }
-  HOME="$h" GIT_CONFIG_NOSYSTEM=1 git config --global url."file://$bare".insteadOf https://github.com/vanillagreencom/vgs.git || { RUN_WRAP=(); return 1; }
+  [[ $status == 0 ]] && out_has "ok up-to-date=vgshell version=0.1.0 path=$d/0.1.0" || { RUN_WRAP=(); return 1; }
+  HOME="$h" GIT_CONFIG_NOSYSTEM=1 git config --global url."file://$bare".insteadOf https://github.com/vanillagreencom/vgshell.git || { RUN_WRAP=(); return 1; }
   RUN_PATH="$nix_present:$nix_manager:$tools" run "$1" --git
   RUN_WRAP=()
-  [[ $status == 0 && -f $d/git/bin/vgsh && ! -s $install_log ]] || return 1
+  [[ $status == 0 && -f $d/git/bin/vgshell && ! -s $install_log ]] || return 1
   installed_head="$(g -C "$d/git" rev-parse HEAD)" || return 1
   expected_head="$(g -C "$bare" rev-parse main)" || return 1
   [[ $installed_head == "$expected_head" ]] && scratch_empty
@@ -486,7 +486,7 @@ check "a reinstall of a newer release succeeds" test "$status" = 0
 check "the reinstall swaps current to the new version" test -L "$d/current" -a "$(readlink -- "$d/current")" = 0.2.0
 check "the reinstall keeps the earlier version's tree" test -f "$d/0.1.0/VERSION"
 run "$installer"
-check "the installed release again is up to date" out_has "ok up-to-date=vgs version=0.2.0 path=$d/0.2.0"
+check "the installed release again is up to date" out_has "ok up-to-date=vgshell version=0.2.0 path=$d/0.2.0"
 check "an up-to-date run leaves current alone" test "$(readlink -- "$d/current")" = 0.2.0
 new_home stage
 mkdir -p "$d/.self-update-dead"
@@ -498,7 +498,7 @@ check "an archive SHA256SUMS does not list refuses and leaves nothing" unlisted_
 check "a release tag that is no version refuses" tag_row "$installer"
 new_home missing
 run "$installer" --version 0.9.0
-check "a release that does not exist refuses on the fetch" test "$status" = 1 -a "$(first_err | cut -d' ' -f3-4)" = "release=failed url=file://$www/repos/vanillagreencom/vgs/releases/tags/v0.9.0"
+check "a release that does not exist refuses on the fetch" test "$status" = 1 -a "$(first_err | cut -d' ' -f3-4)" = "release=failed url=file://$www/repos/vanillagreencom/vgshell/releases/tags/v0.9.0"
 check "an archive with another top directory refuses and leaves current, no version and no stage" layout_row "$installer"
 check "a held self lock refuses with 75 and installs nothing" busy_row "$installer"
 
@@ -530,7 +530,7 @@ RUN_PATH="$vgs_db:$run_path" run "$installer" --force
 check "--force installs beside a system package" test "$status" = 0
 check "a command install.sh did not make is refused and stays" foreign_row "$installer"
 run "$installer" --force
-check "--force replaces the foreign link" test "$status" = 0 -a "$(readlink -- "$h/.local/bin/vgsh")" = "$d/current/bin/vgsh"
+check "--force replaces the foreign link" test "$status" = 0 -a "$(readlink -- "$h/.local/bin/vgshell")" = "$d/current/bin/vgshell"
 
 echo "floor"
 arch_os="$tmp/os-arch"; printf 'NAME="Arch Linux"\nID=arch\n' >"$arch_os"
@@ -596,7 +596,7 @@ check "an installed Hyprland whose version cannot be read is named with its exit
 
 # The distributions: os-release text and the package managers on PATH. Each
 # row leaves git missing and compares the command install.sh names with the
-# one `vgsh pkg detect` and `vgsh pkg plan install` give on the same system.
+# one `vgshell pkg detect` and `vgshell pkg plan install` give on the same system.
 pm_dnf4="$tmp/pm-dnf4"; mkdir -p "$pm_dnf4"; stub "$pm_dnf4" dnf "" 1
 pm_none="$tmp/pm-none"; mkdir -p "$pm_none"
 distros=(
@@ -618,17 +618,17 @@ requirement_package() { # COMMAND MANAGER
 rows = [r for r in json.load(open(sys.argv[1])) if r["command"] == sys.argv[2]]
 print(rows[0]["packages"][sys.argv[3]])' "$repo/config/requirements.json" "$1" "$2"
 }
-distro_row() { # BIN NAME OS_TEXT PM_DIR: install.sh names the command vgsh pkg plans
+distro_row() { # BIN NAME OS_TEXT PM_DIR: install.sh names the command vgshell pkg plans
   local os="$tmp/os-row" want detect id plan
   printf '%b\n' "$3" >"$os"
   detect="$("$unshare_bin" -rm sh -c 'mount --bind "$1" /etc/os-release && shift && exec "$@"' sh "$os" \
-    "${base_env[@]}" PATH="$4:$tools" "$repo/bin/vgsh" pkg detect --json)" || return 1
+    "${base_env[@]}" PATH="$4:$tools" "$repo/bin/vgshell" pkg detect --json)" || return 1
   id="$(python3 -c 'import json, sys
 p = json.loads(sys.argv[1])["primary"]
 print(p["id"] if p else "-")' "$detect")"
   if [[ $id == - ]]; then
     want="No supported package manager found: install git with your distribution's package manager."
-  elif plan="$("${base_env[@]}" PATH="$4:$tools" "$repo/bin/vgsh" pkg plan install "$id" "$(requirement_package git "$id")" 2>/dev/null)"; then
+  elif plan="$("${base_env[@]}" PATH="$4:$tools" "$repo/bin/vgshell" pkg plan install "$id" "$(requirement_package git "$id")" 2>/dev/null)"; then
     want="$(python3 -c 'import json, sys
 p = json.loads(sys.argv[1])
 print(("Install them as root: " if p["elevate"] else "Install them: ") + " ".join(p["steps"][0]))' "$plan")"
@@ -646,15 +646,15 @@ print(("Install them as root: " if p["elevate"] else "Install them: ") + " ".joi
 }
 for row in "${distros[@]}"; do
   IFS='|' read -r name os_text pm_dir <<<"$row"
-  check "on $name install.sh names vgsh pkg's install command" distro_row "$installer" "$name" "$os_text" "$pm_dir"
+  check "on $name install.sh names vgshell pkg's install command" distro_row "$installer" "$name" "$os_text" "$pm_dir"
 done
 
 # The tables against their sources, read by node from the files themselves.
 drift_row() { # BIN: prints each drift, fails on any
-  node - "$1" "$repo/bin/vgsh" "$repo/config/requirements.json" <<'JS'
+  node - "$1" "$repo/bin/vgshell" "$repo/config/requirements.json" <<'JS'
 "use strict";
 const fs = require("fs");
-const [installer, vgsh, requirementsFile] = process.argv.slice(2);
+const [installer, vgshell, requirementsFile] = process.argv.slice(2);
 const block = (text, name, file) => {
     const m = new RegExp("\\n\\s*" + name + "='\\n([\\s\\S]*?)\\n'\\n").exec(text);
     if (m === null) { console.log("extractor=broken block=" + name + " file=" + file); process.exit(1); }
@@ -663,7 +663,7 @@ const block = (text, name, file) => {
 const script = fs.readFileSync(installer, "utf8");
 const floor = block(script, "floor", installer);
 const packages = block(script, "packages", installer);
-const preflight = block(fs.readFileSync(vgsh, "utf8"), "preflight_floor", vgsh);
+const preflight = block(fs.readFileSync(vgshell, "utf8"), "preflight_floor", vgshell);
 const start = /^  start_tools=\(([^)]*)\)$/m.exec(script);
 if (start === null) { console.log("extractor=broken block=start_tools file=" + installer); process.exit(1); }
 const startTools = start[1].trim().split(/\s+/);
@@ -697,16 +697,16 @@ for (const d of drift) console.log(d);
 process.exit(drift.length === 0 ? 0 : 1);
 JS
 }
-check "the floor and package tables match bin/vgsh and config/requirements.json" drift_row "$installer"
+check "the floor and package tables match bin/vgshell and config/requirements.json" drift_row "$installer"
 
 echo "git"
 git_home git
 check "--git clones main" test "$(g -C "$d/git" rev-parse HEAD)" = "$(g -C "$bare" rev-parse main)"
-check "--git names the clone" out_has "ok installed=vgs git=$d/git"
-check "--git points the command at the clone" test "$(readlink -- "$h/.local/bin/vgsh")" = "$d/git/bin/vgsh"
+check "--git names the clone" out_has "ok installed=vgshell git=$d/git"
+check "--git points the command at the clone" test "$(readlink -- "$h/.local/bin/vgshell")" = "$d/git/bin/vgshell"
 check "--git leaves the release's current alone" test "$(readlink -- "$d/current")" = 0.1.0
-"${base_env[@]}" HOME="$h" XDG_CONFIG_HOME="$h/.config" "$h/.local/bin/vgsh" self status --json >"$tmp/status.json" 2>/dev/null
-check "vgsh self status judges the clone a checkout" json_is "$tmp/status.json" 'd["method"] == "checkout"'
+"${base_env[@]}" HOME="$h" XDG_CONFIG_HOME="$h/.config" "$h/.local/bin/vgshell" self status --json >"$tmp/status.json" 2>/dev/null
+check "vgshell self status judges the clone a checkout" json_is "$tmp/status.json" 'd["method"] == "checkout"'
 run "$installer" --git
 check "a second --git refuses" refused 1 "install.sh: refused: git=exists path=$d/git"
 
@@ -717,19 +717,19 @@ check "--uninstall refuses a clone whose other local branch holds such a commit"
 check "--uninstall refuses a clone holding a stash" stash_row "$installer"
 check "--uninstall refuses while the running shell was started from a tree it removes" running_row "$installer"
 git_home uninstall
-mkdir -p "$h/.config/vgs" "$h/.local/state/vgs"
-printf 'mine\n' >"$h/.config/vgs/shell.json"; printf 'mine\n' >"$h/.local/state/vgs/applied.json"
+mkdir -p "$h/.config/vgshell" "$h/.local/state/vgshell"
+printf 'mine\n' >"$h/.config/vgshell/shell.json"; printf 'mine\n' >"$h/.local/state/vgshell/applied.json"
 printf 'other\n' >"$d/notes"
 run "$installer" --uninstall
 check "--uninstall succeeds" test "$status" = 0
 check "it removes the versions, current and the clone" test ! -e "$d/0.1.0" -a ! -e "$d/current" -a ! -e "$d/git"
 check "it keeps a file it did not install" test -f "$d/notes"
 check "it says it kept the data directory" out_has "kept=$d reason=not-vgs-files"
-check "it removes the link" test ! -e "$h/.local/bin/vgsh" -a ! -L "$h/.local/bin/vgsh"
-check "it keeps the configuration" test -f "$h/.config/vgs/shell.json"
-check "it names the configuration it kept" out_has "kept=$h/.config/vgs"
-check "it keeps the state" test -f "$h/.local/state/vgs/applied.json"
-check "it names the state it kept" out_has "kept=$h/.local/state/vgs"
+check "it removes the link" test ! -e "$h/.local/bin/vgshell" -a ! -L "$h/.local/bin/vgshell"
+check "it keeps the configuration" test -f "$h/.config/vgshell/shell.json"
+check "it names the configuration it kept" out_has "kept=$h/.config/vgshell"
+check "it keeps the state" test -f "$h/.local/state/vgshell/applied.json"
+check "it names the state it kept" out_has "kept=$h/.local/state/vgshell"
 lock_kept_row() { # BIN: --uninstall keeps the lock file, the inode a concurrent writer may hold open
   local inode
   git_home lock-kept
@@ -831,7 +831,7 @@ rule floor-need drift_row 'quickshell 0.3.1   ^Quickshell' 'quickshell 0.3.0   ^
 rule requirement-package drift_row 'dnf=util-linux-core' 'dnf=util-linux'
 rule runtime-packages packages_row 'runtime_install() { # TREE' 'runtime_install() { return 0 # TREE'
 rule runtime-result runtime_failure_row '[[ $code == 0 ]] || refuse 1' '[[ $code == "$code" ]] || refuse 1'
-rule package-verb packages_row '"$tree/bin/vgsh" pkg run install' '"$tree/bin/vgsh" pkg plan install'
+rule package-verb packages_row '"$tree/bin/vgshell" pkg run install' '"$tree/bin/vgshell" pkg plan install'
 rule launcher-prerequisite launcher_row 'start_tools=(xdg-terminal-exec)' 'start_tools=()'
 rule nix-present nix_present_row '[[ -z $names ]] || refuse 78 "requirements=configuration manager=nix"' '[[ -n $names ]] || refuse 78 "requirements=configuration manager=nix"'
 rule nix-missing nix_missing_row 'row.state === "missing"' 'row.state === "present"'

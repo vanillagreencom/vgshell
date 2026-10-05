@@ -21,7 +21,7 @@ refuse() { # STATUS FIRST_LINE [ENGLISH...]
   if [[ -z ${VGS_TUI_LIB:-} ]]; then
     printf 'automations: refused: %s\n' "$2" >&2
   else
-    local dir="${XDG_STATE_HOME:-$HOME/.local/state}/vgs/automations"
+    local dir="${XDG_STATE_HOME:-$HOME/.local/state}/vgshell/automations"
     mkdir -p -- "$dir"
     printf 'automations: refused: %s\n' "$2" >>"$dir/setup.log"
     case "$2" in

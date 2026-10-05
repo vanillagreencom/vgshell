@@ -1,4 +1,4 @@
--- The vgs theme for WezTerm, run by the line vgsh theme apply keeps first in
+-- The vgs theme for WezTerm, run by the line vgshell theme apply keeps first in
 -- wezterm.lua. WezTerm has no include directive, so the theme wraps
 -- wezterm.config_builder: a config it builds starts on the vgs colour
 -- scheme, and every setting wezterm.lua makes on it afterwards overrides it.

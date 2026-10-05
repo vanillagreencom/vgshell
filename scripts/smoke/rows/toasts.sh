@@ -53,7 +53,7 @@ print(left <= x < left + rect[2] and top <= y < top + rect[3])' "$layer" "$1" "$
 }
 
 # An earlier row left the fixture disabled; its service is the consumer here.
-layers_dir="$home/.config/vgs/plugins/acme.layers"
+layers_dir="$home/.config/vgshell/plugins/acme.layers"
 mkdir -p "$layers_dir"
 cp -R "$repo/scripts/smoke/fixtures/plugins/acme.layers/." "$layers_dir/"
 rescan "rescan after adding the layers fixture for toast mask checks answers ok"

@@ -121,8 +121,8 @@ function create({ home, config, data, state, runtime, install, accountRoots }) {
         return path.join(base, suffix);
     }).concat(accountRoots);
     const protectedPaths = credential.concat([
-        path.join(config, "vgs"), path.join(data, "vgs"), path.join(state, "vgs"),
-        path.join(runtime, "vgs"), install
+        path.join(config, "vgshell"), path.join(data, "vgshell"), path.join(state, "vgshell"),
+        path.join(runtime, "vgshell"), install
     ]);
     const execution = [
         [home, ".profile"], [home, ".bash_profile"], [home, ".bash_login"], [home, ".bashrc"],

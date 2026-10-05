@@ -46,9 +46,9 @@
 # without the button.
 # The harness starts the plugin disabled; the row ends with it disabled,
 # its runtime files gone and no stub on PATH.
-# inputs: shell/plugins/vgs.agent-warden/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/agent-warden/* shell/Core/PluginStatus.qml shell/Core/Notices.qml shell/Core/Toasts.qml shell/Core/TuiRunner.qml scripts/smoke/rows/manager.sh bin/vgsh-tui
+# inputs: shell/plugins/vgs.agent-warden/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/agent-warden/* shell/Core/PluginStatus.qml shell/Core/Notices.qml shell/Core/Toasts.qml shell/Core/TuiRunner.qml scripts/smoke/rows/manager.sh bin/vgshell-tui
 set -euo pipefail
-warden_copy="$home/.config/vgs/plugins/vgs.agent-warden"
+warden_copy="$home/.config/vgshell/plugins/vgs.agent-warden"
 rm -rf -- "$warden_dir"
 # warden_raw TEXT: TEXT as status.json, replaced into place by rename.
 warden_raw() { printf '%s' "$1" >"$warden_dir/status.tmp.raw" && mv -T -- "$warden_dir/status.tmp.raw" "$warden_dir/status.json"; }
@@ -514,7 +514,7 @@ warden_ticks() {
 # plugins row, or taken out of it for an empty MODE; then the service reads
 # it.
 warden_notify() {
-  python3 - "$home/.config/vgs/shell.json" "$1" <<'PY'
+  python3 - "$home/.config/vgshell/shell.json" "$1" <<'PY'
 import json, os, sys
 path, mode = sys.argv[1], sys.argv[2]
 data = json.load(open(path))

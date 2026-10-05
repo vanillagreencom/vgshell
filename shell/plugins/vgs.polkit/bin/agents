@@ -10,8 +10,8 @@
 // process of another user namespace, a container's or a sandbox's, denies
 // the same reads and is not counted, and neither is one that is not
 // dumpable inside a process namespace under this one. The package that
-// owns its program, and whether that package can be removed, are `vgsh pkg
-// owner` and `vgsh pkg removable`, the package manager's own answers.
+// owns its program, and whether that package can be removed, are `vgshell pkg
+// owner` and `vgshell pkg removable`, the package manager's own answers.
 //
 //   agents --tree <vgs tree> check
 //       ends each agent the user stopped before, the programs `stop`
@@ -21,7 +21,7 @@
 //       removes its package alone, and the count ended. The service runs it
 //       while polkitd has not accepted VGS's agent.
 //   agents --tree <vgs tree> uninstall
-//       removes each agent's package through `vgsh pkg run remove`, in the
+//       removes each agent's package through `vgshell pkg run remove`, in the
 //       terminal it runs in, then ends each agent. Before anything runs it
 //       refuses when one agent's package is not removable.
 //   agents --tree <vgs tree> stop
@@ -31,7 +31,7 @@
 //
 // An agent is ended with SIGTERM, only while the process is the one the
 // scan read, and counts as ended once it is gone, within END_WAIT_MS. The
-// record is ${XDG_STATE_HOME:-~/.local/state}/vgs/polkit/stopped.json, a
+// record is ${XDG_STATE_HOME:-~/.local/state}/vgshell/polkit/stopped.json, a
 // list of program paths and names.
 //
 // Exit 0 when the verb is done, with no agent found too. Exit 1 with the
@@ -40,8 +40,8 @@
 // `program=<name> reason=unowned` from `uninstall`, `agent=<name>
 // reason=running` for an agent that did not end,
 // `record=<path> error=<code>` for a record that cannot be read or
-// written, and `vgsh=<path> error=<code>` for a vgsh that could not be
-// started. `uninstall` exits with the status of `vgsh pkg run remove` when
+// written, and `vgshell=<path> error=<code>` for a vgshell that could not be
+// started. `uninstall` exits with the status of `vgshell pkg run remove` when
 // it fails. Exit 2 for a bad invocation, `polkit: refused: usage`.
 "use strict";
 const childProcess = require("child_process");
@@ -72,9 +72,9 @@ if (argv.length !== 3 || argv[0] !== "--tree" || VERBS.indexOf(argv[2]) === -1) 
 }
 const tree = argv[1];
 const verb = argv[2];
-const VGSH = path.join(tree, "bin", "vgsh");
+const VGSHELL = path.join(tree, "bin", "vgshell");
 const model = require(path.join(tree, "bin", "lib", "qml-library.js")).load(path.join(__dirname, "..", "PolkitModel.js"));
-const RECORD = path.join(process.env.XDG_STATE_HOME || path.join(os.homedir(), ".local", "state"), "vgs", "polkit", "stopped.json");
+const RECORD = path.join(process.env.XDG_STATE_HOME || path.join(os.homedir(), ".local", "state"), "vgshell", "polkit", "stopped.json");
 
 // A read of a /proc file of a process that may end at any moment: its text,
 // or null once the process is gone or the file is not the caller's to read.
@@ -173,10 +173,10 @@ function scan() {
     return found;
 }
 
-// One JSON answer of `vgsh pkg ARGS`, or null when it refused.
+// One JSON answer of `vgshell pkg ARGS`, or null when it refused.
 function pkg(args) {
-    const run = childProcess.spawnSync(VGSH, ["pkg"].concat(args), { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-    if (run.error !== undefined) refuse("vgsh=" + VGSH + " error=" + run.error.code, "VGS could not ask the package manager.");
+    const run = childProcess.spawnSync(VGSHELL, ["pkg"].concat(args), { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    if (run.error !== undefined) refuse("vgshell=" + VGSHELL + " error=" + run.error.code, "VGS could not ask the package manager.");
     return run.status === 0 ? JSON.parse(run.stdout) : null;
 }
 
@@ -276,8 +276,8 @@ function main() {
         if (!agent.removable) refuse("package=" + agent.package + " reason=required", "Another installed app needs " + agent.package + ". Nothing was removed.");
     }
     const packages = agents.map(agent => agent.package).filter((name, at, all) => all.indexOf(name) === at);
-    const removal = childProcess.spawnSync(VGSH, ["pkg", "run", "remove"].concat(packages), { stdio: "inherit" });
-    if (removal.error !== undefined) refuse("vgsh=" + VGSH + " error=" + removal.error.code, "VGS could not start the package manager.");
+    const removal = childProcess.spawnSync(VGSHELL, ["pkg", "run", "remove"].concat(packages), { stdio: "inherit" });
+    if (removal.error !== undefined) refuse("vgshell=" + VGSHELL + " error=" + removal.error.code, "VGS could not start the package manager.");
     if (removal.status !== 0) return removal.status === null ? 1 : removal.status;
     endAll(agents);
     return 0;

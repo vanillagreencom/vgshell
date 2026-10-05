@@ -51,7 +51,7 @@
 # --rows would run, one name per line in run order, and every row without
 # --rows; it starts nothing. qml_smoke_wanted decides both.
 #
-# VGSH_SMOKE_RSS_CEILING_KIB: resident-size ceiling for the largest reading
+# VGSHELL_SMOKE_RSS_CEILING_KIB: resident-size ceiling for the largest reading
 # of the shells the run starts up to rows/diagnostics.sh: each shell a row
 # stopped, read at its stop, and the one that row reads (shell_memory_note
 # in scripts/smoke/harness.sh). A row that stops and starts the shell
@@ -66,27 +66,27 @@
 # read at its first stop. docs/architecture/validation-latency.md holds the
 # readings. Each reading prints its high-water mark beside it.
 #
-# VGSH_SMOKE_FIRST_BAR_BUDGET_MS: ceiling on the time from the runner's exec
+# VGSHELL_SMOKE_FIRST_BAR_BUDGET_MS: ceiling on the time from the runner's exec
 # to the first bar surface with a client in the compositor's layer list,
 # polled every 10 ms. The default is twice the highest reading of two passes
 # of --first-bar-runs 12 on the owner's machine (host cachy, AMD Ryzen 9
 # 9950X) on 2026-09-29, at load average 10 to 14; each pass lost one start
 # to an unsized nested monitor. The 22 readings, each a start with no
 # compiled QML cache, were 253 to 310 ms with cpu_some_pct at most 1.3.
-# VGSH_SMOKE_DEFAULT_FIRST_BAR_BUDGET_MS: the same ceiling for the start
+# VGSHELL_SMOKE_DEFAULT_FIRST_BAR_BUDGET_MS: the same ceiling for the start
 # over the default set that rows/start-order.sh reads. The default is twice
 # the highest reading of two passes of --first-bar-runs 12 --plugin-set
 # default on the same machine on 2026-09-29, at load average 4 to 8; each
 # pass lost one start to an unsized nested monitor. The 22 readings were
 # 206 to 271 ms with cpu_some_pct at most 1.3.
-# VGSH_SMOKE_RECONCILE_BUDGET_MS: ceiling on the time from a
+# VGSHELL_SMOKE_RECONCILE_BUDGET_MS: ceiling on the time from a
 # setPluginEnabled reply to the build records no longer listing the
 # disabled widget, polled with qs ipc. The default is twice the highest
 # reading of twelve runs of this script on the same machine on 2026-09-23,
 # which read 12 to 15 ms.
-# VGSH_SMOKE_EMOJI_TOAST_BUDGET_MS: ceiling on the time from the notify
+# VGSHELL_SMOKE_EMOJI_TOAST_BUDGET_MS: ceiling on the time from the notify
 # call for a Slack card with six custom emoji to its body naming the
-# images on every screen. VGSH_SMOKE_EMOJI_INBOX_BUDGET_MS is the time
+# images on every screen. VGSHELL_SMOKE_EMOJI_INBOX_BUDGET_MS is the time
 # from the history call to forty summoned-panel rows naming their emoji
 # images on the visible cards (rows/notifications.sh), counted by a probe
 # readback and polled back to back. Each polling turn pays about 22 ms of
@@ -172,12 +172,12 @@ fi
 # No process this run starts may open an amdgpu node, so the run goes on
 # only where none is visible: scripts/smoke/gpu-fence.sh.
 "$repo/scripts/smoke/gpu-fence.sh" --check || exec "$repo/scripts/smoke/gpu-fence.sh" "$self" "${argv[@]}"
-rss_ceiling_kib="${VGSH_SMOKE_RSS_CEILING_KIB:-1174016}"
-first_bar_budget_ms="${VGSH_SMOKE_FIRST_BAR_BUDGET_MS:-620}"
-default_first_bar_budget_ms="${VGSH_SMOKE_DEFAULT_FIRST_BAR_BUDGET_MS:-542}"
-reconcile_budget_ms="${VGSH_SMOKE_RECONCILE_BUDGET_MS:-30}"
-emoji_toast_budget_ms="${VGSH_SMOKE_EMOJI_TOAST_BUDGET_MS:-100}"
-emoji_inbox_budget_ms="${VGSH_SMOKE_EMOJI_INBOX_BUDGET_MS:-1376}"
+rss_ceiling_kib="${VGSHELL_SMOKE_RSS_CEILING_KIB:-1174016}"
+first_bar_budget_ms="${VGSHELL_SMOKE_FIRST_BAR_BUDGET_MS:-620}"
+default_first_bar_budget_ms="${VGSHELL_SMOKE_DEFAULT_FIRST_BAR_BUDGET_MS:-542}"
+reconcile_budget_ms="${VGSHELL_SMOKE_RECONCILE_BUDGET_MS:-30}"
+emoji_toast_budget_ms="${VGSHELL_SMOKE_EMOJI_TOAST_BUDGET_MS:-100}"
+emoji_inbox_budget_ms="${VGSHELL_SMOKE_EMOJI_INBOX_BUDGET_MS:-1376}"
 
 # The measurement mode. Each run sources the harness in its own subshell,
 # so its teardown runs when the subshell exits, and the harness's output
@@ -235,7 +235,7 @@ fi
 # and Install browser theming on any host (harness.sh's shell_hidden_commands); a row
 # that needs one present stands its own stand-in for it.
 # shellcheck disable=SC2034 # the harness sourced below reads it
-shell_hidden_commands=(vsys vgs-browser-policy tesseract)
+shell_hidden_commands=(vsys vgshell-browser-policy tesseract)
 source "$repo/scripts/smoke/harness.sh"
 
 # smoke_row (harness.sh) sources each row and fails one whose output holds

@@ -4,7 +4,7 @@ schema = 6
 schema = 1
 
 [bot-instructions.repo]
-name = "vgs"
+name = "vgshell"
 summary = "VGS is a desktop shell for Hyprland on Quickshell 0.3.1. A small fixed core starts the shell, holds the instance lock, talks to Hyprland, hosts surfaces and loads plugins; every surface and service is a plugin with its own manifest and its own validation row."
 tracker = "VGS"
 
@@ -29,7 +29,7 @@ derive_render = true
 [bot-instructions.doctrine.append]
 scope = "Apply the local AGENTS.md for each changed path. The generated .github/instructions files hold additional path-specific review rules; read the files whose applyTo paths match the change."
 severity = """
-Review changes to the merge checks, scripts, review policy, the instance lock and the session lock, `vgsh plugin add` and the other plugin manager commands, and privileged operations in full depth. Privileged operations include elevation and writes outside the user's home wherever the code resides.
+Review changes to the merge checks, scripts, review policy, the instance lock and the session lock, `vgshell plugin add` and the other plugin manager commands, and privileged operations in full depth. Privileged operations include elevation and writes outside the user's home wherever the code resides.
 """
 declined = """
 This personal project deliberately has no branch protection, merge queue, required review or commit/push guards, and no workflow that runs on a push or a pull request; its one workflow, .github/workflows/nightly.yml, runs scripts/validate --full on main on a schedule for the areas a hosted runner can run and reports only. Reviews are optional. Direct pushes to main and immediate PR merges are supported. Do not request reinstating gates; local validation selects affected checks from the diff.
@@ -467,7 +467,7 @@ The list query carries `url` so the triage table is actionable; `body` is fetche
 
 Automating this needs owner action (Linear workspace admin, or a LINEAR_API_KEY repo secret); no decision record covers it.
 
-Link work to its issue through the branch name: `vgs-<n>-<slug>`. Linear's GitHub integration matches that to attach the PR, and `GH_ISSUE_PATTERN` in kendex.settings.toml reads the same shape. Commit subjects carry the identifier as the scope: `area(VGS-12): imperative summary`.
+Link work to its issue through the branch name: `vgshell-<n>-<slug>`. Linear's GitHub integration matches that to attach the PR, and `GH_ISSUE_PATTERN` in kendex.settings.toml reads the same shape. Commit subjects carry the identifier as the scope: `area(VGS-12): imperative summary`.
 
 Issue labels are live Linear issue labels. Inventory source of truth:
 

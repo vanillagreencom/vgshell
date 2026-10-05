@@ -62,13 +62,13 @@ open_file() {
   shift
   printf '%s\n' "$code" >"$TMP_ROOT/exit"
   : >"$TMP_ROOT/calls"
-  mkdir -p "$TMP_ROOT/state/vgs/notifications"
-  : >"$TMP_ROOT/state/vgs/notifications/diagnostics.log"
+  mkdir -p "$TMP_ROOT/state/vgshell/notifications"
+  : >"$TMP_ROOT/state/vgshell/notifications/diagnostics.log"
   status=0
   setsid -w env -i PATH="$head:$tools" HOME="$TMP_ROOT" XDG_STATE_HOME="$TMP_ROOT/state" VGS_TUI_LIB="$repo/bin/lib/tui.sh" "${env[@]}" bash "$copy" "$@" >"$TMP_ROOT/out" 2>"$TMP_ROOT/err" </dev/null || status=$?
   visible="$(cat "$TMP_ROOT/err")"
   output="$(cat "$TMP_ROOT/out")"
-  diagnostic="$(cat "$TMP_ROOT/state/vgs/notifications/diagnostics.log")"
+  diagnostic="$(cat "$TMP_ROOT/state/vgshell/notifications/diagnostics.log")"
   first="$(head -n 1 "$TMP_ROOT/err" 2>/dev/null || true)"
   calls="$(cat "$TMP_ROOT/calls")"
 }

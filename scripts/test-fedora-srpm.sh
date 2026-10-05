@@ -6,11 +6,11 @@
 # scripts/fedora-container.sh itself. Each row runs in a scratch git
 # repository holding the files these scripts read, and each refusal row
 # pins its exit status and keyed first line. The control at the end runs a
-# copy of srpm.sh that packs vgs-git another way.
+# copy of srpm.sh that packs vgshell-git another way.
 set -euo pipefail
 
-# shellcheck source=scripts/vgsh-rows.sh
-source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/vgsh-rows.sh"
+# shellcheck source=scripts/vgshell-rows.sh
+source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/vgshell-rows.sh"
 # srpm.sh names its spec by its resolved path.
 repo="$(cd -- "$repo" && pwd -P)"
 
@@ -90,11 +90,11 @@ while read -r name; do unset "$name"; done < <(compgen -v GIT_CONFIG_ | grep -E 
 fixture() { # DIR COMMITS
   local dir="$1" i
   mkdir -p "$dir/bin/lib" "$dir/packaging/fedora" "$dir/.copr" "$dir/scripts/lib"
-  cp -- "$repo/bin/vgsh" "$dir/bin/"
+  cp -- "$repo/bin/vgshell" "$dir/bin/"
   cp -- "$repo/bin/lib/ipc-reply.sh" "$dir/bin/lib/"
   cp -- "$repo/scripts/lib/release-tarball.sh" "$dir/scripts/lib/"
   cp -- "$repo/VERSION" "$dir/"
-  cp -- "$repo/packaging/fedora/srpm.sh" "$repo/packaging/fedora/vgs.spec" "$repo/packaging/fedora/vgs-git.spec" "$dir/packaging/fedora/"
+  cp -- "$repo/packaging/fedora/srpm.sh" "$repo/packaging/fedora/vgshell.spec" "$repo/packaging/fedora/vgshell-git.spec" "$dir/packaging/fedora/"
   cp -- "$repo/.copr/Makefile" "$dir/.copr/"
   cp -- "$repo/scripts/fedora-container.sh" "$dir/scripts/"
   git init -q -b main "$dir"
@@ -126,89 +126,89 @@ refused() { # NAME WANT_STATUS WANT_ERR
   if [[ $status == "$2" && $err == "$3" ]]; then ok "$1"; else fail "$1: exit=$status want=$2 stderr=[$err] want=[$3]"; fi
 }
 tar_files() { tar -tzf "$1" | grep -v '/$' | LC_ALL=C sort; }
-# Whether the last run's Source0 holds DIR's HEAD files under vgs-<commit>/.
+# Whether the last run's Source0 holds DIR's HEAD files under vgshell-<commit>/.
 snapshot_files() { # DIR
   local h
   h="$(git -C "$1" rev-parse HEAD)" || return 1
-  cmp -s <(tar_files "$record/vgs-$h.tar.gz") <(git -C "$1" ls-tree -r --name-only HEAD | sed "s|^|vgs-$h/|" | LC_ALL=C sort)
+  cmp -s <(tar_files "$record/vgshell-$h.tar.gz") <(git -C "$1" ls-tree -r --name-only HEAD | sed "s|^|vgshell-$h/|" | LC_ALL=C sort)
 }
 
 version="$(<"$repo/VERSION")"
 
-# --- vgs-git ---------------------------------------------------------------
+# --- vgshell-git ---------------------------------------------------------------
 fx="$tmp/snapshot"
 fixture "$fx" 3
 head="$(git -C "$fx" rev-parse HEAD)"
 short="$(git -C "$fx" rev-parse --short HEAD)"
-run "$fx" packaging/fedora/srpm.sh --spec packaging/fedora/vgs-git.spec --outdir "$tmp/out"
+run "$fx" packaging/fedora/srpm.sh --spec packaging/fedora/vgshell-git.spec --outdir "$tmp/out"
 want="$version^3.git$short"
-check "vgs-git with no release tag counts every commit" test "$status:$out" = "0:srpm: ok path=$tmp/out/vgs-git-$want-1.src.rpm version=$want"
-describe="$(cd "$fx" && bin/vgsh --version)"
-check "vgs-git's version is vgsh --version in RPM form" test "$describe" = "vgs $version.r3.g$short"
+check "vgshell-git with no release tag counts every commit" test "$status:$out" = "0:srpm: ok path=$tmp/out/vgshell-git-$want-1.src.rpm version=$want"
+describe="$(cd "$fx" && bin/vgshell --version)"
+check "vgshell-git's version is vgshell --version in RPM form" test "$describe" = "vgshell $version.r3.g$short"
 check "the build spec defines vgs_version first" test "$(sed -n 1p "$record/built.spec")" = "%global vgs_version $want"
 check "the build spec defines vgs_commit second" test "$(sed -n 2p "$record/built.spec")" = "%global vgs_commit $head"
-check "the build spec holds the template after the two definitions" cmp -s <(tail -n +3 "$record/built.spec" | head -n "$(wc -l <"$repo/packaging/fedora/vgs-git.spec")") "$repo/packaging/fedora/vgs-git.spec"
+check "the build spec holds the template after the two definitions" cmp -s <(tail -n +3 "$record/built.spec" | head -n "$(wc -l <"$repo/packaging/fedora/vgshell-git.spec")") "$repo/packaging/fedora/vgshell-git.spec"
 check "the changelog entry carries the commit's author and UTC date" test "$(tail -n 2 "$record/built.spec" | head -n 1)" = "* Mon Sep 28 2026 Ada Packager <ada@example.org> - $want-1"
 check "the changelog entry names the commit" test "$(tail -n 1 "$record/built.spec")" = "- Snapshot of commit $head"
-check "Source0 is the commit's tarball alone" test "$(cat "$record/sources")" = "vgs-$head.tar.gz"
-check "the tarball is the commit's files under vgs-<commit>/" snapshot_files "$fx"
-cp -- "$record/vgs-$head.tar.gz" "$tmp/first.tar.gz"
-run "$fx" packaging/fedora/srpm.sh --spec packaging/fedora/vgs-git.spec --outdir "$tmp/out"
-check "one commit packs the same tarball bytes twice" cmp -s "$tmp/first.tar.gz" "$record/vgs-$head.tar.gz"
+check "Source0 is the commit's tarball alone" test "$(cat "$record/sources")" = "vgshell-$head.tar.gz"
+check "the tarball is the commit's files under vgshell-<commit>/" snapshot_files "$fx"
+cp -- "$record/vgshell-$head.tar.gz" "$tmp/first.tar.gz"
+run "$fx" packaging/fedora/srpm.sh --spec packaging/fedora/vgshell-git.spec --outdir "$tmp/out"
+check "one commit packs the same tarball bytes twice" cmp -s "$tmp/first.tar.gz" "$record/vgshell-$head.tar.gz"
 check "rpmbuild builds the source RPM alone" grep -qxF -- -bs "$record/rpmbuild.args"
 
 git -C "$fx" tag "v$version" HEAD~1
-run "$fx" packaging/fedora/srpm.sh --spec packaging/fedora/vgs-git.spec --outdir "$tmp/out"
-check "vgs-git counts from the newest release tag" test "$status:${out##* }" = "0:version=$version^1.git$short"
+run "$fx" packaging/fedora/srpm.sh --spec packaging/fedora/vgshell-git.spec --outdir "$tmp/out"
+check "vgshell-git counts from the newest release tag" test "$status:${out##* }" = "0:version=$version^1.git$short"
 
 run "$tmp" git clone -q --depth 1 "file://$fx" "$tmp/shallow"
-run "$tmp/shallow" packaging/fedora/srpm.sh --spec packaging/fedora/vgs-git.spec --outdir "$tmp/out"
+run "$tmp/shallow" packaging/fedora/srpm.sh --spec packaging/fedora/vgshell-git.spec --outdir "$tmp/out"
 refused "a shallow clone is refused" 1 "srpm: refused: clone=shallow path=$tmp/shallow"
 
-run "$fx" packaging/fedora/srpm.sh --spec packaging/fedora/vgs-git.spec --outdir "$tmp/out" --tarball "$tmp/first.tar.gz"
-refused "--tarball with vgs-git is a usage error" 2 "srpm: refused: argument=--tarball package=vgs-git"
+run "$fx" packaging/fedora/srpm.sh --spec packaging/fedora/vgshell-git.spec --outdir "$tmp/out" --tarball "$tmp/first.tar.gz"
+refused "--tarball with vgshell-git is a usage error" 2 "srpm: refused: argument=--tarball package=vgshell-git"
 
 # --- COPR's entry point ----------------------------------------------------
-run "$fx" make -s -f .copr/Makefile srpm outdir="$tmp/out" spec=packaging/fedora/vgs-git.spec
-check "make srpm writes the vgs-git source RPM" test "$status:${out##*$'\n'}" = "0:srpm: ok path=$tmp/out/vgs-git-$version^1.git$short-1.src.rpm version=$version^1.git$short"
+run "$fx" make -s -f .copr/Makefile srpm outdir="$tmp/out" spec=packaging/fedora/vgshell-git.spec
+check "make srpm writes the vgshell-git source RPM" test "$status:${out##*$'\n'}" = "0:srpm: ok path=$tmp/out/vgshell-git-$version^1.git$short-1.src.rpm version=$version^1.git$short"
 check "make srpm installs the builder's tools first" test "$(cat "$record/dnf.args")" = "-y install bash curl git-core gzip rpm-build tar"
-run "$tmp" make -s -f "$fx/.copr/Makefile" srpm outdir="$tmp/out" spec="$fx/packaging/fedora/vgs-git.spec"
+run "$tmp" make -s -f "$fx/.copr/Makefile" srpm outdir="$tmp/out" spec="$fx/packaging/fedora/vgshell-git.spec"
 check "make srpm finds srpm.sh from any directory" test "$status" = 0
 
 # --- vgs -------------------------------------------------------------------
 rel="$tmp/release"
 fixture "$rel" 2
 git -C "$rel" tag "v$version"
-release_tarball "$rel" "$tmp/vgs-$version.tar.gz"
-run "$rel" packaging/fedora/srpm.sh --spec packaging/fedora/vgs.spec --outdir "$tmp/out" --tarball "$tmp/vgs-$version.tar.gz"
-check "vgs at its tag writes the release source RPM" test "$status:$out" = "0:srpm: ok path=$tmp/out/vgs-$version-1.src.rpm version=$version"
-check "the release build spec is vgs.spec unchanged" cmp -s "$record/built.spec" "$repo/packaging/fedora/vgs.spec"
-check "the release Source0 is the tarball under its release name" cmp -s "$record/vgs-$version.tar.gz" "$tmp/vgs-$version.tar.gz"
+release_tarball "$rel" "$tmp/vgshell-$version.tar.gz"
+run "$rel" packaging/fedora/srpm.sh --spec packaging/fedora/vgshell.spec --outdir "$tmp/out" --tarball "$tmp/vgshell-$version.tar.gz"
+check "vgs at its tag writes the release source RPM" test "$status:$out" = "0:srpm: ok path=$tmp/out/vgshell-$version-1.src.rpm version=$version"
+check "the release build spec is vgshell.spec unchanged" cmp -s "$record/built.spec" "$repo/packaging/fedora/vgshell.spec"
+check "the release Source0 is the tarball under its release name" cmp -s "$record/vgshell-$version.tar.gz" "$tmp/vgshell-$version.tar.gz"
 
-run "$rel" packaging/fedora/srpm.sh --spec packaging/fedora/vgs.spec --outdir "$tmp/out"
-refused "a failed download is refused" 1 "srpm: refused: download=failed url=https://github.com/vanillagreencom/vgs/releases/download/v$version/vgs-$version.tar.gz"
+run "$rel" packaging/fedora/srpm.sh --spec packaging/fedora/vgshell.spec --outdir "$tmp/out"
+refused "a failed download is refused" 1 "srpm: refused: download=failed url=https://github.com/vanillagreencom/vgshell/releases/download/v$version/vgshell-$version.tar.gz"
 check "the download is HTTPS only" grep -qxF -- "--proto" "$record/curl.args"
-check "the download names the release asset" test "$(tail -n 1 "$record/curl.args")" = "https://github.com/vanillagreencom/vgs/releases/download/v$version/vgs-$version.tar.gz"
-STUB_CURL_TARBALL="$tmp/vgs-$version.tar.gz" run "$rel" packaging/fedora/srpm.sh --spec packaging/fedora/vgs.spec --outdir "$tmp/out"
-check "a downloaded release tarball builds" test "$status:$out" = "0:srpm: ok path=$tmp/out/vgs-$version-1.src.rpm version=$version"
+check "the download names the release asset" test "$(tail -n 1 "$record/curl.args")" = "https://github.com/vanillagreencom/vgshell/releases/download/v$version/vgshell-$version.tar.gz"
+STUB_CURL_TARBALL="$tmp/vgshell-$version.tar.gz" run "$rel" packaging/fedora/srpm.sh --spec packaging/fedora/vgshell.spec --outdir "$tmp/out"
+check "a downloaded release tarball builds" test "$status:$out" = "0:srpm: ok path=$tmp/out/vgshell-$version-1.src.rpm version=$version"
 
-run "$rel" packaging/fedora/srpm.sh --spec packaging/fedora/vgs.spec --outdir "$tmp/out" --tarball "$tmp/missing.tar.gz"
+run "$rel" packaging/fedora/srpm.sh --spec packaging/fedora/vgshell.spec --outdir "$tmp/out" --tarball "$tmp/missing.tar.gz"
 refused "a missing tarball is refused" 1 "srpm: refused: tarball=missing path=$tmp/missing.tar.gz"
 
-mkdir -p "$tmp/wrong/vgs-$version"
-printf '9.9.9\n' >"$tmp/wrong/vgs-$version/VERSION"
-tar -C "$tmp/wrong" -czf "$tmp/wrong.tar.gz" "vgs-$version"
-run "$rel" packaging/fedora/srpm.sh --spec packaging/fedora/vgs.spec --outdir "$tmp/out" --tarball "$tmp/wrong.tar.gz"
+mkdir -p "$tmp/wrong/vgshell-$version"
+printf '9.9.9\n' >"$tmp/wrong/vgshell-$version/VERSION"
+tar -C "$tmp/wrong" -czf "$tmp/wrong.tar.gz" "vgshell-$version"
+run "$rel" packaging/fedora/srpm.sh --spec packaging/fedora/vgshell.spec --outdir "$tmp/out" --tarball "$tmp/wrong.tar.gz"
 refused "a tarball of another version is refused" 1 "srpm: refused: tarball-version=9.9.9 version=$version"
 tar -C "$tmp/wrong" -czf "$tmp/unprefixed.tar.gz" .
-run "$rel" packaging/fedora/srpm.sh --spec packaging/fedora/vgs.spec --outdir "$tmp/out" --tarball "$tmp/unprefixed.tar.gz"
-refused "a tarball without vgs-<VERSION>/ is refused" 1 "srpm: refused: tarball=unreadable want=vgs-$version/VERSION"
+run "$rel" packaging/fedora/srpm.sh --spec packaging/fedora/vgshell.spec --outdir "$tmp/out" --tarball "$tmp/unprefixed.tar.gz"
+refused "a tarball without vgshell-<VERSION>/ is refused" 1 "srpm: refused: tarball=unreadable want=vgshell-$version/VERSION"
 
 git -C "$rel" commit -q --allow-empty -m "after the tag"
-run "$rel" packaging/fedora/srpm.sh --spec packaging/fedora/vgs.spec --outdir "$tmp/out" --tarball "$tmp/vgs-$version.tar.gz"
+run "$rel" packaging/fedora/srpm.sh --spec packaging/fedora/vgshell.spec --outdir "$tmp/out" --tarball "$tmp/vgshell-$version.tar.gz"
 refused "vgs past its tag is refused" 1 "srpm: refused: checkout=not-at-tag want=v$version describe=$version.r1.g$(git -C "$rel" rev-parse --short HEAD)"
 
-run "$fx" packaging/fedora/srpm.sh --spec packaging/fedora/vgs.spec --outdir "$tmp/out" --tarball "$tmp/vgs-$version.tar.gz"
+run "$fx" packaging/fedora/srpm.sh --spec packaging/fedora/vgshell.spec --outdir "$tmp/out" --tarball "$tmp/vgshell-$version.tar.gz"
 refused "vgs with the tag behind it is refused" 1 "srpm: refused: checkout=not-at-tag want=v$version describe=$version.r1.g$short"
 
 bumped="$tmp/bumped"
@@ -216,37 +216,37 @@ fixture "$bumped" 1
 printf '9.9.9\n' >"$bumped/VERSION"
 git -C "$bumped" commit -q -am "bump"
 git -C "$bumped" tag v9.9.9
-run "$bumped" packaging/fedora/srpm.sh --spec packaging/fedora/vgs.spec --outdir "$tmp/out" --tarball "$tmp/vgs-$version.tar.gz"
+run "$bumped" packaging/fedora/srpm.sh --spec packaging/fedora/vgshell.spec --outdir "$tmp/out" --tarball "$tmp/vgshell-$version.tar.gz"
 refused "a spec Version off VERSION is refused" 1 "srpm: refused: spec-version=$version version=9.9.9"
 
 # --- arguments, the checkout and the tools ---------------------------------
-run "$fx" packaging/fedora/srpm.sh --spec "$repo/packaging/fedora/vgs.spec" --outdir "$tmp/out"
-refused "a spec from another checkout is refused" 1 "srpm: refused: spec=unknown path=$repo/packaging/fedora/vgs.spec"
-run "$fx" packaging/fedora/srpm.sh --spec packaging/fedora/vgs-git.spec
+run "$fx" packaging/fedora/srpm.sh --spec "$repo/packaging/fedora/vgshell.spec" --outdir "$tmp/out"
+refused "a spec from another checkout is refused" 1 "srpm: refused: spec=unknown path=$repo/packaging/fedora/vgshell.spec"
+run "$fx" packaging/fedora/srpm.sh --spec packaging/fedora/vgshell-git.spec
 refused "a missing --outdir is a usage error" 2 "srpm: refused: argument=--outdir value=missing"
-run "$fx" packaging/fedora/srpm.sh --spec packaging/fedora/vgs-git.spec --outdir "$tmp/out" --extra
+run "$fx" packaging/fedora/srpm.sh --spec packaging/fedora/vgshell-git.spec --outdir "$tmp/out" --extra
 refused "an unknown argument is a usage error" 2 "srpm: refused: argument=--extra"
 
 exported="$tmp/exported"
 mkdir -p "$exported"
 git -C "$fx" archive HEAD | tar -C "$exported" -x
-run "$exported" packaging/fedora/srpm.sh --spec packaging/fedora/vgs-git.spec --outdir "$tmp/out"
+run "$exported" packaging/fedora/srpm.sh --spec packaging/fedora/vgshell-git.spec --outdir "$tmp/out"
 refused "an exported tree is refused" 1 "srpm: refused: checkout=missing path=$exported"
 
 mkdir -p "$tmp/no-rpmbuild"
 for tool in bash git gzip rpmspec readlink dirname sed cat; do ln -sf -- "$(PATH="$stubs:$PATH" command -v "$tool")" "$tmp/no-rpmbuild/$tool"; done
-run "$fx" env PATH="$tmp/no-rpmbuild" packaging/fedora/srpm.sh --spec packaging/fedora/vgs-git.spec --outdir "$tmp/out"
+run "$fx" env PATH="$tmp/no-rpmbuild" packaging/fedora/srpm.sh --spec packaging/fedora/vgshell-git.spec --outdir "$tmp/out"
 refused "a missing rpmbuild is refused" 1 "srpm: refused: tool=missing name=rpmbuild"
 
-STUB_RPMBUILD_EXIT=1 run "$fx" packaging/fedora/srpm.sh --spec packaging/fedora/vgs-git.spec --outdir "$tmp/out"
+STUB_RPMBUILD_EXIT=1 run "$fx" packaging/fedora/srpm.sh --spec packaging/fedora/vgshell-git.spec --outdir "$tmp/out"
 check "a failed rpmbuild is refused" test "$status:${err%% spec=*}" = "1:srpm: refused: rpmbuild=failed"
 check "the failed rpmbuild's log follows the refusal" grep -qxF "error: stub rpmbuild failed" "$tmp/err"
 
 # COPR's chroot clones as another user; srpm.sh trusts its own checkout
 # through the environment and keeps the caller's entries.
-GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=user.name GIT_CONFIG_VALUE_0=Caller run "$fx" packaging/fedora/srpm.sh --spec packaging/fedora/vgs-git.spec --outdir "$tmp/out"
+GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=user.name GIT_CONFIG_VALUE_0=Caller run "$fx" packaging/fedora/srpm.sh --spec packaging/fedora/vgshell-git.spec --outdir "$tmp/out"
 check "srpm.sh trusts its checkout after the caller's git entries" test "$status:$(tr '\n' ' ' <"$record/git-config.env")" = "0:GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=user.name GIT_CONFIG_KEY_1=safe.directory GIT_CONFIG_VALUE_0=Caller GIT_CONFIG_VALUE_1=$fx "
-run "$fx" packaging/fedora/srpm.sh --spec packaging/fedora/vgs-git.spec --outdir "$tmp/out"
+run "$fx" packaging/fedora/srpm.sh --spec packaging/fedora/vgshell-git.spec --outdir "$tmp/out"
 check "srpm.sh trusts its checkout with no caller entries" test "$(tr '\n' ' ' <"$record/git-config.env")" = "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0=$fx "
 
 # --- scripts/fedora-container.sh on the host --------------------------------
@@ -273,15 +273,15 @@ check "a failed check inside the container fails the run" test "$status" = 1
 check "the container runner removes its scratch clone" test -z "$(find "$tmp" -maxdepth 1 -name 'vgs-fedora.*')"
 
 # --- control ---------------------------------------------------------------
-# A copy of srpm.sh that packs vgs-git under the release's directory, not
+# A copy of srpm.sh that packs vgshell-git under the release's directory, not
 # the commit's: the tarball row must fail on it.
-copy_with snapshot-directory "$repo/packaging/fedora/srpm.sh" '"$commit" "$commit" "$sources/vgs-$commit.tar.gz"' '"$commit" "$version" "$sources/vgs-$commit.tar.gz"'
+copy_with snapshot-directory "$repo/packaging/fedora/srpm.sh" '"$commit" "$commit" "$sources/vgshell-$commit.tar.gz"' '"$commit" "$version" "$sources/vgshell-$commit.tar.gz"'
 ctl="$tmp/control-snapshot"
 fixture "$ctl" 1
 cp -- "$copy" "$ctl/packaging/fedora/srpm.sh"
-run "$ctl" packaging/fedora/srpm.sh --spec packaging/fedora/vgs-git.spec --outdir "$tmp/out"
+run "$ctl" packaging/fedora/srpm.sh --spec packaging/fedora/vgshell-git.spec --outdir "$tmp/out"
 if [[ $status == 0 ]] && ! snapshot_files "$ctl"; then
-  ok "control: the tarball row fails on a srpm.sh that packs vgs-git under vgs-<VERSION>/"
+  ok "control: the tarball row fails on a srpm.sh that packs vgshell-git under vgshell-<VERSION>/"
 else
   fail "control: snapshot-directory: exit=$status, or the tarball row passed on the copy"
 fi

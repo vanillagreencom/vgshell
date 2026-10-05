@@ -6,7 +6,7 @@ Totals: 15 accepted, 4 partially accepted, 1 declined.
 
 | Id | Severity | Finding | Disposition | Reason |
 |---|---|---|---|---|
-| B1 | Blocker | Monitor recovery depends on the shell | Accept | D069 stops on a clean exit and gives up after five crashes (D069 lines 21 and 53–54), and a hung shell runs no timer. S06 now writes a record and arms a detached `vgsh-monitor-guard` before it applies the preview, and tests stopping the shell, stopping the runner, and failure at each step. |
+| B1 | Blocker | Monitor recovery depends on the shell | Accept | D069 stops on a clean exit and gives up after five crashes (D069 lines 21 and 53–54), and a hung shell runs no timer. S06 now writes a record and arms a detached `vgshell-monitor-guard` before it applies the preview, and tests stopping the shell, stopping the runner, and failure at each step. |
 | B2 | Blocker | Reapplying saved rules does not restore the prior state | Accept | `runtime-hyprland.md:14`: an eval'd mode survives `reload config-only` when no file rule exists. Revert now restores the captured effective state explicitly. Covers first use, unplugged outputs and partial applies. |
 | B3 | Blocker | Device-test isolation leaves hardware paths open | Accept | The harness PATH falls back to the host's (`harness.sh:333`), so `rfkill` would reach `/dev/rfkill`. S08 adds an `rfkill` stand-in, null-only WirePlumber with an fd assertion, an `xdg-open` stand-in, and sudo through `sentinel_stand_over` (`harness.sh:233-300`). |
 | M1 | Major | The architecture claims crash isolation it does not have | Partially accept | The crash claim is removed (D010: one process), and the `vgs.settings` host (option C) is compared and kept as Q1. The pane contract stays a prerequisite, because both hosts need it. |

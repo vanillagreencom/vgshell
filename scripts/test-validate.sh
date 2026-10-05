@@ -200,7 +200,7 @@ row "a scripts/test-* file whose name prefixes a listed suite is refused" "$d" 1
 runtime_cases=(
   'path.join component|bin/judge|untracked|1|const l = require(path.join(repo, "scripts", "qml-library.js"));'
   'committed path.join component|bin/judge|committed|1|const l = require(path.join(repo, "scripts", "qml-library.js"));'
-  'variable expansion|bin/vgsh|untracked|1|check="$root/scripts/check-manifests.js"'
+  'variable expansion|bin/vgshell|untracked|1|check="$root/scripts/check-manifests.js"'
   'braced expansion|bin/tool|untracked|1|. "${repo}/scripts/lib.sh"'
   'relative climb|bin/tool|untracked|1|node "$(dirname -- "$0")/../scripts/x.js"'
   'QML import|shell/Core/X.qml|untracked|1|import "../../scripts"'
@@ -241,7 +241,7 @@ monitor_cases=(
   'call|shell/Core/Layer.lua|untracked|1|hl.monitor({ output = "DP-1", disabled = true })'
   'committed call|shell/Core/Layer.lua|committed|1|hl.monitor({ output = "DP-1", disabled = true })'
   'rendered line|shell/Core/MonitorLogic.js|untracked|1|        return "hl.monitor({ " + fields.join(", ") + " })";'
-  'spaced call|bin/vgsh-monitor-guard|untracked|1|hyprctl eval '"'"'hl.monitor ({ output = "" })'"'"
+  'spaced call|bin/vgshell-monitor-guard|untracked|1|hyprctl eval '"'"'hl.monitor ({ output = "" })'"'"
   'call in a configuration file|config/hyprland.lua|untracked|1|hl.monitor{} hl.monitor({ output = "", mode = "preferred" })'
   'comment naming the call|shell/Core/MonitorLogic.js|untracked|0|// The user sets each output with hl.monitor in hyprland.lua.'
   'window rule|shell/Core/Layer.lua|untracked|0|hl.window_rule({ name = "vgs:monitor(1)" })'
@@ -372,8 +372,8 @@ test_args=()
 # plans name consumers independently of the dependency table under test.
 repo_plan=$'whitespace_check\nrows_cover_tests\nruntime_reads_no_scripts\nruntime_writes_no_monitor_rule\nprivate_keys_check\nmd_refs_check'
 install_plan=$'scripts/test-install-tree.sh\n'"$repo_plan"
-installer_plan=$'scripts/test-install-tree.sh\nscripts/test-vgsh-self.sh\nscripts/test-install-sh.sh\nscripts/test-release.sh\n'"$repo_plan"
-# The README check reads VERSION, bin/vgsh, install.sh, the Arch recipes,
+installer_plan=$'scripts/test-install-tree.sh\nscripts/test-vgshell-self.sh\nscripts/test-install-sh.sh\nscripts/test-release.sh\n'"$repo_plan"
+# The README check reads VERSION, bin/vgshell, install.sh, the Arch recipes,
 # the plugins, README.md and docs/architecture/runtime.md.
 readme_rows=$'node scripts/test-check-readme.js\nscripts/test-readme-install.sh\n'
 readme_rows_trimmed="${readme_rows%$'\n'}"
@@ -408,16 +408,16 @@ orb_check_plan=$'python3 scripts/check-voiceorb-shader.py\npython3 scripts/test-
 shader_measure_plan=$'python3 scripts/test-measure-shader.py\n'"$repo_plan"$'\nscripts/measure-shader.sh'
 keyboard_plan=$'smoke_reads_named\n'"$repo_plan"$'\nscripts/qml-smoke.sh\nscripts/measure-shader.sh'
 fedora_plan=$'scripts/test-fedora-srpm.sh\n'
-version_plan=$'scripts/test-vgsh-version.sh\nscripts/test-install-tree.sh\n'"$fedora_plan"$'node scripts/check-packaging.js\nnode scripts/test-check-packaging.js\n'"$readme_rows"$'scripts/test-release.sh\nscripts/test-publish-aur.sh\n'"$repo_plan"
+version_plan=$'scripts/test-vgshell-version.sh\nscripts/test-install-tree.sh\n'"$fedora_plan"$'node scripts/check-packaging.js\nnode scripts/test-check-packaging.js\n'"$readme_rows"$'scripts/test-release.sh\nscripts/test-publish-aur.sh\n'"$repo_plan"
 # A recipe change runs the recipe check and its controls, never the product
 # smoke; the container build runs only where the area admits it, never
 # offline.
 recipe_plan=$'node scripts/check-packaging.js\nnode scripts/test-check-packaging.js\nscripts/test-publish-aur.sh\n'"$repo_plan"
 # An Arch recipe is also the README's source for the AUR commands.
 # The release suite's parity rows build the Arch recipes' host side.
-arch_recipe_plan=$'node scripts/check-packaging.js\nnode scripts/test-check-packaging.js\n'"$readme_rows"$'scripts/test-vgsh-requirements.sh\nscripts/test-release.sh\nscripts/test-publish-aur.sh\n'"$repo_plan"
+arch_recipe_plan=$'node scripts/check-packaging.js\nnode scripts/test-check-packaging.js\n'"$readme_rows"$'scripts/test-vgshell-requirements.sh\nscripts/test-release.sh\nscripts/test-publish-aur.sh\n'"$repo_plan"
 settings_core_prefix=$'node scripts/test-plugin-logic.js\nnode scripts/test-pads.js\nnode scripts/test-plugin-status.js\nnode scripts/test-plugin-extras.js\nnode scripts/test-plugin-menu.js\nnode scripts/test-key-capture.js\nnode scripts/test-tui-logic.js\nnode scripts/test-ipc-logic.js\nnode scripts/test-notice-logic.js\nnode scripts/test-hyprland-layer.js\nnode scripts/test-hyprland-state.js\nnode scripts/test-input-facts.js\n'
-settings_theme_rows=$'bin/vgsh-theme-judge packages themes\n'
+settings_theme_rows=$'bin/vgshell-theme-judge packages themes\n'
 settings_plugin_rows=$'node scripts/test-themes-setup.js\nnode scripts/test-notifications-logic.js\nnode scripts/test-greeter-logic.js\nnode scripts/test-polkit-model.js\n'
 settings_catalog_rows=$'node scripts/test-check-devtools-catalog.js\n'
 settings_reply_row='node scripts/test-settings-reply.js'
@@ -443,7 +443,7 @@ cases=(
   "settings-reply-values|shell/Commons/SettingValues.js|logic|$settings_core_prefix"$'node scripts/test-setting-values.js\n'"$settings_theme_rows$settings_plugin_rows"$'node scripts/test-bluetooth-logic.js\n'"$settings_reply_row"$'\n'"$settings_steps_row"
   "settings-reply-packages|shell/Core/PackageManagers.js|logic|$settings_core_prefix$settings_theme_rows$settings_plugin_rows$settings_catalog_rows$settings_reply_row"$'\n'"$settings_steps_row"
   "settings-reply-icons|shell/Ui/icons/Lucide.js|logic|$settings_core_prefix"$'node scripts/test-icon-bounds.js\n'"$settings_theme_rows"$'node scripts/test-lucide-data.js\n'"$settings_plugin_rows"$'node scripts/test-jarvis-widget.js\n'"$settings_catalog_rows"$'node scripts/test-agent-warden-view.js\n'"$settings_reply_row"$'\n'"$settings_steps_row"
-  "catalog-judge|themes/catalog/index.json|tools|node scripts/test-vgsh-theme-judge.js"
+  "catalog-judge|themes/catalog/index.json|tools|node scripts/test-vgshell-theme-judge.js"
   "catalog-contrast|themes/catalog/index.json|logic|node scripts/test-theme-logic.js"$'\n'"$settings_theme_rows"'node scripts/test-check-theme-contrast.js'
   "orb-source|shell/Ui/feedback/shaders/voiceorb.frag|all|$orb_shader_plan"
   "orb-pack|shell/Ui/feedback/shaders/voiceorb.frag.qsb|all|$orb_shader_plan"
@@ -467,13 +467,13 @@ cases=(
   "flake-offline|flake.nix|offline|node scripts/check-packaging.js"$'\nnode scripts/test-check-packaging.js\nscripts/test-publish-aur.sh\n'"$repo_plan"
   "installer|packaging/install-system.sh|offline|$installer_plan"
   "curl-installer|install.sh|offline|$curl_installer_plan"
-  "recipe|packaging/arch/vgs/PKGBUILD|offline|$arch_recipe_plan"
-  "curl-installer-srcinfo|packaging/arch/vgs/.SRCINFO|offline|node scripts/check-packaging.js"$'\nnode scripts/test-check-packaging.js\n'"$readme_rows"$'scripts/test-vgsh-requirements.sh\nscripts/test-install-sh.sh\nscripts/test-release.sh\nscripts/test-publish-aur.sh\n'"$repo_plan"
-  "recipe-all|packaging/arch/vgs-git/.SRCINFO|all|$arch_recipe_plan"$'\nscripts/arch-packages.sh'
-  "recipe-package|packaging/arch/vgs/PKGBUILD|package|scripts/arch-packages.sh"
-  "requirements|config/requirements.json|offline|node scripts/test-plugin-logic.js"$'\nscripts/test-install-tree.sh\nnode scripts/check-packaging.js\nnode scripts/test-check-packaging.js\nscripts/test-vgsh-requirements.sh\nscripts/test-install-sh.sh\nscripts/test-publish-aur.sh\npython3 scripts/check-user-commands.py\npython3 scripts/test-check-user-commands.py\n'"$repo_plan"
+  "recipe|packaging/arch/vgshell/PKGBUILD|offline|$arch_recipe_plan"
+  "curl-installer-srcinfo|packaging/arch/vgshell/.SRCINFO|offline|node scripts/check-packaging.js"$'\nnode scripts/test-check-packaging.js\n'"$readme_rows"$'scripts/test-vgshell-requirements.sh\nscripts/test-install-sh.sh\nscripts/test-release.sh\nscripts/test-publish-aur.sh\n'"$repo_plan"
+  "recipe-all|packaging/arch/vgshell-git/.SRCINFO|all|$arch_recipe_plan"$'\nscripts/arch-packages.sh'
+  "recipe-package|packaging/arch/vgshell/PKGBUILD|package|scripts/arch-packages.sh"
+  "requirements|config/requirements.json|offline|node scripts/test-plugin-logic.js"$'\nscripts/test-install-tree.sh\nnode scripts/check-packaging.js\nnode scripts/test-check-packaging.js\nscripts/test-vgshell-requirements.sh\nscripts/test-install-sh.sh\nscripts/test-publish-aur.sh\npython3 scripts/check-user-commands.py\npython3 scripts/test-check-user-commands.py\n'"$repo_plan"
   "install-manifest|packaging/install-tree.manifest|offline|scripts/test-install-tree.sh"$'\nnode scripts/check-packaging.js\nnode scripts/test-check-packaging.js\nscripts/test-release.sh\nscripts/test-publish-aur.sh\n'"$repo_plan"$'\nscripts/test-validate.sh'
-  "fedora-recipe|packaging/fedora/vgs.spec|all|$fedora_plan"$'node scripts/check-packaging.js\nnode scripts/test-check-packaging.js\nscripts/test-install-sh.sh\nscripts/test-publish-aur.sh\n'"$repo_plan"
+  "fedora-recipe|packaging/fedora/vgshell.spec|all|$fedora_plan"$'node scripts/check-packaging.js\nnode scripts/test-check-packaging.js\nscripts/test-install-sh.sh\nscripts/test-publish-aur.sh\n'"$repo_plan"
   "copr-entry|.copr/Makefile|all|scripts/test-fedora-srpm.sh"$'\n'"$repo_plan"
   # test-validate.sh runs the mutation planner of the QML unit controls.
   "qml-unit-planner|scripts/test-qml-unit.sh|tools|scripts/test-validate.sh"
@@ -660,20 +660,20 @@ if out="$(cd -- "$d" && "${base_env[@]}" bash scripts/validate offline --changed
 d="$tmp/plan-shared"; fresh "$d"
 mkdir -p "$d/bin/lib"; printf 'changed\n' >"$d/bin/lib/qml-library.js"
 out="$(cd -- "$d" && "${base_env[@]}" bash scripts/validate offline --changed HEAD --list 2>"$tmp/plan.err")"
-for consumer in 'node scripts/test-plugin-logic.js' 'node scripts/test-dispatch.js' 'node scripts/test-lifetime.js' 'node scripts/test-qml-library.js' 'node scripts/test-key-nav-logic.js' 'node scripts/test-clipboard-history.js' 'node bin/lib/check-manifests.js' 'node scripts/test-check-manifests.js' 'node scripts/test-jarvis-audio-daemon.js' 'scripts/test-vgsh.sh' 'scripts/test-install-tree.sh' 'python3 scripts/test-vgs-plugin.py' 'scripts/test-validate.sh'; do
+for consumer in 'node scripts/test-plugin-logic.js' 'node scripts/test-dispatch.js' 'node scripts/test-lifetime.js' 'node scripts/test-qml-library.js' 'node scripts/test-key-nav-logic.js' 'node scripts/test-clipboard-history.js' 'node bin/lib/check-manifests.js' 'node scripts/test-check-manifests.js' 'node scripts/test-jarvis-audio-daemon.js' 'scripts/test-vgshell.sh' 'scripts/test-install-tree.sh' 'python3 scripts/test-vgs-plugin.py' 'scripts/test-validate.sh'; do
   if grep -qxF "$consumer" <<<"$out"; then ok "shared loader selects $consumer"; else fail "shared loader omitted $consumer"; fi
 done
 if grep -qxF 'node scripts/test-inset.js' <<<"$out"; then ok "shared loader selects node scripts/test-inset.js"; else fail "shared loader omitted node scripts/test-inset.js"; fi
 if grep -qxF 'node scripts/test-setting-values.js' <<<"$out"; then ok "shared loader selects node scripts/test-setting-values.js"; else fail "shared loader omitted node scripts/test-setting-values.js"; fi
 if grep -qF 'heap-profile' <<<"$out"; then fail "shared loader selected unrelated heap tests"; else ok "shared loader omits unrelated heap tests"; fi
 
-# bin/vgsh holds the preflight floors the recipe check and the README check
+# bin/vgshell holds the preflight floors the recipe check and the README check
 # read.
 d="$tmp/plan-floors"; fresh "$d"
-mkdir -p "$d/bin"; printf 'changed\n' >"$d/bin/vgsh"
+mkdir -p "$d/bin"; printf 'changed\n' >"$d/bin/vgshell"
 out="$(cd -- "$d" && "${base_env[@]}" bash scripts/validate offline --changed HEAD --list 2>"$tmp/plan.err")"
 for consumer in 'node scripts/check-packaging.js' 'node scripts/test-check-packaging.js' 'node scripts/test-check-readme.js' 'scripts/test-readme-install.sh'; do
-  if grep -qxF "$consumer" <<<"$out"; then ok "a bin/vgsh change selects $consumer"; else fail "a bin/vgsh change omitted $consumer"; fi
+  if grep -qxF "$consumer" <<<"$out"; then ok "a bin/vgshell change selects $consumer"; else fail "a bin/vgshell change omitted $consumer"; fi
 done
 
 d="$tmp/plan-full"; fresh "$d"
@@ -1393,10 +1393,10 @@ for owner in 'audio-daemon|Jarvis audio daemon lifetime' 'browser|Jarvis browser
         scripts/fixtures/jarvis/desktop.js
         'shell/plugins/vgs.jarvis/backend/skills/computer/input.md|shell/plugins/vgs.jarvis/backend/*') ;;
     curl-installer)
-      dependencies=(bin/vgsh-tui bin/vgsh-scan bin/vgsh-plugin-judge shell/Core/PluginLogic.js shell/Core/HyprlandLayer.js
+      dependencies=(bin/vgshell-tui bin/vgshell-scan bin/vgshell-plugin-judge shell/Core/PluginLogic.js shell/Core/HyprlandLayer.js
         shell/Commons/SettingValues.js shell/Ui/icons/Lucide.js
         'shell/plugins/vgs.network/manifest.json|shell/plugins/*/manifest.json'
-        packaging/arch/vgs/.SRCINFO packaging/fedora/vgs.spec) ;;
+        packaging/arch/vgshell/.SRCINFO packaging/fedora/vgshell.spec) ;;
   esac
   if [[ $suite == curl-installer ]]; then consumer=scripts/test-install-sh.sh; else consumer="node scripts/test-jarvis-$suite.js"; fi
   for spec in "${dependencies[@]}"; do
@@ -1502,7 +1502,7 @@ from pathlib import Path
 import sys
 path = Path(sys.argv[1])
 source = path.read_text()
-edge = 'plugin boundary|python3 scripts/check-plugin-boundary.py|shell/* bin/vgsh-scan scripts/qml_source.py'
+edge = 'plugin boundary|python3 scripts/check-plugin-boundary.py|shell/* bin/vgshell-scan scripts/qml_source.py'
 assert source.count(edge) == 1
 path.write_text(source.replace(edge, edge.replace('shell/* ', '')))
 PY
@@ -1681,21 +1681,21 @@ row "a full run unsets the changed path list inherited from the caller" "$d" 0 "
 test_area=offline
 test_args=()
 
-# The vgsh suites read bundled plugins through their manifests. A QML
+# The vgshell suites read bundled plugins through their manifests. A QML
 # plugin edit in the cli area no longer selects them, while a manifest edit
 # still does.
-d="$tmp/plugin-vgsh-selection"; fresh "$d"
+d="$tmp/plugin-vgshell-selection"; fresh "$d"
 for file in shell/plugins/acme.x/Panel.qml shell/plugins/acme.x/manifest.json; do
   mkdir -p -- "$d/$(dirname -- "$file")"
   printf 'changed\n' >"$d/$file"
   out="$(cd -- "$d" && "${base_env[@]}" bash scripts/validate cli --changed HEAD --list 2>"$tmp/plan.err")"
   case "$file" in
     */Panel.qml)
-      for consumer in scripts/test-vgsh.sh scripts/test-vgsh-requirements.sh scripts/test-vgsh-outdated.sh scripts/test-install-sh.sh; do
+      for consumer in scripts/test-vgshell.sh scripts/test-vgshell-requirements.sh scripts/test-vgshell-outdated.sh scripts/test-install-sh.sh; do
         if grep -qxF "$consumer" <<<"$out"; then fail "plugin QML selected $consumer"; else ok "plugin QML omits $consumer"; fi
       done ;;
     */manifest.json)
-      for consumer in scripts/test-vgsh.sh scripts/test-vgsh-requirements.sh scripts/test-vgsh-outdated.sh scripts/test-install-sh.sh; do
+      for consumer in scripts/test-vgshell.sh scripts/test-vgshell-requirements.sh scripts/test-vgshell-outdated.sh scripts/test-install-sh.sh; do
         if grep -qxF "$consumer" <<<"$out"; then ok "plugin manifest selects $consumer"; else fail "plugin manifest omitted $consumer"; fi
       done ;;
   esac

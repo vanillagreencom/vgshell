@@ -438,7 +438,7 @@ pathlib.Path(os.environ["HOME"], "compiler-args.json").write_text(json.dumps(sys
 
     def test_fresh_checkout_scratch_creation(self):
         harness = """
-scratch="$(mktemp -d "$TMPDIR/vgsh-smoke.XXXXXX")"
+scratch="$(mktemp -d "$TMPDIR/vgshell-smoke.XXXXXX")"
 printf 'shader-test: scratch=%s\\n' "$scratch"
 exit 0
 """

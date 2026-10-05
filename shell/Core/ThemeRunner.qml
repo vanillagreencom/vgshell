@@ -4,7 +4,7 @@ import Quickshell.Io
 import qs.Commons
 import "../Commons/ThemeLogic.js" as ThemeLogic
 
-// Owns the `vgsh theme` processes the theme capability runs: the queue,
+// Owns the `vgshell theme` processes the theme capability runs: the queue,
 // one process that runs its jobs in order, and the download lane, a
 // second process that runs one wallpaper download at a time, so a list or
 // an apply never waits behind a download. It keeps the jobs, the last
@@ -14,8 +14,8 @@ import "../Commons/ThemeLogic.js" as ThemeLogic
 // the progress from `last`. A job's callbacks belong to their instances'
 // lifetimes: a destroyed instance's callback is dropped and its job still
 // runs. The runner judges no package; every answer but an immediate
-// refusal of a malformed argument or a busy slot is what `vgsh` printed.
-// shell.qml queues `vgsh theme follow` at the end of every scan in the
+// refusal of a malformed argument or a busy slot is what `vgshell` printed.
+// shell.qml queues `vgshell theme follow` at the end of every scan in the
 // guarded instance, which applies the applied package again once it
 // changed; no plugin reaches it.
 Scope {
@@ -24,7 +24,7 @@ Scope {
     // The queue's jobs in order, the first one running once started. A job
     // is { verb, name, argv, started, waiters, lines, completion }: `verb`
     // one of the verbs `command` names, `name` the package, step, scope or
-    // path the job acts on, or null; `argv` its arguments after `vgsh
+    // path the job acts on, or null; `argv` its arguments after `vgshell
     // theme`; each waiter { id, done, release }, `release` ending its
     // registration in the instance's lifetime; `lines` every stdout line
     // that is no progress; `completion` { code, status } of its exit, null
@@ -35,18 +35,18 @@ Scope {
     property var download: null
     property var previewJob: null
     property var downloadAfterPreview: null
-    // The last list `vgsh theme list --json` printed, or null before the
+    // The last list `vgshell theme list --json` printed, or null before the
     // first and after one that failed.
     property var listing: null
     // The last apply's structured result, or a follow's that applied again,
     // null before the first.
     property var lastResult: null
     // The running download's progress { name, state, bytes, total }: the
-    // package, then the last progress line `vgsh theme wallpapers --json`
+    // package, then the last progress line `vgshell theme wallpapers --json`
     // printed, `state` null, `bytes` 0 and `total` null before the first.
     // Null while no download runs.
     property var downloading: null
-    // The steps `vgsh theme background` takes, and the scopes of `images`.
+    // The steps `vgshell theme background` takes, and the scopes of `images`.
     readonly property var backgroundSteps: ["next", "previous"]
     readonly property var imageScopes: ["applied", "all"]
 
@@ -96,7 +96,7 @@ Scope {
         joined(ctx, "list", done);
     }
 
-    // catalog: `done` receives { entries, reason }, the entries `vgsh theme
+    // catalog: `done` receives { entries, reason }, the entries `vgshell theme
     // catalog --json` printed with reason null, or entries null beside the
     // reason the runner could not report them. A catalog asked for while
     // the last job is a catalog joins it.
@@ -119,7 +119,7 @@ Scope {
     // background: `ok` once a step through the applied package's images is
     // queued, or an immediate refusal for a step that is neither `next` nor
     // `previous`; `done` receives the structured result `{ state,
-    // background, theme, path, reason }` `vgsh theme background --json`
+    // background, theme, path, reason }` `vgshell theme background --json`
     // prints, every refusal included.
     function background(ctx, step, done) {
         if (root.backgroundSteps.indexOf(step) === -1) return "refused: background=" + JSON.stringify(step) + " reason=malformed-step";
@@ -210,7 +210,7 @@ Scope {
         return next;
     }
 
-    // follow: queue `vgsh theme follow --json`. A follow asked for while a
+    // follow: queue `vgshell theme follow --json`. A follow asked for while a
     // follow waits joins it; one asked for while a follow runs waits, since
     // the running one may have read the packages before they changed.
     function follow() {
@@ -231,7 +231,7 @@ Scope {
         return out;
     }
 
-    // The arguments after `vgsh theme` that run VERB on NAME, EXTRA after.
+    // The arguments after `vgshell theme` that run VERB on NAME, EXTRA after.
     function command(verb, name, extra) {
         switch (verb) {
         case "list":
@@ -328,7 +328,7 @@ Scope {
         job.started = true;
         if (job.verb === "wallpapers") downloading = Object.freeze({ name: job.name, state: null, bytes: 0, total: null });
         process.job = job;
-        process.command = [Quickshell.shellDir + "/../bin/vgsh", "theme"].concat(job.argv);
+        process.command = [Quickshell.shellDir + "/../bin/vgshell", "theme"].concat(job.argv);
         process.running = true;
     }
 
@@ -400,7 +400,7 @@ Scope {
 
     function failure(job, reason, detail) {
         if (job.verb !== "preview")
-            console.error("theme: vgsh theme " + job.verb + " reason=" + reason + (job.name === null ? "" : " name=" + job.name) + detail);
+            console.error("theme: vgshell theme " + job.verb + " reason=" + reason + (job.name === null ? "" : " name=" + job.name) + detail);
         switch (job.verb) {
         case "apply":
             return { state: "failed", shell: "failed", targets: [], theme: job.name, reason: reason };

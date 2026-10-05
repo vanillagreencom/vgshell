@@ -1,5 +1,5 @@
 # No latency budget. TUI actions run the nested allow-listed fixture only.
-# inputs: shell/plugins/vgs.jarvis/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml scripts/smoke/rows/jarvis.sh bin/vgsh-tui
+# inputs: shell/plugins/vgs.jarvis/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml scripts/smoke/rows/jarvis.sh bin/vgshell-tui
 set -euo pipefail
 input_tui="$repo/shell/plugins/vgs.jarvis/tui/setup-input.sh"
 cp -- "$input_tui" "$sandbox/input-tui-original"
@@ -12,7 +12,7 @@ settings_page_open vgs.jarvis
 input_open() {
   local revision snapshot
   revision="$(jarvis_revision)" || return 1
-  snapshot="$rt_dir/vgsh-sources-$shell_qs_pid/$revision"
+  snapshot="$rt_dir/vgshell-sources-$shell_qs_pid/$revision"
   forget_record
   if [[ $1 == status ]]; then
     expect "Settings opens the input readiness terminal" ok settings_act vgs.jarvis input
@@ -21,7 +21,7 @@ input_open() {
   fi
   expect_poll "input setup receives only the declared snapshot and argv" \
     "$(words --app-id=org.vgs.tui "--title=VGS · Check Jarvis input" -- "$tui_self" present --presentation full \
-      --plugin vgs.jarvis --dir "$snapshot" --record vgs.jarvis/setup-input --run RUN --record-dir "$rt_dir/vgs/tui" \
+      --plugin vgs.jarvis --dir "$snapshot" --record vgs.jarvis/setup-input --run RUN --record-dir "$rt_dir/vgshell/tui" \
       --app-id org.vgs.tui --window-title "VGS · Check Jarvis input" -- tui/setup-input.sh)" recorded
   expect_run_end "the input readiness fixture ends" vgs.jarvis/setup-input
 }

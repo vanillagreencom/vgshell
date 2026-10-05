@@ -14,7 +14,7 @@ import "LockModel.js" as LockModel
 // can take the lock over and release it (D062).
 //
 // Entry points: the shortcut `lock` (SUPER+DELETE in the manifest), the IPC
-// function `vgsh ipc call vgs.lock invoke lock ''`, which `vgsh lock`
+// function `vgshell ipc call vgs.lock invoke lock ''`, which `vgshell lock`
 // calls, an idle watch after `idleLockSeconds` without input, and the
 // before-sleep hook bin/sleep-watch under a logind delay inhibitor. At start
 // it reads Hyprland's monitors and locks again a session a shell that died

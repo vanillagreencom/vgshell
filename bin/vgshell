@@ -1,0 +1,2194 @@
+#!/usr/bin/env bash
+# vgshell: the VGS shell runner and plugin manager CLI.
+#
+#   vgshell run                       start the shell in the foreground; holds the instance lock
+#   vgshell restart                   stop the running shell and relaunch it through Hyprland
+#   vgshell pid                       print the running shell's pid from the instance lock
+#   vgshell ipc <qs ipc args...>      talk to the running shell; failed client replies exit 69
+#   vgshell log <qs log args...>      read the running shell's log
+#   vgshell plugin list               every discovered plugin with its enabled state, each configured id no plugin has,
+#                                  and each requirement the last scan did not find as `missing <id> <command> (<package>)`
+#   vgshell plugin requirements [--json] <id>
+#                                  one plugin's requirements, each with its state and this system's package
+#   vgshell plugin settings <id>      the settings one plugin's service, panel and floating TUIs receive, as one JSON line
+#   vgshell plugin rescan             have a running shell scan the plugin directories again
+#   vgshell plugin enable <id>        enable one plugin; a bar becomes the active bar
+#   vgshell plugin disable <id>       disable one plugin; names the bar widgets it takes off screen
+#   vgshell plugin validate <dir>     validate a plugin directory's manifest offline
+#   vgshell plugin add [<git url>]    clone, validate and install one plugin, disabled, then offer to install
+#                                  the packages of the commands it requires that are missing; without a
+#                                  url, ask for it on a terminal
+#   vgshell plugin update [--yes] <id>
+#                                  fetch, show the diff, ask, and fast-forward an installed plugin
+#   vgshell plugin remove [--yes] <id>
+#                                  ask, and delete an installed plugin's directory
+#   vgshell plugin outdated [--json]  fetch every installed plugin and report how far it is behind its upstream
+#   vgshell theme list [--json]       every theme package, its state and palette, and the theme file's state
+#   vgshell theme apply [--json] <name>
+#                                  apply one theme package to the shell and every enabled target; `apply vgs` restores the defaults
+#   vgshell theme reload [--json]     run every pending reload hook again
+#   vgshell theme follow [--json]     apply the applied package again when it changed and the theme file is unedited
+#   vgshell theme background [--json] next|previous
+#                                  show the applied package's next or previous background image and remember it
+#   vgshell theme background [--json] set <path> [--screen <output> | --every-screen]
+#                                  show one package's or the user folder's image, on one output only, or on every output
+#   vgshell theme background [--json] list [--all]
+#                                  the applied package's background images, or every package's and the user folder's
+#   vgshell theme add [<git url>]     clone, judge and install one theme package; without a url, ask for it on a terminal,
+#                                  then offer to apply the new package
+#   vgshell theme update [--yes] <name>
+#                                  fetch, show the diff, ask, and fast-forward an installed theme package, then follow it
+#   vgshell theme remove <name>       delete an installed theme package's directory
+#   vgshell theme catalog [--json]    every catalog theme with its install state
+#   vgshell theme install [--json] <name>
+#                                  install one catalog theme package, with no network
+#   vgshell theme wallpapers [--json] <name> [--update]
+#                                  download, verify and unpack a catalog install's wallpapers; --update replaces another archive's
+#   vgshell theme outdated [--json]   fetch every installed theme package and report how far it is behind its upstream
+#   vgshell theme browser-policy install
+#                                  install the Chromium-family colour writer and its sudoers rule, once; sudo asks for the password
+#   vgshell theme setup [--json]      each theme target's one-time setup and whether it is done
+#   vgshell hypr state                report whether hyprland.lua loads the Hyprland layer; read-only
+#   vgshell hypr wire                 keep the line that loads the Hyprland layer first in hyprland.lua
+#   vgshell hypr unwire               remove that line from hyprland.lua
+#   vgshell hypr render               have the running shell write the Hyprland layer again and reload Hyprland
+#   vgshell pkg detect [--json]       the system's primary package manager and every overlay and source present
+#   vgshell pkg present <command>...  which commands are on PATH, as JSON; exit 1 when one is missing
+#   vgshell pkg plan install|remove|upgrade <manager> [names...]
+#                                  print the argv of each step the action takes; runs nothing
+#   vgshell pkg check [--json] [--source <manager>]
+#                                  count each manager's pending updates without root
+#   vgshell pkg run install|remove|upgrade [--manager <id>] [names...]
+#                                  run the plan in this terminal, elevating through sudo, doas or run0
+#   vgshell pkg install|remove [--manager <id>] [names...]
+#                                  run install or remove; without names, pick them in fzf
+#   vgshell doctor [--json]           the core's and every enabled plugin's requirements, each with its state and package,
+#                                  and whether the session is uwsm-managed, with the entry to log in with when not
+#   vgshell sudo status               whether a passwordless sudo grant is active, until when, and its root half's state
+#   vgshell sudo grant [minutes]      warn, ask and grant passwordless sudo for 1 to 1440 minutes, 15 when absent;
+#                                  while a grant is active it revokes that grant instead; on NixOS, print
+#                                  a security.sudo.extraRules snippet and write nothing
+#   vgshell sudo revoke               end the active grant now
+#   vgshell sudo install              install the grant's root half and its boot cleanup, once; sudo asks for the password;
+#                                  on NixOS, report skipped=nixos-config
+#   vgshell sudo uninstall            remove every grant, then the root half and its boot cleanup; on NixOS, report skipped=nixos-config
+#   vgshell system status [--json]    each system step's state: ready, needed, denied, absent, unknown or nixos
+#   vgshell system apply <step>       show a system step's root commands, ask, and run them through sudo; on NixOS,
+#                                  print the configuration snippet and change nothing
+#   vgshell system undo <step>        revert only what VGS changed for the step, after showing the commands and asking
+#   vgshell --version                 print `vgshell <version>`, with the commit distance in a git checkout
+#   vgshell version [--json]          the same; --json prints `{ version, describe }` as one JSON line
+#   vgshell self status [--json]      how this tree was installed, the newest version its channel offers, and whether it is behind
+#   vgshell self update               update a checkout or a curl install, run its pending migrations, then restart
+#                                  a running shell
+#   vgshell migrate [--pending]       run each pending one-time migration once, or list them (bin/vgshell-migrate)
+#   vgshell tui present [--title <text>] [--size default|wide|tall] -- <argv...>
+#                                  run one command in a floating terminal under the VGS presentation
+#   vgshell tui list                  every floating TUI the running shell lists: the core's and every enabled plugin's
+#   vgshell tui open <key>            open one listed floating TUI, `core/<name>` or `<plugin id>/<name>`, with no arguments
+#   vgshell lock                      ask the running shell's lock plugin to lock the session
+#
+# `run` takes no arguments: the shell always runs as this process's child,
+# and this process stays in the foreground and supervises it. A shell that
+# exits with a non-zero status while Hyprland answers starts again after
+# the next delay of the supervision table below, and each relaunch prints
+# `vgshell: shell=exited status=<n> relaunch=<k> delay=<s> session=<locked|unlocked|unknown>`
+# on stderr. A run as long as the table's healthy run starts the count
+# again. The exit after the last delay gives up with
+# `vgshell: shell=gave-up exits=<n> status=<n>` and a Hyprland notice, unless
+# the session is not read as unlocked: then every later exit relaunches
+# after the last delay. A shell that exits 0, a Hyprland that no longer
+# answers (`vgshell: shell=exited status=<n> hyprland=gone`) and HUP, INT or
+# TERM to this process, which stops the shell, end this process with the
+# shell's status. Once it holds the lock it runs the pending one-time
+# migrations, bin/vgshell-migrate with its notice, and starts the shell
+# whether they pass or not: a failed one runs again at the next start.
+# Before anything else it checks Quickshell, a running
+# Hyprland, node, python3 and git against the floor its preflight table
+# holds, and refuses
+# with `vgshell: refused: preflight=<tool> have=<version|none|unknown> need=<version|present>`
+# and exit 78 on the first tool below it. This process holds the instance
+# lock, $XDG_RUNTIME_DIR/vgshell.lock, until it exits; the file holds the
+# shell's pid, which is the identity the shell's guard checks, and is empty
+# from the shell's exit until this process starts the next one. No process
+# the shell starts holds the lock. Every command that contacts the shell
+# addresses that instance alone, so a shell started any other way is never
+# reached. `plugin validate`, `plugin add`,
+# `plugin update`, `plugin remove`, `plugin outdated`, `plugin requirements`,
+# `plugin settings` and `doctor` work with no shell running.
+#
+# `restart` checks the same floor first, so below it restart refuses as run
+# does and leaves the running shell alone. It refuses while the session is
+# locked, because the shell owns the lock client. Otherwise it sends TERM to
+# the runner, the parent of the pid in the instance lock when that parent
+# holds the lock, which stops the shell and exits with no relaunch, or to
+# the pid itself when its parent holds no lock; waits for that lock to free,
+# which it does when the runner exits after the shell, and asks Hyprland to run
+# `vgshell run`, so the new shell inherits the session environment. It prints
+# the new pid once that shell answers as the guarded instance, and refuses
+# `start=exited pid=<pid|none>` once that run has written the lock file
+# and no process holds the lock any more: the new runner ended with no
+# guarded shell, the pid the last one the file named.
+#
+# add, update and remove run no code from the plugin and no git hook, and ask
+# for no privilege: installed plugins live under
+# ${XDG_CONFIG_HOME:-~/.config}/vgshell/plugins/<id>. add lands the plugin
+# disabled. Without a url, add asks for one with gum input when stdin is a
+# terminal, the prompt the core floating TUI `core/plugin-add` shows, and
+# otherwise refuses with url=missing and exit 2; an empty answer refuses
+# the same way, a cancelled prompt with cancelled=url and a system without
+# gum with gum=missing. update prints the incoming diff, then asks
+# `vgshell: update <id>? [y/N]` on stderr and fast-forwards only on y or yes;
+# remove asks `vgshell: remove <id>? [y/N]` before it deletes. Any other
+# answer refuses with declined=<id>. With no terminal on stdin either
+# refuses with no-terminal=<id> instead, unless --yes gives the answer.
+# Each refusal leaves the checkout at its old commit and the plugin
+# installed. Each ends with
+# `shell=rescan-started` or `shell=rescan-queued` when a shell runs (the
+# scan's result is in `vgshell plugin list`), or `shell=not-running` when none
+# does and the next start reads the change. `plugin rescan` prints the same
+# line alone. add asks the shell for that scan through `pluginInstalled
+# <id>`, so the shell also shows its requirement notice for the new plugin.
+#
+# After that line add prints `requires <command> (<package>)` for each
+# requirement of the new plugin whose command is not on PATH, the package
+# being this system's pick as `plugin list` names it, then one
+# `install: vgshell pkg run install [--manager <id>] <package>...` line per
+# manager those packages come from; a manager the package table gives no
+# install steps, nix, gets `by-hand <manager> <package>...` instead, for the
+# user to add to that system's own configuration. On a terminal it then asks
+# `Install now? [y/N]` on stderr and on y or yes runs each command in turn,
+# its exit status the first failing one's; any other answer, or no
+# terminal on stdin, leaves the commands printed for the user. The report
+# reads the manifest and PATH only, so add still runs no plugin code.
+# `vgshell pkg run` asks a running shell to rescan once its steps end, so the
+# shell reports the installed commands present.
+#
+# `plugin requirements` prints one line per requirement of the plugin the
+# shell would hold under <id>, enabled or not:
+# `<state> <command>[ (<package>)][ optional]: <purpose>`, state `present`
+# or `missing`. `doctor` prints the same lines, each led by `core` or the
+# plugin's id, for config/requirements.json and every plugin the
+# configuration enables, then one line, `session <present|missing|unknown>
+# uwsm-managed: <text>`, which says whether the session is uwsm-managed,
+# read from the user manager's graphical-session.target; an unmanaged one
+# names what breaks and the entry to log in with, "Hyprland
+# (uwsm-managed)". --json prints the rows as
+# one JSON line, each `{ command, packages, optional, purpose, state,
+# package }` with package `{ manager, name }` or null: a list for `plugin
+# requirements`, and `{ core: [rows], plugins: { <id>: [rows] }, session:
+# { graphicalSession } }` for `doctor`. Both read the plugin directories
+# and PATH as the shell's scan does, and change nothing:
+# docs/architecture/requirements.md.
+#
+# `plugin settings` prints the settings the plugin the shell would hold
+# under <id> hands its service, panel and floating TUIs: its manifest's
+# defaults under its plugins[] row in the shipped and user shell.json, as
+# one JSON object on one line. A value the plugin's schema refuses is
+# refused as setting=<key> want=<type> id=<id>, and an id no accepted
+# manifest names as unknown=<id>. It reads and changes nothing else:
+# docs/architecture/manager.md.
+#
+# `plugin outdated` and `theme outdated` fetch every installed checkout
+# with no hook, no prompt and no askpass dialog, each fetch ended at 10 s,
+# and change nothing else: no merge, no checkout, no FETCH_HEAD, no plugin
+# or package code. Each prints one row per checkout, sorted by id:
+# `<id> behind=<n> head=<commit> upstream=<commit>` with 12-digit commits,
+# or `<id> error=<refusal>`: the keyed line update prints for the same
+# cause, or fetch=<id> timeout=10s. --json prints the rows as one JSON
+# line, `[{ id, behind, head, upstream, error }]` with full commit ids,
+# `[]` when nothing is installed; when error is set the other three are
+# null. Error rows still exit 0. `theme outdated` holds the theme lock
+# shared: a second outdated runs beside it, and it is refused with
+# outdated=themes reason=busy while any other theme command holds the lock.
+# docs/architecture/manager.md § Outdated.
+#
+# Theme packages are the shipped themes/<name>/ and the installed
+# ${XDG_CONFIG_HOME:-~/.config}/vgshell/themes/<name>/; an installed package
+# hides a shipped one of its name, except the reserved `vgs`. `theme apply`
+# holds flock on ${XDG_CONFIG_HOME:-~/.config}/vgshell/theme.lock for the whole
+# apply, so a second apply from any caller is refused with reason=busy. It
+# renders the package and every target under themes/targets/ whose commands
+# are on PATH and that shell.json's disabledTargets does not list into
+# ${XDG_STATE_HOME:-~/.local/state}/vgshell/theme/, writes theme.name beside it,
+# keeps each target's include line in its application's configuration file
+# (a disabled target's is removed; one that renders nothing keeps the file it
+# landed before), then copies the package's theme.json byte for byte to
+# theme.json beside the lock, the file the shell watches. No other
+# application file is written. Last, each landed target whose bytes changed
+# or whose reload is pending runs its target.json reload hook, bounded by
+# its timeout, with output discarded and no lock descriptor; a hook that
+# fails or times out leaves the target reload-pending in
+# ${XDG_STATE_HOME:-~/.local/state}/vgshell/reload-pending.json. `theme reload`
+# holds the same lock and runs every pending hook again, and nothing else.
+# Apply records the package's name, the hash of the bytes it wrote to the
+# theme file and a digest of the package's content in
+# ${XDG_STATE_HOME:-~/.local/state}/vgshell/applied.json. `theme follow` holds
+# the same lock and applies the recorded package again when its content
+# changed while the theme file still holds those bytes; a hand-edited file
+# stays. `theme list` reports that unedited file unmodified.
+# Apply also makes the package's remembered background image, else its
+# first, the current one: the ${XDG_STATE_HOME:-~/.local/state}/vgshell/background
+# symlink and backgrounds.json beside it, and clears every output's own
+# image. `theme background next` and `previous` hold the same lock and move
+# to the applied package's next or previous image, remembering it. `theme
+# background set` holds it too and shows one image from a package's
+# backgrounds/ or from ${XDG_CONFIG_HOME:-~/.config}/vgshell/backgrounds/, a
+# regular file never reached through a symlink below that folder; with
+# --screen it is that Hyprland output's own image, and with --every-screen
+# every output's own image is cleared. `theme background list`
+# names the applied package's images, and with --all every package's and
+# the user folder's: docs/architecture/theme-backgrounds.md.
+# `--json` prints the list, the apply's result `{ state, shell, targets,
+# theme, reason }`, the follow's, that result with its `follow` outcome,
+# the reload's `{ state, targets, reason }`, the background step's
+# `{ state, background, theme, path, reason }`, the set's, that result with
+# its `screen`, or the background list's `{ state, images, reason }`,
+# refusals included, as one JSON line on stdout. `theme` commands never
+# contact the shell: docs/architecture/theme-apply.md.
+#
+# `theme add`, `update` and `remove` follow the plugin rules above for
+# ${XDG_CONFIG_HOME:-~/.config}/vgshell/themes/<name>, remove without a
+# question: add asks for a missing url as plugin add does, stages the clone,
+# lands it under its theme.json name once the theme judge accepts it and
+# refuses an occupied name and the reserved `vgs`; when add asked for the
+# URL, it prints the apply command and asks whether to run it. A URL on the
+# command line keeps add non-interactive. update asks, and takes --yes, as
+# plugin update does, refuses a modified checkout and rolls back a version
+# the judge refuses, and a version it accepts follows as `theme follow`
+# does for that package, its line last and its exit status update's; remove
+# deletes only an installed package, never a shipped one.
+# Each holds the theme lock while it changes the package, update through
+# its question too; a held lock is reason=busy.
+# docs/architecture/theme-install.md.
+#
+# `theme install` lands the catalog package themes/catalog/<name> the same
+# way from a staging directory, under the theme lock, with the marker
+# .vgs-catalog.json that makes it a catalog install; it refuses a catalog
+# install of that name as reason=installed and anything else there as
+# reason=exists. --json prints `{ state, theme, path, shadows, reason }`
+# as one line, a refusal's included. update of a catalog install asks nothing: it replaces the
+# definition when the catalog's package changed, keeps the package's other
+# files, and follows as a git update does. The installed package waits in
+# a backup beside themes/ while update swaps it, and add, install, update
+# and remove first finish or undo a swap an interruption left, each with a
+# `vgshell: recovered: theme=<name> ...` line on stderr. `theme outdated` reports a
+# catalog install behind 1 when the catalog's package changed.
+# `theme catalog` prints each index entry with `thumbnailPath`, `installed`,
+# `definitionUpdate`, `imageryInstalled` and `imageryUpdate`, `--json` as
+# `{ entries: [...] }`: docs/architecture/theme-catalog.md § Install.
+#
+# `theme wallpapers` is the one catalog command that reaches the network;
+# `theme catalog` and `theme install` work offline. It fetches the archive
+# a catalog install's index entry pins, over HTTPS only, into
+# ${XDG_CACHE_HOME:-~/.cache}/vgshell/theme-assets/, holding download.lock
+# there and not the theme lock, checks its size and sha256,
+# and unpacks only regular backgrounds/<image> members of at most 128 MiB
+# into a staging directory. Under the theme lock it then renames the images
+# into the package's backgrounds/ and records the pin in the marker. It
+# refuses a backgrounds/ the download did not place as reason=exists,
+# since the user's own images belong in ${XDG_CONFIG_HOME:-~/.config}/vgshell/backgrounds/,
+# and another archive's images as reason=installed unless --update
+# replaces them. It prints progress lines on stderr and `ok wallpapers=<name>
+# state=installed|updated|up-to-date images=<n> archive=<sha256>`; --json
+# prints `{ state, bytes, total }` lines, then `{ state, theme, wallpapers,
+# images, sha256, reason }`, on stdout. VGS_THEME_ASSET_BASE replaces the
+# pin's release URL, and takes file:// only in a test run:
+# docs/architecture/theme-wallpapers.md.
+#
+# `theme browser-policy install` is the one command that asks for a
+# privilege: bin/vgshell-browser-policy installs itself root-owned with one
+# NOPASSWD sudoers rule for the calling user, the setup the chromium
+# target's hook needs on a home install; the Arch and Fedora packages ship
+# both. Apply never prompts: until the setup exists that target is skipped
+# with reason=setup-absent, and its hook runs `sudo -n`.
+# docs/architecture/theme-browsers.md § Chromium.
+#
+# The shell writes the Hyprland layer, one Lua file, to
+# ${XDG_STATE_HOME:-~/.local/state}/vgshell/hypr/vgs.lua. `hypr wire` keeps the
+# line `pcall(dofile, "<that file>")` first in
+# ${XDG_CONFIG_HOME:-~/.config}/hypr/hyprland.lua and `hypr unwire` removes
+# it; neither creates hyprland.lua, edits another line or needs a running
+# shell, and each prints `ok hypr=wired|unwired|unchanged path=<file>`.
+# `hypr render` asks the running shell to write the layer and run
+# `hyprctl reload` now. docs/architecture/hyprland.md.
+#
+# `--version` and `version` read VERSION beside bin/, one line X.Y.Z, and
+# never contact the shell. In a git checkout of this tree, one whose
+# top-level directory is the tree itself, they print the describe form
+# `vgshell X.Y.Z.r<N>.g<hash>`: X.Y.Z is the newest reachable release tag's,
+# a tag v<X.Y.Z>, and N counts the commits since it; with no release tag
+# X.Y.Z is VERSION's and N counts every commit. The hash is abbreviated to
+# 7 hex digits, more only when 7 are ambiguous. Elsewhere they print
+# `vgshell <VERSION>`. `version --json` prints
+# `{"version":"<VERSION>","describe":"X.Y.Z.r<N>.g<hash>"}`, describe null
+# outside a checkout. Refusals, with nothing on stdout: version=missing or
+# version=malformed path=<file>, tag=<tag> reason=not-a-version for a tag
+# of v, digits and dots that is not v<X.Y.Z>, and git=describe or
+# git=rev-list path=<tree> for a failed git call, a checkout with no commit
+# included. docs/architecture/distribution.md § Version.
+#
+# `self status` names this tree's install method, judged by
+# bin/lib/self.js in this order: `checkout` (the top level of its own git
+# checkout), `nix` (in the Nix store), `curl` (the directory that
+# ${XDG_DATA_HOME:-~/.local/share}/vgshell/current resolves to) and `package`
+# (the primary package manager owns VERSION as the package vgshell or vgshell-git).
+# A checkout fetches its upstream as `plugin outdated` does and compares
+# describe forms; a vgshell-git package compares the commit its version names
+# with main's, read by git ls-remote under the same rules; every other
+# method compares VERSION, or the vgshell package's version, with the newest
+# release's, read from the GitHub API within 10 s. It prints `version=...
+# method=... [package=...] current=... latest=... behind=true|false`, or
+# with --json one line `{ version, method, package, current, latest,
+# behind, error }`. A step that fails is the report's error, its keyed
+# refusal line, with latest and behind null and exit 0. `self update`
+# fast-forwards a checkout with no diff and no question, refusing a
+# modified one as `plugin update` does; replaces a curl install by the
+# newest release under ${XDG_DATA_HOME:-~/.local/share}/vgshell/.self.lock,
+# refused self=busy with exit 75 while held, keeping the tree a running
+# shell was started from; and refuses a package with
+# method=package package=<name> manager=<id> and a Nix install with
+# method=nix, naming the step that updates it. After an update it prints
+# `ok updated=vgshell from=<old> to=<new>` and restarts a running shell from
+# the updated tree, whose restart status becomes the command's, or prints
+# shell=not-running; a current tree prints `ok up-to-date=vgshell`.
+# docs/architecture/distribution-methods.md.
+#
+# `pkg` reads the one package-manager table, shell/Core/PackageManagers.js,
+# through bin/vgshell-pkg, which states its output and refusals. It needs no
+# running shell. Only `run`, `install` and `remove` change a package, and
+# they elevate only in a terminal the user sees: each refuses without one,
+# and in a process the shell started: docs/architecture/packages.md.
+#
+# `sudo` runs bin/vgshell-sudo-grant, which states its output and refusals.
+# `status`, `grant` and `revoke` reach its root half through `sudo -N`,
+# which asks for the password unless a grant is active, and `grant` asks
+# one question, so each needs a terminal; the core floating TUI
+# `core/sudo-grant` runs `vgshell sudo grant` in one. No grant exists until
+# the owner runs `sudo install`. On NixOS, every sudo verb writes nothing,
+# reports `skipped=nixos-config`, and `grant` prints the
+# `security.sudo.extraRules` snippet: docs/architecture/tui-sudo.md.
+#
+# `system` runs bin/vgshell-system, which holds the closed table of system
+# steps and states its output and refusals. `apply` and `undo` ask one
+# question and run sudo, so each needs a terminal; the core floating TUI
+# `core/system` runs `vgshell system apply <step>` when a plugin's status
+# action names the step: docs/architecture/tui-system.md.
+#
+# `tui present` hands argv, never a shell string, to `bin/vgshell-tui launch`
+# with the full presentation, titled by --title or else by the command's
+# file name, and needs no shell running. `tui list` and `tui open` ask the
+# running shell, which decides what is listed and launches the TUI; `open`
+# prints `ok` once the launcher started, or the shell's refusal, such as
+# `tui=<key> reason=launcher-missing` while it found no terminal launcher:
+# docs/architecture/tui.md.
+#
+# Every refusal prints one keyed line first: `vgshell: refused: <key>=<value>`.
+# Exit 0 on success, 1 on a refusal, 2 on a bad invocation, 3 when a theme
+# apply, follow or reload is partial (a target failed or its reload stays pending;
+# each prints `vgshell: refused: target=<name> reason=<key>`), 4 when restart
+# refuses because the session is locked, 75 when another shell holds the
+# lock, another theme command holds the theme lock, another self update
+# holds its lock or another wallpaper download holds the download lock,
+# 69 when the shell is not running, 78 when `run` or `restart` finds a tool below the runtime
+# floor. The usage text is this header; `vgshell --help` prints it and exits 0.
+set -euo pipefail
+
+self="$(readlink -f -- "${BASH_SOURCE[0]}")"
+root="$(cd -- "$(dirname -- "$self")/.." && pwd)"
+shell_dir="$root/shell"
+rt_dir="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+lock="$rt_dir/vgshell.lock"
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+
+usage() { awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$self" >&2; }
+
+# Prints the pid the lock file records, or returns 69 after the refusal.
+# A pid is only written by the runner's child after the runner took the
+# lock, so an empty or absent file means no shell started through the
+# runner. A recorded pid whose process is gone is the same refusal: the
+# child writes its own pid and then execs the shell in the same process,
+# so the pid is the shell's. Callers exit with the returned status
+# themselves; errexit does not reach a failed command substitution here.
+shell_pid() {
+  local pid
+  if [[ ! -r $lock ]]; then
+    printf 'vgshell: refused: shell=not-running lock=%s\n' "$lock" >&2
+    return 69
+  fi
+  if ! pid="$(head -n 1 -- "$lock")" || [[ ! $pid =~ ^[0-9]+$ ]]; then
+    printf 'vgshell: refused: shell=not-running lock=%s\n' "$lock" >&2
+    return 69
+  fi
+  if [[ ! -d /proc/$pid ]]; then
+    printf 'vgshell: refused: shell=not-running pid=%s\n' "$pid" >&2
+    return 69
+  fi
+  printf '%s\n' "$pid"
+}
+
+# One qs IPC call to the shell PID, its reply left in ipc_line. qs prints
+# its own log lines on stdout ahead of the reply; the reply is the last
+# stdout line. stderr passes through untouched. A failed call exits 69
+# after its refusal.
+ipc_call() { # PID TARGET FUNCTION [ARG...]
+  local pid="$1" out status label
+  shift
+  set +e
+  out="$(qs ipc --pid "$pid" call "$@")"
+  status=$?
+  set -e
+  if [[ $status -ne 0 ]]; then
+    printf 'vgshell: refused: shell=not-running pid=%s\n%s\n' "$pid" "$out" >&2
+    exit 69
+  fi
+  vgs_ipc_last_line_into "$out"
+  ipc_line="$vgs_ipc_last_line"
+  label="${1:-missing}.${2:-missing}"
+  if ipc_reply_failure_reason "$label" "$ipc_line"; then
+    exit 69
+  fi
+  if [[ -z $ipc_line ]]; then
+    printf 'vgshell: refused: ipc=%s reason=empty-reply\n' "$label" >&2
+    exit 69
+  fi
+}
+
+# One IPC call to the running shell; prints its reply. The shell pages a
+# reply past its bound as `paged=<id>` (shell/Core/IpcPages.qml), and this
+# prints the whole document read back through `shell page`.
+ipc() {
+  local pid
+  pid="$(shell_pid)" || exit $?
+  ipc_call "$pid" "$@"
+  if vgs_ipc_paged_id "${1:-}" "$ipc_line"; then
+    # vgs_ipc_pages runs ipc_page in this shell, so pid is ipc's.
+    if ! vgs_ipc_pages ipc_page "$vgs_ipc_paged"; then
+      printf 'vgshell: refused: ipc=shell.%s reason=page-%s\n%s\n' "${2:-missing}" "$vgs_ipc_page_failure" "$vgs_ipc_page" >&2
+      exit 69
+    fi
+    printf '%s\n' "$vgs_ipc_document"
+    return
+  fi
+  printf '%s\n' "$ipc_line"
+}
+ipc_page() { # ID INDEX
+  ipc_call "$pid" shell page "$1" "$2"
+  vgs_ipc_page="$ipc_line"
+}
+
+user_plugins="$config_home/vgshell/plugins"
+judge="$root/bin/vgshell-plugin-judge"
+theme_judge="$root/bin/vgshell-theme-judge"
+hypr_judge="$root/bin/vgshell-hypr-judge"
+# Beside the file it guards, so callers with different runtime dirs still
+# take the same lock. Created once and never removed.
+theme_lock="$config_home/vgshell/theme.lock"
+state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
+
+refuse() { # STATUS FIRST_LINE [ENGLISH...]
+  local status="$1"
+  printf 'vgshell: refused: %s\n' "$2" >&2
+  shift 2
+  [[ $# -gt 0 ]] && printf '%s\n' "$@" >&2
+  exit "$status"
+}
+
+# shellcheck source=bin/lib/ipc-reply.sh
+source "$root/bin/lib/ipc-reply.sh" || refuse 1 "library=missing path=$root/bin/lib/ipc-reply.sh"
+
+ipc_arg_label() { # QS_IPC_ARG...
+  if [[ ${1:-} == call ]]; then
+    printf '%s.%s\n' "${2:-missing}" "${3:-missing}"
+  else
+    printf '%s\n' "${1:-missing}"
+  fi
+}
+
+# Returns 0 after the keyed refusal when LINE is a client failure, 1 when
+# it is a reply; a judge that cannot classify exits 70.
+ipc_reply_failure_reason() { # LABEL LINE
+  local label="$1" line="$2" reason status=0
+  reason="$(vgs_ipc_reply_failure "$line")" || status=$?
+  case "$status" in
+    0)
+      vgs_ipc_strip_into "$line"
+      printf 'vgshell: refused: ipc=%s reason=%s\n%s\n' "$label" "$reason" "$vgs_ipc_stripped" >&2
+      return 0
+      ;;
+    1) return 1 ;;
+    *) refuse 70 "ipc-judge=failed status=$status" "bin/lib/ipc-reply.sh could not classify the reply to $label" ;;
+  esac
+}
+
+# Opens COUNT write descriptors into the array scratch_fds, each on its own
+# file in a new scratch directory, then removes the directory, so no path
+# outlives the caller however it ends. /dev/fd/<n> reopens each file from
+# its start; the caller closes every descriptor.
+scratch_fds=()
+scratch_open() { # COUNT
+  local scratch i fd
+  scratch_fds=()
+  # mktemp prints nothing on stderr when it succeeds, so the substitution
+  # holds the path, or on failure mktemp's own reason.
+  scratch="$(mktemp -d 2>&1)" || refuse 1 "scratch=${TMPDIR:-/tmp}" "$scratch"
+  for ((i = 0; i < $1; i++)); do
+    exec {fd}>"$scratch/$i" || { rm -rf -- "$scratch"; refuse 1 "scratch=$scratch"; }
+    scratch_fds+=("$fd")
+  done
+  rm -rf -- "$scratch" || refuse 1 "scratch=$scratch"
+}
+
+# The floor `run` checks before it changes anything, one row per tool: the
+# name a refusal carries, the version it needs, the extended regex whose
+# first group reads the version from the probe's output, and the probe.
+# `present` needs only a version the regex reads. The floor:
+# docs/architecture/runtime.md § Process; where the node floor was measured:
+# docs/decisions/D009-one-manifest-judge-under-node.md § Revisit Outcome (2026-09-28).
+# scripts/check-packaging.js reads the first two columns, so a raised floor
+# fails that check until the package recipes' constraints follow.
+preflight_floor='
+quickshell 0.3.1   ^Quickshell[[:space:]]([0-9]+(\.[0-9]+)*)                 qs --version
+hyprland   0.56    "version":[[:space:]]*"([0-9]+(\.[0-9]+)*)                 hyprctl -j version
+node       18      ^v([0-9]+(\.[0-9]+)*)                                      node --version
+python3    present ^Python[[:space:]]([0-9]+(\.[0-9]+)*)                      python3 --version
+git        present ^git[[:space:]]version[[:space:]]([0-9]+(\.[0-9]+)*)        git --version
+'
+
+# The supervision table `run` relaunches the shell by:
+# docs/decisions/D069-runner-supervises-the-shell.md.
+# - supervise_delays: the seconds `run` waits before each relaunch of a
+#   streak of exits, one relaunch per entry. The exit after the last entry
+#   gives up, unless the session is not read as unlocked; then every later
+#   relaunch waits the last entry.
+# - supervise_healthy_ms: a shell that ran at least this long starts a new
+#   streak with its exit.
+# - supervise_compositor_tries and supervise_compositor_gap: how many times,
+#   and how many seconds apart, `run` asks Hyprland for its monitors before
+#   it reads Hyprland as gone. Omarchy's compositor_alive asks so: a
+#   compositor busy reconfiguring outputs, which is when a shell dies, can
+#   miss one query without being gone.
+# - supervise_notice_ms and supervise_notice: how long the give-up notice
+#   shows and its text, the count of exits in its %d.
+supervise_delays=(0.5 1 2 4 8)
+supervise_healthy_ms=60000
+supervise_compositor_tries=3
+supervise_compositor_gap=0.5
+supervise_notice_ms=600000
+supervise_notice='VGS shell stopped: it crashed %d times in a row. Log out and back in to start it again.'
+
+# True when HAVE >= NEED, compared as numbers component by component; a
+# missing component is 0, so 0.56 equals 0.56.0 and 0.10 exceeds 0.3.1.
+version_at_least() { # HAVE NEED: dotted decimal integers
+  local -a have need
+  local i h w
+  IFS=. read -ra have <<<"$1"
+  IFS=. read -ra need <<<"$2"
+  for ((i = 0; i < ${#have[@]} || i < ${#need[@]}; i++)); do
+    h=$((10#${have[i]:-0}))
+    w=$((10#${need[i]:-0}))
+    ((h > w)) && return 0
+    ((h < w)) && return 1
+  done
+  return 0
+}
+
+# Refuses with exit 78 on the first row, in table order, whose tool is
+# absent (have=none), whose probe fails or prints no version the regex
+# reads (have=unknown), or whose version is below its floor. Hyprland
+# answers through its socket, so no running Hyprland is have=unknown too.
+# Only the probe's stdout is read, so a warning a tool prints on stderr
+# ahead of its version never hides it; hyprctl prints its connection error
+# on stdout. Every probe on PATH starts at once, each writing to its own
+# scratch file, because the shell starts only after the preflight: on host
+# cachy, `vgshell run` up to its exec of a stub qs took 30 to 38 ms with the
+# probes one after another and 20 to 31 ms with them together, twelve
+# runs each.
+preflight() {
+  local tool need pattern probe i fd have
+  local -a tools=() needs=() patterns=() probes=() pids=() statuses=() outs=() argv
+  while read -r tool need pattern probe; do
+    [[ -n $tool ]] || continue
+    tools+=("$tool") needs+=("$need") patterns+=("$pattern") probes+=("$probe")
+  done <<<"$preflight_floor"
+  scratch_open "${#tools[@]}"
+  for i in "${!tools[@]}"; do
+    read -ra argv <<<"${probes[i]}"
+    pids[i]=""
+    command -v -- "${argv[0]}" >/dev/null || continue
+    "${argv[@]}" 1>&"${scratch_fds[i]}" 2>/dev/null </dev/null &
+    pids[i]=$!
+  done
+  for i in "${!tools[@]}"; do
+    if [[ -n ${pids[i]} ]]; then
+      statuses[i]=0
+      wait "${pids[i]}" || statuses[i]=$?
+    fi
+  done
+  for i in "${!tools[@]}"; do
+    fd="${scratch_fds[i]}"
+    if [[ -n ${pids[i]} ]]; then
+      outs[i]="$(<"/dev/fd/$fd")" || refuse 1 "scratch=/dev/fd/$fd" "the ${tools[i]} probe's output could not be read back"
+    fi
+    exec {fd}>&-
+  done
+  for i in "${!tools[@]}"; do
+    tool="${tools[i]}" need="${needs[i]}" pattern="${patterns[i]}" probe="${probes[i]}"
+    read -ra argv <<<"$probe"
+    [[ -n ${pids[i]} ]] ||
+      refuse 78 "preflight=$tool have=none need=$need" "${argv[0]} is not on PATH"
+    [[ ${statuses[i]} == 0 ]] ||
+      refuse 78 "preflight=$tool have=unknown need=$need" "$probe exited ${statuses[i]}:" "${outs[i]}"
+    [[ ${outs[i]} =~ $pattern ]] ||
+      refuse 78 "preflight=$tool have=unknown need=$need" "$probe printed no version:" "${outs[i]}"
+    have="${BASH_REMATCH[1]}"
+    [[ $need == present ]] || version_at_least "$have" "$need" ||
+      refuse 78 "preflight=$tool have=$have need=$need"
+  done
+}
+
+# Every git call: no pager, no hook, no filesystem monitor. The plugin's
+# repository cannot set any of these, but the user's git configuration can,
+# and none of them may run while vgshell handles plugin files. Descriptor 9 is
+# closed for git, so a gc git detaches never holds the theme lock.
+git_flags=(--no-pager -c core.hooksPath=/dev/null -c core.fsmonitor=false)
+git_plain() { git "${git_flags[@]}" "$@" 9>&-; }
+
+# One git call whose failure is a refusal: KEY is the first stderr line and
+# git's own messages follow it. Stdout passes through.
+git_or_refuse() { # KEY GIT_ARGS...
+  local key="$1" err
+  shift
+  { err="$(git_plain "$@" 2>&1 1>&3 3>&-)"; } 3>&1 || refuse 1 "$key" "$err"
+  [[ -z $err ]] || printf '%s\n' "$err" >&2
+}
+
+# The shell's manifest judge run offline on one plugin directory; it also
+# checks every entry point exists. Prints its verdict lines.
+manifest_check="$root/bin/lib/check-manifests.js"
+
+# The user manager's graphical-session.target: `active` in a session uwsm
+# started, as a display manager's "Hyprland (uwsm-managed)" entry does;
+# `inactive` in one started by hand, where nothing starts the target and
+# units that want it never start; `unknown` when systemctl is missing or
+# the manager does not answer. `doctor` reports it. graphical-session.target
+# is one of the units uwsm's own `uwsm check is-active` judges.
+graphical_session() {
+  local state
+  command -v systemctl >/dev/null || { echo unknown; return; }
+  # is-active prints the state and exits non-zero for any state but active.
+  state="$(systemctl --user is-active graphical-session.target 2>/dev/null)" || true
+  case "$state" in
+    active) echo active ;;
+    inactive|failed) echo inactive ;;
+    *) echo unknown ;;
+  esac
+}
+
+# bin/vgshell-scan's JSON over the user plugin directory, then the bundled
+# one: the order the shell's registry reads them in.
+plugin_scan() {
+  "$root/bin/vgshell-scan" "$user_plugins" "$shell_dir/plugins" || refuse 1 "scan=failed"
+}
+
+# Plugin directories whose manifest the judge accepts with ID, one per line.
+owners_of() { # ID
+  local scan
+  scan="$(plugin_scan)" || exit 1
+  node "$judge" owners "$1" <<<"$scan"
+}
+
+# After add, update or remove: a running shell re-reads its manifests, and
+# with none running the next start reads them. CALL is the shell's IPC
+# function with its arguments, rescanPlugins when absent. add sends
+# `pluginInstalled <id>`, which starts the same scan and then raises the
+# shell's requirement notice for the plugin when a command it needs is
+# missing (docs/architecture/requirement-notice.md). Both answer
+# `ok scan=<N>` or `busy scan=<N>`; a bare `ok` or `busy` is the same
+# answer from a shell started before the installed vgshell, which keeps
+# running its old core until `vgshell restart`. N goes unused here.
+rescan_if_running() { # [CALL...]
+  local reply
+  [[ $# -gt 0 ]] || set -- rescanPlugins
+  if ! shell_pid >/dev/null 2>&1; then echo "shell=not-running"; return 0; fi
+  reply="$(ipc shell "$@")" || exit $?
+  [[ $reply =~ ^(ok|busy)(\ scan=[0-9]+)?$ ]] || refuse 1 "rescan=$reply" "the plugin files changed; run vgshell ipc call shell rescanPlugins"
+  case "${BASH_REMATCH[1]}" in
+    ok) echo "shell=rescan-started" ;;
+    busy) echo "shell=rescan-queued" ;;
+  esac
+}
+
+# The process `restart` sends TERM to for the shell PID: its parent when
+# that parent holds the instance lock on descriptor 9, the runner, which
+# passes TERM to the shell and exits with no relaunch; PID itself when its
+# parent holds no lock, as under a runner from before D053 that execed qs
+# in place and so holds the lock in the shell's own process, which a
+# `vgshell self update` restart meets while such a runner still runs.
+shell_stop_target() { # PID
+  local parent held lock_path target="$1"
+  if parent="$(awk '$1 == "PPid:" { print $2 }' "/proc/$1/status" 2>/dev/null)" && [[ $parent =~ ^[0-9]+$ ]] \
+    && held="$(readlink -- "/proc/$parent/fd/9" 2>/dev/null)" && lock_path="$(readlink -f -- "$lock")" \
+    && [[ $held == "$lock_path" ]]; then
+    target="$parent"
+  fi
+  printf '%s\n' "$target"
+}
+
+shell_restart() {
+  local pid hypr_status status using_lua locked_out reply cmd request dispatch_reply new_pid guarded_out lua_cmd stop_target written seen_pid
+  pid="$(shell_pid)" || exit $?
+  set +e
+  hypr_status="$(hyprctl -j status 2>&1)"
+  status=$?
+  set -e
+  [[ $status == 0 ]] ||
+    refuse 69 "hyprland=unreachable" "the shell was not stopped"
+
+  using_lua=false
+  [[ $hypr_status =~ \"configProvider\"[[:space:]]*:[[:space:]]*\"lua\" ]] && using_lua=true
+
+  set +e
+  locked_out="$(qs ipc --pid "$pid" call shell locked 2>/dev/null)"
+  status=$?
+  set -e
+  [[ $status == 0 ]] ||
+    refuse 1 "locked=unanswered pid=$pid" \
+      "the shell did not answer shell.locked; a shell started before vgshell restart existed must be stopped and started with vgshell run by hand; the shell was not stopped"
+  vgs_ipc_last_line_into "$locked_out"
+  reply="$vgs_ipc_last_line"
+  case "$reply" in
+    true)
+      refuse 4 "session=locked" \
+        "the lock client is the shell; stopping it leaves Hyprland's dead-lock screen; unlock first"
+      ;;
+    false) ;;
+    *) refuse 1 "locked=${reply//$'\n'/\\n}" ;;
+  esac
+
+  stop_target="$(shell_stop_target "$pid")"
+  kill -TERM "$stop_target" || refuse 1 "stop=failed pid=$pid"
+  flock -w 10 "$lock" true ||
+    refuse 1 "stop=timeout pid=$pid" "the shell is still running"
+
+  cmd="$(printf '%q run' "$self")"
+  if [[ $using_lua == true ]]; then
+    lua_cmd="${cmd//\\/\\\\}"
+    lua_cmd="${lua_cmd//\"/\\\"}"
+    request="hl.dsp.exec_cmd(\"$lua_cmd\")"
+  else
+    request="exec $cmd"
+  fi
+
+  # Only a runner that holds the lock writes the file, so a change after
+  # this reading, with the lock free again, is a run that started and
+  # ended, however short: its runner empties the file when it exits. The
+  # lock is probed only after the change, when the new runner has taken
+  # it for its whole life, so the probe never meets that runner's
+  # `flock -n`, which it would make refuse with 75.
+  written="$(stat -L -c '%y' -- "$lock")" || refuse 1 "lock=unreadable path=$lock"
+  set +e
+  dispatch_reply="$(hyprctl dispatch "$request" 2>&1)"
+  set -e
+  if [[ $dispatch_reply != ok ]]; then
+    refuse 1 "start=failed reply=${dispatch_reply//$'\n'/\\n}" \
+      "the shell stopped; start it with vgshell run"
+  fi
+
+  seen_pid=none
+  for _ in $(seq 1 300); do
+    if [[ -r $lock ]] && IFS= read -r new_pid <"$lock" && [[ $new_pid =~ ^[0-9]+$ && $new_pid != "$pid" ]]; then
+      seen_pid="$new_pid"
+      if [[ ! -d /proc/$new_pid ]]; then
+        refuse 1 "start=exited pid=$new_pid" \
+          "the new shell exited; read its log or start it with vgshell run"
+      fi
+      set +e
+      guarded_out="$(qs ipc --pid "$new_pid" call shell guarded 2>/dev/null)"
+      status=$?
+      set -e
+      vgs_ipc_last_line_into "$guarded_out"
+      if [[ $status == 0 && $vgs_ipc_last_line == true ]]; then
+        printf 'ok pid=%s\n' "$new_pid"
+        return 0
+      fi
+    fi
+    if [[ $(stat -L -c '%y' -- "$lock" 2>/dev/null) != "$written" ]] && flock -n "$lock" true; then
+      refuse 1 "start=exited pid=$seen_pid" \
+        "the new vgshell run ended with no guarded shell; read its log or start it with vgshell run"
+    fi
+    sleep 0.1
+  done
+  refuse 1 "start=timeout" "the shell stopped; start it with vgshell run"
+}
+
+# The directory `add` installed plugin ID into, resolved. An absent one is
+# refused naming who owns the id instead; a symlink, a path that leaves the
+# user plugin directory, or a manifest naming another id is refused.
+installed_dir() { # ID
+  local id="$1" target="$user_plugins/$1" real base owners owner got
+  if [[ ! -e $target && ! -L $target ]]; then
+    owners="$(owners_of "$id")" || exit 1
+    owner="${owners%%$'\n'*}"
+    [[ -z $owner ]] && refuse 1 "unknown=$id"
+    [[ $owner == "$shell_dir/plugins/"* ]] && refuse 1 "bundled=$id" "a bundled plugin is disabled, not removed: vgshell plugin disable $id"
+    refuse 1 "not-installed=$id owner=$owner" "only a plugin vgshell plugin add installed is updated or removed"
+  fi
+  [[ -L $target ]] && refuse 1 "symlink=$target"
+  base="$(realpath -e -- "$user_plugins")" || refuse 1 "unreadable=$user_plugins"
+  real="$(realpath -e -- "$target")" || refuse 1 "unreadable=$target"
+  [[ -d $real && $(dirname -- "$real") == "$base" ]] || refuse 1 "outside=$real"
+  got="$(node "$judge" id "$real")" || exit 1
+  [[ $got == "$id" ]] || refuse 1 "manifest-id=$got path=$real"
+  printf '%s\n' "$real"
+}
+
+# The git URL `plugin add` or `theme add` clones when the command line
+# names none: on a terminal, the line the user types into gum input, the
+# floating TUI's prompt, trimmed of surrounding blanks. With no terminal on
+# stdin it is the usage refusal url=missing, exit 2, as before any prompt
+# existed; an empty answer is url=missing too, a cancelled prompt
+# cancelled=url, and a system without gum gum=missing. KIND, `plugin` or
+# `theme`, names what the URL is of. Print the URL.
+ask_url() { # KIND
+  local url status=0
+  if [[ ! -t 0 ]]; then printf 'vgshell: refused: url=missing\n' >&2; usage; exit 2; fi
+  command -v gum >/dev/null || refuse 1 "gum=missing" "gum draws the prompt for the URL: install it (vgshell doctor names its package) or run vgshell $1 add <git url>"
+  # shellcheck source=lib/tui.sh
+  source "$root/bin/lib/tui.sh" || refuse 1 "library=missing path=$root/bin/lib/tui.sh"
+  url="$(vgs_tui_input --prompt "Git URL of the $1: " --placeholder "https://")" || status=$?
+  case "$status" in
+    0) ;;
+    130) refuse 1 "cancelled=url" ;;
+    *) refuse 1 "prompt=failed exit=$status" ;;
+  esac
+  url="${url#"${url%%[![:space:]]*}"}"
+  url="${url%"${url##*[![:space:]]}"}"
+  [[ -n $url ]] || refuse 2 "url=missing" "no URL was typed; nothing was cloned"
+  printf '%s\n' "$url"
+}
+
+plugin_add() { # URL
+  local url="$1" verdict id target owners landed
+  mkdir -p -- "$user_plugins"
+  # Staged beside the plugin directory, never inside it, so no scan sees a
+  # half-cloned plugin and the final move is a rename on one filesystem.
+  stage="$(mktemp -d "$config_home/vgshell/.vgshell-add.XXXXXX")" || refuse 1 "staging=$config_home/vgshell"
+  trap 'rm -rf -- "${stage:?}"' EXIT
+  git_or_refuse "clone=$url" clone --quiet --no-recurse-submodules -- "$url" "$stage/plugin"
+  verdict="$(node "$manifest_check" -- "$stage/plugin")" || refuse 1 "manifest=$url" "$verdict"
+  id="$(node "$judge" id "$stage/plugin")" || exit 1
+  owners="$(owners_of "$id")" || exit 1
+  [[ -z $owners ]] || refuse 1 "id-owned=$id owner=${owners%%$'\n'*}"
+  target="$user_plugins/$id"
+  [[ -e $target || -L $target ]] && refuse 1 "exists=$target"
+  # Before the move, so the first scan that sees the plugin sees it disabled.
+  landed="$(node "$judge" land-disabled "$root/config/shell.json" "$config_home/vgshell/shell.json" "$stage/plugin")" || exit 1
+  mv -T -- "$stage/plugin" "$target" || refuse 1 "move=$target"
+  echo "ok added=$id path=$target config=$landed"
+  rescan_if_running pluginInstalled "$id"
+  offer_requirements "$id"
+}
+
+# After add: the requirements of plugin ID the scan did not find on PATH,
+# the `vgshell pkg run install` commands that install their packages, and on
+# a terminal the question whether to run them now. The judge reads the
+# manifest and the scan reads PATH; no plugin code runs (D007).
+offer_requirements() { # ID
+  local scan report line answer
+  local -a installs=() words
+  scan="$(plugin_scan)" || exit 1
+  report="$(node "$judge" unmet "$root/config/shell.json" "$config_home/vgshell/shell.json" "$1" <<<"$scan")" || exit 1
+  while IFS= read -r line; do
+    case "$line" in
+      "install "*) installs+=("${line#install }") ;;
+      ?*) printf '%s\n' "$line" ;;
+    esac
+  done <<<"$report"
+  [[ ${#installs[@]} -gt 0 ]] || return 0
+  # Quoted as the shell reads them back: a package name is any printable
+  # word, so a copied line never runs more than vgshell.
+  for line in "${installs[@]}"; do
+    read -ra words <<<"$line"
+    printf 'install:%s\n' "$(printf ' %q' vgshell "${words[@]}")"
+  done
+  [[ -t 0 ]] || return 0
+  printf 'Install now? [y/N] ' >&2
+  read -r answer || answer=""
+  case "$answer" in
+    [yY] | [yY][eE][sS]) ;;
+    *) return 0 ;;
+  esac
+  for line in "${installs[@]}"; do
+    read -ra words <<<"$line"
+    "$self" "${words[@]}" || exit $?
+  done
+}
+
+rollback() { # DIR COMMIT
+  git_or_refuse "rollback=failed path=$1 to=$2" -C "$1" reset --quiet --hard "$2"
+}
+
+# 1 when --yes stands for the answer to confirm_change's question.
+assume_yes=0
+
+# The question before a change a person must see: `update` between the
+# incoming diff and the fast-forward, since new plugin or package code runs
+# as soon as it lands, and `remove` before the plugin directory is deleted.
+# A person answers `vgshell: VERB LABEL? [y/N]` on the terminal, or the caller
+# passes --yes. LABEL names the checkout or plugin, and KEPT says what a
+# declined change leaves.
+confirm_change() { # VERB LABEL KEPT
+  local answer=""
+  [[ $assume_yes == 1 ]] && return 0
+  [[ -t 0 ]] || refuse 1 "no-terminal=$2" "no terminal on stdin to confirm the $1; run on a terminal or pass --yes"
+  printf 'vgshell: %s %s? [y/N] ' "$1" "$2" >&2
+  read -r answer || answer=""
+  case "$answer" in
+    [yY] | [yY][eE][sS]) ;;
+    *) refuse 1 "declined=$2" "$3" ;;
+  esac
+}
+
+# Refuse unless DIR is the top level of its own checkout.
+own_checkout() { # DIR
+  local top
+  top="$(git_or_refuse "not-a-checkout=$1" -C "$1" rev-parse --show-toplevel)" || exit 1
+  [[ $top == "$1" ]] || refuse 1 "not-a-checkout=$1 toplevel=$top"
+}
+
+# Set ff_old and ff_new to checkout DIR's HEAD and upstream commits.
+checkout_commits() { # DIR
+  ff_new="$(git_or_refuse "upstream=missing path=$1" -C "$1" rev-parse --verify '@{upstream}')" || exit 1
+  ff_old="$(git_or_refuse "git=rev-parse path=$1" -C "$1" rev-parse --verify HEAD)" || exit 1
+}
+
+# Fetch checkout DIR's upstream and, when it is new, fast-forward to it;
+# with REVIEW `review`, print the incoming diff and confirm it first, and
+# with `trusted` do neither. Sets ff_old and ff_new, the commits before and
+# after, equal when DIR was already up to date. LABEL names DIR in the
+# refusals: a directory that is not its own checkout, a modified checkout,
+# a failed fetch, no upstream, a source that rewrote its history, and an
+# update nobody confirmed.
+fast_forward() { # DIR LABEL REVIEW
+  local dir="$1" label="$2" dirty err rc=0
+  own_checkout "$dir"
+  dirty="$(git_or_refuse "git=status path=$dir" -C "$dir" status --porcelain --untracked-files=all)" || exit 1
+  [[ -z $dirty ]] || refuse 1 "modified=$dir" "commit or discard the local changes first"
+  git_or_refuse "fetch=$label" -C "$dir" fetch --quiet --no-recurse-submodules
+  checkout_commits "$dir"
+  [[ $ff_old == "$ff_new" ]] && return 0
+  err="$(git_plain -C "$dir" merge-base --is-ancestor "$ff_old" "$ff_new" 2>&1)" || rc=$?
+  case "$rc" in
+    0) ;;
+    1) refuse 1 "not-fast-forward=$label" "the source rewrote its history; remove and add it again" ;;
+    *) refuse 1 "git=merge-base exit=$rc path=$dir" "$err" ;;
+  esac
+  case "$3" in
+    review)
+      git_or_refuse "git=diff path=$dir" -C "$dir" diff --no-ext-diff --no-textconv "$ff_old" "$ff_new"
+      confirm_change update "$label" "the checkout stays at ${ff_old:0:12}"
+      ;;
+    trusted) ;;
+    *) refuse 1 "fast-forward=$3 reason=unknown-review" ;;
+  esac
+  git_or_refuse "git=merge path=$dir" -C "$dir" merge --quiet --ff-only "$ff_new"
+}
+
+plugin_update() { # ID
+  local id="$1" dir verdict new_id
+  dir="$(installed_dir "$id")" || exit $?
+  fast_forward "$dir" "$id" review
+  if [[ $ff_old == "$ff_new" ]]; then
+    echo "ok up-to-date=$id"
+    return 0
+  fi
+  # A refused new version is undone before the refusal, so the installed
+  # plugin is always one the judge accepted.
+  if ! verdict="$(node "$manifest_check" -- "$dir")"; then
+    rollback "$dir" "$ff_old"
+    refuse 1 "manifest=$id rolled-back=${ff_old:0:12}" "$verdict"
+  fi
+  if ! new_id="$(node "$judge" id "$dir")" || [[ $new_id != "$id" ]]; then
+    rollback "$dir" "$ff_old"
+    refuse 1 "manifest-id=${new_id:-unreadable} want=$id rolled-back=${ff_old:0:12}"
+  fi
+  echo "ok updated=$id from=${ff_old:0:12} to=${ff_new:0:12}"
+  rescan_if_running
+}
+
+plugin_remove() { # ID
+  local id="$1" dir
+  dir="$(installed_dir "$id")" || exit $?
+  confirm_change remove "$id" "$dir stays installed"
+  rm -rf -- "${dir:?}" || refuse 1 "remove=$dir"
+  echo "ok removed=$id"
+  rescan_if_running
+}
+
+# The seconds one outdated fetch may take.
+outdated_fetch_timeout=10
+
+# The seconds between the TERM that ends a fetch, at its timeout or on a
+# stop, and the SIGKILL that ends it if the TERM did not.
+outdated_kill_grace=5
+
+# The environment of every outdated fetch, which runs unattended and must
+# ask nobody: an authentication it cannot complete from an agent, a key
+# without a passphrase or a stored credential fails the fetch instead.
+# The user's ssh command and configuration stay as they are.
+outdated_fetch_env=(
+  GIT_TERMINAL_PROMPT=0 # git fails where it would prompt on the terminal
+  GIT_ASKPASS= # empty, it outranks core.askPass and SSH_ASKPASS, so git runs no askpass
+  SSH_ASKPASS_REQUIRE=never # ssh runs no askpass either
+  GCM_INTERACTIVE=false # Git Credential Manager fails where it would prompt
+)
+
+# Trap TERM, INT and HUP with HANDLER, which is handed 128 plus the
+# signal's number: the status a command stopped by that signal exits with.
+trap_stops() { # HANDLER
+  trap "$1 143" TERM
+  trap "$1 130" INT
+  trap "$1 129" HUP
+}
+
+# The stdout of the latest unattended_git call.
+git_out=""
+# The pid of the running unattended_git call, which leads the call's
+# session and its process group; empty outside a call. unattended_stopping
+# is set once unattended_git_stop runs.
+unattended_pid=""
+unattended_stopping=""
+
+# One unattended git call that talks to a remote: under outdated_fetch_env,
+# in a session of its own, so ssh has no terminal to read a passphrase or a
+# host key answer from, and ended at the outdated timeout. git_out holds its
+# stdout. Refuses with KEY, and a call the timeout ended as KEY
+# timeout=<seconds>s, git's own words following the line.
+#
+# A stop signal sent to the verb's process group misses the call's
+# session, so this shell traps it while the call runs and
+# unattended_git_stop ends the call before the shell exits. Run it in
+# step_run's step itself, never in a substitution of its own: a shell in
+# between has no trap and ends at once, and the verb's wait for the step
+# then rests on the call's shell still holding the step's output.
+unattended_git() { # KEY GIT_ARGS...
+  local key="$1" out_fd err_fd err rc=0 started=$SECONDS
+  shift
+  # The call runs in the background so `wait` returns when a trapped
+  # signal arrives, which a substitution's read does not; its output goes
+  # to scratch files.
+  scratch_open 2
+  out_fd="${scratch_fds[0]}" err_fd="${scratch_fds[1]}"
+  trap_stops unattended_git_stop
+  env "${outdated_fetch_env[@]}" setsid --wait timeout --kill-after="$outdated_kill_grace" "$outdated_fetch_timeout" git "${git_flags[@]}" "$@" >&"$out_fd" 2>&"$err_fd" {out_fd}>&- {err_fd}>&- &
+  unattended_pid=$!
+  wait "$unattended_pid" || rc=$?
+  trap - TERM INT HUP
+  unattended_pid=""
+  git_out="$(<"/dev/fd/$out_fd")"
+  err="$(<"/dev/fd/$err_fd")"
+  exec {out_fd}>&- {err_fd}>&-
+  # timeout exits 124 when its TERM ended the call at the deadline, and 137
+  # when the SIGKILL a grace later did, as it does any other SIGKILL: only
+  # a call past the deadline is the timeout's.
+  if [[ $rc == 137 ]] && ((SECONDS - started > outdated_fetch_timeout)); then rc=124; fi
+  case "$rc" in
+    0) [[ -z $err ]] || printf '%s\n' "$err" >&2 ;;
+    124) refuse 1 "$key timeout=${outdated_fetch_timeout}s" ${err:+"$err"} ;;
+    *) refuse 1 "$key" ${err:+"$err"} ;;
+  esac
+}
+
+# unattended_git's trap: TERM the call's process group, which holds timeout,
+# git and every process git started, wait until timeout has ended, after
+# git, and exit STATUS. The shell runs no job control, so the call started
+# in its process group, not leading one, and setsid made it its session's
+# leader in place: its pid names the group. A second signal while it waits
+# changes nothing.
+unattended_git_stop() { # STATUS
+  local rc
+  [[ -z $unattended_stopping ]] || return 0
+  unattended_stopping=1
+  if [[ -n $unattended_pid ]]; then
+    kill -TERM -- "-$unattended_pid" 2>/dev/null || true
+    while true; do
+      rc=0
+      wait "$unattended_pid" 2>/dev/null || rc=$?
+      # Above 128 is a wait another signal cut short or a call a signal
+      # ended; only the first leaves the pid alive.
+      if [[ $rc -le 128 || ! -d /proc/$unattended_pid ]]; then break; fi
+    done
+  fi
+  exit "$1"
+}
+
+# Fetch checkout DIR's upstream through unattended_git, then set ff_old to
+# its HEAD commit, ff_new to its upstream commit and outdated_behind to the
+# count of upstream commits HEAD lacks. The fetch writes the
+# remote-tracking refs and their objects, and no FETCH_HEAD, maintenance or
+# submodule. Refuses as fast_forward does for the same cause, and a fetch
+# the timeout ended as fetch=LABEL timeout=<seconds>s. It runs the fetch in
+# the calling shell, as unattended_git requires.
+outdated_read() { # DIR LABEL
+  local dir="$1" label="$2"
+  own_checkout "$dir"
+  unattended_git "fetch=$label" -C "$dir" fetch --quiet --no-recurse-submodules --no-write-fetch-head --no-auto-maintenance
+  checkout_commits "$dir"
+  outdated_behind="$(git_or_refuse "git=rev-list path=$dir" -C "$dir" rev-list --count "$ff_old..$ff_new")" || exit 1
+}
+
+# Print outdated_read's three values for DIR, space-separated.
+outdated_probe() { # DIR LABEL
+  outdated_read "$1" "$2"
+  printf '%s %s %s\n' "$ff_old" "$ff_new" "$outdated_behind"
+}
+
+# PROBE ID prints ID's `<head> <upstream> <behind>` line or refuses as
+# update does. Run in a command substitution, so a refusal ends only this
+# row.
+outdated_row() { # PROBE ID
+  "$1" "$2"
+}
+
+# Five fields per row for outdated_print: id, behind, head, upstream and
+# error. A read checkout leaves error empty; a refused one leaves the
+# three between empty and holds its keyed refusal line in error.
+outdated_fields=()
+
+# The last line and the refusal of the latest step_run.
+step_out="" step_error=""
+# 128 plus the number of the first stop signal a step_run step received;
+# empty while none has.
+step_stopped=""
+step_stop() { [[ -n $step_stopped ]] || step_stopped="$1"; } # STATUS
+
+# Run CMD in a command substitution, stdout and stderr together, without
+# descriptor 9, so nothing it starts holds the theme lock. On success
+# step_out holds its last line and every earlier line passes to stderr. On
+# failure step_error holds its keyed refusal line, the text after
+# `vgshell: refused: `, else `step=failed exit=<status>`, every other line
+# passes to stderr, and the status is 1: git's warnings from an earlier
+# step print before the refusal, and its cause after it.
+#
+# A stop signal sent to the verb's process group reaches the step's shell
+# too, which ends what it started before it exits: unattended_git. This
+# shell notes the signal, reads the step to its end and only then exits
+# 128 plus the signal, so the verb returns after the step's fetch ended.
+step_run() { # CMD...
+  local out rc=0 line rest=""
+  trap_stops step_stop
+  out="$("$@" 2>&1 9>&-)" || rc=$?
+  trap - TERM INT HUP
+  [[ -z $step_stopped ]] || exit "$step_stopped"
+  if [[ $rc == 0 ]]; then
+    step_out="${out##*$'\n'}"
+    if [[ $out == *$'\n'* ]]; then printf '%s\n' "${out%$'\n'*}" >&2; fi
+    return 0
+  fi
+  step_error=""
+  while IFS= read -r line; do
+    if [[ -z $step_error && $line == "vgshell: refused: "?* ]]; then
+      step_error="${line#vgshell: refused: }"
+    else
+      rest+="$line"$'\n'
+    fi
+  done <<<"$out"
+  [[ -n $step_error ]] || step_error="step=failed exit=$rc"
+  printf '%s' "$rest" >&2
+  return 1
+}
+
+# Append the row of each ID to outdated_fields, each read through step_run.
+outdated_rows() { # PROBE ID...
+  local probe="$1" id
+  shift
+  for id in "$@"; do
+    if step_run outdated_row "$probe" "$id"; then
+      [[ $step_out =~ ^([0-9a-f]+)\ ([0-9a-f]+)\ ([0-9]+)$ ]] ||
+        refuse 1 "outdated=$id reason=probe-output" "$step_out"
+      outdated_fields+=("$id" "${BASH_REMATCH[3]}" "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "")
+    else
+      outdated_fields+=("$id" "" "" "" "$step_error")
+    fi
+  done
+}
+
+# Print outdated_fields in FORMAT, sorted by id: json is one line holding
+# an array of { id, behind, head, upstream, error }; text is one line per
+# row, `<id> behind=<n> head=<commit> upstream=<commit>` with 12-digit
+# commits, or `<id> error=<refusal>`.
+outdated_print() { # FORMAT
+  python3 - "$1" "${outdated_fields[@]}" <<'PY'
+import json, sys
+fmt, fields = sys.argv[1], sys.argv[2:]
+rows = []
+for i in range(0, len(fields), 5):
+    id_, behind, head, upstream, error = fields[i:i + 5]
+    if error:
+        rows.append({"id": id_, "behind": None, "head": None, "upstream": None, "error": error})
+    else:
+        rows.append({"id": id_, "behind": int(behind), "head": head, "upstream": upstream, "error": None})
+rows.sort(key=lambda r: r["id"])
+# A directory name need not be UTF-8; its bytes go out as they came in.
+sys.stdout.reconfigure(errors="surrogateescape")
+if fmt == "json":
+    print(json.dumps(rows, separators=(",", ":")))
+else:
+    for r in rows:
+        if r["error"] is None:
+            print(f"{r['id']} behind={r['behind']} head={r['head'][:12]} upstream={r['upstream'][:12]}")
+        else:
+            print(f"{r['id']} error={r['error']}")
+PY
+}
+
+# Every entry under the user plugin directory that is a directory or a
+# symlink is a row, resolved as update resolves its id.
+plugin_outdated() { # FORMAT
+  local entries=() ids=() entry
+  if [[ -e $user_plugins || -L $user_plugins ]]; then
+    [[ -d $user_plugins && -r $user_plugins && -x $user_plugins ]] || refuse 1 "unreadable=$user_plugins"
+    shopt -s nullglob dotglob
+    entries=("$user_plugins"/*)
+    shopt -u nullglob dotglob
+  fi
+  for entry in "${entries[@]}"; do
+    if [[ -d $entry || -L $entry ]]; then ids+=("${entry##*/}"); fi
+  done
+  outdated_rows plugin_probe "${ids[@]}"
+  outdated_print "$1"
+}
+
+plugin_probe() { # ID
+  local dir
+  dir="$(installed_dir "$1")" || exit 1
+  outdated_probe "$dir" "$1"
+}
+
+user_themes="$config_home/vgshell/themes"
+
+# Hold the theme lock on descriptor 9 until this process exits, so no apply
+# reads a package while add, update or remove changes it, and no two of
+# them change one at once. -s holds it shared, for a command that reads the
+# packages and changes none, so several such commands run at once and no
+# change starts under them. A lock held elsewhere refuses with KEY
+# reason=busy.
+theme_lock_hold() { # KEY [-s]
+  local rc=0
+  mkdir -p -- "$config_home/vgshell" 2>/dev/null && { exec 9>>"$theme_lock"; } 2>/dev/null ||
+    refuse 1 "$1 reason=lock-failed path=$theme_lock"
+  flock "${@:2}" -n -E 75 9 || rc=$?
+  case "$rc" in
+    0) ;;
+    75) refuse 75 "$1 reason=busy" "another theme command holds the theme lock" ;;
+    *) refuse 1 "$1 reason=lock-failed path=$theme_lock" ;;
+  esac
+}
+
+# Hold the theme lock as theme_lock_hold does, then finish or undo each
+# catalog update an interruption left, so add, install, update and remove
+# start from whole packages: docs/architecture/theme-catalog.md § Install.
+theme_lock_change() { # KEY
+  theme_lock_hold "$1"
+  node "$theme_judge" recover "$config_home/vgshell" || exit $?
+}
+
+# Take the theme lock on descriptor 9 for a judge that execs from here and
+# set `verdict` to held, busy or failed; the judge refuses on the last two.
+# The judge runs under this process's descriptor 9, so it holds the lock
+# until it exits, and it prints every refusal, busy included, so a --json
+# caller reads a result on every path. bin/vgshell-theme-judge's LOCK_FD names
+# the same number: no reload hook it runs holds the descriptor.
+theme_lock_verdict() {
+  local status=0
+  verdict=failed
+  mkdir -p -- "$config_home/vgshell" 2>/dev/null && { exec 9>>"$theme_lock"; } 2>/dev/null || return 0
+  flock -n -E 75 9 || status=$?
+  case "$status" in
+    0) verdict=held ;;
+    75) verdict=busy ;;
+  esac
+}
+
+# The theme judge's verdict on package DIR as installed, named NAME or by
+# its document. Sets `verdict` to the accepted name and returns 0, or to
+# the judge's `reason=...` line and returns 1; a judge that fails without
+# a verdict line is `reason=judge-failed exit=<status>`.
+accept_theme() { # DIR [NAME]
+  local rc=0
+  verdict="$(node "$theme_judge" accept "$@")" || rc=$?
+  [[ $rc == 0 ]] && return 0
+  [[ $rc == 1 && $verdict == reason=* && $verdict != *$'\n'* ]] || verdict="reason=judge-failed exit=$rc"
+  return 1
+}
+
+# A staging directory beside the themes directory, never inside it, so no
+# list sees a half-made package and the final move is a rename on one
+# filesystem; removed when this process exits. It holds only what is not
+# installed yet: an update's old package waits outside it, beside themes/.
+# Sets `stage`.
+theme_stage() { # KIND
+  stage="$(mktemp -d "$config_home/vgshell/.vgshell-theme-$1.XXXXXX")" || refuse 1 "staging=$config_home/vgshell"
+  trap 'rm -rf -- "${stage:?}"' EXIT
+}
+
+theme_add() { # URL
+  local url="$1" name target line
+  theme_added=""
+  mkdir -p -- "$user_themes"
+  theme_stage add
+  git_or_refuse "clone=$url" clone --quiet --no-recurse-submodules -- "$url" "$stage/package"
+  accept_theme "$stage/package" || refuse 1 "package=$url $verdict"
+  name="$verdict"
+  target="$user_themes/$name"
+  theme_lock_change "theme=$name"
+  [[ -e $target || -L $target ]] && refuse 1 "theme=$name reason=exists path=$target"
+  mv -T -- "$stage/package" "$target" || refuse 1 "theme=$name reason=move path=$target"
+  line="ok added=$name path=$target"
+  [[ -d $root/themes/$name ]] && line+=" shadows=$root/themes/$name"
+  echo "$line"
+  theme_added="$name"
+}
+
+# After an interactive theme add: show the apply command and, on a yes,
+# run it through the same judged path a user would run by hand.
+offer_theme_apply() { # NAME
+  local name="$1" status=0
+  [[ -n $name ]] || return 0
+  printf 'apply:%s\n' "$(printf ' %q' vgshell theme apply "$name")"
+  # shellcheck source=lib/tui.sh
+  source "$root/bin/lib/tui.sh" || refuse 1 "library=missing path=$root/bin/lib/tui.sh"
+  vgs_tui_confirm "Apply theme $name now?" --default=false || status=$?
+  case "$status" in
+    0) ;;
+    1 | 130) return 0 ;;
+    *) refuse 1 "apply-prompt=failed exit=$status" ;;
+  esac
+  exec 9>&- || true
+  "$self" theme apply "$name"
+}
+
+theme_update() { # NAME
+  local name="$1" dir origin line
+  theme_lock_change "theme=$name"
+  dir="$(node "$theme_judge" installed "$config_home/vgshell" "$name")" || exit $?
+  origin="$(node "$theme_judge" origin "$config_home/vgshell" "$name")" || exit $?
+  case "$origin" in
+    catalog)
+      theme_stage install
+      line="$(node "$theme_judge" catalog-update "$config_home/vgshell" "$stage" "$name")" || exit $?
+      echo "$line"
+      [[ $line == "ok up-to-date=$name" ]] && return 0
+      # exec runs no EXIT trap.
+      rm -rf -- "${stage:?}" || refuse 1 "staging=$stage reason=remove"
+      trap - EXIT
+      ;;
+    git)
+      fast_forward "$dir" "$name" review
+      if [[ $ff_old == "$ff_new" ]]; then
+        echo "ok up-to-date=$name"
+        return 0
+      fi
+      # A refused new version is undone before the refusal, so the installed
+      # package is always one the judge accepted.
+      if ! accept_theme "$dir" "$name"; then
+        rollback "$dir" "$ff_old"
+        refuse 1 "theme=$name $verdict rolled-back=${ff_old:0:12}"
+      fi
+      echo "ok updated=$name from=${ff_old:0:12} to=${ff_new:0:12}"
+      ;;
+    *) refuse 1 "theme=$name reason=origin got=$origin" ;;
+  esac
+  # Still under the lock this process holds on descriptor 9.
+  exec node "$theme_judge" follow text "$config_home/vgshell" "$state_home/vgshell" held "$name"
+}
+
+# Take the download lock, `download.lock` in the theme-asset cache, on
+# descriptor 8 for the judge that runs next, and set `download_verdict` to
+# held, busy or failed, as theme_lock_verdict does for the theme lock. The
+# judge names the file, so its path has one owner.
+theme_download_verdict() {
+  local file status=0
+  download_verdict=failed
+  file="$(node "$theme_judge" asset-lock)" || return 0
+  mkdir -p -- "$(dirname -- "$file")" 2>/dev/null && { exec 8>>"$file"; } 2>/dev/null || return 0
+  flock -n -E 75 8 || status=$?
+  case "$status" in
+    0) download_verdict=held ;;
+    75) download_verdict=busy ;;
+  esac
+}
+
+# The fetch runs under the download lock alone, so a download never holds
+# up an apply; the download lock is then released and the land runs under
+# the theme lock, the judge judging the install again. Both print a result
+# on every path. This process holds the stage until it exits.
+theme_wallpapers() { # FORMAT NAME MODE
+  mkdir -p -- "$user_themes"
+  theme_stage wallpapers
+  theme_download_verdict
+  node "$theme_judge" wallpapers-fetch "$1" "$config_home/vgshell" "$stage" "$download_verdict" "$2" "$3" || exit $?
+  exec 8>&-
+  theme_lock_verdict
+  node "$theme_judge" wallpapers-land "$1" "$config_home/vgshell" "$stage" "$verdict" "$2" "$3"
+}
+
+theme_preview() { # FORMAT NAME
+  theme_download_verdict
+  exec node "$theme_judge" preview "$1" "$download_verdict" "$2"
+}
+
+# The judge recovers, stages and judges the catalog package and moves it
+# into place, and prints a result on every path the lock verdict reaches;
+# this process holds the stage and the lock.
+theme_install() { # FORMAT NAME
+  mkdir -p -- "$user_themes"
+  theme_stage install
+  theme_lock_verdict
+  node "$theme_judge" install "$1" "$config_home/vgshell" "$stage" "$verdict" "$2"
+}
+
+theme_remove() { # NAME
+  local name="$1" dir
+  theme_lock_change "theme=$name"
+  dir="$(node "$theme_judge" installed "$config_home/vgshell" "$name")" || exit $?
+  rm -rf -- "${dir:?}" || refuse 1 "theme=$name reason=remove path=$dir"
+  echo "ok removed=$name"
+}
+
+# A git checkout's row is its fetch; a catalog install's compares the
+# digest its marker records with the catalog package's.
+theme_probe() { # NAME
+  local dir origin
+  dir="$(node "$theme_judge" installed "$config_home/vgshell" "$1")" || exit 1
+  origin="$(node "$theme_judge" origin "$config_home/vgshell" "$1")" || exit 1
+  case "$origin" in
+    git) outdated_probe "$dir" "$1" ;;
+    catalog) node "$theme_judge" catalog-probe "$config_home/vgshell" "$1" ;;
+    *) refuse 1 "theme=$1 reason=origin got=$origin" ;;
+  esac
+}
+
+# Every installed package is a row, resolved as update resolves its name,
+# under a shared hold of the theme lock.
+theme_outdated() { # FORMAT
+  local names=()
+  theme_lock_hold "outdated=themes" -s
+  mapfile -d '' -t names < <(node "$theme_judge" checkouts "$config_home/vgshell")
+  wait "$!" || exit $?
+  outdated_rows theme_probe "${names[@]}"
+  outdated_print "$1"
+}
+
+# The release version: VERSION's one line, and a release tag after its v.
+version_re='^[0-9]+\.[0-9]+\.[0-9]+$'
+
+# Prints VERSION's one line, or refuses.
+version_line() {
+  local file="$root/VERSION" content version
+  [[ -f $file && -r $file ]] || refuse 1 "version=missing path=$file"
+  content="$({ cat -- "$file" 2>/dev/null && printf .; })" || refuse 1 "version=missing path=$file"
+  content="${content%.}"
+  version="${content%$'\n'}"
+  [[ $content == "$version"$'\n' && $version =~ $version_re ]] || refuse 1 "version=malformed path=$file"
+  printf '%s\n' "$version"
+}
+
+# True when this tree is the top level of its own git checkout. No git, no
+# repository, or a repository around an exported tree, whose commits are
+# not this tree's, is no checkout. A caller's GIT_DIR or its kin would point
+# git at another repository, so they are unset first; every command that
+# asks ends after its report, so the unset reaches nothing else.
+tree_is_checkout() {
+  local top
+  unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR
+  command -v git >/dev/null && top="$(git_plain -C "$root" rev-parse --show-toplevel 2>/dev/null)" && [[ $top == "$root" ]]
+}
+
+# Prints commit REV of this checkout in the describe form the header
+# states, X.Y.Z.r<N>.g<hash>, VERSION_TEXT standing in for X.Y.Z when no
+# release tag is reachable from REV.
+describe_of() { # VERSION_TEXT REV
+  local out tag count hash
+  # The globs keep tags of v, digits and dots: v3-beta and nightly never count.
+  out="$(git_or_refuse "git=describe path=$root" -C "$root" describe --long --tags --always --abbrev=7 --match 'v[0-9]*' --exclude 'v*[!0-9.]*' "$2")" || exit 1
+  if [[ $out =~ ^(.+)-([0-9]+)-g([0-9a-f]+)$ ]]; then
+    tag="${BASH_REMATCH[1]}" count="${BASH_REMATCH[2]}" hash="${BASH_REMATCH[3]}"
+    [[ ${tag#v} =~ $version_re ]] || refuse 1 "tag=$tag reason=not-a-version"
+    printf '%s.r%s.g%s\n' "${tag#v}" "$count" "$hash"
+  elif [[ $out =~ ^[0-9a-f]+$ ]]; then
+    # --always printed the abbreviated commit alone: no release tag is
+    # reachable, so the distance is from the root.
+    count="$(git_or_refuse "git=rev-list path=$root" -C "$root" rev-list --count "$2")" || exit 1
+    [[ $count =~ ^[0-9]+$ ]] || refuse 1 "git=rev-list path=$root" "count=$count"
+    printf '%s.r%s.g%s\n' "$1" "$count" "$out"
+  else
+    refuse 1 "git=describe path=$root" "describe printed: $out"
+  fi
+}
+
+# Prints the version in FORMAT, text or json, as the header states.
+version_report() { # FORMAT
+  local version describe=""
+  version="$(version_line)" || exit 1
+  if tree_is_checkout; then
+    describe="$(describe_of "$version" HEAD)" || exit 1
+  fi
+  if [[ $1 == json ]]; then
+    # Both values matched the grammars above, digits, dots, r, g and hex
+    # alone, so neither needs JSON escaping.
+    if [[ -n $describe ]]; then
+      printf '{"version":"%s","describe":"%s"}\n' "$version" "$describe"
+    else
+      printf '{"version":"%s","describe":null}\n' "$version"
+    fi
+  else
+    printf 'vgshell %s\n' "${describe:-$version}"
+  fi
+}
+
+# The repository VGS releases come from: `self` reads its newest release
+# and, for a vgshell-git package, the commit its main branch points at.
+self_repository=vanillagreencom/vgshell
+self_judge="$root/bin/lib/self.js"
+data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
+self_lock="$data_home/vgshell/.self.lock"
+
+# Prints the upstream's describe form after a fetch through outdated_read,
+# then the count of upstream commits this checkout lacks.
+self_checkout_probe() { # VERSION_TEXT
+  local latest
+  outdated_read "$root" vgshell
+  latest="$(describe_of "$1" "$ff_new")" || exit 1
+  printf '%s %s\n' "$latest" "$outdated_behind"
+}
+
+# Prints the commit the release repository's main branch points at, read
+# through unattended_git.
+self_main_commit() {
+  local url="https://github.com/$self_repository.git"
+  unattended_git "remote=main url=$url" ls-remote "$url" refs/heads/main
+  [[ $git_out =~ ^([0-9a-f]{40}|[0-9a-f]{64})[[:space:]]refs/heads/main$ ]] ||
+    refuse 1 "remote=unreadable url=$url" "ls-remote printed: $git_out"
+  printf '%s\n' "${BASH_REMATCH[1]}"
+}
+
+# Prints the install method's status in FORMAT, as the header states: the
+# method self.js judges, the facts git reads for a checkout or a vgshell-git
+# package, else the newest release, and self.js's report, which judges
+# `behind`. A step's refusal is the report's error.
+self_status() { # FORMAT
+  local version checkout=false method=- package=- current=- latest=- count=- error=- manager
+  version="$(version_line)" || exit 1
+  tree_is_checkout && checkout=true
+  if step_run node "$self_judge" detect "$root" "$data_home" "$version" "$checkout"; then
+    read -r method package current manager <<<"$step_out"
+    if [[ $method == checkout ]]; then
+      if step_run describe_of "$version" HEAD; then
+        current="$step_out"
+        if step_run self_checkout_probe "$version"; then read -r latest count <<<"$step_out"; else error="$step_error"; fi
+      else
+        error="$step_error"
+      fi
+    elif [[ $package == vgshell-git ]]; then
+      if step_run self_main_commit; then latest="$step_out"; else error="$step_error"; fi
+    elif step_run node "$self_judge" latest "$self_repository"; then
+      latest="$step_out"
+    else
+      error="$step_error"
+    fi
+  else
+    error="$step_error"
+  fi
+  node "$self_judge" report "$1" "$version" "$method" "$package" "$current" "$latest" "$count" "$error"
+}
+
+# Hold the self-update lock on descriptor 8 until this process exits or
+# closes it, so no two updates replace one install at once. A held lock
+# refuses with self=busy.
+self_lock_hold() {
+  mkdir -p -- "$data_home/vgshell" 2>/dev/null && { exec 8>>"$self_lock"; } 2>/dev/null ||
+    refuse 1 "self=lock-failed path=$self_lock"
+  flock -n 8 || refuse 75 "self=busy path=$self_lock" "another vgshell self update runs"
+}
+
+# Prints the tree the running shell was started from, read from its
+# command line, `qs -p <tree>/shell`, as `run` execs it; `-` with no shell
+# running. A command line with no such argument refuses: the update would
+# not know which tree to keep.
+shell_tree() {
+  local pid arg previous=""
+  if ! pid="$(shell_pid 2>/dev/null)"; then echo -; return 0; fi
+  while IFS= read -r -d '' arg; do
+    if [[ $previous == -p && $arg == */shell ]]; then
+      printf '%s\n' "${arg%/shell}"
+      return 0
+    fi
+    previous="$arg"
+  done <"/proc/$pid/cmdline" || true
+  refuse 1 "shell=unreadable pid=$pid" "the running shell's command line names no tree; stop it before updating"
+}
+
+# After an update, restart a running shell through VGSHELL, the updated tree's
+# command, whose restart status becomes this command's; with no shell
+# running, say so.
+self_restart() { # VGSHELL
+  if ! shell_pid >/dev/null 2>&1; then echo "shell=not-running"; return 0; fi
+  exec "$1" restart
+}
+
+# After an update, run the updated tree's pending migrations through
+# MIGRATE, its bin/vgshell-migrate, before the restart. A failed one is
+# reported and left for the next `vgshell run`, which runs it again; the
+# update itself stands.
+self_migrate() { # MIGRATE
+  "$1" run || printf 'vgshell: migrate=failed status=%s\n' "$?" >&2
+}
+
+# Updates this tree as its install method allows, as the header states.
+self_update() {
+  local version checkout=false line method package manager out running
+  version="$(version_line)" || exit 1
+  tree_is_checkout && checkout=true
+  line="$(node "$self_judge" detect "$root" "$data_home" "$version" "$checkout")" || exit 1
+  read -r method package _ manager <<<"$line"
+  case "$method" in
+    checkout)
+      fast_forward "$root" vgshell trusted
+      if [[ $ff_old == "$ff_new" ]]; then echo "ok up-to-date=vgshell"; return 0; fi
+      echo "ok updated=vgshell from=${ff_old:0:12} to=${ff_new:0:12}"
+      self_migrate "$root/bin/vgshell-migrate"
+      self_restart "$root/bin/vgshell"
+      ;;
+    curl)
+      self_lock_hold
+      running="$(shell_tree)" || exit 1
+      out="$(node "$self_judge" install "$self_repository" "$data_home" "$root" "$version" "$running")" || exit 1
+      printf '%s\n' "$out"
+      [[ $out == "ok updated="* ]] || return 0
+      exec 8>&-
+      self_migrate "$data_home/vgshell/current/bin/vgshell-migrate"
+      self_restart "$data_home/vgshell/current/bin/vgshell"
+      ;;
+    package)
+      refuse 1 "method=package package=$package manager=$manager" \
+        "$manager owns this tree: update the $package package with the package manager that installed it; vgshell self update changes no package"
+      ;;
+    nix)
+      refuse 1 "method=nix" \
+        "the Nix store owns this tree: update the flake that installed it and rebuild; vgshell self update changes no store path"
+      ;;
+    *) refuse 1 "method=$method reason=unknown" "self.js printed: $line" ;;
+  esac
+}
+
+# Hyprland's monitors, as `hyprctl -j monitors` prints them, asked up to
+# supervise_compositor_tries times supervise_compositor_gap seconds apart.
+# Returns 1 when no try answered with a JSON list. Every external command
+# `run` starts while it holds the instance lock closes descriptor 9 first,
+# so no program it starts holds the lock; a `$(...)` subshell of the runner
+# holds the descriptor only while the runner waits on it.
+compositor_monitors() {
+  local try out
+  for ((try = 1; try <= supervise_compositor_tries; try++)); do
+    if out="$(hyprctl -j monitors 2>/dev/null 9>&-)" && [[ $out == \[* ]]; then
+      printf '%s\n' "$out"
+      return 0
+    fi
+    if ((try < supervise_compositor_tries)); then sleep "$supervise_compositor_gap" 9>&-; fi
+  done
+  return 1
+}
+
+# Whether Hyprland's monitors TEXT shows a session lock: `locked`,
+# `unlocked` or `unknown`, as the core's one reading,
+# shell/Commons/SessionLockState.js, judges it for the core's session lock
+# and the lock plugin's stranded-lock check
+# (docs/architecture/lock-polkit.md). `unknown` too when node cannot run
+# the judge, whose own error passes through on stderr.
+session_lock_state() { # TEXT
+  node -e 'let text = "";
+process.stdin.setEncoding("utf8").on("data", d => { text += d; }).on("end", () => {
+  process.stdout.write(require(process.argv[1]).load(process.argv[2]).read(text) + "\n");
+});' "$root/bin/lib/qml-library.js" "$shell_dir/Commons/SessionLockState.js" <<<"$1" 9>&- || echo unknown
+}
+
+# One start of the shell under the held instance lock. The lock file is
+# emptied first, since the child appends its pid through descriptor 9.
+shell_launch() {
+  local stale
+  # The shell watches files in both directories and the floating TUIs'
+  # exit records in the third from its start. A watch on a file whose
+  # directory is absent never fires once the directory appears, and a
+  # folder listing of an absent directory lists the working directory:
+  # docs/architecture/runtime-qml.md.
+  mkdir -p -- "$config_home/vgshell" "$state_home/vgshell" "$rt_dir/vgshell/tui" 9>&-
+  truncate -s 0 -- "$lock" 9>&-
+  # The lock proves no runner-started shell is alive, so every source
+  # snapshot root under the runtime dir belongs to a dead shell.
+  for stale in "$rt_dir"/vgshell-sources-*; do
+    [[ -e $stale || -L $stale ]] || continue
+    rm -rf -- "${stale:?}" 9>&-
+  done
+  # PipeWire that is not there when a plugin first reads it is connected
+  # once its socket appears, as a lost connection is
+  # (docs/architecture/runtime-devices.md).
+  export QS_PIPEWIRE_IMMEDIATE_RECONNECT=1
+  # The shell runs as this process's child and never in its place: this
+  # process keeps descriptor 9, and the child closes its copy before it
+  # execs, so no process the shell starts holds the lock, and the lock
+  # frees when this process exits after the shell:
+  # docs/decisions/D053-runner-holds-the-instance-lock.md. The child
+  # writes its own pid as the lock file's only line and exports it as
+  # VGSHELL_RUNNER_PID before it execs, so the file names the shell before
+  # the shell starts, and the shell proves it is the lock holder's child
+  # by comparing that value with its own pid. setpriv execs qs in the
+  # same process with TERM as its parent-death signal, so a runner killed
+  # with SIGKILL takes the shell with it and never leaves a guarded shell
+  # with the lock free.
+  # A Quickshell reload while the session lock is live can unlock it.
+  (
+    printf '%s\n' "$BASHPID" >&9
+    exec 9>&-
+    VGSHELL_RUNNER_PID=$BASHPID QS_DISABLE_FILE_WATCHER=1 QS_NO_RELOAD_POPUP=1 exec setpriv --pdeathsig TERM -- qs -p "$shell_dir"
+  ) &
+  shell_child=$!
+}
+
+# `run` after it took the lock: start the shell, wait on it, and start it
+# again after an exit as the supervision table decides; exits with the last
+# shell's status (docs/decisions/D069-runner-supervises-the-shell.md).
+# Quickshell 0.3.1 execs itself again in the same pid after a crash signal
+# once it has run 10 s, so only the exits it leaves reach this wait: a
+# crash sooner, SIGKILL, and Qt's _exit when the Wayland connection fails.
+#
+# bash starts a background job with INT and QUIT ignored, so every stop
+# signal reaches the shell as TERM. A trapped signal ends `wait` early with
+# no status of the shell's; bash keeps that status for the next `wait`, and
+# a `wait` on a pid that is not its child answers 127. stop records the
+# stop signal for good. A trap waits for the foreground command it lands
+# in, such as the session read, so stop is read again once the delay's
+# sleep has started and before any report: a stop from then on ends this
+# process at once, gives up nothing and starts no shell.
+shell_supervise() {
+  local streak=0 started_us ran_ms monitors session delay backoff notice reply
+  stop=""
+  shell_child=""
+  trap 'stop=1; forwarded=1; [[ -z $shell_child ]] || kill -TERM "$shell_child" 2>/dev/null || :' HUP INT TERM
+  while :; do
+    started_us="${EPOCHREALTIME//[!0-9]/}"
+    shell_launch
+    [[ -z $stop ]] || kill -TERM "$shell_child" 2>/dev/null || :
+    while :; do
+      forwarded=""
+      shell_status=0
+      wait "$shell_child" || shell_status=$?
+      [[ -n $forwarded ]] || break
+    done
+    shell_child=""
+    # The dead shell's pid, which the kernel may give another process, is
+    # named nowhere once the shell has exited, whatever comes next.
+    truncate -s 0 -- "$lock" 9>&-
+    ran_ms=$(( (${EPOCHREALTIME//[!0-9]/} - started_us) / 1000 ))
+    # A stop, and a clean exit, which only a deliberate stop gives.
+    [[ -z $stop && $shell_status != 0 ]] || break
+    if ! monitors="$(compositor_monitors)"; then
+      printf 'vgshell: shell=exited status=%s hyprland=gone\n' "$shell_status" >&2
+      break
+    fi
+    [[ -z $stop ]] || break
+    ((ran_ms < supervise_healthy_ms)) || streak=0
+    streak=$((streak + 1))
+    session="$(session_lock_state "$monitors")"
+    # Only a session read as unlocked may be left with no shell: a dead
+    # shell's lock stays behind Hyprland's own screen, which only a new
+    # lock client or a TTY clears. A stop is no give-up and shows no notice.
+    if [[ -z $stop ]] && ((streak > ${#supervise_delays[@]})) && [[ $session == unlocked ]]; then
+      printf 'vgshell: shell=gave-up exits=%s status=%s\n' "$streak" "$shell_status" >&2
+      printf -v notice "$supervise_notice" "$streak"
+      reply="$(hyprctl notify 3 "$supervise_notice_ms" 0 "$notice" 2>&1 9>&-)" || :
+      [[ $reply == ok ]] || printf 'vgshell: notice=failed reply=%s\n' "${reply//$'\n'/\\n}" >&2
+      break
+    fi
+    if ((streak <= ${#supervise_delays[@]})); then delay="${supervise_delays[streak - 1]}"; else delay="${supervise_delays[-1]}"; fi
+    sleep "$delay" 9>&- &
+    backoff=$!
+    # A stop the trap took before the sleep started, as during the session
+    # read, which the wait below would no longer see.
+    if [[ -n $stop ]]; then kill "$backoff" 2>/dev/null || :; break; fi
+    printf 'vgshell: shell=exited status=%s relaunch=%s delay=%s session=%s\n' "$shell_status" "$streak" "$delay" "$session" >&2
+    wait "$backoff" || :
+    if [[ -n $stop ]]; then
+      kill "$backoff" 2>/dev/null || :
+      break
+    fi
+  done
+  exit "$shell_status"
+}
+
+cmd="${1:-}"
+[[ $# -gt 0 ]] && shift
+case "$cmd" in
+  run)
+    if [[ $# -gt 0 ]]; then
+      printf 'vgshell: refused: argument=%s\nrun takes no arguments; the shell runs in the foreground under the runner\n' "$1" >&2
+      exit 2
+    fi
+    # First, so a refused run takes no lock, creates no directory and
+    # removes no snapshot root.
+    preflight
+    # Opened for append so a runner that loses the race never truncates the
+    # holder's pid; only the holder rewrites the file.
+    exec 9>>"$lock"
+    if ! flock -n 9; then
+      printf 'vgshell: refused: lock=%s\nanother vgshell run holds the instance lock; one shell per session\n' "$lock" >&2
+      exit 75
+    fi
+    "$root/bin/vgshell-migrate" run --notice 9>&- || printf 'vgshell: migrate=failed status=%s\n' "$?" >&2
+    shell_supervise
+    ;;
+  migrate)
+    case "${1:-}" in
+      "") exec "$root/bin/vgshell-migrate" run ;;
+      --pending) shift; exec "$root/bin/vgshell-migrate" pending "$@" ;;
+      *) refuse 2 "argument=$1" "migrate takes only --pending" ;;
+    esac
+    ;;
+  restart)
+    if [[ $# -gt 0 ]]; then
+      refuse 2 "argument=$1" "restart takes no arguments"
+    fi
+    # Before the stop: the relaunched `vgshell run` would refuse below the
+    # floor and leave no shell.
+    preflight
+    shell_restart
+    ;;
+  pid)
+    pid="$(shell_pid)" || exit $?
+    printf '%s\n' "$pid"
+    ;;
+  ipc)
+    pid="$(shell_pid)" || exit $?
+    # Captured, not exec'd: qs exits 0 on a client failure, so vgshell
+    # judges the last stdout line and passes qs's status on otherwise.
+    set +e
+    out="$(qs ipc --pid "$pid" "$@")"
+    status=$?
+    set -e
+    [[ -z $out ]] || printf '%s\n' "$out"
+    vgs_ipc_last_line_into "$out"
+    if ipc_reply_failure_reason "$(ipc_arg_label "$@")" "$vgs_ipc_last_line"; then
+      exit 69
+    fi
+    exit "$status"
+    ;;
+  log)
+    pid="$(shell_pid)" || exit $?
+    exec qs log --pid "$pid" "$@"
+    ;;
+  plugin)
+    sub="${1:-}"
+    [[ $# -gt 0 ]] && shift
+    case "$sub" in
+      list)
+        # Captured first so the not-running exit code is the command's, not
+        # the formatter's.
+        reply="$(ipc shell listPlugins)" || exit $?
+        node "$judge" list <<<"$reply"
+        ;;
+      requirements)
+        format=text
+        if [[ ${1:-} == --json ]]; then format=json; shift; fi
+        id="${1:-}"
+        if [[ -z $id ]]; then printf 'vgshell: refused: id=missing\n' >&2; usage; exit 2; fi
+        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; usage; exit 2; fi
+        scan="$(plugin_scan)" || exit 1
+        node "$judge" requirements "$format" "$root/config/shell.json" "$config_home/vgshell/shell.json" "$id" <<<"$scan"
+        ;;
+      settings)
+        id="${1:-}"
+        if [[ -z $id ]]; then printf 'vgshell: refused: id=missing\n' >&2; usage; exit 2; fi
+        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; usage; exit 2; fi
+        scan="$(plugin_scan)" || exit 1
+        node "$judge" settings "$root/config/shell.json" "$config_home/vgshell/shell.json" "$id" <<<"$scan"
+        ;;
+      rescan)
+        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; usage; exit 2; fi
+        rescan_if_running
+        ;;
+      enable|disable)
+        id="${1:-}"
+        if [[ -z $id ]]; then printf 'vgshell: refused: id=missing\n' >&2; usage; exit 2; fi
+        enabled=true; [[ $sub == disable ]] && enabled=false
+        reply="$(ipc shell setPluginEnabled "$id" "$enabled")" || exit $?
+        case "$reply" in
+          ok) echo ok ;;
+          "ok hidden="*) echo "$reply"; echo "those bar widgets stay enabled and return when a bar is enabled" ;;
+          *) printf 'vgshell: refused: %s\n' "$reply" >&2; exit 1 ;;
+        esac
+        ;;
+      add)
+        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; usage; exit 2; fi
+        url="${1:-}"
+        if [[ -z $url ]]; then url="$(ask_url plugin)" || exit $?; fi
+        plugin_add "$url"
+        ;;
+      update|remove)
+        if [[ ${1:-} == --yes ]]; then assume_yes=1; shift; fi
+        id="${1:-}"
+        if [[ -z $id ]]; then printf 'vgshell: refused: id=missing\n' >&2; usage; exit 2; fi
+        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; usage; exit 2; fi
+        "plugin_$sub" "$id"
+        ;;
+      validate)
+        dir="${1:-}"
+        if [[ -z $dir ]]; then printf 'vgshell: refused: dir=missing\n' >&2; usage; exit 2; fi
+        exec node "$manifest_check" -- "$dir"
+        ;;
+      outdated)
+        format=text
+        if [[ ${1:-} == --json ]]; then format=json; shift; fi
+        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; usage; exit 2; fi
+        plugin_outdated "$format"
+        ;;
+      *)
+        printf 'vgshell: refused: plugin-subcommand=%s\n' "${sub:-missing}" >&2; usage; exit 2
+        ;;
+    esac
+    ;;
+  theme)
+    sub="${1:-}"
+    [[ $# -gt 0 ]] && shift
+    format=text
+    if [[ ${1:-} == --json ]]; then format=json; shift; fi
+    case "$sub" in
+      list)
+        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; usage; exit 2; fi
+        exec node "$theme_judge" list "$format" "$config_home/vgshell" "$state_home/vgshell"
+        ;;
+      apply)
+        name="${1:-}"
+        if [[ -z $name ]]; then printf 'vgshell: refused: name=missing\n' >&2; usage; exit 2; fi
+        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; usage; exit 2; fi
+        theme_lock_verdict
+        exec node "$theme_judge" apply "$format" "$config_home/vgshell" "$state_home/vgshell" "$verdict" "$name"
+        ;;
+      reload)
+        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; usage; exit 2; fi
+        theme_lock_verdict
+        exec node "$theme_judge" reload "$format" "$config_home/vgshell" "$state_home/vgshell" "$verdict"
+        ;;
+      follow)
+        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; usage; exit 2; fi
+        theme_lock_verdict
+        exec node "$theme_judge" follow "$format" "$config_home/vgshell" "$state_home/vgshell" "$verdict"
+        ;;
+      background)
+        verb="${1:-}"
+        [[ $# -gt 0 ]] && shift
+        case "$verb" in
+          next|previous)
+            if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; usage; exit 2; fi
+            theme_lock_verdict
+            exec node "$theme_judge" background "$format" "$verb" "$config_home/vgshell" "$state_home/vgshell" "$verdict"
+            ;;
+          set)
+            image="${1:-}"
+            if [[ -z $image ]]; then printf 'vgshell: refused: path=missing\n' >&2; usage; exit 2; fi
+            shift
+            screen=()
+            if [[ ${1:-} == --screen ]]; then
+              if [[ -z ${2:-} ]]; then printf 'vgshell: refused: screen=missing\n' >&2; usage; exit 2; fi
+              screen=(--screen "$2")
+              shift 2
+            elif [[ ${1:-} == --every-screen ]]; then
+              screen=(--every-screen)
+              shift
+            fi
+            if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; usage; exit 2; fi
+            theme_lock_verdict
+            exec node "$theme_judge" background "$format" set "$config_home/vgshell" "$state_home/vgshell" "$verdict" "$image" "${screen[@]}"
+            ;;
+          list)
+            scope=applied
+            if [[ ${1:-} == --all ]]; then scope=all; shift; fi
+            if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; usage; exit 2; fi
+            exec node "$theme_judge" background "$format" list "$config_home/vgshell" "$state_home/vgshell" "$scope"
+            ;;
+          *)
+            printf 'vgshell: refused: background-subcommand=%s\n' "${verb:-missing}" >&2; usage; exit 2
+            ;;
+        esac
+        ;;
+      browser-policy)
+        [[ $format == json ]] && { printf 'vgshell: refused: argument=--json\n' >&2; usage; exit 2; }
+        if [[ ${1:-} != install ]]; then printf 'vgshell: refused: browser-policy-subcommand=%s\n' "${1:-missing}" >&2; usage; exit 2; fi
+        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; usage; exit 2; fi
+        exec "$root/bin/vgshell-browser-policy" install
+        ;;
+      catalog)
+        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; usage; exit 2; fi
+        exec node "$theme_judge" catalog "$format" "$config_home/vgshell"
+        ;;
+      setup)
+        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; usage; exit 2; fi
+        exec node "$theme_judge" setup "$format"
+        ;;
+      install)
+        name="${1:-}"
+        if [[ -z $name ]]; then printf 'vgshell: refused: name=missing\n' >&2; usage; exit 2; fi
+        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; usage; exit 2; fi
+        theme_install "$format" "$name"
+        ;;
+      add|update|remove)
+        [[ $format == json ]] && { printf 'vgshell: refused: argument=--json\n' >&2; usage; exit 2; }
+        if [[ $sub == update && ${1:-} == --yes ]]; then assume_yes=1; shift; fi
+        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; usage; exit 2; fi
+        arg="${1:-}"
+        prompted=0
+        if [[ -z $arg && $sub == add ]]; then arg="$(ask_url theme)" || exit $?; prompted=1; fi
+        if [[ -z $arg ]]; then printf 'vgshell: refused: name=missing\n' >&2; usage; exit 2; fi
+        "theme_$sub" "$arg"
+        if [[ $sub == add && $prompted == 1 ]]; then offer_theme_apply "$theme_added"; fi
+        ;;
+      outdated)
+        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; usage; exit 2; fi
+        theme_outdated "$format"
+        ;;
+      wallpapers)
+        name=""; mode=install
+        for arg in "$@"; do
+          if [[ $arg == --update && $mode == install ]]; then mode=update
+          elif [[ -z $name && $arg != --* ]]; then name="$arg"
+          else printf 'vgshell: refused: argument=%s\n' "$arg" >&2; usage; exit 2
+          fi
+        done
+        if [[ -z $name ]]; then printf 'vgshell: refused: name=missing\n' >&2; usage; exit 2; fi
+        theme_wallpapers "$format" "$name" "$mode"
+        ;;
+      preview)
+        name="${1:-}"
+        if [[ -z $name ]]; then printf 'vgshell: refused: name=missing\n' >&2; usage; exit 2; fi
+        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; usage; exit 2; fi
+        theme_preview "$format" "$name"
+        ;;
+      *)
+        printf 'vgshell: refused: theme-subcommand=%s\n' "${sub:-missing}" >&2; usage; exit 2
+        ;;
+    esac
+    ;;
+  hypr)
+    sub="${1:-}"
+    [[ $# -gt 0 ]] && shift
+    if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; usage; exit 2; fi
+    case "$sub" in
+      state|wire|unwire)
+        exec node "$hypr_judge" "$sub" "$config_home" "$state_home/vgshell"
+        ;;
+      render)
+        reply="$(ipc shell renderHyprland)" || exit $?
+        case "$reply" in
+          ok) echo ok ;;
+          *) printf 'vgshell: refused: %s\n' "${reply#refused: }" >&2; exit 1 ;;
+        esac
+        ;;
+      *)
+        printf 'vgshell: refused: hypr-subcommand=%s\n' "${sub:-missing}" >&2; usage; exit 2
+        ;;
+    esac
+    ;;
+  pkg)
+    exec node "$root/bin/vgshell-pkg" "$@"
+    ;;
+  doctor)
+    format=text
+    if [[ ${1:-} == --json ]]; then format=json; shift; fi
+    if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; usage; exit 2; fi
+    scan="$(plugin_scan)" || exit 1
+    node "$judge" doctor "$format" "$root/config/shell.json" "$config_home/vgshell/shell.json" "$root/config/requirements.json" "$(graphical_session)" <<<"$scan"
+    ;;
+  lock)
+    exec "$root/bin/vgshell-lock" "$@"
+    ;;
+  sudo)
+    case "${1:-}" in
+      status|grant|revoke|install|uninstall) exec "$root/bin/vgshell-sudo-grant" "$@" ;;
+      *) printf 'vgshell: refused: sudo-subcommand=%s\n' "${1:-missing}" >&2; usage; exit 2 ;;
+    esac
+    ;;
+  system)
+    case "${1:-}" in
+      status|apply|undo) exec "$root/bin/vgshell-system" "$@" ;;
+      *) printf 'vgshell: refused: system-subcommand=%s\n' "${1:-missing}" >&2; usage; exit 2 ;;
+    esac
+    ;;
+  tui)
+    sub="${1:-}"
+    [[ $# -gt 0 ]] && shift
+    case "$sub" in
+      present) ;;
+      list)
+        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; usage; exit 2; fi
+        reply="$(ipc shell listTuis)" || exit $?
+        node "$judge" tuis <<<"$reply"
+        exit
+        ;;
+      open)
+        if [[ $# -eq 0 ]]; then printf 'vgshell: refused: key=missing\n' >&2; usage; exit 2; fi
+        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; usage; exit 2; fi
+        reply="$(ipc shell openTui "$1")" || exit $?
+        case "$reply" in
+          ok) echo ok; exit 0 ;;
+          *) printf 'vgshell: refused: %s\n' "${reply#refused: }" >&2; exit 1 ;;
+        esac
+        ;;
+      *) printf 'vgshell: refused: tui-subcommand=%s\n' "${sub:-missing}" >&2; usage; exit 2 ;;
+    esac
+    title="" size=default
+    while [[ $# -gt 0 && $1 != -- ]]; do
+      case "$1" in
+        --title|--size)
+          if [[ $# -lt 2 ]]; then printf 'vgshell: refused: option=%s value=missing\n' "$1" >&2; usage; exit 2; fi
+          if [[ $1 == --title ]]; then title="$2"; else size="$2"; fi
+          shift 2
+          ;;
+        *) printf 'vgshell: refused: argument=%s\n' "$1" >&2; usage; exit 2 ;;
+      esac
+    done
+    if [[ $# -lt 2 ]]; then printf 'vgshell: refused: command=missing\n' >&2; usage; exit 2; fi
+    shift
+    exec "$root/bin/vgshell-tui" launch --title "${title:-${1##*/}}" --size "$size" --presentation full -- "$@"
+    ;;
+  self)
+    sub="${1:-}"
+    [[ $# -gt 0 ]] && shift
+    case "$sub" in
+      status)
+        format=text
+        if [[ ${1:-} == --json ]]; then format=json; shift; fi
+        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; usage; exit 2; fi
+        self_status "$format"
+        ;;
+      update)
+        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; usage; exit 2; fi
+        self_update
+        ;;
+      *)
+        printf 'vgshell: refused: self-subcommand=%s\n' "${sub:-missing}" >&2; usage; exit 2
+        ;;
+    esac
+    ;;
+  -h|--help|help)
+    usage; exit 0
+    ;;
+  --version|version)
+    format=text
+    if [[ $cmd == version && ${1:-} == --json ]]; then format=json; shift; fi
+    if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; usage; exit 2; fi
+    version_report "$format"
+    ;;
+  *)
+    printf 'vgshell: refused: command=%s\n' "${cmd:-missing}" >&2; usage; exit 2
+    ;;
+esac

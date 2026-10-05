@@ -45,17 +45,17 @@ check "the installer reports the staged root" grep_out "install-system: ok prefi
 run_capture "$tmp/check.out" "$tmp/check.err" status "$repo/scripts/check-install-tree.sh" "$dest" /usr
 check "the committed manifest matches the installed tree" test "$status" = 0
 check "the checker reports the manifest it used" grep_out "install-tree=ok root=$dest/usr manifest=$repo/packaging/install-tree.manifest" "$tmp/check.out"
-check "the command link points into share/vgs" test "$(readlink -- "$dest/usr/bin/vgsh")" = "../share/vgs/bin/vgsh"
-check "the installed command reads VERSION from the install tree" test "$("$dest/usr/bin/vgsh" --version)" = "vgs $(<"$repo/VERSION")"
-check "shell AGENTS.md is not installed" test ! -e "$dest/usr/share/vgs/shell/AGENTS.md"
-check "shell CLAUDE.md is not installed" test ! -e "$dest/usr/share/vgs/shell/CLAUDE.md"
-check "shell plugin README.md is not installed" test ! -e "$dest/usr/share/vgs/shell/plugins/vgs.bar/README.md"
-check "a plugin's other Markdown is not installed" test ! -e "$dest/usr/share/vgs/shell/plugins/vgs.updates/pipeline.md"
-check "the core input resolver is installed" test -e "$dest/usr/share/vgs/bin/lib/xkb-keys.py"
-check "Jarvis input guidance is installed" test -e "$dest/usr/share/vgs/shell/plugins/vgs.jarvis/backend/skills/computer/input.md"
-check "Jarvis screen guidance is installed" test -e "$dest/usr/share/vgs/shell/plugins/vgs.jarvis/backend/skills/computer/vision.md"
-check "installed computer help reads its packaged files" "$node_bin" -e 'const h=require(process.argv[1]).create(); if(JSON.stringify(h.topics)!==JSON.stringify(["input","shell","vision"]))process.exit(1); h.start({id:"help",args:{topic:"input"}},r=>{if(r.outcome!=="completed"||!r.content.includes("input.text"))process.exit(1)}); h.start({id:"help",args:{topic:"shell"}},r=>{if(r.outcome!=="completed"||!r.content.includes("shell.argv"))process.exit(1)}); h.start({id:"help",args:{topic:"vision"}},r=>{if(r.outcome!=="completed"||!r.content.includes("vision.area"))process.exit(1)});' "$dest/usr/share/vgs/shell/plugins/vgs.jarvis/backend/ComputerHelp.js"
-check "Jarvis runtime guidance is installed" test -e "$dest/usr/share/vgs/shell/plugins/vgs.jarvis/backend/skills/voice/core.md"
+check "the command link points into share/vgshell" test "$(readlink -- "$dest/usr/bin/vgshell")" = "../share/vgshell/bin/vgshell"
+check "the installed command reads VERSION from the install tree" test "$("$dest/usr/bin/vgshell" --version)" = "vgshell $(<"$repo/VERSION")"
+check "shell AGENTS.md is not installed" test ! -e "$dest/usr/share/vgshell/shell/AGENTS.md"
+check "shell CLAUDE.md is not installed" test ! -e "$dest/usr/share/vgshell/shell/CLAUDE.md"
+check "shell plugin README.md is not installed" test ! -e "$dest/usr/share/vgshell/shell/plugins/vgs.bar/README.md"
+check "a plugin's other Markdown is not installed" test ! -e "$dest/usr/share/vgshell/shell/plugins/vgs.updates/pipeline.md"
+check "the core input resolver is installed" test -e "$dest/usr/share/vgshell/bin/lib/xkb-keys.py"
+check "Jarvis input guidance is installed" test -e "$dest/usr/share/vgshell/shell/plugins/vgs.jarvis/backend/skills/computer/input.md"
+check "Jarvis screen guidance is installed" test -e "$dest/usr/share/vgshell/shell/plugins/vgs.jarvis/backend/skills/computer/vision.md"
+check "installed computer help reads its packaged files" "$node_bin" -e 'const h=require(process.argv[1]).create(); if(JSON.stringify(h.topics)!==JSON.stringify(["input","shell","vision"]))process.exit(1); h.start({id:"help",args:{topic:"input"}},r=>{if(r.outcome!=="completed"||!r.content.includes("input.text"))process.exit(1)}); h.start({id:"help",args:{topic:"shell"}},r=>{if(r.outcome!=="completed"||!r.content.includes("shell.argv"))process.exit(1)}); h.start({id:"help",args:{topic:"vision"}},r=>{if(r.outcome!=="completed"||!r.content.includes("vision.area"))process.exit(1)});' "$dest/usr/share/vgshell/shell/plugins/vgs.jarvis/backend/ComputerHelp.js"
+check "Jarvis runtime guidance is installed" test -e "$dest/usr/share/vgshell/shell/plugins/vgs.jarvis/backend/skills/voice/core.md"
 browser_standins="$tmp/browser-standins"
 mkdir -p -- "$browser_standins"
 cp -- "$repo/scripts/fixtures/jarvis/browser.py" "$browser_standins/agent-browser"
@@ -64,7 +64,7 @@ chmod 700 "$browser_standins/agent-browser" "$browser_standins/gum"
 run_capture "$tmp/browser.out" "$tmp/browser.err" status env -i PATH=/usr/bin:/bin \
   JARVIS_TEST_SCRATCH_ROOT="${JARVIS_TEST_SCRATCH_ROOT:-$repo/tmp}" \
   "$repo/scripts/lib/jarvis-env.sh" "$browser_standins" -- node \
-  "$repo/scripts/test-jarvis-browser-setup.js" --inside "$dest/usr/share/vgs"
+  "$repo/scripts/test-jarvis-browser-setup.js" --inside "$dest/usr/share/vgshell"
 if [[ $status == 77 ]]; then
   unavailable=true
   echo "test-install-tree: browser=unavailable exit=77"
@@ -72,15 +72,15 @@ else
   if [[ $status != 0 ]]; then cat -- "$tmp/browser.err" >&2; fi
   check "installed browser setup and stub reach their real consumer" test "$status" = 0
 fi
-check "Jarvis shell reference is installed" test -e "$dest/usr/share/vgs/shell/plugins/vgs.jarvis/backend/skills/computer/shell.md"
-run_capture "$tmp/guidance.out" "$tmp/guidance.err" status "${voice_command[@]}" "$dest/usr/share/vgs"
+check "Jarvis shell reference is installed" test -e "$dest/usr/share/vgshell/shell/plugins/vgs.jarvis/backend/skills/computer/shell.md"
+run_capture "$tmp/guidance.out" "$tmp/guidance.err" status "${voice_command[@]}" "$dest/usr/share/vgshell"
 check "installed guidance composes every consumer without source-tree files" test "$status" = 0
 setup_standins="$tmp/setup-standins"
 mkdir -p -- "$setup_standins"
 run_capture "$tmp/setup.out" "$tmp/setup.err" status env -i PATH=/usr/bin:/bin \
   JARVIS_TEST_SCRATCH_ROOT="${JARVIS_TEST_SCRATCH_ROOT:-$repo/tmp}" \
   "$repo/scripts/lib/jarvis-env.sh" "$setup_standins" -- python3 \
-  "$repo/scripts/fixtures/jarvis-setup/installed.py" "$dest/usr/share/vgs"
+  "$repo/scripts/fixtures/jarvis-setup/installed.py" "$dest/usr/share/vgshell"
 if [[ $status != 0 ]]; then cat -- "$tmp/setup.err" >&2; fi
 if [[ $status == 77 ]]; then
   unavailable=true
@@ -99,11 +99,11 @@ check "the resolved runtime stays outside the system directories" grep_out "$pri
 private_voice=("${voice_command[@]}")
 private_voice[2]="PATH=$empty_path"
 private_voice[3]="$(<"$tmp/private-node.out")"
-run_capture "$tmp/private-voice.out" "$tmp/private-voice.err" status "${private_voice[@]}" "$dest/usr/share/vgs"
+run_capture "$tmp/private-voice.out" "$tmp/private-voice.err" status "${private_voice[@]}" "$dest/usr/share/vgshell"
 check "the installed consumer uses resolved Node with no Node on PATH" test "$status" = 0
 check "the non-system runtime reaches the real installed consumer" grep_out "jarvis-voice-installed=ok" "$tmp/private-voice.out"
 private_voice[3]=node
-run_capture "$tmp/private-voice-mutant.out" "$tmp/private-voice-mutant.err" status "${private_voice[@]}" "$dest/usr/share/vgs"
+run_capture "$tmp/private-voice-mutant.out" "$tmp/private-voice-mutant.err" status "${private_voice[@]}" "$dest/usr/share/vgshell"
 check "control: replacing resolved Node with a PATH lookup fails the consumer" test "$status" = 127
 
 # A version-manager shim can fail or return no runtime. Each copy changes
@@ -149,19 +149,19 @@ PY
     ok "control: a removed $node_case Node guard fails its keyed assertion"
   fi
 done
-check "root README.md is installed under doc" test -e "$dest/usr/share/doc/vgs/README.md"
-check "LICENSE is installed under licenses" test -e "$dest/usr/share/licenses/vgs/LICENSE"
+check "root README.md is installed under doc" test -e "$dest/usr/share/doc/vgshell/README.md"
+check "LICENSE is installed under licenses" test -e "$dest/usr/share/licenses/vgshell/LICENSE"
 
 run_capture "$tmp/rerun.out" "$tmp/rerun.err" status env DESTDIR="$dest" PREFIX=/usr "$repo/packaging/install-system.sh"
 check "rerunning over a non-empty runtime tree is refused" test "$status" = 1
-check "the rerun refusal names the runtime tree" grep_out "install-system: refused: target=not-empty path=$dest/usr/share/vgs" "$tmp/rerun.err"
+check "the rerun refusal names the runtime tree" grep_out "install-system: refused: target=not-empty path=$dest/usr/share/vgshell" "$tmp/rerun.err"
 
 link_dest="$tmp/link-target"
 mkdir -p "$link_dest/usr/bin"
-printf 'wrong\n' >"$link_dest/usr/bin/vgsh"
+printf 'wrong\n' >"$link_dest/usr/bin/vgshell"
 run_capture "$tmp/link-target.out" "$tmp/link-target.err" status env DESTDIR="$link_dest" PREFIX=/usr "$repo/packaging/install-system.sh"
 check "an existing non-link command path is refused" test "$status" = 1
-check "the command path refusal is keyed" grep_out "install-system: refused: link=unexpected path=$link_dest/usr/bin/vgsh" "$tmp/link-target.err"
+check "the command path refusal is keyed" grep_out "install-system: refused: link=unexpected path=$link_dest/usr/bin/vgshell" "$tmp/link-target.err"
 
 enum_dest="$tmp/enumerator"
 git_stub="$tmp/git-stub"; mkdir -p -- "$git_stub"
@@ -212,26 +212,26 @@ chmod -R u+w -- "$readonly_source"
 
 case_dest="$tmp/missing"
 cp -a -- "$dest" "$case_dest"
-rm -- "$case_dest/usr/share/vgs/VERSION"
+rm -- "$case_dest/usr/share/vgshell/VERSION"
 run_capture "$tmp/missing.out" "$tmp/missing.err" status "$repo/scripts/check-install-tree.sh" "$case_dest" /usr
 check "a missing manifest entry fails the checker" test "$status" = 1
-check "the missing line names the entry" grep_out "install-tree=missing entry=f share/vgs/VERSION" "$tmp/missing.out"
+check "the missing line names the entry" grep_out "install-tree=missing entry=f share/vgshell/VERSION" "$tmp/missing.out"
 
 case_dest="$tmp/extra"
 cp -a -- "$dest" "$case_dest"
-printf 'extra\n' >"$case_dest/usr/share/vgs/EXTRA"
+printf 'extra\n' >"$case_dest/usr/share/vgshell/EXTRA"
 run_capture "$tmp/extra.out" "$tmp/extra.err" status "$repo/scripts/check-install-tree.sh" "$case_dest" /usr
 check "an extra installed file fails the checker" test "$status" = 1
-check "the extra line names the entry" grep_out "install-tree=extra entry=f share/vgs/EXTRA" "$tmp/extra.out"
+check "the extra line names the entry" grep_out "install-tree=extra entry=f share/vgshell/EXTRA" "$tmp/extra.out"
 
 case_dest="$tmp/link"
 cp -a -- "$dest" "$case_dest"
-rm -- "$case_dest/usr/bin/vgsh"
-ln -s -- wrong "$case_dest/usr/bin/vgsh"
+rm -- "$case_dest/usr/bin/vgshell"
+ln -s -- wrong "$case_dest/usr/bin/vgshell"
 run_capture "$tmp/link.out" "$tmp/link.err" status "$repo/scripts/check-install-tree.sh" "$case_dest" /usr
 check "a wrong command link fails the checker" test "$status" = 1
-check "the checker reports the wanted link missing" grep_out "install-tree=missing entry=l bin/vgsh -> ../share/vgs/bin/vgsh" "$tmp/link.out"
-check "the checker reports the wrong link as extra" grep_out "install-tree=extra entry=l bin/vgsh -> wrong" "$tmp/link.out"
+check "the checker reports the wanted link missing" grep_out "install-tree=missing entry=l bin/vgshell -> ../share/vgshell/bin/vgshell" "$tmp/link.out"
+check "the checker reports the wrong link as extra" grep_out "install-tree=extra entry=l bin/vgshell -> wrong" "$tmp/link.out"
 
 writer="$tmp/writer"
 mkdir -p -- "$writer/scripts" "$writer/packaging"
@@ -261,7 +261,7 @@ run_capture "$tmp/mutant-install.out" "$tmp/mutant-install.err" status env DESTD
 check "the markdown-dropping mutant still installs" test "$status" = 0
 run_capture "$tmp/mutant-check.out" "$tmp/mutant-check.err" status "$repo/scripts/check-install-tree.sh" "$mutant_dest" /usr
 check "the manifest catches a mutant that installs shell markdown" test "$status" = 1
-check "the mutant's shell AGENTS.md is reported as extra" grep_out "install-tree=extra entry=f share/vgs/shell/AGENTS.md" "$tmp/mutant-check.out"
+check "the mutant's shell AGENTS.md is reported as extra" grep_out "install-tree=extra entry=f share/vgshell/shell/AGENTS.md" "$tmp/mutant-check.out"
 
 python3 - "$source_copy/packaging/install-system.sh" "$repo/packaging/install-system.sh" <<'PY'
 import pathlib
@@ -282,27 +282,27 @@ run_capture "$tmp/voice-install.out" "$tmp/voice-install.err" status env DESTDIR
 check "the guidance-dropping mutant still installs" test "$status" = 0
 run_capture "$tmp/voice-check.out" "$tmp/voice-check.err" status "$repo/scripts/check-install-tree.sh" "$mutant_dest" /usr
 check "the manifest catches dropped runtime guidance" test "$status" = 1
-check "the dropped core layer is reported as missing" grep_out "install-tree=missing entry=f share/vgs/shell/plugins/vgs.jarvis/backend/skills/voice/core.md" "$tmp/voice-check.out"
-run_capture "$tmp/voice-compose.out" "$tmp/voice-compose.err" status "${voice_command[@]}" "$mutant_dest/usr/share/vgs"
+check "the dropped core layer is reported as missing" grep_out "install-tree=missing entry=f share/vgshell/shell/plugins/vgs.jarvis/backend/skills/voice/core.md" "$tmp/voice-check.out"
+run_capture "$tmp/voice-compose.out" "$tmp/voice-compose.err" status "${voice_command[@]}" "$mutant_dest/usr/share/vgshell"
 check "the dropped-guidance mutant breaks the installed consumer" test "$status" = 1
 
 # A system package's install: SYSCONFDIR adds the browser theme writer, a
 # real copy, and the sudoers rule it prints for the prefix. A tree without
 # SYSCONFDIR holds neither.
-check "an install without SYSCONFDIR has no writer" test ! -e "$dest/usr/bin/vgs-browser-policy" -a ! -L "$dest/usr/bin/vgs-browser-policy"
+check "an install without SYSCONFDIR has no writer" test ! -e "$dest/usr/bin/vgshell-browser-policy" -a ! -L "$dest/usr/bin/vgshell-browser-policy"
 check "an install without SYSCONFDIR writes no /etc" test ! -e "$dest/etc"
 system_dest="$tmp/system"
 run_capture "$tmp/system.out" "$tmp/system.err" status env DESTDIR="$system_dest" PREFIX=/usr SYSCONFDIR=/etc "$repo/packaging/install-system.sh"
 check "the installer succeeds with SYSCONFDIR" test "$status" = 0
-check "the writer is a copy of bin/vgsh-browser-policy" cmp -s -- "$repo/bin/vgsh-browser-policy" "$system_dest/usr/bin/vgs-browser-policy"
-check "the installed rule is the writer's package rule for /usr" test "$(<"$system_dest/etc/sudoers.d/vgs-theme-browser")" = "$("$repo/bin/vgsh-browser-policy" package-rule /usr)"
+check "the writer is a copy of bin/vgshell-browser-policy" cmp -s -- "$repo/bin/vgshell-browser-policy" "$system_dest/usr/bin/vgshell-browser-policy"
+check "the installed rule is the writer's package rule for /usr" test "$(<"$system_dest/etc/sudoers.d/vgshell-theme-browser")" = "$("$repo/bin/vgshell-browser-policy" package-rule /usr)"
 check "the rule's directory has sudo's own mode" test "$(stat -c %a -- "$system_dest/etc/sudoers.d")" = 750
 run_capture "$tmp/system-check.out" "$tmp/system-check.err" status "$repo/scripts/check-install-tree.sh" "$system_dest" /usr /etc
 check "the system manifests match the system install" test "$status" = 0
 check "the system check names both manifests" grep_out "install-tree=ok root=$system_dest/usr manifest=$repo/packaging/install-tree.manifest,$repo/packaging/install-tree-system.manifest" "$tmp/system-check.out"
 run_capture "$tmp/system-base.out" "$tmp/system-base.err" status "$repo/scripts/check-install-tree.sh" "$system_dest" /usr
 check "the base check refuses the system install" test "$status" = 1
-check "the base check names the writer as extra" grep_out "install-tree=extra entry=f bin/vgs-browser-policy" "$tmp/system-base.out"
+check "the base check names the writer as extra" grep_out "install-tree=extra entry=f bin/vgshell-browser-policy" "$tmp/system-base.out"
 run_capture "$tmp/system-plain.out" "$tmp/system-plain.err" status "$repo/scripts/check-install-tree.sh" "$dest" /usr /etc
 check "the system check refuses a tree without /etc" test "$status" = 1
 check "the missing /etc refusal is keyed" grep_out "install-tree: refused: sysconfdir=missing path=$dest/etc" "$tmp/system-plain.err"
@@ -320,23 +320,23 @@ done
 # the rule's text, its mode and the writer as a link.
 case_dest="$tmp/system-wide"
 cp -a -- "$system_dest" "$case_dest"
-chmod u+w -- "$case_dest/etc/sudoers.d/vgs-theme-browser"
-sed -i 's/ \[0-9a-f\]\[0-9a-f\]\[0-9a-f\]\[0-9a-f\]\[0-9a-f\]\[0-9a-f\]$/ */' "$case_dest/etc/sudoers.d/vgs-theme-browser"
-chmod 0440 -- "$case_dest/etc/sudoers.d/vgs-theme-browser"
-check "the widened copy changed the rule" grep -q 'vgs-browser-policy \*$' "$case_dest/etc/sudoers.d/vgs-theme-browser"
+chmod u+w -- "$case_dest/etc/sudoers.d/vgshell-theme-browser"
+sed -i 's/ \[0-9a-f\]\[0-9a-f\]\[0-9a-f\]\[0-9a-f\]\[0-9a-f\]\[0-9a-f\]$/ */' "$case_dest/etc/sudoers.d/vgshell-theme-browser"
+chmod 0440 -- "$case_dest/etc/sudoers.d/vgshell-theme-browser"
+check "the widened copy changed the rule" grep -q 'vgshell-browser-policy \*$' "$case_dest/etc/sudoers.d/vgshell-theme-browser"
 run_capture "$tmp/system-wide.out" "$tmp/system-wide.err" status "$repo/scripts/check-install-tree.sh" "$case_dest" /usr /etc
 check "a widened rule fails the system check" test "$status" = 1
-check "the widened rule is named" grep_out "install-tree=rule-differs path=$case_dest/etc/sudoers.d/vgs-theme-browser" "$tmp/system-wide.out"
+check "the widened rule is named" grep_out "install-tree=rule-differs path=$case_dest/etc/sudoers.d/vgshell-theme-browser" "$tmp/system-wide.out"
 
 python3 - "$repo/packaging/install-system.sh" "$source_copy/packaging/install-system.sh" <<'PY'
 import pathlib
 import sys
 
 text = pathlib.Path(sys.argv[1]).read_text()
-needle = 'install -m 0440 -T /dev/stdin "$rule_dir/vgs-theme-browser"'
+needle = 'install -m 0440 -T /dev/stdin "$rule_dir/vgshell-theme-browser"'
 if text.count(needle) != 1:
     raise SystemExit("install-control: rule install did not occur once")
-changed = text.replace(needle, 'install -m 0644 -T /dev/stdin "$rule_dir/vgs-theme-browser"')
+changed = text.replace(needle, 'install -m 0644 -T /dev/stdin "$rule_dir/vgshell-theme-browser"')
 pathlib.Path(sys.argv[2]).write_text(changed)
 PY
 mutant_dest="$tmp/rule-mode-mutant"
@@ -344,17 +344,17 @@ run_capture "$tmp/rule-mode-install.out" "$tmp/rule-mode-install.err" status env
 check "the readable-rule mutant still installs" test "$status" = 0
 run_capture "$tmp/rule-mode-check.out" "$tmp/rule-mode-check.err" status "$repo/scripts/check-install-tree.sh" "$mutant_dest" /usr /etc
 check "the system check catches a rule other users can read" test "$status" = 1
-check "the rule's mode is named" grep_out "install-tree=mode path=$mutant_dest/etc/sudoers.d/vgs-theme-browser have=644 want=440" "$tmp/rule-mode-check.out"
+check "the rule's mode is named" grep_out "install-tree=mode path=$mutant_dest/etc/sudoers.d/vgshell-theme-browser have=644 want=440" "$tmp/rule-mode-check.out"
 
 python3 - "$repo/packaging/install-system.sh" "$source_copy/packaging/install-system.sh" <<'PY'
 import pathlib
 import sys
 
 text = pathlib.Path(sys.argv[1]).read_text()
-needle = 'install -m 0755 -T -- "$source_root/bin/vgsh-browser-policy" "$install_root/bin/vgs-browser-policy"'
+needle = 'install -m 0755 -T -- "$source_root/bin/vgshell-browser-policy" "$install_root/bin/vgshell-browser-policy"'
 if text.count(needle) != 1:
     raise SystemExit("install-control: writer install did not occur once")
-changed = text.replace(needle, 'ln -s -- ../share/vgs/bin/vgsh-browser-policy "$install_root/bin/vgs-browser-policy"')
+changed = text.replace(needle, 'ln -s -- ../share/vgshell/bin/vgshell-browser-policy "$install_root/bin/vgshell-browser-policy"')
 pathlib.Path(sys.argv[2]).write_text(changed)
 PY
 mutant_dest="$tmp/writer-link-mutant"
@@ -362,17 +362,17 @@ run_capture "$tmp/writer-link-install.out" "$tmp/writer-link-install.err" status
 check "the linked-writer mutant still installs" test "$status" = 0
 run_capture "$tmp/writer-link-check.out" "$tmp/writer-link-check.err" status "$repo/scripts/check-install-tree.sh" "$mutant_dest" /usr /etc
 check "the system check catches a writer that is a link" test "$status" = 1
-check "the linked writer is reported as extra" grep_out "install-tree=extra entry=l bin/vgs-browser-policy -> ../share/vgs/bin/vgsh-browser-policy" "$tmp/writer-link-check.out"
+check "the linked writer is reported as extra" grep_out "install-tree=extra entry=l bin/vgshell-browser-policy -> ../share/vgshell/bin/vgshell-browser-policy" "$tmp/writer-link-check.out"
 
 python3 - "$repo/packaging/install-system.sh" "$source_copy/packaging/install-system.sh" <<'PY'
 import pathlib
 import sys
 
 text = pathlib.Path(sys.argv[1]).read_text()
-needle = 'install -m 0644 -T /dev/stdin "$autostart_dir/vgs.desktop"'
+needle = 'install -m 0644 -T /dev/stdin "$autostart_dir/vgshell.desktop"'
 if text.count(needle) != 1:
     raise SystemExit("install-control: autostart install did not occur once")
-changed = text.replace(needle, 'install -m 0600 -T /dev/stdin "$autostart_dir/vgs.desktop"')
+changed = text.replace(needle, 'install -m 0600 -T /dev/stdin "$autostart_dir/vgshell.desktop"')
 pathlib.Path(sys.argv[2]).write_text(changed)
 PY
 mutant_dest="$tmp/autostart-mode-mutant"
@@ -380,7 +380,7 @@ run_capture "$tmp/autostart-mode-install.out" "$tmp/autostart-mode-install.err" 
 check "the private-autostart mutant still installs" test "$status" = 0
 run_capture "$tmp/autostart-mode-check.out" "$tmp/autostart-mode-check.err" status "$repo/scripts/check-install-tree.sh" "$mutant_dest" /usr /etc
 check "the system check catches an autostart entry the session cannot read" test "$status" = 1
-check "the autostart entry's mode is named" grep_out "install-tree=mode path=$mutant_dest/etc/xdg/autostart/vgs.desktop have=600 want=644" "$tmp/autostart-mode-check.out"
+check "the autostart entry's mode is named" grep_out "install-tree=mode path=$mutant_dest/etc/xdg/autostart/vgshell.desktop have=600 want=644" "$tmp/autostart-mode-check.out"
 
 # The autostart entry, read by the host's own XDG autostart generator, the
 # one uwsm's xdg-desktop-autostart.target starts units from. The generator
@@ -395,7 +395,7 @@ generator=/usr/lib/systemd/user-generators/systemd-xdg-autostart-generator
 # ROOT/etc, run the generator over ROOT/etc/xdg, and print what it made of
 # the entry: `unit=ok`, or the first keyed defect.
 autostart_unit() {
-  local installer="$1" root="$2" unit="$2/units/app-vgs@autostart.service"
+  local installer="$1" root="$2" unit="$2/units/app-vgshell@autostart.service"
   mkdir -p -- "$root/home" "$root/config-home" "$root/units" || { echo "autostart=scratch-failed root=$root"; return; }
   if ! env -i PATH=/usr/bin:/bin HOME="$root/home" XDG_CONFIG_HOME="$root/config-home" DESTDIR= PREFIX="$root/usr" SYSCONFDIR="$root/etc" \
     "$installer" >"$root/install.out" 2>"$root/install.err"; then
@@ -408,8 +408,8 @@ autostart_unit() {
     return
   fi
   if [[ ! -f $unit ]]; then echo "autostart=no-unit"; return; fi
-  if [[ ! -L $root/units/xdg-desktop-autostart.target.wants/app-vgs@autostart.service ]]; then echo "autostart=not-wanted"; return; fi
-  if ! grep -qxE -- "ExecStart=:?$root/usr/bin/vgsh run" "$unit"; then echo "autostart=exec-start"; return; fi
+  if [[ ! -L $root/units/xdg-desktop-autostart.target.wants/app-vgshell@autostart.service ]]; then echo "autostart=not-wanted"; return; fi
+  if ! grep -qxE -- "ExecStart=:?$root/usr/bin/vgshell run" "$unit"; then echo "autostart=exec-start"; return; fi
   if ! grep -qxE -- 'ExecCondition=/[^ ]*/systemd-xdg-autostart-condition "Hyprland" ""' "$unit"; then echo "autostart=exec-condition"; return; fi
   echo "unit=ok"
 }
@@ -422,8 +422,8 @@ user_writes() {
   LC_ALL=C sort <<<"$found" | paste -sd, -
 }
 if [[ -x $generator ]]; then
-  check "the generator starts the installed vgsh run in Hyprland alone" test "$(autostart_unit "$repo/packaging/install-system.sh" "$tmp/autostart")" = unit=ok
-  check "the generated unit is wanted by xdg-desktop-autostart.target" test -L "$tmp/autostart/units/xdg-desktop-autostart.target.wants/app-vgs@autostart.service"
+  check "the generator starts the installed vgshell run in Hyprland alone" test "$(autostart_unit "$repo/packaging/install-system.sh" "$tmp/autostart")" = unit=ok
+  check "the generated unit is wanted by xdg-desktop-autostart.target" test -L "$tmp/autostart/units/xdg-desktop-autostart.target.wants/app-vgshell@autostart.service"
   check "the autostart install writes nothing outside its prefix" test "$(user_writes "$tmp/autostart")" = ""
   # Controls: an installer whose entry has no OnlyShowIn, so it runs in
   # every desktop, and one whose entry is Hidden; each turns the row red.
@@ -456,7 +456,7 @@ pathlib.Path(sys.argv[2]).write_text(text.replace(needle, 'autostart_dir="${XDG_
 PY
   HOME="$tmp/outer-home" XDG_CONFIG_HOME="$tmp/outer-config-home" autostart_unit "$source_copy/packaging/install-system.sh" "$tmp/autostart-user" >/dev/null
   check "control: an installer that writes a user entry fails the outside-prefix row" \
-    test "$(user_writes "$tmp/autostart-user")" = "config-home/autostart,config-home/autostart/vgs.desktop"
+    test "$(user_writes "$tmp/autostart-user")" = "config-home/autostart,config-home/autostart/vgshell.desktop"
 else
   generator_missing=true
   echo "test-install-tree: autostart-generator=unavailable path=$generator exit=77"
@@ -466,7 +466,7 @@ READ_ONLY_PREFIX_SOURCE_ONLY=true source "$repo/scripts/smoke/rows/read-only-pre
 signal_dest="$tmp/signal-install"
 run_capture "$tmp/signal-install.out" "$tmp/signal-install.err" status env DESTDIR="$signal_dest" PREFIX=/usr "$repo/packaging/install-system.sh"
 check "the target guard control install succeeds" test "$status" = 0
-installed_targets="$signal_dest/usr/share/vgs/themes/targets"
+installed_targets="$signal_dest/usr/share/vgshell/themes/targets"
 check "the pristine install carries production targets" test -e "$installed_targets/kitty/target.json"
 fixture_tree="$tmp/fixture-target-tree"
 mkdir -p -- "$fixture_tree/themes/targets/fixture-only"
@@ -479,7 +479,7 @@ check "the read-only prefix guard installs exactly the fixture targets" diff -r 
 mutant_dest="$tmp/target-mutant"
 run_capture "$tmp/target-mutant.out" "$tmp/target-mutant.err" status env DESTDIR="$mutant_dest" PREFIX=/usr "$repo/packaging/install-system.sh"
 check "the target mutant install succeeds" test "$status" = 0
-if diff -r -- "$fixture_tree/themes/targets" "$mutant_dest/usr/share/vgs/themes/targets" >/dev/null 2>&1; then
+if diff -r -- "$fixture_tree/themes/targets" "$mutant_dest/usr/share/vgshell/themes/targets" >/dev/null 2>&1; then
   fail "the guardless target mutant matched the fixture targets"
 else
   ok "the guardless target mutant fails the fixture-target comparison"

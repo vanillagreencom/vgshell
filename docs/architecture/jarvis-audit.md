@@ -16,7 +16,7 @@ The caller owns one writer for the daemon's lifetime. It closes that writer on l
 
 | Member | Contract |
 |---|---|
-| `create({ state, auditDays?, now? })` | `state` is the absolute `$XDG_STATE_HOME/vgs/jarvis` path from the trusted shell snapshot. `auditDays` defaults to 30 and accepts integers from 1 through 365. `now` returns wall-clock milliseconds and defaults to `Date.now`. Invalid options throw a keyed error. |
+| `create({ state, auditDays?, now? })` | `state` is the absolute `$XDG_STATE_HOME/vgshell/jarvis` path from the trusted shell snapshot. `auditDays` defaults to 30 and accepts integers from 1 through 365. `now` returns wall-clock milliseconds and defaults to `Date.now`. Invalid options throw a keyed error. |
 | `record(event)` | Synchronously appends and flushes one decision or outcome. Returns `{ kind: "recorded" }` or `{ kind: "refuse", reason: "audit-write", cause }`. |
 | `before(event, start)` | Requires `outcome: "pending"`. Returns the refusal without calling `start` when persistence fails. Otherwise calls `start` once and returns `{ kind: "started", audit, value }`. `value` is the callback's return value, including a promise. Callback errors propagate. |
 | `cleanup(kind, start)` | Accepts `stop`, `mute` or `teardown`. Attempts a record but calls `start` even when the write fails. Returns the audit result beside the callback value. |

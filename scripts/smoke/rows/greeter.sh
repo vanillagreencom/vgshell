@@ -41,7 +41,7 @@
 # empty. The host's reads wait up to 20 s, 100 reads 0.2 s apart, for a qs
 # start with no compiled QML cache; every other reading is expect_poll's:
 # 25 reads 0.2 s apart.
-# inputs: shell/plugins/vgs.greeter/* shell/greeter.qml shell/Core/SystemSteps.qml bin/vgsh-system config/system/greeter/* scripts/smoke/fixtures/greeter/* scripts/smoke/rows/system-steps.sh scripts/smoke/fixtures/devices/* scripts/smoke/rows/device-fakes.sh
+# inputs: shell/plugins/vgs.greeter/* shell/greeter.qml shell/Core/SystemSteps.qml bin/vgshell-system config/system/greeter/* scripts/smoke/fixtures/greeter/* scripts/smoke/rows/system-steps.sh scripts/smoke/fixtures/devices/* scripts/smoke/rows/device-fakes.sh
 set -euo pipefail
 greeter_status() { ipc smoke statusValues vgs.greeter | py_reply 'import json,sys; v=json.load(sys.stdin).get("greeter"); print(json.dumps(v if v is None else [v["tone"], v["text"], v.get("action")]))'; }
 greeter_lent() { ipc smoke readInstance service vgs.greeter steps | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin), sort_keys=True))'; }
@@ -80,8 +80,8 @@ greeter_count() { # TEXT LOG
 greeter_fixtures="$repo/scripts/smoke/fixtures/greeter"
 greeter_view="$repo/shell/plugins/vgs.greeter/Greeter.qml"
 greeter_log="$sandbox/greeter-host.log"
-mkdir -p -- "$sandbox/greeter-theme/vgs" "$sandbox/greeter-state/vgs"
-cp -- "$greeter_fixtures/theme/vgs/theme.json" "$greeter_fixtures/theme/vgs/background" "$sandbox/greeter-theme/vgs/"
+mkdir -p -- "$sandbox/greeter-theme/vgshell" "$sandbox/greeter-state/vgshell"
+cp -- "$greeter_fixtures/theme/vgshell/theme.json" "$greeter_fixtures/theme/vgshell/background" "$sandbox/greeter-theme/vgshell/"
 greeter_env=("${shell_env[@]}" XDG_DATA_DIRS="$greeter_fixtures/share-a:$greeter_fixtures/share-b"
   XDG_CONFIG_HOME="$sandbox/greeter-theme" XDG_STATE_HOME="$sandbox/greeter-state")
 if "${shell_env[@]}" bash -c 'command -v startx' >/dev/null 2>&1; then xfce_state=available; else xfce_state=unavailable; fi
@@ -118,7 +118,7 @@ expect "the host accepts the plugin's view" 1 greeter_count "/shell/plugins/vgs.
 greeter_screens="$(sed -n 's|.*/shell/plugins/vgs\.greeter/Greeter\.qml screens=\([0-9][0-9]*\)$|\1|p' -- "$greeter_log")" || greeter_screens=unreadable
 expect "the view finds no greetd socket" 1 greeter_lines "greeter: greetd=unavailable" "$greeter_log"
 expect_poll "the view loads the theme copy" 1 greeter_lines "greeter: theme=greeter-smoke file=loaded" "$greeter_log"
-expect_poll "the view loads the background copy" 1 greeter_lines "greeter: background=ready path=$sandbox/greeter-theme/vgs/background" "$greeter_log"
+expect_poll "the view loads the background copy" 1 greeter_lines "greeter: background=ready path=$sandbox/greeter-theme/vgshell/background" "$greeter_log"
 expect "the view lists the uwsm-managed Hyprland entry" 1 greeter_lines "greeter: session id=wayland-sessions/hyprland-uwsm.desktop type=wayland state=available name=Hyprland (uwsm-managed)" "$greeter_log"
 expect "the view lists the plain Hyprland entry" 1 greeter_lines "greeter: session id=wayland-sessions/hyprland.desktop type=wayland state=available name=Hyprland" "$greeter_log"
 expect "the view lists the X entry, available only with startx" 1 greeter_lines "greeter: session id=xsessions/xfce.desktop type=x11 state=$xfce_state name=Xfce Session" "$greeter_log"
@@ -129,7 +129,7 @@ greeter_stop "$greeter_pid"
 
 # The next boot: the memory the view writes before a launch.
 greeter_user="$(id -un)"
-printf '{"lastUser":"%s","sessions":{"%s":"wayland-sessions/hyprland.desktop"}}\n' "$greeter_user" "$greeter_user" >"$sandbox/greeter-state/vgs/greeter.json"
+printf '{"lastUser":"%s","sessions":{"%s":"wayland-sessions/hyprland.desktop"}}\n' "$greeter_user" "$greeter_user" >"$sandbox/greeter-state/vgshell/greeter.json"
 greeter_again_log="$sandbox/greeter-host-again.log"
 greetd_sock="$rt_dir/greetd.sock"
 greetd_log="$sandbox/greetd.log"

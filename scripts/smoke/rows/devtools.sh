@@ -25,10 +25,10 @@
 # plants leaves unknown draw Details too; and, as the controls, a copy of
 # the plugin whose service ignores a run's end and a change of the scan's
 # missing commands leaves the list as it was after each.
-# inputs: shell/plugins/vgs.devtools/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/plugins/acme.requires/* shell/Core/Notices.qml shell/Core/PluginStatus.qml shell/Core/PackageManagers.js shell/Core/TuiRunner.qml shell/Hosts/AppWindow.qml bin/vgsh VERSION config/requirements.json bin/lib/qml-library.js scripts/smoke/rows/status.sh bin/vgsh-tui scripts/smoke/rows/settings.sh
+# inputs: shell/plugins/vgs.devtools/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/plugins/acme.requires/* shell/Core/Notices.qml shell/Core/PluginStatus.qml shell/Core/PackageManagers.js shell/Core/TuiRunner.qml shell/Hosts/AppWindow.qml bin/vgshell VERSION config/requirements.json bin/lib/qml-library.js scripts/smoke/rows/status.sh bin/vgshell-tui scripts/smoke/rows/settings.sh
 set -euo pipefail
 devtools_stand_ins
-requires_dir="$home/.config/vgs/plugins/acme.requires"
+requires_dir="$home/.config/vgshell/plugins/acme.requires"
 mkdir -p "$requires_dir"
 cp -R "$repo/scripts/smoke/fixtures/plugins/acme.requires/." "$requires_dir/"
 shell_path="$(tr '\0' '\n' <"/proc/$shell_qs_pid/environ" | sed -n 's/^PATH=//p')"
@@ -63,7 +63,7 @@ row_texts() { ipc smoke itemTexts window vgs.devtools ToolRow | py_reply 'import
 vgs_texts() { row_texts VGS; }
 # The ended record the presenter of KEY's last run wrote, by file name, or
 # `none`: the presenter writes it when it exits and keeps only the newest.
-ended_record() { local stem="${1/\//@}" f found=none; for f in "$rt_dir/vgs/tui/$stem@"*.ended.json; do [[ -e $f ]] && found="${f##*/}"; done; echo "$found"; }
+ended_record() { local stem="${1/\//@}" f found=none; for f in "$rt_dir/vgshell/tui/$stem@"*.ended.json; do [[ -e $f ]] && found="${f##*/}"; done; echo "$found"; }
 # ended_record_moved KEY BEFORE: `moved` once KEY's ended record is another
 # than BEFORE, so the presenter of the run a click started has exited and
 # expect_run_end times only the core's reading of it.
@@ -315,7 +315,7 @@ expect "the doctor capability refuses an unknown owner" "refused: owner=acme.gon
 # Settings reads the status rows back, read-only, each command behind Show
 # command.
 installed_count() { in_shell_env node "$repo/shell/plugins/vgs.devtools/bin/devtools" --tree "$repo" list --json | py_reply 'import json,sys; d=json.load(sys.stdin); print(sum(1 for rows in d["sections"].values() for r in rows if r["installed"] is True) + sum(1 for r in d["other"] if r["installed"] is True))'; }
-missing_count() { in_shell_env "$repo/bin/vgsh" doctor --json | py_reply 'import json,sys; d=json.load(sys.stdin); print(sum(1 for rows in [d["core"]] + list(d["plugins"].values()) for r in rows if r["state"] == "missing"))'; }
+missing_count() { in_shell_env "$repo/bin/vgshell" doctor --json | py_reply 'import json,sys; d=json.load(sys.stdin); print(sum(1 for rows in [d["core"]] + list(d["plugins"].values()) for r in rows if r["state"] == "missing"))'; }
 expect "enabling Settings is allowed" ok ipc shell setPluginEnabled vgs.settings true
 expect_poll "the Settings service is built" True record_exists vgs.settings
 expect "Settings opens the Dev Tools page" ok ipc vgs.settings invoke open '{"plugin":"vgs.devtools"}'
@@ -324,7 +324,7 @@ expect "Settings opens the Dev Tools page" ok ipc vgs.settings invoke open '{"pl
 checks_text="Checks failed"
 if dev_installed="$(installed_count)" && dev_missing="$(missing_count)"; then
   expect_poll "the manager row carries the published status" \
-    "$(python3 -c 'import json,sys; print(json.dumps([["Tool manager", "reported", {"tone": "ok", "text": "2026.9.9"}, "success", "vgsh pkg run install mise"], ["Checks", "reported", {"tone": "warning", "text": sys.argv[3]}, "warning", ""], ["Tools installed", "reported", int(sys.argv[1]), "", ""], ["Tool updates", "reported", 0, "", ""], ["Missing tools", "reported", int(sys.argv[2]), "", ""]]))' "$dev_installed" "$dev_missing" "$checks_text")" status_of vgs.devtools
+    "$(python3 -c 'import json,sys; print(json.dumps([["Tool manager", "reported", {"tone": "ok", "text": "2026.9.9"}, "success", "vgshell pkg run install mise"], ["Checks", "reported", {"tone": "warning", "text": sys.argv[3]}, "warning", ""], ["Tools installed", "reported", int(sys.argv[1]), "", ""], ["Tool updates", "reported", 0, "", ""], ["Missing tools", "reported", int(sys.argv[2]), "", ""]]))' "$dev_installed" "$dev_missing" "$checks_text")" status_of vgs.devtools
   expect_poll "the page draws each status row, the catalog data not" \
     "$(python3 -c 'import json,sys; print(json.dumps([["Tool manager", "2026.9.9", "mise manages the developer tools"], ["Checks", sys.argv[3], "Open Dev Tools again after 10 minutes to retry all checks."], ["Tools installed", sys.argv[1]], ["Tool updates", "0"], ["Missing tools", sys.argv[2], "Install these tools from the VGS section in Dev Tools"]]))' "$dev_installed" "$dev_missing" "$checks_text")" drawn_status
   expect "no Dev Tools status row takes an edit" '[[],[],[],[],[]]' ipc smoke statusRowInputs window vgs.settings
@@ -344,7 +344,7 @@ expect "disabling Settings after its rows is allowed" ok ipc shell setPluginEnab
 # Control: a copy of the plugin whose service ignores a run's end, in the
 # user directory, where it hides the shipped one. A run of its install TUI
 # ends and the list stays as it was.
-control_dir="$home/.config/vgs/plugins/vgs.devtools"
+control_dir="$home/.config/vgshell/plugins/vgs.devtools"
 cp -R "$repo/shell/plugins/vgs.devtools" "$control_dir"
 relist_line='        if (finished.length > 0) trigger("tui");'
 scan_line='        trigger("scan");'

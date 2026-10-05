@@ -4,8 +4,8 @@
 #
 # THEME_JSON is the user's theme file and BACKGROUND_LINK the state
 # directory's link to the current background image. DEST_DIR is the
-# directory `vgsh system apply greeter` made, root's, which the login
-# screen's XDG_CONFIG_HOME names: the copy goes in DEST_DIR/vgs, the
+# directory `vgshell system apply greeter` made, root's, which the login
+# screen's XDG_CONFIG_HOME names: the copy goes in DEST_DIR/vgshell, the
 # caller's directory the step made in it, as
 # `theme.json` and `background`, each mode 0644 so the greeter account
 # reads it. Each is copied byte for byte, only when its bytes differ, to a
@@ -30,7 +30,7 @@ refuse() { # STATUS FIRST_LINE
 theme="$1" link="$2" dest="$3"
 [[ $dest == /* ]] || refuse 2 "dest=$dest"
 [[ -d $dest && ! -L $dest ]] || refuse 1 "dest=missing path=$dest"
-out="$dest/vgs"
+out="$dest/vgshell"
 [[ ! -L $out ]] || refuse 1 "dest=symlink path=$out"
 mkdir -p -- "$out" || refuse 1 "mkdir=failed path=$out"
 

@@ -3,7 +3,7 @@
 // user units (or the cron fallback's crontab block), the runner and the run
 // history; AutomationsLogic.js beside it makes every decision. The service,
 // the floating TUIs and the tests run it; the units run a copy of it. Every
-// verb takes the VGS tree first, for the library loader and vgsh.
+// verb takes the VGS tree first, for the library loader and vgshell.
 //
 //   automations --tree <dir> list [--json]
 //       every automation with its summary, state, next run and last run;
@@ -34,7 +34,7 @@
 //       removes every run that is not running; prints `cleared=<n>`.
 //   automations --tree <dir> prune [--days <n>]
 //       removes the runs older than the retention: --days, else the
-//       plugin's historyDays setting from `vgsh plugin settings`; prints
+//       plugin's historyDays setting from `vgshell plugin settings`; prints
 //       `pruned=<n>`.
 //   automations --tree <dir> preview --schedule <json> [--count <n>] [--after <ms>]
 //       one JSON line, { summary, calendar, cron, occurrences }: the rule's
@@ -51,16 +51,16 @@
 //       under the automation's lock; a scheduled trigger runs only what
 //       AutomationsLogic.guard allows.
 //
-// Files: the store is $XDG_CONFIG_HOME/vgs/automations/automations.json;
+// Files: the store is $XDG_CONFIG_HOME/vgshell/automations/automations.json;
 // the units are $XDG_CONFIG_HOME/systemd/user/vgs-automation-<id>.timer
 // and .service; the runs, the guard states and the locks are under
-// $XDG_STATE_HOME/vgs/automations/ (runs/, guard/, locks/); the runner the
+// $XDG_STATE_HOME/vgshell/automations/ (runs/, guard/, locks/); the runner the
 // units start is a copy of this file and the judge under
-// $XDG_DATA_HOME/vgs/automations/engine/<hash>/, since the shell runs this
+// $XDG_DATA_HOME/vgshell/automations/engine/<hash>/, since the shell runs this
 // file from a snapshot a restart removes. Every file is written whole under
 // a temporary name and renamed into place.
 //
-// A verb that changes the store runs under $XDG_STATE_HOME/vgs/automations/
+// A verb that changes the store runs under $XDG_STATE_HOME/vgshell/automations/
 // locks/store.lock through flock. A run holds locks/<id>.lock through
 // `flock -n -E 75 -o`, so one run of an automation is live at a time, the
 // command inherits no lock, and a trigger during a live run exits 75.
@@ -112,8 +112,8 @@ const argv = process.argv.slice(2);
 if (argv[0] !== "--tree" || argv.length < 3) bad("option=--tree value=missing");
 const tree = path.resolve(argv[1]);
 const loaderPath = path.join(tree, "bin", "lib", "qml-library.js");
-const vgshPath = path.join(tree, "bin", "vgsh");
-if (!fs.existsSync(vgshPath) || !fs.existsSync(loaderPath)) {
+const vgshellPath = path.join(tree, "bin", "vgshell");
+if (!fs.existsSync(vgshellPath) || !fs.existsSync(loaderPath)) {
     process.stderr.write("automations: refused: tree=" + tree + " reason=not-a-vgs-tree\n");
     process.exit(2);
 }
@@ -126,14 +126,14 @@ if (!home.startsWith("/")) refuse("home=unset", "HOME must be an absolute path")
 const configHome = absoluteOr(process.env.XDG_CONFIG_HOME, path.join(home, ".config"));
 const stateHome = absoluteOr(process.env.XDG_STATE_HOME, path.join(home, ".local", "state"));
 const dataHome = absoluteOr(process.env.XDG_DATA_HOME, path.join(home, ".local", "share"));
-const storeFile = path.join(configHome, "vgs", "automations", "automations.json");
+const storeFile = path.join(configHome, "vgshell", "automations", "automations.json");
 const unitDir = path.join(configHome, "systemd", "user");
-const automationsState = path.join(stateHome, "vgs", "automations");
+const automationsState = path.join(stateHome, "vgshell", "automations");
 const runsDir = path.join(automationsState, "runs");
 const guardDir = path.join(automationsState, "guard");
 const lockDir = path.join(automationsState, "locks");
 const storeLock = path.join(lockDir, "store.lock");
-const engineRoot = path.join(dataHome, "vgs", "automations", "engine");
+const engineRoot = path.join(dataHome, "vgshell", "automations", "engine");
 // The directories every runner reads, handed to the units and runs since a
 // user manager's environment need not hold the ones resolved here.
 const runnerEnvironment = ["XDG_CONFIG_HOME=" + configHome, "XDG_STATE_HOME=" + stateHome, "XDG_DATA_HOME=" + dataHome];
@@ -461,7 +461,7 @@ function clearRuns(id) {
 }
 
 function settingsDays() {
-    const out = run(vgshPath, ["plugin", "settings", PLUGIN_ID]);
+    const out = run(vgshellPath, ["plugin", "settings", PLUGIN_ID]);
     if (out.status !== 0) return { ok: false, error: "settings=failed exit=" + out.status };
     try {
         return { ok: true, days: Logic.retentionDays(JSON.parse(out.stdout).historyDays) };

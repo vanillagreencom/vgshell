@@ -9,9 +9,9 @@
 # rows start from the defaults. The vgs.themes
 # block and its wallpaper block close the file, each delimited by its own
 # markers.
-# inputs: shell/plugins/vgs.themes/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/plugins/vgs.gallery/* scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/ThemeRunner.qml shell/Commons/Theme.qml shell/Commons/ThemeSource.qml bin/vgsh bin/vgsh-theme-judge bin/lib/theme-* themes/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js bin/lib/qml-library.js scripts/smoke/rows/theme.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh bin/vgsh-tui shell/Hosts/BarHost.qml
+# inputs: shell/plugins/vgs.themes/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/plugins/vgs.gallery/* scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/ThemeRunner.qml shell/Commons/Theme.qml shell/Commons/ThemeSource.qml bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js bin/lib/qml-library.js scripts/smoke/rows/theme.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Hosts/BarHost.qml
 set -euo pipefail
-installed="$home/.config/vgs/themes"
+installed="$home/.config/vgshell/themes"
 # What the fixture's last apply callback received: state, shell, theme and
 # reason, a null reason printed as None.
 applied() { read_service themeApplied | py_reply 'import json,sys; r=json.loads(json.load(sys.stdin)); print(r["state"], r["shell"], r["theme"], r["reason"])'; }
@@ -39,23 +39,23 @@ for k in sys.argv[1].split("."): v=v.get(k) if isinstance(v, dict) else None
 print(json.dumps(v))' "$1"; }
 swatch_accent() { probe theme "swatch=$1" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["accent"]))'; }
 revision_rose() { local now; now="$(theme_member revision)" && [[ $now -gt $revision_before ]] && echo rose || echo same; }
-# The sandbox copy's vgsh runs BODY for a theme command and the real
+# The sandbox copy's vgshell runs BODY for a theme command and the real
 # runner for everything else, so the rows' own ipc calls keep working.
-cp -p -- "$repo/bin/vgsh" "$repo/bin/vgsh.real"
-stand_in_vgsh() {
-  printf '#!/usr/bin/env bash\nif [[ ${1:-} == theme ]]; then\n%s\nfi\nexec %q "$@"\n' "$1" "$repo/bin/vgsh.real" >"$repo/bin/vgsh.next" \
-    && chmod 755 -- "$repo/bin/vgsh.next" && mv -T -- "$repo/bin/vgsh.next" "$repo/bin/vgsh"
+cp -p -- "$repo/bin/vgshell" "$repo/bin/vgshell.real"
+stand_in_vgshell() {
+  printf '#!/usr/bin/env bash\nif [[ ${1:-} == theme ]]; then\n%s\nfi\nexec %q "$@"\n' "$1" "$repo/bin/vgshell.real" >"$repo/bin/vgshell.next" \
+    && chmod 755 -- "$repo/bin/vgshell.next" && mv -T -- "$repo/bin/vgshell.next" "$repo/bin/vgshell"
 }
 
 # Preserve placements as well as enablement. Re-enabling a widget through
 # the manager places it, which would change the panel block's precondition.
 expect_poll "configuration saves settle before the core snapshot" true ipc smoke configSettled
-cp -p -- "$home/.config/vgs/shell.json" "$sandbox/theme-core-shell.json"
+cp -p -- "$home/.config/vgshell/shell.json" "$sandbox/theme-core-shell.json"
 restore_theme_core_config() {
   local restore_home="${1:-$home}" restore_sandbox="${2:-$sandbox}"
   expect_poll "queued configuration saves settle before restoration" true ipc smoke configSettled
-  cp -p -- "$restore_sandbox/theme-core-shell.json" "$restore_home/.config/vgs/shell.json.next"
-  mv -T -- "$restore_home/.config/vgs/shell.json.next" "$restore_home/.config/vgs/shell.json"
+  cp -p -- "$restore_sandbox/theme-core-shell.json" "$restore_home/.config/vgshell/shell.json.next"
+  mv -T -- "$restore_home/.config/vgshell/shell.json.next" "$restore_home/.config/vgshell/shell.json"
   expect "the shell reads the restored configuration" ok ipc shell reloadConfig
   expect_poll "the restored configuration settles" true ipc smoke configSettled
 }
@@ -63,15 +63,15 @@ restore_theme_core_config() {
 # Run this row's actual helper against a private file and an IPC stand-in.
 restore_config_case() (
   local source="$1" case_root="$sandbox/restore-config-$2"
-  mkdir -p -- "$case_root/home/.config/vgs" "$case_root/sandbox"
+  mkdir -p -- "$case_root/home/.config/vgshell" "$case_root/sandbox"
   local restore_case_home="$case_root/home" restore_case_sandbox="$case_root/sandbox"
   printf '%s\n' '{"disabledPlugins":[]}' >"$restore_case_sandbox/theme-core-shell.json"
-  printf '%s\n' '{"disabledPlugins":["vgs.themes"]}' >"$restore_case_home/.config/vgs/shell.json"
+  printf '%s\n' '{"disabledPlugins":["vgs.themes"]}' >"$restore_case_home/.config/vgshell/shell.json"
   touch "$restore_case_sandbox/queued-save"
   ipc() {
     if [[ $* == 'smoke configSettled' || $* == 'shell reloadConfig' ]]; then
       if [[ -e $restore_case_sandbox/queued-save ]]; then
-        printf '%s\n' '{"disabledPlugins":["vgs.themes"]}' >"$restore_case_home/.config/vgs/shell.json"
+        printf '%s\n' '{"disabledPlugins":["vgs.themes"]}' >"$restore_case_home/.config/vgshell/shell.json"
         rm -- "${restore_case_sandbox:?}/queued-save"
       fi
       if [[ $1 == smoke ]]; then printf 'true\n'; else printf 'ok\n'; fi
@@ -82,7 +82,7 @@ restore_config_case() (
   }
   eval "$source"
   restore_theme_core_config "$restore_case_home" "$restore_case_sandbox"
-  cmp -s -- "$restore_case_sandbox/theme-core-shell.json" "$restore_case_home/.config/vgs/shell.json"
+  cmp -s -- "$restore_case_sandbox/theme-core-shell.json" "$restore_case_home/.config/vgshell/shell.json"
 )
 restore_source="$(declare -f restore_theme_core_config)" || return 1
 printf '%s\n' "$restore_source" >"$sandbox/restore-config-source.sh"
@@ -164,8 +164,8 @@ expect_poll "the partial result reaches the fixture" 5 applies
 expect "the shell takes the theme in a partial apply" "partial applied vgs None" applied
 expect "the partial result names each fixture target's state" '[["smoke-fails", "failed", "placeholder"], ["smoke-lands", "written", null]]' applied_targets smoke-
 expect "last holds the partial result" '"partial"' last_part result.state
-expect "the landed fixture target's file is rendered into the state directory" "accent=ff5a36ff" cat "$home/.local/state/vgs/theme/smoke-lands.conf"
-expect "the landed fixture target's include line is wired" "include=$home/.local/state/vgs/theme/smoke-lands.conf" cat "$home/.config/smoke-lands/smoke-lands.conf"
+expect "the landed fixture target's file is rendered into the state directory" "accent=ff5a36ff" cat "$home/.local/state/vgshell/theme/smoke-lands.conf"
+expect "the landed fixture target's include line is wired" "include=$home/.local/state/vgshell/theme/smoke-lands.conf" cat "$home/.config/smoke-lands/smoke-lands.conf"
 rm -r -- "$fixture_targets/smoke-fails" "$fixture_targets/smoke-lands"
 
 write_theme '{ "schemaVersion": 1, "name": "smoke", "tokens": { "palette": { "accent": "#12ab35" } } }'
@@ -181,7 +181,7 @@ expect "a refused edit keeps current" '"smoke"' theme_member current
 # 50 ms for at most 10 s, so the apply is still running while the row
 # reads it, and the instance that asked is destroyed under it.
 gate="$sandbox/theme-gate"
-stand_in_vgsh "for _ in \$(seq 1 200); do [[ -e $(printf %q "$gate") ]] && break; sleep 0.05; done"
+stand_in_vgshell "for _ in \$(seq 1 200); do [[ -e $(printf %q "$gate") ]] && break; sleep 0.05; done"
 expect "an apply starts behind the gate" ok probe theme-apply vgs
 expect "a second apply while one runs is refused at once" "refused: theme=smoke reason=busy" probe theme-apply smoke
 expect "a list asked for during the apply is accepted" ok probe theme-list
@@ -199,8 +199,8 @@ expect "the result in last names the apply" '"vgs"' last_part result.theme
 expect "the rebuilt instance received no callback" 0 applies
 expect_poll "current follows the apply that outlived its instance" '"vgs"' theme_member current
 
-expected_errors+=('theme: vgsh theme apply reason=output-unreadable name=smoke exit=2 ' 'theme: vgsh theme list reason=output-unreadable exit=2 ')
-stand_in_vgsh 'echo "no result"; exit 2'
+expected_errors+=('theme: vgshell theme apply reason=output-unreadable name=smoke exit=2 ' 'theme: vgshell theme list reason=output-unreadable exit=2 ')
+stand_in_vgshell 'echo "no result"; exit 2'
 expect "an apply whose runner prints no result is accepted" ok probe theme-apply smoke
 expect_poll "the unreadable apply reaches the fixture" 1 applies
 expect "an apply with no result is a failed shell with its reason" "failed failed smoke output-unreadable" applied
@@ -211,18 +211,18 @@ expect "a failed list leaves no modified answer" null theme_member modified
 expect "a failed list leaves no swatch" null theme_member swatch=smoke
 
 # A runner that cannot start: the rows reach the shell through qs itself,
-# since the sandbox's vgsh is the file that cannot start.
+# since the sandbox's vgshell is the file that cannot start.
 qs_call() { "${shell_env[@]}" qs ipc --pid "$shell_qs_pid" call "$@" 2>>"$sandbox/ipc.log" | tail -n 1; }
-expected_errors+=('theme: vgsh theme apply reason=start-failed name=smoke')
-chmod 000 -- "$repo/bin/vgsh"
+expected_errors+=('theme: vgshell theme apply reason=start-failed name=smoke')
+chmod 000 -- "$repo/bin/vgshell"
 expect "an apply whose runner cannot start is accepted" ok qs_call acme.probe invoke theme-apply smoke
 expect_poll "the failed start reaches the fixture" 2 qs_call smoke readInstance service acme.probe themeApplies
-chmod 755 -- "$repo/bin/vgsh"
+chmod 755 -- "$repo/bin/vgshell"
 expect "a failed start is a failed shell with its reason" "failed failed smoke start-failed" applied
-expect_log "the failed start is logged" 1 'theme: vgsh theme apply reason=start-failed name=smoke'
+expect_log "the failed start is logged" 1 'theme: vgshell theme apply reason=start-failed name=smoke'
 expect "no job waits after a failed start" '[]' theme_jobs
 
-mv -T -- "$repo/bin/vgsh.real" "$repo/bin/vgsh"
+mv -T -- "$repo/bin/vgshell.real" "$repo/bin/vgshell"
 expect "the fixture applies vgs with the real runner again" ok probe theme-apply vgs
 expect_poll "the last apply's result reaches the fixture" 3 applies
 expect "the vgs package is applied again" "unchanged unchanged vgs None" applied
@@ -336,7 +336,7 @@ trap - ERR
 if [[ -n $theme_core_previous_error_trap ]]; then eval "$theme_core_previous_error_trap"; fi
 
 # ---- vgs.themes: the themes widget and panel ------------------------------
-# The first-party themes plugin, reached the way a user reaches it: `vgsh
+# The first-party themes plugin, reached the way a user reaches it: `vgshell
 # plugin enable vgs.themes` places its widget in its default section, a
 # click on the widget opens the panel under it, and a click on a row
 # applies that package. The panel is read back through what it draws: each
@@ -397,7 +397,7 @@ expect_poll "the unanchored themes panel maps one panel surface" 1 layer_count v
 expect "hiding the unanchored themes panel is allowed" ok ipc shell hide panel vgs.themes
 expect_poll "the unanchored themes panel's surface is gone" 0 layer_count vgs:panel
 expect "the themes widget has no placement before it is enabled" none layout_section_of vgs.themes
-expect "vgsh plugin enable places the themes widget" ok "${shell_env[@]}" "$repo/bin/vgsh" plugin enable vgs.themes
+expect "vgshell plugin enable places the themes widget" ok "${shell_env[@]}" "$repo/bin/vgshell" plugin enable vgs.themes
 expect_poll "the themes widget lands in its default section" right layout_section_of vgs.themes
 themes_key="$(bar_key)"
 expect_poll "the themes widget is built on the bar" '"vgs.themes"' ipc smoke readInstance "$themes_key" vgs.themes moduleName
@@ -415,7 +415,7 @@ fi
 expect_poll "the themes TUI launcher is present" '"present"' lent tui.launcher
 
 
-# Install browser theming, D061: the service publishes what `vgsh theme
+# Install browser theming, D061: the service publishes what `vgshell theme
 # setup` says of the Chromium-family writer. The sandbox tree ships no
 # target, so the row reads not shipped until the row copies the chromium
 # target in and the service starts again. qml-smoke.sh hides the host's
@@ -424,7 +424,7 @@ expect_poll "the themes TUI launcher is present" '"present"' lent tui.launcher
 # then offers Install browser theming, whose button opens the plugin's
 # browser-policy TUI. The stand-in terminal runs no plugin script
 # (scripts/test-themes-browser-policy-tui.sh runs this one), and the
-# sandbox tree's bin/vgsh-browser-policy stays the harness's sentinel. The
+# sandbox tree's bin/vgshell-browser-policy stays the harness's sentinel. The
 # row holds the run live, reads the argv the press handed the terminal,
 # then puts a stand-in writer on the shell's PATH itself, the state the
 # run's end reads, and releases the run. The run's end then reads
@@ -444,7 +444,7 @@ expect "the manager refuses the install while no target ships" "refused: action=
 printf '#!/bin/sh\nexit 1\n' >"$shim/chromium"
 chmod 755 "$shim/chromium"
 expect "chromium resolves to the row's stand-in on the shell's PATH" "$shim/chromium" shell_resolves chromium
-expect "the browser-policy writer is absent from the shell's PATH" none shell_resolves vgs-browser-policy
+expect "the browser-policy writer is absent from the shell's PATH" none shell_resolves vgshell-browser-policy
 cp -R -- "$source_repo/themes/targets/chromium" "$repo/themes/targets/chromium"
 expect "the themes plugin is disabled to read the shipped target" ok ipc shell setPluginEnabled vgs.themes false
 expect_poll "the themes service is gone" False record_exists vgs.themes
@@ -462,20 +462,20 @@ case $first_setup in
     settings_press "Install browser theming" || fail "the click on Install browser theming failed"
     expect_poll "Install browser theming hands the terminal the browser-policy TUI" "$(words vgs.themes/browser-policy tui/browser-policy.sh)" recorded_tail
     expect_poll "the browser-policy run is live under the hold" busy key_idle vgs.themes/browser-policy
-    printf '#!/bin/sh\nexit 0\n' >"$shim/vgs-browser-policy"
-    chmod 755 "$shim/vgs-browser-policy"
-    expect "the writer resolves to the row's stand-in on the shell's PATH" "$shim/vgs-browser-policy" shell_resolves vgs-browser-policy
+    printf '#!/bin/sh\nexit 0\n' >"$shim/vgshell-browser-policy"
+    chmod 755 "$shim/vgshell-browser-policy"
+    expect "the writer resolves to the row's stand-in on the shell's PATH" "$shim/vgshell-browser-policy" shell_resolves vgshell-browser-policy
     release_runs
     expect_run_end "the browser-policy run ends" vgs.themes/browser-policy
     expect_poll "the run's end asks again: the writer reads installed, offering nothing" '["reported", "success", false]' browser_theming
     forget_record
     expect "the manager refuses the install once the writer is there" "refused: action=browserTheming reason=not-offered" settings_act vgs.themes browserTheming
     expect "the refused install started no terminal" absent recorded
-    unlink -- "${shim:?}/vgs-browser-policy"
+    unlink -- "${shim:?}/vgshell-browser-policy"
     rescan "a browser theming rescan after the writer goes away is accepted"
     expect_poll "the requirements revision makes browser theming read missing again" '["reported", "warning", true]' browser_theming
     expected_errors+=('plugins: hidden by a higher-precedence plugin with the same id: vgs\.themes')
-    mutant="$home/.config/vgs/plugins/vgs.themes"
+    mutant="$home/.config/vgshell/plugins/vgs.themes"
     mkdir -p -- "$(dirname -- "$mutant")"
     cp -R -- "$repo/shell/plugins/vgs.themes" "$mutant"
     service_qml="$mutant/Service.qml"
@@ -497,9 +497,9 @@ PY
     expect_log "the mutant themes copy is published" "$((scans + 1))" 'plugins: scan complete changed=true'
     expect_poll "the mutant themes copy is the discovered source" "$mutant" themes_source_dir
     expect_poll "the mutant themes service reads the missing writer at build" '["reported", "warning", true]' browser_theming
-    printf '#!/bin/sh\nexit 0\n' >"$shim/vgs-browser-policy"
-    chmod 755 "$shim/vgs-browser-policy"
-    expect "the control writer resolves on the shell's PATH" "$shim/vgs-browser-policy" shell_resolves vgs-browser-policy
+    printf '#!/bin/sh\nexit 0\n' >"$shim/vgshell-browser-policy"
+    chmod 755 "$shim/vgshell-browser-policy"
+    expect "the control writer resolves on the shell's PATH" "$shim/vgshell-browser-policy" shell_resolves vgshell-browser-policy
     scans="$(log_lines 'plugins: scan complete changed=false')" || fail "the instance log is unreadable before the control rescan"
     rescan "the control rescan is accepted"
     expect_log "the control rescan ends without a rebuild" "$((scans + 1))" 'plugins: scan complete changed=false'
@@ -509,7 +509,7 @@ PY
     rescan "the real themes plugin rescan is accepted"
     expect_log "the bundled themes plugin is published" "$((scans + 1))" 'plugins: scan complete changed=true'
     expect_poll "the real requirements revision reads the installed writer" '["reported", "success", false]' browser_theming
-    unlink -- "${shim:?}/vgs-browser-policy"
+    unlink -- "${shim:?}/vgshell-browser-policy"
     scans="$(log_lines 'plugins: scan complete changed=false')" || fail "the instance log is unreadable before the positive requirements rescan"
     rescan "the positive requirements revision rescan is accepted"
     expect_log "the positive requirements revision rescan ends without a rebuild" "$((scans + 1))" 'plugins: scan complete changed=false'
@@ -520,16 +520,16 @@ PY
       expect "$1: Settings is summoned on the themes page again" ok ipc shell summon window vgs.settings '{"plugin":"vgs.themes"}'
       expect_poll "$1: the Settings window shows the themes page" '"vgs.themes"' ipc smoke readInstance window vgs.settings page
     }
-    printf '#!/bin/sh\nexit 0\n' >"$shim/vgs-browser-policy"
-    chmod 755 "$shim/vgs-browser-policy"
-    expect "the writer for the reopen resolves on the shell's PATH" "$shim/vgs-browser-policy" shell_resolves vgs-browser-policy
+    printf '#!/bin/sh\nexit 0\n' >"$shim/vgshell-browser-policy"
+    chmod 755 "$shim/vgshell-browser-policy"
+    expect "the writer for the reopen resolves on the shell's PATH" "$shim/vgshell-browser-policy" shell_resolves vgshell-browser-policy
     expect "before the reopen the row still offers the install" '["reported", "warning", true]' browser_theming
     scans="$(log_lines 'plugins: scan complete')" || fail "the instance log is unreadable before the Settings reopen"
     reopen_settings "the writer's arrival"
     expect_log "reopening Settings starts a scan" "$((scans + 1))" 'plugins: scan complete'
     expect_poll "reopening Settings reads the writer installed, offering nothing" '["reported", "success", false]' browser_theming
     expected_errors+=('plugins: hidden by a higher-precedence plugin with the same id: vgs\.settings')
-    settings_mutant="$home/.config/vgs/plugins/vgs.settings"
+    settings_mutant="$home/.config/vgshell/plugins/vgs.settings"
     bundled_settings="$(settings_source_dir)" || fail "the bundled Settings source is unreadable"
     mkdir -p -- "$(dirname -- "$settings_mutant")"
     cp -R -- "$repo/shell/plugins/vgs.settings" "$settings_mutant"
@@ -547,15 +547,15 @@ PY
     rescan "the mutant Settings rescan is accepted"
     expect_log "the mutant Settings copy is published" "$((scans + 1))" 'plugins: scan complete changed=true'
     expect_poll "the mutant Settings copy is the discovered source" "$settings_mutant" settings_source_dir
-    unlink -- "${shim:?}/vgs-browser-policy"
+    unlink -- "${shim:?}/vgshell-browser-policy"
     scans="$(log_lines 'plugins: scan complete changed=false')" || fail "the instance log is unreadable before the control's missing-writer rescan"
     rescan "the control's missing-writer rescan is accepted"
     expect_log "the control's missing-writer rescan ends" "$((scans + 1))" 'plugins: scan complete changed=false'
     reopen_settings "the control's start"
     expect_poll "the control starts with the install offered" '["reported", "warning", true]' browser_theming
-    printf '#!/bin/sh\nexit 0\n' >"$shim/vgs-browser-policy"
-    chmod 755 "$shim/vgs-browser-policy"
-    expect "the control writer for the reopen resolves on the shell's PATH" "$shim/vgs-browser-policy" shell_resolves vgs-browser-policy
+    printf '#!/bin/sh\nexit 0\n' >"$shim/vgshell-browser-policy"
+    chmod 755 "$shim/vgshell-browser-policy"
+    expect "the control writer for the reopen resolves on the shell's PATH" "$shim/vgshell-browser-policy" shell_resolves vgshell-browser-policy
     scans="$(log_lines 'plugins: scan complete')" || fail "the instance log is unreadable before the control reopen"
     reopen_settings "the control"
     # No line marks a scan not asked for, so the control waits the 5 s
@@ -572,7 +572,7 @@ PY
     rescan "the bundled Settings rescan is accepted"
     expect_log "the bundled Settings plugin is published" "$((scans + 1))" 'plugins: scan complete changed=true'
     expect_poll "the bundled Settings is the discovered source again" "$bundled_settings" settings_source_dir
-    unlink -- "${shim:?}/vgs-browser-policy"
+    unlink -- "${shim:?}/vgshell-browser-policy"
     scans="$(log_lines 'plugins: scan complete changed=false')" || fail "the instance log is unreadable before the last missing-writer rescan"
     rescan "the last missing-writer rescan is accepted"
     expect_log "the last missing-writer rescan ends" "$((scans + 1))" 'plugins: scan complete changed=false'
@@ -601,10 +601,10 @@ expect_poll "the shell displays the keyboard-applied theme" smoke ipc smoke them
 type_keys -k Escape || fail "closing the themes panel from the keyboard failed"
 expect_poll "Escape closes the keyboard-opened themes panel" closed panel_open
 expect "the keyboard-applied theme ends" idle theme_idle
-expect "the fixture applies vgs after the panel keyboard path" "ok theme=vgs state=applied shell=applied" "${shell_env[@]}" "$repo/bin/vgsh" theme apply vgs
+expect "the fixture applies vgs after the panel keyboard path" "ok theme=vgs state=applied shell=applied" "${shell_env[@]}" "$repo/bin/vgshell" theme apply vgs
 expect "the vgs apply after the panel keyboard path ends" idle theme_idle
 
-cp -p -- "$repo/bin/vgsh" "$repo/bin/vgsh.real"
+cp -p -- "$repo/bin/vgshell" "$repo/bin/vgshell.real"
 catalog_installed="$sandbox/catalog-smoke-installed"
 catalog_wallpapers="$sandbox/catalog-smoke-wallpapers"
 catalog_wallpapers_gate="$sandbox/catalog-smoke-wallpapers-gate"
@@ -615,7 +615,7 @@ catalog_row_installed_state() { [[ -e $catalog_row_installed ]] && echo installe
 wait_catalog_installed() { local _; for _ in $(seq 1 100); do [[ $(catalog_installed_state) == installed ]] && { echo installed; return; }; sleep 0.2; done; catalog_installed_state; }
 wait_catalog_wallpapers() { local _; for _ in $(seq 1 100); do [[ $(catalog_wallpapers_state) == installed ]] && { echo installed; return; }; sleep 0.2; done; catalog_wallpapers_state; }
 wait_catalog_row_installed() { local _; for _ in $(seq 1 100); do [[ $(catalog_row_installed_state) == installed ]] && { echo installed; return; }; sleep 0.2; done; catalog_row_installed_state; }
-stand_in_vgsh "
+stand_in_vgshell "
 case \${2:-} in
   catalog)
     installed=false; imagery=false
@@ -750,7 +750,7 @@ click_button "Add from URL" || fail "the click on Add from URL failed"
 expect_poll "Add from URL opens the core theme add TUI" \
   "$(core_words core/theme-add "Add a theme" org.vgs.tui theme add)" recorded
 expect_run_end "the theme add core run ends before later rows" core/theme-add
-mv -T -- "$repo/bin/vgsh.real" "$repo/bin/vgsh"
+mv -T -- "$repo/bin/vgshell.real" "$repo/bin/vgshell"
 
 fixture_target smoke-fails 'accent=@{palette.nope}'
 click_row smoke || fail "the click on the smoke row failed"
@@ -953,9 +953,9 @@ expect_poll "reapplying the modified package clears its badge" '[["smoke", "inst
 
 # The gate holds every theme command, polling every 50 ms for at most
 # 10 s, so the panel closes while its apply runs.
-cp -p -- "$repo/bin/vgsh" "$repo/bin/vgsh.real"
+cp -p -- "$repo/bin/vgshell" "$repo/bin/vgshell.real"
 panel_gate="$sandbox/themes-panel-gate"
-stand_in_vgsh "for _ in \$(seq 1 200); do [[ -e $(printf %q "$panel_gate") ]] && break; sleep 0.05; done"
+stand_in_vgshell "for _ in \$(seq 1 200); do [[ -e $(printf %q "$panel_gate") ]] && break; sleep 0.05; done"
 click_row dawn || fail "the click on the installed dawn row failed"
 expect_poll "the row shows the apply running" '[["dawn", "installed", "Applying"], ["dawn", "shipped", "Hidden by another copy"]]' theme_row dawn
 click_outside || fail "the click outside the themes panel failed"
@@ -971,7 +971,7 @@ expect "the theme changed while the panel was closed" dawn ipc smoke themeName
 # The same gate holds the stand-in.
 novel_gate="$sandbox/themes-novel-gate"
 novel='{"state":"partial","shell":"unchanged","targets":[{"name":"smoke-novel","state":"smoke-state","reason":"smoke-reason"}],"theme":"vgs","reason":null}'
-stand_in_vgsh "for _ in \$(seq 1 200); do [[ -e $(printf %q "$novel_gate") ]] && break; sleep 0.05; done
+stand_in_vgshell "for _ in \$(seq 1 200); do [[ -e $(printf %q "$novel_gate") ]] && break; sleep 0.05; done
 if [[ \${2:-} == apply ]]; then printf '%s\\n' $(printf %q "$novel"); exit 3; fi"
 click_row vgs || fail "the click on the vgs row failed"
 expect_poll "the vgs row shows its apply running" '[["vgs", "shipped", "Applying"]]' theme_row vgs
@@ -983,7 +983,7 @@ touch -- "$novel_gate"
 expect_poll "the reopened panel shows a target state it names nowhere" '[["vgs", "shipped", "smoke-novel: The theme action failed. Try again or choose another theme."]]' theme_row vgs
 expect "the panel drops the running apply once it ends" False panel_label "Applying vgs"
 
-mv -T -- "$repo/bin/vgsh.real" "$repo/bin/vgsh"
+mv -T -- "$repo/bin/vgshell.real" "$repo/bin/vgshell"
 click_row vgs || fail "the click on the vgs row with the real runner failed"
 expect_poll "the vgs row applied by the real runner is displayed with no problem" '[["vgs", "shipped", "Displayed"]]' theme_row vgs
 expect_poll "the vgs package is displayed again" vgs ipc smoke themeName
@@ -1015,7 +1015,7 @@ printf '%s\n' '{ "schemaVersion": 1, "name": "scenic", "tokens": {} }' >"$scenic
 solid_png "$scenic/backgrounds/a.png" 4000 2000 200 40 40
 solid_png "$scenic/backgrounds/b.png" 64 36 40 40 200
 solid_png "$scenic/backgrounds/c.png" 48 48 40 200 40
-vgsh_theme() { "${shell_env[@]}" "$repo/bin/vgsh" theme "$@"; }
+vgshell_theme() { "${shell_env[@]}" "$repo/bin/vgshell" theme "$@"; }
 # What the first screen's background draws, as background_image_on in
 # harness.sh reads it. background_covers: whether the image decoded to
 # cover its box and smaller than the 4000x2000 file.
@@ -1049,7 +1049,7 @@ click_wallpaper() {
 
 expect "the vgs.themes background is built with vgs applied" "- null" background_image
 expect "the host maps no surface without an image" 0 layer_count vgs:background
-expect "a package with backgrounds applies" "ok theme=scenic state=applied shell=applied" vgsh_theme apply scenic
+expect "a package with backgrounds applies" "ok theme=scenic state=applied shell=applied" vgshell_theme apply scenic
 expect "the apply links the package's first image" "$scenic/backgrounds/a.png" background_link
 expect_poll "the background draws the applied package's first image" "$scenic/backgrounds/a.png ready" background_image
 expect_poll "the host maps one surface per screen once the image is drawn" "$monitors" layer_count vgs:background
@@ -1079,16 +1079,16 @@ expect_poll "the second monitor is listed" True screen_listed "$second_output"
 expect_poll "the second monitor's bar is in the build records" True second_bar_listed
 expect_poll "the second monitor gets a background" "$scenic/backgrounds/a.png ready" background_image_on "$second_output"
 expect_poll "the host maps the second monitor's background with the others" "$((monitors + 1))" layer_count vgs:background
-user_bg="$home/.config/vgs/backgrounds"
+user_bg="$home/.config/vgshell/backgrounds"
 mkdir -p -- "$user_bg"
 cp -- "$scenic/backgrounds/c.png" "$user_bg/own.png"
-expect "set --screen gives the second monitor its own image" "ok background=own.png theme=- path=$user_bg/own.png screen=$second_output" vgsh_theme background set "$user_bg/own.png" --screen "$second_output"
+expect "set --screen gives the second monitor its own image" "ok background=own.png theme=- path=$user_bg/own.png screen=$second_output" vgshell_theme background set "$user_bg/own.png" --screen "$second_output"
 expect_poll "the second monitor draws its own image" "$user_bg/own.png ready" background_image_on "$second_output"
 expect "the first screen draws the current image beside it" "$scenic/backgrounds/a.png ready" background_image
-expect "next moves the current image under a screen's own" "ok background=b.png theme=scenic path=$scenic/backgrounds/b.png" vgsh_theme background next
+expect "next moves the current image under a screen's own" "ok background=b.png theme=scenic path=$scenic/backgrounds/b.png" vgshell_theme background next
 expect_poll "the first screen follows next" "$scenic/backgrounds/b.png ready" background_image
 expect "the second monitor keeps its own image through next" "$user_bg/own.png ready" background_image_on "$second_output"
-expect "previous moves the current image back" "ok background=a.png theme=scenic path=$scenic/backgrounds/a.png" vgsh_theme background previous
+expect "previous moves the current image back" "ok background=a.png theme=scenic path=$scenic/backgrounds/a.png" vgshell_theme background previous
 expect_poll "the first screen follows previous" "$scenic/backgrounds/a.png ready" background_image
 state_qml="$repo/shell/plugins/vgs.themes/WallpaperState.qml"
 cp -p -- "$state_qml" "$sandbox/WallpaperState.qml.screens.real"
@@ -1120,8 +1120,8 @@ expect_log "the background logs the unreadable own image" 1 'background: file://
 # fails with it, and the screen follows the next readable `current`.
 cp -- "$scenic/backgrounds/c.png" "$user_bg/same.png"
 expected_errors+=('background: file://.*/same\.png\?.* unreadable' 'Background\.qml.*Cannot open: file://.*/same\.png')
-expect "set makes a user-folder image current" "ok background=same.png theme=- path=$user_bg/same.png" vgsh_theme background set "$user_bg/same.png"
-expect "set --screen gives the second monitor the current image as its own" "ok background=same.png theme=- path=$user_bg/same.png screen=$second_output" vgsh_theme background set "$user_bg/same.png" --screen "$second_output"
+expect "set makes a user-folder image current" "ok background=same.png theme=- path=$user_bg/same.png" vgshell_theme background set "$user_bg/same.png"
+expect "set --screen gives the second monitor the current image as its own" "ok background=same.png theme=- path=$user_bg/same.png screen=$second_output" vgshell_theme background set "$user_bg/same.png" --screen "$second_output"
 expect_poll "the second monitor draws its own entry that names the current image" "$user_bg/same.png ready" background_image_on "$second_output"
 rm -- "$user_bg/same.png"
 expect "the nested compositor removes the second monitor over its removed current image" ok hypr output remove "$second_output"
@@ -1129,18 +1129,18 @@ expect_poll "the second monitor is gone before it comes back again" False screen
 expect_poll "the second monitor's bar left the build records before it comes back again" False second_bar_listed
 expect "the nested compositor adds the second monitor back again" ok hypr output create headless "$second_output"
 expect_poll "an own entry equal to an unreadable current draws nothing" "$user_bg/same.png error" background_image_on "$second_output"
-expect "set makes a readable package image current" "ok background=a.png theme=scenic path=$scenic/backgrounds/a.png" vgsh_theme background set "$scenic/backgrounds/a.png"
+expect "set makes a readable package image current" "ok background=a.png theme=scenic path=$scenic/backgrounds/a.png" vgshell_theme background set "$scenic/backgrounds/a.png"
 expect_poll "a screen whose failed own entry named the old current draws the new current" "$scenic/backgrounds/a.png ready" background_image_on "$second_output"
 expect "the nested compositor removes the second monitor" ok hypr output remove "$second_output"
 expect_poll "the second monitor's background surface is gone" "$monitors" layer_count vgs:background
 expect_poll "the removed second monitor is gone" False screen_listed "$second_output"
 expect_poll "the second monitor's bar left the build records" False second_bar_listed
-expect "next moves to the package's second image" "ok background=b.png theme=scenic path=$scenic/backgrounds/b.png" vgsh_theme background next
+expect "next moves to the package's second image" "ok background=b.png theme=scenic path=$scenic/backgrounds/b.png" vgshell_theme background next
 expect_poll "the background follows next" "$scenic/backgrounds/b.png ready" background_image
-expect "previous moves back to the package's first image" "ok background=a.png theme=scenic path=$scenic/backgrounds/a.png" vgsh_theme background previous
+expect "previous moves back to the package's first image" "ok background=a.png theme=scenic path=$scenic/backgrounds/a.png" vgshell_theme background previous
 expect_poll "the background follows previous" "$scenic/backgrounds/a.png ready" background_image
-expect "next moves to the second image again" "ok background=b.png theme=scenic path=$scenic/backgrounds/b.png" vgsh_theme background next
-expect "a package without backgrounds applies" "ok theme=vgs state=applied shell=applied" vgsh_theme apply vgs
+expect "next moves to the second image again" "ok background=b.png theme=scenic path=$scenic/backgrounds/b.png" vgshell_theme background next
+expect "a package without backgrounds applies" "ok theme=vgs state=applied shell=applied" vgshell_theme apply vgs
 expect "the link goes with a package without backgrounds" absent background_link
 expect_poll "the background draws no image for it" "- null" background_image
 expect_poll "the surface goes with the image" 0 layer_count vgs:background
@@ -1153,7 +1153,7 @@ expect_poll "the themes panel opens for the wallpaper rows" open panel_open
 expect_poll "the panel names no wallpaper while none is current" True panel_label None
 expect "Next is disabled while no wallpaper is current" disabled wallpaper_button "Next wallpaper"
 expect "Previous is disabled while no wallpaper is current" disabled wallpaper_button "Previous wallpaper"
-expect "the package with backgrounds applies again under the open panel" "ok theme=scenic state=applied shell=applied" vgsh_theme apply scenic
+expect "the package with backgrounds applies again under the open panel" "ok theme=scenic state=applied shell=applied" vgshell_theme apply scenic
 expect_poll "the background draws the image next remembered" "$scenic/backgrounds/b.png ready" background_image
 expect_poll "the surface comes back with the image" "$monitors" layer_count vgs:background
 expect_poll "the panel follows the apply to the remembered wallpaper" True panel_label b.png
@@ -1167,7 +1167,7 @@ expect_poll "the panel names the wallpaper Previous moved to" True panel_label b
 expect "the panel's step remembers its wallpaper for the package" '"b.png"' bg_remembered
 # A step the runner refuses is shown as the panel's problem line: the row
 # holds the theme lock, so the runner answers busy, and the wallpaper stays.
-exec {wallpaper_lock}>>"$home/.config/vgs/theme.lock"
+exec {wallpaper_lock}>>"$home/.config/vgshell/theme.lock"
 flock "$wallpaper_lock"
 click_wallpaper "Next wallpaper" || fail "the click on Next wallpaper under the held lock failed"
 expect_poll "a refused step shows its reason" True panel_label "The wallpaper could not be changed. Another theme action is running. Wait for it to finish."
@@ -1190,13 +1190,13 @@ expect "the fixture steps to the next wallpaper" ok probe theme-background next
 expect_poll "the step's result reaches the fixture" 1 read_service themeSteps
 expect "the step's result is the runner's" "ok c.png scenic None" stepped
 expect_poll "the background follows the fixture's step" "$scenic/backgrounds/c.png ready" background_image
-expected_errors+=('theme: vgsh theme background reason=output-unreadable name=previous exit=2 ')
-cp -p -- "$repo/bin/vgsh" "$repo/bin/vgsh.real"
-stand_in_vgsh 'echo "no result"; exit 2'
+expected_errors+=('theme: vgshell theme background reason=output-unreadable name=previous exit=2 ')
+cp -p -- "$repo/bin/vgshell" "$repo/bin/vgshell.real"
+stand_in_vgshell 'echo "no result"; exit 2'
 expect "a step whose runner prints no result is accepted" ok probe theme-background previous
 expect_poll "the unreadable step reaches the fixture" 2 read_service themeSteps
 expect "a step with no result is a failure with its reason" "failed None None output-unreadable" stepped
-mv -T -- "$repo/bin/vgsh.real" "$repo/bin/vgsh"
+mv -T -- "$repo/bin/vgshell.real" "$repo/bin/vgshell"
 expect "disabling the fixture after the wallpaper step rows is allowed" ok ipc shell setPluginEnabled acme.probe false
 
 # A state file the runner did not write is logged and draws nothing.
@@ -1206,7 +1206,7 @@ expect_poll "a malformed state file draws no image" "- null" background_image
 expect_poll "a malformed state file maps no surface" 0 layer_count vgs:background
 expect_log "the background logs the malformed state file" 1 'background: .*/backgrounds\.json malformed'
 rm -- "$bg_state/backgrounds.json"
-expect "the package applies over a removed state file" "ok theme=scenic state=unchanged shell=unchanged" vgsh_theme apply scenic
+expect "the package applies over a removed state file" "ok theme=scenic state=unchanged shell=unchanged" vgshell_theme apply scenic
 expect_poll "the rewritten state file draws the first image again" "$scenic/backgrounds/a.png ready" background_image
 
 # Control: a sandbox copy of the state reader that never reads on a change
@@ -1222,7 +1222,7 @@ if [[ $(grep -c -F 'onChanged: read()' -- "$state_qml") == 1 ]]; then
   expect_poll "the control rebuilds every vgs.themes instance" "$((control_builds + themes_instances))" builds
   expect "the follow the rescan queued ends before the row's theme command" idle theme_idle
   expect "the control draws the current image when built" "$scenic/backgrounds/a.png ready" background_image
-  expect "next moves on under the control" "ok background=b.png theme=scenic path=$scenic/backgrounds/b.png" vgsh_theme background next
+  expect "next moves on under the control" "ok background=b.png theme=scenic path=$scenic/backgrounds/b.png" vgshell_theme background next
   sleep 2
   expect "the unwatched control keeps drawing the image it was built with" "$scenic/backgrounds/a.png ready" background_image
   cp -p -- "$sandbox/WallpaperState.qml.real" "$state_qml.tmp" && mv -T -- "$state_qml.tmp" "$state_qml"
@@ -1240,10 +1240,10 @@ bg_state_names "$scenic/backgrounds/a.png"; bg_state_names "$scenic/backgrounds/
 expect_poll "back-to-back state changes draw the later image" "$scenic/backgrounds/c.png ready" background_image
 # An image replaced under its name is decoded again once its package
 # applies again: the 2:1 a.png becomes a 16:9 image.
-expect "the package applies over the hand-written state" "ok theme=scenic state=unchanged shell=unchanged" vgsh_theme apply scenic
+expect "the package applies over the hand-written state" "ok theme=scenic state=unchanged shell=unchanged" vgshell_theme apply scenic
 expect_poll "the package's first image is drawn at its 2:1 shape" 2.0 background_ratio
 cp -- "$scenic/backgrounds/b.png" "$scenic/backgrounds/a.png.tmp" && mv -T -- "$scenic/backgrounds/a.png.tmp" "$scenic/backgrounds/a.png"
-expect "the package applies over its replaced image" "ok theme=scenic state=unchanged shell=unchanged" vgsh_theme apply scenic
+expect "the package applies over its replaced image" "ok theme=scenic state=unchanged shell=unchanged" vgshell_theme apply scenic
 expect_poll "the replaced image is decoded again at its 16:9 shape" 1.8 background_ratio
 
 # Control: a sandbox copy of the background that is always shown maps the
@@ -1256,7 +1256,7 @@ if [[ $(grep -c -F 'readonly property bool shown: drawn' -- "$plugin_qml") == 1 
   rescan "a rescan builds the always-shown control"
   expect_poll "the always-shown control rebuilds every vgs.themes instance" "$((control_builds + themes_instances))" builds
   expect "the follow the always-shown rescan queued ends" idle theme_idle
-  expect "vgs applies under the always-shown control" "ok theme=vgs state=applied shell=applied" vgsh_theme apply vgs
+  expect "vgs applies under the always-shown control" "ok theme=vgs state=applied shell=applied" vgshell_theme apply vgs
   expect_poll "the always-shown control draws no image" "- null" background_image
   expect "the always-shown control maps a surface with no image" "$monitors" layer_count vgs:background
   cp -p -- "$sandbox/Background.qml.real" "$plugin_qml.tmp" && mv -T -- "$plugin_qml.tmp" "$plugin_qml"
@@ -1269,7 +1269,7 @@ else
 fi
 
 expect "no current wallpaper is left for later rows" null bg_current
-expect "vgsh plugin disable takes the themes widget and the background away" ok "${shell_env[@]}" "$repo/bin/vgsh" plugin disable vgs.themes
+expect "vgshell plugin disable takes the themes widget and the background away" ok "${shell_env[@]}" "$repo/bin/vgshell" plugin disable vgs.themes
 expect_poll "every vgs.themes instance is gone" False record_exists vgs.themes
 # Disabling the plugin queues a scan and follow; the next row's apply must not race that theme lock.
 expect "the follow after disabling the themes plugin ends" idle theme_idle

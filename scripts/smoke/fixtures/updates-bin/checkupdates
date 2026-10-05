@@ -4,7 +4,7 @@
 # failure does, many-checkupdates lists 1400 updates, slow-checkupdates
 # holds the check for two seconds so a second request meets it running.
 set -euo pipefail
-root="${XDG_STATE_HOME:?}/vgs/updates-smoke"
+root="${XDG_STATE_HOME:?}/vgshell/updates-smoke"
 mkdir -p -- "$root"
 printf 'checkupdates %s\n' "$*" >>"$root/calls.log"
 if [[ -f $root/slow-checkupdates ]]; then sleep 2; fi

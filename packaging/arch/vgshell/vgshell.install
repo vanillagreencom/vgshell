@@ -1,0 +1,6 @@
+# pacman runs post_install on a first install, and when this package takes
+# the place of one it conflicts with. The text is the installed tree's own
+# file, the one every package channel prints.
+post_install() {
+  cat /usr/share/vgshell/bin/lib/post-install.txt
+}

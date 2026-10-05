@@ -10,7 +10,7 @@
 
 **Refines**: [D033](D033-floating-tuis-are-core.md), [D035](D035-manifest-requirements.md), [D037](D037-plugin-status.md)
 
-**Context**: Installing VGS or a plugin told the user to run commands by hand: `secret-tool store … account slack:<team>` for Slack photos, `loginctl enable-linger` for automations while logged out, `vsys warden install` and a `curl … | bash` for Agent Warden, `vgsh theme browser-policy install` for Chromium theming, `vgsh pkg run install mise`, and `vgsh plugin enable <id>` for bar widgets. Each sat in a README, a Settings status row's `command` or a hint. The owner's direction: a user installing a plugin should run no command; at worst they press a button that runs it for them. Pasting a token into a shell command also puts it in the shell's history.
+**Context**: Installing VGS or a plugin told the user to run commands by hand: `secret-tool store … account slack:<team>` for Slack photos, `loginctl enable-linger` for automations while logged out, `vsys warden install` and a `curl … | bash` for Agent Warden, `vgshell theme browser-policy install` for Chromium theming, `vgshell pkg run install mise`, and `vgshell plugin enable <id>` for bar widgets. Each sat in a README, a Settings status row's `command` or a hint. The owner's direction: a user installing a plugin should run no command; at worst they press a button that runs it for them. Pasting a token into a shell command also puts it in the shell's history.
 
 **Decision**: One standing rule, and the mechanism that makes it hold.
 

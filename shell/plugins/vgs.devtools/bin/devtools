@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // devtools: the vgs.devtools engine. It reads the plugin's catalog.json,
 // judged by CatalogLogic.js, and reports and changes each row's install
-// through mise, the core package layer (`vgsh pkg`) and the container
+// through mise, the core package layer (`vgshell pkg`) and the container
 // runtimes. Every verb takes the VGS tree it runs against first; a
 // floating TUI script passes the tree its VGS_TUI_LIB lies in.
 //
@@ -27,7 +27,7 @@
 //       (anything else provides the command at `path`), or null when not
 //       installed. `version` is the installed version when the origin
 //       names one, else null. `launcher`, for an agent, app or tool, is
-//       "vgs", "foreign" or "absent": the file at ~/.local/bin/<command>.
+//       "vgshell", "foreign" or "absent": the file at ~/.local/bin/<command>.
 //       `channels` is the row's release channel ids with its default first,
 //       or null. `actions` is what the TUI verbs accept for the row now,
 //       from "install", "update" and "remove". `other` holds each tool of
@@ -52,9 +52,9 @@
 //   devtools --tree <dir> remove --mise <key>
 //       change one row, or one other mise tool, in this terminal: the
 //       verbs refuse in a process the shell started and without /dev/tty,
-//       before anything runs, since `vgsh pkg run` asks for a password and
+//       before anything runs, since `vgshell pkg run` asks for a password and
 //       the floating TUI is where the user answers it. install runs, in
-//       order: the row's distribution packages through `vgsh pkg run
+//       order: the row's distribution packages through `vgshell pkg run
 //       install`, the mise settings it names, `mise use -g` of each spec it
 //       requires and of its tools or package, or its named installer, then
 //       its postInstall steps, and ends by checking its present probe.
@@ -66,7 +66,7 @@
 //       `mise uninstall --all` and `mise rm -g` of each of its tools or its
 //       package that no other installed row declares, the installer's own
 //       uninstall, the path its home probe names, and the packages no
-//       other installed row lists through `vgsh pkg run remove`, then
+//       other installed row lists through `vgshell pkg run remove`, then
 //       checks the probe no longer holds; a database container goes with
 //       `<runtime> rm -f`. install and update first set
 //       `upgrade.auto_prune` false in mise's global settings when it is
@@ -134,7 +134,7 @@ function bad(first) {
 function readArgs(argv) {
     if (argv[0] !== "--tree" || argv.length < 3) bad("option=--tree value=missing");
     const tree = path.resolve(argv[1]);
-    if (!fs.existsSync(path.join(tree, "bin", "vgsh")) || !fs.existsSync(path.join(tree, "bin", "lib", "judge-files.js"))) {
+    if (!fs.existsSync(path.join(tree, "bin", "vgshell")) || !fs.existsSync(path.join(tree, "bin", "lib", "judge-files.js"))) {
         process.stderr.write("devtools: refused: tree=" + tree + " reason=not-a-vgs-tree\n");
         process.exit(2);
     }
@@ -149,7 +149,7 @@ const Lucide = load(path.join(args.tree, "shell", "Ui", "icons", "Lucide.js"));
 const Catalog = load(path.join(PLUGIN_DIR, "CatalogLogic.js"));
 const Appearance = load(path.join(PLUGIN_DIR, "Appearance.js"));
 const View = load(path.join(PLUGIN_DIR, "ViewLogic.js"));
-const VGSH = path.join(args.tree, "bin", "vgsh");
+const VGSHELL = path.join(args.tree, "bin", "vgshell");
 const RUNNER = path.join(args.tree, "bin", "lib", "pkg-run.sh");
 const HOME = process.env.HOME || os.homedir();
 const LAUNCHER_DIR = path.join(HOME, ".local", "bin");
@@ -302,11 +302,11 @@ function homeEntries(present) {
     }
 }
 
-// The package owning FILE through `vgsh pkg owner`: { owner } with
+// The package owning FILE through `vgshell pkg owner`: { owner } with
 // { manager, package, version }, { owner: null } for a file no package
 // owns, or { error } for a query that could not answer.
 async function ownerOf(file) {
-    const r = await capture([VGSH, "pkg", "owner", file]);
+    const r = await capture([VGSHELL, "pkg", "owner", file]);
     if (r.status === 0) {
         try {
             return { owner: JSON.parse(r.stdout) };
@@ -315,12 +315,12 @@ async function ownerOf(file) {
         }
     }
     const first = r.stderr.split("\n")[0];
-    if (/^vgsh: refused: path=\S+ reason=unowned /.test(first)) return { owner: null };
-    return { error: first.replace(/^vgsh: refused: /, "") || "pkg=failed verb=owner exit=" + r.status };
+    if (/^vgshell: refused: path=\S+ reason=unowned /.test(first)) return { owner: null };
+    return { error: first.replace(/^vgshell: refused: /, "") || "pkg=failed verb=owner exit=" + r.status };
 }
 
 async function detectManagers() {
-    const r = await capture([VGSH, "pkg", "detect", "--json"]);
+    const r = await capture([VGSHELL, "pkg", "detect", "--json"]);
     if (r.status !== 0) refuse("pkg=failed verb=detect exit=" + r.status, undefined, 1, r.stderr);
     return JSON.parse(r.stdout);
 }
@@ -492,11 +492,11 @@ function runSteps(steps, extraEnv) {
     if (r.status !== 0) refuse("step=failed exit=" + (r.status === null ? 128 + os.constants.signals[r.signal] : r.status));
 }
 
-// `vgsh pkg run VERB --manager MANAGER NAMES`, which elevates in this
+// `vgshell pkg run VERB --manager MANAGER NAMES`, which elevates in this
 // terminal and rescans the shell's requirements after.
 function runPackages(verb, manager, names) {
     if (names.length === 0) return;
-    const r = childProcess.spawnSync(VGSH, ["pkg", "run", verb, "--manager", manager].concat(names), { stdio: "inherit", cwd: HOME });
+    const r = childProcess.spawnSync(VGSHELL, ["pkg", "run", verb, "--manager", manager].concat(names), { stdio: "inherit", cwd: HOME });
     if (r.error !== undefined) refuse("runner=failed error=" + r.error.code);
     if (r.status !== 0) refuse("step=failed exit=" + r.status);
 }
@@ -736,7 +736,7 @@ function actionDiagnostic(raw, message) {
 }
 
 function logActionDiagnostic(raw) {
-    const log = path.join(process.env.XDG_STATE_HOME || path.join(HOME, ".local", "state"), "vgs", "devtools", "actions.log");
+    const log = path.join(process.env.XDG_STATE_HOME || path.join(HOME, ".local", "state"), "vgshell", "devtools", "actions.log");
     fs.mkdirSync(path.dirname(log), { recursive: true });
     fs.appendFileSync(log, raw + "\n");
 }

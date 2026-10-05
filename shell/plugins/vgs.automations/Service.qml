@@ -13,7 +13,7 @@ import "AutomationsLogic.js" as Logic
 // question goes to bin/automations, one call at a time, since the engine
 // owns the store, the units and the records.
 //
-//   vgsh ipc call vgs.automations invoke <name> ""   with <name>:
+//   vgshell ipc call vgs.automations invoke <name> ""   with <name>:
 //     status    the published values, JSON
 //     sync      sync, then list; `ok`
 //     refresh   list; `ok`

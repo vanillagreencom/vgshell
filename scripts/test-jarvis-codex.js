@@ -31,7 +31,7 @@ world(async () => {
     fs.mkdirSync(account);
     const env = { PATH: process.env.PATH, HOME: process.env.HOME, XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
         XDG_STATE_HOME: state, XDG_DATA_HOME: process.env.XDG_DATA_HOME, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
-        OPENAI_API_KEY: "fixture-secret-private", VGSH_RUNNER_PID: "1" };
+        OPENAI_API_KEY: "fixture-secret-private", VGSHELL_RUNNER_PID: "1" };
     const owners = [];
     let serial = 0, cases = 0;
 
@@ -151,7 +151,7 @@ world(async () => {
             const [call] = read("codex-calls");
             assert.deepEqual(call.args, ["app-server", "--listen", "stdio://"]);
             assert.equal(call.env.CODEX_HOME, account, "the account's own directory");
-            for (const name of ["OPENAI_API_KEY", "VGSH_RUNNER_PID", "VGS_JARVIS_TOOLS_TOKEN"])
+            for (const name of ["OPENAI_API_KEY", "VGSHELL_RUNNER_PID", "VGS_JARVIS_TOOLS_TOKEN"])
                 assert.equal(Object.hasOwn(call.env, name), false, name + " stays out of the program's environment");
             assert.equal(path.dirname(call.cwd), w.runtime, "a private working directory");
             const [start] = received("thread/start");
@@ -361,7 +361,7 @@ world(async () => {
         // Account Verify on a Codex directory: the release record, then one probe turn.
         async verify(folder) {
             const { Accounts } = require(path.join(folder, "backend/Accounts.js"));
-            const directory = path.join(state, "vgs/jarvis");
+            const directory = path.join(state, "vgshell/jarvis");
             fs.rmSync(path.join(directory, "audit"), { recursive: true, force: true });
             fs.mkdirSync(path.join(process.env.HOME, ".claude"), { recursive: true });
             // Verify's program runs in the runtime directory its owner hands over.
@@ -394,7 +394,7 @@ world(async () => {
                 { env, encoding: "utf8", timeout: 30000 });
             assert.deepEqual([helper.status, helper.stdout, helper.stderr],
                 [69, JSON.stringify({ kind: "unavailable", reason: "codex-refused" }) + "\n", ""]);
-            assert.equal(path.dirname(program().cwd), path.join(env.XDG_RUNTIME_DIR, "vgs/jarvis"),
+            assert.equal(path.dirname(program().cwd), path.join(env.XDG_RUNTIME_DIR, "vgshell/jarvis"),
                 "the helper hands over the daemon's runtime directory");
         },
         // Account Verify's handoff: one turn on a thread with no tools.
@@ -482,7 +482,7 @@ world(async () => {
                 "(send => send())(() => CodexHarness.probe("]], "verify"],
             ["handoff-release", "backend/Accounts.js", [['const grants = [{ recipients: selected, labels: ["command"] }];', "const grants = [];"]], "verify"],
             ["resolve-handoff", "backend/Accounts.js", [["if (!HARNESS_BRAINS.includes(candidate.provider)) return null;", ""]], "verify"],
-            ["handoff-runtime", "backend/Accounts.js", [["runtime: this.runtime,", 'runtime: path.join(this.env.XDG_RUNTIME_DIR, "vgs/jarvis"),']], "verify"],
+            ["handoff-runtime", "backend/Accounts.js", [["runtime: this.runtime,", 'runtime: path.join(this.env.XDG_RUNTIME_DIR, "vgshell/jarvis"),']], "verify"],
             ["default-runtime", "backend/Accounts.js", [["runtime = runtimeDirectory(env.XDG_RUNTIME_DIR)) {", 'runtime = "") {']], "verify"],
             ["harness-reason", "backend/Accounts.js", [[": harness ? harness[1]", ": false ? harness[1]"]], "verify"],
             ["gate-outcome", "backend/CodexHarness.js", [['outcome: item.status === "completed" ? "completed"', 'outcome: item.status === "unreachable" ? "completed"']], "allowed"]

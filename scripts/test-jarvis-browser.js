@@ -10,8 +10,8 @@ world(async () => {
     const Tools = require(path.join(backend, "Tools.js"));
     const Policy = require(path.join(backend, "Policy.js"));
     const environment = { ...process.env, OPENAI_API_KEY: "fixture-secret", AGENT_BROWSER_CDP: "host-browser",
-        AGENT_BROWSER_PROFILE: "/fixture/profile", AGENT_BROWSER_CONFIG: "/fixture/config", VGSH_RUNNER_PID: "fixture" };
-    const marker = path.join(environment.XDG_DATA_HOME, "vgs/jarvis/browser-ready.json");
+        AGENT_BROWSER_PROFILE: "/fixture/profile", AGENT_BROWSER_CONFIG: "/fixture/config", VGSHELL_RUNNER_PID: "fixture" };
+    const marker = path.join(environment.XDG_DATA_HOME, "vgshell/jarvis/browser-ready.json");
     const call = (command, args = {}) => ({ id: "browser", args: { command, args } });
     const run = (owner, command, args = {}) => new Promise(resolve => owner.record.start(call(command, args), resolve));
     async function check(implementation, name, fixture, command, args, outcome, reason, changed) {
@@ -81,12 +81,12 @@ world(async () => {
             const row = calls().find(row => row.args.includes("snapshot"));
             assert.equal(row.env.HOME, path.join(row.env.XDG_RUNTIME_DIR, "home"));
             assert.equal(fs.readlinkSync(path.join(row.env.HOME, ".agent-browser/browsers")),
-                path.join(environment.XDG_DATA_HOME, "vgs/jarvis/browser-home/.agent-browser/browsers"));
-            assert.ok(row.env.XDG_RUNTIME_DIR.startsWith(path.join(environment.XDG_RUNTIME_DIR, "vgs/jarvis/browser-")));
+                path.join(environment.XDG_DATA_HOME, "vgshell/jarvis/browser-home/.agent-browser/browsers"));
+            assert.ok(row.env.XDG_RUNTIME_DIR.startsWith(path.join(environment.XDG_RUNTIME_DIR, "vgshell/jarvis/browser-")));
             assert.equal(row.env.AGENT_BROWSER_CDP, undefined);
             assert.equal(row.env.AGENT_BROWSER_PROFILE, undefined);
             assert.equal(row.env.OPENAI_API_KEY, undefined);
-            assert.equal(row.env.VGSH_RUNNER_PID, undefined);
+            assert.equal(row.env.VGSHELL_RUNNER_PID, undefined);
             assert.notEqual(row.env.AGENT_BROWSER_CONFIG, environment.AGENT_BROWSER_CONFIG);
             const session = row.args[row.args.indexOf("--session") + 1];
             assert.match(session, /^jarvis-[0-9a-f-]+$/);

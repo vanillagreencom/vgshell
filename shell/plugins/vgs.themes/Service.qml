@@ -9,7 +9,7 @@ import "SetupLogic.js" as SetupLogic
 // table in BrowserLogic.js, each summoning the plugin's overlay on that
 // view, and the Browser theming status row. It draws nothing; each
 // registration's disposer is the core's, so disabling the plugin releases
-// them. The row asks `vgsh theme setup --json` at start, after each plugin
+// them. The row asks `vgshell theme setup --json` at start, after each plugin
 // requirements scan and after each run of the `browser-policy` TUI, whoever
 // opened it, the one step that changes its answer from the shell, and
 // publishes SetupLogic.browserTheming's answer; the Settings page offers
@@ -27,7 +27,7 @@ import "SetupLogic.js" as SetupLogic
 //                                            manifest's `hyprland` binds;
 //                                            the launcher's Style row runs
 //                                            it too (README)
-//   vgsh ipc call vgs.themes invoke gaps ''  the same toggle
+//   vgshell ipc call vgs.themes invoke gaps ''  the same toggle
 // The gaps toggle flips the `noWindowGaps` setting through `configure`, so
 // it holds across a restart; the Hyprland layer writes the zero gaps.
 // A shortcut summons rather than toggles: the overlay's `open` closes it
@@ -209,7 +209,7 @@ Item {
         }
     }
 
-    // Ask `vgsh theme setup --json` again; one asked while it runs runs
+    // Ask `vgshell theme setup --json` again; one asked while it runs runs
     // once it ends.
     property bool setupPending: false
     function checkSetup() {
@@ -219,7 +219,7 @@ Item {
 
     Process {
         id: setupReport
-        command: [Quickshell.shellDir + "/../bin/vgsh", "theme", "setup", "--json"]
+        command: [Quickshell.shellDir + "/../bin/vgshell", "theme", "setup", "--json"]
         stdout: StdioCollector { id: setupOut }
         stderr: StdioCollector { id: setupErr }
         // The exit code, or null while the process has not exited, as one

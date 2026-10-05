@@ -1,14 +1,14 @@
 .pragma library
 
 // The Browser theming row of the plugin's Settings page, pure so
-// scripts/test-themes-setup.js runs it under node: what `vgsh theme setup
+// scripts/test-themes-setup.js runs it under node: what `vgshell theme setup
 // --json` says of the chromium target's one-time setup, the writer
-// `vgsh theme browser-policy install` puts on PATH
+// `vgshell theme browser-policy install` puts on PATH
 // (docs/architecture/theme-browsers.md § Chromium).
 
 // The shipped target whose setup the row reports.
 var TARGET = "chromium";
-// The states `vgsh theme setup` reports a setup in.
+// The states `vgshell theme setup` reports a setup in.
 var STATES = ["not-detected", "absent", "done"];
 
 // The `browserTheming` status value, a `state`, for TEXT, the setup

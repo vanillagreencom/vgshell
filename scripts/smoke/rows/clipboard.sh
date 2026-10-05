@@ -42,7 +42,7 @@ set -euo pipefail
 for clip_tool in wl-copy wl-paste; do
   command -v -- "$clip_tool" >/dev/null || { fail "clipboard: $clip_tool is unavailable"; return 0; }
 done
-clip_store="$home/.local/state/vgs/clipboard"
+clip_store="$home/.local/state/vgshell/clipboard"
 clip_image="$sandbox/clipboard-image.png"
 clip_plugin="$repo/shell/plugins/vgs.clipboard"
 # A 640 by 640 opaque PNG of seeded noise, built here so the row ships no
@@ -94,7 +94,7 @@ clip_read() { ipc smoke readInstance "$1" vgs.clipboard "$2"; }
 clip_lent() { ipc shell lent | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([[s for s in d["shortcuts"] if s.startswith("vgs.clipboard")], [t for t in d["ipcTargets"] if t == "vgs.clipboard"]]))'; }
 # clip_listed: whether the user file's disabledPlugins and its plugins name
 # the plugin, as a JSON pair.
-clip_listed() { python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(json.dumps(["vgs.clipboard" in d.get("disabledPlugins", []), any(r.get("id") == "vgs.clipboard" for r in d.get("plugins", []))]))' "$home/.config/vgs/shell.json"; }
+clip_listed() { python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(json.dumps(["vgs.clipboard" in d.get("disabledPlugins", []), any(r.get("id") == "vgs.clipboard" for r in d.get("plugins", []))]))' "$home/.config/vgshell/shell.json"; }
 # clip_toasts: the plugin's toasts, shown and waiting. clip_no_toast_past N:
 # `quiet` when their count stays at or under N for 2 s.
 clip_toasts() { ipc shell lent | py_reply 'import json,sys; rows=json.load(sys.stdin)["toasts"]; print(sum(r["plugin"] == "vgs.clipboard" for k in ("visible", "waiting") for r in rows[k]))'; }

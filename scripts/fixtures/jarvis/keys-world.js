@@ -57,7 +57,7 @@ else:
 
 module.exports = { ref, standins };
 if (require.main === module) {
-    const directory = path.join(process.env.XDG_STATE_HOME, "vgs/jarvis");
+    const directory = path.join(process.env.XDG_STATE_HOME, "vgshell/jarvis");
     fs.mkdirSync(directory, { recursive: true });
     const mode = process.argv[3] ? fs.readFileSync(process.argv[3], "utf8").trim() : "present";
     fs.writeFileSync(path.join(directory, "keys.json"), mode === "probe-failed" ? "junk" : JSON.stringify([ref]));

@@ -53,7 +53,7 @@ const requirementsScan = { v: 1, type: "requirements-scan", gen: 0, revision: he
 const tuiState = { v: 1, type: "tui-state", gen: 0, revision: hello.revision, name: "task", running: true };
 const taskReply = { ...reply, kind: "tui.run", answer: "refused: tui=task reason=busy" };
 const taskRequest = { v: 1, type: "request", gen: 0, revision: hello.revision, id: 1, kind: "tui.run",
-    args: ["/run/user/1000/vgs/jarvis/tasks/" + taskStop.task + ".json"] };
+    args: ["/run/user/1000/vgshell/jarvis/tasks/" + taskStop.task + ".json"] };
 const tasks = { v: 1, type: "tasks", gen: 0, revision: hello.revision, count: 2 };
 const taskAnswer = { v: 1, type: "task-answer", gen: 0, revision: hello.revision, task: taskStop.task, answer: "stop-incomplete" };
 const transcript = { v: 1, type: "transcript", gen: 0, revision: hello.revision, role: "user", text: " the time?", stage: "partial", rev: 1 };

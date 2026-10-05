@@ -5,7 +5,7 @@ import Quickshell.Io
 import "PluginLogic.js" as Logic
 
 // Owns the exit-record side of the `tui` capability: the FolderListModel
-// listing, the per-file readers, the reaper, one `bin/vgsh-tui wait`
+// listing, the per-file readers, the reaper, one `bin/vgshell-tui wait`
 // process per live run, the accepted records and runs, and the `done`
 // callbacks with their delivery. The listing is the fast path. The wait is
 // the guarantee when FolderListModel drops a directory change. A wait can
@@ -17,13 +17,13 @@ import "PluginLogic.js" as Logic
 Scope {
     id: root
 
-    // The directory bin/vgsh-tui writes records in.
+    // The directory bin/vgshell-tui writes records in.
     property string recordDir: ""
-    // The core's bin/ directory, where vgsh-tui lives.
+    // The core's bin/ directory, where vgshell-tui lives.
     property string coreBin: ""
     // Each listed record file's path -> the record PluginLogic accepted.
     property var fileRecords: ({})
-    // The ended records accepted from `vgsh-tui wait` that
+    // The ended records accepted from `vgshell-tui wait` that
     // PluginLogic.tuiWaitRecordsKept still keeps beside the listing: bounded
     // by the listed running records plus one per key.
     property var waitRecords: []
@@ -139,7 +139,7 @@ Scope {
         const process = waitComponent.createObject(root);
         process.key = key;
         process.run = run;
-        process.command = [coreBin + "/vgsh-tui", "wait", "--record", key, "--run", run];
+        process.command = [coreBin + "/vgshell-tui", "wait", "--record", key, "--run", run];
         const next = Object.assign({}, waits);
         next[id] = process;
         waits = next;
@@ -255,7 +255,7 @@ Scope {
     Process {
         id: reaper
         property var completion: null
-        command: [root.coreBin + "/vgsh-tui", "reap"]
+        command: [root.coreBin + "/vgshell-tui", "reap"]
         stdout: StdioCollector { id: reaped }
         stderr: StdioCollector { id: reapErrors }
         onExited: (code, status) => { reaper.completion = { code: code, status: status }; }

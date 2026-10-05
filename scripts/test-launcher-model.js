@@ -109,17 +109,17 @@ function verify(model) {
     assert.equal(alone.ok, true, alone.error);
     assert.equal(alone.itemOrder[0], "root", "a menu without a root gets one first");
     assert.equal(alone.items.apps.provider, "apps");
-    same(alone.items["tools.screenshot"].run, ["vgsh", "ipc", "call", "vgs.capture", "invoke", "screenshot-area", "{}"], "Screenshot asks the capture service");
+    same(alone.items["tools.screenshot"].run, ["vgshell", "ipc", "call", "vgs.capture", "invoke", "screenshot-area", "{}"], "Screenshot asks the capture service");
     assert.equal(alone.items["system.reboot"].kind, "action");
     assert.equal(alone.items["system.reboot"].parent, "system");
     same(["install", "remove", "update"].map(id => [alone.items[id].kind, alone.items[id].tui, alone.items[id].tuiGroup]),
         [["tui", "core/pkg-install", ""], ["tui", "core/pkg-remove", ""], ["tui", "", "Update"]]);
-    // Lock asks the shell's own lock through `vgsh lock`: loginctl only
-    // asks a logind listener the shell does not provide. Without vgsh on
+    // Lock asks the shell's own lock through `vgshell lock`: loginctl only
+    // asks a logind listener the shell does not provide. Without vgshell on
     // PATH the row says so.
-    same(alone.items["system.lock"].run, ["vgsh", "lock"]);
-    same(alone.items["system.lock"].requires, ["vgsh"]);
-    same(model.menuRows(alone.items, alone.itemOrder, "system", ["vgsh"]).filter(r => r.label === "Lock").map(r => [r.kind, r.detail]), [["unavailable", "needs vgsh"]]);
+    same(alone.items["system.lock"].run, ["vgshell", "lock"]);
+    same(alone.items["system.lock"].requires, ["vgshell"]);
+    same(model.menuRows(alone.items, alone.itemOrder, "system", ["vgshell"]).filter(r => r.label === "Lock").map(r => [r.kind, r.detail]), [["unavailable", "needs vgshell"]]);
 
     for (const [label, text, start] of MENU_REFUSED) {
         const result = model.parseMenu(text);

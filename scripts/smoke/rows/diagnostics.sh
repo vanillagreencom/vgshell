@@ -1,6 +1,6 @@
 # Every QML warning and error the shell logged, minus the lines rows
 # provoked on purpose, plus the engine's own error classes.
-# inputs: shell/* scripts/sample-shell-memory.sh bin/vgsh scripts/smoke/rows/bar.sh
+# inputs: shell/* scripts/sample-shell-memory.sh bin/vgshell scripts/smoke/rows/bar.sh
 set -euo pipefail
 check_unexpected_log "shell log" "$instance_log"
 
@@ -9,7 +9,7 @@ if [[ -n $first_bar_ms && $first_bar_ms -le $first_bar_budget_ms ]]; then ok "th
 echo "  latency_reconcile_ms=${reconcile_ms:-unmeasured} budget_ms=$reconcile_budget_ms"
 if [[ -n $reconcile_ms && $reconcile_ms -le $reconcile_budget_ms ]]; then ok "a disable reaches the build records within its budget"; else fail "reconcile latency ${reconcile_ms:-unmeasured} ms over budget $reconcile_budget_ms ms"; fi
 
-# The memory sampler finds the shell `vgsh run` started through the runner's
+# The memory sampler finds the shell `vgshell run` started through the runner's
 # lock file and the instance list, and samples it by pid.
 sampler_rows() { awk -F'\t' -v pid="$shell_qs_pid" 'NR > 1 && $2 == pid { n++ } END { print n + 0 }' "$sandbox/memory.tsv"; }
 if "${shell_env[@]}" "$repo/scripts/sample-shell-memory.sh" --interval 1 --samples 2 --log "$sandbox/memory.tsv" >"$sandbox/sampler.out" 2>"$sandbox/sampler.err"; then

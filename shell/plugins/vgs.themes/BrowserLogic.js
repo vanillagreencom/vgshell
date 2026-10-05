@@ -488,7 +488,7 @@ function applied(result) {
 // RESULT: "" for a step that did what it was asked, else what failed and
 // why. A partial apply names the Themes panel, whose row for the package
 // lists each application that did not take the theme.
-// ThemeRunner and vgsh own these reason codes. This table gives every
+// ThemeRunner and vgshell own these reason codes. This table gives every
 // theme view the same user text, without publishing diagnostic fields.
 var REASON_TEXT = [
     [/busy/, "Another theme action is running. Wait for it to finish."],

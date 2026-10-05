@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The scratch-directory guard at the top of the suites that remove their
-# scratch directory on exit: scripts/vgsh-rows.sh (sourced by every
-# scripts/test-vgsh*.sh) and the seven suites below that make their own. A
+# scratch directory on exit: scripts/vgshell-rows.sh (sourced by every
+# scripts/test-vgshell*.sh) and the seven suites below that make their own. A
 # stub mktemp first on PATH answers each way a failed or wrong mktemp can,
 # and each subject runs from a disposable caller directory inside this
 # suite's scratch. Each case pins exit 1 and the first stderr line, and
@@ -11,7 +11,7 @@
 # so they are not run here.
 #
 # The control at the end plants the old `cd "$(mktemp -d)"` shape in a copy
-# of scripts/vgsh-rows.sh and requires the failing-mktemp case to go red,
+# of scripts/vgshell-rows.sh and requires the failing-mktemp case to go red,
 # which it does by deleting the disposable caller directory.
 #
 # Exit 0 when every case and the control hold, 1 otherwise.
@@ -51,7 +51,7 @@ done
 # Subjects: label | the script bash runs | its arguments. The library is
 # sourced by a driver named test-scratch-driver, the name its refusals take.
 subjects=(
-  "vgsh-rows.sh|-c|source \"\$1\"|test-scratch-driver|$repo/scripts/vgsh-rows.sh"
+  "vgshell-rows.sh|-c|source \"\$1\"|test-scratch-driver|$repo/scripts/vgshell-rows.sh"
   "test-launcher-file-search.sh|$repo/scripts/test-launcher-file-search.sh"
   "test-notifications-images.sh|$repo/scripts/test-notifications-images.sh"
   "test-notifications-token-status.sh|$repo/scripts/test-notifications-token-status.sh"
@@ -91,7 +91,7 @@ for subject in "${subjects[@]}"; do
   IFS='|' read -r -a args <<<"$subject"
   label="${args[0]}"
   args=("${args[@]:1}")
-  if [[ $label == vgsh-rows.sh ]]; then prefix=test-scratch-driver; else prefix="${label%.sh}"; fi
+  if [[ $label == vgshell-rows.sh ]]; then prefix=test-scratch-driver; else prefix="${label%.sh}"; fi
   for entry in "${stubs[@]}"; do
     IFS='|' read -r name _ key <<<"$entry"
     if run "$prefix" "$name" "$key" "${args[@]}"; then
@@ -108,20 +108,20 @@ guard='tmp="$(mktemp -d)" || { echo "$(basename -- "$0" .sh): scratch=mktemp-fai
 [[ -d $tmp && ! -L $tmp ]] || { echo "$(basename -- "$0" .sh): scratch=not-a-directory value=[$tmp]" >&2; exit 1; }
 tmp="$(cd -- "$tmp" && pwd -P)"'
 old='tmp="$(cd -- "$(mktemp -d)" && pwd -P)"'
-if ! text="$(cat -- "$repo/scripts/vgsh-rows.sh")"; then
-  fail "control: scripts/vgsh-rows.sh is unreadable"
+if ! text="$(cat -- "$repo/scripts/vgshell-rows.sh")"; then
+  fail "control: scripts/vgshell-rows.sh is unreadable"
 elif rest="${text#*"$guard"}"; [[ $rest == "$text" || $rest == *"$guard"* ]]; then
-  fail "control: the guard block is not in scripts/vgsh-rows.sh exactly once"
+  fail "control: the guard block is not in scripts/vgshell-rows.sh exactly once"
 else
   mkdir -p "$tmp/mutant/scripts"
-  printf '%s\n' "${text/"$guard"/"$old"}" >"$tmp/mutant/scripts/vgsh-rows.sh"
+  printf '%s\n' "${text/"$guard"/"$old"}" >"$tmp/mutant/scripts/vgshell-rows.sh"
   if run test-scratch-driver failed-dot scratch=mktemp-failed \
-    -c 'source "$1"' test-scratch-driver "$tmp/mutant/scripts/vgsh-rows.sh"; then
-    fail "control: the old shape in a copy of vgsh-rows.sh kept the caller"
+    -c 'source "$1"' test-scratch-driver "$tmp/mutant/scripts/vgshell-rows.sh"; then
+    fail "control: the old shape in a copy of vgshell-rows.sh kept the caller"
   elif [[ " ${problems[*]} " != *" caller=removed "* ]]; then
     fail "control: the old shape went red without removing the caller: ${problems[*]}"
   else
-    ok "control: the old shape in a copy of vgsh-rows.sh removes the caller"
+    ok "control: the old shape in a copy of vgshell-rows.sh removes the caller"
   fi
 fi
 

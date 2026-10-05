@@ -82,8 +82,8 @@ world(() => {
             refuse(Policy, action, { ...context, profile, input }, "browser-target");
         }
         for (const file of [
-            path.join(home, ".ssh", "absent"), path.join(roots.config, "vgs", "shell.json"),
-            path.join(roots.state, "vgs", "jarvis", "audit.jsonl")
+            path.join(home, ".ssh", "absent"), path.join(roots.config, "vgshell", "shell.json"),
+            path.join(roots.state, "vgshell", "jarvis", "audit.jsonl")
         ]) {
             for (const action of [
                 call("files.read", { path: file }), call("files.write", { path: file, text: "" }),

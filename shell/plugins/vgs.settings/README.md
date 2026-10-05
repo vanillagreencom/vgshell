@@ -33,6 +33,6 @@ Show in bar removes the gear while the shortcut still opens Settings. Turning of
 
 | Path | How |
 |---|---|
-| IPC | `vgsh ipc call vgs.settings invoke toggle '<payload>'` or `... invoke open '<payload>'`, or the host's `vgsh ipc call shell summon window vgs.settings '<payload>'`. |
+| IPC | `vgshell ipc call vgs.settings invoke toggle '<payload>'` or `... invoke open '<payload>'`, or the host's `vgshell ipc call shell summon window vgs.settings '<payload>'`. |
 
-The payload is `{}` for the list, or `{"plugin":"<id>"}` for that plugin's page. An id no plugin has opens the list with a notice naming it. Any other key refuses the summon with `refused: open-failed=vgs.settings`. A script, a key or a launcher menu entry opens a page through `vgsh ipc call shell summon window vgs.settings '{"plugin":"<id>"}'`. Another plugin cannot open it through its `surfaces` capability, which opens only that plugin's own surfaces.
+The payload is `{}` for the list, or `{"plugin":"<id>"}` for that plugin's page. An id no plugin has opens the list with a notice naming it. Any other key refuses the summon with `refused: open-failed=vgs.settings`. A script, a key or a launcher menu entry opens a page through `vgshell ipc call shell summon window vgs.settings '{"plugin":"<id>"}'`. Another plugin cannot open it through its `surfaces` capability, which opens only that plugin's own surfaces.

@@ -772,7 +772,7 @@ function verify(judge) {
         [{ update: true, force: true }, null]
     ]) assert.deepEqual(JSON.parse(JSON.stringify(judge.wallpaperArguments(options))), want, "wallpapers options " + JSON.stringify(options));
 
-    for (const text of ["/a", "/home/u/.config/vgs/themes/x/backgrounds/a.png", "/a b/.c"])
+    for (const text of ["/a", "/home/u/.config/vgshell/themes/x/backgrounds/a.png", "/a b/.c"])
         assert.equal(judge.isAbsolutePath(text), true, text);
     for (const text of ["", "/", "a.png", "./a.png", "~/a.png", "//a", "/a//b", "/a/", "/a/./b", "/a/../b", "/..", "/a\u0000b", null, ["/a"]])
         assert.equal(judge.isAbsolutePath(text), false, JSON.stringify(text));

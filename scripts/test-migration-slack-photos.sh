@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Controls for the Slack photos migration,
 # bin/migrations/1790801764-slack-photos-extra.sh, and the judge verb it
-# writes through, `vgsh-plugin-judge seed-setting`. Every row runs with a
+# writes through, `vgshell-plugin-judge seed-setting`. Every row runs with a
 # HOME of its own under $tmp and a PATH whose secret-tool is this suite's
 # stub, which logs its argv and answers as the row sets it; the suite
 # refuses to run when that PATH resolves any other secret-tool, and the
@@ -53,18 +53,18 @@ ln -s -- "$node_bin" "$tools/node"
 path="$stubs:$tools"
 [[ "$(PATH="$path" command -v secret-tool)" == "$stubs/secret-tool" ]] || { echo "test-migration-slack-photos: secret-tool=not-the-stub" >&2; exit 1; }
 
-# One run of MIGRATION, a copy or the shipped one, as vgsh-migrate runs it,
-# with VGS_ROOT ROOT, a tree holding JUDGE as bin/vgsh-plugin-judge; the
+# One run of MIGRATION, a copy or the shipped one, as vgshell-migrate runs it,
+# with VGS_ROOT ROOT, a tree holding JUDGE as bin/vgshell-plugin-judge; the
 # row's HOME is $home. Stdout in $home/out, stderr in $home/err, the status
 # in $status.
-fresh_home() { home="$(mktemp -d "$TMP_ROOT/home-XXXXXX")"; mkdir -p "$home/.config/vgs"; }
+fresh_home() { home="$(mktemp -d "$TMP_ROOT/home-XXXXXX")"; mkdir -p "$home/.config/vgshell"; }
 root_with() { # JUDGE: a tree whose judge is JUDGE, the rest the repository's
   local root="$TMP_ROOT/root-$(basename -- "$1")-$RANDOM"
   mkdir -p "$root/bin"
   ln -s -- "$repo/bin/lib" "$root/bin/lib"
   ln -s -- "$repo/shell" "$root/shell"
   ln -s -- "$repo/config" "$root/config"
-  cp -- "$1" "$root/bin/vgsh-plugin-judge"
+  cp -- "$1" "$root/bin/vgshell-plugin-judge"
   printf '%s\n' "$root"
 }
 run_migration() { # MIGRATION ROOT KEYRING [PATH]
@@ -73,8 +73,8 @@ run_migration() { # MIGRATION ROOT KEYRING [PATH]
     VGS_NOTIFICATIONS_SLACK_TEST_SECRET_TOOL_DIR="$stubs" bash -euo pipefail "$1" </dev/null >"$home/out" 2>"$home/err" || status=$?
 }
 user_row() { # the vgs.notifications row of the user file, or `absent`
-  if [[ ! -e $home/.config/vgs/shell.json ]]; then echo absent; return; fi
-  node -e 'const d = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); const r = (d.plugins || []).find(p => p.id === "vgs.notifications"); process.stdout.write(JSON.stringify(r === undefined ? null : r));' "$home/.config/vgs/shell.json"
+  if [[ ! -e $home/.config/vgshell/shell.json ]]; then echo absent; return; fi
+  node -e 'const d = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); const r = (d.plugins || []).find(p => p.id === "vgs.notifications"); process.stdout.write(JSON.stringify(r === undefined ? null : r));' "$home/.config/vgshell/shell.json"
 }
 calls() { if [[ -e $home/secret-tool.log ]]; then paste -sd';' - <"$home/secret-tool.log"; else echo none; fi; }
 leaks() { grep -rlF --exclude=secret-tool.log -- "$token" "$home" | wc -l; }
@@ -83,7 +83,7 @@ leaks() { grep -rlF --exclude=secret-tool.log -- "$token" "$home" | wc -l; }
 row_fresh() { fresh_home; run_migration "$1" "$2" empty; printf 'status=%s out=%s row=%s calls=%s\n' "$status" "$(cat "$home/out")" "$(user_row)" "$(calls)"; }
 row_present() {
   fresh_home
-  printf '{ "version": 1, "plugins": [ { "id": "vgs.notifications", "duration": 12 } ] }\n' >"$home/.config/vgs/shell.json"
+  printf '{ "version": 1, "plugins": [ { "id": "vgs.notifications", "duration": 12 } ] }\n' >"$home/.config/vgshell/shell.json"
   run_migration "$1" "$2" present
   printf 'status=%s out=%s row=%s calls=%s leaks=%s\n' "$status" "$(cat "$home/out")" "$(user_row)" "$(calls)" "$(leaks)"
 }
@@ -91,21 +91,21 @@ row_locked() { fresh_home; run_migration "$1" "$2" locked; printf 'status=%s out
 row_stdout_only() { fresh_home; run_migration "$1" "$2" stdout-only; printf 'status=%s out=%s row=%s leaks=%s\n' "$status" "$(cat "$home/out")" "$(user_row)" "$(leaks)"; }
 row_cache() {
   fresh_home
-  mkdir -p "$home/.cache/vgs/notifications/slack-photos"
-  printf '{"slack:T1": {}}\n' >"$home/.cache/vgs/notifications/slack-photos/accounts.json"
+  mkdir -p "$home/.cache/vgshell/notifications/slack-photos"
+  printf '{"slack:T1": {}}\n' >"$home/.cache/vgshell/notifications/slack-photos/accounts.json"
   run_migration "$1" "$2" empty
   printf 'status=%s out=%s row=%s calls=%s\n' "$status" "$(cat "$home/out")" "$(user_row)" "$(calls)"
 }
 row_cache_empty() {
   fresh_home
-  mkdir -p "$home/.cache/vgs/notifications/slack-photos"
-  printf '{}\n' >"$home/.cache/vgs/notifications/slack-photos/accounts.json"
+  mkdir -p "$home/.cache/vgshell/notifications/slack-photos"
+  printf '{}\n' >"$home/.cache/vgshell/notifications/slack-photos/accounts.json"
   run_migration "$1" "$2" empty
   printf 'status=%s out=%s calls=%s\n' "$status" "$(cat "$home/out")" "$(calls)"
 }
 row_explicit() {
   fresh_home
-  printf '{ "version": 1, "plugins": [ { "id": "vgs.notifications", "slackPhotos": false } ] }\n' >"$home/.config/vgs/shell.json"
+  printf '{ "version": 1, "plugins": [ { "id": "vgs.notifications", "slackPhotos": false } ] }\n' >"$home/.config/vgshell/shell.json"
   run_migration "$1" "$2" present
   printf 'status=%s out=%s row=%s\n' "$status" "$(cat "$home/out")" "$(user_row)"
 }
@@ -113,9 +113,9 @@ row_no_tool() { fresh_home; run_migration "$1" "$2" present "$tools"; printf 'st
 row_timeout() { fresh_home; run_migration "$1" "$2" timeout; printf 'status=%s err=%s row=%s\n' "$status" "$(cat "$home/err")" "$(user_row)"; }
 row_utf8() {
   fresh_home
-  printf '{ "version": 1, "plugins": [ { "id": "vgs.notifications", "duration": 12 } ], "bar": { "layout": { "center": [ { "id": "acme.clock", "format": "Z\xc3\xbcrich \xe2\x86\x92 %%H" } ] } } }\n' >"$home/.config/vgs/shell.json"
+  printf '{ "version": 1, "plugins": [ { "id": "vgs.notifications", "duration": 12 } ], "bar": { "layout": { "center": [ { "id": "acme.clock", "format": "Z\xc3\xbcrich \xe2\x86\x92 %%H" } ] } } }\n' >"$home/.config/vgshell/shell.json"
   run_migration "$1" "$2" present
-  printf 'status=%s format=%s\n' "$status" "$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).bar.layout.center[0].format)' "$home/.config/vgs/shell.json")"
+  printf 'status=%s format=%s\n' "$status" "$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).bar.layout.center[0].format)' "$home/.config/vgshell/shell.json")"
 }
 row_failed() { fresh_home; run_migration "$1" "$2" failed; printf 'status=%s out=%s row=%s\n' "$status" "$(cat "$home/out")" "$(user_row)"; }
 row_foreign_tool() {
@@ -129,16 +129,16 @@ row_symlink() {
   fresh_home
   mkdir -p "$home/dotfiles"
   printf '{ "version": 1 }\n' >"$home/dotfiles/shell.json"
-  ln -s -- ../../dotfiles/shell.json "$home/.config/vgs/shell.json"
+  ln -s -- ../../dotfiles/shell.json "$home/.config/vgshell/shell.json"
   run_migration "$1" "$2" present
-  printf 'status=%s link=%s row=%s\n' "$status" "$(readlink -- "$home/.config/vgs/shell.json")" "$(user_row)"
+  printf 'status=%s link=%s row=%s\n' "$status" "$(readlink -- "$home/.config/vgshell/shell.json")" "$(user_row)"
 }
 # The judge verb's refusals, run directly: an undeclared key, a value of
 # another type than its default and a schema key's value outside its
 # bounds.
 row_judge_refusals() { # MIGRATION ROOT
   fresh_home
-  local judge="$2/bin/vgsh-plugin-judge" plugin="$repo/shell/plugins/vgs.notifications" user="$home/.config/vgs/shell.json" out=()
+  local judge="$2/bin/vgshell-plugin-judge" plugin="$repo/shell/plugins/vgs.notifications" user="$home/.config/vgshell/shell.json" out=()
   local key value
   for key_value in 'nope true' 'slackPhotos "yes"' 'duration 99'; do
     read -r key value <<<"$key_value"
@@ -164,9 +164,9 @@ rows=(
   "a symlinked user file stays a link|row_symlink|status=0 link=../../dotfiles/shell.json row={\"id\":\"vgs.notifications\",\"slackPhotos\":true}"
   "a search that times out fails the migration, so it runs again|row_timeout|status=1 err=slack-photos: keyring=timeout row=absent"
   "the user file's other text keeps its UTF-8|row_utf8|status=0 format=Zürich → %H"
-  "the judge refuses an undeclared key, a value of another type and one outside its bounds|row_judge_refusals|1:vgsh: refused: setting=nope undeclared|1:vgsh: refused: setting=slackPhotos want=boolean|1:vgsh: refused: setting=duration want=at-most:30|file=absent"
+  "the judge refuses an undeclared key, a value of another type and one outside its bounds|row_judge_refusals|1:vgshell: refused: setting=nope undeclared|1:vgshell: refused: setting=slackPhotos want=boolean|1:vgshell: refused: setting=duration want=at-most:30|file=absent"
 )
-shipped_root="$(root_with "$repo/bin/vgsh-plugin-judge")"
+shipped_root="$(root_with "$repo/bin/vgshell-plugin-judge")"
 # run_row INDEX MIGRATION ROOT: 0 when the row's verdict is its want.
 run_row() {
   local fn="${rows[$1]#*|}" want got
@@ -190,14 +190,14 @@ controls=(
   "a found item turns the extra on" "bin/migrations/$migration_name" "elif grep -q '^attribute\.' <<<\"\$err\"; then" 'elif false; then' 1
   "a failed search is no evidence" "bin/migrations/$migration_name" '  elif [[ $status -ne 0 ]]; then' '  elif false; then' 8
   "a secret-tool outside the stub's directory is refused" "bin/migrations/$migration_name" '[[ -z $stub_dir || -z $real_tool || $real_tool != "$stub_dir"/* ]]' 'false' 9
-  "the user's choice stays" bin/vgsh-plugin-judge 'if (row !== undefined && logic.hasOwn(row, key)) return null;' '' 6
-  "the row keeps its other keys" bin/vgsh-plugin-judge 'logic.withSetting(user, manifest, key, value, effective, ["plugins"])' 'logic.withSetting(null, manifest, key, value, {}, ["plugins"])' 1
-  "a link stays a link" bin/vgsh-plugin-judge 'const failure = editFile("user-config", userPath, true, current => {' 'const failure = ((key, file, create, edit) => { const next = edit(require("fs").existsSync(file) ? "" : undefined); if (next !== null) { require("fs").rmSync(file, { force: true }); require("fs").writeFileSync(file, next); } return null; })("user-config", userPath, true, current => {' 10
-  "an undeclared key is refused" bin/vgsh-plugin-judge 'if (!logic.hasOwn(manifest.settings, key)) refuse(' 'if (false) refuse(' 13
-  "a value of another type is refused" bin/vgsh-plugin-judge '} else if (value === null || typeof value !== typeof manifest.settings[key]) {' '} else if (false) {' 13
-  "a schema key's value is judged" bin/vgsh-plugin-judge 'const refusal = logic.settingRefusal(manifest, key, value);' 'const refusal = "";' 13
+  "the user's choice stays" bin/vgshell-plugin-judge 'if (row !== undefined && logic.hasOwn(row, key)) return null;' '' 6
+  "the row keeps its other keys" bin/vgshell-plugin-judge 'logic.withSetting(user, manifest, key, value, effective, ["plugins"])' 'logic.withSetting(null, manifest, key, value, {}, ["plugins"])' 1
+  "a link stays a link" bin/vgshell-plugin-judge 'const failure = editFile("user-config", userPath, true, current => {' 'const failure = ((key, file, create, edit) => { const next = edit(require("fs").existsSync(file) ? "" : undefined); if (next !== null) { require("fs").rmSync(file, { force: true }); require("fs").writeFileSync(file, next); } return null; })("user-config", userPath, true, current => {' 10
+  "an undeclared key is refused" bin/vgshell-plugin-judge 'if (!logic.hasOwn(manifest.settings, key)) refuse(' 'if (false) refuse(' 13
+  "a value of another type is refused" bin/vgshell-plugin-judge '} else if (value === null || typeof value !== typeof manifest.settings[key]) {' '} else if (false) {' 13
+  "a schema key's value is judged" bin/vgshell-plugin-judge 'const refusal = logic.settingRefusal(manifest, key, value);' 'const refusal = "";' 13
   "a search that times out fails" "bin/migrations/$migration_name" '  if [[ $status -eq 124 ]]; then' '  if false; then' 11
-  "the user file is written as UTF-8" bin/vgsh-plugin-judge '"utf8").toString("latin1");' '"latin1").toString("latin1");' 12
+  "the user file is written as UTF-8" bin/vgshell-plugin-judge '"utf8").toString("latin1");' '"latin1").toString("latin1");' 12
 )
 mkdir -p "$TMP_ROOT/copies"
 for ((c = 0; c < ${#controls[@]}; c += 5)); do
@@ -209,7 +209,7 @@ for ((c = 0; c < ${#controls[@]}; c += 5)); do
 text = open(sys.argv[1]).read()
 open(sys.argv[2], "w").write(text.replace(os.environ["NEEDLE"], os.environ["REPLACEMENT"], 1))' "$repo/$file" "$copy"
   migration="$repo/bin/migrations/$migration_name" root="$shipped_root"
-  if [[ $file == bin/vgsh-plugin-judge ]]; then root="$(root_with "$copy")"; else migration="$copy"; fi
+  if [[ $file == bin/vgshell-plugin-judge ]]; then root="$(root_with "$copy")"; else migration="$copy"; fi
   if run_row "$index" "$migration" "$root"; then fail "control: $label: the row passes without the rule"; else ok "control: the row fails without the rule: $label"; fi
 done
 

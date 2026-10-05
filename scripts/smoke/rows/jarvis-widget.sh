@@ -7,7 +7,7 @@
 # inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* scripts/smoke/keyboard/* scripts/smoke/rows/jarvis.sh scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/hold-shortcuts.sh scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 
-jarvis_widget_config="$home/.config/vgs/shell.json"
+jarvis_widget_config="$home/.config/vgshell/shell.json"
 jarvis_widget_lua="$home/.config/hypr/hyprland.lua"
 jarvis_widget_dir="$repo/shell/plugins/vgs.jarvis"
 jarvis_widget_gates="$sandbox/jarvis-widget-gates"
@@ -234,7 +234,7 @@ for jarvis_widget_file in "${jarvis_widget_files[@]}"; do
   cp -- "$sandbox/jarvis-widget-before-${jarvis_widget_file##*/}" "$jarvis_widget_dir/$jarvis_widget_file"
 done
 rm -- "$jarvis_widget_dir/backend/scripted-fixture.js"
-rm -- "$home/.local/state/vgs/jarvis/mute.json"
+rm -- "$home/.local/state/vgshell/jarvis/mute.json"
 jarvis_rescan
 cp -- "$sandbox/jarvis-widget-config-before.json" "$jarvis_widget_config"
 cp -- "$sandbox/jarvis-widget-lua-before" "$jarvis_widget_lua"
@@ -245,6 +245,6 @@ expect_poll "the restored stock daemon remains unconfigured" session jarvis_sess
 expect_poll "the widget reads off for the unconfigured daemon" '["power-off", "neutral", "Jarvis is not set up\nClick to mute"]' jarvis_widget
 expect "the restored nested keys have no configuration errors" '[]' config_errors
 expect "the widget row leaves no Jarvis state file" False \
-  python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).exists())' "$home/.local/state/vgs/jarvis/mute.json"
+  python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).exists())' "$home/.local/state/vgshell/jarvis/mute.json"
 jarvis_disable
 expect_poll "disable removes the widget" absent ipc smoke readInstance "$jarvis_widget_key" vgs.jarvis moduleName

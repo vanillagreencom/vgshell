@@ -39,10 +39,10 @@
 #
 # This row adds no latency budget. It starts the shell through
 # harness.sh's start_shell, so it reuses the smoke startup poll intervals:
-# 10 ms for the first bar and one `vgsh ipc` round trip for readiness.
+# 10 ms for the first bar and one `vgshell ipc` round trip for readiness.
 # inputs: shell/plugins/vgs.themes/* shell/plugins/vgs.gallery/* shell/plugins/vgs.notifications/* shell/Ui/foundation/ImageText* shell/Ui/foundation/ImagePool.qml scripts/smoke/rows/notifications-keys.sh scripts/smoke/rows/notifications.sh scripts/smoke/rows/device-fakes.sh
 set -euo pipefail
-ipc() { ipc_via "$repo/bin/vgsh" "$@"; }
+ipc() { ipc_via "$repo/bin/vgshell" "$@"; }
 # stop_shell fails the row itself when the instance lock stays held; the
 # start below then fails on the held lock too, and the row goes on.
 stop_shell || :
@@ -90,7 +90,7 @@ else
   if [[ ${#mode_hold[@]} -gt 0 ]]; then
     # A generated image larger than the output, named current in the
     # state file the background reads; the file as it was comes back after.
-    hidpi_image="$home/.config/vgs/backgrounds/hidpi.png"
+    hidpi_image="$home/.config/vgshell/backgrounds/hidpi.png"
     mkdir -p -- "$(dirname -- "$hidpi_image")" "$bg_state"
     solid_png "$hidpi_image" 4000 2000 40 120 200
     if [[ -e $bg_state/backgrounds.json ]]; then cp -p -- "$bg_state/backgrounds.json" "$sandbox/hidpi-backgrounds.json"; fi

@@ -16,7 +16,7 @@ import qs.Hosts
 ShellRoot {
     id: root
 
-    readonly property bool guarded: Quickshell.env("VGSH_RUNNER_PID") === String(Quickshell.processId)
+    readonly property bool guarded: Quickshell.env("VGSHELL_RUNNER_PID") === String(Quickshell.processId)
     readonly property string guardRefusal: "refused: guard=unowned pid=" + Quickshell.processId
 
     // The reply of a state-changing call: `reply()` from the guarded
@@ -26,7 +26,7 @@ ShellRoot {
     }
 
     Component.onCompleted: {
-        if (!guarded) console.error("shell: refusing to draw; start it with `vgsh run`, VGSH_RUNNER_PID=" + JSON.stringify(Quickshell.env("VGSH_RUNNER_PID")) + " pid=" + Quickshell.processId);
+        if (!guarded) console.error("shell: refusing to draw; start it with `vgshell run`, VGSHELL_RUNNER_PID=" + JSON.stringify(Quickshell.env("VGSHELL_RUNNER_PID")) + " pid=" + Quickshell.processId);
     }
 
     Variants {
@@ -109,7 +109,7 @@ ShellRoot {
         // landed once scanRevision reaches N.
         function rescanPlugins(): string { return root.ifGuarded(() => Registry.scanReply(Registry.rescan())); }
         function scanRevision(): int { return Registry.requirementsRevision; }
-        // `vgsh plugin add` landed plugin `id`: the same scan, then the
+        // `vgshell plugin add` landed plugin `id`: the same scan, then the
         // requirement notice for it (requirement-notice.md).
         function pluginInstalled(id: string): string { return root.ifGuarded(() => Notices.installed(id)); }
         function setPluginEnabled(id: string, enabled: bool): string { return root.ifGuarded(() => Plugins.setEnabled(id, enabled)); }

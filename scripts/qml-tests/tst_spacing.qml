@@ -29,7 +29,7 @@ Item {
     Checkbox { id: check; text: "Pin"; y: 470 }
     Kbd { id: key; text: "Ctrl"; x: 300; y: 340 }
     ListItem { id: twoLine; text: "Two lines"; secondary: "detail"; width: 300; y: 500 }
-    CodeLine { id: code; text: "vgsh plugin enable acme.weather"; width: 300; y: 560 }
+    CodeLine { id: code; text: "vgshell plugin enable acme.weather"; width: 300; y: 560 }
     Section {
         id: section
         title: "Section"

@@ -6,7 +6,7 @@
 # the rows before left them, and leave them so, with the default theme.
 # inputs: shell/Ui/layout/ListCursor* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/plugins/vgs.launcher/*
 set -euo pipefail
-motion_theme="$home/.config/vgs/theme.json"
+motion_theme="$home/.config/vgshell/theme.json"
 write_motion_theme() { printf '%s\n' "$1" >"$motion_theme.tmp" && mv -T -- "$motion_theme.tmp" "$motion_theme"; }
 cursor_y() { ipc smoke readShownDescendant "$1" "$2" ListCursor y; }
 # glide_seen HOST ID KEY: press KEY in the list the instance HOST/ID draws

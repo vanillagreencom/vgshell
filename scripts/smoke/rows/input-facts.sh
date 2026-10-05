@@ -9,13 +9,13 @@
 # inputs: scripts/smoke/fixtures/plugins/acme.input-facts/* scripts/smoke/fixtures/plugins/acme.surfaces/* scripts/smoke/fixtures/plugins/acme.layers/* shell/Core/Compositor.qml shell/Core/HyprlandState.* scripts/smoke/toplevel/* bin/lib/xkb-keys.py shell/Core/Dispatch.js scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 
-input_facts_config="$home/.config/vgs/shell.json"
+input_facts_config="$home/.config/vgshell/shell.json"
 input_facts_lua="$home/.config/hypr/hyprland.lua"
 cp -- "$input_facts_config" "$sandbox/input-facts-config-before.json"
 cp -- "$input_facts_lua" "$sandbox/input-facts-lua-before"
 for input_facts_id in acme.input-facts acme.surfaces acme.layers; do
-  mkdir -p "$home/.config/vgs/plugins/$input_facts_id"
-  cp -R "$repo/scripts/smoke/fixtures/plugins/$input_facts_id/." "$home/.config/vgs/plugins/$input_facts_id/"
+  mkdir -p "$home/.config/vgshell/plugins/$input_facts_id"
+  cp -R "$repo/scripts/smoke/fixtures/plugins/$input_facts_id/." "$home/.config/vgshell/plugins/$input_facts_id/"
 done
 mkdir -p "$home/.local/share/applications"
 cat >"$home/.local/share/applications/smoke.input-facts.desktop" <<'DESKTOP'
@@ -148,7 +148,7 @@ EOF
   input_facts_keyboard_protected
   # Instrument only this disposable plugin. The shipping fixture keeps
   # the plugin import boundary, and the core has no test escape switch.
-  input_facts_service="$home/.config/vgs/plugins/acme.input-facts/Service.qml"
+  input_facts_service="$home/.config/vgshell/plugins/acme.input-facts/Service.qml"
   cp -- "$input_facts_service" "$sandbox/input-facts-service-before"
   expect "the input observer disables before its control is installed" ok ipc shell setPluginEnabled acme.input-facts false
   python3 - "$input_facts_service" <<'PY'

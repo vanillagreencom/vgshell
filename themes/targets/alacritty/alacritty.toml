@@ -1,4 +1,4 @@
-# The vgs theme for Alacritty, imported from alacritty.toml by vgsh theme apply.
+# The vgs theme for Alacritty, imported from alacritty.toml by vgshell theme apply.
 [colors.primary]
 foreground = "#@{palette.foreground}"
 background = "#@{palette.background}"

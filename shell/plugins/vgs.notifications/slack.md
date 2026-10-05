@@ -22,4 +22,4 @@ Sender photos need developer setup. See [Extras (not supported)](README.md#extra
 
 `NotificationLogic.js` owns the Slack rule in `ENRICHERS`. It matches Slack by desktop entry or application name. Browser messages match `app.slack.com` at the start of the body. External names, titles and message bodies remain sender data.
 
-Workspace icons come from Slack's local cache. This uses no credentials. The emoji helper uses ImageMagick and stores images under `$XDG_CACHE_HOME/vgs/notifications/slack-photos/<team id>/`. It stores no messages or tokens. Cache rules, refresh times and limits: [notification-senders.md](../../../docs/architecture/notification-senders.md).
+Workspace icons come from Slack's local cache. This uses no credentials. The emoji helper uses ImageMagick and stores images under `$XDG_CACHE_HOME/vgshell/notifications/slack-photos/<team id>/`. It stores no messages or tokens. Cache rules, refresh times and limits: [notification-senders.md](../../../docs/architecture/notification-senders.md).

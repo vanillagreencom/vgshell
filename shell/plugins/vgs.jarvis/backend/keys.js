@@ -5,7 +5,7 @@ const { Secrets, ownReference } = require("./Secrets.js");
 const Net = require("./net.js");
 
 function main() {
-    const directory = path.join(process.env.XDG_STATE_HOME || path.join(process.env.HOME, ".local/state"), "vgs/jarvis");
+    const directory = path.join(process.env.XDG_STATE_HOME || path.join(process.env.HOME, ".local/state"), "vgshell/jarvis");
     const store = new Secrets(directory, process.env);
     switch (process.argv[2]) {
     case "presence":

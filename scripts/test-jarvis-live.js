@@ -161,7 +161,7 @@ world(async () => {
         const clock = manual();
         const w = { id: ++conversations, clock, played: [], flushes: 0, transcripts: [], logs: [], collected: [], sink: null,
             source: null, handed: [], backlog: null };
-        const store = new kit.Secrets.Secrets(path.join(childEnv.XDG_STATE_HOME, "vgs/jarvis"), childEnv);
+        const store = new kit.Secrets.Secrets(path.join(childEnv.XDG_STATE_HOME, "vgshell/jarvis"), childEnv);
         const reference = kit.Secrets.ownReference("openai", "fixture", key === "elsewhere" ? other.origin : main.origin);
         const secrets = { lookup: value => { const secret = store.lookup(value); w.handed.push(secret); return secret; } };
         const recipients = kit.Policy.recipients({ conversation: "live-" + w.id, profile: "standard", cloudVision: "ask",

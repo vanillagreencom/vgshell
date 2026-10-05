@@ -32,7 +32,7 @@ The daemon registers no executor. A task needs an agent profile, which the Claud
 
 ### The spec
 
-The daemon writes `$XDG_RUNTIME_DIR/vgs/jarvis/tasks/<id>.json`, directory 0700, file 0600, whole and renamed. It holds `{ v, id, state, engine, cwd, argv, env }`. `argv` is the profile's list, never a command line. `env` holds `PATH`, `HOME`, `LANG` and the XDG directories from the daemon's environment, plus the profile's account variable when an account is selected. It carries no key and no `VGSH_RUNNER_PID`. The launcher adds only `TERM` and `COLORTERM` from its terminal.
+The daemon writes `$XDG_RUNTIME_DIR/vgshell/jarvis/tasks/<id>.json`, directory 0700, file 0600, whole and renamed. It holds `{ v, id, state, engine, cwd, argv, env }`. `argv` is the profile's list, never a command line. `env` holds `PATH`, `HOME`, `LANG` and the XDG directories from the daemon's environment, plus the profile's account variable when an account is selected. It carries no key and no `VGSHELL_RUNNER_PID`. The launcher adds only `TERM` and `COLORTERM` from its terminal.
 
 The launcher opens the spec with `O_NOFOLLOW`, requires a private regular file of its own user, reads at most 64 KiB, unlinks it, then judges its exact shape. A spec launches at most once.
 
@@ -68,7 +68,7 @@ Observation writes only `lost`, compare-and-set ([jarvis-tasks.md § Facts and r
 
 ## Display
 
-- **tmux**: a private server on `-S $XDG_RUNTIME_DIR/vgs/jarvis/tmux.sock`, inside the Jarvis runtime directory and never the user's own server. Each task runs in one session: `new-session -d -s jarvis-<id> -c <cwd> -- python3 <backend>/task-run.py --spec <path>`. Any number of tasks run at once. tmux is an optional requirement.
+- **tmux**: a private server on `-S $XDG_RUNTIME_DIR/vgshell/jarvis/tmux.sock`, inside the Jarvis runtime directory and never the user's own server. Each task runs in one session: `new-session -d -s jarvis-<id> -c <cwd> -- python3 <backend>/task-run.py --spec <path>`. Any number of tasks run at once. tmux is an optional requirement.
 - **Floating**: the daemon sends `request { id, kind: "tui.run", args: [spec] }` through the [shared request owner](jarvis-desktop-tools.md#request-wire). The service calls `shell.tui.run("task", args, done)` and answers `reply { id, kind: "tui.run", answer, data: null }` with the core's text. It forwards `shell.tui.state.task.running` as `tui-state { name: "task", running }` on each change, after each ready answer, and from `done` for a run that ended before its record said running. The controller marks the TUI busy on an `ok` reply only when no `tui-state` arrived after its request, so reports apply in message order. One TUI name is busy across all arguments ([tui-capability.md](tui-capability.md)), so one floating task runs at a time.
 - Task and desktop requests share the pending bound and reply matching. A task request waits up to the executor's launch timeout. Timeout or wire refusal becomes a display refusal; the existing launch-failure path removes its spec and records `lost`. Teardown releases pending deadlines and stops observation.
 

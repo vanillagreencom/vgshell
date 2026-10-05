@@ -14,7 +14,7 @@
 #   - GitHub's refs/tags/vX.Y.Z missing or naming another object than the
 #     local tag, since `gh release create --verify-tag` publishes GitHub's.
 # Then it writes four files into dist/:
-#   vgs-X.Y.Z.tar.gz  the tag's commit under vgs-X.Y.Z/, built by
+#   vgshell-X.Y.Z.tar.gz  the tag's commit under vgshell-X.Y.Z/, built by
 #                     scripts/lib/release-tarball.sh; no architecture in the
 #                     name
 #   install.sh        the tag's install.sh, the curl installer
@@ -25,8 +25,8 @@
 # --dry-run makes every check and the first three files, then prints the
 # signing key and the gh command instead of running them.
 #
-# Output, on stdout: `release: sha256 name=vgs-X.Y.Z.tar.gz value=<hex>`,
-# the sum the vgs AUR recipe pins, then `release: ok tag=vX.Y.Z
+# Output, on stdout: `release: sha256 name=vgshell-X.Y.Z.tar.gz value=<hex>`,
+# the sum the vgshell AUR recipe pins, then `release: ok tag=vX.Y.Z
 # dry-run=<true|false>`. A refusal is one line on stderr, `release: refused:
 # <key>=<value> ...`, then English. Exit 0 on success, 1 for a refusal, 2 for
 # an argument.
@@ -34,7 +34,7 @@ set -euo pipefail
 
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"
 repo="$(cd -- "$(dirname -- "$self")/.." && pwd -P)"
-repository=vanillagreencom/vgs
+repository=vanillagreencom/vgshell
 remote_url="https://github.com/$repository.git"
 
 refuse() { # STATUS KEY [DETAIL...]
@@ -101,7 +101,7 @@ done <<<"$remote"
 [[ -n $remote_object ]] || refuse 1 "tag=not-pushed name=$tag url=$remote_url" "git push origin $tag"
 [[ $remote_object == "$tag_object" ]] || refuse 1 "tag=differs name=$tag local=$tag_object remote=$remote_object"
 
-archive="vgs-$version.tar.gz"
+archive="vgshell-$version.tar.gz"
 assets=("$archive" install.sh SHA256SUMS SHA256SUMS.asc)
 dist="$repo/dist"
 mkdir -p -- "$dist" || refuse 1 "dist=unwritable path=$dist"

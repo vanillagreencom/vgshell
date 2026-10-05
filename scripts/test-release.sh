@@ -29,8 +29,8 @@
 # its copy.
 set -euo pipefail
 
-# shellcheck source=scripts/vgsh-rows.sh
-source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/vgsh-rows.sh"
+# shellcheck source=scripts/vgshell-rows.sh
+source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/vgshell-rows.sh"
 
 suite=test-release
 for tool in git gzip tar sha256sum python3; do
@@ -40,7 +40,7 @@ done
 script="$repo/scripts/release"
 builder="$repo/scripts/lib/release-tarball.sh"
 fpr=0123456789ABCDEF0123456789ABCDEF01234567
-github=https://github.com/vanillagreencom/vgs.git
+github=https://github.com/vanillagreencom/vgshell.git
 record="$tmp/record"; stubs="$tmp/release-stubs"; scratch="$tmp/scratch"; gnupg="$tmp/gnupg-empty"
 mkdir -p "$record" "$stubs" "$scratch"
 mkdir -m 700 "$gnupg"
@@ -126,28 +126,28 @@ first_err() { local line=""; [[ -s $tmp/err ]] && IFS= read -r line <"$tmp/err";
 last_out() { local line=""; [[ -s $tmp/out ]] && line="$(tail -n 1 -- "$tmp/out")"; printf '%s' "$line"; }
 recorded() { [[ -f $record/$1 ]] && grep -qxF -- "$2" "$record/$1"; }
 sha_of() { local s; s="$(sha256sum -- "$1")" && printf '%s' "${s%% *}"; }
-assets=(vgs-3.4.5.tar.gz install.sh SHA256SUMS SHA256SUMS.asc)
+assets=(vgshell-3.4.5.tar.gz install.sh SHA256SUMS SHA256SUMS.asc)
 
 # The rows each judge one rule, on the script SCRIPT names, so a control
 # can run them again on a copy with that rule removed.
 
-archive_row() { # SCRIPT: the tarball is git archive of the tag under vgs-3.4.5/, gzip -9 with no name and no time
+archive_row() { # SCRIPT: the tarball is git archive of the tag under vgshell-3.4.5/, gzip -9 with no name and no time
   local header want got
   fixture archive "$1"
   run 3.4.5
   [[ $status == 0 ]] || return 1
-  want="$(g -C "$r" ls-tree -r --name-only v3.4.5 | sed 's|^|vgs-3.4.5/|' | LC_ALL=C sort)" || return 1
-  got="$(tar -tzf "$r/dist/vgs-3.4.5.tar.gz" | grep -v '/$' | LC_ALL=C sort)" || return 1
-  header="$(od -An -tx1 -N9 -- "$r/dist/vgs-3.4.5.tar.gz" | tr -d ' \n')" || return 1
+  want="$(g -C "$r" ls-tree -r --name-only v3.4.5 | sed 's|^|vgshell-3.4.5/|' | LC_ALL=C sort)" || return 1
+  got="$(tar -tzf "$r/dist/vgshell-3.4.5.tar.gz" | grep -v '/$' | LC_ALL=C sort)" || return 1
+  header="$(od -An -tx1 -N9 -- "$r/dist/vgshell-3.4.5.tar.gz" | tr -d ' \n')" || return 1
   [[ $got == "$want" && $header == 1f8b08000000000002 ]] &&
-    grep -qxF -- "release: sha256 name=vgs-3.4.5.tar.gz value=$(sha_of "$r/dist/vgs-3.4.5.tar.gz")" "$tmp/out"
+    grep -qxF -- "release: sha256 name=vgshell-3.4.5.tar.gz value=$(sha_of "$r/dist/vgshell-3.4.5.tar.gz")" "$tmp/out"
 }
 sums_row() { # SCRIPT: SHA256SUMS lists the tarball and the tag's install.sh, one line each
   fixture sums "$1"
   run 3.4.5
   [[ $status == 0 ]] || return 1
   cmp -s -- "$r/dist/install.sh" <(g -C "$r" show v3.4.5:install.sh) &&
-    [[ $(cat -- "$r/dist/SHA256SUMS") == "$(sha_of "$r/dist/vgs-3.4.5.tar.gz")  vgs-3.4.5.tar.gz
+    [[ $(cat -- "$r/dist/SHA256SUMS") == "$(sha_of "$r/dist/vgshell-3.4.5.tar.gz")  vgshell-3.4.5.tar.gz
 $(sha_of "$r/dist/install.sh")  install.sh" ]]
 }
 sign_row() { # SCRIPT: gpg signs the published SHA256SUMS with the release key
@@ -163,7 +163,7 @@ upload_row() { # SCRIPT: gh creates the release from the verified tag with the f
   printf 'other\n' >"$r/dist/notes.txt"
   run 3.4.5
   [[ $status == 0 && $(last_out) == "release: ok tag=v3.4.5 dry-run=false" ]] &&
-    recorded gh "release create --repo vanillagreencom/vgs --verify-tag --title VGS 3.4.5 --generate-notes -- v3.4.5 ${assets[*]}" &&
+    recorded gh "release create --repo vanillagreencom/vgshell --verify-tag --title VGS 3.4.5 --generate-notes -- v3.4.5 ${assets[*]}" &&
     [[ $(wc -l <"$record/gh") == 1 && $(cat -- "$record/gh.cwd") == "$r/dist" ]] &&
     [[ $(cat -- "$record/gh.ls") == "$(printf '%s\n' "${assets[@]}" notes.txt | LC_ALL=C sort)" ]] &&
     [[ $(cat -- "$r/dist/notes.txt") == other ]]
@@ -173,7 +173,7 @@ dry_row() { # SCRIPT: --dry-run checks and builds, and neither signs nor uploads
   run --dry-run 3.4.5
   [[ $status == 0 && $(last_out) == "release: ok tag=v3.4.5 dry-run=true" ]] &&
     [[ ! -e $record/gh && $(cat -- "$record/gpg") == "--batch --list-secret-keys -- $fpr" ]] &&
-    [[ -f $r/dist/vgs-3.4.5.tar.gz && -f $r/dist/SHA256SUMS && -f $r/dist/install.sh && ! -e $r/dist/SHA256SUMS.asc ]] &&
+    [[ -f $r/dist/vgshell-3.4.5.tar.gz && -f $r/dist/SHA256SUMS && -f $r/dist/install.sh && ! -e $r/dist/SHA256SUMS.asc ]] &&
     grep -qxF -- "release: would-sign key=$fpr name=SHA256SUMS" "$tmp/out"
 }
 stale_row() { # SCRIPT: an asset an earlier run left in dist/ is replaced or removed
@@ -200,8 +200,8 @@ gh_failure_row() { # SCRIPT: a failed gh refuses
 # | the tarball under the directory it mounts | the recipe there that pins
 # the tarball's sum, or none | that recipe's pin line, %s for the sum.
 declare -A channels=(
-  [arch]="scripts/arch-packages.sh|vgs/vgs-3.4.5.tar.gz|vgs/PKGBUILD|sha256sums=('%s')"
-  [fedora]="scripts/fedora-container.sh|vgs-3.4.5.tar.gz||"
+  [arch]="scripts/arch-packages.sh|vgshell/vgshell-3.4.5.tar.gz|vgshell/PKGBUILD|sha256sums=('%s')"
+  [fedora]="scripts/fedora-container.sh|vgshell-3.4.5.tar.gz||"
 )
 # parity_row BUILDER CHANNEL [SCRIPT]: SCRIPT, default the channel's own,
 # is committed as the channel's script.
@@ -214,8 +214,8 @@ parity_row() { # BUILDER CHANNEL [SCRIPT]: the tarball CHANNEL hands its contain
     cp -- "${3:-$repo/$command}" "$r/$command" && g -C "$r" add -A && g -C "$r" commit -q -m channels && retag channels; } || { echo "$suite: fixture=parity-$2" >&2; exit 1; }
   run --dry-run 3.4.5
   [[ $status == 0 ]] || return 1
-  sum="$(sed -n 's/^release: sha256 name=vgs-3\.4\.5\.tar\.gz value=\([0-9a-f]\{64\}\)$/\1/p' "$tmp/out")" || return 1
-  [[ -n $sum && $sum == "$(sha_of "$r/dist/vgs-3.4.5.tar.gz")" ]] || return 1
+  sum="$(sed -n 's/^release: sha256 name=vgshell-3\.4\.5\.tar\.gz value=\([0-9a-f]\{64\}\)$/\1/p' "$tmp/out")" || return 1
+  [[ -n $sum && $sum == "$(sha_of "$r/dist/vgshell-3.4.5.tar.gz")" ]] || return 1
   cp -- "$1" "$r/scripts/lib/release-tarball.sh" && chmod 755 "$r/scripts/lib/release-tarball.sh" || return 1
   run_file "$r/$command"
   [[ $status == 0 && -f $record/mount/$tarball && $(sha_of "$record/mount/$tarball") == "$sum" ]] || return 1
@@ -264,7 +264,7 @@ refusal_row() { # SCRIPT NAME
 }
 
 echo "rows"
-check "the release archive is the tag under vgs-3.4.5/ with no gzip name or time" archive_row "$script"
+check "the release archive is the tag under vgshell-3.4.5/ with no gzip name or time" archive_row "$script"
 check "SHA256SUMS lists the archive and the tag's install.sh" sums_row "$script"
 check "the release key signs the published SHA256SUMS" sign_row "$script"
 check "gh creates the release from the verified tag with the four assets" upload_row "$script"
@@ -304,11 +304,11 @@ PY
   # The archive holds exactly the tag's files, and installs with its own
   # installer into the tree its own manifest lists.
   unpacked="$tmp/real-unpacked"; dest="$tmp/real-dest"
-  mkdir -p "$unpacked" && tar -C "$unpacked" -xzf "$r/dist/vgs-$version.tar.gz" || return 1
-  [[ $(ls -A "$unpacked") == "vgs-$version" && $(cat -- "$unpacked/vgs-$version/VERSION") == "$version" ]] &&
-    [[ $(cd -- "$unpacked/vgs-$version" && find . -type f -o -type l | sed 's|^\./||' | LC_ALL=C sort) == "$(g -C "$r" ls-tree -r --name-only "v$version" | LC_ALL=C sort)" ]] &&
-    env DESTDIR="$dest" PREFIX=/usr "$unpacked/vgs-$version/packaging/install-system.sh" >/dev/null &&
-    "$unpacked/vgs-$version/scripts/check-install-tree.sh" "$dest" /usr >/dev/null
+  mkdir -p "$unpacked" && tar -C "$unpacked" -xzf "$r/dist/vgshell-$version.tar.gz" || return 1
+  [[ $(ls -A "$unpacked") == "vgshell-$version" && $(cat -- "$unpacked/vgshell-$version/VERSION") == "$version" ]] &&
+    [[ $(cd -- "$unpacked/vgshell-$version" && find . -type f -o -type l | sed 's|^\./||' | LC_ALL=C sort) == "$(g -C "$r" ls-tree -r --name-only "v$version" | LC_ALL=C sort)" ]] &&
+    env DESTDIR="$dest" PREFIX=/usr "$unpacked/vgshell-$version/packaging/install-system.sh" >/dev/null &&
+    "$unpacked/vgshell-$version/scripts/check-install-tree.sh" "$dest" /usr >/dev/null
 }
 check "the dry run on this working tree builds an archive that installs" real_tree_row
 
@@ -345,7 +345,7 @@ builder_rule() {
     if parity_row "$copy" "$name" >/dev/null; then fail "control: builder-$1: parity_row $name passed on the copy"; else ok "control: the $name parity row fails on a builder that changes the $1"; fi
   done
 }
-builder_rule prefix '--prefix="vgs-$version/"' '--prefix="vgs/"'
+builder_rule prefix '--prefix="vgshell-$version/"' '--prefix="vgshell/"'
 builder_rule compression '| gzip -n -9 >"$out"' '| gzip -n >"$out"'
 # channel_rule CHANNEL NEEDLE REPLACEMENT: a copy of the channel's script
 # that packs its tarball under another name; its parity row must fail.
@@ -355,7 +355,7 @@ channel_rule() {
   copy_with "channel-$1" "$repo/$command" "$2" "$3"
   if parity_row "$builder" "$1" "$copy" >/dev/null; then fail "control: channel-$1: parity_row passed on the copy"; else ok "control: the $1 parity row fails on a channel copy that passes the builder another version"; fi
 }
-channel_rule arch '"$commit" "$version" "$scratch/in/vgs/' '"$commit" "$commit" "$scratch/in/vgs/'
+channel_rule arch '"$commit" "$version" "$scratch/in/vgshell/' '"$commit" "$commit" "$scratch/in/vgshell/'
 channel_rule fedora '"$head" "$version" "$work/' '"$head" "$head" "$work/'
 
 rows_done "$suite"

@@ -1,6 +1,6 @@
 # The lock, vgs.lock: a first-party service on the core's `lock`
 # capability. The harness starts it disabled; this row enables it and locks
-# the nested session through each entry point: its IPC function, `vgsh
+# the nested session through each entry point: its IPC function, `vgshell
 # lock`, SUPER+DELETE on the nested seat, its idle watch and its before-sleep
 # hook. Each lock is read back from the compositor, a monitor naming LOCK
 # among the reasons it cannot go solitary in `hyprctl -j monitors`, and
@@ -60,9 +60,9 @@
 # capability rows' fixture, acme.probe, when an earlier row left it
 # enabled. The row ends with the plugin disabled, the fixture as it found
 # it, the stand-ins gone and hyprland.lua as the consent row left it.
-# inputs: shell/plugins/vgs.lock/* shell/plugins/vgs.settings/* shell/Core/SessionLock.qml shell/Commons/SessionLockState.js shell/Hosts/LockHost.qml shell/Core/IdleRegistry.qml bin/vgsh bin/vgsh-lock scripts/smoke/lock/* shell/Core/HyprlandLayer.js scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/plugins/vgs.lock/* shell/plugins/vgs.settings/* shell/Core/SessionLock.qml shell/Commons/SessionLockState.js shell/Hosts/LockHost.qml shell/Core/IdleRegistry.qml bin/vgshell bin/vgshell-lock scripts/smoke/lock/* shell/Core/HyprlandLayer.js scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
-lock_user_config="$home/.config/vgs/shell.json"
+lock_user_config="$home/.config/vgshell/shell.json"
 lock_hypr_lua="$home/.config/hypr/hyprland.lua"
 sleep_log="$sandbox/sleep-watch.log"
 sleep_trigger="$sandbox/prepare-sleep"
@@ -78,8 +78,8 @@ sleep_status() { ipc smoke statusValues vgs.lock | py_reply 'import json,sys; v=
 # A published status value of vgs.lock as [tone, text], or null.
 status_value() { ipc smoke statusValues vgs.lock | py_reply 'import json,sys; v=json.load(sys.stdin).get(sys.argv[1]); print(json.dumps(v if v is None else [v["tone"], v["text"]]))' "$1"; }
 lock_toasts() { ipc shell lent | py_reply 'import json,sys; print(json.dumps([[t["title"], t["tone"]] for t in json.load(sys.stdin)["toasts"]["visible"] if t["plugin"] == "vgs.lock"]))'; }
-# `vgsh lock`'s first line and its exit status.
-vgsh_lock() { local out status=0; out="$("${shell_env[@]}" "$repo/bin/vgsh" lock 2>&1)" || status=$?; printf '%s exit=%s\n' "$(head -n 1 <<<"$out")" "$status"; }
+# `vgshell lock`'s first line and its exit status.
+vgshell_lock() { local out status=0; out="$("${shell_env[@]}" "$repo/bin/vgshell" lock 2>&1)" || status=$?; printf '%s exit=%s\n' "$(head -n 1 <<<"$out")" "$status"; }
 client_said() { if grep -q -x -- "$2" "$1" 2>/dev/null; then echo "$2"; else echo waiting; fi; }
 # The lock's binds in the default map; the overlay capture submap repeats
 # every plugin bind (hyprland.md).
@@ -152,7 +152,7 @@ with open(path + ".tmp", "w") as out:
 os.replace(path + ".tmp", path)
 PY
 }
-restore_lock_hypr_lua() { { printf '%s\n' "pcall(dofile, \"$home/.local/state/vgs/hypr/vgs.lua\")"; cat -- "$sandbox/hyprland-harness.lua"; } >"$lock_hypr_lua.next" && mv -T -- "$lock_hypr_lua.next" "$lock_hypr_lua"; }
+restore_lock_hypr_lua() { { printf '%s\n' "pcall(dofile, \"$home/.local/state/vgshell/hypr/vgs.lua\")"; cat -- "$sandbox/hyprland-harness.lua"; } >"$lock_hypr_lua.next" && mv -T -- "$lock_hypr_lua.next" "$lock_hypr_lua"; }
 # The session lock sampler: session_lock appended to FILE every 100 ms
 # until FILE.stop exists, for 60 s at most, so a row that fails before it
 # stops the sampler leaves no reader behind. samples_read FILE:
@@ -195,7 +195,7 @@ lock_back_budget_ms=3212
 # The relaunch count and the delay depend on how long the shell before ran
 # (docs/architecture/runtime.md § Process), so a line is read without
 # them.
-relaunch_lines() { grep -E '^vgsh: shell=exited .* relaunch=' -- "$shell_log" | sed -E 's/ relaunch=[0-9]+ delay=[0-9.]+//' || :; }
+relaunch_lines() { grep -E '^vgshell: shell=exited .* relaunch=' -- "$shell_log" | sed -E 's/ relaunch=[0-9]+ delay=[0-9.]+//' || :; }
 relaunch_count() { relaunch_lines | wc -l; }
 last_relaunch() { relaunch_lines | tail -n 1; }
 kill_and_relaunch() { # LABEL
@@ -212,7 +212,7 @@ kill_and_relaunch() { # LABEL
   expect_poll "$1: the killed shell is gone" gone alive "$killed"
   if adopt_shell "$killed"; then ok "$1: the runner started the next shell"; fi
   expect "$1: the runner logged one relaunch for the kill" $((before + 1)) relaunch_count
-  expect "$1: the runner read the session locked before the relaunch" "vgsh: shell=exited status=137 session=locked" last_relaunch
+  expect "$1: the runner read the session locked before the relaunch" "vgshell: shell=exited status=137 session=locked" last_relaunch
 }
 # The time from the kill to the core's confirmed lock with the plugin's
 # lock screen, polled every 50 ms for up to 20 s; `none` past that.
@@ -274,7 +274,7 @@ settings_page_open vgs.lock
 expect_poll "the Lock settings page shows SUPER+DELETE" '"SUPER+DELETE"' key_field vgs.lock lock key
 settings_page_close vgs.lock
 
-# The IPC lock, and `vgsh lock` while locked.
+# The IPC lock, and `vgshell lock` while locked.
 expect "the IPC lock answers ok" ok ipc vgs.lock invoke lock ''
 expect_poll "the compositor reports the session locked" locked session_lock
 expect_poll "the core holds the confirmed lock with the plugin's lock screen" '[true, true, true]' core_lock
@@ -288,7 +288,7 @@ if [[ ${#standard[@]} -eq 3 ]]; then
 else
   fail "the standard's values are unreadable: ${standard[*]}"
 fi
-expect "vgsh lock while locked answers ok" ok "${shell_env[@]}" "$repo/bin/vgsh" lock
+expect "vgshell lock while locked answers ok" ok "${shell_env[@]}" "$repo/bin/vgshell" lock
 expect "the session stays locked" locked session_lock
 release "the IPC lock"
 
@@ -338,7 +338,7 @@ stop_lock_client() { # LABEL
   expect_poll "$1: the other client let the session go" unlocked client_said "$sandbox/lock-client.log" unlocked
 }
 start_lock_client "takeover"
-expect "takeover: vgsh lock takes the lock over" "ok exit=0" vgsh_lock
+expect "takeover: vgshell lock takes the lock over" "ok exit=0" vgshell_lock
 expect_poll "takeover: the core holds the confirmed lock" '[true, true, true]' core_lock
 # Control for the sampler: across the other client's unlock it reads the
 # session unlocked.
@@ -352,7 +352,7 @@ expect "takeover: the core ended the lock the other client's unlock released" '[
 expect "takeover: the session is unlocked" unlocked session_lock
 expect_poll "takeover: the plugin counted the end" '[1, false, false]' lock_status refusals locked secure
 expect "takeover: the lock status warns of it" '["warning", "Hyprland refused or ended the last lock: another lock screen may hold the session"]' status_value lock
-expect "takeover: vgsh lock locks again" "ok exit=0" vgsh_lock
+expect "takeover: vgshell lock locks again" "ok exit=0" vgshell_lock
 expect_poll "takeover: the core holds the confirmed lock again" '[true, true, true]' core_lock
 expect "takeover: the lock status is ready again" '["ok", "Ready"]' status_value lock
 release "the lock after the takeover"
@@ -424,7 +424,7 @@ release "the lock across a disable"
 # which the two restarts below leave behind, and the row's last reading
 # must still count it.
 no_checks "before the stand-in check"
-control_dir="$home/.config/vgs/plugins/vgs.lock"
+control_dir="$home/.config/vgshell/plugins/vgs.lock"
 mkdir -p -- "$control_dir"
 cp -R -- "$repo/shell/plugins/vgs.lock/." "$control_dir/"
 python3 - "$control_dir/Service.qml" <<'PY'

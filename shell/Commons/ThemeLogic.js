@@ -670,11 +670,11 @@ function isOutputName(name) {
     return typeof name === "string" && OUTPUT_NAME_PATTERN.test(name);
 }
 
-// The screen of `vgsh theme background set --every-screen`, in its result
+// The screen of `vgshell theme background set --every-screen`, in its result
 // and in the theme capability's `set`: no output name can be it.
 var EVERY_SCREEN = "*";
 
-// The `vgsh theme background set` arguments after the path for the theme
+// The `vgshell theme background set` arguments after the path for the theme
 // capability's SCREEN: none for null or undefined, the current image;
 // `--every-screen` for EVERY_SCREEN; `--screen <name>` for an output name;
 // null for anything else, which the capability refuses at once.
@@ -686,7 +686,7 @@ function setScreenArguments(screen) {
     return isOutputName(screen) ? ["--screen", screen] : null;
 }
 
-// The `vgsh theme wallpapers` arguments after the name for the theme
+// The `vgshell theme wallpapers` arguments after the name for the theme
 // capability's OPTIONS: none for undefined or an object without `update`,
 // `--update` for `update: true`; null for anything else, a non-object, an
 // unknown key or an `update` that is no boolean, which the capability
@@ -708,7 +708,7 @@ function wallpaperArguments(options) {
     return options.update ? ["--update"] : [];
 }
 
-// An absolute path in the form `vgsh theme background list` prints it: a
+// An absolute path in the form `vgshell theme background list` prints it: a
 // leading `/` and no empty, `.` or `..` segment. The theme capability
 // passes only such a path to the runner, whose working directory is the
 // shell's and no plugin's.

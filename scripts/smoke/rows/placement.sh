@@ -12,7 +12,7 @@
 # disabled.
 # inputs: scripts/smoke/fixtures/plugins/acme.probe/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/Plugins.qml shell/Core/Config.qml scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/rows/plugins.sh
 set -euo pipefail
-placement_file="$home/.config/vgs/shell.json"
+placement_file="$home/.config/vgshell/shell.json"
 placement_saved="$sandbox/shell-before-placement.json"
 cp -- "$placement_file" "$placement_saved"
 # [enabled, placed] of plugin ID in listPlugins.

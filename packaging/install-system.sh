@@ -5,19 +5,19 @@
 #   DESTDIR=/staging PREFIX=/usr [SYSCONFDIR=/etc] packaging/install-system.sh
 #
 # PREFIX selects the runtime prefix. The runtime tree lands at
-# $DESTDIR$PREFIX/share/vgs. The command link lands at
-# $DESTDIR$PREFIX/bin/vgsh and points to ../share/vgs/bin/vgsh. Root README.md
-# and LICENSE land under share/doc/vgs and share/licenses/vgs.
+# $DESTDIR$PREFIX/share/vgshell. The command link lands at
+# $DESTDIR$PREFIX/bin/vgshell and points to ../share/vgshell/bin/vgshell. Root README.md
+# and LICENSE land under share/doc/vgshell and share/licenses/vgshell.
 # The installed shell tree drops developer Markdown under shell/.
 # Jarvis's backend/skills Markdown is runtime guidance and ships.
 # SYSCONFDIR, set by a system package alone, also installs the browser
-# theme writer, a copy of bin/vgsh-browser-policy at
-# $DESTDIR$PREFIX/bin/vgs-browser-policy, 0755, and the sudoers rule it
-# prints for PREFIX at $DESTDIR$SYSCONFDIR/sudoers.d/vgs-theme-browser,
+# theme writer, a copy of bin/vgshell-browser-policy at
+# $DESTDIR$PREFIX/bin/vgshell-browser-policy, 0755, and the sudoers rule it
+# prints for PREFIX at $DESTDIR$SYSCONFDIR/sudoers.d/vgshell-theme-browser,
 # 0440. Unset installs neither: the writer on PATH without its rule would
 # read as set up while every apply fails. SYSCONFDIR also installs the XDG
-# autostart entry $DESTDIR$SYSCONFDIR/xdg/autostart/vgs.desktop, 0644, that
-# runs $PREFIX/bin/vgsh run at login in a uwsm-managed Hyprland session.
+# autostart entry $DESTDIR$SYSCONFDIR/xdg/autostart/vgshell.desktop, 0644, that
+# runs $PREFIX/bin/vgshell run at login in a uwsm-managed Hyprland session.
 # Install into a fresh DESTDIR, or remove an
 # old runtime tree before running this script. Refusals print one keyed first
 # line.
@@ -63,7 +63,7 @@ for required in bin shell config themes VERSION LICENSE README.md; do
 done
 
 install_root="$destdir$prefix"
-runtime_root="$install_root/share/vgs"
+runtime_root="$install_root/share/vgshell"
 
 skip_shell_markdown() { # RELATIVE_PATH
   [[ $1 == shell/* ]] || return 1
@@ -123,12 +123,12 @@ PY
   fi
 }
 
-bin_link="$install_root/bin/vgsh"
+bin_link="$install_root/bin/vgshell"
 if directory_nonempty "$runtime_root"; then
   refuse 1 "target=not-empty path=$runtime_root" "remove the old tree or install into a fresh DESTDIR"
 fi
 if [[ -e $bin_link || -L $bin_link ]]; then
-  if [[ ! -L $bin_link || $(readlink -- "$bin_link") != "../share/vgs/bin/vgsh" ]]; then
+  if [[ ! -L $bin_link || $(readlink -- "$bin_link") != "../share/vgshell/bin/vgshell" ]]; then
     refuse 1 "link=unexpected path=$bin_link" "remove the old command or install into a fresh DESTDIR"
   fi
 fi
@@ -150,7 +150,7 @@ if ((${#install_entries[@]} == 0)); then
   refuse 1 "enumerate=empty path=$source_root"
 fi
 
-mkdir -p -- "$runtime_root" "$install_root/bin" "$install_root/share/doc/vgs" "$install_root/share/licenses/vgs"
+mkdir -p -- "$runtime_root" "$install_root/bin" "$install_root/share/doc/vgshell" "$install_root/share/licenses/vgshell"
 
 for rel in "${install_entries[@]}"; do
   [[ -n $rel ]] || continue
@@ -162,33 +162,33 @@ for rel in "${install_entries[@]}"; do
   cp -Pp -- "$src" "$dst"
 done
 
-cp -p -- "$source_root/README.md" "$install_root/share/doc/vgs/README.md"
-cp -p -- "$source_root/LICENSE" "$install_root/share/licenses/vgs/LICENSE"
-ln -sfn -- ../share/vgs/bin/vgsh "$install_root/bin/vgsh"
+cp -p -- "$source_root/README.md" "$install_root/share/doc/vgshell/README.md"
+cp -p -- "$source_root/LICENSE" "$install_root/share/licenses/vgshell/LICENSE"
+ln -sfn -- ../share/vgshell/bin/vgshell "$install_root/bin/vgshell"
 if [[ -n $sysconfdir ]]; then
   # A real copy, never a link: the rule names this path, and sudo runs
   # what it names.
-  install -m 0755 -T -- "$source_root/bin/vgsh-browser-policy" "$install_root/bin/vgs-browser-policy" ||
-    refuse 1 "writer=failed path=$install_root/bin/vgs-browser-policy"
+  install -m 0755 -T -- "$source_root/bin/vgshell-browser-policy" "$install_root/bin/vgshell-browser-policy" ||
+    refuse 1 "writer=failed path=$install_root/bin/vgshell-browser-policy"
   rule_dir="$destdir$sysconfdir/sudoers.d"
   # 0750 is the mode sudo's own package gives the directory.
   install -d -m 0750 -- "$rule_dir" || refuse 1 "rule-dir=failed path=$rule_dir"
-  rule_text="$("$source_root/bin/vgsh-browser-policy" package-rule "$prefix")" ||
-    refuse 1 "rule=refused prefix=$prefix" "bin/vgsh-browser-policy package-rule refused the prefix"
-  install -m 0440 -T /dev/stdin "$rule_dir/vgs-theme-browser" <<<"$rule_text" ||
-    refuse 1 "rule=failed path=$rule_dir/vgs-theme-browser"
+  rule_text="$("$source_root/bin/vgshell-browser-policy" package-rule "$prefix")" ||
+    refuse 1 "rule=refused prefix=$prefix" "bin/vgshell-browser-policy package-rule refused the prefix"
+  install -m 0440 -T /dev/stdin "$rule_dir/vgshell-theme-browser" <<<"$rule_text" ||
+    refuse 1 "rule=failed path=$rule_dir/vgshell-theme-browser"
   # uwsm's xdg-desktop-autostart.target starts the entry, through the unit
   # systemd-xdg-autostart-generator makes of it. Exec names the package's
   # command by its absolute path, so the entry needs no PATH; package-rule
   # above refused a prefix Exec would have to quote.
   autostart_dir="$destdir$sysconfdir/xdg/autostart"
   install -d -m 0755 -- "$autostart_dir" || refuse 1 "autostart-dir=failed path=$autostart_dir"
-  install -m 0644 -T /dev/stdin "$autostart_dir/vgs.desktop" <<EOF || refuse 1 "autostart=failed path=$autostart_dir/vgs.desktop"
+  install -m 0644 -T /dev/stdin "$autostart_dir/vgshell.desktop" <<EOF || refuse 1 "autostart=failed path=$autostart_dir/vgshell.desktop"
 [Desktop Entry]
 Type=Application
 Name=VGS
 Comment=Start the VGS desktop shell
-Exec=$prefix/bin/vgsh run
+Exec=$prefix/bin/vgshell run
 OnlyShowIn=Hyprland;
 NoDisplay=true
 EOF

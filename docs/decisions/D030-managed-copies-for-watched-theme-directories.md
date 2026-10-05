@@ -45,6 +45,6 @@ If an apply swaps `theme/` and then dies or fails before the wiring step updates
 
 **Revisit When**: A watched CLI cannot reload from an atomic copy, or a copied theme file needs permissions other than `0644`.
 
-**Verification**: `scripts/test-theme-render.js` covers the `copies` schema and `entryItems` kind. `scripts/test-vgsh-entries.sh` covers create, unchanged, changed, old-link migration, occupied edited copies and disable removal. `scripts/test-vgsh-agents.sh` covers the agent CLI targets and opencode reload filtering.
+**Verification**: `scripts/test-theme-render.js` covers the `copies` schema and `entryItems` kind. `scripts/test-vgshell-entries.sh` covers create, unchanged, changed, old-link migration, occupied edited copies and disable removal. `scripts/test-vgshell-agents.sh` covers the agent CLI targets and opencode reload filtering.
 
 **References**: [D021](D021-theme-apply-writes-beside-each-destination.md), [D022](D022-theme-apply-keeps-managed-links-in-application-directories.md), [D024](D024-theme-apply-sets-one-theme-key-in-an-application-settings-file.md)

@@ -3,23 +3,23 @@
 # install in a floating terminal through the package runner, which owns
 # elevation and its authentication prompt.
 #
-#   curl -fsSL https://raw.githubusercontent.com/vanillagreencom/vgs/main/install.sh | bash
-#   curl -fsSL https://raw.githubusercontent.com/vanillagreencom/vgs/main/install.sh | bash -s -- [OPTIONS]
+#   curl -fsSL https://raw.githubusercontent.com/vanillagreencom/vgshell/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/vanillagreencom/vgshell/main/install.sh | bash -s -- [OPTIONS]
 #
 #   install.sh [--version X.Y.Z] [--force]   the newest release, or release X.Y.Z
 #   install.sh --git [--force]               a clone of main
 #   install.sh --uninstall [--force]         remove what this script installed
 #
-# A release lands in ${XDG_DATA_HOME:-~/.local/share}/vgs/X.Y.Z. The link
-# vgs/current names it and is replaced by rename alone, and ~/.local/bin/vgsh
-# links to vgs/current/bin/vgsh: the curl layout `vgsh self status` detects
-# and `vgsh self update` keeps (docs/architecture/distribution-curl.md
-# § Curl layout). --git clones main into vgs/git and links ~/.local/bin/vgsh to
-# it. Every write under vgs/ holds flock on vgs/.self.lock.
+# A release lands in ${XDG_DATA_HOME:-~/.local/share}/vgshell/X.Y.Z. The link
+# vgshell/current names it and is replaced by rename alone, and ~/.local/bin/vgshell
+# links to vgshell/current/bin/vgshell: the curl layout `vgshell self status` detects
+# and `vgshell self update` keeps (docs/architecture/distribution-curl.md
+# § Curl layout). --git clones main into vgshell/git and links ~/.local/bin/vgshell to
+# it. Every write under vgshell/ holds flock on vgshell/.self.lock.
 #
 # Before it writes anything it refuses root, a system other than Linux, an
-# installed system package (/usr/bin/vgsh, or vgs or vgs-git in the pacman,
-# rpm or dpkg database) and a ~/.local/bin/vgsh it did not make; --force
+# installed system package (/usr/bin/vgshell, or vgshell or vgshell-git in the pacman,
+# rpm or dpkg database) and a ~/.local/bin/vgshell it did not make; --force
 # skips the last two. It checks the floor: Quickshell 0.3.1, Hyprland 0.56,
 # node 18, python3, git, flock and setpriv, plus xdg-terminal-exec and
 # curl, tar, gzip and
@@ -36,16 +36,16 @@
 # temporary directory. The archive must match its one line in SHA256SUMS;
 # SHA256SUMS must carry a good signature from the release key when the
 # release has SHA256SUMS.asc and gpg holds that key. Only a verified archive
-# reaches vgs/: it is unpacked in a staging directory there, installed by
+# reaches vgshell/: it is unpacked in a staging directory there, installed by
 # its own packaging/install-system.sh and moved into place. A failure leaves
-# vgs/current and ~/.local/bin/vgsh as they were. No version directory is
-# removed here; `vgsh self update` prunes them.
+# vgshell/current and ~/.local/bin/vgshell as they were. No version directory is
+# removed here; `vgshell self update` prunes them.
 #
-# --uninstall removes the version directories, vgs/current, vgs/git and the
-# link, and keeps ${XDG_CONFIG_HOME:-~/.config}/vgs,
-# ${XDG_STATE_HOME:-~/.local/state}/vgs and vgs/.self.lock. It refuses while
+# --uninstall removes the version directories, vgshell/current, vgshell/git and the
+# link, and keeps ${XDG_CONFIG_HOME:-~/.config}/vgshell,
+# ${XDG_STATE_HOME:-~/.local/state}/vgshell and vgshell/.self.lock. It refuses while
 # the running shell was started from a tree it would remove, and, unless
-# --force, a vgs/git holding changes, a stash or commits no remote branch
+# --force, a vgshell/git holding changes, a stash or commits no remote branch
 # has.
 #
 # It never starts the shell, writes a service unit or edits hyprland.lua. It
@@ -53,7 +53,7 @@
 #
 # Every refusal is one line on stderr, `install.sh: refused: <key>=<value>`,
 # then English. Exit 1 for a refusal, 2 for a bad argument, 75 while another
-# writer holds vgs/.self.lock, 78 below the floor.
+# writer holds vgshell/.self.lock, 78 below the floor.
 #
 # The whole script is one brace group: main's definition, then its call
 # with the script's arguments. A download cut short ends inside the group,
@@ -64,7 +64,7 @@ main() {
   set -euo pipefail
   umask 022
 
-  repository=vanillagreencom/vgs
+  repository=vanillagreencom/vgshell
   api_base=https://api.github.com
   git_url="https://github.com/$repository.git"
   # The OpenPGP fingerprint of the key that signs a release's SHA256SUMS.
@@ -85,10 +85,10 @@ main() {
   # The floor, one row per tool: the name a refusal carries, the version it
   # needs (`present`: any version the pattern reads), the extended regex
   # whose first group reads the version from the probe's stdout, and the
-  # probe. The rows repeat bin/vgsh's preflight_floor, whose figures
+  # probe. The rows repeat bin/vgshell's preflight_floor, whose figures
   # docs/architecture/runtime.md § Process states, and add the other
   # required rows of config/requirements.json. Hyprland is probed through its binary,
-  # which answers with no compositor running; bin/vgsh asks the running
+  # which answers with no compositor running; bin/vgshell asks the running
   # compositor through hyprctl. floor_check runs every probe under a private
   # XDG_RUNTIME_DIR, which the binary needs even for --version, so a shell
   # with no login session reads the true floor. scripts/test-install-sh.sh
@@ -327,7 +327,7 @@ EOF
   runtime_install() { # TREE
     local tree="$1" detected selection manager names record code run row rest manifest id key="core/requirements-install"
     local -a groups packages
-    detected="$("$tree/bin/vgsh" pkg detect --json)" || refuse 1 "requirements=detect-failed"
+    detected="$("$tree/bin/vgshell" pkg detect --json)" || refuse 1 "requirements=detect-failed"
     selection="$(node -e '
 const found = JSON.parse(process.argv[1]);
 if (found.primary === null) process.exit(1);
@@ -347,11 +347,11 @@ process.stdout.write(found.primary.id + (found.overlays.some(row => row.id === "
         # Doctor owns the core report. Plugin requirements owns the same
         # report for each shipped plugin, including ones disabled by default.
         # An unmapped command is an approved channel gap, judged by packaging.
-        "$tree/bin/vgsh" doctor --json >"$tmp/requirements.jsonl" || refuse 1 "requirements=report-failed manager=nix"
+        "$tree/bin/vgshell" doctor --json >"$tmp/requirements.jsonl" || refuse 1 "requirements=report-failed manager=nix"
         for manifest in "$tree/shell/plugins"/*/manifest.json; do
           [[ -f $manifest ]] || continue
-          id="$(node "$tree/bin/vgsh-plugin-judge" id "${manifest%/manifest.json}")" || refuse 1 "requirements=report-failed manager=nix"
-          "$tree/bin/vgsh" plugin requirements --json "$id" >>"$tmp/requirements.jsonl" || refuse 1 "requirements=report-failed manager=nix"
+          id="$(node "$tree/bin/vgshell-plugin-judge" id "${manifest%/manifest.json}")" || refuse 1 "requirements=report-failed manager=nix"
+          "$tree/bin/vgshell" plugin requirements --json "$id" >>"$tmp/requirements.jsonl" || refuse 1 "requirements=report-failed manager=nix"
         done
         names="$(node -e '
 const fs = require("fs");
@@ -365,9 +365,9 @@ process.stdout.write([...missing].sort().join(" "));
       fi
       read -ra packages <<<"$names"
       run="install-$$-$manager"
-      "$tree/bin/vgsh-tui" launch --title "Install requirements" --record "$key" --run "$run" -- \
-        "$tree/bin/vgsh" pkg run install --manager "$manager" "${packages[@]}" || refuse 1 "requirements=launch-failed manager=$manager"
-      record="$("$tree/bin/vgsh-tui" wait --record "$key" --run "$run")" || refuse 1 "requirements=wait-failed manager=$manager"
+      "$tree/bin/vgshell-tui" launch --title "Install requirements" --record "$key" --run "$run" -- \
+        "$tree/bin/vgshell" pkg run install --manager "$manager" "${packages[@]}" || refuse 1 "requirements=launch-failed manager=$manager"
+      record="$("$tree/bin/vgshell-tui" wait --record "$key" --run "$run")" || refuse 1 "requirements=wait-failed manager=$manager"
       code="$(node -e '
 const record = JSON.parse(process.argv[1]);
 if (record.state !== "ended" || !Number.isInteger(record.code)) process.exit(1);
@@ -377,16 +377,16 @@ process.stdout.write(String(record.code));
     done
   }
 
-  # Refuses when a system package installed VGS: /usr/bin/vgsh exists, or
-  # the pacman, rpm or dpkg database holds vgs or vgs-git. A database a
+  # Refuses when a system package installed VGS: /usr/bin/vgshell exists, or
+  # the pacman, rpm or dpkg database holds vgshell or vgshell-git. A database a
   # query cannot read counts as not holding it.
   system_package() {
     local name status
-    if [[ -e /usr/bin/vgsh || -L /usr/bin/vgsh ]]; then
-      refuse 1 "system=package path=/usr/bin/vgsh" \
+    if [[ -e /usr/bin/vgshell || -L /usr/bin/vgshell ]]; then
+      refuse 1 "system=package path=/usr/bin/vgshell" \
         "a system package installed VGS: update it with its package manager, or pass --force for a second, user-local copy"
     fi
-    for name in vgs vgs-git; do
+    for name in vgshell vgshell-git; do
       if command -v pacman >/dev/null && pacman -Q -- "$name" >/dev/null 2>&1; then
         refuse 1 "system=package manager=pacman package=$name" "pass --force for a second, user-local copy"
       fi
@@ -406,20 +406,20 @@ process.stdout.write(String(record.code));
     if [[ ! -e $link && ! -L $link ]]; then
       echo absent
     elif [[ -L $link ]] && target="$(readlink -- "$link")" &&
-      [[ $target == "$data/current/bin/vgsh" || $target == "$data/git/bin/vgsh" ]]; then
+      [[ $target == "$data/current/bin/vgshell" || $target == "$data/git/bin/vgshell" ]]; then
       echo ours
     else
       echo foreign
     fi
   }
 
-  # Takes vgs/.self.lock on descriptor 9 until this process exits, then
+  # Takes vgshell/.self.lock on descriptor 9 until this process exits, then
   # removes the staging directories a dead writer left behind.
   take_lock() {
     local dir
     mkdir -p -- "$data" 2>/dev/null && { exec 9>>"$lock"; } 2>/dev/null ||
       refuse 1 "lock=failed path=$lock"
-    flock -n 9 || refuse 75 "self=busy path=$lock" "another install.sh or vgsh self update is writing $data"
+    flock -n 9 || refuse 75 "self=busy path=$lock" "another install.sh or vgshell self update is writing $data"
     shopt -s nullglob dotglob
     for dir in "$data"/.self-update-*; do rm -rf -- "$dir"; done
     shopt -u nullglob dotglob
@@ -429,9 +429,9 @@ process.stdout.write(String(record.code));
     stage="$(mktemp -d "$data/.self-update-XXXXXX")" || refuse 1 "stage=failed path=$data"
   }
 
-  # Points ~/.local/bin/vgsh at TARGET through a rename.
+  # Points ~/.local/bin/vgshell at TARGET through a rename.
   write_link() { # TARGET
-    local next="$bin_dir/.vgsh.install-$$"
+    local next="$bin_dir/.vgshell.install-$$"
     mkdir -p -- "$bin_dir" 2>/dev/null || refuse 1 "link=failed path=$bin_dir"
     rm -f -- "$next"
     if ! ln -s -- "$1" "$next" 2>/dev/null || ! mv -T -- "$next" "$link" 2>/dev/null; then
@@ -541,11 +541,11 @@ process.stdout.write(lines.join("\n") + "\n");
   }
 
   install_release() {
-    local archive="vgs-$version.tar.gz" sums_url archive_url want got target="$data/$version" unpacked
+    local archive="vgshell-$version.tar.gz" sums_url archive_url want got target="$data/$version" unpacked
     local -a top
     if [[ -e $target || -L $target ]] && [[ -L $data/current && $(readlink -- "$data/current") == "$version" ]]; then
       runtime_install "$target"
-      echo "ok up-to-date=vgs version=$version path=$target"
+      echo "ok up-to-date=vgshell version=$version path=$target"
       return 0
     fi
     sums_url="$(asset_url SHA256SUMS)" || refuse 1 "asset=missing name=SHA256SUMS release=v$version"
@@ -572,24 +572,24 @@ process.stdout.write(lines.join("\n") + "\n");
     shopt -s nullglob dotglob
     top=("$stage/source"/*)
     shopt -u nullglob dotglob
-    unpacked="$stage/source/vgs-$version"
+    unpacked="$stage/source/vgshell-$version"
     if ((${#top[@]} != 1)) || [[ ${top[0]} != "$unpacked" || -L $unpacked || ! -d $unpacked ]]; then
       refuse 1 "archive=layout name=$archive top=${top[*]##*/}"
     fi
     [[ -f $unpacked/VERSION ]] || refuse 1 "archive=layout name=$archive version=missing"
     [[ "$(cat -- "$unpacked/VERSION"; echo .)" == "$version"$'\n.' ]] || refuse 1 "archive=version name=$archive"
     runtime_install "$unpacked"
-    DESTDIR="$stage/tree" PREFIX=/vgs bash "$unpacked/packaging/install-system.sh" >/dev/null 2>"$stage/install.err" ||
+    DESTDIR="$stage/tree" PREFIX=/vgshell bash "$unpacked/packaging/install-system.sh" >/dev/null 2>"$stage/install.err" ||
       refuse 1 "install=failed name=$archive" "$(cat -- "$stage/install.err")"
-    mv -T -- "$stage/tree/vgs/share/vgs" "$target" 2>/dev/null || refuse 1 "target=failed path=$target"
+    mv -T -- "$stage/tree/vgshell/share/vgshell" "$target" 2>/dev/null || refuse 1 "target=failed path=$target"
     ln -s -- "$version" "$stage/current" && mv -T -- "$stage/current" "$data/current" 2>/dev/null ||
       refuse 1 "current=failed path=$data/current"
-    echo "ok installed=vgs version=$version path=$target"
+    echo "ok installed=vgshell version=$version path=$target"
   }
 
   install_git() {
     [[ ! -e $data/git && ! -L $data/git ]] ||
-      refuse 1 "git=exists path=$data/git" "update it with vgsh self update, or remove it with install.sh --uninstall"
+      refuse 1 "git=exists path=$data/git" "update it with vgshell self update, or remove it with install.sh --uninstall"
     take_lock
     [[ ! -e $data/git && ! -L $data/git ]] || refuse 1 "git=exists path=$data/git"
     new_stage
@@ -599,16 +599,16 @@ process.stdout.write(lines.join("\n") + "\n");
       refuse 1 "git=clone url=$git_url" "$(cat -- "$stage/git.err")"
     runtime_install "$stage/git"
     mv -T -- "$stage/git" "$data/git" 2>/dev/null || refuse 1 "git=failed path=$data/git"
-    echo "ok installed=vgs git=$data/git"
+    echo "ok installed=vgshell git=$data/git"
   }
 
-  # Refuses while the running shell was started from a tree under vgs/: its
-  # command line, `qs -p <tree>/shell`, names the tree, as `vgsh self
+  # Refuses while the running shell was started from a tree under vgshell/: its
+  # command line, `qs -p <tree>/shell`, names the tree, as `vgshell self
   # update` reads it.
   shell_guard() {
     local rt="${XDG_RUNTIME_DIR:-/run/user/$EUID}" pid arg previous="" tree=""
-    [[ -r $rt/vgsh.lock ]] || return 0
-    pid="$(head -n 1 -- "$rt/vgsh.lock" 2>/dev/null)" || return 0
+    [[ -r $rt/vgshell.lock ]] || return 0
+    pid="$(head -n 1 -- "$rt/vgshell.lock" 2>/dev/null)" || return 0
     [[ $pid =~ ^[0-9]+$ && -d /proc/$pid ]] || return 0
     while IFS= read -r -d '' arg; do
       if [[ $previous == -p && $arg == */shell ]]; then
@@ -624,7 +624,7 @@ process.stdout.write(lines.join("\n") + "\n");
     fi
   }
 
-  # Refuses a vgs/git that holds work found nowhere else: changes in the
+  # Refuses a vgshell/git that holds work found nowhere else: changes in the
   # work tree or index, a stash, or commits on HEAD or a local branch that
   # no remote-tracking branch holds.
   git_guard() {
@@ -642,7 +642,7 @@ process.stdout.write(lines.join("\n") + "\n");
     ((out == 0)) || refuse 1 "unpublished=$out path=$data/git" "it holds commits no remote branch has; pass --force to remove them"
   }
 
-  # Removes what this script installed. vgs/.self.lock stays: a writer that
+  # Removes what this script installed. vgshell/.self.lock stays: a writer that
   # opened it before the removal must still meet the lock this run holds.
   uninstall() {
     local state entry
@@ -663,7 +663,7 @@ process.stdout.write(lines.join("\n") + "\n");
       shopt -u nullglob dotglob
     fi
     [[ $state != ours ]] || rm -f -- "$link"
-    echo "ok uninstalled=vgs path=$data"
+    echo "ok uninstalled=vgshell path=$data"
     if ((${#rest[@]} > 0)); then echo "kept=$data reason=not-vgs-files"; fi
     if [[ $state == foreign ]]; then echo "kept=$link reason=foreign"; fi
     echo "kept=$config_dir"
@@ -703,12 +703,12 @@ process.stdout.write(lines.join("\n") + "\n");
   [[ ${HOME:-} == /* ]] || refuse 1 "home=${HOME:-unset}" "HOME must be an absolute path"
   data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
   [[ $data_home == /* ]] || refuse 1 "xdg-data-home=$data_home" "XDG_DATA_HOME must be an absolute path"
-  data="$data_home/vgs"
+  data="$data_home/vgshell"
   lock="$data/.self.lock"
   bin_dir="$HOME/.local/bin"
-  link="$bin_dir/vgsh"
-  config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/vgs"
-  state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/vgs"
+  link="$bin_dir/vgshell"
+  config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/vgshell"
+  state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/vgshell"
 
   if [[ -n ${VGS_RELEASE_API:-} ]]; then
     [[ -n ${VGS_TEST_RUN:-} && $VGS_RELEASE_API == file:///* ]] ||
@@ -738,16 +738,16 @@ process.stdout.write(lines.join("\n") + "\n");
 
   if [[ $mode == git ]]; then
     install_git
-    write_link "$data/git/bin/vgsh"
+    write_link "$data/git/bin/vgshell"
   else
     resolve_release
     install_release
-    write_link "$data/current/bin/vgsh"
+    write_link "$data/current/bin/vgshell"
   fi
   echo "command=$link"
   case ":${PATH:-}:" in
     *":$bin_dir:"*) ;;
-    *) echo "path=missing dir=$bin_dir: add it to PATH to run vgsh by name" ;;
+    *) echo "path=missing dir=$bin_dir: add it to PATH to run vgshell by name" ;;
   esac
   echo "To start VGS with Hyprland, add this line to ${XDG_CONFIG_HOME:-$HOME/.config}/hypr/hyprland.lua:"
   printf '  hl.on("hyprland.start", function () hl.exec_cmd("%s run") end)\n' "$link"

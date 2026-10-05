@@ -529,7 +529,7 @@ class InProcess(unittest.TestCase):
                 self.assertEqual((caught.exception.fields["error"], caught.exception.fields["node"]), ("hid-write", "hidraw0"))
 
     def test_cache_temporary_files_are_unique(self):
-        cache = self.scratch() / "run/vgs/displays/ddc-detect.json"
+        cache = self.scratch() / "run/vgshell/displays/ddc-detect.json"
         sources = []
         replace = os.replace
 
@@ -655,7 +655,7 @@ class Ddc(Case):
         self.assertEqual(world.listing(), {"backends": {"ddc": {"state": "ready"}, "backlight": {"state": "ready"}},
                                            "displays": []})
         world.reply("ddcutil", ["detect"], "", status=1)
-        (world.run_dir / "vgs/displays/ddc-detect.json").unlink()
+        (world.run_dir / "vgshell/displays/ddc-detect.json").unlink()
         answer = world.listing()
         self.assertEqual((answer["backends"]["ddc"]["state"], answer["displays"]), ("error", []))
 
@@ -674,7 +674,7 @@ class Ddc(Case):
         world = self.world()
         world.ddc()
         world.start()
-        cache = world.run_dir / "vgs/displays/ddc-detect.json"
+        cache = world.run_dir / "vgshell/displays/ddc-detect.json"
 
         def detects():
             return world.calls("ddcutil").count(["detect"])
@@ -711,7 +711,7 @@ class Ddc(Case):
         world = self.world()
         world.ddc()
         world.start()
-        (world.run_dir / "vgs").write_text("")
+        (world.run_dir / "vgshell").write_text("")
         for _ in range(2):
             answer = world.listing()
             self.assertEqual((answer["backends"]["ddc"], [d["id"] for d in answer["displays"]]),
@@ -725,7 +725,7 @@ class Ddc(Case):
         with ThreadPoolExecutor(8) as pool:
             runs = list(pool.map(lambda _: world.helper("list", "--outputs", "-", stdin="[]"), range(8)))
         self.assertEqual([status for status, _, _ in runs], [0] * 8)
-        cache = world.run_dir / "vgs/displays"
+        cache = world.run_dir / "vgshell/displays"
         self.assertEqual(os.listdir(cache), ["ddc-detect.json"])
         self.assertEqual(len(json.loads((cache / "ddc-detect.json").read_text())["displays"]), 3)
 

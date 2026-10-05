@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Runs the real setup flow in J09 on a private pseudo-terminal. No browser runs.
 // A missing driver is a PATH without the agent-browser stand-in; the stand-in
-// vgsh beside a copy of the TUI library answers the requirement judge and
+// vgshell beside a copy of the TUI library answers the requirement judge and
 // copies the stand-in onto that PATH for an install. No package is installed.
 "use strict";
 const { assert, fs, path, tree, world, mutant } = require("./fixtures/jarvis/policy.js");
@@ -21,10 +21,10 @@ world(async () => {
     const vgs = path.join(scratch, "vgs-tree");
     fs.mkdirSync(path.join(vgs, "bin/lib"), { recursive: true });
     fs.copyFileSync(path.join(tree, "bin/lib/tui.sh"), path.join(vgs, "bin/lib/tui.sh"));
-    fs.copyFileSync(path.join(tree, "scripts/fixtures/jarvis/browser-vgsh.py"), path.join(vgs, "bin/vgsh"));
-    fs.chmodSync(path.join(vgs, "bin/vgsh"), 0o700);
-    const vgshLog = path.join(scratch, "vgsh-calls.jsonl");
-    const vgshCalls = () => fs.readFileSync(vgshLog, "utf8").trim().split("\n").filter(Boolean).map(JSON.parse);
+    fs.copyFileSync(path.join(tree, "scripts/fixtures/jarvis/browser-vgshell.py"), path.join(vgs, "bin/vgshell"));
+    fs.chmodSync(path.join(vgs, "bin/vgshell"), 0o700);
+    const vgshellLog = path.join(scratch, "vgshell-calls.jsonl");
+    const vgshellCalls = () => fs.readFileSync(vgshellLog, "utf8").trim().split("\n").filter(Boolean).map(JSON.parse);
     const driverPath = driverless + ":" + tools;
     assert.equal(cp.spawnSync("bash", ["-c", "command -v agent-browser"], { env: { PATH: driverPath } }).status, 1,
         "the driverless PATH reaches no agent-browser");
@@ -34,28 +34,28 @@ world(async () => {
             XDG_STATE_HOME: process.env.XDG_STATE_HOME, XDG_DATA_HOME: process.env.XDG_DATA_HOME,
             XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR, DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS },
         encoding: "utf8", timeout: 15000 });
-    const marker = path.join(process.env.XDG_DATA_HOME, "vgs/jarvis/browser-ready.json");
+    const marker = path.join(process.env.XDG_DATA_HOME, "vgshell/jarvis/browser-ready.json");
     // INSTALLS counts browser downloads, DRIVER the driver installs through
-    // vgsh, KEY the keyed line the run must print.
+    // vgshell, KEY the keyed line the run must print.
     function check(folder, name, fixture, expected, installs, driver = 0, key = null) {
         mode(fixture);
         fs.rmSync(marker, { force: true });
         fs.rmSync(path.join(driverless, "agent-browser"), { force: true });
-        fs.writeFileSync(vgshLog, "");
+        fs.writeFileSync(vgshellLog, "");
         const result = setup(folder, fixture.driverMissing ? driverPath : process.env.PATH);
         assert.equal(result.error, undefined);
         assert.equal(result.status, expected, name + ": " + result.stdout + result.stderr);
         assert.equal(calls().filter(row => row.args[0] === "install").length, installs, name);
         const pick = fixture.driverPackage === undefined ? { manager: "aur", name: "agent-browser-bin" } : fixture.driverPackage;
-        assert.deepEqual(vgshCalls().filter(row => row[0] === "pkg"),
+        assert.deepEqual(vgshellCalls().filter(row => row[0] === "pkg"),
             Array(driver).fill(["pkg", "run", "install", "--manager", pick === null ? "" : pick.manager, pick === null ? "" : pick.name]), name);
-        for (const row of vgshCalls().filter(row => row[0] !== "pkg"))
+        for (const row of vgshellCalls().filter(row => row[0] !== "pkg"))
             assert.deepEqual(row, ["plugin", "requirements", "--json", "vgs.jarvis"], name);
         if (key !== null) assert.ok(result.stdout.includes("jarvis: browser-setup=" + key + "\r\n"), name + " prints " + key);
         assert.equal(fs.existsSync(marker), expected === 0, name + " verifies before ready");
         for (const row of calls()) {
             assert.equal(row.env.OPENAI_API_KEY, undefined);
-            assert.equal(row.env.VGSH_RUNNER_PID, undefined);
+            assert.equal(row.env.VGSHELL_RUNNER_PID, undefined);
             assert.equal(row.args.includes("--with-deps"), false);
             if (row.args.includes("open")) assert.equal(row.args.at(-1), "about:blank");
         }

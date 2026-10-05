@@ -1,5 +1,5 @@
 ;;; emacs.el --- the vgs theme for Emacs  -*- lexical-binding: t -*-
-;; Rendered by vgsh theme apply and loaded by vgs-theme.el in the custom
+;; Rendered by vgshell theme apply and loaded by vgs-theme.el in the custom
 ;; theme directory, so (load-theme 'vgs t) enables it and loading the theme
 ;; again reads this file again.
 (deftheme vgs "The vgs desktop theme.")

@@ -28,12 +28,12 @@ world(async () => {
     }
     fs.mkdirSync(w.home + "/.claude-personal");
     fs.mkdirSync(w.home + "/hand-added");
-    fs.mkdirSync(w.roots.state + "/vgs/jarvis", { recursive: true });
-    fs.writeFileSync(w.roots.state + "/vgs/jarvis/accounts.json", JSON.stringify([
+    fs.mkdirSync(w.roots.state + "/vgshell/jarvis", { recursive: true });
+    fs.writeFileSync(w.roots.state + "/vgshell/jarvis/accounts.json", JSON.stringify([
         { provider: "codex", directory: w.home + "/hand-added", label: "Fixture" }
     ]));
     const { accountRoots } = require(path.join(backend, "Accounts.js"));
-    const trusted = () => ({ ...w.roots, accountRoots: accountRoots(w.roots.state + "/vgs/jarvis", process.env) });
+    const trusted = () => ({ ...w.roots, accountRoots: accountRoots(w.roots.state + "/vgshell/jarvis", process.env) });
     assert.equal(Denied.create(trusted()).inspect(w.home + "/.claude-personal", "read").kind, "refuse");
     assert.ok(trusted().accountRoots.includes(w.home + "/hand-added"));
 
@@ -329,7 +329,7 @@ world(async () => {
     // Deferred probes reach the real owner and real router without starting
     // an installer. Superseded completions arrive deliberately out of order.
     async function rescans(edits, mustFail = false) {
-        const accounts = w.roots.state + "/vgs/jarvis/accounts.json";
+        const accounts = w.roots.state + "/vgshell/jarvis/accounts.json";
         const baseline = fs.readFileSync(accounts);
         try {
             await pluginCopy(path.join(backend, "Shell.js"), edits, async root => {
@@ -340,7 +340,7 @@ world(async () => {
                     const discovered = [];
                     const added = w.home + "/.claude-rescan";
                     fs.rmSync(added, { recursive: true, force: true });
-                    fs.writeFileSync(w.roots.state + "/vgs/jarvis/accounts.json", "[]");
+                    fs.writeFileSync(w.roots.state + "/vgshell/jarvis/accounts.json", "[]");
                     const f = make(require(path.join(root, "backend/Shell.js")), {
                         roots: () => { const value = trusted(); discovered.push(value); return value; }
                     });
@@ -352,7 +352,7 @@ world(async () => {
                     assert.equal(discovered.length, 1);
                     assert.equal(discovered[0].accountRoots.includes(added), false);
                     fs.mkdirSync(added, { recursive: true });
-                    fs.writeFileSync(w.roots.state + "/vgs/jarvis/accounts.json", JSON.stringify([
+                    fs.writeFileSync(w.roots.state + "/vgshell/jarvis/accounts.json", JSON.stringify([
                         { provider: "codex", directory: added, label: "Rescan" }
                     ]));
                     const recovered = f.shell.refresh();

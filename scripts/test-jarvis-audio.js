@@ -14,7 +14,7 @@ function setup(Implementation = Audio, sink = null, source = null, clock = null)
     let frames = 0, at = 0;
     const audio = new Implementation({
         session: Session, environment: { PATH: process.env.PATH, HOME: process.env.HOME,
-            XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR, VGSH_RUNNER_PID: "secret-runner",
+            XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR, VGSHELL_RUNNER_PID: "secret-runner",
             OPENAI_API_KEY: "fixture-key", ANTHROPIC_API_KEY: "fixture-key" },
         clock: clock || { now: () => at, set: (fn, ms) => setTimeout(fn, ms), clear: timer => clearTimeout(timer) },
         offers: value => offers.push(value),
@@ -92,7 +92,7 @@ async function inside() {
         assert.deepEqual(JSON.parse(record.argv[record.argv.indexOf("--properties") + 1]),
             { "node.dont-fallback": true, "node.dont-reconnect": true });
         for (const row of argv) {
-            assert.equal(row.env.VGSH_RUNNER_PID, undefined);
+            assert.equal(row.env.VGSHELL_RUNNER_PID, undefined);
             assert.equal(row.env.OPENAI_API_KEY, undefined);
             assert.equal(row.env.ANTHROPIC_API_KEY, undefined);
         }

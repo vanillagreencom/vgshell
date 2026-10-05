@@ -1,5 +1,5 @@
 # The vgs theme for btop, linked as vgs.theme in btop's themes directory by
-# vgsh theme apply. Select it once as the colour theme "vgs".
+# vgshell theme apply. Select it once as the colour theme "vgs".
 theme[main_bg]="#@{palette.background}"
 theme[main_fg]="#@{palette.foreground}"
 theme[title]="#@{color.textHeading}"

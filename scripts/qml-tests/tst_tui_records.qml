@@ -201,7 +201,7 @@ Item {
             compare(records.runs.runs["1-1"], undefined);
             compare(records.record().waits, [key + "|1-1", key + "|2-1"]);
 
-            firstWait.finish(3, 0, "", "vgsh-tui: refused: wait=acme.tui/hello run=1-1 reason=gone\n");
+            firstWait.finish(3, 0, "", "vgshell-tui: refused: wait=acme.tui/hello run=1-1 reason=gone\n");
             compare(JSON.stringify(firstEvents), JSON.stringify([{ code: 0, reason: null }]));
             compare(records.runs.keys[key].running.run, "2-1");
             compare(records.record().waits, [key + "|2-1"]);

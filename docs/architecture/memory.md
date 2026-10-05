@@ -2,7 +2,7 @@
 
 Covers: scripts/sample-shell-memory.sh, scripts/test-sample-shell-memory.sh, scripts/attribute-heap-profile.py, scripts/test-attribute-heap-profile.py
 
-Two tools measure VGS's memory: `scripts/sample-shell-memory.sh` samples the shell that `bin/vgsh run` started, and `scripts/attribute-heap-profile.py` reads jemalloc heap dumps from any profiled Quickshell process. This file records where the shell's memory sits, how to measure it, and what a measurement can and cannot attribute. It holds no measured figures: a figure belongs beside the run that produced it. The sampler reads `/proc` and never signals, restarts or drives the shell.
+Two tools measure VGS's memory: `scripts/sample-shell-memory.sh` samples the shell that `bin/vgshell run` started, and `scripts/attribute-heap-profile.py` reads jemalloc heap dumps from any profiled Quickshell process. This file records where the shell's memory sits, how to measure it, and what a measurement can and cannot attribute. It holds no measured figures: a figure belongs beside the run that produced it. The sampler reads `/proc` and never signals, restarts or drives the shell.
 
 ## Vocabulary
 
@@ -42,7 +42,7 @@ scripts/sample-shell-memory.sh --hours 26        # log a session
 scripts/sample-shell-memory.sh --report FILE     # print the baseline
 ```
 
-`--samples N` stops after N samples. `scripts/smoke/rows/diagnostics.sh` runs the sampler for two samples against the shell `vgsh run` started in the sandbox and checks both rows name that shell. The sampler asks `bin/vgsh pid` for the shell's pid, the one reader of the lock file `bin/vgsh run` writes while it holds the lock, and confirms that `qs list -p <checkout>/shell -j` lists that pid. A missing or empty lock file, a pid with no process, or a pid the instance list does not name under this checkout's shell is a keyed refusal, so a stale lock or a shell started from another checkout never produces a log. The default log is `${XDG_CACHE_HOME:-$HOME/.cache}/vgs/memory-samples.tsv`.
+`--samples N` stops after N samples. `scripts/smoke/rows/diagnostics.sh` runs the sampler for two samples against the shell `vgshell run` started in the sandbox and checks both rows name that shell. The sampler asks `bin/vgshell pid` for the shell's pid, the one reader of the lock file `bin/vgshell run` writes while it holds the lock, and confirms that `qs list -p <checkout>/shell -j` lists that pid. A missing or empty lock file, a pid with no process, or a pid the instance list does not name under this checkout's shell is a keyed refusal, so a stale lock or a shell started from another checkout never produces a log. The default log is `${XDG_CACHE_HOME:-$HOME/.cache}/vgshell/memory-samples.tsv`.
 
 Every sample row carries the sampled process and its start time, so one session is told from the next that reuses its process id. Sampling refuses to append to a log whose last row names a different session, rather than extending someone else's series. `--report` reads only the newest session in a log and says how many rows and sessions it left out, and it refuses every mark and rate for a session whose uptime does not run forward.
 

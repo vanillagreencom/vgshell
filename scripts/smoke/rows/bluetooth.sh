@@ -38,14 +38,14 @@
 # service lists no adapter, is the fixture of the stopped service: with the
 # systemctl stand-in answering that bluetooth.service is loaded and not
 # running, its section reads the service off, a click on Turn on the
-# service hands the stand-in terminal `vgsh system apply service-bluetooth`
+# service hands the stand-in terminal `vgshell system apply service-bluetooth`
 # through `status.act`, and before the click the terminal holds no record.
 # The stand-in terminal runs no system step. Every poll is
 # expect_poll's: 25 reads 0.2 s apart. The row leaves vgs.bluetooth and
 # vgs.system enabled or disabled as it found them, discovery confirming,
 # the follow off and no planted systemctl answer, whichever step it
 # returns from.
-# inputs: shell/plugins/vgs.bluetooth/* shell/plugins/vgs.system/* shell/Ui/layout/DeviceList.qml scripts/smoke/fixtures/devices/* shell/Core/BluetoothAgent.qml shell/Core/BluetoothAgentModel.js shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Hosts/PaneHost.qml bin/vgsh-system bin/vgsh-tui scripts/smoke/rows/device-fakes.sh
+# inputs: shell/plugins/vgs.bluetooth/* shell/plugins/vgs.system/* shell/Ui/layout/DeviceList.qml scripts/smoke/fixtures/devices/* shell/Core/BluetoothAgent.qml shell/Core/BluetoothAgentModel.js shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system bin/vgshell-tui scripts/smoke/rows/device-fakes.sh
 set -euo pipefail
 
 bt_keyboard=00:1B:66:AA:BB:02
@@ -294,7 +294,7 @@ bt_main() {
 
   # Controls: one copy whose discovery tick writes no stop, a plain lease
   # counter, and whose pairing never calls Pair.
-  local mutant_dir="$home/.config/vgs/plugins/acme.bluetooth-mutant"
+  local mutant_dir="$home/.config/vgshell/plugins/acme.bluetooth-mutant"
   rm -rf -- "${mutant_dir:?}"
   cp -R -- "$repo/shell/plugins/vgs.bluetooth" "$mutant_dir"
   python3 - "$mutant_dir" <<'PY'
@@ -348,7 +348,7 @@ PY
   # The stopped service: a copy whose service lists no adapter, over a
   # bluetooth.service that is loaded and not running. Its section offers
   # the step, and the click runs it through status.act.
-  local bare_dir="$home/.config/vgs/plugins/acme.bluetooth-bare"
+  local bare_dir="$home/.config/vgshell/plugins/acme.bluetooth-bare"
   rm -rf -- "${bare_dir:?}"
   cp -R -- "$repo/shell/plugins/vgs.bluetooth" "$bare_dir"
   python3 - "$bare_dir" <<'PY'
@@ -380,7 +380,7 @@ PY
   forget_record
   expect "no terminal is asked for before the click" absent recorded
   click_in window:System window acme.bluetooth-bare Button "Turn on the service" || fail "the click on Turn on the service failed"
-  expect_poll "Turn on the service hands the terminal vgsh system apply service-bluetooth" \
+  expect_poll "Turn on the service hands the terminal vgshell system apply service-bluetooth" \
     "$(core_words core/system "System setup" org.vgs.tui system apply service-bluetooth)" recorded
   expect_run_end "the Turn on the service core/system run ends" core/system
   forget_record

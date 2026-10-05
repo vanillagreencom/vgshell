@@ -17,9 +17,9 @@
 # give-up limit is out of reach still runs after the same six kills. The
 # row ends with a fresh shell of the tree for the rows after it, and the
 # real hyprctl in the stand-in directory.
-# inputs: bin/vgsh
+# inputs: bin/vgshell
 set -euo pipefail
-ipc() { ipc_via "$repo/bin/vgsh" "$@"; }
+ipc() { ipc_via "$repo/bin/vgshell" "$@"; }
 
 # The ceiling on latency_relaunch_ms, the time from the SIGKILL to the new
 # shell answering ping, read through harness.sh's adopt_shell, which polls
@@ -66,11 +66,11 @@ if adopt_shell "$killed"; then
   expect "the relaunched shell is the same runner's child" "$runner" parent_of "$shell_qs_pid"
   expect "the relaunched shell answers as the guarded instance" true ipc shell guarded
   expect_poll "the relaunched shell maps the bar again" "$bars_before" bar_count
-  expect "the runner logged the relaunch" 1 grep -c -x -F -- "vgsh: shell=exited status=137 relaunch=1 delay=0.5 session=unlocked" "$shell_log"
+  expect "the runner logged the relaunch" 1 grep -c -x -F -- "vgshell: shell=exited status=137 relaunch=1 delay=0.5 session=unlocked" "$shell_log"
 fi
 
 # The control: a runner that reads Hyprland as gone after every exit.
-if copy_tree no-relaunch && edit_tree no-relaunch bin/vgsh \
+if copy_tree no-relaunch && edit_tree no-relaunch bin/vgshell \
     'if ! monitors="$(compositor_monitors)"; then' 'if ! monitors="$(false)"; then' \
   && stop_shell && start_shell "$sandbox/tree-no-relaunch" "$sandbox/supervise-no-relaunch-qs.log"; then
   kill_shell "control"
@@ -99,9 +99,9 @@ crash_loop() { # TREE LOG
       return 0
     fi
     if ((kills >= 6)); then
-      relaunches="$(grep -c -E '^vgsh: shell=exited .* relaunch=' -- "$log" || :)"
+      relaunches="$(grep -c -E '^vgshell: shell=exited .* relaunch=' -- "$log" || :)"
       if ((relaunches >= 6)); then loop_result="kills=$kills running"; return 0; fi
-    elif IFS= read -r pid 2>/dev/null <"$rt_dir/vgsh.lock" && [[ $pid =~ ^[0-9]+$ && $pid != "$last" ]] && kill -KILL "$pid" 2>/dev/null; then
+    elif IFS= read -r pid 2>/dev/null <"$rt_dir/vgshell.lock" && [[ $pid =~ ^[0-9]+$ && $pid != "$last" ]] && kill -KILL "$pid" 2>/dev/null; then
       last="$pid"
       kills=$((kills + 1))
     fi
@@ -115,14 +115,14 @@ shim_hyprctl notify-log
 loop_log="$sandbox/supervise-loop-qs.log"
 crash_loop "$repo" "$loop_log"
 expect "after six quick deaths the runner gives up with the killed shell's status" "kills=6 ended status=137" echo "$loop_result"
-expect "the runner logged its give-up" 1 grep -c -x -F -- "vgsh: shell=gave-up exits=6 status=137" "$loop_log"
+expect "the runner logged its give-up" 1 grep -c -x -F -- "vgshell: shell=gave-up exits=6 status=137" "$loop_log"
 expect "the runner asked Hyprland for one notice" 1 notify_calls
 expect "the notice is an error in Hyprland's colour for it" "notify 3 600000 0" notify_words
 expect "Hyprland answered the notice ok" 1 grep -c -x -F -- "reply=ok status=0" "$notify_log"
 expect "the notice is dismissed for the rows after this one" ok hypr dismissnotify
 
 # The control: a runner whose give-up limit is out of reach.
-if copy_tree no-give-up && edit_tree no-give-up bin/vgsh \
+if copy_tree no-give-up && edit_tree no-give-up bin/vgshell \
     '((streak > ${#supervise_delays[@]})) && [[ $session == unlocked ]]; then' \
     '((streak > 1000)) && [[ $session == unlocked ]]; then'; then
   crash_loop "$sandbox/tree-no-give-up" "$sandbox/supervise-no-give-up-qs.log"

@@ -43,7 +43,7 @@ Item {
             tokens: root.modelData.tokens
             terminal: root.modelData.terminal
             title: root.modelData.label
-            commandLine: "vgsh theme apply " + root.modelData.name
+            commandLine: "vgshell theme apply " + root.modelData.name
             terminalLines: [
                 { text: "➜  " + root.modelData.name + " theme", color: 2 },
                 { text: "drwxr-xr-x  shell  plugins  themes", color: 7 },

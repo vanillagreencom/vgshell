@@ -1,6 +1,6 @@
 # VGS: access to the Apple display brightness controls for the user at the
-# seat. Installed by `vgsh system apply apple-displays` (bin/vgsh-system);
-# `vgsh system undo apple-displays` removes it.
+# seat. Installed by `vgshell system apply apple-displays` (bin/vgshell-system);
+# `vgshell system undo apple-displays` removes it.
 #
 # uaccess alone: the active session's user gets an ACL on each hidraw node
 # of the display, and no group or mode reaches an SSH or other-seat session.

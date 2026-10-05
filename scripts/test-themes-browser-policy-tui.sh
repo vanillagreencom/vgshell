@@ -2,8 +2,8 @@
 # The vgs.themes `browser-policy` floating TUI,
 # shell/plugins/vgs.themes/tui/browser-policy.sh, the step the Settings
 # page's Install browser theming button opens. Against a stand-in VGS tree
-# whose bin/vgsh logs its argv and exits with a chosen status, it proves the
-# script runs `vgsh theme browser-policy install` of the tree its library
+# whose bin/vgshell logs its argv and exits with a chosen status, it proves the
+# script runs `vgshell theme browser-policy install` of the tree its library
 # lies in, once, ends with its status, and refuses by key, running nothing,
 # without the presenter and with an argument. Each run has an empty
 # environment but PATH, a stand-in gum and a few host tools, so no run
@@ -32,14 +32,14 @@ for tool in bash cat mkdir; do ln -s -- "$(command -v "$tool")" "$tools/$tool"; 
 # The library draws its header with gum; the stand-in prints its words.
 printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*"\n' >"$tools/gum"
 cp -- "$repo/bin/lib/tui.sh" "$tree/bin/lib/tui.sh"
-# The stand-in vgsh: logs its argv, one call per line, and exits with the
+# The stand-in vgshell: logs its argv, one call per line, and exits with the
 # status in $TMP_ROOT/status.
-cat >"$tree/bin/vgsh" <<SH
+cat >"$tree/bin/vgshell" <<SH
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >>"$TMP_ROOT/calls"
 exit "\$(<"$TMP_ROOT/status")"
 SH
-chmod 755 "$tools/gum" "$tree/bin/vgsh"
+chmod 755 "$tools/gum" "$tree/bin/vgshell"
 
 # run SCRIPT STATUS LIB ARGS...: SCRIPT with the stand-in exiting STATUS and
 # VGS_TUI_LIB set to LIB, "" for none; the exit status in $status, stderr's
@@ -89,7 +89,7 @@ verify "$script" || true
 CONTROLS=(
   "the presenter check|[[ -z \$lib ]]|[[ -n \$lib \&\& -z \$lib ]]"
   "the argument check|if [[ \$# -gt 0 ]]; then|if false; then"
-  "the install's status|\"\$tree/bin/vgsh\" theme browser-policy install|\"\$tree/bin/vgsh\" theme browser-policy install || true"
+  "the install's status|\"\$tree/bin/vgshell\" theme browser-policy install|\"\$tree/bin/vgshell\" theme browser-policy install || true"
 )
 for control in "${CONTROLS[@]}"; do
   IFS='|' read -r label needle replacement <<<"$control"

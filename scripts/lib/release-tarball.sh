@@ -6,10 +6,10 @@
 #   scripts/lib/release-tarball.sh COMMIT VERSION OUT
 #
 # COMMIT is a revision of the git repository this script sits in. VERSION
-# names the top directory, vgs-VERSION/: X.Y.Z for a release, the commit id
-# for a vgs-git snapshot. OUT is the file to write.
+# names the top directory, vgshell-VERSION/: X.Y.Z for a release, the commit id
+# for a vgshell-git snapshot. OUT is the file to write.
 #
-# The tarball is `git archive --format=tar --prefix=vgs-VERSION/ COMMIT`
+# The tarball is `git archive --format=tar --prefix=vgshell-VERSION/ COMMIT`
 # through `gzip -n -9`. Its bytes are a function of the commit and VERSION:
 # git archive stamps every member with the commit's time, and gzip -n
 # writes no name and no time. A channel test that packs the commit a
@@ -41,7 +41,7 @@ refuse() { # STATUS KEY [DETAIL...]
 [[ $# -eq 3 ]] || refuse 2 "arguments=$#" "usage: scripts/lib/release-tarball.sh COMMIT VERSION OUT"
 commit="$1" version="$2" out="$3"
 
-git -C "$repo" archive --format=tar --prefix="vgs-$version/" "$commit" | gzip -n -9 >"$out" ||
+git -C "$repo" archive --format=tar --prefix="vgshell-$version/" "$commit" | gzip -n -9 >"$out" ||
   refuse 1 "archive=failed commit=$commit"
 sum="$(sha256sum -- "$out")" || refuse 1 "sha256sum=failed path=$out"
 printf '%s\n' "${sum%% *}"

@@ -18,7 +18,7 @@ No include line is left naming a file the swap drops. A target disabled after it
 
 **Rationale**:
 
-- A rename within one directory is atomic and never crosses a filesystem, so no reader sees half a file. `vgsh plugin add` stages beside its destination for the same reason.
+- A rename within one directory is atomic and never crosses a filesystem, so no reader sees half a file. `vgshell plugin add` stages beside its destination for the same reason.
 - Replacing the resolved file keeps a dotfile manager's link a link. Replacing the link itself would sever the managed file.
 - A stable include path means a later apply changes nothing in the application's directory. The line is asserted on every apply, so a hand edit that drops it is repaired.
 - The shell restyles only after every application file and include line is in place, so the displayed theme never runs ahead of the applications.
@@ -27,6 +27,6 @@ No include line is left naming a file the swap drops. A target disabled after it
 
 **Revisit When**: An application reads its configuration through a hard link or watches its inode, or a target needs its include line somewhere other than the file's first line.
 
-**Verification**: `scripts/test-vgsh.sh` covers the partial result, the symlinked edit with a control that replaces the link, the wiring on unchanged bytes with a written-only control, the carried file with a no-carry control and the removed line with a line-keeping control. `scripts/smoke/rows/themes.sh` covers a real partial apply through the `theme` capability.
+**Verification**: `scripts/test-vgshell.sh` covers the partial result, the symlinked edit with a control that replaces the link, the wiring on unchanged bytes with a written-only control, the carried file with a no-carry control and the removed line with a line-keeping control. `scripts/smoke/rows/themes.sh` covers a real partial apply through the `theme` capability.
 
 **References**: [D020](D020-theme-apply-swaps-state-and-writes-the-shell-file-last.md), [D019](D019-theme-packages-carry-plugin-trust.md)

@@ -39,7 +39,7 @@ expect "a disconnected reader fails the advancing-frame assertion" stopped layer
 expect "restore the layer reader" ok ipc smoke layerFrameListening true
 expect_poll "the connected reader advances again" advancing layer_advances
 
-frame_theme="$home/.config/vgs/theme.json"
+frame_theme="$home/.config/vgshell/theme.json"
 printf '%s\n' '{"schemaVersion":1,"name":"still","tokens":{"motion":{"scale":0}}}' >"$frame_theme.tmp"
 mv -T -- "$frame_theme.tmp" "$frame_theme"
 expect_poll "zero motion reaches the listening visual" 0 ipc smoke themeValue motion.scale

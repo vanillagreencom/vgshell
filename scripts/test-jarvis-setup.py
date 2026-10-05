@@ -49,8 +49,8 @@ class Setup(unittest.TestCase):
         shutil.copytree(PLUGIN, self.plugin)
         self.home = self.root / "home"
         self.home.mkdir()
-        self.state = self.root / "state/vgs/jarvis"
-        self.data = self.root / "data/vgs/jarvis/local"
+        self.state = self.root / "state/vgshell/jarvis"
+        self.data = self.root / "data/vgshell/jarvis/local"
         self.data.mkdir(parents=True)
         self.commands = self.root / "commands"
         self.commands.mkdir()
@@ -326,7 +326,7 @@ class Setup(unittest.TestCase):
                 if name == "inner-vgs":
                     # Move the large plugin data without changing its XDG root.
                     for kind in ("data", "state"):
-                        path = self.root / kind / "vgs"
+                        path = self.root / kind / "vgshell"
                         target = self.root / ("stored-" + kind)
                         path.rename(target)
                         path.symlink_to(target, target_is_directory=True)
@@ -344,7 +344,7 @@ class Setup(unittest.TestCase):
                 result = self.install(77)
                 self.assertEqual(result.stderr.splitlines()[0].split("=", 2)[:2],
                                  ["jarvis-setup: failed", "probe log"])
-                self.assertIn(str(self.home / ".local/share/vgs/jarvis/local/models"),
+                self.assertIn(str(self.home / ".local/share/vgshell/jarvis/local/models"),
                               (self.state / "local-setup.log").read_text())
                 self.assertFalse((self.state / "local-ready.json").exists())
                 self.assertEqual(self.report(), {"tone": "warning", "text": "Not set up", "action": True})

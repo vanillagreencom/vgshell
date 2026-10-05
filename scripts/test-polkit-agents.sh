@@ -3,7 +3,7 @@
 # tui/stop.sh, against fakes alone. The suite runs inside a process
 # namespace of its own, so the script's scan of /proc sees, and its SIGTERM
 # reaches, only the stand-in agents the suite starts: copies of sleep named
-# as a polkit agent is. A stand-in `vgsh` in a stand-in tree is the package
+# as a polkit agent is. A stand-in `vgshell` in a stand-in tree is the package
 # manager: it answers `pkg owner` and `pkg removable` for those programs,
 # and logs `pkg run remove` and exits with the status the row planted. No
 # run reaches polkitd, a real agent, a package manager or sudo.
@@ -59,7 +59,7 @@ sleep_bin="$(command -v sleep)"
 bash_bin="$(command -v bash)"
 for name in polkit-acme-agent polkit-shared-agent polkit-lone-agent acme-daemon; do cp -- "$sleep_bin" "$programs/$name"; done
 cp -- "$bash_bin" "$programs/polkit-deaf-agent"
-cat >"$tree/bin/vgsh" <<SH
+cat >"$tree/bin/vgshell" <<SH
 #!$bash_bin
 printf '%s\n' "\$*" >>"$world/calls"
 case "\$1 \$2" in
@@ -68,7 +68,7 @@ case "\$1 \$2" in
       */polkit-acme-agent) echo '{"manager":"pacman","package":"acme-polkit","version":"1.0"}' ;;
       */polkit-shared-agent) echo '{"manager":"pacman","package":"shared-polkit","version":"1.0"}' ;;
       */polkit-deaf-agent) echo '{"manager":"pacman","package":"deaf-polkit","version":"1.0"}' ;;
-      *) echo "vgsh: refused: path=\$3 reason=unowned manager=pacman exit=1" >&2; exit 1 ;;
+      *) echo "vgshell: refused: path=\$3 reason=unowned manager=pacman exit=1" >&2; exit 1 ;;
     esac ;;
   "pkg removable")
     case "\$3" in
@@ -91,7 +91,7 @@ case "\$1 \$2" in
   *) exit 99 ;;
 esac
 SH
-chmod 755 "$tree/bin/vgsh"
+chmod 755 "$tree/bin/vgshell"
 
 # The environment of every run and of every stand-in agent of this session:
 # no system bus address, as on a real system, and one Hyprland instance.
@@ -182,9 +182,9 @@ rows() {
   echo 0 >"$world/remove-status"
   : >"$world/calls"
   run "$plugin" uninstall
-  expect "uninstall removes the agent's package through vgsh pkg run" "0 pkg run remove acme-polkit" "$status $(grep '^pkg run' "$world/calls")"
+  expect "uninstall removes the agent's package through vgshell pkg run" "0 pkg run remove acme-polkit" "$status $(grep '^pkg run' "$world/calls")"
   if alive "$acme"; then fail "uninstall left the agent running"; else ok "uninstall ends the agent after the removal"; fi
-  expect "uninstall records no program" no "$([[ -e $TMP_ROOT/state/vgs/polkit/stopped.json ]] && echo yes || echo no)"
+  expect "uninstall records no program" no "$([[ -e $TMP_ROOT/state/vgshell/polkit/stopped.json ]] && echo yes || echo no)"
 
   stop_all
   start polkit-shared-agent; shared=$started
@@ -192,7 +192,7 @@ rows() {
   run "$plugin" stop
   expect "stop changes no package" "0 0" "$status $(removals)"
   if alive "$shared"; then fail "stop left the agent running"; else ok "stop ends the agent"; fi
-  expect "stop records the agent's program" "[\"$programs/polkit-shared-agent\"]" "$(cat "$TMP_ROOT/state/vgs/polkit/stopped.json" 2>/dev/null)"
+  expect "stop records the agent's program" "[\"$programs/polkit-shared-agent\"]" "$(cat "$TMP_ROOT/state/vgshell/polkit/stopped.json" 2>/dev/null)"
   start polkit-shared-agent; shared=$started
   start polkit-acme-agent; acme=$started
   sleep 0.05
@@ -218,7 +218,7 @@ rows() {
     status=0
     "${run_env[@]}" VGS_TUI_LIB="$tree/bin/lib/tui.sh" VGS_PLUGIN_DIR="$plugin" "$plugin/tui/$verb.sh" >/dev/null 2>"$TMP_ROOT/err" || status=$?
     expect "tui/$verb.sh runs $verb" "0 $([[ $verb == uninstall ]] && echo 1 || echo 0) $([[ $verb == stop ]] && echo yes || echo no)" \
-      "$status $(removals) $([[ -e $TMP_ROOT/state/vgs/polkit/stopped.json ]] && echo yes || echo no)"
+      "$status $(removals) $([[ -e $TMP_ROOT/state/vgshell/polkit/stopped.json ]] && echo yes || echo no)"
     if alive "$acme"; then fail "tui/$verb.sh left the agent running"; else ok "tui/$verb.sh ends the agent"; fi
   done
   stop_all
@@ -295,7 +295,7 @@ nodump() {
   run "$plugin" stop
   expect "stop changes no package for an agent that is not dumpable" "0 0" "$status $(removals)"
   if alive "$pid"; then fail "stop left the agent that is not dumpable running"; else ok "stop ends the agent that is not dumpable"; fi
-  expect "stop records an agent whose program cannot be read by its name" '["polkit-kde-auth"]' "$(cat "$TMP_ROOT/state/vgs/polkit/stopped.json" 2>/dev/null)"
+  expect "stop records an agent whose program cannot be read by its name" '["polkit-kde-auth"]' "$(cat "$TMP_ROOT/state/vgshell/polkit/stopped.json" 2>/dev/null)"
   start_nodump; pid=$started
   run "$plugin" check
   expect "check ends the agent recorded by its name" "0  1" "$status $(answer)"
@@ -304,7 +304,7 @@ nodump() {
 }
 
 # reused PLUGIN: the agent exits during the package removal and another
-# process takes its pid before uninstall ends the agents. The stand-in vgsh
+# process takes its pid before uninstall ends the agents. The stand-in vgshell
 # does both, and the row first requires that the pid was taken.
 reused() {
   local plugin="$1" acme other
@@ -349,7 +349,7 @@ control other-bus-counted bin/agents 'if (environValue(environ, "DBUS_SYSTEM_BUS
 control other-instance-counted bin/agents 'if (instance !== undefined && theirs !== undefined && theirs !== instance) continue;' ''
 control stop-records-nothing bin/agents '        remember(agents.map(agent => agent.key));' ''
 control stop-keeps-agents bin/agents $'        remember(agents.map(agent => agent.key));\n        endAll(agents);' '        remember(agents.map(agent => agent.key));'
-control stop-removes-package bin/agents $'    if (verb === "stop") {\n' $'    if (verb === "stop") {\n        childProcess.spawnSync(VGSH, ["pkg", "run", "remove"], { stdio: "inherit" });\n'
+control stop-removes-package bin/agents $'    if (verb === "stop") {\n' $'    if (verb === "stop") {\n        childProcess.spawnSync(VGSHELL, ["pkg", "run", "remove"], { stdio: "inherit" });\n'
 control failed-removal-ends-agents bin/agents 'if (removal.status !== 0) return removal.status === null ? 1 : removal.status;' ''
 control uninstall-keeps-agents bin/agents $'    if (removal.status !== 0) return removal.status === null ? 1 : removal.status;\n    endAll(agents);' '    if (removal.status !== 0) return removal.status === null ? 1 : removal.status;'
 control tui-uninstall-runs-outside-presenter tui/uninstall.sh 'if [[ -z $lib || $tree == "$lib" || -z ${VGS_PLUGIN_DIR:-} ]]; then' 'if false; then'

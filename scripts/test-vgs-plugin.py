@@ -136,7 +136,7 @@ def user_command_rows(tmp):
     if made.returncode != 0:
         report("new writes the user-command fixture", False, f"exit={made.returncode}\n{made.stdout}{made.stderr}")
         return
-    step = "Run `vgsh plugin enable acme.readme` once."
+    step = "Run `vgshell plugin enable acme.readme` once."
     for name, text, status, last in (
         ("check fails a README that tells the user to run a command", "# Setup\n\n" + step + "\n", 1, "vgs-plugin: check failed=1"),
         ("check passes the README once the command is behind Show command", "# Setup\n\nEnable it on its Settings page.\n\n<details><summary>Show command</summary>\n\n" + step + "\n\n</details>\n", 0, "vgs-plugin: check ok"),
@@ -147,7 +147,7 @@ def user_command_rows(tmp):
         lines = checked.stdout.rstrip().split("\n")
         findings = [l for l in lines if l.startswith("instruction ")]
         if status:
-            found = len(findings) == 1 and "README.md:3 " in findings[0] and "vgsh plugin enable" in findings[0]
+            found = len(findings) == 1 and "README.md:3 " in findings[0] and "vgshell plugin enable" in findings[0]
         else:
             found = not findings and any(l.startswith("check-user-commands: ok files=") for l in lines)
         report(name, checked.returncode == status and lines[-1] == last and found, f"exit={checked.returncode}\n{checked.stdout}{checked.stderr}")

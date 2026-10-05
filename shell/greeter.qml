@@ -11,7 +11,7 @@ import qs.Commons
 // any user logs in (D101). It has no registry, no plugin scan, no
 // capability and no runner guard, and it names no plugin: it loads the one
 // view VGS_GREETER_VIEW names, which the greetd configuration
-// `vgsh system apply greeter` writes sets. It exists because a plugin may
+// `vgshell system apply greeter` writes sets. It exists because a plugin may
 // not build a window, and Quickshell resolves qs.Ui and qs.Commons only
 // under this directory.
 //

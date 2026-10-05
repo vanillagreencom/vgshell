@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // The Browser theming row of vgs.themes, shell/plugins/vgs.themes/SetupLogic.js,
-// under node: each state `vgsh theme setup --json` reports for the chromium
+// under node: each state `vgshell theme setup --json` reports for the chromium
 // target reads as its row, only a missing writer offers the Install browser
 // theming action, a tree that ships no chromium setup reads as not
 // shipped, and a report that failed or does not parse reads as unknown and
@@ -19,7 +19,7 @@ const { load } = require("../bin/lib/qml-library.js");
 const dir = path.join(__dirname, "..", "shell", "plugins", "vgs.themes");
 const file = path.join(dir, "SetupLogic.js");
 const same = (got, want, message) => assert.deepEqual(JSON.parse(JSON.stringify(got)), want, message);
-const report = state => JSON.stringify({ setups: [{ name: "chromium", app: "Chromium, Google Chrome, Microsoft Edge and Brave", setup: "vgs-browser-policy", state }] }) + "\n";
+const report = state => JSON.stringify({ setups: [{ name: "chromium", app: "Chromium, Google Chrome, Microsoft Edge and Brave", setup: "vgshell-browser-policy", state }] }) + "\n";
 
 // [label, stdout, exit code, the value].
 const ROWS = [
@@ -32,7 +32,7 @@ const ROWS = [
     ["no JSON", "setup=chromium\n", 0, { tone: "danger", text: "Browser theme setup could not be checked. Open Settings to check Themes." }],
     ["no setups list", "{}\n", 0, { tone: "danger", text: "Browser theme setup could not be checked. Open Settings to check Themes." }],
     ["no chromium row", JSON.stringify({ setups: [{ name: "other", app: "Other", setup: "other-writer", state: "done" }] }), 0, { tone: "info", text: "This version of VGS does not support browser themes" }],
-    ["another target's row after chromium's", JSON.stringify({ setups: [{ name: "chromium", app: "C", setup: "vgs-browser-policy", state: "done" }, { name: "other", app: "Other", setup: "other-writer", state: "absent" }] }), 0, { tone: "ok", text: "Browser theme support is installed" }],
+    ["another target's row after chromium's", JSON.stringify({ setups: [{ name: "chromium", app: "C", setup: "vgshell-browser-policy", state: "done" }, { name: "other", app: "Other", setup: "other-writer", state: "absent" }] }), 0, { tone: "ok", text: "Browser theme support is installed" }],
     ["an unknown state", report("maybe"), 0, { tone: "danger", text: "Browser theme setup could not be checked. Open Settings to check Themes." }]
 ];
 

@@ -159,7 +159,7 @@ FocusScope {
     // plugin: the `surfaces` capability opens only this plugin's own
     // surfaces.
     function openSettings() {
-        const reply = shell.run.detached(["vgsh", "ipc", "call", "shell", "summon", "window", "vgs.settings", "{}"]);
+        const reply = shell.run.detached(["vgshell", "ipc", "call", "shell", "summon", "window", "vgs.settings", "{}"]);
         if (reply !== "ok") {
             notice = "Could not open Settings.";
             console.warn("system: open Settings " + reply);

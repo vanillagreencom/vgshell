@@ -7,7 +7,7 @@
 # a pseudo-terminal script(1) opens.
 set -euo pipefail
 
-source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/vgsh-rows.sh"
+source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/vgshell-rows.sh"
 for tool in script setsid flock; do
   command -v "$tool" >/dev/null || { echo "test-tui: status=not-measured missing=$tool"; exit 77; }
 done

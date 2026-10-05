@@ -5,7 +5,7 @@
 // or an upgrade takes, what a manager's update query printed, and the
 // queries naming the package that owns a file and its installed version,
 // and the dry run that says whether a package can be removed.
-// No QML objects and no I/O, so bin/vgsh-pkg runs this file under node
+// No QML objects and no I/O, so bin/vgshell-pkg runs this file under node
 // through bin/lib/qml-library.js, the one source D034 names, and
 // PluginLogic.js imports it to judge a manifest's `requirements` (D035).
 //
@@ -20,7 +20,7 @@
 //   binaries  the commands that run the manager, preferred first; the first
 //             one on PATH is the row's binary
 //   elevate   whether install, remove and upgrade need root. No step names
-//             an elevation command: `vgsh pkg run` puts one of ELEVATORS
+//             an elevation command: `vgshell pkg run` puts one of ELEVATORS
 //             before each step, in a terminal where the user answers the
 //             prompt, and the shell process never elevates.
 //   check     the unprivileged update queries, the first whose binary is
@@ -47,7 +47,7 @@
 //             "{name}". It changes nothing, needs no root, and exits 0 only
 //             when the package is installed and no other installed package
 //             requires it.
-//   picker    what `vgsh pkg install` and `remove` offer in fzf when no name
+//   picker    what `vgshell pkg install` and `remove` offer in fzf when no name
 //             is given: { install, remove }, each null when VGS offers no
 //             picker for the action, else { list, preview }. list prints
 //             the packages, one per line, the name first; preview prints
@@ -181,7 +181,7 @@ var MANAGERS = [
 
 var ACTIONS = ["install", "remove", "upgrade"];
 
-// The commands `vgsh pkg run` may put before a step of a row whose elevate
+// The commands `vgshell pkg run` may put before a step of a row whose elevate
 // is true, in the order it looks for them on PATH. They live outside the
 // rows, so the table's steps stay free of any elevation command, and
 // PluginLogic.configError judges shell.json's `packages.elevate` against
@@ -324,9 +324,9 @@ function installGroups(rows, found) {
     return { picks: picks, groups: groups };
 }
 
-// The arguments after `vgsh pkg run install` that install GROUP, one of
+// The arguments after `vgshell pkg run install` that install GROUP, one of
 // installGroups' groups whose manager installs: `--manager <id>` for every
-// manager but the primary, which `vgsh pkg run` takes by default, then the
+// manager but the primary, which `vgshell pkg run` takes by default, then the
 // names.
 function installArgs(group) {
     if (!group.installs)

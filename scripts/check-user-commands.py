@@ -9,11 +9,11 @@ check fails where user-facing text tells the user to run a command:
                 head, or, outside Markdown, a command head as the verb's
                 object; or a clause whose subject is inline code naming a
                 command, followed by a verb of SUBJECT_VERBS, as in
-                "`vgsh plugin enable x` brings it back". A clause opens at
+                "`vgshell plugin enable x` brings it back". A clause opens at
                 the start of the text, after `.`, `!`, `?`, `:` or `;`,
                 after a comma, and after `or` or `then`. A first word that
                 is a path names the command its last part does, so
-                `bin/vgsh` is `vgsh`.
+                `bin/vgshell` is `vgshell`.
   shell-block   a fenced code block of Markdown, untagged or tagged with a
                 shell of SHELL_FENCES, whose first command word is a command
                 head.
@@ -21,7 +21,7 @@ check fails where user-facing text tells the user to run a command:
                 JavaScript bound to a property of DRAWN, the text a page, a
                 notice, a toast or a CodeLine draws: inline code whose first
                 word is a command head, or a literal that opens with a head
-                and an argument, as "vgsh plugin enable x" does. A command
+                and an argument, as "vgshell plugin enable x" does. A command
                 there is copied off a label, where the one route is a
                 CommandDisclosure. A log line is read by `instruction`
                 alone. A binding reaches back over the lines its statement
@@ -75,14 +75,14 @@ REPO = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
 VERBS = ("run", "type", "paste", "execute", "enter", "use", "call", r"install\s+with")
 # What inline code does as the subject of a clause that tells the reader
 # to run it, as in "`x` brings it back". A verb that as often says what a
-# command does on its own, such as "starts" in "`vgsh run` starts the shell
+# command does on its own, such as "starts" in "`vgshell run` starts the shell
 # again", is not one.
 SUBJECT_VERBS = ("brings", "fixes", "installs", "enables", "restores", "repairs", "sets", "turns", "adds", "connects", "stores")
 SHELL_FENCES = ("", "bash", "sh", "shell", "console", "zsh", "fish")
 HEADS_FLOOR = 20
 # Members the head extractors must yield: the core's own command and an
 # elevator. A set without them came from a broken extractor.
-REQUIRED_HEADS = ("vgsh", "sudo")
+REQUIRED_HEADS = ("vgshell", "sudo")
 
 # The manifest keys a user reads, each a path whose `*` is any key of a
 # table or index of a list.
@@ -123,7 +123,7 @@ CLAUSE = re.compile(r"(?:^|[.!?:;]\s+|,\s*|\b(?:or|then)\s+)(" + "|".join(VERBS)
 SUBJECT = re.compile(r"(?:^|[.!?:;]\s+|,\s*|\b(?:or|then)\s+)`([^`\n]+)`\s+(" + "|".join(SUBJECT_VERBS) + r")\b", re.I | re.M)
 INLINE_CODE = re.compile(r"`([^`\n]+)`")
 # In a string literal, code may run past its end into the next literal a
-# concatenation adds, as `"`vgsh plugin enable " + id + "`"` does.
+# concatenation adds, as `"`vgshell plugin enable " + id + "`"` does.
 LITERAL_CODE = re.compile(r"`([^`\n]+)(?:`|$)")
 FENCE = re.compile(r"^([ \t]*)(```+|~~~+)[ \t]*([A-Za-z0-9_+-]*)[^\n]*\n(.*?)^\1\2[ \t]*$", re.M | re.S)
 DETAILS = re.compile(r"<details>\s*<summary>\s*Show command\s*</summary>.*?</details>", re.S | re.I)

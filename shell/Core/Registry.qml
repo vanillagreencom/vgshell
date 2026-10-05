@@ -5,7 +5,7 @@ import Quickshell.Io
 import "PluginLogic.js" as Logic
 
 // What is installed and what may be built. Discovers plugin directories
-// through bin/vgsh-scan, validates every manifest through PluginLogic.js,
+// through bin/vgshell-scan, validates every manifest through PluginLogic.js,
 // keeps each plugin's source revision and snapshot URL, and derives from
 // Config.effective which plugins are enabled and which may be built now.
 // Hosts key their slots on `slotKey`; Plugins builds from `entryUrl` and
@@ -20,7 +20,7 @@ Singleton {
     readonly property string userDir: Config.userDir + "/plugins"
     // Where the scanner publishes each plugin's source revision for this
     // shell process; the runner removes the roots of earlier shells.
-    readonly property string sourceDir: Quickshell.env("XDG_RUNTIME_DIR") + "/vgsh-sources-" + Quickshell.processId
+    readonly property string sourceDir: Quickshell.env("XDG_RUNTIME_DIR") + "/vgshell-sources-" + Quickshell.processId
     readonly property string coreRequirementsFile: Quickshell.shellDir + "/../config/requirements.json"
 
     // id -> validated manifest, a prototype-free object replaced whole on
@@ -117,7 +117,7 @@ Singleton {
             rescanPending = true;
             return { answer: "busy", scan: requirementsRevision + 2 };
         }
-        const command = [Quickshell.shellDir + "/../bin/vgsh-scan", "--core", coreRequirementsFile, "--core-source", Quickshell.shellDir, "--snapshot-dir", sourceDir];
+        const command = [Quickshell.shellDir + "/../bin/vgshell-scan", "--core", coreRequirementsFile, "--core-source", Quickshell.shellDir, "--snapshot-dir", sourceDir];
         const keep = Object.create(null);
         for (const id of Object.keys(manifests)) keep[manifests[id].__revision] = true;
         for (const revision of Plugins.liveRevisions()) keep[revision] = true;
@@ -234,9 +234,9 @@ Singleton {
         onRunningChanged: {
             if (running) return;
             if (root.completion === null)
-                root.scanError = "vgsh-scan did not start";
+                root.scanError = "vgshell-scan did not start";
             else if (root.completion.code !== 0 || root.completion.status !== 0)
-                root.scanError = "vgsh-scan exited " + root.completion.code + " status=" + root.completion.status;
+                root.scanError = "vgshell-scan exited " + root.completion.code + " status=" + root.completion.status;
             else root.applyScan(output.text);
             if (root.scanError !== "") console.error("plugins: " + root.scanError);
             root.requirementsRevision += 1;

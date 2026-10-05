@@ -21,7 +21,7 @@
 - The core's floating TUI keeps one busy key per TUI name across all arguments. The executor refuses a second floating start before creating a record, and maps the core's `busy` reply in a race to a refusal and a `lost` record.
 
 **Deviations from the plan**:
-- The tmux server uses `-S $XDG_RUNTIME_DIR/vgs/jarvis/tmux.sock`, not `-L vgs-jarvis`. The socket then lies in the 0700 Jarvis runtime directory, and tests reach a private server without `TMUX_TMPDIR`.
+- The tmux server uses `-S $XDG_RUNTIME_DIR/vgshell/jarvis/tmux.sock`, not `-L vgs-jarvis`. The socket then lies in the 0700 Jarvis runtime directory, and tests reach a private server without `TMUX_TMPDIR`.
 - A failed stop reaches the user as a `task-answer` message the service toasts and logs, not as a daemon stderr line, because the service treats daemon stderr as the cause of the daemon's end.
 - The daemon registers no task executor until an agent profile and a release port for the conversation's recipients exist. Neither exists yet; a fake release would let a goal leave the machine without a release decision.
 

@@ -49,7 +49,7 @@ import pathlib
 import sys
 
 root = pathlib.Path(sys.argv[1])
-tops = [(root, "", base) for base in (root / "bin", root / "share" / "vgs", root / "share" / "doc" / "vgs", root / "share" / "licenses" / "vgs")]
+tops = [(root, "", base) for base in (root / "bin", root / "share" / "vgshell", root / "share" / "doc" / "vgshell", root / "share" / "licenses" / "vgshell")]
 if len(sys.argv) > 2:
     sysconf = pathlib.Path(sys.argv[2])
     tops.append((sysconf, "SYSCONFDIR/", sysconf))
@@ -102,8 +102,8 @@ fi
 if [[ -n $sysconf_root ]]; then
   # A row the list compare already reports missing or not a file is not
   # judged again here.
-  writer="$root/bin/vgs-browser-policy" rule="$sysconf_root/sudoers.d/vgs-theme-browser"
-  for pair in "755 $writer" "440 $rule" "644 $sysconf_root/xdg/autostart/vgs.desktop"; do
+  writer="$root/bin/vgshell-browser-policy" rule="$sysconf_root/sudoers.d/vgshell-theme-browser"
+  for pair in "755 $writer" "440 $rule" "644 $sysconf_root/xdg/autostart/vgshell.desktop"; do
     want="${pair%% *}" path="${pair#* }"
     [[ -f $path && ! -L $path ]] || continue
     have="$(stat -c %a -- "$path")" || { printf 'install-tree: refused: stat=failed path=%s\n' "$path" >&2; exit 1; }

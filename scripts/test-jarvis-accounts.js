@@ -6,7 +6,7 @@ const privateValue = "fixture-secret-private";
 
 world(async () => {
     const env = environment();
-    const directory = path.join(env.XDG_STATE_HOME, "vgs/jarvis");
+    const directory = path.join(env.XDG_STATE_HOME, "vgshell/jarvis");
     const { Accounts } = require(path.join(plugin, "backend/Accounts.js"));
     const { Secrets, ownReference } = require(path.join(plugin, "backend/Secrets.js"));
     const { PROVIDERS, keyPresence, helperFailure, feedDiagnostic, probeFailure } = require(path.join(plugin, "AccountProviders.js"));
@@ -54,7 +54,7 @@ world(async () => {
     fs.symlinkSync(linked, path.join(env.HOME, ".claude-link"));
     fs.symlinkSync(linked, path.join(env.XDG_DATA_HOME, "link-parent"));
     const store = new Accounts(directory, { ...env, CODEX_HOME: explicit,
-        OPENAI_API_KEY: privateValue, VGSH_RUNNER_PID: "123" });
+        OPENAI_API_KEY: privateValue, VGSHELL_RUNNER_PID: "123" });
     store.add({ provider: "claude", directory: hand, label: "hand" });
     assert.equal(fs.statSync(store.file).mode & 0o777, 0o600);
     let cases = 0, controls = 0;
@@ -139,7 +139,7 @@ world(async () => {
     let rows = discovery(store);
     for (const call of [...calls("cli-calls"), ...calls("port-calls")]) {
         assert.equal(call.env.OPENAI_API_KEY, undefined);
-        assert.equal(call.env.VGSH_RUNNER_PID, undefined);
+        assert.equal(call.env.VGSHELL_RUNNER_PID, undefined);
         assert.ok(["auth,status", "login,status", "-H,-ltn"].includes(call.args.join(",")));
         safe(call);
     }

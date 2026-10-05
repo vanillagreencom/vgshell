@@ -3,7 +3,7 @@
 # floating TUI scripts, tui/devtools.sh and the entry scripts that run it.
 # Every command a row reaches is a
 # stub on a PATH that holds nothing else but the tools the engine and
-# `vgsh pkg run` need: mise keeps its installs in a scratch state and data
+# `vgshell pkg run` need: mise keeps its installs in a scratch state and data
 # directory and records each call that changes something, with the
 # MISE_MINIMUM_RELEASE_AGE it ran under; pacman records its argv; sudo runs
 # the rest of its argv; uname answers the machine a row names; gum's
@@ -20,7 +20,7 @@
 # from the engine or CatalogLogic.js, and that row must fail.
 set -euo pipefail
 
-source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/vgsh-rows.sh"
+source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/vgshell-rows.sh"
 for tool in script setsid timeout unshare; do
   command -v "$tool" >/dev/null || { echo "test-devtools: status=not-measured missing=$tool"; exit 77; }
 done
@@ -368,7 +368,7 @@ check "remove --mise refuses a key a row declares" out_has "devtools: refused: m
 reset_world
 ENGINE_TTY=none engine "$plugin" -- install claude
 check "install without a terminal is refused" out_has "devtools: refused: install=no-terminal"
-ENGINE_TTY=pty engine "$plugin" VGSH_RUNNER_PID=1 -- install claude
+ENGINE_TTY=pty engine "$plugin" VGSHELL_RUNNER_PID=1 -- install claude
 check "install in a process the shell started is refused" out_has "devtools: refused: caller=shell verb=install"
 check "neither refusal runs anything" log_is ""
 ENGINE_TTY=pty engine "$plugin" -- install claude --channel preview
@@ -392,11 +392,11 @@ ENGINE_TTY=pty tui "$plugin" install.sh -- claude
 check "the install entry installs the row it is handed" log_is "mise [use] [-g] [claude] {age=0}"
 ENGINE_TTY=pty tui "$plugin" install.sh -- claude
 check "a tool refusal shows the result without diagnostic keys" out_has "This tool is already installed."
-check "a tool refusal keeps its diagnostic in the developer log" grep -qF "devtools: refused: id=claude state=installed" "$home/.local/state/vgs/devtools/actions.log"
+check "a tool refusal keeps its diagnostic in the developer log" grep -qF "devtools: refused: id=claude state=installed" "$home/.local/state/vgshell/devtools/actions.log"
 engine "$plugin" VGS_TUI_LIB="$repo/bin/lib/tui.sh" -- launchers refresh
 check "launcher results use plain messages" out_has "Created the launcher for claude."
 check "launcher diagnostics stay out of the presenter output" test "$(grep -c 'launcher=' "$tmp/out" || true)" == 0
-check "launcher diagnostics stay in the developer log" grep -qF "launcher=written command=claude" "$home/.local/state/vgs/devtools/actions.log"
+check "launcher diagnostics stay in the developer log" grep -qF "launcher=written command=claude" "$home/.local/state/vgshell/devtools/actions.log"
 : >"$log"
 ENGINE_TTY=pty tui "$plugin" update.sh -- claude
 check "the update entry updates the row it is handed" log_is "mise [up] [claude] {age=0}"
@@ -419,7 +419,7 @@ check "a Ctrl-C in the filter exits 130" test "$status" == 130
 ENGINE_TTY=pty tui "$plugin" install.sh GUM_PICK="Not offered" --
 check "a pick the filter was not offered is refused" out_has "This tool is unavailable. Open Dev Tools and choose another tool."
 check "that refusal runs nothing" log_is ""
-check "the unlisted pick stays in the developer log" grep -qF "devtools: refused: picked=Not offered reason=unlisted" "$home/.local/state/vgs/devtools/actions.log"
+check "the unlisted pick stays in the developer log" grep -qF "devtools: refused: picked=Not offered reason=unlisted" "$home/.local/state/vgshell/devtools/actions.log"
 tui "$plugin" devtools.sh -- list --json
 check "the TUI script refuses a verb it does not run" out_has "This tool action is invalid. Open the action from Dev Tools."
 in_world -- "$plugin/tui/install.sh" claude

@@ -10,7 +10,7 @@
 
 **Context**: A shell that keeps one configuration file stops delivering shipped defaults the moment a user customises it, because nothing holds the shipped values apart from the user's.
 
-**Decision**: `config/shell.json` is the shipped layer and `~/.config/vgs/shell.json` the user layer. A user key replaces the shipped key whole, except `plugins`, merged by id with the user entry winning, and `disabledPlugins`, which is the user list. The manager seeds the user `bar` key from the effective bar before its first edit.
+**Decision**: `config/shell.json` is the shipped layer and `~/.config/vgshell/shell.json` the user layer. A user key replaces the shipped key whole, except `plugins`, merged by id with the user entry winning, and `disabledPlugins`, which is the user list. The manager seeds the user `bar` key from the effective bar before its first edit.
 
 **Rationale**:
 

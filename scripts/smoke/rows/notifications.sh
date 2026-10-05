@@ -5,11 +5,11 @@
 # through the probe, its state file, the compositor and the lending record.
 # No owner data reaches it: every notification here is made up. The row ends
 # with the plugin disabled and every registration released.
-# inputs: shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/toplevel/* themes/catalog/thumbnails/akane.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh bin/vgsh-tui
+# inputs: shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/toplevel/* themes/catalog/thumbnails/akane.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh bin/vgshell-tui
 set -euo pipefail
 expected_errors+=('notifications: refused: status=slackTokens reason=retired')
-note_state="$home/.local/state/vgs/notifications/state.json"
-note_images="$home/.local/state/vgs/notifications/images"
+note_state="$home/.local/state/vgshell/notifications/state.json"
+note_images="$home/.local/state/vgshell/notifications/images"
 notes() { ipc vgs.notifications invoke "$1" "${2:-}"; }
 note_status() { notes status | py_reply 'import json,sys; v=json.load(sys.stdin)
 for k in sys.argv[1].split("."): v=v[k]
@@ -95,7 +95,7 @@ cp -R -- "$repo/scripts/smoke/fixtures/slack/." "$home/.config/Slack/"
 # token, whose team accounts.json records. The row seeds it before the
 # service starts, and again after the token rows, whose last states hold no
 # token and so leave no cache, so no run of the helper is due a network call.
-slack_photos="$home/.cache/vgs/notifications/slack-photos"
+slack_photos="$home/.cache/vgshell/notifications/slack-photos"
 seed_slack_photos() {
   mkdir -p -- "$slack_photos"
   python3 - "$slack_photos" <<'PY'
@@ -181,7 +181,7 @@ expect_poll "the toast is in the state file as on screen" '["First toast"]' live
 # card's effect stayed Uncompiled while it drew).
 edge_shaders_ok() { ipc smoke layerShaders vgs.notifications | py_reply 'import json,re,sys
 edges = [(u, ok) for _, u, ok in json.load(sys.stdin) if u.endswith("/edgelight.frag.qsb")]
-print(len(edges) >= 1 and all(re.search(r"/vgsh-sources-[0-9]+/[0-9a-f]+/shaders/edgelight\.frag\.qsb$", u) for u, _ in edges) and any(ok for _, ok in edges))'; }
+print(len(edges) >= 1 and all(re.search(r"/vgshell-sources-[0-9]+/[0-9a-f]+/shaders/edgelight\.frag\.qsb$", u) for u, _ in edges) and any(ok for _, ok in edges))'; }
 render expect_poll "the edge light's shader compiled from the published revision" True edge_shaders_ok
 key_of() { ipc smoke modelRows vgs.notifications rows key,summary | py_reply 'import json,sys; print(next((k for k, s in json.load(sys.stdin) if s == sys.argv[1]), "none"))' "$1"; }
 clock_of() { read_notes clocks | py_reply 'import json,sys; c=json.load(sys.stdin).get(sys.argv[1]); print("none" if c is None else ("running" if c["since"] is not None else "paused") + " " + str(c["remaining"]))' "$1"; }
@@ -641,7 +641,7 @@ expect_poll "the stored entry with a missing image keeps no image" '""' stored_i
 # synthetic Slack. Its workspace list names acme, whose icon its cache
 # holds, and globex, whose icon it does not.
 card_value() { ipc smoke layerItems vgs.notifications NotificationCard "summary,$2" | py_reply 'import json,sys; print(next((json.dumps(v[sys.argv[2]]) for s, r, v in json.load(sys.stdin) if v["summary"] == sys.argv[1]), "none"))' "$1" "$2"; }
-slack_icon="$home/.cache/vgs/notifications/workspaces/slack/T0ACME-0"
+slack_icon="$home/.cache/vgshell/notifications/workspaces/slack/T0ACME-0"
 notify Slack 0 "[acme] from Ada Lovelace" "Did you see the notes?" '[]' '{"desktop-entry": <"slack">}' 30000 >/dev/null
 expect_poll "a Slack direct message draws its workspace's icon" true card_value "[acme] from Ada Lovelace" showsBadge
 expect "the icon is the copy out of Slack's cache" "$(file_url_json "$slack_icon")" card_value "[acme] from Ada Lovelace" workspaceIcon
@@ -1271,20 +1271,20 @@ SH
   chmod 755 "$1"
 }
 ipc_cut_retry_control() {
-  local fake="$sandbox/vgsh-ipc-retry" start
+  local fake="$sandbox/vgshell-ipc-retry" start
   ipc_cut_stand_in "$fake" 1 1
   (ipc() { ipc_via "$fake" "$@"; }; latency_bound_ms=2000; latency_since "control retry" "$(date +%s%3N)" 1 emoji_texts >/dev/null; [[ $latency_ms =~ ^[0-9]+$ ]] && echo recovered || echo "latency=$latency_ms")
 }
 expect "control: a cut IPC reply is retried by the latency reader" recovered ipc_cut_retry_control
 ipc_cut_failure_control() {
-  local fake="$sandbox/vgsh-ipc-cut" out
+  local fake="$sandbox/vgshell-ipc-cut" out
   ipc_cut_stand_in "$fake" always 1
   out="$(ipc() { ipc_via "$fake" "$@"; }; latency_bound_ms=250; latency_since "control cut" "$(date +%s%3N)" 1 emoji_texts)"
   if [[ $out == *ipc-failed* && $out == *"Error occurred while waiting for response."* ]]; then echo named; else printf '%s\n' "$out"; fi
 }
 expect "control: a lasting cut IPC reply names the raw client line" named ipc_cut_failure_control
 ipc_page_control() {
-  local fake="$sandbox/vgsh-page-ok"
+  local fake="$sandbox/vgshell-page-ok"
   cat >"$fake" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -1303,7 +1303,7 @@ SH
 }
 expect "control: ipc_via reassembles a paged probe reply" '{"a":1}' ipc_page_control
 ipc_page_failure_control() {
-  local fake="$sandbox/vgsh-page-fails"
+  local fake="$sandbox/vgshell-page-fails"
   cat >"$fake" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -1323,7 +1323,7 @@ SH
 }
 expect "control: a failed page yields ipc-failed, not a partial document" ipc-failed ipc_page_failure_control
 ipc_oversize_control() {
-  local fake="$sandbox/vgsh-oversize" chars=$((ipc_reply_chars + 1))
+  local fake="$sandbox/vgshell-oversize" chars=$((ipc_reply_chars + 1))
   cat >"$fake" <<SH
 #!/usr/bin/env bash
 head -c $chars /dev/zero | tr '\\0' x
@@ -1814,7 +1814,7 @@ expect "the toast outlived the removed monitor" True has_row live "Everywhere"
 
 # The look: the theme reaches it through its mode, accent and motion scale
 # alone.
-theme="$home/.config/vgs/theme.json"
+theme="$home/.config/vgshell/theme.json"
 write_theme() { printf '%s\n' "$1" >"$theme.tmp" && mv -T -- "$theme.tmp" "$theme"; }
 look_at() { read_notes look | py_reply 'import json,sys; v=json.load(sys.stdin)
 for k in sys.argv[1].split("."): v=v[k]

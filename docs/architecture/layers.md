@@ -20,7 +20,7 @@ A passive layer is a surface a plugin draws in without taking the keyboard: a no
 - The copy is built in the context of the file that declares the component, so it reads the plugin's state through that file's ids. The plugin's instance owns the state; the host owns the surfaces and their copies.
 - A copy can outlive its instance for a moment: disabling a service deletes it with its slot, while the copies go on the event loop's next pass, as `scripts/smoke/rows/notifications.sh` read on 2026-09-28 through the log's diagnostics row. A copy's bindings on the instance check it for null, as `vgs.notifications`' stack does.
 - A screen that is added gains a surface for every registration, and one that goes takes its surfaces with it. The disposer, or the instance's teardown, destroys every copy before the registration leaves, while the plugin that declared the component still exists.
-- `vgsh ipc call shell lent` lists each registration under `layers` as its plugin and the screens it is built on.
+- `vgshell ipc call shell lent` lists each registration under `layers` as its plugin and the screens it is built on.
 
 ## Invariants
 

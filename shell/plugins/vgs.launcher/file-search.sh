@@ -13,7 +13,7 @@
 # `fzf --exact`: the name alone, or the whole path when the text holds a `/`.
 # The launcher calls `refresh` when it enters f: or F:, so a query never
 # waits on a walk once an index exists; a query with no index builds it
-# first. The index lives under $XDG_CACHE_HOME/vgs/launcher, holds at most
+# first. The index lives under $XDG_CACHE_HOME/vgshell/launcher, holds at most
 # 200000 entries, and is replaced whole by a rename, so a reader never sees
 # half of one. One build per index runs at a time, under a lock beside it; a
 # refresh that finds a build running leaves it to finish. A name holding a
@@ -39,7 +39,7 @@ scratch=""
 cleanup() { [[ -z $scratch ]] || rm -f -- "${scratch:?}" "${scratch:?}.count" "${scratch:?}.walk"; }
 trap cleanup EXIT
 
-cache="${XDG_CACHE_HOME:-$HOME/.cache}/vgs/launcher"
+cache="${XDG_CACHE_HOME:-$HOME/.cache}/vgshell/launcher"
 limit=40
 index_max=200000
 hidden_roots=("$HOME/.config" "$HOME/.dot")

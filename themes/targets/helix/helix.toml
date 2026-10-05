@@ -1,4 +1,4 @@
-# The vgs theme for Helix, rendered by vgsh theme apply and linked as
+# The vgs theme for Helix, rendered by vgshell theme apply and linked as
 # themes/vgs.toml, so `theme = "vgs"` in config.toml selects it.
 "ui.background" = { bg = "#@{color.background}" }
 "ui.text" = "#@{color.text}"

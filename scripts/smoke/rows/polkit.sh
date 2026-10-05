@@ -48,7 +48,7 @@
 #
 # The row reads no latency: each reading polls at the harness's interval
 # until the harness's ceiling.
-# inputs: shell/plugins/vgs.polkit/* shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/PluginStatus.qml shell/Core/PackageManagers.js shell/Core/TuiRunner.qml shell/plugins/vgs.settings/* scripts/smoke/fixtures/polkit/* scripts/smoke/rows/capabilities.sh bin/vgsh bin/vgsh-pkg bin/vgsh-tui bin/lib/qml-library.js
+# inputs: shell/plugins/vgs.polkit/* shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/PluginStatus.qml shell/Core/PackageManagers.js shell/Core/TuiRunner.qml shell/plugins/vgs.settings/* scripts/smoke/fixtures/polkit/* scripts/smoke/rows/capabilities.sh bin/vgshell bin/vgshell-pkg bin/vgshell-tui bin/lib/qml-library.js
 set -euo pipefail
 polkit_lent() { ipc shell lent | py_reply 'import json,sys; v=json.load(sys.stdin)
 for k in sys.argv[1].split("."): v=v.get(k) if isinstance(v, dict) else None
@@ -89,7 +89,7 @@ expect "the refused summon maps no prompt surface" 0 layer_count vgs:overlay
 expect "no authentication helper runs under the shell" none auth_helpers "$shell_qs_pid"
 
 # Control: the same reading over a prompt that opens with no flow.
-control_dir="$home/.config/vgs/plugins/vgs.polkit"
+control_dir="$home/.config/vgshell/plugins/vgs.polkit"
 mkdir -p -- "$control_dir"
 cp -R -- "$repo/shell/plugins/vgs.polkit/." "$control_dir/"
 python3 - "$control_dir/Prompt.qml" <<'PY'
@@ -121,12 +121,12 @@ polkit_log="$polkit_dir/authority.log"
 polkit_bus="unix:path=$rt_dir/system-bus"
 polkit_program="$polkit_dir/polkit-acme-agent"
 polkit_second="$polkit_dir/polkit-beta-agent"
-polkit_record="$home/.local/state/vgs/polkit/stopped.json"
+polkit_record="$home/.local/state/vgshell/polkit/stopped.json"
 mkdir -p -- "$polkit_dir"
 cp -- "$(readlink -f -- "$(command -v python3)")" "$polkit_program" || fail "the stand-in agent's program could not be copied"
 cp -- "$polkit_program" "$polkit_second" || fail "the second stand-in agent's program could not be copied"
 polkit_python_home="$(python3 -c 'import sys; print(sys.base_prefix)')" || fail "python3's prefix is unreadable"
-# pacman as the queries of `vgsh pkg owner` and `vgsh pkg removable` call
+# pacman as the queries of `vgshell pkg owner` and `vgshell pkg removable` call
 # it: the owner and version of each stand-in's program, and the removal dry
 # run, which fails while the row's `required` file exists and for
 # beta-polkit always.
@@ -148,7 +148,7 @@ polkit_said() { tail -n 1 -- "$polkit_log" 2>/dev/null || echo absent; }
 polkit_other_start() {
   spawn "$polkit_dir/agent.out" "${shell_env[@]}" PYTHONHOME="$polkit_python_home" "$polkit_program" "$polkit_fixtures/agent.py" "$polkit_bus"
   polkit_other_pid="$spawn_pid"
-  expect_poll "$1: the other agent holds the session first" "registered /org/vgs/Smoke/OtherAgent" polkit_said
+  expect_poll "$1: the other agent holds the session first" "registered /org/vgshell/Smoke/OtherAgent" polkit_said
 }
 polkit_other_state() { if kill -0 "$polkit_other_pid" 2>/dev/null; then echo running; else echo gone; fi; }
 # polkit_behind LABEL [STATUS]: vgs.polkit built behind the other agent,
@@ -170,7 +170,7 @@ polkit_step() {
   expect "$1: $3 answers ok" ok settings_act vgs.polkit agent
   expect_poll "$1: $3 hands the terminal the plugin's $2 TUI" "$(words "vgs.polkit/$2" "tui/$2.sh")" recorded_tail
   kill "$polkit_other_pid" || fail "$1: ending the stand-in agent pid $polkit_other_pid failed"
-  expect_poll "$1: the other agent let go of the session" "released /org/vgs/Smoke/OtherAgent" polkit_said
+  expect_poll "$1: the other agent let go of the session" "released /org/vgshell/Smoke/OtherAgent" polkit_said
   expect "$1: VGS's agent waits for the step's end" false polkit_lent polkitRegistered
   release_runs
   expect_run_end "$1: the $2 run ends" "vgs.polkit/$2"

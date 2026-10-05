@@ -88,7 +88,7 @@ elif mode == "environment":
     assert "JARVIS_TEST_SCRATCH_ROOT" not in os.environ
     assert not set(os.environ).intersection({
         "TMUX", "DISPLAY", "WAYLAND_DISPLAY", "HYPRLAND_INSTANCE_SIGNATURE",
-        "VGSH_RUNNER_PID", "SSH_AUTH_SOCK", "NODE_OPTIONS", "BASH_ENV", "ENV",
+        "VGSHELL_RUNNER_PID", "SSH_AUTH_SOCK", "NODE_OPTIONS", "BASH_ENV", "ENV",
         "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "CLAUDE_CONFIG_DIR", "CODEX_HOME",
     })
     assert os.environ["VGS_TEST_RUN"] == "1"

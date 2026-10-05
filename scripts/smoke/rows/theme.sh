@@ -4,7 +4,7 @@
 # leaves the last accepted theme; an absent file publishes the defaults.
 # inputs: shell/Commons/Theme.qml shell/Commons/ThemeLogic.js shell/Commons/Tokens.js shell/Commons/ThemeSource.qml shell/plugins/vgs.bar/* shell/assets/* shell/Commons/WatchedFile.qml
 set -euo pipefail
-theme="$home/.config/vgs/theme.json"
+theme="$home/.config/vgshell/theme.json"
 # A QML color reads back as its channel object; the row compares its hex.
 bar_foreground() { ipc smoke readInstance "$(bar_key)" vgs.bar foreground | py_reply 'import json,sys; c=json.load(sys.stdin); print("#%02x%02x%02x" % tuple(round(c[k] * 255) for k in "rgb"))'; }
 theme_value() { ipc smoke themeValue "$1"; }

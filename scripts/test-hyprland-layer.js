@@ -558,7 +558,7 @@ function verify(logic, layer, shellText) {
     same(layer.APP_WINDOW, { appId: "org.vgs.shell", rule: "vgs:window" }, "the application windows' app-id and rule name");
     same(pragmaAppId(shellText), layer.APP_WINDOW.appId, "shell.qml's AppId pragma is the application windows' app-id");
     assert.ok(lines(bare).some(line => line.includes("`" + layer.REGENERATE + "`")), "the header names the regenerate command");
-    assert.strictEqual(layer.REGENERATE, "vgsh hypr render", "the regenerate command is the runner's verb");
+    assert.strictEqual(layer.REGENERATE, "vgshell hypr render", "the regenerate command is the runner's verb");
     assert.ok(lines(bare).includes("-- Theme vgs: window, group and group bar borders."), "the border block names its theme");
     assert.ok(lines(bare).includes("            active_border = \"rgba(5a3659ff)\","), "a #aarrggbb accent is written rgba(rrggbbaa)");
     assert.ok(lines(bare).includes("            inactive_border = \"rgba(11223380)\","), "the border keeps its alpha last");
@@ -962,7 +962,7 @@ const CONTROLS = [
     [logicFile, "key once", "if (boundKeys.indexOf(key.key) !== -1)", "if (false)"],
     [logicFile, "rule object", "if (!isPlainObject(rule))", "if (false)"],
     [logicFile, "rule keys", "if (HYPRLAND_RULE_KEYS.indexOf(ruleKeys[q]) === -1)", "if (false)"],
-    [logicFile, "namespace anchored", "var HYPRLAND_NAMESPACE = /^\\^vgs:[a-z][a-z0-9-]*\\$$/;", "var HYPRLAND_NAMESPACE = /vgs:/;"],
+    [logicFile, "namespace anchored", "var HYPRLAND_NAMESPACE = /^\\^vgs:[a-z][a-z0-9-]*\\$$/;", "var HYPRLAND_NAMESPACE = /vgshell:/;"],
     [logicFile, "namespace once", "if (namespaces.indexOf(rule.namespace) !== -1)", "if (false)"],
     [logicFile, "rule has an effect", "if (rule.blur === undefined && rule.ignoreAlpha === undefined)", "if (false)"],
     [logicFile, "blur boolean", "if (rule.blur !== undefined && typeof rule.blur !== \"boolean\")", "if (false)"],

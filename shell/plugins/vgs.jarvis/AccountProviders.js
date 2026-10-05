@@ -32,7 +32,7 @@ var PROVIDERS = [
 // without one. The service hands it to the daemon in hello and the account
 // helper to Verify's harness handoff, so both place Codex in one directory.
 function runtimeDirectory(base) {
-    return base ? base + "/vgs/jarvis" : "";
+    return base ? base + "/vgshell/jarvis" : "";
 }
 
 /**

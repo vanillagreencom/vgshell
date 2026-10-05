@@ -1,0 +1,1157 @@
+#!/usr/bin/env bash
+# vgshell-system: the system steps, the closed table of one-time root setup a
+# plugin's status action can ask for.
+#
+#   vgshell-system status [--json]   probe every step and print its state
+#   vgshell-system apply <step>      show the step's root commands, ask once, run them through sudo
+#   vgshell-system undo <step>       show the commands that revert what VGS changed for the step,
+#                                 ask once, run them through sudo
+#
+# The table, and nothing else, names what may change:
+#
+#   apple-displays       install config/system/udev/60-vgs-apple-displays.rules as
+#                        /etc/udev/rules.d/60-vgs-apple-displays.rules, then
+#                        `udevadm control --reload` and
+#                        `udevadm trigger --subsystem-match=hidraw --action=change --settle`
+#   i2c-dev              `modprobe i2c-dev`, then `udevadm settle`; the ddcutil package's
+#                        own udev rule and modules-load.d file grant the access and
+#                        load it at boot
+#   service-bluetooth    `systemctl enable --now bluetooth.service`
+#   service-tailscaled   `systemctl enable --now tailscaled.service`
+#   tailscale-operator   `tailscale set --operator=<the caller's own login name>`; a
+#                        login name outside `[a-z_][a-z0-9_-]*$?` reads this step
+#                        unknown, reason user-unsupported
+#   greeter              write /etc/greetd/vgshell.toml, a greetd configuration whose
+#                        greeter, the first account of `greeter` and `_greetd`
+#                        that exists, runs Hyprland with
+#                        config/system/greeter/hyprland.lua and shell/greeter.qml on
+#                        the VT the packaged /etc/greetd/config.toml names, else 1,
+#                        and whose `[general] service` names /etc/pam.d/vgs-greeter,
+#                        installed from config/system/greeter/vgs-greeter.pam; write
+#                        the drop-in /etc/systemd/system/greetd.service.d/vgs.conf,
+#                        whose ExecStart runs greetd with that configuration; make
+#                        /var/lib/vgshell/greeter/theme, root's, 0755, with its `vgs`
+#                        directory the caller's, 0755, and /var/lib/vgshell/greeter/state,
+#                        the greeter account's, 0700; then `systemctl daemon-reload`
+#                        after a new drop-in, `systemctl enable greetd.service`, never
+#                        --now, since a start takes over the console of the running
+#                        session, and `systemctl set-default graphical.target` while
+#                        another target is the default, since only graphical.target
+#                        starts a display manager
+#
+# Each step's state is one of:
+#
+#   ready     the probe reads the access the step grants
+#   needed    the probe reads it missing, and apply grants it
+#   denied    the probe reads it missing, and apply cannot grant it
+#   absent    the step has nothing to act on: no such device, unit or command
+#   unknown   the probe could not answer; never read as ready
+#   nixos     needed, on NixOS, where the configuration grants it
+#
+# Probes read real access, never a file's presence: the hidraw node of each
+# Apple display, 05ac:1114 or 05ac:9243 by the HID_ID of its sysfs device,
+# opens read-write; a display-class i2c adapter's node (an ancestor's sysfs
+# `class` starting 0x03, ddcutil's own match) opens read-write once the
+# i2c-dev class exists; `systemctl is-active` holds for the unit; `tailscale
+# get operator` names the caller. A rule VGS did not write, under any name,
+# therefore reads ready when it grants the access. The greeter compares
+# bytes instead: it reads ready when the three files hold the bytes apply
+# would write now, its directories exist, greetd.service is enabled and
+# graphical.target is the default; a greetd set up another way
+# reads needed. It reads absent while greetd.service, greetd,
+# Hyprland or the greeter account is missing; denied, reason
+# other-display-manager, while display-manager.service names another unit,
+# which apply never disables; denied, reason install-path-unsupported, for
+# an install path outside `[A-Za-z0-9._/+-]`; denied, reason
+# install-untrusted, unless the install tree, every directory above it, its
+# shell, config/system/greeter and plugin directories and the files greetd
+# and Hyprland start are root's and writable by no one else, since the
+# greeter account runs them where every password is typed; and denied,
+# reason other-account, while another account owns the theme copy's
+# directory. On NixOS it reads ready once display-manager.service names
+# greetd.service and the snippet's directories exist with their owners.
+#
+# `status` prints one `system=<step> state=<state> reason=<key>` line per
+# step in table order; `--json` prints one line, the text the shell's
+# SystemSteps owner reads:
+#   {"steps":{"<step>":{"state":"<state>","reason":"<key>"},...}}
+# with every step of the table. Each reason is a key of lower case letters
+# and dashes. status exits 0 whatever the states are.
+#
+# `apply` probes the step first: `ready` prints `ok system=<step>
+# state=ready` and runs nothing; `denied`, `absent` and `unknown` refuse as
+# `state=<state> reason=<key>`. For `needed` it prints each exact root
+# command, every program named by its path in the system directories,
+# then asks one question, which VGS_TUI_UNATTENDED never answers, and only
+# after a yes starts one sudo session (bin/lib/tui.sh's
+# vgs_tui_sudo_session). Nothing is written and no sudo runs before the
+# answer. It then holds a flock on the record directory, plans again and
+# refuses `plan=changed` if the plan differs from the one shown, writes the
+# step's record, runs the commands, and probes again: `ok system=<step>
+# state=ready`, or a refusal naming the state still read.
+#
+# The record: /var/lib/vgshell/system/<step>, root's, one `key=value` per line,
+# written before the step's commands run, so a command that fails partway
+# leaves what it may have changed on record. `uid` is the caller's, and
+# each step records only what it changed: `rule=<sha256>` of the rule it
+# installs; `loaded=1` with the `boot` id for the module it loaded;
+# `enabled=1` for a unit that was not enabled, `started=1` with the `boot`
+# id for one that was not active; `operator=<name>` and `previous=<name>`
+# for the operator it set; `config=`, `pam=` and `dropin=` <sha256> of the
+# greeter's files, `enabled=1` when greetd.service was not enabled,
+# `target=<unit>` for the default target it replaced, and `dropin-dir=1`,
+# `greeter-dir=1`, `theme-dir=1`, `copy-dir=1` and `state-dir=1` for each
+# directory it made. `undo` reverts only that: it removes the rule
+# and the greeter's files only while their bytes still hash to the record,
+# unloads the module and stops the unit only in the boot that changed
+# them, disables only a unit it enabled, restores the default target only
+# while graphical.target is still the default, removes only the
+# directories it made, resets the operator only while it still names the
+# recorded user, and refuses a record another uid wrote. greetd reads its
+# configuration only when it starts, so while greetd.service is active
+# undo of the greeter keeps the PAM service and the directories on record,
+# with `deferred=<boot>`, prints `ok system=greeter state=deferred`, and a
+# later undo removes them once greetd is inactive or a later boot started
+# it. With no record it prints
+# `ok system=<step> state=untouched` and runs nothing.
+#
+# A destination the table names is refused when it is a symbolic link, and
+# a file at it whose bytes no record of VGS's hashes to is refused as
+# foreign, never overwritten: /etc/greetd/config.toml and /etc/pam.d/greetd
+# are never among them. A directory the commands write into, and a record,
+# must be root's and writable by no one else.
+#
+# On NixOS, detected through the package-manager table when a step reads
+# needed and whenever the greeter is probed, `needed` reads `nixos`, `apply` prints `ok system=<step>
+# skipped=nixos-config` and the configuration snippet, and `undo` prints
+# `ok system=<step> skipped=nixos-config`; neither writes or runs sudo. A
+# detection that fails reads such a step `unknown`, reason
+# `system-undetected`, and refuses apply and undo as `system=undetected`.
+#
+# Every refusal prints one keyed line first: `vgs-system: refused:
+# <key>=<value>`. It runs as the caller only and refuses root. Every system
+# path derives from `prefix`, empty in production, and every command
+# resolves in the system directories alone. Exit 0 on success, 1 on a
+# refusal, 2 on a bad invocation, 130 when the question is cancelled.
+# docs/architecture/tui-system.md, docs/decisions/D081.
+set -euo pipefail
+
+# Every system path below derives from prefix, empty in production.
+prefix=
+safe_path="$prefix/usr/local/sbin:$prefix/usr/local/bin:$prefix/usr/sbin:$prefix/usr/bin:$prefix/sbin:$prefix/bin:$prefix/run/current-system/sw/bin"
+# Only the NixOS package-manager check reads the caller's PATH.
+caller_path="${PATH-}"
+# A bare command resolves in the system directories alone, so no checkout
+# or user-writable directory supplies sudo, gum, udevadm or tailscale.
+export PATH="$safe_path"
+umask 022
+shopt -s nullglob
+
+self="$(readlink -f -- "${BASH_SOURCE[0]}")"
+bin_dir="${self%/*}"
+lib_dir="$bin_dir/lib"
+rule_source="${bin_dir%/*}/config/system/udev/60-vgs-apple-displays.rules"
+rules_dir="$prefix/etc/udev/rules.d"
+rule_dest="$rules_dir/60-vgs-apple-displays.rules"
+record_dir="$prefix/var/lib/vgshell/system"
+# The greeter step's sources, read from the install tree beside this script,
+# and its destinations. greeter_home is the path the greeter reads at boot,
+# which the rendered files name; greeter_dir is the same directory under
+# prefix, which the commands write.
+install_root="${bin_dir%/*}"
+greeter_pam_source="$install_root/config/system/greeter/vgs-greeter.pam"
+greeter_lua="$install_root/config/system/greeter/hyprland.lua"
+greeter_host="$install_root/shell/greeter.qml"
+greeter_plugin="$install_root/shell/plugins/vgs.greeter"
+greeter_view="$greeter_plugin/Greeter.qml"
+greetd_dir="$prefix/etc/greetd"
+greeter_config="$greetd_dir/vgshell.toml"
+# The distribution's greetd configuration, read for its VT, never written.
+greetd_packaged="$greetd_dir/config.toml"
+pam_dir="$prefix/etc/pam.d"
+greeter_pam="$pam_dir/vgs-greeter"
+units_dir="$prefix/etc/systemd/system"
+dropin_dir="$units_dir/greetd.service.d"
+greeter_dropin="$dropin_dir/vgs.conf"
+greeter_home=/var/lib/vgshell/greeter
+greeter_dir="$prefix$greeter_home"
+greeter_theme="$greeter_dir/theme"
+greeter_copy="$greeter_theme/vgshell"
+greeter_state="$greeter_dir/state"
+# The greeter's directories as the record names them, each with its path.
+greeter_dirs=("dropin-dir:$dropin_dir" "greeter-dir:$greeter_dir" "theme-dir:$greeter_theme" "copy-dir:$greeter_copy" "state-dir:$greeter_state")
+sys="$prefix/sys"
+dev="$prefix/dev"
+boot_id_file="$prefix/proc/sys/kernel/random/boot_id"
+
+# The closed table, in the order status prints it.
+steps=(apple-displays i2c-dev service-bluetooth service-tailscaled tailscale-operator greeter)
+
+# Character classes spelled out: a range follows the collation of the
+# caller's locale, which this script keeps for gum.
+digit='[0123456789]'
+hex='[0123456789abcdefABCDEF]'
+lower='[abcdefghijklmnopqrstuvwxyz]'
+upper='[ABCDEFGHIJKLMNOPQRSTUVWXYZ]'
+name_pattern="^($lower|_)($lower|$digit|[_-])*\\\$?$"
+# An install path the greeter's configuration can name unquoted.
+install_path_pattern="^(/($lower|$upper|$digit|[._+-])+)+$"
+
+refuse() { # STATUS FIRST_LINE [ENGLISH...]
+  local status="$1"
+  printf 'vgs-system: refused: %s\n' "$2" >&2
+  shift 2
+  (($# == 0)) || printf '%s\n' "$@" >&2
+  exit "$status"
+}
+usage() { awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$self" >&2; }
+bad_invocation() { # FIRST_LINE
+  printf 'vgs-system: refused: %s\n' "$1" >&2
+  usage
+  exit 2
+}
+
+known_step() { # NAME
+  local step
+  for step in "${steps[@]}"; do [[ $step == "$1" ]] && return 0; done
+  return 1
+}
+
+# Sets unit to service STEP's systemd unit.
+unit_of() { # STEP
+  case "$1" in
+    service-bluetooth) unit=bluetooth.service ;;
+    service-tailscaled) unit=tailscaled.service ;;
+    *) refuse 1 "internal=unit-of step=$1" "only a service step names a unit" ;;
+  esac
+}
+
+# Whether PATH is a real directory or regular file root owns that only root can write.
+trusted() { # PATH
+  local info
+  [[ (-d $1 || -f $1) && ! -L $1 ]] || return 1
+  info="$(stat -c '%u %a' -- "$1")" || return 1
+  [[ $info == "0 "* ]] && (((8#${info#* } & 8#022) == 0))
+}
+
+# Sets VAR to the path NAME resolves to in the system directories. The
+# helpers that refuse set a variable rather than print, since a refusal
+# inside a command substitution would end only the subshell.
+program() { # VAR NAME
+  local found
+  found="$(command -v -- "$2")" || refuse 1 "command=missing name=$2" "the step needs $2 in the system directories"
+  [[ $found == /* ]] || refuse 1 "command=not-a-file name=$2"
+  printf -v "$1" '%s' "$found"
+}
+
+# Whether NODE exists and opens for reading and writing: the real access a
+# device grant gives, which a mode or a rule file alone does not prove.
+opens_rw() { # NODE
+  local fd
+  [[ -e $1 ]] || return 1
+  { exec {fd}<>"$1"; } 2>/dev/null || return 1
+  exec {fd}>&-
+}
+
+# Sets boot to this boot's id.
+read_boot_id() {
+  boot="$(<"$boot_id_file")" || refuse 1 "boot-id=unreadable path=$boot_id_file"
+  [[ $boot =~ ^($hex|-){36}$ ]] || refuse 1 "boot-id=malformed path=$boot_id_file"
+}
+
+# Sets sum to FILE's sha256.
+sha256_of() { # FILE
+  sum="$(sha256sum -- "$1")" || refuse 1 "hash=failed path=$1"
+  sum="${sum%% *}"
+  [[ $sum =~ ^$hex{64}$ ]] || refuse 1 "hash=malformed path=$1"
+}
+
+# ---------------------------------------------------------------- probes
+
+# A probe's reading: its state and reason, and for a refusal apply makes on
+# it, the `fix=` value and the English lines that follow, both empty unless
+# the probe sets them.
+set_probe() { probe_state="$1" probe_reason="$2" probe_fix="" probe_hint=(); }
+
+# The vendor:product of a HID device's uevent, lower case, `none` when it
+# names no HID_ID; 1 when the file cannot be read.
+hid_id() { # UEVENT
+  local line
+  [[ -f $1 && -r $1 ]] || return 1
+  while IFS= read -r line || [[ -n $line ]]; do
+    if [[ $line =~ ^HID_ID=$hex{4}:$hex{4}($hex{4}):$hex{4}($hex{4})$ ]]; then
+      printf '%s:%s\n' "${BASH_REMATCH[1],,}" "${BASH_REMATCH[2],,}"
+      return 0
+    fi
+  done <"$1" || return 1
+  echo none
+}
+
+probe_apple_displays() {
+  local entry id node found=0 denied=0
+  for entry in "$sys"/class/hidraw/hidraw*; do
+    id="$(hid_id "$entry/device/uevent")" || { set_probe unknown sysfs-unreadable; return; }
+    case "$id" in 05ac:1114|05ac:9243) ;; *) continue ;; esac
+    found=1
+    node="$dev/${entry##*/}"
+    [[ -e $node ]] || { set_probe unknown node-missing; return; }
+    opens_rw "$node" || denied=1
+  done
+  if ((found == 0)); then set_probe absent no-device
+  elif ((denied == 1)); then set_probe needed hidraw-denied
+  else set_probe ready granted
+  fi
+}
+
+# Whether the i2c adapter at sysfs PATH serves a display: an ancestor's
+# `class` attribute starts 0x03, the match ddcutil's own rule makes.
+display_adapter() { # PATH
+  local dir class
+  dir="$(readlink -f -- "$1")" || return 2
+  while [[ $dir == "$sys/devices/"* ]]; do
+    if [[ -f $dir/class ]]; then
+      class="$(<"$dir/class")" || return 2
+      [[ $class == 0x03* ]] && return 0
+    fi
+    dir="${dir%/*}"
+  done
+  return 1
+}
+
+probe_i2c_dev() {
+  local entry name status found=0 granted=0
+  for entry in "$sys"/bus/i2c/devices/i2c-*; do
+    name="${entry##*/}"
+    [[ $name =~ ^i2c-$digit+$ ]] || continue
+    status=0
+    display_adapter "$entry" || status=$?
+    case "$status" in
+      0) ;;
+      1) continue ;;
+      *) set_probe unknown sysfs-unreadable; return ;;
+    esac
+    if ((found == 0)) && [[ ! -d $sys/class/i2c-dev ]]; then
+      set_probe needed module-not-loaded
+      return
+    fi
+    found=1
+    [[ -e $dev/$name ]] || { set_probe unknown node-missing; return; }
+    opens_rw "$dev/$name" && granted=1
+  done
+  if ((found == 0)); then set_probe absent no-adapter
+  elif ((granted == 1)); then set_probe ready granted
+  else set_probe denied no-uaccess-rule
+  fi
+}
+
+probe_service() { # UNIT
+  local load
+  command -v systemctl >/dev/null || { set_probe unknown systemctl-missing; return; }
+  if systemctl is-active --quiet "$1"; then set_probe ready active; return; fi
+  load="$(systemctl show --property=LoadState --value "$1" 2>/dev/null)" || { set_probe unknown systemctl-failed; return; }
+  case "$load" in
+    loaded) set_probe needed inactive ;;
+    not-found) set_probe absent unit-missing ;;
+    masked) set_probe denied unit-masked ;;
+    *) set_probe unknown load-state ;;
+  esac
+}
+
+# Sets operator to the operator tailscaled names; 1 when it cannot be read.
+read_operator() {
+  operator="$(tailscale get operator 2>/dev/null)" || return 1
+  [[ -z $operator || $operator =~ $name_pattern ]] || return 1
+}
+
+probe_tailscale_operator() {
+  command -v tailscale >/dev/null || { set_probe absent tailscale-missing; return; }
+  # The name reaches tailscale's argv and the NixOS snippet only from here.
+  [[ $user =~ $name_pattern ]] || { set_probe unknown user-unsupported; return; }
+  read_operator || { set_probe unknown tailscaled-unreachable; return; }
+  if [[ $operator == "$user" ]]; then set_probe ready granted
+  elif [[ -z $operator ]]; then set_probe needed operator-unset
+  else set_probe denied operator-other
+  fi
+}
+
+# Sets compositor to the greeter compositor's command words as the greeter
+# runs them: start-hyprland, which passes what follows `--` to Hyprland,
+# else Hyprland itself; 1 when neither is in the system directories.
+greeter_compositor() {
+  local found
+  if found="$(command -v start-hyprland)"; then compositor="${found#"$prefix"} --"
+  elif found="$(command -v Hyprland)"; then compositor="${found#"$prefix"}"
+  else return 1
+  fi
+}
+
+# Sets greeter_name, greeter_uid and greeter_gid to the greeter account's:
+# the first of `greeter`, Arch's and Fedora's name, and `_greetd`, Debian's,
+# that exists. 1 when neither exists, 2 when getent cannot answer.
+greeter_account() {
+  local name entry status
+  for name in greeter _greetd; do
+    status=0
+    entry="$(getent passwd "$name")" || status=$?
+    case "$status" in
+      0) ;;
+      2) continue ;;
+      *) return 2 ;;
+    esac
+    [[ $entry =~ ^$name:[^:]*:($digit+):($digit+): ]] || return 2
+    greeter_name="$name" greeter_uid="${BASH_REMATCH[1]}" greeter_gid="${BASH_REMATCH[2]}"
+    return 0
+  done
+  return 1
+}
+
+# Sets vt to the `[terminal] vt` of the distribution's greetd configuration
+# when it is a number, else 1; 1 when the file is there and cannot be read.
+greeter_vt() {
+  local line section=""
+  vt=1
+  [[ -e $greetd_packaged || -L $greetd_packaged ]] || return 0
+  [[ -f $greetd_packaged && -r $greetd_packaged ]] || return 1
+  while IFS= read -r line || [[ -n $line ]]; do
+    line="${line%%#*}"
+    if [[ $line =~ ^[[:space:]]*\[[[:space:]]*([^]]*[^][:space:]])[[:space:]]*\][[:space:]]*$ ]]; then
+      section="${BASH_REMATCH[1]}"
+      continue
+    fi
+    if [[ $section == terminal && $line =~ ^[[:space:]]*vt[[:space:]]*=[[:space:]]*($digit+)[[:space:]]*$ ]]; then vt="${BASH_REMATCH[1]}"; fi
+  done <"$greetd_packaged" || return 1
+}
+
+# Whether the greeter account runs only what root alone can change: the
+# install tree and every directory above it, its shell, config/system/greeter
+# and plugin directories, and the files greetd and Hyprland start. The
+# greeter is where every account's password is typed, so a tree its owner
+# can write, a checkout or a per-user install, would let any process of
+# that owner read them.
+install_trusted() {
+  local dir="$install_root" path
+  while :; do
+    trusted "${dir:-/}" || return 1
+    [[ -n $dir ]] || break
+    dir="${dir%/*}"
+  done
+  for path in "$install_root/shell" "$install_root/config/system/greeter" "$greeter_plugin" "$greeter_lua" "$greeter_host" "$greeter_view"; do
+    trusted "$path" || return 1
+  done
+}
+
+# Whether DIR is a real directory UID owns.
+owned_by() { # DIR UID
+  local owner
+  [[ -d $1 && ! -L $1 ]] || return 1
+  owner="$(stat -c %u -- "$1")" || return 1
+  [[ $owner == "$2" ]]
+}
+
+# Sets sum to TEXT's sha256 as a file holds it: TEXT and one newline, the
+# bytes `tee` writes from a here-string.
+text_sum() { # TEXT
+  sum="$(sha256sum <<<"$1")" || refuse 1 "hash=failed text=greeter"
+  sum="${sum%% *}"
+}
+
+# Whether the files the greeter step reads from the install tree are there.
+greeter_sources() {
+  local file
+  for file in "$greeter_pam_source" "$greeter_lua" "$greeter_host" "$greeter_view"; do
+    [[ -f $file && ! -L $file ]] || return 1
+  done
+}
+
+# Sets greeter_command to the command greetd runs as the greeter account
+# for the install tree ROOT, which the NixOS snippet names by its package.
+# Needs compositor.
+greeter_command_of() { # ROOT
+  local found env_bin
+  found="$(command -v env)" || refuse 1 "command=missing name=env"
+  env_bin="${found#"$prefix"}"
+  greeter_command="$env_bin VGS_GREETER_ROOT=$1 VGS_GREETER_VIEW=$1/shell/plugins/vgs.greeter/Greeter.qml XDG_CONFIG_HOME=$greeter_home/theme XDG_STATE_HOME=$greeter_home/state XDG_CACHE_HOME=$greeter_home/state/cache $compositor --config $1/config/system/greeter/hyprland.lua"
+}
+
+# Sets greeter_toml and greeter_unit to the greetd configuration and the
+# drop-in apply writes, and config_sum, pam_sum and dropin_sum to the
+# hashes of the three files. Needs compositor, greeter_name and vt.
+render_greeter() {
+  local found greetd_bin
+  found="$(command -v greetd)" || refuse 1 "command=missing name=greetd"
+  greetd_bin="${found#"$prefix"}"
+  greeter_command_of "$install_root"
+  greeter_toml="# Written by vgshell system apply greeter; vgshell system undo greeter removes it.
+[terminal]
+vt = $vt
+
+[general]
+service = \"vgs-greeter\"
+
+[default_session]
+user = \"$greeter_name\"
+command = \"$greeter_command\""
+  greeter_unit="# Written by vgshell system apply greeter; vgshell system undo greeter removes it.
+[Service]
+ExecStart=
+ExecStart=$greetd_bin --config /etc/greetd/vgshell.toml"
+  text_sum "$greeter_toml"; config_sum="$sum"
+  text_sum "$greeter_unit"; dropin_sum="$sum"
+  sha256_of "$greeter_pam_source"; pam_sum="$sum"
+}
+
+# Whether FILE is a regular file whose bytes hash to SUM; 2 when it cannot
+# be hashed.
+file_holds() { # FILE SUM
+  local got
+  [[ -f $1 && ! -L $1 ]] || return 1
+  got="$(sha256sum -- "$1")" || return 2
+  [[ ${got%% *} == "$2" ]]
+}
+
+# Whether the greeter's files hold what apply would write now and its
+# directories exist; 2 when a file cannot be hashed.
+greeter_in_place() {
+  local file status dir
+  for file in "$greeter_config:$config_sum" "$greeter_pam:$pam_sum" "$greeter_dropin:$dropin_sum"; do
+    status=0
+    file_holds "${file%:*}" "${file##*:}" || status=$?
+    ((status == 0)) || return "$status"
+  done
+  for dir in "$greeter_theme" "$greeter_copy" "$greeter_state"; do
+    [[ -d $dir && ! -L $dir ]] || return 1
+  done
+}
+
+# Sets manager to the unit display-manager.service is an alias of, its own
+# name while no display manager is enabled. Sets the probe and returns 1
+# while it names another display manager or cannot be read.
+display_manager() {
+  manager="$(systemctl show --property=Id --value display-manager.service 2>/dev/null)" || { set_probe unknown systemctl-failed; return 1; }
+  [[ $manager =~ ^($lower|$upper|$digit|[@._:-])+$ ]] || { set_probe unknown display-manager-unreadable; return 1; }
+  case "$manager" in
+    greetd.service|display-manager.service) ;;
+    *)
+      set_probe denied other-display-manager
+      probe_fix="disable-$manager"
+      probe_hint=("$manager is the enabled display manager, and VGS never disables it." "Disable it to use the VGS login screen, or keep it and pick \"Hyprland (uwsm-managed)\" on its login screen.")
+      return 1
+      ;;
+  esac
+}
+
+# Sets default_target to the unit `systemctl get-default` names; 1 when it
+# cannot be read.
+read_default_target() {
+  default_target="$(systemctl get-default 2>/dev/null)" || return 1
+  [[ $default_target =~ ^($lower|$digit|[@._:-])+\.target$ ]]
+}
+
+# On NixOS the configuration snippet sets greetd up and VGS writes nothing.
+# NixOS's greetd module makes greetd.service the display-manager.service
+# alias and the `greeter` account, so the step reads ready once the alias
+# names greetd and the snippet's directories exist with their owners.
+probe_greeter_nixos() {
+  local status=0
+  greeter_compositor || { set_probe absent hyprland-missing; return; }
+  display_manager || return 0
+  command -v getent >/dev/null || { set_probe unknown getent-missing; return; }
+  greeter_account || status=$?
+  case "$status" in
+    0) ;;
+    1) set_probe needed not-set-up; return ;;
+    *) set_probe unknown getent-failed; return ;;
+  esac
+  if [[ $manager == greetd.service ]] && owned_by "$greeter_copy" "$uid" && owned_by "$greeter_state" "$greeter_uid"; then set_probe ready granted
+  else set_probe needed not-set-up
+  fi
+}
+
+probe_greeter() {
+  local load status=0
+  command -v systemctl >/dev/null || { set_probe unknown systemctl-missing; return; }
+  load="$(systemctl show --property=LoadState --value greetd.service 2>/dev/null)" || { set_probe unknown systemctl-failed; return; }
+  case "$load" in
+    loaded|not-found) ;;
+    masked) set_probe denied unit-masked; return ;;
+    *) set_probe unknown load-state; return ;;
+  esac
+  detect_system || { set_probe unknown system-undetected; return; }
+  if [[ $detected_system == nix ]]; then probe_greeter_nixos; return; fi
+  [[ $load == loaded ]] || { set_probe absent greetd-missing; return; }
+  command -v greetd >/dev/null || { set_probe absent greetd-missing; return; }
+  greeter_compositor || { set_probe absent hyprland-missing; return; }
+  command -v getent >/dev/null || { set_probe unknown getent-missing; return; }
+  greeter_account || status=$?
+  case "$status" in
+    0) ;;
+    1) set_probe absent greeter-user-missing; return ;;
+    *) set_probe unknown getent-failed; return ;;
+  esac
+  display_manager || return 0
+  [[ $install_root =~ $install_path_pattern ]] || { set_probe denied install-path-unsupported; return; }
+  greeter_sources || { set_probe unknown source-missing; return; }
+  install_trusted || { set_probe denied install-untrusted; return; }
+  if [[ -e $greeter_copy ]]; then
+    owned_by "$greeter_copy" "$uid" || { set_probe denied other-account; return; }
+  fi
+  greeter_vt || { set_probe unknown greetd-config-unreadable; return; }
+  render_greeter
+  status=0
+  greeter_in_place || status=$?
+  case "$status" in
+    0) ;;
+    1) set_probe needed not-set-up; return ;;
+    *) set_probe unknown hash-failed; return ;;
+  esac
+  systemctl is-enabled --quiet greetd.service || { set_probe needed greetd-disabled; return; }
+  read_default_target || { set_probe unknown default-target-unreadable; return; }
+  [[ $default_target == graphical.target ]] || { set_probe needed not-graphical-target; return; }
+  set_probe ready granted
+}
+
+probe() { # STEP
+  case "$1" in
+    apple-displays) probe_apple_displays ;;
+    i2c-dev) probe_i2c_dev ;;
+    service-bluetooth|service-tailscaled) unit_of "$1"; probe_service "$unit" ;;
+    tailscale-operator) probe_tailscale_operator ;;
+    greeter) probe_greeter ;;
+    *) refuse 1 "internal=probe step=$1" "the step table has no probe for it" ;;
+  esac
+}
+
+# ---------------------------------------------------------------- NixOS
+
+# Reads the package-manager table the same way `vgshell pkg detect` does, and
+# sets detected_system to the first line's primary id or none, once a run.
+detected_system=
+detect_system() {
+  local first status=0
+  [[ -z $detected_system ]] || return 0
+  system_detect_output="$(env PATH="$caller_path" node "$bin_dir/vgshell-pkg" detect 2>&1)" || status=$?
+  system_detect_status="$status"
+  first="${system_detect_output%%$'\n'*}"
+  detected_system=
+  ((status == 0)) || return 1
+  if [[ $first == primary=none ]]; then detected_system=none; return 0; fi
+  [[ $first =~ ^primary=($lower($lower|$digit|[_-])*)\ binary=.+$ ]] || return 1
+  detected_system="${BASH_REMATCH[1]}"
+}
+
+detect_or_refuse() {
+  detect_system && return
+  refuse 1 "system=undetected exit=$system_detect_status" "${system_detect_output:-the package manager detector printed no first line}"
+}
+
+nixos_snippet() { # STEP
+  case "$1" in
+    apple-displays)
+      printf 'services.udev.extraRules = %s\n' "''"
+      awk '!/^[[:space:]]*(#|$)/ { print "  " $0 }' "$rule_source"
+      printf "'';\n"
+      ;;
+    i2c-dev) printf 'boot.kernelModules = [ "i2c-dev" ];\n' ;;
+    service-bluetooth) printf 'hardware.bluetooth.enable = true;\n' ;;
+    service-tailscaled) printf 'services.tailscale.enable = true;\n' ;;
+    tailscale-operator) printf 'services.tailscale.extraSetFlags = [ "--operator=%s" ];\n' "$user" ;;
+    greeter)
+      # The greeter runs the VGS package, never this script's own tree, so
+      # the store keeps it while the configuration names it.
+      greeter_compositor || refuse 1 "command=missing name=Hyprland"
+      greeter_command_of '${vgshell}'
+      printf '# inputs.vgshell is the VGS flake, github:vanillagreencom/vgshell.\n'
+      printf 'services.greetd.enable = true;\n'
+      printf 'services.greetd.settings.default_session = let\n  vgshell = "${inputs.vgshell.packages.${pkgs.stdenv.hostPlatform.system}.default}/share/vgshell";\nin {\n  user = "greeter";\n  command = "%s";\n};\n' "$greeter_command"
+      printf 'security.pam.services.greetd.enableGnomeKeyring = true;\n'
+      printf 'systemd.tmpfiles.rules = [\n  "d %s 0755 root root -"\n  "d %s/theme 0755 root root -"\n  "d %s/theme/vgshell 0755 %s - -"\n  "d %s/state 0700 greeter greeter -"\n];\n' "$greeter_home" "$greeter_home" "$greeter_home" "$uid" "$greeter_home"
+      ;;
+    *) refuse 1 "internal=nixos-snippet step=$1" ;;
+  esac
+}
+
+# ---------------------------------------------------------------- records
+
+# Reads STEP's record into the associative array `record`: returns 1 with
+# it empty when there is none, and refuses a record that is not root's, not
+# of its step's keys or written for another uid.
+read_record() { # STEP
+  local file line key value allowed
+  file="$record_dir/$1"
+  record=()
+  [[ -e $file || -L $file ]] || return 1
+  trusted "$record_dir" || refuse 1 "untrusted=$record_dir"
+  trusted "$file" && [[ -f $file ]] || refuse 1 "record=untrusted path=$file"
+  case "$1" in
+    apple-displays) allowed=' uid rule ' ;;
+    i2c-dev) allowed=' uid loaded boot ' ;;
+    service-*) allowed=' uid enabled started boot ' ;;
+    tailscale-operator) allowed=' uid operator previous ' ;;
+    greeter) allowed=' uid config pam dropin enabled target deferred dropin-dir greeter-dir theme-dir copy-dir state-dir ' ;;
+    *) refuse 1 "internal=record step=$1" ;;
+  esac
+  while IFS= read -r line || [[ -n $line ]]; do
+    [[ $line == *=* ]] || refuse 1 "record=malformed path=$file"
+    key="${line%%=*}" value="${line#*=}"
+    [[ $allowed == *" $key "* && -z ${record[$key]+set} ]] || refuse 1 "record=malformed path=$file"
+    case "$key" in
+      uid) [[ $value =~ ^$digit+$ ]] ;;
+      rule|config|pam|dropin) [[ $value =~ ^$hex{64}$ ]] ;;
+      loaded|enabled|started|*-dir) [[ $value == 1 ]] ;;
+      boot|deferred) [[ $value =~ ^($hex|-){36}$ ]] ;;
+      target) [[ $value =~ ^($lower|$digit|[@._:-])+\.target$ ]] ;;
+      operator) [[ $value =~ $name_pattern ]] ;;
+      previous) [[ -z $value || $value =~ $name_pattern ]] ;;
+    esac || refuse 1 "record=malformed path=$file"
+    record[$key]="$value"
+  done <"$file" || refuse 1 "record=unreadable path=$file"
+  [[ -n ${record[uid]+set} ]] || refuse 1 "record=malformed path=$file"
+  [[ ${record[uid]} == "$uid" ]] || refuse 1 "record=other-uid uid=${record[uid]} path=$file" "another account applied this step; only it can undo it"
+}
+
+# ---------------------------------------------------------------- plans
+
+# A plan is a function that calls `cmd` once per root command. Run with
+# mode=show it appends each command's text to `shown`; with mode=run it
+# runs them through sudo. Both passes resolve the same programs.
+mode=show
+shown=""
+cmd() { # ARGV...
+  local status=0
+  case "$mode" in
+    show) shown+="sudo$(printf ' %q' "$@")"$'\n' ;;
+    run)
+      sudo -- "$@" </dev/null || status=$?
+      ((status == 0)) || refuse 1 "command=failed exit=$status argv=$(printf '%q' "$*")"
+      ;;
+    *) refuse 1 "internal=mode value=$mode" ;;
+  esac
+}
+# The same, with TEXT on the command's stdin and its stdout dropped.
+cmd_in() { # TEXT ARGV...
+  local text="$1" status=0
+  shift
+  case "$mode" in
+    show) shown+="sudo$(printf ' %q' "$@") <<<$(printf '%q' "$text")"$'\n' ;;
+    run)
+      sudo -- "$@" <<<"$text" >/dev/null || status=$?
+      ((status == 0)) || refuse 1 "command=failed exit=$status argv=$(printf '%q' "$*")"
+      ;;
+    *) refuse 1 "internal=mode value=$mode" ;;
+  esac
+}
+
+# Writes STEP's record, TEXT, to a dotted name and renames it into place.
+record_put() { # STEP TEXT
+  local tee mv
+  program tee tee
+  program mv mv
+  cmd_in "$2" "$tee" -- "$record_dir/.$1"
+  cmd "$mv" -fT -- "$record_dir/.$1" "$record_dir/$1"
+}
+record_drop() { # STEP
+  local rm
+  program rm rm
+  cmd "$rm" -f -- "$record_dir/$1"
+}
+
+udev_reload() {
+  local udevadm
+  program udevadm udevadm
+  cmd "$udevadm" control --reload
+  cmd "$udevadm" trigger --subsystem-match=hidraw --action=change --settle
+}
+
+# Refuses PATH when it is a symbolic link: no destination is followed.
+no_symlink() { [[ ! -L $1 ]] || refuse 1 "destination=symlink path=$1"; } # PATH
+
+# Sets dest_state for the file at DEST: `none`, or `own` when its bytes
+# hash to HASH, VGS's record, leaving sum at that hash; refuses any other
+# file.
+dest_state_of() { # DEST HASH
+  no_symlink "$1"
+  if [[ ! -e $1 ]]; then dest_state=none; return; fi
+  [[ -f $1 ]] || refuse 1 "destination=not-a-file path=$1"
+  sha256_of "$1"
+  [[ -n $2 && $sum == "$2" ]] || refuse 1 "destination=foreign path=$1" "a file VGS did not write is never overwritten"
+  dest_state=own
+}
+rule_dest_state() { dest_state_of "$rule_dest" "$1"; } # HASH
+
+apply_apple_displays() {
+  local hash recorded="" install
+  [[ -f $rule_source && ! -L $rule_source ]] || refuse 1 "source=missing path=$rule_source"
+  trusted "$rules_dir" || refuse 1 "untrusted=$rules_dir"
+  sha256_of "$rule_source"
+  hash="$sum"
+  if read_record apple-displays; then recorded="${record[rule]}"; fi
+  # Leaves sum at the destination's hash when the file there is VGS's.
+  rule_dest_state "$recorded"
+  record_put apple-displays "uid=$uid"$'\n'"rule=$hash"
+  if [[ $dest_state == none || $sum != "$hash" ]]; then
+    program install install
+    cmd "$install" -m 0644 -o root -g root -T -- "$rule_source" "$rule_dest"
+  fi
+  udev_reload
+}
+
+apply_i2c_dev() {
+  local modprobe udevadm
+  read_record i2c-dev || true
+  program modprobe modprobe
+  program udevadm udevadm
+  record_put i2c-dev "uid=$uid"$'\n'"loaded=1"$'\n'"boot=$boot"
+  cmd "$modprobe" i2c-dev
+  # The package's uaccess rule reaches the new nodes through udev's queue,
+  # after modprobe returns; the probe after the commands must read it.
+  cmd "$udevadm" settle
+}
+
+apply_service() { # STEP
+  local unit systemctl text="uid=$uid" enabled=""
+  unit_of "$1"
+  program systemctl systemctl
+  # A unit VGS enabled before stays VGS's to disable after it stopped.
+  if read_record "$1"; then enabled="${record[enabled]-}"; fi
+  systemctl is-enabled --quiet "$unit" || enabled=1
+  [[ -z $enabled ]] || text+=$'\n'"enabled=1"
+  text+=$'\n'"started=1"$'\n'"boot=$boot"
+  record_put "$1" "$text"
+  cmd "$systemctl" enable --now "$unit"
+}
+
+apply_tailscale_operator() {
+  local tailscale
+  read_record tailscale-operator || true
+  program tailscale tailscale
+  record_put tailscale-operator "uid=$uid"$'\n'"operator=$user"$'\n'"previous="
+  cmd "$tailscale" set "--operator=$user"
+}
+
+# Writes TEXT as DEST through a dotted name in the same directory, renamed
+# into place; tee makes it root's with mode 0644 under the script's umask.
+put_text() { # DEST TEXT
+  local tee mv dir="${1%/*}" name="${1##*/}"
+  program tee tee
+  program mv mv
+  cmd_in "$2" "$tee" -- "$dir/.$name"
+  cmd "$mv" -fT -- "$dir/.$name" "$1"
+}
+
+# Refuses DIR when it is a symbolic link or, being there, is no directory
+# root owns and only root can write.
+owned_dir() { # DIR
+  no_symlink "$1"
+  [[ ! -e $1 ]] || trusted "$1" || refuse 1 "untrusted=$1"
+}
+
+apply_greeter() {
+  local text recorded_config="" recorded_pam="" recorded_dropin="" made=() entry key dir \
+    config_state pam_state dropin_state enabled="" target="" install systemctl
+  greeter_sources || refuse 1 "source=missing path=$install_root/config/system/greeter"
+  greeter_compositor || refuse 1 "command=missing name=Hyprland"
+  greeter_account || refuse 1 "account=unavailable name=greeter"
+  greeter_vt || refuse 1 "greetd-config=unreadable path=$greetd_packaged"
+  read_default_target || refuse 1 "default-target=unreadable"
+  program install install
+  program systemctl systemctl
+  for dir in "$greetd_dir" "$pam_dir" "$units_dir"; do trusted "$dir" || refuse 1 "untrusted=$dir"; done
+  for dir in "$dropin_dir" "$greeter_dir" "$greeter_theme"; do owned_dir "$dir"; done
+  for dir in "$greeter_copy" "$greeter_state"; do no_symlink "$dir"; done
+  if read_record greeter; then
+    recorded_config="${record[config]-}" recorded_pam="${record[pam]-}" recorded_dropin="${record[dropin]-}"
+    enabled="${record[enabled]-}" target="${record[target]-}"
+    for entry in "${greeter_dirs[@]}"; do
+      [[ -z ${record[${entry%%:*}]+set} ]] || made+=("${entry%%:*}")
+    done
+  fi
+  render_greeter
+  # Each leaves sum at the hash of the file in place when it is VGS's.
+  dest_state_of "$greeter_config" "$recorded_config"; [[ $dest_state == none || $sum != "$config_sum" ]] && config_state=write || config_state=keep
+  dest_state_of "$greeter_pam" "$recorded_pam"; [[ $dest_state == none || $sum != "$pam_sum" ]] && pam_state=write || pam_state=keep
+  dest_state_of "$greeter_dropin" "$recorded_dropin"; [[ $dest_state == none || $sum != "$dropin_sum" ]] && dropin_state=write || dropin_state=keep
+  for entry in "${greeter_dirs[@]}"; do
+    [[ -e ${entry#*:} ]] || made+=("${entry%%:*}")
+  done
+  # A greetd VGS enabled before stays VGS's to disable, and the default it
+  # replaced stays the one undo restores.
+  systemctl is-enabled --quiet greetd.service || enabled=1
+  [[ -n $target || $default_target == graphical.target ]] || target="$default_target"
+  text="uid=$uid"$'\n'"config=$config_sum"$'\n'"pam=$pam_sum"$'\n'"dropin=$dropin_sum"
+  [[ -z $enabled ]] || text+=$'\n'"enabled=1"
+  [[ -z $target ]] || text+=$'\n'"target=$target"
+  for entry in "${greeter_dirs[@]}"; do
+    key="${entry%%:*}"
+    [[ " ${made[*]} " != *" $key "* ]] || text+=$'\n'"$key=1"
+  done
+  record_put greeter "$text"
+  [[ $config_state == keep ]] || put_text "$greeter_config" "$greeter_toml"
+  [[ $pam_state == keep ]] || cmd "$install" -m 0644 -o root -g root -T -- "$greeter_pam_source" "$greeter_pam"
+  [[ -e $dropin_dir ]] || cmd "$install" -d -m 0755 -o root -g root -- "$dropin_dir"
+  [[ $dropin_state == keep ]] || put_text "$greeter_dropin" "$greeter_unit"
+  [[ -e $greeter_dir ]] || cmd "$install" -d -m 0755 -o root -g root -- "$greeter_dir"
+  # The theme directory is root's, so the owner, who writes the copy in its
+  # `vgs` directory, controls nothing else the greeter reads under it.
+  [[ -e $greeter_theme ]] || cmd "$install" -d -m 0755 -o root -g root -- "$greeter_theme"
+  [[ -e $greeter_copy ]] || cmd "$install" -d -m 0755 -o "$uid" -g "$gid" -- "$greeter_copy"
+  [[ -e $greeter_state ]] || cmd "$install" -d -m 0700 -o "$greeter_uid" -g "$greeter_gid" -- "$greeter_state"
+  [[ $dropin_state == keep ]] || cmd "$systemctl" daemon-reload
+  # Enabled, never started: a start inside a running session takes over its
+  # console.
+  systemctl is-enabled --quiet greetd.service || cmd "$systemctl" enable greetd.service
+  # greetd is the display-manager.service alias, which only graphical.target
+  # pulls in.
+  [[ $default_target == graphical.target ]] || cmd "$systemctl" set-default graphical.target
+}
+
+# Whether greetd may still run VGS's configuration, which it read when it
+# started: it is active, and no earlier boot's undo already kept its files.
+greetd_runs_vgs() {
+  systemctl is-active --quiet greetd.service || return 1
+  [[ -z ${record[deferred]+set} || ${record[deferred]} == "$boot" ]]
+}
+greeter_deferred_text="greetd still runs the VGS login screen, so /etc/pam.d/vgs-greeter and its directories stay; the login screen returns to the previous setup after a restart, and undo then removes them."
+
+undo_greeter() {
+  local rm rmdir systemctl file dir entry key keep="" reload="" text
+  program rm rm
+  program rmdir rmdir
+  program systemctl systemctl
+  # Leaves dest_state at the PAM service's, refusing one VGS did not write.
+  dest_state_of "$greeter_pam" "${record[pam]-}"
+  if [[ $dest_state == own ]] && greetd_runs_vgs; then keep=1; fi
+  for file in "$greeter_config:config" "$greeter_pam:pam" "$greeter_dropin:dropin"; do
+    dest_state_of "${file%:*}" "${record[${file##*:}]-}"
+    [[ $dest_state == none || (-n $keep && ${file##*:} == pam) ]] || cmd "$rm" -f -- "${file%:*}"
+    [[ $dest_state == none || ${file##*:} != dropin ]] || reload=1
+  done
+  if [[ -z $keep ]]; then
+    for dir in "$greeter_copy:copy-dir" "$greeter_state:state-dir"; do
+      no_symlink "${dir%:*}"
+      [[ -z ${record[${dir##*:}]+set} || ! -e ${dir%:*} ]] || cmd "$rm" -rf -- "${dir%:*}"
+    done
+    for dir in "$greeter_theme:theme-dir" "$greeter_dir:greeter-dir"; do
+      no_symlink "${dir%:*}"
+      [[ -z ${record[${dir##*:}]+set} || ! -e ${dir%:*} ]] || cmd "$rmdir" --ignore-fail-on-non-empty -- "${dir%:*}"
+    done
+  fi
+  no_symlink "$dropin_dir"
+  [[ -z ${record[dropin-dir]+set} || ! -e $dropin_dir ]] || cmd "$rmdir" --ignore-fail-on-non-empty -- "$dropin_dir"
+  [[ -z ${record[enabled]+set} ]] || cmd "$systemctl" disable greetd.service
+  if [[ -n ${record[target]+set} ]]; then
+    read_default_target || refuse 1 "default-target=unreadable"
+    # A default someone chose after apply stays.
+    [[ $default_target != graphical.target ]] || cmd "$systemctl" set-default "${record[target]}"
+  fi
+  [[ -z $reload ]] || cmd "$systemctl" daemon-reload
+  if [[ -z $keep ]]; then
+    record_drop greeter
+    return
+  fi
+  text="uid=$uid"$'\n'"pam=${record[pam]}"
+  for entry in "${greeter_dirs[@]}"; do
+    key="${entry%%:*}"
+    [[ $key == dropin-dir || -z ${record[$key]+set} ]] || text+=$'\n'"$key=1"
+  done
+  record_put greeter "$text"$'\n'"deferred=$boot"
+  greeter_kept=1
+}
+
+undo_apple_displays() {
+  local rm
+  rule_dest_state "${record[rule]}"
+  if [[ $dest_state == own ]]; then
+    program rm rm
+    cmd "$rm" -f -- "$rule_dest"
+    udev_reload
+  fi
+  record_drop apple-displays
+}
+
+undo_i2c_dev() {
+  local modprobe
+  if [[ ${record[boot]} == "$boot" && -d $sys/class/i2c-dev ]]; then
+    program modprobe modprobe
+    cmd "$modprobe" -r i2c-dev
+  fi
+  record_drop i2c-dev
+}
+
+undo_service() { # STEP
+  local unit systemctl
+  unit_of "$1"
+  program systemctl systemctl
+  [[ -z ${record[enabled]+set} ]] || cmd "$systemctl" disable "$unit"
+  [[ -z ${record[started]+set} || ${record[boot]} != "$boot" ]] || cmd "$systemctl" stop "$unit"
+  record_drop "$1"
+}
+
+undo_tailscale_operator() {
+  local tailscale
+  program tailscale tailscale
+  read_operator || refuse 1 "operator=unreadable" "tailscaled did not answer; nothing was changed"
+  [[ $operator != "${record[operator]}" ]] || cmd "$tailscale" set "--operator=${record[previous]}"
+  record_drop tailscale-operator
+}
+
+# Calls VERB's plan for STEP in the current mode.
+plan() { # VERB STEP
+  case "$2" in
+    apple-displays) "$1_apple_displays" ;;
+    i2c-dev) "$1_i2c_dev" ;;
+    service-bluetooth|service-tailscaled) "$1_service" "$2" ;;
+    tailscale-operator) "$1_tailscale_operator" ;;
+    greeter) "$1_greeter" ;;
+    *) refuse 1 "internal=plan step=$2" ;;
+  esac
+}
+
+# Shows VERB's plan for STEP, asks once, then under one sudo session and
+# the record directory's lock plans again and runs it.
+confirm_and_run() { # VERB STEP
+  local verb="$1" step="$2" planned make_dir="" install line answer=0 lock
+  mode=show shown=""
+  plan "$verb" "$step"
+  planned="$shown"
+  if [[ ! -d $record_dir ]]; then
+    program install install
+    make_dir="sudo$(printf ' %q' "$install" -d -m 0755 -o root -g root -- "$record_dir")"$'\n'
+  fi
+  # shellcheck source=lib/tui.sh
+  source "$lib_dir/tui.sh" || refuse 1 "library=missing path=$lib_dir/tui.sh"
+  vgs_tui_step "vgshell system $verb $step runs, as root:"
+  while IFS= read -r line; do printf '  %s\n' "$line"; done <<<"$make_dir${planned%$'\n'}"
+  # A root command is never answered for the user, unattended or not.
+  VGS_TUI_UNATTENDED='' vgs_tui_confirm "Run these commands as root?" || answer=$?
+  case "$answer" in
+    0) ;;
+    1) refuse 1 "declined=$verb step=$step" "No change made." ;;
+    *) exit "$answer" ;;
+  esac
+  vgs_tui_sudo_session start || refuse 1 "sudo=not-authorized"
+  mode=run
+  if [[ -n $make_dir ]]; then cmd "$install" -d -m 0755 -o root -g root -- "$record_dir"; fi
+  trusted "$record_dir" || refuse 1 "untrusted=$record_dir"
+  exec {lock}<"$record_dir" || refuse 1 "lock=open path=$record_dir"
+  flock -w 60 "$lock" || refuse 1 "lock=busy path=$record_dir" "another system step held the lock for 60 s"
+  mode=show shown=""
+  plan "$verb" "$step"
+  [[ $shown == "$planned" ]] || refuse 1 "plan=changed step=$step" "the commands differ from the ones shown; nothing more was run"
+  mode=run
+  plan "$verb" "$step"
+  vgs_tui_sudo_session end
+}
+
+# ---------------------------------------------------------------- verbs
+
+json_status() {
+  local step out="" sep=""
+  for step in "${steps[@]}"; do
+    out+="$sep\"$step\":{\"state\":\"${state_of[$step]}\",\"reason\":\"${reason_of[$step]}\"}"
+    sep=,
+  done
+  printf '{"steps":{%s}}\n' "$out"
+}
+
+# Probes every step into state_of and reason_of, reading needed as nixos
+# on NixOS and as unknown when the system cannot be told.
+probe_all() {
+  local step needed=0
+  declare -gA state_of=() reason_of=()
+  for step in "${steps[@]}"; do
+    probe "$step"
+    state_of[$step]="$probe_state" reason_of[$step]="$probe_reason"
+    [[ $probe_state != needed ]] || needed=1
+  done
+  ((needed == 1)) || return 0
+  if ! detect_system; then
+    for step in "${steps[@]}"; do
+      [[ ${state_of[$step]} != needed ]] || state_of[$step]=unknown reason_of[$step]=system-undetected
+    done
+  elif [[ $detected_system == nix ]]; then
+    for step in "${steps[@]}"; do
+      [[ ${state_of[$step]} != needed ]] || state_of[$step]=nixos
+    done
+  fi
+}
+
+verb_status() { # [--json]
+  local step
+  probe_all
+  if [[ ${1:-} == --json ]]; then json_status; return; fi
+  for step in "${steps[@]}"; do
+    printf 'system=%s state=%s reason=%s\n' "$step" "${state_of[$step]}" "${reason_of[$step]}"
+  done
+}
+
+verb_apply() { # STEP
+  local step="$1"
+  probe "$step"
+  case "$probe_state" in
+    ready) printf 'ok system=%s state=ready\n' "$step"; return ;;
+    needed) ;;
+    denied|absent|unknown) refuse 1 "state=$probe_state reason=$probe_reason step=$step${probe_fix:+ fix=$probe_fix}" ${probe_hint[@]+"${probe_hint[@]}"} ;;
+    *) refuse 1 "internal=state value=$probe_state" ;;
+  esac
+  detect_or_refuse
+  if [[ $detected_system == nix ]]; then
+    printf 'ok system=%s skipped=nixos-config\n' "$step"
+    printf 'NixOS builds the system from its configuration, so VGS changes nothing here.\n'
+    printf 'Add this to your system configuration, then rebuild it:\n'
+    nixos_snippet "$step"
+    return
+  fi
+  read_boot_id
+  confirm_and_run apply "$step"
+  probe "$step"
+  [[ $probe_state == ready ]] ||
+    refuse 1 "state=$probe_state reason=$probe_reason step=$step" "the commands ran, but the access is still missing"
+  printf 'ok system=%s state=ready\n' "$step"
+}
+
+verb_undo() { # STEP
+  local step="$1"
+  detect_or_refuse
+  if [[ $detected_system == nix ]]; then
+    printf 'ok system=%s skipped=nixos-config\n' "$step"
+    printf 'VGS changed nothing on NixOS. Remove the lines from your system configuration and rebuild it.\n'
+    return
+  fi
+  if ! read_record "$step"; then
+    printf 'ok system=%s state=untouched\n' "$step"
+    return
+  fi
+  read_boot_id
+  greeter_kept=""
+  if [[ $step == greeter && -n ${record[deferred]+set} ]] && greetd_runs_vgs; then greeter_kept=1
+  else confirm_and_run undo "$step"
+  fi
+  if [[ -n $greeter_kept ]]; then
+    printf 'ok system=%s state=deferred\n%s\n' "$step" "$greeter_deferred_text"
+    return
+  fi
+  printf 'ok system=%s state=undone\n' "$step"
+}
+
+main() {
+  local verb="${1:-}"
+  (($# == 0)) || shift
+  case "$verb" in
+    status)
+      (($# == 0)) || [[ $# == 1 && $1 == --json ]] || bad_invocation "argument=$(printf '%q' "$1")"
+      ;;
+    apply|undo)
+      (($# == 1)) || bad_invocation "count=$# verb=$verb"
+      known_step "$1" || bad_invocation "step=$(printf '%q' "$1")"
+      ;;
+    *) bad_invocation "verb=$(printf '%q' "$verb")" ;;
+  esac
+  ((EUID != 0)) || refuse 1 "caller=root" "run vgshell system as your own user; sudo asks for the password"
+  uid="$(id -u)" || refuse 1 "user=unknown"
+  gid="$(id -g)" || refuse 1 "user=unknown"
+  user="$(id -un)" || refuse 1 "user=unknown"
+  declare -gA record=()
+  "verb_$verb" "$@"
+}
+
+main "$@"

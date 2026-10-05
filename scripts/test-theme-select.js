@@ -245,7 +245,7 @@ function verify(render, edit) {
 
     // The value names the state directory; `@@{` stays a literal.
     const valued = value => render.acceptTarget(logic, "probe", targetText({ value })).target;
-    assert.equal(render.selectValue(valued("@{state}/gemini.json"), "/s/vgs/theme"), "/s/vgs/theme/gemini.json");
+    assert.equal(render.selectValue(valued("@{state}/gemini.json"), "/s/vgshell/theme"), "/s/vgshell/theme/gemini.json");
     assert.equal(render.selectValue(valued("@@{x}"), "/s"), "@{x}");
     const unselected = render.acceptTarget(logic, "probe", JSON.stringify(Object.assign(JSON.parse(targetText({})), { select: undefined }))).target;
     assert.throws(() => render.selectValue(unselected, "/s"), /has no select/);

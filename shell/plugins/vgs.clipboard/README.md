@@ -40,7 +40,7 @@ A paste puts the entry on the clipboard, closes the history and sends the paste 
 - A copy that offers both plain text and an image is recorded as text.
 - A copy is not recorded when its source marks it as secret. KeePassXC and other password managers set that mark. A copy from a program that sets no mark is recorded like any other copy.
 - The selection you paste with the middle mouse button is not recorded.
-- The history is in `clipboard/` under `~/.local/state/vgs/`, or under `$XDG_STATE_HOME/vgs/` when that is set. Only your user can read it. It is not encrypted.
+- The history is in `clipboard/` under `~/.local/state/vgshell/`, or under `$XDG_STATE_HOME/vgshell/` when that is set. Only your user can read it. It is not encrypted.
 - An image file is deleted when no entry uses it.
 
 ## Settings
@@ -52,9 +52,9 @@ The Keys row on the plugin's Settings page changes `SUPER+CTRL+V`. The same page
 | Path | How |
 |---|---|
 | Shortcut | `vgs.clipboard:toggle`, `SUPER+CTRL+V` by default. |
-| Open or close | `vgsh ipc call vgs.clipboard invoke toggle ''` |
-| Rows for a filter | `vgsh ipc call vgs.clipboard invoke rows '<filter>'` answers `{ images, total, rows }`, at most 50 rows. |
-| Change an entry | `vgsh ipc call vgs.clipboard invoke paste <id>`, and `copy`, `pin` and `delete` in its place. Each answers `ok` or a `refused:` line. |
-| Clear | `vgsh ipc call vgs.clipboard invoke clear ''` |
+| Open or close | `vgshell ipc call vgs.clipboard invoke toggle ''` |
+| Rows for a filter | `vgshell ipc call vgs.clipboard invoke rows '<filter>'` answers `{ images, total, rows }`, at most 50 rows. |
+| Change an entry | `vgshell ipc call vgs.clipboard invoke paste <id>`, and `copy`, `pin` and `delete` in its place. Each answers `ok` or a `refused:` line. |
+| Clear | `vgshell ipc call vgs.clipboard invoke clear ''` |
 
 [clipboard.md](../../../docs/architecture/clipboard.md) holds the plugin's rules and the tests that enforce them.

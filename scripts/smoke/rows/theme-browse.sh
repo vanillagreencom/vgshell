@@ -11,7 +11,7 @@
 # rebuild of the fixture to finish behind it. rows/themes.sh defines the
 # helpers used here and leaves vgs applied, no current wallpaper and the
 # fixture disabled; this file leaves them so.
-# inputs: scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/ThemeRunner.qml bin/vgsh bin/vgsh-theme-judge bin/lib/theme-* themes/catalog/* scripts/smoke/rows/themes.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh
+# inputs: scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/ThemeRunner.qml bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/catalog/* scripts/smoke/rows/themes.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh
 set -euo pipefail
 browse="$installed/browse"
 # What VERB's callback last received, as JSON: its call count, then the
@@ -103,7 +103,7 @@ preview_gate="$sandbox/theme-preview-gate"
 preview_slow="$sandbox/slow-preview"
 cat >"$preview_slow" <<SH
 #!/usr/bin/env bash
-lock="\$(node $(printf %q "$repo/bin/vgsh-theme-judge") asset-lock)"
+lock="\$(node $(printf %q "$repo/bin/vgshell-theme-judge") asset-lock)"
 mkdir -p -- "\${lock%/*}"
 exec 9>>"\$lock"
 flock -n -E 75 9 || exit \$?
@@ -111,8 +111,8 @@ for _ in \$(seq 1 600); do [[ -e $(printf %q "$preview_gate") ]] && break; sleep
 printf '{\"state\":\"ok\",\"theme\":\"%s\",\"path\":\"/tmp/preview.jpg\",\"reason\":null}\n' "\$4"
 SH
 chmod 755 -- "$preview_slow"
-cp -p -- "$repo/bin/vgsh" "$repo/bin/vgsh.real"
-stand_in_vgsh "[[ \${2:-} == preview ]] && exec $(printf %q "$preview_slow") \"\$@\""
+cp -p -- "$repo/bin/vgshell" "$repo/bin/vgshell.real"
+stand_in_vgshell "[[ \${2:-} == preview ]] && exec $(printf %q "$preview_slow") \"\$@\""
 expect "the fixture starts a slow preview fetch" ok probe theme-preview nord
 expect_poll "the lending record holds the preview fetch" '["preview", "nord", 1]' theme_preview
 before_applies="$(applies)"; before_downloads="$(fixture_downloads)"
@@ -130,25 +130,25 @@ expect "a second wallpaper command while the first waits for preview cancellatio
 expect_poll "the wallpaper download cancels the preview fetch" null theme_preview
 expect_poll "the wallpaper command returns its runner result" '[2, "failed", "browse", "not-catalog"]' answer wallpapers state theme reason
 touch -- "$preview_gate"
-mv -T -- "$repo/bin/vgsh.real" "$repo/bin/vgsh"
+mv -T -- "$repo/bin/vgshell.real" "$repo/bin/vgshell"
 
 rm -f -- "$preview_gate"
-cp -p -- "$repo/bin/vgsh" "$repo/bin/vgsh.real"
-stand_in_vgsh "[[ \${2:-} == preview ]] && exec $(printf %q "$preview_slow") \"\$@\""
+cp -p -- "$repo/bin/vgshell" "$repo/bin/vgshell.real"
+stand_in_vgshell "[[ \${2:-} == preview ]] && exec $(printf %q "$preview_slow") \"\$@\""
 expect "a wallpaper command accepted before preview starts runs" "ok|ok" probe theme-preview-then-wallpapers browse
 expect_poll "the same-turn wallpaper command reaches the runner" '[3, "failed", "browse", "not-catalog"]' answer wallpapers state theme reason
 expect "the same-turn preview was canceled before start" null theme_preview
 touch -- "$preview_gate"
-mv -T -- "$repo/bin/vgsh.real" "$repo/bin/vgsh"
+mv -T -- "$repo/bin/vgshell.real" "$repo/bin/vgshell"
 
 rm -f -- "$preview_gate"
-cp -p -- "$repo/bin/vgsh" "$repo/bin/vgsh.real"
-stand_in_vgsh "if [[ \${2:-} == preview ]]; then
+cp -p -- "$repo/bin/vgshell" "$repo/bin/vgshell.real"
+stand_in_vgshell "if [[ \${2:-} == preview ]]; then
   $(printf %q "$preview_slow") \"\$@\"
   exit \$?
 fi
 if [[ \${2:-} == wallpapers ]]; then
-  lock=\"\$(node $(printf %q "$repo/bin/vgsh-theme-judge") asset-lock)\"
+  lock=\"\$(node $(printf %q "$repo/bin/vgshell-theme-judge") asset-lock)\"
   mkdir -p -- \"\${lock%/*}\"
   exec 8>>\"\$lock\"
   if ! flock -n -E 75 8; then
@@ -164,20 +164,20 @@ expect "control: a wallpaper command cannot take the lock from the non-exec prev
 expect_poll "control: the wallpaper command reports busy" '[4, "failed", "nord", "busy"]' answer wallpapers state theme reason
 touch -- "$preview_gate"
 expect_poll "control: the non-exec preview eventually ends" null theme_preview
-mv -T -- "$repo/bin/vgsh.real" "$repo/bin/vgsh"
+mv -T -- "$repo/bin/vgshell.real" "$repo/bin/vgshell"
 
 download_gate="$sandbox/theme-download-gate"
 slow_download="$sandbox/slow-download"
 cat >"$slow_download" <<SH
 #!/usr/bin/env bash
-# vgsh theme wallpapers --json NAME: two progress lines, the gate, a result.
+# vgshell theme wallpapers --json NAME: two progress lines, the gate, a result.
 printf '%s\n' '{"state":"downloading","bytes":0,"total":2000}' '{"state":"downloading","bytes":1000,"total":2000}'
 for _ in \$(seq 1 600); do [[ -e $(printf %q "$download_gate") ]] && break; sleep 0.05; done
 printf '{"state":"ok","theme":"%s","wallpapers":"installed","images":2,"sha256":null,"reason":null}\n' "\$4"
 SH
 chmod 755 -- "$slow_download"
-cp -p -- "$repo/bin/vgsh" "$repo/bin/vgsh.real"
-stand_in_vgsh "[[ \${2:-} == wallpapers ]] && exec $(printf %q "$slow_download") \"\$@\""
+cp -p -- "$repo/bin/vgshell" "$repo/bin/vgshell.real"
+stand_in_vgshell "[[ \${2:-} == wallpapers ]] && exec $(printf %q "$slow_download") \"\$@\""
 # apply_during_download APPLIES DOWNLOADS: after a download started and an
 # apply was asked for, poll every 200 ms for up to 5 s until APPLIES, a
 # count of apply answers, rises: `answered` while DOWNLOADS, a count of
@@ -261,7 +261,7 @@ fi
 # as --update, and options no runner call can take are refused at once. A
 # stand-in records each download's arguments and answers at once.
 download_argv="$sandbox/download-argv"
-stand_in_vgsh "if [[ \${2:-} == wallpapers ]]; then
+stand_in_vgshell "if [[ \${2:-} == wallpapers ]]; then
   printf '%s\n' \"\$*\" >$(printf %q "$download_argv")
   printf '{\"state\":\"ok\",\"theme\":\"%s\",\"wallpapers\":\"updated\",\"images\":2,\"sha256\":null,\"reason\":null}\n' \"\$4\"
   exit 0
@@ -286,18 +286,18 @@ if [[ -f $update_copy ]]; then
   rm -- "$update_copy"
 fi
 rm -f -- "$download_argv"
-mv -T -- "$repo/bin/vgsh.real" "$repo/bin/vgsh"
+mv -T -- "$repo/bin/vgshell.real" "$repo/bin/vgshell"
 
 # A runner that prints no result answers each member as a failure of its
 # own shape.
-cp -p -- "$repo/bin/vgsh" "$repo/bin/vgsh.real"
-stand_in_vgsh 'echo "no result"; exit 2'
+cp -p -- "$repo/bin/vgshell" "$repo/bin/vgshell.real"
+stand_in_vgshell 'echo "no result"; exit 2'
 expected_errors+=(
-  'theme: vgsh theme catalog reason=output-unreadable exit=2 '
-  'theme: vgsh theme install reason=output-unreadable name=nord exit=2 '
-  'theme: vgsh theme images reason=output-unreadable name=all exit=2 '
-  'theme: vgsh theme set reason=output-unreadable name=/nowhere/a.jpg exit=2 '
-  'theme: vgsh theme wallpapers reason=output-unreadable name=nord exit=2 '
+  'theme: vgshell theme catalog reason=output-unreadable exit=2 '
+  'theme: vgshell theme install reason=output-unreadable name=nord exit=2 '
+  'theme: vgshell theme images reason=output-unreadable name=all exit=2 '
+  'theme: vgshell theme set reason=output-unreadable name=/nowhere/a.jpg exit=2 '
+  'theme: vgshell theme wallpapers reason=output-unreadable name=nord exit=2 '
 )
 expect "a catalog whose runner prints no result is accepted" ok probe theme-catalog
 expect_poll "the unreadable catalog is a failure with its reason" '[1, null, "output-unreadable"]' answer catalog entries reason
@@ -309,7 +309,7 @@ expect "a set whose runner prints no result is accepted" ok probe theme-set /now
 expect_poll "the unreadable set is a failure with its reason" '[1, "failed", null, null, "output-unreadable"]' answer set state path screen reason
 expect "a download whose runner prints no result is accepted" ok probe theme-wallpapers nord
 expect_poll "the unreadable download is a failure with its reason" '[3, "failed", "nord", null, "output-unreadable"]' answer wallpapers state theme wallpapers reason
-mv -T -- "$repo/bin/vgsh.real" "$repo/bin/vgsh"
+mv -T -- "$repo/bin/vgshell.real" "$repo/bin/vgshell"
 
 rm -r -- "$browse" "$installed/nord"
 expect "disabling the fixture after the browse rows is allowed" ok ipc shell setPluginEnabled acme.probe false

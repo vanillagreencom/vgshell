@@ -34,8 +34,8 @@ Scope {
 
     readonly property string dir: Paths.stateDir + "/hypr"
     readonly property string path: dir + "/vgs.lua"
-    readonly property string runner: Quickshell.shellDir + "/../bin/vgsh"
-    readonly property string consentDir: Quickshell.env("XDG_RUNTIME_DIR") + "/vgs/hypr"
+    readonly property string runner: Quickshell.shellDir + "/../bin/vgshell"
+    readonly property string consentDir: Quickshell.env("XDG_RUNTIME_DIR") + "/vgshell/hypr"
     readonly property string consentDeclined: consentDir + "/consent-declined"
     readonly property string hyprlandSignature: Quickshell.env("HYPRLAND_INSTANCE_SIGNATURE")
     readonly property string welcomeSeen: Paths.stateDir + "/welcome-seen"

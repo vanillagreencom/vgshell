@@ -18,7 +18,7 @@ import "NotificationLogic.js" as Logic
 Item {
     id: store
 
-    readonly property string dir: (Quickshell.env("XDG_STATE_HOME") || (Quickshell.env("HOME") + "/.local/state")) + "/vgs/notifications"
+    readonly property string dir: (Quickshell.env("XDG_STATE_HOME") || (Quickshell.env("HOME") + "/.local/state")) + "/vgshell/notifications"
     readonly property string path: dir + "/state.json"
     readonly property string imagesDir: dir + "/images"
     readonly property string script: String(Qt.resolvedUrl("images.sh")).replace(/^file:\/\//, "")

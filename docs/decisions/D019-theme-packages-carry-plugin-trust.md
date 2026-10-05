@@ -21,6 +21,6 @@
 
 **Revisit When**: Package signatures or a marketplace changes the trust model, or target renderers need a separate package schema.
 
-**Verification**: `scripts/test-theme-logic.js` covers package acceptance and refusal rules; `bin/vgsh-theme-judge packages themes` validates shipped packages in `scripts/validate`.
+**Verification**: `scripts/test-theme-logic.js` covers package acceptance and refusal rules; `bin/vgshell-theme-judge packages themes` validates shipped packages in `scripts/validate`.
 
 **References**: [D007](D007-install-runs-no-plugin-code.md), [D010](D010-facade-scope-not-sandbox.md), [D015](D015-tokens-are-a-judged-table.md), [D031](D031-installed-themes-render-code-targets.md)

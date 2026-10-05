@@ -17,26 +17,26 @@ Quickshell + Hyprland. Everything is a plugin. Try it, you might like it.
 Arch Linux:
 
 ```bash
-paru -S vgs-git
+paru -S vgshell-git
 ```
 
 Any distribution:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/vanillagreencom/vgs/main/install.sh | bash -s -- --git
+curl -fsSL https://raw.githubusercontent.com/vanillagreencom/vgshell/main/install.sh | bash -s -- --git
 ```
 
 Nix:
 
 ```bash
-nix run github:vanillagreencom/vgs -- run
+nix run github:vanillagreencom/vgshell -- run
 ```
 
 From a checkout:
 
 ```bash
-git clone https://github.com/vanillagreencom/vgs
-vgs/bin/vgsh run
+git clone https://github.com/vanillagreencom/vgshell
+vgshell/bin/vgshell run
 ```
 
 More install options: [docs/architecture/distribution.md](docs/architecture/distribution.md).
@@ -80,7 +80,7 @@ VGS starts with Hyprland and draws the bar, panels and windows on each screen. E
 The Arch and Fedora packages start VGS in a uwsm session. Otherwise add this line to `~/.config/hypr/hyprland.lua`:
 
 ```lua
-hl.on("hyprland.start", function () hl.exec_cmd("vgsh run") end)
+hl.on("hyprland.start", function () hl.exec_cmd("vgshell run") end)
 ```
 
 ## Writing a plugin

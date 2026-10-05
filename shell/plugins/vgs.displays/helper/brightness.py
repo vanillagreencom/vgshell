@@ -74,7 +74,7 @@ DDC displays; its `Invalid display` blocks are `unsupported`, except a
 laptop panel's, which the backlight drives, and one whose EDID
 manufacturer is APP and model is the model of an Apple display this run
 lists, which the HID backend drives. The detect result is cached for 30 s
-at $XDG_RUNTIME_DIR/vgs/displays/ddc-detect.json and never reused across a
+at $XDG_RUNTIME_DIR/vgshell/displays/ddc-detect.json and never reused across a
 hotplug: the cache holds a key over every VGS_SYSFS_ROOT/class/drm
 connector's name and EDID bytes and every class/i2c-dev bus name, so a
 plugged, unplugged or swapped monitor or a renumbered bus misses it. The
@@ -508,7 +508,7 @@ def hotplug_key(roots):
 
 def ddc_cache_path(env):
     runtime = env.get("XDG_RUNTIME_DIR")
-    return os.path.join(runtime, "vgs", "displays", "ddc-detect.json") if runtime else None
+    return os.path.join(runtime, "vgshell", "displays", "ddc-detect.json") if runtime else None
 
 
 def read_cache(cache):

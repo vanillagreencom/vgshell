@@ -6,7 +6,7 @@
 //
 // With no plugin directories it checks every plugin under the base
 // (default shell/plugins), listed the way the shell lists them: by
-// bin/vgsh-scan, so a directory with no manifest.json is not a plugin and a
+// bin/vgshell-scan, so a directory with no manifest.json is not a plugin and a
 // directory the scan cannot read ends the run. With plugin directories it
 // checks those. Beside the judge's verdict it reads the files a manifest
 // names: every entry point must be a file, every first-party default key must
@@ -15,7 +15,7 @@
 // a later plugin's pads as a comment (docs/architecture/hyprland.md), and
 // every `tui` script a regular
 // file with its owner's execute bit, reached through no symbolic link, since
-// bin/vgsh-scan follows links and would publish whatever one points at.
+// bin/vgshell-scan follows links and would publish whatever one points at.
 // Prints one line per plugin. Exit 0 when every manifest is
 // valid, 1 when any is refused, 2 when a directory or file cannot be read or
 // the invocation is bad, each as one keyed line:
@@ -61,8 +61,8 @@ function manifests() {
             }
         });
     }
-    const scan = spawnSync(path.join(repo, "bin", "vgsh-scan"), ["--require-base", base], { encoding: "utf8", env: { PATH: process.env.PATH, LC_ALL: "C" } });
-    if (scan.status !== 0) return unreadable(base, "vgsh-scan exited " + scan.status);
+    const scan = spawnSync(path.join(repo, "bin", "vgshell-scan"), ["--require-base", base], { encoding: "utf8", env: { PATH: process.env.PATH, LC_ALL: "C" } });
+    if (scan.status !== 0) return unreadable(base, "vgshell-scan exited " + scan.status);
     const entries = JSON.parse(scan.stdout);
     for (const entry of entries)
         if (entry.error !== undefined) unreadable(entry.dir, entry.error);

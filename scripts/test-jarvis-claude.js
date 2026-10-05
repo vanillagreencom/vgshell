@@ -28,7 +28,7 @@ const ENVIRONMENT = ["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "CLAUDE_CONFIG_
 // Keys, tokens and a runner pid planted in the environment handed to the
 // adapter and to Verify; none may reach the vendor program.
 const PLANTED = { ANTHROPIC_API_KEY: "planted-anthropic-key", CLAUDE_CODE_OAUTH_TOKEN: "planted-oauth-token",
-    VGS_JARVIS_TOOLS_TOKEN: "planted-tools-token", VGSH_RUNNER_PID: "424242" };
+    VGS_JARVIS_TOOLS_TOKEN: "planted-tools-token", VGSHELL_RUNNER_PID: "424242" };
 const leaked = call => Object.values(call.env).filter(value => Object.values(PLANTED).includes(value));
 
 world(async () => {
@@ -387,7 +387,7 @@ world(async () => {
     // subscription, and the refusal every other subscription keeps.
     const env = { ...PLANTED };
     for (const name of ["PATH", "HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_DATA_HOME", "XDG_RUNTIME_DIR"]) env[name] = process.env[name];
-    const state = path.join(process.env.XDG_STATE_HOME, "vgs/jarvis");
+    const state = path.join(process.env.XDG_STATE_HOME, "vgshell/jarvis");
     const verifyAccount = account({ turns: [[...say("OK")]] }, path.join(process.env.HOME, ".claude-team"));
     const presence = Object.fromEntries(require(path.join(tree, "shell/plugins/vgs.jarvis/AccountProviders.js")).PROVIDERS
         .filter(row => row.kind === "key" || row.kind === "speech-key").map(row => [row.variable, false]));

@@ -66,7 +66,7 @@ kh_field() { ipc smoke invokeInstance window vgs.keyhints keyField "$1" | py_rep
 settings_field() { ipc smoke invokeInstance window vgs.settings keyField "$kh_themes" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[sys.argv[1]]))' "$1"; }
 # themes_key: the key the user file gives the Themes shortcut, as JSON, or
 # `absent`.
-themes_key() { python3 -c 'import json,sys; rows=[r for r in json.load(open(sys.argv[1])).get("plugins", []) if r["id"] == "vgs.themes"]; k=rows[0].get("keys", {}) if rows else {}; print(json.dumps(k["themes"]) if "themes" in k else "absent")' "$home/.config/vgs/shell.json"; }
+themes_key() { python3 -c 'import json,sys; rows=[r for r in json.load(open(sys.argv[1])).get("plugins", []) if r["id"] == "vgs.themes"]; k=rows[0].get("keys", {}) if rows else {}; print(json.dumps(k["themes"]) if "themes" in k else "absent")' "$home/.config/vgshell/shell.json"; }
 kh_toggle() { type_keys -M logo -k slash -m logo; }
 # The lines the row appends to the harness hyprland.lua: typed keys reach
 # their binds, and a user bind on SUPER+T, the Themes shortcut's default.

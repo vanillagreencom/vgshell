@@ -9,7 +9,7 @@
 # Tab scroll it, and a two-finger swipe moves it as far as GTK moves a list. Dispatches asked for back to back run in order behind one
 # process, the queue has a bound, and a process that cannot start does not
 # stop the queue.
-# inputs: shell/plugins/vgs.settings/* shell/Ui/layout/ScrollArea.qml shell/Ui/layout/TouchpadScroll.qml shell/Ui/layout/TouchpadScrollLogic.js shell/Commons/Reply.js shell/plugins/vgs.notifications/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/PluginStatus.qml bin/vgsh-scan shell/Core/TuiRunner.qml shell/Commons/SettingValues.js shell/Core/Capabilities.qml shell/plugins/vgs.bar/manifest.json shell/Core/Notices.qml bin/lib/qml-library.js scripts/smoke/rows/manager.sh scripts/smoke/rows/status.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh bin/vgsh-tui
+# inputs: shell/plugins/vgs.settings/* shell/Ui/layout/ScrollArea.qml shell/Ui/layout/TouchpadScroll.qml shell/Ui/layout/TouchpadScrollLogic.js shell/Commons/Reply.js shell/plugins/vgs.notifications/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/PluginStatus.qml bin/vgshell-scan shell/Core/TuiRunner.qml shell/Commons/SettingValues.js shell/Core/Capabilities.qml shell/plugins/vgs.bar/manifest.json shell/Core/Notices.qml bin/lib/qml-library.js scripts/smoke/rows/manager.sh scripts/smoke/rows/status.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh bin/vgshell-tui
 set -euo pipefail
 click_centre "$(bar_key)" vgs.settings || fail "the click on the gear failed"
 expect_poll "the gear's click opens the Settings window" open settings_open
@@ -35,7 +35,7 @@ expect "the edit in progress survives the second unrelated change" "$held_before
 config_changes() { ipc smoke configChanges; }
 user_loads() { ipc smoke configUserLoads; }
 config_settled() { ipc smoke configSettled; }
-user_label() { python3 -c 'import json,sys; print([e.get("label") for e in json.load(open(sys.argv[1])).get("plugins", []) if e["id"]=="acme.probe"][0])' "$home/.config/vgs/shell.json"; }
+user_label() { python3 -c 'import json,sys; print([e.get("label") for e in json.load(open(sys.argv[1])).get("plugins", []) if e["id"]=="acme.probe"][0])' "$home/.config/vgshell/shell.json"; }
 if changes_before="$(config_changes)" && loads_before="$(user_loads)"; then
   expect "the window writes the fixture's setting" ok ipc smoke invokeInstance window vgs.settings applySetting '{"id":"acme.probe","key":"label","value":"published-once"}'
   expect_poll "the write's own file notification was read" "$((loads_before + 1))" user_loads
@@ -190,7 +190,7 @@ device_field() { ipc smoke invokeInstance window vgs.settings fieldChoice '{"id"
 device_state() { device_field | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([d["index"],d["text"],d["value"],d["enabled"]]))'; }
 device_model() { device_field | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["model"]))'; }
 choose_device() { ipc smoke invokeInstance window vgs.settings chooseField "{\"id\":\"acme.status\",\"key\":\"device\",\"index\":$1}"; }
-user_device() { python3 -c 'import json,sys; print(json.dumps(next(r["device"] for r in json.load(open(sys.argv[1]))["plugins"] if r["id"]=="acme.status")))' "$home/.config/vgs/shell.json"; }
+user_device() { python3 -c 'import json,sys; print(json.dumps(next(r["device"] for r in json.load(open(sys.argv[1]))["plugins"] if r["id"]=="acme.status")))' "$home/.config/vgshell/shell.json"; }
 expect_poll "unreported choices draw an automatic Select" '[0, "First offered (none available)", "", true]' device_state
 expect "the fixture offers labeled device ids" ok ipc acme.status invoke set 'devices=[{"label":"Alpha","value":"a"},{"label":"Beta","value":"b"}]'
 expect_poll "the Select draws the status labels and keeps automatic empty string" '[0, "First offered: Alpha", "", true]' device_state
@@ -229,7 +229,7 @@ clock_custom() { ipc smoke invokeInstance window vgs.settings fieldCustom '{"id"
 clock_custom_state() { clock_custom | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([d["visible"], d["text"], d["error"], d["preview"] == d["formatted"], d["previewBox"][2] > 0]))'; }
 choose_clock() { ipc smoke invokeInstance window vgs.settings chooseField "{\"id\":\"vgs.bar\",\"key\":\"clockFormat\",\"index\":$1}"; }
 edit_clock_custom() { ipc smoke invokeInstance window vgs.settings editFieldCustom "$(python3 -c 'import json,sys; print(json.dumps({"id":"vgs.bar","key":"clockFormat","text":sys.argv[1]}))' "$1")"; }
-user_clock() { python3 -c 'import json,sys; print(json.dumps(next(r["clockFormat"] for r in json.load(open(sys.argv[1])).get("plugins", []) if r["id"]=="vgs.bar")))' "$home/.config/vgs/shell.json"; }
+user_clock() { python3 -c 'import json,sys; print(json.dumps(next(r["clockFormat"] for r in json.load(open(sys.argv[1])).get("plugins", []) if r["id"]=="vgs.bar")))' "$home/.config/vgshell/shell.json"; }
 bar_reply() { ipc smoke readInstance window vgs.settings replies | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get("vgs.bar", "")))'; }
 expect "the window opens the Bar page for preset field checks" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.bar
 expect_poll "the clock format Select has every preset and Custom last" '[9, "Custom\u2026", true]' clock_state
@@ -254,7 +254,7 @@ expect_poll "the custom clock save settles" true config_settled
 # Each mutation keeps the code it tests and removes one guarantee.
 choice_controls="$repo/shell/plugins/vgs.settings"
 choice_source_revision() {
-  "$repo/bin/vgsh-scan" --require-base "$repo/shell/plugins" |
+  "$repo/bin/vgshell-scan" --require-base "$repo/shell/plugins" |
     py_reply 'import json,sys; print(next(entry["revision"] for entry in json.load(sys.stdin) if entry["dir"] == sys.argv[1]))' "$choice_controls"
 }
 choice_revision_before="$(choice_source_revision)" || fail "the Settings source revision is unreadable before the controls"

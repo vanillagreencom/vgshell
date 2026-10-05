@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The vgs.themes TUI `browser-policy`, which the Settings page's Install
-# browser theming button opens: `vgsh theme browser-policy install`, which
+# browser theming button opens: `vgshell theme browser-policy install`, which
 # installs the Chromium-family colour writer and its sudoers rule once,
 # sudo asking for the password in this terminal
 # (docs/architecture/theme-browsers.md § Chromium). The VGS tree is the one
@@ -15,7 +15,7 @@ if [[ -z $lib ]]; then
   exit 2
 fi
 if [[ $# -gt 0 ]]; then
-  dir="${XDG_STATE_HOME:-$HOME/.local/state}/vgs/themes"
+  dir="${XDG_STATE_HOME:-$HOME/.local/state}/vgshell/themes"
   mkdir -p -- "$dir"
   printf 'themes: refused: argument=%s\n' "$1" >>"$dir/setup.log"
   printf 'This setup request is invalid. Open Themes and try again.\n' >&2
@@ -29,4 +29,4 @@ vgs_tui_header "Browser theming" \
   "Apply theme colours to Chromium, Chrome, Edge and Brave." \
   "Setup asks for your password."
 vgs_tui_step "Setting up browser theming"
-"$tree/bin/vgsh" theme browser-policy install
+"$tree/bin/vgshell" theme browser-policy install

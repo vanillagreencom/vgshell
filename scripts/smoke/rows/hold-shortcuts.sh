@@ -6,10 +6,10 @@
 # inputs: scripts/smoke/fixtures/plugins/acme.hold/* shell/Core/ShortcutRegistry.qml shell/Core/HyprlandLayer.js scripts/smoke/keyboard/* scripts/smoke/rows/hyprland-consent.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/hyprland.sh
 set -euo pipefail
 
-hold_dir="$home/.config/vgs/plugins/acme.hold"
-hold_config="$home/.config/vgs/shell.json"
+hold_dir="$home/.config/vgshell/plugins/acme.hold"
+hold_config="$home/.config/vgshell/shell.json"
 hold_lua="$home/.config/hypr/hyprland.lua"
-hold_layer="$home/.local/state/vgs/hypr/vgs.lua"
+hold_layer="$home/.local/state/vgshell/hypr/vgs.lua"
 cp -- "$hold_config" "$sandbox/hold-before.json"
 cp -- "$hold_lua" "$sandbox/hold-before.lua"
 mkdir -p "$hold_dir"

@@ -42,7 +42,7 @@ The surfaces read the status and ask the service through the plugin's IPC: `set`
 
 ## Assignments
 
-The helper places what it can ([displays.md § Output mapping](displays.md#output-mapping)). The user places the rest in the pane. The choices live in `plugins/vgs.displays/assignments.json` under `Paths.stateDir`, `${XDG_STATE_HOME}/vgs`, as `{ "assignments": [{ device, label, output }] }`. `parseAssignments` judges the file: at most 64 entries, each with exactly those three keys as printable text, and one entry per device.
+The helper places what it can ([displays.md § Output mapping](displays.md#output-mapping)). The user places the rest in the pane. The choices live in `plugins/vgs.displays/assignments.json` under `Paths.stateDir`, `${XDG_STATE_HOME}/vgshell`, as `{ "assignments": [{ device, label, output }] }`. `parseAssignments` judges the file: at most 64 entries, each with exactly those three keys as printable text, and one entry per device.
 
 - `device` is an Apple display's USB parent and serial, `usb:<parent>#<serial>`, else its helper id. A unit plugged into another port reads as a new device, so the pane asks again.
 - `output` is the output's identifier as the `monitors` capability names it. A tiled Pro Display XDR's two outputs share one identifier, so one choice lights both.

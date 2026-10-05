@@ -3,7 +3,7 @@
     "command": "node",
     "packages": { "pacman": "nodejs", "apt": "nodejs", "dnf": "nodejs", "xbps": "nodejs", "emerge": "net-libs/nodejs", "nix": "nodejs" },
     "optional": false,
-    "purpose": "Runs the manifest, theme and package-manager judges behind every vgsh command"
+    "purpose": "Runs the manifest, theme and package-manager judges behind every vgshell command"
   },
   {
     "command": "python3",

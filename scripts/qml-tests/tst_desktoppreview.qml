@@ -30,7 +30,7 @@ Item {
         width: 400
         height: 250
         title: "Probe"
-        commandLine: "vgsh theme apply probe"
+        commandLine: "vgshell theme apply probe"
         tokens: ({
             palette: root.samplePalette,
             color: {

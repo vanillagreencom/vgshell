@@ -1,6 +1,6 @@
 # Floating TUIs through the `tui` capability and the core's `listTuis` and
 # `openTui`, read back from a stand-in xdg-terminal-exec in the shell's own
-# PATH directory. The real bin/vgsh-tui launches it; it records the argv it
+# PATH directory. The real bin/vgshell-tui launches it; it records the argv it
 # was handed, maps the harness's toplevel helper with the app-id and title
 # it was handed as the window, and runs the real presenter with no terminal
 # behind it, so the presenter writes its exit records and no terminal
@@ -9,18 +9,18 @@
 # most 20 s, and the Update entry scripts/smoke/rows/launcher.sh opens.
 # Rows: the published list, the app-id of the script's size, the snapshot
 # path it runs from and its arguments, the core's own sudo grant and package
-# install picker opened by key as the core's bin/vgsh, each refusal, a
+# install picker opened by key as the core's bin/vgshell, each refusal, a
 # launcher that finds no terminal and the synchronous `launcher-missing`
 # answer that follows until a probe finds one again, the launchers the core
 # holds, a run's `done` and state from its exit records, a second run of a
 # live key refused busy with its window focused, a destroyed instance's
 # `done` dropped while its run ends, a live run that fails harness.sh's
 # expect_run_end at its ceiling, a presenter copy that writes no ended
-# record, whose run the core's `vgsh-tui wait` ends, and a disabled plugin's
+# record, whose run the core's `vgshell-tui wait` ends, and a disabled plugin's
 # list and hold gone.
-# inputs: scripts/smoke/fixtures/plugins/acme.tui/* shell/Core/TuiRunner.qml shell/Core/TuiRecords.qml bin/vgsh-tui bin/lib/tui.sh bin/vgsh scripts/smoke/toplevel/* scripts/smoke/rows/capabilities.sh
+# inputs: scripts/smoke/fixtures/plugins/acme.tui/* shell/Core/TuiRunner.qml shell/Core/TuiRecords.qml bin/vgshell-tui bin/lib/tui.sh bin/vgshell scripts/smoke/toplevel/* scripts/smoke/rows/capabilities.sh
 set -euo pipefail
-tui_dir="$home/.config/vgs/plugins/acme.tui"
+tui_dir="$home/.config/vgshell/plugins/acme.tui"
 mkdir -p "$tui_dir"
 cp -R "$repo/scripts/smoke/fixtures/plugins/acme.tui/." "$tui_dir/"
 terminal_stand_in
@@ -41,14 +41,14 @@ expect "listTuis lists the fixture's script" "$listed" respaced ipc shell listTu
 expect "the capability publishes the same list" "$listed" respaced tui entries
 
 revision="$(ipc shell listPlugins | py_reply 'import json,sys; print([p["revision"] for p in json.load(sys.stdin)["plugins"] if p["id"]=="acme.tui"][0])')" || revision=""
-snapshot="$rt_dir/vgsh-sources-$shell_qs_pid/$revision"
+snapshot="$rt_dir/vgshell-sources-$shell_qs_pid/$revision"
 check_snapshot() { [[ -x $snapshot/tui/hello.sh && ! -L $snapshot/tui/hello.sh ]] && echo present || echo absent; }
 # The words the terminal is handed for the fixture's hello script with
 # ARGS: the window, then present with the snapshot, the record and the
 # window it records.
 hello_words() {
   words --app-id=org.vgs.tui.wide "--title=VGS · Hello" -- "$tui_self" present --presentation full --plugin acme.tui --dir "$snapshot" \
-    --record acme.tui/hello --run RUN --record-dir "$rt_dir/vgs/tui" --app-id org.vgs.tui.wide --window-title "VGS · Hello" -- tui/hello.sh "$@"
+    --record acme.tui/hello --run RUN --record-dir "$rt_dir/vgshell/tui" --app-id org.vgs.tui.wide --window-title "VGS · Hello" -- tui/hello.sh "$@"
 }
 expect "the fixture's snapshot holds its executable script" present check_snapshot
 
@@ -92,19 +92,19 @@ expect_poll "the capability's open reaches the terminal" \
   "$(hello_words)" recorded
 expect_run_end "the hello run ends before the next request" acme.tui/hello
 
-# The core's own TUI: its command is the core's bin/vgsh beside the shell
+# The core's own TUI: its command is the core's bin/vgshell beside the shell
 # directory, whatever the shell's PATH holds, with no plugin copy.
 forget_record
 expect "openTui opens the core's sudo grant" ok ipc shell openTui core/sudo-grant
-expect_poll "the terminal is handed the core's vgsh sudo grant" \
+expect_poll "the terminal is handed the core's vgshell sudo grant" \
   "$(words --app-id=org.vgs.tui "--title=VGS · Passwordless sudo" -- "$tui_self" present --presentation full \
-    --record core/sudo-grant --run RUN --record-dir "$rt_dir/vgs/tui" --app-id org.vgs.tui --window-title "VGS · Passwordless sudo" -- "$core_vgsh" sudo grant)" recorded
+    --record core/sudo-grant --run RUN --record-dir "$rt_dir/vgshell/tui" --app-id org.vgs.tui --window-title "VGS · Passwordless sudo" -- "$core_vgshell" sudo grant)" recorded
 expect_run_end "the core's run ends before the refusals" core/sudo-grant
 forget_record
 expect "openTui opens the core's package install picker" ok ipc shell openTui core/pkg-install
-expect_poll "the terminal is handed the core's vgsh pkg install" \
+expect_poll "the terminal is handed the core's vgshell pkg install" \
   "$(words --app-id=org.vgs.tui "--title=VGS · Install packages" -- "$tui_self" present --presentation full \
-    --record core/pkg-install --run RUN --record-dir "$rt_dir/vgs/tui" --app-id org.vgs.tui --window-title "VGS · Install packages" -- "$core_vgsh" pkg install)" recorded
+    --record core/pkg-install --run RUN --record-dir "$rt_dir/vgshell/tui" --app-id org.vgs.tui --window-title "VGS · Install packages" -- "$core_vgshell" pkg install)" recorded
 expect_run_end "the core's picker run ends before the refusals" core/pkg-install
 
 # Refusals, each before any launcher starts.
@@ -120,16 +120,16 @@ expect "a refused request starts no launcher" '[]' lent tui.launching
 record_state() { [[ -e $sandbox/tui-argv ]] && echo recorded || echo none; }
 expect "a refused request reaches no terminal" none record_state
 
-# A launcher that finds no terminal. A stand-in bin/vgsh-tui that answers
+# A launcher that finds no terminal. A stand-in bin/vgshell-tui that answers
 # launch and check as the real one does without xdg-terminal-exec takes its
 # place, since the sandbox PATH may hold a real one. The request made while
 # the state said present answers ok and its launcher's exit 69 is logged;
 # every later request answers launcher-missing at once, through the
-# capability, openTui and vgsh tui open, and starts one probe.
-cp -- "$repo/bin/vgsh-tui" "$sandbox/vgsh-tui.real"
-printf '#!/bin/sh\nprintf '"'"'vgsh-tui: refused: terminal=missing\\n'"'"' >&2\nexit 69\n' >"$sandbox/vgsh-tui.missing"
-chmod 755 "$sandbox/vgsh-tui.missing"
-cp -- "$sandbox/vgsh-tui.missing" "$repo/bin/vgsh-tui.next" && mv -T -- "$repo/bin/vgsh-tui.next" "$repo/bin/vgsh-tui"
+# capability, openTui and vgshell tui open, and starts one probe.
+cp -- "$repo/bin/vgshell-tui" "$sandbox/vgshell-tui.real"
+printf '#!/bin/sh\nprintf '"'"'vgshell-tui: refused: terminal=missing\\n'"'"' >&2\nexit 69\n' >"$sandbox/vgshell-tui.missing"
+chmod 755 "$sandbox/vgshell-tui.missing"
+cp -- "$sandbox/vgshell-tui.missing" "$repo/bin/vgshell-tui.next" && mv -T -- "$repo/bin/vgshell-tui.next" "$repo/bin/vgshell-tui"
 expected_errors+=('tui: refused: tui=acme\.tui/hello reason=launcher-missing')
 expect "a request made while the launcher was present answers ok" ok tui run hello
 expect_log "a launcher without a terminal is logged as launcher-missing" 1 'tui: refused: tui=acme\.tui/hello reason=launcher-missing'
@@ -138,13 +138,13 @@ expect_poll "the launcher's exit 69 records the terminal missing" '"missing"' le
 forget_record
 expect "the capability answers launcher-missing at once" "refused: tui=hello reason=launcher-missing" tui run hello
 expect "openTui answers launcher-missing at once" "refused: tui=acme.tui/hello reason=launcher-missing" ipc shell openTui acme.tui/hello
-vgsh_open_refusal() { local status=0 err; err="$("${shell_env[@]}" "$repo/bin/vgsh" tui open acme.tui/hello 2>&1 >/dev/null)" || status=$?; printf '%s exit=%s\n' "${err%%$'\n'*}" "$status"; }
-expect "vgsh tui open refuses with launcher-missing" "vgsh: refused: tui=acme.tui/hello reason=launcher-missing exit=1" vgsh_open_refusal
+vgshell_open_refusal() { local status=0 err; err="$("${shell_env[@]}" "$repo/bin/vgshell" tui open acme.tui/hello 2>&1 >/dev/null)" || status=$?; printf '%s exit=%s\n' "${err%%$'\n'*}" "$status"; }
+expect "vgshell tui open refuses with launcher-missing" "vgshell: refused: tui=acme.tui/hello reason=launcher-missing exit=1" vgshell_open_refusal
 expect_poll "the probe a refusal started ends" false lent tui.probing
 expect "the failed probe keeps the terminal missing" '"missing"' lent tui.launcher
 expect "a launcher-missing answer starts no launcher" '[]' lent tui.launching
 expect "a launcher-missing answer reaches no terminal" none record_state
-cp -- "$sandbox/vgsh-tui.real" "$repo/bin/vgsh-tui.next" && mv -T -- "$repo/bin/vgsh-tui.next" "$repo/bin/vgsh-tui"
+cp -- "$sandbox/vgshell-tui.real" "$repo/bin/vgshell-tui.next" && mv -T -- "$repo/bin/vgshell-tui.next" "$repo/bin/vgshell-tui"
 expect "a request before the next probe still answers launcher-missing" "refused: tui=hello reason=launcher-missing" tui run hello
 expect_poll "the probe that request started finds the terminal again" '"present"' lent tui.launcher
 expect "a later request answers ok once the probe passed" ok tui run hello
@@ -163,7 +163,7 @@ wait_state() { tui state | py_reply 'import json,sys; s=json.load(sys.stdin)["wa
 wait_window() { hypr -j clients | py_reply 'import json,sys; print(sum(1 for c in json.load(sys.stdin) if c["class"]=="org.vgs.tui" and c["title"]=="VGS · Wait"))'; }
 # The last ended code of the wait script's key the lending record holds.
 wait_ended_code() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["tui"]["runs"]["acme.tui/wait"]["ended"]["code"]))'; }
-# How many `vgsh-tui wait` processes the core holds for the wait script's
+# How many `vgshell-tui wait` processes the core holds for the wait script's
 # key; the lending record names each as <key>|<run>.
 wait_waits() { lent tui.waits | py_reply 'import json,sys; print(sum(1 for w in json.load(sys.stdin) or [] if w.split("|")[0] == "acme.tui/wait"))'; }
 active_class() { hypr -j activewindow | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get("class")))'; }
@@ -206,16 +206,16 @@ expect_poll "the rebuilt instance reads the run the destroyed one started" '[fal
 expect "the rebuilt instance received no done" '[]' tui_done
 
 # Control: a presenter copy that writes no ended record exits and leaves
-# only its running record. The run's `vgsh-tui wait` then finds the run's
+# only its running record. The run's `vgshell-tui wait` then finds the run's
 # lock free and no ended record, ends the run with no code under the key's
 # lock, and the `done` answers it vanished, with no request for the key.
-tui_real="$sandbox/vgsh-tui.real"
-cp -- "$repo/bin/vgsh-tui" "$tui_real"
+tui_real="$sandbox/vgshell-tui.real"
+cp -- "$repo/bin/vgshell-tui" "$tui_real"
 end_line='  if [[ $record_active == 1 ]]; then record_end "${ran_code:-$status}"; fi'
 if [[ $(grep -c -F -- "$end_line" "$tui_real") == 1 ]]; then
-  python3 -c 'import sys; p, q, old = sys.argv[1:]; open(q, "w").write(open(p).read().replace(old, "  :"))' "$tui_real" "$sandbox/vgsh-tui.unended" "$end_line"
-  chmod 755 "$sandbox/vgsh-tui.unended"
-  cp -- "$sandbox/vgsh-tui.unended" "$repo/bin/vgsh-tui.next" && mv -T -- "$repo/bin/vgsh-tui.next" "$repo/bin/vgsh-tui"
+  python3 -c 'import sys; p, q, old = sys.argv[1:]; open(q, "w").write(open(p).read().replace(old, "  :"))' "$tui_real" "$sandbox/vgshell-tui.unended" "$end_line"
+  chmod 755 "$sandbox/vgshell-tui.unended"
+  cp -- "$sandbox/vgshell-tui.unended" "$repo/bin/vgshell-tui.next" && mv -T -- "$repo/bin/vgshell-tui.next" "$repo/bin/vgshell-tui"
   rm -f -- "$tui_gate"
   expect "a gated run under the unended control answers ok" ok tui run-done "wait|$tui_gate|6"
   expect_poll "the control's run is live" '[true, 5, true]' wait_state
@@ -236,9 +236,9 @@ if [[ $(grep -c -F -- "$end_line" "$tui_real") == 1 ]]; then
   expect "the unended run's state has no code" '[false, null, true]' wait_state
   expect "the unended run's done fires with no code" '[["wait",null,"vanished"]]' tui_done
   expect_poll "no wait is left running for the key" 0 wait_waits
-  cp -- "$tui_real" "$repo/bin/vgsh-tui.next" && mv -T -- "$repo/bin/vgsh-tui.next" "$repo/bin/vgsh-tui"
+  cp -- "$tui_real" "$repo/bin/vgshell-tui.next" && mv -T -- "$repo/bin/vgshell-tui.next" "$repo/bin/vgshell-tui"
 else
-  fail "the unended control's line occurs once in bin/vgsh-tui"
+  fail "the unended control's line occurs once in bin/vgshell-tui"
 fi
 
 # Control for expect_within's deadline: a read that answers idle only once

@@ -1,0 +1,145 @@
+#!/usr/bin/env bash
+# Controls for `vgshell plugin list`: the lines bin/vgshell-plugin-judge prints
+# from the shell's listPlugins reply, which a stub qs hands over, whole or
+# paged as shell/Core/IpcPages.qml pages it: the stub answers `shell page
+# ID INDEX` from $STUB_PAGES/ID.INDEX, and `absent` for a page it lacks. A missing
+# requirement's package comes from `vgshell pkg detect`, so the rows that name
+# one run under `unshare -rm` with a Void os-release bound over
+# /etc/os-release and a stub xbps-install on PATH; without user namespaces
+# they cannot run and the suite exits 77. The controls run the rows against
+# a copy of the tree whose judge lacks one rule, and each must turn a row
+# red.
+set -euo pipefail
+
+# shellcheck source=scripts/vgshell-rows.sh
+source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/vgshell-rows.sh"
+
+if ! unshare -rm true 2>/dev/null; then
+  echo "test-vgshell-plugin-list: status=not-measured missing=user-namespaces"
+  exit 77
+fi
+
+cat >"$tmp/qs" <<'SH'
+#!/bin/sh
+if [ "$6" = page ]; then
+  if [ -f "$STUB_PAGES/$7.$8" ]; then cat "$STUB_PAGES/$7.$8"; else echo absent; fi
+else
+  printf '%s\n' "$STUB_REPLY"
+fi
+SH
+chmod +x "$tmp/qs"
+rt_live="$tmp/rt-live"; mkdir -p "$rt_live"; printf '%s\n' "$$" >"$rt_live/vgshell.lock"
+managers="$tmp/managers"; mkdir -p "$managers"
+printf '#!/bin/sh\nexit 99\n' >"$managers/xbps-install"; chmod +x "$managers/xbps-install"
+os_release="$tmp/os-release"; printf 'NAME="Void"\nID="void"\n' >"$os_release"
+
+# A reply of plugin acme.need holding REQUIREMENTS, a JSON list of rows.
+reply() { # REQUIREMENTS [UNKNOWN]
+  printf '{"plugins":[{"id":"acme.need","version":"1.0","kinds":["service"],"enabled":false,"dir":"/x","requirements":%s}],"errors":[],"collisions":[],"unknown":%s,"scanError":"","scanned":true}' "$1" "${2:-[]}"
+}
+req() { # COMMAND STATE OPTIONAL PACKAGES
+  printf '{"command":"%s","packages":%s,"optional":%s,"purpose":"p","state":"%s"}' "$1" "$4" "$3" "$2"
+}
+
+# case_out BIN BOUND REPLY: `plugin list` through BIN with REPLY; BOUND is
+# `bound` for the os-release fixture, else `plain`. Sets out, err, status.
+case_out() {
+  local bin="$1" bound="$2" rep="$3" run=()
+  [[ $bound == bound ]] && run=(unshare -rm sh -c 'mount --bind "$1" /etc/os-release && shift && exec "$@"' sh "$os_release")
+  set +e
+  out="$("${run[@]}" "${base_env[@]}" PATH="$managers:$base_path" XDG_RUNTIME_DIR="$rt_live" STUB_REPLY="$rep" STUB_PAGES="$pages" "$bin" plugin list 2>"$tmp/err")"
+  status=$?
+  set -e
+  err=""
+  [[ -s $tmp/err ]] && IFS= read -r err <"$tmp/err"
+}
+
+# Reply 7 is the first row's reply in two pages; reply 8 holds its first
+# page alone, so its second reads `absent`.
+pages="$tmp/pages"; mkdir -p "$pages"
+whole="$(reply '[]')"
+printf '2 %s\n' "${whole:0:40}" >"$pages/7.0"
+printf '2 %s\n' "${whole:40}" >"$pages/7.1"
+cp -- "$pages/7.0" "$pages/8.0"
+
+# rows: name | bound | reply | want last stdout line | want exit | want first stderr line
+declare -a ROWS=(
+  "a plugin row per plugin|plain|$(reply '[]')|acme.need                    1.0      disabled  kinds=service|0|"
+  "a configured id no plugin has|plain|$(reply '[]' '[{"id":"vgs.background","key":"disabledPlugins"}]')|unknown vgs.background in disabledPlugins|0|"
+  "a present requirement prints no line|plain|$(reply "[$(req gum present false '{"xbps":"gum"}')]")|acme.need                    1.0      disabled  kinds=service|0|"
+  "a missing requirement with no package names its command|plain|$(reply "[$(req gum missing false '{}')]")|missing acme.need gum|0|"
+  "a missing optional requirement says so|plain|$(reply "[$(req fzf missing true '{}')]")|missing acme.need fzf optional|0|"
+  "a missing requirement names this system's package|bound|$(reply "[$(req gum missing false '{"pacman":"gum-arch","xbps":"gum-void"}')]")|missing acme.need gum (gum-void)|0|"
+  "a package for no manager here names the command alone|bound|$(reply "[$(req gum missing false '{"apt":"gum"}')]")|missing acme.need gum|0|"
+  "missing lines follow the unknown lines|plain|$(reply "[$(req gum missing false '{}')]" '[{"id":"vgs.background","key":"disabledPlugins"}]')|missing acme.need gum|0|"
+  "a paged reply reads as the whole reply|plain|paged=7|acme.need                    1.0      disabled  kinds=service|0|"
+  "a page the shell no longer keeps refuses|plain|paged=8||69|vgshell: refused: ipc=shell.listPlugins reason=page-absent page=1"
+)
+
+# run_rows BIN QUIET: every row through BIN; prints ok/FAIL lines unless
+# QUIET and returns the number of rows that failed.
+run_rows() {
+  local bin="$1" quiet="$2" row name bound rep want_out want_exit want_err red=0
+  for row in "${ROWS[@]}"; do
+    IFS='|' read -r name bound rep want_out want_exit want_err <<<"$row"
+    case_out "$bin" "$bound" "$rep"
+    if [[ $status == "$want_exit" && ${out##*$'\n'} == "$want_out" && $err == "$want_err" ]]; then
+      [[ $quiet == quiet ]] || ok "$name"
+    else
+      red=$((red + 1))
+      [[ $quiet == quiet ]] || fail "$name: exit=$status want=$want_exit last=[${out##*$'\n'}] want=[$want_out] stderr=[$err] want=[$want_err]"
+    fi
+  done
+  return "$red"
+}
+run_rows "$repo/bin/vgshell" loud || true
+
+# A tree the judge resolves its siblings in: bin/ copied, its loader
+# included, and the shell libraries it loads linked.
+tree="$tmp/tree"; mkdir -p "$tree/shell/Core" "$tree/shell/Commons" "$tree/shell/Ui/icons"
+cp -R -- "$repo/bin" "$tree/"
+ln -s -- "$repo/shell/Commons/SettingValues.js" "$tree/shell/Commons/SettingValues.js"
+ln -s -- "$repo/shell/Core/PluginLogic.js" "$tree/shell/Core/PluginLogic.js"
+ln -s -- "$repo/shell/Core/PackageManagers.js" "$tree/shell/Core/PackageManagers.js"
+ln -s -- "$repo/shell/Core/HyprlandLayer.js" "$tree/shell/Core/HyprlandLayer.js"
+ln -s -- "$repo/shell/Core/Pads.js" "$tree/shell/Core/Pads.js"
+ln -s -- "$repo/shell/Ui/icons/Lucide.js" "$tree/shell/Ui/icons/Lucide.js"
+
+# Detection that cannot run is a refusal naming it, never a line without
+# its package: the tree's vgshell-pkg is set aside for the one run. Returns 1
+# when the refusal is not the one printed.
+detect_failure_row() { # QUIET
+  local good=0
+  mv -- "$tree/bin/vgshell-pkg" "$tmp/vgshell-pkg.aside"
+  case_out "$tree/bin/vgshell" plain "$(reply "[$(req gum missing false '{"xbps":"gum"}')]")"
+  mv -- "$tmp/vgshell-pkg.aside" "$tree/bin/vgshell-pkg"
+  [[ $status == 1 && $err == "vgshell: refused: detect=failed exit=1" ]] || good=1
+  [[ $1 == quiet ]] && return "$good"
+  if [[ $good == 0 ]]; then ok "a detection that fails refuses the list"; else fail "a detection that fails: exit=$status stderr=[$err]"; fi
+  return 0
+}
+detect_failure_row loud
+
+# controls: label, the file under bin/ the copy changes, the text in it,
+# then its replacement, one control per four entries. The copy replaces
+# the file in the tree; every row and the detection refusal run against
+# it, and the file is put back after.
+declare -a CONTROLS=(
+  "a missing requirement is listed" bin/vgshell-plugin-judge 'if (r.state === "missing") missing.push' 'if (false) missing.push'
+  "the package is this system's pick" bin/vgshell-plugin-judge 'logic.PackageManagers.packageFor(m.requirement.packages, found)' 'null'
+  "an optional requirement says so" bin/vgshell-plugin-judge '(optional ? " optional" : "")' '""'
+  "a failed detection refuses" bin/vgshell-plugin-judge 'if (r.error !== undefined || r.status !== 0) {' 'if (false) {'
+  "a paged shell reply is read back whole" bin/vgshell 'if vgs_ipc_paged_id "${1:-}" "$ipc_line"; then' 'if vgs_ipc_paged_id none "$ipc_line"; then'
+)
+for ((i = 0; i < ${#CONTROLS[@]}; i += 4)); do
+  label="${CONTROLS[i]}" file="${CONTROLS[i + 1]}" needle="${CONTROLS[i + 2]}" replacement="${CONTROLS[i + 3]}"
+  count="$(grep -c -F -- "$needle" "$repo/$file")" || count=0
+  if [[ $count != 1 ]]; then fail "control: $label: the text to replace occurs $count times in $file, not once"; continue; fi
+  src="$(<"$repo/$file")"
+  printf '%s\n' "${src/"$needle"/"$replacement"}" >"$tree/$file"
+  if cmp -s -- "$repo/$file" "$tree/$file"; then fail "control: $label: the copy is unchanged"; continue; fi
+  if run_rows "$tree/bin/vgshell" quiet && detect_failure_row quiet; then fail "control: $label: the rows pass without the rule"; else ok "control: the rows fail without the rule: $label"; fi
+  cp -- "$repo/$file" "$tree/$file"
+done
+
+rows_done test-vgshell-plugin-list

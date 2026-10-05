@@ -16,8 +16,8 @@ function inside() {
     for (const name of ["PATH", "HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_DATA_HOME",
         "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS"]) env[name] = process.env[name];
     const root = process.env.JARVIS_TEST_ROOT;
-    const directory = path.join(env.XDG_STATE_HOME, "vgs/jarvis");
-    const store = new api.Secrets(directory, { ...env, OPENAI_API_KEY: key, VGSH_RUNNER_PID: "123" });
+    const directory = path.join(env.XDG_STATE_HOME, "vgshell/jarvis");
+    const store = new api.Secrets(directory, { ...env, OPENAI_API_KEY: key, VGSHELL_RUNNER_PID: "123" });
     let cases = 0, controls = 0;
     const safe = value => assert.equal(String(value).includes(key), false, "no key in files, logs, argv, env or status");
     const calls = name => fs.existsSync(path.join(env.XDG_STATE_HOME, name))
@@ -49,7 +49,7 @@ function inside() {
     assert.deepEqual(receipt.argv, ["lookup", "service", "vgs-jarvis", "provider", "fixture",
         "account", "test", "origin", "https://fixture.invalid"]);
     assert.equal(receipt.env.OPENAI_API_KEY, undefined);
-    assert.equal(receipt.env.VGSH_RUNNER_PID, undefined);
+    assert.equal(receipt.env.VGSHELL_RUNNER_PID, undefined);
     safe(calls("secret-calls"));
     const external = { ...ref, account: "external", attributes: { application: "other-tool", id: "chosen-item" } };
     store.remember(external);

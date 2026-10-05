@@ -46,8 +46,8 @@ def measurement():
 def roots():
     """Use the same state and data roots as the service's hello."""
     home = Path(os.environ["HOME"])
-    state = Path(os.environ.get("XDG_STATE_HOME") or home / ".local/state") / "vgs/jarvis"
-    data = Path(os.environ.get("XDG_DATA_HOME") or home / ".local/share") / "vgs/jarvis/local"
+    state = Path(os.environ.get("XDG_STATE_HOME") or home / ".local/state") / "vgshell/jarvis"
+    data = Path(os.environ.get("XDG_DATA_HOME") or home / ".local/share") / "vgshell/jarvis/local"
     return state, data
 
 

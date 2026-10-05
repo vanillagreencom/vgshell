@@ -1,13 +1,13 @@
-// The one reader of bin/vgsh's preflight_floor table for the checks under
+// The one reader of bin/vgshell's preflight_floor table for the checks under
 // scripts/: check-packaging.js and check-readme.js.
 //
-// parseFloors(text) takes bin/vgsh's text and returns one tagged value:
+// parseFloors(text) takes bin/vgshell's text and returns one tagged value:
 //   { ok: true, rows: [{ tool, need, probe }] }: need a dotted version or
 //     `present`, probe the first word of the probe command;
 //   { ok: false, key, detail }: key `floors=unreadable` for no table or a
 //     malformed row, `floors=empty` for a table with no row.
 // The table is the lines between `preflight_floor='` and the closing `'`.
-// DOTTED is the version form bin/vgsh's version_at_least compares.
+// DOTTED is the version form bin/vgshell's version_at_least compares.
 "use strict";
 
 const DOTTED = /^[0-9]+(\.[0-9]+)*$/;

@@ -26,7 +26,7 @@ world(async () => {
     const explicitRoot = path.join(home, "explicit-claude");
     const handRoot = path.join(home, "hand-added");
     fs.mkdirSync(handRoot);
-    const accountState = path.join(roots.state, "vgs", "jarvis");
+    const accountState = path.join(roots.state, "vgshell", "jarvis");
     fs.mkdirSync(accountState, { recursive: true });
     fs.writeFileSync(path.join(accountState, "accounts.json"), JSON.stringify([{ provider: "claude", directory: handRoot, label: "hand" }]));
     const { accountRoots } = require(path.join(backend, "Accounts.js"));
@@ -34,8 +34,8 @@ world(async () => {
     assert.deepEqual(options.accountRoots, [explicitRoot, handRoot]);
     const deniedPaths = [
         ["credential", path.join(ssh, "id")],
-        ["vgs-config", path.join(roots.config, "vgs", "shell.json")],
-        ["vgs-state", path.join(roots.state, "vgs", "jarvis", "audit")],
+        ["vgs-config", path.join(roots.config, "vgshell", "shell.json")],
+        ["vgs-state", path.join(roots.state, "vgshell", "jarvis", "audit")],
         ["install", path.join(roots.install, "VERSION")],
         ["home-depth-1", path.join(home, ".claude-team", "notes")],
         ["home-depth-2", path.join(home, "accounts", ".codex-work", "notes")],
@@ -807,7 +807,7 @@ world(async () => {
         const outcomes = {};
         const reads = [["ordinary", path.join(t, "notes.txt")], ["account", path.join(home, ".claude-team", "notes")],
             ["explicit", path.join(daemonExplicit, "notes")], ["hand", path.join(daemonHand, "notes")],
-            ["config", path.join(roots.config, "vgs", "shell.json")], ["install", path.join(folder, "VERSION")]];
+            ["config", path.join(roots.config, "vgshell", "shell.json")], ["install", path.join(folder, "VERSION")]];
         try {
             child.stdin.write(JSON.stringify({ v: 1, type: "hello", gen: 0, revision: "a".repeat(64), locked: false,
                 settings: { mode: "hold", microphone: "", speaker: "", brain: "", taskTerminal: "auto", cloudVision: "ask", privateWindows: "" },

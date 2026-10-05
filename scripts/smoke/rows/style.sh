@@ -17,7 +17,7 @@
 # were and hyprland.lua as it found it.
 # inputs: shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.themes/Service.qml shell/plugins/vgs.bar/* shell/plugins/vgs.launcher/* shell/Core/ShortcutRegistry.qml shell/Core/Registry.qml shell/Core/PluginLogic.js shell/Core/HyprlandLayer.js shell/Core/ServiceGate.qml shell/Hosts/BarHost.qml scripts/smoke/toplevel/* scripts/smoke/rows/launcher.sh scripts/smoke/rows/hyprland.sh scripts/smoke/rows/themes.sh themes/catalog/flexoki-light/*
 set -euo pipefail
-user_config="$home/.config/vgs/shell.json"
+user_config="$home/.config/vgshell/shell.json"
 # The value of setting KEY in plugin ID's `plugins` row of the user file,
 # `absent` without one.
 user_setting() { python3 -c 'import json,sys; rows=[r for r in json.load(open(sys.argv[1])).get("plugins", []) if r.get("id") == sys.argv[2]]; print(json.dumps(rows[0][sys.argv[3]]) if rows and sys.argv[3] in rows[0] else "absent")' "$user_config" "$1" "$2"; }
@@ -129,7 +129,7 @@ expect "the host hides the launcher" ok ipc shell hide overlay vgs.launcher
 # A theme carries no gaps: applying another, an installed copy of the
 # catalog's flexoki-light, leaves the rule, and turning the toggle off then
 # gives the user's gaps under that theme.
-plant_flexoki_light "$home/.config/vgs/themes" || fail "the flexoki-light copy could not be installed"
+plant_flexoki_light "$home/.config/vgshell/themes" || fail "the flexoki-light copy could not be installed"
 expect "applying the flexoki-light theme succeeds" "ok theme=flexoki-light" applied flexoki-light
 expect_poll "the flexoki-light theme is applied" flexoki-light ipc smoke themeName
 expect_poll "the zero-gap rule holds across a theme apply" '[[0, 0, 0, 0], [0, 0, 0, 0]]' gap_rule
@@ -140,7 +140,7 @@ expect_poll "the zero-gap rule is gone" none gap_rule
 geometry expect_poll "the tiled window sits inside the user's gaps again" '[37, 37, 37, 37]' tile_inset "$tile_pid"
 expect "applying vgs again succeeds" "ok theme=vgs" applied vgs
 expect_poll "vgs is applied again" vgs ipc smoke themeName
-rm -rf -- "${home:?}/.config/vgs/themes/flexoki-light"
+rm -rf -- "${home:?}/.config/vgshell/themes/flexoki-light"
 [[ -z $tile_pid ]] || { tui_pid="$tile_pid"; close_tui "the tiled window's helper exits 0 on SIGTERM"; }
 hypr_lua_restore style || fail "hyprland.lua is put back after the gaps rows"
 

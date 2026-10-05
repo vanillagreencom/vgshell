@@ -91,12 +91,12 @@ function verify(logic) {
   const pluginRow = failedPlugins.sources.find(s => s.source === "plugins");
   same([pluginRow.count, pluginRow.error], [1, "bad: fetch=bad"]);
   same(logic.checkState(failedPlugins, false, now, 6 * 60 * 60 * 1000, ""), { tone: "warning", text: "Plugins: The update source could not be reached. Check your connection and select Refresh." });
-  const untracked = logic.normalizeSnapshot({ pkg: probe([]), self: probe({ behind: false, error: null }), plugins: probe([{ id: "local", behind: null, head: null, upstream: null, error: "not-a-checkout=/home/u/.config/vgs/plugins/local" }]), themes: probe([]) }, now);
+  const untracked = logic.normalizeSnapshot({ pkg: probe([]), self: probe({ behind: false, error: null }), plugins: probe([{ id: "local", behind: null, head: null, upstream: null, error: "not-a-checkout=/home/u/.config/vgshell/plugins/local" }]), themes: probe([]) }, now);
   const untrackedRow = untracked.sources.find(s => s.source === "plugins");
   same([untrackedRow.count, untrackedRow.packages, untrackedRow.error], [0, [], null]);
   const noManager = logic.normalizeSnapshot({ pkg: probe([]), self: probe({ behind: false, error: null }), plugins: probe([]), themes: probe([]) }, now);
   same(noManager.sources.map(s => s.source), ["vgs", "plugins", "themes"]);
-  const failedPkg = logic.normalizeSnapshot({ pkg: probe("", 1, "vgsh: refused: lock=failed"), self: probe({ behind: false, error: null }), plugins: probe([]), themes: probe([]) }, now);
+  const failedPkg = logic.normalizeSnapshot({ pkg: probe("", 1, "vgshell: refused: lock=failed"), self: probe({ behind: false, error: null }), plugins: probe([]), themes: probe([]) }, now);
   same(failedPkg.sources[0], { source: "packages", label: "Packages", count: null, packages: [], checkedAt: null, error: "exit=1 lock=failed" });
 
   assert.equal(logic.tuiRunEnded({}, {}), false);

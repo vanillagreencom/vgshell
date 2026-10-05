@@ -4,7 +4,7 @@
 # one commit behind its upstream. Every call is logged; any other call is
 # refused loudly, so no real repository or remote is ever reached.
 set -euo pipefail
-root="${XDG_STATE_HOME:?}/vgs/updates-smoke"
+root="${XDG_STATE_HOME:?}/vgshell/updates-smoke"
 mkdir -p -- "$root"
 printf 'git %s\n' "$*" >>"$root/calls.log"
 work="$PWD"

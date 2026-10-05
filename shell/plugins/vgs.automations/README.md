@@ -24,7 +24,7 @@ The plugin ships with VGS and is enabled by default. It needs `notify-send` (lib
 1. Select **New** in the Automations window to add a command and schedule.
 2. The command writes a timer and a service for it under `~/.config/systemd/user/` and enables the timer. The service runs the plugin's runner, never your command directly.
 3. At each run the runner starts your command in your login shell, so it finds what your terminal finds, and stops it at its timeout.
-4. It saves a transcript, each output line with its time, and a record of the outcome under `~/.local/state/vgs/automations/runs/`.
+4. It saves a transcript, each output line with its time, and a record of the outcome under `~/.local/state/vgshell/automations/runs/`.
 5. A failure sends a red notification with the last error lines. With "notify on every run" on, a start and a green finish notification come too. Under the VGS notifications, a click on a finish or failure notification opens the transcript in your `$EDITOR`, or with `xdg-open`.
 
 Open the window from the launcher rows "Automations" and "New automation". The editor uses presets first, then Custom for every N days, weeks, months or years. Once is stored as a schedule that ends after one run.
@@ -33,7 +33,7 @@ Timers stop when you log out unless systemd keeps your user manager running, whi
 
 ## The automations command
 
-The command is `bin/automations` in the plugin's directory, run with the VGS tree first: `/usr/share/vgs` for an installed VGS, or the checkout. From a checkout:
+The VGS plugin's developer command is `bin/automations`. It uses `/usr/share/vgshell` for an installed VGS, or a checkout. The examples use a checkout:
 
 ```bash
 alias automations="$PWD/shell/plugins/vgs.automations/bin/automations --tree $PWD"
@@ -50,5 +50,5 @@ The verbs are `list`, `add`, `edit`, `enable`, `disable`, `remove`, `run-now`, `
 
 | Setting | Where | Default |
 |---|---|---|
-| Keep history, 1 to 30 days | the plugin's Settings page, or `historyDays` in its `plugins` row of `~/.config/vgs/shell.json` | 30 |
+| Keep history, 1 to 30 days | the plugin's Settings page, or `historyDays` in its `plugins` row of `~/.config/vgshell/shell.json` | 30 |
 | Paused, timeout, catch-up, working directory, notify on every run | each automation's definition: `enabled`, `timeoutSeconds`, `catchUp`, `workingDirectory`, `notifyEveryRun` | enabled, 3600 s, off, your home, off |

@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
 # vgs.updates check runner.
-# Usage: check --vgsh /absolute/path/to/vgsh
-# It holds $XDG_RUNTIME_DIR/vgs/updates/check.lock, starts the four read-only
-# vgsh probes concurrently in separate process groups, normalizes them through
-# NormalizeCheck.js, atomically writes $XDG_STATE_HOME/vgs/updates/status.json
+# Usage: check --vgshell /absolute/path/to/vgshell
+# It holds $XDG_RUNTIME_DIR/vgshell/updates/check.lock, starts the four read-only
+# vgshell probes concurrently in separate process groups, normalizes them through
+# NormalizeCheck.js, atomically writes $XDG_STATE_HOME/vgshell/updates/status.json
 # and prints the same JSON. TERM, INT and HUP send TERM to every live probe
 # group, wait for them and exit 128 plus the signal.
 set -euo pipefail
 
-usage() { printf 'updates-check: refused: %s\nusage: check --vgsh PATH\n' "$1" >&2; exit 2; }
-[[ ${1:-} == --vgsh && $# -eq 2 && -n ${2:-} ]] || usage 'vgsh=missing'
-vgsh="$2"
-[[ $vgsh == /* && -x $vgsh ]] || usage "vgsh=$vgsh"
+usage() { printf 'updates-check: refused: %s\nusage: check --vgshell PATH\n' "$1" >&2; exit 2; }
+[[ ${1:-} == --vgshell && $# -eq 2 && -n ${2:-} ]] || usage 'vgshell=missing'
+vgshell="$2"
+[[ $vgshell == /* && -x $vgshell ]] || usage "vgshell=$vgshell"
 
 state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
 runtime_dir="${XDG_RUNTIME_DIR:-$state_home}"
-state_dir="$state_home/vgs/updates"
-lock_dir="$runtime_dir/vgs/updates"
+state_dir="$state_home/vgshell/updates"
+lock_dir="$runtime_dir/vgshell/updates"
 mkdir -p -- "$state_dir" "$lock_dir"
 lock="$lock_dir/check.lock"
 status_file="$state_dir/status.json"
@@ -24,7 +24,7 @@ script="$(readlink -f -- "${BASH_SOURCE[0]}")"
 plugin_dir="$(cd -- "$(dirname -- "$script")/.." && pwd)"
 logic="$plugin_dir/UpdatesLogic.js"
 normalizer="$plugin_dir/NormalizeCheck.js"
-loader="$(cd -- "$(dirname -- "$vgsh")" && pwd)/lib/qml-library.js"
+loader="$(cd -- "$(dirname -- "$vgshell")" && pwd)/lib/qml-library.js"
 prefix="$$"
 
 exec 9>"$lock"
@@ -66,10 +66,10 @@ trap 'stop_all 130' INT
 trap 'stop_all 129' HUP
 trap cleanup EXIT
 
-start_probe pkg "$vgsh" pkg check --json
-start_probe self "$vgsh" self status --json
-start_probe plugins "$vgsh" plugin outdated --json
-start_probe themes "$vgsh" theme outdated --json
+start_probe pkg "$vgshell" pkg check --json
+start_probe self "$vgshell" self status --json
+start_probe plugins "$vgshell" plugin outdated --json
+start_probe themes "$vgshell" theme outdated --json
 
 for i in "${!pids[@]}"; do
   status=0

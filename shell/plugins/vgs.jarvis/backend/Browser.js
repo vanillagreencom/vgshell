@@ -46,8 +46,8 @@ function roots(environment) {
     const runtime = environment.XDG_RUNTIME_DIR;
     if (![home, data, runtime].every(value => typeof value === "string" && path.isAbsolute(value)))
         throw new Error("jarvis: browser=directories");
-    return { home: path.join(data, "vgs/jarvis/browser-home"), runtime: path.join(runtime, "vgs/jarvis"),
-        marker: path.join(data, "vgs/jarvis/browser-ready.json") };
+    return { home: path.join(data, "vgshell/jarvis/browser-home"), runtime: path.join(runtime, "vgshell/jarvis"),
+        marker: path.join(data, "vgshell/jarvis/browser-ready.json") };
 }
 
 /** Readiness is tied to the CLI version verified by setup, never a stale pass. */

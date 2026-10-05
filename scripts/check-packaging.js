@@ -5,18 +5,18 @@
 //   node scripts/check-packaging.js [--root DIR]
 //
 // DIR, this repository by default, holds the data judged: VERSION,
-// bin/vgsh's preflight_floor table, config/requirements.json, the plugins
+// bin/vgshell's preflight_floor table, config/requirements.json, the plugins
 // under shell/plugins, packaging/arch, packaging/fedora,
 // packaging/install-tree.manifest, docs/architecture/distribution.md, and
 // the git repository the release-tag lookup reads. The judge, its loader and
-// bin/vgsh-scan always come from this script's own repository, so a data
+// bin/vgshell-scan always come from this script's own repository, so a data
 // root needs none of their code.
 //
 // One reader, readRequirements, builds the normalized requirement list:
 //   - config/requirements.json, the core's commands, and each shipped
-//     plugin's manifest `requirements`, listed by bin/vgsh-scan and judged
+//     plugin's manifest `requirements`, listed by bin/vgshell-scan and judged
 //     by shell/Core/PluginLogic.js;
-//   - bin/vgsh's preflight_floor table, the versions `vgsh run` refuses to
+//   - bin/vgshell's preflight_floor table, the versions `vgshell run` refuses to
 //     start below. A row attaches to the first requirement whose command is
 //     the row's probe command, else it adds one. A row makes its
 //     requirement required, and names its package: the declared package for
@@ -47,22 +47,22 @@
 //                same soft dependencies
 // Before any channel: packaging/install-tree.manifest lists MESSAGE, the
 // file of the installed tree every package prints on a first install.
-// pacman (packaging/arch/{vgs,vgs-git}/.SRCINFO): depends and optdepends;
+// pacman (packaging/arch/{vgshell,vgshell-git}/.SRCINFO): depends and optdepends;
 // optdepends may name more than the requirements. Hard dependencies are
-// exactly the required union. vgs: pkgver is VERSION's
+// exactly the required union. vgshell: pkgver is VERSION's
 // line; arch is any; no replaces; source is the release tarball URL; one sha256sums entry, SKIP
 // only while the tag v<pkgver> does not exist, otherwise 64 lower-case hex
-// digits. vgs-git: arch is any; provides holds vgs=<pkgver>; makedepends holds git; no
+// digits. vgshell-git: arch is any; provides holds vgshell=<pkgver>; makedepends holds git; no
 // replaces; no source; url is the repository URL; the PKGBUILD's prepare()
-// holds GIT_CLONE, the clone of main alone. Conflicts are exactly vgs on
-// vgs-git and none on vgs: a missing or an extra entry is refused. Both: install is <pkgname>.install,
+// holds GIT_CLONE, the clone of main alone. Conflicts are exactly vgshell on
+// vgshell-git and none on vgshell: a missing or an extra entry is refused. Both: install is <pkgname>.install,
 // the scriptlet beside the PKGBUILD; its post_install prints MESSAGE under
 // /usr; the two scriptlets are the same text; the PKGBUILD's package()
 // holds PACMAN_INSTALL, the system install with SYSCONFDIR, so the package
 // ships the browser theme writer and its sudoers rule. Freshness, last:
 // each .SRCINFO is exactly `makepkg --printsrcinfo` of the PKGBUILD beside
 // it.
-// dnf (packaging/fedora/{vgs,vgs-git}.spec): the Requires and Recommends
+// dnf (packaging/fedora/{vgshell,vgshell-git}.spec): the Requires and Recommends
 // lines between `# begin runtime dependencies` and `# end runtime
 // dependencies`, exactly the requirements' set. The block is the same in
 // both specs; both are noarch, named for their package, share License, URL,
@@ -70,9 +70,9 @@
 // sections, install through packaging/install-system.sh with SYSCONFDIR,
 // check the tree with scripts/check-install-tree.sh and SYSCONFDIR, list
 // the browser theme writer, its sudoers rule, 0440 and noreplace, and the
-// XDG autostart entry, noreplace, in %files, and print MESSAGE from %post on a first install only. vgs.spec's Version is VERSION's line and
-// its newest %changelog entry is that version at its Release. vgs-git.spec
-// provides vgs at its version, conflicts with vgs and ends with an empty
+// XDG autostart entry, noreplace, in %files, and print MESSAGE from %post on a first install only. vgshell.spec's Version is VERSION's line and
+// its newest %changelog entry is that version at its Release. vgshell-git.spec
+// provides vgshell at its version, conflicts with vgshell and ends with an empty
 // %changelog, which packaging/fedora/srpm.sh fills.
 // Licence, after every channel: the package licence expression
 // docs/architecture/distribution.md § Licence states, its line
@@ -105,17 +105,17 @@ const root = (() => {
     process.stdout.write("check-packaging: refused: argument=" + args.join(" ") + "\n");
     return process.exit(2);
 })();
-const REPO_URL = "https://github.com/vanillagreencom/vgs";
+const REPO_URL = "https://github.com/vanillagreencom/vgshell";
 // The first-install text, relative to the install prefix. A package manager
 // runs no VGS code at install, so each channel's scriptlet prints this file.
-const MESSAGE = "share/vgs/bin/lib/post-install.txt";
+const MESSAGE = "share/vgshell/bin/lib/post-install.txt";
 const MANIFEST = "packaging/install-tree.manifest";
 // The system install every Arch recipe's package() runs.
 const PACMAN_INSTALL = 'DESTDIR="$pkgdir" PREFIX=/usr SYSCONFDIR=/etc ./packaging/install-system.sh';
-// The vgs-git fetch. makepkg clones a git+ source as a mirror of every ref
+// The vgshell-git fetch. makepkg clones a git+ source as a mirror of every ref
 // the remote advertises, GitHub's refs/pull/* among them; this takes main's
 // commits, trees and tags and only the blobs of its checkout.
-const GIT_CLONE = 'git clone --filter=blob:none --single-branch --branch main -- "$url.git" "$srcdir/vgs"';
+const GIT_CLONE = 'git clone --filter=blob:none --single-branch --branch main -- "$url.git" "$srcdir/vgshell"';
 
 const scratchDirs = [];
 process.on("exit", () => { for (const dir of scratchDirs) fs.rmSync(dir, { recursive: true, force: true }); });
@@ -165,7 +165,7 @@ function readText(rel, key) {
 }
 
 // True when HAVE >= NEED, both dotted decimal integers compared component
-// by component, a missing component 0: bin/vgsh's version_at_least.
+// by component, a missing component 0: bin/vgshell's version_at_least.
 function atLeast(have, need) {
     const a = have.split(".").map(Number), b = need.split(".").map(Number);
     for (let i = 0; i < Math.max(a.length, b.length); i++) {
@@ -175,11 +175,11 @@ function atLeast(have, need) {
     return true;
 }
 
-// bin/vgsh's preflight_floor rows as [{ tool, need, probe }], read by
+// bin/vgshell's preflight_floor rows as [{ tool, need, probe }], read by
 // scripts/preflight-floor.js.
 function readFloors() {
-    const read = parseFloors(readText("bin/vgsh", "floors=unreadable"));
-    if (!read.ok) refuse(read.key + " path=bin/vgsh", read.detail);
+    const read = parseFloors(readText("bin/vgshell", "floors=unreadable"));
+    if (!read.ok) refuse(read.key + " path=bin/vgshell", read.detail);
     return read.rows;
 }
 
@@ -199,7 +199,7 @@ function readRequirements() {
     const list = ctx.normalRequirements(core).map(r => entry("core", r));
 
     const base = path.join(root, "shell", "plugins");
-    const scan = childProcess.spawnSync(path.join(codeRoot, "bin", "vgsh-scan"), ["--require-base", base], { encoding: "utf8", env: { PATH: process.env.PATH, LC_ALL: "C" } });
+    const scan = childProcess.spawnSync(path.join(codeRoot, "bin", "vgshell-scan"), ["--require-base", base], { encoding: "utf8", env: { PATH: process.env.PATH, LC_ALL: "C" } });
     if (scan.error || scan.status !== 0) refuse("requirements=unreadable scan=" + (scan.error ? scan.error.code : scan.status), scan.stderr || "");
     for (const listed of JSON.parse(scan.stdout)) {
         const rel = path.relative(root, listed.dir);
@@ -307,8 +307,8 @@ function pacmanRules(recipes, reads, version) {
         const pkgbuild = readText(recipe.dir + "/PKGBUILD", "pkgbuild=missing recipe=" + recipe.name);
         if (!functionHolds(pkgbuild, "package", PACMAN_INSTALL))
             refuse(`installer=missing recipe=${recipe.name}`, "want in package(): " + PACMAN_INSTALL);
-        if (recipe.name === "vgs-git" && !functionHolds(pkgbuild, "prepare", GIT_CLONE))
-            refuse("fetch=missing recipe=vgs-git", "want in prepare(): " + GIT_CLONE);
+        if (recipe.name === "vgshell-git" && !functionHolds(pkgbuild, "prepare", GIT_CLONE))
+            refuse("fetch=missing recipe=vgshell-git", "want in prepare(): " + GIT_CLONE);
         return text;
     });
     if (scriptlets.some(text => text !== scriptlets[0])) refuse("scriptlet=differs recipes=" + recipes.map(r => r.name).join(","));
@@ -317,28 +317,28 @@ function pacmanRules(recipes, reads, version) {
         const has = (key, value) => (info[key] || []).includes(value);
         if (one(info.arch) !== "any") refuse("arch=" + one(info.arch) + " recipe=" + recipe.name);
         if ((info.replaces || []).length > 0) refuse("replaces=" + one(info.replaces) + " recipe=" + recipe.name);
-        const conflicts = recipe.name === "vgs-git" ? ["vgs"] : [];
+        const conflicts = recipe.name === "vgshell-git" ? ["vgshell"] : [];
         for (const conflict of conflicts)
             if (!has("conflicts", conflict)) refuse("conflicts=missing package=" + conflict + " recipe=" + recipe.name);
         for (const conflict of info.conflicts || [])
             if (!conflicts.includes(conflict)) refuse("conflicts=extra package=" + conflict + " recipe=" + recipe.name);
         const pkgver = one(info.pkgver);
-        if (recipe.name === "vgs") {
-            if (pkgver !== version) refuse("pkgver=" + pkgver + " version=" + version + " recipe=vgs");
-            const want = `vgs-${pkgver}.tar.gz::${REPO_URL}/releases/download/v${pkgver}/vgs-${pkgver}.tar.gz`;
-            if (one(info.source) !== want) refuse("source=" + one(info.source) + " recipe=vgs", "want " + want);
+        if (recipe.name === "vgshell") {
+            if (pkgver !== version) refuse("pkgver=" + pkgver + " version=" + version + " recipe=vgshell");
+            const want = `vgshell-${pkgver}.tar.gz::${REPO_URL}/releases/download/v${pkgver}/vgshell-${pkgver}.tar.gz`;
+            if (one(info.source) !== want) refuse("source=" + one(info.source) + " recipe=vgshell", "want " + want);
             const sums = info.sha256sums || [];
-            if (sums.length !== 1) refuse("sha256sums=count count=" + sums.length + " recipe=vgs");
+            if (sums.length !== 1) refuse("sha256sums=count count=" + sums.length + " recipe=vgshell");
             if (sums[0] === "SKIP") {
-                if (tagExists("v" + pkgver)) refuse("sha256sums=SKIP tag=v" + pkgver + " recipe=vgs", "the release tag exists: pin the release tarball's sha256");
+                if (tagExists("v" + pkgver)) refuse("sha256sums=SKIP tag=v" + pkgver + " recipe=vgshell", "the release tag exists: pin the release tarball's sha256");
             } else if (!/^[0-9a-f]{64}$/.test(sums[0])) {
-                refuse("sha256sums=" + sums[0] + " recipe=vgs", "want SKIP before the tag v" + pkgver + " exists, else 64 lower-case hex digits");
+                refuse("sha256sums=" + sums[0] + " recipe=vgshell", "want SKIP before the tag v" + pkgver + " exists, else 64 lower-case hex digits");
             }
         } else {
-            if ((info.source || []).length > 0) refuse("source=" + one(info.source) + " recipe=vgs-git", "want none: prepare() clones main alone");
-            if (one(info.url) !== REPO_URL) refuse("url=" + (one(info.url) || "missing") + " recipe=vgs-git", "want " + REPO_URL + ": prepare() clones $url.git");
-            if (!has("provides", "vgs=" + pkgver)) refuse("provides=missing want=vgs=" + pkgver + " recipe=vgs-git");
-            if (!(info.makedepends || []).some(text => pacmanEntry(text).name === "git")) refuse("makedepends=missing package=git recipe=vgs-git");
+            if ((info.source || []).length > 0) refuse("source=" + one(info.source) + " recipe=vgshell-git", "want none: prepare() clones main alone");
+            if (one(info.url) !== REPO_URL) refuse("url=" + (one(info.url) || "missing") + " recipe=vgshell-git", "want " + REPO_URL + ": prepare() clones $url.git");
+            if (!has("provides", "vgshell=" + pkgver)) refuse("provides=missing want=vgshell=" + pkgver + " recipe=vgshell-git");
+            if (!(info.makedepends || []).some(text => pacmanEntry(text).name === "git")) refuse("makedepends=missing package=git recipe=vgshell-git");
         }
     });
 }
@@ -367,7 +367,7 @@ const DNF_SECTION = /^%(description|prep|build|install|check|files|post|changelo
 const DNF_INSTALL = "DESTDIR=%{buildroot} PREFIX=%{_prefix} SYSCONFDIR=%{_sysconfdir} packaging/install-system.sh";
 const DNF_CHECK = "scripts/check-install-tree.sh %{buildroot} %{_prefix} %{_sysconfdir}";
 // The %files lines of what the system install adds beside the tree.
-const DNF_FILES = ["%{_bindir}/vgs-browser-policy", "%attr(0440,root,root) %config(noreplace) %{_sysconfdir}/sudoers.d/vgs-theme-browser", "%config(noreplace) %{_sysconfdir}/xdg/autostart/vgs.desktop"];
+const DNF_FILES = ["%{_bindir}/vgshell-browser-policy", "%attr(0440,root,root) %config(noreplace) %{_sysconfdir}/sudoers.d/vgshell-theme-browser", "%config(noreplace) %{_sysconfdir}/xdg/autostart/vgshell.desktop"];
 // $1 is the count of this package installed after the transaction: 1 on a
 // first install, 2 on an upgrade.
 const DNF_POST = ['if [ "$1" -eq 1 ]; then', "cat %{_datadir}/" + MESSAGE.replace(/^share\//, ""), "fi"];
@@ -412,7 +412,7 @@ function dnfRules(recipes, reads, version) {
         if (values.length !== 1) refuse("tag=missing name=" + tag + " spec=" + spec);
         return values[0];
     };
-    if (rel.block.join("\n") !== git.block.join("\n")) refuse("block=differs specs=vgs.spec,vgs-git.spec");
+    if (rel.block.join("\n") !== git.block.join("\n")) refuse("block=differs specs=vgshell.spec,vgshell-git.spec");
     recipes.forEach((recipe, i) => {
         const name = tagOne(reads[i], "Name", recipe.spec);
         if (name !== recipe.name) refuse(`name=mismatch spec=${recipe.spec} have=${name} want=${recipe.name}`);
@@ -421,28 +421,28 @@ function dnfRules(recipes, reads, version) {
     });
     for (const tag of ["License", "URL", "BuildRequires"]) {
         const a = (rel.tags[tag] || []).slice().sort(), b = (git.tags[tag] || []).slice().sort();
-        if (a.length === 0 || a.join("\n") !== b.join("\n")) refuse("tag=differs name=" + tag + " specs=vgs.spec,vgs-git.spec");
+        if (a.length === 0 || a.join("\n") !== b.join("\n")) refuse("tag=differs name=" + tag + " specs=vgshell.spec,vgshell-git.spec");
     }
     for (const section of ["%build", "%install", "%check", "%files", "%post"]) {
         if (rel.sections[section] === undefined || (rel.sections[section] || []).join("\n") !== (git.sections[section] || []).join("\n"))
-            refuse("section=differs name=" + section + " specs=vgs.spec,vgs-git.spec");
+            refuse("section=differs name=" + section + " specs=vgshell.spec,vgshell-git.spec");
     }
     if (!(rel.sections["%install"] || []).some(line => line.trim() === DNF_INSTALL)) refuse("install=missing want=" + DNF_INSTALL);
     if (!(rel.sections["%check"] || []).some(line => line.trim() === DNF_CHECK)) refuse("check=missing want=" + DNF_CHECK);
     for (const want of DNF_FILES)
         if (!(rel.sections["%files"] || []).some(line => line.trim() === want)) refuse("files=missing want=" + want);
-    if (rel.sections["%post"].map(line => line.trim()).join("\n") !== DNF_POST.join("\n")) refuse("post=mismatch specs=vgs.spec,vgs-git.spec", "want:", ...DNF_POST);
-    const relVersion = tagOne(rel, "Version", "vgs.spec");
-    if (relVersion !== version) refuse(`version=mismatch spec=vgs.spec have=${relVersion} want=${version}`);
-    const release = tagOne(rel, "Release", "vgs.spec").replace("%{?dist}", "");
+    if (rel.sections["%post"].map(line => line.trim()).join("\n") !== DNF_POST.join("\n")) refuse("post=mismatch specs=vgshell.spec,vgshell-git.spec", "want:", ...DNF_POST);
+    const relVersion = tagOne(rel, "Version", "vgshell.spec");
+    if (relVersion !== version) refuse(`version=mismatch spec=vgshell.spec have=${relVersion} want=${version}`);
+    const release = tagOne(rel, "Release", "vgshell.spec").replace("%{?dist}", "");
     const entries = (rel.sections["%changelog"] || []).filter(line => line.startsWith("* "));
     const wantEntry = `- ${relVersion}-${release}`;
     if (entries.length === 0 || !entries[0].endsWith(wantEntry))
-        refuse(`changelog=mismatch spec=vgs.spec want=...${wantEntry} have=${entries.length > 0 ? entries[0] : "none"}`);
-    if (!(git.tags.Provides || []).includes("vgs = %{version}")) refuse("provides=missing spec=vgs-git.spec want=vgs = %{version}");
-    if (!(git.tags.Conflicts || []).includes("vgs")) refuse("conflicts=missing spec=vgs-git.spec want=vgs");
-    if (git.sections["%changelog"] === undefined) refuse("changelog=missing spec=vgs-git.spec");
-    if (git.sections["%changelog"].some(line => line.trim() !== "")) refuse("changelog=entries spec=vgs-git.spec", "want empty: srpm.sh writes the entry");
+        refuse(`changelog=mismatch spec=vgshell.spec want=...${wantEntry} have=${entries.length > 0 ? entries[0] : "none"}`);
+    if (!(git.tags.Provides || []).includes("vgshell = %{version}")) refuse("provides=missing spec=vgshell-git.spec want=vgshell = %{version}");
+    if (!(git.tags.Conflicts || []).includes("vgshell")) refuse("conflicts=missing spec=vgshell-git.spec want=vgshell");
+    if (git.sections["%changelog"] === undefined) refuse("changelog=missing spec=vgshell-git.spec");
+    if (git.sections["%changelog"].some(line => line.trim() !== "")) refuse("changelog=entries spec=vgshell-git.spec", "want empty: srpm.sh writes the entry");
 }
 
 // ---- channels --------------------------------------------------------------
@@ -489,7 +489,7 @@ function readInstaller(recipe) {
 // recipe is read, and its freshness check or null. Its controls go in scripts/test-check-packaging.js ROWS.
 const CHANNELS = {
     pacman: {
-        recipes: [{ name: "vgs", dir: "packaging/arch/vgs" }, { name: "vgs-git", dir: "packaging/arch/vgs-git" }],
+        recipes: [{ name: "vgshell", dir: "packaging/arch/vgshell" }, { name: "vgshell-git", dir: "packaging/arch/vgshell-git" }],
         managers: ["pacman", "aur"],
         hardField: "depends",
         softField: "optdepends",
@@ -502,7 +502,7 @@ const CHANNELS = {
         freshness: { tool: "makepkg", check: pacmanFresh },
     },
     dnf: {
-        recipes: [{ name: "vgs", spec: "vgs.spec", file: "packaging/fedora/vgs.spec" }, { name: "vgs-git", spec: "vgs-git.spec", file: "packaging/fedora/vgs-git.spec" }],
+        recipes: [{ name: "vgshell", spec: "vgshell.spec", file: "packaging/fedora/vgshell.spec" }, { name: "vgshell-git", spec: "vgshell-git.spec", file: "packaging/fedora/vgshell-git.spec" }],
         managers: ["dnf"],
         hardField: "Requires",
         softField: "Recommends",

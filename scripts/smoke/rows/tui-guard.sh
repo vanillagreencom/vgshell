@@ -13,7 +13,7 @@
 # and a path that leaves tui/ each run nothing, end with code 0 and add one
 # refusal line each. A planted refusal log naming a made-up script fails
 # the shipped-script reading once.
-# inputs: scripts/smoke/fixtures/tui/* scripts/smoke/fixtures/plugins/*/tui/* shell/plugins/*/tui/* bin/vgsh-tui bin/lib/tui.sh shell/Core/TuiRunner.qml
+# inputs: scripts/smoke/fixtures/tui/* scripts/smoke/fixtures/plugins/*/tui/* shell/plugins/*/tui/* bin/vgshell-tui bin/lib/tui.sh shell/Core/TuiRunner.qml
 set -euo pipefail
 guard_dir="$sandbox/tui-guard"
 guard_records="$sandbox/tui-guard-records"

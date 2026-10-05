@@ -63,7 +63,7 @@
     {
       packages = forAllSystems (pkgs: {
         default = pkgs.stdenvNoCC.mkDerivation {
-          pname = "vgs";
+          pname = "vgshell";
           version = lib.fileContents ./VERSION;
           src = self;
 
@@ -76,8 +76,8 @@
           dontBuild = true;
 
           # The shared installer writes the same tree every channel ships, and
-          # $out/bin/vgsh stays its plain link. Hyprland's exec and a
-          # single-instance terminal start vgsh and vgsh-tui without the
+          # $out/bin/vgshell stays its plain link. Hyprland's exec and a
+          # single-instance terminal start vgshell and vgshell-tui without the
           # caller's environment, so each bash entry point under bin/ sets the
           # runtime PATH itself: one line after its leading comment block,
           # which the usage text is read from. The line prefixes the runtime
@@ -85,11 +85,11 @@
           installPhase = ''
             runHook preInstall
             DESTDIR= PREFIX=$out bash packaging/install-system.sh
-            substituteInPlace $out/share/vgs/bin/lib/xkb-keys.py \
+            substituteInPlace $out/share/vgshell/bin/lib/xkb-keys.py \
               --replace-fail 'SYSTEM_XKB_ROOT = "/usr/share/X11/xkb"' 'SYSTEM_XKB_ROOT = "${pkgs.xkeyboard_config}/share/X11/xkb"' \
               --replace-fail 'SYSTEM_XKB_LIBRARY = "libxkbcommon.so.0"' 'SYSTEM_XKB_LIBRARY = "${pkgs.libxkbcommon}/lib/libxkbcommon.so.0"'
             line='case :$PATH: in *:${runtimePath pkgs}:*) ;; *) PATH=${runtimePath pkgs}''${PATH:+:$PATH} ;; esac; export PATH # vgs-nix-path'
-            for entry in $out/share/vgs/bin/*; do
+            for entry in $out/share/vgshell/bin/*; do
               [[ -f $entry && ! -L $entry ]] || continue
               case "$(head -n 1 "$entry")" in
                 '#!/usr/bin/env bash' | '#!/bin/bash') ;;
@@ -99,9 +99,9 @@
               cat "$entry.nix-path" >"$entry"
               rm "$entry.nix-path"
             done
-            for entry in vgsh vgsh-tui; do
-              grep -qF '# vgs-nix-path' "$out/share/vgs/bin/$entry" || {
-                echo "flake: refused: nix-path=missing path=$out/share/vgs/bin/$entry" >&2
+            for entry in vgshell vgshell-tui; do
+              grep -qF '# vgs-nix-path' "$out/share/vgshell/bin/$entry" || {
+                echo "flake: refused: nix-path=missing path=$out/share/vgshell/bin/$entry" >&2
                 exit 1
               }
             done
@@ -111,10 +111,10 @@
 
           meta = {
             description = "Desktop shell for Hyprland on Quickshell";
-            homepage = "https://github.com/vanillagreencom/vgs";
+            homepage = "https://github.com/vanillagreencom/vgshell";
             license = with lib.licenses; [ mit ofl isc asl20 ];
             platforms = systems;
-            mainProgram = "vgsh";
+            mainProgram = "vgshell";
           };
         };
       });
@@ -123,7 +123,7 @@
         default = {
           type = "app";
           program = lib.getExe self.packages.${pkgs.stdenv.hostPlatform.system}.default;
-          meta.description = "Run the vgsh command";
+          meta.description = "Run the vgshell command";
         };
       });
     };

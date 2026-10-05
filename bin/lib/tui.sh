@@ -1,8 +1,8 @@
 # shellcheck shell=bash
 # bin/lib/tui.sh: the floating TUI presentation library. A script that
-# bin/vgsh-tui runs sources it as `source "$VGS_TUI_LIB"`; bin/vgsh-tui
+# bin/vgshell-tui runs sources it as `source "$VGS_TUI_LIB"`; bin/vgshell-tui
 # sources it for its own colours. It defines functions and sets no shell
-# option. Colours are the #rrggbb values `vgsh-tui present` exports from
+# option. Colours are the #rrggbb values `vgshell-tui present` exports from
 # gum.env (VGS_TUI_ACCENT, VGS_TUI_SUCCESS, VGS_TUI_WARNING, VGS_TUI_DANGER),
 # each with an ANSI fallback when absent. docs/architecture/tui.md.
 #
@@ -112,7 +112,7 @@ _vgs_tui_sudo_joined=""
 # that session: it drops nothing, starts no keepalive and sets no trap, and
 # its `sudo /usr/bin/true` answers from the owner's credential, asking only
 # when it lapsed; its end drops nothing. The Updates pipeline runs
-# `vgsh pkg run upgrade` inside its own session, and that run's end would
+# `vgshell pkg run upgrade` inside its own session, and that run's end would
 # otherwise revoke the credential the pipeline's later steps use. A pid that
 # names no live process, as a command a step started that outlives the
 # owner carries, starts a session of its own.

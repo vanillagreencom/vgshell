@@ -19,7 +19,7 @@ window type inside a string handed to Qt.createQmlObject is still a finding.
 
 Usage: check-plugin-boundary.py [--shell DIR] [PLUGIN_DIR...]
 With no plugin directories, every plugin under DIR/plugins is checked, listed
-the way the shell lists them: by bin/vgsh-scan, so a directory with no
+the way the shell lists them: by bin/vgshell-scan, so a directory with no
 manifest.json is not a plugin and a file or directory the scan cannot read ends
 the run, named by the path that failed.
 
@@ -101,7 +101,7 @@ def check_core(shell_dir, findings):
 def plugin_directories(base):
     scan = subprocess.run([SCAN, "--require-base", base], capture_output=True, text=True, check=False, env=SCAN_ENV)
     if scan.returncode != 0:
-        raise Unreadable(base, f"vgsh-scan exited {scan.returncode}")
+        raise Unreadable(base, f"vgshell-scan exited {scan.returncode}")
     entries = json.loads(scan.stdout)
     for entry in entries:
         if "error" in entry:

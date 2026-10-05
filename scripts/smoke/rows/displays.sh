@@ -22,7 +22,7 @@
 # it runs; a closed hidraw2 reads no-access after a plugin scan, the Apple
 # access entry offers Allow, the pane's access row reads it through
 # `status.rows`, and the pane's Allow, through `status.act`, hands the
-# stand-in terminal `vgsh system apply apple-displays`; the choices
+# stand-in terminal `vgshell system apply apple-displays`; the choices
 # persist in the assignments file and come back after the service is
 # rebuilt, and the second Studio Display still waits for its own; a stub
 # kernel backlight, which the brightnessctl stand-in lists and sets, reads
@@ -43,21 +43,21 @@
 # user file, so vgs.system and vgs.displays are as it found them, and
 # removes the output, the assignments file and the stub backlight and
 # gives hidraw2 its mode back.
-# inputs: shell/plugins/vgs.displays/* shell/plugins/vgs.system/* scripts/smoke/fixtures/devices/* shell/Core/SystemSteps.qml shell/Core/MonitorState.qml shell/Hosts/PaneHost.qml bin/vgsh-system scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh bin/vgsh-tui
+# inputs: shell/plugins/vgs.displays/* shell/plugins/vgs.system/* scripts/smoke/fixtures/devices/* shell/Core/SystemSteps.qml shell/Core/MonitorState.qml shell/Hosts/PaneHost.qml bin/vgshell-system scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh bin/vgshell-tui
 set -euo pipefail
 devices_ready displays || return 0
 # The core probes the system steps once vgs.displays holds `system`, and
 # the fakes' tree keeps that probe off the host's /sys and /dev.
 disp_tree="$(devices_system_tree)" || { fail "displays: the fakes' system tree: $disp_tree"; return 0; }
 disp_output=SMOKE-DISPLAYS
-disp_file="$home/.local/state/vgs/plugins/vgs.displays/assignments.json"
+disp_file="$home/.local/state/vgshell/plugins/vgs.displays/assignments.json"
 disp_xdr=hidraw:class/hidraw/hidraw0/device
 disp_a=hidraw:class/hidraw/hidraw1/device
 disp_b=hidraw:class/hidraw/hidraw2/device
 disp_a_key="usb:class/hidraw/hidraw1/device#VGSSMOKESTUDIO"
 disp_xdr_key="usb:class/hidraw/hidraw0/device#VGSSMOKEXDR01"
 disp_hidraw2="$devices_dev_root/hidraw2"
-disp_user="$home/.config/vgs/shell.json"
+disp_user="$home/.config/vgshell/shell.json"
 disp_user_saved="$sandbox/shell-before-displays.json"
 cp -- "$disp_user" "$disp_user_saved"
 rm -f -- "${disp_file:?}"
@@ -256,7 +256,7 @@ expect_poll "the System window mounts the displays pane again" '["vgs.displays"]
 expect_poll "the pane's Apple access row, from status.rows, offers Allow in the warning tone" '["warning", "Needs your permission", "Allow", true]' disp_access_row appleAccess
 forget_record
 expect "the pane's Allow, through status.act, answers ok" ok ipc smoke invokeInstance window vgs.displays runAction appleAccess
-expect_poll "Allow hands the terminal vgsh system apply apple-displays" \
+expect_poll "Allow hands the terminal vgshell system apply apple-displays" \
   "$(core_words core/system "System setup" org.vgs.tui system apply apple-displays)" recorded
 expect_run_end "the Allow core/system run ends" core/system
 forget_record

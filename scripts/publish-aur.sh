@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
 # Publish the Arch recipes under packaging/arch to their AUR repositories.
 #
-#   scripts/publish-aur.sh [--dry-run] PACKAGE...    PACKAGE: vgs, vgs-git
+#   scripts/publish-aur.sh [--dry-run] PACKAGE...    PACKAGE: vgshell, vgshell-git
 #
 # Run it from the checkout whose recipes are published; docs/RELEASING.md
 # holds the whole flow. Before any package it refuses:
 #   - recipes that fail `node scripts/check-packaging.js`, which holds each
 #     .SRCINFO to `makepkg --printsrcinfo` of the PKGBUILD beside it and
-#     pins vgs's sha256 once the tag v<pkgver> exists;
+#     pins vgshell's sha256 once the tag v<pkgver> exists;
 #   - a named recipe directory with uncommitted or untracked files, or with
 #     a subdirectory, which the AUR refuses;
 #   - without --dry-run, AUR_SSH_KEY_FILE unset or naming no file, and a
 #     missing packaging/aur-known-hosts.
 # Then, per package in argument order:
-#   - vgs is deferred until the GitHub release v<pkgver> is published, not a
-#     draft, and GitHub's sha256 digest of its asset vgs-<pkgver>.tar.gz is
+#   - vgshell is deferred until the GitHub release v<pkgver> is published, not a
+#     draft, and GitHub's sha256 digest of its asset vgshell-<pkgver>.tar.gz is
 #     the one sha256sums entry of the recipe's .SRCINFO (`gh release list`
 #     and `gh release view`); a recipe still at SKIP is deferred unread;
 #   - the AUR repository is cloned into a temporary directory:
@@ -42,7 +42,7 @@ set -euo pipefail
 
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"
 repo="$(cd -- "$(dirname -- "$self")/.." && pwd -P)"
-repository=vanillagreencom/vgs
+repository=vanillagreencom/vgshell
 
 refuse() { # STATUS KEY [DETAIL...]
   local status="$1"
@@ -60,11 +60,11 @@ for arg in "$@"; do
       [[ $dry_run == false ]] || refuse 2 "argument=$arg" "--dry-run is given once"
       dry_run=true ;;
     -h|--help) sed -n '2,/^[^#]/{/^#/{s/^# \{0,1\}//;p}}' "$self"; exit 0 ;;
-    vgs|vgs-git)
+    vgshell|vgshell-git)
       [[ " ${packages[*]-} " != *" $arg "* ]] || refuse 2 "package=$arg reason=repeated"
       packages+=("$arg") ;;
     -*) refuse 2 "argument=$arg" ;;
-    *) refuse 2 "package=$arg reason=unknown" "the packages are vgs and vgs-git" ;;
+    *) refuse 2 "package=$arg reason=unknown" "the packages are vgshell and vgshell-git" ;;
   esac
 done
 [[ ${#packages[@]} -gt 0 ]] || refuse 2 "argument=missing" "usage: scripts/publish-aur.sh [--dry-run] PACKAGE..."
@@ -110,10 +110,10 @@ srcinfo_value() { # PACKAGE KEY: the one `KEY = value` line of the recipe's .SRC
 }
 
 # Prints `ok`, or `deferred reason=<r>` while the release asset does not
-# carry the sha256 the vgs recipe pins. A gh failure refuses: an unreachable
+# carry the sha256 the vgshell recipe pins. A gh failure refuses: an unreachable
 # GitHub is never read as a release not made yet.
 release_state() { # PKGVER SHA256
-  local tag="v$1" asset="vgs-$1.tar.gz" doc state
+  local tag="v$1" asset="vgshell-$1.tar.gz" doc state
   [[ $2 != SKIP ]] || { echo "deferred reason=unpinned"; return 0; }
   doc="$(gh release list --repo "$repository" --limit 1000 --json tagName,isDraft)" ||
     refuse 1 "gh=release-list repo=$repository"
@@ -157,8 +157,8 @@ for package in "${packages[@]}"; do
   pkgver="$(srcinfo_value "$package" pkgver)" || exit 1
   pkgrel="$(srcinfo_value "$package" pkgrel)" || exit 1
   version="$pkgver-$pkgrel"
-  if [[ $package == vgs ]]; then
-    sha="$(srcinfo_value vgs sha256sums)" || exit 1
+  if [[ $package == vgshell ]]; then
+    sha="$(srcinfo_value vgshell sha256sums)" || exit 1
     state="$(release_state "$pkgver" "$sha")" || exit 1
     if [[ $state != ok ]]; then
       printf 'publish-aur: deferred package=%s %s\n' "$package" "${state#deferred }"

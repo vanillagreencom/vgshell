@@ -60,8 +60,8 @@ suite() {
   got="$(run "$script" query f report)"
   check "a name query lists both same-named files, and no name a line cannot hold" $'~/docs/a/report.txt\n~/docs/b/report.txt' "$(paths <<<"$got" | sort)"
   check "a name query leaves hidden files outside the hidden roots" 0 "$(grep -c 'hidden-report' <<<"$got" || true)"
-  check "the index lives in the launcher's cache" yes "$([[ -s $TMP_ROOT/cache/vgs/launcher/f.idx ]] && echo yes || echo no)"
-  check "the index holds one line per name and no tab or newline name" 0 "$(grep -c 'tab\|^report.txt.*line' "$TMP_ROOT/cache/vgs/launcher/f.idx" || true)"
+  check "the index lives in the launcher's cache" yes "$([[ -s $TMP_ROOT/cache/vgshell/launcher/f.idx ]] && echo yes || echo no)"
+  check "the index holds one line per name and no tab or newline name" 0 "$(grep -c 'tab\|^report.txt.*line' "$TMP_ROOT/cache/vgshell/launcher/f.idx" || true)"
   got="$(run "$script" query f settings)"
   check "hidden roots are searched" "~/.config/app/settings.ini" "$(paths <<<"$got")"
   got="$(run "$script" query f docs/a)"
@@ -80,7 +80,7 @@ suite() {
   check "an empty query prints nothing" $'\nstderr=\nexit=0' "$got"
   got="$(run "$script" refresh f)"
   check "a refresh rebuilds quietly" $'\nstderr=\nexit=0' "$got"
-  exec 8>"$TMP_ROOT/cache/vgs/launcher/.f.lock"
+  exec 8>"$TMP_ROOT/cache/vgshell/launcher/.f.lock"
   flock 8
   got="$(run "$script" refresh f)"
   check "a refresh that meets a running build leaves it" $'\nstderr=file-search: refresh=busy type=f\nexit=0' "$got"
@@ -96,11 +96,11 @@ suite() {
   got="$(env -i PATH="$stubs:$PATH" HOME="$home" LC_ALL=de_DE.UTF-8 XDG_DATA_HOME="$TMP_ROOT/data" XDG_DATA_DIRS="$TMP_ROOT/none" bash "$script" apps "$home/docs/b/report.txt" 2>"$TMP_ROOT/err")"
   check "open-with names the default first under a translated locale" $'default\t'"$TMP_ROOT"$'/data/applications/b.desktop\nother\t'"$TMP_ROOT"$'/data/applications/a.desktop' "$got"
   rm -rf -- "${TMP_ROOT:?}/cache"
-  mkdir -p "$TMP_ROOT/cache/vgs"
-  touch "$TMP_ROOT/cache/vgs/launcher"
+  mkdir -p "$TMP_ROOT/cache/vgshell"
+  touch "$TMP_ROOT/cache/vgshell/launcher"
   got="$(run "$script" query f report)"
   check "an index that cannot be made is refused by its step" $'\nstderr=file-search: index=f error=mkdir\nexit=4' "$got"
-  rm -f -- "${TMP_ROOT:?}/cache/vgs/launcher"
+  rm -f -- "${TMP_ROOT:?}/cache/vgshell/launcher"
   [[ $failures -eq $before ]]
 }
 
@@ -136,7 +136,7 @@ controls = [
     ("busy refresh", "if ! flock -n 9; then", "if false; then"),
     ("missing helpers", 'command -v -- "$command" >/dev/null 2>&1 || missing+=("$command")', "true"),
     ("hidden roots", 'for root in "${hidden_roots[@]}"; do [[ -d $root ]] && roots+=("$root"); done', "true"),
-    ("cache place", 'cache="${XDG_CACHE_HOME:-$HOME/.cache}/vgs/launcher"', 'cache="$HOME/.launcher-cache"'),
+    ("cache place", 'cache="${XDG_CACHE_HOME:-$HOME/.cache}/vgshell/launcher"', 'cache="$HOME/.launcher-cache"'),
     ("gio read in C", 'listing=$(LC_ALL=C gio mime "$mime")', 'listing=$(gio mime "$mime")'),
 ]
 for n, (label, needle, replacement) in enumerate(controls):

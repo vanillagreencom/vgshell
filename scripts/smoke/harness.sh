@@ -125,7 +125,7 @@ check_unexpected_log() { # LABEL LOG
 # exists and removes only what was made.
 source "$repo/scripts/smoke/teardown.sh"
 
-sandbox="$(mktemp -d "${TMPDIR:-/tmp}/vgsh-smoke.XXXXXX")"
+sandbox="$(mktemp -d "${TMPDIR:-/tmp}/vgshell-smoke.XXXXXX")"
 # Keep the runtime path short to leave room for Hyprland's IPC socket names.
 rt_dir="$(mktemp -d "$XDG_RUNTIME_DIR/vs.XXXXXX")"
 home="$sandbox/home"; mkdir -p "$home/.config/hypr"
@@ -180,15 +180,15 @@ source "$repo/scripts/smoke/devices.sh"
 # The one authentication log: every sentinel below appends `<name> <argv>`
 # to it, and rows/auth-sentinel.sh, the last row, requires it empty.
 auth_log="$sandbox/auth-sentinel.calls"
-# bin/vgsh-browser-policy sets its own PATH to the system directories and
+# bin/vgshell-browser-policy sets its own PATH to the system directories and
 # runs sudo from there, so no PATH sentinel can stand before its sudo. The
 # copy's writer is a sentinel for the whole run, so a process that reaches
 # it, such as vgs.themes's browser-policy TUI, never reaches the host's
 # sudo. The stand-in terminal runs no such TUI script (terminal_stand_in
 # below), and no row stands over the writer.
-if [[ -e $repo/bin/vgsh-browser-policy ]]; then
-  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "vgsh-browser-policy $*" >>%q\nexit 1\n' "$auth_log" >"$repo/bin/vgsh-browser-policy"
-  chmod 755 "$repo/bin/vgsh-browser-policy"
+if [[ -e $repo/bin/vgshell-browser-policy ]]; then
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "vgshell-browser-policy $*" >>%q\nexit 1\n' "$auth_log" >"$repo/bin/vgshell-browser-policy"
+  chmod 755 "$repo/bin/vgshell-browser-policy"
 fi
 
 cat >"$home/.config/hypr/hyprland.lua" <<'LUA'
@@ -320,7 +320,7 @@ devices_write_stand_ins
 # Every shell's system-step probe reads the fakes' tree, whichever plugins
 # the set starts with: a holder of `system` would otherwise probe the
 # host's /sys and /dev.
-if [[ -e $repo/bin/vgsh-system ]] && ! devices_tree_state="$(devices_system_tree)"; then
+if [[ -e $repo/bin/vgshell-system ]] && ! devices_tree_state="$(devices_system_tree)"; then
   printf 'qml-smoke: system-tree=failed %s\n' "$devices_tree_state"
   exit 1
 fi
@@ -515,7 +515,7 @@ if [[ ! -S $rt_dir/bus || ! -S $rt_dir/system-bus ]]; then
   printf 'qml-smoke: status=not-measured missing=sandbox-bus\n'; exit 77
 fi
 # The nested compositor carries the words start_shell gives a shell and
-# the sandbox's buses, so a shell `vgsh restart` relaunches through its
+# the sandbox's buses, so a shell `vgshell restart` relaunches through its
 # dispatch finds the same stand-ins and reaches no bus of the user's
 # (rows/start-order.sh). It sets the Wayland and Hyprland variables of its
 # children itself.
@@ -606,7 +606,7 @@ fi
 # disabled before any of them ships, so a section that lands enables its
 # own plugin in its row over the device fakes (scripts/smoke/devices.sh)
 # and no earlier row, lending record or first-bar reading counts it. The
-# configuration keeps an id no plugin has and `vgsh plugin list` reports
+# configuration keeps an id no plugin has and `vgshell plugin list` reports
 # it as unknown. The default set below names none of them: it starts
 # every first-party plugin, as a live session does.
 # vgs.themes stays enabled, its background built on every
@@ -760,7 +760,7 @@ SH
 # removed
 # (docs/decisions/D075-consumer-features-need-no-developer-setup.md).
 set_slack_photos() { # on|absent
-  python3 - "$home/.config/vgs/shell.json" "$1" <<'PY'
+  python3 - "$home/.config/vgshell/shell.json" "$1" <<'PY'
 import json, os, sys
 path, want = sys.argv[1], sys.argv[2]
 doc = json.load(open(path))
@@ -800,8 +800,8 @@ PY
 # lookup with no secret.
 default_set_prepare() { # PLUGINS_JSON [DISABLED_JSON]
   devtools_stand_ins
-  mkdir -p "$home/.local/state/vgs/updates"
-  python3 - "$home/.local/state/vgs/updates/status.json" "$home/.config/vgs/shell.json" "$1" "${2:-[]}" <<'PY'
+  mkdir -p "$home/.local/state/vgshell/updates"
+  python3 - "$home/.local/state/vgshell/updates/status.json" "$home/.config/vgshell/shell.json" "$1" "${2:-[]}" <<'PY'
 import json, os, sys, time
 cache, user, plugins, disabled = sys.argv[1], sys.argv[2], json.loads(sys.argv[3]), json.loads(sys.argv[4])
 for path, doc in ((cache, {"checkedAt": int(time.time() * 1000), "sources": []}),
@@ -812,13 +812,13 @@ for path, doc in ((cache, {"checkedAt": int(time.time() * 1000), "sources": []})
 PY
 }
 
-mkdir -p "$home/.config/vgs"
+mkdir -p "$home/.config/vgshell"
 case "$plugin_set" in
   smoke)
-    tick="$home/.config/vgs/plugins/acme.tick"
+    tick="$home/.config/vgshell/plugins/acme.tick"
     mkdir -p "$tick"
     cp -R "$repo/scripts/smoke/fixtures/plugins/acme.tick/." "$tick/"
-    cat >"$home/.config/vgs/shell.json" <<'JSON'
+    cat >"$home/.config/vgshell/shell.json" <<'JSON'
 { "version": 1, "bar": { "id": "vgs.bar", "layout": { "left": [], "center": [{ "id": "acme.tick", "format": "ddd d MMM  HH:mm" }], "right": [] } }, "disabledPlugins": ["vgs.launcher", "vgs.notifications", "vgs.settings", "vgs.updates", "vgs.agent-warden", "vgs.devtools", "vgs.automations", "vgs.polkit", "vgs.lock", "vgs.jarvis", "vgs.system", "vgs.sound", "vgs.bluetooth", "vgs.network", "vgs.vpn", "vgs.displays", "vgs.mouse", "vgs.keyboard", "vgs.capture", "vgs.greeter", "vgs.keyhints", "vgs.scratchpads"] }
 JSON
     ;;
@@ -1028,20 +1028,20 @@ ipc_reply_chars=32768
 ipc_oversize_log="$sandbox/ipc-oversize.log"
 ipc_last_reply=""
 
-# ipc_call_last VGSH TARGET FUNCTION [ARG...]: run one IPC call and keep
+# ipc_call_last VGSHELL TARGET FUNCTION [ARG...]: run one IPC call and keep
 # the last stdout line in ipc_last_reply.
 ipc_call_last() {
-  local vgsh="$1" out status
+  local vgshell="$1" out status
   shift
   ipc_last_reply=""
-  out="$("${shell_env[@]}" "$vgsh" ipc call "$@" 2>>"$sandbox/ipc.log")" || status=$?
+  out="$("${shell_env[@]}" "$vgshell" ipc call "$@" 2>>"$sandbox/ipc.log")" || status=$?
   status="${status:-0}"
   vgs_ipc_last_line_into "$out"
   ipc_last_reply="$vgs_ipc_last_line"
   return "$status"
 }
 
-# bin/lib/ipc-reply.sh, the judge bin/vgsh uses, classifies Quickshell
+# bin/lib/ipc-reply.sh, the judge bin/vgshell uses, classifies Quickshell
 # 0.3.1 client failures. A judge that cannot classify fails the row and
 # reads as a failed call.
 ipc_failed() { # TARGET FUNCTION LINE
@@ -1058,10 +1058,10 @@ ipc_failed() { # TARGET FUNCTION LINE
 }
 
 # ipc_page ID INDEX: one page through `shell page`, for vgs_ipc_pages,
-# which runs it in ipc_via's shell, so vgsh is ipc_via's.
+# which runs it in ipc_via's shell, so vgshell is ipc_via's.
 ipc_page() { # ID INDEX
   local status=0
-  ipc_call_last "$vgsh" shell page "$1" "$2" || status=$?
+  ipc_call_last "$vgshell" shell page "$1" "$2" || status=$?
   ipc_failed shell page "$ipc_last_reply" && return 1
   if ((status)); then
     printf 'ipc: shell page: status=%s reply=%s\n' "$status" "$ipc_last_reply" >>"$sandbox/ipc.log"
@@ -1070,14 +1070,14 @@ ipc_page() { # ID INDEX
   vgs_ipc_page="$ipc_last_reply"
 }
 
-# ipc_via VGSH TARGET FUNCTION [ARG...]: run the smoke IPC transport,
+# ipc_via VGSHELL TARGET FUNCTION [ARG...]: run the smoke IPC transport,
 # classify client failure lines, reassemble a paged reply with
 # bin/lib/ipc-reply.sh's detector and page loop, and record oversize
 # replies.
 ipc_via() {
-  local vgsh="$1" target="$2" fn="$3" status=0 reply
+  local vgshell="$1" target="$2" fn="$3" status=0 reply
   shift 3
-  ipc_call_last "$vgsh" "$target" "$fn" "$@" || status=$?
+  ipc_call_last "$vgshell" "$target" "$fn" "$@" || status=$?
   if ipc_failed "$target" "$fn" "$ipc_last_reply"; then
     printf 'ipc-failed\n'
     return 1
@@ -1104,10 +1104,10 @@ ipc_via() {
 
 # qs can print log lines before a reply; ipc_via returns one whole reply,
 # reassembles pages and answers ipc-failed for client failure lines.
-ipc() { ipc_via "$repo/bin/vgsh" "$@"; }
+ipc() { ipc_via "$repo/bin/vgshell" "$@"; }
 # ipc_at PID TARGET FUNCTION [ARG...]: ipc_via addressed to the qs
 # instance PID in place of the runner's shell, for a row that starts a
-# second instance: a stand-in vgsh that execs `qs ipc --pid PID`.
+# second instance: a stand-in vgshell that execs `qs ipc --pid PID`.
 ipc_at() { # PID TARGET FUNCTION [ARG...]
   local via="$sandbox/ipc-at-$1"
   if [[ ! -x $via ]]; then
@@ -1245,7 +1245,7 @@ theme_state() { # [IPC_FN]
 }
 # theme_state polled every 200 ms until `idle`, for up to 20 s, since an
 # apply lasts past expect_poll's 5 s when a target's hook runs; the last
-# answer otherwise. A row runs a `vgsh theme` command only once the shell
+# answer otherwise. A row runs a `vgshell theme` command only once the shell
 # is idle: a command started under the shell's follow is refused
 # reason=busy, the product's answer, which a retry would hide.
 theme_idle() { # [IPC_FN]
@@ -1259,7 +1259,7 @@ theme_idle() { # [IPC_FN]
 }
 
 # start_shell TREE LOG [BAR [NAME=VALUE...]]: start the runner of TREE, a
-# product tree holding its own bin/vgsh, as the sandbox's shell, its
+# product tree holding its own bin/vgshell, as the sandbox's shell, its
 # output in LOG, and wait for it through the ipc function, which a row
 # that starts another tree's runner redefines first. The NAME=VALUE words
 # go to env after the harness's own, so a row's PATH wins over
@@ -1271,7 +1271,7 @@ theme_idle() { # [IPC_FN]
 # shell's pid or log in their place. BAR `no-bar` takes no first-bar
 # reading, for a start that maps no bar. Returns 1, with the row failed,
 # when the shell does not answer ping within timeout_s, when TREE's
-# `vgsh pid` names no qs process or when no instance log names that pid. The
+# `vgshell pid` names no qs process or when no instance log names that pid. The
 # instance is found by pid among every instance in the sandbox's runtime
 # dir, so an installed prefix, whose shell is not TREE/shell, is found as
 # a checkout is.
@@ -1285,7 +1285,7 @@ theme_idle() { # [IPC_FN]
 #
 # qs buffers stdout when redirected, so the shell's own per-instance log
 # file is the record: it is line-flushed and holds every QML warning. The
-# shell's pid comes from TREE's own `vgsh pid`, which reads the lock file,
+# shell's pid comes from TREE's own `vgshell pid`, which reads the lock file,
 # since the lock file names the shell under both runners a tree may hold:
 # the current runner starts qs as its child and waits on it
 # (docs/architecture/runtime.md § Process), so the shell's pid is its
@@ -1303,7 +1303,7 @@ start_shell() { # TREE LOG [BAR [NAME=VALUE...]]
   shell_log="$log"
   start_cpu_some_us="$(cpu_some_us)"
   start_ms="$(now_ms)"
-  spawn "$log" "${shell_env[@]}" "${shell_start_words[@]}" "$@" "$tree/bin/vgsh" run
+  spawn "$log" "${shell_env[@]}" "${shell_start_words[@]}" "$@" "$tree/bin/vgshell" run
   shell_pid="$spawn_pid"
   first_bar_ms=""
   first_bar_cpu_some_pct=unmeasured
@@ -1323,7 +1323,7 @@ start_shell() { # TREE LOG [BAR [NAME=VALUE...]]
 # shell_answers TREE LOG: the tail start_shell and adopt_shell share. It
 # waits, every 200 ms for up to timeout_s, for the shell to answer ping
 # through the ipc function while the runner shell_pid runs, then sets
-# shell_qs_pid from TREE's `vgsh pid` and instance_log from the sandbox's
+# shell_qs_pid from TREE's `vgshell pid` and instance_log from the sandbox's
 # instances. Returns 1, with the row failed, as start_shell describes.
 shell_answers() { # TREE LOG
   local tree="$1" log="$2" pong up=false qs_pid comm="" instance_id
@@ -1338,9 +1338,9 @@ shell_answers() { # TREE LOG
     return 1
   fi
   ok "shell answers ping"
-  if ! qs_pid="$("${shell_env[@]}" "$tree/bin/vgsh" pid 2>&1)" || [[ ! $qs_pid =~ ^[0-9]+$ ]] \
+  if ! qs_pid="$("${shell_env[@]}" "$tree/bin/vgshell" pid 2>&1)" || [[ ! $qs_pid =~ ^[0-9]+$ ]] \
     || ! comm="$(cat -- "/proc/$qs_pid/comm" 2>/dev/null)" || [[ $comm != qs ]]; then
-    fail "start_shell: $tree/bin/vgsh pid names no qs: pid=[${qs_pid//$'\n'/ }] comm=[${comm:-}]"
+    fail "start_shell: $tree/bin/vgshell pid names no qs: pid=[${qs_pid//$'\n'/ }] comm=[${comm:-}]"
     return 1
   fi
   shell_qs_pid="$qs_pid"
@@ -1365,7 +1365,7 @@ relaunched_within() { # KILLED BOUND_MS
   local pid stat deadline=$(( $(now_ms) + $2 ))
   while :; do
     if ! stat="$(ps -o stat= -p "$shell_pid")" || [[ $stat == Z* ]]; then echo runner-ended; return; fi
-    if IFS= read -r pid 2>/dev/null <"$rt_dir/vgsh.lock" && [[ $pid =~ ^[0-9]+$ && $pid != "$1" && -d /proc/$pid ]]; then echo back; return; fi
+    if IFS= read -r pid 2>/dev/null <"$rt_dir/vgshell.lock" && [[ $pid =~ ^[0-9]+$ && $pid != "$1" && -d /proc/$pid ]]; then echo back; return; fi
     (( $(now_ms) < deadline )) || { echo none; return; }
     sleep 0.05
   done
@@ -1467,8 +1467,8 @@ rss_verdict() { # PEAK CEILING
 # until then, and no process the shell starts holds it
 # (docs/architecture/runtime.md § Process), so the lock frees when the
 # shell has exited, whatever processes the shell left behind; the next
-# `vgsh run` refuses until then. The bound is stop_lock_wait_s, the 10 s
-# `vgsh restart` gives the same wait. On the bound the row fails, naming
+# `vgshell run` refuses until then. The bound is stop_lock_wait_s, the 10 s
+# `vgshell restart` gives the same wait. On the bound the row fails, naming
 # each process that holds the lock, and it returns 1 with the runner
 # unreaped. Once the lock is free it reaps the runner and clears
 # shell_pid, so a second stop signals no stale pid. rows/start-order.sh
@@ -1476,7 +1476,7 @@ rss_verdict() { # PEAK CEILING
 # shell_memory_note says.
 stop_lock_wait_s=10
 stop_shell() {
-  local lock="$rt_dir/vgsh.lock"
+  local lock="$rt_dir/vgshell.lock"
   shell_memory_note
   [[ -z $shell_pid ]] || kill -TERM "$shell_pid" 2>/dev/null || true
   if ! flock -w "$stop_lock_wait_s" "$lock" true; then
@@ -1744,7 +1744,7 @@ PY
 # `<path> <status>`, `-` for no image. background_source_size NAME: the
 # sourceSize it requests, as WxH. Each prints `images=<n>` while the
 # background draws other than one image.
-bg_state="$home/.local/state/vgs"
+bg_state="$home/.local/state/vgshell"
 bg_state_names() { printf '{"schemaVersion":1,"current":"%s","stamp":"row","themes":{}}\n' "$1" >"$bg_state/backgrounds.json.tmp" && mv -T -- "$bg_state/backgrounds.json.tmp" "$bg_state/backgrounds.json"; }
 background_image_on() { ipc smoke images "background:$1" vgs.themes | py_reply 'import json,sys; r=json.load(sys.stdin); print(" ".join([r[0][0] or "-", r[0][1]]) if len(r)==1 else "images=%d" % len(r))'; }
 background_source_size() { ipc smoke images "background:$1" vgs.themes | py_reply 'import json,sys; r=json.load(sys.stdin); print("%dx%d" % tuple(int(v) for v in r[0][4]) if len(r)==1 else "images=%d" % len(r))'; }
@@ -1980,7 +1980,7 @@ hypr_lua_restore() { cp -- "$sandbox/hyprland-$1.lua" "$home/.config/hypr/hyprla
 # its shortcut: rows share one shell, so a field held in a variable would
 # be the last row's.
 key_submap() { local out; out="$(hypr submap)" || return; [[ -n $out ]] && printf '%s\n' "$out" | tail -n 1 || printf 'default\n'; }
-settings_key() { python3 -c 'import json,sys; rows=[r for r in json.load(open(sys.argv[1])).get("plugins", []) if r["id"] == "vgs.settings"]; k=rows[0].get("keys", {}) if rows else {}; print(json.dumps(k["toggle"]) if "toggle" in k else "absent")' "$home/.config/vgs/shell.json"; }
+settings_key() { python3 -c 'import json,sys; rows=[r for r in json.load(open(sys.argv[1])).get("plugins", []) if r["id"] == "vgs.settings"]; k=rows[0].get("keys", {}) if rows else {}; print(json.dumps(k["toggle"]) if "toggle" in k else "absent")' "$home/.config/vgshell/shell.json"; }
 key_field() { ipc smoke invokeInstance window vgs.settings keyField "{\"id\":\"$1\",\"shortcut\":\"$2\"}" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[sys.argv[1]]))' "$3"; }
 settings_key_invoke() { ipc smoke invokeInstance window vgs.settings "$1" '{"id":"vgs.settings","shortcut":"toggle"}'; }
 settings_key_field() { key_field vgs.settings toggle "$1"; }
@@ -2087,7 +2087,7 @@ window_panes() { ipc shell built | py_reply 'import json,sys; print(json.dumps([
 # starts.
 install_plugin_copy() { # SOURCE ID NAME [ORDER [GROUP]]
   local source="$1" id="$2" name="$3" order="${4:-10}" group="${5:-}" target
-  target="$home/.config/vgs/plugins/$id"
+  target="$home/.config/vgshell/plugins/$id"
   rm -rf -- "${target:?}"
   mkdir -p -- "$target"
   cp -R "$repo/scripts/smoke/fixtures/plugins/$source/." "$target/"
@@ -2157,7 +2157,7 @@ set_aside_shipped_panes() { # LIST
 # live. The wait ends after 2400 polls, 120 s, whatever the file does: a
 # ceiling well past the longest held section's polls, not a measurement,
 # so a run interrupted before its row removes the file leaves no presenter
-# behind, since bin/vgsh-tui starts the stand-in outside the harness's
+# behind, since bin/vgshell-tui starts the stand-in outside the harness's
 # groups. Writing the stand-in again changes nothing. $tui_terminal is the
 # stand-in's path, and a copy of the text last written stays in
 # $tui_terminal_written, which rows/tui-guard.sh compares with it.
@@ -2166,7 +2166,7 @@ tui_terminal_written="$sandbox/xdg-terminal-exec.harness"
 tui_record="$sandbox/tui-argv"
 tui_refused="$sandbox/tui-refused.calls"
 tui_fixtures="$sandbox/tui-fixtures"
-tui_self="$(readlink -f -- "$repo/bin/vgsh-tui")"
+tui_self="$(readlink -f -- "$repo/bin/vgshell-tui")"
 : >"$tui_refused"
 terminal_stand_in() { # [windowless]
   local window
@@ -2195,8 +2195,8 @@ done
 shift
 presenter=()
 while [[ $# -gt 0 && $1 != -- ]]; do presenter+=("$1"); shift; done
-# Only bin/vgsh-tui's present, with its `--` and a command, runs.
-[[ $# -ge 2 && ${#presenter[@]} -ge 2 && ${presenter[0]##*/} == vgsh-tui && ${presenter[1]} == present ]] || exit 0
+# Only bin/vgshell-tui's present, with its `--` and a command, runs.
+[[ $# -ge 2 && ${#presenter[@]} -ge 2 && ${presenter[0]##*/} == vgshell-tui && ${presenter[1]} == present ]] || exit 0
 # present's options are pairs; kept is present without the plugin's pair.
 plugin="" dir="" key="-" kept=("${presenter[0]}" present)
 for ((i = 2; i < ${#presenter[@]}; i += 2)); do
@@ -2305,13 +2305,13 @@ forget_record() { rm -f -- "${tui_record:?}"; }
 # A core TUI's command is the core's bin/ beside the shell directory,
 # whatever the shell's PATH holds. core_words: the words the terminal is
 # handed for core TUI KEY titled TITLE in the window of APP_ID, running
-# the core's vgsh with ARGS, as recorded reads them.
-core_vgsh="$(dirname -- "$(dirname -- "$tui_self")")/shell/../bin/vgsh"
+# the core's vgshell with ARGS, as recorded reads them.
+core_vgshell="$(dirname -- "$(dirname -- "$tui_self")")/shell/../bin/vgshell"
 core_words() { # KEY TITLE APP_ID ARGS...
   local key="$1" title="$2" app="$3"
   shift 3
   words "--app-id=$app" "--title=VGS · $title" -- "$tui_self" present --presentation full \
-    --record "$key" --run RUN --record-dir "$rt_dir/vgs/tui" --app-id "$app" --window-title "VGS · $title" -- "$core_vgsh" "$@"
+    --record "$key" --run RUN --record-dir "$rt_dir/vgshell/tui" --app-id "$app" --window-title "VGS · $title" -- "$core_vgshell" "$@"
 }
 # The agent warden's runtime dir and vsys's own status fixtures, which
 # rows/agent-warden.sh and scripts/sandbox-shots.sh write from.
@@ -2344,13 +2344,13 @@ notice_shown() { ipc shell lent | python3 -c 'import json,sys; s=json.load(sys.s
 hypr_consent_record() { ipc shell lent | python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin)["notices"]["consent"]))'; }
 hypr_consent_phase() { ipc shell lent | python3 -c 'import json,sys; s=json.load(sys.stdin)["notices"].get("consentState") or {}; print(s.get("phase", "absent"))'; }
 hypr_config_errors() { hypr -j configerrors | python3 -c 'import json,sys; print(json.dumps([e for e in json.load(sys.stdin) if e]))'; }
-hypr_wire_count() { local line="pcall(dofile, \"$home/.local/state/vgs/hypr/vgs.lua\")"; grep -cxF -- "$line" "$home/.config/hypr/hyprland.lua" || true; }
+hypr_wire_count() { local line="pcall(dofile, \"$home/.local/state/vgshell/hypr/vgs.lua\")"; grep -cxF -- "$line" "$home/.config/hypr/hyprland.lua" || true; }
 # The consent slot's question, whether the first-start welcome holds it or
 # it stands alone, as { command, failure }.
 hypr_consent_question() { ipc shell lent | python3 -c 'import json,sys; c=json.load(sys.stdin)["notices"]["consent"]; print(json.dumps(None if c is None else {"command": c["command"], "failure": c["failure"]}))'; }
 hypr_consent_connect() { # LABEL
   local label="$1"
-  expect_poll "$label: the Hyprland consent question is shown" '{"command": "vgsh hypr wire", "failure": ""}' hypr_consent_question
+  expect_poll "$label: the Hyprland consent question is shown" '{"command": "vgshell hypr wire", "failure": ""}' hypr_consent_question
   type_keys -k Return || fail "$label: sending Return to the Hyprland consent notice failed"
   expect_poll "$label: the consent step reaches wired" wired hypr_consent_phase
   expect_poll "$label: the loading line is present once" 1 hypr_wire_count
@@ -2413,7 +2413,7 @@ expect_within() { # LABEL READING WANT CEILING_MS CMD...
   fi
 }
 # A run ends in the core through one chain: the presenter exits and moves
-# its ended record into $rt_dir/vgs/tui, the core's FolderListModel lists
+# its ended record into $rt_dir/vgshell/tui, the core's FolderListModel lists
 # the new name, a FileView reads the file, and TuiRunner's runs move, which
 # key_idle reads. expect_run_end LABEL KEY waits for KEY to read `idle`
 # within run_end_ceiling_ms and prints each reading as
@@ -2451,7 +2451,7 @@ print("        records on disk: %s" % (", ".join(files) or "none"))
 print("        core: pending=%s running=%s ended=%s" % (key in tui["pending"], running, ended))
 if running is not None and "%s@%s.ended.json" % (stem, running) in files:
     print("        run %s has its ended record on disk while the core reports it running: the listing missed it" % running)
-' "$1" "$rt_dir/vgs/tui" "$core" || printf '        the record directory is unreadable: %s\n' "$rt_dir/vgs/tui"
+' "$1" "$rt_dir/vgshell/tui" "$core" || printf '        the record directory is unreadable: %s\n' "$rt_dir/vgshell/tui"
 }
 
 # smoke_row NAME [DIR]: source DIR/NAME.sh, DIR the rows directory by

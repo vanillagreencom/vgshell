@@ -1,6 +1,6 @@
 # No latency budget. Poll once per nested IPC round trip.
 # Only J09's process double and the allow-listed TUI fixture run here.
-# inputs: shell/plugins/vgs.jarvis/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml scripts/fixtures/jarvis-setup/status.py scripts/smoke/rows/jarvis.sh bin/vgsh-tui
+# inputs: shell/plugins/vgs.jarvis/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml scripts/fixtures/jarvis-setup/status.py scripts/smoke/rows/jarvis.sh bin/vgshell-tui
 set -euo pipefail
 local_reader="$repo/shell/plugins/vgs.jarvis/LocalRuntime.qml"
 local_tui="$repo/shell/plugins/vgs.jarvis/tui/setup-local.sh"
@@ -27,7 +27,7 @@ print("matched" if r["value"]==expected and r["action"]["offered"]==expected["ac
 local_open() { # manager action or listed launcher entry
   local revision snapshot
   revision="$(jarvis_revision)" || return 1
-  snapshot="$rt_dir/vgsh-sources-$shell_qs_pid/$revision"
+  snapshot="$rt_dir/vgshell-sources-$shell_qs_pid/$revision"
   forget_record
   if [[ $1 == status ]]; then
     expect "Settings starts its declared local setup action" ok settings_act vgs.jarvis localRuntime
@@ -36,7 +36,7 @@ local_open() { # manager action or listed launcher entry
   fi
   expect_poll "setup receives the private plugin snapshot and declared argv" \
     "$(words --app-id=org.vgs.tui "--title=VGS · Set up Jarvis local voice" -- "$tui_self" present --presentation full \
-      --plugin vgs.jarvis --dir "$snapshot" --record vgs.jarvis/setup-local --run RUN --record-dir "$rt_dir/vgs/tui" \
+      --plugin vgs.jarvis --dir "$snapshot" --record vgs.jarvis/setup-local --run RUN --record-dir "$rt_dir/vgshell/tui" \
       --app-id org.vgs.tui --window-title "VGS · Set up Jarvis local voice" -- tui/setup-local.sh)" recorded
   expect_run_end "the fixture local setup terminal ends" vgs.jarvis/setup-local
 }

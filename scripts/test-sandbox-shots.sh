@@ -311,7 +311,7 @@ run_controls "$window_helper" window_cases window_controls
 shots_repo="$tmp/shots-repo"
 mkdir -p "$shots_repo/scripts" "$shots_repo/shell/plugins/vgs.bar" "$shots_repo/bin" "$shots_repo/config" "$shots_repo/themes" "$shots_repo/tmp"
 ln -s "$repo/scripts/smoke" "$shots_repo/scripts/smoke"
-: >"$shots_repo/shell/plugins/vgs.bar/Manager.qml"; : >"$shots_repo/bin/vgsh"; : >"$shots_repo/config/shell.json"; : >"$shots_repo/themes/.keep"
+: >"$shots_repo/shell/plugins/vgs.bar/Manager.qml"; : >"$shots_repo/bin/vgshell"; : >"$shots_repo/config/shell.json"; : >"$shots_repo/themes/.keep"
 git_quiet() { git -C "$shots_repo" -c user.name=t -c user.email=t@t -c commit.gpgsign=false "$@" >/dev/null; }
 git_quiet init -q
 git_quiet add shell bin config themes

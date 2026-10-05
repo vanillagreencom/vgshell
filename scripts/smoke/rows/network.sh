@@ -5,11 +5,11 @@
 # No latency budget is measured. Polls use expect_poll's IPC round trip.
 # The production reprompt control suppresses the password prompt in a
 # sandbox plugin copy. The secret reader's control plants a synthetic log.
-# inputs: shell/plugins/vgs.network/* shell/plugins/vgs.system/* shell/Core/* shell/Hosts/* shell/Ui/* shell/Commons/* shell/shell.qml config/shell.json bin/vgsh-scan bin/vgsh-plugin-judge bin/lib/check-manifests.js bin/lib/qml-library.js scripts/smoke/fixtures/devices/* scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh scripts/smoke/rows/overlay-capture.sh
+# inputs: shell/plugins/vgs.network/* shell/plugins/vgs.system/* shell/Core/* shell/Hosts/* shell/Ui/* shell/Commons/* shell/shell.qml config/shell.json bin/vgshell-scan bin/vgshell-plugin-judge bin/lib/check-manifests.js bin/lib/qml-library.js scripts/smoke/fixtures/devices/* scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh scripts/smoke/rows/overlay-capture.sh
 set -euo pipefail
 devices_ready network || return 0
 net_saved="$sandbox/network-shell-before.json"
-cp -- "$home/.config/vgs/shell.json" "$net_saved"
+cp -- "$home/.config/vgshell/shell.json" "$net_saved"
 # Sharing stands over only the two CLI readers it owns. Every other nmcli
 # call still reaches S08's recorded stand-in, never the host command.
 net_qr_dir="$sandbox/network-qr"
@@ -205,7 +205,7 @@ expect "the field clears its PSK" '{"masked":true,"length":0,"focused":false}' i
 net_no_secret() {
   local status
   status="$(net_snapshot)" || return 1
-  python3 - "$status" "$home/.config/vgs/shell.json" "$instance_log" "$devices_dir/network.log" <<'PY'
+  python3 - "$status" "$home/.config/vgshell/shell.json" "$instance_log" "$devices_dir/network.log" <<'PY'
 import pathlib,sys
 texts=[sys.argv[1]]+[pathlib.Path(p).read_text(errors="replace") for p in sys.argv[2:]]
 print("clean" if all("network-smoke-joined-secret" not in t for t in texts) else "leaked")
@@ -295,7 +295,7 @@ expect "the working optional permissions probe refreshes" ok net_refresh
 expect_poll "the successful permission probe clears the notice" '""' ipc smoke readDescendant panel vgs.network NetworkBody permissionNotice
 expect "the permission-notice flyout closes" ok ipc shell hide panel vgs.network
 
-net_copy="$home/.config/vgs/plugins/vgs.network"
+net_copy="$home/.config/vgshell/plugins/vgs.network"
 mkdir -p -- "$net_copy"
 cp -R -- "$repo/shell/plugins/vgs.network/." "$net_copy/"
 python3 - "$net_copy/Service.qml" <<'PY'
@@ -385,7 +385,7 @@ rm -rf -- "${net_copy:?}"
 rescan "the shipped plugin is restored"
 expect "Network disables after its row" ok ipc shell setPluginEnabled vgs.network false
 expect_poll "Network releases its service build record" False record_exists vgs.network
-cp -- "$net_saved" "$home/.config/vgs/shell.json"
+cp -- "$net_saved" "$home/.config/vgshell/shell.json"
 expect "the row restores the configuration" ok ipc shell reloadConfig
 device_reply_clear nmcli
 device_reply_clear systemctl

@@ -8,7 +8,7 @@
 # Install, Remove and Update rows open floating TUIs, read back from the
 # stand-in terminal scripts/smoke/rows/tui.sh left. The row ends with the
 # plugin disabled and every registration released.
-# inputs: shell/plugins/vgs.launcher/* scripts/smoke/fixtures/plugins/acme.tui/* shell/Ui/layout/ListCursor.qml shell/Core/TuiRunner.qml bin/vgsh-tui shell/Commons/DesktopLaunch.js scripts/smoke/rows/capabilities.sh scripts/smoke/rows/tui.sh
+# inputs: shell/plugins/vgs.launcher/* scripts/smoke/fixtures/plugins/acme.tui/* shell/Ui/layout/ListCursor.qml shell/Core/TuiRunner.qml bin/vgshell-tui shell/Commons/DesktopLaunch.js scripts/smoke/rows/capabilities.sh scripts/smoke/rows/tui.sh
 set -euo pipefail
 launcher() { ipc vgs.launcher invoke "$1" "${2:-}"; }
 read_launcher() { ipc smoke readInstance overlay vgs.launcher "$1"; }
@@ -36,9 +36,9 @@ file_search_children() { ps -e -o ppid=,args= | python3 -c 'import sys; print(su
 look_at() { read_launcher look | py_reply 'import json,sys; v=json.load(sys.stdin)
 for k in sys.argv[1].split("."): v=v[k]
 print(json.dumps(v))' "$1"; }
-theme="$home/.config/vgs/theme.json"
+theme="$home/.config/vgshell/theme.json"
 write_theme() { printf '%s\n' "$1" >"$theme.tmp" && mv -T -- "$theme.tmp" "$theme"; }
-user_menu="$home/.config/vgs/launcher/menu.json"
+user_menu="$home/.config/vgshell/launcher/menu.json"
 write_menu() { mkdir -p -- "${user_menu%/*}" && printf '%s\n' "$1" >"$user_menu.tmp" && mv -T -- "$user_menu.tmp" "$user_menu"; }
 selection="$rt_dir/launcher-selection"
 done_file="$rt_dir/launcher-done"
@@ -70,7 +70,7 @@ expect_poll "the launcher is open" true read_launcher opened
 focused "the open launcher holds the keyboard"
 expect "the launcher opens as a bare search field" '[]' launcher_rows
 expect "the bare field shows no list" 0 read_launcher visibleRowsHeight
-shader_ok() { ipc smoke launcherShader overlay vgs.launcher | py_reply 'import json,re,sys; d=json.loads(sys.stdin.read()); print(bool(re.search(r"/vgsh-sources-[0-9]+/[0-9a-f]+/shaders/edgelight\.frag\.qsb$", d["url"])) and d["compiled"])'; }
+shader_ok() { ipc smoke launcherShader overlay vgs.launcher | py_reply 'import json,re,sys; d=json.loads(sys.stdin.read()); print(bool(re.search(r"/vgshell-sources-[0-9]+/[0-9a-f]+/shaders/edgelight\.frag\.qsb$", d["url"])) and d["compiled"])'; }
 render expect_poll "the edge light's shader compiled from the published revision" True shader_ok
 
 # Typing searches every row and application; Enter launches the first.
@@ -172,7 +172,7 @@ pick_tui() {
 }
 update_words() {
   words --app-id=org.vgs.tui "--title=VGS · Update" -- "$tui_self" present --presentation full --plugin acme.tui --dir "$snapshot" \
-    --record acme.tui/update --run RUN --record-dir "$rt_dir/vgs/tui" --app-id org.vgs.tui --window-title "VGS · Update" -- tui/update.sh
+    --record acme.tui/update --run RUN --record-dir "$rt_dir/vgshell/tui" --app-id org.vgs.tui --window-title "VGS · Update" -- tui/update.sh
 }
 # The pointer rests at the screen's centre, over the rows the categories
 # list, where Hyprland's warp to a focused window's centre leaves it after
@@ -183,7 +183,7 @@ for row in "Install|install|Install packages" "Remove|remove|Remove packages"; d
   forget_record
   categories "$label"
   pick_tui "$label"
-  expect_poll "$label hands the terminal the core's vgsh pkg $verb" "$(core_words "core/pkg-$verb" "$title" org.vgs.tui pkg "$verb")" recorded
+  expect_poll "$label hands the terminal the core's vgshell pkg $verb" "$(core_words "core/pkg-$verb" "$title" org.vgs.tui pkg "$verb")" recorded
   expect_poll "$label closes the launcher" 0 layer_count vgs:overlay
   expect_run_end "the $verb picker's run ends" "core/pkg-$verb"
 done
@@ -195,7 +195,7 @@ forget_record
 hold_runs
 categories "held Install"
 pick_tui Install
-expect_poll "held Install hands the terminal the core's vgsh pkg install" "$(core_words core/pkg-install "Install packages" org.vgs.tui pkg install)" recorded
+expect_poll "held Install hands the terminal the core's vgshell pkg install" "$(core_words core/pkg-install "Install packages" org.vgs.tui pkg install)" recorded
 expect_poll "the held install picker stays live" busy key_idle core/pkg-install
 expect_poll "held Install closes the launcher" 0 layer_count vgs:overlay
 categories "busy Install"
@@ -227,11 +227,11 @@ type_keys -k Escape || fail "sending Escape failed"
 expect_poll "Escape closes the launcher after Update" 0 layer_count vgs:overlay
 
 # A refusal other than busy stays in the list as a notice. tui.sh's
-# stand-in bin/vgsh-tui, which finds no terminal, makes the core's launcher
+# stand-in bin/vgshell-tui, which finds no terminal, makes the core's launcher
 # state missing through one launch that answered ok; the next pick answers
 # launcher-missing at once. The real one returns, and the probe a direct
 # request starts finds the terminal again.
-cp -- "$sandbox/vgsh-tui.missing" "$repo/bin/vgsh-tui.next" && mv -T -- "$repo/bin/vgsh-tui.next" "$repo/bin/vgsh-tui"
+cp -- "$sandbox/vgshell-tui.missing" "$repo/bin/vgshell-tui.next" && mv -T -- "$repo/bin/vgshell-tui.next" "$repo/bin/vgshell-tui"
 expected_errors+=('tui: refused: tui=core/pkg-install reason=launcher-missing' 'launcher: tui core/pkg-install refused: tui=core/pkg-install reason=launcher-missing')
 categories "Install without a terminal"
 pick_tui Install
@@ -243,7 +243,7 @@ expect_poll "the launcher-missing answer shows as a notice" True setup_notice
 expect_log "the launcher logs the refused TUI" 1 'launcher: tui core/pkg-install refused: tui=core/pkg-install reason=launcher-missing'
 expect "the refused row leaves the launcher open" 1 layer_count vgs:overlay
 expect_poll "the probe the refusal started ends" false lent tui.probing
-cp -- "$sandbox/vgsh-tui.real" "$repo/bin/vgsh-tui.next" && mv -T -- "$repo/bin/vgsh-tui.next" "$repo/bin/vgsh-tui"
+cp -- "$sandbox/vgshell-tui.real" "$repo/bin/vgshell-tui.next" && mv -T -- "$repo/bin/vgshell-tui.next" "$repo/bin/vgshell-tui"
 expect "a request before the next probe answers launcher-missing" "refused: tui=core/pkg-install reason=launcher-missing" ipc shell openTui core/pkg-install
 expect_poll "the probe that request started finds the terminal again" '"present"' lent tui.launcher
 type_keys -k Escape || fail "sending Escape failed"
@@ -426,7 +426,7 @@ expect_poll "the hidden select holds no surface" 0 layer_count vgs:overlay
 # folders; a helper that cannot build its index says why in the list.
 expect "the launcher summons for files" ok ipc shell summon overlay vgs.launcher '{"query":"f:smoke-report"}'
 expect_poll "f: lists both files of one name, newest first" '[["smoke-report.txt", "~/launcher-files"], ["smoke-report.txt", "~/launcher-files/older"]]' rows_of file
-expect "the file index lives in the launcher's cache" True bash -c '[[ -s $1 ]] && echo True' _ "$home/.cache/vgs/launcher/f.idx"
+expect "the file index lives in the launcher's cache" True bash -c '[[ -s $1 ]] && echo True' _ "$home/.cache/vgshell/launcher/f.idx"
 selected_before_flyout="$(read_launcher selectedIndex)"
 type_keys -k Menu || fail "opening the file flyout with the Menu key failed"
 expect_poll "Menu opens the selected file's flyout" true ipc smoke readShownDescendant overlay vgs.launcher ContextMenu opened
@@ -444,15 +444,15 @@ expect_poll "F: lists the folder" '[["launcher-files", "~"]]' rows_of folder
 focused
 type_keys -k Escape -k Escape || fail "sending Escape failed"
 expect_poll "the file search closed" 0 layer_count vgs:overlay
-rm -rf -- "${home:?}/.cache/vgs/launcher"
-printf 'not a directory\n' >"$home/.cache/vgs/launcher"
+rm -rf -- "${home:?}/.cache/vgshell/launcher"
+printf 'not a directory\n' >"$home/.cache/vgshell/launcher"
 expected_errors+=('launcher: file-search: index=f error=mkdir')
 expect "the launcher summons with no usable cache" ok ipc shell summon overlay vgs.launcher '{"query":"f:smoke-report"}'
 expect_poll "an index the helper cannot build is a notice" '[["File search unavailable", "The file list could not be read. Try the search again."]]' rows_of notice
 focused
 type_keys -k Escape -k Escape || fail "sending Escape failed"
 expect_poll "the failed file search closed" 0 layer_count vgs:overlay
-rm -f -- "${home:?}/.cache/vgs/launcher"
+rm -f -- "${home:?}/.cache/vgshell/launcher"
 expect_poll "no file search helper outlives the launcher" 0 file_search_children
 # Control: a copy of the row that shows its image slot whatever the image
 # loaded draws no glyph tile for the same application.

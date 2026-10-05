@@ -2,7 +2,7 @@
 # latency budget. It starts the installed shell through harness.sh's
 # start_shell, with the process-signalling stand-ins first on its PATH,
 # so it reuses the smoke startup poll intervals: 10 ms for the first bar
-# and one `vgsh ipc` round trip for readiness.
+# and one `vgshell ipc` round trip for readiness.
 # inputs: packaging/* scripts/check-install-tree.sh VERSION LICENSE README.md bin/* shell/* config/* themes/* scripts/fixtures/jarvis/* scripts/fixtures/jarvis-voice/* scripts/fixtures/jarvis-setup/* scripts/lib/jarvis-env.sh scripts/test-task-event.js scripts/smoke/rows/gallery.sh
 set -euo pipefail
 
@@ -20,7 +20,7 @@ SH
 }
 
 read_only_prefix_prepare_tree() { # INSTALLED_PREFIX SANDBOX_TREE SIGNAL_DIR
-  local installed_targets="$1/share/vgs/themes/targets"
+  local installed_targets="$1/share/vgshell/themes/targets"
   rm -rf -- "$installed_targets"
   mkdir -p -- "$installed_targets"
   if [[ -d $2/themes/targets ]]; then
@@ -50,16 +50,16 @@ fi
 readonly_dest="$sandbox/read-only-prefix"
 DESTDIR="$readonly_dest" PREFIX=/usr "$source_repo/packaging/install-system.sh" >/dev/null
 expect "the read-only prefix install matches the manifest" "install-tree=ok root=$readonly_dest/usr manifest=$source_repo/packaging/install-tree.manifest" "$source_repo/scripts/check-install-tree.sh" "$readonly_dest" /usr
-tree_smoke_observer "$source_repo" "$readonly_dest/usr/share/vgs"
+tree_smoke_observer "$source_repo" "$readonly_dest/usr/share/vgshell"
 signal_shim="$sandbox/read-only-signal-shim"
 signal_log="$sandbox/read-only-signal-calls.log"
 read_only_prefix_prepare_tree "$readonly_dest/usr" "$repo" "$signal_shim"
-"$node_bin" "$source_repo/scripts/fixtures/jarvis/prepare.js" "$source_repo" "$readonly_dest/usr/share/vgs" "$sandbox/jarvis-installed-world"
+"$node_bin" "$source_repo/scripts/fixtures/jarvis/prepare.js" "$source_repo" "$readonly_dest/usr/share/vgshell" "$sandbox/jarvis-installed-world"
 chmod -R a-w -- "$readonly_dest/usr"
-expect "voice APIs work from the non-writable installed prefix" "jarvis-voice-installed=ok" env -i PATH=/usr/bin:/bin "$node_bin" "$source_repo/scripts/fixtures/jarvis-voice/installed.js" "$readonly_dest/usr/share/vgs"
+expect "voice APIs work from the non-writable installed prefix" "jarvis-voice-installed=ok" env -i PATH=/usr/bin:/bin "$node_bin" "$source_repo/scripts/fixtures/jarvis-voice/installed.js" "$readonly_dest/usr/share/vgshell"
 expect "local setup reads its inputs from the non-writable installed prefix" "jarvis-setup-installed=ok" \
   env -i PATH=/usr/bin:/bin "$source_repo/scripts/lib/jarvis-env.sh" "$sandbox/jarvis-installed-world/standins" -- \
-  python3 "$source_repo/scripts/fixtures/jarvis-setup/installed.py" "$readonly_dest/usr/share/vgs"
+  python3 "$source_repo/scripts/fixtures/jarvis-setup/installed.py" "$readonly_dest/usr/share/vgshell"
 
 tree_snapshot() { # ROOT
   python3 - "$1" <<'PY'
@@ -90,14 +90,14 @@ PY
 
 tree_snapshot "$readonly_dest/usr" >"$sandbox/read-only-before.txt"
 
-installed_bin="$readonly_dest/usr/bin/vgsh"
+installed_bin="$readonly_dest/usr/bin/vgshell"
 ipc() { ipc_via "$installed_bin" "$@"; }
 if stop_shell && start_shell "$readonly_dest/usr" "$sandbox/read-only-qs.log" bar PATH="$signal_shim:$shell_start_path" VGS_READ_ONLY_SIGNAL_LOG="$signal_log"; then
   ok "the shell starts from a non-writable installed prefix"
 fi
 expect "Jarvis enables from the non-writable installed prefix" ok ipc shell setPluginEnabled vgs.jarvis true
 expect "Jarvis answers hello without retries from the non-writable installed prefix" ready jarvis_wait_ready 0
-expect "task events use a private data engine from the read-only prefix" "task-prefix=ok" "$node_bin" "$source_repo/scripts/test-task-event.js" --prefix "$readonly_dest/usr/share/vgs/shell/plugins/vgs.jarvis/backend"
+expect "task events use a private data engine from the read-only prefix" "task-prefix=ok" "$node_bin" "$source_repo/scripts/test-task-event.js" --prefix "$readonly_dest/usr/share/vgshell/shell/plugins/vgs.jarvis/backend"
 expect_poll "installed Jarvis discovers device choices without writing the prefix" devices jarvis_devices
 
 installed_apply_vgs() {
@@ -135,9 +135,9 @@ done
 expect "the installed shell's startup follow ends" idle theme_idle
 # Control: the apply with no wait, under the lock a stand-in holds as the
 # follow does, is refused busy, and the row's apply check fails on it.
-exec {startup_lock}>>"$home/.config/vgs/theme.lock"
+exec {startup_lock}>>"$home/.config/vgshell/theme.lock"
 if flock -n "$startup_lock"; then
-  expect "an apply under the held theme lock is refused busy" "exit=75 vgsh: refused: theme=vgs reason=busy" installed_apply_vgs
+  expect "an apply under the held theme lock is refused busy" "exit=75 vgshell: refused: theme=vgs reason=busy" installed_apply_vgs
 else
   fail "the stand-in could not take the theme lock once the installed shell was idle"
 fi

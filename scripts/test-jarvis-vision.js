@@ -142,8 +142,8 @@ async function main() {
     const root = process.env.JARVIS_TEST_ROOT;
     const runtime = process.env.XDG_RUNTIME_DIR;
     const screen = screenWorld(runtime, root);
-    const directory = path.join(runtime, "vgs/jarvis/vision");
-    const ENVIRONMENT = { ...process.env, WAYLAND_DISPLAY: "wayland-fixture", VGSH_RUNNER_PID: "4242", OPENAI_API_KEY: "sk-fixture-secret" };
+    const directory = path.join(runtime, "vgshell/jarvis/vision");
+    const ENVIRONMENT = { ...process.env, WAYLAND_DISPLAY: "wayland-fixture", VGSHELL_RUNNER_PID: "4242", OPENAI_API_KEY: "sk-fixture-secret" };
     const fixed = { PATH: process.env.PATH, LC_ALL: "C.UTF-8" };
     const EXPECTED_ENV = { grim: { ...fixed, XDG_RUNTIME_DIR: runtime, WAYLAND_DISPLAY: "wayland-fixture" },
         slurp: { ...fixed, XDG_RUNTIME_DIR: runtime, WAYLAND_DISPLAY: "wayland-fixture" },

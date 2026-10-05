@@ -1,7 +1,7 @@
 {
   "name": "vgs-theme",
   "displayName": "vgs",
-  "description": "The vgs desktop theme, kept by vgsh theme apply.",
+  "description": "The vgs desktop theme, kept by vgshell theme apply.",
   "publisher": "vgs",
   "version": "1.0.0",
   "engines": { "vscode": "^1.74.0" },

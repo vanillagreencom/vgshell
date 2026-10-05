@@ -7,7 +7,7 @@
 # its client list, popup geometry from the built instance.
 # inputs: scripts/smoke/fixtures/plugins/acme.surfaces/* shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Hosts/SummonPopup.qml shell/Hosts/PluginSlot.qml shell/Hosts/BackgroundHost.qml shell/Hosts/AppWindow.qml scripts/smoke/toplevel/* scripts/smoke/rows/sources.sh
 set -euo pipefail
-surf="$home/.config/vgs/plugins/acme.surfaces"
+surf="$home/.config/vgshell/plugins/acme.surfaces"
 mkdir -p "$surf"
 cp -R "$repo/scripts/smoke/fixtures/plugins/acme.surfaces/." "$surf/"
 respaced() { "$@" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)))'; }
@@ -63,7 +63,7 @@ slot_mouse_panel="$repo/shell/Hosts/PluginSlotMouseReasonPanel.qml"
 summon_noescape="$repo/shell/Hosts/SummonPopupNoEscape.qml"
 summon_copy="$repo/shell/Hosts/SummonPopupNoGrab.qml"
 layer_copy="$repo/shell/Hosts/SummonLayerNoCatch.qml"
-focus_control="$home/.config/vgs/plugins/acme.focus-control"
+focus_control="$home/.config/vgshell/plugins/acme.focus-control"
 python3 - "$repo/shell/Hosts/PluginSlot.qml" "$slot_now" <<'PYEDIT'
 import pathlib, sys
 source, target = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
@@ -239,8 +239,8 @@ expect "disabling the focus control fixture is allowed" ok ipc shell setPluginEn
 rm -rf -- "$focus_control"
 rescan "the focus control fixture removal is scanned"
 
-cp -- "$home/.config/vgs/plugins/acme.surfaces/Summoned.qml" "$sandbox/Summoned.initial-focus"
-python3 - "$home/.config/vgs/plugins/acme.surfaces/Summoned.qml" <<'PYEDIT'
+cp -- "$home/.config/vgshell/plugins/acme.surfaces/Summoned.qml" "$sandbox/Summoned.initial-focus"
+python3 - "$home/.config/vgshell/plugins/acme.surfaces/Summoned.qml" <<'PYEDIT'
 import pathlib, sys
 p = pathlib.Path(sys.argv[1])
 s = p.read_text()
@@ -253,7 +253,7 @@ expect "the panel without initialFocus opens" ok ipc shell summon panel acme.sur
 expect_poll "without initialFocus the plugin has no visual focus" no-focus ipc smoke focused panel acme.surfaces
 type_keys -k Escape || fail "sending Escape to the no-initialFocus panel failed"
 expect_poll "the slot still closes a panel without initialFocus on Escape" 0 layer_count vgs:panel
-mv -T -- "$sandbox/Summoned.initial-focus" "$home/.config/vgs/plugins/acme.surfaces/Summoned.qml"
+mv -T -- "$sandbox/Summoned.initial-focus" "$home/.config/vgshell/plugins/acme.surfaces/Summoned.qml"
 rescan "the fixture with initialFocus is restored"
 
 expect "an overlay summons over IPC" ok ipc shell summon overlay acme.surfaces '{}'
@@ -474,8 +474,8 @@ expect_poll "the outside click closes an anchored panel too" absent ipc smoke re
 # Replacing an open plugin runs open() on the replacement. A refusal must
 # remove its surface just as a refusal during the first summon does.
 expect "the panel opens before its source changes" ok ipc shell summon panel acme.surfaces '{}'
-cp -- "$home/.config/vgs/plugins/acme.surfaces/Summoned.qml" "$sandbox/Summoned.good"
-python3 - "$home/.config/vgs/plugins/acme.surfaces/Summoned.qml" <<'PYEDIT'
+cp -- "$home/.config/vgshell/plugins/acme.surfaces/Summoned.qml" "$sandbox/Summoned.good"
+python3 - "$home/.config/vgshell/plugins/acme.surfaces/Summoned.qml" <<'PYEDIT'
 import pathlib, sys
 p = pathlib.Path(sys.argv[1])
 s = p.read_text()
@@ -486,7 +486,7 @@ PYEDIT
 rescan "the changed open plugin is rescanned"
 expect_poll "a replacement whose open throws is removed" absent ipc smoke readInstance panel acme.surfaces opened
 expect_poll "the refused replacement leaves no panel surface" 0 layer_count vgs:panel
-mv -T -- "$sandbox/Summoned.good" "$home/.config/vgs/plugins/acme.surfaces/Summoned.qml"
+mv -T -- "$sandbox/Summoned.good" "$home/.config/vgshell/plugins/acme.surfaces/Summoned.qml"
 rescan "the repaired surface plugin is rescanned"
 
 expect "the panel opens again for the disable check" ok ipc smoke invokeInstance "bar:$screen_name" acme.surfaces summonHere ''

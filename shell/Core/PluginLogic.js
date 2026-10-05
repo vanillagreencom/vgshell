@@ -149,10 +149,10 @@ var STATUS_ACTION_TYPES = ["presence", "state"];
 // The refusal reasons of the `manager` capability's `act`.
 var STATUS_ACTION_REASONS = ["undeclared", "disabled", "not-offered"];
 
-// The system steps (D081): the closed table bin/vgsh-system holds, which a
-// manifest's `systemSteps` names from, in the order `vgsh-system status`
+// The system steps (D081): the closed table bin/vgshell-system holds, which a
+// manifest's `systemSteps` names from, in the order `vgshell-system status`
 // prints them, and the states a probe reads each one in. The script is the
-// table's owner; scripts/test-vgsh-system.sh reads its status back against
+// table's owner; scripts/test-vgshell-system.sh reads its status back against
 // this list.
 var SYSTEM_STEPS = ["apple-displays", "i2c-dev", "service-bluetooth", "service-tailscaled", "tailscale-operator", "greeter"];
 var SYSTEM_STATES = ["ready", "needed", "denied", "absent", "unknown", "nixos"];
@@ -236,7 +236,7 @@ var CONFIG_VERSION = 1;
 // a string and whose `layout` holds, per section in SECTIONS, a list of
 // objects each with a string `id`; `packages` is an object whose `elevate`,
 // when present, is one of PackageManagers.ELEVATORS, the command
-// `vgsh pkg run` elevates through; `welcome` is an object whose `keys` is
+// `vgshell pkg run` elevates through; `welcome` is an object whose `keys` is
 // a list of objects each with a string `id`, a string `shortcut` and a
 // non-empty string `text`, the welcome's key lines (consentSlotView).
 // A key outside that set is carried untouched. Config.qml runs this judge
@@ -645,7 +645,7 @@ function systemUnknown(reason) {
     return out;
 }
 
-// What the SystemSteps owner holds after one run of `bin/vgsh-system
+// What the SystemSteps owner holds after one run of `bin/vgshell-system
 // status --json`, COMPLETION { code, status } or null for a run that never
 // started, STDOUT its output: { steps, line }. `steps` maps every step of
 // SYSTEM_STEPS to { state, reason }, a state of SYSTEM_STATES and a reason
@@ -1618,7 +1618,7 @@ var NOTICE_QUEUE_MAX = 8;
 var NOTICE_OFFER_REST_MS = 600000;
 var NOTICE_OFFER_MAX = 16;
 // What raises a notice: `installed`, the pluginInstalled IPC function
-// `vgsh plugin add` calls; `enabled`, setPluginEnabled turning a plugin on;
+// `vgshell plugin add` calls; `enabled`, setPluginEnabled turning a plugin on;
 // `offered`, the plugin's own `requirements` capability; `requested`, the
 // `manager` capability's installRequirements, the Settings window's
 // Install; `chosen`, a user's press asking for the core's or an enabled
@@ -1734,13 +1734,13 @@ function noticeAdmit(queue, rest, id, request, trigger, now) {
 // in declaration order, each { command, purpose, optional, package }, the
 // package PackageManagers.installGroups picks, null with FOUND null or when
 // no present manager maps one. `install` is the arguments after
-// `vgsh pkg run install` of the first group whose manager installs, null
+// `vgshell pkg run install` of the first group whose manager installs, null
 // when none does; one Install runs one manager's packages, and the notice
 // offers the next group once a rescan finds the first installed.
 // `commandLine` is that install as one command a reader could run, the
 // core TUI's argv and `install` joined, or "" with `install` null: the
 // notice draws it only behind its Show command (D061). `byHand` is each
-// group whose manager installs nothing through vgsh, nix, as
+// group whose manager installs nothing through vgshell, nix, as
 // { manager, names }.
 function noticeView(manifest, missing, notice, found) {
     var rows = requirementRows(manifest, missing).filter(function (row) { return row.state === "missing" && notice.commands.indexOf(row.command) !== -1; });
@@ -1774,7 +1774,7 @@ function noticeSettle(queue, owners, missing, installing) {
     });
 }
 
-// The managers `bin/vgsh-pkg detect --json` answered the notice with, from
+// The managers `bin/vgshell-pkg detect --json` answered the notice with, from
 // its COMPLETION, { code, status } or null for a run that never started,
 // its STDOUT and its STDERR: { ok: true, found }, detect's { primary,
 // overlays, sources } with each entry a known manager, or { ok: false,
@@ -1922,11 +1922,11 @@ function welcomeStep(welcomeState, event) {
 // NAME_PATTERN name: the script, the window's title, its size class and
 // presentation, and, when present, the row shell.tui.entries lists it with.
 // `script` is a path under the plugin's `tui/` directory, the one
-// bin/vgsh-tui copies out of the published snapshot and runs from; each
+// bin/vgshell-tui copies out of the published snapshot and runs from; each
 // segment starts with a letter, a digit or `_`, so none is `.`, `..` or
 // hidden. The sizes are the size classes of HyprlandLayer.TUI_WINDOWS, the
 // table the layer's window rules and the launcher's app-ids come from, and
-// the presentations are bin/vgsh-tui's. A title, a label and a group are one
+// the presentations are bin/vgshell-tui's. A title, a label and a group are one
 // printable line of at most TUI_TEXT_MAX characters.
 var TUI_KEYS = ["script", "title", "size", "presentation", "entry"];
 var TUI_ENTRY_KEYS = ["label", "icon", "group"];
@@ -1938,10 +1938,10 @@ var TUI_SCRIPT = /^tui(\/[A-Za-z0-9_][A-Za-z0-9._-]*)+$/;
 // strings, each 1 to TUI_ARG_MAX characters with no control character.
 var TUI_ARGS_MAX = 16;
 var TUI_ARG_MAX = 256;
-// The exit status bin/vgsh-tui launch and check give when xdg-terminal-exec
+// The exit status bin/vgshell-tui launch and check give when xdg-terminal-exec
 // is not on PATH, their `terminal=missing` refusal.
 var TUI_LAUNCHER_MISSING = 69;
-// The exit status bin/vgsh-tui wait gives for a run with neither record, its
+// The exit status bin/vgshell-tui wait gives for a run with neither record, its
 // `reason=gone` refusal: a later run of the key removed them after this run
 // ended.
 var TUI_WAIT_GONE = 3;
@@ -1954,15 +1954,15 @@ var TUI_LAUNCHER_STATES = ["unknown", "present", "missing"];
 // resolves under the directory the shell hands it, since the shell's PATH
 // need not hold the core's commands.
 var CORE_TUI_KEYS = ["argv", "title", "size", "presentation", "entry"];
-var CORE_TUI_COMMAND = /^vgsh(-[a-z]+)*$/;
+var CORE_TUI_COMMAND = /^vgshell(-[a-z]+)*$/;
 // What a refused request asks the runner to do next: nothing, one probe of
 // the launcher, or focus the window of the key's live run.
 var TUI_ACTIONS = ["none", "probe", "focus"];
-// The states of an exit record bin/vgsh-tui writes: `running` from the
-// presenter's start, `ended` once it exited or `vgsh-tui reap` found it
+// The states of an exit record bin/vgshell-tui writes: `running` from the
+// presenter's start, `ended` once it exited or `vgshell-tui reap` found it
 // gone.
 var TUI_RECORD_STATES = ["running", "ended"];
-// A run id the core hands bin/vgsh-tui with --run, and the key a record
+// A run id the core hands bin/vgshell-tui with --run, and the key a record
 // carries: `core/<name>` or `<plugin id>/<name>`.
 var TUI_RUN_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
 // The core's own floating TUIs, by name, listed in shell.tui.entries as
@@ -1980,70 +1980,70 @@ var TUI_RUN_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
 // shows its incoming diff, so it opens wide.
 var CORE_TUIS = coreTuiTable({
     "pkg-install": {
-        argv: ["vgsh", "pkg", "install"],
+        argv: ["vgshell", "pkg", "install"],
         title: "Install packages",
         size: "default",
         presentation: "full",
         entry: { label: "Install packages", icon: "package-plus", group: "Packages" }
     },
     "pkg-remove": {
-        argv: ["vgsh", "pkg", "remove"],
+        argv: ["vgshell", "pkg", "remove"],
         title: "Remove packages",
         size: "default",
         presentation: "full",
         entry: { label: "Remove packages", icon: "package-minus", group: "Packages" }
     },
     "sudo-grant": {
-        argv: ["vgsh", "sudo", "grant"],
+        argv: ["vgshell", "sudo", "grant"],
         title: "Passwordless sudo",
         size: "default",
         presentation: "full",
         entry: { label: "Passwordless sudo", icon: "shield-alert", group: "System" }
     },
     "doctor": {
-        argv: ["vgsh", "doctor"],
+        argv: ["vgshell", "doctor"],
         title: "Requirements",
         size: "default",
         presentation: "full",
         entry: { label: "Check requirements", icon: "stethoscope", group: "System" }
     },
     "plugin-add": {
-        argv: ["vgsh", "plugin", "add"],
+        argv: ["vgshell", "plugin", "add"],
         title: "Add a plugin",
         size: "default",
         presentation: "full",
         entry: { label: "Add a plugin", icon: "circle-plus", group: "Plugins" }
     },
     "theme-add": {
-        argv: ["vgsh", "theme", "add"],
+        argv: ["vgshell", "theme", "add"],
         title: "Add a theme",
         size: "default",
         presentation: "full",
         entry: { label: "Add a theme", icon: "palette", group: "Themes" }
     },
     "requirements-install": {
-        argv: ["vgsh", "pkg", "run", "install"],
+        argv: ["vgshell", "pkg", "run", "install"],
         title: "Install requirements",
         size: "default",
         presentation: "full",
         entry: null
     },
     "plugin-update": {
-        argv: ["vgsh", "plugin", "update"],
+        argv: ["vgshell", "plugin", "update"],
         title: "Update a plugin",
         size: "wide",
         presentation: "full",
         entry: null
     },
     "plugin-remove": {
-        argv: ["vgsh", "plugin", "remove"],
+        argv: ["vgshell", "plugin", "remove"],
         title: "Remove a plugin",
         size: "default",
         presentation: "full",
         entry: null
     },
     "system": {
-        argv: ["vgsh", "system"],
+        argv: ["vgshell", "system"],
         title: "System setup",
         size: "default",
         presentation: "full",
@@ -2064,7 +2064,7 @@ var MANAGER_TUIS = {
 // `installed` as Registry.sourceOf names it, or null for an id no plugin
 // has: { ok: true, name, args } for tuiCore, or { ok: false, answer } with
 // the manager's replies, `unknown: <id>` for an id no plugin has and
-// `refused: bundled=<id>`, the refusal `vgsh plugin` prints, for a bundled
+// `refused: bundled=<id>`, the refusal `vgshell plugin` prints, for a bundled
 // plugin.
 function managerTui(action, id, source) {
     if (!hasOwn(MANAGER_TUIS, action))
@@ -2290,7 +2290,7 @@ function ipcAnswer(targets, id, name, arg) {
 }
 
 // Why `shell.ipc.call(name, arg)` is refused, "" when it is not: a handler
-// takes the text an outside `vgsh ipc call` sends, so ARG is a string.
+// takes the text an outside `vgshell ipc call` sends, so ARG is a string.
 function ipcCallRefusal(name, arg) {
     return typeof arg === "string" ? "" : "refused: ipc=" + name + " arg=not-a-string";
 }
@@ -2308,7 +2308,7 @@ function tuiArgsValid(args) {
     });
 }
 
-// The arguments after bin/vgsh-tui that open ROW, a normalized `tui` entry
+// The arguments after bin/vgshell-tui that open ROW, a normalized `tui` entry
 // or a CORE_TUIS row, running COMMAND as launch KEY's run RUN, so the
 // presenter writes the run's exit record; PLUGIN, { id, dir }, names the
 // plugin and its published snapshot, null for a core TUI.
@@ -2323,7 +2323,7 @@ function tuiArgv(row, plugin, key, run, command) {
 // Plugin MANIFEST's own TUI NAME with ARGS, from its published snapshot
 // under SOURCE_DIR (D014), from the runner's state RUNNER, { launcher, busy,
 // run }, `run` the id the launch gets: { ok: true, key, run, argv }, `key`
-// `<id>/<name>` and `argv` what follows bin/vgsh-tui, or { ok: false,
+// `<id>/<name>` and `argv` what follows bin/vgshell-tui, or { ok: false,
 // answer, action, key } with answer `refused: tui=<name>` and, in this
 // order, `reason=undeclared` for a name the manifest does not declare,
 // `reason=disabled` while the plugin is not ENABLED, `reason=args` for
@@ -2430,7 +2430,7 @@ function tuiLauncherAfter(state, completion) {
     return state;
 }
 
-// The log line for a probe, `bin/vgsh-tui check`, that ended with
+// The log line for a probe, `bin/vgshell-tui check`, that ended with
 // COMPLETION and STDERR, or "" for one that answered: exit 0 or
 // TUI_LAUNCHER_MISSING, which tuiLauncherAfter records. Every other end is
 // `tui: probe=failed exit=<code> status=<status>` with the first stderr
@@ -2461,7 +2461,7 @@ function tuiLaunchOutcome(key, completion, stderr) {
     return "tui: launcher=failed tui=" + tuiLabel(key) + " exit=" + completion.code + " status=" + completion.status + " " + String(stderr).split("\n")[0];
 }
 
-// The log lines of a `bin/vgsh-tui reap` that ended with COMPLETION, STDOUT
+// The log lines of a `bin/vgshell-tui reap` that ended with COMPLETION, STDOUT
 // and STDERR, each { level: "info" | "error", text }: one info line
 // `tui: reaped=<key> run=<run>` per record it ended, an error line for any
 // other line it printed, and `tui: reap=failed exit=<code> status=<status>`
@@ -2508,10 +2508,10 @@ function tuiKeyValid(key) {
     return (owner === "core" || ID_PATTERN.test(owner)) && NAME_PATTERN.test(key.slice(slash + 1));
 }
 
-// One exit record's TEXT, as bin/vgsh-tui writes it: { ok: true, record }
+// One exit record's TEXT, as bin/vgshell-tui writes it: { ok: true, record }
 // or { ok: false, error } naming the first defect. A running record has a
 // null code and endedAt; an ended one an integer code, or null when
-// `vgsh-tui reap` wrote it, and an endedAt.
+// `vgshell-tui reap` wrote it, and an endedAt.
 function tuiRecord(text) {
     var value;
     try {
@@ -2543,7 +2543,7 @@ function tuiRecord(text) {
 // `runs` each run's record by run id, an ended record over the running
 // one of the same run, and `keys` per key { running, ended }: the running
 // run with the latest startedAt, or null, and the ended run with the latest
-// startedAt, or null: a record `vgsh-tui reap` wrote carries the time the
+// startedAt, or null: a record `vgshell-tui reap` wrote carries the time the
 // reap found the run, which can follow a later run's end. A running record
 // whose run also ended is not running.
 function tuiRuns(records) {
@@ -2598,7 +2598,7 @@ function tuiState(runs, id, names) {
 
 // What the `done` of RUN receives, from RUNS, a tuiRuns result: null while
 // the run has no ended record, else { code, reason }, `reason` null for a
-// run that ended with its code and `vanished` for one `vgsh-tui reap`
+// run that ended with its code and `vanished` for one `vgshell-tui reap`
 // ended, whose code is null.
 function tuiRunDone(runs, run) {
     if (!hasOwn(runs.runs, run) || runs.runs[run].state !== "ended")
@@ -2607,7 +2607,7 @@ function tuiRunDone(runs, run) {
     return { code: code, reason: code === null ? "vanished" : null };
 }
 
-// The runs that need a `vgsh-tui wait` process: every launch the launcher
+// The runs that need a `vgshell-tui wait` process: every launch the launcher
 // handed to a terminal and that has no ended record yet, and every running
 // record already listed, as after a shell restart. The caller filters waits
 // already running or settled while the running record remains listed.
@@ -2629,7 +2629,7 @@ function tuiWaitRuns(runs, launched) {
     return Object.keys(wanted).sort().map(function (id) { return wanted[id]; });
 }
 
-// The result of one `vgsh-tui wait --record KEY --run RUN`: either the ended
+// The result of one `vgshell-tui wait --record KEY --run RUN`: either the ended
 // record it printed, or log lines that name why the result was not accepted.
 // WANTED is tuiWaitRuns's answer as the wait finished, before the wait's own
 // run is dropped from the launches. A gone run WANTED no longer holds, by
@@ -2657,7 +2657,7 @@ function tuiWaitOutcome(key, run, wanted, completion, stdout, stderr) {
     return { record: judged.record, logs: [] };
 }
 
-// The ended records from `vgsh-tui wait` still needed beside LISTED, the
+// The ended records from `vgshell-tui wait` still needed beside LISTED, the
 // records the listing holds, out of WAITED, the wait records held so far.
 // One is kept while the listing holds its run's running record and not its
 // ended one, so a listing that stays stale across later runs of the key

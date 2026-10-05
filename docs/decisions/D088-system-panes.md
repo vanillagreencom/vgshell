@@ -29,7 +29,7 @@ A pane's `configure.set` writes every settings entry the plugin reads, through `
 
 ## Omarchy comparison
 
-Checked against basecamp/omarchy `main`, read from `/home/method/dev/vgs/tmp/omarchy-ref` on 2026-10-01. Omarchy ships one plugin per section under `shell/plugins/panels/`, such as audio, Bluetooth, network, monitor and Tailscale. Each section is a bar widget with its own flyout. Omarchy has no settings application that mounts those sections into one window.
+Checked against basecamp/omarchy `main`, read from `/home/method/dev/vgshell/tmp/omarchy-ref` on 2026-10-01. Omarchy ships one plugin per section under `shell/plugins/panels/`, such as audio, Bluetooth, network, monitor and Tailscale. Each section is a bar widget with its own flyout. Omarchy has no settings application that mounts those sections into one window.
 
 VGS takes Omarchy's per-section split. VGS differs by adding a pane contract and one holder window, because the System plan needs a macOS-style sidebar and detail pane while keeping each section as its own plugin.
 

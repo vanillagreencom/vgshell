@@ -8,7 +8,7 @@ import QtQuick
 //                                            manifest's `hyprland` binds;
 //                                            the launcher's Style row runs
 //                                            it too (README)
-//   vgsh ipc call vgs.bar invoke toggle ''  the same toggle
+//   vgshell ipc call vgs.bar invoke toggle ''  the same toggle
 // The toggle flips the `hidden` setting through `configure`, so it holds
 // across a restart; Bar.qml reads it as `shown`, which the bar host follows.
 Item {

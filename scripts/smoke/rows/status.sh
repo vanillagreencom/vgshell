@@ -13,7 +13,7 @@
 # enables it again to read its Status rows.
 # inputs: scripts/smoke/fixtures/plugins/acme.status/* shell/Core/PluginStatus.qml shell/Core/PluginLogic.js scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/plugins.sh
 set -euo pipefail
-status_dir="$home/.config/vgs/plugins/acme.status"
+status_dir="$home/.config/vgshell/plugins/acme.status"
 mkdir -p "$status_dir"
 cp -R "$repo/scripts/smoke/fixtures/plugins/acme.status/." "$status_dir/"
 publish() { ipc acme.status invoke "$1" "${2:-}"; }

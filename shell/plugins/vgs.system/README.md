@@ -12,7 +12,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 |---|---|
 | `SUPER+COMMA` | The section shown last, or the first. The same key closes the window. Settings' Keys row rebinds it. |
 | A section's own Settings link | That section. |
-| IPC | `vgsh ipc call vgs.system invoke toggle '<payload>'` or `... invoke open '<payload>'`, or the host's `vgsh ipc call shell summon window vgs.system '<payload>'`. |
+| IPC | `vgshell ipc call vgs.system invoke toggle '<payload>'` or `... invoke open '<payload>'`, or the host's `vgshell ipc call shell summon window vgs.system '<payload>'`. |
 
 The payload is `{}` for the section shown last, or `{"pane":"<id>"}` for that section; any other keys beside `pane` go to the section. An id no enabled section has opens the window with the notice "That section is not available." The log keeps the id. The window remembers the last section while the shell runs.
 

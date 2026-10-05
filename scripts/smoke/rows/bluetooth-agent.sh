@@ -26,8 +26,8 @@
 # inputs: scripts/smoke/fixtures/plugins/acme.pairing/* shell/Core/BluetoothAgent* scripts/smoke/fixtures/devices/* shell/Core/PluginLogic.js scripts/smoke/rows/device-fakes.sh
 set -euo pipefail
 devices_ready bluetooth-agent || return 0
-pairing_dir="$home/.config/vgs/plugins/acme.pairing"
-rival_dir="$home/.config/vgs/plugins/acme.pairing-rival"
+pairing_dir="$home/.config/vgshell/plugins/acme.pairing"
+rival_dir="$home/.config/vgshell/plugins/acme.pairing-rival"
 mkdir -p "$pairing_dir"
 cp -R "$repo/scripts/smoke/fixtures/plugins/acme.pairing/." "$pairing_dir/"
 python3 - "$repo/scripts/smoke/fixtures/plugins/acme.pairing" "$rival_dir" <<'PY'

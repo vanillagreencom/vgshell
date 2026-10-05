@@ -94,7 +94,7 @@ function clip(text) {
     return chars.length <= STATUS_TEXT_MAX ? chars.join("") : chars.slice(0, STATUS_TEXT_MAX - 1).join("") + "…";
 }
 
-// bin/devtools and vgsh produce these diagnostic fields. Keep their raw
+// bin/devtools and vgshell produce these diagnostic fields. Keep their raw
 // answers for logs; only the text at a display boundary uses this table.
 var ERROR_TEXT = [
     [/start=failed|runner=failed/, "The check could not start.", "retry"],
@@ -158,13 +158,13 @@ function next(name) {
 // the plugin's own directory, WRITE the writeLaunchers setting.
 function queryArgv(name, tree, plugin, write) {
     var engine = [plugin + "/bin/devtools", "--tree", tree];
-    var vgsh = tree + "/bin/vgsh";
+    var vgshell = tree + "/bin/vgshell";
     switch (name) {
     case "launchers": return engine.concat(["launchers", write ? "refresh" : "remove"]);
     case "catalog": return engine.concat(["list", "--json"]);
-    case "requirements": return [vgsh, "doctor", "--json"];
-    case "vgs": return [vgsh, "self", "status", "--json"];
-    case "updates": return [vgsh, "pkg", "check", "--json", "--source", "mise"];
+    case "requirements": return [vgshell, "doctor", "--json"];
+    case "vgs": return [vgshell, "self", "status", "--json"];
+    case "updates": return [vgshell, "pkg", "check", "--json", "--source", "mise"];
     }
     throw new Error("devtools: query " + JSON.stringify(name) + " is not one of " + Object.keys(QUERIES).join(", "));
 }

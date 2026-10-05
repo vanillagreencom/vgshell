@@ -51,7 +51,7 @@ The research the plan rests on, with its sources: [jarvis-plan-research.md](jarv
 | provider disconnect; device lost | Capture ends; `fault`. A lost device is retried three times |
 | no screen, or the layer cannot map | The daemon opens capture only after the service answers `indicator shown`, and closes it on `indicator gone` |
 
-- Other children get an explicit scrubbed environment: no key, no `VGSH_RUNNER_PID`. Programs opened for the user go through `shell.run.detached` or a floating TUI.
+- Other children get an explicit scrubbed environment: no key, no `VGSHELL_RUNNER_PID`. Programs opened for the user go through `shell.run.detached` or a floating TUI.
 - **`mcp-shim`** is the stdio MCP server a harness brain starts. It relays to `tools.sock` in the runtime directory (mode 0700, a per-session token), so a harness's tools reach the same router.
 - **Node floor**: the global `WebSocket` needs Node 22; VGS's floor is 18. Below 22 the daemon refuses with a keyed line, shown as status.
 
@@ -191,7 +191,7 @@ J15 selects the permitted [half-duplex alternative](../architecture/jarvis-audio
 
 Status: `daemon`, `voiceState`, `brainState`, `localRuntime`, `browser`, `pointer` (state, with the setup command); `accounts`, `keys` (presenceList); `tasks` (count); a `choices` entry per starred setting (`brains` from `Accounts.js`); `leaves` (text: what each provider receives); `detail` (data).
 
-Files: state under `$XDG_STATE_HOME/vgs/jarvis/`; the runtime, models and the task hook's engine copy under `$XDG_DATA_HOME/vgs/jarvis/`; the socket and screenshots under `$XDG_RUNTIME_DIR/vgs/jarvis/`. Every file but the audit and the log is written whole and renamed. The plugin directory is never written.
+Files: state under `$XDG_STATE_HOME/vgshell/jarvis/`; the runtime, models and the task hook's engine copy under `$XDG_DATA_HOME/vgshell/jarvis/`; the socket and screenshots under `$XDG_RUNTIME_DIR/vgshell/jarvis/`. Every file but the audit and the log is written whole and renamed. The plugin directory is never written.
 
 ### 3.11 Bounds
 

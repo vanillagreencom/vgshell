@@ -457,7 +457,7 @@ world(async () => {
             fs.mkdirSync(target);
             const alias = path.join(process.env.JARVIS_TEST_ROOT, "alias-" + serial);
             fs.symlinkSync(target, alias);
-            const linked = await make(folder, { open: false, runtime: path.join(alias, "vgs") });
+            const linked = await make(folder, { open: false, runtime: path.join(alias, "vgshell") });
             await assert.rejects(linked.open(), { message: "jarvis: private=directory-type" });
             assert.deepEqual(fs.readdirSync(target), [], "nothing is created through a link");
             const file = await make(folder, { open: false });

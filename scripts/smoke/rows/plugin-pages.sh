@@ -3,13 +3,13 @@
 # requirements, and rescans; the set grows listPlugins alone, past the
 # bound in a run of this row with no other row's fixtures. The raw
 # listPlugins reply is then paged, the document the harness reassembles
-# lists every generated id, `vgsh plugin list` prints a line for each, and
+# lists every generated id, `vgshell plugin list` prints a line for each, and
 # built, lent, listShellConfig and listTuis, which answer unpaged and
 # which no disabled plugin grows, each read whole JSON within the bound.
 # The control is a copy of the shell whose listPlugins answers unpaged,
 # started as an unguarded qs over the same set: its reply fails the
 # oversize check once. The row removes the set and rescans before it ends.
-# inputs: shell/shell.qml shell/Core/IpcPages.qml shell/Core/Registry.qml shell/Core/PluginLogic.js shell/Core/PackageManagers.js shell/Core/Plugins.qml shell/Core/Capabilities.qml shell/Core/Config.qml bin/vgsh bin/vgsh-scan bin/vgsh-pkg bin/vgsh-plugin-judge bin/lib/ipc-reply.sh scripts/smoke/fixtures/plugins/acme.bare/*
+# inputs: shell/shell.qml shell/Core/IpcPages.qml shell/Core/Registry.qml shell/Core/PluginLogic.js shell/Core/PackageManagers.js shell/Core/Plugins.qml shell/Core/Capabilities.qml shell/Core/Config.qml bin/vgshell bin/vgshell-scan bin/vgshell-pkg bin/vgshell-plugin-judge bin/lib/ipc-reply.sh scripts/smoke/fixtures/plugins/acme.bare/*
 set -euo pipefail
 pages_shipped="$(find "$repo/shell/plugins" -mindepth 2 -maxdepth 2 -name manifest.json | wc -l)"
 pages_count=$((pages_shipped + 1))
@@ -21,7 +21,7 @@ pages_count=$((pages_shipped + 1))
 # be cut.
 pages_ceiling=$((106496 - 8192))
 pages_before="$(ipc shell listPlugins)" || pages_before=""
-pages_ids="$(python3 - "$home/.config/vgs/plugins" "$repo/scripts/smoke/fixtures/plugins/acme.bare/Service.qml" "$pages_count" <<'PY'
+pages_ids="$(python3 - "$home/.config/vgshell/plugins" "$repo/scripts/smoke/fixtures/plugins/acme.bare/Service.qml" "$pages_count" <<'PY'
 import json, os, shutil, sys
 root, service, count = sys.argv[1], sys.argv[2], int(sys.argv[3])
 ids = []
@@ -58,7 +58,7 @@ expect "the rescan lists every generated plugin" "$pages_count" pages_known ipc
 
 # (a) The raw reply, before reassembly.
 raw_list() {
-  ipc_call_last "$repo/bin/vgsh" shell listPlugins || return
+  ipc_call_last "$repo/bin/vgshell" shell listPlugins || return
   if vgs_ipc_paged_id shell "$ipc_last_reply"; then echo paged; else echo "unpaged chars=${#ipc_last_reply}"; fi
 }
 expect "the raw listPlugins reply is paged" paged raw_list
@@ -69,16 +69,16 @@ listed = {p["id"] for p in json.load(sys.stdin)["plugins"]}
 print(" ".join(i for i in sys.argv[1].split() if i not in listed) or "none")' "$pages_ids"
 }
 expect "the reassembled listPlugins document lists every generated id" none pages_missing
-# (c) `vgsh plugin list` through the sandbox: a plugin line per id.
+# (c) `vgshell plugin list` through the sandbox: a plugin line per id.
 cli_missing() {
   local listed id missing=""
-  listed="$("${shell_env[@]}" "$repo/bin/vgsh" plugin list)" || return
+  listed="$("${shell_env[@]}" "$repo/bin/vgshell" plugin list)" || return
   for id in $pages_ids; do
     grep -q -E "^${id//./\\.} +0\.1\.0 +disabled +kinds=service$" <<<"$listed" || missing+="$id "
   done
   echo "${missing:-none}"
 }
-expect "vgsh plugin list prints a line per generated id" none cli_missing
+expect "vgshell plugin list prints a line per generated id" none cli_missing
 # (d) listPlugins and the four reads that answer unpaged, through the
 # harness transport, which logs an unpaged reply past the bound: each
 # reads whole JSON, the four within the bound. The label carries each
@@ -150,6 +150,6 @@ else
   fail "the paged listPlugins call occurs once in $pages_copy/shell/shell.qml"
 fi
 
-for id in $pages_ids; do rm -rf -- "${home:?}/.config/vgs/plugins/$id"; done
+for id in $pages_ids; do rm -rf -- "${home:?}/.config/vgshell/plugins/$id"; done
 rescan "the rescan after removing the set lands"
 expect "the rescan lists no generated plugin" 0 pages_known ipc

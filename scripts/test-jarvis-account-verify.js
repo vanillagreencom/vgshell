@@ -12,7 +12,7 @@ const messages = { type: "message", role: "assistant", content: [{ type: "text",
 
 world(async () => {
     const env = environment();
-    const directory = path.join(env.XDG_STATE_HOME, "vgs/jarvis");
+    const directory = path.join(env.XDG_STATE_HOME, "vgshell/jarvis");
     const { Secrets } = require(path.join(plugin, "backend/Secrets.js"));
     const store = new Secrets(directory, env);
     const originalFetch = global.fetch;

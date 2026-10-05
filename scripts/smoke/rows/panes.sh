@@ -7,7 +7,7 @@
 # inputs: scripts/smoke/fixtures/plugins/acme.pane/* scripts/smoke/fixtures/plugins/acme.panehost/* shell/Hosts/PaneHost.qml shell/Hosts/PluginSlot.qml shell/Core/Capabilities.qml shell/plugins/vgs.system/* shell/plugins/*/manifest.json shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/PluginLogic.js scripts/smoke/rows/start-order.sh
 set -euo pipefail
 
-pane_file="$home/.config/vgs/shell.json"
+pane_file="$home/.config/vgshell/shell.json"
 pane_saved="$sandbox/shell-before-panes.json"
 pane_bar_key=""
 cp -- "$pane_file" "$pane_saved"
@@ -253,7 +253,7 @@ expect "configure restore: pane edit is accepted" ok ipc smoke invokeInstance wi
 expect_poll "configure restore: four-view readback is green" '["restored-configure","restored-configure","restored-configure","restored-configure"]' four_view_labels
 
 cp -- "$pane_saved" "$pane_file.tmp" && mv -T -- "$pane_file.tmp" "$pane_file"
-rm -rf -- "${home:?}/.config/vgs/plugins/acme.panehost" "${home:?}/.config/vgs/plugins/acme.pane" "${home:?}/.config/vgs/plugins/acme.pane-alt" "${home:?}/.config/vgs/plugins/acme.panehost2"
+rm -rf -- "${home:?}/.config/vgshell/plugins/acme.panehost" "${home:?}/.config/vgshell/plugins/acme.pane" "${home:?}/.config/vgshell/plugins/acme.pane-alt" "${home:?}/.config/vgshell/plugins/acme.panehost2"
 rescan "rescan after removing the pane fixtures answers ok"
 expect_poll "the pane fixture is gone after restore" absent plugin_enabled acme.pane
 expect_poll "each shipped section the row set aside is enabled again" "$pane_aside" shipped_panes_enabled

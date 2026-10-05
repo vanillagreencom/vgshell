@@ -18,7 +18,7 @@
 # plugin disabled, and rows/theme-browse.sh leaves vgs applied, no current
 # wallpaper and nord not installed; this file enables the plugin and
 # leaves all four so.
-# inputs: shell/plugins/vgs.themes/* themes/catalog/* shell/Core/ThemeRunner.qml bin/vgsh bin/lib/theme-* shell/Ui/layout/CardCarousel.qml shell/Ui/feedback/Dialog.qml bin/vgsh-theme-judge shell/Core/ShortcutRegistry.qml shell/Core/Plugins.qml scripts/smoke/rows/themes.sh scripts/smoke/rows/theme-browse.sh scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/plugins/vgs.themes/* themes/catalog/* shell/Core/ThemeRunner.qml bin/vgshell bin/lib/theme-* shell/Ui/layout/CardCarousel.qml shell/Ui/feedback/Dialog.qml bin/vgshell-theme-judge shell/Core/ShortcutRegistry.qml shell/Core/Plugins.qml scripts/smoke/rows/themes.sh scripts/smoke/rows/theme-browse.sh scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 view_value() { ipc smoke readDescendant overlay vgs.themes ThemeView "$1"; }
 view_names() { view_value shownCards | py_reply 'import json,sys; print(json.dumps([c["name"] for c in json.load(sys.stdin)]))'; }
@@ -43,7 +43,7 @@ has_badge() { ipc smoke itemTexts overlay vgs.themes Badge | py_reply 'import js
 lent_themes() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(sorted(s for s in json.load(sys.stdin)["shortcuts"] if s.startswith("vgs.themes"))))'; }
 # The binds of shortcut NAME, `themes` by default, as [modmask, key].
 themes_bind() { hypr -j binds | py_reply 'import json,sys; print(json.dumps([[b["modmask"], b["key"]] for b in json.load(sys.stdin) if b["description"] == "vgs.themes:" + sys.argv[1] and b.get("submap", "") in ("", "default")]))' "${1:-themes}"; }
-catalog_imagery() { "${shell_env[@]}" "$repo/bin/vgsh" theme catalog --json | py_reply 'import json,sys; print([e["imageryInstalled"] for e in json.load(sys.stdin)["entries"] if e["name"]==sys.argv[1]][0])' "$1"; }
+catalog_imagery() { "${shell_env[@]}" "$repo/bin/vgshell" theme catalog --json | py_reply 'import json,sys; print([e["imageryInstalled"] for e in json.load(sys.stdin)["entries"] if e["name"]==sys.argv[1]][0])' "$1"; }
 # Whether the first ready image drawing PATH asks to decode at its drawn size
 # times the CardCarousel's screen scale.
 card_source_size_matches() { # PATH
@@ -136,8 +136,8 @@ wallpaper_gate="$sandbox/theme-wallpaper-gate"
 # The first apply of akane answers busy, as a runner holding the theme lock
 # does; the file records that it did.
 akane_refused="$sandbox/theme-akane-refused"
-cp -p -- "$repo/bin/vgsh" "$repo/bin/vgsh.real"
-stand_in_vgsh "export VGS_THEME_ASSET_BASE=$(printf %q "file://$assets")
+cp -p -- "$repo/bin/vgshell" "$repo/bin/vgshell.real"
+stand_in_vgshell "export VGS_THEME_ASSET_BASE=$(printf %q "file://$assets")
 if [[ \${2:-} == apply && \${4:-} == akane && ! -e $(printf %q "$akane_refused") ]]; then
   touch -- $(printf %q "$akane_refused")
   printf '%s\n' '{\"state\":\"failed\",\"shell\":\"failed\",\"targets\":[],\"theme\":\"akane\",\"reason\":\"busy\"}'
@@ -645,7 +645,7 @@ expect_poll "the show every source keys control browser closes" 0 layer_count vg
 plugin_restore WallpaperView.qml "show every source keys"
 
 expect "the follow before the wallpaper rows ends" idle theme_idle
-expect "nord applies for the wallpaper rows" "ok theme=nord state=applied shell=applied" vgsh_theme apply nord
+expect "nord applies for the wallpaper rows" "ok theme=nord state=applied shell=applied" vgshell_theme apply nord
 expect_poll "the shell follows nord" nord ipc smoke themeName
 expect "the nested compositor adds a monitor for the wallpaper rows" ok hypr output create headless "$wall_output"
 expect_poll "the wallpaper rows' monitor is listed" True screen_listed "$wall_output"
@@ -730,7 +730,7 @@ type_keys -k Return || fail "sending Return to the scope control failed"
 expect_poll "the scope control's set closes the browser" 0 layer_count vgs:overlay
 expect_poll "the scope control moves the other screen's image too" "$nord_b ready" background_image_on "$other_screen"
 plugin_restore WallpaperView.qml scope
-expect "set --every-screen puts nord's first image back on every screen" "ok background=a.jpg theme=nord path=$nord_a screen=*" vgsh_theme background set "$nord_a" --every-screen
+expect "set --every-screen puts nord's first image back on every screen" "ok background=a.jpg theme=nord path=$nord_a screen=*" vgshell_theme background set "$nord_a" --every-screen
 
 # A click on the segment already chosen hands the keyboard back as a
 # change does: Right then steps the rail and leaves the source. In the
@@ -856,7 +856,7 @@ expect_poll "Shift+Tab on one screen switches back to the wallpaper view" '"wall
 press_wallpapers || fail "typing SUPER+W to close failed"
 expect_poll "SUPER+W on the open wallpaper view closes it" 0 layer_count vgs:overlay
 expect "the follow after the wallpaper rows ends" idle theme_idle
-expect "vgs applies after the wallpaper rows" "ok theme=vgs state=applied shell=applied" vgsh_theme apply vgs
+expect "vgs applies after the wallpaper rows" "ok theme=vgs state=applied shell=applied" vgshell_theme apply vgs
 expect_poll "the shell follows vgs after the wallpaper rows" vgs ipc smoke themeName
 
 expect "disabling vgs.themes after the browser rows is allowed" ok ipc shell setPluginEnabled vgs.themes false
@@ -865,7 +865,7 @@ expect_poll "disabling vgs.themes unbinds SUPER+T" '[]' themes_bind
 expect_poll "disabling vgs.themes unbinds SUPER+W" '[]' themes_bind wallpapers
 cp -p -- "$sandbox/hyprland-before-browser.lua" "$hypr_lua.next" && mv -T -- "$hypr_lua.next" "$hypr_lua"
 expect "the nested instance reloads the hyprland.lua the browser rows found" ok hypr reload config-only
-mv -T -- "$repo/bin/vgsh.real" "$repo/bin/vgsh"
+mv -T -- "$repo/bin/vgshell.real" "$repo/bin/vgshell"
 cp -p -- "$sandbox/catalog-index.json" "$index"
 rm -r -- "$installed/nord" "$installed/akane" "$assets" "$wallpaper_gate" "$akane_refused"
 rm -f -- "$bg_state/backgrounds.json" "$bg_state/background"

@@ -17,8 +17,8 @@ world(async () => {
         const result = run(folder);
         assert.equal(result.error, undefined);
         assert.equal(result.status, 0, result.stdout + result.stderr);
-        const accountFile = path.join(env.XDG_STATE_HOME, "vgs/jarvis/accounts.json");
-        const keyFile = path.join(env.XDG_STATE_HOME, "vgs/jarvis/keys.json");
+        const accountFile = path.join(env.XDG_STATE_HOME, "vgshell/jarvis/accounts.json");
+        const keyFile = path.join(env.XDG_STATE_HOME, "vgshell/jarvis/keys.json");
         assert.deepEqual(JSON.parse(fs.readFileSync(accountFile)), [{ provider: "claude", directory: hand, label: "my-account" }]);
         assert.deepEqual(JSON.parse(fs.readFileSync(keyFile)), [{ provider: "openai", account: "my-key", origin: "https://api.openai.com",
             attributes: { application: "other-tool", id: "api-key" } }]);
@@ -31,7 +31,7 @@ world(async () => {
             const records = fs.readFileSync(path.join(env.XDG_STATE_HOME, file), "utf8").trim().split("\n").map(JSON.parse);
             for (const record of records) {
                 assert.equal(record.env.OPENAI_API_KEY, undefined);
-                assert.equal(record.env.VGSH_RUNNER_PID, undefined);
+                assert.equal(record.env.VGSHELL_RUNNER_PID, undefined);
                 assert.ok(record.args.every(arg => arg !== "-p" && arg !== "exec"), "no inference during discovery or unavailable Verify");
             }
         }

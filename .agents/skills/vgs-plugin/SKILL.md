@@ -8,8 +8,8 @@ argument-hint: "new <author.name> --kinds <kind,...> | check <dir>"
 metadata:
   author: vanillagreen
   source: in-place
-  repository: "https://github.com/vanillagreencom/vgs"
-  bugs: "https://github.com/vanillagreencom/vgs/issues"
+  repository: "https://github.com/vanillagreencom/vgshell"
+  bugs: "https://github.com/vanillagreencom/vgshell/issues"
   version: "0.5.0"
 tags: [plugins, quickshell]
 ---

@@ -11,7 +11,7 @@ import "PluginLogic.js" as Logic
 // Requirement notices decide which plugins' missing commands the user is
 // shown, in what order, on which screen, and the install the shown notice
 // runs (requirement-notice.md). Six triggers raise a notice: the
-// pluginInstalled IPC function `vgsh plugin add` calls, Plugins.setEnabled
+// pluginInstalled IPC function `vgshell plugin add` calls, Plugins.setEnabled
 // turning a plugin on, a plugin's own `requirements` capability, the
 // `manager` capability's installRequirements and its act on a status
 // action that installs, and the `doctor` capability asking for the core's
@@ -20,7 +20,7 @@ import "PluginLogic.js" as Logic
 // commands Registry holds.
 // PluginLogic decides what each trigger asks for, whether it joins the
 // queue, and what the shown notice lists and installs; NoticeHost draws
-// it. The managers come from `bin/vgsh-pkg detect --json`, run when the
+// it. The managers come from `bin/vgshell-pkg detect --json`, run when the
 // first notice arrives and after each install. Install opens the core TUI
 // `core/requirements-install`; once its run ends, one rescan follows, and
 // a notice whose required commands the scan finds is closed. The core
@@ -67,7 +67,7 @@ Singleton {
         title: "Restart VGS to finish the update",
         message: "VGS changed on disk while it was running, and a plugin that needs the new version could not open. A restart loads it. Your open windows stay.",
         lines: [],
-        disclosure: "vgsh restart",
+        disclosure: "vgshell restart",
         actions: [{ label: "Restart", role: "accept" }, { label: "Not now", role: "cancel" }],
         failure: "",
         busy: false
@@ -274,7 +274,7 @@ Singleton {
         if (Registry.coreChanged) restart = true;
     }
 
-    // Restart: `vgsh restart`, the one route that stops the runner and has
+    // Restart: `vgshell restart`, the one route that stops the runner and has
     // Hyprland start the next shell (runtime.md § Process). It runs
     // detached, since it must outlive the shell it stops, so a restart that
     // refuses reports nothing back and leaves this shell running; the next
@@ -283,7 +283,7 @@ Singleton {
         if (!showingRestart) return;
         restart = false;
         console.info("notices: restart=started");
-        Quickshell.execDetached([Quickshell.shellDir + "/../bin/vgsh", "restart"]);
+        Quickshell.execDetached([Quickshell.shellDir + "/../bin/vgshell", "restart"]);
     }
 
     // Not now, Escape or Close: the shown notice goes, and its owner's own
@@ -348,7 +348,7 @@ Singleton {
     Process {
         id: detector
         property var completion: null
-        command: [Quickshell.shellDir + "/../bin/vgsh-pkg", "detect", "--json"]
+        command: [Quickshell.shellDir + "/../bin/vgshell-pkg", "detect", "--json"]
         stdout: StdioCollector { id: detected }
         stderr: StdioCollector { id: detectErrors }
         onExited: (code, status) => { detector.completion = { code: code, status: status }; }

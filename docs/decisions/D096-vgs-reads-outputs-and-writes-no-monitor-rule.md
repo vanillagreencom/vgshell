@@ -10,7 +10,7 @@
 
 **Refines**: [D028](D028-one-generated-hyprland-layer.md)
 
-**Context**: [D080](D080-hyprland-options-rendered-from-data.md) gave the core a monitor-rule writer: `~/.config/vgs/monitors.json`, a judge, an `hl.monitor` section in the Hyprland layer, an exclusive `monitors` capability with `write`, and a preview that a detached guard restored. The Displays pane that would have called them became a read-only pane (VGS-707). No pane writes a rule, and no release shipped the writer: 0.1.0 is unreleased.
+**Context**: [D080](D080-hyprland-options-rendered-from-data.md) gave the core a monitor-rule writer: `~/.config/vgshell/monitors.json`, a judge, an `hl.monitor` section in the Hyprland layer, an exclusive `monitors` capability with `write`, and a preview that a detached guard restored. The Displays pane that would have called them became a read-only pane (VGS-707). No pane writes a rule, and no release shipped the writer: 0.1.0 is unreleased.
 
 **Decision**: Monitor settings belong to the user's own Hyprland config. VGS reads the outputs Hyprland lists and writes no monitor rule.
 

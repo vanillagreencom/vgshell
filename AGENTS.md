@@ -9,7 +9,7 @@ A desktop shell for Hyprland, built on Quickshell 0.3.1. A small fixed core star
 - `scripts/validate [AREA]`: run only checks affected by changes from the newest commit holding what last passed AREA in this worktree, else the default branch's merge base, including uncommitted files. `--changed BASE` selects a fix round; `--list` previews commands; `--full` opts into the whole area. `unit` needs Qt and no Wayland session; `package` needs rootless podman and the Arch mirrors; `qml` needs the nested sandbox. Exit 77 means a check could not run and is not a pass.
 - `scripts/qml-smoke.sh`: the nested sandbox row alone. It needs `WAYLAND_DISPLAY` and `XDG_RUNTIME_DIR` in the environment.
 - `scripts/landing-times.py [--last N]`: the median time from open (first commit, or pull request creation) to landing on `main` over the last N landings, direct pushes and pull requests both, plus the median wait from ready to land.
-- `bin/vgsh`: the runner (`run`, `restart`), the plugin manager and the theme commands (`theme list`, `theme apply <name>`, `theme reload`, `theme background next`, `theme add <git url>`, `theme update <name>`, `theme remove <name>`; `theme apply vgs` restores the defaults). Run it with no arguments for the command list.
+- `bin/vgshell`: the runner (`run`, `restart`), the plugin manager and the theme commands (`theme list`, `theme apply <name>`, `theme reload`, `theme background next`, `theme add <git url>`, `theme update <name>`, `theme remove <name>`; `theme apply vgs` restores the defaults). Run it with no arguments for the command list.
 
 ## Conventions
 
@@ -39,7 +39,7 @@ A desktop shell for Hyprland, built on Quickshell 0.3.1. A small fixed core star
 - `docs/architecture/components.md`: before adding or changing a component of `qs.Ui`.
 - `docs/architecture/runtime.md`: before touching anything that starts, stops, measures or talks to the shell, and for every Quickshell fact the code rests on.
 - `docs/architecture/runtime-hyprland.md`: before touching a dispatch, `Compositor` or `Dispatch.js`, for every Hyprland fact the code rests on.
-- `docs/architecture/migrations.md`: before adding a one-time migration or touching `bin/vgsh-migrate`.
+- `docs/architecture/migrations.md`: before adding a one-time migration or touching `bin/vgshell-migrate`.
 - `docs/architecture/validation.md`: before touching `scripts/validate` or one of its rows.
 - `docs/architecture/validation-smoke.md`: before touching the nested sandbox, its harness or a smoke row's verdict.
 - `docs/architecture/validation-smoke-faults.md`: before touching a sandbox fault the smoke excuses, a mode a row holds on the nested output, or the smoke's closing verdict.

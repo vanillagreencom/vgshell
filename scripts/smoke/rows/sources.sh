@@ -4,7 +4,7 @@
 # rescans asked for back to back both complete; and an unchanged plugin's
 # files stay readable after the sources of others were replaced. Every
 # fixture write is a rename, so the scan never reads half a file.
-# inputs: scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/Plugins.qml shell/Core/Registry.qml bin/vgsh-scan scripts/smoke/rows/plugins.sh
+# inputs: scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/Plugins.qml shell/Core/Registry.qml bin/vgshell-scan scripts/smoke/rows/plugins.sh
 set -euo pipefail
 tick_revision() { ipc shell listPlugins | py_reply 'import json,sys; print([p["revision"] for p in json.load(sys.stdin)["plugins"] if p["id"]=="acme.tick"][0])'; }
 write_tick() { # FILE CONTENT: replace one file of the placed widget whole
@@ -36,7 +36,7 @@ fi
 # A rebuilt widget keeps its place among its section's widgets: the
 # fixture widget is moved beside the placed widget for the check and back.
 move_probe() { # SECTION: move the fixture widget's layout entry to that section
-  python3 - "$home/.config/vgs/shell.json" "$1" <<'PY'
+  python3 - "$home/.config/vgshell/shell.json" "$1" <<'PY'
 import json, os, sys
 p, section = sys.argv[1], sys.argv[2]
 d = json.load(open(p))
@@ -77,7 +77,7 @@ rescan "a rescan after breaking the widget answers ok"
 expect_log "the core logged the failed load on every bar" "$((loads_before + monitors))" 'plugins: acme\.tick failed to load: '
 expect_widgets "the broken widget leaves the bar" '["acme.probe"]'
 if before="$(builds)"; then
-  python3 - "$home/.config/vgs/shell.json" <<'PY'
+  python3 - "$home/.config/vgshell/shell.json" <<'PY'
 import json, os, sys
 p = sys.argv[1]
 d = json.load(open(p))
@@ -128,24 +128,24 @@ expect "the running service kept its in-memory state across the rescans" 1 read_
 # The scanner's output is usable only after a successful exit. Each bad
 # scanner is installed in the sandbox copy, never in the live checkout.
 scan_error() { ipc shell listPlugins | py_reply 'import json,sys; print(json.load(sys.stdin)["scanError"])'; }
-cp -p -- "$repo/bin/vgsh-scan" "$sandbox/vgsh-scan.good"
+cp -p -- "$repo/bin/vgshell-scan" "$sandbox/vgshell-scan.good"
 scan_plugins_before="$(ipc shell listPlugins | py_reply 'import json,sys; print(json.load(sys.stdin)["plugins"])')" || scan_plugins_before=""
 scan_plugins() { ipc shell listPlugins | py_reply 'import json,sys; print(json.load(sys.stdin)["plugins"])'; }
-expected_errors+=('plugins: vgsh-scan exited 9 status=0' 'plugins: vgsh-scan did not start' 'plugins: scan output does not parse: ')
-printf '#!/bin/sh\nprintf "[]\\n"\nexit 9\n' >"$repo/bin/vgsh-scan"
+expected_errors+=('plugins: vgshell-scan exited 9 status=0' 'plugins: vgshell-scan did not start' 'plugins: scan output does not parse: ')
+printf '#!/bin/sh\nprintf "[]\\n"\nexit 9\n' >"$repo/bin/vgshell-scan"
 rescan "a scanner that exits nonzero accepts the scan request"
-expect "the nonzero scanner exit is reported" 'vgsh-scan exited 9 status=0' scan_error
+expect "the nonzero scanner exit is reported" 'vgshell-scan exited 9 status=0' scan_error
 expect "valid-looking output from a failed scanner keeps the registry" "$scan_plugins_before" scan_plugins
-chmod 000 "$repo/bin/vgsh-scan"
+chmod 000 "$repo/bin/vgshell-scan"
 rescan "an unstartable scanner accepts the scan request"
-expect "the scanner failed start is reported" 'vgsh-scan did not start' scan_error
+expect "the scanner failed start is reported" 'vgshell-scan did not start' scan_error
 expect "a failed start keeps the registry" "$scan_plugins_before" scan_plugins
-chmod 755 "$repo/bin/vgsh-scan"
-printf '#!/bin/sh\nprintf "{}\\n"\n' >"$repo/bin/vgsh-scan"
+chmod 755 "$repo/bin/vgshell-scan"
+printf '#!/bin/sh\nprintf "{}\\n"\n' >"$repo/bin/vgshell-scan"
 rescan "a malformed scanner accepts the scan request"
 expect "a non-list scan result is reported" 'scan output does not parse: expected an entry list' scan_error
 expect "a malformed result keeps the registry" "$scan_plugins_before" scan_plugins
-mv -T -- "$sandbox/vgsh-scan.good" "$repo/bin/vgsh-scan"
+mv -T -- "$sandbox/vgshell-scan.good" "$repo/bin/vgshell-scan"
 rescan "a repaired scanner accepts the scan request"
 expect "a successful scan clears the error" '' scan_error
 expect "the repaired scan preserves the plugin list" "$scan_plugins_before" scan_plugins

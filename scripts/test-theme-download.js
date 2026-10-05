@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // The verified fetch and the tar reader, bin/lib/theme-download.js, which
-// `vgsh theme wallpapers` and `vgsh theme preview` run. Every expected
+// `vgshell theme wallpapers` and `vgshell theme preview` run. Every expected
 // value below was written by hand, never read from the library. The fetch
 // rows read file:// fixtures, and the HTTPS redirect row a server on
 // 127.0.0.1; no row reaches the network. The redirect row needs openssl to
@@ -40,9 +40,9 @@ const URLS = [
 
 // cacheDir rows: the environment and the directory.
 const CACHES = [
-    [{ XDG_CACHE_HOME: "/x/cache", HOME: "/h" }, "/x/cache/vgs/theme-assets"],
-    [{ XDG_CACHE_HOME: "", HOME: "/h" }, "/h/.cache/vgs/theme-assets"],
-    [{ HOME: "/h" }, "/h/.cache/vgs/theme-assets"]
+    [{ XDG_CACHE_HOME: "/x/cache", HOME: "/h" }, "/x/cache/vgshell/theme-assets"],
+    [{ XDG_CACHE_HOME: "", HOME: "/h" }, "/h/.cache/vgshell/theme-assets"],
+    [{ HOME: "/h" }, "/h/.cache/vgshell/theme-assets"]
 ];
 
 const file = (name, data, extra = {}) => Object.assign({ name, data }, extra);

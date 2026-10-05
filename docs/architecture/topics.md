@@ -8,7 +8,7 @@ One line per architecture document: the change to read it before. [overview.md](
 - [bluetooth-agent.md](bluetooth-agent.md): read before touching the `bluetoothAgent` capability, its bluetoothctl child, its transcript test or its smoke row.
 - [appearance.md](appearance.md): read before writing a plugin that owns its look, or touching `Theme.appearance` or its judge.
 - [layers.md](layers.md): read before drawing a passive surface that takes no keyboard, or touching the `layers` capability or its host.
-- [hyprland.md](hyprland.md): read before touching the Hyprland layer, a manifest's `hyprland` key, a `plugins[].keys` entry or `vgsh hypr`.
+- [hyprland.md](hyprland.md): read before touching the Hyprland layer, a manifest's `hyprland` key, a `plugins[].keys` entry or `vgshell hypr`.
 - [hyprland-options.md](hyprland-options.md): read before touching a manifest's `hyprland.options`, the option table or the `hyprland` capability.
 - [hyprland-monitors.md](hyprland-monitors.md): read before touching the `monitors` capability, its outputs reading or the check that VGS writes no monitor rule.
 - [capture.md](capture.md): read before touching the Capture plugin, its tool worker or its nested capture row.
@@ -27,7 +27,7 @@ One line per architecture document: the change to read it before. [overview.md](
 - [notification-hints.md](notification-hints.md): read before touching the VGS notification hints, a card's hinted icon or click, or the notifications' `open` TUI.
 - [automations.md](automations.md): read before touching `vgs.automations`, its schedule compiler, its units, its runner or its records.
 - [jarvis.md](jarvis.md): read before implementing a Jarvis core boundary or its voice service.
-- [lock-polkit.md](lock-polkit.md): read before touching `vgsh lock`, `vgs.lock`, its PAM stack or sleep hook, the `idle` capability, `vgs.polkit` or their smoke rows.
+- [lock-polkit.md](lock-polkit.md): read before touching `vgshell lock`, `vgs.lock`, its PAM stack or sleep hook, the `idle` capability, `vgs.polkit` or their smoke rows.
 - [polkit-agents.md](polkit-agents.md): read before touching how `vgs.polkit` finds another polkit agent, its status row's Uninstall, Stop and Install, or `shell.polkit.register`.
 - [greeter.md](greeter.md): read before touching the login screen: `shell/greeter.qml`, `vgs.greeter`, its view, its theme copy or the greeter's Hyprland and PAM files.
 - [manager.md](manager.md): read before touching enablement, install, update, remove or the Settings window.
@@ -43,11 +43,11 @@ One line per architecture document: the change to read it before. [overview.md](
 - [keyboard-surfaces.md](keyboard-surfaces.md): read before changing how a shipped surface is reached from the keyboard, for each surface's path and proving row.
 - [motion.md](motion.md): read before touching a list's highlight, a row's entrance, a `motion.list` token or how hover and keys share a list's selection.
 - [themes.md](themes.md): read before touching a theme package, package judge, or theme runner.
-- [theme-apply.md](theme-apply.md) and [theme-reload.md](theme-reload.md): read before touching the apply, a reload hook or `vgsh theme reload`.
-- [theme-follow.md](theme-follow.md): read before touching `applied.json`, `vgsh theme follow` or the `modified` flag.
-- [theme-catalog.md](theme-catalog.md): read before touching `themes/catalog/`, its index, `vgsh-theme-judge catalog-check`, the catalog readability check or a catalog install.
-- [theme-wallpapers.md](theme-wallpapers.md): read before touching `vgsh theme wallpapers`, the theme-asset cache or `bin/lib/theme-download.js`.
-- [theme-install.md](theme-install.md): read before touching `vgsh theme add`, `update`, `remove` or `outdated`.
+- [theme-apply.md](theme-apply.md) and [theme-reload.md](theme-reload.md): read before touching the apply, a reload hook or `vgshell theme reload`.
+- [theme-follow.md](theme-follow.md): read before touching `applied.json`, `vgshell theme follow` or the `modified` flag.
+- [theme-catalog.md](theme-catalog.md): read before touching `themes/catalog/`, its index, `vgshell-theme-judge catalog-check`, the catalog readability check or a catalog install.
+- [theme-wallpapers.md](theme-wallpapers.md): read before touching `vgshell theme wallpapers`, the theme-asset cache or `bin/lib/theme-download.js`.
+- [theme-install.md](theme-install.md): read before touching `vgshell theme add`, `update`, `remove` or `outdated`.
 - [theme-capability.md](theme-capability.md): read before touching `ThemeRunner` or the `theme` capability.
 - [theme-overlay.md](theme-overlay.md): read before touching the `vgs.themes` browser, its views or `BrowserLogic.js`.
 - [theme-targets.md](theme-targets.md): read before touching a theme target, a template or an encoder.
@@ -57,10 +57,10 @@ One line per architecture document: the change to read it before. [overview.md](
 - [theme-tool-targets.md](theme-tool-targets.md): read before touching a Discord client's, btop's, fastfetch's, tmux's, Oh My Posh's, Obsidian's or gum's target.
 - [theme-browsers.md](theme-browsers.md): read before touching the Zen or pywalfox target, or a target's `profiles` wiring.
 - [theme-agents.md](theme-agents.md): read before touching an agent CLI's target or a target's `select` key.
-- [packages.md](packages.md): read before touching the package-manager table or `vgsh pkg`.
+- [packages.md](packages.md): read before touching the package-manager table or `vgshell pkg`.
 - [requirements.md](requirements.md): read before touching a manifest's `requirements`, `config/requirements.json`, the scan's probe or the `missing` lines.
 - [requirement-notice.md](requirement-notice.md): read before touching the core notice host, a requirement notice, its triggers, the Hyprland consent question or the `requirements` and `doctor` capabilities.
-- [tui.md](tui.md), [tui-capability.md](tui-capability.md), [tui-records.md](tui-records.md) and [tui-sudo.md](tui-sudo.md): read before touching a floating TUI, the `tui` capability, its exit records or `vgsh sudo`.
+- [tui.md](tui.md), [tui-capability.md](tui-capability.md), [tui-records.md](tui-records.md) and [tui-sudo.md](tui-sudo.md): read before touching a floating TUI, the `tui` capability, its exit records or `vgshell sudo`.
 - [runtime.md](runtime.md): read before touching anything that starts, stops, measures or talks to the shell.
 - [runtime-qml-folders.md](runtime-qml-folders.md): read before touching `FolderListModel`, folder pickers or directory listings in QML.
 - [runtime-qml-focus.md](runtime-qml-focus.md): read before touching keyboard focus in QML: a layer-shell focus rule, summoned-surface initial focus, a focus reason, a focus scope, or a row that hands a window the keyboard.
@@ -84,7 +84,7 @@ One line per architecture document: the change to read it before. [overview.md](
 - [validation-latency.md](validation-latency.md): read before touching a latency the smoke reads or its budget.
 - [readme-images.md](readme-images.md): read before touching a plugin README's screenshot, `docs/images/plugins/`, `scripts/readme-shots.sh` or its check.
 - [distribution-autostart.md](distribution-autostart.md): read before touching the XDG autostart entry a system package ships.
-- [distribution.md](distribution.md): read before touching the licence, `VERSION`, `vgsh --version` or anything that packages or installs VGS; it links each channel's file.
+- [distribution.md](distribution.md): read before touching the licence, `VERSION`, `vgshell --version` or anything that packages or installs VGS; it links each channel's file.
 - [install-guide.md](install-guide.md): read before touching README § Install, `scripts/check-readme.js` or `scripts/readme-install.sh`.
 - [memory.md](memory.md): read before attributing memory growth or writing a memory budget.
 - [decisions.md](decisions.md): read for the one-line lists of decisions, and add each new record to its topic list.

@@ -129,7 +129,7 @@ world(async () => {
         assert.equal(added.status, 0, added.stdout + added.stderr);
         assert.match(added.stdout, /jarvis-keys: stored=libsecret/);
         assert.equal((added.stdout + added.stderr).includes("test-key-must-stay-private"), false);
-        const store = new Secrets(path.join(childEnv.XDG_STATE_HOME, "vgs/jarvis"), childEnv);
+        const store = new Secrets(path.join(childEnv.XDG_STATE_HOME, "vgshell/jarvis"), childEnv);
         const reference = store.references().find(value => value.provider === "fixture" && value.account === "test"
             && value.origin === first);
         assert.ok(reference, "real Add key must store the selected numeric origin");

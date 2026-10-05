@@ -26,9 +26,9 @@
 # the reload to the held mode and scale" failed.
 # inputs: scripts/smoke/fixtures/plugins/acme.monitors/* shell/Core/MonitorState.qml shell/Core/MonitorLogic.js shell/Core/HyprlandLayer.js shell/Core/HyprctlReader.qml scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
-hypr_layer="$home/.local/state/vgs/hypr/vgs.lua"
-user_config="$home/.config/vgs/shell.json"
-fixture_dir="$home/.config/vgs/plugins/acme.monitors"
+hypr_layer="$home/.local/state/vgshell/hypr/vgs.lua"
+user_config="$home/.config/vgshell/shell.json"
+fixture_dir="$home/.config/vgshell/plugins/acme.monitors"
 mkdir -p "$fixture_dir"
 cp -R "$repo/scripts/smoke/fixtures/plugins/acme.monitors/." "$fixture_dir/"
 cp -- "$user_config" "$sandbox/shell-before-monitors.json"

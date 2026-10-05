@@ -1,6 +1,6 @@
 # The capture service runs stand-ins. grim always, and slurp and hyprpicker for
 # the dragged area, run as the real tools on the nested socket.
-# inputs: shell/plugins/vgs.capture/* shell/Core/Capabilities.qml shell/Core/Config.qml shell/Core/IpcRegistry.qml shell/Core/Lifetime.js shell/Core/MonitorLogic.js shell/Core/MonitorState.qml shell/Core/Notices.qml shell/Core/PackageManagers.js shell/Core/PluginLogic.js shell/Core/Plugins.qml shell/Core/PluginStatus.qml shell/Core/Registry.qml shell/Core/ServiceGate.qml shell/Core/ShortcutRegistry.qml shell/Core/Toasts.qml shell/Hosts/BarHost.qml shell/Hosts/NoticeHost.qml shell/Hosts/OverlaySurface.qml shell/Hosts/PluginSlot.qml shell/Hosts/ServiceHost.qml shell/Hosts/Summon* shell/Hosts/ToastHost.qml shell/Ui/* shell/Commons/* bin/vgsh-scan bin/lib/check-manifests.js bin/lib/qml-library.js scripts/test-capture.py scripts/smoke/fixtures/capture/*
+# inputs: shell/plugins/vgs.capture/* shell/Core/Capabilities.qml shell/Core/Config.qml shell/Core/IpcRegistry.qml shell/Core/Lifetime.js shell/Core/MonitorLogic.js shell/Core/MonitorState.qml shell/Core/Notices.qml shell/Core/PackageManagers.js shell/Core/PluginLogic.js shell/Core/Plugins.qml shell/Core/PluginStatus.qml shell/Core/Registry.qml shell/Core/ServiceGate.qml shell/Core/ShortcutRegistry.qml shell/Core/Toasts.qml shell/Hosts/BarHost.qml shell/Hosts/NoticeHost.qml shell/Hosts/OverlaySurface.qml shell/Hosts/PluginSlot.qml shell/Hosts/ServiceHost.qml shell/Hosts/Summon* shell/Hosts/ToastHost.qml shell/Ui/* shell/Commons/* bin/vgshell-scan bin/lib/check-manifests.js bin/lib/qml-library.js scripts/test-capture.py scripts/smoke/fixtures/capture/*
 # Mode dimensions come from Hyprland. The row plants dropped-output,
 # dropped-clipboard, SIGKILL and inherited-stdin controls and requires each
 # assertion to fail.
@@ -11,7 +11,7 @@ capture_saved="$sandbox/shell-before-capture.json"
 capture_real_grim="$(command -v grim)" || { fail "capture: grim is unavailable"; return 0; }
 capture_real_slurp="$(command -v slurp)" || { fail "capture: slurp is unavailable"; return 0; }
 capture_real_picker="$(command -v hyprpicker)" || { fail "capture: hyprpicker is unavailable"; return 0; }
-cp -- "$home/.config/vgs/shell.json" "$capture_saved"
+cp -- "$home/.config/vgshell/shell.json" "$capture_saved"
 mkdir -p "$capture_state/saved-shims"
 for capture_tool in grim slurp hyprpicker tesseract wl-copy gpu-screen-recorder; do
   if [[ -e $shim/$capture_tool ]]; then mv -- "$shim/$capture_tool" "$capture_state/saved-shims/$capture_tool"; fi
@@ -285,5 +285,5 @@ for capture_tool in grim slurp hyprpicker tesseract wl-copy gpu-screen-recorder;
   rm -f -- "${shim:?}/$capture_tool"
   if [[ -e $capture_state/saved-shims/$capture_tool ]]; then mv -- "$capture_state/saved-shims/$capture_tool" "$shim/$capture_tool"; fi
 done
-cp -- "$capture_saved" "$home/.config/vgs/shell.json.next" && mv -T -- "$home/.config/vgs/shell.json.next" "$home/.config/vgs/shell.json"
+cp -- "$capture_saved" "$home/.config/vgshell/shell.json.next" && mv -T -- "$home/.config/vgshell/shell.json.next" "$home/.config/vgshell/shell.json"
 rescan "the capture fixture cleanup is rescanned"

@@ -24,7 +24,7 @@
 set -euo pipefail
 devices_ready device-fakes || return 0
 
-devices_fixture="$home/.config/vgs/plugins/acme.devices"
+devices_fixture="$home/.config/vgshell/plugins/acme.devices"
 mkdir -p "$devices_fixture"
 cp -R "$repo/scripts/smoke/fixtures/plugins/acme.devices/." "$devices_fixture/"
 rescan "rescan discovers the device reader"
@@ -95,7 +95,7 @@ fi
 # Every other stand-in answers only what a row planted, through the PATH
 # every sandbox shell starts with.
 answer_of() { local status=0 out; out="$(through_shell "$@" 2>&1)" || status=$?; printf '%s status=%s\n' "$out" "$status"; }
-# `vgsh doctor`, which the Dev Tools service runs, reads the user
+# `vgshell doctor`, which the Dev Tools service runs, reads the user
 # manager's graphical-session.target through the same stand-in, so the row
 # reads the calls made after its first one, that read left out.
 systemctl_calls_since() { device_calls systemctl | py_reply 'import json,sys; print(json.dumps([c for c in json.load(sys.stdin)[int(sys.argv[1]):] if c != ["--user", "is-active", "graphical-session.target"]]))' "$1"; }

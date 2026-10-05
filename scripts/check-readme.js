@@ -5,8 +5,8 @@
 //   node scripts/check-readme.js [--root DIR] [--commands | --write-plugins]
 //
 // DIR, this repository by default, holds the files read: README.md,
-// VERSION, bin/vgsh, bin/lib/post-install.txt, install.sh,
-// docs/architecture/runtime.md, packaging/arch/ and shell/plugins/. bin/vgsh-scan always comes from this
+// VERSION, bin/vgshell, bin/lib/post-install.txt, install.sh,
+// docs/architecture/runtime.md, packaging/arch/ and shell/plugins/. bin/vgshell-scan always comes from this
 // script's own repository and lists DIR's plugins.
 //
 // Rules. Each finding is one line, `<rule> README.md:<line> <detail>`:
@@ -22,15 +22,15 @@
 //                          `| bash -s -- <options>`: each option one that
 //                          install.sh's option parser accepts, and a
 //                          --version value `v<VERSION>`
-//                nix       `nix run github:vanillagreencom/vgs -- <vgsh args>`, the
-//                          flake on main, or the same with `vgs/v<VERSION>`
-//                checkout  `git clone https://github.com/vanillagreencom/vgs`,
-//                          or `vgs/bin/vgsh <vgsh args>`
-//              <vgsh args> start with a command the usage header of bin/vgsh
+//                nix       `nix run github:vanillagreencom/vgshell -- <vgshell args>`, the
+//                          flake on main, or the same with `vgshell/v<VERSION>`
+//                checkout  `git clone https://github.com/vanillagreencom/vgshell`,
+//                          or `vgshell/bin/vgshell <vgshell args>`
+//              <vgshell args> start with a command the usage header of bin/vgshell
 //              lists. § Install holds at least one command.
 //   autostart  § Setup holds one ```lua fence of one line. The line equals
 //              the autostart line docs/architecture/runtime.md states, the
-//              line install.sh prints with `vgsh` for its absolute path,
+//              line install.sh prints with `vgshell` for its absolute path,
 //              and the line of bin/lib/post-install.txt, the text a package
 //              prints on a first install.
 //   plugin     § Plugins, without its leading and trailing blank lines,
@@ -39,7 +39,7 @@
 //              `have=<line> want=<line>`, `<end>` for a side that ran out.
 //
 // The plugin table is a comment line naming --write-plugins, a blank line,
-// a header and one row per plugin directory bin/vgsh-scan lists under
+// a header and one row per plugin directory bin/vgshell-scan lists under
 // shell/plugins/, in scan order, which is directory name order:
 // `| [<name>](shell/plugins/<dir>/README.md) | <description> |`, from the
 // manifest's `name` and `description`. A manifest whose name or
@@ -50,11 +50,11 @@
 // nothing else. It runs no other rule.
 //
 // --commands prints, when every rule passes, one JSON line per command:
-// { block, line, channel, needs, vgsh, command }. block counts the bash
+// { block, line, channel, needs, vgshell, command }. block counts the bash
 // fences of § Install from 1. line is the command's line in README.md.
 // needs is `release:v<VERSION>` for a curl release install and a nix run
 // of the tag, `aur:<pkg>` for an AUR install, else `none`: what must be
-// published before the command can run. vgsh is the vgsh arguments the
+// published before the command can run. vgshell is the vgshell arguments the
 // command runs, else null. scripts/readme-install.sh reads these lines.
 //
 // Exit 0 prints `check-readme: ok commands=<n> plugins=<n>`, the JSON
@@ -86,8 +86,8 @@ for (let i = 0; i < args.length; i++) {
 }
 
 const README = "README.md";
-const INSTALL_URL = "https://raw.githubusercontent.com/vanillagreencom/vgs/main/install.sh";
-const CLONE_URL = "https://github.com/vanillagreencom/vgs";
+const INSTALL_URL = "https://raw.githubusercontent.com/vanillagreencom/vgshell/main/install.sh";
+const CLONE_URL = "https://github.com/vanillagreencom/vgshell";
 
 function unreadable(rel, cause) {
     process.stdout.write("check-readme: unreadable: " + rel + ": " + cause + "\n");
@@ -110,16 +110,16 @@ function finding(rule, line, detail) {
 // ---- sources ---------------------------------------------------------------
 
 const version = readText("VERSION").replace(/\n$/, "");
-const vgshText = readText("bin/vgsh");
+const vgshellText = readText("bin/vgshell");
 
-// The first word after `vgsh` on each command line of bin/vgsh's usage
+// The first word after `vgshell` on each command line of bin/vgshell's usage
 // header, the comment block after the shebang.
-const vgshCommands = (() => {
-    const header = /^#!.*\n((?:#.*\n)+)/.exec(vgshText);
+const vgshellCommands = (() => {
+    const header = /^#!.*\n((?:#.*\n)+)/.exec(vgshellText);
     const names = new Set();
     if (header !== null)
-        for (const m of header[1].matchAll(/^#\s+vgsh (\S+)/gm)) names.add(m[1]);
-    if (!names.has("run")) unreadable("bin/vgsh", "the usage header lists no `vgsh run`, so the reader is broken");
+        for (const m of header[1].matchAll(/^#\s+vgshell (\S+)/gm)) names.add(m[1]);
+    if (!names.has("run")) unreadable("bin/vgshell", "the usage header lists no `vgshell run`, so the reader is broken");
     return names;
 })();
 
@@ -139,11 +139,11 @@ const installOptions = (() => {
     return options;
 })();
 
-// The autostart line install.sh prints, with `vgsh` for the path it fills.
+// The autostart line install.sh prints, with `vgshell` for the path it fills.
 const installAutostart = (() => {
     const m = /^\s*printf '\s*(hl\.on\([^'\n]*%s run[^'\n]*\))\\n' "\$link"$/m.exec(installText);
     if (m === null) unreadable("install.sh", "no printf of the hl.on autostart line");
-    return m[1].replace("%s", "vgsh");
+    return m[1].replace("%s", "vgshell");
 })();
 
 // The one autostart line of the text a package prints on a first install.
@@ -161,20 +161,20 @@ const runtimeAutostart = (() => {
     return m[1];
 })();
 
-// Each plugin directory as bin/vgsh-scan lists it, in its order, as
+// Each plugin directory as bin/vgshell-scan lists it, in its order, as
 // { dir, text }: dir relative to the root, text the manifest's bytes.
 const plugins = (() => {
     const base = path.join(root, "shell", "plugins");
-    const scan = childProcess.spawnSync(path.join(codeRoot, "bin", "vgsh-scan"), ["--require-base", base],
+    const scan = childProcess.spawnSync(path.join(codeRoot, "bin", "vgshell-scan"), ["--require-base", base],
         { encoding: "utf8", env: { PATH: process.env.PATH, LC_ALL: "C" } });
-    if (scan.error || scan.status !== 0) unreadable("shell/plugins", "vgsh-scan " + (scan.error ? scan.error.code : "exited " + scan.status) + " " + (scan.stderr || ""));
+    if (scan.error || scan.status !== 0) unreadable("shell/plugins", "vgshell-scan " + (scan.error ? scan.error.code : "exited " + scan.status) + " " + (scan.stderr || ""));
     const listedPlugins = [];
     for (const listed of JSON.parse(scan.stdout)) {
         const rel = path.relative(root, listed.dir);
         if (listed.error !== undefined) unreadable(rel, listed.error);
         listedPlugins.push({ dir: rel, text: listed.text });
     }
-    if (listedPlugins.length === 0) unreadable("shell/plugins", "vgsh-scan listed no plugin, and the core always ships some");
+    if (listedPlugins.length === 0) unreadable("shell/plugins", "vgshell-scan listed no plugin, and the core always ships some");
     return listedPlugins;
 })();
 
@@ -249,18 +249,18 @@ function fences(sec) {
     return found;
 }
 
-// The vgsh arguments ARGS as a string when their first word is a command
+// The vgshell arguments ARGS as a string when their first word is a command
 // the usage header lists, else a finding.
-function vgshArgs(args, n) {
+function vgshellArgs(args, n) {
     const first = args.split(/\s+/)[0];
-    if (!vgshCommands.has(first)) {
-        finding("command", n, `vgsh-command=${first} reason=not-in-usage`);
+    if (!vgshellCommands.has(first)) {
+        finding("command", n, `vgshell-command=${first} reason=not-in-usage`);
         return null;
     }
     return args;
 }
 
-// One command line as { channel, needs, vgsh }, or null after a finding.
+// One command line as { channel, needs, vgshell }, or null after a finding.
 function classify(command, n) {
     let m;
     if ((m = /^paru -S (\S+)$/.exec(command)) !== null) {
@@ -269,12 +269,12 @@ function classify(command, n) {
             finding("command", n, `channel=aur package=${pkg} reason=no-recipe`);
             return null;
         }
-        return { channel: "aur", needs: "aur:" + pkg, vgsh: null };
+        return { channel: "aur", needs: "aur:" + pkg, vgshell: null };
     }
     const curl = `curl -fsSL ${INSTALL_URL} | bash`;
     if (command === curl || command.startsWith(curl + " ")) {
         const rest = command.slice(curl.length).trim();
-        if (rest === "") return { channel: "curl", needs: `release:v${version}`, vgsh: null };
+        if (rest === "") return { channel: "curl", needs: `release:v${version}`, vgshell: null };
         if (!rest.startsWith("-s -- ")) {
             finding("command", n, "channel=curl reason=unknown-form text=" + rest);
             return null;
@@ -297,20 +297,20 @@ function classify(command, n) {
             }
             if (option === "--git" || option === "--uninstall") release = false;
         }
-        return ok ? { channel: "curl", needs: release ? `release:v${version}` : "none", vgsh: null } : null;
+        return ok ? { channel: "curl", needs: release ? `release:v${version}` : "none", vgshell: null } : null;
     }
-    if ((m = /^nix run github:vanillagreencom\/vgs(?:\/(\S+))? -- (.+)$/.exec(command)) !== null) {
+    if ((m = /^nix run github:vanillagreencom\/vgshell(?:\/(\S+))? -- (.+)$/.exec(command)) !== null) {
         if (m[1] !== undefined && m[1] !== "v" + version) {
             finding("command", n, `channel=nix tag=${m[1]} want=v${version}`);
             return null;
         }
-        const vgsh = vgshArgs(m[2], n);
-        return vgsh === null ? null : { channel: "nix", needs: m[1] === undefined ? "none" : `release:v${version}`, vgsh };
+        const vgshell = vgshellArgs(m[2], n);
+        return vgshell === null ? null : { channel: "nix", needs: m[1] === undefined ? "none" : `release:v${version}`, vgshell };
     }
-    if (command === `git clone ${CLONE_URL}`) return { channel: "checkout", needs: "none", vgsh: null };
-    if ((m = /^vgs\/bin\/vgsh (.+)$/.exec(command)) !== null) {
-        const vgsh = vgshArgs(m[1], n);
-        return vgsh === null ? null : { channel: "checkout", needs: "none", vgsh };
+    if (command === `git clone ${CLONE_URL}`) return { channel: "checkout", needs: "none", vgshell: null };
+    if ((m = /^vgshell\/bin\/vgshell (.+)$/.exec(command)) !== null) {
+        const vgshell = vgshellArgs(m[1], n);
+        return vgshell === null ? null : { channel: "checkout", needs: "none", vgshell };
     }
     finding("command", n, "unknown text=" + command);
     return null;
@@ -413,7 +413,7 @@ if (findings.length > 0) {
 }
 if (mode === "commands") {
     for (const c of commands)
-        process.stdout.write(JSON.stringify({ block: c.block, line: c.line, channel: c.channel, needs: c.needs, vgsh: c.vgsh, command: c.command }) + "\n");
+        process.stdout.write(JSON.stringify({ block: c.block, line: c.line, channel: c.channel, needs: c.needs, vgshell: c.vgshell, command: c.command }) + "\n");
 } else {
     console.log(`check-readme: ok commands=${commands.length} plugins=${plugins.length}`);
 }

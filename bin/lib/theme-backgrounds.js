@@ -1,5 +1,5 @@
-// The background state bin/vgsh-theme-judge keeps for `vgsh theme apply`
-// and `vgsh theme background next`, `previous` and `set`: the images a
+// The background state bin/vgshell-theme-judge keeps for `vgshell theme apply`
+// and `vgshell theme background next`, `previous` and `set`: the images a
 // package's backgrounds/ or the user folder holds, the remembered image
 // per theme, the current image and each screen's own image, in the state
 // directory as backgrounds.json and the `background` symlink.
@@ -224,7 +224,7 @@ function land(stateDir, after, before, key) {
             return;
         }
         if (named === current) return;
-        const tmp = link + ".vgsh-" + process.pid;
+        const tmp = link + ".vgshell-" + process.pid;
         fs.rmSync(tmp, { force: true });
         fs.symlinkSync(current, tmp);
         try {

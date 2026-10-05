@@ -5,7 +5,7 @@
 # inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* shell/Core/ShortcutRegistry.qml scripts/smoke/keyboard/* scripts/smoke/fixtures/plugins/acme.probe/* shell/plugins/vgs.bar/* shell/Ui/feedback/VoiceOrb.qml shell/Core/Layers.qml scripts/smoke/toplevel/* shell/Core/HyprlandLayer.js scripts/smoke/rows/jarvis-bubble.sh scripts/smoke/rows/jarvis.sh scripts/smoke/rows/hold-shortcuts.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 
-jarvis_key_config="$home/.config/vgs/shell.json"
+jarvis_key_config="$home/.config/vgshell/shell.json"
 jarvis_key_lua="$home/.config/hypr/hyprland.lua"
 jarvis_key_service="$repo/shell/plugins/vgs.jarvis/Service.qml"
 jarvis_key_backend="$repo/shell/plugins/vgs.jarvis/backend/jarvisd.js"
@@ -229,7 +229,7 @@ expect "pending Mute tells the user that disable cancels the request" 1 \
 expect "disable ends the pending service" ok ipc shell setPluginEnabled vgs.jarvis false
 expect_poll "disable drops the pending owner" absent ipc smoke jarvisProcess
 expect "a cancelled request never changes the persisted privacy state" False \
-  python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["muted"])' "$home/.local/state/vgs/jarvis/mute.json"
+  python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["muted"])' "$home/.local/state/vgshell/jarvis/mute.json"
 jarvis_key_startup
 : >"$jarvis_gate"
 jarvis_key_muted
@@ -405,7 +405,7 @@ expect "the observer releases its ordering marker" ok ipc smoke holdMarkerStop
 cp -- "$sandbox/jarvis-key-service-before" "$jarvis_key_service"
 cp -- "$sandbox/jarvis-key-backend-before" "$jarvis_key_backend"
 rm -- "$repo/shell/plugins/vgs.jarvis/backend/scripted-fixture.js"
-rm -- "$home/.local/state/vgs/jarvis/mute.json"
+rm -- "$home/.local/state/vgshell/jarvis/mute.json"
 jarvis_rescan
 cp -- "$sandbox/jarvis-key-config-before.json" "$jarvis_key_config"
 cp -- "$sandbox/jarvis-key-lua-before" "$jarvis_key_lua"
@@ -415,5 +415,5 @@ jarvis_enable
 expect_poll "the restored stock daemon remains unconfigured" session jarvis_session unconfigured
 expect "the restored nested keys have no configuration errors" '[]' config_errors
 expect "the scripted control leaves no Jarvis state file" False \
-  python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).exists())' "$home/.local/state/vgs/jarvis/mute.json"
+  python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).exists())' "$home/.local/state/vgshell/jarvis/mute.json"
 jarvis_disable

@@ -7,7 +7,7 @@ import "BluetoothLogic.js" as Logic
 // The Bluetooth service: the one owner of the power operation, the rfkill
 // reads and writes, and the discovery debt (BluetoothLogic.js decides; this
 // runs the effects). Every other instance asks it through the plugin's own
-// IPC, which `vgsh ipc call vgs.bluetooth invoke <name> <arg>` reaches too:
+// IPC, which `vgshell ipc call vgs.bluetooth invoke <name> <arg>` reaches too:
 //   power on|off      turn Bluetooth on or off; answers `ok` or a refusal
 //   discovery begin   take a discovery lease; answers `lease=<id>`
 //   discovery end ID  end lease ID; answers `ok` or a refusal

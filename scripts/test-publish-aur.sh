@@ -11,15 +11,15 @@
 # `release list` and `release view` from fixture JSON.
 #
 # The pinned fixture tags the clone v<VERSION> and pins a fixture sha256 in
-# the vgs recipe and its .SRCINFO, which makepkg writes, so the recipe
+# the vgshell recipe and its .SRCINFO, which makepkg writes, so the recipe
 # check passes as it does after a release.
 #
 # The controls at the end run copies of the script with one rule removed
 # each, and the row that judges that rule must turn red on its copy.
 set -euo pipefail
 
-# shellcheck source=scripts/vgsh-rows.sh
-source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/vgsh-rows.sh"
+# shellcheck source=scripts/vgshell-rows.sh
+source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/vgshell-rows.sh"
 
 suite=test-publish-aur
 for tool in git makepkg python3 tar; do
@@ -68,19 +68,19 @@ fixture() {
   h="$tmp/homes/$fixtures-$1"
   {
     g clone -q "${FIXTURE_BASE:-$base}" "$r" && cp -- "$2" "$r/scripts/publish-aur.sh" &&
-      mkdir -p "$aur" "$h" && g init -q --bare -b master "$aur/vgs.git" && g init -q --bare -b master "$aur/vgs-git.git" &&
+      mkdir -p "$aur" "$h" && g init -q --bare -b master "$aur/vgshell.git" && g init -q --bare -b master "$aur/vgshell-git.git" &&
       g config --file "$h/.gitconfig" user.name maintainer && g config --file "$h/.gitconfig" user.email maintainer@example.invalid &&
       g config --file "$h/.gitconfig" "url.file://$aur/.insteadOf" https://aur.archlinux.org/ &&
       printf '[]\n' >"$gh_dir/list.json" && printf '{"assets":[]}\n' >"$gh_dir/view.json" && rm -f -- "$gh_dir/list.exit"
   } || { echo "$suite: fixture=$1" >&2; exit 1; }
 }
-# set_sum SUM: sets the one sha256sums entry of $r's vgs recipe to SUM,
+# set_sum SUM: sets the one sha256sums entry of $r's vgshell recipe to SUM,
 # whatever the copied recipe held, regenerates its .SRCINFO with makepkg
 # and commits. Every fixture states its checksum through here, so the
 # suite reads the same states before and after the real recipe is pinned.
 set_sum() {
   {
-    python3 - "$r/packaging/arch/vgs/PKGBUILD" "$1" <<'PY' &&
+    python3 - "$r/packaging/arch/vgshell/PKGBUILD" "$1" <<'PY' &&
 import re, sys
 path, value = sys.argv[1:]
 text = open(path).read()
@@ -89,28 +89,28 @@ if n != 1:
     sys.exit("sha256sums lines: %d" % n)
 open(path, "w").write(changed)
 PY
-      (cd -- "$r/packaging/arch/vgs" && makepkg --printsrcinfo >.SRCINFO) &&
+      (cd -- "$r/packaging/arch/vgshell" && makepkg --printsrcinfo >.SRCINFO) &&
       g -C "$r" commit -q --allow-empty -am "sha256sums $1" &&
-      grep -qxF $'\t'"sha256sums = $1" "$r/packaging/arch/vgs/.SRCINFO"
+      grep -qxF $'\t'"sha256sums = $1" "$r/packaging/arch/vgshell/.SRCINFO"
   } || { echo "$suite: fixture=set-sum value=$1" >&2; exit 1; }
 }
-# pin: tags the fixture v$version and pins $sha in the vgs recipe, as the
+# pin: tags the fixture v$version and pins $sha in the vgshell recipe, as the
 # release step does.
 pin() {
   g -C "$r" tag -a "v$version" -m "VGS $version" || { echo "$suite: fixture=pin" >&2; exit 1; }
   set_sum "$sha"
 }
 # release_answer TAG DRAFT DIGEST: gh lists TAG, a draft when DRAFT is
-# true, whose asset vgs-$version.tar.gz has DIGEST; an empty DIGEST lists
+# true, whose asset vgshell-$version.tar.gz has DIGEST; an empty DIGEST lists
 # no asset, and `null` a null digest.
 release_answer() {
   printf '[{"tagName":"%s","isDraft":%s}]\n' "$1" "$2" >"$gh_dir/list.json"
   if [[ -z $3 ]]; then
     printf '{"assets":[{"name":"SHA256SUMS","digest":"sha256:%s"}]}\n' "$sha" >"$gh_dir/view.json"
   elif [[ $3 == null ]]; then
-    printf '{"assets":[{"name":"vgs-%s.tar.gz","digest":null}]}\n' "$version" >"$gh_dir/view.json"
+    printf '{"assets":[{"name":"vgshell-%s.tar.gz","digest":null}]}\n' "$version" >"$gh_dir/view.json"
   else
-    printf '{"assets":[{"name":"vgs-%s.tar.gz","digest":"sha256:%s"}]}\n' "$version" "$3" >"$gh_dir/view.json"
+    printf '{"assets":[{"name":"vgshell-%s.tar.gz","digest":"sha256:%s"}]}\n' "$version" "$3" >"$gh_dir/view.json"
   fi
 }
 
@@ -148,18 +148,18 @@ aur_empty() { [[ -z $(g -C "$aur/$1.git" for-each-ref) ]]; }
 # The rows each judge one rule, on the script SCRIPT names, so a control
 # can run them again on a copy with that rule removed.
 
-publish_row() { # SCRIPT: vgs-git is committed as its version and pushed to master
+publish_row() { # SCRIPT: vgshell-git is committed as its version and pushed to master
   local v
   fixture publish "$1"
-  run vgs-git
-  v="$(recipe vgs-git pkgver)-$(recipe vgs-git pkgrel)"
-  [[ $status == 0 ]] && aur_holds vgs-git &&
-    has_out "publish-aur: published package=vgs-git version=$v commit=$(g -C "$aur/vgs-git.git" rev-parse master)" &&
-    [[ $(g -C "$aur/vgs-git.git" log -1 --format=%s%n%b master) == "vgs-git $v"$'\n'"From vanillagreencom/vgs $(g -C "$r" rev-parse HEAD)" ]]
+  run vgshell-git
+  v="$(recipe vgshell-git pkgver)-$(recipe vgshell-git pkgrel)"
+  [[ $status == 0 ]] && aur_holds vgshell-git &&
+    has_out "publish-aur: published package=vgshell-git version=$v commit=$(g -C "$aur/vgshell-git.git" rev-parse master)" &&
+    [[ $(g -C "$aur/vgshell-git.git" log -1 --format=%s%n%b master) == "vgshell-git $v"$'\n'"From vanillagreencom/vgshell $(g -C "$r" rev-parse HEAD)" ]]
 }
 ssh_row() { # SCRIPT: ssh reads the key and the pinned host keys, and no ~/.ssh or /etc/ssh file
   fixture ssh "$1"
-  run vgs-git
+  run vgshell-git
   local want options=(-F /dev/null -i "$key" -o IdentitiesOnly=yes -o "UserKnownHostsFile=$r/packaging/aur-known-hosts"
     -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes -o UpdateHostKeys=no)
   want="$(printf '%s\n' "${options[@]}")" || return 1
@@ -169,39 +169,39 @@ ssh_row() { # SCRIPT: ssh reads the key and the pinned host keys, and no ~/.ssh 
 }
 unchanged_row() { # SCRIPT: a second run finds nothing to commit
   fixture unchanged "$1"
-  run vgs-git
-  run vgs-git
-  [[ $status == 0 ]] && has_out "publish-aur: unchanged package=vgs-git version=$(recipe vgs-git pkgver)-$(recipe vgs-git pkgrel)" &&
-    [[ $(g -C "$aur/vgs-git.git" rev-list --count master) == 1 ]]
+  run vgshell-git
+  run vgshell-git
+  [[ $status == 0 ]] && has_out "publish-aur: unchanged package=vgshell-git version=$(recipe vgshell-git pkgver)-$(recipe vgshell-git pkgrel)" &&
+    [[ $(g -C "$aur/vgshell-git.git" rev-list --count master) == 1 ]]
 }
 mirror_row() { # SCRIPT: a file only the AUR holds is removed and an AUR edit overwritten
   local seed
   fixture mirror "$1"
   seed="$tmp/seed-$fixtures"
-  { g clone -q "$aur/vgs-git.git" "$seed" 2>/dev/null && printf 'old\n' >"$seed/stale.install" && printf 'edited\n' >"$seed/PKGBUILD" &&
+  { g clone -q "$aur/vgshell-git.git" "$seed" 2>/dev/null && printf 'old\n' >"$seed/stale.install" && printf 'edited\n' >"$seed/PKGBUILD" &&
     g -C "$seed" add -A && g -C "$seed" commit -q -m seed && g -C "$seed" push -q origin HEAD:master; } || { echo "$suite: fixture=seed" >&2; exit 1; }
-  run vgs-git
-  [[ $status == 0 ]] && aur_holds vgs-git
+  run vgshell-git
+  [[ $status == 0 ]] && aur_holds vgshell-git
 }
 dry_row() { # SCRIPT: --dry-run clones over HTTPS, needs no key and pushes nothing
   fixture dry "$1"
-  RUN_KEY="" run --dry-run vgs-git
-  [[ $status == 0 ]] && has_out "publish-aur: would-publish package=vgs-git version=$(recipe vgs-git pkgver)-$(recipe vgs-git pkgrel)" &&
-    ! compgen -G "$record/ssh.*" >/dev/null && aur_empty vgs-git
+  RUN_KEY="" run --dry-run vgshell-git
+  [[ $status == 0 ]] && has_out "publish-aur: would-publish package=vgshell-git version=$(recipe vgshell-git pkgver)-$(recipe vgshell-git pkgrel)" &&
+    ! compgen -G "$record/ssh.*" >/dev/null && aur_empty vgshell-git
 }
-release_row() { # SCRIPT: vgs is published once GitHub's digest of its asset is the pinned sha256
+release_row() { # SCRIPT: vgshell is published once GitHub's digest of its asset is the pinned sha256
   fixture release "$1"
   pin
   release_answer "v$version" false "$sha"
-  run vgs
-  [[ $status == 0 ]] && aur_holds vgs &&
-    [[ $(cat -- "$record/gh") == "release list --repo vanillagreencom/vgs --limit 1000 --json tagName,isDraft
-release view v$version --repo vanillagreencom/vgs --json assets" ]]
+  run vgshell
+  [[ $status == 0 ]] && aur_holds vgshell &&
+    [[ $(cat -- "$record/gh") == "release list --repo vanillagreencom/vgshell --limit 1000 --json tagName,isDraft
+release view v$version --repo vanillagreencom/vgshell --json assets" ]]
 }
 
-# Deferrals of vgs: name | fixture: pinned, or unpinned at SKIP | the gh
+# Deferrals of vgshell: name | fixture: pinned, or unpinned at SKIP | the gh
 # answer | the
-# reason. vgs-git, named after it, is still published, and the run exits 75.
+# reason. vgshell-git, named after it, is still published, and the run exits 75.
 declare -A deferrals=(
   [unpinned]="unpinned||unpinned"
   [no-release]="pinned|v0.0.1 false $sha|no-release"
@@ -216,32 +216,32 @@ deferral_row() { # SCRIPT NAME
   if [[ $kind == unpinned ]]; then set_sum SKIP; else pin; fi
   # shellcheck disable=SC2086 # answer holds the three release_answer words, the last possibly empty
   [[ -z $answer ]] || release_answer $answer ""
-  run vgs vgs-git
-  [[ $status == 75 ]] && has_out "publish-aur: deferred package=vgs reason=$reason" && aur_empty vgs && aur_holds vgs-git &&
+  run vgshell vgshell-git
+  [[ $status == 75 ]] && has_out "publish-aur: deferred package=vgshell reason=$reason" && aur_empty vgshell && aur_holds vgshell-git &&
     { [[ $kind == pinned ]] || [[ ! -e $record/gh ]]; }
 }
 
 # Refusals: name | fixture change | the arguments | exit status | the first
 # keyed stderr line, %r the fixture. Each leaves the AUR stand-in empty.
 tweak_none() { :; }
-tweak_stale() { sed -i "s/^pkgdesc='/pkgdesc='Stale /" "$r/packaging/arch/vgs-git/PKGBUILD" && g -C "$r" commit -q -am stale; }
-tweak_untracked() { printf 'x\n' >"$r/packaging/arch/vgs-git/notes"; }
+tweak_stale() { sed -i "s/^pkgdesc='/pkgdesc='Stale /" "$r/packaging/arch/vgshell-git/PKGBUILD" && g -C "$r" commit -q -am stale; }
+tweak_untracked() { printf 'x\n' >"$r/packaging/arch/vgshell-git/notes"; }
 tweak_no_key() { RUN_KEY=""; }
 tweak_absent_key() { RUN_KEY="$tmp/absent_key"; }
 tweak_gh_down() { pin && printf '1\n' >"$gh_dir/list.exit"; }
 tweak_null_digest() { pin && release_answer "v$version" false null; }
-tweak_no_aur() { rm -rf -- "${aur:?}/vgs-git.git"; }
+tweak_no_aur() { rm -rf -- "${aur:?}/vgshell-git.git"; }
 declare -A refusals=(
   [no-argument]="tweak_none||2|publish-aur: refused: argument=missing"
   [unknown-package]="tweak_none|vgs-shell|2|publish-aur: refused: package=vgs-shell reason=unknown"
-  [repeated-package]="tweak_none|vgs-git vgs-git|2|publish-aur: refused: package=vgs-git reason=repeated"
-  [stale-srcinfo]="tweak_stale|vgs-git|1|publish-aur: refused: recipes=refused status=1"
-  [uncommitted]="tweak_untracked|vgs-git|1|publish-aur: refused: recipe=uncommitted package=vgs-git"
-  [no-key]="tweak_no_key|vgs-git|1|publish-aur: refused: secret=missing name=AUR_SSH_KEY_FILE"
-  [absent-key]="tweak_absent_key|vgs-git|1|publish-aur: refused: secret=missing name=AUR_SSH_KEY_FILE path=$tmp/absent_key"
-  [gh-down]="tweak_gh_down|vgs|1|publish-aur: refused: gh=release-list repo=vanillagreencom/vgs"
-  [null-digest]="tweak_null_digest|vgs|1|publish-aur: refused: gh=asset-digest-unreadable tag=v$version name=vgs-$version.tar.gz status=5"
-  [no-aur-repository]="tweak_no_aur|vgs-git|1|publish-aur: refused: git=clone url=ssh://aur@aur.archlinux.org/vgs-git.git"
+  [repeated-package]="tweak_none|vgshell-git vgshell-git|2|publish-aur: refused: package=vgshell-git reason=repeated"
+  [stale-srcinfo]="tweak_stale|vgshell-git|1|publish-aur: refused: recipes=refused status=1"
+  [uncommitted]="tweak_untracked|vgshell-git|1|publish-aur: refused: recipe=uncommitted package=vgshell-git"
+  [no-key]="tweak_no_key|vgshell-git|1|publish-aur: refused: secret=missing name=AUR_SSH_KEY_FILE"
+  [absent-key]="tweak_absent_key|vgshell-git|1|publish-aur: refused: secret=missing name=AUR_SSH_KEY_FILE path=$tmp/absent_key"
+  [gh-down]="tweak_gh_down|vgshell|1|publish-aur: refused: gh=release-list repo=vanillagreencom/vgshell"
+  [null-digest]="tweak_null_digest|vgshell|1|publish-aur: refused: gh=asset-digest-unreadable tag=v$version name=vgshell-$version.tar.gz status=5"
+  [no-aur-repository]="tweak_no_aur|vgshell-git|1|publish-aur: refused: git=clone url=ssh://aur@aur.archlinux.org/vgshell-git.git"
 )
 refusal_row() { # SCRIPT NAME
   local tweak args want_status want_err
@@ -251,17 +251,17 @@ refusal_row() { # SCRIPT NAME
   "$tweak" || { echo "$suite: fixture=$tweak" >&2; exit 1; }
   # shellcheck disable=SC2086 # args holds zero, one or two words
   run $args
-  [[ $status == "$want_status" && $(first_err) == "$want_err" ]] && aur_empty vgs &&
-    { [[ ! -d $aur/vgs-git.git ]] || aur_empty vgs-git; }
+  [[ $status == "$want_status" && $(first_err) == "$want_err" ]] && aur_empty vgshell &&
+    { [[ ! -d $aur/vgshell-git.git ]] || aur_empty vgshell-git; }
 }
 
 echo "rows"
-check "vgs-git is committed as its version and pushed to master" publish_row "$script"
+check "vgshell-git is committed as its version and pushed to master" publish_row "$script"
 check "ssh reads the key and the pinned host keys alone" ssh_row "$script"
 check "an unchanged recipe commits nothing" unchanged_row "$script"
 check "the AUR repository ends up holding the recipe's files alone" mirror_row "$script"
 check "--dry-run clones over HTTPS and pushes nothing" dry_row "$script"
-check "vgs is published once its asset's digest is the pinned sha256" release_row "$script"
+check "vgshell is published once its asset's digest is the pinned sha256" release_row "$script"
 for name in $(printf '%s\n' "${!deferrals[@]}" | LC_ALL=C sort); do
   check "deferral: $name" deferral_row "$script" "$name"
 done
@@ -270,7 +270,7 @@ for name in $(printf '%s\n' "${!refusals[@]}" | LC_ALL=C sort); do
 done
 unset RUN_KEY
 
-# The fixtures from a source whose vgs recipe is already pinned to another
+# The fixtures from a source whose vgshell recipe is already pinned to another
 # sum, as it is after a release: each still reaches the checksum state it
 # states.
 pinned_source_row() { # SCRIPT

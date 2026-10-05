@@ -350,7 +350,7 @@ for fd in os.listdir(f"/proc/{pid}/fd"):
 print(json.dumps(sorted(held)))
 PY
 }
-# devices_system_tree: the tree the sandbox copy of bin/vgsh-system
+# devices_system_tree: the tree the sandbox copy of bin/vgshell-system
 # resolves every path and command in, $sandbox/system-root, and the
 # copy's `prefix=` line rewritten to it, so the core's system-step probe
 # reads the fakes and never the host's /sys and /dev. Its sys and dev link
@@ -364,7 +364,7 @@ PY
 devices_system_root="$sandbox/system-root"
 devices_system_tree() {
   local tool found bin="$devices_system_root/usr/bin"
-  if grep -q -x -F -- "prefix=$devices_system_root" "$repo/bin/vgsh-system"; then echo prefixed; return 0; fi
+  if grep -q -x -F -- "prefix=$devices_system_root" "$repo/bin/vgshell-system"; then echo prefixed; return 0; fi
   mkdir -p -- "$bin" "$devices_system_root/etc/udev/rules.d" "$devices_system_root/var/lib" "$devices_system_root/proc/sys/kernel/random"
   ln -sfn -- "$devices_sysfs_root" "$devices_system_root/sys"
   ln -sfn -- "$devices_dev_root" "$devices_system_root/dev"
@@ -374,7 +374,7 @@ devices_system_tree() {
   done
   for tool in udevadm systemctl gum; do ln -sfn -- "$shim/$tool" "$bin/$tool"; done
   printf '11111111-2222-3333-4444-555555555555\n' >"$devices_system_root/proc/sys/kernel/random/boot_id"
-  python3 - "$repo/bin/vgsh-system" "$devices_system_root" <<'PY'
+  python3 - "$repo/bin/vgshell-system" "$devices_system_root" <<'PY'
 import sys
 path, root = sys.argv[1:]
 text = open(path).read()

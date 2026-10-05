@@ -31,7 +31,7 @@ The manifest declares kind `bar-widget` with `defaultSection` `right`. Enabling 
 
 The service owns mute. It registers the IPC handler `mute` once per instance, beside its shortcuts. The handler calls the same `intent("mute")` as the Mute key and answers `ok`. [jarvis-controls.md § Privacy mute](jarvis-controls.md#privacy-mute) defines that intent: a refusal toast during a permanent problem, one pending request before the daemon is ready, and the toggle when ready.
 
-The widget calls `shell.ipc.call("mute", "")` and logs any reply other than `ok`. The same handler answers `vgsh ipc call vgs.jarvis invoke mute`. No second mute path exists.
+The widget calls `shell.ipc.call("mute", "")` and logs any reply other than `ok`. The same handler answers `vgshell ipc call vgs.jarvis invoke mute`. No second mute path exists.
 
 ## Keyboard
 

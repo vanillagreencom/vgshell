@@ -1,5 +1,5 @@
 # The vgs KDE colour scheme, linked into ~/.local/share/color-schemes/ as
-# Vgs.colors by vgsh theme apply.
+# Vgs.colors by vgshell theme apply.
 [General]
 ColorScheme=Vgs
 Name=Vgs

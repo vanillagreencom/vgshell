@@ -11,7 +11,7 @@
 # same widget, stays open through it.
 # inputs: scripts/smoke/fixtures/plugins/acme.overlays/* shell/Ui/overlay/* shell/Ui/controls/Select.qml
 set -euo pipefail
-ov="$home/.config/vgs/plugins/acme.overlays"
+ov="$home/.config/vgshell/plugins/acme.overlays"
 mkdir -p "$ov"
 cp -R "$repo/scripts/smoke/fixtures/plugins/acme.overlays/." "$ov/"
 rescan "rescan after adding the overlay fixture answers ok"

@@ -21,7 +21,7 @@ import "NotificationLogic.js" as Logic
 // is only a view of them. Everything it registers is the core's to release.
 //   shortcut vgs.notifications:inbox     SUPER+N from the manifest's
 //                                        `hyprland` binds (README)
-//   vgsh ipc call vgs.notifications invoke <name> <arg>, names in the README
+//   vgshell ipc call vgs.notifications invoke <name> <arg>, names in the README
 Item {
     id: root
 

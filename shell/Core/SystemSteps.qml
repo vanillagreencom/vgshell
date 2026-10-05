@@ -4,7 +4,7 @@ import Quickshell.Io
 import "PluginLogic.js" as Logic
 
 // Owns the `system` capability (D081): the states of the core's system
-// steps and the one `bin/vgsh-system status --json` that reads them. It
+// steps and the one `bin/vgshell-system status --json` that reads them. It
 // probes while a plugin holds the capability, once when the first holder
 // arrives, again after every `core/system` run the manager opened ends and
 // after every plugin scan, which ends each requirement install;
@@ -70,7 +70,7 @@ Scope {
     Process {
         id: prober
         property var completion: null
-        command: [root.coreBin + "/vgsh-system", "status", "--json"]
+        command: [root.coreBin + "/vgshell-system", "status", "--json"]
         stdout: StdioCollector { id: probeOutput }
         stderr: StdioCollector { id: probeErrors }
         onExited: (code, status) => { prober.completion = { code: code, status: status }; }

@@ -15,9 +15,9 @@ ok() { printf '  ok    %s\n' "$*"; }
 fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
 node_dir="$(dirname -- "$(node -e 'process.stdout.write(process.execPath)')")"
 run_env=(env -i HOME="$root/home" PATH="$node_dir:/usr/bin:/bin" XDG_STATE_HOME="$root/state" XDG_RUNTIME_DIR="$root/runtime" LC_ALL=C)
-cat >"$root/bin/vgsh" <<'VGSH'
+cat >"$root/bin/vgshell" <<'VGSHELL'
 #!/usr/bin/env bash
-record="$XDG_STATE_HOME/vgs/updates-test"
+record="$XDG_STATE_HOME/vgshell/updates-test"
 mkdir -p -- "$record"
 printf '%s %s at=%s\n' "$1" "$2" "$(date +%s%N)" >>"$record/calls"
 case "$1 $2" in
@@ -27,38 +27,38 @@ case "$1 $2" in
   'theme outdated') sleep "${VGS_UPDATES_TEST_SLEEP:-0}"; printf '[]\n' ;;
   *) exit 2 ;;
 esac
-VGSH
-chmod 755 "$root/bin/vgsh"
+VGSHELL
+chmod 755 "$root/bin/vgshell"
 if "${run_env[@]}" "$check" >/dev/null 2>"$root/missing.err"; then
-  fail "check refuses without --vgsh"
-elif grep -q 'updates-check: refused: vgsh=missing' "$root/missing.err"; then
-  ok "check refuses without --vgsh"
+  fail "check refuses without --vgshell"
+elif grep -q 'updates-check: refused: vgshell=missing' "$root/missing.err"; then
+  ok "check refuses without --vgshell"
 else
-  fail "missing --vgsh refusal text"
+  fail "missing --vgshell refusal text"
 fi
 start_ms=$(( $(date +%s%N) / 1000000 ))
-"${run_env[@]}" VGS_UPDATES_TEST_SLEEP=1 "$check" --vgsh "$root/bin/vgsh" >/dev/null
+"${run_env[@]}" VGS_UPDATES_TEST_SLEEP=1 "$check" --vgshell "$root/bin/vgshell" >/dev/null
 elapsed=$(( $(date +%s%N) / 1000000 - start_ms ))
 if [[ $elapsed -lt 3000 ]]; then ok "check runs independent probes concurrently"; else fail "check runs independent probes concurrently: elapsed=${elapsed}ms"; fi
-if [[ $(wc -l <"$root/state/vgs/updates-test/calls") -eq 4 ]]; then ok "check runs four probes once"; else fail "check runs four probes once"; fi
-# Process groups: each probe's vgsh leaves a grandchild in its group. TERM
+if [[ $(wc -l <"$root/state/vgshell/updates-test/calls") -eq 4 ]]; then ok "check runs four probes once"; else fail "check runs four probes once"; fi
+# Process groups: each probe's vgshell leaves a grandchild in its group. TERM
 # to bin/check must reach it; the control signals each probe's pid alone
 # and leaves the grandchild running.
-cat >"$root/bin/vgsh" <<'VGSH'
+cat >"$root/bin/vgshell" <<'VGSHELL'
 #!/usr/bin/env bash
-record="$XDG_STATE_HOME/vgs/updates-test"
+record="$XDG_STATE_HOME/vgshell/updates-test"
 mkdir -p -- "$record"
 (sleep 60) &
 echo "$!" >>"$record/grandchildren-$RUN"
 wait
-VGSH
-chmod 755 "$root/bin/vgsh"
+VGSHELL
+chmod 755 "$root/bin/vgshell"
 # grandchild_run LABEL CHECK: TERM CHECK once its four probes started a
 # grandchild; print CHECK's status and how many grandchildren outlived it.
 grandchild_run() {
-  local label="$1" helper="$2" pid status left=0 child log="$root/state/vgs/updates-test/grandchildren-$1"
+  local label="$1" helper="$2" pid status left=0 child log="$root/state/vgshell/updates-test/grandchildren-$1"
   set +e
-  "${run_env[@]}" RUN="$label" "$helper" --vgsh "$root/bin/vgsh" >/dev/null 2>"$root/$label.err" &
+  "${run_env[@]}" RUN="$label" "$helper" --vgshell "$root/bin/vgshell" >/dev/null 2>"$root/$label.err" &
   pid=$!
   for _ in $(seq 1 50); do [[ -f $log && $(wc -l <"$log") -eq 4 ]] && break; sleep 0.1; done
   kill -TERM "$pid"
@@ -90,22 +90,22 @@ if [[ $left -gt 0 ]]; then ok "control: signalling each probe's pid alone leaves
 # must wait again for a probe whose wait the signal interrupted, so no
 # probe outlives it. The control is bin/check with only that re-wait
 # removed, which returns while the package probe still runs.
-cat >"$root/bin/vgsh" <<'VGSH'
+cat >"$root/bin/vgshell" <<'VGSHELL'
 #!/usr/bin/env bash
-record="$XDG_STATE_HOME/vgs/updates-test"
+record="$XDG_STATE_HOME/vgshell/updates-test"
 mkdir -p -- "$record"
 echo "$$" >>"$record/delayed-$RUN"
 if [[ $1 == pkg ]]; then trap 'sleep 3; exit 143' TERM; else trap 'exit 143' TERM; fi
 sleep 60 &
 wait
-VGSH
-chmod 755 "$root/bin/vgsh"
+VGSHELL
+chmod 755 "$root/bin/vgshell"
 # delayed_run LABEL CHECK: run CHECK until its four probes recorded
 # themselves, TERM it, and print how many probes outlived it.
 delayed_run() {
-  local label="$1" helper="$2" pid left=0 probe log="$root/state/vgs/updates-test/delayed-$1"
+  local label="$1" helper="$2" pid left=0 probe log="$root/state/vgshell/updates-test/delayed-$1"
   set +e
-  "${run_env[@]}" RUN="$label" "$helper" --vgsh "$root/bin/vgsh" >/dev/null 2>"$root/$label.err" &
+  "${run_env[@]}" RUN="$label" "$helper" --vgshell "$root/bin/vgshell" >/dev/null 2>"$root/$label.err" &
   pid=$!
   for _ in $(seq 1 50); do [[ -f $log && $(wc -l <"$log") -eq 4 ]] && break; sleep 0.1; done
   kill -TERM "$pid"
@@ -138,30 +138,30 @@ if [[ $mutant_left -gt 0 ]]; then ok "control: without the re-wait a probe outli
 # sends every probe group TERM. The stand-in probe notes each TERM it gets.
 # The control forwards INT, which the probes ignore until their 3 s sleep
 # ends.
-cat >"$root/bin/vgsh" <<'VGSH'
+cat >"$root/bin/vgshell" <<'VGSHELL'
 #!/usr/bin/env bash
-record="$XDG_STATE_HOME/vgs/updates-test"
+record="$XDG_STATE_HOME/vgshell/updates-test"
 mkdir -p -- "$record"
 echo "$$" >>"$record/int-$RUN"
 trap ': >"$record/termed-$RUN-$$"; exit 143' TERM
 sleep 3 &
 wait
-VGSH
-chmod 755 "$root/bin/vgsh"
+VGSHELL
+chmod 755 "$root/bin/vgshell"
 # int_run LABEL CHECK: run CHECK with SIGINT at its default, as a terminal's
 # foreground job has it, until its four probes recorded themselves, INT
 # it, and print its status and how many probes got TERM.
 int_run() {
-  local label="$1" helper="$2" pid status log="$root/state/vgs/updates-test/int-$1"
+  local label="$1" helper="$2" pid status log="$root/state/vgshell/updates-test/int-$1"
   set +e
-  "${run_env[@]:0:2}" --default-signal=INT "${run_env[@]:2}" RUN="$label" "$helper" --vgsh "$root/bin/vgsh" >/dev/null 2>"$root/$label.err" &
+  "${run_env[@]:0:2}" --default-signal=INT "${run_env[@]:2}" RUN="$label" "$helper" --vgshell "$root/bin/vgshell" >/dev/null 2>"$root/$label.err" &
   pid=$!
   for _ in $(seq 1 50); do [[ -f $log && $(wc -l <"$log") -eq 4 ]] && break; sleep 0.1; done
   kill -INT "$pid"
   wait "$pid"
   status=$?
   set -e
-  echo "$status $(find "$root/state/vgs/updates-test" -name "termed-$label-*" | wc -l)"
+  echo "$status $(find "$root/state/vgshell/updates-test" -name "termed-$label-*" | wc -l)"
 }
 read -r status termed <<<"$(int_run int "$check")"
 if [[ $status -eq 130 ]]; then ok "INT exits as 128 plus the signal"; else fail "INT exits as 128 plus the signal: $status"; fi

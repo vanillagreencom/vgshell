@@ -33,7 +33,7 @@ async function daemonLease(ending, removeClose = false) {
     mode({});
     require("./desktop.js").desktopWorld(process.env.XDG_RUNTIME_DIR, []);
     const plugin = path.join(tree, "shell/plugins/vgs.jarvis");
-    const marker = path.join(process.env.XDG_DATA_HOME, "vgs/jarvis/browser-ready.json");
+    const marker = path.join(process.env.XDG_DATA_HOME, "vgshell/jarvis/browser-ready.json");
     fs.mkdirSync(path.dirname(marker), { recursive: true });
     fs.writeFileSync(marker, JSON.stringify({ version: "0.38.1" }));
     const folder = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "browser-daemon-"));
@@ -61,9 +61,9 @@ async function daemonLease(ending, removeClose = false) {
     const hello = { v: 1, type: "hello", gen: 0,
         settings: { mode: "hold", microphone: "", speaker: "", brain: "", taskTerminal: "auto", cloudVision: "ask", privateWindows: "" },
         directories: {
-            state: path.join(process.env.JARVIS_TEST_ROOT, "state/vgs/jarvis"),
-            data: path.join(process.env.JARVIS_TEST_ROOT, "data/vgs/jarvis"),
-            runtime: path.join(process.env.JARVIS_TEST_ROOT, "run/vgs/jarvis")
+            state: path.join(process.env.JARVIS_TEST_ROOT, "state/vgshell/jarvis"),
+            data: path.join(process.env.JARVIS_TEST_ROOT, "data/vgshell/jarvis"),
+            runtime: path.join(process.env.JARVIS_TEST_ROOT, "run/vgshell/jarvis")
         }, revision: "a".repeat(64), locked: false,
         keys: { talk: "SUPER+code:108", mute: "SUPER+SHIFT+code:108", stop: "SUPER+ALT+PERIOD" } };
     const child = cp.spawn("node", [file, "--tree", tree], { env: {

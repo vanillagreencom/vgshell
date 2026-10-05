@@ -51,8 +51,8 @@ set -euo pipefail
 sp_id=vgs.scratchpads
 sp_class=org.vgs.pad.smoke
 sp_ws=special:vgs-pad-1
-sp_user="$home/.config/vgs/shell.json"
-sp_layer="$home/.local/state/vgs/hypr/vgs.lua"
+sp_user="$home/.config/vgshell/shell.json"
+sp_layer="$home/.local/state/vgshell/hypr/vgs.lua"
 sp_events="$sandbox/scratchpads-events.log"
 
 # sp_list ARG: one of the probe's list verbs on the Settings page's Pads

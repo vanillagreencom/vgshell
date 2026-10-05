@@ -50,14 +50,14 @@
 # outputs, vgs.system's and vgs.sound's enablement, the shell's PATH
 # directory and the pactl stand-in's replies as it found them, a shell
 # started from the repository running, and the private PipeWire up.
-# inputs: shell/plugins/vgs.sound/* shell/plugins/vgs.system/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Ui/controls/LevelSlider.qml shell/Ui/feedback/LevelLabel.qml shell/Ui/feedback/LevelOsd.qml shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Hosts/PaneHost.qml shell/Hosts/LayerHost.qml shell/Core/Layers.qml shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Core/ShortcutRegistry.qml shell/Core/IpcRegistry.qml shell/Core/Notices.qml shell/Core/HyprlandLayer.* shell/Core/HyprlandState.* bin/vgsh scripts/smoke/fixtures/devices/* scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/plugins/vgs.sound/* shell/plugins/vgs.system/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Ui/controls/LevelSlider.qml shell/Ui/feedback/LevelLabel.qml shell/Ui/feedback/LevelOsd.qml shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Hosts/PaneHost.qml shell/Hosts/LayerHost.qml shell/Core/Layers.qml shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Core/ShortcutRegistry.qml shell/Core/IpcRegistry.qml shell/Core/Notices.qml shell/Core/HyprlandLayer.* shell/Core/HyprlandState.* bin/vgshell scripts/smoke/fixtures/devices/* scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 devices_ready sound || return 0
 
-snd_file="$home/.config/vgs/shell.json"
+snd_file="$home/.config/vgshell/shell.json"
 snd_saved="$sandbox/shell-before-sound.json"
-snd_copy="$home/.config/vgs/plugins/vgs.sound"
-snd_settings_copy="$home/.config/vgs/plugins/vgs.settings"
+snd_copy="$home/.config/vgshell/plugins/vgs.sound"
+snd_settings_copy="$home/.config/vgshell/plugins/vgs.settings"
 snd_spawns="$sandbox/sound-spawns.calls"
 snd_recorded=(wpctl pw-cli pw-cat pw-play pw-metadata pamixer amixer)
 snd_output=SMOKE-SOUND
@@ -469,7 +469,7 @@ snd_cold() { # LABEL TREE WANT
 }
 snd_cold "a cold start" "$repo" cold
 expect_poll "a shell started without PipeWire reads the speakers once it starts" true snd_tooltip_names 'Smoke Speakers'
-if copy_tree sound-reconnect && edit_tree sound-reconnect bin/vgsh '  export QS_PIPEWIRE_IMMEDIATE_RECONNECT=1
+if copy_tree sound-reconnect && edit_tree sound-reconnect bin/vgshell '  export QS_PIPEWIRE_IMMEDIATE_RECONNECT=1
 ' ''; then
   snd_cold "control" "$sandbox/tree-sound-reconnect" control
   expect "control: a runner without the reconnect variable leaves the widget unavailable" stayed snd_stays '"volume-off"' snd_widget iconName

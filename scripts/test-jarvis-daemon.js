@@ -23,9 +23,9 @@ keys: { talk: "SUPER+code:108", mute: "SUPER+SHIFT+code:108", stop: "SUPER+ALT+P
 
 async function inside() {
     hello.directories = {
-        state: path.join(process.env.JARVIS_TEST_ROOT, "state/vgs/jarvis"),
-        data: path.join(process.env.JARVIS_TEST_ROOT, "data/vgs/jarvis"),
-        runtime: path.join(process.env.JARVIS_TEST_ROOT, "run/vgs/jarvis")
+        state: path.join(process.env.JARVIS_TEST_ROOT, "state/vgshell/jarvis"),
+        data: path.join(process.env.JARVIS_TEST_ROOT, "data/vgshell/jarvis"),
+        runtime: path.join(process.env.JARVIS_TEST_ROOT, "run/vgshell/jarvis")
     };
     let controls = 0;
     let cases = 0;

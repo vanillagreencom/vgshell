@@ -29,11 +29,11 @@
 #     container alone, and paru built from the AUR's paru-bin when an aur
 #     command is measured. The commands run as `user`, with HOME and the
 #     XDG_RUNTIME_DIR a login session sets, as a user's terminal has them:
-#     `vgsh run` keeps its instance lock and runtime files in that
+#     `vgshell run` keeps its instance lock and runtime files in that
 #     directory.
 #   - nix commands as root in docker.io/nixos/nix:2.35.2 with flakes on and
 #     scripts/test-flake.sh's store volume, so the two share downloads.
-# A command passes on exit 0. A command whose vgsh arguments are `run`
+# A command passes on exit 0. A command whose vgshell arguments are `run`
 # passes when it exits 78 refusing `preflight=hyprland`, since no Hyprland
 # runs in a container: with `have=unknown` in the Arch image, where hyprctl
 # is installed, and `have=none` in the Nix image, whose package leaves
@@ -71,7 +71,7 @@ repo="$(cd -- "$(dirname -- "$self")/.." && pwd -P)"
 arch_image='docker.io/library/archlinux:latest'
 nix_image='docker.io/nixos/nix:2.35.2'
 nix_volume='vgs-validate-nix-2.35.2'
-repo_url='https://github.com/vanillagreencom/vgs'
+repo_url='https://github.com/vanillagreencom/vgshell'
 command_seconds=1200
 
 refuse() { # STATUS KEY [DETAIL...]
@@ -96,12 +96,12 @@ esac
 [[ $# -le 1 ]] || refuse 2 "argument=$2"
 
 commands_out="$(node "$repo/scripts/check-readme.js" --commands)" || refuse 1 "check-readme=refused" "$commands_out"
-# One tab-separated row per command: block, line, channel, needs, vgsh
+# One tab-separated row per command: block, line, channel, needs, vgshell
 # arguments (`-` for none), command.
 rows_out="$(node -e '
 for (const line of require("fs").readFileSync(0, "utf8").split("\n").filter(Boolean)) {
     const c = JSON.parse(line);
-    console.log([c.block, c.line, c.channel, c.needs, c.vgsh === null ? "-" : c.vgsh, c.command].join("\t"));
+    console.log([c.block, c.line, c.channel, c.needs, c.vgshell === null ? "-" : c.vgshell, c.command].join("\t"));
 }' <<<"$commands_out")" || refuse 1 "commands=unreadable" "$commands_out"
 mapfile -t rows <<<"$rows_out"
 [[ ${#rows[@]} -gt 0 && -n ${rows[0]} ]] || refuse 1 "commands=none" "check-readme printed no command"
@@ -151,7 +151,7 @@ console.log(answer.results.some(r => r.Name === name) ? "yes" : "no");' "$out" "
 declare -A block_image=()
 with_paru=false
 for row in "${rows[@]}"; do
-  IFS=$'\t' read -r block line channel needs vgsh command <<<"$row"
+  IFS=$'\t' read -r block line channel needs vgshell command <<<"$row"
   image=arch
   [[ $channel != nix ]] || image=nix
   [[ ${block_image[$block]:-$image} == "$image" ]] ||
@@ -221,13 +221,13 @@ run_block_start() { # BLOCK
   [[ ${block_image[$1]} != nix ]] || run_args+=(-v "$nix_volume:/nix" -e 'NIX_CONFIG=experimental-features = nix-command flakes')
   podman run "${run_args[@]}" "$image" sleep infinity >/dev/null 2>"$scratch/start.log" ||
     not_measured "container-start image=$image" "$(cat -- "$scratch/start.log")"
-  # A login session's runtime directory, where `vgsh run` keeps its lock.
+  # A login session's runtime directory, where `vgshell run` keeps its lock.
   [[ $user == root ]] || podman exec -- "$container" install -d -m 700 -o user -g user /run/user/1000 >/dev/null 2>"$scratch/start.log" ||
     not_measured "container-setup step=runtime-dir" "$(cat -- "$scratch/start.log")"
 }
 
 for row in "${rows[@]}"; do
-  IFS=$'\t' read -r block line channel needs vgsh command <<<"$row"
+  IFS=$'\t' read -r block line channel needs vgshell command <<<"$row"
   if [[ ${published[$needs]} != yes ]]; then
     unpublished+=("line=$line needs=$needs")
     continue
@@ -245,8 +245,8 @@ for row in "${rows[@]}"; do
   podman exec --user "$user" --workdir "$home" -e HOME="$home" -e XDG_RUNTIME_DIR="$runtime" -- "$container" \
     bash -c 'yes "" | timeout "$1" bash -o pipefail -c "$2"' _ "$command_seconds" "$command" >"$log" 2>&1 || status=$?
   seconds=$((SECONDS - started))
-  if [[ $vgsh == run ]]; then
-    grep -q -E "^vgsh: refused: preflight=hyprland have=$want_have need=" -- "$log" && [[ $status -eq 78 ]] ||
+  if [[ $vgshell == run ]]; then
+    grep -q -E "^vgshell: refused: preflight=hyprland have=$want_have need=" -- "$log" && [[ $status -eq 78 ]] ||
       refuse 1 "line=$line exit=$status want=78-preflight=hyprland-have=$want_have command=$command" "$(tail -n 40 -- "$log")"
   elif [[ $status -eq 124 ]]; then
     refuse 1 "line=$line timeout=$command_seconds command=$command" "$(tail -n 40 -- "$log")"

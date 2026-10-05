@@ -17,10 +17,10 @@
 # inputs: scripts/smoke/fixtures/plugins/acme.hyprland/* scripts/smoke/fixtures/plugins/acme.hyprland-other/* shell/Core/PluginLogic.js shell/Core/HyprlandLayer.js shell/Core/HyprlandState.* shell/Core/Dispatch.js shell/Core/Compositor.qml scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 hypr_lua="$home/.config/hypr/hyprland.lua"
-hypr_layer="$home/.local/state/vgs/hypr/vgs.lua"
-user_config="$home/.config/vgs/shell.json"
-fixture_dir="$home/.config/vgs/plugins/acme.hyprland"
-other_fixture_dir="$home/.config/vgs/plugins/acme.hyprland-other"
+hypr_layer="$home/.local/state/vgshell/hypr/vgs.lua"
+user_config="$home/.config/vgshell/shell.json"
+fixture_dir="$home/.config/vgshell/plugins/acme.hyprland"
+other_fixture_dir="$home/.config/vgshell/plugins/acme.hyprland-other"
 mkdir -p "$fixture_dir"
 mkdir -p "$other_fixture_dir"
 cp -R "$repo/scripts/smoke/fixtures/plugins/acme.hyprland/." "$fixture_dir/"

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The vgs.devtools floating TUI: runs one change in the terminal the user
-# watches, so vgsh pkg run's password prompt and mise's downloads show
-# there. bin/vgsh-tui runs it from a private copy of the plugin's snapshot,
+# watches, so vgshell pkg run's password prompt and mise's downloads show
+# there. bin/vgshell-tui runs it from a private copy of the plugin's snapshot,
 # so the engine and the catalog beside tui/ are under VGS_PLUGIN_DIR, and
 # the VGS tree is the one VGS_TUI_LIB lies in. The manifest's entries run it
 # through install.sh, update.sh and remove.sh, one per verb, since a TUI
@@ -32,7 +32,7 @@ fi
 engine=("$VGS_PLUGIN_DIR/bin/devtools" --tree "$tree")
 
 refuse() { # STATUS DIAGNOSTIC MESSAGE
-  local dir="${XDG_STATE_HOME:-$HOME/.local/state}/vgs/devtools"
+  local dir="${XDG_STATE_HOME:-$HOME/.local/state}/vgshell/devtools"
   mkdir -p -- "$dir"
   printf 'devtools: refused: %s\n' "$2" >>"$dir/actions.log"
   printf '%s\n' "$3" >&2

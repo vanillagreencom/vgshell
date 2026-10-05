@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build and install both Arch recipes in a throwaway archlinux:latest
-# container, and run the installed vgsh.
+# container, and run the installed vgshell.
 #
 # Usage: scripts/arch-packages.sh
 #
@@ -15,29 +15,29 @@
 # From that commit the host makes the release tarball with
 # scripts/lib/release-tarball.sh, the builder scripts/release calls, and a
 # bare repository holding it as main and every tag, serving partial clones.
-# Copies of the recipes take the tarball's sha256 (vgs) and, as the URL
-# vgs-git's prepare() clones, `file://` of that repository; each
+# Copies of the recipes take the tarball's sha256 (vgshell) and, as the URL
+# vgshell-git's prepare() clones, `file://` of that repository; each
 # substitution must match exactly once.
 #
 # In the rootless podman container, as root: update the system, install
-# base-devel, git, sudo and the depends the vgs recipe's .SRCINFO lists.
+# base-devel, git, sudo and the depends the vgshell recipe's .SRCINFO lists.
 # Official packages come from pacman. AUR dependencies build as builder
 # after their own declared dependencies install in this container. Then
-# build vgs and vgs-git with makepkg as an unprivileged user and no network.
-# Install vgs with `pacman -U --ask 4`: `vgsh --version` must print `vgs
-# <VERSION>`, /usr/bin/vgsh must link to ../share/vgs/bin/vgsh, pacman's
+# build vgshell and vgshell-git with makepkg as an unprivileged user and no network.
+# Install vgshell with `pacman -U --ask 4`: `vgshell --version` must print `vgshell
+# <VERSION>`, /usr/bin/vgshell must link to ../share/vgshell/bin/vgshell, pacman's
 # output must hold every line of the first-install text, and the browser
-# theme writer /usr/bin/vgs-browser-policy must be a regular file root:root
-# 0755 beside the rule /etc/sudoers.d/vgs-theme-browser, root:root 0440,
+# theme writer /usr/bin/vgshell-browser-policy must be a regular file root:root
+# 0755 beside the rule /etc/sudoers.d/vgshell-theme-browser, root:root 0440,
 # that `visudo -cf` accepts and that grants every user the writer with six
-# hex classes; `vgsh theme setup` must read the chromium setup not-detected
-# without a browser and done with a stand-in chromium on PATH. Then vgs-git
+# hex classes; `vgshell theme setup` must read the chromium setup not-detected
+# without a browser and done with a stand-in chromium on PATH. Then vgshell-git
 # the same way, where `--ask 4` answers yes to the conflict question: its
-# build must have made a partial clone, vgs must be gone, the pkgver must be
-# X.Y.Z.r<N>.g<hash> with the hash a prefix of the built commit, vgs-git
-# must provide vgs=<pkgver>, and the vgs checks must hold again.
+# build must have made a partial clone, vgshell must be gone, the pkgver must be
+# X.Y.Z.r<N>.g<hash> with the hash a prefix of the built commit, vgshell-git
+# must provide vgshell=<pkgver>, and the vgshell checks must hold again.
 #
-# Exit 0 prints `arch-packages: ok commit=<sha> vgs=<version> vgs-git=<pkgver>`.
+# Exit 0 prints `arch-packages: ok commit=<sha> vgshell=<version> vgshell-git=<pkgver>`.
 # Exit 1 prints `arch-packages: refused: <key>=<value> ...` first: a
 # recipe, build, install or assertion failure. Exit 77 prints
 # `arch-packages: status=not-measured reason=<key>`: podman-missing,
@@ -78,7 +78,7 @@ cache="$repo/tmp/arch-packages-cache"
 cleanup() { rm -rf -- "$scratch"; }
 trap cleanup EXIT
 rm -rf -- "$scratch"
-mkdir -p -- "$scratch/in/vgs" "$scratch/in/vgs-git" "$cache"
+mkdir -p -- "$scratch/in/vgshell" "$scratch/in/vgshell-git" "$cache"
 
 # The commit to build.
 git_env=(env GIT_AUTHOR_NAME=arch-packages GIT_AUTHOR_EMAIL=arch-packages@example.invalid
@@ -96,7 +96,7 @@ else
 fi
 echo "arch-packages: commit=$commit dirty=$([[ -n $status_out ]] && echo true || echo false)"
 
-sum="$("$repo/scripts/lib/release-tarball.sh" "$commit" "$version" "$scratch/in/vgs/vgs-$version.tar.gz")" ||
+sum="$("$repo/scripts/lib/release-tarball.sh" "$commit" "$version" "$scratch/in/vgshell/vgshell-$version.tar.gz")" ||
   refuse 1 "archive=failed commit=$commit"
 
 git init -q --bare "$scratch/in/srcrepo.git" || refuse 1 "git=init path=$scratch/in/srcrepo.git"
@@ -123,8 +123,8 @@ if changed == text:
 path.write_text(changed)
 PY
 }
-recipe_copy vgs "^sha256sums=\('[^']*'\)$" "sha256sums=('$sum')"
-recipe_copy vgs-git ' -- "\$url\.git" "\$srcdir/vgs"$' ' -- "file:///build/srcrepo.git" "$srcdir/vgs"'
+recipe_copy vgshell "^sha256sums=\('[^']*'\)$" "sha256sums=('$sum')"
+recipe_copy vgshell-git ' -- "\$url\.git" "\$srcdir/vgshell"$' ' -- "file:///build/srcrepo.git" "$srcdir/vgshell"'
 
 cat >"$scratch/in/run.sh" <<'RUN'
 #!/usr/bin/env bash
@@ -141,8 +141,8 @@ sed -i 's/^DownloadUser/#DownloadUser/' /etc/pacman.conf || refuse "pacman-conf=
 if grep -q '^DownloadUser' /etc/pacman.conf; then refuse "pacman-conf=download-user"; fi
 trap 'rm -rf /var/cache/pacman/pkg/download-*' EXIT
 
-mapfile -t depends < <(sed -n 's/^\tdepends = //p' /in/vgs/.SRCINFO)
-[[ ${#depends[@]} -gt 0 ]] || refuse "depends=empty path=/in/vgs/.SRCINFO"
+mapfile -t depends < <(sed -n 's/^\tdepends = //p' /in/vgshell/.SRCINFO)
+[[ ${#depends[@]} -gt 0 ]] || refuse "depends=empty path=/in/vgshell/.SRCINFO"
 pacman -Syu --noconfirm --needed base-devel git sudo python >/tmp/setup.log 2>&1 ||
   not_measured container-setup "$(tail -n 20 /tmp/setup.log)"
 useradd -m builder
@@ -200,18 +200,18 @@ package_file() { # RECIPE
   [[ ${#files[@]} -eq 1 ]] || refuse "package=count recipe=$1 count=${#files[@]}"
   printf '%s' "${files[0]}"
 }
-for recipe in vgs vgs-git; do
+for recipe in vgshell vgshell-git; do
   runuser -u builder -- bash -c 'cd "/build/$1" && makepkg --noconfirm' _ "$recipe" >"/tmp/build-$recipe.log" 2>&1 ||
     refuse "build=failed recipe=$recipe" "$(tail -n 40 "/tmp/build-$recipe.log")"
 done
-vgs_pkg="$(package_file vgs)"; git_pkg="$(package_file vgs-git)"
-# vgs-git's prepare() cloned without file contents beyond its checkout:
+vgs_pkg="$(package_file vgshell)"; git_pkg="$(package_file vgshell-git)"
+# vgshell-git's prepare() cloned without file contents beyond its checkout:
 # some object the history reaches is absent. git sets
 # remote.origin.promisor even when the server ignored the filter, so the
 # setting proves nothing.
-objects="$(runuser -u builder -- git -C /build/vgs-git/src/vgs rev-list --objects --missing=print HEAD)" ||
-  refuse "clone=unreadable package=vgs-git"
-grep -q '^?' <<<"$objects" || refuse "clone=unfiltered package=vgs-git" "every object the history reaches is in /build/vgs-git/src/vgs"
+objects="$(runuser -u builder -- git -C /build/vgshell-git/src/vgshell rev-list --objects --missing=print HEAD)" ||
+  refuse "clone=unreadable package=vgshell-git"
+grep -q '^?' <<<"$objects" || refuse "clone=unfiltered package=vgshell-git" "every object the history reaches is in /build/vgshell-git/src/vgshell"
 
 # Whether a package named NAME, not one providing NAME, is installed.
 installed() { # NAME
@@ -224,10 +224,10 @@ install_pkg() { # FILE NAME
     refuse "install=failed package=$2" "$(tail -n 40 "/tmp/install-$2.log")"
   installed "$2" || refuse "install=absent package=$2"
 }
-vgsh_version() { # PACKAGE
+vgshell_version() { # PACKAGE
   local out
-  out="$(runuser -u builder -- vgsh --version 2>&1)" || refuse "vgsh=failed package=$1" "$out"
-  [[ $out == "vgs $version" ]] || refuse "vgsh-version=${out// /_} want=vgs_$version package=$1"
+  out="$(runuser -u builder -- vgshell --version 2>&1)" || refuse "vgshell=failed package=$1" "$out"
+  [[ $out == "vgshell $version" ]] || refuse "vgshell-version=${out// /_} want=vgshell_$version package=$1"
 }
 
 doctor_holds() { # PACKAGE
@@ -235,7 +235,7 @@ doctor_holds() { # PACKAGE
   mkdir -p /tmp/doctor-home /tmp/doctor-runtime
   chown builder:builder /tmp/doctor-home /tmp/doctor-runtime
   report="$(runuser -u builder -- env -i PATH=/usr/bin HOME=/tmp/doctor-home XDG_CONFIG_HOME=/tmp/doctor-home/.config \
-    XDG_RUNTIME_DIR=/tmp/doctor-runtime vgsh doctor --json 2>/tmp/doctor.err)" ||
+    XDG_RUNTIME_DIR=/tmp/doctor-runtime vgshell doctor --json 2>/tmp/doctor.err)" ||
     refuse "doctor=failed package=$1" "$(cat /tmp/doctor.err)"
   python -c 'import json,sys
 report=json.loads(sys.argv[1])
@@ -247,7 +247,7 @@ if not report["plugins"]: sys.exit("doctor plugin discovery is empty")' "$report
 # pacman printed every line of the installed first-install text when it
 # installed PACKAGE.
 message_printed() { # PACKAGE
-  local line count=0 message=/usr/share/vgs/bin/lib/post-install.txt
+  local line count=0 message=/usr/share/vgshell/bin/lib/post-install.txt
   while IFS= read -r line; do
     [[ -n $line ]] || continue
     count=$((count + 1))
@@ -262,47 +262,47 @@ message_printed() { # PACKAGE
 # PATH. The stand-in chromium runs nothing.
 browser_policy() { # PACKAGE
   local file want info out rule
-  rule='ALL ALL=(root) NOPASSWD: /usr/bin/vgs-browser-policy [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]'
-  for file in "/usr/bin/vgs-browser-policy|regular file root:root 755" "/etc/sudoers.d/vgs-theme-browser|regular file root:root 440"; do
+  rule='ALL ALL=(root) NOPASSWD: /usr/bin/vgshell-browser-policy [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]'
+  for file in "/usr/bin/vgshell-browser-policy|regular file root:root 755" "/etc/sudoers.d/vgshell-theme-browser|regular file root:root 440"; do
     want="${file#*|}" file="${file%%|*}"
     info="$(stat -c '%F %U:%G %a' -- "$file" 2>&1)" || refuse "browser-policy=absent path=$file package=$1" "$info"
     [[ $info == "$want" ]] || refuse "browser-policy=${info// /_} want=${want// /_} path=$file package=$1"
   done
   command -v visudo >/dev/null || refuse "visudo=missing package=$1" "sudo is in the setup install, so visudo must be on PATH"
-  out="$(visudo -cf /etc/sudoers.d/vgs-theme-browser 2>&1)" || refuse "browser-policy=rule-refused package=$1" "$out"
-  grep -qxF -e "$rule" /etc/sudoers.d/vgs-theme-browser || refuse "browser-policy=grant package=$1" "$(cat /etc/sudoers.d/vgs-theme-browser)"
+  out="$(visudo -cf /etc/sudoers.d/vgshell-theme-browser 2>&1)" || refuse "browser-policy=rule-refused package=$1" "$out"
+  grep -qxF -e "$rule" /etc/sudoers.d/vgshell-theme-browser || refuse "browser-policy=grant package=$1" "$(cat /etc/sudoers.d/vgshell-theme-browser)"
   mkdir -p /tmp/browser-standin
-  out="$(runuser -u builder -- env PATH=/usr/bin vgsh theme setup 2>&1)" || refuse "setup=failed package=$1" "$out"
-  [[ $out == "setup=chromium command=vgs-browser-policy state=done" ]] || refuse "setup=unexpected browser=installed package=$1" "$out"
+  out="$(runuser -u builder -- env PATH=/usr/bin vgshell theme setup 2>&1)" || refuse "setup=failed package=$1" "$out"
+  [[ $out == "setup=chromium command=vgshell-browser-policy state=done" ]] || refuse "setup=unexpected browser=installed package=$1" "$out"
   printf '#!/bin/sh\nexit 1\n' >/tmp/browser-standin/chromium
   chmod 755 /tmp/browser-standin/chromium
-  out="$(runuser -u builder -- env PATH=/tmp/browser-standin:/usr/bin vgsh theme setup 2>&1)" || refuse "setup=failed package=$1" "$out"
+  out="$(runuser -u builder -- env PATH=/tmp/browser-standin:/usr/bin vgshell theme setup 2>&1)" || refuse "setup=failed package=$1" "$out"
   rm -f /tmp/browser-standin/chromium
-  [[ $out == "setup=chromium command=vgs-browser-policy state=done" ]] || refuse "setup=unexpected browser=chromium package=$1" "$out"
+  [[ $out == "setup=chromium command=vgshell-browser-policy state=done" ]] || refuse "setup=unexpected browser=chromium package=$1" "$out"
 }
 
-install_pkg "$vgs_pkg" vgs
-vgsh_version vgs
-doctor_holds vgs
-message_printed vgs
-link="$(readlink /usr/bin/vgsh)" || refuse "link=missing path=/usr/bin/vgsh"
-[[ $link == ../share/vgs/bin/vgsh ]] || refuse "link=$link path=/usr/bin/vgsh"
-browser_policy vgs
-vgs_ver="$(pacman -Q vgs)"; vgs_ver="${vgs_ver#vgs }"
+install_pkg "$vgs_pkg" vgshell
+vgshell_version vgshell
+doctor_holds vgshell
+message_printed vgshell
+link="$(readlink /usr/bin/vgshell)" || refuse "link=missing path=/usr/bin/vgshell"
+[[ $link == ../share/vgshell/bin/vgshell ]] || refuse "link=$link path=/usr/bin/vgshell"
+browser_policy vgshell
+vgs_ver="$(pacman -Q vgshell)"; vgs_ver="${vgs_ver#vgshell }"
 
-install_pkg "$git_pkg" vgs-git
-! installed vgs || refuse "conflict=kept package=vgs by=vgs-git" "$(pacman -Q)"
-full="$(pacman -Q vgs-git)"; full="${full#vgs-git }"; pkgver="${full%-*}"
+install_pkg "$git_pkg" vgshell-git
+! installed vgshell || refuse "conflict=kept package=vgshell by=vgshell-git" "$(pacman -Q)"
+full="$(pacman -Q vgshell-git)"; full="${full#vgshell-git }"; pkgver="${full%-*}"
 [[ $pkgver =~ ^[0-9]+\.[0-9]+\.[0-9]+\.r[0-9]+\.g([0-9a-f]{7,})$ && $commit == "${BASH_REMATCH[1]}"* ]] ||
-  refuse "pkgver=$pkgver commit=$commit package=vgs-git"
-provides="$(LC_ALL=C pacman -Qi vgs-git | sed -n 's/^Provides *: //p')"
-[[ " $provides " == *" vgs=$pkgver "* ]] || refuse "provides=${provides// /,} want=vgs=$pkgver package=vgs-git"
-vgsh_version vgs-git
-doctor_holds vgs-git
-message_printed vgs-git
-browser_policy vgs-git
+  refuse "pkgver=$pkgver commit=$commit package=vgshell-git"
+provides="$(LC_ALL=C pacman -Qi vgshell-git | sed -n 's/^Provides *: //p')"
+[[ " $provides " == *" vgshell=$pkgver "* ]] || refuse "provides=${provides// /,} want=vgshell=$pkgver package=vgshell-git"
+vgshell_version vgshell-git
+doctor_holds vgshell-git
+message_printed vgshell-git
+browser_policy vgshell-git
 
-echo "arch-packages: ok commit=$commit vgs=$vgs_ver vgs-git=$full"
+echo "arch-packages: ok commit=$commit vgshell=$vgs_ver vgshell-git=$full"
 RUN
 chmod 755 "$scratch/in/run.sh"
 

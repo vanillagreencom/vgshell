@@ -4,5 +4,5 @@
   "capabilities": ["status", "system"],
   "systemSteps": ["apple-displays"],
   "status": {
-    "apple": { "type": "state", "label": "Apple displays", "action": { "label": "Allow", "system": "apple-displays" }, "command": "vgsh system apply apple-displays" }
+    "apple": { "type": "state", "label": "Apple displays", "action": { "label": "Allow", "system": "apple-displays" }, "command": "vgshell system apply apple-displays" }
   } }

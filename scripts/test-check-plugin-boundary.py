@@ -16,7 +16,7 @@ ENV = {"PATH": os.environ.get("PATH", ""), "LC_ALL": "C"}
 
 CLEAN_WIDGET = 'import QtQuick\nimport QtQuick.Layouts\nimport Quickshell.Hyprland\nimport qs.Commons\nimport qs.Ui\nimport "./lib"\nBarWidget { }\n'
 CLEAN_CORE = 'import QtQuick\nimport Quickshell\nimport qs.Core\nQtObject { property string prefix: "vgs." }\n'
-# The check lists plugins through bin/vgsh-scan, which reads manifest bytes and
+# The check lists plugins through bin/vgshell-scan, which reads manifest bytes and
 # judges nothing, so a manifest naming the id is what makes a directory a plugin.
 MANIFEST = '{"id": "acme.widget"}\n'
 

@@ -9,7 +9,7 @@ The [plan § 6.1](../plans/jarvis-plan.md#61-vision) defines the screen tools. [
 - `Vision.install` registers the `vision` executor through [the registration seam](jarvis-tools.md#owners), after the [desktop session](jarvis-desktop-tools.md#owners) probe reached Hyprland, and only when `grim` and `magick` are on PATH. An image whose private windows cannot be painted is not one this executor sends.
 - `Screen.plan` is the one geometry judge: from a Hyprland reading and a call to the box grim captures, its scale, the image size and the mask rectangles. It runs no process.
 - `DesktopSession.install` lends its one Hyprland reader, `reading()`, and its read bound. Vision runs no `hyprctl` of its own.
-- `Desktop.runCommand` runs `grim`, `slurp`, `magick` and `tesseract` as it runs the [desktop commands](jarvis-tools.md#commands): the absolute file the PATH lookup found, under `setpriv --pdeathsig KILL`, in its own process group, with only the variables its command table lists. `grim` and `slurp` receive `WAYLAND_DISPLAY` and `XDG_RUNTIME_DIR`. `magick` receives `MAGICK_TEMPORARY_PATH`, the private directory. No key and no `VGSH_RUNNER_PID` reach a child.
+- `Desktop.runCommand` runs `grim`, `slurp`, `magick` and `tesseract` as it runs the [desktop commands](jarvis-tools.md#commands): the absolute file the PATH lookup found, under `setpriv --pdeathsig KILL`, in its own process group, with only the variables its command table lists. `grim` and `slurp` receive `WAYLAND_DISPLAY` and `XDG_RUNTIME_DIR`. `magick` receives `MAGICK_TEMPORARY_PATH`, the private directory. No key and no `VGSHELL_RUNNER_PID` reach a child.
 - The daemon passes three facts: Session's record, the current `privateWindows` setting, and `route()`, which answers `image` when the chained engine's brain takes images.
 
 ## Tools
@@ -77,7 +77,7 @@ One call reads Hyprland, asks the router's authority, runs grim, reads Hyprland 
 These are recovery bounds, not measured latencies. `timeoutMs` is slurp, two captures with two readings each, the 800 ms wait, magick, tesseract and 1 s of slack: 54.8 s with the 2 s read bound. That stays under Session's 60 s thinking deadline.
 
 - A call counts against the live turn the user started: Session's thinking turn that owns the running action. A call with no such turn refuses as `outside-turn`.
-- Files live in `$XDG_RUNTIME_DIR/vgs/jarvis/vision`, created mode 0700 by `Private.directory`. A call removes its own files when it ends, before its turn ends. Install removes files a killed daemon left. Teardown removes the directory. Session's stop cancels a running call, which kills its child or ends its wait.
+- Files live in `$XDG_RUNTIME_DIR/vgshell/jarvis/vision`, created mode 0700 by `Private.directory`. A call removes its own files when it ends, before its turn ends. Install removes files a killed daemon left. Teardown removes the directory. Session's stop cancels a running call, which kills its child or ends its wait.
 - An internal error answers `executor-failed` without its text, and the daemon's stderr gets one line, `jarvis: vision=internal cause=CODE`.
 
 ## Requirements

@@ -28,7 +28,7 @@ async function main() {
     const world = process.env.JARVIS_TEST_ROOT;
     const desktop = path.join(world, "desktop");
     fs.mkdirSync(desktop);
-    const ENVIRONMENT = { ...process.env, WAYLAND_DISPLAY: "wayland-fixture", VGSH_RUNNER_PID: "4242",
+    const ENVIRONMENT = { ...process.env, WAYLAND_DISPLAY: "wayland-fixture", VGSHELL_RUNNER_PID: "4242",
         OPENAI_API_KEY: "sk-fixture-secret" };
     assert.ok(process.env.DBUS_SESSION_BUS_ADDRESS && process.env.XDG_RUNTIME_DIR, "the J09 world supplies a bus and runtime directory");
     const fixed = { PATH: process.env.PATH, LC_ALL: "C.UTF-8" };

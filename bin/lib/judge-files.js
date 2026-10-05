@@ -1,10 +1,10 @@
-// The file helpers and the refusal bin/vgsh-plugin-judge,
-// bin/vgsh-theme-judge, bin/vgsh-hypr-judge, bin/vgsh-pkg and the
+// The file helpers and the refusal bin/vgshell-plugin-judge,
+// bin/vgshell-theme-judge, bin/vgshell-hypr-judge, bin/vgshell-pkg and the
 // vgs.devtools engine share, so each writes a watched file the same way,
 // finds a command on PATH the same way, keeps a change to the system in
 // the user's terminal the same way and refuses with the same line.
 //
-// A refusal is one line on stderr, `vgsh: refused: <first>`, then its
+// A refusal is one line on stderr, `vgshell: refused: <first>`, then its
 // detail, the English or a tool's own words, when it carries one, and the
 // exit status the refusal carries, 1 unless it names another. A helper throws it
 // and `main` prints it, so a caller can put its own output ahead of the line
@@ -15,7 +15,7 @@ const path = require("path");
 const { spawnSync } = require("child_process");
 
 class Refusal extends Error {
-    // FIRST is the keyed line after `vgsh: refused: `; REASON the value of
+    // FIRST is the keyed line after `vgshell: refused: `; REASON the value of
     // its key, for a caller that reports it in a structured result; DETAIL
     // the text printed after the line, "" for none.
     constructor(first, reason, status = 1, detail = "") {
@@ -33,10 +33,10 @@ function refuse(first, reason, status, detail) {
 
 // Run a judge's command; a Refusal ends the process with its line, its
 // detail and its status. A command that returns a promise ends the same way
-// when the promise rejects with a Refusal. NAME leads the line: `vgsh` for
+// when the promise rejects with a Refusal. NAME leads the line: `vgshell` for
 // the core's commands, a plugin program's own name for one that shares
 // these helpers.
-function main(command, name = "vgsh") {
+function main(command, name = "vgshell") {
     const end = e => {
         if (!(e instanceof Refusal)) throw e;
         const detail = e.detail === "" || e.detail.endsWith("\n") ? e.detail : e.detail + "\n";
@@ -101,7 +101,7 @@ function writing(file, key, write) {
 // MODE only once it holds DATA. A failure leaves no temporary file and
 // refuses as `writing` does.
 function replaceFile(file, data, key, mode) {
-    const tmp = file + ".vgsh-" + process.pid;
+    const tmp = file + ".vgshell-" + process.pid;
     writing(file, key, () => {
         try {
             fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -155,7 +155,7 @@ function lockFile(file, wait) {
 // does not refuse is created only when CREATE is true, and never through a
 // dangling symlink. Answers null, or the failure's { reason, failure }, its
 // line led by KEY. A theme target's include line and the Hyprland layer's
-// line (bin/vgsh-hypr-judge) are both kept through here.
+// line (bin/vgshell-hypr-judge) are both kept through here.
 function editFile(key, file, create, edit) {
     let real = null;
     let text;
@@ -213,14 +213,14 @@ function onPath(command) {
 
 // A change to the user's system runs only where its user sees and answers
 // the prompt: never in a process the shell started, and never without a
-// terminal. `vgsh run` exports VGSH_RUNNER_PID to the shell and so to every
+// terminal. `vgshell run` exports VGSHELL_RUNNER_PID to the shell and so to every
 // process the shell starts, apart from the programs it opens for the user
 // (shell.run.detached and a floating TUI's terminal). Refuses
 // `caller=shell verb=<verb>` with SHELL_DETAIL, which names where the
 // change runs instead, or `<verb>=no-terminal`. Checked before any query,
 // plan or step.
 function refuseOutsideTerminal(verb, shellDetail) {
-    if (process.env.VGSH_RUNNER_PID !== undefined)
+    if (process.env.VGSHELL_RUNNER_PID !== undefined)
         refuse("caller=shell verb=" + verb, undefined, 1, shellDetail);
     try {
         fs.closeSync(fs.openSync("/dev/tty", "r+"));

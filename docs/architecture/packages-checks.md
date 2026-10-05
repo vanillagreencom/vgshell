@@ -1,12 +1,12 @@
 # Package checks
 
-Covers: shell/Core/PackageManagers.js, bin/vgsh-pkg, scripts/test-vgsh-pkg-table.js, scripts/test-vgsh-pkg-cli.js, scripts/fixtures/pkg
+Covers: shell/Core/PackageManagers.js, bin/vgshell-pkg, scripts/test-vgshell-pkg-table.js, scripts/test-vgshell-pkg-cli.js, scripts/fixtures/pkg
 
-How `vgsh pkg check` counts the updates each detected manager offers. The package-manager table, plans, runs, pickers and queries are [packages.md](packages.md).
+How `vgshell pkg check` counts the updates each detected manager offers. The package-manager table, plans, runs, pickers and queries are [packages.md](packages.md).
 
 ## Checks
 
-`vgsh pkg check` counts the updates each detected manager offers, without root and without a partial upgrade.
+`vgshell pkg check` counts the updates each detected manager offers, without root and without a partial upgrade.
 
 A row's `check` lists its unprivileged update queries. The first whose `binary` is null or names the row's binary runs. Each query holds its argv, the meaning of each exit status, the parser that reads its output, its timeout and whether it runs only on demand. An exit status the query does not list is a failure, whatever the output holds. A status marked `rows` means the parser's rows are the updates, and none when it reads none. A parser refuses a line its format does not define, so a changed format fails the check instead of miscounting it.
 
@@ -27,7 +27,7 @@ dnf, xbps and flatpak print no installed version, so those packages carry `old` 
 
 The queries run at once, from `$HOME` with `LC_ALL=C`, so every format reads in English and mise reads no project's `mise.toml`. A query past its timeout has its process group ended, so a helper it started does not outlive it. A check stopped by SIGINT, SIGTERM or SIGHUP ends every query's group the same way and exits only after the last one ends, with 128 plus the signal's number. The timeouts bound a hung query; they are not a speed budget. On a CachyOS machine on 2026-09-28, timed with `date` around each command, `checkupdates` took 1.1 s, `paru -Qua` 1.4 s and `mise outdated --json` 0.01 s, against a 120 s timeout. emerge's 900 s is not measured.
 
-One check runs at a time: each holds `flock` on `$XDG_RUNTIME_DIR/vgs/pkg-check.lock` until it exits, and a second waits for the first. A stopped check releases the lock with no query left running. `checkupdates` syncs its own copy of the databases on every run. A check passes `-n` and compares against that copy when VGS's last successful synced check is under ten minutes old and the copy still holds a database, since `-n` against no database reports no update. A check right after a short upgrade is one such check; one after an upgrade longer than ten minutes syncs again.
+One check runs at a time: each holds `flock` on `$XDG_RUNTIME_DIR/vgshell/pkg-check.lock` until it exits, and a second waits for the first. A stopped check releases the lock with no query left running. `checkupdates` syncs its own copy of the databases on every run. A check passes `-n` and compares against that copy when VGS's last successful synced check is under ten minutes old and the copy still holds a database, since `-n` against no database reports no update. A check right after a short upgrade is one such check; one after an upgrade longer than ten minutes syncs again.
 
 Omarchy's `omarchy-update-available` filters `checkupdates` for the Omarchy package alone. VGS counts every source, because the Updates badge covers the whole system.
 

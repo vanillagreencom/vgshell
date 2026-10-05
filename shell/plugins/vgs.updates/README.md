@@ -11,30 +11,30 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 The service runs this command with argv only:
 
 ```text
-bin/check --vgsh <absolute path to vgsh>
+bin/check --vgshell <absolute path to vgshell>
 ```
 
-`bin/check` refuses when `--vgsh` is missing or is not an executable absolute path.
+`bin/check` refuses when `--vgshell` is missing or is not an executable absolute path.
 
 The script holds this lock for the whole check:
 
 ```text
-${XDG_RUNTIME_DIR}/vgs/updates/check.lock
+${XDG_RUNTIME_DIR}/vgshell/updates/check.lock
 ```
 
 It starts these read-only commands concurrently, each in its own process group:
 
-- `vgsh pkg check --json`: system packages, AUR, Flatpak and mise tools.
-- `vgsh self status --json`: the VGS checkout, package, Nix install or curl install.
-- `vgsh plugin outdated --json`: installed plugin git checkouts.
-- `vgsh theme outdated --json`: installed theme git checkouts and catalog installs.
+- `vgshell pkg check --json`: system packages, AUR, Flatpak and mise tools.
+- `vgshell self status --json`: the VGS checkout, package, Nix install or curl install.
+- `vgshell plugin outdated --json`: installed plugin git checkouts.
+- `vgshell theme outdated --json`: installed theme git checkouts and catalog installs.
 
 TERM, INT or HUP to `bin/check` sends TERM to every probe's process group and waits for each probe to exit. A probe starts with SIGINT ignored, as every background job of a shell without job control does, so TERM is the signal each probe acts on. A probe ends its own git fetch before it exits: [manager.md § Outdated](../../../docs/architecture/manager.md#outdated).
 
 It writes this file atomically:
 
 ```text
-${XDG_STATE_HOME}/vgs/updates/status.json
+${XDG_STATE_HOME}/vgshell/updates/status.json
 ```
 
 The status file has this shape:
@@ -65,13 +65,13 @@ The full package list stays in `status.json`.
 
 Package-manager rows count packages.
 
-VGS counts as one update when `vgsh self status --json` reports `behind: true`.
+VGS counts as one update when `vgshell self status --json` reports `behind: true`.
 
 Plugins and themes count one update per checkout or catalog package that is behind.
 
 Their package rows keep the commit count as `behind` for the flyout.
 
-An installed directory that is not its own git checkout, such as a copied plugin, has no upstream and `vgsh plugin update` refuses it too, so it is not an update source and is left out.
+An installed directory that is not its own git checkout, such as a copied plugin, has no upstream and `vgshell plugin update` refuses it too, so it is not an update source and is left out.
 
 A checkout whose fetch failed names itself in the source's `error`; the other checkouts still count.
 
@@ -85,7 +85,7 @@ It checks at startup only when the cache is older than the interval.
 
 It schedules the next check from `checkedAt`.
 
-It accepts `vgsh ipc call vgs.updates invoke check ''` for an on-demand check.
+It accepts `vgshell ipc call vgs.updates invoke check ''` for an on-demand check.
 
 It checks again when one of its own TUI runs records a new end in `shell.tui.state` after the service started. A service rebuilt after a run does not check again for it.
 
@@ -129,10 +129,10 @@ The service does not send data itself.
 
 The commands it runs can touch the network:
 
-- `vgsh pkg check --json` can use `checkupdates`, Flatpak remotes and mise registries.
-- `vgsh self status --json` can fetch the VGS upstream or query the GitHub release API.
-- `vgsh plugin outdated --json` fetches installed plugin git upstreams.
-- `vgsh theme outdated --json` fetches installed theme git upstreams.
+- `vgshell pkg check --json` can use `checkupdates`, Flatpak remotes and mise registries.
+- `vgshell self status --json` can fetch the VGS upstream or query the GitHub release API.
+- `vgshell plugin outdated --json` fetches installed plugin git upstreams.
+- `vgshell theme outdated --json` fetches installed theme git upstreams.
 
 The shell never elevates for a check.
 
@@ -190,4 +190,4 @@ The update TUIs, the steps a run takes in order and how they compare with Omarch
 
 ## Validation
 
-`scripts/test-updates-logic.js` pins every decision in `UpdatesLogic.js` with a control. `scripts/test-updates-check.sh` pins `bin/check`'s argv, concurrency and signal handling. `scripts/test-updates-pipeline.sh` runs the update TUIs on a pseudo-terminal against stand-in commands. It pins the order and argv of every step, `--yes` only with `trustPluginUpdates`, the quiet skip with no snapshot tool, the recovery message, the credential dropped after a failed AUR step, the `doas` path with no sudo session, the snapshot and restart around a `vgs-git` rebuild alone, the orphan and reboot questions, and the busy lock. Its controls include a copy that runs the AUR before the sudo session ends, a copy that always passes `--yes`, a copy with no guard around the AUR, copies that ignore the elevation command, and a copy that leaves the rebuild out of the snapshot and restart checks. `scripts/test-updates-logic.js` also pins what the widget and the flyout draw for each state. `scripts/test-updates-pipeline.sh` also runs `tui/log.sh`: it opens the pipeline's log in `less` and refuses before any run wrote one. `scripts/smoke/rows/updates.sh` runs the service, the widget and the flyout in the nested sandbox against stand-in package managers and git. It reads back the widget's icon, colour, spinner and badge for pending, checking, failed, stale and current values, `hideWhenCurrent` hiding the widget only while current, the flyout's rows, the argv each button opens, and Refresh starting one check. Its control is a copy of the widget's judge that hides on a failed check.
+`scripts/test-updates-logic.js` pins every decision in `UpdatesLogic.js` with a control. `scripts/test-updates-check.sh` pins `bin/check`'s argv, concurrency and signal handling. `scripts/test-updates-pipeline.sh` runs the update TUIs on a pseudo-terminal against stand-in commands. It pins the order and argv of every step, `--yes` only with `trustPluginUpdates`, the quiet skip with no snapshot tool, the recovery message, the credential dropped after a failed AUR step, the `doas` path with no sudo session, the snapshot and restart around a `vgshell-git` rebuild alone, the orphan and reboot questions, and the busy lock. Its controls include a copy that runs the AUR before the sudo session ends, a copy that always passes `--yes`, a copy with no guard around the AUR, copies that ignore the elevation command, and a copy that leaves the rebuild out of the snapshot and restart checks. `scripts/test-updates-logic.js` also pins what the widget and the flyout draw for each state. `scripts/test-updates-pipeline.sh` also runs `tui/log.sh`: it opens the pipeline's log in `less` and refuses before any run wrote one. `scripts/smoke/rows/updates.sh` runs the service, the widget and the flyout in the nested sandbox against stand-in package managers and git. It reads back the widget's icon, colour, spinner and badge for pending, checking, failed, stale and current values, `hideWhenCurrent` hiding the widget only while current, the flyout's rows, the argv each button opens, and Refresh starting one check. Its control is a copy of the widget's judge that hides on a failed check.

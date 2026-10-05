@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Sample the live shell's memory read-only and report growth per class.
 #
-# Resolving which process is the shell asks the runner (`bin/vgsh pid`) and reads
+# Resolving which process is the shell asks the runner (`bin/vgshell pid`) and reads
 # the Quickshell instance list once. Every sample after that is /proc alone. Nothing
 # here signals, restarts or drives the shell, so it is safe to leave running
 # across a whole session. It is a diagnostic tool, not a validation check:
@@ -23,8 +23,8 @@
 # cannot be resolved, and 1 for a log that cannot be read as one session or a
 # run that ended before the samples --samples asked for (samples-short=).
 # Resolution refuses with the runner's own key (shell=not-running when
-# $XDG_RUNTIME_DIR/vgsh.lock is missing, holds no pid on its first line or names
-# a pid with no process), runner=missing when this checkout has no bin/vgsh, and
+# $XDG_RUNTIME_DIR/vgshell.lock is missing, holds no pid on its first line or names
+# a pid with no process), runner=missing when this checkout has no bin/vgshell, and
 # shell=unlisted when `qs list` does not list that pid under this checkout's
 # shell. --report reports the newest session in
 # the log alone and emits, for that session: one mark= line for each of 1 h, 8 h,
@@ -41,7 +41,7 @@ SAMPLES=0
 LOG=""
 REPORT=""
 SHELL_DIR="$repo_root/shell"
-RUNNER="$repo_root/bin/vgsh"
+RUNNER="$repo_root/bin/vgshell"
 
 # The shortest span that can carry a rate. Per-minute deltas swing between
 # negative and several megabytes, so anything shorter reports sampling noise.
@@ -70,11 +70,11 @@ Usage: sample-shell-memory.sh [--interval SECONDS] [--hours N] [--samples N] [--
   --interval    seconds between samples (default 60)
   --hours       stop after N hours (default: run until interrupted)
   --samples     stop after N samples (default: no limit)
-  --log         where to append samples (default ~/.cache/vgs/memory-samples.tsv)
+  --log         where to append samples (default ~/.cache/vgshell/memory-samples.tsv)
   --report      summarise an existing log and exit
 
-The sampled process is the shell bin/vgsh run started in this session: the pid
-in $XDG_RUNTIME_DIR/vgsh.lock, confirmed against `qs list` for this checkout.
+The sampled process is the shell bin/vgshell run started in this session: the pid
+in $XDG_RUNTIME_DIR/vgshell.lock, confirmed against `qs list` for this checkout.
 USAGE
 }
 
@@ -269,8 +269,8 @@ stat_fields() {
   printf '%s\n' "$@"
 }
 
-# Resolve the live shell: the runner reads its own lock file (`bin/vgsh pid`
-# is the one reader of it; the child `bin/vgsh run` starts writes its own pid
+# Resolve the live shell: the runner reads its own lock file (`bin/vgshell pid`
+# is the one reader of it; the child `bin/vgshell run` starts writes its own pid
 # there and execs qs in the same process, so that pid is the shell's) and
 # its refusal is passed on under its own key. The
 # pid must then appear in the Quickshell instance list for this checkout's
@@ -286,7 +286,7 @@ resolve_pid() {
   # failure, so one capture holds whichever it answered.
   if ! first="$("$RUNNER" pid 2>&1)"; then
     runner_key="${first%%$'\n'*}"
-    runner_key="${runner_key#vgsh: refused: }"
+    runner_key="${runner_key#vgshell: refused: }"
     refuse 2 "$runner_key" "The runner could not name the shell's pid; its message was:" "$first"
   fi
   command -v qs >/dev/null 2>&1 ||
@@ -324,7 +324,7 @@ SESSION="${FIELDS[19]}"
 CLK_TCK="$(getconf CLK_TCK)"
 
 if [[ -z "$LOG" ]]; then
-  LOG="${XDG_CACHE_HOME:-$HOME/.cache}/vgs/memory-samples.tsv"
+  LOG="${XDG_CACHE_HOME:-$HOME/.cache}/vgshell/memory-samples.tsv"
 fi
 # The log path is an argument, so every way it can be unusable is a bad
 # invocation and refuses with a key, not a raw mkdir, redirection or awk error.

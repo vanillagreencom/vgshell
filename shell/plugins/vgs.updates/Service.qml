@@ -23,10 +23,10 @@ Item {
     property string checkFailure: ""
     property double failedAt: -1
     property var reported: ({})
-    readonly property string stateDir: (Quickshell.env("XDG_STATE_HOME") || (Quickshell.env("HOME") + "/.local/state")) + "/vgs/updates"
+    readonly property string stateDir: (Quickshell.env("XDG_STATE_HOME") || (Quickshell.env("HOME") + "/.local/state")) + "/vgshell/updates"
     readonly property string statusPath: stateDir + "/status.json"
     readonly property string checkScript: String(Qt.resolvedUrl("bin/check")).replace(/^file:\/\//, "")
-    readonly property string vgshPath: Quickshell.shellDir + "/../bin/vgsh"
+    readonly property string vgshellPath: Quickshell.shellDir + "/../bin/vgshell"
     readonly property int currentIntervalMs: Logic.intervalMs(shell === null ? null : shell.settings)
     readonly property var currentTuiState: shell === null || shell.tui === undefined ? ({}) : shell.tui.state
 
@@ -68,7 +68,7 @@ Item {
             return "queued";
         }
         checking = true;
-        checkProc.command = [checkScript, "--vgsh", vgshPath];
+        checkProc.command = [checkScript, "--vgshell", vgshellPath];
         checkProc.running = true;
         publishNow();
         return "started";

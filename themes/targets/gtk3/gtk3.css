@@ -1,4 +1,4 @@
-/* The vgs theme for GTK 3, imported from gtk-3.0/gtk.css by vgsh theme apply.
+/* The vgs theme for GTK 3, imported from gtk-3.0/gtk.css by vgshell theme apply.
    The adw-gtk3 names come first, then the names GTK 3's own Adwaita reads. */
 @define-color accent_color @{color.accent};
 @define-color accent_bg_color @{color.accent};

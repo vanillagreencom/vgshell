@@ -32,7 +32,7 @@
 # and the TUI record as they were after the same clicks and keys. The row
 # ends with the plugin disabled, its stand-ins removed and the shim files
 # they covered restored.
-# inputs: shell/plugins/vgs.automations/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml bin/vgsh-tui shell/Ui/feedback/Dialog.qml
+# inputs: shell/plugins/vgs.automations/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml bin/vgshell-tui shell/Ui/feedback/Dialog.qml
 set -euo pipefail
 auto_stub="$sandbox/automations-stub"
 # The systemctl stand-in fails daemon-reload while $auto_stub/fail-reload
@@ -312,7 +312,7 @@ sentinel_restore "$shim/loginctl"
 # failure; an engine change to the store and the next failing run then
 # leave its status as it was.
 expect "the history is cleared before the control" cleared=1 automations clear --all
-auto_copy="$home/.config/vgs/plugins/vgs.automations"
+auto_copy="$home/.config/vgshell/plugins/vgs.automations"
 mkdir -p "$auto_copy"
 cp -R "$repo/shell/plugins/vgs.automations/." "$auto_copy/"
 expected_errors+=('plugins: hidden by a higher-precedence plugin with the same id: vgs\.automations')
