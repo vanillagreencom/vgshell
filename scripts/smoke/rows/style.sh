@@ -166,6 +166,11 @@ expect_poll "the bar reserves its space again" "$bar_reserved" bar_top
 expect "the gaps toggle turns gaps off for the restart" ok ipc vgs.themes invoke gaps ''
 expect "the bar toggle hides the bar for the restart" ok ipc vgs.bar invoke toggle ''
 expect_poll "the bar is hidden before the restart" 0 bar_count
+# A toggle answers ok once its save is queued (Config.writeUser), and the
+# second waits behind the first: the stop below would end the shell with
+# that save unwritten, and the restart would read the old file.
+expect_poll "the gaps toggle is in shell.json before the restart" true user_setting vgs.themes noWindowGaps
+expect_poll "the bar toggle is in shell.json before the restart" true user_setting vgs.bar hidden
 restart_hidden() { # TREE LABEL
   if stop_shell && start_shell "$1" "$sandbox/style-$2.log" no-bar; then
     expect_poll "$2: the services start" true bash -c '[[ -n $(grep -o "plugins: services released" -- "$1") ]] && echo true' _ "$instance_log"
