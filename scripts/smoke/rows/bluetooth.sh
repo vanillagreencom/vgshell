@@ -315,8 +315,7 @@ for name, old, new in (
 PY
   expect "disabling vgs.bluetooth for the controls is allowed" ok ipc shell setPluginEnabled vgs.bluetooth false
   rescan "rescan after adding the mutant copy answers ok"
-  expect_poll "the mutant copy is discovered" False plugin_enabled acme.bluetooth-mutant
-  expect "enabling the mutant copy is allowed" ok ipc shell setPluginEnabled acme.bluetooth-mutant true
+  expect_poll "the mutant copy lands enabled, as a new bar widget does" True plugin_enabled acme.bluetooth-mutant
   bt_id=acme.bluetooth-mutant
   expect_poll "the mutant copy's service reads on" on bt_view
   bluez discovery hold >/dev/null
@@ -369,8 +368,7 @@ PY
   terminal_stand_in
   terminal_ready "bluetooth"
   rescan "rescan after adding the bare copy answers ok"
-  expect_poll "the bare copy is discovered" False plugin_enabled acme.bluetooth-bare
-  expect "enabling the bare copy is allowed" ok ipc shell setPluginEnabled acme.bluetooth-bare true
+  expect_poll "the bare copy lands enabled, as a new bar widget does" True plugin_enabled acme.bluetooth-bare
   bt_id=acme.bluetooth-bare
   expect_poll "with no adapter and the service stopped, the service reads service-needed" service-needed bt_view
   expect "the stopped service's line" "The Bluetooth service is off." bt_view text
