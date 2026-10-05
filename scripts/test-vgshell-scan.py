@@ -343,11 +343,6 @@ def read_revision(proc, timeout=2):
     return None
 
 
-def no_revision(proc, timeout=0.3):
-    ready, _, _ = select.select([proc.stdout], [], [], timeout)
-    return not ready
-
-
 def wait_success(proc, timeout=2):
     try:
         return proc.wait(timeout=timeout) == 0
@@ -370,6 +365,7 @@ def append_text(path, text):
 
 def watch_rows(script=SCAN, quiet=False):
     results = []
+    core_edit = "Item { property int core: 1 }\n"
     with temp_dir() as tmp:
         plant(tmp, WATCH_TREE)
         source = os.path.join(tmp, "shell")
@@ -385,26 +381,40 @@ def watch_rows(script=SCAN, quiet=False):
         proc = start_watch(source, script)
         armed = read_revision(proc)
         os.makedirs(os.path.join(source, "New"))
-        empty_directory_quiet = no_revision(proc)
         with open(os.path.join(source, "New", "Type.qml"), "w", encoding="utf-8") as fh:
             fh.write("Item {}\n")
+        append_text(os.path.join(source, "Ui", "Card.qml"), core_edit)
         changed = read_revision(proc)
-        good = armed is not None and empty_directory_quiet and changed is not None and changed != armed and wait_success(proc)
-        results.append(good if quiet else report("a file created in a new subdirectory after arming is seen", good, f" (armed={armed} changed={changed} quiet={empty_directory_quiet})"))
+        with temp_dir() as expect_tmp:
+            plant(expect_tmp, WATCH_TREE)
+            append_text(os.path.join(expect_tmp, "shell", "Ui", "Card.qml"), core_edit)
+            expected = fresh_revision(os.path.join(expect_tmp, "shell"), script)
+        good = armed is not None and changed is not None and changed == expected and wait_success(proc)
+        results.append(good if quiet else report("an added file in a new subdirectory is ignored by the armed hash set", good, f" (armed={armed} changed={changed} expected={expected})"))
+    with temp_dir() as tmp:
+        plant(tmp, WATCH_TREE)
+        source = os.path.join(tmp, "shell")
+        proc = start_watch(source, script)
+        armed = read_revision(proc)
+        os.remove(os.path.join(source, "Ui", "Card.qml"))
+        changed = read_revision(proc)
+        good = armed is not None and changed is not None and changed != armed and wait_success(proc)
+        results.append(good if quiet else report("removing an existing core file prints a new revision and exits", good, f" (armed={armed} changed={changed})"))
     with temp_dir() as tmp:
         plant(tmp, WATCH_TREE)
         source = os.path.join(tmp, "shell")
         proc = start_watch(source, script)
         armed = read_revision(proc)
         append_text(os.path.join(source, "plugins", "a", "Widget.qml"), "Item { property int pluginOnly: 1 }\n")
-        quiet_after_plugin = no_revision(proc)
-        after_plugin = fresh_revision(source, script)
-        append_text(os.path.join(source, "Ui", "Card.qml"), "Item { property int core: 1 }\n")
+        append_text(os.path.join(source, "Ui", "Card.qml"), core_edit)
         changed = read_revision(proc)
-        final_revision = fresh_revision(source, script)
-        good = armed is not None and quiet_after_plugin and after_plugin == armed and changed == final_revision and wait_success(proc)
+        with temp_dir() as expect_tmp:
+            plant(expect_tmp, WATCH_TREE)
+            append_text(os.path.join(expect_tmp, "shell", "Ui", "Card.qml"), core_edit)
+            expected = fresh_revision(os.path.join(expect_tmp, "shell"), script)
+        good = armed is not None and changed == expected and wait_success(proc)
         results.append(good if quiet else report("an edit under top-level plugins is neither watched nor hashed", good,
-                                                 f" (armed={armed} after_plugin={after_plugin} changed={changed} final={final_revision} quiet={quiet_after_plugin})"))
+                                                 f" (armed={armed} changed={changed} expected={expected})"))
     with temp_dir() as tmp:
         missing = os.path.join(tmp, "absent")
         proc = scan("--watch-core", missing, script=script)
@@ -415,11 +425,11 @@ def watch_rows(script=SCAN, quiet=False):
 
 def watch_controls():
     """The watch rows fail when the watcher hashes no core file, hashes the
-    plugins directory too, or never re-adds watches for new directories."""
+    plugins directory too, or lets additions enter the armed hash set."""
     return [
-        mutant_control("the watch rows fail on a watcher that hashes no core file", "return source_revision(source_files(directory, skip=(\"plugins\",)))", "return source_revision([])", watch_rows),
-        mutant_control("the watch rows fail on a watcher that hashes plugins with the core", "return source_revision(source_files(directory, skip=(\"plugins\",)))", "return source_revision(source_files(directory))", watch_rows),
-        mutant_control("the watch rows fail on a watcher that never adds new directory watches", "            arm_core_watch(fd, libc, ctypes, directory, False)\n", "", watch_rows),
+        mutant_control("the watch rows fail on a watcher that hashes no core file", "files = list(source_files(directory, skip=(\"plugins\",)))", "files = []", watch_rows),
+        mutant_control("the watch rows fail on a watcher that hashes plugins with the core", "files = list(source_files(directory, skip=(\"plugins\",)))", "files = list(source_files(directory))", watch_rows),
+        mutant_control("the watch rows fail on a watcher that lets additions count", "return source_revision(files), changed", "return source_revision(source_files(directory, skip=(\"plugins\",))), changed", watch_rows),
     ]
 
 

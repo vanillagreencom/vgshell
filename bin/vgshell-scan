@@ -36,9 +36,12 @@ manifest's `requirements` list.
 prints one JSON line holding its source revision, the same hash as a
 plugin's over every file under DIR except its top-level `plugins`
 directory. It arms directory watches first, then hashes, then prints
-`{"revision": "<hash>"}` and waits. After an inotify batch it re-adds
-watches for the current directories and hashes again. A different revision
-is printed and the process exits 0. A file that vanishes during a rehash is
+`{"revision": "<hash>"}` and waits. After an inotify batch it hashes the
+same relative paths again. A different revision, or a path from the armed
+set that vanished or stopped being a regular file, is printed and the
+process exits 0. A file added later is ignored. Importable core modules are
+listed through explicit qmldir files, so a new named type still reaches a
+plugin through a modified file in the armed set. A transient read error is
 left for the next inotify batch. A setup failure prints one stderr line
 beginning `vgshell-scan: core-watch=failed` and exits 1.
 
@@ -163,11 +166,11 @@ def declared_commands(text, core=False):
 def missing_commands(text, probed, core=False):
     """The declared commands not on PATH, each once. `probed` caches each
     command's answer for the whole scan."""
+    import shutil
+
     missing = []
     for command in declared_commands(text, core):
         if command not in probed:
-            import shutil
-
             probed[command] = shutil.which(command) is not None
         if not probed[command] and command not in missing:
             missing.append(command)
@@ -263,41 +266,49 @@ def prune_snapshots(root, keep, out):
             out.append({"dir": root, "path": exc.filename or path, "error": f"cannot prune sources: {exc.strerror}"})
 
 
-def core_revision(directory):
-    return source_revision(source_files(directory, skip=("plugins",)))
+def arm_core_files(directory):
+    files = list(source_files(directory, skip=("plugins",)))
+    return [path for path, _, _ in files], source_revision(files)
 
 
-def core_watch_dirs(directory, strict):
-    """Every directory the core watcher needs, excluding DIR/plugins. In
-    strict mode an unreadable directory is a setup failure; after startup,
-    a concurrent removal is left for the next inotify batch."""
+def armed_core_revision(directory, paths):
+    files = []
+    changed = False
+    for relative in paths:
+        full = os.path.join(directory, relative)
+        try:
+            mode = os.stat(full).st_mode
+            if not stat.S_ISREG(mode):
+                changed = True
+                continue
+            with open(full, "rb") as source:
+                files.append((relative, bool(mode & stat.S_IXUSR), source.read()))
+        except FileNotFoundError:
+            changed = True
+        except OSError:
+            raise
+    return source_revision(files), changed
+
+
+def core_watch_dirs(directory):
+    """Every directory the core watcher needs, excluding DIR/plugins."""
     root = os.path.abspath(directory)
     pending = [("", ())]
     while pending:
         relative, ancestors = pending.pop()
         full = os.path.join(root, relative)
-        try:
-            here = os.stat(full)
-            identity = (here.st_dev, here.st_ino)
-            if identity in ancestors:
-                raise OSError(0, "directory cycle", full)
-            names = sorted(os.listdir(full))
-        except OSError:
-            if strict:
-                raise
-            continue
+        here = os.stat(full)
+        identity = (here.st_dev, here.st_ino)
+        if identity in ancestors:
+            raise OSError(0, "directory cycle", full)
+        names = sorted(os.listdir(full))
         yield full
         for name in reversed(names):
             if relative == "" and name == "plugins":
                 continue
             child_relative = os.path.join(relative, name)
             child = os.path.join(root, child_relative)
-            try:
-                mode = os.stat(child).st_mode
-            except OSError:
-                if strict:
-                    raise
-                continue
+            mode = os.stat(child).st_mode
             if stat.S_ISDIR(mode):
                 pending.append((child_relative, ancestors + (identity,)))
 
@@ -306,7 +317,8 @@ def inotify_open():
     import ctypes
 
     libc = ctypes.CDLL(None, use_errno=True)
-    fd = libc.inotify_init1(0o2000000)
+    IN_CLOEXEC = 0o2000000
+    fd = libc.inotify_init1(IN_CLOEXEC)
     if fd == -1:
         err = ctypes.get_errno()
         raise OSError(err, os.strerror(err))
@@ -314,20 +326,28 @@ def inotify_open():
 
 
 def inotify_add(libc, ctypes, fd, path):
-    mask = 0x00000002 | 0x00000004 | 0x00000008 | 0x00000040 | 0x00000080 | 0x00000100 | 0x00000200 | 0x00000400 | 0x00000800
+    IN_MODIFY = 0x00000002
+    IN_ATTRIB = 0x00000004
+    IN_CLOSE_WRITE = 0x00000008
+    IN_MOVED_FROM = 0x00000040
+    IN_MOVED_TO = 0x00000080
+    IN_CREATE = 0x00000100
+    IN_DELETE = 0x00000200
+    IN_DELETE_SELF = 0x00000400
+    IN_MOVE_SELF = 0x00000800
+    mask = (
+        IN_MODIFY | IN_ATTRIB | IN_CLOSE_WRITE | IN_MOVED_FROM | IN_MOVED_TO
+        | IN_CREATE | IN_DELETE | IN_DELETE_SELF | IN_MOVE_SELF
+    )
     watch = libc.inotify_add_watch(fd, os.fsencode(path), mask)
     if watch == -1:
         err = ctypes.get_errno()
         raise OSError(err, os.strerror(err), path)
 
 
-def arm_core_watch(fd, libc, ctypes, directory, strict):
-    for path in core_watch_dirs(directory, strict):
-        try:
-            inotify_add(libc, ctypes, fd, path)
-        except OSError:
-            if strict:
-                raise
+def arm_core_watch(fd, libc, ctypes, directory):
+    for path in core_watch_dirs(directory):
+        inotify_add(libc, ctypes, fd, path)
 
 
 def core_watch_fail(reason, exc):
@@ -346,8 +366,8 @@ def watch_core(directory):
         return core_watch_fail("init", exc)
     try:
         try:
-            arm_core_watch(fd, libc, ctypes, directory, True)
-            armed = core_revision(directory)
+            arm_core_watch(fd, libc, ctypes, directory)
+            armed_paths, armed = arm_core_files(directory)
         except OSError as exc:
             return core_watch_fail("setup", exc)
         print(json.dumps({"revision": armed}), flush=True)
@@ -356,12 +376,11 @@ def watch_core(directory):
                 os.read(fd, 65536)
             except InterruptedError:
                 continue
-            arm_core_watch(fd, libc, ctypes, directory, False)
             try:
-                changed = core_revision(directory)
+                changed, removed = armed_core_revision(directory, armed_paths)
             except OSError:
                 continue
-            if changed != armed:
+            if removed or changed != armed:
                 print(json.dumps({"revision": changed}), flush=True)
                 return 0
     finally:

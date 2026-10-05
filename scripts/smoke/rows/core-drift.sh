@@ -2,14 +2,15 @@
 # after rows/hyprland-consent.sh, a core row, has answered the first-start
 # welcome, so the consent slot holds no notice of its own here. The row
 # compiles acme.drift before the core changes and leaves acme.drift-b
-# unbuilt. The core watcher sees the sandbox copy's qs.Ui change without a
-# plugin rescan and raises Restart to update. A rescan after that change
-# holds the manifest map, so the open panel keeps its old snapshot and the
-# unbuilt copy is refused with `refused: restart=owed`, not built against
-# the changed core. Restart is pressed only after the row proves the notice
-# belongs to the sandbox shell. The relaunched shell then builds both
-# panels from the changed core. Cleanup removes the fixtures and type and
-# starts the sandbox tree again.
+# unbuilt. The core watcher sees the sandbox copy's qs.Ui/qmldir
+# modification, while the new DriftMark.qml file alone would not count,
+# and raises Restart to update without a plugin rescan. A rescan after that
+# change holds the manifest map, so the open panel keeps its old snapshot
+# and the unbuilt copy is refused with `refused: restart=owed`, not built
+# against the changed core. Restart is pressed only after the row proves
+# the notice belongs to the sandbox shell. The relaunched shell then builds
+# both panels from the changed core. Cleanup removes the fixtures and type
+# and starts the sandbox tree again.
 # inputs: scripts/smoke/fixtures/plugins/acme.drift/* bin/vgshell-scan bin/vgshell shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Hosts/PluginSlot.qml shell/Hosts/SummonHost.qml shell/Ui/qmldir scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 drift="$home/.config/vgshell/plugins/acme.drift"
