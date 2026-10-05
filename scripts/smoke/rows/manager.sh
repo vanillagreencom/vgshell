@@ -1096,3 +1096,6 @@ for builtin_cycle in {1..12}; do
   expect_poll "built-in cleanup cycle $builtin_cycle forgets released callbacks" True bar_cleanup_balanced
   expect "built-in cleanup cycle $builtin_cycle preserves the bar lifetime" "$builtin_builds_before" builds
 done
+# The last cycle's layout change remaps the bar; the row ends once every
+# monitor holds its bar surface again, as it found them.
+expect_poll "every monitor holds its bar surface again after the cleanup cycles" "$monitors" bar_count
