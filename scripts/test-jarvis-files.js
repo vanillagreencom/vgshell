@@ -709,6 +709,34 @@ world(async () => {
         } finally { fs.rmSync(zone, { recursive: true, force: true }); }
     };
     await deleteHoldFails(require(file));
+    // An entry replaced between the walk's lstat and its hold refuses before
+    // anything is removed. The original stays linked aside, so the
+    // replacement cannot take its inode number.
+    const deleteHeldSwap = async Files => {
+        plantZone();
+        const aside = path.join(home, "aside");
+        let swapped = null;
+        try {
+            const answer = await fsFaultAsync("openSync", (original, target, flags, ...rest) => {
+                if (swapped === null && typeof flags === "number" && (flags & oPath) !== 0) {
+                    swapped = path.basename(target);
+                    fs.renameSync(target, aside);
+                    fs.writeFileSync(target, "replaced");
+                }
+                return original(target, flags, ...rest);
+            }, () => make(Files).run("files.delete", { path: zone }));
+            assert.equal(answer.outcome, "failed");
+            assert.match(answer.content, /^Refused: path-changed for .*\.$/);
+            assert.equal(read(path.join(zone, "a", "one")), swapped === "one" ? "replaced" : "x");
+            assert.equal(read(path.join(zone, "two")), swapped === "two" ? "replaced" : "x");
+            assert.equal(read(aside), "x");
+            cases++;
+        } finally {
+            fs.rmSync(zone, { recursive: true, force: true });
+            fs.rmSync(aside, { force: true });
+        }
+    };
+    await deleteHeldSwap(require(file));
 
     // A call made while no snapshot builds is refused with its cause.
     const brokenSnapshot = async Files => {
@@ -811,16 +839,19 @@ world(async () => {
     await control("move-destination", [["if (!to.exists && entry(folder, name) !== null)", "if (false)"]], moveAppeared);
     await control("move-same-entry", [["if (from.path === to.path) throw failed(", "if (false) throw failed("]], sameEntry);
     await control("other-executor", [["if (refined.kind !== \"call\" || refined.executor !== \"files\")", "if (refined.kind !== \"call\")"]], otherExecutor);
-    await control("delete-walk-first", [["const tree = walk(held, parent, name, target.path, snapshot, 0, count);\n                    total += count.value;\n                    prune(parent, name, target.path, tree, removed);",
+    await control("delete-walk-first", [["const tree = walk(held, parent, name, target.path, snapshot, 0, count);\n                    total += count.value;\n                    prune(held, parent, name, target.path, tree, removed);",
         "fs.rmSync(Anchored.child(parent, name), { recursive: true }); removed.value++;"]], deleteProtected);
     await control("delete-child-judge", [["if (verdict.kind !== \"path\") throw failed(\"Refused: \"", "if (false) throw failed(\"Refused: \""]], deleteProtected);
     await control("delete-bound", [["if (++count.value > bounds.deleteEntries)", "if (false)"]], deleteBound);
     await control("delete-depth", [["if (depth > bounds.deleteDepth) throw failed(", "if (false) throw failed("]], deleteDepth);
     await control("delete-inode", [["if (now === null || now.dev !== item.dev || now.ino !== item.ino || now.isDirectory())", "if (now === null || now.isDirectory())"]], deleteInode);
-    await control("delete-hold", [["const heldStat = hold(held, fd, child, childPath, O_PATH).stat;",
-        "const heldStat = fs.fstatSync(held[held.push(openIn(fd, child, childPath, O_PATH)) - 1]); fs.closeSync(held.pop());"]], deleteInode);
+    // Each hold mutant keeps a stand-in descriptor, so prune's close stays
+    // valid and the case turns red for the inode, not for a bad descriptor.
+    await control("delete-hold", [["const heldEntry = hold(held, fd, child, childPath, O_PATH);",
+        "const heldEntry = hold(held, fd, child, childPath, O_PATH); held.delete(heldEntry.fd); fs.closeSync(heldEntry.fd); heldEntry.fd = fs.openSync(\"/\", O_RDONLY | O_DIRECTORY); held.add(heldEntry.fd);"]], deleteInode);
     await control("delete-hold-refusal", [["const fd = openIn(parent, name, file, flags);",
-        "let fd; try { fd = openIn(parent, name, file, flags); } catch { return { fd: -1, stat: entry(parent, name) }; }"]], deleteHoldFails);
+        "let fd; try { fd = openIn(parent, name, file, flags); } catch { fd = fs.openSync(\"/\", O_RDONLY | O_DIRECTORY); held.add(fd); return { fd, stat: entry(parent, name) }; }"]], deleteHoldFails);
+    await control("delete-hold-compare", [["if (heldEntry.stat.dev !== childStat.dev || heldEntry.stat.ino !== childStat.ino) throw changed(childPath);", ""]], deleteHeldSwap);
     await control("registration", [["const files = create(options);\n    router.register(",
         "const files = create(options);\n    try { options.denied(); } catch { return { close: files.close }; }\n    router.register("]], registered);
     await control("exdev", [["if (error.code === \"EXDEV\") throw failed(", "if (false) throw failed("]], exdevMove);

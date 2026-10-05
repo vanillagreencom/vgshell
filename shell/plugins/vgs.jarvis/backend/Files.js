@@ -439,17 +439,24 @@ function create({ denied, bounds = BOUNDS, clock }) {
     }
 
     /**
-     * Open a walked entry and keep it open in held until the removal ends. A
-     * filesystem may give a freed inode number to the next file it creates,
-     * and an open inode is never freed, so a replacement made after the walk
-     * cannot carry the number prune compares. The hold costs one descriptor
-     * per entry: at most bounds.deleteEntries (4096) entries at
-     * bounds.deleteDepth (32) levels, past which the walk refuses with
-     * nothing removed. A failed open, EMFILE included, refuses the same way.
+     * Open a walked entry and add it to held. A filesystem may give a freed
+     * inode number to the next file it creates (ext4 does), and a kernel
+     * filesystem never frees an open inode, so a replacement made after the
+     * walk cannot carry the number prune compares. A file is held from the
+     * walk until its own comparison, then closed before its unlink: the NFS
+     * client renames an open file it is asked to unlink to .nfsXXXX, which
+     * would leave its folder not empty. The window between that comparison
+     * and the unlink was never covered. A folder is held until the removal
+     * ends. A FUSE server may still free and reuse the number of an open
+     * inode (fuse2fs does, and reports birth time 0), a known limit.
+     * The hold costs one descriptor per entry: at most bounds.deleteEntries
+     * (4096) entries at bounds.deleteDepth (32) levels, past which the walk
+     * refuses with nothing removed. A failed open, EMFILE included, refuses
+     * the same way.
      */
     function hold(held, parent, name, file, flags) {
         const fd = openIn(parent, name, file, flags);
-        held.push(fd);
+        held.add(fd);
         return { fd, stat: fs.fstatSync(fd) };
     }
 
@@ -474,24 +481,26 @@ function create({ denied, bounds = BOUNDS, clock }) {
                 node.entries.push({ name: child, node: walk(held, fd, child, childPath, snapshot, depth + 1, count) });
                 continue;
             }
-            const heldStat = hold(held, fd, child, childPath, O_PATH).stat;
-            if (heldStat.dev !== childStat.dev || heldStat.ino !== childStat.ino) throw changed(childPath);
-            node.entries.push({ name: child, dev: heldStat.dev, ino: heldStat.ino });
+            const heldEntry = hold(held, fd, child, childPath, O_PATH);
+            if (heldEntry.stat.dev !== childStat.dev || heldEntry.stat.ino !== childStat.ino) throw changed(childPath);
+            node.entries.push({ name: child, fd: heldEntry.fd, dev: heldEntry.stat.dev, ino: heldEntry.stat.ino });
         }
         return node;
     }
 
     // Remove bottom-up through held folders, matching each walked inode.
-    function prune(parent, name, file, node, removed) {
+    function prune(held, parent, name, file, node, removed) {
         const fd = openIn(parent, name, file, O_RDONLY | O_DIRECTORY);
         try {
             const stat = fs.fstatSync(fd);
             if (stat.dev !== node.dev || stat.ino !== node.ino) throw changed(file);
             for (const item of node.entries) {
-                if (item.node !== undefined) prune(fd, item.name, path.join(file, item.name), item.node, removed);
+                if (item.node !== undefined) prune(held, fd, item.name, path.join(file, item.name), item.node, removed);
                 else {
                     const now = entry(fd, item.name);
                     if (now === null || now.dev !== item.dev || now.ino !== item.ino || now.isDirectory()) throw changed(path.join(file, item.name));
+                    held.delete(item.fd);
+                    fs.closeSync(item.fd);
                     fs.unlinkSync(Anchored.child(fd, item.name));
                     removed.value++;
                 }
@@ -507,14 +516,14 @@ function create({ denied, bounds = BOUNDS, clock }) {
             const stat = entry(parent, name);
             if (stat === null) throw changed(target.path);
             const removed = { value: 0 };
-            const held = [];
+            const held = new Set();
             let total = 1;
             try {
                 if (stat.isDirectory()) {
                     const count = { value: 0 };
                     const tree = walk(held, parent, name, target.path, snapshot, 0, count);
                     total += count.value;
-                    prune(parent, name, target.path, tree, removed);
+                    prune(held, parent, name, target.path, tree, removed);
                 } else {
                     // A link is removed itself, never its target.
                     fs.unlinkSync(Anchored.child(parent, name));
