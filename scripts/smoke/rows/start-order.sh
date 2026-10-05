@@ -38,6 +38,8 @@
 # sandbox's own tree over the same default set, so whichever rows a run
 # selects after it read a live shell with its services built, never the
 # last control's copy, whose gate holds them.
+# It switches to the default plugin set and its stand-ins on purpose; every later row starts from them.
+# leaves: layers shim
 # inputs: shell/shell.qml shell/Core/ServiceGate.qml shell/Hosts/ServiceHost.qml shell/Hosts/BackgroundHost.qml shell/Hosts/BarHost.qml shell/Core/Registry.qml shell/plugins/* scripts/smoke/fixtures/plugins/acme.contention/* scripts/smoke/fixtures/plugins/acme.locker/* bin/vgshell scripts/smoke/rows/capabilities.sh scripts/smoke/rows/device-fakes.sh
 set -euo pipefail
 for fixture in acme.locker acme.contention; do

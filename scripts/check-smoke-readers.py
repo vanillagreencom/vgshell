@@ -21,6 +21,12 @@ program in a row that parses JSON from its stdin is `py_reply`'s program:
                   sources defines, replacing it for every later row.
                   Definitions inside subshells or command substitutions
                   cannot replace the sourcing shell's function.
+  unreachable-leaves the row declares state it leaves on a `# leaves:`
+                  line in its leading comment block, and it is no core row,
+                  `smoke_core` in scripts/validate, and no later row in
+                  rows.list beside DIR names its file on its `# inputs:`
+                  line. A scoped run that holds the row and not that reader
+                  would carry the state into rows that do not read it.
 A read is `json.load(sys.stdin` or `json.loads(sys.stdin`, or any
 `sys.stdin` in a program literal that also parses JSON with `json.load`,
 `json.loads` or `raw_decode`. Its command is the nearest `py_reply` or
@@ -37,8 +43,10 @@ line: `<rule> <file>:<line> <detail>`. The pass is
 `check-smoke-readers: ok files=<n> readers=<n>`. Exit 0 when clean, 1 on any
 finding, 2 when the directory or a file cannot be read, printed as
 `check-smoke-readers: unreadable: <path>: <strerror>`. A directory holding
-no row is unreadable too: an empty walk certifies nothing.
+no row is unreadable too: an empty walk certifies nothing, and so is a
+scripts/validate without one `smoke_core=(...)` line once a row declares.
 """
+import fnmatch
 import os
 import re
 import sys
@@ -46,6 +54,8 @@ import sys
 ROWS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "smoke", "rows")
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HARNESS = os.path.join(REPO, "scripts", "smoke", "harness.sh")
+VALIDATE = os.path.join(REPO, "scripts", "validate")
+CORE = re.compile(r"(?m)^smoke_core=\(([^)\n]*)\)$")
 FUNCTION = re.compile(r"(?<![\w=])(?:function\s+)?([A-Za-z_][\w.-]*)\s*\(\s*\)\s*[{(]|\bfunction\s+([A-Za-z_][\w.-]*)\s*[{(]")
 SOURCE = re.compile(r"(?m)^[ \t]*(source|\.)[ \t]+(?:\"([^\"\n]+)\"|'([^'\n]+)'|([^\s;]+))")
 HEREDOC = re.compile(r"<<(-?)[ \t]*(['\"]?)\\?([A-Za-z_][A-Za-z0-9_]*)\2")
@@ -252,6 +262,34 @@ def check_file(path, findings, functions):
     return readers
 
 
+def header(text):
+    lines = []
+    for line in text.splitlines():
+        if not line.startswith("#"):
+            break
+        lines.append(line)
+    return lines
+
+
+def check_leaves(root, texts, findings):
+    declared = {name: number for name, text in texts.items() for number, line in enumerate(header(text), 1) if re.match(r"#[ \t]*leaves:", line)}
+    if not declared:
+        return
+    order = [line.strip() for line in read_file(os.path.join(os.path.dirname(root), "rows.list")).splitlines()]
+    order = [row for row in order if row and not row.startswith("#")]
+    cores = CORE.findall(read_file(VALIDATE))
+    if len(cores) != 1:
+        raise Unreadable(VALIDATE, f"smoke_core lines={len(cores)}")
+    for name, number in sorted(declared.items()):
+        row = name[:-len(".sh")]
+        if row in cores[0].split():
+            continue
+        later = order[order.index(row) + 1:] if row in order else []
+        globs = [glob for reader in later if reader + ".sh" in texts for line in header(texts[reader + ".sh"]) if line.startswith("# inputs:") for glob in line.split()[2:]]
+        if not any(fnmatch.fnmatchcase(f"scripts/smoke/rows/{name}", glob) for glob in globs):
+            findings.append(f"unreachable-leaves {os.path.join(root, name)}:{number} row={row} is no core row and no later row in rows.list names it")
+
+
 def main(argv):
     if len(argv) > 2:
         print(f"check-smoke-readers: refused: argument={argv[2]}")
@@ -269,6 +307,7 @@ def main(argv):
         functions = harness_functions()
         for name in names:
             readers += check_file(os.path.join(root, name), findings, functions)
+        check_leaves(root, {name: read_file(os.path.join(root, name)) for name in names}, findings)
     except Unreadable as exc:
         print(f"check-smoke-readers: unreadable: {exc.path}: {exc.strerror}")
         return 2

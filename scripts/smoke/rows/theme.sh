@@ -2,6 +2,8 @@
 # read back from a built bar instance and token values from Theme itself.
 # A document the judge refuses is logged with its token and reason and
 # leaves the last accepted theme; an absent file publishes the defaults.
+# The row starts with no theme file and ends by removing its own, so the
+# rows after it start from the defaults, Hyprland's border colours too.
 # inputs: shell/Commons/Theme.qml shell/Commons/ThemeLogic.js shell/Commons/Tokens.js shell/Commons/ThemeSource.qml shell/plugins/vgs.bar/* shell/assets/* shell/Commons/WatchedFile.qml
 set -euo pipefail
 theme="$home/.config/vgshell/theme.json"
@@ -9,6 +11,8 @@ theme="$home/.config/vgshell/theme.json"
 bar_foreground() { ipc smoke readInstance "$(bar_key)" vgs.bar foreground | py_reply 'import json,sys; c=json.load(sys.stdin); print("#%02x%02x%02x" % tuple(round(c[k] * 255) for k in "rgb"))'; }
 theme_value() { ipc smoke themeValue "$1"; }
 write_theme() { printf '%s\n' "$1" >"$theme.tmp" && mv -T -- "$theme.tmp" "$theme"; }
+inactive_border() { hypr -j getoption general:col.inactive_border | py_reply 'import json,sys; print(json.load(sys.stdin)["gradient"])'; }
+inactive_border_before="$(inactive_border)" || inactive_border_before=unread
 
 expect "every top-level token group is published frozen" '[]' ipc smoke themeUnpublished
 expect "the bundled mono family is available" true ipc smoke fontAvailable "JetBrains Mono"
@@ -73,3 +77,7 @@ expect "an unreadable theme file keeps the last theme" '#654321' bar_foreground
 chmod 644 -- "$theme"
 write_theme '{ "schemaVersion": 1, "name": "again", "tokens": { "palette": { "foreground": "#123456" } } }'
 expect_poll "a theme file readable again recolours the bar's foreground" '#123456' bar_foreground
+
+rm -f -- "${theme:?}"
+expect_poll "the removed theme file returns the bar's foreground to the default at the row's end" '#d7d7d9' bar_foreground
+expect_poll "the removed theme file returns Hyprland's inactive border to the row's start" "$inactive_border_before" inactive_border

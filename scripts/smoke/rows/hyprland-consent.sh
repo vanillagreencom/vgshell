@@ -3,7 +3,10 @@
 # and the sandbox's state holds no welcome-seen marker, so the question
 # comes inside the first-start welcome. The welcome must fit a 1440x900
 # output without scrolling; a 1440x320 output, where it cannot, is that
-# reading's control.
+# reading's control. It answers the welcome the first shell raised and
+# wires the Hyprland layer, so every later row starts with the notice
+# layer gone and the layer's options loaded.
+# leaves: layers options
 # inputs: shell/Core/HyprlandLayer.* shell/Core/Notices.qml shell/Core/PluginLogic.js config/shell.json bin/vgshell shell/Hosts/NoticeHost.qml shell/Ui/feedback/CommandDisclosure.qml shell/Ui/feedback/Dialog.qml shell/Ui/layout/Pane.qml
 set -euo pipefail
 

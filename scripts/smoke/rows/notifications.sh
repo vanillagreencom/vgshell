@@ -2084,5 +2084,7 @@ print(sorted(set(os.listdir(sys.argv[2])) - owned))' "$note_state" "$note_images
 }
 expect "the images directory holds only what the stored entries own" '[]' orphans
 # The rows above are done with the secret-tool stand-in: the harness's
-# sentinel comes back for every later row.
+# sentinel comes back for every later row. The curl stand-in the row added
+# goes too.
 sentinel_restore "$shim/secret-tool"
+rm -f -- "${shim:?}/curl"

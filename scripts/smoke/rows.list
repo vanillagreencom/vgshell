@@ -12,6 +12,10 @@ hyprland-consent
 plugins
 sources
 capabilities
+# After capabilities, with the first shell up and its first-start notice
+# answered; it runs planted rows that each leave one class of state, and
+# undoes what each left.
+leak-check
 session
 status
 manager

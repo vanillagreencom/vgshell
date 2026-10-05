@@ -1,7 +1,7 @@
 # The theme capability, driven through the fixture service and read back
 # from what its callbacks received, from its `shell.theme` members, from
-# Theme itself and from the core's lending record. rows/theme.sh leaves a
-# hand-written document active, so the first apply is the vgs package.
+# Theme itself and from the core's lending record. rows/theme.sh ends at
+# the defaults; the first apply is the vgs package all the same.
 # `done` can run before ThemeSource reloads the file, so `current` and
 # `revision` are polled after it. A later block installs a copy of the
 # catalog's flexoki-light, a light package, applies it and reads one colour

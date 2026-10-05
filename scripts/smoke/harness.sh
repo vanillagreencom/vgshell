@@ -1,5 +1,5 @@
 # Sourced by qml-smoke.sh; owns the sandbox and shared readers.
-# inputs: scripts/smoke/verdict.sh scripts/smoke/mode-hold.sh scripts/smoke/tree.sh scripts/smoke/shot.sh scripts/smoke/app-window.sh bin/lib/ipc-reply.sh scripts/smoke/teardown.sh scripts/smoke/devices.sh scripts/smoke/gpu-fence.sh scripts/smoke/Probe.qml scripts/smoke/pointer/* scripts/smoke/toplevel/* scripts/smoke/lock/* scripts/smoke/keyboard/* scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/devices/stand-in.py scripts/smoke/fixtures/devices/rfkill.json scripts/fixtures/jarvis/prepare.js scripts/fixtures/jarvis/audio.js scripts/fixtures/jarvis/keys-world.js scripts/fixtures/jarvis/accounts-world.js scripts/lib/jarvis-env.sh
+# inputs: scripts/smoke/verdict.sh scripts/smoke/mode-hold.sh scripts/smoke/tree.sh scripts/smoke/shot.sh scripts/smoke/app-window.sh scripts/smoke/leaks.sh bin/lib/ipc-reply.sh scripts/smoke/teardown.sh scripts/smoke/devices.sh scripts/smoke/gpu-fence.sh scripts/smoke/Probe.qml scripts/smoke/pointer/* scripts/smoke/toplevel/* scripts/smoke/lock/* scripts/smoke/keyboard/* scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/devices/stand-in.py scripts/smoke/fixtures/devices/rfkill.json scripts/fixtures/jarvis/prepare.js scripts/fixtures/jarvis/audio.js scripts/fixtures/jarvis/keys-world.js scripts/fixtures/jarvis/accounts-world.js scripts/lib/jarvis-env.sh
 set -euo pipefail
 source "$repo/scripts/smoke/verdict.sh"
 source "$repo/scripts/smoke/mode-hold.sh"
@@ -2553,6 +2553,7 @@ if running is not None and "%s@%s.ended.json" % (stem, running) in files:
 ' "$1" "$rt_dir/vgshell/tui" "$core" || printf '        the record directory is unreadable: %s\n' "$rt_dir/vgshell/tui"
 }
 
+source "$repo/scripts/smoke/leaks.sh"
 # smoke_row NAME [DIR]: source DIR/NAME.sh, DIR the rows directory by
 # default, in this shell, since rows share state, and fail the row once
 # when its output holds a Python traceback. A reader can raise outside
@@ -2573,6 +2574,11 @@ smoke_row() { # NAME [DIR]
   local smoke_row_out="$sandbox/rows/$1.out" smoke_row_result="$sandbox/rows/$1.result"
   smoke_row_marker="qml-smoke: row-end $1 $$ $SRANDOM"
   mkdir -p -- "$sandbox/rows"
+  leak_row_start
+  # Every row starts with the pointer at rest, wherever the row before it
+  # left it, so a scoped run and the full run start it alike. A row run
+  # inside another row starts where that row left it, in both runs.
+  [[ ${#leak_starts[@]} -gt 1 ]] || rest_pointer || fail "$smoke_row_name: the pointer is not put at rest before the row"
   rm -f -- "$smoke_row_out" "$smoke_row_result"
   {
     # The row reads no argument, as when qml-smoke.sh sourced it.
@@ -2595,6 +2601,7 @@ smoke_row() { # NAME [DIR]
     fail "$smoke_row_name: its output holds $smoke_row_count Python traceback(s): $smoke_row_out"
   fi
   ipc_oversize_check "$smoke_row_name"
+  leak_row_end "$smoke_row_name" "$smoke_row_dir"
 }
 
 smoke_finish() {

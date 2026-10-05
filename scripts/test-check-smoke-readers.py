@@ -5,7 +5,9 @@ coverage floor, with two required members: a copy of a notifications row
 JSON reader running python3 itself, and a copy of the instance-guard row
 running `qs list` itself. Each row builds a throwaway rows directory
 holding one row, runs the check on it and asserts the exact set of rule
-keys and lines, and the exit status."""
+keys and lines, and the exit status. The `# leaves:` rule's rows each
+build a rows directory of several rows with a rows.list beside it, read
+against the core rows scripts/validate names."""
 import os
 import re
 import shutil
@@ -66,6 +68,18 @@ CASES = [
     ("an array is not a function", "copy_tree=()\nnot_measured_rows=()\n", []),
 ]
 
+# leaves rows: name, {row: text}, rows.list order, the expected (rule key,
+# row, line) findings. session is a core row in scripts/validate.
+LEAVES = [
+    ("a declaring row a later row names", {"a": "# leaves: options\n:\n", "b": "# inputs: scripts/smoke/rows/a.sh\n:\n"}, ["a", "b"], []),
+    ("a declaring row a later row names by a glob", {"a": "# leaves: options\n:\n", "b": "# inputs: scripts/smoke/rows/*\n:\n"}, ["a", "b"], []),
+    ("a declaring core row", {"session": "# leaves: layers\n:\n"}, ["session"], []),
+    ("a leaves line below the leading comment block", {"a": ":\n# leaves: shim\n"}, ["a"], []),
+    ("a declaring row only an earlier row names", {"a": "# inputs: scripts/smoke/rows/b.sh\n:\n", "b": "# leaves: options\n:\n"}, ["a", "b"], [("unreachable-leaves", "b", 1)]),
+    ("a declaring row no row names", {"a": "# a row\n# leaves: shim\n:\n"}, ["a"], [("unreachable-leaves", "a", 2)]),
+    ("a declaring row rows.list does not hold", {"a": "# leaves: shim\n:\n", "b": "# inputs: scripts/smoke/rows/a.sh\n:\n"}, ["b"], [("unreachable-leaves", "a", 1)]),
+]
+
 failures = 0
 
 
@@ -89,6 +103,17 @@ def findings(result):
             rule, where = line.split(" ", 2)[:2]
             found.append((rule, where))
     return sorted(found)
+
+
+def plant_rows(root, rows, order):
+    directory = os.path.join(root, "rows")
+    os.makedirs(directory)
+    for name, text in rows.items():
+        with open(os.path.join(directory, name + ".sh"), "w") as row:
+            row.write(text)
+    with open(os.path.join(root, "rows.list"), "w") as listing:
+        listing.write("# the order\n" + "\n".join(order) + "\n")
+    return directory
 
 
 def plant(root, text):
@@ -138,9 +163,29 @@ with tempfile.TemporaryDirectory() as tmp:
     rows = plant(fixture, "phantom() { :; }\n")
     result = run([rows], checker)
     check("a stand-in function in a harness heredoc is not shared", result.returncode == 0, result)
+    # The fixture tree's checker reads the fixture's scripts/validate, which
+    # does not exist: the core rows cannot be read.
+    directory = plant_rows(os.path.join(fixture, "leaves"), {"session": "# leaves: layers\n:\n"}, ["session"])
+    result = run([directory], checker)
+    check("a declaration with no core list to read is unreadable", result.returncode == 2 and result.stdout.startswith("check-smoke-readers: unreadable: " + os.path.join(fixture, "scripts", "validate") + ":"), result)
     os.remove(nested)
     result = run([rows], checker)
     check("a missing sourced helper cannot certify the rows", result.returncode == 2 and result.stdout.startswith("check-smoke-readers: unreadable: " + nested + ":"), result)
+
+    for index, (name, rows, order, expected) in enumerate(LEAVES):
+        directory = plant_rows(os.path.join(tmp, f"leaves-{index}"), rows, order)
+        result = run([directory])
+        if not expected:
+            check(name + " passes", result.returncode == 0 and result.stdout.startswith("check-smoke-readers: ok "), result)
+        else:
+            want = sorted((rule, f"{os.path.join(directory, row + '.sh')}:{line}") for rule, row, line in expected)
+            check(name + " is refused", result.returncode == 1 and findings(result) == want, result)
+    directory = os.path.join(tmp, "leaves-unlisted", "rows")
+    os.makedirs(directory)
+    with open(os.path.join(directory, "a.sh"), "w") as row:
+        row.write("# leaves: shim\n:\n")
+    result = run([directory])
+    check("a declaration with no rows.list beside the rows is unreadable", result.returncode == 2 and result.stdout.startswith("check-smoke-readers: unreadable: " + os.path.join(tmp, "leaves-unlisted", "rows.list") + ":"), result)
 
     result = run([os.path.join(tmp, "missing")])
     check("a missing directory is unreadable", result.returncode == 2 and result.stdout.startswith("check-smoke-readers: unreadable: "), result)

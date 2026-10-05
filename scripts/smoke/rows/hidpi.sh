@@ -34,8 +34,9 @@
 # rows/notices-control.sh left running, starts the sandbox's tree over the
 # default set, every first-party plugin enabled (harness.sh's
 # default_set_prepare), stops that shell and gives the monitor its own
-# mode at scale 1 again. It leaves no shell running; rows/start-order.sh
-# starts its own.
+# mode at scale 1 again. It ends as it found the sandbox: the shell.json it
+# found back, without the stand-ins the default set added, and the
+# sandbox's tree running over it with its bar.
 #
 # This row adds no latency budget. It starts the shell through
 # harness.sh's start_shell, so it reuses the smoke startup poll intervals:
@@ -45,6 +46,9 @@ set -euo pipefail
 # stop_shell fails the row itself when the instance lock stays held; the
 # start below then fails on the held lock too, and the row goes on.
 stop_shell || :
+cp -p -- "$home/.config/vgshell/shell.json" "$sandbox/hidpi-shell.json"
+# What $shim holds now; the stand-ins default_set_prepare adds go at the end.
+hidpi_shim_before=("${shim:?}"/*)
 
 # screen_scale NAME: the screen the background on NAME was handed, as
 # `WxH ratio=R`, the size in logical pixels.
@@ -206,4 +210,11 @@ PY
     rm -f -- "$hidpi_image"
   fi
   release_mode "the nested compositor gives $hidpi_output its own mode at scale 1" "$hidpi_output" "$hidpi_base"
+fi
+mv -T -- "$sandbox/hidpi-shell.json" "$home/.config/vgshell/shell.json" || fail "the shell.json the HiDPI row found is not put back"
+for hidpi_file in "${shim:?}"/*; do
+  [[ " ${hidpi_shim_before[*]} " == *" $hidpi_file "* ]] || rm -f -- "$hidpi_file"
+done
+if start_shell "$repo" "$sandbox/hidpi-end-qs.log"; then
+  ok "the sandbox's shell runs again with its bar after the HiDPI row"
 fi

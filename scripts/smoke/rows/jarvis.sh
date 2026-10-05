@@ -74,6 +74,18 @@ jarvis_restore_requirements() {
   rescan "the setup requirement stand-ins are removed"
 }
 
+# jarvis_notice_close: the requirement notice enabling Jarvis raised while
+# its required commands are missing goes on the scan that finds them, as
+# in rows/jarvis-setup.sh; a scan raises no notice, so the stand-ins then
+# go again and it stays closed. A row that raised it calls this before it
+# ends, so no later row starts under it.
+jarvis_notice_close() {
+  jarvis_setup_requirements || { fail "the Jarvis requirement stand-ins are not written"; return 1; }
+  rescan "the scan that finds Jarvis's required commands"
+  expect_poll "the scan that finds Jarvis's required commands closes its notice" 0 layer_count vgs:notice
+  jarvis_restore_requirements
+}
+
 jarvis_enable() {
   expect "Jarvis enables" ok ipc shell setPluginEnabled vgs.jarvis true
   expect "the real Jarvis daemon answers hello" ready jarvis_wait_ready
@@ -1089,3 +1101,4 @@ printf 'present\n' >"$sandbox/jarvis-world/key-mode"
 jarvis_rescan
 expect_poll "restored Keys account refresh shows present" matched jarvis_key_value present
 jarvis_disable
+jarvis_notice_close

@@ -212,3 +212,4 @@ printf 'present\n' >"$sandbox/jarvis-world/key-mode"
 jarvis_rescan
 expect_poll "the restored world publishes its fixture key" matched jarvis_key_value present
 jarvis_disable
+jarvis_notice_close

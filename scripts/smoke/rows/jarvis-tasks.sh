@@ -133,3 +133,4 @@ cp -- "$sandbox/jarvis-task-daemon-original" "$task_daemon"
 rm -f -- "${task_gates:?}"/request-* "${task_gates:?}/replies.jsonl" "${task_gates:?}/tui-states.jsonl" \
   "${task_gates:?}/task-stops.jsonl"
 jarvis_rescan
+jarvis_notice_close
