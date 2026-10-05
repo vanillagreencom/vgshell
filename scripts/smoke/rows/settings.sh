@@ -277,7 +277,9 @@ expect_poll "Escape closes the action's notice" null notice_shown
 
 
 # The same offered status step must use the requirement notice at the run
-# boundary when its declared command is required and absent.
+# boundary when its declared command is required and absent. The copy also
+# lists the setup script, so the page draws its Setup button for the read
+# after the controls.
 status_manifest="$status_dir/manifest.json"
 cp -- "$status_manifest" "$sandbox/status-action-manifest"
 python3 - "$status_manifest" <<'PYTHON'
@@ -289,6 +291,9 @@ manifest=json.loads(path.read_text())
 requirement=next(row for row in manifest["requirements"] if row["command"]=="vgs-smoke-absent")
 assert requirement["optional"] is True
 requirement["optional"]=False
+setup=manifest["tui"]["setup"]
+assert "entry" not in setup
+setup["entry"]={"label":"Token setup","icon":"key-round","group":"Smoke"}
 path.write_text(json.dumps(manifest))
 PYTHON
 rescan "the fixture now declares its missing command required"
@@ -387,6 +392,20 @@ for control in TuiInstallGood TuiInstallChosen; do
   rm -- "$repo/shell/Core/TuiInstallControls/$control.qml" || fail "removing the $control source copy failed"
 done
 rmdir -- "$repo/shell/Core/TuiInstallControls" || fail "removing the TUI install control directory failed"
+# The Setup button on the Settings page opens the same script through the
+# manager's openTui, which the run boundary judges as it judges the status
+# step: with the required list missing, the press opens the notice and no
+# terminal. The same button of a plugin missing nothing starts its
+# terminal in rows/tui.sh.
+settings_tab_click Settings || fail "the click back to the status fixture's Settings failed"
+expect_poll "the status fixture's page shows Settings for its Setup button" 0 settings_tab
+forget_record
+settings_press "Token setup" || fail "the click on the Setup section's Token setup failed"
+expect_poll "the Setup button of a plugin missing required commands opens the requirement notice" "$large_notice" notice_shown
+expect "the Setup button starts no setup terminal" absent recorded
+expect_poll "the Setup button's notice holds the keyboard" true ipc smoke noticeFocused
+type_keys -k Escape || fail "closing the Setup button's notice failed"
+expect_poll "the Setup button's notice closes" null notice_shown
 cp -- "$sandbox/status-action-manifest" "$status_manifest"
 rescan "the fixture restores its optional requirement"
 
@@ -395,7 +414,6 @@ rescan "the fixture restores its optional requirement"
 # labels, and never writes on a status refresh. A missing configured value
 # remains visible and stored. Node judge controls pin the shape, distinct
 # ids, list and text bounds, empty-string reservation and retained values.
-settings_tab_click Settings || fail "the click back to the status fixture's Settings failed"
 expect_poll "the status fixture's page shows Settings for its editor" 0 settings_tab
 device_field() { ipc smoke invokeInstance window vgs.settings fieldChoice '{"id":"acme.status","key":"device"}'; }
 device_state() { device_field | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([d["index"],d["text"],d["value"],d["enabled"]]))'; }
