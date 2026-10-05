@@ -833,14 +833,31 @@ console.log(JSON.stringify([commands, shown]));
     assert result.returncode == 0, result.stderr
     (screenshot, failed, done, text, copied), (language, crash) = json.loads(result.stdout)
     owned = ["python3", "/helper/capture.py", "--owned", str(int(signal.SIGINT)), "41", "notify-send", "--print-id", "--app-name=Capture"]
-    return (screenshot == owned + ["--hint=string:image-path:/pictures/a.png", "--action=default=Open", "--action=edit=Edit", "--", "Screenshot saved", "/pictures/a.png"]
-            and failed[:-2] == owned + ["--hint=string:image-path:/state/a.jpg", "--"] and failed[-2] == "Recording saved"
-            and failed[-1].startswith("/videos/a.mp4\n") and failed[-1].endswith("fixture tail line")
-            and done == owned + ["--action=default=Open", "--", "Recording saved", "/videos/b.mp4"]
-            and text == owned + ["--", "Text copied", "Text from the selected area is on the clipboard"]
-            and copied == owned + ["--", "Screenshot copied", "The screenshot is on the clipboard"]
-            and language["title"] == "Text capture unavailable" and language["message"] == "no deu data"
-            and crash["title"] == "Capture failed" and crash["message"] == "Recording failed (exit 1)\nfixture recorder crash")
+    styled = ["--hint=string:x-vgs-icon:camera", "--hint=string:x-vgs-tone:success"]
+    pairs = ["--action=default=Open", "--action=edit=Edit"]
+    return (notice_shape(screenshot, owned, styled + ["--hint=string:image-path:/pictures/a.png"], pairs, "/pictures/a.png")
+            and notice_shape(failed, owned, styled + ["--hint=string:image-path:/state/a.jpg"], [], "/videos/a.mp4")
+            and failed[-1].endswith("\nfixture tail line")
+            and notice_shape(done, owned, styled, pairs[:1], "/videos/b.mp4")
+            and notice_shape(text, owned, styled, [], None)
+            and notice_shape(copied, owned, styled, [], None)
+            and language["tone"] == crash["tone"] == "danger" and language["icon"] == crash["icon"] == "camera"
+            and language["title"] != crash["title"]
+            and language["message"] == "no deu data" and crash["message"] == "Recording failed (exit 1)\nfixture recorder crash")
+
+
+def notice_shape(command, owned, hints, actions, path):
+    """Whether COMMAND is OWNED, then exactly HINTS in any order and ACTIONS
+    in button order, then `--`, a title and a body that starts with the
+    saved PATH. The title and body wording is the service's to change."""
+    options = command[len(owned):-3]
+    body = command[-1]
+    return (command[:len(owned)] == owned and command[-3] == "--" and isinstance(command[-2], str) and command[-2] != ""
+            and sorted(item for item in options if item.startswith("--hint=")) == sorted(hints)
+            and [item for item in options if item.startswith("--action=")] == actions
+            and len(options) == len(hints) + len(actions)
+            and isinstance(body, str) and body != ""
+            and (path is None or body == path or body.startswith(path + "\n")))
 
 
 def notice_command(source, root, parent):
@@ -1183,6 +1200,11 @@ def recording_functions(base, source):
         ("notice-processing-ignored", 'event.processing === "failed"', 'false'),
         ("notice-detail-dropped", 'if (event.detail !== "") message += "\\n" + event.detail.slice(-Math.max(0, 199 - message.length));', ''),
         ("notice-reason-renamed", 'event.reason === "language-data-unavailable"', 'event.reason === "english-data-unavailable"'),
+        ("notice-unstyled", '"--hint=string:x-vgs-icon:camera", "--hint=string:x-vgs-tone:success"]', ']'),
+        ("notice-imageless", 'if (image !== "") command.push("--hint=string:image-path:" + image);', ''),
+        ("notice-buttonless", 'for (const action of event.actions || []) command.push(', 'for (const action of []) command.push('),
+        ("notice-unseparated", 'return command.concat(["--", title, message.slice(0, 200)]);', 'return command.concat([title, message.slice(0, 200)]);'),
+        ("notice-pathless", 'message = event.path;', 'message = "";'),
     ]:
         assert service.count(before) == 1, name
         assert not service_notices(service.replace(before, after)), "control did not fail: " + name
@@ -1226,7 +1248,8 @@ def recording_functions(base, source):
     return ("record-no-snap,record-no-output-match,record-window-boxes,record-no-camera,no-recorder-options,fixed-pointer,fractional-rate-accepted,"
             "no-audio-sources,no-missing-check,absent-camera,picker-ignores-cancel,raw-replaced,kept-processing-output,stopped-after-processing,"
             "no-uri-copy,recorder-log-to-stderr,no-log-tail,invalid-languages-accepted,no-interword-spaces,english-only,tui-installs-installed,"
-            "unlocked-processing-output,untimed-processing-wait,shared-log,portal-cancel-failure,notice-processing-ignored,notice-detail-dropped,notice-reason-renamed")
+            "unlocked-processing-output,untimed-processing-wait,shared-log,portal-cancel-failure,notice-processing-ignored,notice-detail-dropped,notice-reason-renamed,"
+            "notice-unstyled,notice-imageless,notice-buttonless,notice-unseparated,notice-pathless")
 
 
 def main():

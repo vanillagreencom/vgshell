@@ -326,6 +326,7 @@ Item {
     // PARENT, the shell. It execs through the helper's parent-death
     // trampoline, so the shell's end sends notify-send SIGINT, which closes
     // the notification. A saved file is its image, a recording's thumbnail;
+    // the camera hint draws where there is no image (notification-hints.md);
     // each of the worker's actions is a button, and notify-send prints the
     // id of the one pressed. A failed post-process keeps the recording as
     // recorded and shows the end of the recorder log.
@@ -344,7 +345,8 @@ Item {
                 if (event.detail !== "") message += "\n" + event.detail.slice(-Math.max(0, 199 - message.length));
             }
         }
-        const command = ["python3", helperPath, "--owned", "2", String(parent), "notify-send", "--print-id", "--app-name=Capture"];
+        const command = ["python3", helperPath, "--owned", "2", String(parent), "notify-send", "--print-id", "--app-name=Capture",
+            "--hint=string:x-vgs-icon:camera", "--hint=string:x-vgs-tone:success"];
         if (image !== "") command.push("--hint=string:image-path:" + image);
         for (const action of event.actions || []) command.push("--action=" + action.id + "=" + action.label);
         return command.concat(["--", title, message.slice(0, 200)]);
