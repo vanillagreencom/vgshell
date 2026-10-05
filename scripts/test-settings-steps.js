@@ -27,6 +27,7 @@ const MANIFEST = {
         { command: "acme-tool", optional: true, purpose: "A tool" },
         { command: "acme-other", optional: false, purpose: "Another tool" }
     ],
+    tui: { setup: { script: "tui/setup.sh", title: "Set up", size: "default", presentation: "full", entry: null, requires: null } },
     status: {
         token: { type: "presence", label: "Token", action: { label: "Set up token", tui: "setup" }, command: TOKEN_COMMAND },
         warden: { type: "state", label: "Warden", action: { label: "Set up", tui: "setup" }, command: WARDEN_COMMAND },

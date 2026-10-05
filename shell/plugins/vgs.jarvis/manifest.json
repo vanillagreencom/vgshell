@@ -100,13 +100,13 @@
     "input": {"type": "state", "label": "Desktop input", "hint": "Protected layer rectangles include pass-through gaps. Unrecognized applications refuse input.", "action": {"label": "Check input", "tui": "setup-input"}}
   },
   "tui": {
-    "add-key": { "script": "tui/add-key.sh", "title": "Add Jarvis key",
+    "add-key": { "script": "tui/add-key.sh", "title": "Add Jarvis key", "requires": ["gum", "node", "secret-tool", "busctl"],
       "entry": { "label": "Add key", "icon": "key-round", "group": "Jarvis" } },
     "setup-browser": { "script": "tui/setup-browser.sh", "title": "Set up Jarvis browser",
       "entry": { "label": "Set up browser", "icon": "globe", "group": "Jarvis" } },
     "setup-local": { "script": "tui/setup-local.sh", "title": "Set up Jarvis local voice",
       "entry": { "label": "Set up local voice", "icon": "mic", "group": "Jarvis" } },
-    "accounts": { "script": "tui/accounts.sh", "title": "Jarvis accounts",
+    "accounts": { "script": "tui/accounts.sh", "title": "Jarvis accounts", "requires": ["gum", "node", "secret-tool", "busctl", "setpriv", "ss"],
       "entry": { "label": "Accounts", "icon": "users", "group": "Jarvis" } },
     "task": { "script": "tui/task.sh", "title": "Jarvis coding task", "presentation": "plain" },
     "setup-input": {"script": "tui/setup-input.sh", "title": "Check Jarvis input", "entry": {"label": "Check input", "icon": "mouse-pointer", "group": "Jarvis"}}

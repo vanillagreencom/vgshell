@@ -3,7 +3,9 @@
 # terminal, every text that names one of them has it offered, with nothing
 # found and in a partial search whose row names Accounts, and the AI model
 # setting reads its empty text and opens on one empty line from a Space
-# press, beside Add key. No latency budget.
+# press, beside Add key; without a command only Accounts needs, the search
+# row offers Install requirements and Add key stays offered. No latency
+# budget.
 # Poll once per nested IPC round trip. Only J09's process double and the
 # allow-listed TUI fixtures run here.
 # inputs: shell/plugins/vgs.jarvis/* shell/plugins/vgs.settings/* shell/Ui/controls/Select.qml shell/Ui/overlay/* shell/Core/PluginLogic.js shell/Core/Capabilities.qml shell/Commons/Reply.js scripts/fixtures/jarvis/* scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml bin/vgshell-tui scripts/smoke/rows/jarvis.sh
@@ -181,6 +183,26 @@ expect "the AI model setting takes the focus" focused ipc smoke invokeInstance w
 type_keys -k space || fail "Space on the AI model setting failed"
 expect_poll "the AI model setting draws one empty line" one-line page_field_line
 expect "Add key is offered beside it" '["Add key", true, "info"]' page_offered keyStore
+
+# Each step is withheld only for a command its own terminal needs. Every
+# sandbox shell lacks tesseract, which neither step needs, so both are
+# offered above. Without ss, which Accounts needs and Add key does not,
+# the partial search, whose own text names Accounts, offers Install
+# requirements, and no text names a step the page lacks.
+expect "the sandbox shell lacks tesseract" none shell_resolves tesseract
+printf 'parent-unreadable\n' >"$sandbox/jarvis-world/account-mode"
+page_open accountSearch accounts "Jarvis accounts"
+expect_poll "the partial search offers Accounts before ss goes" '["Accounts", true, "warning"]' page_offered accountSearch
+page_ss="$(shell_resolves ss)"
+[[ $page_ss == "$sandbox/host-path/ss" ]] || fail "ss resolves outside the sandbox's host links: $page_ss"
+mv -- "$page_ss" "$sandbox/page-ss"
+rescan "the page rescans without ss"
+expect_poll "without ss the search row offers Install requirements" '["Install requirements", true, "warning"]' page_offered accountSearch
+expect_poll "without ss Add key is still offered" '["Add key", true, "info"]' page_offered keyStore
+expect_poll "without ss every text that names Add key or Accounts has the button offered" '[["Add key"], []]' page_named_buttons
+mv -- "$sandbox/page-ss" "$page_ss"
+rescan "the page rescans with ss back"
+expect_poll "with ss back the partial search offers Accounts" '["Accounts", true, "warning"]' page_offered accountSearch
 settings_page_close vgs.jarvis
 
 cp -- "$sandbox/page-add-key-original" "$page_tuis/add-key.sh"

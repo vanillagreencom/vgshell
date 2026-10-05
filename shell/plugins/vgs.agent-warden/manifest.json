@@ -94,7 +94,8 @@
     },
     "setup": {
       "script": "tui/setup.sh",
-      "title": "Set up Agent Warden"
+      "title": "Set up Agent Warden",
+      "requires": ["vsys"]
     }
   }
 }

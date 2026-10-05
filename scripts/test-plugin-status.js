@@ -121,6 +121,47 @@ function suite(ctx, check) {
             check("manager setup: " + label, got, { ok: false, answer: "refused: tui=" + name + " reason=" + want, action: "none", key: null });
         }
     }
+    // A script that declares `requires` is withheld only for those commands.
+    const scoped = ctx.validateManifest(Object.assign({}, raw, {
+        tui: { setup: { script: "tui/setup.sh", title: "Set up", requires: ["acme-sync"] } },
+        requirements: [{ command: "acme-sync", purpose: "Syncs" }, { command: "acme-other", purpose: "Others" }]
+    }), "/p");
+    if (!scoped.ok) throw new Error("the scoped fixture manifest is refused: " + scoped.error);
+    const scopedRun = missing => {
+        const got = ctx.tuiRunFor(scoped.manifest, true, "/sources", runner, "setup", missing);
+        return got.kind === "install" ? "install" : got.key;
+    };
+    check("manager setup: a required command the script does not need is missing", scopedRun(["acme-other"]), "acme.status/setup");
+    check("manager setup: a required command the script needs is missing", scopedRun(["acme-sync"]), "install");
+    const scopedLabel = missing => ctx.statusRows(scoped.manifest, { token: "absent" }, missing).find(row => row.key === "token").action.label;
+    check("a row offers its TUI while a command the script does not need is missing", scopedLabel(["acme-other"]), "Set up token");
+    check("a row withholds its TUI while a command the script needs is missing", scopedLabel(["acme-sync"]), "Install requirements");
+
+    // Jarvis's key and account steps against the sandbox's missing OCR
+    // command, which neither needs, and against the keyring command, which
+    // both need. No text of the page names a step it does not offer.
+    const jarvisPage = { keyStore: { tone: "info", text: "No key stored", action: true },
+        accountSearch: { tone: "warning", text: "2 accounts found. Add an account by hand with Accounts.", lines: ["Accounts lists them"], action: true } };
+    const pageRows = missing => ctx.statusRows(jarvis, jarvisPage, missing).filter(row => row.key === "keyStore" || row.key === "accountSearch");
+    const unoffered = rows => {
+        const offered = rows.map(row => row.action.label);
+        const texts = [].concat(...rows.map(row => [row.hint, row.value.text].concat(row.value.lines || [])));
+        return ["Add key", "Accounts"].filter(step => !offered.includes(step) && texts.some(text => text.includes(step)));
+    };
+    check("Jarvis offers Add key and Accounts while only tesseract is missing", pageRows(["tesseract"]).map(row => row.action), [{ label: "Add key", offered: true }, { label: "Accounts", offered: true }]);
+    check("Jarvis opens add-key while only tesseract is missing",
+        ctx.tuiRunFor(jarvis, true, "/sources", runner, "add-key", ["tesseract"]).key, "vgs.jarvis/add-key");
+    const withheld = pageRows(["tesseract", "secret-tool"]);
+    check("Jarvis withholds Add key and Accounts while secret-tool is missing", withheld.map(row => row.action), [{ label: "Install requirements", offered: true }, { label: "Install requirements", offered: true }]);
+    check("a withheld row's hint names the command its step needs and not the one it does not",
+        withheld.map(row => [row.hint.includes("secret-tool"), row.hint.includes("tesseract")]), [[true, false], [true, false]]);
+    check("a withheld state reads a warning and keeps its action",
+        withheld.map(row => [row.tone, row.value.tone, row.value.action, row.value.lines]), [["warning", "warning", true, undefined], ["warning", "warning", true, undefined]]);
+    check("no text names a step the page does not offer while secret-tool is missing", unoffered(withheld), []);
+    check("no text names a step the page does not offer while only tesseract is missing", unoffered(pageRows(["tesseract"])), []);
+    check("the named-step read sees a step the page lacks",
+        unoffered([{ action: { label: "Install requirements" }, hint: "", value: { text: "Use Add key" } }]), ["Add key"]);
+
     check("missing requirements offer no step while status is unreported",
         ctx.statusRows(m, {}, ["acme-sync"])[0].action.offered, false);
     check("missing requirements preserve an existing install action",
@@ -460,10 +501,14 @@ suite(load(LOGIC), report);
 // Each control removes one rule from a copy of the judge and keeps the text
 // around it; the suite must fail on every copy.
 const CONTROLS = [
-    ["a setup ignores optional commands", "return !row.optional && missing.indexOf(row.command) !== -1;", "return missing.indexOf(row.command) !== -1;"],
-    ["a setup installs only missing declared commands", "missing.indexOf(row.command) !== -1;", "true;"],
-    ["a missing required command routes setup to install", "if (lacking.length > 0) return { ok: true, kind: \"install\" };", "if (false && lacking.length > 0) return { ok: true, kind: \"install\" };"],
-    ["the row withholds the TUI label while requirements are missing", 'offered.tui !== undefined && missing.length > 0', 'false && offered.tui !== undefined && missing.length > 0'],
+    ["a setup ignores optional commands", "return !row.optional;\n    }).map", "return true;\n    }).map"],
+    ["a setup installs only missing declared commands", "return needed.filter(function (command) { return missing.indexOf(command) !== -1; });", "return needed;"],
+    ["a script's requires decides what it needs", "var needed = requires !== null ? requires : manifest", "var needed = false ? requires : manifest"],
+    ["a missing required command routes setup to install", "if (tuiMissingRequirements(manifest, name, missing).length > 0) return { ok: true, kind: \"install\" };", ""],
+    ["the row withholds the TUI label while requirements are missing", "{ label: lacking.length > 0 ? STATUS_WITHHELD_LABEL : offered.label, offered: true }", "{ label: offered.label, offered: true }"],
+    ["a row reads the lacking commands of its offered TUI", "return offered !== null && offered.tui !== undefined ? tuiMissingRequirements(manifest, offered.tui, missing) : [];", "return [];"],
+    ["a withheld row's hint is the rule's", "            hint = statusWithheldHint(lacking);\n", ""],
+    ["a withheld state reads the rule's state", "            if (entry.type === \"state\") value = Object.assign({ action: value.action }, STATUS_WITHHELD_STATE);\n", ""],
     ["a list's fields take their choices", "if (entry.type === \"list\") out[key] = Pads.listChoices(entry, settings[key], choices);", "if (false) out[key] = Pads.listChoices(entry, settings[key], choices);"],
     ["choices is a list", "if (!Array.isArray(value) || value.length > STATUS_LIST_MAX) return false;\n        var seen", "if (value.length > STATUS_LIST_MAX) return false;\n        var seen"],
     ["choices is bounded", "if (!Array.isArray(value) || value.length > STATUS_LIST_MAX) return false;\n        var seen", "if (!Array.isArray(value)) return false;\n        var seen"],
@@ -492,7 +537,7 @@ const CONTROLS = [
     ["a presence list item command is a printable line", "(item.secret !== undefined && isPrintableLine(item.command, STATUS_COMMAND_MAX))", "(item.secret !== undefined)"],
     ["a presence list row item has its tone", "tone: STATUS_PRESENCE_TONES[item.value]", "tone: \"neutral\""],
     ["a presence list row item omits no hint", "hint: item.hint === undefined ? \"\" : item.hint,", "hint: item.hint,"],
-    ["a presence list row carries its items", "value: reported ? statusRowValue(entry.type, values[key]) : null,", "value: reported ? values[key] : null,"],
+    ["a presence list row carries its items", "value: reported ? statusRowValue(entry.type, value) : null,", "value: reported ? value : null,"],
     ["a state tone is one of the set", "typeof value.tone === \"string\" && hasOwn(STATUS_STATE_TONES, value.tone) &&", ""],
     ["a state has only its keys", "if (STATUS_STATE_KEYS.indexOf(keys[i]) === -1) return false;", ""],
     ["a state text is a printable line", "&& isPrintableLine(value.text, STATUS_TEXT_MAX)\n", "\n"],
@@ -529,7 +574,7 @@ const CONTROLS = [
     ["a state offers its action while it says so", "return value.action === true ? entry.action : null;", "return entry.action;"],
     ["a state offers the one of its actions it names", "return typeof value.action === \"string\" ? entry.actions[value.action] : null;", "return entry.actions[Object.keys(entry.actions)[0]];"],
     ["an unreported row offers nothing", "var offered = value === null ? null : statusActionOffered(entry, value);", "var offered = value === null ? entry.action || null : statusActionOffered(entry, value);"],
-    ["a row whose action does not apply is not offered", "if (offered !== null) return { label: offered.tui", "if (offered === null && entry.action !== undefined) offered = entry.action;\n    if (offered !== null) return { label: offered.tui"],
+    ["a row whose action does not apply is not offered", "if (offered !== null) return { label: lacking", "if (offered === null && entry.action !== undefined) offered = entry.action;\n    if (offered !== null) return { label: lacking"],
     ["an act needs a declared action", "if (typeof key !== \"string\" || !hasOwn(manifest.status, key) || statusEntryActions(manifest.status[key]).length === 0)\n        return { ok: false, answer: statusActionRefusal(key, \"undeclared\") };", ""],
     ["an act needs an enabled plugin", "if (!enabled)\n        return { ok: false, answer: statusActionRefusal(key, \"disabled\") };", ""],
     ["an act needs its offer", "if (action === null)\n        return { ok: false, answer: statusActionRefusal(key, \"not-offered\") };", "if (action === null) action = statusEntryActions(manifest.status[key])[0].action;"],
