@@ -115,6 +115,16 @@ themes_panel_open() {
   geometry="$(ipc smoke instanceGeometry panel vgs.themes)" || return
   [[ $geometry != absent ]] && echo open || echo closed
 }
+# open_click: a real click on the shown page's Open in the header, which no
+# scroll reaches, the pointer moved there a pixel off first.
+open_click() {
+  local rect x y
+  rect="$(ipc smoke windowGeometry window vgs.settings Button Open)" || return 1
+  [[ $rect == \[* ]] || { echo "open_click: no Open: $rect" >&2; return 1; }
+  read -r x y < <(at_centre window:Settings "$rect") || return 1
+  hover "$((x + 1))" "$y" || return 1
+  click "$x" "$y"
+}
 # Open by keyboard first, while Settings holds the keyboard the strip rows
 # left it; the pointer needs no keyboard, so no focus dispatch is sent.
 expect "manager rows name each plugin's summonable surface" '{"acme.probe": "", "vgs.devtools": "window", "vgs.gallery": "window", "vgs.themes": "panel"}' open_rows
@@ -131,13 +141,13 @@ type_keys -k Return || fail "pressing Gallery Open with Return failed"
 expect_poll "Open maps the Gallery window by keyboard" 1 window_count "VGS Components"
 expect "hiding the Gallery window after the keyboard Open is allowed" ok ipc shell hide window vgs.gallery
 expect_poll "the Gallery window is gone after the keyboard Open" 0 window_count "VGS Components"
-settings_press Open || fail "the click on Gallery Open failed"
+open_click || fail "the click on Gallery Open failed"
 expect_poll "Open maps the Gallery window by pointer" 1 window_count "VGS Components"
 expect "hiding the Gallery window after the pointer Open is allowed" ok ipc shell hide window vgs.gallery
 expect_poll "the Gallery window is gone after the pointer Open" 0 window_count "VGS Components"
 expect "the window opens the Themes page for the Open control" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.themes
 expect_poll "the Themes page draws Open" drawn open_button
-settings_press Open || fail "the click on Themes Open failed"
+open_click || fail "the click on Themes Open failed"
 expect_poll "Open maps the Themes panel" open themes_panel_open
 expect "hiding the Themes panel after Open is allowed" ok ipc shell hide panel vgs.themes
 expect_poll "the Themes panel is gone after Open" closed themes_panel_open
