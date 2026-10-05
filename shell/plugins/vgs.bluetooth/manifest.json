@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "id": "vgs.bluetooth",
+  "name": "Bluetooth",
+  "version": "0.1.0",
+  "author": "VanillaGreen",
+  "description": "Pair and connect your Bluetooth devices.",
+  "license": "MIT",
+  "icon": "bluetooth",
+  "kinds": ["service", "bar-widget", "panel", "pane"],
+  "entryPoints": { "service": "Service.qml", "bar-widget": "Widget.qml", "panel": "Panel.qml", "pane": "Pane.qml" },
+  "capabilities": ["bluetoothAgent", "configure", "ipc", "requirements", "status", "surfaces", "system"],
+  "defaultSection": "right",
+  "pane": { "group": "Connectivity", "order": 20 },
+  "settings": {
+    "hideWhenOff": false
+  },
+  "schema": {
+    "hideWhenOff": { "type": "boolean", "label": "Hide when off", "description": "Hide the bar icon while Bluetooth is off", "group": "Display" }
+  },
+  "requirements": [
+    { "command": "rfkill", "packages": { "pacman": "util-linux", "apt": "rfkill", "dnf": "util-linux", "xbps": "util-linux", "emerge": "sys-apps/util-linux", "nix": "util-linux" }, "purpose": "Turns Bluetooth on and off and keeps it so after a restart" }
+  ],
+  "systemSteps": ["service-bluetooth"],
+  "status": {
+    "power": { "type": "state", "label": "Bluetooth", "action": { "label": "Turn on the service", "system": "service-bluetooth" }, "command": "vgsh system apply service-bluetooth" },
+    "bluetooth": { "type": "data", "label": "Bluetooth" }
+  }
+}

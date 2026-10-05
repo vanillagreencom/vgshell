@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "id": "vgs.settings",
+  "name": "Settings",
+  "version": "0.1.0",
+  "author": "VanillaGreen",
+  "description": "Manage your plugins, settings and shortcuts.",
+  "license": "MIT",
+  "icon": "settings",
+  "kinds": [
+    "window",
+    "bar-widget",
+    "service"
+  ],
+  "entryPoints": {
+    "window": "Window.qml",
+    "bar-widget": "Widget.qml",
+    "service": "Service.qml"
+  },
+  "capabilities": [
+    "ipc",
+    "manager",
+    "screens",
+    "shortcut",
+    "surfaces"
+  ],
+  "settings": {},
+  "defaultSection": "right",
+  "hyprland": {
+    "binds": [
+      { "shortcut": "toggle", "key": "SUPER+M" }
+    ]
+  }
+}

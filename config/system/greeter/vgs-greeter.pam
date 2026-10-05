@@ -1,0 +1,11 @@
+#%PAM-1.0
+# The VGS login screen's PAM service, which /etc/greetd/vgs.toml names in
+# its [general] service key: the distribution's own login stack, then the
+# login keyring, which a password login unlocks. The leading dash keeps a
+# system without gnome-keyring quiet. Written by vgsh system apply greeter.
+auth       include      login
+-auth      optional     pam_gnome_keyring.so
+account    include      login
+password   include      login
+session    include      login
+-session   optional     pam_gnome_keyring.so auto_start

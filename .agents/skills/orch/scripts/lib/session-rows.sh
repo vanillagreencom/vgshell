@@ -24,8 +24,9 @@
 # holds the overseer's context record against. The readers are oversee-watch's
 # overseer judgement, `oversee register` and oversee-succeed's caller identity.
 #
-# A last row session_rows_verdict cannot judge reads `unsupported`, and its
-# reader takes the pane, the named fallback, reported as fallback.
+# The verdict answers for Claude Code alone: a session whose last row names
+# another harness reads `unsupported` and its reader takes the pane, the named
+# fallback, reported as fallback.
 #
 # ONE OWNER, THE WRITER, for "whose facts are these": only the pane's own
 # top-level harness writes a row, so a harness that session starts in its own
@@ -46,14 +47,11 @@
 # The overseer writer requires lib/file-lock.sh, lib/mailbox-append.sh,
 # lib/lane-context.sh and lib/lane-state.sh sourced by its caller, and the lane
 # writer the first two; the overseer readers need jq and tail alone, and the
-# overseer and lane verdicts lib/lane-state.sh besides. Sourced, never run. Bash 3.2-safe,
+# lane verdict lib/lane-state.sh besides. Sourced, never run. Bash 3.2-safe,
 # like its callers.
 
-# Seconds an append waits for the file's lock before it gives up. Below the
-# least `timeout:` any hook that writes a row declares, session-end-row's 3 s,
-# the longest Codex runs a SessionEnd hook: a writer that loses the lock says
-# so on stderr rather than being killed first (hooks/tests/session-rows.test.sh).
-SESSION_ROWS_WAIT=2
+# Seconds an append waits for the file's lock before it gives up.
+SESSION_ROWS_WAIT=5
 # The rows a reader looks back over for the last row of an event: a session
 # appends a start, an end, a failure per wall and a Stop per turn, so the rows
 # are taken from those naming the event first and the span bounds that list.
@@ -130,31 +128,21 @@ session_rows_last() { # FILE [EVENT]
 # session_rows_verdict FILE — what the last row says of the session, into
 # SESSION_ROWS_VERDICT, with that row in SESSION_ROW:
 #   none         no row, so nothing the harness said can be read
-#   unsupported  the row carries no evidence this verdict reads: it names
-#                any harness but Claude Code and Pi, or it is a Pi row that is
-#                neither a SessionEnd nor a StopFailure with a `message`. A Pi
-#                session writes a StopFailure only where its carrier dispatches
-#                one, so its SessionStart or Stop says nothing of a wall, and a
-#                StopFailure with no text tells no wall from another failure
+#   unsupported  the row names any harness but Claude Code, the one whose
+#                rows this verdict answers for, so its silence settles nothing
 #   ended        SessionEnd for any reason but `clear` and `resume`, the two a
-#                SessionStart follows in the same harness; Pi's carrier says
-#                its own reasons in these words
-#   walled       StopFailure with `rate_limit`, Claude Code's own word for a
-#                usage limit, or on Pi, which names no error kind, one whose
-#                `message` lib/lane-state.sh § lane_limit_banner reads as the
-#                account's limit, the judge a Pi lane's rows take; its
-#                `message` carries the harness's text with the reset in it
+#                SessionStart follows in the same harness
+#   walled       StopFailure with `rate_limit`, the harness's own word for a
+#                usage limit; its `message` carries the harness's text with the
+#                reset in it
 #   wedged       StopFailure whose `message` or `error_details` names a
 #                request refused for its prompt's length, a phrase
 #                SESSION_ROWS_PROMPT_TOO_LONG lists: the session's context
 #                filled its window, so every turn it starts fails the same way
 #                while its harness stays up
-#   live         SessionEnd for `clear` or `resume` from either harness, any
-#                other Claude Code row, or a Pi StopFailure whose `message`
-#                names neither a limit nor a prompt too long
-# Exit 2 where the file could not be read, jq could not read its last row, or
-# lane_limit_banner could not scan a Pi StopFailure's `message`; the verdict is
-# then `none` and says nothing.
+#   live         any other row
+# Exit 2 where the file could not be read; the verdict is then `none` and says
+# nothing.
 #
 # The phrases are the harness's own text, lowercased and matched as a
 # substring, one table read by this judge alone. Claude Code writes
@@ -164,29 +152,19 @@ session_rows_last() { # FILE [EVENT]
 SESSION_ROWS_PROMPT_TOO_LONG='["prompt is too long"]'
 SESSION_ROWS_VERDICT=none
 session_rows_verdict() { # FILE
-  local verdict banner
   SESSION_ROWS_VERDICT=none
   session_rows_last "$1" || return 2
   [ -n "$SESSION_ROW" ] || return 0
-  # `limit-text` is a Pi StopFailure the limit judge below settles.
-  verdict="$(jq -r --argjson too_long "$SESSION_ROWS_PROMPT_TOO_LONG" '
-    if .harness != "claude" and .harness != "pi" then "unsupported"
+  SESSION_ROWS_VERDICT="$(jq -r --argjson too_long "$SESSION_ROWS_PROMPT_TOO_LONG" '
+    if .harness != "claude" then "unsupported"
     elif .event == "SessionEnd" then
       (if .reason == "clear" or .reason == "resume" then "live" else "ended" end)
-    elif .event == "StopFailure" and .harness == "claude" and .error == "rate_limit" then "walled"
-    elif .harness == "pi" and (.event != "StopFailure" or (.message // "") == "") then "unsupported"
+    elif .event == "StopFailure" and .error == "rate_limit" then "walled"
     elif .event == "StopFailure"
       and ((((.message // "") + "\n" + (.error_details // "")) | ascii_downcase) as $text
         | any($too_long[]; . as $p | $text | contains($p)))
     then "wedged"
-    elif .harness == "pi" then "limit-text"
-    else "live" end' <<<"$SESSION_ROW")" || return 2
-  if [ "$verdict" = limit-text ]; then
-    banner="$(lane_limit_banner "$(jq -r '.message // ""' <<<"$SESSION_ROW")")" || return 2
-    verdict=live
-    [ -z "$banner" ] || verdict=walled
-  fi
-  SESSION_ROWS_VERDICT="$verdict"
+    else "live" end' <<<"$SESSION_ROW")" || { SESSION_ROWS_VERDICT=none; return 2; }
 }
 
 # session_rows_start FILE [SINCE] — the last SessionStart row of FILE, at or

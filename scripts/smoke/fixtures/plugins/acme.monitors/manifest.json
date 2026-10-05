@@ -1,0 +1,11 @@
+{
+    "schemaVersion": 1,
+    "id": "acme.monitors",
+    "name": "Monitor outputs",
+    "version": "0.1.0",
+    "author": "Smoke",
+    "description": "Reads the outputs Hyprland lists through the monitors capability",
+    "kinds": ["service"],
+    "entryPoints": { "service": "Service.qml" },
+    "capabilities": ["monitors"]
+}

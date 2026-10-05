@@ -1,0 +1,655 @@
+#!/usr/bin/env python3
+"""Exercise the shipped installer in J09, with local download/uv/Python doubles.
+
+Controls keep each rule's matched source text while removing its behavior.
+They modify only disposable plugin copies. No real package, model, audio,
+account, authentication or desktop service is used.
+"""
+import fcntl
+import hashlib
+import importlib.machinery
+import importlib.util
+import io
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import signal
+import subprocess
+import sys
+import tarfile
+import tempfile
+import time
+import unittest
+
+REPO = Path(__file__).resolve().parents[1]
+PLUGIN = REPO / "shell/plugins/vgs.jarvis"
+DOUBLE = REPO / "scripts/fixtures/jarvis-setup/installer.py"
+
+
+def namespace_entry():
+    """Every behavior case runs under the shared private-world owner."""
+    if os.environ.get("JARVIS_TEST_ROOT"):
+        return
+    (REPO / "tmp").mkdir(exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=REPO / "tmp", prefix="setup-standins-") as name:
+        child = subprocess.run([str(REPO / "scripts/lib/jarvis-env.sh"), name, "--",
+            sys.executable, str(Path(__file__).resolve())],
+            env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"}, check=False)
+    raise SystemExit(child.returncode)
+
+
+class Setup(unittest.TestCase):
+    def setUp(self):
+        scratch = tempfile.TemporaryDirectory()
+        self.addCleanup(scratch.cleanup)
+        self.root = Path(scratch.name).resolve()
+        self.plugin = self.root / "plugin"
+        shutil.copytree(PLUGIN, self.plugin)
+        self.home = self.root / "home"
+        self.home.mkdir()
+        self.state = self.root / "state/vgs/jarvis"
+        self.data = self.root / "data/vgs/jarvis/local"
+        self.data.mkdir(parents=True)
+        self.commands = self.root / "commands"
+        self.commands.mkdir()
+        # Bootstrap names are private doubles created after entering J09. No
+        # host nvidia-smi runs: the double answers from gpu_exit.
+        for name in ("uv", "curl", "unshare", "gum", "nvidia-smi"):
+            shutil.copyfile(DOUBLE, self.commands / name)
+            (self.commands / name).chmod(0o700)
+        self.env = {"PATH": str(self.commands) + ":" + os.environ["PATH"],
+                    "HOME": str(self.home), "XDG_STATE_HOME": str(self.root / "state"),
+                    "XDG_DATA_HOME": str(self.root / "data"), "LC_ALL": "C",
+                    "TMPDIR": str(self.root), "VGS_TEST_RUN": "1"}
+        self.config = {"tier": "small"}
+        self.spec = json.loads((self.plugin / "artifacts.json").read_text())
+        self.downloads = self.data / "downloads"
+        self.downloads.mkdir()
+        # Membership is read from the producer. Each neutral file has a real
+        # hash. Keep all engines, archive/direct and auxiliary shapes.
+        for artifact in self.spec["artifacts"]:
+            files = {}
+            if artifact["directory"] == ".":
+                payload = b"synthetic direct model"
+                name = next(iter(artifact["files"]))
+                (self.downloads / name).write_bytes(payload)
+                files = {name: hashlib.sha256(payload).hexdigest()}
+                filename = name
+            else:
+                filename = artifact["id"] + ".tar.bz2"
+                with tarfile.open(self.downloads / filename, "w:bz2") as bundle:
+                    for name in list(artifact["files"]) + [
+                            directory + "/data" for directory in artifact.get("auxiliaryDirectories", [])]:
+                        payload = ("synthetic " + name).encode()
+                        item = tarfile.TarInfo(artifact["directory"] + "/" + name)
+                        item.size = len(payload)
+                        bundle.addfile(item, io.BytesIO(payload))
+                        if name in artifact["files"]:
+                            files[name] = hashlib.sha256(payload).hexdigest()
+            artifact.update(url="https://fixture.invalid/" + filename, files=files,
+                            sha256=hashlib.sha256((self.downloads / filename).read_bytes()).hexdigest())
+        (self.plugin / "artifacts.json").write_text(json.dumps(self.spec))
+        self.write_config()
+
+    def write_config(self):
+        (self.data / "fixture.json").write_text(json.dumps(self.config))
+
+    def run_command(self, *args):
+        return subprocess.run([sys.executable, "-I", str(self.plugin / "setup-local"), *args],
+                              env=self.env, capture_output=True, text=True, check=False, timeout=30)
+
+    def calls(self):
+        path = self.data / "calls.jsonl"
+        return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+
+    def offered(self):
+        result = self.run_command("choices")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return [line.split("\t") for line in result.stdout.splitlines()]
+
+    def install(self, code=0):
+        result = self.run_command("install", self.config["tier"])
+        self.assertEqual(result.returncode, code, result.stdout + result.stderr)
+        return result
+
+    def report(self):
+        result = self.run_command("status")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
+
+    def ready(self):
+        self.assertEqual(self.report(), {"tone": "ok", "text": "Ready: " + self.config["tier"], "action": False})
+        self.assertEqual((self.data / "probed").read_text(), self.config["tier"])
+
+    def not_ready(self):
+        self.assertNotEqual(self.report()["tone"], "ok")
+
+    def mutant(self, needle, replacement):
+        path = self.plugin / "setup-local"
+        text = path.read_text()
+        self.assertEqual(text.count(needle), 1, needle)
+        changed = text.replace(needle, replacement)
+        self.assertNotEqual(changed, text)
+        path.write_text(changed)
+
+    def test_setup_and_status(self):
+        self.assertEqual(self.report(), {"tone": "warning", "text": "Not set up", "action": True})
+        self.install()
+        self.ready()
+        self.assertEqual((self.state / "local-ready.json").stat().st_mode & 0o777, 0o600)
+        calls = [json.loads(line) for line in (self.data / "calls.jsonl").read_text().splitlines()]
+        self.assertEqual([call[0] for call in calls if call[0] in ("unshare", "python")], ["unshare", "python"])
+        # Retry uses the same venv path, not a relocated environment.
+        self.install()
+        self.ready()
+
+    def test_each_tier_uses_the_manifest(self):
+        for tier in self.spec["tiers"]:
+            with self.subTest(tier=tier):
+                self.config["tier"] = tier
+                self.write_config()
+                self.install()
+                self.ready()
+                calls = [json.loads(line) for line in (self.data / "calls.jsonl").read_text().splitlines()]
+                urls = [call[-1] for call in calls if call[0] == "curl"]
+                expected = [a["url"] for a in self.spec["artifacts"] if a["id"] in self.spec["tiers"][tier]["artifacts"]]
+                self.assertEqual(set(urls[-len(expected):]), set(expected))
+                if self.spec["tiers"][tier]["provider"] == "cuda":
+                    wheel = self.spec["runtimes"]["sherpa-onnx"]["cudaWheel"]
+                    self.assertIn(wheel["url"], (self.data / "requirements-cuda.lock").read_text())
+                    self.assertIn(wheel["sha256"], (self.data / "requirements-cuda.lock").read_text())
+
+    def test_hash_and_control(self):
+        artifact = next(a for a in self.spec["artifacts"] if a["id"] == "silero")
+        path = self.downloads / Path(artifact["url"]).name
+        path.write_bytes(b"bad hash")
+        result = self.install(1)
+        self.assertIn("download=hash-mismatch", result.stderr)
+        self.not_ready()
+        self.assertFalse((self.state / "local-ready.json").exists())
+        self.assertFalse(list((self.data / "models").glob("*.partial")))
+        self.mutant("if judge.sha256(partial) != digest:", "if False and judge.sha256(partial) != digest:")
+        # The input verifier independently refuses corrupted model bytes.
+        result = self.install(1)
+        self.assertNotIn("download=hash-mismatch", result.stderr)
+        self.assertIn("input=hash-mismatch", result.stderr)
+
+    def test_child_failure_rules_and_controls(self):
+        for key, code in (("uv_exit", 6), ("curl_exit", 7), ("probe_exit", 1), ("probe_exit", 77)):
+            with self.subTest(key=key, code=code):
+                self.install()
+                self.ready()
+                self.config[key] = code
+                self.write_config()
+                self.install(code)
+                self.not_ready()
+                self.assertFalse((self.state / "local-ready.json").exists())
+                # Preserve the rule's text while changing its effect.
+                self.mutant("if result.returncode != 0:", "if False and result.returncode != 0:")
+                self.install()
+                self.ready()
+                (self.plugin / "setup-local").write_text((PLUGIN / "setup-local").read_text())
+                del self.config[key]
+                self.write_config()
+
+    def test_marker_invalidation_control(self):
+        self.install()
+        self.ready()
+        self.config["uv_exit"] = 77
+        self.write_config()
+        self.install(77)
+        self.assertFalse((self.state / "local-ready.json").exists())
+        self.config["uv_exit"] = 0
+        self.write_config()
+        self.install()
+        self.mutant("marker.unlink(missing_ok=True)", "False and marker.unlink(missing_ok=True)")
+        self.config["uv_exit"] = 77
+        self.write_config()
+        self.install(77)
+        self.assertTrue((self.state / "local-ready.json").exists(), "invalidation control did not reach the marker")
+
+    def test_identity_and_controls(self):
+        cases = [
+            ("requirements-local.lock", "lock"),
+            ("measure-local", "probe"),
+            ("venv/installed", "runtime"),
+        ]
+        for filename, name in cases:
+            with self.subTest(name=name):
+                self.install()
+                path = self.data / filename if filename.startswith("venv/") else self.plugin / filename
+                original = path.read_bytes()
+                path.write_bytes(original + b"\n# changed\n")
+                self.not_ready()
+                self.mutant("if saved != identity(judge, tier, data):", "if False and saved != identity(judge, tier, data):")
+                self.ready()
+                path.write_bytes(original)
+                (self.plugin / "setup-local").write_text((PLUGIN / "setup-local").read_text())
+
+    def test_changed_during_probe_control(self):
+        self.config["change_runtime"] = True
+        self.write_config()
+        result = self.install(1)
+        self.assertIn("runtime=changed-during-probe", result.stderr)
+        self.not_ready()
+        self.mutant("if ready != identity(judge, tier, data):", "if False and ready != identity(judge, tier, data):")
+        self.install()
+        # The saved pre-probe identity still makes status refuse.
+        self.assertTrue((self.state / "local-ready.json").exists())
+        self.not_ready()
+
+    def test_serialization_and_control(self):
+        self.install()
+        self.ready()
+        marker = (self.state / "local-ready.json").read_bytes()
+        with (self.state / "local-setup.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            result = self.install(1)
+            self.assertIn("setup=busy", result.stderr)
+            self.assertEqual(self.report(), {"tone": "info", "text": "Setting up", "action": False})
+            self.assertEqual((self.state / "local-ready.json").read_bytes(), marker)
+            self.mutant("fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)",
+                        "False and fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)")
+            self.install()
+
+    def test_archive_path_control(self):
+        archive = self.root / "unsafe.tar"
+        with tarfile.open(archive, "w") as bundle:
+            item = tarfile.TarInfo("../escaped")
+            item.size = 1
+            bundle.addfile(item, io.BytesIO(b"x"))
+        # The extractor itself, not a second implementation.
+        module = self.load_module()
+        with self.assertRaisesRegex(ValueError, "archive=unsafe-member"):
+            module.extract(archive, self.root / "models")
+        self.mutant('if path.is_absolute() or ".." in path.parts or not (member.isdir() or member.isfile()):',
+                    'if False and (path.is_absolute() or ".." in path.parts or not (member.isdir() or member.isfile())):')
+        module = self.load_module()
+        # Python's data filter remains a separate dependency guard.
+        with self.assertRaises(tarfile.OutsideDestinationError):
+            module.extract(archive, self.root / "models")
+
+    def test_status_lock_control(self):
+        self.install()
+        self.ready()
+        with (self.state / "local-setup.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            self.assertEqual(self.report(), {"tone": "info", "text": "Setting up", "action": False})
+        self.mutant("fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)",
+                    "False and fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)")
+        self.install()
+        with (self.state / "local-setup.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            self.ready()
+
+    def load_module(self):
+        loader = importlib.machinery.SourceFileLoader("setup_case", str(self.plugin / "setup-local"))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        return module
+
+    def test_probe_delegation_and_control(self):
+        module = self.load_module()
+        calls = []
+        class Judge:
+            def run(self, value, artifacts, models, provider, seconds, scope):
+                calls.append((artifacts, models, provider, seconds, scope))
+        module.probe(Judge(), self.spec, "large", self.data)
+        artifacts = [a for a in self.spec["artifacts"] if a["id"] in self.spec["tiers"]["large"]["artifacts"]]
+        self.assertEqual(calls, [(artifacts, self.data / "models", "cuda", None, "large")])
+        self.mutant('judge.run(value, artifacts, data / "models", provider, None, tier)',
+                    'False and judge.run(value, artifacts, data / "models", provider, None, tier)')
+        calls.clear()
+        self.load_module().probe(Judge(), self.spec, "large", self.data)
+        self.assertEqual(calls, [], "probe control must break delegation")
+
+    def test_installed_probe_keeps_selected_roots(self):
+        self.config["entry_probe"] = str(REPO / "scripts/fixtures/jarvis-setup/installed-probe.py")
+        self.write_config()
+        data_alias, state_alias = self.root / "data-alias", self.root / "state-alias"
+        (self.root / "state").mkdir(exist_ok=True)
+        data_alias.symlink_to(self.root / "data", target_is_directory=True)
+        state_alias.symlink_to(self.root / "state", target_is_directory=True)
+        # These sentinel values are never credentials or live endpoints.
+        self.env.update(API_KEY="must-not-forward", DBUS_SESSION_BUS_ADDRESS="must-not-forward",
+                        PULSE_SERVER="must-not-forward")
+        original = (PLUGIN / "setup-local").read_text()
+        layouts = [
+            ("root-alias", data_alias, state_alias),
+            ("inner-vgs", self.root / "data", self.root / "state"),
+        ]
+        for name, data_root, state_root in layouts:
+            with self.subTest(layout=name):
+                if name == "inner-vgs":
+                    # Move the large plugin data without changing its XDG root.
+                    for kind in ("data", "state"):
+                        path = self.root / kind / "vgs"
+                        target = self.root / ("stored-" + kind)
+                        path.rename(target)
+                        path.symlink_to(target, target_is_directory=True)
+                (self.plugin / "setup-local").write_text(original)
+                self.env.update(XDG_DATA_HOME=str(data_root), XDG_STATE_HOME=str(state_root))
+                expected = {"models": str(self.data / "models"), "data": str(self.data),
+                            "state": str(self.state), "provider": "cpu",
+                            "artifacts": self.spec["tiers"]["small"]["artifacts"]}
+                (self.data / "probe-expected.json").write_text(json.dumps(expected))
+                self.install()
+                self.ready()
+                observed = json.loads((self.data / "probe-observed.json").read_text())
+                self.assertEqual(observed, {key: expected[key] for key in ("models", "data", "state")})
+                self.mutant("return env", 'env.pop("XDG_DATA_HOME", None)\n    return env')
+                result = self.install(77)
+                self.assertEqual(result.stderr.splitlines()[0].split("=", 2)[:2],
+                                 ["jarvis-setup: failed", "probe log"])
+                self.assertIn(str(self.home / ".local/share/vgs/jarvis/local/models"),
+                              (self.state / "local-setup.log").read_text())
+                self.assertFalse((self.state / "local-ready.json").exists())
+                self.assertEqual(self.report(), {"tone": "warning", "text": "Not set up", "action": True})
+                if name == "inner-vgs":
+                    (self.plugin / "setup-local").write_text(original)
+                    self.mutant("return env",
+                        'env["XDG_DATA_HOME"] = str(data.resolve().parents[2])\n    return env')
+                    self.install(77)
+                    self.assertFalse((self.state / "local-ready.json").exists())
+                    self.assertEqual(self.report(), {"tone": "warning", "text": "Not set up", "action": True})
+
+    def test_lock_install_flags_control(self):
+        self.install()
+        self.ready()
+        self.mutant('"--require-hashes", "--only-binary", ":all:", str(requirements)',
+                    '"--only-binary", ":all:", str(requirements)')
+        self.install(1)
+        self.not_ready()
+
+    def test_cancel_and_retry(self):
+        self.install()
+        self.config["hold_probe"] = True
+        self.write_config()
+        with subprocess.Popen([sys.executable, "-I", str(self.plugin / "setup-local"), "install", "small"],
+                              env=self.env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) as child:
+            # Wait for the private interpreter double to reach inference.
+            deadline = time.monotonic() + 10
+            while not (self.data / "probe-held").exists():
+                self.assertIsNone(child.poll())
+                self.assertLess(time.monotonic(), deadline)
+                time.sleep(0.01)
+            child.send_signal(signal.SIGTERM)
+            self.assertEqual(child.wait(timeout=10), 143)
+        self.assertFalse((self.state / "local-ready.json").exists())
+        self.assertFalse((self.data / "venv").exists())
+        self.not_ready()
+        # Release the double, not a host interpreter or process by name.
+        (self.data / "probe-release").write_text("release")
+        self.config["hold_probe"] = False
+        self.write_config()
+        self.install()
+        self.ready()
+        # No extra control is needed for Python's process termination.
+        # The marker-invalidation and child-exit controls prove the owned
+        # readiness mechanism; the OS signal is not a new production guard.
+
+    def test_tui_and_control(self):
+        # Neutral core presentation double: gum's label delimiter picks the
+        # first, recommended row. The actual TUI still reads the installer's
+        # choices and executes the real installer.
+        library = self.root / "tui-lib.sh"
+        library.write_text('vgs_tui_header() { :; }\nvgs_tui_choose() {\n'
+                           '  [[ $# == 1 && $1 == --label-delimiter=$\'\\t\' ]] || return 9\n'
+                           '  local row; IFS= read -r row; printf "%s\\n" "${row#*$\'\\t\'}"\n}\n')
+        env = dict(self.env, VGS_TUI_LIB=str(library), VGS_PLUGIN_DIR=str(self.plugin))
+        script = self.plugin / "tui/setup-local.sh"
+        run = lambda *args: subprocess.run(["bash", str(script), *args],
+            env=env, capture_output=True, text=True, check=False, timeout=30)
+        # With no NVIDIA GPU, the recommended tier ends ready.
+        self.config["gpu_exit"] = 9
+        self.write_config()
+        result = run()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.ready()
+        self.assertEqual(run("unexpected").returncode, 2)
+        (self.commands / "uv").unlink()
+        self.assertEqual(run().returncode, 77)
+        source = script.read_text()
+        needle = 'exec python3 -I "$VGS_PLUGIN_DIR/setup-local" install "$tier"'
+        self.assertEqual(source.count(needle), 1)
+        changed = source.replace(needle, ': python3 -I "$VGS_PLUGIN_DIR/setup-local" install "$tier"')
+        self.assertNotEqual(changed, source)
+        script.write_text(changed)
+        shutil.copyfile(DOUBLE, self.commands / "uv")
+        (self.commands / "uv").chmod(0o700)
+        (self.state / "local-ready.json").unlink()
+        self.assertEqual(run().returncode, 0)
+        self.not_ready()
+
+    def test_choices_follow_the_gpu_and_control(self):
+        tiers = self.spec["tiers"]
+        # Discovery floors: the producer declares both providers.
+        cpu = [tier for tier, row in tiers.items() if row["provider"] == "cpu"]
+        self.assertIn("small", cpu, "tier discovery is broken: no small CPU tier")
+        self.assertIn("large", [tier for tier, row in tiers.items() if row["provider"] == "cuda"])
+        tiers["small"]["downloadBytes"] = 796490765
+        tiers["medium"]["downloadBytes"] = 1455131612
+        (self.plugin / "artifacts.json").write_text(json.dumps(self.spec))
+        for gpu_exit, expected in ((9, cpu), (0, list(tiers))):
+            with self.subTest(gpu_exit=gpu_exit):
+                self.config["gpu_exit"] = gpu_exit
+                self.write_config()
+                rows = self.offered()
+                self.assertEqual([key for _, key in rows], expected)
+                self.assertTrue(rows[0][0].endswith(" (recommended)"), rows[0])
+                self.assertEqual(sum("(recommended)" in label for label, _ in rows), 1)
+                for label, key in rows:
+                    self.assertTrue(label.startswith(tiers[key]["description"] + " "), label)
+                    self.assertRegex(label, r" [0-9]+(\.[0-9])? (MB|GB)( \(recommended\))?$")
+                self.assertIn(" 796 MB (recommended)", rows[0][0])
+                self.assertTrue(rows[1][0].endswith(" 1.5 GB"), rows[1])
+        self.assertIn(["nvidia-smi", "-L"], self.calls())
+        self.config["gpu_exit"] = 9
+        self.write_config()
+        self.mutant("return result.returncode == 0", "return True or result.returncode == 0")
+        self.assertIn("large", [key for _, key in self.offered()])
+
+    def test_gpu_refusal_keeps_ready_and_control(self):
+        self.install()
+        self.ready()
+        marker = (self.state / "local-ready.json").read_bytes()
+        (self.data / "calls.jsonl").unlink()
+        self.config.update(tier="large", gpu_exit=9)
+        self.write_config()
+        result = self.install(1)
+        self.assertEqual(result.stderr.splitlines()[0], "jarvis-setup: failed=gpu=unavailable tier=large")
+        self.assertEqual([call[0] for call in self.calls()], ["nvidia-smi"])
+        self.assertEqual((self.state / "local-ready.json").read_bytes(), marker)
+        self.assertEqual(self.report(), {"tone": "ok", "text": "Ready: small", "action": False})
+        self.mutant("if not runnable(provider, data):", "if False and not runnable(provider, data):")
+        self.install()
+        self.ready()
+
+    def test_disk_refusal_and_control(self):
+        self.install()
+        (self.data / "calls.jsonl").unlink()
+        self.spec["tiers"]["small"]["downloadBytes"] = 10**18
+        (self.plugin / "artifacts.json").write_text(json.dumps(self.spec))
+        result = self.install(1)
+        self.assertRegex(result.stderr.splitlines()[0], r"^jarvis-setup: failed=disk=insufficient "
+                         r"need=[0-9]+ free=[0-9]+ path=" + re.escape(str(self.data)) + "$")
+        self.assertEqual(self.calls(), [])
+        self.assertTrue((self.state / "local-ready.json").exists())
+        self.mutant("if free < need:", "if False and free < need:")
+        self.install()
+        self.ready()
+
+    def test_probe_failure_reports_plainly_and_controls(self):
+        engine = 'Traceback (most recent call last):\n  File "probe"\nRuntimeError: fixture provider\n'
+        self.config.update(probe_exit=1, probe_stderr=engine)
+        self.write_config()
+        log = self.state / "local-setup.log"
+        original = (self.plugin / "setup-local").read_text()
+        result = self.install(1)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertIn(engine, log.read_text())
+        lines = result.stderr.splitlines()
+        self.assertEqual(lines[0], f"jarvis-setup: failed=probe log={log}")
+        for name in ("venv", "models", "requirements-cuda.lock"):
+            self.assertFalse((self.data / name).exists(), name)
+        # What remains is reported: every regular file below the data root.
+        kept = sum(path.lstat().st_size for path in self.data.rglob("*")
+                   if path.is_file() and not path.is_symlink())
+        self.assertGreater(kept, 0)
+        self.assertEqual([line for line in lines if line.startswith("jarvis-setup: kept=")],
+                         [f"jarvis-setup: kept={self.data} bytes={kept}"])
+        # Only a CUDA tier is told to fall back to a tier that runs on any computer.
+        fallback = "choose a tier that runs on any computer"
+        self.assertNotIn(fallback, result.stderr)
+        self.config["tier"] = "large"
+        self.write_config()
+        result = self.install(1)
+        self.assertEqual(result.stderr.splitlines()[0], f"jarvis-setup: failed=probe log={log}")
+        self.assertIn(fallback, result.stderr)
+        self.config["tier"] = "small"
+        self.write_config()
+        self.mutant('if provider == "cuda" else ""', 'if True or provider == "cuda" else ""')
+        self.assertIn(fallback, self.install(1).stderr)
+        (self.plugin / "setup-local").write_text(original)
+        self.mutant('"probe", tier], data, offline=True, stderr=output)', '"probe", tier], data, offline=True)')
+        self.assertIn("Traceback", self.install(1).stderr)
+        (self.plugin / "setup-local").write_text(original)
+        self.mutant("except BaseException:\n            remove_runtime(data)",
+                    "except BaseException:\n            False and remove_runtime(data)")
+        self.install(1)
+        self.assertTrue((self.data / "venv").exists(), "cleanup control did not reach the runtime")
+
+    def test_missing_gum_with_real_tui_library(self):
+        script = self.plugin / "tui/setup-local.sh"
+        env = dict(self.env, VGS_TUI_LIB=str(REPO / "bin/lib/tui.sh"),
+                   VGS_PLUGIN_DIR=str(self.plugin))
+        (self.commands / "gum").unlink()
+        run = lambda: subprocess.run(["bash", str(script)], env=env,
+            capture_output=True, text=True, check=False, timeout=30)
+        result = run()
+        self.assertEqual(result.returncode, 77, result.stderr)
+        self.assertEqual(result.stderr.strip(), "jarvis-setup: command=missing name=gum")
+        self.assertEqual(result.stdout, "")
+        self.assertFalse((self.data / "calls.jsonl").exists())
+        source = script.read_text()
+        header = next(line for line in source.splitlines() if line.startswith("vgs_tui_header "))
+        self.assertEqual(source.count(header), 1)
+        self.assertEqual(source.count("for tool in gum"), 1)
+        changed = source.replace(header + "\n", "").replace("for tool in gum", header + "\nfor tool in gum")
+        self.assertNotEqual(changed, source)
+        self.assertFalse(script.is_symlink())
+        script.write_text(changed)
+        result = run()
+        self.assertEqual(result.returncode, 127, result.stderr)
+        self.assertNotIn("jarvis-setup: command=missing name=gum", result.stderr)
+
+    def test_install_tree_namespace_result_controls(self):
+        # Copy the real installation assertions, namespace consumer and closing
+        # verdict into a private script. Omit unrelated package/control rows.
+        # Both effectful producers are explicit local doubles inside J09.
+        tree = self.root / "install-source"
+        (tree / "scripts/lib").mkdir(parents=True)
+        (tree / "packaging").mkdir()
+        helper = tree / "scripts/lib/jarvis-env.sh"
+        helper.write_text('#!/usr/bin/env bash\nprintf "jarvis-env: status=not-measured reason=namespaces-unavailable\\n" >&2\nexit 77\n')
+        helper.chmod(0o700)
+        installer = tree / "packaging/install-system.sh"
+        source = (REPO / "scripts/test-install-tree.sh").read_text()
+
+        def section(text, start, end=None):
+            self.assertEqual(text.count(start), 1, start)
+            result = text.split(start, 1)[1]
+            if end is not None:
+                self.assertEqual(result.count(end), 1, end)
+                result = result.split(end, 1)[0]
+            return start + result
+
+        functions = section(source, "ok() {", "voice_command=")
+        install = section(source, 'run_capture "$tmp/install.out"', 'run_capture "$tmp/check.out"')
+        readiness = section(source, 'setup_standins="$tmp/setup-standins"', 'private_node=')
+        ending = section(source, 'if [[ $failures -gt 0 ]]; then')
+        program = self.root / "install-check.sh"
+        env = dict(self.env, FIXTURE_TREE=str(tree), FIXTURE_SCRATCH=str(self.root))
+
+        def run(changed=None, broken_install=False, generator_missing=False):
+            installer.write_text('#!/usr/bin/env bash\n' + ('exit 1\n' if broken_install else
+                'printf "install-system: ok prefix=/usr root=%s/usr\\n" "$DESTDIR"\n'))
+            installer.chmod(0o700)
+            program.write_text('set -euo pipefail\nrepo="$FIXTURE_TREE"\ntmp="$FIXTURE_SCRATCH"\n'
+                               'dest="$tmp/install"\nfailures=0\nunavailable=false\n' +
+                               'generator_missing=%s\n' % ("true" if generator_missing else "false") +
+                               functions + install + (readiness if changed is None else changed[0]) +
+                               (ending if changed is None else changed[1]))
+            return subprocess.run(["bash", str(program)], env=env, capture_output=True,
+                                  text=True, check=False, timeout=30)
+
+        result = run()
+        self.assertEqual(result.returncode, 77, result.stdout + result.stderr)
+        self.assertIn("test-install-tree: status=not-measured reason=jarvis-isolation", result.stdout)
+        self.assertNotIn("test-install-tree: ok", result.stdout)
+        self.assertNotIn("  FAIL", result.stdout)
+        needle = "if [[ $unavailable == true ]]; then"
+        self.assertEqual(ending.count(needle), 1)
+        changed = ending.replace(needle, "if false && [[ $unavailable == true ]]; then")
+        self.assertNotEqual(changed, ending)
+        result = run((readiness, changed))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("test-install-tree: ok", result.stdout)
+        needle = "if [[ $status == 77 ]]; then"
+        self.assertEqual(readiness.count(needle), 1)
+        changed = readiness.replace(needle, "if false && [[ $status == 77 ]]; then")
+        self.assertNotEqual(changed, readiness)
+        result = run((changed, ending))
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("installed local readiness reads without source-tree files", result.stdout)
+        # The suite's real installation assertion, not a planted counter.
+        result = run(broken_install=True)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("  FAIL  the installer succeeds into a staged /usr prefix", result.stdout)
+        self.assertNotIn("test-install-tree: status=not-measured reason=jarvis-isolation", result.stdout)
+        needle = "if [[ $failures -gt 0 ]]; then"
+        self.assertEqual(ending.count(needle), 1)
+        changed = ending.replace(needle, "if false && [[ $failures -gt 0 ]]; then")
+        self.assertNotEqual(changed, ending)
+        result = run((readiness, changed), broken_install=True)
+        self.assertEqual(result.returncode, 77, result.stdout + result.stderr)
+        self.assertIn("  FAIL  the installer succeeds into a staged /usr prefix", result.stdout)
+        # A host without the autostart generator, the namespace readiness
+        # left out so unavailable stays false: the autostart branch alone
+        # turns the verdict into 77.
+        result = run(("", ending), generator_missing=True)
+        self.assertEqual(result.returncode, 77, result.stdout + result.stderr)
+        self.assertIn("test-install-tree: status=not-measured reason=autostart-generator-missing", result.stdout)
+        self.assertNotIn("test-install-tree: ok", result.stdout)
+        needle = "  [[ $unavailable == true ]] || exit 77\n"
+        self.assertEqual(ending.count(needle), 1)
+        changed = ending.replace(needle, "")
+        self.assertNotEqual(changed, ending)
+        result = run(("", changed), generator_missing=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("test-install-tree: ok", result.stdout)
+
+    def test_shipped_lock_runtime_pins(self):
+        lines = (PLUGIN / "requirements-local.lock").read_text().splitlines()
+        lines += (PLUGIN / "requirements-local-cpu.lock").read_text().splitlines()
+        pins = {}
+        for line in lines:
+            if not line or line.startswith(("#", "-r ")):
+                continue
+            match = re.fullmatch(r"([a-z0-9-]+)==([0-9.]+) --hash=sha256:([a-f0-9]{64})", line)
+            self.assertIsNotNone(match, line)
+            self.assertNotIn(match[1], pins)
+            pins[match[1]] = match[2]
+        for name, runtime in self.spec["runtimes"].items():
+            self.assertIn(pins[name], runtime["versions"])
+        self.assertIn("sherpa-onnx-core", pins)
+        # This data test has no production behavior to mutate. The install
+        # fixture separately refuses removing require-hashes from its argv.
+
+
+if __name__ == "__main__":
+    namespace_entry()
+    unittest.main()

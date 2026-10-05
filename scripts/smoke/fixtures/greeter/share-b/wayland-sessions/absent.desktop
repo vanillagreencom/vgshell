@@ -1,0 +1,4 @@
+[Desktop Entry]
+Name=Absent
+Exec=vgs-smoke-no-such-command
+TryExec=vgs-smoke-no-such-command

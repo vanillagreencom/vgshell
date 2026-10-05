@@ -1,0 +1,2165 @@
+#!/usr/bin/env bash
+# Capture the shell's surfaces in the nested Hyprland sandbox with grim.
+#
+# Usage: scripts/sandbox-shots.sh [--out DIR] [--rev REV] [--modes LIST]
+#                                 [--size WxH] [--scale N]
+#                                 [--theme-card NAME] [--hidden]
+#                                 [--timeout SECONDS] [--keep] [SCENE...]
+#
+# The sandbox is the smoke's own (scripts/smoke/harness.sh): its own HOME,
+# runtime dir, buses and nested compositor, with the shell started inside
+# it. grim is pointed at the nested compositor's socket alone
+# (scripts/smoke/shot.sh refuses the host socket), so nothing is captured
+# or started on the live desktop. It needs the smoke's prerequisites,
+# WAYLAND_DISPLAY and XDG_RUNTIME_DIR included, plus grim.
+#
+
+# SCENE is gallery, settings, focus, plugin-pages, manager, launcher,
+# notifications, bar, panels, devtools, system, network, bluetooth, dialog, lock, polkit,
+# greeter, narrow, theme-browser, wallpaper-browser, automations, capture,
+# keyhints or clipboard. settings takes the
+# automations' and the Jarvis pages among the plugin pages, each when the
+# tree ships its plugin. plugin-pages, taken only when named, opens every
+# plugin the Settings window lists, in that window's order, and captures
+# every screen of an overflowing page. bar is the bar with every
+# first-party widget and each widget's tooltip or
+# hover; panels is the Agent Warden panel, the updates flyout and the
+# themes panel, each opened from its widget over planted status or
+# packages, the themes panel's apply held and answered by a stand-in
+# runner that changes no theme; devtools is the Dev Tools window; system
+# is the System window as it opens with no System section enabled, then
+# System → Displays over the device fakes when the tree ships it, and
+# its Sound section over the sandbox's private PipeWire; bluetooth is
+# its Bluetooth section over the device fakes; keyhints is the
+# Key Hints window over the Launcher's, Settings' and Themes' shortcuts and
+# its own; clipboard is the clipboard history over copies made on the
+# nested instance's own clipboard, taken only when named; focus is
+# the keyboard focus proof set; dialog is the core's requirement notice;
+# lock is the vgs.lock screen, locked and after wrong attempts; polkit is
+# the vgs.polkit prompt, asking and after a failed attempt; greeter is the
+# login screen, the core's greeter host over vgs.greeter's view; narrow holds a
+# monitor 480 by 720 logical pixels and takes the bar, panels, devtools,
+# dialog, lock, launcher, notifications and the first gallery pages again, each
+# shot named <scene>-<mode>-narrow-*; theme-browser and wallpaper-browser
+# are the vgs.themes browsers, taken only when named: the theme view
+# loaded, with the pointer on a card, with a filter no card matches, with
+# a refused card's failure line, on the chosen catalog card, on it
+# installed and with its wallpaper offer; the wallpaper view on its Theme
+# source, with the pointer on a card, on its download card and on All.
+# Each leaves vgs and the mode's theme applied. The default is every
+# other scene the tree ships, or gallery and the manager's scene with
+# --rev; the manager's scene is `settings` for a tree that ships
+# vgs.settings and `manager`, the bar's manager panel, for one that ships
+# the bar's manager built-in. A scene the tree does not ship is refused as
+# `sandbox-shots: refused: scene=<scene> tree=<rev or checkout>`. --modes is a comma list of dark,
+# light and rounded, dark by default with --rev and dark and light
+# otherwise: dark is the defaults (theme `vgs`), light is this checkout's
+# catalog package themes/catalog/flexoki-light, and rounded is the
+# defaults with `radius.sm`, `radius.md` and `radius.lg` at 6, 12 and 16,
+# so every theme-rounded component shows whether its content clears its
+# corners.
+# --rev REV runs that revision's shell, bin, config and themes (git archive),
+# with the runtime helpers a revision before bin/lib kept under scripts/,
+# under this checkout's harness and probe, for a before shot; the plugin
+# fixtures a scene installs are that revision's, which its judge accepts.
+# A scene reaches what that tree ships: the gear's and the launcher and
+# themes entries' item types, a search cleared by keys where no Clear
+# search exists, and Install where a Dev Tools row has no Details.
+# --scale is 1, the default, or 2: at 2 the harness holds the nested
+# output at double its mode and scale 2 before the shell starts
+# (shell_output_scale in scripts/smoke/harness.sh), so the layout keeps its
+# logical size and the shell draws each PNG in device pixels. A configure
+# the host sends the nested window, such as a resize or a refocus, resets
+# a held mode (held_mode_state in scripts/smoke/mode-hold.sh), so before
+# each shot and each hover under a held mode, this one or --size's, the
+# run takes the mode again and puts the pointer back where the scene left
+# it (settle_hold), and a shot after whose capture the output no longer
+# reads the mode is taken once more (shot_held in scripts/smoke/shot.sh);
+# a mode that cannot be taken again, or a second reset in that capture,
+# fails the shot. Another value is refused as
+# `sandbox-shots: refused: scale=<value>`.
+# --size WxH holds the nested output at W by H logical pixels, at the run's
+# scale, for every scene, so a shot's width does not depend on the host's
+# window; another shape is refused as `sandbox-shots: refused: size=<value>`.
+# --theme-card NAME is the catalog theme the theme-browser scene selects,
+# frankenstein by default. A name other than lowercase letters, digits and
+# hyphens is refused as `sandbox-shots: refused: theme-card=<value>`, and
+# with the theme-browser scene a name the tree's catalog lacks as
+# `sandbox-shots: refused: theme-card=<value> tree=<rev or checkout>`.
+# The lock scene enables vgs.lock with its sleep hook and idle watch off,
+# locks the nested session, and shoots the lock screen, then after one and
+# after ten wrong attempts. No password is typed and no PAM runs: the
+# probe calls the service's `fail()`, the step PAM's refusal takes, and
+# releases the lock with `sessionUnlock`, test code that never ships
+# (docs/architecture/lock-polkit.md § Validation). It disables the probe
+# fixture, which holds `lock`, while it runs, when the settings scene
+# enabled it.
+# The greeter scene starts a second qs on shell/greeter.qml, as
+# rows/greeter.sh does, over the smoke's fixture session directories, the
+# mode's theme file and a stand-in getent that lists one fixture account,
+# so no host account shows; no greetd socket exists, so nothing reaches
+# PAM. It shoots once the view has chosen its session, then stops the host.
+# The polkit scene builds the plugin's own Prompt.qml over a stand-in
+# authentication flow the probe owns, in a stand-in of the summon host's
+# overlay surface (polkitStandInOpen in scripts/smoke/Probe.qml), with
+# vgs.polkit disabled, so no agent and no request exist. Nothing is typed,
+# the stand-in's submit only counts, and the scene reads that no request
+# went live and no authentication helper ran. The Settings scene enables
+# vgs.automations over the harness's automations_stand_ins for its page's
+# shot, so no call reaches the host's systemd user manager, and leaves its
+# enablement as it found it: a tree with the setup steps of D061 enables
+# the plugin for their Automations shot, which comes later in the same
+# mode. It enables vgs.jarvis for its page's shot, once the daemon
+# answers, over the J09 world the harness prepares for every sandbox
+# (scripts/smoke/harness.sh), so the child reaches no audio, account,
+# network or desktop, and disables it again.
+# --hidden refuses every shot not taken with the nested window hidden on
+# the host (SHOT_WINDOW_REQUIRE in scripts/smoke/shot.sh), so a run that
+# exits 0 proves each shot's frame arrived while the window was hidden.
+#
+# PNGs go to DIR, which must lie under this checkout's tmp/; the default is
+# tmp/sandbox-shots/<UTC time>[-REV][-x2]. shots.tsv beside them lists each shot
+# with the sha256 of its file, how it was proved current and whether the
+# host showed the nested window while it was taken (shot.sh). Each shot is
+# of the nested compositor's first output alone, which the harness sized
+# (grim -o), so an output a scene adds never enters a capture. The last
+# line counts the shots taken with the window hidden as hidden=N; the host
+# window's state is the one read this runner makes of the host compositor
+# (scripts/smoke/host-window.sh).
+#
+# Exit 0 when every shot was taken. Exit 77 when a prerequisite is missing
+# or when every failure was a grim that got no frame from the nested
+# compositor (nested-window=not-drawn: the host sends a hidden window no
+# frame callbacks unless a host window rule gives class aquamarine
+# render_unfocused, docs/architecture/validation-smoke-faults.md). Exit 1
+# when any other step or shot failed.
+set -euo pipefail
+
+argv=("$@")
+timeout_s=60
+keep=false
+out=""
+rev=""
+modes=""
+scale=1
+shot_size=""
+theme_card="frankenstein"
+require_window=""
+scenes=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --out) out="$2"; shift 2 ;;
+    --rev) rev="$2"; shift 2 ;;
+    --modes) modes="$2"; shift 2 ;;
+    --size) shot_size="$2"; shift 2 ;;
+    --scale) scale="$2"; shift 2 ;;
+    --theme-card) theme_card="$2"; shift 2 ;;
+    --hidden) require_window=hidden; shift ;;
+    --timeout) timeout_s="$2"; shift 2 ;;
+    --keep) keep=true; shift ;;
+    -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
+
+    gallery|settings|focus|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|devtools|system|network|bluetooth|dialog|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations) scenes+=("$1"); shift ;;
+    *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
+  esac
+done
+[[ -n $modes ]] || { if [[ -n $rev ]]; then modes=dark; else modes=dark,light; fi; }
+IFS=, read -r -a mode_list <<<"$modes"
+for mode in "${mode_list[@]}"; do
+  [[ $mode == dark || $mode == light || $mode == rounded ]] || { printf 'sandbox-shots: refused: mode=%s\n' "$mode" >&2; exit 2; }
+done
+[[ $scale == 1 || $scale == 2 ]] || { printf 'sandbox-shots: refused: scale=%s\n' "$scale" >&2; exit 2; }
+[[ -z $shot_size || $shot_size =~ ^[1-9][0-9]*x[1-9][0-9]*$ ]] || { printf 'sandbox-shots: refused: size=%s\n' "$shot_size" >&2; exit 2; }
+[[ $theme_card =~ ^[a-z0-9][a-z0-9-]*$ ]] || { printf 'sandbox-shots: refused: theme-card=%s\n' "$theme_card" >&2; exit 2; }
+
+self="$(readlink -f -- "${BASH_SOURCE[0]}")"
+repo="$(cd -- "$(dirname -- "$self")/.." && pwd)"
+checkout="$repo"
+# No process this run starts may open an amdgpu node, so the run goes on
+# only where none is visible: scripts/smoke/gpu-fence.sh.
+"$checkout/scripts/smoke/gpu-fence.sh" --check || exec "$checkout/scripts/smoke/gpu-fence.sh" "$self" "${argv[@]}"
+if ! command -v grim >/dev/null 2>&1; then
+  printf 'sandbox-shots: status=not-measured missing=grim\n'
+  exit 77
+fi
+source "$checkout/scripts/smoke/shot.sh"
+source "$checkout/scripts/smoke/tree.sh"
+[[ -n $out ]] || out="$checkout/tmp/sandbox-shots/$(date -u +%Y%m%dT%H%M%SZ)${rev:+-$rev}$([[ $scale == 1 ]] || echo "-x$scale")"
+SHOT_DIR="$(shot_dir_under "$checkout" "$out")" || exit 2
+if [[ -e $SHOT_DIR/shots.tsv ]]; then printf 'sandbox-shots: refused: out-dir-used=%s\n' "$SHOT_DIR" >&2; exit 2; fi
+
+source_tree=""
+# The harness's own cleanup removes the export on every exit once it has
+# armed; this trap covers the prerequisite checks it makes before that.
+trap '[[ -z $source_tree ]] || rm -rf -- "$source_tree"' EXIT
+if [[ -n $rev ]]; then
+  git -C "$checkout" rev-parse --verify --quiet "$rev^{commit}" >/dev/null || { printf 'sandbox-shots: refused: rev=%s\n' "$rev" >&2; exit 2; }
+  mkdir -p -- "${TMPDIR:-$checkout/tmp}"
+  source_tree="$(mktemp -d "${TMPDIR:-$checkout/tmp}/vgsh-shots-tree.XXXXXX")"
+  if ! tree_export "$checkout" "$rev" "$source_tree"; then
+    rm -rf -- "$source_tree"
+    printf 'sandbox-shots: refused: rev-export=%s\n' "$rev" >&2
+    exit 2
+  fi
+fi
+
+# Which plugin manager the tree ships picks the manager's scene.
+tree="${source_tree:-$checkout}"
+# What the tree draws decides how a scene reaches it, so a --rev tree from
+# before a control existed is still captured: the bar's gear and the
+# launcher's bar entry are BarItems or older items, the Settings list may
+# have no Clear search, and a Dev Tools row may have no Details.
+tree_has() { grep -qF -- "$2" "$tree/$1" 2>/dev/null; }
+gear_type=IconButton
+[[ -f $tree/shell/Ui/controls/BarItem.qml ]] && gear_type=BarItem
+launcher_entry_item=false
+tree_has shell/plugins/vgs.launcher/Widget.qml "BarItem {" && launcher_entry_item=true
+has_clear_search=false
+tree_has shell/plugins/vgs.settings/ListPage.qml '"Clear search"' && has_clear_search=true
+devtools_hover=Install
+themes_entry_type=IconButton
+tree_has shell/plugins/vgs.themes/Widget.qml "BarItem {" && themes_entry_type=BarItem
+tree_has shell/plugins/vgs.devtools/ToolRow.qml '"Details"' && devtools_hover=Details
+card_hover_state=false
+tree_has shell/Ui/layout/AngledCard.qml "property bool hovered" && card_hover_state=true
+# A tree whose rescanPlugins names the scan revision is read once the scan
+# has landed (the harness's rescan); an older one answers a bare `ok`.
+tree_rescan() { # LABEL
+  if tree_has shell/shell.qml "function scanRevision("; then rescan "$1"; else expect "$1" ok ipc shell rescanPlugins; fi
+}
+manager_scene=""
+if [[ -f $tree/shell/plugins/vgs.settings/manifest.json ]]; then manager_scene=settings
+elif [[ -f $tree/shell/plugins/vgs.bar/Manager.qml ]]; then manager_scene=manager
+fi
+# scene_ships SCENE: whether the tree ships what SCENE draws. The dialog is
+# the core's notice, raised for the checkout's acme.needs fixture.
+ships_plugin() { local id; for id; do [[ -f $tree/shell/plugins/$id/manifest.json ]] || return 1; done; }
+scene_ships() {
+  case $1 in
+    settings|manager) [[ $1 == "$manager_scene" ]] ;;
+    plugin-pages) [[ $manager_scene == settings ]] ;;
+    gallery) ships_plugin vgs.gallery ;;
+    focus) ships_plugin vgs.gallery vgs.settings ;;
+    launcher|notifications) ships_plugin "vgs.$1" ;;
+    automations) ships_plugin vgs.automations ;;
+    bar) ships_plugin vgs.bar vgs.launcher vgs.agent-warden vgs.updates vgs.themes ;;
+    panels) ships_plugin vgs.agent-warden vgs.updates vgs.themes ;;
+    capture) ships_plugin vgs.capture ;;
+    keyhints) ships_plugin vgs.keyhints vgs.launcher vgs.settings vgs.themes ;;
+    clipboard) ships_plugin vgs.clipboard ;;
+    devtools) ships_plugin vgs.devtools ;;
+    system) ships_plugin vgs.system ;;
+    network) ships_plugin vgs.system vgs.network ;;
+    bluetooth) ships_plugin vgs.system vgs.bluetooth ;;
+    theme-browser|wallpaper-browser) ships_plugin vgs.themes ;;
+    dialog) [[ -f $tree/shell/Hosts/NoticeHost.qml ]] ;;
+    lock) ships_plugin vgs.lock ;;
+    polkit) ships_plugin vgs.polkit ;;
+    greeter) ships_plugin vgs.greeter && [[ -f $tree/shell/greeter.qml ]] ;;
+    narrow) scene_ships bar && scene_ships panels && scene_ships devtools && scene_ships dialog && scene_ships launcher && scene_ships notifications && scene_ships gallery ;;
+    *) printf 'sandbox-shots: refused: scene=%s reason=unknown\n' "$1" >&2; exit 2 ;;
+  esac
+}
+if [[ ${#scenes[@]} -eq 0 ]]; then
+  if [[ -n $rev ]]; then
+    scenes=(gallery)
+    [[ -z $manager_scene ]] || scenes+=("$manager_scene")
+  else
+    for scene in gallery settings focus launcher notifications bar panels devtools system network bluetooth dialog lock polkit greeter automations narrow; do
+      if scene_ships "$scene"; then scenes+=("$scene"); fi
+    done
+  fi
+fi
+for scene in "${scenes[@]}"; do
+  if ! scene_ships "$scene"; then
+    printf 'sandbox-shots: refused: scene=%s tree=%s\n' "$scene" "${rev:-checkout}" >&2
+    exit 2
+  fi
+  if [[ $scene == theme-browser && ! -f $tree/themes/catalog/$theme_card/theme.json ]]; then
+    printf 'sandbox-shots: refused: theme-card=%s tree=%s\n' "$theme_card" "${rev:-checkout}" >&2
+    exit 2
+  fi
+done
+
+# shellcheck disable=SC2034 # the harness sourced below reads it
+shell_output_scale="$scale"
+# The setup steps' shots draw each install button, which a Settings page
+# offers only while its command is absent; on a host that has vsys, mise or
+# the browser-policy writer they would draw none. The shell finds those
+# three absent (harness.sh's shell_hidden_commands); a scene that stands
+# its own stand-in for one, as panels does for vsys and devtools for mise,
+# still finds it, and the shot of that button is then skipped.
+if [[ " ${scenes[*]} " == *" settings "* && -f $tree/shell/Ui/feedback/CommandDisclosure.qml ]]; then
+  # shellcheck disable=SC2034 # the harness sourced below reads it
+  shell_hidden_commands=(vsys mise vgs-browser-policy)
+fi
+source "$checkout/scripts/smoke/harness.sh"
+# The harness copied the tree into the sandbox; the export is no longer
+# read, and every later read of the tree reads the sandbox's copy.
+[[ -z $source_tree ]] || rm -rf -- "$source_tree"
+tree="$repo"
+if grep -qF -- "Let VGS manage its Hyprland settings?" "$tree/shell/Core/HyprlandLayer.js" 2>/dev/null; then
+  hypr_consent_connect "the screenshot sandbox answers Hyprland consent"
+fi
+# The plugin fixtures a scene installs: this checkout's, or with --rev that
+# revision's, since its manifest judge is the one that reads them.
+fixtures="$checkout/scripts/smoke/fixtures/plugins"
+if [[ -n $rev ]]; then
+  fixtures="$sandbox/rev-fixtures/scripts/smoke/fixtures/plugins"
+  mkdir -p -- "$sandbox/rev-fixtures"
+  git -C "$checkout" archive "$rev" scripts/smoke/fixtures/plugins | tar -x -C "$sandbox/rev-fixtures" || fail "the fixtures of $rev could not be exported"
+fi
+
+# The kind a first-party window has in the tree the sandbox runs: `window`
+# since D044, or `panel` in a tree from before, which shipped it as a layer
+# panel; and the surface it is drawn in, as surface_box names one.
+summoned_kind() { # ID
+  python3 -c 'import json,sys; print("window" if "window" in json.load(open(sys.argv[1]))["kinds"] else "panel")' "$tree/shell/plugins/$1/manifest.json"
+}
+summoned_name() { # ID
+  python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["name"])' "$tree/shell/plugins/$1/manifest.json"
+}
+summoned_surface() { # KIND TITLE
+  if [[ $1 == window ]]; then echo "window:$2"; else echo vgs:panel; fi
+}
+surface_count() { # SURFACE
+  if [[ $1 == window:* ]]; then window_count "${1#window:}"; else layer_count "$1"; fi
+}
+gallery_kind="$(summoned_kind vgs.gallery)" || fail "the gallery's manifest is unreadable"
+gallery_name="$(summoned_name vgs.gallery)" || fail "the gallery's name is unreadable"
+gallery_surface="$(summoned_surface "$gallery_kind" "$gallery_name")"
+settings_kind=panel
+if [[ $manager_scene == settings ]]; then settings_kind="$(summoned_kind vgs.settings)" || fail "the Settings manifest is unreadable"; fi
+settings_surface="$(summoned_surface "$settings_kind" Settings)"
+has_agent_warden=false
+has_bar_plugin=false
+has_automations=false
+has_jarvis=false
+has_scratchpads=false
+has_setup_steps=false
+[[ -f $tree/shell/Ui/feedback/CommandDisclosure.qml ]] && has_setup_steps=true
+[[ -f $tree/shell/plugins/vgs.agent-warden/manifest.json ]] && has_agent_warden=true
+[[ -f $tree/shell/plugins/vgs.automations/manifest.json ]] && has_automations=true
+[[ -f $tree/shell/plugins/vgs.jarvis/manifest.json ]] && has_jarvis=true
+[[ -f $tree/shell/plugins/vgs.scratchpads/manifest.json ]] && has_scratchpads=true
+[[ -f $tree/shell/plugins/vgs.bar/manifest.json ]] && has_bar_plugin=true
+settings_count() { surface_count "$settings_surface"; }
+
+SHOT_RUNTIME_DIR="$rt_dir"
+if ! SHOT_SOCKET="$(shot_socket "$rt_dir" "$nested_socket" "$host_socket")"; then
+  fail "the nested socket is not safe to capture"
+  exit 1
+fi
+ok "grim captures only $SHOT_SOCKET"
+# Each shot records whether the host showed the nested window while it was
+# taken: the one read this runner makes of the host compositor.
+source "$checkout/scripts/smoke/host-window.sh"
+nested_window_state() { host_window_state "$compositor_pid"; }
+SHOT_WINDOW_READER=nested_window_state
+SHOT_WINDOW_REQUIRE="$require_window"
+# Hyprland's own notice that it was not started through start-hyprland
+# would sit over the top right of every shot.
+expect "the nested compositor's notices are dismissed" ok hypr dismissnotify
+main_name="$(first_name)" || { fail "the monitor is unreadable"; exit 1; }
+# Every shot is of this output alone, so an output a scene adds, such as a
+# headless one with no size, never enters a capture.
+SHOT_OUTPUT="$main_name"
+ok "grim captures only the output $SHOT_OUTPUT"
+# --size: the output holds WxH logical pixels at the run's scale for every
+# scene. At scale 2 the harness's own hold ends first and the run's mode
+# becomes the doubled size, which a scene that leaves the hold returns to.
+if [[ -n $shot_size ]]; then
+  size_mode="$shot_size"
+  [[ $scale == 1 ]] || size_mode="$((${shot_size%x*} * 2))x$((${shot_size#*x} * 2))"
+  [[ $scale == 1 ]] || release_mode "the run's scale-2 hold ends for the requested shot size" "$main_name" "$shell_output_mode" "$scale"
+  hold_mode "the nested output holds the requested shot size" "$main_name" "$size_mode" "$scale"
+  [[ $scale == 1 ]] || shell_output_mode="$size_mode"
+fi
+# The monitor's logical size, the layout coordinates the pointer helper
+# takes, and the space the bar reserves at its top.
+read -r mon_w mon_h bar_reserved < <(hypr -j monitors | python3 -c 'import json,sys; m=json.load(sys.stdin)[0]; print(round(m["width"] / m["scale"]), round(m["height"] / m["scale"]), m["reserved"][1])')
+run_w="$mon_w" run_h="$mon_h"
+
+undrawn=0
+# hold_left: what the output reads in place of the held mode.
+hold_left() {
+  echo "${mode_hold[0]} reads $(mode_scale_of "${mode_hold[0]}" || echo unreadable), not the held ${mode_hold[1]}; a host resize or refocus, or another writer, reset it"
+}
+# settle_hold: the output reads the run's held mode, if it holds one,
+# before a shot or a hover. A host configure of the nested window resets
+# the mode at any moment, and the reset stays until a rule takes the mode
+# again (held_mode_state in scripts/smoke/mode-hold.sh), so every shot and
+# hover after it would meet the reset output. A reset is taken again
+# through hold_restore, and the pointer goes back to pointer_at, where the
+# scene left it, since the reset moved it and the restore does not.
+# Returns 1, printing why, when the mode cannot be taken again or the
+# output cannot be read.
+settle_hold() {
+  local state restored x y
+  [[ ${#mode_hold[@]} -gt 0 ]] || return 0
+  state="$(held_mode_state)"
+  case $state in
+    held) return 0 ;;
+    reset) printf '  reset %s; the held mode is taken again\n' "$(hold_left)" ;;
+    *) printf '  reset %s reads %s\n' "${mode_hold[0]}" "$state"; return 1 ;;
+  esac
+  if ! restored="$(hold_restore)"; then
+    printf '        %s\n' "$restored"
+    return 1
+  fi
+  [[ -n $pointer_at ]] || return 0
+  read -r x y <<<"$pointer_at"
+  hover "$x" "$y" || { echo "        the pointer did not go back to $pointer_at"; return 1; }
+}
+# take NAME: one shot. While the run holds a mode, shot_held settles it
+# first and takes the shot once more when the output left it while shot
+# waited for a settled frame, so a PNG never shows a reset output under a
+# held mode's name.
+take() { # NAME
+  local status=0
+  if [[ ${#mode_hold[@]} -eq 0 ]]; then
+    shot "$1" || status=$?
+  else
+    shot_held "$1" held_mode_state settle_hold || status=$?
+  fi
+  case $status in
+    0) ;;
+    2) undrawn=$((undrawn + 1)); fail "grim got no frame from the nested compositor for $1" ;;
+    3) fail "shot $1 not taken: the held mode could not be taken again" ;;
+    4) fail "shot $1 not accepted: $(hold_left)" ;;
+    *) fail "shot $1 failed" ;;
+  esac
+}
+centre_of() { python3 -c 'import json,sys; t=sys.argv[1]; r=json.loads(t) if t.startswith("[") else None; print("%d %d" % (r[0] + r[2] / 2, r[1] + r[3] / 2) if r else "none")' "$1"; }
+# hover_on LABEL HOST ID TYPE TEXT [SURFACE]: the pointer on the centre of
+# that item, held until the item reports the pointer over it twice in a
+# row, so a hover shot shows the hover state; an item that has no hover
+# state of its own is hover_text's. A layer's item is found through
+# point_item in scripts/smoke/harness.sh; a window's item needs SURFACE,
+# the window's surface name, since its box is read in the window.
+# window_point SURFACE HOST ID TYPE TEXT: that window item's centre on the
+# output, as `X Y`.
+# arriving by two motions: the launcher follows the pointer only once it
+# has moved over the list (selectFromPointer in its Launcher.qml).
+window_point() {
+  local rect
+  rect="$(ipc smoke windowGeometry "$2" "$3" "$4" "$5")" && [[ $rect == \[* ]] || return 1
+  at_centre "$1" "$rect"
+}
+# The hover helpers and park_pointer settle the held mode first: an item's
+# position read on a reset output is not where it sits once the mode is
+# taken again for the shot.
+hover_on() {
+  local x y i held=0
+  settle_hold || { fail "$1: the held mode could not be taken again"; return 1; }
+  if [[ -z ${6:-} ]]; then
+    if ! point_item "$2" "$3" "$4" "$5" >/dev/null; then fail "$1: $4 \"$5\" under $2 $3 never reported the pointer"; return 1; fi
+    ok "$1"; return 0
+  fi
+  for i in $(seq 1 50); do
+    if read -r x y < <(window_point "$6" "$2" "$3" "$4" "$5"); then
+      hover "$((x + i % 2))" "$y" || { fail "$1: the hover failed"; return 1; }
+      if [[ $(ipc smoke itemHovered "$2" "$3" "$4" "$5") == true ]]; then held=$((held + 1)); else held=0; fi
+      if (( held >= 2 )); then ok "$1"; return 0; fi
+    fi
+    sleep 0.1
+  done
+  fail "$1: $4 \"$5\" in $6 never reported the pointer"
+  return 1
+}
+# hover_text LABEL HOST ID TYPE TEXT: the pointer on the centre of a text
+# that has no hover state; the caller proves the state the hover drives.
+hover_text() {
+  local label="$1" rect at="" x y
+  settle_hold || { fail "$label: the held mode could not be taken again"; return 1; }
+  for _ in $(seq 1 25); do
+    rect="$(ipc smoke itemGeometry "$2" "$3" "$4" "$5")" && at="$(centre_of "$rect")" && [[ $at != none ]] && break
+    at=""; sleep 0.2
+  done
+  if [[ -z $at ]]; then fail "$label: no $4 \"$5\" under $2 $3"; return 1; fi
+  read -r x y <<<"$at"
+  if ! hover "$((x - 6))" "$y" || ! hover "$x" "$y"; then fail "$label: the hover failed"; return 1; fi
+  ok "$label"
+}
+park_pointer() {
+  if settle_hold; then
+    hover "$((mon_w - 2))" "$((mon_h - 2))" || fail "parking the pointer failed"
+  else
+    fail "parking the pointer: the held mode could not be taken again"
+  fi
+}
+# narrow_begin: the nested output holds a mode 480 by 720 logical pixels at
+# the run's scale, and the pointer helpers take that size, until
+# narrow_end gives the run's mode back. At scale 2 the run's mode is the
+# one the harness held before the shell started, since the monitor may
+# read a reset one by now; at scale 1 it is the monitor's own mode.
+narrow_main_mode=""
+narrow_begin() {
+  if [[ $scale == 2 ]]; then
+    narrow_main_mode="$shell_output_mode"
+  else
+    narrow_main_mode="$(first_mode)" || fail "the monitor's mode is unreadable"
+  fi
+  [[ $scale == 1 ]] || release_mode "the run's scale-2 hold ends for the narrow monitor" "$main_name" "$narrow_main_mode" "$scale"
+  hold_mode "the monitor is made narrower than the window" "$main_name" "$((480 * scale))x$((720 * scale))" "$scale"
+  expect_poll "the monitor is 480 logical pixels wide" 480 first_width
+  mon_w=480 mon_h=720
+}
+narrow_end() {
+  release_mode "the run's mode is restored" "$main_name" "$narrow_main_mode" "$scale"
+  [[ $scale == 1 ]] || hold_mode "the monitor holds its scale-2 mode again" "$main_name" "$narrow_main_mode" "$scale"
+  expect_poll "the monitor has its width back" "$run_w" first_width
+  mon_w="$run_w" mon_h="$run_h"
+}
+
+theme_file="$home/.config/vgs/theme.json"
+set_mode() { # dark|light|rounded
+  local name
+  case $1 in
+    dark) printf '{ "schemaVersion": 1, "name": "vgs", "tokens": {} }\n' >"$theme_file.tmp"; name=vgs ;;
+    rounded) printf '{ "schemaVersion": 1, "name": "rounded", "tokens": { "radius": { "sm": 6, "md": 12, "lg": 16 } } }\n' >"$theme_file.tmp"; name=rounded ;;
+    light) cp -- "$checkout/themes/catalog/flexoki-light/theme.json" "$theme_file.tmp"; name=flexoki-light ;;
+  esac
+  mv -T -- "$theme_file.tmp" "$theme_file"
+  expect_poll "the $1 theme ($name) is published" "$name" ipc smoke themeName
+}
+
+# The gallery's field in error, scrolled to a third of the way down the
+# view and clicked, so the shot shows its focus ring in the error colour.
+gallery_error_focus() { # MODE
+  local box y x
+  ipc smoke scrollTo "$gallery_kind" vgs.gallery 0 >/dev/null || { fail "the gallery did not scroll to its top"; return; }
+  box="$(ipc smoke windowGeometry "$gallery_kind" vgs.gallery TextField taken)"
+  [[ $box == \[* ]] || { fail "the gallery's field in error has no box: $box"; return; }
+  y="$(python3 -c 'import json,sys; print(max(0, int(json.loads(sys.argv[1])[1]) - 200))' "$box")"
+  ipc smoke scrollTo "$gallery_kind" vgs.gallery "$y" >/dev/null || { fail "the gallery did not scroll to its field in error"; return; }
+  read -r x y < <(window_point "$gallery_surface" "$gallery_kind" vgs.gallery TextField taken) || { fail "the gallery's field in error has no box on the output"; return; }
+  if hover "$((x - 1))" "$y" && click "$x" "$y"; then
+    expect_poll "the field in error holds the keyboard" true ipc smoke activeFocusIn "$gallery_kind" vgs.gallery
+    take "gallery-$1-error-focus"
+  else
+    fail "the click on the gallery's field in error failed"
+  fi
+  park_pointer
+}
+
+# The gallery's menu opened from its button, the pointer on its first
+# entry, 20 px under the button, which highlights it.
+gallery_menu_current() { ipc smoke menus "$gallery_kind" vgs.gallery | py_reply 'import json,sys; m=[x for x in json.load(sys.stdin) if x["opened"]]; print(json.dumps(m[0]["current"]) if len(m) == 1 else "open=%d" % len(m))'; }
+gallery_menu_first() { # MODE
+  local box y x
+  ipc smoke scrollTo "$gallery_kind" vgs.gallery 0 >/dev/null || { fail "the gallery did not scroll to its top"; return; }
+  if ! box="$(ipc smoke windowGeometry "$gallery_kind" vgs.gallery Button "Open a menu")" || [[ $box != \[* ]]; then fail "the gallery's menu button has no box: ${box:-}"; return; fi
+  y="$(python3 -c 'import json,sys; print(max(0, int(json.loads(sys.argv[1])[1]) - 200))' "$box")"
+  ipc smoke scrollTo "$gallery_kind" vgs.gallery "$y" >/dev/null || { fail "the gallery did not scroll to its menu button"; return; }
+  read -r x y < <(window_point "$gallery_surface" "$gallery_kind" vgs.gallery Button "Open a menu") || { fail "the gallery's menu button has no box on the output"; return; }
+  if hover "$((x - 1))" "$y" && click "$x" "$y" && box="$(ipc smoke windowGeometry "$gallery_kind" vgs.gallery Button "Open a menu")"; then
+    read -r x y < <(at_centre "$gallery_surface" "$(python3 -c 'import json,sys; r=json.loads(sys.argv[1]); print(json.dumps([r[0], r[1] + r[3], 80, 40]))' "$box")")
+    # Opening disarms the pointer, which takes the highlight once it moves
+    # over the menu: two motions onto the entry.
+    hover "$((x - 6))" "$y" && hover "$x" "$y" || fail "the hover on the gallery menu's first entry failed"
+    expect_poll "the pointer highlights the gallery menu's first entry" '"Rescan plugins"' gallery_menu_current
+    take "gallery-$1-menu"
+    type_keys -k Escape || fail "sending Escape to the gallery's menu failed"
+  else
+    fail "the click on the gallery's menu button failed"
+  fi
+  park_pointer
+}
+
+# One shot per page of the gallery's scrolling list, a page's height less
+# 40 px apart so each page repeats the last lines of the one before, up to
+# gallery_pages pages.
+gallery_pages=12
+scene_gallery() { # MODE
+  local page=1 y=0 at cy ch h
+  expect "the gallery summons" ok ipc shell summon "$gallery_kind" vgs.gallery '{}'
+  expect_poll "the gallery maps its surface" 1 surface_count "$gallery_surface"
+  expect_poll "the gallery draws every component" '[]' ipc smoke galleryMissing "$gallery_kind" vgs.gallery
+  while (( page <= gallery_pages )); do
+    at="$(ipc smoke scrollTo "$gallery_kind" vgs.gallery "$y")" || at=""
+    if [[ $at != "["* ]]; then fail "the gallery did not scroll: ${at:-no reply}"; break; fi
+    read -r cy ch h < <(python3 -c 'import json,sys; print(*(int(v) for v in json.loads(sys.argv[1])))' "$at")
+    take "gallery-$1-p$page"
+    (( cy + h < ch )) || break
+    y=$(( cy + h - 40 )); page=$(( page + 1 ))
+  done
+  gallery_error_focus "$1"
+  gallery_menu_first "$1"
+  expect "the gallery hides" ok ipc shell hide "$gallery_kind" vgs.gallery
+  expect_poll "the gallery's surface is gone" 0 surface_count "$gallery_surface"
+}
+
+settings_page() { ipc smoke readInstance "$settings_kind" vgs.settings page; }
+settings_menu_hovered() { ipc smoke menus "$settings_kind" vgs.settings | py_reply 'import json,sys; m=json.load(sys.stdin); print(len(m) == 1 and m[0].get("barHovered") is True)'; }
+settings_menu_open() { ipc smoke menus "$settings_kind" vgs.settings | python3 -c 'import json,sys; m=json.load(sys.stdin); print(len(m) == 1 and m[0]["opened"])'; }
+# Whether the pointer took the title's menu's highlight from the checked
+# entry, which opening highlights.
+settings_menu_pointed() { ipc smoke menus "$settings_kind" vgs.settings | py_reply 'import json,sys; m=json.load(sys.stdin); print(len(m) == 1 and m[0]["current"] is not None and m[0]["current"] not in m[0]["checked"])'; }
+# The page's one scroll area as the probe reads it.
+settings_scroll() { ipc smoke scrollAreas "$settings_kind" vgs.settings | python3 -c 'import json,sys; a=json.load(sys.stdin); print(json.dumps(a[0]) if len(a) == 1 else "areas=%d" % len(a))'; }
+settings_drag_page_down() { # LABEL
+  local area tx ty
+  if area="$(settings_scroll)" && [[ $area == \{* ]]; then
+    read -r tx ty < <(at_centre "$settings_surface" "$(python3 -c 'import json,sys; print(json.dumps(json.loads(sys.argv[1])["thumb"]))' "$area")")
+    drag "$tx" "$ty" "$tx" "$((ty + 120))" || { fail "the drag on $1's thumb failed"; return 1; }
+    hover "$tx" "$((ty + 120))" || { fail "the hover on $1's dragged thumb failed"; return 1; }
+    return 0
+  fi
+  fail "$1 scroll area is unreadable: ${area:-}"
+  return 1
+}
+settings_at_top() { settings_scroll | python3 -c 'import json,sys; t=sys.stdin.read(); a=json.loads(t) if t.startswith("{") else None; print(a is not None and int(a["contentY"]) == 0)'; }
+settings_close() {
+  expect "the Settings window closes" ok ipc shell hide "$settings_kind" vgs.settings
+  expect_poll "the Settings window is gone" 0 settings_count
+}
+# The single-workspace token's store command: the last line of the Slack
+# section, on the page of this checkout and of a revision before per-workspace
+# tokens alike. A tree with the setup steps of D061 ends the section with
+# that line's Disconnect button instead: its token is stored, and a stored
+# token draws no command.
+slack_legacy_command="secret-tool store --label='VGS notifications Slack token' service vgs-notifications account slack"
+# settings_section HEADING [SCOPE_TYPE SCOPE_TEXT] TYPE TEXT: the page's
+# section headed HEADING, through the item TYPE TEXT, inside the first
+# shown SCOPE_TYPE that draws SCOPE_TEXT when one is named, in its scroll
+# area's content coordinates, as
+# `START END HEIGHT`: the heading's top, that item's bottom, and the area's
+# height. The bar spans the area, so its top is the area's.
+settings_section() {
+  local area header last
+  area="$(settings_scroll)" && [[ $area == \{* ]] || { echo "area=${area:-unread}"; return 1; }
+  header="$(ipc smoke windowGeometry "$settings_kind" vgs.settings SectionHeader "$1")" && [[ $header == \[* ]] || { echo "heading=${header:-unread}"; return 1; }
+  if [[ $# -eq 5 ]]; then last="$(ipc smoke scopedWindowGeometry "$settings_kind" vgs.settings "$2" "$3" "$4" "$5")"
+  else last="$(ipc smoke windowGeometry "$settings_kind" vgs.settings "$2" "$3")"
+  fi
+  [[ $last == \[* ]] || { echo "last-line=${last:-unread}"; return 1; }
+  python3 -c 'import json,sys
+a, h, l = (json.loads(v) for v in sys.argv[1:4])
+top, y = a["bar"][1], a["contentY"]
+print(int(h[1] - top + y), int(l[1] + l[3] - top + y), int(a["height"]))' "$area" "$header" "$last"
+}
+# settings_scroll_to Y: the page's scroll area moved to about contentY Y,
+# held inside its content, by dragging its bar's thumb as the scrolled
+# probe page's shot does: the thumb travels the bar less its own length
+# while the content travels its height less the area's.
+settings_scroll_to() {
+  local area move tx ty
+  area="$(settings_scroll)" && [[ $area == \{* ]] || return 1
+  move="$(python3 -c 'import json,sys
+a, want = json.loads(sys.argv[1]), int(sys.argv[2])
+most = a["contentHeight"] - a["height"]
+travel = a["bar"][3] - a["thumb"][3]
+print(0 if most <= 0 or travel <= 0 else round((max(0, min(want, most)) - a["contentY"]) * travel / most))' "$area" "$1")" || return 1
+  [[ $move -ne 0 ]] || return 0
+  read -r tx ty < <(at_centre "$settings_surface" "$(python3 -c 'import json,sys; print(json.dumps(json.loads(sys.argv[1])["thumb"]))' "$area")") || return 1
+  drag "$tx" "$ty" "$tx" "$((ty + move))"
+}
+# Whether every status row of plugin ID's page is reported.
+page_reported() { # ID
+  ipc smoke readInstance "$settings_kind" vgs.settings plugins | python3 -c 'import json,sys; r=[p for p in json.load(sys.stdin) if p["id"] == sys.argv[1]]; print(len(r) == 1 and len(r[0]["status"]) > 0 and all(s["report"] == "reported" for s in r[0]["status"]))' "$1"
+}
+# `ready` once the Jarvis service's first child has answered hello, as the
+# probe reads it (jarvisProcess in scripts/smoke/Probe.qml); a restart
+# never counts.
+jarvis_started() { ipc smoke jarvisProcess | py_reply 'import json,sys; d=json.load(sys.stdin); print("ready" if d["retries"] == 0 and d["lifetime"]["kind"] == "ready" else "retries=%d kind=%s" % (d["retries"], d["lifetime"]["kind"]))'; }
+# Whether the Jarvis page's Status rows draw its Daemon row as ready.
+jarvis_page_ready() { ipc smoke itemTexts "$settings_kind" vgs.settings StatusRow | py_reply 'import json,sys; print(any("Daemon" in r and "Ready; no capture" in r for r in json.load(sys.stdin)))'; }
+# slack_section: the Slack section through its last line: on a tree with
+# the setup steps of D061, the single-workspace token's Disconnect, else
+# the command that line draws.
+slack_section() {
+  if "$has_setup_steps"; then settings_section Slack StatusLine "Single-workspace token" Button "Disconnect"
+  else settings_section Slack CodeLine "$slack_legacy_command"
+  fi
+}
+# The setup steps of D061 on the open Settings window: Globex's Connect with
+# its masked field typed into and then its command behind Show command, the
+# status fixture's Set up token and Install the tool, Automations' Enable
+# while logged out, Agent Warden's Set up, Dev Tools'
+# Install mise, Themes' Install browser theming once the chromium target
+# ships, and Settings' own page with its command revealed.
+# step_offered ID KEY: whether plugin ID's Settings page offers the step of
+# its status entry KEY.
+step_offered() { status_row "$1" "$2" | py_reply 'import json,sys; r=json.load(sys.stdin); print(str(bool(r["action"] and r["action"]["offered"])).lower())'; }
+# step_shot MODE ID KEY LABEL NAME: plugin ID's page with the button LABEL
+# of its entry KEY scrolled into view, as setup-MODE-NAME. A host where the
+# step is not offered, such as one whose scene stood in the command the
+# button installs, skips the shot and says so.
+step_shot() {
+  local shown offered=false _
+  expect "the window opens the $2 page" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin "$2"
+  expect_poll "the $2 page is shown" "\"$2\"" settings_page
+  # expect_poll's own window, 5 s at 0.2 s.
+  for _ in $(seq 1 25); do
+    [[ $(step_offered "$2" "$3") == true ]] && { offered=true; break; }
+    sleep 0.2
+  done
+  if ! "$offered"; then
+    ok "skipped setup-$1-$5: $2 offers no $4 here"
+    return 0
+  fi
+  shown="$(ipc smoke revealText "$settings_kind" vgs.settings Button "$4")" || shown=unread
+  [[ $shown =~ ^[0-9.]+$ ]] || { fail "the $4 button was not revealed: $shown"; return 0; }
+  park_pointer
+  take "setup-$1-$5"
+}
+scene_setup_steps() { # MODE
+  local section start end height
+  if section="$(slack_section)"; then
+    read -r start end height <<<"$section"
+    settings_scroll_to "$((start - 12))" || fail "the scroll to the Slack section failed"
+  fi
+  settings_press "Connect" StatusLine "Globex" || fail "the click on Globex's Connect failed"
+  type_keys "xoxp-shot-token" || fail "typing into the masked field failed"
+  park_pointer
+  take "setup-$1-slack-connect"
+  type_keys -k Escape || fail "sending Escape to the masked field failed"
+  settings_press "Show command" StatusLine "Globex" || fail "the click on Globex's Show command failed"
+  park_pointer
+  take "setup-$1-slack-show-command"
+  expect "the status fixture publishes its token absent" ok ipc acme.status invoke set 'token="absent"'
+  expect "the status fixture publishes a check that offers its install" ok ipc acme.status invoke set 'check={"tone":"warning","text":"Tool missing","action":true}'
+  expect "the window opens the status fixture's page" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin acme.status
+  expect_poll "the status fixture's page is shown" '"acme.status"' settings_page
+  settings_press "Show command" || fail "the click on the Token's Show command failed"
+  park_pointer
+  take "setup-$1-actions"
+  # The harness's loginctl sentinel answers lingering off on every host, so
+  # the step is always offered and step_shot never skips it.
+  expect_poll "Automations offers Enable while logged out" true step_offered vgs.automations linger
+  step_shot "$1" vgs.automations linger "Enable while logged out" automations
+  # Set up is offered while vsys is present: a stand-in that runs nothing
+  # stands for it, and goes again after the shot, so the next mode starts
+  # from the same PATH.
+  local vsys_stood=false
+  if [[ ! -e $shim/vsys ]]; then
+    printf '#!/usr/bin/env bash\nexit 0\n' >"$shim/vsys"
+    chmod 755 "$shim/vsys"
+    vsys_stood=true
+    tree_rescan "a rescan after the stand-in vsys arrives starts"
+  fi
+  step_shot "$1" vgs.agent-warden warden "Set up" warden-set-up
+  if "$vsys_stood"; then
+    rm -f -- "${shim:?}/vsys"
+    tree_rescan "a rescan after the stand-in vsys goes starts"
+  fi
+  step_shot "$1" vgs.devtools mise "Install mise" devtools-install-mise
+  step_shot "$1" vgs.themes browserTheming "Install browser theming" browser-theming
+  expect "the window opens its own page" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.settings
+  expect_poll "its own page is shown" '"vgs.settings"' settings_page
+  settings_press "Show command" || fail "the click on the own page's Show command failed"
+  park_pointer
+  take "setup-$1-settings-command"
+}
+# The Settings window: the list opened from the gear, the pointer on the
+# gear; a search nothing matches; a plugin page with many grouped settings at its top, dragged down
+# its scroll bar, and with its Mode select open; a plugin with keys; the
+# automations' page at its Status section; the Jarvis page with its
+# daemon ready; the Scratchpads page at its Pads section, holding one pad; the
+# title's menu open with the pointer on its first entry, and scrolled half
+# an entry; the notifications' page scrolled to its
+# Slack token rows, over two shots when they are taller than the page; and
+# the list and a page on a monitor narrower than the window's width token.
+settings_empty() { [[ $(ipc smoke itemGeometry "$settings_kind" vgs.settings Label 'No plugin matches "zzqxv"') == \[* ]] && echo shown || echo hidden; }
+scene_settings() { # MODE
+  # A section shot keeps its heading margin px below the area's top edge.
+  local area at tx ty title x y section start end height half margin=12
+  click_centre "$(bar_key)" vgs.settings || fail "the click on the gear failed"
+  expect_poll "the gear opens the Settings window" 1 settings_count
+  expect_poll "the Settings window holds the keyboard" true ipc smoke activeFocusIn "$settings_kind" vgs.settings
+  take "settings-$1-list"
+  # A search nothing matches: the empty state and its way back.
+  type_keys "zzqxv" || fail "typing a search nothing matches failed"
+  expect_poll "the list shows its empty state" shown settings_empty
+  take "settings-$1-empty"
+  if "$has_clear_search"; then
+    if read -r x y < <(window_point "$settings_surface" "$settings_kind" vgs.settings Button "Clear search") && hover "$((x - 1))" "$y" && click "$x" "$y"; then :; else fail "the click on Clear search failed"; fi
+  else
+    type_keys -k BackSpace -k BackSpace -k BackSpace -k BackSpace -k BackSpace || fail "erasing the search failed"
+  fi
+  expect_poll "the search is empty again" '""' ipc smoke readShownDescendant "$settings_kind" vgs.settings TextField text
+  park_pointer
+  # The gear draws no text, so it is found by its label.
+  if at="$(centre_of "$(ipc smoke labelledGeometry "$(bar_key)" vgs.settings "$gear_type" Settings)")" && [[ $at != none ]]; then
+    read -r x y <<<"$at"
+    if hover "$((x - 6))" "$y" && hover "$x" "$y" \
+      && expect_poll "the gear shows its hover" true ipc smoke readDescendant "$(bar_key)" vgs.settings "$gear_type" hovered; then take "settings-$1-gear"; else fail "the hover on the gear failed"; fi
+  else
+    fail "the gear has no box"
+  fi
+  park_pointer
+  expect "the window opens the probe's page" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin acme.probe
+  expect_poll "the probe's page is shown" '"acme.probe"' settings_page
+  take "settings-$1-page"
+  park_pointer
+  if area="$(settings_scroll)" && [[ $area == \{* ]]; then
+    read -r tx ty < <(at_centre "$settings_surface" "$(python3 -c 'import json,sys; print(json.dumps(json.loads(sys.argv[1])["thumb"]))' "$area")")
+    drag "$tx" "$ty" "$tx" "$((ty + 120))" || fail "the drag on the page's thumb failed"
+    hover "$tx" "$((ty + 120))" || fail "the hover on the dragged thumb failed"
+    take "settings-$1-page-scrolled"
+  else
+    fail "the probe's page scroll area is unreadable: ${area:-}"
+  fi
+  park_pointer
+  # The probe's Label preset select, scrolled into view and opened by a click on
+  # its chevron end: the inline row's right 40 px, one row height tall.
+  local field
+  if field="$(ipc smoke invokeInstance "$settings_kind" vgs.settings fieldGeometry '{"id":"acme.probe","key":"label"}')" && [[ $field == \[* ]] \
+    && area="$(settings_scroll)" && [[ $area == \{* ]] \
+    && settings_scroll_to "$(python3 -c 'import json,sys; f, a = json.loads(sys.argv[1]), json.loads(sys.argv[2]); print(int(f[1] - a["bar"][1] + a["contentY"]) - 60)' "$field" "$area")" \
+    && field="$(ipc smoke invokeInstance "$settings_kind" vgs.settings fieldGeometry '{"id":"acme.probe","key":"label"}')" && [[ $field == \[* ]] \
+    && read -r x y < <(at_centre "$settings_surface" "$(python3 -c 'import json,sys; r=json.loads(sys.argv[1]); h=json.loads(sys.argv[2]); print(json.dumps([r[0] + r[2] - 40, r[1], 40, h]))' "$field" "$(ipc smoke themeValue row.height)")") \
+    && hover "$((x - 1))" "$y" && click "$x" "$y"; then
+    expect_poll "the Label select opens its list" true ipc smoke readShownDescendant "$settings_kind" vgs.settings Select listOpen
+    take "settings-$1-select"
+    type_keys -k Escape || fail "sending Escape to the Label select failed"
+    expect_poll "the Label select closes its list" false ipc smoke readShownDescendant "$settings_kind" vgs.settings Select listOpen
+  else
+    fail "the probe's Label field is unreadable: ${field:-}"
+  fi
+  park_pointer
+  expect "the window opens the launcher's page" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.launcher
+  expect_poll "the launcher's page is shown" '"vgs.launcher"' settings_page
+  if section="$(settings_section Keys KeyField 'Open or close the launcher')"; then
+    read -r start _ _ <<<"$section"
+    settings_scroll_to "$((start - margin))" || fail "the scroll to the Keys section failed"
+  else
+    fail "the launcher's Keys section is unreadable: $section"
+  fi
+  park_pointer
+  take "settings-$1-keys"
+  ipc smoke scrollTo "$settings_kind" vgs.settings 0 >/dev/null || fail "the Keys screenshot did not restore its page's scroll"
+  expect_poll "the Keys screenshot leaves the page at its top" True settings_at_top
+  if "$has_agent_warden"; then
+    expect "the window opens the Agent Warden page" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.agent-warden
+    expect_poll "the Agent Warden page is shown" '"vgs.agent-warden"' settings_page
+    settings_scroll_to 0 >/dev/null || fail "the Agent Warden page did not scroll to the top"
+    expect_poll "the Agent Warden page is at its top" True settings_at_top
+    take "settings-$1-agent-warden"
+    settings_drag_page_down "the Agent Warden page" || true
+    take "settings-$1-agent-warden-scrolled"
+  fi
+  if "$has_bar_plugin"; then
+    expect "the window opens the Bar page" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.bar
+    expect_poll "the Bar page is shown" '"vgs.bar"' settings_page
+    settings_scroll_to 0 >/dev/null || fail "the Bar page did not scroll to the top"
+    expect_poll "the Bar page is at its top" True settings_at_top
+    take "settings-$1-bar"
+    settings_drag_page_down "the Bar page" || true
+    take "settings-$1-bar-scrolled"
+  fi
+  # The automations' page at its top, the plugin enabled over the stand-ins
+  # rows/automations.sh reads (automations_stand_ins in
+  # scripts/smoke/harness.sh), so no call reaches the host's systemd user
+  # manager; the stand-ins removed after the shot, and the plugin disabled
+  # again only when this scene enabled it, since the setup steps' shot below
+  # reads the page of the plugin their setup enabled.
+  local auto_found=unread
+  if "$has_automations"; then
+    auto_found="$(plugin_enabled vgs.automations)" || auto_found=unread
+    [[ $auto_found == True || $auto_found == False ]] || fail "vgs.automations' enablement is unreadable: $auto_found"
+  fi
+  if [[ $auto_found != unread ]]; then
+    automations_stand_ins "$sandbox/shots-automations-$1"
+    tree_rescan "the automations' stand-ins are scanned"
+    if [[ $auto_found == False ]]; then
+      expect "enabling vgs.automations is allowed" ok ipc shell setPluginEnabled vgs.automations true
+      expect_poll "vgs.automations is built" True record_exists vgs.automations
+    fi
+    expect "the window opens the automations' page" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.automations
+    expect_poll "the automations' page is shown" '"vgs.automations"' settings_page
+    expect_poll "the automations' status rows are reported" True page_reported vgs.automations
+    # The Status section's heading at the top.
+    if section="$(settings_section Status SectionHeader Status)"; then
+      read -r start _ _ <<<"$section"
+      settings_scroll_to "$((start - margin))" || fail "the scroll to the automations' status failed"
+    else
+      fail "the automations' Status section is unreadable: $section"
+    fi
+    park_pointer
+    take "settings-$1-automations"
+    if [[ $auto_found == False ]]; then
+      expect "disabling vgs.automations is allowed" ok ipc shell setPluginEnabled vgs.automations false
+      expect_poll "vgs.automations is gone" False record_exists vgs.automations
+    fi
+    automations_stand_ins_restore "$sandbox/shots-automations-$1"
+  fi
+  # The Jarvis page at its top, the daemon's status reported: the plugin
+  # enabled over the J09 world the harness prepares for every sandbox, as
+  # rows/jarvis.sh enables it, so the child reaches no audio, account,
+  # network or desktop; disabled again after the shot.
+  if "$has_jarvis"; then
+    expect "enabling vgs.jarvis is allowed" ok ipc shell setPluginEnabled vgs.jarvis true
+    expect_poll "the Jarvis daemon answers hello without a restart" ready jarvis_started
+    expect "the window opens the Jarvis page" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.jarvis
+    expect_poll "the Jarvis page is shown" '"vgs.jarvis"' settings_page
+    expect_poll "the Jarvis page shows its daemon ready" True jarvis_page_ready
+    settings_scroll_to 0 >/dev/null || fail "the Jarvis page did not scroll to the top"
+    expect_poll "the Jarvis page is at its top" True settings_at_top
+    park_pointer
+    take "settings-$1-jarvis"
+    expect "disabling vgs.jarvis is allowed" ok ipc shell setPluginEnabled vgs.jarvis false
+    expect_poll "vgs.jarvis is gone" absent ipc smoke jarvisProcess
+  fi
+  # The Scratchpads page at its Pads section, opened as a click opens it so
+  # no focus ring or tooltip covers it, one pad of the item defaults
+  # written through the window, so the shot shows the list field; the pad
+  # starts no app, since it is never pressed. The pads and the enablement
+  # are put back after the shot.
+  local pads_found=unread
+  if "$has_scratchpads"; then
+    pads_found="$(plugin_enabled vgs.scratchpads)" || pads_found=unread
+    [[ $pads_found == True || $pads_found == False ]] || fail "vgs.scratchpads' enablement is unreadable: $pads_found"
+  fi
+  if [[ $pads_found != unread ]]; then
+    if [[ $pads_found == False ]]; then
+      expect "enabling vgs.scratchpads is allowed" ok ipc shell setPluginEnabled vgs.scratchpads true
+      expect_poll "vgs.scratchpads is built" True record_exists vgs.scratchpads
+    fi
+    expect "the window opens the Scratchpads page as a click does" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPluginByPointer vgs.scratchpads
+    expect_poll "the Scratchpads page is shown" '"vgs.scratchpads"' settings_page
+    expect "the Pads field's Add is clicked" clicked ipc smoke invokeInstance "$settings_kind" vgs.settings listAdd '{"id":"vgs.scratchpads","key":"pads"}'
+    # The section's heading three margins under the top, clear of the
+    # header, with the Add button its last line.
+    if section="$(settings_section Pads Button Add)"; then
+      read -r start _ _ <<<"$section"
+      settings_scroll_to "$((start - 3 * margin))" || fail "the scroll to the Pads section failed"
+    else
+      fail "the Pads section is unreadable: $section"
+    fi
+    park_pointer
+    expect "the Settings window's root takes the focus" focused ipc smoke invokeInstance "$settings_kind" vgs.settings focusInstance ""
+    take "settings-$1-scratchpads"
+    expect "the pad is removed after the shot" ok ipc smoke invokeInstance "$settings_kind" vgs.settings applySetting '{"id":"vgs.scratchpads","key":"pads","value":[]}'
+    if [[ $pads_found == False ]]; then
+      expect "disabling vgs.scratchpads is allowed" ok ipc shell setPluginEnabled vgs.scratchpads false
+      expect_poll "vgs.scratchpads is gone" False record_exists vgs.scratchpads
+    fi
+  fi
+  expect "the window opens the launcher's page again" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.launcher
+  expect_poll "the launcher's page is shown again" '"vgs.launcher"' settings_page
+  click_in "$settings_surface" "$settings_kind" vgs.settings TitleButton Launcher || fail "the click on the title failed"
+  expect_poll "the title's menu opens" True settings_menu_open
+  # The menu opens under the title; the pointer rests on its first entry,
+  # 20 px under the title, which highlights it and shows the scroll bar.
+  if title="$(ipc smoke windowGeometry "$settings_kind" vgs.settings TitleButton Launcher)" && [[ $title == \[* ]]; then
+    read -r x y < <(at_centre "$settings_surface" "$(python3 -c 'import json,sys; r=json.loads(sys.argv[1]); print(json.dumps([r[0], r[1] + r[3], 80, 40]))' "$title")")
+    hover "$((x - 6))" "$y" && hover "$x" "$y" || fail "the hover inside the title's menu failed"
+    expect_poll "the title's menu reports the pointer inside it" True settings_menu_hovered
+    expect_poll "the pointer takes the menu's highlight" True settings_menu_pointed
+  fi
+  take "settings-$1-menu"
+  # The same menu, the pointer off it, scrolled so the highlighted entry is
+  # half past the list's top edge: its fill cut there, inside a rounded
+  # corner's curve.
+  park_pointer
+  if half="$(ipc smoke themeValue menu.item.height)" && [[ $half =~ ^[0-9]+$ ]]; then
+    expect "the title's menu scrolls its highlight half past the top" "$((half / 2))" ipc smoke scrollMenu "$settings_kind" vgs.settings "$((half / 2))"
+    take "settings-$1-menu-scrolled"
+  else
+    fail "the title's menu entry height is unreadable: ${half:-}"
+  fi
+  type_keys -k Escape || fail "sending Escape to the title's menu failed"
+  expect_poll "the title's menu closes" False settings_menu_open
+  expect "the window opens the Bar plugin page" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.bar
+  expect_poll "the Bar plugin page is shown" '"vgs.bar"' settings_page
+  take "settings-$1-bar-page"
+  park_pointer
+  expect "the window opens the notifications' page" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.notifications
+  expect_poll "the notifications' page is shown" '"vgs.notifications"' settings_page
+  expect_poll "the notifications' status rows are reported" True page_reported vgs.notifications
+  # The Slack section in view: its heading at the top, and, when the
+  # section is taller than the area, a second shot with its last line at
+  # the bottom, so every line and command shows across the two.
+  if section="$(slack_section)"; then
+    read -r start end height <<<"$section"
+    settings_scroll_to "$((start - margin))" || fail "the scroll to the Slack section failed"
+    park_pointer
+    take "settings-$1-slack"
+    if (( end - start + 2 * margin > height )); then
+      settings_scroll_to "$((end + margin - height))" || fail "the scroll to the Slack section's end failed"
+      park_pointer
+      take "settings-$1-slack-end"
+    fi
+  else
+    fail "the notifications' Slack section is unreadable: $section"
+  fi
+  if "$has_setup_steps"; then scene_setup_steps "$1"; fi
+  settings_close
+  # The monitor made narrower than the window (narrow_begin): the gear
+  # opens the window on its bar's monitor, the list first and then a page.
+  narrow_begin
+  expect "the gear opens the window on the narrow monitor" ok ipc smoke invokeInstance "$(bar_key)" vgs.settings toggle ''
+  expect_poll "the narrow window maps" 1 settings_count
+  take "settings-$1-narrow-list"
+  expect "the narrow window opens the probe's page" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin acme.probe
+  expect_poll "the probe's page is shown on the narrow monitor" '"acme.probe"' settings_page
+  take "settings-$1-narrow-page"
+  settings_close
+  narrow_end
+}
+
+
+plugin_pages_list() {
+  ipc smoke readInstance "$settings_kind" vgs.settings plugins | python3 -c 'import json,sys; print("\n".join(p["id"] for p in json.load(sys.stdin)))'
+}
+
+plugin_page_shots() { # MODE ID
+  local mode="$1" id="$2" suffix=1 at cy ch h y=0
+  expect "the window opens the $id page for screenshots" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin "$id"
+  expect_poll "the $id page is shown for screenshots" "\"$id\"" settings_page
+  at="$(ipc smoke scrollTo "$settings_kind" vgs.settings 0)" || at=""
+  if [[ $at != "["* ]]; then
+    fail "the $id page did not scroll to its top: ${at:-no reply}"
+    return
+  fi
+  while :; do
+    read -r cy ch h < <(python3 -c 'import json,sys; print(*(int(v) for v in json.loads(sys.argv[1])))' "$at")
+    if (( suffix == 1 )); then take "plugin-pages-$mode-$id"; else take "plugin-pages-$mode-$id-$suffix"; fi
+    (( cy + h < ch )) || break
+    y=$(( cy + h - 40 ))
+    suffix=$(( suffix + 1 ))
+    at="$(ipc smoke scrollTo "$settings_kind" vgs.settings "$y")" || at=""
+    if [[ $at != "["* ]]; then
+      fail "the $id page did not scroll to page $suffix: ${at:-no reply}"
+      break
+    fi
+  done
+}
+
+scene_plugin-pages() { # MODE
+  local id ids=()
+  expect "the Settings window opens for all plugin pages" ok ipc shell summon "$settings_kind" vgs.settings '{}'
+  expect_poll "the Settings window maps for all plugin pages" 1 settings_count
+  mapfile -t ids < <(plugin_pages_list)
+  if [[ ${#ids[@]} -eq 0 ]]; then
+    fail "the Settings window listed no plugins for plugin page screenshots"
+  fi
+  for id in "${ids[@]}"; do
+    plugin_page_shots "$1" "$id"
+  done
+  settings_close
+}
+
+
+# The browsers' readings: the theme view's shown card count, whether it
+# names a problem, the card it offers wallpapers for, and the wallpaper
+# view's selected card kind.
+theme_view_count() { ipc smoke readDescendant overlay vgs.themes ThemeView shownCards | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
+theme_view_problem() { ipc smoke readDescendant overlay vgs.themes ThemeView problem | py_reply 'import json,sys; print(json.load(sys.stdin) != "")'; }
+theme_view_offer() { ipc smoke readDescendant overlay vgs.themes ThemeView offer | py_reply 'import json,sys; o=json.load(sys.stdin); print(json.dumps(None if o is None else o["name"]))'; }
+wallpaper_selected_kind() { ipc smoke readDescendant overlay vgs.themes WallpaperView selected | py_reply 'import json,sys; s=json.load(sys.stdin); print(json.dumps(None if s is None else s["kind"]))'; }
+# sandbox_vgsh ARGS...: bin/vgsh in the sandbox on the PATH every sandbox
+# shell starts with, so the runner meets the commands the shell meets. The
+# host's PATH can hold the browser-policy writer the run hides from every
+# shell (shell_hidden_commands); the CLI would then judge the chromium
+# target the settings scene ships set up and run its reload hook, which
+# the theme judge refuses under the test-run marker, failing the apply.
+sandbox_vgsh() { "${shell_env[@]}" PATH="$shell_start_path" "$repo/bin/vgsh" "$@"; }
+# themes_restore MODE LABEL: vgs applied, which draws no background, then
+# the mode's theme, after a scene applied another package.
+themes_restore() {
+  sandbox_vgsh theme apply vgs >/dev/null || fail "vgs applies after $2"
+  expect_poll "no background is drawn after $2" 0 layer_count vgs:background
+  set_mode "$1"
+}
+# browser_card_right: the centre of the card right of the selected one on
+# a browser's rail, the selected card being the largest, as `X Y`.
+browser_card_right() {
+  ipc smoke descendantGeometry overlay vgs.themes | py_reply 'import json,sys
+cards = [r["box"] for r in json.load(sys.stdin) if r["type"] == "AngledCard" and r["box"][2] > 0 and r["box"][3] > 0]
+selected = max(cards, key=lambda b: b[2] * b[3]) if cards else None
+right = [b for b in cards if selected is not None and b[0] > selected[0]]
+b = min(right, key=lambda b: b[0]) if right else None
+print("none" if b is None else "%d %d" % (b[0] + b[2] / 2, b[1] + b[3] / 2))'
+}
+rail_card_hovered() { ipc smoke itemValues overlay vgs.themes AngledCard hovered | py_reply 'import json,sys; print(any(v["hovered"] is True for v in json.load(sys.stdin)))'; }
+# hover_card LABEL: the pointer on that card, held until a card reports it
+# twice in a row. A tree whose cards draw no hover takes the shot once the
+# pointer is there.
+hover_card() {
+  local at x y i held=0
+  at="$(browser_card_right)" && [[ $at != none ]] || { fail "$1: no card right of the selected one"; return 1; }
+  read -r x y <<<"$at"
+  if ! "$card_hover_state"; then
+    hover "$x" "$y" || { fail "$1: the hover failed"; return 1; }
+    ok "$1 (the tree's cards draw no hover)"; return 0
+  fi
+  for i in $(seq 1 50); do
+    hover "$((x + i % 2))" "$y" || { fail "$1: the hover failed"; return 1; }
+    if [[ $(rail_card_hovered) == True ]]; then held=$((held + 1)); else held=0; fi
+    if (( held >= 2 )); then ok "$1"; return 0; fi
+    sleep 0.1
+  done
+  fail "$1: no card reported the pointer"
+  return 1
+}
+
+scene_focus() { # MODE
+  local start surfaces focus_box
+  expect "the gallery summons for focus shots" ok ipc shell summon "$gallery_kind" vgs.gallery '{}'
+  expect_poll "the gallery maps for focus shots" 1 surface_count "$gallery_surface"
+  expect_poll "the gallery focus examples are complete" '[]' ipc smoke galleryFocusMissing "$gallery_kind" vgs.gallery
+  start="$(ipc smoke windowGeometry "$gallery_kind" vgs.gallery SectionHeader Focus)" || start=""
+  if [[ $start == \[* ]]; then
+    ipc smoke scrollTo "$gallery_kind" vgs.gallery "$(python3 -c 'import json,sys; print(max(0, int(json.loads(sys.argv[1])[1]) - 80))' "$start")" >/dev/null || fail "the gallery did not scroll to the Focus section"
+    take "focus-$1-gallery"
+  else
+    fail "the Gallery Focus section is unreadable: ${start:-}"
+  fi
+  expect "the gallery hides after focus shots" ok ipc shell hide "$gallery_kind" vgs.gallery
+  expect_poll "the gallery focus window is gone" 0 surface_count "$gallery_surface"
+
+  expect "the Settings window opens for focus shots" ok ipc shell summon "$settings_kind" vgs.settings '{}'
+  expect_poll "the Settings focus window maps" 1 settings_count
+  expect_poll "the Settings search holds the keyboard" true ipc smoke activeFocusIn "$settings_kind" vgs.settings
+  type_keys -k Tab || fail "sending Tab to Settings for focus shots failed"
+  focus_box="$(ipc smoke focused "$settings_kind" vgs.settings)" || focus_box=""
+  if [[ $(python3 -c 'import json,sys; row=json.loads(sys.argv[1]); print(len(row) >= 4 and row[3] is True)' "$focus_box" 2>/dev/null || echo False) == True ]]; then
+    take "focus-$1-settings-ring"
+  else
+    fail "the Settings focused control has no focus ring: ${focus_box:-}"
+  fi
+  type_keys -k Down || fail "moving the Settings list cursor for focus shots failed"
+  expect_poll "the Settings list cursor is shown after keys" true ipc smoke readShownDescendant "$settings_kind" vgs.settings ListCursor shown
+  take "focus-$1-settings-list-cursor"
+  settings_close
+}
+
+scene_theme-browser() { # MODE
+  local selected preview_path
+  selected_path() { ipc smoke readDescendant overlay vgs.themes ThemeView selected | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("sharpenedImage") or d.get("image") or d.get("previewImage") or "")'; }
+  selected_ready() { selected="$(selected_path)" && [[ -n $selected ]] && ipc smoke images overlay vgs.themes | python3 -c 'import json,sys; path=sys.argv[1]; print(any(i[0] == path and i[1] == "ready" for i in json.load(sys.stdin)))' "$selected"; }
+  preview_cached() { ipc smoke readDescendant overlay vgs.themes ThemePreviews cache | python3 -c 'import json,sys; t=sys.stdin.read(); d=json.loads(t) if t.startswith("{") else {}; print(sys.argv[1] in d and bool(d[sys.argv[1]]))' "$1"; }
+  card_image() { ipc smoke images overlay vgs.themes | python3 -c 'import json,sys; r=[i[1] for i in json.load(sys.stdin) if i[0]==sys.argv[1]]; print(r[0] if r else "none")' "$1"; }
+  preview_path_of() { ipc smoke readDescendant overlay vgs.themes ThemePreviews cache | python3 -c 'import json,sys; t=sys.stdin.read(); d=json.loads(t) if t.startswith("{") else {}; print(d.get(sys.argv[1], ""))' "$1"; }
+  wait_preview_cached() { local _; for _ in $(seq 1 50); do [[ $(preview_cached "$1") == True ]] && return 0; sleep 0.2; done; return 1; }
+  mkdir -p -- "$themes_mismatch"
+  printf '%s\n' '{ "schemaVersion": 1, "name": "other", "tokens": {} }' >"$themes_mismatch/theme.json"
+  expect "vgs.themes enables for the theme browser shot" ok ipc shell setPluginEnabled vgs.themes true
+  expect_poll "vgs.themes is built for the theme browser shot" True record_exists vgs.themes
+  expect "the theme browser opens" ok ipc shell summon overlay vgs.themes '{"view":"themes"}'
+  expect_poll "the theme browser maps" 1 layer_count vgs:overlay
+  expect_poll "the theme browser holds the keyboard" true ipc smoke activeFocusIn overlay vgs.themes
+  expect_poll "the theme browser reads its cards" true ipc smoke readDescendant overlay vgs.themes ThemeView loaded
+  park_pointer
+  take "theme-browser-$1-loaded"
+  hover_card "the pointer rests on the theme browser's next card" && take "theme-browser-$1-hover"
+  park_pointer
+  type_keys zzqx || fail "typing the theme browser's empty filter failed"
+  expect_poll "the theme browser's filter matches no card" 0 theme_view_count
+  take "theme-browser-$1-empty"
+  type_keys -k Escape || fail "clearing the theme browser's filter failed"
+  type_keys mismatch || fail "typing the refused package's name failed"
+  expect_poll "the theme browser selects the refused package" '"mismatch"' ipc smoke readDescendant overlay vgs.themes ThemeView selectedName
+  type_keys -k Return || fail "Enter on the refused package failed"
+  expect_poll "the theme browser names the refused package's problem" True theme_view_problem
+  take "theme-browser-$1-failure"
+  # A new open starts with no filter and no problem line.
+  expect "the theme browser hides before the catalog shot" ok ipc shell hide overlay vgs.themes
+  expect_poll "the theme browser is gone before the catalog shot" 0 layer_count vgs:overlay
+  expect "the theme browser opens for the catalog shot" ok ipc shell summon overlay vgs.themes '{"view":"themes"}'
+  expect_poll "the theme browser reads its cards for the catalog shot" true ipc smoke readDescendant overlay vgs.themes ThemeView loaded
+  type_keys "$theme_card" || fail "typing the theme-browser card failed"
+  expect_poll "the theme browser selects $theme_card" "\"$theme_card\"" ipc smoke readDescendant overlay vgs.themes ThemeView selectedName
+  if wait_preview_cached "$theme_card"; then
+    ok "the selected catalog preview is cached"
+    preview_path="$(preview_path_of "$theme_card")"
+    expect_poll "the selected catalog preview image is ready" ready card_image "$preview_path"
+    take "theme-browser-$1-catalog-$theme_card-sharpened"
+  else
+    expect_poll "the selected catalog image is ready" True selected_ready
+    take "theme-browser-$1-catalog-$theme_card"
+  fi
+  # Enter installs and applies the catalog card, whose wallpapers are not
+  # downloaded, so the view offers them; Not now declines, and vgs and
+  # the mode's theme are applied again before the installed shot.
+  type_keys -k Return || fail "Enter on the catalog theme-browser card failed"
+  expect_poll "the theme browser offers $theme_card's wallpapers" "\"$theme_card\"" theme_view_offer
+  park_pointer
+  take "theme-browser-$1-download"
+  click_item overlay vgs.themes Button "Not now" || fail "the click on Not now failed"
+  expect_poll "Not now declines the offer" null theme_view_offer
+  park_pointer
+  expect "the theme browser hides before the installed shot" ok ipc shell hide overlay vgs.themes
+  expect_poll "the theme browser is gone before the installed shot" 0 layer_count vgs:overlay
+  themes_restore "$1" "the theme browser's install"
+  rm -rf -- "${home:?}/.config/vgs/themes/${theme_card:?}"
+  mkdir -p -- "$home/.config/vgs/themes/$theme_card/backgrounds"
+  cp -- "$repo/themes/catalog/$theme_card/theme.json" "$home/.config/vgs/themes/$theme_card/theme.json"
+  [[ ! -f $repo/themes/catalog/$theme_card/terminal.json ]] || cp -- "$repo/themes/catalog/$theme_card/terminal.json" "$home/.config/vgs/themes/$theme_card/terminal.json"
+  "$imagemagick" "$repo/themes/catalog/thumbnails/$theme_card.jpg" -resize 2560x1440\! "$home/.config/vgs/themes/$theme_card/backgrounds/preview.jpg"
+  expect "the theme browser opens for the installed shot" ok ipc shell summon overlay vgs.themes '{"view":"themes"}'
+  expect_poll "the installed theme browser reads its cards" true ipc smoke readDescendant overlay vgs.themes ThemeView loaded
+  type_keys "$theme_card" || fail "typing the installed theme-browser card failed"
+  expect_poll "the theme browser selects installed $theme_card" "\"$theme_card\"" ipc smoke readDescendant overlay vgs.themes ThemeView selectedName
+  expect_poll "the installed theme browser image is ready" True selected_ready
+  take "theme-browser-$1-installed-$theme_card"
+  expect "the theme browser hides" ok ipc shell hide overlay vgs.themes
+  expect_poll "the theme browser is gone" 0 layer_count vgs:overlay
+  # The next mode's catalog shot must show the card as the catalog has it.
+  rm -rf -- "${home:?}/.config/vgs/themes/${theme_card:?}" "${themes_mismatch:?}"
+}
+
+# The wallpaper browser over nord, applied with two images, and a second
+# monitor, which gives the browser its monitor scope. The scene removes the
+# monitor and restores the mode's theme, so a later scene starts from the
+# run's own state.
+wallpaper_output="VGS-SHOT"
+# overlays_on OUTPUT: the live vgs:overlay layers on that output.
+overlays_on() { hypr -j layers | python3 -c 'import json,sys; m=json.load(sys.stdin).get(sys.argv[1]); print(0 if m is None else sum(1 for lv in m["levels"].values() for l in lv if l["namespace"]=="vgs:overlay" and l["pid"]!=-1))' "$1"; }
+scene_wallpaper-browser() { # MODE
+  local theme_dir="$home/.config/vgs/themes/nord"
+  # The runner's install writes the catalog marker, with no wallpapers, so
+  # the Theme source ends on the download card.
+  rm -rf -- "${theme_dir:?}"
+  sandbox_vgsh theme install nord >/dev/null || fail "nord installs for the wallpaper browser shot"
+  mkdir -p -- "$theme_dir/backgrounds"
+  cp -- "$checkout/themes/catalog/thumbnails/nord.jpg" "$theme_dir/backgrounds/a.jpg"
+  cp -- "$checkout/themes/catalog/thumbnails/akane.jpg" "$theme_dir/backgrounds/b.jpg"
+  sandbox_vgsh theme apply nord >/dev/null || fail "nord applies for the wallpaper browser shot"
+  expect_poll "nord is published for the wallpaper browser shot" nord ipc smoke themeName
+  expect "the nested compositor adds a monitor for the wallpaper browser shot" ok hypr output create headless "$wallpaper_output"
+  expect "vgs.themes enables for the wallpaper browser shot" ok ipc shell setPluginEnabled vgs.themes true
+  expect_poll "vgs.themes is built for the wallpaper browser shot" True record_exists vgs.themes
+  expect "the wallpaper browser opens" ok ipc shell summon overlay vgs.themes '{"view":"wallpapers"}'
+  expect_poll "the wallpaper browser maps" 1 layer_count vgs:overlay
+  expect_poll "the wallpaper browser holds the keyboard" true ipc smoke activeFocusIn overlay vgs.themes
+  expect_poll "the wallpaper browser reads its cards" true ipc smoke readDescendant overlay vgs.themes WallpaperView loaded
+  expect_poll "the wallpaper browser is on $SHOT_OUTPUT" 1 overlays_on "$SHOT_OUTPUT"
+  expect_poll "the wallpaper browser shows its monitor scope" true ipc smoke readDescendant overlay vgs.themes WallpaperView scoped
+  park_pointer
+  take "wallpaper-browser-$1"
+  hover_card "the pointer rests on the wallpaper browser's next card" && take "wallpaper-browser-$1-hover"
+  park_pointer
+  type_keys -k End || fail "End in the wallpaper browser failed"
+  expect_poll "End selects the wallpaper download card" '"download"' wallpaper_selected_kind
+  take "wallpaper-browser-$1-download"
+  type_keys -M alt -k s -m alt || fail "Alt+S in the wallpaper browser failed"
+  expect_poll "Alt+S shows every source's images" '"all"' ipc smoke readDescendant overlay vgs.themes WallpaperView source
+  take "wallpaper-browser-$1-all"
+  expect "the wallpaper browser hides" ok ipc shell hide overlay vgs.themes
+  expect_poll "the wallpaper browser is gone" 0 layer_count vgs:overlay
+  expect "the wallpaper browser shot's monitor is removed" ok hypr output remove "$wallpaper_output"
+  # vgs has no backgrounds, so applying it removes nord's image.
+  sandbox_vgsh theme apply vgs >/dev/null || fail "vgs applies after the wallpaper browser shot"
+  expect_poll "no background is drawn after the wallpaper browser shot" 0 layer_count vgs:background
+  rm -rf -- "${theme_dir:?}"
+  set_mode "$1"
+}
+
+# The bar's manager panel of a tree before the Settings plugin: opened by a
+# click on its button, then with the pointer on its first row. The click
+# is the popup's first pointer event on that bar: an anchored popup that
+# grabs focus maps on a fresh bar only after one, so a summon over IPC
+# alone leaves it unmapped.
+manager_listed() { ipc smoke readInstance panel vgs.bar plugins | python3 -c 'import json,sys; t=sys.stdin.read(); print(t.startswith("[") and len(json.loads(t)) > 0)'; }
+manager_mapped() { [[ $(ipc smoke instanceGeometry panel vgs.bar) != absent ]] && echo mapped || echo absent; }
+scene_manager() { # MODE
+  local first
+  click_centre "$(bar_key)" vgs.bar/right-manager || fail "the click on the manager button failed"
+  expect_poll "the manager panel maps under its button" mapped manager_mapped
+  expect_poll "the manager panel lists its plugins" True manager_listed
+  take "manager-$1"
+  first="$(ipc smoke readInstance panel vgs.bar plugins | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["name"])')" || first=""
+  hover_on "the pointer rests on the manager's first row" panel vgs.bar ListItem "$first" && take "manager-$1-hover"
+  park_pointer
+  expect "the manager panel closes" ok ipc smoke invokeInstance "$(bar_key)" vgs.bar/right-manager toggle ''
+}
+
+launcher_rows() { ipc smoke launcherRows overlay vgs.launcher; }
+# settled_box HOST ID TYPE TEXT: `same` when two readings of that item's box
+# a frame apart agree, `moving` when they differ.
+settled_box() {
+  local first second
+  first="$(ipc smoke itemGeometry "$@")" || return 1
+  sleep 0.05
+  second="$(ipc smoke itemGeometry "$@")" || return 1
+  [[ $first == \[* && $first == "$second" ]] && echo same || echo moving
+}
+launcher_file_listed() { launcher_rows | python3 -c 'import json,sys; t=sys.stdin.read(); print(t.startswith("[") and any(r[0] == "file" and r[1] == sys.argv[1] for r in json.loads(t)))' "$1"; }
+launcher_listed() { launcher_rows | python3 -c 'import json,sys; t=sys.stdin.read(); print(t.startswith("[") and len(json.loads(t)) > 2)'; }
+scene_launcher() { # MODE
+  local second
+  expect "the launcher summons" ok ipc vgs.launcher invoke summon '{}'
+  expect_poll "the launcher maps its overlay" 1 layer_count vgs:overlay
+  expect_poll "the launcher holds the keyboard" true ipc smoke activeFocusIn overlay vgs.launcher
+  take "launcher-$1-open"
+  # The orbiting edge light: frames a moment apart, each proved to differ
+  # from the one before, so the light is seen moving.
+  for i in 1 2 3; do sleep 0.3; SHOT_SETTLE_S=1 take "launcher-$1-orbit-$i"; done
+  type_keys -M ctrl -k b -m ctrl || fail "sending Ctrl+B failed"
+  expect_poll "the launcher lists its categories" True launcher_listed
+  take "launcher-$1-list"
+  type_keys -k Down || fail "sending Down failed"
+  expect_poll "Down selects the second row" 1 ipc smoke readInstance overlay vgs.launcher selectedIndex
+  take "launcher-$1-selected"
+  second="$(launcher_rows | python3 -c 'import json,sys; print(json.load(sys.stdin)[2][1])')" || second=""
+  hover_text "the pointer rests on the launcher's third row" overlay vgs.launcher QQuickText "$second" \
+    && expect_poll "the pointer selects the third row" 2 ipc smoke readInstance overlay vgs.launcher selectedIndex \
+    && take "launcher-$1-hover"
+  # The file flyout: a right click on a file hit, then the pointer on one of
+  # its entries, whose highlight draws over the flyout's glass.
+  touch -- "$home/shots-flyout.txt"
+  type_keys "f:shots-flyout" || fail "typing a file search failed"
+  expect_poll "the file search lists the planted file" True launcher_file_listed shots-flyout.txt
+  if file_at="$(centre_of "$(ipc smoke itemGeometry overlay vgs.launcher QQuickText shots-flyout.txt)")" && [[ $file_at != none ]] && read -r fx fy <<<"$file_at" && hover "$fx" "$fy" && right_click "$fx" "$fy"; then
+    # The flyout grows in from the click; its entries hold still once it has.
+    expect_poll "the flyout has opened" same settled_box overlay vgs.launcher QQuickText "Copy path"
+    hover_text "the pointer rests on the flyout's Copy path" overlay vgs.launcher QQuickText "Copy path" && take "launcher-$1-flyout"
+  else
+    fail "the right click on the planted file failed"
+  fi
+  park_pointer
+  type_keys -k Escape -k Escape -k Escape || fail "sending Escape failed"
+  expect_poll "the launcher closes" 0 layer_count vgs:overlay
+}
+
+notify() { # APP SUMMARY BODY ACTIONS HINTS: prints the id
+  "${shell_env[@]}" gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications \
+    --method org.freedesktop.Notifications.Notify "$1" 0 "" "$2" "$3" "$4" "$5" 30000 | python3 -c 'import re,sys; print(re.search(r"uint32 (\d+)", sys.stdin.read()).group(1))'
+}
+notes() { ipc vgs.notifications invoke "$1" "${2:-}"; }
+card_hovered() { ipc smoke layerItems vgs.notifications NotificationCard summary,hovered | py_reply 'import json,sys; print(any(v["hovered"] for s, r, v in json.load(sys.stdin) if v["summary"] == sys.argv[1]))' "$1"; }
+card_centre() { ipc smoke layerItems vgs.notifications NotificationCard summary | python3 -c 'import json,sys; y0=int(sys.argv[2])
+for screen, (x, y, w, h), v in json.load(sys.stdin):
+    if v["summary"] == sys.argv[1]: print(x + w // 2, y0 + y + h // 2); break' "$1" "$bar_reserved"; }
+on_screen() { notes status | python3 -c 'import json,sys; print(json.load(sys.stdin)["onScreen"])'; }
+acme_emoji() { notes status | python3 -c 'import json,sys; print(json.load(sys.stdin)["slack"]["emoji"]["teams"].get("T0ACME", 0))'; }
+slack_badges() { ipc smoke layerItems vgs.notifications NotificationCard showsBadge,app | python3 -c 'import json,sys; print(json.dumps([v["showsBadge"] for _, _, v in json.load(sys.stdin) if v["app"] == "Slack"][:3]))'; }
+scene_notifications() { # MODE
+  local ids=() at
+  ids+=("$(notify smoke-build "Build finished" "vgs main is green in 2 min" '[]' '{}')")
+  ids+=("$(notify smoke-power "Battery low" "12% left" '[]' '{"urgency": <byte 2>}')")
+  ids+=("$(notify smoke-chat "New message" "Lunch at noon?" '["default", "Open", "reply", "Reply"]' '{}')")
+  expect_poll "three toasts are on screen" 3 on_screen
+  take "notifications-$1-toasts"
+  at="$(card_centre "New message")" || at=""
+  if [[ -n $at ]]; then
+    # shellcheck disable=SC2086
+    hover $at || fail "the hover over the actionable toast failed"
+    expect_poll "the actionable toast reports the pointer" True card_hovered "New message"
+    take "notifications-$1-hover"
+  else
+    fail "the actionable toast has no card"
+  fi
+  park_pointer
+  expect "the inbox opens" ok notes inbox
+  expect_poll "the panel is the inbox" '"inbox"' ipc smoke readInstance service vgs.notifications panelMode
+  take "notifications-$1-inbox"
+  expect "the inbox closes" ok notes close
+  for id in "${ids[@]}"; do
+    "${shell_env[@]}" gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications \
+      --method org.freedesktop.Notifications.CloseNotification "$id" >/dev/null || fail "closing notification $id failed"
+  done
+  expect "the history clears" ok notes clear-history
+  expect_poll "no toast is left" 0 on_screen
+  # Slack-shaped notifications, as Slack's web client titles them, from the
+  # synthetic Slack under the sandbox's configuration: a direct message, a
+  # group message past three people and a channel mention with the
+  # workspace's custom emoji, each with the workspace's icon in place of its
+  # bracketed name. An older revision draws the shortcode as text.
+  [[ -n $rev ]] || expect_poll "acme's custom emoji are made" 1 acme_emoji
+  ids=()
+  ids+=("$(notify Slack "[acme] in eng-core" "Grace Hopper: @ada the build is green :smoke-party: ship it :smoke-party:" '["default", "View"]' '{"desktop-entry": <"slack">}')")
+  ids+=("$(notify Slack "[acme] in ada, grace, alan, edsger, barbara" "alan: lunch at noon?" '["default", "View"]' '{"desktop-entry": <"slack">}')")
+  ids+=("$(notify Slack "[acme] from Ada Lovelace" "Did you see the notes?" '["default", "View"]' '{"desktop-entry": <"slack">}')")
+  expect_poll "three Slack toasts are on screen" 3 on_screen
+  # An older revision's card has no workspace icon to read back.
+  [[ -n $rev ]] || expect_poll "each Slack toast draws the workspace icon" '[true, true, true]' slack_badges
+  take "notifications-$1-slack"
+  for id in "${ids[@]}"; do
+    "${shell_env[@]}" gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications \
+      --method org.freedesktop.Notifications.CloseNotification "$id" >/dev/null || fail "closing notification $id failed"
+  done
+  expect "the history clears" ok notes clear-history
+  expect_poll "no toast is left" 0 on_screen
+  # Heights: a one-line card, a two-line card and one past its most lines,
+  # which stops at the look's maximum height.
+  ids=()
+  ids+=("$(notify smoke-heights "Screenshot saved" "" '[]' '{}')")
+  ids+=("$(notify smoke-heights "Download complete" "report.pdf is in Downloads" '[]' '{}')")
+  ids+=("$(notify smoke-heights "Release notes" "$(printf 'A body long enough to run past every line the card may show. %.0s' $(seq 1 12))" '[]' '{}')")
+  expect_poll "three height toasts are on screen" 3 on_screen
+  take "notifications-$1-heights"
+  for id in "${ids[@]}"; do
+    "${shell_env[@]}" gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications \
+      --method org.freedesktop.Notifications.CloseNotification "$id" >/dev/null || fail "closing notification $id failed"
+  done
+  expect "the history clears" ok notes clear-history
+  expect_poll "no toast is left" 0 on_screen
+}
+
+# hover_widget LABEL ID: the pointer on the centre of bar widget ID,
+# arriving by two motions.
+hover_widget() {
+  local at x y
+  at="$(centre_of "$(ipc smoke instanceGeometry "$(bar_key)" "$2")")" || at=none
+  if [[ $at == none ]]; then fail "$1: widget $2 has no box"; return 1; fi
+  read -r x y <<<"$at"
+  if ! hover "$((x - 6))" "$y" || ! hover "$x" "$y"; then fail "$1: the hover failed"; return 1; fi
+}
+themes_widget_placed() { [[ $(ipc smoke instanceGeometry "$(bar_key)" vgs.themes) == \[* ]] && echo placed || echo absent; }
+tooltip_opened() { ipc smoke readDescendant "$(bar_key)" "$1" Tooltip opened; }
+warden_detail_state() { ipc vgs.agent-warden invoke status '' | py_reply 'import json,sys; d=json.load(sys.stdin).get("detail"); print(d["state"] if d else "unpublished")'; }
+# warden_status NAME STATE: the warden's status-NAME.json written fresh,
+# read back as STATE, so a surface never shows the status gone stale.
+warden_status() {
+  warden_put "$1" 0 >/dev/null || fail "writing the warden's $1 status failed"
+  expect_poll "the warden reads its $1 status as $2" "$2" warden_detail_state
+}
+# The pointer on each bar widget: the tooltip of each widget that declares
+# one, open, and the hover of the themes widget and the launcher's, which
+# declare none; then
+# the bar at rest, which a run that starts with this scene has drawn since
+# before its first shot.
+scene_bar() { # MODE
+  local id
+  warden_status calm calm
+  for id in vgs.agent-warden vgs.updates; do
+    hover_widget "the pointer rests on $id" "$id" || continue
+    expect_poll "the $id tooltip opens" true tooltip_opened "$id"
+    take "bar-$1-tip-${id#vgs.}"
+    park_pointer
+    expect_poll "the $id tooltip closes" false tooltip_opened "$id"
+  done
+  hover_widget "the pointer rests on the themes widget" vgs.themes \
+    && { [[ $themes_entry_type != BarItem ]] || expect_poll "the themes widget shows its hover" true ipc smoke readDescendant "$(bar_key)" vgs.themes BarItem hovered; } \
+    && take "bar-$1-hover-themes"
+  park_pointer
+  hover_widget "the pointer rests on the launcher's widget" vgs.launcher \
+    && { ! "$launcher_entry_item" || expect_poll "the launcher's widget shows its hover" true ipc smoke readDescendant "$(bar_key)" vgs.launcher BarItem hovered; } \
+    && take "bar-$1-hover-launcher"
+  park_pointer
+  take "bar-$1"
+}
+
+# The Agent Warden panel opened from its shield over a calm status and then
+# a problem one, and the updates flyout opened from its widget over the
+# planted snapshot, with its System row expanded and then the pointer on
+# a row. Nothing presses Refresh, so no check runs.
+warden_panel_texts() { ipc smoke itemTexts panel vgs.agent-warden Panel; }
+warden_panel_lines() { warden_panel_texts | py_reply 'import json,sys; print(sys.argv[1] in json.load(sys.stdin)[0])' "$shots_vsys_line"; }
+updates_flyout() { [[ $(ipc smoke readInstance panel vgs.updates rows) != absent ]] && echo open || echo closed; }
+updates_pending() { ipc vgs.updates invoke status '' | py_reply 'import json,sys; print(json.load(sys.stdin).get("pending"))'; }
+updates_checking() { ipc vgs.updates invoke status '' | py_reply 'import json,sys; print(json.load(sys.stdin).get("checking"))'; }
+scene_panels() { # MODE
+  warden_status calm calm
+  click_centre "$(bar_key)" vgs.agent-warden || fail "the click on the shield failed"
+  expect_poll "the shield opens the warden's panel" True warden_panel_lines
+  park_pointer
+  take "panels-$1-warden-calm"
+  warden_status holding-off problem
+  take "panels-$1-warden-problem"
+  hover_on "the pointer rests on the panel's Open vsys" panel vgs.agent-warden Button "Open vsys" && take "panels-$1-warden-hover"
+  park_pointer
+  expect "the warden's panel hides" ok ipc shell hide panel vgs.agent-warden
+  expect_poll "the warden's panel is gone" absent warden_panel_texts
+  warden_status calm calm
+  click_centre "$(bar_key)" vgs.updates || fail "the click on the updates widget failed"
+  expect_poll "the widget opens the updates flyout" open updates_flyout
+  park_pointer
+  take "panels-$1-updates"
+  click_item panel vgs.updates ListItem System || fail "the click on the flyout's System row failed"
+  park_pointer
+  take "panels-$1-updates-open"
+  hover_on "the pointer rests on the flyout's VGS row" panel vgs.updates ListItem VGS && take "panels-$1-updates-hover"
+  park_pointer
+  expect "the updates flyout hides" ok ipc shell hide panel vgs.updates
+  expect_poll "the updates flyout is gone" closed updates_flyout
+  expect "the flyout started no check" False updates_checking
+  scene_themes_panel "$1"
+}
+
+# Capture's idle widget and options panel. No action or recorder is started.
+scene_capture() { # MODE
+  expect "Capture is placed for its widget image" ok ipc shell setPluginPlaced vgs.capture true
+  expect_poll "Capture's widget is built for its image" false ipc smoke readInstance "$(bar_key)" vgs.capture recording
+  park_pointer
+  take "capture-$1-widget"
+  click_centre "$(bar_key)" vgs.capture || fail "opening Capture from its widget failed"
+  expect_poll "Capture opens its options panel" false ipc smoke readInstance panel vgs.capture recording
+  park_pointer
+  take "capture-$1-panel"
+  expect "Capture's panel hides" ok ipc shell hide panel vgs.capture
+}
+
+# The Key Hints window, with the pointer parked.
+scene_keyhints() { # MODE
+  expect "the Key Hints window summons" ok ipc shell summon window vgs.keyhints '{}'
+  expect_poll "the Key Hints window maps" 1 window_count "Key Hints"
+  park_pointer
+  take "keyhints-$1"
+  expect "the Key Hints window hides" ok ipc shell hide window vgs.keyhints
+  expect_poll "the Key Hints window is gone" 0 window_count "Key Hints"
+}
+
+# The clipboard history over the copies its setup made, the newest copy
+# selected under the pinned one, with the pointer parked.
+scene_clipboard() { # MODE
+  expect "the clipboard history summons" ok ipc vgs.clipboard invoke toggle ''
+  expect_poll "the clipboard history maps its overlay" 1 layer_count vgs:overlay
+  expect_poll "the clipboard history holds the keyboard" true ipc smoke activeFocusIn overlay vgs.clipboard
+  type_keys -k Down || fail "sending Down failed"
+  expect_poll "Down selects the newest copy" 1 ipc smoke readInstance overlay vgs.clipboard current
+  park_pointer
+  take "clipboard-$1"
+  type_keys -k Escape || fail "sending Escape failed"
+  expect_poll "the clipboard history closes" 0 layer_count vgs:overlay
+}
+
+# The themes panel opened from its widget over the shipped and catalog
+# packages and a refused one: its top, the pointer on a row, its catalog
+# scrolled into view, a click on the vgs row held behind a gate and the
+# partial result the gate lets through. The stand-in runner answers every
+# apply with that result, which changes no theme, polls the gate every
+# 50 ms for at most 10 s and hands every other command to the real runner.
+themes_mismatch="$home/.config/vgs/themes/mismatch"
+themes_gate="$sandbox/shots-themes-gate"
+themes_result='{"state":"partial","shell":"unchanged","targets":[{"name":"kitty","state":"failed","reason":"placeholder"}],"theme":"vgs","reason":null}'
+themes_panel_listed() { ipc smoke readInstance panel vgs.themes catalogEntries | py_reply 'import json,sys; t=sys.stdin.read(); print(t.startswith("[") and len(json.loads(t)) > 0)'; }
+themes_panel_shown() { [[ $(ipc smoke readInstance panel vgs.themes packages) != absent ]] && echo open || echo closed; }
+themes_panel_last() { ipc smoke readInstance panel vgs.themes last | py_reply 'import json,sys; l=json.load(sys.stdin); print("applying" if l["applying"] else "result" if l["result"] else "none")'; }
+themes_stand_in() {
+  cp -p -- "$repo/bin/vgsh" "$repo/bin/vgsh.real" || return 1
+  cat >"$repo/bin/vgsh.next" <<SH || return 1
+#!/usr/bin/env bash
+if [[ \${1:-} == theme && \${2:-} == apply ]]; then
+  for _ in \$(seq 1 200); do [[ -e $(printf %q "$themes_gate") ]] && break; sleep 0.05; done
+  printf '%s\n' $(printf %q "$themes_result")
+  exit 3
+fi
+exec $(printf %q "$repo/bin/vgsh.real") "\$@"
+SH
+  chmod 755 -- "$repo/bin/vgsh.next" && mv -T -- "$repo/bin/vgsh.next" "$repo/bin/vgsh"
+}
+scene_themes_panel() { # MODE
+  mkdir -p -- "$themes_mismatch"
+  printf '%s\n' '{ "schemaVersion": 1, "name": "other", "tokens": {} }' >"$themes_mismatch/theme.json"
+  click_centre "$(bar_key)" vgs.themes || fail "the click on the themes widget failed"
+  expect_poll "the widget opens the themes panel" True themes_panel_listed
+  park_pointer
+  take "panels-$1-themes"
+  hover_on "the pointer rests on the themes panel's vgs row" panel vgs.themes ListItem vgs && take "panels-$1-themes-hover"
+  park_pointer
+  ipc smoke scrollTo panel vgs.themes 100000 >/dev/null || fail "the themes panel did not scroll to its catalog"
+  take "panels-$1-themes-catalog"
+  ipc smoke scrollTo panel vgs.themes 0 >/dev/null || fail "the themes panel did not scroll to its top"
+  rm -f -- "$themes_gate"
+  themes_stand_in || fail "the themes panel's stand-in runner could not be written"
+  click_item panel vgs.themes ListItem vgs || fail "the click on the themes panel's vgs row failed"
+  expect_poll "the themes panel shows the held apply" applying themes_panel_last
+  park_pointer
+  take "panels-$1-themes-applying"
+  touch -- "$themes_gate"
+  expect_poll "the themes panel shows the partial result" result themes_panel_last
+  take "panels-$1-themes-failure"
+  mv -T -- "$repo/bin/vgsh.real" "$repo/bin/vgsh" || fail "the real runner could not be restored"
+  rm -f -- "$themes_gate"
+  expect "the themes panel hides" ok ipc shell hide panel vgs.themes
+  expect_poll "the themes panel is gone" closed themes_panel_shown
+  rm -rf -- "${themes_mismatch:?}"
+}
+
+# The Dev Tools window: its top, the pointer on an Install button, and one
+# shot per page down its list, at most four.
+devtools_shown() { [[ $(ipc smoke instanceGeometry window vgs.devtools) != absent ]] && echo shown || echo hidden; }
+devtools_sections() { ipc smoke itemTexts window vgs.devtools SectionHeader | py_reply 'import json,sys; print(len(json.load(sys.stdin)) > 1)'; }
+scene_devtools() { # MODE
+  local page=1 y=0 at cy ch h
+  expect "the Dev Tools window summons" ok ipc vgs.devtools invoke open ''
+  expect_poll "the Dev Tools window is shown" shown devtools_shown
+  expect_poll "the Dev Tools window draws its sections" True devtools_sections
+  park_pointer
+  take "devtools-$1-top"
+  # The VGS row's Details button: the sandbox's install method is always
+  # unknown, so it shows on the first page whatever the other scenes set up.
+  hover_on "the pointer rests on the VGS row's $devtools_hover button" window vgs.devtools Button "$devtools_hover" "window:Dev Tools" && take "devtools-$1-hover"
+  park_pointer
+  while (( page <= 4 )); do
+    at="$(ipc smoke scrollTo window vgs.devtools "$y")" || at=""
+    if [[ $at != "["* ]]; then fail "the Dev Tools window did not scroll: ${at:-no reply}"; break; fi
+    read -r cy ch h < <(python3 -c 'import json,sys; print(*(int(v) for v in json.loads(sys.argv[1])))' "$at")
+    (( page == 1 )) || take "devtools-$1-p$page"
+    (( cy + h < ch )) || break
+    y=$(( cy + h - 40 )); page=$(( page + 1 ))
+  done
+  expect "the Dev Tools window hides" ok ipc shell hide window vgs.devtools
+  expect_poll "the Dev Tools window is gone" hidden devtools_shown
+}
+
+# The System window as it opens with no System section enabled: the
+# sidebar holds Shell & Plugins alone and the page its empty state. The
+# sandbox starts the plugin disabled, so the scene enables it for the shot
+# and disables it again. A tree that ships vgs.displays then takes System
+# → Displays, system-<mode>-displays, over the device fakes' Pro Display
+# XDR, placed on the output by the pane's own choice, and two Studio
+# Displays the helper cannot place; the fakes' system tree keeps the
+# core's step probe off the host's /sys and /dev.
+# A tree that ships vgs.sound then takes its Sound section,
+# system-<mode>-sound, over the sandbox's private PipeWire
+# (scripts/smoke/devices.sh), with a test stream that plays in the
+# sandbox's environment alone, enabled for the shot and disabled again.
+# Displays stays enabled through the Sound shot, so its sidebar shows the
+# Hardware group as a user with both sections sees it.
+system_shown() { [[ $(ipc smoke instanceGeometry window vgs.system) != absent ]] && echo shown || echo hidden; }
+displays_listed() { ipc smoke readInstance service vgs.displays values | py_reply 'import json,sys; print(len(json.load(sys.stdin)["displays"]["items"]))'; }
+scene_system() { # MODE
+  local status=0 tree_state first_output displays_on=false
+  expect "enabling vgs.system for its shot is allowed" ok ipc shell setPluginEnabled vgs.system true
+  expect "the System window summons" ok ipc shell summon window vgs.system '{}'
+  expect_poll "the System window is shown" shown system_shown
+  park_pointer
+  take "system-$1"
+  expect "the System window hides" ok ipc shell hide window vgs.system
+  expect_poll "the System window is gone" hidden system_shown
+  if ships_plugin vgs.displays; then
+    devices_up || status=$?
+    if ((status != 0)); then
+      fail "the device fakes for the Displays shot did not start: $devices_state"
+    elif ! tree_state="$(devices_system_tree)"; then
+      fail "the fakes' system tree for the Displays shot: $tree_state"
+    else
+      expect "enabling vgs.displays for its shot is allowed" ok ipc shell setPluginEnabled vgs.displays true
+      expect_poll "the displays service lists the three fake displays" 3 displays_listed
+      first_output="$(ipc smoke readInstance service vgs.displays outputs | py_reply 'import json,sys; print(json.load(sys.stdin)[0]["identifier"])')" || fail "the outputs the displays service reads are unreadable"
+      expect "the pane's choice puts the XDR on the output" ok ipc vgs.displays invoke assign "{\"device\":\"usb:class/hidraw/hidraw0/device#VGSSMOKEXDR01\",\"output\":\"$first_output\"}"
+      expect "System → Displays summons" ok ipc shell summon window vgs.system '{"pane":"vgs.displays"}'
+      expect_poll "System → Displays is shown" '["vgs.displays"]' window_panes
+      park_pointer
+      take "system-$1-displays"
+      expect "the System window hides after Displays" ok ipc shell hide window vgs.system
+      expect_poll "the System window is gone after Displays" hidden system_shown
+      displays_on=true
+    fi
+  fi
+  if ships_plugin vgs.sound; then
+    status=0
+    devices_up || status=$?
+    if ((status != 0)); then
+      fail "the device fakes the Sound shot reads did not start: $devices_state"
+    else
+      devices_audio_play
+      expect "enabling vgs.sound for its shot is allowed" ok ipc shell setPluginEnabled vgs.sound true
+      expect "the System window summons on the Sound section" ok ipc shell summon window vgs.system '{"pane":"vgs.sound"}'
+      expect_poll "the Sound section is mounted" '["vgs.sound"]' window_panes
+      expect_poll "the Sound section lists the test stream" true sound_lists_player
+      park_pointer
+      take "system-$1-sound"
+      expect "the System window hides after the Sound shot" ok ipc shell hide window vgs.system
+      expect_poll "the System window is gone after the Sound shot" hidden system_shown
+      expect "disabling vgs.sound after its shot is allowed" ok ipc shell setPluginEnabled vgs.sound false
+      kill -- "-$devices_player_pid" 2>/dev/null || true
+    fi
+  fi
+  if [[ $displays_on == true ]]; then
+    expect "disabling vgs.displays after the System shots is allowed" ok ipc shell setPluginEnabled vgs.displays false
+    rm -f -- "${home:?}/.local/state/vgs/plugins/vgs.displays/assignments.json"
+  fi
+  expect "disabling vgs.system after its shot is allowed" ok ipc shell setPluginEnabled vgs.system false
+}
+sound_lists_player() { ipc smoke itemTexts window vgs.sound FormRow | py_reply 'import json,sys; print(json.dumps(any("Smoke Player" in t for row in json.load(sys.stdin) for t in row)))'; }
+
+# The System window's Bluetooth section over the device fakes: the
+# planted adapter, its connected headphones and a nearby keyboard the
+# setup adds. The service holds `system`, so the core's step probes run in
+# the fakes' system tree (devices_system_tree), never the host's; a setup
+# that could not make that tree, start the fakes or read the shell inside
+# the sandbox fails the run and enables nothing.
+bluetooth_shot_ready=false
+scene_bluetooth() { # MODE
+  [[ $bluetooth_shot_ready == true ]] || return 0
+  expect "enabling vgs.bluetooth for its shot is allowed" ok ipc shell setPluginEnabled vgs.bluetooth true
+  expect "enabling vgs.system for the Bluetooth shot is allowed" ok ipc shell setPluginEnabled vgs.system true
+  expect "the Bluetooth section summons" ok ipc shell summon window vgs.system '{"pane":"vgs.bluetooth"}'
+  expect_poll "the Bluetooth section lists the nearby keyboard" 1 bluetooth_nearby
+  park_pointer
+  take "bluetooth-$1"
+  expect "the System window hides" ok ipc shell hide window vgs.system
+  expect_poll "the System window is gone" hidden system_shown
+  expect "disabling vgs.system after the Bluetooth shot is allowed" ok ipc shell setPluginEnabled vgs.system false
+  expect "disabling vgs.bluetooth after its shot is allowed" ok ipc shell setPluginEnabled vgs.bluetooth false
+}
+bluetooth_nearby() { ipc smoke readInstance window vgs.bluetooth lists | py_reply 'import json,sys; print(len(json.load(sys.stdin)["nearby"]))'; }
+
+# The core's requirement notice, raised by enabling the acme.needs
+# fixture, which misses a command it needs; Escape closes it, and the
+# fixture is disabled again so the next mode raises it anew.
+notice_plugin() { notice_shown | py_reply 'import json,sys; s=json.load(sys.stdin); print(json.dumps(s[0] if s else None))'; }
+# Network reads S08's mock and command stand-ins. Its pane is a real
+# System section, so this shot includes the holder's sidebar and inset.
+scene_network() { # MODE
+  devices_ready network-shot || return 0
+  device_reply systemctl 0 $'LoadState=loaded\nActiveState=active' show --property=LoadState --property=ActiveState NetworkManager.service
+  device_reply nmcli 0 'org.freedesktop.NetworkManager.network-control:yes' -t -f PERMISSION,VALUE general permissions
+  expect "the network shot has a saved fake profile" ok python3 "$repo/scripts/smoke/fixtures/devices/network.py" "unix:path=$rt_dir/system-bus" prepare
+  expect "Network enables for its shot" ok ipc shell setPluginEnabled vgs.network true
+  expect "System enables for the network shot" ok ipc shell setPluginEnabled vgs.system true
+  expect "Network's pane summons" ok ipc shell summon window vgs.system '{"pane":"vgs.network"}'
+  expect_poll "Network's pane is mounted" shown network_shot_shown
+  expect_poll "Network's pane reads the saved mock" '[["VGS Smoke Wi-Fi", "Wpa2Psk", true]]' network_shot_names
+  park_pointer
+  take "network-$1-pane"
+  expect "the network System window closes" ok ipc shell hide window vgs.system
+  expect "Network disables after its shot" ok ipc shell setPluginEnabled vgs.network false
+  expect "System disables after the network shot" ok ipc shell setPluginEnabled vgs.system false
+  device_reply_clear nmcli
+  device_reply_clear systemctl
+}
+network_shot_shown() { [[ $(ipc smoke instanceGeometry window vgs.network) != absent ]] && echo shown || echo hidden; }
+network_shot_names() { ipc smoke readDescendant window vgs.network NetworkBody rows | py_reply 'import json,sys; print(json.dumps([[r["name"],r["security"],r["known"]] for r in json.load(sys.stdin)]))'; }
+
+scene_dialog() { # MODE
+  expect "enabling acme.needs is allowed" ok ipc shell setPluginEnabled acme.needs true
+  expect_poll "the notice shows for acme.needs" '"acme.needs"' notice_plugin
+  expect_poll "the notice maps its surface" 1 layer_count vgs:notice
+  park_pointer
+  take "dialog-$1"
+  type_keys -k Escape || fail "sending Escape to the notice failed"
+  expect_poll "Escape closes the notice" 0 layer_count vgs:notice
+  expect "disabling acme.needs is allowed" ok ipc shell setPluginEnabled acme.needs false
+}
+
+# Every surface class again on a monitor 480 by 720 logical pixels.
+scene_narrow() { # MODE
+  narrow_begin
+  gallery_pages=2
+  scene_bar "$1-narrow"
+  scene_panels "$1-narrow"
+  scene_devtools "$1-narrow"
+  scene_dialog "$1-narrow"
+  ! scene_ships lock || scene_lock "$1-narrow"
+  scene_launcher "$1-narrow"
+  scene_notifications "$1-narrow"
+  scene_gallery "$1-narrow"
+  gallery_pages=12
+  narrow_end
+}
+
+lock_core() { ipc shell lent | py_reply 'import json,sys; l=json.load(sys.stdin)["lock"]; print(json.dumps([l["requested"], l["secure"], l["content"]]))'; }
+lock_failures() { ipc vgs.lock invoke status '' | py_reply 'import json,sys; print(json.load(sys.stdin)["failures"])'; }
+# lock_fail N: N wrong attempts through the service's own failure step,
+# with no PAM.
+lock_fail() {
+  local i
+  for ((i = 0; i < $1; i++)); do
+    [[ $(ipc smoke invokeInstance service vgs.lock fail '') != no-function ]] || { fail "vgs.lock has no fail()"; return; }
+  done
+}
+scene_lock() { # MODE
+  local probe
+  probe="$(plugin_enabled acme.probe)" || probe=unreadable
+  [[ $probe != True ]] || expect "disabling the probe fixture, which holds lock, is allowed" ok ipc shell setPluginEnabled acme.probe false
+  expect "enabling vgs.lock is allowed" ok ipc shell setPluginEnabled vgs.lock true
+  expect_poll "vgs.lock is built" True record_exists vgs.lock
+  expect "the lock answers ok" ok ipc vgs.lock invoke lock ''
+  expect_poll "the lock is confirmed with the lock screen" '[true, true, true]' lock_core
+  take "lock-$1"
+  lock_fail 1
+  expect_poll "one wrong attempt is shown" 1 lock_failures
+  take "lock-$1-wrong"
+  lock_fail 9
+  expect_poll "ten wrong attempts are shown" 10 lock_failures
+  take "lock-$1-pause"
+  expect "the probe releases the lock" ok ipc smoke sessionUnlock
+  expect_poll "the core holds no lock" '[false, false, true]' lock_core
+  expect "disabling vgs.lock is allowed" ok ipc shell setPluginEnabled vgs.lock false
+  expect_poll "vgs.lock is gone" False record_exists vgs.lock
+  [[ $probe != True ]] || expect "re-enabling the probe fixture is allowed" ok ipc shell setPluginEnabled acme.probe true
+}
+
+# The vgs.polkit prompt, asking and after a failed attempt, over the
+# probe's stand-in flow (polkitStandInOpen in scripts/smoke/Probe.qml): the
+# plugin's own Prompt.qml in a stand-in of the summon host's overlay
+# surface. vgs.polkit stays disabled and nothing is typed; the scene reads
+# that no request went live, that the stand-in was never submitted and
+# that no authentication helper ran while it was open, as rows/polkit.sh
+# reads them (docs/architecture/lock-polkit.md § Validation).
+polkit_flows() { ipc shell lent | py_reply 'import json,sys; print(json.load(sys.stdin)["polkitFlows"])'; }
+scene_polkit() { # MODE
+  local watch_log="$sandbox/shots-polkit-$1-auth.log"
+  auth_watch_start "$watch_log"
+  expect "vgs.polkit stays disabled for its prompt's shots" False plugin_enabled vgs.polkit
+  expect "the stand-in prompt opens" ok ipc smoke polkitStandInOpen "$repo/shell/plugins/vgs.polkit/Prompt.qml"
+  expect_poll "the stand-in prompt maps its surface" 1 layer_count vgs:overlay
+  park_pointer
+  take "polkit-$1"
+  expect "the stand-in flow reads a failed attempt" ok ipc smoke polkitStandInFail
+  take "polkit-$1-failed"
+  expect "the prompt closes and cancels only the stand-in, which was never submitted" '{"submits":0,"cancels":1}' ipc smoke polkitStandInDrop
+  expect_poll "the stand-in prompt's surface is gone" 0 layer_count vgs:overlay
+  expect "no authentication request went live in this shell" 0 polkit_flows
+  expect "no authentication helper runs under the shell" none auth_helpers "$shell_qs_pid"
+  kill "$auth_watch_pid" 2>/dev/null || fail "stopping the helper watcher pid $auth_watch_pid failed"
+  expect "while the prompt was open, the watcher saw no authentication helper" "" cat -- "$watch_log"
+}
+
+# The login screen: the core's greeter host over vgs.greeter's view
+# (docs/architecture/greeter.md), with the smoke's fixture sessions, the
+# mode's theme file and one fixture account.
+scene_greeter() { # MODE
+  local dir="$sandbox/shots-greeter-$1" word base_path="" pid ready=false
+  mkdir -p -- "$dir/config/vgs" "$dir/state" "$dir/bin"
+  if [[ -f $home/.config/vgs/theme.json ]]; then cp -- "$home/.config/vgs/theme.json" "$dir/config/vgs/theme.json"; fi
+  printf '#!/bin/sh\n[ "$1" = passwd ] || exit 2\necho "alex:x:1000:1000:Alex Doe:/home/alex:/bin/bash"\n' >"$dir/bin/getent"
+  chmod 755 "$dir/bin/getent"
+  for word in "${shell_env[@]}"; do [[ $word != PATH=* ]] || base_path="${word#PATH=}"; done
+  spawn "$dir/greeter.log" "${shell_env[@]}" PATH="$dir/bin:$base_path" \
+    XDG_DATA_DIRS="$checkout/scripts/smoke/fixtures/greeter/share-a:$checkout/scripts/smoke/fixtures/greeter/share-b" \
+    XDG_CONFIG_HOME="$dir/config" XDG_STATE_HOME="$dir/state" \
+    VGS_GREETER_VIEW="$repo/shell/plugins/vgs.greeter/Greeter.qml" qs -p "$repo/shell/greeter.qml"
+  pid="$spawn_pid"
+  for _ in $(seq 1 100); do
+    if grep -q -F -- "greeter: sessions=" "$dir/greeter.log"; then ready=true; break; fi
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 0.2
+  done
+  if [[ $ready == true ]]; then ok "the greeter host lists its sessions"; else fail "the greeter host listed no sessions: $(tail -n 5 -- "$dir/greeter.log")"; fi
+  expect_poll "the greeter host maps its surface" 1 layer_count vgs:greeter
+  park_pointer
+  take "greeter-$1"
+  kill -TERM "$pid" 2>/dev/null || fail "stopping the greeter host pid $pid failed"
+  wait "$pid" 2>/dev/null || true
+  expect_poll "the greeter host's surface is gone" 0 layer_count vgs:greeter
+}
+
+# The setup each scene needs, once each, in the order the scenes first
+# need them: the bar draws the launcher's and the panels' widgets, and the
+# narrow pass takes every other scene's surfaces again.
+setups=()
+need_setup() { local s; for s in "${setups[@]}"; do [[ $s == "$1" ]] && return 0; done; setups+=("$1"); }
+
+scene_automations() { # MODE
+  local auto_stub="$sandbox/shots-automations"
+  automations_stand_ins "$auto_stub"
+  if [[ -e $shim/systemd-analyze ]]; then mv -- "$shim/systemd-analyze" "$auto_stub/saved/systemd-analyze"; fi
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$shim/systemd-analyze"
+  chmod 755 "$shim/systemd-analyze"
+  terminal_stand_in
+  local auto_engine="$repo/shell/plugins/vgs.automations/bin/automations"
+  local shell_path
+  shell_path="$(tr '\0' '\n' <"/proc/$shell_qs_pid/environ" | sed -n 's/^PATH=//p')"
+  automations_shot() { "${shell_env[@]}" PATH="$shell_path" "$auto_engine" --tree "$repo" "$@"; }
+  automation_list_has() { ipc smoke itemTexts window vgs.automations AutomationRow | py_reply 'import json,sys; print(any(row and row[0] == sys.argv[1] for row in json.load(sys.stdin)))' "$1"; }
+  automation_list_empty() { ipc smoke itemTexts window vgs.automations AutomationRow | py_reply 'import json,sys; rows=json.load(sys.stdin); print(len(rows) == 0)'; }
+  automation_history_count() { automations_shot history "$1" --json | py_reply 'import json,sys; print(len(json.load(sys.stdin)["rows"]))'; }
+  # A control below the fold: its scroll area moves, as a wheel would,
+  # until it lies in view (the probe's revealText).
+  automation_reveal() { local at; at="$(ipc smoke revealText window vgs.automations "$1" "$2")" && [[ -n $at && $at != absent ]]; }
+  automation_click() { automation_reveal "$1" "$2" && click_in window:Automations window vgs.automations "$1" "$2"; }
+  automation_read() { ipc smoke readInstance window vgs.automations "$1"; }
+  local success='{"name":"Shot success","command":"echo success","notifyEveryRun":true,"schedule":{"frequency":"weekly","interval":1,"weekdays":["mon"],"times":["09:00"],"start":"2026-01-05","end":{"type":"never"}}}'
+  local failure='{"name":"Shot failure","command":"echo nope >&2; exit 3","notifyEveryRun":true,"schedule":{"frequency":"weekly","interval":1,"weekdays":["fri"],"times":["17:30"],"start":"2026-01-09","end":{"type":"never"}}}'
+  local custom='{"name":"Shot custom","command":"printf custom","notifyEveryRun":false,"schedule":{"frequency":"weekly","interval":3,"weekdays":["mon","wed"],"times":["08:30","16:45"],"start":"2026-01-05","end":{"type":"never"}}}'
+  automations_shot add --definition "$success" >/dev/null
+  automations_shot add --definition "$failure" >/dev/null
+  automations_shot add --definition "$custom" >/dev/null
+  expect "enabling vgs.automations is allowed" ok ipc shell setPluginEnabled vgs.automations true
+  expect_poll "vgs.automations is built" True record_exists vgs.automations
+  automation_active_count() { ipc vgs.automations invoke status "" | py_reply 'import json,sys; print(json.load(sys.stdin).get("active", "unset"))'; }
+  expect_poll "the service lists the seeded automations" 3 automation_active_count
+  expect "the automations window opens" ok ipc shell summon window vgs.automations '{}'
+  expect_poll "the automations window maps" 1 window_count Automations
+  expect_poll "the automations list shows Shot success" True automation_list_has "Shot success"
+  take "automations-$1-list"
+  click_in window:Automations window vgs.automations AutomationRow "Shot success" || fail "selecting the success automation failed"
+  auto_shot_preview_ready() { ipc smoke readInstance window vgs.automations previewFirst | py_reply 'import json,sys; print(str(json.load(sys.stdin)).isdigit())'; }
+  expect_poll "the preset preview has a first occurrence" True auto_shot_preview_ready
+  take "automations-$1-editor-preset-next"
+  automation_click Button "Test run" || fail "starting a test run from the editor failed"
+  expect_poll "the editor test run reaches history" 1 automation_history_count shot-success
+  auto_shot_transcript_ready() { ipc smoke readInstance window vgs.automations testTranscript | py_reply 'import json,sys; print(json.load(sys.stdin) != "")'; }
+  expect_poll "the editor shows the test run transcript" True auto_shot_transcript_ready
+  take "automations-$1-test-run-transcript"
+  automation_click IconButton "Back to automations" || fail "returning to the automations list failed"
+  click_in window:Automations window vgs.automations AutomationRow "Shot custom" || fail "selecting the custom automation failed"
+  expect_poll "the custom preview has a first occurrence" True auto_shot_preview_ready
+  take "automations-$1-editor-custom-next"
+  automation_click Radio On || fail "showing the end date field failed"
+  ipc smoke revealScopedText window vgs.automations Field Ends IconButton "Pick date" >/dev/null || fail "revealing the end date's picker failed"
+  click_scoped_in window:Automations window vgs.automations Field Ends IconButton "Pick date" || fail "opening the date picker failed"
+  automation_date_open() { ipc smoke itemValues window vgs.automations DateField pickerOpen | py_reply 'import json,sys; print(str(any(r["pickerOpen"] for r in json.load(sys.stdin))).lower())'; }
+  expect_poll "the date picker opens" true automation_date_open
+  take "automations-$1-date-picker"
+  type_keys -k Escape || fail "closing the date picker failed"
+  expect_poll "the date picker closes" false automation_date_open
+  automations_shot run-now shot-success >/dev/null
+  automations_shot run-now shot-failure >/dev/null
+  automation_click Label History || fail "opening history failed"
+  take "automations-$1-history"
+  automation_click Button "Clear history" || fail "asking to clear history failed"
+  expect_poll "the clear question shows" '"clear"' automation_read confirmAction
+  take "automations-$1-confirm-dialog"
+  click_in window:Automations window vgs.automations Button Confirm || fail "confirming history clear failed"
+  expect_poll "the history is cleared" 0 automation_history_count shot-success
+  take "automations-$1-history-empty-state"
+  automations_shot remove shot-success >/dev/null
+  automations_shot remove shot-failure >/dev/null
+  automations_shot remove shot-custom >/dev/null
+  expect "the Automations window hides before the empty shot" ok ipc shell hide window vgs.automations
+  expect_poll "the Automations window is hidden before the empty shot" 0 window_count Automations
+  expect "the empty Automations window opens" ok ipc shell summon window vgs.automations '{}'
+  expect_poll "the empty Automations window maps" 1 window_count Automations
+  expect_poll "the automations list is empty" True automation_list_empty
+  take "automations-$1-empty-state"
+  expect "enabling vgs.notifications is allowed" ok ipc shell setPluginEnabled vgs.notifications true
+  expect_poll "vgs.notifications is built" True record_exists vgs.notifications
+  notify Automations "Shot success finished" "Finished in 0 s" '["default", "Open"]' '{"x-vgs-icon": <"circle-check">, "x-vgs-tone": <"success">, "x-vgs-click": <"open">}' >/dev/null
+  notify Automations "Shot failure failed" "Exit code 3" '["default", "Open"]' '{"x-vgs-icon": <"circle-x">, "x-vgs-tone": <"danger">, "x-vgs-click": <"open">}' >/dev/null
+  expect_poll "automation notifications are on screen" 2 on_screen
+  take "automations-$1-notifications"
+  if [[ -e $auto_stub/saved/systemd-analyze ]]; then mv -f -- "$auto_stub/saved/systemd-analyze" "$shim/systemd-analyze"; else rm -f -- "$shim/systemd-analyze"; fi
+  automations_stand_ins_restore "$auto_stub"
+}
+
+for scene in "${scenes[@]}"; do
+  case $scene in
+    bar) need_setup launcher; need_setup panels; need_setup bar ;;
+    focus) need_setup settings ;;
+    narrow) for s in launcher panels bar devtools dialog notifications gallery; do need_setup "$s"; done
+      ! scene_ships lock || need_setup lock ;;
+    *) need_setup "$scene" ;;
+  esac
+done
+# What vsys's summary reads as in the warden's panel: one warning, as
+# rows/agent-warden.sh's stand-in answers.
+shots_vsys_line='vsys sees one thing worth a look on this computer.'
+for scene in "${setups[@]}"; do
+  case $scene in
+    gallery|manager|polkit|greeter|theme-browser|wallpaper-browser) ;;
+    capture)
+      expect "enabling Capture for its image is allowed" ok ipc shell setPluginEnabled vgs.capture true
+      expect "Capture is hidden from the baseline image" ok ipc shell setPluginPlaced vgs.capture false
+      expect_poll "Capture is built for its image" True record_exists vgs.capture ;;
+    bluetooth)
+      # The scene runs only once the fakes are up, the device guard reads
+      # the shell inside the sandbox and the system steps probe the fakes'
+      # system tree: enabling vgs.bluetooth starts those probes.
+      bluetooth_tree=""
+      if devices_ready bluetooth-shot && bluetooth_tree="$(devices_system_tree)"; then
+        bluetooth_shot_ready=true
+        expect "a nearby keyboard joins the mock" "$bluez_adapter_path/dev_00_1B_66_AA_BB_04" bluez add-device 00:1B:66:AA:BB:04 "Desk Keyboard"
+      else
+        fail "the Bluetooth shot is skipped: its fakes, the device guard or the fakes' system tree failed: ${bluetooth_tree:-unread}"
+      fi ;;
+    clipboard)
+      # Copies on the nested instance's own clipboard: wl-copy runs with
+      # the nested socket alone and keeps no stream of this run's.
+      command -v wl-copy >/dev/null && command -v wl-paste >/dev/null || fail "the clipboard image needs wl-copy and wl-paste"
+      clipboard_total() { ipc vgs.clipboard invoke rows '' | py_reply 'import json,sys; print(json.load(sys.stdin)["total"])'; }
+      clipboard_copy() { "${shell_env[@]}" wl-copy "$@" >/dev/null 2>&1 </dev/null; }
+      solid_png "$sandbox/shots-clipboard.png" 320 200 86 130 150 || fail "drawing the clipboard image's picture failed"
+      expect "enabling the clipboard history for its image is allowed" ok ipc shell setPluginEnabled vgs.clipboard true
+      expect_poll "the clipboard history is built for its image" True record_exists vgs.clipboard
+      expect_poll "the clipboard history's store is ready" '"ready"' ipc smoke readInstance service vgs.clipboard store
+      clipboard_before="$(clipboard_total)" || clipboard_before=0
+      clipboard_copy "Meeting notes: ship the release on Friday"
+      expect_poll "the first copy is recorded" "$((clipboard_before + 1))" clipboard_total
+      "${shell_env[@]}" wl-copy --type image/png >/dev/null 2>&1 <"$sandbox/shots-clipboard.png"
+      expect_poll "the picture is recorded" "$((clipboard_before + 2))" clipboard_total
+      clipboard_copy "https://example.org/docs/getting-started"
+      expect_poll "the link is recorded" "$((clipboard_before + 3))" clipboard_total
+      clipboard_copy "ssh deploy@staging.example.org"
+      expect_poll "the command line is recorded" "$((clipboard_before + 4))" clipboard_total
+      clipboard_copy "$(printf 'function greet(name) {\n    return "Hello, " + name + "!";\n}\n\nconsole.log(greet("world"));')"
+      expect_poll "the code is recorded" "$((clipboard_before + 5))" clipboard_total
+      clipboard_pin="$(ipc vgs.clipboard invoke rows 'Meeting notes' | py_reply 'import json,sys; print(json.load(sys.stdin)["rows"][0]["id"])')" || fail "the entry to pin is unreadable"
+      expect "the first copy is pinned" ok ipc vgs.clipboard invoke pin "$clipboard_pin" ;;
+    keyhints)
+      for id in vgs.launcher vgs.settings vgs.keyhints; do
+        expect "enabling $id for the Key Hints image is allowed" ok ipc shell setPluginEnabled "$id" true
+        expect_poll "$id is built for the Key Hints image" True record_exists "$id"
+      done ;;
+    bar)
+      # The gear, the Settings plugin's widget, and the themes widget: the
+      # sandbox starts vgs.themes enabled and unplaced, and enabling a
+      # plugin places its unplaced widget in its default section.
+      expect "enabling vgs.settings is allowed" ok ipc shell setPluginEnabled vgs.settings true
+      expect_poll "vgs.settings is built" True record_exists vgs.settings
+      expect "disabling vgs.themes is allowed" ok ipc shell setPluginEnabled vgs.themes false
+      expect "enabling vgs.themes places its widget" ok ipc shell setPluginEnabled vgs.themes true
+      expect_poll "the themes widget is in the bar" placed themes_widget_placed ;;
+    panels)
+      # The warden reads a fresh status from its runtime dir, with a vsys
+      # whose summary names one warning and a notify-send that sends
+      # nothing; the updates service reads the planted snapshot, checked
+      # now, so no check runs while it is younger than the interval.
+      printf '#!/usr/bin/env bash\nexit 0\n' >"$shim/notify-send"
+      cat >"$shim/vsys" <<'SH'
+#!/usr/bin/env bash
+[[ "$*" == "--once --summary" ]] || exit 0
+printf '%s\n' '{"schema": "vsys.summary.v1", "time": 1, "verdict": [{"cause": "memory-high", "level": "warn", "subject": "/agents.slice"}], "meters": [], "errors": []}'
+SH
+      chmod 755 "$shim/notify-send" "$shim/vsys"
+      mkdir -p -- "$warden_dir" "$home/.local/state/vgs/updates"
+      warden_put calm 0 >/dev/null || fail "writing the warden's calm status failed"
+      python3 - "$checkout/scripts/smoke/fixtures/updates-status.json" "$home/.local/state/vgs/updates/status.json" <<'PY2' || fail "planting the updates snapshot failed"
+import json, sys, time
+doc = json.load(open(sys.argv[1]))
+now = int(time.time() * 1000)
+doc["checkedAt"] = now
+for source in doc["sources"]:
+    source["checkedAt"] = now
+json.dump(doc, open(sys.argv[2], "w"))
+PY2
+      tree_rescan "the panels' stand-ins are scanned"
+      for id in vgs.agent-warden vgs.updates; do
+        expect "enabling $id is allowed" ok ipc shell setPluginEnabled "$id" true
+        expect_poll "$id is built" True record_exists "$id"
+      done
+      expect_poll "the updates service reads the planted snapshot" 6 updates_pending
+      expect "the updates service runs no check" False updates_checking
+      # The themes widget: the sandbox starts vgs.themes enabled and
+      # unplaced, and enabling a plugin places its unplaced widget.
+      expect "disabling vgs.themes is allowed" ok ipc shell setPluginEnabled vgs.themes false
+      expect "enabling vgs.themes places its widget" ok ipc shell setPluginEnabled vgs.themes true
+      expect_poll "the themes widget is in the bar" placed themes_widget_placed ;;
+    devtools)
+      devtools_stand_ins
+      tree_rescan "the Dev Tools stand-ins are scanned"
+      expect "enabling vgs.devtools is allowed" ok ipc shell setPluginEnabled vgs.devtools true
+      expect_poll "vgs.devtools is built" True record_exists vgs.devtools ;;
+    dialog)
+      mkdir -p "$home/.config/vgs/plugins/acme.needs"
+      cp -R -- "$fixtures/acme.needs/." "$home/.config/vgs/plugins/acme.needs/"
+      tree_rescan "the needs fixture is scanned"
+      expect_poll "the needs fixture is listed" True plugin_known acme.needs ;;
+    lock)
+      # The sleep hook and the idle watch stay off: no logind stand-in runs
+      # here, and an idle lock would cover the other scenes.
+      python3 - "$home/.config/vgs/shell.json" <<'PY'
+import json, os, sys
+path = sys.argv[1]
+config = json.load(open(path))
+rows = config.setdefault("plugins", [])
+row = next((r for r in rows if r.get("id") == "vgs.lock"), None)
+if row is None:
+    row = {"id": "vgs.lock"}
+    rows.append(row)
+row.update({"lockBeforeSleep": False, "idleLockSeconds": 0})
+with open(path + ".tmp", "w") as out:
+    json.dump(config, out)
+os.replace(path + ".tmp", path)
+PY
+      ;;
+    launcher|notifications)
+      # The notifications read the synthetic Slack's workspace list once,
+      # when they start, beside a stub libsecret that holds no token: the
+      # photo helper refuses any other secret-tool in the sandbox, and with
+      # the stub it builds the custom emoji from the synthetic cache alone.
+      if [[ $scene == notifications ]]; then
+        mkdir -p -- "$home/.config/Slack"
+        cp -R -- "$checkout/scripts/smoke/fixtures/slack/." "$home/.config/Slack/"
+        printf '#!/usr/bin/env bash\nexit 1\n' >"$shim/secret-tool"
+        chmod 755 "$shim/secret-tool"
+      fi
+      expect "enabling vgs.$scene is allowed" ok ipc shell setPluginEnabled "vgs.$scene" true
+      expect_poll "vgs.$scene is built" True record_exists "vgs.$scene" ;;
+    settings|plugin-pages)
+      # The Settings window lists the probe fixture, a plugin with many
+      # grouped settings, and the launcher, a plugin with a key; both
+      # enabled, so their pages are editable. Three more fixtures make the
+      # plugin list longer than the title menu's nine rows, so the menu
+      # scrolls.
+      for fixture in acme.probe acme.bare acme.idle acme.locker; do
+        mkdir -p "$home/.config/vgs/plugins/$fixture"
+        cp -R -- "$fixtures/$fixture/." "$home/.config/vgs/plugins/$fixture/"
+      done
+      # The notifications' page reads the synthetic Slack's workspace list
+      # and a stub libsecret, whose `<account> <state>` lines answer the
+      # token probe's search as libsecret's secret-tool does: acme's own
+      # token stored, globex's locked, the single-workspace one stored. A
+      # lookup finds no token, so the photo helper calls nothing.
+      mkdir -p -- "$home/.config/Slack"
+      cp -R -- "$checkout/scripts/smoke/fixtures/slack/." "$home/.config/Slack/"
+      # A tree with the setup steps of D061 holds globex's token absent, so
+      # its line offers Connect.
+      if "$has_setup_steps"; then globex_state=absent; else globex_state=locked; fi
+      printf '%s\n' "slack:T0ACME present" "slack:T0GLOBEX $globex_state" "slack present" >"$shim/secret-tool.states"
+      cat >"$shim/secret-tool" <<SH
+#!/usr/bin/env bash
+[[ \${1:-} == search && \${2:-} == service && \${3:-} == vgs-notifications && \${4:-} == account && \$# -eq 5 ]] || exit 1
+account="\$5" state=absent
+while read -r name answer; do [[ \$name == "\$account" ]] && state="\$answer"; done <"$shim/secret-tool.states"
+case "\$state" in
+  present) printf '[/1]\\nlabel = VGS notifications Slack token\\n'; printf 'attribute.service = vgs-notifications\\nattribute.account = %s\\n' "\$account" >&2 ;;
+  locked) printf '[/1]\\nlabel = VGS notifications Slack token\\n'; printf 'secret-tool: Cannot get secret of a locked object\\nattribute.service = vgs-notifications\\nattribute.account = %s\\n' "\$account" >&2 ;;
+esac
+SH
+      chmod 755 "$shim/secret-tool"
+      # The Slack token rows belong to the owner-only Slack photos extra
+      # (docs/decisions/D075-consumer-features-need-no-developer-setup.md),
+      # off by default: the plugins row turns it on, so the page shows the
+      # rows. A tree from before the extra passes the key on unread.
+      python3 - "$home/.config/vgs/shell.json" <<'PY'
+import json, os, sys
+path = sys.argv[1]
+config = json.load(open(path))
+rows = config.setdefault("plugins", [])
+row = next((r for r in rows if r.get("id") == "vgs.notifications"), None)
+if row is None:
+    row = {"id": "vgs.notifications"}
+    rows.append(row)
+row["slackPhotos"] = True
+with open(path + ".tmp", "w") as out:
+    json.dump(config, out)
+os.replace(path + ".tmp", path)
+PY
+      tree_rescan "the fixtures are scanned"
+      expect_poll "the probe fixture is listed" True plugin_known acme.probe
+      for id in acme.probe vgs.launcher vgs.notifications vgs.settings; do
+        expect "enabling $id is allowed" ok ipc shell setPluginEnabled "$id" true
+        expect_poll "$id is built" True record_exists "$id"
+      done
+      if "$has_setup_steps"; then
+        # The setup steps' pages: the status fixture, Automations over
+        # the harness's loginctl sentinel, which answers lingering off, and
+        # a systemctl stand-in that reaches no systemd, and Themes with the
+        # chromium target shipped, so a host with a Chromium-family browser
+        # and no writer offers its install.
+        mkdir -p "$home/.config/vgs/plugins/acme.status"
+        cp -R -- "$fixtures/acme.status/." "$home/.config/vgs/plugins/acme.status/"
+        printf '#!/usr/bin/env bash\nexit 0\n' >"$shim/systemctl"
+        chmod 755 "$shim/systemctl"
+        cp -R -- "$checkout/themes/targets/chromium" "$repo/themes/targets/chromium"
+        tree_rescan "the status fixture is scanned"
+        expect_poll "the status fixture is listed" True plugin_known acme.status
+        for id in acme.status vgs.automations vgs.agent-warden vgs.devtools; do
+          expect "enabling $id is allowed" ok ipc shell setPluginEnabled "$id" true
+          expect_poll "$id is built" True record_exists "$id"
+        done
+        # Dev Tools requires mise, which the shell finds absent, so enabling
+        # it raises the core's requirement notice; Escape closes it before
+        # any shot.
+        for _ in $(seq 1 25); do [[ $(notice_shown) != null ]] && break; sleep 0.2; done
+        if [[ $(notice_shown) != null ]]; then
+          type_keys -k Escape || fail "sending Escape to the requirement notice failed"
+          expect_poll "Escape closes the requirement notice" null notice_shown
+        fi
+        expect "the themes plugin is disabled to read the shipped target" ok ipc shell setPluginEnabled vgs.themes false
+        expect_poll "the themes service is gone" False record_exists vgs.themes
+        expect "the themes plugin is enabled with the target shipped" ok ipc shell setPluginEnabled vgs.themes true
+        expect_poll "the themes service is built" True record_exists vgs.themes
+      fi ;;
+  esac
+done
+
+# The first shot is the bare desktop; every later shot must differ from the
+# one before it, which is what proves grim reads the frame being drawn now.
+park_pointer
+take "00-desktop"
+for mode in "${mode_list[@]}"; do
+  set_mode "$mode"
+  for scene in "${scenes[@]}"; do "scene_$scene" "$mode"; done
+done
+
+# No scene may authenticate against the host user: harness.sh's sentinels
+# log any call, and a logged one fails the run (rows/auth-sentinel.sh).
+if [[ -s $auth_log ]]; then fail "a scene reached an authentication sentinel: $(tr '\n' ';' <"$auth_log")"; else ok "no scene reached an authentication sentinel"; fi
+echo "sandbox-shots: dir=$SHOT_DIR shots=$(wc -l <"$SHOT_DIR/shots.tsv" 2>/dev/null || echo 0) failures=$failures hidden=$(awk -F '\t' '$5 == "hidden"' "$SHOT_DIR/shots.tsv" 2>/dev/null | wc -l)"
+if [[ $failures -gt 0 && $failures -eq $undrawn ]]; then
+  printf 'sandbox-shots: status=not-measured nested-window=not-drawn\n'
+  exit 77
+fi
+[[ $failures -eq 0 ]] || exit 1

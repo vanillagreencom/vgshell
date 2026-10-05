@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 1,
+  "id": "vgs.agent-warden",
+  "name": "Agent Warden",
+  "version": "0.1.0",
+  "author": "VanillaGreen",
+  "description": "Keep your AI agents within their memory and process limits.",
+  "license": "MIT",
+  "icon": "shield-check",
+  "kinds": [
+    "bar-widget",
+    "panel",
+    "service"
+  ],
+  "entryPoints": {
+    "bar-widget": "Widget.qml",
+    "panel": "Panel.qml",
+    "service": "Service.qml"
+  },
+  "capabilities": [
+    "ipc",
+    "requirements",
+    "run",
+    "shortcut",
+    "status",
+    "surfaces",
+    "toasts",
+    "tui"
+  ],
+  "defaultSection": "right",
+  "settings": {
+    "showCount": true,
+    "hideWhenIdle": false,
+    "notify": "problems"
+  },
+  "schema": {
+    "showCount": {
+      "type": "boolean",
+      "label": "Show count",
+      "description": "Show the number of running agents or problems beside the shield",
+      "group": "Display"
+    },
+    "hideWhenIdle": {
+      "type": "boolean",
+      "label": "Hide when idle",
+      "description": "Hide the shield when no agents run and no problems need attention",
+      "group": "Display"
+    },
+    "notify": {
+      "type": "enum",
+      "label": "Notifications",
+      "description": "Choose alerts for problems, all events or none",
+      "options": ["problems", "everything", "off"],
+      "group": "Notifications"
+    }
+  },
+  "requirements": [
+    { "command": "vsys", "packages": { "aur": "vsys" }, "optional": false, "purpose": "Shows your agents and provides Agent Warden" },
+    { "command": "systemctl", "optional": false, "purpose": "Restarts Agent Warden checks", "packages": { "pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd" } },
+    { "command": "notify-send", "packages": { "pacman": "libnotify", "dnf": "libnotify", "nix": "libnotify" }, "optional": false, "purpose": "Sends Agent Warden alerts" }
+  ],
+  "status": {
+    "warden": {
+      "type": "state",
+      "label": "Warden",
+      "hint": "Checks whether AI agents stay within their memory and process limits",
+      "action": { "label": "Set up", "tui": "setup" },
+      "command": "vsys warden install"
+    },
+    "agents": {
+      "type": "count",
+      "label": "Agents running"
+    },
+    "lastCheck": {
+      "type": "time",
+      "label": "Last check"
+    },
+    "detail": {
+      "type": "data",
+      "label": "Detail"
+    }
+  },
+  "hyprland": {
+    "binds": [
+      { "shortcut": "toggle", "key": "SUPER+CTRL+Y" }
+    ]
+  },
+  "tui": {
+    "vsys": {
+      "script": "tui/vsys.sh",
+      "title": "vsys",
+      "size": "wide",
+      "presentation": "plain"
+    },
+    "setup": {
+      "script": "tui/setup.sh",
+      "title": "Set up Agent Warden"
+    }
+  }
+}

@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "id": "vgs.lock",
+  "name": "Lock",
+  "version": "0.1.0",
+  "author": "VanillaGreen",
+  "description": "Lock your screen.",
+  "license": "MIT",
+  "icon": "lock",
+  "kinds": [
+    "service"
+  ],
+  "entryPoints": {
+    "service": "Service.qml"
+  },
+  "capabilities": [
+    "idle",
+    "ipc",
+    "lock",
+    "requirements",
+    "session",
+    "shortcut",
+    "status",
+    "toasts"
+  ],
+  "settings": {
+    "idleLockSeconds": 300,
+    "lockBeforeSleep": true
+  },
+  "schema": {
+    "idleLockSeconds": {
+      "type": "number",
+      "label": "Lock when inactive",
+      "description": "Time without input before the session locks",
+      "min": 0,
+      "max": 86400,
+      "step": 30,
+      "unit": "seconds",
+      "allowCustom": true,
+      "presets": [
+        { "value": 0, "label": "Never" },
+        { "value": 60 },
+        { "value": 120 },
+        { "value": 300 },
+        { "value": 600 },
+        { "value": 900 },
+        { "value": 1800 },
+        { "value": 3600 }
+      ],
+      "group": "Lock"
+    },
+    "lockBeforeSleep": {
+      "type": "boolean",
+      "label": "Lock before sleep",
+      "description": "Lock the session before the computer sleeps",
+      "group": "Lock"
+    }
+  },
+  "status": {
+    "lock": {
+      "type": "state",
+      "label": "Lock",
+      "hint": "Another lock screen can prevent VGS from locking the session"
+    },
+    "sleep": {
+      "type": "state",
+      "label": "Before sleep",
+      "hint": "The computer waits for the lock before it sleeps"
+    },
+    "lastSleep": {
+      "type": "state",
+      "label": "Last sleep",
+      "hint": "Whether the session locked before the computer last slept"
+    }
+  },
+  "requirements": [
+    { "command": "systemd-inhibit", "packages": { "pacman": "systemd", "apt": "systemd", "nix": "systemd", "dnf": "systemd" }, "optional": false, "purpose": "Delays sleep while the session locks" },
+    { "command": "dbus-monitor", "packages": { "pacman": "dbus", "apt": "dbus-bin", "nix": "dbus", "dnf": "dbus-tools" }, "optional": false, "purpose": "Detects when the computer is about to sleep" },
+    { "command": "busctl", "packages": { "pacman": "systemd", "apt": "systemd", "nix": "systemd", "dnf": "systemd" }, "optional": false, "purpose": "Checks how long the computer can wait for the lock" },
+    { "command": "readlink", "packages": { "pacman": "coreutils", "apt": "coreutils", "nix": "coreutils", "dnf": "coreutils" }, "optional": false, "purpose": "Finds the theme's background image for the lock screen" }
+  ],
+  "hyprland": {
+    "binds": [
+      {
+        "shortcut": "lock",
+        "key": "SUPER+DELETE"
+      }
+    ]
+  }
+}

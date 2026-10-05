@@ -1,0 +1,909 @@
+import QtQuick
+import qs.Commons
+import qs.Ui
+
+// The gallery: every component in every variant and state, in a scrolling
+// window, so a theme author sees a whole theme at once. It is built only
+// while summoned. It composes Pane as every window does: the title in h3
+// with its line under it, then one Section per group, each a SectionHeader
+// followed by blocks `stack.group` apart. Controls side by side sit
+// `stack.inline` apart, and controls of different heights centre on one
+// line inside the group that wraps; the validation row reads every
+// component of the module back from `examples`.
+Item {
+    id: root
+
+    property var shell: null
+    property var payload: ({})
+    // The root of every example, for the row that checks each component of
+    // the module is drawn here.
+    readonly property Item examples: root
+    property Item initialFocus: layout.scrollArea.focusProxy
+
+    KeyNav {}
+
+    function open(payloadJson) { payload = payloadJson ? JSON.parse(payloadJson) : {}; }
+    function close() {}
+    function toast() { shell.toasts.show({ title: "Saved", message: "The theme was saved", tone: "success", icon: "check" }); return "ok"; }
+
+    implicitWidth: Theme.size.panel.lg
+    implicitHeight: Theme.size.panel.maxHeight
+
+    Surface {
+        anchors.fill: parent
+    }
+
+    Pane {
+        id: layout
+        anchors.fill: parent
+        container: "window"
+        Component.onCompleted: scrollArea.keyboardScroll = true
+
+        header: [
+            Column {
+                width: layout.contentWidth
+                spacing: Theme.row.lineGap
+                Label { role: "h3"; text: "VGS Components" }
+                Label { role: "hint"; color: Theme.color.textMuted; text: "Preview controls with the " + Theme.name + " theme."; width: parent.width; wrapMode: Text.Wrap }
+            }
+        ]
+
+            Column {
+
+                id: sections
+                width: layout.contentWidth
+                spacing: Theme.stack.group
+
+
+                Section {
+                    title: "Surfaces"
+                    description: "Panel background levels"
+                Flow {
+                    width: parent.width
+                    spacing: Theme.stack.inline
+                    Repeater {
+                        model: ["base", "raised", "sunken"]
+                        Surface {
+                            required property string modelData
+                            level: modelData
+                            width: Theme.size.panel.sm / 2
+                            height: Theme.size.panel.sm / 4
+                            Label { role: "label"; text: parent.modelData; anchors.centerIn: parent }
+                        }
+                    }
+                }
+
+                }
+                Section {
+                    title: "Typography"
+                    rowSpacing: Theme.stack.group
+                    description: "Text roles, sizes and label-value pairs"
+                Column {
+                    spacing: Theme.space.xxs
+                    Repeater {
+                        model: Object.keys(Theme.text)
+                        Label { required property string modelData; role: modelData; text: modelData + " " + Theme.text[modelData].size }
+                    }
+                }
+                Column {
+                    width: parent.width
+                    spacing: Theme.stack.row
+                    Field { label: "Agents running"; inline: true; width: parent.width; Label { role: "value"; text: "3"; width: parent.width; elide: Text.ElideRight } }
+                    Field { label: "Last check"; inline: true; width: parent.width; Label { role: "value"; text: "9/30/26 3:57 PM"; width: parent.width; elide: Text.ElideRight } }
+                    Field { label: "Warden"; inline: true; width: parent.width; Badge { text: "Within limits"; tone: "success" } }
+                }
+                ImageText {
+                    width: parent.width
+                    maximumLineCount: 2
+                    segments: [
+                        { markup: "An image sits in the line at the text's height " },
+                        { image: Qt.resolvedUrl("sample-emoji.png"), alt: ":sample:" },
+                        { markup: " and a text too long for its lines ends at a whole word or image." }
+                    ]
+                }
+
+                }
+                Section {
+                    title: "Buttons"
+                    rowSpacing: Theme.stack.group
+                    description: "Five variants, three sizes, checked and disabled"
+                Flow {
+                    width: parent.width
+                    spacing: Theme.stack.inline
+                    Repeater {
+                        model: ["primary", "secondary", "tertiary", "ghost", "danger"]
+                        Button { required property string modelData; variant: modelData; text: modelData; iconName: "arrow-right" }
+                    }
+                }
+                // The sizes, centred on one line inside a group that wraps.
+                Flow {
+                    width: parent.width
+                    spacing: Theme.stack.inline
+                    Row {
+                        spacing: Theme.stack.inline
+                        Button { text: "Small"; size: "sm"; variant: "secondary"; anchors.verticalCenter: parent.verticalCenter }
+                        Button { text: "Medium"; variant: "secondary"; anchors.verticalCenter: parent.verticalCenter }
+                        Button { text: "Large"; size: "lg"; variant: "secondary"; anchors.verticalCenter: parent.verticalCenter }
+                    }
+                    Row {
+                        spacing: Theme.stack.inline
+                        ToggleButton { text: "Pinned"; checked: true }
+                        Button { text: "Disabled"; enabled: false }
+                    }
+                }
+                // The bar's items: an icon alone, an icon with a count in
+                // its tone, and workspace pills, the first focused.
+                Rectangle {
+                    width: parent.width
+                    height: Theme.bar.height
+                    color: Theme.bar.background
+                    Row {
+                        x: Theme.bar.padding
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: Theme.bar.item.gap
+                        BarItem { text: "1"; active: true }
+                        BarItem { text: "2" }
+                        BarItem { iconName: "settings"; label: "Settings" }
+                        BarItem { iconName: "shield-alert"; count: "2"; tone: Theme.color.warning; label: "Agent Warden" }
+                        BarItem { iconName: "refresh-cw"; spinning: true; label: "Updates" }
+                    }
+                }
+                Column {
+                    width: parent.width
+                    spacing: Theme.stack.row
+                    Field { label: "Rest"; inline: true; width: parent.width; IconButton { iconName: "settings"; label: "Settings" } }
+                    Field { label: "Pressed"; inline: true; width: parent.width; IconButton { iconName: "mouse-pointer-click"; label: "Pressed"; down: true } }
+                    Field { label: "Checked"; inline: true; width: parent.width; IconButton { iconName: "check"; label: "Checked"; checkable: true; checked: true } }
+                    Field { label: "Disabled"; inline: true; width: parent.width; IconButton { iconName: "ban"; label: "Disabled"; enabled: false } }
+                    Field { label: "Danger"; inline: true; width: parent.width; IconButton { iconName: "x"; label: "Close"; variant: "danger" } }
+                }
+
+                }
+                Section {
+                    title: "Choices"
+                    rowSpacing: Theme.stack.group
+                    description: "Switch, checkbox, radio, segments and select"
+                Column {
+                    width: parent.width
+                    spacing: Theme.stack.row
+                    Field { label: "Small off"; inline: true; width: parent.width; Switch { size: "sm"; text: "Off" } }
+                    Field { label: "Small on"; inline: true; width: parent.width; Switch { size: "sm"; text: "On"; checked: true } }
+                    Field { label: "Small disabled"; inline: true; width: parent.width; Switch { size: "sm"; text: "Disabled"; checked: true; enabled: false } }
+                    Field { label: "Medium off"; inline: true; width: parent.width; Switch { size: "md"; text: "Off" } }
+                    Field { label: "Medium on"; inline: true; width: parent.width; Switch { size: "md"; text: "On"; checked: true } }
+                    Field { label: "Medium disabled"; inline: true; width: parent.width; Switch { size: "md"; text: "Disabled"; checked: true; enabled: false } }
+                }
+                Flow {
+                    width: parent.width
+                    spacing: Theme.stack.inline
+                    Checkbox { text: "Unchecked" }
+                    Checkbox { text: "Checked"; checked: true }
+                    Checkbox { text: "Disabled"; checked: true; enabled: false }
+                    Column {
+                        Radio { text: "One"; checked: true }
+                        Radio { text: "Two" }
+                        Radio { text: "Disabled"; enabled: false }
+                    }
+                }
+                Flow {
+                    width: parent.width
+                    spacing: Theme.stack.inline
+                    SegmentedControl { model: ["Day", "Week", "Month"]; currentIndex: 1 }
+                    Select { model: ["Default", "Ocean", "Forest"] }
+                    Select { model: ["Disabled"]; enabled: false }
+                }
+
+                }
+                Section {
+                    title: "Inputs"
+                    rowSpacing: Theme.stack.group
+                    description: "Text fields, actions, errors and hints"
+                Flow {
+                    width: parent.width
+                    spacing: Theme.stack.inline
+                    TextField { placeholderText: "Search plugins"; leadingIcon: "search" }
+                    TextField { id: named; text: "acme.weather"; trailingIcon: "package"; actions: [ IconButton { iconName: "x"; label: "Clear"; size: "sm"; onClicked: named.clear() } ] }
+                    TextField { text: "taken"; error: true }
+                    TextField { text: "read only"; readOnly: true; enabled: false }
+                }
+                Field { label: "Display name"; hint: "Shown in the bar"; width: parent.width; TextField { width: parent.width; placeholderText: "Weather" } }
+                Field { label: "Format"; error: "Not a Qt date format"; inline: true; width: parent.width; TextField { width: parent.width; text: "HH:mm:" } }
+                Column {
+                    width: parent.width
+                    spacing: Theme.stack.row
+                    Field { label: "Switch"; inline: true; width: parent.width; Switch { size: "sm"; checked: true } }
+                    Field { label: "Text"; inline: true; width: parent.width; Label { role: "value"; text: "Inline value"; width: parent.width; elide: Text.ElideRight } }
+                    Field { label: "Badge"; inline: true; width: parent.width; Badge { text: "synced"; tone: "success" } }
+                    Field { label: "Button"; inline: true; width: parent.width; Button { text: "Open"; size: "sm"; variant: "secondary" } }
+                    Field { label: "Select"; inline: true; hint: "Hints start under the value column."; width: parent.width; Select { width: parent.width; model: ["Default", "Ocean", "Forest"] } }
+                }
+                Column {
+                    width: parent.width
+                    spacing: Theme.stack.row
+                    FormRow { label: "Natural scroll"; width: parent.width; Switch { size: "sm"; checked: true } }
+                    FormRow { label: "Pointer speed"; warning: "Overridden"; width: parent.width; Slider { from: 0; to: 100; value: 40; width: parent.width } }
+                }
+                Field { label: "Command"; hint: "Multi-line command text"; width: parent.width; TextArea { width: parent.width; text: "echo hello\nprintf '%s\\n' done" } }
+                Field { label: "Date"; hint: "A keyboard picker"; width: parent.width; DateField { date: "2026-01-05" } }
+                Field { label: "Time"; hint: "Use Up and Down to change the minutes"; width: parent.width; TimeField { text: "09:00" } }
+                Field { label: "Folder"; hint: "A directory picker"; width: parent.width; PathField { path: "" } }
+                Field { label: "Shortcut"; hint: "Key caps and a typed combo; the Settings Keys rows also capture pressed keys"; width: parent.width; ShortcutField { id: shortcutSample; width: parent.width; key: "SUPER+SPACE"; onTyped: text => shortcutSample.key = text.toUpperCase(); onCleared: shortcutSample.key = "" } }
+                BindField { id: bindSample; width: parent.width; hint: "A plugin bind: what it does beside its key"; bind: ({ shortcut: "toggle", key: "SUPER+SPACE", default: "SUPER+SPACE", description: "Open or close the launcher" }); onApplyKey: key => bindSample.bind = Object.assign({}, bindSample.bind, { key: key === null ? null : key.toUpperCase() }) }
+                Field { label: "Weekdays"; hint: "Choose the days for a schedule"; width: parent.width; WeekdayChipGroup { selected: ["mon", "wed", "fri"] } }
+                Field { label: "Times"; hint: "Sorted time chips"; width: parent.width; TimeChipList { width: parent.width; times: ["09:00", "17:30"] } }
+                Slider { from: 0; to: 100; value: 40; width: parent.width }
+                Slider { from: 0; to: 100; value: 70; width: parent.width; enabled: false }
+
+                }
+                Section {
+                    title: "Groups"
+                    description: "Status rows with hints and setup buttons"
+                GroupList {
+                    id: groups
+                    width: parent.width
+                    Column {
+                        width: groups.width
+                        spacing: Theme.field.gap
+                        Field { id: wardenRow; label: "Warden"; inline: true; hint: "Checks whether AI agents stay within their memory and process limits"; width: parent.width; Badge { text: "Within limits"; tone: "success" } }
+                        CommandDisclosure { x: wardenRow.valueX; width: parent.width - x; command: "systemctl --user start agent-warden.timer" }
+                    }
+                    Field { label: "Agents running"; inline: true; width: groups.width; Label { role: "value"; text: "3"; width: parent.width; elide: Text.ElideRight } }
+                    Field { label: "Last check"; inline: true; width: groups.width; Label { role: "value"; text: "9/30/26 3:57 PM"; width: parent.width; elide: Text.ElideRight } }
+                    Column {
+                        width: groups.width
+                        spacing: Theme.field.gap
+                        Field { id: vsysRow; label: "Agent dashboard"; inline: true; hint: "vsys shows your agents and provides Agent Warden"; width: parent.width; Badge { text: "Not installed"; tone: "warning" } }
+                        Button { x: vsysRow.valueX; text: "Install vsys"; iconName: "wrench"; variant: "primary"; size: "sm" }
+                    }
+                }
+
+                }
+                Section {
+                    title: "Feedback"
+                    rowSpacing: Theme.stack.group
+                    description: "Progress, badges, keys, copyable text and empty results"
+                Flow {
+                    width: parent.width
+                    spacing: Theme.stack.inline
+                    Spinner {}
+                    ProgressBar { value: 0.6 }
+                    ProgressBar { indeterminate: true }
+                }
+                Flow {
+                    width: parent.width
+                    spacing: Theme.stack.inline
+                    LevelOsd { iconName: "volume-2"; level: 0.45 }
+                    LevelOsd { iconName: "volume-x"; level: 0; text: "Muted" }
+                    LevelOsd { iconName: "sun"; level: 0.8; text: "Studio Display" }
+                }
+                Column {
+                    width: Math.min(parent.width, Theme.size.panel.md)
+                    spacing: Theme.stack.inline
+                    LevelSlider { width: parent.width; iconName: "volume-2"; buttonLabel: "Mute output"; value: 0.6; stepSize: 0.05 }
+                    LevelSlider { width: parent.width; iconName: "volume-x"; buttonLabel: "Unmute output"; value: 0.6; stepSize: 0.05; text: "Muted" }
+                }
+                Flow {
+                    width: parent.width
+                    spacing: Theme.stack.inline
+                    Repeater {
+                        model: [1, 2, 3, 4, 7]
+                        AvatarGroup {
+                            required property int modelData
+                            readonly property var everyone: [
+                                { image: "", initials: "AL", tint: Theme.color.accent },
+                                { image: "", initials: "GH", tint: Theme.color.info },
+                                { image: "", initials: "AT", tint: Theme.color.success },
+                                { image: "", initials: "ED", tint: Theme.color.warning }
+                            ]
+                            people: everyone.slice(0, Math.min(modelData, everyone.length))
+                            more: Math.max(0, modelData - everyone.length)
+                        }
+                    }
+                }
+                Column {
+                    width: parent.width
+                    spacing: Theme.stack.row
+                    Field { label: "Badge sm"; inline: true; width: parent.width; Flow { width: parent.width; spacing: Theme.stack.inline; Repeater { model: ["neutral", "accent", "success", "warning", "danger", "info"]; Badge { required property string modelData; tone: modelData; text: modelData; size: "sm" } } } }
+                    Field { label: "Badge sm icon"; inline: true; width: parent.width; Flow { width: parent.width; spacing: Theme.stack.inline; Repeater { model: ["neutral", "accent", "success", "warning", "danger", "info"]; Badge { required property string modelData; tone: modelData; text: modelData; size: "sm"; iconName: "circle" } } } }
+                    Field { label: "Badge md"; inline: true; width: parent.width; Flow { width: parent.width; spacing: Theme.stack.inline; Repeater { model: ["neutral", "accent", "success", "warning", "danger", "info"]; Badge { required property string modelData; tone: modelData; text: modelData; size: "md" } } } }
+                    Field { label: "Badge md icon"; inline: true; width: parent.width; Flow { width: parent.width; spacing: Theme.stack.inline; Repeater { model: ["neutral", "accent", "success", "warning", "danger", "info"]; Badge { required property string modelData; tone: modelData; text: modelData; size: "md"; iconName: "circle" } } } }
+                    Field {
+                        label: "Keycap"
+                        inline: true
+                        width: parent.width
+                        Flow {
+                            width: parent.width
+                            spacing: Theme.stack.inline
+                            Kbd { text: "S" }
+                            Kbd { text: "Enter" }
+                            Row {
+                                spacing: Theme.space.xs
+                                Kbd { text: "Ctrl" }
+                                Kbd { text: "K" }
+                            }
+                            KeyCaps { shortcut: "SUPER+SHIFT+T" }
+                        }
+                    }
+                }
+                CodeLine { width: parent.width; text: "~/.config/vgs/shell.json"; copyLabel: "Copy the path" }
+                CommandDisclosure { width: parent.width; command: "vgsh plugin enable vgs.agent-warden" }
+                EmptyState { width: parent.width; iconName: "search-x"; text: "No plugin matches \"zzqx\""; actionText: "Clear search" }
+                Flow {
+                    width: parent.width
+                    spacing: Theme.stack.inline
+                    Button { text: "Show a toast"; variant: "tertiary"; iconName: "bell"; onClicked: root.toast() }
+                    Button {
+                        text: "Open a popover"
+                        variant: "tertiary"
+                        iconName: "panel-top"
+                        onClicked: popover.toggle()
+                        Popover {
+                            id: popover
+                            width: Theme.size.panel.sm
+                            Column {
+                                width: parent.width
+                                spacing: Theme.row.lineGap
+                                Label { role: "bodyStrong"; text: "A popover" }
+                                Label { role: "hint"; text: "This opens below the button." }
+                            }
+                        }
+                        Tooltip { text: "Opens a popover under this button" }
+                    }
+                    Button { text: "Open a menu"; variant: "tertiary"; iconName: "menu"; onClicked: menu.toggle()
+                        Menu { id: menu
+                            MenuItem { text: "Rescan plugins"; iconName: "refresh-cw"; shortcut: "R" }
+                            MenuItem { text: "Open settings"; iconName: "settings" }
+                            MenuItem { text: "Quit"; iconName: "power"; enabled: false }
+                        }
+                    }
+                }
+                Toast { title: "Update available"; message: "io.github.example.deck is 42 commits behind"; tone: "info"; iconName: "download"; width: parent.width }
+
+                }
+                Section {
+                    title: "Voice levels"
+                    description: "Animated rings with sample audio levels"
+                    headerInset: 0
+                    Flow {
+                        width: parent.width
+                        spacing: Theme.space.sm
+                        Repeater {
+                            model: ["accent", "info", "success", "warning", "danger", "muted"]
+                            Column {
+                                required property string modelData
+                                spacing: Theme.space.xs
+                                VoiceOrb { tone: parent.modelData; active: true; level: 0.6; secondaryLevel: 0.3 }
+                                Label { role: "label"; text: parent.modelData }
+                            }
+                        }
+                    }
+                    Flow {
+                        width: parent.width
+                        spacing: Theme.space.sm
+                        Column {
+                            spacing: Theme.space.xs
+                            VoiceOrb { active: false }
+                            Label { role: "label"; text: "Inactive" }
+                        }
+                        Column {
+                            spacing: Theme.space.xs
+                            VoiceOrb { active: true; level: 1; secondaryLevel: 1 }
+                            Label { role: "label"; text: "Full levels" }
+                        }
+                        Column {
+                            spacing: Theme.space.xs
+                            VoiceOrb { active: true; level: orbLevel.value; secondaryLevel: 1 - orbLevel.value }
+                            Label { role: "label"; text: "Adjust levels" }
+                        }
+                    }
+                    Slider { id: orbLevel; from: 0; to: 1; value: 0.4; width: parent.width }
+                    Label { role: "hint"; text: "These samples use no microphone input."; width: parent.width; wrapMode: Text.Wrap }
+                }
+                Section {
+                    title: "Dialogs"
+                    rowSpacing: Theme.stack.group
+                    description: "Confirmations, progress and disabled actions"
+                Dialog {
+                    modal: false
+                    title: "Download wallpapers for Nord?"
+                    message: "12 wallpapers, 42 MB, from vanillagreencom/vgs-themes."
+                    actions: [{ label: "Not now", role: "cancel" }, { label: "Download", role: "accept" }]
+                }
+                Dialog {
+                    modal: false
+                    title: "Remove acme.weather?"
+                    message: "Your settings are kept."
+                    actions: [{ label: "Cancel", role: "cancel" }, { label: "Remove", role: "accept", variant: "danger" }]
+                }
+                Dialog {
+                    modal: false
+                    title: "Downloading wallpapers for Nord"
+                    message: "The theme applies again when the download ends."
+                    busy: true
+                    actions: [{ label: "Not now", role: "cancel" }, { label: "Download", role: "accept" }]
+                }
+                Dialog {
+                    modal: false
+                    title: "Install what acme.weather needs?"
+                    message: "VGS cannot install these tools on this system."
+                    actions: [{ label: "Not now", role: "cancel" }, { label: "Install", role: "accept", enabled: false }]
+                    Label { role: "itemCode"; text: "gum" }
+                    Label { role: "itemCode"; text: "xdg-terminal-exec" }
+                }
+
+                }
+                Section {
+                    title: "Cards"
+                    rowSpacing: Theme.stack.group
+                    description: "Selected and unselected cards"
+                Item {
+                    width: parent.width
+                    height: Theme.size.panel.sm / 2
+
+                    Scrim {}
+                    Row {
+                        anchors.centerIn: parent
+                        spacing: Theme.stack.inline
+                        Repeater {
+                            model: ["info", "success", "warning"]
+                            AngledCard {
+                                id: card
+                                required property string modelData
+                                required property int index
+                                width: Theme.size.panel.sm / 2
+                                height: Theme.size.panel.sm / 2 - 2 * Theme.space.md
+                                selected: index === 1
+                                Rectangle { anchors.fill: parent; color: Theme.color[card.modelData] }
+                            }
+                        }
+                    }
+                }
+
+                }
+                Section {
+                    title: "QR matrix"
+                    description: "A public sample matrix drawn with integer modules."
+                    QrMatrix { matrixData: "11111\n10001\n10101\n10001\n11111\n" }
+                }
+                Section {
+                    title: "Carousel"
+                    rowSpacing: Theme.stack.group
+                    description: "Click a card or scroll to change the selection."
+                CardCarousel {
+                    width: parent.width
+                    height: Theme.carousel.expandedHeight * Theme.carousel.minScale
+                    model: ["info", "success", "warning", "danger", "info", "success", "warning", "danger", "info"]
+                    currentIndex: 4
+                    tabSteps: false
+                    delegate: Rectangle {
+                        required property var modelData
+                        required property size decodeSize
+                        anchors.fill: parent
+                        color: Theme.color[modelData]
+                    }
+                }
+
+                }
+                Section {
+                    title: "Focus"
+                    rowSpacing: Theme.stack.group
+                    description: "Focusable controls drawn with their keyboard focus state"
+                Column {
+                    width: parent.width
+                    spacing: Theme.stack.row
+                    Field {
+                        label: "Buttons"
+                        inline: true
+                        width: parent.width
+                        Flow {
+                            width: parent.width
+                            spacing: Theme.stack.inline
+                            Repeater {
+                                model: ["primary", "secondary", "tertiary", "ghost", "danger"]
+                                Button {
+                                    required property string modelData
+                                    property string focusExample: "Button " + modelData
+                                    focusPreview: true
+                                    variant: modelData
+                                    text: modelData
+                                }
+                            }
+                            ToggleButton {
+                                property string focusExample: "ToggleButton"
+                                focusPreview: true
+                                text: "Pinned"
+                                checked: true
+                            }
+                            IconButton {
+                                property string focusExample: "IconButton"
+                                focusPreview: true
+                                iconName: "settings"
+                                label: "Settings"
+                            }
+                        }
+                    }
+                    Field {
+                        label: "Bar item"
+                        inline: true
+                        width: parent.width
+                        Rectangle {
+                            width: Math.min(parent.width, Theme.size.panel.sm)
+                            height: Theme.bar.height
+                            color: Theme.bar.background
+                            BarItem {
+                                property string focusExample: "BarItem"
+                                focusPreview: true
+                                anchors.verticalCenter: parent.verticalCenter
+                                iconName: "settings"
+                                label: "Settings"
+                                shortcut: "SUPER+M"
+                            }
+                        }
+                    }
+                    Field {
+                        label: "Choices"
+                        inline: true
+                        width: parent.width
+                        Flow {
+                            width: parent.width
+                            spacing: Theme.stack.inline
+                            Switch {
+                                property string focusExample: "Switch"
+                                focusPreview: true
+                                text: "Switch"
+                                checked: true
+                            }
+                            Checkbox {
+                                property string focusExample: "Checkbox"
+                                focusPreview: true
+                                text: "Checkbox"
+                                checked: true
+                            }
+                            Radio {
+                                property string focusExample: "Radio"
+                                focusPreview: true
+                                text: "Radio"
+                                checked: true
+                            }
+                            SegmentedControl {
+                                property string focusExample: "SegmentedControl"
+                                focusPreview: true
+                                model: ["One", "Two", "Three"]
+                                currentIndex: 1
+                            }
+                        }
+                    }
+                    Field {
+                        label: "Inputs"
+                        inline: true
+                        width: parent.width
+                        Flow {
+                            width: parent.width
+                            spacing: Theme.stack.inline
+                            Select {
+                                property string focusExample: "Select"
+                                property bool focusPreview: true
+                                model: ["Default", "Ocean", "Forest"]
+                            }
+                            TextField {
+                                property string focusExample: "TextField"
+                                property bool focusPreview: true
+                                text: "Focused text"
+                            }
+                            ShortcutField {
+                                property string focusExample: "ShortcutField"
+                                focusPreview: true
+                                width: Theme.size.panel.sm / 2
+                                key: "SUPER+SPACE"
+                            }
+                            Slider {
+                                property string focusExample: "Slider"
+                                focusPreview: true
+                                from: 0
+                                to: 100
+                                value: 55
+                                width: Theme.size.panel.sm / 2
+                            }
+                            TitleButton {
+                                property string focusExample: "TitleButton"
+                                property bool focusPreview: true
+                                text: "Focused title"
+                                menu: Menu { MenuItem { text: "Focused title" } }
+                            }
+                        }
+                    }
+                    Field {
+                        label: "Tabs and rows"
+                        inline: true
+                        width: parent.width
+                        Column {
+                            width: parent.width
+                            spacing: Theme.stack.row
+                            Tabs {
+                                property string focusExample: "Tabs"
+                                property bool focusPreview: true
+                                width: parent.width
+                                model: ["Installed", "Available", "Updates"]
+                                currentIndex: 1
+                            }
+                            Disclosure {
+                                property string focusExample: "Disclosure"
+                                width: parent.width
+                                text: "Focused disclosure"
+                                secondary: "Expanded"
+                                iconName: "package"
+                                expanded: true
+                                Label { role: "hint"; text: "The disclosure row is the focusable control." }
+                            }
+                            DeviceRow {
+                                property string focusExample: "DeviceRow"
+                                width: parent.width
+                                text: "Focused device"
+                                secondary: "Connected"
+                                iconName: "bluetooth"
+                                battery: 0.5
+                                menuEntries: [ MenuItem { text: "Forget" } ]
+                            }
+                        }
+                    }
+                    Field {
+                        label: "Carousel"
+                        inline: true
+                        width: parent.width
+                        CardCarousel {
+                            property string focusExample: "CardCarousel"
+                            width: parent.width
+                            height: Theme.carousel.expandedHeight * Theme.carousel.minScale
+                            model: ["accent", "info", "success", "warning", "danger"]
+                            currentIndex: 2
+                            tabSteps: false
+                            delegate: Rectangle {
+                                required property var modelData
+                                required property size decodeSize
+                                anchors.fill: parent
+                                color: Theme.color[modelData]
+                            }
+                        }
+                    }
+                    Field {
+                        label: "Key navigation"
+                        inline: true
+                        width: parent.width
+                        Column {
+                            width: parent.width
+                            spacing: Theme.stack.row
+                            KeyCaps {
+                                property string focusExample: "KeyCaps"
+                                shortcut: "SUPER+SHIFT+T"
+                            }
+                            KeyHints {
+                                hints: [
+                                    { key: "Left/Right", text: "Move" },
+                                    { key: "Enter", text: "Open" }
+                                ]
+                            }
+                            // focus-indicator: ListCursor shows the current row
+                            Item {
+                                id: focusList
+                                property string focusExample: "KeyNav list"
+                                property int current: 0
+                                width: parent.width
+                                height: focusListColumn.height
+                                activeFocusOnTab: true
+                                Keys.onPressed: event => { event.accepted = focusListNav.handle(event); }
+
+                                ListCursor { id: focusListCursor }
+                                KeyNav {
+                                    id: focusListNav
+                                    count: focusListRows.count
+                                    currentIndex: focusList.current
+                                    cursor: focusListCursor
+                                    itemAt: index => focusListRows.itemAt(index)
+                                    onMoved: index => focusList.current = index
+                                }
+                                Column {
+                                    id: focusListColumn
+                                    width: parent.width
+                                    Repeater {
+                                        id: focusListRows
+                                        model: ["First", "Second", "Third"]
+                                        ListItem {
+                                            required property string modelData
+                                            required property int index
+                                            width: focusListColumn.width
+                                            text: modelData
+                                            iconName: "list"
+                                            cursor: focusListCursor
+                                            highlighted: index === focusList.current
+                                            onPointed: focusList.current = index
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Field {
+                        label: "Dialog"
+                        inline: false
+                        width: parent.width
+                        Dialog {
+                            property string focusExample: "Dialog accept action"
+                            width: parent.width
+                            modal: false
+                            title: "Save this theme?"
+                    message: "Save has keyboard focus."
+                            actions: [{ label: "Cancel", role: "cancel" }, { label: "Save", role: "accept" }]
+                        }
+                    }
+                }
+
+                }
+                Section {
+                    title: "Titles and scrolling"
+                    rowSpacing: Theme.stack.group
+                    description: "Title menus and scroll bars"
+                Flow {
+                    width: parent.width
+                    spacing: Theme.stack.inline
+                    TitleButton {
+                        id: title
+                        property string chosen: "Notifications"
+                        text: chosen
+                        menu: titleMenu
+                        Menu {
+                            id: titleMenu
+                            Repeater {
+                                model: ["Bar", "VGS Components", "Launcher", "Notifications", "Settings", "Themes", "Clock", "Weather", "Workspaces", "Battery", "Network", "Volume"]
+                                MenuItem {
+                                    required property string modelData
+                                    text: modelData
+                                    iconName: "package"
+                                    checked: modelData === title.chosen
+                                    onTriggered: title.chosen = modelData
+                                }
+                            }
+                        }
+                    }
+                    TitleButton { text: "Disabled"; enabled: false }
+                }
+                ScrollArea {
+                    width: parent.width
+                    height: Theme.size.panel.sm / 2
+                    Column {
+                        id: scrolledRows
+                        width: parent.width
+                        Repeater {
+                            model: 12
+                            // The column, not `parent`, which is null while
+                            // the repeater tears the row down.
+                            ListItem { required property int index; text: "Row " + (index + 1); iconName: "list"; width: scrolledRows.width }
+                        }
+                    }
+                }
+                // The slim bar a plugin that owns its look draws beside its
+                // own list, here with the shell's scroll bar values.
+                Item {
+                    width: parent.width
+                    height: Theme.size.panel.sm / 2
+                    Flickable {
+                        id: slimList
+                        width: parent.width - Theme.scrollArea.gutter
+                        height: parent.height
+                        contentHeight: slimRows.height
+                        clip: true
+                        acceptedButtons: Qt.NoButton
+                        TouchpadScroll { view: slimList }
+                        Column {
+                            id: slimRows
+                            width: slimList.width
+                            Repeater {
+                                model: 12
+                                ListItem { required property int index; text: "Slim " + (index + 1); iconName: "list"; width: slimRows.width }
+                            }
+                        }
+                    }
+                    SlimScrollBar {
+                        flickable: slimList
+                        x: parent.width - width
+                        width: Theme.scrollArea.gutter
+                        thin: Theme.scrollArea.barWidth / 2
+                        wide: Theme.scrollArea.barWidth
+                        minLength: Theme.scrollArea.minThumb
+                        color: Theme.scrollArea.bar
+                        radius: Theme.scrollArea.barRadius
+                        idleOpacity: 1
+                        movingOpacity: 1
+                        activeOpacity: 1
+                        widthStep: Theme.motion.list.fade
+                        opacityStep: Theme.motion.list.fade
+                    }
+                }
+
+                }
+                Section {
+                    title: "Lists"
+                    rowSpacing: Theme.stack.group
+                    description: "Tabs, rows, expanded details and dividers"
+                Tabs { model: ["Installed", "Available", "Updates"] }
+                Column {
+                    width: parent.width
+                    ListItem { text: "Plugin updates"; secondary: "1 update available"; iconName: "package"; width: parent.width; trailing: [ Badge { text: "new"; tone: "accent" } ] }
+                    Divider { width: parent.width }
+                    ListItem { text: "Workspaces"; secondary: "up to date"; iconName: "layout-grid"; highlighted: true; width: parent.width }
+                    ListItem { text: "Clock"; iconName: "clock"; width: parent.width; trailing: [ Switch { size: "sm"; checked: true } ] }
+                    Disclosure {
+                        width: parent.width
+                        text: "System"
+                        secondary: "2 updates"
+                        iconName: "package"
+                        expanded: true
+                        trailing: [ Badge { text: "2"; tone: "accent"; anchors.verticalCenter: parent.verticalCenter } ]
+                        Label { role: "code"; text: "linux 6.1 -> 6.2" }
+                        Label { role: "code"; text: "mesa 25.1 -> 25.2" }
+                    }
+                    Divider { width: parent.width }
+                    MenuItem { text: "Menu entry"; iconName: "check"; shortcut: "Enter" }
+                    MenuItem { text: "Selected menu entry"; iconName: "palette"; checked: true }
+                }
+                DeviceList {
+                    property string focusExample: "Device list"
+                    width: parent.width
+                    rows: [
+                        { key: "Headphones", text: "Headphones", secondary: "Connected", iconName: "headphones", battery: 0.72 },
+                        { key: "Mouse", text: "Mouse", secondary: "Connected", iconName: "mouse", battery: 0.08 },
+                        { key: "Speaker", text: "Speaker", secondary: "Not connected", iconName: "speaker", badge: "Nearby", badgeTone: "info" }
+                    ]
+                    actionOf: row => row.key === "Headphones" ? { text: "Disconnect", variant: "secondary" } : row.key === "Speaker" ? { text: "Connect", variant: "primary" } : null
+                    menuOf: row => row.key === "Headphones"
+                        ? [{ key: "rename", text: "Rename" }, { key: "trust", text: "Trust" }, { key: "forget", text: "Forget" }]
+                        : row.key === "Mouse" ? [{ key: "rename", text: "Rename" }, { key: "forget", text: "Forget" }] : []
+                }
+                }
+                Section {
+                    title: "List motion"
+                    description: "Move the selection with Up, Down or the pointer."
+                    rowSpacing: Theme.stack.group
+                Button {
+                    text: "Replay the entrance"
+                    iconName: "refresh-cw"
+                    variant: "secondary"
+                    onClicked: {
+                        motionRows.model = 0;
+                        motionRows.model = 5;
+                    }
+                }
+                // focus-indicator: ListCursor shows the current row
+                Item {
+                    id: motionList
+                    property int current: 0
+                    width: parent.width
+                    height: motionColumn.height
+                    activeFocusOnTab: true
+                    Keys.onUpPressed: { motionCursor.disarm(); current = Math.max(0, current - 1); }
+                    Keys.onDownPressed: { motionCursor.disarm(); current = Math.min(motionRows.count - 1, current + 1); }
+
+                    ListCursor { id: motionCursor }
+                    Column {
+                        id: motionColumn
+                        width: parent.width
+                        Repeater {
+                            id: motionRows
+                            model: 5
+                            ListItem {
+                                required property int index
+                                width: motionColumn.width
+                                text: ["Workspaces", "Clock", "Battery", "Network", "Volume"][index]
+                                secondary: index % 2 === 0 ? "bar widget" : ""
+                                iconName: ["layout-grid", "clock", "battery", "wifi", "volume-2"][index]
+                                cursor: motionCursor
+                                highlighted: index === motionList.current
+                                onPointed: motionList.current = index
+                                onClicked: motionList.forceActiveFocus()
+                            }
+                        }
+                    }
+                }
+                }
+            }
+    }
+}

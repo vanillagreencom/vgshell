@@ -1,0 +1,659 @@
+#!/usr/bin/env bash
+# Drive scripts/smoke/shot.sh, the sandbox capture helpers, with no
+# sandbox: plain Unix sockets stand in for the host and nested Wayland
+# sockets, and a stub grim on PATH writes the image each case needs. A stub
+# hyprctl on PATH answers for the host compositor, so the cases of
+# scripts/smoke/host-window.sh read a planted host world. Each
+# case pins the exit status and the first line on stderr. The controls at
+# the end plant one defect per guard in a copy of the file and require the
+# case that guard owns to go red. The scene cases drive
+# scripts/sandbox-shots.sh itself up to its harness, in a scratch git
+# repository, and the export cases drive scripts/smoke/tree.sh, which
+# sandbox-shots.sh and the harness share.
+#
+# Exit 0 when every case and control holds, 1 otherwise, 77 when the scene
+# cases could not run because scripts/smoke/gpu-fence.sh reported
+# not-measured.
+set -euo pipefail
+
+self="$(readlink -f -- "${BASH_SOURCE[0]}")"
+repo="$(cd -- "$(dirname -- "$self")/.." && pwd)"
+helper="$repo/scripts/smoke/shot.sh"
+
+# The EXIT trap is armed only on the directory mktemp made: an empty or
+# non-directory answer never reaches rm -rf.
+tmp="$(mktemp -d)" || { echo "test-sandbox-shots: scratch=mktemp-failed" >&2; exit 1; }
+[[ -d $tmp && ! -L $tmp ]] || { echo "test-sandbox-shots: scratch=not-a-directory value=[$tmp]" >&2; exit 1; }
+tmp="$(cd -- "$tmp" && pwd -P)"
+trap 'rm -rf -- "${tmp:?}"' EXIT
+failures=0
+ok() { printf '  ok    %s\n' "$*"; }
+fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
+
+# The host's runtime dir with its socket, and the sandbox's beneath it, as
+# the harness makes them.
+host="$tmp/run"; rt="$host/vs.test"
+mkdir -p "$rt" "$tmp/bin" "$tmp/checkout/tmp"
+python3 - "$host/wayland-1" "$host/wayland-2" "$rt/wayland-1" <<'PY'
+import socket, sys
+for path in sys.argv[1:]:
+    socket.socket(socket.AF_UNIX).bind(path)
+PY
+ln -s "$host/wayland-1" "$rt/wayland-9"
+: >"$rt/wayland-file"
+
+# The stub grim: the mode file beside it picks what it writes to its last
+# argument, since shot.sh runs grim in an empty environment. fixed-a and
+# fixed-b write one image each time; counter writes a new one each call;
+# hang never returns; unsized-layout fails as grim 1.5.0 does when the
+# layout holds an output with no size, unless -o names the sized output
+# WAYLAND-1. It records its environment in env.log beside it.
+cat >"$tmp/bin/grim" <<'SH'
+#!/usr/bin/env bash
+out="${!#}"
+here="${0%/*}"
+env | sort >"$here/env.log"
+case "$(cat "$here/mode")" in
+  fixed-a) printf 'image-a' >"$out" ;;
+  fixed-b) printf 'image-b' >"$out" ;;
+  counter) n=$(( $(cat "$here/count" 2>/dev/null || echo 0) + 1 )); echo "$n" >"$here/count"; printf 'image-%s' "$n" >"$out" ;;
+  hang) sleep 5 ;;
+  unsized-layout) if [[ $1 == -o && $2 == WAYLAND-1 ]]; then printf 'image-b' >"$out"; else echo "failed to create buffer" >&2; exit 1; fi ;;
+esac
+SH
+chmod 755 "$tmp/bin/grim"
+# The stub hyprctl answers `-j clients` and `-j monitors` from the host
+# world below, and fails after printing an empty list for the request a
+# fail-<request> file beside it names. Two host monitors: DP-1 shows
+# workspace 1, DP-2 shows workspace 2 and the special workspace -98.
+# Windows: pid 41 on workspace 1, 42 on workspace 3, 43 on the shown
+# special workspace, 44 on the special workspace -99 no monitor shows, 45
+# on workspace 1 as a background group tab, which Hyprland lists with
+# `visible: false` and `hidden: false`, and 46 with no `visible` key.
+cat >"$tmp/bin/hyprctl" <<'SH'
+#!/usr/bin/env bash
+here="${0%/*}"
+[[ $1 == -j && ( $2 == clients || $2 == monitors ) && $# -eq 2 ]] || exit 2
+if [[ -e $here/fail-$2 ]]; then echo '[]'; exit 1; fi
+cat -- "$here/host-$2.json"
+SH
+chmod 755 "$tmp/bin/hyprctl"
+python3 - "$tmp/bin" <<'PY'
+import json, sys
+here = sys.argv[1]
+def monitor(name, active, special):
+    return {"name": name, "activeWorkspace": {"id": active, "name": str(active)}, "specialWorkspace": {"id": special, "name": "special:shown" if special else ""}}
+def window(pid, workspace, visible=True):
+    return {"pid": pid, "class": "aquamarine", "mapped": True, "hidden": False, "visible": visible, "workspace": {"id": workspace, "name": str(workspace)}}
+unkeyed = window(46, 1)
+del unkeyed["visible"]
+json.dump([monitor("DP-1", 1, 0), monitor("DP-2", 2, -98)], open(f"{here}/host-monitors.json", "w"))
+json.dump([window(41, 1), window(42, 3), window(43, -98), window(44, -99), window(45, 1, visible=False), unkeyed], open(f"{here}/host-clients.json", "w"))
+PY
+hash_a="$(printf 'image-a' | sha256sum | cut -d' ' -f1)"
+# The hold cases run the real shot over the stub grim's fixed-b image.
+# Their reader, hold, prints the hold's state, `reset` on the reads named
+# in $D/resets (`1` for the first, `1 2` for the first two), and appends
+# `read` to $D/log; their settle appends `settle` to the same log, so a
+# case reads the order of the two around each capture. image_b_row NAME
+# is the shots.tsv line of a settled fixed-b shot with no shot before it.
+held_stubs='echo fixed-b >"$T/bin/mode"; hold() { local n; n=$(( $(cat "$D/reads" 2>/dev/null || echo 0) + 1 )); echo "$n" >"$D/reads"; echo read >>"$D/log"; if [[ " $(cat "$D/resets" 2>/dev/null) " == *" $n "* ]]; then echo reset; else echo held; fi; }; settle() { echo settle >>"$D/log"; }; image_b_row() { printf "%s\t%s\t-\tsettled\t-" "$1" "$(printf image-b | sha256sum | cut -d" " -f1)"; }; '
+
+# run_case FILE LABEL SNIPPET STATUS LINE: true when the helper FILE gives
+# the status and first stderr line. The snippet runs with the helper
+# sourced, in an empty environment holding a marker that must never reach
+# grim: T the test dir, RT the sandbox's runtime dir, HOST the host's, D
+# an empty dir under the checkout's tmp/, and SHOT_DIR, SHOT_SOCKET and
+# SHOT_RUNTIME_DIR and SHOT_OUTPUT set for `shot`.
+run_case() {
+  local file="$1" label="$2" snippet="$3" want_status="$4" want_line="$5" err status=0 dir
+  dir="$tmp/checkout/tmp/case-$RANDOM$RANDOM"
+  mkdir -p "$dir"
+  env -i PATH="$tmp/bin:$PATH" HOST_MARKER=live T="$tmp" RT="$rt" HOST="$host" D="$dir" HASH_A="$hash_a" \
+    SHOT_DIR="$dir" SHOT_SOCKET="$rt/wayland-1" SHOT_RUNTIME_DIR="$rt" SHOT_OUTPUT=WAYLAND-1 \
+    bash -c 'set -euo pipefail; source "$1"; eval "$2"' _ "$file" "$snippet" >"$dir/out" 2>"$dir/err" || status=$?
+  err="$(head -n 1 "$dir/err")"
+  [[ $status -eq $want_status && $err == "$want_line" ]] && return 0
+  printf '        %s: status=%s want=%s first stderr line: %s\n' "$label" "$status" "$want_status" "$err"
+  return 1
+}
+
+# Cases, four fields each: label, snippet, status, first stderr line.
+cases=(
+  "the nested socket resolves"
+  '[[ $(shot_socket "$RT" wayland-1 "$HOST/wayland-1") == "$RT/wayland-1" ]]' 0 ""
+  "the host socket is refused"
+  'shot_socket "$HOST" wayland-1 "$HOST/wayland-1"' 1 "shot: refused: reason=host-socket value=$host/wayland-1"
+  "a link to the host socket is refused"
+  'shot_socket "$RT" wayland-9 "$HOST/wayland-1"' 1 "shot: refused: reason=host-socket value=$host/wayland-1"
+  "the host's runtime dir is refused"
+  'shot_socket "$HOST" wayland-2 "$HOST/wayland-1"' 1 "shot: refused: reason=host-runtime-dir value=$host"
+  "a path for a socket name is refused"
+  'shot_socket "$RT" ../wayland-1 "$HOST/wayland-1"' 1 "shot: refused: reason=socket-not-a-name value=../wayland-1"
+  "a file that is no socket is refused"
+  'shot_socket "$RT" wayland-file "$HOST/wayland-1"' 1 "shot: refused: reason=not-a-socket value=$rt/wayland-file"
+  "an output dir under tmp/ is made"
+  '[[ $(shot_dir_under "$T/checkout" "$T/checkout/tmp/shots/a") == "$T/checkout/tmp/shots/a" ]]' 0 ""
+  "an output dir outside tmp/ is refused"
+  'shot_dir_under "$T/checkout" "$T/elsewhere"' 1 "shot: refused: reason=out-dir-outside-tmp value=$tmp/elsewhere"
+  "a new settled capture is taken"
+  'echo fixed-b >"$T/bin/mode"; shot one >/dev/null; want="$(printf "one\t%s\t-\tsettled\t-" "$(printf image-b | sha256sum | cut -d" " -f1)")"; [[ $(cat "$D/shots.tsv") == "$want" && $(cat "$D/one.png") == image-b ]]' 0 ""
+  "a capture equal to the previous shot is stale"
+  'echo fixed-a >"$T/bin/mode"; shot_last_name=before; shot_last_hash="$HASH_A"; SHOT_SETTLE_S=1 shot two' 1 "shot: stale name=two previous=before sha256=$hash_a"
+  "a capture that keeps changing is taken as animated"
+  'echo counter >"$T/bin/mode"; SHOT_SETTLE_S=1 shot three >/dev/null; [[ $(cut -f1,4 "$D/shots.tsv") == $(printf "three\tanimated") ]]' 0 ""
+  "a grim that never returns reads as no frame"
+  'echo hang >"$T/bin/mode"; SHOT_GRIM_TIMEOUT_S=1 shot four' 2 "shot: capture-failed name=four grim-status=timeout"
+  "grim sees only the nested socket"
+  'echo fixed-b >"$T/bin/mode"; shot five >/dev/null; grep -qx WAYLAND_DISPLAY=wayland-1 "$T/bin/env.log"; grep -qx "XDG_RUNTIME_DIR=$RT" "$T/bin/env.log"; ! grep -q HOST_MARKER "$T/bin/env.log"' 0 ""
+  "a capture under a hold held before and after is taken"
+  "$held_stubs"'shot_held six hold settle >/dev/null; [[ $(cat "$D/log") == $(printf "settle\nread") && $(cat "$D/shots.tsv") == "$(image_b_row six)" && -e $D/six.png ]]' 0 ""
+  "a held mode is settled before the capture"
+  "$held_stubs"'echo 1 >"$D/resets"; settle() { echo settle >>"$D/log"; : >"$D/settled"; }; hold() { echo read >>"$D/log"; [[ -e $D/settled ]] && echo held || echo reset; }; shot_held seven hold settle >/dev/null; [[ $(cat "$D/log") == $(printf "settle\nread") && -e $D/seven.png ]]' 0 ""
+  "a hold that cannot be settled refuses the shot untaken"
+  "$held_stubs"'settle() { return 1; }; s=0; shot_held eight hold settle || s=$?; [[ ! -e $D/eight.png && ! -e $D/shots.tsv && ! -e $D/log ]] || exit 9; exit "$s"' 3 "shot: refused: reason=hold-not-settled value=eight"
+  "a hold left during the capture is settled and the shot retaken once"
+  "$held_stubs"'echo 1 >"$D/resets"; shot_held eightb hold settle >/dev/null; [[ $(cat "$D/log") == $(printf "settle\nread\nsettle\nread") && $(cat "$D/shots.tsv") == "$(image_b_row eightb)" && -e $D/eightb.png ]]' 0 "shot: refused: reason=hold-left-after value=reset"
+  "a hold left during the retaken capture too refuses the shot"
+  "$held_stubs"'echo "1 2" >"$D/resets"; s=0; shot_held eightc hold settle >/dev/null || s=$?; [[ ! -e $D/eightc.png && ! -e $D/shots.tsv && $(grep -c settle "$D/log") == 2 ]] || exit 9; exit "$s"' 4 "shot: refused: reason=hold-left-after value=reset"
+  "a capture after which the hold reader reads a reset is refused"
+  "$held_stubs"'echo 1 >"$D/resets"; s=0; shot_last_name=before; shot_last_hash=prior; SHOT_HOLD_READER=hold shot eightd >/dev/null || s=$?; [[ ! -e $D/eightd.png && ! -e $D/shots.tsv && $shot_last_name == before && $shot_last_hash == prior ]] || exit 9; exit "$s"' 4 "shot: refused: reason=hold-left-after value=reset"
+  "a capture of its own output is taken while another output has no size"
+  'echo unsized-layout >"$T/bin/mode"; shot nine >/dev/null; [[ $(cat "$D/nine.png") == image-b ]]' 0 ""
+  "a shot with no output named is refused"
+  'echo fixed-b >"$T/bin/mode"; SHOT_OUTPUT= shot ten' 1 "shot: refused: reason=output-unnamed value=ten"
+  "a shot records the window state read around it"
+  'echo fixed-b >"$T/bin/mode"; state() { echo hidden; }; SHOT_WINDOW_READER=state shot eleven >/dev/null; [[ $(cut -f5 "$D/shots.tsv") == hidden ]]' 0 ""
+  "a window state that changes during a shot reads changed"
+  'echo fixed-b >"$T/bin/mode"; state() { if [[ -e $D/read ]]; then echo shown; else : >"$D/read"; echo hidden; fi; }; SHOT_WINDOW_READER=state shot twelve >/dev/null; [[ $(cut -f5 "$D/shots.tsv") == changed ]]' 0 ""
+  "a window reader that fails leaves its word"
+  'echo fixed-b >"$T/bin/mode"; state() { echo unreadable; return 1; }; SHOT_WINDOW_READER=state shot thirteen >/dev/null; [[ $(cut -f5 "$D/shots.tsv") == unreadable ]]' 0 ""
+  "a shot in the required window state is taken"
+  'echo fixed-b >"$T/bin/mode"; state() { echo hidden; }; SHOT_WINDOW_READER=state SHOT_WINDOW_REQUIRE=hidden shot fourteen >/dev/null; [[ $(cut -f1,5 "$D/shots.tsv") == $(printf "fourteen\thidden") && -e $D/fourteen.png ]]' 0 ""
+  "a shot in another window state is refused"
+  'echo fixed-b >"$T/bin/mode"; state() { echo shown; }; s=0; SHOT_WINDOW_READER=state SHOT_WINDOW_REQUIRE=hidden shot fifteen >/dev/null || s=$?; [[ ! -e $D/shots.tsv && ! -e $D/fifteen.png ]] || exit 9; exit "$s"' 1 "shot: refused: reason=window-state value=shown"
+)
+# run_cases FILE CASES: every case of the array CASES against FILE.
+run_cases() {
+  local file="$1" i
+  local -n rows="$2"
+  for (( i = 0; i < ${#rows[@]}; i += 4 )); do
+    if run_case "$file" "${rows[@]:i:4}"; then ok "${rows[i]}"; else fail "${rows[i]}"; fi
+  done
+}
+run_cases "$helper" cases
+
+# mutate FILE OLD NEW OUT: a copy of FILE with OLD, which must occur once,
+# replaced by NEW.
+mutate() {
+  local text rest count
+  text="$(<"$1")"
+  rest="${text//"$2"/}"
+  count=$(( (${#text} - ${#rest}) / ${#2} ))
+  if [[ $count -ne 1 ]]; then
+    printf '        mutation matched %s times: %s\n' "$count" "$2"
+    return 1
+  fi
+  printf '%s\n' "${text/"$2"/"$3"}" >"$4"
+  cmp -s -- "$1" "$4" && { printf '        mutation left the file unchanged: %s\n' "$2"; return 1; }
+  return 0
+}
+
+# run_controls FILE CASES CONTROLS: each control of the array CONTROLS
+# planted in a copy of FILE must turn its case of the array CASES red.
+run_controls() {
+  local file="$1" i j label target mutant row
+  local -n rows="$2" plants="$3"
+  for (( i = 0; i < ${#plants[@]}; i += 4 )); do
+    label="${plants[i]}"; target="${plants[i + 3]}"
+    mutant="$tmp/mutant-${file##*/}-$i.sh"
+    if ! mutate "$file" "${plants[i + 1]}" "${plants[i + 2]}" "$mutant"; then fail "control: $label"; continue; fi
+    row=()
+    for (( j = 0; j < ${#rows[@]}; j += 4 )); do [[ ${rows[j]} == "$target" ]] && row=("${rows[@]:j:4}"); done
+    if [[ ${#row[@]} -eq 0 ]]; then fail "control: $label names no case: $target"; continue; fi
+    if run_case "$mutant" "${row[@]}" >/dev/null; then fail "control: $label left '$target' green"; else ok "control: $label"; fi
+  done
+}
+
+# Controls, four fields each: label, text, replacement, and the case that
+# must go red.
+controls=(
+  "the host socket is not compared"
+  '[[ $path != "$host_real" ]] ||' 'true ||' "a link to the host socket is refused"
+  "the host's runtime dir is not compared"
+  '[[ $rt_real != "$(dirname -- "$host_real")" ]] ||' 'true ||' "the host's runtime dir is refused"
+  "a socket name may be a path"
+  '[[ -n $name && $name != */* && $name != . && $name != .. ]] ||' '[[ -n $name ]] ||' "a path for a socket name is refused"
+  "the output dir may lie outside tmp/"
+  '[[ $dir == "$root"/* ]] ||' 'true ||' "an output dir outside tmp/ is refused"
+  "a capture is not compared with the previous shot"
+  'if [[ $hash != "$shot_last_hash" ]]; then' 'if true; then' "a capture equal to the previous shot is stale"
+  "a grim timeout reads as an error"
+  '[[ $status -eq 124 ]] && return 2' 'true' "a grim that never returns reads as no frame"
+  "grim inherits the caller's environment"
+  'env -i PATH="$PATH"' 'env PATH="$PATH"' "grim sees only the nested socket"
+  "the hold is not settled before the capture"
+  'if ! "$settle"; then' 'if false; then' "a held mode is settled before the capture"
+  "a capture the hold left is not retaken"
+  '4) [[ $attempt -eq 2 ]] && return 4' '4) return 4' "a hold left during the capture is settled and the shot retaken once"
+  "the hold is not read after the capture"
+  'if [[ $hold != held ]]; then' 'if false; then' "a capture after which the hold reader reads a reset is refused"
+  "the capture takes the whole layout"
+  '-o "$3" -t png "$4"' '-t png "$4"' "a capture of its own output is taken while another output has no size"
+  "an unnamed output goes on to grim"
+  '[[ -n ${SHOT_OUTPUT:-} ]] ||' 'true ||' "a shot with no output named is refused"
+  "the window state read is not recorded"
+  '"$kind" "$window" >>' '"$kind" - >>' "a shot records the window state read around it"
+  "the window state after the shot is not compared"
+  '[[ $window_after == "$window_before" ]] ||' 'true ||' "a window state that changes during a shot reads changed"
+  "a failing window reader ends the shot"
+  '$SHOT_WINDOW_READER || true' '$SHOT_WINDOW_READER' "a window reader that fails leaves its word"
+  "the required window state is not compared"
+  'if [[ -n ${SHOT_WINDOW_REQUIRE:-} && $window != "$SHOT_WINDOW_REQUIRE" ]]; then' 'if false; then' "a shot in another window state is refused"
+)
+run_controls "$helper" cases controls
+
+# The host window reader, scripts/smoke/host-window.sh, against the stub
+# hyprctl's host world. Cases and controls have the shape of the capture
+# helper's above.
+window_helper="$repo/scripts/smoke/host-window.sh"
+window_cases=(
+  "a window on a monitor's active workspace is shown"
+  'HYPRLAND_INSTANCE_SIGNATURE=x; [[ $(host_window_state 41) == shown ]]' 0 ""
+  "a window on a workspace no monitor shows is hidden"
+  'HYPRLAND_INSTANCE_SIGNATURE=x; [[ $(host_window_state 42) == hidden ]]' 0 ""
+  "a window on a shown special workspace is shown"
+  'HYPRLAND_INSTANCE_SIGNATURE=x; [[ $(host_window_state 43) == shown ]]' 0 ""
+  "a window on a hidden special workspace is hidden"
+  'HYPRLAND_INSTANCE_SIGNATURE=x; [[ $(host_window_state 44) == hidden ]]' 0 ""
+  "a background group tab is hidden"
+  'HYPRLAND_INSTANCE_SIGNATURE=x; [[ $(host_window_state 45) == hidden ]]' 0 ""
+  "a window listed without the keys the reader needs is unreadable"
+  'HYPRLAND_INSTANCE_SIGNATURE=x; s=0; out="$(host_window_state 46)" || s=$?; [[ $out == unreadable && $s -eq 1 ]]' 0 ""
+  "a pid that owns no window is absent"
+  'HYPRLAND_INSTANCE_SIGNATURE=x; [[ $(host_window_state 99) == absent ]]' 0 ""
+  "no host instance is unreadable"
+  's=0; out="$(host_window_state 41)" || s=$?; [[ $out == unreadable && $s -eq 1 ]]' 0 ""
+  "a failed clients read is unreadable"
+  'HYPRLAND_INSTANCE_SIGNATURE=x; s=0; mkdir -p "$D/bin"; cp -- "$T/bin/hyprctl" "$T/bin/host-clients.json" "$T/bin/host-monitors.json" "$D/bin/"; : >"$D/bin/fail-clients"; out="$(PATH="$D/bin:$PATH" host_window_state 41)" || s=$?; [[ $out == unreadable && $s -eq 1 ]]' 0 ""
+  "a failed monitors read is unreadable"
+  'HYPRLAND_INSTANCE_SIGNATURE=x; s=0; mkdir -p "$D/bin"; cp -- "$T/bin/hyprctl" "$T/bin/host-clients.json" "$T/bin/host-monitors.json" "$D/bin/"; : >"$D/bin/fail-monitors"; out="$(PATH="$D/bin:$PATH" host_window_state 41)" || s=$?; [[ $out == unreadable && $s -eq 1 ]]' 0 ""
+)
+run_cases "$window_helper" window_cases
+window_controls=(
+  "the pid is not matched"
+  'c["pid"] == pid' 'True' "a pid that owns no window is absent"
+  "an active workspace does not count as shown"
+  '{m["activeWorkspace"]["id"] for m in monitors} | ' '' "a window on a monitor's active workspace is shown"
+  "a shown special workspace does not count as shown"
+  ' | {m["specialWorkspace"]["id"] for m in monitors}' '' "a window on a shown special workspace is shown"
+  "a background group tab counts as shown"
+  'c["visible"] and ' '' "a background group tab is hidden"
+  "a reply without the expected keys is not caught"
+  'except (ValueError, KeyError, TypeError):' 'except (ValueError, TypeError):' "a window listed without the keys the reader needs is unreadable"
+  "a missing host instance is read"
+  'if [[ -z ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then echo unreadable; return 1; fi' 'true' "no host instance is unreadable"
+  "a failed clients read is parsed"
+  'clients="$(timeout 2 hyprctl -j clients 2>/dev/null)" || { echo unreadable; return 1; }' 'clients="$(timeout 2 hyprctl -j clients 2>/dev/null)" || true' "a failed clients read is unreadable"
+  "a failed monitors read is parsed"
+  'monitors="$(timeout 2 hyprctl -j monitors 2>/dev/null)" || { echo unreadable; return 1; }' 'monitors="$(timeout 2 hyprctl -j monitors 2>/dev/null)" || true' "a failed monitors read is unreadable"
+)
+run_controls "$window_helper" window_cases window_controls
+
+# The scene choice of scripts/sandbox-shots.sh, before any sandbox starts:
+# a tree ships either the Settings plugin or the bar's manager built-in, a
+# plugin scene needs its plugins' manifests, and a scene the tree does not
+# ship is refused with exit 2. A scratch git
+# repository holds the script, a link to the smoke directory, a revision
+# with the bar's manager and a later one with vgs.settings, so --rev reads
+# an older tree. A scene the tree ships passes the choice and reaches the
+# harness, which, with no Wayland socket in the environment, exits 77.
+shots_repo="$tmp/shots-repo"
+mkdir -p "$shots_repo/scripts" "$shots_repo/shell/plugins/vgs.bar" "$shots_repo/bin" "$shots_repo/config" "$shots_repo/themes" "$shots_repo/tmp"
+ln -s "$repo/scripts/smoke" "$shots_repo/scripts/smoke"
+: >"$shots_repo/shell/plugins/vgs.bar/Manager.qml"; : >"$shots_repo/bin/vgsh"; : >"$shots_repo/config/shell.json"; : >"$shots_repo/themes/.keep"
+git_quiet() { git -C "$shots_repo" -c user.name=t -c user.email=t@t -c commit.gpgsign=false "$@" >/dev/null; }
+git_quiet init -q
+git_quiet add shell bin config themes
+git_quiet commit -q -m manager
+old_rev="$(git -C "$shots_repo" rev-parse HEAD)"
+mkdir -p "$shots_repo/shell/plugins/vgs.settings" "$shots_repo/shell/plugins/vgs.themes" "$shots_repo/shell/plugins/vgs.polkit" "$shots_repo/shell/plugins/vgs.capture"
+: >"$shots_repo/shell/plugins/vgs.settings/manifest.json"
+# The checkout ships the theme browsers, so their scene reaches the theme
+# card check; it ships no Dev Tools, whose scene is refused. It ships the
+# polkit prompt, which the earlier revision does not.
+: >"$shots_repo/shell/plugins/vgs.themes/manifest.json"
+: >"$shots_repo/shell/plugins/vgs.polkit/manifest.json"
+: >"$shots_repo/shell/plugins/vgs.capture/manifest.json"
+git -C "$shots_repo" rm -q shell/plugins/vgs.bar/Manager.qml
+git_quiet add shell
+git_quiet commit -q -m settings
+# The harness loads bin/lib/ipc-reply.sh from the checkout it runs in.
+ln -s "$repo/bin/lib" "$shots_repo/bin/lib"
+# scene_case SCRIPT LABEL STATUS LINE ARG...: SCRIPT run from the scratch
+# repository gives STATUS and LINE on stderr, or with STATUS 77 a stdout
+# line starting LINE. On a host with an amdgpu node the run enters
+# scripts/smoke/gpu-fence.sh, whose proof lines come first on stderr and
+# are not the script's. Where the fence could not make or prove its
+# namespace no scene case measured anything: the suite prints
+# `test-sandbox-shots: status=not-measured` with the fence's own line and
+# exits 77.
+scene_case() {
+  local script="$1" label="$2" want_status="$3" want_line="$4" status=0 out err
+  shift 4
+  cp -- "$script" "$shots_repo/scripts/sandbox-shots.sh"
+  out="$(env -i PATH="$tmp/bin:$PATH" HOME="$tmp" bash "$shots_repo/scripts/sandbox-shots.sh" --out "$shots_repo/tmp/shots-$RANDOM$RANDOM" "$@" 2>"$tmp/scene.err")" || status=$?
+  err="$(sed -n '/^gpu-fence: \(absent\|present\) path=/!{p;q}' "$tmp/scene.err")"
+  if [[ $status -eq 77 && $err == "gpu-fence: status=not-measured "* ]]; then
+    printf 'test-sandbox-shots: status=not-measured %s\n' "$err"
+    exit 77
+  fi
+  if [[ $status -eq $want_status && ( $err == "$want_line" || ( $want_status -eq 77 && $out == "$want_line"* ) ) ]]; then return 0; fi
+  echo "$label: exit=$status stderr=$err stdout=$(head -n 1 <<<"$out")"
+  return 1
+}
+scene_cases=(
+  "a checkout with the Settings plugin refuses the manager scene" 2 "sandbox-shots: refused: scene=manager tree=checkout" manager
+  "a revision before the Settings plugin refuses the settings scene" 2 "sandbox-shots: refused: scene=settings tree=$old_rev" --rev "$old_rev" settings
+  "a revision before the Settings plugin takes the manager scene" 77 "qml-smoke: status=not-measured" --rev "$old_rev" manager
+  "a checkout with the Settings plugin takes the settings scene" 77 "qml-smoke: status=not-measured" settings
+  "a checkout with the Settings plugin takes the plugin-pages scene" 77 "qml-smoke: status=not-measured" plugin-pages
+  "a revision before the Settings plugin refuses the plugin-pages scene" 2 "sandbox-shots: refused: scene=plugin-pages tree=$old_rev" --rev "$old_rev" plugin-pages
+  "a scale other than 1 or 2 is refused" 2 "sandbox-shots: refused: scale=3" --scale 3 settings
+  "scale 2 is taken" 77 "qml-smoke: status=not-measured" --scale 2 settings
+  "a theme card that is no catalog name is refused" 2 "sandbox-shots: refused: theme-card=../x" --theme-card ../x settings
+  "a theme card the catalog lacks is refused" 2 "sandbox-shots: refused: theme-card=nosuch tree=checkout" --theme-card nosuch theme-browser
+  "a checkout without the Dev Tools plugin refuses the devtools scene" 2 "sandbox-shots: refused: scene=devtools tree=checkout" devtools
+  "a checkout with the polkit plugin takes the polkit scene" 77 "qml-smoke: status=not-measured" polkit
+  "a revision without the polkit plugin refuses the polkit scene" 2 "sandbox-shots: refused: scene=polkit tree=$old_rev" --rev "$old_rev" polkit
+  "a checkout without the Gallery plugin refuses the focus scene" 2 "sandbox-shots: refused: scene=focus tree=checkout" focus
+  "a checkout with the Capture plugin takes the capture scene" 77 "qml-smoke: status=not-measured" capture
+  "a revision without the Capture plugin refuses the capture scene" 2 "sandbox-shots: refused: scene=capture tree=$old_rev" --rev "$old_rev" capture
+)
+# Each case is label, status, line, then its arguments up to the next case,
+# counted by the arguments each row above carries.
+scene_arity=(1 3 3 1 1 3 3 3 3 3 1 1 3 1 1 3)
+# Where each case starts in scene_cases and how many arguments it takes, by
+# label, for the controls below.
+declare -A scene_at scene_argc
+at=0
+for n in "${!scene_arity[@]}"; do
+  label="${scene_cases[at]}"; status="${scene_cases[at + 1]}"; line="${scene_cases[at + 2]}"
+  scene_at[$label]=$at; scene_argc[$label]=${scene_arity[n]}
+  args=("${scene_cases[@]:at + 3:${scene_arity[n]}}")
+  at=$((at + 3 + ${scene_arity[n]}))
+  if scene_case "$repo/scripts/sandbox-shots.sh" "$label" "$status" "$line" "${args[@]}"; then ok "$label"; else fail "$label"; fi
+done
+# Controls, four fields each: label, the refusal's text, which must match
+# once, its replacement, and the refused case. A copy with that refusal
+# planted away must send the case's arguments on to the harness, which
+# exits 77 here, as the scenes the tree ships do; a copy that still refuses
+# them, or fails for another reason, leaves the control red.
+shots_controls=(
+  "an unshipped scene is not refused"
+  "  if ! scene_ships \"\$scene\"; then" "  if false; then"
+  "a checkout with the Settings plugin refuses the manager scene"
+  "the manager's scene is not read"
+  "    settings|manager) [[ \$1 == \"\$manager_scene\" ]] ;;" "    settings|manager) true ;;"
+  "a checkout with the Settings plugin refuses the manager scene"
+  "a scene's plugin is not looked for"
+  "[[ -f \$tree/shell/plugins/\$id/manifest.json ]] || return 1" "true || return 1"
+  "a checkout without the Dev Tools plugin refuses the devtools scene"
+  "the polkit scene's plugin is not looked for"
+  "    polkit) ships_plugin vgs.polkit ;;" "    polkit) true ;;"
+  "a revision without the polkit plugin refuses the polkit scene"
+  "a refused scale goes on to the harness"
+  "refused: scale=%s\\n' \"\$scale\" >&2; exit 2; }" "refused: scale=%s\\n' \"\$scale\" >&2; }"
+  "a scale other than 1 or 2 is refused"
+  "a refused theme card goes on to the harness"
+  "refused: theme-card=%s\\n' \"\$theme_card\" >&2; exit 2; }" "refused: theme-card=%s\\n' \"\$theme_card\" >&2; }"
+  "a theme card that is no catalog name is refused"
+  "a theme card the catalog lacks goes on to the harness"
+  "if [[ \$scene == theme-browser && ! -f \$tree/themes/catalog/\$theme_card/theme.json ]]; then" "if false; then"
+  "a theme card the catalog lacks is refused"
+)
+shots_mutant="$tmp/sandbox-shots-mutant.sh"
+for (( i = 0; i < ${#shots_controls[@]}; i += 4 )); do
+  label="${shots_controls[i]}"; target="${shots_controls[i + 3]}"
+  if [[ -z ${scene_at[$target]+set} ]]; then fail "control: $label names no case: $target"; continue; fi
+  args=("${scene_cases[@]:${scene_at[$target]} + 3:${scene_argc[$target]}}")
+  if python3 -c '
+import sys
+src, dst, needle, replacement = sys.argv[1:]
+text = open(src).read()
+assert text.count(needle) == 1, "the refusal must match once"
+open(dst, "w").write(text.replace(needle, replacement))' "$repo/scripts/sandbox-shots.sh" "$shots_mutant" "${shots_controls[i + 1]}" "${shots_controls[i + 2]}"; then
+    if scene_case "$shots_mutant" "control: $label" 77 "qml-smoke: status=not-measured" "${args[@]}"; then ok "control: $label"; else fail "control: $label did not take '$target' on to the harness"; fi
+  else
+    fail "control: $label could not be planted"
+  fi
+done
+
+# The Gallery title comes from the tree in the sandbox. Read the same
+# helper block without starting the harness, against old and current
+# snapshot fixtures. A fixed title must fail one of these readings.
+gallery_reader="$tmp/gallery-reader.sh"
+python3 - "$repo/scripts/sandbox-shots.sh" "$gallery_reader" <<'PY'
+import sys
+text = open(sys.argv[1]).read()
+start = text.index('summoned_kind() {')
+end = text.index('settings_kind=panel', start)
+open(sys.argv[2], 'w').write(text[start:end])
+PY
+gallery_title_case() { # READER
+  local reader="$1" root="$tmp/gallery-title" title surface
+  mkdir -p "$root/shell/plugins/vgs.gallery"
+  for title in Gallery 'VGS Components'; do
+    python3 - "$root/shell/plugins/vgs.gallery/manifest.json" "$title" <<'PY'
+import json, sys
+with open(sys.argv[1], 'w') as out:
+    json.dump({'name': sys.argv[2], 'kinds': ['window']}, out)
+PY
+    surface="$(env -i PATH="$PATH" bash -c 'set -euo pipefail; tree="$1"; fail() { exit 1; }; source "$2"; printf "%s" "$gallery_surface"' _ "$root" "$reader")" || return 1
+    [[ $surface == "window:$title" ]] || return 1
+  done
+}
+if gallery_title_case "$gallery_reader"; then ok "Gallery reads the title of each snapshot"; else fail "Gallery reads the title of each snapshot"; fi
+gallery_mutant="$tmp/gallery-fixed-title.sh"
+if python3 - "$gallery_reader" "$gallery_mutant" <<'PY'
+import sys
+text = open(sys.argv[1]).read()
+needle = 'gallery_surface="$(summoned_surface "$gallery_kind" "$gallery_name")"'
+assert text.count(needle) == 1, 'the title control must match once'
+open(sys.argv[2], 'w').write(text.replace(needle, 'gallery_surface="$(summoned_surface "$gallery_kind" "VGS Components")"'))
+PY
+then
+  if gallery_title_case "$gallery_mutant"; then fail "control: a fixed Gallery title stayed green"; else ok "control: a fixed Gallery title fails an older snapshot"; fi
+else
+  fail "control: a fixed Gallery title could not be planted"
+fi
+
+# The export of another revision, scripts/smoke/tree.sh, with no sandbox. A
+# scratch repository holds a revision whose bin/judge loads
+# scripts/qml-library.js and a later one that moved the helper to bin/lib,
+# as this checkout did. export_case exports REV as sandbox-shots.sh does,
+# copies the later checkout's scripts/ and then overlays the export's
+# helpers as the harness does, and runs the copied bin/judge under node,
+# which prints which helper it loaded.
+helper_repo="$tmp/helper-repo"
+mkdir -p "$helper_repo/bin" "$helper_repo/scripts" "$helper_repo/shell" "$helper_repo/config" "$helper_repo/themes"
+printf 'module.exports = { where: "scripts" };\n' >"$helper_repo/scripts/qml-library.js"
+printf 'process.stdout.write(require(require("path").join(__dirname, "..", "scripts", "qml-library.js")).where);\n' >"$helper_repo/bin/judge"
+: >"$helper_repo/shell/shell.qml"; : >"$helper_repo/config/shell.json"; : >"$helper_repo/themes/.keep"
+helper_git() { git -C "$helper_repo" -c user.name=t -c user.email=t@t -c commit.gpgsign=false "$@" >/dev/null; }
+helper_git init -q
+helper_git add -A
+helper_git commit -q -m before
+before_rev="$(git -C "$helper_repo" rev-parse HEAD)"
+mkdir -p "$helper_repo/bin/lib"
+helper_git mv scripts/qml-library.js bin/lib/qml-library.js
+printf 'module.exports = { where: "bin/lib" };\n' >"$helper_repo/bin/lib/qml-library.js"
+printf 'process.stdout.write(require(require("path").join(__dirname, "lib", "qml-library.js")).where);\n' >"$helper_repo/bin/judge"
+printf 'true\n' >"$helper_repo/scripts/validate"
+helper_git add -A
+helper_git commit -q -m after
+after_rev="$(git -C "$helper_repo" rev-parse HEAD)"
+# export_case LIB REV WANT: with tree.sh at LIB, REV's copied bin/judge
+# prints WANT.
+export_case() {
+  local lib="$1" rev="$2" want="$3" dir target out status=0
+  dir="$(mktemp -d "$tmp/export.XXXXXX")" && target="$(mktemp -d "$tmp/copy.XXXXXX")" || return 1
+  out="$(
+    source "$lib"
+    tree_export "$helper_repo" "$rev" "$dir" || { echo "tree_export failed"; exit 1; }
+    cp -R -- "$dir/bin" "$target/bin"
+    cp -R -- "$helper_repo/scripts" "$target/scripts"
+    tree_overlay_helpers "$dir" "$target"
+    node "$target/bin/judge" 2>&1
+  )" || status=$?
+  [[ $status -eq 0 && $out == "$want" ]] && return 0
+  echo "exit=$status out=$(head -n 1 <<<"$out")"
+  return 1
+}
+export_cases=(
+  "a revision before bin/lib runs its own helper from scripts/|$before_rev|scripts"
+  "a revision after bin/lib exports no helper and runs its own|$after_rev|bin/lib"
+)
+for spec in "${export_cases[@]}"; do
+  IFS='|' read -r label rev want <<<"$spec"
+  if export_case "$repo/scripts/smoke/tree.sh" "$rev" "$want"; then ok "$label"; else fail "$label"; fi
+done
+
+# The harness copy accepts a tree_export that contains only shell, bin,
+# config, themes and any legacy runtime helper. Installer-only files come
+# from this checkout. This is the real copy helper scripts/smoke/harness.sh
+# calls before it mutates the sandbox copy.
+harness_copy_case() { # LIB
+  local lib="$1" dir target out status=0
+  dir="$tmp/harness-export"; target="$tmp/harness-copy"
+  rm -rf -- "$dir" "$target"
+  mkdir -p -- "$dir" "$target"
+  out="$({
+    source "$lib"
+    tree_export "$helper_repo" "$before_rev" "$dir" || { echo "tree_export failed"; exit 1; }
+    tree_harness_copy "$repo" "$target" "$dir"
+    [[ -e "$target/packaging/install-system.sh" ]] || { echo "packaging missing"; exit 1; }
+    [[ -e "$target/scripts/qml-smoke.sh" ]] || { echo "scripts missing"; exit 1; }
+    cmp -s -- "$repo/VERSION" "$target/VERSION" || { echo "VERSION fallback missing"; exit 1; }
+    cmp -s -- "$repo/LICENSE" "$target/LICENSE" || { echo "LICENSE fallback missing"; exit 1; }
+    cmp -s -- "$repo/README.md" "$target/README.md" || { echo "README fallback missing"; exit 1; }
+    echo ok
+  } 2>&1)" || status=$?
+  [[ $status -eq 0 && $out == ok ]] && return 0
+  echo "exit=$status out=$(head -n 1 <<<"$out")"
+  return 1
+}
+if harness_copy_case "$repo/scripts/smoke/tree.sh"; then ok "the harness copy accepts a tree_export without installer files"; else fail "the harness copy accepts a tree_export without installer files"; fi
+copy_mutant="$tmp/tree-copy-mutant.sh"
+if python3 - "$repo/scripts/smoke/tree.sh" "$copy_mutant" <<'PY'
+import sys
+src, dst = sys.argv[1:]
+text = open(src).read()
+needle = 'shutil.copytree(source / "packaging", target / "packaging")'
+assert text.count(needle) == 1, "the harness copy packaging fallback must match once"
+open(dst, "w").write(text.replace(needle, 'shutil.copytree(tree / "packaging", target / "packaging")'))
+PY
+then
+  if harness_copy_case "$copy_mutant" >/dev/null; then fail "control: the old unconditional harness copy stayed green"; else ok "control: the old unconditional harness copy fails on a tree_export"; fi
+else
+  fail "control: the old unconditional harness copy could not be planted"
+fi
+
+# Controls, one per rule: a copy of tree.sh that exports no helper, and one
+# that overlays nothing, each leave the older revision without its helper.
+tree_controls=(
+  "the export carries no helper|tree_runtime_helpers=(scripts/qml-library.js scripts/check-manifests.js)|tree_runtime_helpers=(scripts/no-helper.js)"
+  "the copy takes no helper|  cp -R -- \"\$tree/scripts/.\" \"\$target/scripts/\"|  :"
+)
+for spec in "${tree_controls[@]}"; do
+  IFS='|' read -r label needle replacement <<<"$spec"
+  tree_mutant="$tmp/tree-mutant.sh"
+  if python3 - "$repo/scripts/smoke/tree.sh" "$tree_mutant" "$needle" "$replacement" <<'PY'
+import sys
+src, dst, needle, replacement = sys.argv[1:]
+text = open(src).read()
+assert text.count(needle) == 1, "the control's needle must match once"
+open(dst, "w").write(text.replace(needle, replacement))
+PY
+  then
+    if export_case "$tree_mutant" "$before_rev" scripts >/dev/null; then fail "control: $label left the older revision green"; else ok "control: $label"; fi
+  else
+    fail "control: $label could not be planted"
+  fi
+done
+
+# The same observer setup instruments a source copy and an installed copy.
+# Drive its actual file edits without starting QML or a compositor.
+observer_case() {
+  local tree_helper="$1" target count
+  target="$(mktemp -d "$tmp/observer.XXXXXX")" || return 1
+  mkdir -p "$target/shell/Core" "$target/shell/Hosts" &&
+  cp -- "$repo/shell/shell.qml" "$target/shell/shell.qml" &&
+  cp -- "$repo/shell/Core/Config.qml" "$target/shell/Core/Config.qml" &&
+  cp -- "$repo/shell/Hosts/BackgroundHost.qml" "$target/shell/Hosts/BackgroundHost.qml" &&
+  env -i PATH="/usr/bin:/bin" HOME="$tmp" "$BASH" -c '
+    set -euo pipefail
+    source "$1"
+    tree_smoke_observer "$2" "$3"
+  ' _ "$tree_helper" "$repo" "$target" &&
+  cmp -s -- "$repo/scripts/smoke/Probe.qml" "$target/shell/Probe.qml" || return 1
+  count="$(grep -Fc '    Probe {}' "$target/shell/shell.qml")" || return 1
+  [[ $count == 1 ]] || return 1
+  count="$(grep -Fc 'property alias smokeUserView: userView' "$target/shell/Core/Config.qml")" || return 1
+  [[ $count == 1 ]] || return 1
+  count="$(grep -Fc 'onBrokenKeysChanged: console.info("smoke: backgroundFailures="' "$target/shell/Hosts/BackgroundHost.qml")" || return 1
+  [[ $count == 1 ]]
+}
+if observer_case "$repo/scripts/smoke/tree.sh"; then
+  ok "the shared observer instruments a disposable runtime tree"
+else
+  fail "the shared observer instruments a disposable runtime tree"
+fi
+observer_controls=(
+  'the root gets no probe|    Probe {}|    QtObject {}'
+  'the user view gets no readable alias|property alias smokeUserView:|property alias unusedUserView:'
+  'background failures get no observer|onBrokenKeysChanged:|onParentChanged:'
+)
+for spec in "${observer_controls[@]}"; do
+  IFS='|' read -r label needle replacement <<<"$spec"
+  observer_mutant="$tmp/observer-mutant.sh"
+  if ! mutate "$repo/scripts/smoke/tree.sh" "$needle" "$replacement" "$observer_mutant"; then
+    fail "control: $label could not be planted"
+  elif observer_case "$observer_mutant" >/dev/null; then
+    fail "control: $label left the observer setup green"
+  else
+    ok "control: $label"
+  fi
+done
+
+# The harness names a missing ImageMagick among its prerequisites, since the
+# notifications row and the Slack scene draw converted emoji: with no tool
+# on PATH its not-measured line lists magick, and a copy without the check
+# leaves it out.
+# harness_missing HARNESS: the harness's missing list with an empty PATH.
+harness_missing() {
+  local out status=0
+  out="$(env -i PATH="$tmp/no-tools" HOME="$tmp" "$BASH" -c 'repo="$1"; source "$2"' _ "$repo" "$1" 2>/dev/null)" || status=$?
+  [[ $status -eq 77 ]] || { echo "exit=$status"; return; }
+  sed -n 's/^qml-smoke: status=not-measured missing=//p' <<<"$out"
+}
+mkdir -p "$tmp/no-tools"
+has_magick() { tr ',' '\n' <<<"$1" | grep -qx magick; }
+got="$(harness_missing "$repo/scripts/smoke/harness.sh")"
+if has_magick "$got"; then ok "the harness names a missing ImageMagick"; else fail "the harness names a missing ImageMagick: got $got"; fi
+harness_mutant="$tmp/harness-mutant.sh"
+needle='|| missing+=("magick")'
+if [[ $(grep -cF -- "$needle" "$repo/scripts/smoke/harness.sh") -eq 1 ]]; then
+  text="$(<"$repo/scripts/smoke/harness.sh")"
+  printf '%s\n' "${text/"$needle"/|| true}" >"$harness_mutant"
+  got="$(harness_missing "$harness_mutant")"
+  if has_magick "$got"; then fail "control: a harness without the ImageMagick check still names it"; else ok "control: a harness without the ImageMagick check leaves it out"; fi
+else
+  fail "control: the ImageMagick check could not be planted"
+fi
+
+if [[ $failures -gt 0 ]]; then
+  echo "test-sandbox-shots: failed=$failures"
+  exit 1
+fi
+echo "test-sandbox-shots: ok"

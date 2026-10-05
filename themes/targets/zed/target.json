@@ -1,0 +1,9 @@
+{
+  "app": "Zed",
+  "runsCode": false,
+  "encoder": "hex8",
+  "files": [{ "template": "zed.json", "destination": "zed.json" }],
+  "detect": [["zeditor", "zed"]],
+  "wiring": { "base": "config", "dir": "zed/themes", "owned": false, "links": { "vgs.json": "zed.json" } },
+  "reload": null
+}

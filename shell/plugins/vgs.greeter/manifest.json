@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "vgs.greeter",
+  "name": "Login screen",
+  "version": "0.1.0",
+  "author": "VanillaGreen",
+  "description": "Log in on a screen in your VGS theme.",
+  "license": "MIT",
+  "icon": "log-in",
+  "kinds": ["service"],
+  "entryPoints": { "service": "Service.qml" },
+  "capabilities": ["status", "system"],
+  "systemSteps": ["greeter"],
+  "status": {
+    "greeter": { "type": "state", "label": "Login screen", "action": { "label": "Set up", "system": "greeter" }, "command": "vgsh system apply greeter" },
+    "theme": { "type": "state", "label": "Login screen theme", "hint": "The login screen shows your theme and background" }
+  },
+  "requirements": [
+    { "command": "greetd", "packages": { "pacman": "greetd", "apt": "greetd", "dnf": "greetd", "xbps": "greetd", "emerge": "gui-libs/greetd", "nix": "greetd.greetd" }, "optional": true, "purpose": "Starts the login screen at boot" },
+    { "command": "uwsm", "packages": { "pacman": "uwsm", "apt": "uwsm", "nix": "uwsm" }, "optional": true, "purpose": "Starts the Hyprland (uwsm-managed) session" },
+    { "command": "startx", "packages": { "pacman": "xorg-xinit", "apt": "xinit", "dnf": "xorg-x11-xinit", "xbps": "xinit", "emerge": "x11-apps/xinit", "nix": "xorg.xinit" }, "optional": true, "purpose": "Starts an X11 session" },
+    { "command": "getent", "packages": { "pacman": "glibc", "apt": "libc-bin", "dnf": "glibc-common", "xbps": "glibc", "emerge": "sys-libs/glibc", "nix": "glibc" }, "optional": true, "purpose": "Lists the accounts on the login screen" },
+    { "command": "systemctl", "packages": { "pacman": "systemd", "apt": "systemd", "dnf": "systemd", "emerge": "sys-apps/systemd", "nix": "systemd" }, "optional": true, "purpose": "Suspends, restarts and shuts down from the login screen" },
+    { "command": "bash", "packages": { "pacman": "bash", "apt": "bash", "dnf": "bash", "xbps": "bash", "emerge": "app-shells/bash", "nix": "bash" }, "optional": true, "purpose": "Lists the sessions and copies the theme for the login screen" },
+    { "command": "realpath", "packages": { "pacman": "coreutils", "apt": "coreutils", "dnf": "coreutils", "xbps": "coreutils", "emerge": "sys-apps/coreutils", "nix": "coreutils" }, "optional": true, "purpose": "Finds the login screen's view" },
+    { "command": "test", "packages": { "pacman": "coreutils", "apt": "coreutils", "dnf": "coreutils", "xbps": "coreutils", "emerge": "sys-apps/coreutils", "nix": "coreutils" }, "optional": true, "purpose": "Checks the login screen's view" },
+    { "command": "readlink", "packages": { "pacman": "coreutils", "apt": "coreutils", "dnf": "coreutils", "xbps": "coreutils", "emerge": "sys-apps/coreutils", "nix": "coreutils" }, "optional": true, "purpose": "Finds the theme's background image for the login screen" },
+    { "command": "sha256sum", "packages": { "pacman": "coreutils", "apt": "coreutils", "dnf": "coreutils", "xbps": "coreutils", "emerge": "sys-apps/coreutils", "nix": "coreutils" }, "optional": true, "purpose": "Copies the theme only when it changed" },
+    { "command": "mktemp", "packages": { "pacman": "coreutils", "apt": "coreutils", "dnf": "coreutils", "xbps": "coreutils", "emerge": "sys-apps/coreutils", "nix": "coreutils" }, "optional": true, "purpose": "Copies the theme for the login screen" },
+    { "command": "install", "packages": { "pacman": "coreutils", "apt": "coreutils", "dnf": "coreutils", "xbps": "coreutils", "emerge": "sys-apps/coreutils", "nix": "coreutils" }, "optional": true, "purpose": "Copies the theme for the login screen" },
+    { "command": "mv", "packages": { "pacman": "coreutils", "apt": "coreutils", "dnf": "coreutils", "xbps": "coreutils", "emerge": "sys-apps/coreutils", "nix": "coreutils" }, "optional": true, "purpose": "Copies the theme for the login screen" },
+    { "command": "rm", "packages": { "pacman": "coreutils", "apt": "coreutils", "dnf": "coreutils", "xbps": "coreutils", "emerge": "sys-apps/coreutils", "nix": "coreutils" }, "optional": true, "purpose": "Removes a background the theme no longer has" },
+    { "command": "mkdir", "packages": { "pacman": "coreutils", "apt": "coreutils", "dnf": "coreutils", "xbps": "coreutils", "emerge": "sys-apps/coreutils", "nix": "coreutils" }, "optional": true, "purpose": "Copies the theme for the login screen" }
+  ]
+}

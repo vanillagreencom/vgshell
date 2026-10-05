@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# copy-theme THEME_JSON BACKGROUND_LINK DEST_DIR: keep the login screen's
+# copy of the applied theme current.
+#
+# THEME_JSON is the user's theme file and BACKGROUND_LINK the state
+# directory's link to the current background image. DEST_DIR is the
+# directory `vgsh system apply greeter` made, root's, which the login
+# screen's XDG_CONFIG_HOME names: the copy goes in DEST_DIR/vgs, the
+# caller's directory the step made in it, as
+# `theme.json` and `background`, each mode 0644 so the greeter account
+# reads it. Each is copied byte for byte, only when its bytes differ, to a
+# temporary file in the same directory renamed into place, so the login
+# screen never reads half a file. A source that is absent, or a link that
+# resolves to nothing, removes its copy, so the login screen draws what a
+# session without it draws. No theme is read or judged here.
+#
+# Prints one line, `theme=<what> background=<what>`, each `copied`,
+# `unchanged` or `removed`, and exits 0. A failure prints
+# `copy-theme: refused: <key>=<value>` on stderr and exits 1; a bad
+# invocation exits 2.
+set -euo pipefail
+umask 022
+
+refuse() { # STATUS FIRST_LINE
+  printf 'copy-theme: refused: %s\n' "$2" >&2
+  exit "$1"
+}
+
+(($# == 3)) || refuse 2 "count=$#"
+theme="$1" link="$2" dest="$3"
+[[ $dest == /* ]] || refuse 2 "dest=$dest"
+[[ -d $dest && ! -L $dest ]] || refuse 1 "dest=missing path=$dest"
+out="$dest/vgs"
+[[ ! -L $out ]] || refuse 1 "dest=symlink path=$out"
+mkdir -p -- "$out" || refuse 1 "mkdir=failed path=$out"
+
+staged=""
+trap '[[ -z $staged ]] || rm -f -- "$staged"' EXIT
+
+# FILE's sha256, or nothing when it cannot be read, which no file's sum
+# equals.
+sum_of() { local sum; sum="$(sha256sum -- "$1" 2>/dev/null)" || return 0; printf '%s' "${sum%% *}"; } # FILE
+
+# Sets did to what copying SOURCE, or nothing for an empty SOURCE, to NAME
+# in the copy directory did.
+copy() { # SOURCE NAME
+  local target="$out/$2"
+  [[ ! -L $target ]] || refuse 1 "dest=symlink path=$target"
+  if [[ -z $1 ]]; then
+    if [[ -e $target ]]; then
+      rm -f -- "$target" || refuse 1 "remove=failed path=$target"
+      did=removed
+    else
+      did=unchanged
+    fi
+    return
+  fi
+  if [[ -f $target ]] && [[ $(sum_of "$1") == "$(sum_of "$target")" ]]; then did=unchanged; return; fi
+  staged="$(mktemp -- "$out/.$2.XXXXXX")" || refuse 1 "mktemp=failed path=$out"
+  install -m 0644 -T -- "$1" "$staged" || refuse 1 "copy=failed path=$1"
+  mv -fT -- "$staged" "$target" || refuse 1 "rename=failed path=$target"
+  staged=""
+  did=copied
+}
+
+source_theme=""
+if [[ -e $theme ]]; then
+  [[ -f $theme && -r $theme ]] || refuse 1 "theme=unreadable path=$theme"
+  source_theme="$theme"
+fi
+# No link, or a link to nothing, while no background is applied.
+image=""
+if [[ -e $link ]]; then
+  image="$(readlink -e -- "$link" 2>/dev/null)" || refuse 1 "background=unresolved path=$link"
+fi
+[[ -z $image || (-f $image && -r $image) ]] || refuse 1 "background=unreadable path=$image"
+
+copy "$source_theme" theme.json
+theme_did="$did"
+copy "$image" background
+printf 'theme=%s background=%s\n' "$theme_did" "$did"

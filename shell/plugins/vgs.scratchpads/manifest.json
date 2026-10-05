@@ -1,0 +1,95 @@
+{
+  "schemaVersion": 1,
+  "id": "vgs.scratchpads",
+  "name": "Scratchpads",
+  "version": "0.1.0",
+  "author": "VanillaGreen",
+  "description": "Show and hide an app with one key.",
+  "license": "MIT",
+  "icon": "app-window",
+  "kinds": [
+    "service",
+    "background"
+  ],
+  "entryPoints": {
+    "service": "Service.qml",
+    "background": "Background.qml"
+  },
+  "capabilities": [
+    "compositor",
+    "run",
+    "screens",
+    "shortcut",
+    "status",
+    "toasts"
+  ],
+  "settings": {
+    "pads": []
+  },
+  "schema": {
+    "pads": {
+      "type": "list",
+      "label": "Pads",
+      "description": "Each pad holds one app. Set its key under Keys.",
+      "items": {
+        "command": {
+          "type": "string",
+          "label": "App",
+          "description": "The command that starts the app.",
+          "presets": [
+            { "value": "xdg-terminal-exec --app-id=org.vgs.pad", "label": "Terminal" },
+            { "value": "xdg-terminal-exec --app-id=org.vgs.pad.2", "label": "Second terminal" },
+            { "value": "xdg-terminal-exec --app-id=org.vgs.pad.3", "label": "Third terminal" }
+          ],
+          "allowCustom": true
+        },
+        "class": {
+          "type": "string",
+          "label": "Window class",
+          "description": "The app-id of the window the pad holds. Each pad needs its own.",
+          "presets": [
+            { "value": "org.vgs.pad", "label": "org.vgs.pad, for Terminal" },
+            { "value": "org.vgs.pad.2", "label": "org.vgs.pad.2, for Second terminal" },
+            { "value": "org.vgs.pad.3", "label": "org.vgs.pad.3, for Third terminal" }
+          ],
+          "allowCustom": true
+        },
+        "width": { "type": "number", "label": "Width", "min": 10, "max": 100, "step": 1, "unit": "%" },
+        "height": { "type": "number", "label": "Height", "min": 10, "max": 100, "step": 1, "unit": "%" },
+        "position": {
+          "type": "enum",
+          "label": "Position",
+          "options": ["center", "top", "bottom", "left", "right", "top-left", "top-right", "bottom-left", "bottom-right"]
+        },
+        "margin": { "type": "number", "label": "Margin", "min": 0, "max": 20, "step": 1, "unit": "%" },
+        "entry": { "type": "enum", "label": "Comes in from", "options": ["top", "bottom", "left", "right"] },
+        "motion": { "type": "enum", "label": "Motion", "options": ["slide", "fade", "none"] },
+        "screen": { "type": "string", "label": "Screen", "optionsFrom": "screens" },
+        "preload": { "type": "boolean", "label": "Start at login", "description": "The first press shows the app at once." }
+      },
+      "defaults": {
+        "command": "xdg-terminal-exec --app-id=org.vgs.pad",
+        "class": "org.vgs.pad",
+        "width": 60,
+        "height": 50,
+        "position": "top",
+        "margin": 2,
+        "entry": "top",
+        "motion": "slide",
+        "screen": "focused",
+        "preload": false
+      }
+    }
+  },
+  "status": {
+    "screens": { "type": "choices", "label": "Screens", "hidden": true },
+    "shown": { "type": "data", "label": "Shown pads" }
+  },
+  "requirements": [
+    { "command": "sh", "packages": { "pacman": "bash", "apt": "dash", "dnf": "bash", "xbps": "bash", "emerge": "app-shells/bash", "nix": "bash" }, "optional": false, "purpose": "Starts the app of each pad" },
+    { "command": "xdg-terminal-exec", "packages": { "pacman": "xdg-terminal-exec", "apt": "xdg-terminal-exec", "dnf": "xdg-terminal-exec", "nix": "xdg-terminal-exec" }, "optional": true, "purpose": "Opens the terminal of the Terminal app choice" }
+  ],
+  "hyprland": {
+    "pads": "pads"
+  }
+}

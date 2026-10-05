@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "id": "vgs.capture",
+  "name": "Capture",
+  "version": "0.1.0",
+  "author": "VanillaGreen",
+  "description": "Save screenshots, record the screen and copy text from an area.",
+  "license": "MIT",
+  "icon": "camera",
+  "kinds": ["service", "bar-widget", "panel"],
+  "entryPoints": { "service": "Service.qml", "bar-widget": "Widget.qml", "panel": "Panel.qml" },
+  "capabilities": ["configure", "ipc", "monitors", "requirements", "shortcut", "status", "surfaces", "toasts"],
+  "defaultSection": "right",
+  "requirements": [
+    { "command": "grim", "packages": { "pacman": "grim", "dnf": "grim", "nix": "grim" }, "optional": false, "purpose": "Captures screenshots and images for text recognition" },
+    { "command": "slurp", "packages": { "pacman": "slurp", "dnf": "slurp", "nix": "slurp" }, "optional": false, "purpose": "Selects an area or a whole output to capture" },
+    { "command": "hyprpicker", "packages": { "pacman": "hyprpicker", "dnf": "hyprpicker", "nix": "hyprpicker" }, "optional": false, "purpose": "Holds the screen still while you select an area" },
+    { "command": "wl-copy", "packages": { "pacman": "wl-clipboard", "dnf": "wl-clipboard", "nix": "wl-clipboard" }, "optional": false, "purpose": "Copies captured images and text to the clipboard" },
+    { "command": "tesseract", "packages": { "pacman": "tesseract", "dnf": "tesseract", "nix": "tesseract" }, "optional": false, "purpose": "Recognizes English text in a captured area" },
+    { "command": "gpu-screen-recorder", "packages": { "pacman": "gpu-screen-recorder", "nix": "gpu-screen-recorder" }, "optional": false, "purpose": "Records an area or a whole output on Arch" }
+  ],
+  "settings": { "folder": "", "recordFolder": "", "audio": "desktop" },
+  "schema": {
+    "folder": { "type": "string", "label": "Screenshot folder", "description": "Empty uses Screenshots in your Pictures folder", "presets": [{ "value": "", "label": "Pictures / Screenshots" }], "allowCustom": true, "group": "Folders" },
+    "recordFolder": { "type": "string", "label": "Recording folder", "description": "Empty uses Screencasts in your Videos folder", "presets": [{ "value": "", "label": "Videos / Screencasts" }], "allowCustom": true, "group": "Folders" },
+    "audio": { "type": "enum", "label": "Recording audio", "options": ["none", "desktop", "microphone", "both"], "group": "Recording" }
+  },
+  "hyprland": { "binds": [
+    { "shortcut": "screenshot", "key": "PRINT" },
+    { "shortcut": "screenshot-area", "key": "SUPER+SHIFT+S" },
+    { "shortcut": "record", "key": "SUPER+SHIFT+R" },
+    { "shortcut": "toggle", "key": "SUPER+CTRL+SHIFT+S" },
+    { "shortcut": "text", "key": "SUPER+CTRL+PRINT" }
+  ] },
+  "status": {
+    "capture": { "type": "data", "label": "Capture state" },
+    "recording": { "type": "state", "label": "Recording" }
+  }
+}

@@ -1,0 +1,4 @@
+[Desktop Entry]
+Name=Tools
+Exec=tools-session
+NoDisplay=true

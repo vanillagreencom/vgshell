@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "id": "vgs.notifications",
+  "name": "Notifications",
+  "version": "0.1.0",
+  "author": "VanillaGreen",
+  "description": "Read and silence your notifications.",
+  "license": "MIT",
+  "icon": "bell",
+  "kinds": [
+    "service",
+    "panel"
+  ],
+  "entryPoints": {
+    "service": "Service.qml",
+    "panel": "Panel.qml"
+  },
+  "capabilities": [
+    "compositor",
+    "ipc",
+    "layers",
+    "notifications",
+    "shortcut",
+    "surfaces",
+    "status",
+    "toasts",
+    "tui",
+    "secrets"
+  ],
+  "settings": {
+    "duration": 8,
+    "customEmoji": true,
+    "slackPhotos": false,
+    "placement": "top"
+  },
+  "schema": {
+    "duration": {
+      "type": "number",
+      "label": "Notification duration",
+      "description": "Set the minimum time for normal notifications.",
+      "min": 2,
+      "max": 30,
+      "step": 1,
+      "unit": "seconds"
+    },
+    "customEmoji": {
+      "type": "boolean",
+      "label": "Slack custom emoji",
+      "description": "Show custom emoji in Slack notifications.",
+      "group": "Slack"
+    }
+  },
+  "status": {
+    "panelRevision": {
+      "type": "count",
+      "label": "Panel revision",
+      "hidden": true
+    },
+    "slackTokens": {
+      "type": "presenceList",
+      "label": "Slack tokens",
+      "group": "Slack",
+      "hint": "Connect each workspace to show sender photos."
+    }
+  },
+  "secrets": {
+    "service": "vgs-notifications",
+    "label": "VGS notifications Slack token"
+  },
+  "extras": {
+    "slackPhotos": {
+      "status": ["slackTokens"],
+      "requirements": ["curl", "secret-tool"]
+    }
+  },
+  "tui": {
+    "open": { "script": "tui/open.sh", "title": "Open notification file", "presentation": "plain" }
+  },
+  "requirements": [
+    { "command": "xdg-open", "packages": { "pacman": "xdg-utils", "apt": "xdg-utils", "dnf": "xdg-utils", "nix": "xdg-utils" }, "optional": false, "purpose": "Opens files from notifications." },
+    { "command": "node", "packages": { "pacman": "nodejs", "apt": "nodejs", "dnf": "nodejs", "xbps": "nodejs", "emerge": "net-libs/nodejs", "nix": "nodejs" }, "optional": false, "purpose": "Shows Slack workspace icons, photos and custom emoji." },
+    { "command": "curl", "packages": { "pacman": "curl", "apt": "curl", "dnf": "curl", "xbps": "curl", "emerge": "net-misc/curl", "nix": "curl" }, "optional": true, "purpose": "Downloads Slack photos and custom emoji." },
+    { "command": "secret-tool", "packages": { "pacman": "libsecret", "apt": "libsecret-tools", "dnf": "libsecret", "xbps": "libsecret", "emerge": "app-crypt/libsecret", "nix": "libsecret" }, "optional": true, "purpose": "Reads saved Slack credentials for sender photos." },
+    { "command": "convert", "packages": { "pacman": "imagemagick", "apt": "imagemagick", "dnf": "ImageMagick", "xbps": "ImageMagick", "emerge": "media-gfx/imagemagick", "nix": "imagemagick" }, "optional": false, "purpose": "Prepares Slack emoji and photos for display." }
+  ],
+  "appearance": "Appearance.js",
+  "hyprland": {
+    "binds": [
+      { "shortcut": "inbox", "key": "SUPER+N" }
+    ],
+    "layerRules": [
+      { "namespace": "^vgs:layer$", "blur": true, "ignoreAlpha": 0.6 },
+      { "namespace": "^vgs:panel$", "blur": true, "ignoreAlpha": 0.6 }
+    ]
+  }
+}

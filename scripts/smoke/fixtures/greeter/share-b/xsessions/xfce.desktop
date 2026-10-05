@@ -1,0 +1,4 @@
+[Desktop Entry]
+Name=Xfce Session
+Exec=startxfce4
+DesktopNames=XFCE

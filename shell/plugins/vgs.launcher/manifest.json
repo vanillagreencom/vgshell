@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "id": "vgs.launcher",
+  "name": "Launcher",
+  "version": "0.1.0",
+  "author": "VanillaGreen",
+  "description": "Find and open apps, files and system actions.",
+  "license": "MIT",
+  "icon": "search",
+  "kinds": [
+    "overlay",
+    "bar-widget",
+    "service"
+  ],
+  "entryPoints": {
+    "overlay": "Launcher.qml",
+    "bar-widget": "Widget.qml",
+    "service": "Service.qml"
+  },
+  "capabilities": [
+    "ipc",
+    "run",
+    "shortcut",
+    "surfaces",
+    "theme",
+    "tui"
+  ],
+  "requirements": [
+    { "command": "fd", "packages": { "pacman": "fd", "dnf": "fd-find", "nix": "fd" }, "optional": false, "purpose": "Finds files and folders" },
+    { "command": "fzf", "packages": { "pacman": "fzf", "dnf": "fzf", "nix": "fzf" }, "optional": false, "purpose": "Matches file and folder names" },
+    { "command": "file", "packages": { "pacman": "file", "dnf": "file", "nix": "file" }, "optional": false, "purpose": "Finds the type of a selected file" },
+    { "command": "flock", "packages": { "pacman": "util-linux", "dnf": "util-linux-core", "nix": "util-linux" }, "optional": false, "purpose": "Locks the file search index" },
+    { "command": "gio", "packages": { "pacman": "glib2", "dnf": "glib2", "nix": "glib" }, "optional": false, "purpose": "Lists the applications that can open a file" },
+    { "command": "xdg-mime", "packages": { "pacman": "xdg-utils", "dnf": "xdg-utils", "nix": "xdg-utils" }, "optional": false, "purpose": "Finds the default application for a file" },
+    { "command": "xdg-open", "packages": { "pacman": "xdg-utils", "dnf": "xdg-utils", "nix": "xdg-utils" }, "optional": false, "purpose": "Opens Files and selected files with the default application" },
+    { "command": "wl-copy", "packages": { "pacman": "wl-clipboard", "dnf": "wl-clipboard", "nix": "wl-clipboard" }, "optional": false, "purpose": "Copies file paths and screenshots" },
+    { "command": "grim", "packages": { "pacman": "grim", "dnf": "grim", "nix": "grim" }, "optional": false, "purpose": "Captures the image for the Screenshot action" },
+    { "command": "slurp", "packages": { "pacman": "slurp", "dnf": "slurp", "nix": "slurp" }, "optional": false, "purpose": "Selects the area for the Screenshot action" }
+  ],
+  "settings": {},
+  "defaultSection": "left",
+  "appearance": "Appearance.js",
+  "hyprland": {
+    "binds": [
+      { "shortcut": "toggle", "key": "SUPER+SPACE" }
+    ],
+    "layerRules": [
+      { "namespace": "^vgs:overlay$", "blur": true, "ignoreAlpha": 0.6 }
+    ]
+  }
+}

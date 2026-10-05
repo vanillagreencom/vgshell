@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "id": "vgs.network",
+  "name": "Network",
+  "version": "0.1.0",
+  "author": "VanillaGreen",
+  "description": "Join Wi-Fi and see your network connections.",
+  "license": "MIT",
+  "icon": "wifi",
+  "kinds": [
+    "service",
+    "bar-widget",
+    "panel",
+    "pane"
+  ],
+  "entryPoints": {
+    "service": "Service.qml",
+    "bar-widget": "Widget.qml",
+    "panel": "Panel.qml",
+    "pane": "Pane.qml"
+  },
+  "capabilities": [
+    "status",
+    "surfaces",
+    "ipc",
+    "configure",
+    "requirements"
+  ],
+  "defaultSection": "right",
+  "pane": {
+    "group": "Connectivity",
+    "order": 20
+  },
+  "requirements": [
+    { "command": "nmcli", "packages": { "pacman": "networkmanager", "apt": "network-manager", "dnf": "NetworkManager", "xbps": "NetworkManager", "emerge": "net-misc/networkmanager", "nix": "networkmanager" }, "optional": false, "purpose": "Reads saved profiles for QR sharing, connection details and network permissions" },
+    { "command": "qrencode", "packages": { "pacman": "qrencode", "apt": "qrencode", "dnf": "qrencode", "xbps": "qrencode", "emerge": "media-gfx/qrencode", "nix": "qrencode" }, "optional": false, "purpose": "Encodes a saved Wi-Fi network for sharing by QR code" },
+    { "command": "systemctl", "packages": { "pacman": "systemd", "apt": "systemd", "dnf": "systemd", "xbps": "systemd", "emerge": "sys-apps/systemd", "nix": "systemd" }, "optional": false, "purpose": "Reads whether NetworkManager is installed and running" }
+  ],
+  "settings": {
+    "showDisconnected": true
+  },
+  "status": {
+    "connection": {
+      "type": "state",
+      "label": "Connection"
+    },
+    "detailsTool": {
+      "type": "state",
+      "label": "Connection details",
+      "action": {
+        "label": "Install details tool",
+        "install": [
+          "nmcli"
+        ]
+      }
+    },
+    "network": {
+      "type": "data",
+      "label": "Network"
+    }
+  },
+  "schema": {
+    "showDisconnected": {
+      "type": "boolean",
+      "label": "Show disconnected icon",
+      "description": "Keep the network icon in the bar while disconnected",
+      "group": "Display"
+    }
+  }
+}

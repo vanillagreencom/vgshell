@@ -1,0 +1,8 @@
+[secrets]
+
+# The credential deep research needs to search the web.
+
+# The search key every research run authenticates with. Create one in the
+# Exa dashboard at https://dashboard.exa.ai. Without it a run stops before
+# it reaches the network. A 1Password reference works in place of the key.
+EXA_API_KEY = "" # required

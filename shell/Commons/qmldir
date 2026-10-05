@@ -1,0 +1,13 @@
+module qs.Commons
+singleton Theme 1.0 Theme.qml
+internal ThemeSource ThemeSource.qml
+singleton Paths 1.0 Paths.qml
+singleton Workspaces 1.0 Workspaces.qml
+singleton Time 1.0 Time.qml
+WatchedFile 1.0 WatchedFile.qml
+Inset 1.0 Inset.js
+SettingValues 1.0 SettingValues.js
+ClearingInset 1.0 ClearingInset.qml
+SessionLockState 1.0 SessionLockState.js
+DesktopLaunch 1.0 DesktopLaunch.js
+Reply 1.0 Reply.js

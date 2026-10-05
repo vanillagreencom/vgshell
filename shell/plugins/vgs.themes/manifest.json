@@ -1,0 +1,111 @@
+{
+  "schemaVersion": 1,
+  "id": "vgs.themes",
+  "name": "Themes",
+  "version": "0.1.0",
+  "author": "VanillaGreen",
+  "description": "Choose themes and wallpapers.",
+  "license": "MIT",
+  "icon": "palette",
+  "kinds": [
+    "bar-widget",
+    "panel",
+    "background",
+    "overlay",
+    "service"
+  ],
+  "entryPoints": {
+    "bar-widget": "Widget.qml",
+    "panel": "ThemesPanel.qml",
+    "background": "Background.qml",
+    "overlay": "Browser.qml",
+    "service": "Service.qml"
+  },
+  "capabilities": [
+    "configure",
+    "ipc",
+    "screens",
+    "shortcut",
+    "surfaces",
+    "theme",
+    "tui",
+    "requirements",
+    "status",
+    "ipc"
+  ],
+  "defaultSection": "right",
+  "settings": {
+    "placement": "top-right",
+    "setWindowBorders": true,
+    "setCornerRadius": true,
+    "setWindowAnimations": false,
+    "noWindowGaps": false
+  },
+  "schema": {
+    "placement": {
+      "type": "enum",
+      "label": "Panel position",
+      "description": "Where the panel opens when you use its shortcut",
+      "options": ["top-left", "top", "top-right", "left", "center", "right", "bottom-left", "bottom", "bottom-right"]
+    },
+    "setWindowBorders": {
+      "type": "boolean",
+      "label": "Apply theme borders",
+      "description": "Use the theme's window borders and shadows unless your Hyprland settings override them",
+      "group": "Hyprland"
+    },
+    "setCornerRadius": {
+      "type": "boolean",
+      "label": "Apply theme corners",
+      "description": "Use the theme's rounded window corners unless your Hyprland settings override them",
+      "group": "Hyprland"
+    },
+    "setWindowAnimations": {
+      "type": "boolean",
+      "label": "Apply theme animations",
+      "description": "Use the theme's window animations unless your Hyprland settings override them",
+      "group": "Hyprland"
+    },
+    "noWindowGaps": {
+      "type": "boolean",
+      "label": "No window gaps",
+      "description": "Remove the space around and between tiled windows on every workspace",
+      "group": "Hyprland"
+    }
+  },
+  "status": {
+    "browserTheming": {
+      "type": "state",
+      "label": "Browser theming",
+      "hint": "Apply theme colours to Chromium, Chrome, Edge and Brave after setup",
+      "action": { "label": "Install browser theming", "tui": "browser-policy" },
+      "command": "vgsh theme browser-policy install"
+    }
+  },
+  "tui": {
+    "browser-policy": {
+      "script": "tui/browser-policy.sh",
+      "title": "Install browser theming"
+    }
+  },
+  "menu": {
+    "style": { "label": "Style", "icon": "paintbrush" },
+    "style.theme": { "label": "Theme", "icon": "palette", "aliases": ["theme", "themes"], "shortcut": "themes" },
+    "style.wallpaper": { "label": "Wallpaper", "icon": "wallpaper", "aliases": ["wallpaper", "background"], "shortcut": "wallpapers" },
+    "style.gaps": { "label": "No window gaps", "icon": "maximize", "aliases": ["gaps"], "shortcut": "gaps", "toggle": { "setting": "noWindowGaps", "label": "Default window gaps", "icon": "layout-grid" } }
+  },
+  "hyprland": {
+    "appearance": {
+      "borders": "setWindowBorders",
+      "radius": "setCornerRadius",
+      "motion": "setWindowAnimations",
+      "noGaps": "noWindowGaps"
+    },
+    "binds": [
+      { "shortcut": "themes", "key": "SUPER+T" },
+      { "shortcut": "wallpapers", "key": "SUPER+W" },
+      { "shortcut": "panel", "key": "SUPER+CTRL+J" },
+      { "shortcut": "gaps", "key": "SUPER+SHIFT+BACKSPACE" }
+    ]
+  }
+}

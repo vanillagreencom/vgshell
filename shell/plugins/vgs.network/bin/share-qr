@@ -1,0 +1,153 @@
+#!/usr/bin/env python3
+"""Read one saved NetworkManager profile and emit its QR matrix on stdout.
+
+The caller starts this only for Share and owns its lifetime. Secrets stay in
+private pipes and process memory. Neither errors nor process arguments carry
+them. Every child belongs to this owner and stops when the view cancels it.
+"""
+import os
+import signal
+import subprocess
+import sys
+
+
+class ShareError(Exception):
+    """A saved profile or encoder cannot supply a shareable network."""
+
+
+class Cancelled(Exception):
+    """The owning view closed while a child was running."""
+
+
+class Commands:
+    """Own the one child, including timeout and cancellation teardown."""
+
+    def __init__(self):
+        self.child = None
+
+    def read(self, argv, feed=None):
+        env = dict(os.environ, LC_ALL="C")
+        try:
+            self.child = subprocess.Popen(argv, stdin=subprocess.PIPE if feed is not None else subprocess.DEVNULL,
+                                          stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env)
+            out, _ = self.child.communicate(feed, timeout=10)
+            if self.child.returncode != 0:
+                raise ShareError("The saved network could not be read or encoded.")
+            return out.decode("utf-8", errors="strict")
+        except (OSError, UnicodeError, subprocess.TimeoutExpired) as error:
+            raise ShareError("The saved network could not be read or encoded.") from error
+        finally:
+            self.stop()
+
+    def stop(self):
+        if self.child is None:
+            return
+        if self.child.poll() is None:
+            self.child.terminate()
+            try:
+                self.child.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                self.child.kill()
+                self.child.wait()
+        self.child = None
+
+
+def value(text):
+    """Remove nmcli's one record terminator without changing its value."""
+    return text[:-1] if text.endswith("\n") else text
+
+
+def nm(commands, fields, uuid, secrets=False):
+    argv = ["nmcli", "--escape", "no", "--get-values", fields]
+    if secrets:
+        argv.append("--show-secrets")
+    return commands.read(argv + ["connection", "show", "uuid", uuid])
+
+
+def escape(value):
+    """Escape the Wi-Fi QR format's delimiters and quoted-string character."""
+    for character in ("\\", ";", ",", ":", '"'):
+        value = value.replace(character, "\\" + character)
+    return value
+
+
+def share(commands, interface, ssid, security):
+    """Choose a matching saved profile, preferring this interface's active one."""
+    supported = {"Open": "nopass", "Owe": "nopass", "StaticWep": "WEP",
+                 "WpaPsk": "WPA", "Wpa2Psk": "WPA", "Sae": "WPA"}
+    if security not in supported:
+        raise ShareError("This network cannot be shared with a password QR code.")
+    active = value(commands.read(["nmcli", "--get-values", "GENERAL.CON-UUID", "device", "show", interface]))
+    profiles = commands.read(["nmcli", "--get-values", "UUID,TYPE", "connection", "show"]).splitlines()
+    uuids = []
+    for row in profiles:
+        uuid, separator, kind = row.partition(":")
+        if not separator or not uuid:
+            raise ShareError("The saved network list could not be read.")
+        if kind in ("802-11-wireless", "wifi"):
+            uuids.append(uuid)
+    uuids.sort(key=lambda uuid: uuid != active)
+    chosen = None
+    for uuid in uuids:
+        fields = value(nm(commands, "802-11-wireless.ssid,802-11-wireless-security.key-mgmt,802-11-wireless.hidden", uuid)).split("\n")
+        if len(fields) != 3:
+            raise ShareError("The saved network could not be read.")
+        name, key_management, hidden = fields
+        match = {"nopass": ("", "--", "owe"), "WEP": ("none",), "WPA": ("wpa-psk", "sae", "wpa-none")}
+        if name == ssid and key_management in match[supported[security]]:
+            chosen = (uuid, hidden)
+            break
+    if chosen is None:
+        raise ShareError("This saved network is no longer available.")
+    secret = ""
+    payload = ""
+    try:
+        qr_type = supported[security]
+        if qr_type != "nopass":
+            field = "802-11-wireless-security.wep-key0" if qr_type == "WEP" else "802-11-wireless-security.psk"
+            secret = value(nm(commands, field, chosen[0], secrets=True))
+            if not secret or secret == "--" or "\n" in secret or "\r" in secret:
+                raise ShareError("The saved password is unavailable. NetworkManager may require access.")
+        payload = "WIFI:T:" + qr_type + ";S:" + escape(ssid) + ";P:" + escape(secret) + ";"
+        if chosen[1] == "yes":
+            payload += "H:true;"
+        payload += ";"
+        ascii_matrix = commands.read(["qrencode", "--type", "ASCII", "--margin", "4", "--output", "-"], feed=payload.encode("utf-8"))
+        rows = []
+        for line in ascii_matrix.splitlines():
+            if len(line) % 2 or any(c not in " #" for c in line):
+                raise ShareError("The QR encoder returned an invalid matrix.")
+            rows.append("".join("1" if "#" in line[i:i + 2] else "0" for i in range(0, len(line), 2)))
+        if not rows or len(rows) > 185 or any(len(row) != len(rows) for row in rows):
+            raise ShareError("The QR encoder returned an invalid matrix.")
+        return "\n".join(rows) + "\n"
+    finally:
+        secret = ""
+        payload = ""
+
+
+def main():
+    if len(sys.argv) != 4:
+        print("network-share: refused: arguments=invalid", file=sys.stderr)
+        return 2
+    commands = Commands()
+
+    def cancel(_signal, _frame):
+        raise Cancelled()
+
+    signal.signal(signal.SIGTERM, cancel)
+    signal.signal(signal.SIGINT, cancel)
+    try:
+        sys.stdout.write(share(commands, *sys.argv[1:]))
+        return 0
+    except Cancelled:
+        return 1
+    except ShareError as error:
+        print("network-share: refused: " + str(error), file=sys.stderr)
+        return 1
+    finally:
+        commands.stop()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

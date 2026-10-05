@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "vgs.gallery",
+  "name": "VGS Components",
+  "version": "0.1.0",
+  "author": "VanillaGreen",
+  "description": "Preview VGS controls in the current theme.",
+  "license": "MIT",
+  "icon": "swatch-book",
+  "kinds": [
+    "window"
+  ],
+  "entryPoints": {
+    "window": "Gallery.qml"
+  },
+  "capabilities": [
+    "toasts"
+  ],
+  "settings": {}
+}

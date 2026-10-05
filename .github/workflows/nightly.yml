@@ -1,0 +1,98 @@
+# The full validation of main once a night, report only. No push, pull
+# request or merge queue starts it and no merge reads its result. Each area is
+# one job that runs scripts/validate --full AREA as a lane runs it; which areas
+# run here, where, and why qml does not: docs/architecture/validation.md
+# § Nightly run.
+name: nightly
+
+on:
+  schedule:
+    - cron: "0 10 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  validate:
+    name: ${{ matrix.area }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - area: offline
+            image: docker.io/library/archlinux:latest
+          - area: unit
+            image: docker.io/library/archlinux:latest
+          # Rootless podman starts these areas' own containers; it does not
+          # run inside a container job, so they run on the runner itself.
+          - area: package
+            image: ""
+          - area: nix
+            image: ""
+    # An empty image runs the job on the runner. --privileged lets the Jarvis
+    # rows' private environment mount its own /proc in a user namespace;
+    # --init reaps orphans, which the job container's own first process
+    # (tail -f /dev/null) leaves as zombies that the process-lifetime rows
+    # read as still running; the host's /lib/modules gives the updates
+    # pipeline row a kernel release.
+    container:
+      image: ${{ matrix.image }}
+      options: --privileged --init -v /lib/modules:/lib/modules:ro
+    steps:
+      - name: Install the Arch toolchain
+        if: matrix.image != ''
+        run: |
+          # The tools the rows run; a row whose tool is missing exits 77.
+          # ttf-dejavu gives Qt a default family, without which the QML unit
+          # tests measure text drawn in no font.
+          pacman -Syu --noconfirm --needed \
+            git base-devel nodejs python python-dbus python-numpy jq \
+            qt6-declarative quickshell util-linux bubblewrap lua gnupg \
+            libsecret sudo tmux fd fzf file glib2 xdg-utils imagemagick \
+            qt6-shadertools pipewire pipewire-audio ttf-dejavu
+          useradd --create-home ci
+          # Ubuntu restricts user namespaces to processes an AppArmor profile
+          # allows, and the container's processes run unconfined.
+          if [[ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]]; then
+            sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: scripts/validate --full ${{ matrix.area }}
+        env:
+          AREA: ${{ matrix.area }}
+          IMAGE: ${{ matrix.image }}
+        run: |
+          run_as=()
+          if [[ -n $IMAGE ]]; then
+            chown -R ci:ci -- "$GITHUB_WORKSPACE"
+            run_as=(runuser -u ci --)
+          fi
+          log="$RUNNER_TEMP/validate-$AREA.log"
+          started=$SECONDS
+          set +e
+          "${run_as[@]}" scripts/validate "$AREA" --full 2>&1 | tee -- "$log"
+          status=${PIPESTATUS[0]}
+          set -e
+          case $status in
+            0) verdict=passed ;;
+            77) verdict='could not run (exit 77, not a pass)' ;;
+            *) verdict=failed ;;
+          esac
+          {
+            printf '### %s: %s\n\nexit=%s secs=%s\n\n```\n' "$AREA" "$verdict" "$status" "$((SECONDS - started))"
+            grep -E '^validate: (secs=[0-9]+ exit=[1-9]|failed=|status=not-measured|refused:)' -- "$log" ||
+              tail -n 20 -- "$log"
+            printf '```\n'
+          } >>"$GITHUB_STEP_SUMMARY"
+          exit "$status"

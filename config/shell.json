@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "bar": {
+    "id": "vgs.bar",
+    "layout": {
+      "left": [],
+      "center": [],
+      "right": [{ "id": "vgs.settings" }]
+    }
+  },
+  "plugins": [],
+  "disabledPlugins": [],
+  "welcome": {
+    "keys": [
+      { "id": "vgs.keyhints", "shortcut": "toggle", "text": "shows every key VGS adds." },
+      { "id": "vgs.themes", "shortcut": "themes", "text": "picks a theme." }
+    ]
+  }
+}

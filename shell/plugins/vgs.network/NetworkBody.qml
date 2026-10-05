@@ -1,0 +1,315 @@
+import QtQuick
+import Quickshell
+import Quickshell.Networking
+import qs.Commons
+import qs.Ui
+import "NetworkLogic.js" as Logic
+
+// Shared body for the flyout and System pane. Only this field holds a PSK.
+// The service receives the network key; NetworkManager receives the secret.
+FocusScope {
+    id: root
+    focus: true
+    property var shell: null
+    property bool expanded: false
+    property string leaseId: ""
+    property bool leased: false
+    property string currentKey: ""
+    property string promptKey: ""
+    property string localProblem: ""
+    property var shareTarget: null
+    readonly property var values: shell === null ? ({}) : shell.status.values
+    readonly property var network: values.network || ({ wifi: [], ethernet: [], state: "unavailable", action: { kind: "idle" }, prompt: null, detail: { state: "idle", rows: [] } })
+    readonly property var rows: network.wifi || []
+    readonly property var selected: rows.find(row => row.key === currentKey) || null
+    readonly property string permissionNotice: network.access === "unavailable" ? "Network permissions could not be checked. NetworkManager still handles each change." : ""
+    readonly property bool busy: network.action.kind !== "idle"
+    readonly property Item initialFocus: list
+    readonly property string promptName: network.prompt === null || !network.prompt ? "" : network.prompt.name
+    implicitHeight: shareTarget === null ? content.implicitHeight : shareLoader.item === null ? 0 : shareLoader.item.implicitHeight
+
+    function open() {
+        if (leaseId === "") leaseId = String(root);
+        if (shell !== null && !leased) {
+            leased = answered(shell.ipc.call("lease", JSON.stringify({ id: leaseId, open: true }))) === "ok";
+        }
+        if (currentKey === "" && rows.length) currentKey = rows[0].key;
+    }
+    function close() {
+        closeShare();
+        password.text = "";
+        promptKey = "";
+        if (leased && shell !== null) {
+            shell.ipc.call("lease", JSON.stringify({ id: leaseId, open: false }));
+            leased = false;
+        }
+    }
+    Component.onDestruction: close()
+    onRowsChanged: {
+        if (currentKey === "" || !rows.some(row => row.key === currentKey)) currentKey = rows.length ? rows[0].key : "";
+        if (promptKey !== "" && !rows.some(row => row.key === promptKey)) cancelPassword();
+        if (shareTarget !== null && !rows.some(row => row.key === shareTarget.key && row.known)) closeShare();
+    }
+    onNetworkChanged: {
+        if (!network.wifiEnabled) closeShare();
+        const next = network.prompt ? network.prompt.key : "";
+        if (next === promptKey) return;
+        password.text = "";
+        promptKey = next;
+        if (next !== "") Qt.callLater(() => password.forceActiveFocus(Qt.ShortcutFocusReason));
+    }
+    function answered(reply) {
+        localProblem = reply === "ok" ? "" : reply === "busy" ? "A network change is still in progress." : "The network action is unavailable.";
+        return reply;
+    }
+    function action(kind, row) {
+        if (shell === null) return "unavailable";
+        return answered(shell.ipc.call("action", JSON.stringify({ kind: kind, key: row ? row.key : "", interface: row ? row.interface || row.name : "" })));
+    }
+    function activate(row) {
+        if (row === null || !network.writable || busy) return;
+        action(row.connected ? "disconnect" : "connect", row);
+    }
+    function cancelPassword() {
+        password.text = "";
+        promptKey = "";
+        action("cancel", null);
+        list.forceActiveFocus(Qt.ShortcutFocusReason);
+    }
+    function submitPassword() {
+        if (shell === null || password.text === "" || promptKey === "") return;
+        const row = rows.find(item => item.key === promptKey);
+        if (!row || !Logic.supportsPsk(row.security)) { cancelPassword(); return; }
+        const device = Networking.devices.values.find(d => d.name === row.interface);
+        const n = device ? device.networks.values.find(item => item.name === row.name) : null;
+        if (n === null) { cancelPassword(); localProblem = "This network is no longer available."; return; }
+        const secret = password.text;
+        password.text = "";
+        if (action("psk", row) !== "ok") return;
+        promptKey = "";
+        n.connectWithPsk(secret);
+        list.forceActiveFocus(Qt.ShortcutFocusReason);
+    }
+    function showDetails(interfaceName) {
+        if (shell !== null) answered(shell.ipc.call("details", interfaceName));
+    }
+    function share(row) {
+        if (!Logic.shareable(row)) return;
+        const missing = shell === null ? ["nmcli", "qrencode"] : shell.requirements.missing;
+        if (missing.includes("nmcli") || missing.includes("qrencode")) {
+            if (shell !== null) shell.requirements.offer(["nmcli", "qrencode"]);
+            localProblem = "Wi-Fi sharing needs its installed tools. Use the installation notice to add them.";
+            return;
+        }
+        closeShare();
+        shareTarget = row;
+    }
+    function closeShare() {
+        if (shareLoader.item !== null) shareLoader.item.clear();
+        shareTarget = null;
+    }
+
+    Loader {
+        id: shareLoader
+        objectName: "network-share-owner"
+        width: root.width
+        active: root.shareTarget !== null
+        sourceComponent: NetworkShare {
+            width: root.width
+            target: root.shareTarget
+            onDismissed: { root.closeShare(); list.forceActiveFocus(Qt.ShortcutFocusReason); }
+        }
+    }
+
+    Column {
+        id: content
+        width: root.width
+        visible: root.shareTarget === null
+        spacing: Theme.stack.group
+        Label {
+            width: parent.width
+            role: "body"
+            text: root.network.text || Logic.stateText("unavailable")
+            wrapMode: Text.Wrap
+        }
+        Label {
+            width: parent.width
+            visible: text !== ""
+            role: "hint"
+            color: Theme.color.danger
+            text: root.localProblem || root.network.problem || ""
+            wrapMode: Text.Wrap
+        }
+        Label {
+            objectName: "network-permission-notice"
+            width: parent.width
+            role: "hint"
+            visible: text !== ""
+            text: root.permissionNotice
+            wrapMode: Text.Wrap
+        }
+        Field {
+            width: parent.width
+            visible: !!root.network.hasWifi
+            label: "Wi-Fi"
+            hint: root.network.wifiHardwareEnabled === false ? "The hardware switch blocks Wi-Fi." : ""
+            control: Switch {
+                objectName: "network-radio"
+                checked: !!root.network.wifiEnabled
+                enabled: !!root.network.writable && root.network.wifiHardwareEnabled !== false
+                onClicked: root.action("radio", null)
+            }
+        }
+        Section {
+            title: "Wi-Fi networks"
+            visible: !!root.network.hasWifi && !!root.network.wifiEnabled
+            width: parent.width
+            description: root.rows.length ? "" : "No networks found."
+            // focus-indicator: the one ListCursor marks the selected network
+            FocusScope {
+                id: list
+                width: parent.width
+                implicitHeight: wifiList.implicitHeight
+                activeFocusOnTab: visible && root.rows.length > 0
+                focus: true
+                Keys.onPressed: event => { event.accepted = navigation.handle(event); }
+                ListCursor { id: networkCursor; shown: root.rows.length > 0 }
+                KeyNav {
+                    id: navigation
+                    count: root.rows.length
+                    currentIndex: root.rows.findIndex(row => row.key === root.currentKey)
+                    cursor: networkCursor
+                    labelAt: index => root.rows[index].name
+                    onMoved: index => root.currentKey = root.rows[index].key
+                    onActivated: index => root.activate(root.rows[index])
+                    onRemoved: index => { if (root.rows[index].known) root.action("forget", root.rows[index]); }
+                    onMenuRequested: index => wifiRepeater.itemAt(index).openMenu()
+                }
+                Column {
+                    id: wifiList
+                    width: list.width
+                    Repeater {
+                        id: wifiRepeater
+                        model: ScriptModel { values: root.rows; objectProp: "key" }
+                        DeviceRow {
+                            id: wifiRow
+                            required property var modelData
+                            width: wifiList.width
+                            text: modelData.name === "" ? "Hidden network" : modelData.name
+                            iconName: modelData.connected ? "wifi" : "wifi-low"
+                            secondary: modelData.changing ? "Connecting…" : (modelData.connected ? "Connected · " : modelData.known ? "Saved · " : "") + Logic.securityLabel(modelData.security)
+                            badge: modelData.strength + "%"
+                            cursor: networkCursor
+                            highlighted: root.currentKey === modelData.key
+                            focusPolicy: Qt.NoFocus
+                            enabled: !!root.network.writable && !root.busy
+                            onPointed: root.currentKey = modelData.key
+                            onClicked: { root.currentKey = modelData.key; root.activate(modelData); }
+                            menuEntries: [
+                                MenuItem { text: "Forget"; iconName: "trash"; enabled: wifiRow.modelData.known; onTriggered: root.action("forget", wifiRow.modelData) },
+                                MenuItem { text: "Details"; iconName: "info"; enabled: !!root.values.detailsTool && root.values.detailsTool.action === false; onTriggered: { root.showDetails(wifiRow.modelData.interface); } },
+                                MenuItem { text: "Share QR code"; iconName: "qr-code"; enabled: Logic.shareable(wifiRow.modelData); onTriggered: root.share(wifiRow.modelData) }
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+        Column {
+            width: parent.width
+            spacing: Theme.stack.row
+            visible: root.promptKey !== ""
+            Label { role: "hint"; text: "Password for " + root.promptName }
+            TextField {
+                id: password
+                objectName: "network-password"
+                width: parent.width
+                password: true
+                placeholderText: "Wi-Fi password"
+                onAccepted: root.submitPassword()
+                Keys.onEscapePressed: event => { root.cancelPassword(); event.accepted = true; }
+            }
+            Row {
+                spacing: Theme.control.gap
+                Button { text: "Join"; enabled: password.text !== ""; onClicked: root.submitPassword() }
+                Button { text: "Cancel"; variant: "secondary"; onClicked: root.cancelPassword() }
+            }
+        }
+        Section {
+            width: parent.width
+            visible: root.expanded && !!root.network.hasWifi
+            title: "Wi-Fi options"
+            Field {
+                width: parent.width
+                label: "Auto-join"
+                hint: "Allow this Wi-Fi device to join saved networks automatically."
+                control: Switch {
+                    objectName: "network-autojoin"
+                    checked: !!root.network.wifiAutoconnect
+                    enabled: !!root.network.writable
+                    onClicked: { root.action("autoconnect", { interface: root.network.wifiInterface }); }
+                }
+            }
+            Row {
+                spacing: Theme.control.gap
+                Button { text: "Forget"; variant: "secondary"; enabled: root.selected !== null && root.selected.known && !root.busy; onClicked: root.action("forget", root.selected) }
+                Button { text: "Details"; variant: "secondary"; enabled: root.selected !== null && !!root.values.detailsTool && root.values.detailsTool.action === false; onClicked: root.showDetails(root.selected.interface) }
+                Button { text: "Share QR code"; variant: "secondary"; enabled: Logic.shareable(root.selected); onClicked: root.share(root.selected) }
+            }
+        }
+        Section {
+            width: parent.width
+            title: "Ethernet"
+            visible: root.expanded
+            description: (root.network.ethernet || []).length ? "" : "No Ethernet device detected."
+            Repeater {
+                model: root.network.ethernet || []
+                Field {
+                    id: ethernetRow
+                    required property var modelData
+                    width: parent.width
+                    label: modelData.name
+                    hint: !modelData.managed ? Logic.stateText("unmanaged") : modelData.connected ? "Connected" : modelData.link ? "Not connected" : "Cable not connected"
+                    control: Button {
+                        text: "Details"
+                        variant: "secondary"
+                        enabled: !!root.values.detailsTool && root.values.detailsTool.action === false
+                        onClicked: root.showDetails(ethernetRow.modelData.name)
+                    }
+                }
+            }
+        }
+        Section {
+            width: parent.width
+            objectName: "network-details"
+            visible: root.network.detail.state !== "idle"
+            title: "Connection details"
+            description: root.network.detail.state === "loading" ? "Loading…" : root.network.detail.state === "failed" ? "Connection details could not be read." : root.network.detail.interface
+            Repeater {
+                model: root.network.detail.rows
+                Field {
+                    id: detailRow
+                    required property var modelData
+                    width: parent.width
+                    label: modelData.key
+                    control: Label { text: detailRow.modelData.value; role: "body" }
+                }
+            }
+        }
+        Field {
+            width: parent.width
+            visible: root.expanded
+            label: "Show disconnected icon"
+            control: Switch {
+                checked: root.shell === null || root.shell.settings.showDisconnected
+                onClicked: root.answered(root.shell.configure.set("showDisconnected", checked))
+            }
+        }
+        Button {
+            visible: root.expanded && !!root.values.detailsTool && root.values.detailsTool.action === true
+            text: "Install details tool"
+            variant: "secondary"
+            onClicked: root.answered(root.shell.status.act("detailsTool"))
+        }
+    }
+}

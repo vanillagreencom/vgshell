@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "id": "vgs.bar",
+  "name": "Bar",
+  "version": "0.3.0",
+  "author": "VanillaGreen",
+  "description": "Workspaces, clock and plugin buttons on each screen.",
+  "license": "MIT",
+  "icon": "panel-top",
+  "kinds": [
+    "bar",
+    "service"
+  ],
+  "entryPoints": {
+    "bar": "Bar.qml",
+    "service": "Service.qml"
+  },
+  "capabilities": [
+    "builtins",
+    "compositor",
+    "configure",
+    "ipc",
+    "shortcut"
+  ],
+  "settings": {
+    "left": ["workspaces"],
+    "center": ["clock"],
+    "right": [],
+    "clockFormat": "ddd d MMM  HH:mm",
+    "hidden": false
+  },
+  "schema": {
+    "clockFormat": {
+      "type": "string",
+      "label": "Clock format",
+      "description": "How the bar's clock shows the date and time",
+      "format": "datetime",
+      "allowCustom": true,
+      "presets": [
+        { "value": "ddd d MMM  HH:mm" },
+        { "value": "ddd d MMM  h:mm AP" },
+        { "value": "dddd HH:mm" },
+        { "value": "dddd h:mm AP" },
+        { "value": "HH:mm" },
+        { "value": "h:mm AP" },
+        { "value": "yyyy-MM-dd HH:mm" },
+        { "value": "ddd d MMM" }
+      ]
+    },
+    "hidden": {
+      "type": "boolean",
+      "label": "Hide top bar",
+      "description": "Hide the bar on every screen and give its space to windows"
+    }
+  },
+  "hyprland": {
+    "binds": [
+      { "shortcut": "toggle", "key": "SUPER+SHIFT+SPACE" }
+    ]
+  },
+  "menu": {
+    "style.bar": { "label": "Hide top bar", "icon": "panel-top-close", "aliases": ["bar"], "shortcut": "toggle", "toggle": { "setting": "hidden", "label": "Show top bar", "icon": "panel-top-open" } }
+  }
+}

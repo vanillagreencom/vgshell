@@ -1,0 +1,7 @@
+[
+  { "id": "xkbcommon", "packages": { "pacman": "libxkbcommon", "dnf": "libxkbcommon", "nix": "libxkbcommon" } },
+  { "id": "xkb-layouts", "packages": { "pacman": "xkeyboard-config", "dnf": "xkeyboard-config", "nix": "xkeyboard_config" } },
+  { "id": "shell-interpreter", "packages": { "pacman": "bash", "dnf": "bash", "nix": "bash" } },
+  { "id": "shell-utilities", "packages": { "pacman": "coreutils", "dnf": "coreutils", "nix": "coreutils" } },
+  { "id": "capture-english", "packages": { "pacman": "tesseract-data-eng", "dnf": "tesseract-langpack-eng", "nix": "tesseract" } }
+]

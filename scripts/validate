@@ -1,0 +1,1505 @@
+#!/usr/bin/env bash
+# The product validation manifest, run explicitly rather than by git hooks.
+#
+# Usage: scripts/validate [AREA] [--changed BASE | --full] [--list]
+#   AREA is one of: logic, manifests, boundary, cli, tools, repo, offline,
+#   unit, package, qml, nix, all (default: all). One area per call.
+#   repo holds the checks this file makes itself, the whitespace
+#   row, the self-check that every scripts/test-* file has a row, the
+#   check that nothing under bin/ or shell/ loads a file under scripts/, the
+#   check that no file under bin/, shell/ or config/ writes a monitor rule,
+#   the check that no file in the tree holds a PEM private key and the md-refs
+#   check of every markdown reference and source citation;
+#   scripts/test-validate.sh, under tools, is their control. tools also
+#   holds the document byte ceiling check this file makes, selected, unlike
+#   a repo row, only when a Markdown file, a file under docs/ or the
+#   doc-limits configuration changes; test-validate.sh is its control too.
+#   unit runs the QML unit tests, which need Qt and no Wayland session;
+#   package builds and installs the Arch recipes in a podman container; nix
+#   builds the flake in a container, which needs podman or docker and the
+#   network; offline runs every row but unit, package, nix and the nested
+#   smoke.
+#   --changed BASE selects rows whose inputs changed against BASE, including
+#   staged, unstaged and untracked files. Renames include both paths. Unknown
+#   inputs or an unreadable diff select the whole area. Repository checks
+#   always run. --list prints selected commands without executing them.
+#   Without a scope flag, compare against this area's last pass in this
+#   worktree, the newest commit since the branch point that holds the tree
+#   the last passing run read, else the default branch's merge base.
+#   --full explicitly selects every row in the area.
+#   A run that compares prints `validate: base=<commit> source=<source>` on
+#   stderr, the source one of argument, DEV_VALIDATE_BASE,
+#   VGS_VALIDATE_BASE, last-pass or merge-base, in that precedence.
+#   A run that passes (exit 0) on the merge base, the last pass or --full
+#   records the tree it read, tracked and untracked files git does not
+#   ignore, committed or not, as this area's last pass in
+#   <git-dir>/vgs-validated-<area> when that tree is the same at its start
+#   and end, and prints `validate: last-pass=recorded` or
+#   `validate: last-pass=unrecorded reason=<reason>`: last_pass_record.
+#   Every executed row prints `validate: secs=<seconds> exit=<status> row=<label>`.
+#   A diff-scoped run that selects the nested smoke passes it the rows the
+#   change reaches as `scripts/qml-smoke.sh --rows <row>,...`, or no --rows
+#   for every row, and prints `validate: smoke-rows=some selected=<n>
+#   total=<m>` or `validate: smoke-rows=all reason=<reason>` and the
+#   `validate: smoke-input row=<row> ...` self-check lines on stderr:
+#   smoke_rows_selected below. Those lines leave that run's exit status
+#   alone; the tools row `smoke rows name the rows they read` fails on a
+#   `function=`, `variable=` or `unparsed` line and exits 77 when the scan
+#   could not run: smoke_reads_named below.
+#
+# VGS_VALIDATE_BASE: the commit the whitespace row diffs the tree against;
+#   used as the default change base too, ahead of the last pass. --changed
+#   and DEV_VALIDATE_BASE override it. Unset,
+#   whitespace_base below resolves the base; an unavailable base exits 77.
+# DEV_VALIDATE_BASE: the fix-round base supplied by Kendex; used when neither
+#   --changed nor --full is present, ahead of VGS_VALIDATE_BASE and the last
+#   pass.
+# VGS_VALIDATE_CHANGED: on a readable diff-scoped run, the NUL-delimited file
+#   of changed paths a row may read to narrow its own work. Unset means
+#   everything changed.
+# The document byte ceiling row reads no base: --changed, VGS_VALIDATE_BASE,
+#   DEV_VALIDATE_BASE and the last pass only choose whether it runs.
+#
+# Exit 0: every selected check passed. Exit 77: every check that ran passed
+# but at least one could not run and is named; that is not a pass. Exit 1: a
+# check failed. Exit 2: invalid area or arguments, named by
+# `validate: refused: area=`, `extra-argument=` or
+#   `changed-base=missing-or-repeated` or `scope=conflicting-or-repeated`.
+set -euo pipefail
+
+self="$(readlink -f -- "${BASH_SOURCE[0]}")"
+repo="$(cd -- "$(dirname -- "$self")/.." && pwd)"
+cd -- "$repo"
+# Every row runs under the test-run marker, so the theme judge refuses a
+# reload hook that could reach the host's live applications:
+# docs/architecture/validation.md.
+export VGS_TEST_RUN=1
+
+area="all"
+area_given=false
+change_base=""
+list_only=false
+full_scope=false
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --changed)
+      if [[ $full_scope == true ]]; then
+        echo 'validate: refused: scope=conflicting-or-repeated' >&2; exit 2
+      fi
+      if [[ $# -lt 2 || -z $2 || $2 == -* || -n $change_base ]]; then
+        echo 'validate: refused: changed-base=missing-or-repeated' >&2; exit 2
+      fi
+      change_base="$2"; shift 2 ;;
+    --full)
+      if [[ $full_scope == true || -n $change_base ]]; then
+        echo 'validate: refused: scope=conflicting-or-repeated' >&2; exit 2
+      fi
+      full_scope=true; shift ;;
+    --list) list_only=true; shift ;;
+    *)
+      if [[ $area_given == true ]]; then
+        printf 'validate: refused: extra-argument=%s\none area per call\n' "$1" >&2; exit 2
+      fi
+      area="$1"; area_given=true; shift ;;
+  esac
+done
+case "$area" in
+  logic|manifests|boundary|cli|tools|repo|offline|unit|package|qml|nix|all) ;;
+  *) printf 'validate: refused: area=%s\n' "$area" >&2; exit 2 ;;
+esac
+failed=()
+skipped=()
+
+# node on PATH may be a version-manager shim that reads the caller's own
+# configuration and refuses under a row's temporary home, so each row reaches
+# node through a link to the binary it resolves to here.
+node_bin=""
+if command -v node >/dev/null; then
+  node_bin="$(node -e 'process.stdout.write(process.execPath)')" ||
+    { echo 'validate: node=unresolved' >&2; exit 1; }
+fi
+
+# Each row runs with its own temporary home, removed after the row, so a row
+# that runs `git config --global` or writes its configuration never writes
+# the caller's own files, which may be links into a dotfiles repository.
+# XDG_CONFIG_HOME points under it for every row: git writes the XDG file only
+# where one exists, so a row that sets HOME to a scratch directory writes that
+# directory's .gitconfig. HOME and the XDG data, state and cache directories
+# move under it too, and git's global file follows the row's HOME. In package
+# and nix HOME stays the caller's, since rootless podman keeps its image store
+# and database under the caller's XDG_DATA_HOME, so GIT_CONFIG_GLOBAL points
+# under the temporary home instead:
+# docs/architecture/validation.md § Test isolation. The row runs in a
+# subshell, the one scope where an unset hides a caller's exported
+# GIT_CONFIG_GLOBAL from the row's processes.
+run() { # AREA LABEL CMD...
+  local area="$1" label="$2" started status elapsed row_home
+  shift 2
+  row_home="$(mktemp -d)" || { echo 'validate: row-home=mktemp-failed' >&2; exit 1; }
+  echo "== $label"
+  started=$SECONDS
+  status=0
+  (
+    export XDG_CONFIG_HOME="$row_home/.config"
+    case "$area" in
+      package|nix) export GIT_CONFIG_GLOBAL="$row_home/gitconfig" ;;
+      logic|manifests|boundary|cli|tools|repo|unit|qml)
+        unset GIT_CONFIG_GLOBAL
+        export HOME="$row_home" XDG_DATA_HOME="$row_home/.local/share" XDG_STATE_HOME="$row_home/.local/state" XDG_CACHE_HOME="$row_home/.cache" ;;
+      *) printf 'validate: row-area=%s unknown\n' "$area" >&2; exit 1 ;;
+    esac
+    if [[ -n $node_bin ]]; then
+      mkdir -- "$row_home/bin" && ln -s -- "$node_bin" "$row_home/bin/node" || exit 1
+      export PATH="$row_home/bin:$PATH"
+    fi
+    "$@"
+  ) || status=$?
+  chmod -R u+rwx -- "$row_home" 2>/dev/null || true
+  if ! rm -rf -- "${row_home:?}"; then
+    printf 'validate: row-home=left path=%s row=%s\n' "$row_home" "$label" >&2
+    status=1
+  fi
+  elapsed=$((SECONDS - started))
+  printf 'validate: secs=%s exit=%s row=%s\n' "$elapsed" "$status" "$label"
+  case "$status" in
+    0) ;;
+    77) skipped+=("$label") ;;
+    *) failed+=("$label (exit $status)") ;;
+  esac
+}
+
+# Rows: area | label | command | additional input globs, space-delimited.
+# The command's words that hold a slash are also inputs. Every input glob
+# counts, a root file such as VERSION included.
+rows=(
+  "logic|network snapshot decisions|node scripts/test-network-logic.js|shell/plugins/vgs.network/NetworkLogic.js bin/lib/qml-library.js"
+  "logic|network QR secret transport controls|python3 scripts/test-network-share.py|shell/plugins/vgs.network/bin/share-qr scripts/smoke/fixtures/devices/network-qr-tools.py"
+  "logic|plugin logic table|node scripts/test-plugin-logic.js|shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js bin/lib/qml-library.js config/shell.json config/requirements.json"
+  "logic|pads and list settings judge|node scripts/test-pads.js|shell/Core/Pads.js shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js bin/lib/qml-library.js"
+  "logic|plugin status judge|node scripts/test-plugin-status.js|shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js bin/lib/qml-library.js"
+  "logic|plugin extras judge|node scripts/test-plugin-extras.js|shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js bin/lib/qml-library.js"
+  "logic|plugin menu judge|node scripts/test-plugin-menu.js|shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js bin/lib/qml-library.js"
+  "logic|key capture judge|node scripts/test-key-capture.js|shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js bin/lib/qml-library.js"
+  "logic|floating TUI logic table|node scripts/test-tui-logic.js|shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js bin/lib/qml-library.js"
+  "logic|ipc capability logic table|node scripts/test-ipc-logic.js|shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js bin/lib/qml-library.js"
+  "logic|requirement notice logic table|node scripts/test-notice-logic.js|shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js bin/lib/qml-library.js config/shell.json"
+  "logic|Hyprland layer logic|node scripts/test-hyprland-layer.js|shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js shell/shell.qml bin/lib/qml-library.js"
+  "logic|Hyprland capability readings|node scripts/test-hyprland-state.js|shell/Core/HyprlandState.js shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js bin/lib/qml-library.js"
+  "logic|core input facts|node scripts/test-input-facts.js|shell/Core/HyprlandState.js shell/Core/Dispatch.js shell/Core/HyprlandLayer.js shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Commons/SettingValues.js shell/Ui/icons/Lucide.js bin/lib/qml-library.js"
+  "logic|active XKB input identities|python3 -I scripts/test-xkb-keys.py|bin/lib/xkb-keys.py"
+  "logic|monitor outputs reading|node scripts/test-monitor-logic.js|shell/Core/MonitorLogic.js bin/lib/qml-library.js"
+  "logic|dispatch table|node scripts/test-dispatch.js|shell/Core/Dispatch.js shell/Core/HyprlandLayer.js bin/lib/qml-library.js"
+  "logic|instance lifetime cleanup|node scripts/test-lifetime.js|shell/Core/Lifetime.js shell/Core/Plugins.qml shell/Core/Capabilities.qml shell/Core/HyprlandState.qml bin/lib/qml-library.js"
+  "logic|library loader controls|node scripts/test-qml-library.js|bin/lib/qml-library.js"
+  "logic|rounded inset helper|node scripts/test-inset.js|shell/Commons/Inset.js bin/lib/qml-library.js"
+  "logic|setting value helper|node scripts/test-setting-values.js|shell/Commons/SettingValues.js bin/lib/qml-library.js"
+  "logic|session lock reading|node scripts/test-session-lock-state.js|shell/Commons/SessionLockState.js bin/lib/qml-library.js"
+  "logic|desktop launch rule|node scripts/test-desktop-launch.js|shell/Commons/DesktopLaunch.js bin/lib/qml-library.js"
+  "logic|icon painted extent|node scripts/test-icon-bounds.js|shell/Ui/foundation/IconBounds.js shell/Ui/icons/Lucide.js bin/lib/qml-library.js"
+  "logic|theme judge table|node scripts/test-theme-logic.js|shell/Commons/ThemeLogic.js shell/Commons/Tokens.js bin/lib/qml-library.js themes/*"
+  "logic|shipped theme packages and targets|bin/vgsh-theme-judge packages themes|themes/* bin/vgsh-theme-judge bin/lib/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js"
+  "logic|theme contrast controls|node scripts/test-check-theme-contrast.js|themes/* themes/catalog/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js bin/lib/qml-library.js scripts/check-theme-contrast.js scripts/test-check-theme-contrast.js"
+  "logic|theme target renderer|node scripts/test-theme-render.js|bin/lib/theme-render.js themes/targets/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js bin/lib/qml-library.js"
+  "logic|theme selection edit|node scripts/test-theme-select.js|bin/lib/theme-select.js bin/lib/theme-render.js shell/Commons/ThemeLogic.js shell/Commons/Tokens.js bin/lib/qml-library.js"
+  "logic|theme catalog marker|node scripts/test-theme-catalog.js|bin/lib/theme-catalog.js shell/Commons/ThemeLogic.js shell/Commons/Tokens.js bin/lib/qml-library.js"
+  "logic|lucide icon data|node scripts/test-lucide-data.js|shell/Ui/icons/Lucide.js bin/lib/qml-library.js"
+  "logic|inline image text logic|node scripts/test-image-text-logic.js|shell/Ui/foundation/ImageTextLogic.js bin/lib/qml-library.js"
+  "logic|list cursor logic|node scripts/test-list-cursor-logic.js|shell/Ui/layout/ListCursorLogic.js bin/lib/qml-library.js"
+  "logic|touchpad scroll logic|node scripts/test-touchpad-scroll-logic.js|shell/Ui/layout/TouchpadScrollLogic.js bin/lib/qml-library.js"
+  "logic|key nav logic|node scripts/test-key-nav-logic.js|shell/Ui/foundation/KeyNavLogic.js bin/lib/qml-library.js"
+  "logic|launcher menu model|node scripts/test-launcher-model.js|shell/plugins/vgs.launcher/MenuModel.js shell/plugins/vgs.launcher/menu.json bin/lib/qml-library.js"
+  "cli|launcher file search helper|scripts/test-launcher-file-search.sh|shell/plugins/vgs.launcher/file-search.sh"
+  "cli|IPC reply judge controls|scripts/test-ipc-reply.sh|scripts/test-ipc-reply.sh bin/lib/ipc-reply.sh"
+  "logic|IPC pager controls|node scripts/test-ipc-pages.js|scripts/test-ipc-pages.js shell/Core/IpcPages.qml"
+  "logic|themes browser theming row|node scripts/test-themes-setup.js|shell/plugins/vgs.themes/SetupLogic.js shell/plugins/vgs.themes/manifest.json shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js bin/lib/qml-library.js"
+  "logic|theme browser logic|node scripts/test-themes-browser.js|shell/plugins/vgs.themes/BrowserLogic.js shell/plugins/vgs.themes/Files.js bin/lib/qml-library.js"
+  "logic|notifications logic|node scripts/test-notifications-logic.js|shell/plugins/vgs.notifications/NotificationLogic.js shell/plugins/vgs.notifications/Appearance.js shell/plugins/vgs.notifications/manifest.json shell/plugins/vgs.notifications/slack-photos.js shell/plugins/vgs.notifications/token-status.sh shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js bin/lib/qml-library.js"
+  "logic|lock model|node scripts/test-lock-model.js|shell/plugins/vgs.lock/LockModel.js bin/lib/qml-library.js"
+  "logic|greeter logic|node scripts/test-greeter-logic.js|shell/plugins/vgs.greeter/GreeterLogic.js shell/plugins/vgs.greeter/manifest.json shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js bin/lib/qml-library.js"
+  "logic|polkit prompt model|node scripts/test-polkit-model.js|shell/plugins/vgs.polkit/PolkitModel.js shell/plugins/vgs.polkit/manifest.json shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js bin/lib/qml-library.js"
+  "cli|polkit other agents and their TUIs|scripts/test-polkit-agents.sh|shell/plugins/vgs.polkit/bin/agents shell/plugins/vgs.polkit/PolkitModel.js shell/plugins/vgs.polkit/tui/uninstall.sh shell/plugins/vgs.polkit/tui/stop.sh bin/lib/qml-library.js bin/lib/tui.sh"
+  "logic|Bluetooth agent transcripts|node scripts/test-bluetooth-agent.js|shell/Core/BluetoothAgentModel.js bin/lib/qml-library.js"
+  "logic|Bluetooth plugin logic|node scripts/test-bluetooth-logic.js|shell/plugins/vgs.bluetooth/BluetoothLogic.js shell/Commons/SettingValues.js bin/lib/qml-library.js"
+  "logic|updates logic|node scripts/test-updates-logic.js|shell/plugins/vgs.updates/UpdatesLogic.js bin/lib/qml-library.js"
+  "logic|displays logic|node scripts/test-displays-logic.js|shell/plugins/vgs.displays/DisplaysLogic.js bin/lib/qml-library.js"
+  "logic|sound logic|node scripts/test-sound-logic.js|shell/plugins/vgs.sound/SoundLogic.js bin/lib/qml-library.js"
+  "logic|clipboard history logic|node scripts/test-clipboard-history.js|shell/plugins/vgs.clipboard/ClipboardHistory.js bin/lib/qml-library.js"
+  "logic|automations judge|node scripts/test-automations-logic.js|shell/plugins/vgs.automations/AutomationsLogic.js bin/lib/qml-library.js"
+  "logic|Jarvis Session|node scripts/test-jarvis-session.js|shell/plugins/vgs.jarvis/Session.js bin/lib/qml-library.js"
+  "logic|Jarvis Session effect owner|node scripts/test-jarvis-session-runner.js|shell/plugins/vgs.jarvis/Session.js shell/plugins/vgs.jarvis/backend/session-runner.js bin/lib/qml-library.js"
+  "logic|Jarvis bar widget view|node scripts/test-jarvis-widget.js|shell/plugins/vgs.jarvis/WidgetView.js shell/plugins/vgs.jarvis/Session.js shell/Ui/icons/Lucide.js bin/lib/qml-library.js"
+  "logic|Jarvis setup gate|node scripts/test-jarvis-setup-gate.js|shell/plugins/vgs.jarvis/SetupGate.js bin/lib/qml-library.js"
+  "logic|Jarvis protocol|node scripts/test-jarvis-protocol.js|shell/plugins/vgs.jarvis/JarvisProtocol.js shell/plugins/vgs.jarvis/Session.js shell/plugins/vgs.jarvis/manifest.json bin/lib/qml-library.js scripts/fixtures/jarvis/prepare.js scripts/fixtures/jarvis/scripted.js"
+  "logic|Jarvis tool contracts|node scripts/test-jarvis-tools.js|shell/plugins/vgs.jarvis/backend/Tools.js scripts/fixtures/jarvis/policy.js scripts/lib/jarvis-env.sh"
+  "logic|Jarvis request wire|node scripts/test-jarvis-requests.js|shell/plugins/vgs.jarvis/backend/ShellRequests.js shell/plugins/vgs.jarvis/JarvisProtocol.js shell/plugins/vgs.jarvis/Session.js bin/lib/qml-library.js"
+  "logic|Jarvis action policy|node scripts/test-jarvis-policy.js|shell/plugins/vgs.jarvis/backend/Policy.js shell/plugins/vgs.jarvis/backend/Tools.js shell/plugins/vgs.jarvis/backend/Denied.js shell/plugins/vgs.jarvis/AccountProviders.js scripts/fixtures/jarvis/policy.js scripts/lib/jarvis-env.sh"
+  "logic|Jarvis audit redaction|node scripts/test-jarvis-redact.js|shell/plugins/vgs.jarvis/backend/Redact.js shell/plugins/vgs.jarvis/backend/Tools.js scripts/fixtures/jarvis/policy.js scripts/lib/jarvis-env.sh"
+  "logic|Jarvis release policy|node scripts/test-jarvis-release.js|shell/plugins/vgs.jarvis/backend/Policy.js shell/plugins/vgs.jarvis/backend/net.js scripts/fixtures/jarvis/policy.js scripts/lib/jarvis-env.sh"
+  "logic|Jarvis event stream reader|node scripts/test-jarvis-sse.js|shell/plugins/vgs.jarvis/backend/Sse.js scripts/fixtures/jarvis-voice/assertions.js"
+  "logic|Jarvis brain providers|node scripts/test-jarvis-providers.js|shell/plugins/vgs.jarvis/backend/Providers.js shell/plugins/vgs.jarvis/backend/net.js shell/plugins/vgs.jarvis/AccountProviders.js scripts/fixtures/jarvis-voice/assertions.js"
+  "cli|Jarvis network door|node scripts/test-jarvis-net.js|shell/plugins/vgs.jarvis/backend/Policy.js shell/plugins/vgs.jarvis/backend/net.js shell/plugins/vgs.jarvis/backend/keys.js shell/plugins/vgs.jarvis/backend/Secrets.js shell/plugins/vgs.jarvis/tui/add-key.sh bin/lib/tui.sh scripts/fixtures/jarvis/policy.js scripts/fixtures/jarvis/keys-world.js scripts/fixtures/jarvis/key-tui.py scripts/fixtures/jarvis/websocket.js scripts/lib/jarvis-env.sh"
+  "cli|Jarvis OpenAI-compatible brain|node scripts/test-jarvis-brain-openai.js|shell/plugins/vgs.jarvis/backend/OpenAIChat.js shell/plugins/vgs.jarvis/backend/WireBrain.js shell/plugins/vgs.jarvis/backend/Providers.js shell/plugins/vgs.jarvis/backend/Sse.js shell/plugins/vgs.jarvis/backend/Policy.js shell/plugins/vgs.jarvis/backend/Tools.js shell/plugins/vgs.jarvis/backend/net.js shell/plugins/vgs.jarvis/backend/Secrets.js scripts/fixtures/schema-check.js scripts/fixtures/jarvis-brain/openai-chat* scripts/fixtures/jarvis/policy.js scripts/fixtures/jarvis/keys-world.js scripts/lib/jarvis-env.sh"
+  "cli|Jarvis Anthropic Messages brain|node scripts/test-jarvis-brain-anthropic.js|shell/plugins/vgs.jarvis/backend/AnthropicMessages.js shell/plugins/vgs.jarvis/backend/OpenAIChat.js shell/plugins/vgs.jarvis/backend/WireBrain.js shell/plugins/vgs.jarvis/backend/Providers.js shell/plugins/vgs.jarvis/backend/Sse.js shell/plugins/vgs.jarvis/backend/Policy.js shell/plugins/vgs.jarvis/backend/Tools.js shell/plugins/vgs.jarvis/backend/net.js shell/plugins/vgs.jarvis/backend/Secrets.js scripts/fixtures/schema-check.js scripts/fixtures/jarvis-brain/anthropic-messages* scripts/fixtures/jarvis/policy.js scripts/fixtures/jarvis/keys-world.js scripts/lib/jarvis-env.sh"
+  "cli|Jarvis GPT-Live engine|node scripts/test-jarvis-live.js|shell/plugins/vgs.jarvis/backend/GptLive.js shell/plugins/vgs.jarvis/backend/Providers.js shell/plugins/vgs.jarvis/backend/Policy.js shell/plugins/vgs.jarvis/backend/Tools.js shell/plugins/vgs.jarvis/backend/net.js shell/plugins/vgs.jarvis/backend/Secrets.js shell/plugins/vgs.jarvis/backend/Guidance.js shell/plugins/vgs.jarvis/backend/SpeechLanguage.js shell/plugins/vgs.jarvis/backend/skills/voice/* shell/plugins/vgs.jarvis/backend/Audio.js shell/plugins/vgs.jarvis/backend/session-runner.js shell/plugins/vgs.jarvis/Session.js shell/plugins/vgs.jarvis/JarvisProtocol.js bin/lib/qml-library.js scripts/fixtures/schema-check.js scripts/fixtures/jarvis-live/* scripts/fixtures/jarvis/websocket.js scripts/fixtures/jarvis/policy.js scripts/fixtures/jarvis/keys-world.js scripts/lib/jarvis-env.sh"
+  "cli|Jarvis protected paths|node scripts/test-jarvis-denied.js|shell/plugins/vgs.jarvis/backend/Denied.js shell/plugins/vgs.jarvis/AccountProviders.js scripts/fixtures/jarvis/policy.js scripts/lib/jarvis-env.sh"
+  "cli|Jarvis audit writer|node scripts/test-jarvis-audit.js|shell/plugins/vgs.jarvis/backend/Audit.js shell/plugins/vgs.jarvis/backend/Private.js shell/plugins/vgs.jarvis/backend/Redact.js shell/plugins/vgs.jarvis/backend/Tools.js scripts/fixtures/jarvis/policy.js scripts/lib/jarvis-env.sh"
+  "cli|Jarvis tool router and approval|node scripts/test-jarvis-router.js|shell/plugins/vgs.jarvis/backend/ToolRouter.js shell/plugins/vgs.jarvis/backend/Policy.js shell/plugins/vgs.jarvis/backend/Tools.js shell/plugins/vgs.jarvis/backend/Denied.js shell/plugins/vgs.jarvis/AccountProviders.js shell/plugins/vgs.jarvis/backend/Audit.js shell/plugins/vgs.jarvis/backend/Private.js shell/plugins/vgs.jarvis/backend/Redact.js shell/plugins/vgs.jarvis/Session.js shell/plugins/vgs.jarvis/backend/session-runner.js bin/lib/qml-library.js scripts/fixtures/jarvis/policy.js scripts/lib/jarvis-env.sh shell/plugins/vgs.jarvis/backend/Browser.js shell/plugins/vgs.jarvis/backend/skills/browser/* scripts/fixtures/jarvis/browser.js scripts/fixtures/jarvis/browser.py scripts/fixtures/jarvis/browser-gum.py shell/plugins/vgs.jarvis/backend/ComputerHelp.js shell/plugins/vgs.jarvis/backend/skills/computer/*"
+  "cli|Jarvis guarded input|node scripts/test-jarvis-input.js|shell/plugins/vgs.jarvis/backend/Input.js shell/plugins/vgs.jarvis/backend/input-check.js shell/plugins/vgs.jarvis/backend/ComputerHelp.js shell/plugins/vgs.jarvis/backend/skills/computer/* shell/plugins/vgs.jarvis/backend/ToolRouter.js shell/plugins/vgs.jarvis/backend/Tools.js shell/plugins/vgs.jarvis/backend/Policy.js shell/plugins/vgs.jarvis/backend/Denied.js shell/plugins/vgs.jarvis/backend/ShellRequests.js shell/plugins/vgs.jarvis/backend/session-runner.js shell/plugins/vgs.jarvis/Session.js shell/plugins/vgs.jarvis/JarvisProtocol.js scripts/lib/jarvis-env.sh scripts/fixtures/jarvis/policy.js bin/lib/qml-library.js"
+  "cli|Jarvis desktop executors|node scripts/test-jarvis-desktop.js|shell/plugins/vgs.jarvis/backend/DesktopSession.js shell/plugins/vgs.jarvis/backend/Executors.js shell/plugins/vgs.jarvis/backend/Vision.js shell/plugins/vgs.jarvis/backend/Screen.js shell/plugins/vgs.jarvis/backend/Private.js shell/plugins/vgs.jarvis/backend/Desktop.js shell/plugins/vgs.jarvis/backend/Child.js shell/plugins/vgs.jarvis/backend/ShellRequests.js shell/plugins/vgs.jarvis/backend/Tools.js shell/plugins/vgs.jarvis/JarvisProtocol.js shell/plugins/vgs.jarvis/Session.js shell/Core/Dispatch.js shell/Commons/DesktopLaunch.js bin/lib/qml-library.js scripts/fixtures/jarvis/desktop.js scripts/fixtures/jarvis/policy.js scripts/lib/jarvis-env.sh"
+  "cli|Jarvis file tools|node scripts/test-jarvis-files.js|shell/plugins/vgs.jarvis/* shell/Core/Dispatch.js shell/Commons/DesktopLaunch.js bin/lib/qml-library.js bin/lib/judge-files.js scripts/fixtures/jarvis/policy.js scripts/fixtures/jarvis/scripted.js scripts/fixtures/jarvis/desktop-driver.js scripts/lib/jarvis-env.sh"
+  "cli|Jarvis browser executor|node scripts/test-jarvis-browser.js|shell/plugins/vgs.jarvis/backend/* shell/plugins/vgs.jarvis/Session.js shell/plugins/vgs.jarvis/JarvisProtocol.js shell/plugins/vgs.jarvis/AccountProviders.js shell/Core/Dispatch.js shell/Commons/DesktopLaunch.js bin/lib/qml-library.js bin/lib/judge-files.js scripts/fixtures/jarvis/browser.js scripts/fixtures/jarvis/browser.py scripts/fixtures/jarvis/browser-gum.py scripts/fixtures/jarvis/policy.js scripts/fixtures/jarvis/audio* scripts/fixtures/jarvis/desktop.js scripts/lib/jarvis-env.sh"
+  "cli|Jarvis browser setup|node scripts/test-jarvis-browser-setup.js|shell/plugins/vgs.jarvis/backend/Browser.js shell/plugins/vgs.jarvis/backend/browser-setup.js shell/plugins/vgs.jarvis/backend/Tools.js shell/plugins/vgs.jarvis/backend/skills/browser/* shell/plugins/vgs.jarvis/tui/setup-browser.sh scripts/fixtures/jarvis/browser.js scripts/fixtures/jarvis/browser.py scripts/fixtures/jarvis/browser-gum.py scripts/fixtures/jarvis/browser-vgsh.py scripts/fixtures/jarvis/accounts-tui.py scripts/fixtures/jarvis/policy.js scripts/lib/jarvis-env.sh scripts/test-install-tree.sh bin/lib/tui.sh shell/plugins/vgs.jarvis/backend/ComputerHelp.js"
+  "logic|Jarvis MCP judge|node scripts/test-jarvis-mcp.js|shell/plugins/vgs.jarvis/backend/Mcp.js scripts/fixtures/schema-check.js scripts/fixtures/jarvis-bridge/mcp.schema.json scripts/fixtures/jarvis/policy.js scripts/lib/jarvis-env.sh"
+  "cli|Jarvis tool bridge|node scripts/test-jarvis-bridge.js|shell/plugins/vgs.jarvis/backend/ToolBridge.js shell/plugins/vgs.jarvis/backend/Mcp.js shell/plugins/vgs.jarvis/backend/mcp-shim shell/plugins/vgs.jarvis/backend/Private.js shell/plugins/vgs.jarvis/backend/ToolRouter.js shell/plugins/vgs.jarvis/backend/Policy.js shell/plugins/vgs.jarvis/backend/Tools.js shell/plugins/vgs.jarvis/backend/Denied.js shell/plugins/vgs.jarvis/backend/Audit.js shell/plugins/vgs.jarvis/backend/Redact.js shell/plugins/vgs.jarvis/backend/net.js shell/plugins/vgs.jarvis/backend/session-runner.js shell/plugins/vgs.jarvis/Session.js bin/lib/qml-library.js scripts/fixtures/schema-check.js scripts/fixtures/jarvis-bridge/mcp.schema.json scripts/fixtures/jarvis/policy.js scripts/lib/jarvis-env.sh"
+  "cli|Jarvis Claude Code harness|node scripts/test-jarvis-claude.js|shell/plugins/vgs.jarvis/backend/ClaudeCode.js shell/plugins/vgs.jarvis/backend/ToolBridge.js shell/plugins/vgs.jarvis/backend/Mcp.js shell/plugins/vgs.jarvis/backend/mcp-shim shell/plugins/vgs.jarvis/backend/Private.js shell/plugins/vgs.jarvis/backend/ToolRouter.js shell/plugins/vgs.jarvis/backend/Policy.js shell/plugins/vgs.jarvis/backend/Tools.js shell/plugins/vgs.jarvis/backend/Denied.js shell/plugins/vgs.jarvis/backend/Audit.js shell/plugins/vgs.jarvis/backend/Redact.js shell/plugins/vgs.jarvis/backend/net.js shell/plugins/vgs.jarvis/backend/session-runner.js shell/plugins/vgs.jarvis/backend/Accounts.js shell/plugins/vgs.jarvis/backend/Secrets.js shell/plugins/vgs.jarvis/AccountProviders.js shell/plugins/vgs.jarvis/Session.js bin/lib/qml-library.js scripts/fixtures/schema-check.js scripts/fixtures/jarvis-claude/* scripts/fixtures/jarvis/policy.js scripts/lib/jarvis-env.sh"
+  "logic|Jarvis Codex app-server judge|node scripts/test-jarvis-codex-protocol.js|shell/plugins/vgs.jarvis/backend/CodexAppServer.js scripts/fixtures/schema-check.js scripts/fixtures/jarvis-codex/app-server.schema.json scripts/fixtures/jarvis-codex/recorded.ndjson scripts/fixtures/jarvis/policy.js scripts/lib/jarvis-env.sh"
+  "cli|Jarvis Codex harness|node scripts/test-jarvis-codex.js|shell/plugins/vgs.jarvis/backend/CodexHarness.js shell/plugins/vgs.jarvis/backend/CodexAppServer.js shell/plugins/vgs.jarvis/backend/HarnessGate.js shell/plugins/vgs.jarvis/backend/Accounts.js shell/plugins/vgs.jarvis/backend/accounts.js shell/plugins/vgs.jarvis/backend/ChainedEngine.js shell/plugins/vgs.jarvis/backend/WireBrain.js shell/plugins/vgs.jarvis/backend/OpenAIChat.js shell/plugins/vgs.jarvis/backend/AnthropicMessages.js shell/plugins/vgs.jarvis/backend/Sse.js shell/plugins/vgs.jarvis/backend/Guidance.js shell/plugins/vgs.jarvis/backend/Speakable.js shell/plugins/vgs.jarvis/backend/SpeechLanguage.js shell/plugins/vgs.jarvis/backend/skills/voice/* shell/plugins/vgs.jarvis/backend/Providers.js shell/plugins/vgs.jarvis/backend/ToolBridge.js shell/plugins/vgs.jarvis/backend/Mcp.js shell/plugins/vgs.jarvis/backend/mcp-shim shell/plugins/vgs.jarvis/backend/Private.js shell/plugins/vgs.jarvis/backend/ToolRouter.js shell/plugins/vgs.jarvis/backend/Policy.js shell/plugins/vgs.jarvis/backend/Tools.js shell/plugins/vgs.jarvis/backend/Denied.js shell/plugins/vgs.jarvis/backend/Audit.js shell/plugins/vgs.jarvis/backend/Redact.js shell/plugins/vgs.jarvis/backend/net.js shell/plugins/vgs.jarvis/backend/Secrets.js shell/plugins/vgs.jarvis/backend/session-runner.js shell/plugins/vgs.jarvis/Session.js shell/plugins/vgs.jarvis/AccountProviders.js shell/plugins/vgs.jarvis/JarvisProtocol.js bin/lib/qml-library.js scripts/fixtures/schema-check.js scripts/fixtures/jarvis-codex/* scripts/fixtures/jarvis/policy.js scripts/fixtures/jarvis/engine.js scripts/fixtures/jarvis-brain/openai-chat* scripts/lib/jarvis-env.sh"
+  "logic|Jarvis voice guidance|node scripts/test-jarvis-guidance.js|shell/plugins/vgs.jarvis/backend/Guidance.js shell/plugins/vgs.jarvis/backend/SpeechLanguage.js shell/plugins/vgs.jarvis/backend/skills/voice/* scripts/fixtures/jarvis-voice/assertions.js scripts/fixtures/jarvis-voice/guidance.json"
+  "logic|Jarvis speakable text|node scripts/test-jarvis-speakable.js|shell/plugins/vgs.jarvis/backend/Speakable.js shell/plugins/vgs.jarvis/backend/SpeechLanguage.js scripts/fixtures/jarvis-voice/assertions.js scripts/fixtures/jarvis-voice/speakable.json"
+  "logic|Jarvis speech language|node scripts/test-jarvis-speech-language.js|shell/plugins/vgs.jarvis/backend/SpeechLanguage.js scripts/fixtures/jarvis-voice/assertions.js"
+  "cli|Jarvis kernel sandbox|node scripts/test-jarvis-sandbox.js|shell/plugins/vgs.jarvis/backend/Sandbox.js shell/plugins/vgs.jarvis/backend/Child.js shell/plugins/vgs.jarvis/backend/Denied.js shell/plugins/vgs.jarvis/AccountProviders.js shell/plugins/vgs.jarvis/backend/Policy.js shell/plugins/vgs.jarvis/backend/Tools.js scripts/fixtures/jarvis/policy.js scripts/fixtures/jarvis/forbidden.js scripts/fixtures/jarvis/sandbox-child.py scripts/fixtures/jarvis/sandbox-datagram.py scripts/lib/jarvis-env.sh"
+  "cli|Jarvis bounded child|node scripts/test-jarvis-child.js|shell/plugins/vgs.jarvis/backend/Child.js scripts/fixtures/jarvis/policy.js scripts/lib/jarvis-env.sh"
+  "cli|Jarvis desktop tools|node scripts/test-jarvis-desktop-tools.js|shell/plugins/vgs.jarvis/backend/Desktop.js shell/plugins/vgs.jarvis/backend/Executors.js shell/plugins/vgs.jarvis/backend/DesktopSession.js shell/plugins/vgs.jarvis/backend/Vision.js shell/plugins/vgs.jarvis/backend/Screen.js shell/plugins/vgs.jarvis/backend/Private.js shell/plugins/vgs.jarvis/backend/Child.js shell/plugins/vgs.jarvis/backend/ToolRouter.js shell/plugins/vgs.jarvis/backend/Policy.js shell/plugins/vgs.jarvis/backend/net.js shell/plugins/vgs.jarvis/backend/Tools.js shell/plugins/vgs.jarvis/backend/Audit.js shell/plugins/vgs.jarvis/backend/Redact.js shell/plugins/vgs.jarvis/Session.js shell/plugins/vgs.jarvis/backend/session-runner.js shell/Core/Dispatch.js shell/Commons/DesktopLaunch.js bin/lib/qml-library.js bin/lib/judge-files.js scripts/fixtures/jarvis/policy.js scripts/fixtures/jarvis/desktop-tool.py scripts/lib/jarvis-env.sh"
+  "cli|Jarvis vision|node scripts/test-jarvis-vision.js|shell/plugins/vgs.jarvis/backend/Vision.js shell/plugins/vgs.jarvis/backend/Screen.js shell/plugins/vgs.jarvis/backend/Executors.js shell/plugins/vgs.jarvis/backend/Desktop.js shell/plugins/vgs.jarvis/backend/DesktopSession.js shell/plugins/vgs.jarvis/backend/Child.js shell/plugins/vgs.jarvis/backend/Private.js shell/plugins/vgs.jarvis/backend/ToolRouter.js shell/plugins/vgs.jarvis/backend/Policy.js shell/plugins/vgs.jarvis/backend/net.js shell/plugins/vgs.jarvis/backend/Tools.js shell/plugins/vgs.jarvis/backend/Audit.js shell/plugins/vgs.jarvis/backend/Redact.js shell/plugins/vgs.jarvis/Session.js shell/plugins/vgs.jarvis/backend/session-runner.js shell/plugins/vgs.jarvis/manifest.json shell/Core/Dispatch.js shell/Commons/DesktopLaunch.js bin/lib/qml-library.js bin/lib/judge-files.js scripts/fixtures/jarvis/policy.js scripts/fixtures/jarvis/desktop.js scripts/fixtures/jarvis/vision.js scripts/fixtures/jarvis/vision-tool.py scripts/lib/jarvis-env.sh"
+  "cli|Jarvis shell tools|node scripts/test-jarvis-shell.js|shell/plugins/vgs.jarvis/backend/Child.js shell/plugins/vgs.jarvis/backend/ComputerHelp.js shell/plugins/vgs.jarvis/backend/Shell.js shell/plugins/vgs.jarvis/backend/Sandbox.js shell/plugins/vgs.jarvis/backend/skills/computer/* shell/plugins/vgs.jarvis/backend/Accounts.js shell/plugins/vgs.jarvis/backend/Secrets.js shell/plugins/vgs.jarvis/backend/net.js shell/plugins/vgs.jarvis/AccountProviders.js shell/plugins/vgs.jarvis/backend/ToolRouter.js shell/plugins/vgs.jarvis/backend/Tools.js shell/plugins/vgs.jarvis/backend/Policy.js shell/plugins/vgs.jarvis/backend/Denied.js shell/plugins/vgs.jarvis/backend/Audit.js shell/plugins/vgs.jarvis/backend/Redact.js shell/plugins/vgs.jarvis/Session.js shell/plugins/vgs.jarvis/backend/session-runner.js bin/lib/qml-library.js scripts/fixtures/jarvis/policy.js scripts/fixtures/jarvis/forbidden.js scripts/fixtures/jarvis/audio.js scripts/fixtures/jarvis/sandbox-child.py scripts/lib/jarvis-env.sh"
+  "logic|Jarvis task records|node scripts/test-jarvis-tasks.js|shell/plugins/vgs.jarvis/backend/Tasks.js shell/plugins/vgs.jarvis/backend/task-event scripts/lib/jarvis-env.sh scripts/fixtures/jarvis/prepare.js bin/lib/qml-library.js"
+  "logic|automations view judge|node scripts/test-automations-view-logic.js|shell/plugins/vgs.automations/AutomationsViewLogic.js shell/plugins/vgs.automations/AutomationsLogic.js bin/lib/qml-library.js"
+  "logic|devtools catalog controls|node scripts/test-check-devtools-catalog.js|shell/plugins/vgs.devtools/catalog.json shell/plugins/vgs.devtools/Appearance.js shell/plugins/vgs.devtools/CatalogLogic.js scripts/check-devtools-catalog.js scripts/test-check-devtools-catalog.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Commons/ThemeLogic.js shell/Commons/Tokens.js bin/lib/qml-library.js"
+  "logic|agent warden logic|node scripts/test-agent-warden-logic.js|shell/plugins/vgs.agent-warden/WardenLogic.js scripts/smoke/fixtures/agent-warden/* bin/lib/qml-library.js"
+  "logic|agent warden view|node scripts/test-agent-warden-view.js|shell/plugins/vgs.agent-warden/ViewLogic.js shell/plugins/vgs.agent-warden/WardenLogic.js shell/plugins/vgs.agent-warden/manifest.json scripts/smoke/fixtures/agent-warden/* shell/Ui/icons/Lucide.js shell/Commons/Tokens.js bin/lib/qml-library.js"
+  "logic|agent warden notices|node scripts/test-agent-warden-notices.js|shell/plugins/vgs.agent-warden/Notices.js shell/plugins/vgs.agent-warden/ViewLogic.js shell/plugins/vgs.agent-warden/WardenLogic.js scripts/smoke/fixtures/agent-warden/* bin/lib/qml-library.js"
+  "logic|Settings reply display|node scripts/test-settings-reply.js|shell/Commons/Reply.js shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/PluginPage.qml shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/Plugins.qml shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Core/Config.qml shell/Core/HyprlandLayer.qml shell/Core/SecretWriter.qml bin/lib/qml-library.js shell/Core/HyprlandLayer.js shell/Core/PackageManagers.js shell/Commons/SettingValues.js shell/Ui/icons/Lucide.js scripts/smoke/fixtures/plugins/acme.hyprland/manifest.json shell/Ui/controls/BindField.qml shell/plugins/vgs.launcher/Service.qml scripts/smoke/Probe.qml scripts/sandbox-shots.sh"
+  "logic|Settings setup steps|node scripts/test-settings-steps.js|shell/plugins/vgs.settings/Steps.js shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js bin/lib/qml-library.js"
+  "logic|devtools view logic|node scripts/test-devtools-view.js|shell/plugins/vgs.devtools/ViewLogic.js shell/plugins/vgs.devtools/Window.qml shell/plugins/vgs.devtools/CatalogLogic.js shell/plugins/vgs.devtools/manifest.json bin/lib/qml-library.js"
+  "cli|devtools engine|scripts/test-devtools.sh|scripts/vgsh-rows.sh shell/plugins/vgs.devtools/* bin/vgsh bin/vgsh-pkg bin/lib/* shell/Core/PackageManagers.js shell/Core/PluginLogic.js shell/Core/Pads.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js config/shell.json"
+  "cli|notifications image helper|scripts/test-notifications-images.sh|shell/plugins/vgs.notifications/images.sh"
+  "cli|notifications Slack cache reader|node scripts/test-notifications-slack-cache.js|shell/plugins/vgs.notifications/slack-cache.js shell/plugins/vgs.notifications/slack-emoji.js shell/plugins/vgs.notifications/slack-photos.js scripts/smoke/fixtures/slack/*"
+  "cli|notifications Slack photos helper|node scripts/test-notifications-slack-photos.js|shell/plugins/vgs.notifications/slack-photos.js shell/plugins/vgs.notifications/slack-emoji.js shell/plugins/vgs.notifications/slack-cache.js"
+  "cli|notifications Slack emoji helper|node scripts/test-notifications-slack-emoji.js|shell/plugins/vgs.notifications/slack-emoji.js shell/plugins/vgs.notifications/slack-photos.js shell/plugins/vgs.notifications/slack-cache.js"
+  "cli|notifications Slack token probe|scripts/test-notifications-token-status.sh|shell/plugins/vgs.notifications/token-status.sh"
+  "cli|updates check helper|scripts/test-updates-check.sh|shell/plugins/vgs.updates/bin/check shell/plugins/vgs.updates/NormalizeCheck.js shell/plugins/vgs.updates/UpdatesLogic.js bin/lib/qml-library.js"
+  "cli|displays brightness helper|python3 scripts/test-displays-brightness.py|shell/plugins/vgs.displays/helper/* scripts/smoke/fixtures/devices/hid-fake.py scripts/smoke/fixtures/devices/hid-world.json scripts/smoke/fixtures/devices/stand-in.py"
+  "cli|capture worker|python3 scripts/test-capture.py|shell/plugins/vgs.capture/* scripts/test-capture.py scripts/smoke/fixtures/capture/*"
+  "cli|clipboard helper|python3 scripts/test-clipboard.py|shell/plugins/vgs.clipboard/helper/* scripts/test-clipboard.py"
+  "cli|updates pipeline controls|scripts/test-updates-pipeline.sh|scripts/vgsh-rows.sh shell/plugins/vgs.updates/tui/* shell/plugins/vgs.updates/bin/facts shell/plugins/vgs.updates/UpdatesLogic.js bin/lib/tui.sh bin/lib/qml-library.js"
+  "cli|automations engine|node scripts/test-automations-engine.js|shell/plugins/vgs.automations/* bin/vgsh bin/vgsh-plugin-judge bin/vgsh-scan bin/lib/* shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js config/shell.json"
+  "cli|Jarvis daemon|node scripts/test-jarvis-daemon.js|shell/plugins/vgs.jarvis/* shell/Core/Dispatch.js shell/Commons/DesktopLaunch.js bin/lib/qml-library.js bin/lib/judge-files.js scripts/lib/jarvis-env.sh scripts/fixtures/jarvis/* scripts/fixtures/schema-check.js scripts/fixtures/jarvis-brain/openai-chat* scripts/smoke/harness.sh scripts/smoke/rows/jarvis-keys.sh"
+  "cli|Jarvis audio owner|node scripts/test-jarvis-audio.js|shell/plugins/vgs.jarvis/backend/Audio.js shell/plugins/vgs.jarvis/backend/audio-child.py shell/plugins/vgs.jarvis/Session.js shell/plugins/vgs.jarvis/backend/session-runner.js scripts/lib/jarvis-env.sh scripts/fixtures/jarvis/audio* bin/lib/qml-library.js"
+  "cli|Jarvis audio daemon lifetime|node scripts/test-jarvis-audio-daemon.js|shell/plugins/vgs.jarvis/backend/Sandbox.js shell/plugins/vgs.jarvis/backend/Shell.js shell/plugins/vgs.jarvis/backend/Audio.js shell/plugins/vgs.jarvis/backend/audio-child.py shell/plugins/vgs.jarvis/backend/jarvisd.js shell/plugins/vgs.jarvis/backend/Executors.js shell/plugins/vgs.jarvis/backend/DesktopSession.js shell/plugins/vgs.jarvis/backend/Vision.js shell/plugins/vgs.jarvis/backend/Screen.js shell/plugins/vgs.jarvis/backend/Desktop.js shell/plugins/vgs.jarvis/backend/Files.js shell/plugins/vgs.jarvis/backend/Anchored.js shell/plugins/vgs.jarvis/backend/Denied.js shell/plugins/vgs.jarvis/backend/Child.js shell/plugins/vgs.jarvis/backend/session-runner.js shell/plugins/vgs.jarvis/backend/Tasks.js shell/plugins/vgs.jarvis/backend/task-event shell/plugins/vgs.jarvis/backend/TaskRunner.js shell/plugins/vgs.jarvis/backend/AgentProfiles.js shell/plugins/vgs.jarvis/backend/ToolRouter.js shell/plugins/vgs.jarvis/backend/ToolBridge.js shell/plugins/vgs.jarvis/backend/Mcp.js shell/plugins/vgs.jarvis/backend/Private.js shell/plugins/vgs.jarvis/backend/Audit.js shell/plugins/vgs.jarvis/backend/Redact.js shell/plugins/vgs.jarvis/backend/Tools.js shell/plugins/vgs.jarvis/backend/Policy.js shell/plugins/vgs.jarvis/backend/ShellRequests.js shell/plugins/vgs.jarvis/Session.js shell/plugins/vgs.jarvis/JarvisProtocol.js shell/Core/Dispatch.js shell/Commons/DesktopLaunch.js bin/lib/qml-library.js bin/lib/judge-files.js shell/plugins/vgs.jarvis/backend/ChainedEngine.js shell/plugins/vgs.jarvis/backend/CodexHarness.js shell/plugins/vgs.jarvis/backend/CodexAppServer.js shell/plugins/vgs.jarvis/backend/HarnessGate.js shell/plugins/vgs.jarvis/backend/WireBrain.js shell/plugins/vgs.jarvis/backend/OpenAIChat.js shell/plugins/vgs.jarvis/backend/AnthropicMessages.js shell/plugins/vgs.jarvis/backend/Sse.js shell/plugins/vgs.jarvis/backend/Providers.js shell/plugins/vgs.jarvis/backend/net.js shell/plugins/vgs.jarvis/backend/Guidance.js shell/plugins/vgs.jarvis/backend/Speakable.js shell/plugins/vgs.jarvis/backend/SpeechLanguage.js shell/plugins/vgs.jarvis/backend/skills/voice/* shell/plugins/vgs.jarvis/backend/Accounts.js shell/plugins/vgs.jarvis/backend/ClaudeCode.js shell/plugins/vgs.jarvis/backend/Secrets.js shell/plugins/vgs.jarvis/AccountProviders.js scripts/lib/jarvis-env.sh scripts/fixtures/jarvis/audio* scripts/fixtures/jarvis/scripted.js shell/plugins/vgs.jarvis/backend/Browser.js shell/plugins/vgs.jarvis/backend/Input.js shell/plugins/vgs.jarvis/backend/ComputerHelp.js shell/plugins/vgs.jarvis/backend/skills/computer/*"
+  "cli|Jarvis chained engine|node scripts/test-jarvis-engine.js|shell/plugins/vgs.jarvis/backend/ChainedEngine.js shell/plugins/vgs.jarvis/backend/LocalSpeech.js shell/plugins/vgs.jarvis/backend/CodexHarness.js shell/plugins/vgs.jarvis/backend/CodexAppServer.js shell/plugins/vgs.jarvis/backend/HarnessGate.js shell/plugins/vgs.jarvis/backend/Private.js shell/plugins/vgs.jarvis/backend/Secrets.js shell/plugins/vgs.jarvis/backend/WireBrain.js shell/plugins/vgs.jarvis/backend/OpenAIChat.js shell/plugins/vgs.jarvis/backend/AnthropicMessages.js shell/plugins/vgs.jarvis/backend/Sse.js shell/plugins/vgs.jarvis/backend/Providers.js shell/plugins/vgs.jarvis/backend/net.js shell/plugins/vgs.jarvis/backend/Guidance.js shell/plugins/vgs.jarvis/backend/Speakable.js shell/plugins/vgs.jarvis/backend/SpeechLanguage.js shell/plugins/vgs.jarvis/backend/skills/voice/* shell/plugins/vgs.jarvis/backend/ToolRouter.js shell/plugins/vgs.jarvis/backend/Policy.js shell/plugins/vgs.jarvis/backend/Tools.js shell/plugins/vgs.jarvis/backend/Audit.js shell/plugins/vgs.jarvis/backend/Redact.js shell/plugins/vgs.jarvis/backend/Audio.js shell/plugins/vgs.jarvis/backend/audio-child.py shell/plugins/vgs.jarvis/backend/session-runner.js shell/plugins/vgs.jarvis/Session.js bin/lib/qml-library.js scripts/lib/jarvis-env.sh scripts/fixtures/jarvis/audio* scripts/fixtures/jarvis/playback.js scripts/fixtures/jarvis/engine.js scripts/fixtures/schema-check.js scripts/fixtures/jarvis-brain/openai-chat*"
+  "cli|Jarvis local speech adapter|node scripts/test-jarvis-local-speech.js|shell/plugins/vgs.jarvis/backend/LocalSpeech.js shell/plugins/vgs.jarvis/backend/Audio.js shell/plugins/vgs.jarvis/artifacts.json scripts/lib/jarvis-env.sh scripts/fixtures/jarvis/audio.js scripts/fixtures/jarvis-local-speech/standin.py"
+  "cli|Jarvis paced playback|node scripts/test-jarvis-playback.js|shell/plugins/vgs.jarvis/backend/Audio.js shell/plugins/vgs.jarvis/backend/audio-child.py shell/plugins/vgs.jarvis/Session.js scripts/lib/jarvis-env.sh scripts/fixtures/jarvis/audio* scripts/fixtures/jarvis/playback.js bin/lib/qml-library.js"
+  "cli|Jarvis private PipeWire playback|node scripts/test-jarvis-playback-pipewire.js|shell/plugins/vgs.jarvis/backend/Audio.js shell/plugins/vgs.jarvis/backend/audio-child.py shell/plugins/vgs.jarvis/Session.js scripts/lib/jarvis-env.sh scripts/fixtures/jarvis/audio* scripts/fixtures/jarvis/playback* bin/lib/qml-library.js"
+  "cli|Jarvis task event producer|node scripts/test-task-event.js|shell/plugins/vgs.jarvis/backend/Tasks.js shell/plugins/vgs.jarvis/backend/task-event scripts/lib/jarvis-env.sh scripts/fixtures/jarvis/prepare.js"
+  "cli|Jarvis task runner|node scripts/test-jarvis-task-runner.js|shell/plugins/vgs.jarvis/backend/TaskRunner.js shell/plugins/vgs.jarvis/backend/AgentProfiles.js shell/plugins/vgs.jarvis/backend/task-run.py shell/plugins/vgs.jarvis/backend/Tasks.js shell/plugins/vgs.jarvis/backend/task-event shell/plugins/vgs.jarvis/backend/ToolRouter.js shell/plugins/vgs.jarvis/backend/Tools.js shell/plugins/vgs.jarvis/backend/Policy.js scripts/lib/jarvis-env.sh scripts/fixtures/jarvis/task-agent.py scripts/fixtures/jarvis/prepare.js scripts/fixtures/jarvis/audio.js"
+  "cli|Jarvis secrets|node scripts/test-jarvis-secrets.js|shell/plugins/vgs.jarvis/backend/Secrets.js shell/plugins/vgs.jarvis/backend/keys.js shell/plugins/vgs.jarvis/backend/net.js shell/plugins/vgs.jarvis/tui/* bin/lib/tui.sh scripts/lib/jarvis-env.sh scripts/fixtures/jarvis/keys-world.js scripts/fixtures/jarvis/key-tui.py"
+  "cli|Jarvis accounts|node scripts/test-jarvis-accounts.js|shell/plugins/vgs.jarvis/AccountProviders.js shell/plugins/vgs.jarvis/backend/Accounts.js shell/plugins/vgs.jarvis/backend/Anchored.js shell/plugins/vgs.jarvis/backend/ClaudeCode.js shell/plugins/vgs.jarvis/backend/accounts.js shell/plugins/vgs.jarvis/backend/Secrets.js shell/plugins/vgs.jarvis/backend/net.js shell/plugins/vgs.jarvis/backend/Policy.js shell/plugins/vgs.jarvis/backend/Audit.js shell/plugins/vgs.jarvis/backend/Private.js shell/plugins/vgs.jarvis/backend/Redact.js shell/plugins/vgs.jarvis/backend/Tools.js shell/plugins/vgs.jarvis/backend/Providers.js shell/plugins/vgs.jarvis/backend/CodexHarness.js shell/plugins/vgs.jarvis/backend/CodexAppServer.js scripts/lib/jarvis-env.sh scripts/fixtures/jarvis/accounts-world.js"
+  "cli|Jarvis accounts terminal|node scripts/test-jarvis-accounts-tui.js|shell/plugins/vgs.jarvis/AccountProviders.js shell/plugins/vgs.jarvis/backend/Accounts.js shell/plugins/vgs.jarvis/backend/Anchored.js shell/plugins/vgs.jarvis/backend/ClaudeCode.js shell/plugins/vgs.jarvis/backend/accounts.js shell/plugins/vgs.jarvis/backend/Secrets.js shell/plugins/vgs.jarvis/backend/net.js shell/plugins/vgs.jarvis/backend/Policy.js shell/plugins/vgs.jarvis/backend/Audit.js shell/plugins/vgs.jarvis/backend/Private.js shell/plugins/vgs.jarvis/backend/Redact.js shell/plugins/vgs.jarvis/backend/Tools.js shell/plugins/vgs.jarvis/backend/Providers.js shell/plugins/vgs.jarvis/backend/CodexHarness.js shell/plugins/vgs.jarvis/backend/CodexAppServer.js shell/plugins/vgs.jarvis/tui/accounts.sh bin/lib/tui.sh scripts/lib/jarvis-env.sh scripts/fixtures/jarvis/accounts-world.js scripts/fixtures/jarvis/accounts-tui.py"
+  "cli|Jarvis account inference verification|node scripts/test-jarvis-account-verify.js|shell/plugins/vgs.jarvis/AccountProviders.js shell/plugins/vgs.jarvis/backend/Accounts.js shell/plugins/vgs.jarvis/backend/Anchored.js shell/plugins/vgs.jarvis/backend/ClaudeCode.js shell/plugins/vgs.jarvis/backend/accounts.js shell/plugins/vgs.jarvis/backend/Secrets.js shell/plugins/vgs.jarvis/backend/net.js shell/plugins/vgs.jarvis/backend/Policy.js shell/plugins/vgs.jarvis/backend/Audit.js shell/plugins/vgs.jarvis/backend/Private.js shell/plugins/vgs.jarvis/backend/Redact.js shell/plugins/vgs.jarvis/backend/Tools.js shell/plugins/vgs.jarvis/backend/Providers.js shell/plugins/vgs.jarvis/backend/CodexHarness.js shell/plugins/vgs.jarvis/backend/CodexAppServer.js scripts/lib/jarvis-env.sh scripts/fixtures/jarvis/accounts-world.js"
+  "cli|automations linger TUI|scripts/test-automations-linger.sh|shell/plugins/vgs.automations/tui/linger.sh bin/lib/tui.sh"
+  "cli|themes browser-policy TUI|scripts/test-themes-browser-policy-tui.sh|shell/plugins/vgs.themes/tui/browser-policy.sh bin/lib/tui.sh"
+  "cli|notifications open TUI|scripts/test-notifications-open.sh|shell/plugins/vgs.notifications/tui/open.sh bin/lib/tui.sh"
+  "cli|agent warden TUIs|scripts/test-agent-warden-tui.sh|shell/plugins/vgs.agent-warden/tui/setup.sh shell/plugins/vgs.agent-warden/tui/vsys.sh bin/lib/tui.sh"
+  "cli|plugin settings controls|scripts/test-vgsh-plugin-settings.sh|scripts/vgsh-rows.sh bin/vgsh bin/vgsh-plugin-judge bin/vgsh-scan bin/lib/* shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js"
+  "manifests|bundled manifests|node bin/lib/check-manifests.js|shell/plugins/* bin/vgsh-scan shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js bin/lib/qml-library.js"
+  "manifests|smoke fixture manifests|node bin/lib/check-manifests.js --base scripts/smoke/fixtures/plugins|scripts/smoke/fixtures/* bin/vgsh-scan shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js bin/lib/qml-library.js"
+  "manifests|manifest check controls|node scripts/test-check-manifests.js|bin/lib/check-manifests.js bin/vgsh-scan shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js bin/lib/qml-library.js"
+  "cli|runner CLI controls|scripts/test-vgsh.sh|scripts/vgsh-rows.sh bin/vgsh* bin/lib/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js themes/* shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js config/shell.json shell/plugins/*/manifest.json"
+  "cli|runner lifetime controls|scripts/test-vgsh-run.sh|scripts/vgsh-rows.sh bin/vgsh bin/vgsh-migrate bin/migrations/* bin/lib/ipc-reply.sh bin/lib/qml-library.js shell/Commons/SessionLockState.js"
+  "cli|one-time migration runner controls|scripts/test-vgsh-migrate.sh|scripts/vgsh-rows.sh bin/vgsh bin/vgsh-migrate bin/lib/* shell/Commons/SessionLockState.js"
+  "cli|Slack photos migration controls|scripts/test-migration-slack-photos.sh|bin/migrations/* bin/vgsh-plugin-judge bin/lib/* shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js shell/plugins/vgs.notifications/manifest.json config/shell.json"
+  "cli|version controls|scripts/test-vgsh-version.sh|scripts/vgsh-rows.sh bin/vgsh VERSION"
+  "cli|install tree controls|scripts/test-install-tree.sh|packaging/install-system.sh packaging/install-tree.manifest packaging/install-tree-system.manifest scripts/check-install-tree.sh bin/* shell/* config/* themes/* VERSION LICENSE README.md scripts/fixtures/jarvis-voice/installed.js scripts/fixtures/jarvis-setup/installed.py scripts/lib/jarvis-env.sh"
+  "cli|fedora source RPM controls|scripts/test-fedora-srpm.sh|packaging/fedora/* .copr/Makefile scripts/fedora-container.sh scripts/lib/release-tarball.sh scripts/vgsh-rows.sh bin/vgsh VERSION"
+  "cli|packaging recipe check|node scripts/check-packaging.js|scripts/preflight-floor.js packaging/arch/* packaging/fedora/* bin/vgsh config/requirements.json shell/plugins/*/manifest.json VERSION shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js bin/lib/qml-library.js bin/vgsh-scan packaging/install-tree.manifest flake.nix flake.lock install.sh packaging/runtime-libraries.json packaging/channel-gaps.json docs/architecture/distribution.md"
+  "cli|packaging recipe check controls|node scripts/test-check-packaging.js|scripts/check-packaging.js scripts/preflight-floor.js packaging/runtime-libraries.json packaging/arch/* packaging/fedora/* bin/vgsh config/requirements.json shell/plugins/*/manifest.json VERSION shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js bin/lib/qml-library.js bin/vgsh-scan packaging/install-tree.manifest flake.nix flake.lock install.sh packaging/runtime-libraries.json packaging/channel-gaps.json docs/architecture/distribution.md"
+  "cli|README install section check controls|node scripts/test-check-readme.js|scripts/check-readme.js README.md VERSION bin/vgsh bin/vgsh-scan bin/lib/post-install.txt install.sh docs/architecture/runtime.md packaging/arch/* shell/plugins/*"
+  "cli|README install runner host-side controls|scripts/test-readme-install.sh|scripts/readme-install.sh scripts/check-readme.js README.md VERSION bin/vgsh bin/vgsh-scan bin/lib/post-install.txt install.sh docs/architecture/runtime.md packaging/arch/* shell/plugins/*"
+  "cli|plugin list controls|scripts/test-vgsh-plugin-list.sh|scripts/vgsh-rows.sh bin/vgsh bin/vgsh-plugin-judge bin/vgsh-pkg bin/lib/* shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js"
+  "cli|add and remove question controls|scripts/test-vgsh-prompts.sh|scripts/vgsh-rows.sh bin/vgsh* bin/lib/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js themes/* shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js config/shell.json"
+  "cli|requirement report controls|scripts/test-vgsh-requirements.sh|scripts/vgsh-rows.sh bin/vgsh bin/vgsh-plugin-judge bin/vgsh-pkg bin/vgsh-scan bin/lib/* shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js config/shell.json config/requirements.json shell/plugins/*/manifest.json packaging/arch/*"
+  "cli|self status and update controls|scripts/test-vgsh-self.sh|scripts/vgsh-rows.sh bin/vgsh bin/vgsh-pkg bin/vgsh-migrate bin/migrations/* bin/vgsh-plugin-judge bin/lib/* shell/Core/PackageManagers.js packaging/install-system.sh config/shell.json"
+  "cli|curl installer controls|scripts/test-install-sh.sh|install.sh scripts/vgsh-rows.sh bin/vgsh bin/vgsh-pkg bin/vgsh-tui bin/vgsh-scan bin/vgsh-plugin-judge bin/lib/* shell/Core/PackageManagers.js shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js shell/Ui/icons/Lucide.js shell/plugins/*/manifest.json packaging/arch/vgs/.SRCINFO packaging/fedora/vgs.spec packaging/install-system.sh config/requirements.json config/shell.json"
+  "cli|release script controls|scripts/test-release.sh|scripts/release scripts/lib/release-tarball.sh scripts/arch-packages.sh scripts/fedora-container.sh packaging/arch/* scripts/vgsh-rows.sh install.sh packaging/install-system.sh packaging/install-tree.manifest scripts/check-install-tree.sh VERSION"
+  "cli|AUR publisher controls|scripts/test-publish-aur.sh|scripts/publish-aur.sh scripts/vgsh-rows.sh scripts/check-packaging.js packaging/aur-known-hosts packaging/arch/* packaging/fedora/* bin/vgsh config/requirements.json shell/plugins/*/manifest.json VERSION shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js bin/lib/qml-library.js bin/vgsh-scan packaging/install-tree.manifest flake.nix flake.lock install.sh packaging/runtime-libraries.json packaging/channel-gaps.json docs/architecture/distribution.md"
+  "cli|outdated controls|scripts/test-vgsh-outdated.sh|scripts/vgsh-rows.sh bin/vgsh* bin/lib/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js themes/* shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js config/shell.json shell/plugins/*/manifest.json"
+  "cli|theme reload controls|scripts/test-vgsh-reload.sh|scripts/vgsh-rows.sh bin/vgsh* bin/lib/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js themes/* shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js config/shell.json"
+  "cli|theme target controls|scripts/test-vgsh-targets.sh|scripts/vgsh-rows.sh bin/vgsh* bin/lib/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js themes/* shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js config/shell.json"
+  "cli|theme package symlink controls|scripts/test-vgsh-package-links.sh|scripts/vgsh-rows.sh bin/vgsh* bin/lib/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js themes/* shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js config/shell.json"
+  "cli|theme entry wiring controls|scripts/test-vgsh-entries.sh|scripts/vgsh-rows.sh bin/vgsh* bin/lib/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js themes/* shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js config/shell.json"
+  "cli|Hyprland layer wiring controls|scripts/test-vgsh-hypr.sh|scripts/vgsh-rows.sh bin/vgsh* bin/lib/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js themes/* shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js config/shell.json"
+  "cli|toolkit target controls|scripts/test-vgsh-toolkits.sh|scripts/vgsh-rows.sh bin/vgsh* bin/lib/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js themes/* shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js config/shell.json"
+  "cli|editor target controls|scripts/test-vgsh-editors.sh|scripts/vgsh-rows.sh bin/vgsh* bin/lib/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js themes/* shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js config/shell.json"
+  "cli|editor entry target controls|scripts/test-vgsh-editor-entries.sh|scripts/vgsh-rows.sh bin/vgsh* bin/lib/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js themes/* shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js config/shell.json"
+  "cli|chat and tool target controls|scripts/test-vgsh-chat-tools.sh|scripts/vgsh-rows.sh bin/vgsh* bin/lib/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js themes/* shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js config/shell.json"
+  "cli|browser target controls|scripts/test-vgsh-browsers.sh|scripts/vgsh-rows.sh bin/vgsh* bin/lib/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js themes/* shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js config/shell.json"
+  "cli|browser policy writer controls|scripts/test-vgsh-browser-policy.sh|scripts/vgsh-rows.sh bin/vgsh-browser-policy"
+  "cli|passwordless sudo grant controls|scripts/test-vgsh-sudo-grant.sh|scripts/vgsh-rows.sh bin/vgsh bin/vgsh-sudo-grant bin/vgsh-pkg bin/lib/tui.sh bin/lib/qml-library.js bin/lib/judge-files.js bin/lib/tmpfiles.d/* shell/Core/PackageManagers.js"
+  "cli|system steps controls|scripts/test-vgsh-system.sh|scripts/vgsh-rows.sh bin/vgsh bin/vgsh-system bin/vgsh-pkg bin/lib/tui.sh bin/lib/qml-library.js bin/lib/judge-files.js config/system/udev/* config/system/greeter/* shell/plugins/vgs.greeter/GreeterLogic.js shell/plugins/vgs.greeter/Greeter.qml shell/greeter.qml shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js"
+  "cli|theme background controls|scripts/test-vgsh-backgrounds.sh|scripts/vgsh-rows.sh bin/vgsh* bin/lib/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js themes/* shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js config/shell.json"
+  "cli|theme follow controls|scripts/test-vgsh-follow.sh|scripts/vgsh-rows.sh bin/vgsh* bin/lib/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js themes/* shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js config/shell.json"
+  "cli|theme catalog install controls|scripts/test-vgsh-catalog.sh|scripts/vgsh-rows.sh bin/vgsh* bin/lib/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js themes/* shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js config/shell.json"
+  "cli|theme wallpapers controls|scripts/test-vgsh-wallpapers.sh|scripts/vgsh-rows.sh bin/vgsh* bin/lib/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js themes/* shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js config/shell.json"
+  "cli|theme download library controls|node scripts/test-theme-download.js|bin/lib/theme-download.js bin/lib/judge-files.js scripts/tar-fixture.js"
+  "cli|agent CLI target controls|scripts/test-vgsh-agents.sh|scripts/vgsh-rows.sh bin/vgsh* bin/lib/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js themes/* shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js config/shell.json"
+  "cli|floating TUI presenter controls|scripts/test-vgsh-tui.sh|scripts/vgsh-rows.sh bin/vgsh bin/vgsh-tui bin/vgsh-plugin-judge bin/lib/* shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js"
+  "cli|lock before-sleep hook controls|scripts/test-lock-sleep-watch.sh|shell/plugins/vgs.lock/bin/sleep-watch"
+  "cli|greeter helper controls|scripts/test-greeter-helpers.sh|scripts/vgsh-rows.sh shell/plugins/vgs.greeter/bin/*"
+  "cli|greeter compositor controls|scripts/test-greeter-compositor.sh|scripts/vgsh-rows.sh config/system/greeter/hyprland.lua"
+  "cli|vgsh lock controls|scripts/test-vgsh-lock.sh|scripts/vgsh-rows.sh bin/vgsh bin/vgsh-lock bin/lib/ipc-reply.sh"
+  "cli|floating TUI library controls|scripts/test-tui.sh|scripts/vgsh-rows.sh bin/lib/tui.sh .agents/skills/vgs-plugin/templates/tui.sh"
+  "cli|gum target under the TUI presenter|node scripts/test-theme-gum.js|themes/targets/gum/* themes/vgs/* themes/catalog/flexoki-light/* bin/lib/theme-render.js bin/vgsh-tui bin/lib/tui.sh shell/Commons/ThemeLogic.js shell/Commons/Tokens.js bin/lib/qml-library.js"
+  "cli|judge file helper controls|node scripts/test-judge-files.js|bin/lib/judge-files.js"
+  "cli|package manager table|node scripts/test-vgsh-pkg-table.js|shell/Core/PackageManagers.js bin/lib/qml-library.js scripts/fixtures/pkg/* scripts/test-vgsh-pkg-table.js scripts/vgsh-pkg-shared.js"
+  "cli|vgsh pkg check owner and command rows|node scripts/test-vgsh-pkg-cli.js|shell/Core/PackageManagers.js bin/vgsh-pkg bin/vgsh bin/lib/judge-files.js bin/lib/qml-library.js scripts/fixtures/pkg/* scripts/test-vgsh-pkg-cli.js scripts/vgsh-pkg-shared.js shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js shell/Ui/icons/Lucide.js config/shell.json"
+  "cli|vgsh pkg run and pickers|scripts/test-vgsh-pkg-run.sh|scripts/vgsh-rows.sh bin/vgsh bin/vgsh-pkg bin/lib/* shell/Core/PackageManagers.js shell/Core/PluginLogic.js shell/Core/Pads.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js config/shell.json"
+  "cli|plugin scanner controls|python3 scripts/test-vgsh-scan.py|bin/vgsh-scan"
+  "cli|plugin scaffold controls|python3 scripts/test-vgs-plugin.py|.agents/skills/vgs-plugin/scripts/* .agents/skills/vgs-plugin/templates/* shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js bin/vgsh-scan bin/lib/check-manifests.js scripts/check-plugin-boundary.py scripts/check-design-tokens.py scripts/check-pointer-cursor.py scripts/check-user-commands.py scripts/check-keyboard.py scripts/qml_source.py scripts/qml_controls.py bin/lib/qml-library.js shell/Commons/*"
+  "boundary|plugin boundary|python3 scripts/check-plugin-boundary.py|shell/* bin/vgsh-scan scripts/qml_source.py"
+  "boundary|smoke fixture boundary|python3 scripts/check-plugin-boundary.py --shell scripts/smoke/fixtures|scripts/smoke/fixtures/* bin/vgsh-scan scripts/qml_source.py"
+  "boundary|plugin boundary controls|python3 scripts/test-check-plugin-boundary.py|scripts/check-plugin-boundary.py bin/vgsh-scan scripts/qml_source.py"
+  "boundary|design tokens|python3 scripts/check-design-tokens.py|shell/* .agents/skills/vgs-plugin/templates/* scripts/smoke/fixtures/* bin/vgsh-scan scripts/qml_source.py bin/lib/qml-library.js"
+  "tools|VoiceOrb shader source and pack|python3 scripts/check-voiceorb-shader.py|shell/Ui/feedback/shaders/*"
+  "tools|VoiceOrb shader controls|python3 scripts/test-check-voiceorb-shader.py|scripts/check-voiceorb-shader.py shell/Ui/feedback/shaders/*"
+  "tools|shader measurement controls|python3 scripts/test-measure-shader.py|scripts/measure-shader.sh scripts/shader/* scripts/test-measure-shader.py scripts/check-voiceorb-shader.py scripts/smoke/verdict.sh shell/Ui/feedback/shaders/*"
+  "boundary|design token controls|python3 scripts/test-check-design-tokens.py|scripts/check-design-tokens.py bin/vgsh-scan scripts/qml_source.py bin/lib/qml-library.js shell/Commons/Tokens.js shell/Commons/ThemeLogic.js shell/Commons/Theme.qml shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js"
+  "boundary|pointer cursor|python3 scripts/check-pointer-cursor.py|shell/* .agents/skills/vgs-plugin/templates/* bin/vgsh-scan scripts/qml_source.py scripts/qml_controls.py"
+  "boundary|pointer cursor controls|python3 scripts/test-check-pointer-cursor.py|scripts/check-pointer-cursor.py shell/* .agents/skills/vgs-plugin/templates/* bin/vgsh-scan scripts/qml_source.py scripts/qml_controls.py"
+  "boundary|user command text|python3 scripts/check-user-commands.py|shell/* bin/* config/requirements.json scripts/qml_source.py bin/lib/qml-library.js"
+  "boundary|user command text controls|python3 scripts/test-check-user-commands.py|scripts/check-user-commands.py shell/plugins/*/manifest.json shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js bin/* config/requirements.json scripts/qml_source.py bin/lib/qml-library.js"
+  "boundary|keyboard paths|python3 scripts/check-keyboard.py shell|shell/* .agents/skills/vgs-plugin/templates/* bin/vgsh-scan scripts/qml_source.py scripts/qml_controls.py"
+  "boundary|keyboard path controls|python3 scripts/test-check-keyboard.py|scripts/check-keyboard.py shell/Ui/* .agents/skills/vgs-plugin/templates/* bin/vgsh-scan scripts/qml_source.py scripts/qml_controls.py"
+  "tools|memory sampler report|scripts/test-sample-shell-memory.sh|scripts/sample-shell-memory.sh bin/vgsh"
+  "tools|heap profile attribution|python3 scripts/test-attribute-heap-profile.py|scripts/attribute-heap-profile.py"
+  "tools|landing time controls|python3 scripts/test-landing-times.py|scripts/landing-times.py"
+  "tools|main runner controls|scripts/test-main-run.sh|scripts/main-run.sh"
+  "tools|smoke verdict controls|scripts/test-smoke-verdict.sh|scripts/smoke/verdict.sh"
+  "tools|mode hold controls|scripts/test-mode-hold.sh|scripts/smoke/mode-hold.sh scripts/smoke/verdict.sh"
+  "tools|smoke row readers|python3 scripts/check-smoke-readers.py|scripts/smoke/rows/*"
+  "tools|smoke row reader controls|python3 scripts/test-check-smoke-readers.py|scripts/check-smoke-readers.py scripts/smoke/rows/*"
+  "tools|smoke stand-in terminal writers|python3 scripts/check-smoke-terminal.py|scripts/smoke/rows/*"
+  "tools|smoke stand-in terminal writer controls|python3 scripts/test-check-smoke-terminal.py|scripts/check-smoke-terminal.py scripts/smoke/rows/*"
+  "tools|smoke rows name the rows they read|smoke_reads_named|scripts/smoke/* scripts/qml-smoke.sh"
+  "tools|smoke teardown controls|scripts/test-smoke-teardown.sh|scripts/smoke/teardown.sh scripts/smoke/harness.sh scripts/smoke/rows/read-only-prefix.sh"
+  "tools|sandbox shot controls|scripts/test-sandbox-shots.sh|scripts/smoke/shot.sh scripts/smoke/host-window.sh scripts/smoke/tree.sh scripts/sandbox-shots.sh scripts/smoke/harness.sh scripts/smoke/gpu-fence.sh bin/lib/ipc-reply.sh"
+  "tools|GPU fence controls|scripts/test-gpu-fence.sh|scripts/smoke/gpu-fence.sh scripts/smoke/harness.sh scripts/qml-smoke.sh scripts/smoke/rows.list scripts/sandbox-shots.sh scripts/measure-shader.sh scripts/qml-unit.sh"
+  "tools|plugin README images|python3 scripts/check-readme-images.py|shell/plugins/* docs/images/*"
+  "tools|plugin README image controls|python3 scripts/test-check-readme-images.py|scripts/check-readme-images.py"
+  "tools|README shot controls|scripts/test-readme-shots.sh|scripts/readme-shots.sh scripts/check-readme-images.py scripts/smoke/shot.sh"
+  "tools|scratch directory guard controls|scripts/test-scratch-dirs.sh|scripts/vgsh-rows.sh scripts/test-launcher-file-search.sh scripts/test-notifications-images.sh scripts/test-notifications-token-status.sh scripts/test-sandbox-shots.sh scripts/test-smoke-verdict.sh scripts/test-smoke-teardown.sh scripts/test-readme-shots.sh"
+  "tools|Jarvis test environment controls|node scripts/test-jarvis-env.js|scripts/lib/jarvis-env.sh scripts/fixtures/jarvis-env/* scripts/smoke/harness.sh"
+  "tools|pinned schema checker controls|node scripts/test-schema-check.js|scripts/fixtures/schema-check.js scripts/fixtures/jarvis-brain/openai-chat.schema.json scripts/fixtures/jarvis-voice/assertions.js"
+  "tools|Jarvis local artifact controls|python3 scripts/test-jarvis-local.py|shell/plugins/vgs.jarvis/* scripts/lib/jarvis-env.sh scripts/check-jarvis-local.sh scripts/fixtures/jarvis-local/*"
+  "tools|Jarvis local setup controls|python3 scripts/test-jarvis-setup.py|shell/plugins/vgs.jarvis/setup-local shell/plugins/vgs.jarvis/requirements-local*.lock shell/plugins/vgs.jarvis/tui/setup-local.sh shell/plugins/vgs.jarvis/artifacts.json shell/plugins/vgs.jarvis/measure-local shell/plugins/vgs.jarvis/fixtures/* scripts/lib/jarvis-env.sh scripts/fixtures/jarvis-setup/* bin/lib/tui.sh scripts/test-install-tree.sh"
+  "tools|Jarvis actual local models|scripts/check-jarvis-local.sh|shell/plugins/vgs.jarvis/* scripts/lib/jarvis-env.sh scripts/fixtures/jarvis-local/*"
+  "tools|Jarvis local speech sidecar controls|python3 scripts/test-jarvis-local-speech.py|shell/plugins/vgs.jarvis/backend/local-speech.py shell/plugins/vgs.jarvis/setup-local shell/plugins/vgs.jarvis/measure-local shell/plugins/vgs.jarvis/artifacts.json shell/plugins/vgs.jarvis/fixtures/* scripts/lib/jarvis-env.sh scripts/check-jarvis-local-speech.sh"
+  "tools|Jarvis actual local speech models|scripts/check-jarvis-local-speech.sh|shell/plugins/vgs.jarvis/backend/local-speech.py shell/plugins/vgs.jarvis/setup-local shell/plugins/vgs.jarvis/measure-local shell/plugins/vgs.jarvis/artifacts.json shell/plugins/vgs.jarvis/fixtures/* scripts/lib/jarvis-env.sh scripts/fixtures/jarvis-local-speech/real.py"
+  "repo|whitespace errors against the base|whitespace_check|"
+  "repo|every test file has a row|rows_cover_tests|"
+  "repo|the runtime loads nothing under scripts/|runtime_reads_no_scripts|"
+  "repo|no shipped file writes a monitor rule|runtime_writes_no_monitor_rule|"
+  "repo|no private key in the tree|private_keys_check|"
+  "repo|markdown references and source citations|md_refs_check|"
+  "tools|document byte ceilings|doc_limits_check|*.md docs/* tools/doc-limits-excludes kendex.settings.toml .kendex/settings.toml .kendex-generated.json .agents/skills/doc-limits/scripts/* .agents/skills/commit-guards/scripts/lib/generated-paths.sh .agents/skills/commit-guards/scripts/lib/messages.sh"
+  "tools|validate self-check controls|scripts/test-validate.sh|scripts/validate packaging/install-tree.manifest scripts/qml-smoke.sh scripts/smoke/rows.list scripts/test-qml-unit.sh .agents/skills/orch/scripts/lib/kendex-env.sh .agents/skills/doc-limits/scripts/* bin/lib/check-manifests.js scripts/test-check-manifests.js bin/lib/qml-library.js shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js bin/vgsh-scan scripts/smoke/fixtures/*"
+  "tools|theme package judge controls|node scripts/test-vgsh-theme-judge.js|scripts/test-vgsh-theme-judge.js bin/vgsh-theme-judge bin/lib/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js themes/*"
+  "unit|qml unit tests|scripts/qml-unit.sh|shell/Ui/* shell/Commons/* shell/Core/TuiRecords.qml shell/Core/ThemeRunner.qml shell/Core/SessionLock.qml shell/Core/ShortcutRegistry.qml shell/Core/KeyCapture.qml shell/Core/HyprlandState.qml shell/Core/HyprlandState.js shell/Core/HyprctlReader.qml shell/Core/Dispatch.js shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Core/HyprlandLayer.js shell/assets/* scripts/qml-tests/* shell/plugins/vgs.themes/* shell/plugins/vgs.launcher/* shell/plugins/vgs.jarvis/Widget.qml shell/plugins/vgs.jarvis/WidgetView.js shell/plugins/vgs.jarvis/Session.js shell/plugins/vgs.jarvis/Service.qml shell/plugins/vgs.jarvis/Keys.qml shell/plugins/vgs.jarvis/LocalRuntime.qml shell/plugins/vgs.jarvis/Accounts.qml shell/plugins/vgs.jarvis/AccountProviders.js shell/plugins/vgs.jarvis/JarvisProtocol.js scripts/smoke/gpu-fence.sh"
+  "unit|qml unit controls|scripts/test-qml-unit.sh|scripts/qml-unit.sh scripts/qml-tests/* shell/Ui/* shell/Commons/* shell/Core/TuiRecords.qml shell/Core/ThemeRunner.qml shell/Core/SessionLock.qml shell/Core/ShortcutRegistry.qml shell/Core/KeyCapture.qml shell/Core/HyprlandState.qml shell/Core/HyprlandState.js shell/Core/HyprctlReader.qml shell/Core/Dispatch.js shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Core/HyprlandLayer.js shell/plugins/vgs.themes/* shell/plugins/vgs.launcher/* shell/plugins/vgs.jarvis/Widget.qml shell/plugins/vgs.jarvis/WidgetView.js shell/plugins/vgs.jarvis/Session.js shell/plugins/vgs.jarvis/Service.qml shell/plugins/vgs.jarvis/Keys.qml shell/plugins/vgs.jarvis/LocalRuntime.qml shell/plugins/vgs.jarvis/Accounts.qml shell/plugins/vgs.jarvis/AccountProviders.js shell/plugins/vgs.jarvis/JarvisProtocol.js scripts/smoke/gpu-fence.sh"
+  "unit|session lock controls|scripts/test-session-lock.sh|shell/Core/SessionLock.qml shell/Commons/SessionLockState.js scripts/qml-unit.sh scripts/qml-tests/tst_session_lock.qml scripts/smoke/gpu-fence.sh"
+  "nix|nix flake package|scripts/test-flake.sh|flake.nix flake.lock config/requirements.json packaging/install-system.sh packaging/install-tree.manifest scripts/check-install-tree.sh bin/* shell/* config/* themes/* VERSION"
+  "package|Arch package build|scripts/arch-packages.sh|scripts/lib/release-tarball.sh packaging/arch/* packaging/install-system.sh bin/lib/post-install.txt bin/vgsh-browser-policy themes/targets/chromium/* config/requirements.json config/shell.json shell/plugins/*/manifest.json"
+  "qml|nested smoke|scripts/qml-smoke.sh|shell/* bin/* config/* themes/* packaging/install-system.sh packaging/install-tree.manifest VERSION scripts/smoke/* scripts/sample-shell-memory.sh scripts/lib/jarvis-env.sh scripts/fixtures/jarvis/* scripts/fixtures/jarvis-setup/status.py scripts/fixtures/jarvis-setup/installed.py scripts/fixtures/jarvis-voice/installed.js scripts/test-task-event.js"
+  "qml|shader GPU cost|scripts/measure-shader.sh|scripts/measure-shader.sh scripts/shader/* scripts/check-voiceorb-shader.py shell/Ui/feedback/VoiceOrb.qml shell/Ui/feedback/shaders/* shell/Commons/* config/shell.json bin/lib/qml-library.js shell/Core/HyprlandLayer.js scripts/smoke/harness.sh scripts/smoke/gpu-fence.sh scripts/smoke/devices.sh scripts/smoke/fixtures/devices/* scripts/smoke/mode-hold.sh scripts/smoke/teardown.sh scripts/smoke/verdict.sh scripts/smoke/tree.sh scripts/smoke/shot.sh scripts/smoke/app-window.sh scripts/smoke/pointer/* scripts/smoke/toplevel/* scripts/smoke/keyboard/*"
+)
+
+# The branch point, printed on stdout: the merge base of HEAD with the
+# remote-tracking copy of the project's base branch, WORKTREE_DEFAULT_BRANCH
+# from the environment or from kendex.settings.toml (read by the kendex
+# settings loader, so the file has one reader). Exactly one remote may carry
+# that branch; none or several is missing, never a guess, so no ref that
+# merely contains HEAD is taken for its base. On failure it prints what is
+# missing as key=value and returns 1.
+branch_point() {
+  local branch="${WORKTREE_DEFAULT_BRANCH:-}" loader="$repo/.agents/skills/orch/scripts/lib/kendex-env.sh" ref refs=()
+  if [[ -z $branch && -f $repo/kendex.settings.toml ]]; then
+    # shellcheck source=/dev/null
+    branch="$(source "$loader" && kendex_load_settings_file "$repo/kendex.settings.toml" && printf '%s' "${WORKTREE_DEFAULT_BRANCH:-}")" || branch=""
+  fi
+  if [[ -z $branch ]]; then
+    echo "missing=base-branch source=WORKTREE_DEFAULT_BRANCH"
+    return 1
+  fi
+  while IFS= read -r ref; do
+    [[ $ref =~ ^refs/remotes/[^/]+/(.*)$ && ${BASH_REMATCH[1]} == "$branch" ]] && refs+=("$ref")
+  done < <(git for-each-ref --format='%(refname)' refs/remotes/)
+  if [[ ${#refs[@]} -ne 1 ]]; then
+    echo "missing=base-ref branch=$branch remote-refs=${#refs[@]}"
+    return 1
+  fi
+  if ! git merge-base HEAD "${refs[0]}"; then
+    echo "missing=merge-base ref=${refs[0]}"
+    return 1
+  fi
+}
+
+# The commit the whitespace row compares against, printed on stdout, and the
+# default change base: VGS_VALIDATE_BASE when set, else the branch point. On
+# failure it prints what is missing as key=value and returns 1.
+whitespace_base() {
+  if [[ -n ${VGS_VALIDATE_BASE:-} ]]; then
+    if ! git rev-parse --verify --quiet "${VGS_VALIDATE_BASE}^{commit}"; then
+      echo "missing=commit VGS_VALIDATE_BASE=$VGS_VALIDATE_BASE"
+      return 1
+    fi
+    return 0
+  fi
+  branch_point
+}
+
+# Whitespace errors the tree adds over the base: tracked files against the
+# base commit, and every untracked file whole, since a new file has no base.
+# Names are read NUL-delimited, so a name git would quote reaches git as the
+# file's own name. git diff --check exits 2 for findings; with --no-index it
+# exits 1 for a clean difference and 3 for findings. Any other status, or a
+# clean status with output, is a read error and fails the row with git's
+# message. First lines:
+#   whitespace: base=<commit>
+#   whitespace: findings scope=tracked | scope=untracked path=<file>
+#   whitespace: unreadable scope=tracked status=<n> | scope=untracked path=<file> status=<n>
+#   whitespace: failed base=<commit>
+#   whitespace: status=not-measured reason=no-base <missing key=value>
+whitespace_check() {
+  local base file out file_status status=0
+  if ! base="$(whitespace_base)"; then
+    echo "whitespace: status=not-measured reason=no-base ${base##*$'\n'}"
+    echo "set VGS_VALIDATE_BASE to the commit to compare against"
+    return 77
+  fi
+  echo "whitespace: base=$base"
+  file_status=0
+  out="$(git diff --check "$base" -- 2>&1)" || file_status=$?
+  case "$file_status" in
+    0) ;;
+    2) echo "whitespace: findings scope=tracked"; printf '%s\n' "$out"; status=1 ;;
+    *) echo "whitespace: unreadable scope=tracked status=$file_status"; printf '%s\n' "$out"; status=1 ;;
+  esac
+  while IFS= read -r -d '' file; do
+    file_status=0
+    out="$(git diff --no-index --check -- /dev/null "$file" 2>&1)" || file_status=$?
+    case "$file_status" in
+      0|1) [[ -z $out ]] && continue
+           echo "whitespace: unreadable scope=untracked path=$file status=$file_status" ;;
+      3) echo "whitespace: findings scope=untracked path=$file" ;;
+      *) echo "whitespace: unreadable scope=untracked path=$file status=$file_status" ;;
+    esac
+    printf '%s\n' "$out"
+    status=1
+  done < <(git ls-files -z --others --exclude-standard)
+  [[ $status -eq 0 ]] || echo "whitespace: failed base=$base"
+  return "$status"
+}
+
+# A scratch copy of the index holding the tree the change will commit, for a
+# checker that reads index blobs: every tracked and untracked, non-ignored
+# file matching PATHSPEC... is added as the worktree holds it, a deleted
+# tracked file removed. A tracked file under an ignored directory is added
+# with --force; the list names no ignored untracked file. The real index is
+# never written. Prints the scratch path, which the caller removes; on
+# failure prints the real index path, or `unresolved`, and returns 1.
+scratch_index() { # PATHSPEC...
+  local index scratch
+  index="$(git rev-parse --path-format=absolute --git-path index)" || index=""
+  if [[ -z $index ]] || ! scratch="$(mktemp)"; then
+    echo "${index:-unresolved}"
+    return 1
+  fi
+  # With no index yet, git starts the scratch index empty.
+  [[ -e $index ]] || rm -f -- "$scratch"
+  if { [[ -e $index ]] && ! cp -- "$index" "$scratch"; } ||
+     ! git ls-files -z --cached --others --exclude-standard -- "$@" |
+       GIT_INDEX_FILE="$scratch" GIT_LITERAL_PATHSPECS=1 git add -A --force --pathspec-from-file=- --pathspec-file-nul; then
+    rm -f -- "$scratch" "$scratch.lock"
+    echo "$index"
+    return 1
+  fi
+  echo "$scratch"
+}
+
+# The document byte ceilings of the doc-limits skill, measured on the tree
+# the change will commit: doc-limits reads tracked documents and their index
+# blobs, so it runs on a scratch_index of every Markdown file and docs HTML
+# file. The checker judges sizes alone and reads no base. A load-point
+# document over its ceiling fails the row with the checker's
+# notice=document-over-limit; any other document over its ceiling passes
+# with notice=document-over-budget. doc-limits exit 2, the check could not
+# judge, fails the row. First lines, beside doc-limits' own output:
+#   doc-limits: failed status=<n>
+#   doc-limits: status=not-measured reason=checker-missing path=<file>
+#   doc-limits: status=not-measured reason=index-copy-failed path=<file>
+doc_limits_check() {
+  local checker=".agents/skills/doc-limits/scripts/doc-limits" scratch status=0
+  if [[ ! -x $checker ]]; then
+    echo "doc-limits: status=not-measured reason=checker-missing path=$checker"
+    return 77
+  fi
+  if ! scratch="$(scratch_index ':(glob)**/*.md' ':(glob)docs/**/*.html')"; then
+    echo "doc-limits: status=not-measured reason=index-copy-failed path=$scratch"
+    return 77
+  fi
+  GIT_INDEX_FILE="$scratch" "$checker" || status=$?
+  rm -f -- "$scratch"
+  case "$status" in
+    0|1) ;;
+    *) echo "doc-limits: failed status=$status"; status=1 ;;
+  esac
+  return "$status"
+}
+
+# The links, section routes, decision references and source citations the
+# commit-guards md-refs lane judges, on the tree the change will commit.
+# md-refs reads callers and targets from the index, so it runs --all on a
+# scratch_index of every file. Any tracked file can carry a citation or be
+# the target of one, and a removed heading breaks callers the change never
+# touched, so this is a repository check and runs on every change. md-refs
+# exit 2, a configuration or collection error, fails the row. First lines,
+# then md-refs' own output:
+#   md-refs: failed status=<n>
+#   md-refs: status=not-measured reason=checker-missing path=<file>
+#   md-refs: status=not-measured reason=index-copy-failed path=<file>
+md_refs_check() {
+  local checker=".agents/skills/commit-guards/scripts/md-refs" scratch status=0
+  if [[ ! -x $checker ]]; then
+    echo "md-refs: status=not-measured reason=checker-missing path=$checker"
+    return 77
+  fi
+  if ! scratch="$(scratch_index)"; then
+    echo "md-refs: status=not-measured reason=index-copy-failed path=$scratch"
+    return 77
+  fi
+  GIT_INDEX_FILE="$scratch" "$checker" --all || status=$?
+  rm -f -- "$scratch"
+  case "$status" in
+    0|1) ;;
+    *) echo "md-refs: failed status=$status"; status=1 ;;
+  esac
+  return "$status"
+}
+
+# Every scripts/test-* file is named by a row, so a check cannot exist
+# without running here.
+rows_cover_tests() {
+  local row file command word words=" " missing=() split=()
+  # Every whole word of every row's command, space-delimited, so a test
+  # file's path matches only a word equal to it, never a longer name that
+  # starts with it.
+  for row in "${rows[@]}"; do
+    command="${row#*|}"
+    command="${command#*|}"
+    command="${command%%|*}"
+    read -r -a split <<<"$command"
+    for word in "${split[@]}"; do words+="$word "; done
+  done
+  for file in scripts/test-*; do
+    [[ -e $file ]] || continue
+    [[ $words == *" $file "* ]] || missing+=("$file")
+  done
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    printf 'validate: refused: test-without-row=%s\n' "$(IFS=,; echo "${missing[*]}")"
+    return 1
+  fi
+  echo "validate: every test file has a row"
+}
+
+# An install ships bin, shell, config, themes and VERSION, so no file under
+# bin/ or shell/ may load one under scripts/. A load is spelled in code as a
+# quoted "scripts" path component, as path.join and os.path.join take it, or
+# as a scripts path segment after an expansion or a relative climb:
+# $root/scripts/, ${repo}/scripts/, $(...)/scripts/, ../scripts/, and a QML
+# import of "../../scripts". A bare scripts/<name>, the way a comment names a
+# test, is not matched, and neither is markdown. Tracked and untracked files
+# are read. git grep exits 1 both for no match and after a file it could not
+# open, so anything on its stderr is a read error too. First lines, the
+# refusal followed by each matching line as git grep prints it:
+#   validate: refused: runtime-reads-scripts=<matching line count>
+#   validate: unreadable: runtime-reads-scripts status=<n>
+runtime_reads_no_scripts() {
+  local pattern='(["'\'']scripts["'\'']|(\$[A-Za-z_][A-Za-z0-9_]*|[}).])/scripts([/"'\'']|$))'
+  local out err err_file status=0 lines=()
+  err_file="$(mktemp)" || return 1
+  out="$(git grep -n -I -E --untracked -e "$pattern" -- bin shell ':(exclude)*.md' 2>"$err_file")" || status=$?
+  err="$(cat -- "$err_file")" || status=2
+  rm -f -- "$err_file"
+  if [[ $status -gt 1 || ( $status -eq 1 && -n $err ) ]]; then
+    echo "validate: unreadable: runtime-reads-scripts status=$status"
+    printf '%s\n' "$err"
+    return 1
+  fi
+  if [[ $status -eq 0 ]]; then
+    mapfile -t lines <<<"$out"
+    printf 'validate: refused: runtime-reads-scripts=%s\n' "${#lines[@]}"
+    printf '%s\n' "$out"
+    [[ -z $err ]] || printf '%s\n' "$err"
+    return 1
+  fi
+  echo "validate: the runtime loads nothing under scripts/"
+}
+
+# VGS reads the outputs Hyprland lists and writes no monitor rule: the
+# user's own Hyprland config sets every output
+# (docs/decisions/D096-vgs-reads-outputs-and-writes-no-monitor-rule.md). So
+# no file an install ships from bin/, shell/ or config/ holds an `hl.monitor`
+# call, spelled `hl.monitor` then an opening parenthesis with any blanks
+# between them: the call itself, or the text a renderer would write into a
+# Hyprland config or hand `hyprctl eval`. Prose that names `hl.monitor` with
+# no parenthesis is not matched, and neither is text assembled from parts,
+# such as "hl." + "monitor(", which stays open. The nested test compositor's
+# own configuration under scripts/smoke/ is no shipped file and is not read.
+# Tracked and untracked files are read, binary files skipped. The files are
+# the tree's own, listed by git under each root. A root that lists no file
+# means the listing is broken, not that the root is clean, so it is refused.
+# git grep exits 1 both for no match and after a file it could not open, so
+# anything on its stderr is a read error too. First lines, the refusal
+# followed by each matching line as git grep prints it:
+#   validate: refused: monitor-rule-writer=<matching line count>
+#   validate: unreadable: monitor-rule-writer status=<n>
+#   validate: unreadable: monitor-rule-writer root=<root> files=0
+runtime_writes_no_monitor_rule() {
+  local pattern='hl\.monitor[[:space:]]*\('
+  local roots=(bin shell config) root listed total=0
+  local out err err_file status=0 lines=()
+  for root in "${roots[@]}"; do
+    if ! listed="$(git ls-files --cached --others --exclude-standard -- "$root")"; then
+      echo "validate: unreadable: monitor-rule-writer status=list-failed root=$root"
+      return 1
+    fi
+    if [[ -z $listed ]]; then
+      echo "validate: unreadable: monitor-rule-writer root=$root files=0"
+      return 1
+    fi
+    mapfile -t lines <<<"$listed"
+    total=$((total + ${#lines[@]}))
+  done
+  err_file="$(mktemp)" || return 1
+  out="$(git grep -n -I -E --untracked -e "$pattern" -- "${roots[@]}" 2>"$err_file")" || status=$?
+  err="$(cat -- "$err_file")" || status=2
+  rm -f -- "$err_file"
+  if [[ $status -gt 1 || ( $status -eq 1 && -n $err ) ]]; then
+    echo "validate: unreadable: monitor-rule-writer status=$status"
+    printf '%s\n' "$err"
+    return 1
+  fi
+  if [[ $status -eq 0 ]]; then
+    mapfile -t lines <<<"$out"
+    printf 'validate: refused: monitor-rule-writer=%s\n' "${#lines[@]}"
+    printf '%s\n' "$out"
+    [[ -z $err ]] || printf '%s\n' "$err"
+    return 1
+  fi
+  echo "validate: no shipped file writes a monitor rule files=$total"
+}
+
+# No file in the tree holds a PEM private-key armor line: PRIVATE KEY with
+# or without a key type such as RSA, EC or OPENSSH, and the PGP PRIVATE KEY
+# BLOCK, anywhere along a line. The tree is every tracked and untracked,
+# non-ignored file as it stands on disk; the index and the commits in history
+# are not read. A private key has no exemption: a test that needs a key
+# generates it at run time. Certificates and public keys pass. The pattern's
+# own spelling below is not a header line, so this file passes. git grep exits
+# 1 both for no match and after a file it could not open, so anything on its
+# stderr is a read error too. First lines, the refusal followed by one
+# path:line:header per match, the header alone, so a key held on one line,
+# such as a JSON string, never prints its body:
+#   validate: refused: private-key=<match count>
+#   validate: unreadable: private-key status=<n>
+private_keys_check() {
+  local pattern='-----BEGIN ([[:upper:][:digit:]]+ )*PRIVATE KEY( BLOCK)?-----'
+  local out err err_file status=0 lines=()
+  err_file="$(mktemp)" || return 1
+  out="$(git grep -n -o -I -E --untracked -e "$pattern" -- . 2>"$err_file")" || status=$?
+  err="$(cat -- "$err_file")" || status=2
+  rm -f -- "$err_file"
+  if [[ $status -gt 1 || ( $status -eq 1 && -n $err ) ]]; then
+    echo "validate: unreadable: private-key status=$status"
+    printf '%s\n' "$err"
+    return 1
+  fi
+  if [[ $status -eq 0 ]]; then
+    mapfile -t lines <<<"$out"
+    printf 'validate: refused: private-key=%s\n' "${#lines[@]}"
+    printf '%s\n' "$out"
+    [[ -z $err ]] || printf '%s\n' "$err"
+    return 1
+  fi
+  echo "validate: no private key in the tree"
+}
+
+# The rows every run that selects the nested smoke runs: the bar and the
+# session the others build on, the consent row that answers the dialog the
+# first shell raises, the start order and auth-sentinel, whose reading
+# covers every row the run held.
+smoke_core=(bar hyprland-consent session start-order auth-sentinel)
+
+# smoke_input_read KEY FILE: read FILE's one `# inputs: GLOB [GLOB...]`
+# line, in its leading comment block (the lines from its first that start
+# with #), into smoke_globs and return 0. A line that is missing, repeated
+# or empty, or a file that cannot be read, prints its self-check line keyed
+# KEY and returns 1. Each glob that matches no file of the caller's tracked
+# list, matched as the rows table matches, prints its self-check line and
+# sets smoke_glob_unmatched; the caller's hits caches the answer per glob.
+smoke_input_read() { # KEY FILE
+  local key="$1" file="$2" block count glob path
+  smoke_globs=()
+  smoke_glob_unmatched=false
+  if ! block="$(awk '!/^#/ { exit } /^# inputs:/ { print }' "$file")"; then
+    printf 'validate: smoke-input %s unreadable path=%s\n' "$key" "$file" >&2; return 1
+  fi
+  count=0
+  [[ -z $block ]] || count="$(wc -l <<<"$block")"
+  if [[ $count -eq 0 ]]; then
+    printf 'validate: smoke-input %s missing; add to the leading comment block of %s: # inputs: GLOB [GLOB...]\n' "$key" "$file" >&2; return 1
+  fi
+  if [[ $count -gt 1 ]]; then
+    printf 'validate: smoke-input %s lines=%s; keep one line in %s: # inputs: GLOB [GLOB...]\n' "$key" "$count" "$file" >&2; return 1
+  fi
+  read -r -a smoke_globs <<<"${block#\# inputs:}"
+  if [[ ${#smoke_globs[@]} -eq 0 ]]; then
+    printf 'validate: smoke-input %s empty; fix the line in %s: # inputs: GLOB [GLOB...]\n' "$key" "$file" >&2; return 1
+  fi
+  for glob in "${smoke_globs[@]}"; do
+    if [[ -z ${hits[$glob]-} ]]; then
+      hits[$glob]=none
+      for path in "${tracked[@]}"; do
+        if [[ $path == $glob ]]; then hits[$glob]=some; break; fi
+      done
+    fi
+    if [[ ${hits[$glob]} == none ]]; then
+      printf 'validate: smoke-input %s glob=%s matches-nothing; fix the line in %s: %s\n' "$key" "$glob" "$file" "$block" >&2
+      smoke_glob_unmatched=true
+    fi
+  done
+}
+
+# smoke_reads_check ROW...: print a self-check line for each function a
+# listed row calls, or variable it reads, that neither it nor the harness
+# defines but another listed row does, when the row's input line names
+# none of the row files that define it: under --rows or a diff-scoped run
+# the row then fails whenever the defining row is not selected. The
+# definitions are those of the row files, scripts/qml-smoke.sh,
+# scripts/smoke/harness.sh and the libraries it sources; a row file a row
+# runs through smoke_row and no name lists counts as that row's own. A
+# file the scan cannot read to its end, a quote, heredoc or substitution
+# left open, prints its own line, and its names count nowhere. Reads
+# lines[] and reads[] from smoke_rows_selected.
+smoke_reads_check() { # ROW...
+  local facts fact row kind name definers definer named
+  if ! facts="$(python3 -I - "$@" <<'PY'
+import pathlib, re, sys
+
+NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+ASSIGN = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)(\[[^\]]*\])?\+?=")
+HEREDOC = re.compile(r"<<(-?)\s*(['\"]?)\\?([A-Za-z_][A-Za-z0-9_]*)\2")
+SOURCE = re.compile(r'^\s*(?:source|\.)\s+"\$repo/([^"]+)"', re.M)
+DECLARE = {"local", "declare", "typeset", "export", "readonly"}
+RESET = {"if", "then", "elif", "else", "do", "while", "until", "!", "{", "time"}
+TAKES = {"read": set("dinNptu"), "mapfile": set("dnOsuCc"), "readarray": set("dnOsuCc")}
+
+
+def head(words):
+    """The index of a command's first word that is not an assignment."""
+    at = 0
+    while at < len(words) - 1 and ASSIGN.match(words[at][0]):
+        at += 1
+    return at
+
+
+def calls(scan, runs):
+    """The words SCAN runs as commands: each command's first word and, while
+    that word is a runner, the word at its command operand, as
+    expect LABEL WANT CMD... runs CMD."""
+    found = set()
+    for words in scan.commands:
+        at = head(words)
+        while at < len(words):
+            name = words[at][1]
+            if name:
+                found.add(name)
+            if name not in runs:
+                break
+            at += runs[name] + 1
+    return found
+
+
+class Scan:
+    """One bash file's functions, the names it assigns or declares, the
+    variables it expands, its commands as word lists, the rows it runs
+    through smoke_row, and its runners: FUNCTION -> N for each function
+    whose body runs "$@" as a command after one `shift N`. Quotes, heredocs,
+    comments, arithmetic and { } bodies are read as bash reads them; broken
+    is set when a quote, heredoc or substitution runs to the end."""
+
+    def __init__(self, text):
+        self.t, self.n, self.broken = text, len(text), False
+        self.funcs, self.sets, self.reads, self.rows = set(), set(), set(), set()
+        self.commands, self.runners, self.heredocs = [], {}, []
+        self.depth, self.defining, self.bodies = 0, None, []
+        self.code(0, None)
+        self.broken |= bool(self.heredocs)
+
+    def dollar(self, i):
+        t, j = self.t, i + 1
+        if j >= self.n:
+            return j
+        if t[j] == "(":
+            return self.arith(j + 2) if t.startswith("((", j) else self.code(j + 1, ")")
+        if t[j] == "'":
+            return self.single(j + 1, ansi=True)
+        if t[j] == "{":
+            j += 1
+            if j < self.n and t[j] in "#!":
+                j += 1
+        m = NAME.match(t, j)
+        if not m:
+            return j + 1 if j < self.n and t[j] in "?$#@!*-0123456789" else j
+        self.reads.add(m.group())
+        return m.end()
+
+    def single(self, i, ansi=False):
+        t = self.t
+        while i < self.n and t[i] != "'":
+            i += 2 if ansi and t[i] == "\\" else 1
+        self.broken |= i >= self.n
+        return i + 1
+
+    def arith(self, i):
+        t, depth = self.t, 0
+        while i < self.n:
+            c = t[i]
+            if c == "$":
+                i = self.dollar(i)
+                continue
+            if c == "(":
+                depth += 1
+            elif c == ")":
+                if depth == 0 and t.startswith("))", i):
+                    return i + 2
+                depth -= 1
+            m = NAME.match(t, i)
+            if m and not (t[i - 1].isalnum() or t[i - 1] in "_#"):
+                if re.match(r"\s*(\+\+|--|[-+*/%&|^]?=(?!=))", t[m.end():]):
+                    self.sets.add(m.group())
+                self.reads.add(m.group())
+                i = m.end()
+                continue
+            i += 1
+        self.broken = True
+        return i
+
+    def expand(self, i, end, quote):
+        """The expansions up to END, or to the closing QUOTE when set."""
+        t = self.t
+        while i < end:
+            c = t[i]
+            if c == "\\":
+                i += 2
+            elif quote and c == quote:
+                return i + 1
+            elif c == "$":
+                i = self.dollar(i)
+            else:
+                i += 1
+        self.broken |= bool(quote)
+        return i
+
+    def take_heredocs(self, i):
+        t = self.t
+        while self.heredocs:
+            delim, quoted, strip = self.heredocs[0]
+            start = i
+            while i < self.n:
+                end = t.find("\n", i)
+                end = self.n if end < 0 else end
+                line = t[i:end]
+                i = end + 1
+                if (line.lstrip("\t") if strip else line) == delim:
+                    if not quoted:
+                        self.expand(start, end - len(line), None)
+                    self.heredocs.pop(0)
+                    break
+            else:
+                return i
+        return i
+
+    def code(self, i, close):
+        t = self.t
+        words = []  # per word: (its unquoted literal text, that text when the word is all literal, its source text)
+        cur = None
+        case = 0
+
+        def end_word():
+            nonlocal cur, case
+            if cur is not None:
+                words.append((cur[0], cur[0] if cur[1] else None, t[cur[2]:i]))
+                cur = None
+                case += self.word(words)
+
+        def end_command():
+            end_word()
+            if words:
+                self.command(words)
+            words.clear()
+
+        def part(literal):
+            nonlocal cur
+            cur = cur or ["", True, i]
+            if literal is None:
+                cur[1] = False
+            elif cur[1]:
+                cur[0] += literal
+
+        while i < self.n:
+            c = t[i]
+            if c == "\n":
+                end_command()
+                i = self.take_heredocs(i + 1)
+            elif c in " \t":
+                end_word()
+                i += 1
+            elif c == "#" and cur is None:
+                j = t.find("\n", i)
+                i = self.n if j < 0 else j
+            elif c == "\\":
+                if not t.startswith("\n", i + 1):
+                    part(t[i + 1:i + 2])
+                i += 2
+            elif c == "'":
+                part(None)
+                i = self.single(i + 1)
+            elif c == '"':
+                part(None)
+                i = self.expand(i + 1, self.n, '"')
+            elif c == "$":
+                part(None)
+                i = self.dollar(i)
+            elif t.startswith("<<", i) and not t.startswith("<<<", i):
+                end_word()
+                m = HEREDOC.match(t, i)
+                if m:
+                    self.heredocs.append((m.group(3), bool(m.group(2)), bool(m.group(1))))
+                i = m.end() if m else i + 2
+            elif c in "<>" and t.startswith("(", i + 1):
+                end_word()
+                i = self.code(i + 2, ")")
+            elif c == "(":
+                if cur is not None and cur[1] and cur[0] and t.startswith(")", i + 1):
+                    self.funcs.add(cur[0])
+                    self.defining = cur[0]
+                    cur = None
+                    words.clear()
+                    i += 2
+                elif cur is not None and cur[1] and cur[0].endswith("="):
+                    end_word()  # name=( WORDS ): the words are values
+                    i = self.code(i + 1, ")")
+                elif cur is None and t.startswith("((", i):
+                    i = self.arith(i + 2)
+                else:
+                    end_command()
+                    i = self.code(i + 1, ")")
+            elif c == ")":
+                end_command()
+                i += 1
+                if close == ")" and not case:
+                    return i
+            elif c in ";|&":
+                end_command()
+                i += 1
+            elif c in "<>":
+                end_word()
+                i += 1
+            else:
+                part(c)
+                i += 1
+        end_command()
+        self.broken |= close is not None
+        return i
+
+    def word(self, words):
+        """Read the word that just ended; return the change in case depth."""
+        prefix, whole, _ = words[-1]
+        pos, at = len(words) - 1, head(words)
+        if pos == at:
+            if whole != "{":
+                self.defining = None
+            m = ASSIGN.match(prefix)
+            if m:
+                self.sets.add(m.group(1))
+            elif whole == "{":
+                self.depth += 1
+                if self.defining:
+                    self.bodies.append((self.defining, self.depth, []))
+                    self.defining = None
+                words.clear()
+            elif whole == "}":
+                if self.bodies and self.bodies[-1][1] == self.depth:
+                    name, _, shifts = self.bodies.pop()
+                    if shifts and shifts[-1] == "runs" and len(shifts) <= 2 and None not in shifts:
+                        self.runners[name] = shifts[0] if len(shifts) == 2 else 0
+                self.depth -= 1
+            elif whole in RESET:
+                words.clear()
+            return {"case": 1, "esac": -1}.get(whole, 0)
+        cmd, args = words[at][1], [w[1] for w in words[at + 1:]]
+        prev = args[-2] if len(args) > 1 else None
+        if cmd == "smoke_row" and len(args) == 1 and whole:
+            self.rows.add(whole)
+        elif cmd == "function" and len(args) == 1 and whole:
+            self.funcs.add(whole)
+        elif cmd in DECLARE:
+            m = NAME.match(prefix)
+            if m and not prefix.startswith("-"):
+                self.sets.add(m.group())
+        elif cmd in ("for", "select") and len(args) == 1 and whole:
+            self.sets.add(whole)
+        elif cmd == "printf" and prev == "-v" and whole:
+            self.sets.add(whole)
+        elif cmd == "getopts" and len(args) == 2 and whole:
+            self.sets.add(whole)
+        elif cmd in TAKES and whole and NAME.fullmatch(whole):
+            if not (prev and prev.startswith("-") and prev[-1] in TAKES[cmd]):
+                self.sets.add(whole)
+        return 0
+
+    def command(self, words):
+        """Keep a command's words, and note in the innermost open function
+        body each shift and the "$@" it runs: a body runs its arguments when
+        it holds at most one literal shift and then runs "$@"."""
+        self.commands.append(list(words))
+        if not self.bodies or self.bodies[-1][2][-1:] == ["runs"]:
+            return
+        at, shifts = head(words), self.bodies[-1][2]
+        if words[at][1] == "shift":
+            count = words[at + 1][1] if at + 1 < len(words) else "1"
+            shifts.append(int(count) if count and count.isdigit() else None)
+        elif words[at][2] == '"$@"':
+            shifts.append("runs")
+
+
+def read(rel):
+    try:
+        return pathlib.Path(rel).read_text()
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+listed = sys.argv[1:]
+texts, side, queue = {}, [], ["scripts/qml-smoke.sh", "scripts/smoke/harness.sh"]
+while queue:
+    rel = queue.pop(0)
+    if rel not in texts:
+        texts[rel] = read(rel)
+        side.append(rel)
+        queue += SOURCE.findall(texts[rel] or "")
+for path in sorted(pathlib.Path("scripts/smoke/rows").glob("*.sh")):
+    texts.setdefault(str(path), read(path))
+scans = {}
+for rel, text in texts.items():
+    if text is None or (scan := Scan(text)).broken:
+        print("unparsed", rel)
+    else:
+        scans[rel] = scan
+runs = {}
+for scan in scans.values():
+    runs.update(scan.runners)
+for scan in scans.values():
+    scan.calls = calls(scan, runs)
+side_owned = {field: set().union(*(scans[rel].__dict__[field] for rel in side if rel in scans)) for field in ("funcs", "sets")}
+owned = {}
+for row in listed:
+    parts, queue = [], [f"scripts/smoke/rows/{row}.sh"]
+    while queue:
+        rel = queue.pop(0)
+        if rel in scans and scans[rel] not in parts:
+            parts.append(scans[rel])
+            queue += [f"scripts/smoke/rows/{child}.sh" for child in scans[rel].rows if child not in listed]
+    owned[row] = {field: set().union(*(s.__dict__[field] for s in parts)) for field in ("funcs", "sets", "calls", "reads")}
+for row in listed:
+    for kind, used, field in (("function", "calls", "funcs"), ("variable", "reads", "sets")):
+        for name in sorted(owned[row][used] - owned[row][field] - side_owned[field]):
+            definers = [other for other in listed if other != row and name in owned[other][field]]
+            if definers:
+                print("read", row, kind, name, ",".join(definers))
+PY
+)"; then
+    echo 'validate: smoke-input reads=unreadable; the function and variable check did not run' >&2; return 0
+  fi
+  while read -r fact row kind name definers; do
+    case "$fact" in
+      '') continue ;;
+      unparsed) printf 'validate: smoke-input unparsed path=%s; the function and variable check cannot read it to its end\n' "$row" >&2; continue ;;
+      read) ;;
+      *) printf 'validate: smoke-input reads=unreadable fact=%q\n' "$fact" >&2; return 0 ;;
+    esac
+    named=false
+    for definer in ${definers//,/ }; do
+      [[ " ${reads[$row]-} " != *" $definer "* ]] || named=true
+    done
+    [[ $named == false ]] || continue
+    printf 'validate: smoke-input row=%s %s=%s from=scripts/smoke/rows/%s.sh; add to the line in scripts/smoke/rows/%s.sh: # inputs: %s scripts/smoke/rows/%s.sh\n' \
+      "$row" "$kind" "$name" "${definers//,/.sh,scripts/smoke/rows/}" "$row" "${lines[$row]-}" "${definers%%,*}" >&2
+  done <<<"$facts"
+}
+
+# smoke_list_rows: mark in want[] each row an added line of the row list
+# names, against the change base; a line git shows as added is a new or a
+# moved row. A removed line whose name the list no longer holds is an
+# unlisted row: its name joins unlisted[], and the caller runs each row
+# whose input line names that row's file, since that row reads state the
+# unlisted row no longer leaves. A list the diff cannot read, or one git
+# does not track, whose lines no diff shows, sets every instead. Reads
+# names[], tracked[] and smoke_list from smoke_rows_selected.
+smoke_list_rows() {
+  local diff line sign hunk=false
+  if [[ " ${tracked[*]} " != *" $smoke_list "* ]]; then
+    printf -v every 'reason=rows-list-untracked path=%q' "$smoke_list"; return 0
+  fi
+  if ! diff="$(git diff -U0 --no-color --no-ext-diff "$change_base" -- "$smoke_list")"; then
+    printf -v every 'reason=rows-list-diff-unreadable path=%q' "$smoke_list"; return 0
+  fi
+  while IFS= read -r line; do
+    if [[ $line == @@* ]]; then hunk=true; continue; fi
+    [[ $hunk == true && ( $line == +* || $line == -* ) ]] || continue
+    sign="${line:0:1}"; line="${line:1}"
+    [[ -z $line || $line == '#'* ]] && continue
+    if [[ $sign == - ]]; then
+      [[ " ${names[*]} " == *" $line "* ]] || unlisted+=("$line")
+      continue
+    fi
+    if [[ " ${names[*]} " != *" $line "* ]]; then
+      printf -v every 'reason=rows-list-unlisted-line value=%q' "$line"; return 0
+    fi
+    want[$line]=1
+  done <<<"$diff"
+}
+
+# The nested smoke rows a diff-scoped run passes to scripts/qml-smoke.sh as
+# --rows, set in smoke_only comma-joined, or empty for every row.
+# `scripts/qml-smoke.sh --list-rows` names the rows. Each row's file,
+# scripts/smoke/rows/<row>.sh, carries an input line smoke_input_read
+# reads; its globs and the file itself are its inputs. A row runs when a
+# changed path matches an input, when it is a core row, or when a running
+# row names its file exactly as an input: that row reads the other's
+# functions or state and fails without it. A row whose line cannot be read
+# or holds a glob that matches no tracked file runs on every change.
+# scripts/smoke/harness.sh carries an input line too, naming what the
+# harness and the libraries it sources read for every row. The harness
+# inputs are scripts/qml-smoke.sh, which holds the latency budgets and the
+# commands the sandbox hides, harness.sh and the paths its line matches: a
+# change to one runs every row, as does a harness line, row list or
+# tracked-file list this cannot read; a harness glob that matches nothing
+# only reports. scripts/smoke/rows.list, which holds the row order, is no
+# harness input: a change to it runs the rows its added lines name, read
+# from the diff against the change base, so a moved row runs and a comment
+# runs nothing, and a row its removed lines unlist brings each row that
+# names its file. The self-check lines smoke_input_read prints never change
+# the exit status.
+smoke_rows_selected() { # CHANGED_PATH...
+  local listed row file path glob needed count every="" smoke_list=scripts/smoke/rows.list
+  local -a names tracked smoke_globs unlisted=()
+  local -A want=() reads=() hits=() lines=()
+  local smoke_glob_unmatched
+  smoke_only=""
+  if ! listed="$(scripts/qml-smoke.sh --list-rows)" || [[ -z $listed ]]; then
+    echo 'validate: smoke-rows=all reason=row-list-unreadable' >&2; return 0
+  fi
+  mapfile -t names <<<"$listed"
+  for row in "${smoke_core[@]}"; do
+    if [[ " ${names[*]} " != *" $row "* ]]; then
+      printf 'validate: smoke-rows=all reason=core-row-missing row=%s\n' "$row" >&2; return 0
+    fi
+    want[$row]=1
+  done
+  if ! mapfile -d '' -t tracked < <(git ls-files -z) || ! wait "$!" || [[ ${#tracked[@]} -eq 0 ]]; then
+    echo 'validate: smoke-rows=all reason=tracked-list-unreadable' >&2; return 0
+  fi
+  if ! smoke_input_read harness=scripts/smoke/harness.sh scripts/smoke/harness.sh; then
+    every='reason=harness-line-unreadable'
+  fi
+  for path in "$@"; do
+    [[ -z $every ]] || break
+    for glob in scripts/qml-smoke.sh scripts/smoke/harness.sh "${smoke_globs[@]}"; do
+      if [[ $path == $glob ]]; then printf -v every 'reason=harness-input path=%q' "$path"; break; fi
+    done
+    if [[ -z $every && $path == "$smoke_list" ]]; then smoke_list_rows; fi
+  done
+  for row in "${names[@]}"; do
+    file="scripts/smoke/rows/$row.sh"
+    if ! smoke_input_read "row=$row" "$file" || [[ $smoke_glob_unmatched == true ]]; then
+      want[$row]=1
+    fi
+    lines[$row]="${smoke_globs[*]}"
+    for glob in "${smoke_globs[@]}"; do
+      if [[ $glob == scripts/smoke/rows/*.sh && $glob != "$file" ]]; then
+        needed="${glob#scripts/smoke/rows/}"; needed="${needed%.sh}"
+        [[ " ${names[*]} " != *" $needed "* ]] || reads[$row]+=" $needed"
+      fi
+    done
+    for path in "$@"; do
+      for glob in "$file" "${smoke_globs[@]}"; do
+        if [[ $path == $glob ]]; then want[$row]=1; break 2; fi
+      done
+    done
+  done
+  for needed in "${unlisted[@]}"; do
+    for row in "${names[@]}"; do
+      [[ " ${lines[$row]-} " != *" scripts/smoke/rows/$needed.sh "* ]] || want[$row]=1
+    done
+  done
+  smoke_reads_check "${names[@]}"
+  if [[ -n $every ]]; then
+    printf 'validate: smoke-rows=all %s\n' "$every" >&2; return 0
+  fi
+  # A row that runs brings the rows it reads, and theirs in turn.
+  count=-1
+  while [[ $count -ne ${#want[@]} ]]; do
+    count=${#want[@]}
+    for row in "${!want[@]}"; do
+      for needed in ${reads[$row]-}; do want[$needed]=1; done
+    done
+  done
+  if [[ ${#want[@]} -eq ${#names[@]} ]]; then
+    printf 'validate: smoke-rows=all reason=every-row-reached total=%s\n' "${#names[@]}" >&2; return 0
+  fi
+  printf 'validate: smoke-rows=some selected=%s total=%s\n' "${#want[@]}" "${#names[@]}" >&2
+  for row in "${names[@]}"; do
+    [[ -z ${want[$row]-} ]] || smoke_only+="${smoke_only:+,}$row"
+  done
+}
+
+# smoke_reads_named: the function and variable check as a row that fails.
+# It reads the lines smoke_rows_selected prints for no changed path, in a
+# subshell, so the selection it makes there reaches no caller. A
+# `function=`, `variable=` or `unparsed` line fails the row; `reads=unreadable`
+# or a reason that returns before the scan, a row list, core row or tracked
+# list this cannot read, means the scan did not run, which is exit 77 and
+# not a pass. A line of another kind, such as a glob that matches nothing,
+# still selects its row on every change and fails nothing here.
+smoke_reads_named() {
+  local out line status=0
+  local gap='^validate: smoke-input (row=[^ ]+ (function|variable)=|unparsed path=)'
+  local unread='^validate: (smoke-input reads=unreadable|smoke-rows=all reason=(row-list-unreadable|core-row-missing|tracked-list-unreadable))'
+  if ! out="$(smoke_rows_selected 2>&1 >/dev/null)"; then
+    printf 'smoke-reads: selector=failed\n%s\n' "$out" >&2; return 77
+  fi
+  while IFS= read -r line; do
+    if [[ $line =~ $gap ]]; then
+      printf '%s\n' "$line" >&2; status=1
+    elif [[ $line =~ $unread ]]; then
+      printf '%s\n' "$line" >&2
+      [[ $status -ne 0 ]] || status=77
+    fi
+  done <<<"$out"
+  return "$status"
+}
+
+# The file that records this area's last pass, in the worktree's own git
+# directory, so no other worktree reads it. Empty when git names no git
+# directory: then no run reads or records a pass.
+if ! pass_record="$(git rev-parse --absolute-git-dir)/vgs-validated-$area"; then pass_record=""; fi
+
+# last_pass: the newest commit after the branch point whose tree is the
+# tree pass_record holds, printed on stdout: the commit that holds what the
+# area's last passing run read, whether that run read it committed or not.
+# An absent record returns 1 silently. A record that names no tree, a
+# tree no such commit holds, as after a rebase or on another branch, or a
+# commit whose scripts/validate differs from the worktree's prints
+# `validate: last-pass=ignored reason=<reason>` on stderr and returns 1, so
+# the branch point serves; so does a branch point that cannot be read,
+# whose own reader then names what is missing. The selector check holds
+# the base sound: a pass proves the rows its own table selected, so a
+# table that now maps a path the branch changed before the pass must read
+# the whole branch again.
+last_pass() {
+  local recorded point commits commit tree status=0
+  [[ -n $pass_record && -e $pass_record ]] || return 1
+  if ! recorded="$(<"$pass_record")" || [[ ! $recorded =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] ||
+     [[ "$(git cat-file -t "$recorded" 2>/dev/null)" != tree ]]; then
+    printf 'validate: last-pass=ignored reason=unreadable path=%s\n' "$pass_record" >&2; return 1
+  fi
+  point="$(branch_point)" || return 1
+  if ! commits="$(git rev-list --topo-order --format='%H %T' --no-commit-header "$point..HEAD")"; then
+    printf 'validate: last-pass=ignored reason=history-unreadable tree=%s\n' "$recorded" >&2; return 1
+  fi
+  while read -r commit tree; do
+    [[ $tree == "$recorded" ]] && break
+  done <<<"$commits"
+  if [[ $tree != "$recorded" ]]; then
+    printf 'validate: last-pass=ignored reason=no-commit-holds-tree tree=%s\n' "$recorded" >&2; return 1
+  fi
+  git diff --quiet "$commit" -- scripts/validate || status=$?
+  case "$status" in
+    0) printf '%s\n' "$commit" ;;
+    1) printf 'validate: last-pass=ignored reason=selector-changed commit=%s\n' "$commit" >&2; return 1 ;;
+    *) printf 'validate: last-pass=ignored reason=selector-unreadable commit=%s status=%s\n' "$commit" "$status" >&2; return 1 ;;
+  esac
+}
+
+# worktree_tree: the tree id of what a run reads, every tracked and
+# untracked, non-ignored file as the worktree holds it, built in a
+# scratch_index; a clean worktree gives HEAD's tree. Prints `unreadable`
+# when git cannot build it.
+worktree_tree() {
+  local scratch tree
+  if ! scratch="$(scratch_index)"; then echo unreadable; return 0; fi
+  tree="$(GIT_INDEX_FILE="$scratch" git write-tree)" || tree=unreadable
+  rm -f -- "${scratch:?}" "${scratch:?}.lock"
+  printf '%s\n' "$tree"
+}
+
+# last_pass_record: record, after a run that passed, the tree it read in
+# pass_record. A run proves its tree only when its base did: the branch
+# point, an earlier pass or --full. A base a caller named is the caller's
+# claim, so that run records nothing. The tree is what passed only when
+# worktree_tree read the same tree at the run's start (pass_tree) and its
+# end. Prints `validate: last-pass=recorded` or `last-pass=unrecorded
+# reason=<reason>` on stderr; a run that records nothing keeps its exit
+# status, since the next run's branch point selects more, never less.
+last_pass_record() {
+  local tree
+  case "$base_source" in
+    merge-base|last-pass|full) ;;
+    argument|DEV_VALIDATE_BASE|VGS_VALIDATE_BASE)
+      printf 'validate: last-pass=unrecorded reason=named-base source=%s\n' "$base_source" >&2; return 0 ;;
+    *) printf 'validate: internal-error base-source=%s\n' "$base_source" >&2; exit 1 ;;
+  esac
+  tree="$(worktree_tree)"
+  if [[ $pass_tree == unreadable || $tree == unreadable ]]; then
+    echo 'validate: last-pass=unrecorded reason=tree-unreadable' >&2; return 0
+  fi
+  if [[ $tree != "$pass_tree" ]]; then
+    printf 'validate: last-pass=unrecorded reason=content-changed from=%s to=%s\n' "$pass_tree" "$tree" >&2; return 0
+  fi
+  if [[ -z $pass_record ]]; then
+    echo 'validate: last-pass=unrecorded reason=git-dir-unresolved' >&2; return 0
+  fi
+  if ! printf '%s\n' "$tree" >"${pass_record:?}.$$" || ! mv -f -- "${pass_record:?}.$$" "$pass_record"; then
+    rm -f -- "${pass_record:?}.$$"
+    printf 'validate: last-pass=unrecorded reason=write-failed path=%s\n' "$pass_record" >&2; return 0
+  fi
+  printf 'validate: last-pass=recorded area=%s tree=%s\n' "$area" "$tree" >&2
+}
+
+# The change base and its source, the first that holds: --changed BASE
+# (argument); DEV_VALIDATE_BASE, the fix-round base Kendex supplies;
+# VGS_VALIDATE_BASE; this area's last pass in this worktree (last-pass);
+# the branch point (merge-base). --full reads no base (full).
+# Match all rows before filtering by area, so runtime-only inputs do not
+# cause an offline run to select unrelated suites.
+if [[ -n $change_base ]]; then
+  base_source=argument
+elif [[ $full_scope == true ]]; then
+  base_source=full
+elif [[ -n ${DEV_VALIDATE_BASE:-} ]]; then
+  change_base="$DEV_VALIDATE_BASE"; base_source=DEV_VALIDATE_BASE
+elif [[ -z ${VGS_VALIDATE_BASE:-} ]] && change_base="$(last_pass)"; then
+  base_source=last-pass
+elif ! change_base="$(whitespace_base)"; then
+  printf 'validate: status=not-measured reason=no-base %s\n' "${change_base##*$'\n'}" >&2
+  exit 77
+elif [[ -n ${VGS_VALIDATE_BASE:-} ]]; then
+  base_source=VGS_VALIDATE_BASE
+else
+  base_source=merge-base
+fi
+if [[ -n $change_base ]]; then
+  export VGS_VALIDATE_BASE="$change_base"
+  if ! base_commit="$(git rev-parse --verify --quiet "$change_base^{commit}")"; then base_commit="$change_base"; fi
+  printf 'validate: base=%s source=%s\n' "$base_commit" "$base_source" >&2
+fi
+# The tree a passing run records is read before the diff that selects its
+# rows, so an edit after that diff changes the end tree and records nothing.
+[[ $list_only == true ]] || pass_tree="$(worktree_tree)"
+unset VGS_VALIDATE_CHANGED
+smoke_scoped=false
+affected=()
+for i in "${!rows[@]}"; do affected[i]=true; done
+if [[ -n $change_base ]]; then
+  paths_file="$(mktemp)"
+  trap 'rm -f -- "${paths_file:?}"' EXIT
+  if ! git diff --name-only --no-renames -z "$change_base" -- >"$paths_file" ||
+     ! git ls-files -z --others --exclude-standard >>"$paths_file"; then
+    echo 'validate: selection=full reason=diff-unreadable' >&2
+  else
+    mapfile -d '' -t changed_paths <"$paths_file"
+    for i in "${!rows[@]}"; do affected[i]=false; done
+    full=false
+    for path in "${changed_paths[@]}"; do
+      known=false
+      for i in "${!rows[@]}"; do
+        IFS='|' read -r row_area label command inputs <<<"${rows[i]}"
+        [[ $row_area == repo ]] && continue
+        # Command words without a slash, such as node, are not inputs.
+        read -r -a patterns <<<"$inputs"
+        read -r -a words <<<"$command"
+        for word in "${words[@]}"; do
+          if [[ $word == */* ]]; then patterns+=("$word"); fi
+        done
+        for pattern in "${patterns[@]}"; do
+          if [[ $path == $pattern ]]; then affected[i]=true; known=true; break; fi
+        done
+      done
+      if [[ $known == false ]]; then
+        case "$path" in
+          *.md|*.markdown|LICENSE|docs/*|.gitignore|.kendex*|kendex*.toml|.claude/*|.codex/*|.pi/*|.github/*) ;;
+          .agents/skills/vgs-plugin/*)
+            printf 'validate: selection=full unknown-input=%q\n' "$path" >&2; full=true; break ;;
+          .agents/*|.bot-instructions/*) ;;
+          *) printf 'validate: selection=full unknown-input=%q\n' "$path" >&2; full=true; break ;;
+        esac
+      fi
+    done
+    if [[ $full == true ]]; then
+      for i in "${!rows[@]}"; do affected[i]=true; done
+    else
+      export VGS_VALIDATE_CHANGED="$paths_file"
+      smoke_scoped=true
+    fi
+  fi
+fi
+
+selected_count=0
+validate_started=$SECONDS
+for i in "${!rows[@]}"; do
+  IFS='|' read -r row_area label command inputs <<<"${rows[i]}"
+  case "$area" in
+    all) ;;
+    offline) [[ $row_area == qml || $row_area == unit || $row_area == nix || $row_area == package ]] && continue ;;
+    *) [[ $area != "$row_area" ]] && continue ;;
+  esac
+  [[ ${affected[i]} == true || $row_area == repo ]] || continue
+  selected_count=$((selected_count + 1))
+  if [[ $command == scripts/qml-smoke.sh && $smoke_scoped == true ]]; then
+    smoke_rows_selected "${changed_paths[@]}"
+    [[ -z $smoke_only ]] || command+=" --rows $smoke_only"
+  fi
+  if [[ $list_only == true ]]; then
+    printf '%s\n' "$command"
+  else
+    # shellcheck disable=SC2086
+    run "$row_area" "$label" $command
+  fi
+done
+if [[ $list_only == true ]]; then
+  printf 'validate: selected=%s area=%s\n' "$selected_count" "$area" >&2
+  exit 0
+fi
+printf 'validate: selected=%s area=%s secs=%s\n' "$selected_count" "$area" "$((SECONDS - validate_started))" >&2
+
+if [[ ${#failed[@]} -gt 0 ]]; then
+  printf 'validate: failed=%s\n' "$(IFS=';'; echo "${failed[*]}")"
+  exit 1
+fi
+if [[ ${#skipped[@]} -gt 0 ]]; then
+  printf 'validate: status=not-measured skipped=%s\n' "$(IFS=';'; echo "${skipped[*]}")"
+  exit 77
+fi
+last_pass_record
+echo "validate: ok"

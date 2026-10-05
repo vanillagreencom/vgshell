@@ -1,0 +1,210 @@
+# HiDPI: a shell started on the first monitor held at double its mode and
+# scale 2. It reads:
+# - the hold: the compositor reports the first monitor's sized mode,
+#   doubled, at scale 2 (hold_mode's poll of `hyprctl -j monitors`);
+# - a configuration reload under the hold, after the scale alone dropped
+#   to 1: the reload runs the harness's hold file and the held mode and
+#   scale come back;
+# - the shell's screen, as the host handed it to the vgs.themes background
+#   (the probe's screenOf): devicePixelRatio 2 at half the held mode, the
+#   monitor's logical size;
+# - the background's requested sourceSize: the held mode, in device pixels;
+# - the Gallery ImageText sample's pool image and magenta pixels: its
+#   sourceSize equals deviceSize, and deviceSize is twice imageSize;
+# - the notifications inbox at scale 2, the owner's display scale: a long
+#   inbox opened eight times shows its first card whole each time, under
+#   the header and inside the list's clip (rows/notifications-keys.sh's
+#   long_inbox_cut, whose control holds it at scale 1).
+# Controls: the scale alone drops to 1 under the hold, the compositor
+# reports that scale and the hold reads it as a reset, so the reading is
+# the scale the compositor applied; with the hold file removed, the same
+# scale-only drop and reload leave the held mode at scale 1 and the hold
+# reads reset, so the file brings the hold back; a sandbox copy of
+# Background.qml that decodes at logical pixels requests half the held
+# mode; a same-scale shrink gives the background a smaller device size,
+# and a reader copy without hold_restore fails the held-size assertion.
+# Every background size read restores the hold first, since a host
+# configure can reset the output between the inbox and the rescan.
+# The Gallery ImageText pixel reader reuses the Gallery row's
+# alt-only control at scale 1, so the scale-2 row adds no second control.
+# The row starts its own shell because a scale change under a running
+# shell does not reach it: the screen reports no devicePixelRatio change,
+# and a window that exists keeps drawing at the old ratio
+# (docs/architecture/runtime-qml.md). It stops the shell
+# rows/notices-control.sh left running, starts the sandbox's tree over the
+# default set, every first-party plugin enabled (harness.sh's
+# default_set_prepare), stops that shell and gives the monitor its own
+# mode at scale 1 again. It leaves no shell running; rows/start-order.sh
+# starts its own.
+#
+# This row adds no latency budget. It starts the shell through
+# harness.sh's start_shell, so it reuses the smoke startup poll intervals:
+# 10 ms for the first bar and one `vgsh ipc` round trip for readiness.
+# inputs: shell/plugins/vgs.themes/* shell/plugins/vgs.gallery/* shell/plugins/vgs.notifications/* shell/Ui/foundation/ImageText* shell/Ui/foundation/ImagePool.qml scripts/smoke/rows/notifications-keys.sh scripts/smoke/rows/notifications.sh scripts/smoke/rows/device-fakes.sh
+set -euo pipefail
+ipc() { ipc_via "$repo/bin/vgsh" "$@"; }
+# stop_shell fails the row itself when the instance lock stays held; the
+# start below then fails on the held lock too, and the row goes on.
+stop_shell || :
+
+# screen_scale NAME: the screen the background on NAME was handed, as
+# `WxH ratio=R`, the size in logical pixels.
+screen_scale() { ipc smoke screenOf "background:$1" vgs.themes | py_reply 'import json,sys; w,h,r=json.load(sys.stdin); print("%dx%d ratio=%g" % (w, h, r))'; }
+
+# A host configure can reset the doubled mode while keeping scale 2.
+# Restore the measured output before a read of its screen or pixels.
+hidpi_held() {
+  hold_restore || return
+  "$@"
+}
+
+if ! hidpi_output="$(first_name)" || ! hidpi_base="$(unscaled_mode_of "$hidpi_output")" || ! hidpi_mode="$(hidpi_mode_of "$hidpi_output")"; then
+  fail "the HiDPI row reads no sized mode at scale 1 on the first monitor ${hidpi_output:-unread}"
+else
+  hold_mode "the nested compositor holds $hidpi_output at double its mode and scale 2" "$hidpi_output" "$hidpi_mode" 2
+  if [[ ${#mode_hold[@]} -gt 0 ]]; then
+    # Control of the hold's reading: the scale alone drops to 1.
+    expect "control: $hidpi_output drops to scale 1 at the held mode" ok output_mode "$hidpi_output" "$hidpi_mode" 1
+    expect_poll "control: $hidpi_output reads the held mode at scale 1" "$hidpi_mode scale=1" mode_scale_of "$hidpi_output"
+    expect "control: the hold reads the scale-only drop as a reset" reset held_mode_state
+    # A reload runs hyprland.lua again, which loads the hold file after its
+    # default rule, so the held rule comes back over the drop. The reads
+    # run under hold_check: a reset they read is their failure.
+    expect "the nested instance reloads its configuration under the hold" ok hypr reload config-only
+    hold_check expect_poll "the reload gives $hidpi_output the held mode and scale again" held held_mode_state
+    # Control of the hold file: the same drop and reload without it. The
+    # reload drops the eval'd rule and the output keeps the scale-1 drop,
+    # so the file is what brings the hold back. The reload applies the
+    # monitor rules before it answers (CConfigManager::postConfigReload
+    # runs ensureMonitorStatus, Hyprland v0.56.2), so the reads follow the
+    # reply at once.
+    rm -- "$mode_hold_file" || fail "control: the hold file $mode_hold_file is not removed"
+    expect "control: $hidpi_output drops to scale 1 at the held mode without the hold file" ok output_mode "$hidpi_output" "$hidpi_mode" 1
+    expect_poll "control: $hidpi_output reads the held mode at scale 1 without the hold file" "$hidpi_mode scale=1" mode_scale_of "$hidpi_output"
+    expect "control: the nested instance reloads its configuration without the hold file" ok hypr reload config-only
+    hold_check expect "control: without the hold file the reload leaves $hidpi_output at the held mode and scale 1" "$hidpi_mode scale=1" mode_scale_of "$hidpi_output"
+    hold_check expect "control: the hold reads the reload without its file as a reset" reset held_mode_state
+    release_mode "the control ends at $hidpi_output's own mode at scale 1" "$hidpi_output" "$hidpi_base"
+    hold_mode "the nested compositor holds $hidpi_output at scale 2 again before the shell starts" "$hidpi_output" "$hidpi_mode" 2
+  fi
+  if [[ ${#mode_hold[@]} -gt 0 ]]; then
+    # A generated image larger than the output, named current in the
+    # state file the background reads; the file as it was comes back after.
+    hidpi_image="$home/.config/vgs/backgrounds/hidpi.png"
+    mkdir -p -- "$(dirname -- "$hidpi_image")" "$bg_state"
+    solid_png "$hidpi_image" 4000 2000 40 120 200
+    if [[ -e $bg_state/backgrounds.json ]]; then cp -p -- "$bg_state/backgrounds.json" "$sandbox/hidpi-backgrounds.json"; fi
+    bg_state_names "$hidpi_image"
+    default_set_prepare '[]'
+    if start_shell "$repo" "$sandbox/hidpi-qs.log"; then
+      expect_poll "the shell started at scale 2 reads its screen at ratio 2 and half the held mode" "$hidpi_base ratio=2" hidpi_held screen_scale "$hidpi_output"
+      expect_poll "the scale-2 background draws the prepared image" "$hidpi_image ready" background_image_on "$hidpi_output"
+      expect_poll "the scale-2 background requests device pixels" "$hidpi_mode" hidpi_held background_source_size "$hidpi_output"
+      hidpi_image_text_revealed() {
+        local reply
+        reply="$(ipc smoke revealImageText window vgs.gallery 0)" || return
+        [[ $reply =~ ^[0-9] ]] && echo True || printf '%s\n' "$reply"
+      }
+      hidpi_image_text_ready() {
+        ipc smoke imageTextItems window vgs.gallery '' | py_reply 'import json,sys
+items=json.load(sys.stdin)
+ok=len(items)==1 and items[0]["imageMode"] and items[0]["failed"]==[] and items[0]["deviceSize"]==items[0]["imageSize"]*2 and len(items[0]["held"])==1
+if ok:
+    held=items[0]["held"][0]
+    ok=held["status"]=="Ready" and held["sourceSize"]==[items[0]["deviceSize"], items[0]["deviceSize"]]
+print(ok)'
+      }
+      expect "the scale-2 gallery summons over IPC" ok ipc shell summon window vgs.gallery '{}'
+      expect_poll "the scale-2 gallery maps one window" 1 window_count "VGS Components"
+      expect_poll "the scale-2 gallery scrolls the ImageText sample into view" True hidpi_image_text_revealed
+      expect_poll "the scale-2 gallery ImageText sample loads at device pixels" True hidpi_held hidpi_image_text_ready
+      render expect_poll "the scale-2 gallery ImageText sample draws magenta emoji pixels" True hidpi_held image_text_magenta_drawn "window:VGS Components" window vgs.gallery '' 0
+      hidpi_image_text_pixels="$(image_text_magenta_count "window:VGS Components" window vgs.gallery '' 0)" || hidpi_image_text_pixels=""
+      if [[ $hidpi_image_text_pixels == \{* ]]; then
+        py_reply 'import json,sys
+row=json.load(sys.stdin)
+print("  image-text-magenta scale=2 count=%d threshold=%d deviceSize=%d geometry=%s" % (row["count"], row["threshold"], row["deviceSize"], row["geometry"]))' <<<"$hidpi_image_text_pixels"
+      fi
+      expect "hiding the scale-2 gallery is allowed" ok ipc shell hide window vgs.gallery
+      expect_poll "the scale-2 gallery window is gone" 0 window_count "VGS Components"
+      expect "the scale-2 long inbox's toasts leave the screen" 0 long_inbox_rows
+      geometry expect "a long inbox opened eight times at scale 2 shows its first card whole each time" fits hidpi_held long_inbox_cut notes inbox
+      ok "scale-2 long inbox readings: $(long_inbox_readings)"
+      notes dismiss-all >/dev/null # `none` once every toast's clock ran out
+      expect "clearing the scale-2 long inbox's history is allowed" ok notes clear-history
+      expect "the start's follow ends before the logical-pixel control" idle theme_idle
+      # Reproduce a host configure at the same scale. Round the smaller
+      # mode to even device pixels so scale 2 leaves whole logical pixels.
+      hidpi_reset_mode="$(( ${hidpi_base%x*} / 2 * 2 ))x$(( ${hidpi_base#*x} / 2 * 2 ))"
+      declare -f hidpi_held >"$sandbox/hidpi-source-size.real.sh"
+      if python3 - "$sandbox/hidpi-source-size.real.sh" "$sandbox/hidpi-source-size.unheld.sh" <<'PYCONTROL'
+import pathlib, sys
+src, dst = map(pathlib.Path, sys.argv[1:])
+text = src.read_text()
+for old, new in (
+    ("hidpi_held ()", "hidpi_held_unheld ()"),
+    ("hold_restore || return", ": || return"),
+):
+    assert text.count(old) == 1, f"hold-restoration control must match once: {old}"
+    text = text.replace(old, new)
+assert text != src.read_text(), "hold-restoration control must change the reader"
+dst.write_text(text)
+PYCONTROL
+      then
+        source "$sandbox/hidpi-source-size.unheld.sh"
+        expect "control: the nested output shrinks at scale 2 under the hold" ok output_mode "$hidpi_output" "$hidpi_reset_mode" 2
+        expect_poll "control: the nested output reads the smaller mode at scale 2" "$hidpi_reset_mode scale=2" mode_scale_of "$hidpi_output"
+        expect_poll "control: the background requests the reset output's device pixels" "$hidpi_reset_mode" background_source_size "$hidpi_output"
+        hidpi_unheld_failures() {
+          (failures=0 behaviour_failures=0
+          expect "the unheld reader requests the held output's device pixels" "$hidpi_mode" hidpi_held_unheld background_source_size "$hidpi_output" >"$sandbox/hidpi-unheld-read.log"
+          echo "$failures")
+        }
+        expect "control: omitting hold restoration fails the held-device-pixel assertion" 1 hidpi_unheld_failures
+        expect_poll "the restored hold gives the background its device pixels again" "$hidpi_mode" hidpi_held background_source_size "$hidpi_output"
+        hold_check expect "the background reading leaves the original mode and scale held" held held_mode_state
+        expect_poll "the shell reads its original scale-2 screen after the reset control" "$hidpi_base ratio=2" hidpi_held screen_scale "$hidpi_output"
+      else
+        fail "the hold-restoration control could not be planted"
+      fi
+      # Control: a copy of the background that decodes at logical pixels.
+      plugin_qml="$repo/shell/plugins/vgs.themes/Background.qml"
+      cp -p -- "$plugin_qml" "$sandbox/Background.qml.hidpi.real"
+      if python3 - "$sandbox/Background.qml.hidpi.real" "$plugin_qml.tmp" <<'PY'
+import pathlib, sys
+src, dst = map(pathlib.Path, sys.argv[1:])
+text = src.read_text()
+replacements = {
+    "Math.ceil(root.screen.width * root.screen.devicePixelRatio)": "root.screen.width",
+    "Math.ceil(root.screen.height * root.screen.devicePixelRatio)": "root.screen.height",
+}
+for old in replacements:
+    assert text.count(old) == 1, f"device-pixel control must match once: {old}"
+for old, new in replacements.items():
+    text = text.replace(old, new)
+assert text != src.read_text(), "device-pixel control must change the file"
+dst.write_text(text)
+PY
+      then
+        mv -T -- "$plugin_qml.tmp" "$plugin_qml"
+        rescan "a rescan builds the logical-pixel control"
+        expect_poll "control: the logical-pixel copy requests half the held mode" "$hidpi_base" hidpi_held background_source_size "$hidpi_output"
+        cp -p -- "$sandbox/Background.qml.hidpi.real" "$plugin_qml.tmp" && mv -T -- "$plugin_qml.tmp" "$plugin_qml"
+        rescan "a rescan restores the device-pixel background"
+        expect_poll "the restored scale-2 background requests device pixels" "$hidpi_mode" hidpi_held background_source_size "$hidpi_output"
+        expect "the follow after the restoring rescan ends" idle theme_idle
+      else
+        fail "the logical-pixel control could not be planted in $plugin_qml"
+      fi
+      check_unexpected_log "the scale-2 shell's log" "$instance_log"
+    fi
+    stop_shell || :
+    if [[ -e $sandbox/hidpi-backgrounds.json ]]; then
+      mv -T -- "$sandbox/hidpi-backgrounds.json" "$bg_state/backgrounds.json"
+    else
+      rm -f -- "$bg_state/backgrounds.json"
+    fi
+    rm -f -- "$hidpi_image"
+  fi
+  release_mode "the nested compositor gives $hidpi_output its own mode at scale 1" "$hidpi_output" "$hidpi_base"
+fi

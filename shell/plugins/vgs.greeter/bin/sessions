@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# sessions: the login screen's reads of the system, in bash builtins alone.
+#
+#   sessions list DIR...    every *.desktop file under DIR/wayland-sessions
+#                           and DIR/xsessions, each DIR in order: one line
+#                           `@ <kind> <path>`, then each line of the file
+#                           led by `|`
+#   sessions which NAME...  one line per NAME, `found NAME` or `missing NAME`,
+#                           as `command -v` finds it on PATH or by its path
+#
+# The view (Greeter.qml) passes the XDG_DATA_DIRS entries GreeterLogic.js
+# reads, and GreeterLogic.js parses both outputs; this script decides
+# nothing about a file. A file it cannot read ends it with
+# `sessions: refused: unreadable path=<path>` on stderr and exit 1; a bad
+# invocation exits 2.
+set -euo pipefail
+shopt -s nullglob
+
+refuse() { # STATUS FIRST_LINE
+  printf 'sessions: refused: %s\n' "$2" >&2
+  exit "$1"
+}
+
+list() {
+  local dir kind file line
+  for dir; do
+    [[ $dir == /* ]] || refuse 2 "dir=$dir"
+    for kind in wayland-sessions xsessions; do
+      for file in "$dir/$kind"/*.desktop; do
+        # A name with a newline would break the line protocol; no session
+        # manager names its files so.
+        [[ -f $file && $file != *$'\n'* ]] || continue
+        printf '@ %s %s\n' "$kind" "$file"
+        { while IFS= read -r line || [[ -n $line ]]; do printf '|%s\n' "$line"; done <"$file"; } 2>/dev/null ||
+          refuse 1 "unreadable path=$file"
+      done
+    done
+  done
+}
+
+which() {
+  local name
+  for name; do
+    if command -v -- "$name" >/dev/null; then printf 'found %s\n' "$name"; else printf 'missing %s\n' "$name"; fi
+  done
+}
+
+case "${1:-}" in
+  list) shift; list "$@" ;;
+  which) shift; which "$@" ;;
+  *) refuse 2 "verb=${1:-missing}" ;;
+esac

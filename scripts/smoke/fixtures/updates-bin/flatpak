@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Stand-in flatpak for rows/updates.sh: `remote-ls --updates` lists one app.
+set -euo pipefail
+root="${XDG_STATE_HOME:?}/vgs/updates-smoke"
+mkdir -p -- "$root"
+printf 'flatpak %s\n' "$*" >>"$root/calls.log"
+printf 'org.example.App\tstable\n'

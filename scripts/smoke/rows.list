@@ -1,0 +1,125 @@
+# The nested smoke rows, one name a line, in the order scripts/qml-smoke.sh
+# runs them. They share one sandbox, and a later row reads state an earlier
+# one left, so the order is fixed and --rows only skips. A line that starts
+# with # is a comment and a blank line is skipped; every other line is one
+# row name, which names scripts/smoke/rows/<name>.sh.
+#
+# scripts/validate reads the added and moved lines of a change to this file
+# and runs those rows, with the core rows and the rows they read:
+# docs/architecture/validation-runner.md § Method.
+bar
+hyprland-consent
+plugins
+sources
+capabilities
+session
+status
+manager
+updates
+settings
+placement
+windows
+compositor-dispatchers
+compositor-reveal
+agent-warden
+capability-release
+surfaces
+failed-builds
+monitors
+configuration
+theme
+themes
+theme-browse
+theme-browser
+theme-latency
+toasts
+layers
+shader-frames
+tui
+notices
+devtools
+overlays
+gallery
+launcher
+list-motion
+notifications
+# After notifications, whose readers and helpers it uses.
+notifications-keys
+automations
+polkit
+# The device fakes the System rows build on; they stay up after it.
+device-fakes
+system-steps
+# After system-steps, over the same fakes' system tree.
+greeter
+bluetooth-agent
+jarvis
+jarvis-setup
+jarvis-input
+jarvis-browser
+jarvis-tasks
+hyprland
+hyprland-options
+input-facts
+# With the rows that keep the first shell and the smoke set; it enables its
+# plugin itself and disables it again.
+clipboard
+monitor-outputs
+hold-shortcuts
+jarvis-keys
+jarvis-widget
+jarvis-desktop
+instance-guard
+diagnostics
+supervise
+lock
+read-only-prefix
+hyprland-consent-decline
+notices-control
+hidpi
+start-order
+overlay-capture
+# After overlay-capture, which restores the harness hyprland.lua: the key
+# capture rows append their own binds and restore it again.
+key-capture
+key-passthrough
+# After overlay-capture, which restores the harness hyprland.lua this row
+# appends to; it restarts the shell for its control, so it runs with the
+# tail rows that do the same.
+keyhints
+# After keyhints, which restores the harness hyprland.lua this row appends
+# to; it restarts the shell for its control, so it runs with the tail rows
+# that do the same.
+scratchpads
+# This row restarts the shell for its controls, so it runs with the tail rows that do the same.
+panes
+# After panes, which removes its fixture holder: vgs.system holds `panes`
+# here, and this row restarts the shell for a control too.
+system-window
+# After system-window, whose vgs.system it enables again for the displays
+# pane, and after device-fakes, which leaves the XDR's report at 40 %, the
+# level the row reads first.
+displays
+# After the System rows, with the device fakes up: Sound's pane mounts in
+# the System window's holder.
+sound
+capture
+network
+# After system-window, which leaves vgs.system as this row finds it, and
+# over the device fakes; it reads no state the displays row leaves.
+bluetooth
+# After launcher and hyprland, whose readers it uses; it restarts the
+# shell for its controls, so it runs with the tail rows that do the same.
+style
+# After style, with the tail rows that restart the shell: its Restart
+# relaunches the shell through the nested Hyprland, and it starts the
+# sandbox's tree again before it ends.
+core-drift
+# After every row that opens a TUI: the stand-in terminal ran no plugin
+# script but a fixture's.
+tui-guard
+# Late, so no earlier row meets its generated plugins; it removes them
+# before it ends.
+plugin-pages
+# Last: its reading covers every row this run held before it.
+auth-sentinel

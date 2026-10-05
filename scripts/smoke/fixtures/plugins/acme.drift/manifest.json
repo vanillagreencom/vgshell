@@ -1,0 +1,2 @@
+{ "schemaVersion": 1, "id": "acme.drift", "name": "Drift", "version": "0.1.0", "author": "acme", "description": "smoke fixture whose panel draws a sibling file the restart notice row rewrites",
+  "kinds": ["panel"], "entryPoints": { "panel": "Panel.qml" }, "capabilities": [] }

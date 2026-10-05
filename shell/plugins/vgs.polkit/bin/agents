@@ -1,0 +1,292 @@
+#!/usr/bin/env node
+// vgs.polkit agents: the other polkit agents running in this session, and
+// the two steps that make room for VGS's agent. polkitd names no agent it
+// holds, so the script reads the user's own processes: one is another agent
+// when PolkitModel.otherAgent admits its name and its environment names
+// this script's system bus and no other Hyprland instance. An agent that is
+// not dumpable, as polkit-kde-authentication-agent-1 is, denies its owner
+// its environment and its program's path: it is counted, since nothing
+// else it shows names its bus or instance, and it goes by its name. A
+// process of another user namespace, a container's or a sandbox's, denies
+// the same reads and is not counted, and neither is one that is not
+// dumpable inside a process namespace under this one. The package that
+// owns its program, and whether that package can be removed, are `vgsh pkg
+// owner` and `vgsh pkg removable`, the package manager's own answers.
+//
+//   agents --tree <vgs tree> check
+//       ends each agent the user stopped before, the programs `stop`
+//       recorded, then prints one JSON line `{ agents, stopped }`: each
+//       agent still running as `{ name, removable }`, `name`
+//       PolkitModel.agentName's and `removable` whether the package manager
+//       removes its package alone, and the count ended. The service runs it
+//       while polkitd has not accepted VGS's agent.
+//   agents --tree <vgs tree> uninstall
+//       removes each agent's package through `vgsh pkg run remove`, in the
+//       terminal it runs in, then ends each agent. Before anything runs it
+//       refuses when one agent's package is not removable.
+//   agents --tree <vgs tree> stop
+//       records each agent's program, its path, or its name where the
+//       path cannot be read, so `check` ends it again in a later session,
+//       then ends each agent. It changes no package.
+//
+// An agent is ended with SIGTERM, only while the process is the one the
+// scan read, and counts as ended once it is gone, within END_WAIT_MS. The
+// record is ${XDG_STATE_HOME:-~/.local/state}/vgs/polkit/stopped.json, a
+// list of program paths and names.
+//
+// Exit 0 when the verb is done, with no agent found too. Exit 1 with the
+// keyed first line `polkit: refused: <key>=<value>` on stderr and a
+// sentence after it: `package=<name> reason=required` and
+// `program=<name> reason=unowned` from `uninstall`, `agent=<name>
+// reason=running` for an agent that did not end,
+// `record=<path> error=<code>` for a record that cannot be read or
+// written, and `vgsh=<path> error=<code>` for a vgsh that could not be
+// started. `uninstall` exits with the status of `vgsh pkg run remove` when
+// it fails. Exit 2 for a bad invocation, `polkit: refused: usage`.
+"use strict";
+const childProcess = require("child_process");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+
+const END_WAIT_MS = 5000;
+const POLL_MS = 100;
+const VERBS = ["check", "uninstall", "stop"];
+
+class Refusal extends Error {
+    constructor(first, sentence, status) {
+        super(first);
+        this.sentence = sentence;
+        this.status = status;
+    }
+}
+
+function refuse(first, sentence) {
+    throw new Refusal(first, sentence, 1);
+}
+
+const argv = process.argv.slice(2);
+if (argv.length !== 3 || argv[0] !== "--tree" || VERBS.indexOf(argv[2]) === -1) {
+    process.stderr.write("polkit: refused: usage\nusage: agents --tree <vgs tree> " + VERBS.join("|") + "\n");
+    process.exit(2);
+}
+const tree = argv[1];
+const verb = argv[2];
+const VGSH = path.join(tree, "bin", "vgsh");
+const model = require(path.join(tree, "bin", "lib", "qml-library.js")).load(path.join(__dirname, "..", "PolkitModel.js"));
+const RECORD = path.join(process.env.XDG_STATE_HOME || path.join(os.homedir(), ".local", "state"), "vgs", "polkit", "stopped.json");
+
+// A read of a /proc file of a process that may end at any moment: its text,
+// or null once the process is gone or the file is not the caller's to read.
+function procRead(pid, name) {
+    try {
+        return fs.readFileSync(path.join("/proc", pid, name), "utf8");
+    } catch (e) {
+        if (e.code === "ENOENT" || e.code === "ESRCH" || e.code === "EACCES") return null;
+        throw e;
+    }
+}
+
+// The start time of process PID, field 22 of /proc/<pid>/stat, which with
+// the pid names one process; null once it is gone, a zombie its parent has
+// not reaped counting as gone. The fields are counted from the last `)`,
+// since the name before it may hold spaces.
+function startOf(pid) {
+    const stat = procRead(pid, "stat");
+    if (stat === null) return null;
+    const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+    return fields[0] === "Z" ? null : fields[19];
+}
+
+// Whether process PID is not dumpable: the kernel then gives the files
+// under /proc/<pid> to root, where a dumpable process's are its user's.
+// False once the process is gone.
+function undumpable(pid) {
+    try {
+        return fs.statSync(path.join("/proc", pid, "environ")).uid !== process.getuid();
+    } catch (e) {
+        if (e.code === "ENOENT" || e.code === "ESRCH") return false;
+        throw e;
+    }
+}
+
+// Whether process PID runs in a process namespace under this one, a
+// container's: /proc/<pid>/status then lists its pid in each namespace.
+// False once the process is gone.
+function contained(pid) {
+    const status = procRead(pid, "status");
+    return status !== null && /^NSpid:(?:\t[0-9]+){2,}$/m.test(status);
+}
+
+// The value ENVIRON, the text of /proc/<pid>/environ, gives variable NAME,
+// undefined when it sets none.
+function environValue(environ, name) {
+    const word = environ.split("\0").find(entry => entry.startsWith(name + "="));
+    return word === undefined ? undefined : word.slice(name.length + 1);
+}
+
+// The other agents running now, each { pid, start, program, path, key }:
+// the user's own processes PolkitModel.otherAgent names. One whose
+// environment names another system bus registers with another polkitd, and
+// one that names another Hyprland instance belongs to another session of
+// the same user; neither is in the way. One whose environment cannot be
+// read is counted when it is not dumpable and runs in this process
+// namespace; a dumpable one that denies the read runs in another user
+// namespace and is not in the way. `path` is the program's file, null when
+// it cannot be read, and `key` what the record holds for the program: its
+// path, else its name.
+function scan() {
+    const instance = process.env.HYPRLAND_INSTANCE_SIGNATURE;
+    const found = [];
+    for (const pid of fs.readdirSync("/proc")) {
+        if (!/^[0-9]+$/.test(pid)) continue;
+        let uid;
+        try {
+            uid = fs.statSync(path.join("/proc", pid)).uid;
+        } catch (e) {
+            if (e.code === "ENOENT") continue;
+            throw e;
+        }
+        if (uid !== process.getuid()) continue;
+        const comm = procRead(pid, "comm");
+        if (comm === null) continue;
+        const program = comm.replace(/\n$/, "");
+        if (!model.otherAgent(program)) continue;
+        const environ = procRead(pid, "environ");
+        if (environ === null) {
+            if (!undumpable(pid) || contained(pid)) continue;
+        } else {
+            if (environValue(environ, "DBUS_SYSTEM_BUS_ADDRESS") !== process.env.DBUS_SYSTEM_BUS_ADDRESS) continue;
+            const theirs = environValue(environ, "HYPRLAND_INSTANCE_SIGNATURE");
+            if (instance !== undefined && theirs !== undefined && theirs !== instance) continue;
+        }
+        const start = startOf(pid);
+        if (start === null) continue;
+        let file = null;
+        try {
+            file = fs.readlinkSync(path.join("/proc", pid, "exe"));
+        } catch (e) {
+            if (e.code !== "ENOENT" && e.code !== "EACCES") throw e;
+        }
+        found.push({ pid, start, program, path: file, key: file === null ? program : file });
+    }
+    return found;
+}
+
+// One JSON answer of `vgsh pkg ARGS`, or null when it refused.
+function pkg(args) {
+    const run = childProcess.spawnSync(VGSH, ["pkg"].concat(args), { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    if (run.error !== undefined) refuse("vgsh=" + VGSH + " error=" + run.error.code, "VGS could not ask the package manager.");
+    return run.status === 0 ? JSON.parse(run.stdout) : null;
+}
+
+// AGENT with what the package manager says of it: `package`, the owner of
+// its program or null, `removable`, whether the manager removes that
+// package alone, false without a package, and its `name`.
+function described(agent) {
+    const owner = agent.path === null ? null : pkg(["owner", agent.path]);
+    const name = owner === null ? null : owner.package;
+    const answer = name === null ? null : pkg(["removable", name]);
+    return Object.assign({}, agent, { package: name, removable: answer !== null && answer.removable === true, name: model.agentName(name, path.basename(agent.path === null ? agent.program : agent.path)) });
+}
+
+function sleep(ms) {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+// End each of AGENTS and wait until they are gone; answers the ones still
+// running after END_WAIT_MS. A pid whose start time changed is another
+// process and is left alone.
+function end(agents) {
+    for (const agent of agents) {
+        if (startOf(agent.pid) !== agent.start) continue;
+        try {
+            process.kill(Number(agent.pid), "SIGTERM");
+        } catch (e) {
+            if (e.code !== "ESRCH") throw e;
+        }
+    }
+    // The wait is real time: a process leaves when it has handled SIGTERM.
+    let left = agents;
+    for (let waited = 0; ; waited += POLL_MS) {
+        left = left.filter(agent => startOf(agent.pid) === agent.start);
+        if (left.length === 0 || waited >= END_WAIT_MS) return left;
+        sleep(POLL_MS);
+    }
+}
+
+function remembered() {
+    let text;
+    try {
+        text = fs.readFileSync(RECORD, "utf8");
+    } catch (e) {
+        if (e.code === "ENOENT") return [];
+        refuse("record=" + RECORD + " error=" + e.code, "VGS could not read which apps you stopped.");
+    }
+    let list;
+    try {
+        list = JSON.parse(text);
+    } catch (e) {
+        refuse("record=" + RECORD + " error=unparseable", "VGS could not read which apps you stopped.");
+    }
+    if (!Array.isArray(list) || list.some(item => typeof item !== "string")) refuse("record=" + RECORD + " error=malformed", "VGS could not read which apps you stopped.");
+    return list;
+}
+
+function remember(keys) {
+    const list = remembered();
+    for (const key of keys) if (list.indexOf(key) === -1) list.push(key);
+    try {
+        fs.mkdirSync(path.dirname(RECORD), { recursive: true });
+        fs.writeFileSync(RECORD + ".tmp", JSON.stringify(list) + "\n");
+        fs.renameSync(RECORD + ".tmp", RECORD);
+    } catch (e) {
+        refuse("record=" + RECORD + " error=" + e.code, "VGS could not record the apps to stop.");
+    }
+}
+
+// End AGENTS and say so; refuses when one is still running.
+function endAll(agents) {
+    const left = end(agents);
+    if (left.length > 0) refuse("agent=" + left[0].name + " reason=running", left[0].name + " did not stop.");
+    for (const agent of agents) process.stdout.write("Stopped " + agent.name + ".\n");
+}
+
+function main() {
+    if (verb === "check") {
+        const list = remembered();
+        const again = scan().filter(agent => list.indexOf(agent.key) !== -1);
+        const left = end(again);
+        const agents = scan().map(described);
+        process.stdout.write(JSON.stringify({ agents: agents.map(agent => ({ name: agent.name, removable: agent.removable })), stopped: again.length - left.length }) + "\n");
+        return 0;
+    }
+    const agents = scan().map(described);
+    if (agents.length === 0) {
+        process.stdout.write("No other app is showing password prompts.\n");
+        return 0;
+    }
+    if (verb === "stop") {
+        remember(agents.map(agent => agent.key));
+        endAll(agents);
+        return 0;
+    }
+    for (const agent of agents) {
+        if (agent.package === null) refuse("program=" + agent.name + " reason=unowned", "No package owns " + agent.name + ". Nothing was removed.");
+        if (!agent.removable) refuse("package=" + agent.package + " reason=required", "Another installed app needs " + agent.package + ". Nothing was removed.");
+    }
+    const packages = agents.map(agent => agent.package).filter((name, at, all) => all.indexOf(name) === at);
+    const removal = childProcess.spawnSync(VGSH, ["pkg", "run", "remove"].concat(packages), { stdio: "inherit" });
+    if (removal.error !== undefined) refuse("vgsh=" + VGSH + " error=" + removal.error.code, "VGS could not start the package manager.");
+    if (removal.status !== 0) return removal.status === null ? 1 : removal.status;
+    endAll(agents);
+    return 0;
+}
+
+try {
+    process.exitCode = main();
+} catch (e) {
+    if (!(e instanceof Refusal)) throw e;
+    process.stderr.write("polkit: refused: " + e.message + "\n" + e.sentence + "\n");
+    process.exitCode = e.status;
+}

@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "id": "vgs.sound",
+  "name": "Sound",
+  "version": "0.1.0",
+  "author": "VanillaGreen",
+  "description": "Set the volume, the sound devices and each app's volume.",
+  "license": "MIT",
+  "icon": "volume-2",
+  "kinds": ["service", "bar-widget", "panel", "pane"],
+  "entryPoints": { "service": "Service.qml", "bar-widget": "Widget.qml", "panel": "Panel.qml", "pane": "Pane.qml" },
+  "capabilities": ["status", "surfaces", "ipc", "shortcut", "layers", "requirements"],
+  "defaultSection": "right",
+  "pane": { "group": "Hardware", "order": 10 },
+  "requirements": [
+    { "command": "pactl", "packages": { "pacman": "libpulse", "apt": "pulseaudio-utils", "dnf": "pulseaudio-utils", "nix": "pulseaudio" }, "optional": false, "purpose": "Moves the apps that play now to the output you choose" }
+  ],
+  "settings": {
+    "volumeStep": 5
+  },
+  "schema": {
+    "volumeStep": {
+      "type": "number",
+      "label": "Volume step",
+      "description": "How much the volume keys and the mouse wheel change the volume",
+      "unit": "%",
+      "presets": [{ "value": 2 }, { "value": 5 }, { "value": 10 }]
+    }
+  },
+  "hyprland": {
+    "binds": [
+      { "shortcut": "volume-up", "key": "XF86AudioRaiseVolume" },
+      { "shortcut": "volume-down", "key": "XF86AudioLowerVolume" },
+      { "shortcut": "mute", "key": "XF86AudioMute" },
+      { "shortcut": "mic-mute", "key": "XF86AudioMicMute" }
+    ]
+  },
+  "status": {
+    "streams": { "type": "state", "label": "Playing apps", "action": { "label": "Install pactl", "install": ["pactl"] } }
+  }
+}

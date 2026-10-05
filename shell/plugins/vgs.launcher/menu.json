@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "items": {
+    "apps": { "icon": "layout-grid", "label": "Apps", "aliases": ["app", "applications"], "provider": "apps" },
+    "system": { "icon": "power", "label": "System", "aliases": ["power-menu", "power"] },
+    "system.lock": { "icon": "lock", "label": "Lock", "description": "Lock the session with the VGS lock screen", "requires": ["vgsh"], "run": ["vgsh", "lock"] },
+    "system.suspend": { "icon": "moon", "label": "Sleep", "requires": ["systemctl"], "run": ["systemctl", "suspend"] },
+    "system.hibernate": { "icon": "snowflake", "label": "Hibernate", "requires": ["systemctl"], "run": ["systemctl", "hibernate"] },
+    "system.logout": { "icon": "log-out", "label": "Log out", "requires": ["loginctl"], "run": ["sh", "-c", "exec loginctl terminate-session ''"] },
+    "system.reboot": { "icon": "rotate-ccw", "label": "Reboot", "requires": ["systemctl"], "run": ["systemctl", "reboot"] },
+    "system.shutdown": { "icon": "power-off", "label": "Shut down", "requires": ["systemctl"], "run": ["systemctl", "poweroff"] },
+    "tools": { "icon": "terminal", "label": "Tools" },
+    "tools.automations": { "icon": "calendar-clock", "label": "Automations", "description": "View schedules and run history", "run": ["vgsh", "ipc", "call", "vgs.automations", "invoke", "open", "{}"] },
+    "tools.automations-new": { "icon": "calendar-plus", "label": "New automation", "description": "Schedule a command", "run": ["vgsh", "ipc", "call", "vgs.automations", "invoke", "new", "{}"] },
+    "tools.terminal": { "icon": "terminal", "label": "Terminal", "requires": ["xdg-terminal-exec"], "run": ["xdg-terminal-exec"] },
+    "tools.screenshot": { "icon": "camera", "label": "Screenshot", "description": "Save a region and copy it", "run": ["vgsh", "ipc", "call", "vgs.capture", "invoke", "screenshot-area", "{}"] },
+    "tools.files": { "icon": "folder", "label": "Files", "requires": ["xdg-open"], "run": ["sh", "-c", "exec xdg-open \"$HOME\""] },
+    "install": { "icon": "package", "label": "Install", "tui": "core/pkg-install" },
+    "remove": { "icon": "package", "label": "Remove", "aliases": ["uninstall"], "tui": "core/pkg-remove" },
+    "update": { "icon": "refresh-cw", "label": "Update", "tuiGroup": "Update" }
+  }
+}

@@ -1,0 +1,23 @@
+# New plugin
+
+Steps, in order. Each step names the command or file and the check that proves it.
+
+1. Pick the id: `author.name`, lower case, dotted. The manifest judge refuses any other shape.
+2. Pick the kinds from the table in [`../references/api.md`](../references/api.md). A plugin with a bar presence and a popup declares `bar-widget` and `panel`; a window the user works in declares `window`; a background job declares `service`.
+3. Scaffold: `.agents/skills/vgs-plugin/scripts/vgs-plugin new <id> --kinds <kinds>`. It runs the manifest judge before writing, writes the directory under `shell/plugins/` (or `--dir` elsewhere) from the templates, and runs `vgs-plugin check` on it.
+4. Fill each entry point. Keep the template's imports and its `shell` property. Read settings through `shell.settings` or, in a widget, `setting()`; compose `qs.Ui` components and read colours and sizes through `Theme`. Put every default in the manifest's `settings`.
+5. For every core API the plugin uses (including surfaces, built-ins and the manager), add the capability to `capabilities` and call `shell.<capability>` from the entry point. The capability table in [`../references/api.md`](../references/api.md) lists each. A plugin that writes its own settings declares a `schema`.
+6. For a command the user watches or answers, such as an update or an install, copy [`../templates/tui.sh`](../templates/tui.sh) into the plugin's `tui/` directory, make it executable, declare it under the manifest's `tui` key with capability `tui`, and open it with `shell.tui.run(name, args)`. Never hand the shell a command string: [`docs/architecture/tui-capability.md` § The capability](../../../../docs/architecture/tui-capability.md#the-capability).
+7. Check again after editing: `.agents/skills/vgs-plugin/scripts/vgs-plugin check <dir>`. Resolve findings until it exits 0.
+8. Place it: for a bar widget, `bin/vgsh plugin enable <id>` against a running shell puts it in its default section; for a bar it selects that bar, and for other kinds it applies the enablement rules in the architecture. Without a running shell, edit `~/.config/vgs/shell.json` (or the file under `XDG_CONFIG_HOME`).
+9. Prove it in the sandbox with rows under `scripts/smoke/rows/` beside the fixture plugin's rows, then run `scripts/validate qml`. Each new row file carries one `# inputs: GLOB [GLOB...]` line in its leading comment block, naming the plugin's directory and what else the row reads, and its name joins `scripts/smoke/rows.list` at the place its order needs, with the reason on a `#` comment line above it ([validation-runner.md § Method](../../../../docs/architecture/validation-runner.md#method)). A row that reads `built` alone is not enough: every kind needs a row that reads a delivered property back from the instance through the sandbox observer in `scripts/smoke/Probe.qml`, plus one planted-defect control that turns the row red:
+   - a service: a property proving its action ran, and the record gone after disable;
+   - a bar widget: the widget listed in its section and a property it derives from its settings;
+   - a bar: the widgets mounted per section and the surface and reserved space read from `hyprctl`;
+   - a panel, overlay or menu: `summon` answers `ok`, the payload read back from the instance, the surface and its geometry read from `hyprctl layers`, and the surface gone after `hide`;
+   - a window: `summon` answers `ok`, the payload read back from the instance, the window read from `hyprctl clients` by the shell's class and the manifest's `name` as its title (`window_count` and `window_of` in `scripts/smoke/harness.sh`), and the window gone after `hide`;
+   - a background: the surface on the bottom layer per screen and the `screen` it received;
+   - a capability: a property proving the delivered API is callable;
+   - plugin status: the value the service published read back from each other instance that shows it, and from the lending record, gone after disable;
+   - a `tui` script: the argv a stand-in xdg-terminal-exec records, as `scripts/smoke/rows/tui.sh` reads it.
+10. Never test against the live shell. `scripts/qml-smoke.sh` is the only place a second shell starts.

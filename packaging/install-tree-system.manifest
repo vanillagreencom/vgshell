@@ -1,0 +1,3 @@
+f SYSCONFDIR/sudoers.d/vgs-theme-browser
+f SYSCONFDIR/xdg/autostart/vgs.desktop
+f bin/vgs-browser-policy

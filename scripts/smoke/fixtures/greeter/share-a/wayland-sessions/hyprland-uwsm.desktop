@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=Hyprland (uwsm-managed)
+Exec=uwsm start -e -D Hyprland hyprland.desktop
+TryExec=sh
+DesktopNames=Hyprland
+Type=Application

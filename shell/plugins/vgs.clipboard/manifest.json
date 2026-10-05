@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "id": "vgs.clipboard",
+  "name": "Clipboard",
+  "version": "0.1.0",
+  "author": "VanillaGreen",
+  "description": "Find and paste anything you copied earlier.",
+  "license": "MIT",
+  "icon": "clipboard-list",
+  "kinds": [
+    "overlay",
+    "service"
+  ],
+  "entryPoints": {
+    "overlay": "Overlay.qml",
+    "service": "Service.qml"
+  },
+  "capabilities": [
+    "compositor",
+    "ipc",
+    "requirements",
+    "shortcut",
+    "surfaces",
+    "toasts"
+  ],
+  "requirements": [
+    { "command": "wl-paste", "packages": { "pacman": "wl-clipboard", "apt": "wl-clipboard", "dnf": "wl-clipboard", "nix": "wl-clipboard" }, "optional": false, "purpose": "Reads each copy for the history" },
+    { "command": "wl-copy", "packages": { "pacman": "wl-clipboard", "apt": "wl-clipboard", "dnf": "wl-clipboard", "nix": "wl-clipboard" }, "optional": false, "purpose": "Puts an entry of the history back on the clipboard" },
+    { "command": "wtype", "packages": { "pacman": "wtype", "apt": "wtype", "dnf": "wtype", "nix": "wtype" }, "optional": false, "purpose": "Sends the paste key to the application" }
+  ],
+  "optIn": true,
+  "settings": {},
+  "hyprland": {
+    "binds": [
+      { "shortcut": "toggle", "key": "SUPER+CTRL+V" }
+    ]
+  }
+}

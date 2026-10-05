@@ -1,0 +1,93 @@
+# Topics
+
+One line per architecture document: the change to read it before. [overview.md](overview.md) holds the idea, the vocabulary and the invariants.
+
+- [plugins.md](plugins.md): read before writing a plugin or a host.
+- [surfaces.md](surfaces.md): read before touching the summon host, an application window, a popup a summon builds, or a plugin's choice between a window and an overlay.
+- [capabilities.md](capabilities.md): read before touching a capability's provider, its lending record or its release.
+- [bluetooth-agent.md](bluetooth-agent.md): read before touching the `bluetoothAgent` capability, its bluetoothctl child, its transcript test or its smoke row.
+- [appearance.md](appearance.md): read before writing a plugin that owns its look, or touching `Theme.appearance` or its judge.
+- [layers.md](layers.md): read before drawing a passive surface that takes no keyboard, or touching the `layers` capability or its host.
+- [hyprland.md](hyprland.md): read before touching the Hyprland layer, a manifest's `hyprland` key, a `plugins[].keys` entry or `vgsh hypr`.
+- [hyprland-options.md](hyprland-options.md): read before touching a manifest's `hyprland.options`, the option table or the `hyprland` capability.
+- [hyprland-monitors.md](hyprland-monitors.md): read before touching the `monitors` capability, its outputs reading or the check that VGS writes no monitor rule.
+- [capture.md](capture.md): read before touching the Capture plugin, its tool worker or its nested capture row.
+- [clipboard.md](clipboard.md): read before touching the clipboard history plugin, its capture helper, its store or its paste.
+- [status.md](status.md): read before touching plugin status or the Settings page's Status rows.
+- [status-actions.md](status-actions.md): read before touching a setup step a user takes and its one-click rule, a status action, a manifest's `secrets` or the core's libsecret writer.
+- [jarvis.md](jarvis.md): read before implementing a Jarvis plan consumer of a landed core contract.
+- [jarvis-local.md](jarvis-local.md): read before changing local speech artifacts, model input bounds, fixture outcomes or the measurement instrument.
+- [jarvis-policy.md](jarvis-policy.md): read before touching the Jarvis action judge, tool schemas, protected paths or turn taint.
+- [jarvis-policy-paths.md](jarvis-policy-paths.md): read before touching `Denied`, its protected roots or the account name rule.
+- [jarvis-codex.md](jarvis-codex.md): read before touching the Codex harness brain, its app-server judge, a harness program's approvals or Codex Verify.
+- [notification-actions.md](notification-actions.md): read before touching what a click on a notification does, which window it raises, or which notifications the service keeps holding for the inbox.
+- [notification-senders.md](notification-senders.md): read before touching a notification rule's senders, a browser's site address, the copies of one message, or the Slack photo cache, its tokens and their Status rows.
+- [notification-slack-cache.md](notification-slack-cache.md): read before touching how Slack's disk cache is read, the workspace icon copy or the Slack custom emoji.
+- [notification-layout.md](notification-layout.md): read before touching where a notification card's text and media sit, or the media slot's tiers.
+- [notification-hints.md](notification-hints.md): read before touching the VGS notification hints, a card's hinted icon or click, or the notifications' `open` TUI.
+- [automations.md](automations.md): read before touching `vgs.automations`, its schedule compiler, its units, its runner or its records.
+- [jarvis.md](jarvis.md): read before implementing a Jarvis core boundary or its voice service.
+- [lock-polkit.md](lock-polkit.md): read before touching `vgsh lock`, `vgs.lock`, its PAM stack or sleep hook, the `idle` capability, `vgs.polkit` or their smoke rows.
+- [polkit-agents.md](polkit-agents.md): read before touching how `vgs.polkit` finds another polkit agent, its status row's Uninstall, Stop and Install, or `shell.polkit.register`.
+- [greeter.md](greeter.md): read before touching the login screen: `shell/greeter.qml`, `vgs.greeter`, its view, its theme copy or the greeter's Hyprland and PAM files.
+- [manager.md](manager.md): read before touching enablement, install, update, remove or the Settings window.
+- [system-window.md](system-window.md): read before touching `vgs.system`, the System window that holds the `panes` capability.
+- [bluetooth.md](bluetooth.md): read before touching `vgs.bluetooth`: its power operation, its discovery leases, its pairing dialog or its smoke row.
+- [placement.md](placement.md): read before touching whether a bar widget is placed, `setPlaced` or the Show in bar switch.
+- [configuration.md](configuration.md): read before touching the configuration files or their judge.
+- [design-system.md](design-system.md): read before touching a token, the theme judge, `Theme`, or any value a surface draws with.
+- [design-layout.md](design-layout.md): read before touching a container's inset, the corner-clearing rule or a component's spacing.
+- [design-quality.md](design-quality.md): read before judging or changing how a surface looks: its grid, type, control sizes, container class or states.
+- [components.md](components.md), [components-controls.md](components-controls.md), [components-layout.md](components-layout.md), [components-media.md](components-media.md), [components-overlays.md](components-overlays.md) and [components-gallery.md](components-gallery.md): read before adding or changing a component of `qs.Ui` or the Gallery.
+- [keyboard.md](keyboard.md): read before adding a pointer action, a focusable control or a keyboard path.
+- [keyboard-surfaces.md](keyboard-surfaces.md): read before changing how a shipped surface is reached from the keyboard, for each surface's path and proving row.
+- [motion.md](motion.md): read before touching a list's highlight, a row's entrance, a `motion.list` token or how hover and keys share a list's selection.
+- [themes.md](themes.md): read before touching a theme package, package judge, or theme runner.
+- [theme-apply.md](theme-apply.md) and [theme-reload.md](theme-reload.md): read before touching the apply, a reload hook or `vgsh theme reload`.
+- [theme-follow.md](theme-follow.md): read before touching `applied.json`, `vgsh theme follow` or the `modified` flag.
+- [theme-catalog.md](theme-catalog.md): read before touching `themes/catalog/`, its index, `vgsh-theme-judge catalog-check`, the catalog readability check or a catalog install.
+- [theme-wallpapers.md](theme-wallpapers.md): read before touching `vgsh theme wallpapers`, the theme-asset cache or `bin/lib/theme-download.js`.
+- [theme-install.md](theme-install.md): read before touching `vgsh theme add`, `update`, `remove` or `outdated`.
+- [theme-capability.md](theme-capability.md): read before touching `ThemeRunner` or the `theme` capability.
+- [theme-overlay.md](theme-overlay.md): read before touching the `vgs.themes` browser, its views or `BrowserLogic.js`.
+- [theme-targets.md](theme-targets.md): read before touching a theme target, a template or an encoder.
+- [theme-wiring.md](theme-wiring.md): read before touching the wiring text, the profile wiring or the entry form's links.
+- [theme-editors.md](theme-editors.md): read before touching an editor's target or its one-time step.
+- [theme-toolkits.md](theme-toolkits.md): read before touching the GTK, Qt, KDE or icon theme target.
+- [theme-tool-targets.md](theme-tool-targets.md): read before touching a Discord client's, btop's, fastfetch's, tmux's, Oh My Posh's, Obsidian's or gum's target.
+- [theme-browsers.md](theme-browsers.md): read before touching the Zen or pywalfox target, or a target's `profiles` wiring.
+- [theme-agents.md](theme-agents.md): read before touching an agent CLI's target or a target's `select` key.
+- [packages.md](packages.md): read before touching the package-manager table or `vgsh pkg`.
+- [requirements.md](requirements.md): read before touching a manifest's `requirements`, `config/requirements.json`, the scan's probe or the `missing` lines.
+- [requirement-notice.md](requirement-notice.md): read before touching the core notice host, a requirement notice, its triggers, the Hyprland consent question or the `requirements` and `doctor` capabilities.
+- [tui.md](tui.md), [tui-capability.md](tui-capability.md), [tui-records.md](tui-records.md) and [tui-sudo.md](tui-sudo.md): read before touching a floating TUI, the `tui` capability, its exit records or `vgsh sudo`.
+- [runtime.md](runtime.md): read before touching anything that starts, stops, measures or talks to the shell.
+- [runtime-qml-folders.md](runtime-qml-folders.md): read before touching `FolderListModel`, folder pickers or directory listings in QML.
+- [runtime-qml-focus.md](runtime-qml-focus.md): read before touching keyboard focus in QML: a layer-shell focus rule, summoned-surface initial focus, a focus reason, a focus scope, or a row that hands a window the keyboard.
+- [runtime-hyprland.md](runtime-hyprland.md): read before touching a dispatch, `Compositor` or `Dispatch.js`, or relying on what Hyprland does.
+- [runtime-hyprland-nested.md](runtime-hyprland-nested.md): read before touching the nested sandbox's outputs, `scripts/smoke/shot.sh` or a fault that names the nested window.
+- [runtime-hyprland-capture.md](runtime-hyprland-capture.md): read before touching the overlay keyboard capture, the key capture pass-through, their submaps or `scripts/smoke/rows/overlay-capture.sh`, `key-capture.sh` and `key-passthrough.sh`.
+- [runtime-hyprland-input.md](runtime-hyprland-input.md): read before relying on a Hyprland input option, a device, a bind reading or `switchxkblayout`.
+- [runtime-hyprland-monitors.md](runtime-hyprland-monitors.md): read before relying on the `monitors -j` reply, a `desc:` selector or a monitor event.
+- [runtime-pointer.md](runtime-pointer.md): read before touching a pointer handler, a cursor, a hover reading or a popup.
+- [validation.md](validation.md), [validation-qml-unit.md](validation-qml-unit.md), [validation-smoke.md](validation-smoke.md), [validation-smoke-harness.md](validation-smoke-harness.md) and [validation-smoke-input.md](validation-smoke-input.md): read before touching `scripts/validate`, the nested sandbox, the HiDPI smoke row, its harness or a smoke row's verdict.
+- [validation-jarvis.md](validation-jarvis.md): read before touching the shared Jarvis test world, `scripts/lib/jarvis-env.sh` or a Jarvis suite's private services.
+- [validation-shaders.md](validation-shaders.md): read before touching `scripts/measure-shader.sh`, the passive-layer presentation row or its fixture plugin.
+- [validation-nightly.md](validation-nightly.md): read before touching `.github/workflows/nightly.yml`, the one GitHub workflow.
+- [validation-smoke-host.md](validation-smoke-host.md): read before touching a sentinel, the stand-in terminal, a host command's stand-in in the shell's stand-in directory or a row that presses a button which opens a TUI.
+- [validation-smoke-devices.md](validation-smoke-devices.md): read before touching a device fake, a device command's stand-in, the device guard or a System row.
+- [runtime-devices.md](runtime-devices.md): read before a plugin reads Quickshell's `Bluetooth`, `Networking` or `Pipewire`.
+- [displays.md](displays.md): read before touching the `vgs.displays` brightness helper, a display's identity or output mapping, or a brightness access state.
+- [displays-plugin.md](displays-plugin.md): read before touching the `vgs.displays` service, widget, flyout, pane, brightness keys, on-screen display or assignments file.
+- [validation-smoke-faults.md](validation-smoke-faults.md): read before touching a sandbox fault the smoke excuses, a mode a row holds on the nested output, or `scripts/smoke/verdict.sh`.
+- [validation-smoke-shots.md](validation-smoke-shots.md): read before touching `scripts/sandbox-shots.sh`, a scene it takes, `scripts/smoke/shot.sh` or the held mode a shot reads.
+- [validation-latency.md](validation-latency.md): read before touching a latency the smoke reads or its budget.
+- [readme-images.md](readme-images.md): read before touching a plugin README's screenshot, `docs/images/plugins/`, `scripts/readme-shots.sh` or its check.
+- [distribution-autostart.md](distribution-autostart.md): read before touching the XDG autostart entry a system package ships.
+- [distribution.md](distribution.md): read before touching the licence, `VERSION`, `vgsh --version` or anything that packages or installs VGS; it links each channel's file.
+- [install-guide.md](install-guide.md): read before touching README § Install, `scripts/check-readme.js` or `scripts/readme-install.sh`.
+- [memory.md](memory.md): read before attributing memory growth or writing a memory budget.
+- [decisions.md](decisions.md): read for the one-line lists of decisions, and add each new record to its topic list.
+- [jarvis-tasks.md](jarvis-tasks.md): read before changing coding-task records, their event producer or consumers.
+
+- [network.md](network.md): before touching Network scanning, connection recovery, password handling or its System pane.

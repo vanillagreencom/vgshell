@@ -1,0 +1,117 @@
+#!/usr/bin/env node
+// Controls for bin/lib/check-manifests.js: one planted defect per rule the
+// script adds beyond PluginLogic.js (duplicate id, missing entry point,
+// unreadable directory, unparseable manifest, a `tui` script that is
+// missing, a link, under a link, not a regular file or not executable), one
+// duplicate default shortcut key, a second manifest declaring pads, one manifest the judge itself refuses so a
+// judge that passed everything would turn a row red, the icon rule the judge
+// reads from the shipped icon set, and the base listing: a directory without a manifest is not a plugin, an absent or
+// unreadable base exits 2. Each row asserts the printed verdict line and the
+// exit status. The check runs in a child node with an explicit environment.
+// The permission rows need a uid that permissions bind; under euid 0 the
+// suite reports status=not-measured and exits 77 instead of passing.
+"use strict";
+const fs = require("fs");
+const path = require("path");
+const { spawnSync } = require("child_process");
+
+const CHECK = path.join(__dirname, "..", "bin", "lib", "check-manifests.js");
+const ENV = { PATH: process.env.PATH, LC_ALL: "C" };
+const SCRATCH = path.join(__dirname, "..", "tmp", "test-check-manifests");
+const good = { schemaVersion: 1, id: "acme.one", name: "One", version: "1.0.0", author: "acme", description: "d", kinds: ["service"], entryPoints: { service: "Service.qml" } };
+
+function plugin(dir, manifest, withEntry) {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "manifest.json"), typeof manifest === "string" ? manifest : JSON.stringify(manifest));
+    if (withEntry) fs.writeFileSync(path.join(dir, "Service.qml"), "import QtQuick\nItem {}\n");
+}
+
+let failures = 0;
+let rowNumber = 0;
+// rows: name, build(tmp) -> argument list, want exit, a line stdout holds
+// (a string, or a function of tmp), a line it must not hold
+function row(name, build, wantStatus, wantLine, forbidLine) {
+    const tmp = path.join(SCRATCH, String(rowNumber++));
+    fs.rmSync(tmp, { recursive: true, force: true });
+    fs.mkdirSync(tmp, { recursive: true });
+    let proc;
+    try {
+        proc = spawnSync(process.execPath, [CHECK, ...build(tmp)], { encoding: "utf8", env: ENV });
+    } finally {
+        // A row may drop permission bits inside tmp; restore them before removal.
+        spawnSync("chmod", ["-R", "u+rwx", tmp], { env: ENV });
+        fs.rmSync(tmp, { recursive: true, force: true });
+    }
+    const want = typeof wantLine === "function" ? wantLine(tmp) : wantLine;
+    const lines = proc.stdout.split("\n");
+    const ok = proc.status === wantStatus && lines.some(l => l.includes(want)) && (forbidLine === undefined || !lines.some(l => l.includes(forbidLine)));
+    console.log((ok ? "  ok    " : "  FAIL  ") + name + (ok ? "" : ` (exit=${proc.status} want=${want})\n${proc.stdout}${proc.stderr}`));
+    if (!ok) failures += 1;
+}
+
+row("valid plugin passes", tmp => { const d = path.join(tmp, "a"); plugin(d, good, true); return ["--", d]; }, 0, "ok       acme.one");
+row("missing entry point is refused and prints no ok line", tmp => { const d = path.join(tmp, "a"); plugin(d, good, false); return ["--", d]; }, 1, "entry point for service missing", "ok       acme.one");
+row("entry point directory is refused", tmp => { const d = path.join(tmp, "a"); plugin(d, good, false); fs.mkdirSync(path.join(d, "Service.qml")); return ["--", d]; }, 1, "entry point for service not a file", "ok       acme.one");
+row("duplicate id across directories is refused", tmp => { const a = path.join(tmp, "a"), b = path.join(tmp, "b"); plugin(a, good, true); plugin(b, good, true); return ["--", a, b]; }, 1, "already used by");
+row("duplicate first-party default key across manifests is refused", tmp => {
+    const a = path.join(tmp, "a"), b = path.join(tmp, "b");
+    plugin(a, Object.assign({}, good, { capabilities: ["shortcut"], hyprland: { binds: [{ shortcut: "open", key: "SUPER+CTRL+Y" }] } }), true);
+    plugin(b, Object.assign({}, good, { id: "acme.two", capabilities: ["shortcut"], hyprland: { binds: [{ shortcut: "toggle", key: "SUPER+CTRL+Y" }] } }), true);
+    return ["--", a, b];
+}, 1, "default key SUPER+CTRL+Y for acme.two:toggle already used by acme.one:open", "ok       acme.two");
+// Pads: the check refuses a second manifest that declares pads, since the
+// layer holds one pads table.
+const padItems = { "class": { type: "string", label: "Class", presets: [{ value: "org.acme.pad" }], allowCustom: true }, width: { type: "number", label: "Width", min: 10, max: 100 }, height: { type: "number", label: "Height", min: 10, max: 100 },
+    position: { type: "enum", label: "Position", options: ["center", "top"] }, margin: { type: "number", label: "Margin", min: 0, max: 20 }, entry: { type: "enum", label: "Entry", options: ["top", "left"] }, motion: { type: "enum", label: "Motion", options: ["slide", "none"] } };
+const padDefaults = { "class": "org.acme.pad", width: 60, height: 50, position: "top", margin: 2, entry: "top", motion: "slide" };
+const padsPlugin = id => Object.assign({}, good, { id: id, capabilities: ["shortcut"], settings: { pads: [] }, schema: { pads: { type: "list", label: "Pads", items: padItems, defaults: padDefaults } }, hyprland: { pads: "pads" } });
+row("a plugin declaring pads passes", tmp => { const d = path.join(tmp, "a"); plugin(d, padsPlugin("acme.one"), true); return ["--", d]; }, 0, "ok       acme.one");
+row("a second manifest declaring pads is refused", tmp => {
+    const a = path.join(tmp, "a"), b = path.join(tmp, "b");
+    plugin(a, padsPlugin("acme.one"), true);
+    plugin(b, padsPlugin("acme.two"), true);
+    return ["--", a, b];
+}, 1, "hyprland.pads of acme.two already declared by acme.one", "ok       acme.two");
+row("unparseable manifest is refused", tmp => { const d = path.join(tmp, "a"); plugin(d, "{not json", true); return ["--", d]; }, 1, "manifest does not parse");
+row("a manifest the judge refuses is refused with the judge's line", tmp => { const d = path.join(tmp, "a"); plugin(d, Object.assign({ requires: [] }, good), true); return ["--", d]; }, 1, "requires is refused: a plugin names no other plugin (D005)", "ok       acme.one");
+// The manifest's icon is judged against the shipped icon set, which the
+// judge imports; offline, the loader resolves that import.
+row("an icon from the shipped set passes offline", tmp => { const d = path.join(tmp, "a"); plugin(d, Object.assign({ icon: "settings" }, good), true); return ["--", d]; }, 0, "ok       acme.one");
+row("an icon outside the shipped set is refused offline with the judge's line", tmp => { const d = path.join(tmp, "a"); plugin(d, Object.assign({ icon: "no-such-icon" }, good), true); return ["--", d]; }, 1, 'icon must name an icon of the shipped set, shell/Ui/icons/Lucide.js, got "no-such-icon"', "ok       acme.one");
+// A manifest's status declarations are judged offline too, and a status key
+// without its capability refuses the manifest with the judge's line.
+row("a status declaration with its capability passes offline", tmp => { const d = path.join(tmp, "a"); plugin(d, Object.assign({ capabilities: ["status"], status: { token: { type: "presence", label: "Token", hint: "Needed to sync" } } }, good), true); return ["--", d]; }, 0, "ok       acme.one");
+row("a status declaration without its capability is refused offline with the judge's line", tmp => { const d = path.join(tmp, "a"); plugin(d, Object.assign({ status: { token: { type: "presence", label: "Token" } } }, good), true); return ["--", d]; }, 1, "status needs capability status", "ok       acme.one");
+row("a missing directory exits 2", tmp => ["--", path.join(tmp, "missing")], 2, tmp => "check-manifests: unreadable: " + path.join(tmp, "missing", "manifest.json") + ": ENOENT");
+row("a directory named like an option after -- is a plugin directory", tmp => { const d = path.join(tmp, "--base"); plugin(d, good, true); return ["--", d]; }, 0, "ok       acme.one");
+row("a base lists every plugin under it", tmp => { plugin(path.join(tmp, "a"), good, true); plugin(path.join(tmp, "b"), Object.assign({}, good, { id: "acme.two" }), true); return ["--base", tmp]; }, 0, "ok       acme.two");
+row("a directory without a manifest under the base is not a plugin", tmp => { plugin(path.join(tmp, "a"), good, true); fs.mkdirSync(path.join(tmp, "notes")); return ["--base", tmp]; }, 0, "check-manifests: ok", "notes");
+row("an absent base exits 2", tmp => ["--base", path.join(tmp, "missing")], 2, tmp => "check-manifests: unreadable: " + path.join(tmp, "missing") + ": cannot list: ");
+row("an unknown option exits 2", tmp => ["--frob"], 2, "check-manifests: refused: option=--frob");
+// A `tui` script is read on disk: a regular file with the owner's execute
+// bit, reached through no link. `script` builds the plugin's tui/ tree.
+const tuiManifest = Object.assign({}, good, { capabilities: ["tui"], tui: { hello: { script: "tui/hello.sh", title: "Hello" } } });
+function tuiPlugin(dir, script) {
+    plugin(dir, tuiManifest, true);
+    script(path.join(dir, "tui"));
+    return ["--", dir];
+}
+function executable(file) { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, "#!/bin/sh\n"); fs.chmodSync(file, 0o755); }
+row("a tui script that is an executable file passes", tmp => tuiPlugin(path.join(tmp, "a"), t => executable(path.join(t, "hello.sh"))), 0, "ok       acme.one");
+row("a missing tui script is refused", tmp => tuiPlugin(path.join(tmp, "a"), t => fs.mkdirSync(t)), 1, "tui.hello.script tui/hello.sh missing", "ok       acme.one");
+row("a tui script that is a link is refused", tmp => tuiPlugin(path.join(tmp, "a"), t => { executable(path.join(tmp, "real.sh")); fs.mkdirSync(t); fs.symlinkSync(path.join(tmp, "real.sh"), path.join(t, "hello.sh")); }), 1, "tui.hello.script tui/hello.sh is a symbolic link or lies under one", "ok       acme.one");
+row("a tui script under a linked directory is refused", tmp => tuiPlugin(path.join(tmp, "a"), t => { executable(path.join(tmp, "elsewhere", "hello.sh")); fs.symlinkSync(path.join(tmp, "elsewhere"), t); }), 1, "tui.hello.script tui/hello.sh is a symbolic link or lies under one", "ok       acme.one");
+row("a tui script that is a directory is refused", tmp => tuiPlugin(path.join(tmp, "a"), t => fs.mkdirSync(path.join(t, "hello.sh"), { recursive: true })), 1, "tui.hello.script tui/hello.sh is not a regular file", "ok       acme.one");
+row("a tui script without the execute bit is refused", tmp => tuiPlugin(path.join(tmp, "a"), t => { executable(path.join(t, "hello.sh")); fs.chmodSync(path.join(t, "hello.sh"), 0o644); }), 1, "tui.hello.script tui/hello.sh is not executable", "ok       acme.one");
+row("a tui key without its capability is refused with the judge's line", tmp => { const d = path.join(tmp, "a"); plugin(d, Object.assign({}, tuiManifest, { capabilities: [] }), true); executable(path.join(d, "tui", "hello.sh")); return ["--", d]; }, 1, "tui needs capability tui", "ok       acme.one");
+// Permission bits bind only a non-root uid.
+if (process.getuid() !== 0) {
+    row("a plugin directory the scan cannot read exits 2", tmp => { plugin(path.join(tmp, "a"), good, true); plugin(path.join(tmp, "locked"), good, true); fs.chmodSync(path.join(tmp, "locked"), 0o000); return ["--base", tmp]; }, 2, tmp => "check-manifests: unreadable: " + path.join(tmp, "locked") + ": cannot read manifest: Permission denied");
+    row("an entry point that cannot be checked exits 2 and is not called missing", tmp => { const d = path.join(tmp, "a"); plugin(d, Object.assign({}, good, { entryPoints: { service: "locked/Service.qml" } }), false); fs.mkdirSync(path.join(d, "locked")); fs.writeFileSync(path.join(d, "locked", "Service.qml"), ""); fs.chmodSync(path.join(d, "locked"), 0o000); return ["--", d]; }, 2, tmp => "check-manifests: unreadable: " + path.join(tmp, "a", "locked", "Service.qml") + ": EACCES", "missing");
+}
+
+fs.rmSync(SCRATCH, { recursive: true, force: true });
+if (failures > 0) { console.log("test-check-manifests: failed=" + failures); process.exit(1); }
+// Under euid 0 the permission rows did not run: an unmeasured suite, not a pass.
+if (process.getuid() === 0) { console.log("test-check-manifests: status=not-measured reason=euid-0"); process.exit(77); }
+console.log("test-check-manifests: ok");

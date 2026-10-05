@@ -1,0 +1,18 @@
+{
+  "dnf": {
+    "agent-browser": "no official package",
+    "gpu-screen-recorder": "no official package",
+    "vsys": "no official package",
+    "mise": "no official package",
+    "checkupdates": "no official package"
+  },
+  "nix": {
+    "vsys": "no official package",
+    "checkupdates": "no official package",
+    "agent-browser": {
+      "reason": "official-package-broken",
+      "revision": "7a0f122f5090cf4c2ade2a13a0e229d4e19ba71f",
+      "failure": "native::actions::tests::test_build_fetch_patterns_with_routes"
+    }
+  }
+}

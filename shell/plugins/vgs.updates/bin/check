@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# vgs.updates check runner.
+# Usage: check --vgsh /absolute/path/to/vgsh
+# It holds $XDG_RUNTIME_DIR/vgs/updates/check.lock, starts the four read-only
+# vgsh probes concurrently in separate process groups, normalizes them through
+# NormalizeCheck.js, atomically writes $XDG_STATE_HOME/vgs/updates/status.json
+# and prints the same JSON. TERM, INT and HUP send TERM to every live probe
+# group, wait for them and exit 128 plus the signal.
+set -euo pipefail
+
+usage() { printf 'updates-check: refused: %s\nusage: check --vgsh PATH\n' "$1" >&2; exit 2; }
+[[ ${1:-} == --vgsh && $# -eq 2 && -n ${2:-} ]] || usage 'vgsh=missing'
+vgsh="$2"
+[[ $vgsh == /* && -x $vgsh ]] || usage "vgsh=$vgsh"
+
+state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
+runtime_dir="${XDG_RUNTIME_DIR:-$state_home}"
+state_dir="$state_home/vgs/updates"
+lock_dir="$runtime_dir/vgs/updates"
+mkdir -p -- "$state_dir" "$lock_dir"
+lock="$lock_dir/check.lock"
+status_file="$state_dir/status.json"
+script="$(readlink -f -- "${BASH_SOURCE[0]}")"
+plugin_dir="$(cd -- "$(dirname -- "$script")/.." && pwd)"
+logic="$plugin_dir/UpdatesLogic.js"
+normalizer="$plugin_dir/NormalizeCheck.js"
+loader="$(cd -- "$(dirname -- "$vgsh")" && pwd)/lib/qml-library.js"
+prefix="$$"
+
+exec 9>"$lock"
+flock 9
+
+cleanup_files=()
+probe_names=()
+pids=()
+stop_status=""
+cleanup() {
+  local file
+  for file in "${cleanup_files[@]}"; do rm -f -- "$file"; done
+}
+write_status() { printf '%s\n' "$2" >"$state_dir/.${1}.${prefix}.status"; }
+start_probe() {
+  local name="$1" out err stat
+  shift
+  out="$state_dir/.${name}.${prefix}.out"
+  err="$state_dir/.${name}.${prefix}.err"
+  stat="$state_dir/.${name}.${prefix}.status"
+  cleanup_files+=("$out" "$err" "$stat")
+  probe_names+=("$name")
+  setsid "$@" >"$out" 2>"$err" &
+  pids+=("$!")
+}
+signal_groups() {
+  local sig="$1" pid
+  for pid in "${pids[@]}"; do kill -"$sig" -- "-$pid" 2>/dev/null || kill -"$sig" -- "$pid" 2>/dev/null || true; done
+}
+# Each probe starts in the background of this shell, which runs no job
+# control, so it starts with SIGINT ignored and a bash probe cannot trap
+# it: every probe group gets TERM, whichever signal stopped the check.
+stop_all() { # STATUS
+  stop_status="$1"
+  signal_groups TERM
+}
+trap 'stop_all 143' TERM
+trap 'stop_all 130' INT
+trap 'stop_all 129' HUP
+trap cleanup EXIT
+
+start_probe pkg "$vgsh" pkg check --json
+start_probe self "$vgsh" self status --json
+start_probe plugins "$vgsh" plugin outdated --json
+start_probe themes "$vgsh" theme outdated --json
+
+for i in "${!pids[@]}"; do
+  status=0
+  while true; do
+    wait "${pids[$i]}" || status=$?
+    if [[ -z $stop_status || ! -d /proc/${pids[$i]} ]]; then break; fi
+    status=0
+  done
+  write_status "${probe_names[$i]}" "$status"
+done
+if [[ -n $stop_status ]]; then exit "$stop_status"; fi
+
+snapshot="$state_dir/.status.${prefix}.json"
+cleanup_files+=("$snapshot")
+node "$normalizer" "$loader" "$logic" "$state_dir" "$prefix" >"$snapshot"
+mv -f -- "$snapshot" "$status_file"
+cat -- "$status_file"

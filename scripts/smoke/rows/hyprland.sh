@@ -1,0 +1,544 @@
+# The Hyprland layer, shell/Core/HyprlandLayer.qml: the Lua file the shell
+# writes from the theme's border colours, the floating TUIs' window rules
+# and every enabled plugin's `hyprland` manifest data, the line `vgsh hypr
+# wire` keeps first in hyprland.lua, and the `hyprctl reload` after each
+# write. The consent row connected the harness's hyprland.lua before this
+# row runs. Every row reads the nested instance back
+# through hyprctl. The launcher's and the notifications' own rows ran
+# before this one, so it enables both, types their keys on the nested
+# seat, and leaves both disabled, shell.json as it found it and
+# hyprland.lua as the consent row left it. The window rules are read back on
+# windows the harness's toplevel helper maps, each stopped by the pid the
+# row started: each floating TUI class fits the output at the sandbox's
+# own mode, takes its preferred size on a 3008x1692 output and is clamped
+# on a 1440x900 one, which the row holds on the first monitor and then
+# gives back its own mode. It restarts the shell, reloads Hyprland and
+# reads each vgs bind once in its submap.
+#
+# Hyprland v0.56.2 reads no layer rule back
+# (docs/architecture/runtime-hyprland.md), so the rows hold the layer rules
+# through the written file and an empty configerrors, where Hyprland lists a
+# field it refuses.
+# inputs: shell/Core/HyprlandLayer.* bin/vgsh-hypr-judge bin/vgsh shell/plugins/vgs.launcher/* shell/plugins/vgs.notifications/* shell/plugins/vgs.themes/* shell/plugins/*/manifest.json themes/vgs/* themes/catalog/flexoki-light/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js bin/vgsh-theme-judge scripts/smoke/toplevel/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/hyprland-consent.sh scripts/smoke/rows/themes.sh scripts/smoke/rows/capabilities.sh
+set -euo pipefail
+hypr_lua="$home/.config/hypr/hyprland.lua"
+hypr_layer="$home/.local/state/vgs/hypr/vgs.lua"
+user_config="$home/.config/vgs/shell.json"
+wire_line="pcall(dofile, \"$hypr_layer\")"
+vgsh_run() { "${shell_env[@]}" "$repo/bin/vgsh" "$@"; }
+# A theme apply's verdict and package, `ok theme=<name>`, whatever it
+# changed.
+applied() { local out; out="$(vgsh_run theme apply "$1")" || return; printf '%s\n' "${out##*$'\n'}" | cut -d' ' -f1-2; }
+# The binds whose description names a vgs shortcut, as [modmask, key,
+# dispatcher, description]: a Lua bind's dispatcher is `__lua`, so the
+# description is what names its shortcut. vgs_binds leaves out the active
+# bar's, which stays enabled through every row here; active_bar_binds
+# reads them alone.
+binds_of() { hypr -j binds | py_reply 'import json,sys; want=sys.argv[1]=="bar"; print(json.dumps(sorted([b["modmask"], b["key"], b["dispatcher"], b["description"]] for b in json.load(sys.stdin) if b["description"].startswith("vgs.") and b["description"].startswith("vgs.bar:") == want and b.get("submap", "") in ("", "default"))))' "$1"; }
+vgs_binds() { binds_of others; }
+active_bar_binds() { binds_of bar; }
+# Every bind whose description starts with vgs, in every submap, as a
+# sorted JSON list of `<submap> <description> x<count>`. The overlay
+# capture binds each plugin bind once more in vgs:capture, so a description
+# alone appears twice by design (docs/architecture/runtime-hyprland.md).
+bind_census() { hypr -j binds | py_reply '
+import collections, json, sys
+counts = collections.Counter((b.get("submap", "") or "default", b["description"]) for b in json.load(sys.stdin) if b["description"].startswith("vgs"))
+print(json.dumps(sorted("%s %s x%d" % (s, d, n) for (s, d), n in counts.items())))'; }
+fixture_bind() { hypr -j binds | py_reply '
+import json, sys
+print(json.dumps([
+    [bind["modmask"], bind["key"], bind["keycode"], bind["dispatcher"]]
+    for bind in json.load(sys.stdin)
+    if bind["description"] == "acme.probe:ping" and bind.get("submap", "") in ("", "default")
+]))
+'; }
+fixture_keys() { ipc smoke readInstance service acme.probe shortcutKeys | py_reply 'import json,sys; print(json.load(sys.stdin))'; }
+config_errors() { hypr -j configerrors | py_reply 'import json,sys; print(json.dumps([e for e in json.load(sys.stdin) if e]))'; }
+# A border option as the nested instance holds it, and what Hyprland prints
+# for a one-colour border of `#rrggbbaa` TOKEN_VALUE: hex aarrggbb with no
+# leading zeros, then the angle.
+hypr_gradient() { hypr -j getoption "$1" | py_reply 'import json,sys; print(json.load(sys.stdin)["gradient"])'; }
+gradient_of() { python3 -c 'import sys; h = sys.argv[1][1:]; print(format(int(h[6:8] + h[:6], 16), "x") + " 0deg")' "$1"; }
+hypr_option() { hypr -j getoption "$1" | py_reply 'import json,sys; v=json.load(sys.stdin); print(v.get("int", v.get("float", v.get("str", v.get("set", v)))))'; }
+animation_leaf() { hypr -j animations | py_reply '
+import json, sys
+data = json.load(sys.stdin)
+rows = data[0] if data and isinstance(data[0], list) else data
+row = next((r for r in rows if r.get("name") == sys.argv[1]), None)
+if row is None:
+    print("absent")
+else:
+    print(json.dumps({"bezier": row.get("bezier", ""), "enabled": row.get("enabled"), "overridden": row.get("overridden"), "speed": round(float(row.get("speed", 0)), 2), "style": row.get("style", "")}, sort_keys=True))
+' "$1"; }
+animation_curve() { hypr -j animations | py_reply '
+import json, sys
+def rows(node):
+    if isinstance(node, dict):
+        yield node
+        for value in node.values():
+            yield from rows(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from rows(value)
+data = json.load(sys.stdin)
+print("yes" if any(r.get("name") == sys.argv[1] for r in rows(data)) else "no")
+' "$1"; }
+layer_has() { if grep -qxF -- "$1" "$hypr_layer"; then echo yes; else echo no; fi; }
+layer_matches() { if grep -Eq -- "$1" "$hypr_layer"; then echo yes; else echo no; fi; }
+section_of() { python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); print("-- " + m["id"] + " " + m["version"] + ": binds and layer rules from its manifest")' "$repo/shell/plugins/$1/manifest.json"; }
+# How many plugin sections the layer holds. grep -c exits 1 on a count of
+# 0, which is an answer, and 2 on a file it cannot read, which is not.
+section_count() { local status=0; grep -c -- ': binds and layer rules from its manifest$' "$hypr_layer" || status=$?; [[ $status -le 1 ]]; }
+# Put hyprland.lua back as the consent row left it: the loading line,
+# then the harness's own text.
+restore_hypr_lua() { { printf '%s\n' "$wire_line"; cat -- "$sandbox/hyprland-harness.lua"; } >"$hypr_lua.next" && mv -T -- "$hypr_lua.next" "$hypr_lua"; }
+# The toplevel helper, for the floating TUIs' window rules. open_tui APP_ID
+# starts it on the nested socket, leaves its pid in tui_pid and returns once
+# it prints that its first buffer is committed. close_tui LABEL stops that
+# pid alone and passes LABEL when the helper exits 0 on the signal.
+tui_pid=""
+open_tui() {
+  local log="$sandbox/toplevel-$1.log"
+  spawn "$log" "${shell_env[@]}" "$sandbox/toplevel" "$1"
+  tui_pid="$spawn_pid"
+  for _ in $(seq 1 25); do
+    grep -qxF -- "mapped $1" "$log" && return 0
+    kill -0 -- "$tui_pid" 2>/dev/null || break
+    sleep 0.2
+  done
+  cat -- "$log" >&2
+  return 1
+}
+close_tui() {
+  local status=0
+  kill -TERM -- "$tui_pid" 2>/dev/null || true
+  for _ in $(seq 1 25); do kill -0 -- "$tui_pid" 2>/dev/null || break; sleep 0.2; done
+  if kill -0 -- "$tui_pid" 2>/dev/null; then kill -KILL -- "$tui_pid" 2>/dev/null || true; fi
+  wait "$tui_pid" || status=$?
+  if [[ $status -eq 0 ]]; then ok "$1"; else fail "$1: exit=$status"; fi
+}
+# The nested instance's client of pid PID as `<class> floating=<bool>`, its
+# size as `<w>x<h>`, or clients=<n> when that pid has not one client.
+tui_client() { hypr -j clients | py_reply '
+import json, sys
+cs = [c for c in json.load(sys.stdin) if c["pid"] == int(sys.argv[2])]
+if len(cs) != 1: print("clients=%d" % len(cs))
+elif sys.argv[1] == "floating": print("%s floating=%s" % (cs[0]["class"], str(cs[0]["floating"]).lower()))
+else: print("%dx%d" % tuple(cs[0]["size"]))' "$1" "$2"; }
+tui_floating() { tui_client floating "$1"; }
+tui_size() { tui_client size "$1"; }
+# tui_area TARGET PREF_W PREF_H [MODE]: how a floating TUI of preferred
+# size PREF_W x PREF_H sits on a monitor's work area: its logical box less
+# the reserved space, [left, top, right, bottom], and less
+# general:float_gaps, CSS order, where Hyprland v0.56.2 centres a floating
+# window (docs/architecture/runtime-hyprland.md). The monitor, the clients
+# and the gaps come from one batched request, which the compositor answers
+# from one state. Given MODE, the mode a row holds, a monitor at another
+# mode reads ["mode=<WxH> want=<MODE>"] and nothing is measured on it.
+#
+# TARGET pid:<n>, a client: [] when it is min(PREF_W, width - 2 *
+# size.window.gutter) wide and min(PREF_H, height - reserved top - reserved
+# bottom - 2 * size.window.gutter) tall, its whole box lies inside the work
+# area and it is centred on it, each within one pixel, since hyprctl prints
+# whole pixels; else the misfits.
+# TARGET monitor:<name>, no client: `inside` when a PREF_W x PREF_H box
+# centred on that monitor's work area lies inside it, else `outside`.
+tui_area() {
+  local gutter
+  gutter="$(ipc smoke themeValue size.window.gutter)" || return
+  hypr --batch 'j/monitors; j/clients; j/getoption general:float_gaps' | py_reply '
+import json, sys
+text = sys.stdin.read()
+decoder, at, parts = json.JSONDecoder(), 0, []
+while len(parts) < 3:
+    while text[at].isspace(): at += 1
+    part, at = decoder.raw_decode(text, at)
+    parts.append(part)
+monitors, clients, gaps = parts
+target, pref_w, pref_h, held, gutter = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4], json.loads(sys.argv[5])
+kind, _, key = target.partition(":")
+if kind == "pid":
+    cs = [c for c in clients if c["pid"] == int(key) and c["mapped"]]
+    if len(cs) != 1:
+        print(json.dumps(["clients=%d" % len(cs)])); sys.exit()
+    mon = [m for m in monitors if m["id"] == cs[0]["monitor"]]
+elif kind == "monitor":
+    mon = [m for m in monitors if m["name"] == key]
+else:
+    sys.exit("tui_area: target %r is neither pid:<n> nor monitor:<name>" % target)
+if len(mon) != 1:
+    print(json.dumps(["monitor=%s absent" % target])); sys.exit()
+m = mon[0]
+mode = "%dx%d" % (m["width"], m["height"])
+if held and mode != held:
+    print(json.dumps(["mode=%s want=%s" % (mode, held)])); sys.exit()
+mw, mh = m["width"] / m["scale"], m["height"] / m["scale"]
+top, right, bottom, left = (int(v) for v in gaps["css"].split())
+rl, rt, rr, rb = m["reserved"]
+area_x, area_y = m["x"] + rl + left, m["y"] + rt + top
+area_w, area_h = mw - rl - rr - left - right, mh - rt - rb - top - bottom
+if kind == "monitor":
+    x, y = area_x + (area_w - pref_w) / 2, area_y + (area_h - pref_h) / 2
+    inside = x >= area_x and y >= area_y and x + pref_w <= area_x + area_w and y + pref_h <= area_y + area_h
+    print("inside" if inside else "outside"); sys.exit()
+x, y, w, h = cs[0]["at"] + cs[0]["size"]
+want_w, want_h = min(pref_w, mw - 2 * gutter), min(pref_h, mh - rt - rb - 2 * gutter)
+out = []
+for key, got, want in (("w", w, want_w), ("h", h, want_h), ("x", x, area_x + (area_w - want_w) / 2), ("y", y, area_y + (area_h - want_h) / 2)):
+    if abs(got - want) > 1: out.append("%s=%s want=%s" % (key, got, want))
+for key, box, area, inward in (("left", x, area_x, 1), ("top", y, area_y, 1), ("right", x + w, area_x + area_w, -1), ("bottom", y + h, area_y + area_h, -1)):
+    if (box - area) * inward < -1: out.append("%s=%s area=%s" % (key, box, area))
+print(json.dumps(out))' "$1" "$2" "$3" "${4:-}" "$gutter"
+}
+tui_fits() { tui_area "pid:$1" "$2" "$3" "${4:-}"; }
+# The floating TUI classes as `<app-id> <preferred width> <preferred
+# height>`, the sizes HyprlandLayer.TUI_WINDOWS gives them.
+tui_classes=("org.vgs.tui 875 600" "org.vgs.tui.wide 1200 720" "org.vgs.tui.tall 875 900")
+# tui_fit_rows LABEL [MODE [exact]]: a window of each class floats and
+# fits the output, the monitor at MODE when one is given, and, given
+# exact, takes its preferred size; each helper is stopped by its pid.
+tui_fit_rows() {
+  local label="$1" mode="${2:-}" exact="${3:-}" tui tui_class tui_w tui_h
+  for tui in "${tui_classes[@]}"; do
+    read -r tui_class tui_w tui_h <<<"$tui"
+    if open_tui "$tui_class"; then
+      expect_poll "$label: a $tui_class window floats" "$tui_class floating=true" tui_floating "$tui_pid"
+      [[ -z $exact ]] || geometry expect_poll "$label: a $tui_class window is its preferred ${tui_w}x${tui_h}" "${tui_w}x${tui_h}" tui_size "$tui_pid"
+      geometry expect_poll "$label: a $tui_class window fits the work area, clamped and centred" '[]' tui_fits "$tui_pid" "$tui_w" "$tui_h" "$mode"
+      close_tui "$label: the $tui_class helper exits 0 on SIGTERM"
+      expect_poll "$label: the $tui_class window is gone" clients=0 tui_floating "$tui_pid"
+    else
+      fail "$label: the toplevel helper maps a $tui_class window"
+    fi
+  done
+}
+# listPlugins' Hyprland problems, sorted.
+hypr_problems() { ipc shell listPlugins | py_reply 'import json,sys; print(json.dumps(sorted(e["error"] for e in json.load(sys.stdin)["errors"] if e["error"].startswith("hyprland: "))))'; }
+theme_switches() { ipc shell listShellConfig | py_reply 'import json,sys; row=next((r for r in json.load(sys.stdin).get("plugins", []) if r.get("id") == "vgs.themes"), {}); print(json.dumps({k: row.get(k) for k in ("setWindowBorders", "setCornerRadius", "setWindowAnimations")}, sort_keys=True))'; }
+inbox_mode() { ipc smoke readInstance service vgs.notifications panelMode; }
+press_super() { type_keys -M logo -k "$1" -m logo; }
+# Give plugins rows the `keys` JSON maps: { id: keys }, replaced whole.
+set_keys() {
+  python3 - "$user_config" "$1" <<'PY'
+import json, os, sys
+path, want = sys.argv[1], json.loads(sys.argv[2])
+config = json.load(open(path))
+rows = config.setdefault("plugins", [])
+for plugin_id, keys in want.items():
+    row = next((r for r in rows if r.get("id") == plugin_id), None)
+    if row is None:
+        row = {"id": plugin_id}
+        rows.append(row)
+    row["keys"] = keys
+with open(path + ".next", "w") as f:
+    json.dump(config, f, indent=2)
+os.replace(path + ".next", path)
+PY
+}
+set_theme_switches() {
+  python3 - "$user_config" "$1" "$2" "$3" <<'PY'
+import json, os, sys
+path = sys.argv[1]
+values = {
+    "setWindowBorders": sys.argv[2] == "true",
+    "setCornerRadius": sys.argv[3] == "true",
+    "setWindowAnimations": sys.argv[4] == "true",
+}
+config = json.load(open(path))
+rows = config.setdefault("plugins", [])
+row = next((r for r in rows if r.get("id") == "vgs.themes"), None)
+if row is None:
+    row = {"id": "vgs.themes"}
+    rows.append(row)
+row.update(values)
+with open(path + ".next", "w") as f:
+    json.dump(config, f, indent=2)
+os.replace(path + ".next", path)
+PY
+}
+both_binds='[[64, "N", "__lua", "vgs.notifications:inbox"], [64, "SPACE", "__lua", "vgs.launcher:toggle"]]'
+rebound='[[72, "SPACE", "__lua", "vgs.launcher:toggle"]]'
+
+# The consent row's Connect answer.
+expect "consent wired the loading line first in the sandbox's hyprland.lua" "$wire_line" head -n 1 -- "$hypr_lua"
+expect "consent changed nothing else in hyprland.lua" same bash -c 'tail -n +2 -- "$1" | cmp -s - "$2" && echo same' _ "$hypr_lua" "$sandbox/hyprland-harness.lua"
+expect "the layer's header names the command that writes it again" yes bash -c 'grep -qF -- "\`vgsh hypr render\`" "$1" && echo yes' _ "$hypr_layer"
+expect "no plugin declaring Hyprland data but the active bar is enabled, so its section alone is written" 1 section_count
+expect "the active bar's section names its id and version" yes layer_has "$(section_of vgs.bar)"
+expect_poll "the active bar's toggle is bound to SUPER+SHIFT+SPACE" '[[65, "SPACE", "__lua", "vgs.bar:toggle"]]' active_bar_binds
+expect_poll "the nested instance holds no other vgs bind" '[]' vgs_binds
+expect "the nested configuration, the floating TUIs' window rules included, holds no error" '[]' config_errors
+
+border_before="$(hypr_option general:border_size)" || fail "the nested border_size is readable"
+radius_before="$(hypr_option decoration:rounding)" || fail "the nested rounding is readable"
+cp -- "$user_config" "$sandbox/shell-before-appearance.json"
+expect "enabling the themes plugin for the appearance switch rows is allowed" ok ipc shell setPluginEnabled vgs.themes true
+probe_theme="$home/.config/vgs/themes/hyprland-probe"
+mkdir -p "$probe_theme"
+cat >"$probe_theme/theme.json" <<'JSON'
+{
+  "schemaVersion": 1,
+  "name": "hyprland-probe",
+  "tokens": {
+    "hyprland": {
+      "border": { "size": 4 },
+      "window": { "radius": 8 },
+      "motion": { "preset": "snappy" }
+    }
+  }
+}
+JSON
+set_theme_switches false false false
+expect "the shell reloads the probe theme switches off for the baseline" ok ipc shell reloadConfig
+expect_poll "the effective config has the probe theme switches off for the baseline" '{"setCornerRadius": false, "setWindowAnimations": false, "setWindowBorders": false}' theme_switches
+expect_poll "with switches off the layer writes no border size" no layer_matches '^[[:space:]]*border_size ='
+expect_poll "with switches off the layer writes no window rounding" no layer_matches '^[[:space:]]*rounding ='
+border_before="$(hypr_option general:border_size)" || fail "the nested border_size baseline is readable"
+radius_before="$(hypr_option decoration:rounding)" || fail "the nested rounding baseline is readable"
+expect "the switch-off border baseline is Hyprland's default" 1 printf '%s\n' "$border_before"
+expect "the switch-off radius baseline is Hyprland's default" 0 printf '%s\n' "$radius_before"
+motion_before="$(animation_leaf windows)" || fail "the nested windows animation baseline is readable"
+expect "the switch-off motion baseline has no VGS curve" no animation_curve vgsSnappy
+expect "the switch-off appearance baseline holds no configuration error" '[]' config_errors
+set_theme_switches true true false
+expect "the shell reloads the probe border and radius switches on" ok ipc shell reloadConfig
+expect_poll "the effective config has the probe border and radius switches on" '{"setCornerRadius": true, "setWindowAnimations": false, "setWindowBorders": true}' theme_switches
+expect "the Hyprland probe package applies" "ok theme=hyprland-probe" applied hyprland-probe
+expect_poll "the theme border size reaches Hyprland" 4 hypr_option general:border_size
+expect_poll "the theme corner radius reaches Hyprland" 8 hypr_option decoration:rounding
+expect "the theme border and radius hold no configuration error" '[]' config_errors
+set_theme_switches false false false
+expect "the shell reloads the probe theme switches off" ok ipc shell reloadConfig
+expect_poll "the effective config has the probe theme switches off" '{"setCornerRadius": false, "setWindowAnimations": false, "setWindowBorders": false}' theme_switches
+# Control run on 2026-09-29: a source_tree copy of the shell whose
+# HyprlandLayer.js forced borders and radius enabled after these switches
+# failed the two restore rows below, reading 4 and 8 instead of 1 and 0.
+expect_poll "turning the border switch off removes the border size line" no layer_matches '^[[:space:]]*border_size ='
+expect_poll "turning the radius switch off removes the window rounding line" no layer_matches '^[[:space:]]*rounding ='
+expect_poll "turning the border switch off leaves Hyprland's own border size" "$border_before" hypr_option general:border_size
+expect_poll "turning the radius switch off leaves Hyprland's own rounding" "$radius_before" hypr_option decoration:rounding
+expect "the switched-off theme appearance holds no configuration error" '[]' config_errors
+set_theme_switches false false true
+expect "the shell reloads the probe motion switch on" ok ipc shell reloadConfig
+expect_poll "the effective config has the probe motion switch on" '{"setCornerRadius": false, "setWindowAnimations": true, "setWindowBorders": false}' theme_switches
+expect_poll "turning the motion switch on writes the VGS snappy curve" yes animation_curve vgsSnappy
+expect_poll "turning the motion switch on writes the windows preset" '{"bezier": "vgsSnappy", "enabled": true, "overridden": true, "speed": 1.8, "style": ""}' animation_leaf windows
+expect "the motion preset holds no configuration error" '[]' config_errors
+expect "vgs applies under the motion switch for the smooth preset" "ok theme=vgs" applied vgs
+expect_poll "the default smooth preset writes its curve" yes animation_curve vgsEaseOutQuint
+expect_poll "the default smooth preset writes the windows leaf" '{"bezier": "vgsEaseOutQuint", "enabled": true, "overridden": true, "speed": 3.79, "style": ""}' animation_leaf windows
+expect "the smooth preset holds no configuration error" '[]' config_errors
+set_theme_switches false false false
+expect "the shell reloads the probe motion switch off" ok ipc shell reloadConfig
+expect_poll "turning the motion switch off removes the windows animation line" no layer_matches '^hl\.animation\(\{ leaf = "windows"'
+expect_poll "turning the motion switch off restores the windows animation leaf" "$motion_before" animation_leaf windows
+cp -- "$sandbox/shell-before-appearance.json" "$user_config.next" && mv -T -- "$user_config.next" "$user_config"
+expect "the shell reloads the restored theme settings" ok ipc shell reloadConfig
+expect "vgs applies after the Hyprland appearance probe" "ok theme=vgs" applied vgs
+rm -rf -- "$probe_theme"
+
+# The floating TUIs' window rules: a window of each class floats, centred
+# on the work area, at its preferred size clamped to the output, at the
+# sandbox's own mode, on a large output and on a small one.
+tui_fit_rows "at the sandbox's own mode"
+tui_monitor="$(first_name)" || fail "the first monitor's name is unreadable"
+tui_base_mode="$(first_mode)" || fail "the first monitor's mode is unreadable"
+hold_mode "the nested compositor holds $tui_monitor at 3008x1692 for the floating TUIs" "$tui_monitor" 3008x1692
+tui_fit_rows "on a 3008x1692 output" 3008x1692 exact
+release_mode "the nested compositor gives $tui_monitor its own mode after 3008x1692" "$tui_monitor" "$tui_base_mode"
+hold_mode "the nested compositor holds $tui_monitor at 1440x900 for the floating TUIs" "$tui_monitor" 1440x900
+# Control: the tall class's preferred box does not fit this work area, so
+# the rows below read the clamp, not a size that fits unclamped.
+geometry expect_poll "control: a tall TUI at its preferred 875x900 leaves the 1440x900 work area" outside tui_area "monitor:$tui_monitor" 875 900 1440x900
+tui_fit_rows "on a 1440x900 output" 1440x900
+release_mode "the nested compositor gives $tui_monitor its own mode after 1440x900" "$tui_monitor" "$tui_base_mode"
+# A rule disabled by name after the line stops floating its class alone.
+printf '%s\n' 'hl.window_rule({ name = "vgs:tui", enabled = false })' >>"$hypr_lua"
+expect "the nested instance reloads with vgs:tui disabled" ok hypr reload config-only
+expect "disabling a window rule by name holds no configuration error" '[]' config_errors
+for tui in "org.vgs.tui false" "org.vgs.tui.wide true"; do
+  read -r tui_class tui_want <<<"$tui"
+  if open_tui "$tui_class"; then
+    expect_poll "with vgs:tui disabled a $tui_class window has floating=$tui_want" "$tui_class floating=$tui_want" tui_floating "$tui_pid"
+    close_tui "the $tui_class helper exits 0 on SIGTERM with vgs:tui disabled"
+  else
+    fail "the toplevel helper maps a $tui_class window with vgs:tui disabled"
+  fi
+done
+restore_hypr_lua || fail "hyprland.lua is put back after the floating TUI rows"
+expect "the nested instance reloads the consent-wired hyprland.lua after the floating TUI rows" ok hypr reload config-only
+expect "the vgs package applies for the Hyprland rows" "ok theme=vgs" applied vgs
+if vgs_accent="$(resolved_token themes/vgs palette.accent)"; then
+  expect_poll "the nested active border takes the vgs accent" "$(gradient_of "$vgs_accent")" hypr_gradient general:col.active_border
+else
+  fail "the judge resolves palette.accent for the vgs package"
+fi
+
+# Enabled plugins' sections. shell.json is kept first, so the row can put
+# it back with both plugins disabled.
+cp -- "$user_config" "$sandbox/shell-before-hyprland.json"
+expect "enabling the launcher for the Hyprland rows is allowed" ok ipc shell setPluginEnabled vgs.launcher true
+expect "enabling the notifications for the Hyprland rows is allowed" ok ipc shell setPluginEnabled vgs.notifications true
+expect_poll "both plugins' binds reach the nested instance" "$both_binds" vgs_binds
+expect "the launcher's section names its id and version" yes layer_has "$(section_of vgs.launcher)"
+expect "the notifications' section names its id and version" yes layer_has "$(section_of vgs.notifications)"
+expect "the launcher's blur rule is written" yes layer_has 'hl.layer_rule({ name = "vgs.launcher:overlay", match = { namespace = "^vgs:overlay$" }, blur = true, ignore_alpha = 0.6 })'
+expect "the notifications' blur rule is written" yes layer_has 'hl.layer_rule({ name = "vgs.notifications:layer", match = { namespace = "^vgs:layer$" }, blur = true, ignore_alpha = 0.6 })'
+expect "the notifications' panel blur rule is written" yes layer_has 'hl.layer_rule({ name = "vgs.notifications:panel", match = { namespace = "^vgs:panel$" }, blur = true, ignore_alpha = 0.6 })'
+expect "the configuration with both sections holds no error" '[]' config_errors
+expect "no plugin reports a Hyprland problem" '[]' hypr_problems
+
+# Each vgs bind is registered once in its submap after a shell restart and
+# after a full Hyprland reload: the reload clears every bind and runs
+# hyprland.lua, so the layer, once, in a new Lua state
+# (docs/architecture/runtime-hyprland.md). The layer file is removed and
+# Hyprland reloaded while no shell runs, so the binds the census reads after
+# the restart are the ones the restarted shell's own write and reload made.
+once_census='["default vgs.bar:toggle x1", "default vgs.launcher:toggle x1", "default vgs.notifications:inbox x1", "vgs:capture vgs.bar:toggle x1", "vgs:capture vgs.launcher:toggle x1", "vgs:capture vgs.notifications:inbox x1", "vgs:passthrough vgs:passthrough-cancel x1"]'
+expect_poll "before the restart each vgs bind is registered once in its submap" "$once_census" bind_census
+if stop_shell; then
+  rm -- "${hypr_layer:?}"
+  expect "the nested instance reloads with no layer file before the restart" ok hypr reload config-only
+  expect_poll "with no layer file the nested instance holds no vgs bind" '[]' bind_census
+  if start_shell "$repo" "$sandbox/hyprland-restart.log"; then
+    expect_poll "after a shell restart each vgs bind is registered once in its submap" "$once_census" bind_census
+    expect "the nested instance answers a full reload after the shell restart" ok hypr reload
+    expect_poll "after the shell restart and a full reload each vgs bind is registered once in its submap" "$once_census" bind_census
+    expect "the restarted and reloaded configuration holds no error" '[]' config_errors
+  else
+    fail "the shell starts again for the bind census"
+  fi
+else
+  fail "the shell stops for the bind census"
+fi
+# Control: a second loading line runs the layer twice in one configuration
+# generation, and the census reads each bind twice.
+printf '%s\n' "$wire_line" >>"$hypr_lua"
+expect "the nested instance reloads with the layer loaded twice" ok hypr reload config-only
+expect_poll "control: a layer run twice in one generation registers each vgs bind twice" '["default vgs.bar:toggle x2", "default vgs.launcher:toggle x2", "default vgs.notifications:inbox x2", "vgs:capture vgs.bar:toggle x2", "vgs:capture vgs.launcher:toggle x2", "vgs:capture vgs.notifications:inbox x2", "vgs:passthrough vgs:passthrough-cancel x2"]' bind_census
+restore_hypr_lua || fail "hyprland.lua is put back after the bind census control"
+expect "the nested instance reloads the consent-wired hyprland.lua after the bind census control" ok hypr reload config-only
+expect_poll "with one loading line again each vgs bind is registered once in its submap" "$once_census" bind_census
+
+# Each bind reaches its plugin. wtype types on a virtual keyboard with
+# keycodes of its own, which a bind resolves only by keysym, so the sandbox
+# user's settings after the line turn that on
+# (docs/architecture/runtime-hyprland.md).
+printf '%s\n' 'hl.config({ input = { resolve_binds_by_sym = true } })' >>"$hypr_lua"
+expect "the nested instance reloads with binds resolved by keysym" ok hypr reload config-only
+expect "no launcher surface shows before SUPER+SPACE" 0 layer_count vgs:overlay
+press_super space || fail "typing SUPER+SPACE failed"
+expect_poll "SUPER+SPACE opens the launcher" 1 layer_count vgs:overlay
+press_super space || fail "typing SUPER+SPACE again failed"
+expect_poll "SUPER+SPACE closes the launcher again" 0 layer_count vgs:overlay
+expect "the inbox is closed before SUPER+N" '""' inbox_mode
+press_super n || fail "typing SUPER+N failed"
+expect_poll "SUPER+N opens the inbox" '"inbox"' inbox_mode
+press_super n || fail "typing SUPER+N again failed"
+expect_poll "SUPER+N closes the inbox again" '""' inbox_mode
+
+# The shared fixture stays neutral for the earlier Settings and capability
+# rows. Only this row adds its bind, then restores both borrowed files and
+# the enabled state before continuing with the other plugins.
+probe_manifest="$home/.config/vgs/plugins/acme.probe/manifest.json"
+probe_enabled_before="$(plugin_enabled acme.probe)"
+cp -- "$probe_manifest" "$sandbox/probe-before-keycode.json"
+cp -- "$user_config" "$sandbox/shell-before-keycode.json"
+python3 - "$probe_manifest" <<'PY'
+import json, os, sys
+path = sys.argv[1]
+with open(path) as source:
+    manifest = json.load(source)
+manifest["hyprland"] = {"binds": [{"shortcut": "ping", "key": "SUPER+code:108"}]}
+with open(path + ".next", "w") as output:
+    json.dump(manifest, output)
+os.replace(path + ".next", path)
+PY
+rescan "rescanning the row-owned keycode bind is allowed"
+expect "enabling the shortcut key fixture is allowed" ok ipc shell setPluginEnabled acme.probe true
+expect_poll "the fixture reads its manifest keycode" '{"ping":"SUPER+code:108"}' fixture_keys
+# Lua's parsed keycode lives in sMkKeys, which binds -j does not expose.
+# Pin its registered row plus the generated code and configerrors instead.
+expect_poll "the nested instance registers the fixture keycode bind" '[[64, "", 0, "__lua"]]' fixture_bind
+expect "the layer binds the fixture by keycode" yes layer_has 'hl.bind("SUPER + code:108", hl.dsp.global("acme.probe:ping"), { description = "acme.probe:ping" })'
+set_keys '{"acme.probe": {"ping": "shift+super+CODE:00108", "ghost": "SUPER+F8"}}'
+expect_poll "the same fixture reads the normalized rebound keycode" '{"ping":"SUPER+SHIFT+code:108"}' fixture_keys
+expect_poll "the rebound keycode reaches the nested compositor" '[[65, "", 0, "__lua"]]' fixture_bind
+expect "the rebound layer keeps the lower-case code prefix" yes layer_has 'hl.bind("SUPER + SHIFT + code:108", hl.dsp.global("acme.probe:ping"), { description = "acme.probe:ping" })'
+expect "a plugin mutation cannot change effective keys" '{"ping":"SUPER+SHIFT+code:108"}' probe mutate-keys
+expect "the nested keycode configuration holds no error" '[]' config_errors
+set_keys '{"acme.probe": {"ping": null}}'
+expect_poll "the fixture reads a null unbinding" '{"ping":null}' fixture_keys
+expect_poll "the null unbinding removes the nested bind" '[]' fixture_bind
+set_keys '{"acme.probe": {"ping": "SUPER+SPACE"}}'
+expect_poll "the fixture wins the conflict by plugin id" '{"ping":"SUPER+SPACE"}' fixture_keys
+expect_poll "the layer reports the same conflict as the key read" '["hyprland: SUPER+SPACE for vgs.launcher:toggle skipped: already bound by acme.probe"]' hypr_problems
+set_keys '{"acme.probe": {}}'
+expect_poll "removing the override restores the manifest key" '{"ping":"SUPER+code:108"}' fixture_keys
+expect "disabling the shortcut fixture is allowed" ok ipc shell setPluginEnabled acme.probe false
+expect_poll "the disabled fixture bind leaves the nested compositor" '[]' fixture_bind
+cp -- "$sandbox/probe-before-keycode.json" "$probe_manifest.next" && mv -T -- "$probe_manifest.next" "$probe_manifest"
+rescan "rescanning the restored neutral fixture is allowed"
+cp -- "$sandbox/shell-before-keycode.json" "$user_config.next" && mv -T -- "$user_config.next" "$user_config"
+expect "the fixture manifest is restored byte for byte" same bash -c 'cmp -s -- "$1" "$2" && echo same' _ "$sandbox/probe-before-keycode.json" "$probe_manifest"
+expect "the fixture configuration is restored byte for byte" same bash -c 'cmp -s -- "$1" "$2" && echo same' _ "$sandbox/shell-before-keycode.json" "$user_config"
+expect_poll "the fixture's original enabled state is restored" "$probe_enabled_before" plugin_enabled acme.probe
+if [[ $probe_enabled_before == True ]]; then
+  expect_poll "the restored fixture reads no declared keys" '{}' fixture_keys
+fi
+expect_poll "the restored neutral fixture has no compositor bind" '[]' fixture_bind
+
+# A rebind, an unbind and a name no bind declares, in shell.json.
+set_keys '{"vgs.launcher": {"toggle": "super+alt+space", "nope": "SUPER+F9"}, "vgs.notifications": {"inbox": null}}'
+expect_poll "a shell.json rebind and unbind reach the nested instance" "$rebound" vgs_binds
+expect "the unbound shortcut is a comment in the layer" yes layer_has "-- unbound vgs.notifications:inbox: shell.json sets its key to null"
+expect "listPlugins reports the key name no bind declares" '["hyprland: shell.json keys.nope names no bind of vgs.launcher"]' hypr_problems
+
+# One key for two plugins: the first by id keeps it.
+set_keys '{"vgs.launcher": {"toggle": "SUPER+ALT+SPACE"}, "vgs.notifications": {"inbox": "ALT+SUPER+SPACE"}}'
+expect_poll "listPlugins reports the key the later plugin lost" '["hyprland: SUPER+ALT+SPACE for vgs.notifications:inbox skipped: already bound by vgs.launcher"]' hypr_problems
+expect "the lost bind is a skipped comment in the layer" yes layer_has "-- skipped SUPER+ALT+SPACE: already bound by vgs.launcher"
+expect_poll "the nested instance binds the key to the first plugin alone" "$rebound" vgs_binds
+
+# A disabled plugin's section leaves the layer.
+expect "disabling the notifications for the Hyprland rows is allowed" ok ipc shell setPluginEnabled vgs.notifications false
+expect_poll "a disabled plugin's section leaves the layer" no layer_has "$(section_of vgs.notifications)"
+expect "the enabled plugin's section stays" yes layer_has "$(section_of vgs.launcher)"
+expect_poll "the disabled plugin's conflict is no longer reported" '[]' hypr_problems
+
+# The border colours follow a theme apply: an installed copy of the
+# catalog's flexoki-light, removed once vgs applies again.
+if light_accent="$(resolved_token themes/catalog/flexoki-light palette.accent)" && plant_flexoki_light "$home/.config/vgs/themes"; then
+  expect "the flexoki-light package applies" "ok theme=flexoki-light" applied flexoki-light
+  expect_poll "the nested active border follows the flexoki-light accent" "$(gradient_of "$light_accent")" hypr_gradient general:col.active_border
+  expect "vgs applies again" "ok theme=vgs" applied vgs
+  expect_poll "the nested active border follows the vgs accent again" "$(gradient_of "$vgs_accent")" hypr_gradient general:col.active_border
+else
+  fail "the judge resolves palette.accent for the flexoki-light package, and its copy is installed"
+fi
+rm -rf -- "${home:?}/.config/vgs/themes/flexoki-light"
+
+# The runner's verbs: render writes a removed layer again, and the line is
+# what loads the layer.
+rm -- "$hypr_layer"
+expect "vgsh hypr render is answered ok" ok vgsh_run hypr render
+expect_poll "render writes the removed layer again" yes layer_has "$(section_of vgs.launcher)"
+expect "vgsh hypr unwire removes the line" "ok hypr=unwired path=$hypr_lua" vgsh_run hypr unwire
+expect "the nested instance reloads without the line" ok hypr reload config-only
+expect_poll "without the line the nested instance holds no vgs bind" '[]' vgs_binds
+expect "vgsh hypr wire keeps the line again" "ok hypr=wired path=$hypr_lua" vgsh_run hypr wire
+expect "the line is first again" "$wire_line" head -n 1 -- "$hypr_lua"
+expect "the nested instance reloads with the line" ok hypr reload config-only
+expect_poll "with the line the launcher's bind is back" "$rebound" vgs_binds
+
+# Leave the sandbox as the row found it: shell.json as before the row, which
+# disables both plugins again, and hyprland.lua as the consent row left it.
+cp -- "$sandbox/shell-before-hyprland.json" "$user_config.next" && mv -T -- "$user_config.next" "$user_config"
+expect_poll "the launcher is disabled again" False plugin_enabled vgs.launcher
+expect_poll "the notifications are disabled again" False plugin_enabled vgs.notifications
+expect_poll "the shared fixture keeps its original enabled state after the Hyprland rows" "$probe_enabled_before" plugin_enabled acme.probe
+restore_hypr_lua || fail "hyprland.lua is put back after the Hyprland rows"
+expect "the nested instance reloads the consent-wired hyprland.lua" ok hypr reload config-only
+expect_poll "the nested instance holds no vgs bind after the Hyprland rows" '[]' vgs_binds
+expect "the configuration after the Hyprland rows holds no error" '[]' config_errors

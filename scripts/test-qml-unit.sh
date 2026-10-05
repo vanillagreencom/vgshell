@@ -1,0 +1,957 @@
+#!/usr/bin/env bash
+# Controls for scripts/qml-unit.sh and the unit tests under
+# scripts/qml-tests/: a table of mutations, one per guarantee a test pins,
+# each applied to a copy of shell/Ui with its match counted, and the runner
+# is required to fail on every copy and to pass on the unmutated copy. Two
+# rows pin the runner's arguments: a missing qmltestrunner is not a pass,
+# and an unknown argument is refused. A second table plants one test file
+# per rule of the runner's log check and pins the exit and the line each
+# prints.
+#
+# Exit 0 when every row holds, 1 otherwise, 77 when the runner could not
+# measure, since a mutation nothing runs proves nothing: qmltestrunner is
+# absent, or scripts/smoke/gpu-fence.sh could not make or prove its
+# namespace. The runner's own not-measured lines follow
+# `test-qml-unit: status=not-measured runner-exit=77`. A mutant counts as
+# killed only when the runner exits 1, the status of a failed test; any
+# other status fails the row. With --plan, no runner starts:
+# the script prints the mutation rows that would run or skip, using the same
+# scoping rule as the real run. When VGS_VALIDATE_CHANGED names a readable
+# NUL-delimited changed-path list, only mutations for a changed target, a
+# changed test file, or a changed harness or stand-in module run. An unset
+# or empty VGS_VALIDATE_CHANGED runs every mutation. A shared file can weaken
+# a test of a component it did not touch; that is test strength, not product
+# behavior. Product QML unit tests still run in full, and direct runs or
+# scripts/validate --full check every mutation.
+set -euo pipefail
+
+self="$(readlink -f -- "${BASH_SOURCE[0]}")"
+repo="$(cd -- "$(dirname -- "$self")/.." && pwd)"
+runner="$repo/scripts/qml-unit.sh"
+plan_only=false
+case "${1:-}" in
+  "") ;;
+  --plan) plan_only=true; shift ;;
+  *) printf 'test-qml-unit: refused: argument=%s\n' "$1" >&2; exit 2 ;;
+esac
+if [[ $# -ne 0 ]]; then
+  printf 'test-qml-unit: refused: argument=%s\n' "$1" >&2
+  exit 2
+fi
+
+# Rows: label | file under shell/Ui | text to replace | replacement | the
+# test file that must go red. A file under ../Commons or ../Core is a copy
+# of that module handed to the runner; one under ../plugins is a copy of
+# that plugin beside a copy of the tests, which import it by a relative
+# path. The replacement keeps the text around the
+# behaviour and removes the behaviour. A field holds no `|`, the separator.
+mutations=(
+  "QR accepts a non-square matrix|foundation/QrMatrix.qml|row.length !== found.length|false|tst_qrmatrix.qml"
+  "QR accepts nonbinary modules|foundation/QrMatrix.qml|!/^[01]+$/.test(row)|false|tst_qrmatrix.qml"
+  "QR accepts an unbounded matrix|foundation/QrMatrix.qml|found.length > 185|false|tst_qrmatrix.qml"
+  "QR interpolates modules|foundation/QrMatrix.qml|readonly property int moduleSize: side === 0 ? 0 : Math.max(0, Math.floor(Math.min(width, height) / side))|readonly property real moduleSize: side === 0 ? 0 : Math.max(0, Math.min(width, height) / side)|tst_qrmatrix.qml"
+  "QR transposes modules|foundation/QrMatrix.qml|root.rows[Math.floor(index / root.side)].charAt(index % root.side)|root.rows[index % root.side].charAt(Math.floor(index / root.side))|tst_qrmatrix.qml"
+  "QR ignores theme foreground|foundation/QrMatrix.qml|Theme.qrMatrix.foreground|\"#000000\"|tst_qrmatrix.qml"
+  "QR ignores theme background|foundation/QrMatrix.qml|color: Theme.qrMatrix.background|color: \"#ffffff\"|tst_qrmatrix.qml"
+  "QR ignores theme size|foundation/QrMatrix.qml|implicitWidth: Theme.qrMatrix.size|implicitWidth: 240|tst_qrmatrix.qml"
+  "the orb takes pointer input|feedback/VoiceOrb.qml|    Accessible.ignored: true|    Accessible.ignored: true; MouseArea { anchors.fill: parent }|tst_voiceorb.qml"
+  "the orb takes tab focus|feedback/VoiceOrb.qml|    property bool active: false|    property bool active: false; activeFocusOnTab: true|tst_voiceorb.qml"
+  "the orb ignores the attack token|feedback/VoiceOrb.qml|Theme.voiceOrb.attack : Theme.voiceOrb.release|70 : Theme.voiceOrb.release|tst_voiceorb.qml"
+  "the orb ignores the release token|feedback/VoiceOrb.qml|Theme.voiceOrb.attack : Theme.voiceOrb.release|Theme.voiceOrb.attack : 250|tst_voiceorb.qml"
+  "the orb ticks in a minimized window|feedback/VoiceOrb.qml|&& root.Window.window.visibility !== Window.Minimized|&& true|tst_voiceorb.qml"
+  "the orb ignores its size token|feedback/VoiceOrb.qml|implicitWidth: Theme.voiceOrb.size|implicitWidth: 96|tst_voiceorb.qml"
+  "the orb ignores its tone|feedback/VoiceOrb.qml|const found = Theme.voiceOrb.tone[name];|const found = Theme.voiceOrb.tone.accent;|tst_voiceorb.qml"
+  "the orb logs no unknown tone|feedback/VoiceOrb.qml|console.error('VoiceOrb: no tone named \"' + name + '\"; drawing accent');|{}|tst_voiceorb.qml"
+  "the orb falls back to muted|feedback/VoiceOrb.qml|return Theme.voiceOrb.tone.accent;|return Theme.voiceOrb.tone.muted;|tst_voiceorb.qml"
+  "the orb does not bound finite levels|feedback/VoiceOrb.qml|Math.max(0, Math.min(1, value))|value|tst_voiceorb.qml"
+  "the orb keeps nonfinite levels|feedback/VoiceOrb.qml|Number.isFinite(value)|true|tst_voiceorb.qml"
+  "the orb leaves primary levels static|feedback/VoiceOrb.qml|property real amplitude: driver.running ? state.primary : root.bounded(root.level)|property real amplitude: root.bounded(root.level)|tst_voiceorb.qml"
+  "the orb leaves secondary levels static|feedback/VoiceOrb.qml|property real secondaryAmplitude: driver.running ? state.secondary : root.bounded(root.secondaryLevel)|property real secondaryAmplitude: root.bounded(root.secondaryLevel)|tst_voiceorb.qml"
+  "the orb stops updating primary levels|feedback/VoiceOrb.qml|state.primary = state.smooth(state.primary, root.bounded(root.level), frameTime);|state.primary = state.primary;|tst_voiceorb.qml"
+  "the orb stops updating secondary levels|feedback/VoiceOrb.qml|state.secondary = state.smooth(state.secondary, root.bounded(root.secondaryLevel), frameTime);|state.secondary = state.secondary;|tst_voiceorb.qml"
+  "the orb ticks at reduced motion|feedback/VoiceOrb.qml|Theme.motion.scale > 0 && Theme.voiceOrb.period > 0|true|tst_voiceorb.qml"
+  "the orb ignores a zero period|feedback/VoiceOrb.qml|&& Theme.voiceOrb.period > 0|&& true|tst_voiceorb.qml"
+  "the orb ticks when hidden or its parent is hidden|feedback/VoiceOrb.qml|root.visible && root.active|root.active|tst_voiceorb.qml"
+  "the orb ticks when inactive|feedback/VoiceOrb.qml|root.visible && root.active|root.visible|tst_voiceorb.qml"
+  "the orb ticks in a hidden window|feedback/VoiceOrb.qml|&& root.Window.window.visible|&& true|tst_voiceorb.qml"
+  "the orb phase never advances|feedback/VoiceOrb.qml|state.phase = (state.phase + frameTime * 1000 * 2 * Math.PI / Theme.voiceOrb.period) % (2 * Math.PI);|state.phase = state.phase;|tst_voiceorb.qml"
+  "the orb drops the line tokens|feedback/VoiceOrb.qml|Qt.vector4d(Theme.voiceOrb.radius, Theme.voiceOrb.gap, Theme.voiceOrb.stroke, Theme.voiceOrb.arcStroke)|Qt.vector4d(0.28, 0.045, 1.5, 0.75)|tst_voiceorb.qml"
+  "the orb drops the wave tokens|feedback/VoiceOrb.qml|Qt.vector4d(Theme.voiceOrb.amplitude, Theme.voiceOrb.waveCount, Theme.voiceOrb.arcSpan, Theme.voiceOrb.arcOpacity)|Qt.vector4d(0.018, 3, 2.4, 0.6)|tst_voiceorb.qml"
+  "the orb is exposed as an accessible control|feedback/VoiceOrb.qml|Accessible.ignored: true|Accessible.ignored: false|tst_voiceorb.qml"
+  "the orb loads no compiled shader|feedback/VoiceOrb.qml|fragmentShader: Qt.resolvedUrl(\"shaders/voiceorb.frag.qsb\")|fragmentShader: \"\"|tst_voiceorb.qml"
+  "the theme runner replaces last on every queue change|../Core/ThemeRunner.qml|if (applying === last.applying && lastResult === last.result && downloading === last.downloading) return;|{}|tst_themerunner.qml"
+  "a failed binds read is not named|../Core/HyprlandState.qml|                root.bindsFailure = read.error;|                {}|tst_hyprlandstate_binds.qml"
+  "a binds read keeps an old failure|../Core/HyprlandState.qml|                root.bindsFailure = \"\";|                {}|tst_hyprlandstate_binds.qml"
+  "turning the reads off keeps the binds failure|../Core/HyprlandState.qml|        bindsFailure = \"\";|        {}|tst_hyprlandstate_binds.qml"
+  "the shortcut capability lends no key capture|../Core/ShortcutRegistry.qml|capture: capture.provider(ctx)|capture: null|tst_keycapture.qml"
+  "key capture never enters the pass-through|../Core/KeyCapture.qml|const answer = Compositor.passthrough(\"enter\", reply => root.entered(at, reply));|const answer = \"ok\";|tst_keycapture.qml"
+  "key capture never leaves the pass-through|../Core/KeyCapture.qml|&& reason !== \"timeout\") leave();|&& false) leave();|tst_keycapture.qml"
+  "key capture sends a leave Hyprland already made|../Core/KeyCapture.qml| && reason !== \"compositor\" && reason !== \"timeout\") leave();|) leave();|tst_keycapture.qml"
+  "a re-armed capture enters before the leave ran|../Core/KeyCapture.qml|if (leaving > 0) phase = \"waiting\";|if (false) phase = \"waiting\";|tst_keycapture.qml"
+  "the waiting enter never goes out|../Core/KeyCapture.qml|if (leaving === 0 && phase === \"waiting\") enter();|{}|tst_keycapture.qml"
+  "a failed enter is not reported|../Core/KeyCapture.qml|        failed = true;|        {}|tst_keycapture.qml"
+  "a refused enter is not reported|../Core/KeyCapture.qml|if (answer !== \"ok\") entered(at, answer);|{}|tst_keycapture.qml"
+  "an earlier enter's answer marks a newer capture|../Core/KeyCapture.qml|if (at !== generation|if (false|tst_keycapture.qml"
+  "a timeout reads as a compositor end|../Core/KeyCapture.qml|finish(held >= Layer.KEY_PASSTHROUGH.timeoutMs ? \"timeout\" : \"compositor\");|finish(\"compositor\");|tst_keycapture.qml"
+  "the conflict hint ignores the user's binds|../Core/KeyCapture.qml|state === \"read\" ? source.foreignKeys : []|[]|tst_keycapture.qml"
+  "the conflict hint names plugins by id|../Core/KeyCapture.qml|names[p.id] = Registry.manifests[p.id].name;|{}|tst_keycapture.qml"
+  "the conflict answer carries no hint|../Core/KeyCapture.qml|answer.hint = Logic.conflictHint(answer, names);|{}|tst_keycapture.qml"
+  "a failed binds read reads as read|../Core/KeyCapture.qml|source.bindsFailure !== \"\" ? \"failed\" : \"read\"|\"read\"|tst_keycapture.qml"
+  "a failed binds read is never asked again|../Core/KeyCapture.qml|if (state === \"failed\" && !bindsRetry.asked) {|if (false) {|tst_keycapture.qml"
+  "a failed binds read is asked again at every question|../Core/KeyCapture.qml|            bindsRetry.asked = true;|            {}|tst_keycapture.qml"
+  "a read binds answer keeps the retry spent|../Core/KeyCapture.qml|            bindsRetry.asked = false;|            {}|tst_keycapture.qml"
+  "a question does not want the binds|../Core/KeyCapture.qml|                if (!asking.started) {|                if (false) {|tst_keycapture.qml"
+  "an asker's teardown keeps the binds wanted|../Core/KeyCapture.qml|ctx.onDispose(() => { root.askers -= 1; });|{}|tst_keycapture.qml"
+  "a capture does not want the binds|../Core/KeyCapture.qml|readonly property bool capturing: holder !== null|readonly property bool capturing: false|tst_keycapture.qml"
+  "a destroyed holder keeps the pass-through|../Core/KeyCapture.qml|onHolderChanged: if (holder === null && phase !== \"idle\") finish(\"destroyed\")|onHolderChanged: {}|tst_keycapture.qml"
+  "instance teardown keeps the pass-through|../Core/KeyCapture.qml|release = ctx.onDispose(() => root.end(item, \"disposed\"));|release = null;|tst_keycapture.qml"
+  "a newer holder keeps the first one's pass-through|../Core/KeyCapture.qml|if (holder !== null) finish(\"superseded\");|{}|tst_keycapture.qml"
+  "any item ends the capture|../Core/KeyCapture.qml|item !== holder) return;|false) return;|tst_keycapture.qml"
+  "the holder's second begin enters again|../Core/KeyCapture.qml|if (holder === item) return \"ok\";|{}|tst_keycapture.qml"
+  "the pass-through state ignores Hyprland|../Core/KeyCapture.qml|if (phase === \"entering\") phase = \"passthrough\";|{}|tst_keycapture.qml"
+  "Hyprland leaving keeps the capture|../Core/KeyCapture.qml|} else if (phase === \"passthrough\") {|} else if (false) {|tst_keycapture.qml"
+  "a submap change before the enter ends the capture|../Core/KeyCapture.qml|} else if (phase === \"passthrough\") {|} else if (phase !== \"idle\") {|tst_keycapture.qml"
+  "key capture names keys itself|../Core/KeyCapture.qml|keyFor: (key, modifiers) => Logic.capturedKey(key, modifiers),|keyFor: (key, modifiers) => ({ kind: \"key\", key: String(key) }),|tst_keycapture.qml"
+  "the shortcut field ignores Return|controls/ShortcutField.qml|Keys.onReturnPressed: event => { if (root.capturing) root.pressed(event); else KeyNavLogic.activate(box); }|Keys.onReturnPressed: event => { if (root.capturing) root.pressed(event); }|tst_shortcutfield.qml"
+  "the shortcut field ignores keypad Enter|controls/ShortcutField.qml|Keys.onEnterPressed: event => { if (root.capturing) root.pressed(event); else KeyNavLogic.activate(box); }|Keys.onEnterPressed: event => { if (root.capturing) root.pressed(event); }|tst_shortcutfield.qml"
+  "a click or Space on the shortcut field begins nothing|controls/ShortcutField.qml|onClicked: root.start()|onClicked: {}|tst_shortcutfield.qml"
+  "a bind's shortcut field draws no capture hint|controls/ShortcutField.qml|property string conflict: found === null ? \"\" : found.hint|property string conflict: \"\"|tst_shortcutfield.qml"
+  "a shortcut field asks about another bind|controls/ShortcutField.qml|capture.conflicts(key, pluginId, shortcut)|capture.conflicts(key, shortcut, pluginId)|tst_shortcutfield.qml"
+  "an unbound bind field asks about the empty key|controls/ShortcutField.qml|key === \"\" ? null : capture.conflicts|false ? null : capture.conflicts|tst_shortcutfield.qml"
+  "a bind row labels with the shortcut name over its description|controls/BindField.qml|label: bind.description ? String(bind.description) : String(bind.shortcut)|label: String(bind.shortcut)|tst_bindfield.qml"
+  "an unbound bind row shows null as a key|controls/BindField.qml|readonly property string shown: bind.key === null|readonly property string shown: false|tst_bindfield.qml"
+  "a bind row sends no captured combo|controls/BindField.qml|onCommitted: key => root.applyKey(key)|onCommitted: key => {}|tst_bindfield.qml"
+  "a bind row sends no typed key|controls/BindField.qml|root.applyKey(text === \"\" ? null : text)|{}|tst_bindfield.qml"
+  "an empty typed key binds the empty key|controls/BindField.qml|text === \"\" ? null : text|text|tst_bindfield.qml"
+  "a bind row's unbind sends nothing|controls/BindField.qml|onCleared: root.applyKey(null)|onCleared: {}|tst_bindfield.qml"
+  "a bind row's field names no plugin|controls/BindField.qml|pluginId: root.pluginId|pluginId: \"\"|tst_bindfield.qml"
+  "a bind row's field names no shortcut|controls/BindField.qml|shortcut: String(root.bind.shortcut)|shortcut: \"\"|tst_bindfield.qml"
+  "a bind row hides its capture's answer|controls/BindField.qml|readonly property var found: input.found|readonly property var found: null|tst_bindfield.qml"
+  "a read-only bind row edits|controls/BindField.qml|editable: root.editable|editable: true|tst_bindfield.qml"
+  "a bind row drops its caller's actions|controls/BindField.qml|property alias actions: input.actions|property var actions: []|tst_bindfield.qml"
+  "the shortcut field commits nothing|controls/ShortcutField.qml|committed(read.key);|committed(\"\");|tst_shortcutfield.qml"
+  "a commit keeps the capture|controls/ShortcutField.qml|stop(\"commit\");|{}|tst_shortcutfield.qml"
+  "Escape keeps the capture|controls/ShortcutField.qml|stop(\"cancel\");|{}|tst_shortcutfield.qml"
+  "a focus loss keeps the capture|controls/ShortcutField.qml|onActiveFocusChanged: if (!activeFocus) root.stop(\"focus\")|onActiveFocusChanged: {}|tst_shortcutfield.qml"
+  "held modifiers are not shown|controls/ShortcutField.qml|held = read.modifiers;|{}|tst_shortcutfield.qml"
+  "a released modifier stays shown|controls/ShortcutField.qml|if (gone.kind === \"held\")|if (false)|tst_shortcutfield.qml"
+  "an unnamed key ends the capture|controls/ShortcutField.qml|notice = \"This key has no name here; type it with the keyboard button.\";|stop(\"unnamed\");|tst_shortcutfield.qml"
+  "the field captures for another holder|controls/ShortcutField.qml|capture !== null && capture.holder === root|capture !== null && capture.holder !== null|tst_shortcutfield.qml"
+  "the shortcut field begins with no capture|controls/ShortcutField.qml|        if (capture === null) return;|        {}|tst_shortcutfield.qml"
+  "the key caps ignore the key|controls/ShortcutField.qml|readonly property var caps: capturing ? held : key === \"\" ? [] : key.split(\"+\")|readonly property var caps: capturing ? held : []|tst_shortcutfield.qml"
+  "typing appends to the key in effect|controls/ShortcutField.qml|entry.selectAll();|{}|tst_shortcutfield.qml"
+  "typing sends nothing|controls/ShortcutField.qml|if (text !== root.key) root.typed(text);|{}|tst_shortcutfield.qml"
+  "Escape while typing drops the edit at once|controls/ShortcutField.qml|escapeReverts: true|escapeReverts: false|tst_shortcutfield.qml"
+  "Escape while typing stays in the entry|controls/ShortcutField.qml|        stopTyping();|        {}|tst_shortcutfield.qml"
+  "Escape on the idle box is swallowed|controls/ShortcutField.qml|if (!typing) {|if (false) {|tst_shortcutfield.qml"
+  "the box draws no focus preview|controls/ShortcutField.qml|readonly property bool focusPreview: root.focusPreview|readonly property bool focusPreview: false|tst_shortcutfield.qml"
+  "clear sends nothing|controls/ShortcutField.qml|onClicked: root.cleared()|onClicked: {}|tst_shortcutfield.qml"
+  "the shortcut field takes no Tab focus|controls/ShortcutField.qml|focusPolicy: root.editable ? Qt.StrongFocus : Qt.NoFocus|focusPolicy: Qt.ClickFocus|tst_shortcutfield.qml"
+  "a read-only shortcut field offers unbind|controls/ShortcutField.qml|visible: root.editable && root.key !== \"\"|visible: root.key !== \"\"|tst_shortcutfield.qml"
+  "the conflict hint is not drawn|controls/ShortcutField.qml|        : conflict|        : \"\"|tst_shortcutfield.qml"
+  "the conflict hint draws as an error|controls/ShortcutField.qml|color: root.hintIsNotice ? Theme.color.danger : Theme.color.warning|color: Theme.color.danger|tst_shortcutfield.qml"
+  "the key in effect is committed again|controls/ShortcutField.qml|if (read.key !== key) committed(read.key);|committed(read.key);|tst_shortcutfield.qml"
+  "a held key's repeat is read|controls/ShortcutField.qml|if (event.isAutoRepeat) return;|{}|tst_shortcutfield.qml"
+  "a bare text key ends the capture|controls/ShortcutField.qml|notice = \"Hold Super, Ctrl or Alt with this key: alone it types text, so a shortcut on it would stop typing everywhere.\";|stop(\"text\");|tst_shortcutfield.qml"
+  "Tab is captured|controls/ShortcutField.qml|&& (event.modifiers & ~Qt.ShiftModifier) === Qt.NoModifier) {|&& false) {|tst_shortcutfield.qml"
+  "Tab keeps the focus|controls/ShortcutField.qml|stop(\"tab\");|stop(\"tab\"); event.accepted = true; return;|tst_shortcutfield.qml"
+  "a refused pass-through is not named|controls/ShortcutField.qml|: capturing && capture.failed ? \"Hyprland|: false ? \"Hyprland|tst_shortcutfield.qml"
+  "a refused pass-through draws as a conflict|controls/ShortcutField.qml|(capturing && capture.failed)|false|tst_shortcutfield.qml"
+  "a timeout is not named|controls/ShortcutField.qml|if (capture !== null && capture.ended.item === root && capture.ended.reason === \"timeout\")|if (false)|tst_shortcutfield.qml"
+  "another field's timeout is named here|controls/ShortcutField.qml|capture.ended.item === root && ||tst_shortcutfield.qml"
+  "the caps ignore the rounded corner|controls/ShortcutField.qml|leftPadding: root.sidePadding|leftPadding: Theme.textField.paddingX|tst_shortcutfield.qml"
+  "the side padding ignores the corner|controls/ShortcutField.qml|Theme.controlPadding(Theme.textField.paddingX, Theme.textField.radius,|Theme.controlPadding(Theme.textField.paddingX, 0,|tst_shortcutfield.qml"
+  "shortcut keys stop following configuration|../Core/ShortcutRegistry.qml|get keys() { return Layer.shortcutKeys(Registry.hyprlandSections, ctx.id); },|keys: Layer.shortcutKeys(Registry.hyprlandSections, ctx.id),|tst_shortcutregistry.qml"
+  "shortcut keys read another plugin|../Core/ShortcutRegistry.qml|Registry.hyprlandSections, ctx.id|Registry.hyprlandSections, \"acme.other\"|tst_shortcutregistry.qml"
+  "hold press repeats run again|../Core/ShortcutRegistry.qml|if (stroke.kind === \"held\") return;|if (false) return;|tst_shortcutregistry.qml"
+  "unrelated release completes a hold|../Core/ShortcutRegistry.qml|if (owner.stroke.kind === \"held\") owner.finish(\"idle\");|owner.releaseHandler();|tst_shortcutregistry.qml"
+  "hold key changes leave it active|../Core/ShortcutRegistry.qml|stroke.key !== effectiveKey|false|tst_shortcutregistry.qml"
+  "late hold press accepts an unbound or conflicting key|../Core/ShortcutRegistry.qml|key === null|false|tst_shortcutregistry.qml"
+  "late hold press accepts a missing key|../Core/ShortcutRegistry.qml|key === undefined|false|tst_shortcutregistry.qml"
+  "hold disposal loses its release|../Core/ShortcutRegistry.qml|shortcut.finish(\"disposed\");|shortcut.stroke = { kind: \"disposed\" };|tst_shortcutregistry.qml"
+  "hold disposal keeps native objects|../Core/ShortcutRegistry.qml|finally { shortcut.destroy(); }|finally {}|tst_shortcutregistry.qml"
+  "hold release callback is unchecked|../Core/ShortcutRegistry.qml|if (onReleased !== undefined && typeof onReleased !== \"function\")|if (false)|tst_shortcutregistry.qml"
+  "shortcut press callback is unchecked|../Core/ShortcutRegistry.qml|if (typeof onPressed !== \"function\")|if (false)|tst_shortcutregistry.qml"
+  "shortcut duplicate replaces its owner|../Core/ShortcutRegistry.qml|if (Logic.hasOwn(shortcuts, key))|if (false)|tst_shortcutregistry.qml"
+  "the label's role is not read|foundation/Label.qml|const found = Theme.text[name];|const found = undefined;|tst_label.qml"
+  "the label's weight does not reach the axis|foundation/Label.qml|font.variableAxes: ({ wght: typography.weight })|font.variableAxes: ({ wght: 400 })|tst_label.qml"
+  "the bar role draws at the body metrics|../Commons/Tokens.js|bar: role(\"mono\", 0.8, 500, 0.08, 1, true, \"text\")|bar: role(\"sans\", 1, 400, 0, 1.55, false, \"text\")|tst_label.qml"
+  "a key/value value draws at the item size|../Commons/Tokens.js|value: role(\"sans\", 0.87, 400, 0, 1, false, \"text\")|value: role(\"sans\", 1, 400, 0, 1, false, \"text\")|tst_label.qml"
+  "a key/value label draws at the old chrome size|../Commons/Tokens.js|label: role(\"mono\", 0.8, 500, 0.08, 1, true, \"textMuted\")|label: role(\"mono\", 0.73, 500, 0.08, 1, true, \"textMuted\")|tst_label.qml"
+  "a wrapping role leaves the 4 px grid|../Commons/Tokens.js|hint: role(\"sans\", 0.87, 400, 0, 1.55, false, \"textFaint\")|hint: role(\"sans\", 0.87, 400, 0, 1.7, false, \"textFaint\")|tst_label.qml"
+  "an absent family draws the mono family whatever its token|../Commons/Theme.qml|convertLeaf(level[key], node[key], fallback[key], loaded, families, missing)|convertLeaf(level[key], node[key], loaded[0], loaded, families, missing)|tst_label.qml"
+  "the label's letter spacing is not scaled|foundation/Label.qml|font.letterSpacing: typography.letterSpacing * typography.size|font.letterSpacing: typography.letterSpacing|tst_label.qml"
+  "the label drops its fixed-height branch|foundation/Label.qml|lineHeightMode: lineBox > fontHeight ? Text.FixedHeight : Text.ProportionalHeight|lineHeightMode: Text.ProportionalHeight|tst_label.qml"
+  "the label line box is not whole-pixel floored|foundation/Label.qml|readonly property real lineBox: Math.max(Math.round(typography.size * typography.lineHeight), Math.ceil(fontHeight))|readonly property real lineBox: Math.max(Math.round(typography.size * typography.lineHeight), fontHeight)|tst_label.qml"
+  "the icon's stroke scales with its size|foundation/Icon.qml|strokeWidth: root.stroke / root.factor|strokeWidth: root.stroke|tst_icon.qml"
+  "the icon's path is not scaled|foundation/Icon.qml|transform: Scale { xScale: root.factor; yScale: root.factor }|transform: Scale { xScale: 1; yScale: 1 }|tst_icon.qml"
+  "the icon keeps an unknown name's paths|foundation/Icon.qml|return [\"\", \"\"];|return Lucide.ICONS.circle;|tst_icon.qml"
+  "the text area ignores its error outline|controls/TextArea.qml|error ? Theme.textField.error : activeFocus ? Theme.textField.focus : hovered ? Theme.textField.hover : Theme.textField.borderColor|activeFocus ? Theme.textField.focus : hovered ? Theme.textField.hover : Theme.textField.borderColor|tst_automation_controls.qml"
+  "weekday chips stop ordering selected days|controls/WeekdayChipGroup.qml|next = ordered(next);|next = next;|tst_automation_controls.qml"
+  "weekday chips break the selected binding|controls/WeekdayChipGroup.qml|displaySelected = next;|selected = next; displaySelected = next;|tst_automation_controls.qml"
+  "weekday exclusive mode ignores the clicked day|controls/WeekdayChipGroup.qml|let next = exclusive ? [key] : displaySelected.filter(v => v !== key);|let next = displaySelected.filter(v => v !== key);|tst_automation_controls.qml"
+  "weekday arrow keys do not move focus|controls/WeekdayChipGroup.qml|currentIndex = Math.max(0, Math.min(days.length - 1, currentIndex + step));|currentIndex = currentIndex;|tst_automation_controls.qml"
+  "duplicate time chips are accepted|controls/TimeChipList.qml|if (displayTimes.indexOf(time) !== -1) {|if (false) {|tst_automation_controls.qml"
+  "time chips are not sorted|controls/TimeChipList.qml|const next = sorted(values);|const next = values;|tst_automation_controls.qml"
+  "time chips break the times binding|controls/TimeChipList.qml|displayTimes = next;|times = next; displayTimes = next;|tst_automation_controls.qml"
+  "time field steps the wrong way|controls/TimeField.qml|text = (minutes < 600 ? \"0\" : \"\") + Math.floor(minutes / 60)|text = \"09:00\" + Math.floor(minutes / 60)|tst_automation_controls.qml"
+  "date field accepts invalid dates|controls/DateField.qml|return at.getUTCFullYear() === y && at.getUTCMonth() === m - 1 && at.getUTCDate() === d ? { y: y, m: m, d: d } : null;|return { y: y, m: m, d: d };|tst_automation_controls.qml"
+  "date field does not move months|controls/DateField.qml|highlightedDay = clampDay(y, m, highlightedDay);|return; highlightedDay = clampDay(y, m, highlightedDay);|tst_automation_controls.qml"
+  "date field does not cross month boundaries|controls/DateField.qml|day += daysInMonth(y, m);|day = 1;|tst_automation_controls.qml"
+  "date field breaks the date binding|controls/DateField.qml|displayText = stamp(shown.y, shown.m, day);|date = stamp(shown.y, shown.m, day); displayText = date;|tst_automation_controls.qml"
+  "path field accepts relative paths|controls/PathField.qml|readonly property bool absolute: isAbsolute(displayPath)|readonly property bool absolute: true|tst_automation_controls.qml"
+  "path field opens the wrong folder|controls/PathField.qml|function openFolder(value) { currentFolder = clean(value); errorMessage = \"\"; }|function openFolder(value) { currentFolder = homePath(); errorMessage = \"\"; }|tst_automation_controls.qml"
+  "path field breaks the path binding|controls/PathField.qml|displayPath = chosen;|path = chosen; displayPath = chosen;|tst_automation_controls.qml"
+  "path field judges missing folders by status|controls/PathField.qml| && folderStatus !== FolderListModel.Null||tst_automation_controls.qml"
+  "path field re-sends edited after the folder settles|controls/PathField.qml|typedPath !== \"\" && displayPath === typedPath|false|tst_automation_controls.qml"
+  "path field keeps a written-back typed path pending|controls/PathField.qml|if (path !== typedPath) typedPath = \"\";|typedPath = \"\";|tst_automation_controls.qml"
+  "path field judges the browsed folder against the chosen one|controls/PathField.qml|readonly property bool folderFound: actualFolder === currentFolder && folderSettled && folderStatus !== FolderListModel.Null|readonly property bool folderFound: actualFolder === clean(displayPath) && folderSettled && folderStatus !== FolderListModel.Null|tst_automation_controls.qml"
+  "the focus ring ignores a text input's focus|foundation/FocusRing.qml|((\"visualFocus\" in target) ? target.visualFocus : target.activeFocus)|target.visualFocus === true|tst_textfield.qml"
+  "focus preview shows no ring|foundation/FocusRing.qml|target.focusPreview === true|false|tst_button.qml"
+  "Return activates no button|controls/Button.qml|Keys.onReturnPressed: KeyNavLogic.activate(root)|Keys.onReturnPressed: {}|tst_button.qml"
+  "text field Escape does not restore the committed text|controls/TextField.qml|if (escapeReverts && text !== committedText) {|if (false && escapeReverts && text !== committedText) {|tst_textfield.qml"
+  "text field Escape no longer reaches the owner|controls/TextField.qml|event.accepted = false;|event.accepted = true;|tst_textfield.qml"
+  "a bar item drops Return|controls/BarItem.qml|Keys.onReturnPressed: KeyNavLogic.activate(root)|Keys.onReturnPressed: {}|tst_jarvis_widget.qml"
+  "a bar item drops keypad Enter|controls/BarItem.qml|Keys.onEnterPressed: KeyNavLogic.activate(root)|Keys.onEnterPressed: {}|tst_jarvis_widget.qml"
+  "the progress fill stays displaced|feedback/ProgressBar.qml|onStopped: fill.x = Qt.binding(() => root.mirrored && !root.indeterminate ? fill.parent.width - fill.width : 0)|onStopped: {}|tst_feedback.qml"
+  "the popover does not count as open|overlay/Popover.qml|onVisibleChanged: root.share(visible)|onVisibleChanged: {}|tst_overlays.qml"
+  "a hidden anchor leaves its popup open|overlay/AnchorTracker.qml|function onVisibleChanged() { if (!target.visible) tracker.popup.visible = false; }|function onVisibleChanged() {}|tst_overlays.qml"
+  "a moved anchor leaves its popup behind|overlay/AnchorTracker.qml|if (popup.visible) popup.anchor.updateAnchor();|return;|tst_overlays.qml"
+  "the tooltip opens under an open overlay|overlay/Tooltip.qml|if (root.resting && OverlayState.open === 0) window.visible = true|if (root.resting) window.visible = true|tst_overlays.qml"
+  "the tooltip opens again over what a press opened|overlay/Tooltip.qml|onPressedChanged: if (pressed) root.pressedHere = true|onPressedChanged: {}|tst_overlays.qml"
+  "the menu stays open after a trigger|overlay/Menu.qml|function onTriggered() { root.close(); }|function onTriggered() {}|tst_overlays.qml"
+  "the menu keys move no highlight|overlay/Menu.qml|item.highlighted = index === currentIndex;|item.highlighted = false;|tst_overlays.qml"
+  "the menu window stays at the minimum width|overlay/Menu.qml|Math.max(Theme.menu.minWidth, Math.ceil(root.widest) + 2 * Theme.border.thin))|Math.max(Theme.menu.minWidth, 0))|tst_overlays.qml"
+  "the menu window drops a fraction of its widest entry|overlay/Menu.qml|Math.ceil(root.widest) + 2 * Theme.border.thin|root.widest + 2 * Theme.border.thin|tst_overlays.qml"
+  "the menu grows past its maximum height|overlay/Menu.qml|Math.min(column.implicitHeight, root.maxHeight)|column.implicitHeight|tst_overlays.qml"
+  "the highlight scrolls out of view|overlay/Menu.qml|flickable: scroll|flickable: null|tst_overlays.qml"
+  "the menu opens on no entry whatever is checked|overlay/Menu.qml|currentIndex = items().findIndex(item => reachable(item) && item.checked);|currentIndex = -1;|tst_overlays.qml"
+  "the typed letters are never cleared|foundation/KeyNav.qml|onTriggered: root.typed = \"\"|onTriggered: {}|tst_overlays.qml"
+  "the checked entry draws no mark|overlay/MenuItem.qml|visible: root.checked|visible: false|tst_overlays.qml"
+  "the check mark takes no room|overlay/MenuItem.qml|rightPadding: sidePadding + barRoom + (checked ? Theme.icon.size.sm + spacing : 0)|rightPadding: sidePadding + barRoom|tst_overlays.qml"
+  "a menu entry's text runs under the bar|overlay/MenuItem.qml|rightPadding: sidePadding + barRoom + (|rightPadding: sidePadding + (|tst_overlays.qml"
+  "a menu entry's check mark sits under the bar|overlay/MenuItem.qml|x: root.width - root.sidePadding - root.barRoom - width|x: root.width - root.sidePadding - width|tst_overlays.qml"
+  "an overflowing menu leaves its entries no room for the bar|overlay/Menu.qml|scroll.overflowing ? Theme.scrollArea.gutter : 0|0|tst_overlays.qml"
+  "the scroll area keeps its gutter under the bar over rows|layout/ScrollArea.qml|contentWidth: width - (barOverContent ? 0 : rightInset)|contentWidth: width - rightInset|tst_overlays.qml"
+  "the scroll area leaves no gutter|layout/ScrollArea.qml|contentWidth: width - (barOverContent ? 0 : rightInset)|contentWidth: width|tst_scroll.qml"
+  "the scroll area's gutter comes and goes with the overflow|layout/ScrollArea.qml|contentWidth: width - (barOverContent ? 0 : rightInset)|contentWidth: overflowing ? width - rightInset : width|tst_scroll.qml"
+  "the scroll area drops content height while its ancestor is hidden|layout/ScrollArea.qml|if (!child.visible && root.visible) continue;|if (!child.visible) continue;|tst_scroll.qml"
+  "keyboard scroll ring ignores tab focus|layout/ScrollArea.qml|target: keyboardFocus|target: root|tst_scroll.qml"
+  "keyboard scroll ring ignores shortcut focus|layout/ScrollArea.qml|visible: root.keyboardScroll && keyboardFocus.visualFocus|visible: false|tst_scroll.qml"
+  "keyboard scroll ring shows for pointer focus|layout/ScrollArea.qml|visible: root.keyboardScroll && keyboardFocus.visualFocus|visible: root.keyboardScroll && keyboardFocus.activeFocus|tst_scroll.qml"
+  "keyboard scroll area takes a second tab stop|layout/ScrollArea.qml|activeFocusOnTab: false|activeFocusOnTab: keyboardScroll|tst_scroll.qml"
+  "keyboard scroll keys move nothing|layout/ScrollArea.qml|Keys.onPressed: event => { event.accepted = root.handleScrollKey(event); }|Keys.onPressed: event => {}|tst_scroll.qml"
+  "the bar shows without an overflow|layout/ScrollBar.qml|    visible: needed|    visible: true|tst_scroll.qml"
+  "float noise past the view reads as an overflow|layout/ScrollBar.qml|readonly property bool needed: maxY >= 0.5|readonly property bool needed: maxY > 0|tst_scroll.qml"
+  "a scroll area that fits takes every press|layout/ScrollArea.qml|    interactive: overflowing|    interactive: true|tst_pane.qml"
+  "a finger's delta moves a view one pixel per pixel|layout/TouchpadScrollLogic.js|const exact = delta * GAIN + carry;|const exact = delta + carry;|tst_touchpadscroll.qml"
+  "a touchpad delta drops its fraction|layout/TouchpadScroll.qml|carry = Qt.point(x.carry, y.carry);|carry = Qt.point(0, y.carry * 0);|tst_touchpadscroll.qml"
+  "a touchpad delta leaves the view's bounds|layout/TouchpadScroll.qml|view.contentY = Logic.clamp(view.contentY + y.move, top, view.originY + view.contentHeight + view.bottomMargin - view.height);|view.contentY = view.contentY + y.move;|tst_touchpadscroll.qml"
+  "a horizontal touchpad delta moves nothing|layout/TouchpadScroll.qml|view.contentX = Logic.clamp(view.contentX + x.move, left, view.originX + view.contentWidth + view.rightMargin - view.width);|view.contentX = view.contentX;|tst_touchpadscroll.qml"
+  "a lift coasts nothing|layout/TouchpadScroll.qml|view.flick(-Logic.flickVelocity(coast.x, view.flickDeceleration), -Logic.flickVelocity(coast.y, view.flickDeceleration));|{}|tst_touchpadscroll.qml"
+  "a lift coasts the wrong way|layout/TouchpadScroll.qml|-Logic.flickVelocity(coast.y, view.flickDeceleration)|Logic.flickVelocity(coast.y, view.flickDeceleration)|tst_touchpadscroll.qml"
+  "a coast ignores its view's deceleration|layout/TouchpadScroll.qml|-Logic.flickVelocity(coast.y, view.flickDeceleration)|-Logic.flickVelocity(coast.y, 1500)|tst_touchpadscroll.qml"
+  "a coast ignores GTK's friction|layout/TouchpadScrollLogic.js|const scale = 1000 / span * GAIN / FRICTION;|const scale = 1000 / span * GAIN;|tst_touchpadscroll.qml"
+  "fingers that rested still coast|layout/TouchpadScrollLogic.js|at - last.at > VELOCITY_WINDOW_MS|false|tst_touchpadscroll.qml"
+  "a lift keeps the swipe's deltas|layout/TouchpadScroll.qml|        history = [];|        history = history;|tst_touchpadscroll.qml"
+  "a lift keeps the swipe's fraction|layout/TouchpadScroll.qml|carry = Qt.point(0, 0);|carry = carry;|tst_touchpadscroll.qml"
+  "the touchpad area swallows a mouse wheel|layout/TouchpadScroll.qml|wheel.accepted = false;|wheel.accepted = true;|tst_touchpadscroll.qml"
+  "a view that fits takes a swipe|layout/TouchpadScroll.qml|    enabled: view.interactive|    enabled: true|tst_touchpadscroll.qml"
+  "a view takes a swipe along an axis it does not scroll on|layout/TouchpadScroll.qml|if (!scrolls(dx, dy)) return false;|if (false) return false;|tst_touchpadscroll.qml"
+  "a view reads every swipe as a vertical one|layout/TouchpadScroll.qml|Math.abs(dx) > Math.abs(dy) ? view.contentWidth|false ? view.contentWidth|tst_touchpadscroll.qml"
+  "the touchpad area lies over the content|layout/TouchpadScroll.qml|    z: -1|    z: 1|tst_touchpadscroll.qml"
+  "the touchpad area stays at the content's start|layout/TouchpadScroll.qml|    y: view.contentY|    y: 0|tst_touchpadscroll.qml"
+  "the touchpad area takes the left button|layout/TouchpadScroll.qml|    acceptedButtons: Qt.NoButton|    acceptedButtons: Qt.LeftButton|tst_touchpadscroll.qml"
+  "a scroll area counts its touchpad area as content|layout/ScrollArea.qml|if (child === touchpad) continue;|if (child === null) continue;|tst_touchpadscroll.qml"
+  "a scroll area declares no touchpad scroll|layout/ScrollArea.qml|TouchpadScroll { id: touchpad; view: root }|Item { id: touchpad }|tst_touchpadscroll.qml"
+  "the touchpad area stays where it is declared|layout/TouchpadScroll.qml|    parent: view.contentItem|    parent: view|tst_touchpadscroll.qml"
+  "the thumb shrinks below its minimum|layout/ScrollBar.qml|Math.max(Theme.scrollArea.minThumb, height * flickable.height / flickable.contentHeight)|height * flickable.height / flickable.contentHeight|tst_scroll.qml"
+  "the thumb is not the view's share|layout/ScrollBar.qml|Math.max(Theme.scrollArea.minThumb, height * flickable.height / flickable.contentHeight)|Theme.scrollArea.minThumb|tst_scroll.qml"
+  "dragging the thumb scrolls nothing|layout/ScrollBar.qml|if (pressed) root.dragTo(mapToItem(root, 0, mouse.y).y - grab);|if (pressed) {}|tst_scroll.qml"
+  "the dragged thumb jumps to the pointer|layout/ScrollBar.qml|root.dragTo(mapToItem(root, 0, mouse.y).y - grab)|root.dragTo(mapToItem(root, 0, mouse.y).y)|tst_scroll.qml"
+  "a press on the track pages nothing|layout/ScrollBar.qml|onPressed: mouse => root.page(mouse.y < thumbItem.y ? -1 : 1)|onPressed: mouse => {}|tst_scroll.qml"
+  "a press on the track always pages down|layout/ScrollBar.qml|onPressed: mouse => root.page(mouse.y < thumbItem.y ? -1 : 1)|onPressed: mouse => root.page(1)|tst_scroll.qml"
+  "the idle bar never fades|layout/ScrollBar.qml|opacity: active ? 1 : Theme.scrollArea.idleOpacity|opacity: 1|tst_scroll.qml"
+  "scrolling does not show the bar|layout/ScrollBar.qml|function onContentYChanged() { recent.restart(); }|function onContentYChanged() {}|tst_scroll.qml"
+  "hovering does not show the bar|layout/ScrollBar.qml|readonly property bool active: hovered|readonly property bool active: false|tst_scroll.qml"
+  "the pane lays the scroll area outside the content edge|layout/Pane.qml|width: Math.max(0, root.width - root.contentInset + root.ringRoom)|width: root.contentWidth + root.ringRoom|tst_pane.qml"
+  "the pane ignores the container radius|layout/Pane.qml|radius: root.cornerRadius|radius: 0|tst_pane.qml"
+  "the pane ignores the dialog component padding|layout/Pane.qml|case \"dialog\": return Theme.dialog.padding;|case \"dialog\": return Theme.inset.dialog;|tst_pane.qml"
+  "a slot reads its children's laid-out boxes|layout/Pane.qml|widest = Math.max(widest, child.implicitWidth);|widest = Math.max(widest, child.x + child.width);|tst_pane.qml"
+  "the body's room keeps no gap before the footer|layout/Pane.qml| - (footerHeight > 0 ? gap : 0));|);|tst_pane.qml"
+  "the body's room keeps no gap after the header|layout/Pane.qml| - (headerHeight > 0 ? gap : 0) - | - |tst_pane.qml"
+  "the terminal's content ignores the window corner|../plugins/vgs.themes/DesktopPreview.qml|anchors.margins: root.contentInset(terminal)|anchors.margins: Theme.desktopPreview.padding|tst_desktoppreview.qml"
+  "the editor's content ignores the window corner|../plugins/vgs.themes/DesktopPreview.qml|anchors.margins: root.contentInset(editor)|anchors.margins: Theme.desktopPreview.padding|tst_desktoppreview.qml"
+  "the notification's content ignores the window corner|../plugins/vgs.themes/DesktopPreview.qml|anchors.margins: root.contentInset(notification)|anchors.margins: Theme.desktopPreview.padding|tst_desktoppreview.qml"
+  "the windows end at the right side's overhang|../plugins/vgs.themes/DesktopPreview.qml|readonly property real windowBottom: height - root.safeInset|readonly property real windowBottom: height - root.safeRight|tst_desktoppreview.qml"
+  "a theme view that goes leaves its card wanted|../plugins/vgs.themes/ThemeView.qml|Component.onDestruction: previews.want(\"\")|Component.onDestruction: {}|tst_themes_browser.qml"
+  "the rail draws no kept preview|../plugins/vgs.themes/ThemeView.qml|const sharpened = root.previews.cache[card.name] === undefined ? card :|const sharpened = true ? card :|tst_themes_browser.qml"
+  "a kept preview is wanted as one to start|../plugins/vgs.themes/ThemePreviews.qml|return name !== \"\" && cache[name] === undefined && running !== name;|return name !== \"\" && running !== name;|tst_themes_browser.qml"
+  "a kept preview starts again|../plugins/vgs.themes/ThemePreviews.qml|cache[name] !== undefined) return;|false) return;|tst_themes_browser.qml"
+  "the launcher walks an order its apps menu swap replaced|../plugins/vgs.launcher/Launcher.qml|const next = MenuModel.swapAppMenus(root.items, root.itemOrder, root.providersLoaded, root.desktopApps());|for (const id of root.itemOrder) if (root.items[id].provider === \"apps\" && root.providersLoaded[id]) root.mergeAppRows(id); const next = { items: root.items };|tst_launcher_apps.qml"
+  "a theme preview's answer lives only as long as the view|../plugins/vgs.themes/Browser.qml|item.previews = previews;|item.previews = Qt.createComponent(\"ThemePreviews.qml\").createObject(item, { shell: root.shell });|tst_themes_browser.qml"
+  "the Jarvis widget drops a click|../plugins/vgs.jarvis/Widget.qml|onClicked: root.toggleMute()|onClicked: {}|tst_jarvis_widget.qml"
+  "the Jarvis widget calls another handler|../plugins/vgs.jarvis/Widget.qml|shell.ipc.call(\"mute\", \"\")|shell.ipc.call(\"stop\", \"\")|tst_jarvis_widget.qml"
+  "the Jarvis widget keeps one icon|../plugins/vgs.jarvis/Widget.qml|iconName: root.view.icon|iconName: \"mic\"|tst_jarvis_widget.qml"
+  "the Jarvis widget draws working in the accent|../plugins/vgs.jarvis/Widget.qml|case \"info\": return Theme.badge.tone.info.foreground;|case \"info\": return Theme.badge.tone.accent.foreground;|tst_jarvis_widget.qml"
+  "the Jarvis widget draws an unknown tone|../plugins/vgs.jarvis/Widget.qml|default: throw new Error(\"jarvis widget: tone \"|default: return Theme.bar.foreground; throw new Error(\"jarvis widget: tone \"|tst_jarvis_widget.qml"
+  "the Jarvis daemon loses the Wayland display|../plugins/vgs.jarvis/Service.qml|            WAYLAND_DISPLAY: Quickshell.env(\"WAYLAND_DISPLAY\"),||tst_jarvis_service.qml"
+  "the Jarvis daemon loses the Hyprland session|../plugins/vgs.jarvis/Service.qml|            HYPRLAND_INSTANCE_SIGNATURE: Quickshell.env(\"HYPRLAND_INSTANCE_SIGNATURE\"),||tst_jarvis_service.qml"
+  "the body's room ignores the footer|layout/Pane.qml| - headerHeight - footerHeight - | - headerHeight - |tst_pane.qml"
+  "an overlay pane takes the panel inset|layout/Pane.qml|case \"overlay\": return Theme.inset.overlay;|case \"overlay\": return Theme.surface.padding;|tst_pane.qml"
+  "an overlay pane clears a corner it does not draw|layout/Pane.qml|case \"overlay\": return 0;|case \"overlay\": return Theme.surface.radius;|tst_pane.qml"
+  "the pane drops the gap between a header and footer without a body|layout/Pane.qml|readonly property real headerGap: headerHeight > 0 && contentBelowHeader ? gap : 0|readonly property real headerGap: headerHeight > 0 && bodyContentHeight > 0 ? gap : 0|tst_pane.qml"
+  "the pane does not cap fitted content|layout/Pane.qml|readonly property real cappedHeight: maximumHeight > 0 ? Math.min(uncappedHeight, maximumHeight) : uncappedHeight|readonly property real cappedHeight: uncappedHeight|tst_pane.qml"
+  "the pane's footer sits on the body|layout/Pane.qml|y: scroll.y + scroll.height - root.ringRoom + root.footerGap|y: scroll.y + scroll.height - root.ringRoom|tst_pane.qml"
+  "a long select list leaves its entries no room for the bar|controls/Select.qml| + (entries.overflowing ? Theme.scrollArea.gutter : 0)||tst_scroll.qml"
+  "the select entries keep a gutter|controls/Select.qml|                width: ListView.view.width|                width: ListView.view.width - Theme.scrollArea.gutter|tst_overlays.qml"
+  "key hints merge alternative keys into one chord|feedback/KeyHints.qml|return key.indexOf(\"/\") === -1 ? [key] : key.split(\"/\").map(part => part.trim()).filter(part => part !== \"\");|return [key];|tst_layout.qml"
+  "slider Up does not step|controls/Slider.qml|if (event.key === Qt.Key_Up) commit(value + (stepSize > 0 ? stepSize : pageStep));|if (event.key === Qt.Key_Up) {}|tst_slider.qml"
+  "slider Home does not reach the minimum|controls/Slider.qml|else if (event.key === Qt.Key_Home) commit(from);|else if (event.key === Qt.Key_Home) {}|tst_slider.qml"
+  "slider PageUp ignores pageStep|controls/Slider.qml|else if (event.key === Qt.Key_PageUp) commit(value + pageStep);|else if (event.key === Qt.Key_PageUp) {}|tst_slider.qml"
+  "slider keys emit no moved signal|controls/Slider.qml|        root.moved();|        if (false) root.moved();|tst_slider.qml"
+  "a click leaves the title's menu closed|controls/TitleButton.qml|onClicked: toggleMenu()|onClicked: {}|tst_titlebutton.qml"
+  "down leaves the title's menu closed|controls/TitleButton.qml|Keys.onDownPressed: toggleMenu()|Keys.onDownPressed: {}|tst_titlebutton.qml"
+  "the title ignores hover|controls/TitleButton.qml|readonly property color foreground: hovered|readonly property color foreground: false && hovered|tst_titlebutton.qml"
+  "the underline sits on the text|controls/TitleButton.qml|y: label.height + Theme.titleButton.underlineGap|y: label.height|tst_titlebutton.qml"
+  "the caret touches the text|controls/TitleButton.qml|x: label.width + root.spacing|x: label.width|tst_titlebutton.qml"
+  "a narrow title overflows its button|controls/TitleButton.qml|width: Math.min(implicitWidth, parent.width - root.spacing - caret.width)|width: implicitWidth|tst_titlebutton.qml"
+  "the select accepts an index past its end|controls/Select.qml|index >= count) return;|index >= count + 100) return;|tst_overlays.qml"
+  "the select ignores its text role|controls/Select.qml|return String(entry[textRole]);|return String(entry);|tst_overlays.qml"
+  "the select breaks its index binding on the current choice|controls/Select.qml|if (index !== currentIndex) currentIndex = index;|currentIndex = index;|tst_overlays.qml"
+  "the select emits no user choice|controls/Select.qml|        activated(index);|        if (false) activated(index);|tst_overlays.qml"
+  "the select activates on a model refresh|controls/Select.qml|signal activated(int index)|signal activated(int index); onModelChanged: activated(currentIndex)|tst_overlays.qml"
+  "the closed select wraps around|controls/Select.qml|        wrap: false /* closed select */|        wrap: true /* closed select */|tst_overlays.qml"
+  "the open select wraps around|controls/Select.qml|                wrap: false /* open select */|                wrap: true /* open select */|tst_overlays.qml"
+  "the toast ignores its tone|feedback/Toast.qml|const found = Theme.badge.tone[name];|const found = undefined;|tst_overlays.qml"
+  "a press on the dialog's card reaches what lies under it|feedback/Dialog.qml|acceptedButtons: Qt.AllButtons|acceptedButtons: Qt.NoButton|tst_dialog.qml"
+  "a right press on the dialog's card reaches what lies under it|feedback/Dialog.qml|acceptedButtons: Qt.AllButtons|acceptedButtons: Qt.LeftButton|tst_dialog.qml"
+  "the hover on the dialog's card reaches what lies under it|feedback/Dialog.qml|            hoverEnabled: true|            hoverEnabled: false|tst_dialog.qml"
+  "the wheel on the dialog's card reaches what lies under it|feedback/Dialog.qml|onWheel: wheel => { wheel.accepted = root.modal; }|onWheel: wheel => { wheel.accepted = false; }|tst_dialog.qml"
+  "an inline dialog's card keeps the wheel from the page under it|feedback/Dialog.qml|onWheel: wheel => { wheel.accepted = root.modal; }|onWheel: wheel => { wheel.accepted = true; }|tst_dialog.qml"
+  "Return answers no dialog|feedback/Dialog.qml|Keys.onReturnPressed: pressFocused()|Keys.onReturnPressed: {}|tst_dialog.qml"
+  "Escape leaves the dialog unanswered|feedback/Dialog.qml|Keys.onEscapePressed: event => { if (modal && !busy) rejected(); else event.accepted = false; }|Keys.onEscapePressed: event => { event.accepted = false; }|tst_dialog.qml"
+  "Escape answers a busy dialog|feedback/Dialog.qml|Keys.onEscapePressed: event => { if (modal && !busy) rejected(); else event.accepted = false; }|Keys.onEscapePressed: event => { if (modal) rejected(); else event.accepted = false; }|tst_dialog.qml"
+  "the dialog's focus stays on the action last clicked|feedback/Dialog.qml|onActiveFocusChanged: if (activeFocus) takeFocus()|onActiveFocusChanged: {}|tst_dialog.qml"
+  "a dialog's initial focus item takes no focus|feedback/Dialog.qml|if (initialFocus !== null && initialFocus.enabled) initialFocus.forceActiveFocus();|if (false) initialFocus.forceActiveFocus();|tst_dialog.qml"
+  "Tab skips the dialog's listed content items|feedback/Dialog.qml|const items = Array.from(tabItems).filter(item => item.enabled && shown(item));|const items = [];|tst_dialog.qml"
+  "Tab reaches a hidden listed content item|feedback/Dialog.qml|filter(item => item.enabled && shown(item))|filter(item => item.enabled)|tst_dialog.qml"
+  "Tab skips the dialog's initial focus item|feedback/Dialog.qml|const lead = initialFocus !== null && initialFocus.enabled && !items.includes(initialFocus) ? [initialFocus] : [];|const lead = [];|tst_dialog.qml"
+  "the dialog's first action takes the focus|feedback/Dialog.qml|const target = accept !== undefined && accept.enabled ? accept : enabled[0];|const target = enabled[0];|tst_dialog.qml"
+  "Tab stops at the dialog's last action|feedback/Dialog.qml|reach[(at + step + reach.length) % reach.length]|reach[Math.max(0, Math.min(at + step, reach.length - 1))]|tst_dialog.qml"
+  "modal dialog lets Tab leave|feedback/Dialog.qml|property bool modal: true|property bool modal: false|tst_dialog.qml"
+  "Tab focus draws no ring in the dialog|feedback/Dialog.qml|next.forceActiveFocus(step > 0 ? Qt.TabFocusReason : Qt.BacktabFocusReason)|next.forceActiveFocus()|tst_dialog.qml"
+  "a pressed dialog action answers nothing|feedback/Dialog.qml|onClicked: root.trigger(index)|onClicked: {}|tst_dialog.qml"
+  "a cancel action draws the accept variant|feedback/Dialog.qml|role === \"accept\" ? \"primary\" : \"tertiary\"|\"primary\"|tst_dialog.qml"
+  "an unknown action role accepts|feedback/Dialog.qml|role = \"cancel\";|role = \"accept\";|tst_dialog.qml"
+  "a busy dialog's actions stay enabled|feedback/Dialog.qml|enabled: modelData.enabled && !root.busy|enabled: modelData.enabled|tst_dialog.qml"
+  "a busy dialog answers|feedback/Dialog.qml|const answers = !busy && entry|const answers = entry|tst_dialog.qml"
+  "a disabled dialog action answers|feedback/Dialog.qml|entry !== undefined && entry.enabled;|entry !== undefined;|tst_dialog.qml"
+  "a busy dialog shows no spinner|feedback/Dialog.qml|visible: root.busy|visible: false|tst_dialog.qml"
+  "the dialog's title ignores its role token|feedback/Dialog.qml|role: Theme.dialog.titleRole|role: \"h3\"|tst_dialog.qml"
+  "the dialog's message ignores its role token|feedback/Dialog.qml|role: Theme.dialog.bodyRole|role: \"body\"|tst_dialog.qml"
+  "the dialog's card ignores its background token|feedback/Dialog.qml|color: Theme.dialog.background|color: Theme.color.surface|tst_dialog.qml"
+  "the dialog's content is hidden|feedback/Dialog.qml|visible: children.length > 0|visible: false|tst_dialog.qml"
+  "a dialog ignores its maximum height|feedback/Dialog.qml|implicitHeight: pane.implicitHeight|implicitHeight: pane.uncappedHeight|tst_dialog.qml"
+  "a dialog without an available height ignores its screen|feedback/Dialog.qml|const height = availableHeight > 0 ? availableHeight : root.screenHeight();|const height = availableHeight;|tst_dialog.qml"
+  "the card leans by a fixed skew|layout/AngledCard.qml|property real skew: Theme.angledCard.skew|property real skew: 28|tst_angledcard.qml"
+  "the card's top edge does not lean|layout/AngledCard.qml|Qt.point(Math.max(skew, 0), 0),|Qt.point(0, 0),|tst_angledcard.qml"
+  "a negative skew leans the card as a positive one|layout/AngledCard.qml|Qt.point(-Math.min(skew, 0), height)|Qt.point(0, height)|tst_angledcard.qml"
+  "the card's outline is left open|layout/AngledCard.qml|readonly property var outline: corners.concat([corners[0]])|readonly property var outline: corners|tst_angledcard.qml"
+  "the card's content is not masked|layout/AngledCard.qml|maskEnabled: true|maskEnabled: false|tst_angledcard.qml"
+  "the card's mask has no coverage|layout/AngledCard.qml|strokeColor: \"transparent\"|strokeColor: \"transparent\"; fillColor: \"transparent\"|tst_angledcard.qml"
+  "a selected card is washed|layout/AngledCard.qml|property bool dimmed: !selected|property bool dimmed: true|tst_angledcard.qml"
+  "the card's wash ignores dimmed|layout/AngledCard.qml|visible: root.dimmed|visible: !root.selected|tst_angledcard.qml"
+  "the card's wash ignores its token|layout/AngledCard.qml|: Theme.angledCard.dim|: Theme.color.scrim|tst_angledcard.qml"
+  "a hovered card keeps its wash|layout/AngledCard.qml|color: root.hovered ? Theme.angledCard.hoverDim : |color: |tst_angledcard.qml"
+  "a hovered card keeps its outline|layout/AngledCard.qml| : root.hovered ? Theme.angledCard.hoverBorder : | : |tst_angledcard.qml"
+  "a hovered selected card draws the hover outline|layout/AngledCard.qml|strokeColor: root.selected ? Theme.angledCard.selectedBorder : root.hovered|strokeColor: root.hovered ? Theme.angledCard.hoverBorder : root.selected ? Theme.angledCard.selectedBorder : root.hovered|tst_angledcard.qml"
+  "a selected card draws the plain outline width|layout/AngledCard.qml|strokeWidth: root.selected ? Theme.angledCard.selectedBorderWidth : Theme.angledCard.borderWidth|strokeWidth: Theme.angledCard.borderWidth|tst_angledcard.qml"
+  "a selected card draws the plain outline colour|layout/AngledCard.qml|strokeColor: root.selected ? Theme.angledCard.selectedBorder : |strokeColor: |tst_angledcard.qml"
+  "the carousel's unit ignores its height|layout/CardCarousel.qml|Math.min(tokens.maxScale, root.width / reference, root.height / tokens.expandedHeight)|Math.min(tokens.maxScale, root.width / reference)|tst_carousel.qml"
+  "the carousel's unit ignores its width|layout/CardCarousel.qml|Math.min(tokens.maxScale, root.width / reference, root.height / tokens.expandedHeight)|Math.min(tokens.maxScale, root.height / tokens.expandedHeight)|tst_carousel.qml"
+  "the carousel's unit falls below its minimum|layout/CardCarousel.qml|Math.max(tokens.minScale, |Math.max(0, |tst_carousel.qml"
+  "the carousel's unit rises past its maximum|layout/CardCarousel.qml|Math.min(tokens.maxScale, |Math.min(Infinity, |tst_carousel.qml"
+  "the reference rail leaves no margin|layout/CardCarousel.qml| + 2 * tokens.referenceMargin||tst_carousel.qml"
+  "the rail is not centred down the carousel|layout/CardCarousel.qml|readonly property real top: (root.height - expandedHeight) / 2|readonly property real top: 0|tst_carousel.qml"
+  "the slices are not centred on the expanded card|layout/CardCarousel.qml|sliceTop: top + (expandedHeight - sliceHeight) / 2|sliceTop: top|tst_carousel.qml"
+  "the right slices do not overlap the expanded card|layout/CardCarousel.qml|left + expandedWidth - overlap + (offset - 1) * pitch|left + expandedWidth + (offset - 1) * pitch|tst_carousel.qml"
+  "the left slices step by their width|layout/CardCarousel.qml|left + offset * pitch|left + offset * sliceWidth|tst_carousel.qml"
+  "the overlap does not shorten the slice step|layout/CardCarousel.qml|Math.max(sliceWidth - overlap, 1)|Math.max(sliceWidth, 1)|tst_carousel.qml"
+  "a slice that does not fit whole is shown|layout/CardCarousel.qml|Math.floor(left / pitch)|Math.ceil(left / pitch)|tst_carousel.qml"
+  "no card past the shown slices is built|layout/CardCarousel.qml|slicesPerSide + tokens.band|slicesPerSide|tst_carousel.qml"
+  "a built card past the shown slices is drawn|layout/CardCarousel.qml|visible: shown|visible: retained|tst_carousel.qml"
+  "the card's lean does not scale with the rail|layout/CardCarousel.qml|Theme.angledCard.skew * unit|Theme.angledCard.skew|tst_carousel.qml"
+  "the current card is not selected|layout/CardCarousel.qml|selected: slot.offset === 0|selected: false|tst_carousel.qml"
+  "the card nearer the current one is not on top|layout/CardCarousel.qml|z: -Math.abs(offset)|z: 0|tst_carousel.qml"
+  "a slice decodes in pixels, not device pixels|layout/CardCarousel.qml|Qt.size(Math.round(sliceWidth * root.devicePixelRatio), Math.round(sliceHeight * root.devicePixelRatio))|Qt.size(Math.round(sliceWidth), Math.round(sliceHeight))|tst_carousel.qml"
+  "the full decode has no cap|layout/CardCarousel.qml|Math.min(1, tokens.decodeCap / (Math.max(expandedWidth, expandedHeight) * root.devicePixelRatio))|1|tst_carousel.qml"
+  "the neighbours decode at the slice size|layout/CardCarousel.qml|neighbour ? internal.fullDecode|offset === 0 ? internal.fullDecode|tst_carousel.qml"
+  "the wrap neighbour is not prepared|layout/CardCarousel.qml|cards.count > 1 &&|false &&|tst_carousel.qml"
+  "a card's decode size stays as it was built|layout/CardCarousel.qml|content.decodeSize = Qt.binding(() => slot.decodeSize);||tst_carousel.qml"
+  "a card's model data is not rebound to its slot|layout/CardCarousel.qml|content.modelData = Qt.binding(() => slot.modelData);||tst_carousel.qml"
+  "the carousel does not tell a delegate it is current|layout/CardCarousel.qml|content.current = Qt.binding(() => slot.offset === 0);|content.current = false;|tst_carousel.qml"
+  "a click on a slice selects nothing|layout/CardCarousel.qml|else root.currentIndex = slot.index;|else {}|tst_carousel.qml"
+  "a click on the current card activates nothing|layout/CardCarousel.qml|if (slot.offset === 0) root.activated(slot.index);|if (slot.offset === 0) {}|tst_carousel.qml"
+  "an empty state is one row tall|feedback/EmptyState.qml|implicitHeight: 3 * Theme.listItem.twoLineHeight|implicitHeight: Theme.listItem.twoLineHeight|tst_emptystate.qml"
+  "an empty state draws an unnamed icon|feedback/EmptyState.qml|visible: root.iconName !== \"\"|visible: true|tst_emptystate.qml"
+  "an empty state draws an unnamed action|feedback/EmptyState.qml|visible: root.actionText !== \"\"|visible: true|tst_emptystate.qml"
+  "an empty state's action emits nothing|feedback/EmptyState.qml|onClicked: root.activated()|onClicked: {}|tst_emptystate.qml"
+  "an empty state's parts touch|feedback/EmptyState.qml|spacing: Theme.stack.group|spacing: 0|tst_emptystate.qml"
+  "an empty state sits at its top|feedback/EmptyState.qml|anchors.centerIn: parent|anchors.horizontalCenter: parent.horizontalCenter|tst_emptystate.qml"
+  "a click lands on a card's bounding box|layout/CardCarousel.qml|return internal.inside(card, point);|return true;|tst_carousel.qml"
+  "a card follows no pointer|layout/CardCarousel.qml|hovered: pointer.containsMouse|hovered: false|tst_carousel.qml"
+  "the rail asks no height of its width|layout/CardCarousel.qml|implicitHeight: Theme.carousel.expandedHeight * internal.widthUnit|implicitHeight: Theme.carousel.expandedHeight|tst_carousel.qml"
+  "the asked height falls below the minimum unit|layout/CardCarousel.qml|Math.max(root.width / reference, tokens.minScale)|(root.width / reference)|tst_carousel.qml"
+  "the asked height rises past the maximum unit|layout/CardCarousel.qml|, tokens.minScale), tokens.maxScale)|, tokens.minScale), Infinity)|tst_carousel.qml"
+  "Backtab steps nowhere|layout/CardCarousel.qml|case Qt.Key_Backtab:|case Qt.Key_unknown:|tst_carousel.qml"
+  "Shift+Tab steps forward|layout/CardCarousel.qml|step(event.modifiers & Qt.ShiftModifier ? -1 : 1);|step(1);|tst_carousel.qml"
+  "the carousel step moves nowhere|layout/CardCarousel.qml|nav.moveBy(delta);|return;|tst_carousel.qml"
+  "a part-notch steps|layout/CardCarousel.qml|Math.trunc(internal.wheel / internal.notch)|Math.sign(internal.wheel)|tst_carousel.qml"
+  "a part-notch is dropped|layout/CardCarousel.qml|internal.wheel -= notches * internal.notch;|internal.wheel = 0;|tst_carousel.qml"
+  "the wheel steps the other way|layout/CardCarousel.qml|root.step(-notches);|root.step(notches);|tst_carousel.qml"
+  "a sideways wheel steps nothing|layout/CardCarousel.qml|wheel.angleDelta.y !== 0 ? wheel.angleDelta.y : wheel.angleDelta.x|wheel.angleDelta.y|tst_carousel.qml"
+  "a hidden carousel keeps a part-notch|layout/CardCarousel.qml|            wheel = 0;|            wheel = wheel;|tst_carousel.qml"
+  "the rail shows before it settles|layout/CardCarousel.qml|visible: internal.settled|visible: true|tst_carousel.qml"
+  "a carousel shown again stays settled|layout/CardCarousel.qml|            settled = false;|            settled = settled;|tst_carousel.qml"
+  "a seeded index glides before the rail settles|layout/CardCarousel.qml|const glides = settled && |const glides = |tst_carousel.qml"
+  "a move past the shown slices glides|layout/CardCarousel.qml| && Math.abs(target - position) <= slicesPerSide;|;|tst_carousel.qml"
+  "a move within the shown slices lands at once|layout/CardCarousel.qml|glide.start();|position = target;|tst_carousel.qml"
+  "a change of the current index moves nothing|layout/CardCarousel.qml|onCurrentIndexChanged: internal.follow()|onCurrentIndexChanged: {}|tst_carousel.qml"
+  "a card the glide leaves is hidden at once|layout/CardCarousel.qml|Math.min(Math.abs(offset), Math.abs(index - internal.position))|Math.abs(offset)|tst_carousel.qml"
+  "a card between two places is hidden|layout/CardCarousel.qml|distance < internal.slicesPerSide + 1|distance <= internal.slicesPerSide|tst_carousel.qml"
+  "a card between two places is released|layout/CardCarousel.qml|distance < internal.reach + 1|distance <= internal.reach|tst_carousel.qml"
+  "the rail draws past the carousel|layout/CardCarousel.qml|clip: true|clip: false|tst_carousel.qml"
+  "a delegate without decodeSize is kept|layout/CardCarousel.qml|const built = content !== null && \"decodeSize\" in content;|const built = content !== null;|tst_carousel.qml"
+  "a delegate that built nothing is used|layout/CardCarousel.qml|const built = content !== null && \"decodeSize\" in content;|const built = \"decodeSize\" in content;|tst_carousel.qml"
+  "a refused content stays in its card|layout/CardCarousel.qml|if (content !== null) content.destroy();||tst_carousel.qml"
+  "a card left empty is not named|layout/CardCarousel.qml|console.warn(\"CardCarousel: no content index=\"|void(\"CardCarousel: no content index=\"|tst_carousel.qml"
+  "the rail moves over another duration|layout/CardCarousel.qml|duration: Theme.carousel.duration|duration: Theme.motion.duration.normal|tst_carousel.qml"
+  "the cards jump to the current index|layout/CardCarousel.qml|internal.place(index - internal.position)|internal.place(offset)|tst_carousel.qml"
+  "the cards jump between whole places|layout/CardCarousel.qml|const t = offset - whole;|const t = 0;|tst_carousel.qml"
+  "the scrim does not fill its parent|foundation/Scrim.qml|anchors.fill: parent|anchors.centerIn: parent|tst_scrim.qml"
+  "the scrim draws another colour|foundation/Scrim.qml|color: Theme.color.scrim|color: Theme.color.background|tst_scrim.qml"
+  "a click on the scrim is not reported|foundation/Scrim.qml|onClicked: root.clicked()|onClicked: {}|tst_scrim.qml"
+  "hover over the scrim reaches the control under it|foundation/Scrim.qml|hoverEnabled: true|hoverEnabled: false|tst_scrim.qml"
+  "the wheel over the scrim scrolls the area under it|foundation/Scrim.qml|onWheel: wheel => { wheel.accepted = true; }|onWheel: wheel => { wheel.accepted = false; }|tst_scrim.qml"
+  "a destroyed overlay keeps its count|overlay/Popover.qml|Component.onDestruction: share(false)|Component.onDestruction: {}|tst_overlays.qml"
+  "the menu keys reach a disabled entry|overlay/Menu.qml|function reachable(item) { return item.enabled && item.visible; }|function reachable(item) { return true; }|tst_overlays.qml"
+  "the menu triggers a disabled entry|overlay/Menu.qml|if (currentIndex >= 0 && currentIndex < all.length && reachable(all[currentIndex])) all[currentIndex].triggered();|if (currentIndex >= 0 && currentIndex < all.length) all[currentIndex].triggered();|tst_overlays.qml"
+  "a shown tooltip stays under a new overlay|overlay/Tooltip.qml|function onOpenChanged() { if (OverlayState.open > 0) window.visible = false; }|function onOpenChanged() {}|tst_overlays.qml"
+  "enter leaves the select closed|controls/Select.qml|onActivated: root.openList()|onActivated: {}|tst_overlays.qml"
+  "the list row prefers no width of its own|layout/ListItem.qml|leftPadding + rightPadding + (iconName !== \"\" ? Theme.icon.size.md + Theme.listItem.iconGap : 0) + Math.max(title.implicitWidth, secondaryLabel.implicitWidth)|leftPadding + rightPadding + (iconName !== \"\" ? Theme.icon.size.md + Theme.listItem.iconGap : 0) + 0|tst_layout.qml"
+  "the list row's secondary line keeps paragraph leading|layout/ListItem.qml|role: \"itemHint\"|role: \"hint\"|tst_layout.qml"
+  "a two-line list row stands at the one-line height|layout/ListItem.qml|implicitHeight: Math.max(secondary !== \"\" ? Theme.listItem.twoLineHeight : Theme.listItem.height,|implicitHeight: Math.max(Theme.listItem.height,|tst_layout.qml"
+  "the list row's title keeps paragraph leading|layout/ListItem.qml|role: \"item\"|role: \"body\"|tst_layout.qml"
+  "the list row's title draws markup|layout/ListItem.qml|text: root.text|text: root.text; Component.onCompleted: textFormat = Text.StyledText|tst_layout.qml"
+  "the list row's secondary line draws markup|layout/ListItem.qml|text: root.secondary|text: root.secondary; Component.onCompleted: textFormat = Text.StyledText|tst_layout.qml"
+  "the icon button's icon sits at the top|controls/IconButton.qml|topPadding: leftPadding|topPadding: 0|tst_button.qml"
+  "the icon button rests opaque|controls/IconButton.qml|? Theme.iconButton.restOpacity : 1|? 1 : 1|tst_button.qml"
+  "the icon button ignores focus opacity|controls/IconButton.qml|root.visualFocus|false|tst_button.qml"
+  "the icon button ignores pressed opacity|controls/IconButton.qml|root.down|false|tst_button.qml"
+  "the icon button ignores checked opacity|controls/IconButton.qml|root.checked|false|tst_button.qml"
+  "the icon button ignores hover opacity|controls/IconButton.qml|root.hovered|false|tst_button.qml"
+  "the disabled icon button fades its icon twice|controls/IconButton.qml|? Theme.iconButton.restOpacity : 1|? Theme.iconButton.restOpacity : Theme.iconButton.restOpacity|tst_button.qml"
+  "the button ignores hover|controls/Button.qml|hovered ? tokens.hover :|false ? tokens.hover :|tst_button.qml"
+  "the button ignores press|controls/Button.qml|down ? tokens.pressed :|false ? tokens.pressed :|tst_button.qml"
+  "the button ignores checked|controls/Button.qml|readonly property color fill: checked ?|readonly property color fill: false ?|tst_button.qml"
+  "the button's text does not follow its fill|../Commons/Tokens.js|foreground: color(\"contrast({\" + path + \".background})\")|foreground: color(\"{color.text}\")|tst_button.qml"
+  "the disabled button does not fade|controls/Button.qml|opacity: enabled ? 1 : Theme.opacity.disabled|opacity: 1|tst_button.qml"
+  "the focus ring ignores focus|foundation/FocusRing.qml|((\"visualFocus\" in target) ? target.visualFocus : target.activeFocus)|false|tst_button.qml"
+  "the icon button is not square|controls/IconButton.qml|implicitWidth: controlHeight|implicitWidth: controlHeight * 2|tst_button.qml"
+  "the switch knob does not slide|controls/Switch.qml|x: inset + root.visualPosition * (parent.width - width - 2 * inset)|x: inset|tst_toggles.qml"
+  "the switch ignores its size|controls/Switch.qml|const found = Theme.toggle.size[name];|const found = Theme.toggle.size.md;|tst_toggles.qml"
+  "the toggle width counts the gap twice|controls/Checkbox.qml|implicitWidth: text !== \"\" ? implicitContentWidth : implicitIndicatorWidth|implicitWidth: implicitIndicatorWidth + spacing + implicitContentWidth|tst_toggles.qml"
+  "a clicked segment leaves the keys elsewhere|controls/SegmentedControl.qml|onClicked: { root.forceActiveFocus(Qt.MouseFocusReason); root.choose(index); }|onClicked: root.choose(index)|tst_segmented.qml"
+  "the switch track ignores checked|controls/Switch.qml|color: root.checked ? (root.down ? Theme.toggle.onPressed|color: false ? (root.down ? Theme.toggle.onPressed|tst_toggles.qml"
+  "the checkbox mark ignores checked|controls/Checkbox.qml|visible: root.checked|visible: false|tst_toggles.qml"
+  "the radio dot ignores checked|controls/Radio.qml|visible: root.checked|visible: true|tst_toggles.qml"
+  "the slider fill ignores the value|controls/Slider.qml|width: root.position * parent.width|width: parent.width|tst_slider.qml"
+  "the mirrored slider fills from the left|controls/Slider.qml|x: root.mirrored ? parent.width - width : 0|x: 0|tst_slider.qml"
+  "the segments take the tab focus|controls/SegmentedControl.qml|focusPolicy: Qt.NoFocus|focusPolicy: Qt.StrongFocus|tst_segmented.qml"
+  "the slider handle ignores the value|controls/Slider.qml|x: root.leftPadding + root.visualPosition * (root.availableWidth - width)|x: root.leftPadding|tst_slider.qml"
+  "the text field's outline ignores error|controls/TextField.qml|readonly property color outline: error ? Theme.textField.error :|readonly property color outline: false ? Theme.textField.error :|tst_textfield.qml"
+  "the text field's placeholder never hides|controls/TextField.qml|visible: root.text === \"\" && root.preeditText === \"\"|visible: true|tst_textfield.qml"
+  "the text field's placeholder keeps paragraph leading|controls/TextField.qml|role: \"item\"|role: \"body\"|tst_textfield.qml"
+  "the leading icon reserves no space|controls/TextField.qml|leftPadding: sidePadding + (leadingIcon !== \"\" ? Theme.icon.size.md + Theme.textField.gap : 0)|leftPadding: sidePadding|tst_textfield.qml"
+  "the field shows the hint over the error|controls/Field.qml|text: root.error !== \"\" ? root.error : root.hint|text: root.hint|tst_textfield.qml"
+  "the inline field ignores the label width|controls/FormRow.qml|labelColumn ? Theme.field.labelWidth + Theme.field.labelGap : 0|labelColumn ? Theme.field.labelGap : 0|tst_textfield.qml"
+  "the inline field row follows its content height|controls/FormRow.qml|implicitHeight: labelColumn ? Math.max(Theme.row.height, labelText.implicitHeight, slot.childrenRect.height) : slot.childrenRect.height|implicitHeight: slot.childrenRect.height|tst_textfield.qml"
+  "the inline field hint starts under the label|controls/Field.qml|x: controlRow.valueX|x: 0|tst_textfield.qml"
+  "the segmented control ignores a click|controls/SegmentedControl.qml|onClicked: { root.forceActiveFocus(Qt.MouseFocusReason); root.choose(index); }|onClicked: {}|tst_segmented.qml"
+  "the segmented control fires for the same segment|controls/SegmentedControl.qml|index === currentIndex) return;|false) return;|tst_segmented.qml"
+  "the spinner turns under reduced motion|feedback/Spinner.qml|running: root.running && Theme.spinner.duration > 0|running: root.running|tst_feedback.qml"
+  "the progress fill ignores the value|feedback/ProgressBar.qml|width: root.indeterminate ? span : root.position * parent.width|width: parent.width|tst_feedback.qml"
+  "the mirrored progress fills from the left|feedback/ProgressBar.qml|x: root.mirrored && !root.indeterminate ? parent.width - width : 0|x: 0|tst_feedback.qml"
+  "the key cap draws the code role|feedback/Kbd.qml|role: \"kbd\"|role: \"code\"|tst_feedback.qml"
+  "the key cap takes its line box for its height|feedback/Kbd.qml|implicitHeight: Math.max(Theme.kbd.height, label.lineBox)|implicitHeight: label.lineBox|tst_feedback.qml"
+  "the key cap shrinks below a square|feedback/Kbd.qml|implicitWidth: Math.max(Theme.kbd.height, Math.round(label.opticalWidth + 2 * sidePadding))|implicitWidth: label.opticalWidth + 2 * sidePadding|tst_feedback.qml"
+  "the key cap does not centre its label|feedback/Kbd.qml|x: Math.round((root.width - opticalWidth) / 2)|x: Theme.kbd.paddingX / 2|tst_feedback.qml"
+  "the code line copies nothing|feedback/CodeLine.qml|clipboard.copy();|clipboard.deselect();|tst_codeline.qml"
+  "the code line signals no copy|feedback/CodeLine.qml|root.copied();|root.confirming;|tst_codeline.qml"
+  "the code line confirms no copy|feedback/CodeLine.qml|iconName: root.confirming ? \"check\" : \"copy\"|iconName: \"copy\"|tst_codeline.qml"
+  "the code line keeps the check mark|feedback/CodeLine.qml|interval: Theme.codeLine.confirm|interval: 60000|tst_codeline.qml"
+  "the code line does not wrap|feedback/CodeLine.qml|wrapMode: Text.WrapAtWordBoundaryOrAnywhere|wrapMode: Text.NoWrap|tst_codeline.qml"
+  "the code line's text runs under its button|feedback/CodeLine.qml|width: Math.max(0, button.x - Theme.codeLine.gap - x)|width: root.width - x|tst_codeline.qml"
+  "the code line's button uses the old inset|feedback/CodeLine.qml|x: root.width - width - sideInset.inset|x: root.width - width - Theme.space.xxs|tst_codeline.qml"
+  "the code line centres wrapped text|feedback/CodeLine.qml|y: lineCount <= 1 ? topForCapCenter(root.height) : Theme.codeLine.padding + halfLeading|y: topForCapCenter(root.height)|tst_codeline.qml"
+  "the code line ignores its left padding|feedback/CodeLine.qml|x: sideInset.inset|x: Theme.space.xxs|tst_codeline.qml"
+  "the code line ignores its fill token|feedback/CodeLine.qml|color: Theme.codeLine.background|color: Theme.codeLine.borderColor|tst_codeline.qml"
+  "the command disclosure starts shown|feedback/CommandDisclosure.qml|property bool expanded: false|property bool expanded: true|tst_commanddisclosure.qml"
+  "the command disclosure never toggles|feedback/CommandDisclosure.qml|onClicked: root.expanded = !root.expanded|onClicked: root.expanded = root.expanded|tst_commanddisclosure.qml"
+  "the command disclosure draws with no command|feedback/CommandDisclosure.qml|visible: command !== \"\"|visible: true|tst_commanddisclosure.qml"
+  "the command disclosure's line stays shown|feedback/CommandDisclosure.qml|visible: root.expanded|visible: true|tst_commanddisclosure.qml"
+  "a password field shows what is typed|controls/TextField.qml|echoMode: password ? TextInput.Password : TextInput.Normal|echoMode: TextInput.Normal|tst_commanddisclosure.qml"
+  "the badge ignores its tone|feedback/Badge.qml|const found = Theme.badge.tone[name];|const found = undefined;|tst_feedback.qml"
+  "the tab does not check on click|layout/Tabs.qml|visible: tab.checked|visible: true|tst_layout.qml"
+  "the list item ignores highlight|layout/ListItem.qml|root.highlighted ? (root.down ? Theme.listItem.selectedPressed : Theme.listItem.selected) :|false ? (root.down ? Theme.listItem.selectedPressed : Theme.listItem.selected) :|tst_layout.qml"
+  "the surface ignores its level|foundation/Surface.qml|const found = Theme.surface.level[name];|const found = undefined;|tst_layout.qml"
+  "the scroll area's content height ignores a direct child's offset|layout/ScrollArea.qml|bottom = Math.max(bottom, child.y + childHeight);|bottom = Math.max(bottom, childHeight);|tst_scroll.qml"
+  "the segmented control stands at its own height|controls/SegmentedControl.qml|implicitHeight: Theme.segmented.height|implicitHeight: Theme.size.control.lg|tst_spacing.qml"
+  "the segments pad off the control rhythm|controls/SegmentedControl.qml|                rightPadding: leftPadding|                rightPadding: Theme.space.sm|tst_spacing.qml"
+  "the button pads off the control rhythm|controls/Button.qml|leftPadding: Theme.controlPadding(sizeTokens.paddingX, Theme.button.radius, controlHeight, implicitContentHeight)|leftPadding: Theme.space.md|tst_spacing.qml"
+  "the select pads off the control rhythm|controls/Select.qml|    leftPadding: sidePadding|    leftPadding: Theme.space.sm|tst_spacing.qml"
+  "the text field pads off the control rhythm|controls/TextField.qml|leftPadding: sidePadding + (|leftPadding: Theme.space.sm + (|tst_spacing.qml"
+  "the list item pads off the row rhythm|layout/ListItem.qml|leftPadding: Theme.controlPadding(Theme.listItem.paddingX,|leftPadding: Theme.controlPadding(Theme.space.sm,|tst_spacing.qml"
+  "the list item uses the control gap after its icon|layout/ListItem.qml|x: icon.visible ? icon.width + Theme.listItem.iconGap : 0|x: icon.visible ? icon.width + Theme.control.gap : 0|tst_spacing.qml"
+  "the menu item pads off the row rhythm|overlay/MenuItem.qml|Theme.controlPadding(Theme.menu.item.paddingX,|Theme.controlPadding(Theme.space.sm,|tst_spacing.qml"
+  "the field draws its label on the column's edge|controls/Field.qml|leftPadding: Theme.field.paddingX|leftPadding: 0|tst_spacing.qml"
+  "the button's icon gap is its own step|controls/Button.qml|spacing: sizeTokens.gap|spacing: Theme.space.xs|tst_spacing.qml"
+  "the menu item's icon gap is its own step|overlay/MenuItem.qml|spacing: Theme.menu.item.gap|spacing: Theme.space.sm|tst_spacing.qml"
+  "the badge's icon gap is its own step|feedback/Badge.qml|x: root.sidePadding + (icon.visible ? icon.width + Theme.badge.gap : 0)|x: root.sidePadding + (icon.visible ? icon.width + Theme.space.xxs : 0)|tst_spacing.qml"
+  "the badge centres text by its box|feedback/Badge.qml|y: topForCapCenter(root.height)|y: Math.round((root.height - height) / 2)|tst_feedback.qml"
+  "the badge uses its implicit text width|feedback/Badge.qml|label.opticalWidth|label.implicitWidth|tst_feedback.qml"
+  "the toast's icon gap is its own step|feedback/Toast.qml|spacing: Theme.toast.contentGap|spacing: Theme.space.sm|tst_spacing.qml"
+  "a lone face does not fill the avatar box|feedback/AvatarGroup.qml|readonly property real faceSize: places <= 1 ? size : size * faceShare|readonly property real faceSize: size * faceShare|tst_avatargroup.qml"
+  "a lone face keeps a ring|feedback/AvatarGroup.qml|ringWidth: group.places > 1 ? group.ringWidth : 0|ringWidth: group.ringWidth|tst_avatargroup.qml"
+  "two faces sit on one row|feedback/AvatarGroup.qml|[[0, 0], [1, 1]],|[[0, 0], [1, 0]],|tst_avatargroup.qml"
+  "three faces sit in a row|feedback/AvatarGroup.qml|[[0.5, 0], [1, 1], [0, 1]],|[[0, 0], [0.5, 0], [1, 0]],|tst_avatargroup.qml"
+  "the cluster runs anticlockwise|feedback/AvatarGroup.qml|[[0, 0], [1, 0], [1, 1], [0, 1]]|[[0, 0], [0, 1], [1, 1], [1, 0]]|tst_avatargroup.qml"
+  "a face lies under the one before|feedback/AvatarGroup.qml|            z: index|            z: -index|tst_avatargroup.qml"
+  "past four no chip counts the rest|feedback/AvatarGroup.qml|readonly property int faces: Math.min(people.length, total > 4 ? 3 : 4)|readonly property int faces: Math.min(people.length, 4)|tst_avatargroup.qml"
+  "the chip counts only the extra count|feedback/AvatarGroup.qml|\"+\" + (group.total - group.faces)|\"+\" + group.more|tst_avatargroup.qml"
+  "a face without a tint draws none|feedback/AvatarGroup.qml|person.tint : group.tint|person.tint : \"transparent\"|tst_avatargroup.qml"
+  "the photo is not cut to a circle|feedback/AvatarFace.qml|maskEnabled: true|maskEnabled: false|tst_avatargroup.qml"
+  "the photo never shows|feedback/AvatarFace.qml|visible: face.photoShown|visible: false|tst_avatargroup.qml"
+  "the toast text does not clear a rounded corner|feedback/Toast.qml|x: contentInset.inset|x: root.basePadding|tst_spacing.qml"
+  "the toast clears the whole corner above its text|feedback/Toast.qml|top: root.basePadding|top: 0|tst_spacing.qml"
+  "the clearing inset ignores the helper value|../Commons/ClearingInset.qml|return Math.ceil(Inset.clearing(pad, radius, width, height, step, top));|return pad;|tst_spacing.qml"
+  "the inline label stands the stacking gap from its control|controls/FormRow.qml|Theme.field.labelWidth + Theme.field.labelGap|Theme.field.labelWidth + Theme.field.gap|tst_textfield.qml"
+  "a padded section header's lines overflow it|layout/SectionHeader.qml|readonly property real bodyWidth: width - leftPadding - rightPadding|readonly property real bodyWidth: width|tst_layout.qml"
+  "a click on the disclosure's row toggles nothing|layout/Disclosure.qml|onClicked: if (root.expandable) root.expanded = !root.expanded|onClicked: if (root.expandable) {}|tst_disclosure.qml"
+  "the disclosure publishes no focus item|layout/Disclosure.qml|readonly property alias focusItem: row|readonly property Item focusItem: null|tst_disclosure.qml"
+  "Return leaves a disclosure closed|layout/Disclosure.qml|Keys.onReturnPressed: if (root.expandable) root.expanded = !root.expanded|Keys.onReturnPressed: {}|tst_disclosure.qml"
+  "Enter leaves a disclosure closed|layout/Disclosure.qml|Keys.onEnterPressed: if (root.expandable) root.expanded = !root.expanded|Keys.onEnterPressed: {}|tst_disclosure.qml"
+  "Right does not expand a disclosure|layout/Disclosure.qml|Keys.onRightPressed: if (root.expandable) root.expanded = true|Keys.onRightPressed: {}|tst_disclosure.qml"
+  "Left does not collapse a disclosure|layout/Disclosure.qml|Keys.onLeftPressed: if (root.expandable) root.expanded = false|Keys.onLeftPressed: {}|tst_disclosure.qml"
+  "a disclosure that cannot expand toggles on a click|layout/Disclosure.qml|onClicked: if (root.expandable) |onClicked: if (true) |tst_disclosure.qml"
+  "the disclosure shows its content while collapsed|layout/Disclosure.qml|visible: root.expandable && root.expanded|visible: root.expandable|tst_disclosure.qml"
+  "the disclosure's chevron ignores the state|layout/Disclosure.qml|name: root.expanded ? \"chevron-up\" : \"chevron-down\"|name: \"chevron-down\"|tst_disclosure.qml"
+  "a section ignores its parent's spacing|layout/Section.qml|topPadding: Positioner.isFirstItem ? 0 : Math.max(0, Theme.stack.section - parentSpacing)|topPadding: Positioner.isFirstItem ? 0 : Theme.stack.section|tst_layout.qml"
+  "the first section takes top padding|layout/Section.qml|topPadding: Positioner.isFirstItem ? 0 : Math.max(0, Theme.stack.section - parentSpacing)|topPadding: Math.max(0, Theme.stack.section - parentSpacing)|tst_layout.qml"
+  "a theme change does not reach a group|../Commons/Theme.qml|readonly property var color: published.color|readonly property var color: convert(source.defaults.values, []).color|tst_theme.qml"
+  "an appearance reads the whole theme|../Commons/Theme.qml|return convertTree(table, accepted.values, accepted.values, []);|return convertTree(table, Object.assign({}, accepted.values, { card: Object.assign({}, accepted.values.card, { fill: source.values.color.surface }) }), accepted.values, []);|tst_appearance.qml"
+  "a read a change overtook is reported|../Commons/WatchedFile.qml|if (operation === \"stale\") {|if (false) {|tst_watched_file.qml"
+  "a change during a read is not marked stale|../Commons/WatchedFile.qml|onFileChanged: file.inRead ? file.read() : file.changed()|onFileChanged: file.changed()|tst_watched_file.qml"
+  "a change during a write is lost|../Commons/WatchedFile.qml|onFileChanged: file.inRead ? file.read() : file.changed()|onFileChanged: file.busy ? file.read() : file.changed()|tst_watched_file.qml"
+  "a read asked during a read starts nothing more|../Commons/WatchedFile.qml|            operation = \"stale\";|            return;|tst_watched_file.qml"
+  "the reading view watches the file|../Commons/WatchedFile.qml|        id: view|        id: view; watchChanges: true|tst_watched_file.qml"
+  "the watching view reads the file|../Commons/WatchedFile.qml|        preload: false|        preload: true|tst_watched_file.qml"
+  "a read asked from a result handler is lost|../Commons/WatchedFile.qml|Qt.callLater(reloadView);|reloadView();|tst_watched_file.qml"
+  "a write asked from a result handler is lost|../Commons/WatchedFile.qml|Qt.callLater(() => view.setText(content));|view.setText(content);|tst_watched_file.qml"
+  "an appearance never applies its light overrides|../Commons/Theme.qml|ThemeLogic.acceptAppearance(table, light, source.values)|ThemeLogic.acceptAppearance(table, light, Object.assign({}, source.values, { scheme: { mode: \"dark\" } }))|tst_appearance.qml"
+  "an image segment draws its alt text|foundation/ImageTextLogic.js|if (url !== \"\" && failed.indexOf(url) === -1) {|if (false) {|tst_imagetext.qml"
+  "a url value image segment draws its image|foundation/ImageTextLogic.js|var url = typeof value === \"string\" ? value : String(value);|var url = typeof value === \"string\" ? value : value;|tst_imagetext.qml"
+  "a line with an image grows|foundation/ImageText.qml|readonly property int imageSize: Math.floor(metrics.height)|readonly property int imageSize: Math.ceil(metrics.height) + 2|tst_imagetext.qml"
+  "the text's colour fades its images|foundation/ImageText.qml|        color: root.color|        color: root.color; opacity: root.color.a|tst_imagetext.qml"
+  "text without images is not elided|foundation/ImageText.qml|drawn.elide = Text.ElideRight;|drawn.elide = Text.ElideNone;|tst_imagetext.qml"
+  "text with images takes Qt's elision|foundation/ImageText.qml|drawn.text = result.markup;|drawn.text = Logic.join(tokens, tokens.length); drawn.elide = Text.ElideRight;|tst_imagetext.qml"
+  "the cut splits a word|foundation/ImageTextLogic.js|    return join(list, count) + ELLIPSIS;|    return join(list, count).slice(0, -2) + ELLIPSIS;|tst_imagetext.qml"
+  "an unbroken word runs past the width|foundation/ImageText.qml|            drawn.wrapMode = Text.Wrap;|            drawn.wrapMode = Text.WordWrap;|tst_imagetext.qml"
+  "the measure lets an unbroken word run past the width|foundation/ImageText.qml|        wrapMode: Text.Wrap|        wrapMode: Text.WordWrap|tst_imagetext.qml"
+  "a failed image stays a hole|foundation/ImageText.qml|if (held[url].status === Image.Error && failed.indexOf(url) === -1) {|if (false) {|tst_imagetext.qml"
+  "the pool shares no image|foundation/ImagePool.qml|let entry = entries[key];|let entry = undefined;|tst_imagetext.qml"
+  "the pool keeps an image nobody holds|foundation/ImagePool.qml|if (entry.holders > 0) return;|return;|tst_imagetext.qml"
+  "a TUI wait result never reaches the records|../Core/TuiRecords.qml|if (outcome.record !== null) {|if (false) {|tst_tui_records.qml"
+  "a later run's wait record replaces an earlier run's of the key|../Core/TuiRecords.qml|waitRecords.filter(record => record.run !== outcome.record.run)|waitRecords.filter(record => record.key !== outcome.record.key)|tst_tui_records.qml"
+  "the list cursor lands where it should travel|layout/ListCursor.qml|if (glide && root[property] !== value) {|if (false) {|tst_listcursor.qml"
+  "the list cursor travels after a snap|layout/ListCursor.qml|        state.snapping = true;|        state.snapping = false;|tst_listcursor.qml"
+  "the list cursor travels from where it was hidden|layout/ListCursor.qml|const glide = !state.snapping && root.shown && root.opacity > 0 && duration > 0;|const glide = !state.snapping && duration > 0;|tst_listcursor.qml"
+  "the list cursor reads only the row's own place|layout/ListCursor.qml|for (const at of chain) {|for (const at of chain.slice(0, 1)) {|tst_listcursor.qml"
+  "the list cursor stays when an item between moves|layout/ListCursor.qml|function onYChanged() { if (root !== null) root.place(); }|function onYChanged() {}|tst_listcursor.qml"
+  "the list cursor takes a row outside its parent|layout/ListCursor.qml|if (chainOf(row) === null) {|if (false) {|tst_listcursor.qml"
+  "a resting pointer takes the selection|layout/ListCursor.qml|const moved = Logic.pointerMoved(state.last, point);|const moved = true;|tst_listcursor.qml"
+  "a key leaves the pointer armed|layout/ListCursor.qml|state.armed = false;|state.armed = state.armed;|tst_listcursor.qml"
+  "the list cursor draws over its rows|layout/ListCursor.qml|    z: -1|    z: 1|tst_listcursor.qml"
+  "a cursor in a painting parent is not refused|layout/ListCursor.qml|if (parent !== null && parent.color !== undefined && parent.color.a > 0)|if (false)|tst_listcursor.qml"
+  "a reopened menu's cursor travels from the dismissed entry|overlay/Menu.qml|        plate.snap();|        Qt.callLater(plate.snap);|tst_overlays.qml"
+  "a reopened select list's cursor travels from the dismissed entry|controls/Select.qml|        plate.snap();|        Qt.callLater(plate.snap);|tst_overlays.qml"
+  "an open preset list keeps its highlight across a clock tick|../plugins/vgs.settings/SettingField.qml|loader.item.listOpen !== true))|true)|tst_settingfield.qml"
+  "a click leaves the pointer disarmed|layout/ListCursor.qml|function arm() { state.armed = true; }|function arm() {}|tst_listcursor.qml"
+  "the list cursor snaps past its turn|layout/ListCursor.qml|function settle() { snapping = false; }|function settle() {}|tst_listcursor.qml"
+  "a later turn's rows wait behind the earlier turn's|layout/ListCursor.qml|if (state.arrivals === 0) Qt.callLater(state.endArrivals);|if (false) Qt.callLater(state.endArrivals);|tst_listcursor.qml"
+  "the list cursor draws no background|layout/ListCursor.qml|background.parent = root;|background.parent = null;|tst_listcursor.qml"
+  "the list cursor never fades|layout/ListCursor.qml|opacity: shown ? 1 : 0|opacity: 1|tst_listcursor.qml"
+  "a faded list cursor takes room|layout/ListCursor.qml|visible: opacity > 0|visible: true|tst_listcursor.qml"
+  "a row claims no cursor|layout/ListCursorRow.qml|onHoldsChanged: claim()|onHoldsChanged: {}|tst_listcursor.qml"
+  "a hover emits no pointed|layout/ListCursorRow.qml|cursor.hoverTakes(point.scenePosition)) pointed()|cursor.hoverTakes(point.scenePosition)) {}|tst_listcursor.qml"
+  "a plugin's bezier curve is dropped|layout/ListAnimation.qml|easing.bezierCurve: step.easing === Easing.BezierSpline ? step.curve : []|easing.bezierCurve: []|tst_listcursor.qml"
+  "a list item under a cursor draws its own fill|layout/ListItem.qml|color: root.cursor !== null ? \"transparent\" : |color: |tst_listcursor.qml"
+  "a list item in a cursor list does not enter|layout/ListItem.qml|Component.onCompleted: if (enters && cursor !== null) entrance.start(cursor.enterSlot(), 0)|Component.onCompleted: {}|tst_listcursor.qml"
+  "a list item's opacity ignores its entrance|layout/ListItem.qml|(enabled ? 1 : Theme.opacity.disabled) * entrance.progress|(enabled ? 1 : Theme.opacity.disabled)|tst_listcursor.qml"
+  "rows enter together|layout/ListEntrance.qml|run.delay = Logic.enterDelay(slot, motion.stagger, motion.staggerRows);|run.delay = 0;|tst_listcursor.qml"
+  "a row enters without rising|layout/ListEntrance.qml|(1 - progress) * motion.rise|0|tst_listcursor.qml"
+  "a row enters without sliding|layout/ListEntrance.qml|x: (1 - progress) * direction * shift|x: 0|tst_listcursor.qml"
+  "the menu hands its entries no cursor|overlay/Menu.qml|modelData.cursor = plate;|modelData.cursor = null;|tst_overlays.qml"
+  "a hover highlights no menu entry|overlay/Menu.qml|function onPointed() { if (root.reachable(modelData)) root.currentIndex = root.items().indexOf(modelData); }|function onPointed() { root.currentIndex = root.items().indexOf(modelData); }|tst_overlays.qml"
+  "a menu key leaves the pointer armed|foundation/KeyNav.qml|if (cursor !== null && cursor !== undefined && cursor.disarm !== undefined) cursor.disarm();|{}|tst_overlays.qml"
+  "a menu entry under a cursor draws its own fill|overlay/MenuItem.qml|color: root.cursor !== null ? \"transparent\" : root.down ? Theme.menu.item.pressed|color: root.down ? Theme.menu.item.pressed|tst_overlays.qml"
+  "a hover highlights no select entry|controls/Select.qml|onPointed: entries.currentIndex = entry.index|onPointed: {}|tst_overlays.qml"
+  "a select entry draws the highlight's fill|controls/Select.qml|color: entry.chosen ? Theme.select.selected : \"transparent\"|color: entry.chosen ? Theme.select.selected : entry.highlighted ? Theme.select.highlight : \"transparent\"|tst_overlays.qml"
+  "the button pads every size alike|controls/Button.qml|leftPadding: Theme.controlPadding(sizeTokens.paddingX,|leftPadding: Theme.controlPadding(Theme.button.paddingX,|tst_button.qml"
+  "the button's icon ignores its size|controls/Button.qml|size: root.sizeTokens.icon|size: Theme.icon.size.sm|tst_button.qml"
+  "the button's gap ignores its size|controls/Button.qml|spacing: sizeTokens.gap|spacing: Theme.button.gap|tst_button.qml"
+  "a checked button shows no hover|controls/Button.qml|checked ? (down ? Theme.button.checked.pressed : hovered ? Theme.button.checked.hover : Theme.button.checked.background)|checked ? Theme.button.checked.background|tst_button.qml"
+  "a rounded button keeps its pad|controls/Button.qml|Theme.controlPadding(sizeTokens.paddingX, Theme.button.radius,|Theme.controlPadding(sizeTokens.paddingX, 0,|tst_button.qml"
+  "the icon button reads no glyph inset|controls/IconButton.qml|readonly property real glyphStart: leftPadding + contentItem.painted[0]|readonly property real glyphStart: leftPadding|tst_button.qml"
+  "the icon's extent ignores the path|foundation/Icon.qml|const box = IconBounds.bounds(data[0] + \" \" + data[1]);|const box = { left: 0, top: 0, right: 24, bottom: 24 };|tst_icon.qml"
+  "a focused field in error loses its cue|controls/TextField.qml|ringColor: root.error ? Theme.textField.error : Theme.focusRing.color|ringColor: Theme.focusRing.color|tst_textfield.qml"
+  "the field's icons stay small|controls/TextField.qml|leftPadding: sidePadding + (leadingIcon !== \"\" ? Theme.icon.size.md|leftPadding: sidePadding + (leadingIcon !== \"\" ? Theme.icon.size.sm|tst_textfield.qml"
+  "the menu grows past its maximum width|overlay/Menu.qml|implicitWidth: Math.min(OverlayState.widthFor(root.anchorItem, Theme.menu.maxWidth), |implicitWidth: (|tst_overlays.qml"
+  "the menu entry's text never elides|overlay/MenuItem.qml|width: Math.max(0, parent.width - parent.lead - parent.tail)|width: implicitWidth|tst_overlays.qml"
+  "the menu's entries keep a gutter on every side|overlay/Menu.qml|                x: Theme.border.thin|                x: Theme.border.thin + Theme.space.md|tst_overlays.qml"
+  "the menu's list keeps a gutter above its first entry|overlay/Menu.qml|                y: root.listInset|                y: root.listInset + Theme.space.md|tst_overlays.qml"
+  "the menu's entries stop short of the right border|overlay/Menu.qml|                width: parent.width - 2 * Theme.border.thin|                width: parent.width - 2 * Theme.border.thin - Theme.space.md|tst_overlays.qml"
+  "a rounded menu draws its list unmasked|overlay/Menu.qml|layer.enabled: listMask.cuts|layer.enabled: false|tst_overlays.qml"
+  "a rounded select draws its list unmasked|controls/Select.qml|layer.enabled: listMask.cuts|layer.enabled: false|tst_overlays.qml"
+  "a list's mask ignores the menu's corner|overlay/ListMask.qml|Math.min(Theme.menu.radius,|Math.min(Theme.radius.sm,|tst_overlays.qml"
+  "a square list draws a layer|overlay/ListMask.qml|readonly property bool cuts: radius > 0|readonly property bool cuts: true|tst_overlays.qml"
+  "a select entry keeps the bar's strip by its own overflow test|controls/Select.qml|readonly property bool overflowing: listBar.needed|readonly property bool overflowing: contentHeight > height|tst_overlays.qml"
+  "a round menu's first entry leaves its corner|../Commons/Theme.qml|return Inset.listInset(Math.min(menu.radius, width / 2), border.thin,|return Inset.listInset(0, border.thin,|tst_overlays.qml"
+  "the select list opens left of the control|controls/Select.qml|        anchor.margins.bottom: -Theme.select.gap|        anchor.margins.bottom: -Theme.select.gap; anchor.margins.left: -Theme.space.md|tst_overlays.qml"
+  "the select list keeps a gutter above its first entry|controls/Select.qml|            anchors.topMargin: root.listInset|            anchors.topMargin: root.listInset + Theme.space.md|tst_overlays.qml"
+  "the select entries start at the field's padding inside the border|controls/Select.qml|                leftPadding: root.sidePadding - Theme.border.thin|                leftPadding: root.sidePadding|tst_overlays.qml"
+  "the tooltip never wraps|overlay/Tooltip.qml|wrapMode: Text.Wrap|wrapMode: Text.NoWrap|tst_overlays.qml"
+  "the tooltip grows past its maximum width|overlay/Tooltip.qml|Math.min(Math.ceil(label.implicitWidth) + capsWidth + 2 * Theme.tooltip.paddingX, OverlayState.widthFor(root.anchorItem, Theme.tooltip.maxWidth + capsWidth + 2 * Theme.tooltip.paddingX))|Math.ceil(label.implicitWidth) + capsWidth + 2 * Theme.tooltip.paddingX|tst_overlays.qml"
+  "a rounded tooltip keeps its pad|overlay/Tooltip.qml|x: sideInset.inset|x: Theme.tooltip.paddingX|tst_overlays.qml"
+  "a pressed row leaves the plate at rest|layout/ListCursor.qml|color: root.pressed ? root.pressedColor : root.color|color: root.color|tst_listcursor.qml"
+  "a loose row presses like a hover|layout/ListItem.qml|: root.down ? Theme.listItem.pressed : root.hovered|: root.down ? Theme.listItem.hover : root.hovered|tst_listcursor.qml"
+  "a compact track keeps no input area|controls/Switch.qml|implicitHeight: Math.max(Theme.size.control.sm, implicitIndicatorHeight, implicitContentHeight)|implicitHeight: Math.max(implicitIndicatorHeight, implicitContentHeight)|tst_toggles.qml"
+  "the switch shows no hover|controls/Switch.qml|Theme.toggle.offHover : Theme.toggle.off|Theme.toggle.off : Theme.toggle.off|tst_toggles.qml"
+  "the checkbox shows no press|controls/Checkbox.qml|: root.down ? Theme.checkbox.pressed : Theme.checkbox.background|: Theme.checkbox.background|tst_toggles.qml"
+  "the slider keeps no input area|controls/Slider.qml|implicitHeight: Math.max(Theme.size.control.sm, |implicitHeight: Math.max(|tst_slider.qml"
+  "the tab label hugs its left edge|layout/Tabs.qml|horizontalAlignment: Text.AlignHCenter|horizontalAlignment: Text.AlignLeft|tst_layout.qml"
+  "tab hover reads as the open tab|layout/Tabs.qml|Theme.tabs.hover : Theme.tabs.foreground|Theme.tabs.active : Theme.tabs.foreground|tst_layout.qml"
+  "the tabs ignore disabled|layout/Tabs.qml|    opacity: enabled ? 1 : Theme.opacity.disabled|    opacity: 1|tst_layout.qml"
+  "a segment shows no hover|controls/SegmentedControl.qml|: segment.hovered ? Theme.segmented.hover : \"transparent\"|: \"transparent\"|tst_segmented.qml"
+  "a segment's corner ignores the inset|controls/SegmentedControl.qml|radius: Math.max(0, Theme.segmented.radius - Theme.segmented.padding)|radius: Theme.segmented.radius|tst_segmented.qml"
+  "the underline shows at rest|controls/TitleButton.qml|            visible: root.engaged|            visible: true|tst_titlebutton.qml"
+  "the caret sits on a half pixel|controls/TitleButton.qml|y: Math.round(label.capCentre - height / 2)|y: label.capCentre - height / 2 + 0.5|tst_titlebutton.qml"
+  "the toast icon sits at the row top|feedback/Toast.qml|            y: Math.round(titleLabel.capCentre - height / 2)|            y: 0|tst_spacing.qml"
+  "a section heading indents by default|layout/Section.qml|property real headerInset: 0|property real headerInset: Theme.row.paddingX|tst_spacing.qml"
+  "a section ignores its row spacing|layout/Section.qml|spacing: root.rowSpacing|spacing: Theme.stack.row|tst_spacing.qml"
+  "a group list keeps a row's gap|layout/GroupList.qml|spacing: Theme.groupList.gap|spacing: Theme.stack.row|tst_grouplist.qml"
+  "a group list draws no hairline|layout/GroupList.qml|return shown.slice(1).map(|return shown.slice(shown.length).map(|tst_grouplist.qml"
+  "a hidden group takes a hairline|layout/GroupList.qml|child => child.visible && child.width > 0 && child.height > 0|child => child.width > 0|tst_grouplist.qml"
+  "a group list's hairline hugs the next group|layout/GroupList.qml|Math.round(child.y - (Theme.groupList.gap + Theme.divider.thickness) / 2)|Math.round(child.y - Theme.divider.thickness)|tst_grouplist.qml"
+  "a group list's hairline draws in the divider colour|layout/GroupList.qml|color: Theme.groupList.divider|color: Theme.divider.color|tst_grouplist.qml"
+  "a status line spaces its own lines like groups|../plugins/vgs.settings/StatusLine.qml|    spacing: Theme.field.gap|    spacing: Theme.groupList.gap|tst_grouplist.qml"
+  "a disclosure's content starts at the icon|layout/Disclosure.qml|        x: inset|        x: 0|tst_spacing.qml"
+  "a row's text start leaves out its icon|layout/ListItem.qml|readonly property real textStart: leftPadding + (iconName !== \"\" ? Theme.icon.size.md + Theme.listItem.iconGap : 0)|readonly property real textStart: leftPadding|tst_spacing.qml"
+  "an inline field keeps the full row|controls/FormRow.qml|Math.max(Theme.row.height, labelText.implicitHeight, slot.childrenRect.height)|Math.max(1, labelText.implicitHeight, slot.childrenRect.height)|tst_spacing.qml"
+  "a rounded badge keeps its pad|feedback/Badge.qml|Theme.controlPadding(sizeTokens.paddingX, Theme.badge.radius,|Theme.controlPadding(sizeTokens.paddingX, 0,|tst_spacing.qml"
+  "a rounded key cap keeps its pad|feedback/Kbd.qml|Theme.controlPadding(Theme.kbd.paddingX, Theme.kbd.radius,|Theme.controlPadding(Theme.kbd.paddingX, 0,|tst_spacing.qml"
+  "a rounded list row keeps its pad|layout/ListItem.qml|Theme.controlPadding(Theme.listItem.paddingX, Theme.listItem.radius,|Theme.controlPadding(Theme.listItem.paddingX, 0,|tst_spacing.qml"
+  "a rounded menu entry keeps its pad|overlay/MenuItem.qml|Theme.controlPadding(Theme.menu.item.paddingX, Theme.menu.item.radius,|Theme.controlPadding(Theme.menu.item.paddingX, 0,|tst_spacing.qml"
+  "a rounded text field keeps its pad|controls/TextField.qml|Theme.controlPadding(Theme.textField.paddingX, Theme.textField.radius,|Theme.controlPadding(Theme.textField.paddingX, 0,|tst_spacing.qml"
+  "a rounded select keeps its pad|controls/Select.qml|Theme.controlPadding(Theme.textField.paddingX, Theme.textField.radius,|Theme.controlPadding(Theme.textField.paddingX, 0,|tst_spacing.qml"
+  "a rounded segment keeps its pad|controls/SegmentedControl.qml|Theme.controlPadding(Theme.segmented.paddingX, Math.max(0, Theme.segmented.radius - Theme.segmented.padding),|Theme.controlPadding(Theme.segmented.paddingX, 0,|tst_spacing.qml"
+  "a rounded code line keeps its pad|feedback/CodeLine.qml|        radius: Theme.codeLine.radius|        radius: 0|tst_spacing.qml"
+  "a code line wraps inside words|feedback/CodeLine.qml|wrapMode: Text.WrapAtWordBoundaryOrAnywhere|wrapMode: Text.WrapAnywhere|tst_codeline.qml"
+  "the pane's padding ignores its input|layout/Pane.qml|pad: root.padding|pad: root.paddingOf(root.container)|tst_pane.qml"
+  "the header divider never shows|layout/Pane.qml|visible: root.headerHeight > 0 && scroll.contentY > 0|visible: false|tst_pane.qml"
+  "the viewport clips a ring on the edge|layout/Pane.qml|readonly property real ringRoom: Theme.focusRing.width + Theme.focusRing.offset|readonly property real ringRoom: 0|tst_pane.qml"
+  "the pane clears the whole corner|layout/Pane.qml|        top: root.padding|        top: 0|tst_pane.qml"
+  "an icon-only bar item is not square|controls/BarItem.qml|leftPadding: iconOnly ? Math.floor((Theme.bar.item.height - Theme.bar.item.icon) / 2) : Theme.bar.item.paddingX|leftPadding: Theme.bar.item.paddingX|tst_baritem.qml"
+  "the bar item's count ignores its tone|controls/BarItem.qml|readonly property color foreground: active ? Theme.bar.onActive : tone|readonly property color foreground: active ? Theme.bar.onActive : Theme.bar.foreground|tst_baritem.qml"
+  "the bar item shows no press|controls/BarItem.qml|root.down ? Theme.bar.item.pressed : root.hovered|root.hovered|tst_baritem.qml"
+  "the bar item tooltip is anchored on a loader|controls/BarItem.qml|    Tooltip {|    Item { property string shortcut: root.shortcut; property string text: root.tooltip !== \"\" ? root.tooltip : root.label; readonly property Item anchorItem: null|tst_baritem.qml"
+  "the bar item tooltip ignores its text|controls/BarItem.qml|        text: root.tooltip !== \"\" ? root.tooltip : root.label|        text: root.label|tst_baritem.qml"
+  "a long inline label elides on one line|controls/FormRow.qml|        maximumLineCount: 2|        maximumLineCount: 1|tst_textfield.qml"
+  "the field publishes no value column|controls/Field.qml|readonly property real valueX: leftPadding + controlRow.valueX|readonly property real valueX: leftPadding|tst_textfield.qml"
+  "a row that cannot expand gives up its chevron's room|layout/Disclosure.qml|opacity: root.expandable ? 1 : 0|visible: root.expandable|tst_disclosure.qml"
+  "a pane's footer divider shows only while more lies below|layout/Pane.qml|visible: root.footerHeight > 0 && scroll.contentY + scroll.height < scroll.contentHeight - 1|visible: root.footerHeight > 0|tst_pane.qml"
+  "a title button reports its title's capital centre|controls/TitleButton.qml|readonly property real capCentre: topPadding + label.capCentre|readonly property real capCentre: topPadding + label.height / 2|tst_titlebutton.qml"
+  "an arc adds only its end|foundation/IconBounds.js|        if (inside(theta)) pointAt(theta);|        if (false) pointAt(theta);|tst_icon.qml"
+  "a fitted pane lays out past a shorter host|layout/Pane.qml|readonly property real boxHeight: fitToContent ? (height > 0 ? Math.min(cappedHeight, height) : cappedHeight) : height|readonly property real boxHeight: fitToContent ? cappedHeight : height|tst_pane.qml"
+  "an output's room keeps no gutter|overlay/OverlayState.qml|        const gutter = 2 * Theme.size.window.gutter;|        const gutter = 0;|tst_overlays.qml"
+  "the ring ignores its parent's corner|foundation/FocusRing.qml|property real targetRadius: parent !== null && parent.radius !== undefined ? parent.radius : Theme.focusRing.radius|property real targetRadius: Theme.focusRing.radius|tst_button.qml"
+  "a clearing inset clears by no step|../Commons/ClearingInset.qml|property real step: Theme.inset.cornerStep|property real step: 0|tst_spacing.qml"
+  "a control's padding clears by no step|../Commons/Theme.qml|return Inset.controlPadding(pad, radius, height, contentHeight, inset.cornerStep);|return Inset.controlPadding(pad, radius, height, contentHeight, 0);|tst_button.qml"
+  "an indicator sits on a fractional pixel|controls/IndicatorLabel.qml|control.text !== \"\" ? Math.round(lineTop + capCentre - height / 2)|control.text !== \"\" ? (lineTop + capCentre - height / 2 + 0.5)|tst_toggles.qml"
+  "a slim bar shows on content that fits|layout/SlimScrollBar.qml|    visible: ratio < 1|    visible: true|tst_slimscrollbar.qml"
+  "a slim bar's thumb ignores the view's share|layout/SlimScrollBar.qml|    height: Math.max(minLength, flickable.height * ratio)|    height: minLength|tst_slimscrollbar.qml"
+  "a slim bar's thumb stays at the top|layout/SlimScrollBar.qml|    y: (flickable.height - height) * progress|    y: 0|tst_slimscrollbar.qml"
+  "a drag on a slim bar scrolls nothing|layout/SlimScrollBar.qml|            root.flickable.contentY = root.flickable.originY + Math.max(0, Math.min(1, top / track)) * root.travel;|            return;|tst_slimscrollbar.qml"
+  "a slim bar never widens|layout/SlimScrollBar.qml|        width: root.active ? root.wide : root.thin|        width: root.thin|tst_slimscrollbar.qml"
+  "a checked box presses like its hover|controls/Checkbox.qml|root.down ? Theme.checkbox.checkedPressed : root.hovered|root.down ? Theme.checkbox.checkedHover : root.hovered|tst_toggles.qml"
+  "a checked radio presses like its hover|controls/Radio.qml|root.down ? Theme.radio.checkedPressed : root.hovered|root.down ? Theme.radio.checkedHover : root.hovered|tst_toggles.qml"
+  "radio arrows include other checkable siblings|controls/Radio.qml|child.autoExclusive === true|child.autoExclusive !== undefined|tst_toggles.qml"
+  "an on switch presses like its hover|controls/Switch.qml|root.down ? Theme.toggle.onPressed : root.hovered|root.down ? Theme.toggle.onHover : root.hovered|tst_toggles.qml"
+  "a form row draws no warning|controls/FormRow.qml|visible: root.warning !== \"\"|visible: false|tst_formrow.qml"
+  "a warning sits over the control|controls/FormRow.qml|x: root.valueX + (badge.visible ? badge.width + Theme.stack.inline : 0)|x: root.valueX|tst_formrow.qml"
+  "a warning ignores its tone|controls/FormRow.qml|tone: root.warningTone|tone: \"warning\"|tst_formrow.qml"
+  "a form row keeps its label column when told not to|controls/FormRow.qml|labelColumn ? Theme.field.labelWidth + Theme.field.labelGap : 0|Theme.field.labelWidth + Theme.field.labelGap|tst_formrow.qml"
+  "a form row's control sits on its top|controls/FormRow.qml|y: root.labelColumn ? Math.round((root.height - height) / 2) : 0|y: 0|tst_formrow.qml"
+  "a form row's control overruns the end edge|controls/FormRow.qml|width: root.width - x|width: root.width|tst_formrow.qml"
+  "a form row's one-line label sits by its box|controls/FormRow.qml|: topForCapCenter(root.height)|: Math.round((root.height - implicitHeight) / 2)|tst_formrow.qml"
+  "a form row's label column takes its text's width|controls/FormRow.qml|width: Theme.field.labelWidth|width: implicitWidth|tst_formrow.qml"
+  "a device row takes no focus|layout/DeviceRow.qml|focusPolicy: Qt.StrongFocus|focusPolicy: Qt.NoFocus|tst_devicerow.qml"
+  "a device row's keys activate nothing|layout/DeviceRow.qml|if (action === \"activate\") event.accepted = KeyNavLogic.activate(root);|if (action === \"activate\") event.accepted = true;|tst_devicerow.qml"
+  "a device row's menu keys open nothing|layout/DeviceRow.qml|else if (action === \"menu\") event.accepted = root.openMenu();|else if (action === \"menu\") event.accepted = true;|tst_devicerow.qml"
+  "a device row without entries keeps the menu keys|layout/DeviceRow.qml|if (!more.visible) return false;|if (!more.visible) return true;|tst_devicerow.qml"
+  "a device row shows its overflow button without entries|layout/DeviceRow.qml|visible: overflowMenu.items().length > 0|visible: true|tst_devicerow.qml"
+  "a device row's overflow button opens nothing|layout/DeviceRow.qml|onClicked: overflowMenu.toggle()|onClicked: {}|tst_devicerow.qml"
+  "a device row's battery ignores its warning token|layout/DeviceRow.qml|batteryShare <= Theme.deviceRow.battery.warning|batteryShare <= 0.2|tst_devicerow.qml"
+  "a device row's battery ignores its danger token|layout/DeviceRow.qml|batteryShare <= Theme.deviceRow.battery.danger|batteryShare <= 0|tst_devicerow.qml"
+  "a device row's battery is not held to one|layout/DeviceRow.qml|Math.max(0, Math.min(1, battery))|battery|tst_devicerow.qml"
+  "a device row draws a battery that is not a number|layout/DeviceRow.qml|readonly property bool hasBattery: Number.isFinite(battery)|readonly property bool hasBattery: true|tst_devicerow.qml"
+  "a device row's level badge ignores the caller's tone|layout/DeviceRow.qml|tone: root.hasBattery ? root.batteryTone : root.badgeTone|tone: root.hasBattery ? root.batteryTone : \"neutral\"|tst_devicerow.qml"
+  "a device list makes every row a Tab stop|layout/DeviceList.qml|activeFocusOnTab: list.current === index|activeFocusOnTab: true|tst_devicelist.qml"
+  "a device list swallows its keys|layout/DeviceList.qml|Keys.onPressed: event => { event.accepted = nav.handle(event); }|Keys.onPressed: event => { event.accepted = true; }|tst_devicelist.qml"
+  "a device list's moves leave the keyboard behind|layout/DeviceList.qml|focus: list.current === index|focus: false|tst_devicelist.qml"
+  "a device list's row acts on nothing|layout/DeviceList.qml|onClicked: list.acted(String(modelData.key))|onClicked: {}|tst_devicelist.qml"
+  "a device list's action button acts on nothing|layout/DeviceList.qml|onClicked: list.acted(String(row.modelData.key))|onClicked: {}|tst_devicelist.qml"
+  "a device list ignores the owner's action|layout/DeviceList.qml|visible: row.rowAction !== null|visible: true|tst_devicelist.qml"
+  "a device list ignores the owner's menu|layout/DeviceList.qml|model: row.live ? list.menuOf(row.modelData) : []|model: []|tst_devicelist.qml"
+  "a device list's menu chooses nothing|layout/DeviceList.qml|onTriggered: list.chose(String(row.modelData.key), String(modelData.key))|onTriggered: {}|tst_devicelist.qml"
+  "a device list's key move hides the focus ring|layout/DeviceList.qml|            if (row !== null) row.forceActiveFocus(Qt.TabFocusReason);|            ;|tst_devicelist.qml"
+  "a device list removes without leave|layout/DeviceList.qml|if (list.removable) list.removed(|if (true) list.removed(|tst_devicelist.qml"
+  "a device list shows its selection without the keyboard|layout/DeviceList.qml|highlighted: list.engaged && list.current === index|highlighted: list.current === index|tst_devicelist.qml"
+  "a device list rebuilds every row on a change|layout/DeviceList.qml|model: list.rows.length|model: list.rows|tst_devicelist.qml"
+  "a level display does not hold the level|feedback/LevelOsd.qml|Math.max(0, Math.min(1, level))|level|tst_levelosd.qml"
+  "a level display keeps a level that is not a number|feedback/LevelOsd.qml|Number.isFinite(level) ?|true ?|tst_levelosd.qml"
+  "a level display's bar ignores its length token|feedback/LevelOsd.qml|width: Theme.osd.barWidth|width: implicitWidth|tst_levelosd.qml"
+  "a level display's label column moves with the level|feedback/LevelLabel.qml|Math.max(label.implicitWidth, widest.implicitWidth)|label.implicitWidth|tst_levelosd.qml"
+  "a level display's label runs past its column|feedback/LevelOsd.qml|maxWidth: Theme.osd.labelMaxWidth|maxWidth: Infinity|tst_levelosd.qml"
+  "a level display reads no percentage|feedback/LevelOsd.qml|property string text: Math.round(bounded * 100) + \"%\"|property string text: \"\"|tst_levelosd.qml"
+  "a level display's label aligns left|feedback/LevelLabel.qml|horizontalAlignment: Text.AlignRight|horizontalAlignment: Text.AlignLeft|tst_levelosd.qml"
+  "a level slider's readout moves with the level|feedback/LevelLabel.qml|Math.max(label.implicitWidth, widest.implicitWidth)|label.implicitWidth|tst_levelslider.qml"
+  "a level slider's slider ignores the value|controls/LevelSlider.qml|        value: root.value|        value: 0|tst_levelslider.qml"
+  "a level slider pulls a held slider back|controls/LevelSlider.qml|        when: !bar.pressed|        when: true|tst_levelslider.qml"
+  "a level slider reports no move|controls/LevelSlider.qml|onMoved: root.moved(value)|onMoved: {}|tst_levelslider.qml"
+  "a level slider reports no drag|controls/LevelSlider.qml|onPressedChanged: if (pressed) root.began()|onPressedChanged: {}|tst_levelslider.qml"
+  "a level slider ignores its step|controls/LevelSlider.qml|stepSize: root.stepSize|stepSize: 0.2|tst_levelslider.qml"
+  "a level slider reads no percentage|controls/LevelSlider.qml|property string text: Math.round(value * 100) + \"%\"|property string text: \"\"|tst_levelslider.qml"
+  "a level slider's slider takes no room|controls/LevelSlider.qml|width: root.width - button.width - readout.width - 2 * root.spacing|width: root.width / 2|tst_levelslider.qml"
+  "a level slider's button does nothing|controls/LevelSlider.qml|onClicked: root.buttonClicked()|onClicked: {}|tst_levelslider.qml"
+  "a level display takes presses|feedback/LevelOsd.qml|Accessible.name: text|Accessible.name: text; MouseArea { anchors.fill: parent }|tst_levelosd.qml"
+  "a level display is a tab stop|feedback/LevelOsd.qml|Accessible.role: Accessible.ProgressBar|Accessible.role: Accessible.ProgressBar; activeFocusOnTab: true|tst_levelosd.qml"
+  "a level display ignores its padding token|feedback/LevelOsd.qml|x: Theme.osd.padding|x: 0|tst_levelosd.qml"
+  "a level display ignores its card colour|feedback/LevelOsd.qml|color: Theme.osd.background|color: Theme.color.surface|tst_levelosd.qml"
+)
+
+mutation_target_path() { # FILE-FIELD
+  local file="$1"
+  case "$file" in
+    ../Commons/*) printf 'shell/Commons/%s\n' "${file#../Commons/}" ;;
+    ../Core/*) printf 'shell/Core/%s\n' "${file#../Core/}" ;;
+    ../plugins/*) printf 'shell/plugins/%s\n' "${file#../plugins/}" ;;
+    *) printf 'shell/Ui/%s\n' "$file" ;;
+  esac
+}
+
+changed_paths=()
+scope=all
+if [[ -n ${VGS_VALIDATE_CHANGED:-} ]]; then
+  if [[ ! -r $VGS_VALIDATE_CHANGED ]]; then
+    printf 'test-qml-unit: refused: changed-list=unreadable path=%s\n' "$VGS_VALIDATE_CHANGED"
+    exit 1
+  fi
+  scope=changed
+  while IFS= read -r -d '' changed_path; do
+    changed_paths+=("$changed_path")
+  done <"$VGS_VALIDATE_CHANGED"
+fi
+
+path_changed() { # REPO-PATH
+  local wanted="$1" changed
+  for changed in "${changed_paths[@]}"; do
+    [[ $changed == "$wanted" ]] && return 0
+  done
+  return 1
+}
+
+shared_change=false
+if [[ $scope == changed ]]; then
+  for changed_path in "${changed_paths[@]}"; do
+    case "$changed_path" in
+      scripts/qml-unit.sh|scripts/test-qml-unit.sh) shared_change=true ;;
+      scripts/qml-tests/*)
+        base_name="${changed_path##*/}"
+        [[ $base_name == tst_*.qml ]] || shared_change=true ;;
+    esac
+  done
+fi
+
+mutation_selected() { # FILE-FIELD TEST-FILE
+  local file="$1" test="$2"
+  [[ $scope == all ]] && return 0
+  [[ $shared_change == true ]] && return 0
+  path_changed "$(mutation_target_path "$file")" && return 0
+  path_changed "scripts/qml-tests/$test" && return 0
+  return 1
+}
+
+mutation_plan=()
+ran_mutations=0
+skipped_mutations=0
+for row in "${mutations[@]}"; do
+  IFS='|' read -r label file _needle _replacement test <<<"$row"
+  if mutation_selected "$file" "$test"; then
+    mutation_plan+=("run $label")
+    ran_mutations=$((ran_mutations + 1))
+  else
+    mutation_plan+=("skip $label")
+    skipped_mutations=$((skipped_mutations + 1))
+  fi
+done
+printf 'test-qml-unit: scope=%s mutations=%s/%s\n' "$scope" "$ran_mutations" "${#mutations[@]}"
+if [[ $plan_only == true ]]; then
+  printf '%s\n' "${mutation_plan[@]}"
+  exit 0
+fi
+
+probe_status=0
+out="$("$runner" --tests "$repo/scripts/qml-tests" "$repo/scripts/qml-tests/tst_module.qml" 2>&1)" || probe_status=$?
+if [[ $probe_status -eq 77 ]]; then
+  echo "test-qml-unit: status=not-measured runner-exit=77"
+  grep -F -- 'status=not-measured' <<<"$out" || true
+  exit 77
+fi
+if [[ $probe_status -ne 0 ]]; then
+  echo "test-qml-unit: the module test does not pass on the shipped tree:"
+  printf '%s\n' "$out" | tail -n 20
+  exit 1
+fi
+
+tmp="$(mktemp -d)"
+trap 'rm -rf -- "${tmp:?}"' EXIT
+failures=0
+ok() { printf '  ok    %s\n' "$*"; }
+fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
+
+# One fresh copy of the module under test at $1.
+fresh() {
+  rm -rf -- "$1"
+  cp -R -- "$repo/shell/Ui" "$1"
+}
+
+copy="$tmp/ui"
+fresh "$copy"
+if out="$("$runner" --ui "$copy" 2>&1)"; then ok "the unmutated copy passes"; else fail "the unmutated copy fails"; printf '%s\n' "$out" | tail -n 20; fi
+
+for index in "${!mutations[@]}"; do
+  row="${mutations[index]}"
+  IFS='|' read -r label file needle replacement test <<<"$row"
+  if [[ ${mutation_plan[index]} == skip\ * ]]; then
+    continue
+  fi
+  # A `|` inside a field shifts the rest, and a runner handed a test that is
+  # not there fails, which would read as a red mutation.
+  if [[ ! -f $repo/scripts/qml-tests/$test ]]; then fail "$label: the row's test is not a file: $test"; continue; fi
+  fresh "$copy"
+  target="$copy/$file"
+  commons_args=()
+  core_args=()
+  tests_dir="$repo/scripts/qml-tests"
+  if [[ $file == ../Commons/* ]]; then
+    rm -rf -- "$tmp/commons"
+    cp -R -- "$repo/shell/Commons" "$tmp/commons"
+    target="$tmp/commons/${file#../Commons/}"
+    commons_args=(--commons "$tmp/commons")
+  fi
+  if [[ $file == ../Core/* ]]; then
+    rm -rf -- "$tmp/core"
+    cp -R -- "$repo/shell/Core" "$tmp/core"
+    target="$tmp/core/${file#../Core/}"
+    core_args=(--core "$tmp/core")
+  fi
+  if [[ $file == ../plugins/* ]]; then
+    plugin="${file#../plugins/}"
+    plugin="${plugin%%/*}"
+    rm -rf -- "${tmp:?}/mirror"
+    mkdir -p -- "$tmp/mirror/scripts" "$tmp/mirror/shell/plugins"
+    cp -R -- "$repo/scripts/qml-tests" "$tmp/mirror/scripts/qml-tests"
+    cp -R -- "$repo/shell/plugins/$plugin" "$tmp/mirror/shell/plugins/$plugin"
+    target="$tmp/mirror/shell/${file#../}"
+    tests_dir="$tmp/mirror/scripts/qml-tests"
+  fi
+  count="$(python3 - "$target" "$needle" <<'PY'
+import sys
+print(open(sys.argv[1], encoding="utf-8").read().count(sys.argv[2]))
+PY
+)"
+  if [[ $count -ne 1 ]]; then fail "$label: the text to replace occurs $count times in $file"; continue; fi
+  python3 - "$target" "$needle" "$replacement" <<'PY'
+import sys
+path, needle, replacement = sys.argv[1:]
+text = open(path, encoding="utf-8").read()
+open(path, "w", encoding="utf-8").write(text.replace(needle, replacement))
+PY
+  mutant_status=0
+  out="$("$runner" --ui "$copy" "${commons_args[@]}" "${core_args[@]}" --tests "$tests_dir" "$tests_dir/$test" 2>&1)" || mutant_status=$?
+  case "$mutant_status" in
+    0) fail "$label: $test passed on the mutated copy" ;;
+    1) ok "$label" ;;
+    *) fail "$label: the runner exited $mutant_status, so no test judged the mutated copy"; printf '%s\n' "$out" | tail -n 5 ;;
+  esac
+done
+
+if out="$(QML_UNIT_RUNNER=/nonexistent/qmltestrunner "$runner" --ui "$copy" 2>&1)"; then
+  fail "a missing runner passed"
+elif [[ $out == "qml-unit: status=not-measured missing=qmltestrunner" ]]; then
+  ok "a missing runner is not a pass"
+else
+  fail "a missing runner: got $out"
+fi
+if out="$("$runner" --nope 2>&1)"; then fail "an unknown argument passed"; elif [[ $out == "qml-unit: refused: argument=--nope" ]]; then ok "an unknown argument is refused"; else fail "an unknown argument: got $out"; fi
+
+# Rows: label | name of the planted tst_<name>.qml | the runner's exit |
+# the line it must print | the file's lines after the planted head, whose
+# body starts at line 6; printf %b expands the \n.
+planted_head='import QtQuick\nimport QtTest\nTestCase {\n    id: planted\n    name: "planted"\n'
+logs=(
+  "an unexpected console.error fails|error|1|qml-unit: unexpected-log file=tst_error.qml line=QCRITICAL: qmltestrunner::planted::test_a() critical: qml: planted log|    function test_a() { console.error(\"planted log\"); }\n"
+  "an unexpected console.warn fails|warn|1|qml-unit: unexpected-log file=tst_warn.qml line=QWARN  : qmltestrunner::planted::test_a() warning: qml: planted log|    function test_a() { console.warn(\"planted log\"); }\n"
+  "a declared log passes|declared|0|qml-unit: ok files=1|    // expected-log: planted log -- the row plants it\n    function test_a() { console.error(\"planted log\"); }\n"
+  "a declaration that matches nothing fails|stale|1|qml-unit: expected-log unmatched file=tst_stale.qml line=6 message=planted log|    // expected-log: planted log -- the row plants it\n    function test_a() { verify(true); }\n"
+  "a declaration covers no other function|other|1|qml-unit: unexpected-log file=tst_other.qml line=QCRITICAL: qmltestrunner::planted::test_b() critical: qml: planted log|    // expected-log: planted log -- the row plants it\n    function test_a() { console.error(\"planted log\"); }\n    function test_b() { console.error(\"planted log\"); }\n"
+  "a declaration with no reason is refused|noreason|2|qml-unit: refused: expected-log=no-reason file=tst_noreason.qml line=6|    // expected-log: planted log\n    function test_a() { console.error(\"planted log\"); }\n"
+  "a declaration with no function under it is refused|nofunction|2|qml-unit: refused: expected-log=no-function file=tst_nofunction.qml line=6|    // expected-log: planted log -- the row plants it\n    property int n: 0\n    function test_a() { console.error(\"planted log\"); }\n"
+  "a log at load fails|load|1|qml-unit: unexpected-log file=tst_load.qml line=critical: qml: planted log|    Component.onCompleted: console.error(\"planted log\")\n    function test_a() { verify(true); }\n"
+  "a declaration does not excuse a script error|script|1|qml-unit: warnings file=tst_script.qml|    // expected-log: ReferenceError -- the row plants it\n    function test_a() { Qt.createQmlObject(\"import QtQuick; Item { property int n: noSuchName.x }\", planted); }\n"
+)
+mkdir -p "$tmp/logs"
+for row in "${logs[@]}"; do
+  IFS='|' read -r label name want_status want_line body <<<"$row"
+  printf '%b%b}\n' "$planted_head" "$body" >"$tmp/logs/tst_$name.qml"
+  got_status=0
+  out="$("$runner" --tests "$repo/scripts/qml-tests" "$tmp/logs/tst_$name.qml" 2>&1)" || got_status=$?
+  if [[ $got_status -ne $want_status ]]; then
+    fail "$label: exit $got_status, want $want_status"
+    printf '%s\n' "$out" | tail -n 20
+  elif ! grep -qFx -- "$want_line" <<<"$out"; then
+    fail "$label: no line: $want_line"
+    printf '%s\n' "$out" | tail -n 20
+  else
+    ok "$label"
+  fi
+done
+
+if [[ $failures -eq 0 ]]; then
+  echo "test-qml-unit: ok mutations=$ran_mutations skipped=$skipped_mutations logs=${#logs[@]}"
+  exit 0
+fi
+echo "test-qml-unit: failed=$failures"
+exit 1

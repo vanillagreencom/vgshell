@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "vgs.keyhints",
+  "name": "Key Hints",
+  "version": "0.1.0",
+  "author": "VanillaGreen",
+  "description": "See and change every shortcut VGS adds.",
+  "license": "MIT",
+  "icon": "keyboard",
+  "kinds": [
+    "window",
+    "service"
+  ],
+  "entryPoints": {
+    "window": "Window.qml",
+    "service": "Service.qml"
+  },
+  "capabilities": [
+    "manager",
+    "screens",
+    "shortcut",
+    "surfaces"
+  ],
+  "settings": {},
+  "hyprland": {
+    "binds": [
+      { "shortcut": "toggle", "key": "SUPER+SLASH" }
+    ]
+  }
+}
