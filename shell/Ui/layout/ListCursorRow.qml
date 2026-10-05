@@ -2,10 +2,12 @@ import QtQuick
 import qs.Ui
 
 // The row side of ListCursor, declared inside a row of `qs.Ui`: while
-// `holds` is true it hands `cursor` the row it is declared in, and a hover
-// on the row that the cursor lets move the selection emits `pointed`, for
-// the list to make the row its selection. With no cursor it does nothing,
-// and the row draws its own highlight.
+// `holds` is true it hands `cursor` the row it is declared in. A hover on
+// an enabled row that the cursor lets through puts the plate on the row
+// and emits `pointed`, for a pick list to make the row its selection; the
+// cursor also emits it to hand the selection back when the pointer leaves
+// the list. With no cursor it does nothing, and the row draws its own
+// highlight.
 HoverHandler {
     id: root
 
@@ -19,11 +21,18 @@ HoverHandler {
     signal pointed()
 
     enabled: cursor !== null
+    // Whether a hover on the row may take the plate: a disabled row takes
+    // none.
+    readonly property bool takes: cursor !== null && parent.enabled
 
-    function claim() { if (cursor !== null) cursor.follow(parent, holds); }
+    function claim() { if (cursor !== null) cursor.followRow(root, holds); }
     onHoldsChanged: claim()
     onCursorChanged: if (holds) claim()
     Component.onCompleted: if (holds) claim()
 
-    onPointChanged: if (hovered && cursor !== null && cursor.hoverTakes(point.scenePosition)) pointed()
+    onPointChanged: {
+        if (!hovered || !takes || !cursor.hoverTakes(point.scenePosition)) return;
+        cursor.hover(root);
+        pointed();
+    }
 }

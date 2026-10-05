@@ -18,6 +18,10 @@
 # stand-in vgshell in the shell's own PATH directory, which records its argv
 # and runs nothing.
 #
+# A hover in the sidebar moves its plate and not its selection, the shown
+# section's text alone keeps the accent, and the plate returns to the
+# shown section once the pointer leaves the list.
+#
 # Controls: a copy of the window that keeps the list it read when it
 # opened lists a section disabled while it is open, and a shell copy whose
 # PaneHost hands the holder no pane height shows the tall section cut to
@@ -26,7 +30,7 @@
 # lists its fixtures alone, and leaves the user file, vgs.system's and
 # each shipped section's enablement, the plugins directory and the shell's
 # PATH directory as it found them.
-# inputs: shell/plugins/vgs.system/* shell/Core/PluginLogic.js shell/plugins/*/manifest.json scripts/smoke/fixtures/plugins/acme.pane/* shell/Hosts/PaneHost.qml shell/Hosts/AppWindow.qml shell/Core/Capabilities.qml shell/Core/Config.qml shell/Commons/WatchedFile.qml scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/plugins/vgs.system/* shell/Ui/layout/ListCursor* shell/Ui/layout/ListItem.qml shell/Core/PluginLogic.js shell/plugins/*/manifest.json scripts/smoke/fixtures/plugins/acme.pane/* shell/Hosts/PaneHost.qml shell/Hosts/AppWindow.qml shell/Core/Capabilities.qml shell/Core/Config.qml shell/Commons/WatchedFile.qml scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 
 sys_file="$home/.config/vgshell/shell.json"
@@ -190,6 +194,61 @@ expect "showing Pane through the window is allowed" ok ipc smoke invokeInstance 
 expect_poll "switching to Pane destroys Pane Alt's build record" '["acme.pane"]' window_panes
 expect_poll "the shown section clears the notice" '""' sys_read notice
 geometry expect_poll "a section shorter than the room fills the room" fits sys_pane_fits acme.pane
+
+# Hover in the sidebar, a navigation list: the plate follows the pointer to
+# a section that is not shown while the selection stays on the shown one,
+# whose text keeps the accent alone; with the pointer off the list the
+# plate is back on the shown section. The hovered reading is the contrast:
+# the same reader sees the plate on another row.
+# sys_plate_row: the title of the sidebar row the plate sits on, or none.
+sys_plate_row() {
+  ipc smoke descendantGeometry window vgs.system | py_reply '
+import json, sys
+rows = json.load(sys.stdin)
+def under(j, kind):
+    while j != -1:
+        if rows[j]["type"] == kind: return j
+        j = rows[j]["parent"]
+    return -1
+def shown(j):
+    while j != -1:
+        if not rows[j]["visible"]: return False
+        j = rows[j]["parent"]
+    return True
+plates = [r for i, r in enumerate(rows) if r["type"] == "ListCursor" and under(i, "Sidebar") != -1 and shown(i)]
+items = [r for i, r in enumerate(rows) if r["type"] == "ListItem" and under(i, "Sidebar") != -1 and shown(i)]
+on = [r["text"] for p in plates for r in items if abs(r["box"][1] - p["box"][1]) < 1 and abs(r["box"][3] - p["box"][3]) < 1]
+print(on[0] if len(on) == 1 else "none")'
+}
+# sys_accent_rows: the sidebar titles drawn in listItem.selectedForeground.
+sys_accent_rows() {
+  local accent
+  accent="$(ipc smoke themeValue listItem.selectedForeground)" || return 1
+  ipc smoke itemValues window vgs.system Label text,color,role | py_reply '
+import json, sys
+def norm(c):
+    c = str(c).strip("\"").lower()
+    return "#" + c[3:] if len(c) == 9 and c.startswith("#ff") else c
+names = {"Pane Net", "Pane Alt", "Pane", "Shell & Plugins"}
+want = norm(sys.argv[1])
+print(json.dumps(sorted(r["text"] for r in json.load(sys.stdin) if r["role"] == "item" and r["text"] in names and norm(r["color"]) == want)))' "$accent"
+}
+sys_hover_box="$(ipc smoke windowGeometry window vgs.system ListItem "Pane Net")" || sys_hover_box=""
+sys_box="$(surface_box window:System)" || sys_box=""
+if read -r sys_hx sys_hy < <(at_centre window:System "$sys_hover_box") && [[ $sys_box == \[* ]]; then
+  expect_poll "before the hover the plate sits on the shown section" Pane sys_plate_row
+  hover "$((sys_hx - 6))" "$sys_hy"; hover "$sys_hx" "$sys_hy"
+  expect_poll "a hover puts the sidebar's plate on Pane Net" "Pane Net" sys_plate_row
+  expect "the hover leaves the selection on the shown section" 2 sys_current
+  expect "while Pane Net holds the plate only the shown section's text keeps the accent" '["Pane"]' sys_accent_rows
+  read -r sys_ox sys_oy < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(int(x + w - 40), int(y + h / 2))' "$sys_box")
+  hover "$sys_ox" "$sys_oy" || fail "moving the pointer off the sidebar failed"
+  expect_poll "with the pointer off the list the plate is back on the shown section" Pane sys_plate_row
+  expect "with the pointer off the list only the shown section's text keeps the accent" '["Pane"]' sys_accent_rows
+  rest_pointer || fail "resting the pointer after the sidebar hover failed"
+else
+  fail "the sidebar's Pane Net row is unplaced: ${sys_hover_box:-unread}"
+fi
 
 # The selection follows its section: a section that sorts before the
 # selected one joins the list while the window is open, and the selection

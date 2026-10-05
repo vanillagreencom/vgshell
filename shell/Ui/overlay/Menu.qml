@@ -7,11 +7,13 @@ import qs.Ui
 // A menu of MenuItem entries under the item it is declared in, in its own
 // surface. One ListCursor draws the highlight and travels between entries.
 // Up and Down move the highlight, a hover moves it once the pointer moves
-// (ListCursor), Enter triggers the highlighted entry, a click triggers an
-// entry, and a trigger closes the menu unless the entry `keepsOpen`, as
-// one that opens a submenu does; a
-// press outside and Escape close it too (DismissScope). Typing letters highlights the
-// first reachable entry whose text starts with them, the letters kept for
+// (ListCursor), and the pointer leaving the entries returns it to the
+// entry a key chose, or clears it when no key chose one since the menu
+// opened, as a desktop menu does. Enter triggers the highlighted entry, a
+// click triggers an entry, and a trigger closes the menu unless the entry
+// `keepsOpen`, as one that opens a submenu does; a press outside and
+// Escape close it too (DismissScope). Typing letters highlights the first
+// reachable entry whose text starts with them, the letters kept for
 // `menu.typeahead` milliseconds. Entries taller than `maxHeight` scroll
 // inside the menu, and the highlighted entry is kept in view; opening
 // shows the top and highlights the first checked entry, in view. It follows its anchor when that
@@ -30,6 +32,8 @@ Item {
     readonly property bool opened: window.visible
     readonly property Item anchorItem: parent
     property int currentIndex: -1
+    // Whether a key chose the highlighted entry since the menu opened.
+    property bool keyChose: false
     // The height the entries take before the menu scrolls.
     property real maxHeight: Theme.menu.maxHeight
     readonly property string typed: nav.typed
@@ -61,6 +65,8 @@ Item {
         plate.snap();
         currentIndex = items().findIndex(item => reachable(item) && item.checked);
         if (currentIndex === -1) nav.first();
+        // The opening entry is the menu's, not a key's choice.
+        keyChose = false;
         window.visible = true;
         scope.forceActiveFocus();
         scroll.contentY = 0;
@@ -77,7 +83,11 @@ Item {
 
     // Highlight the entry at `index` from a key: the pointer resting over
     // the menu takes the highlight again only once it moves.
-    function keyTo(index) { plate.disarm(); currentIndex = index; }
+    function keyTo(index) {
+        plate.disarm();
+        keyChose = true;
+        currentIndex = index;
+    }
 
     function triggerCurrent() {
         const all = items();
@@ -211,6 +221,7 @@ Item {
                     color: Theme.menu.item.hover
                     pressedColor: Theme.menu.item.pressed
                     radius: Theme.menu.item.radius
+                    onPointerLeft: if (!root.keyChose) root.currentIndex = -1
                 }
 
                 Column {

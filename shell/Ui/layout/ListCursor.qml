@@ -3,21 +3,29 @@ import qs.Commons
 import qs.Ui
 import "ListCursorLogic.js" as Logic
 
-// The one cursor of a list: a plate under the row that holds the list's
-// selection. It travels to the next row and takes its height rather than
-// lighting each row, fades in while `shown` and out while not, and lands at
-// once after `snap()` and while hidden, so it appears where it lands.
-// `shown` holds while a row holds the cursor; a list that knows whether it
-// has a selection, and rebuilds its rows under it, binds it instead, so a
-// row it destroys leaves the plate in place for the next.
+// The one cursor of a list: a plate under the row the pointer is over,
+// else the row that holds the list's selection. It travels to the next row
+// and takes its height rather than lighting each row, fades in while
+// `shown` and out while not, and lands at once after `snap()` and while
+// hidden, so it appears where it lands. `shown` holds while a row holds
+// the cursor; a list that knows whether it has a selection, and rebuilds
+// its rows under it, binds it instead, so a row it destroys leaves the
+// plate in place for the next.
 //
-// Keyboard and pointer move the same selection, which the list owns. A row
-// hands the cursor itself through `follow(row, holds)` while it holds the
-// selection. A hover moves the selection only once `hoverTakes` answers
-// true: after `disarm()`, which a keyboard step and a rebuilt list call,
-// the pointer must move before it takes the selection again, so a pointer
-// resting over a list that moves under it never takes the selection from
-// the keyboard.
+// The list owns its selection, which the keyboard moves. A row hands the
+// cursor itself through `follow(row, holds)` while it holds the
+// selection. A hover takes the plate, `hovered`, only once `hoverTakes`
+// answers true: after `disarm()`, which a keyboard step and a rebuilt list
+// call, the pointer must move before it takes the plate again, so a
+// pointer resting over a list that moves under it never takes it from the
+// keyboard. A pick list, whose Enter acts on the row under the pointer,
+// also moves its selection on the row's `pointed`; a navigation list
+// leaves its selection on the page it shows. When the pointer leaves the
+// cursor's parent the plate goes back to the selection: the cursor emits
+// `pointerLeft()`, and unless the list then changed its selection, hands
+// it back to the row that held it before the hover took it, through that
+// row's `pointed`. A disarm ends the hover with the selection where the
+// keyboard put it.
 //
 // Declare the cursor in the item that holds the rows, or in any item above
 // them that is not a positioner, such as a view's contentItem. It follows
@@ -43,15 +51,24 @@ Item {
     property real radius: Theme.listItem.radius
     // Whether the row that holds the cursor is pressed: its template's
     // `down`, which a release outside the row clears.
-    readonly property bool pressed: state.target !== null && state.target.down === true
+    readonly property bool pressed: placed !== null && placed.down === true
     // What the plate draws. The cursor parents it and fills itself with it.
     property Item background: Rectangle { color: root.pressed ? root.pressedColor : root.color; radius: root.radius }
     // The row that holds the selection; null for none.
     readonly property alias target: state.target
+    // The row under the pointer that took the plate; null for none.
+    readonly property alias hovered: state.hovered
+    // The row the plate sits on.
+    readonly property Item placed: state.hovered !== null ? state.hovered : state.target
     // Whether a hover moves the selection: the pointer has moved since the
     // last `disarm()`.
     readonly property alias armed: state.armed
-    property bool shown: target !== null
+    property bool shown: state.hovered !== null || state.target !== null
+
+    // The pointer left the cursor's parent after a hover took the plate. A
+    // list that clears its selection then, as a menu with no keyboard
+    // choice does, sets it here, before the cursor hands it back.
+    signal pointerLeft()
 
     z: -1
     opacity: shown ? 1 : 0
@@ -96,6 +113,7 @@ Item {
     function disarm() {
         state.armed = false;
         state.last = null;
+        if (state.hovering) state.endHover();
     }
 
     // The next hover moves the selection without the pointer moving first,
@@ -113,6 +131,13 @@ Item {
         id: state
 
         property Item target: null
+        // The ListCursorRow of `target`, when a row of qs.Ui holds it.
+        property QtObject holder: null
+        property Item hovered: null
+        // Whether a hover holds the plate since the pointer entered, and
+        // the ListCursorRow that held the selection when it took it.
+        property bool hovering: false
+        property QtObject restore: null
         property bool snapping: false
         property bool armed: false
         // The last scene point a hover read since the cursor was disarmed.
@@ -120,6 +145,11 @@ Item {
         property int arrivals: 0
 
         function settle() { snapping = false; }
+        function endHover() {
+            hovering = false;
+            hovered = null;
+            restore = null;
+        }
         function endArrivals() { arrivals = 0; }
     }
 
@@ -136,7 +166,54 @@ Item {
         }
         return out;
     }
-    readonly property var chain: state.target === null ? [] : chainOf(state.target) ?? []
+    // The ListCursorRow side of `follow`: `row` is the handler, whose
+    // parent is the row, so the cursor can hand the row the selection back.
+    function followRow(row, holds) {
+        follow(row.parent, holds);
+        if (holds && state.target === row.parent) state.holder = row;
+        else if (!holds && state.holder === row) state.holder = null;
+    }
+
+    // A hover that `hoverTakes` let through puts the plate on the row of
+    // ListCursorRow `row`; the first of a hover keeps the row that held
+    // the selection.
+    function hover(row) {
+        if (!state.hovering) {
+            state.hovering = true;
+            state.restore = state.target !== null && state.holder !== null && state.holder.parent === state.target ? state.holder : null;
+        }
+        if (chainOf(row.parent) !== null) state.hovered = row.parent;
+    }
+
+    function pointerLeave() {
+        if (!state.hovering) return;
+        const over = state.hovered;
+        const back = state.restore;
+        state.endHover();
+        root.pointerLeft();
+        if (back !== null && over !== null && state.target === over && back.parent !== over) back.pointed();
+    }
+
+    // Whether the pointer is over the cursor's parent, read by a
+    // HoverHandler made on it: one declared here would sit on the plate.
+    Component {
+        id: parentHover
+        HoverHandler {}
+    }
+    property HoverHandler parentHovered: null
+    Connections {
+        target: root.parentHovered
+        function onHoveredChanged() { if (!root.parentHovered.hovered) root.pointerLeave(); }
+    }
+    function watchParent() {
+        if (parentHovered !== null) parentHovered.destroy();
+        parentHovered = parent === null ? null : parentHover.createObject(parent);
+    }
+
+    readonly property var chain: {
+        const row = state.hovered !== null ? state.hovered : state.target;
+        return row === null ? [] : chainOf(row) ?? [];
+    }
     onChainChanged: place()
 
     Instantiator {
@@ -168,9 +245,12 @@ Item {
     }
 
     // Glide `property` to `value` over `animation`, or land at once while
-    // snapping, hidden or stilled.
+    // snapping, hidden or stilled. Hidden reads the opacity, not `shown`:
+    // a row that lets go before the next takes the cursor leaves `shown`
+    // false for that turn, and whether its binding has caught up when the
+    // next row takes the cursor depends on the order Qt notifies them in.
     function move(animation, property, value, duration) {
-        const glide = !state.snapping && root.shown && root.opacity > 0 && duration > 0;
+        const glide = !state.snapping && root.opacity > 0 && duration > 0;
         if (glide && animation.running && animation.to === value) return;
         animation.stop();
         if (glide && root[property] !== value) {
@@ -195,6 +275,13 @@ Item {
         if (parent !== null && parent.color !== undefined && parent.color.a > 0)
             console.error("ListCursor: parent " + parent + " paints a fill over the plate; declare the cursor in an item that draws nothing, around the rows");
     }
-    onParentChanged: checkParent()
-    Component.onCompleted: adopt()
+    onParentChanged: {
+        checkParent();
+        watchParent();
+    }
+    Component.onCompleted: {
+        adopt();
+        if (parentHovered === null) watchParent();
+    }
+    Component.onDestruction: if (parentHovered !== null) parentHovered.destroy()
 }

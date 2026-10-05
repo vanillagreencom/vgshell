@@ -2,9 +2,11 @@
 # launcher: under a slowed motion scale the cursor travels between rows, a
 # reading caught between where it stood and where it rests, which is the
 # contrast that proves the reader sees motion; at motion.scale 0 it lands at
-# once, with no reading between. The rows run with the plugins disabled as
-# the rows before left them, and leave them so, with the default theme.
-# inputs: shell/Ui/layout/ListCursor* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/plugins/vgs.launcher/*
+# once, with no reading between; at the shipped motion a hover moves the
+# Settings list's plate on its first frame and rests it within a ceiling
+# the old travel misses. The rows run with the plugins disabled as the rows
+# before left them, and leave them so, with the default theme.
+# inputs: shell/Ui/layout/ListCursor* shell/Ui/layout/ListItem.qml shell/Commons/Tokens.js scripts/smoke/fixtures/list-cursor/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/plugins/vgs.launcher/*
 set -euo pipefail
 motion_theme="$home/.config/vgshell/theme.json"
 write_motion_theme() { printf '%s\n' "$1" >"$motion_theme.tmp" && mv -T -- "$motion_theme.tmp" "$motion_theme"; }
@@ -31,10 +33,10 @@ print("moving" if any(a != b for a, b in zip(moved, moved[1:])) else "still")
 PY
 }
 
-# Motion four times slower: the Settings list travels over 250 * 4 ms and
+# Motion four times slower: the Settings list travels over 100 * 4 ms and
 # the launcher's over its own 250 * 4 ms.
 write_motion_theme '{ "schemaVersion": 1, "name": "slowlist", "tokens": { "motion": { "scale": 4 } } }'
-expect_poll "the slowed scale reaches the list motion" 1000 ipc smoke themeValue motion.list.travel.duration
+expect_poll "the slowed scale reaches the list motion" 400 ipc smoke themeValue motion.list.travel.duration
 
 expect "enabling the Settings plugin for the list motion is allowed" ok ipc shell setPluginEnabled vgs.settings true
 expect "the Settings window summons for the list motion" ok ipc shell summon window vgs.settings '{}'
@@ -61,6 +63,99 @@ fi
 expect "hiding the Settings window after the list motion is allowed" ok ipc shell hide window vgs.settings
 expect_poll "the Settings window is gone" 0 window_count Settings
 expect "disabling the Settings plugin after the list motion is allowed" ok ipc shell setPluginEnabled vgs.settings false
+
+# The pointer's travel in the Settings list at the shipped list motion: the
+# plate moves on the first frame after a hover takes the row and rests
+# within hover_ceiling_ms of it, read from the window's frames by the
+# CursorFrames fixture. The pointer moves between the list's first two rows:
+# hover_travel ROW moves it onto row ROW one pixel at a time, as a hand
+# does, until the selection takes the row, then waits for the plate to
+# rest, and prints the milliseconds from the selection to the first frame
+# that moved the plate and to the first frame that shows it at rest, or a
+# word naming what it missed: `late` when a frame after the selection
+# still drew the plate where it stood. On host cachy on 2026-10-05, nested
+# frames 33 ms apart, main 85858b4 (travel 250 ms outQuint) read the rest
+# at 166 to 193 ms over 16 hovers and the first moved frame 4 to 37 ms
+# after the selection; the ceiling sits under the old travel's lowest
+# reading, and the same reader under that travel is its control.
+hover_ceiling_ms=150
+hover_fixture="$repo/scripts/smoke/fixtures/list-cursor/CursorFrames.qml"
+declare -A hover_x hover_y
+hover_travel() {
+  local i reading prev=""
+  ipc smoke popupCall cursor-frames start >/dev/null || return
+  for i in $(seq 1 20); do
+    hover "$((hover_x[$1] + i % 3))" "${hover_y[$1]}" || return
+    [[ $(ipc smoke popupRead cursor-frames targets) != "[]" ]] && break
+    sleep 0.05
+  done
+  for i in $(seq 1 30); do
+    sleep 0.1
+    reading="$(ipc smoke readShownDescendant window vgs.settings ListCursor y)" || return
+    [[ $reading == "$prev" ]] && break
+    prev="$reading"
+  done
+  python3 - "$(ipc smoke popupRead cursor-frames targets)" "$(ipc smoke popupRead cursor-frames moves)" "$(ipc smoke popupRead cursor-frames frames)" <<'PY'
+import json, sys
+targets, moves, frames = (json.loads(v) for v in sys.argv[1:4])
+if not targets: print("unselected"); sys.exit()
+if not moves: print("unmoved"); sys.exit()
+t0 = targets[0][0]
+final = moves[-1][1]
+before = [f for f in frames if f[0] < t0]
+start = before[-1][1] if before else moves[0][1]
+after = [f for f in frames if f[0] >= t0]
+if not after: print("undrawn"); sys.exit()
+if abs(after[0][1] - start) < 0.5: print("late"); sys.exit()
+rest = [f for f in after if abs(f[1] - final) < 0.5]
+print("%d %s" % (after[0][0] - t0, (rest[0][0] - t0) if rest else "unrested"))
+PY
+}
+# hover_readings N: N hover_travel readings, alternating the second row and
+# the first, one per line; hover_verdict: `fast` when every reading moved
+# on its first frame and rested within the ceiling, else the readings.
+hover_readings() {
+  local n
+  for n in $(seq 1 "$1"); do
+    hover_travel "$((n % 2))" || echo "unread"
+  done
+}
+hover_verdict() {
+  local readings
+  readings="$(hover_readings 6)"
+  echo "        hover readings: $(tr '\n' ';' <<<"$readings")" >&2
+  python3 - "$hover_ceiling_ms" "$readings" <<'PY'
+import sys
+ceiling = int(sys.argv[1])
+rows = [line.split() for line in sys.argv[2].splitlines() if line.strip()]
+ok = len(rows) == 6 and all(len(r) == 2 and r[1].isdigit() and int(r[1]) <= ceiling for r in rows)
+print("fast" if ok else "slow")
+PY
+}
+
+write_motion_theme '{ "schemaVersion": 1, "name": "vgs", "tokens": {} }'
+expect_poll "the defaults return for the hover travel" vgs ipc smoke themeName
+expect "enabling the Settings plugin for the hover travel is allowed" ok ipc shell setPluginEnabled vgs.settings true
+expect "the Settings window summons for the hover travel" ok ipc shell summon window vgs.settings '{}'
+expect_poll "the Settings list's cursor holds a row for the hover travel" true ipc smoke readShownDescendant window vgs.settings ListCursor shown
+expect "the probe builds the cursor frame trace" ok ipc smoke popupLoad cursor-frames "$hover_fixture" window vgs.settings '{"host":"@instance"}'
+hover_rows="$(ipc smoke itemTexts window vgs.settings ListItem)" || hover_rows='[]'
+for hover_row in 0 1; do
+  hover_name="$(py_reply "import json,sys; r=json.load(sys.stdin); print(r[$hover_row][0] if len(r) > $hover_row else '')" <<<"$hover_rows")" || hover_name=""
+  read -r "hover_x[$hover_row]" "hover_y[$hover_row]" < <(at_centre window:Settings "$(ipc smoke windowGeometry window vgs.settings ListItem "$hover_name")") || fail "the Settings list's row $hover_row is unplaced: ${hover_name:-unread}"
+done
+if [[ -n ${hover_x[0]:-} && -n ${hover_x[1]:-} ]]; then
+  hover "$((hover_x[0] - 6))" "${hover_y[0]}"; hover "${hover_x[0]}" "${hover_y[0]}"
+  render expect "a hover moves the Settings list's plate on its first frame and rests it within ${hover_ceiling_ms} ms" fast hover_verdict
+  write_motion_theme '{ "schemaVersion": 1, "name": "oldtravel", "tokens": { "motion": { "list": { "travel": { "duration": 250, "easing": "outQuint" }, "resize": { "duration": 250 } } } } }'
+  expect_poll "the old travel reaches the list motion" 250 ipc smoke themeValue motion.list.travel.duration
+  render expect "under the old 250 ms travel the same reader reads the plate resting late" slow hover_verdict
+fi
+expect "the probe drops the cursor frame trace" ok ipc smoke popupDrop cursor-frames
+rest_pointer || fail "moving the pointer off the Settings list failed"
+expect "hiding the Settings window after the hover travel is allowed" ok ipc shell hide window vgs.settings
+expect_poll "the Settings window is gone after the hover travel" 0 window_count Settings
+expect "disabling the Settings plugin after the hover travel is allowed" ok ipc shell setPluginEnabled vgs.settings false
 
 # The launcher's list: Ctrl+B lists the categories and the first Down
 # gives the list its cursor, on the first row.

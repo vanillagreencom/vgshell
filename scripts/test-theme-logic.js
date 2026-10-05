@@ -50,9 +50,9 @@ const DEFAULTS = [
     ["motion.easing.standard", "outCubic"],
     // The list motion: slow for travel and resize, normal for the fade, and
     // mul(250, 1.2) = 300 for a row's entrance; the rise is space.sm.
-    ["motion.list.travel.duration", 250],
+    ["motion.list.travel.duration", 100],
     ["motion.list.travel.easing", "outQuint"],
-    ["motion.list.resize.duration", 250],
+    ["motion.list.resize.duration", 100],
     ["motion.list.fade.duration", 150],
     ["motion.list.enter.duration", 300],
     ["motion.list.enter.easing", "outQuint"],

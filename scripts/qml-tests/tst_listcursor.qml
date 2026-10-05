@@ -10,9 +10,13 @@ import qs.Unit
 // travelling when a row lets go before the next row takes it, fades out
 // when no row holds it, and follows a row through the items between; a
 // hover moves the selection only once the pointer moved since the cursor
-// was disarmed; a row in a cursor list draws no fill of its own and enters
-// staggered, and stands in place at once while motion is stilled; a
-// plugin's own background and bezier step are taken.
+// was disarmed; the plate sits on the row under the pointer, goes back to
+// the selection when the pointer leaves the list or a key disarms it, and
+// a pick list's selection goes back to the row that held it; a disabled
+// row takes no plate; an active row keeps the accent; a row in a cursor
+// list draws no fill of its own and enters staggered, and stands in place
+// at once while motion is stilled; a plugin's own background and bezier
+// step are taken.
 Item {
     id: root
     width: 400
@@ -20,6 +24,9 @@ Item {
 
     property int current: 0
     property int count: 4
+    // Whether a hover moves the selection, as in a pick list; a
+    // navigation list leaves it to the keyboard.
+    property bool pointerSelects: true
 
     Item {
         id: holder
@@ -44,7 +51,7 @@ Item {
                     secondary: index % 2 === 1 ? "detail" : ""
                     cursor: plate
                     highlighted: index === root.current
-                    onPointed: root.current = index
+                    onPointed: if (root.pointerSelects) root.current = index
                 }
             }
         }
@@ -96,6 +103,7 @@ Item {
     }
 
     SignalSpy { id: pointed; signalName: "pointed" }
+    SignalSpy { id: leftSpy; target: plate; signalName: "pointerLeft" }
 
     TestCase {
         name: "listcursor"
@@ -108,8 +116,11 @@ Item {
             root.current = -1;
             root.current = 0;
             rows.y = 20;
+            root.pointerSelects = true;
             plate.disarm();
+            mouseMove(root, 390, 590);
             pointed.clear();
+            leftSpy.clear();
             tryVerify(() => plate.target === repeater.itemAt(0), 1000, "the highlighted row holds the cursor");
             tryCompare(plate, "y", 20);
         }
@@ -212,6 +223,102 @@ Item {
             mouseMove(row(2), 24, 10);
             compare(root.current, 2, "an armed cursor takes the selection on its first reading");
             mouseMove(root, 390, 590);
+        }
+
+        // A navigation list: the plate follows the pointer, the selection
+        // stays, and the plate goes back to it when the pointer leaves.
+        function test_the_plate_follows_the_pointer_and_returns_when_it_leaves() {
+            root.pointerSelects = false;
+            plate.arm();
+            mouseMove(row(2), 20, 10);
+            verify(plate.hovered === row(2), "the row under the pointer takes the plate");
+            compare(plate.y, rows.y + row(2).y);
+            compare(plate.height, row(2).height);
+            compare(root.current, 0, "the selection stays");
+            verify(plate.target === row(0));
+            // The gap below the rows is inside the cursor's parent.
+            mouseMove(holder, 20, holder.height - 4);
+            verify(plate.hovered === row(2), "the plate stays while the pointer is inside the list");
+            mouseMove(root, 390, 590);
+            verify(plate.hovered === null, "leaving the list lets the plate go");
+            compare(plate.y, rows.y + row(0).y, "the plate is back on the selection");
+            compare(leftSpy.count, 1);
+            compare(root.current, 0);
+        }
+
+        // A pick list: a hover moves the selection, and leaving hands it back
+        // to the row the keyboard left it on.
+        function test_leaving_a_pick_list_hands_its_selection_back() {
+            root.current = 1;
+            plate.arm();
+            mouseMove(row(3), 20, 10);
+            compare(root.current, 3, "a hover moves a pick list's selection");
+            mouseMove(row(2), 20, 10);
+            compare(root.current, 2);
+            mouseMove(root, 390, 590);
+            compare(root.current, 1, "leaving hands the selection back to the row that held it");
+            verify(plate.target === row(1) && plate.hovered === null);
+            compare(plate.y, rows.y + row(1).y);
+        }
+
+        // A key disarms the pointer: the plate shows the keyboard's
+        // selection at once, and leaving afterwards changes nothing.
+        function test_a_disarm_ends_the_hover() {
+            plate.arm();
+            mouseMove(row(3), 20, 10);
+            compare(root.current, 3);
+            plate.disarm();
+            root.current = 2;
+            verify(plate.hovered === null, "a disarm lets the hovered row go");
+            compare(plate.y, rows.y + row(2).y);
+            root.pointerSelects = false;
+            plate.arm();
+            mouseMove(row(1), 20, 10);
+            verify(plate.hovered === row(1));
+            plate.disarm();
+            verify(plate.hovered === null, "a disarm returns the plate to the selection");
+            compare(plate.y, rows.y + row(2).y);
+            mouseMove(root, 390, 590);
+            compare(root.current, 2, "the keyboard's selection stands");
+            compare(leftSpy.count, 0, "a hover a disarm ended does not leave");
+        }
+
+        function test_a_disabled_row_takes_no_plate() {
+            row(2).enabled = false;
+            plate.arm();
+            mouseMove(row(2), 20, 10);
+            mouseMove(row(2), 22, 10);
+            verify(plate.hovered === null, "a disabled row takes no plate");
+            compare(root.current, 0, "nor the selection");
+            row(2).enabled = true;
+        }
+
+        function itemLabel(item) {
+            const found = [item];
+            for (let i = 0; i < found.length; i++) {
+                if (found[i].role === "item") return found[i];
+                for (const child of found[i].children) found.push(child);
+            }
+            return null;
+        }
+
+        function test_an_active_row_keeps_the_accent_while_another_holds_the_plate() {
+            root.pointerSelects = false;
+            row(3).active = true;
+            row(3).iconName = "check";
+            row(2).iconName = "check";
+            plate.arm();
+            mouseMove(row(2), 20, 10);
+            verify(plate.hovered === row(2));
+            const accent = Qt.color(Theme.listItem.selectedForeground);
+            compare(String(itemLabel(row(3)).color), String(accent), "the active row's text keeps the accent");
+            compare(String(row(3).contentItem.children[0].color), String(accent), "the active row's icon keeps the accent");
+            compare(String(itemLabel(row(2)).color), String(Qt.color(Theme.color.text)), "a row holding the plate alone keeps its resting text");
+            compare(String(row(2).contentItem.children[0].color), String(Qt.color(Theme.color.textMuted)));
+            compare(String(itemLabel(row(0)).color), String(accent), "the highlighted row keeps the accent");
+            row(3).active = false;
+            row(3).iconName = "";
+            row(2).iconName = "";
         }
 
         function test_a_row_with_a_cursor_draws_no_fill() {

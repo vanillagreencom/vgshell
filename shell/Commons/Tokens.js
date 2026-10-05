@@ -231,10 +231,12 @@ var TOKENS = {
         // the cursor travels to a new row and takes its height, fades in
         // and out with the list's cursor, and a row that arrives rises
         // `rise` into place, each of the first `staggerRows` one
-        // `stagger` after the row before it.
+        // `stagger` after the row before it. The travel is `fast`: every
+        // row a moving pointer crosses starts it again, and a longer one
+        // trails the pointer.
         list: {
-            travel: { duration: duration("{motion.duration.slow}"), easing: easing("{motion.easing.emphasized}") },
-            resize: { duration: duration("{motion.duration.slow}"), easing: easing("{motion.easing.standard}") },
+            travel: { duration: duration("{motion.duration.fast}"), easing: easing("{motion.easing.emphasized}") },
+            resize: { duration: duration("{motion.duration.fast}"), easing: easing("{motion.easing.standard}") },
             fade: { duration: duration("{motion.duration.normal}"), easing: easing("{motion.easing.standard}") },
             enter: { duration: duration("mul({motion.duration.slow}, 1.2)"), easing: easing("{motion.easing.emphasized}") },
             stagger: duration(18),

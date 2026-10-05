@@ -9,9 +9,11 @@ import qs.Ui
 // the keys, as the Settings list's does (keyboard.md K6): typed text
 // filters the rows, and printable text typed elsewhere in the sidebar goes
 // to it. One ListCursor marks the selected row: Up, Down, the pages and
-// Ctrl+Home or Ctrl+End move it, and a hover moves it once the pointer
-// moves. Enter, or Right with the caret at the end of the query, enters
-// the selected section, and Enter on Shell & Plugins opens the Settings
+// Ctrl+Home or Ctrl+End move it, and the plate follows the pointer over
+// the rows without moving it, then returns to it. The shown section's text
+// and icon stay in the accent while the plate sits on another row.
+// Enter, or Right with the caret at the end of the query, enters the
+// selected section, and Enter on Shell & Plugins opens the Settings
 // window, as a click does. Escape with a query clears it; with none it is
 // left to the window, which closes. The selection follows its entry by
 // id, so a section joining or leaving the list moves no other row's
@@ -218,8 +220,8 @@ FocusScope {
                                 text: modelData.name
                                 iconName: modelData.icon
                                 highlighted: entryIndex === page.current
+                                active: modelData.id === page.panel.paneId
                                 cursor: plate
-                                onPointed: page.selectIndex(entryIndex)
                                 onClicked: page.activate(entryIndex, Qt.MouseFocusReason)
                             }
                         }
@@ -240,7 +242,6 @@ FocusScope {
                     iconName: "blocks"
                     highlighted: page.current === page.footerIndex
                     cursor: plate
-                    onPointed: page.selectIndex(page.footerIndex)
                     onClicked: page.activate(page.footerIndex, Qt.MouseFocusReason)
                     trailing: [
                         Icon {

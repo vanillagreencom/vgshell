@@ -14,7 +14,9 @@ import qs.Unit
 // to the entry whose text starts with the letters typed, opens on its
 // checked entry and draws its mark. A menu and a select's list draw their
 // highlight through one ListCursor, which a hover moves only once the
-// pointer moved since the last key. The first entry's highlight and a
+// pointer moved since the last key; when the pointer leaves, a menu's
+// highlight goes back to the entry a key chose or clears, and a select's to
+// the entry the keyboard left it on. The first entry's highlight and a
 // select's chosen fill meet the list's border at the top and both sides,
 // under a square and a rounded theme, and stay inside a rounder corner;
 // the bar of an overflowing list draws over a strip each entry keeps clear,
@@ -429,6 +431,50 @@ Item {
             mouseMove(items[2], 12, 5);
             compare(menu.currentIndex, 0, "a hover highlights no disabled entry");
             menu.close();
+        }
+
+        // A pointer move outside the window that holds `item`.
+        function leaveWindow(item) {
+            const window = item.Window.window;
+            mouseMove(window.contentItem, window.width + 20, window.height + 20);
+        }
+
+        function test_menu_highlight_leaves_with_the_pointer() {
+            menu.open();
+            const items = menu.items();
+            const plate = items[0].cursor;
+            compare(menu.currentIndex, 0, "the menu opens on its first entry");
+            mouseMove(items[1], 10, 5);
+            mouseMove(items[1], 12, 5);
+            compare(menu.currentIndex, 1, "a moved pointer highlights the entry under it");
+            leaveWindow(items[1]);
+            compare(menu.currentIndex, -1, "with no key's choice, leaving clears the highlight");
+            verify(plate.target === null && plate.hovered === null, "no entry keeps the plate");
+            menu.close();
+            menu.open();
+            menu.move(1);
+            compare(menu.currentIndex, 1, "a key chooses the second entry");
+            mouseMove(items[0], 10, 5);
+            mouseMove(items[0], 12, 5);
+            compare(menu.currentIndex, 0);
+            leaveWindow(items[0]);
+            compare(menu.currentIndex, 1, "leaving returns the highlight to the key's choice");
+            verify(plate.target === items[1] && plate.hovered === null);
+            menu.close();
+        }
+
+        function test_select_highlight_returns_when_the_pointer_leaves() {
+            select.choose(0);
+            select.openList();
+            const list = selectList(select);
+            tryVerify(() => list.itemAtIndex(2) !== null, 1000, "the list builds its entries");
+            compare(list.currentIndex, 0, "the list opens on the chosen entry");
+            mouseMove(list.itemAtIndex(2), 10, 5);
+            mouseMove(list.itemAtIndex(2), 12, 5);
+            compare(list.currentIndex, 2, "a moved pointer highlights the entry under it");
+            leaveWindow(list);
+            compare(list.currentIndex, 0, "leaving returns the highlight to the keyboard's entry");
+            select.choose(0);
         }
 
         function selectList(owner) {

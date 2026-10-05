@@ -15,12 +15,15 @@ import qs.Ui
 // writes its one selection.
 //
 // A row of a list that declares a ListCursor names it in `cursor`: the
-// cursor then draws the highlight and travels to the row while it is
-// `highlighted`, a hover the cursor lets through emits `pointed` for the
-// list to select the row, and the row enters through ListEntrance when it
-// is created, unless `enters` is false, as for a view that creates rows as
-// they scroll in. Without a cursor the row's own fill follows hover, press
-// and highlight. Under a rounded theme the side padding grows until the
+// cursor then draws the highlight and travels to the row while the pointer
+// is over it or it is `highlighted`, a hover the cursor lets through emits
+// `pointed` for a pick list to select the row, and the row enters through
+// ListEntrance when it is created, unless `enters` is false, as for a view
+// that creates rows as they scroll in. Without a cursor the row's own fill
+// follows hover, press and highlight. The text and icon of a row that is
+// `highlighted` or `active`, the page a navigation list shows now, draw in
+// the accent, so the shown page stays marked while the plate sits on
+// another row. Under a rounded theme the side padding grows until the
 // content clears the drawn corner. `textStart` is where the row's text
 // starts, its padding plus its icon and icon gap, for content a caller
 // lines up under the text.
@@ -32,6 +35,7 @@ T.ItemDelegate {
     property string secondary: ""
     property alias trailing: trailingRow.data
     property ListCursor cursor: null
+    property bool active: false
     property bool enters: cursor !== null
     readonly property real textStart: leftPadding + (iconName !== "" ? Theme.icon.size.md + Theme.listItem.iconGap : 0)
 
@@ -65,7 +69,7 @@ T.ItemDelegate {
             visible: root.iconName !== ""
             name: root.iconName
             size: Theme.icon.size.md
-            color: root.highlighted ? Theme.listItem.selectedForeground : Theme.color.textMuted
+            color: root.highlighted || root.active ? Theme.listItem.selectedForeground : Theme.color.textMuted
             anchors.verticalCenter: parent.verticalCenter
         }
         Column {
@@ -79,7 +83,7 @@ T.ItemDelegate {
                 role: "item"
                 textFormat: Text.PlainText
                 text: root.text
-                color: root.highlighted ? Theme.listItem.selectedForeground : Theme.color.text
+                color: root.highlighted || root.active ? Theme.listItem.selectedForeground : Theme.color.text
                 width: parent.width
                 elide: Text.ElideRight
             }
