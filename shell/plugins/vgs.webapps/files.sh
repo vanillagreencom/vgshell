@@ -3,8 +3,9 @@
 # the plugin's published source revision, one verb a run, each run one
 # child of the service's one Process, which waits for it.
 #
-#   files.sh page <url>                   the page at URL on stdout, at most
-#                                         1 MiB
+#   files.sh page <url>                   the address the page came from
+#                                         after any redirect, one line, then
+#                                         the page at URL, at most 1 MiB
 #   files.sh icon <base> <source>...      the first source that is an image,
 #                                         saved as <base>.<png|jpg|gif|ico|
 #                                         webp|svg>, printed as
@@ -40,6 +41,8 @@ entry_prefix=vgs-webapp-
 
 usage() { echo "webapps: refused: usage" >&2; exit 2; }
 
+# fetch SOURCE OUT: SOURCE read into OUT; an address's last address after
+# redirects is printed on stdout.
 fetch() { # SOURCE OUT
   if [[ $1 == /* ]]; then
     [[ -f $1 && -r $1 ]] || return 1
@@ -49,7 +52,7 @@ fetch() { # SOURCE OUT
   fi
   curl --fail --silent --location --proto '=http,https' --proto-redir '=http,https' \
     --max-time 10 --max-filesize "$max_bytes" --max-redirs 5 \
-    --user-agent 'Mozilla/5.0 (X11; Linux x86_64) VGS' --output "$2" -- "$1" || return 1
+    --user-agent 'Mozilla/5.0 (X11; Linux x86_64) VGS' --write-out '%{url_effective}' --output "$2" -- "$1" || return 1
   (( $(stat -c %s -- "$2") <= max_bytes ))
 }
 
@@ -64,20 +67,24 @@ image_type() { # FILE
     00000100*) echo ico ;;
     52494646????????57454250) echo webp ;;
     *)
-      if head -c 4096 -- "$1" | tr -d '\0' | grep -qiE '<svg[[:space:]>]'; then echo svg; fi
+      # An HTML page served in an icon's place can hold an inline svg.
+      local text
+      text="$(head -c 4096 -- "$1" | tr -d '\0')" || return 1
+      if grep -qiE '<svg[[:space:]>]' <<<"$text" && ! grep -qiE '<html|<body' <<<"$text"; then echo svg; fi
       ;;
   esac
 }
 
 page() { # URL
-  local tmp status=0
+  local tmp effective status=0
   tmp="$(mktemp)" || exit 3
-  fetch "$1" "$tmp" || status=$?
+  effective="$(fetch "$1" "$tmp")" || status=$?
   if [[ $status -ne 0 ]]; then
     rm -f -- "$tmp"
     echo "webapps: page=failed url=$1" >&2
     exit 3
   fi
+  printf '%s\n' "$effective"
   cat -- "$tmp"
   rm -f -- "$tmp"
 }
@@ -88,7 +95,7 @@ icon() { # BASE SOURCE...
   mkdir -p -- "$(dirname -- "$base")"
   part="$(mktemp "$base.XXXXXX.part")" || exit 4
   for source in "$@"; do
-    if fetch "$source" "$part" && type="$(image_type "$part")" && [[ -n $type ]]; then
+    if fetch "$source" "$part" >/dev/null && type="$(image_type "$part")" && [[ -n $type ]]; then
       mv -f -- "$part" "$base.$type"
       for ext in png jpg gif ico webp svg; do
         [[ $ext == "$type" ]] || rm -f -- "$base.$ext"

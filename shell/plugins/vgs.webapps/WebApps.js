@@ -3,8 +3,7 @@
 // The web apps' pure rules: which list items are apps, the window class a
 // Chromium-family browser gives a site's app window, which browser opens
 // one, which icons a page offers, and the desktop entry that lists an app
-// in the launcher. The service runs them; scripts/smoke/rows/webapps.sh
-// runs this file under node for the rows a nested run cannot reach.
+// in the launcher. The service runs them.
 
 // Each entry's file is vgs-webapp-<name>.desktop, and the service removes
 // every such file the list no longer holds.
@@ -48,11 +47,16 @@ function baseName(path) {
     return text.slice(text.lastIndexOf("/") + 1);
 }
 
-// isChromium(ID, PROGRAM): whether a desktop entry's ID, without
-// .desktop, or the file name of its PROGRAM names a Chromium-family
-// browser.
-function isChromium(id, program) {
-    return words(id).concat(words(baseName(program))).some(function (word) { return CHROMIUM_WORDS.indexOf(word) !== -1; });
+// isChromium(ID, COMMAND): whether a desktop entry, by its ID without
+// .desktop or the file name of its COMMAND's program, names a
+// Chromium-family browser, and its COMMAND starts that browser rather than
+// one site: the shortcuts a browser makes for a site carry --app or
+// --app-id, and running one with --app=<url> opens that shortcut's app.
+function isChromium(id, command) {
+    var argv = Array.from(command);
+    if (argv.length === 0 || argv.some(function (word) { return /^--app(-id)?(=|$)/.test(word); }))
+        return false;
+    return words(id).concat(words(baseName(argv[0]))).some(function (word) { return CHROMIUM_WORDS.indexOf(word) !== -1; });
 }
 
 // The desktop entry id in xdg-mime's answer, a file name such as
@@ -152,19 +156,24 @@ function largestSide(sizes) {
     }, 0);
 }
 
+// The rel tokens that name an icon a launcher can draw; a mask-icon is a
+// one-colour shape with no fill of its own.
+var ICON_RELS = ["icon", "apple-touch-icon", "apple-touch-icon-precomposed"];
+
 // page(HTML, URL): what a site's page offers, `title`, a plain line or "",
 // and `icons`, its icon addresses best first: each apple-touch-icon, then
-// each `icon` link by its largest declared size, then /favicon.ico.
+// each `icon` link by its largest declared size, then /favicon.ico. URL is
+// the address the page came from, after any redirect.
 function page(html, url) {
     var text = String(html || "");
     var titleMatch = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(text);
     var found = [];
     (text.match(/<link\b[^>]*>/gi) || []).forEach(function (tag, order) {
-        var rel = words(attribute(tag, "rel"));
+        var rel = String(attribute(tag, "rel") || "").toLowerCase().split(/\s+/).filter(function (token) { return ICON_RELS.indexOf(token) !== -1; });
         var href = resolve(url, attribute(tag, "href"));
-        if (href === "" || rel.indexOf("icon") === -1)
+        if (href === "" || rel.length === 0)
             return;
-        var touch = rel.indexOf("apple") !== -1 && rel.indexOf("touch") !== -1;
+        var touch = rel.some(function (token) { return token !== "icon"; });
         found.push({ href: href, rank: touch ? 1 : 0, side: largestSide(attribute(tag, "sizes")), order: order });
     });
     found.sort(function (a, b) { return b.rank - a.rank || b.side - a.side || a.order - b.order; });

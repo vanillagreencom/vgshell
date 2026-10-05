@@ -22,7 +22,7 @@
 # stops the site, removes what it planted and leaves Web Apps, the
 # launcher and Settings as it found them, and shell.json as it was.
 # No latency is measured; each reading polls every 200 ms for up to 5 s.
-# inputs: shell/plugins/vgs.webapps/* shell/plugins/vgs.settings/* shell/plugins/vgs.launcher/* shell/Commons/DesktopLaunch.js shell/Core/Compositor.qml shell/Core/Dispatch.js
+# inputs: shell/plugins/vgs.webapps/* shell/plugins/vgs.settings/* shell/plugins/vgs.launcher/* shell/Hosts/SummonLayer.qml shell/Commons/DesktopLaunch.js shell/Core/Compositor.qml shell/Core/Dispatch.js
 set -euo pipefail
 
 wa_id=vgs.webapps
@@ -182,8 +182,11 @@ expect "web app 2's Remove button is clicked" clicked wa_remove 2
 expect_poll "the page draws no web app after Remove" '[]' wa_drawn
 expect_poll "Remove takes every entry and icon away" none wa_planted
 expect "the Settings window is hidden after Remove" ok ipc shell hide window vgs.settings
-expect "the launcher opens searching for the removed app" ok ipc shell summon overlay vgs.launcher '{"query":"Smoke Mail"}'
-expect_poll "the launcher no longer lists the removed web app" False wa_has_row "Smoke Mail"
+# The stand-in browser's entry matches the search too, so the list is read
+# once it is laid out, never while it is still empty.
+expect "the launcher opens searching for the removed app" ok ipc shell summon overlay vgs.launcher '{"query":"Smoke"}'
+expect_poll "the launcher lists the stand-in browser for the search" True wa_has_row "Smoke Browser"
+expect "the launcher no longer lists the removed web app" False wa_has_row "Smoke Mail"
 wa_focused "the launcher holds the keyboard after Remove"
 type_keys -k Escape -k Escape || fail "sending Escape in the launcher after Remove failed"
 expect_poll "Escape closes the launcher after Remove" 0 layer_count vgs:overlay

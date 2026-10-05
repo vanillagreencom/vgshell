@@ -20,7 +20,7 @@ Each web app has these fields under Web apps:
 |---|---|
 | Address | The web address of the site. Pick a common site, or choose Custom… and type the address. |
 | Name | The name the launcher shows. The site's own name is the default. Choose Custom… to type another. |
-| Icon | The site's own icon is the default. Choose Custom… to type the path or web address of an image. |
+| Icon | The site's own icon is the default. Choose Custom… to type the full path or the web address of an image. |
 
 The Details page shows the browser that opens web apps and the state of each web app.
 
@@ -30,6 +30,7 @@ A web app opens in a browser of the Chromium family: Chromium, Google Chrome, Br
 
 ## Known limits
 
+- Turning off or removing Web Apps leaves its web apps in the launcher. Remove them on the Web Apps page in Settings first.
 - VGS finds the window of a web app by the window class the browser gives it, which names the site's host and path. Two web apps with the same host and path share one window.
 - VGS reads a site's name and icon once, when you add the web app or change its address or icon. A site that changes its icon later keeps the one VGS read.
 
@@ -43,7 +44,7 @@ A web app opens in a browser of the Chromium family: Chromium, Google Chrome, Br
 | IPC | `open <name>`: brings the web app's window into view, or opens its site. |
 | Status | `browser`, the browser that opens web apps, and `apps`, the state of each web app. |
 
-The service is the one owner of the entries and icons. At its start and after each change of the list, it reads each new site once with `curl`, at most 1 MiB in at most 10 s a read: the page for its title and icon links, then the icons in order, each apple-touch-icon first, the largest declared icon next and `/favicon.ico` last. It keeps the first file whose first bytes are an image, and the plugin's default icon when none is. Then it writes every desktop entry and removes each entry and icon the list no longer holds. Quickshell's desktop entry index sees each entry, and the launcher lists it as an installed application.
+The service is the one owner of the entries and icons. At its start and after each change of the list, it reads each new site once with `curl`, at most 1 MiB in at most 10 s a read: the page for its title and icon links, then the icons in order, each apple-touch-icon first, the largest declared icon next and `/favicon.ico` last, each read against the address the page came from after any redirect. It keeps the first file whose first bytes are an image, and the plugin's default icon when none is. Then it writes every desktop entry and removes each entry and icon the list no longer holds. Quickshell's desktop entry index sees each entry, and the launcher lists it as an installed application.
 
 `open` looks for a window whose class holds `-<host>_<path, with each / as _>-`, the part a Chromium-family browser puts in the class of a site opened with `--app=<address>`, as in `chrome-web.whatsapp.com__-Default`. It brings that window into view through `shell.compositor.reveal`. With no such window, it asks `xdg-mime` for the default browser and runs that browser's desktop entry command with `--app=<address>`. A second `open` within 15 seconds of a launch, before its window maps, opens nothing more.
 

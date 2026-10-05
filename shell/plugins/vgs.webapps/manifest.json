@@ -62,7 +62,7 @@
         "icon": {
           "type": "string",
           "label": "Icon",
-          "description": "The site's own icon, or the path or web address of an image.",
+          "description": "The site's own icon, or the full path or web address of an image.",
           "presets": [
             { "value": "", "label": "The site's own icon" }
           ],

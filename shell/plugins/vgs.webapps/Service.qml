@@ -39,8 +39,11 @@ Item {
     readonly property string script: decodeURIComponent(String(Qt.resolvedUrl("files.sh")).replace(/^file:\/\//, ""))
     readonly property string fallbackIcon: decodeURIComponent(String(Qt.resolvedUrl("fallback.svg")).replace(/^file:\/\//, ""))
 
-    // App name -> { url, iconSource, title, icon, fallback, partial }: what
-    // the last read of its site gave. `partial` marks a read that failed.
+    // App name -> { url, iconSource, title, icon, iconFrom, page }: what the
+    // last read for it gave. `page` is `read`, `failed` or `skipped`, the
+    // last when both Name and Icon were the user's own; `iconFrom` is
+    // `site`, `chosen`, `default` for a site that gave none, `refused` for
+    // a chosen icon that is no image, or `unsaved`.
     property var records: ({})
     // Names read in this run, so a failed read is not retried in a loop.
     property var readNow: ({})
@@ -63,15 +66,6 @@ Item {
     // an event holds no class until the next refresh of the toplevels
     // (docs/architecture/runtime-hyprland-pads.md).
     property var classes: ({})
-    // The window the last open brought into view, lower case without 0x,
-    // and until when a focus Hyprland gives another window takes it back
-    // once: { address, until } or null. Hyprland refuses a focus while an
-    // exclusive keyboard layer, as the launcher's overlay closing after a
-    // selection, holds the keyboard, and gives the keyboard back to the
-    // window focused before once that layer goes (read in
-    // scripts/smoke/rows/webapps.sh, Hyprland v0.56.2 nested, 2026-10-05).
-    property var revealing: null
-    readonly property int revealMs: 1000
     readonly property var childEnvironment: ({
         PATH: Quickshell.env("PATH"), HOME: home, LANG: "C.UTF-8",
         XDG_CONFIG_HOME: Quickshell.env("XDG_CONFIG_HOME") || "", XDG_DATA_HOME: Quickshell.env("XDG_DATA_HOME") || "",
@@ -108,12 +102,12 @@ Item {
         const app = split.good.find(app => needsRead(app));
         if (app !== undefined) {
             readNow = Object.assign({}, readNow, { [app.name]: true });
+            pageRead = null;
             if (app.title === "" || app.icon === "") {
                 run({ kind: "page", app: app }, ["page", app.url.href]);
                 return;
             }
-            pageRead = null;
-            readIcon(app);
+            readIcon(app, false);
             return;
         }
         const words = [];
@@ -136,12 +130,14 @@ Item {
     function needsRead(app) {
         const record = records[app.name];
         if (record === undefined || record.url !== app.url.href || record.iconSource !== app.icon) return true;
-        return record.partial === true && readNow[app.name] !== true;
+        if (record.page === "failed") return readNow[app.name] !== true;
+        return app.title === "" && record.page !== "read";
     }
 
-    function readIcon(app) {
+    // PAGE_ASKED: whether a page step ran for this read.
+    function readIcon(app, pageAsked) {
         const sources = app.icon !== "" ? WebApps.iconSources(app.icon, home) : (pageRead === null ? [WebApps.resolve(app.url, "/favicon.ico")] : pageRead.icons);
-        run({ kind: "icon", app: app, sources: sources }, ["icon", iconsDir + "/" + app.name].concat(sources, [fallbackIcon]));
+        run({ kind: "icon", app: app, sources: sources, pageAsked: pageAsked }, ["icon", iconsDir + "/" + app.name].concat(sources, [fallbackIcon]));
     }
 
     function finished(code) {
@@ -155,21 +151,36 @@ Item {
             loaded = true;
             break;
         case "page":
-            pageRead = code === 0 ? WebApps.page(text, done.app.url) : null;
+            pageRead = code === 0 ? readPage(text, done.app.url) : null;
             if (code !== 0) console.warn("webapps: page=failed app=" + done.app.name);
-            readIcon(done.app);
+            readIcon(done.app, true);
             return;
         case "icon":
             keepIcon(done, code, text);
             break;
-        case "apply":
+        case "apply": {
             if (code !== 0) console.warn("webapps: apply=failed exit=" + code);
-            publishApps(done.applied);
+            // A name the list no longer holds goes with its files, and Add
+            // gives the next app the lowest free name again.
+            const kept = {};
+            for (const app of done.applied.good)
+                if (records[app.name] !== undefined) kept[app.name] = records[app.name];
+            records = kept;
+            publishApps(done.applied, code);
             break;
+        }
         default:
             throw new Error("webapps: step=" + done.kind + " unknown");
         }
         if (wanted || done.kind !== "apply") reconcile();
+    }
+
+    // The page step's answer: the address the page came from after any
+    // redirect, one line, then the page, whose links read against it.
+    function readPage(text, url) {
+        const at = text.indexOf("\n");
+        const landed = WebApps.parseUrl(at === -1 ? "" : text.slice(0, at));
+        return WebApps.page(at === -1 ? "" : text.slice(at + 1), landed.ok ? landed : url);
     }
 
     // The records the read step printed whose icon file is still there.
@@ -197,25 +208,40 @@ Item {
         const answer = text.trim().split("\t");
         const index = code === 0 && answer.length === 2 ? parseInt(answer[0], 10) : -1;
         if (index < 0) console.warn("webapps: icon=failed app=" + app.name + " exit=" + code);
-        const pageNeeded = app.title === "" || app.icon === "";
+        const fallback = index === done.sources.length;
         records = Object.assign({}, records, { [app.name]: {
             url: app.url.href,
             iconSource: app.icon,
             title: pageRead === null ? "" : pageRead.title,
             icon: index < 0 ? fallbackIcon : answer[1],
-            fallback: index < 0 || index === done.sources.length,
-            partial: pageNeeded && pageRead === null
+            iconFrom: index < 0 ? "unsaved" : !fallback ? (app.icon === "" ? "site" : "chosen") : (app.icon === "" ? "default" : "refused"),
+            page: pageRead !== null ? "read" : done.pageAsked ? "failed" : "skipped"
         } });
         pageRead = null;
     }
 
-    // The apps state of APPLIED, the list the last write held.
-    function publishApps(applied) {
+    // What the status says of an app's icon, after "Ready.".
+    readonly property var iconNotes: ({
+        site: "",
+        chosen: "",
+        default: " The site gave no icon, so it uses the default icon.",
+        refused: " The icon you chose is not an image, so it uses the default icon. Give the full path or the web address of an image.",
+        unsaved: " Its icon could not be saved, so it uses the default icon."
+    })
+
+    // The apps state of APPLIED, the list the last write held, which
+    // CODE, the write's exit, says reached the launcher or not.
+    function publishApps(applied, code) {
+        if (code !== 0) {
+            const failed = shell.status.set("apps", { tone: "warning", text: "Web apps could not be added to the launcher." });
+            if (failed !== "ok") console.warn("webapps: status=apps " + failed);
+            return;
+        }
         const lines = [];
         for (const app of applied.good) {
             const record = records[app.name];
             const name = app.title || record.title || app.url.host;
-            lines.push(name + (record.fallback ? ": Ready. The site gave no icon, so it uses the default icon." : ": Ready."));
+            lines.push(name + ": Ready." + (iconNotes[record.iconFrom] || ""));
         }
         for (const bad of applied.bad)
             lines.push("Web app " + bad.name + ": Enter a web address that starts with https://.");
@@ -236,10 +262,12 @@ Item {
     function chooseBrowser(answer) {
         const id = WebApps.entryId(answer);
         const preferred = id === "" ? null : DesktopEntries.byId(id);
-        if (preferred !== null && preferred.command.length > 0 && WebApps.isChromium(id, preferred.command[0]))
+        if (preferred !== null && WebApps.isChromium(id, preferred.command))
             return { id: id, name: preferred.name, command: Array.from(preferred.command) };
+        // Only a browser's own entry: a site shortcut a browser makes is
+        // no web browser.
         const others = DesktopEntries.applications.values
-            .filter(entry => entry.command.length > 0 && WebApps.isChromium(entry.id, entry.command[0]))
+            .filter(entry => entry.categories.indexOf("WebBrowser") !== -1 && WebApps.isChromium(entry.id, entry.command))
             .sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
         return others.length === 0 ? null : { id: others[0].id, name: others[0].name, command: Array.from(others[0].command) };
     }
@@ -277,7 +305,6 @@ Item {
             const next = Object.assign({}, launching);
             delete next[name];
             launching = next;
-            revealing = { address: address.slice(2), until: Date.now() + revealMs };
             return shell.compositor.reveal([address], false);
         }
         if (launching[name] !== undefined && launching[name] > Date.now()) return "ok";
@@ -336,13 +363,6 @@ Item {
                     if (root.classes[address] !== undefined) next[address] = root.classes[address];
                 }
                 root.classes = next;
-            } else if (event.name === "activewindowv2" && root.revealing !== null) {
-                const wanted = root.revealing;
-                root.revealing = null;
-                if (data.toLowerCase() !== wanted.address && Date.now() < wanted.until) {
-                    const reply = root.shell.compositor.reveal(["0x" + wanted.address], false);
-                    if (reply !== "ok") console.warn("webapps: reveal=" + reply);
-                }
             } else if (event.name === "closewindow") {
                 const next = Object.assign({}, root.classes);
                 delete next[data.toLowerCase()];
