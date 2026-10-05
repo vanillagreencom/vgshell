@@ -849,6 +849,39 @@ function suite(ctx, check) {
     check("SUMMONABLE_KINDS are kinds", ctx.SUMMONABLE_KINDS.every(k => ctx.KINDS.indexOf(k) !== -1), true);
     check("window is a summonable kind", ctx.SUMMONABLE_KINDS.indexOf("window"), 3);
 
+    function openManifest(id, kinds) {
+        const entryPoints = {};
+        for (const kind of kinds) entryPoints[kind] = kind[0].toUpperCase() + kind.slice(1) + ".qml";
+        const result = ctx.validateManifest({ schemaVersion: 1, id: id, name: id, version: "1", author: "a", description: "d", kinds: kinds, entryPoints: entryPoints }, "/p");
+        if (!result.ok) throw new Error("fixture manifest refused: " + id + ": " + result.error);
+        return result.manifest;
+    }
+    const openManifests = {
+        window: openManifest("acme.window", ["window"]),
+        panel: openManifest("acme.panel", ["panel"]),
+        both: openManifest("acme.both", ["window", "panel"]),
+        overlay: openManifest("acme.overlay", ["overlay"]),
+        widgetService: openManifest("acme.widget-service", ["bar-widget", "service"]),
+        service: manifests["acme.svc"]
+    };
+    const openKindRows = [
+        ["window only", openManifests.window, "window"],
+        ["panel only", openManifests.panel, "panel"],
+        ["window plus panel", openManifests.both, "window"],
+        ["overlay only", openManifests.overlay, ""],
+        ["bar widget plus service", openManifests.widgetService, ""],
+        ["service only", openManifests.service, ""],
+    ];
+    for (const [name, manifest, want] of openKindRows)
+        check("openKind: " + name, ctx.openKind(manifest), want);
+    const openRequestRows = [
+        ["null manifest", null, "acme.missing", { ok: false, answer: "unknown: acme.missing" }],
+        ["no surface", openManifests.service, "acme.svc", { ok: false, answer: "refused: open=acme.svc reason=no-surface" }],
+        ["window", openManifests.window, "acme.window", { ok: true, kind: "summon", surface: "window" }],
+    ];
+    for (const [name, manifest, id, want] of openRequestRows)
+        check("openRequest: " + name, ctx.openRequest(manifest, id), want);
+
     // summonSurface rows: [name, kind, anchored, want]. An application
     // window is a toplevel whatever the anchor; every other summonable kind
     // is a popup under its anchor and a layer surface without one.
@@ -1112,6 +1145,7 @@ const CONTROLS = [
     ["a copied entry setting shares nothing with its source", "target[k] = clone(entry[k]);", "target[k] = entry[k];"],
     ["an unplaced plugin's new row carries the entry's settings", "copyEntrySettings({ id: manifest.id }, layoutEntryOf(out, manifest.id))", "{ id: manifest.id }"],
     ["a placed entry carries the plugins row's settings", "copyEntrySettings({ id: manifest.id }, pluginRow(effective, manifest.id))", "{ id: manifest.id }"],
+    ["open chooses a window over a panel", "if (manifest.kinds.indexOf(\"window\") !== -1) return \"window\";\n    if (manifest.kinds.indexOf(\"panel\") !== -1) return \"panel\";", "if (manifest.kinds.indexOf(\"panel\") !== -1) return \"panel\";\n    if (manifest.kinds.indexOf(\"window\") !== -1) return \"window\";"],
     ["a disabled plugin's placement is refused", "if (!isEnabled(config, manifest, defaultBarId))\n        return \"refused: placed=\"", "if (false)\n        return \"refused: placed=\""],
     ["a plugin without a widget is refused placement", "if (manifest.kinds.indexOf(\"bar-widget\") === -1)\n        return \"refused: placed=\"", "if (false)\n        return \"refused: placed=\""],
     ["a hidden bar maps no surface", "return instance === null || instance.shown !== false;", "return true;"],

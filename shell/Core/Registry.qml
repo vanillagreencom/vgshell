@@ -372,7 +372,8 @@ Singleton {
     // first layout entry), its Keys rows, its Status rows
     // (PluginLogic.statusRows of activeManifestOf over the values it
     // published), the label of its `secrets`, "" without, its setup
-    // screens (PluginLogic.listedTuis), its setting
+    // screens (PluginLogic.listedTuis), its Open surface
+    // (PluginLogic.openKind), its setting
     // choices (PluginLogic.settingChoices over those same values), its
     // requirements with their state and its errors: each failed build of
     // one of its kinds, once per cause, then each problem the Hyprland
@@ -418,6 +419,7 @@ Singleton {
                 status: Logic.statusRows(Logic.activeManifest(m, settings), values, Logic.hasOwn(missingCommands, id) ? missingCommands[id] : []),
                 secretLabel: m.secrets === undefined ? "" : m.secrets.label,
                 tuis: Logic.listedTuis(m),
+                opens: Logic.openKind(m),
                 requirements: requirementsOf(id),
                 errors: errors
             };

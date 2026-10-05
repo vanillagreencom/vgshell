@@ -7,11 +7,12 @@
 # so the later rows' lending records hold no Settings shortcut or IPC
 # target. A plugin's page opens on Settings, and its tab strip shows
 # Details and returns by the pointer and by the keyboard; a copy that opens
-# on Details is the control. A mouse drag leaves a page where it was, while a wheel notch and
+# on Details is the control. A summonable plugin's page draws Open, which
+# opens the plugin's window or panel through the manager. A mouse drag leaves a page where it was, while a wheel notch and
 # Tab scroll it, and a two-finger swipe moves it as far as GTK moves a list. Dispatches asked for back to back run in order behind one
 # process, the queue has a bound, and a process that cannot start does not
 # stop the queue.
-# inputs: shell/Core/PluginLogic.js shell/plugins/vgs.settings/* shell/Ui/layout/ScrollArea.qml shell/Ui/layout/TouchpadScroll.qml shell/Ui/layout/TouchpadScrollLogic.js shell/Commons/Reply.js shell/plugins/vgs.notifications/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/PluginStatus.qml bin/vgshell-scan shell/Core/TuiRunner.qml shell/Commons/SettingValues.js shell/Core/Capabilities.qml shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.jarvis/manifest.json shell/Core/Notices.qml bin/lib/qml-library.js scripts/smoke/rows/manager.sh scripts/smoke/rows/status.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh bin/vgshell-tui shell/Ui/layout/TabPages.qml shell/Ui/layout/Tabs.qml shell/Ui/foundation/KeyNav.qml
+# inputs: shell/Core/PluginLogic.js shell/plugins/vgs.settings/* shell/Ui/layout/ScrollArea.qml shell/Ui/layout/TouchpadScroll.qml shell/Ui/layout/TouchpadScrollLogic.js shell/Commons/Reply.js shell/plugins/vgs.notifications/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/PluginStatus.qml bin/vgshell-scan shell/Core/TuiRunner.qml shell/Commons/SettingValues.js shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Core/Plugins.qml shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Hosts/AppWindow.qml shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.jarvis/manifest.json shell/plugins/vgs.gallery/manifest.json shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.devtools/manifest.json shell/Core/Notices.qml bin/lib/qml-library.js scripts/smoke/rows/manager.sh scripts/smoke/rows/status.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh bin/vgshell-tui shell/Ui/layout/TabPages.qml shell/Ui/layout/Tabs.qml shell/Ui/foundation/KeyNav.qml
 set -euo pipefail
 click_centre "$(bar_key)" vgs.settings || fail "the click on the gear failed"
 expect_poll "the gear's click opens the Settings window" open settings_open
@@ -105,6 +106,53 @@ expect "the Jarvis page's Details overflow by the scroll the row gives them" 300
 type_keys -k Left || fail "sending Left to the scrolled page's strip failed"
 expect_poll "Left shows the Jarvis page's Settings" 0 settings_tab
 expect_poll "the page change back returns the body to its top" '[0]' page_top
+
+open_rows() { settings_rows | py_reply 'import json,sys; ids=("acme.probe","vgs.gallery","vgs.devtools","vgs.themes"); print(json.dumps({r["id"]: r["opens"] for r in json.load(sys.stdin) if r["id"] in ids}, sort_keys=True))'; }
+open_button() { ipc smoke windowGeometry window vgs.settings Button Open | py_reply 'import sys; print("absent" if sys.stdin.read().strip() == "absent" else "drawn")'; }
+shown_open_button() { ipc smoke shownWindowGeometry window vgs.settings Button Open | py_reply 'import sys; print("absent" if sys.stdin.read().strip() == "absent" else "drawn")'; }
+themes_panel_open() {
+  local geometry
+  geometry="$(ipc smoke instanceGeometry panel vgs.themes)" || return
+  [[ $geometry != absent ]] && echo open || echo closed
+}
+settings_focus_back() {
+  local address
+  address="$(window_address Settings)" || return
+  [[ $address == 0x* ]] || { echo "settings-address=$address" >&2; return 1; }
+  expect "a focus dispatch gives Settings the keyboard back after $1" ok hypr dispatch "hl.dsp.focus({ window = \"address:$address\" })"
+  expect_poll "Settings is focused again after $1" "[\"$shell_class\", \"Settings\"]" active_window
+}
+expect "manager rows name each plugin's summonable surface" '{"acme.probe": "", "vgs.devtools": "window", "vgs.gallery": "window", "vgs.themes": "panel"}' open_rows
+expect "the window opens the fixture's page for the Open control" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.probe
+expect "the fixture page without a window or panel draws no Open" absent open_button
+expect "the window opens the bare fixture's page for the Open control" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.bare
+expect_poll "the bare fixture page draws no Open" absent open_button
+expect "the window opens the Gallery page for the Open control" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.gallery
+expect_poll "the Gallery page draws Open" drawn open_button
+settings_press Open || fail "the click on Gallery Open failed"
+expect_poll "Open maps the Gallery window by pointer" 1 window_count "VGS Components"
+expect "hiding the Gallery window after the pointer Open is allowed" ok ipc shell hide window vgs.gallery
+expect_poll "the Gallery window is gone after the pointer Open" 0 window_count "VGS Components"
+settings_focus_back "the pointer Open"
+expect "the window opens the Gallery page as a key opens it for Open" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.gallery
+expect_poll "the Gallery page's back button holds the keyboard before Open" IconButton focus_type
+type_keys -k Tab -k Tab || fail "tabbing to Gallery Open failed"
+expect_poll "Open is the Tab stop before the tab strip" Button focus_type
+type_keys -k Return || fail "pressing Gallery Open with Return failed"
+expect_poll "Open maps the Gallery window by keyboard" 1 window_count "VGS Components"
+expect "hiding the Gallery window after the keyboard Open is allowed" ok ipc shell hide window vgs.gallery
+expect_poll "the Gallery window is gone after the keyboard Open" 0 window_count "VGS Components"
+settings_focus_back "the keyboard Open"
+expect "the window opens the Themes page for the Open control" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.themes
+expect_poll "the Themes page draws Open" drawn open_button
+settings_press Open || fail "the click on Themes Open failed"
+expect_poll "Open maps the Themes panel" open themes_panel_open
+expect "hiding the Themes panel after Open is allowed" ok ipc shell hide panel vgs.themes
+expect_poll "the Themes panel is gone after Open" closed themes_panel_open
+expect "the window opens the Dev Tools page for the Open control" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.devtools
+expect_poll "the Dev Tools page draws Open" drawn shown_open_button
+expect "the disabled Dev Tools Open takes no press" absent open_button
+expect "the window returns to the fixture's page after the Open rows" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.probe
 expect "the window opens the fixture's page again for the edit rows" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.probe
 expect_poll "the fixture's page opens on Settings for the edit rows" "0 drawn absent" page_shown
 held_rect="$(ipc smoke invokeInstance window vgs.settings holdField '{"id":"acme.probe","key":"label","text":"draft"}')" || fail "holdField failed"

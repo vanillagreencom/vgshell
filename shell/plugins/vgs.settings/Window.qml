@@ -196,6 +196,12 @@ FocusScope {
         return keep(stepKey(id, tuiKey(name)), shell.manager.openTui(id, name));
     }
 
+    // Open the plugin's window or panel over this window. This page stays
+    // open and shows the reply.
+    function openSurface(id) {
+        return keep(id, shell.manager.open(id));
+    }
+
     // Store what the user typed as plugin `id`'s secret `account`, listed
     // in its status entry `key`, or clear it, through the manager, which
     // writes libsecret; each answers the manager's reply, and the write's

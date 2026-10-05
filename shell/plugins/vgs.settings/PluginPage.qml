@@ -7,8 +7,9 @@ import "Steps.js" as Steps
 // One plugin's page, drawn from its manager row alone. The header holds a
 // back button, which returns to the list, and the plugin's name as a title
 // whose menu lists every plugin, the current one checked, and opens the
-// chosen one's page. The body holds every error and the last refusal, then
-// two pages under one tab strip (TabPages), Settings first.
+// chosen one's page. Open summons the plugin's window or panel. The body
+// holds every error and the last refusal, then two pages under one tab
+// strip (TabPages), Settings first.
 //
 // Settings holds what a user changes: the enabled switch, the Show in bar
 // switch of a plugin with a bar widget and another kind besides bar and
@@ -130,6 +131,19 @@ FocusScope {
                         label: "Back to the plugin list"
                         anchors.verticalCenter: parent.verticalCenter
                         onClicked: page.panel.back()
+                    }
+                ]
+
+                trailing: [
+                    Button {
+                        id: openButton
+                        text: "Open"
+                        iconName: "app-window"
+                        variant: "secondary"
+                        anchors.verticalCenter: parent.verticalCenter
+                        visible: page.row !== null && page.row.opens !== "" && !page.isSelf
+                        enabled: page.editable
+                        onClicked: page.panel.openSurface(page.row.id)
                     }
                 ]
 

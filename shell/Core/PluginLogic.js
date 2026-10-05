@@ -2516,6 +2516,25 @@ function listedTuiRequest(manifest, id, name) {
     return { ok: true, kind: "tui", name: name };
 }
 
+// The Settings page's Open summons a plugin's working surface. A window
+// wins over a panel because it is the plugin's application surface.
+function openKind(manifest) {
+    if (manifest.kinds.indexOf("window") !== -1) return "window";
+    if (manifest.kinds.indexOf("panel") !== -1) return "panel";
+    return "";
+}
+
+// What the manager's open(id) does. A disabled plugin is refused by the
+// summon route itself, as the TUI run refuses one.
+function openRequest(manifest, id) {
+    if (manifest === null)
+        return { ok: false, answer: "unknown: " + tuiLabel(id) };
+    var kind = openKind(manifest);
+    if (kind === "")
+        return { ok: false, answer: "refused: open=" + tuiLabel(id) + " reason=no-surface" };
+    return { ok: true, kind: "summon", surface: kind };
+}
+
 // The launcher state after a probe or a launch that was started while the
 // state was STATE ended with COMPLETION, { code, status } or null for one
 // that never started: `present` on exit 0, `missing` on
