@@ -869,6 +869,7 @@ EOF
     expect_poll "vgs.voice is built" True record_exists vgs.voice
     expect "the window opens the Voice page" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.voice
     expect_poll "the Voice page is shown" '"vgs.voice"' settings_page
+    page_details
     expect_poll "the Voice setup row is reported" True page_reported vgs.voice
     settings_scroll_to 0 >/dev/null || fail "the Voice page did not scroll to the top"
     expect_poll "the Voice page is at its top" True settings_at_top

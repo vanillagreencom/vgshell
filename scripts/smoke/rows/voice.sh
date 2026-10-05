@@ -5,7 +5,7 @@
 # disables the plugin and checks its shortcuts and status child are gone. The
 # key delivery uses physical code overrides for the row, so the helper reaches
 # the same generated bind path that hold-shortcuts.sh exercises.
-# inputs: shell/plugins/vgs.voice/* shell/Core/ShortcutRegistry.qml shell/Core/HyprlandLayer.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml scripts/smoke/keyboard/* scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/plugins/vgs.voice/* shell/Core/ShortcutRegistry.qml shell/Core/HyprlandLayer.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml shell/plugins/vgs.settings/* scripts/smoke/keyboard/* scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 
 voice_log="$sandbox/voice-record.log"
@@ -236,6 +236,7 @@ expect_poll "the Voice voxtype requirement is missing after stub removal" missin
 expect "enabling Voice without voxtype is allowed" ok ipc shell setPluginEnabled vgs.voice true
 expect_poll "Voice without voxtype is built" True record_exists vgs.voice
 settings_page_open vgs.voice
+settings_details
 expect_poll "the Voice page offers Install and withholds Set up without voxtype" '[["voxtype", "Install\u2026", true], ["setup", "Set up", false]]' offered_actions vgs.voice
 expect_poll "the Voice status row offers voxtype install" '[["voxtype", "Absent", "Voice needs voxtype to capture speech.", "Install\u2026"], ["Setup", "Install voxtype first", "Setup copies defaults, downloads the speech model and enables the service."]]' voice_drawn_status
 expect_poll "the Voice Requirements row says voxtype is missing" "$(words voxtype "Missing, optional" "Captures speech and inserts dictated text")" voice_requirement_drawn
