@@ -853,6 +853,9 @@ settings_show ""
 expect "a row opens its page by name" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.probe
 expect_poll "the page is open again" '"acme.probe"' settings_page
 settings_details
+# page_alignment reads the shown page alone, so the listing rows and Manage
+# take their own reading here, on Details, which draws no setting or key.
+geometry expect_poll "the Details page's rows share the Settings fields' label edge, control edge and right edge" '[]' page_alignment 0 0
 # The plugin page's header and metadata, on its Details page. The header row is at least
 # `size.control.md` tall; the back button's glyph, not its box, sits on the
 # content edge the page's first hint line starts at; the title's capital centre sits
