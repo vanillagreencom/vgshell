@@ -184,8 +184,6 @@ expect_poll "Set up is offered while the model is missing" True voice_setup_offe
 
 open_toplevel "$sandbox/voice-client.log" smoke.voice-client "Voice client"
 voice_client_pid="$toplevel_pid"
-voice_client_address="$(toplevel_address "$voice_client_pid")"
-expect "the Voice client is focused" ok hypr dispatch "hl.dsp.focus({ window = \"address:$voice_client_address\" })"
 expect_poll "the Voice client has keyboard focus" '["smoke.voice-client", "Voice client"]' active_window
 voice_start_keyboard
 before="$(wc -l <"$voice_log")"
