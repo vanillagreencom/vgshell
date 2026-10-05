@@ -5,15 +5,10 @@ import qs.Core
 import qs.Commons
 
 // A summon with no anchor, built as a layer surface on the screen it was
-// summoned on. An overlay covers its screen and owns the keyboard until its
-// close starts: an entry that plays its own close before it hides declares
-// `closing`, true from that start, and the layer then takes no keyboard,
-// so a window a selection focuses gets it while the close plays; Hyprland
-// refuses a window the keyboard while an exclusive layer holds it. The
-// layer's keyboard mode is written when the window is made and again only
-// when `closing` changes, never when the plugin's instance arrives. A panel
-// or a menu covers its screen too, the reserved space included only for
-// `center`, and sits inside at the plugin's implicit size
+// summoned on. An overlay covers its screen and owns the keyboard until it
+// closes, and tells Compositor so, whose reveal waits until it is gone. A
+// panel or a menu covers its screen too, the reserved space included only
+// for `center`, and sits inside at the plugin's implicit size
 // and its `placement` setting (PluginLogic.surfacePlacement); a press on
 // the rest of the surface, over a window or the empty desktop, is
 // `dismissed`, which the host treats as a hide; a press inside the plugin's
@@ -44,18 +39,16 @@ PanelWindow {
     color: "transparent"
     WlrLayershell.namespace: "vgs:" + kind
     WlrLayershell.layer: place.layer === "top" ? WlrLayer.Top : WlrLayer.Overlay
-    // The instance's `closing`, which only its change signal writes.
-    property bool closing: false
-    WlrLayershell.keyboardFocus: closing ? WlrKeyboardFocus.None
-        : PluginLogic.layerKeyboardFocus(kind, false) === "exclusive" ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.OnDemand
+    readonly property bool exclusiveKeyboard: PluginLogic.layerKeyboardFocus(kind, false) === "exclusive"
+    WlrLayershell.keyboardFocus: exclusiveKeyboard ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.OnDemand
+    // Compositor's record of this surface while it holds the keyboard.
+    property var keyboardRelease: null
 
-    Connections {
-        target: slot.instance
-        ignoreUnknownSignals: true
-        function onClosingChanged() { win.closing = slot.instance.closing === true; }
+    Component.onCompleted: {
+        if (place.error !== "") console.error("summon host: " + pluginId + " " + place.error);
+        if (exclusiveKeyboard) keyboardRelease = Compositor.keyboardLayer();
     }
-
-    Component.onCompleted: if (place.error !== "") console.error("summon host: " + pluginId + " " + place.error)
+    Component.onDestruction: if (keyboardRelease !== null) keyboardRelease()
 
     function focusInitial(reason) {
         slot.focusInitial(reason);

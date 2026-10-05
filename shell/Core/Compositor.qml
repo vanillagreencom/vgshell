@@ -152,13 +152,20 @@ Singleton {
 
     // ------------------------------------------------------------ reveal
 
-    // The reveal in progress: { addresses, named, reading }, or null;
-    // `reading` once it waits for the state read. A newer reveal replaces
+    // The reveal in progress: { addresses, named, reading, layerWait }, or
+    // null; `reading` once it waits for the state read, `layerWait` while
+    // it waits for the shell's keyboard layers to go. A newer reveal replaces
     // it, since the user asked for the newer place.
     property var revealing: null
     // A state read was asked for while one ran, so the answer follows
     // the state after the newer request.
     property bool rereadState: false
+    // The shell's layer surfaces that hold the keyboard exclusively, each
+    // a record its host releases when the surface goes. Hyprland refuses a
+    // window the keyboard while such a layer holds it, and gives the
+    // keyboard back to the window focused before once the layer goes, so a
+    // reveal reads the state and focuses only once none is left.
+    property var keyboardLayers: []
 
     // Bring one of `addresses`, one application's windows, into view: the
     // workspace, a hidden special workspace, a background group tab or
@@ -171,8 +178,11 @@ Singleton {
     // application, the shell first waits up to Dispatch.SENDER_WAIT_MS for
     // Hyprland to report that the application focused one of those windows
     // itself, and then moves nothing, so the view never switches twice.
-    // Returns `ok` once accepted, or the keyed refusal; each outcome logs
-    // one line, `compositor: reveal=<shell|sender|shown|none>`.
+    // While a shell layer holds the keyboard exclusively, the read and the
+    // focus wait until the last such layer goes, which its host reports;
+    // a layer that never goes keeps the reveal waiting until a newer one
+    // replaces it. Returns `ok` once accepted, or the keyed refusal; each
+    // outcome logs one line, `compositor: reveal=<shell|sender|shown|none>`.
     function reveal(addresses, awaitSender) {
         const judged = Dispatch.revealRequest(addresses);
         if (!judged.ok) {
@@ -213,7 +223,30 @@ Singleton {
         }
     }
 
+    // A layer surface that holds the keyboard exclusively, from its host:
+    // returns the release its host calls as the surface goes.
+    function keyboardLayer() {
+        const record = {};
+        keyboardLayers = keyboardLayers.concat([record]);
+        return () => {
+            keyboardLayers = keyboardLayers.filter(r => r !== record);
+            // On the next turn, once the surface's own teardown has run.
+            if (keyboardLayers.length === 0) Qt.callLater(root.layersGone);
+        };
+    }
+
+    function layersGone() {
+        if (keyboardLayers.length === 0 && revealing !== null && revealing.layerWait === true) {
+            revealing.layerWait = false;
+            readState();
+        }
+    }
+
     function readState() {
+        if (keyboardLayers.length > 0) {
+            revealing.layerWait = true;
+            return;
+        }
         revealing.reading = true;
         if (stateProc.running) {
             rereadState = true;
