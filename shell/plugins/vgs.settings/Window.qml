@@ -309,6 +309,15 @@ FocusScope {
         return reply;
     }
 
+    // Ask the core's reset question through the manager; the notice sits on
+    // a layer over every window, so this window stays open behind it.
+    function resetVgs() {
+        const reply = shell.manager.reset();
+        notice = Reply.line(reply);
+        if (notice !== "") console.warn("settings: reset " + reply);
+        return reply;
+    }
+
     // Set the key of shortcut `shortcut` of plugin `id`: a key string
     // rebinds, null unbinds, undefined resets to the manifest's key;
     // answers the manager's reply.

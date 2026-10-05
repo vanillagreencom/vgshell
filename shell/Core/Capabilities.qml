@@ -153,6 +153,7 @@ Singleton {
             remove: id => root.managerTui("remove", id),
             installRequirements: id => Notices.requested(id),
             add: () => root.managerCoreTui("plugin-add", []),
+            reset: () => Notices.askReset(),
             rescan: () => Registry.rescan().answer,
             act: (id, key) => root.managerAct(id, key),
             open: id => root.managerOpen(id),

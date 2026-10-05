@@ -119,6 +119,9 @@ ShellRoot {
         function toggle(kind: string, id: string, payloadJson: string): string { return root.ifGuarded(() => Plugins.route("toggle", kind, id, payloadJson, null)); }
         function listTuis(): string { return JSON.stringify(Capabilities.tuis.entries); }
         function openTui(key: string): string { return root.ifGuarded(() => Capabilities.tuis.open(key)); }
+        // `vgshell reset` with no terminal and no --yes: the reset question,
+        // whose Reset runs `vgshell reset --yes`.
+        function askReset(): string { return root.ifGuarded(() => Notices.askReset()); }
         function renderHyprland(): string { return root.ifGuarded(() => hyprland.item === null ? "refused: hyprland=pending" : hyprland.item.render()); }
     }
 }

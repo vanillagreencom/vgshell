@@ -4,7 +4,7 @@ import qs.Commons
 import qs.Ui
 
 // The root page: every plugin the manager lists, filtered by the search
-// field, under a heading with the Add plugin button. A row shows the plugin's icon, name, version and source, a danger
+// field, under a heading with the Add plugin and Reset VGS buttons. A row shows the plugin's icon, name, version and source, a danger
 // badge counting its errors, its enabled switch and a chevron; a click
 // opens its page. With the search field focused, Up and Down move the
 // highlighted row and Enter opens it; a hover moves it once the pointer
@@ -91,13 +91,23 @@ FocusScope {
                     text: page.panel.title
 
                     trailing: [
-                        Button {
-                            id: add
-                            text: "Add plugin"
-                            iconName: "circle-plus"
-                            variant: "secondary"
+                        Row {
+                            spacing: Theme.stack.inline
                             anchors.verticalCenter: parent.verticalCenter
-                            onClicked: page.panel.addPlugin()
+
+                            Button {
+                                id: add
+                                text: "Add plugin"
+                                iconName: "circle-plus"
+                                variant: "secondary"
+                                onClicked: page.panel.addPlugin()
+                            }
+                            Button {
+                                text: "Reset VGS"
+                                iconName: "rotate-ccw"
+                                variant: "secondary"
+                                onClicked: page.panel.resetVgs()
+                            }
                         }
                     ]
                 }

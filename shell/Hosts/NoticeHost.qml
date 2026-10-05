@@ -6,8 +6,8 @@ import qs.Commons
 import qs.Ui
 
 // The core notice surface: one OverlaySurface on the screen Notices chose,
-// existing only while a requirement notice, the restart notice or the core
-// consent slot shows, taking the keyboard on demand. It draws one Dialog at a time. A
+// existing only while a requirement notice, the restart notice, the reset
+// question, the "VGS was reset" notice or the core consent slot shows, taking the keyboard on demand. It draws one Dialog at a time. A
 // requirement notice has priority: each missing command with its purpose
 // first, then Install and Not now, or Close alone when no manager here
 // installs a listed package. The command Install runs is only behind Show
@@ -16,7 +16,10 @@ import qs.Ui
 // lines and actions: the Hyprland question's Connect and Not now, with its
 // command only behind Show command, or the welcome's Close. The restart
 // notice is drawn as the consent slot is, from Notices.restartView, and its
-// Restart runs Notices.restartShell. While the
+// Restart runs Notices.restartShell; so are the reset question, from
+// Notices.resetView, whose Reset runs Notices.resetVgs, and the "VGS was
+// reset" notice, from Notices.resetDoneView, whose Restore previous
+// settings runs Notices.restoreReset. While the
 // shown notice's install runs the window is gone, so the floating TUI it
 // opened, centred on the same monitor, shows whole; a notice the scan
 // after the run keeps comes back as a new window that takes the keyboard. The window fills the area other
@@ -46,7 +49,10 @@ Scope {
     }
 
     function consent() {
-        return Notices.showingRestart ? Notices.restartView : Notices.showingConsent ? Notices.consent : null;
+        if (Notices.showingRestart) return Notices.restartView;
+        if (Notices.showingResetAsk) return Notices.resetView;
+        if (Notices.showingResetDone) return Notices.resetDoneView;
+        return Notices.showingConsent ? Notices.consent : null;
     }
 
     Loader {
@@ -75,7 +81,13 @@ Scope {
                 message: win.consentMode ? win.consent.message : host.message(win.shown)
                 actions: win.consentMode ? win.consent.actions : win.shown.install !== null ? [{ label: "Install", role: "accept" }, { label: "Not now", role: "cancel" }] : [{ label: "Close", role: "cancel" }]
                 busy: win.consentMode && win.consent.busy
-                onAccepted: !win.consentMode ? Notices.accept() : Notices.showingRestart ? Notices.restartShell() : Notices.answerConsent("accept")
+                onAccepted: {
+                    if (!win.consentMode) Notices.accept();
+                    else if (Notices.showingRestart) Notices.restartShell();
+                    else if (Notices.showingResetAsk) Notices.resetVgs();
+                    else if (Notices.showingResetDone) Notices.restoreReset();
+                    else Notices.answerConsent("accept");
+                }
                 onRejected: Notices.dismiss()
                 // Tab reaches Show command and, while it is open, its Copy.
                 tabItems: [disclosure.toggle, disclosure.copyButton]

@@ -86,6 +86,10 @@
 #   vgshell self update               update a checkout or a curl install, run its pending migrations, then restart
 #                                  a running shell
 #   vgshell migrate [--pending]       run each pending one-time migration once, or list them (bin/vgshell-migrate)
+#   vgshell reset [--yes]             move every VGS setting, installed plugin, theme and state file into one
+#                                  dated backup and restart a running shell as on a fresh install
+#   vgshell reset restore [--yes] [<backup>]
+#                                  move a reset's backup, the newest when none is named, back into place
 #   vgshell tui present [--title <text>] [--size default|wide|tall] -- <argv...>
 #                                  run one command in a floating terminal under the VGS presentation
 #   vgshell tui list                  every floating TUI the running shell lists: the core's and every enabled plugin's
@@ -389,6 +393,47 @@
 # prints `ok` once the launcher started, or the shell's refusal, such as
 # `tui=<key> reason=launcher-missing` while it found no terminal launcher:
 # docs/architecture/tui.md.
+#
+# `reset` returns VGS to what a fresh install starts from. With mv it moves
+# into one new folder, ${XDG_DATA_HOME:-~/.local/share}/vgshell/backups/
+# <UTC yyyymmddTHHMMSSZ>/, holding config/, state/, data/ and cache/: every
+# entry of ${XDG_CONFIG_HOME:-~/.config}/vgshell but theme.lock, of
+# ${XDG_STATE_HOME:-~/.local/state}/vgshell, of ${XDG_CACHE_HOME:-~/.cache}/vgshell,
+# and of ${XDG_DATA_HOME:-~/.local/share}/vgshell but backups/ and the curl
+# install's own entries, current, X.Y.Z/, git/, .self.lock and
+# .self-update-*. A folder made in the same second takes a `.<n>` suffix.
+# One of those four directories that is a symlink stays one: the entries
+# inside its target move. The runtime directory, hyprland.lua, libsecret,
+# the sudo grant, the browser policy and the system steps stay. It then
+# writes the folder's path to reset-backup in the state directory, prints
+# `ok reset backup=<folder>`, and applies the `vgs` package as `theme apply
+# vgs` does, so every themed application draws the defaults; a partial apply
+# exits 3 once the shell is back. It holds the theme lock from before the
+# move to the end, refused reset=vgs reason=busy while another theme command
+# holds it. A running shell is checked and stopped as `restart` does before
+# anything moves, and started again after the apply, with restart's line;
+# with none running it prints shell=not-running. The shell started after a
+# reset reads reset-backup and offers the restore in its "VGS was reset"
+# notice, its command behind Show command. On a terminal reset lists what
+# moves and asks `vgshell: reset VGS? [y/N]` on stderr, and any other answer
+# than y or yes refuses declined=reset with nothing moved; --yes skips both.
+# With no terminal on stdin and no --yes it asks the running shell to show
+# its own question, whose Reset runs `reset --yes`, and prints shell=asked;
+# with no shell running either it refuses no-terminal=reset.
+#
+# `reset restore` moves the current entries into a new backup folder as
+# reset does, moves every entry of <backup>, a folder directly under
+# backups/ and the newest there when none is named, back into place, and
+# removes the emptied folder and a reset-backup that names a folder no longer
+# there. When the restored theme.name names a package it applies that
+# package again, so every themed application follows the restored
+# configuration, and then puts back the restored theme.json, backgrounds.json
+# and background, so a hand edit and each screen's image stay. It prints
+# `ok restored backup=<folder> aside=<new folder>` and restarts a running
+# shell as reset does. It asks `vgshell: restore <name>? [y/N]` as plugin
+# remove asks, refusing declined=restore or, with no terminal and no --yes,
+# no-terminal=restore. A path outside backups/ is refused
+# backup=<path> reason=outside, and an empty backups/ backup=none.
 #
 # Every refusal prints one keyed line first: `vgshell: refused: <key>=<value>`.
 # Exit 0 on success, 1 on a refusal, 2 on a bad invocation, 3 when a theme
@@ -741,8 +786,12 @@ shell_stop_target() { # PID
   printf '%s\n' "$target"
 }
 
-shell_restart() {
-  local pid hypr_status status using_lua locked_out reply cmd request dispatch_reply new_pid guarded_out lua_cmd stop_target written seen_pid
+# STEP, a function, runs once the shell has stopped and before Hyprland
+# starts the next one, so `reset` moves files no shell reads or writes. It
+# runs in a subshell under errexit, and its status is restart's once the new
+# shell answers.
+shell_restart() { # [STEP]
+  local pid hypr_status status using_lua locked_out reply cmd request dispatch_reply new_pid guarded_out lua_cmd stop_target written seen_pid step_status=0
   pid="$(shell_pid)" || exit $?
   set +e
   hypr_status="$(hyprctl -j status 2>&1)"
@@ -776,6 +825,12 @@ shell_restart() {
   kill -TERM "$stop_target" || refuse 1 "stop=failed pid=$pid"
   flock -w 10 "$lock" true ||
     refuse 1 "stop=timeout pid=$pid" "the shell is still running"
+  if [[ -n ${1:-} ]]; then
+    set +e
+    (set -e; "$1")
+    step_status=$?
+    set -e
+  fi
 
   cmd="$(printf '%q run' "$self")"
   if [[ $using_lua == true ]]; then
@@ -816,7 +871,7 @@ shell_restart() {
       vgs_ipc_last_line_into "$guarded_out"
       if [[ $status == 0 && $vgs_ipc_last_line == true ]]; then
         printf 'ok pid=%s\n' "$new_pid"
-        return 0
+        return "$step_status"
       fi
     fi
     if [[ $(stat -L -c '%y' -- "$lock" 2>/dev/null) != "$written" ]] && flock -n "$lock" true; then
@@ -954,17 +1009,18 @@ assume_yes=0
 # fast-forward, since new plugin or package code runs as soon as it lands,
 # and `remove` before the plugin directory is deleted.
 # A person answers `vgshell: VERB LABEL? [y/N]` on the terminal, or the caller
-# passes --yes. LABEL names the checkout or plugin, and KEPT says what a
-# declined change leaves.
-confirm_change() { # VERB LABEL KEPT
-  local answer=""
+# passes --yes. LABEL names the checkout or plugin, KEPT says what a
+# declined change leaves, and KEY, LABEL when absent, is the value the
+# refusals carry: `reset` and `reset restore` name the verb.
+confirm_change() { # VERB LABEL KEPT [KEY]
+  local answer="" key="${4:-$2}"
   [[ $assume_yes == 1 ]] && return 0
-  [[ -t 0 ]] || refuse 1 "no-terminal=$2" "no terminal on stdin to confirm the $1; run on a terminal or pass --yes"
+  [[ -t 0 ]] || refuse 1 "no-terminal=$key" "no terminal on stdin to confirm the $1; run on a terminal or pass --yes"
   printf 'vgshell: %s %s? [y/N] ' "$1" "$2" >&2
   read -r answer || answer=""
   case "$answer" in
     [yY] | [yY][eE][sS]) ;;
-    *) refuse 1 "declined=$2" "$3" ;;
+    *) refuse 1 "declined=$key" "$3" ;;
   esac
 }
 
@@ -1701,6 +1757,236 @@ self_update() {
   esac
 }
 
+# The directories `reset` empties, each under the class its backup
+# subfolder is named for, in the order the move takes them.
+cache_home="${XDG_CACHE_HOME:-$HOME/.cache}"
+reset_classes=(config state data cache)
+reset_dirs=("$config_home/vgshell" "$state_home/vgshell" "$data_home/vgshell" "$cache_home/vgshell")
+reset_backups="$data_home/vgshell/backups"
+reset_marker="$state_home/vgshell/reset-backup"
+
+# Whether ENTRY of CLASS's directory stays where it is: the theme lock reset
+# holds through the move, the backups, and the curl install's own entries,
+# which a fresh install has (docs/architecture/distribution-curl.md
+# § Curl layout).
+reset_keeps() { # CLASS ENTRY
+  case "$1:$2" in
+    config:theme.lock | data:backups | data:current | data:git | data:.self.lock | data:.self-update-*) return 0 ;;
+  esac
+  [[ $1 == data && $2 =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+}
+
+# Sets reset_names to the entries of DIR, CLASS's directory, that reset
+# moves, none while DIR is absent. Through a symlinked DIR they are the
+# entries of its target, so the link itself stays.
+reset_names=()
+reset_entries() { # CLASS DIR
+  local entry
+  local -a all
+  reset_names=()
+  if [[ ! -d $2 ]]; then
+    [[ -e $2 ]] && refuse 1 "reset=not-a-directory path=$2"
+    return 0
+  fi
+  [[ -r $2 && -x $2 ]] || refuse 1 "reset=unreadable path=$2"
+  shopt -s nullglob dotglob
+  all=("$2"/*)
+  shopt -u nullglob dotglob
+  for entry in "${all[@]}"; do
+    entry="${entry##*/}"
+    reset_keeps "$1" "$entry" || reset_names+=("$entry")
+  done
+}
+
+# Makes a new folder under backups/ named for the UTC second, `.<n>` added
+# while another folder holds the name, with its four class subfolders, and
+# sets reset_folder to it.
+reset_folder=""
+reset_folder_new() {
+  local stamp n name class
+  stamp="$(date -u +%Y%m%dT%H%M%SZ)" || refuse 1 "clock=unreadable"
+  mkdir -p -- "$reset_backups" || refuse 1 "backup=unwritable path=$reset_backups"
+  for ((n = 0; n < 10; n++)); do
+    name="$stamp"
+    [[ $n == 0 ]] || name+=".$n"
+    if mkdir -m 700 -- "$reset_backups/$name" 2>/dev/null; then
+      reset_folder="$reset_backups/$name"
+      for class in "${reset_classes[@]}"; do
+        mkdir -- "$reset_folder/$class" || refuse 1 "backup=unwritable path=$reset_folder/$class"
+      done
+      return 0
+    fi
+    [[ -e $reset_backups/$name ]] || refuse 1 "backup=unwritable path=$reset_backups/$name"
+  done
+  refuse 1 "backup=exists path=$reset_backups/$stamp" "ten backup folders were made in this second"
+}
+
+# Moves every entry reset moves into FOLDER's class subfolders.
+reset_move_out() { # FOLDER
+  local i dir entry
+  for i in "${!reset_classes[@]}"; do
+    dir="${reset_dirs[i]}"
+    reset_entries "${reset_classes[i]}" "$dir"
+    for entry in "${reset_names[@]}"; do
+      mv -T -- "$dir/$entry" "$1/${reset_classes[i]}/$entry" || refuse 1 "move=failed path=$dir/$entry to=$1/${reset_classes[i]}"
+    done
+  done
+}
+
+# Moves every entry of FOLDER's class subfolders back into its class's
+# directory, then removes the emptied subfolders and FOLDER. A name the
+# directory already holds is refused before it moves.
+reset_move_back() { # FOLDER
+  local i dir from entry
+  local -a all
+  for i in "${!reset_classes[@]}"; do
+    from="$1/${reset_classes[i]}" dir="${reset_dirs[i]}"
+    [[ -d $from ]] || continue
+    mkdir -p -- "$dir" || refuse 1 "restore=unwritable path=$dir"
+    shopt -s nullglob dotglob
+    all=("$from"/*)
+    shopt -u nullglob dotglob
+    for entry in "${all[@]}"; do
+      entry="${entry##*/}"
+      [[ -e $dir/$entry || -L $dir/$entry ]] && refuse 1 "restore=exists path=$dir/$entry" "the backup's $entry stays in $from"
+      mv -T -- "$from/$entry" "$dir/$entry" || refuse 1 "move=failed path=$from/$entry to=$dir"
+    done
+    rmdir -- "$from" || refuse 1 "backup=not-empty path=$from"
+  done
+  rmdir -- "$1" || refuse 1 "backup=not-empty path=$1"
+}
+
+# What reset moves, said before its question: each entry, one line each.
+reset_say() {
+  local i entry
+  printf 'vgshell: reset moves these into a new folder under %s:\n' "$reset_backups" >&2
+  for i in "${!reset_classes[@]}"; do
+    reset_entries "${reset_classes[i]}" "${reset_dirs[i]}"
+    for entry in "${reset_names[@]}"; do printf '  %s/%s\n' "${reset_dirs[i]}" "$entry" >&2; done
+  done
+}
+
+# The reset, under the theme lock with no shell running: the move, the
+# marker the next shell offers the restore from, and the defaults applied
+# by the theme judge under the lock this process holds. Returns the
+# apply's status.
+reset_step() {
+  local status=0
+  reset_folder_new
+  reset_move_out "$reset_folder"
+  { mkdir -p -- "$state_home/vgshell" && printf '%s\n' "$reset_folder" >"$reset_marker"; } ||
+    refuse 1 "marker=unwritable path=$reset_marker"
+  printf 'ok reset backup=%s\n' "$reset_folder"
+  node "$theme_judge" apply text "$config_home/vgshell" "$state_home/vgshell" held vgs || status=$?
+  return "$status"
+}
+
+# The files apply rewrites that hold the user's own choice, put back after
+# restore applies the restored package: the theme file, which a hand edit
+# may have changed, and each screen's background.
+restore_kept=("$config_home/vgshell/theme.json" "$state_home/vgshell/backgrounds.json" "$state_home/vgshell/background")
+
+# The backup restore moves back, chosen before the shell stops.
+restore_folder=""
+# The restore, under the theme lock with no shell running. Returns the
+# apply's status.
+restore_step() {
+  local status=0 name marked saved i
+  reset_folder_new
+  reset_move_out "$reset_folder"
+  reset_move_back "$restore_folder"
+  if [[ -e $reset_marker ]]; then
+    marked="$(head -n 1 -- "$reset_marker")" || refuse 1 "marker=unreadable path=$reset_marker"
+    [[ -d $marked ]] || rm -f -- "$reset_marker" || refuse 1 "marker=unremovable path=$reset_marker"
+  fi
+  printf 'ok restored backup=%s aside=%s\n' "$restore_folder" "$reset_folder"
+  [[ -e $state_home/vgshell/theme.name ]] || return 0
+  name="$(head -n 1 -- "$state_home/vgshell/theme.name")" || refuse 1 "theme-name=unreadable path=$state_home/vgshell/theme.name"
+  # mktemp prints nothing on stderr when it succeeds, as in scratch_open.
+  saved="$(mktemp -d 2>&1)" || refuse 1 "scratch=${TMPDIR:-/tmp}" "$saved"
+  for i in "${!restore_kept[@]}"; do
+    if [[ -e ${restore_kept[i]} || -L ${restore_kept[i]} ]]; then
+      cp -a -- "${restore_kept[i]}" "$saved/$i" || refuse 1 "keep=failed path=${restore_kept[i]}"
+    fi
+  done
+  node "$theme_judge" apply text "$config_home/vgshell" "$state_home/vgshell" held "$name" || status=$?
+  for i in "${!restore_kept[@]}"; do
+    if [[ -e $saved/$i || -L $saved/$i ]]; then
+      mv -fT -- "$saved/$i" "${restore_kept[i]}" || refuse 1 "keep=failed path=${restore_kept[i]}"
+    else
+      rm -f -- "${restore_kept[i]}" || refuse 1 "keep=failed path=${restore_kept[i]}"
+    fi
+  done
+  rm -rf -- "${saved:?}"
+  return "$status"
+}
+
+# Runs STEP, reset's or restore's, under the theme lock, refused as KEY
+# reason=busy while another theme command holds it: around a running
+# shell's stop and start, after restart's checks, or else alone, followed by
+# shell=not-running. STEP's status is the command's.
+reset_run() { # KEY STEP
+  local status=0
+  if shell_pid >/dev/null 2>&1; then
+    preflight
+    theme_lock_hold "$1"
+    shell_restart "$2"
+    return
+  fi
+  theme_lock_hold "$1"
+  set +e
+  (set -e; "$2")
+  status=$?
+  set -e
+  echo "shell=not-running"
+  return "$status"
+}
+
+reset_vgs() {
+  local reply
+  if [[ $assume_yes != 1 && ! -t 0 ]]; then
+    shell_pid >/dev/null 2>&1 ||
+      refuse 1 "no-terminal=reset" "no terminal on stdin to confirm the reset and no shell running to ask; run on a terminal or pass --yes"
+    reply="$(ipc shell askReset)" || exit $?
+    [[ $reply == ok ]] || refuse 1 "ask=reset reply=$reply"
+    echo "shell=asked"
+    return 0
+  fi
+  [[ $assume_yes == 1 ]] || reset_say
+  confirm_change reset VGS "nothing moved" reset
+  reset_run reset=vgs reset_step
+}
+
+# Sets restore_folder to the folder directly under backups/ that PATH
+# names, or the newest one there when PATH is empty.
+restore_choose() { # PATH
+  local base real
+  local -a all=() folders=()
+  base="$(realpath -e -- "$reset_backups" 2>/dev/null)" || base=""
+  if [[ -z $1 ]]; then
+    # Without the trailing slash a `*/` glob would add, so a `.<n>` folder
+    # sorts after the folder of its second.
+    shopt -s nullglob
+    [[ -z $base ]] || all=("$base"/*)
+    shopt -u nullglob
+    for real in "${all[@]}"; do [[ -d $real ]] && folders+=("$real"); done
+    [[ ${#folders[@]} -gt 0 ]] || refuse 1 "backup=none path=$reset_backups"
+    set -- "${folders[-1]}"
+  fi
+  real="$(realpath -e -- "$1" 2>/dev/null)" || refuse 1 "backup=$1 reason=absent"
+  [[ ! -L $1 && -d $real && $(dirname -- "$real") == "$base" ]] || refuse 1 "backup=$1 reason=outside" "a backup is a folder directly under $reset_backups"
+  restore_folder="$real"
+}
+
+reset_restore() { # [BACKUP]
+  restore_choose "${1:-}"
+  if [[ $assume_yes != 1 && -t 0 ]]; then
+    printf 'vgshell: restore moves what VGS holds now into a new folder under %s and moves %s back into place.\n' "$reset_backups" "$restore_folder" >&2
+  fi
+  confirm_change restore "${restore_folder##*/}" "nothing moved" restore
+  reset_run "restore=${restore_folder##*/}" restore_step
+}
+
 # Hyprland's monitors, as `hyprctl -j monitors` prints them, asked up to
 # supervise_compositor_tries times supervise_compositor_gap seconds apart.
 # Returns 1 when no try answered with a JSON list. Every external command
@@ -2197,6 +2483,19 @@ case "$cmd" in
         printf 'vgshell: refused: self-subcommand=%s\n' "${sub:-missing}" >&2; usage; exit 2
         ;;
     esac
+    ;;
+  reset)
+    if [[ ${1:-} == restore ]]; then
+      shift
+      if [[ ${1:-} == --yes ]]; then assume_yes=1; shift; fi
+      if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; usage; exit 2; fi
+      if [[ ${1:-} == -* ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; usage; exit 2; fi
+      reset_restore "${1:-}"
+    else
+      if [[ ${1:-} == --yes ]]; then assume_yes=1; shift; fi
+      if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; usage; exit 2; fi
+      reset_vgs
+    fi
     ;;
   -h|--help|help)
     usage; exit 0

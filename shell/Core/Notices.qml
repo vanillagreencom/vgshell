@@ -2,10 +2,12 @@ pragma Singleton
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import qs.Commons
 import "PluginLogic.js" as Logic
 
 // The core notice state: requirement notices for missing commands, the
-// restart notice for a shell whose own files changed under it, and one
+// restart notice for a shell whose own files changed under it, the reset
+// question and the "VGS was reset" notice that offers the restore, and one
 // consent slot for core-owned setup that must not run silently, which
 // draws the first-start welcome around the Hyprland question.
 // Requirement notices decide which plugins' missing commands the user is
@@ -72,16 +74,55 @@ Singleton {
         failure: "",
         busy: false
     })
+    // Whether the reset question is owed: from the askReset IPC function,
+    // which `vgshell reset` calls with no terminal and no --yes, or the
+    // `manager` capability's reset, until the user answers it.
+    property bool resetAsked: false
+    // The commands the reset question's Reset and the "VGS was reset"
+    // notice's Restore previous settings run, shown only behind Show
+    // command (D061).
+    readonly property string resetCommand: "vgshell reset --yes"
+    readonly property string restoreCommand: "vgshell reset restore --yes " + resetBackup
+    // What the reset question draws, in the consent slot's form. Cancel,
+    // the action that cannot change anything, holds the keyboard first.
+    readonly property var resetView: ({
+        title: "Reset VGS?",
+        message: "Your settings, installed plugins and themes move to a backup, and VGS restarts as on a fresh install. You can restore them afterwards.",
+        lines: [],
+        disclosure: resetCommand,
+        actions: [{ label: "Cancel", role: "cancel", focused: true }, { label: "Reset", role: "accept", variant: "danger" }],
+        failure: "",
+        busy: false
+    })
+    // The backup folder the last reset made, which `vgshell reset` writes
+    // to <stateDir>/reset-backup and this reads at start, or "" while no
+    // such folder is owed. The "VGS was reset" notice shows while it is set.
+    property string resetBackup: ""
+    readonly property string resetMarker: Paths.stateDir + "/reset-backup"
+    // What the "VGS was reset" notice draws, in the consent slot's form.
+    // Keep these, which leaves the fresh state, holds the keyboard.
+    readonly property var resetDoneView: ({
+        title: "VGS was reset",
+        message: "Your previous settings, plugins and themes are in a backup. Restore them, or keep this fresh start.",
+        lines: [],
+        disclosure: restoreCommand,
+        actions: [{ label: "Restore previous settings", role: "accept" }, { label: "Keep these", role: "cancel", focused: true }],
+        failure: "",
+        busy: false
+    })
     // Callbacks waiting for a scan that starts after they were asked for,
     // each { scan, fn }, `scan` the Registry.requirementsRevision at which
     // that scan has ended (Registry.rescan).
     property var afterScans: []
 
     readonly property var current: queue.length > 0 ? queue[0] : null
-    // The restart notice shows behind every requirement notice and before
-    // the consent slot.
+    // The restart notice shows behind every requirement notice, the reset
+    // question behind it, the "VGS was reset" notice behind that, and the
+    // consent slot last, so the welcome follows a reset's notice.
     readonly property bool showingRestart: current === null && restart
-    readonly property bool showingConsent: current === null && !restart && consent !== null
+    readonly property bool showingResetAsk: current === null && !restart && resetAsked
+    readonly property bool showingResetDone: current === null && !restart && !resetAsked && resetBackup !== ""
+    readonly property bool showingConsent: current === null && !restart && !resetAsked && resetBackup === "" && consent !== null
     // What the shown notice draws, PluginLogic.noticeView with the owner's
     // id and name, or null while none shows, before the first detection
     // ended, or while its owner is gone before the scan that drops it.
@@ -97,7 +138,7 @@ Singleton {
         return shown;
     }
     readonly property bool installing: current !== null && installingId === current.id
-    readonly property string shownId: current !== null ? current.id : restart ? "core-restart" : consent !== null ? "core-consent" : ""
+    readonly property string shownId: current !== null ? current.id : restart ? "core-restart" : resetAsked ? "core-reset" : resetBackup !== "" ? "core-reset-done" : consent !== null ? "core-consent" : ""
     // The consent slot's answer, `connect`, `decline` or `close`, which
     // HyprlandLayer acts on.
     signal consentAnswered(string answer)
@@ -106,6 +147,8 @@ Singleton {
         failure = "";
         settleScreen(true);
     }
+
+    Component.onCompleted: resetRead.running = true
 
     Connections {
         target: Quickshell
@@ -134,7 +177,7 @@ Singleton {
     // to the front (FRESH) and when its screen goes, none while no notice
     // shows.
     function settleScreen(fresh) {
-        if (queue.length === 0 && consent === null && !restart) screen = null;
+        if (queue.length === 0 && consent === null && !restart && !resetAsked && resetBackup === "") screen = null;
         else if (fresh || screen === null || Quickshell.screens.indexOf(screen) === -1) screen = Compositor.focusedScreen();
     }
 
@@ -288,14 +331,50 @@ Singleton {
         Quickshell.execDetached([Quickshell.shellDir + "/../bin/vgshell", "restart"]);
     }
 
+    // The reset question, from the askReset IPC function or the `manager`
+    // capability's reset: it shows behind every requirement notice and the
+    // restart notice. Answers `ok`.
+    function askReset() {
+        resetAsked = true;
+        return "ok";
+    }
+
+    // Reset: `vgshell reset --yes`, which moves the files, stops this shell
+    // and has Hyprland start the next one, so it runs detached as
+    // restartShell runs restart, and a reset that refuses reports nothing
+    // back.
+    function resetVgs() {
+        if (!showingResetAsk) return;
+        resetAsked = false;
+        console.info("notices: reset=started");
+        Quickshell.execDetached([Quickshell.shellDir + "/../bin/vgshell", "reset", "--yes"]);
+    }
+
+    // Restore previous settings: `vgshell reset restore --yes <folder>`,
+    // detached for the same reason.
+    function restoreReset() {
+        if (!showingResetDone) return;
+        const folder = resetBackup;
+        resetBackup = "";
+        console.info("notices: restore=started backup=" + folder);
+        Quickshell.execDetached([Quickshell.shellDir + "/../bin/vgshell", "reset", "restore", "--yes", folder]);
+    }
+
     // Not now, Escape or Close: the shown notice goes, and its owner's own
     // offers rest; a `doctor` request, the user's press, never rests. The
-    // restart notice goes until another refused first build raises it.
+    // restart notice goes until another refused first build raises it, and
+    // the reset question until the next ask. Keep these, or Escape, on the
+    // "VGS was reset" notice removes the marker, so the notice does not come
+    // back; the backup folder stays for `vgshell reset restore`.
     function dismiss() {
         const notice = current;
         if (notice === null) {
             if (restart) restart = false;
-            else if (consent !== null) answerConsent("cancel");
+            else if (resetAsked) resetAsked = false;
+            else if (resetBackup !== "") {
+                resetBackup = "";
+                resetForget.running = true;
+            } else if (consent !== null) answerConsent("cancel");
             return;
         }
         if (installing) return;
@@ -325,14 +404,15 @@ Singleton {
         detector.running = true;
     }
 
-    // The shown and waiting notices, the restart notice, the consent slot
-    // and the welcome, the resting plugins, the screen and the managers,
-    // for the lending record.
+    // The shown and waiting notices, the restart notice, the reset
+    // question and the reset's backup, the consent slot and the welcome, the
+    // resting plugins, the screen and the managers, for the lending record.
     function record() {
         const now = Date.now();
         return {
             shown: current === null ? null : { plugin: current.id, commands: current.commands, required: current.required, installing: installing, failure: failure },
             restart: restart,
+            reset: { asked: resetAsked, backup: resetBackup === "" ? null : resetBackup },
             consent: consent === null ? null : { title: consent.title, command: consent.disclosure, failure: consent.failure },
             consentState: consentState === null ? null : { phase: consentState.phase, queued: consentState.queued || "", failure: consentState.failure || "" },
             welcome: { state: welcome, lines: consent !== null && consent.welcome ? consent.lines : null, actions: consent !== null && consent.welcome ? consent.actions.map(a => a.label) : null },
@@ -343,6 +423,44 @@ Singleton {
             detection: detection,
             detecting: detector.running
         };
+    }
+
+    // The reset marker, read once at start: the folder it names while that
+    // folder exists, else nothing. A read that cannot run offers no
+    // restore, and the log names the failure.
+    Process {
+        id: resetRead
+        property var completion: null
+        command: ["bash", "-c", "[[ -e \"$1\" ]] || exit 0; IFS= read -r folder <\"$1\" || [[ -n $folder ]] || exit 0; [[ ! -d $folder ]] || printf '%s\\n' \"$folder\"", "vgs-reset", root.resetMarker]
+        stdout: StdioCollector { id: resetReadOut }
+        stderr: StdioCollector { id: resetReadErr }
+        onExited: (code, status) => { completion = { code: code, status: status }; }
+        onRunningChanged: {
+            if (running) return;
+            const done = completion;
+            completion = null;
+            if (done === null || done.code !== 0) {
+                console.error("notices: reset-marker-read=failed path=" + root.resetMarker + (done === null ? " start=failed" : " status=" + done.code) + " stderr=" + JSON.stringify(resetReadErr.text.trim()));
+                return;
+            }
+            root.resetBackup = resetReadOut.text.trim();
+        }
+    }
+
+    // Keep these: the marker goes. A removal that fails offers the restore
+    // again at the next start.
+    Process {
+        id: resetForget
+        property var completion: null
+        command: ["rm", "-f", "--", root.resetMarker]
+        stderr: StdioCollector { id: resetForgetErr }
+        onExited: (code, status) => { completion = { code: code, status: status }; }
+        onRunningChanged: {
+            if (running) return;
+            const done = completion;
+            completion = null;
+            if (done === null || done.code !== 0) console.error("notices: reset-marker-remove=failed path=" + root.resetMarker + (done === null ? " start=failed" : " status=" + done.code) + " stderr=" + JSON.stringify(resetForgetErr.text.trim()));
+        }
     }
 
     // A command that fails to start emits only runningChanged, so the end
