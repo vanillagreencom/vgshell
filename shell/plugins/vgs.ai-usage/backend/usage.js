@@ -1,14 +1,15 @@
 #!/usr/bin/env node
 // usage.js --tree ABSOLUTE_VGS_TREE
-// Reads the plan limits of every Claude Code and Codex account the core's
-// account discovery finds, through each tool's own sign-in, and prints one
-// JSON line on stdout: { accounts: [{ id, provider, label, email, plan,
-// state, windows: [{ name, usedPercent, resetsAt }] }], partial }. state is
-// ok, expired, signed-out, no-plan for a sign-in that has no plan limits,
-// or failed; a window the tool does not report is left out, never read as
-// 0. Diagnostics are lines of `ai-usage: <key>=<value>` pairs on stderr. No token or reply body reaches either stream; of what
-// the tools report, only an account's email, plan and windows do. Nothing
-// here writes or refreshes a credential file.
+// Reads the plan limits of every Claude Code, Codex and Copilot account the
+// core's account discovery finds, through each tool's own sign-in, and
+// prints one JSON line on stdout: { accounts: [{ id, provider, label, email,
+// plan, state, windows: [{ name, usedPercent, resetsAt }], credits }], partial }.
+// state is ok, expired, signed-out, no-plan for a sign-in that has no plan
+// limits, or failed; a window the tool does not report is left out, never
+// read as 0. Diagnostics are lines of `ai-usage: <key>=<value>` pairs on
+// stderr. No token or reply body reaches either stream; of what the tools
+// report, only an account's email, plan, windows and credit totals do.
+// Nothing here writes or refreshes a credential file.
 "use strict";
 const fs = require("node:fs");
 const path = require("node:path");
@@ -20,14 +21,17 @@ const { O_RDONLY, O_NOFOLLOW, O_NONBLOCK, O_NOCTTY } = fs.constants;
 const ORIGIN = "https://api.anthropic.com";
 const USAGE_PATH = "/api/oauth/usage";
 const OAUTH_BETA = "oauth-2025-04-20";
+const COPILOT_ORIGIN = "https://api.github.com";
+const COPILOT_PATH = "/copilot_internal/user";
 // Bounds on a stalled endpoint or program, not latency budgets.
 const REQUEST_MS = 15000;
 const CODEX_MS = 20000;
+const SECRET_TOOL_MS = 5000;
 // The largest credential file and reply read; a larger one is refused.
 const MAX_BYTES = 64 * 1024;
 const MAX_LINE_BYTES = 1024 * 1024;
 // The accounts read in one run; past it the run is partial.
-const MAX_ACCOUNTS = 16;
+const MAX_ACCOUNTS = 32;
 const CLIENT = Object.freeze({ name: "vgs_ai_usage", title: "VGS AI usage", version: "1" });
 
 function plain(value) { return value !== null && typeof value === "object" && !Array.isArray(value); }
@@ -41,24 +45,50 @@ function percent(value) {
     return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
+function resetTime(value) {
+    if (value === null || value === undefined) return null;
+    const resetsAt = Date.parse(value);
+    return Number.isFinite(resetsAt) ? resetsAt : undefined;
+}
+
+function slug(value) {
+    if (!printable(value, 80)) return "other";
+    const text = value.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+    return text || "other";
+}
+
+function claudeWindow(name, value) {
+    if (value === undefined || value === null) return undefined;
+    if (!plain(value)) return null;
+    const usedPercent = percent(value.utilization);
+    const resetsAt = resetTime(value.resets_at);
+    if (usedPercent === undefined || resetsAt === undefined) return null;
+    return { name, usedPercent, resetsAt };
+}
+
 /**
- * The windows of a Claude usage reply: five_hour, seven_day and each
- * model's seven_day_<model>, in that order, each { utilization, resets_at }
- * with resets_at an ISO time or null. A window the reply leaves out or
- * holds as null is absent. Returns the windows, or null for a reply that is
- * no object or holds a window of another shape.
+ * The windows of a Claude usage reply recorded from Claude Code's usage
+ * endpoint: five_hour and seven_day as { utilization, resets_at }, followed
+ * by each limits[] entry whose kind is weekly_scoped. A scoped model named
+ * Fable becomes seven_day_fable. A window the reply leaves out or holds as
+ * null is absent. Returns the windows, or null for a reply that is no object
+ * or holds a present window of another shape.
  */
 function claudeWindows(body) {
     if (!plain(body)) return null;
-    const names = Object.keys(body).filter(name => /^seven_day_[a-z0-9_]+$/.test(name)).sort();
     const windows = [];
-    for (const name of ["five_hour", "seven_day", ...names]) {
-        const value = body[name];
-        if (value === undefined || value === null) continue;
-        if (!plain(value)) return null;
-        const usedPercent = percent(value.utilization);
-        const resetsAt = value.resets_at === null || value.resets_at === undefined ? null : Date.parse(value.resets_at);
-        if (usedPercent === undefined || (resetsAt !== null && !Number.isFinite(resetsAt))) return null;
+    for (const name of ["five_hour", "seven_day"]) {
+        const window = claudeWindow(name, body[name]);
+        if (window === null) return null;
+        if (window !== undefined) windows.push(window);
+    }
+    if (body.limits !== undefined && body.limits !== null && !Array.isArray(body.limits)) return null;
+    for (const entry of Array.isArray(body.limits) ? body.limits : []) {
+        if (!plain(entry) || entry.kind !== "weekly_scoped") continue;
+        const usedPercent = percent(entry.percent);
+        const resetsAt = resetTime(entry.resets_at);
+        if (usedPercent === undefined || resetsAt === undefined) return null;
+        const name = "seven_day_" + slug(entry.scope?.model?.display_name);
         windows.push({ name, usedPercent, resetsAt });
     }
     return windows;
@@ -253,6 +283,123 @@ async function readCodex(Anchored, directory, { command = "codex", deadlineMs = 
     });
 }
 
+function uncommentJson(text) {
+    return text.split(/\r?\n/).filter(line => !/^\s*\/\//.test(line)).join("\n");
+}
+
+function childEnv(env) {
+    const result = { LANG: "C.UTF-8" };
+    for (const name of ["PATH", "HOME", "DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR"])
+        if (env[name]) result[name] = env[name];
+    return result;
+}
+
+function secretSearch(secretTool, username, env) {
+    return new Promise(resolve => {
+        const child = cp.spawn(secretTool, ["search", "service", "copilot-cli", "username", username], {
+            stdio: ["ignore", "pipe", "pipe"], env: childEnv(env), cwd: env.HOME || undefined
+        });
+        let stdout = "";
+        let stderr = "";
+        let done = false;
+        const finish = value => {
+            if (done) return;
+            done = true;
+            clearTimeout(timer);
+            resolve(value);
+        };
+        const timer = setTimeout(() => {
+            child.kill("SIGKILL");
+            finish({ kind: "failed", reason: "keyring-failed" });
+        }, SECRET_TOOL_MS);
+        child.on("error", error => finish({ kind: "failed", reason: error.code === "ENOENT" ? "keyring-missing" : "keyring-failed" }));
+        child.stdout.on("data", chunk => {
+            stdout += chunk.toString("utf8");
+            if (stdout.length > MAX_BYTES) finish({ kind: "failed", reason: "keyring-failed" });
+        });
+        child.stderr.on("data", chunk => {
+            stderr += chunk.toString("utf8");
+            if (stderr.length > MAX_BYTES) finish({ kind: "failed", reason: "keyring-failed" });
+        });
+        child.on("close", status => {
+            if (done) return;
+            if (status !== 0) return finish({ kind: "failed", reason: "keyring-failed" });
+            for (const line of stdout.split(/\r?\n/)) {
+                if (line.startsWith("secret = ")) {
+                    const value = line.slice("secret = ".length);
+                    return finish(printable(value, 8192) ? { kind: "found", token: value } : { kind: "failed", reason: "token-missing" });
+                }
+            }
+            if (stdout.split(/\r?\n/).some(line => line.startsWith("label = ")))
+                return finish({ kind: "failed", reason: "keyring-locked" });
+            finish({ kind: "absent" });
+        });
+    });
+}
+
+async function copilotToken(config, host, login, secretTool, env) {
+    const tokens = config.copilotTokens;
+    if (printable(tokens, 8192)) return { kind: "found", token: tokens };
+    if (plain(tokens) && printable(tokens[host + ":" + login], 8192))
+        return { kind: "found", token: tokens[host + ":" + login] };
+    for (const username of [host + ":" + login + ":github", host + ":" + login]) {
+        const result = await secretSearch(secretTool, username, env);
+        if (result.kind !== "absent") return result;
+    }
+    return { kind: "failed", reason: "token-missing" };
+}
+
+function copilotCredits(body) {
+    if (!plain(body)) return null;
+    const plan = printable(body.copilot_plan, 40) ? body.copilot_plan : "";
+    const snap = plain(body.quota_snapshots) && plain(body.quota_snapshots.premium_interactions)
+        ? body.quota_snapshots.premium_interactions : null;
+    if (snap === null) return { state: "ok", plan, windows: [], credits: null };
+    const unit = (snap.token_based_billing ?? body.token_based_billing) === true ? "credits" : "requests";
+    const resetsAt = resetTime(body.quota_reset_date_utc);
+    if (resetsAt === undefined) return null;
+    if (snap.unlimited === true) return { state: "ok", plan, windows: [], credits: { unit, unlimited: true } };
+    const entitlement = snap.entitlement;
+    const remaining = snap.remaining;
+    if (entitlement === 0) return { state: "ok", plan, windows: [], credits: { unit, granted: 0 } };
+    if (!Number.isFinite(entitlement) || entitlement < 0 || !Number.isFinite(remaining)) return null;
+    const used = entitlement - Math.max(remaining, 0);
+    const monthUsed = Number.isFinite(snap.credits_used) && snap.credits_used >= 0 ? snap.credits_used : null;
+    return { state: "ok", plan, windows: [{ name: "credits", usedPercent: used * 100 / entitlement, resetsAt }],
+        credits: { unit, used, granted: entitlement, monthUsed } };
+}
+
+async function readCopilot(Anchored, directory, { origin = COPILOT_ORIGIN, secretTool = "secret-tool", env = process.env,
+    deadlineMs = REQUEST_MS } = {}) {
+    const opened = Anchored.directory(directory);
+    if (opened.kind === "absent") return { state: "signed-out" };
+    if (opened.kind !== "directory") return failed("directory-" + opened.kind);
+    let file;
+    try { file = readHeld(Anchored, opened.fd, "config.json"); }
+    finally { fs.closeSync(opened.fd); }
+    if (file.kind === "absent") return { state: "signed-out" };
+    if (file.kind === "refused") return failed(file.reason);
+    let config;
+    try { config = JSON.parse(uncommentJson(file.text)); } catch { return failed("config-json"); }
+    const user = plain(config.lastLoggedInUser) ? config.lastLoggedInUser : null;
+    if (user === null || typeof user.login !== "string" || user.login.trim() === "") return { state: "signed-out" };
+    if (user.host !== "https://github.com") return failed("copilot-host");
+    const login = user.login;
+    const token = await copilotToken(config, user.host, login, secretTool, env);
+    if (token.kind !== "found") return failed(token.reason);
+    const reply = await get(new URL(COPILOT_PATH, origin), {
+        authorization: "token " + token.token, accept: "application/json", "user-agent": "vgs-ai-usage"
+    }, deadlineMs);
+    if (reply.error) return failed(reply.error);
+    if (reply.status === 401) return { state: "expired", plan: "" };
+    if (reply.status !== 200) return failed("http-" + reply.status);
+    let body;
+    try { body = JSON.parse(reply.body); } catch { return failed("reply-json"); }
+    const credits = copilotCredits(body);
+    if (credits === null) return failed("reply-shape");
+    return { ...credits, email: printable(login, 120) ? login : "" };
+}
+
 // Every live app-server, killed if this process ends before its read does.
 const children = new Set();
 process.on("exit", () => { for (const child of children) child.kill("SIGKILL"); });
@@ -263,7 +410,7 @@ process.on("exit", () => { for (const child of children) child.kill("SIGKILL"); 
  * directory that is absent is no account; one past MAX_ACCOUNTS is not read
  * and the run is partial "account-limit".
  */
-async function read(tree, env, { origin = ORIGIN } = {}) {
+async function read(tree, env, { origin = ORIGIN, copilotOrigin = COPILOT_ORIGIN, secretTool = "secret-tool" } = {}) {
     const Anchored = require(path.join(tree, "bin/lib/anchored.js"));
     const { accountFolders } = require(path.join(tree, "bin/lib/account-folders.js"));
     const home = env.HOME;
@@ -278,16 +425,17 @@ async function read(tree, env, { origin = ORIGIN } = {}) {
     if (folders.length > MAX_ACCOUNTS) partial ||= "account-limit";
     const accounts = await Promise.all(folders.slice(0, MAX_ACCOUNTS).map(async folder => {
         const result = folder.provider === "claude" ? await readClaude(Anchored, folder.directory, { origin })
+            : folder.provider === "copilot" ? await readCopilot(Anchored, folder.directory, { origin: copilotOrigin, secretTool, env })
             : await readCodex(Anchored, folder.directory, { env });
         const id = folder.provider + "-" + crypto.createHash("sha256").update(folder.directory).digest("hex").slice(0, 12);
         if (result.state === "failed") process.stderr.write("ai-usage: account=" + id + " failed=" + result.reason + "\n");
         return { id, provider: folder.provider, label: folder.label.slice(0, 60), email: result.email || "",
-            plan: result.plan || "", state: result.state, windows: result.windows || [] };
+            plan: result.plan || "", state: result.state, windows: result.windows || [], credits: result.credits || null };
     }));
     return { accounts, partial };
 }
 
-module.exports = { ORIGIN, claudeWindows, codexWindows, readClaude, readCodex, read };
+module.exports = { ORIGIN, COPILOT_ORIGIN, claudeWindows, codexWindows, copilotCredits, readClaude, readCodex, readCopilot, read };
 
 if (require.main === module) {
     if (process.argv.length !== 4 || process.argv[2] !== "--tree" || !path.isAbsolute(process.argv[3])) {

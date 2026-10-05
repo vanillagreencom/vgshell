@@ -226,15 +226,19 @@ class Accounts {
             if (key !== null) fail(key[1]);
             throw error;
         }
-        for (const folder of found.folders)
-            if (folder.source !== "folder") insert(provider(folder.provider), folder.directory, folder.label);
+        for (const folder of found.folders) {
+            const row = provider(folder.provider);
+            if (folder.source !== "folder" && row.kind === "cli") insert(row, folder.directory, folder.label);
+        }
         // Hand-added labels win over a generated label for the same path.
         for (const item of this.added()) {
             insert(provider(item.provider), item.directory, item.label);
             candidates.set(item.provider + "\0" + item.directory, item);
         }
-        for (const folder of found.folders)
-            if (folder.source === "folder") insert(provider(folder.provider), folder.directory, folder.label);
+        for (const folder of found.folders) {
+            const row = provider(folder.provider);
+            if (folder.source === "folder" && row.kind === "cli") insert(row, folder.directory, folder.label);
+        }
         return { candidates: Array.from(candidates.values()), partial: found.partial };
     }
 

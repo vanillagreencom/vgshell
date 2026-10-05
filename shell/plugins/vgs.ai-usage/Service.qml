@@ -84,6 +84,7 @@ Item {
         environment: Object.assign({
             PATH: Quickshell.env("PATH"), HOME: Quickshell.env("HOME"),
             XDG_CONFIG_HOME: Quickshell.env("XDG_CONFIG_HOME"), XDG_DATA_HOME: Quickshell.env("XDG_DATA_HOME"),
+            DBUS_SESSION_BUS_ADDRESS: Quickshell.env("DBUS_SESSION_BUS_ADDRESS"), XDG_RUNTIME_DIR: Quickshell.env("XDG_RUNTIME_DIR"),
             LANG: "C.UTF-8"
         }, AccountDirectories.accountVariables(name => Quickshell.env(name)))
         stdout: StdioCollector { onStreamFinished: root.output = text }

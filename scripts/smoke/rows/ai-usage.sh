@@ -102,15 +102,13 @@ usage_panel_resets() {
 rows = json.load(sys.stdin)
 got = [[w["name"], w["resetIn"]] for r in rows for w in r["windows"]]
 def fits(name, left):
-    if name == "seven_day_opus":
-        return left == {"kind": "none"}
     if left["kind"] != "in":
         return False
     total = left["days"] * 1440 + left["hours"] * 60 + left["minutes"]
-    want = {"five_hour": 330, "seven_day": 4680}[name]
+    want = {"five_hour": 330, "seven_day": 4680, "seven_day_fable": 4680}[name]
     return want - 10 <= total <= want + 1
 names = [name for name, _ in got]
-print("matched" if names == ["five_hour", "seven_day", "seven_day_opus", "five_hour", "seven_day"] and all(fits(n, l) for n, l in got) else json.dumps(got))'
+print("matched" if names == ["five_hour", "seven_day", "seven_day_fable", "five_hour", "seven_day"] and all(fits(n, l) for n, l in got) else json.dumps(got))'
 }
 # usage_refresh LABEL: one check the row asks for, once the service is idle,
 # read back once the service published it.
@@ -188,14 +186,14 @@ printf 'relative\n' >"$home/.codex/stand-in-mode"
 usage_credentials_before="$(usage_credentials)"
 usage_refresh "the planted accounts"
 expect_poll "both accounts read as signed in" '[["claude", "default", "ok"], ["codex", "default", "ok"]]' usage_states
-expect "Claude Code's windows are the endpoint's" '[["ok", [["five_hour", 42], ["seven_day", 83], ["seven_day_opus", 12]]]]' usage_windows claude
+expect "Claude Code's windows are the endpoint's" '[["ok", [["five_hour", 42], ["seven_day", 83], ["seven_day_fable", 12]]]]' usage_windows claude
 expect "Codex's windows are the program's" '[["ok", [["five_hour", 27], ["seven_day", 64]]]]' usage_windows codex
 expect_poll "the widget shows the highest share in the warning tone" '[true, true, 83, "warning"]' usage_widget_state
 expect "the read changed no credential file" kept usage_credentials_kept
 usage_before_panel="$(usage_read_at)" || usage_before_panel=0
 expect_poll "the service is idle before the panel opens" idle usage_idle
 click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage from its widget failed"
-expect_poll "the widget opens its panel" '[["claude", "default", "", "max", [["five_hour", 42, "normal"], ["seven_day", 83, "warning"], ["seven_day_opus", 12, "normal"]]], ["codex", "default", "person@example.invalid", "plus", [["five_hour", 27, "normal"], ["seven_day", 64, "normal"]]]]' usage_panel_rows
+expect_poll "the widget opens its panel" '[["claude", "default", "", "max", [["five_hour", 42, "normal"], ["seven_day", 83, "warning"], ["seven_day_fable", 12, "normal"]]], ["codex", "default", "person@example.invalid", "plus", [["five_hour", 27, "normal"], ["seven_day", 64, "normal"]]]]' usage_panel_rows
 expect_poll "the panel's reset times are the stand-ins'" matched usage_panel_resets
 summon_drawn panel vgs.ai-usage || fail "the panel never drew a frame"
 usage_panel_box() { ipc smoke instanceGeometry panel vgs.ai-usage | py_reply 'import json,sys; r=json.load(sys.stdin); print(r[2] > 0 and r[3] > 0)'; }
@@ -222,7 +220,7 @@ usage_credentials_before="$(usage_credentials)"
 expected_errors+=('ai-usage: account=claude-[0-9a-f]+ failed=http-500')
 usage_mode error
 usage_refresh "a failed Claude request"
-usage_stale='[["stale", [["five_hour", 42], ["seven_day", 83], ["seven_day_opus", 12]]]]'
+usage_stale='[["stale", [["five_hour", 42], ["seven_day", 83], ["seven_day_fable", 12]]]]'
 expect_poll "a failed request keeps the last figures, marked stale" "$usage_stale" usage_windows claude
 expect_poll "the widget keeps the stale share" '[true, true, 83, "warning"]' usage_widget_state
 expect "the failed read changed no credential file" kept usage_credentials_kept
@@ -232,7 +230,7 @@ usage_edit "$usage_helper" '    if (reply.status !== 200) return failed("http-" 
 usage_mode relative
 rescan "the zero copy is scanned"
 usage_refresh "the zero copy's first read"
-expect_poll "the zero copy reads the figures first" '[["ok", [["five_hour", 42], ["seven_day", 83], ["seven_day_opus", 12]]]]' usage_windows claude
+expect_poll "the zero copy reads the figures first" '[["ok", [["five_hour", 42], ["seven_day", 83], ["seven_day_fable", 12]]]]' usage_windows claude
 usage_mode error
 usage_refresh "the zero copy's failed read"
 expect "a helper that reads a failure as 0 % breaks the stale reading" 1 \

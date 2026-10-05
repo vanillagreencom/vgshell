@@ -617,7 +617,7 @@ world(async () => {
 
     // The service passes exactly the harnesses' root variables.
     const variables = folder => assert.deepEqual({ ...require(path.join(folder, "backend/Core.js")).accounts().accountVariables(name => "value-" + name) },
-        { CLAUDE_CONFIG_DIR: "value-CLAUDE_CONFIG_DIR", CODEX_HOME: "value-CODEX_HOME" });
+        { CLAUDE_CONFIG_DIR: "value-CLAUDE_CONFIG_DIR", CODEX_HOME: "value-CODEX_HOME", COPILOT_HOME: "value-COPILOT_HOME" });
     variables(plugin);
     cases++;
     await mutant("shell/Commons/AccountDirectories.js", "account-variables",

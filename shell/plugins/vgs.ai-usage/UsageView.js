@@ -7,13 +7,16 @@
 
 // A used share at or above it takes the warning tone.
 var WARNING_PERCENT = 80;
-var NAMES = { claude: "Claude Code", codex: "Codex" };
-// Only a Claude Code sign-in reads expired: its token is read, never refreshed.
-var EXPIRED = "Open Claude Code to refresh the sign-in";
+var NAMES = { claude: "Claude Code", codex: "Codex", copilot: "Copilot" };
+var EXPIRED = { claude: "Open Claude Code to refresh the sign-in", copilot: "Open Copilot to sign in again" };
 var NO_PLAN = "Signed in with an API key, which has no plan limits";
 
 function copyWindows(windows) {
     return windows.map(function (row) { return { name: row.name, usedPercent: row.usedPercent, resetsAt: row.resetsAt }; });
+}
+
+function copyCredits(credits) {
+    return credits === null || credits === undefined ? null : Object.assign({}, credits);
 }
 
 function previousOf(previous, id) {
@@ -34,18 +37,18 @@ function merge(previous, reading, now) {
     if (reading === null) {
         if (previous === null || previous === undefined) return { accounts: [], readAt: null };
         return { accounts: previous.accounts.map(function (row) {
-            var copy = Object.assign({}, row, { windows: copyWindows(row.windows) });
+            var copy = Object.assign({}, row, { windows: copyWindows(row.windows), credits: copyCredits(row.credits) });
             if (row.state === "ok") copy.state = "stale";
             return copy;
         }), readAt: previous.readAt };
     }
     return { accounts: reading.accounts.map(function (row) {
         var last = previousOf(previous, row.id);
-        if (row.state === "failed" && last !== null && last.windows.length > 0)
+        if (row.state === "failed" && last !== null && (last.windows.length > 0 || last.credits !== null))
             return { id: row.id, provider: row.provider, label: row.label, email: row.email || last.email,
-                plan: row.plan || last.plan, state: "stale", windows: copyWindows(last.windows) };
+                plan: row.plan || last.plan, state: "stale", windows: copyWindows(last.windows), credits: copyCredits(last.credits) };
         return { id: row.id, provider: row.provider, label: row.label, email: row.email, plan: row.plan,
-            state: row.state, windows: copyWindows(row.windows) };
+            state: row.state, windows: copyWindows(row.windows), credits: copyCredits(row.credits) };
     }), readAt: now };
 }
 
@@ -64,20 +67,24 @@ function signedIn(usage) {
 function widget(usage) {
     var accounts = signedIn(usage);
     var percent = null;
-    var expired = false;
+    var expired = "";
     var stale = false;
     for (var i = 0; i < accounts.length; i++) {
         var row = accounts[i];
-        if (row.state === "expired") expired = true;
+        if (row.state === "expired" && expired === "") expired = expiredText(row.provider);
         if (row.state === "stale") stale = true;
         for (var j = 0; j < row.windows.length; j++)
             if (percent === null || row.windows[j].usedPercent > percent) percent = row.windows[j].usedPercent;
     }
     var tooltip = percent === null ? "No usage figures yet" : "Highest plan limit used: " + Math.round(percent) + "%";
-    if (expired) tooltip += ". " + EXPIRED;
+    if (expired !== "") tooltip += ". " + expired;
     else if (stale) tooltip += ". The last check failed; figures may be old";
     return { shown: accounts.length > 0, percent: percent, tone: percent !== null && percent >= WARNING_PERCENT ? "warning" : "normal",
         text: percent === null ? "" : Math.round(percent) + "%", tooltip: tooltip };
+}
+
+function expiredText(provider) {
+    return EXPIRED[provider] || "Open the app to sign in again";
 }
 
 // The Settings row of PROVIDER's sign-in: a state value, whose action, Sign
@@ -89,7 +96,7 @@ function signIn(usage, provider) {
     if (plans.some(function (row) { return row.state === "ok" || row.state === "stale"; }))
         return { tone: "ok", text: plans.length === 1 ? "Signed in" : "Signed in to " + plans.length + " accounts" };
     if (plans.some(function (row) { return row.state === "expired"; }))
-        return { tone: "warning", text: EXPIRED };
+        return { tone: "warning", text: expiredText(provider) };
     if (plans.length > 0) return { tone: "danger", text: "Usage could not be read" };
     if (rows.length > 0) return { tone: "info", text: NO_PLAN };
     return { tone: "info", text: "Not signed in", action: true };
@@ -114,6 +121,38 @@ function windowLabel(name) {
         : limit.minutes % 1440 === 0 ? limit.minutes / 1440 + "-day"
         : limit.minutes % 60 === 0 ? limit.minutes / 60 + "-hour" : limit.minutes + "-minute";
     return length + (limit.model === "" ? "" : " " + limit.model.charAt(0).toUpperCase() + limit.model.slice(1)) + " limit";
+}
+
+function compact(value) {
+    if (typeof value !== "number" || !Number.isFinite(value)) return "";
+    var sign = value < 0 ? "-" : "";
+    var n = Math.abs(value);
+    var units = [[1000000000, "B"], [1000000, "M"], [1000, "k"]];
+    for (var i = 0; i < units.length; i++) {
+        if (n >= units[i][0]) return sign + trimNumber(n / units[i][0]) + units[i][1];
+    }
+    return sign + trimNumber(n);
+}
+
+function trimNumber(value) {
+    var decimals = value >= 100 ? 0 : value >= 10 ? 1 : value >= 1 ? 2 : 3;
+    var text = value.toFixed(decimals);
+    return text.indexOf(".") < 0 ? text : text.replace(/\.?0+$/, "");
+}
+
+function creditNoun(credits, singular) {
+    if (credits === null || credits === undefined) return "";
+    if (credits.unit === "credits") return singular ? "AI credit" : "AI credits";
+    return singular ? "premium request" : "premium requests";
+}
+
+function creditLine(credits) {
+    if (credits === null || credits === undefined) return "";
+    var noun = creditNoun(credits, false);
+    if (credits.unlimited === true) return "Unlimited " + noun;
+    if (credits.granted === 0) return "No " + creditNoun(credits, true) + " pool";
+    if (typeof credits.monthUsed === "number") return compact(credits.monthUsed) + " " + noun + " used this month";
+    return "";
 }
 
 // How long until a window resets, from now, both in milliseconds since the
@@ -147,15 +186,19 @@ function keyed(line) {
 function panel(usage, now) {
     return signedIn(usage).map(function (row) {
         var title = NAMES[row.provider] + (row.label === "default" ? "" : " \u00b7 " + row.label);
-        var detail = [row.email, row.plan === "" ? "" : row.plan.charAt(0).toUpperCase() + row.plan.slice(1) + " plan"]
+        var detail = [row.email, row.plan === "" ? "" : row.plan.charAt(0).toUpperCase() + row.plan.slice(1) + " plan",
+            row.provider === "copilot" ? creditLine(row.credits) : ""]
             .filter(Boolean).join(" \u00b7 ");
-        var note = row.state === "expired" ? EXPIRED
+        var note = row.state === "expired" ? expiredText(row.provider)
             : row.state === "stale" ? "The last check failed. These figures may be old."
-            : row.state === "failed" ? "Usage could not be read." : "";
+            : row.state === "failed" ? "Usage could not be read."
+            : row.state === "ok" && row.windows.length === 0 && row.credits === null ? "This plan reports no usage limits." : "";
         return { id: row.id, provider: row.provider, label: row.label, email: row.email, plan: row.plan, state: row.state,
             title: title, detail: detail, note: note, windows: row.windows.map(function (item) {
+                var creditWindow = row.provider === "copilot" && item.name === "credits" && row.credits !== null;
                 return { name: item.name, percent: item.usedPercent, tone: item.usedPercent >= WARNING_PERCENT ? "warning" : "normal",
-                    resetIn: resetIn(item.resetsAt, now), label: windowLabel(item.name), text: Math.round(item.usedPercent) + "%",
+                    resetIn: resetIn(item.resetsAt, now), label: creditWindow ? (row.credits.unit === "credits" ? "AI credits" : "Premium requests") : windowLabel(item.name),
+                    text: creditWindow ? compact(row.credits.used) + " of " + compact(row.credits.granted) : Math.round(item.usedPercent) + "%",
                     reset: resetText(item.resetsAt, now) };
             }) };
     });

@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 // vgs.ai-usage under node: the usage helper, shell/plugins/vgs.ai-usage/
 // backend/usage.js, its view, UsageView.js, and the sign-in TUIs. Each
-// account lives in a scratch HOME; Claude's endpoint is the stand-in
+// account lives in a scratch HOME; Claude and Copilot endpoints are the stand-in
 // scripts/fixtures/ai-usage/endpoint.js on 127.0.0.1, reached only through
-// the reader's origin argument, and Codex is the stand-in
+// the reader's origin argument, Copilot's keyring is the stand-in secret-tool
+// fixture, and Codex is the stand-in
 // scripts/fixtures/ai-usage/codex, reached by its path or a PATH that holds
 // no other codex. The recorded replies beside the stand-ins are written by
 // hand. Every control plants one defect in a disposable copy of the plugin
@@ -11,7 +12,6 @@
 "use strict";
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
-const os = require("node:os");
 const path = require("node:path");
 const cp = require("node:child_process");
 const crypto = require("node:crypto");
@@ -28,7 +28,8 @@ const TOKEN = "sk-ant-oat01-plantedToken-" + crypto.randomBytes(12).toString("he
 const HOUR = 3600000;
 const NOW = Date.parse("2026-10-05T12:00:00Z");
 
-const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ai-usage-")));
+fs.mkdirSync(path.join(tree, "tmp"), { recursive: true });
+const root = fs.realpathSync(fs.mkdtempSync(path.join(tree, "tmp/ai-usage-")));
 let cases = 0;
 // Each copy of the helper this suite loads holds its own exit listener.
 process.setMaxListeners(64);
@@ -53,11 +54,16 @@ function codexAccount(directory, mode = "ok") {
     write(path.join(directory, "stand-in-mode"), mode + "\n");
     return directory;
 }
+function copilotAccount(directory, config = {}) {
+    write(path.join(directory, "config.json"), "// Copilot CLI config\n" + JSON.stringify({ lastLoggedInUser: {
+        host: "https://github.com", login: "octo-user" }, ...config }, null, 2));
+    return directory;
+}
 // The bytes and modification time of every credential file under DIR.
 function credentials(dir) {
     const out = {};
     for (const entry of fs.readdirSync(dir, { recursive: true }))
-        if (/(^|\/)(\.credentials|auth)\.json$/.test(entry)) {
+        if (/(^|\/)(\.credentials|auth|config)\.json$/.test(entry)) {
             const file = path.join(dir, entry);
             out[entry] = [fs.readFileSync(file, "utf8"), fs.statSync(file).mtimeMs];
         }
@@ -66,6 +72,10 @@ function credentials(dir) {
 function calls(directory) {
     const file = path.join(directory, "stand-in-calls");
     return fs.existsSync(file) ? fs.readFileSync(file, "utf8").trim().split("\n").map(line => JSON.parse(line)) : [];
+}
+function secretCalls(directory) {
+    const file = path.join(directory, "secret-tool-calls");
+    return fs.existsSync(file) ? fs.readFileSync(file, "utf8").trim().split("\n").filter(Boolean).map(line => JSON.parse(line)) : [];
 }
 // A child run to its end without blocking this process, whose stand-in
 // endpoint answers it: { status, stdout, stderr }.
@@ -149,12 +159,13 @@ async function main() {
     fs.mkdirSync(standins);
     const codex = path.join(standins, "codex");
     fs.symlinkSync(path.join(fixtures, "codex"), codex);
+    fs.symlinkSync(path.join(fixtures, "secret-tool"), path.join(standins, "secret-tool"));
     for (const name of ["claude", "gum"]) {
         write(path.join(standins, name), '#!/bin/sh\nprintf "%s\\n" "$*" >>"$HOME/' + name + '-calls"\n');
         fs.chmodSync(path.join(standins, name), 0o755);
     }
     const PATH = standins + ":/usr/bin:/bin";
-    for (const name of ["codex", "claude", "gum"]) {
+    for (const name of ["codex", "claude", "gum", "secret-tool"]) {
         const found = cp.spawnSync("sh", ["-c", "command -v " + name], { env: { PATH }, encoding: "utf8" }).stdout.trim();
         assert.equal(found, path.join(standins, name), name + " resolves to its stand-in");
     }
@@ -209,8 +220,9 @@ async function main() {
     cases++;
     await control("origin-edited", "backend/usage.js", 'const ORIGIN = "https://api.anthropic.com";',
         'const ORIGIN = "http://127.0.0.1:9";', shipped);
-    await control("default-origin", "backend/usage.js", "async function read(tree, env, { origin = ORIGIN } = {}) {",
-        'async function read(tree, env, { origin = "http://127.0.0.1:9" } = {}) {', shipped);
+    await control("default-origin", "backend/usage.js",
+        'async function read(tree, env, { origin = ORIGIN, copilotOrigin = COPILOT_ORIGIN, secretTool = "secret-tool" } = {}) {',
+        'async function read(tree, env, { origin = "http://127.0.0.1:9", copilotOrigin = COPILOT_ORIGIN, secretTool = "secret-tool" } = {}) {', shipped);
 
     // The recorded replies, parsed. A window the reply leaves out or holds
     // as null is absent, never a 0 % window; a reply of another shape is null.
@@ -221,9 +233,13 @@ async function main() {
         assert.deepEqual(claudeWindows(claudeReply), [
             { name: "five_hour", usedPercent: 42, resetsAt: Date.parse("2026-10-05T18:00:00.461Z") },
             { name: "seven_day", usedPercent: 83, resetsAt: Date.parse("2026-10-09T08:00:00.461Z") },
-            { name: "seven_day_opus", usedPercent: 12, resetsAt: null }]);
+            { name: "seven_day_fable", usedPercent: 12, resetsAt: null }]);
         assert.deepEqual(claudeWindows(JSON.parse(fs.readFileSync(path.join(fixtures, "claude-usage-missing.json"), "utf8"))),
-            [{ name: "seven_day", usedPercent: 83, resetsAt: Date.parse("2026-10-09T08:00:00.461Z") }]);
+            [{ name: "seven_day", usedPercent: 83, resetsAt: Date.parse("2026-10-09T08:00:00.461Z") },
+                { name: "seven_day_fable", usedPercent: 12, resetsAt: null }]);
+        const malformedScoped = structuredClone(claudeReply);
+        malformedScoped.limits[2].percent = "12";
+        assert.equal(claudeWindows(malformedScoped), null, "a malformed scoped percent fails the reply");
         for (const body of ["text", [], null, { five_hour: { utilization: "42", resets_at: null } }, { seven_day: 7 },
             { five_hour: { utilization: 4, resets_at: "soon" } }])
             assert.equal(claudeWindows(body), null, JSON.stringify(body));
@@ -237,10 +253,12 @@ async function main() {
     };
     recorded(plugin);
     cases++;
-    await control("missing-window-zero", "backend/usage.js", "        if (value === undefined || value === null) continue;\n        if (!plain(value)) return null;\n        const usedPercent = percent(value.utilization);",
-        "        if (value === undefined || value === null) { windows.push({ name, usedPercent: 0, resetsAt: null }); continue; }\n        if (!plain(value)) return null;\n        const usedPercent = percent(value.utilization);", recorded);
-    await control("shape-accepted", "backend/usage.js", "if (usedPercent === undefined || (resetsAt !== null && !Number.isFinite(resetsAt))) return null;",
-        "if (usedPercent === undefined) continue;", recorded);
+    await control("old-seven-day-scan", "backend/usage.js", "    for (const name of [\"five_hour\", \"seven_day\"]) {",
+        "    const names = Object.keys(body).filter(name => /^seven_day_[a-z0-9_]+$/.test(name)).sort();\n    for (const name of [\"five_hour\", \"seven_day\", ...names]) {", recorded);
+    await control("limits-parse-removed", "backend/usage.js", "for (const entry of Array.isArray(body.limits) ? body.limits : [])",
+        "for (const entry of [])", recorded);
+    await control("shape-accepted", "backend/usage.js", "        const resetsAt = resetTime(entry.resets_at);\n        if (usedPercent === undefined || resetsAt === undefined) return null;",
+        "        const resetsAt = resetTime(entry.resets_at);\n        if (usedPercent === undefined) continue;", recorded);
 
     // Claude through the stand-in endpoint. Each case's state and windows;
     // an expired token sends nothing, and no read changes a credential file.
@@ -261,9 +279,10 @@ async function main() {
         assert.deepEqual(await readOf(fresh, "ok"), { state: "ok", plan: "max", windows: [
             { name: "five_hour", usedPercent: 42, resetsAt: Date.parse("2026-10-05T18:00:00.461Z") },
             { name: "seven_day", usedPercent: 83, resetsAt: Date.parse("2026-10-09T08:00:00.461Z") },
-            { name: "seven_day_opus", usedPercent: 12, resetsAt: null }] });
-        assert.deepEqual(requests().slice(sent), [{ method: "GET", path: "/api/oauth/usage", beta: "oauth-2025-04-20", token: tokenHash }]);
-        assert.deepEqual((await readOf(fresh, "missing")).windows.map(row => row.name), ["seven_day"], "a missing window is absent");
+            { name: "seven_day_fable", usedPercent: 12, resetsAt: null }] });
+        assert.deepEqual(requests().slice(sent), [{ method: "GET", path: "/api/oauth/usage", beta: "oauth-2025-04-20",
+            token: tokenHash, authHash: null, userAgent: null }]);
+        assert.deepEqual((await readOf(fresh, "missing")).windows.map(row => row.name), ["seven_day", "seven_day_fable"], "a missing window is absent");
         const quiet = requests().length;
         assert.deepEqual(await readOf(expired, "ok"), { state: "expired", plan: "max" }, "an expired token reads expired");
         assert.equal(requests().length, quiet, "an expired token sends no request");
@@ -281,14 +300,17 @@ async function main() {
     await claudeCases(plugin);
     cases++;
     await control("expired-sends", "backend/usage.js", '    if (oauth.expiresAt <= now) return { state: "expired", plan };\n', "", claudeCases);
-    await control("malformed-zero", "backend/usage.js", 'try { body = JSON.parse(reply.body); } catch { return failed("reply-json"); }',
-        "try { body = JSON.parse(reply.body); } catch { body = { five_hour: { utilization: 0, resets_at: null } }; }", claudeCases);
+    await control("malformed-zero", "backend/usage.js",
+        'try { body = JSON.parse(reply.body); } catch { return failed("reply-json"); }\n    const windows = claudeWindows(body);',
+        "try { body = JSON.parse(reply.body); } catch { body = { five_hour: { utilization: 0, resets_at: null } }; }\n    const windows = claudeWindows(body);",
+        claudeCases);
     await control("link-followed", "backend/usage.js", "fs.openSync(Anchored.child(fd, file), O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_NOCTTY)",
         "fs.openSync(Anchored.child(fd, file), O_RDONLY | O_NONBLOCK | O_NOCTTY)", claudeCases);
-    await control("credentials-touched", "backend/usage.js", "    finally { fs.closeSync(opened.fd); }\n    if (file.kind === \"absent\") return { state: \"signed-out\" };",
-        "    finally { fs.closeSync(opened.fd); }\n    if (file.kind === \"file\") fs.utimesSync(path.join(directory, \".credentials.json\"), new Date(), new Date());\n    if (file.kind === \"absent\") return { state: \"signed-out\" };", claudeCases);
+    await control("credentials-touched", "backend/usage.js",
+        "    try { file = readHeld(Anchored, opened.fd, \".credentials.json\"); }\n    finally { fs.closeSync(opened.fd); }\n    if (file.kind === \"absent\") return { state: \"signed-out\" };",
+        "    try { file = readHeld(Anchored, opened.fd, \".credentials.json\"); }\n    finally { fs.closeSync(opened.fd); }\n    if (file.kind === \"file\") fs.utimesSync(path.join(directory, \".credentials.json\"), new Date(), new Date());\n    if (file.kind === \"absent\") return { state: \"signed-out\" };",
+        claudeCases);
     await control("request-deadline", "backend/usage.js", "request.destroy(); finish({ error: \"deadline\" });", "void request;", claudeCases);
-    server.closeAllConnections();
     fs.unlinkSync(path.join(linked, ".credentials.json"));
 
     // Codex through the stand-in program: its answers, nothing run for a
@@ -325,9 +347,127 @@ async function main() {
     };
     await codexCases(plugin);
     cases++;
-    await control("deadline-kept", "backend/usage.js", '            child.kill("SIGKILL");\n', "", codexCases);
+    await control("deadline-kept", "backend/usage.js", '            child.stdin.destroy();\n            child.kill("SIGKILL");\n',
+        '            child.stdin.destroy();\n', codexCases);
     await control("api-key-limits", "backend/usage.js", '                if (value.type !== "chatgpt") return finish({ state: "no-plan" });\n', "", codexCases);
     for (const call of calls(signed)) if (alive(call.pid)) process.kill(call.pid, "SIGKILL");
+
+    // Copilot through a fixture config, the stand-in keyring and the
+    // stand-in endpoint. It reads current config keys only, then the keyring
+    // in Copilot CLI's order, uses search with a user-agent, and never
+    // changes config bytes.
+    const copilotHome = path.join(root, "copilot-home");
+    const copilotDir = copilotAccount(path.join(copilotHome, ".copilot"), { copilotTokens: TOKEN });
+    const objectDir = copilotAccount(path.join(copilotHome, ".1copilot"), { copilotTokens: { "https://github.com:octo-user": TOKEN } });
+    const keyringDir = copilotAccount(path.join(copilotHome, ".2copilot"));
+    const plainDir = copilotAccount(path.join(copilotHome, ".3copilot"));
+    const lockedDir = copilotAccount(path.join(copilotHome, ".4copilot"));
+    const missingDir = copilotAccount(path.join(copilotHome, ".5copilot"));
+    const foreignDir = copilotAccount(path.join(copilotHome, ".6copilot"), { lastLoggedInUser: { host: "https://github.example", login: "octo-user" } });
+    const signedOutDir = copilotAccount(path.join(copilotHome, ".7copilot"), { lastLoggedInUser: { host: "https://github.com", login: "" } });
+    const copilotBefore = credentials(copilotHome);
+    const secretTool = path.join(standins, "secret-tool");
+    const copilotEnv = { PATH, HOME: copilotHome, DBUS_SESSION_BUS_ADDRESS: "unix:path=/no-bus", XDG_RUNTIME_DIR: root };
+    const tokenHash2 = crypto.createHash("sha256").update(TOKEN).digest("hex");
+    const copilotCases = async folder => {
+        const { copilotCredits, readCopilot } = usageIn(folder);
+        const enterprise = { state: "ok", plan: "enterprise", email: "octo-user", windows: [
+            { name: "credits", usedPercent: 4.5225, resetsAt: Date.parse("2026-11-01T00:00:00.000Z") }],
+            credits: { unit: "credits", used: 45225, granted: 1000000, monthUsed: 362327 } };
+        mode("copilot");
+        assert.deepEqual(copilotCredits({ copilot_plan: "enterprise" }), { state: "ok", plan: "enterprise", windows: [], credits: null });
+        assert.deepEqual(copilotCredits({ copilot_plan: "enterprise", quota_snapshots: { premium_interactions: {
+            unlimited: true, token_based_billing: false } } }),
+        { state: "ok", plan: "enterprise", windows: [], credits: { unit: "requests", unlimited: true } });
+        assert.deepEqual(copilotCredits({ quota_snapshots: { premium_interactions: { entitlement: 0, token_based_billing: true } } }),
+            { state: "ok", plan: "", windows: [], credits: { unit: "credits", granted: 0 } });
+        assert.equal(copilotCredits({ quota_snapshots: { premium_interactions: { entitlement: -1, remaining: 0 } } }), null);
+        assert.deepEqual(await readCopilot(Anchored, copilotDir, { origin, secretTool, env: copilotEnv }), enterprise);
+        assert.deepEqual(await readCopilot(Anchored, objectDir, { origin, secretTool, env: copilotEnv }), enterprise);
+        let last = requests().filter(row => row.path === "/copilot_internal/user").slice(-1)[0];
+        assert.deepEqual([last.authHash, last.userAgent], [tokenHash2, "vgs-ai-usage"]);
+        fs.writeFileSync(path.join(copilotHome, "secret-tool-mode"), "ok\n");
+        fs.writeFileSync(path.join(copilotHome, "secret-tool-map.json"), JSON.stringify({ "https://github.com:octo-user:github": TOKEN }) + "\n");
+        assert.deepEqual(await readCopilot(Anchored, keyringDir, { origin, secretTool, env: copilotEnv }), enterprise);
+        assert.deepEqual(secretCalls(copilotHome).slice(-1)[0], ["search", "service", "copilot-cli", "username", "https://github.com:octo-user:github"]);
+        fs.writeFileSync(path.join(copilotHome, "secret-tool-calls"), "");
+        fs.writeFileSync(path.join(copilotHome, "secret-tool-map.json"), JSON.stringify({ "https://github.com:octo-user": TOKEN }) + "\n");
+        assert.deepEqual(await readCopilot(Anchored, plainDir, { origin, secretTool, env: copilotEnv }), enterprise);
+        assert.deepEqual(secretCalls(copilotHome), [
+            ["search", "service", "copilot-cli", "username", "https://github.com:octo-user:github"],
+            ["search", "service", "copilot-cli", "username", "https://github.com:octo-user"]]);
+        fs.writeFileSync(path.join(copilotHome, "secret-tool-mode"), "locked\n");
+        assert.deepEqual(await readCopilot(Anchored, lockedDir, { origin, secretTool, env: copilotEnv }), { state: "failed", reason: "keyring-locked" });
+        fs.writeFileSync(path.join(copilotHome, "secret-tool-mode"), "missing\n");
+        assert.deepEqual(await readCopilot(Anchored, missingDir, { origin, secretTool, env: copilotEnv }), { state: "failed", reason: "token-missing" });
+        assert.deepEqual(await readCopilot(Anchored, missingDir, { origin, secretTool: path.join(standins, "absent-secret-tool"), env: copilotEnv }),
+            { state: "failed", reason: "keyring-missing" });
+        assert.deepEqual(await readCopilot(Anchored, foreignDir, { origin, secretTool, env: copilotEnv }), { state: "failed", reason: "copilot-host" });
+        assert.deepEqual(await readCopilot(Anchored, signedOutDir, { origin, secretTool, env: copilotEnv }), { state: "signed-out" });
+        mode("copilot-refused");
+        assert.deepEqual(await readCopilot(Anchored, copilotDir, { origin, secretTool, env: copilotEnv }), { state: "expired", plan: "" });
+        mode("copilot-zero");
+        assert.deepEqual((await readCopilot(Anchored, copilotDir, { origin, secretTool, env: copilotEnv })).credits,
+            { unit: "credits", granted: 0 });
+        mode("copilot-unlimited");
+        assert.deepEqual((await readCopilot(Anchored, copilotDir, { origin, secretTool, env: copilotEnv })).credits,
+            { unit: "credits", unlimited: true });
+        mode("copilot-malformed");
+        assert.deepEqual(await readCopilot(Anchored, copilotDir, { origin, secretTool, env: copilotEnv }), { state: "failed", reason: "reply-json" });
+        assert.deepEqual(credentials(copilotHome), copilotBefore, "no Copilot config file changed");
+    };
+    await copilotCases(plugin);
+    cases++;
+    await control("copilot-credits-used", "backend/usage.js", "const used = entitlement - Math.max(remaining, 0);",
+        "const used = snap.credits_used;", copilotCases);
+    await control("copilot-user-agent", "backend/usage.js", 'accept: "application/json", "user-agent": "vgs-ai-usage"',
+        'accept: "application/json"', copilotCases);
+    await control("secret-tool-search", "backend/usage.js", 'const child = cp.spawn(secretTool, ["search", "service", "copilot-cli", "username", username],',
+        'const child = cp.spawn(secretTool, ["lookup", "service", "copilot-cli", "username", username],', copilotCases);
+
+    // Discovery includes Copilot homes and the account limit now covers the
+    // owner's mix of Claude, Codex and Copilot directories without a partial
+    // result. The GitHub Copilot extension folder is not a Copilot CLI home.
+    const discoverHome = path.join(root, "discover-home");
+    fs.mkdirSync(discoverHome, { recursive: true });
+    for (const name of [".copilot", ".1copilot", ".github-copilot-cli"]) fs.mkdirSync(path.join(discoverHome, name));
+    const discoverCases = async folder => {
+        const { accountFolders } = require(path.join(tree, "bin/lib/account-folders.js"));
+        const found = accountFolders({ home: discoverHome, config: path.join(discoverHome, ".config"),
+            data: path.join(discoverHome, ".local/share"), env: {} });
+        assert.ok(found.folders.some(row => row.provider === "copilot" && row.directory === path.join(discoverHome, ".copilot")));
+        assert.ok(found.folders.some(row => row.provider === "copilot" && row.directory === path.join(discoverHome, ".1copilot")));
+        assert.equal(found.folders.some(row => row.directory === path.join(discoverHome, ".github-copilot-cli")), false);
+        assert.equal(viewIn(folder).NAMES.copilot, "Copilot");
+    };
+    await discoverCases(plugin);
+    cases++;
+    const limitHome = path.join(root, "limit-home");
+    fs.mkdirSync(limitHome, { recursive: true });
+    for (let i = 0; i < 15; i++) fs.mkdirSync(path.join(limitHome, "." + i + "claude"));
+    for (let i = 0; i < 3; i++) fs.mkdirSync(path.join(limitHome, "." + i + "codex"));
+    for (let i = 0; i < 2; i++) fs.mkdirSync(path.join(limitHome, "." + i + "copilot"));
+    const limitCases = async folder => {
+        const result = await usageIn(folder).read(tree, { PATH, HOME: limitHome, LANG: "C.UTF-8" }, { origin, copilotOrigin: origin, secretTool });
+        assert.deepEqual([result.partial, result.accounts.length], ["", 20]);
+        assert.deepEqual(result.accounts.map(row => row.state).filter(state => state !== "signed-out"), []);
+    };
+    await limitCases(plugin);
+    cases++;
+    const failedCopilot = async folder => {
+        const failedHome = path.join(root, "failed-copilot");
+        fs.rmSync(failedHome, { recursive: true, force: true });
+        copilotAccount(path.join(failedHome, ".copilot"), { copilotTokens: TOKEN });
+        mode("error");
+        const result = await usageIn(folder).read(tree, { PATH, HOME: failedHome, LANG: "C.UTF-8" },
+            { origin, copilotOrigin: origin, secretTool });
+        assert.deepEqual(result.accounts.map(row => [row.provider, row.state, row.windows]), [["copilot", "failed", []]]);
+    };
+    await failedCopilot(plugin);
+    cases++;
+    await control("failed-copilot-zero", "backend/usage.js", "state: result.state, windows: result.windows || [], credits: result.credits || null",
+        "state: result.state, windows: result.windows || [{ name: \"credits\", usedPercent: 0, resetsAt: null }], credits: result.credits || null",
+        failedCopilot);
 
     // The whole read in a child, as the service runs it, over a HOME of
     // three accounts: the published status and every byte the child
@@ -364,8 +504,10 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3] }).then(r => 
     };
     await leaks(plugin);
     cases++;
-    await control("token-in-log", "backend/usage.js", 'if (reply.status !== 200) return failed("http-" + reply.status);',
-        'if (reply.status !== 200) return failed("http-" + reply.status + "-" + oauth.accessToken);', leaks);
+    await control("token-in-log", "backend/usage.js",
+        '    if (reply.status === 401 || reply.status === 403) return { state: "expired", plan };\n    if (reply.status !== 200) return failed("http-" + reply.status);',
+        '    if (reply.status === 401 || reply.status === 403) return { state: "expired", plan };\n    if (reply.status !== 200) return failed("http-" + reply.status + "-" + oauth.accessToken);',
+        leaks);
 
     // The shipped entry point under the same HOME, with no unexpired Claude
     // token, so it sends no request: one line of every account.
@@ -424,7 +566,8 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3] }).then(r => 
         assert.deepEqual(shown(first), [true, 80, "warning"]);
         const failedRead = View.merge(first, reading("failed", []), NOW + 1);
         assert.deepEqual(plainOf(failedRead.accounts[0]), { id: "claude-a", provider: "claude", label: "default", email: "", plan: "max",
-            state: "stale", windows: [{ name: "seven_day", usedPercent: 80, resetsAt: NOW + 26 * HOUR }] }, "a failed read keeps its last figures");
+            state: "stale", windows: [{ name: "seven_day", usedPercent: 80, resetsAt: NOW + 26 * HOUR }], credits: null },
+        "a failed read keeps its last figures");
         assert.equal(failedRead.readAt, NOW + 1);
         const failedRun = View.merge(first, null, NOW + 2);
         assert.deepEqual(plainOf(failedRun.accounts.map(row => [row.state, row.windows.length])), [["stale", 1], ["stale", 1]]);
@@ -445,23 +588,42 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3] }).then(r => 
         assert.deepEqual(row(only("no-plan"), "codex"), ["info", false], "an API-key sign-in is no failure and offers nothing");
         assert.deepEqual(row(View.merge(first, reading("failed", []), NOW), "claude"), ["ok", false], "stale figures stay signed in");
         assert.deepEqual(row(View.merge(null, reading("failed", []), NOW), "claude"), ["danger", false]);
-        assert.equal(View.signIn(View.merge(null, reading("expired", []), NOW), "claude").text, View.EXPIRED);
+        assert.equal(View.signIn(View.merge(null, reading("expired", []), NOW), "claude").text, View.EXPIRED.claude);
         assert.deepEqual(plainOf(View.panel(first, NOW).map(r => [r.id, r.provider, r.label, r.email, r.plan, r.state,
             r.windows.map(w => [w.name, w.percent, w.tone, w.resetIn])])), [
             ["claude-a", "claude", "default", "", "max", "ok", [["seven_day", 80, "warning", { kind: "in", days: 1, hours: 2, minutes: 0 }]]],
             ["codex-b", "codex", "work", "person@example.invalid", "plus", "ok", [["five_hour", 79, "normal", { kind: "in", days: 0, hours: 1, minutes: 1 }]]]]);
         for (const [resetAt, text] of [[null, "No reset time"], [NOW, "Resets now"], [NOW + 59000, "Resets in 1m"], [NOW + 61 * 60000, "Resets in 1h 1m"], [NOW + 4 * 24 * HOUR, "Resets in 4d 0h"]])
             assert.equal(View.resetText(resetAt, NOW), text);
+        const copilot = View.merge(null, { accounts: [{ id: "copilot-a", provider: "copilot", label: "work", email: "octo-user",
+            plan: "enterprise", state: "ok", credits: { unit: "credits", used: 45225, granted: 1000000, monthUsed: 362327 },
+            windows: [{ name: "credits", usedPercent: 4.5225, resetsAt: Date.parse("2026-11-01T00:00:00Z") }] },
+        { id: "copilot-b", provider: "copilot", label: "zero", email: "zero-user", plan: "", state: "ok",
+            credits: { unit: "requests", granted: 0 }, windows: [] },
+        { id: "claude-enterprise", provider: "claude", label: "enterprise", email: "", plan: "enterprise", state: "ok",
+            credits: null, windows: [] }], partial: "" }, NOW);
+        assert.deepEqual(plainOf(View.panel(copilot, NOW).map(r => [r.id, r.detail, r.note,
+            r.windows.map(w => [w.label, w.text, w.percent])])), [
+            ["copilot-a", "octo-user · Enterprise plan · 362k AI credits used this month", "", [["AI credits", "45.2k of 1M", 4.5225]]],
+            ["copilot-b", "zero-user · No premium request pool", "", []],
+            ["claude-enterprise", "Enterprise plan", "This plan reports no usage limits.", []]]);
+        assert.equal(View.panel(View.merge(null, { accounts: [{ id: "copilot-expired", provider: "copilot", label: "default",
+            email: "", plan: "", state: "expired", windows: [], credits: null }], partial: "" }, NOW), NOW)[0].note,
+        View.EXPIRED.copilot);
+        assert.deepEqual(["950", "1.04k", "45.2k", "362k", "1M"].map(function (want, i) {
+            return [View.compact([950, 1043, 45225, 362327, 1000000][i]), want];
+        }).every(function (row) { return row[0] === row[1]; }), true);
         assert.deepEqual(plainOf([View.resetIn(null, NOW), View.resetIn(NOW - 1, NOW), View.resetIn(NOW + 59000, NOW),
             View.resetIn(NOW + (3 * 1440 + 6 * 60 + 30) * 60000, NOW)]),
             [{ kind: "none" }, { kind: "now" }, { kind: "in", days: 0, hours: 0, minutes: 1 }, { kind: "in", days: 3, hours: 6, minutes: 30 }]);
-        assert.deepEqual(plainOf(["five_hour", "seven_day", "seven_day_opus", "minutes_120", "primary"].map(View.limitOf)),
-            [{ minutes: 300, model: "" }, { minutes: 10080, model: "" }, { minutes: 10080, model: "opus" }, { minutes: 120, model: "" },
+        assert.deepEqual(plainOf(["five_hour", "seven_day", "seven_day_fable", "minutes_120", "primary"].map(View.limitOf)),
+            [{ minutes: 300, model: "" }, { minutes: 10080, model: "" }, { minutes: 10080, model: "fable" }, { minutes: 120, model: "" },
                 { minutes: null, model: "" }]);
     };
     views(plugin);
     cases++;
-    await control("stale-dropped", "UsageView.js", 'if (row.state === "failed" && last !== null && last.windows.length > 0)', "if (false)", views);
+    await control("stale-dropped", "UsageView.js", 'if (row.state === "failed" && last !== null && (last.windows.length > 0 || last.credits !== null))',
+        "if (false)", views);
     await control("warning-boundary", "UsageView.js", "percent !== null && percent >= WARNING_PERCENT", "percent !== null && percent > WARNING_PERCENT", views);
     await control("lowest-share", "UsageView.js", "row.windows[j].usedPercent > percent", "row.windows[j].usedPercent < percent", views);
     await control("always-shown", "UsageView.js", "shown: accounts.length > 0", "shown: true", views);

@@ -4,12 +4,16 @@
 // read by Jarvis and AI usage, which run this file under node through
 // bin/lib/qml-library.js, and by their QML. The harnesses document
 // their folders beside each other: Claude Code keeps `~/.claude`
-// (CLAUDE_CONFIG_DIR overrides it) and Codex `~/.codex` (CODEX_HOME), and a
-// second account is a sibling such as `~/.claude-work` or `~/.2codex`.
-// `marker` is the file each harness writes once it is signed in.
+// (CLAUDE_CONFIG_DIR overrides it), Codex keeps `~/.codex` (CODEX_HOME),
+// and Copilot CLI keeps `~/.copilot`, overridden by COPILOT_HOME
+// (`copilot help environment`: "COPILOT_HOME: override the directory where
+// configuration and state files are stored; defaults to $HOME/.copilot").
+// A second account is a sibling such as `~/.claude-work`, `~/.2codex` or
+// `~/.1copilot`. `marker` is the file each harness writes once it is signed in.
 var HARNESSES = [
     { id: "claude", folder: "claude", variable: "CLAUDE_CONFIG_DIR", marker: ".credentials.json" },
-    { id: "codex", folder: "codex", variable: "CODEX_HOME", marker: "auth.json" }
+    { id: "codex", folder: "codex", variable: "CODEX_HOME", marker: "auth.json" },
+    { id: "copilot", folder: "copilot", variable: "COPILOT_HOME", marker: "config.json" }
 ];
 
 // harness(ID): the row of harness ID, else null.
@@ -25,8 +29,10 @@ function harness(id) {
  * XDG data home is an account directory when depth is 1 to ACCOUNT_DEPTH
  * and its name is ".", a tag of up to 8 lowercase letters or digits, a
  * harness's `folder` name and anything after it: `.claude`, `.claude-work`,
- * `.5claude` and `.2codex` are account directories. Returns that harness's
- * row, else null. The caller supplies the three bases and the depth.
+ * `.5claude`, `.2codex` and `.1copilot` are account directories. A tag must
+ * be immediately before the folder name, so `.github-copilot-cli` is not one.
+ * Returns that harness's row, else null. The caller supplies the three bases
+ * and the depth.
  */
 var ACCOUNT_DEPTH = 2;
 function accountDirectory(name, depth) {
