@@ -589,6 +589,9 @@ function suite(ctx, check) {
     ];
     for (const [name, config, want] of presenceRows) check("firstPresence: " + name, ctx.firstPresence(withOptIn, config), want);
     check("firstPresence: a plugin with no widget is never placed", ctx.firstPresence({ "vgs.svc": manifests["vgs.svc"] }, shipped), []);
+    // landsShown rows: [id, want]. What `vgshell plugin add` tells the user.
+    for (const [id, want] of [["acme.both", true], ["acme.widget", true], ["vgs.widgetpanel", true], ["acme.svc", false], ["vgs.bar", false], ["vgs.optinwidget", false]])
+        check("landsShown: " + id, ctx.landsShown(withOptIn[id]), want);
     const given = ctx.withFirstPresence(null, manifests, shipped);
     check("withFirstPresence: places each widget at the end of its default section", given.bar.layout, { left: [{ id: "vgs.workspaces" }], center: [{ id: "vgs.clock" }, { id: "acme.widget" }], right: [{ id: "acme.both" }, { id: "acme.pane" }, { id: "vgs.widgetpanel" }] });
     check("withFirstPresence: lists nothing and disables nothing", [given.plugins, given.disabledPlugins], [undefined, undefined]);
@@ -1169,9 +1172,10 @@ const CONTROLS = [
     ["an unnamed widget takes its first presence", "return !isPlaced(effective, m) && pluginRow(effective, id) === undefined;", "return false;"],
     ["a widget with a plugins row keeps no presence", "return !isPlaced(effective, m) && pluginRow(effective, id) === undefined;", "return !isPlaced(effective, m);"],
     ["a placed widget takes no second presence", "return !isPlaced(effective, m) && pluginRow(effective, id) === undefined;", "return pluginRow(effective, id) === undefined;"],
-    ["a disabled widget keeps no presence", " || m.optIn === true || disabled.indexOf(id) !== -1)", " || m.optIn === true)"],
-    ["an optIn widget waits for Enable", "m.kinds.indexOf(\"bar-widget\") === -1 || m.optIn === true || ", "m.kinds.indexOf(\"bar-widget\") === -1 || "],
-    ["a plugin with no widget takes no presence", "if (m.kinds.indexOf(\"bar-widget\") === -1 || m.optIn", "if (m.optIn"],
+    ["a disabled widget keeps no presence", "if (!landsShown(m) || disabled.indexOf(id) !== -1)", "if (!landsShown(m))"],
+    ["a widget that lands shown takes its first presence", "if (!landsShown(m) || disabled.indexOf(id) !== -1)", "if (disabled.indexOf(id) !== -1)"],
+    ["an optIn widget waits for Enable", "return manifest.kinds.indexOf(\"bar-widget\") !== -1 && manifest.optIn !== true;", "return manifest.kinds.indexOf(\"bar-widget\") !== -1;"],
+    ["a plugin with no widget lands disabled", "return manifest.kinds.indexOf(\"bar-widget\") !== -1 && manifest.optIn !== true;", "return manifest.optIn !== true;"],
     ["the first presence places each widget", "forEach(function (id) { placeWidget(out, manifests[id], effective); });", "forEach(function (id) {});"],
     ["a third-party plugin of another kind is enabled by its row", "return manifest.id.indexOf(FIRST_PARTY_PREFIX) === 0 ? \"first-party\" : \"row\";", "return \"first-party\";"],
     ["a first-party plugin with optIn is enabled by its row", "if (manifest.optIn === true) return \"row\";", ""],

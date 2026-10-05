@@ -54,7 +54,7 @@ cfg="$tmp/cfg-plugins"; plugins="$cfg/vgshell/plugins"
 inst "plugin outdated --json with no plugin directory prints an empty list" "$cfg" "$rt_empty" 0 "[]" "" plugin outdated --json
 inst "plugin outdated with no plugin directory prints no row" "$cfg" "$rt_empty" 0 "" "" plugin outdated
 check "the empty text form is no line at all" test -z "$(<"$tmp/out")"
-inst "add installs the probe" "$cfg" "$rt_empty" 0 "shell=not-running" "" plugin add "$tmp/src/probe.git"
+inst "add installs the probe" "$cfg" "$rt_empty" 0 "shell=not-running" "" plugin add --yes "$tmp/src/probe.git"
 probe="$plugins/acme.probe"
 old="$(head_of "$probe")"
 inst "a current checkout is zero behind, its head its upstream" "$cfg" "$rt_empty" 0 "[{\"id\":\"acme.probe\",\"behind\":0,\"head\":\"$old\",\"upstream\":\"$old\",\"error\":null}]" "" plugin outdated --json
@@ -100,7 +100,7 @@ unset THEME_BIN
 # update would refuse carries that refusal; a file is no row.
 cfg="$tmp/cfg-plugin-errors"; plugins="$cfg/vgshell/plugins"
 for name in probe gone loose plain; do
-  inst "add installs acme.$name" "$cfg" "$rt_empty" 0 "shell=not-running" "" plugin add "$tmp/src/$name.git"
+  inst "add installs acme.$name" "$cfg" "$rt_empty" 0 "shell=not-running" "" plugin add --yes "$tmp/src/$name.git"
 done
 current="$(head_of "$plugins/acme.probe")"
 g -C "$plugins/acme.gone" remote set-url origin "$tmp/src/absent.git"
@@ -145,7 +145,7 @@ printf '%s\n' '#!/bin/sh' \
   'exit 1' >"$stub/ssh"
 chmod +x "$stub/ssh"
 cfg="$tmp/cfg-slow"
-inst "add installs acme.slow" "$cfg" "$rt_empty" 0 "shell=not-running" "" plugin add "$tmp/src/slow.git"
+inst "add installs acme.slow" "$cfg" "$rt_empty" 0 "shell=not-running" "" plugin add --yes "$tmp/src/slow.git"
 g -C "$cfg/vgshell/plugins/acme.slow" remote set-url origin ssh://slow.invalid/slow.git
 # Real waits: the timeout is production's fixed 10 s, and the stub answers
 # the slow host after 12 s.
@@ -162,7 +162,7 @@ unset THEME_BIN
 # The stand-in fetch takes 2 s to end on TERM, so a verb that did not wait
 # returns before its end.
 cfg="$tmp/cfg-stop"
-inst "add installs acme.stop" "$cfg" "$rt_empty" 0 "shell=not-running" "" plugin add "$tmp/src/stop.git"
+inst "add installs acme.stop" "$cfg" "$rt_empty" 0 "shell=not-running" "" plugin add --yes "$tmp/src/stop.git"
 stop_git slow
 for row in "TERM 143" "INT 130" "HUP 129"; do
   read -r sig want <<<"$row"
@@ -206,7 +206,7 @@ tree_control killblind bin/vgshell 'if [[ $rc == 137 ]]' 'if false'
 INST_PATH="$stop_git_dir:$base_path" INST_BIN="$THEME_BIN" inst "the kill-blind mutant loses the timeout from the row" "$cfg" "$rt_empty" 0 "acme.stop error=fetch=acme.stop" "" plugin outdated
 unset THEME_BIN
 cfg="$tmp/cfg-prompt"
-inst "add installs acme.prompt" "$cfg" "$rt_empty" 0 "shell=not-running" "" plugin add "$tmp/src/prompt.git"
+inst "add installs acme.prompt" "$cfg" "$rt_empty" 0 "shell=not-running" "" plugin add --yes "$tmp/src/prompt.git"
 g -C "$cfg/vgshell/plugins/acme.prompt" remote set-url origin ssh://fail.invalid/prompt.git
 quiet="prompt=0 require=never tty=no"
 rm -f -- "$stub/ssh.record"
@@ -249,7 +249,7 @@ helper="$tmp/credential-helper"
 printf '%s\n' '#!/bin/sh' 'cat >/dev/null' 'printf "gcm=%s\n" "${GCM_INTERACTIVE-unset}" >>"$0.record"' >"$helper"
 chmod +x "$askpass" "$helper"
 cfg="$tmp/cfg-http"
-inst "add installs acme.http" "$cfg" "$rt_empty" 0 "shell=not-running" "" plugin add "$tmp/src/http.git"
+inst "add installs acme.http" "$cfg" "$rt_empty" 0 "shell=not-running" "" plugin add --yes "$tmp/src/http.git"
 http="$cfg/vgshell/plugins/acme.http"
 g -C "$http" remote set-url origin "http://127.0.0.1:$auth_port/http.git"
 g -C "$http" config core.askPass "$askpass"

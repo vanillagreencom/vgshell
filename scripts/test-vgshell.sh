@@ -756,9 +756,9 @@ check "a plain clone under the fixture configuration runs the post-checkout hook
 rm -f -- "${hooks:?}/post-checkout.marker"
 
 cfg="$tmp/cfg-add"; plugin="$cfg/vgshell/plugins/acme.probe"
-inst "add installs the plugin and reports no running shell" "$cfg" "$rt_empty" 0 "shell=not-running" "" plugin add "$tmp/src/probe.git"
+inst "add installs the plugin and reports no running shell" "$cfg" "$rt_empty" 0 "shell=not-running" "" plugin add --yes "$tmp/src/probe.git"
 check "add runs no post-checkout hook" test ! -e "$hooks/post-checkout.marker"
-check "add names the plugin, its path and an unchanged configuration" test "$(head -n 1 "$tmp/out")" == "ok added=acme.probe path=$plugin config=unchanged"
+check "add names the plugin, its path and an unchanged configuration" test "$(head -n 1 "$tmp/out")" == "ok added=acme.probe path=$plugin config=unchanged lands=disabled"
 check "add lands the plugin under the user plugin directory" json_is "$plugin/manifest.json" 'd["id"] == "acme.probe"'
 check "add leaves no staging directory" test -z "$(find "$cfg/vgshell" -maxdepth 1 -name '.vgshell-add.*' -print)"
 check "add writes no user file for a plugin the configuration does not enable" test ! -e "$cfg/vgshell/shell.json"
@@ -777,53 +777,85 @@ check "the mutant differs from bin/vgshell" test "$(cmp -s "$repo/bin/vgshell" "
 for sibling in shell config; do ln -s "$repo/$sibling" "$mutant/$sibling"; done
 for tool in vgshell-scan vgshell-plugin-judge lib; do ln -s "$repo/bin/$tool" "$mutant/bin/$tool"; done
 cfg="$tmp/cfg-mutant"
-INST_BIN="$mutant/bin/vgshell" inst "the mutant add installs the plugin" "$cfg" "$rt_empty" 0 "shell=not-running" "" plugin add "$tmp/src/probe.git"
+INST_BIN="$mutant/bin/vgshell" inst "the mutant add installs the plugin" "$cfg" "$rt_empty" 0 "shell=not-running" "" plugin add --yes "$tmp/src/probe.git"
 check "the mutant add runs the post-checkout hook" test -e "$hooks/post-checkout.marker"
 rm -f -- "${hooks:?}/post-checkout.marker"
 
 cfg="$tmp/cfg-listed"; mkdir -p "$cfg/vgshell"
 printf '{ "version": 1, "plugins": [ { "id": "acme.probe", "label": "kept" } ] }\n' >"$cfg/vgshell/shell.json"
-inst "add of a plugin the configuration lists succeeds" "$cfg" "$rt_empty" 0 "shell=not-running" "" plugin add "$tmp/src/probe.git"
-check "add of a listed plugin reports the user file written" test "$(head -n 1 "$tmp/out")" == "ok added=acme.probe path=$cfg/vgshell/plugins/acme.probe config=written"
+inst "add of a plugin the configuration lists succeeds" "$cfg" "$rt_empty" 0 "shell=not-running" "" plugin add --yes "$tmp/src/probe.git"
+check "add of a listed plugin reports the user file written" test "$(head -n 1 "$tmp/out")" == "ok added=acme.probe path=$cfg/vgshell/plugins/acme.probe config=written lands=disabled"
 check "add lands a listed plugin disabled and keeps its settings row" json_is "$cfg/vgshell/shell.json" 'd["disabledPlugins"] == ["acme.probe"] and d["plugins"] == [{"id": "acme.probe", "label": "kept"}]'
 
+# A plugin with a bar widget lands shown: enabled, its widget at the end of
+# its default section, a disabled entry an earlier install left unlisted.
+# A plugin without one keeps landing disabled, above.
+source_repo widget "$(manifest acme.widget 0.1.0 ', "kinds": ["service", "bar-widget"], "entryPoints": { "service": "Service.qml", "bar-widget": "Service.qml" }, "defaultSection": "right"')"
+widget_shown() { # CONFIG_HOME
+  json_is "$1/vgshell/shell.json" '[e["id"] for e in d["bar"]["layout"]["right"]][-1] == "acme.widget" and "acme.widget" not in d.get("disabledPlugins", [])'
+}
+cfg="$tmp/cfg-widget"
+inst "add of a plugin with a bar widget succeeds" "$cfg" "$rt_empty" 0 "shell=not-running" "" plugin add --yes "$tmp/src/widget.git"
+check "add of a plugin with a bar widget says it lands shown" test "$(head -n 1 "$tmp/out")" == "ok added=acme.widget path=$cfg/vgshell/plugins/acme.widget config=written lands=shown"
+check "add places the widget in its default section" widget_shown "$cfg"
+cfg="$tmp/cfg-widget-disabled"; mkdir -p "$cfg/vgshell"
+printf '{ "version": 1, "disabledPlugins": [ "acme.widget" ] }\n' >"$cfg/vgshell/shell.json"
+inst "add of a widget plugin an earlier install left disabled succeeds" "$cfg" "$rt_empty" 0 "shell=not-running" "" plugin add --yes "$tmp/src/widget.git"
+check "add enables and places a widget plugin an earlier install left disabled" widget_shown "$cfg"
+# The control: a judge copy that lands every plugin as a plugin without a
+# widget leaves the widget out of the bar.
+lands_mutant="$tmp/lands-mutant"; mkdir -p "$lands_mutant/bin"
+cp -- "$repo/bin/vgshell" "$lands_mutant/bin/vgshell"
+for sibling in shell config; do ln -s "$repo/$sibling" "$lands_mutant/$sibling"; done
+for tool in vgshell-scan lib; do ln -s "$repo/bin/$tool" "$lands_mutant/bin/$tool"; done
+python3 -c '
+import sys
+src, dst, old, new = sys.argv[1:]
+text = open(src).read()
+if text.count(old) != 1: sys.exit("occurs %d times" % text.count(old))
+open(dst, "w").write(text.replace(old, new))' "$repo/bin/vgshell-plugin-judge" "$lands_mutant/bin/vgshell-plugin-judge" 'const shown = logic.landsShown(manifest);' 'const shown = false;'
+chmod +x "$lands_mutant/bin/vgshell-plugin-judge"
+cfg="$tmp/cfg-widget-mutant"
+INST_BIN="$lands_mutant/bin/vgshell" inst "the lands-disabled mutant installs the widget plugin" "$cfg" "$rt_empty" 0 "shell=not-running" "" plugin add --yes "$tmp/src/widget.git"
+if widget_shown "$cfg" 2>/dev/null; then fail "control: a judge that lands a widget plugin disabled still shows it"; else ok "control: a judge that lands a widget plugin disabled leaves it out of the bar"; fi
+
 cfg="$tmp/cfg-live"
-INST_REPLY="ok scan=1" inst "add rescans a running shell" "$cfg" "$rt_live" 0 "shell=rescan-started" "" plugin add "$tmp/src/probe.git"
+INST_REPLY="ok scan=1" inst "add rescans a running shell" "$cfg" "$rt_live" 0 "shell=rescan-started" "" plugin add --yes "$tmp/src/probe.git"
 check "the rescan names the shell's pid from the lock file and the plugin add installed" test "$(cat "$tmp/args")" == "ipc --pid $$ call shell pluginInstalled acme.probe"
 # The plugin landed before the rescan was asked for; a reply the runner does
 # not know is a refusal that names it, after the landing line.
 cfg="$tmp/cfg-weird"
-INST_REPLY=weird inst "add refuses an unknown rescan reply after landing the plugin" "$cfg" "$rt_live" 1 "ok added=acme.probe path=$cfg/vgshell/plugins/acme.probe config=unchanged" "vgshell: refused: rescan=weird" plugin add "$tmp/src/probe.git"
+INST_REPLY=weird inst "add refuses an unknown rescan reply after landing the plugin" "$cfg" "$rt_live" 1 "ok added=acme.probe path=$cfg/vgshell/plugins/acme.probe config=unchanged lands=disabled" "vgshell: refused: rescan=weird" plugin add --yes "$tmp/src/probe.git"
 # A shell started before the installed vgshell answers a bare `ok`, naming no
 # scan revision; it started the scan all the same.
 cfg="$tmp/cfg-noscan"
-INST_REPLY=ok inst "add reads a bare ok from an older running shell as a started rescan" "$cfg" "$rt_live" 0 "shell=rescan-started" "" plugin add "$tmp/src/probe.git"
+INST_REPLY=ok inst "add reads a bare ok from an older running shell as a started rescan" "$cfg" "$rt_live" 0 "shell=rescan-started" "" plugin add --yes "$tmp/src/probe.git"
 
 cfg="$tmp/cfg-refused"
-inst "add refuses a manifest the judge refuses" "$cfg" "$rt_empty" 1 "" "vgshell: refused: manifest=$tmp/src/broken.git" plugin add "$tmp/src/broken.git"
+inst "add refuses a manifest the judge refuses" "$cfg" "$rt_empty" 1 "" "vgshell: refused: manifest=$tmp/src/broken.git" plugin add --yes "$tmp/src/broken.git"
 check "a refused manifest leaves no plugin and no staging directory" no_residue "$cfg"
-inst "add refuses an id a bundled plugin owns" "$cfg" "$rt_empty" 1 "" "vgshell: refused: id-owned=vgs.bar owner=$repo/shell/plugins/vgs.bar" plugin add "$tmp/src/taken.git"
+inst "add refuses an id a bundled plugin owns" "$cfg" "$rt_empty" 1 "" "vgshell: refused: id-owned=vgs.bar owner=$repo/shell/plugins/vgs.bar" plugin add --yes "$tmp/src/taken.git"
 check "a refused bundled id leaves no plugin and no staging directory" no_residue "$cfg"
-inst "add refuses an unreachable source" "$cfg" "$rt_empty" 1 "" "vgshell: refused: clone=$tmp/src/absent.git" plugin add "$tmp/src/absent.git"
+inst "add refuses an unreachable source" "$cfg" "$rt_empty" 1 "" "vgshell: refused: clone=$tmp/src/absent.git" plugin add --yes "$tmp/src/absent.git"
 check "a refused clone leaves no plugin and no staging directory" no_residue "$cfg"
 inst "add without a url is exit 2" "$cfg" "$rt_empty" 2 "" "vgshell: refused: url=missing" plugin add
 
 cfg="$tmp/cfg-add"
-inst "add refuses an id an installed plugin owns" "$cfg" "$rt_empty" 1 "" "vgshell: refused: id-owned=acme.probe owner=$plugin" plugin add "$tmp/src/probe.git"
+inst "add refuses an id an installed plugin owns" "$cfg" "$rt_empty" 1 "" "vgshell: refused: id-owned=acme.probe owner=$plugin" plugin add --yes "$tmp/src/probe.git"
 cfg="$tmp/cfg-occupied"; mkdir -p "$cfg/vgshell/plugins/acme.probe"
-inst "add refuses a target directory that holds no plugin" "$cfg" "$rt_empty" 1 "" "vgshell: refused: exists=$cfg/vgshell/plugins/acme.probe" plugin add "$tmp/src/probe.git"
+inst "add refuses a target directory that holds no plugin" "$cfg" "$rt_empty" 1 "" "vgshell: refused: exists=$cfg/vgshell/plugins/acme.probe" plugin add --yes "$tmp/src/probe.git"
 # A plugin directory the scan cannot read may hold the id. Permission bits
 # bind only a non-root uid.
 if [[ $(id -u) != 0 ]]; then
   cfg="$tmp/cfg-locked"; mkdir -p "$cfg/vgshell/plugins/locked"; chmod 000 "$cfg/vgshell/plugins/locked"
-  inst "add refuses when a plugin directory cannot be read" "$cfg" "$rt_empty" 1 "" "vgshell: refused: unreadable=$cfg/vgshell/plugins/locked error=cannot read manifest: Permission denied" plugin add "$tmp/src/probe.git"
+  inst "add refuses when a plugin directory cannot be read" "$cfg" "$rt_empty" 1 "" "vgshell: refused: unreadable=$cfg/vgshell/plugins/locked error=cannot read manifest: Permission denied" plugin add --yes "$tmp/src/probe.git"
   chmod 700 "$cfg/vgshell/plugins/locked"
 fi
 cfg="$tmp/cfg-unparseable"; mkdir -p "$cfg/vgshell"; printf '{ nope\n' >"$cfg/vgshell/shell.json"
-inst "add refuses while the user file does not parse" "$cfg" "$rt_empty" 1 "" "vgshell: refused: user-config=unparseable path=$cfg/vgshell/shell.json" plugin add "$tmp/src/probe.git"
+inst "add refuses while the user file does not parse" "$cfg" "$rt_empty" 1 "" "vgshell: refused: user-config=unparseable path=$cfg/vgshell/shell.json" plugin add --yes "$tmp/src/probe.git"
 check "a refused user file leaves no plugin and no staging directory" no_residue "$cfg"
 cfg="$tmp/cfg-malformed"; mkdir -p "$cfg/vgshell"; printf '{ "version": 1, "plugins": [ { "id": "acme.probe" }, "junk" ] }\n' >"$cfg/vgshell/shell.json"
-inst "add refuses a user file the config judge refuses" "$cfg" "$rt_empty" 1 "" "vgshell: refused: user-config=malformed path=$cfg/vgshell/shell.json error=plugins.1 must be an object with a string id" plugin add "$tmp/src/probe.git"
+inst "add refuses a user file the config judge refuses" "$cfg" "$rt_empty" 1 "" "vgshell: refused: user-config=malformed path=$cfg/vgshell/shell.json error=plugins.1 must be an object with a string id" plugin add --yes "$tmp/src/probe.git"
 check "a malformed user file leaves no plugin and no staging directory" no_residue "$cfg"
 check "a malformed user file is left as it was" grep -q '"junk"' "$cfg/vgshell/shell.json"
 
@@ -856,7 +888,7 @@ check "the never-asking mutant differs from bin/vgshell" test "$(cmp -s "$repo/b
 for sibling in shell config; do ln -s "$repo/$sibling" "$noask/$sibling"; done
 for tool in vgshell-scan vgshell-plugin-judge lib; do ln -s "$repo/bin/$tool" "$noask/bin/$tool"; done
 cfg="$tmp/cfg-noask"
-inst "add installs a plugin for the never-asking control" "$cfg" "$rt_empty" 0 "shell=not-running" "" plugin add "$tmp/src/probe.git"
+inst "add installs a plugin for the never-asking control" "$cfg" "$rt_empty" 0 "shell=not-running" "" plugin add --yes "$tmp/src/probe.git"
 g -C "$cfg/vgshell/plugins/acme.probe" reset -q --hard HEAD~1
 INST_BIN="$noask/bin/vgshell" inst "the never-asking mutant updates without a terminal" "$cfg" "$rt_empty" 0 "shell=not-running" "" plugin update acme.probe
 g -C "$cfg/vgshell/plugins/acme.probe" reset -q --hard HEAD~1
@@ -904,12 +936,12 @@ INST_REPLY="ok scan=1" inst "update rescans a running shell" "$cfg" "$rt_live" 0
 # A checkout add did not make: no .git, or a branch with no upstream. Each
 # refusal names git's own cause after its key.
 cfg="$tmp/cfg-nogit"
-inst "add installs a plugin to break" "$cfg" "$rt_empty" 0 "shell=not-running" "" plugin add "$tmp/src/probe.git"
+inst "add installs a plugin to break" "$cfg" "$rt_empty" 0 "shell=not-running" "" plugin add --yes "$tmp/src/probe.git"
 rm -rf -- "${cfg:?}/vgshell/plugins/acme.probe/.git"
 inst "update refuses a plugin directory that is not a checkout" "$cfg" "$rt_empty" 1 "" "vgshell: refused: not-a-checkout=$cfg/vgshell/plugins/acme.probe" plugin update acme.probe
 check "the not-a-checkout refusal carries git's cause" grep -q '^fatal: not a git repository' "$tmp/err"
 cfg="$tmp/cfg-noupstream"
-inst "add installs a plugin to detach" "$cfg" "$rt_empty" 0 "shell=not-running" "" plugin add "$tmp/src/probe.git"
+inst "add installs a plugin to detach" "$cfg" "$rt_empty" 0 "shell=not-running" "" plugin add --yes "$tmp/src/probe.git"
 g -C "$cfg/vgshell/plugins/acme.probe" branch --unset-upstream
 inst "update refuses a checkout with no upstream" "$cfg" "$rt_empty" 1 "" "vgshell: refused: upstream=missing path=$cfg/vgshell/plugins/acme.probe" plugin update acme.probe
 check "the upstream refusal carries git's cause" grep -q '^fatal: no upstream configured' "$tmp/err"
@@ -940,7 +972,7 @@ inst "remove refuses a directory whose manifest names another id" "$cfg" "$rt_em
 check "a refused id mismatch leaves the directory" test -f "$cfg/vgshell/plugins/acme.probe/manifest.json"
 cfg="$tmp/cfg-live"
 INST_REPLY="ok scan=1" inst "remove rescans a running shell" "$cfg" "$rt_live" 0 "shell=rescan-started" "" plugin remove --yes acme.probe
-INST_REPLY="busy scan=2" inst "add while a scan runs says the rescan is queued" "$cfg" "$rt_live" 0 "shell=rescan-queued" "" plugin add "$tmp/src/probe.git"
+INST_REPLY="busy scan=2" inst "add while a scan runs says the rescan is queued" "$cfg" "$rt_live" 0 "shell=rescan-queued" "" plugin add --yes "$tmp/src/probe.git"
 
 # Theme list and apply, against the tree copy theme_tree makes, holding one
 # more shipped package. The targets directory beside the shipped packages
@@ -1290,7 +1322,7 @@ check "detection never ran a detected command" test -z "$(find "$tmp" -maxdepth 
 
 printf '{ "disabledTargets": "off" }\n' >"$cfg/vgshell/shell.json"
 tinst "a user file the config judge refuses refuses the apply" "$cfg" "$rt_empty" 1 '{"state":"failed","shell":"unchanged","targets":[],"theme":"dusk","reason":"malformed"}' "vgshell: refused: theme=dusk reason=malformed path=$cfg/vgshell/shell.json error=disabledTargets must be a list" theme apply --json dusk
-inst "plugin add refuses the same malformed user file" "$cfg" "$rt_empty" 1 "" "vgshell: refused: user-config=malformed path=$cfg/vgshell/shell.json error=disabledTargets must be a list" plugin add "$tmp/src/probe.git"
+inst "plugin add refuses the same malformed user file" "$cfg" "$rt_empty" 1 "" "vgshell: refused: user-config=malformed path=$cfg/vgshell/shell.json error=disabledTargets must be a list" plugin add --yes "$tmp/src/probe.git"
 printf '{ "disabledTargets": ["off"] }\n' >"$cfg/vgshell/shell.json"
 
 # Must-fail controls: a copy of the shared file helper, bin/lib/judge-files.js,

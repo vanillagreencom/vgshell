@@ -2,9 +2,10 @@
 # Controls for the questions bin/vgshell asks on a terminal before it adds or
 # removes: the git URL `plugin add` and `theme add` ask for with gum input
 # when the command line names none, the prompt the core floating TUIs
-# `core/plugin-add` and `core/theme-add` show, and the `remove <id>? [y/N]`
-# question `plugin remove` asks before it deletes, which the Settings
-# window's Remove button shows in its floating TUI. Each terminal row runs
+# `core/plugin-add` and `core/theme-add` show, the `add <id>? [y/N]`
+# question `plugin add` asks after it says how the plugin lands, and the
+# `remove <id>? [y/N]` question `plugin remove` asks before it deletes,
+# which the Settings window's Remove button shows in its floating TUI. Each terminal row runs
 # vgshell on a pseudo-terminal script(1) opens, with the answer typed on it.
 # gum is a stub ahead of the host's PATH that records its argv and prints
 # the line typed on the terminal, or exits 130 on `cancel`; a row that
@@ -54,6 +55,7 @@ done
 check "the rows' gum is the stub and the bare PATH has none" test "$(PATH="$prompt_path" command -v gum):$(PATH="$bare_path" command -v gum || echo none)" == "$stubs/gum:none"
 
 source_repo probe "$(manifest acme.probe 0.1.0)"
+source_repo widget "$(manifest acme.widget 0.1.0 ', "kinds": ["service", "bar-widget"], "entryPoints": { "service": "Service.qml", "bar-widget": "Service.qml" }')"
 theme_source moss "$(doc moss)"
 
 # term BIN ANSWER ARGS...: vgshell BIN on a terminal with the stub gum ahead.
@@ -69,7 +71,8 @@ theme_file() { [[ -f $cfg/vgshell/theme.json ]]; }
 # share a line: the terminal echoes the typed answer before the question
 # is asked, so no newline follows the question.
 fresh_cfg() { config_count=$((config_count + 1)); cfg="$tmp/cfg-$config_count"; rm -f -- "$gum_args".*; }
-add_probe() { INST_BIN="$1" inst "the fixture installs for a remove row" "$cfg" "$rt_empty" 0 "shell=not-running" "" plugin add "$tmp/src/probe.git" >/dev/null; }
+add_probe() { INST_BIN="$1" inst "the fixture installs for a remove row" "$cfg" "$rt_empty" 0 "shell=not-running" "" plugin add --yes "$tmp/src/probe.git" >/dev/null; }
+widget_installed() { [[ -f $cfg/vgshell/plugins/acme.widget/manifest.json ]]; }
 add_moss() { "${base_env[@]}" PATH="$prompt_path" XDG_CONFIG_HOME="$cfg" XDG_RUNTIME_DIR="$rt_empty" "$1" theme add "$tmp/tsrc/moss.git" >/dev/null 2>"$tmp/err" </dev/null; }
 run_theme_add_arg() {
   local bin="$1" status=0 out
@@ -83,7 +86,7 @@ run_theme_add_arg() {
 
 row_plugin_url() {
   fresh_cfg
-  term "$1" "  $tmp/src/probe.git  " plugin add
+  term "$1" "  $tmp/src/probe.git  "$'\n'"y" plugin add
   [[ $term_status == 0 ]] && gum_asked "Git URL of the plugin: " && out_holds "ok added=acme.probe path=$cfg/vgshell/plugins/acme.probe" && installed
 }
 row_theme_url() {
@@ -144,6 +147,34 @@ row_gum_missing() {
   INST_BIN="$1" INST_PATH="$bare_path" on_terminal "$tmp/src/probe.git" plugin add
   [[ $term_status == 1 ]] && out_has "vgshell: refused: gum=missing" && ! installed
 }
+# The add question: what the plugin's landing means, then `add <id>?`.
+row_add_no_terminal() {
+  fresh_cfg
+  INST_BIN="$1" inst "add without a terminal" "$cfg" "$rt_empty" 1 "" "vgshell: refused: no-terminal=acme.probe" plugin add "$tmp/src/probe.git" >/dev/null
+  grep -qxF "vgshell: refused: no-terminal=acme.probe" "$tmp/err" && ! installed
+}
+row_add_declined() {
+  fresh_cfg
+  term "$1" n plugin add "$tmp/src/probe.git"
+  [[ $term_status == 1 ]] && out_holds "vgshell: add acme.probe? [y/N] vgshell: refused: declined=acme.probe" && ! installed
+}
+row_add_disabled_said() {
+  fresh_cfg
+  term "$1" y plugin add "$tmp/src/probe.git"
+  [[ $term_status == 0 ]] && out_has "vgshell: acme.probe is installed turned off; its code runs once you turn it on in Settings." \
+    && out_holds "vgshell: add acme.probe? [y/N] ok added=acme.probe path=$cfg/vgshell/plugins/acme.probe config=unchanged lands=disabled" && installed
+}
+row_add_shown_said() {
+  fresh_cfg
+  term "$1" y plugin add "$tmp/src/widget.git"
+  [[ $term_status == 0 ]] && out_has "vgshell: acme.widget runs its code as soon as it is installed, and its widget shows in the bar." \
+    && out_holds "vgshell: add acme.widget? [y/N] ok added=acme.widget path=$cfg/vgshell/plugins/acme.widget config=written lands=shown" && widget_installed
+}
+row_add_yes() {
+  fresh_cfg
+  INST_BIN="$1" inst "add --yes" "$cfg" "$rt_empty" 0 "shell=not-running" "" plugin add --yes "$tmp/src/probe.git" >/dev/null
+  has_line "ok added=acme.probe path=$cfg/vgshell/plugins/acme.probe config=unchanged lands=disabled" && installed
+}
 row_remove_no_terminal() {
   fresh_cfg; add_probe "$1"
   INST_BIN="$1" inst "remove without a terminal" "$cfg" "$rt_empty" 1 "" "vgshell: refused: no-terminal=acme.probe" plugin remove acme.probe >/dev/null
@@ -175,6 +206,11 @@ declare -a ROWS=(
   "an empty url refuses both adds with exit 2 and adds nothing|row_empty_url"
   "a cancelled prompt refuses add as cancelled|row_cancelled_url"
   "add refuses a terminal prompt without gum|row_gum_missing"
+  "add without a terminal refuses and installs nothing|row_add_no_terminal"
+  "add declined on a terminal installs nothing|row_add_declined"
+  "add says a plugin without a bar widget lands turned off|row_add_disabled_said"
+  "add says a plugin with a bar widget runs at once and shows in the bar|row_add_shown_said"
+  "add --yes installs without a question|row_add_yes"
   "remove without a terminal refuses and keeps the plugin|row_remove_no_terminal"
   "remove declined on a terminal keeps the plugin|row_remove_declined"
   "remove confirmed on a terminal deletes the plugin|row_remove_confirmed"
@@ -219,7 +255,11 @@ declare -a CONTROLS=(
   "a cancelled prompt is its own refusal" '    130) refuse 1 "cancelled=url" ;;' '' row_cancelled_url
   "the prompt needs gum" '  command -v gum >/dev/null || refuse 1 "gum=missing"' '  true || refuse 1 "gum=missing"' row_gum_missing
   "remove asks before it deletes" '  confirm_change remove "$id" "$dir stays installed"' '' row_remove_declined
-  "remove takes --yes" '        if [[ ${1:-} == --yes ]]; then assume_yes=1; shift; fi' '        if [[ ${1:-} == --yes && $sub == update ]]; then assume_yes=1; shift; fi' row_remove_yes
+  "remove takes --yes" '$sub == update || $sub == remove) && ${1:-} == --yes' '$sub == update) && ${1:-} == --yes' row_remove_yes
+  "add takes --yes" '($sub == add || $sub == update' '($sub == update' row_add_yes
+  "add asks before it installs" '  confirm_change add "$id" "nothing was installed"' '' row_add_declined
+  "add says a widget plugin shows in the bar" 'runs its code as soon as it is installed, and its widget shows in the bar.' 'is installed.' row_add_shown_said
+  "add says a plugin without a widget lands turned off" 'is installed turned off; its code runs once you turn it on in Settings.' 'is installed.' row_add_disabled_said
 )
 for ((i = 0; i < ${#CONTROLS[@]}; i += 4)); do
   label="${CONTROLS[i]}" fn="${CONTROLS[i + 3]}"

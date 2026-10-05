@@ -30,15 +30,17 @@ cp -R "$repo/scripts/smoke/fixtures/plugins/acme.bare/." "$bare/"
 fixture_git() { "${sandbox_env[@]}" git -C "$fixture" -c user.name=smoke -c user.email=smoke@invalid "$@" >>"$sandbox/git.log" 2>&1; }
 if fixture_git init -q && fixture_git add -A && fixture_git commit -q -m fixture; then ok "fixture committed to a local repository"; else fail "fixture repository: $(tail -n 3 "$sandbox/git.log")"; fi
 add_out=""
-if add_out="$("${shell_env[@]}" "$repo/bin/vgshell" plugin add "file://$fixture" 2>>"$sandbox/ipc.log")" \
-  && [[ $add_out == $'ok added=acme.probe path='"$home/.config/vgshell/plugins/acme.probe"$' config=unchanged\nshell=rescan-started' ]]; then
-  ok "vgshell plugin add installs the fixture and rescans the shell"
+# --yes answers the add question; the plugin has a bar widget, so add says
+# it lands shown and writes its placement before the rescan.
+if add_out="$("${shell_env[@]}" "$repo/bin/vgshell" plugin add --yes "file://$fixture" 2>>"$sandbox/ipc.log")" \
+  && [[ $add_out == $'ok added=acme.probe path='"$home/.config/vgshell/plugins/acme.probe"$' config=written lands=shown\nshell=rescan-started' ]]; then
+  ok "vgshell plugin add installs the fixture shown and rescans the shell"
 else
   fail "vgshell plugin add: $add_out"
 fi
-# A plugin with a bar widget is placed in its default section and enabled
-# once the rescan finds it, with no further step (PluginLogic.firstPresence);
-# one without a widget, the bare fixture, stays disabled until enabled.
+# The added plugin, which has a bar widget, is placed in its default section
+# and enabled with no further step (PluginLogic.landsShown); one without a
+# widget, the bare fixture, stays disabled until enabled.
 probe_listed() { ipc shell listPlugins | py_reply 'import json,sys; r=[p for p in json.load(sys.stdin)["plugins"] if p["id"] == sys.argv[1]]; print(json.dumps([r[0]["enabled"], r[0]["placed"]]) if r else "absent")' "$1"; }
 expect_poll "the installed fixture with a widget is enabled and placed with no further step" '[true, true]' probe_listed acme.probe
 expect "the user-directory plugin without a widget is discovered disabled" False plugin_enabled acme.bare

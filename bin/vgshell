@@ -15,9 +15,11 @@
 #   vgshell plugin enable <id>        enable one plugin; a bar becomes the active bar
 #   vgshell plugin disable <id>       disable one plugin; names the bar widgets it takes off screen
 #   vgshell plugin validate <dir>     validate a plugin directory's manifest offline
-#   vgshell plugin add [<git url>]    clone, validate and install one plugin, disabled, then offer to install
-#                                  the packages of the commands it requires that are missing; without a
-#                                  url, ask for it on a terminal
+#   vgshell plugin add [--yes] [<git url>]
+#                                  clone, validate, say how the plugin lands, ask, and install it: one
+#                                  with a bar widget enabled with its widget in the bar, any other
+#                                  disabled; then offer to install the packages of the commands it
+#                                  requires that are missing; without a url, ask for it on a terminal
 #   vgshell plugin update [--yes] <id>
 #                                  fetch, show the diff, ask, and fast-forward an installed plugin
 #   vgshell plugin remove [--yes] <id>
@@ -132,18 +134,21 @@
 #
 # add, update and remove run no code from the plugin and no git hook, and ask
 # for no privilege: installed plugins live under
-# ${XDG_CONFIG_HOME:-~/.config}/vgshell/plugins/<id>. add lands the plugin
-# disabled. Without a url, add asks for one with gum input when stdin is a
+# ${XDG_CONFIG_HOME:-~/.config}/vgshell/plugins/<id>. add lands a plugin
+# with a bar widget enabled, its widget in its default bar section, so a
+# running shell builds its code at once, and lands any other plugin
+# disabled; it says which before it asks `vgshell: add <id>? [y/N]`.
+# Without a url, add asks for one with gum input when stdin is a
 # terminal, the prompt the core floating TUI `core/plugin-add` shows, and
 # otherwise refuses with url=missing and exit 2; an empty answer refuses
 # the same way, a cancelled prompt with cancelled=url and a system without
 # gum with gum=missing. update prints the incoming diff, then asks
 # `vgshell: update <id>? [y/N]` on stderr and fast-forwards only on y or yes;
 # remove asks `vgshell: remove <id>? [y/N]` before it deletes. Any other
-# answer refuses with declined=<id>. With no terminal on stdin either
+# answer refuses with declined=<id>. With no terminal on stdin each
 # refuses with no-terminal=<id> instead, unless --yes gives the answer.
-# Each refusal leaves the checkout at its old commit and the plugin
-# installed. Each ends with
+# A refused add installs nothing, a refused update leaves the checkout at
+# its old commit and a refused remove leaves the plugin installed. Each ends with
 # `shell=rescan-started` or `shell=rescan-queued` when a shell runs (the
 # scan's result is in `vgshell plugin list`), or `shell=not-running` when none
 # does and the next start reads the change. `plugin rescan` prints the same
@@ -868,7 +873,7 @@ ask_url() { # KIND
 }
 
 plugin_add() { # URL
-  local url="$1" verdict id target owners landed
+  local url="$1" verdict id target owners lands landed
   mkdir -p -- "$user_plugins"
   # Staged beside the plugin directory, never inside it, so no scan sees a
   # half-cloned plugin and the final move is a rename on one filesystem.
@@ -881,10 +886,21 @@ plugin_add() { # URL
   [[ -z $owners ]] || refuse 1 "id-owned=$id owner=${owners%%$'\n'*}"
   target="$user_plugins/$id"
   [[ -e $target || -L $target ]] && refuse 1 "exists=$target"
-  # Before the move, so the first scan that sees the plugin sees it disabled.
-  landed="$(node "$judge" land-disabled "$root/config/shell.json" "$config_home/vgshell/shell.json" "$stage/plugin")" || exit 1
+  lands="$(node "$judge" lands "$stage/plugin")" || exit 1
+  # Said only where it is asked: --yes gives the answer, and with no
+  # terminal the question's own refusal is the first line.
+  if [[ $assume_yes != 1 && -t 0 ]]; then
+    case "$lands" in
+      shown) printf 'vgshell: %s runs its code as soon as it is installed, and its widget shows in the bar.\n' "$id" >&2 ;;
+      *) printf 'vgshell: %s is installed turned off; its code runs once you turn it on in Settings.\n' "$id" >&2 ;;
+    esac
+  fi
+  confirm_change add "$id" "nothing was installed"
+  # Before the move, so the first scan that sees the plugin sees it as it
+  # lands.
+  landed="$(node "$judge" land "$root/config/shell.json" "$config_home/vgshell/shell.json" "$stage/plugin")" || exit 1
   mv -T -- "$stage/plugin" "$target" || refuse 1 "move=$target"
-  echo "ok added=$id path=$target config=$landed"
+  echo "ok added=$id path=$target config=$landed lands=$lands"
   rescan_if_running pluginInstalled "$id"
   offer_requirements "$id"
 }
@@ -931,9 +947,10 @@ rollback() { # DIR COMMIT
 # 1 when --yes stands for the answer to confirm_change's question.
 assume_yes=0
 
-# The question before a change a person must see: `update` between the
-# incoming diff and the fast-forward, since new plugin or package code runs
-# as soon as it lands, and `remove` before the plugin directory is deleted.
+# The question before a change a person must see: `add` before the plugin
+# moves into place, `update` between the incoming diff and the
+# fast-forward, since new plugin or package code runs as soon as it lands,
+# and `remove` before the plugin directory is deleted.
 # A person answers `vgshell: VERB LABEL? [y/N]` on the terminal, or the caller
 # passes --yes. LABEL names the checkout or plugin, and KEPT says what a
 # declined change leaves.
@@ -1889,6 +1906,8 @@ case "$cmd" in
   plugin)
     sub="${1:-}"
     [[ $# -gt 0 ]] && shift
+    # --yes answers the question add, update and remove ask.
+    if [[ ($sub == add || $sub == update || $sub == remove) && ${1:-} == --yes ]]; then assume_yes=1; shift; fi
     case "$sub" in
       list)
         # Captured first so the not-running exit code is the command's, not
@@ -1934,7 +1953,6 @@ case "$cmd" in
         plugin_add "$url"
         ;;
       update|remove)
-        if [[ ${1:-} == --yes ]]; then assume_yes=1; shift; fi
         id="${1:-}"
         if [[ -z $id ]]; then printf 'vgshell: refused: id=missing\n' >&2; usage; exit 2; fi
         if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; usage; exit 2; fi

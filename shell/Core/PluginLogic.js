@@ -3553,10 +3553,16 @@ function withPlaced(user, manifest, placed, effective) {
     return out;
 }
 
+// Whether plugin MANIFEST's widget shows in the bar once the plugin is
+// installed or first discovered: it declares kind bar-widget and sets no
+// `optIn`. firstPresence and `vgshell plugin add` ask it.
+function landsShown(manifest) {
+    return manifest.kinds.indexOf("bar-widget") !== -1 && manifest.optIn !== true;
+}
+
 // The ids of the plugins in MANIFESTS whose widget takes its first presence
-// under EFFECTIVE, sorted: each declares kind bar-widget, sets no `optIn`,
-// is not in disabledPlugins, is placed in no section and has no plugins[]
-// row. A plugin the user disabled or hid (withPlaced leaves its row) keeps
+// under EFFECTIVE, sorted: each lands shown (landsShown), is not in
+// disabledPlugins, is placed in no section and has no plugins[] row. A plugin the user disabled or hid (withPlaced leaves its row) keeps
 // its state, and an `optIn` plugin waits for Enable. So every widget a
 // plugin brings shows in the bar when the plugin is installed or first
 // discovered, with no step in Settings.
@@ -3564,7 +3570,7 @@ function firstPresence(manifests, effective) {
     var disabled = Array.isArray(effective.disabledPlugins) ? effective.disabledPlugins : [];
     return Object.keys(manifests).sort().filter(function (id) {
         var m = manifests[id];
-        if (m.kinds.indexOf("bar-widget") === -1 || m.optIn === true || disabled.indexOf(id) !== -1)
+        if (!landsShown(m) || disabled.indexOf(id) !== -1)
             return false;
         return !isPlaced(effective, m) && pluginRow(effective, id) === undefined;
     });

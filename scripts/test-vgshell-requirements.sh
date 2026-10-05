@@ -143,11 +143,11 @@ report="$(lines \
 # Each row takes the vgshell it runs and a fresh configuration directory, and
 # answers 0 when every expectation holds.
 row_offer_no_terminal() {
-  req "$1" plain "" "$2" "$rt_empty" -- plugin add "$tmp/src/needs.git"
-  [[ $status == 0 ]] && err_is "" && log_is "" && out_is "$(lines "ok added=acme.needs path=$2/vgshell/plugins/acme.needs config=unchanged" "shell=not-running" "$offer")"
+  req "$1" plain "" "$2" "$rt_empty" -- plugin add --yes "$tmp/src/needs.git"
+  [[ $status == 0 ]] && err_is "" && log_is "" && out_is "$(lines "ok added=acme.needs path=$2/vgshell/plugins/acme.needs config=unchanged lands=disabled" "shell=not-running" "$offer")"
 }
 row_offer_declined() {
-  req "$1" terminal n "$2" "$rt_empty" -- plugin add "$tmp/src/needs.git"
+  req "$1" terminal n "$2" "$rt_empty" -- plugin add --yes "$tmp/src/needs.git"
   [[ $status == 0 ]] && log_is "" && grep -qF "Install now? [y/N]" "$tmp/out" && out_has "install: vgshell pkg run install --manager aur need-two"
 }
 # y installs each manager's packages as argv, pacman's behind one sudo
@@ -155,26 +155,26 @@ row_offer_declined() {
 # pluginInstalled with the new plugin's id, which rescans and raises its
 # notice, and rescans after each install.
 row_offer_accepted() {
-  req "$1" terminal y "$2" "$rt_live" -- plugin add "$tmp/src/needs.git"
+  req "$1" terminal y "$2" "$rt_live" -- plugin add --yes "$tmp/src/needs.git"
   [[ $status == 0 ]] && log_has "sudo [pacman] [-S] [--needed] [--] [need-one] [need-opt] [need;one]" \
     && log_has "pacman [-S] [--needed] [--] [need-one] [need-opt] [need;one]" \
     && log_has "paru [-S] [--needed] [--] [need-two]" && [[ $(rescans) == 2 ]] \
     && [[ $(grep -cxF "qs [ipc] [--pid] [$$] [call] [shell] [pluginInstalled] [acme.needs]" "$log") == 1 ]]
 }
 row_offer_silent() {
-  req "$1" terminal y "$2" "$rt_empty" -- plugin add "$tmp/src/probe.git"
+  req "$1" terminal y "$2" "$rt_empty" -- plugin add --yes "$tmp/src/probe.git"
   [[ $status == 0 ]] && log_is "" && ! grep -qF "Install now?" "$tmp/out"
 }
 row_install_failure() {
-  req "$1" terminal y "$2" "$rt_empty" STUB_FAIL=-S -- plugin add "$tmp/src/needs.git"
+  req "$1" terminal y "$2" "$rt_empty" STUB_FAIL=-S -- plugin add --yes "$tmp/src/needs.git"
   [[ $status == 7 ]] && log_has "pacman [-S] [--needed] [--] [need-one] [need-opt] [need;one]" && ! grep -q "^paru " "$log"
 }
 row_nix_by_hand() {
-  REQ_OS_RELEASE="$nixos_release" req "$1" plain "" "$2" "$rt_empty" -- plugin add "$tmp/src/nixos.git"
-  [[ $status == 0 ]] && err_is "" && log_is "" && out_is "$(lines "ok added=acme.nixos path=$2/vgshell/plugins/acme.nixos config=unchanged" "shell=not-running" \
+  REQ_OS_RELEASE="$nixos_release" req "$1" plain "" "$2" "$rt_empty" -- plugin add --yes "$tmp/src/nixos.git"
+  [[ $status == 0 ]] && err_is "" && log_is "" && out_is "$(lines "ok added=acme.nixos path=$2/vgshell/plugins/acme.nixos config=unchanged lands=disabled" "shell=not-running" \
     "requires vgs-nix-one (nix-one)" "requires vgs-flat (org.flat)" "by-hand nix nix-one" "install: vgshell pkg run install --manager flatpak org.flat")" || return 1
   rm -rf -- "${2:?}/vgshell/plugins/acme.nixos"
-  REQ_OS_RELEASE="$nixos_release" req "$1" terminal y "$2" "$rt_empty" -- plugin add "$tmp/src/nixos.git"
+  REQ_OS_RELEASE="$nixos_release" req "$1" terminal y "$2" "$rt_empty" -- plugin add --yes "$tmp/src/nixos.git"
   [[ $status == 0 ]] && log_is "flatpak [install] [org.flat]"
 }
 row_run_rescans() {
@@ -190,19 +190,19 @@ row_refused_run_leaves_shell() {
   [[ $status == 1 && $(rescans) == 0 ]]
 }
 row_requirements() {
-  req "$1" plain "" "$2" "$rt_empty" -- plugin add "$tmp/src/needs.git"
+  req "$1" plain "" "$2" "$rt_empty" -- plugin add --yes "$tmp/src/needs.git"
   req "$1" plain "" "$2" "$rt_empty" -- plugin requirements acme.needs
   [[ $status == 0 ]] && err_is "" && out_is "$report"
 }
 row_requirements_json() {
-  req "$1" plain "" "$2" "$rt_empty" -- plugin add "$tmp/src/needs.git"
+  req "$1" plain "" "$2" "$rt_empty" -- plugin add --yes "$tmp/src/needs.git"
   req "$1" plain "" "$2" "$rt_empty" -- plugin requirements --json acme.needs
   [[ $status == 0 ]] && json_is "$tmp/out" 'd[0] == {"command": "vgs-need-one", "packages": {"pacman": "need-one", "apt": "need-one-deb"}, "optional": False, "purpose": "First", "state": "missing", "package": {"manager": "pacman", "name": "need-one"}} and d[1]["package"] == {"manager": "aur", "name": "need-two"} and d[2]["package"] is None and d[4]["state"] == "present" and len(d) == 7'
 }
 # A plugin add lands disabled is left out; enabled, it is reported beside
 # the core, whose commands this PATH lacks apart from node and python3.
 row_doctor() {
-  req "$1" plain "" "$2" "$rt_empty" -- plugin add "$tmp/src/needs.git"
+  req "$1" plain "" "$2" "$rt_empty" -- plugin add --yes "$tmp/src/needs.git"
   REQ_PATH="$tools" req "$1" plain "" "$2" "$rt_empty" -- doctor --json
   [[ $status == 0 ]] && json_is "$tmp/out" '"acme.needs" not in d["plugins"]' || return 1
   printf '{ "version": 1, "plugins": [ { "id": "acme.needs" } ] }\n' >"$2/vgshell/shell.json"
@@ -232,8 +232,8 @@ row_doctor_session() {
 # An extra that is off leaves its command out of add's offer, the plugin's
 # report and doctor; the user's plugins row turning it on brings it back.
 row_extra_off() {
-  req "$1" plain "" "$2" "$rt_empty" -- plugin add "$tmp/src/extras.git"
-  [[ $status == 0 ]] && err_is "" && out_is "$(lines "ok added=acme.extras path=$2/vgshell/plugins/acme.extras config=unchanged" "shell=not-running")" || return 1
+  req "$1" plain "" "$2" "$rt_empty" -- plugin add --yes "$tmp/src/extras.git"
+  [[ $status == 0 ]] && err_is "" && out_is "$(lines "ok added=acme.extras path=$2/vgshell/plugins/acme.extras config=unchanged lands=disabled" "shell=not-running")" || return 1
   req "$1" plain "" "$2" "$rt_empty" -- plugin requirements acme.extras
   [[ $status == 0 ]] && err_is "" && out_is "" || return 1
   printf '{ "version": 1, "plugins": [ { "id": "acme.extras" } ] }\n' >"$2/vgshell/shell.json"
@@ -241,14 +241,14 @@ row_extra_off() {
   [[ $status == 0 ]] && json_is "$tmp/out" 'd["plugins"]["acme.extras"] == []'
 }
 row_extra_on() {
-  req "$1" plain "" "$2" "$rt_empty" -- plugin add "$tmp/src/extras.git"
+  req "$1" plain "" "$2" "$rt_empty" -- plugin add --yes "$tmp/src/extras.git"
   printf '{ "version": 1, "plugins": [ { "id": "acme.extras", "photos": true } ] }\n' >"$2/vgshell/shell.json"
   req "$1" plain "" "$2" "$rt_empty" -- plugin requirements acme.extras
   [[ $status == 0 ]] && err_is "" && out_is "missing vgs-need-extra (need-extra) optional: Extra" || return 1
   REQ_PATH="$tools" req "$1" plain "" "$2" "$rt_empty" -- doctor --json
   [[ $status == 0 ]] && json_is "$tmp/out" '[r["command"] for r in d["plugins"]["acme.extras"]] == ["vgs-need-extra"]' || return 1
   rm -rf -- "${2:?}/vgshell/plugins/acme.extras"
-  req "$1" plain "" "$2" "$rt_empty" -- plugin add "$tmp/src/extras.git"
+  req "$1" plain "" "$2" "$rt_empty" -- plugin add --yes "$tmp/src/extras.git"
   [[ $status == 0 ]] && out_has "requires vgs-need-extra (need-extra) optional"
 }
 

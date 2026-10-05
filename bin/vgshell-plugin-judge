@@ -24,10 +24,15 @@
 //       read `bin/vgshell-scan` JSON on stdin and print each directory whose
 //       manifest the judge accepts with that id, one per line: the plugins
 //       the shell's registry would hold under it
-//   vgshell-plugin-judge land-disabled <shipped-config> <user-config> <plugin-dir>
-//       when the configuration would enable the plugin, list it in the user
-//       file's disabledPlugins; print `written` or `unchanged`. Either file
-//       that PluginLogic.configError refuses is refused as `malformed`.
+//   vgshell-plugin-judge lands <plugin-dir>
+//       print `shown` when the plugin's widget shows in the bar once it is
+//       installed (PluginLogic.landsShown), else `disabled`
+//   vgshell-plugin-judge land <shipped-config> <user-config> <plugin-dir>
+//       a plugin that lands shown is enabled, which places its widget in
+//       its default section; any other is listed in the user file's
+//       disabledPlugins when the configuration would enable it. Print
+//       `written` or `unchanged`. Either file that PluginLogic.configError
+//       refuses is refused as `malformed`.
 //   vgshell-plugin-judge seed-setting <shipped-config> <user-config> <plugin-dir> <key> <json-value>
 //       for a one-time migration (bin/vgshell-migrate): when the plugins row
 //       of the plugin at <plugin-dir> under the configuration the two files
@@ -348,18 +353,23 @@ main(() => {
         }
         break;
     }
-    case "land-disabled": {
+    case "lands": {
+        console.log(logic.landsShown(validated(args[0])) ? "shown" : "disabled");
+        break;
+    }
+    case "land": {
         const [shippedPath, userPath, dir] = args;
         const shipped = readConfig(logic, shippedPath, "shipped-config");
         const user = fs.existsSync(userPath) ? readConfig(logic, userPath, "user-config") : null;
         const manifest = validated(dir);
         const effective = logic.effectiveConfig(shipped, user);
         const defaultBarId = logic.activeBarId(shipped, "");
-        if (!logic.isEnabled(effective, manifest, defaultBarId)) {
+        const shown = logic.landsShown(manifest);
+        if (shown === logic.isEnabled(effective, manifest, defaultBarId) && (!shown || logic.isPlaced(effective, manifest))) {
             console.log("unchanged");
             break;
         }
-        replaceFile(userPath, JSON.stringify(logic.withEnabled(user, manifest, false, effective), null, 2) + "\n", "user-config");
+        replaceFile(userPath, JSON.stringify(logic.withEnabled(user, manifest, shown, effective), null, 2) + "\n", "user-config");
         console.log("written");
         break;
     }
