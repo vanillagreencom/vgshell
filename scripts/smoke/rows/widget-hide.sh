@@ -46,10 +46,10 @@ hide_right_click() {
 # which opens the dialog.
 hide_ask() {
   hide_right_click "$1" || fail "the right click on $1's widget failed"
-  expect_poll "a right click on $1's widget opens its menu" true hide_read "$1" menuOpen
+  expect_poll "a right click on $1's widget opens its menu" true hide_read "$1" frameMenuOpen
   type_keys -k Return || fail "Return on $1's Hide entry failed"
-  expect_poll "Hide closes the menu" false hide_read "$1" menuOpen
-  expect_poll "Hide opens the dialog" true hide_read "$1" hideDialogOpen
+  expect_poll "Hide closes the menu" false hide_read "$1" frameMenuOpen
+  expect_poll "Hide opens the dialog" true hide_read "$1" frameDialogOpen
 }
 hide_unchanged() { if cmp -s -- "$hide_file" "$1"; then echo unchanged; else echo changed; fi; }
 
@@ -64,12 +64,12 @@ cp -- "$hide_file" "$sandbox/shell-widget-hide-placed.json"
 # Cancel holds the focus: Return presses it. Escape rejects too.
 hide_ask acme.hideable
 type_keys -k Return || fail "Return on the Hide dialog failed"
-expect_poll "Return on the dialog's focused Cancel closes it" false hide_read acme.hideable hideDialogOpen
+expect_poll "Return on the dialog's focused Cancel closes it" false hide_read acme.hideable frameDialogOpen
 expect "Cancel leaves the user file as it was" unchanged hide_unchanged "$sandbox/shell-widget-hide-placed.json"
 expect "Cancel leaves the widget in every bar" '[true]' hide_in_bars acme.hideable
 hide_ask acme.hideable
 type_keys -k Escape || fail "Escape on the Hide dialog failed"
-expect_poll "Escape closes the dialog" false hide_read acme.hideable hideDialogOpen
+expect_poll "Escape closes the dialog" false hide_read acme.hideable frameDialogOpen
 expect "Escape leaves the user file as it was" unchanged hide_unchanged "$sandbox/shell-widget-hide-placed.json"
 
 # Tab moves from Cancel to Hide, and Return on Hide hides the widget.
@@ -101,7 +101,7 @@ settings_page_close acme.hideable
 # off the bar, and a right click on a placed widget opens nothing.
 if copy_tree widget-hide-control \
   && edit_tree widget-hide-control shell/Core/PluginLogic.js 'return !isPlaced(effective, m) && pluginRow(effective, id) === undefined;' 'return false;' \
-  && edit_tree widget-hide-control shell/Ui/BarWidget.qml 'onTapped: hideMenu.open()' 'onTapped: {}'; then
+  && edit_tree widget-hide-control shell/Ui/BarWidget.qml 'frameUi.item.openMenu();' ''; then
   stop_shell
   start_shell "$sandbox/tree-widget-hide-control" "$sandbox/widget-hide-control.log" || fail "the widget-hide control shell starts"
   install_plugin_copy acme.pane acme.hideable-control "Hideable Control" 10
@@ -111,7 +111,7 @@ if copy_tree widget-hide-control \
   expect_poll "control: the placed widget is built" '[true]' hide_in_bars acme.hideable
   hide_right_click acme.hideable || fail "control: the right click on the widget failed"
   sleep 0.5
-  expect "control: a frame with no menu opens nothing on a right click" false hide_read acme.hideable menuOpen
+  expect "control: a frame with no menu opens nothing on a right click" false hide_read acme.hideable frameMenuOpen
   stop_shell
   start_shell "$repo" "$sandbox/widget-hide-restored.log" || fail "the shell starts again after the widget-hide control"
 fi

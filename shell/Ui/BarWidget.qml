@@ -15,6 +15,8 @@ import qs.Ui
 // which says how to bring the widget back, shows the shortcuts that keep
 // working, and says when hiding also turns the plugin off. Cancel holds the
 // focus, so Enter and Escape change nothing; a press outside closes it too.
+// The menu and the dialog are built on the first right click and released
+// once both are closed, so a widget at rest holds neither.
 Item {
     id: root
 
@@ -25,10 +27,8 @@ Item {
     property var frame: null
 
     readonly property int barSize: bar ? bar.barSize : Theme.bar.height
-    readonly property bool menuOpen: hideMenu.opened
-    readonly property bool hideDialogOpen: dialogWindow.visible
-    // What the open dialog says, read from `frame` when it opens.
-    property var facts: ({ name: "", keys: [], stops: false })
+    readonly property bool frameMenuOpen: frameUi.item !== null && frameUi.item.menuOpened
+    readonly property bool frameDialogOpen: frameUi.item !== null && frameUi.item.dialogOpened
 
     // One setting with a fallback for a missing or null value.
     function setting(name, fallback) {
@@ -36,85 +36,120 @@ Item {
         return value === undefined || value === null ? fallback : value;
     }
 
-    function askHide() {
-        if (frame === null) return;
-        facts = frame.describe();
-        dialogWindow.visible = true;
-        Qt.callLater(() => dialog.forceActiveFocus(Qt.TabFocusReason));
-    }
-
-    // The dialog's share of OverlayState, taken as Popover takes its own.
-    property bool counted: false
-    function share(open) {
-        if (open === counted) return;
-        counted = open;
-        if (open) OverlayState.opened(); else OverlayState.closed();
-    }
-    Component.onDestruction: share(false)
-
     // pointer-cursor-exempt: it adds the right click to the widget, whose own controls show the hand
     // keyboard-path: the Show in bar switch on the plugin's Settings page hides and shows the widget
     TapHandler {
         acceptedButtons: Qt.RightButton
-        onTapped: hideMenu.open()
-    }
-
-    Menu {
-        id: hideMenu
-
-        MenuItem {
-            text: "Hide"
-            iconName: "eye-off"
-            // The menu's grab ends before the dialog takes its own.
-            onTriggered: Qt.callLater(root.askHide)
+        onTapped: {
+            frameUi.active = true;
+            frameUi.item.openMenu();
         }
     }
 
-    PopupWindow {
-        id: dialogWindow
+    Loader {
+        id: frameUi
 
-        anchor.item: root
-        anchor.edges: Edges.Bottom | Edges.Left
-        anchor.gravity: Edges.Bottom | Edges.Right
-        anchor.adjustment: PopupAdjustment.Flip | PopupAdjustment.Slide
-        anchor.margins.bottom: -Theme.popover.gap
-        grabFocus: true
-        visible: false
-        color: "transparent"
-        implicitWidth: Math.max(1, OverlayState.widthFor(root, Theme.dialog.width))
-        implicitHeight: Math.max(1, dialog.implicitHeight)
-        onVisibleChanged: root.share(visible)
+        // Release the menu and the dialog once neither is open nor about
+        // to open.
+        function release() {
+            if (item !== null && !item.asking && !item.menuOpened && !item.dialogOpened) active = false;
+        }
 
-        DismissScope {
-            popup: dialogWindow
-            anchor: root
+        anchors.fill: parent
+        active: false
+        sourceComponent: Item {
+            id: ui
 
-            Dialog {
-                id: dialog
-                anchors.fill: parent
-                title: "Hide " + root.facts.name + "?"
-                message: root.facts.stops
-                    ? root.facts.name + " leaves the bar. To show it again, turn on Enabled on its page in Settings. Hiding it also turns it off."
-                    : root.facts.name + " leaves the bar. To show it again, turn on Show in bar on its page in Settings."
-                actions: [{ label: "Cancel", role: "cancel", focused: true }, { label: "Hide", role: "accept", variant: "danger" }]
-                onAccepted: {
-                    dialogWindow.visible = false;
-                    const reply = root.frame.hide();
-                    if (reply !== "ok") console.warn("bar widget: hide " + root.moduleName + " " + reply);
-                }
-                onRejected: dialogWindow.visible = false
+            readonly property bool menuOpened: hideMenu.opened
+            readonly property bool dialogOpened: dialogWindow.visible
+            // Hide was chosen and the dialog has not opened yet.
+            property bool asking: false
+            // What the open dialog says, read from `frame` when it opens.
+            property var facts: ({ name: "", keys: [], stops: false })
 
-                Label {
-                    text: "Its shortcuts still work."
-                    visible: root.facts.keys.length > 0 && !root.facts.stops
-                }
-                Repeater {
-                    model: root.facts.stops ? [] : root.facts.keys
-                    KeyCaps { shortcut: modelData }
+            function openMenu() { hideMenu.open(); }
+
+            function askHide() {
+                asking = false;
+                if (root.frame === null) return;
+                facts = root.frame.describe();
+                dialogWindow.visible = true;
+                Qt.callLater(() => dialog.forceActiveFocus(Qt.TabFocusReason));
+            }
+
+            // The dialog's share of OverlayState, taken as Popover takes its own.
+            property bool counted: false
+            function share(open) {
+                if (open === counted) return;
+                counted = open;
+                if (open) OverlayState.opened(); else OverlayState.closed();
+            }
+            Component.onDestruction: share(false)
+
+            onMenuOpenedChanged: if (!menuOpened) Qt.callLater(frameUi.release)
+            onDialogOpenedChanged: if (!dialogOpened) Qt.callLater(frameUi.release)
+
+            Menu {
+                id: hideMenu
+
+                MenuItem {
+                    text: "Hide"
+                    iconName: "eye-off"
+                    // The menu's grab ends before the dialog takes its own.
+                    onTriggered: {
+                        ui.asking = true;
+                        Qt.callLater(ui.askHide);
+                    }
                 }
             }
+
+            PopupWindow {
+                id: dialogWindow
+
+                anchor.item: ui
+                anchor.edges: Edges.Bottom | Edges.Left
+                anchor.gravity: Edges.Bottom | Edges.Right
+                anchor.adjustment: PopupAdjustment.Flip | PopupAdjustment.Slide
+                anchor.margins.bottom: -Theme.popover.gap
+                grabFocus: true
+                visible: false
+                color: "transparent"
+                implicitWidth: Math.max(1, OverlayState.widthFor(ui, Theme.dialog.width))
+                implicitHeight: Math.max(1, dialog.implicitHeight)
+                onVisibleChanged: ui.share(visible)
+
+                DismissScope {
+                    popup: dialogWindow
+                    anchor: ui
+
+                    Dialog {
+                        id: dialog
+                        anchors.fill: parent
+                        title: "Hide " + ui.facts.name + "?"
+                        message: ui.facts.stops
+                            ? ui.facts.name + " leaves the bar. To show it again, turn on Enabled on its page in Settings. Hiding it also turns it off."
+                            : ui.facts.name + " leaves the bar. To show it again, turn on Show in bar on its page in Settings."
+                        actions: [{ label: "Cancel", role: "cancel", focused: true }, { label: "Hide", role: "accept", variant: "danger" }]
+                        onAccepted: {
+                            dialogWindow.visible = false;
+                            const reply = root.frame.hide();
+                            if (reply !== "ok") console.warn("bar widget: hide " + root.moduleName + " " + reply);
+                        }
+                        onRejected: dialogWindow.visible = false
+
+                        Label {
+                            text: "Its shortcuts still work."
+                            visible: ui.facts.keys.length > 0 && !ui.facts.stops
+                        }
+                        Repeater {
+                            model: ui.facts.stops ? [] : ui.facts.keys
+                            KeyCaps { shortcut: modelData }
+                        }
+                    }
+                }
+            }
+
+            readonly property AnchorTracker tracker: AnchorTracker { popup: dialogWindow; anchor: ui }
         }
     }
-
-    readonly property AnchorTracker tracker: AnchorTracker { popup: dialogWindow; anchor: root }
 }

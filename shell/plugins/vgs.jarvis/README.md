@@ -66,7 +66,7 @@ Screen to cloud decides whether a screenshot or its text goes to a brain or voic
 
 Talk mode defaults to Hold. Toggle keeps conversation demand open until the next press. No mode captures audio until local voice is set up, an AI model is selected and the listening bubble has drawn.
 
-Turn on Show in bar on the Jarvis page to put the Jarvis icon in the bar's right section. Its tooltip names the state and what a click does.
+The Jarvis icon shows in the bar's right section once the plugin is installed; right-click it and choose Hide to take it out, and turn on Show in bar on the Jarvis page to put it back. Its tooltip names the state and what a click does.
 
 Audio uses half duplex. Jarvis closes its microphone while speech plays. Talk can interrupt speech, but spoken interruption during playback is unavailable. Echo cancellation has no supported setting. Jarvis changes no desktop audio defaults.
 

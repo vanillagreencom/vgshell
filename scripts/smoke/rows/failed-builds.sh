@@ -7,7 +7,7 @@
 # It owes no restart notice either, though rows/manager.sh has planted its
 # control copies in the sandbox's shell/ by then, so the core differs from
 # the one the shell started over: the engine loaded the fixture's files.
-# inputs: scripts/smoke/fixtures/plugins/acme.broken/* scripts/smoke/fixtures/plugins/acme.nowidget/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/Notices.qml shell/Hosts/BackgroundHost.qml scripts/smoke/rows/manager.sh scripts/smoke/rows/sources.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/capability-release.sh
+# inputs: shell/Core/PluginLogic.js scripts/smoke/fixtures/plugins/acme.broken/* scripts/smoke/fixtures/plugins/acme.nowidget/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/Notices.qml shell/Hosts/BackgroundHost.qml scripts/smoke/rows/manager.sh scripts/smoke/rows/sources.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/capability-release.sh
 set -euo pipefail
 broken="$home/.config/vgshell/plugins/acme.broken"
 mkdir -p "$broken"
@@ -70,6 +70,17 @@ expect_poll "removing the plugin releases its background failure record" 0 backg
 # A bar widget that cannot take what the core assigns is not built, and the
 # section's entries stay aligned with the layout: an edit to the entry after
 # it reaches that entry's own widget, never a neighbour's settings.
+# The user file records the fixture with a plugins row, the record a Hide
+# leaves, so the first presence does not place it: the row's own entry is
+# its only one, and once removed it stays out through later rescans.
+python3 - "$home/.config/vgshell/shell.json" <<'PY'
+import json, os, sys
+p = sys.argv[1]
+d = json.load(open(p))
+d["plugins"] = [e for e in d.get("plugins", []) if e["id"] != "acme.nowidget"] + [{"id": "acme.nowidget"}]
+json.dump(d, open(p + ".tmp", "w"), indent=2)
+os.replace(p + ".tmp", p)
+PY
 nowidget="$home/.config/vgshell/plugins/acme.nowidget"
 mkdir -p "$nowidget"
 cp -R "$repo/scripts/smoke/fixtures/plugins/acme.nowidget/." "$nowidget/"

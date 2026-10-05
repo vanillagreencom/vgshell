@@ -509,11 +509,11 @@ expect_poll "a click outside the card closed it" 0 layer_count vgs:overlay
 expect "a left click on the bar entry opens no terminal" absent recorded
 entry_box="$(ipc smoke instanceGeometry "$(bar_key)" vgs.launcher)" || entry_box=absent
 if [[ $entry_box == \[* ]] && read -r ex ey < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(int(x+w/2), int(y+h/2))' "$entry_box") && hover "$((ex - 1))" "$ey" && right_click "$ex" "$ey"; then
-  expect_poll "a right click on the bar entry opens the Hide menu" true ipc smoke readInstance "$(bar_key)" vgs.launcher menuOpen
+  expect_poll "a right click on the bar entry opens the Hide menu" true ipc smoke readInstance "$(bar_key)" vgs.launcher frameMenuOpen
   expect "a right click on the bar entry opens no terminal" absent recorded
   expect "a right click on the bar entry opens no launcher" 0 layer_count vgs:overlay
   type_keys -k Escape || fail "Escape to the Hide menu failed"
-  expect_poll "Escape closes the Hide menu" false ipc smoke readInstance "$(bar_key)" vgs.launcher menuOpen
+  expect_poll "Escape closes the Hide menu" false ipc smoke readInstance "$(bar_key)" vgs.launcher frameMenuOpen
 else
   fail "the right click on the bar entry failed"
 fi

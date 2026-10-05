@@ -29,4 +29,4 @@ The first revisit condition is met: plugins need system packages, and [D035](D03
 
 ## Revisit Outcome (2026-10-05)
 
-Owner ruling: a plugin with a bar widget does not land disabled. The first scan that finds it places its widget in its default section, which enables it, so it shows in the bar with no step in Settings ([placement.md](../architecture/placement.md)). Install still runs no plugin code; a plugin without a bar widget, and one whose manifest sets `optIn`, still lands disabled.
+Owner ruling: a plugin with a bar widget does not land disabled. The first scan that finds it places its widget in its default section, which enables it, so it shows in the bar with no step in Settings ([placement.md](../architecture/placement.md)). The install command itself still runs no plugin code, but the running shell's next scan builds such a plugin's widget and its other kinds, such as its service, at once, so the review step before its code runs is gone for it. A plugin without a bar widget, and one whose manifest sets `optIn`, still lands disabled.

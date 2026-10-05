@@ -22,7 +22,6 @@ manager
 updates
 settings
 placement
-widget-hide
 windows
 compositor-dispatchers
 compositor-reveal
@@ -135,6 +134,8 @@ style
 # relaunches the shell through the nested Hyprland, and it starts the
 # sandbox's tree again before it ends.
 core-drift
+# This row restarts the shell for its hidden widget and its control, so it runs with the tail rows that do the same.
+widget-hide
 # After every row that opens a TUI: the stand-in terminal ran no plugin
 # script but a fixture's.
 tui-guard

@@ -9,7 +9,7 @@ One line per decision record that shapes the architecture. [Jarvis decisions](de
 - [D003](../decisions/D003-everything-is-a-plugin.md): everything outside the core is a plugin; the manager is core; the core names no plugin.
 - [D005](../decisions/D005-kinds-are-surfaces-no-dependencies.md): kinds are surfaces; plugins declare no dependencies.
 - [D006](../decisions/D006-two-configuration-layers.md): two configuration layers merged by entry id.
-- [D007](../decisions/D007-install-runs-no-plugin-code.md): install runs no plugin code and lands the plugin disabled.
+- [D007](../decisions/D007-install-runs-no-plugin-code.md): install runs no plugin code and lands the plugin disabled, except a plugin with a bar widget, which the shell's next scan places, enables and builds.
 - [D100](../decisions/D100-validation-selects-by-inputs.md): every change carries its validation row and runs the checks its files reach; the nested sandbox is the only shell start. Supersedes D008.
 - [D009](../decisions/D009-one-manifest-judge-under-node.md): one manifest judge shared by shell and scripts.
 - [D010](../decisions/D010-facade-scope-not-sandbox.md): a static check plus a scoped API object, not a process sandbox.
