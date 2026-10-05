@@ -26,6 +26,9 @@ Item {
     // ------------------------------------------------------------ lifecycle
 
     property bool opened: false
+    // True from the start of the close until the surface goes, so the
+    // host's layer gives up the keyboard while the card fades out.
+    property bool closing: false
     // "menu", or a picker: "select" or "input".
     property string mode: "menu"
     readonly property bool requestMode: mode === "select" || mode === "input"
@@ -73,6 +76,7 @@ Item {
     function dismiss() {
         if (!opened) return;
         opened = false;
+        closing = true;
         cardEntrance.stop();
         card.closing = true;
         cardExit.restart();
@@ -419,6 +423,7 @@ Item {
         navDirection = 0;
         const reopened = card.closing;
         opened = true;
+        closing = false;
         if (reopened) {
             cardExit.stop();
             card.closing = false;
