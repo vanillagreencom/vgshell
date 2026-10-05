@@ -155,6 +155,7 @@ Singleton {
             add: () => root.managerCoreTui("plugin-add", []),
             rescan: () => Registry.rescan().answer,
             act: (id, key) => root.managerAct(id, key),
+            openTui: (id, name) => root.managerOpenTui(id, name),
             storeSecret: (id, key, account, secret, done) => root.managerSecret(ctx, "store", id, key, account, secret, done),
             clearSecret: (id, key, account, done) => root.managerSecret(ctx, "clear", id, key, account, null, done)
         }),
@@ -288,22 +289,36 @@ Singleton {
         return { manifest: known ? Registry.activeManifestOf(id) : null, enabled: known && Registry.isEnabled(id), values: known ? PluginStatus.valuesOf(id) : {} };
     }
 
-    // The manager's act on plugin ID's status entry KEY (D061): the
-    // plugin's own declared TUI through TuiRunner.runFor, its own
-    // requirement commands through the requirement notice after a scan, or
-    // its own system step in the core TUI `core/system`, after whose end
-    // the steps are probed again (D081), as
+    // The manager's act on plugin ID's status entry KEY (D061), as
     // PluginLogic.statusActionRequest decides from its published values.
     function managerAct(id, key) {
         const subject = managerSubject(id);
         const request = Logic.statusActionRequest(subject.manifest, id, subject.enabled, subject.values, key);
-        if (!request.ok) return request.answer;
+        return request.ok ? root.managerStep(id, request) : request.answer;
+    }
+
+    // The manager's open of plugin ID's listed TUI NAME, a setup screen its
+    // Settings page offers as a button, as PluginLogic.listedTuiRequest
+    // decides.
+    function managerOpenTui(id, name) {
+        const subject = managerSubject(id);
+        const request = Logic.listedTuiRequest(subject.manifest, id, subject.enabled, name);
+        return request.ok ? root.managerStep(id, request) : request.answer;
+    }
+
+    // Runs REQUEST, one a manager judge accepted for plugin ID: the
+    // plugin's own declared TUI through TuiRunner.runFor, its own
+    // requirement commands through the requirement notice after a scan, or
+    // its own system step in the core TUI `core/system`, after whose end
+    // the steps are probed again (D081). Every step of the manager's that
+    // opens a plugin's TUI goes through here.
+    function managerStep(id, request) {
         switch (request.kind) {
         case "tui": return tuis.runFor(id, request.name);
         case "install": return Notices.chosen(id, request.commands);
         case "system": return root.managerCoreTui("system", request.args, () => systemSteps.probe());
         }
-        throw new Error("manager: action kind " + JSON.stringify(request.kind) + " is not one of tui, install, system");
+        throw new Error("manager: step kind " + JSON.stringify(request.kind) + " is not one of tui, install, system");
     }
 
     // The manager's store or clear (VERB) of plugin ID's ACCOUNT, listed in

@@ -2434,6 +2434,30 @@ function tuiEntries(manifests, enabledIds, core) {
     return rows.sort(function (a, b) { return a.key < b.key ? -1 : a.key > b.key ? 1 : 0; });
 }
 
+// The setup screens of plugin MANIFEST, for its manager row: each `tui`
+// script with an `entry`, in manifest order, as { name, label, icon }.
+function listedTuis(manifest) {
+    return Object.keys(manifest.tui).filter(function (name) { return manifest.tui[name].entry !== null; }).map(function (name) {
+        return { name: name, label: manifest.tui[name].entry.label, icon: manifest.tui[name].entry.icon };
+    });
+}
+
+// What the `manager` capability's `openTui(id, name)` does for listed TUI
+// NAME of plugin MANIFEST, null for an id no plugin has, ENABLED: { ok:
+// true, kind: "tui", name }, the request statusActionRequest makes for a
+// TUI action, or { ok: false, answer } with `unknown: <id>` or tuiRefusal's
+// line: `undeclared` for a name the manifest does not declare or gives no
+// `entry`, then `disabled` for a disabled plugin.
+function listedTuiRequest(manifest, id, enabled, name) {
+    if (manifest === null)
+        return { ok: false, answer: "unknown: " + tuiLabel(id) };
+    if (typeof name !== "string" || !hasOwn(manifest.tui, name) || manifest.tui[name].entry === null)
+        return { ok: false, answer: tuiRefusal(name, "undeclared").answer };
+    if (!enabled)
+        return { ok: false, answer: tuiRefusal(name, "disabled").answer };
+    return { ok: true, kind: "tui", name: name };
+}
+
 // The launcher state after a probe or a launch that was started while the
 // state was STATE ended with COMPLETION, { code, status } or null for one
 // that never started: `present` on exit 0, `missing` on

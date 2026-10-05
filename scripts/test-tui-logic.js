@@ -3,7 +3,8 @@
 // shell/Core/PluginLogic.js: the manifest's `tui` key and its normalized
 // shape, the core's own TUI table, the arguments a plugin's script takes,
 // the launch of a plugin's own script, of a listed TUI by key and of the
-// core's own TUI with arguments, the core answer for a TUI shown on screen,
+// core's own TUI with arguments, a manager row's setup screens and the
+// manager's open of one, the core answer for a TUI shown on screen,
 // the busy key and the launcher state among the refusals, the listed rows,
 // the log lines of a launcher's, a probe's and a reap's end, the exit records
 // and the runs, state and `done` answers they make, and a run's window. The
@@ -227,6 +228,31 @@ function suite(ctx, check) {
     ]);
     check("tuiEntries: a plugin enabled again lists its TUIs again", ctx.tuiEntries(manifests, ["acme.other", "acme.tui"], {}).map(e => e.key), ["acme.other/fix", "acme.tui/update"]);
     check("tuiEntries: an enabled id with no manifest lists nothing", ctx.tuiEntries(manifests, ["acme.gone"], {}), []);
+
+    // listedTuis: the manager row's setup screens, in manifest order.
+    const ordered = ctx.validateManifest(manifestWith({ zeta: listed, hello: hello, alpha: Object.assign({}, listed, { entry: { label: "First things", icon: "wrench", group: "Tools" } }) }), "/p").manifest;
+    check("listedTuis: each script with an entry, in manifest order", ctx.listedTuis(ordered), [
+        { name: "zeta", label: "Update the system", icon: "terminal" },
+        { name: "alpha", label: "First things", icon: "wrench" },
+    ]);
+    check("listedTuis: a manifest with no tui key lists none", ctx.listedTuis(ctx.validateManifest(manifestWith(undefined), "/p").manifest), []);
+    // listedTuiRequest: [name, manifest, id, enabled, TUI name, the request
+    // or the manager's reply].
+    const listedRows = [
+        ["a listed script of an enabled plugin", normal, "acme.tui", true, "update", { kind: "tui", name: "update" }],
+        ["a declared script without an entry", normal, "acme.tui", true, "hello", "refused: tui=hello reason=undeclared"],
+        ["a name the manifest does not declare", normal, "acme.tui", true, "other", "refused: tui=other reason=undeclared"],
+        ["a name that is a prototype member", normal, "acme.tui", true, "constructor", "refused: tui=constructor reason=undeclared"],
+        ["a name that is not a string", normal, "acme.tui", true, null, "refused: tui=null reason=undeclared"],
+        ["a disabled plugin's listed script", normal, "acme.tui", false, "update", "refused: tui=update reason=disabled"],
+        ["a disabled plugin's undeclared name reads undeclared", normal, "acme.tui", false, "other", "refused: tui=other reason=undeclared"],
+        ["an id no plugin has", null, "acme.none", false, "update", "unknown: acme.none"],
+        ["an id that is not a string", null, 7, false, "update", "unknown: 7"],
+    ];
+    for (const [name, manifest, id, enabled, tui, want] of listedRows) {
+        const r = ctx.listedTuiRequest(manifest, id, enabled, tui);
+        check("listedTuiRequest: " + name, r.ok ? { kind: r.kind, name: r.name } : r.answer, want);
+    }
 
     // coreTuiError: [name, TUI name, row, null for accepted or the start of
     // the refusal].
@@ -657,6 +683,12 @@ const CONTROLS = [
     ["a probe that answered logs nothing", "if (completion.status === 0 && (completion.code === 0 || completion.code === TUI_LAUNCHER_MISSING))", "if (completion.status === 0 && completion.code === 0)"],
     ["a probe that never started is logged", "if (completion === null)\n        return \"tui: probe=unstarted\";", "if (false)\n        return \"tui: probe=unstarted\";"],
     ["openTui opens a listed core row only", "if (!hasOwn(core, name) || core[name].entry === null)", "if (!hasOwn(core, name))"],
+    ["a manager row lists only a script with an entry", ".filter(function (name) { return manifest.tui[name].entry !== null; })", ""],
+    ["the manager's open answers unknown for no plugin", "if (manifest === null)\n        return { ok: false, answer: \"unknown: \" + tuiLabel(id) };\n    if (typeof name", "if (manifest === null)\n        return { ok: false, answer: \"unknown\" };\n    if (typeof name"],
+    ["the manager's open refuses a name the manifest lacks", "typeof name !== \"string\" || !hasOwn(manifest.tui, name) || manifest.tui[name].entry === null", "manifest.tui[name] !== undefined && manifest.tui[name].entry === null"],
+    ["the manager's open refuses a script with no entry", "!hasOwn(manifest.tui, name) || manifest.tui[name].entry === null)", "!hasOwn(manifest.tui, name))"],
+    ["the manager's open refuses a disabled plugin", "if (!enabled)\n        return { ok: false, answer: tuiRefusal(name, \"disabled\").answer };", "if (false)\n        return { ok: false, answer: tuiRefusal(name, \"disabled\").answer };"],
+    ["the manager's open asks for the named TUI", "return { ok: true, kind: \"tui\", name: name };", "return { ok: true, kind: \"tui\", name: id };"],
     ["a core request's arguments are judged", "    if (!tuiArgsValid(args))\n        return tuiRefusal(key, \"args\");\n    var refusal = tuiRunnerRefusal(runner, key, key);", "    var refusal = tuiRunnerRefusal(runner, key, key);"],
     ["a core request's arguments follow its argv", "row.argv.slice(1), args === undefined ? [] : args)", "row.argv.slice(1))"],
     ["a launcher that never started is logged", "if (completion === null)\n        return \"tui: launcher=unstarted", "if (false)\n        return \"tui: launcher=unstarted"],
