@@ -9,7 +9,7 @@
 # Tab scroll it, and a two-finger swipe moves it as far as GTK moves a list. Dispatches asked for back to back run in order behind one
 # process, the queue has a bound, and a process that cannot start does not
 # stop the queue.
-# inputs: shell/Core/PluginLogic.js shell/plugins/vgs.settings/* shell/Ui/layout/ScrollArea.qml shell/Ui/layout/TouchpadScroll.qml shell/Ui/layout/TouchpadScrollLogic.js shell/Commons/Reply.js shell/plugins/vgs.notifications/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/PluginStatus.qml bin/vgshell-scan shell/Core/TuiRunner.qml shell/Commons/SettingValues.js shell/Core/Capabilities.qml shell/plugins/vgs.bar/manifest.json shell/Core/Notices.qml bin/lib/qml-library.js scripts/smoke/rows/manager.sh scripts/smoke/rows/status.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh bin/vgshell-tui
+# inputs: shell/Core/PluginLogic.js shell/plugins/vgs.settings/* shell/Ui/layout/ScrollArea.qml shell/Ui/layout/TouchpadScroll.qml shell/Ui/layout/TouchpadScrollLogic.js shell/Commons/Reply.js shell/plugins/vgs.notifications/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/PluginStatus.qml bin/vgshell-scan shell/Core/TuiRunner.qml shell/Commons/SettingValues.js shell/Core/Capabilities.qml shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.jarvis/manifest.json shell/Core/Notices.qml bin/lib/qml-library.js scripts/smoke/rows/manager.sh scripts/smoke/rows/status.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh bin/vgshell-tui
 set -euo pipefail
 click_centre "$(bar_key)" vgs.settings || fail "the click on the gear failed"
 expect_poll "the gear's click opens the Settings window" open settings_open
@@ -205,8 +205,94 @@ settings_press "Install requirements" || fail "the click on Install requirements
 expect_poll "the withheld TUI opens the existing requirement notice" '["acme.status", ["vgs-smoke-absent"], ["vgs-smoke-absent"], false]' notice_shown
 expect "a missing requirement starts no setup terminal" absent recorded
 # No install button is pressed. Escape dismisses the requirement notice.
+expect_poll "the required action's notice holds the keyboard" true ipc smoke noticeFocused
 type_keys -k Escape || fail "sending Escape to the required action's notice failed"
 expect_poll "Escape closes the required action's notice" null notice_shown
+
+# Jarvis's full required list exceeds the explicit-choice notice bound.
+# Prefix the fixture's commands so host programs cannot satisfy them.
+large_notice="$(node - "$status_manifest" "$repo/shell/plugins/vgs.jarvis/manifest.json" "$repo" <<'JS' | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)))'
+const fs = require("fs");
+const path = require("path");
+const [fixture, jarvisFile, repo] = process.argv.slice(2);
+const logic = require(path.join(repo, "bin/lib/qml-library.js")).load(path.join(repo, "shell/Core/PluginLogic.js"));
+if (fs.lstatSync(fixture).isSymbolicLink()) throw new Error("fixture manifest is a symlink");
+const manifest = JSON.parse(fs.readFileSync(fixture, "utf8"));
+const jarvis = logic.validateManifest(JSON.parse(fs.readFileSync(jarvisFile, "utf8")), path.dirname(jarvisFile));
+if (!jarvis.ok) throw new Error(jarvis.error);
+const required = jarvis.manifest.requirements.filter(row => !row.optional);
+if (required.length <= logic.NOTICE_OFFER_MAX) throw new Error("Jarvis list does not reach the notice subset bound");
+manifest.requirements.push(...required.map(row => ({ ...row, command: "vgs-smoke-required-" + row.command })));
+const judged = logic.validateManifest(manifest, path.dirname(fixture));
+if (!judged.ok) throw new Error(judged.error);
+fs.writeFileSync(fixture, JSON.stringify(manifest));
+const missing = manifest.requirements.map(row => row.command);
+process.stdout.write(JSON.stringify([manifest.id, missing, missing, false]));
+JS
+)" || fail "the full-required-list fixture could not be prepared"
+large_commands="$(printf '%s\n' "$large_notice" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[1]))')" || fail "the full-required-list commands could not be read"
+rescan "the status fixture carries Jarvis's full required list as absent stand-ins"
+expect "the large-list fixture republishes an absent token" ok ipc acme.status invoke set 'token="absent"'
+expect_poll "the large-list fixture offers install instead of setup" '[["token", "Install requirements", true], ["check", "Install the tool", false]]' offered_actions acme.status
+forget_record
+settings_press "Install requirements" || fail "the large-list install action could not be pressed"
+expect_poll "the setup action opens the notice for the full missing list" "$large_notice" notice_shown
+expect "the full missing list starts no setup terminal" absent recorded
+expect_poll "the full-list notice holds the keyboard" true ipc smoke noticeFocused
+type_keys -k Escape || fail "closing the large-list notice failed"
+expect_poll "the full-list notice closes" null notice_shown
+
+# Run copies of the real TUI owner against the same registered fixture.
+# The control sends the full list through the bounded explicit choice.
+python3 - "$repo/shell/Core" <<'PYTHON'
+from pathlib import Path
+import sys
+root = Path(sys.argv[1])
+source = (root / "TuiRunner.qml").read_text()
+imports = 'import "PluginLogic.js" as Logic'
+assert source.count(imports) == 1
+source = source.replace(imports, 'import "../PluginLogic.js" as Logic\nimport qs.Core')
+anchor = '    id: root\n'
+assert source.count(anchor) == 1
+source = source.replace(anchor, anchor + '''
+    property string smokeAnswer: ""
+    property var smokeMissing: []
+    function smokeRun() {
+        smokeMissing = Notices.missingOf("acme.status");
+        smokeAnswer = runFor("acme.status", "setup");
+    }
+''')
+needle = 'return Notices.requested(id);'
+assert source.count(needle) == 1
+mutant = source.replace(needle, 'return Notices.chosen(id, Notices.missingOf(id));')
+assert mutant != source
+controls = root / "TuiInstallControls"
+controls.mkdir()
+for name, text in [("TuiInstallGood", source), ("TuiInstallChosen", mutant)]:
+    with (controls / (name + ".qml")).open("x") as file:
+        file.write(text)
+PYTHON
+for control in TuiInstallGood TuiInstallChosen; do
+  expect "the probe builds $control" ok ipc smoke popupLoad "$control" "$repo/shell/Core/TuiInstallControls/$control.qml" window vgs.settings '{}'
+done
+expect "the unchanged TUI owner runs the full-list request" ok ipc smoke popupCall TuiInstallGood smokeRun
+expect "the unchanged owner accepts the full-list installation notice" '"ok"' ipc smoke popupRead TuiInstallGood smokeAnswer
+expect_poll "the unchanged owner opens the full-list notice" "$large_notice" notice_shown
+expect "the unchanged owner starts no terminal" absent recorded
+expect_poll "the unchanged owner's notice holds the keyboard" true ipc smoke noticeFocused
+type_keys -k Escape || fail "closing the unchanged owner's notice failed"
+expect_poll "the unchanged owner's notice closes" null notice_shown
+install_control_missing() { ipc smoke popupRead TuiInstallChosen smokeMissing | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)))'; }
+expect "the explicit-choice control reaches the same request" ok ipc smoke popupCall TuiInstallChosen smokeRun
+expect "control: the explicit choice receives the full declared missing array" "$large_commands" install_control_missing
+expect "control: the explicit-choice route rejects the full list" '"refused: requirements=malformed"' ipc smoke popupRead TuiInstallChosen smokeAnswer
+expect "control: the rejected route opens no installation notice" null notice_shown
+expect "control: the rejected route starts no terminal" absent recorded
+for control in TuiInstallGood TuiInstallChosen; do
+  expect "the probe drops $control" ok ipc smoke popupDrop "$control"
+  rm -- "$repo/shell/Core/TuiInstallControls/$control.qml" || fail "removing the $control source copy failed"
+done
+rmdir -- "$repo/shell/Core/TuiInstallControls" || fail "removing the TUI install control directory failed"
 cp -- "$sandbox/status-action-manifest" "$status_manifest"
 rescan "the fixture restores its optional requirement"
 

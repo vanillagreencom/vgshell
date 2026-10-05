@@ -1139,7 +1139,7 @@ function tuiRunFor(manifest, enabled, sourceDir, runner, name, missing) {
     var request = tuiRun(manifest, enabled, sourceDir, runner, name, []);
     if (!request.ok && request.action === "none") return request;
     var lacking = tuiMissingRequirements(manifest, missing);
-    if (lacking.length > 0) return { ok: true, kind: "install", commands: lacking };
+    if (lacking.length > 0) return { ok: true, kind: "install" };
     return request;
 }
 

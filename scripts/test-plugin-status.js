@@ -80,7 +80,7 @@ function suite(ctx, check) {
             check("Jarvis stand-in PATH misses only " + absent, missing, [absent]);
             check("Settings routes local voice to install while " + absent + " is absent",
                 ctx.tuiRunFor(jarvis, true, "/sources", { launcher: "present", busy: [], run: "test" }, "setup-local", missing),
-                { ok: true, kind: "install", commands: [absent] });
+                { ok: true, kind: "install" });
             check("Settings withholds local voice and offers install while " + absent + " is absent",
                 ctx.statusRows(jarvis, voiceValues, missing).find(row => row.key === "localRuntime").action,
                 { label: "Install requirements", offered: true });
@@ -89,6 +89,17 @@ function suite(ctx, check) {
     } finally {
         fs.rmSync(commands, { recursive: true, force: true });
     }
+
+    const jarvisRequired = jarvis.requirements.filter(row => !row.optional).map(row => row.command);
+    check("Jarvis's required list exceeds the explicit-choice notice bound", jarvisRequired.length > ctx.NOTICE_OFFER_MAX, true);
+    check("Jarvis's full missing list withholds the setup terminal",
+        ctx.tuiRunFor(jarvis, true, "/sources", { launcher: "present", busy: [], run: "test" }, "setup-local", jarvisRequired),
+        { ok: true, kind: "install" });
+    const jarvisNotice = ctx.noticeRequest(jarvis, jarvisRequired, "requested");
+    check("the existing all-missing request accepts Jarvis's full required list",
+        [jarvisNotice.answer, jarvisNotice.commands, jarvisNotice.required], ["ok", jarvisRequired, jarvisRequired]);
+    check("the explicit-choice request refuses Jarvis's full required list",
+        ctx.noticeRequest(jarvis, jarvisRequired, "chosen", jarvisRequired).answer, "refused: requirements=malformed");
 
     const runner = { launcher: "present", busy: [], run: "test" };
     const optional = Object.assign({}, m, { requirements: [{ command: "acme-sync", optional: true }] });
@@ -105,7 +116,7 @@ function suite(ctx, check) {
         if (want === "run") {
             check("manager setup: " + label, [got.ok, got.key, got.argv.slice(-1)], [true, "acme.status/setup", ["tui/setup.sh"]]);
         } else if (want === "install") {
-            check("manager setup: " + label, got, { ok: true, kind: "install", commands: ["acme-sync"] });
+            check("manager setup: " + label, got, { ok: true, kind: "install" });
         } else {
             check("manager setup: " + label, got, { ok: false, answer: "refused: tui=" + name + " reason=" + want, action: "none", key: null });
         }
@@ -451,7 +462,7 @@ suite(load(LOGIC), report);
 const CONTROLS = [
     ["a setup ignores optional commands", "return !row.optional && missing.indexOf(row.command) !== -1;", "return missing.indexOf(row.command) !== -1;"],
     ["a setup installs only missing declared commands", "missing.indexOf(row.command) !== -1;", "true;"],
-    ["a missing required command routes setup to install", "if (lacking.length > 0) return { ok: true, kind: \"install\", commands: lacking };", "if (false && lacking.length > 0) return { ok: true, kind: \"install\", commands: lacking };"],
+    ["a missing required command routes setup to install", "if (lacking.length > 0) return { ok: true, kind: \"install\" };", "if (false && lacking.length > 0) return { ok: true, kind: \"install\" };"],
     ["the row withholds the TUI label while requirements are missing", 'offered.tui !== undefined && missing.length > 0', 'false && offered.tui !== undefined && missing.length > 0'],
     ["a list's fields take their choices", "if (entry.type === \"list\") out[key] = Pads.listChoices(entry, settings[key], choices);", "if (false) out[key] = Pads.listChoices(entry, settings[key], choices);"],
     ["choices is a list", "if (!Array.isArray(value) || value.length > STATUS_LIST_MAX) return false;\n        var seen", "if (value.length > STATUS_LIST_MAX) return false;\n        var seen"],
