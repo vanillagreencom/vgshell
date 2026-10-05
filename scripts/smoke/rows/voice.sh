@@ -1,11 +1,11 @@
 # Voice uses a stub voxtype on PATH, never the host command. The row enables
-# the plugin, reads its status and bar widget, sends its default toggle key,
-# sends and releases F9, reads setup offered while the stub model is missing
-# and withheld when the stub reports it installed, then disables the plugin
-# and checks its shortcuts and status child are gone. The F9 check reads a
-# complete start and stop pair; a control that only sends the press would
-# leave only start in the log and fail the same assertion.
-# inputs: shell/plugins/vgs.voice/* shell/Core/ShortcutRegistry.qml shell/Core/HyprlandLayer.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml scripts/smoke/keyboard/*
+# the plugin, reads its status and bar widget, sends its toggle and hold keys
+# through the nested virtual-keyboard helper, reads setup offered while the
+# stub model is missing and withheld when the stub reports it installed, then
+# disables the plugin and checks its shortcuts and status child are gone. The
+# key delivery uses physical code overrides for the row, so the helper reaches
+# the same generated bind path that hold-shortcuts.sh exercises.
+# inputs: shell/plugins/vgs.voice/* shell/Core/ShortcutRegistry.qml shell/Core/HyprlandLayer.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml scripts/smoke/keyboard/* scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 
 voice_log="$sandbox/voice-record.log"
@@ -65,6 +65,30 @@ chmod 755 "$shim/setpriv"
 : >"$voice_log"
 
 voice_shortcuts() { hypr globalshortcuts | grep -c 'vgs.voice:' || true; }
+voice_set_keys() {
+  python3 - "$home/.config/vgshell/shell.json" <<'PY'
+import json, os, sys
+path = sys.argv[1]
+config = json.load(open(path))
+rows = config.setdefault("plugins", [])
+row = None
+for index, candidate in enumerate(rows):
+    if candidate == "vgs.voice":
+        row = {"id": "vgs.voice"}
+        rows[index] = row
+        break
+    if isinstance(candidate, dict) and candidate.get("id") == "vgs.voice":
+        row = candidate
+        break
+if row is None:
+    row = {"id": "vgs.voice"}
+    rows.append(row)
+row["keys"] = {"toggle": "SUPER+CTRL+code:53", "talk": "code:75"}
+with open(path + ".next", "w") as f:
+    json.dump(config, f, indent=2)
+os.replace(path + ".next", path)
+PY
+}
 voice_requirement() { ipc shell listPlugins | py_reply 'import json,sys; p=[p for p in json.load(sys.stdin)["plugins"] if p["id"]=="vgs.voice"][0]; print([r["state"] for r in p["requirements"] if r["command"]==sys.argv[1]][0])' "$1"; }
 voice_status_alive() { local pid; [[ -f $voice_status_pid ]] || { echo absent; return; }; pid="$(cat "$voice_status_pid")"; python3 - "$pid" <<'PY'
 import pathlib, sys
@@ -83,8 +107,14 @@ voice_start_keyboard() {
   spawn "$voice_keyboard_log" "${shell_env[@]}" "$sandbox/keyboard" "$voice_fifo" us ""
   voice_keyboard_pid="$spawn_pid"
   expect_poll "the Voice keyboard connects to the nested seat" 1 log_lines '^ready$' "$voice_keyboard_log"
+  voice_syncs=0
 }
 voice_send() { printf '%s\n' "$@" >&"$voice_fd"; }
+voice_sync() {
+  voice_syncs=$((voice_syncs + 1))
+  voice_send sync
+  expect_poll "$1" "$voice_syncs" log_lines '^sync$' "$voice_keyboard_log"
+}
 voice_stop_keyboard() {
   voice_send quit
   exec {voice_fd}>&-
@@ -95,21 +125,39 @@ voice_stop_keyboard() {
 voice_toggle_key() { voice_send "down 133" "down 37" "down 53" "up 53" "up 37" "up 133"; }
 voice_f9_press() { voice_send "down 75"; }
 voice_f9_release() { voice_send "up 75"; }
+voice_new_lines() {
+  tail -n +$((before + 1)) "$voice_log" | paste -sd '|' -
+}
+voice_toggle_only() {
+  local got
+  got="$(voice_new_lines)"
+  [[ $got == "record toggle" ]] && echo ok || echo "$got"
+}
+voice_press_only() {
+  local got
+  got="$(voice_new_lines)"
+  [[ $got == "record start" ]] && echo ok || echo "$got"
+}
 voice_hold_pair() {
   local got
-  got="$(tail -n +$((before + 1)) "$voice_log" | paste -sd '|' -)"
-  [[ $got == *"record start"*"record stop"* ]] && echo ok || echo violation
+  got="$(voice_new_lines)"
+  [[ $got == "record start|record stop" ]] && echo ok || echo "$got"
 }
 
+hypr_consent_connect "Voice row answers Hyprland consent"
 hypr_lua_save voice
-printf '%s\n' 'hl.config({ input = { resolve_binds_by_sym = true } })' >>"$home/.config/hypr/hyprland.lua"
+printf '%s\n' 'hl.config({ input = { resolve_binds_by_sym = false } })' >>"$home/.config/hypr/hyprland.lua"
 expect "Voice key resolution is reloaded" ok hypr reload config-only
 rescan "rescan discovers the Voice stub"
 expect_poll "the Voice plugin is known" True plugin_known vgs.voice
 expect_poll "the Voice voxtype requirement is present" present voice_requirement voxtype
 expect "enabling Voice is allowed" ok ipc shell setPluginEnabled vgs.voice true
 expect "placing Voice in the bar is allowed" ok ipc shell setPluginPlaced vgs.voice true
+voice_set_keys
+expect "Voice physical key overrides are reloaded" ok ipc shell reloadConfig
+expect "Hyprland reloads Voice physical key overrides" ok hypr reload config-only
 expect_poll "Voice builds" True record_exists vgs.voice
+expect_poll "Voice reads the physical key overrides" '{"toggle":"SUPER+CTRL+code:53","talk":"code:75"}' ipc smoke readInstance service vgs.voice shortcutKeys
 expect_poll "Voice sees voxtype present" true ipc smoke readInstance service vgs.voice voxtypePresent
 expect_poll "Voice starts its status process" true ipc smoke readInstance service vgs.voice statusRunning
 expect_poll "Voice registers its two shortcuts and the release companion" 3 voice_shortcuts
@@ -119,23 +167,21 @@ expect_poll "the recording state reaches the bar widget" '"recording"' voice_dic
 expect_poll "the recording state reaches dictation status" '"recording"' ipc smoke readInstance service vgs.voice dictationStatus
 expect_poll "Set up is offered while the model is missing" True voice_setup_offered
 
+open_toplevel "$sandbox/voice-client.log" smoke.voice-client "Voice client"
+voice_client_address="$(toplevel_address "$toplevel_pid")"
+expect "the Voice client is focused" ok hypr dispatch "hl.dsp.focus({ window = \"address:$voice_client_address\" })"
+expect_poll "the Voice client has keyboard focus" '["smoke.voice-client", "Voice client"]' active_window
 voice_start_keyboard
+before="$(wc -l <"$voice_log")"
 voice_toggle_key
-expect "the compositor receives the Voice toggle after physical delivery" ok hypr dispatch 'hl.dsp.global("vgs.voice:toggle")'
-expect_poll "the toggle shortcut runs voxtype record toggle" 'toggle' python3 - "$voice_log" <<'PY'
-import pathlib, sys
-calls = pathlib.Path(sys.argv[1]).read_text().splitlines()
-print("toggle" if "record toggle" in calls else calls)
-PY
+voice_sync "the Voice keyboard delivered the toggle keys"
+expect_poll "the typed toggle key runs only voxtype record toggle" ok voice_toggle_only
 before="$(wc -l <"$voice_log")"
 voice_f9_press
-expect_poll "press-only control shows the missing release would fail" violation voice_hold_pair
+voice_sync "the Voice keyboard delivered F9 press"
+expect_poll "F9 press logs start and no stop" ok voice_press_only
 voice_f9_release
-before="$(wc -l <"$voice_log")"
-expect "the compositor receives the Voice hold press after physical delivery" ok hypr dispatch 'hl.dsp.global("vgs.voice:talk")'
-expect "the compositor receives the Voice release companion after physical delivery" ok hypr dispatch 'hl.dsp.global("vgs.voice:talk.release")'
-expect "the Voice hold press reaches the service" ok ipc smoke invokeInstance service vgs.voice record start
-expect "the Voice hold release reaches the service" ok ipc smoke invokeInstance service vgs.voice record stop
+voice_sync "the Voice keyboard delivered F9 release"
 expect_poll "held F9 runs start then stop through release" ok voice_hold_pair
 
 touch -- "$voice_installed"

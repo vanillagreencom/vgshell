@@ -21,6 +21,7 @@ Item {
     readonly property var tuiState: shell === null ? null : shell.tui.state
     readonly property bool statusRunning: statusProcess.running
     readonly property string dictationStatus: shell === null || shell.status.values.dictation === undefined ? "" : String(shell.status.values.dictation.text)
+    readonly property var shortcutKeys: shell === null ? ({}) : shell.shortcut.keys
 
     onShellChanged: {
         if (shell === null) return;
