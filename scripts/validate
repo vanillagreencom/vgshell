@@ -1200,8 +1200,8 @@ PY
   done <<<"$facts"
 }
 
-# smoke_list_rows: mark in want[] each row an added line of the row list
-# names, against the change base; a line git shows as added is a new or a
+# smoke_list_rows: mark in want[] and edited[] each row an added line of
+# the row list names, against the change base; a line git shows as added is a new or a
 # moved row. A removed line whose name the list no longer holds is an
 # unlisted row: its name joins unlisted[], and the caller runs each row
 # whose input line names that row's file, since that row reads state the
@@ -1229,6 +1229,7 @@ smoke_list_rows() {
       printf -v every 'reason=rows-list-unlisted-line value=%q' "$line"; return 0
     fi
     want[$line]=1
+    edited[$line]=1
   done <<<"$diff"
 }
 
@@ -1253,13 +1254,14 @@ smoke_list_rows() {
 # runs nothing, and a row its removed lines unlist brings each row that
 # names its file. A row over smoke_bound_secs leaves a selection of some
 # rows, printed as `validate: smoke-row skipped=over-bound row=<row>`,
-# unless it is a core row, its own file changed or a selected row reads
-# it; --full, which passes no --rows, runs it. The self-check lines
+# unless it is a core row, the change edits its own file, a row file its
+# line names or its row list line, or a selected row reads it; --full,
+# which passes no --rows, runs it. The self-check lines
 # smoke_input_read prints never change the exit status.
 smoke_rows_selected() { # CHANGED_PATH...
   local listed row file path glob needed count secs every="" smoke_list=scripts/smoke/rows.list
   local -a names tracked smoke_globs unlisted=() over=() skipped=()
-  local -A want=() reads=() hits=() lines=() smoke_secs=()
+  local -A want=() reads=() hits=() lines=() smoke_secs=() edited=()
   local smoke_glob_unmatched
   smoke_only=""
   if ! listed="$(scripts/qml-smoke.sh --list-rows)" || [[ -z $listed ]]; then
@@ -1299,7 +1301,11 @@ smoke_rows_selected() { # CHANGED_PATH...
     done
     for path in "$@"; do
       for glob in "$file" "${smoke_globs[@]}"; do
-        if [[ $path == $glob ]]; then want[$row]=1; break 2; fi
+        [[ $path == $glob ]] || continue
+        want[$row]=1
+        # A smoke row file it reads changed: the change edits the row.
+        if [[ $path == scripts/smoke/rows/* ]]; then edited[$row]=1; break 2; fi
+        break
       done
     done
   done
@@ -1313,16 +1319,15 @@ smoke_rows_selected() { # CHANGED_PATH...
     printf 'validate: smoke-rows=all %s\n' "$every" >&2; return 0
   fi
   # A row over the lane bound leaves the selection unless it is a core row
-  # or the change edits its own file; the closure below brings it back when
-  # a row that stays reads it.
+  # or the change edits it: its own file, a row file its line names, or its
+  # line in the row list. The closure below brings it back when a row that
+  # stays reads it.
   if smoke_secs_read; then
     for row in "${!want[@]}"; do
       secs="${smoke_secs[$row]-}"
       [[ -n $secs && $secs -gt $smoke_bound_secs ]] || continue
       [[ " ${smoke_core[*]} " != *" $row "* ]] || continue
-      for path in "$@"; do
-        [[ $path != "scripts/smoke/rows/$row.sh" ]] || continue 2
-      done
+      [[ -z ${edited[$row]-} ]] || continue
       over+=("$row")
     done
     for row in "${over[@]}"; do unset "want[$row]"; done
