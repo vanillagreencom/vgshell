@@ -9,10 +9,10 @@ revisions, snapshots and pruning. The probe rows run the scanner with a PATH
 of one stub directory and read each plugin's `missing` list; their control
 runs them against a copy of the scanner that finds every command. The core
 rows probe a --core requirements file beside a plugin; their control reads
-that file as a manifest. The core source rows scan one tree twice with
---core-source, an edit between, and compare the core element's revision;
-their controls hash no file, hash the plugins directory too, and skip a
-`plugins` directory at every depth. The URL rows publish a snapshot under a root whose
+that file as a manifest. The core watch rows run --watch-core with bounded
+pipe reads and prove edits to core files and new directories produce one
+changed revision while the top-level plugins directory is neither watched
+nor hashed. The URL rows publish a snapshot under a root whose
 path needs quoting, and run a scan in a child interpreter that reports
 whether urllib.request was imported; their controls quote nothing and spell
 the URL through pathlib's as_uri. Permission rows need a uid that
@@ -21,13 +21,22 @@ exits 77 instead of passing vacuously."""
 import json
 import os
 import pathlib
+import select
+import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 SCAN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "bin", "vgshell-scan")
 MANIFEST = '{"id": "acme.widget"}'
 ENV = {"PATH": os.environ.get("PATH", ""), "LC_ALL": "C"}
+TMP_PARENT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tmp", "test-vgshell-scan")
+
+
+def temp_dir():
+    os.makedirs(TMP_PARENT, exist_ok=True)
+    return tempfile.TemporaryDirectory(dir=TMP_PARENT)
 
 # listing rows: name, files {relative path: text or bytes}, modes {relative path: mode}, base (relative),
 # want [(dir, "text" | "error:<prefix>"[, failing path])], options, links {relative path: target}
@@ -94,7 +103,7 @@ def scan(*args, script=SCAN, env=ENV):
 
 
 def run_row(name, files, modes, base, want, options=(), links=None):
-    with tempfile.TemporaryDirectory() as tmp:
+    with temp_dir() as tmp:
         plant(tmp, files, links)
         try:
             for rel, mode in modes.items():
@@ -130,7 +139,7 @@ def one_entry(proc):
 def revision_rows():
     """Revisions, snapshots and pruning, read back from one tree the rows edit in place."""
     results = []
-    with tempfile.TemporaryDirectory() as tmp:
+    with temp_dir() as tmp:
         base = os.path.join(tmp, "plugins")
         plugin = os.path.join(base, "a")
         root = os.path.join(tmp, "snapshots")
@@ -212,7 +221,7 @@ def probe_rows(script=SCAN, quiet=False):
     """Each probe row's verdict, run against SCRIPT."""
     results = []
     for name, manifests, want in PROBE_ROWS:
-        with tempfile.TemporaryDirectory() as tmp:
+        with temp_dir() as tmp:
             files = {os.path.join("plugins", d, "manifest.json"): (m if isinstance(m, str) else json.dumps(m)) for d, m in manifests.items()}
             files["stubs/here"] = "#!/bin/sh\n"
             files["stubs/inert"] = "#!/bin/sh\n"
@@ -236,7 +245,7 @@ def mutant_control(label, needle, replacement, rows):
         source = fh.read()
     if source.count(needle) != 1:
         return report(f"control: {needle!r} occurs once in the scanner", False, f" (count={source.count(needle)})")
-    with tempfile.TemporaryDirectory() as tmp:
+    with temp_dir() as tmp:
         mutant = os.path.join(tmp, "vgshell-scan")
         with open(mutant, "w", encoding="utf-8") as fh:
             fh.write(source.replace(needle, replacement))
@@ -267,7 +276,7 @@ def core_rows(script=SCAN, quiet=False):
     """Each core row's verdict, run against SCRIPT."""
     results = []
     for name, core, manifests, want_core, want_plugins in CORE_ROWS:
-        with tempfile.TemporaryDirectory() as tmp:
+        with temp_dir() as tmp:
             files = {os.path.join("plugins", d, "manifest.json"): json.dumps(m) for d, m in manifests.items()}
             files["stubs/here"] = "#!/bin/sh\n"
             if core is not None:
@@ -294,68 +303,123 @@ def core_control():
                           "missing_commands(text, probed, core=True)", "missing_commands(text, probed)", core_rows)
 
 
-# core source rows: name, the files planted under shell/ between two scans
-# of one tree, whether the core element's revision must then differ.
-CORE_SOURCE_ROWS = [
-    ("an edit to a core file changes the core revision", {"Ui/Card.qml": "Item { width: 1 }"}, True),
-    ("a new core file changes the core revision", {"Ui/New.qml": "Item {}"}, True),
-    ("an edit under the top-level plugins directory leaves the core revision", {"plugins/a/Widget.qml": "Item { width: 1 }"}, False),
-    ("a plugins directory below the top level is core source", {"Ui/plugins/Deep.qml": "Item { width: 1 }"}, True),
-]
+# core watch rows use --watch-core as a long-running process. Every pipe
+# read has a parent deadline and kills the child on timeout.
+WATCH_TREE = {"shell/shell.qml": "ShellRoot {}", "shell/Ui/Card.qml": "Item {}\n", "shell/Ui/plugins/Deep.qml": "Item {}\n",
+              "shell/plugins/a/manifest.json": MANIFEST, "shell/plugins/a/Widget.qml": "Item {}\n"}
 
 
-def core_element(tmp, script, *options):
-    """The first element of a scan of TMP's tree with its core file."""
-    proc = scan("--core", os.path.join(tmp, "requirements.json"), *options, os.path.join(tmp, "shell", "plugins"), script=script)
+def start_watch(source, script=SCAN):
+    return subprocess.Popen([sys.executable, script, "--watch-core", source], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=ENV)
+
+
+def kill_process(proc):
+    if proc.poll() is None:
+        proc.kill()
     try:
-        return proc.returncode, json.loads(proc.stdout)[0]
-    except (ValueError, IndexError):
-        return proc.returncode, None
+        proc.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait(timeout=2)
 
 
-def core_source_rows(script=SCAN, quiet=False):
-    """Each core source row's verdict, run against SCRIPT, then the rows
-    for a scan with no --core-source and for a tree that cannot be read."""
-    results = []
-    tree = {"requirements.json": "[]", "shell/shell.qml": "ShellRoot {}", "shell/Ui/Card.qml": "Item {}", "shell/Ui/plugins/Deep.qml": "Item {}",
-            "shell/plugins/a/manifest.json": MANIFEST, "shell/plugins/a/Widget.qml": "Item {}"}
-    for name, edit, want_changed in CORE_SOURCE_ROWS:
-        with tempfile.TemporaryDirectory() as tmp:
-            plant(tmp, tree)
-            source = os.path.join(tmp, "shell")
-            status, before = core_element(tmp, script, "--core-source", source)
-            plant(source, edit)
-            _, after = core_element(tmp, script, "--core-source", source)
-            revisions = [e.get("revision") if e is not None else None for e in (before, after)]
-            good = status == 0 and all(isinstance(r, str) and len(r) == 64 for r in revisions) and (revisions[0] != revisions[1]) == want_changed
-            results.append(good if quiet else report(name, good, f" (exit={status} revisions={revisions})"))
-    with tempfile.TemporaryDirectory() as tmp:
-        plant(tmp, tree)
-        status, element = core_element(tmp, script)
-        good = status == 0 and element is not None and "core" in element and "revision" not in element
-        results.append(good if quiet else report("a scan with no --core-source carries no core revision", good, f" (exit={status} element={element})"))
-        locked = os.path.join(tmp, "shell", "Ui", "Card.qml")
-        os.chmod(locked, 0o000)
+def read_revision(proc, timeout=2):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        ready, _, _ = select.select([proc.stdout], [], [], max(0, deadline - time.monotonic()))
+        if not ready:
+            break
+        line = proc.stdout.readline()
+        if line == "":
+            break
         try:
-            status, element = core_element(tmp, script, "--core-source", os.path.join(tmp, "shell"))
-        finally:
-            os.chmod(locked, 0o644)
-        good = status == 0 and element is not None and element.get("error", "").startswith("cannot read core source: ") and element.get("path") == locked
-        results.append(good if quiet else report("an unreadable core file is an error element in the core element's place", good, f" (exit={status} element={element})"))
+            revision = json.loads(line)["revision"]
+        except (ValueError, KeyError, TypeError):
+            return None
+        if isinstance(revision, str) and len(revision) == 64:
+            return revision
+        return None
+    kill_process(proc)
+    return None
+
+
+def no_revision(proc, timeout=0.3):
+    ready, _, _ = select.select([proc.stdout], [], [], timeout)
+    return not ready
+
+
+def wait_success(proc, timeout=2):
+    try:
+        return proc.wait(timeout=timeout) == 0
+    except subprocess.TimeoutExpired:
+        kill_process(proc)
+        return False
+
+
+def fresh_revision(source, script):
+    proc = start_watch(source, script)
+    revision = read_revision(proc)
+    kill_process(proc)
+    return revision
+
+
+def append_text(path, text):
+    with open(path, "a", encoding="utf-8") as fh:
+        fh.write(text)
+
+
+def watch_rows(script=SCAN, quiet=False):
+    results = []
+    with temp_dir() as tmp:
+        plant(tmp, WATCH_TREE)
+        source = os.path.join(tmp, "shell")
+        proc = start_watch(source, script)
+        armed = read_revision(proc)
+        append_text(os.path.join(source, "Ui", "Card.qml"), "Item { property int edited: 1 }\n")
+        changed = read_revision(proc)
+        good = armed is not None and changed is not None and changed != armed and wait_success(proc)
+        results.append(good if quiet else report("an append to an existing core file prints a new revision and exits", good, f" (armed={armed} changed={changed})"))
+    with temp_dir() as tmp:
+        plant(tmp, WATCH_TREE)
+        source = os.path.join(tmp, "shell")
+        proc = start_watch(source, script)
+        armed = read_revision(proc)
+        os.makedirs(os.path.join(source, "New"))
+        empty_directory_quiet = no_revision(proc)
+        with open(os.path.join(source, "New", "Type.qml"), "w", encoding="utf-8") as fh:
+            fh.write("Item {}\n")
+        changed = read_revision(proc)
+        good = armed is not None and empty_directory_quiet and changed is not None and changed != armed and wait_success(proc)
+        results.append(good if quiet else report("a file created in a new subdirectory after arming is seen", good, f" (armed={armed} changed={changed} quiet={empty_directory_quiet})"))
+    with temp_dir() as tmp:
+        plant(tmp, WATCH_TREE)
+        source = os.path.join(tmp, "shell")
+        proc = start_watch(source, script)
+        armed = read_revision(proc)
+        append_text(os.path.join(source, "plugins", "a", "Widget.qml"), "Item { property int pluginOnly: 1 }\n")
+        quiet_after_plugin = no_revision(proc)
+        after_plugin = fresh_revision(source, script)
+        append_text(os.path.join(source, "Ui", "Card.qml"), "Item { property int core: 1 }\n")
+        changed = read_revision(proc)
+        final_revision = fresh_revision(source, script)
+        good = armed is not None and quiet_after_plugin and after_plugin == armed and changed == final_revision and wait_success(proc)
+        results.append(good if quiet else report("an edit under top-level plugins is neither watched nor hashed", good,
+                                                 f" (armed={armed} after_plugin={after_plugin} changed={changed} final={final_revision} quiet={quiet_after_plugin})"))
+    with temp_dir() as tmp:
+        missing = os.path.join(tmp, "absent")
+        proc = scan("--watch-core", missing, script=script)
+        good = proc.returncode == 1 and proc.stdout == "" and proc.stderr.startswith("vgshell-scan: core-watch=failed")
+        results.append(good if quiet else report("an absent core watch directory fails with a stable key", good, f" (exit={proc.returncode})\n{proc.stderr}"))
     return results
 
 
-CORE_SOURCE_NEEDLE = 'source_revision(source_files(source, skip=("plugins",)))'
-
-
-def core_source_controls():
-    """The core source rows must fail on a scanner that hashes no core
-    file, on one that hashes the plugins directory with the core, and on
-    one that skips a `plugins` directory at every depth."""
+def watch_controls():
+    """The watch rows fail when the watcher hashes no core file, hashes the
+    plugins directory too, or never re-adds watches for new directories."""
     return [
-        mutant_control("the core source rows fail on a scanner that hashes no core file", CORE_SOURCE_NEEDLE, "source_revision([])", core_source_rows),
-        mutant_control("the core source rows fail on a scanner that hashes the plugins with the core", CORE_SOURCE_NEEDLE, "source_revision(source_files(source))", core_source_rows),
-        mutant_control("the core source rows fail on a scanner that skips plugins at every depth", "yield from source_files(directory, path, ancestors + (identity,))", "yield from source_files(directory, path, ancestors + (identity,), skip)", core_source_rows),
+        mutant_control("the watch rows fail on a watcher that hashes no core file", "return source_revision(source_files(directory, skip=(\"plugins\",)))", "return source_revision([])", watch_rows),
+        mutant_control("the watch rows fail on a watcher that hashes plugins with the core", "return source_revision(source_files(directory, skip=(\"plugins\",)))", "return source_revision(source_files(directory))", watch_rows),
+        mutant_control("the watch rows fail on a watcher that never adds new directory watches", "            arm_core_watch(fd, libc, ctypes, directory, False)\n", "", watch_rows),
     ]
 
 
@@ -382,7 +446,7 @@ sys.stderr.write(json.dumps({"status": status, "urllib.request": "urllib.request
 def url_spelling_rows(script=SCAN, quiet=False):
     """The URL spelling row, run against SCRIPT: pathlib's as_uri, which the
     scanner must not call, is the oracle."""
-    with tempfile.TemporaryDirectory() as tmp:
+    with temp_dir() as tmp:
         plant(tmp, {"plugins/a/manifest.json": MANIFEST})
         root = os.path.join(tmp, AWKWARD_ROOT)
         entry = one_entry(scan("--snapshot-dir", root, os.path.join(tmp, "plugins"), script=script))
@@ -393,7 +457,7 @@ def url_spelling_rows(script=SCAN, quiet=False):
 
 def url_import_rows(script=SCAN, quiet=False):
     """The import row, run against SCRIPT in a child interpreter."""
-    with tempfile.TemporaryDirectory() as tmp:
+    with temp_dir() as tmp:
         plant(tmp, {"plugins/a/manifest.json": MANIFEST})
         base = os.path.join(tmp, "plugins")
         # -I keeps the child's imports to the interpreter's own: no user
@@ -421,31 +485,34 @@ def url_import_control():
     when it publishes a snapshot. The mutant imports the module itself, so
     the control holds on every Python, whatever as_uri imports there."""
     return mutant_control("the import row fails on a scanner that imports urllib.request",
-                          "    return file_url(str(pathlib.Path(destination).absolute()))",
-                          "    import urllib.request\n    return file_url(str(pathlib.Path(destination).absolute()))", url_import_rows)
+                          "    return file_url(os.path.abspath(destination))",
+                          "    import urllib.request\n    return file_url(os.path.abspath(destination))", url_import_rows)
 
 
 def main():
     if os.geteuid() == 0:
         print("status=not-measured reason=euid-0")
         return 77
-    results = [run_row(*row) for row in ROWS]
-    results += revision_rows()
-    results += probe_rows()
-    results.append(probe_control())
-    results += core_rows()
-    results.append(core_control())
-    results += core_source_rows()
-    results += core_source_controls()
-    results += url_spelling_rows()
-    results += url_import_rows()
-    results.append(url_quote_control())
-    results.append(url_import_control())
-    if all(results):
-        print("test-vgshell-scan: ok")
-        return 0
-    print("test-vgshell-scan: failing")
-    return 1
+    try:
+        results = [run_row(*row) for row in ROWS]
+        results += revision_rows()
+        results += probe_rows()
+        results.append(probe_control())
+        results += core_rows()
+        results.append(core_control())
+        results += watch_rows()
+        results += watch_controls()
+        results += url_spelling_rows()
+        results += url_import_rows()
+        results.append(url_quote_control())
+        results.append(url_import_control())
+        if all(results):
+            print("test-vgshell-scan: ok")
+            return 0
+        print("test-vgshell-scan: failing")
+        return 1
+    finally:
+        shutil.rmtree(TMP_PARENT, ignore_errors=True)
 
 
 if __name__ == "__main__":

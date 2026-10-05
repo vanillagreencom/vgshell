@@ -53,16 +53,19 @@ Singleton {
     // is one of `errors`.
     property var coreRequirements: []
     property var coreMissing: []
-    // The core's source revision, the scan's hash of the shell's own files
-    // without plugins/: as the first scan that read it found it, and as the
-    // last one did. A scan that could not read it moves neither.
+    // The core's source revision, from the watcher that hashes the shell's
+    // own files without plugins/: as it armed, and as the later change it
+    // saw. An edit between the engine's start and the watch's arming is not
+    // seen.
     property string startCoreRevision: ""
     property string coreRevision: ""
-    // Whether the shell's own files changed on disk since the first scan.
+    // Whether the shell's own files changed on disk since the watcher armed.
     // The engine keeps the types it read at its start, so a plugin a later
-    // scan publishes can name one this process does not have. An edit
-    // between the engine's start and the first scan is not seen.
-    readonly property bool coreChanged: coreRevision !== startCoreRevision
+    // scan publishes can name one this process does not have.
+    readonly property bool coreChanged: startCoreRevision !== "" && coreRevision !== startCoreRevision
+    // The watcher is the only owner of the core revision. If it cannot
+    // judge, builds stay ungated and the listing reports why.
+    property string coreWatchError: ""
     // Whose requirements a notice can list, by owner id: every plugin's
     // manifest as its settings apply it (activeManifestOf) and the core's
     // owner, PluginLogic.coreOwner; and each owner's missing commands.
@@ -117,7 +120,7 @@ Singleton {
             rescanPending = true;
             return { answer: "busy", scan: requirementsRevision + 2 };
         }
-        const command = [Quickshell.shellDir + "/../bin/vgshell-scan", "--core", coreRequirementsFile, "--core-source", Quickshell.shellDir, "--snapshot-dir", sourceDir];
+        const command = [Quickshell.shellDir + "/../bin/vgshell-scan", "--core", coreRequirementsFile, "--snapshot-dir", sourceDir];
         const keep = Object.create(null);
         for (const id of Object.keys(manifests)) keep[manifests[id].__revision] = true;
         for (const revision of Plugins.liveRevisions()) keep[revision] = true;
@@ -151,7 +154,6 @@ Singleton {
         const error = Logic.requirementsError(list);
         if (error !== "") return { requirements: [], error: "core requirements: " + error };
         if (!Array.isArray(entry.missing)) return { requirements: [], error: "core requirements carry no missing list" };
-        if (typeof entry.revision !== "string" || entry.revision === "") return { requirements: [], error: "core carries no source revision" };
         return { requirements: Logic.normalRequirements(list), error: "" };
     }
 
@@ -170,7 +172,6 @@ Singleton {
         const cols = [];
         let nextCore = [];
         let nextCoreMissing = [];
-        let nextCoreRevision = "";
         for (const entry of entries) {
             if (entry.error !== undefined) { errs.push({ dir: entry.dir, error: entry.error }); continue; }
             if (entry.core !== undefined) {
@@ -178,7 +179,6 @@ Singleton {
                 if (core.error !== "") { errs.push({ dir: entry.core, error: core.error }); continue; }
                 nextCore = core.requirements;
                 nextCoreMissing = entry.missing;
-                nextCoreRevision = entry.revision;
                 continue;
             }
             let raw;
@@ -201,7 +201,8 @@ Singleton {
             nextMissing[r.manifest.id] = entry.missing;
         }
         for (const e of errs) console.error("plugins: " + e.dir + ": " + e.error);
-        const isChanged = JSON.stringify(next) !== JSON.stringify(root.manifests);
+        const mapChanged = JSON.stringify(next) !== JSON.stringify(root.manifests);
+        const isChanged = mapChanged && !root.coreChanged;
         if (JSON.stringify(cols) !== JSON.stringify(root.collisions))
             for (const c of cols) console.warn("plugins: hidden by a higher-precedence plugin with the same id: " + c);
         root.errors = errs;
@@ -212,12 +213,6 @@ Singleton {
         if (JSON.stringify(nextMissing) !== JSON.stringify(root.missingCommands)) root.missingCommands = nextMissing;
         if (JSON.stringify(nextCore) !== JSON.stringify(root.coreRequirements)) root.coreRequirements = nextCore;
         if (JSON.stringify(nextCoreMissing) !== JSON.stringify(root.coreMissing)) root.coreMissing = nextCoreMissing;
-        // Before the map too, so a build this scan's plugins fail reads
-        // this scan's core.
-        if (nextCoreRevision !== "") {
-            if (root.startCoreRevision === "") root.startCoreRevision = nextCoreRevision;
-            root.coreRevision = nextCoreRevision;
-        }
         if (isChanged) root.manifests = next;
         // `scanned` gates every slot key, so it moves after the map.
         root.scanned = true;
@@ -225,6 +220,29 @@ Singleton {
         // One line per completed scan, the smoke's readback for a scan that
         // changed nothing and so leaves no other trace.
         console.info("plugins: scan complete changed=" + isChanged);
+        if (mapChanged && root.coreChanged) console.info("plugins: scan held reason=core-changed");
+    }
+
+    function applyCoreRevision(line) {
+        let entry;
+        try {
+            entry = JSON.parse(line);
+        } catch (e) {
+            coreWatchFailed("output does not parse: " + e.message);
+            return;
+        }
+        if (typeof entry.revision !== "string" || entry.revision === "") {
+            coreWatchFailed("output carries no revision");
+            return;
+        }
+        if (startCoreRevision === "") startCoreRevision = entry.revision;
+        coreRevision = entry.revision;
+    }
+
+    function coreWatchFailed(error) {
+        if (coreWatchError !== "") return;
+        coreWatchError = error;
+        console.error("plugins: core watch failed: " + error);
     }
 
     Process {
@@ -245,6 +263,24 @@ Singleton {
                 root.rescanPending = false;
                 root.rescan();
             }
+        }
+    }
+
+    Process {
+        id: coreWatch
+        property var completion: null
+        stdout: SplitParser { onRead: line => root.applyCoreRevision(line) }
+        stderr: StdioCollector { id: coreWatchErrors }
+        onExited: (code, status) => { coreWatch.completion = { code: code, status: status }; }
+        onRunningChanged: {
+            if (running) return;
+            if (root.coreChanged) return;
+            if (coreWatch.completion === null)
+                root.coreWatchFailed("vgshell-scan did not start");
+            else if (coreWatch.completion.code !== 0 || coreWatch.completion.status !== 0)
+                root.coreWatchFailed("vgshell-scan exited " + coreWatch.completion.code + " status=" + coreWatch.completion.status + (coreWatchErrors.text === "" ? "" : ": " + coreWatchErrors.text.trim()));
+            else
+                root.coreWatchFailed("vgshell-scan exited before a core change");
         }
     }
 
@@ -443,10 +479,15 @@ Singleton {
         }));
         // Before the first scan no id is known, so none is reported unknown.
         const unknown = scanned ? Logic.unknownIds(Config.effective, manifests) : [];
+        const watchError = coreWatchError === "" ? [] : [{ dir: Quickshell.shellDir, error: coreWatchError }];
         const extra = hyprlandProblems.map(p => ({ dir: p.dir, error: p.error }))
             .concat(menu.conflicts.map(c => ({ dir: manifests[c.plugin].__sourceDir, error: menuConflictText(c) })));
-        return JSON.stringify({ plugins: rows, errors: errors.concat(extra), collisions: collisions, unknown: unknown, scanError: scanError, scanned: scanned, config: { ready: Config.ready, shipped: Config.shippedState, user: Config.userState } });
+        return JSON.stringify({ plugins: rows, errors: errors.concat(extra, watchError), collisions: collisions, unknown: unknown, scanError: scanError, scanned: scanned, config: { ready: Config.ready, shipped: Config.shippedState, user: Config.userState } });
     }
 
-    Component.onCompleted: rescan()
+    Component.onCompleted: {
+        coreWatch.command = [Quickshell.shellDir + "/../bin/vgshell-scan", "--watch-core", Quickshell.shellDir];
+        coreWatch.running = true;
+        rescan();
+    }
 }

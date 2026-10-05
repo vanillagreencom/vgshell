@@ -7,7 +7,8 @@ Validation is not done here: the shell's PluginLogic.js is the one judge of
 a manifest, and this script only reads bytes and probes PATH for the
 commands a manifest declares.
 
-  vgshell-scan [--require-base] [--core FILE [--core-source DIR]] [--snapshot-dir ROOT [--retain REVISION]...] BASE...
+  vgshell-scan [--require-base] [--core FILE] [--snapshot-dir ROOT [--retain REVISION]...] BASE...
+  vgshell-scan --watch-core DIR
 
 A plugin element is `{"dir", "text", "revision", "missing"}`, plus
 `"loadUrl"` under --snapshot-dir. The revision is a SHA-256 over every
@@ -31,12 +32,15 @@ with the plugins that declare it. Its element comes first,
 element like a plugin's. The shell judges the text as it judges a
 manifest's `requirements` list.
 
---core-source names the core's own source tree, shell/, and adds `revision`
-to the core element: the same hash as a plugin's, over every file under DIR
-except its top-level `plugins` directory, which the bases cover. The shell
-compares it with the one its first scan read to tell whether its own files
-changed under it. A tree that cannot be read is an error element
-`cannot read core source` in the core element's place.
+--watch-core watches the core's own source tree, shell/, with inotify and
+prints one JSON line holding its source revision, the same hash as a
+plugin's over every file under DIR except its top-level `plugins`
+directory. It arms directory watches first, then hashes, then prints
+`{"revision": "<hash>"}` and waits. After an inotify batch it re-adds
+watches for the current directories and hashes again. A different revision
+is printed and the process exits 0. A file that vanishes during a rehash is
+left for the next inotify batch. A setup failure prints one stderr line
+beginning `vgshell-scan: core-watch=failed` and exits 1.
 
 --snapshot-dir publishes each plugin's files under ROOT/<revision>/, written
 once and never changed, and `loadUrl` is that directory's file:// URL. The
@@ -61,12 +65,8 @@ import argparse
 import hashlib
 import json
 import os
-import pathlib
-import shutil
 import stat
 import sys
-import tempfile
-import urllib.parse
 
 
 def source_files(directory, relative="", ancestors=(), skip=()):
@@ -114,12 +114,17 @@ def file_url(path):
     `python3 -X importtime` on Python 3.14.7, and the mean of twenty scans
     of the bundled plugins fell from 46 to 35 ms without it on host cachy.
     The shell's first bar waits for its first scan."""
+    import urllib.parse
+
     return "file://" + urllib.parse.quote(path, encoding=sys.getfilesystemencoding(), errors=sys.getfilesystemencodeerrors())
 
 
 def publish_source(root, revision, files):
     """Publish one tree under ROOT/<revision>, whole or not at all: a
     directory that exists holds this revision's bytes already."""
+    import shutil
+    import tempfile
+
     destination = os.path.join(root, revision)
     if not os.path.isdir(destination):
         os.makedirs(root, mode=0o700, exist_ok=True)
@@ -135,7 +140,7 @@ def publish_source(root, revision, files):
         finally:
             if os.path.isdir(temporary):
                 shutil.rmtree(temporary)
-    return file_url(str(pathlib.Path(destination).absolute()))
+    return file_url(os.path.abspath(destination))
 
 
 def declared_commands(text, core=False):
@@ -161,13 +166,15 @@ def missing_commands(text, probed, core=False):
     missing = []
     for command in declared_commands(text, core):
         if command not in probed:
+            import shutil
+
             probed[command] = shutil.which(command) is not None
         if not probed[command] and command not in missing:
             missing.append(command)
     return missing
 
 
-def scan_core(path, source, out, probed):
+def scan_core(path, out, probed):
     try:
         with open(path, "rb") as fh:
             text = fh.read().decode("utf-8")
@@ -177,14 +184,7 @@ def scan_core(path, source, out, probed):
     except UnicodeDecodeError as exc:
         out.append({"dir": path, "path": path, "error": f"core requirements are not UTF-8: {exc.reason} at byte {exc.start}"})
         return
-    entry = {"core": path, "text": text, "missing": missing_commands(text, probed, core=True)}
-    if source is not None:
-        try:
-            entry["revision"] = source_revision(source_files(source, skip=("plugins",)))
-        except OSError as exc:
-            out.append({"dir": source, "path": exc.filename, "error": f"cannot read core source: {exc.strerror}"})
-            return
-    out.append(entry)
+    out.append({"core": path, "text": text, "missing": missing_commands(text, probed, core=True)})
 
 
 def scan_base(base, out, require_base, snapshot_dir, probed):
@@ -244,6 +244,8 @@ def scan_base(base, out, require_base, snapshot_dir, probed):
 def prune_snapshots(root, keep, out):
     """Remove every directory under ROOT not in `keep`. Half-written
     trees a crashed scan left behind go the same way."""
+    import shutil
+
     try:
         names = os.listdir(root)
     except FileNotFoundError:
@@ -261,23 +263,131 @@ def prune_snapshots(root, keep, out):
             out.append({"dir": root, "path": exc.filename or path, "error": f"cannot prune sources: {exc.strerror}"})
 
 
+def core_revision(directory):
+    return source_revision(source_files(directory, skip=("plugins",)))
+
+
+def core_watch_dirs(directory, strict):
+    """Every directory the core watcher needs, excluding DIR/plugins. In
+    strict mode an unreadable directory is a setup failure; after startup,
+    a concurrent removal is left for the next inotify batch."""
+    root = os.path.abspath(directory)
+    pending = [("", ())]
+    while pending:
+        relative, ancestors = pending.pop()
+        full = os.path.join(root, relative)
+        try:
+            here = os.stat(full)
+            identity = (here.st_dev, here.st_ino)
+            if identity in ancestors:
+                raise OSError(0, "directory cycle", full)
+            names = sorted(os.listdir(full))
+        except OSError:
+            if strict:
+                raise
+            continue
+        yield full
+        for name in reversed(names):
+            if relative == "" and name == "plugins":
+                continue
+            child_relative = os.path.join(relative, name)
+            child = os.path.join(root, child_relative)
+            try:
+                mode = os.stat(child).st_mode
+            except OSError:
+                if strict:
+                    raise
+                continue
+            if stat.S_ISDIR(mode):
+                pending.append((child_relative, ancestors + (identity,)))
+
+
+def inotify_open():
+    import ctypes
+
+    libc = ctypes.CDLL(None, use_errno=True)
+    fd = libc.inotify_init1(0o2000000)
+    if fd == -1:
+        err = ctypes.get_errno()
+        raise OSError(err, os.strerror(err))
+    return fd, libc, ctypes
+
+
+def inotify_add(libc, ctypes, fd, path):
+    mask = 0x00000002 | 0x00000004 | 0x00000008 | 0x00000040 | 0x00000080 | 0x00000100 | 0x00000200 | 0x00000400 | 0x00000800
+    watch = libc.inotify_add_watch(fd, os.fsencode(path), mask)
+    if watch == -1:
+        err = ctypes.get_errno()
+        raise OSError(err, os.strerror(err), path)
+
+
+def arm_core_watch(fd, libc, ctypes, directory, strict):
+    for path in core_watch_dirs(directory, strict):
+        try:
+            inotify_add(libc, ctypes, fd, path)
+        except OSError:
+            if strict:
+                raise
+
+
+def core_watch_fail(reason, exc):
+    text = exc.strerror if isinstance(exc, OSError) and exc.strerror else str(exc)
+    path = getattr(exc, "filename", None)
+    suffix = f" path={path}" if path else ""
+    print(f"vgshell-scan: core-watch=failed reason={reason}{suffix}: {text}", file=sys.stderr)
+    return 1
+
+
+def watch_core(directory):
+    fd = None
+    try:
+        fd, libc, ctypes = inotify_open()
+    except OSError as exc:
+        return core_watch_fail("init", exc)
+    try:
+        try:
+            arm_core_watch(fd, libc, ctypes, directory, True)
+            armed = core_revision(directory)
+        except OSError as exc:
+            return core_watch_fail("setup", exc)
+        print(json.dumps({"revision": armed}), flush=True)
+        while True:
+            try:
+                os.read(fd, 65536)
+            except InterruptedError:
+                continue
+            arm_core_watch(fd, libc, ctypes, directory, False)
+            try:
+                changed = core_revision(directory)
+            except OSError:
+                continue
+            if changed != armed:
+                print(json.dumps({"revision": changed}), flush=True)
+                return 0
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
 def main(argv):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--require-base", action="store_true")
     parser.add_argument("--core")
-    parser.add_argument("--core-source")
+    parser.add_argument("--watch-core")
     parser.add_argument("--snapshot-dir")
     parser.add_argument("--retain", action="append", default=[])
     parser.add_argument("bases", nargs="*")
     args = parser.parse_args(argv[1:])
+    if args.watch_core:
+        if args.require_base or args.core or args.snapshot_dir or args.retain or args.bases:
+            parser.error("--watch-core cannot be combined with scan options or BASE")
+        return watch_core(args.watch_core)
     if args.retain and not args.snapshot_dir:
         parser.error("--retain needs --snapshot-dir")
-    if args.core_source and not args.core:
-        parser.error("--core-source needs --core")
     out = []
     probed = {}
     if args.core:
-        scan_core(args.core, args.core_source, out, probed)
+        scan_core(args.core, out, probed)
     for base in args.bases:
         scan_base(base, out, args.require_base, args.snapshot_dir, probed)
     if args.snapshot_dir and not any("error" in entry for entry in out):

@@ -57,15 +57,15 @@ Singleton {
     property var consentState: null
     // The welcome-seen marker's state, one of PluginLogic.WELCOME_STATES.
     property string welcome: "reading"
-    // Whether the restart notice is owed: the engine could not load a
-    // plugin's files while Registry.coreChanged, from then until the user
-    // answers it.
+    // Whether the restart notice is owed: the core changed on disk, or a
+    // first build was refused because a restart is owed, from then until
+    // the user answers it.
     property bool restart: false
     // What the restart notice draws, in the consent slot's form. Restart is
     // the click; the command it runs is only behind Show command (D061).
     readonly property var restartView: ({
-        title: "Restart VGS to finish the update",
-        message: "VGS changed on disk while it was running, and a plugin that needs the new version could not open. A restart loads it. Your open windows stay.",
+        title: "Restart to update",
+        message: "VGS changed on disk. Plugins keep running as they are. New plugin windows wait for the restart. Open windows stay open.",
         lines: [],
         disclosure: "vgshell restart",
         actions: [{ label: "Restart", role: "accept" }, { label: "Not now", role: "cancel" }],
@@ -117,6 +117,10 @@ Singleton {
     // callbacks it was due for; the install's callback settles that one.
     Connections {
         target: Registry
+        function onCoreChangedChanged() {
+            if (Registry.coreChanged) root.restartOwed();
+        }
+
         function onScanFinished() {
             root.settle();
             const revision = Registry.requirementsRevision;
@@ -265,20 +269,18 @@ Singleton {
         });
     }
 
-    // The engine could not load a plugin's files, as Plugins.createInstance
-    // reports it. With the shell's own files changed since its start the
-    // cause may be a type this process never read, which only a restart
-    // loads, so the restart notice is owed. Over an unchanged core it
-    // raises nothing, and no other build failure reaches here.
-    function loadFailed() {
-        if (Registry.coreChanged) restart = true;
+    // The notice logs only when it changes from closed to owed, so Not now
+    // can close it until the next refused first build raises it again.
+    function restartOwed() {
+        if (restart) return;
+        restart = true;
+        console.info("notices: restart=owed");
     }
 
     // Restart: `vgshell restart`, the one route that stops the runner and has
     // Hyprland start the next shell (runtime.md § Process). It runs
     // detached, since it must outlive the shell it stops, so a restart that
-    // refuses reports nothing back and leaves this shell running; the next
-    // failed load raises the notice again.
+    // refuses reports nothing back and leaves this shell running.
     function restartShell() {
         if (!showingRestart) return;
         restart = false;
@@ -288,7 +290,7 @@ Singleton {
 
     // Not now, Escape or Close: the shown notice goes, and its owner's own
     // offers rest; a `doctor` request, the user's press, never rests. The
-    // restart notice goes until the next failed load.
+    // restart notice goes until another refused first build raises it.
     function dismiss() {
         const notice = current;
         if (notice === null) {

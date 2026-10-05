@@ -36,9 +36,12 @@ Singleton {
     // later entry keeps its own settings. Not a binding input; read and
     // replaced only by the reconciler.
     property var mounts: Object.create(null)
-    // JSON [hostKey, kind, id] -> { id, kind, revision, screenName, error, load }:
+    // Entry URLs the engine compiled in this process. A compiled URL is
+    // served from the engine cache after the core changes; a first build is
+    // refused because it would compile changed core files from disk.
+    property var compiledUrls: Object.create(null)
+    // JSON [hostKey, kind, id] -> { id, kind, revision, screenName, error }:
     // the source revision whose build failed at that address and why,
-    // `load` true when the engine could not load its files. A
     // settings change cannot repair code. The plugin manager lists `error`.
     // A source change or screen removal expires the record. Stored screen
     // names survive the destruction of the screen objects they identify.
@@ -125,25 +128,28 @@ Singleton {
     // turns nested lists into non-Array sequences. Returns the attempt's
     // built, refused or failed state. A failure in the plugin's
     // own code is remembered for this host, kind and id; a refusal on
-    // enablement or lending is not, since either can change independently.
-    // Files the engine could not load are what a shell older than its
-    // plugin shows, so Notices hears of each such failure when it is
-    // recorded, and again on each summon the record refuses: a summonable
-    // kind is built only when the user asks for it.
+    // enablement, lending or restart debt is not, since each can change
+    // independently.
     function createInstance(id, kind, parent, hostKey, layoutEntry, context, screen, locator) {
         const manifest = Registry.manifests[id];
         if (manifest === undefined) { console.error("plugins: unknown: " + id); return { state: "refused" }; }
         const key = JSON.stringify([hostKey, kind, id]);
-        if (failedRevision(hostKey, kind, id) === manifest.__revision) {
-            if (failedBuilds[key].load && Logic.SUMMONABLE_KINDS.indexOf(kind) !== -1) Notices.loadFailed();
-            return { state: "failed" };
+        if (failedRevision(hostKey, kind, id) === manifest.__revision) return { state: "failed" };
+        const restart = restartRefusal(id, kind);
+        if (restart !== "") {
+            console.info("plugins: " + id + " " + kind + " not built: restart=owed");
+            Notices.restartOwed();
+            return { state: "refused" };
         }
         const result = attemptInstance(id, kind, parent, hostKey, layoutEntry, context, screen, locator);
-        if (result.state === "failed") {
+        if (result.state === "failed")
             rememberFailure(key, id, kind, manifest.__revision, screen, result);
-            if (result.load) Notices.loadFailed();
-        }
         return result;
+    }
+
+    function restartRefusal(id, kind) {
+        const url = Registry.entryUrl(id, kind);
+        return Registry.coreChanged && url !== "" && !Logic.hasOwn(compiledUrls, url) ? "refused: restart=owed" : "";
     }
 
     function failedRevision(hostKey, kind, id) {
@@ -153,20 +159,19 @@ Singleton {
 
     function rememberFailure(key, id, kind, revision, screen, failure) {
         const failures = Object.assign(Object.create(null), failedBuilds);
-        failures[key] = { id: id, kind: kind, revision: revision, screenName: screen ? screen.name : null, error: failure.error, load: failure.load };
+        failures[key] = { id: id, kind: kind, revision: revision, screenName: screen ? screen.name : null, error: failure.error };
         failedBuilds = failures;
     }
 
     // One build attempt: { state: "built", instance }, { state: "refused" }
     // when enablement or exclusive lending stands in the way, or
-    // { state: "failed", error, load } when the plugin's manifest or code
-    // does, `error` being the logged cause without the plugin's id and
-    // `load` true when the engine could not load the entry point's files.
+    // { state: "failed", error } when the plugin's manifest or code does,
+    // `error` being the logged cause without the plugin's id.
     function attemptInstance(id, kind, parent, hostKey, layoutEntry, context, screen, locator) {
         const refused = { state: "refused" };
-        const failed = (error, load) => {
+        const failed = error => {
             console.error("plugins: " + id + " " + error);
-            return { state: "failed", error: error, load: load === true };
+            return { state: "failed", error: error };
         };
         const enable = Registry.enableRefusal(id);
         if (enable !== "") { console.error("plugins: " + enable); return refused; }
@@ -176,7 +181,8 @@ Singleton {
         const lent = Logic.lendRefusal(Capabilities.exclusiveHolders(), manifest);
         if (lent !== "") { console.error("plugins: " + id + " " + lent); return refused; }
         const component = Qt.createComponent(url);
-        if (component.status !== Component.Ready) return failed("failed to load: " + component.errorString(), true);
+        if (component.status !== Component.Ready) return failed("failed to load: " + component.errorString());
+        compiledUrls[url] = true;
         const instance = component.createObject(parent);
         if (instance === null) return failed("created no object");
         if (!(instance instanceof Item)) {
@@ -458,6 +464,11 @@ Singleton {
         const refusal = Registry.buildRefusal(id);
         if (refusal !== "") return refusal;
         if (!Registry.paneRows.some(row => row.id === id)) return "unknown: " + id;
+        const restart = restartRefusal(id, "pane");
+        if (restart !== "") {
+            Notices.restartOwed();
+            return restart;
+        }
         return paneHost.mount(ctx, id, container, payloadJson);
     }
 
@@ -473,6 +484,11 @@ Singleton {
         if (verb === "hide") return hosts[kind].hide(id);
         const refusal = Registry.buildRefusal(id);
         if (refusal !== "") return refusal;
+        const restart = restartRefusal(id, kind);
+        if (restart !== "") {
+            Notices.restartOwed();
+            return restart;
+        }
         return hosts[kind][verb](id, payloadJson, origin || null);
     }
 
