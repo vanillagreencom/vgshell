@@ -45,7 +45,8 @@ trap cleanup EXIT
 # later; STUB_SHELL_HOLD makes it sleep that long; STUB_PLAN, words of
 # SECONDS:STATUS, makes the Nth shell a runner starts sleep the Nth word's
 # seconds and exit its status, the last word serving every later shell;
-# otherwise it exits STUB_EXIT.
+# otherwise it exits STUB_EXIT. Before its record it writes STUB_RECORD.apps:
+# `yes` when the user's applications directory exists as it starts.
 cat >"$tmp/qs" <<'EOF'
 #!/usr/bin/env bash
 if [[ ${1:-} == --version ]]; then echo "Quickshell 0.3.1"; exit 0; fi
@@ -62,6 +63,7 @@ lockfds=0
 for fd in /proc/$$/fd/*; do
   [[ $(readlink -- "$fd" 2>/dev/null) == "${STUB_LOCK:?}" ]] && lockfds=$((lockfds + 1))
 done
+if [[ -d ${XDG_DATA_HOME:-$HOME/.local/share}/applications ]]; then echo yes; else echo no; fi >"$STUB_RECORD.apps"
 printf 'pid=%s runner=%s parent=%s lockfds=%s\n' "$$" "${VGSHELL_RUNNER_PID:-unset}" "$PPID" "$lockfds" >"$STUB_RECORD.part"
 mv -- "$STUB_RECORD.part" "$STUB_RECORD"
 if [[ -n ${STUB_CHILD_GATE:-} ]]; then
@@ -210,6 +212,15 @@ identity() { # BIN
     "$([[ $lock_pid == "$shell" ]] && echo shell || echo "other:$lock_pid")" \
     "$([[ $runner_env == "$shell" ]] && echo shell || echo "other:$runner_env")" \
     "$([[ $parent == "$runner" ]] && echo runner || echo "other:$parent")" "$fds" "$held"
+}
+# Whether the user's applications directory exists when the shell starts,
+# under a data directory no earlier run made.
+apps_dir() { # BIN
+  new_rt
+  run_bg "$1" "$rt" XDG_DATA_HOME="$rt/data" STUB_SHELL_HOLD=20 || { echo "no-shell"; return; }
+  printf 'apps=%s\n' "$(<"$rt/record.apps")"
+  kill -KILL "$shell" "$runner" 2>/dev/null || true
+  wait "$runner" 2>/dev/null || true
 }
 # SIGNAL to the runner of a shell that exits at once on TERM: the runner's
 # status and the shell's state once the runner ended.
@@ -512,6 +523,7 @@ gave_up_want="status=3 launches=6 delays=0.1,0.2,0.3,0.4,0.5 gave_up=[vgshell: s
 # rows: name | verdict function and its arguments after BIN | the verdict | BIN
 rows=(
   "the lock file and VGSHELL_RUNNER_PID name the shell, the runner's child, which holds no descriptor on the held lock|identity|lock=shell env=shell parent=runner lockfds=0 lock=held|$repo/bin/vgshell"
+  "the user's applications directory exists when the shell starts, so the desktop entry index watches it|apps_dir|apps=yes|$repo/bin/vgshell"
   "TERM to the runner stops the shell and the runner exits with its status|signalled TERM|status=143 shell=ended lock=free|$repo/bin/vgshell"
   "INT to the runner reaches the shell as TERM|signalled INT|status=143 shell=ended lock=free|$repo/bin/vgshell"
   "a runner whose wait a TERM interrupts waits on until the shell ended and exits with its status|slow_stop|status=7 shell=ended|$repo/bin/vgshell"
@@ -570,6 +582,8 @@ control() {
 }
 control pid-from-runner "printf '%s\\n' \"\$BASHPID\" >&9" "printf '%s\\n' \"\$\$\" >&9" \
   identity "lock=shell env=shell parent=runner lockfds=0 lock=held"
+control no-applications-dir '"$rt_dir/vgshell/tui" "$data_home/applications" 9>&-' '"$rt_dir/vgshell/tui" 9>&-' \
+  apps_dir "apps=yes"
 control inherited-lock '    exec 9>&-' '    :' \
   identity "lock=shell env=shell parent=runner lockfds=0 lock=held"
 control inherited-lock-left-behind '    exec 9>&-' '    :' \

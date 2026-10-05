@@ -2027,12 +2027,15 @@ process.stdin.setEncoding("utf8").on("data", d => { text += d; }).on("end", () =
 # emptied first, since the child appends its pid through descriptor 9.
 shell_launch() {
   local stale
-  # The shell watches files in both directories and the floating TUIs'
-  # exit records in the third from its start. A watch on a file whose
+  # The shell watches files in the first two directories and the floating
+  # TUIs' exit records in the third from its start. A watch on a file whose
   # directory is absent never fires once the directory appears, and a
   # folder listing of an absent directory lists the working directory:
-  # docs/architecture/runtime-qml.md.
-  mkdir -p -- "$config_home/vgshell" "$state_home/vgshell" "$rt_dir/vgshell/tui" 9>&-
+  # docs/architecture/runtime-qml.md. Quickshell 0.3.1's desktop entry
+  # index watches only the applications directories that exist when it
+  # first scans (src/core/desktopentrymonitor.cpp), so an entry written to
+  # the user's applications directory made after that is never listed.
+  mkdir -p -- "$config_home/vgshell" "$state_home/vgshell" "$rt_dir/vgshell/tui" "$data_home/applications" 9>&-
   truncate -s 0 -- "$lock" 9>&-
   # The lock proves no runner-started shell is alive, so every source
   # snapshot root under the runtime dir belongs to a dead shell.
