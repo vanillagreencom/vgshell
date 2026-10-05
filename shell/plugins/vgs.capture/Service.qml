@@ -139,13 +139,8 @@ Item {
     }
 
     function windowRectangles() {
-        const active = [];
-        for (const monitor of Hyprland.monitors.values) {
-            if (monitor.activeWorkspace !== null) active.push(monitor.activeWorkspace.id);
-            const special = monitor.lastIpcObject === null ? undefined : monitor.lastIpcObject.specialWorkspace;
-            if (special !== undefined && special.id !== 0) active.push(special.id);
-        }
-        return Hyprland.toplevels.values.map(t => t.lastIpcObject).filter(window => window !== null && window.mapped && !window.hidden && active.indexOf(window.workspace.id) >= 0 && window.size[0] > 0 && window.size[1] > 0).map(window => ({ x: window.at[0], y: window.at[1], width: window.size[0], height: window.size[1], address: window.address, focus: window.focusHistoryID }));
+        const monitors = Hyprland.monitors.values.map(m => m.lastIpcObject).filter(m => m !== null);
+        return Hyprland.toplevels.values.map(t => t.lastIpcObject).filter(window => window !== null && window.mapped && !window.hidden && shell.compositor.onScreen(window, monitors) && window.size[0] > 0 && window.size[1] > 0).map(window => ({ x: window.at[0], y: window.at[1], width: window.size[0], height: window.size[1], address: window.address, focus: window.focusHistoryID }));
     }
 
     function outputRectangles() {

@@ -339,6 +339,78 @@ expect_poll "the completed screenshot keeps its clipboard provider alive" True c
 expect "capture takes the selected area" ok ipc vgs.capture invoke screenshot-area ''
 expect_poll "capture finishes the selected area" idle capture_phase
 expect "area geometry reaches grim unchanged" "['-g', '10,20 80x60']" capture_geometry
+# A background group tab remains mapped and unhidden. Only the drawn tab
+# may reach the selector, even though both tabs have the same rectangle.
+open_toplevel "$sandbox/capture-group-one.log" smoke.capture-group "Capture group one" || fail "capture: the first group tab did not map"
+capture_group_one_pid="$toplevel_pid"
+capture_group_one="$(toplevel_address "$capture_group_one_pid")"
+expect "the first capture tab receives focus" ok hypr dispatch "hl.dsp.focus({ window = \"address:$capture_group_one\" })"
+expect "the first capture tab becomes a group" ok hypr dispatch "hl.dsp.group.toggle({ window = \"address:$capture_group_one\" })"
+open_toplevel "$sandbox/capture-group-two.log" smoke.capture-group "Capture group two" || fail "capture: the second group tab did not map"
+capture_group_two_pid="$toplevel_pid"
+capture_group_two="$(toplevel_address "$capture_group_two_pid")"
+expect "the second capture tab stays current" ok hypr dispatch "hl.dsp.focus({ window = \"address:$capture_group_two\" })"
+capture_group_state() { hypr -j clients | py_reply 'import json,sys
+rows=json.load(sys.stdin)
+a=next(r for r in rows if r["address"]==sys.argv[1]); b=next(r for r in rows if r["address"]==sys.argv[2])
+print(set(a["grouped"])=={a["address"],b["address"]} and set(b["grouped"])=={a["address"],b["address"]} and a["mapped"] and b["mapped"] and not a["hidden"] and not b["hidden"] and not a["visible"] and b["visible"] and a["at"]==b["at"] and a["size"]==b["size"])' "$capture_group_one" "$capture_group_two"; }
+capture_group_advertised() {
+  local clients
+  clients="$(hypr -j clients)" || return 1
+  python3 - "$capture_state/slurp-input" "$clients" "$capture_group_one" "$capture_group_two" <<'PY'
+from pathlib import Path
+import json, sys
+path = Path(sys.argv[1])
+rows = json.loads(sys.argv[2])
+a = next(row for row in rows if row["address"] == sys.argv[3])
+b = next(row for row in rows if row["address"] == sys.argv[4])
+rectangle = "%d,%d %dx%d" % (*b["at"], *b["size"])
+print(a["at"] == b["at"] and a["size"] == b["size"] and not a["visible"] and b["visible"] and path.is_file() and path.read_text().splitlines().count(rectangle) == 1)
+PY
+}
+expect_poll "capture's group has one drawn and one mapped background tab" True capture_group_state
+for capture_group_action in screenshot-area screenshot-window; do
+  rm -f -- "${capture_state:?}/slurp-input"
+  expect "capture selects the current group tab through $capture_group_action" ok ipc vgs.capture invoke "$capture_group_action" ''
+  expect_poll "the $capture_group_action group selection finishes" idle capture_phase
+  expect "the $capture_group_action offers the drawn group rectangle once" True capture_group_advertised
+  expect "the $capture_group_action leaves the group tab unchanged" True capture_group_state
+done
+capture_group_service="$repo/shell/plugins/vgs.capture/Service.qml"
+expect "capture stops before the group-tab visibility control" ok ipc shell setPluginEnabled vgs.capture false
+expect_poll "the group-tab control releases the original service" False record_exists vgs.capture
+python3 - "$capture_group_service" "$sandbox" "$capture_state/group-service-original.qml" <<'PY'
+from pathlib import Path
+import sys
+service, sandbox, original = map(Path, sys.argv[1:])
+assert service.resolve().is_relative_to(sandbox.resolve()), "group-tab control must stay inside the sandbox"
+source = service.read_text()
+original.write_text(source)
+before = " && shell.compositor.onScreen(window, monitors)"
+assert source.count(before) == 1, "group-tab visibility control match"
+changed = source.replace(before, "")
+assert changed != source
+service.write_text(changed)
+PY
+rescan "the dropped group-tab visibility check is rescanned"
+expect "capture enables the group-tab visibility control" ok ipc shell setPluginEnabled vgs.capture true
+expect_poll "the group-tab visibility control is built" True record_exists vgs.capture
+for capture_group_action in screenshot-area screenshot-window; do
+  expect "control: the background tab remains a mapped hidden-false tab" True capture_group_state
+  rm -f -- "${capture_state:?}/slurp-input"
+  expect "control: $capture_group_action runs without the on-screen check" ok ipc vgs.capture invoke "$capture_group_action" ''
+  expect_poll "control: the $capture_group_action group selection finishes" idle capture_phase
+  expect "control: advertising the background tab fails the $capture_group_action rectangle readback" False capture_group_advertised
+  expect "control: the $capture_group_action keeps the same group tab current" True capture_group_state
+done
+expect "capture stops after the group-tab visibility control" ok ipc shell setPluginEnabled vgs.capture false
+expect_poll "the group-tab visibility control releases its service" False record_exists vgs.capture
+cp -- "$capture_state/group-service-original.qml" "$capture_group_service"
+rescan "the original group-tab visibility check is rescanned"
+expect "capture enables the restored group-tab service" ok ipc shell setPluginEnabled vgs.capture true
+expect_poll "the restored group-tab service is built" True record_exists vgs.capture
+close_toplevel "$capture_group_two_pid" "capture's current group tab closes"
+close_toplevel "$capture_group_one_pid" "capture's background group tab closes"
 capture_before="$(capture_counts)"
 expect "earlier capture notices expire before cancellation" 0 capture_wait_toasts
 capture_config cancel true

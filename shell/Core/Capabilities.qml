@@ -111,6 +111,7 @@ Singleton {
                 out[name] = (...args) => Compositor.send(name, args);
             out.reveal = (addresses, awaitSender) => Compositor.reveal(addresses, awaitSender);
             out.padWorkspace = name => Dispatch.padWorkspace(name);
+            out.onScreen = (window, monitors) => Dispatch.onScreen(window, monitors);
             out.togglePad = (name, screen, done) => Compositor.togglePad(name, screen, typeof done !== "function" ? null : answer => { if (ctx.active) done(answer); });
             out.observeInput = (point, done) => {
                 if (!ctx.active) return;

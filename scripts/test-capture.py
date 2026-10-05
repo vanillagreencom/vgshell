@@ -23,6 +23,68 @@ FIXTURE = REPO / "scripts/smoke/fixtures/capture/tools.py"
 TOOLS = ("grim", "slurp", "hyprpicker", "tesseract", "wl-copy", "gpu-screen-recorder")
 
 
+def service_rectangles():
+    """Hyprland's undrawn group tab must not reach either screenshot selector."""
+    service = (HELPER.parent.parent / "Service.qml").read_text()
+    capabilities = (REPO / "shell/Core/Capabilities.qml").read_text()
+    start, end = "    function windowRectangles() {\n", "\n    }\n\n    function outputRectangles()"
+    assert service.count(start) == service.count(end) == 1, "window rectangle function boundary"
+    body = service.split(start)[1].split(end)[0]
+    start, end = "        compositor: ctx => {\n", "\n        },\n        configure:"
+    assert capabilities.count(start) == capabilities.count(end) == 1, "compositor provider boundary"
+    factory = capabilities.split(start)[1].split(end)[0]
+    before = " && shell.compositor.onScreen(window, monitors)"
+    assert body.count(before) == 1, "service drawn-window control"
+    no_query = body.replace(before, "")
+    before = "out.onScreen = (window, monitors) => Dispatch.onScreen(window, monitors);"
+    assert factory.count(before) == 1, "compositor drawn-window control"
+    no_delegate = factory.replace(before, "out.onScreen = (window, monitors) => true;")
+    assert no_query != body and no_delegate != factory
+    program = r'''
+const path = require("path");
+const input = JSON.parse(process.argv[1]);
+const Dispatch = require(path.join(input.repo, "bin/lib/qml-library.js")).load(path.join(input.repo, "shell/Core/Dispatch.js"));
+const base = { mapped: true, hidden: false, visible: true, monitor: 0, workspace: { id: 1, name: "1" }, at: [10, 20], size: [80, 60], focusHistoryID: 0 };
+const clients = [
+    { ...base, address: "shown" },
+    { ...base, address: "group-background", visible: false },
+    { ...base, address: "other-workspace", workspace: { id: 2, name: "2" } },
+    { ...base, address: "covered-regular", monitor: 1, workspace: { id: 2, name: "2" } },
+    { ...base, address: "shown-special", monitor: 1, workspace: { id: -3, name: "special:pad" } },
+    { ...base, address: "closed-special", workspace: { id: -4, name: "special:closed" } },
+    { ...base, address: "unmapped", mapped: false },
+    { ...base, address: "hidden", hidden: true },
+    { ...base, address: "zero-width", size: [0, 60] },
+    { ...base, address: "zero-height", size: [80, 0] },
+];
+const monitors = [
+    { id: 0, activeWorkspace: { id: 1 }, specialWorkspace: { id: 0, name: "" } },
+    { id: 1, activeWorkspace: { id: 2 }, specialWorkspace: { id: -3, name: "special:pad" } },
+];
+function addresses(body, factory) {
+    const compositor = new Function("Dispatch", "Compositor", "ctx", factory)(Dispatch, {}, { active: true });
+    const Hyprland = {
+        monitors: { values: [...monitors, null].map(lastIpcObject => ({ lastIpcObject })) },
+        toplevels: { values: [...clients, null].map(lastIpcObject => ({ lastIpcObject })) },
+    };
+    return new Function("Hyprland", "shell", body)(Hyprland, { compositor }).map(window => window.address);
+}
+const expected = JSON.stringify(["shown", "shown-special"]);
+console.log(JSON.stringify([
+    addresses(input.body, input.factory),
+    JSON.stringify(addresses(input.no_query, input.factory)) === expected,
+    JSON.stringify(addresses(input.body, input.no_delegate)) === expected,
+]));
+'''
+    payload = dict(repo=str(REPO), body=body, factory=factory, no_query=no_query, no_delegate=no_delegate)
+    result = subprocess.run(["node", "-e", program, json.dumps(payload)], stdin=subprocess.DEVNULL, capture_output=True, text=True, env={"PATH": os.defpath, "LC_ALL": "C"}, timeout=10)
+    assert result.returncode == 0, result.stderr
+    actual, query_control, delegate_control = json.loads(result.stdout)
+    assert actual == ["shown", "shown-special"], ("drawn screenshot windows", actual)
+    assert not query_control, "omitting the drawn-window query must fail the same candidate readback"
+    assert not delegate_control, "bypassing Dispatch.onScreen must fail the same candidate readback"
+
+
 def plant(root, config):
     """Put stand-ins first on PATH; each reads the same fixture world."""
     root.mkdir(parents=True, exist_ok=True)
@@ -464,6 +526,7 @@ def main():
         real, output, width, height, display, runtime = sys.argv[2:]
         config = {"real": {"grim": real}, "display": display, "runtime": runtime}
         dimensions = (int(width), int(height))
+    service_rectangles()
     with tempfile.TemporaryDirectory(prefix="capture-test-", dir=REPO / "tmp") as temp:
         base = Path(temp).resolve()
         def world(name, **extra):
@@ -610,7 +673,7 @@ def main():
         helper.write_text(source.replace(before, "if False:"))
         root = world("unowned-child")
         assert not killed_owner_holds(root, request(root, "record"), config, helper), "control did not fail: unowned child"
-    print("test-capture: pass; controls=raw-ocr-error,no-output,no-clipboard,hard-stop,inherited-stdin,kept-freeze,unowned-child,invalid-delay-accepted,invalid-timeout-accepted,invalid-processing-accepted,empty-selection-accepted,empty-displays-accepted,smart-snap,window-boxes,display-boxes,all-bounds,no-scale,no-rotation,no-cursor,copy-saves,save-copies,no-delay,delay-ignores-cancel,no-timeout,no-selection-end")
+    print("test-capture: pass; controls=undrawn-windows,drawn-window-delegate,raw-ocr-error,no-output,no-clipboard,hard-stop,inherited-stdin,kept-freeze,unowned-child,invalid-delay-accepted,invalid-timeout-accepted,invalid-processing-accepted,empty-selection-accepted,empty-displays-accepted,smart-snap,window-boxes,display-boxes,all-bounds,no-scale,no-rotation,no-cursor,copy-saves,save-copies,no-delay,delay-ignores-cancel,no-timeout,no-selection-end")
 
 
 if __name__ == "__main__":
