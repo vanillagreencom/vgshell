@@ -1,0 +1,171 @@
+#!/bin/bash
+# Auth + target preflight
+# Usage: ./linear.sh auth-check [--strict]
+# Returns: {"ok": true/false, "team": ..., "team_source": ..., "writes_enabled": ...}
+# Exit 0 when the selected credential works. With --strict, requires a target
+# for writes that need a configured team. Existing-issue writes use the issue team.
+
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+show_help() {
+    cat <<'EOF'
+Auth + target preflight
+
+Usage: auth-check [--strict]
+
+Reports credential validity, its actor, the resolved Linear team, and its source.
+Credential precedence: pre-minted app token, app pair, personal key.
+Run this before the first mutation that needs a configured team in a project.
+Existing-issue writes use the issue team without a configured target.
+
+Options:
+  --strict    Exit 1 when no target is configured for writes that need a
+              configured team
+
+Fields:
+  ok                Selected credential is set and the API answered
+  credential        app-token | app | api-key | incomplete-app | unset
+  actor             {kind: application | user, id, name}, or null
+  team              Resolved team name, or null
+  team_source       environment | project-config | unset
+  team_source_file  Project file that set the resolved team, or null
+  api_key_source    override | project-config | environment | unset
+  writes_enabled    Whether writes that need a configured team have a target
+  warnings          Configuration hazards found
+EOF
+}
+
+case "${1:-}" in help|--help|-h) show_help; exit 0 ;; esac
+source "$SCRIPT_DIR/../lib/common.sh"
+
+strict=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+  --strict)
+    strict=1
+    shift
+    ;;
+  --help | -h)
+    show_help
+    exit 0
+    ;;
+  *)
+    echo "{\"error\": \"Unknown option: $1. Run --help for valid options.\"}" >&2
+    exit 1
+    ;;
+  esac
+done
+
+# Which file this project keeps its secrets in, resolved through the one
+# owner of that question. Reading .env.local by name would source a file no
+# package loads once a project names another one: stale shell content runs
+# on this account, and both the provenance and the advice below would point
+# a person at a file that decides nothing. Unconditional, because common.sh
+# exits when no repository resolves, and a name this refuses is one no
+# package would load either.
+kendex_private_env_file private_env_file "$PROJECT_ROOT" || exit 1
+
+# Team declared by project files, read independently of the process environment
+# so a box-global export that shadows project config is visible here.
+project_declared_team=""
+if [[ -n "$PROJECT_ROOT" ]]; then
+  project_declared_team="$(
+    unset LINEAR_TEAM
+    # Command substitution does not inherit errexit, so a refused load must
+    # exit here explicitly — reading LINEAR_TEAM off a partially loaded file
+    # would report provenance from a file the loader rejected.
+    kendex_load_settings_file "$PROJECT_ROOT/kendex.settings.toml" || exit 1
+    kendex_load_settings_file "$PROJECT_ROOT/.kendex/settings.toml" || exit 1
+    kendex_source_env_file "$PROJECT_ROOT/$private_env_file" || exit 1
+    printf '%s' "${LINEAR_TEAM:-}"
+  )" || project_declared_team=""
+fi
+
+team_source_file=""
+if [[ -n "$PROJECT_ROOT" ]]; then
+  for candidate in kendex.settings.toml .kendex/settings.toml "$private_env_file"; do
+    [[ -f "$PROJECT_ROOT/$candidate" ]] || continue
+    if grep -Eq '^[[:space:]]*(export[[:space:]]+)?LINEAR_TEAM[[:space:]]*=' "$PROJECT_ROOT/$candidate"; then
+      team_source_file="$candidate"
+    fi
+  done
+fi
+
+warnings=()
+
+if [[ -z "$LINEAR_TEAM_TARGET" ]]; then
+  # Nothing resolved, so no file is the source of the target.
+  team_source_file=""
+  warnings+=("No LINEAR_TEAM configured: writes that need a configured team are refused. Set LINEAR_TEAM in kendex.settings.toml [env] (committed, non-secret) or $private_env_file.")
+  if [[ "${LINEAR_TEAM_ENV_BLANK:-0}" == "1" && -n "$project_declared_team" ]]; then
+    warnings+=("LINEAR_TEAM is exported as an empty value, which overrides the project value (\"$project_declared_team\"). Unset it in the environment to use project configuration.")
+  fi
+elif [[ "$LINEAR_TEAM_SOURCE" == "environment" ]]; then
+  team_source_file=""
+  if [[ -n "$project_declared_team" && "$project_declared_team" != "$LINEAR_TEAM_TARGET" ]]; then
+    warnings+=("LINEAR_TEAM from the process environment (\"$LINEAR_TEAM_TARGET\") overrides the project value (\"$project_declared_team\"). Writes that need a configured team use the environment value.")
+  fi
+fi
+
+if [[ "$LINEAR_AUTH_KIND" == "api-key" ]]; then
+  if [[ -z "$LINEAR_TEAM_TARGET" && "$LINEAR_API_KEY_SOURCE" == "environment" ]]; then
+    warnings+=("LINEAR_API_KEY comes from the process environment (a machine-wide key reaches every workspace it owns) while this project names no team. Until LINEAR_TEAM is set, this project has no Linear target of its own.")
+  fi
+  if [[ "${LINEAR_API_KEY_ENV_SHADOWED:-0}" == "1" ]]; then
+    warnings+=("inherited LINEAR_API_KEY (sha256:$LINEAR_API_KEY_ENV_FINGERPRINT) differs from the project-config key (sha256:$LINEAR_API_KEY_PROJECT_FINGERPRINT); using project-config — unset the global export if unintended")
+  fi
+fi
+
+actor='null'
+emit() {
+  local ok="$1"
+  local error="${2:-}"
+  local writes_enabled="false"
+  [[ -n "$LINEAR_TEAM_TARGET" ]] && writes_enabled="true"
+
+  jq -cn \
+    --argjson ok "$ok" \
+    --arg error "$error" \
+    --arg team "$LINEAR_TEAM_TARGET" \
+    --arg team_source "$LINEAR_TEAM_SOURCE" \
+    --arg team_source_file "$team_source_file" \
+    --arg api_key_source "$LINEAR_API_KEY_SOURCE" \
+    --arg credential "$LINEAR_AUTH_KIND" \
+    --argjson actor "$actor" \
+    --argjson writes_enabled "$writes_enabled" \
+    --args \
+    '{ok: $ok}
+     + (if $error == "" then {} else {error: $error} end)
+     + {
+         team: (if $team == "" then null else $team end),
+         team_source: $team_source,
+         team_source_file: (if $team_source_file == "" then null else $team_source_file end),
+         api_key_source: $api_key_source,
+         credential: $credential,
+         actor: $actor,
+         writes_enabled: $writes_enabled,
+         warnings: $ARGS.positional
+       }' "${warnings[@]+"${warnings[@]}"}"
+}
+
+if ! linear_check_credentials; then
+  emit false "Linear credentials missing or incomplete"
+  exit 1
+fi
+
+result=$(graphql_query "{ viewer { id name } }" "{}") || {
+  emit false "API request failed"
+  exit 1
+}
+
+viewer_id=$(echo "$result" | jq -r '.viewer.id // empty')
+if [[ -z "$viewer_id" ]]; then
+  emit false "Invalid Linear credential"
+  exit 1
+fi
+
+actor=$(jq -c --arg kind "$LINEAR_AUTH_KIND" '{kind: (if $kind == "app" or $kind == "app-token" then "application" else "user" end), id: .viewer.id, name: .viewer.name}' <<<"$result")
+emit true
+if ((strict)) && [[ -z "$LINEAR_TEAM_TARGET" ]]; then
+  exit 1
+fi

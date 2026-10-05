@@ -1,0 +1,98 @@
+[env]
+
+# The checks that run before a commit lands, and the limit each one holds.
+
+# Which checks run, separated by spaces. The value shown here is the default
+# set; delete a name to turn that one off. The comments check is a further
+# one a project adds by name, and commit-msg never runs in this batch. What
+# each name refuses is in the skill's CHECKS.md.
+COMMIT_GUARDS_CHECKS = "todo-ban byte-ceiling suppression-ban conflict-markers changelog-entries prose md-format md-refs py-names secrets"
+
+# Kilobytes one tracked file may reach before a commit carrying it is
+# refused. A file already over the limit may stay that size or shrink, but
+# never grow. Asset folders are carved out through the byte-excludes list.
+COMMIT_GUARDS_BYTE_CEILING_KB = "200"
+
+# Percent of that ceiling, 1-100, at which a file is reported as near it.
+# The notice names the file while a split is still cheap, before a later
+# commit meets the ceiling, and does not fail the run. A value above 100
+# would switch the notice off, so it is refused.
+COMMIT_GUARDS_BYTE_WARN_PCT = "90"
+
+# The file recording which oversized files may stay, and the size each one
+# keeps. A missing file means no exemptions at all, so every oversized file
+# fails the sweep.
+COMMIT_GUARDS_BYTE_BASELINE = "tools/byte-ceiling-baseline"
+
+# Where changelog fragments live, as path patterns separated by spaces. Each
+# matching file must be one short markdown list item under a changelog
+# section folder. A pattern matching nothing passes, so a project with no
+# fragments needs no change here.
+COMMIT_GUARDS_CHANGELOG_PATHS = "changelog.d/*/*.md"
+
+# The changelog those fragments are folded into at release time. Ordinary
+# checks allow edits to it. Empty turns the folding off.
+COMMIT_GUARDS_CHANGELOG_RECORD = "CHANGELOG.md"
+
+# Which files oblige a changelog entry, as path patterns separated by
+# spaces. A commit touching one must add a fragment, fold the record, or
+# say [no-changelog] in its subject line. Empty turns the rule off.
+COMMIT_GUARDS_CHANGELOG_REQUIRED_PATHS = ""
+
+# How much markdown these two checks read when nothing tells them otherwise.
+# Under "touched" the formatting check reads the changed documents and the
+# link check reads every configured document whenever anything is staged.
+# "all" reads every matching file in the project, every time.
+# values: touched | all
+COMMIT_GUARDS_MD_SCOPE = "touched"
+
+# The markdown the formatting check reads in a full sweep, as path patterns
+# separated by spaces. The excludes list carves out files these patterns
+# would otherwise pull in.
+COMMIT_GUARDS_MD_PATHS = "*.md"
+
+# The markdown whose links are checked, as path patterns separated by
+# spaces. The value shown here covers the documents agents load and the
+# architecture docs. A link that leads nowhere refuses the commit.
+COMMIT_GUARDS_MD_REFS_PATHS = "AGENTS.md */AGENTS.md CLAUDE.md */CLAUDE.md SKILL.md */SKILL.md workflows/*.md */workflows/*.md agents/*.md */agents/*.md docs/architecture/*.md"
+
+# The source files whose comments, and a TOML file's string values too, are
+# checked for those same document links, as path patterns separated by
+# spaces. Unset uses the file extensions the skill ships; an explicitly
+# empty value is refused, so name a path or drop the check.
+# COMMIT_GUARDS_MD_REFS_SOURCE_PATHS = "*.rs *.sh"
+
+# The source files the comments check reads, as path patterns separated by
+# spaces. A value replaces the list of file extensions the skill ships; add
+# the shapes an extension cannot name, such as scripts with no suffix. An
+# explicitly empty value is refused, so name a path or drop the check.
+# COMMIT_GUARDS_COMMENT_PATHS = "*.rs *.sh hooks/* */scripts/*"
+
+# The file listing the generated and vendored folders whose comments this
+# project does not own. Each row names a pattern and the reason it is
+# skipped.
+COMMIT_GUARDS_COMMENT_EXCLUDES = "tools/comments-excludes"
+
+# Which references a comment may not carry, separated by spaces. Dates and
+# issue numbers written after a hash, such as #1234, are checked as shipped.
+# An ordinary number passes. Issue ids are checked only once the github
+# package's issue-id pattern is set.
+COMMIT_GUARDS_COMMENT_REFERENCE_TYPES = "issue-id issue-number date"
+
+# This project's own check, run last before a commit lands. Give the path to
+# an executable at the project root: a non-zero result blocks the commit,
+# and so does a path that is missing or not executable. Empty runs no extra
+# check.
+COMMIT_GUARDS_PRE_COMMIT_LOCAL = ""
+
+# The paths that project check reads, as path patterns separated by spaces
+# (`*` matches across folders). The check runs only for a commit that changes
+# one of them, and a skipped check prints `pre-commit: local-entry=skipped`.
+# Empty runs it on every commit.
+COMMIT_GUARDS_PRE_COMMIT_LOCAL_PATHS = ""
+
+# Command text the command-safety hook refuses before a shell runs it, as
+# a POSIX extended regular expression. The hook reads it through this
+# skill's settings loader where the command-safety bundle installs it. The
+# default matches only empty command text, so it refuses nothing.
+COMMAND_SAFETY_DENY_PATTERN = "^$"

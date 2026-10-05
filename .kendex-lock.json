@@ -1,0 +1,2103 @@
+{
+  "version": 11,
+  "entries": {
+    "hook:command-safety:claude": {
+      "name": "command-safety",
+      "kind": "hook",
+      "harness": "claude",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "b9da109efb7c9e1ce729b43bbdb6f47539ad435515aba7f184d950ceb3593f8d",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "32aca42779ae0b987ad7c8fcb2a1e2adcd21ebf6180332d03a061cb170bb69d3",
+      "enabled": true,
+      "emitted": {
+        "kind": "hook",
+        "name": "command-safety",
+        "paths": [
+          ".claude/hooks/command-safety.sh"
+        ]
+      },
+      "registration": {
+        "event": "PreToolUse",
+        "command": "[ -z \"${COPILOT_PROJECT_DIR-}\" ] || exit 0; bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/command-safety.sh\"",
+        "matcher": "Bash"
+      },
+      "reasons": [
+        {
+          "reason": "member-of",
+          "bundle": {
+            "source": "kendex",
+            "name": "command-safety"
+          }
+        }
+      ]
+    },
+    "hook:command-safety:codex": {
+      "name": "command-safety",
+      "kind": "hook",
+      "harness": "codex",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "b9da109efb7c9e1ce729b43bbdb6f47539ad435515aba7f184d950ceb3593f8d",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "32aca42779ae0b987ad7c8fcb2a1e2adcd21ebf6180332d03a061cb170bb69d3",
+      "enabled": true,
+      "emitted": {
+        "kind": "hook",
+        "name": "command-safety",
+        "paths": [
+          ".codex/hooks/command-safety.sh"
+        ]
+      },
+      "registration": {
+        "event": "PreToolUse",
+        "command": "p='.codex/hooks/command-safety.sh'; r=$({ cd -P . && pwd; } 2>/dev/null); case $r in /*) ;; *) r=;; esac; while [ -n \"$r\" ] && ! [ -f \"$r/$p\" ]; do [ \"$r\" = / ] && r= || { r=${r%/*}; [ -n \"$r\" ] || r=/; }; done; [ -n \"$r\" ] || { printf 'kendex-hook-missing: %s\\nNo directory above %s holds this script. Run kendex refresh in the project.\\n' \"$p\" \"$PWD\" >&2; exit 1; }; bash \"$r/$p\"",
+        "matcher": "Bash"
+      },
+      "reasons": [
+        {
+          "reason": "member-of",
+          "bundle": {
+            "source": "kendex",
+            "name": "command-safety"
+          }
+        }
+      ]
+    },
+    "hook:command-safety:copilot": {
+      "name": "command-safety",
+      "kind": "hook",
+      "harness": "copilot",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "b9da109efb7c9e1ce729b43bbdb6f47539ad435515aba7f184d950ceb3593f8d",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "32aca42779ae0b987ad7c8fcb2a1e2adcd21ebf6180332d03a061cb170bb69d3",
+      "enabled": true,
+      "emitted": {
+        "kind": "hook",
+        "name": "command-safety",
+        "paths": [
+          ".github/hooks/command-safety.sh"
+        ]
+      },
+      "registration": {
+        "event": "preToolUse",
+        "command": "p='.github/hooks/command-safety.sh'; r=$({ cd -P . && pwd; } 2>/dev/null); case $r in /*) ;; *) r=;; esac; while [ -n \"$r\" ] && ! [ -f \"$r/$p\" ]; do [ \"$r\" = / ] && r= || { r=${r%/*}; [ -n \"$r\" ] || r=/; }; done; [ -n \"$r\" ] || { printf 'kendex-hook-missing: %s\\nNo directory above %s holds this script. Run kendex refresh in the project.\\n' \"$p\" \"$PWD\" >&2; exit 1; }; o=$( { e=$(bash \"$r/$p\" 2>&1 >&3 3>&-); s=$?; [ -z \"$e\" ] || printf '%s\\n' \"$e\" >&2; printf '\\036'; [ \"$s\" != 2 ] || [ -z \"$e\" ] || printf '%s\\n' \"$e\" | awk 'BEGIN{for(i=1;i<32;i++)m[sprintf(\"%c\",i)]=sprintf(\"\\\\u%04x\",i);m[\"\\t\"]=\"\\\\t\";m[\"\\r\"]=\"\\\\r\";m[\"\\\\\"]=\"\\\\\\\\\";m[\"\\\"\"]=\"\\\\\\\"\";printf \"\\\"\"}{if(NR>1)printf \"\\\\n\";n=length($0);for(i=1;i<=n;i++){c=substr($0,i,1);printf \"%s\",((c in m)?m[c]:c)}}END{printf \"\\\"\"}'; exit \"$s\"; } 3>&1 ); s=$?; R=$(printf '\\036'); a=; case $o in *\"$R\"*) a=${o##*\"$R\"}; o=${o%\"$R\"*} ;; esac; case $o in *[![:space:]]*) printf '%s' \"$o\" ;; *) [ -z \"$a\" ] || printf '{\"permissionDecision\":\"deny\",\"permissionDecisionReason\":%s}\\n' \"$a\" ;; esac; exit \"$s\"",
+        "matcher": "bash|powershell"
+      },
+      "reasons": [
+        {
+          "reason": "member-of",
+          "bundle": {
+            "source": "kendex",
+            "name": "command-safety"
+          }
+        }
+      ]
+    },
+    "hook:command-safety:pi": {
+      "name": "command-safety",
+      "kind": "hook",
+      "harness": "pi",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "b9da109efb7c9e1ce729b43bbdb6f47539ad435515aba7f184d950ceb3593f8d",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "32aca42779ae0b987ad7c8fcb2a1e2adcd21ebf6180332d03a061cb170bb69d3",
+      "enabled": true,
+      "emitted": {
+        "kind": "hook",
+        "name": "command-safety",
+        "paths": [
+          ".pi/kendex/hooks/command-safety.sh"
+        ]
+      },
+      "registration": {
+        "event": "tool_call",
+        "command": "p='.pi/kendex/hooks/command-safety.sh'; r=$({ cd -P . && pwd; } 2>/dev/null); case $r in /*) ;; *) r=;; esac; while [ -n \"$r\" ] && ! [ -f \"$r/$p\" ]; do [ \"$r\" = / ] && r= || { r=${r%/*}; [ -n \"$r\" ] || r=/; }; done; [ -n \"$r\" ] || { printf 'kendex-hook-missing: %s\\nNo directory above %s holds this script. Run kendex refresh in the project.\\n' \"$p\" \"$PWD\" >&2; exit 1; }; bash \"$r/$p\"",
+        "matcher": "Bash"
+      },
+      "reasons": [
+        {
+          "reason": "member-of",
+          "bundle": {
+            "source": "kendex",
+            "name": "command-safety"
+          }
+        }
+      ]
+    },
+    "skill:code-quality:claude": {
+      "name": "code-quality",
+      "kind": "skill",
+      "harness": "claude",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "e7cace2c7d0f924918ef6d2a07c6d1ed8d6239f4098500c665a8637f358df4b3",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "2119eacd11f217834fe760512ddf65a92f0b32b49c836a71b5eba061b526700b",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "code-quality",
+        "paths": [
+          ".agents/skills/code-quality",
+          ".claude/skills/code-quality"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "dev",
+            "harness": "claude"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "reviewer",
+            "harness": "claude"
+          }
+        }
+      ]
+    },
+    "skill:code-quality:codex": {
+      "name": "code-quality",
+      "kind": "skill",
+      "harness": "codex",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "e7cace2c7d0f924918ef6d2a07c6d1ed8d6239f4098500c665a8637f358df4b3",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "2119eacd11f217834fe760512ddf65a92f0b32b49c836a71b5eba061b526700b",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "code-quality",
+        "paths": [
+          ".agents/skills/code-quality"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "dev",
+            "harness": "codex"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "reviewer",
+            "harness": "codex"
+          }
+        }
+      ]
+    },
+    "skill:code-quality:copilot": {
+      "name": "code-quality",
+      "kind": "skill",
+      "harness": "copilot",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "e7cace2c7d0f924918ef6d2a07c6d1ed8d6239f4098500c665a8637f358df4b3",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "2119eacd11f217834fe760512ddf65a92f0b32b49c836a71b5eba061b526700b",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "code-quality",
+        "paths": [
+          ".agents/skills/code-quality"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "dev",
+            "harness": "copilot"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "reviewer",
+            "harness": "copilot"
+          }
+        }
+      ]
+    },
+    "skill:code-quality:pi": {
+      "name": "code-quality",
+      "kind": "skill",
+      "harness": "pi",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "e7cace2c7d0f924918ef6d2a07c6d1ed8d6239f4098500c665a8637f358df4b3",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "2119eacd11f217834fe760512ddf65a92f0b32b49c836a71b5eba061b526700b",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "code-quality",
+        "paths": [
+          ".agents/skills/code-quality"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "dev",
+            "harness": "pi"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "reviewer",
+            "harness": "pi"
+          }
+        }
+      ]
+    },
+    "skill:commit-guards:claude": {
+      "name": "commit-guards",
+      "kind": "skill",
+      "harness": "claude",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "23ce3afe2d13ff46edfcfeb1fe6d79a06886639afd357a2609ecb34314dd491a",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "04b313199ef83d15c9ae4d8b1de4f18c33fcc0a41084351316998e95943b8ea9",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "commit-guards",
+        "paths": [
+          ".agents/skills/commit-guards",
+          ".claude/skills/commit-guards"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "harness-ci",
+            "harness": "claude"
+          }
+        },
+        {
+          "reason": "member-of",
+          "bundle": {
+            "source": "kendex",
+            "name": "command-safety"
+          }
+        }
+      ]
+    },
+    "skill:commit-guards:codex": {
+      "name": "commit-guards",
+      "kind": "skill",
+      "harness": "codex",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "23ce3afe2d13ff46edfcfeb1fe6d79a06886639afd357a2609ecb34314dd491a",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "04b313199ef83d15c9ae4d8b1de4f18c33fcc0a41084351316998e95943b8ea9",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "commit-guards",
+        "paths": [
+          ".agents/skills/commit-guards"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "harness-ci",
+            "harness": "codex"
+          }
+        },
+        {
+          "reason": "member-of",
+          "bundle": {
+            "source": "kendex",
+            "name": "command-safety"
+          }
+        }
+      ]
+    },
+    "skill:commit-guards:copilot": {
+      "name": "commit-guards",
+      "kind": "skill",
+      "harness": "copilot",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "23ce3afe2d13ff46edfcfeb1fe6d79a06886639afd357a2609ecb34314dd491a",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "04b313199ef83d15c9ae4d8b1de4f18c33fcc0a41084351316998e95943b8ea9",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "commit-guards",
+        "paths": [
+          ".agents/skills/commit-guards"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "harness-ci",
+            "harness": "copilot"
+          }
+        },
+        {
+          "reason": "member-of",
+          "bundle": {
+            "source": "kendex",
+            "name": "command-safety"
+          }
+        }
+      ]
+    },
+    "skill:commit-guards:pi": {
+      "name": "commit-guards",
+      "kind": "skill",
+      "harness": "pi",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "23ce3afe2d13ff46edfcfeb1fe6d79a06886639afd357a2609ecb34314dd491a",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "04b313199ef83d15c9ae4d8b1de4f18c33fcc0a41084351316998e95943b8ea9",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "commit-guards",
+        "paths": [
+          ".agents/skills/commit-guards"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "harness-ci",
+            "harness": "pi"
+          }
+        },
+        {
+          "reason": "member-of",
+          "bundle": {
+            "source": "kendex",
+            "name": "command-safety"
+          }
+        }
+      ]
+    },
+    "skill:decider:claude": {
+      "name": "decider",
+      "kind": "skill",
+      "harness": "claude",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "da5c7c5cbc64b3aad973d74992b1126d05349f4a6a59a2d1f95f662070b2e704",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "d78f59c0ef83ec291e65d5117cd2f1a49071761b0219d973c71acb9a0792858e",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "decider",
+        "paths": [
+          ".agents/skills/decider",
+          ".claude/skills/decider"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "dev",
+            "harness": "claude"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "docs-writing",
+            "harness": "claude"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "orch",
+            "harness": "claude"
+          }
+        }
+      ]
+    },
+    "skill:decider:codex": {
+      "name": "decider",
+      "kind": "skill",
+      "harness": "codex",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "da5c7c5cbc64b3aad973d74992b1126d05349f4a6a59a2d1f95f662070b2e704",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "d78f59c0ef83ec291e65d5117cd2f1a49071761b0219d973c71acb9a0792858e",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "decider",
+        "paths": [
+          ".agents/skills/decider"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "dev",
+            "harness": "codex"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "docs-writing",
+            "harness": "codex"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "orch",
+            "harness": "codex"
+          }
+        }
+      ]
+    },
+    "skill:decider:copilot": {
+      "name": "decider",
+      "kind": "skill",
+      "harness": "copilot",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "da5c7c5cbc64b3aad973d74992b1126d05349f4a6a59a2d1f95f662070b2e704",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "d78f59c0ef83ec291e65d5117cd2f1a49071761b0219d973c71acb9a0792858e",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "decider",
+        "paths": [
+          ".agents/skills/decider"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "dev",
+            "harness": "copilot"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "docs-writing",
+            "harness": "copilot"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "orch",
+            "harness": "copilot"
+          }
+        }
+      ]
+    },
+    "skill:decider:pi": {
+      "name": "decider",
+      "kind": "skill",
+      "harness": "pi",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "da5c7c5cbc64b3aad973d74992b1126d05349f4a6a59a2d1f95f662070b2e704",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "d78f59c0ef83ec291e65d5117cd2f1a49071761b0219d973c71acb9a0792858e",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "decider",
+        "paths": [
+          ".agents/skills/decider"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "dev",
+            "harness": "pi"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "docs-writing",
+            "harness": "pi"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "orch",
+            "harness": "pi"
+          }
+        }
+      ]
+    },
+    "skill:dev:claude": {
+      "name": "dev",
+      "kind": "skill",
+      "harness": "claude",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "aa197e73e0b70b2d7fa770026cdc8a85ce948c36063568bf88ccbcdee3a5fe2d",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "cd4162ad814b3660493f74eaf1938ebeb4ab679616c5890d55f0ac58b15da423",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "dev",
+        "paths": [
+          ".agents/skills/dev",
+          ".claude/skills/dev"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "orch",
+            "harness": "claude"
+          }
+        }
+      ]
+    },
+    "skill:dev:codex": {
+      "name": "dev",
+      "kind": "skill",
+      "harness": "codex",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "aa197e73e0b70b2d7fa770026cdc8a85ce948c36063568bf88ccbcdee3a5fe2d",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "cd4162ad814b3660493f74eaf1938ebeb4ab679616c5890d55f0ac58b15da423",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "dev",
+        "paths": [
+          ".agents/skills/dev"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "orch",
+            "harness": "codex"
+          }
+        }
+      ]
+    },
+    "skill:dev:copilot": {
+      "name": "dev",
+      "kind": "skill",
+      "harness": "copilot",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "aa197e73e0b70b2d7fa770026cdc8a85ce948c36063568bf88ccbcdee3a5fe2d",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "cd4162ad814b3660493f74eaf1938ebeb4ab679616c5890d55f0ac58b15da423",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "dev",
+        "paths": [
+          ".agents/skills/dev"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "orch",
+            "harness": "copilot"
+          }
+        }
+      ]
+    },
+    "skill:dev:pi": {
+      "name": "dev",
+      "kind": "skill",
+      "harness": "pi",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "aa197e73e0b70b2d7fa770026cdc8a85ce948c36063568bf88ccbcdee3a5fe2d",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "cd4162ad814b3660493f74eaf1938ebeb4ab679616c5890d55f0ac58b15da423",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "dev",
+        "paths": [
+          ".agents/skills/dev"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "orch",
+            "harness": "pi"
+          }
+        }
+      ]
+    },
+    "skill:docs-writing:claude": {
+      "name": "docs-writing",
+      "kind": "skill",
+      "harness": "claude",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "5f16792721bfa16aed945f67cd1687c37ec2668f9f352941d1c7b3051ef1720d",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "e85c1d5f69a6fcd3051aab48ac2b8a7857c27ddc761397ab11147545b73af4a5",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "docs-writing",
+        "paths": [
+          ".agents/skills/docs-writing",
+          ".claude/skills/docs-writing"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "requested"
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "code-quality",
+            "harness": "claude"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "reviewer",
+            "harness": "claude"
+          }
+        }
+      ]
+    },
+    "skill:docs-writing:codex": {
+      "name": "docs-writing",
+      "kind": "skill",
+      "harness": "codex",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "5f16792721bfa16aed945f67cd1687c37ec2668f9f352941d1c7b3051ef1720d",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "e85c1d5f69a6fcd3051aab48ac2b8a7857c27ddc761397ab11147545b73af4a5",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "docs-writing",
+        "paths": [
+          ".agents/skills/docs-writing"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "requested"
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "code-quality",
+            "harness": "codex"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "reviewer",
+            "harness": "codex"
+          }
+        }
+      ]
+    },
+    "skill:docs-writing:copilot": {
+      "name": "docs-writing",
+      "kind": "skill",
+      "harness": "copilot",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "5f16792721bfa16aed945f67cd1687c37ec2668f9f352941d1c7b3051ef1720d",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "e85c1d5f69a6fcd3051aab48ac2b8a7857c27ddc761397ab11147545b73af4a5",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "docs-writing",
+        "paths": [
+          ".agents/skills/docs-writing"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "requested"
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "code-quality",
+            "harness": "copilot"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "reviewer",
+            "harness": "copilot"
+          }
+        }
+      ]
+    },
+    "skill:docs-writing:pi": {
+      "name": "docs-writing",
+      "kind": "skill",
+      "harness": "pi",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "5f16792721bfa16aed945f67cd1687c37ec2668f9f352941d1c7b3051ef1720d",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "e85c1d5f69a6fcd3051aab48ac2b8a7857c27ddc761397ab11147545b73af4a5",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "docs-writing",
+        "paths": [
+          ".agents/skills/docs-writing"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "requested"
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "code-quality",
+            "harness": "pi"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "reviewer",
+            "harness": "pi"
+          }
+        }
+      ]
+    },
+    "skill:github:claude": {
+      "name": "github",
+      "kind": "skill",
+      "harness": "claude",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "52aba8e25418413ab20b97f27f08af386e485a94dfc66b6edbba610ca48ba9a3",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "2585e77da69f871ef9b2381ac283b3dba96f5427b753342622bd2bb593edc31b",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "github",
+        "paths": [
+          ".agents/skills/github",
+          ".claude/skills/github"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "dev",
+            "harness": "claude"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "orch",
+            "harness": "claude"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "project-management",
+            "harness": "claude"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "reviewer",
+            "harness": "claude"
+          }
+        }
+      ]
+    },
+    "skill:github:codex": {
+      "name": "github",
+      "kind": "skill",
+      "harness": "codex",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "52aba8e25418413ab20b97f27f08af386e485a94dfc66b6edbba610ca48ba9a3",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "2585e77da69f871ef9b2381ac283b3dba96f5427b753342622bd2bb593edc31b",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "github",
+        "paths": [
+          ".agents/skills/github"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "dev",
+            "harness": "codex"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "orch",
+            "harness": "codex"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "project-management",
+            "harness": "codex"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "reviewer",
+            "harness": "codex"
+          }
+        }
+      ]
+    },
+    "skill:github:copilot": {
+      "name": "github",
+      "kind": "skill",
+      "harness": "copilot",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "52aba8e25418413ab20b97f27f08af386e485a94dfc66b6edbba610ca48ba9a3",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "2585e77da69f871ef9b2381ac283b3dba96f5427b753342622bd2bb593edc31b",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "github",
+        "paths": [
+          ".agents/skills/github"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "dev",
+            "harness": "copilot"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "orch",
+            "harness": "copilot"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "project-management",
+            "harness": "copilot"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "reviewer",
+            "harness": "copilot"
+          }
+        }
+      ]
+    },
+    "skill:github:pi": {
+      "name": "github",
+      "kind": "skill",
+      "harness": "pi",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "52aba8e25418413ab20b97f27f08af386e485a94dfc66b6edbba610ca48ba9a3",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "2585e77da69f871ef9b2381ac283b3dba96f5427b753342622bd2bb593edc31b",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "github",
+        "paths": [
+          ".agents/skills/github"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "dev",
+            "harness": "pi"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "orch",
+            "harness": "pi"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "project-management",
+            "harness": "pi"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "reviewer",
+            "harness": "pi"
+          }
+        }
+      ]
+    },
+    "skill:harness-ci:claude": {
+      "name": "harness-ci",
+      "kind": "skill",
+      "harness": "claude",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "bbff3911f9acdd09822b5881de2749b700c2868cc13d96ca6959b341d88cab19",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "35872f7e2e194017ef8ac0262effd2f356d2f6816296b6fe2d7c679fd8261524",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "harness-ci",
+        "paths": [
+          ".agents/skills/harness-ci",
+          ".claude/skills/harness-ci"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "review-gate",
+            "harness": "claude"
+          }
+        }
+      ]
+    },
+    "skill:harness-ci:codex": {
+      "name": "harness-ci",
+      "kind": "skill",
+      "harness": "codex",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "bbff3911f9acdd09822b5881de2749b700c2868cc13d96ca6959b341d88cab19",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "35872f7e2e194017ef8ac0262effd2f356d2f6816296b6fe2d7c679fd8261524",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "harness-ci",
+        "paths": [
+          ".agents/skills/harness-ci"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "review-gate",
+            "harness": "codex"
+          }
+        }
+      ]
+    },
+    "skill:harness-ci:copilot": {
+      "name": "harness-ci",
+      "kind": "skill",
+      "harness": "copilot",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "bbff3911f9acdd09822b5881de2749b700c2868cc13d96ca6959b341d88cab19",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "35872f7e2e194017ef8ac0262effd2f356d2f6816296b6fe2d7c679fd8261524",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "harness-ci",
+        "paths": [
+          ".agents/skills/harness-ci"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "review-gate",
+            "harness": "copilot"
+          }
+        }
+      ]
+    },
+    "skill:harness-ci:pi": {
+      "name": "harness-ci",
+      "kind": "skill",
+      "harness": "pi",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "bbff3911f9acdd09822b5881de2749b700c2868cc13d96ca6959b341d88cab19",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "35872f7e2e194017ef8ac0262effd2f356d2f6816296b6fe2d7c679fd8261524",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "harness-ci",
+        "paths": [
+          ".agents/skills/harness-ci"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "review-gate",
+            "harness": "pi"
+          }
+        }
+      ]
+    },
+    "skill:linear:claude": {
+      "name": "linear",
+      "kind": "skill",
+      "harness": "claude",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "b8b9574e967c89c6518f9394cb7d3ada454e401eb067fc7021d7296baabc7c6d",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "cd14af8e8d2139b6a01677f9a5f18979dbd256bae89c4163621c36b24dc9b912",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "linear",
+        "paths": [
+          ".agents/skills/linear",
+          ".claude/skills/linear"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "requested"
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "project-management",
+            "harness": "claude"
+          }
+        }
+      ]
+    },
+    "skill:linear:codex": {
+      "name": "linear",
+      "kind": "skill",
+      "harness": "codex",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "b8b9574e967c89c6518f9394cb7d3ada454e401eb067fc7021d7296baabc7c6d",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "cd14af8e8d2139b6a01677f9a5f18979dbd256bae89c4163621c36b24dc9b912",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "linear",
+        "paths": [
+          ".agents/skills/linear"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "requested"
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "project-management",
+            "harness": "codex"
+          }
+        }
+      ]
+    },
+    "skill:linear:copilot": {
+      "name": "linear",
+      "kind": "skill",
+      "harness": "copilot",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "b8b9574e967c89c6518f9394cb7d3ada454e401eb067fc7021d7296baabc7c6d",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "cd14af8e8d2139b6a01677f9a5f18979dbd256bae89c4163621c36b24dc9b912",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "linear",
+        "paths": [
+          ".agents/skills/linear"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "requested"
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "project-management",
+            "harness": "copilot"
+          }
+        }
+      ]
+    },
+    "skill:linear:pi": {
+      "name": "linear",
+      "kind": "skill",
+      "harness": "pi",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "b8b9574e967c89c6518f9394cb7d3ada454e401eb067fc7021d7296baabc7c6d",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "cd14af8e8d2139b6a01677f9a5f18979dbd256bae89c4163621c36b24dc9b912",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "linear",
+        "paths": [
+          ".agents/skills/linear"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "requested"
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "project-management",
+            "harness": "pi"
+          }
+        }
+      ]
+    },
+    "skill:orch:claude": {
+      "name": "orch",
+      "kind": "skill",
+      "harness": "claude",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "f8dd16a03d61bf7a1adddf557efe642144234573b6919da0912bd7f9914924f7",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "129985ba535a4917f353593e76fbef7974b550375e564683e43b6c2333cac047",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "orch",
+        "paths": [
+          ".agents/skills/orch",
+          ".claude/skills/orch"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "requested"
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "dev",
+            "harness": "claude"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "harness-ci",
+            "harness": "claude"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "project-management",
+            "harness": "claude"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "reviewer",
+            "harness": "claude"
+          }
+        }
+      ]
+    },
+    "skill:orch:codex": {
+      "name": "orch",
+      "kind": "skill",
+      "harness": "codex",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "f8dd16a03d61bf7a1adddf557efe642144234573b6919da0912bd7f9914924f7",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "129985ba535a4917f353593e76fbef7974b550375e564683e43b6c2333cac047",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "orch",
+        "paths": [
+          ".agents/skills/orch"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "requested"
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "dev",
+            "harness": "codex"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "harness-ci",
+            "harness": "codex"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "project-management",
+            "harness": "codex"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "reviewer",
+            "harness": "codex"
+          }
+        }
+      ]
+    },
+    "skill:orch:copilot": {
+      "name": "orch",
+      "kind": "skill",
+      "harness": "copilot",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "f8dd16a03d61bf7a1adddf557efe642144234573b6919da0912bd7f9914924f7",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "129985ba535a4917f353593e76fbef7974b550375e564683e43b6c2333cac047",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "orch",
+        "paths": [
+          ".agents/skills/orch"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "requested"
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "dev",
+            "harness": "copilot"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "harness-ci",
+            "harness": "copilot"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "project-management",
+            "harness": "copilot"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "reviewer",
+            "harness": "copilot"
+          }
+        }
+      ]
+    },
+    "skill:orch:pi": {
+      "name": "orch",
+      "kind": "skill",
+      "harness": "pi",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "f8dd16a03d61bf7a1adddf557efe642144234573b6919da0912bd7f9914924f7",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "129985ba535a4917f353593e76fbef7974b550375e564683e43b6c2333cac047",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "orch",
+        "paths": [
+          ".agents/skills/orch"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "requested"
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "dev",
+            "harness": "pi"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "harness-ci",
+            "harness": "pi"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "project-management",
+            "harness": "pi"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "reviewer",
+            "harness": "pi"
+          }
+        }
+      ]
+    },
+    "skill:project-management:claude": {
+      "name": "project-management",
+      "kind": "skill",
+      "harness": "claude",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "ca3e8ecbbf96439493a6f21f73e32d48d5b15c0ed99d7a705d3c672069a4f944",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "601a6c95a77ffd281528dd066d6363fcae7deb60e2939374da1e4d5bb4847567",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "project-management",
+        "paths": [
+          ".agents/skills/project-management",
+          ".claude/skills/project-management"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "orch",
+            "harness": "claude"
+          }
+        }
+      ]
+    },
+    "skill:project-management:codex": {
+      "name": "project-management",
+      "kind": "skill",
+      "harness": "codex",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "ca3e8ecbbf96439493a6f21f73e32d48d5b15c0ed99d7a705d3c672069a4f944",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "601a6c95a77ffd281528dd066d6363fcae7deb60e2939374da1e4d5bb4847567",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "project-management",
+        "paths": [
+          ".agents/skills/project-management"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "orch",
+            "harness": "codex"
+          }
+        }
+      ]
+    },
+    "skill:project-management:copilot": {
+      "name": "project-management",
+      "kind": "skill",
+      "harness": "copilot",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "ca3e8ecbbf96439493a6f21f73e32d48d5b15c0ed99d7a705d3c672069a4f944",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "601a6c95a77ffd281528dd066d6363fcae7deb60e2939374da1e4d5bb4847567",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "project-management",
+        "paths": [
+          ".agents/skills/project-management"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "orch",
+            "harness": "copilot"
+          }
+        }
+      ]
+    },
+    "skill:project-management:pi": {
+      "name": "project-management",
+      "kind": "skill",
+      "harness": "pi",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "ca3e8ecbbf96439493a6f21f73e32d48d5b15c0ed99d7a705d3c672069a4f944",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "601a6c95a77ffd281528dd066d6363fcae7deb60e2939374da1e4d5bb4847567",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "project-management",
+        "paths": [
+          ".agents/skills/project-management"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "orch",
+            "harness": "pi"
+          }
+        }
+      ]
+    },
+    "skill:review-gate:claude": {
+      "name": "review-gate",
+      "kind": "skill",
+      "harness": "claude",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "b33b59dd85f78be1303c852cf23eef5a7bd908daf8ae76005c1b8f66fbf24de2",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "56598740bdc880455d17824deedad9a2b20fce5d91817b2c0b770f83580118e3",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "review-gate",
+        "paths": [
+          ".agents/skills/review-gate",
+          ".claude/skills/review-gate"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "requested"
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "orch",
+            "harness": "claude"
+          }
+        }
+      ]
+    },
+    "skill:review-gate:codex": {
+      "name": "review-gate",
+      "kind": "skill",
+      "harness": "codex",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "b33b59dd85f78be1303c852cf23eef5a7bd908daf8ae76005c1b8f66fbf24de2",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "56598740bdc880455d17824deedad9a2b20fce5d91817b2c0b770f83580118e3",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "review-gate",
+        "paths": [
+          ".agents/skills/review-gate"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "requested"
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "orch",
+            "harness": "codex"
+          }
+        }
+      ]
+    },
+    "skill:review-gate:copilot": {
+      "name": "review-gate",
+      "kind": "skill",
+      "harness": "copilot",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "b33b59dd85f78be1303c852cf23eef5a7bd908daf8ae76005c1b8f66fbf24de2",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "56598740bdc880455d17824deedad9a2b20fce5d91817b2c0b770f83580118e3",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "review-gate",
+        "paths": [
+          ".agents/skills/review-gate"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "requested"
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "orch",
+            "harness": "copilot"
+          }
+        }
+      ]
+    },
+    "skill:review-gate:pi": {
+      "name": "review-gate",
+      "kind": "skill",
+      "harness": "pi",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "b33b59dd85f78be1303c852cf23eef5a7bd908daf8ae76005c1b8f66fbf24de2",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "56598740bdc880455d17824deedad9a2b20fce5d91817b2c0b770f83580118e3",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "review-gate",
+        "paths": [
+          ".agents/skills/review-gate"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "requested"
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "orch",
+            "harness": "pi"
+          }
+        }
+      ]
+    },
+    "skill:reviewer:claude": {
+      "name": "reviewer",
+      "kind": "skill",
+      "harness": "claude",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "dcb9b1034587a88af8e9553e76aabac7a559c5934dccc1d28e19cf485b48b17e",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "a0df58291fdbeac30094fd482aa6fb1ef9a3ecdbd1558afc27e3aef4963705e7",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "reviewer",
+        "paths": [
+          ".agents/skills/reviewer",
+          ".claude/skills/reviewer"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "orch",
+            "harness": "claude"
+          }
+        }
+      ]
+    },
+    "skill:reviewer:codex": {
+      "name": "reviewer",
+      "kind": "skill",
+      "harness": "codex",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "dcb9b1034587a88af8e9553e76aabac7a559c5934dccc1d28e19cf485b48b17e",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "a0df58291fdbeac30094fd482aa6fb1ef9a3ecdbd1558afc27e3aef4963705e7",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "reviewer",
+        "paths": [
+          ".agents/skills/reviewer"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "orch",
+            "harness": "codex"
+          }
+        }
+      ]
+    },
+    "skill:reviewer:copilot": {
+      "name": "reviewer",
+      "kind": "skill",
+      "harness": "copilot",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "dcb9b1034587a88af8e9553e76aabac7a559c5934dccc1d28e19cf485b48b17e",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "a0df58291fdbeac30094fd482aa6fb1ef9a3ecdbd1558afc27e3aef4963705e7",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "reviewer",
+        "paths": [
+          ".agents/skills/reviewer"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "orch",
+            "harness": "copilot"
+          }
+        }
+      ]
+    },
+    "skill:reviewer:pi": {
+      "name": "reviewer",
+      "kind": "skill",
+      "harness": "pi",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "dcb9b1034587a88af8e9553e76aabac7a559c5934dccc1d28e19cf485b48b17e",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "a0df58291fdbeac30094fd482aa6fb1ef9a3ecdbd1558afc27e3aef4963705e7",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "reviewer",
+        "paths": [
+          ".agents/skills/reviewer"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "orch",
+            "harness": "pi"
+          }
+        }
+      ]
+    },
+    "skill:worktree:claude": {
+      "name": "worktree",
+      "kind": "skill",
+      "harness": "claude",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "805464c7d3a79aa46672e4ac007ac8d0dd6e9bc1eeb3afa3cc7cffa767402081",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "042a641aa6c5518f412053dda642aa9700feca7df4aa6b612343f3f093635748",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "worktree",
+        "paths": [
+          ".agents/skills/worktree",
+          ".claude/skills/worktree"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "orch",
+            "harness": "claude"
+          }
+        }
+      ]
+    },
+    "skill:worktree:codex": {
+      "name": "worktree",
+      "kind": "skill",
+      "harness": "codex",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "805464c7d3a79aa46672e4ac007ac8d0dd6e9bc1eeb3afa3cc7cffa767402081",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "042a641aa6c5518f412053dda642aa9700feca7df4aa6b612343f3f093635748",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "worktree",
+        "paths": [
+          ".agents/skills/worktree"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "orch",
+            "harness": "codex"
+          }
+        }
+      ]
+    },
+    "skill:worktree:copilot": {
+      "name": "worktree",
+      "kind": "skill",
+      "harness": "copilot",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "805464c7d3a79aa46672e4ac007ac8d0dd6e9bc1eeb3afa3cc7cffa767402081",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "042a641aa6c5518f412053dda642aa9700feca7df4aa6b612343f3f093635748",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "worktree",
+        "paths": [
+          ".agents/skills/worktree"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "orch",
+            "harness": "copilot"
+          }
+        }
+      ]
+    },
+    "skill:worktree:pi": {
+      "name": "worktree",
+      "kind": "skill",
+      "harness": "pi",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "805464c7d3a79aa46672e4ac007ac8d0dd6e9bc1eeb3afa3cc7cffa767402081",
+      "sourceCommit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7",
+      "renderedHash": "042a641aa6c5518f412053dda642aa9700feca7df4aa6b612343f3f093635748",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "worktree",
+        "paths": [
+          ".agents/skills/worktree"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "orch",
+            "harness": "pi"
+          }
+        }
+      ]
+    }
+  },
+  "sources": {
+    "kendex": {
+      "repo": "vanillagreencom/kendex",
+      "commit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7"
+    }
+  },
+  "bundles": {
+    "command-safety": {
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "commit": "700beab89bdb75edb5a86c85cfa99f2b1b9781f7"
+    }
+  }
+}

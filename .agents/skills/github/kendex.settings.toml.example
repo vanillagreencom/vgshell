@@ -1,0 +1,34 @@
+[env]
+
+# The review bot this project trusts, the shape of its issue ids, and how
+# long GitHub commands may take.
+
+# The login of the review bot whose verdict this project reads. Empty means
+# review-bot[bot]: most commands match that login alone, and only the
+# sticky-comment search falls back to other known review bots, and only
+# where that login posted no summary. A login here replaces it everywhere.
+GH_BOT_USERNAME = ""
+
+# A regular expression that pulls the issue id out of a branch name. Empty
+# lets each command use its own default, and those defaults differ. Set one
+# only for an issue id shaped like nothing they already match.
+GH_ISSUE_PATTERN = ""
+
+# The build and test command the pull request cross-check runs. Empty makes
+# it look for a verify.sh at the project root, then fall back to whatever
+# build stack it can detect.
+GH_VERIFY_CMD = ""
+
+# Seconds allowed for fetching a credential from 1Password. Raise it where
+# unlocking is slow. 0 removes the bound, and a step finer than a tenth of
+# a second is refused.
+KENDEX_GITHUB_OP_TIMEOUT = "10"
+
+# Seconds allowed for the GitHub sign-in check that runs before each
+# command. 0 removes the bound, and a step finer than a tenth of a second is
+# refused.
+KENDEX_GITHUB_AUTH_TIMEOUT = "10"
+
+# Seconds allowed for one read of a pull request. 0 removes the bound, and a
+# step finer than a tenth of a second is refused.
+KENDEX_GITHUB_PR_VIEW_TIMEOUT = "30"

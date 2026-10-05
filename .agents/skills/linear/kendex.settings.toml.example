@@ -1,0 +1,62 @@
+[env]
+
+# Which Linear team this project writes to, and how its issues are read and
+# created.
+
+# The target for writes that need a configured team.
+# Existing-issue writes use the issue team without this setting.
+# Creating an issue, project, cycle or label can name one for that call.
+# There is no default: while this is empty, writes that need a configured
+# team are refused rather than guessing a team inside the key's workspace.
+LINEAR_TEAM = "" # required
+
+# The letters in front of this team's issue numbers, as in PROJ-123. No
+# script reads it today, so changing it changes no command's output.
+LINEAR_TEAM_PREFIX = "PROJ"
+
+# The labels that route an issue to an agent, separated by commas. With a
+# list here, creating an issue that carries none of them is refused, because
+# nothing would pick that issue up. Empty turns the refusal off.
+LINEAR_AGENT_LABELS = ""
+
+# Whether a new issue must say who runs into the problem. Any value turns it
+# on: a description with no "Reached by" line is refused, and a
+# high-priority issue born from a review also needs a "Symptom" line. Empty
+# turns it off.
+LINEAR_REQUIRE_REACH = ""
+
+# How read commands print: "safe" flat, "table" for a person, "ids" bare
+# identifiers, "compact" small for routing, "raw" Linear's own nesting.
+# One issue, its children, its relations and bulk comments refuse a shape
+# they lack; other commands print safe in its place and report nothing.
+LINEAR_FORMAT = "safe"
+
+# Seconds to wait before retrying a Linear call that was rate limited or
+# failed. The wait doubles on each further attempt. Whole seconds; 0 retries
+# with no wait at all.
+LINEAR_RETRY_BASE_DELAY = "1"
+
+[secrets]
+
+# Pre-minted application token. Set in the private env file or a secret store
+# via op://, never in committed settings. Wins over the client pair and key.
+# The skill never caches or renews it. auth-mint prints token and expiry JSON
+# on the host with the real pair; the fleet publishes it before expiry.
+LINEAR_APP_TOKEN = ""
+
+# OAuth application credentials. Set both in the private env file, never here.
+# Together they win over the personal key when LINEAR_APP_TOKEN is unset.
+# Both mint paths use the fixed scope read,write,issues:create,comments:create,
+# timeSchedule:write,initiative:read,initiative:write,customer:read,
+# customer:write. Only the pair's API path caches.
+LINEAR_CLIENT_ID = ""
+
+# The OAuth application secret paired with LINEAR_CLIENT_ID. Set it only
+# in the private env file.
+LINEAR_CLIENT_SECRET = ""
+
+# The fallback key when no app token or pair is set. Create one in Linear, under
+# Settings, Security and access, Personal API keys. A key set here beats one
+# already in your shell, unlike every other setting, because a machine-wide
+# key points at the wrong workspace for all but one project.
+LINEAR_API_KEY = ""

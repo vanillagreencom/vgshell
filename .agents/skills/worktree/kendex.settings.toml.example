@@ -1,0 +1,59 @@
+[env]
+
+# Where worktrees are created, what is linked into them, and whose name
+# their commits carry.
+
+# The branch a new worktree starts from. Empty reads the repository's
+# default branch on GitHub. A checkout with no GitHub repository, one without
+# the github skill, and one whose GitHub read fails (with a warning) read
+# their own record of the remote's default branch instead. git refreshes
+# that record locally, never from the remote, so a stale one keeps handing
+# out the old branch; with no record, the commands that need the branch
+# refuse.
+WORKTREE_DEFAULT_BRANCH = ""
+
+# Where worktrees are created, except a hosted lane's, which always sits
+# beside the checkout. Empty puts them in a .worktrees folder beside the
+# checkout. Never choose a folder inside the project: build output there is
+# watched and exhausts the system's file watches.
+WORKTREE_BASE_DIR = ""
+
+# The directory `create --hosted` puts a hosted lane's worktree in, one path
+# segment under <parent-of-checkout>/.worktrees/<checkout-name> whatever
+# WORKTREE_BASE_DIR says; empty = lane. One name for every lane keeps its
+# build paths identical across lanes.
+WORKTREE_HOSTED_NAME = ""
+
+# Paths linked into every new worktree, separated by spaces. List only what
+# git does not already carry, since an entry git carries in full does
+# nothing. Include the private env file only where worktrees should share
+# this project's credentials.
+WORKTREE_SYMLINKS = ""
+
+# Links whose target is worked out from the link's own folder, written as
+# link=target pairs separated by spaces. Use it where a link sits in a
+# subfolder and points back up to the worktree root.
+WORKTREE_RELATIVE_SYMLINKS = ""
+
+# Files copied, rather than linked, into every new worktree, separated by
+# spaces.
+WORKTREE_COPIES = ""
+
+# Scratch folders created empty in every new worktree, separated by spaces.
+# Each is added to the repository's local git exclude list, so it never
+# shows as untracked and needs no .gitignore entry.
+WORKTREE_MKDIRS = ""
+
+# The name on commits made in a worktree. Empty uses the signed-in user, and
+# the email below is then ignored. A name here is written on every commit
+# exactly as typed.
+BOT_NAME = ""
+
+# The email written beside the name above. It is read only while that name
+# is set.
+BOT_EMAIL = ""
+
+# The remote a push from a worktree targets. Empty uses origin. Set
+# BOT_REMOTE_URL beside it to have each new worktree add that remote;
+# without that URL the remote must already exist.
+BOT_REMOTE_NAME = ""

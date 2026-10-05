@@ -1,0 +1,5 @@
+# kendex:local-state begin
+/tmp/
+/.cache/
+/.kendex-lock.v10.json
+# kendex:local-state end

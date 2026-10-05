@@ -1,0 +1,15 @@
+[env]
+
+# Where this project keeps its decision records.
+
+# The folder holding the decision records and their index. Empty means the
+# skill looks in the current folder and then each parent folder for
+# docs/decisions, decisions, doc/decisions or adr holding an INDEX.md. Records
+# kept anywhere else need their path set here.
+DECISIONS_DIR = ""
+
+# The base branch `decisions next-id` and `decisions check` read beside the
+# working tree, so a number another branch already merged is not handed out
+# again. Empty = origin/HEAD, else origin/main, else main. What happens when
+# the base cannot be read: `decisions --help`, DECISIONS_BASE_REF.
+DECISIONS_BASE_REF = ""

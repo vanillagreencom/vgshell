@@ -1,0 +1,21 @@
+[env]
+
+# How a coding agent checks its own work before handing it back.
+
+# The command that runs this project's tests, linting and type checks. An
+# agent runs it from the project root, and refuses to finish the work while
+# this is empty.
+DEV_VALIDATE_CMD = "" # required
+
+# The command a review-fix round runs instead, validating only the changes
+# since the commit it reads from $DEV_VALIDATE_BASE, for example
+# "tools/check --since $DEV_VALIDATE_BASE". Empty runs DEV_VALIDATE_CMD.
+# An orch restack also runs it, as orch's merge-pr-restack.md sets out.
+# Submit reuses only a DEV_VALIDATE_CMD result.
+DEV_VALIDATE_RANGE_CMD = ""
+
+# Seconds either command may run before it is stopped. A stopped run is
+# neither a pass nor a failure; the agent then runs, one at a time, the test
+# files for each script the change touches. The same number decides how long
+# an agent waits, so no agent picks its own.
+DEV_VALIDATE_TIMEOUT_SECS = "3600"

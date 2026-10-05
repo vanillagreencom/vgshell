@@ -1,0 +1,57 @@
+schema = 6
+
+[sources.kendex]
+repo = "vanillagreencom/kendex"
+
+[install]
+harnesses = [
+    "claude",
+    "codex",
+    "pi",
+    "copilot",
+]
+
+[skills.docs-writing]
+source = "kendex"
+harnesses = [
+    "claude",
+    "codex",
+    "copilot",
+    "pi",
+]
+
+[skills.linear]
+source = "kendex"
+harnesses = [
+    "claude",
+    "codex",
+    "copilot",
+    "pi",
+]
+
+[skills.orch]
+source = "kendex"
+harnesses = [
+    "claude",
+    "codex",
+    "copilot",
+    "pi",
+]
+
+[skills.review-gate]
+source = "kendex"
+harnesses = [
+    "claude",
+    "codex",
+    "copilot",
+    "pi",
+]
+
+[bundles.command-safety]
+source = "kendex"
+harnesses = [
+    "claude",
+    "codex",
+    "copilot",
+    "pi",
+]
