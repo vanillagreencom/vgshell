@@ -891,7 +891,9 @@ assert changed != s
 p.write_text(changed)
 PY
 rm -f -- "${sandbox:?}/jarvis-world/account-labels"
-jarvis_rescan
+# The core file lies outside the plugin, so no rescan rebuilds anything:
+# the next discovery, after an Accounts run ends, reads the copy.
+jarvis_open_accounts
 expect_poll "the bound control publishes its partial search" '["warning", true, false, false]' jarvis_account_search
 jarvis_account_bound_control() {
   (failures=0 behaviour_failures=0
@@ -900,7 +902,8 @@ jarvis_account_bound_control() {
 }
 expect "dropping the folders read before the bound breaks the folder read" 1 jarvis_account_bound_control
 cp -- "$sandbox/jarvis-folders-original" "$jarvis_folders"
-jarvis_rescan
+rm -f -- "${sandbox:?}/jarvis-world/account-labels"
+jarvis_open_accounts
 expect_poll "the restored search keeps its folders again" matched jarvis_account_labels
 # A linked config home is not followed: the search is partial, keeps the
 # home's folders, warns and offers Accounts.
