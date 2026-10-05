@@ -71,7 +71,7 @@ function widget(usage) {
     var stale = false;
     for (var i = 0; i < accounts.length; i++) {
         var row = accounts[i];
-        if (row.state === "expired" && expired === "") expired = expiredText(row.provider);
+        if (row.state === "expired" && expired === "") expired = EXPIRED[row.provider];
         if (row.state === "stale") stale = true;
         for (var j = 0; j < row.windows.length; j++)
             if (percent === null || row.windows[j].usedPercent > percent) percent = row.windows[j].usedPercent;
@@ -83,10 +83,6 @@ function widget(usage) {
         text: percent === null ? "" : Math.round(percent) + "%", tooltip: tooltip };
 }
 
-function expiredText(provider) {
-    return EXPIRED[provider] || "Open the app to sign in again";
-}
-
 // The Settings row of PROVIDER's sign-in: a state value, whose action, Sign
 // in, applies while none of its accounts is signed in.
 function signIn(usage, provider) {
@@ -96,7 +92,7 @@ function signIn(usage, provider) {
     if (plans.some(function (row) { return row.state === "ok" || row.state === "stale"; }))
         return { tone: "ok", text: plans.length === 1 ? "Signed in" : "Signed in to " + plans.length + " accounts" };
     if (plans.some(function (row) { return row.state === "expired"; }))
-        return { tone: "warning", text: expiredText(provider) };
+        return { tone: "warning", text: EXPIRED[provider] };
     if (plans.length > 0) return { tone: "danger", text: "Usage could not be read" };
     if (rows.length > 0) return { tone: "info", text: NO_PLAN };
     return { tone: "info", text: "Not signed in", action: true };
@@ -189,7 +185,7 @@ function panel(usage, now) {
         var detail = [row.email, row.plan === "" ? "" : row.plan.charAt(0).toUpperCase() + row.plan.slice(1) + " plan",
             row.provider === "copilot" ? creditLine(row.credits) : ""]
             .filter(Boolean).join(" \u00b7 ");
-        var note = row.state === "expired" ? expiredText(row.provider)
+        var note = row.state === "expired" ? EXPIRED[row.provider]
             : row.state === "stale" ? "The last check failed. These figures may be old."
             : row.state === "failed" ? "Usage could not be read."
             : row.state === "ok" && row.windows.length === 0 && row.credits === null ? "This plan reports no usage limits." : "";

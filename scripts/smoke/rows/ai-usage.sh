@@ -204,7 +204,13 @@ expect "AI Usage's panel hides" ok ipc shell hide panel vgs.ai-usage
 expect_poll "the hidden panel is gone" absent usage_panel
 
 # A helper copy that writes the credential file it read fails that reading.
-usage_edit "$usage_helper" '    if (file.kind === "refused") return failed(file.reason);' '    if (file.kind === "refused") return failed(file.reason);
+usage_edit "$usage_helper" '    try { file = readHeld(Anchored, opened.fd, ".credentials.json"); }
+    finally { fs.closeSync(opened.fd); }
+    if (file.kind === "absent") return { state: "signed-out" };
+    if (file.kind === "refused") return failed(file.reason);' '    try { file = readHeld(Anchored, opened.fd, ".credentials.json"); }
+    finally { fs.closeSync(opened.fd); }
+    if (file.kind === "absent") return { state: "signed-out" };
+    if (file.kind === "refused") return failed(file.reason);
     fs.writeFileSync(path.join(directory, ".credentials.json"), file.text);' || fail "the writing control's edit failed"
 rescan "the writing copy is scanned"
 usage_refresh "the writing copy"
@@ -226,7 +232,9 @@ expect_poll "the widget keeps the stale share" '[true, true, 83, "warning"]' usa
 expect "the failed read changed no credential file" kept usage_credentials_kept
 # A helper copy that reads a failed request as 0 % fails that reading: its
 # service, rebuilt, first reads the figures, then the failure.
-usage_edit "$usage_helper" '    if (reply.status !== 200) return failed("http-" + reply.status);' '    if (reply.status !== 200) return { state: "ok", plan, windows: [{ name: "five_hour", usedPercent: 0, resetsAt: null }] };' || fail "the zero control's edit failed"
+usage_edit "$usage_helper" '    if (reply.status === 401 || reply.status === 403) return { state: "expired", plan };
+    if (reply.status !== 200) return failed("http-" + reply.status);' '    if (reply.status === 401 || reply.status === 403) return { state: "expired", plan };
+    if (reply.status !== 200) return { state: "ok", plan, windows: [{ name: "five_hour", usedPercent: 0, resetsAt: null }] };' || fail "the zero control's edit failed"
 usage_mode relative
 rescan "the zero copy is scanned"
 usage_refresh "the zero copy's first read"

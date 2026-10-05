@@ -240,6 +240,9 @@ async function main() {
         const malformedScoped = structuredClone(claudeReply);
         malformedScoped.limits[2].percent = "12";
         assert.equal(claudeWindows(malformedScoped), null, "a malformed scoped percent fails the reply");
+        const malformedScopedReset = structuredClone(claudeReply);
+        malformedScopedReset.limits[2].resets_at = "soon";
+        assert.equal(claudeWindows(malformedScopedReset), null, "a malformed scoped reset fails the reply");
         for (const body of ["text", [], null, { five_hour: { utilization: "42", resets_at: null } }, { seven_day: 7 },
             { five_hour: { utilization: 4, resets_at: "soon" } }])
             assert.equal(claudeWindows(body), null, JSON.stringify(body));
@@ -257,6 +260,8 @@ async function main() {
         "    const names = Object.keys(body).filter(name => /^seven_day_[a-z0-9_]+$/.test(name)).sort();\n    for (const name of [\"five_hour\", \"seven_day\", ...names]) {", recorded);
     await control("limits-parse-removed", "backend/usage.js", "for (const entry of Array.isArray(body.limits) ? body.limits : [])",
         "for (const entry of [])", recorded);
+    await control("null-window-zero", "backend/usage.js", "        if (window !== undefined) windows.push(window);",
+        "        if (window !== undefined) windows.push(window); else windows.push({ name, usedPercent: 0, resetsAt: null });", recorded);
     await control("shape-accepted", "backend/usage.js", "        const resetsAt = resetTime(entry.resets_at);\n        if (usedPercent === undefined || resetsAt === undefined) return null;",
         "        const resetsAt = resetTime(entry.resets_at);\n        if (usedPercent === undefined) continue;", recorded);
 
@@ -476,14 +481,15 @@ async function main() {
     claudeAccount(path.join(world, ".claude"), HOUR, Date.now());
     claudeAccount(path.join(world, ".config/.claude-work"), -HOUR, Date.now());
     codexAccount(path.join(world, ".codex"));
+    copilotAccount(path.join(world, ".copilot"), { copilotTokens: TOKEN });
     const worldBefore = credentials(world);
     const env = { PATH, HOME: world, LANG: "C.UTF-8" };
     const driver = (folder, word) => {
         mode(word);
         return run(["-e", `
 const usage = require(process.argv[1]);
-usage.read(process.argv[2], process.env, { origin: process.argv[3] }).then(r => process.stdout.write(JSON.stringify(r) + "\\n"));`,
-            path.join(folder, "backend/usage.js"), tree, origin], env);
+usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigin: process.argv[3], secretTool: process.argv[4] }).then(r => process.stdout.write(JSON.stringify(r) + "\\n"));`,
+            path.join(folder, "backend/usage.js"), tree, origin, secretTool], env);
     };
     const helperLines = [];
     const leaks = async folder => {
@@ -494,11 +500,12 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3] }).then(r => 
             assert.equal(result.status, 0, result.stderr);
             const reading = JSON.parse(result.stdout);
             const usage = View.merge(null, reading, NOW);
-            const status = JSON.stringify([usage, View.signIn(usage, "claude"), View.signIn(usage, "codex")]);
+            const status = JSON.stringify([usage, View.signIn(usage, "claude"), View.signIn(usage, "codex"), View.signIn(usage, "copilot")]);
             for (const [where, text] of [["stdout", result.stdout], ["stderr", result.stderr], ["status", status]])
                 assert.equal(text.includes(TOKEN), false, "the token reaches " + where + " for " + word);
             const states = Object.fromEntries(reading.accounts.map(row => [row.provider + "/" + row.label, row.state]));
-            assert.deepEqual(states, { "claude/default": word === "ok" ? "ok" : "failed", "claude/work": "expired", "codex/default": "ok" }, result.stderr);
+            assert.deepEqual(states, { "claude/default": word === "ok" ? "ok" : "failed", "claude/work": "expired",
+                "codex/default": "ok", "copilot/default": "failed" }, result.stderr);
         }
         assert.deepEqual(credentials(world), worldBefore, "no credential file changed");
     };
@@ -508,24 +515,34 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3] }).then(r => 
         '    if (reply.status === 401 || reply.status === 403) return { state: "expired", plan };\n    if (reply.status !== 200) return failed("http-" + reply.status);',
         '    if (reply.status === 401 || reply.status === 403) return { state: "expired", plan };\n    if (reply.status !== 200) return failed("http-" + reply.status + "-" + oauth.accessToken);',
         leaks);
+    await control("copilot-token-in-log", "backend/usage.js",
+        '    if (reply.status === 401) return { state: "expired", plan: "" };\n    if (reply.status !== 200) return failed("http-" + reply.status);',
+        '    if (reply.status === 401) return { state: "expired", plan: "" };\n    if (reply.status !== 200) return failed("http-" + reply.status + "-" + token.token);',
+        leaks);
 
     // The shipped entry point under the same HOME, with no unexpired Claude
     // token, so it sends no request: one line of every account.
     const shippedRun = () => {
         const old = path.join(world, ".claude/.credentials.json");
+        const copilotConfig = path.join(world, ".copilot/config.json");
         const saved = fs.readFileSync(old);
+        const savedCopilot = fs.readFileSync(copilotConfig);
         claudeAccount(path.join(world, ".claude"), -HOUR, Date.now());
+        write(copilotConfig, JSON.stringify({ lastLoggedInUser: { host: "https://github.com", login: "" } }));
         try {
             const result = cp.spawnSync(process.execPath, [path.join(plugin, "backend/usage.js"), "--tree", tree], { env, encoding: "utf8", timeout: 30000 });
             assert.equal(result.status, 0, result.stderr);
             const line = JSON.parse(result.stdout);
             assert.deepEqual([line.partial, line.accounts.map(row => [row.provider, row.label, row.state])],
-                ["", [["claude", "default", "expired"], ["codex", "default", "ok"], ["claude", "work", "expired"]]]);
+                ["", [["claude", "default", "expired"], ["codex", "default", "ok"], ["copilot", "default", "signed-out"], ["claude", "work", "expired"]]]);
             assert.equal(result.stdout.includes(TOKEN) || result.stderr.includes(TOKEN), false);
             const refused = cp.spawnSync(process.execPath, [path.join(plugin, "backend/usage.js")], { env, encoding: "utf8" });
             assert.deepEqual([refused.status, refused.stdout, refused.stderr], [2, "", "ai-usage: arguments=expected-tree\n"]);
             helperLines.push(refused.stderr.trim());
-        } finally { fs.writeFileSync(old, saved); }
+        } finally {
+            fs.writeFileSync(old, saved);
+            fs.writeFileSync(copilotConfig, savedCopilot);
+        }
     };
     const sentBefore = requests().length;
     shippedRun();
@@ -607,6 +624,11 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3] }).then(r => 
             ["copilot-a", "octo-user · Enterprise plan · 362k AI credits used this month", "", [["AI credits", "45.2k of 1M", 4.5225]]],
             ["copilot-b", "zero-user · No premium request pool", "", []],
             ["claude-enterprise", "Enterprise plan", "This plan reports no usage limits.", []]]);
+        const failedCreditless = View.merge(copilot, { accounts: [{ id: "copilot-b", provider: "copilot", label: "zero",
+            email: "", plan: "", state: "failed", windows: [], credits: null }], partial: "" }, NOW + 1);
+        assert.deepEqual(plainOf(failedCreditless.accounts[0]), { id: "copilot-b", provider: "copilot", label: "zero",
+            email: "zero-user", plan: "", state: "stale", windows: [], credits: { unit: "requests", granted: 0 } },
+        "a failed read keeps credit data that has no meter");
         assert.equal(View.panel(View.merge(null, { accounts: [{ id: "copilot-expired", provider: "copilot", label: "default",
             email: "", plan: "", state: "expired", windows: [], credits: null }], partial: "" }, NOW), NOW)[0].note,
         View.EXPIRED.copilot);

@@ -315,11 +315,17 @@ function secretSearch(secretTool, username, env) {
         child.on("error", error => finish({ kind: "failed", reason: error.code === "ENOENT" ? "keyring-missing" : "keyring-failed" }));
         child.stdout.on("data", chunk => {
             stdout += chunk.toString("utf8");
-            if (stdout.length > MAX_BYTES) finish({ kind: "failed", reason: "keyring-failed" });
+            if (stdout.length > MAX_BYTES) {
+                child.kill("SIGKILL");
+                finish({ kind: "failed", reason: "keyring-failed" });
+            }
         });
         child.stderr.on("data", chunk => {
             stderr += chunk.toString("utf8");
-            if (stderr.length > MAX_BYTES) finish({ kind: "failed", reason: "keyring-failed" });
+            if (stderr.length > MAX_BYTES) {
+                child.kill("SIGKILL");
+                finish({ kind: "failed", reason: "keyring-failed" });
+            }
         });
         child.on("close", status => {
             if (done) return;
