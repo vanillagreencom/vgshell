@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "id": "vgs.voice",
+  "name": "Voice",
+  "version": "0.1.0",
+  "author": "VGS",
+  "description": "Dictate into the focused field and see the recording state in the bar.",
+  "license": "MIT",
+  "icon": "mic",
+  "kinds": ["service", "bar-widget"],
+  "entryPoints": { "service": "Service.qml", "bar-widget": "Widget.qml" },
+  "capabilities": ["requirements", "shortcut", "status", "tui"],
+  "defaultSection": "right",
+  "hyprland": {
+    "binds": [
+      { "shortcut": "toggle", "key": "SUPER+CTRL+X" },
+      { "shortcut": "talk", "key": "F9", "hold": true }
+    ]
+  },
+  "requirements": [
+    { "command": "voxtype", "packages": { "aur": "voxtype-bin" }, "optional": false, "purpose": "Captures speech and inserts dictated text" },
+    { "command": "wtype", "packages": { "pacman": "wtype", "apt": "wtype", "dnf": "wtype", "nix": "wtype" }, "optional": false, "purpose": "Types text and key chords through the Wayland virtual keyboard" },
+    { "command": "wl-copy", "packages": { "pacman": "wl-clipboard", "apt": "wl-clipboard", "dnf": "wl-clipboard", "nix": "wl-clipboard" }, "optional": false, "purpose": "Copies dictated text to the clipboard when paste mode needs it" },
+    { "command": "systemctl", "packages": { "pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd" }, "optional": true, "purpose": "Checks and restarts the Voice user service" }
+  ],
+  "status": {
+    "voxtype": {
+      "type": "presence",
+      "label": "voxtype",
+      "hint": "Voice needs voxtype to capture speech.",
+      "action": { "label": "Install…", "install": ["voxtype"] }
+    },
+    "setup": {
+      "type": "state",
+      "label": "Setup",
+      "hint": "Setup copies defaults, downloads the speech model and enables the service.",
+      "action": { "label": "Set up", "tui": "setup" }
+    },
+    "model": { "type": "data", "label": "Model" },
+    "dictation": { "type": "state", "label": "Dictation", "hidden": true }
+  },
+  "tui": {
+    "setup": { "script": "tui/setup.sh", "title": "Set up Voice", "entry": { "label": "Set up", "icon": "download", "group": "Voice" } },
+    "configure": { "script": "tui/configure.sh", "title": "Configure Voice", "entry": { "label": "Configure", "icon": "sliders-horizontal", "group": "Voice" } },
+    "model": { "script": "tui/model.sh", "title": "Choose Voice model", "entry": { "label": "Choose model", "icon": "brain", "group": "Voice" } }
+  }
+}

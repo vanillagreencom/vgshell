@@ -1,0 +1,30 @@
+# Voice
+
+Voice dictates into the focused field. It uses voxtype for capture, speech recognition and paste output.
+
+Enabling the plugin puts the mic in the bar's right section.
+
+![The Voice Settings page with setup needed](../../../docs/images/plugins/vgs.voice-page.webp)
+
+Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2.
+
+## Keys
+
+| Action | Default |
+|---|---|
+| Toggle dictation | `SUPER+CTRL+X` |
+| Dictate while held | `F9` |
+
+Change the keys in the plugin's Keys row on its Settings page.
+
+## Setup
+
+The Voice Settings page shows Set up while the speech model, the speech engine or the user service is missing.
+
+Set up copies the default voxtype config only when no config exists. It also copies the bloop sounds, enables the speech engine, downloads the configured model and starts the user service.
+
+The Configure and Choose model entries open voxtype's own screens. Voice warns first when the config is a symlink, because those screens can replace it with a regular file.
+
+## Bar mic
+
+The mic uses the accent tone while recording. It spins while speech is being transcribed. A click opens Configure.

@@ -118,7 +118,7 @@ setpriv    present ^setpriv[[:space:]]from[[:space:]]util-linux[[:space:]]([0-9]
   # scripts/check-packaging.js. AUR packages form a separate install group.
   runtime_packages='
 pacman bash bubblewrap chromium coreutils curl dbus fd file fzf git glib2 gpu-screen-recorder grim gum hyprland hyprpicker imagemagick iproute2 less libnotify libpulse libsecret libxkbcommon mise networkmanager nodejs pacman-contrib pipewire pipewire-audio playerctl python qrencode quickshell slurp systemd tesseract tesseract-data-eng util-linux uv wireplumber wl-clipboard wtype xdg-terminal-exec xdg-utils xkeyboard-config
-aur agent-browser-bin vsys wlrctl
+aur agent-browser-bin voxtype-bin vsys wlrctl
 dnf ImageMagick NetworkManager bash bubblewrap chromium coreutils curl dbus-tools fd-find file fzf git glib2 grim gum hyprland hyprpicker iproute less libnotify libsecret libxkbcommon nodejs pipewire-utils playerctl pulseaudio-utils python3 qrencode quickshell slurp systemd tesseract tesseract-langpack-eng util-linux util-linux-core uv wireplumber wl-clipboard wlrctl wtype xdg-terminal-exec xdg-utils xkeyboard-config
 nix bash bubblewrap chromium coreutils curl dbus fd file fzf git glib gpu-screen-recorder grim gum hyprland hyprpicker imagemagick iproute2 less libnotify libsecret libxkbcommon mise networkmanager nodejs pipewire playerctl pulseaudio python3 qrencode quickshell slurp systemd tesseract util-linux uv wireplumber wl-clipboard wlrctl wtype xdg-terminal-exec xdg-utils xkeyboard_config
 '

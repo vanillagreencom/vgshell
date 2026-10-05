@@ -66,6 +66,8 @@ input-facts
 clipboard
 monitor-outputs
 hold-shortcuts
+# After hold-shortcuts, over the same generated hold-bind path.
+voice
 jarvis-keys
 jarvis-widget
 jarvis-desktop

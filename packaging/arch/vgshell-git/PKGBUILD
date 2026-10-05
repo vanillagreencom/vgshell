@@ -53,6 +53,7 @@ depends=(
   'tesseract'
   'tesseract-data-eng'
   'uv'
+  'voxtype-bin'
   'vsys'
   'wireplumber'
   'wl-clipboard'

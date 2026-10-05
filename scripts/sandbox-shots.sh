@@ -339,12 +339,14 @@ has_automations=false
 has_jarvis=false
 has_scratchpads=false
 has_setup_steps=false
+has_voice=false
 [[ -f $tree/shell/Ui/feedback/CommandDisclosure.qml ]] && has_setup_steps=true
 [[ -f $tree/shell/plugins/vgs.agent-warden/manifest.json ]] && has_agent_warden=true
 [[ -f $tree/shell/plugins/vgs.automations/manifest.json ]] && has_automations=true
 [[ -f $tree/shell/plugins/vgs.jarvis/manifest.json ]] && has_jarvis=true
 [[ -f $tree/shell/plugins/vgs.scratchpads/manifest.json ]] && has_scratchpads=true
 [[ -f $tree/shell/plugins/vgs.bar/manifest.json ]] && has_bar_plugin=true
+[[ -f $tree/shell/plugins/vgs.voice/manifest.json ]] && has_voice=true
 settings_count() { surface_count "$settings_surface"; }
 
 SHOT_RUNTIME_DIR="$rt_dir"
@@ -841,6 +843,33 @@ scene_settings() { # MODE
     take "settings-$1-agent-warden"
     settings_drag_page_down "the Agent Warden page" || true
     take "settings-$1-agent-warden-scrolled"
+  fi
+  if "$has_voice"; then
+    cat >"$shim/voxtype" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  'status --follow --extended --format json') printf '{"state":"idle","engine":"parakeet","model":"parakeet-tdt-0.6b-v3"}\n' ;;
+  'config get engine --json') printf '{"value":"parakeet"}\n' ;;
+  'config get parakeet.model --json') printf '{"value":"parakeet-tdt-0.6b-v3"}\n' ;;
+  'info models --json') printf '{"models":[{"name":"parakeet-tdt-0.6b-v3","installed":false,"size":"600 MB"}]}\n' ;;
+  'info engines --json') printf '{"engines":[{"name":"parakeet","available":true}]}\n' ;;
+esac
+EOF
+    chmod 755 "$shim/voxtype"
+    rescan "the Voice voxtype stand-in is scanned"
+    expect "enabling vgs.voice is allowed" ok ipc shell setPluginEnabled vgs.voice true
+    expect_poll "vgs.voice is built" True record_exists vgs.voice
+    expect "the window opens the Voice page" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.voice
+    expect_poll "the Voice page is shown" '"vgs.voice"' settings_page
+    expect_poll "the Voice setup row is reported" True page_reported vgs.voice
+    settings_scroll_to 0 >/dev/null || fail "the Voice page did not scroll to the top"
+    expect_poll "the Voice page is at its top" True settings_at_top
+    park_pointer
+    take "settings-$1-voice"
+    expect "disabling vgs.voice is allowed" ok ipc shell setPluginEnabled vgs.voice false
+    expect_poll "vgs.voice is gone" False record_exists vgs.voice
+    rm -f -- "$shim/voxtype"
+    rescan "the Voice voxtype stand-in is removed"
   fi
   if "$has_bar_plugin"; then
     expect "the window opens the Bar page" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.bar

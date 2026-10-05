@@ -47,6 +47,7 @@ pkgbase = vgshell
 	depends = tesseract
 	depends = tesseract-data-eng
 	depends = uv
+	depends = voxtype-bin
 	depends = vsys
 	depends = wireplumber
 	depends = wl-clipboard

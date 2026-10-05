@@ -1,0 +1,93 @@
+# VGS Voice default voxtype configuration.
+# Voice copies this file only when no voxtype config exists.
+state_file = "auto"
+engine = "parakeet"
+
+[hotkey]
+enabled = false
+key = "HOME"
+mode = "toggle"
+
+[audio]
+device = "default"
+sample_rate = 16000
+max_duration_secs = 210
+pause_media = true
+
+[audio.feedback]
+enabled = true
+theme = "__VGS_VOICE_BLOOP_THEME__"
+volume = 0.70
+
+[whisper]
+model = "base.en"
+language = "en"
+translate = false
+mode = "local"
+flash_attention = true
+on_demand_loading = false
+gpu_isolation = false
+eager_processing = false
+
+[output]
+mode = "paste"
+paste_keys = "shift+insert"
+restore_clipboard = true
+restore_clipboard_delay_ms = 300
+fallback_to_clipboard = true
+type_delay_ms = 10
+auto_submit = false
+shift_enter_newlines = true
+pre_type_delay_ms = 0
+append_text = " "
+
+[output.notification]
+on_recording_start = false
+on_recording_stop = false
+on_transcription = false
+show_engine_icon = true
+
+[osd]
+enabled = false
+
+[parakeet]
+model = "parakeet-tdt-0.6b-v3"
+model_type = "tdt"
+on_demand_loading = false
+streaming = false
+
+[text]
+spoken_punctuation = false
+smart_auto_submit = false
+filter_filler_words = true
+filler_words = ["uh", "um"]
+
+[text.replacements]
+"DP 1" = "DP-1"
+"DP 2" = "DP-2"
+"D P 1" = "DP-1"
+"D P 2" = "DP-2"
+"DP one" = "DP-1"
+"DP two" = "DP-2"
+"D P one" = "DP-1"
+"D P two" = "DP-2"
+"way bar" = "waybar"
+"hyper land" = "hyprland"
+"Quick Shell" = "Quickshell"
+"vox type" = "voxtype"
+"InVim" = "Nvim"
+"in vim" = "Nvim"
+"simlink" = "symlink"
+"neary" = "Niri"
+"Codeks" = "Codex"
+"Graptile" = "Greptile"
+"Versel" = "Vercel"
+
+[meeting]
+enabled = false
+
+[meeting.diarization]
+enabled = false
+
+[meeting.audio]
+source = "mic"
