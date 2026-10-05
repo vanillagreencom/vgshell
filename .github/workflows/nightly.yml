@@ -1,6 +1,7 @@
 # The full validation of main once a night, report only. No push, pull
 # request or merge queue starts it and no merge reads its result. Each area is
-# one job that runs scripts/validate --full AREA as a lane runs it; which areas
+# one job that runs scripts/validate --full --skip-unprepared AREA, which leaves
+# out the rows that need prepared state a runner never holds; which areas
 # run here, where, and why qml does not: docs/architecture/validation.md
 # § Nightly run.
 name: nightly
@@ -73,7 +74,7 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      - name: scripts/validate --full ${{ matrix.area }}
+      - name: scripts/validate --full --skip-unprepared ${{ matrix.area }}
         env:
           AREA: ${{ matrix.area }}
           IMAGE: ${{ matrix.image }}
@@ -86,7 +87,7 @@ jobs:
           log="$RUNNER_TEMP/validate-$AREA.log"
           started=$SECONDS
           set +e
-          "${run_as[@]}" scripts/validate "$AREA" --full 2>&1 | tee -- "$log"
+          "${run_as[@]}" scripts/validate "$AREA" --full --skip-unprepared 2>&1 | tee -- "$log"
           status=${PIPESTATUS[0]}
           set -e
           case $status in
@@ -96,7 +97,7 @@ jobs:
           esac
           {
             printf '### %s: %s\n\nexit=%s secs=%s\n\n```\n' "$AREA" "$verdict" "$status" "$((SECONDS - started))"
-            grep -E '^validate: (secs=[0-9]+ exit=[1-9]|failed=|status=not-measured|refused:)' -- "$log" ||
+            grep -E '^validate: (secs=[0-9]+ exit=[1-9]|failed=|status=not-measured|refused:|unselected )' -- "$log" ||
               tail -n 20 -- "$log"
             printf '```\n'
           } >>"$GITHUB_STEP_SUMMARY"
