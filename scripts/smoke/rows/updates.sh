@@ -192,7 +192,7 @@ expect "three reads start no check" STEADY checks_settle_at 1
 expect "the Settings window opens for the updates rows" ok ipc shell summon window vgs.settings '{}'
 expect_poll "the Settings window is open for the updates rows" open settings_open
 expect "the Settings window opens the updates page" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.updates
-expect_poll "the Settings page reads the three status rows" '[["pending", "reported"], ["lastCheck", "reported"], ["checkState", "reported"]]' updates_status_rows
+expect_poll "the Settings page reads the four status rows" '[["pending", "reported"], ["lastCheck", "reported"], ["checkState", "reported"], ["reviewAgent", "reported"]]' updates_status_rows
 expect "the Settings page started no check" STEADY checks_settle_at 1
 expect "the Settings window closes" ok ipc shell hide window vgs.settings
 
