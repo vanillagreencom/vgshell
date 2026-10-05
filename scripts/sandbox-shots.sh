@@ -1631,8 +1631,10 @@ scene_themes_panel() { # MODE
   printf '%s\n' '{ "schemaVersion": 1, "name": "other", "tokens": {} }' >"$themes_mismatch/theme.json"
   expect "the unanchored themes panel summons" ok ipc shell summon panel vgs.themes '{}'
   expect_poll "the themes panel lists its catalog" True themes_panel_listed
+  ipc smoke scrollTo panel vgs.themes 0 >/dev/null || fail "the themes panel did not scroll to its top for its initial image"
   park_pointer
   take "panels-$1-themes"
+  ipc smoke revealText panel vgs.themes ListItem vgs >/dev/null || fail "the themes panel did not reveal its vgs row for the hover"
   hover_on "the pointer rests on the themes panel's vgs row" panel vgs.themes ListItem vgs vgs:panel && take "panels-$1-themes-hover"
   park_pointer
   ipc smoke scrollTo panel vgs.themes 100000 >/dev/null || fail "the themes panel did not scroll to its catalog"
