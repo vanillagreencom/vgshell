@@ -58,7 +58,8 @@ Item {
             let window = null;
             for (let i = 0; i < owner.resources.length; i++)
                 if (owner.resources[i].anchor !== undefined) window = owner.resources[i];
-            return window.contentItem.children.find(child => child.currentIndex !== undefined);
+            const scope = window.contentItem.children.find(child => child.popup !== undefined);
+            return scope.children.find(child => child.currentIndex !== undefined);
         }
 
         function test_open_datetime_list_keeps_highlight_across_clock_tick() {
