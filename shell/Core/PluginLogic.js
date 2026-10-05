@@ -2442,19 +2442,17 @@ function listedTuis(manifest) {
     });
 }
 
-// What the `manager` capability's `openTui(id, name)` does for listed TUI
-// NAME of plugin MANIFEST, null for an id no plugin has, ENABLED: { ok:
-// true, kind: "tui", name }, the request statusActionRequest makes for a
-// TUI action, or { ok: false, answer } with `unknown: <id>` or tuiRefusal's
-// line: `undeclared` for a name the manifest does not declare or gives no
-// `entry`, then `disabled` for a disabled plugin.
-function listedTuiRequest(manifest, id, enabled, name) {
+// What the `manager` capability's `openTui(id, name)` does for TUI NAME
+// of plugin MANIFEST, null for an id no plugin has: { ok: true, kind:
+// "tui", name }, the request statusActionRequest makes for a TUI action,
+// or { ok: false, answer } with `unknown: <id>`, or with tuiRefusal's
+// `undeclared` line for a name listedTuis does not list. The run of the
+// request refuses a disabled plugin, as tuiRun decides.
+function listedTuiRequest(manifest, id, name) {
     if (manifest === null)
         return { ok: false, answer: "unknown: " + tuiLabel(id) };
-    if (typeof name !== "string" || !hasOwn(manifest.tui, name) || manifest.tui[name].entry === null)
+    if (!listedTuis(manifest).some(function (tui) { return tui.name === name; }))
         return { ok: false, answer: tuiRefusal(name, "undeclared").answer };
-    if (!enabled)
-        return { ok: false, answer: tuiRefusal(name, "disabled").answer };
     return { ok: true, kind: "tui", name: name };
 }
 

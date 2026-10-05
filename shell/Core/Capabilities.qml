@@ -302,7 +302,7 @@ Singleton {
     // decides.
     function managerOpenTui(id, name) {
         const subject = managerSubject(id);
-        const request = Logic.listedTuiRequest(subject.manifest, id, subject.enabled, name);
+        const request = Logic.listedTuiRequest(subject.manifest, id, name);
         return request.ok ? root.managerStep(id, request) : request.answer;
     }
 

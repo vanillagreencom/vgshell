@@ -236,21 +236,20 @@ function suite(ctx, check) {
         { name: "alpha", label: "First things", icon: "wrench" },
     ]);
     check("listedTuis: a manifest with no tui key lists none", ctx.listedTuis(ctx.validateManifest(manifestWith(undefined), "/p").manifest), []);
-    // listedTuiRequest: [name, manifest, id, enabled, TUI name, the request
-    // or the manager's reply].
+    // listedTuiRequest: [name, manifest, id, TUI name, the request or the
+    // manager's reply]. The request's run judges a disabled plugin, as the
+    // tuiRun rows above read.
     const listedRows = [
-        ["a listed script of an enabled plugin", normal, "acme.tui", true, "update", { kind: "tui", name: "update" }],
-        ["a declared script without an entry", normal, "acme.tui", true, "hello", "refused: tui=hello reason=undeclared"],
-        ["a name the manifest does not declare", normal, "acme.tui", true, "other", "refused: tui=other reason=undeclared"],
-        ["a name that is a prototype member", normal, "acme.tui", true, "constructor", "refused: tui=constructor reason=undeclared"],
-        ["a name that is not a string", normal, "acme.tui", true, null, "refused: tui=null reason=undeclared"],
-        ["a disabled plugin's listed script", normal, "acme.tui", false, "update", "refused: tui=update reason=disabled"],
-        ["a disabled plugin's undeclared name reads undeclared", normal, "acme.tui", false, "other", "refused: tui=other reason=undeclared"],
-        ["an id no plugin has", null, "acme.none", false, "update", "unknown: acme.none"],
-        ["an id that is not a string", null, 7, false, "update", "unknown: 7"],
+        ["a listed script", normal, "acme.tui", "update", { kind: "tui", name: "update" }],
+        ["a declared script without an entry", normal, "acme.tui", "hello", "refused: tui=hello reason=undeclared"],
+        ["a name the manifest does not declare", normal, "acme.tui", "other", "refused: tui=other reason=undeclared"],
+        ["a name that is a prototype member", normal, "acme.tui", "constructor", "refused: tui=constructor reason=undeclared"],
+        ["a name that is not a string", normal, "acme.tui", null, "refused: tui=null reason=undeclared"],
+        ["an id no plugin has", null, "acme.none", "update", "unknown: acme.none"],
+        ["an id that is not a string", null, 7, "update", "unknown: 7"],
     ];
-    for (const [name, manifest, id, enabled, tui, want] of listedRows) {
-        const r = ctx.listedTuiRequest(manifest, id, enabled, tui);
+    for (const [name, manifest, id, tui, want] of listedRows) {
+        const r = ctx.listedTuiRequest(manifest, id, tui);
         check("listedTuiRequest: " + name, r.ok ? { kind: r.kind, name: r.name } : r.answer, want);
     }
 
@@ -684,10 +683,8 @@ const CONTROLS = [
     ["a probe that never started is logged", "if (completion === null)\n        return \"tui: probe=unstarted\";", "if (false)\n        return \"tui: probe=unstarted\";"],
     ["openTui opens a listed core row only", "if (!hasOwn(core, name) || core[name].entry === null)", "if (!hasOwn(core, name))"],
     ["a manager row lists only a script with an entry", ".filter(function (name) { return manifest.tui[name].entry !== null; })", ""],
-    ["the manager's open answers unknown for no plugin", "if (manifest === null)\n        return { ok: false, answer: \"unknown: \" + tuiLabel(id) };\n    if (typeof name", "if (manifest === null)\n        return { ok: false, answer: \"unknown\" };\n    if (typeof name"],
-    ["the manager's open refuses a name the manifest lacks", "typeof name !== \"string\" || !hasOwn(manifest.tui, name) || manifest.tui[name].entry === null", "manifest.tui[name] !== undefined && manifest.tui[name].entry === null"],
-    ["the manager's open refuses a script with no entry", "!hasOwn(manifest.tui, name) || manifest.tui[name].entry === null)", "!hasOwn(manifest.tui, name))"],
-    ["the manager's open refuses a disabled plugin", "if (!enabled)\n        return { ok: false, answer: tuiRefusal(name, \"disabled\").answer };", "if (false)\n        return { ok: false, answer: tuiRefusal(name, \"disabled\").answer };"],
+    ["the manager's open answers unknown for no plugin", "if (manifest === null)\n        return { ok: false, answer: \"unknown: \" + tuiLabel(id) };\n    if (!listedTuis(manifest)", "if (manifest === null)\n        return { ok: false, answer: \"unknown\" };\n    if (!listedTuis(manifest)"],
+    ["the manager's open refuses a name the row does not list", "if (!listedTuis(manifest).some(function (tui) { return tui.name === name; }))", "if (false)"],
     ["the manager's open asks for the named TUI", "return { ok: true, kind: \"tui\", name: name };", "return { ok: true, kind: \"tui\", name: id };"],
     ["a core request's arguments are judged", "    if (!tuiArgsValid(args))\n        return tuiRefusal(key, \"args\");\n    var refusal = tuiRunnerRefusal(runner, key, key);", "    var refusal = tuiRunnerRefusal(runner, key, key);"],
     ["a core request's arguments follow its argv", "row.argv.slice(1), args === undefined ? [] : args)", "row.argv.slice(1))"],
