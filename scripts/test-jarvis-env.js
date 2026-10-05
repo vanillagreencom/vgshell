@@ -25,8 +25,11 @@ function run(command, args, env, timeout = 60000) {
     return result;
 }
 
-function explicitEnv(root) {
+// short is a fresh directory under /tmp, so the runtime parent and the
+// socket-limit edge cases do not grow with the checkout path.
+function explicitEnv(root, short) {
     return { PATH: systemPath, HOME: path.join(root, "parent-home"), TMPDIR: root, LC_ALL: "C",
+        XDG_RUNTIME_DIR: path.join(short, "run"),
         JARVIS_TEST_SCRATCH_ROOT: root, JARVIS_PARENT_ONLY: "scrub-me", VGS_TEST_RUN: "1" };
 }
 
@@ -38,8 +41,8 @@ function runNamespace(args, env, timeout = 180000) {
         { env, cwd: env.HOME, encoding: "utf8", timeout, killSignal: "SIGKILL" });
 }
 
-function namespaceTimeout(root) {
-    const env = explicitEnv(root);
+function namespaceTimeout(root, short) {
+    const env = explicitEnv(root, short);
     const lock = path.join(root, "timeout.lock");
     const started = process.hrtime.bigint();
     // A real timeout: the fixture has a live descendant and output pipe, and
@@ -55,16 +58,18 @@ function namespaceTimeout(root) {
 
 async function main() {
     if (process.argv[2] === "--namespace-timeout") {
-        namespaceTimeout(process.argv[3]);
+        namespaceTimeout(process.argv[3], process.argv[4]);
         return;
     }
     if (process.argv[2] !== "--inside") {
         const parent = path.resolve(__dirname, "../tmp");
         fs.mkdirSync(parent, { recursive: true });
         const root = fs.realpathSync(fs.mkdtempSync(path.join(parent, "je-")));
+        const short = fs.realpathSync(fs.mkdtempSync("/tmp/je-"));
         fs.mkdirSync(path.join(root, "parent-home"));
+        fs.mkdirSync(path.join(short, "run"), { mode: 0o700 });
         try {
-            const result = runNamespace([process.execPath, __filename, "--inside", root], explicitEnv(root));
+            const result = runNamespace([process.execPath, __filename, "--inside", root, short], explicitEnv(root, short));
             if (result.error?.code === "ENOENT") throw new Unavailable("missing=unshare");
             if (result.error) throw result.error;
             process.stdout.write(result.stdout);
@@ -75,12 +80,15 @@ async function main() {
             process.exitCode = result.status;
         } finally {
             fs.rmSync(root, { recursive: true, force: true });
+            fs.rmSync(short, { recursive: true, force: true });
         }
         return;
     }
 
     const root = process.argv[3];
-    const env = explicitEnv(root);
+    const short = process.argv[4];
+    const env = explicitEnv(root, short);
+    const runtimeParent = env.XDG_RUNTIME_DIR;
     fs.writeFileSync(path.join(root, "started"), "");
     for (const args of [["link", "set", "lo", "up"], ["addr", "add", "192.0.2.1/32", "dev", "lo"]]) {
         const result = run("/usr/bin/ip", args, env);
@@ -165,21 +173,57 @@ async function main() {
         assert.equal(result.stdout, "");
         assert.equal(result.stderr.trim(), key);
     }
+    // A runtime parent whose session bus socket, PARENT/jv-XXXXXXXX/session.bus,
+    // is BYTES long: the parent's length plus 24.
+    function edgeParent(bytes) {
+        const parent = path.join(short, "e".repeat(bytes - 24 - Buffer.byteLength(short) - 1));
+        fs.rmSync(parent, { recursive: true, force: true });
+        fs.mkdirSync(parent, { mode: 0o700 });
+        assert.equal(Buffer.byteLength(parent) + 24, bytes);
+        return parent;
+    }
     function socketRefusal(file) {
-        const parent = path.join(root, "long-" + "x".repeat(107));
+        const scratch = fs.mkdtempSync(path.join(root, "refused-"));
+        const parent = edgeParent(100);
         const result = run("/bin/bash", [file, standins, "--", "true"],
-            { ...env, JARVIS_TEST_SCRATCH_ROOT: parent });
+            { ...env, JARVIS_TEST_SCRATCH_ROOT: scratch, XDG_RUNTIME_DIR: parent });
         assert.equal(result.status, 1, result.stderr);
         assert.equal(result.stdout, "");
-        assert.match(result.stderr, /^jarvis-env: scratch=socket-path-too-long bytes=\d+ max=107 path=.+\/run\/session\.bus\n$/);
-        assert.deepEqual(fs.readdirSync(parent), [], "refusal removes only the fresh allocated world");
+        assert.match(result.stderr, /^jarvis-env: scratch=socket-path-too-long bytes=100 max=99 path=.+\/jv-[^/]{8}\/session\.bus\n$/);
+        assert.deepEqual(fs.readdirSync(scratch), [], "refusal removes the fresh allocated world");
+        assert.deepEqual(fs.readdirSync(parent), [], "refusal removes the fresh runtime directory");
     }
-    function harnessIsolation(fragment, parent, expected, sourceTree = path.resolve(__dirname, "..")) {
+    function socketEdge(file) {
+        const parent = edgeParent(99);
+        const result = run("/bin/bash", [file, standins, "--", "python3", probe, "runtime", "XDG_RUNTIME_DIR", parent],
+            { ...env, XDG_RUNTIME_DIR: parent });
+        assert.equal(result.status, 0, result.stderr);
+        assert.deepEqual(fs.readdirSync(parent), []);
+    }
+    function longScratchStarts(file) {
+        const scratch = path.join(root, "long-" + "x".repeat(107));
+        assert.ok(Buffer.byteLength(scratch) >= 120);
+        fs.mkdirSync(scratch, { recursive: true });
+        const result = run("/bin/bash", [file, standins, "--", "python3", probe, "buses"],
+            { ...env, JARVIS_TEST_SCRATCH_ROOT: scratch });
+        assert.equal(result.status, 0, result.stderr);
+        assert.deepEqual(fs.readdirSync(scratch), []);
+    }
+    function defaultRuntime(file) {
+        const unset = { ...env };
+        delete unset.XDG_RUNTIME_DIR;
+        const result = run("/bin/bash", [file, standins, "--", "python3", probe, "runtime", "XDG_RUNTIME_DIR", "/tmp"], unset);
+        assert.equal(result.status, 0, result.stderr);
+    }
+    function clearRuntime() {
+        for (const name of fs.readdirSync(runtimeParent)) fs.rmSync(path.join(runtimeParent, name), { recursive: true, force: true });
+    }
+    function harnessIsolation(fragment, overrides, expected, sourceTree = path.resolve(__dirname, "..")) {
         const sandbox = path.join(root, "harness");
         fs.mkdirSync(path.join(sandbox, "jarvis-world/standins"), { recursive: true });
         const script = 'source_repo="$1"; sandbox="$2"\n' + fragment;
         const result = cp.spawnSync("/bin/bash", ["-c", script, "probe", sourceTree, sandbox],
-            { env: { ...env, JARVIS_TEST_SCRATCH_ROOT: parent }, cwd: env.HOME,
+            { env: { ...env, ...overrides }, cwd: env.HOME,
                 encoding: "utf8", timeout: 60000 });
         assert.equal(result.error, undefined);
         assert.equal(result.signal, null);
@@ -220,6 +264,7 @@ async function main() {
         launcher.stderr.on("data", data => { stderr += data; });
         launcher.once("exit", () => {
             atExit = { removed: world && !fs.existsSync(world),
+                runtimeRemoved: fs.readdirSync(runtimeParent).length === 0,
                 descendantEnded: run("/usr/bin/python3", [probe, "acquire", lock], env).status === 0 };
         });
         const watchdog = setTimeout(() => {
@@ -234,6 +279,7 @@ async function main() {
             const result = await closed; // close also proves both output pipes reached EOF.
             assert.equal(forced, false, "cancellation must not need the test watchdog");
             assert.equal(atExit.removed, true, "scratch must be removed before the CLI exits");
+            assert.equal(atExit.runtimeRemoved, true, "the runtime directory must be removed before the CLI exits");
             assert.equal(atExit.descendantEnded, true, "descendant must end before the CLI exits");
             assert.doesNotMatch(stdout, /fixture=expired/, "cancelled fixture must not run to natural expiry");
             assert.equal(result.code, { SIGTERM: 143, SIGINT: 130, SIGHUP: 129 }[signal], stderr);
@@ -247,6 +293,7 @@ async function main() {
             }
             await closed;
             if (world) fs.rmSync(world, { recursive: true, force: true });
+            clearRuntime();
         }
     }
 
@@ -263,6 +310,7 @@ async function main() {
         const result = JSON.parse(fs.readFileSync(record, "utf8"));
         assert.equal(result.expired, undefined, "CLI timeout must cancel, not wait for natural expiry");
         assert.equal(fs.existsSync(result.root), false, "CLI timeout must remove scratch");
+        assert.deepEqual(fs.readdirSync(runtimeParent), [], "CLI timeout must remove the runtime directory");
         assert.equal(run("/usr/bin/python3", [probe, "acquire", lock], env).status, 0, "CLI timeout must end descendants");
         console.log("  ok    cli-timeout elapsed-ms=" + Number(process.hrtime.bigint() - started) / 1e6);
     }
@@ -270,16 +318,24 @@ async function main() {
     try {
         const standinResult = cli(helper, standins, "jarvis-standin");
         socketRefusal(helper);
-        mutation("socket-limit", "if size > 107:", "if False:", socketRefusal);
+        socketEdge(helper);
+        mutation("socket-limit", "if size > 99:", "if False:", socketRefusal);
+        mutation("socket-limit-edge", "if size > 99:", "if size > 98:", socketEdge);
+        mutation("runtime-cleanup", 'if [[ -n $run ]]; then rm', 'if false; then rm', socketRefusal);
+        longScratchStarts(helper);
+        mutation("runtime-under-scratch", '_jarvis_env_mkdtemp "${XDG_RUNTIME_DIR:-/tmp}"', '_jarvis_env_mkdtemp "$root"',
+            longScratchStarts);
+        defaultRuntime(helper);
+        mutation("runtime-default", '${XDG_RUNTIME_DIR:-/tmp}', '${XDG_RUNTIME_DIR:-$scratch}', defaultRuntime);
         const harness = fs.readFileSync(path.join(__dirname, "smoke/harness.sh"), "utf8");
         const start = 'if bash "$source_repo/scripts/lib/jarvis-env.sh" "$sandbox/jarvis-world/standins" -- true; then';
         assert.equal(harness.split(start).length - 1, 1);
         const fragment = harness.slice(harness.indexOf(start), harness.indexOf("\nsandbox_env=(", harness.indexOf(start)));
-        const parent = path.join(root, "long-" + "x".repeat(107));
-        harnessIsolation(fragment, parent, 1);
+        const overlong = { XDG_RUNTIME_DIR: edgeParent(100) };
+        harnessIsolation(fragment, overlong, 1);
         const exit = 'exit "$jarvis_isolation_status"';
         assert.equal(fragment.split(exit).length - 1, 1);
-        assert.throws(() => harnessIsolation(fragment.replace(exit, "exit 77"), parent, 1), assert.AssertionError);
+        assert.throws(() => harnessIsolation(fragment.replace(exit, "exit 77"), overlong, 1), assert.AssertionError);
         controls++;
         const unavailableTree = path.join(root, "unavailable-tree");
         fs.mkdirSync(path.join(unavailableTree, "scripts/lib"), { recursive: true });
@@ -287,7 +343,7 @@ async function main() {
         assert.equal(source.split(probeNeedle).length - 1, 1);
         fs.writeFileSync(path.join(unavailableTree, "scripts/lib/jarvis-env.sh"),
             source.replace(probeNeedle, '"${clean_env[@]}" "$root/tools/false"'));
-        harnessIsolation(fragment, root, 77, unavailableTree);
+        harnessIsolation(fragment, { JARVIS_TEST_SCRATCH_ROOT: root }, 77, unavailableTree);
         scratchLocation(helper, root);
         const defaultEnv = { ...env };
         delete defaultEnv.JARVIS_TEST_SCRATCH_ROOT;
@@ -298,16 +354,22 @@ async function main() {
         const alias = path.join(root, "alias");
         fs.symlinkSync(root, alias);
         scratchLocation(helper, root, { JARVIS_TEST_SCRATCH_ROOT: alias });
-        const special = path.join(root, "s & p");
-        scratchLocation(helper, special, { JARVIS_TEST_SCRATCH_ROOT: special });
+        // The bus sockets sit under the runtime parent, so each name is both.
+        const parents = name => {
+            const parent = { JARVIS_TEST_SCRATCH_ROOT: path.join(root, name), XDG_RUNTIME_DIR: path.join(short, name) };
+            fs.mkdirSync(parent.XDG_RUNTIME_DIR);
+            return parent;
+        };
+        const special = parents("s & p");
+        scratchLocation(helper, special.JARVIS_TEST_SCRATCH_ROOT, special);
         // dbus-daemon prints these with a hex letter, %2b and %7e.
-        const escaped = path.join(root, "a+b~c");
-        scratchLocation(helper, escaped, { JARVIS_TEST_SCRATCH_ROOT: escaped });
+        const escaped = parents("a+b~c");
+        scratchLocation(helper, escaped.JARVIS_TEST_SCRATCH_ROOT, escaped);
         mutation("bus-escape-spelling", "unquote_to_bytes(value)", "value.encode()",
-            file => scratchLocation(file, escaped, { JARVIS_TEST_SCRATCH_ROOT: escaped }));
+            file => scratchLocation(file, escaped.JARVIS_TEST_SCRATCH_ROOT, escaped));
         const busKey = "jarvis-env: bus=unexpected-address kind=system";
-        const elsewhere = mutationFile("bus-elsewhere", '"$root/$bus.conf" "$root/run/$bus.bus"',
-            '"$root/$bus.conf" "$root/run/$bus.elsewhere"');
+        const elsewhere = mutationFile("bus-elsewhere", '"$root/$bus.conf" "$XDG_RUNTIME_DIR/$bus.bus"',
+            '"$root/$bus.conf" "$XDG_RUNTIME_DIR/$bus.elsewhere"');
         refusal(standins, busKey, elsewhere);
         const busCheck = "paths != [os.fsencode(sys.argv[2])])";
         const elsewhereSource = fs.readFileSync(elsewhere, "utf8");
@@ -332,11 +394,11 @@ async function main() {
         const linked = mutationFile("allocated-link", allocation, 'print(sys.argv[1] + "/allocated-alias")');
         const linkedKey = "jarvis-env: scratch=not-a-directory value=[" + allocatedAlias + "]";
         scratchRefusal(linked, root, linkedKey);
-        const linkGuard = "[[ -d $root && ! -L $root ]]";
+        const linkGuard = "[[ -d $made && ! -L $made ]]";
         const linkSource = fs.readFileSync(linked, "utf8");
         assert.equal(linkSource.split(linkGuard).length - 1, 1);
         const acceptedLink = path.join(root, "accepted-link.sh");
-        fs.writeFileSync(acceptedLink, linkSource.replace(linkGuard, linkGuard + " || [[ -d $root ]]"));
+        fs.writeFileSync(acceptedLink, linkSource.replace(linkGuard, linkGuard + " || [[ -d $made ]]"));
         assert.throws(() => scratchRefusal(acceptedLink, root, linkedKey), assert.AssertionError);
         controls++;
         assert.equal(standinResult.status, 0, standinResult.stderr);
@@ -378,14 +440,16 @@ async function main() {
         good(helper, "tmux-command");
         for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"]) await cancellation(helper, signal);
         cliTimeout(helper);
-        namespaceTimeout(root);
+        namespaceTimeout(root, short);
         good(helper, "audio");
         const directories = [
             ["HOME", "home"], ["XDG_CONFIG_HOME", "config"], ["XDG_DATA_HOME", "data"],
             ["XDG_STATE_HOME", "state"], ["XDG_CACHE_HOME", "cache"],
-            ["TMPDIR", "tmp"], ["TMUX_TMPDIR", "run"], ["XDG_RUNTIME_DIR", "run"],
+            ["TMPDIR", "tmp"],
         ];
         for (const [key, suffix] of directories) good(helper, "directory", key, suffix);
+        const runtimeKeys = ["TMUX_TMPDIR", "XDG_RUNTIME_DIR"];
+        for (const key of runtimeKeys) good(helper, "runtime", key, runtimeParent);
         const lock = path.join(root, "orphan.lock");
         function lifetime(file) {
             const result = good(file, "orphan", lock);
@@ -393,6 +457,7 @@ async function main() {
             assert.equal(run("/usr/bin/python3", [probe, "acquire", lock], env).status, 0, "descendant must end");
         }
         lifetime(helper);
+        assert.deepEqual(fs.readdirSync(runtimeParent), [], "the owner removes its runtime directory");
         for (const status of [0, 1, 23, 77]) {
             const result = cp.spawnSync("/bin/bash", [helper, standins, "--", "bash", "-c", "exit " + status],
                 { env, cwd: env.HOME, encoding: "utf8", timeout: 60000 });
@@ -406,6 +471,10 @@ async function main() {
             mutation("scratch-" + key, key + '="$root/' + suffix + '"',
                 key + '="' + path.join(root, "parent-home") + '"',
                 file => good(file, "directory", key, suffix));
+        }
+        for (const key of runtimeKeys) {
+            mutation("runtime-" + key, key + '="$run"', key + '="' + path.join(root, "parent-home") + '"',
+                file => good(file, "runtime", key, runtimeParent));
         }
         mutation("path-fallback", 'PATH="$root/standins:$root/tools"', 'PATH="$root/standins:$root/tools:$PATH"', missingStandin);
         mutation("auth-path-fallback", 'PATH="$root/standins:$root/tools"', 'PATH="$root/standins:$root/tools:$PATH"', missingAuth);
@@ -422,7 +491,7 @@ async function main() {
             'export DBUS_SYSTEM_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS"', file => good(file, "buses"));
         mutation("bus-activation", "</policy></busconfig>", "</policy><standard_session_servicedirs/></busconfig>",
             file => good(file, "activation"));
-        mutation("tmux-socket", '-S "$JARVIS_TEST_TMUX_SOCKET"', '-S "$JARVIS_TEST_ROOT/run/wrong.sock"',
+        mutation("tmux-socket", '-S "$JARVIS_TEST_TMUX_SOCKET"', '-S "$XDG_RUNTIME_DIR/wrong.sock"',
             file => good(file, "tmux"));
         mutation("tmux-config", "-f /dev/null -S", '-f "$JARVIS_TEST_ROOT/home/.tmux.conf" -S',
             file => good(file, "tmux"));
@@ -438,6 +507,7 @@ async function main() {
         const termOwner = mutationFile("ignored-owner-signal", 'kill -KILL "$owner"', 'kill -TERM "$owner"');
         await assert.rejects(cancellation(termOwner, "SIGTERM"), assert.AssertionError);
         assert.throws(() => cliTimeout(termOwner), assert.AssertionError);
+        clearRuntime();
         controls++;
         const wrongCli = mutationFile("cli-subshell", '    _jarvis_env_run "$@"', '    jarvis_env_run "$@"');
         await assert.rejects(cancellation(wrongCli, "SIGTERM"), assert.AssertionError);
@@ -453,14 +523,14 @@ async function main() {
         assert.notEqual(ignoredTimeout, suiteSource);
         const nodeMutant = path.join(nodeCopy, "test-jarvis-env.js");
         fs.writeFileSync(nodeMutant, ignoredTimeout);
-        const timeoutResult = run(process.execPath, [nodeMutant, "--namespace-timeout", root], env);
+        const timeoutResult = run(process.execPath, [nodeMutant, "--namespace-timeout", root, short], env);
         assert.equal(timeoutResult.status, 1);
         assert.match(timeoutResult.stderr, /AssertionError/);
         assert.match(timeoutResult.stderr, /SIGKILL/);
         controls++;
         for (const [key, value] of [
-            ["PIPEWIRE_RUNTIME_DIR", '"$root/run"'], ["PIPEWIRE_REMOTE", "jarvis-test-no-pipewire"],
-            ["PULSE_RUNTIME_PATH", '"$root/run"'], ["PULSE_SERVER", '"unix:$root/run/no-pulse"'],
+            ["PIPEWIRE_RUNTIME_DIR", '"$run"'], ["PIPEWIRE_REMOTE", "jarvis-test-no-pipewire"],
+            ["PULSE_RUNTIME_PATH", '"$run"'], ["PULSE_SERVER", '"unix:$run/no-pulse"'],
         ]) {
             mutation("audio-" + key, key + "=" + value, key + "=wrong",
                 file => good(file, "audio"));

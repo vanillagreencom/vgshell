@@ -106,9 +106,8 @@ world(async () => {
             brain: options.network ? { kind: "network", provider: "fixture-cloud", account: "a", origin: "https://brain.example.test" }
                 : { kind: "local", provider: "fixture-local", account: "" },
             speech: [{ kind: "local", provider: "fixture-speech", account: "" }] });
-        // Directly under the world root: the socket path stays shorter than
-        // the session bus socket J09's length guard measures.
-        const runtime = options.runtime ?? path.join(process.env.JARVIS_TEST_ROOT, "r" + serial.toString(36));
+        // Under J09's runtime directory, whose path no checkout lengthens.
+        const runtime = options.runtime ?? path.join(process.env.XDG_RUNTIME_DIR, "r" + serial.toString(36));
         bridge = Bridge.create({ router, state: () => runner.state, audit, directory: runtime, clock: {
             set: (fn, ms) => { const timer = { fn, ms }; helloTimers.add(timer); return timer; },
             clear: timer => helloTimers.delete(timer) } });
@@ -453,9 +452,9 @@ world(async () => {
             await assert.rejects(w.open(), { message: "jarvis: bridge=closed" });
         }],
         ["runtime", async folder => {
-            const target = path.join(process.env.JARVIS_TEST_ROOT, "real-" + ++serial);
+            const target = path.join(process.env.XDG_RUNTIME_DIR, "real-" + ++serial);
             fs.mkdirSync(target);
-            const alias = path.join(process.env.JARVIS_TEST_ROOT, "alias-" + serial);
+            const alias = path.join(process.env.XDG_RUNTIME_DIR, "alias-" + serial);
             fs.symlinkSync(target, alias);
             const linked = await make(folder, { open: false, runtime: path.join(alias, "vgshell") });
             await assert.rejects(linked.open(), { message: "jarvis: private=directory-type" });
@@ -479,13 +478,13 @@ world(async () => {
             c.send(ping(1));
             assert.deepEqual(result(await c.next(), "EmptyResult"), {}, "a stale socket is replaced");
             // Socket path: 107 bytes accepted, 108 refused.
-            const name = 107 - Buffer.byteLength(path.join(process.env.JARVIS_TEST_ROOT, "tools.sock")) - 1;
-            assert.ok(name >= 1, "J09's socket guard leaves room for a 107-byte bridge socket");
-            const edge = await make(folder, { open: false, runtime: path.join(process.env.JARVIS_TEST_ROOT, "e".repeat(name)) });
+            const name = 107 - Buffer.byteLength(path.join(process.env.XDG_RUNTIME_DIR, "tools.sock")) - 1;
+            assert.ok(name >= 1, "J09's runtime directory leaves room for a 107-byte bridge socket");
+            const edge = await make(folder, { open: false, runtime: path.join(process.env.XDG_RUNTIME_DIR, "e".repeat(name)) });
             const bound = await edge.open().catch(error => assert.fail("a 107-byte socket path is accepted: " + error.message));
             assert.equal(Buffer.byteLength(bound.env.VGS_JARVIS_TOOLS_SOCKET), 107);
             assert.equal(fs.lstatSync(bound.env.VGS_JARVIS_TOOLS_SOCKET).isSocket(), true);
-            const past = await make(folder, { open: false, runtime: path.join(process.env.JARVIS_TEST_ROOT, "e".repeat(name + 1)) });
+            const past = await make(folder, { open: false, runtime: path.join(process.env.XDG_RUNTIME_DIR, "e".repeat(name + 1)) });
             await assert.rejects(past.open(), { message: "jarvis: bridge=socket-path" });
         }],
         ["dropped", async folder => {

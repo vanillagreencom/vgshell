@@ -111,8 +111,18 @@ elif mode == "directory":
     assert expected.is_dir() and not expected.is_symlink()
     assert expected.stat().st_mode & 0o077 == 0
     assert Path.cwd() == Path(os.environ["HOME"])
-    if suffix != "run":
-        assert not list(expected.iterdir())
+    assert not list(expected.iterdir())
+elif mode == "runtime":
+    key, parent = sys.argv[2:]
+    runtime = Path(os.environ[key])
+    assert runtime == Path(os.environ["XDG_RUNTIME_DIR"])
+    assert runtime.parent == Path(parent).resolve() and runtime.name.startswith("jv-")
+    assert runtime.is_dir() and not runtime.is_symlink()
+    assert runtime.stat().st_mode & 0o777 == 0o700
+    # The caller's runtime directory reaches the child only as this parent.
+    for name, value in os.environ.items():
+        if value == parent or value.startswith(parent + "/"):
+            assert value == str(runtime) or value.startswith(str(runtime) + "/"), name
 elif mode == "path":
     root = Path(os.environ["JARVIS_TEST_ROOT"])
     assert os.environ["PATH"].split(":") == [str(root / "standins"), str(root / "tools")]

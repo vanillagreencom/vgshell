@@ -12,8 +12,11 @@
 # JARVIS_TEST_SCRATCH_ROOT selects the parent directory for fresh worlds.
 # Default: this helper's worktree tmp/. The launcher resolves it physically;
 # this parent setting and the caller's TMPDIR never enter the child.
-# Private Unix socket paths must fit the host limit; an overlong world
-# refuses with scratch=socket-path-too-long and exit 1 before services start.
+# The world's runtime directory, which holds its private Unix sockets, is a
+# fresh directory under the caller's XDG_RUNTIME_DIR, else /tmp, so no
+# checkout path lengthens a socket path. Only that directory enters the child.
+# A session bus path longer than dbus-daemon accepts refuses with
+# scratch=socket-path-too-long and exit 1 before services start.
 
 _jarvis_env_error() {
   printf 'jarvis-env: %s\n' "$*" >&2
@@ -23,6 +26,23 @@ _jarvis_env_error() {
 # browser and installer commands. PATH resolves those only as stand-ins.
 _jarvis_env_tools=(bash sh env node python3 cat mkdir rm cp mv ln chmod sleep flock
   readlink dirname basename stat grep sed awk sort cut wc true false setpriv timeout gdbus)
+
+# _jarvis_env_mkdtemp PARENT: print a fresh private directory under PARENT,
+# resolved physically. $allocator is the caller's fixed-path python3.
+_jarvis_env_mkdtemp() {
+  local made
+  made="$(/usr/bin/env -i LC_ALL=C "$allocator" -I - "$1" <<'PY'
+import sys, tempfile
+try:
+    print(tempfile.mkdtemp(prefix="jv-", dir=sys.argv[1]))
+except OSError as error:
+    print(f"jarvis-env: scratch=create-failed parent={sys.argv[1]} error={error}", file=sys.stderr)
+    sys.exit(1)
+PY
+)" || return 1
+  [[ -d $made && ! -L $made ]] || { _jarvis_env_error "scratch=not-a-directory value=[$made]"; return 1; }
+  (cd -- "$made" && pwd -P) || { _jarvis_env_error 'scratch=resolve-failed'; return 1; }
+}
 
 # jarvis_env_run STANDINS -- COMMAND [ARG...]: preserve the sourced caller's
 # traps, options, directories and environment in a subshell.
@@ -35,7 +55,7 @@ _jarvis_env_run() {
   if [[ $# -lt 3 || $2 != -- || -z $3 ]]; then
     _jarvis_env_error 'refused=arguments'; return 2
   fi
-  local standins self scratch allocator root tool real entry name owner="" status=0
+  local standins self scratch allocator root run="" tool real entry name owner="" status=0
   standins="$(cd -- "$1" && pwd -P)" || { _jarvis_env_error "standins=unreadable path=$1"; return 1; }
   shift 2
   self="$(readlink -f -- "${BASH_SOURCE[0]}")" || return 1
@@ -50,17 +70,7 @@ _jarvis_env_run() {
   allocator="$(PATH=/usr/bin:/usr/sbin:/bin:/sbin type -P -- python3)" ||
     { _jarvis_env_error 'status=not-measured missing=python3'; return 77; }
   unset TMPDIR
-  root="$(/usr/bin/env -i LC_ALL=C "$allocator" -I - "$scratch" <<'PY'
-import sys, tempfile
-try:
-    print(tempfile.mkdtemp(prefix="jv-", dir=sys.argv[1]))
-except OSError as error:
-    print(f"jarvis-env: scratch=create-failed parent={sys.argv[1]} error={error}", file=sys.stderr)
-    sys.exit(1)
-PY
-)" || return 1
-  [[ -d $root && ! -L $root ]] || { _jarvis_env_error "scratch=not-a-directory value=[$root]"; return 1; }
-  root="$(cd -- "$root" && pwd -P)" || { _jarvis_env_error 'scratch=resolve-failed'; return 1; }
+  root="$(_jarvis_env_mkdtemp "$scratch")" || return 1
   _jarvis_env_cleanup() {
     local result=$?
     if [[ -n $owner ]]; then
@@ -70,24 +80,27 @@ PY
       wait "$owner" 2>/dev/null || :
     fi
     rm -rf -- "${root:?}" || { _jarvis_env_error "cleanup=failed path=$root"; exit 1; }
+    if [[ -n $run ]]; then rm -rf -- "${run:?}" || { _jarvis_env_error "cleanup=failed path=$run"; exit 1; }; fi
     exit "$result"
   }
   trap _jarvis_env_cleanup EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM
   trap 'exit 129' HUP
-  # Linux unix(7): sun_path is 108 bytes including the terminating byte.
-  # https://man7.org/linux/man-pages/man7/unix.7.html
+  run="$(_jarvis_env_mkdtemp "${XDG_RUNTIME_DIR:-/tmp}")" || exit 1
+  # dbus-daemon refuses a listen path over 99 bytes, below the 107 of Linux
+  # sun_path: _DBUS_MAX_SUN_PATH_LENGTH in dbus/dbus-sysdeps.h (1.16.2).
+  # https://gitlab.freedesktop.org/dbus/dbus/-/blob/dbus-1.16.2/dbus/dbus-sysdeps.h
   # Session bus is this world's longest socket.
-  "$allocator" -I - "$root/run/session.bus" <<'PY' || exit 1
+  "$allocator" -I - "$run/session.bus" <<'PY' || exit 1
 import os, sys
 size = len(os.fsencode(sys.argv[1]))
-if size > 107:
-    print(f"jarvis-env: scratch=socket-path-too-long bytes={size} max=107 path={sys.argv[1]}", file=sys.stderr)
+if size > 99:
+    print(f"jarvis-env: scratch=socket-path-too-long bytes={size} max=99 path={sys.argv[1]}", file=sys.stderr)
     sys.exit(1)
 PY
   umask 077
-  mkdir -p "$root"/{standins,tools,bootstrap,home,config,data,state,cache,run,tmp} || exit 1
+  mkdir -p "$root"/{standins,tools,bootstrap,home,config,data,state,cache,tmp} || exit 1
   for tool in "${_jarvis_env_tools[@]}" unshare ip dbus-daemon tmux; do
     # A fixed search path avoids a login-shell function or version-manager
     # shim that opens the developer's configuration before the test starts.
@@ -129,10 +142,10 @@ PY
     PATH="$root/standins:$root/tools" HOME="$root/home"
     XDG_CONFIG_HOME="$root/config" XDG_DATA_HOME="$root/data"
     XDG_STATE_HOME="$root/state" XDG_CACHE_HOME="$root/cache"
-    XDG_RUNTIME_DIR="$root/run" TMPDIR="$root/tmp"
-    TMUX_TMPDIR="$root/run" JARVIS_TEST_TMUX_SOCKET="$root/run/tmux.sock"
-    PIPEWIRE_RUNTIME_DIR="$root/run" PIPEWIRE_REMOTE=jarvis-test-no-pipewire
-    PULSE_RUNTIME_PATH="$root/run" PULSE_SERVER="unix:$root/run/no-pulse"
+    XDG_RUNTIME_DIR="$run" TMPDIR="$root/tmp"
+    TMUX_TMPDIR="$run" JARVIS_TEST_TMUX_SOCKET="$run/tmux.sock"
+    PIPEWIRE_RUNTIME_DIR="$run" PIPEWIRE_REMOTE=jarvis-test-no-pipewire
+    PULSE_RUNTIME_PATH="$run" PULSE_SERVER="unix:$run/no-pulse"
     LC_ALL=C LANG=C TZ=UTC VGS_TEST_RUN=1
     JARVIS_TEST_ROOT="$root")
   if ! "${clean_env[@]}" "$root/bootstrap/unshare" -rn --pid --fork --mount-proc --kill-child -- \
@@ -168,7 +181,7 @@ _jarvis_env_inside() {
     # D-Bus addresses escape every byte outside [-0-9A-Za-z_/.\*] as %xx and
     # accept either hex case; the daemon prints lower case.
     # https://dbus.freedesktop.org/doc/dbus-specification.html#addresses
-    "$root/tools/python3" -I - "$root/$bus.conf" "$root/run/$bus.bus" <<'PY' || return 1
+    "$root/tools/python3" -I - "$root/$bus.conf" "$XDG_RUNTIME_DIR/$bus.bus" <<'PY' || return 1
 import os, string, sys
 from pathlib import Path
 plain = (string.ascii_letters + string.digits + "-_/.\\*").encode()
@@ -181,7 +194,7 @@ Path(sys.argv[1]).write_text(
 PY
     address="$("$root/bootstrap/dbus-daemon" --fork --print-address --config-file="$root/$bus.conf")" || return 1
     # Compare the socket the printed address names, not its escape spelling.
-    "$root/tools/python3" -I - "$address" "$root/run/$bus.bus" <<'PY' ||
+    "$root/tools/python3" -I - "$address" "$XDG_RUNTIME_DIR/$bus.bus" <<'PY' ||
 import os, sys
 from urllib.parse import unquote_to_bytes
 transport, _, keys = sys.argv[1].partition(":")
