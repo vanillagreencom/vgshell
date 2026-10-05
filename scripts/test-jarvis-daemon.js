@@ -1176,6 +1176,7 @@ exit "$failures"
         }
         return file;
     }
+    require(path.join(tree, "shell/plugins/vgs.jarvis/backend/Core.js")).use(tree);
     const { Accounts } = require(path.join(tree, "shell/plugins/vgs.jarvis/backend/Accounts.js"));
     const { PROVIDERS } = require(path.join(tree, "shell/plugins/vgs.jarvis/AccountProviders.js"));
     const ollama = PROVIDERS.find(row => row.id === "ollama");

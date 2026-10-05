@@ -485,7 +485,7 @@ Item {
             DBUS_SESSION_BUS_ADDRESS: Quickshell.env("DBUS_SESSION_BUS_ADDRESS"),
             YDOTOOL_SOCKET: Quickshell.env("YDOTOOL_SOCKET"),
             LANG: "C.UTF-8"
-        }, Providers.accountVariables(name => Quickshell.env(name)))
+        }, AccountDirectories.accountVariables(name => Quickshell.env(name)))
         stdout: SplitParser { splitMarker: ""; onRead: data => root.receive(data) }
         stderr: SplitParser {
             splitMarker: ""

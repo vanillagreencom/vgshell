@@ -1,6 +1,6 @@
 # Jarvis file tools
 
-Covers: shell/plugins/vgs.jarvis/backend/Files.js, shell/plugins/vgs.jarvis/backend/Anchored.js, scripts/test-jarvis-files.js
+Covers: shell/plugins/vgs.jarvis/backend/Files.js, bin/lib/anchored.js, scripts/test-jarvis-files.js
 
 The [Jarvis plan § 6](../plans/jarvis-plan.md#6-computer-use-and-browser-reference-set) defines the six file tools: list, read, search, write, move and delete, with Node's `fs` under `Denied.js`. [Policy](jarvis-policy.md) judges each call and [the router](jarvis-approval.md) proposes it after [Audit](jarvis-audit.md). This file defines the executor behind those calls.
 
@@ -8,7 +8,7 @@ The [Jarvis plan § 6](../plans/jarvis-plan.md#6-computer-use-and-browser-refere
 
 - `Files.js::create` owns the `files` executor record and its lifetime. `close()` stops a running search at its next folder, and a call after close fails without touching the disk.
 - `Files.js::install` registers the record at once and unconditionally, because Node's `fs` needs no probe. A call made while no `Denied` snapshot builds is refused; the next call after a build succeeds works, with no daemon restart.
-- `Anchored.js` owns the one anchored descriptor walk. `Accounts.js::directory` uses the same walk for account roots.
+- The core's `bin/lib/anchored.js` owns the one anchored descriptor walk, which the backend reads through `backend/Core.js` from the tree its entry point is given. `Accounts.js::directory` uses the same walk for account roots.
 - The daemon's `denied()` in `jarvisd.js` is the one producer of the protected path snapshot. It builds `Denied.create` from trusted roots: `HOME`, the XDG config, data and state homes with their defaults, `XDG_RUNTIME_DIR`, the plugin directory the daemon runs from as the install root, and `Accounts.js::accountRoots`. The router's `context()` hands it to Policy as a getter, and Policy reads it only for a call that carries a path, so a window or media call never builds one. This executor calls it again for its rejudge, so each judge sees the current tree.
 - A failed build leaves the router's `denied` as `null`, and Policy refuses every path-bearing call as `path-context`, `apps.open` included. No default or empty snapshot stands in. The daemon writes `jarvis: denied=unavailable cause=<key>` to stderr for each failed build the router reads.
 - Limitation: `Service.qml` stores any daemon stderr line as its `cause` and then ignores the daemon's output until a restart, so a failed build on a path call stops Jarvis instead of showing a status. The executor names the cause in its result only when its own rejudge's build fails after the router's succeeded.

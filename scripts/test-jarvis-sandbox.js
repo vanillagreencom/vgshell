@@ -467,8 +467,8 @@ async function main() {
     const emptyPlugin = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "missing-bwrap-"));
     const empty = path.join(emptyPlugin, "backend");
     fs.mkdirSync(empty);
-    for (const sibling of ["Child.js", "Denied.js", "Tools.js"]) fs.copyFileSync(path.join(path.dirname(sourceFile), sibling), path.join(empty, sibling));
-    fs.copyFileSync(path.join(path.dirname(sourceFile), "../AccountProviders.js"), path.join(emptyPlugin, "AccountProviders.js"));
+    for (const sibling of ["Child.js", "Denied.js", "Tools.js", "Core.js"]) fs.copyFileSync(path.join(path.dirname(sourceFile), sibling), path.join(empty, sibling));
+    require("./fixtures/jarvis/core.js").useTree(empty);
     const original = fs.readFileSync(sourceFile, "utf8");
     const needle = 'for (const file of ["/usr/bin/bwrap", "/bin/bwrap"])';
     assert.equal(original.split(needle).length - 1, 1);

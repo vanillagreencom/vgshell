@@ -24,7 +24,8 @@ function freshSuite(tree, suite, root, timeoutMs = 180000) {
         "shell/Core", "shell/Commons", "shell/plugins/vgs.jarvis/backend"])
         fs.mkdirSync(path.join(clone, folder), { recursive: true });
     for (const file of [relative, "scripts/fixtures/jarvis/prepare.js", "scripts/lib/jarvis-env.sh",
-        "bin/lib/qml-library.js", "bin/lib/judge-files.js", "shell/plugins/vgs.jarvis/JarvisProtocol.js",
+        "bin/lib/qml-library.js", "bin/lib/judge-files.js", "bin/lib/anchored.js", "bin/lib/account-folders.js",
+        "shell/Commons/AccountDirectories.js", "shell/plugins/vgs.jarvis/JarvisProtocol.js",
         "shell/plugins/vgs.jarvis/Session.js", "shell/plugins/vgs.jarvis/backend/session-runner.js",
         "shell/plugins/vgs.jarvis/backend/jarvisd.js", "shell/plugins/vgs.jarvis/backend/Tasks.js",
         "shell/plugins/vgs.jarvis/backend/task-event", "shell/plugins/vgs.jarvis/manifest.json",
@@ -277,12 +278,12 @@ function service(sourceTree, tree, root) {
     fs.writeFileSync(browser, browserSource.replace(browserNeedle, browserCommand));
     const accounts = path.join(tree, "shell/plugins/vgs.jarvis/Accounts.qml");
     const accountsSource = fs.readFileSync(accounts, "utf8");
-    const accountsNeedle = 'probe.command = ["node", program, "presence", JSON.stringify(Providers.keyPresence(name => Quickshell.env(name)))];';
+    const accountsNeedle = 'probe.command = ["node", program, "--tree", Quickshell.shellDir + "/..", "presence", JSON.stringify(Providers.keyPresence(name => Quickshell.env(name)))];';
     assert.equal(accountsSource.split(accountsNeedle).length - 1, 1, "account discovery instrumentation match");
     const accountsCommand = 'probe.command = ["bash", ' + JSON.stringify(launcher) + ', ' +
         JSON.stringify(path.join(root, "standins")) + ', "--", "node", ' +
         JSON.stringify(path.join(sourceTree, "scripts/fixtures/jarvis/accounts-world.js")) + ', program, ' +
-        JSON.stringify(path.join(root, "account-mode")) + ', JSON.stringify(Providers.keyPresence(name => Quickshell.env(name)))];';
+        JSON.stringify(path.join(root, "account-mode")) + ', Quickshell.shellDir + "/..", JSON.stringify(Providers.keyPresence(name => Quickshell.env(name)))];';
     if (!fs.existsSync(path.join(root, "account-mode"))) fs.writeFileSync(path.join(root, "account-mode"), "signed-in\n");
     fs.writeFileSync(accounts, accountsSource.replace(accountsNeedle, accountsCommand));
 }

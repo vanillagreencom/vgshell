@@ -3,7 +3,7 @@
 "use strict";
 const fs = require("node:fs");
 const path = require("node:path");
-const { ACCOUNT_DEPTH, accountDirectory } = require("../AccountProviders.js");
+const { ACCOUNT_DEPTH, accountDirectory } = require("./Core.js").accounts();
 
 function within(file, root) {
     return file === root || file.startsWith(root === "/" ? "/" : root + "/");

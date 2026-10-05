@@ -30,7 +30,7 @@ Item {
         completion = { kind: "starting" };
         diagnostic = { kind: "collected", text: "" };
         output = "";
-        probe.command = ["node", program, "presence", JSON.stringify(Providers.keyPresence(name => Quickshell.env(name)))];
+        probe.command = ["node", program, "--tree", Quickshell.shellDir + "/..", "presence", JSON.stringify(Providers.keyPresence(name => Quickshell.env(name)))];
         probe.running = true;
     }
     function publish() {

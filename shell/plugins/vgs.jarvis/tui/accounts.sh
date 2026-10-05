@@ -6,6 +6,10 @@ source "$VGS_TUI_LIB"
 [[ $# == 0 ]] || { printf 'jarvis-accounts: arguments=none\n' >&2; exit 2; }
 [[ -t 0 ]] || { printf 'jarvis-accounts: input=terminal-required\n' >&2; exit 2; }
 program="$VGS_PLUGIN_DIR/backend/accounts.js"
+# The VGS tree is the one VGS_TUI_LIB lies in; the helper reads the core's
+# account rule from there.
+tree="${VGS_TUI_LIB%/bin/lib/tui.sh}"
+[[ $tree != "$VGS_TUI_LIB" && $tree == /* ]] || { printf 'jarvis-accounts: tui=lib-outside-tree\n' >&2; exit 2; }
 child_env=(env -i PATH="$PATH" HOME="$HOME" LANG=C.UTF-8
   XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-}" XDG_STATE_HOME="${XDG_STATE_HOME:-}"
   XDG_DATA_HOME="${XDG_DATA_HOME:-}" XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-}"
@@ -16,7 +20,7 @@ child_env=(env -i PATH="$PATH" HOME="$HOME" LANG=C.UTF-8
 # The core presentation functions call this scoped executable wrapper too.
 gum() { "${child_env[@]}" gum "$@"; }
 vgs_tui_header "Jarvis accounts" "Login status is a hint, not verified inference access." "Verify may cost money. Keys stay in your desktop keyring."
-accounts() { "${child_env[@]}" node "$program" "$@"; }
+accounts() { "${child_env[@]}" node "$program" --tree "$tree" "$@"; }
 # Convert judged JSON to menu lines. Selection carries a stable id, never
 # a directory label, back into the judge. No secret value enters the shell.
 menu() {

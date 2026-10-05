@@ -10,6 +10,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const cp = require("node:child_process");
 const tree = path.resolve(__dirname, "../../..");
+const { FILES: CORE_FILES, useTree, scratchTree } = require("./core.js");
 const prefix = `#!/usr/bin/env node
 const fs=require("node:fs"), path=require("node:path");
 const state=process.env.XDG_STATE_HOME;
@@ -131,23 +132,31 @@ function world(main) {
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
 }
 
-// Disposable copies keep real behavior and sibling imports. Each mutation
-// must break its owning assertion, not merely make a process return nonzero.
+// Disposable copies keep real behavior and sibling imports. RELATIVE is a
+// path in the plugin, or one of the core files by its path in the tree,
+// whose mutation lands in a scratch tree the copy reads the core from. Each
+// mutation must break its owning assertion, not merely make a process
+// return nonzero.
 async function mutant(relative, name, needle, replacement, check) {
     const plugin = path.join(tree, "shell/plugins/vgs.jarvis");
-    const source = fs.readFileSync(path.join(plugin, relative), "utf8");
+    const core = CORE_FILES.includes(relative);
+    const source = fs.readFileSync(core ? path.join(tree, relative) : path.join(plugin, relative), "utf8");
     assert.equal(source.split(needle).length - 1, 1, name + " match");
     const changed = source.replace(needle, replacement);
     assert.notEqual(changed, source);
     const folder = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "mutation-"));
     fs.mkdirSync(path.join(folder, "backend"));
     fs.mkdirSync(path.join(folder, "tui"));
-    for (const file of ["AccountProviders.js", "AccountStatus.js", "backend/Accounts.js", "backend/AccountFolders.js",
-        "backend/Anchored.js", "backend/Secrets.js", "backend/accounts.js",
+    for (const file of ["AccountProviders.js", "AccountStatus.js", "backend/Accounts.js", "backend/Core.js",
+        "backend/Secrets.js", "backend/accounts.js",
         "tui/accounts.sh", "backend/net.js", "backend/Policy.js", "backend/Audit.js", "backend/Private.js", "backend/Redact.js",
         "backend/Tools.js", "backend/ClaudeCode.js", "backend/Providers.js", "backend/CodexHarness.js", "backend/CodexAppServer.js"])
         fs.copyFileSync(path.join(plugin, file), path.join(folder, file));
-    fs.writeFileSync(path.join(folder, relative), changed);
+    if (core) useTree(path.join(folder, "backend"), scratchTree(folder, { [relative]: changed }));
+    else {
+        fs.writeFileSync(path.join(folder, relative), changed);
+        useTree(path.join(folder, "backend"));
+    }
     try { await assert.rejects(async () => check(folder), assert.AssertionError, name + " must turn red"); }
     finally { fs.rmSync(folder, { recursive: true, force: true }); }
 }
@@ -179,7 +188,7 @@ if (require.main === module) {
     const directory = path.join(env.XDG_STATE_HOME, "vgshell/jarvis");
     fs.mkdirSync(directory, { recursive: true });
     if (mode === "failed") fs.writeFileSync(path.join(directory, "accounts.json"), "broken");
-    // More home names than AccountFolders.js MAX_PARENT_ENTRIES, and a
+    // More home names than bin/lib/account-folders.js MAX_PARENT_ENTRIES, and a
     // folder in the config home: a partial search. The labels of the folders
     // among the first 10000 home names fs.opendirSync hands out, and the
     // config home's, go beside the mode file for the row to compare.
@@ -202,7 +211,7 @@ if (require.main === module) {
         fs.rmSync(env.XDG_CONFIG_HOME, { recursive: true, force: true });
         fs.symlinkSync(target, env.XDG_CONFIG_HOME);
     }
-    const result = cp.spawnSync("node", [process.argv[2], "presence", process.argv[4]], {
+    const result = cp.spawnSync("node", [process.argv[2], "--tree", process.argv[4], "presence", process.argv[5]], {
         env, stdio: "inherit" });
     process.exit(result.status ?? 1);
 }

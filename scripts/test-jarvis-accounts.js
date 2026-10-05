@@ -373,7 +373,7 @@ world(async () => {
     };
     lateLink(Accounts);
     await mutant("backend/Accounts.js", "late-marker-link", 'if (opened.kind === "directory") {\n                const markerPath',
-        'if (opened.kind !== "directory") fs.lstatSync(path.join(candidate.directory, row.marker));\n            if (opened.kind === "directory") {\n                const markerPath',
+        'if (opened.kind !== "directory") fs.lstatSync(path.join(candidate.directory, harness(row.id).marker));\n            if (opened.kind === "directory") {\n                const markerPath',
         folder => lateLink(require(path.join(folder, "backend/Accounts.js")).Accounts));
     controls++;
     cases++;
@@ -386,6 +386,9 @@ world(async () => {
         return { state: path.join(root, "state"), env: own };
     };
     const judgeIn = folder => require(path.join(folder, "backend/Accounts.js")).Accounts;
+    // The core search the copy reads, and the folders it found by name.
+    const foldersIn = folder => require(path.join(folder, "backend/Core.js")).folders().accountFolders;
+    const byName = found => found.folders.filter(item => item.source === "folder");
     const crowded = worldOf("crowded");
     const crowdedFolders = [seed(crowded.env.HOME, ".4claude"), seed(crowded.env.HOME, ".codex-work")];
     for (let i = 0; i < 4998; i++) fs.writeFileSync(path.join(crowded.env.HOME, String(i)), "");
@@ -396,7 +399,7 @@ world(async () => {
         assert.equal(judge.status().search.partial, "", "a home of 5000 entries is read whole");
     };
     crowdedSearch(plugin);
-    await mutant("backend/AccountFolders.js", "parent-entry-bound", "const MAX_PARENT_ENTRIES = 10000;",
+    await mutant("bin/lib/account-folders.js", "parent-entry-bound", "const MAX_PARENT_ENTRIES = 10000;",
         "const MAX_PARENT_ENTRIES = 200;", crowdedSearch);
     controls++;
     cases++;
@@ -416,11 +419,11 @@ world(async () => {
         .map(entry => path.join(full.env.HOME, entry.name)).sort();
     assert.ok(expectedHome.length > 0, "the names read before the bound hold an account folder");
     const boundReached = folder => {
-        const { accountFolders } = require(path.join(folder, "backend/AccountFolders.js"));
+        const accountFolders = foldersIn(folder);
         let found;
-        assert.doesNotThrow(() => { found = accountFolders({ home: full.env.HOME, config: full.env.XDG_CONFIG_HOME, data: full.env.XDG_DATA_HOME }); });
+        assert.doesNotThrow(() => { found = accountFolders({ home: full.env.HOME, config: full.env.XDG_CONFIG_HOME, data: full.env.XDG_DATA_HOME, env: {} }); });
         assert.equal(found.partial, "entry-limit");
-        assert.deepEqual(found.folders.filter(item => path.dirname(item.directory) === full.env.HOME).map(item => item.directory).sort(),
+        assert.deepEqual(byName(found).filter(item => path.dirname(item.directory) === full.env.HOME).map(item => item.directory).sort(),
             expectedHome, "the home folders read before the bound");
         assert.ok(found.folders.some(item => item.directory === fullConfig), "the next parent is still read");
         const judge = new (judgeIn(folder))(full.state, full.env);
@@ -434,7 +437,7 @@ world(async () => {
         ["entry-bound-drops", 'if (++read > MAX_PARENT_ENTRIES) { partial ||= "entry-limit"; folders.length = 0; break; }'],
         ["entry-bound-stops", 'if (++read > MAX_PARENT_ENTRIES) { partial ||= "entry-limit"; return { folders, partial }; }']
     ]) {
-        await mutant("backend/AccountFolders.js", name, 'if (++read > MAX_PARENT_ENTRIES) { partial ||= "entry-limit"; break; }',
+        await mutant("bin/lib/account-folders.js", name, 'if (++read > MAX_PARENT_ENTRIES) { partial ||= "entry-limit"; break; }',
             replacement, boundReached);
         controls++;
     }
@@ -445,12 +448,12 @@ world(async () => {
     for (let i = 0; i < 9999; i++) fs.writeFileSync(path.join(exact.env.HOME, String(i)), "");
     assert.equal(fs.readdirSync(exact.env.HOME).length, 10000);
     const exactBound = folder => {
-        const found = require(path.join(folder, "backend/AccountFolders.js")).accountFolders(
-            { home: exact.env.HOME, config: exact.env.XDG_CONFIG_HOME, data: exact.env.XDG_DATA_HOME });
-        assert.deepEqual([found.partial, found.folders.map(item => item.directory)], ["", [exactFolder]]);
+        const found = foldersIn(folder)(
+            { home: exact.env.HOME, config: exact.env.XDG_CONFIG_HOME, data: exact.env.XDG_DATA_HOME, env: {} });
+        assert.deepEqual([found.partial, byName(found).map(item => item.directory)], ["", [exactFolder]]);
     };
     exactBound(plugin);
-    await mutant("backend/AccountFolders.js", "entry-bound-off-by-one", "if (++read > MAX_PARENT_ENTRIES)", "if (++read >= MAX_PARENT_ENTRIES)", exactBound);
+    await mutant("bin/lib/account-folders.js", "entry-bound-off-by-one", "if (++read > MAX_PARENT_ENTRIES)", "if (++read >= MAX_PARENT_ENTRIES)", exactBound);
     controls++;
     cases++;
     // A linked parent is never followed and one that is no directory is not
@@ -467,15 +470,15 @@ world(async () => {
         else fs.writeFileSync(odd.env.XDG_CONFIG_HOME, "");
         const oddParent = folder => {
             let found;
-            assert.doesNotThrow(() => { found = require(path.join(folder, "backend/AccountFolders.js")).accountFolders(
-                { home: odd.env.HOME, config: odd.env.XDG_CONFIG_HOME, data: odd.env.XDG_DATA_HOME }); });
-            assert.deepEqual([found.partial, found.folders.map(item => item.directory)], ["parent-unreadable", [oddHome]]);
+            assert.doesNotThrow(() => { found = foldersIn(folder)(
+                { home: odd.env.HOME, config: odd.env.XDG_CONFIG_HOME, data: odd.env.XDG_DATA_HOME, env: {} }); });
+            assert.deepEqual([found.partial, byName(found).map(item => item.directory)], ["parent-unreadable", [oddHome]]);
             const judge = new (judgeIn(folder))(odd.state, odd.env);
             assert.doesNotThrow(() => judge.discover());
             assert.equal(judge.status().search.partial, "parent-unreadable");
         };
         oddParent(plugin);
-        await mutant("backend/AccountFolders.js", "parent-" + kind + "-throws",
+        await mutant("bin/lib/account-folders.js", "parent-" + kind + "-throws",
             'if (opened.kind !== "directory") { partial ||= "parent-unreadable"; continue; }',
             'if (opened.kind !== "directory") throw new Error("jarvis-accounts: directory=" + opened.kind);', oddParent);
         controls++;
@@ -495,7 +498,7 @@ world(async () => {
         assert.equal(judge.status().search.partial, "parent-unreadable");
     };
     linkedDefault(plugin);
-    await mutant("backend/Accounts.js", "default-under-link", 'else partial ||= "parent-unreadable";', "else insert(row, fallback, \"default\");", linkedDefault);
+    await mutant("bin/lib/account-folders.js", "default-under-link", 'else partial ||= "parent-unreadable";', "else add(row, fallback, \"default\", \"default\");", linkedDefault);
     controls++;
     cases++;
     // Only a label that is an email names an identity to compare.
@@ -557,8 +560,8 @@ world(async () => {
     for (const [name, needle, replacement, check] of [
         ["marker-open", "const stat = fs.lstatSync(markerPath);", "const stat = (fs.readFileSync(markerPath), fs.lstatSync(markerPath));",
             Judge => discovery(new Judge(directory, { ...env, CODEX_HOME: explicit, OPENAI_API_KEY: privateValue }))],
-        ["marker-first", "const result = this.run(row.command[0], row.command.slice(1), { [row.variable]: candidate.directory });",
-            "fs.lstatSync(path.join(candidate.directory, row.marker));\n        const result = this.run(row.command[0], row.command.slice(1), { [row.variable]: candidate.directory });",
+        ["marker-first", "const result = this.run(row.command[0], row.command.slice(1), { [harness(row.id).variable]: candidate.directory });",
+            "fs.lstatSync(path.join(candidate.directory, harness(row.id).marker));\n        const result = this.run(row.command[0], row.command.slice(1), { [harness(row.id).variable]: candidate.directory });",
             Judge => discovery(new Judge(directory, { ...env, CODEX_HOME: explicit, OPENAI_API_KEY: privateValue }))],
 
         ["manual", "for (const item of this.added())", "for (const item of [])",
@@ -593,9 +596,9 @@ world(async () => {
     // shared anchored walk, each with its own control in its own file.
     const sharedRule = folder => discovery(new (judgeIn(folder))(directory, { ...env, CODEX_HOME: explicit, OPENAI_API_KEY: privateValue }));
     for (const [relative, name, needle, replacement] of [
-        ["AccountProviders.js", "name-rule", 'if (row.kind === "cli" && new RegExp("^\\\\.[a-z0-9]{0,8}" + row.folder).test(name)) return row;', "if (false) return row;"],
-        ["AccountProviders.js", "name-tag", '"^\\\\.[a-z0-9]{0,8}" + row.folder', '"^\\\\." + row.folder'],
-        ["backend/AccountFolders.js", "no-descent", "for (const parent of [...new Set([home, config, data])])",
+        ["shell/Commons/AccountDirectories.js", "name-rule", 'if (new RegExp("^\\\\.[a-z0-9]{0,8}" + row.folder).test(name)) return row;', "if (false) return row;"],
+        ["shell/Commons/AccountDirectories.js", "name-tag", '"^\\\\.[a-z0-9]{0,8}" + row.folder', '"^\\\\." + row.folder'],
+        ["bin/lib/account-folders.js", "no-descent", "for (const parent of [...new Set([home, config, data])])",
             'for (const parent of [...new Set([home, config, data, path.join(home, "projects")])])']
     ]) {
         await mutant(relative, name, needle, replacement, sharedRule);
@@ -604,17 +607,17 @@ world(async () => {
     const linkedRoot = folder => assert.throws(() => new (judgeIn(folder))(directory,
         { ...env, CLAUDE_CONFIG_DIR: path.join(env.HOME, ".claude-link") }).discover(), /directory=link/);
     linkedRoot(plugin);
-    await mutant("backend/Anchored.js", "no-follow", 'if (stat.isSymbolicLink()) return { kind: "link" };',
+    await mutant("bin/lib/anchored.js", "no-follow", 'if (stat.isSymbolicLink()) return { kind: "link" };',
         'if (stat.isSymbolicLink()) return { kind: "absent" };', linkedRoot);
     controls++;
 
-    // The service passes exactly the CLI providers' root variables.
-    const variables = folder => assert.deepEqual(require(path.join(folder, "AccountProviders.js")).accountVariables(name => "value-" + name),
+    // The service passes exactly the harnesses' root variables.
+    const variables = folder => assert.deepEqual({ ...require(path.join(folder, "backend/Core.js")).accounts().accountVariables(name => "value-" + name) },
         { CLAUDE_CONFIG_DIR: "value-CLAUDE_CONFIG_DIR", CODEX_HOME: "value-CODEX_HOME" });
     variables(plugin);
     cases++;
-    await mutant("AccountProviders.js", "account-variables",
-        'if (PROVIDERS[i].kind === "cli") result[PROVIDERS[i].variable] = read(PROVIDERS[i].variable);', "void read;", variables);
+    await mutant("shell/Commons/AccountDirectories.js", "account-variables",
+        "result[HARNESSES[i].variable] = read(HARNESSES[i].variable);", "void read;", variables);
     controls++;
 
     // The roots entry: explicit roots, then hand-added ones, and never a
@@ -629,7 +632,7 @@ world(async () => {
     rootsOf(plugin);
     cases++;
     for (const [name, needle, replacement] of [
-        ["roots-explicit", 'if (row.kind === "cli" && env[row.variable]) result[row.id] = env[row.variable];', ''],
+        ["roots-explicit", 'if (env[row.variable]) result[row.id] = env[row.variable];', ''],
         ["roots-added", 'addedRows(path.join(stateDirectory, "accounts.json"))', '[]']
     ]) {
         await mutant("backend/Accounts.js", name, needle, replacement, rootsOf);
@@ -662,7 +665,7 @@ world(async () => {
     mode("ports", "present");
 
     function cli(folder, args) {
-        return cp.spawnSync("node", [path.join(folder, "backend/accounts.js"), ...args], {
+        return cp.spawnSync("node", [path.join(folder, "backend/accounts.js"), "--tree", tree, ...args], {
             env, encoding: "utf8", timeout: 15000 });
     }
     const goodCli = folder => {

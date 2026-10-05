@@ -29,6 +29,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
 } else if (process.argv.length !== 4 || process.argv[2] !== "--tree" || !path.isAbsolute(process.argv[3])) {
     refuse(2, "jarvis: arguments=expected-tree");
 } else {
+    require("./Core.js").use(process.argv[3]);
     const Audit = require("./Audit.js");
     const ToolRouter = require("./ToolRouter.js");
     const ShellRequests = require("./ShellRequests.js");

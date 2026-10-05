@@ -346,13 +346,13 @@ world(() => {
         finally { fs.unlinkSync(after); }
     });
     // The shared rule's depth, read by this judge.
-    const providers = path.join(tree, "shell/plugins/vgs.jarvis/AccountProviders.js");
+    const rule = path.join(tree, "shell/Commons/AccountDirectories.js");
     for (const [name, replacement, check] of [
         ["account-depth", "if (depth < 1 || depth > 1) return null;", logic => ruleRefused(logic, "home-depth-2")],
         ["account-depth-limit", "if (depth < 1) return null;",
             logic => allowed(logic.create(options), ruleCase("home-depth-3")[1], "read", ruleCase("home-depth-3")[1], false)]
     ]) {
-        mutant(providers, name, "if (depth < 1 || depth > ACCOUNT_DEPTH) return null;", replacement, check, "Denied.js");
+        mutant(rule, name, "if (depth < 1 || depth > ACCOUNT_DEPTH) return null;", replacement, check, "Denied.js");
         controls++;
     }
     for (const base of ["config", "data"])

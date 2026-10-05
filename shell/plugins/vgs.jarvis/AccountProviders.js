@@ -1,10 +1,10 @@
 // Shared by the account judge and its environment-presence reader.
-// Login tokens belong to the vendor program, never to the key picker.
+// Login tokens belong to the vendor program, never to the key picker. A cli
+// row's id names its harness in shell/Commons/AccountDirectories.js, the
+// core's account rule, which holds its folder, variable and marker.
 var PROVIDERS = [
-    { id: "claude", label: "Claude Code", kind: "cli", variable: "CLAUDE_CONFIG_DIR", origin: "https://api.anthropic.com",
-        folder: "claude", marker: ".credentials.json", command: ["claude", "auth", "status"] },
-    { id: "codex", label: "Codex", kind: "cli", variable: "CODEX_HOME",
-        folder: "codex", marker: "auth.json", command: ["codex", "login", "status"] },
+    { id: "claude", label: "Claude Code", kind: "cli", origin: "https://api.anthropic.com", command: ["claude", "auth", "status"] },
+    { id: "codex", label: "Codex", kind: "cli", command: ["codex", "login", "status"] },
     { id: "openai", label: "OpenAI", kind: "key", variable: "OPENAI_API_KEY", origin: "https://api.openai.com",
         probe: { driver: "chat", path: "/v1/chat/completions", model: "gpt-4.1-nano", limit: "max_completion_tokens", header: "authorization", prefix: "Bearer " } },
     { id: "anthropic", label: "Anthropic", kind: "key", variable: "ANTHROPIC_API_KEY", origin: "https://api.anthropic.com",
@@ -35,34 +35,6 @@ function runtimeDirectory(base) {
     return base ? base + "/vgshell/jarvis" : "";
 }
 
-/**
- * The account directory name rule, shared by discovery and the protected
- * path judge. An entry `depth` levels below HOME, the XDG config home or the
- * XDG data home is an account directory when depth is 1 to ACCOUNT_DEPTH
- * and its name is ".", a tag of up to 8 lowercase letters or digits, a CLI
- * provider's `folder` name and anything after it: `.claude`, `.claude-work`,
- * `.5claude` and `.2codex` are account directories. Returns that provider's
- * row, else null. The caller supplies the three bases and the depth.
- */
-var ACCOUNT_DEPTH = 2;
-function accountDirectory(name, depth) {
-    if (depth < 1 || depth > ACCOUNT_DEPTH) return null;
-    for (var i = 0; i < PROVIDERS.length; i++) {
-        var row = PROVIDERS[i];
-        if (row.kind === "cli" && new RegExp("^\\.[a-z0-9]{0,8}" + row.folder).test(name)) return row;
-    }
-    return null;
-}
-
-// The CLI providers' explicit root variables, read through read(name), so
-// a child sees the same explicit account roots discovery does.
-function accountVariables(read) {
-    var result = {};
-    for (var i = 0; i < PROVIDERS.length; i++)
-        if (PROVIDERS[i].kind === "cli") result[PROVIDERS[i].variable] = read(PROVIDERS[i].variable);
-    return result;
-}
-
 // Only booleans cross into the helper. No key value enters its environment.
 function keyProvider(row) {
     return row.kind === "key" || row.kind === "speech-key";
@@ -87,7 +59,7 @@ var FAILURE_KEYS = {
         "key-presence": ["shape"],
         ports: ["reply"],
         reference: ["provider", "item-unavailable", "vendor-login-or-provider"],
-        arguments: ["presence", "list", "providers", "items", "add", "remember", "verb"],
+        arguments: ["tree", "presence", "list", "providers", "items", "add", "remember", "verb"],
         verify: ["explicit-user-required", "account-unavailable", "provider-unsupported", "busy", "keyring-locked"],
         state: ["unknown"],
         operation: ["failed"]
@@ -133,6 +105,5 @@ function probeFailure(completion, diagnostic) {
 }
 
 if (typeof module !== "undefined") module.exports = { PROVIDERS: PROVIDERS, runtimeDirectory: runtimeDirectory,
-    ACCOUNT_DEPTH: ACCOUNT_DEPTH, accountDirectory: accountDirectory, accountVariables: accountVariables,
     keyPresence: keyPresence, keyProvider: keyProvider, FAILURE_KEYS: FAILURE_KEYS, feedDiagnostic: feedDiagnostic,
     helperFailure: helperFailure, probeFailure: probeFailure };

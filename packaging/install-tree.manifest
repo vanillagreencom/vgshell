@@ -1,6 +1,8 @@
 f share/doc/vgshell/README.md
 f share/licenses/vgshell/LICENSE
 f share/vgshell/VERSION
+f share/vgshell/bin/lib/account-folders.js
+f share/vgshell/bin/lib/anchored.js
 f share/vgshell/bin/lib/check-manifests.js
 f share/vgshell/bin/lib/ipc-reply.sh
 f share/vgshell/bin/lib/judge-files.js
@@ -35,6 +37,7 @@ f share/vgshell/config/shell.json
 f share/vgshell/config/system/greeter/hyprland.lua
 f share/vgshell/config/system/greeter/vgs-greeter.pam
 f share/vgshell/config/system/udev/60-vgs-apple-displays.rules
+f share/vgshell/shell/Commons/AccountDirectories.js
 f share/vgshell/shell/Commons/ClearingInset.qml
 f share/vgshell/shell/Commons/DesktopLaunch.js
 f share/vgshell/shell/Commons/Inset.js
@@ -301,10 +304,8 @@ f share/vgshell/shell/plugins/vgs.jarvis/SetupGate.js
 f share/vgshell/shell/plugins/vgs.jarvis/Widget.qml
 f share/vgshell/shell/plugins/vgs.jarvis/WidgetView.js
 f share/vgshell/shell/plugins/vgs.jarvis/artifacts.json
-f share/vgshell/shell/plugins/vgs.jarvis/backend/AccountFolders.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/Accounts.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/AgentProfiles.js
-f share/vgshell/shell/plugins/vgs.jarvis/backend/Anchored.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/AnthropicMessages.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/Audio.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/Audit.js
@@ -315,6 +316,7 @@ f share/vgshell/shell/plugins/vgs.jarvis/backend/ClaudeCode.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/CodexAppServer.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/CodexHarness.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/ComputerHelp.js
+f share/vgshell/shell/plugins/vgs.jarvis/backend/Core.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/Denied.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/Desktop.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/DesktopSession.js

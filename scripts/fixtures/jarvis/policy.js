@@ -6,6 +6,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const cp = require("node:child_process");
 const tree = path.resolve(__dirname, "../../..");
+const { FILES: CORE_FILES, useTree, scratchTree } = require("./core.js");
 
 function world(main, prepareStandins, timeout = 60000) {
     if (process.argv[2] === "--inside") return main();
@@ -43,7 +44,8 @@ function seed() {
     return { home, project, roots };
 }
 
-// Every mutation asserts one match and loads a disposable module copy.
+// Every mutation asserts one match and loads a disposable module copy. A
+// core file's mutation lands in a scratch tree the copy reads the core from.
 // Only an assertion failure proves that the instrument detected the defect.
 function mutant(file, name, needle, replacement, check, consumer = path.basename(file)) {
     const source = fs.readFileSync(file, "utf8");
@@ -63,8 +65,13 @@ function mutant(file, name, needle, replacement, check, consumer = path.basename
     for (const sibling of fs.readdirSync(backend).filter(name => name.endsWith(".js")))
         fs.copyFileSync(path.join(backend, sibling), path.join(folder, sibling));
     fs.copyFileSync(path.join(plugin, "AccountProviders.js"), path.join(outer, "AccountProviders.js"));
-    // The mutated file keeps its place in the copy, wherever its plugin lives.
-    fs.writeFileSync(path.join(path.basename(path.dirname(file)) === "backend" ? folder : outer, path.basename(file)), changed);
+    const core = path.relative(tree, file);
+    if (CORE_FILES.includes(core)) useTree(folder, scratchTree(outer, { [core]: changed }));
+    else {
+        // The mutated file keeps its place in the copy, wherever its plugin lives.
+        fs.writeFileSync(path.join(path.basename(path.dirname(file)) === "backend" ? folder : outer, path.basename(file)), changed);
+        useTree(folder);
+    }
     const cleanup = () => fs.rmSync(outer, { recursive: true, force: true });
     let result;
     try { result = check(require(path.join(folder, consumer)), folder); }
@@ -123,10 +130,10 @@ async function moduleCopy(file, edits, check) {
     const outer = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "sb-mutant-"));
     const folder = path.join(outer, "backend");
     fs.mkdirSync(folder);
-    for (const sibling of ["Child.js", "Denied.js", "Tools.js"])
+    for (const sibling of ["Child.js", "Denied.js", "Tools.js", "Core.js"])
         fs.copyFileSync(path.join(path.dirname(file), sibling), path.join(folder, sibling));
-    fs.copyFileSync(path.join(path.dirname(file), "../AccountProviders.js"), path.join(outer, "AccountProviders.js"));
     fs.writeFileSync(path.join(folder, path.basename(file)), source);
+    useTree(folder);
     try { return await check(require(path.join(folder, path.basename(file)))); }
     finally { fs.rmSync(outer, { recursive: true, force: true }); }
 }
@@ -154,6 +161,7 @@ async function pluginCopy(file, edits, check) {
         source = changed;
     }
     fs.writeFileSync(target, source);
+    useTree(path.join(folder, "backend"));
     try { return await check(folder); }
     finally { fs.rmSync(folder, { recursive: true, force: true }); }
 }

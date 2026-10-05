@@ -391,7 +391,7 @@ world(async () => {
             // The helper the accounts terminal runs: a refused turn is its keyed
             // refusal, with nothing after it on stderr.
             scenario({ refuse: "turn/start" });
-            const helper = cp.spawnSync("node", [path.join(folder, "backend/accounts.js"), "verify", codex.id, "user"],
+            const helper = cp.spawnSync("node", [path.join(folder, "backend/accounts.js"), "--tree", tree, "verify", codex.id, "user"],
                 { env, encoding: "utf8", timeout: 30000 });
             assert.deepEqual([helper.status, helper.stdout, helper.stderr],
                 [69, JSON.stringify({ kind: "unavailable", reason: "codex-refused" }) + "\n", ""]);
@@ -434,6 +434,7 @@ world(async () => {
             source = source.replace(needle, replacement);
         }
         fs.writeFileSync(target, source);
+        require("./fixtures/jarvis/core.js").useTree(path.join(folder, "backend"));
         await assert.rejects(check(folder), assert.AssertionError, relative + " variant must turn red: " + edits[0][0]);
         for (const owner of owners.splice(0)) owner();
     }

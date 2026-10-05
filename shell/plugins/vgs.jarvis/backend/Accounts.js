@@ -5,8 +5,10 @@ const crypto = require("node:crypto");
 const cp = require("node:child_process");
 const { Secrets, childEnvironment } = require("./Secrets.js");
 const { PROVIDERS, keyPresence, keyProvider, runtimeDirectory } = require("../AccountProviders.js");
-const Anchored = require("./Anchored.js");
-const { accountFolders } = require("./AccountFolders.js");
+const Core = require("./Core.js");
+const Anchored = Core.anchored();
+const { accountFolders } = Core.folders();
+const { HARNESSES, harness, accountVariables } = Core.accounts();
 const Net = require("./net.js");
 const Policy = require("./Policy.js");
 const Audit = require("./Audit.js");
@@ -97,10 +99,10 @@ function addedRows(file) {
     } finally { if (fd !== undefined) fs.closeSync(fd); }
 }
 
-// Each CLI provider's explicit root from its variable in env, by provider id.
+// Each harness's explicit root from its variable in env, by provider id.
 function explicitRoots(env) {
     const result = {};
-    for (const row of PROVIDERS) if (row.kind === "cli" && env[row.variable]) result[row.id] = env[row.variable];
+    for (const row of HARNESSES) if (env[row.variable]) result[row.id] = env[row.variable];
     return result;
 }
 
@@ -160,7 +162,7 @@ class Accounts {
         this.home = env.HOME;
         this.config = env.XDG_CONFIG_HOME || path.join(this.home, ".config");
         this.data = env.XDG_DATA_HOME || path.join(this.home, ".local/share");
-        this.explicit = explicitRoots(env);
+        this.variables = accountVariables(name => env[name]);
         const expected = PROVIDERS.filter(keyProvider).map(row => row.variable).sort();
         if (!presence || Object.keys(presence).sort().join(",") !== expected.join(",")
             || Object.values(presence).some(value => typeof value !== "boolean")) fail("key-presence=shape");
@@ -203,37 +205,36 @@ class Accounts {
     }
 
     /**
-     * The CLI account candidates: explicit roots, each provider's default
-     * folder, hand-added rows and the account folders beside them, as
-     * { candidates, partial }. A default folder the user did not name that
-     * is linked or unreadable, or lies under such a home, makes the search
-     * partial "parent-unreadable"; else partial is the folder search's.
+     * The CLI account candidates: the core's explicit roots and default
+     * folders, the hand-added rows, then the account folders beside them,
+     * as { candidates, partial }, partial the core search's. A linked or
+     * unreadable explicit root or hand-added directory throws its
+     * directory= key.
      */
     candidates() {
         const candidates = new Map();
-        let partial = "";
         const insert = (row, dir, label) => {
             directory(dir);
             const key = row.id + "\0" + dir;
             if (!candidates.has(key)) candidates.set(key, { provider: row.id, directory: dir, label });
         };
-        const cli = PROVIDERS.filter(row => row.kind === "cli");
-        for (const row of cli) {
-            if (this.explicit[row.id]) insert(row, this.explicit[row.id], path.basename(this.explicit[row.id]));
-            const fallback = path.join(this.home, "." + row.folder);
-            const opened = anchored(fallback);
-            if (opened.kind === "directory") fs.closeSync(opened.fd);
-            if (opened.kind === "directory" || opened.kind === "absent") insert(row, fallback, "default");
-            else partial ||= "parent-unreadable";
+        let found;
+        try { found = accountFolders({ home: this.home, config: this.config, data: this.data, env: this.variables }); }
+        catch (error) {
+            const key = /^account-folders: (directory=[a-z-]+)$/.exec(error.message);
+            if (key !== null) fail(key[1]);
+            throw error;
         }
+        for (const folder of found.folders)
+            if (folder.source !== "folder") insert(provider(folder.provider), folder.directory, folder.label);
         // Hand-added labels win over a generated label for the same path.
         for (const item of this.added()) {
             insert(provider(item.provider), item.directory, item.label);
             candidates.set(item.provider + "\0" + item.directory, item);
         }
-        const found = accountFolders({ home: this.home, config: this.config, data: this.data });
-        for (const folder of found.folders) insert(provider(folder.provider), folder.directory, folder.label);
-        return { candidates: Array.from(candidates.values()), partial: partial || found.partial };
+        for (const folder of found.folders)
+            if (folder.source === "folder") insert(provider(folder.provider), folder.directory, folder.label);
+        return { candidates: Array.from(candidates.values()), partial: found.partial };
     }
 
     run(command, args, extra = {}) {
@@ -244,7 +245,7 @@ class Accounts {
     cliAccount(candidate) {
         const row = provider(candidate.provider);
         const opened = directory(candidate.directory, true);
-        const result = this.run(row.command[0], row.command.slice(1), { [row.variable]: candidate.directory });
+        const result = this.run(row.command[0], row.command.slice(1), { [harness(row.id).variable]: candidate.directory });
         let state;
         try { state = login(row, result); }
         finally { result.stdout?.fill(0); result.stderr?.fill(0); }
@@ -252,7 +253,7 @@ class Accounts {
         let marker = "absent";
         try {
             if (opened.kind === "directory") {
-                const markerPath = "/proc/self/fd/" + opened.fd + "/" + row.marker;
+                const markerPath = "/proc/self/fd/" + opened.fd + "/" + harness(row.id).marker;
                 const stat = fs.lstatSync(markerPath);
                 if (stat.isSymbolicLink()) fail("marker=link");
                 marker = stat.isFile() ? "present" : "absent";

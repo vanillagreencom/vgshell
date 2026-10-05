@@ -1,7 +1,9 @@
-// The one anchored descriptor walk for account discovery and the file tools.
-// Linux /proc/self/fd/<fd>/<name> paths resolve through a held directory's
-// inode, so a component renamed or swapped for a link after a judge is
-// refused or stays inside that directory; it is never followed elsewhere.
+// The one anchored descriptor walk, for account discovery, the account
+// readers of Jarvis and AI usage, and Jarvis's file tools, which load it
+// from the tree their launcher names. Linux /proc/self/fd/<fd>/<name> paths
+// resolve through a held directory's inode, so a component renamed or
+// swapped for a link after a judge is refused or stays inside that
+// directory; it is never followed elsewhere.
 "use strict";
 const fs = require("node:fs");
 const { O_RDONLY, O_DIRECTORY, O_NOFOLLOW } = fs.constants;

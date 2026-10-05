@@ -134,6 +134,7 @@ function copy(root, edits = [], from = plugin) {
     }
     assert.notEqual(changed, source);
     fs.writeFileSync(file, changed);
+    require("./core.js").useTree(path.join(folder, "backend"));
     return { folder, Engine: require(file) };
 }
 

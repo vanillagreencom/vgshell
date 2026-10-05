@@ -1,7 +1,7 @@
 # This row has no latency ceiling. It polls once per nested IPC round trip.
 # The real child runs inside J09, with synthetic audio commands and no
 # account, real audio or desktop endpoint.
-# inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml shell/Core/SessionLock.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh bin/vgshell-tui
+# inputs: shell/plugins/vgs.jarvis/* bin/lib/account-folders.js bin/lib/anchored.js shell/Commons/AccountDirectories.js scripts/fixtures/jarvis/* scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml shell/Core/SessionLock.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh bin/vgshell-tui
 set -euo pipefail
 expected_errors+=('WARN qml: jarvis: stderr=.*Killed.*')
 expected_errors+=('WARN qml: jarvis: stderr=jarvis: node=21[.]0[.]0 need=22')
@@ -876,7 +876,7 @@ expect_poll "a partial search warns and offers Accounts" '["warning", true, fals
 expect_poll "a partial search keeps the folders read before its bound" matched jarvis_account_labels
 expect "the partial search shows no diagnostic" plain jarvis_status_plain
 # A copy that drops the folders read once the bound is met.
-jarvis_folders="$repo/shell/plugins/vgs.jarvis/backend/AccountFolders.js"
+jarvis_folders="$repo/bin/lib/account-folders.js"
 cp -- "$jarvis_folders" "$sandbox/jarvis-folders-original"
 python3 - "$jarvis_folders" <<'PY'
 from pathlib import Path

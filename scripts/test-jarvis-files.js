@@ -782,7 +782,7 @@ world(async () => {
     await control("dotfile-link-target", [["if (accountLinkTargets().some(", "if (false && accountLinkTargets().some("]],
         (Files, folder) => dotfileTarget(Files, require(path.join(folder, "Denied.js"))), path.join(backend, "Denied.js"));
     await control("walk-nofollow", [["O_RDONLY | O_DIRECTORY | O_NOFOLLOW); }", "O_RDONLY | O_DIRECTORY); }"]], walkRace,
-        path.join(backend, "Anchored.js"));
+        path.join(tree, "bin/lib/anchored.js"));
     await control("final-nofollow", [["return fs.openSync(Anchored.child(parent, name), flags | O_NOFOLLOW);", "return fs.openSync(Anchored.child(parent, name), flags);"]], finalRace);
     await control("anchored-parent", [["const opened = Anchored.directory(path.dirname(file));",
         "const opened = { kind: \"directory\", fd: fs.openSync(path.dirname(file), O_RDONLY | O_DIRECTORY) };"]], readSwapped);

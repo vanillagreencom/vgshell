@@ -1,11 +1,14 @@
+// accounts.js --tree ABSOLUTE_VGS_TREE VERB [ARGS...]
 // Public verbs expose metadata only. Explicit Verify uses the outbound door.
 "use strict";
 const path = require("node:path");
-const { Accounts } = require("./Accounts.js");
 const { PROVIDERS, keyProvider, helperFailure } = require("../AccountProviders.js");
 
 async function main() {
-    const args = process.argv.slice(2);
+    if (process.argv[2] !== "--tree" || !path.isAbsolute(process.argv[3] || "")) throw new Error("jarvis-accounts: arguments=tree");
+    require("./Core.js").use(process.argv[3]);
+    const { Accounts } = require("./Accounts.js");
+    const args = process.argv.slice(4);
     const state = path.join(process.env.XDG_STATE_HOME || path.join(process.env.HOME, ".local/state"), "vgshell/jarvis");
     const snapshot = args[0] === "presence" && args.length === 2 ? JSON.parse(args[1]) : undefined;
     const judge = new Accounts(state, process.env, snapshot);

@@ -1,13 +1,14 @@
 // The files executor: list, read, search, write, move and delete with Node's
 // fs under Denied.js. Each call rejudges its paths with a fresh snapshot and
-// then opens only through held directory descriptors (Anchored.js), so a
-// component swapped for a link after that judge is refused, not followed.
+// then opens only through held directory descriptors (the core's
+// bin/lib/anchored.js, through Core.js), so a component swapped for a link
+// after that judge is refused, not followed.
 "use strict";
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const Tools = require("./Tools.js");
-const Anchored = require("./Anchored.js");
+const Anchored = require("./Core.js").anchored();
 const { O_RDONLY, O_WRONLY, O_CREAT, O_EXCL, O_DIRECTORY, O_NOFOLLOW, O_NONBLOCK, O_NOCTTY } = fs.constants;
 // Linux open(2) O_PATH, which Node's fs.constants does not export. Such a
 // descriptor reads no content and runs no device driver's open, and with
