@@ -301,7 +301,8 @@ expect "no peer id reached a tailscale argv" 0 vpn_argv_ids "$vpn_calls_before"
 expect_poll "the change ends" '""' vpn_value action
 expect "a denied change and a denied sign-in leave another problem than a plain failure" told-apart vpn_failures
 vpn_leave_pane "keys"
-hypr_lua_restore vpn
+hypr_lua_restore vpn || fail "hyprland.lua is put back after the VPN keyboard path"
+expect "the nested instance reloads hyprland.lua as the row found it" ok hypr reload config-only
 
 # The flyout, and the poll interval behind it.
 expect_poll "the poll is slow again with System closed" 30000 vpn_interval

@@ -260,7 +260,8 @@ type_keys -k Escape
 type_keys -k Escape
 type_keys -k Escape
 expect_poll "Escape closes System after the keyboard path" hidden net_shown window
-hypr_lua_restore network
+hypr_lua_restore network || fail "hyprland.lua is put back after the Network keyboard path"
+expect "the nested instance reloads hyprland.lua as the row found it" ok hypr reload config-only
 
 net_unit $'LoadState=not-found\nActiveState=inactive'
 expect "the absence probe refreshes" ok net_refresh
