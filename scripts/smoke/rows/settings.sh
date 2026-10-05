@@ -115,34 +115,26 @@ themes_panel_open() {
   geometry="$(ipc smoke instanceGeometry panel vgs.themes)" || return
   [[ $geometry != absent ]] && echo open || echo closed
 }
-settings_focus_back() {
-  local address
-  address="$(window_address Settings)" || return
-  [[ $address == 0x* ]] || { echo "settings-address=$address" >&2; return 1; }
-  expect "a focus dispatch gives Settings the keyboard back after $1" ok hypr dispatch "hl.dsp.focus({ window = \"address:$address\" })"
-  expect_poll "Settings is focused again after $1" "[\"$shell_class\", \"Settings\"]" active_window
-}
+# Open by keyboard first, while Settings holds the keyboard the strip rows
+# left it; the pointer needs no keyboard, so no focus dispatch is sent.
 expect "manager rows name each plugin's summonable surface" '{"acme.probe": "", "vgs.devtools": "window", "vgs.gallery": "window", "vgs.themes": "panel"}' open_rows
 expect "the window opens the fixture's page for the Open control" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.probe
-expect "the fixture page without a window or panel draws no Open" absent open_button
+expect "control: the fixture page without a window or panel draws no Open" absent open_button
 expect "the window opens the bare fixture's page for the Open control" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.bare
-expect_poll "the bare fixture page draws no Open" absent open_button
-expect "the window opens the Gallery page for the Open control" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.gallery
-expect_poll "the Gallery page draws Open" drawn open_button
-settings_press Open || fail "the click on Gallery Open failed"
-expect_poll "Open maps the Gallery window by pointer" 1 window_count "VGS Components"
-expect "hiding the Gallery window after the pointer Open is allowed" ok ipc shell hide window vgs.gallery
-expect_poll "the Gallery window is gone after the pointer Open" 0 window_count "VGS Components"
-settings_focus_back "the pointer Open"
+expect_poll "control: the bare fixture page draws no Open" absent open_button
 expect "the window opens the Gallery page as a key opens it for Open" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.gallery
+expect_poll "the Gallery page draws Open" drawn open_button
 expect_poll "the Gallery page's back button holds the keyboard before Open" IconButton focus_type
 type_keys -k Tab -k Tab || fail "tabbing to Gallery Open failed"
-expect_poll "Open is the Tab stop before the tab strip" Button focus_type
+expect_poll "Open is the Tab stop after the title" Button focus_type
 type_keys -k Return || fail "pressing Gallery Open with Return failed"
 expect_poll "Open maps the Gallery window by keyboard" 1 window_count "VGS Components"
 expect "hiding the Gallery window after the keyboard Open is allowed" ok ipc shell hide window vgs.gallery
 expect_poll "the Gallery window is gone after the keyboard Open" 0 window_count "VGS Components"
-settings_focus_back "the keyboard Open"
+settings_press Open || fail "the click on Gallery Open failed"
+expect_poll "Open maps the Gallery window by pointer" 1 window_count "VGS Components"
+expect "hiding the Gallery window after the pointer Open is allowed" ok ipc shell hide window vgs.gallery
+expect_poll "the Gallery window is gone after the pointer Open" 0 window_count "VGS Components"
 expect "the window opens the Themes page for the Open control" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.themes
 expect_poll "the Themes page draws Open" drawn open_button
 settings_press Open || fail "the click on Themes Open failed"
