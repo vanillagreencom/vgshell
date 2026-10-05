@@ -1,10 +1,12 @@
 # The Jarvis page's steps with nothing found: Add key under the key list
 # and Accounts under the account list are offered and each opens its
-# terminal, every hint that names one of them has it offered, and the AI
-# model setting opens on one empty line beside Add key. No latency budget.
+# terminal, every text that names one of them has it offered, with nothing
+# found and in a partial search whose row names Accounts, and the AI model
+# setting reads its empty text and opens on one empty line from a Space
+# press, beside Add key. No latency budget.
 # Poll once per nested IPC round trip. Only J09's process double and the
 # allow-listed TUI fixtures run here.
-# inputs: shell/plugins/vgs.jarvis/* shell/plugins/vgs.settings/* shell/Ui/controls/Select.qml shell/Ui/overlay/AnchorTracker.qml shell/Core/PluginLogic.js shell/Commons/Reply.js scripts/fixtures/jarvis/* scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml bin/vgshell-tui scripts/smoke/rows/jarvis.sh
+# inputs: shell/plugins/vgs.jarvis/* shell/plugins/vgs.settings/* shell/Ui/controls/Select.qml shell/Ui/overlay/* shell/Core/PluginLogic.js shell/Core/Capabilities.qml shell/Commons/Reply.js scripts/fixtures/jarvis/* scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml bin/vgshell-tui scripts/smoke/rows/jarvis.sh
 set -euo pipefail
 page_tuis="$repo/shell/plugins/vgs.jarvis/tui"
 page_manifest="$repo/shell/plugins/vgs.jarvis/manifest.json"
@@ -84,6 +86,37 @@ expect "a hint that names a missing button breaks the named-button read" 1 page_
 cp -- "$sandbox/page-manifest-original" "$page_manifest"
 jarvis_rescan
 expect_poll "the restored page offers Add key again" '["Add key", true, "info"]' page_offered keyStore
+# A partial search's row names Accounts, which it offers.
+printf 'parent-unreadable\n' >"$sandbox/jarvis-world/account-mode"
+page_open accountSearch accounts "Jarvis accounts"
+expect_poll "a partial search warns and offers Accounts" '["Accounts", true, "warning"]' page_offered accountSearch
+expect_poll "every text that names Add key or Accounts has the button offered" '[["Accounts", "Add key"], []]' page_named_buttons
+# A manifest copy whose search step reads another label: the search
+# row's text then names a button the page lacks.
+python3 - "$page_manifest" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1])
+assert not p.is_symlink()
+s=p.read_text()
+needle='"accountSearch": { "type": "state", "label": "Account search", "group": "AI model", "action": { "label": "Accounts", "tui": "accounts" } }'
+assert s.count(needle)==1
+changed=s.replace(needle, needle.replace('"label": "Accounts"', '"label": "Find accounts"'))
+assert changed != s
+p.write_text(changed)
+PY
+jarvis_rescan
+expect_poll "the search label control offers its own step" '["Find accounts", true, "warning"]' page_offered accountSearch
+page_accounts_control() {
+  (failures=0 behaviour_failures=0
+   expect "a text must name only a button the page offers" '[["Accounts", "Add key"], []]' page_named_buttons >"$sandbox/jarvis-page-accounts-control.log"
+   echo "$failures")
+}
+expect "a search text that names a missing button breaks the named-button read" 1 page_accounts_control
+cp -- "$sandbox/page-manifest-original" "$page_manifest"
+printf 'none\n' >"$sandbox/jarvis-world/account-mode"
+jarvis_rescan
+expect_poll "the restored search finds nothing and offers Accounts" '["Accounts", true, "info"]' page_offered accountSearch
 
 # The open list as one empty line: open, no entry to choose, and one drawn
 # line reading the Select's own emptyText.
@@ -122,10 +155,11 @@ expect "the probe drops the control copy" ok ipc smoke popupDrop page-no-line
 rm -- "${page_copies[@]}" || fail "removing the Select copies failed"
 
 page_field() { ipc smoke invokeInstance window vgs.settings fieldChoice '{"id":"vgs.jarvis","key":"brain"}'; }
-page_field_state() { page_field | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([d["model"], d["value"], d["list"]["open"]]))'; }
+page_field_state() { page_field | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([d["model"], d["value"], d["list"]["open"], d["list"]["empty"] != "" and d["shown"] == d["list"]["empty"]]))'; }
 page_field_line() { page_field | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["list"]))' | page_empty_line; }
-expect_poll "with nothing found the AI model setting offers no choice" '[[], "", false]' page_field_state
-expect "the AI model setting opens with nothing to choose" opened ipc smoke invokeInstance window vgs.settings openField '{"id":"vgs.jarvis","key":"brain"}'
+expect_poll "with nothing found the closed AI model setting reads its empty text" '[[], "", false, true]' page_field_state
+expect "the AI model setting takes the focus" focused ipc smoke invokeInstance window vgs.settings focusField '{"id":"vgs.jarvis","key":"brain"}'
+type_keys -k space || fail "Space on the AI model setting failed"
 expect_poll "the AI model setting draws one empty line" one-line page_field_line
 expect "Add key is offered beside it" '["Add key", true, "info"]' page_offered keyStore
 settings_page_close vgs.jarvis

@@ -420,7 +420,7 @@ Scope {
             const a = JSON.parse(arg);
             return IpcPages.answer(item.writeSetting(a.id, a.key, a.value));
         }
-        if (name === "fieldChoice" || name === "chooseField" || name === "openField") {
+        if (name === "fieldChoice" || name === "chooseField" || name === "focusField") {
             const a = JSON.parse(arg);
             const field = fieldOf(item, a.id, a.key);
             if (field === null) return "absent";
@@ -430,12 +430,13 @@ Scope {
                 editor.choose(a.index);
                 return "chosen";
             }
-            if (name === "openField") {
-                editor.openList();
-                return "opened";
+            if (name === "focusField") {
+                // As a Tab gives it, so a row's real key press reaches it.
+                editor.forceActiveFocus(Qt.TabFocusReason);
+                return editor.activeFocus ? "focused" : "unfocused";
             }
             return root.json({ model: editor.model, index: editor.currentIndex, text: editor.currentText, value: field.value, enabled: editor.enabled,
-                list: root.selectList(editor) });
+                shown: editor.contentItem.text, list: root.selectList(editor) });
         }
         if (name === "fieldCustom" || name === "editFieldCustom") {
             const a = JSON.parse(arg);
