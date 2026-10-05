@@ -78,4 +78,4 @@ The shared guidance consumer selects the router and Browser suites on `ComputerH
 
 ## Nightly run
 
-`.github/workflows/nightly.yml` runs `scripts/validate --full` on `main` once a night for every area but `qml`, and reports only; no push, pull request or merge queue starts it. Its jobs, runners and summary are in [validation-nightly.md](validation-nightly.md).
+`.github/workflows/nightly.yml` runs `scripts/validate --full` on `main` once a night for every area but `qml` while the repository variable `NIGHTLY` is `on`, and reports only; no push, pull request or merge queue starts it. Its jobs, runners and summary are in [validation-nightly.md](validation-nightly.md).
