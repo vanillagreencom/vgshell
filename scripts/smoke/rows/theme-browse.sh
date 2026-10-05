@@ -215,29 +215,41 @@ expect_poll "the download completes without its instance" null theme_download
 expect "last holds no download once it ends" null last_part downloading
 expect "the rebuilt instance received no download callback" none answer wallpapers state
 
-# Controls: two sandbox copies of the runner, built beside the core's
-# runner by the smoke probe. Both are written before the first is built:
-# the engine refuses a file written into a directory after it listed it
-# (runtime-qml.md). The second is the update form's control, below.
+# The core directory was listed at startup. Put both controls in a fresh
+# directory before loading either, so Qt's cached listing includes them.
 runner_qml="$repo/shell/Core/ThemeRunner.qml"
-update_copy="$repo/shell/Core/ThemeRunnerNoUpdate.qml"
-update_argv='return ["wallpapers", "--json", name].concat(extra);'
-if [[ $(grep -c -F -- "$update_argv" "$runner_qml") == 1 ]]; then
-  python3 -c 'import sys; p, q, old, new = sys.argv[1:]; t = open(p).read(); open(q, "w").write(t.replace(old, new))' \
-    "$runner_qml" "$update_copy" "$update_argv" 'return ["wallpapers", "--json", name];'
-else
-  fail "the no-update control's text occurs once in $runner_qml"
-fi
+theme_browse_controls="$(mktemp -d "$repo/shell/Core/ThemeBrowseControls.XXXXXX")"
+theme_browse_previous_exit_trap="$(trap -p EXIT)"
+theme_browse_controls_cleanup() {
+  ipc smoke runnerDrop >/dev/null 2>&1 || true
+  teardown_step theme-browse-controls "$theme_browse_controls" rm -rf -- "${theme_browse_controls:?}"
+}
+trap 'theme_browse_controls_cleanup; cleanup' EXIT
+update_copy="$theme_browse_controls/ThemeRunnerNoUpdate.qml"
+runner_copy="$theme_browse_controls/ThemeRunnerQueuedDownloads.qml"
+python3 - "$runner_qml" "$update_copy" "$runner_copy" <<'PY'
+from pathlib import Path
+import sys
+source = Path(sys.argv[1]).read_text()
+relative_import = 'import "../Commons/ThemeLogic.js" as ThemeLogic'
+assert source.count(relative_import) == 1
+source = source.replace(relative_import, 'import "../../Commons/ThemeLogic.js" as ThemeLogic')
+for path, old, new in [
+    (sys.argv[2], 'return ["wallpapers", "--json", name].concat(extra);', 'return ["wallpapers", "--json", name];'),
+    (sys.argv[3], '        startDownload(job);', '        enqueue(job);'),
+]:
+    assert source.count(old) == 1
+    changed = source.replace(old, new)
+    assert changed != source
+    with Path(path).open("x") as file:
+        file.write(changed)
+PY
 # Control: a copy whose wallpapers member queues the download on the
 # queue, driven through the same row, holds its apply behind the download.
 # Its lending record shows the apply queued behind the download, and
 # apply_during_download, which the real runner answers `answered`, polls
 # its 5 s out on the copy.
-runner_copy="$repo/shell/Core/ThemeRunnerQueuedDownloads.qml"
-lane_call='        startDownload(job);'
-if [[ $(grep -c -F -- "$lane_call" "$runner_qml") == 1 ]]; then
-  python3 -c 'import sys; p, q, old, new = sys.argv[1:]; t = open(p).read(); open(q, "w").write(t.replace(old, new))' \
-    "$runner_qml" "$runner_copy" "$lane_call" '        enqueue(job);'
+if [[ -f $runner_copy ]]; then
   copy_applies() { ipc smoke runnerAnswered apply; }
   copy_downloads() { ipc smoke runnerAnswered wallpapers; }
   copy_queue() { ipc smoke runnerRecord | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([[j["verb"] for j in d["jobs"]], d["download"]]))'; }
@@ -253,8 +265,6 @@ if [[ $(grep -c -F -- "$lane_call" "$runner_qml") == 1 ]]; then
   expect_poll "the copy's apply ends after its download" 1 copy_applies
   expect "the smoke probe drops the copy" ok ipc smoke runnerDrop
   rm -- "$runner_copy"
-else
-  fail "the queued-downloads control's text occurs once in $runner_qml"
 fi
 
 # The update form: `{ update: true }` after the callback reaches the runner
@@ -285,6 +295,9 @@ if [[ -f $update_copy ]]; then
   expect "the smoke probe drops the no-update copy" ok ipc smoke runnerDrop
   rm -- "$update_copy"
 fi
+theme_browse_controls_cleanup
+expect "the runner controls release their private directory" absent bash -c '[[ -e $1 ]] && echo present || echo absent' _ "$theme_browse_controls"
+eval "$theme_browse_previous_exit_trap"
 rm -f -- "$download_argv"
 mv -T -- "$repo/bin/vgshell.real" "$repo/bin/vgshell"
 
