@@ -101,4 +101,4 @@ podman run --rm -e NIX_CONFIG='experimental-features = nix-command flakes' docke
   nix run github:vanillagreencom/vgshell/vX.Y.Z -- --version
 ```
 
-Every command prints `vgshell X.Y.Z`: an installed tree is not a checkout, so `vgshell-git` prints its `VERSION` too. Then run `vgshell run` from each install inside the nested sandbox: [validation-smoke.md](architecture/validation-smoke.md).
+Packaged installs print `vgshell X.Y.Z`; checkout installs report `X.Y.Z` in `version --json` and print that report's `describe` value when present. Then run `vgshell run` from each install inside the nested sandbox: [validation-smoke.md](architecture/validation-smoke.md).

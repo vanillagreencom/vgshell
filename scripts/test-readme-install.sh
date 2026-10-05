@@ -52,10 +52,14 @@ for tool in bash env readlink dirname mkdir rm cat tail sed grep python3 yes sle
   found="$(command -v -- "$tool")" || { echo "test-readme-install: status=not-measured missing=$tool"; exit 77; }
   ln -s -- "$(readlink -f -- "$found")" "$farm/$tool"
 done
+farm_nix="$tmp/farm-nix"
+mkdir -p "$farm_nix"
+for tool in "$farm"/*; do [[ ${tool##*/} == script ]] || ln -s "$tool" "$farm_nix/${tool##*/}"; done
 # node on PATH may be a version-manager shim that reads the developer's own
 # configuration; the farm links the binary it resolves to.
 node_bin="$(node -e 'process.stdout.write(process.execPath)')" || { echo "test-readme-install: status=not-measured missing=node"; exit 77; }
 ln -s -- "$node_bin" "$farm/node"
+ln -s -- "$node_bin" "$farm_nix/node"
 cat >"$stubs/podman" <<'EOF'
 #!/usr/bin/env bash
 # Without STUB_PODMAN_WORKS every image is absent and every pull fails.
@@ -63,13 +67,20 @@ cat >"$stubs/podman" <<'EOF'
 case "$1" in
   image|commit|rm|rmi) exit 0 ;;
   run)
+    nix=false
+    [[ $* != *nixos/nix* ]] || nix=true
     shift
     [[ $1 == -d ]] || { printf 'prepare %s\n' "${@: -1}" >>"$STUB_RECORD"; exit 0; }
     printf 'start %s\n' "$3" >>"$STUB_RECORD"
+    [[ $nix == false ]] || : >"$STUB_RECORD.$3.nix"
     exit 0 ;;
   exec)
-    while [[ $1 != -- ]]; do shift; done
+    while [[ $1 != -- ]]; do
+      if [[ $1 == -e ]]; then export "$2"; shift; fi
+      shift
+    done
     container="$2"
+    [[ ! -e $STUB_RECORD.$container.nix ]] || export PATH="$STUB_NIX_PATH"
     shift 2
     [[ $1 != install ]] || exit 0
     printf 'exec %s %s\n' "$container" "${@: -1}" >>"$STUB_RECORD"
@@ -85,6 +96,9 @@ if [[ $* == *aur.archlinux.org* ]]; then
   [[ -z ${STUB_CURL_EXIT:-} ]] || { echo "curl: (7) stub failure" >&2; exit "$STUB_CURL_EXIT"; }
   printf '%s\n' "$STUB_CURL_OUT"
   exit 0
+fi
+if [[ -n ${STUB_REQUIRE_PAGER:-} ]]; then
+  printf '%s\n' '[[ ${PARU_PAGER:-} == cat ]] || exit 69'
 fi
 if [[ -n ${STUB_REQUIRE_TTY:-} ]]; then
   printf '%s\n' 'if ! { : 2>/dev/null <>/dev/tty; }; then echo "install.sh: refused: floor=xdg-terminal-exec have=none need=present" >&2; exit 78; fi'
@@ -106,7 +120,11 @@ home="$tmp/home"
 mkdir -p -- "$home/vgshell/bin"
 cat >"$home/vgshell/bin/vgshell" <<'EOF'
 #!/usr/bin/env bash
-if [[ $* == *--version ]]; then echo "vgshell $STUB_VERSION"; exit 0; fi
+if [[ $* == *'version --json' ]]; then
+  node -e 'console.log(JSON.stringify({version: process.env.STUB_VERSION, describe: process.env.STUB_DESCRIBE ?? null}))'
+  exit 0
+fi
+if [[ $* == *--version ]]; then echo "vgshell ${STUB_DISPLAY:-${STUB_DESCRIBE:-$STUB_VERSION}}"; exit 0; fi
 echo 'vgshell: refused: preflight=hyprland have=unknown need=0.56' >&2
 exit 78
 EOF
@@ -131,7 +149,7 @@ row() {
   while [[ $1 != -- ]]; do vars+=("$1"); shift; done
   shift
   : >"$record"
-  out="$(env -i PATH="$path" HOME="$tmp" LC_ALL=C STUB_RECORD="$record" STUB_HOME="$home" STUB_VERSION="$version" "${vars[@]}" "$tree/scripts/readme-install.sh" "$@" 2>&1)" || status=$?
+  out="$(env -i PATH="$path" HOME="$tmp" LC_ALL=C STUB_RECORD="$record" STUB_HOME="$home" STUB_VERSION="$version" STUB_NIX_PATH="$stubs:$farm_nix" "${vars[@]}" "$tree/scripts/readme-install.sh" "$@" 2>&1)" || status=$?
   row_output="$out"
   first="${out%%$'\n'*}"
   # WANT_FIRST is a glob pattern: only the timing row uses `*`.
@@ -160,7 +178,7 @@ row "a curl download that fails with no output is refused" 1 "$download_first" "
 aur_first="$(grep -n -F -x -- "paru -S vgshell-git" "$tree/README.md")" || { echo "test-readme-install: readme=no-paru-line"; exit 1; }
 row "the published commands run" 0 "readme-install: ok line=${aur_first%%:*} channel=aur exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT='{"results":[{"Name":"vgshell-git"}]}' --
 # Each command the record names, after its fence's number in the README.
-fence_want=$'1 paru -S vgshell-git\n1 vgshell --version\n2 '"$curl_command"$'\n2 ~/.local/bin/vgshell --version\n3 nix run github:vanillagreencom/vgshell -- run\n3 nix run github:vanillagreencom/vgshell -- --version\n4 git clone https://github.com/vanillagreencom/vgshell\n4 vgshell/bin/vgshell run\n4 vgshell/bin/vgshell --version'
+fence_want=$'1 paru -S vgshell-git\n1 vgshell --version\n2 '"$curl_command"$'\n2 ~/.local/bin/vgshell --version\n2 ~/.local/bin/vgshell version --json\n3 nix run github:vanillagreencom/vgshell -- run\n3 nix run github:vanillagreencom/vgshell -- --version\n4 git clone https://github.com/vanillagreencom/vgshell\n4 vgshell/bin/vgshell run\n4 vgshell/bin/vgshell --version\n4 vgshell/bin/vgshell version --json'
 fence_have="$(sed -n -E 's/^exec vgs-readme-install-([0-9]+)\.[0-9]+ /\1 /p' -- "$record")"
 fence_starts="$(sed -n -E 's/^start vgs-readme-install-([0-9]+)\.[0-9]+$/\1/p' -- "$record")"
 if [[ $fence_have == "$fence_want" && $fence_starts == $'1\n2\n3\n4' ]]; then
@@ -188,6 +206,10 @@ row "the image installs the helper named by the README" 77 "readme-install: ok l
 if grep -qxF 'prepare yay' "$record"; then ok "the image reads the README helper"; else fail "the image did not read the README helper"; fi
 cp -p -- "$tmp/README.md.orig" "$tree/README.md"
 row "curl receives a controlling terminal" 77 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" STUB_REQUIRE_TTY=1 --
+row "curl receives a noninteractive recipe pager" 77 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" STUB_REQUIRE_PAGER=1 --
+row "checkout versions use the canonical version and describe report" 77 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" STUB_DESCRIBE="$version.r14.g797b0cb" --
+if grep -qxF "readme-install: version line=$curl_line channel=curl value=vgshell $version.r14.g797b0cb" <<<"$row_output"; then ok "the checkout display is logged without alteration"; else fail "the checkout display was not logged"; fi
+row "an inconsistent checkout version display is refused" 1 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" STUB_DISPLAY=broken --
 row "an unexpected installed version is refused" 1 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" STUB_VERSION=broken --
 if grep -qxF "readme-install: refused: line=$curl_line version=unexpected" <<<"$row_output"; then ok "the installed version refusal names its cause"; else fail "the installed version refusal has another cause"; fi
 readme_edit "paru -S vgshell-git" "yay -S vgshell-git"
@@ -239,8 +261,21 @@ control "a runner without pipefail" 'bash -o pipefail -c "$2"' 'bash -c "$2"' \
 control "curl without a controlling terminal" 'script -qE never -ec "$argv" /dev/null' 'bash -c "$argv"' \
   "terminal" 77 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" STUB_REQUIRE_TTY=1 --
 # shellcheck disable=SC2016
-control "an unchecked installed version" '[[ $version_out == "vgshell $(<"$repo/VERSION")" ]]' 'true' \
+control "an interactive recipe pager" '-e PARU_PAGER=cat ' '' \
+  "pager" 77 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" STUB_REQUIRE_PAGER=1 --
+# shellcheck disable=SC2016
+control "an unchecked checkout base version" 'if (report.version !== process.argv[2]) process.exit(1);' '' \
   "version" 1 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" STUB_VERSION=broken --
+# shellcheck disable=SC2016
+control "an unchecked checkout display" 'if (process.argv[3] !== `vgshell ${report.describe ?? report.version}`) process.exit(1);' '' \
+  "display" 1 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" STUB_DISPLAY=broken --
+# shellcheck disable=SC2016
+control "an unchecked packaged version" '[[ $version_out == "vgshell $(<"$repo/VERSION")" ]]' 'true' \
+  "package version" 1 "readme-install: ok line=${aur_first%%:*} channel=aur exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT='{"results":[{"Name":"vgshell-git"}]}' STUB_VERSION=broken --
+
+# shellcheck disable=SC2016
+control "the Nix image without script cannot use the Arch wrapper" '[[ ${block_image[$block]} == arch ]]' 'true' \
+  "Nix image" 0 "readme-install: ok line=${aur_first%%:*} channel=aur exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT='{"results":[{"Name":"vgshell-git"}]}' --
 
 if ((failures > 0)); then
   echo "test-readme-install: failed=$failures"

@@ -245,8 +245,13 @@ for row in "${rows[@]}"; do
   log="$scratch/line-$line.log"
   started=$SECONDS
   status=0
-  podman exec --user "$user" --workdir "$home" -e HOME="$home" -e XDG_RUNTIME_DIR="$runtime" -- "$container" \
-    bash -c 'printf -v argv "%q " timeout "$1" bash -o pipefail -c "$2"; while printf "\\n"; do sleep 1; done | script -qE never -ec "$argv" /dev/null' _ "$command_seconds" "$command" >"$log" 2>&1 || status=$?
+  if [[ ${block_image[$block]} == arch ]]; then
+    wrapper='printf -v argv "%q " timeout "$1" bash -o pipefail -c "$2"; while printf "\\n"; do sleep 1; done | script -qE never -ec "$argv" /dev/null'
+  else
+    wrapper='yes "" | timeout "$1" bash -o pipefail -c "$2"'
+  fi
+  podman exec --user "$user" --workdir "$home" -e HOME="$home" -e XDG_RUNTIME_DIR="$runtime" -e PARU_PAGER=cat -- "$container" \
+    bash -c "$wrapper" _ "$command_seconds" "$command" >"$log" 2>&1 || status=$?
   seconds=$((SECONDS - started))
   if [[ $vgshell == run ]]; then
     grep -q -E "^vgshell: refused: preflight=hyprland have=$want_have need=" -- "$log" && [[ $status -eq 78 ]] ||
@@ -267,7 +272,19 @@ for row in "${rows[@]}"; do
   if [[ -n $version_command ]]; then
     version_out="$(podman exec --user "$user" --workdir "$home" -e HOME="$home" -e XDG_RUNTIME_DIR="$runtime" -- "$container" \
       timeout "$command_seconds" bash -o pipefail -c "$version_command" 2>&1)" || refuse 1 "line=$line version=failed" "$version_out"
-    [[ $version_out == "vgshell $(<"$repo/VERSION")" ]] || refuse 1 "line=$line version=unexpected" "$version_out"
+    if [[ $channel == checkout || ( $channel == curl && $command == *--git* ) ]]; then
+      report_command="${version_command% --version} version --json"
+      version_report="$(podman exec --user "$user" --workdir "$home" -e HOME="$home" -e XDG_RUNTIME_DIR="$runtime" -- "$container" \
+        timeout "$command_seconds" bash -o pipefail -c "$report_command" 2>&1)" || refuse 1 "line=$line version=report-failed" "$version_report"
+      node - "$(<"$repo/VERSION")" "$version_out" "$version_report" <<'JS' || refuse 1 "line=$line version=unexpected" "$version_out"
+let report;
+try { report = JSON.parse(process.argv[4]); } catch { process.exit(1); }
+if (report.version !== process.argv[2]) process.exit(1);
+if (process.argv[3] !== `vgshell ${report.describe ?? report.version}`) process.exit(1);
+JS
+    else
+      [[ $version_out == "vgshell $(<"$repo/VERSION")" ]] || refuse 1 "line=$line version=unexpected" "$version_out"
+    fi
     echo "readme-install: version line=$line channel=$channel value=$version_out"
   fi
   measured=$((measured + 1))

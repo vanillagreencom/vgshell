@@ -35,7 +35,7 @@ The plugin table is generated, never written by hand. `check-readme.js --write-p
 - The nix command runs in `nixos/nix`.
 - Each fence runs top to bottom in one fresh container, so each alternative goes in its own fence. Every prompt gets an empty answer, so it takes its default.
 - A command runs under `pipefail`, so a `curl ... | bash` whose download fails fails too, though bash exits 0 on an empty script.
-- After an install or a shell command, the runner checks that the installed command prints `vgshell` and `VERSION` with `--version`.
+- After an install or a shell command, the runner checks the installed version against `VERSION`: packaged installs print it with `--version`; checkout installs report it with `version --json`, and their displayed version must match that report.
 - A command passes on exit 0. A command that runs `vgshell run` passes when it exits 78 at the Hyprland floor, because no Hyprland runs in a container.
 
 The curl, untagged nix and checkout commands read `main` on GitHub, so the runner checks what users get, not the working tree. It needs podman and the network, so it runs by hand, not in `scripts/validate`. `scripts/test-readme-install.sh` covers its host side with stubs.
