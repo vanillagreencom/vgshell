@@ -416,6 +416,13 @@ f share/vgshell/shell/plugins/vgs.lock/Service.qml
 f share/vgshell/shell/plugins/vgs.lock/bin/sleep-watch
 f share/vgshell/shell/plugins/vgs.lock/manifest.json
 f share/vgshell/shell/plugins/vgs.lock/pam/vgs-lock
+f share/vgshell/shell/plugins/vgs.mouse/MouseControls.qml
+f share/vgshell/shell/plugins/vgs.mouse/MouseLogic.js
+f share/vgshell/shell/plugins/vgs.mouse/Pane.qml
+f share/vgshell/shell/plugins/vgs.mouse/Panel.qml
+f share/vgshell/shell/plugins/vgs.mouse/Service.qml
+f share/vgshell/shell/plugins/vgs.mouse/Widget.qml
+f share/vgshell/shell/plugins/vgs.mouse/manifest.json
 f share/vgshell/shell/plugins/vgs.network/NetworkBody.qml
 f share/vgshell/shell/plugins/vgs.network/NetworkLogic.js
 f share/vgshell/shell/plugins/vgs.network/NetworkShare.qml

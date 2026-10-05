@@ -234,7 +234,7 @@ rows=(
   "logic|Bluetooth plugin logic|node scripts/test-bluetooth-logic.js|shell/plugins/vgs.bluetooth/BluetoothLogic.js shell/Commons/SettingValues.js bin/lib/qml-library.js"
   "logic|updates logic|node scripts/test-updates-logic.js|shell/plugins/vgs.updates/UpdatesLogic.js bin/lib/qml-library.js"
   "logic|displays logic|node scripts/test-displays-logic.js|shell/plugins/vgs.displays/DisplaysLogic.js bin/lib/qml-library.js"
-  "logic|mouse logic|node scripts/test-mouse-logic.js|shell/plugins/vgs.mouse/MouseLogic.js shell/plugins/vgs.mouse/manifest.json shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js bin/lib/qml-library.js"
+  "logic|mouse logic|node scripts/test-mouse-logic.js|shell/plugins/vgs.mouse/MouseLogic.js shell/plugins/vgs.mouse/manifest.json bin/lib/qml-library.js"
   "logic|sound logic|node scripts/test-sound-logic.js|shell/plugins/vgs.sound/SoundLogic.js bin/lib/qml-library.js"
   "logic|clipboard history logic|node scripts/test-clipboard-history.js|shell/plugins/vgs.clipboard/ClipboardHistory.js bin/lib/qml-library.js"
   "logic|automations judge|node scripts/test-automations-logic.js|shell/plugins/vgs.automations/AutomationsLogic.js bin/lib/qml-library.js"

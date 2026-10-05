@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Templates as T
 import qs.Commons
 import qs.Ui
 import "MouseLogic.js" as Logic
@@ -11,6 +12,7 @@ Column {
     property string problem: ""
     readonly property var devices: shell === null ? null : shell.hyprland.devices
     readonly property var overridden: shell === null ? [] : shell.hyprland.overridden
+    readonly property var optionPaths: shell === null ? ({}) : shell.manifest.hyprland.options
     readonly property bool hasTouchpad: Logic.hasTouchpad(devices)
     readonly property Item firstFocus: pointerSpeed
 
@@ -37,22 +39,47 @@ Column {
         FormRow {
             width: parent.width
             label: "Pointer speed"
-            warning: Logic.overriddenText(root.overridden, "sensitivity")
-            Slider {
-                id: pointerSpeed
+            warning: Logic.overriddenText(root.overridden, root.optionPaths, "sensitivity")
+            Item {
+                id: pointerSpeedRow
                 width: parent.width
-                from: -1
-                to: 1
-                stepSize: 0.05
-                value: root.shell === null ? 0 : root.shell.settings.sensitivity
-                onMoved: root.setValue("sensitivity", pointerSpeed.value)
+                implicitHeight: Math.max(pointerSpeed.implicitHeight, pointerSpeedValue.implicitHeight)
+
+                function commit() {
+                    const wanted = pointerSpeed.value;
+                    pointerSpeed.value = Qt.binding(() => root.shell === null ? 0 : root.shell.settings.sensitivity);
+                    if (wanted !== (root.shell === null ? 0 : root.shell.settings.sensitivity)) root.setValue("sensitivity", wanted);
+                }
+
+                Slider {
+                    id: pointerSpeed
+                    width: parent.width - pointerSpeedValue.width - Theme.field.labelGap
+                    anchors.verticalCenter: parent.verticalCenter
+                    from: -1
+                    to: 1
+                    stepSize: 0.05
+                    snapMode: T.Slider.SnapAlways
+                    value: root.shell === null ? 0 : root.shell.settings.sensitivity
+                    onPressedChanged: if (!pressed) pointerSpeedRow.commit()
+                    onMoved: if (!pressed) pointerSpeedRow.commit()
+                }
+
+                Label {
+                    id: pointerSpeedValue
+                    role: "label"
+                    text: Logic.pointerSpeedText(pointerSpeed.value)
+                    width: Math.max(implicitWidth, Theme.size.control.md)
+                    horizontalAlignment: Text.AlignRight
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                }
             }
         }
 
         FormRow {
             width: parent.width
             label: "Acceleration"
-            warning: Logic.overriddenText(root.overridden, "accelProfile")
+            warning: Logic.overriddenText(root.overridden, root.optionPaths, "accelProfile")
             SegmentedControl {
                 model: ["Adaptive", "Flat"]
                 currentIndex: root.shell === null ? 0 : Logic.profileIndex(root.shell.settings.accelProfile)
@@ -63,7 +90,7 @@ Column {
         FormRow {
             width: parent.width
             label: "Natural scroll"
-            warning: Logic.overriddenText(root.overridden, "naturalScroll")
+            warning: Logic.overriddenText(root.overridden, root.optionPaths, "naturalScroll")
             Switch {
                 size: "sm"
                 Accessible.name: "Natural scroll"
@@ -80,7 +107,7 @@ Column {
             visible: !root.compact
             width: parent.width
             label: "Left-handed"
-            warning: Logic.overriddenText(root.overridden, "leftHanded")
+            warning: Logic.overriddenText(root.overridden, root.optionPaths, "leftHanded")
             Switch {
                 size: "sm"
                 Accessible.name: "Left-handed"
@@ -97,15 +124,40 @@ Column {
             visible: !root.compact
             width: parent.width
             label: "Scroll speed"
-            warning: Logic.overriddenText(root.overridden, "scrollFactor")
-            Slider {
-                id: scrollSpeed
+            warning: Logic.overriddenText(root.overridden, root.optionPaths, "scrollFactor")
+            Item {
+                id: scrollSpeedRow
                 width: parent.width
-                from: 0
-                to: 2
-                stepSize: 0.05
-                value: root.shell === null ? 1 : root.shell.settings.scrollFactor
-                onMoved: root.setValue("scrollFactor", scrollSpeed.value)
+                implicitHeight: Math.max(scrollSpeed.implicitHeight, scrollSpeedValue.implicitHeight)
+
+                function commit() {
+                    const wanted = scrollSpeed.value;
+                    scrollSpeed.value = Qt.binding(() => root.shell === null ? 1 : root.shell.settings.scrollFactor);
+                    if (wanted !== (root.shell === null ? 1 : root.shell.settings.scrollFactor)) root.setValue("scrollFactor", wanted);
+                }
+
+                Slider {
+                    id: scrollSpeed
+                    width: parent.width - scrollSpeedValue.width - Theme.field.labelGap
+                    anchors.verticalCenter: parent.verticalCenter
+                    from: 0
+                    to: 2
+                    stepSize: 0.05
+                    snapMode: T.Slider.SnapAlways
+                    value: root.shell === null ? 1 : root.shell.settings.scrollFactor
+                    onPressedChanged: if (!pressed) scrollSpeedRow.commit()
+                    onMoved: if (!pressed) scrollSpeedRow.commit()
+                }
+
+                Label {
+                    id: scrollSpeedValue
+                    role: "label"
+                    text: Logic.factorText(scrollSpeed.value)
+                    width: Math.max(implicitWidth, Theme.size.control.md)
+                    horizontalAlignment: Text.AlignRight
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                }
             }
         }
     }
@@ -126,7 +178,7 @@ Column {
             visible: root.compact
             width: parent.width
             label: "Touchpad"
-            warning: Logic.overriddenText(root.overridden, "touchpadEnabled")
+            warning: Logic.overriddenText(root.overridden, root.optionPaths, "touchpadEnabled")
             Switch {
                 size: "sm"
                 Accessible.name: "Touchpad"
@@ -143,7 +195,7 @@ Column {
             visible: !root.compact
             width: parent.width
             label: "Touchpad"
-            warning: Logic.overriddenText(root.overridden, "touchpadEnabled")
+            warning: Logic.overriddenText(root.overridden, root.optionPaths, "touchpadEnabled")
             Switch {
                 size: "sm"
                 Accessible.name: "Touchpad"
@@ -160,7 +212,7 @@ Column {
             visible: !root.compact
             width: parent.width
             label: "Tap to click"
-            warning: Logic.overriddenText(root.overridden, "tapToClick")
+            warning: Logic.overriddenText(root.overridden, root.optionPaths, "tapToClick")
             Switch {
                 size: "sm"
                 Accessible.name: "Tap to click"
@@ -177,7 +229,7 @@ Column {
             visible: !root.compact
             width: parent.width
             label: "Natural scroll"
-            warning: Logic.overriddenText(root.overridden, "touchpadNaturalScroll")
+            warning: Logic.overriddenText(root.overridden, root.optionPaths, "touchpadNaturalScroll")
             Switch {
                 size: "sm"
                 Accessible.name: "Touchpad natural scroll"
@@ -194,7 +246,7 @@ Column {
             visible: !root.compact
             width: parent.width
             label: "Disable while typing"
-            warning: Logic.overriddenText(root.overridden, "disableWhileTyping")
+            warning: Logic.overriddenText(root.overridden, root.optionPaths, "disableWhileTyping")
             Switch {
                 size: "sm"
                 Accessible.name: "Disable while typing"
@@ -211,7 +263,7 @@ Column {
             visible: !root.compact
             width: parent.width
             label: "Two-finger right-click"
-            warning: Logic.overriddenText(root.overridden, "clickMethod")
+            warning: Logic.overriddenText(root.overridden, root.optionPaths, "clickMethod")
             Switch {
                 size: "sm"
                 Accessible.name: "Two-finger right-click"
@@ -228,15 +280,40 @@ Column {
             visible: !root.compact
             width: parent.width
             label: "Touchpad scroll speed"
-            warning: Logic.overriddenText(root.overridden, "touchpadScrollFactor")
-            Slider {
-                id: touchpadScrollSpeed
+            warning: Logic.overriddenText(root.overridden, root.optionPaths, "touchpadScrollFactor")
+            Item {
+                id: touchpadScrollSpeedRow
                 width: parent.width
-                from: 0
-                to: 2
-                stepSize: 0.05
-                value: root.shell === null ? 1 : root.shell.settings.touchpadScrollFactor
-                onMoved: root.setValue("touchpadScrollFactor", touchpadScrollSpeed.value)
+                implicitHeight: Math.max(touchpadScrollSpeed.implicitHeight, touchpadScrollSpeedValue.implicitHeight)
+
+                function commit() {
+                    const wanted = touchpadScrollSpeed.value;
+                    touchpadScrollSpeed.value = Qt.binding(() => root.shell === null ? 1 : root.shell.settings.touchpadScrollFactor);
+                    if (wanted !== (root.shell === null ? 1 : root.shell.settings.touchpadScrollFactor)) root.setValue("touchpadScrollFactor", wanted);
+                }
+
+                Slider {
+                    id: touchpadScrollSpeed
+                    width: parent.width - touchpadScrollSpeedValue.width - Theme.field.labelGap
+                    anchors.verticalCenter: parent.verticalCenter
+                    from: 0
+                    to: 2
+                    stepSize: 0.05
+                    snapMode: T.Slider.SnapAlways
+                    value: root.shell === null ? 1 : root.shell.settings.touchpadScrollFactor
+                    onPressedChanged: if (!pressed) touchpadScrollSpeedRow.commit()
+                    onMoved: if (!pressed) touchpadScrollSpeedRow.commit()
+                }
+
+                Label {
+                    id: touchpadScrollSpeedValue
+                    role: "label"
+                    text: Logic.factorText(touchpadScrollSpeed.value)
+                    width: Math.max(implicitWidth, Theme.size.control.md)
+                    horizontalAlignment: Text.AlignRight
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                }
             }
         }
     }

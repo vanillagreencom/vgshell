@@ -7,6 +7,7 @@ Item {
     property var shell: null
     property var registeredWith: null
     readonly property var devices: shell === null ? null : shell.hyprland.devices
+    readonly property bool devicesRead: devices !== null
     readonly property var published: Logic.statusValue(devices)
 
     onShellChanged: {

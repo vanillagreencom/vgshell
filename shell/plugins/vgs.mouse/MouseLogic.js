@@ -1,19 +1,5 @@
 .pragma library
 
-var OPTION_PATHS = {
-    sensitivity: "input.sensitivity",
-    accelProfile: "input.accel_profile",
-    naturalScroll: "input.natural_scroll",
-    leftHanded: "input.left_handed",
-    scrollFactor: "input.scroll_factor",
-    tapToClick: "input.touchpad.tap_to_click",
-    touchpadNaturalScroll: "input.touchpad.natural_scroll",
-    disableWhileTyping: "input.touchpad.disable_while_typing",
-    clickMethod: "input.touchpad.clickfinger_behavior",
-    touchpadScrollFactor: "input.touchpad.scroll_factor",
-    touchpadEnabled: "device.touchpad.enabled"
-};
-
 function mice(devices) {
     if (devices === null || devices === undefined || !Array.isArray(devices.mice)) return [];
     return devices.mice.map(function (mouse) {
@@ -49,12 +35,17 @@ function overriddenMap(paths) {
     return out;
 }
 
-function rowOverridden(paths, key) {
-    return overriddenMap(paths)[OPTION_PATHS[key]] === true;
+function optionPath(options, key) {
+    return options !== null && options !== undefined && typeof options === "object" ? options[key] : undefined;
 }
 
-function overriddenText(paths, key) {
-    return rowOverridden(paths, key) ? "Overridden by your Hyprland config" : "";
+function rowOverridden(paths, options, key) {
+    var path = optionPath(options, key);
+    return path !== undefined && overriddenMap(paths)[path] === true;
+}
+
+function overriddenText(paths, options, key) {
+    return rowOverridden(paths, options, key) ? "Overridden by your Hyprland config" : "";
 }
 
 function pointerSpeedText(value) {
@@ -75,8 +66,4 @@ function profileIndex(value) {
 
 function profileAt(index) {
     return index === 1 ? "flat" : "adaptive";
-}
-
-function replyProblem(reply) {
-    return /^(refused|unknown|error):/.test(String(reply));
 }
