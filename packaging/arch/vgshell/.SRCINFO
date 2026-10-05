@@ -73,6 +73,6 @@ pkgbase = vgshell
 	optdepends = polkit: pkexec, so applications can ask for administrator access
 	optdepends = tailscale: the Tailscale connection in the VPN plugin
 	source = vgshell-0.1.0.tar.gz::https://github.com/vanillagreencom/vgshell/releases/download/v0.1.0/vgshell-0.1.0.tar.gz
-	sha256sums = SKIP
+	sha256sums = 18239c1dcef84b8d07187085c183cb42244abdac0f16a82c5d57318deb560612
 
 pkgname = vgshell

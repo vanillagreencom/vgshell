@@ -83,7 +83,7 @@ optdepends=(
   'tailscale: the Tailscale connection in the VPN plugin'
 )
 source=("vgshell-$pkgver.tar.gz::$url/releases/download/v$pkgver/vgshell-$pkgver.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('18239c1dcef84b8d07187085c183cb42244abdac0f16a82c5d57318deb560612')
 install=vgshell.install
 
 package() {
