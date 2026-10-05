@@ -9,9 +9,10 @@
 // here would judge with code the shell never runs. A library may import
 // another library as the shell does, with `.import "<path>" as <Name>` lines
 // straight after the pragma, the path relative to the importing file; the
-// imported file is loaded by the same rule and bound as <Name>. Any other
-// `.import` line, such as a module import, is one the shell would resolve
-// and this loader cannot, so it is refused. Each refusal is one keyed line
+// imported file is loaded by the same rule and bound as <Name>. Module
+// imports require explicit bindings from the caller, keyed by module name
+// and version, for example "qs.Commons 1.0". An unresolved import is refused.
+// Each refusal is one keyed line
 // on stderr and exit 2:
 //   qml-library: refused: pragma=missing path=<file>
 //   qml-library: refused: unreadable path=<file> error=<code>
@@ -32,7 +33,7 @@ function refuse(first) {
 // The library's top-level functions and variables as properties of one
 // object, evaluated in a fresh context with no access to this process. Each
 // imported library is bound on it under its qualifier before the body runs.
-function load(file) {
+function load(file, modules = {}) {
     let source;
     try {
         source = fs.readFileSync(file, "utf8");
@@ -50,8 +51,11 @@ function load(file) {
             continue;
         }
         const m = IMPORT.exec(lines[i]);
-        if (m === null || !header) refuse("import=" + JSON.stringify(lines[i]) + " path=" + file);
-        library[m[2]] = load(path.resolve(path.dirname(file), m[1]));
+        const moduleImport = /^\.import\s+([A-Za-z_][A-Za-z0-9_.]*\s+[0-9]+\.[0-9]+)\s+as\s+([A-Za-z_][A-Za-z0-9_]*)\s*$/.exec(lines[i]);
+        if (!header || (m === null && (moduleImport === null || !Object.prototype.hasOwnProperty.call(modules, moduleImport[1]))))
+            refuse("import=" + JSON.stringify(lines[i]) + " path=" + file);
+        if (m !== null) library[m[2]] = load(path.resolve(path.dirname(file), m[1]), modules);
+        else library[moduleImport[2]] = modules[moduleImport[1]];
         lines[i] = "";
     }
     vm.runInNewContext(lines.join("\n"), library, { filename: file });

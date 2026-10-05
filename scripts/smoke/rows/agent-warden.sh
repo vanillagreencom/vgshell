@@ -46,7 +46,7 @@
 # without the button.
 # The harness starts the plugin disabled; the row ends with it disabled,
 # its runtime files gone and no stub on PATH.
-# inputs: shell/plugins/vgs.agent-warden/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/agent-warden/* shell/Core/PluginStatus.qml shell/Core/Notices.qml shell/Core/Toasts.qml shell/Core/TuiRunner.qml scripts/smoke/rows/manager.sh bin/vgshell-tui
+# inputs: shell/plugins/vgs.agent-warden/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/agent-warden/* shell/Core/PluginStatus.qml shell/Core/Notices.qml shell/Core/Toasts.qml shell/Core/TuiRunner.qml scripts/smoke/rows/manager.sh bin/vgshell-tui shell/Commons/Duration.js shell/Commons/qmldir
 set -euo pipefail
 warden_copy="$home/.config/vgshell/plugins/vgs.agent-warden"
 rm -rf -- "$warden_dir"
@@ -677,7 +677,7 @@ warden_notify ""
 # pressed only once the stand-in comes first on the shell's PATH.
 warden_systemctl_stub
 warden_put calm 600 >/dev/null
-expect_poll "the shield reads not checking" '["shield-off", "neutral", "", "Agent Warden hasn'"'"'t checked in 10 min"]' warden_shield
+expect_poll "the shield reads not checking" '["shield-off", "neutral", "", "Agent Warden hasn'"'"'t checked in 10m"]' warden_shield
 warden_open "stopped"
 expect_poll "the stopped panel offers Start it" "$(words Agents "Agent Warden has stopped checking." "$warden_line" "Start checks" "Checked N ago" "Open vsys")" warden_panel
 if [[ "$("${shell_env[@]}" PATH="$shim:$PATH" bash -c 'command -v systemctl')" == "$shim/systemctl" ]]; then

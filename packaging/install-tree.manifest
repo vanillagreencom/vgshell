@@ -40,6 +40,7 @@ f share/vgshell/config/system/udev/60-vgs-apple-displays.rules
 f share/vgshell/shell/Commons/AccountDirectories.js
 f share/vgshell/shell/Commons/ClearingInset.qml
 f share/vgshell/shell/Commons/DesktopLaunch.js
+f share/vgshell/shell/Commons/Duration.js
 f share/vgshell/shell/Commons/Inset.js
 f share/vgshell/shell/Commons/Paths.qml
 f share/vgshell/shell/Commons/Reply.js

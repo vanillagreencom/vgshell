@@ -32,7 +32,7 @@
 # and the TUI record as they were after the same clicks and keys. The row
 # ends with the plugin disabled, its stand-ins removed and the shim files
 # they covered restored.
-# inputs: shell/plugins/vgs.automations/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml bin/vgshell-tui shell/Ui/feedback/Dialog.qml
+# inputs: shell/plugins/vgs.automations/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml bin/vgshell-tui shell/Ui/feedback/Dialog.qml shell/Commons/Duration.js shell/Commons/qmldir
 set -euo pipefail
 auto_stub="$sandbox/automations-stub"
 # The systemctl stand-in fails daemon-reload while $auto_stub/fail-reload

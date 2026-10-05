@@ -17,8 +17,8 @@ const LOADER = path.join(__dirname, "..", "bin", "lib", "qml-library.js");
 const ENV = { PATH: process.env.PATH, LC_ALL: "C" };
 
 // Load FILE in a child through LOADER and print the JSON of `probe(library)`.
-function loadIn(loader, file, probe) {
-    const script = 'const l = require(process.argv[1]).load(process.argv[2]); process.stdout.write(JSON.stringify((' + probe + ')(l)));';
+function loadIn(loader, file, probe, bindings = "undefined") {
+    const script = 'const l = require(process.argv[1]).load(process.argv[2], ' + bindings + '); process.stdout.write(JSON.stringify((' + probe + ')(l)));';
     return spawnSync(process.execPath, ["-e", script, loader, file], { encoding: "utf8", env: ENV });
 }
 
@@ -40,9 +40,16 @@ function rows() {
     const importer = write("importer.js", ".pragma library\n.import \"lib/Names.js\" as Names\nfunction known(n) { return Object.prototype.hasOwnProperty.call(Names.NAMES, n); }\n");
     const importsBare = write("imports-bare.js", ".pragma library\n.import \"bare.js\" as Bare\nvar X = 1;\n");
     const moduleImport = write("module-import.js", ".pragma library\n.import QtQuick 2.0 as Q\nvar X = 1;\n");
+    const boundModule = write("bound-module.js", ".pragma library\n.import qs.Commons 1.0 as Commons\nfunction answer() { return Commons.Duration.twice(21); }\n");
+    const nestedModule = write("nested-module.js", ".pragma library\n.import \"bound-module.js\" as Child\nfunction answer() { return Child.answer(); }\n");
+    const wrongVersion = write("wrong-version.js", ".pragma library\n.import qs.Commons 2.0 as Commons\nvar X = 1;\n");
+    const bindings = '{"qs.Commons 1.0": {Duration: require(process.argv[1]).load(' + JSON.stringify(good) + ')}}';
     const lateImport = write("late-import.js", ".pragma library\nvar X = 1;\n.import \"good.js\" as Good\n");
     const said = r => `exit=${r.status} stdout=${r.stdout} stderr=${r.stderr}`;
     const out = [
+        ["an explicitly bound module loads under its qualifier", loader => { const r = loadIn(loader, boundModule, "l => l.answer()", bindings); return [r.status === 0 && r.stdout === "42", said(r)]; }],
+        ["module bindings reach imported libraries", loader => { const r = loadIn(loader, nestedModule, "l => l.answer()", bindings); return [r.status === 0 && r.stdout === "42", said(r)]; }],
+        ["a different module version is refused", loader => { const r = loadIn(loader, wrongVersion, "l => l.X", bindings); return [r.status === 2 && r.stderr.startsWith("qml-library: refused: import="), said(r)]; }],
         ["a library loads with its variables and functions", loader => { const r = loadIn(loader, good, "l => [l.ANSWER, l.twice(21)]"); return [r.status === 0 && r.stdout === "[42,42]", said(r)]; }],
         ["a file without the pragma is refused with its key", loader => { const r = loadIn(loader, bare, "l => l.ANSWER"); return [r.status === 2 && r.stderr === "qml-library: refused: pragma=missing path=" + bare + "\n" && r.stdout === "", said(r)]; }],
         ["a pragma that is not the first line is refused", loader => { const r = loadIn(loader, commented, "l => l.ANSWER"); return [r.status === 2 && r.stderr.startsWith("qml-library: refused: pragma=missing path="), said(r)]; }],
@@ -62,10 +69,12 @@ function rows() {
 // Mutations: label, the text in the loader, its replacement, and the row
 // that must go red. The replacement keeps the text and removes the rule.
 const MUTATIONS = [
-    ["the import is not bound", "library[m[2]] = load(path.resolve(path.dirname(file), m[1]));", "load(path.resolve(path.dirname(file), m[1]));", "an imported library is bound under its qualifier, its path relative to the importer"],
+    ["the import is not bound", "library[m[2]] = load(path.resolve(path.dirname(file), m[1]), modules);", "load(path.resolve(path.dirname(file), m[1]), modules);", "an imported library is bound under its qualifier, its path relative to the importer"],
     ["the import resolves from the working directory", "path.resolve(path.dirname(file), m[1])", "path.resolve(m[1])", "an imported library is bound under its qualifier, its path relative to the importer"],
-    ["a module import is carried", "if (m === null || !header) refuse(", "if (false) refuse(", "a module import is refused with its key"],
-    ["an import after the header is carried", "if (m === null || !header) refuse(", "if (m === null) refuse(", "an import after the header is refused with its key"],
+    ["a module import is carried", "if (!header || (m === null && (moduleImport === null || !Object.prototype.hasOwnProperty.call(modules, moduleImport[1]))))", "if (false)", "a module import is refused with its key"],
+    ["an import after the header is carried", "if (!header || (m === null", "if ((m === null", "an import after the header is refused with its key"],
+    ["a module qualifier is dropped", "else library[moduleImport[2]] = modules[moduleImport[1]];", "else library.Unqualified = modules[moduleImport[1]];", "an explicitly bound module loads under its qualifier"],
+    ["nested module bindings are dropped", "load(path.resolve(path.dirname(file), m[1]), modules)", "load(path.resolve(path.dirname(file), m[1]))", "module bindings reach imported libraries"],
 ];
 
 let failures = 0;

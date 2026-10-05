@@ -117,7 +117,9 @@ if (!fs.existsSync(vgshellPath) || !fs.existsSync(loaderPath)) {
     process.stderr.write("automations: refused: tree=" + tree + " reason=not-a-vgs-tree\n");
     process.exit(2);
 }
-const Logic = require(loaderPath).load(path.join(PLUGIN_DIR, "AutomationsLogic.js"));
+const { load } = require(loaderPath);
+const Duration = load(path.join(tree, "shell", "Commons", "Duration.js"));
+const Logic = load(path.join(PLUGIN_DIR, "AutomationsLogic.js"), { "qs.Commons 1.0": { Duration } });
 const verb = argv[2];
 const rest = argv.slice(3);
 
@@ -810,7 +812,7 @@ function execute(automation, trigger, slot, startedAt, refusal) {
         const footer = [
             "ended: " + new Date(endedAt).toString(),
             "outcome: " + outcome + (ending.exitCode !== null ? " exit=" + ending.exitCode : "") + (ending.signal !== null ? " signal=" + ending.signal : "") + (ending.reason !== "" ? " reason=" + ending.reason : ""),
-            "duration: " + Logic.formatDuration(endedAt - startedAt)
+            "duration: " + Duration.format(Math.round((endedAt - startedAt) / 1000))
         ];
         const written = transcript.close(footer);
         const ended = Object.assign({}, started, {

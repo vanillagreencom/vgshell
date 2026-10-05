@@ -15,7 +15,7 @@ ListItem {
     width: parent ? parent.width : implicitWidth
     text: row.name
     iconName: ""
-    secondary: View.formatWhen(row.startedAt) + " · " + View.formatDuration(row.durationMs)
+    secondary: View.historySecondary(row)
     cursor: cursorItem
     onClicked: root.openRequested(row.transcript)
     onHighlightedChanged: if (highlighted && scrollArea !== null) {

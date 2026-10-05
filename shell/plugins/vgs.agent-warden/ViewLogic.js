@@ -1,4 +1,5 @@
 .pragma library
+.import qs.Commons 1.0 as Commons
 .import "WardenLogic.js" as WardenLogic
 
 // What the Agent Warden widget and flyout show, pure so
@@ -68,19 +69,8 @@ function gb(bytes) {
     return String(WardenLogic.gib(bytes));
 }
 
-// The time from MS to NOW, both milliseconds since the epoch, as the
-// largest whole unit: "12 s", "3 min", "2 h", "4 d". A moment after NOW,
-// as from a clock set back, reads as "0 s".
-function since(ms, now) {
-    var s = Math.max(0, Math.floor((now - ms) / 1000));
-    if (s < 60) return s + " s";
-    if (s < 3600) return Math.floor(s / 60) + " min";
-    if (s < 86400) return Math.floor(s / 3600) + " h";
-    return Math.floor(s / 86400) + " d";
-}
-
 function ago(ms, now) {
-    return since(ms, now) + " ago";
+    return Commons.Duration.format(Math.max(0, Math.floor((now - ms) / 1000)), 1) + " ago";
 }
 
 // Who a lane is: its tool, and the worktree it runs in when the warden
@@ -106,7 +96,7 @@ function itemRow(item, now) {
         return {
             icon: ITEM_ICONS["move-failed"],
             text: item.tools.length > 0 ? "Could not apply limits to " + listed(item.tools) : "Could not apply limits to an agent",
-            secondary: plural(item.count, "try", "tries") + " failed in the last 5 min"
+            secondary: plural(item.count, "try", "tries") + " failed in the last " + Commons.Duration.format(300, 1)
         };
     case "partial":
         return {
@@ -213,7 +203,7 @@ function tooltip(detail, now) {
         return itemRow(detail.items[0], now).text;
     case "not-checking":
         switch (detail.reason) {
-        case "stale": return "Agent Warden hasn't checked in " + since(detail.checkedAt, now);
+        case "stale": return "Agent Warden hasn't checked in " + Commons.Duration.format(Math.max(0, Math.floor((now - detail.checkedAt) / 1000)), 1);
         case "unreadable": return "Agent Warden's status can't be read";
         case "schema": return "Agent Warden's status needs a newer VGS";
         }
@@ -281,7 +271,7 @@ function link(vsysMissing, setupButton) {
     return setupButton !== null && setupButton.action === out.action ? null : out;
 }
 
-// The footer's time: "Checked 12 s ago", or "" before a status told one.
+// The footer's time, or "" before a status told one.
 function checked(detail, now) {
     return detail.checkedAt === null ? "" : "Checked " + ago(detail.checkedAt, now);
 }
@@ -310,7 +300,7 @@ var REFUSALS = [
     [/^refused: tui=[a-z0-9-]+ reason=busy$/, function () { return ""; }],
     [/^refused: tui=[a-z0-9-]+ reason=launcher-missing$/, function () { return "The setup window could not open. VGS is missing its terminal launcher, xdg-terminal-exec. Reinstall VGS to restore it."; }],
     [/^satisfied$/, function () { return "vsys is already installed."; }],
-    [/^refused: requirements=\S+ reason=resting retry-ms=(\d+)$/, function (m) { return "You chose Not now. Ask again in " + Math.max(1, Math.ceil(Number(m[1]) / 60000)) + " min."; }],
+    [/^refused: requirements=\S+ reason=resting retry-ms=(\d+)$/, function (m) { return "You chose Not now. Ask again in " + Commons.Duration.format(Math.max(1, Math.ceil(Number(m[1]) / 60000)) * 60, 1) + "."; }],
     [/^refused: notices=full limit=\d+$/, function () { return "Too many install requests are waiting. Try again later."; }]
 ];
 

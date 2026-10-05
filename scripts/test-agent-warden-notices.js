@@ -15,6 +15,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const { load } = require("../bin/lib/qml-library.js");
+const modules = { "qs.Commons 1.0": { Duration: load(path.join(__dirname, "..", "shell", "Commons", "Duration.js")) } };
 
 const dir = path.join(__dirname, "..", "shell", "plugins", "vgs.agent-warden");
 const fixtures = path.join(__dirname, "smoke", "fixtures", "agent-warden");
@@ -160,9 +161,9 @@ const COPY = [
     ["held off with unknown memory", [{ key: "not-moving:agents.slice", kind: "not-moving", memory: null, max: 112 * 1073741824, tools: [] }], true,
         "Agents are close to their memory limit", "Agent Warden needs free memory before it can limit an agent. Close agents you do not need."],
     ["a partial move", [{ key: "move-failure:s", kind: "move-failure", partial: true, tools: ["claude"], interval: 30 }], true,
-        "Some agent processes still have no limits", "Part of claude is still running without limits. Agent Warden will try again in 30 seconds."],
+        "Some agent processes still have no limits", "Part of claude is still running without limits. Agent Warden will try again in 30s."],
     ["a failed move of an unknown tool", [{ key: "move-failure:s", kind: "move-failure", partial: false, tools: [], interval: 1 }], true,
-        "Could not apply limits to an agent", "An agent is still running without limits. Agent Warden will try again in 1 second."],
+        "Could not apply limits to an agent", "An agent is still running without limits. Agent Warden will try again in 1s."],
     ["a cleanup", [{ key: "reaped:s", kind: "reaped", processes: 5140 }], true,
         "Cleaned up after a finished agent", "A finished agent left 5,140 processes running. Agent Warden stopped them."],
     ["a cleanup of one process", [{ key: "reaped:s", kind: "reaped", processes: 1 }], true,
@@ -176,7 +177,7 @@ const COPY = [
     ["two moves of unknown tools", [{ key: "moved:s", kind: "moved", tools: [] }, { key: "moved:t", kind: "moved", tools: [] }], true,
         "Moved 2 agents back into their limits", "They were running without limits. Agent Warden applied limits to keep your computer responsive."],
     ["stopped checking", [{ key: "not-checking:agent-warden", kind: "not-checking", checkedAt: NOW - 180000 }], true,
-        "Agent Warden has stopped checking", "The last check was 3 min ago. Agent Warden is not applying limits. Open its panel to restart checks."]
+        "Agent Warden has stopped checking", "The last check was 3m ago. Agent Warden is not applying limits. Open its panel to restart checks."]
 ];
 
 // One episode of each kind, for the settings: every kind but a move goes
@@ -299,11 +300,12 @@ function secrets(doc) {
     return found;
 }
 
-verify(load(path.join(dir, "Notices.js")));
+verify(load(path.join(dir, "Notices.js"), modules));
 
 // Each control removes one rule from a copy of the notices and keeps the
 // text around it. The suite must fail on every copy.
 const CONTROLS = [
+    ["retry unit spacing", "Commons.Duration.format(e.interval)", 'Commons.Duration.format(e.interval) + " s"'],
     ["no episode memory", "        if (next.indexOf(e.key) !== -1) return;\n", ""],
     ["a cleared episode is kept", "var next = memory.filter(function (k) { return openKeys.indexOf(k) !== -1 || isHeld(conditions.held, k); });", "var next = memory.slice();"],
     ["what a status cannot tell clears", "return held.keys.indexOf(k) !== -1 || held.kinds.indexOf(kindOf(k)) !== -1;", "return false;"],
@@ -337,7 +339,7 @@ try {
             fs.writeFileSync(path.join(temp, name), name === "Notices.js" ? text.replace(needle, () => replacement) : text);
         let failed = false;
         try {
-            verify(load(path.join(temp, "Notices.js")));
+            verify(load(path.join(temp, "Notices.js"), modules));
         } catch (e) {
             failed = true;
         }

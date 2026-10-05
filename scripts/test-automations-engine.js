@@ -30,12 +30,13 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { load } = require("../bin/lib/qml-library.js");
+const modules = { "qs.Commons 1.0": { Duration: load(path.join(__dirname, "..", "shell", "Commons", "Duration.js")) } };
 
 // The cases and the engine read local time in one zone.
 process.env.TZ = "UTC";
 const repo = path.join(__dirname, "..");
 const pluginDir = path.join(repo, "shell", "plugins", "vgs.automations");
-const Logic = load(path.join(pluginDir, "AutomationsLogic.js"));
+const Logic = load(path.join(pluginDir, "AutomationsLogic.js"), modules);
 const scratch = path.join(repo, "tmp", "test-automations-engine-" + process.pid);
 // The host tools a case may run: the engine's own, the ones vgshell plugin
 // settings needs, and the ones the commands under test use. systemctl,
@@ -238,7 +239,7 @@ const CASES = {
         assert.match(transcript, /\n\d\d:\d\d:\d\d\.\d{3} out \| one\n/);
         assert.match(transcript, /\n\d\d:\d\d:\d\d\.\d{3} err \| two\n/);
         assert.match(transcript, /\n\d\d:\d\d:\d\d\.\d{3} out \| \{"version":1,"automation":"job"/, "the started record is on disk before the command runs");
-        assert.match(transcript, /\n# outcome: succeeded exit=0\n# duration: \d+ s\n$/);
+        assert.match(transcript, /\n# outcome: succeeded exit=0\n# duration: \d+s\n$/);
         same(calls(w, "notify-send"), [], "a success sends nothing without notifyEveryRun");
     },
 

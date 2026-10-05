@@ -15,11 +15,12 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const { load } = require("../bin/lib/qml-library.js");
+const modules = { "qs.Commons 1.0": { Duration: load(path.join(__dirname, "..", "shell", "Commons", "Duration.js")) } };
 
 const dir = path.join(__dirname, "..", "shell", "plugins", "vgs.agent-warden");
 const fixtures = path.join(__dirname, "smoke", "fixtures", "agent-warden");
-const Lucide = load(path.join(__dirname, "..", "shell", "Ui", "icons", "Lucide.js"));
-const Tokens = load(path.join(__dirname, "..", "shell", "Commons", "Tokens.js"));
+const Lucide = load(path.join(__dirname, "..", "shell", "Ui", "icons", "Lucide.js"), modules);
+const Tokens = load(path.join(__dirname, "..", "shell", "Commons", "Tokens.js"), modules);
 const manifest = JSON.parse(fs.readFileSync(path.join(dir, "manifest.json"), "utf8"));
 // The view runs in its own context, whose arrays and objects are not this
 // one's; values are compared as JSON.
@@ -87,7 +88,7 @@ const STATES = [
     ["reaped", 0, { icon: "shield-x", tone: "danger", count: "1", tooltip: "Cleaned up after a finished agent" },
         "One problem needs your attention.", [{ icon: "broom", text: "Cleaned up after a finished agent", secondary: "Stopped 42 leftover processes" }],
         { value: 38 / 64, text: "Agent memory: 38 of 64 GB before slowdown" }],
-    ["calm", 200, { icon: "shield-off", tone: "neutral", count: "", tooltip: "Agent Warden hasn't checked in 3 min" },
+    ["calm", 200, { icon: "shield-off", tone: "neutral", count: "", tooltip: "Agent Warden hasn't checked in 3m" },
         "Agent Warden has stopped checking.", [], null]
 ];
 
@@ -105,7 +106,7 @@ const HAND = [
     ["calm with unlisted lanes", hand({ agents: null }), T, { icon: "shield-check", tone: "neutral", count: "", tooltip: "Agents are within their limits" }, "Agents are within their limits.", "Agents are within their limits."],
     ["calm with many agents", hand({ agents: 1234 }), T, { icon: "shield-check", tone: "neutral", count: "1,234", tooltip: "1,234 agents running within their limits" },
         "1,234 agents are running within their limits.", "1,234 agents are running within their limits."],
-    ["working", hand({ state: "working", agents: 3, items: [MOVED] }), T, { icon: "shield-check", tone: "accent", count: "3", tooltip: "Moved 2 agents back into limits 2 min ago" },
+    ["working", hand({ state: "working", agents: 3, items: [MOVED] }), T, { icon: "shield-check", tone: "accent", count: "3", tooltip: "Moved 2 agents back into limits 2m ago" },
         "Moved 2 agents back into limits.", "Moved 2 agents back into limits."],
     ["unreadable", hand({ state: "not-checking", reason: "unreadable", checkedAt: null, agents: null }), T,
         { icon: "shield-off", tone: "neutral", count: "", tooltip: "Agent Warden's status can't be read" }, "Agent Warden's status can't be read.", "Agent Warden's status can't be read."],
@@ -140,8 +141,8 @@ const ITEMS = [
         { icon: "hourglass", text: "Agents are close to their memory limit", secondary: "104 of 112 GB in use" }],
     ["headroom with nothing known", { kind: "headroom", level: "problem", memory: null, max: null, waiting: [] }, { icon: "hourglass", text: "Agents are close to their memory limit", secondary: "" }],
     ["failed moves of three tools", { kind: "move-failed", level: "problem", count: 3, tools: ["claude", "codex", "cargo"] },
-        { icon: "circle-alert", text: "Could not apply limits to claude, codex and cargo", secondary: "3 tries failed in the last 5 min" }],
-    ["a failed move of an unknown tool", { kind: "move-failed", level: "problem", count: 1, tools: [] }, { icon: "circle-alert", text: "Could not apply limits to an agent", secondary: "1 try failed in the last 5 min" }],
+        { icon: "circle-alert", text: "Could not apply limits to claude, codex and cargo", secondary: "3 tries failed in the last 5m" }],
+    ["a failed move of an unknown tool", { kind: "move-failed", level: "problem", count: 1, tools: [] }, { icon: "circle-alert", text: "Could not apply limits to an agent", secondary: "1 try failed in the last 5m" }],
     ["a partial move of two tools", { kind: "partial", level: "problem", count: 1, tools: ["claude", "codex"] },
         { icon: "split", text: "Part of claude and codex still runs without limits", secondary: "Agent Warden tries again on its next check" }],
     ["two cleanups", { kind: "reaped", level: "problem", count: 2, processes: 5140 }, { icon: "broom", text: "Cleaned up after 2 finished agents", secondary: "Stopped 5,140 leftover processes" }],
@@ -153,7 +154,7 @@ const ITEMS = [
         { icon: "memory-stick", text: "claude in vgs is near its memory limit", secondary: "9.5 GB" }],
     ["one idle leftover", { kind: "leftover", level: "look", count: 1, processes: 1 }, { icon: "layers", text: "Leftover work from a finished agent is idle", secondary: "1 process, cleaned up if it gets busy" }],
     ["three idle leftovers", { kind: "leftover", level: "look", count: 3, processes: 9 }, { icon: "layers", text: "Leftover work from 3 finished agents is idle", secondary: "9 processes, cleaned up if it gets busy" }],
-    ["one move", { kind: "moved", level: "info", count: 1, at: T - 45000 }, { icon: "shield-check", text: "Moved an agent back into limits", secondary: "45 s ago" }]
+    ["one move", { kind: "moved", level: "info", count: 1, at: T - 45000 }, { icon: "shield-check", text: "Moved an agent back into limits", secondary: "45s ago" }]
 ];
 
 // Meters: [label, memory, meter].
@@ -165,7 +166,7 @@ const METERS = [
 ];
 
 // Times: [label, seconds back, words].
-const SINCE = [["now", 0, "0 s"], ["a moment ahead", -30, "0 s"], ["seconds", 59, "59 s"], ["minutes", 60, "1 min"], ["hours", 7200, "2 h"], ["days", 86400 * 3, "3 d"]];
+const SINCE = [["a fraction", 1.9, "1s"], ["now", 0, "0s"], ["a moment ahead", -30, "0s"], ["seconds", 59, "59s"], ["minutes", 60, "1m"], ["hours", 7200, "2h"], ["days", 86400 * 3, "3d"]];
 
 // Replies: [label, reply, words].
 const REPLIES = [
@@ -174,8 +175,8 @@ const REPLIES = [
     ["missing launcher", "refused: tui=setup reason=launcher-missing", "The setup window could not open. VGS is missing its terminal launcher, xdg-terminal-exec. Reinstall VGS to restore it."],
     ["failed launcher", "refused: tui=setup reason=launcher-failed", "VGS could not open this action. Try again."],
     ["vsys already found", "satisfied", "vsys is already installed."],
-    ["a rest", "refused: requirements=vgs.agent-warden reason=resting retry-ms=300001", "You chose Not now. Ask again in 6 min."],
-    ["a rest about to end", "refused: requirements=vgs.agent-warden reason=resting retry-ms=10", "You chose Not now. Ask again in 1 min."],
+    ["a rest", "refused: requirements=vgs.agent-warden reason=resting retry-ms=300001", "You chose Not now. Ask again in 6m."],
+    ["a rest about to end", "refused: requirements=vgs.agent-warden reason=resting retry-ms=10", "You chose Not now. Ask again in 1m."],
     ["a full queue", "refused: notices=full limit=8", "Too many install requests are waiting. Try again later."],
     ["anything else, as it came", "refused: argv=empty", "VGS could not open this action. Try again."]
 ];
@@ -226,11 +227,11 @@ function verify(view) {
         assert.equal(view.sentence(detail, false), sentence, label + ": sentence");
         same(view.shownItems(detail).map(i => view.itemRow(i, now)), items, label + ": items");
         same(view.meter(detail.memory), meter, label + ": meter");
-        assert.equal(view.checked(detail, now), "Checked " + view.since(doc.time * 1000, now) + " ago", label + ": check time");
+        assert.equal(view.checked(detail, now), "Checked " + view.ago(doc.time * 1000, now), label + ": check time");
         const drawn = texts(view, detail, now).join("\n");
         for (const secret of secrets(doc)) assert.ok(!drawn.includes(secret), label + ": the view names " + secret);
     }
-    assert.equal(view.checked(detailOf(view, "calm", 12).detail, (fixture("calm").time + 12) * 1000), "Checked 12 s ago");
+    assert.equal(view.checked(detailOf(view, "calm", 12).detail, (fixture("calm").time + 12) * 1000), "Checked 12s ago");
 
     for (const [label, detail, now, widget, installed, missing] of HAND) {
         same(view.widget(detail, now, true), widget, label + ": widget");
@@ -260,7 +261,7 @@ function verify(view) {
     same(view.shownItems(four).map(i => view.itemRow(i, T).icon), ["circle-x", "circle-alert", "split"], "the flyout shows the first three items");
     for (const [label, item, row] of ITEMS) same(view.itemRow(item, T), row, label);
     for (const [label, memory, meter] of METERS) same(view.meter(memory), meter, "meter: " + label);
-    for (const [label, back, words] of SINCE) assert.equal(view.since(T - back * 1000, T), words, "since: " + label);
+    for (const [label, back, words] of SINCE) assert.equal(view.ago(T - back * 1000, T), words + " ago", "since: " + label);
     for (const [label, reply, words] of REPLIES) {
         assert.equal(view.refusal(reply), words, "reply: " + label);
         assert.equal(view.handedOff(reply), words === "", "hand-off: " + label);
@@ -273,7 +274,7 @@ function verify(view) {
     for (const [label, text, answer] of UNREAD) same(view.readSummary(text), answer, "summary refused: " + label);
 }
 
-verify(load(path.join(dir, "ViewLogic.js")));
+verify(load(path.join(dir, "ViewLogic.js"), modules));
 
 // Each control removes one rule from a copy of one file and keeps the text
 // around it: [label, file, needle, replacement]. The copy sits beside a
@@ -290,7 +291,7 @@ const CONTROLS = [
     ["a meter with no limit", "ViewLogic.js", "if (limit === null || limit === 0) return null;", ""],
     ["an uncapped meter", "ViewLogic.js", "value: Math.min(1, memory.used / limit)", "value: memory.used / limit"],
     ["more than three items", "ViewLogic.js", "return detail.items.slice(0, MAX_ITEMS);", "return detail.items;"],
-    ["seconds read as minutes", "ViewLogic.js", "if (s < 60) return s + \" s\";", ""],
+    ["ages round up", "ViewLogic.js", "Math.floor((now - ms) / 1000)", "Math.ceil((now - ms) / 1000)"],
     ["no digit groups", "ViewLogic.js", "return String(n).replace(/\\B(?=(\\d{3})+(?!\\d))/g, \",\");", "return String(n);"],
     ["a busy TUI is a refusal", "ViewLogic.js", "reason=busy$/", "reason=nothing$/"],
     ["any summary schema is read", "ViewLogic.js", "if (doc.schema !== SUMMARY_SCHEMA) return", "if (false) return"],
@@ -310,7 +311,7 @@ try {
             fs.writeFileSync(path.join(temp, name), name === file ? text.replace(needle, () => replacement) : text);
         let failed = false;
         try {
-            verify(load(path.join(temp, "ViewLogic.js")));
+            verify(load(path.join(temp, "ViewLogic.js"), modules));
         } catch (e) {
             failed = true;
         }

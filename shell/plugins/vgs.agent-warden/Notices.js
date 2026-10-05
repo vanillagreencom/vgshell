@@ -1,4 +1,5 @@
 .pragma library
+.import qs.Commons 1.0 as Commons
 .import "WardenLogic.js" as WardenLogic
 .import "ViewLogic.js" as ViewLogic
 
@@ -312,7 +313,7 @@ function copy(kind, episodes, vsys, now) {
         return {
             title: e.partial ? "Some agent processes still have no limits" : "Could not apply limits to an agent",
             body: (e.partial ? "Part of " + toolsOr(e.tools, "an agent") : toolsOr(e.tools, "An agent"))
-                + " is still running without limits. Agent Warden will try again in " + ViewLogic.plural(e.interval, "second", "seconds") + "."
+                + " is still running without limits. Agent Warden will try again in " + Commons.Duration.format(e.interval) + "."
         };
     case "reaped":
         if (n > 1)

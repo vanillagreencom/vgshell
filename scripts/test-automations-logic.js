@@ -22,6 +22,7 @@ const childProcess = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { load } = require("../bin/lib/qml-library.js");
+const modules = { "qs.Commons 1.0": { Duration: load(path.join(__dirname, "..", "shell", "Commons", "Duration.js")) } };
 
 const file = path.join(__dirname, "..", "shell", "plugins", "vgs.automations", "AutomationsLogic.js");
 const same = (got, want, message) => assert.deepEqual(JSON.parse(JSON.stringify(got)), want, message === undefined ? JSON.stringify(want) : message);
@@ -302,13 +303,15 @@ function verify(logic) {
     // Notifications: an error always; a start and a success only when asked.
     const failed = Object.assign(ended("backup", "1767225600000-1", 1000, "failed"), { exitCode: 3, snippet: "disk <full> & gone", transcript: "/r/t.log" });
     same(logic.notificationFor("end", automation({}), failed), { summary: "Back up failed", body: "The automation failed. Open Automations to read its output.", urgency: "critical", icon: "circle-x", tone: "danger", click: "open", open: "/r/t.log" });
-    same(logic.notificationFor("end", automation({}), Object.assign({}, failed, { outcome: "timeout", durationMs: 61000, snippet: "" })).body, "Timed out after 1 min 1 s");
+    same(logic.notificationFor("end", automation({}), Object.assign({}, failed, { outcome: "timeout", durationMs: 61000, snippet: "" })).body, "Timed out after 1m 1s");
     same(logic.notificationFor("end", automation({}), Object.assign({}, failed, { outcome: "failed-start", reason: "directory=ENOENT path=/x", snippet: "" })).body, "The work folder is unavailable. Choose another folder in Automations.");
     same(logic.notificationFor("end", automation({}), Object.assign({}, failed, { signal: "SIGKILL", exitCode: null, snippet: "" })).body, "The automation was stopped. Open Automations to read its output.");
     same(logic.notificationFor("end", automation({ notifyEveryRun: true }), failed).icon, "circle-x", "an error is an error with the toggle on");
     const good = Object.assign({}, failed, { outcome: "succeeded", durationMs: 4200 });
     same(logic.notificationFor("end", automation({}), good), null, "no success notification without the toggle");
-    same(logic.notificationFor("end", automation({ notifyEveryRun: true }), good), { summary: "Back up finished", body: "Finished in 4 s", urgency: "low", icon: "circle-check", tone: "success", click: "open", open: "/r/t.log" });
+    for (const [durationMs, text] of [[1500, "2s"], [61000, "1m 1s"], [3661000, "1h 1m"], [345600000, "4d 0h"]])
+        assert.equal(logic.notificationFor("end", automation({ notifyEveryRun: true }), Object.assign({}, good, { durationMs })).body, "Finished in " + text);
+    same(logic.notificationFor("end", automation({ notifyEveryRun: true }), good), { summary: "Back up finished", body: "Finished in 4s", urgency: "low", icon: "circle-check", tone: "success", click: "open", open: "/r/t.log" });
     same(logic.notificationFor("start", automation({}), started("backup", "1767225600000-1", 1)), null, "no start notification without the toggle");
     same(logic.notificationFor("start", automation({ notifyEveryRun: true, command: "a < b" }), started("backup", "1767225600000-1", 1)), { summary: "Back up started", body: "The automation is running.", urgency: "low", icon: "play", tone: "warning", click: "none", open: "" });
     assert.throws(() => logic.notificationFor("middle", automation({}), failed), /is not start or end/);
@@ -433,13 +436,14 @@ function which(command) {
     return null;
 }
 
-verify(load(file));
+verify(load(file, modules));
 const analyze = which("systemd-analyze");
-const compared = analyze === null ? 0 : comparePreview(load(file), analyze);
+const compared = analyze === null ? 0 : comparePreview(load(file, modules), analyze);
 
 // ---------------------------------------------------------------- controls
 
 const CONTROLS = [
+    ["notifications round duration to seconds", "Math.round(rec.durationMs / 1000)", "Math.floor(rec.durationMs / 1000)"],
     ["an unavailable scheduler is not an invalid schedule", 'scheduler=none|systemctl=|systemd-run=|crontab=', 'systemctl=|systemd-run=|crontab='],
     ["diagnostics stay out of display text", 'function failureText(reason) {', 'function failureText(reason) { return String(reason);'],
     ["weekdays compile to their names", "weekdays = orderedWeekdays(s.weekdays).map(function (w) { return SYSTEMD_WEEKDAYS[WEEKDAYS.indexOf(w)]; }).join(\",\") + \" \";", "weekdays = \"\";"],
@@ -512,12 +516,12 @@ fs.rmSync(temp, { recursive: true, force: true });
 fs.mkdirSync(temp, { recursive: true });
 try {
     for (const [label, needle, replacement] of CONTROLS) {
-        assert.equal(source.split(needle).length, 2, `control "${label}": the text to replace must occur once`);
+        assert.equal(source.split(needle).length, label === "notifications round duration to seconds" ? 3 : 2, `control "${label}": the text to replace must occur once`);
         const mutant = path.join(temp, "AutomationsLogic.js");
-        fs.writeFileSync(mutant, source.replace(needle, () => replacement));
+        fs.writeFileSync(mutant, source.split(needle).join(replacement));
         let failed = false;
         try {
-            const copy = load(mutant);
+            const copy = load(mutant, modules);
             verify(copy);
             if (analyze !== null) comparePreview(copy, analyze);
         } catch (e) {

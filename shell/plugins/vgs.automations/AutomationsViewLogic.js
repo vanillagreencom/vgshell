@@ -1,4 +1,5 @@
 .pragma library
+.import qs.Commons 1.0 as Commons
 
 // UI-only decisions for the Automations window: draft fields, preset labels,
 // friendly validation, templates, date and duration formatting, grouping
@@ -324,13 +325,9 @@ function formatWhen(ms) {
     return weekdays[(at.getDay() + 6) % 7] + " " + at.getDate() + " " + months[at.getMonth()] + " " + hh + ":" + mm;
 }
 
-function formatDuration(ms) {
-    if (ms === null || ms === undefined) return "Running";
-    var seconds = Math.round(ms / 1000);
-    if (seconds < 60) return seconds + " s";
-    var minutes = Math.floor(seconds / 60);
-    if (minutes < 60) return minutes + " min " + (seconds % 60) + " s";
-    return Math.floor(minutes / 60) + " h " + (minutes % 60) + " min";
+function historySecondary(row) {
+    return formatWhen(row.startedAt) + " · " + (row.durationMs === null || row.durationMs === undefined
+        ? "Running" : Commons.Duration.format(Math.round(row.durationMs / 1000)));
 }
 
 function historyGroups(rows, sinceMs) {

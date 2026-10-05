@@ -1,4 +1,5 @@
 .pragma library
+.import qs.Commons 1.0 as Commons
 
 // What the service publishes and the widget, the panel and the Settings
 // page draw from the helper's readings (backend/usage.js). Plain functions
@@ -130,9 +131,8 @@ function resetText(resetsAt, now) {
     var left = resetIn(resetsAt, now);
     if (left.kind === "none") return "No reset time";
     if (left.kind === "now") return "Resets now";
-    if (left.days > 0) return "Resets in " + left.days + " d " + left.hours + " h";
-    if (left.hours > 0) return "Resets in " + left.hours + " h " + left.minutes + " min";
-    return "Resets in " + left.minutes + " min";
+    var seconds = (left.days * 1440 + left.hours * 60 + left.minutes) * 60;
+    return "Resets in " + Commons.Duration.format(seconds, seconds < 3600 ? 1 : 2);
 }
 
 // The only lines of the helper's stderr the service logs: its own keyed

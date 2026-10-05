@@ -1,4 +1,5 @@
 .pragma library
+.import qs.Commons 1.0 as Commons
 
 // Pure decisions for vgs.automations: the store's schema, the recurrence
 // model and its presets, the schedule compiler (systemd OnCalendar= and the
@@ -1005,14 +1006,6 @@ function prunable(rows, nowMs, days) {
 
 // -------------------------------------------------------- notifications
 
-function formatDuration(ms) {
-    var seconds = Math.round(ms / 1000);
-    if (seconds < 60) return seconds + " s";
-    var minutes = Math.floor(seconds / 60);
-    if (minutes < 60) return minutes + " min " + (seconds % 60) + " s";
-    return Math.floor(minutes / 60) + " h " + (minutes % 60) + " min";
-}
-
 // bin/automations supplies the keyed reasons. UI callers keep the raw
 // failure in the log and use this table for notices and status.
 var FAILURE_TEXT = [
@@ -1037,7 +1030,7 @@ function failureText(reason) {
 function failureLine(rec) {
     switch (rec.outcome) {
     case "failed": return rec.signal !== null ? "The automation was stopped. Open Automations to read its output." : "The automation failed. Open Automations to read its output.";
-    case "timeout": return "Timed out after " + formatDuration(rec.durationMs);
+    case "timeout": return "Timed out after " + Commons.Duration.format(Math.round(rec.durationMs / 1000));
     case "failed-start": return failureText(rec.reason);
     default: throw new Error("automations: outcome " + JSON.stringify(rec.outcome) + " is not a failure");
     }
@@ -1057,7 +1050,7 @@ function notificationFor(event, automation, rec) {
     if (event !== "end") throw new Error("automations: notification event " + JSON.stringify(event) + " is not start or end");
     if (rec.outcome === "succeeded") {
         if (automation.notifyEveryRun !== true) return null;
-        return { summary: automation.name + " finished", body: "Finished in " + formatDuration(rec.durationMs), urgency: "low", icon: "circle-check", tone: "success", click: "open", open: rec.transcript };
+        return { summary: automation.name + " finished", body: "Finished in " + Commons.Duration.format(Math.round(rec.durationMs / 1000)), urgency: "low", icon: "circle-check", tone: "success", click: "open", open: rec.transcript };
     }
     var body = failureLine(rec);
     return { summary: automation.name + " failed", body: body, urgency: "critical", icon: "circle-x", tone: "danger", click: "open", open: rec.transcript };

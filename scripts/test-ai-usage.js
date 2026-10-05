@@ -16,6 +16,7 @@ const path = require("node:path");
 const cp = require("node:child_process");
 const crypto = require("node:crypto");
 const { load } = require("../bin/lib/qml-library.js");
+const modules = { "qs.Commons 1.0": { Duration: load(path.join(__dirname, "..", "shell", "Commons", "Duration.js")) } };
 const Endpoint = require("./fixtures/ai-usage/endpoint.js");
 
 const tree = path.resolve(__dirname, "..");
@@ -126,7 +127,7 @@ async function ended(pids) {
     return !pids.some(alive);
 }
 const usageIn = folder => require(path.join(folder, "backend/usage.js"));
-const viewIn = folder => load(path.join(folder, "UsageView.js"));
+const viewIn = folder => load(path.join(folder, "UsageView.js"), modules);
 
 async function main() {
     const endpointDir = path.join(root, "endpoint");
@@ -449,6 +450,8 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3] }).then(r => 
             r.windows.map(w => [w.name, w.percent, w.tone, w.resetIn])])), [
             ["claude-a", "claude", "default", "", "max", "ok", [["seven_day", 80, "warning", { kind: "in", days: 1, hours: 2, minutes: 0 }]]],
             ["codex-b", "codex", "work", "person@example.invalid", "plus", "ok", [["five_hour", 79, "normal", { kind: "in", days: 0, hours: 1, minutes: 1 }]]]]);
+        for (const [resetAt, text] of [[null, "No reset time"], [NOW, "Resets now"], [NOW + 59000, "Resets in 1m"], [NOW + 61 * 60000, "Resets in 1h 1m"], [NOW + 4 * 24 * HOUR, "Resets in 4d 0h"]])
+            assert.equal(View.resetText(resetAt, NOW), text);
         assert.deepEqual(plainOf([View.resetIn(null, NOW), View.resetIn(NOW - 1, NOW), View.resetIn(NOW + 59000, NOW),
             View.resetIn(NOW + (3 * 1440 + 6 * 60 + 30) * 60000, NOW)]),
             [{ kind: "none" }, { kind: "now" }, { kind: "in", days: 0, hours: 0, minutes: 1 }, { kind: "in", days: 3, hours: 6, minutes: 30 }]);

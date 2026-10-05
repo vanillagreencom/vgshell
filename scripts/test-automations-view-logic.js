@@ -9,6 +9,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const { load } = require("../bin/lib/qml-library.js");
+const modules = { "qs.Commons 1.0": { Duration: load(path.join(__dirname, "..", "shell", "Commons", "Duration.js")) } };
 
 const repo = path.join(__dirname, "..");
 const logicFile = path.join(repo, "shell/plugins/vgs.automations/AutomationsLogic.js");
@@ -23,6 +24,8 @@ function run(view, logic) {
     assert.equal(view.outcomeLabel("timeout"), "Time limit reached");
     assert.equal(view.outcomeLabel("unexpected: reason=unknown"), "Result unavailable");
     const now = Date.parse("2026-01-05T08:15:00Z");
+    for (const [durationMs, text] of [[null, "Running"], [undefined, "Running"], [0, "0s"], [1500, "2s"], [61000, "1m 1s"], [3661000, "1h 1m"], [345600000, "4d 0h"]])
+        assert.equal(view.historySecondary({ startedAt: now, durationMs }), "Mon 5 Jan 08:15 · " + text);
     const draft = view.blankDraft(now, logic);
     assert.equal(draft.start, "2026-01-05");
     assert.equal(draft.times.length, 1);
@@ -123,8 +126,8 @@ function run(view, logic) {
     assert.equal(kept.name, "Edited while saving", "the edit stays for the next save");
 }
 
-const view = load(viewFile);
-const logic = load(logicFile);
+const view = load(viewFile, modules);
+const logic = load(logicFile, modules);
 run(view, logic);
 
 const scratch = path.join(repo, "tmp", "test-automations-view-logic-" + process.pid);
@@ -132,6 +135,7 @@ fs.rmSync(scratch, { recursive: true, force: true });
 fs.mkdirSync(scratch, { recursive: true });
 try {
     const controls = [
+        ["history rounds duration to seconds", "Math.round(row.durationMs / 1000)", "Math.floor(row.durationMs / 1000)"],
         ["outcomes use plain display labels", "function outcomeLabel(outcome) {", "function outcomeLabel(outcome) { return outcome;"],
         ["Once no longer ends after one run", "if (draft.preset === \"once\") return { type: \"count\", count: 1 };", "if (draft.preset === \"once\") return { type: \"never\" };"],
         ["preset detection ignores the start date", "var expected = scheduleWithTimes(logic.presetSchedule(preset, schedule.start, time), schedule.times || []);", "var expected = scheduleWithTimes(logic.presetSchedule(preset, \"2026-01-09\", time), schedule.times || []);"],
@@ -147,7 +151,7 @@ try {
         const text = fs.readFileSync(viewFile, "utf8");
         assert.equal(text.split(from).length - 1, 1, name + " match count");
         fs.writeFileSync(mutant, text.replace(from, to));
-        assert.throws(() => run(load(mutant), logic), undefined, name);
+        assert.throws(() => run(load(mutant, modules), logic), undefined, name);
     }
 } finally {
     fs.rmSync(scratch, { recursive: true, force: true });
