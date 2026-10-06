@@ -19,7 +19,7 @@ Item {
         id: card
         anchors.horizontalCenter: parent.horizontalCenter
         y: Theme.dialog.margin
-        width: Math.min(parent.width - 2 * Theme.dialog.margin, content.implicitWidth + 2 * Theme.dialog.padding)
+        width: Math.min(parent.width - 2 * Theme.dialog.margin, Theme.dialog.width)
         height: content.implicitHeight + 2 * Theme.dialog.padding
         radius: Theme.dialog.radius
         color: Theme.dialog.background
