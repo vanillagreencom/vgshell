@@ -30,7 +30,8 @@
 # needs travels in its argv, never in the environment: a single-instance
 # terminal opens the window from a process that was already running.
 #
-# present clears the screen, prints bin/lib/logo.txt in the theme accent,
+# present clears the screen, prints bin/lib/logo.txt with no colour, in the
+# terminal's own foreground,
 # runs argv as a list, never through a shell, and keeps its exit code.
 # Unless the code is 130, a Ctrl-C, it shows the library's closing prompt,
 # vgs_tui_close_prompt: `● Done! Press any key to close...` or `● Failed
@@ -427,9 +428,9 @@ present() {
     unset VGS_PLUGIN_ID VGS_PLUGIN_DIR
   fi
   if [[ $presentation == full ]]; then
-    printf '\033[H\033[2J\033[3J%s' "$(vgs_tui_sgr "${VGS_TUI_ACCENT:-}" 33)"
+    printf '\033[H\033[2J\033[3J'
     cat -- "$logo" || :
-    printf '\033[0m\n'
+    printf '\n'
   fi
   if [[ -n $refusal ]]; then
     printf 'vgshell-tui: refused: %s\n' "$refusal" >&2

@@ -18,14 +18,19 @@
 // remembered and no screen image; a state that is all three is written as
 // no file. The judge is this file's only writer:
 // docs/architecture/theme-backgrounds.md.
+//
+// background-square.png beside them is the centre square of the current
+// image, the logo themes/targets/fastfetch draws.
 "use strict";
 const fs = require("fs");
 const path = require("path");
+const { spawnSync } = require("child_process");
 const { refuse, readJson, writing, replaceFile } = require(path.join(__dirname, "judge-files.js"));
 
 const DIR = "backgrounds";
 const STATE_FILE = "backgrounds.json";
 const LINK = "background";
+const SQUARE = "background-square.png";
 // What the shell's Image reads with the image plugins Qt ships by default.
 const EXTENSIONS = [".png", ".jpg", ".jpeg"];
 
@@ -202,9 +207,32 @@ function choose(list, remembered) {
     return list.length === 0 ? null : list[0];
 }
 
+// Keep STATE_DIR's background-square.png the centre square of CURRENT, a
+// stamped image or null, scaled down to at most 1024 px: written by rename
+// when CURRENT differs from BEFORE's or the file is absent, removed with no
+// image. ImageMagick is a package dependency. An image it cannot read, or
+// its absence, leaves no file rather than refusing the background change,
+// and fastfetch then draws its ASCII logo: the crop is that logo alone.
+function landSquare(stateDir, current, before, key) {
+    const square = path.join(stateDir, SQUARE);
+    const remove = () => writing(square, key, () => fs.rmSync(square, { force: true }));
+    if (current === null) return remove();
+    const same = before !== null && before.path === current.path && before.stamp === current.stamp;
+    if (same && lstatOrNull(square, key) !== null) return;
+    const tmp = square + ".vgshell-" + process.pid;
+    const run = spawnSync("magick", [current.path, "-auto-orient", "-gravity", "center", "-crop", "1:1", "+repage",
+        "-resize", "1024x1024>", "png:" + tmp], { stdio: "ignore" });
+    if (run.error !== undefined || run.status !== 0) {
+        writing(tmp, key, () => fs.rmSync(tmp, { force: true }));
+        return remove();
+    }
+    writing(square, key, () => fs.renameSync(tmp, square));
+}
+
 // Make AFTER, a state as `read` answers it, the background state: the
-// `background` symlink to its `current` first, replaced by rename, then
-// backgrounds.json when it differs from BEFORE, the state `read` answered.
+// `background` symlink to its `current` first, replaced by rename, then its
+// square, then backgrounds.json when it differs from BEFORE, the state
+// `read` answered.
 // The state directory is created first: `set` can be the first command a
 // fresh home runs. KEY leads the refusal for each write that fails.
 function land(stateDir, after, before, key) {
@@ -234,6 +262,7 @@ function land(stateDir, after, before, key) {
             throw e;
         }
     });
+    landSquare(stateDir, after.current, before.current, key);
     const doc = JSON.stringify(document(after));
     if (doc === JSON.stringify(document(before))) return;
     const state = path.join(stateDir, STATE_FILE);

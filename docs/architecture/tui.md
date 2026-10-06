@@ -9,7 +9,7 @@ A floating TUI is a themed terminal window that floats over the session and runs
 - `bin/vgshell-tui` is the only file that knows terminals. `launch` opens the window, `present` runs inside it, `wait` blocks on one run's lock until the presenter ends, and `reap` ends orphaned running records. Their options, exit codes and refusal keys are in the file's header.
 - `bin/lib/tui.sh` is the library a TUI script sources through `$VGS_TUI_LIB`: step and warning lines, a header box, gum questions, one sudo authorization per script, a lock, a log and a reboot check. Its header lists each function and its return codes.
 - A sudo session exports its script's pid as `VGS_TUI_SUDO_SESSION`. A session started in a command that script runs, while that pid is alive, joins it: it asks only when the credential lapsed, and it drops nothing when it ends. The Updates pipeline holds one session and runs `vgshell pkg run upgrade` inside it, so the password is asked once and the pipeline's later steps keep the credential. Omarchy's `OMARCHY_UPDATE_SUDO_SESSION` is the model (basecamp/omarchy `e332dc97`).
-- `bin/lib/logo.txt` is the wordmark `present` prints in the theme accent.
+- `bin/lib/logo.txt` is the wordmark `present` prints with no colour, in the terminal's own foreground.
 - `vgshell tui present [--title T] [--size S] -- argv...` is the core's own entry: it hands argv to `vgshell-tui launch` with the full presentation and needs no shell running.
 - The manifest key `tui` and the capability `tui` let a plugin open the scripts it declares, and list and open any listed TUI: [tui-capability.md](tui-capability.md).
 - An exit record tells the core when a run started and ended and with which code, so a caller learns that its TUI ended and a second click raises the open window. `wait` makes the end independent of directory change delivery: [tui-records.md § Exit records](tui-records.md#exit-records).
@@ -67,7 +67,7 @@ The layer that run read wrote each class's preferred size with no clamp, so the 
 
 - `present` reads `${XDG_STATE_HOME:-~/.local/state}/vgshell/theme/gum.env` at every run, so a TUI follows the theme applied last with no login-time environment. The `gum` theme target writes it: [theme-tool-targets.md § Floating TUI colours](theme-tool-targets.md#floating-tui-colours).
 - The file is parsed, never sourced. Every line must be `KEY=#rrggbb` with a key that `bin/vgshell-tui`'s `gum_key` accepts: gum's own `GUM_*`, `FOREGROUND`, `BACKGROUND` and `BORDER_FOREGROUND` variables, and the library's `VGS_TUI_*` colours. One bad line rejects the whole file: `present` prints `vgshell-tui: gum-env=rejected line=<n> path=<file>`, exports none of it and runs the command with gum's defaults. An absent file exports nothing and prints nothing.
-- The logo takes `VGS_TUI_ACCENT`, the prompt `VGS_TUI_SUCCESS` or `VGS_TUI_DANGER`, and the library's lines `VGS_TUI_ACCENT`, `VGS_TUI_WARNING` and `VGS_TUI_DANGER`, each as a truecolor escape with an ANSI fallback when the value is absent.
+- The logo takes no colour: white on a dark terminal, black on a light one. The prompt takes `VGS_TUI_SUCCESS` or `VGS_TUI_DANGER`, and the library's lines `VGS_TUI_ACCENT`, `VGS_TUI_WARNING` and `VGS_TUI_DANGER`, each as a truecolor escape with an ANSI fallback when the value is absent.
 
 ## A plugin's script
 

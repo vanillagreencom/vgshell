@@ -2,10 +2,12 @@
 # Controls for a theme package's backgrounds: what `vgshell theme apply` makes
 # the current background, what `vgshell theme background next` and `previous`
 # move to, what `set` takes, for every screen, one output or every screen
-# with each output's own image cleared, and what `list` names.
+# with each output's own image cleared, what `list` names, and the square
+# crop of the current image.
 # Each row pins an exit status, the last stdout line, the keyed stderr line,
 # the state directory's `background` symlink and backgrounds.json. The
-# image files are bytes no row decodes: the judge reads only their names.
+# image files are bytes no row decodes, the judge reading only their names,
+# but for the crop rows' one image.
 set -euo pipefail
 
 source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/vgshell-rows.sh"
@@ -387,6 +389,31 @@ rm -rf -- "${state:?}"; mv -- "$tmp/state-kept" "$state"
 reset_dusk "accepted control"
 judge_control accepted '.filter(row => row.state === "ok")' ''
 tinst "the accepted mutant sets a refused package's image" "$cfg" "$rt_empty" 0 "$(set_line z.png bad "$cfg/vgshell/themes/bad/backgrounds/z.png")" "" theme background set "$cfg/vgshell/themes/bad/backgrounds/z.png"
+unset THEME_BIN
+
+# The square crop fastfetch draws: the centre square of the current image,
+# written with ImageMagick, which only these rows put on the judge's PATH.
+# wide.png is blue between two red bands, so a centred crop holds no red.
+# An image ImageMagick cannot read, and no current image, leave no crop.
+magick_bin="$(command -v magick)" || { echo "test-vgshell-backgrounds: status=not-measured missing=magick"; exit 77; }
+ln -s -- "$magick_bin" "$theme_path/magick"
+square="$state/background-square.png"
+"$magick_bin" -size 300x200 xc:blue -fill red -draw 'rectangle 0,0 49,199' -draw 'rectangle 250,0 299,199' "$user/wide.png"
+square_is() { [[ -f $square && "$("$magick_bin" identify -format '%m %wx%h %[fx:maxima.r]' "$square")" == "PNG 200x200 0" ]]; }
+no_square() { [[ ! -e $square && ! -L $square ]]; }
+reset_dusk "square rows"
+tinst "set of a wide image is accepted" "$cfg" "$rt_empty" 0 "$(set_line wide.png - "$user/wide.png")" "" theme background set "$user/wide.png"
+check "the crop is the wide image's centre square" square_is
+tinst "set of an image ImageMagick cannot read is accepted" "$cfg" "$rt_empty" 0 "$(set_line u.png - "$user/u.png")" "" theme background set "$user/u.png"
+check "an image ImageMagick cannot read leaves no crop" no_square
+tinst "set of the wide image again" "$cfg" "$rt_empty" 0 "$(set_line wide.png - "$user/wide.png")" "" theme background set "$user/wide.png"
+check "the wide image again is cropped again" square_is
+tinst "nord applies with no image" "$cfg" "$rt_empty" 0 "$any_out" "" theme apply nord
+check "no current image removes the crop" no_square
+reset_dusk "square control"
+bg_control no-square '    landSquare(stateDir, after.current, before.current, key);' ''
+tinst "the no-square mutant sets the wide image" "$cfg" "$rt_empty" 0 "$(set_line wide.png - "$user/wide.png")" "" theme background set "$user/wide.png"
+check "the no-square mutant fails the crop check" test "$(square_is && echo cropped || echo none)" == none
 unset THEME_BIN
 
 rows_done test-vgshell-backgrounds

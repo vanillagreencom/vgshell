@@ -140,7 +140,10 @@ check "a valid gum.env exports a gum colour" grep -qxF "CONFIRM=#aabbcc" "$tmp/o
 check "a valid gum.env exports the accent" grep -qxF "ACCENT=#FF5A36" "$tmp/out"
 check "a valid gum.env warns nothing" test ! -s "$tmp/err"
 on_tty "$subject" present -- exits 0
-check "the logo is drawn in the accent" out_has $'\033[38;2;255;90;54m'
+# The logo takes no colour, the accent's above all: the clear runs straight
+# into its first line, and the accent appears nowhere.
+logo_plain() { python3 -c 'import sys; o = open(sys.argv[1], encoding="utf-8").read(); sys.exit(0 if "\033[3J" + sys.argv[2] in o and "\033[38;2;255;90;54m" not in o else 1)' "$tmp/out" "${logo_lines[0]}"; }
+check "the logo is drawn in the terminal's own foreground" logo_plain
 bad_lines=(
   "PATH=#000000"
   "GUM_CONFIRM_PROMPT_FOREGROUND=red"
@@ -765,6 +768,12 @@ rm -f -- "$tmp/argv"
 plain_run "$control_bin" present --presentation plain -- record 'a b' "\$(touch $tmp/planted)"
 check "the shell-string mutant runs an argument as shell code" test -e "$tmp/planted"
 rm -f -- "$tmp/planted"
+
+control accent-logo vgshell-tui $'    printf \'\\033[H\\033[2J\\033[3J\'\n' $'    printf \'\\033[H\\033[2J\\033[3J%s\' "$(vgs_tui_sgr "${VGS_TUI_ACCENT:-}" 33)"\n'
+printf '%s\n' "VGS_TUI_ACCENT=#FF5A36" >"$gum_env"
+on_tty "$control_bin" present -- exits 0
+check "the accent-logo mutant fails the own-foreground check" test "$(logo_plain && echo plain || echo coloured)" == coloured
+rm -f -- "$gum_env"
 
 control first-logo-line vgshell-tui '    cat -- "$logo" || :' '    head -n 1 -- "$logo" || :'
 on_tty "$control_bin" present -- exits 0

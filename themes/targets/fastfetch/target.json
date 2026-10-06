@@ -4,6 +4,6 @@
   "encoder": "hex6",
   "files": [{ "template": "fastfetch.jsonc", "destination": "fastfetch.jsonc" }],
   "detect": ["fastfetch"],
-  "wiring": { "base": "config", "dir": "fastfetch", "owned": false, "links": { "vgs.jsonc": "fastfetch.jsonc" } },
+  "wiring": { "base": "config", "dir": "fastfetch", "owned": false, "links": { "config.jsonc": "fastfetch.jsonc" } },
   "reload": null
 }

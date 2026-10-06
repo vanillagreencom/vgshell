@@ -1,10 +1,23 @@
-// The vgs theme for fastfetch, linked as vgs.jsonc in fastfetch's configuration
-// directory by vgshell theme apply. Run it with `fastfetch --config vgs`.
-// #RRGGBB colours need fastfetch 2.42.0 or later.
+// The vgs theme for fastfetch, linked as config.jsonc in fastfetch's
+// configuration directory by vgshell theme apply, so a plain `fastfetch`
+// reads it. #RRGGBB colours need fastfetch 2.42.0 or later.
+//
+// The logo's source is a shell command fastfetch runs through wordexp. On a
+// terminal, in Ghostty and in kitty, which TERM, TERM_PROGRAM and
+// KITTY_WINDOW_ID name and fastfetch draws with the kitty graphics protocol,
+// it names the square crop of the current background beside the theme's
+// files: `height` rows from the first info line, as wide as it is tall. A
+// pipe, every other terminal, tmux and ssh among them, and no crop get the
+// VGS logo text in the terminal's own foreground, `default`. `height` is the
+// number of lines the modules print: one each, two for colors.
 {
   "$schema": "https://github.com/fastfetch-cli/fastfetch/raw/dev/doc/json_schema.json",
   "logo": {
-    "color": { "1": "#@{palette.accent}", "2": "#@{palette.foreground}" }
+    "type": "auto",
+    "source": "\"$(f=\"${XDG_STATE_HOME:-$HOME/.local/state}/vgshell/background-square.png\"; case \"$TERM:$TERM_PROGRAM${KITTY_WINDOW_ID:+:kitty}:$(readlink /proc/$PPID/fd/1)\" in (xterm-ghostty:ghostty*:/dev/pts/*|xterm-kitty:*:kitty:/dev/pts/*) [ -f \"$f\" ] && echo \"$f\" && exit;; esac; echo \"$(dirname \"$(readlink -f \"$(command -v vgshell)\")\")/lib/logo.txt\")\"",
+    "height": 15,
+    "padding": { "top": 0, "right": 3 },
+    "color": { "1": "default" }
   },
   "display": {
     "separator": "  ",
@@ -19,7 +32,6 @@
     "title",
     "separator",
     "os",
-    "host",
     "kernel",
     "uptime",
     "packages",
@@ -27,9 +39,8 @@
     "wm",
     "terminal",
     "cpu",
-    "gpu",
     "memory",
-    "disk",
+    { "type": "disk", "folders": "/" },
     "break",
     "colors"
   ]
