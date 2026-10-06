@@ -101,10 +101,10 @@ function suite(ctx, check) {
     const requiresRows = [
         ["requires one declared command", ["acme-sync"], null],
         ["requires a declared optional command", ["acme-sync", "acme-other"], null],
-        ["requires an undeclared command", ["acme-sync", "gum"], "tui.hello.requires.1 must name a command of the manifest's requirements, got \"gum\""],
+        ["requires an undeclared command", ["acme-sync", "gum"], "tui.hello.requires.1 must name a requirement of the manifest's requirements, got \"gum\""],
         ["requires a command twice", ["acme-sync", "acme-sync"], "tui.hello.requires.1 repeats \"acme-sync\""],
         ["requires nothing", [], null],
-        ["requires that is a string", "acme-sync", "tui.hello.requires must be a list of the manifest's requirement commands"],
+        ["requires that is a string", "acme-sync", "tui.hello.requires must be a list of the manifest's requirements"],
     ];
     for (const [name, requires, want] of requiresRows) {
         const raw = manifestWith({ hello: Object.assign({ requires: requires }, hello) });

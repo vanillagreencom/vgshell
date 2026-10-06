@@ -476,7 +476,7 @@ root=pathlib.Path(sys.argv[1])
 rows=json.loads((root/'config/requirements.json').read_text())
 for manifest in (root/'shell/plugins').glob('*/manifest.json'):
     rows.extend(json.loads(manifest.read_text()).get('requirements', []))
-commands=sorted({row['command'] for row in rows if not row.get('optional', False) and 'nix' in row.get('packages', {})})
+commands=sorted({row['command'] for row in rows if 'command' in row and not row.get('optional', False) and 'nix' in row.get('packages', {})})
 assert len(commands)>6 and 'qrencode' in commands and 'bwrap' in commands
 print('\n'.join(commands))
 PYFIXTURE

@@ -108,7 +108,7 @@ EXEMPT = (
     ("status", "*", "type"), ("status", "*", "hidden"), ("status", "*", "command"),
     ("status", "*", "action", "tui"), ("status", "*", "action", "install"), ("status", "*", "action", "system"),
     ("status", "*", "actions", "*", "tui"), ("status", "*", "actions", "*", "install"), ("status", "*", "actions", "*", "system"),
-    ("requirements", "*", "command"), ("requirements", "*", "packages"), ("requirements", "*", "optional"),
+    ("requirements", "*", "command"), ("requirements", "*", "dbus"), ("requirements", "*", "packages"), ("requirements", "*", "optional"),
     ("tui", "*", "script"), ("tui", "*", "size"), ("tui", "*", "presentation"), ("tui", "*", "requires"), ("tui", "*", "entry", "icon"),
     ("menu", "*", "icon"), ("menu", "*", "aliases"), ("menu", "*", "shortcut"), ("menu", "*", "provider"), ("menu", "*", "toggle", "setting"), ("menu", "*", "toggle", "icon"),
     ("secrets", "service"),
