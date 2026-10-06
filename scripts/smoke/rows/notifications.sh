@@ -1207,20 +1207,17 @@ expect "dismissing the emoji cards is allowed" ok notes dismiss-all
 expect_poll "no card is left before the emoji latencies" 0 note_status onScreen
 # The latencies with custom emoji, each read once: from the notify call to
 # the card's body naming its images on every screen, and from the history
-# call to forty such panel rows being present. The toast probe counts
-# matching visible text items. The inbox probe reads the panel's rowCount,
-# so it does not move the forty row objects through IPC on each poll. The
-# budgets and their runs are in scripts/qml-smoke.sh's header.
+# call to forty such panel rows being present. The toast probe counts the
+# image texts of the measured card alone: the layers can still hold the
+# items of dismissed emoji cards when a new card arrives, and their texts
+# would end the reading before the card draws. The inbox probe counts the
+# panel's image texts, so it does not move the forty row objects through
+# IPC on each poll. Each reader is one smoke IPC round trip a poll, the
+# cost the budgets were measured with: the budgets and their runs are in
+# scripts/qml-smoke.sh's header.
 emoji_body="ada: :smoke-party: ship :smoke-party: it :smoke-party: now :smoke-party: team, and a tail long enough to run onto a second line :smoke-party: here"
-emoji_texts() {
-  local panel_state
-  panel_state="$(ipc smoke readInstance panel vgs.notifications rows)" || panel_state=absent
-  if [[ $panel_state == \[* ]]; then
-    ipc smoke itemImageTextCount panel vgs.notifications Panel
-  else
-    ipc smoke layerItemsWith vgs.notifications QQuickText text '<img src='
-  fi
-}
+toast_images() { ipc smoke layerTextsWithin vgs.notifications NotificationCard summary "[acme] in latency" '<img src='; }
+inbox_images() { ipc smoke itemImageTextCount panel vgs.notifications Panel; }
 latency_bound_ms=5000
 # latency_since LABEL START WANT CMD...: sets latency_ms to the
 # milliseconds from START until CMD prints a count of WANT or more, or to
@@ -1273,13 +1270,13 @@ SH
 ipc_cut_retry_control() {
   local fake="$sandbox/vgshell-ipc-retry" start
   ipc_cut_stand_in "$fake" 1 1
-  (ipc() { ipc_via "$fake" "$@"; }; latency_bound_ms=2000; latency_since "control retry" "$(date +%s%3N)" 1 emoji_texts >/dev/null; [[ $latency_ms =~ ^[0-9]+$ ]] && echo recovered || echo "latency=$latency_ms")
+  (ipc() { ipc_via "$fake" "$@"; }; latency_bound_ms=2000; latency_since "control retry" "$(date +%s%3N)" 1 toast_images >/dev/null; [[ $latency_ms =~ ^[0-9]+$ ]] && echo recovered || echo "latency=$latency_ms")
 }
 expect "control: a cut IPC reply is retried by the latency reader" recovered ipc_cut_retry_control
 ipc_cut_failure_control() {
   local fake="$sandbox/vgshell-ipc-cut" out
   ipc_cut_stand_in "$fake" always 1
-  out="$(ipc() { ipc_via "$fake" "$@"; }; latency_bound_ms=250; latency_since "control cut" "$(date +%s%3N)" 1 emoji_texts)"
+  out="$(ipc() { ipc_via "$fake" "$@"; }; latency_bound_ms=250; latency_since "control cut" "$(date +%s%3N)" 1 toast_images)"
   if [[ $out == *ipc-failed* && $out == *"Error occurred while waiting for response."* ]]; then echo named; else printf '%s\n' "$out"; fi
 }
 expect "control: a lasting cut IPC reply names the raw client line" named ipc_cut_failure_control
@@ -1340,24 +1337,26 @@ expect "control: a latency reader that raises fails once and reads -1" "1 -1" la
 expect "control: the failed latency reading names the reader's traceback" 1 grep -c -F -- "the planted latency reader: the reader raised a Python traceback" "$sandbox/latency-traceback-control.log"
 notify_now() { "${shell_env[@]}" gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications --method org.freedesktop.Notifications.Notify Slack 0 "" "$1" "$emoji_body" '[]' '{"desktop-entry": <"slack">}' 0 >/dev/null; }
 within_budget() { python3 -c 'import sys; print(0 <= int(sys.argv[1]) <= int(sys.argv[2]))' "$1" "$2"; }
+cpu_start="$(cpu_some_us)"
 start="$(date +%s%3N)"
 notify_now "[acme] in latency"
-latency_since "the emoji toast latency reader" "$start" "$monitors" emoji_texts
+latency_since "the emoji toast latency reader" "$start" "$monitors" toast_images
 emoji_toast_ms="$latency_ms"
-printf '        latency_emoji_toast_ms=%s budget_ms=%s\n' "$emoji_toast_ms" "$emoji_toast_budget_ms"
+printf '        latency_emoji_toast_ms=%s budget_ms=%s cpu_some_pct=%s\n' "$emoji_toast_ms" "$emoji_toast_budget_ms" "$(cpu_some_pct "$cpu_start" "$(cpu_some_us)" "$(( $(date +%s%3N) - start ))")"
 expect "a toast with custom emoji names its images within its budget" True within_budget "$emoji_toast_ms" "$emoji_toast_budget_ms"
 expect "dismissing the latency toast is allowed" ok notes dismiss-all
 expect "Silence turns on for the inbox latency" on notes silence on
 expect "clearing the history before the inbox latency is allowed" ok notes clear-history
 for i in $(seq 1 40); do notify_now "[acme] in inbox $i"; done
 expect_poll "the forty emoji notifications are in the history" 40 note_status history
+cpu_start="$(cpu_some_us)"
 start="$(date +%s%3N)"
 notes history >/dev/null
-latency_since "the emoji inbox latency reader" "$start" 40 emoji_texts
+latency_since "the emoji inbox latency reader" "$start" 40 inbox_images
 emoji_inbox_ms="$latency_ms"
-printf '        latency_emoji_inbox_ms=%s budget_ms=%s\n' "$emoji_inbox_ms" "$emoji_inbox_budget_ms"
+printf '        latency_emoji_inbox_ms=%s budget_ms=%s cpu_some_pct=%s\n' "$emoji_inbox_ms" "$emoji_inbox_budget_ms" "$(cpu_some_pct "$cpu_start" "$(cpu_some_us)" "$(( $(date +%s%3N) - start ))")"
 expect "an inbox of forty cards appears within its budget" True within_budget "$emoji_inbox_ms" "$emoji_inbox_budget_ms"
-expect "the probe counts exactly the forty visible emoji inbox rows" 40 emoji_texts
+expect "the probe counts exactly the forty visible emoji inbox rows" 40 inbox_images
 # The history's slim scroll bar shows while forty cards overflow the
 # screen and hides on a history that fits. The control for its rule is the
 # SlimScrollBar mutation "a slim bar shows on content that fits"

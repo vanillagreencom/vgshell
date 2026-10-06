@@ -765,6 +765,19 @@ Scope {
                 }
             return total;
         }
+        // The count of visible text items whose text contains NEEDLE under
+        // the items named SCOPE whose PROPERTY reads VALUE, in a plugin's
+        // layer copies: one card's texts, not those of other cards the
+        // layers still hold.
+        function layerTextsWithin(id: string, scope: string, property: string, value: string, needle: string): int {
+            let total = 0;
+            for (const entry of Layers.entries.filter(e => e.pluginId === id))
+                for (const screen of Object.keys(entry.screens).sort())
+                    for (const holder of root.descendants(entry.screens[screen]).filter(i => root.typeName(i) === scope && String(i[property]) === value))
+                        for (const item of root.descendants(holder).filter(i => i instanceof Text && i.visible))
+                            if (item.text.indexOf(needle) !== -1) total += 1;
+            return total;
+        }
         // Saves the first item of a type in a plugin's layer copies whose
         // property reads the value to PATH as a PNG: the item and its
         // children as its window draws them, without the items under or
