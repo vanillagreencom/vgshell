@@ -13,7 +13,7 @@ import qs.Ui
 // the rows without moving it, then returns to it. The shown section's text
 // and icon stay in the accent while the plate sits on another row.
 // Enter, or Right with the caret at the end of the query, enters the
-// selected section, and Enter on Shell & Plugins opens the Settings
+// selected section, and Enter on Shell & Plugins opens the Plugins
 // window, as a click does. Escape with a query clears it; with none it is
 // left to the window, which closes. The selection follows its entry by
 // id, so a section joining or leaving the list moves no other row's
@@ -110,7 +110,7 @@ FocusScope {
         return null;
     }
 
-    // Enter the selected entry: its section, or the Settings window.
+    // Enter the selected entry: its section, or the Plugins window.
     function activate(index, reason) {
         selectIndex(index);
         if (index === footerIndex) panel.openSettings();

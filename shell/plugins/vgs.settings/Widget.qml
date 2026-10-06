@@ -2,7 +2,7 @@ import QtQuick
 import qs.Commons
 import qs.Ui
 
-// The Settings gear in the bar: a click opens or closes the Settings
+// The Plugins gear in the bar: a click opens or closes the Plugins
 // window. Hyprland maps a new window on the focused monitor, and the
 // pointer on this bar has made its screen the focused one.
 BarWidget {
@@ -11,7 +11,7 @@ BarWidget {
     implicitWidth: button.implicitWidth
     implicitHeight: barSize
 
-    // Open or close the Settings window; answers the window host's reply.
+    // Open or close the Plugins window; answers the window host's reply.
     function toggle() {
         const reply = shell.surfaces.toggle("window", "{}");
         if (reply !== "ok") console.warn("settings: gear " + reply);
@@ -22,7 +22,7 @@ BarWidget {
         id: button
         anchors.centerIn: parent
         iconName: "settings"
-        label: "Settings"
+        label: "Plugins"
         shortcut: root.shell === null || root.shell.shortcut === undefined ? "" : (root.shell.shortcut.keys.toggle || "")
         onClicked: root.toggle()
     }

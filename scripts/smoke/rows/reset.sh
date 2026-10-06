@@ -201,9 +201,9 @@ PY
 
     # The Settings row asks the same question.
     expect "the Settings window summons" ok ipc shell summon window vgs.settings '{}'
-    expect_poll "the Settings window maps" 1 window_count Settings
+    expect_poll "the Settings window maps" 1 window_count Plugins
     expect_poll "the list's heading draws Reset VGS" drawn reset_button "Reset VGS"
-    click_in window:Settings window vgs.settings Button "Reset VGS" || fail "the click on Reset VGS failed"
+    click_in window:Plugins window vgs.settings Button "Reset VGS" || fail "the click on Reset VGS failed"
     expect_poll "Reset VGS in Settings asks the reset question" '{"asked": true, "backup": null}' reset_record
     expect_poll "the asked question holds the keyboard" true ipc smoke noticeFocused
     type_keys -k Tab || fail "sending Tab to the reset question failed"

@@ -1,6 +1,6 @@
 # System
 
-`vgs.system`: one window for every System section, such as sound, displays and network. A sidebar lists the enabled sections under their groups, and the chosen section fills the page beside it. Each section is its own plugin of kind `pane`. You enable and disable a section in Settings like any plugin. This window lists and shows the enabled sections.
+`vgs.system`: one window for every System section, such as sound, displays and network. A sidebar lists the enabled sections under their groups, and the chosen section fills the page beside it. Each section is its own plugin of kind `pane`. You enable and disable a section in Plugins like any plugin. This window lists and shows the enabled sections.
 
 ![The System window with no section enabled: the sidebar holds Shell & Plugins, and the page its empty state](../../../docs/images/plugins/vgs.system-window.webp)
 
@@ -19,7 +19,7 @@ The payload is `{}` for the section shown last, or `{"pane":"<id>"}` for that se
 ## The window
 
 - A Hyprland window titled System, of class `org.vgs.shell`. It opens floating and centred and takes the keyboard. Hyprland draws its border and moves, resizes, tiles and closes it like any other window.
-- The sidebar holds a search field, the enabled sections under their group headings, and Shell & Plugins at the foot, which opens the Settings window to enable, disable and configure plugins.
+- The sidebar holds a search field, the enabled sections under their group headings, and Shell & Plugins at the foot, which opens the Plugins window to enable, disable and configure plugins.
 - The page shows the section's icon and name, and Show in bar for a section with a bar widget: it puts the widget in the bar or takes it out, and leaves the section enabled. A section taller than the window scrolls.
 - Only the shown section is built. Choosing another destroys the one before it, and closing the window destroys both.
 
@@ -27,7 +27,7 @@ The payload is `{}` for the section shown last, or `{"pane":"<id>"}` for that se
 
 - The window opens with the keyboard in the search field. Typing filters the sections, and a letter typed anywhere in the sidebar goes to the search field.
 - Up, Down, Page Up, Page Down, Ctrl+Home and Ctrl+End move the selection in the sidebar.
-- Enter, or Right at the end of the search text, opens the selected section and moves the keyboard into it. Enter on Shell & Plugins opens Settings.
+- Enter, or Right at the end of the search text, opens the selected section and moves the keyboard into it. Enter on Shell & Plugins opens Plugins.
 - Escape in a section returns to the search field. There, Escape clears the search, and with no search closes the window.
 
 ## Validation

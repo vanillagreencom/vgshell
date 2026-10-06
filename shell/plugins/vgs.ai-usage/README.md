@@ -12,7 +12,7 @@ Images come from `scripts/readme-shots.sh` in the nested sandbox.
 - A panel with each signed-in account: its email or name, its plan, a meter for each limit and the time the limit resets.
 - Copilot AI credits per account, with the monthly reset and the amount used this month.
 - Every Claude Code, Codex and Copilot account on this computer, including a second account in a separate tool folder.
-- Sign in from Settings, through each tool's own sign-in.
+- Sign in from Plugins, through each tool's own sign-in.
 
 ## How it works
 

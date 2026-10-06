@@ -10,14 +10,14 @@ function isOk(reply) {
 // Registry keeps build failures and launcher row conflicts, and
 // HyprlandLayer keeps shortcut problems.
 var MESSAGES = [
-    [/^unknown: /, "This plugin is no longer available. Close Settings and open it again."],
+    [/^unknown: /, "This plugin is no longer available. Close Plugins and open it again."],
     [/^refused: user-config=pending(?: |$)/, "VGS is loading your settings. Try again shortly."],
     [/^refused: user-config=(?:unparseable|malformed)(?: |$)/, "Your saved settings are invalid. VGS kept the last working settings."],
-    [/^refused: user-config=unreadable(?: |$)/, "VGS could not read your settings. Close Settings and open it again to retry."],
+    [/^refused: user-config=unreadable(?: |$)/, "VGS could not read your settings. Close Plugins and open it again to retry."],
     [/^refused: user-config=unwritable(?: |$)/, "VGS could not save this change. Try again."],
     [/^refused: disabled=\S+$|^refused: (?:action|secret|placed|tui)=\S+ reason=disabled$/, "Turn on this plugin before you change it."],
     [/^refused: bundled=\S+$/, "This plugin is included with VGS. Update VGS to update it, or turn it off to stop it."],
-    [/^refused: setting=\S+ (?:undeclared|entry=none)$/, "This setting is no longer available. Close Settings and open it again."],
+    [/^refused: setting=\S+ (?:undeclared|entry=none)$/, "This setting is no longer available. Close Plugins and open it again."],
     [/^refused: setting=\S+ want=number$/, "Enter a number."],
     [/^refused: setting=\S+ want=string$/, "Enter text for this setting."],
     [/^refused: setting=\S+ want=boolean$/, "Use the switch to change this setting."],
@@ -25,20 +25,20 @@ var MESSAGES = [
     [/^refused: setting=\S+ want=datetime-format reason=(?:empty|multiline|too-long|unclosed-quote|no-field)$/, "The date or time format is invalid. Change the format."],
     [/^refused: setting=\S+ want=at-least:(-?\d+(?:\.\d+)?(?:e[+-]?\d+)?)$/, function (match) { return "Use a value of at least " + match[1] + "."; }],
     [/^refused: setting=\S+ want=at-most:(-?\d+(?:\.\d+)?(?:e[+-]?\d+)?)$/, function (match) { return "Use a value of at most " + match[1] + "."; }],
-    [/^refused: key=\S+ undeclared$/, "This shortcut is no longer available. Close Settings and open it again."],
+    [/^refused: key=\S+ undeclared$/, "This shortcut is no longer available. Close Plugins and open it again."],
     [/^refused: key=\S+ (?:want=string-or-null|must be a string such as SUPER\+SPACE)$/, "Select the shortcut field and press its new keys."],
     [/^refused: key=\S+ (?:has an empty part: .+|ends in the modifier .+ and names no key|names no key: .+)$/, "The shortcut needs a key. Select the field and press its new keys."],
     [/^refused: key=\S+ has the unknown modifier .+, want one of .+$/, "VGS could not use this shortcut. Select the field and press its new keys."],
     [/^refused: key=\S+ repeats the modifier \S+$/, "The shortcut repeats a key. Select the field and press its new keys."],
     [/^refused: placed=\S+ reason=no-bar-widget$/, "This plugin has no bar item."],
-    [/^refused: action=\S+ reason=undeclared$|^refused: tui=\S+ reason=(?:undeclared|args)$/, "This action is no longer available. Close Settings and open it again."],
+    [/^refused: action=\S+ reason=undeclared$|^refused: tui=\S+ reason=(?:undeclared|args)$/, "This action is no longer available. Close Plugins and open it again."],
     [/^refused: action=\S+ reason=not-offered$/, "This setup step is not needed now."],
     [/^refused: requirements=\S+ reason=satisfied$/, "All tools are installed."],
     [/^refused: notices=full limit=\d+$/, "Close an open setup notice and try again."],
     [/^refused: tui=\S+ reason=launcher-missing$/, "The setup window could not open. VGS is missing its terminal launcher, xdg-terminal-exec. Reinstall VGS to restore it."],
     [/^refused: secret=\S+ reason=busy$/, "VGS is saving another account. Try again shortly."],
-    [/^refused: secret=\S+ reason=(?:undeclared|unlisted)$/, "This account is no longer available. Close Settings and open it again."],
-    [/^refused: secret=\S+ reason=not-offered$/, "This account has changed. Close Settings and open it again."],
+    [/^refused: secret=\S+ reason=(?:undeclared|unlisted)$/, "This account is no longer available. Close Plugins and open it again."],
+    [/^refused: secret=\S+ reason=not-offered$/, "This account has changed. Close Plugins and open it again."],
     [/^refused: secret=\S+ reason=value$/, "Enter a key on one line with at most 4096 characters."],
     [/^refused: secret write failed start-failed$/, "VGS could not open the key store. Try again."],
     [/^refused: secret write failed exit=-?\d+$/, "VGS could not change the saved account. Try again."],
@@ -63,5 +63,5 @@ function line(reply) {
         const match = row[0].exec(text);
         if (match !== null) return typeof row[1] === "function" ? row[1](match) : row[1];
     }
-    return "VGS could not complete this action. Close Settings and open it again to retry.";
+    return "VGS could not complete this action. Close Plugins and open it again to retry.";
 }

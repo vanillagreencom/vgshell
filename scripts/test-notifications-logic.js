@@ -190,7 +190,7 @@ function verify(logic) {
     const replies = [
         [pluginLogic.tuiRun(openManifest, true, "/x", { ...runner, busy: ["vgs.notifications/open"] }, "open", ["/file"]).answer, "Another file is open", "warning", "Close the open file window and try this notification again."],
         [pluginLogic.tuiRun(openManifest, true, "/x", { ...runner, launcher: "missing" }, "open", ["/file"]).answer, "The file did not open", "danger", "The setup window could not open. VGS is missing its terminal launcher, xdg-terminal-exec. Reinstall VGS to restore it."],
-        [pluginLogic.tuiRun(openManifest, false, "/x", runner, "open", ["/file"]).answer, "The file did not open", "danger", "Enable Notifications in Settings and try again."],
+        [pluginLogic.tuiRun(openManifest, false, "/x", runner, "open", ["/file"]).answer, "The file did not open", "danger", "Enable Notifications in Plugins and try again."],
         [pluginLogic.tuiRun(openManifest, true, "/x", runner, "missing", []).answer, "The file did not open", "danger", "VGS cannot open notification files. Reinstall VGS to restore this feature."],
         [pluginLogic.tuiRun(openManifest, true, "/x", runner, "open", [null]).answer, "The file did not open", "danger", "VGS could not use the file path in this notification."],
         ["refused: tui=open reason=future-private-reason", "The file did not open", "danger", "Try this notification again."],

@@ -12,7 +12,7 @@ A workspace icon appears beside the title when Slack has saved it. Otherwise, th
 
 A custom emoji appears as an image when Slack has saved it for that workspace. An unknown emoji stays as text. Emoji from another workspace stay as text.
 
-Open Notifications in Settings to change Slack custom emoji. Switch it off to show emoji names as text. If an image tool is missing, select Install all missing under Requirements.
+Open Notifications in Plugins to change Slack custom emoji. Switch it off to show emoji names as text. If an image tool is missing, select Install all missing under Requirements.
 
 New images appear after VGS reads Slack's saved images again. A notification does not start this work itself. Animated emoji show their first frame.
 

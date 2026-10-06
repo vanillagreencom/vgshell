@@ -14,7 +14,7 @@ Item {
     function openSettings() {
         const reply = shell.surfaces.summon("pane", "{}");
         if (reply !== "ok") {
-            controls.problem = "System is not available. Turn it on in Settings.";
+            controls.problem = "System is not available. Turn it on in Plugins.";
             console.warn("mouse panel: pane " + reply);
             return reply;
         }

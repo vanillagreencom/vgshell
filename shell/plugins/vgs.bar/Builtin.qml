@@ -26,7 +26,7 @@ Loader {
     Component.onCompleted: {
         if (sourceComponent !== null) return;
         if (modelData === "manager")
-            console.error("bar: no built-in widget named \"manager\": the plugin manager moved to the Settings plugin, vgs.settings; `vgshell plugin enable vgs.settings` places its gear in the bar");
+            console.error("bar: no built-in widget named \"manager\": the plugin manager moved to the Plugins plugin, vgs.settings; `vgshell plugin enable vgs.settings` places its gear in the bar");
         else
             console.error("bar: no built-in widget named " + JSON.stringify(modelData));
     }

@@ -154,15 +154,15 @@ FocusScope {
         return reply;
     }
 
-    // Open the Settings window, the plugin manager, through the command
+    // Open the Plugins window, the plugin manager, through the command
     // docs/architecture/settings-window.md names under Payload for another
     // plugin: the `surfaces` capability opens only this plugin's own
     // surfaces.
     function openSettings() {
         const reply = shell.run.detached(["vgshell", "ipc", "call", "shell", "summon", "window", "vgs.settings", "{}"]);
         if (reply !== "ok") {
-            notice = "Could not open Settings.";
-            console.warn("system: open Settings " + reply);
+            notice = "Could not open Plugins.";
+            console.warn("system: open Plugins " + reply);
         }
         return reply;
     }

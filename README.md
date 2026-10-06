@@ -6,7 +6,7 @@ Quickshell + Hyprland. Everything is a plugin. Try it, you might like it.
 
 ## Features
 
-- Settings window (SUPER+M): every plugin's settings, keys and an on/off switch.
+- Plugins window (SUPER+M): every plugin's settings, keys and an on/off switch.
 - Add a plugin from a git URL; it stays off until you turn it on.
 - Themes: one click changes colours, fonts, wallpaper and window borders.
 - Updates for your system, VGS, plugins and themes in one window.
@@ -80,7 +80,7 @@ VGS starts with Hyprland and draws the bar, panels and windows on each screen. E
 | [Notifications](shell/plugins/vgs.notifications/README.md) | Read and silence your notifications. |
 | [Polkit](shell/plugins/vgs.polkit/README.md) | Enter your password when an app needs administrator access. |
 | [Scratchpads](shell/plugins/vgs.scratchpads/README.md) | Show and hide an app with one key. |
-| [Settings](shell/plugins/vgs.settings/README.md) | Manage your plugins, settings and shortcuts. |
+| [Plugins](shell/plugins/vgs.settings/README.md) | Manage your plugins, settings and shortcuts. |
 | [Sound](shell/plugins/vgs.sound/README.md) | Set the volume, the sound devices and each app's volume. |
 | [System](shell/plugins/vgs.system/README.md) | Sound, displays, network and other system settings in one window. |
 | [Themes](shell/plugins/vgs.themes/README.md) | Choose themes and wallpapers. |

@@ -23,7 +23,7 @@ var STATES = ["not-detected", "absent", "done"];
 function browserTheming(text, code) {
     var unknown = function (why) {
         console.warn("themes: setup=" + why);
-        return { tone: "danger", text: "Browser theme setup could not be checked. Open Settings to check Themes." };
+        return { tone: "danger", text: "Browser theme setup could not be checked. Open Plugins to check Themes." };
     };
     if (code === null) return unknown("did not start");
     if (code !== 0) return unknown("exited " + code);

@@ -344,9 +344,14 @@ surface_count() { # SURFACE
 gallery_kind="$(summoned_kind vgs.gallery)" || fail "the gallery's manifest is unreadable"
 gallery_name="$(summoned_name vgs.gallery)" || fail "the gallery's name is unreadable"
 gallery_surface="$(summoned_surface "$gallery_kind" "$gallery_name")"
+# The manager's name is its window's title and its gear's label in every tree.
 settings_kind=panel
-if [[ $manager_scene == settings ]]; then settings_kind="$(summoned_kind vgs.settings)" || fail "the Settings manifest is unreadable"; fi
-settings_surface="$(summoned_surface "$settings_kind" Settings)"
+settings_name=""
+if [[ $manager_scene == settings ]]; then
+  settings_kind="$(summoned_kind vgs.settings)" || fail "the Settings manifest is unreadable"
+  settings_name="$(summoned_name vgs.settings)" || fail "the Settings name is unreadable"
+fi
+settings_surface="$(summoned_surface "$settings_kind" "$settings_name")"
 has_agent_warden=false
 has_bar_plugin=false
 has_automations=false
@@ -809,7 +814,7 @@ scene_settings() { # MODE
   expect_poll "the search is empty again" '""' ipc smoke readShownDescendant "$settings_kind" vgs.settings TextField text
   park_pointer
   # The gear draws no text, so it is found by its label.
-  if at="$(centre_of "$(ipc smoke labelledGeometry "$(bar_key)" vgs.settings "$gear_type" Settings)")" && [[ $at != none ]]; then
+  if at="$(centre_of "$(ipc smoke labelledGeometry "$(bar_key)" vgs.settings "$gear_type" "$settings_name")")" && [[ $at != none ]]; then
     read -r x y <<<"$at"
     if hover "$((x - 6))" "$y" && hover "$x" "$y" \
       && expect_poll "the gear shows its hover" true ipc smoke readDescendant "$(bar_key)" vgs.settings "$gear_type" hovered; then take "settings-$1-gear"; else fail "the hover on the gear failed"; fi

@@ -317,7 +317,7 @@ expect "pane-button restore: the host summons" ok ipc shell summon window acme.p
 # The windows the controls' tail opened close before the restore, so the
 # row leaves no client and no focus behind.
 expect "hiding Settings after the pane rows is allowed" ok ipc shell hide window vgs.settings
-expect_poll "the Settings window is gone after the pane rows" 0 window_count Settings
+expect_poll "the Settings window is gone after the pane rows" 0 window_count Plugins
 expect "hiding the pane host after the pane rows is allowed" ok ipc shell hide window acme.panehost
 expect_poll "the pane host window is gone after the pane rows" 0 window_count "Pane Host"
 cp -- "$pane_saved" "$pane_file.tmp" && mv -T -- "$pane_file.tmp" "$pane_file"

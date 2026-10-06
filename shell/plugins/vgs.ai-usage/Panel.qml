@@ -40,7 +40,7 @@ Item {
             visible: root.rows.length === 0
             role: "body"
             wrapMode: Text.Wrap
-            text: root.usage === null ? "Checking your sign-ins." : "No account is signed in. Sign in from Settings."
+            text: root.usage === null ? "Checking your sign-ins." : "No account is signed in. Sign in from Plugins."
         }
 
         Repeater {

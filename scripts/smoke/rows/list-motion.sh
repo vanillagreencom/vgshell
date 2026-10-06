@@ -52,7 +52,7 @@ expect "at motion scale 0 the Settings list's cursor lands on the row at once" s
 # pointer arrives on the second row by two motions, which arm it.
 settings_second="$(ipc smoke itemTexts window vgs.settings ListItem | py_reply 'import json,sys; print(json.load(sys.stdin)[1][0])')" || settings_second=""
 settings_row_box="$(ipc smoke windowGeometry window vgs.settings ListItem "$settings_second")" || settings_row_box=""
-if read -r row_x row_y < <(at_centre window:Settings "$settings_row_box") && hover "$((row_x - 6))" "$row_y" && hover "$row_x" "$row_y"; then
+if read -r row_x row_y < <(at_centre window:Plugins "$settings_row_box") && hover "$((row_x - 6))" "$row_y" && hover "$row_x" "$row_y"; then
   expect_poll "a moving pointer arms the Settings list" true ipc smoke readShownDescendant window vgs.settings ListCursor armed
   type_keys e || fail "typing a filter into the Settings search failed"
   expect_poll "the filter reaches the Settings list" '"e"' ipc smoke readShownDescendant window vgs.settings ListPage query
@@ -62,7 +62,7 @@ else
   fail "the pointer did not reach the Settings list's row ${settings_second:-unread}"
 fi
 expect "hiding the Settings window after the list motion is allowed" ok ipc shell hide window vgs.settings
-expect_poll "the Settings window is gone" 0 window_count Settings
+expect_poll "the Settings window is gone" 0 window_count Plugins
 expect "disabling the Settings plugin after the list motion is allowed" ok ipc shell setPluginEnabled vgs.settings false
 
 # The pointer's travel in the Settings list at the shipped list motion: the
@@ -146,7 +146,7 @@ expect "the probe builds the cursor frame trace" ok ipc smoke popupLoad cursor-f
 hover_rows="$(ipc smoke itemTexts window vgs.settings ListItem)" || hover_rows='[]'
 for hover_row in 0 1; do
   hover_name="$(py_reply 'import json,sys; r=json.load(sys.stdin); i=int(sys.argv[1]); print(r[i][0] if len(r) > i else "")' "$hover_row" <<<"$hover_rows")" || hover_name=""
-  read -r "hover_x[$hover_row]" "hover_y[$hover_row]" < <(at_centre window:Settings "$(ipc smoke windowGeometry window vgs.settings ListItem "$hover_name")") || fail "the Settings list's row $hover_row is unplaced: ${hover_name:-unread}"
+  read -r "hover_x[$hover_row]" "hover_y[$hover_row]" < <(at_centre window:Plugins "$(ipc smoke windowGeometry window vgs.settings ListItem "$hover_name")") || fail "the Settings list's row $hover_row is unplaced: ${hover_name:-unread}"
 done
 if [[ -n ${hover_x[0]:-} && -n ${hover_x[1]:-} ]]; then
   hover "$((hover_x[0] - 6))" "${hover_y[0]}"; hover "${hover_x[0]}" "${hover_y[0]}"
@@ -158,7 +158,7 @@ fi
 expect "the probe drops the cursor frame trace" ok ipc smoke popupDrop cursor-frames
 rest_pointer || fail "moving the pointer off the Settings list failed"
 expect "hiding the Settings window after the hover travel is allowed" ok ipc shell hide window vgs.settings
-expect_poll "the Settings window is gone after the hover travel" 0 window_count Settings
+expect_poll "the Settings window is gone after the hover travel" 0 window_count Plugins
 expect "disabling the Settings plugin after the hover travel is allowed" ok ipc shell setPluginEnabled vgs.settings false
 
 # The launcher's list: Ctrl+B lists the categories and the first Down

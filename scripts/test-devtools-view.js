@@ -222,7 +222,7 @@ function verify(logic) {
     same(vgs({ value: null, error: "exit=1" }, "x"), ["State unknown", [{ text: "Unknown", tone: "danger" }], [], ["The check failed. Open Dev Tools again after 10 minutes to retry."]]);
     same(vgs(ok(self({ behind: true })), "acme.updates/update"),
         ["0.1.0.r3.gabc1234 · Git checkout", [{ text: "Update to 0.1.1", tone: "warning" }], [{ kind: "entry", verb: "acme.updates/update", label: "Update", variant: "primary" }], []]);
-    same(vgs(ok(self({ behind: true })), "")[3], ["Enable Updates in Settings to update VGS here."]);
+    same(vgs(ok(self({ behind: true })), "")[3], ["Enable Updates in Plugins to update VGS here."]);
     same(vgs(ok(self({ method: "package", package: "vgshell-git" })), ""), ["0.1.0.r3.gabc1234 · Package vgshell-git", [{ text: "Up to date", tone: "success" }], [], []]);
     same(vgs(ok(self({ method: null, current: null, latest: null, behind: null, error: "method=unknown path=/t" })), ""),
         ["0.1.0 · Unknown install", [{ text: "Unknown", tone: "neutral" }], [], ["The check failed. Open Dev Tools again after 10 minutes to retry."]]);

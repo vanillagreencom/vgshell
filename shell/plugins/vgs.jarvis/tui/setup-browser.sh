@@ -25,7 +25,7 @@ install_driver() {
   local lib="$VGS_TUI_LIB" tree rows package manager name
   tree="${lib%/bin/lib/tui.sh}"
   [[ $tree != "$lib" && -n ${VGS_PLUGIN_ID:-} ]] ||
-    refuse 2 "tui=missing" "Open this setup from Jarvis in Settings or the launcher."
+    refuse 2 "tui=missing" "Open this setup from Jarvis in Plugins or the launcher."
   rows="$("$tree/bin/vgshell" plugin requirements --json "$VGS_PLUGIN_ID")"
   package="$(node -e '
 const row = JSON.parse(process.argv[1]).find(entry => entry.command === "agent-browser");

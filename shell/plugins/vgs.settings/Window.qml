@@ -2,9 +2,9 @@ import QtQuick
 import qs.Commons
 import qs.Ui
 
-// The Settings window: every plugin the manager lists, and one page per
+// The Plugins window: every plugin the manager lists, and one page per
 // plugin, drawn from its manager row alone. The window host builds it as a
-// Hyprland window titled Settings, which Hyprland floats, centres, frames
+// Hyprland window titled Plugins, which Hyprland floats, centres, frames
 // and focuses like any other window. It asks to be `size.window.width`
 // wide, or the monitor's width less `size.window.gutter` a side when that
 // is less, and `size.window.heightShare` of the monitor's height tall, read

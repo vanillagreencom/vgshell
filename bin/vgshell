@@ -1078,7 +1078,7 @@ plugin_add() { # URL
   if [[ $assume_yes != 1 && -t 0 ]]; then
     case "$lands" in
       shown) printf 'vgshell: %s runs its code as soon as it is installed, and its widget shows in the bar.\n' "$id" >&2 ;;
-      *) printf 'vgshell: %s is installed turned off; its code runs once you turn it on in Settings.\n' "$id" >&2 ;;
+      *) printf 'vgshell: %s is installed turned off; its code runs once you turn it on in Plugins.\n' "$id" >&2 ;;
     esac
   fi
   confirm_change add "$id" "nothing was installed"

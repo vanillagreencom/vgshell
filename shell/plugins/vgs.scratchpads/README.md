@@ -1,14 +1,14 @@
 # Scratchpads
 
-Show and hide an app with one key, over whatever you work on. Each pad holds one app at the size, place and screen you set in Settings.
+Show and hide an app with one key, over whatever you work on. Each pad holds one app at the size, place and screen you set in Plugins.
 
-![The Scratchpads page in Settings](../../../docs/images/plugins/vgs.scratchpads-page.webp)
+![The Scratchpads page in Plugins](../../../docs/images/plugins/vgs.scratchpads-page.webp)
 
 Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2.
 
 ## Features
 
-- Add, change and remove pads on the Scratchpads page in Settings. No file to edit.
+- Add, change and remove pads on the Scratchpads page in Plugins. No file to edit.
 - Give each pad its own key under Keys.
 - A press starts the app when it is not running, then shows it once its window is open. An empty pad never shows.
 - Set the size as a share of the screen, so one setting fits a laptop panel and a large display.
@@ -57,4 +57,4 @@ The service registers each pad's shortcut and follows each pad's window from Hyp
 
 ## Validation
 
-`scripts/smoke/rows/scratchpads.sh` makes pads from the Settings window in the nested sandbox and types the key on the nested seat. It reads a second pad on the first one's class reported, with its key kept and a message on a press. It reads that the pad is never shown empty while its slow app starts, that it shows at its shares and anchor at three output modes, at scale 2 and after a mode change, on the screen it names whatever monitor the pointer is on, and that bursts of presses toggle it once each. It reads a window moved out coming back, a change of size, position, entry or motion taking effect on the next press, a press beside the pad or a focus move hiding it, an app that opens no window ending in one message, and a restarted shell starting no second app. Turning the plugin off or removing the pad brings its window to the focused workspace. Its controls read an empty pad, a background that takes no press, a layer with no gaps, and a layer with no focus hook and no refit.
+`scripts/smoke/rows/scratchpads.sh` makes pads from the Plugins window in the nested sandbox and types the key on the nested seat. It reads a second pad on the first one's class reported, with its key kept and a message on a press. It reads that the pad is never shown empty while its slow app starts, that it shows at its shares and anchor at three output modes, at scale 2 and after a mode change, on the screen it names whatever monitor the pointer is on, and that bursts of presses toggle it once each. It reads a window moved out coming back, a change of size, position, entry or motion taking effect on the next press, a press beside the pad or a focus move hiding it, an app that opens no window ending in one message, and a restarted shell starting no second app. Turning the plugin off or removing the pad brings its window to the focused workspace. Its controls read an empty pad, a background that takes no press, a layer with no gaps, and a layer with no focus hook and no refit.

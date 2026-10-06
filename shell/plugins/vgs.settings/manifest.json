@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "vgs.settings",
-  "name": "Settings",
+  "name": "Plugins",
   "version": "0.1.0",
   "author": "VanillaGreen",
   "description": "Manage your plugins, settings and shortcuts.",

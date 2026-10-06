@@ -2,7 +2,7 @@
 
 Tray shows the tray icons of your apps in the bar, such as chat, sync, VPN and media apps. Click an icon to open the app, and right-click it to use the app's menu.
 
-![The Tray page in Settings](../../../docs/images/plugins/vgs.tray-page.webp)
+![The Tray page in Plugins](../../../docs/images/plugins/vgs.tray-page.webp)
 
 Images come from `scripts/readme-shots.sh` in the nested sandbox.
 

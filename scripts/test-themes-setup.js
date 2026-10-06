@@ -26,14 +26,14 @@ const ROWS = [
     ["the writer installed", report("done"), 0, { tone: "ok", text: "Browser theme support is installed" }],
     ["a browser without the writer", report("absent"), 0, { tone: "warning", text: "Browser themes are not installed", action: true }],
     ["no browser", report("not-detected"), 0, { tone: "info", text: "No Chromium-family browser found" }],
-    ["a failed report", report("done"), 1, { tone: "danger", text: "Browser theme setup could not be checked. Open Settings to check Themes." }],
-    ["a report that did not start", report("done"), null, { tone: "danger", text: "Browser theme setup could not be checked. Open Settings to check Themes." }],
-    ["a report killed by a signal, whose code is no exit code", "", -1, { tone: "danger", text: "Browser theme setup could not be checked. Open Settings to check Themes." }],
-    ["no JSON", "setup=chromium\n", 0, { tone: "danger", text: "Browser theme setup could not be checked. Open Settings to check Themes." }],
-    ["no setups list", "{}\n", 0, { tone: "danger", text: "Browser theme setup could not be checked. Open Settings to check Themes." }],
+    ["a failed report", report("done"), 1, { tone: "danger", text: "Browser theme setup could not be checked. Open Plugins to check Themes." }],
+    ["a report that did not start", report("done"), null, { tone: "danger", text: "Browser theme setup could not be checked. Open Plugins to check Themes." }],
+    ["a report killed by a signal, whose code is no exit code", "", -1, { tone: "danger", text: "Browser theme setup could not be checked. Open Plugins to check Themes." }],
+    ["no JSON", "setup=chromium\n", 0, { tone: "danger", text: "Browser theme setup could not be checked. Open Plugins to check Themes." }],
+    ["no setups list", "{}\n", 0, { tone: "danger", text: "Browser theme setup could not be checked. Open Plugins to check Themes." }],
     ["no chromium row", JSON.stringify({ setups: [{ name: "other", app: "Other", setup: "other-writer", state: "done" }] }), 0, { tone: "info", text: "This version of VGS does not support browser themes" }],
     ["another target's row after chromium's", JSON.stringify({ setups: [{ name: "chromium", app: "C", setup: "vgshell-browser-policy", state: "done" }, { name: "other", app: "Other", setup: "other-writer", state: "absent" }] }), 0, { tone: "ok", text: "Browser theme support is installed" }],
-    ["an unknown state", report("maybe"), 0, { tone: "danger", text: "Browser theme setup could not be checked. Open Settings to check Themes." }]
+    ["an unknown state", report("maybe"), 0, { tone: "danger", text: "Browser theme setup could not be checked. Open Plugins to check Themes." }]
 ];
 
 function verify(logic) {

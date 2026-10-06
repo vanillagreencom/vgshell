@@ -990,7 +990,7 @@ function openOutcome(reply) {
     case "launcher-missing":
         return { leave: false, notice: { title: "The file did not open", message: "The setup window could not open. VGS is missing its terminal launcher, xdg-terminal-exec. Reinstall VGS to restore it.", tone: "danger", icon: "square-terminal" } };
     case "disabled":
-        return { leave: false, notice: { title: "The file did not open", message: "Enable Notifications in Settings and try again.", tone: "danger", icon: "file-x" } };
+        return { leave: false, notice: { title: "The file did not open", message: "Enable Notifications in Plugins and try again.", tone: "danger", icon: "file-x" } };
     case "undeclared":
         return { leave: false, notice: { title: "The file did not open", message: "VGS cannot open notification files. Reinstall VGS to restore this feature.", tone: "danger", icon: "file-x" } };
     case "args":

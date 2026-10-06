@@ -25,7 +25,7 @@ kp_settings_open() { [[ $(ipc smoke instanceGeometry window vgs.settings) != abs
 # focused, Return pressed and the submap entered.
 kp_arm() {
   expect "$1: Settings is summoned on its own page" ok ipc shell summon window vgs.settings '{"plugin":"vgs.settings"}'
-  expect_poll "$1: the Settings window has the keyboard" "[\"$shell_class\", \"Settings\"]" active_window
+  expect_poll "$1: the Settings window has the keyboard" "[\"$shell_class\", \"Plugins\"]" active_window
   expect_poll "$1: the field takes the focus" focused settings_key_invoke focusKeyField
   type_keys -k Return || fail "$1: Return on the field failed"
   expect_poll "$1: Return starts a capture" true settings_key_field capturing
@@ -83,7 +83,7 @@ kp_kill() {
   kp_arm "$1"
   kp_killed="$shell_qs_pid"
   kill -KILL -- "$kp_killed" 2>/dev/null || fail "$1: killing the recorded shell pid failed"
-  expect_poll "$1: the Settings window is gone with its shell" 0 window_count Settings
+  expect_poll "$1: the Settings window is gone with its shell" 0 window_count Plugins
 }
 # CONTROL NAME LABEL: start the tree copy NAME, whose edits are made.
 kp_control_start() {

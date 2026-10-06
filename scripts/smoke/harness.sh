@@ -2097,12 +2097,12 @@ settings_tab_click() {
   sleep 0.2
   rect="$(ipc smoke windowGeometry window vgs.settings QQuickTabButton "$1")" || return 1
   [[ $rect == \[* ]] || { echo "settings_tab_click: no tab $1: $rect" >&2; return 1; }
-  read -r x y < <(at_centre window:Settings "$rect") || return 1
+  read -r x y < <(at_centre window:Plugins "$rect") || return 1
   hover "$((x + 1))" "$y" || return 1
   click "$x" "$y"
 }
 settings_details() {
-  expect_poll "the Settings window is mapped for its Details page" 1 window_count Settings
+  expect_poll "the Settings window is mapped for its Details page" 1 window_count Plugins
   settings_tab_click Details || fail "the click on the Details tab failed"
   expect_poll "the plugin page shows Details" 1 settings_tab
 }
@@ -2160,8 +2160,8 @@ settings_press() {
   shown="$(ipc smoke revealText window vgs.settings "$type" "$1")" || return 1
   [[ $shown =~ ^[0-9.]+$ ]] || { echo "settings_press: no $type $1 to reveal: $shown" >&2; return 1; }
   sleep 0.2
-  if [[ $# -eq 3 ]]; then click_scoped_in window:Settings window vgs.settings "$2" "$3" "$type" "$1"
-  else click_in window:Settings window vgs.settings "$type" "$1"
+  if [[ $# -eq 3 ]]; then click_scoped_in window:Plugins window vgs.settings "$2" "$3" "$type" "$1"
+  else click_in window:Plugins window vgs.settings "$type" "$1"
   fi
 }
 # click_scoped_in SURFACE HOST_KEY ID SCOPE_TYPE SCOPE_TEXT TYPE TEXT: the

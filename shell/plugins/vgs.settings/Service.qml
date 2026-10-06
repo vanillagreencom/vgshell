@@ -1,6 +1,6 @@
 import QtQuick
 
-// The Settings service: the global shortcut and the IPC functions that
+// The Plugins service: the global shortcut and the IPC functions that
 // open the window. It draws nothing and owns nothing else; each
 // registration's disposer is the core's, so disabling the plugin releases
 // them. The shortcut and the IPC open the window on the focused monitor.
@@ -22,7 +22,7 @@ Item {
     onShellChanged: {
         if (shell === null || registeredWith !== null) return;
         registeredWith = shell;
-        shell.shortcut.register("toggle", "Open or close Settings", () => root.route("toggle", ""));
+        shell.shortcut.register("toggle", "Open or close Plugins", () => root.route("toggle", ""));
         shell.ipc.handle("toggle", arg => root.route("toggle", arg));
         shell.ipc.handle("open", arg => root.route("summon", arg));
     }

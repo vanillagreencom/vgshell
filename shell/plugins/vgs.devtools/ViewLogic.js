@@ -413,7 +413,7 @@ function vgsRow(answer, entry) {
     if (s.behind === true) {
         out.chips.push({ text: s.latest === null ? "Update available" : "Update to " + s.latest, tone: "warning" });
         if (entry !== "") out.actions.push({ kind: "entry", verb: entry, label: "Update", variant: "primary" });
-        else out.lines.push("Enable Updates in Settings to update VGS here.");
+        else out.lines.push("Enable Updates in Plugins to update VGS here.");
     } else if (s.behind === false) {
         out.chips.push({ text: "Up to date", tone: "success" });
     } else {

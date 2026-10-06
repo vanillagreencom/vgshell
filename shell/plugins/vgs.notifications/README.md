@@ -42,7 +42,7 @@ The Notifications Settings page lists required tools under Requirements. Select 
 
 ## Extras (not supported)
 
-These features need developer setup. They are off by default and do not appear in Settings. They are kept for the owner and are not supported. See [D075](../../../docs/decisions/D075-consumer-features-need-no-developer-setup.md).
+These features need developer setup. They are off by default and do not appear in Plugins. They are kept for the owner and are not supported. See [D075](../../../docs/decisions/D075-consumer-features-need-no-developer-setup.md).
 
 - **Slack photos**, `slackPhotos`: sender photos and cached workspace icons from a Slack app user token per workspace, and custom emoji from Slack's emoji list. Turn it on with `{ "id": "vgs.notifications", "slackPhotos": true }` in `plugins` in `~/.config/vgshell/shell.json`. The Settings page then lists a Slack tokens row with Connect for each workspace, and `curl` and `secret-tool` under Requirements. With it off, the plugin reads no token, calls no Slack API, removes the photos it cached and shows no token row. An install that had Slack photos before they became an extra keeps them: a one-time migration turns the extra on when a Slack token is stored ([migrations.md](../../../docs/architecture/migrations.md)). The setup is below.
 

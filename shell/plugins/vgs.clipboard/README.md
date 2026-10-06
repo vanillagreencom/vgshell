@@ -8,7 +8,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 
 ## Turn it on
 
-Clipboard ships with VGS and is off until you turn it on, so VGS records no copy before you ask. It stays off because, once on, it saves every copy to disk, and that includes a password copied from an app that does not mark it as secret. Open Settings, select Clipboard in the plugin list and turn the plugin on. Turn it off there to stop recording; the history you have stays.
+Clipboard ships with VGS and is off until you turn it on, so VGS records no copy before you ask. It stays off because, once on, it saves every copy to disk, and that includes a password copied from an app that does not mark it as secret. Open Plugins, select Clipboard in the plugin list and turn the plugin on. Turn it off there to stop recording; the history you have stays.
 
 ## Features
 

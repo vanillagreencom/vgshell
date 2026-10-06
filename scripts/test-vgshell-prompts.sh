@@ -161,7 +161,7 @@ row_add_declined() {
 row_add_disabled_said() {
   fresh_cfg
   term "$1" y plugin add "$tmp/src/probe.git"
-  [[ $term_status == 0 ]] && out_has "vgshell: acme.probe is installed turned off; its code runs once you turn it on in Settings." \
+  [[ $term_status == 0 ]] && out_has "vgshell: acme.probe is installed turned off; its code runs once you turn it on in Plugins." \
     && out_holds "vgshell: add acme.probe? [y/N] ok added=acme.probe path=$cfg/vgshell/plugins/acme.probe config=unchanged lands=disabled" && installed
 }
 row_add_shown_said() {
@@ -259,7 +259,7 @@ declare -a CONTROLS=(
   "add takes --yes" '($sub == add || $sub == update' '($sub == update' row_add_yes
   "add asks before it installs" '  confirm_change add "$id" "nothing was installed"' '' row_add_declined
   "add says a widget plugin shows in the bar" 'runs its code as soon as it is installed, and its widget shows in the bar.' 'is installed.' row_add_shown_said
-  "add says a plugin without a widget lands turned off" 'is installed turned off; its code runs once you turn it on in Settings.' 'is installed.' row_add_disabled_said
+  "add says a plugin without a widget lands turned off" 'is installed turned off; its code runs once you turn it on in Plugins.' 'is installed.' row_add_disabled_said
 )
 for ((i = 0; i < ${#CONTROLS[@]}; i += 4)); do
   label="${CONTROLS[i]}" fn="${CONTROLS[i + 3]}"

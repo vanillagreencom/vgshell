@@ -8,7 +8,7 @@ Screenshot of the `greeter` scene of `scripts/sandbox-shots.sh` in the nested sa
 
 ## Install
 
-The plugin ships with VGS. The login screen itself is off until you turn it on: open Settings → Login screen and press Set up. A terminal shows each file the setup writes and asks for your password once. The login screen shows at the next boot.
+The plugin ships with VGS. The login screen itself is off until you turn it on: open Plugins → Login screen and press Set up. A terminal shows each file the setup writes and asks for your password once. The login screen shows at the next boot.
 
 Setup needs greetd and its greeter account, which the greetd package makes, and VGS installed from a package: the login screen runs only files that no account can change. If another login screen, such as GDM or SDDM, is turned on, Set up is not offered and VGS leaves that login screen alone. In that case, pick "Hyprland (uwsm-managed)" on that login screen: it starts the same session.
 

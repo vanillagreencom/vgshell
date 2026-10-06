@@ -35,6 +35,6 @@ If the shell dies while locked, Hyprland keeps the session locked and shows its 
 
 - **Lock when inactive**: time without input before the session locks; 0 disables locking when inactive.
 - **Lock before sleep**: hold each suspend until the session is locked.
-- The key: the Settings window's Keys section for Lock, or `plugins[].keys.lock` in `~/.config/vgshell/shell.json`.
+- The key: the Plugins window's Keys section for Lock, or `plugins[].keys.lock` in `~/.config/vgshell/shell.json`.
 
 `vgshell lock` locks the session from a user script, an idle daemon or a lid-switch bind.

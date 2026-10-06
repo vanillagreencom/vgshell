@@ -175,10 +175,10 @@ expect_poll "with nothing found the closed AI model setting reads its empty text
 # The terminals the row opened held the keyboard, so a focus dispatch
 # hands it back to the Settings window before the field takes Qt's focus
 # and the key is typed.
-page_settings_address="$(window_address Settings)" || page_settings_address=""
+page_settings_address="$(window_address Plugins)" || page_settings_address=""
 [[ $page_settings_address == 0x* ]] || fail "the Settings window's address is unreadable: $page_settings_address"
 expect "a focus dispatch aimed at the Settings window answers ok" ok hypr dispatch "hl.dsp.focus({ window = \"address:$page_settings_address\" })"
-expect_poll "the Settings window has the keyboard" "[\"$shell_class\", \"Settings\"]" active_window
+expect_poll "the Settings window has the keyboard" "[\"$shell_class\", \"Plugins\"]" active_window
 expect "the AI model setting takes the focus" focused ipc smoke invokeInstance window vgs.settings focusField '{"id":"vgs.jarvis","key":"brain"}'
 type_keys -k space || fail "Space on the AI model setting failed"
 expect_poll "the AI model setting draws one empty line" one-line page_field_line

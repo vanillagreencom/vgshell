@@ -144,8 +144,8 @@ Item {
                         anchors.fill: parent
                         title: "Hide " + ui.facts.name + "?"
                         message: ui.facts.stops
-                            ? ui.facts.name + " leaves the bar. To show it again, turn on Enabled on its page in Settings. Hiding it also turns it off."
-                            : ui.facts.name + " leaves the bar. To show it again, turn on Show in bar on its page in Settings."
+                            ? ui.facts.name + " leaves the bar. To show it again, turn on Enabled on its page in Plugins. Hiding it also turns it off."
+                            : ui.facts.name + " leaves the bar. To show it again, turn on Show in bar on its page in Plugins."
                         actions: [{ label: "Cancel", role: "cancel", focused: true }, { label: "Hide", role: "accept", variant: "danger" }]
                         onAccepted: {
                             dialogWindow.visible = false;

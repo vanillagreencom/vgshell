@@ -1,7 +1,7 @@
-# Application windows: the Settings window, vgs.settings' `window` kind,
+# Application windows: the Plugins window, vgs.settings' `window` kind,
 # is a Hyprland window. app_window_rows (scripts/smoke/app-window.sh) reads
 # it as every application window is read: one client of the shell's class
-# titled Settings, floating, centred and focused, its border in the active
+# titled Plugins, floating, centred and focused, its border in the active
 # and inactive colours, moved and focused by dispatches, and closed by an
 # Escape it has the keyboard for, which the list page leaves to the window
 # host, and by none it does not. The rows here add what Settings alone
@@ -18,7 +18,8 @@
 # has the keyboard; the themes panel is the control of that reading too,
 # and the manifests' list holds Updates and not Themes. The row enables the
 # Settings plugin and leaves it disabled, each other window's plugin as it
-# found it, hyprland.lua as it found it and no window open.
+# found it, hyprland.lua as it found it and no window open. The bar's gear
+# reads Plugins, the title of the window it opens.
 # inputs: shell/plugins/vgs.settings/* shell/plugins/*/manifest.json shell/plugins/vgs.automations/* shell/plugins/vgs.devtools/* shell/plugins/vgs.gallery/* shell/plugins/vgs.keyhints/* shell/plugins/vgs.system/* shell/plugins/vgs.updates/* shell/Commons/Reply.js shell/plugins/vgs.themes/* shell/Hosts/AppWindow.qml shell/Core/HyprlandLayer.js scripts/smoke/toplevel/* scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 windows_lua="$home/.config/hypr/hyprland.lua"
@@ -31,16 +32,17 @@ settings_search() { ipc smoke readDescendant window vgs.settings TextField text;
 expect "enabling the Settings plugin for the window rows is allowed" ok ipc shell setPluginEnabled vgs.settings true
 expect_poll "the Settings service is built for the window rows" True record_exists vgs.settings
 expect "the IPC opens the Settings window" ok ipc shell summon window vgs.settings '{}'
-app_window_rows Settings vgs.settings
+app_window_rows Plugins vgs.settings
+expect_poll "the gear in the bar reads Plugins" '"Plugins"' ipc smoke readDescendant "$(bar_key)" vgs.settings BarItem label
 
 # The float comes from the layer's rule: disabled by name after the line,
 # the rule floats nothing and a new Settings window tiles.
 printf '%s\n' 'hl.window_rule({ name = "vgs:window", enabled = false })' >>"$windows_lua"
 expect "the nested instance reloads with vgs:window disabled" ok hypr reload config-only
 expect "the IPC opens the Settings window with the rule disabled" ok ipc shell summon window vgs.settings '{}'
-expect_poll "with vgs:window disabled the Settings window tiles" '[false]' window_of Settings floating
+expect_poll "with vgs:window disabled the Settings window tiles" '[false]' window_of Plugins floating
 expect "hiding the tiled Settings window is allowed" ok ipc shell hide window vgs.settings
-expect_poll "the tiled Settings window is gone" 0 window_count Settings
+expect_poll "the tiled Settings window is gone" 0 window_count Plugins
 restore_windows_lua || fail "hyprland.lua is put back after the rule control"
 expect "the nested instance reloads hyprland.lua after the rule control" ok hypr reload config-only
 
@@ -55,22 +57,22 @@ expect "the nested instance reloads hyprland.lua after the rule control" ok hypr
 # leaving Settings with the keyboard and no focused item
 # (docs/architecture/runtime-qml-focus.md).
 expect "the IPC opens the Settings window for the keyboard rows" ok ipc shell summon window vgs.settings '{}'
-expect_poll "the Settings window is focused for the keyboard rows" "[\"$shell_class\", \"Settings\"]" active_window
+expect_poll "the Settings window is focused for the keyboard rows" "[\"$shell_class\", \"Plugins\"]" active_window
 expect_poll "the shell reads the Settings window holding the keyboard" true window_keyboard vgs.settings
 rest_pointer || fail "moving the pointer off the Settings window failed"
 if open_other "$sandbox/toplevel-windows.log"; then
   expect_poll "the new window takes the focus" '["smoke.other", "Other window"]' active_window
   expect_poll "the shell reads the Settings window without the keyboard" false window_keyboard vgs.settings
   leaves_before="$(other_events '^keyboard leave$')"
-  if address="$(window_address Settings)" && [[ $address == 0x* ]]; then
+  if address="$(window_address Plugins)" && [[ $address == 0x* ]]; then
     expect "a float toggle aimed at the window answers ok" ok hypr dispatch "hl.dsp.window.float({ action = \"toggle\", window = \"address:$address\" })"
-    expect_poll "the float toggle tiles the window" '[false]' window_of Settings floating
+    expect_poll "the float toggle tiles the window" '[false]' window_of Plugins floating
     expect "a second float toggle answers ok" ok hypr dispatch "hl.dsp.window.float({ action = \"toggle\", window = \"address:$address\" })"
-    expect_poll "the second float toggle floats it again" '[true]' window_of Settings floating
+    expect_poll "the second float toggle floats it again" '[true]' window_of Plugins floating
     expect "the other window keeps the keyboard through the float toggles" "$leaves_before" other_events '^keyboard leave$'
     other="$(other_address)"
     expect "a focus dispatch aimed at the Settings window answers ok" ok hypr dispatch "hl.dsp.focus({ window = \"address:$address\" })"
-    expect_poll "the focus dispatch focused the Settings window" "[\"$shell_class\", \"Settings\"]" active_window
+    expect_poll "the focus dispatch focused the Settings window" "[\"$shell_class\", \"Plugins\"]" active_window
 
     # The keyboard goes to the focused window alone. With Settings
     # focused, typed letters reach its search field and the helper gets no
@@ -89,7 +91,7 @@ if open_other "$sandbox/toplevel-windows.log"; then
     expect "the Settings search field kept its text" '"zz"' settings_search
     expect_poll "the shell reads the Settings window without the keyboard again" false window_keyboard vgs.settings
     expect "a focus dispatch gives Settings the keyboard back" ok hypr dispatch "hl.dsp.focus({ window = \"address:$address\" })"
-    expect_poll "Settings is focused again" "[\"$shell_class\", \"Settings\"]" active_window
+    expect_poll "Settings is focused again" "[\"$shell_class\", \"Plugins\"]" active_window
     expect_poll "the Settings search field takes the keyboard again" true ipc smoke activeFocusIn window vgs.settings
     type_keys -k BackSpace -k BackSpace || fail "clearing the Settings search failed"
     expect_poll "the Settings search field is empty again" '""' settings_search
@@ -97,7 +99,7 @@ if open_other "$sandbox/toplevel-windows.log"; then
     # A close through Hyprland, as its killactive key sends, closes the
     # window and the host drops the instance.
     expect "a close dispatch aimed at the window answers ok" ok hypr dispatch "hl.dsp.window.close({ window = \"address:$address\" })"
-    expect_poll "the close dispatch closed the Settings window" 0 window_count Settings
+    expect_poll "the close dispatch closed the Settings window" 0 window_count Plugins
     expect_poll "the host dropped the closed window's instance" absent ipc smoke readInstance window vgs.settings page
   else
     fail "the Settings window's address is unreadable: ${address:-}"
@@ -152,13 +154,13 @@ automations_stand_ins_restore "$sandbox/windows-automations-stub"
 # panel can hold the keyboard, which a newly mapped window then does not
 # take, so it opens after the rows above.
 expect "the IPC opens the Settings window beside the layer panel" ok ipc shell summon window vgs.settings '{}'
-expect_poll "the Settings window maps beside the layer panel" 1 window_count Settings
+expect_poll "the Settings window maps beside the layer panel" 1 window_count Plugins
 expect "the themes panel, a layer panel, opens" ok ipc shell summon panel vgs.themes '{}'
 expect_poll "the themes panel maps one layer surface" 1 layer_count vgs:panel
-expect "the shell's only client is the Settings window, not the themes panel" '["Settings"]' shell_clients
+expect "the shell's only client is the Settings window, not the themes panel" '["Plugins"]' shell_clients
 expect "control: the themes panel, read as each bundled window is, is no client" 0 window_count Themes
 expect "hiding the Settings window before the layer controls is allowed" ok ipc shell hide window vgs.settings
-expect_poll "the Settings window is gone before the layer controls" 0 window_count Settings
+expect_poll "the Settings window is gone before the layer controls" 0 window_count Plugins
 window_border_on
 # The panel's edge: its box inside its layer, which covers the screen,
 # plus the layer's origin.

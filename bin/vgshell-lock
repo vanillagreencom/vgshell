@@ -64,7 +64,7 @@ call() { # FUNCTION
 # The whole number after `"refusals":` in a status reply, -1 for none.
 refusals_of() { [[ $1 =~ \"refusals\":([0-9]+) ]] && echo "${BASH_REMATCH[1]}" || echo -1; }
 
-no_answer() { refuse 1 "lock=no-answer pid=$pid" "vgs.lock is disabled, or the shell did not answer; enable it in the Settings window"; }
+no_answer() { refuse 1 "lock=no-answer pid=$pid" "vgs.lock is disabled, or the shell did not answer; enable it in the Plugins window"; }
 # After a failed call: its status, 70 for a reply the judge could not
 # classify, else no answer.
 unanswered() { # STATUS

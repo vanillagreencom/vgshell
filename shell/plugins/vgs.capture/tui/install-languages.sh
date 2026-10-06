@@ -16,12 +16,12 @@ refuse() { # STATUS KEY_LINE SENTENCE
 lib="$VGS_TUI_LIB"
 tree="${lib%/bin/lib/tui.sh}"
 [[ $tree != "$lib" && -n ${VGS_PLUGIN_ID:-} ]] ||
-  refuse 2 "tui=missing" "Open this from Capture in Settings."
+  refuse 2 "tui=missing" "Open this from Capture in Plugins."
 command -v tesseract >/dev/null || refuse 77 "missing command=tesseract" ""
 vgs_tui_lock capture-languages
 vgs_tui_header "Install text languages" "Adds the recognition data for the text languages Capture reads."
 
-[[ -n ${VGS_PLUGIN_DIR:-} ]] || refuse 2 "plugin-dir=missing" "Open this from Capture in Settings."
+[[ -n ${VGS_PLUGIN_DIR:-} ]] || refuse 2 "plugin-dir=missing" "Open this from Capture in Plugins."
 settings="$("$tree/bin/vgshell" plugin settings "$VGS_PLUGIN_ID")"
 rows="$("$tree/bin/vgshell" plugin requirements --json "$VGS_PLUGIN_ID")"
 # The helper's own probe judges the languages and names the missing ones.

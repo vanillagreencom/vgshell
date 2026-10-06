@@ -26,7 +26,7 @@ kc_open() {
   expect_poll "$1: the Settings service is built" True record_exists vgs.settings
   expect "$1: Settings is summoned on its own page" ok ipc shell summon window vgs.settings '{"plugin":"vgs.settings"}'
   expect_poll "$1: the Settings window shows its own page" '"vgs.settings"' ipc smoke readInstance window vgs.settings page
-  expect_poll "$1: the Settings window has the keyboard" "[\"$shell_class\", \"Settings\"]" active_window
+  expect_poll "$1: the Settings window has the keyboard" "[\"$shell_class\", \"Plugins\"]" active_window
 }
 
 # CAPTURE LABEL WANT MARKER WTYPE_ARGS...: a capture of the keys
@@ -88,7 +88,7 @@ kc_capture "SUPER+T" SUPER+T "$sandbox/key-capture-none" -M logo -k t -m logo
 expect_poll "the field names the Themes shortcut asking for SUPER+T" '"Also used by Themes (themes)."' settings_key_field conflict
 kc_reveal_unbind() { local at; at="$(ipc smoke revealText window vgs.settings IconButton Unbind)" || return; [[ $at != absent ]] && echo shown || echo absent; }
 expect "the Unbind button is scrolled into view" shown kc_reveal_unbind
-click_in window:Settings window vgs.settings IconButton Unbind || fail "the click on the field's Unbind button failed"
+click_in window:Plugins window vgs.settings IconButton Unbind || fail "the click on the field's Unbind button failed"
 expect_poll "the Unbind button stores null for the shortcut" null settings_key
 key_reset "key capture end"
 

@@ -230,7 +230,7 @@ var CHECK_ERRORS = [
     [/unparseable|not-json|output-unreadable|cache=|^sources|^checkedAt$/, "The update result could not be read. Select Refresh to try again."],
     [/timeout/, "The update check took too long. Select Refresh to try again."],
     [/fetch|remote|unreachable|release=http/, "The update source could not be reached. Check your connection and select Refresh."],
-    [/missing|reason=absent/, "A tool needed for this check is missing. Install it in Settings."]
+    [/missing|reason=absent/, "A tool needed for this check is missing. Install it in Plugins."]
 ];
 
 function errorText(reason) {

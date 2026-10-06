@@ -1,6 +1,6 @@
 # Jarvis
 
-Jarvis runs a service-owned Node child and shows its health in Settings. The child tracks session state and saves safety records on your computer. Jarvis stores provider keys in your desktop keyring and finds account login hints. It can verify an API, local or Claude Code account when you request it. After local voice setup and with an AI model selected, Jarvis hears you, answers through that account and speaks on your computer.
+Jarvis runs a service-owned Node child and shows its health in Plugins. The child tracks session state and saves safety records on your computer. Jarvis stores provider keys in your desktop keyring and finds account login hints. It can verify an API, local or Claude Code account when you request it. After local voice setup and with an AI model selected, Jarvis hears you, answers through that account and speaks on your computer.
 
 ![The Jarvis daemon's status on its Settings page](../../../docs/images/plugins/vgs.jarvis-page.webp)
 
@@ -31,14 +31,14 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 - Accounts finds the account folders in your home, config and data folders, such as `.claude-work` or `.2codex`, and lets you add another directory.
 - Accounts can remember a key another tool stored without copying its value.
 - Login hints and local-server presence are not verified inference access.
-- Jarvis watches its recorded coding tasks and shows how many are running in Settings.
+- Jarvis watches its recorded coding tasks and shows how many are running in Plugins.
 - Stopping a coding task interrupts its agent, escalates until every one of its processes has ended, and only then records it as stopped.
 - Desktop tools read and copy clipboard text, play, pause and skip media, set and mute the speaker volume, and show a notification. Screen brightness waits for the Displays plugin's brightness service.
 - A clipboard read refuses a copy that a password manager marks as secret, and anything that is not text.
 - Screen tools read the screen, a monitor, a window, a region or an area you draw, at most four times a turn and never while the screen is locked.
 - Windows of password managers and private browsing are painted black before a screenshot leaves Jarvis. This is limited protection: a title cannot always show private browsing.
 
-- Jarvis prepares a private browser from Set up browser in Settings.
+- Jarvis prepares a private browser from Set up browser in Plugins.
 
 ## Requirements
 
@@ -72,9 +72,9 @@ Audio uses half duplex. Jarvis closes its microphone while speech plays. Talk ca
 
 The Keys section changes Talk, Mute and Stop. Talk defaults to Super with Right Alt. Mute defaults to Super with Shift and Right Alt. Stop defaults to Super with Alt and Period. Mute is separate from Talk mode.
 
-Open Jarvis in Settings and select Add key. Use the provider's origin, such as `https://api.openai.com`, without a path. Add key can ask the desktop keyring to unlock because you started storage. The background presence check never unlocks it.
+Open Jarvis in Plugins and select Add key. Use the provider's origin, such as `https://api.openai.com`, without a path. Add key can ask the desktop keyring to unlock because you started storage. The background presence check never unlocks it.
 
-Select Set up local voice in Settings or the launcher's Jarvis group. The terminal lists only the tiers this computer can run, each with what it is for and its download size, and recommends the first. Setup checks free space, then downloads its models and a private runtime. A failed setup removes them and says how much download cache it kept for the next attempt. Settings reports Ready only after file verification and the bundled probe succeed. Jarvis then hears and speaks with local voice. Setup cannot run while Jarvis is in a conversation.
+Select Set up local voice in Plugins or the launcher's Jarvis group. The terminal lists only the tiers this computer can run, each with what it is for and its download size, and recommends the first. Setup checks free space, then downloads its models and a private runtime. A failed setup removes them and says how much download cache it kept for the next attempt. Settings reports Ready only after file verification and the bundled probe succeed. Jarvis then hears and speaks with local voice. Setup cannot run while Jarvis is in a conversation.
 
 AI model keeps the account you select. Jarvis starts it when a conversation starts. Settings retains a saved selection when discovery no longer offers it.
 
@@ -82,6 +82,6 @@ Select Accounts to add a directory, choose an existing keyring item by label or 
 
 ## Browser
 
-Select Set up browser in Settings or the launcher's Jarvis group. Setup checks an installed browser on a blank page. If no browser is found, it offers a private download. Settings shows readiness after the check succeeds.
+Select Set up browser in Plugins or the launcher's Jarvis group. Setup checks an installed browser on a blank page. If no browser is found, it offers a private download. Settings shows readiness after the check succeeds.
 
 The driver needs agent-browser. While it is missing, the Browser driver row offers Install, and Set up browser waits until it is installed. Setup opened from the launcher offers the same install before it continues. Browser actions use a private session. Jarvis asks for input access to each site. A site grant lets Jarvis act as you there. Submit actions need confirmation. Password entry remains with you. This skeleton has no connected brain, so browser actions are not active yet.

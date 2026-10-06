@@ -262,7 +262,7 @@ FocusScope {
                             width: parent.width
                             label: "Enabled"
                             inline: true
-                            hint: page.isSelf ? "Turning off Settings closes this window." : page.row !== null && !page.row.enabled && !page.bare ? "Turn on " + page.row.name + " to change its settings and shortcuts." : ""
+                            hint: page.isSelf ? "Turning off Plugins closes this window." : page.row !== null && !page.row.enabled && !page.bare ? "Turn on " + page.row.name + " to change its settings and shortcuts." : ""
                             Switch {
                                 size: "sm"
                                 checked: page.row !== null && page.row.enabled

@@ -2,13 +2,13 @@
 
 Turn a website into an app. Each web app has its own name and icon in the launcher, and opens its site in its own window of the browser you already have.
 
-![The Web Apps page in Settings](../../../docs/images/plugins/vgs.webapps-page.webp)
+![The Web Apps page in Plugins](../../../docs/images/plugins/vgs.webapps-page.webp)
 
 Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2.
 
 ## Features
 
-- Add, change and remove web apps on the Web Apps page in Settings. No file to edit.
+- Add, change and remove web apps on the Web Apps page in Plugins. No file to edit.
 - Find each web app in the launcher by its name, with the site's icon.
 - Select a web app to open its site in a window of its own, without tabs or an address bar.
 - Select it again while its window is open, and VGS brings that window into view, on whatever workspace it is.
@@ -32,7 +32,7 @@ A web app opens in a browser of the Chromium family: Chromium, Google Chrome, Br
 
 ## Known limits
 
-- Turning off or removing Web Apps leaves its web apps in the launcher. Remove them on the Web Apps page in Settings first.
+- Turning off or removing Web Apps leaves its web apps in the launcher. Remove them on the Web Apps page in Plugins first.
 - VGS finds the window of a web app by the window class the browser gives it, which names the site's host and path. Two web apps with the same host and path share one window.
 - VGS reads a site's name and icon once, when you add the web app or change its address or icon. A site that changes its icon later keeps the one VGS read.
 
@@ -52,4 +52,4 @@ The service is the one owner of the entries and icons. At its start and after ea
 
 ## Validation
 
-`scripts/smoke/rows/webapps.sh` adds a web app from the Settings window in the nested sandbox, against a site the row serves on the loopback address and a stand-in browser that maps a window with the class a Chromium-family browser gives. It reads the desktop entry, the icon and the launcher's row, opens the web app from the launcher, reads one launch and one window, opens it again and reads no second launch and that window focused, and removes it and reads the entry, the icon and the row gone. Its controls read the default icon for a site with none, and a launch while only a window of another class is open.
+`scripts/smoke/rows/webapps.sh` adds a web app from the Plugins window in the nested sandbox, against a site the row serves on the loopback address and a stand-in browser that maps a window with the class a Chromium-family browser gives. It reads the desktop entry, the icon and the launcher's row, opens the web app from the launcher, reads one launch and one window, opens it again and reads no second launch and that window focused, and removes it and reads the entry, the icon and the row gone. Its controls read the default icon for a site with none, and a launch while only a window of another class is open.

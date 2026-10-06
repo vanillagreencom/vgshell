@@ -31,7 +31,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 | Dim when inactive | 2 minutes | Time without input before the displays dim, or Never. The lock starts later by default, so input during the dim brings the displays back before the session locks. |
 | Dimmed brightness | 30% | The level the displays dim to. |
 
-The keys are `XF86MonBrightnessUp` and `XF86MonBrightnessDown`. When your Hyprland configuration also binds them, the Keys row in Settings shows the conflict, and Clear there leaves your own binding.
+The keys are `XF86MonBrightnessUp` and `XF86MonBrightnessDown`. When your Hyprland configuration also binds them, the Keys row in Plugins shows the conflict, and Clear there leaves your own binding.
 
 ## Validation
 

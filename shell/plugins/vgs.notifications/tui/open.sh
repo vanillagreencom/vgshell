@@ -54,5 +54,5 @@ if [[ -n ${EDITOR:-} ]]; then
   "${editor[@]}" "$file"
   exit
 fi
-command -v xdg-open >/dev/null || refuse 1 "opener=missing" "Open Notifications in Settings. Select Install under Requirements to add the file opener."
+command -v xdg-open >/dev/null || refuse 1 "opener=missing" "Open Notifications in Plugins. Select Install under Requirements to add the file opener."
 xdg-open "$file"

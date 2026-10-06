@@ -121,7 +121,7 @@ open_click() {
   local rect x y
   rect="$(ipc smoke windowGeometry window vgs.settings Button Open)" || return 1
   [[ $rect == \[* ]] || { echo "open_click: no Open: $rect" >&2; return 1; }
-  read -r x y < <(at_centre window:Settings "$rect") || return 1
+  read -r x y < <(at_centre window:Plugins "$rect") || return 1
   hover "$((x + 1))" "$y" || return 1
   click "$x" "$y"
 }
@@ -158,7 +158,7 @@ expect "the window opens the fixture's page again for the edit rows" ok ipc smok
 expect_poll "the fixture's page opens on Settings for the edit rows" "0 drawn absent" page_shown
 held_rect="$(ipc smoke invokeInstance window vgs.settings holdField '{"id":"acme.probe","key":"label","text":"draft"}')" || fail "holdField failed"
 if [[ $held_rect == \[* ]]; then ok "an edit begins in the fixture's label field"; else fail "an edit begins in the fixture's label field: got $held_rect"; fi
-read -r field_cx field_cy < <(at_centre window:Settings "$held_rect")
+read -r field_cx field_cy < <(at_centre window:Plugins "$held_rect")
 click "$field_cx" "$field_cy" || fail "the click on the held field failed"
 held_state() { ipc smoke invokeInstance window vgs.settings heldFieldState ''; }
 # The click also puts the cursor where it landed; the state read after it
@@ -316,7 +316,7 @@ rm -f -- "${shim:?}/vgs-smoke-absent"
 expect "with the stand-in gone and no rescan the last scan still reads it present" present fixture_requirement
 settings_press "Install the tool" || fail "the click on Install the tool failed"
 expect_poll "Install the tool shows the requirement notice for its own command" '["acme.status", ["vgs-smoke-absent"], ["vgs-smoke-absent"], false]' notice_shown
-expect "Install the tool leaves the Settings window open under the notice" 1 window_count Settings
+expect "Install the tool leaves the Settings window open under the notice" 1 window_count Plugins
 expect_poll "the action's notice holds the keyboard" true ipc smoke noticeFocused
 type_keys -k Escape || fail "sending Escape to the action's notice failed"
 expect_poll "Escape closes the action's notice" null notice_shown
@@ -619,10 +619,10 @@ settings_view_kind() { settings_view | py_reply 'import json,sys; v=json.load(sy
 expect "the window opens the fixture's page for the scroll rows" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.probe
 expect_poll "the page draws the fixture's fields for the scroll rows" '[9, 0]' page_fields
 expect "the page scrolls in a ScrollArea that takes no mouse button" '["ScrollArea", 0]' settings_view_kind
-expect "a mouse drag on the page leaves it where it was" still view_pointer window:Settings window vgs.settings Layout drag
-expect "a wheel notch on the page scrolls it" moved view_pointer window:Settings window vgs.settings Layout wheel
+expect "a mouse drag on the page leaves it where it was" still view_pointer window:Plugins window vgs.settings Layout drag
+expect "a wheel notch on the page scrolls it" moved view_pointer window:Plugins window vgs.settings Layout wheel
 expect "control: the probe gives the page Qt's left-button drag" 0 ipc smoke setViewButtons window vgs.settings Layout 1
-expect "control: the same drag then scrolls the page" moved view_pointer window:Settings window vgs.settings Layout drag
+expect "control: the same drag then scrolls the page" moved view_pointer window:Plugins window vgs.settings Layout drag
 expect "the page takes no mouse button again" 1 ipc smoke setViewButtons window vgs.settings Layout 0
 # Touchpad scrolling (components.md): a two-finger swipe of 40 px of axis
 # length moves the page as far as GTK moves a list, and a wheel notch still
@@ -631,15 +631,15 @@ expect "the page takes no mouse button again" 1 ipc smoke setViewButtons window 
 # one pixel per pixel. Each starts from the page's top, which a long swipe
 # up reaches.
 settings_travel() {
-  view_travel window:Settings window vgs.settings Layout swipe -2000 0 >/dev/null || return 1
+  view_travel window:Plugins window vgs.settings Layout swipe -2000 0 >/dev/null || return 1
   "$@"
 }
-settings_swipe() { settings_travel view_swipe window:Settings window vgs.settings Layout 40; }
+settings_swipe() { settings_travel view_swipe window:Plugins window vgs.settings Layout 40; }
 expect "a two-finger swipe moves the page as far as it moves a GTK list" as-gtk settings_swipe
 expect "control: the probe turns the page's touchpad scroll off" true ipc smoke setViewTouchpad window vgs.settings Layout false
 expect "control: the same swipe then moves the page one pixel per pixel" as-qt settings_swipe
 expect "the page's touchpad scroll is on again" false ipc smoke setViewTouchpad window vgs.settings Layout true
-expect "a wheel notch moves the page Qt's step" 72 settings_travel view_travel window:Settings window vgs.settings Layout wheel 1 80
+expect "a wheel notch moves the page Qt's step" 72 settings_travel view_travel window:Plugins window vgs.settings Layout wheel 1 80
 # Tab until the page scrolls, each focused item read in view. The control's
 # drag can leave a flick running, so the page first holds one position for
 # two readings 0.1 s apart, for up to 3 s.
@@ -666,7 +666,7 @@ expect "Tab scrolls the page to bring each focused row into view" ok settings_ta
 rest_pointer || fail "moving the pointer off the Settings window failed"
 
 expect "the gear closes the Settings window after the edit rows" ok ipc smoke invokeInstance "$(bar_key)" vgs.settings toggle ''
-expect_poll "the Settings window is gone after the edit rows" 0 window_count Settings
+expect_poll "the Settings window is gone after the edit rows" 0 window_count Plugins
 expect "disabling the Settings plugin after its rows is allowed" ok ipc shell setPluginEnabled vgs.settings false
 expect_poll "the Settings service released its shortcut and IPC target" False settings_lent
 

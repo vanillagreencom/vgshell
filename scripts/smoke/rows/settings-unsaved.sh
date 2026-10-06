@@ -68,8 +68,8 @@ us_focus() { ipc smoke activeFocusItem window vgs.settings; }
 us_page() { ipc smoke readInstance window vgs.settings page; }
 # us_prompt: True while the window draws its prompt.
 us_prompt() { ipc smoke dialogCard window vgs.settings | py_reply 'import json,sys; print(json.load(sys.stdin)["shown"])'; }
-us_prompt_press() { click_scoped_in window:Settings window vgs.settings Dialog "$us_prompt_title" Button "$1"; }
-us_bar_press() { click_scoped_in window:Settings window vgs.settings SaveBar "Unsaved changes" Button "$1"; }
+us_prompt_press() { click_scoped_in window:Plugins window vgs.settings Dialog "$us_prompt_title" Button "$1"; }
+us_bar_press() { click_scoped_in window:Plugins window vgs.settings SaveBar "Unsaved changes" Button "$1"; }
 us_line() { [[ $(ipc smoke windowGeometry window vgs.settings Label "$1") == absent ]] && echo absent || echo drawn; }
 # us_refused ID: whether the window holds a refusal for plugin ID's page.
 us_refused() { ipc smoke readInstance window vgs.settings replies | py_reply 'import json,sys; print("refused" if json.load(sys.stdin).get(sys.argv[1], "") != "" else "none")' "$1"; }
@@ -93,7 +93,7 @@ us_press() {
     sleep 0.1
   done
   [[ $box == \[* && $box == "$last" ]] || { echo "us_press: the $1 reading $2 never rested: $box" >&2; return 1; }
-  read -r x y < <(at_centre window:Settings "$box") || return 1
+  read -r x y < <(at_centre window:Plugins "$box") || return 1
   hover "$((x + 1))" "$y" || return 1
   click "$x" "$y"
 }
@@ -118,7 +118,7 @@ us_tab_to() {
   return 1
 }
 # us_wide_press: a click on the list item's Wide switch.
-us_wide_press() { click_scoped_in window:Settings window vgs.settings SettingField Wide Switch ""; }
+us_wide_press() { click_scoped_in window:Plugins window vgs.settings SettingField Wide Switch ""; }
 # us_strip: whether the page's tab strip holds the keyboard.
 us_strip() { ipc smoke activeFocusWithin window vgs.settings Tabs; }
 # us_edit LABEL SHOWN TYPED: that click, then TYPED over the field's
@@ -141,7 +141,7 @@ rescan "a rescan finds the unsaved-edits fixture"
 expect "enabling the unsaved-edits fixture is allowed" ok ipc shell setPluginEnabled "$us_id" true
 expect_poll "the fixture's service is built" True record_exists "$us_id"
 settings_page_open "$us_id"
-expect_poll "the Settings window is mapped for the edits" 1 window_count Settings
+expect_poll "the Settings window is mapped for the edits" 1 window_count Plugins
 expect_poll "the fixture's page draws its Gap field" drawn us_line Gap
 expect "a page with no edit draws no save bar" hidden us_bar
 
@@ -258,7 +258,7 @@ us_edit "the Gap edit for back" 90 55
 expect "back with an unsaved edit is held" "refused: unsaved=$us_id" ipc smoke invokeInstance window vgs.settings back ''
 expect_poll "back asks about the unsaved edit" True us_prompt
 expect "the page is not left while the prompt asks" "\"$us_id\"" us_page
-if us_box="$(surface_box window:Settings)" && read -r us_x us_y < <(python3 -c 'import json,sys; b=json.loads(sys.argv[1]); print(int(b[0] + 12), int(b[1] + 12))' "$us_box"); then
+if us_box="$(surface_box window:Plugins)" && read -r us_x us_y < <(python3 -c 'import json,sys; b=json.loads(sys.argv[1]); print(int(b[0] + 12), int(b[1] + 12))' "$us_box"); then
   hover "$((us_x + 1))" "$us_y" || fail "moving the pointer beside the prompt failed"
   click "$us_x" "$us_y" || fail "the press beside the prompt failed"
 else
@@ -314,30 +314,30 @@ us_open
 us_edit "the Gap edit for the hide" 55 61
 expect "a hide with an unsaved edit is held" "refused: held=vgs.settings" ipc shell hide window vgs.settings
 expect_poll "the hide asks about the unsaved edit" True us_prompt
-expect "the window stays open while the prompt asks" 1 window_count Settings
+expect "the window stays open while the prompt asks" 1 window_count Plugins
 expect "a second hide is held the same" "refused: held=vgs.settings" ipc shell hide window vgs.settings
 type_keys -k Escape || fail "sending Escape to the hide's prompt failed"
 expect_poll "one Escape closes the prompt after two hides" False us_prompt
 sleep 0.5 # A second prompt queued behind the first would show within a frame.
 expect "no second prompt follows" False us_prompt
-expect "the window stays open after Cancel" 1 window_count Settings
+expect "the window stays open after Cancel" 1 window_count Plugins
 expect "Cancel keeps the edit under the held hide" 61 us_text gap
 expect "the plugin's toggle is held too" "refused: held=vgs.settings" ipc vgs.settings invoke toggle ''
 expect_poll "the toggle asks about the unsaved edit" True us_prompt
 us_prompt_press Save || fail "the click on Save for the toggle failed"
 expect_poll "Save writes the edit before the window hides" 61 us_value gap
-expect_poll "the window then hides itself" 0 window_count Settings
+expect_poll "the window then hides itself" 0 window_count Plugins
 expect_poll "the host dropped the hidden window's instance" absent us_page
 
 # A close through Hyprland asks nothing and writes nothing.
 expect "Settings is summoned on the fixture's page again" ok ipc shell summon window vgs.settings "{\"plugin\":\"$us_id\"}"
-expect_poll "the Settings window maps again" 1 window_count Settings
+expect_poll "the Settings window maps again" 1 window_count Plugins
 expect_poll "the reopened page draws its Gap field" drawn us_line Gap
 us_edit "the Gap edit for the close" 61 62
 us_before="$(us_writes)" || fail "the configuration counter is unreadable before the close"
-if us_address="$(window_address Settings)" && [[ $us_address == 0x* ]]; then
+if us_address="$(window_address Plugins)" && [[ $us_address == 0x* ]]; then
   expect "a close dispatch aimed at the window answers ok" ok hypr dispatch "hl.dsp.window.close({ window = \"address:$us_address\" })"
-  expect_poll "the close dispatch closes the window with its unsaved edit" 0 window_count Settings
+  expect_poll "the close dispatch closes the window with its unsaved edit" 0 window_count Plugins
   expect_poll "the host dropped the closed window's instance" absent us_page
   expect "a closed window writes no configuration" "$us_before" us_writes
   expect "a closed window leaves the user file as it was" 61 us_value gap
@@ -347,7 +347,7 @@ fi
 
 # A plugin disabled under an edit drops it and asks nothing.
 expect "Settings is summoned on the fixture's page for the disable" ok ipc shell summon window vgs.settings "{\"plugin\":\"$us_id\"}"
-expect_poll "the Settings window maps for the disable" 1 window_count Settings
+expect_poll "the Settings window maps for the disable" 1 window_count Plugins
 expect_poll "the page draws its Gap field for the disable" drawn us_line Gap
 us_edit "the Gap edit for the disable" 61 63
 expect_poll "the edit shows the bar before the disable" unsaved us_bar
@@ -487,10 +487,10 @@ if copy_tree unsaved-host \
   us_edit "control: the Gap edit for the hide" 75 74
   expect_poll "control: the edit shows the bar" unsaved us_bar
   expect "control: a host that asks no instance hides the window" ok ipc shell hide window vgs.settings
-  expect_poll "control: the window is gone with its unsaved edit" 0 window_count Settings
+  expect_poll "control: the window is gone with its unsaved edit" 0 window_count Plugins
   expect "control: the hidden window's edit is lost" 75 us_value gap
   expect "control: Settings is summoned on the fixture's page again" ok ipc shell summon window vgs.settings "{\"plugin\":\"$us_id\"}"
-  expect_poll "control: the Settings window maps again" 1 window_count Settings
+  expect_poll "control: the Settings window maps again" 1 window_count Plugins
   expect_poll "control: the reopened page draws its Gap field" drawn us_line Gap
   us_edit "control: the refused Gap edit" 75 abc
   expect "control: back with the refused value is held" "refused: unsaved=$us_id" ipc smoke invokeInstance window vgs.settings back ''
@@ -500,7 +500,7 @@ if copy_tree unsaved-host \
   expect_poll "control: a window that leaves after a refused save pops the page" '""' us_page
   expect "control: the refused value is not written" 75 us_value gap
   expect "control: hiding the window after the refused save is allowed" ok ipc shell hide window vgs.settings
-  expect_poll "control: the window is gone after the refused save" 0 window_count Settings
+  expect_poll "control: the window is gone after the refused save" 0 window_count Plugins
   expect "control: disabling Settings after the control is allowed" ok ipc shell setPluginEnabled vgs.settings false
   stop_shell
   start_shell "$repo" "$sandbox/unsaved-restart.log" || fail "the shell starts again after the held-hide control"

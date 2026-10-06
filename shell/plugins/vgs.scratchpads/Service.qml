@@ -184,7 +184,7 @@ Item {
         case "no-pad":
             shell.toasts.show({
                 title: "Pad " + name + " cannot open",
-                message: "Another pad uses its window class, " + pad["class"] + ". Give each pad its own window class in Settings, and an app that opens its window with it.",
+                message: "Another pad uses its window class, " + pad["class"] + ". Give each pad its own window class in Plugins, and an app that opens its window with it.",
                 tone: "warning"
             });
             return;
@@ -289,7 +289,7 @@ Item {
             const pad = padOf(name);
             shell.toasts.show({
                 title: "Pad " + name + " did not open",
-                message: "Its app showed no window of class " + (pad === undefined ? "" : pad["class"]) + ". Check the app and window class of the pad in Settings.",
+                message: "Its app showed no window of class " + (pad === undefined ? "" : pad["class"]) + ". Check the app and window class of the pad in Plugins.",
                 tone: "warning"
             });
         }
