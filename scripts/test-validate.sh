@@ -39,6 +39,40 @@ test_args=()
 ok() { printf '  ok    %s\n' "$*"; }
 fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
 
+# Independent cases run side by side, at most nproc at once: each job
+# writes its lines to its own log and its failure count beside it, and the
+# logs print in case order. A job that ended before writing its count, as
+# `set -e` or a fixture's `exit` ends it, is one failure.
+parallel_cases() { # WORKER PREFIX SPEC...
+  local worker="$1" prefix="$2" max active=0 i count
+  shift 2
+  local -a specs=("$@")
+  max="$(nproc)"
+  for i in "${!specs[@]}"; do
+    (
+      # shellcheck disable=SC2030 # the job's own count, by design
+      failures=0
+      "$worker" "${specs[i]}"
+      printf '%s\n' "$failures" >"$tmp/$prefix-$i.failures"
+    ) >"$tmp/$prefix-$i.log" 2>&1 &
+    active=$((active + 1))
+    if ((active >= max)); then
+      wait -n || true
+      active=$((active - 1))
+    fi
+  done
+  wait
+  for i in "${!specs[@]}"; do
+    cat -- "$tmp/$prefix-$i.log"
+    if count="$(cat -- "$tmp/$prefix-$i.failures" 2>/dev/null)" && [[ $count =~ ^[0-9]+$ ]]; then
+      # shellcheck disable=SC2031 # the parent's count, which the jobs left alone
+      failures=$((failures + count))
+    else
+      fail "${specs[i]%%|*}: the case's job ended before it reported"
+    fi
+  done
+}
+
 # A fresh scratch repository at $1: trunk holds the script, the loader, the
 # md-refs checker with an exclusion list that keeps its own copy out of its
 # scope, a settings file naming trunk as the base branch, one clean file and
@@ -691,7 +725,8 @@ cases=(
   "harness-settings|kendex.local.toml|all|$repo_plan"
   "workflow|.github/workflows/example.yml|all|$repo_plan"
 )
-for spec in "${cases[@]}"; do
+plan_consumer_case() { # SPEC
+  local spec="$1" name rest file area wanted d state status out err
   name="${spec%%|*}"; rest="${spec#*|}"
   file="${rest%%|*}"; rest="${rest#*|}"
   area="${rest%%|*}"; wanted="${rest#*|}"
@@ -707,16 +742,19 @@ for spec in "${cases[@]}"; do
         "${base_env[@]}" git -C "$d" update-ref refs/remotes/origin/trunk HEAD
         rm -- "${d:?}/$file" ;;
     esac
+    err="$tmp/plan-$name-$state-changed.err"
     status=0
-    out="$(cd -- "$d" && "${base_env[@]}" bash scripts/validate "$area" --changed refs/remotes/origin/trunk --list 2>"$tmp/plan.err")" || status=$?
+    out="$(cd -- "$d" && "${base_env[@]}" bash scripts/validate "$area" --changed refs/remotes/origin/trunk --list 2>"$err")" || status=$?
     if [[ $status == 0 && $out == "$wanted" ]]; then ok "$name selects its consumers when $state"; else fail "$name $state plan: $out"; fi
-    if out="$(cd -- "$d" && "${base_env[@]}" bash scripts/validate "$area" --list 2>"$tmp/plan.err")" && [[ $out == "$wanted" ]]; then
+    err="$tmp/plan-$name-$state-default.err"
+    if out="$(cd -- "$d" && "${base_env[@]}" bash scripts/validate "$area" --list 2>"$err")" && [[ $out == "$wanted" ]]; then
       ok "$name defaults to its consumers when $state"
     else
       fail "$name $state default plan: $out"
     fi
   done
-done
+}
+parallel_cases plan_consumer_case plan-case "${cases[@]}"
 
 d="$tmp/plan-rename"; fresh "$d"
 mkdir -p "$d/shell/Core"
