@@ -197,7 +197,7 @@ jarvis_lock_answer() {
 import json,sys
 d=json.load(sys.stdin)
 if d["retries"] != 0:
-    print("stale")
+    print("restarted")
 elif d["lifetime"]["kind"] == "ready":
     print(d["status"]["daemon"]["text"])
 else:
@@ -628,19 +628,36 @@ jarvis_gate="$sandbox/jarvis-first-reply-gate"
 jarvis_seen="$sandbox/jarvis-first-hello"
 expect "the test-only session holder enables" ok ipc shell setPluginEnabled acme.probe true
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/prepare.js" --gate-daemon "$jarvis_backend" "$jarvis_gate" "$jarvis_seen"
-jarvis_rescan
-jarvis_lock_case "Locked; no capture"
+# The gate holds every reply until the compositor confirms the lock, a poll
+# with no bound under load, so these cases run without the hello deadline.
+# The first-reply suppression check above proves that deadline.
 python3 - "$jarvis_service" <<'PY'
 from pathlib import Path
 import sys
 p=Path(sys.argv[1])
 s=p.read_text()
-needle="onLockedChanged: hello()"
+needle='if (root.cause === "") helloDeadline.start();'
 assert s.count(needle)==1
-p.write_text(s.replace(needle, 'onLockedChanged: if (lifetime.kind === "ready") hello()'))
+p.write_text(s.replace(needle, ""))
 PY
 jarvis_rescan
-jarvis_lock_case stale
+jarvis_lock_case "Locked; no capture"
+# Control: a service that neither resends hello on the startup lock nor
+# drops the reply to the earlier snapshot publishes that stale answer.
+python3 - "$jarvis_service" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1])
+s=p.read_text()
+for needle, replacement in (
+        ("onLockedChanged: hello()", 'onLockedChanged: if (lifetime.kind === "ready") hello()'),
+        ('if (message.daemon !== (lockObservation() ? "locked" : "ready")) continue;', "")):
+    assert s.count(needle)==1
+    s=s.replace(needle, replacement)
+p.write_text(s)
+PY
+jarvis_rescan
+jarvis_lock_case "Ready; no capture"
 cp -- "$sandbox/jarvis-service-original" "$jarvis_service"
 cp -- "$sandbox/jarvis-backend-original" "$jarvis_backend"
 jarvis_rescan
