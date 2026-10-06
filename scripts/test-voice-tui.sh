@@ -110,8 +110,9 @@ run_setup "$TMP_ROOT/home3" "$control"
 order="$(grep -E 'sudo voxtype setup onnx --enable|voxtype setup (--download --model parakeet-tdt-0.6b-v3 --no-post-install|systemd)|systemctl --user restart voxtype' "$TMP_ROOT/calls" | paste -sd '|' -)"
 if [[ $order == "$want" ]]; then fail "control sudo: setup still routed onnx through sudo"; else ok "control sudo turns the sudo route case red"; fi
 
-# Without voxtype on PATH, setup refuses with its keyed line before it
-# copies anything, and no shell error reaches the terminal.
+# Without voxtype on PATH, each Voice screen refuses with its keyed line
+# before it changes anything, and no shell error reaches the terminal. Each
+# screen's control is a copy without its check.
 no_voxtype="$TMP_ROOT/tools-no-voxtype"
 mkdir -p -- "$no_voxtype"
 for tool in "$tools"/*; do
@@ -119,13 +120,15 @@ for tool in "$tools"/*; do
 done
 missing_refused() { # HOME
   [[ $status == 1 && $(head -n 1 "$TMP_ROOT/err") == 'vgs-voice: refused: voxtype=missing' ]] &&
-    ! grep -q 'command not found' "$TMP_ROOT/err" && [[ ! -e $1/.config/voxtype ]]
+    ! grep -q 'command not found' "$TMP_ROOT/err" && [[ ! -e $1/.config/voxtype ]] &&
+    ! grep -q '^systemctl ' "$TMP_ROOT/calls"
 }
-run_setup "$TMP_ROOT/home4" "$plugin/tui/setup.sh" "$no_voxtype"
-if missing_refused "$TMP_ROOT/home4"; then ok "setup without voxtype refuses with one keyed line and copies nothing"; else fail "setup without voxtype: status=$status err=$(cat "$TMP_ROOT/err")"; fi
+for screen in setup configure model; do
+  run_setup "$TMP_ROOT/home-$screen" "$plugin/tui/$screen.sh" "$no_voxtype"
+  if missing_refused "$TMP_ROOT/home-$screen"; then ok "$screen without voxtype refuses with one keyed line and changes nothing"; else fail "$screen without voxtype: status=$status err=$(cat "$TMP_ROOT/err")"; fi
 
-control="$TMP_ROOT/setup-nocheck.sh"
-python3 - "$plugin/tui/setup.sh" "$control" <<'PY'
+  control="$TMP_ROOT/$screen-nocheck.sh"
+  python3 - "$plugin/tui/$screen.sh" "$control" <<'PY'
 import sys
 source = open(sys.argv[1]).read()
 needle = 'if ! command -v voxtype >/dev/null; then'
@@ -133,9 +136,10 @@ if source.count(needle) != 1:
     raise SystemExit('voxtype check count')
 open(sys.argv[2], 'w').write(source.replace(needle, 'if false; then'))
 PY
-chmod 755 "$control"
-run_setup "$TMP_ROOT/home5" "$control" "$no_voxtype"
-if missing_refused "$TMP_ROOT/home5"; then fail "control voxtype check: the copy without the check still refused cleanly"; else ok "control voxtype check turns the missing-voxtype case red (status=$status)"; fi
+  chmod 755 "$control"
+  run_setup "$TMP_ROOT/home-$screen-control" "$control" "$no_voxtype"
+  if missing_refused "$TMP_ROOT/home-$screen-control"; then fail "control voxtype check: the $screen copy without the check still refused cleanly"; else ok "control voxtype check turns the missing-voxtype $screen case red (status=$status)"; fi
+done
 
 if [[ $failures -gt 0 ]]; then
   printf 'test-voice-tui: failures=%d\n' "$failures"

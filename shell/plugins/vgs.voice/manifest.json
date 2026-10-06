@@ -144,7 +144,8 @@
       "script": "tui/setup.sh",
       "title": "Set up Voice",
       "requires": [
-        "voxtype"
+        "voxtype",
+        "systemctl"
       ],
       "entry": {
         "label": "Set up",
@@ -156,7 +157,8 @@
       "script": "tui/configure.sh",
       "title": "Configure Voice",
       "requires": [
-        "voxtype"
+        "voxtype",
+        "systemctl"
       ],
       "entry": {
         "label": "Configure",
@@ -168,7 +170,8 @@
       "script": "tui/model.sh",
       "title": "Choose Voice model",
       "requires": [
-        "voxtype"
+        "voxtype",
+        "systemctl"
       ],
       "entry": {
         "label": "Choose model",

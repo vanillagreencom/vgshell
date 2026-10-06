@@ -4,8 +4,11 @@
 # helper, reads setup offered while the stub model is missing and withheld
 # when the stub reports it installed, then disables the plugin and checks its
 # shortcuts, its status child and its bridge child are gone. Without
-# voxtype, Set up on the Settings page raises the requirement notice in
-# place of its script; Install hands the terminal voxtype-bin through the AUR helper,
+# voxtype, the openTui IPC function, the launcher's route, raises the
+# Voice requirement notice in place of Configure and opens no script; its
+# control is a disposable manifest copy whose Configure declares no
+# `requires`, which launches the script with no notice. Set up on the
+# Settings page raises the same notice in place of its script; Install hands the terminal voxtype-bin through the AUR helper,
 # the row puts the stubs back as the package step would, and the scan after
 # the run closes the notice and opens Set up on its own; the stubs then
 # report the model and the service in place, and the toggle shortcut runs a
@@ -654,6 +657,48 @@ device_reply systemctl 1 disabled --user is-enabled voxtype
 
 expect "enabling Voice without voxtype is allowed" ok ipc shell setPluginEnabled vgs.voice true
 expect_poll "Voice without voxtype is built" True record_exists vgs.voice
+
+# openTui, the route of the launcher and Dev Tools, judges the screen's
+# `requires` as Set up's press does: Configure without voxtype raises the
+# same notice and opens no script.
+forget_record
+expect "openTui of Configure without voxtype is answered" ok ipc shell openTui vgs.voice/configure
+expect_poll "openTui of Configure without voxtype raises the Voice notice in place of its script" "$voice_asked" notice_shown
+expect "the notice holds the Configure the open asked for" '{"vgs.voice": "configure"}' voice_resumes
+expect "no Configure run is asked for while the notice shows" idle key_idle vgs.voice/configure
+expect "the terminal is handed no Configure script" absent recorded
+voice_notice_escape "the Configure notice"
+expect "Not now drops the Configure" '{}' voice_resumes
+# Control: a disposable manifest copy whose Configure declares no
+# `requires`, voxtype being optional, leaves the judge no command to find
+# missing, so the same open launches the script and raises no notice.
+voice_manifest="$repo/shell/plugins/vgs.voice/manifest.json"
+cp -- "$voice_manifest" "$sandbox/voice-manifest-before"
+expect "disabling Voice for the requires control is allowed" ok ipc shell setPluginEnabled vgs.voice false
+python3 - "$voice_manifest" <<'PY'
+import json, sys
+from pathlib import Path
+p = Path(sys.argv[1]); assert not p.is_symlink()
+manifest = json.loads(p.read_text())
+assert "voxtype" in manifest["tui"]["configure"]["requires"]
+assert next(r for r in manifest["requirements"] if r["command"] == "voxtype")["optional"] is True
+del manifest["tui"]["configure"]["requires"]
+p.write_text(json.dumps(manifest, indent=2) + "\n")
+PY
+rescan "the Voice requires control copy is scanned"
+expect "enabling Voice for the requires control is allowed" ok ipc shell setPluginEnabled vgs.voice true
+expect_poll "Voice builds for the requires control" True record_exists vgs.voice
+forget_record
+expect "control: openTui of the copy's Configure is answered" ok ipc shell openTui vgs.voice/configure
+expect_poll "control: a Configure without requires launches its script" "$(words vgs.voice/configure tui/configure.sh)" recorded_tail
+expect "control: a Configure without requires raises no notice" null notice_shown
+expect_run_end "control: the Configure run ends" vgs.voice/configure
+expect "disabling Voice after the requires control is allowed" ok ipc shell setPluginEnabled vgs.voice false
+cp -- "$sandbox/voice-manifest-before" "$voice_manifest"
+rescan "the shipped Voice manifest is scanned again"
+expect "enabling Voice after the requires control is allowed" ok ipc shell setPluginEnabled vgs.voice true
+expect_poll "Voice builds after the requires control" True record_exists vgs.voice
+
 settings_page_open vgs.voice
 settings_details
 expect_poll "the Voice page offers Install and withholds Set up without voxtype" '[["voxtype", "Install\u2026", true], ["setup", "Set up", false]]' offered_actions vgs.voice

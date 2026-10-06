@@ -86,8 +86,9 @@ try {
   fs.rmSync(temp, { recursive: true, force: true });
 }
 // The requirement logic over the shipped manifest: every Voice screen runs
-// voxtype, so a press without it raises the requirement notice in place of
-// the script, which then opens the screen once voxtype is found.
+// voxtype and restarts its service through systemctl, so a press without
+// either raises the requirement notice in place of the script, which then
+// opens the screen once both are found.
 const pluginLogic = load(path.join(repo, "shell", "Core", "PluginLogic.js"));
 const manifestFile = path.join(repo, "shell", "plugins", "vgs.voice", "manifest.json");
 function verifyRequirements(raw) {
@@ -97,6 +98,7 @@ function verifyRequirements(raw) {
   const runner = { launcher: "present", busy: [], run: "r1" };
   for (const name of ["setup", "configure", "model"]) {
     same(pluginLogic.tuiMissingRequirements(judged.manifest, name, missing), ["voxtype"], `${name} without voxtype asks for it before its script`);
+    same(pluginLogic.tuiMissingRequirements(judged.manifest, name, ["systemctl"]), ["systemctl"], `${name} without systemctl asks for it before its script`);
     same(pluginLogic.tuiMissingRequirements(judged.manifest, name, []), [], `${name} with voxtype present runs its script`);
     same(pluginLogic.tuiRunFor(judged.manifest, true, "/src", runner, name, missing).kind, "install", `the ${name} press raises the requirement notice`);
   }
@@ -105,7 +107,7 @@ const shipped = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
 verifyRequirements(shipped);
 for (const name of ["setup", "configure", "model"]) {
   const unrequired = JSON.parse(JSON.stringify(shipped));
-  assert.deepEqual(unrequired.tui[name].requires, ["voxtype"], `control unrequired ${name}: the shipped screen requires voxtype`);
+  assert.deepEqual(unrequired.tui[name].requires, ["voxtype", "systemctl"], `control unrequired ${name}: the shipped screen requires voxtype and systemctl`);
   delete unrequired.tui[name].requires;
   assert.throws(() => verifyRequirements(unrequired), `control unrequired ${name}: a manifest copy whose ${name} does not require voxtype passed`);
 }

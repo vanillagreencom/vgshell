@@ -220,12 +220,34 @@ function suite(ctx, check) {
         ["a core TUI with no entry is not listed", [], "present", [], "core/quiet", ["refused: tui=core/quiet reason=undeclared", "none"]],
     ];
     for (const [name, enabledIds, launcher, busy, key, want] of openRows) {
-        const r = ctx.tuiOpen(manifests, enabledIds, "/run/src", "/core/bin", runner(launcher, busy), core, key);
+        const r = ctx.tuiOpen(manifests, enabledIds, "/run/src", "/core/bin", runner(launcher, busy), core, {}, key);
         check("tuiOpen: " + name, r.ok ? r.argv : [r.answer, r.action], want);
     }
-    check("tuiOpen keys a launch by the key it opened", ctx.tuiOpen(manifests, [], "/run/src", "/core/bin", runner("present", []), core, "core/doctor").key, "core/doctor");
-    check("tuiOpen hands a plugin launch the runner's run id", ctx.tuiOpen(manifests, ["acme.tui"], "/run/src", "/core/bin", runner("present", []), core, "acme.tui/update").run, "7-1");
-    check("tuiOpen names the busy key it asks to focus", ctx.tuiOpen(manifests, [], "/run/src", "/core/bin", runner("present", ["core/doctor"]), core, "core/doctor").key, "core/doctor");
+    check("tuiOpen keys a launch by the key it opened", ctx.tuiOpen(manifests, [], "/run/src", "/core/bin", runner("present", []), core, {}, "core/doctor").key, "core/doctor");
+    check("tuiOpen hands a plugin launch the runner's run id", ctx.tuiOpen(manifests, ["acme.tui"], "/run/src", "/core/bin", runner("present", []), core, {}, "acme.tui/update").run, "7-1");
+    check("tuiOpen names the busy key it asks to focus", ctx.tuiOpen(manifests, [], "/run/src", "/core/bin", runner("present", ["core/doctor"]), core, {}, "core/doctor").key, "core/doctor");
+    // tuiOpen of a plugin script whose commands are missing: [name, enabled
+    // ids, busy keys, missing names by owner, key, argv, the install
+    // request, or the answer and the action it asks for]. A script that
+    // lacks a command it needs raises its owner's notice, as tuiRunFor's
+    // does; `requires: []` needs none.
+    const needing = Object.assign({ __revision: "r3" }, ctx.validateManifest(Object.assign(manifestWith({
+        sync: { script: "tui/sync.sh", title: "Sync", requires: ["acme-sync"], entry: { label: "Sync now", icon: "refresh-cw", group: "Tools" } },
+        free: { script: "tui/free.sh", title: "Free", requires: [], entry: { label: "Free run", icon: "wrench", group: "Tools" } },
+    }), { id: "acme.req", requirements: [{ command: "acme-sync", purpose: "Syncs" }] }), "/q").manifest);
+    const needingArgv = (name, title) => ["launch", "--title", title, "--size", "default", "--presentation", "full", "--plugin", "acme.req", "--dir", "/run/src/r3", "--record", "acme.req/" + name, "--run", "7-1", "--", "tui/" + name + ".sh"];
+    const installRows = [
+        ["a script whose required command is missing raises its notice", ["acme.req"], [], { "acme.req": ["acme-sync"] }, "acme.req/sync", { ok: true, kind: "install", id: "acme.req", name: "sync" }],
+        ["a script whose required command is present launches", ["acme.req"], [], { "acme.req": [] }, "acme.req/sync", needingArgv("sync", "Sync")],
+        ["a script with requires [] launches while a command is missing", ["acme.req"], [], { "acme.req": ["acme-sync"] }, "acme.req/free", needingArgv("free", "Free")],
+        ["another owner's missing command holds nothing", ["acme.req"], [], { "acme.other": ["acme-sync"] }, "acme.req/sync", needingArgv("sync", "Sync")],
+        ["a disabled plugin is refused before its missing command", [], [], { "acme.req": ["acme-sync"] }, "acme.req/sync", ["refused: tui=acme.req/sync reason=disabled", "none"]],
+        ["a missing command is judged before a busy key, as tuiRunFor judges it", ["acme.req"], ["acme.req/sync"], { "acme.req": ["acme-sync"] }, "acme.req/sync", { ok: true, kind: "install", id: "acme.req", name: "sync" }],
+    ];
+    for (const [name, enabledIds, busy, missing, key, want] of installRows) {
+        const r = ctx.tuiOpen({ "acme.req": needing }, enabledIds, "/run/src", "/core/bin", runner("present", busy), core, missing, key);
+        check("tuiOpen: " + name, r.ok ? (r.kind === "install" ? r : r.argv) : [r.answer, r.action], want);
+    }
     // tuiCore: [name, launcher state, busy keys, core name, arguments, argv,
     // or the answer and the action it asks for]. The core opens its own
     // rows, listed or not, with arguments after their argv.
@@ -713,6 +735,7 @@ const CONTROLS = [
     ["open lists only a core TUI with an entry", "if (!hasOwn(core, name) || core[name].entry === null)", "if (!hasOwn(core, name))"],
     ["open needs an entry", " || manifests[owner].tui[name].entry === null)", ")"],
     ["open refuses a disabled plugin", "if (enabledIds.indexOf(owner) === -1)", "if (false)"],
+    ["open raises the notice for a script that lacks a command", "    if (tuiMissingRequirements(manifests[owner], name, hasOwn(missing, owner) ? missing[owner] : []).length > 0)\n        return { ok: true, kind: \"install\", id: owner, name: name };\n", ""],
     ["entries skip a script without an entry", "if (row.entry === null)\n            return;", "if (false)\n            return;"],
     ["entries list enabled plugins alone", "    enabledIds.forEach(function (id) {", "    Object.keys(manifests).forEach(function (id) {"],
     ["entries sort by key", "return rows.sort(function (a, b) { return a.key < b.key ? -1 : a.key > b.key ? 1 : 0; });", "return rows;"],

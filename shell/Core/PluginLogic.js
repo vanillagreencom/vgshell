@@ -2626,8 +2626,11 @@ function tuiCore(core, coreBin, runner, name, args) {
 // under SOURCE_DIR. Answers as tuiRun, with `reason=undeclared` for a key
 // nothing lists, `reason=disabled` for a plugin not in ENABLED_IDS, then
 // `reason=busy` or `reason=launcher-missing` as tuiRunnerRefusal decides
-// for RUNNER.
-function tuiOpen(manifests, enabledIds, sourceDir, coreBin, runner, core, key) {
+// for RUNNER. A plugin script that lacks a requirement its owner's entry
+// in MISSING, owner id -> missing requirement names, holds answers
+// { ok: true, kind: "install", id, name } in their place, as tuiRunFor
+// does, so every route that opens a listed script raises the same notice.
+function tuiOpen(manifests, enabledIds, sourceDir, coreBin, runner, core, missing, key) {
     var slash = typeof key === "string" ? key.indexOf("/") : -1;
     if (slash === -1)
         return tuiRefusal(key, "undeclared");
@@ -2642,6 +2645,8 @@ function tuiOpen(manifests, enabledIds, sourceDir, coreBin, runner, core, key) {
         return tuiRefusal(key, "undeclared");
     if (enabledIds.indexOf(owner) === -1)
         return tuiRefusal(key, "disabled");
+    if (tuiMissingRequirements(manifests[owner], name, hasOwn(missing, owner) ? missing[owner] : []).length > 0)
+        return { ok: true, kind: "install", id: owner, name: name };
     var pluginRefusal = tuiRunnerRefusal(runner, key, key);
     if (pluginRefusal !== null)
         return pluginRefusal;
