@@ -15,8 +15,8 @@
 # before vgs.voice and vgs.webapps shipped, both are on after it and Voice's
 # widget is placed, while vgs.tray, which the user file turned off, stays
 # off. The control starts a tree whose firstPresence names nothing, whose
-# frame opens no menu on a right click, whose enablement rule asks every
-# first-party plugin for a plugins row and whose disabled check lets
+# frame opens no menu on a right click, whose enablement rule asks
+# vgs.voice and vgs.webapps for a plugins row and whose disabled check lets
 # vgs.tray past: an
 # installed widget then stays off the bar, the right click opens nothing,
 # the two shipped plugins stay off and vgs.tray comes on. The row
@@ -135,14 +135,14 @@ settings_page_close acme.hideable
 
 # The control: no first presence and no menu. An installed widget stays
 # off the bar, and a right click on a placed widget opens nothing. The same
-# copy gives every first-party plugin the row rule, so the user file from
-# before vgs.voice and vgs.webapps shipped leaves both off, and lets
+# copy gives vgs.voice and vgs.webapps the row rule, so the user file from
+# before they shipped leaves both off, and lets
 # vgs.tray past isEnabled's disabled
 # check, so the plugin the user turned off comes on.
 if copy_tree widget-hide-control \
   && edit_tree widget-hide-control shell/Core/PluginLogic.js 'return !isPlaced(effective, m) && pluginRow(effective, id) === undefined;' 'return false;' \
   && edit_tree widget-hide-control shell/Ui/BarWidget.qml 'frameUi.item.openMenu();' '' \
-  && edit_tree widget-hide-control shell/Core/PluginLogic.js 'return manifest.id.indexOf(FIRST_PARTY_PREFIX) === 0 ? "first-party" : "row";' 'return "row";' \
+  && edit_tree widget-hide-control shell/Core/PluginLogic.js 'return manifest.id.indexOf(FIRST_PARTY_PREFIX) === 0 ? "first-party" : "row";' 'return manifest.id.indexOf(FIRST_PARTY_PREFIX) === 0 && manifest.id !== "vgs.voice" && manifest.id !== "vgs.webapps" ? "first-party" : "row";' \
   && edit_tree widget-hide-control shell/Core/PluginLogic.js $'if (disabled.indexOf(manifest.id) !== -1)\n        return false;' $'if (disabled.indexOf(manifest.id) !== -1 && manifest.id !== "vgs.tray")\n        return false;'; then
   stop_shell
   hide_before_update || fail "control: the user file from before the shipped plugins could not be written"
