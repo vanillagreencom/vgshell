@@ -28,7 +28,7 @@ cp -R "$repo/scripts/smoke/fixtures/plugins/acme.bare/." "$bare/"
 # The fixture reaches the user directory the way a user's plugin does:
 # committed to a repository and installed with `vgshell plugin add`.
 fixture_git() { "${sandbox_env[@]}" git -C "$fixture" -c user.name=smoke -c user.email=smoke@invalid "$@" >>"$sandbox/git.log" 2>&1; }
-if fixture_git init -q && fixture_git add -A && fixture_git commit -q -m fixture; then ok "fixture committed to a local repository"; else fail "fixture repository: $(tail -n 3 "$sandbox/git.log")"; fi
+if ! fixture_git init -q || ! fixture_git add -A || ! fixture_git commit -q -m fixture; then fail "fixture repository: $(tail -n 3 "$sandbox/git.log")"; fi
 add_out=""
 # --yes answers the add question; the plugin has a bar widget, so add says
 # it lands shown and writes its placement before the rescan.
@@ -73,9 +73,7 @@ read_widget() { ipc smoke readInstance "$(bar_key)" acme.probe "$1"; }
 read_service() { ipc smoke readInstance service acme.probe "$1"; }
 read_clock() { ipc smoke readInstance "$(bar_key)" vgs.bar/center-clock "$1"; }
 read_tick() { ipc smoke readInstance "$(bar_key)" acme.tick "$1"; }
-got=""
-for _ in $(seq 1 25); do if got="$(service_built)" && [[ $got == True ]]; then break; fi; sleep 0.2; done
-if [[ $got == True ]]; then ok "the service host built the fixture service"; else fail "service host: built=$got"; fi
+expect_poll "the service host built the fixture service" True service_built
 expect_widgets "the fixture widget joined the right section" '["acme.tick","acme.probe"]'
 expect "the fixture widget can call its compositor capability" true read_widget hasCompositor
 expect "the fixture widget's settings array stayed an array" true read_widget tagsAreArray
@@ -125,17 +123,18 @@ json.dump(d, open(p + ".tmp", "w"), indent=2)
 os.replace(p + ".tmp", p)
 PY
   expect_poll "the built-in clock received the bar's changed setting" '"HH:mm:ss"' read_clock format
-  # The shared clock ticks seconds only while a format shows them: three
-  # readings across 2.2 s change at least twice at second precision.
-  clock_changes=0; clock_last=""
-  for _ in 1 2 3; do
-    if clock_now="$(ipc smoke textOf "$(bar_key)" vgs.bar/center-clock)"; then
-      [[ -n $clock_last && $clock_now != "$clock_last" ]] && clock_changes=$((clock_changes + 1))
+  clock_last="$(ipc smoke textOf "$(bar_key)" vgs.bar/center-clock)" || fail "clock text unreadable before seconds poll"
+  clock_first="$clock_last"
+  clock_changes=0
+  clock_deadline=$(( $(now_ms) + 15000 ))
+  while ((clock_changes < 2 && $(now_ms) < clock_deadline)); do
+    if clock_now="$(ipc smoke textOf "$(bar_key)" vgs.bar/center-clock)" && [[ $clock_now != "$clock_last" ]]; then
+      clock_changes=$((clock_changes + 1))
       clock_last="$clock_now"
     fi
-    sleep 1.1
+    ((clock_changes >= 2)) || sleep 0.2
   done
-  if [[ $clock_changes -ge 2 ]]; then ok "the shared clock ticks seconds for a seconds format"; else fail "clock text changed $clock_changes times in 2.2 s"; fi
+  if ((clock_changes >= 2)); then ok "the shared clock ticks seconds for a seconds format"; else fail "clock text changed $clock_changes times before the deadline: first=$clock_first last=$clock_last"; fi
   expect "a bar settings change rebuilds nothing" "$before" builds
   expect_builtins "the built-ins stay registered across a bar settings change" '["vgs.bar/center-clock","vgs.bar/left-workspaces"]'
 else

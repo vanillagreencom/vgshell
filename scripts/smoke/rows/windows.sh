@@ -173,7 +173,7 @@ panel_edge() {
 }
 render expect "the themes panel's layer edge draws no window border" none panel_edge
 panel_before="$(layers_of vgs:panel)"
-hypr dispatch 'hl.dsp.window.move({ x = 40, y = 30, relative = true, window = "title:^Themes$" })' >/dev/null || true
+expect "a move dispatch aimed at the themes panel answers ok" ok hypr dispatch 'hl.dsp.window.move({ x = 40, y = 30, relative = true, window = "title:^Themes$" })'
 geometry expect "a move aimed at the themes panel moves no layer" "$panel_before" layers_of vgs:panel
 window_border_off
 expect "hiding the themes panel after the window rows is allowed" ok ipc shell hide panel vgs.themes

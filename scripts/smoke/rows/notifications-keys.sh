@@ -27,14 +27,27 @@
 # sandbox on 2026-10-02.
 # No latency is measured; each reading polls every 200 ms for up to 5 s.
 # A press that reaches nothing changes nothing to poll for, so the
-# controls read their press once nk_quiet_s has passed.
-# inputs: shell/plugins/vgs.notifications/* shell/Hosts/SummonLayer.qml scripts/smoke/rows/notifications.sh scripts/smoke/rows/hyprland-consent.sh
+# controls read after a native key marker on the same virtual keyboard.
+# inputs: shell/plugins/vgs.notifications/* shell/Hosts/SummonLayer.qml scripts/smoke/toplevel/* scripts/smoke/rows/notifications.sh scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 
-nk_quiet_s=1.5
 nk_hypr_lua="$home/.config/hypr/hyprland.lua"
 read -r mon_w mon_h < <(hypr -j monitors | py_reply 'import json,sys; m=json.load(sys.stdin)[0]; print(m["width"], m["height"])')
 nk_press() { type_keys -M logo -k n -m logo; }
+nk_press_with_key_marker() { type_keys -M logo -k n -m logo -k F9; }
+nk_key_marker_after() { # COUNT
+  local now
+  now="$(ipc smoke holdMarkerCount)" || return
+  [[ $now =~ ^[0-9]+$ && $now -gt $1 ]] && echo marked || echo "$now"
+}
+nk_key_barrier() { # LABEL BEFORE
+  expect_poll "$1" marked nk_key_marker_after "$2"
+}
+nk_client_marker_after() { # LOG BEFORE
+  local now
+  now="$(log_lines '^key [0-9]+ released$' "$1")" || return
+  [[ $now =~ ^[0-9]+$ && $now -gt $2 ]] && echo marked || echo "$now"
+}
 # The inbox as the user sees it: open, closed, or the readings between.
 inbox_shown() {
   local layers window
@@ -142,6 +155,11 @@ nk_presses() {
 }
 
 hypr_lua_save notifications-keys
+printf '%s\n' 'hl.bind("code:67", hl.dsp.global("smoke:hold-marker"), { description = "smoke:hold-marker", ignore_mods = true })' >>"$nk_hypr_lua"
+printf '%s\n' 'hl.bind("code:75", hl.dsp.global("smoke:hold-marker"), { description = "smoke:hold-marker", ignore_mods = true })' >>"$nk_hypr_lua"
+printf '%s\n' 'hl.bind("F9", hl.dsp.global("smoke:hold-marker"), { description = "smoke:hold-marker", ignore_mods = true })' >>"$nk_hypr_lua"
+expect "the notifications key row registers its ordering marker" ok hypr reload config-only
+expect "the observer provides the notifications key ordering marker" ok ipc smoke holdMarkerStart
 expect "enabling the notifications for the key rows is allowed" ok ipc shell setPluginEnabled vgs.notifications true
 expect_poll "the notification service for the key rows is built" True record_exists vgs.notifications
 expect_poll "the compositor lists the inbox shortcut for the key rows" 1 note_shortcuts
@@ -150,9 +168,18 @@ expect_poll "the key rows' notification is live" True has_row live "Key rows"
 expect "the inbox starts closed" closed inbox_shown
 
 # Control: Hyprland's default bind resolution, the live session's.
-nk_press || fail "control default resolution: the press failed"
-sleep "$nk_quiet_s"
-expect "control: with the default bind resolution a typed Super+N leaves the inbox closed" closed inbox_shown
+nk_marker_log="$sandbox/notifications-keys-marker.log"
+if open_toplevel "$nk_marker_log" smoke.notifications-keys-marker "Notifications key marker"; then
+  nk_marker_pid="$toplevel_pid"
+  expect_poll "the notifications key marker client has keyboard focus" '["smoke.notifications-keys-marker", "Notifications key marker"]' active_window
+  nk_marker_before="$(log_lines '^key [0-9]+ released$' "$nk_marker_log")" || { fail "control default resolution: the marker log is unreadable"; nk_marker_before=0; }
+  nk_press_with_key_marker || fail "control default resolution: the press and marker failed"
+  expect_poll "control default resolution: the marker key is processed after Super+N" marked nk_client_marker_after "$nk_marker_log" "$nk_marker_before"
+  expect "control: with the default bind resolution a typed Super+N leaves the inbox closed" closed inbox_shown
+  close_toplevel "$nk_marker_pid" "the notifications key marker exits"
+else
+  fail "the notifications key marker client maps"
+fi
 
 printf '%s\n' 'hl.config({ input = { resolve_binds_by_sym = true } })' >>"$nk_hypr_lua"
 expect "the nested instance reloads with binds resolved by symbol" ok hypr reload config-only
@@ -260,6 +287,7 @@ PY
   release_mode "the first monitor gets its own mode at scale 1 back after the short room" "$nk_output" "$nk_base"
   start_shell "$repo" "$sandbox/notifications-keys-restart.log" || fail "the shell starts again after the short room"
   expect_poll "the service is built after the short room" True record_exists vgs.notifications
+  expect "the observer provides the notifications key ordering marker after the short room" ok ipc smoke holdMarkerStart
 else
   fail "$nk_room_error"
 fi
@@ -285,8 +313,9 @@ expect_poll "the summon-only service copy is built" True record_exists vgs.notif
 expect_poll "the summon-only copy's shortcut is listed" 1 note_shortcuts
 nk_press || fail "control summon-only: the first press failed"
 expect_poll "control summon-only: the first press opens the inbox" open inbox_shown
-nk_press || fail "control summon-only: the second press failed"
-sleep "$nk_quiet_s"
+nk_marker_before="$(ipc smoke holdMarkerCount)" || { fail "control summon-only: the marker count is unreadable before the second Super+N"; nk_marker_before=0; }
+nk_press_with_key_marker || fail "control summon-only: the second press and marker failed"
+nk_key_barrier "control summon-only: the marker key is processed after the second Super+N" "$nk_marker_before"
 expect_poll "control: the summon-only copy leaves the inbox open on the second press" open inbox_shown
 type_keys -k Escape || fail "control summon-only: Escape failed"
 expect_poll "control summon-only: Escape closes the inbox" closed inbox_shown
@@ -294,5 +323,6 @@ expect "disabling the summon-only service copy is allowed" ok ipc shell setPlugi
 expect_poll "the summon-only service copy is gone" False record_exists vgs.notifications
 cp -- "$sandbox/Service.qml.keys-kept" "$nk_service"
 rescan "a rescan restores the service"
+expect "the observer releases the notifications key ordering marker" ok ipc smoke holdMarkerStop
 hypr_lua_restore notifications-keys || fail "the key rows put the harness hyprland.lua back"
 expect "the nested instance reloads the harness hyprland.lua after the key rows" ok hypr reload config-only

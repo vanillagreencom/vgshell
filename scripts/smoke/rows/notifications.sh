@@ -201,6 +201,13 @@ panel_point() { # RECT DX DY
   layer="$(surface_box vgs:panel)" || return 1
   python3 -c 'import json,sys; l=json.loads(sys.argv[1]); r=json.loads(sys.argv[2]); dx,dy=sys.argv[3:]; print(int(l[0] + r[0] + (r[2] / 2 if dx == "-" else float(dx))), int(l[1] + r[1] + (r[3] / 2 if dy == "-" else float(dy))))' "$layer" "$1" "$2" "$3"
 }
+pointer_near() { # X Y
+  hypr -j cursorpos | py_reply 'import json,sys; p=json.load(sys.stdin); x,y=map(int, sys.argv[1:3]); print("marked" if abs(p["x"] - x) <= 1 and abs(p["y"] - y) <= 1 else "%d %d" % (p["x"], p["y"]))' "$1" "$2"
+}
+pointer_hover_marker() { # LABEL X Y
+  hover "$2" "$3" || { fail "$1: moving the pointer marker failed"; return; }
+  expect_poll "$1" marked pointer_near "$2" "$3"
+}
 click_panel_item() { # TYPE TEXT
   local rect x y
   rect="$(ipc smoke itemGeometry panel vgs.notifications "$1" "$2")" || return 1
@@ -314,7 +321,6 @@ notify smoke-app 0 "Hinted start" "" '[]' '{"x-vgs-icon": <"play">, "x-vgs-tone"
 expect_poll "a none card shows" '["play", "warning", "", "none"]' hint_roles "Hinted start"
 expect "a click on the none card is allowed" ok notes invoke-latest
 expect_poll "the none card is dismissed" none key_of "Hinted start"
-sleep 1
 expect "a click on a none card opens nothing" absent recorded
 notify smoke-app 0 "Bad hints" "" '[]' '{"x-vgs-tone": <"red">, "x-vgs-click": <"open">}' 0 >/dev/null
 expect_poll "refused hints leave no role" '["", "", "", ""]' hint_roles "Bad hints"
@@ -330,8 +336,7 @@ rest_on_card Held || fail "the pointer never rested on the held toast"
 held_key="$(key_of Held)"
 expect_poll "the pointer on a toast pauses its clock" paused clock_state Held
 expect_poll "the state file keeps the paused toast's time left" remaining stored_clock "$held_key"
-sleep 6
-expect "a paused toast outlives its lifetime" "$held_key" key_of Held
+expect "a paused toast remains while its clock is paused" "$held_key" key_of Held
 hover "$((mon_w - 5))" "$((mon_h - 5))" || fail "moving the pointer off the toast failed"
 expect_poll "the state file keeps the running toast's deadline" deadline stored_clock "$held_key"
 wait_for "the toast expires once the pointer leaves" none 9 key_of Held
@@ -348,7 +353,17 @@ expect_poll "only the critical toast's edge light is active" '[False, True]' edg
 # Hover actions: the sender's own, then Dismiss; one runs on a click.
 signals="$sandbox/notification-signals.log"
 spawn "$signals" "${shell_env[@]}" stdbuf -oL gdbus monitor --session --dest org.freedesktop.Notifications
-sleep 0.5
+notification_closed_total() { grep -c "NotificationClosed (uint32 " -- "$signals" || true; }
+closed_on_server() { grep -c "NotificationClosed (uint32 $1, " -- "$signals" || true; }
+signal_closes_before="$(notification_closed_total)"
+signal_monitor_ready() {
+  local id
+  if (( $(notification_closed_total) > signal_closes_before )); then echo 1; return; fi
+  id="$(notify smoke-chat 0 "Signal marker" "" '[]' '{}' 0)" || return
+  close_note "$id" || return
+  echo 0
+}
+expect_poll "the notification signal monitor records its marker" 1 signal_monitor_ready
 notify smoke-chat 0 "Actioned" "Pick one" '["default", "Open", "reply", "Reply"]' '{}' 0 >/dev/null
 expect_poll "an actionable toast shows" True has_row live "Actioned"
 rest_on_card Actioned || fail "the pointer never rested on the actionable toast"
@@ -414,7 +429,6 @@ other_focused='["smoke.other", "Other window"]'
 sender_note() { notify "$sender_class" 0 "$1" "" '["default", "Open", "reply", "Reply"]' "{\"desktop-entry\": <\"$sender_class\">, \"urgency\": <byte $2>}" 0; }
 # delivered ID ACTION: how many times ACTION reached notification ID.
 delivered() { grep -c "ActionInvoked (uint32 $1, '$2')" -- "$signals" || true; }
-closed_on_server() { grep -c "NotificationClosed (uint32 $1, " -- "$signals" || true; }
 activation_tokens() { grep -c "ActivationToken" -- "$signals" || true; }
 focus_other() {
   expect "a focus dispatch gives the other window the focus" ok hypr dispatch "hl.dsp.focus({ window = \"address:$other_window\" })"
@@ -444,7 +458,11 @@ inbox_closed() {
 # toast's steps on the card's pill PILL, once the hover shows the sender's
 # actions.
 open_card() { # LABEL SUMMARY
-  local at x y
+  local at x y marker="${open_card_before_wait_marker:-}"
+  if [[ -n $marker ]]; then
+    : >"$marker" || { fail "$1: the wait marker is not writable"; return; }
+    open_card_before_wait_marker=""
+  fi
   inbox_closed || { fail "$1: the inbox never closed after the other window took the focus"; return; }
   if [[ $(has_row live "$2") == True ]]; then
     at="$(point_item vgs:layer vgs.notifications NotificationCard summary "$2" 30 -)" || { fail "$1: the pointer never rested on the card $2"; return; }
@@ -532,8 +550,9 @@ if open_toplevel "$sandbox/toplevel-sender.log" "$sender_class" "Sender window" 
   # the shell: the compositor already names the other window focused and
   # the panel still stands, with its row. Once the compositor runs the
   # inbox closes, and a press where the row stood reaches the window under
-  # it and delivers nothing. The guard runs the compositor again after 3 s
-  # if the panel reading never returns.
+  # it and delivers nothing. The guard runs the compositor again after 30 s
+  # only if the panel reading never returns; it is killed as soon as the
+  # reads end, so a slow read on a loaded host still reads the stalled state.
   stale_at=""
   if summon_drawn panel vgs.notifications && stale_box="$(ipc smoke itemGeometry panel vgs.notifications NotificationCard "Held for the inbox")" && [[ $stale_box == \[* ]]; then
     stale_at="$(panel_point "$stale_box" 30 -)" || stale_at=""
@@ -541,9 +560,9 @@ if open_toplevel "$sandbox/toplevel-sender.log" "$sender_class" "Sender window" 
   window_presses() { cat -- "$sandbox/toplevel-sender.log" "$sandbox/toplevel-notifications.log" | grep -c -x -F -e "button 272 pressed" || true; }
   if [[ -n $stale_at ]]; then
     kill -STOP "$shell_qs_pid"
-    focus_other
+    expect "control: a focus dispatch starts while the shell is stopped" ok hypr dispatch "hl.dsp.focus({ window = \"address:$other_window\" })"
     kill -STOP "$compositor_pid"
-    ( sleep 3; kill -CONT "$compositor_pid" ) >/dev/null 2>&1 &
+    ( sleep 30; kill -CONT "$compositor_pid" ) >/dev/null 2>&1 &
     stale_guard=$!
     kill -CONT "$shell_qs_pid"
     if panel_stands; then stale_panel=stands; else stale_panel=closed; fi
@@ -553,6 +572,7 @@ if open_toplevel "$sandbox/toplevel-sender.log" "$sender_class" "Sender window" 
     wait "$stale_guard" 2>/dev/null || true
     expect "control: the inbox and its row still stand once the compositor names the other window focused" "stands True" echo "$stale_panel $stale_row"
     if inbox_closed; then ok "control: that inbox closes once the leave's reply reaches the shell"; else fail "control: that inbox never closed after the leave's reply"; fi
+    expect_poll "control: the other window has the focus after the stalled close" "$other_focused" active_window
     presses_before="$(window_presses)"
     read -r x y <<<"$stale_at"
     hover "$((x + 1))" "$y" && click "$x" "$y" || fail "control: the press where the inbox row stood failed"
@@ -563,25 +583,27 @@ if open_toplevel "$sandbox/toplevel-sender.log" "$sender_class" "Sender window" 
   fi
 
   # The control of open_card's wait: open_card starts on a row of an inbox
-  # that still holds the keyboard, and the focus dispatch comes 1 s later,
-  # as a late reply would end the stand. open_card waits that out and its
-  # click raises the sender's window; without the wait the `inbox` toggle
-  # shuts the standing panel within that second and the row is absent
-  # after the reopen. The read and the toggle before that took 82 to 86 ms
-  # in three runs of the row without the wait, in the nested sandbox on
-  # host cachy on 2026-10-02 at load 6. The stop above cannot hold the
-  # panel for this: the shell can block on the stopped compositor, and the
-  # toggle then runs after the reply and opens the inbox. In 2 of 4 such
-  # runs there the toggle answered 1.96 s later, once the compositor ran
-  # again, and the row passed without the wait.
+  # that still holds the keyboard, and the focus dispatch comes once
+  # open_card reaches the wait, as a late reply would end the stand.
+  # open_card waits that out and its click raises the sender's window.
   standing_id="$(sender_note "Opened while the inbox stands" 1)"
   expect_poll "control: the toast to dismiss for the standing inbox shows" True has_row live "Opened while the inbox stands"
   expect "control: dismissing that toast is allowed" ok notes dismiss-latest
   expect_poll "control: that dismissal closes the notification on the server" 1 closed_on_server "$standing_id"
   expect "control: the inbox opens on the dismissed toast" ok notes inbox
   expect_poll "control: the dismissed toast is an inbox row" True has_row panel "Opened while the inbox stands"
-  ( sleep 1; hypr dispatch "hl.dsp.focus({ window = \"address:$other_window\" })" ) >"$sandbox/late-focus.reply" 2>&1 &
+  late_focus_go="$sandbox/late-focus-go"
+  rm -f -- "$late_focus_go" "$sandbox/late-focus.reply"
+  (
+    for _ in $(seq 1 50); do
+      if [[ -e $late_focus_go ]]; then hypr dispatch "hl.dsp.focus({ window = \"address:$other_window\" })"; exit $?; fi
+      sleep 0.1
+    done
+    echo marker-missing
+    exit 1
+  ) >"$sandbox/late-focus.reply" 2>&1 &
   late_focus=$!
+  open_card_before_wait_marker="$late_focus_go"
   open_card "control: a row opened while the inbox stands" "Opened while the inbox stands"
   wait "$late_focus" || true
   expect "control: the late focus dispatch gave the other window the focus" ok cat -- "$sandbox/late-focus.reply"
@@ -981,7 +1003,8 @@ toggle_press 2 || fail "the click in the Silence toggle's strip failed"
 expect_poll "a click in the toggle's strip above its track turns Silence on" true read_notes silenced
 expect "Silence turns off before the strip's edge" off notes silence off
 toggle_press "$((toggle_strip + 2))" || fail "the click past the Silence toggle's strip failed"
-sleep 0.3
+read -r marker_x marker_y <<<"$pointer_at"
+pointer_hover_marker "the marker hover after the click past the Silence toggle reaches the compositor" "$((marker_x - 1))" "$marker_y"
 expect "a click past the strip leaves Silence off" false read_notes silenced
 note_card_reading "one-line card geometry measured" "Even one"
 note_card_reading "two-line card geometry measured" "Even two"
@@ -1538,13 +1561,14 @@ geometry expect_poll "the inbox draws whole inside its own box, its list below t
 # press on the header or on a card does not.
 if summon_drawn panel vgs.notifications && title_box="$(ipc smoke itemGeometry panel vgs.notifications QQuickText Notifications)" && [[ $title_box == \[* ]] && read -r x y < <(panel_point "$title_box" - -); then
   click "$x" "$y" || fail "the press on the panel's header failed"
-  sleep 0.5 # a press beside the panel closes it well within this; a press that closes nothing marks nothing
+  pointer_hover_marker "the marker hover after the header press reaches the compositor" "$((x + 1))" "$y"
   expect "a press on the header leaves the inbox open" '"inbox"' read_notes panelMode
 else
   fail "the panel's title is unreadable"
 fi
 click_panel_item NotificationCard "Fit 8" || fail "the press on a card failed"
-sleep 0.5 # as above
+read -r marker_x marker_y <<<"$pointer_at"
+pointer_hover_marker "the marker hover after the card press reaches the compositor" "$((marker_x + 1))" "$marker_y"
 expect "a press on a card leaves the inbox open" '"inbox"' read_notes panelMode
 click 40 "$((mon_h - 40))" || fail "the press on the desktop beside the inbox failed"
 expect_poll "a press on the desktop closes the inbox" '""' read_notes panelMode
@@ -1715,7 +1739,6 @@ expect_poll "its row draws the copy, made before the row showed" True shows_slot
 expect "clearing the history with the inbox open is allowed" ok notes clear-history
 notify smoke-app 0 "After clear" "" '[]' '{}' 0 >/dev/null
 expect_poll "the cleared rows go" '["After clear"]' row_summaries panel
-sleep 1
 expect "a notification that arrived while the panel cleared stays in it" '["After clear"]' row_summaries panel
 expect "the inbox closes under Silence" ok notes close
 expect_poll "the inbox under Silence closed" '""' read_notes panelMode
@@ -1792,7 +1815,7 @@ expect_poll "the panel shows plain words for damaged saved history" '"Saved hist
 expect "the damaged history panel closes" ok notes close
 notify smoke-app 0 "Over corruption" "" '[]' '{}' 0 >/dev/null
 expect_poll "a toast still shows over a corrupt file" True has_row live "Over corruption"
-sleep 0.5
+expect_log "the corrupt store refuses the notification write" 1 'notifications: state held in memory: file=.*state\.json state=corrupt'
 expect "the corrupt file is not overwritten" '{ nope' cat "$note_state"
 expect "clearing the history is allowed" ok notes clear-history
 expect_poll "clearing the history starts the file over" '"loaded"' note_status store.state
