@@ -14,7 +14,7 @@ One installer gives every channel the same file set, and the install method deci
 
 - Do install through `packaging/install-system.sh` with `DESTDIR` and `PREFIX`; it writes only under `DESTDIR` from a read-only source. `scripts/test-install-tree.sh` pins it.
 - Do commit `packaging/install-tree.manifest` after adding a shipped file, through `scripts/check-install-tree.sh --write`; every package build and the read-only-prefix smoke row run the check.
-- The SPDX licence expression of a VGS package is `MIT AND OFL-1.1 AND ISC AND Apache-2.0`.
+- The SPDX licence expression of a VGS package is `MIT AND OFL-1.1 AND ISC AND Apache-2.0 AND CC-BY-SA-4.0`.
 - Do keep that expression in every recipe, and raise a `preflight_floor` in `bin/vgshell` and every recipe together; `scripts/check-packaging.js` reads the expression from the line above and refuses a recipe that differs.
 - Do read the version from `VERSION` beside `bin/`, never from a package manager; `scripts/test-vgshell-version.sh` pins it.
 - Do pack a commit, never the working tree, through `scripts/lib/release-tarball.sh`; `scripts/test-release.sh` pins the parity.

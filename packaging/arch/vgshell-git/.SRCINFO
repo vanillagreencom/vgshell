@@ -5,7 +5,7 @@ pkgbase = vgshell-git
 	url = https://github.com/vanillagreencom/vgshell
 	install = vgshell-git.install
 	arch = any
-	license = MIT AND OFL-1.1 AND ISC AND Apache-2.0
+	license = MIT AND OFL-1.1 AND ISC AND Apache-2.0 AND CC-BY-SA-4.0
 	makedepends = git
 	depends = quickshell>=0.3.1
 	depends = hyprland>=0.56

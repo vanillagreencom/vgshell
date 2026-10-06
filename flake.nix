@@ -114,7 +114,7 @@
           meta = {
             description = "Desktop shell for Hyprland on Quickshell";
             homepage = "https://github.com/vanillagreencom/vgshell";
-            license = with lib.licenses; [ mit ofl isc asl20 ];
+            license = with lib.licenses; [ mit ofl isc asl20 cc-by-sa-40 ];
             platforms = systems;
             mainProgram = "vgshell";
           };

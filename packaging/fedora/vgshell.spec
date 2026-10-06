@@ -8,7 +8,7 @@ Name:           vgshell
 Version:        0.1.0
 Release:        1%{?dist}
 Summary:        Desktop shell for Hyprland on Quickshell
-License:        MIT AND OFL-1.1 AND ISC AND Apache-2.0
+License:        MIT AND OFL-1.1 AND ISC AND Apache-2.0 AND CC-BY-SA-4.0
 URL:            https://github.com/vanillagreencom/vgshell
 Source0:        %{url}/releases/download/v%{version}/vgshell-%{version}.tar.gz
 BuildArch:      noarch
