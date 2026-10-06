@@ -302,8 +302,13 @@ function parseBootTime(text) {
     return null;
 }
 
+// Only a snapshot read from the cache at start can come from an earlier
+// boot: one the service took from its own check run was taken in this boot,
+// even when the wall clock has since stepped back past BOOTEDAT. BOOTEDAT
+// and a cached snapshot's checkedAt are both wall-clock values from before
+// any later step, so they compare.
 function snapshotBeforeBoot(snapshot, bootedAt) {
-    return snapshot !== null && typeof bootedAt === "number" && snapshot.checkedAt < bootedAt;
+    return snapshot !== null && snapshot.cached === true && typeof bootedAt === "number" && snapshot.checkedAt < bootedAt;
 }
 
 function nextCheckDelay(snapshot, checking, now, interval, failedAt, bootedAt) {

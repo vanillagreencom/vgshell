@@ -12,6 +12,9 @@ Item {
 
     property var shell: null
     property bool registered: false
+    // `cached` on the snapshot is true when it was read from the cache at
+    // start, the one origin that can predate this boot
+    // (UpdatesLogic.snapshotBeforeBoot); nothing publishes or writes it.
     property var snapshot: null
     // Whether the startup reads have answered, loaded or failed: until then
     // no timer is set, so a service rebuilt with a fresh cache does not
@@ -129,13 +132,13 @@ Item {
         cadence.restart();
     }
 
-    function acceptText(text) {
+    function acceptText(text, cached) {
         const judged = Logic.parseSnapshotText(text);
         if (!judged.ok) {
             console.warn("updates: cache refused: " + judged.error);
             return false;
         }
-        snapshot = judged.snapshot;
+        snapshot = Object.assign(judged.snapshot, { cached: cached });
         checkFailure = "";
         failedAt = -1;
         publishNow();
@@ -164,7 +167,7 @@ Item {
         printErrors: false
         onLoaded: {
             root.cacheRead = true;
-            root.acceptText(text());
+            root.acceptText(text(), true);
             root.maybeCheck();
         }
         onLoadFailed: error => {
@@ -202,7 +205,7 @@ Item {
             const done = completion;
             completion = null;
             root.checking = false;
-            if (done !== null && done.code === 0 && root.acceptText(checkOut.text)) {
+            if (done !== null && done.code === 0 && root.acceptText(checkOut.text, false)) {
                 root.checkFailure = "";
                 root.failedAt = -1;
             } else {

@@ -61,10 +61,18 @@ function verify(logic) {
   assert.equal(logic.parseBootTime("cpu  1 2 3\nbtime 12345\nintr 9\n"), 12345000);
   assert.equal(logic.parseBootTime("cpu  1 2 3\n"), null);
   assert.equal(logic.parseBootTime("btime nope\n"), null);
-  assert.equal(logic.nextCheckDelay({ checkedAt: now - 2, sources: [], error: null }, false, now, 6, null, now - 1), 0);
-  assert.equal(logic.shouldRunCheck({ checkedAt: now - 2, sources: [], error: null }, false, now, 6, null, now - 1), true);
-  assert.equal(logic.nextCheckDelay({ checkedAt: now - 2, sources: [], error: null }, false, now, 6, null, now - 3), 4);
-  assert.equal(logic.shouldRunCheck({ checkedAt: now - 2, sources: [], error: null }, false, now, 6, null, now - 3), false);
+  assert.equal(logic.nextCheckDelay({ checkedAt: now - 2, sources: [], error: null, cached: true }, false, now, 6, null, now - 1), 0);
+  assert.equal(logic.shouldRunCheck({ checkedAt: now - 2, sources: [], error: null, cached: true }, false, now, 6, null, now - 1), true);
+  assert.equal(logic.nextTimerDelay({ checkedAt: now - 2, sources: [], error: null, cached: true }, false, now, 6, null, true, true, now - 1), 0);
+  assert.equal(logic.nextCheckDelay({ checkedAt: now - 2, sources: [], error: null, cached: true }, false, now, 6, null, now - 3), 4);
+  assert.equal(logic.shouldRunCheck({ checkedAt: now - 2, sources: [], error: null, cached: true }, false, now, 6, null, now - 3), false);
+  // The wall clock stepped back past the boot time read at start: a check
+  // run's snapshot is stamped before it, and is still due one interval on.
+  const hours = 6 * 60 * 60 * 1000;
+  const stepped = { checkedAt: now - 60000, sources: [], error: null, cached: false };
+  assert.equal(logic.nextCheckDelay(stepped, false, now - 59990, hours, null, now), hours - 10);
+  assert.equal(logic.nextTimerDelay(stepped, false, now - 59990, hours, null, true, true, now), hours - 10);
+  assert.equal(logic.shouldRunCheck(stepped, false, now - 59990, hours, null, now), false);
   assert.equal(logic.nextCheckDelay({ checkedAt: now - 2, sources: [], error: null }, false, now, 6, null, null), 4);
   assert.equal(logic.intervalMs({ intervalHours: 0 }), 3600000);
   assert.equal(logic.intervalMs({ intervalHours: 49 }), 48 * 3600000);
@@ -261,6 +269,7 @@ const controls = [
   ["failure retry uses short delay", "failedAt + RETRY_AFTER_FAILURE_MS - now", "failedAt + interval - now"],
   ["proc stat btime is parsed as milliseconds", "if (m !== null) return Number(m[1]) * 1000;", "if (false) return Number(m[1]) * 1000;"],
   ["a pre-boot snapshot is due now", "if (snapshotBeforeBoot(snapshot, bootedAt)) return 0;", "if (false) return 0;"],
+  ["only a cached snapshot is judged against boot", "snapshot !== null && snapshot.cached === true && typeof bootedAt", "snapshot !== null && typeof bootedAt"],
   ["a failed package probe is one packages row", "if (!parsed.ok) return [sourceRow(\"packages\", null, [], null, parsed.error)];", "if (!parsed.ok) return [];"],
   ["published packages are bounded", "var limit = Math.min(row.packages.length, PUBLISHED_PACKAGES_PER_SOURCE_MAX);", "var limit = row.packages.length;"],
   ["published rows carry the omitted package count", "made.more = Math.max(0, row.packages.length - packages.length);", "made.more = 0;"],
