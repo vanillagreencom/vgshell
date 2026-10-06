@@ -269,9 +269,8 @@ mv -T -- "$input_facts_config.next" "$input_facts_config"
 cp -- "$sandbox/input-facts-lua-before" "$input_facts_lua.next"
 mv -T -- "$input_facts_lua.next" "$input_facts_lua"
 expect "the input facts row restores shell configuration" ok ipc shell reloadConfig
-expect "the input facts row restores keyboard configuration" ok hypr reload config-only
+expect "the input facts row restores keyboard configuration without nested configuration errors" '[]' hypr_reload_errors
 rm -- "$home/.local/share/applications/smoke.input-facts.desktop"
-expect "the input facts row leaves no nested configuration errors" '[]' config_errors
 rm -rf -- "$input_facts_left"
 for input_facts_id in "${input_facts_installed[@]}"; do
   rm -rf -- "$home/.config/vgshell/plugins/${input_facts_id:?}"

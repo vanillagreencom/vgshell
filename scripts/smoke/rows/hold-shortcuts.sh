@@ -24,8 +24,7 @@ expect_poll "the physical hold and tap keys reach the provider" '"{\"talk\":\"SU
 printf '%s\n' \
   'hl.config({ input = { resolve_binds_by_sym = false } })' \
   'hl.bind("code:67", hl.dsp.global("smoke:hold-marker"), { description = "smoke:hold-marker" })' >>"$hold_lua"
-expect "physical keycodes use the virtual keyboard's evdev map" ok hypr reload config-only
-expect "the hold layer has no configuration errors" '[]' config_errors
+expect "physical keycodes use the virtual keyboard's evdev map without configuration errors" '[]' hypr_reload_errors
 hold_client_log="$sandbox/hold-client.log"
 open_toplevel "$hold_client_log" smoke.hold-client "Hold client"
 hold_client_pid="$toplevel_pid"
@@ -311,6 +310,5 @@ close_toplevel "$hold_client_pid" "the hold client exits"
 cp -- "$sandbox/hold-before.json" "$hold_config"
 cp -- "$sandbox/hold-before.lua" "$hold_lua"
 expect "restore the hold row's configuration" ok ipc shell reloadConfig
-expect "restore the nested compositor's input settings" ok hypr reload config-only
+expect "restore the nested compositor's input settings without configuration errors" '[]' hypr_reload_errors
 expect_poll "the hold fixture remains disabled" False record_exists acme.hold
-expect "the restored nested configuration has no errors" '[]' config_errors

@@ -132,7 +132,7 @@ expect_poll "No window gaps writes the setting to shell.json" true user_setting 
 expect_poll "No window gaps closes the launcher" absent read_launcher opened
 expect_poll "Hyprland holds the zero-gap workspace rule" '[[0, 0, 0, 0], [0, 0, 0, 0]]' gap_rule
 geometry expect_poll "the tiled window fills the work area over the user's gaps" '[0, 0, 0, 0]' tile_inset "$tile_pid"
-expect "Hyprland reports no configuration error" '[]' config_errors
+expect "Hyprland reports no configuration error" '[]' hypr_reload_errors
 open_style "the gaps label"
 expect_poll "the gaps row then offers the default gaps" "$(style_rows "Default window gaps" "Hide top bar")" row_labels
 expect "the host hides the launcher" ok ipc shell hide overlay vgs.launcher

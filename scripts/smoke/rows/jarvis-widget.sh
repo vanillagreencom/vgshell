@@ -248,7 +248,7 @@ expect "restore the nested keyboard configuration" ok hypr reload config-only
 jarvis_enable
 expect_poll "the restored stock daemon remains unconfigured" session jarvis_session unconfigured
 expect_poll "the widget reads off for the unconfigured daemon" '["power-off", "neutral", "Jarvis is not set up\nClick to mute"]' jarvis_widget
-expect "the restored nested keys have no configuration errors" '[]' config_errors
+expect "the restored nested keys have no configuration errors" '[]' hypr_reload_errors
 expect "the widget row leaves no Jarvis state file" False \
   python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).exists())' "$home/.local/state/vgshell/jarvis/mute.json"
 jarvis_disable
