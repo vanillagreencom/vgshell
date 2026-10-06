@@ -267,7 +267,6 @@ function bindKeys(key) {
     return key.split("+").join(" + ");
 }
 
-
 function luaString(value) {
     return "\"" + String(value).replace(/[\\"\x00-\x1f]/g, function (c) {
         switch (c) {
@@ -1190,7 +1189,7 @@ function render(sections, theme, themeName, highestScale, touchpads, touchpadFai
         ""
     ];
     if (typeof runner === "string" && runner !== "")
-        header = header.concat(["-- Start VGS when plain Hyprland starts this session.", startLine(runner), ""]);
+        header = header.concat(["-- Start VGS with Hyprland; a start leaves a running shell alone.", startLine(runner), ""]);
     lines = header.concat(appliedLines(applied, paths), lines);
     lines = lines.concat([""], padSweepLines());
     return {

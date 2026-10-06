@@ -1,12 +1,12 @@
-# `vgshell start` launches the runner through nested Hyprland, not through
 # shellcheck shell=bash
 # shellcheck disable=SC2154,SC2034,SC2016
+# `vgshell start` launches the runner through nested Hyprland, not through
 # the row's process tree, waits for the guarded shell, writes run.log and
 # shows the first-start welcome. A second start sees the guarded shell and
 # dispatches nothing. Controls use copies of the tree: one runs the runner
 # in the foreground and does not return inside the ceiling; one skips the
 # running-shell check and does not answer `ok running` on the second start.
-# inputs: bin/vgshell shell/Core/HyprlandLayer.* shell/Core/PluginLogic.js shell/Hosts/NoticeHost.qml
+# inputs: bin/vgshell shell/Core/Notices.qml shell/Core/PluginLogic.js
 set -euo pipefail
 
 # Ceiling on latency_start_ms, from `vgshell start` invocation to its
@@ -103,7 +103,7 @@ if copy_tree foreground && edit_tree foreground bin/vgshell \
     'dispatch_reply="$("$self" run 2>&1)"'; then
   stop_shell || :
   set +e
-  control_out="$(timeout 2 "${start_env[@]}" "$sandbox/tree-foreground/bin/vgshell" start 2>&1)"
+  control_out="$(timeout "$(( (start_budget_ms + 999) / 1000 ))" "${start_env[@]}" "$sandbox/tree-foreground/bin/vgshell" start 2>&1)"
   control_status=$?
   set -e
   if [[ $control_status == 124 ]]; then ok "control: a foreground start misses the return ceiling"; else fail "control: foreground start returned exit=$control_status out=$control_out"; fi

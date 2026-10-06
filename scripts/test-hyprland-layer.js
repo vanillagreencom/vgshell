@@ -1312,7 +1312,7 @@ const CONTROLS = [
     [layerFile, "the applied section is written", "lines = header.concat(appliedLines(applied, paths), lines);", "lines = header.concat(lines);"],
     [layerFile, "the values are applied after the configuration, not inline", "lines = header.concat(appliedLines(applied, paths), lines);", "lines = header.concat(applied, lines);"],
     [layerFile, "the applied section follows the header", "lines = header.concat(appliedLines(applied, paths), lines);", "lines = header.concat(lines, appliedLines(applied, paths));"],
-    [layerFile, "plain Hyprland starts the runner path", `header = header.concat(["-- Start VGS when plain Hyprland starts this session.", startLine(runner), ""]);`, `header = header.concat(["-- Start VGS when plain Hyprland starts this session.", ""]);`],
+    [layerFile, "plain Hyprland starts the runner path", `header = header.concat(["-- Start VGS with Hyprland; a start leaves a running shell alone.", startLine(runner), ""]);`, `header = header.concat(["-- Start VGS with Hyprland; a start leaves a running shell alone.", ""]);`],
     [layerFile, "plain Hyprland uses the start verb", `return "hl.on(\\"hyprland.start\\", function () hl.exec_cmd(" + luaString(runner + " start") + ") end)";`, `return "hl.on(\\"hyprland.start\\", function () hl.exec_cmd(" + luaString(runner + " run") + ") end)";`],
     [layerFile, "the values sit inside the callback", "].concat(values.map(function (line) { return \"        \" + line; }), [", "].concat(["],
     [layerFile, "a group that is on is applied", "if (switches.groups[group].enabled) applied = applied.concat(groupLines[group]());", "if (switches.groups[group].enabled) groups = groups.concat(groupLines[group](), [\"\"]);"],

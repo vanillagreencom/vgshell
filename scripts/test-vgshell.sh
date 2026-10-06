@@ -93,7 +93,8 @@ if [[ ${1:-} == -j && ${2:-} == status ]]; then
   exit "${STUB_HYPR_STATUS_EXIT:-0}"
 fi
 if [[ ${1:-} == instances && ${2:-} == -j ]]; then
-  printf '%s\n' "${STUB_HYPR_INSTANCES:-[{\"instance\":\"sig-start\"}]}"
+  instances='[{"instance":"sig-start"}]'
+  printf '%s\n' "${STUB_HYPR_INSTANCES:-$instances}"
   exit "${STUB_HYPR_INSTANCES_EXIT:-0}"
 fi
 if [[ ${1:-} == dispatch ]]; then
@@ -595,6 +596,16 @@ running_pid="$fake_pid"
 start_capture "$rt_start_running" "$tmp/record-start-running-new" "$dispatch"
 if [[ $start_status == 0 && $start_out == "ok running pid=$running_pid" ]]; then ok "start returns the existing guarded shell"; else fail "start existing: exit=$start_status out=[$start_out] stderr=[$start_err]"; fi
 if [[ ! -e $dispatch ]]; then ok "start dispatches nothing for an existing guarded shell"; else fail "start existing dispatched: $(cat "$dispatch")"; fi
+
+# With no signature in its environment, start takes the one instance Hyprland lists and refuses a choice between two.
+rt_start_two="$tmp/rt-start-two"; dispatch="$tmp/dispatch-start-two"
+mkdir -p "$rt_start_two"
+start_capture "$rt_start_two" "$tmp/record-start-two" "$dispatch" HYPRLAND_INSTANCE_SIGNATURE= 'STUB_HYPR_INSTANCES=[{"instance":"sig-a"},{"instance":"sig-b"}]'
+if [[ $start_status == 1 && $start_err == "vgshell: refused: hyprland=ambiguous count=2" && ! -e $dispatch ]]; then ok "start refuses two Hyprland instances and dispatches nothing"; else fail "start two instances: exit=$start_status stderr=[$start_err] dispatched=$([[ -e $dispatch ]] && echo yes || echo no)"; fi
+rt_start_none="$tmp/rt-start-none"; dispatch="$tmp/dispatch-start-none"
+mkdir -p "$rt_start_none"
+start_capture "$rt_start_none" "$tmp/record-start-none" "$dispatch" HYPRLAND_INSTANCE_SIGNATURE= 'STUB_HYPR_INSTANCES=[]'
+if [[ $start_status == 69 && $start_err == "vgshell: refused: hyprland=unreachable" && ! -e $dispatch ]]; then ok "start refuses when Hyprland lists no instance"; else fail "start no instance: exit=$start_status stderr=[$start_err]"; fi
 
 # Restart stops only the recorded pid, waits for the lock to free and asks
 # Hyprland to launch the new runner so it inherits the session environment.

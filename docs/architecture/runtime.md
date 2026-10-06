@@ -4,7 +4,7 @@ Read before touching anything that starts, stops, measures or talks to the shell
 
 ## The approach
 
-`vgshell start` asks Hyprland to launch `vgshell run` in the background. `vgshell run` holds the instance lock, starts the shell as its child and supervises it; every `vgshell` command addresses the pid the lock file names and judges an IPC reply by its text. Inside the shell, every watcher, poller, subprocess and session-wide object has one owner that creates it and destroys it, a process-costing lookup runs once per set, and the first bar is built before any service. Resident size is read by one instrument, `scripts/sample-shell-memory.sh`, and a figure is stated only beside the run that produced it. The choices are [D053](../decisions/D053-runner-holds-the-instance-lock.md), [D069](../decisions/D069-runner-supervises-the-shell.md) and [D047](../decisions/D047-services-build-after-the-first-bar-frame.md).
+`vgshell run` holds the instance lock, starts the shell as its child and supervises it; every `vgshell` command addresses the pid the lock file names and judges an IPC reply by its text. Inside the shell, every watcher, poller, subprocess and session-wide object has one owner that creates it and destroys it, a process-costing lookup runs once per set, and the first bar is built before any service. Resident size is read by one instrument, `scripts/sample-shell-memory.sh`, and a figure is stated only beside the run that produced it. The choices are [D053](../decisions/D053-runner-holds-the-instance-lock.md), [D069](../decisions/D069-runner-supervises-the-shell.md) and [D047](../decisions/D047-services-build-after-the-first-bar-frame.md).
 
 ## Why
 
