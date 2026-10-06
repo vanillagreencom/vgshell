@@ -1039,9 +1039,9 @@ function suite(ctx, check) {
     if (tapDefaults === undefined) throw new Error("fixture manifest refused: acme.tap with a default key list");
     // bindRows over a default key list: [name, plugins row keys, want row]
     for (const [name, keys, want] of [
-        ["a default key list is every key in effect and the default", undefined, { shortcut: "tap", key: "code:108", keys: ["code:108", "code:105"], default: ["code:108", "code:105"], description: "" }],
-        ["a row key wins over a default key list", { tap: "code:97" }, { shortcut: "tap", key: "code:97", keys: ["code:97"], default: ["code:108", "code:105"], description: "" }],
-        ["a row null unbinds a default key list", { tap: null }, { shortcut: "tap", key: null, keys: [], default: ["code:108", "code:105"], description: "" }],
+        ["a default key list is every key in effect and the default", undefined, { shortcut: "tap", key: "code:108", keys: ["code:108", "code:105"], default: ["code:108", "code:105"], description: "", info: "" }],
+        ["a row key wins over a default key list", { tap: "code:97" }, { shortcut: "tap", key: "code:97", keys: ["code:97"], default: ["code:108", "code:105"], description: "", info: "" }],
+        ["a row null unbinds a default key list", { tap: null }, { shortcut: "tap", key: null, keys: [], default: ["code:108", "code:105"], description: "", info: "" }],
     ]) {
         check("bindRows: " + name, ctx.bindRows({ plugins: [keys === undefined ? { id: "acme.tap" } : { id: "acme.tap", keys }] }, tapDefaults, {})[0], want);
     }
