@@ -655,7 +655,6 @@ scene_gallery() { # MODE
   expect "the gallery summons" ok ipc shell summon "$gallery_kind" vgs.gallery '{}'
   expect_poll "the gallery maps its surface" 1 surface_count "$gallery_surface"
   expect_poll "the gallery draws every component" '[]' ipc smoke galleryMissing "$gallery_kind" vgs.gallery
-  expect "the gallery hides its focus examples for README images" ok ipc smoke setSectionVisible "$gallery_kind" vgs.gallery Focus false
   while (( page <= gallery_pages )); do
     at="$(ipc smoke scrollTo "$gallery_kind" vgs.gallery "$y")" || at=""
     if [[ $at != "["* ]]; then fail "the gallery did not scroll: ${at:-no reply}"; break; fi
@@ -2285,6 +2284,11 @@ need_setup() { local s; for s in "${setups[@]}"; do [[ $s == "$1" ]] && return 0
 
 scene_automations() { # MODE
   local auto_stub="$sandbox/shots-automations"
+  local auto_found notif_found
+  auto_found="$(plugin_enabled vgs.automations)" || auto_found=unread
+  notif_found="$(plugin_enabled vgs.notifications)" || notif_found=unread
+  [[ $auto_found == True || $auto_found == False ]] || fail "vgs.automations' enablement is unreadable before the Automations scene: $auto_found"
+  [[ $notif_found == True || $notif_found == False ]] || fail "vgs.notifications' enablement is unreadable before the Automations scene: $notif_found"
   automations_stand_ins "$auto_stub"
   if [[ -e $shim/systemd-analyze ]]; then mv -- "$shim/systemd-analyze" "$auto_stub/saved/systemd-analyze"; fi
   printf '#!/usr/bin/env bash\nexit 0\n' >"$shim/systemd-analyze"
@@ -2361,10 +2365,26 @@ scene_automations() { # MODE
   take "automations-$1-empty-state"
   expect "enabling vgs.notifications is allowed" ok ipc shell setPluginEnabled vgs.notifications true
   expect_poll "vgs.notifications is built" True record_exists vgs.notifications
-  notify Automations "Shot success finished" "Finished in 0 s" '["default", "Open"]' '{"x-vgs-icon": <"circle-check">, "x-vgs-tone": <"success">, "x-vgs-click": <"open">}' >/dev/null
-  notify Automations "Shot failure failed" "Exit code 3" '["default", "Open"]' '{"x-vgs-icon": <"circle-x">, "x-vgs-tone": <"danger">, "x-vgs-click": <"open">}' >/dev/null
+  local ids=()
+  ids+=("$(notify Automations "Shot success finished" "Finished in 0 s" '["default", "Open"]' '{"x-vgs-icon": <"circle-check">, "x-vgs-tone": <"success">, "x-vgs-click": <"open">}')")
+  ids+=("$(notify Automations "Shot failure failed" "Exit code 3" '["default", "Open"]' '{"x-vgs-icon": <"circle-x">, "x-vgs-tone": <"danger">, "x-vgs-click": <"open">}')")
   expect_poll "automation notifications are on screen" 2 on_screen
   take "automations-$1-notifications"
+  for id in "${ids[@]}"; do
+    "${shell_env[@]}" gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications \
+      --method org.freedesktop.Notifications.CloseNotification "$id" >/dev/null || fail "closing automation notification $id failed"
+  done
+  expect "the automation notification history clears" ok notes clear-history
+  expect "the Automations window hides after its scene" ok ipc shell hide window vgs.automations
+  expect_poll "the Automations window is gone after its scene" 0 window_count Automations
+  if [[ $auto_found == False ]]; then
+    expect "disabling vgs.automations after its scene is allowed" ok ipc shell setPluginEnabled vgs.automations false
+    expect_poll "vgs.automations is gone after its scene" False record_exists vgs.automations
+  fi
+  if [[ $notif_found == False ]]; then
+    expect "disabling vgs.notifications after the Automations scene is allowed" ok ipc shell setPluginEnabled vgs.notifications false
+    expect_poll "vgs.notifications is gone after the Automations scene" False record_exists vgs.notifications
+  fi
   if [[ -e $auto_stub/saved/systemd-analyze ]]; then mv -f -- "$auto_stub/saved/systemd-analyze" "$shim/systemd-analyze"; else rm -f -- "$shim/systemd-analyze"; fi
   automations_stand_ins_restore "$auto_stub"
 }

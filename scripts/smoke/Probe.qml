@@ -362,8 +362,21 @@ Scope {
     }
 
     function chromeShown(child) {
-        for (let at = child; at !== null; at = at.parent)
+        const target = root.typeName(child) === "Tooltip" ? child.anchorItem : child;
+        if (target === null || target === undefined || target.width <= 0 || target.height <= 0) return false;
+        for (let at = target; at !== null; at = at.parent)
             if (at.visible === false) return false;
+        const window = target.Window.window;
+        if (window === null) return false;
+        const onWindow = target.mapToItem(null, 0, 0);
+        if (onWindow.x + target.width <= 0 || onWindow.y + target.height <= 0 || onWindow.x >= window.width || onWindow.y >= window.height)
+            return false;
+        for (let at = target.parent; at !== null; at = at.parent) {
+            if (at.clip !== true) continue;
+            const pos = target.mapToItem(at, 0, 0);
+            if (pos.x + target.width <= 0 || pos.y + target.height <= 0 || pos.x >= at.width || pos.y >= at.height)
+                return false;
+        }
         return true;
     }
 
@@ -385,7 +398,7 @@ Scope {
             for (const child of root.descendants(item)) {
                 const type = root.typeName(child);
                 try {
-                    if (type === "Tooltip" && child.opened === true) add("tooltip");
+                    if (type === "Tooltip" && child.opened === true && root.chromeShown(child)) add("tooltip");
                     if (type === "FocusRing" && child.visible === true && root.chromeShown(child)) add("focus-ring");
                 } catch (e) {}
             }
@@ -1244,14 +1257,6 @@ Scope {
         function configSettled(): bool { return !Config.smokeUserView.busy; }
         function readInstance(hostKey: string, id: string, property: string): string { return root.read(hostKey, id, property); }
         function shotChrome(clear: bool): string { return root.chromeWord(clear); }
-        function setSectionVisible(hostKey: string, id: string, title: string, visible: bool): string {
-            const item = root.instance(hostKey, id);
-            if (item === null) return "absent";
-            const found = root.descendants(item).find(child => root.typeName(child) === "Section" && child.title === title);
-            if (found === undefined) return "absent";
-            found.visible = visible;
-            return "ok";
-        }
         // The core's session lock, taken and released without a password,
         // for rows/lock.sh: a sandbox row never runs PAM against the real
         // account (docs/decisions/D062-native-lock-and-polkit-plugins.md). The bare
