@@ -9,7 +9,6 @@ Item {
     property var shell: null
     property var screen: null
     property string artPath: Logic.fileUrlPath(Qt.resolvedUrl("logo.txt"))
-    property var rows: []
     property string pendingFrame: ""
     property bool focusReady: false
     property bool pointerReady: false
@@ -18,7 +17,7 @@ Item {
 
     readonly property bool shown: shell !== null && shell.status.values.state !== undefined && shell.status.values.state.text === "Running" && !(shell.session.locked)
     readonly property bool canRun: shell !== null && shell.requirements.missing.indexOf("ttfx") === -1
-    readonly property int frameRate: shell === null || shell.settings.frameRate === undefined ? 20 : shell.settings.frameRate
+    readonly property int frameRate: shell === null || shell.settings.frameRate === undefined ? 5 : shell.settings.frameRate
     readonly property string selectedEffect: shell === null ? "random" : shell.settings.effect
     readonly property int cellWidth: Math.max(1, Math.ceil(cellSize.width))
     readonly property int cellHeight: Math.max(1, Math.ceil(fontMetrics.height))
@@ -34,7 +33,7 @@ Item {
     onShownChanged: {
         pointerReady = false;
         focusReady = false;
-        rows = [];
+        clearRows();
         pendingFrame = "";
         if (shown) Qt.callLater(() => {
             root.forceActiveFocus(Qt.ActiveWindowFocusReason);
@@ -82,6 +81,22 @@ Item {
         pendingFrame = Logic.newestFrame(pendingFrame, frame);
     }
 
+    function clearRows() {
+        for (let i = 0; i < lineRepeater.count; i++) {
+            const item = lineRepeater.itemAt(i);
+            if (item !== null) item.text = "";
+        }
+    }
+
+    function setRows(nextRows) {
+        for (let i = 0; i < lineRepeater.count; i++) {
+            const item = lineRepeater.itemAt(i);
+            if (item === null) continue;
+            const next = nextRows[i] || "";
+            if (item.text !== next) item.text = next;
+        }
+    }
+
     FileView {
         id: configuredArt
         path: Paths.configDir + "/screensaver.txt"
@@ -95,13 +110,13 @@ Item {
     FontMetrics {
         id: fontMetrics
         font.family: Theme.font.family.mono
-        font.pixelSize: Theme.text.h3.size
+        font.pixelSize: Theme.text.h2.size
     }
 
     TextMetrics {
         id: cellSize
         font.family: Theme.font.family.mono
-        font.pixelSize: Theme.text.h3.size
+        font.pixelSize: Theme.text.h2.size
         text: "M"
     }
 
@@ -121,13 +136,16 @@ Item {
         onTriggered: root.start()
     }
 
-    FrameAnimation {
-        running: root.pendingFrame !== "" && root.shown
+    Timer {
+        interval: Math.max(16, Math.round(1000 / root.frameRate))
+        repeat: true
+        running: root.shown
         onTriggered: {
+            if (root.pendingFrame === "") return;
             const parsed = Logic.parseFrame(root.pendingFrame);
             root.pendingFrame = "";
             if (parsed.length === 0) return;
-            root.rows = parsed;
+            root.setRows(parsed);
         }
     }
 
@@ -140,13 +158,14 @@ Item {
         anchors.centerIn: parent
         spacing: 0
         Repeater {
+            id: lineRepeater
             model: root.canvas.rows
             Text {
                 textFormat: Text.StyledText
-                text: root.rows[index] || ""
+                text: ""
                 color: Theme.color.text
                 font.family: Theme.font.family.mono
-                font.pixelSize: Theme.text.h3.size
+                font.pixelSize: Theme.text.h2.size
                 lineHeightMode: Text.FixedHeight
                 lineHeight: root.cellHeight
             }

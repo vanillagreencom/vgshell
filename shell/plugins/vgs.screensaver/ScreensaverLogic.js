@@ -1,7 +1,13 @@
 .pragma library
 
 function htmlEscape(text) {
-    return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\"/g, "&quot;");
+    return String(text).replace(/[&<> "]/g, ch => {
+        if (ch === "&") return "&amp;";
+        if (ch === "<") return "&lt;";
+        if (ch === ">") return "&gt;";
+        if (ch === " ") return "\u00a0";
+        return "&quot;";
+    });
 }
 
 function colorFromRgb(parts, start) {
@@ -56,6 +62,7 @@ function parseFrame(frame) {
     let current = "";
     let style = { fg: "", open: false };
     let wanted = { fg: "" };
+    const escapePattern = /\u001b(?:\[([0-9;?]*)([A-Za-z~])|.)/g;
 
     function applyStyle(next) {
         if (sameStyle(style, next)) return;
@@ -72,32 +79,25 @@ function parseFrame(frame) {
         current += openSpan(style);
     }
 
-    for (let i = 0; i < frame.length; i++) {
-        const ch = frame.charAt(i);
-        if (ch === "\u001b") {
-            const next = frame.charAt(i + 1);
-            if (next === "[") {
-                let end = i + 2;
-                while (end < frame.length && !/[A-Za-z~]/.test(frame.charAt(end))) end++;
-                if (end >= frame.length) break;
-                const final = frame.charAt(end);
-                if (final === "m") {
-                    wanted = parseSgr(frame.slice(i + 2, end), wanted);
-                    applyStyle(wanted);
-                }
-                i = end;
-            } else {
-                i += 1;
-            }
-            continue;
+    function addText(text) {
+        const parts = text.replace(/\r/g, "").split("\n");
+        for (let i = 0; i < parts.length; i++) {
+            current += htmlEscape(parts[i]);
+            if (i !== parts.length - 1) finishRow();
         }
-        if (ch === "\r") continue;
-        if (ch === "\n") {
-            finishRow();
-            continue;
-        }
-        current += ch === " " ? "\u00a0" : htmlEscape(ch);
     }
+
+    let last = 0;
+    let match;
+    while ((match = escapePattern.exec(frame)) !== null) {
+        addText(frame.slice(last, match.index));
+        if (match[2] === "m") {
+            wanted = parseSgr(match[1] || "", wanted);
+            applyStyle(wanted);
+        }
+        last = escapePattern.lastIndex;
+    }
+    addText(frame.slice(last));
     if (current !== "" || rows.length === 0) finishRow();
     return rows;
 }
@@ -127,8 +127,8 @@ function effectChoices(helpText) {
 
 function canvasSize(width, height, cellWidth, cellHeight) {
     return {
-        columns: Math.max(1, Math.min(80, Math.floor(width / Math.max(1, cellWidth)))),
-        rows: Math.max(1, Math.min(26, Math.floor(height / Math.max(1, cellHeight))))
+        columns: Math.max(1, Math.floor(width / Math.max(1, cellWidth))),
+        rows: Math.max(1, Math.floor(height / Math.max(1, cellHeight)))
     };
 }
 
