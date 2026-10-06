@@ -77,7 +77,7 @@ FocusScope {
                 spacing: Theme.row.lineGap
 
                 Label {
-                    role: "h3"
+                    role: "windowTitle"
                     text: "Updates"
                 }
                 Row {

@@ -8,7 +8,7 @@ Item {
     id: root
 
     property string text: ""
-    property string role: "h2"
+    property string role: "windowTitle"
     property Item menu: null
     property alias leading: leadingSlot.data
     property alias trailing: trailingSlot.data

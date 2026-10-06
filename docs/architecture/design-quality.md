@@ -17,7 +17,8 @@ The standard every surface is judged against, and the evidence that proves a sur
 
 | Role | Size / line box / weight | Use |
 |---|---|---|
-| `text.h3` | 16 / 24 / 600 | the title of every window, panel, popover and dialog |
+| `text.windowTitle` | 18 / 24 / 600 | the title of every window |
+| `text.h3` | 16 / 24 / 600 | the title of every panel, popover and dialog |
 | `text.bodyStrong` | 15 / 24 / 600 | a card's or toast's title |
 | `text.body` | 15 / 24 / 400 | reading text of more than one line: a description, a dialog message |
 | `text.item` | 15 / line 1 / 400 | one line inside a control or row |
@@ -26,8 +27,8 @@ The standard every surface is judged against, and the evidence that proves a sur
 | `text.label`, `text.eyebrow`, `text.button`, `text.kbd` | 12 / line 1, mono; all but `kbd` uppercase | a field label, a section heading, a button, a badge, a key cap |
 | `text.tooltip` | 12 / 16 / 500 | a tooltip line |
 
-- A surface uses `h3` for its title. `h1` and `h2` are for documents. The full-screen theme and wallpaper browsers name their selected card in `text.display`, as Omarchy's picker does, and the lock screen draws its clock in it.
-- The roles use seven sizes: 12, 13, 15, 16, 20, 24 and 34 px. `scripts/qml-tests/tst_label.qml` pins the set, so a role at a new size fails.
+- A window uses `windowTitle` for its title and every other surface `h3`. `h1` and `h2` are for documents. The full-screen theme and wallpaper browsers name their selected card in `text.display`, as Omarchy's picker does, and the lock screen draws its clock in it.
+- The roles use eight sizes: 12, 13, 15, 16, 18, 20, 24 and 34 px. `scripts/qml-tests/tst_label.qml` pins the set, so a role at a new size fails.
 - A key/value row pairs `text.label` with `text.value`. Their capitals differ by less than a pixel, and on the row their baselines are within a pixel, so the pair reads as one line. At the defaults, `FontMetrics` under `scripts/qml-unit.sh` reads capitals of 8.77 and 9.45 px. The 11 px label and the 15 px `item` value they replace read 8.03 and 10.91. The hierarchy has three levels: the value in the `text` colour, the hint under it in `hint` and a fainter colour, and the label, a badge and a button in 12 px chrome. The label column, `row.labelWidth`, is 140 px: the label "SINGLE-WORKSPACE" measures 129.3 px at 12 px against 118.6 px at 11 px in the same run, so the column grew from 128 px to keep such a word on one line.
 - Reading text is at least 13 px and chrome at least 12 px. Reading text is a description, a message, a card's body and a list row's detail line; chrome is a label, a count, a button's text and a menu entry. A plugin that owns its look ([appearance.md](appearance.md)) meets the same floor: `scripts/check-design-tokens.py` refuses a font size in its table below the shell's smallest text role (`type-floor`).
 - A control's label, a checkbox's, a radio's and a switch's, draws in `item`, so its line centres on the control. An indicator centres on the label's capital centre on a whole pixel.
@@ -55,7 +56,7 @@ The heights, paddings and gaps are Radix Themes 3.3.0 button sizes 1, 2 and 3. `
 
 | Class | Inset | Title row | Header to body | Fit |
 |---|---|---|---|---|
-| window | `inset.window` 16 | `h3` in a row that fits its items | `stack.section` 24 | the window host sizes it |
+| window | `inset.window` 16 | `windowTitle` in a row that fits its items | `stack.section` 24 | the window host sizes it |
 | dialog | `inset.dialog` 16 | `h3` | `dialog.gap` 12 | content, to `dialog.maxHeightShare` |
 | panel (a summoned flyout) | `inset.panel` 12, on a `Surface` | `h3` | `stack.group` 12 | content, to `size.panel.maxHeight` and the output's room; refits when content changes |
 | popover (`qs.Ui` `Popover`) | `inset.popover` 12 | `h3` | `stack.group` 12, `popover.gap` 4 from its anchor | content, to `popover.maxHeightShare` |

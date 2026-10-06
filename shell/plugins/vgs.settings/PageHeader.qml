@@ -7,15 +7,16 @@ import qs.Ui
 // `size.control.md` unless an item is taller, every item centred on it
 // and the title's capital centre, not its box, on the centre line,
 // and the body does not move during a push or pop. The title draws in
-// `h3`, the role of every window title (design-quality.md). A leading
-// icon button puts its glyph's ink, not its box, on the content edge, and
-// the title starts `control.gap` after that leading box; the button's box and
-// focus ring reach into the window's inset (design-layout.md § Headers).
+// `windowTitle`, the role of every window title (design-quality.md). A
+// leading icon button puts its glyph's ink, not its box, on the content
+// edge, and the title starts `control.gap` after that leading box; the
+// button's box and focus ring reach into the window's inset
+// (design-layout.md § Headers).
 Item {
     id: root
 
     property string text: ""
-    property string role: "h3"
+    property string role: "windowTitle"
     property Item menu: null
     property alias leading: leadingSlot.data
     property alias trailing: trailingSlot.data

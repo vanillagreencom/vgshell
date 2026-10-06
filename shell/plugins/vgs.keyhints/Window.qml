@@ -89,7 +89,7 @@ FocusScope {
                 spacing: Theme.stack.group
 
                 Label {
-                    role: "h3"
+                    role: "windowTitle"
                     text: root.title
                     width: parent.width
                 }

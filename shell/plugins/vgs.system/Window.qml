@@ -226,7 +226,7 @@ FocusScope {
                         }
                         Label {
                             id: title
-                            role: "h3"
+                            role: "windowTitle"
                             text: root.row === null ? "" : root.row.name
                             x: icon.width + Theme.control.gap
                             width: Math.max(0, (placed.visible ? placed.x - Theme.control.gap : parent.width) - x)

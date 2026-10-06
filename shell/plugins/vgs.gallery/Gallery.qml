@@ -4,11 +4,11 @@ import qs.Ui
 
 // The gallery: every component in every variant and state, in a scrolling
 // window, so a theme author sees a whole theme at once. It is built only
-// while summoned. It composes Pane as every window does: the title in h3
-// with its line under it, then one Section per group, each a SectionHeader
-// followed by blocks `stack.group` apart. Controls side by side sit
-// `stack.inline` apart, and controls of different heights centre on one
-// line inside the group that wraps; the validation row reads every
+// while summoned. It composes Pane as every window does: the title in
+// windowTitle with its line under it, then one Section per group, each a
+// SectionHeader followed by blocks `stack.group` apart. Controls side by
+// side sit `stack.inline` apart, and controls of different heights centre
+// on one line inside the group that wraps; the validation row reads every
 // component of the module back from `examples`.
 Item {
     id: root
@@ -43,7 +43,7 @@ Item {
             Column {
                 width: layout.contentWidth
                 spacing: Theme.row.lineGap
-                Label { role: "h3"; text: "VGS Components" }
+                Label { role: "windowTitle"; text: "VGS Components" }
                 Label { role: "hint"; color: Theme.color.textMuted; text: "Preview controls with the " + Theme.name + " theme."; width: parent.width; wrapMode: Text.Wrap }
             }
         ]

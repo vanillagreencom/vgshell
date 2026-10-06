@@ -64,16 +64,18 @@ const DEFAULTS = [
     ["hyprland.window.roundingPower", 2],
     ["hyprland.motion.preset", "smooth"],
     ["hyprland.shadow.color", "#0000008c"],
-    // mul(15, 2.27) = 34.05, mul(15, 1.33) = 19.95, mul(15, 1.07) = 16.05,
+    // mul(15, 2.27) = 34.05, mul(15, 1.33) = 19.95, mul(15, 1.2) = 18, mul(15, 1.07) = 16.05,
     // mul(15, 0.87) = 13.05, mul(15, 0.8) = 12, mul(15, 0.73) = 10.95
     ["text.display.size", 34],
     ["text.h1.size", 24],
     ["text.h2.size", 20],
+    ["text.windowTitle.size", 18],
     ["text.h3.size", 16],
     ["text.body.size", 15],
-    // Line boxes on the 4 px grid: 15 * 1.6 = 24, 16 * 1.5 = 24, 20 * 1.4 = 28.
+    // Line boxes on the 4 px grid: 15 * 1.6 = 24, 16 * 1.5 = 24, 18 * 1.333 = 24, 20 * 1.4 = 28.
     ["text.body.lineHeight", 1.6],
     ["text.h3.lineHeight", 1.5],
+    ["text.windowTitle.lineHeight", 1.333],
     ["text.h2.lineHeight", 1.4],
     ["text.tooltip.size", 12],
     ["text.tooltip.family", "Inter Variable"],

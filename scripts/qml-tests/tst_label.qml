@@ -10,7 +10,7 @@ import qs.Unit
 // leaves more ink. Reading text draws in the bundled sans family and chrome
 // in the bundled mono family at the reference's metrics, and a chrome role
 // with line height 1 has a line box exactly the font's height, so centring
-// the box centres the text. The roles use seven sizes and no more. A
+// the box centres the text. The roles use eight sizes and no more. A
 // key/value row's label and its value draw in the pair of roles whose
 // capitals are within a pixel of one height, and on the row they share a
 // baseline within a pixel. An absent family draws the bundled family its
@@ -77,6 +77,7 @@ Item {
                 { tag: "h1", family: sans, size: 24, weight: 700, spacing: -0.01, uppercase: false, lineHeight: 1.333 },
                 { tag: "h2", family: sans, size: 20, weight: 600, spacing: 0, uppercase: false, lineHeight: 1.4 },
                 { tag: "h3", family: sans, size: 16, weight: 600, spacing: 0, uppercase: false, lineHeight: 1.5 },
+                { tag: "windowTitle", family: sans, size: 18, weight: 600, spacing: 0, uppercase: false, lineHeight: 1.333 },
                 { tag: "subheading", family: sans, size: 16, weight: 400, spacing: 0, uppercase: false, lineHeight: 1.75 },
                 { tag: "body", family: sans, size: 15, weight: 400, spacing: 0, uppercase: false, lineHeight: 1.6 },
                 { tag: "bodyStrong", family: sans, size: 15, weight: 600, spacing: 0, uppercase: false, lineHeight: 1.6 },
@@ -118,9 +119,9 @@ Item {
 
         // The scale's steps, restated: a role at a size between them adds a
         // step the hierarchy does not need.
-        function test_the_scale_has_seven_steps() {
+        function test_the_scale_has_eight_steps() {
             const sizes = Object.keys(Theme.text).map(name => Theme.text[name].size);
-            compare(Array.from(new Set(sizes)).sort((a, b) => a - b), [12, 13, 15, 16, 20, 24, 34]);
+            compare(Array.from(new Set(sizes)).sort((a, b) => a - b), [12, 13, 15, 16, 18, 20, 24, 34]);
         }
 
         // A key/value row's label and its value: capitals within a pixel of

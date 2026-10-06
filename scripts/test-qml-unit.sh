@@ -178,6 +178,7 @@ mutations=(
   "the bar role draws at the body metrics|../Commons/Tokens.js|bar: role(\"mono\", 0.8, 500, 0.08, 1, true, \"text\")|bar: role(\"sans\", 1, 400, 0, 1.55, false, \"text\")|tst_label.qml"
   "a key/value value draws at the item size|../Commons/Tokens.js|value: role(\"sans\", 0.87, 400, 0, 1, false, \"text\")|value: role(\"sans\", 1, 400, 0, 1, false, \"text\")|tst_label.qml"
   "a key/value label draws at the old chrome size|../Commons/Tokens.js|label: role(\"mono\", 0.8, 500, 0.08, 1, true, \"textMuted\")|label: role(\"mono\", 0.73, 500, 0.08, 1, true, \"textMuted\")|tst_label.qml"
+  "a window title draws at the panel title's size|../Commons/Tokens.js|windowTitle: role(\"sans\", 1.2, 600|windowTitle: role(\"sans\", 1.07, 600|tst_label.qml"
   "a wrapping role leaves the 4 px grid|../Commons/Tokens.js|hint: role(\"sans\", 0.87, 400, 0, 1.55, false, \"textFaint\")|hint: role(\"sans\", 0.87, 400, 0, 1.7, false, \"textFaint\")|tst_label.qml"
   "an absent family draws the mono family whatever its token|../Commons/Theme.qml|convertLeaf(level[key], node[key], fallback[key], loaded, families, missing)|convertLeaf(level[key], node[key], loaded[0], loaded, families, missing)|tst_label.qml"
   "the label's letter spacing is not scaled|foundation/Label.qml|font.letterSpacing: typography.letterSpacing * typography.size|font.letterSpacing: typography.letterSpacing|tst_label.qml"

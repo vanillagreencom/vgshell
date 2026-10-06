@@ -91,7 +91,7 @@ Item {
             spacing: root.look.row.lineGap
 
             Label {
-                role: "h3"
+                role: "windowTitle"
                 text: "Dev Tools"
             }
             Label {

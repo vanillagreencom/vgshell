@@ -103,6 +103,8 @@ var TEXT = {
     h1: role("sans", 1.6, 700, -0.01, 1.333, false, "textHeading"),
     h2: role("sans", 1.33, 600, 0, 1.4, false, "textHeading"),
     h3: role("sans", 1.07, 600, 0, 1.5, false, "textHeading"),
+    // The title of every window: h3 2 px larger, on the same 24 px line box.
+    windowTitle: role("sans", 1.2, 600, 0, 1.333, false, "textHeading"),
     eyebrow: role("mono", 0.8, 700, 0.18, 1, true, "accent"),
     subheading: role("sans", 1.07, 400, 0, 1.75, false, "textMuted"),
     body: role("sans", 1, 400, 0, 1.6, false, "text"),

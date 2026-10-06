@@ -12,6 +12,7 @@ Each role is read from one rule of the stylesheet. A value the rule does not set
 | `text.h1` | `.market-contribute h2` | mono, 24 px, bold, line height 1.55 | sans, -.01em, line height 1.333, a 32 px line box |
 | `text.h2` | `.detail-section h2` | sans, 20 px, bold, line height 1.55 | 600, line height 1.4, a 28 px line box |
 | `text.h3` | `.plugin-title-line h3` | sans, 16 px, bold, line height 1.55 | 600, line height 1.5, a 24 px line box |
+| `text.windowTitle` | `.plugin-title-line h3` | sans, 16 px, bold, line height 1.55 | 18 px, 600, line height 1.333, a 24 px line box, after owner review of window titles |
 | `text.subheading` | `.intro` | sans, 16 px, 400, line height 1.75 | |
 | `text.body` | `body` | sans, 15 px, 400, line height 1.55 | line height 1.6, a 24 px line box |
 | `text.bodyStrong` | `.check-list strong` | sans, 15 px, 650, line height 1.55 | 600, line height 1.6 |
