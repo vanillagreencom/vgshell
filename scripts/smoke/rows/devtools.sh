@@ -439,8 +439,9 @@ expect_poll "the database rows list again once docker answers" "$(texts MySQL "N
 # A click on Install opens the install TUI with the row's id; the list is
 # read again when the run ends, so the key mise now holds shows.
 # IPC open lists again and puts the keyboard on the Catalog search, which
-# narrows the list to the agent; the key mise then holds is planted once
-# that list ended, so only the run's end can show it.
+# narrows the list to the agent. The run is held live from the click; the
+# key mise then holds is planted while it is, once every list the open
+# started has ended, so only the run's end can show it.
 grep -vxF -- "$agent_key" "$dev_state/installed" >"$dev_state/installed.next" || true
 mv -f -- "$dev_state/installed.next" "$dev_state/installed"
 catalog_ended() { ipc smoke readInstance service vgs.devtools ended | py_reply 'import json,sys; t=sys.stdin.read().strip(); d=json.loads(t) if t.startswith("{") else {}; print(d.get("catalog", "none"))'; }
@@ -449,14 +450,19 @@ expect "IPC open summons the window on its search for the install path" ok devto
 expect_poll "the search holds the keyboard for the install path" '["TextField","Search tools",true,true,true]' ipc smoke focused window vgs.devtools
 catalog_moved() { [[ $(catalog_ended) != "$catalog_before" ]] && echo moved || echo waiting; }
 expect_poll "the open's list ended before the install path" moved catalog_moved
+# A list asked for while one runs runs once more after it (Query.qml), so
+# the lists have settled once the last end holds still for a second.
+catalog_settled() { local first; first="$(catalog_ended)" || return; sleep 1; [[ $(catalog_ended) == "$first" ]] && echo settled || echo moving; }
+expect_poll "the open's lists have settled before the install path" settled catalog_settled
 type_keys "$agent_command" || fail "typing the agent's command into the Catalog search failed"
-echo "$agent_key" >>"$dev_state/installed"
-expect "no list runs before a trigger" "$(texts "$agent_name" "Not installed" "Not installed" Install)" row_texts "$agent_name"
+expect "the agent lists absent before the click" "$(texts "$agent_name" "Not installed" "Not installed" Install)" row_texts "$agent_name"
 install_before="$(ended_record vgs.devtools/install)"
 forget_record
 hold_runs
 expect "the Dev Tools Tab tour reaches the agent Install again" ok devtools_keyboard_install
 expect_poll "the click hands the install TUI the row's id" "$(words vgs.devtools/install tui/install.sh "$agent_id")" recorded_tail
+echo "$agent_key" >>"$dev_state/installed"
+expect "no list runs before a trigger" "$(texts "$agent_name" "Not installed" "Not installed" Install)" row_texts "$agent_name"
 release_runs
 expect_poll "the install run's presenter exits" moved ended_record_moved vgs.devtools/install "$install_before"
 expect_poll "the install run ended in the core record" moved ended_record_moved vgs.devtools/install "$install_before"
