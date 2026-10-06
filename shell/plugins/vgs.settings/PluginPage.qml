@@ -525,7 +525,7 @@ FocusScope {
                                 onLineAsked: row => page.panel.openUserLine(row)
                                 onApplyKey: key => {
                                     if (page === null || page.row === null) return;
-                                    settle(alternative, Reply.isOk(page.panel.writeKey(pluginId, modelData.shortcut, key)));
+                                    settle(key, Reply.isOk(page.panel.writeKey(pluginId, modelData.shortcut, key)));
                                 }
                             }
                         }

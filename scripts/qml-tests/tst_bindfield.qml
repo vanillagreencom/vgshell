@@ -156,7 +156,7 @@ Item {
                 compare(JSON.stringify(root.pairs), JSON.stringify([want]), why);
             }
             field.committed("SUPER+K", 0);
-            compare(listed.alternative, null, "the edit's key is named only while it is sent");
+            compare(listed.alternative, undefined, "the edit's key is named only while it is sent");
         }
 
         function test_a_read_only_row_offers_no_edit() {

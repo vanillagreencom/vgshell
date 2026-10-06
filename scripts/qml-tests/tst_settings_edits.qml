@@ -21,7 +21,9 @@ import "../../shell/plugins/vgs.settings"
 // shortcut, every alternative key in its one field: Delete on one writes
 // the keys left, the add button and a pressed combo write the list with
 // the new key, Use my binding removes the key a user bind holds, and the
-// reset sends undefined. The owner here stands in for the page: it records
+// reset sends undefined. A refused key returns to the row's text entry
+// whether the field or a caller sent it, and a refused removal or list
+// opens none. The owner here stands in for the page: it records
 // each write and takes it or refuses it; the page's capture names keys
 // with the core's judge and says a user bind holds Right Ctrl when asked.
 Item {
@@ -81,9 +83,10 @@ Item {
         property var plugins: []
         property var capture: pageCapture
         property var keyWrites: []
+        property bool refusesKeys: false
         function writeKey(id, shortcut, key) {
             keyWrites.push([id, shortcut, key]);
-            return "ok";
+            return refusesKeys ? "refused: key=" + shortcut : "ok";
         }
         function writeSetting() { return "ok"; }
         function setEnabled() { return "ok"; }
@@ -181,6 +184,7 @@ Item {
         function init() {
             UnitTheme.reset();
             root.accepts = true;
+            fakePanel.refusesKeys = false;
             unsaved.discard();
             gap.value = 4;
             size.value = 12;
@@ -466,6 +470,43 @@ Item {
             reset.clicked();
             compare(fakePanel.keyWrites.length, before + 1);
             compare(fakePanel.keyWrites[before][2], undefined, "the reset sends undefined, so the default list applies");
+            root.pageRow = shipped;
+            page.destroy();
+        }
+
+        // A refused key on the page returns to the row's text entry: a
+        // one-key value a caller sends, as the window's key IPC does, and
+        // a key the field's own edit set; a refused removal, which would
+        // leave one key, and a refused list open none.
+        function test_a_refused_key_returns_whatever_sent_it() {
+            fakePanel.keyWrites = [];
+            const shipped = root.pageRow;
+            const shownWith = keys => {
+                const row = JSON.parse(JSON.stringify(shipped));
+                row.binds[0].keys = keys;
+                row.binds[0].key = keys.length === 0 ? null : keys[0];
+                root.pageRow = row;
+            };
+            const page = pluginPageComponent.createObject(root);
+            verify(page !== null);
+            shownWith(["code:108", "code:105"]);
+            settle(() => keyFields(page).length === 1 && keyFields(page)[0].shortcutField.keys.length === 2);
+            const field = keyFields(page)[0];
+            fakePanel.refusesKeys = true;
+            // [why, send, the text entry opens on]
+            for (const [why, send, want] of [
+                ["a one-key value a caller sends", () => field.applyKey("SUPER+"), "SUPER+"],
+                ["a key the field's edit sets", () => field.shortcutField.committed("SUPER+J", 0), "SUPER+J"],
+                ["a refused removal", () => field.shortcutField.cleared(0), null],
+                ["a list a caller sends", () => field.applyKey(["code:108", "SUPER+"]), null]
+            ]) {
+                field.discard();
+                send();
+                compare(field.shortcutField.typing, want !== null, why);
+                if (want !== null) compare(editor(field).text, want, why);
+            }
+            field.discard();
+            fakePanel.refusesKeys = false;
             root.pageRow = shipped;
             page.destroy();
         }

@@ -23,9 +23,12 @@ import qs.Ui
 // A key typed as text waits in the text entry until it is saved: `edited`
 // says the entry holds a key other than the one in effect, `save()` sends
 // it as Enter there does and `discard()` drops it. The page tells the row
-// through `settle(key, accepted)` whether the manager accepted the key an
-// edit set, null for a removal, and a refused key returns to the text
-// entry, so it stays an unsaved edit the user corrects. `edits` is the
+// through `settle(key, accepted)` whether the manager accepted the value
+// it sent, and a refused key returns to the text entry of the alternative
+// edited, so it stays an unsaved edit the user corrects: the key an edit
+// of the field set, or a one-key value a caller sent itself, such as the
+// page's key IPC. A refused removal, and a list a caller sent, open no
+// entry, since no one key was asked for. `edits` is the
 // page's set of unsaved edits (EditSet), which the row joins while edited
 // and tells of each typed key the manager accepted; a pressed key is no
 // edit, so the set hears of none.
@@ -61,7 +64,8 @@ BindField {
     function discard() { shortcutField.stopTyping(); }
     function settle(key, accepted) {
         sent.accepted = accepted;
-        if (!accepted && typeof key === "string") shortcutField.startTyping(key);
+        const asked = alternative === undefined ? key : alternative;
+        if (!accepted && typeof asked === "string") shortcutField.startTyping(asked);
     }
 
     // Take ROW, the user line the page confirmed, out of its file.
