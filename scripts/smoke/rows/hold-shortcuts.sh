@@ -211,17 +211,19 @@ python3 - "$hold_layer" <<'PY'
 import pathlib, sys
 p = pathlib.Path(sys.argv[1])
 s = p.read_text()
-needle = 'tap.armed = next(tap.held) == nil and { code = code, ms = ms } or nil'
+needle = 'if next(tap.held) == nil then tap.armed, tap.gate = { code = code, ms = ms }, nil else tap.armed = nil end'
 assert s.count(needle) == 1, "tap control: expected one press disarm"
-changed = s.replace(needle, 'tap.armed = next(tap.held) == nil and { code = code, ms = ms } or tap.armed')
+changed = s.replace(needle, 'if next(tap.held) == nil then tap.armed, tap.gate = { code = code, ms = ms }, nil end')
 assert changed != s
 p.write_text(changed)
 PY
 expect "control: reload the chord-sensitive tap tracker" ok hypr reload config-only
 hold_reset
-hold_send "down 108" "down 25" "up 25" "up 108"
 hold_barrier
-expect "control: losing tap disarm breaks chord rejection" violation hold_no_tap
+expect "control: the tap edge record starts empty" '[]' hold_read
+hold_send "down 108" "down 25" "up 108" "up 25"
+hold_barrier
+expect "control: losing tap disarm lets the chord fire the tap" '["tap"]' hold_read
 cp -- "$sandbox/hold-layer-tap-good.lua" "$hold_layer"
 expect "restore the generated tap tracker" ok hypr reload config-only
 
