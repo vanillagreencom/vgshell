@@ -49,12 +49,13 @@
 # on-screen display while dictating, its plasma orb fed by stand-ins for
 # voxtype's status stream and audio bridge, so no audio device opens, taken
 # only when named; voice-setup is the requirement notice Voice's Set up
-# raises without voxtype, then the screen after a Set up run over a
-# voxtype stand-in ended with code 0, with the Voice toast where the tree
-# has it, taken only when named; voice-keys is the Keys section of Voice's
-# Settings page with Voice on, then the pointer on its first key's info
-# icon with that icon's tooltip open where the tree draws one, taken only
-# when named; focus is
+# raises without voxtype and Voice's Settings page then, the screen after a
+# Set up run over a voxtype stand-in ended with code 0, with the Voice
+# toast where the tree has it, and Voice's Settings page once the
+# stand-ins report it ready, taken only when named; voice-keys is the Keys
+# section of Voice's Settings page with Voice on, then the pointer on its
+# first key's info icon with that icon's tooltip open where the tree draws
+# one, taken only when named; focus is
 # the keyboard focus proof set; dialog is the core's requirement notice;
 # lock is the vgs.lock screen, locked and after wrong attempts; polkit is
 # the vgs.polkit prompt, asking and after a failed attempt; greeter is the
@@ -1907,9 +1908,14 @@ voice_level_flowing() { ipc smoke readInstance service vgs.voice level | py_repl
 # runs, the stand-in terminal runs `true` for the script (harness.sh's
 # terminal_stand_in) and the run ends with code 0. A tree whose Voice shows
 # a toast for that end is shot once the toast shows; an older one after a
-# bounded wait. Enablement, stand-ins and the package script are put back.
+# bounded wait. Voice's Settings page is shot without voxtype and once the
+# stand-ins report the model installed and a systemctl stand-in the
+# service enabled and running, at its top, where the Setup section is. A
+# tree whose Voice puts its setup state in the Setup group is shot once
+# the section draws its chip. Enablement, stand-ins and the package script
+# are put back, and the Settings window is hidden again.
 scene_voice-setup() { # MODE
-  local voice_found settings_found pkg_real="$sandbox/voice-setup-vgshell-pkg.real" stood=() command before
+  local voice_found settings_found pkg_real="$sandbox/voice-setup-vgshell-pkg.real" systemctl_saved="$sandbox/voice-setup-systemctl.saved" stood=() command before
   voice_found="$(plugin_enabled vgs.voice)" || voice_found=unread
   settings_found="$(plugin_enabled vgs.settings)" || settings_found=unread
   [[ $voice_found == True || $voice_found == False ]] || fail "vgs.voice's enablement is unreadable before the Voice setup scene: $voice_found"
@@ -1953,6 +1959,7 @@ EOF_PKG
   take "voice-setup-$1-dialog"
   type_keys -k Escape || fail "sending Escape to Voice's notice failed"
   expect_poll "Escape closes Voice's notice" 0 layer_count vgs:notice
+  voice_setup_page "Voice's page without voxtype" "voice-setup-$1-page-missing" "Requirements missing"
 
   cat >"$shim/voxtype" <<'EOF'
 #!/usr/bin/env bash
@@ -1982,8 +1989,36 @@ EOF
   park_pointer
   take "voice-setup-$1-done"
 
-  # The toast goes before the next mode's dialog, so no shot holds both.
-  expect_poll "Voice's toast is gone after the Voice setup scene" 0 voice_setup_toasts
+  # The toast goes before the page's shot and the next mode's dialog, so no
+  # shot holds it twice.
+  expect_poll "Voice's toast is gone after the Voice setup run" 0 voice_setup_toasts
+  # Ready: the stand-in reports its version and the model installed, and a
+  # systemctl stand-in, over whichever the sandbox holds, the service
+  # enabled and running.
+  cat >"$shim/voxtype" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  '--version') printf 'voxtype 1.1.0\n' ;;
+  'status --follow --extended --format json') printf '{"state":"idle"}\n'; exec sleep infinity ;;
+  'config get engine --json') printf '{"value":"parakeet"}\n' ;;
+  'config get parakeet.model --json') printf '{"value":"parakeet-tdt-0.6b-v3"}\n' ;;
+  'info models --json') printf '{"engines":{"parakeet":{"models":[{"name":"parakeet-tdt-0.6b-v3","installed":true,"downloadable":true,"download_arg":"parakeet-tdt-0.6b-v3"}],"default":"parakeet-tdt-0.6b-v3"}},"verified":true}\n' ;;
+  'info engines --json') printf '[{"name":"parakeet","compiled":true,"active":true}]\n' ;;
+esac
+EOF
+  rm -f -- "$systemctl_saved"
+  if [[ -e $shim/systemctl ]]; then mv -- "$shim/systemctl" "$systemctl_saved"; fi
+  cat >"$shim/systemctl" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  '--user is-enabled voxtype') printf 'enabled\n' ;;
+  '--user is-active voxtype') printf 'active\n' ;;
+esac
+EOF
+  chmod 755 "$shim/voxtype" "$shim/systemctl"
+  rescan "the ready stand-ins are scanned"
+  expect_poll "Voice reads its setup ready" False voice_setup_wanted
+  voice_setup_page "Voice's page once set up" "voice-setup-$1-page-ready" "Ready"
   if [[ $voice_found == False ]]; then
     expect "disabling vgs.voice after the Voice setup scene is allowed" ok ipc shell setPluginEnabled vgs.voice false
     expect_poll "vgs.voice is gone after the Voice setup scene" False record_exists vgs.voice
@@ -1992,7 +2027,8 @@ EOF
     expect "disabling vgs.settings after the Voice setup scene is allowed" ok ipc shell setPluginEnabled vgs.settings false
     expect_poll "vgs.settings is gone after the Voice setup scene" False record_exists vgs.settings
   fi
-  rm -f -- "${shim:?}/voxtype"
+  rm -f -- "${shim:?}/voxtype" "${shim:?}/systemctl"
+  if [[ -e $systemctl_saved ]]; then mv -- "$systemctl_saved" "$shim/systemctl"; fi
   for command in "${stood[@]}"; do rm -f -- "${shim:?}/$command"; done
   cp -- "$pkg_real" "$repo/bin/vgshell-pkg.next" && mv -T -- "$repo/bin/vgshell-pkg.next" "$repo/bin/vgshell-pkg"
   rescan "the Voice setup scene's stand-ins are removed"
@@ -2007,6 +2043,27 @@ voice_setup_press() { # LABEL
   expect "$1: Set up is answered" ok settings_open_tui vgs.voice setup
   settings_close
 }
+# voice_setup_page LABEL SHOT CHIP: the Settings window opened on Voice's
+# page, at its top once every status row is reported, shot as SHOT with
+# the pointer parked, then hidden. On a tree whose Voice puts its setup
+# state in the Setup group, the shot waits for the section's chip to read
+# CHIP; an older tree draws none.
+voice_setup_page() { # LABEL SHOT CHIP
+  expect "$1: the Settings window opens on Voice's page" ok ipc shell summon "$settings_kind" vgs.settings '{"plugin":"vgs.voice"}'
+  expect_poll "$1: the Settings window maps" 1 settings_count
+  expect_poll "$1: Voice's page is shown" '"vgs.voice"' settings_page
+  expect_poll "$1: Voice's status is reported" True page_reported vgs.voice
+  if grep -qF '"group": "Setup"' "$tree/shell/plugins/vgs.voice/manifest.json"; then
+    expect_poll "$1: the Setup section's chip reads $3" "$3" voice_setup_chip
+  fi
+  expect_poll "$1: Voice's page is at its top" True settings_at_top
+  park_pointer
+  take "$2"
+  settings_close
+}
+voice_setup_chip() { ipc smoke setupSection "$settings_kind" vgs.settings | py_reply 'import json,sys; c=json.load(sys.stdin)["chips"]; print(c[0][0] if c else "none")'; }
+# Whether Voice's own setup state offers Set up, as its service holds it.
+voice_setup_wanted() { ipc smoke readInstance service vgs.voice setupValue | py_reply 'import json,sys; print(json.load(sys.stdin).get("action"))'; }
 voice_setup_requirement() { ipc shell listPlugins | py_reply 'import json,sys; print([r["state"] for p in json.load(sys.stdin)["plugins"] if p["id"] == "vgs.voice" for r in p["requirements"] if r["name"] == sys.argv[1]][0])' "$1"; }
 # The run id of Set up's last ended run, or `none`.
 voice_setup_run() { ipc shell lent | py_reply 'import json,sys; r=json.load(sys.stdin)["tui"]["runs"].get("vgs.voice/setup") or {}; e=r.get("ended"); print(e["run"] if e else "none")'; }
