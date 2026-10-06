@@ -4,7 +4,7 @@ Read before touching anything that starts, stops, measures or talks to the shell
 
 ## The approach
 
-`vgshell run` holds the instance lock, starts the shell as its child and supervises it; every `vgshell` command addresses the pid the lock file names and judges an IPC reply by its text. Inside the shell, every watcher, poller, subprocess and session-wide object has one owner that creates it and destroys it, a process-costing lookup runs once per set, and the first bar is built before any service. Resident size is read by one instrument, `scripts/sample-shell-memory.sh`, and a figure is stated only beside the run that produced it. The choices are [D053](../decisions/D053-runner-holds-the-instance-lock.md), [D069](../decisions/D069-runner-supervises-the-shell.md) and [D047](../decisions/D047-services-build-after-the-first-bar-frame.md).
+`vgshell start` asks Hyprland to launch `vgshell run` in the background. `vgshell run` holds the instance lock, starts the shell as its child and supervises it; every `vgshell` command addresses the pid the lock file names and judges an IPC reply by its text. Inside the shell, every watcher, poller, subprocess and session-wide object has one owner that creates it and destroys it, a process-costing lookup runs once per set, and the first bar is built before any service. Resident size is read by one instrument, `scripts/sample-shell-memory.sh`, and a figure is stated only beside the run that produced it. The choices are [D053](../decisions/D053-runner-holds-the-instance-lock.md), [D069](../decisions/D069-runner-supervises-the-shell.md) and [D047](../decisions/D047-services-build-after-the-first-bar-frame.md).
 
 ## Why
 
@@ -20,7 +20,7 @@ A lock descriptor the shell inherits is held by every child the shell starts, so
 - Do send a JSON list argument inside an object, never as a bare list; `qs ipc call` strips the brackets of an argument that opens with `[`.
 - Do check the preflight floor before the lock; a raised floor reaches every package recipe through `scripts/check-packaging.js`.
 - Never relaunch, restart or refuse a run from anywhere but the runner's supervision table in `bin/vgshell`; `scripts/test-vgshell-run.sh` and `scripts/smoke/rows/supervise.sh` pin it.
-- Do keep the autostart line one sentence here, because `scripts/check-readme.js` reads it and holds the README's install text to it. Autostart is `hl.on("hyprland.start", function () hl.exec_cmd("vgshell run") end)` in `hyprland.lua`; a system package also ships an XDG autostart entry that a uwsm session starts, and VGS ships no systemd unit of its own.
+- Do keep the autostart line one sentence here, because `scripts/check-readme.js` reads it and holds the README's install text to it. Autostart is `hl.on("hyprland.start", function () hl.exec_cmd("vgshell start") end)` in `hyprland.lua`; a system package also ships an XDG autostart entry that runs `vgshell start`, and VGS ships no systemd unit of its own.
 
 ## Memory
 

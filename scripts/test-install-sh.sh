@@ -407,7 +407,7 @@ latest_row() {
   check "the version directory holds the release's runtime tree" test -f "$d/0.2.0/bin/vgshell" -a -f "$d/0.2.0/VERSION" -a ! -e "$d/0.2.0/share"
   check "current is a relative link to the version" test -L "$d/current" -a "$(readlink -- "$d/current")" = 0.2.0
   check "the command links to current's vgshell" test -L "$h/.local/bin/vgshell" -a "$(readlink -- "$h/.local/bin/vgshell")" = "$d/current/bin/vgshell"
-  check "it prints the Hyprland autostart line" out_has "  hl.on(\"hyprland.start\", function () hl.exec_cmd(\"$h/.local/bin/vgshell run\") end)"
+  check "it prints the Hyprland autostart line" out_has "  hl.on(\"hyprland.start\", function () hl.exec_cmd(\"$h/.local/bin/vgshell start\") end)"
   check "it names a command directory missing from PATH" out_has "path=missing dir=$h/.local/bin: add it to PATH to run vgshell by name"
   check "it leaves no staging directory" no_stage
   check "it leaves nothing in TMPDIR" scratch_empty

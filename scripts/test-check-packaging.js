@@ -47,7 +47,7 @@ function git(...args) {
 }
 
 const pristine = path.join(tmp, "pristine");
-const files = ["packaging/runtime-libraries.json", "packaging/channel-gaps.json", "flake.lock", "flake.nix", "install.sh", "packaging/install-tree.manifest", "packaging/xdg-desktop-portal/hyprland-portals.conf", "VERSION", "config/requirements.json", "bin/vgshell", "docs/architecture/distribution.md"];
+const files = ["packaging/runtime-libraries.json", "packaging/channel-gaps.json", "flake.lock", "flake.nix", "install.sh", "packaging/install-system.sh", "packaging/install-tree.manifest", "packaging/xdg-desktop-portal/hyprland-portals.conf", "VERSION", "config/requirements.json", "bin/vgshell", "docs/architecture/distribution.md"];
 for (const plugin of fs.readdirSync(path.join(repo, "shell", "plugins"))) {
     if (fs.existsSync(path.join(repo, "shell", "plugins", plugin, "manifest.json"))) files.push(`shell/plugins/${plugin}/manifest.json`);
 }
@@ -220,6 +220,7 @@ const SPECS = [REL, GIT];
 const SCRIPTLET = "packaging/arch/vgshell/vgshell.install";
 const GIT_SCRIPTLET = "packaging/arch/vgshell-git/vgshell-git.install";
 const MESSAGE = "share/vgshell/bin/lib/post-install.txt";
+const FIRST_START = "share/vgshell/bin/lib/first-start.sh";
 const dnf = (recipe = "vgshell", scope = "core") => `channel=dnf recipe=${recipe} scope=${scope}`;
 const firstPlugin = tree => fs.readdirSync(path.join(tree, "shell/plugins")).sort()[0];
 const refused = key => "check-packaging: refused: " + key;
@@ -369,6 +370,10 @@ const ROWS = [
     // The first-install text: shipped, and printed by each recipe's scriptlet.
     ["a manifest without the first-install text is refused", t => edit(t, "packaging/install-tree.manifest", "^f " + MESSAGE.replace(/\./g, "\\.") + "\\n", ""),
         1, () => refused(`message=unshipped path=${MESSAGE} manifest=packaging/install-tree.manifest`)],
+    ["a manifest without first-start is refused", t => edit(t, "packaging/install-tree.manifest", "^f " + FIRST_START.replace(/\./g, "\\.") + "\\n", ""),
+        1, () => refused(`first-start=unshipped path=${FIRST_START} manifest=packaging/install-tree.manifest`)],
+    ["an autostart entry that runs the foreground runner is refused", t => edit(t, "packaging/install-system.sh", "^Exec=\\$prefix/bin/vgshell start$", "Exec=$prefix/bin/vgshell run"),
+        1, () => refused("autostart=exec want=Exec=$prefix/bin/vgshell start")],
     ["vgshell: a recipe without its scriptlet is refused", t => edit(t, SRC, "^\\tinstall = vgshell\\.install\\n", ""),
         1, () => refused("install=missing want=vgshell.install recipe=vgshell")],
     // post_install stays and prints nothing.
@@ -459,6 +464,8 @@ const ROWS = [
         1, () => refused("section=differs name=%post specs=vgshell.spec,vgshell-git.spec")],
     // Both specs print on an upgrade too.
     ["dnf: a %post off the first-install text is refused", t => replaceIn(t, SPECS, '"$1" -eq 1', '"$1" -ge 1'),
+        1, () => refused("post=mismatch specs=vgshell.spec,vgshell-git.spec")],
+    ["dnf: a %post that skips first-start is refused", t => replaceIn(t, SPECS, "    %{_datadir}/vgshell/bin/lib/first-start.sh\n", ""),
         1, () => refused("post=mismatch specs=vgshell.spec,vgshell-git.spec")],
     ["dnf: an install off the shared installer is refused", t => replaceIn(t, SPECS, "DESTDIR=%{buildroot} PREFIX=%{_prefix} SYSCONFDIR=%{_sysconfdir} packaging/install-system.sh", "make install"),
         1, () => refused("install=missing want=DESTDIR=%{buildroot} PREFIX=%{_prefix} SYSCONFDIR=%{_sysconfdir} packaging/install-system.sh")],

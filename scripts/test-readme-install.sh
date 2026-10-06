@@ -31,7 +31,7 @@ fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
 
 # --- the tree ---------------------------------------------------------------
 tree="$tmp/tree"
-files=(README.md VERSION bin/vgshell bin/vgshell-scan bin/lib/post-install.txt bin/lib/qml-library.js install.sh docs/architecture/runtime.md shell/Core/PackageManagers.js
+files=(README.md VERSION bin/vgshell bin/vgshell-scan bin/lib/qml-library.js install.sh docs/architecture/runtime.md shell/Core/PackageManagers.js
   packaging/arch/vgshell/PKGBUILD packaging/arch/vgshell-git/PKGBUILD
   packaging/fedora/copr-project packaging/fedora/vgshell.spec packaging/fedora/vgshell-git.spec
   scripts/readme-install.sh scripts/check-readme.js)
@@ -147,6 +147,7 @@ EOF
 cat >"$stubs/nix" <<'EOF'
 #!/usr/bin/env bash
 if [[ $* == *--version ]]; then echo "vgshell $STUB_VERSION"; exit 0; fi
+if [[ $* == *'-- start' ]]; then exit 0; fi
 echo 'vgshell: refused: preflight=hyprland have=none need=0.56' >&2
 exit 78
 EOF
@@ -159,6 +160,7 @@ if [[ $* == *'version --json' ]]; then
   exit 0
 fi
 if [[ $* == *--version ]]; then echo "vgshell ${STUB_DISPLAY:-${STUB_DESCRIBE:-$STUB_VERSION}}"; exit 0; fi
+if [[ ${1:-} == start ]]; then exit 0; fi
 echo 'vgshell: refused: preflight=hyprland have=unknown need=0.56' >&2
 exit 78
 EOF
@@ -215,7 +217,7 @@ aur_first="$(grep -n -F -x -- "paru -S vgshell-git" "$tree/README.md")" || { ech
 published=("$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT='{"results":[{"Name":"vgshell-git"}]}' STUB_COPR_PUBLISHED=1)
 row "the published commands run" 0 "readme-install: ok line=${aur_first%%:*} channel=aur exit=0 seconds=*" "${published[@]}" --
 # Each command the record names, after its fence's number in the README.
-fence_want=$'1 paru -S vgshell-git\n1 vgshell --version\n2 sudo dnf copr enable vanillagreen/vgshell\n2 sudo dnf install vgshell\n2 vgshell --version\n3 '"$curl_command"$'\n3 ~/.local/bin/vgshell --version\n3 ~/.local/bin/vgshell version --json\n4 nix run github:vanillagreencom/vgshell -- run\n4 nix run github:vanillagreencom/vgshell -- --version\n5 git clone https://github.com/vanillagreencom/vgshell\n5 vgshell/bin/vgshell run\n5 vgshell/bin/vgshell --version\n5 vgshell/bin/vgshell version --json'
+fence_want=$'1 paru -S vgshell-git\n1 vgshell --version\n2 sudo dnf copr enable vanillagreen/vgshell\n2 sudo dnf install vgshell\n2 vgshell --version\n3 '"$curl_command"$'\n3 ~/.local/bin/vgshell --version\n3 ~/.local/bin/vgshell version --json\n4 nix run github:vanillagreencom/vgshell -- start\n4 nix run github:vanillagreencom/vgshell -- --version\n5 git clone https://github.com/vanillagreencom/vgshell\n5 vgshell/bin/vgshell start\n5 vgshell/bin/vgshell --version\n5 vgshell/bin/vgshell version --json'
 fence_have="$(sed -n -E 's/^exec vgs-readme-install-([0-9]+)\.[0-9]+ /\1 /p' -- "$record")"
 fence_starts="$(sed -n -E 's/^start vgs-readme-install-([0-9]+)\.[0-9]+$/\1/p' -- "$record")"
 if [[ $fence_have == "$fence_want" && $fence_starts == $'1\n2\n3\n4\n5' ]]; then

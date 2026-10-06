@@ -1,8 +1,4 @@
-VGS is installed. Its command is vgshell. vgs is LVM's command, from lvm2.
-A Hyprland session that uwsm manages starts VGS at login.
-Start the shell now, in a terminal inside Hyprland:
-  vgshell run
-Without uwsm, start it at login with this line in ~/.config/hypr/hyprland.lua:
-  hl.on("hyprland.start", function () hl.exec_cmd("vgshell run") end)
+VGS is installed. Its command is vgshell.
+It starts now in each running Hyprland session, and at every login.
 Chromium, Chrome, Edge and Brave follow the theme.
 Detail: /usr/share/doc/vgshell/README.md, section "Setup".

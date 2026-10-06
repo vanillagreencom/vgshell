@@ -3,6 +3,11 @@
 #
 # User-facing help is in help_text below. This header holds developer notes.
 #
+# `start` takes no arguments. It selects the Hyprland instance, checks the
+# runtime floor, serializes with $XDG_RUNTIME_DIR/vgshell-start.lock, asks
+# Hyprland to launch `vgshell run` with its output in the state log, and
+# returns after the guarded shell answers, so the caller's terminal is free.
+#
 # `run` takes no arguments: the shell always runs as this process's child,
 # and this process stays in the foreground and supervises it. A shell that
 # exits with a non-zero status while Hyprland answers starts again after
@@ -38,9 +43,9 @@
 # the runner, the parent of the pid in the instance lock when that parent
 # holds the lock, which stops the shell and exits with no relaunch, or to
 # the pid itself when its parent holds no lock; waits for that lock to free,
-# which it does when the runner exits after the shell, and asks Hyprland to run
-# `vgshell run`, so the new shell inherits the session environment. It prints
-# the new pid once that shell answers as the guarded instance, and refuses
+# which it does when the runner exits after the shell, and uses start's
+# Hyprland launch path. It prints the new pid once that shell answers as the
+# guarded instance, and refuses
 # `start=exited pid=<pid|none>` once that run has written the lock file
 # and no process holds the lock any more: the new runner ended with no
 # guarded shell, the pid the last one the file named.
@@ -374,7 +379,8 @@ Usage: vgshell <command> [arguments]
 Run and control the VGS desktop shell for Hyprland.
 
 Commands:
-  run        Start the shell in this terminal
+  start      Start the shell in the background
+  run        Run the shell in this terminal, for debugging
   restart    Stop the running shell and start it again
   plugin     List, add, enable, update and remove plugins
   theme      Apply, install and update themes and backgrounds
@@ -386,24 +392,29 @@ Commands:
   sudo       Turn on passwordless sudo for a set time
   system     Apply or undo one-time system setup steps
   hypr       Connect the VGS Hyprland settings to hyprland.lua
-  edit       Open one file from your configuration directory
   tui        Run a command in a VGS floating terminal
 
-Other commands: pid, ipc, log, migrate, version
+Other commands: pid, ipc, log, migrate, version, edit
 
 Run 'vgshell <command> --help' for the options of one command.
+EOF_HELP
+      ;;
+    start) cat <<'EOF_HELP'
+Usage: vgshell start
+
+Start the shell in the background and return after it answers.
 EOF_HELP
       ;;
     run) cat <<'EOF_HELP'
 Usage: vgshell run
 
-Start the shell in this terminal and hold the instance lock.
+Run the shell in this terminal and hold the instance lock.
 EOF_HELP
       ;;
     restart) cat <<'EOF_HELP'
 Usage: vgshell restart
 
-Stop the running shell and ask Hyprland to start it again.
+Stop the running shell and start it again in the background.
 EOF_HELP
       ;;
     pid) cat <<'EOF_HELP'
@@ -1002,22 +1013,120 @@ shell_stop_target() { # PID
   printf '%s\n' "$target"
 }
 
+
+hyprland_config_uses_lua() {
+  local hypr_status status
+  set +e
+  hypr_status="$(hyprctl -j status 2>&1)"
+  status=$?
+  set -e
+  [[ $status == 0 ]] || refuse 69 "hyprland=unreachable"
+  [[ $hypr_status =~ \"configProvider\"[[:space:]]*:[[:space:]]*\"lua\" ]]
+}
+
+select_hyprland_instance() {
+  local instances status selected count
+  [[ -z ${HYPRLAND_INSTANCE_SIGNATURE:-} ]] || return 0
+  set +e
+  instances="$(hyprctl instances -j 2>&1)"
+  status=$?
+  set -e
+  [[ $status == 0 ]] || refuse 69 "hyprland=unreachable"
+  selected="$(python3 -c 'import json,sys
+try:
+    rows=json.loads(sys.stdin.read())
+except Exception:
+    raise SystemExit(3)
+if not isinstance(rows, list):
+    raise SystemExit(3)
+print(len(rows))
+if len(rows) == 1:
+    row = rows[0]
+    sig = row.get("instance") if isinstance(row, dict) else None
+    if not isinstance(sig, str) or sig == "":
+        raise SystemExit(3)
+    print(sig)
+' <<<"$instances")" || refuse 69 "hyprland=unreachable"
+  count="${selected%%$'\n'*}"
+  [[ $count =~ ^[0-9]+$ ]] || refuse 69 "hyprland=unreachable"
+  case "$count" in
+    0) refuse 69 "hyprland=unreachable" ;;
+    1) export HYPRLAND_INSTANCE_SIGNATURE="${selected#*$'\n'}" ;;
+    *) refuse 1 "hyprland=ambiguous count=$count" ;;
+  esac
+}
+
+shell_launch_request() { # USES_LUA RUN_LOG
+  local script command lua_cmd
+  script="exec $(printf '%q' "$self") run >$(printf '%q' "$2") 2>&1"
+  command="sh -c $(printf '%q' "$script")"
+  if [[ $1 == true ]]; then
+    lua_cmd="${command//\\/\\\\}"
+    lua_cmd="${lua_cmd//\"/\\\"}"
+    printf 'hl.dsp.exec_cmd("%s")\n' "$lua_cmd"
+  else
+    printf 'exec %s\n' "$command"
+  fi
+}
+
+shell_start() { # OLD_PID USES_LUA [STEP]
+  local old_pid="$1" using_lua="$2" written dispatch_reply new_pid guarded_out status seen_pid step_status=0 run_dir run_log request
+  shift 2
+  if [[ -n ${1:-} ]]; then
+    set +e
+    (set -e; "$1")
+    step_status=$?
+    set -e
+  fi
+  run_dir="$state_home/vgshell"
+  mkdir -p -- "$run_dir" || refuse 1 "log-dir=failed path=$run_dir"
+  run_log="$run_dir/run.log"
+  : >"$run_log" || refuse 1 "log=failed path=$run_log"
+  request="$(shell_launch_request "$using_lua" "$run_log")"
+  written="$(stat -L -c '%y' -- "$lock" 2>/dev/null || printf 'absent')"
+  set +e
+  dispatch_reply="$(hyprctl dispatch "$request" 2>&1)"
+  set -e
+  if [[ $dispatch_reply != ok ]]; then
+    refuse 1 "start=failed reply=${dispatch_reply//$'\n'/\\n}" \
+      "the shell did not start; start it with vgshell start"
+  fi
+
+  seen_pid=none
+  for _ in $(seq 1 300); do
+    if [[ -r $lock ]] && IFS= read -r new_pid <"$lock" && [[ $new_pid =~ ^[0-9]+$ && $new_pid != "$old_pid" ]]; then
+      seen_pid="$new_pid"
+      if [[ ! -d /proc/$new_pid ]]; then
+        refuse 1 "start=exited pid=$new_pid" \
+          "the new shell exited; read $run_log or start it with vgshell start"
+      fi
+      set +e
+      guarded_out="$(qs ipc --pid "$new_pid" call shell guarded 2>/dev/null)"
+      status=$?
+      set -e
+      vgs_ipc_last_line_into "$guarded_out"
+      if [[ $status == 0 && $vgs_ipc_last_line == true ]]; then
+        printf 'ok pid=%s\n' "$new_pid"
+        return "$step_status"
+      fi
+    fi
+    if [[ $(stat -L -c '%y' -- "$lock" 2>/dev/null || printf 'absent') != "$written" ]] && flock -n "$lock" true; then
+      refuse 1 "start=exited pid=$seen_pid" \
+        "the new vgshell run ended with no guarded shell; read $run_log or start it with vgshell start"
+    fi
+    sleep 0.1
+  done
+  refuse 1 "start=timeout" "the shell did not answer; read $run_log or start it with vgshell start"
+}
+
 # STEP, a function, runs once the shell has stopped and before Hyprland
 # starts the next one, so `reset` moves files no shell reads or writes. It
 # runs in a subshell under errexit, and its status is restart's once the new
 # shell answers.
 shell_restart() { # [STEP]
-  local pid hypr_status status using_lua locked_out reply cmd request dispatch_reply new_pid guarded_out lua_cmd stop_target written seen_pid step_status=0
+  local pid status using_lua locked_out reply stop_target
   pid="$(shell_pid)" || exit $?
-  set +e
-  hypr_status="$(hyprctl -j status 2>&1)"
-  status=$?
-  set -e
-  [[ $status == 0 ]] ||
-    refuse 69 "hyprland=unreachable" "the shell was not stopped"
-
-  using_lua=false
-  [[ $hypr_status =~ \"configProvider\"[[:space:]]*:[[:space:]]*\"lua\" ]] && using_lua=true
+  if hyprland_config_uses_lua; then using_lua=true; else using_lua=false; fi
 
   set +e
   locked_out="$(qs ipc --pid "$pid" call shell locked 2>/dev/null)"
@@ -1025,7 +1134,7 @@ shell_restart() { # [STEP]
   set -e
   [[ $status == 0 ]] ||
     refuse 1 "locked=unanswered pid=$pid" \
-      "the shell did not answer shell.locked; a shell started before vgshell restart existed must be stopped and started with vgshell run by hand; the shell was not stopped"
+      "the shell did not answer shell.locked; start it with vgshell start after stopping it; the shell was not stopped"
   vgs_ipc_last_line_into "$locked_out"
   reply="$vgs_ipc_last_line"
   case "$reply" in
@@ -1041,62 +1150,7 @@ shell_restart() { # [STEP]
   kill -TERM "$stop_target" || refuse 1 "stop=failed pid=$pid"
   flock -w 10 "$lock" true ||
     refuse 1 "stop=timeout pid=$pid" "the shell is still running"
-  if [[ -n ${1:-} ]]; then
-    set +e
-    (set -e; "$1")
-    step_status=$?
-    set -e
-  fi
-
-  cmd="$(printf '%q run' "$self")"
-  if [[ $using_lua == true ]]; then
-    lua_cmd="${cmd//\\/\\\\}"
-    lua_cmd="${lua_cmd//\"/\\\"}"
-    request="hl.dsp.exec_cmd(\"$lua_cmd\")"
-  else
-    request="exec $cmd"
-  fi
-
-  # Only a runner that holds the lock writes the file, so a change after
-  # this reading, with the lock free again, is a run that started and
-  # ended, however short: its runner empties the file when it exits. The
-  # lock is probed only after the change, when the new runner has taken
-  # it for its whole life, so the probe never meets that runner's
-  # `flock -n`, which it would make refuse with 75.
-  written="$(stat -L -c '%y' -- "$lock")" || refuse 1 "lock=unreadable path=$lock"
-  set +e
-  dispatch_reply="$(hyprctl dispatch "$request" 2>&1)"
-  set -e
-  if [[ $dispatch_reply != ok ]]; then
-    refuse 1 "start=failed reply=${dispatch_reply//$'\n'/\\n}" \
-      "the shell stopped; start it with vgshell run"
-  fi
-
-  seen_pid=none
-  for _ in $(seq 1 300); do
-    if [[ -r $lock ]] && IFS= read -r new_pid <"$lock" && [[ $new_pid =~ ^[0-9]+$ && $new_pid != "$pid" ]]; then
-      seen_pid="$new_pid"
-      if [[ ! -d /proc/$new_pid ]]; then
-        refuse 1 "start=exited pid=$new_pid" \
-          "the new shell exited; read its log or start it with vgshell run"
-      fi
-      set +e
-      guarded_out="$(qs ipc --pid "$new_pid" call shell guarded 2>/dev/null)"
-      status=$?
-      set -e
-      vgs_ipc_last_line_into "$guarded_out"
-      if [[ $status == 0 && $vgs_ipc_last_line == true ]]; then
-        printf 'ok pid=%s\n' "$new_pid"
-        return "$step_status"
-      fi
-    fi
-    if [[ $(stat -L -c '%y' -- "$lock" 2>/dev/null) != "$written" ]] && flock -n "$lock" true; then
-      refuse 1 "start=exited pid=$seen_pid" \
-        "the new vgshell run ended with no guarded shell; read its log or start it with vgshell run"
-    fi
-    sleep 0.1
-  done
-  refuse 1 "start=timeout" "the shell stopped; start it with vgshell run"
+  shell_start "$pid" "$using_lua" "${1:-}"
 }
 
 # The directory `add` installed plugin ID into, resolved. An absent one is
@@ -2386,6 +2440,31 @@ if help_requested "$cmd" "$@" && help_text "$cmd"; then
   exit 0
 fi
 case "$cmd" in
+  start)
+    if [[ $# -gt 0 ]]; then
+      printf 'vgshell: refused: argument=%s\n' "$1" >&2
+      try_help
+      exit 2
+    fi
+    select_hyprland_instance
+    preflight
+    start_lock="$rt_dir/vgshell-start.lock"
+    exec 7>>"$start_lock" || refuse 1 "start-lock=failed path=$start_lock"
+    flock -w 10 7 || refuse 75 "start=busy path=$start_lock" "another vgshell start is choosing this instance"
+    if pid="$(shell_pid 2>/dev/null)"; then
+      set +e
+      guarded_out="$(qs ipc --pid "$pid" call shell guarded 2>/dev/null)"
+      status=$?
+      set -e
+      vgs_ipc_last_line_into "$guarded_out"
+      if [[ $status == 0 && $vgs_ipc_last_line == true ]]; then
+        printf 'ok running pid=%s\n' "$pid"
+        exit 0
+      fi
+    fi
+    if hyprland_config_uses_lua; then using_lua=true; else using_lua=false; fi
+    shell_start none "$using_lua"
+    ;;
   run)
     if [[ $# -gt 0 ]]; then
       printf 'vgshell: refused: argument=%s\n' "$1" >&2

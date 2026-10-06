@@ -83,6 +83,8 @@ jarvis-desktop
 instance-guard
 diagnostics
 supervise
+# After supervise, with the tail rows that restart the shell: it proves the background launcher path and leaves a harness shell.
+start
 lock
 # After lock, since it verifies that each plugin can run while the other is disabled.
 screensaver

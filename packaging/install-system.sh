@@ -18,7 +18,7 @@
 # 0440. Unset installs neither: the writer on PATH without its rule would
 # read as set up while every apply fails. SYSCONFDIR also installs the XDG
 # autostart entry $DESTDIR$SYSCONFDIR/xdg/autostart/vgshell.desktop, 0644, that
-# runs $PREFIX/bin/vgshell run at login in a uwsm-managed Hyprland session, and
+# runs $PREFIX/bin/vgshell start at login in a uwsm-managed Hyprland session, and
 # the Hyprland portal preference
 # $DESTDIR$SYSCONFDIR/xdg/xdg-desktop-portal/hyprland-portals.conf, 0644.
 # Install into a fresh DESTDIR, or remove an
@@ -181,8 +181,7 @@ if [[ -n $sysconfdir ]]; then
     refuse 1 "rule=refused prefix=$prefix" "bin/vgshell-browser-policy package-rule refused the prefix"
   install -m 0440 -T /dev/stdin "$rule_dir/vgshell-theme-browser" <<<"$rule_text" ||
     refuse 1 "rule=failed path=$rule_dir/vgshell-theme-browser"
-  # uwsm's xdg-desktop-autostart.target starts the entry, through the unit
-  # systemd-xdg-autostart-generator makes of it. Exec names the package's
+  # XDG autostart starts the background launcher. Exec names the package's
   # command by its absolute path, so the entry needs no PATH; package-rule
   # above refused a prefix Exec would have to quote.
   autostart_dir="$destdir$sysconfdir/xdg/autostart"
@@ -192,7 +191,7 @@ if [[ -n $sysconfdir ]]; then
 Type=Application
 Name=VGS
 Comment=Start the VGS desktop shell
-Exec=$prefix/bin/vgshell run
+Exec=$prefix/bin/vgshell start
 OnlyShowIn=Hyprland;
 NoDisplay=true
 EOF

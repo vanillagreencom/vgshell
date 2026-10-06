@@ -82,6 +82,7 @@ chmod +x "$tmp/qs"
 
 cat >"$tmp/hyprctl" <<'EOF2'
 #!/usr/bin/env bash
+printf '%s\n' "$*" >>"${STUB_HYPR_CALLS:-/dev/null}"
 if [[ ${1:-} == -j && ${2:-} == version ]]; then
   printf '{\n    "branch": "stub",\n    "version": "%s",\n    "dirty": false\n}\n' "${STUB_HYPR_VERSION:-0.56.2}"
   exit "${STUB_HYPR_VERSION_EXIT:-0}"
@@ -90,6 +91,10 @@ if [[ ${1:-} == -j && ${2:-} == status ]]; then
   status='{"configProvider":"lua"}'
   printf '%s\n' "${STUB_HYPR_STATUS:-$status}"
   exit "${STUB_HYPR_STATUS_EXIT:-0}"
+fi
+if [[ ${1:-} == instances && ${2:-} == -j ]]; then
+  printf '%s\n' "${STUB_HYPR_INSTANCES:-[{\"instance\":\"sig-start\"}]}"
+  exit "${STUB_HYPR_INSTANCES_EXIT:-0}"
 fi
 if [[ ${1:-} == dispatch ]]; then
   printf '%s\n' "${2:-}" >>"${STUB_HYPR_DISPATCH:?}"
@@ -233,7 +238,8 @@ run_row "missing id is exit 2" "$rt_live" "" "plugin enable" "" 2 "vgshell: refu
 run_row "unknown subcommand is exit 2" "$rt_live" "" "plugin frobnicate" "" 2 "vgshell: refused: plugin-subcommand=frobnicate"
 run_row "unknown command is exit 2" "$rt_live" "" "frobnicate" "" 2 "vgshell: refused: command=frobnicate"
 run_row "run refuses an argument" "$rt_live" "STUB_RECORD=$tmp/never" "run --daemonize" "" 2 "vgshell: refused: argument=--daemonize"
-if [[ ! -e $tmp/never ]]; then ok "a refused run never started the shell"; else fail "a refused run started the shell"; fi
+run_row "start refuses an argument" "$rt_live" "STUB_RECORD=$tmp/never" "start --foreground" "" 2 "vgshell: refused: argument=--foreground"
+if [[ ! -e $tmp/never ]]; then ok "a refused run or start never started the shell"; else fail "a refused run or start started the shell"; fi
 
 # The recorded pid must be a dead process for the not-running refusal, and
 # a pid nothing can own is the one past the kernel's maximum.
@@ -562,10 +568,41 @@ pre_control "scratch refused" full "TMPDIR=$pre_no_tmp" 1 "vgshell: refused: scr
 pre_control "scratch removed" full "" 0 "" \
   $'  rm -rf -- "$scratch" || refuse 1 "scratch=$scratch"\n' ''
 
+# Start asks Hyprland to launch the runner and returns after the guarded shell answers.
+start_capture() { # RUNTIME_DIR RECORD DISPATCH [ENV...]
+  local rt="$1" record="$2" dispatch="$3" bin="${START_BIN:-$repo/bin/vgshell}"
+  shift 3
+  set +e
+  start_out="$("${base_env[@]}" XDG_RUNTIME_DIR="$rt" HYPRLAND_INSTANCE_SIGNATURE=sig-start STUB_RECORD="$record" STUB_SHELL_HOLD=60 STUB_HYPR_CALLS="$rt/hyprctl.calls" STUB_HYPR_DISPATCH="$dispatch" STUB_HYPR_LAUNCH="$repo/bin/vgshell" STUB_REPLY=false "$@" "$bin" start 2>"$tmp/err")"
+  start_status=$?
+  set -e
+  start_err=""
+  [[ -s $tmp/err ]] && IFS= read -r start_err <"$tmp/err"
+  return 0
+}
+
+rt_start="$tmp/rt-start"; dispatch="$tmp/dispatch-start"
+mkdir -p "$rt_start"
+start_capture "$rt_start" "$tmp/record-start" "$dispatch"
+if [[ $start_status == 0 && $start_out =~ ^ok\ pid=([0-9]+)$ ]]; then start_pid="${BASH_REMATCH[1]}"; started_pids+=("$start_pid"); ok "start prints the launched pid"; else start_pid=""; fail "start: exit=$start_status out=[$start_out] stderr=[$start_err]"; fi
+if [[ -n $start_pid && -d /proc/$start_pid ]]; then ok "start leaves the launched shell running"; else fail "start launched no live shell"; fi
+if [[ -n $start_pid && $(cat "$rt_start/vgshell.lock") == "$start_pid" ]]; then ok "start records the launched shell in the lock"; else fail "start lock: $(cat "$rt_start/vgshell.lock" 2>/dev/null || echo absent)"; fi
+if [[ -f $tmp/home/.local/state/vgshell/run.log ]]; then ok "start creates the run log before dispatch"; else fail "start created no run log"; fi
+
+rt_start_running="$tmp/rt-start-running"; dispatch="$tmp/dispatch-start-running"
+start_fake_shell "start running fixture starts a shell" "$rt_start_running" "$tmp/record-start-running"
+running_pid="$fake_pid"
+start_capture "$rt_start_running" "$tmp/record-start-running-new" "$dispatch"
+if [[ $start_status == 0 && $start_out == "ok running pid=$running_pid" ]]; then ok "start returns the existing guarded shell"; else fail "start existing: exit=$start_status out=[$start_out] stderr=[$start_err]"; fi
+if [[ ! -e $dispatch ]]; then ok "start dispatches nothing for an existing guarded shell"; else fail "start existing dispatched: $(cat "$dispatch")"; fi
+
 # Restart stops only the recorded pid, waits for the lock to free and asks
 # Hyprland to launch the new runner so it inherits the session environment.
-cmd="$(printf '%q run' "$repo/bin/vgshell")"
-lua_request="hl.dsp.exec_cmd(\"$cmd\")"
+start_script="exec $(printf '%q' "$repo/bin/vgshell") run >$(printf '%q' "$tmp/home/.local/state/vgshell/run.log") 2>&1"
+cmd="sh -c $(printf '%q' "$start_script")"
+lua_cmd="${cmd//\\/\\\\}"
+lua_cmd="${lua_cmd//\"/\\\"}"
+lua_request="hl.dsp.exec_cmd(\"$lua_cmd\")"
 classic_request="exec $cmd"
 
 rt_restart_locked="$tmp/rt-restart-locked"; dispatch="$tmp/dispatch-locked"
@@ -1452,7 +1489,7 @@ help_main_names_present() { # BIN
   local bin="$1" name rows
   help_capture "$bin" || return 1
   rows="$(help_row_names "$tmp/help-out")"
-  for name in run restart plugin theme doctor self reset lock pkg sudo system hypr tui; do
+  for name in start run restart plugin theme doctor self reset lock pkg sudo system hypr tui; do
     grep -qxF -- "$name" <<<"$rows" || return 1
   done
 }
@@ -1566,7 +1603,7 @@ help_copy_with fit \
 if help_main_screen_fits "$control_bin"; then fail "fit control did not reject"; else ok "fit control rejected"; fi
 
 help_copy_with names \
-  "  run        Start the shell in this terminal" \
+  "  start      Start the shell in the background" \
   ""
 if help_main_names_present "$control_bin"; then fail "names control did not reject"; else ok "names control rejected"; fi
 

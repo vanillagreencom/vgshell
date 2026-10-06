@@ -60,7 +60,7 @@
 // main alone. Both: no conflicts, replaces or provides entry, refused as
 // <tag>=<value> recipe=<name>; install is <pkgname>.install,
 // the scriptlet beside the PKGBUILD; its post_install prints MESSAGE under
-// /usr; the two scriptlets are the same text; the PKGBUILD's package()
+// /usr and runs the installed first-start helper; the two scriptlets are the same text; the PKGBUILD's package()
 // holds PACMAN_INSTALL, the system install with SYSCONFDIR, so the package
 // ships the browser theme writer, its sudoers rule and the Hyprland portal
 // preference. Freshness, last: each .SRCINFO is exactly
@@ -74,7 +74,7 @@
 // check the tree with scripts/check-install-tree.sh and SYSCONFDIR, list
 // the browser theme writer, its sudoers rule, 0440 and noreplace, the XDG
 // autostart entry, noreplace, and the Hyprland portal preference, noreplace,
-// in %files, and print MESSAGE from %post on a first install only. vgshell.spec's Version is VERSION's line and
+// in %files, and print MESSAGE from %post and run first-start on a first install only. vgshell.spec's Version is VERSION's line and
 // its newest %changelog entry is that version at its Release. vgshell-git.spec
 // ends with an empty %changelog, which packaging/fedora/srpm.sh fills. Neither
 // spec has a Conflicts, Obsoletes or Provides tag, refused as
@@ -114,8 +114,10 @@ const REPO_URL = "https://github.com/vanillagreencom/vgshell";
 // The first-install text, relative to the install prefix. A package manager
 // runs no VGS code at install, so each channel's scriptlet prints this file.
 const MESSAGE = "share/vgshell/bin/lib/post-install.txt";
+const FIRST_START = "share/vgshell/bin/lib/first-start.sh";
 const MANIFEST = "packaging/install-tree.manifest";
 const PORTALS_CONF = "packaging/xdg-desktop-portal/hyprland-portals.conf";
+const AUTOSTART_EXEC = "Exec=$prefix/bin/vgshell start";
 // The system install every Arch recipe's package() runs.
 const PACMAN_INSTALL = 'DESTDIR="$pkgdir" PREFIX=/usr SYSCONFDIR=/etc ./packaging/install-system.sh';
 // The vgshell-git fetch. makepkg clones a git+ source as a mirror of every ref
@@ -342,9 +344,10 @@ function pacmanRules(recipes, reads, version) {
         if (install !== name) refuse(`install=${install || "missing"} want=${name} recipe=${recipe.name}`);
         const text = readText(recipe.dir + "/" + name, "scriptlet=missing recipe=" + recipe.name);
         const body = /^post_install\(\) \{\n([\s\S]*?)^\}$/m.exec(text);
-        const want = "cat /usr/" + MESSAGE;
-        if (body === null || !body[1].split("\n").some(line => line.trim() === want))
-            refuse(`scriptlet=silent recipe=${recipe.name}`, "want in post_install: " + want);
+        const wants = ["cat /usr/" + MESSAGE, "/usr/" + FIRST_START];
+        const bodyLines = body === null ? [] : body[1].split("\n").map(line => line.trim());
+        for (const want of wants)
+            if (!bodyLines.includes(want)) refuse(`scriptlet=silent recipe=${recipe.name}`, "want in post_install: " + want);
         const pkgbuild = readText(recipe.dir + "/PKGBUILD", "pkgbuild=missing recipe=" + recipe.name);
         if (!functionHolds(pkgbuild, "package", PACMAN_INSTALL))
             refuse(`installer=missing recipe=${recipe.name}`, "want in package(): " + PACMAN_INSTALL);
@@ -405,7 +408,7 @@ const DNF_CHECK = "scripts/check-install-tree.sh %{buildroot} %{_prefix} %{_sysc
 const DNF_FILES = ["%{_bindir}/vgshell-browser-policy", "%attr(0440,root,root) %config(noreplace) %{_sysconfdir}/sudoers.d/vgshell-theme-browser", "%config(noreplace) %{_sysconfdir}/xdg/autostart/vgshell.desktop", "%config(noreplace) %{_sysconfdir}/xdg/xdg-desktop-portal/hyprland-portals.conf"];
 // $1 is the count of this package installed after the transaction: 1 on a
 // first install, 2 on an upgrade.
-const DNF_POST = ['if [ "$1" -eq 1 ]; then', "cat %{_datadir}/" + MESSAGE.replace(/^share\//, ""), "fi"];
+const DNF_POST = ['if [ "$1" -eq 1 ]; then', "cat %{_datadir}/" + MESSAGE.replace(/^share\//, ""), "%{_datadir}/" + FIRST_START.replace(/^share\//, ""), "fi"];
 
 // A spec's preamble tags, sections and runtime dependency block.
 function readSpec(recipe) {
@@ -657,7 +660,11 @@ const requirements = readRequirements();
 const gaps = readGaps(requirements);
 const portalBackends = readPortalBackends();
 const version = readText("VERSION", "version=missing").replace(/\n$/, "");
-if (!readText(MANIFEST, "manifest=missing").split("\n").includes("f " + MESSAGE)) refuse(`message=unshipped path=${MESSAGE} manifest=${MANIFEST}`);
+const manifestLines = readText(MANIFEST, "manifest=missing").split("\n");
+if (!manifestLines.includes("f " + MESSAGE)) refuse(`message=unshipped path=${MESSAGE} manifest=${MANIFEST}`);
+if (!manifestLines.includes("f " + FIRST_START)) refuse(`first-start=unshipped path=${FIRST_START} manifest=${MANIFEST}`);
+if (!readText("packaging/install-system.sh", "installer=missing").split("\n").includes(AUTOSTART_EXEC))
+    refuse("autostart=exec want=" + AUTOSTART_EXEC);
 const judged = [];
 const licences = [];
 for (const [id, channel] of Object.entries(CHANNELS)) {

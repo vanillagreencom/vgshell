@@ -122,6 +122,7 @@ scripts/check-install-tree.sh %{buildroot} %{_prefix} %{_sysconfdir}
 %post
 if [ "$1" -eq 1 ]; then
     cat %{_datadir}/vgshell/bin/lib/post-install.txt
+    %{_datadir}/vgshell/bin/lib/first-start.sh
 fi
 
 %changelog

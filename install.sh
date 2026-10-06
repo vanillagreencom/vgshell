@@ -51,7 +51,7 @@
 # has.
 #
 # It never starts the shell, writes a service unit or edits hyprland.lua. It
-# prints the line that starts VGS with Hyprland.
+# prints the line that starts VGS with Hyprland in the background.
 #
 # Every refusal is one line on stderr, `install.sh: refused: <key>=<value>`,
 # then English. Exit 1 for a refusal, 2 for a bad argument, 75 while another
@@ -763,7 +763,7 @@ process.stdout.write(lines.join("\n") + "\n");
     *) echo "path=missing dir=$bin_dir: add it to PATH to run vgshell by name" ;;
   esac
   echo "To start VGS with Hyprland, add this line to ${XDG_CONFIG_HOME:-$HOME/.config}/hypr/hyprland.lua:"
-  printf '  hl.on("hyprland.start", function () hl.exec_cmd("%s run") end)\n' "$link"
+  printf '  hl.on("hyprland.start", function () hl.exec_cmd("%s start") end)\n' "$link"
 }
 main "$@"
 }

@@ -462,7 +462,7 @@ autostart_unit() {
   fi
   if [[ ! -f $unit ]]; then echo "autostart=no-unit"; return; fi
   if [[ ! -L $root/units/xdg-desktop-autostart.target.wants/app-vgshell@autostart.service ]]; then echo "autostart=not-wanted"; return; fi
-  if ! grep -qxF -e "ExecStart=$root/usr/bin/vgshell run" -e "ExecStart=:$root/usr/bin/vgshell run" -- "$unit"; then echo "autostart=exec-start"; return; fi
+  if ! grep -qxF -e "ExecStart=$root/usr/bin/vgshell start" -e "ExecStart=:$root/usr/bin/vgshell start" -- "$unit"; then echo "autostart=exec-start"; return; fi
   if ! grep -qxE -- 'ExecCondition=/[^ ]*/systemd-xdg-autostart-condition "Hyprland" ""' "$unit"; then echo "autostart=exec-condition"; return; fi
   echo "unit=ok"
 }
@@ -477,8 +477,8 @@ user_writes() {
 if [[ -x $generator ]]; then
   # package-rule requires a PREFIX without sudoers syntax. The checkout
   # path can contain other characters, so only this fixture lives in /tmp.
-  autostart_root="$(mktemp -d /tmp/vgs-autostart.XXXXXX)"
-  check "the generator starts the installed vgshell run in Hyprland alone" test "$(autostart_unit "$repo/packaging/install-system.sh" "$autostart_root/autostart")" = unit=ok
+  autostart_root="$(mktemp -d "$tmp/vgs-autostart.XXXXXX")"
+  check "the generator starts the installed vgshell start in Hyprland alone" test "$(autostart_unit "$repo/packaging/install-system.sh" "$autostart_root/autostart")" = unit=ok
   check "the generated unit is wanted by xdg-desktop-autostart.target" test -L "$autostart_root/autostart/units/xdg-desktop-autostart.target.wants/app-vgshell@autostart.service"
   check "the autostart install writes nothing outside its prefix" test "$(user_writes "$autostart_root/autostart")" = ""
   # Controls: an installer whose entry has no OnlyShowIn, so it runs in

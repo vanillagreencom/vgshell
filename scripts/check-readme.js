@@ -5,7 +5,7 @@
 //   node scripts/check-readme.js [--root DIR] [--commands | --write-plugins]
 //
 // DIR, this repository by default, holds the files read: README.md,
-// VERSION, bin/vgshell, bin/lib/post-install.txt, install.sh,
+// VERSION, bin/vgshell, install.sh,
 // docs/architecture/runtime.md, shell/Core/PackageManagers.js, packaging/arch/, packaging/fedora/ and shell/plugins/. bin/vgshell-scan always comes from this
 // script's own repository and lists DIR's plugins.
 //
@@ -34,9 +34,7 @@
 //              § Install holds at least one command.
 //   autostart  § Setup holds one ```lua fence of one line. The line equals
 //              the autostart line docs/architecture/runtime.md states, the
-//              line install.sh prints with `vgshell` for its absolute path,
-//              and the line of bin/lib/post-install.txt, the text a package
-//              prints on a first install.
+//              line install.sh prints with `vgshell` for its absolute path.
 //   plugin     § Plugins, without its leading and trailing blank lines,
 //              equals the plugin table rendered from the manifests, byte for
 //              byte. The one finding names the first line that differs, as
@@ -158,17 +156,9 @@ const installOptions = (() => {
 
 // The autostart line install.sh prints, with `vgshell` for the path it fills.
 const installAutostart = (() => {
-    const m = /^\s*printf '\s*(hl\.on\([^'\n]*%s run[^'\n]*\))\\n' "\$link"$/m.exec(installText);
+    const m = /^\s*printf '\s*(hl\.on\([^'\n]*%s start[^'\n]*\))\\n' "\$link"$/m.exec(installText);
     if (m === null) unreadable("install.sh", "no printf of the hl.on autostart line");
     return m[1].replace("%s", "vgshell");
-})();
-
-// The one autostart line of the text a package prints on a first install.
-const messageAutostart = (() => {
-    const rel = "bin/lib/post-install.txt";
-    const lines = readText(rel).split("\n").map(line => line.trim()).filter(line => line.startsWith("hl.on("));
-    if (lines.length !== 1) unreadable(rel, "hl.on lines=" + lines.length + " want=1");
-    return lines[0];
 })();
 
 const runtimeAutostart = (() => {
@@ -397,7 +387,6 @@ function checkAutostart(setup) {
     const line = lines[0].text.trim();
     if (line !== runtimeAutostart) finding("autostart", lines[0].n, "differs=docs/architecture/runtime.md want=" + runtimeAutostart);
     if (line !== installAutostart) finding("autostart", lines[0].n, "differs=install.sh want=" + installAutostart);
-    if (line !== messageAutostart) finding("autostart", lines[0].n, "differs=bin/lib/post-install.txt want=" + messageAutostart);
 }
 
 // The lines of SEC without its leading and trailing blank lines.

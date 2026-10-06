@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Controls for scripts/check-readme.js. Every row runs this repository's
 // check with `--root` on a scratch copy under its tmp/ of the files the
-// check reads: README.md, VERSION, bin/vgshell, bin/lib/post-install.txt, install.sh,
+// check reads: README.md, VERSION, bin/vgshell, install.sh,
 // docs/architecture/runtime.md, both Arch PKGBUILDs, the COPR project file
 // and both Fedora specs, and each shipped
 // plugin's manifest.json and README.md. The pristine copy passes. Each
@@ -25,7 +25,7 @@ process.on("exit", () => fs.rmSync(tmp, { recursive: true, force: true }));
 const ENV = { PATH: path.dirname(process.execPath) + ":" + process.env.PATH, LC_ALL: "C", HOME: tmp, TMPDIR: tmp };
 
 const pristine = path.join(tmp, "pristine");
-const files = ["README.md", "VERSION", "bin/vgshell", "bin/lib/post-install.txt", "install.sh", "docs/architecture/runtime.md", "shell/Core/PackageManagers.js",
+const files = ["README.md", "VERSION", "bin/vgshell", "install.sh", "docs/architecture/runtime.md", "shell/Core/PackageManagers.js",
     "packaging/arch/vgshell/PKGBUILD", "packaging/arch/vgshell-git/PKGBUILD",
     "packaging/fedora/copr-project", "packaging/fedora/vgshell.spec", "packaging/fedora/vgshell-git.spec"];
 const plugins = fs.readdirSync(path.join(repo, "shell/plugins"))
@@ -93,9 +93,9 @@ function commandsWant(tree, more) {
         "sudo dnf copr enable vanillagreen/vgshell": ["fedora", "copr:vanillagreen/vgshell", null],
         "sudo dnf install vgshell": ["fedora", "copr:vanillagreen/vgshell/vgshell", null],
         [CURL + " -s -- --git"]: ["curl", "none", null],
-        [NIX + " -- run"]: ["nix", "none", "run"],
+        [NIX + " -- start"]: ["nix", "none", "start"],
         "git clone https://github.com/vanillagreencom/vgshell": ["checkout", "none", null],
-        "vgshell/bin/vgshell run": ["checkout", "none", "run"],
+        "vgshell/bin/vgshell start": ["checkout", "none", "start"],
     }, more);
     const commands = commandLines(tree);
     if (commands.length !== Object.keys(want).length) throw new Error("commands: refused: README holds a command this row does not name");
@@ -175,35 +175,28 @@ const ROWS = [
         1, tree => [`command README.md:${curlLine(tree, " -s -- --version v0.0.0-planted")} channel=curl version=v0.0.0-planted want=v${version(tree)}`]],
     ["a curl --version of v<VERSION> passes", t => replaceIn(t, "README.md", "/install.sh | bash -s -- --git\n", `/install.sh | bash -s -- --version v${version(t)}\n`),
         0, tree => [ok(tree)]],
-    ["a nix tag other than v<VERSION> is refused", t => replaceIn(t, "README.md", `\n${NIX} -- run\n`, `\n${NIX}/v0.0.0-planted -- run\n`),
-        1, tree => [`command README.md:${lineOf(tree, NIX + "/v0.0.0-planted -- run")} channel=nix tag=v0.0.0-planted want=v${version(tree)}`]],
-    ["an untagged nix run of a vgshell command the help screen does not list is refused", t => replaceIn(t, "README.md", `\n${NIX} -- run\n`, `\n${NIX} -- start\n`),
-        1, tree => [`command README.md:${lineOf(tree, NIX + " -- start")} vgshell-command=start reason=not-in-usage`]],
-    ["a vgshell command the help screen does not list is refused", t => replaceIn(t, "README.md", "vgshell/bin/vgshell run", "vgshell/bin/vgshell start"),
-        1, tree => [`command README.md:${lineOf(tree, "vgshell/bin/vgshell start")} vgshell-command=start reason=not-in-usage`]],
+    ["a nix tag other than v<VERSION> is refused", t => replaceIn(t, "README.md", `\n${NIX} -- start\n`, `\n${NIX}/v0.0.0-planted -- start\n`),
+        1, tree => [`command README.md:${lineOf(tree, NIX + "/v0.0.0-planted -- start")} channel=nix tag=v0.0.0-planted want=v${version(tree)}`]],
+    ["an untagged nix run of a vgshell command the help screen does not list is refused", t => replaceIn(t, "README.md", `\n${NIX} -- start\n`, `\n${NIX} -- frobnicate\n`),
+        1, tree => [`command README.md:${lineOf(tree, NIX + " -- frobnicate")} vgshell-command=frobnicate reason=not-in-usage`]],
+    ["a vgshell command the help screen does not list is refused", t => replaceIn(t, "README.md", "vgshell/bin/vgshell start", "vgshell/bin/vgshell frobnicate"),
+        1, tree => [`command README.md:${lineOf(tree, "vgshell/bin/vgshell frobnicate")} vgshell-command=frobnicate reason=not-in-usage`]],
     ["an Install section with no command is refused", t => {
         const text = read(t, "README.md");
         const install = text.slice(text.indexOf("## Install\n"), text.indexOf("\n## ", text.indexOf("## Install\n")));
         replaceIn(t, "README.md", install, install.replace(/^```bash$/gm, "```text"));
     }, 1, tree => [`command README.md:${lineOf(tree, "## Install")} count=0`]],
     // autostart
-    ["a README autostart line that drifted is refused", t => replaceIn(t, "README.md", 'hl.exec_cmd("vgshell run")', 'hl.exec_cmd("vgshell run --planted")'),
+    ["a README autostart line that drifted is refused", t => replaceIn(t, "README.md", 'hl.exec_cmd("vgshell start")', 'hl.exec_cmd("vgshell start --planted")'),
         1, tree => {
             const n = lineOf(tree, autostart(tree));
             const want = autostart(pristine);
-            return [`autostart README.md:${n} differs=docs/architecture/runtime.md want=${want}`, `autostart README.md:${n} differs=install.sh want=${want}`,
-                `autostart README.md:${n} differs=bin/lib/post-install.txt want=${want}`];
+            return [`autostart README.md:${n} differs=docs/architecture/runtime.md want=${want}`, `autostart README.md:${n} differs=install.sh want=${want}`];
         }],
-    ["a runtime.md autostart line the README does not follow is refused", t => replaceIn(t, "docs/architecture/runtime.md", 'hl.exec_cmd("vgshell run")', 'hl.exec_cmd("vgshell run --planted")'),
-        1, tree => [`autostart README.md:${lineOf(tree, autostart(tree))} differs=docs/architecture/runtime.md want=${autostart(tree).replace('"vgshell run"', '"vgshell run --planted"')}`]],
-    ["a first-install text autostart line the README does not follow is refused", t => replaceIn(t, "bin/lib/post-install.txt", 'hl.exec_cmd("vgshell run")', 'hl.exec_cmd("vgshell run --planted")'),
-        1, tree => [`autostart README.md:${lineOf(tree, autostart(tree))} differs=bin/lib/post-install.txt want=${autostart(tree).replace('"vgshell run"', '"vgshell run --planted"')}`]],
-    ["a first-install text without its autostart line is unreadable", t => replaceIn(t, "bin/lib/post-install.txt", "  hl.on(", "  hl.off("),
-        2, () => ["check-readme: unreadable: bin/lib/post-install.txt: hl.on lines=0 want=1"]],
-    ["a first-install text with two autostart lines is unreadable", t => replaceIn(t, "bin/lib/post-install.txt", '  hl.on("hyprland.start", function () hl.exec_cmd("vgshell run") end)\n', '  hl.on("hyprland.start", function () hl.exec_cmd("vgshell run") end)\n  hl.on("hyprland.start", function () hl.exec_cmd("vgshell run") end)\n'),
-        2, () => ["check-readme: unreadable: bin/lib/post-install.txt: hl.on lines=2 want=1"]],
-    ["an install.sh autostart line the README does not follow is refused", t => replaceIn(t, "install.sh", 'hl.exec_cmd("%s run")', 'hl.exec_cmd("%s run --planted")'),
-        1, tree => [`autostart README.md:${lineOf(tree, autostart(tree))} differs=install.sh want=${autostart(tree).replace('"vgshell run"', '"vgshell run --planted"')}`]],
+    ["a runtime.md autostart line the README does not follow is refused", t => replaceIn(t, "docs/architecture/runtime.md", 'hl.exec_cmd("vgshell start")', 'hl.exec_cmd("vgshell start --planted")'),
+        1, tree => [`autostart README.md:${lineOf(tree, autostart(tree))} differs=docs/architecture/runtime.md want=${autostart(tree).replace('"vgshell start"', '"vgshell start --planted"')}`]],
+    ["an install.sh autostart line the README does not follow is refused", t => replaceIn(t, "install.sh", 'hl.exec_cmd("%s start")', 'hl.exec_cmd("%s start --planted")'),
+        1, tree => [`autostart README.md:${lineOf(tree, autostart(tree))} differs=install.sh want=${autostart(tree).replace('"vgshell start"', '"vgshell start --planted"')}`]],
     ["an autostart fence in Install instead of Setup is refused", t => {
         const fence = "```lua\n" + autostart(t) + "\n```\n\n";
         replaceIn(t, "README.md", fence, "");
@@ -255,11 +248,11 @@ const ROWS = [
     ["--commands prints each command's channel, needs and vgshell arguments", () => {}, 0, tree => commandsWant(tree, {}), ["--commands"]],
     ["--commands marks a curl release install and a nix run of the tag as needing the release, and --uninstall as needing nothing", t => {
         replaceIn(t, "README.md", "/install.sh | bash -s -- --git\n", `/install.sh | bash -s -- --git\n${CURL}\n${CURL} -s -- --uninstall\n`);
-        replaceIn(t, "README.md", `\n${NIX} -- run\n`, `\n${NIX} -- run\n${NIX}/v${version(t)} -- run\n`);
+        replaceIn(t, "README.md", `\n${NIX} -- start\n`, `\n${NIX} -- start\n${NIX}/v${version(t)} -- start\n`);
     }, 0, tree => {
         const v = "v" + version(tree);
         return commandsWant(tree, { [CURL]: ["curl", "release:" + v, null], [CURL + " -s -- --uninstall"]: ["curl", "none", null],
-            [`${NIX}/${v} -- run`]: ["nix", "release:" + v, "run"] });
+            [`${NIX}/${v} -- start`]: ["nix", "release:" + v, "start"] });
     }, ["--commands"]],
     ["an install.sh without its argument loop is unreadable", t => replaceIn(t, "install.sh", '  while (($# > 0)); do\n    case "$1" in\n', "  for arg; do\n    case \"$arg\" in\n"),
         2, () => ["check-readme: unreadable: install.sh: no --version arm in the argument loop, so the reader is broken"]],

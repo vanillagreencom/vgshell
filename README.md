@@ -38,14 +38,14 @@ curl -fsSL https://raw.githubusercontent.com/vanillagreencom/vgshell/main/instal
 Nix:
 
 ```bash
-nix run github:vanillagreencom/vgshell -- run
+nix run github:vanillagreencom/vgshell -- start
 ```
 
 From a checkout:
 
 ```bash
 git clone https://github.com/vanillagreencom/vgshell
-vgshell/bin/vgshell run
+vgshell/bin/vgshell start
 ```
 
 More install options: [docs/architecture/distribution.md](docs/architecture/distribution.md).
@@ -94,10 +94,10 @@ VGS starts with Hyprland and draws the bar, panels and windows on each screen. E
 
 ## Setup
 
-The Arch and Fedora packages start VGS in a uwsm session. Otherwise add this line to `~/.config/hypr/hyprland.lua`:
+The Arch and Fedora packages start VGS after install and at login. For a curl, Nix or checkout install, add this line to `~/.config/hypr/hyprland.lua`:
 
 ```lua
-hl.on("hyprland.start", function () hl.exec_cmd("vgshell run") end)
+hl.on("hyprland.start", function () hl.exec_cmd("vgshell start") end)
 ```
 
 ## Writing a plugin
