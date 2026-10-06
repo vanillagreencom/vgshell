@@ -921,7 +921,8 @@ function optionLines(section, held, touchpads, touchpadFailure, out) {
 // callback reads each again before VALUES and after, and keeps the middle
 // reading as the user's where it is neither the first nor the last
 // (USER_VALUES). An option the user's configuration leaves alone, or sets
-// to the value the layer sets, has no user value.
+// to the value the layer sets or to Hyprland's own default, has no user
+// value: `hl.get_config` answers a value and not whether a line set it.
 function appliedLines(values, paths) {
     var u = USER_VALUES;
     return [

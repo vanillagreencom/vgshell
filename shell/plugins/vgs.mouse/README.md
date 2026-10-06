@@ -11,7 +11,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 - A bar icon that opens the Mouse flyout.
 - A flyout with pointer speed, natural scroll, the touchpad switch when a touchpad exists and Mouse Settings.
 - A Mouse section in the System window with pointer settings, touchpad settings, device rows and a try-it area.
-- A setting you change here applies over your own Hyprland config. The row then shows the value your config sets and offers Use my Hyprland value, which makes VGS stop setting it.
+- A setting you change here applies over your own Hyprland config. Where your config sets another value, the row shows that value and offers Use my Hyprland value, which makes VGS stop setting it. A line of your config that sets Hyprland's own default, such as a pointer speed of 0, is not shown, and neither is the Touchpad switch.
 
 ## Settings
 
