@@ -31,6 +31,11 @@ Singleton {
     property var completion: null
     property var inputSurfaces: []
     property var inputObservation: null
+    // Quickshell 0.3.1 builds its desktop entry index on the first read of
+    // DesktopEntries and hands the scan over by a queued call, so that read
+    // returns an empty list (src/core/desktopentry.cpp). Read when the
+    // singleton is built, the index is filled before an observation's reply.
+    readonly property var desktopApplications: DesktopEntries.applications
 
     // Host-owned raw QQuickWindows supply activation, including layer focus
     // absent from Hyprland's activewindow reply. Each host releases its record.
@@ -62,7 +67,7 @@ Singleton {
         onReadDone: (request, text, failure) => {
             if (root.inputObservation === null) return;
             const protectedKeyboard = root.inputSurfaces.some(record => record.window !== null && record.window.visible && record.window.active);
-            const entries = DesktopEntries.applications.values.map(entry => ({ id: entry.id.replace(/\.desktop$/, "").toLowerCase(),
+            const entries = root.desktopApplications.values.map(entry => ({ id: entry.id.replace(/\.desktop$/, "").toLowerCase(),
                 startupClass: entry.startupClass.toLowerCase(), terminal: entry.categories.indexOf("TerminalEmulator") !== -1 }));
             root.finishInput(failure === "" ? Dispatch.inputTarget(text, root.inputObservation.point, protectedKeyboard, entries)
                 : { ok: false, error: "refused: input=read-failed " + failure });
