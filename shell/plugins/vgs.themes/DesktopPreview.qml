@@ -393,20 +393,32 @@ Item {
                 spacing: Theme.desktopPreview.lineGap
 
                 Label { role: "code"; color: root.terminalColor(2); text: "~ ❯ ls" }
-                Repeater {
-                    model: [
-                        { key: "user", value: "you", color: 1 },
-                        { key: "distro", value: "Arch Linux", color: 4 },
-                        { key: "wm", value: "Hyprland", color: 5 },
-                        { key: "shell", value: "VGS on Quickshell", color: 6 },
-                        { key: "theme", value: root.label, color: 3 },
-                        { key: "term", value: "ANSI 16", color: 2 }
-                    ]
-                    Row {
-                        required property var modelData
-                        spacing: Theme.space.xl
-                        Label { width: Theme.row.labelWidth / 2; role: "code"; color: root.terminalColor(parent.modelData.color); text: parent.modelData.key }
-                        Label { role: "code"; color: root.terminalColor(7); text: parent.modelData.value }
+                // In ls --color's default colours: an archive red, an
+                // executable green, a folder blue, an image magenta, a link
+                // cyan and a plain file the foreground, listed down the
+                // columns in ls's order.
+                Grid {
+                    rows: 4
+                    flow: Grid.TopToBottom
+                    columnSpacing: Theme.space.xl
+                    rowSpacing: Theme.desktopPreview.lineGap
+                    Repeater {
+                        model: [
+                            { name: "backup.tar.gz", color: 1 },
+                            { name: "build.sh", color: 2 },
+                            { name: "Desktop", color: 4 },
+                            { name: "Documents", color: 4 },
+                            { name: "dotfiles", color: 6 },
+                            { name: "notes.md", color: 7 },
+                            { name: "Pictures", color: 4 },
+                            { name: "wallpaper.jpg", color: 5 }
+                        ]
+                        Label {
+                            required property var modelData
+                            role: "code"
+                            color: root.terminalColor(modelData.color)
+                            text: modelData.name
+                        }
                     }
                 }
                 Row {
