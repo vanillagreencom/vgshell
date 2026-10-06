@@ -322,9 +322,9 @@
 # every themed application draws the defaults; a partial apply exits 3 once
 # the shell is back. A state that named none had wired no application and
 # gets no apply, as a fresh install has none. It holds the theme lock from before the
-# move to the end, refused reset=vgs reason=busy while another theme command
-# holds it. A running shell is checked and stopped as `restart` does before
-# anything moves, and started again after the apply, with restart's line;
+# move to the end, waiting up to 10 s while another theme command holds it
+# and then refusing reset=vgs reason=busy. A running shell is checked and
+# stopped as `restart` does before anything moves, and started again after the apply, with restart's line;
 # with none running it prints shell=not-running. The shell started after a
 # reset reads reset-backup and offers the restore in its "VGS was reset"
 # notice, its command behind Show command. On a terminal reset lists what
@@ -1560,15 +1560,16 @@ user_themes="$config_home/vgshell/themes"
 
 # Hold the theme lock on descriptor 9 until this process exits, so no apply
 # reads a package while add, update or remove changes it, and no two of
-# them change one at once. -s holds it shared, for a command that reads the
-# packages and changes none, so several such commands run at once and no
-# change starts under them. A lock held elsewhere refuses with KEY
-# reason=busy.
-theme_lock_hold() { # KEY [-s]
+# them change one at once. FLOCK_OPTION names how: -n for none of a wait,
+# -w SECONDS for a bounded one, -s with either to hold it shared, for a
+# command that reads the packages and changes none, so several such
+# commands run at once and no change starts under them. A lock still held
+# elsewhere refuses with KEY reason=busy.
+theme_lock_hold() { # KEY FLOCK_OPTION...
   local rc=0
   mkdir -p -- "$config_home/vgshell" 2>/dev/null && { exec 9>>"$theme_lock"; } 2>/dev/null ||
     refuse 1 "$1 reason=lock-failed path=$theme_lock"
-  flock "${@:2}" -n -E 75 9 || rc=$?
+  flock "${@:2}" -E 75 9 || rc=$?
   case "$rc" in
     0) ;;
     75) refuse 75 "$1 reason=busy" "another theme command holds the theme lock" ;;
@@ -1580,7 +1581,7 @@ theme_lock_hold() { # KEY [-s]
 # catalog update an interruption left, so add, install, update and remove
 # start from whole packages: docs/architecture/theme-catalog.md.
 theme_lock_change() { # KEY
-  theme_lock_hold "$1"
+  theme_lock_hold "$1" -n
   node "$theme_judge" recover "$config_home/vgshell" || exit $?
 }
 
@@ -1764,7 +1765,7 @@ theme_probe() { # NAME
 # under a shared hold of the theme lock.
 theme_outdated() { # FORMAT
   local names=()
-  theme_lock_hold "outdated=themes" -s
+  theme_lock_hold "outdated=themes" -s -n
   mapfile -d '' -t names < <(node "$theme_judge" checkouts "$config_home/vgshell")
   wait "$!" || exit $?
   outdated_rows theme_probe "${names[@]}"
@@ -2140,19 +2141,26 @@ restore_step() {
   return "$status"
 }
 
-# Runs STEP, reset's or restore's, under the theme lock, refused as KEY
-# reason=busy while another theme command holds it: around a running
+# Runs STEP, reset's or restore's, under the theme lock: around a running
 # shell's stop and start, after restart's checks, or else alone, followed by
-# shell=not-running. STEP's status is the command's.
+# shell=not-running. STEP's status is the command's. The shell's Reset and
+# Restore previous settings start this detached, and nothing reports a
+# refusal back, while the shell queues `theme follow` at the end of every
+# scan, its first at start; so it waits for another theme command's hold
+# as long as restart waits for the shell to stop, and refuses as KEY
+# reason=busy only past that. In scripts/smoke/rows/reset.sh on host cachy
+# on 2026-10-06, at load 13.6, the restarted shell's first follow ended
+# 0.76 s after its scan and 0.43 s before the row pressed Restore.
+reset_lock_wait_s=10
 reset_run() { # KEY STEP
   local status=0
   if shell_pid >/dev/null 2>&1; then
     preflight
-    theme_lock_hold "$1"
+    theme_lock_hold "$1" -w "$reset_lock_wait_s"
     shell_restart "$2"
     return
   fi
-  theme_lock_hold "$1"
+  theme_lock_hold "$1" -w "$reset_lock_wait_s"
   set +e
   (set -e; "$2")
   status=$?

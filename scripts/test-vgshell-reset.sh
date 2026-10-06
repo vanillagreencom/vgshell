@@ -245,6 +245,26 @@ row_restore_none() {
   run_in "$bin" reset restore --yes
   [[ $run_status == 1 ]] && err_first "vgshell: refused: backup=none path=$dat/backups" && unchanged
 }
+# A restore started while another theme command holds the theme lock, as
+# the follow the shell queues after each scan does, waits for it and runs.
+row_restore_waits() {
+  local bin="$1" holder
+  fixture restore-waits
+  run_in "$tree/bin/vgshell" reset --yes
+  [[ $run_status == 0 ]] || return 1
+  (
+    exec 7>>"$cfg/theme.lock"
+    flock 7
+    : >"$f/held"
+    sleep 1
+  ) &
+  holder=$!
+  for _ in $(seq 1 50); do [[ -e $f/held ]] && break; sleep 0.1; done
+  [[ -e $f/held ]] || { wait "$holder"; return 1; }
+  run_in "$bin" reset restore --yes
+  wait "$holder" || return 1
+  [[ $run_status == 0 ]] && out_has "shell=not-running" && [[ -f $cfg/shell.json ]]
+}
 
 # A home where no theme was ever applied: reset applies nothing, so no
 # application gains an include line, and restore returns the home whole.
@@ -274,6 +294,7 @@ declare -a ROWS=(
   "restore without a terminal or --yes moves nothing|row_restore_no_terminal"
   "restore refuses a folder outside the backups|row_restore_outside"
   "restore refuses an empty backups folder|row_restore_none"
+  "restore waits for a theme lock another command holds|row_restore_waits"
 )
 run_row() { "$1" "$2"; }
 row_fns=" "
@@ -302,6 +323,7 @@ declare -a CONTROLS=(
   "restore takes the newest backup" '    set -- "${folders[-1]}"' '    set -- "${folders[0]}"' row_restore_newest
   "no terminal and no shell moves nothing" '    shell_pid >/dev/null 2>&1 ||' '    true ||' row_no_terminal
   "reset applies the defaults only over an applied package" '  [[ $applied == false ]] ||' '  false ||' row_unthemed
+  "reset and restore wait for the theme lock" 'reset_lock_wait_s=10' 'reset_lock_wait_s=0' row_restore_waits
 )
 for ((i = 0; i < ${#CONTROLS[@]}; i += 4)); do
   label="${CONTROLS[i]}" fn="${CONTROLS[i + 3]}"

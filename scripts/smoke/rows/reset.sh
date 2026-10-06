@@ -22,13 +22,20 @@
 # Keep these holding the keyboard, its command behind Show command.
 # Hyprland lists no config error. Escape hides that notice and keeps its
 # marker, so the shell `vgshell restart` brings next offers the restore
-# again. Restore previous settings brings another
+# again. Restore previous settings, pressed while another theme command
+# holds the theme lock, as the follow after that shell's first scan can,
+# waits on that lock and brings another
 # new shell over the planted files, the theme file byte for byte: the user
 # layer is in effect, the welcome is seen, no notice shows and Hyprland
 # lists no config error. The row then puts back the user file and theme
 # file it found, removes the backups and starts the sandbox's own tree
-# again.
-# inputs: bin/vgshell bin/vgshell-theme-judge shell/shell.qml shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Core/Capabilities.qml shell/Core/HyprlandLayer.qml shell/plugins/vgs.settings/* shell/plugins/vgs.updates/bin/check config/shell.json themes/vgs/theme.json scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/rows/hyprland-consent.sh
+# again. Every key goes through one virtual keyboard with the us layout,
+# the harness's keyboard helper, that lives through every restart: a shell
+# that had just started read a key wtype typed with the keymap of the
+# keyboard before it, its Return as Escape, so Escape hid the notice in
+# place of Restore previous settings, in 1 of 4 runs of this row on host
+# cachy on 2026-10-06.
+# inputs: bin/vgshell bin/vgshell-theme-judge shell/shell.qml shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Core/Capabilities.qml shell/Core/HyprlandLayer.qml shell/plugins/vgs.settings/* shell/plugins/vgs.updates/bin/check config/shell.json themes/vgs/theme.json scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/keyboard/* scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 reset_tree="$sandbox/tree-reset"
 reset_config="$home/.config/vgshell"
@@ -37,6 +44,12 @@ reset_data="$home/.local/share/vgshell"
 reset_user="$reset_config/shell.json"
 reset_theme="$reset_config/theme.json"
 reset_marker="$reset_state/reset-backup"
+reset_theme_lock="$reset_config/theme.lock"
+reset_hold="$sandbox/reset-hold"
+reset_keyboard_log="$sandbox/reset-keyboard.log"
+reset_keyboard_fifo="$sandbox/reset-keyboard.fifo"
+reset_keyboard_pid=""
+reset_syncs=0
 reset_saved="$sandbox/reset-saved"
 mkdir -p -- "$reset_saved"
 
@@ -61,6 +74,70 @@ reset_record() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(js
 reset_welcome() { ipc shell lent | py_reply 'import json,sys; print(json.load(sys.stdin)["notices"]["welcome"]["state"])'; }
 reset_drawn() { ipc smoke noticeDrawn | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps(d[sys.argv[1]]))' "$1"; }
 reset_file() { [[ -e $1 ]] && echo present || echo absent; }
+# The row's keyboard: started once, its first key a lone Shift, which
+# answers nothing under any keymap. Returns 1, with the row failed, when it
+# does not connect.
+reset_keyboard_start() {
+  mkfifo -- "$reset_keyboard_fifo"
+  exec {reset_keyboard_fd}<>"$reset_keyboard_fifo"
+  spawn "$reset_keyboard_log" "${shell_env[@]}" "$sandbox/keyboard" "$reset_keyboard_fifo" us ""
+  reset_keyboard_pid="$spawn_pid"
+  expect_poll "the row's keyboard connects to the nested seat" 1 log_lines '^ready$' "$reset_keyboard_log"
+  grep -qxF ready -- "$reset_keyboard_log" || return 1
+  reset_send "down 50" "up 50"
+}
+# reset_send COMMAND...: the keyboard's commands, `down CODE` and `up CODE`
+# with XKB codes, then the wait for its round trip after them. Returns 1
+# when that round trip does not come within 5 s.
+reset_send() {
+  [[ -n $reset_keyboard_pid ]] || return 1
+  printf '%s\n' "$@" sync >&"$reset_keyboard_fd" || return 1
+  reset_syncs=$((reset_syncs + 1))
+  for _ in $(seq 1 50); do
+    (($(grep -cxF sync -- "$reset_keyboard_log") >= reset_syncs)) && return 0
+    sleep 0.1
+  done
+  return 1
+}
+reset_keyboard_stop() {
+  [[ -n $reset_keyboard_pid ]] || return 0
+  printf 'quit\n' >&"$reset_keyboard_fd" || :
+  exec {reset_keyboard_fd}>&-
+  wait "$reset_keyboard_pid" || fail "the row's keyboard exited with status $?"
+  reset_keyboard_pid=""
+}
+# Holds the theme lock as another theme command does and prints `held`,
+# then releases it once another process waits on it, printing `waited`, or
+# after timeout_s, printing `none`. The waiter is a flock(1) with the lock
+# file open and no -n: while this holds the lock it cannot have taken it.
+# /proc/locks cannot tell: read from this row on host cachy on 2026-10-06,
+# it listed neither this hold nor the restore's waiting request.
+reset_hold_theme_lock() {
+  local fd lock_path proc comm arg link blocking
+  exec {fd}>>"$reset_theme_lock"
+  flock -n "$fd" || { echo busy; return 0; }
+  lock_path="$(realpath -e -- "$reset_theme_lock")"
+  echo held
+  for _ in $(seq 1 $((timeout_s * 5))); do
+    for proc in /proc/[0-9]*; do
+      { IFS= read -r comm <"$proc/comm"; } 2>/dev/null || continue
+      [[ $comm == flock ]] || continue
+      blocking=true
+      while IFS= read -r -d '' arg; do [[ $arg != -n ]] || blocking=false; done <"$proc/cmdline" 2>/dev/null || continue
+      [[ $blocking == true ]] || continue
+      for link in "$proc"/fd/*; do
+        if [[ $(readlink -- "$link" 2>/dev/null) == "$lock_path" ]]; then
+          echo waited
+          return 0
+        fi
+      done
+    done
+    sleep 0.2
+  done
+  echo none
+}
+reset_hold_first() { head -n 1 -- "$reset_hold"; }
+reset_hold_last() { tail -n 1 -- "$reset_hold"; }
 reset_same() { cmp -s -- "$1" "$2" && echo same || echo differs; }
 # The live pid the sandbox's lock names once it is no longer OLD_PID, else
 # `none`.
@@ -87,7 +164,7 @@ reset_press() { # LABEL
     return 1
   fi
   expect_poll "$1 holds the keyboard" "\"$1\"" reset_drawn focused
-  type_keys -k Return || { fail "sending Return to $1 failed"; return 1; }
+  reset_send "down 36" "up 36" || { fail "sending Return to $1 failed"; return 1; }
   reset_adopt "$old" "$1"
 }
 # reset_adopt OLD_PID LABEL: the shell that replaced OLD_PID, taken up as
@@ -132,7 +209,7 @@ reset_layer() {
 }
 
 reset_run_row() {
-  local file name reset_folder reset_where reset_old reset_back reset_themed
+  local file name reset_folder reset_where reset_old reset_back reset_themed reset_holder=""
   # What the row puts back at its end: the user file, the theme file and the
   # stand-ins the shim held.
   for file in "$reset_user" "$reset_theme"; do
@@ -174,7 +251,7 @@ PY
   rm -rf -- "${reset_data:?}/backups"
   rm -f -- "${reset_marker:?}"
 
-  if stop_shell && start_shell "$reset_tree" "$sandbox/reset-qs.log"; then
+  if stop_shell && start_shell "$reset_tree" "$sandbox/reset-qs.log" && reset_keyboard_start; then
     expect "the planted shell draws the custom theme" reset-probe ipc smoke themeName
     expect_poll "the planted layer puts the fixture's widget in the bar" '[true]' reset_tick_in_bars
     expect "the planted layer turns vgs.launcher off" False plugin_enabled vgs.launcher
@@ -193,7 +270,7 @@ PY
     expect "the reset question's command is behind Show command, closed" '{"toggle": "Show command", "expanded": false, "text": "vgshell reset --yes"}' reset_drawn command
     expect_poll "the reset question holds the keyboard" true ipc smoke noticeFocused
     expect_poll "Cancel holds the keyboard first" '"Cancel"' reset_drawn focused
-    type_keys -k Escape || fail "sending Escape to the reset question failed"
+    reset_send "down 9" "up 9" || fail "sending Escape to the reset question failed"
     expect_poll "control: Escape closes the reset question" '{"asked": false, "backup": null}' reset_record
     expect_poll "control: the closed question leaves no surface" 0 layer_count vgs:notice
     expect "control: Escape moves no user file" same reset_same "$reset_saved/planted-shell.json" "$reset_user"
@@ -206,7 +283,7 @@ PY
     click_in window:Plugins window vgs.settings Button "Reset VGS" || fail "the click on Reset VGS failed"
     expect_poll "Reset VGS in Settings asks the reset question" '{"asked": true, "backup": null}' reset_record
     expect_poll "the asked question holds the keyboard" true ipc smoke noticeFocused
-    type_keys -k Tab || fail "sending Tab to the reset question failed"
+    reset_send "down 23" "up 23" || fail "sending Tab to the reset question failed"
 
     if reset_press Reset; then
       reset_folder="$(cat -- "$reset_marker" 2>/dev/null)" || reset_folder=""
@@ -240,7 +317,7 @@ PY
 
       # Escape hides the notice for this run and keeps the marker, so the
       # next start offers the restore again; only Keep these forgets it.
-      type_keys -k Escape || fail "sending Escape to the reset's notice failed"
+      reset_send "down 9" "up 9" || fail "sending Escape to the reset's notice failed"
       expect_poll "Escape hides the reset's notice" '{"asked": false, "backup": null}' reset_record
       expect_poll "the welcome the reset's notice held back shows next" '"Welcome to VGS"' reset_drawn title
       expect "Escape keeps the reset marker" present reset_file "$reset_marker"
@@ -257,9 +334,14 @@ PY
         expect_poll "the next start offers the restore again" "{\"asked\": false, \"backup\": \"$reset_folder\"}" reset_record
         expect_poll "the reset's notice shows again" '"VGS was reset"' reset_drawn title
         expect_poll "Keep these holds the keyboard again" '"Keep these"' reset_drawn focused
-        type_keys -M shift -k Tab -m shift || fail "sending Shift+Tab to the reset's notice failed"
+        # Tab past Show command; this keyboard's Shift+Tab moved no focus.
+        reset_send "down 23" "up 23" "down 23" "up 23" || fail "sending Tab to the reset's notice failed"
+        reset_hold_theme_lock >"$reset_hold" &
+        reset_holder=$!
+        expect_poll "another theme command holds the theme lock at the press" held reset_hold_first
       fi
       if [[ $reset_back == true ]] && reset_press "Restore previous settings"; then
+        expect "the restore waited for the theme lock" waited reset_hold_last
         expect "the restore puts the user file back byte for byte" same reset_same "$reset_saved/planted-shell.json" "$reset_user"
         expect "the restore puts the theme file back byte for byte" same reset_same "$reset_saved/planted-theme.json" "$reset_theme"
         expect "the restore puts the installed fixture back" present reset_file "$reset_config/plugins/acme.tick/manifest.json"
@@ -274,9 +356,11 @@ PY
         expect_poll "the restored shell shows no notice" 0 layer_count vgs:notice
         expect_poll "Hyprland lists no config error after the restore" '[]' hypr_config_errors
       fi
+      [[ -z $reset_holder ]] || wait "$reset_holder" || :
     fi
   fi
 
+  reset_keyboard_stop
   # The files and stand-ins the row found, and the sandbox's own tree.
   for file in "$reset_user" "$reset_theme"; do
     if [[ -e $reset_saved/${file##*/} ]]; then cp -p -- "$reset_saved/${file##*/}" "$file.tmp" && mv -T -- "$file.tmp" "$file"; else rm -f -- "$file"; fi
