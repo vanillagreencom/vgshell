@@ -211,12 +211,14 @@ EOF
 chmod +x "$repo/bin/vgshell"
 latency_catalog_held() { [[ -e $latency_started ]] && echo held || echo pending; }
 # The switch reading's catalog themes, the filter `ar` shows, with their
-# first wallpapers in the preview cache as a fetch leaves them: a 3840x2160
-# image, a desktop's wallpaper, for the six it steps through, and the
-# 480-pixel catalog thumbnail for lunar, its control.
+# first wallpapers in the preview cache as a fetch leaves them: a 6016x3384
+# image, the size of the catalog's wallpapers (everforest, tycho,
+# flexoki-light, akane and untitled measured 6016 wide, 2026-10-06), for
+# the six it steps through, and the 480-pixel catalog thumbnail for lunar,
+# its control.
 latency_previews="$home/.cache/vgshell/theme-assets/previews"
 mkdir -p -- "$latency_previews"
-"$imagemagick" "$repo/themes/catalog/thumbnails/akane.jpg" -resize 3840x2160\! "$sandbox/latency-wallpaper.jpg" || fail "the switch wallpaper could not be made"
+"$imagemagick" "$repo/themes/catalog/thumbnails/akane.jpg" -resize 6016x3384\! "$sandbox/latency-wallpaper.jpg" || fail "the switch wallpaper could not be made"
 latency_pins="$(python3 -c 'import json,sys; print(" ".join(e["name"] + "=" + e["imagery"]["sha256"] for e in json.load(open(sys.argv[1]))["entries"] if "ar" in e["name"]))' "$repo/themes/catalog/index.json")" || fail "the switch themes' pins are unreadable"
 for latency_pin in $latency_pins; do
   if [[ ${latency_pin%%=*} == lunar ]]; then

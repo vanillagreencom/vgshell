@@ -874,7 +874,7 @@ var TOKENS = {
         minScale: number(0.35, 0.1, 1),
         maxScale: number(2, 1, 4),
         band: number(2, 0, 16),
-        decodeCap: length(4096),
+        decodeCap: length(2048),
         previewDwell: duration("{motion.duration.slow}"),
         duration: duration("{motion.duration.normal}")
     },
