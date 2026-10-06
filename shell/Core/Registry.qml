@@ -412,7 +412,9 @@ Singleton {
     // (PluginLogic.statusRows of activeManifestOf over the values it
     // published), the label of its `secrets`, "" without, its setup
     // screens (PluginLogic.listedTuis), its Open surface
-    // (PluginLogic.openKind), its setting
+    // (PluginLogic.openKind), the id of the enabled panes holder that
+    // shows its page, "" for a plugin without kind `pane` or while no
+    // holder is enabled (PluginLogic.panesHolderId), its setting
     // choices (PluginLogic.settingChoices over those same values), its
     // requirements with their state and its errors: each failed build of
     // one of its kinds, once per cause, then each problem the Hyprland
@@ -424,6 +426,7 @@ Singleton {
         const failures = Plugins.failedBuilds;
         const problems = hyprlandProblems;
         const menuConflicts = menu.conflicts;
+        const holder = panesHolderId();
         return Object.keys(manifests).sort().map(id => {
             const m = manifests[id];
             const errors = [];
@@ -459,6 +462,7 @@ Singleton {
                 secretLabel: m.secrets === undefined ? "" : m.secrets.label,
                 tuis: Logic.listedTuis(m),
                 opens: Logic.openKind(m),
+                paneHolder: m.kinds.indexOf("pane") === -1 ? "" : holder,
                 requirements: requirementsOf(id),
                 errors: errors
             };

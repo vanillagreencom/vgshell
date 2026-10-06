@@ -2,9 +2,14 @@
 # plugins, mounts a pane with that pane plugin's own shell, owns one mount
 # at a time and refuses a second panes holder while it holds the capability.
 # The pane's configure writes every configuration entry its plugin reads.
+# A pane plugin's Settings page ends with a button named for the enabled
+# holder, absent for a plugin without kind pane and while no holder is
+# enabled, whose press opens the holder on that plugin's pane; a copy whose
+# rows give every plugin the holder and whose press drops the pane is the
+# control.
 # The row sets vgs.system and every enabled shipped section aside first, so
 # the holder lists its fixtures alone, and puts each back as it found it.
-# inputs: scripts/smoke/fixtures/plugins/acme.pane/* scripts/smoke/fixtures/plugins/acme.panehost/* shell/Hosts/PaneHost.qml shell/Hosts/PluginSlot.qml shell/Core/Capabilities.qml shell/plugins/vgs.system/* shell/plugins/*/manifest.json shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/PluginLogic.js scripts/smoke/rows/start-order.sh
+# inputs: scripts/smoke/fixtures/plugins/acme.pane/* scripts/smoke/fixtures/plugins/acme.panehost/* shell/Hosts/PaneHost.qml shell/Hosts/PluginSlot.qml shell/Core/Capabilities.qml shell/Core/Registry.qml shell/plugins/vgs.system/* shell/plugins/*/manifest.json shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/PluginLogic.js scripts/smoke/rows/start-order.sh
 set -euo pipefail
 
 pane_file="$home/.config/vgshell/shell.json"
@@ -96,6 +101,37 @@ expect_poll "the service reads the Settings edit" '"pane-service"' ipc smoke rea
 expect_poll "the widget reads the Settings edit" '"pane-service"' ipc smoke readInstance "$pane_bar_key" acme.pane label
 expect_poll "the pane reads the Settings edit" '"pane-service"' ipc smoke readInstance window acme.pane label
 expect_poll "the Settings page reads the shared setting" '"pane-service"' settings_pane_label
+
+# more_settings: the texts of the shown Settings page's buttons that open a
+# plugin's page in a panes holder.
+more_settings() { ipc smoke itemTexts window vgs.settings Button | py_reply 'import json,sys; print(json.dumps([t for texts in json.load(sys.stdin) for t in texts if t.startswith("More settings in ")]))'; }
+# more_settings_click HOLDER: a real click on the page's button named for
+# HOLDER, scrolled into view first.
+more_settings_click() {
+  local text="More settings in $1" rect x y
+  ipc smoke revealText window vgs.settings Button "$text" >/dev/null || return 1
+  rect="$(ipc smoke windowGeometry window vgs.settings Button "$text")" || return 1
+  [[ $rect == \[* ]] || { echo "more_settings_click: no button: $rect" >&2; return 1; }
+  read -r x y < <(at_centre window:Settings "$rect") || return 1
+  hover "$((x + 1))" "$y" || return 1
+  click "$x" "$y"
+}
+expect_poll "the pane plugin's page ends with a button named for its holder" '["More settings in Pane Host"]' more_settings
+expect "Settings opens the pane host's own page" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.panehost
+expect_poll "Settings shows the pane host's page" '"acme.panehost"' ipc smoke readInstance window vgs.settings page
+expect "a plugin without kind pane draws no holder button" '[]' more_settings
+expect "disabling the first panes holder is allowed" ok ipc shell setPluginEnabled acme.panehost false
+expect "Settings opens the pane plugin page again" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.pane
+expect_poll "the button names the holder that now holds the panes" '["More settings in Pane Host Two"]' more_settings
+expect "disabling the second panes holder is allowed" ok ipc shell setPluginEnabled acme.panehost2 false
+expect_poll "no holder button is drawn while no panes holder is enabled" '[]' more_settings
+expect "re-enabling the pane host is allowed" ok ipc shell setPluginEnabled acme.panehost true
+expect_poll "the holder button returns with the holder" '["More settings in Pane Host"]' more_settings
+expect_poll "the disabled holder left no window before the button's press" 0 window_count "Pane Host"
+expect_poll "no pane is mounted before the button's press" '[]' window_panes
+more_settings_click "Pane Host" || fail "the click on the holder button failed"
+expect_poll "the button's press mounts the plugin's pane in the holder" '["acme.pane"]' window_panes
+expect "the holder opened on the plugin's pane" '"{\"pane\":\"acme.pane\"}"' ipc smoke readInstance window acme.panehost openedPayload
 expect "disabling the mounted pane plugin is allowed" ok ipc shell setPluginEnabled acme.pane false
 expect_poll "disabling the mounted pane drops its build record" '[]' window_panes
 expect_poll "disabling the mounted pane releases its idle watch" '[]' pane_idle_watches
@@ -202,7 +238,7 @@ expect_poll "hide-teardown restore: hiding drops the pane" '[]' window_panes
 expect "hide-teardown restore: host summons for later controls" ok ipc shell summon window acme.panehost '{}'
 expect "hide-teardown restore: mount succeeds for later controls" ok ipc smoke invokeInstance window acme.panehost mountPane 'acme.pane'
 
-if restart_control_shell pane-payload-order shell/Core/Capabilities.qml $'const out = {};\n        for (const key of Object.keys(payload)) out[key] = payload[key];\n        out.pane = ctx.id;' $'const out = { pane: ctx.id };\n        for (const key of Object.keys(payload)) out[key] = payload[key];'; then
+if restart_control_shell pane-payload-order shell/Core/Capabilities.qml $'const out = {};\n        for (const key of Object.keys(payload)) out[key] = payload[key];\n        out.pane = id;' $'const out = { pane: id };\n        for (const key of Object.keys(payload)) out[key] = payload[key];'; then
   expect "control: payload-order shell summons" ok ipc shell summon window acme.panehost '{}'
   expect "control: spoofed payload is accepted by the mutant" ok ipc smoke invokeInstance service acme.pane summonPaneWith '{"pane":"acme.pane-alt","from":"spoof"}'
   expect_poll "control: copying the caller pane before payload keys lets spoofed payload win" '["acme.pane-alt"]' window_panes
@@ -212,7 +248,7 @@ expect "payload-order restore: host summons" ok ipc shell summon window acme.pan
 expect "payload-order restore: spoofed payload is accepted" ok ipc smoke invokeInstance service acme.pane summonPaneWith '{"pane":"acme.pane-alt","from":"spoof"}'
 expect_poll "payload-order restore: caller pane wins after spoofed payload" '["acme.pane"]' window_panes
 
-if restart_control_shell pane-hide-current shell/Core/Capabilities.qml 'if (verb === "hide") return Plugins.currentPaneId() === ctx.id ? Plugins.route("hide", "window", holder, "", null) : "ok";' 'if (verb === "hide") return Plugins.route("hide", "window", holder, "", null);'; then
+if restart_control_shell pane-hide-current shell/Core/Capabilities.qml 'if (verb === "hide") return Plugins.currentPaneId() === id ? Plugins.route("hide", "window", holder, "", null) : "ok";' 'if (verb === "hide") return Plugins.route("hide", "window", holder, "", null);'; then
   expect "control: hide-current shell summons" ok ipc shell summon window acme.panehost '{}'
   expect "control: hide-current mounts the alternate pane" ok ipc smoke invokeInstance window acme.panehost mountPane 'acme.pane-alt'
   expect "control: hide-current hide from another pane answers ok" ok ipc smoke invokeInstance service acme.pane hidePane ''
@@ -252,6 +288,31 @@ expect "configure restore: mounting the pane is allowed" ok ipc smoke invokeInst
 expect "configure restore: Settings opens the pane plugin page" ok ipc shell summon window vgs.settings '{"plugin":"acme.pane"}'
 expect "configure restore: pane edit is accepted" ok ipc smoke invokeInstance window acme.pane setLabel restored-configure
 expect_poll "configure restore: four-view readback is green" '["restored-configure","restored-configure","restored-configure","restored-configure"]' four_view_labels
+
+# The holder button's control: a copy whose manager rows give every plugin
+# the holder and whose press summons the holder with no pane draws the
+# button on a plugin without kind pane and opens the holder on no pane.
+pane_button_control() {
+  stop_shell || return 1
+  copy_tree pane-button || return 1
+  edit_tree pane-button shell/Core/Registry.qml 'paneHolder: m.kinds.indexOf("pane") === -1 ? "" : holder,' 'paneHolder: holder,' || return 1
+  edit_tree pane-button shell/Core/Capabilities.qml 'case "pane": return root.paneRoute(id, "summon", "{}", null);' 'case "pane": return Plugins.route("summon", "window", root.panesHolderId(), "{}", null);' || return 1
+  start_shell "$sandbox/tree-pane-button" "$sandbox/qs-pane-button.log" || return 1
+  expect_poll "the pane-button control shell knows the pane host" True plugin_enabled acme.panehost
+}
+if pane_button_control; then
+  expect "control: Settings opens the pane host's own page" ok ipc shell summon window vgs.settings '{"plugin":"acme.panehost"}'
+  expect_poll "control: Settings shows the pane host's page" '"acme.panehost"' ipc smoke readInstance window vgs.settings page
+  expect_poll "control: a holder for every row draws the button on a plugin without kind pane" '["More settings in Pane Host"]' more_settings
+  expect "control: Settings opens the pane plugin page" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.pane
+  expect_poll "control: the pane plugin page draws the button" '["More settings in Pane Host"]' more_settings
+  more_settings_click "Pane Host" || fail "control: the click on the holder button failed"
+  expect_poll "control: the press opens the holder" '"{}"' ipc smoke readInstance window acme.panehost openedPayload
+  expect "control: a press that drops the pane mounts none" '[]' window_panes
+fi
+restore_product_shell restored-pane-button || fail "restoring after the pane-button control failed"
+expect "pane-button restore: Settings summons on the pane plugin page" ok ipc shell summon window vgs.settings '{"plugin":"acme.pane"}'
+expect "pane-button restore: the host summons" ok ipc shell summon window acme.panehost '{}'
 
 # The windows the controls' tail opened close before the restore, so the
 # row leaves no client and no focus behind.

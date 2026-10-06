@@ -279,6 +279,12 @@ FocusScope {
         return keep(id, shell.manager.open(id));
     }
 
+    // Open the plugin's page in the panes holder over this window, as
+    // Open does its surface.
+    function openPane(id) {
+        return keep(id, shell.manager.openPane(id));
+    }
+
     // Store what the user typed as plugin `id`'s secret `account`, listed
     // in its status entry `key`, or clear it, through the manager, which
     // writes libsecret; each answers the manager's reply, and the write's

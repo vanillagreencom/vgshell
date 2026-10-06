@@ -160,6 +160,7 @@ Singleton {
             rescan: () => Registry.rescan().answer,
             act: (id, key) => root.managerAct(id, key),
             open: id => root.managerOpen(id),
+            openPane: id => root.managerOpenPane(id),
             openTui: (id, name) => root.managerOpenTui(id, name),
             storeSecret: (id, key, account, secret, done) => root.managerSecret(ctx, "store", id, key, account, secret, done),
             clearSecret: (id, key, account, done) => root.managerSecret(ctx, "clear", id, key, account, null, done)
@@ -235,7 +236,7 @@ Singleton {
         };
     }
 
-    function panePayload(ctx, payloadJson) {
+    function panePayload(id, payloadJson) {
         let payload = {};
         if (payloadJson !== undefined && payloadJson !== null && payloadJson !== "") {
             if (typeof payloadJson === "string") {
@@ -254,7 +255,7 @@ Singleton {
             return { ok: false, answer: "refused: pane-payload=object" };
         const out = {};
         for (const key of Object.keys(payload)) out[key] = payload[key];
-        out.pane = ctx.id;
+        out.pane = id;
         return { ok: true, payloadJson: JSON.stringify(out) };
     }
 
@@ -265,15 +266,21 @@ Singleton {
     function surfaceRoute(ctx, verb, kind, payloadJson, anchor) {
         if (kind !== "pane")
             return Plugins.route(verb, kind, ctx.id, payloadJson || "", root.origin(ctx, anchor));
-        if (ctx.manifest.kinds.indexOf("pane") === -1)
-            return "refused: kind=pane id=" + ctx.id;
+        return root.paneRoute(ctx.id, verb, payloadJson, root.origin(ctx, anchor));
+    }
+
+    // VERB on plugin ID's own page in the enabled panes holder, the one
+    // route of the own-pane summon and of the manager's openPane.
+    function paneRoute(id, verb, payloadJson, origin) {
+        if (Registry.manifests[id].kinds.indexOf("pane") === -1)
+            return "refused: kind=pane id=" + id;
         const holder = root.panesHolderId();
         if (holder === "") return "refused: panes=no-holder";
-        if (verb === "hide") return Plugins.currentPaneId() === ctx.id ? Plugins.route("hide", "window", holder, "", null) : "ok";
-        if (verb === "toggle" && Plugins.currentPaneId() === ctx.id) return Plugins.route("hide", "window", holder, "", null);
-        const payload = panePayload(ctx, payloadJson);
+        if (verb === "hide") return Plugins.currentPaneId() === id ? Plugins.route("hide", "window", holder, "", null) : "ok";
+        if (verb === "toggle" && Plugins.currentPaneId() === id) return Plugins.route("hide", "window", holder, "", null);
+        const payload = panePayload(id, payloadJson);
         if (!payload.ok) return payload.answer;
-        return Plugins.route("summon", "window", holder, payload.payloadJson, root.origin(ctx, anchor));
+        return Plugins.route("summon", "window", holder, payload.payloadJson, origin);
     }
 
     // Every `manager` TUI member opens a core TUI in a floating terminal,
@@ -310,6 +317,13 @@ Singleton {
         return request.ok ? root.managerStep(id, request) : request.answer;
     }
 
+    // The manager's open of plugin ID's page in the panes holder, as the
+    // plugin's own summon of kind `pane` opens it, for an enabled plugin.
+    function managerOpenPane(id) {
+        const refusal = typeof id === "string" ? Registry.enableRefusal(id) : "unknown: " + id;
+        return refusal === "" ? root.managerStep(id, { kind: "pane" }) : refusal;
+    }
+
     // The manager's open of plugin ID's listed TUI NAME, a setup screen its
     // Settings page offers as a button, as PluginLogic.listedTuiRequest
     // decides.
@@ -332,8 +346,9 @@ Singleton {
         case "install": return Notices.chosen(id, request.commands);
         case "system": return root.managerCoreTui("system", request.args, () => systemSteps.probe());
         case "summon": return Plugins.route("summon", request.surface, id, "{}", null);
+        case "pane": return root.paneRoute(id, "summon", "{}", null);
         }
-        throw new Error("manager: step kind " + JSON.stringify(request.kind) + " is not one of tui, install, system, summon");
+        throw new Error("manager: step kind " + JSON.stringify(request.kind) + " is not one of tui, install, system, summon, pane");
     }
 
     // The manager's store or clear (VERB) of plugin ID's ACCOUNT, listed in

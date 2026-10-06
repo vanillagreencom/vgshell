@@ -18,11 +18,13 @@ import "Steps.js" as Steps
 // placement), a Setup section with one button per setup screen the
 // manifest lists, which opens it through the manager, one settings section
 // per schema group (entries without a group first, under `Settings`), one
-// section per `list` entry, titled with its label, and the Keys section. A
+// section per `list` entry, titled with its label, and the Keys section,
+// then, for a plugin of kind `pane` while a panes holder is enabled, a
+// button named for the holder that opens the plugin's page there. A
 // plugin with none of those below its switches says so in one line. A
 // disabled plugin's fields are read-only, its Enabled switch says to turn
-// it on while it has something to change, and its setup buttons take no
-// press.
+// it on while it has something to change, and its setup and holder
+// buttons take no press.
 //
 // Details holds what a user reads: the description, in the hint role in
 // the muted colour, the capabilities, the listing metadata, the Update and
@@ -63,8 +65,11 @@ FocusScope {
     readonly property alias titleMenu: menu
     readonly property alias title: titleHeader.titleButton
     readonly property alias initialFocus: back
+    // The manager row of the panes holder that shows this plugin's page,
+    // or null.
+    readonly property var paneHolder: row === null || row.paneHolder === "" ? null : panel.plugins.find(p => p.id === row.paneHolder) || null
     // Whether the Settings page holds nothing below its switches.
-    readonly property bool bare: row !== null && row.tuis.length === 0 && sections.length === 0 && lists.length === 0 && row.binds.length === 0
+    readonly property bool bare: row !== null && row.tuis.length === 0 && sections.length === 0 && lists.length === 0 && row.binds.length === 0 && paneHolder === null
     // Whether a field of the page holds an unsaved edit.
     readonly property bool dirty: unsaved.edited
 
@@ -438,6 +443,15 @@ FocusScope {
                                 onApplyKey: key => { if (page !== null && page.row !== null) settle(key, Reply.isOk(page.panel.writeKey(pluginId, modelData.shortcut, key))); }
                             }
                         }
+                    }
+
+                    Button {
+                        text: page.paneHolder === null ? "" : "More settings in " + page.paneHolder.name
+                        iconName: page.paneHolder === null ? "" : page.paneHolder.icon
+                        variant: "secondary"
+                        visible: page.paneHolder !== null
+                        enabled: page.editable
+                        onClicked: page.panel.openPane(page.row.id)
                     }
                 }
 
