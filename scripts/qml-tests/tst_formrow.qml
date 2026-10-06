@@ -10,7 +10,9 @@ import qs.Unit
 // capital height and the control by its box; a message draws as hint text
 // under the value column, `field.gap` below the row box and wrapped to the
 // column, in its tone's colour, grows the row by the gap and its own
-// height, and moves neither the label nor the control; without a label
+// height, and moves neither the label nor the control; an action draws on
+// the message's line, on the row's end edge, the message wrapping before
+// it, only while the row has a message and the action shows; without a label
 // column the control takes the full width at its own height; the smoke's
 // `fieldRow` hook names the row.
 Item {
@@ -27,6 +29,8 @@ Item {
         FormRow { id: wrapped; width: parent.width; label: "Scroll"; warning: "A message too long for one line of the value column wraps inside it and never runs under the label column"; Switch { size: "sm" } }
         FormRow { id: bare; width: parent.width; label: "Hidden"; labelColumn: false; Rectangle { id: thin; width: parent.width; height: 8; color: "transparent" } }
         FormRow { id: bareWarned; width: parent.width; labelColumn: false; warning: "Refused"; Rectangle { id: thinWarned; width: parent.width; height: 8; color: "transparent" } }
+        FormRow { id: acted; width: parent.width; label: "Speed"; warning: "Set elsewhere"; action: Rectangle { id: undo; width: 90; height: 30; color: "transparent" } Switch { id: actedToggle; size: "sm" } }
+        FormRow { id: actedQuiet; width: parent.width; label: "Speed"; action: Rectangle { id: quietUndo; width: 90; height: 30; color: "transparent" } Switch { size: "sm" } }
         Badge { id: chip; text: "Chip" }
     }
 
@@ -93,6 +97,35 @@ Item {
             verify(!messageOf(warned).visible, "an empty message still draws");
             compare(placed(), withMessage);
             warned.warning = "Overridden";
+        }
+
+        function test_an_action_sits_on_the_message_line_at_the_end_edge() {
+            const message = messageOf(acted);
+            verify(undo.height > message.height, "the action is no taller than the message");
+            compare(undo.mapToItem(acted, 0, 0).x + undo.width, acted.width, "the action ends on the row's end edge");
+            compare(xIn(message, acted), acted.valueX);
+            compare(message.width, acted.width - acted.valueX - undo.width - Theme.stack.inline, "the message runs under the action");
+            compare(acted.height, Theme.row.height + Theme.field.gap + undo.height, "the row grows by the taller of the two");
+            compare(undo.mapToItem(acted, 0, 0).y, Theme.row.height + Theme.field.gap);
+            fuzzyCompare(centreIn(message, acted), centreIn(undo, acted), 1, "the message leaves the action's line");
+            fuzzyCompare(centreIn(actedToggle, acted), Theme.row.height / 2, 1, "the control leaves the row box's centre");
+        }
+
+        function test_a_hidden_action_takes_no_room() {
+            const message = messageOf(acted);
+            undo.visible = false;
+            compare(message.width, acted.width - acted.valueX);
+            compare(acted.height, Theme.row.height + Theme.field.gap + message.height);
+            undo.visible = true;
+            compare(message.width, acted.width - acted.valueX - undo.width - Theme.stack.inline);
+        }
+
+        function test_a_row_without_a_message_draws_no_action() {
+            verify(!quietUndo.visible, "an action draws with no message");
+            compare(actedQuiet.height, Theme.row.height);
+            actedQuiet.warning = "Set elsewhere";
+            verify(quietUndo.visible, "the action stays hidden beside a message");
+            actedQuiet.warning = "";
         }
 
         function test_a_long_message_wraps_in_the_value_column() {

@@ -16,7 +16,11 @@ import qs.Ui
 // takes no room from its control. Light feedback in a form is this line,
 // plain sentence-case text in a muted or status colour. A chip, a fill or
 // capitals are for a state the user must act on now, with the action
-// beside it. While `labelColumn` is false the row draws no label and keeps
+// beside it. `action` is one control for the message, such as a Button
+// that undoes what the message names: it draws on the message's line, on
+// the row's end edge, only while the row has a message, and the message
+// wraps `stack.inline` before it. A hidden action takes no room. While
+// `labelColumn` is false the row draws no label and keeps
 // no row height: the control takes the full width at its own height, as a
 // Field whose label stands above its control does. `valueX` is where the
 // value column starts, for content that belongs under it. Width comes from
@@ -29,8 +33,12 @@ Item {
     property string warningTone: "warning"
     property bool labelColumn: true
     default property alias control: slot.data
+    property alias action: actionSlot.data
+    readonly property Item actionItem: actionSlot.visibleChildren.length > 0 ? actionSlot.visibleChildren[0] : null
+    readonly property real actionRoom: actionItem === null ? 0 : actionItem.width + Theme.stack.inline
+    readonly property real messageLine: Math.max(message.height, actionItem === null ? 0 : actionItem.height)
     readonly property real valueX: labelColumn ? Theme.field.labelWidth + Theme.field.labelGap : 0
-    readonly property real messageRoom: warning === "" ? 0 : Theme.field.gap + message.height
+    readonly property real messageRoom: warning === "" ? 0 : Theme.field.gap + messageLine
     readonly property real boxHeight: height - messageRoom
 
     function toneColor(name) {
@@ -74,8 +82,17 @@ Item {
         color: root.toneColor(root.warningTone)
         visible: root.warning !== ""
         x: slot.x
-        y: root.boxHeight + Theme.field.gap
-        width: slot.width
+        y: root.boxHeight + Theme.field.gap + Math.round((root.messageLine - height) / 2)
+        width: slot.width - root.actionRoom
         wrapMode: Text.Wrap
+    }
+
+    Item {
+        id: actionSlot
+        visible: message.visible
+        x: root.width - width
+        y: root.height - root.messageLine + Math.round((root.messageLine - height) / 2)
+        width: root.actionItem === null ? 0 : root.actionItem.width
+        height: root.actionItem === null ? 0 : root.actionItem.height
     }
 }
