@@ -488,6 +488,46 @@ async function main() {
         'authorization: "token " + token.token, accept: "application/json"', copilotCases);
     await control("secret-tool-search", "backend/usage.js", 'const result = await secretSearch(secretTool, ["service", "copilot-cli", "username", username], env);',
         'const result = await secretSearch(secretTool, ["service", "copilot-cli", "account", username], env);', copilotCases);
+    await control("keyring-missing-unnamed", "backend/usage.js",
+        '            if (status === 127) return finish({ kind: "failed", reason: "keyring-missing" });\n', "", copilotCases);
+
+    // A reader killed while the keyring holds its answer takes secret-tool
+    // with it: the search outlives no reader.
+    const holdHome = path.join(root, "hold-home");
+    const holdDir = copilotAccount(path.join(holdHome, ".copilot"));
+    write(path.join(holdHome, "secret-tool-mode"), "hold\n");
+    const held = [];
+    const holdCase = async folder => {
+        const pidFile = path.join(holdHome, "secret-tool-pid");
+        fs.rmSync(pidFile, { force: true });
+        const reader = cp.spawn(process.execPath, ["-e", `
+const { readCopilot } = require(process.argv[1]);
+readCopilot(require(process.argv[2]), process.argv[3], { origin: process.argv[4], secretTool: process.argv[5], env: process.env });`,
+            path.join(folder, "backend/usage.js"), path.join(tree, "bin/lib/anchored.js"), holdDir, origin, secretTool],
+        { env: { PATH, HOME: holdHome, LANG: "C.UTF-8" }, stdio: "ignore" });
+        const exited = new Promise(resolve => reader.on("exit", resolve));
+        try {
+            const deadline = Date.now() + 5000;
+            while (!(fs.existsSync(pidFile) && fs.readFileSync(pidFile, "utf8").endsWith("\n"))) {
+                assert.ok(Date.now() < deadline, "the stand-in secret-tool holds within 5 s");
+                await new Promise(resolve => setTimeout(resolve, 20));
+            }
+            const pid = Number(fs.readFileSync(pidFile, "utf8"));
+            held.push(pid);
+            assert.equal(alive(pid), true, "the stand-in holds");
+            reader.kill("SIGKILL");
+            await exited;
+            assert.equal(await ended([pid]), true, "secret-tool ends with its reader");
+        } finally {
+            reader.kill("SIGKILL");
+        }
+    };
+    await holdCase(plugin);
+    cases++;
+    await control("secret-tool-outlives-reader", "backend/usage.js",
+        'cp.spawn("setpriv", ["--pdeathsig", "KILL", "--", secretTool, "search"].concat(attrs), {',
+        'cp.spawn(secretTool, ["search"].concat(attrs), {', holdCase);
+    for (const pid of held) if (alive(pid)) process.kill(pid, "SIGKILL");
 
     // AI Gateway is an owner-only extra. With its flag off, the helper does
     // not read the key and sends no Gateway request. With it on, it reads one

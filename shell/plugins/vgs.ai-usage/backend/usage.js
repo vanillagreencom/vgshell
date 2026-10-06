@@ -372,9 +372,13 @@ function childEnv(env) {
     return result;
 }
 
+// setpriv kills secret-tool when this process dies first, as readCodex's
+// program; the timer below lives only as long as this process. setpriv
+// exits 127 when it cannot find the program and 126 when it cannot run it
+// (util-linux 2.42 setpriv, checked by a run).
 function secretSearch(secretTool, attrs, env) {
     return new Promise(resolve => {
-        const child = cp.spawn(secretTool, ["search"].concat(attrs), {
+        const child = cp.spawn("setpriv", ["--pdeathsig", "KILL", "--", secretTool, "search"].concat(attrs), {
             stdio: ["ignore", "pipe", "pipe"], env: childEnv(env), cwd: env.HOME || undefined
         });
         let stdout = "";
@@ -390,7 +394,7 @@ function secretSearch(secretTool, attrs, env) {
             child.kill("SIGKILL");
             finish({ kind: "failed", reason: "keyring-failed" });
         }, SECRET_TOOL_MS);
-        child.on("error", error => finish({ kind: "failed", reason: error.code === "ENOENT" ? "keyring-missing" : "keyring-failed" }));
+        child.on("error", error => finish({ kind: "failed", reason: error.code === "ENOENT" ? "setpriv-missing" : "keyring-failed" }));
         child.stdout.on("data", chunk => {
             stdout += chunk.toString("utf8");
             if (stdout.length > MAX_BYTES) {
@@ -407,6 +411,7 @@ function secretSearch(secretTool, attrs, env) {
         });
         child.on("close", status => {
             if (done) return;
+            if (status === 127) return finish({ kind: "failed", reason: "keyring-missing" });
             if (status !== 0) return finish({ kind: "failed", reason: "keyring-failed" });
             for (const line of stdout.split(/\r?\n/)) {
                 if (line.startsWith("secret = ")) {
