@@ -45,18 +45,64 @@ chmod 755 "$stub/busctl" "$stub/dbus-monitor"
 failures=0
 ok() { printf '  ok    %s\n' "$*"; }
 fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
+now_ms() { printf '%s\n' $(( $(date +%s%N) / 1000000 )); }
+wait_file_match() {
+  local file="$1" pattern="$2" deadline
+  deadline=$(( $(now_ms) + 5000 ))
+  while true; do
+    [[ -f $file ]] && grep -q -- "$pattern" "$file" && return 0
+    (( $(now_ms) < deadline )) || return 1
+    sleep 0.02
+  done
+}
+wait_pid_waitable() {
+  local pid="$1" timeout_ms="${2:-5000}" deadline state
+  deadline=$(( $(now_ms) + timeout_ms ))
+  while true; do
+    state="$(ps -o stat= -p "$pid" 2>/dev/null || true)"
+    [[ -z $state || $state == Z* ]] && return 0
+    (( $(now_ms) < deadline )) || return 1
+    sleep 0.02
+  done
+}
 
 # watch_row NAME WANT_EXIT WANT_STDOUT WANT_STDERR STDIN [NAME=VALUE...]: the
 # script's stdout lines joined by `|`. STDIN `secure` or `other` is written
 # once the script announces the sleep; `closed` closes stdin at once;
 # `silent` holds it open and writes nothing.
 run_watch() { # SCRIPT STDIN [NAME=VALUE...]
-  local path="$1" input="$2"
+  local path="$1" input="$2" fifo out err pid status=0 feed_fd
   shift 2
+  out="$TMP_ROOT/run-$BASHPID.out"
+  err="$TMP_ROOT/run-$BASHPID.err"
   case "$input" in
-    closed) env -i PATH="$stub:/usr/bin:/bin" "$@" "$path" </dev/null ;;
-    silent) sleep 2 | env -i PATH="$stub:/usr/bin:/bin" "$@" "$path" ;;
-    *) { sleep 0.5; echo "$input"; } | env -i PATH="$stub:/usr/bin:/bin" "$@" "$path" ;;
+    closed)
+      env -i PATH="$stub:/usr/bin:/bin" "$@" "$path" </dev/null
+      ;;
+    *)
+      fifo="$TMP_ROOT/in-$BASHPID"
+      mkfifo -- "$fifo"
+      set +e
+      env -i PATH="$stub:/usr/bin:/bin" "$@" "$path" <"$fifo" >"$out" 2>"$err" &
+      pid=$!
+      set -e
+      exec {feed_fd}>"$fifo"
+      if wait_file_match "$out" '^sleep budget_ms='; then
+        if [[ $input != silent ]]; then
+          printf '%s\n' "$input" >&"$feed_fd"
+          exec {feed_fd}>&-
+        elif ! wait_pid_waitable "$pid" 2000; then
+          exec {feed_fd}>&-
+        fi
+      else
+        exec {feed_fd}>&-
+      fi
+      wait "$pid" || status=$?
+      [[ $input == silent ]] && exec {feed_fd}>&- 2>/dev/null || :
+      cat -- "$out"
+      cat -- "$err" >&2
+      return "$status"
+      ;;
   esac
 }
 watch_row() {
@@ -89,15 +135,26 @@ watch_row "dbus-monitor ending is refused" 1 "ready budget_ms=4000" "sleep-watch
 # ends its dbus-monitor with it: `gone`, or `alive` when the monitor
 # outlived it. The monitor is found as the hook's child by its pid.
 term_row() { # SCRIPT
-  local path="$1" pid child="" state
-  sleep 5 | env -i PATH="$stub:/usr/bin:/bin" STUB_WINDOW=5000000 STUB_NO_SIGNAL=1 "$path" >"$TMP_ROOT/term.out" 2>/dev/null &
+  local path="$1" pid child="" state fifo="$TMP_ROOT/term.in" feed_fd
+  rm -f -- "$fifo"
+  mkfifo -- "$fifo"
+  env -i PATH="$stub:/usr/bin:/bin" STUB_WINDOW=5000000 STUB_NO_SIGNAL=1 "$path" <"$fifo" >"$TMP_ROOT/term.out" 2>/dev/null &
   pid=$!
-  for _ in $(seq 1 30); do grep -q '^ready ' "$TMP_ROOT/term.out" 2>/dev/null && break; sleep 0.1; done
-  child="$(ps -o pid= --ppid "$pid" | head -n 1 | tr -d ' ')"
+  exec {feed_fd}>"$fifo"
+  wait_file_match "$TMP_ROOT/term.out" '^ready ' || :
+  read -r child < <(ps -o pid= --ppid "$pid" || :)
+  child="${child//[[:space:]]/}"
   kill -TERM "$pid" 2>/dev/null || :
   wait "$pid" 2>/dev/null || :
-  sleep 0.3
-  if [[ -z $child ]]; then state=no-monitor; elif kill -0 "$child" 2>/dev/null; then state=alive; kill -TERM "$child" 2>/dev/null || :; else state=gone; fi
+  exec {feed_fd}>&-
+  if [[ -z $child ]]; then
+    state=no-monitor
+  elif wait_pid_waitable "$child"; then
+    state=gone
+  else
+    state=alive
+    kill -TERM "$child" 2>/dev/null || :
+  fi
   echo "$state"
 }
 got="$(term_row "$script")"

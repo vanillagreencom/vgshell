@@ -13,6 +13,34 @@ trap 'chmod -R u+rwx -- "${root:?}" 2>/dev/null; rm -rf -- "${root:?}"' EXIT
 failures=0
 ok() { printf '  ok    %s\n' "$*"; }
 fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
+now_ms() { printf '%s\n' $(( $(date +%s%N) / 1000000 )); }
+live_pids_from() {
+  local list="$1" left=0 child
+  while read -r child; do
+    [[ -n $child && -d /proc/$child ]] && left=$((left + 1))
+  done <"$list"
+  printf '%s\n' "$left"
+}
+wait_no_live_pids() {
+  local list="$1" deadline left
+  deadline=$(( $(now_ms) + 5000 ))
+  while true; do
+    left="$(live_pids_from "$list")"
+    [[ $left -eq 0 ]] && { printf '0\n'; return 0; }
+    (( $(now_ms) < deadline )) || { printf '%s\n' "$left"; return 1; }
+    sleep 0.05
+  done
+}
+line_count() { [[ -f $1 ]] && wc -l <"$1" || printf '0\n'; }
+wait_log_lines() {
+  local log="$1" want="$2" deadline
+  deadline=$(( $(now_ms) + 5000 ))
+  while true; do
+    [[ $(line_count "$log") -eq $want ]] && return 0
+    (( $(now_ms) < deadline )) || return 1
+    sleep 0.1
+  done
+}
 node_dir="$(dirname -- "$(node -e 'process.stdout.write(process.execPath)')")"
 run_env=(env -i HOME="$root/home" PATH="$node_dir:/usr/bin:/bin" XDG_STATE_HOME="$root/state" XDG_RUNTIME_DIR="$root/runtime" LC_ALL=C)
 cat >"$root/bin/vgshell" <<'VGSHELL'
@@ -60,13 +88,17 @@ grandchild_run() {
   set +e
   "${run_env[@]}" RUN="$label" "$helper" --vgshell "$root/bin/vgshell" >/dev/null 2>"$root/$label.err" &
   pid=$!
-  for _ in $(seq 1 50); do [[ -f $log && $(wc -l <"$log") -eq 4 ]] && break; sleep 0.1; done
+  if ! wait_log_lines "$log" 4; then
+    kill -TERM "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+    echo "0 -1"
+    return
+  fi
   kill -TERM "$pid"
   wait "$pid"
   status=$?
   set -e
-  sleep 0.2
-  while read -r child; do [[ -n $child && -d /proc/$child ]] && left=$((left + 1)); done <"$log"
+  left="$(wait_no_live_pids "$log" || :)"
   echo "$status $left"
   while read -r child; do kill -KILL "$child" 2>/dev/null || true; done <"$log"
 }
@@ -107,7 +139,12 @@ delayed_run() {
   set +e
   "${run_env[@]}" RUN="$label" "$helper" --vgshell "$root/bin/vgshell" >/dev/null 2>"$root/$label.err" &
   pid=$!
-  for _ in $(seq 1 50); do [[ -f $log && $(wc -l <"$log") -eq 4 ]] && break; sleep 0.1; done
+  if ! wait_log_lines "$log" 4; then
+    kill -TERM "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+    echo "-1"
+    return
+  fi
   kill -TERM "$pid"
   wait "$pid"
   set -e
@@ -156,7 +193,12 @@ int_run() {
   set +e
   "${run_env[@]:0:2}" --default-signal=INT "${run_env[@]:2}" RUN="$label" "$helper" --vgshell "$root/bin/vgshell" >/dev/null 2>"$root/$label.err" &
   pid=$!
-  for _ in $(seq 1 50); do [[ -f $log && $(wc -l <"$log") -eq 4 ]] && break; sleep 0.1; done
+  if ! wait_log_lines "$log" 4; then
+    kill -TERM "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+    echo "0 -1"
+    return
+  fi
   kill -INT "$pid"
   wait "$pid"
   status=$?

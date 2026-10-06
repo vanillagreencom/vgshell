@@ -53,6 +53,47 @@ world(async () => {
         });
         return { desktop, run };
     }
+    const realPoll = () => new Promise(resolve => setTimeout(resolve, 10));
+    const eventLoopPoll = () => new Promise(resolve => setImmediate(resolve));
+    async function waitUntil(label, predicate, tick = realPoll) {
+        for (let wait = 0; ; wait++) {
+            if (predicate()) return;
+            assert.ok(wait < 500, label);
+            await tick();
+        }
+    }
+    function manualClock() {
+        let now = 0;
+        const timers = [];
+        return {
+            now: () => now,
+            set(fn, ms) {
+                const timer = { fn, time: now + ms, cleared: false };
+                timers.push(timer);
+                return timer;
+            },
+            clear(timer) { timer.cleared = true; },
+            pending: () => timers.some(timer => !timer.cleared),
+            advance(ms) {
+                now += ms;
+                for (const timer of timers.filter(t => !t.cleared && t.time <= now)) {
+                    timer.cleared = true;
+                    timer.fn();
+                }
+            }
+        };
+    }
+    const hyprctlStarts = path.join(runtime, "hyprctl.start");
+    const startPids = () => fs.existsSync(hyprctlStarts) ? fs.readFileSync(hyprctlStarts, "utf8").trim().split("\n").filter(Boolean) : [];
+    const resetStartPids = () => fs.rmSync(hyprctlStarts, { force: true });
+    const pidGone = pid => !fs.existsSync(path.join("/proc", pid));
+    const activeStartedHyprctlPids = () => new Set(process._getActiveHandles()
+        .filter(handle => handle.constructor.name === "ChildProcess" && startPids().includes(String(handle.pid)))
+        .map(handle => String(handle.pid)));
+    const allStartedHyprctlDelivered = () => {
+        const pids = startPids();
+        return pids.length > 0 && pids.every(pidGone) && activeStartedHyprctlPids().size === 0;
+    };
 
     const addressOf = (s, title) => s.clients.find(c => c.title === title).address;
     // name, tool, args, setup, outcome, content, check. Each starts from the
@@ -179,44 +220,69 @@ world(async () => {
         desktop.close();
         assert.deepEqual([answer.outcome, answer.content], ["failed", "Hyprland state could not be read: hyprctl exit=ENOENT."]);
     } finally { fs.writeFileSync(standin, saved, { mode: 0o700 }); }
+    const runLine = "run = os.environ[\"XDG_RUNTIME_DIR\"]\n";
+    assert.equal(saved.toString().split(runLine).length, 2, "the stand-in names its runtime dir once");
+    fs.writeFileSync(standin, saved.toString().replace(runLine,
+        runLine + "with open(os.path.join(run, \"hyprctl.start\"), \"a\") as log:\n    log.write(str(os.getpid()) + \"\\n\")\n"),
+    { mode: 0o700 });
 
     // Registration: wire at once, the Hyprland executors after their probe.
-    async function installed(Desktop, fail, closeEarly = false, Executors) {
+    async function installedSession(Desktop, fail, closeEarly = false) {
         desk.reset();
+        resetStartPids();
         if (fail) fs.writeFileSync(path.join(runtime, "hyprctl.fail"), "");
+        if (closeEarly) desk.delay(1.0);
         const ids = [];
         const router = { register: (id, record) => ids.push([id, record.commands]) };
         const options = { Dispatch, Launch, request: () => assert.fail("no request at install"), clock, bounds, environment, commands: [] };
-        const owner = Executors === undefined ? Desktop.install({ router, ...options })
-            : Executors.register(router, { find: () => null, environment, desktop: options });
+        const owner = Desktop.install({ router, ...options });
         if (closeEarly) {
+            await waitUntil("the probe starts before close", () => startPids().length > 0);
             owner.close();
-            // Close kills the probe's read; its rejection follows the kill.
-            await new Promise(resolve => setTimeout(resolve, 200));
+            await owner.ready;
             return ids;
         }
-        for (let wait = 0; desk.hyprctlCalls().length === 0; wait++) {
-            assert.ok(wait < 500, "the probe read finishes");
-            await new Promise(resolve => setTimeout(resolve, 10)); // Polls the stand-in's log, not a latency.
+        await owner.ready;
+        owner.close();
+        return ids;
+    }
+    async function installedSeam(Executors, fail, closeEarly = false) {
+        desk.reset();
+        resetStartPids();
+        if (fail) fs.writeFileSync(path.join(runtime, "hyprctl.fail"), "");
+        if (closeEarly) desk.delay(1.0);
+        const ids = [];
+        const router = { register: (id, record) => ids.push([id, record.commands]) };
+        const options = { Dispatch, Launch, request: () => assert.fail("no request at install"), clock, bounds, environment, commands: [] };
+        const owner = Executors.register(router, { find: () => null, environment, desktop: options });
+        if (closeEarly) {
+            await waitUntil("the probe starts before close", () => startPids().length > 0);
+            owner.close();
+            await waitUntil("the probe's close reaches node", allStartedHyprctlDelivered);
+            if (desk.hyprctlCalls().length > 0)
+                await waitUntil("the unclosed probe registers", () => ids.length > 1, eventLoopPoll);
+            return ids;
         }
-        // The probe's callback follows the stand-in's exit.
-        await new Promise(resolve => setTimeout(resolve, 50));
+        if (fail) {
+            await waitUntil("the failed probe's close reaches node",
+                () => desk.hyprctlCalls().some(call => call.status !== 0) && allStartedHyprctlDelivered());
+        } else await waitUntil("the seam registers Hyprland executors", () => ids.length === 4);
         owner.close();
         return ids;
     }
     const registration = async Desktop => {
-        assert.deepEqual(await installed(Desktop, false), [["wire", []], ["windows", ["hyprctl"]], ["compositor", ["hyprctl"]], ["apps", ["hyprctl"]]]);
-        assert.deepEqual(await installed(Desktop, true), [["wire", []]], "no Hyprland executor without a state read");
-        assert.deepEqual(await installed(Desktop, false, true), [["wire", []]], "a closed owner registers nothing");
+        assert.deepEqual(await installedSession(Desktop, false), [["wire", []], ["windows", ["hyprctl"]], ["compositor", ["hyprctl"]], ["apps", ["hyprctl"]]]);
+        assert.deepEqual(await installedSession(Desktop, true), [["wire", []]], "no Hyprland executor without a state read");
+        assert.deepEqual(await installedSession(Desktop, false, true), [["wire", []]], "a closed owner registers nothing");
     };
     await registration(require(file));
     const integrated = async Executors => {
-        assert.deepEqual(await installed(null, false, false, Executors),
+        assert.deepEqual(await installedSeam(Executors, false),
             [["wire", []], ["windows", ["hyprctl"]], ["compositor", ["hyprctl"]], ["apps", ["hyprctl"]]],
             "the shared seam installs each desktop record once");
-        assert.deepEqual(await installed(null, true, false, Executors), [["wire", []]],
+        assert.deepEqual(await installedSeam(Executors, true), [["wire", []]],
             "toast stays offered without Hyprland");
-        assert.deepEqual(await installed(null, false, true, Executors), [["wire", []]],
+        assert.deepEqual(await installedSeam(Executors, false, true), [["wire", []]],
             "the seam closes the shared desktop lifetime before its probe registers");
     };
     const executorsFile = path.join(backend, "Executors.js");
@@ -231,18 +297,35 @@ world(async () => {
     const closing = async Desktop => {
         desk.reset();
         desk.modes["compositor.focusWindow"] = "noop";
-        const { desktop, run } = make(Desktop, ["gio"], { ...bounds, settleMs: 1000, pollMs: 400 });
-        void run("windows.focus", { window: "0xa1" });
-        for (let wait = 0; desk.hyprctlCalls().length < 2; wait++) {
-            assert.ok(wait < 500, "the state before and the first poll finish");
-            await new Promise(resolve => setTimeout(resolve, 10)); // Polls the stand-in's log, not a latency.
-        }
-        // The executor's callback follows the stand-in's exit; then it waits.
-        await new Promise(resolve => setTimeout(resolve, 50));
+        const testClock = manualClock();
+        const requests = ShellRequests.create({ Protocol, clock: testClock, write: fields => {
+            const message = Protocol.accept(JSON.stringify({ v: 1, type: "request", gen: 0, revision: "a".repeat(64), ...fields }), "daemon");
+            setImmediate(() => {
+                const reply = desk.serve(Protocol, message);
+                if (reply !== null) requests.reply(Protocol.accept(JSON.stringify(reply), "shell"));
+            });
+        } });
+        const desktop = Desktop.create({ Dispatch, Launch, request: requests.send, clock: testClock,
+            bounds: { ...bounds, settleMs: 1000, pollMs: 400 }, commands: ["gio"], environment });
+        const run = (id, args = {}) => new Promise(resolve => {
+            const refined = Tools.refine({ id, args });
+            desktop.records[refined.executor].start(refined.call, resolve);
+        });
+        let answered = false;
+        resetStartPids();
+        const answer = run("windows.focus", { window: "0xa1" }).then(value => { answered = true; return value; });
+        await waitUntil("the state before and the first poll finish", () => desk.hyprctlCalls().length >= 2);
+        await waitUntil("the executor waits for its next poll", () => testClock.pending(), eventLoopPoll);
         const reads = desk.hyprctlCalls().length;
+        const starts = startPids().length;
         desktop.close();
-        await new Promise(resolve => setTimeout(resolve, 600)); // Past the next poll.
+        testClock.advance(400);
+        await waitUntil("the executor reports the closed read or starts another read", () => {
+            const newPids = startPids().slice(starts);
+            return answered || desk.hyprctlCalls().length > reads || (newPids.length > 0 && newPids.every(pidGone));
+        });
         assert.equal(desk.hyprctlCalls().length, reads, "no read after close");
+        await answer;
     };
     await closing(require(file));
 
