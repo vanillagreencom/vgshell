@@ -6,9 +6,10 @@ import "Files.js" as Files
 
 // One theme's card on the browser's rail. A slice shows the theme's eight
 // colours (BrowserLogic.SWATCHES) stacked top to bottom and the theme's
-// name along its slanted edge, reading upward, in the theme's foreground
-// over a 1 px hard shadow in its background, so the name reads on every
-// colour of the stack. The selected card
+// name along its slanted edge, reading upward, in the shell's heading text
+// over a 1 px hard shadow in the shell's background: the side card's dim
+// mixes the stack toward that background, so the name keeps its contrast
+// on every colour and in either mode. The selected card
 // shows the package's preview image when one ships, else the theme's first
 // wallpaper over its background with a desktop drawn from the package's
 // tokens on it, and the eight colours across its foot. A card with no
@@ -91,7 +92,7 @@ Item {
     // scales by one unit, so the token ratio gives the drawn angle.
     Label {
         objectName: "sliceName"
-        role: "bodyStrong"
+        role: "h3"
         anchors.centerIn: parent
         width: parent.height - 2 * Theme.space.xl
         visible: !root.expanded && root.swatches !== null
@@ -99,9 +100,8 @@ Item {
         horizontalAlignment: Text.AlignHCenter
         elide: Text.ElideRight
         text: root.modelData.label
-        color: root.colors === null ? Theme.color.text : Theme.toColor(root.colors.foreground)
         style: Text.Raised
-        styleColor: root.colors === null ? Theme.color.background : Theme.toColor(root.colors.background)
+        styleColor: Theme.color.background
     }
 
     Rectangle {

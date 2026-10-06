@@ -715,7 +715,7 @@ expect_poll "the sourceSize control browser closes" 0 layer_count vgs:overlay
 plugin_restore ThemeCard.qml "preview sourceSize"
 
 # Control for the slice names: a card copy whose slice name is empty.
-plugin_control ThemeCard.qml "slice name" $'        text: root.modelData.label\n        color: root.colors === null ? Theme.color.text :' $'        text: ""\n        color: root.colors === null ? Theme.color.text :'
+plugin_control ThemeCard.qml "slice name" $'        text: root.modelData.label\n        style: Text.Raised' $'        text: ""\n        style: Text.Raised'
 press_themes || fail "typing SUPER+CTRL+T for the slice name control failed"
 expect_poll "the slice name control opens the theme browser" 1 layer_count vgs:overlay
 expect_poll "the slice name control read its cards" true view_value loaded
