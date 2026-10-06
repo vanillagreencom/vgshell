@@ -8,7 +8,9 @@ import qs.Unit
 // after it; a click and Down open its menu, which a second click closes;
 // the text takes `titleButton.hover` while hovered or open, and the
 // underline shows only with keyboard focus; given less width than it
-// needs, the text elides and the caret stays inside.
+// needs, the text elides and the caret stays inside. Its focus ring stands
+// as far from its text as a select's ring from its text, and touches none
+// of the title.
 Item {
     id: root
     width: 400
@@ -25,6 +27,7 @@ Item {
         }
     }
     TitleButton { id: narrow; y: 60; width: 60; text: "A title far wider than its button" }
+    Select { id: select; y: 120; model: ["Notifications"] }
 
     TestCase {
         name: "titlebutton"
@@ -44,7 +47,7 @@ Item {
             compare(underline(title).y, label(title).height + Theme.titleButton.underlineGap);
             compare(caret(title).name, "chevron-down");
             compare(caret(title).x, label(title).width + Theme.titleButton.gap);
-            compare(title.implicitWidth, label(title).implicitWidth + Theme.titleButton.gap + caret(title).width);
+            compare(title.implicitWidth, title.leftPadding + label(title).implicitWidth + Theme.titleButton.gap + caret(title).width + title.rightPadding);
         }
 
         function test_a_click_and_down_open_the_menu() {
@@ -111,8 +114,33 @@ Item {
 
         function test_a_narrow_title_elides_and_keeps_its_caret_inside() {
             verify(label(narrow).implicitWidth > narrow.width, "the text is wider than the button");
-            compare(label(narrow).width, narrow.width - Theme.titleButton.gap - caret(narrow).width);
-            compare(caret(narrow).x + caret(narrow).width, narrow.width);
+            compare(label(narrow).width, narrow.availableWidth - Theme.titleButton.gap - caret(narrow).width);
+            compare(caret(narrow).x + caret(narrow).width, narrow.availableWidth);
+        }
+
+        function ringOf(control) {
+            const stack = [control.background];
+            while (stack.length > 0) {
+                const item = stack.pop();
+                if (item.target === control && item.border !== undefined) return item;
+                for (const child of item.children) stack.push(child);
+            }
+            return null;
+        }
+        function inner(ring, item) {
+            const at = item.mapToItem(ring, 0, 0);
+            const edge = ring.border.width;
+            return { left: at.x - edge, top: at.y - edge, right: ring.width - edge - at.x - item.width, bottom: ring.height - edge - at.y - item.height };
+        }
+
+        function test_the_ring_pads_the_title_as_a_select_pads_its_text() {
+            const ring = ringOf(title);
+            const selectRing = ringOf(select);
+            compare(label(title).mapToItem(ring, 0, 0).x, select.contentItem.mapToItem(selectRing, 0, 0).x);
+            for (const part of [label(title), caret(title), underline(title)]) {
+                const gap = inner(ring, part);
+                verify(gap.left > 0 && gap.top > 0 && gap.right > 0 && gap.bottom > 0, "a part of the title touches its ring: " + JSON.stringify(gap));
+            }
         }
 
         function test_a_theme_change_moves_the_title() {

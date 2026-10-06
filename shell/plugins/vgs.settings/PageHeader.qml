@@ -8,8 +8,9 @@ import qs.Ui
 // and the title's capital centre, not its box, on the centre line,
 // and the body does not move during a push or pop. The title draws in
 // `windowTitle`, the role of every window title. A leading icon button
-// puts its glyph's ink, not its box, on the content edge, and the title
-// starts `control.gap` after that leading box; the button's box and focus
+// puts its glyph's ink, not its box, on the content edge, and the title's
+// text starts `control.gap` after that leading box, its title button's
+// side padding reaching back into the gap; the button's box and focus
 // ring reach into the window's inset (design-system.md § Layout).
 Item {
     id: root
@@ -71,8 +72,8 @@ Item {
         text: root.text
         menu: root.menu
         visible: root.menu !== null
-        x: titleLabel.x
-        width: Math.min(implicitWidth, titleLabel.width)
+        x: titleLabel.x - leftPadding
+        width: Math.min(implicitWidth, titleLabel.width + leftPadding)
         y: Math.round(root.height / 2 - capCentre)
     }
 

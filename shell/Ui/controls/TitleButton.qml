@@ -10,8 +10,13 @@ import qs.Ui
 // under the title. The text and the caret take `titleButton.hover` while
 // hovered or open, a change of colour alone; the underline under the text
 // shows only while the button holds keyboard focus, so a keyboard user
-// sees where focus is. At rest the caret alone marks the menu. The
-// template owns the click, hover and focus.
+// sees where focus is. At rest the caret alone marks the menu. The focus
+// ring draws on the button's edge, which pads the title on each side as a
+// select pads its text, so a header places the title's text `leftPadding`
+// in from the button. Above and below, the ring reaches past the button to
+// a field's height, or by a ring's gap and width around a taller title, so
+// the button keeps its title's height. The template owns the click, hover
+// and focus.
 T.AbstractButton {
     id: root
 
@@ -24,12 +29,18 @@ T.AbstractButton {
     // The title's capital centre from the button's top, so a header puts
     // the text, not the box with its underline, on its centre line.
     readonly property real capCentre: topPadding + label.capCentre
+    // How far the ring's box reaches past the title above and below it.
+    readonly property real ringReach: Math.max((Theme.textField.height - implicitContentHeight) / 2, Theme.focusRing.offset + Theme.focusRing.width)
 
     function toggleMenu() { if (menu !== null) menu.toggle(); }
 
     implicitWidth: implicitContentWidth + leftPadding + rightPadding
     implicitHeight: implicitContentHeight + topPadding + bottomPadding
     padding: 0
+    leftPadding: Theme.controlPadding(Theme.textField.paddingX, Theme.focusRing.radius, implicitContentHeight + 2 * ringReach, implicitContentHeight)
+    rightPadding: leftPadding
+    topInset: -ringReach
+    bottomInset: -ringReach
     spacing: Theme.titleButton.gap
     hoverEnabled: true
     PointerCursor {}
@@ -75,6 +86,6 @@ T.AbstractButton {
     }
 
     background: Item {
-        FocusRing { target: root; outside: true }
+        FocusRing { target: root }
     }
 }

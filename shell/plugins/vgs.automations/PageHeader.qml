@@ -58,8 +58,8 @@ Item {
         text: root.text
         menu: root.menu
         visible: root.menu !== null
-        x: titleLabel.x
-        width: Math.min(implicitWidth, titleLabel.width)
+        x: titleLabel.x - leftPadding
+        width: Math.min(implicitWidth, titleLabel.width + leftPadding)
         anchors.verticalCenter: parent.verticalCenter
     }
 
