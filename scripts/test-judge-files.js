@@ -9,6 +9,9 @@
 // `main` ends a process on a refusal with its line, its detail and its
 // status, thrown or rejected by a returned promise; each row runs in a child
 // node process. `lockFile` holds a flock one holder at a time.
+// `editFile` keeps a save the user makes between its read and its write,
+// the edit run again on the saved text, and refuses `changed` when the file
+// changes under both runs.
 //
 // The controls at the end edit a copy of the helper, one rule at a time,
 // and require this suite to fail on each copy.
@@ -56,6 +59,19 @@ const ROWS = [
     ["no mode given", undefined, false, 0o644, 0o644]
 ];
 
+// editFile rows: the name, whether FILE is a symlink to the file edited, the
+// file's text before (undefined for absent), the runs of EDIT that save the
+// user's text to the file first ("user <run>\n"), the failure's reason
+// (null for none), the file's text after and the text each run of EDIT was
+// given. EDIT appends "edit\n".
+const EDIT_ROWS = [
+    ["a plain edit writes once", false, "a\n", [], null, "a\nedit\n", ["a\n"]],
+    ["a save before the first write is kept and edited", true, "a\n", [1], null, "user 1\nedit\n", ["a\n", "user 1\n"]],
+    ["a save before each write refuses changed", false, "a\n", [1, 2], "changed", "user 2\n", ["a\n", "user 1\n"]],
+    ["a file made before the first create is kept and edited", false, undefined, [1], null, "user 1\nedit\n", [undefined, "user 1\n"]],
+    ["a file made before the create, saved before the retry, refuses changed", false, undefined, [1, 2], "changed", "user 2\n", [undefined, "user 1\n"]]
+];
+
 // main rows: the name, the command's body, the exit status, the stderr.
 const MAIN_ROWS = [
     ["a refusal prints its line", "main(() => refuse(\"k=v\"))", 1, "vgshell: refused: k=v\n"],
@@ -86,6 +102,34 @@ function verify(helper, root, file) {
     fs.mkdirSync(path.join(occupied, "x"), { recursive: true });
     assert.throws(() => helper.replaceFile(occupied, "x", "probe", 0o600), e => e instanceof helper.Refusal && e.first.startsWith("probe=unwritable path=" + occupied + " error="));
     assert.deepEqual(fs.readdirSync(dir), ["settings.json"]);
+
+    for (const [name, linked, before, saves, reason, after, given] of EDIT_ROWS) {
+        const dir = fs.mkdtempSync(path.join(root, "edit-"));
+        const target = path.join(dir, "real.lua");
+        const file = linked ? path.join(dir, "link.lua") : target;
+        if (linked) fs.symlinkSync(target, file);
+        if (before !== undefined) fs.writeFileSync(target, before);
+        const runs = [];
+        const failure = helper.editFile("probe", file, true, text => {
+            runs.push(text);
+            if (saves.includes(runs.length)) fs.writeFileSync(target, "user " + runs.length + "\n");
+            return (text === undefined ? "" : text) + "edit\n";
+        });
+        assert.deepEqual(failure, reason === null ? null : { reason, failure: "probe=" + reason + " path=" + target }, name + ": the answer");
+        assert.equal(fs.readFileSync(target, "utf8"), after, name + ": the file's text");
+        assert.deepEqual(runs, given, name + ": the text each run was given");
+        assert.deepEqual(fs.readdirSync(dir).sort(), linked ? ["link.lua", "real.lua"] : ["real.lua"], name + ": no staging file is left");
+    }
+    // A dangling symlink is no file that appeared: the create stays
+    // unwritable, not retried, and the link is left as it was.
+    const danglingDir = fs.mkdtempSync(path.join(root, "dangling-"));
+    const dangling = path.join(danglingDir, "link.lua");
+    fs.symlinkSync(path.join(danglingDir, "absent.lua"), dangling);
+    let danglingRuns = 0;
+    const danglingFailure = helper.editFile("probe", dangling, true, () => { danglingRuns += 1; return "edit\n"; });
+    assert.deepEqual(danglingFailure, { reason: "unwritable", failure: "probe=unwritable path=" + dangling + " error=EEXIST" }, "a dangling symlink: the answer");
+    assert.equal(danglingRuns, 1, "a dangling symlink: EDIT ran once");
+    assert.deepEqual(fs.readdirSync(danglingDir), ["link.lua"], "a dangling symlink: nothing is made");
 
     // lockFile: one holder at a time, freed by release; a file with no
     // directory to hold it fails with the error's code. A wait on a lock
@@ -149,6 +193,9 @@ try {
         ["owner-only staging", '{ flag: "wx", mode: 0o600 }', '{ flag: "wx" }'],
         ["stale staging removed", "                fs.rmSync(tmp, { force: true });\n", ""],
         ["kept mode", "                fs.chmodSync(tmp, mode);\n", ""],
+        ["the file is compared before the rename", "if (current !== undefined) changed = !holds(file, current);", ""],
+        ["a changed file is edited once more", 'first.reason === "changed" ? editOnce(key, file, create, edit) : first', 'false ? editOnce(key, file, create, edit) : first'],
+        ["a file that appeared before the create is changed", 'e.code === "EEXIST" && fs.existsSync(file)', 'false'],
         ["a command is executable", "fs.accessSync(file, fs.constants.X_OK);", "fs.accessSync(file, fs.constants.F_OK);"],
         ["a command is a file", "if (fs.statSync(file).isFile()) return file;", "return file;"],
         ["onPath answers by commandFile", "return commandFile(command) !== null;", "return commandFile(command) === null;"],
@@ -174,7 +221,7 @@ try {
         }
         assert.ok(failed, `control "${label}": the suite passed on a helper without that rule`);
     });
-    console.log(`test-judge-files: ok rows=${ROWS.length + 1 + PATH_ROWS.length + MAIN_ROWS.length} controls=${CONTROLS.length}`);
+    console.log(`test-judge-files: ok rows=${ROWS.length + 1 + EDIT_ROWS.length + 1 + PATH_ROWS.length + MAIN_ROWS.length} controls=${CONTROLS.length}`);
 } finally {
     fs.writeFileSync = writeFileSync;
     fs.rmSync(root, { recursive: true, force: true });

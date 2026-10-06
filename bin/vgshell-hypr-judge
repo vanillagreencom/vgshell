@@ -35,9 +35,10 @@
 // Prints `ok hypr=wired|unwired|unchanged path=<file>` for edits. Every refusal is one
 // line on stderr and exit 1: `vgshell: refused: hypr=wiring-file-absent
 // path=<file>` for `wire` with no hyprland.lua, `hypr=unreadable` or
-// `hypr=unwritable` with the path and error code, and `hypr=unquotable
-// path=<layer>` for a STATE_DIR a Lua string cannot hold. Exit 2 on a bad
-// invocation.
+// `hypr=unwritable` with the path and error code, `hypr=changed path=<file>`
+// when the file changed under each of two edits, an editor saving it
+// (bin/lib/judge-files.js editFile), and `hypr=unquotable path=<layer>` for
+// a STATE_DIR a Lua string cannot hold. Exit 2 on a bad invocation.
 "use strict";
 const path = require("path");
 const { refuse, main, editFile } = require(path.join(__dirname, "lib", "judge-files.js"));

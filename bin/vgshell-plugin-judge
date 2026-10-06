@@ -398,8 +398,8 @@ main(() => {
             const user = current === undefined ? null : readConfig(logic, userPath, "user-config");
             const effective = logic.effectiveConfig(shipped, user);
             const row = logic.pluginRow(effective, manifest.id);
-            if (row !== undefined && logic.hasOwn(row, key)) return null;
-            seeded = true;
+            seeded = row === undefined || !logic.hasOwn(row, key);
+            if (!seeded) return null;
             // editFile writes one byte per character; the JSON is UTF-8.
             return Buffer.from(JSON.stringify(logic.withSetting(user, manifest, key, value, effective, ["plugins"]), null, 2) + "\n", "utf8").toString("latin1");
         });

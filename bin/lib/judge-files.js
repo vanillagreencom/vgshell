@@ -93,6 +93,12 @@ function writing(file, key, write) {
     }
 }
 
+// The refusal `KEY=changed path=<file>`: FILE no longer holds the bytes its
+// writer read.
+function refuseChanged(file, key) {
+    refuse(key + "=changed path=" + file, "changed");
+}
+
 // Replace a file by rename, so a shell watching it never reads half of it.
 // DATA is a string or a Buffer, written as it is; MODE, when given, is the
 // permission bits the new file takes. With a MODE the file kept may be
@@ -100,8 +106,17 @@ function writing(file, key, write) {
 // is created afresh and owner-only before any byte is written, and takes
 // MODE only once it holds DATA. A failure leaves no temporary file and
 // refuses as `writing` does.
-function replaceFile(file, data, key, mode) {
+//
+// CURRENT, when given, is the Buffer the caller read and built DATA from.
+// The user's editor may save the file between that read and the rename, an
+// autosave included, and the rename would drop that save silently; so FILE
+// is read again just before the rename, and when it holds other bytes or is
+// gone the staging copy is removed and the refusal is `refuseChanged`'s. No
+// editor takes a lock, so a save inside the instant between that read and
+// the rename is still lost.
+function replaceFile(file, data, key, mode, current) {
     const tmp = file + ".vgshell-" + process.pid;
+    let changed = false;
     writing(file, key, () => {
         try {
             fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -112,12 +127,25 @@ function replaceFile(file, data, key, mode) {
                 fs.writeFileSync(tmp, data, { flag: "wx", mode: 0o600 });
                 fs.chmodSync(tmp, mode);
             }
-            fs.renameSync(tmp, file);
+            if (current !== undefined) changed = !holds(file, current);
+            if (changed) fs.rmSync(tmp, { force: true });
+            else fs.renameSync(tmp, file);
         } catch (e) {
             fs.rmSync(tmp, { force: true });
             throw e;
         }
     });
+    if (changed) refuseChanged(file, key);
+}
+
+// Whether FILE holds exactly the bytes BYTES; an absent file holds none.
+function holds(file, bytes) {
+    try {
+        return fs.readFileSync(file).equals(bytes);
+    } catch (e) {
+        if (e.code === "ENOENT") return false;
+        throw e;
+    }
 }
 
 // Take flock on FILE, made with its directory when absent: { state: "held",
@@ -156,30 +184,53 @@ function lockFile(file, wait) {
 // dangling symlink. Answers null, or the failure's { reason, failure }, its
 // line led by KEY. A theme target's include line and the Hyprland layer's
 // line (bin/vgshell-hypr-judge) are both kept through here.
+//
+// The file is the user's, open in an editor that may save it, an autosave
+// included, between the read and the write: replaceFile's CURRENT refuses
+// the write then, and an absent file that appeared refuses it the same way.
+// The edit then runs once more on a fresh read, so EDIT may run twice and
+// must assign only what each run answers. A second change answers the
+// failure `KEY=changed path=<file>`, the file a symlink names, the user's
+// bytes left as they saved them. A save inside the instant between the last read and the rename is
+// still lost, since no editor takes a lock.
 function editFile(key, file, create, edit) {
+    const first = editOnce(key, file, create, edit);
+    return first !== null && first.reason === "changed" ? editOnce(key, file, create, edit) : first;
+}
+
+function editOnce(key, file, create, edit) {
     let real = null;
-    let text;
+    let read;
     try {
         real = fs.realpathSync(file);
-        text = fs.readFileSync(real, "latin1");
+        read = fs.readFileSync(real);
     } catch (e) {
         if (e.code !== "ENOENT") return { reason: "unreadable", failure: key + "=unreadable path=" + file + " error=" + e.code };
         real = null;
     }
-    const next = edit(text);
+    const next = edit(read === undefined ? undefined : read.toString("latin1"));
     if (next === null) return null;
     if (typeof next !== "string") return { reason: next.reason, failure: key + "=" + next.reason + " path=" + file + (next.detail === "" ? "" : " " + next.detail) };
     if (real === null && !create) return { reason: "wiring-file-absent", failure: key + "=wiring-file-absent path=" + file };
     try {
         if (real === null) {
+            let appeared = false;
             writing(file, key, () => {
                 fs.mkdirSync(path.dirname(file), { recursive: true });
-                fs.writeFileSync(file, Buffer.from(next, "latin1"), { flag: "wx" });
+                try {
+                    fs.writeFileSync(file, Buffer.from(next, "latin1"), { flag: "wx" });
+                } catch (e) {
+                    // EEXIST is a dangling symlink at FILE too, which stays
+                    // the unwritable refusal: no file appeared there.
+                    if (e.code === "EEXIST" && fs.existsSync(file)) appeared = true;
+                    else throw e;
+                }
             });
+            if (appeared) refuseChanged(file, key);
         } else {
             let mode;
             writing(real, key, () => { mode = fs.statSync(real).mode & 0o7777; });
-            replaceFile(real, Buffer.from(next, "latin1"), key, mode);
+            replaceFile(real, Buffer.from(next, "latin1"), key, mode, read);
         }
     } catch (e) {
         if (!(e instanceof Refusal)) throw e;
