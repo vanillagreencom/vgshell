@@ -48,6 +48,8 @@ Singleton {
     property var failedBuilds: Object.create(null)
     // Null, or the current bar-widget drag target for one bar host.
     property var barDrag: null
+    // A released drag waiting one turn for its bar's pointer leave, or null.
+    property var barDrop: null
 
     // The source revisions of every instance the core built, which a scan
     // keeps on disk while the instance lives.
@@ -282,18 +284,29 @@ Singleton {
         barDrag = Object.assign({}, barDrag, { section: target.section, before: target.before, index: index, markerX: target.markerX });
     }
 
+    // A release outside the bar writes nothing. Hyprland ends the press at
+    // the bar's edge when the pointer leaves the bar, so that release lands
+    // inside; the bar's leave follows it before a deferred call runs
+    // (runtime-pointer.md), so the drop waits one turn and barLeft cancels it.
     function dragEnd(hostKey, point) {
-        if (barDrag === null || barDrag.hostKey !== hostKey || !Logic.hasOwn(mounts, hostKey)) {
-            barDrag = null;
-            return;
-        }
         const drag = barDrag;
-        const bar = mounts[hostKey].row.instance;
-        const outside = point.x < 0 || point.y < 0 || point.x >= bar.width || point.y >= bar.height;
         barDrag = null;
-        if (outside) return;
-        const reply = moveWidget(drag.id, drag.section, drag.index, drag.from);
-        if (reply !== "ok") console.warn("plugins: move " + drag.id + " " + reply);
+        if (drag === null || drag.hostKey !== hostKey || !Logic.hasOwn(mounts, hostKey)) return;
+        const bar = mounts[hostKey].row.instance;
+        if (point.x < 0 || point.y < 0 || point.x >= bar.width || point.y >= bar.height) return;
+        const drop = drag;
+        barDrop = drop;
+        Qt.callLater(() => {
+            if (barDrop !== drop) return;
+            barDrop = null;
+            const reply = moveWidget(drop.id, drop.section, drop.index, drop.from);
+            if (reply !== "ok") console.warn("plugins: move " + drop.id + " " + reply);
+        });
+    }
+
+    // The pointer left bar `hostKey`: a drag released there is cancelled.
+    function barLeft(hostKey) {
+        if (barDrop !== null && barDrop.hostKey === hostKey) barDrop = null;
     }
 
     // What the widget frame's Hide dialog says about plugin `id`, read when it

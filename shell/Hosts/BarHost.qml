@@ -43,6 +43,11 @@ Item {
             WlrLayershell.layer: WlrLayer.Top
             visible: PluginLogic.barShown(slot.instance)
 
+            // pointer-cursor-exempt: it reads the pointer leaving the bar and sets no cursor
+            HoverHandler {
+                onHoveredChanged: if (!hovered) Plugins.barLeft(host.hostKey)
+            }
+
             PluginSlot {
                 id: slot
                 kind: "bar"

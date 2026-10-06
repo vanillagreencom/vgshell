@@ -62,6 +62,9 @@ placement_right_click() {
 placement_bar_below() {
   surface_box vgs:bar | py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); print("%d %d" % (x + w / 2, y + h + 20))'
 }
+placement_bar_left_inside() {
+  surface_box vgs:bar | py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); print("%d %d" % (x + w / 6, y + h / 2))'
+}
 placement_bar_below_left() {
   surface_box vgs:bar | py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); print("%d %d" % (x + w / 6, y + h + 20))'
 }
@@ -111,6 +114,11 @@ read -r tick_x tick_y < <(placement_point acme.tick) || fail "the tick widget po
 placement_drag_widget acme.probe "$((tick_x + 40))" "$tick_y" || fail "dragging the fixture within center failed"
 expect_poll "a pointer drag reorders within center in the file" '{"left": [], "center": ["acme.tick", "acme.probe"], "right": []}' placement_order
 expect_poll "a pointer drag reorders within center on the bar" '["acme.tick", "acme.probe"]' placement_visual_order
+read -r left_x left_y < <(placement_bar_left_inside) || fail "the point in the bar's left third is unreadable"
+placement_drag_widget acme.probe "$left_x" "$left_y" || fail "dragging the fixture into the empty left section failed"
+expect_poll "a pointer drag moves the fixture into the empty left section" '{"left": ["acme.probe"], "center": ["acme.tick"], "right": []}' placement_order
+expect "moving the fixture back into center is allowed" ok ipc shell movePluginWidget acme.probe center 1
+expect_poll "the fixture is back after the center widget" '{"left": [], "center": ["acme.tick", "acme.probe"], "right": []}' placement_order
 cp -- "$placement_file" "$sandbox/shell-before-outside-drop.json"
 read -r below_x below_y < <(placement_bar_below_left) || fail "the point below the left third of the bar is unreadable"
 placement_drag_widget acme.probe "$below_x" "$below_y" || fail "dragging the fixture below the bar failed"
@@ -175,7 +183,7 @@ cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp"
 expect_poll "the restored user file is ready for placement controls" '{"left": [], "center": ["acme.tick"], "right": ["acme.probe"]}' placement_order
 if copy_tree placement-move-control \
   && edit_tree placement-move-control shell/Core/PluginLogic.js 'target.splice(at, 0, entry);' 'target.push(entry);' \
-  && edit_tree placement-move-control shell/Core/Plugins.qml 'if (outside) return;' 'if (false) return;'; then
+  && edit_tree placement-move-control shell/Core/Plugins.qml 'if (barDrop !== null && barDrop.hostKey === hostKey) barDrop = null;' ';'; then
   stop_shell
   start_shell "$sandbox/tree-placement-move-control" "$sandbox/placement-move-control.log" || fail "the placement move control shell starts"
   expect "control: moving the fixture to center answers ok" ok ipc shell movePluginWidget acme.probe center 0
@@ -201,10 +209,10 @@ if copy_tree placement-drag-control \
   cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
   start_shell "$sandbox/tree-placement-drag-control" "$sandbox/placement-drag-control.log" || fail "the placement drag control shell starts"
   tick_presses_before="$(ipc smoke readInstance "$(bar_key)" acme.tick presses)" || fail "control: the tick press count is unreadable"
-  read -r below_x below_y < <(placement_bar_below) || fail "control: the point below the bar is unreadable"
-  placement_drag_widget acme.tick "$below_x" "$below_y" || fail "control: dragging acme.tick below the bar failed"
+  read -r left_x left_y < <(placement_bar_left_inside) || fail "control: the point in the bar's left third is unreadable"
+  placement_drag_widget acme.tick "$left_x" "$left_y" || fail "control: dragging acme.tick into the left third failed"
   expect_poll "control: the pointer still reached acme.tick without frame drag" "$((tick_presses_before + 1))" ipc smoke readInstance "$(bar_key)" acme.tick presses
-  expect "control: a BarWidget without frame drag writes nothing" unchanged placement_same_as "$placement_saved"
+  expect "control: a BarWidget without frame drag writes nothing for an in-bar drop" unchanged placement_same_as "$placement_saved"
   stop_shell
   cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
   start_shell "$repo" "$sandbox/placement-drag-control-restored.log" || fail "the shell starts again after the drag control"
