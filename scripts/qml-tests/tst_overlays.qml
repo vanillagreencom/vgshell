@@ -51,7 +51,17 @@ Item {
         }
         Tooltip { id: tip; text: "hint" }
         Tooltip { id: longTip; text: "method=unknown path=/home/user/.local/share/vgshell/repo is where VGS runs from, and no package manager owns it" }
-        Tooltip { id: capsTip; text: "6 updates waiting\nSystem: 3\nAUR: 1"; shortcut: "Super+Ctrl+U" }
+        Tooltip {
+            id: detailsTip
+            text: "17 updates waiting"
+            details: [
+                { label: "System", value: 14 },
+                { label: "AUR", value: 2 },
+                { label: "mise", value: "check failed" },
+                { label: "Themes", value: 0 },
+                "Checked 8:54 PM"
+            ]
+        }
         Menu { id: long
             Repeater {
                 model: ["Bar", "Gallery", "Launcher", "Notifications", "Settings", "Themes", "Beta", "Clock", "Dock", "Echo", "Files", "Grid", "Help", "Inbox", "Jobs"]
@@ -869,33 +879,80 @@ Item {
                 if (owner.resources[i].anchor !== undefined) return owner.resources[i];
             return null;
         }
+        function descendants(node) {
+            let out = [];
+            for (const child of node.children) {
+                out.push(child);
+                out = out.concat(descendants(child));
+            }
+            return out;
+        }
+        function firstDescendant(node, test) {
+            const all = descendants(node);
+            for (const child of all)
+                if (test(child)) return child;
+            return null;
+        }
+        function descendantsWhere(node, test) {
+            return descendants(node).filter(test);
+        }
 
         // A short tip is its text's width; a long one stops at
         // `tooltip.maxWidth` and wraps inside the padding.
         function test_tooltip_wraps_past_its_maximum_width() {
             const short = tipWindow(tip);
             const long = tipWindow(longTip);
-            const shortLabel = short.contentItem.children[1];
-            const longLabel = long.contentItem.children[1];
+            const shortContent = firstDescendant(short.contentItem, child => child.objectName === "tooltipContent");
+            const longContent = firstDescendant(long.contentItem, child => child.objectName === "tooltipContent");
+            const shortLabel = firstDescendant(short.contentItem, child => child.objectName === "tooltipTitle");
+            const longLabel = firstDescendant(long.contentItem, child => child.objectName === "tooltipTitle");
             compare(short.width, Math.ceil(shortLabel.implicitWidth) + 2 * Theme.tooltip.paddingX);
             compare(long.width, Theme.tooltip.maxWidth + 2 * Theme.tooltip.paddingX);
             verify(longLabel.lineCount > 1, "the long tip wraps: " + longLabel.lineCount);
-            compare(long.height, longLabel.height + 2 * Theme.tooltip.paddingY);
-            compare(longLabel.x, Theme.tooltip.paddingX);
+            compare(long.height, longContent.height + 2 * Theme.tooltip.paddingY);
+            compare(longContent.x, Theme.tooltip.paddingX);
             // Under a pill theme with a small pad the text moves in until it
             // clears the round end.
             compare(UnitTheme.override({ tooltip: { radius: 4096, paddingX: 2 } }), "ok");
-            tryVerify(() => shortLabel.x > 2, 1000, "the rounded tip's text moved in: " + shortLabel.x);
+            tryVerify(() => shortContent.x > 2, 1000, "the rounded tip's text moved in: " + shortContent.x);
         }
 
-        // A tip of several lines keeps its key caps on its first line.
-        function test_tooltip_key_caps_sit_beside_the_first_line() {
-            const window = tipWindow(capsTip);
-            const label = window.contentItem.children[1];
-            const caps = window.contentItem.children[2];
-            verify(label.lineCount > 1, "the tip runs to several lines: " + label.lineCount);
-            verify(caps.visible && caps.height > 0, "the tip shows its key caps");
-            fuzzyCompare(caps.y + caps.height / 2, label.y + label.lineBox / 2, 0.5);
+        function test_tooltip_draws_no_key_caps() {
+            const window = tipWindow(detailsTip);
+            const caps = descendantsWhere(window.contentItem, child => child.caps !== undefined);
+            compare(caps.length, 0);
+        }
+
+        function test_tooltip_title_and_details_use_their_roles() {
+            const window = tipWindow(detailsTip);
+            const title = firstDescendant(window.contentItem, child => child.objectName === "tooltipTitle");
+            const details = descendantsWhere(window.contentItem, child => child.objectName.indexOf("tooltipDetail") === 0 || child.objectName.indexOf("tooltipCount") === 0)
+                .filter(child => child.role !== undefined);
+            compare(title.role, "tooltip");
+            verify(details.length > 0, "the tooltip has detail labels");
+            for (const label of details)
+                compare(label.role, "itemHint", label.objectName + " " + label.text);
+        }
+
+        function test_tooltip_count_rows_align_and_hide_zeroes() {
+            const window = tipWindow(detailsTip);
+            const values = descendantsWhere(window.contentItem, child => child.objectName === "tooltipCountValue" && child.text !== "0");
+            verify(values.length >= 3, "the tooltip has visible count values");
+            const edge = values[0].mapToItem(window.contentItem, values[0].width, 0).x;
+            for (const value of values)
+                fuzzyCompare(value.mapToItem(window.contentItem, value.width, 0).x, edge, 0.5, value.text);
+            const zero = firstDescendant(window.contentItem, child => child.objectName === "tooltipCountLabel" && child.text === "Themes");
+            verify(zero !== null, "the zero count row exists as data");
+            compare(zero.parent.height, 0);
+            compare(zero.parent.visible, false);
+        }
+
+        function test_tooltip_padding_uses_tokens() {
+            const window = tipWindow(detailsTip);
+            const content = firstDescendant(window.contentItem, child => child.objectName === "tooltipContent");
+            compare(content.x, Theme.tooltip.paddingX);
+            compare(content.y, Theme.tooltip.paddingY);
+            compare(window.height, content.height + 2 * Theme.tooltip.paddingY);
         }
 
         function test_tooltip_opens_after_the_delay_and_not_under_an_overlay() {

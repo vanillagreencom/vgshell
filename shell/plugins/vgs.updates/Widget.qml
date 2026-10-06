@@ -18,10 +18,7 @@ BarWidget {
 
     readonly property var values: shell === null ? ({}) : shell.status.values
     readonly property var view: Logic.widgetView(values, setting("hideWhenCurrent", false))
-    readonly property string tooltip: Logic.widgetTooltip(values, Time.now.getTime(), formatWhen)
-    readonly property string shortcut: shell !== null && shell.shortcut !== undefined && shell.shortcut.keys !== undefined
-        ? (shell.shortcut.keys.toggle || "")
-        : ""
+    readonly property var tip: Logic.widgetTooltip(values, Time.now.getTime(), formatWhen)
 
     visible: !view.hidden
     implicitWidth: button.implicitWidth
@@ -67,8 +64,8 @@ BarWidget {
         spinning: widget.view.spinning
         count: widget.view.badge
         tone: widget.toneColor(widget.view.tone)
-        tooltip: widget.tooltip
-        shortcut: widget.shortcut
+        tooltip: widget.tip.title
+        tooltipDetails: widget.tip.details
         onClicked: widget.toggle()
 
         // keyboard-path: the window's Update everything button runs the same TUI as the middle click

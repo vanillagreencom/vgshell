@@ -723,7 +723,7 @@ var TOKENS = {
         delay: number(500, 0, 5000),
         radius: length("{radius.sm}"),
         paddingX: length("{space.md}"),
-        paddingY: length("{space.xs}"),
+        paddingY: length("{space.sm}"),
         gap: length("{space.xs}"),
         // A tooltip wraps its text past `maxWidth`, and never grows past its
         // output less `size.window.gutter` a side.

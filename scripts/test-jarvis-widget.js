@@ -40,7 +40,11 @@ const up = (regions, extra) => Object.assign({ daemon: READY, audio: DEVICES, de
 
 const MUTE = "\nClick to mute";
 const UNMUTE = "\nClick to unmute";
-// [label, status values, [state, icon, tone, tooltip]].
+function splitTooltip(row) {
+    const parts = row[3].split("\n");
+    return [row[0], row[1], row[2], parts[0], [parts[1]]];
+}
+// [label, status values, [state, icon, tone, tooltip title plus detail]].
 const CASES = [
     ["nothing published yet", {}, ["off", "power-off", "neutral", "Jarvis is starting" + MUTE]],
     ["starting before the first state", { daemon: { tone: "info", text: "Starting" }, detail: null, audio: { tone: "info", text: "Reading devices" } },
@@ -129,11 +133,11 @@ function verify(view) {
         let got;
         try {
             const out = view.view(copy(values));
-            got = [out.state, out.icon, out.tone, out.tooltip];
+            got = [out.state, out.icon, out.tone, out.tooltip, out.tooltipDetails];
         } catch (e) {
             got = "threw: " + e.message;
         }
-        assert.deepEqual(got, want, label);
+        assert.deepEqual(copy(got), splitTooltip(want), label);
     }
     for (const [label, values, pattern] of REFUSALS)
         assert.throws(() => view.view(copy(values)), error => pattern.test(error.message), label);

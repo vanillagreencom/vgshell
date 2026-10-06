@@ -10,10 +10,11 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // spinner in its place, an optional `text`, and an optional `count`, drawn
 // in the `bar` role in `tone`, the same way in every widget. The item is
 // never narrower than it is tall, and an item that draws an icon alone is
-// square, its icon centred. `active` fills it with `bar.active`, as
-// the focused workspace; otherwise hover and press fill it with
-// `bar.item.hover` and `bar.item.pressed`. The template owns the click,
-// hover and focus, and the ring shows for keyboard focus.
+// square, its icon centred. The tooltip reads `tooltip` as its title and
+// `tooltipDetails` as its quieter detail lines. `active` fills it with
+// `bar.active`, as the focused workspace; otherwise hover and press fill
+// it with `bar.item.hover` and `bar.item.pressed`. The template owns the
+// click, hover and focus, and the ring shows for keyboard focus.
 T.AbstractButton {
     id: root
 
@@ -23,7 +24,7 @@ T.AbstractButton {
     property bool active: false
     property color tone: Theme.bar.foreground
     property string tooltip: ""
-    property string shortcut: ""
+    property var tooltipDetails: []
     property bool focusPreview: false
     // What a screen reader and a probe name the item: its text, or the
     // widget's name for an item that draws an icon alone.
@@ -96,8 +97,5 @@ T.AbstractButton {
         FocusRing { target: root }
     }
 
-    Tooltip {
-        text: root.tooltip !== "" ? root.tooltip : root.label
-        shortcut: root.shortcut
-    }
+    Tooltip { text: root.tooltip !== "" ? root.tooltip : root.label; details: root.tooltipDetails }
 }

@@ -1044,7 +1044,6 @@ Item {
                     id: menuButton
                     look: root.look
                     label: "Categories"
-                    shortcut: "CTRL+B"
                     visible: root.spotlightRoot
                     anchors.right: parent.right
                     anchors.rightMargin: root.look.header.buttonInset

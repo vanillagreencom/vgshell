@@ -168,8 +168,18 @@ function verifyView(logic) {
     { source: "later", label: "later", count: 1, packages: [{ name: "x", old: null, new: null }], checkedAt: today, error: null, more: 0 }
   ];
   const values = { pending: 4, lastCheck: today, checkState: { tone: "warning", text: "AUR: exit=1 network down" }, checking: false, sources };
-  assert.equal(logic.widgetTooltip(values, now, when), ["AUR: exit=1 network down", "System: 2", "AUR: check failed", "Flatpak: 0", "Plugins: 1", "later: 1", "Checked 14:02"].join("\n"));
-  assert.equal(logic.widgetTooltip({}, now, when), "Not checked yet\nNever checked");
+  same(logic.widgetTooltip(values, now, when), {
+    title: "AUR: exit=1 network down",
+    details: [
+      { label: "System", value: 2 },
+      { label: "AUR", value: "check failed" },
+      { label: "Flatpak", value: 0 },
+      { label: "Plugins", value: 1 },
+      { label: "later", value: 1 },
+      "Checked 14:02"
+    ]
+  });
+  same(logic.widgetTooltip({}, now, when), { title: "Not checked yet", details: ["Never checked"] });
   same(logic.windowRows(values), [
     { key: "pacman", source: "pacman", label: "System", icon: "package", secondary: "2 updates", badge: "2", badgeTone: "accent", updatable: true, lines: ["linux 6.1 → 6.2", "mesa → 25.2"], more: "+3 more" },
     { key: "aur", source: "aur", label: "AUR", icon: "package-open", secondary: "The update check failed. Select Refresh to try again.", badge: "Failed", badgeTone: "warning", updatable: false, lines: [], more: "" },
@@ -268,7 +278,7 @@ const controls = [
   ["pending needs a count", "case \"ok\": return pendingOf(v) > 0 ? \"pending\" : \"current\";", "case \"ok\": return \"pending\";"],
   ["the badge is capped", "return count > BADGE_COUNT_MAX ? BADGE_COUNT_MAX + \"+\" : String(count);", "return String(count);"],
   ["the checked line dates another day", "formatWhen(lastCheck, !sameLocalDay(lastCheck, now))", "formatWhen(lastCheck, false)"],
-  ["a source with no count reads failed in the tooltip", "(sources[i].count === null ? \"check failed\" : sources[i].count)", "sources[i].count"],
+  ["a source with no count reads failed in the tooltip", "sources[i].count === null ? \"check failed\" : sources[i].count", "sources[i].count"],
   ["a failed source keeps its badge", "badge: failed ? \"Failed\" : badgeText(row.count),", "badge: badgeText(row.count),"],
   ["only a source with updates offers Update", "updatable: !failed && row.count > 0,", "updatable: true,"],
   ["the omitted packages read +N more", "more: typeof row.more === \"number\" && row.more > 0 ? \"+\" + row.more + \" more\" : \"\"", "more: \"\""],

@@ -545,7 +545,6 @@ Item {
                                 anchors.verticalCenter: parent.verticalCenter
                                 iconName: "settings"
                                 label: "Settings"
-                                shortcut: "SUPER+M"
                             }
                         }
                     }

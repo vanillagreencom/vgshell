@@ -18,7 +18,7 @@ Item {
     BarItem { id: counted; iconName: "shield"; count: "12"; tone: "#ff0000"; y: 40 }
     BarItem { id: pill; text: "1"; active: true; y: 80 }
     BarItem { id: spinner; iconName: "refresh-cw"; spinning: true; y: 120 }
-    BarItem { id: shortcut; iconName: "settings"; label: "Settings"; tooltip: "Open settings"; shortcut: "Super+M"; x: 80 }
+    BarItem { id: tooltipItem; iconName: "settings"; label: "Settings"; tooltip: "Open settings"; tooltipDetails: ["Pinned in the bar"]; x: 80 }
     property int clicks: 0
 
     TestCase {
@@ -77,12 +77,12 @@ Item {
             compare(spinner.width, spinner.height);
         }
 
-        function test_shortcut_tooltip_is_anchored_to_the_item() {
-            const tip = shortcut.children.find(child => child.shortcut !== undefined);
+        function test_tooltip_is_anchored_to_the_item() {
+            const tip = tooltipItem.children.find(child => child.details !== undefined);
             verify(tip !== undefined, "the bar item has one tooltip");
-            compare(tip.anchorItem, shortcut);
+            compare(tip.anchorItem, tooltipItem);
             compare(tip.text, "Open settings");
-            compare(tip.shortcut, "Super+M");
+            compare(JSON.stringify(tip.details), JSON.stringify(["Pinned in the bar"]));
         }
 
         function test_theme_moves_the_item() {

@@ -91,11 +91,12 @@ function gateDown(gate) {
 function look(state, line, muteOn) {
     var out = LOOKS[state];
     return { state: state, icon: out.icon, tone: out.tone,
-        tooltip: line + "\n" + (muteOn ? "Click to unmute" : "Click to mute") };
+        tooltip: line, tooltipDetails: [muteOn ? "Click to unmute" : "Click to mute"] };
 }
 
-// The widget's { state, icon, tone, tooltip } for VALUES, the plugin's
-// status values. A key the service has not published yet is undefined.
+// The widget's { state, icon, tone, tooltip, tooltipDetails } for VALUES,
+// the plugin's status values. A key the service has not published yet is
+// undefined.
 function view(values) {
     var daemon = report("daemon", values.daemon, DAEMON_TONES);
     var audio = report("audio", values.audio, AUDIO_TONES);

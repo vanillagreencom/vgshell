@@ -55,7 +55,7 @@ Each value is read from one rule of the stylesheet. A measured value is the reso
 | `Kbd` | 20, at least square | 6 | | 0 | `kbd.height`, `kbd.paddingX` | `.sidebar-search kbd` | padding 3 7 | the height of `Badge` sm |
 | `CodeLine` | 16 padding plus the larger of its line boxes and the Copy button | 8 | 8 between the text and the button | 0 | `codeLine.padding`, `codeLine.gap`, `size.control.sm` | `.code-block pre` | padding 18 20, line-height 1.65 | wraps at word boundaries; line height 1.5 |
 | `Tabs` | 32 | 12 | 8 between tabs | | `tabs.height`, `tabs.paddingX`, `tabs.gap` | `.market-nav a` | height 32, padding 0 10 | padding 12 |
-| `Tooltip` | line + 8, wrapping at 280 | 8 | 4 from the anchor | 0 | `tooltip.paddingX`, `tooltip.paddingY`, `tooltip.gap`, `tooltip.maxWidth` | `.control-tooltip` | padding 5 7 | padding 4 8, Radix Tooltip |
+| `Tooltip` | line + 12, wrapping at 280 | 8 | 4 from the anchor | 0 | `tooltip.paddingX`, `tooltip.paddingY`, `tooltip.gap`, `tooltip.maxWidth` | `.control-tooltip` | padding 5 7 | padding 6 8, Radix Tooltip |
 | `Toast` | content + 16 | 8 | 8 between icon, text and close; 8 between toasts | 0 | `toast.padding`, `toast.contentGap`, `toast.gap` | `.toast` | padding 9 12 | padding 8 |
 | `Checkbox`, `Radio`, `Switch` | indicator 16, 16, Switch sm 28 × 16 and md 36 × 20; input at least 24 | | 8 | 0; round for `Radio` and `Switch` | `checkbox.gap`, `radio.gap`, `toggle.size`, `toggle.gap`, `size.control.sm` | Radix Switch size 1 and 2 | 28 × 16 and 35 × 20 | md width is 36 |
 | `IconButton` rest | as `IconButton` | | | 0 | `color.textMuted` | Geist and Linear icon-only buttons | muted at rest, opaque on interaction | the muted text colour, opaque |

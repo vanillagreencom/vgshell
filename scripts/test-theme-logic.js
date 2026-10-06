@@ -167,7 +167,7 @@ const DEFAULTS = [
     ["kbd.paddingX", 6],
     ["kbd.height", 20],
     ["tooltip.paddingX", 8],
-    ["tooltip.paddingY", 4],
+    ["tooltip.paddingY", 6],
     ["tooltip.maxWidth", 280],
     ["inset.window", 16],
     ["inset.dialog", 16],
@@ -948,7 +948,7 @@ const GRID_EXCEPTIONS = [
     [/^(icon\.size\.|button\.size\.[^.]+\.icon$|slider\.handle$|radio\.dot$)/, "indicator and icon drawing sizes"],
     [/^(space\.xxs|segmented\.padding|segmented\.gap|toggle\.inset|focusRing\.offset|scrollArea\.barInset|titleButton\.underlineGap)$/, "2 px steps inside one component"],
     [/^(badge\.paddingEnd|textField\.paddingX)$/, "optical insets inside one component"],
-    [/^(space\.sm|badge\.size\.sm\.paddingX|kbd\.paddingX)$/, "6 px padding inside a chip or a key cap"],
+    [/^(space\.sm|badge\.size\.sm\.paddingX|kbd\.paddingX|tooltip\.paddingY)$/, "6 px padding inside a chip, a key cap or a tooltip"],
     [/^motion\./, "motion distances"]
 ];
 function gridShortfalls(values) {

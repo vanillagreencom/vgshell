@@ -18,9 +18,6 @@ BarWidget {
     readonly property bool hidden: setting("hideWhenIdle", false) && View.idle(detail)
     readonly property string wardenState: detail === null ? "" : detail.state
     readonly property color tone: Theme.badge.tone[view.tone].foreground
-    readonly property string shortcut: shell !== null && shell.shortcut !== undefined && shell.shortcut.keys !== undefined
-        ? (shell.shortcut.keys.toggle || "")
-        : ""
 
     visible: !hidden
     implicitWidth: hidden ? 0 : item.implicitWidth
@@ -44,7 +41,6 @@ BarWidget {
         count: widget.view.count
         tone: widget.tone
         tooltip: widget.view.tooltip
-        shortcut: widget.shortcut
         onClicked: widget.toggle()
     }
 

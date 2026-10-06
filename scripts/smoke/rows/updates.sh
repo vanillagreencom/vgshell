@@ -283,11 +283,23 @@ else:
     "$colours" "$accent" "$warning" "$calm" "$icon" "$spinning" "$badge"
 }
 widget_visible() { ipc smoke readInstance "$widget_key" vgs.updates visible; }
-# The tooltip's lines but the last, the check's time, which moves; and
-# whether that last line names a time.
-widget_tip() { ipc smoke readInstance "$widget_key" vgs.updates tooltip | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).split("\n")[:-1]))'; }
+# The tooltip's title and details but the last detail, the check's time,
+# which moves; and whether that last detail names a time.
+widget_tip() {
+  local title details
+  title="$(ipc smoke readDescendant "$widget_key" vgs.updates Tooltip text)" \
+    && details="$(ipc smoke readDescendant "$widget_key" vgs.updates Tooltip details)" || return
+  python3 - "$title" "$details" <<'PY'
+import json, sys
+title, details = json.loads(sys.argv[1]), json.loads(sys.argv[2])
+lines = [title]
+for row in details[:-1]:
+    lines.append(f"{row['label']}: {row['value']}" if isinstance(row, dict) else row)
+print(json.dumps(lines))
+PY
+}
 widget_tip_line() { widget_tip | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[int(sys.argv[1])]))' "$1"; }
-widget_tip_last() { ipc smoke readInstance "$widget_key" vgs.updates tooltip | py_reply 'import json,re,sys; print(bool(re.fullmatch(r"Checked \S.*", json.load(sys.stdin).split("\n")[-1])))'; }
+widget_tip_last() { ipc smoke readDescendant "$widget_key" vgs.updates Tooltip details | py_reply 'import json,re,sys; d=json.load(sys.stdin); print(bool(d and re.fullmatch(r"Checked \S.*", d[-1])))'; }
 updates_focused() { ipc smoke focused window vgs.updates | py_reply 'import json,sys; t=sys.stdin.read().strip(); print(t if not t.startswith("[") else json.dumps([json.loads(t)[1], json.loads(t)[2], json.loads(t)[3], json.loads(t)[4]]))'; }
 # hideWhenCurrent in the widget's layout entry of the user file, written
 # whole and moved into place.

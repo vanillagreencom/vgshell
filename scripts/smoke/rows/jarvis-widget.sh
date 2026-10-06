@@ -35,18 +35,23 @@ jarvis_widget_tones="$(python3 -c 'import json,sys; print(json.dumps(dict(zip(["
 # The widget as drawn: [icon, tone, tooltip], the tone named by the token
 # whose colour the icon draws in, or `absent`.
 jarvis_widget() {
-  local icon colours tip
+  local icon colours tip details
   icon="$(ipc smoke readDescendant "$jarvis_widget_key" vgs.jarvis Icon name)" \
     && colours="$(ipc smoke itemColours "$jarvis_widget_key" vgs.jarvis Widget Icon)" \
-    && tip="$(ipc smoke readDescendant "$jarvis_widget_key" vgs.jarvis Tooltip text)" || return
-  python3 - "$icon" "$colours" "$tip" "$jarvis_widget_tones" <<'PY'
+    && tip="$(ipc smoke readDescendant "$jarvis_widget_key" vgs.jarvis Tooltip text)" \
+    && details="$(ipc smoke readDescendant "$jarvis_widget_key" vgs.jarvis Tooltip details)" || return
+  python3 - "$icon" "$colours" "$tip" "$details" "$jarvis_widget_tones" <<'PY'
 import json, sys
-icon, colours, tip, tones = sys.argv[1:5]
-if "absent" in (icon, colours, tip):
+icon, colours, tip, details, tones = sys.argv[1:6]
+if "absent" in (icon, colours, tip, details):
     print("absent"); sys.exit()
 colour = json.loads(colours)[0][0]
 names = [name for name, value in json.loads(tones).items() if "#" + value[3:9] + value[1:3] == colour]
-print(json.dumps([json.loads(icon), names[0] if len(names) == 1 else "colour=" + colour, json.loads(tip)]))
+tip_text = json.loads(tip)
+detail_lines = json.loads(details)
+if detail_lines:
+    tip_text += "\n" + "\n".join(str(line) for line in detail_lines)
+print(json.dumps([json.loads(icon), names[0] if len(names) == 1 else "colour=" + colour, tip_text]))
 PY
 }
 jarvis_widget_ready='["mic", "calm", "Jarvis is ready\nClick to mute"]'

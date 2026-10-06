@@ -42,6 +42,7 @@ BarWidget {
         iconName: root.view.icon
         tone: root.toneColor(root.view.tone)
         tooltip: root.view.tooltip
+        tooltipDetails: root.view.tooltipDetails
         onClicked: root.toggleMute()
     }
 }

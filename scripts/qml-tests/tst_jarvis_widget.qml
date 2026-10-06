@@ -69,11 +69,13 @@ Item {
                 [{ daemon: { tone: "danger", text: "Problem: jarvis: node=21.0.0 need=22" }, detail: null }, "circle-alert", Theme.badge.tone.danger.foreground, "Problem: jarvis: node=21.0.0 need=22\nClick to mute"]
             ];
             for (const [values, name, colour, text] of rows) {
+                const tip = text.split("\n");
                 widget.shell = root.shellWith(values);
                 compare(icon().name, name, name);
                 compare(String(icon().color), String(Qt.color(colour)), name + " colour");
                 compare(button().label, "Jarvis");
-                compare(tooltip().text, text);
+                compare(tooltip().text, tip[0]);
+                compare(JSON.stringify(tooltip().details), JSON.stringify([tip[1]]));
             }
         }
 

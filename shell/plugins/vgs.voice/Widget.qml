@@ -12,9 +12,6 @@ BarWidget {
     readonly property bool recording: dictation === "recording"
     readonly property bool transcribing: dictation === "transcribing"
     readonly property bool stopped: dictation === "stopped"
-    readonly property string shortcut: shell !== null && shell.shortcut !== undefined && shell.shortcut.keys !== undefined
-        ? (shell.shortcut.keys.toggle || "")
-        : ""
     readonly property color itemTone: recording ? look.palette.accent : root.bar ? root.bar.foreground : "transparent"
 
     implicitWidth: item.implicitWidth
@@ -35,7 +32,6 @@ BarWidget {
         spinning: root.transcribing
         tone: root.itemTone
         tooltip: root.recording ? "Recording" : root.transcribing ? "Transcribing" : root.stopped ? "Voice stopped" : "Voice"
-        shortcut: root.shortcut
         onClicked: root.configure()
     }
 }

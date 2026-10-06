@@ -7,7 +7,6 @@ Item {
 
     required property var look
     property string label: ""
-    property string shortcut: ""
     property bool checked: false
     readonly property bool hovered: mouse.containsMouse
     default property alias content: inner.data
@@ -50,6 +49,5 @@ Item {
 
     Tooltip {
         text: button.label
-        shortcut: button.shortcut
     }
 }

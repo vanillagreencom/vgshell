@@ -20,7 +20,6 @@ Button {
     id: root
 
     property string label: ""
-    property string shortcut: ""
     readonly property real glyphStart: leftPadding + contentItem.painted[0]
     readonly property real glyphEnd: rightPadding + contentItem.size - contentItem.painted[2]
 
@@ -43,6 +42,5 @@ Button {
 
     Tooltip {
         text: root.label
-        shortcut: root.shortcut
     }
 }

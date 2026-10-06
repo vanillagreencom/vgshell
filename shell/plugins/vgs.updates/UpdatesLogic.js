@@ -582,16 +582,16 @@ function checkedText(lastCheck, now, formatWhen) {
     return "Checked " + formatWhen(lastCheck, !sameLocalDay(lastCheck, now));
 }
 
-// The widget's tooltip: the summary, one `<label>: <count>` line per source
-// in the service's order, `check failed` for a source with no count, and
-// the checked line.
+// The widget's tooltip: the summary title, one count row per source in the
+// service's order, `check failed` for a source with no count, and the
+// checked line.
 function widgetTooltip(values, now, formatWhen) {
-    var lines = [summaryText(values)];
+    var details = [];
     var sources = sourcesOf(values);
     for (var i = 0; i < sources.length; i++)
-        lines.push(sources[i].label + ": " + (sources[i].count === null ? "check failed" : sources[i].count));
-    lines.push(checkedText(valuesOf(values).lastCheck, now, formatWhen));
-    return lines.join("\n");
+        details.push({ label: sources[i].label, value: sources[i].count === null ? "check failed" : sources[i].count });
+    details.push(checkedText(valuesOf(values).lastCheck, now, formatWhen));
+    return { title: summaryText(values), details: details };
 }
 
 // One package of a source as the window lists it: `name old → new`, or
