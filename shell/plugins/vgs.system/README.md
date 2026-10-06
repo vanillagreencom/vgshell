@@ -10,7 +10,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 
 | How | What it opens |
 |---|---|
-| `SUPER+COMMA` | The section shown last, or the first. The same key closes the window. Settings' Keys row rebinds it. |
+| `SUPER+PERIOD` | The section shown last, or the first. The same key closes the window. Settings' Keys row rebinds it. |
 | A section's own Settings link | That section. |
 | IPC | `vgshell ipc call vgs.system invoke toggle '<payload>'` or `... invoke open '<payload>'`, or the host's `vgshell ipc call shell summon window vgs.system '<payload>'`. |
 

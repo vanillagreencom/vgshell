@@ -15,7 +15,7 @@
 # - the widget following a volume set by a click on the pane's output
 #   slider, and the wheel and a middle click on the widget changing the
 #   volume and the mute while no stand-in records a call;
-# - a keyboard-only path: SUPER+COMMA opens System on the Sound section,
+# - a keyboard-only path: SUPER+PERIOD opens System on the Sound section,
 #   Enter enters it, Down on the output's Select chooses the headphones,
 #   which become WirePlumber's default while pactl is asked to move the
 #   player alone, then Tab reaches each control in turn, the output's mute
@@ -243,11 +243,11 @@ hypr_lua_save sound
 expect "the nested instance reloads with the Sound row's binds" ok hypr reload config-only
 expect_poll "the nested instance holds no configuration error" '[]' hypr_config_errors
 
-# The keyboard alone: SUPER+COMMA, Enter into the section, Down on the
+# The keyboard alone: SUPER+PERIOD, Enter into the section, Down on the
 # output's Select, then Tab through every control, Space on each button
 # and Down and Up on each slider, and Escape twice.
-type_keys -M logo -k comma -m logo || fail "SUPER+COMMA failed"
-expect_poll "SUPER+COMMA opens System on the Sound section" '["vgs.sound"]' window_panes
+type_keys -M logo -k period -m logo || fail "SUPER+PERIOD failed"
+expect_poll "SUPER+PERIOD opens System on the Sound section" '["vgs.sound"]' window_panes
 expect_poll "System opens with the keyboard in its search field" true snd_search_focused
 type_keys -k Return || fail "Enter failed"
 expect_poll "Enter puts the keyboard on the output's Select" '["Select",""]' snd_focus

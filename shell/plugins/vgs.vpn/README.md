@@ -45,7 +45,7 @@ Each setup window shows its commands and asks before it runs them.
 
 ## Keys
 
-The bar takes no keyboard focus. `SUPER+COMMA` opens the System window: type "vpn" and press Enter. In the section, Tab moves between the switch, the buttons and the lists, Space turns the switch on or off, Up and Down move in a list, and Enter chooses the selected exit node or account. Escape returns to the sidebar.
+The bar takes no keyboard focus. `SUPER+PERIOD` opens the System window: type "vpn" and press Enter. In the section, Tab moves between the switch, the buttons and the lists, Space turns the switch on or off, Up and Down move in a list, and Enter chooses the selected exit node or account. Escape returns to the sidebar.
 
 ## Validation
 

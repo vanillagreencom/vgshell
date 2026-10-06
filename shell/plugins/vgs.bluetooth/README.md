@@ -31,7 +31,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 
 ## Keys
 
-The bar takes no keyboard focus. `SUPER+COMMA` opens the System window: type "bluetooth" and press Enter. In the section, Tab moves between the switches and the lists, Space turns a switch on or off, Up and Down move in a list, Enter runs the selected device's action, Shift+F10 opens its menu, and Delete forgets it. Escape returns to the sidebar.
+The bar takes no keyboard focus. `SUPER+PERIOD` opens the System window: type "bluetooth" and press Enter. In the section, Tab moves between the switches and the lists, Space turns a switch on or off, Up and Down move in a list, Enter runs the selected device's action, Shift+F10 opens its menu, and Delete forgets it. Escape returns to the sidebar.
 
 ## Validation
 

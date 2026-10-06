@@ -169,7 +169,7 @@ hypr_lua_save network
 printf '%s\n' 'hl.config({ input = { resolve_binds_by_sym = true } })' >>"$home/.config/hypr/hyprland.lua"
 expect "the nested keyboard uses symbol bindings" ok hypr reload config-only
 rest_pointer || fail "moving the pointer off System failed"
-type_keys -M logo -k comma -m logo
+type_keys -M logo -k period -m logo
 expect_poll "the System shortcut opens the keyboard path" shown net_shown window
 expect_poll "System starts the keyboard path in search" '["TextField",""]' ipc smoke activeFocusItem window vgs.system
 type_keys Network

@@ -187,7 +187,7 @@ vpn_hang() {
 }
 vpn_enter_pane() { # LABEL
   rest_pointer || fail "$1: moving the pointer off System failed"
-  type_keys -M logo -k comma -m logo
+  type_keys -M logo -k period -m logo
   expect_poll "$1: the System shortcut opens the VPN section" shown vpn_shown window
   expect_poll "$1: System opens in its search field" '["TextField",""]' ipc smoke activeFocusItem window vgs.system
   type_keys VPN

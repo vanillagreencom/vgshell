@@ -6,7 +6,7 @@ import QtQuick
 // It draws nothing and owns nothing else; each registration's disposer is
 // the core's, so disabling the plugin releases them. The shortcut and the
 // IPC open the window on the focused monitor.
-//   shortcut vgs.system:toggle            SUPER+COMMA from the manifest's
+//   shortcut vgs.system:toggle            SUPER+PERIOD from the manifest's
 //                                          `hyprland` binds
 //   vgshell ipc call vgs.system invoke toggle '<payload>'
 //   vgshell ipc call vgs.system invoke open '<payload>'

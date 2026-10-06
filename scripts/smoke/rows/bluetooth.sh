@@ -25,7 +25,7 @@
 # from the keyboard, a code to type dismissed once paired, and a PIN typed
 # into the dialog that survives a later line of bluetoothctl's output;
 # Disconnect and Connect clicks move the headphones; and a keyboard path
-# from SUPER+COMMA turns Bluetooth off and on, turns Discoverable on, whose
+# from SUPER+PERIOD turns Bluetooth off and on, turns Discoverable on, whose
 # lease BlueZ's own end of Discoverable releases, writes Hide when off,
 # disconnects a device with Return and forgets it with Delete, which
 # removes it from the mock, and closes.
@@ -395,14 +395,14 @@ PY
   expect "enabling vgs.bluetooth after the controls is allowed" ok ipc shell setPluginEnabled vgs.bluetooth true
   expect_poll "vgs.bluetooth reads on again" on bt_view
 
-  # Keyboard alone: SUPER+COMMA, the search, the section, its switches and
+  # Keyboard alone: SUPER+PERIOD, the search, the section, its switches and
   # its devices, then out.
   hypr_lua_save bluetooth
   printf '%s\n' 'hl.config({ input = { resolve_binds_by_sym = true } })' >>"$home/.config/hypr/hyprland.lua"
   expect "the nested instance reloads with binds resolved by keysym" ok hypr reload config-only
   rest_pointer || fail "moving the pointer off the System window failed"
-  type_keys -M logo -k comma -m logo || fail "typing SUPER+COMMA failed"
-  expect_poll "SUPER+COMMA opens the System window" 1 window_count System
+  type_keys -M logo -k period -m logo || fail "typing SUPER+PERIOD failed"
+  expect_poll "SUPER+PERIOD opens the System window" 1 window_count System
   expect_poll "the keyboard starts in the search field" "Search sections" bt_focus vgs.system
   type_keys bluetooth || fail "typing the search failed"
   type_keys -k Return || fail "typing Return in the search failed"

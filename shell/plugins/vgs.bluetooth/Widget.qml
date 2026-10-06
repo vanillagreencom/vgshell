@@ -9,7 +9,7 @@ import "BluetoothLogic.js" as Logic
 // service publishes and the devices Quickshell's Bluetooth singleton
 // lists. It starts no process and writes nothing to BlueZ. A click opens
 // or closes the flyout under it. A hidden icon stays placed. The bar takes
-// no keyboard focus: the System window's Bluetooth section, SUPER+COMMA,
+// no keyboard focus: the System window's Bluetooth section, SUPER+PERIOD,
 // is the keyboard path.
 BarWidget {
     id: widget

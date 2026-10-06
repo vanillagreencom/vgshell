@@ -26,7 +26,7 @@
   "settings": {},
   "hyprland": {
     "binds": [
-      { "shortcut": "toggle", "key": "SUPER+COMMA" }
+      { "shortcut": "toggle", "key": "SUPER+PERIOD" }
     ]
   }
 }
