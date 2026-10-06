@@ -89,15 +89,21 @@ portal_read_failed() {
   if [[ $status -ne 0 && ( $out == *org.freedesktop.portal.Error.NotFound* || $out == *not-found* || $out == *not found* ) ]]; then echo failed; else printf 'status=%s %s
 ' "$status" "${out%%$'\n'*}"; fi
 }
+portal_stack_pids=()
 start_portal_stack() { # LABEL CONFIG_DIR
   local label="$1" config_dir="$2"
+  portal_stack_pids=()
   mkdir -p -- "$config_dir/xdg-desktop-portal"
   spawn "$portal_root/$label-dconf.log" "${portal_env[@]}" "$dconf_bin"
+  portal_stack_pids+=("$spawn_pid")
   spawn "$portal_root/$label-gtk.log" "${portal_env[@]}" "$portal_gtk" -r
+  portal_stack_pids+=("$spawn_pid")
   spawn "$portal_root/$label-gnome.log" "${portal_env[@]}" "$portal_gnome" -r
+  portal_stack_pids+=("$spawn_pid")
   expect_poll "$label: gtk Settings backend owns its name" owned wait_name org.freedesktop.impl.portal.desktop.gtk
   expect_poll "$label: gnome Settings backend owns its name" owned wait_name org.freedesktop.impl.portal.desktop.gnome
   spawn "$portal_root/$label-desktop.log" "${portal_env[@]}" XDG_CONFIG_DIRS="$config_dir" "$portal_bin" -r
+  portal_stack_pids+=("$spawn_pid")
   expect_poll "$label: xdg-desktop-portal owns its name" owned wait_name org.freedesktop.portal.Desktop
 }
 stop_spawned() { # PID
@@ -107,14 +113,22 @@ stop_spawned() { # PID
   for _ in $(seq 1 50); do kill -0 "$pid" 2>/dev/null || return 0; sleep 0.1; done
   kill -KILL -- -"$pid" 2>/dev/null || true
 }
+stop_portal_stack() {
+  local i
+  for ((i = ${#portal_stack_pids[@]} - 1; i >= 0; i--)); do
+    stop_spawned "${portal_stack_pids[i]}"
+  done
+  portal_stack_pids=()
+}
 
 empty_config="$portal_root/empty-config"
 mkdir -p -- "$empty_config"
 start_portal_stack control "$empty_config"
-control_pid="$spawn_pid"
 expect "control: gtk-only Settings route has no accent-color" failed portal_read_failed
-stop_spawned "$control_pid"
+stop_portal_stack
 expect_poll "control: xdg-desktop-portal releases its bus name" missing wait_name org.freedesktop.portal.Desktop
+expect_poll "control: gtk Settings backend releases its bus name" missing wait_name org.freedesktop.impl.portal.desktop.gtk
+expect_poll "control: gnome Settings backend releases its bus name" missing wait_name org.freedesktop.impl.portal.desktop.gnome
 
 start_portal_stack routed "$portal_root/config"
 expect_poll "routed portal starts before theme assertions" owned wait_name org.freedesktop.portal.Desktop
@@ -128,7 +142,17 @@ apply_theme_and_read() { # NAME VALUE
     color-scheme) portal_color_scheme ;;
   esac
 }
+apply_vgs_default() {
+  "${portal_env[@]}" "$repo/bin/vgshell" theme apply vgs | tail -n 1
+}
 expect "the sandbox dark theme sets gruvbox through the real accent target" "#3a944a" apply_theme_and_read gruvbox accent
 expect "the merged Settings portal reads gruvbox as prefer-dark" "1" apply_theme_and_read gruvbox color-scheme
 expect "the sandbox light theme sets flexoki-light through the real accent target" "#3584e4" apply_theme_and_read flexoki-light accent
 expect "the merged Settings portal reads flexoki-light as prefer-light" "2" apply_theme_and_read flexoki-light color-scheme
+expect "the portal accent row restores vgs before later rows" "ok theme=vgs state=applied shell=applied" apply_vgs_default
+stop_portal_stack
+expect_poll "routed portal releases its bus name" missing wait_name org.freedesktop.portal.Desktop
+expect_poll "routed gtk Settings backend releases its bus name" missing wait_name org.freedesktop.impl.portal.desktop.gtk
+expect_poll "routed gnome Settings backend releases its bus name" missing wait_name org.freedesktop.impl.portal.desktop.gnome
+rm -rf -- "${repo:?}/themes/targets/accent-color" "${repo:?}/themes/targets/color-scheme"
+rm -rf -- "$home/.config/xdg-desktop-portal"
