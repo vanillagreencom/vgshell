@@ -243,8 +243,9 @@ pick_tui() {
   type_keys -k Return || fail "sending Return on $1 failed"
 }
 update_words() {
-  words --app-id=org.vgs.tui "--title=VGS · Update everything" -- "$tui_self" present --presentation full --plugin vgs.updates --dir "$snapshot" \
-    --record vgs.updates/update --run RUN --record-dir "$rt_dir/vgshell/tui" --app-id org.vgs.tui --window-title "VGS · Update everything" -- tui/update.sh
+  local update_snapshot="$1"
+  words --app-id=org.vgs.tui.tall "--title=VGS · Update everything" -- "$tui_self" present --presentation full --plugin vgs.updates --dir "$update_snapshot" \
+    --record vgs.updates/update --run RUN --record-dir "$rt_dir/vgshell/tui" --app-id org.vgs.tui.tall --window-title "VGS · Update everything" -- tui/update.sh
 }
 packages_menu() {
   expect "the launcher opens Packages for $1" ok ipc shell summon overlay vgs.launcher '{"menu":"packages"}'
@@ -294,11 +295,13 @@ expect "IPC openTui answers ok for the busy install picker" ok ipc shell openTui
 release_runs
 expect_run_end "the held install picker run ends" core/pkg-install
 
+updates_revision="$(ipc shell listPlugins | py_reply 'import json,sys; print([p["revision"] for p in json.load(sys.stdin)["plugins"] if p["id"]=="vgs.updates"][0])')" || { fail "vgs.updates revision is readable for Packages"; updates_revision=""; }
+updates_snapshot="$rt_dir/vgshell-sources-$shell_qs_pid/$updates_revision"
 forget_record
 packages_menu "Update"
 expect "the Packages menu lists Install, Update and Remove in order" '["Install", "Update", "Remove"]' tui_labels
 pick_tui Update
-expect_poll "Update hands the terminal the updates plugin's Update script" "$(update_words)" recorded
+expect_poll "Update hands the terminal the updates plugin's Update script" "$(update_words "$updates_snapshot")" recorded
 expect_poll "Update closes the launcher" 0 layer_count vgs:overlay
 expect_run_end "the Update run ends" vgs.updates/update
 categories "Packages disable"
