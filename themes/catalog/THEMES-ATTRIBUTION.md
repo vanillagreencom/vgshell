@@ -68,3 +68,7 @@ Each vendor port takes its values from the upstream source named below, apart fr
 For the two Horizon packages, the catalog uses the matching globals file for palette and terminal colours.
 
 For `synthwave84`, twenty colour keys come from the extension. It sets twelve `terminal.ansi*` keys, and those answer `color1` to `color6` and `color9` to `color14`; `foreground` and `cursor` come from `terminal.foreground` and `terminalCursor.foreground`. It sets no black or white ANSI pair and no terminal key for the accent, so the remaining keys take the surfaces it paints them from: `accent` from `activityBarBadge.background`, `color0` from `editor.background`, `color8` from `button.background`, and `color7` and `color15` from the top-level `foreground`. The package's own values are `background`, which the extension answers nowhere, and `selection_background`, whose only upstream value carries an alpha channel.
+
+## Icon themes
+
+Each package's `targets/icons.theme` names one of the Yaru variants in `themes/targets/icons/`, credited in `themes/targets/icons/YARU-LICENSE.md`. For the packages Omarchy also ships, the name is the one in Omarchy's `themes/<name>/icons.theme` (https://github.com/basecamp/omarchy, MIT), except `vantablack` and `white`, whose Omarchy names match no Yaru variant. Every other package takes the variant whose colour lies nearest its accent's hue.

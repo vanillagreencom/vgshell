@@ -1,0 +1,9 @@
+{
+  "app": "gtk-theme",
+  "runsCode": false,
+  "encoder": "hex6",
+  "files": [{ "template": "gtk-theme.name", "destination": "gtk-theme.name" }],
+  "detect": ["gsettings"],
+  "wiring": null,
+  "reload": {"command": ["sh", "-c", "gtk=$(cat -- \"$1\") || exit 1; data=${XDG_DATA_HOME:-$HOME/.local/share}; found() { [ -d \"$data/themes/$1\" ] || [ -d \"$HOME/.themes/$1\" ] && return 0; ( IFS=:; for d in ${XDG_DATA_DIRS:-/usr/local/share:/usr/share}; do [ -d \"$d/themes/$1\" ] && exit 0; done; exit 1 ); }; for dir in \"$2\"/*/; do [ -d \"$dir\" ] || continue; dir=${dir%/}; at=\"$data/themes/${dir##*/}\"; [ -e \"$at\" ] || found \"${dir##*/}\" || { mkdir -p -- \"${at%/*}\" && ln -sfn -- \"$dir\" \"$at\"; } || exit 1; done; [ \"$(gsettings get org.gnome.desktop.interface gtk-theme)\" = \"'$gtk'\" ] && exit 0; exec gsettings set org.gnome.desktop.interface gtk-theme \"$gtk\"", "sh", "@{state}/gtk-theme.name", "@{target}"], "timeoutMs": 5000, "always": true}
+}

@@ -1,0 +1,9 @@
+{
+  "app": "accent-color",
+  "runsCode": false,
+  "encoder": "gnome-accent",
+  "files": [{ "template": "accent-color.name", "destination": "accent-color.name" }],
+  "detect": ["gsettings"],
+  "wiring": null,
+  "reload": {"command": ["sh", "-c", "name=$(cat -- \"$1\") || exit 1; range=$(gsettings range org.gnome.desktop.interface accent-color) || exit 0; case $range in *\"'$name'\"*) ;; *) exit 0;; esac; [ \"$(gsettings get org.gnome.desktop.interface accent-color)\" = \"'$name'\" ] && exit 0; exec gsettings set org.gnome.desktop.interface accent-color \"$name\"", "sh", "@{state}/accent-color.name"], "timeoutMs": 5000, "always": true}
+}

@@ -88,9 +88,12 @@ const CASE_PATTERN = /^([^=]+)=(.+)$/;
 
 // The placeholders a wiring line, a reload argument and a selection value
 // hold: the stable state directory, which each of them may hold, and the one
-// wiring file, which only a reload argument may.
+// wiring file and the target's own directory, which only a reload argument
+// may. A hook reaches the files a target ships beside its templates, such
+// as icon themes, through its directory.
 const STATE_PLACEHOLDER = "state";
 const WIRING_PLACEHOLDER = "wiring";
+const TARGET_PLACEHOLDER = "target";
 
 // One segment of an entry's `dir` or `vaults` or of a wiring's `profiles`:
 // a directory or file name, a leading dot allowed so `.vscode` can be
@@ -123,9 +126,21 @@ const MARKER = /@@\{|@\{([^}]*)\}|@\{/g;
 const ENCODERS = {
     hex6: (hex, background) => hex6(hex, background),
     hex8: hex => hex.slice(1, 9),
-    rgba: hex => "rgba(" + [1, 3, 5].map(at => parseInt(hex.slice(at, at + 2), 16)).join(", ") + ", " +
-        String(Math.round(parseInt(hex.slice(7, 9), 16) / 255 * 1000) / 1000) + ")"
+    "gnome-accent": (hex, background) => gnomeAccent(hex6(hex, background))
 };
+
+// The accents org.gnome.desktop.interface accent-color names, each with the
+// colour libadwaita 1.9.4 draws it in (AdwAccentColor, read from
+// libadwaita-1.so). `slate` is the grey one.
+const GNOME_ACCENTS = {
+    blue: "3584e4", teal: "2190a4", green: "3a944a", yellow: "c88800", orange: "ed5b00",
+    red: "e62d42", pink: "d56199", purple: "9141ac", slate: "6f8396"
+};
+const GREY_ACCENT = "slate";
+// Below this OKLCh chroma a colour reads as grey, so its hue says nothing
+// and it takes the grey accent: #8ba4b0, chroma 0.033, is a blue-grey that
+// takes slate, and #94afca, chroma 0.049, a pale blue that takes blue.
+const GREY_CHROMA = 0.045;
 
 function channel(hex, at) {
     return parseInt(hex.slice(at, at + 2), 16);
@@ -139,6 +154,41 @@ function hex6(hex, background) {
     if (hex.length < 9 || channel(hex, 7) === 255) return hex.slice(1, 7);
     const alpha = channel(hex, 7) / 255;
     return [1, 3, 5].map(at => byteHex(Math.round(channel(hex, at) * alpha + channel(background, at) * (1 - alpha)))).join("");
+}
+
+// RGB, six hex digits, as OKLCh lightness, chroma and hue in degrees,
+// by Björn Ottosson's OKLab matrices.
+function oklch(rgb) {
+    const [r, g, b] = [0, 2, 4].map(at => {
+        const c = parseInt(rgb.slice(at, at + 2), 16) / 255;
+        return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    });
+    const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+    const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+    const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+    const a = 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s;
+    const bb = 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s;
+    return { l: 0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s, c: Math.hypot(a, bb), h: (Math.atan2(bb, a) * 180 / Math.PI + 360) % 360 };
+}
+
+function hueDistance(a, b) {
+    const d = Math.abs(a - b) % 360;
+    return Math.min(d, 360 - d);
+}
+
+// The GNOME accent nearest RGB by hue: a theme's accent is a hue, and the
+// accents differ by hue at one lightness, so lightness would only pull a
+// pale accent toward the paler of two neighbours.
+function gnomeAccent(rgb) {
+    const colour = oklch(rgb);
+    if (colour.c < GREY_CHROMA) return GREY_ACCENT;
+    let best = null;
+    for (const [name, accent] of Object.entries(GNOME_ACCENTS)) {
+        if (name === GREY_ACCENT) continue;
+        const distance = hueDistance(colour.h, oklch(accent).h);
+        if (best === null || distance < best.distance) best = { name, distance };
+    }
+    return best.name;
 }
 
 function refused(reason, detail) {
@@ -292,7 +342,7 @@ function entryItems(target, live) {
 
 // The placeholders a reload command may name for TARGET.
 function reloadPlaceholders(logic, target) {
-    const names = [STATE_PLACEHOLDER];
+    const names = [STATE_PLACEHOLDER, TARGET_PLACEHOLDER];
     if (target.wiring !== null && wiringForm(target.wiring) === "include" && !logic.hasOwn(target.wiring, "profiles")) names.push(WIRING_PLACEHOLDER);
     return names;
 }
@@ -541,11 +591,12 @@ function wiringLine(target, state) {
 }
 
 // The argv an accepted TARGET's reload hook runs, with `@{state}` written as
-// STATE, the state directory's `theme/` path, and `@{wiring}` written as
-// WIRING, the file its include line is kept in, in each argument.
-function reloadCommand(target, state, wiring) {
+// STATE, the state directory's `theme/` path, `@{target}` as DIR, the
+// target's own directory, and `@{wiring}` written as WIRING, the file its
+// include line is kept in, in each argument.
+function reloadCommand(target, state, dir, wiring) {
     if (target.reload === null) throw new Error("theme-render: reloadCommand: target " + target.name + " has no reload");
-    const values = { [STATE_PLACEHOLDER]: state };
+    const values = { [STATE_PLACEHOLDER]: state, [TARGET_PLACEHOLDER]: dir };
     if (wiring !== undefined) values[WIRING_PLACEHOLDER] = wiring;
     return target.reload.command.map(arg => withValues(arg, values, "reloadCommand: a reload argument of target " + target.name));
 }

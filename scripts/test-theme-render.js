@@ -86,6 +86,7 @@ const ACCEPTED_TARGETS = [
     ["probe", targetText({ wiring: null })],
     ["probe", targetText({ reload: { command: ["probe", "--file=@{state}/probe.conf", "@@{x}"], timeoutMs: 2000, always: true } })],
     ["probe", targetText({ reload: { command: ["probe"], timeoutMs: 2000, always: false } })],
+    ["probe", targetText({ wiring: null, reload: { command: ["probe", "@{target}/shipped", "@{state}"], timeoutMs: 2000 } })],
     ["probe", entryText({ base: "cache", dir: "wal" })],
     ["probe", targetText({ wiring: Object.assign({}, wiring, { file: "chrome/userChrome.css", profiles: [".zen/profiles.ini", ".config/zen/profiles.ini"] }) })],
     ["probe", targetText({ wiring: Object.assign({}, wiring, { section: "general", profiles: ["profiles.ini"] }) })],
@@ -212,8 +213,41 @@ const REFUSED_TARGETS = [
 const ENCODED = [
     ["hex6", "591f13"],
     ["hex8", "ff5a3659"],
-    ["rgba", "rgba(255, 90, 54, 0.349)"]
+    ["gnome-accent", "orange"]
 ];
+
+// The GNOME accent each palette.accent takes, read by hand from its OKLCh
+// hue and chroma against libadwaita's nine accents (blue 255.3, teal 213.1,
+// green 147.0, yellow 75.6, orange 42.4, red 21.6, pink 352.2, purple
+// 316.7; slate under chroma 0.045): the accent, the name.
+const GNOME_ACCENTED = [
+    ["#3584e4", "blue"],
+    ["#2190a4", "teal"],
+    ["#3a944a", "green"],
+    ["#c88800", "yellow"],
+    ["#ed5b00", "orange"],
+    ["#e62d42", "red"],
+    ["#d56199", "pink"],
+    ["#9141ac", "purple"],
+    ["#6f8396", "slate"],
+    // Grey: no hue, chroma 0.
+    ["#808080", "slate"],
+    // A blue-grey at chroma 0.033, and a pale blue at 0.049.
+    ["#8ba4b0", "slate"],
+    ["#94afca", "blue"],
+    // Hue 3.2 lies 11.0 from pink across 0 and 18.3 from red.
+    ["#e8357a", "pink"]
+];
+// A package whose selection, its accent at alpha 0.35, lies over a teal
+// background: #e62d42 alone is red, and composited it is #666d82, chroma
+// 0.034, which takes slate.
+const tealed = logic.acceptPackage(TOKENS, {
+    directoryName: "tealed",
+    themeJson: JSON.stringify({ schemaVersion: 1, name: "tealed", tokens: { palette: { background: "#2190a4", accent: "#e62d42" } } }),
+    terminalJson: undefined,
+    shipped: false
+});
+assert.equal(tealed.ok, true, tealed.ok ? "" : logic.refusalLine(tealed));
 
 // Templates under the hex6 encoder against the probe package and the
 // defaults' slots: the template, the rendered text.
@@ -447,6 +481,16 @@ function verify(render) {
         assert.equal(file.destination, "probe.conf");
         assert.equal(file.curated, false);
     }
+    for (const [accent, want] of GNOME_ACCENTED) {
+        const pkg = logic.acceptPackage(TOKENS, {
+            directoryName: "accent",
+            themeJson: JSON.stringify({ schemaVersion: 1, name: "accent", tokens: { palette: { accent } } }),
+            terminalJson: undefined,
+            shipped: false
+        });
+        assert.equal(rendered("gnome-accent", "@{palette.accent}", pkg).bytes.toString("utf8"), want, accent);
+    }
+    assert.equal(rendered("gnome-accent", "@{palette.accent} @{color.selection}", tealed).bytes.toString("utf8"), "red slate");
     for (const [text, want] of RENDERED)
         assert.equal(rendered("hex6", text).bytes.toString("utf8"), want, text);
     for (const [pkg, text, want] of MODES)
@@ -561,17 +605,19 @@ function verify(render) {
     assert.throws(() => render.wiringLine(unwired, "/s"), /has wiring form none/);
     assert.throws(() => render.entryItems(unwired, "/s"), /has wiring form none/);
 
-    // A reload argument names the state directory and, for include targets
-    // without profiles, the wiring file; `@@{` stays a literal. `always`
-    // alone makes a hook due on every apply.
+    // A reload argument names the state directory, the target's own
+    // directory and, for include targets without profiles, the wiring file;
+    // `@@{` stays a literal. `always` alone makes a hook due on every apply.
     const hooked = accepted("probe", targetText({ reload: { command: ["probe", "--file=@{state}/probe.conf", "@@{x}"], timeoutMs: 2000, always: true } }));
-    assert.deepEqual(render.reloadCommand(hooked, "/s/vgshell/theme"), ["probe", "--file=/s/vgshell/theme/probe.conf", "@{x}"]);
+    assert.deepEqual(render.reloadCommand(hooked, "/s/vgshell/theme", "/t/probe"), ["probe", "--file=/s/vgshell/theme/probe.conf", "@{x}"]);
+    const shipping = accepted("probe", targetText({ wiring: null, reload: { command: ["probe", "@{target}/shipped", "@{state}"], timeoutMs: 2000 } }));
+    assert.deepEqual(render.reloadCommand(shipping, "/s/vgshell/theme", "/t/probe"), ["probe", "/t/probe/shipped", "/s/vgshell/theme"]);
     assert.equal(render.reloadNamesWiring(hooked), false);
     const wiringHook = accepted("probe", targetText({ reload: { command: ["touch", "-c", "--", "@{wiring}", "@{state}", "@@{x}"], timeoutMs: 2000 } }));
     assert.equal(render.reloadNamesWiring(wiringHook), true);
-    assert.deepEqual(render.reloadCommand(wiringHook, "/s/vgshell/theme", "/home/u/.wezterm.lua"), ["touch", "-c", "--", "/home/u/.wezterm.lua", "/s/vgshell/theme", "@{x}"]);
-    assert.throws(() => render.reloadCommand(wiringHook, "/s/vgshell/theme"), /names placeholder wiring/);
-    assert.deepEqual(render.reloadCommand(target("hex6"), "/s"), ["probe", "--reload"]);
+    assert.deepEqual(render.reloadCommand(wiringHook, "/s/vgshell/theme", "/t/probe", "/home/u/.wezterm.lua"), ["touch", "-c", "--", "/home/u/.wezterm.lua", "/s/vgshell/theme", "@{x}"]);
+    assert.throws(() => render.reloadCommand(wiringHook, "/s/vgshell/theme", "/t/probe"), /names placeholder wiring/);
+    assert.deepEqual(render.reloadCommand(target("hex6"), "/s", "/t/probe"), ["probe", "--reload"]);
     assert.equal(render.reloadNamesWiring(target("hex6")), false);
     assert.equal(render.reloadAlways(hooked), true);
     assert.equal(render.reloadAlways(target("hex6")), false);
@@ -579,7 +625,7 @@ function verify(render) {
     const hookless = accepted("probe", targetText({ reload: null }));
     assert.equal(render.reloadNamesWiring(hookless), false);
     assert.equal(render.reloadAlways(hookless), false);
-    assert.throws(() => render.reloadCommand(hookless, "/s"), /has no reload/);
+    assert.throws(() => render.reloadCommand(hookless, "/s", "/t/probe"), /has no reload/);
 
     // A setup command is met by PATH alone; a target naming none always is.
     const setup = accepted("probe", targetText({ setup: "probe-setup" }));
@@ -594,7 +640,11 @@ verify(require(rendererFile));
 const CONTROLS = [
     ["hex6 encoder", "hex6: (hex, background) => hex6(hex, background)", "hex6: hex => hex.slice(1, 7)"],
     ["hex8 encoder", "hex8: hex => hex.slice(1, 9)", "hex8: hex => hex.slice(1, 7)"],
-    ["rgba alpha", "String(Math.round(parseInt(hex.slice(7, 9), 16) / 255 * 1000) / 1000)", "String(parseInt(hex.slice(7, 9), 16))"],
+    ["gnome accent composited", '"gnome-accent": (hex, background) => gnomeAccent(hex6(hex, background))', '"gnome-accent": hex => gnomeAccent(hex.slice(1, 7))'],
+    ["gnome accent grey", "if (colour.c < GREY_CHROMA) return GREY_ACCENT;", "if (false) return GREY_ACCENT;"],
+    ["gnome accent grey by hue never", "if (name === GREY_ACCENT) continue;", ""],
+    ["gnome accent hue wraps", "return Math.min(d, 360 - d);", "return d;"],
+    ["gnome accent linear light", "return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;", "return c;"],
     ["escape", 'if (m[0] === "@@{") {', "if (false) {"],
     ["pass-through", "const MARKER = /@@\\{|@\\{([^}]*)\\}|@\\{/g;", "const MARKER = /@@\\{|[@#$]\\{([^}]*)\\}|@\\{/g;"],
     ["unterminated", "if (m[1] === undefined) return { ok: false, at: m.index };", "if (m[1] === undefined) continue;"],
@@ -670,6 +720,8 @@ const CONTROLS = [
     ["reload always admitted", "RELOAD_KEYS.includes(key) || key === ALWAYS_KEY)", "RELOAD_KEYS.includes(key))"],
     ["reload always boolean", "typeof reload.always !== \"boolean\"", "false"],
     ["reload argument placeholder", "!allowed.includes(name)", "false"],
+    ["reload target placeholder", "const names = [STATE_PLACEHOLDER, TARGET_PLACEHOLDER];", "const names = [STATE_PLACEHOLDER];"],
+    ["reload target written", "const values = { [STATE_PLACEHOLDER]: state, [TARGET_PLACEHOLDER]: dir };", "const values = { [STATE_PLACEHOLDER]: state, [TARGET_PLACEHOLDER]: state };"],
     ["reload argument unterminated", "list === null ||", "false ||"],
     ["reload wiring placeholder gate", 'if (target.wiring !== null && wiringForm(target.wiring) === "include" && !logic.hasOwn(target.wiring, "profiles")) names.push(WIRING_PLACEHOLDER);', "names.push(WIRING_PLACEHOLDER);"],
     ["reload names wiring", "return names !== null && names.includes(WIRING_PLACEHOLDER);", "return false;"],
@@ -770,4 +822,4 @@ try {
 } finally {
     fs.rmSync(temp, { recursive: true, force: true });
 }
-console.log(`test-theme-render: ok targets=${ACCEPTED_TARGETS.length + REFUSED_TARGETS.length} templates=${ENCODED.length + RENDERED.length + MODES.length + REFUSED_TEMPLATES.length} wiring=${WIRED.length + WIRED_SECTION.length + CONFLICTS.length + CONFLICT_LINES.length + UNWIRED.length + UNWIRED_SECTION.length + PROFILES.length + VAULTS.length} controls=${CONTROLS.length}`);
+console.log(`test-theme-render: ok targets=${ACCEPTED_TARGETS.length + REFUSED_TARGETS.length} templates=${ENCODED.length + GNOME_ACCENTED.length + RENDERED.length + MODES.length + REFUSED_TEMPLATES.length} wiring=${WIRED.length + WIRED_SECTION.length + CONFLICTS.length + CONFLICT_LINES.length + UNWIRED.length + UNWIRED_SECTION.length + PROFILES.length + VAULTS.length} controls=${CONTROLS.length}`);

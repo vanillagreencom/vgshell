@@ -1619,8 +1619,8 @@ function testRunRefusal(name, command) {
 }
 
 // Run target NAME's reload hook, the argv render.reloadCommand writes with
-// LIVE, the state directory's theme/, and WIRING, the file its include line
-// is kept in, bounded by its timeoutMs, with this process's environment.
+// LIVE, the state directory's theme/, the target's shipped directory and
+// WIRING, the file its include line is kept in, bounded by its timeoutMs, with this process's environment.
 // Answers ROW when it exits 0, else ROW as reload-pending with its reason
 // and its keyed line pushed onto FAILURES; under the test-run marker a hook
 // testRunRefusal names a path for never starts and is `reload-refused`. No
@@ -1630,7 +1630,7 @@ function reloadRow(name, target, configHome, live, row, failures) {
     const reload = target.reload;
     const wiring = reloadWiring(name, target, configHome, failures);
     if (!wiring.ok) return Object.assign({}, row, { state: "reload-pending", reason: "reload-failed" });
-    const [command, ...args] = render.reloadCommand(target, live, wiring.path);
+    const [command, ...args] = render.reloadCommand(target, live, path.join(SHIPPED, TARGETS, name), wiring.path);
     const refusal = testRunRefusal(name, command);
     if (refusal !== null) {
         failures.push("target=" + name + " reason=reload-refused command=" + command + " " + refusal);
