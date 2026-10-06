@@ -1804,9 +1804,10 @@ scene_devtools() { # MODE
 # A tree that ships vgs.mouse then takes its Mouse section,
 # system-<mode>-mouse, over Hyprland's nested pointer list, enabled for
 # the shot and disabled again, and the same section with Pointer speed
-# overridden, system-<mode>-mouse-overridden: the user file sets the
-# speed, so the layer writes the option, and a line after the VGS loading
-# line of hyprland.lua sets another, as rows/mouse.sh plants it. Both
+# set over the user's own line, system-<mode>-mouse-overridden: the user
+# file sets the speed, so the layer applies the option, and a line after
+# the VGS loading line of hyprland.lua sets another, as rows/mouse.sh
+# plants it, so the row names that value and offers it. Both
 # files go back as the take found them. Displays stays enabled through the
 # other Hardware shots, so the sidebar shows the group as a user with
 # several sections sees it.
@@ -1835,7 +1836,7 @@ PY
   expect_poll "the layer's pointer speed reaches Hyprland" '[0.5, true]' mouse_speed
   printf '%s\n' 'hl.config({ input = { sensitivity = -0.5 } })' >>"$home/.config/hypr/hyprland.lua"
   expect "the nested instance reloads with the user's pointer speed" ok hypr reload config-only
-  expect_poll "the Pointer speed row shows its message" 1 ipc smoke itemTextCount window vgs.mouse FormRow 'Overridden by your Hyprland config'
+  expect_poll "the Pointer speed row shows its message" 1 ipc smoke itemTextCount window vgs.mouse FormRow 'Your Hyprland config sets this to -0.50×'
   park_pointer
   take "system-$1-mouse-overridden"
   hypr_lua_restore mouse-shot || fail "hyprland.lua is put back after the overridden Mouse shot"
