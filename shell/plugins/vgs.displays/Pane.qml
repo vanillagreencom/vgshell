@@ -257,7 +257,8 @@ FocusScope {
 
             FormRow {
                 width: parent.width
-                visible: root.selected !== null && root.selectedOn
+                // Shown while it offers a display to mirror or one is chosen.
+                visible: root.selected !== null && root.selectedOn && (root.mirrorChoices.length > 1 || root.selectedMirrors)
                 label: "Mirror"
 
                 Select {
