@@ -509,7 +509,8 @@ readCopilot(require(process.argv[2]), process.argv[3], { origin: process.argv[4]
         try {
             const deadline = Date.now() + 5000;
             while (!(fs.existsSync(pidFile) && fs.readFileSync(pidFile, "utf8").endsWith("\n"))) {
-                assert.ok(Date.now() < deadline, "the stand-in secret-tool holds within 5 s");
+                // A setup failure, not the red a control expects.
+                if (Date.now() >= deadline) throw new Error("the stand-in secret-tool did not hold within 5 s");
                 await new Promise(resolve => setTimeout(resolve, 20));
             }
             const pid = Number(fs.readFileSync(pidFile, "utf8"));
@@ -518,16 +519,20 @@ readCopilot(require(process.argv[2]), process.argv[3], { origin: process.argv[4]
             reader.kill("SIGKILL");
             await exited;
             assert.equal(await ended([pid]), true, "secret-tool ends with its reader");
+            held.splice(held.indexOf(pid), 1);
         } finally {
             reader.kill("SIGKILL");
         }
     };
-    await holdCase(plugin);
-    cases++;
-    await control("secret-tool-outlives-reader", "backend/usage.js",
-        'cp.spawn("setpriv", ["--pdeathsig", "KILL", "--", secretTool, "search"].concat(attrs), {',
-        'cp.spawn(secretTool, ["search"].concat(attrs), {', holdCase);
-    for (const pid of held) if (alive(pid)) process.kill(pid, "SIGKILL");
+    try {
+        await holdCase(plugin);
+        cases++;
+        await control("secret-tool-outlives-reader", "backend/usage.js",
+            'cp.spawn("setpriv", ["--pdeathsig", "KILL", "--", secretTool, "search"].concat(attrs), {',
+            'cp.spawn(secretTool, ["search"].concat(attrs), {', holdCase);
+    } finally {
+        for (const pid of held) if (alive(pid)) process.kill(pid, "SIGKILL");
+    }
 
     // AI Gateway is an owner-only extra. With its flag off, the helper does
     // not read the key and sends no Gateway request. With it on, it reads one
