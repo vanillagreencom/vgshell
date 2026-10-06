@@ -721,7 +721,9 @@ original, helper, control = sys.argv[1:]
 changes = {
     "smart": ('picked = rectangle_geometry(target), tuple(str(target[k]) for k in ("x", "y", "width", "height"))', 'picked = picked', 1),
     "window": ('boxes = windows\n', 'boxes = outputs\n', 1),
-    "display": ('boxes = outputs\n', 'boxes = windows\n', 1),
+    # A display selection is handed no window boxes, so its wrong boxes are
+    # the displays' own, each one pixel in.
+    "display": ('boxes = outputs\n', 'boxes = [dict(r, x=r["x"] + 1, y=r["y"] + 1, width=r["width"] - 2, height=r["height"] - 2) for r in outputs]\n', 1),
     "all": ('args = ["grim", "-g", f"{left},{top} {right - left}x{bottom - top}"]', 'args = ["grim", "-o", ""]', 1),
     "delay": ('if not self.countdown(delay, timeout):', 'if False:', 1),
     "cancel-delay": ('ready, _, _ = select.select([sys.stdin], [], [], max(0, deadline - time.monotonic()))\n                if ready and sys.stdin.readline().strip() in ("", "cancel"):\n                    return False', 'ready, _, _ = select.select([sys.stdin], [], [], max(0, deadline - time.monotonic()))\n                if ready and sys.stdin.readline().strip() == "":\n                    return False', 1),
