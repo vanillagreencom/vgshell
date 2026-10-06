@@ -38,7 +38,7 @@
 # my line asks before it removes", "the line stays while the confirmation
 # asks" and "the user's files, their modes and the symlink are as they
 # were".
-# inputs: scripts/smoke/fixtures/plugins/acme.hyprland/* scripts/smoke/fixtures/plugins/acme.hyprland-other/* shell/Core/PluginLogic.js shell/Core/HyprlandLayer.js shell/Core/HyprlandState.* shell/Core/KeyCapture.qml shell/Core/Dispatch.js shell/Core/Compositor.qml shell/plugins/vgs.settings/* shell/Ui/controls/BindField.qml shell/Ui/controls/ShortcutField.qml bin/vgshell bin/vgshell-hypr-judge scripts/smoke/rows/hyprland-consent.sh
+# inputs: scripts/smoke/fixtures/plugins/acme.hyprland/* scripts/smoke/fixtures/plugins/acme.hyprland-other/* shell/Core/PluginLogic.js shell/Core/HyprlandLayer.js shell/Core/HyprlandState.* shell/Core/KeyCapture.qml shell/Core/Dispatch.js shell/Core/Compositor.qml shell/plugins/vgs.settings/* shell/Ui/controls/BindField.qml shell/Ui/controls/ShortcutField.qml shell/Ui/feedback/LinkText.qml bin/vgshell bin/vgshell-hypr-judge scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 hypr_lua="$home/.config/hypr/hyprland.lua"
 hypr_layer="$home/.local/state/vgshell/hypr/vgs.lua"
@@ -177,6 +177,7 @@ bind_line="$(wc -l <"$user_hypr/hyprland.lua")"
 expect_poll "the capture names the user's file and line for the key" "[[\"~/.config/hypr/hyprland.lua\", $bind_line, true]]" user_bind_rows
 settings_page_open acme.hyprland
 expect_poll "the Keys row's line names the user's file and line" "\"Also used by your Hyprland config at ~/.config/hypr/hyprland.lua line $bind_line.\"" key_field acme.hyprland ping conflict
+expect_poll "the Keys row's line links the user's file and line" "\"~/.config/hypr/hyprland.lua line $bind_line\"" key_field acme.hyprland ping hintLink
 settings_press "Remove my line" || fail "the click on Remove my line failed"
 expect_poll "Remove my line asks before it removes" True removal_asked
 expect "the line stays while the confirmation asks" yes user_bind_line
