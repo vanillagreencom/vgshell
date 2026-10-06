@@ -18,7 +18,7 @@ Every target here uses the `hex6` encoder, and its templates write the `#`. When
 | `opencode` | `opencode` | Link `vgs.json` in `${XDG_CONFIG_HOME:-~/.config}/opencode/themes`. | `"theme": "vgs"` in `${XDG_CONFIG_HOME:-~/.config}/opencode/tui.json`. | `SIGUSR2` to the user's known TUI `opencode` processes. |
 | `pi` | `pi` | Copy `vgs.json` in `~/.pi/agent/themes`. | `"theme": "vgs"` in `~/.pi/agent/settings.json`. | None. |
 
-A Claude or Codex account is served when its settings file exists in a discovered account directory. `CLAUDE_CONFIG_DIR` and `CODEX_HOME` explicit roots are discovered, and sibling account folders are discovered under the home, config and data homes. A Hermes or Pi home directory that an environment variable moves, `HERMES_HOME` or `PI_CODING_AGENT_DIR`, is served only at its default directory. oh-my-pi also reads `PI_CODING_AGENT_DIR`.
+A Claude or Codex account is served when its settings file exists in a discovered account directory. `CLAUDE_CONFIG_DIR` and `CODEX_HOME` explicit roots are discovered, and sibling account folders are discovered under the home, config and data homes, a linked folder included. A Hermes or Pi home directory that an environment variable moves, `HERMES_HOME` or `PI_CODING_AGENT_DIR`, is served only at its default directory. oh-my-pi also reads `PI_CODING_AGENT_DIR`.
 
 ## Selection
 

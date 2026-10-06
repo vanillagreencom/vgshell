@@ -29,13 +29,19 @@ const MAX_PARENT_ENTRIES = 10000;
  * partial search keeps the folders it read. An absent parent holds none; a
  * home, config or data that is no absolute normal path throws
  * account-folders: directory=absolute-normal-path-required.
+ *
+ * followLinks: false, the default, is the anchored walk for the readers of
+ * sign-ins, which never leaves a folder through a link. true follows links
+ * as a path lookup does, for the theme apply, which writes where a harness
+ * itself reads: a dotfile manager's linked `~/.claude` is then a folder.
  */
-function accountFolders({ home, config, data, env }) {
+function accountFolders({ home, config, data, env, followLinks = false }) {
+    const open = followLinks ? openFollowed : openAnchored;
     // The walk judges each parent; a default folder joined below one would
     // read as normal whatever the parent held.
     for (const parent of [home, config, data]) {
-        const opened = Anchored.directory(parent);
-        if (opened.kind === "directory") fs.closeSync(opened.fd);
+        const opened = open(parent);
+        if (opened.kind === "directory") opened.close();
         if (opened.kind === "not-absolute") throw new Error("account-folders: directory=absolute-normal-path-required");
     }
     const folders = [];
@@ -51,24 +57,24 @@ function accountFolders({ home, config, data, env }) {
         const explicit = env[row.variable];
         if (typeof explicit === "string" && explicit !== "") add(row, explicit, path.basename(explicit), "explicit");
         const fallback = path.join(home, "." + row.folder);
-        // A linked default or home is never followed.
-        const opened = Anchored.directory(fallback);
-        if (opened.kind === "directory") fs.closeSync(opened.fd);
+        // A linked default or home is followed only with followLinks.
+        const opened = open(fallback);
+        if (opened.kind === "directory") opened.close();
         if (opened.kind === "directory" || opened.kind === "absent") add(row, fallback, "default", "default");
         else partial ||= "parent-unreadable";
     }
     for (const parent of [...new Set([home, config, data])]) {
-        // A linked parent is never followed.
-        const opened = Anchored.directory(parent);
+        // A linked parent is followed only with followLinks.
+        const opened = open(parent);
         if (opened.kind === "absent") continue;
         if (opened.kind !== "directory") { partial ||= "parent-unreadable"; continue; }
         let stream;
         try {
-            stream = fs.opendirSync("/proc/self/fd/" + opened.fd);
+            stream = fs.opendirSync(opened.path);
             let read = 0;
             for (let entry; (entry = stream.readSync()) !== null;) {
                 if (++read > MAX_PARENT_ENTRIES) { partial ||= "entry-limit"; break; }
-                if (entry.isSymbolicLink() || !entry.isDirectory()) continue;
+                if (!(entry.isDirectory() || (followLinks && entry.isSymbolicLink() && open(path.join(parent, entry.name)).kind === "directory"))) continue;
                 const row = Rule.accountDirectory(entry.name, 1);
                 if (row) add(row, path.join(parent, entry.name), Rule.label(entry.name, row), "folder");
             }
@@ -77,10 +83,31 @@ function accountFolders({ home, config, data, env }) {
             partial ||= "parent-unreadable";
         } finally {
             if (stream) stream.closeSync();
-            fs.closeSync(opened.fd);
+            opened.close();
         }
     }
     return { folders, partial };
+}
+
+// A folder opened without following a link: { kind: "directory", path,
+// close } reads it through the held descriptor, else Anchored's kind.
+function openAnchored(dir) {
+    const opened = Anchored.directory(dir);
+    if (opened.kind !== "directory") return { kind: opened.kind };
+    return { kind: "directory", path: "/proc/self/fd/" + opened.fd, close: () => fs.closeSync(opened.fd) };
+}
+
+// A folder looked up through links, with the same answers.
+function openFollowed(dir) {
+    if (typeof dir !== "string" || !path.isAbsolute(dir) || path.normalize(dir) !== dir) return { kind: "not-absolute" };
+    let stat;
+    try {
+        stat = fs.statSync(dir);
+    } catch (error) {
+        if (typeof error.code !== "string") throw error;
+        return error.code === "ENOENT" ? { kind: "absent" } : { kind: "unreadable", code: error.code };
+    }
+    return stat.isDirectory() ? { kind: "directory", path: dir, close: () => {} } : { kind: "not-directory" };
 }
 
 module.exports = { accountFolders };

@@ -184,7 +184,11 @@ disable() { printf '{ "disabledTargets": [%s] }\n' "$1" >"$cfg/vgshell/shell.jso
 # The CLIs' own settings files, each holding keys of the user's beside the
 # one apply sets. Codex's is a dotfile manager's link to an owner-only file.
 cfg="$tmp/cfg-agents"; dotfiles="$tmp/dotfiles"; claude_explicit="$tmp/claude-explicit"
-mkdir -p "$cfg/vgshell" "$cfg/opencode" "$home/.claude" "$home/.claude-work" "$home/.claude-empty" "$home/.codex" "$home/.2codex" "$home/.gemini" "$home/.hermes" "$home/.omp/agent" "$home/.pi/agent" "$claude_explicit" "$dotfiles"
+# A dotfile manager links the default Claude folder and a sibling account;
+# apply writes through both links, as Claude Code reads through them.
+mkdir -p "$dotfiles/claude" "$dotfiles/claude-work"
+ln -sfn -- "$dotfiles/claude" "$home/.claude"; ln -sfn -- "$dotfiles/claude-work" "$home/.claude-work"
+mkdir -p "$cfg/vgshell" "$cfg/opencode" "$home/.claude-empty" "$home/.codex" "$home/.2codex" "$home/.gemini" "$home/.hermes" "$home/.omp/agent" "$home/.pi/agent" "$claude_explicit" "$dotfiles"
 inst_env=(CLAUDE_CONFIG_DIR="$claude_explicit")
 claude_settings="$home/.claude/settings.json"; claude_work_settings="$home/.claude-work/settings.json"; claude_explicit_settings="$claude_explicit/settings.json"
 codex_config="$home/.codex/config.toml"; codex_second_config="$home/.2codex/config.toml"; gemini_settings="$home/.gemini/settings.json"
@@ -385,6 +389,12 @@ apply_json "the first-account mutant applies" 0 dusk
 check "the first-account mutant misses served accounts" test ! -e "$home/.claude-work/themes/vgs.json" -o ! -e "$home/.2codex/themes/vgs.tmTheme"
 unset THEME_BIN
 rm -rf -- "$home/.claude/themes" "$home/.claude-work/themes" "$claude_explicit/themes" "$home/.claude-empty/themes" "$home/.codex/themes" "$home/.2codex/themes"
+rm -rf -- "${home:?}/.claude/themes" "${home:?}/.claude-work/themes" "${claude_explicit:?}/themes" "${home:?}/.claude-empty/themes" "${home:?}/.codex/themes" "${home:?}/.2codex/themes"
+judge_control account-links-unfollowed 'env: process.env, followLinks: true })' 'env: process.env, followLinks: false })'
+apply_json "the unfollowed-links mutant applies" 0 dusk
+check "the unfollowed-links mutant misses the linked Claude accounts" test ! -e "$home/.claude/themes/vgs.json" -a ! -e "$home/.claude-work/themes/vgs.json"
+unset THEME_BIN
+rm -rf -- "${home:?}/.claude/themes" "${home:?}/.claude-work/themes" "${claude_explicit:?}/themes" "${home:?}/.claude-empty/themes" "${home:?}/.codex/themes" "${home:?}/.2codex/themes"
 judge_control account-settingsless-served '.filter(dir => !served || existingPath(path.join(dir, target.select.file)) !== undefined);' '.filter(dir => true);'
 apply_json "the settings-less-account mutant applies" 0 dusk
 check "the settings-less-account mutant fails the account plan" test "$(target_state claude)" == "skipped selection-file-absent"

@@ -822,9 +822,13 @@ function planTarget(dir, row, slots, disabled, configHome, live) {
     if (found.value !== null) return skipped(found.value);
     // A settings file that is absent, or whose key the edit refuses, skips
     // the target before anything lands, so its application keeps its theme.
+    // An account target's served account directories are read once here,
+    // so the entries and the selections land in the same directories.
+    let roots;
     if (target.select !== undefined) {
         const selected = reading(name, dir, () => {
-            const selections = selectionEdits(target, configHome, live);
+            if (isAccountTarget(target)) roots = accountRoots(target, true);
+            const selections = selectionEdits(target, configHome, live, roots);
             if (selections.length === 0) return "selection-file-absent";
             for (const selection of selections) {
                 const verdict = selection.edit(latin1(readIfPresent(selection.file)));
@@ -856,7 +860,7 @@ function planTarget(dir, row, slots, disabled, configHome, live) {
     let entryPlan;
     if (render.wiringForm(target.wiring) === "entry") {
         const planned = reading(name, dir, () => {
-            const dirs = entryDirs(target, configHome);
+            const dirs = entryDirs(target, configHome, roots);
             if (dirs.length === 0) return "wiring-file-absent";
             const plan = planEntries(target, dirs, live, rendered.files);
             return entryOccupied(plan) === null ? plan : "entry-occupied";
@@ -865,7 +869,7 @@ function planTarget(dir, row, slots, disabled, configHome, live) {
         if (planned.value === "wiring-file-absent" || planned.value === "entry-occupied") return skipped(planned.value);
         entryPlan = planned.value;
     }
-    return { name, state: "pending", reason: null, target, files: rendered.files, dropped, entryPlan };
+    return { name, state: "pending", reason: null, target, files: rendered.files, dropped, entryPlan, roots };
 }
 
 // Every shipped target under themes/targets/, planned by planTarget, in
@@ -996,10 +1000,16 @@ function isAccountTarget(target) {
     return target.accounts !== undefined;
 }
 
+// The account directories of account TARGET's harness that
+// bin/lib/account-folders.js finds, through links as the harness itself
+// reads them; with SERVED, only those whose selection file exists. An XDG
+// variable that is no absolute path is ignored, as the XDG Base Directory
+// specification asks.
 function accountRoots(target, served) {
-    const config = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config");
-    const data = process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local/share");
-    return accountFolders({ home: os.homedir(), config, data, env: process.env }).folders
+    const home = os.homedir();
+    const xdg = (value, fallback) => typeof value === "string" && path.isAbsolute(value) ? value : fallback;
+    return accountFolders({ home, config: xdg(process.env.XDG_CONFIG_HOME, path.join(home, ".config")),
+        data: xdg(process.env.XDG_DATA_HOME, path.join(home, ".local", "share")), env: process.env, followLinks: true }).folders
         .filter(row => row.provider === target.accounts && isDirectory(row.directory))
         .map(row => row.directory)
         .filter(dir => !served || existingPath(path.join(dir, target.select.file)) !== undefined);
@@ -1050,9 +1060,9 @@ function baseDir(base, configHome) {
 // absent registry lists none. Throws the fs error of a registry that cannot
 // be read, its `path` the registry's, and one with code `unparseable` for a
 // registry vaultDirs cannot read a vault list from.
-function entryDirs(target, configHome) {
+function entryDirs(target, configHome, roots) {
     const wiring = target.wiring;
-    if (isAccountTarget(target)) return accountEntryDirs(target, true);
+    if (isAccountTarget(target)) return (roots || accountRoots(target, true)).map(root => path.join(root, wiring.dir));
     const base = baseDir(wiring.base, configHome);
     if (wiring.vaults === undefined) return [path.join(base, wiring.dir)];
     const registry = path.join(base, wiring.vaults);
@@ -1215,11 +1225,11 @@ function dropEntries(name, target, configHome, live) {
 // The settings file TARGET's `select` names, under its base, and the edit
 // theme-select.js makes in that file's latin1 text, the value's `@{state}`
 // written as LIVE.
-function selectionEdits(target, configHome, live) {
+function selectionEdits(target, configHome, live, roots) {
     const selection = target.select;
     const value = latin1(Buffer.from(render.selectValue(target, live), "utf8"));
-    const roots = isAccountTarget(target) ? accountRoots(target, true) : [baseDir(selection.base, configHome)];
-    return roots.map(root => ({
+    const dirs = isAccountTarget(target) ? roots || accountRoots(target, true) : [baseDir(selection.base, configHome)];
+    return dirs.map(root => ({
         file: path.join(root, selection.file),
         edit: text => select.selectedText(selection.format, text, render.selectKeys(target), value)
     }));
@@ -1238,7 +1248,7 @@ function wire(entry, configHome, live) {
     default: throw new Error("vgshell-theme-judge: wire: target " + entry.name + " has no known wiring form");
     }
     if (failure === null && entry.target.select !== undefined) {
-        for (const selection of selectionEdits(entry.target, configHome, live)) {
+        for (const selection of selectionEdits(entry.target, configHome, live, entry.roots)) {
             failure = editFile("target=" + entry.name + " reason", selection.file, false, selection.edit);
             if (failure !== null) break;
         }
