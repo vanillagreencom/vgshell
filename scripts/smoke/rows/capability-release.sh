@@ -70,3 +70,32 @@ expect "the first background releases the exclusive capability" ok ipc shell set
 expect_poll "the refused background builds after the holder leaves" True record_exists "$contender"
 expect "the remaining background is disabled" ok ipc shell setPluginEnabled "$contender" false
 expect_poll "contention cleanup releases the lock" null lent holders.lock
+
+copy_tree capability-release-no-drain
+if edit_tree capability-release-no-drain shell/Core/Lifetime.js \
+    '        drain: function() {
+            closed = true;
+            while (pending.length > 0) {
+                try {
+                    pending[pending.length - 1]();
+                } catch (e) {
+                    reportError(e);
+                }
+            }
+        }' \
+    '        drain: function() {
+            closed = true;
+            pending.splice(0, pending.length);
+        }'; then
+  stop_shell || :
+  start_shell "$sandbox/tree-capability-release-no-drain" "$sandbox/capability-release-no-drain.log"
+  expect "control: enabling the fixture on the no-drain copy is allowed" ok ipc shell setPluginEnabled acme.probe true
+  expect_poll "control: the fixture service builds on the no-drain copy" True service_built
+  expect "control: the fixture holds an idle watch on the no-drain copy" ok probe idle-watch 600
+  expect "control: disabling the fixture on the no-drain copy is allowed" ok ipc shell setPluginEnabled acme.probe false
+  expect_poll "control: the no-drain copy processed the disable" False record_exists acme.probe
+  expect "control: a lifetime that drops cleanup callbacks leaves capability holds behind" "['compositor', 'configure', 'idle', 'ipc', 'lock', 'notifications', 'polkit', 'run', 'screens', 'shortcut', 'theme', 'toasts', 'tui']" fixture_holds
+fi
+stop_shell || :
+start_shell "$repo" "$sandbox/capability-release-restored.log"
+expect_poll "the sandbox tree is restored after the release control" null lent holders.lock

@@ -21,6 +21,7 @@ widget_index() { ipc smoke childIndex "$(bar_key)" "$1"; }
 tick_before_probe() { python3 -c 'import sys; a, b = int(sys.argv[1]), int(sys.argv[2]); print(a >= 0 and b >= 0 and a < b)' "$(widget_index acme.tick)" "$(widget_index acme.probe)"; }
 
 expect "the placed widget reads its sibling import" '"one"' read_tick sibling
+tick_widget_original="$(cat "$tick/Widget.qml")"
 revision_one="$(tick_revision)"
 if before="$(builds)"; then
   tick_sibling two
@@ -31,6 +32,30 @@ if before="$(builds)"; then
   expect "the rebuilt widget keeps its layout entry" '"HH:mm:ss"' read_tick format
 else
   fail "buildCount unreadable before the source rows"
+fi
+if before="$(builds)"; then
+  python3 - "$tick/Widget.qml" <<'PY'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+text = path.read_text()
+old = "    readonly property string sibling: Tick.VALUE\n"
+new = "    readonly property string sibling: \"stale\"\n"
+if text.count(old) != 1:
+    raise SystemExit(f"sibling-control matches={text.count(old)}")
+changed = text.replace(old, new)
+if changed == text:
+    raise SystemExit("sibling-control unchanged")
+path.write_text(changed)
+PY
+  tick_sibling control
+  rescan "control: a rescan after editing a sibling ignored by the widget answers ok"
+  expect_poll "control: a widget that ignores its sibling import stays stale after the sibling edit" '"stale"' read_tick sibling
+  write_tick Widget.qml "$tick_widget_original"
+  tick_sibling two
+  rescan "the sibling-import control restores the widget source"
+  expect_poll "the restored widget reads its sibling import again" '"two"' read_tick sibling
+else
+  fail "buildCount unreadable before the sibling control"
 fi
 
 # A rebuilt widget keeps its place among its section's widgets: the
@@ -134,17 +159,17 @@ scan_plugins() { ipc shell listPlugins | py_reply 'import json,sys; print(json.l
 expected_errors+=('plugins: vgshell-scan exited 9 status=0' 'plugins: vgshell-scan did not start' 'plugins: scan output does not parse: ')
 printf '#!/bin/sh\nprintf "[]\\n"\nexit 9\n' >"$repo/bin/vgshell-scan"
 rescan "a scanner that exits nonzero accepts the scan request"
-expect "the nonzero scanner exit is reported" 'vgshell-scan exited 9 status=0' scan_error
-expect "valid-looking output from a failed scanner keeps the registry" "$scan_plugins_before" scan_plugins
+expect "control: the nonzero scanner exit is reported" 'vgshell-scan exited 9 status=0' scan_error
+expect "control: valid-looking output from a failed scanner keeps the registry" "$scan_plugins_before" scan_plugins
 chmod 000 "$repo/bin/vgshell-scan"
 rescan "an unstartable scanner accepts the scan request"
-expect "the scanner failed start is reported" 'vgshell-scan did not start' scan_error
-expect "a failed start keeps the registry" "$scan_plugins_before" scan_plugins
+expect "control: the scanner failed start is reported" 'vgshell-scan did not start' scan_error
+expect "control: a failed start keeps the registry" "$scan_plugins_before" scan_plugins
 chmod 755 "$repo/bin/vgshell-scan"
 printf '#!/bin/sh\nprintf "{}\\n"\n' >"$repo/bin/vgshell-scan"
 rescan "a malformed scanner accepts the scan request"
-expect "a non-list scan result is reported" 'scan output does not parse: expected an entry list' scan_error
-expect "a malformed result keeps the registry" "$scan_plugins_before" scan_plugins
+expect "control: a non-list scan result is reported" 'scan output does not parse: expected an entry list' scan_error
+expect "control: a malformed result keeps the registry" "$scan_plugins_before" scan_plugins
 mv -T -- "$sandbox/vgshell-scan.good" "$repo/bin/vgshell-scan"
 rescan "a repaired scanner accepts the scan request"
 expect "a successful scan clears the error" '' scan_error

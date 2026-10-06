@@ -72,3 +72,60 @@ PY
 expect_poll "vgshell plugin list names a disabled id no plugin has" "unknown vgs.background in disabledPlugins" plugin_list_unknown
 printf '%s\n' "$user_good" >"$home/.config/vgshell/shell.json.tmp" && mv -T -- "$home/.config/vgshell/shell.json.tmp" "$home/.config/vgshell/shell.json"
 expect_poll "vgshell plugin list names no unknown id once the file drops it" "" plugin_list_unknown
+
+configuration_control_restore() {
+  chmod 644 "$home/.config/vgshell/shell.json" || :
+  printf '%s\n' "$user_good" >"$home/.config/vgshell/shell.json.tmp" && mv -T -- "$home/.config/vgshell/shell.json.tmp" "$home/.config/vgshell/shell.json"
+  stop_shell || :
+  start_shell "$repo" "$sandbox/configuration-restored-qs.log" || fail "the configuration controls restore the repository shell"
+  expect_poll "the user file reads as loaded after the configuration controls restore it" loaded config_user_state
+}
+
+if copy_tree configuration-overwrites-malformed && edit_tree configuration-overwrites-malformed shell/Core/Config.qml \
+    'if (userState !== "loaded" && userState !== "absent") return "refused: user-config=" + userState + " path=" + userPath;' \
+    'if (false && userState !== "loaded" && userState !== "absent") return "refused: user-config=" + userState + " path=" + userPath;'; then
+  stop_shell || :
+  if start_shell "$sandbox/tree-configuration-overwrites-malformed" "$sandbox/configuration-overwrites-malformed-qs.log"; then
+    printf '{ "version": 1, "plugins": ["acme.tick"] }\n' >"$home/.config/vgshell/shell.json.tmp" && mv -T -- "$home/.config/vgshell/shell.json.tmp" "$home/.config/vgshell/shell.json"
+    expect_poll "control: the malformed file reaches the overwrite copy" malformed config_user_state
+    expect "control: a shell that ignores the bad-state gate overwrites a malformed user file" ok ipc shell setPluginEnabled acme.tick false
+    expect "control: the overwritten malformed file disables the plugin" True file_disables acme.tick
+  fi
+  configuration_control_restore
+fi
+
+if copy_tree configuration-ignores-save-error && edit_tree configuration-ignores-save-error shell/Core/Config.qml \
+    $'userView.write(content);\n        if (saveError !== "") return "refused: user-config=unwritable path=" + userPath + " error=" + saveError;\n        user = value;' \
+    $'userView.write(content);\n        if (false && saveError !== "") return "refused: user-config=unwritable path=" + userPath + " error=" + saveError;\n        user = value;'; then
+  stop_shell || :
+  if start_shell "$sandbox/tree-configuration-ignores-save-error" "$sandbox/configuration-ignores-save-error-qs.log"; then
+    cp -p -- "$home/.config/vgshell/shell.json" "$sandbox/configuration-save-error-control.json"
+    chmod 444 "$home/.config/vgshell/shell.json"
+    expect "control: a shell that ignores FileView saveError answers ok for a refused disk write" ok ipc shell setPluginEnabled acme.tick false
+    expect "control: the read-only file still keeps its bytes in the saveError control" same bash -c 'cmp -s -- "$1" "$2" && echo same' _ "$sandbox/configuration-save-error-control.json" "$home/.config/vgshell/shell.json"
+    chmod 644 "$home/.config/vgshell/shell.json"
+  fi
+  configuration_control_restore
+fi
+
+plugin_list_unknown_with() {
+  local bin="$1" listed
+  listed="$("${shell_env[@]}" "$bin" plugin list)" || return
+  grep -F 'unknown vgs.background ' <<<"$listed" || [[ $? == 1 ]]
+}
+if copy_tree configuration-hides-unknown && edit_tree configuration-hides-unknown bin/vgshell-plugin-judge \
+    'for (const u of reply.unknown) lines.push("unknown " + u.id + " in " + u.key);' \
+    'for (const u of []) lines.push("unknown " + u.id + " in " + u.key);'; then
+  python3 - "$home/.config/vgshell/shell.json" <<'PY'
+import json, os, sys
+p = sys.argv[1]
+d = json.load(open(p))
+d["disabledPlugins"] = d.get("disabledPlugins", []) + ["vgs.background"]
+json.dump(d, open(p + ".tmp", "w"), indent=2)
+os.replace(p + ".tmp", p)
+PY
+  expect_poll "control: the repository plugin list sees the planted unknown id" "unknown vgs.background in disabledPlugins" plugin_list_unknown
+  expect_poll "control: a plugin list that hides unknown rows prints no unknown id" "" plugin_list_unknown_with "$sandbox/tree-configuration-hides-unknown/bin/vgshell"
+  printf '%s\n' "$user_good" >"$home/.config/vgshell/shell.json.tmp" && mv -T -- "$home/.config/vgshell/shell.json.tmp" "$home/.config/vgshell/shell.json"
+  expect_poll "the user file reads as loaded after the unknown-row control" loaded config_user_state
+fi

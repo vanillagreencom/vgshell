@@ -113,3 +113,52 @@ json.dump(d, open(p + ".tmp", "w"), indent=2)
 os.replace(p + ".tmp", p)
 PY
 expect_widgets "removing the failed entry leaves the widget in place" '["acme.tick"]'
+
+failed_builds_control_restore() {
+  stop_shell || :
+  start_shell "$repo" "$sandbox/failed-builds-restored-qs.log" || fail "the failed-builds controls restore the repository shell"
+}
+
+if copy_tree failed-builds-keep-removed-monitor && edit_tree failed-builds-keep-removed-monitor shell/Core/Plugins.qml \
+    $'if (Logic.hasOwn(manifests, failure.id) && manifests[failure.id].__revision === failure.revision\n                && (failure.screenName === null || screens.indexOf(failure.screenName) !== -1))' \
+    $'if (Logic.hasOwn(manifests, failure.id) && manifests[failure.id].__revision === failure.revision)'; then
+  stop_shell || :
+  if start_shell "$sandbox/tree-failed-builds-keep-removed-monitor" "$sandbox/failed-builds-keep-removed-monitor-qs.log"; then
+    mkdir -p "$broken"
+    cp -R "$repo/scripts/smoke/fixtures/plugins/acme.broken/." "$broken/"
+    rescan "control: rescan after adding the broken fixture answers ok"
+    expect "control: enabling the broken fixture is allowed" ok ipc shell setPluginEnabled acme.broken true
+    control_output=SMOKE-FAILED-CONTROL
+    expect "control: a failed plugin can meet a monitor in the keep-removed copy" ok hypr output create headless "$control_output"
+    expect_poll "control: the keep-removed copy records the refused background" 1 ipc smoke failedBuilds "background:$control_output"
+    expect "control: the failed background's control monitor can be removed" ok hypr output remove "$control_output"
+    expect_poll "control: the shell sees the failed-builds control monitor leave" "$monitors" bar_count
+    expect "control: a removed monitor keeps its failed background record when pruning ignores screens" 1 ipc smoke failedBuilds "background:$control_output"
+    expect "control: disabling the broken fixture in the keep-removed copy is allowed" ok ipc shell setPluginEnabled acme.broken false
+    rm -rf -- "${broken:?}"
+  fi
+  failed_builds_control_restore
+fi
+
+if copy_tree failed-builds-duplicate-errors && edit_tree failed-builds-duplicate-errors shell/Core/Registry.qml \
+    'if (failure.id === id && errors.indexOf(text) === -1) errors.push(text);' \
+    'if (failure.id === id) errors.push(text);'; then
+  stop_shell || :
+  if start_shell "$sandbox/tree-failed-builds-duplicate-errors" "$sandbox/failed-builds-duplicate-errors-qs.log"; then
+    mkdir -p "$broken"
+    cp -R "$repo/scripts/smoke/fixtures/plugins/acme.broken/." "$broken/"
+    rescan "control: rescan after adding the duplicate-errors fixture answers ok"
+    duplicate_output=SMOKE-FAILED-DUPLICATE
+    expect "control: the duplicate-errors copy adds a monitor" ok hypr output create headless "$duplicate_output"
+    expect_poll "control: the duplicate-errors monitor gets a bar" "$((monitors + 1))" bar_count
+    expect "control: enabling the duplicate-errors fixture is allowed" ok ipc shell setPluginEnabled acme.broken true
+    expect "control: Settings opens on the duplicate-errors page" ok ipc shell summon window vgs.settings '{"plugin":"acme.broken"}'
+    expect_poll "control: duplicated build errors appear when the manager skips dedupe" '["build failed: background: background", "build failed: background: background", "build failed: service: service"]' broken_errors
+    expect "control: Settings closes after duplicate errors" ok ipc shell hide window vgs.settings
+    expect_poll "control: the Settings window is gone after duplicate errors" 0 window_count Plugins
+    expect "control: disabling the duplicate-errors fixture is allowed" ok ipc shell setPluginEnabled acme.broken false
+    expect "control: the duplicate-errors monitor can be removed" ok hypr output remove "$duplicate_output"
+    rm -rf -- "${broken:?}"
+  fi
+  failed_builds_control_restore
+fi

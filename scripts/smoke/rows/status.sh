@@ -128,3 +128,38 @@ expect "disabling the status fixture after its rows is allowed" ok ipc shell set
 expect_poll "the disabled fixture holds no record" null lent_status keys
 expect "the nested compositor removes the status rows' monitor" ok hypr output remove "$status_output"
 expect_poll "the removed monitor's bar surface is gone" "$monitors" bar_count
+
+status_control_restore() {
+  stop_shell || :
+  start_shell "$repo" "$sandbox/status-restored-qs.log" || fail "the status controls restore the repository shell"
+}
+
+if copy_tree status-live-values && edit_tree status-live-values shell/Core/PluginStatus.qml \
+    'return Logic.hasOwn(records, id) ? Logic.frozenJson(records[id].values) : empty;' \
+    'return Logic.hasOwn(records, id) ? records[id].values : empty;'; then
+  stop_shell || :
+  if start_shell "$sandbox/tree-status-live-values" "$sandbox/status-live-values-qs.log"; then
+    expect "control: enabling the status fixture with live values is allowed" ok ipc shell setPluginEnabled acme.status true
+    expect_poll "control: the live-values service is built" True record_exists acme.status
+    expect "control: a choices list is published to the live-values copy" ok publish set 'devices=[{"label":"Alpha","value":"a"},{"label":"Beta","value":"b"}]'
+    tampered_devices() { publish tamper | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["devices"]))'; }
+    expect "control: a live status values reader can append choices" '[{"label": "Alpha", "value": "a"}, {"label": "Beta", "value": "b"}, {"label": "Extra", "value": "extra"}]' tampered_devices
+    expect "control: disabling the live-values fixture is allowed" ok ipc shell setPluginEnabled acme.status false
+  fi
+  status_control_restore
+fi
+
+if copy_tree status-kept-disabled && edit_tree status-kept-disabled shell/Core/PluginStatus.qml \
+    'if (Registry.isEnabled(id) && Registry.manifests[id].__revision === records[id].revision) kept[id] = records[id];' \
+    'if (Logic.hasOwn(Registry.manifests, id)) kept[id] = records[id];'; then
+  stop_shell || :
+  if start_shell "$sandbox/tree-status-kept-disabled" "$sandbox/status-kept-disabled-qs.log"; then
+    expect "control: enabling the status fixture with kept disabled records is allowed" ok ipc shell setPluginEnabled acme.status true
+    expect_poll "control: the kept-disabled service is built" True record_exists acme.status
+    expect "control: a count is published to the kept-disabled copy" ok publish set 'pending=4'
+    expect "control: disabling the kept-disabled fixture is allowed" ok ipc shell setPluginEnabled acme.status false
+    expect_poll "control: the kept-disabled service is torn down" False record_exists acme.status
+    expect "control: a disabled plugin keeps its status record when prune ignores enablement" '[["pending", "token"]]' lent_status keys
+  fi
+  status_control_restore
+fi

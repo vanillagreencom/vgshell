@@ -10,6 +10,7 @@ theme="$home/.config/vgshell/theme.json"
 # A QML color reads back as its channel object; the row compares its hex.
 bar_foreground() { ipc smoke readInstance "$(bar_key)" vgs.bar foreground | py_reply 'import json,sys; c=json.load(sys.stdin); print("#%02x%02x%02x" % tuple(round(c[k] * 255) for k in "rgb"))'; }
 theme_value() { ipc smoke themeValue "$1"; }
+theme_file_state() { theme_value fileState; }
 write_theme() { printf '%s\n' "$1" >"$theme.tmp" && mv -T -- "$theme.tmp" "$theme"; }
 inactive_border() { hypr -j getoption general:col.inactive_border | py_reply 'import json,sys; print(json.load(sys.stdin)["gradient"])'; }
 inactive_border_before="$(inactive_border)" || inactive_border_before=unread
@@ -81,3 +82,76 @@ expect_poll "a theme file readable again recolours the bar's foreground" '#12345
 rm -f -- "${theme:?}"
 expect_poll "the removed theme file returns the bar's foreground to the default at the row's end" '#d7d7d9' bar_foreground
 expect_poll "the removed theme file returns Hyprland's inactive border to the row's start" "$inactive_border_before" inactive_border
+
+# Controls: each starts a disposable tree with one planted theme defect,
+# then reads the same state the row reads. The row restarts the sandbox tree
+# at the end so later rows see the normal Theme owner and no theme file.
+theme_control_start() { # NAME
+  stop_shell || :
+  start_shell "$sandbox/tree-$1" "$sandbox/theme-$1.log"
+}
+theme_control_reset_file() {
+  chmod 644 -- "$theme" 2>/dev/null || :
+  rm -f -- "${theme:?}"
+}
+
+copy_tree theme-unfrozen
+if edit_tree theme-unfrozen shell/Commons/Theme.qml \
+    '            return Object.freeze(out);' \
+    '            return out;'; then
+  theme_control_reset_file
+  theme_control_start theme-unfrozen
+  expect "control: unfrozen token groups let a plugin mutate a published colour" '"#ffffffff"' ipc smoke themeWrite color.onAccent '#ffffffff'
+fi
+
+copy_tree theme-no-publish
+if edit_tree theme-no-publish shell/Commons/ThemeSource.qml \
+    '        values = accepted.values;' \
+    '        values = values;'; then
+  theme_control_reset_file
+  theme_control_start theme-no-publish
+  write_theme '{ "schemaVersion": 1, "name": "control", "tokens": { "palette": { "foreground": "#135724" } } }'
+  expect_poll "control: the no-publish copy processed the accepted theme file" '"loaded"' theme_file_state
+  expect "control: an accepted theme with no values publish leaves the bar on the default" '#d7d7d9' bar_foreground
+fi
+
+copy_tree theme-refusal-resets
+if edit_tree theme-refusal-resets shell/Commons/ThemeSource.qml \
+    '                source.state = "refused";' \
+    '                source.publish(source.defaults); source.state = "refused";'; then
+  theme_control_reset_file
+  theme_control_start theme-refusal-resets
+  write_theme '{ "schemaVersion": 1, "name": "control", "tokens": { "palette": { "foreground": "#246813" } } }'
+  expect_poll "control: the accepted theme reaches the refusal control" '#246813' bar_foreground
+  write_theme '{ "schemaVersion": 1, "name": "control", "tokens": { "palette": { "acent": "#111111" } } }'
+  expected_errors+=('theme: refused: token=palette\.acent reason=unknown-token')
+  expect_poll "control: a refusal that publishes defaults loses the last accepted theme" '#d7d7d9' bar_foreground
+fi
+
+copy_tree theme-removal-stale
+if edit_tree theme-removal-stale shell/Commons/ThemeSource.qml \
+    '                if (source.values !== source.defaults.values) source.publish(source.defaults);' \
+    ''; then
+  theme_control_reset_file
+  theme_control_start theme-removal-stale
+  write_theme '{ "schemaVersion": 1, "name": "control", "tokens": { "palette": { "foreground": "#334455" } } }'
+  expect_poll "control: the accepted theme reaches the removal control" '#334455' bar_foreground
+  rm -f -- "${theme:?}"
+  expect_poll "control: the removal-stale copy processed the removed theme file" '"absent"' theme_file_state
+  expect "control: a removed theme without a default publish keeps the stale foreground" '#334455' bar_foreground
+fi
+
+copy_tree theme-no-font-fallback
+if edit_tree theme-no-font-fallback shell/Commons/Theme.qml \
+    '            return fallback;' \
+    '            return value;'; then
+  theme_control_reset_file
+  theme_control_start theme-no-font-fallback
+  write_theme '{ "schemaVersion": 1, "name": "control-font", "tokens": { "font": { "family": { "mono": "No Such Family", "sans": "No Such Family" } } } }'
+  expect_poll "control: an unavailable mono family without fallback reaches the published value" '"No Such Family"' theme_value text.label.family
+fi
+
+theme_control_reset_file
+stop_shell || :
+start_shell "$repo" "$sandbox/theme-restored.log"
+expect_poll "the sandbox tree is restored with the default theme after the controls" '#d7d7d9' bar_foreground
