@@ -621,7 +621,7 @@ if [[ $(grep -c -F -- "$relist_line" "$control_dir/Service.qml") == 1 && $(grep 
   expect_poll "the control's install run's presenter exits" moved ended_record_moved vgs.devtools/install "$install_before"
   expect_run_end "the control's install run ends" vgs.devtools/install
   expect_poll "the control copy observed the ended install run" fired devtools_control_trigger_after "$control_trigger_before"
-  expect "the control copy leaves the list as it was after the run" "$(texts "$agent_name" "Not installed" Install)" row_texts "$agent_name"
+  expect "the control copy leaves the list as it was after the run" "$(texts "$agent_name" "Not installed" "Not installed" Install)" row_texts "$agent_name"
   control_trigger_before="$(ipc smoke readInstance service vgs.devtools smokeControlTriggers)" || fail "the control's trigger marker is readable before the scan change"
   expect "disabling the requirement fixture under the control copy is allowed" ok ipc shell setPluginEnabled acme.requires false
   expect_poll "the doctor capability drops the disabled fixture" '[null, true]' has_fixture_missing
