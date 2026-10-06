@@ -30,6 +30,7 @@ A 29-minute smoke on every change cost each fix round a full run while an audit 
 ## Nightly run
 
 The one workflow, `.github/workflows/nightly.yml`, runs `scripts/validate --full` for the areas a hosted runner can run, on a schedule while the repository variable `NIGHTLY` is `on`, and reports only; `scripts/main-run.sh qml` is the half a hosted runner cannot run.
+
 - Never make a merge read the nightly's result.
 
 ## The canonical example

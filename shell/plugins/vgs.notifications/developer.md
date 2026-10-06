@@ -1,5 +1,31 @@
 # Notifications developer reference
 
+## Interface
+
+The service registers `vgs.notifications:inbox`. The manifest binds it to `SUPER+N` in the generated Hyprland layer. The IPC entry is `vgshell ipc call vgs.notifications invoke <name> <arg>`.
+
+| IPC name | Argument | Reply |
+|---|---|---|
+| `inbox` | none | toggles the Inbox; `ok` |
+| `history` | none | opens the History; `ok` |
+| `close` | none | closes the panel; `ok` |
+| `mark-read` | none | as the button; `ok` |
+| `clear-history` | none | as the button; `ok` |
+| `silence` | `on`, `off`, `toggle`, or empty to read it | `on` or `off`, or `refused: silence=<arg> want=on\|off\|toggle` |
+| `dismiss-all` | none | dismisses every toast; `ok`, or `none` with none on screen |
+| `dismiss-latest`, `invoke-latest` | none | dismisses, or clicks, the newest toast; `ok` or `none` |
+| `status` | none | one JSON line: `silence`, `panel`, `store` (`state`, `problem`), `onScreen`, `history`, `held`, `readBefore`, `duplicates` (`keptDesktop`, `keptBrowser`) |
+
+The core's notification server takes the `org.freedesktop.Notifications` name while the plugin is enabled. Another notification daemon must not run beside it.
+
+A normal toast stays for at least the Notification duration. A low priority toast uses the shorter of that time and five seconds. A sender can ask for more time, up to thirty seconds. A critical toast stays until closed. Toasts do not expire while the panel is open. When a notification leaves the screen, History keeps it, and new toasts can replace older ones on a full screen.
+
+The file-opening TUI records its refusal keys in `$XDG_STATE_HOME/vgshell/notifications/diagnostics.log`, or `~/.local/state/vgshell/notifications/diagnostics.log` when the variable is unset. The terminal shows a plain explanation. A run outside the presenter keeps its keyed refusal on stderr. Editor and `xdg-open` output passes through unchanged.
+
+Slack notifications from a browser open that browser. Slack does not provide a link to the message in its notifications, so an old Slack notification can bring Slack into view without opening the message.
+
+Senders can add VGS hints for an icon, tone or file to open: [notification-hints.md](../../../docs/architecture/notification-hints.md). Notification action ownership and window selection: [D051](../../../docs/decisions/D051-notification-actions-reveal-the-sender.md).
+
 ## State
 
 `$XDG_STATE_HOME/vgshell/notifications/` (`~/.local/state/vgshell/notifications/`) holds `state.json`, with Silence, the last Mark read, the toasts on screen and the history, and `images/`, the copies of the images the stored notifications show, since a sender deletes its own files once a notification closes. The history keeps the newest 100 notifications and a panel shows at most 40 of them. A sender's text is stored up to 512 characters of summary and 4096 of body, and an image up to 5 MiB, so the directory holds at most 120 entries and two images each.
@@ -25,8 +51,8 @@ hl.layer_rule({ name = "vgs.notifications:panel", match = { namespace = "^vgs:pa
 
 ## Shader
 
-The edge reflection is `shaders/edgelight.frag`, compiled to `shaders/edgelight.frag.qsb` beside it. After editing the source, compile it again from this directory with Qt 6's `qsb`:
+The edge reflection is `shaders/edgelight.frag`, compiled to `shaders/edgelight.frag.qsb` beside it. After an edit to the source, Qt 6's `qsb` compiles it again from this directory:
 
-```bash
+```text
 /usr/lib/qt6/bin/qsb --glsl "100es,120,150" --hlsl 50 --msl 12 -o shaders/edgelight.frag.qsb shaders/edgelight.frag
 ```

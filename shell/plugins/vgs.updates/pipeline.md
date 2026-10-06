@@ -31,7 +31,7 @@ A failing step stops the run. The terminal then shows `updates: failed exit=<n> 
 
 The TUIs read the plugin's settings with `vgshell plugin settings vgs.updates`, since `shell.tui.open` hands a script no arguments. `bin/facts` reads each `vgshell` JSON answer for the shell script. It decides whether VGS, a plugin or a theme is behind through `UpdatesLogic.js`, as the service does.
 
-When a run ends, the service checks again ([README.md § Cadence](README.md#cadence)).
+When a run ends, the service checks again ([developer.md § Cadence](developer.md#cadence)).
 
 ## Third-party review
 

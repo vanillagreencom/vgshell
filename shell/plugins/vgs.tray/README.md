@@ -13,15 +13,17 @@ Images come from `scripts/readme-shots.sh` in the nested sandbox.
 - Pinned icons always show next to the arrow. Hidden icons never show.
 - Left-click an icon to open its app. Middle-click it for the app's second action. Scroll on it to change what the app changes, such as its volume.
 - Right-click an icon to open the app's menu. An entry with an arrow opens its submenu in the same menu, and Back returns to the level above.
-- Right-click the arrow and choose Manage tray icons to pin or hide each icon.
-
-A right click on an icon opens the app's menu, not the bar's menu with Hide. To hide the whole tray, right-click the arrow.
+- Right-click the arrow and choose Manage tray icons to pin or hide each icon. The same menu hides the whole tray.
 
 ## Settings
 
-| Setting | What it does |
-|---|---|
+| Setting | What it changes |
+| --- | --- |
 | Pinned icons | The apps whose icons always show in the bar. |
 | Hidden icons | The apps whose icons never show in the bar. |
 
-Pin and Hide in Manage tray icons change the same two lists. An app that is not running still keeps its place in each list.
+Pin and Hide in Manage tray icons change the same two lists. An app that is not running keeps its place in each list.
+
+## Licence
+
+Parts of Tray are adapted from Omarchy under the MIT licence. [LICENSE](LICENSE) names the files.

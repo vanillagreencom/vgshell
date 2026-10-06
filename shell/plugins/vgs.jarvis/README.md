@@ -1,6 +1,6 @@
 # Jarvis
 
-Jarvis runs a service-owned Node child and shows its health in Plugins. The child tracks session state and saves safety records on your computer. Jarvis stores provider keys in your desktop keyring and finds account login hints. It can verify an API, local or Claude Code account when you request it. After local voice setup and with an AI model selected, Jarvis hears you, answers through that account and speaks on your computer.
+Jarvis is a voice assistant for your desktop. You talk to it, it answers through the AI model you choose, and it can act on your windows, files, clipboard, media, screen and a private browser.
 
 ![The Jarvis daemon's status on its Settings page](../../../docs/images/plugins/vgs.jarvis-page.webp)
 
@@ -8,80 +8,45 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 
 ## Features
 
-- The child ends when the service closes its stdin.
-- Bounded restart reports a problem and shows a toast when recovery ends.
-- The service reads the session lock without receiving lock authority.
-- The child tracks session state without opening a microphone or a provider.
-- Talk mode selects hold or toggle behavior for future engines.
-- Mute persists across restarts and blocks talk input.
-- A bar icon shows whether Jarvis is off, ready, listening, working, muted or has a problem.
-- A click on the bar icon toggles mute, as the Mute key does.
-- The child records refused action approvals and privacy cleanup.
-- Window, workspace and application tools read each change back from Hyprland before they report it done.
-- The listening bubble needs no bar widget. Its orb and text let clicks reach the application below.
-- Labelled Mute and Stop buttons use the same actions as their keys.
-- File tools list, read, search, write, move and delete files in your home folder. They refuse credential stores, account folders and VGS's own files, and never follow a link out of your home folder.
-- Shell tools keep commands inside a kernel sandbox and report failed, cancelled or bounded execution.
-- Plugins shows shell readiness and offers installation when Bubblewrap is missing.
-- Plugins opens Add key in a floating terminal with hidden key input.
-- Plugins shows whether a referenced key is present, absent, locked or unavailable without reading it.
-- Plugins and the launcher open local voice setup in a floating terminal.
-- Local setup verifies downloaded models and runs a bundled test clip without opening audio devices.
-- Local voice turns your speech into text and speaks replies on your computer, with no network access.
-- Accounts finds the account folders in your home, config and data folders, such as `.claude-work` or `.2codex`, and lets you add another directory.
-- Accounts can remember a key another tool stored without copying its value.
-- Login hints and local-server presence are not verified inference access.
-- Jarvis watches its recorded coding tasks and shows how many are running in Plugins.
-- Stopping a coding task interrupts its agent, escalates until every one of its processes has ended, and only then records it as stopped.
-- Desktop tools read and copy clipboard text, play, pause and skip media, set and mute the speaker volume, and show a notification. Screen brightness waits for the Displays plugin's brightness service.
-- A clipboard read refuses a copy that a password manager marks as secret, and anything that is not text.
-- Screen tools read the screen, a monitor, a window, a region or an area you draw, at most four times a turn and never while the screen is locked.
-- Windows of password managers and private browsing are painted black before a screenshot leaves Jarvis. This is limited protection: a title cannot always show private browsing.
+- A bar icon that shows whether Jarvis is off, ready, listening, working, muted or has a problem. A click toggles mute.
+- Talk, Mute and Stop keys. Talk is Super with Right Alt, Mute is Super with Shift and Right Alt, and Stop is Super with Alt and Period.
+- Mute stays on across restarts and blocks talk input.
+- A listening bubble whose orb and text let clicks reach the application below.
+- An AI model from an API key you added, or from an app you are signed in to, such as Claude Code or Codex.
+- Local voice: speech to text and spoken replies on your computer, with no network access, after Set up local voice.
+- Half duplex audio: Jarvis closes its microphone while speech plays, and Talk interrupts speech.
+- Provider keys stored in your desktop keyring. Plugins shows whether a key is present, absent, locked or unavailable without reading it.
+- Accounts finds the account folders of other tools in your home, config and data folders, and can remember a key another tool stored without copying its value. A login hint never proves that the AI answers.
+- Verify sends one small request to an account after you consent, because a real request may cost money.
+- Window, workspace and application tools that read each change back from Hyprland before they report it done.
+- File tools that list, read, search, write, move and delete files in your home folder. They refuse credential stores, account folders and VGS's own files, and never follow a link out of your home folder.
+- Shell tools that keep commands inside a kernel sandbox. Plugins shows whether the sandbox is ready and offers Install Bubblewrap when it is missing.
+- Desktop tools that read and copy clipboard text, play, pause and skip media, set and mute the speaker volume, and show a notification. A clipboard read refuses a copy that a password manager marks as secret.
+- Screen tools that read the screen, a monitor, a window, a region or an area you draw, at most four times a turn. Windows of password managers and private browsing are painted black before a screenshot leaves Jarvis.
+- A private browser from Set up browser. Jarvis asks for input access to each site, a submit needs your confirmation, and password entry stays with you.
+- Coding tasks in their own tmux session or a floating terminal. Plugins shows how many are running. A stop ends every process of the task before it is recorded as stopped.
 
-- Jarvis prepares a private browser from Set up browser in Plugins.
+## Setup
 
-## Requirements
+Each setup step is a button on the Jarvis page in Plugins or a row in the launcher's Jarvis group. Each opens a floating terminal.
 
-The daemon needs Node 22 or later. Key storage needs libsecret's secret-tool and a desktop Secret Service. Key presence needs busctl. Terminal flows need gum. Local setup needs uv, curl, Python and user namespaces. Its locked wheels target Linux x86_64. A CUDA tier also needs working CUDA libraries. The core's requirement notice offers installation of declared missing commands.
+- Add key stores a new provider key in your keyring, with hidden key input. It asks for the provider, an account label and the provider's origin, such as `https://api.openai.com`, without a path.
+- Set up local voice lists the tiers this computer can run, with the download size of each, and recommends the first. It checks free space, downloads the models and a private runtime, and reports Ready only after verification and a bundled test clip succeed.
+- Set up browser checks an installed browser on a blank page, or offers a private download. The Browser driver row offers Install while agent-browser is missing.
+- Accounts adds a directory, chooses an existing keyring item by label or inspects login hints.
+- Check input checks the desktop input tools.
 
-The optional command sandbox needs bubblewrap and available user namespaces. Shell tools are absent when confinement or protected-path discovery fails. Opening a file or web link needs gio.
-
-Several coding tasks at once need tmux, which is optional. Without it, a coding task opens in a floating terminal, one task at a time. Task records need flock and Python.
-
-The desktop tools need wl-clipboard, playerctl, WirePlumber and libnotify. The screen tools need grim and ImageMagick 7's magick; drawing an area needs slurp, and screen text for a brain that takes no image needs tesseract. A missing command removes only its own tools; Jarvis finds a newly installed one when it next starts.
-
-## How it works
-
-The service sends its current configuration and lock observation to the child. The child answers with its health and session state. Plugins shows its health. Add key asks for a provider, an account label and the provider's origin, then hides key input. The desktop keyring stores the key. VGS stores only the item's reference. Disable destroys the service and its child.
-
-## Coding tasks
-
-No coding agent is connected yet, so Jarvis starts no coding task. It still watches task records on your computer. A task's agent runs in its own process group, inside a private tmux session or the floating terminal. Jarvis checks that the processes are still the task's own before it signals them, and never touches your own tmux sessions. A stop that cannot end every process is reported as a notice and leaves the task running. The Stop key does not stop coding tasks.
+The shell's requirement notice installs a missing tool in one click.
 
 ## Settings
 
-Task terminal chooses where a coding task opens. Auto uses tmux when it is installed, so several tasks can run at once, and the floating terminal otherwise. Floating opens one task at a time.
+| Setting | What it changes |
+| --- | --- |
+| Talk mode | Hold commits on release. Toggle keeps a conversation open. |
+| Microphone, Speaker | The audio devices Jarvis uses. |
+| AI model | The AI that answers you: an API key you added, or an app you are signed in to. |
+| Task terminal | Where a coding task opens. Auto uses tmux when it is installed, so several tasks run at once, and the floating terminal otherwise. |
+| Screen to cloud | Whether a screenshot or its text goes to an AI outside this computer. Ask withholds it unless granted for the conversation, Allow sends it, Never withholds it. When the AI and the voice both run on this computer, they always receive it. |
+| Private windows | Comma-separated words. A window whose class or title contains one is painted black before a screenshot leaves Jarvis. A title cannot always show private browsing. |
 
-Screen to cloud decides whether a screenshot or its text goes to a brain or voice outside your computer: Ask, the default, withholds it unless granted, Allow sends it and Never withholds it. When the brain and the voice both run on your computer, they always receive it. Private windows lists the words that mark a window to paint out, matched in its class or title.
-
-Talk mode defaults to Hold. Toggle keeps conversation demand open until the next press. No mode captures audio until local voice is set up, an AI model is selected and the listening bubble has drawn.
-
-The Jarvis icon shows in the bar's right section once the plugin is installed; right-click it and choose Hide to take it out, and turn on Show in bar on the Jarvis page to put it back. Its tooltip names the state and what a click does.
-
-Audio uses half duplex. Jarvis closes its microphone while speech plays. Talk can interrupt speech, but spoken interruption during playback is unavailable. Echo cancellation has no supported setting. Jarvis changes no desktop audio defaults.
-
-The Keys section changes Talk, Mute and Stop. Talk defaults to Super with Right Alt. Mute defaults to Super with Shift and Right Alt. Stop defaults to Super with Alt and Period. Mute is separate from Talk mode.
-
-Open Jarvis in Plugins and select Add key. Use the provider's origin, such as `https://api.openai.com`, without a path. Add key can ask the desktop keyring to unlock because you started storage. The background presence check never unlocks it.
-
-Select Set up local voice in Plugins or the launcher's Jarvis group. The terminal lists only the tiers this computer can run, each with what it is for and its download size, and recommends the first. Setup checks free space, then downloads its models and a private runtime. A failed setup removes them and says how much download cache it kept for the next attempt. Plugins reports Ready only after file verification and the bundled probe succeed. Jarvis then hears and speaks with local voice. Setup cannot run while Jarvis is in a conversation.
-
-AI model keeps the account you select. Jarvis starts it when a conversation starts. Plugins retains a saved selection when discovery no longer offers it.
-
-Select Accounts to add a directory, choose an existing keyring item by label or inspect login hints. Verify asks for a model and consent because a real inference request may cost money. API and local verification send one small request. A Claude Code account sends one small request through its own installed program, which keeps its login. Other subscriptions and speech-only verification remain unavailable. A login hint never proves inference access.
-
-## Browser
-
-Select Set up browser in Plugins or the launcher's Jarvis group. Setup checks an installed browser on a blank page. If no browser is found, it offers a private download. Plugins shows readiness after the check succeeds.
-
-The driver needs agent-browser. While it is missing, the Browser driver row offers Install, and Set up browser waits until it is installed. Setup opened from the launcher offers the same install before it continues. Browser actions use a private session. Jarvis asks for input access to each site. A site grant lets Jarvis act as you there. Submit actions need confirmation. Password entry remains with you. This skeleton has no connected brain, so browser actions are not active yet.
+The keys are under Keys on the same page. Show in bar puts the bar icon back after Hide.

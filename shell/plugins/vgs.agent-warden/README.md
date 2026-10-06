@@ -1,85 +1,27 @@
 # Agent Warden
 
-The shield shows whether your AI agents stay within their memory and process limits. Agent Warden alerts you when an agent needs attention. [vsys](https://github.com/vanillagreencom/vsys) provides Agent Warden. [D041](../../../docs/decisions/D041-agent-warden-observes-the-vsys-warden.md) defines the plugin's role.
-
-Enabling the plugin on its Settings page puts the shield in the bar's right section.
+Agent Warden shows whether your AI coding agents stay within their memory and process limits. It is for people who run several agents on one computer. [vsys](https://github.com/vanillagreencom/vsys) provides the warden it reads.
 
 ![The Agent Warden panel, open from its shield, reporting two problems](../../../docs/images/plugins/vgs.agent-warden-panel.webp)
 
 Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2.
 
-## Setting up the warden
+## Features
 
-The plugin's Settings page and its panel offer each setup step as a button, shown only while the step is needed:
+- A shield in the bar. Its colour and icon follow the agents' state, with the number of running agents or problems beside it.
+- A panel under the shield: one sentence on the state, the most serious items first, and the agent group's memory against its limit.
+- Open vsys in the panel opens the vsys dashboard in a floating terminal.
+- A desktop notification when an agent gets near a limit, when agents wait for memory, when a move fails, when leftover work is cleaned up, and when the warden stops checking.
+- `SUPER+CTRL+Y` opens and closes the panel. The Keys row on the plugin's Settings page changes it.
 
-1. **Install vsys** in the panel opens the install screen for vsys, the agent dashboard. **Install all missing**, under Requirements on the Settings page, opens it for every missing tool, vsys among them. The Requirements section shows whether vsys is installed.
-2. **Set up** opens a setup screen and starts Agent Warden checks.
+## Setup
 
-Beside Set up on the Settings page, Show command reveals the command it runs ([D061](../../../docs/decisions/D061-no-manual-commands.md)). Once Agent Warden runs, the page shows no setup button and no command; its row reads Running while nothing needs attention.
+The plugin's Settings page and its panel show each setup step as a button, only while the step is needed. Install vsys opens the install screen for vsys. Set up opens a floating terminal that starts the Agent Warden checks. Once Agent Warden runs, the page shows no setup button.
 
-## The shield
+| Setting | What it changes |
+| --- | --- |
+| Show count | Shows the number of running agents or problems beside the shield. |
+| Hide when idle | Hides the shield when no agents run and no problems need attention. |
+| Notifications | Alerts for problems, all events or none. Everything also shows each move back into limits as a toast. |
 
-The bar widget draws one shield in the tone of the service's state, with the Lucide icon and the `Theme.badge.tone` group below. The words, icons and tones are `ViewLogic.js`.
-
-| State | Icon | Tone | Count | Tooltip, for example |
-|---|---|---|---|---|
-| `calm` | `shield-check` | neutral | agents running | 3 agents running within their limits |
-| `working` | `shield-check` | accent, one pulse on entering | agents running | Moved 1 agent back into limits 2m ago |
-| `look` | `shield-alert` | warning | things that need a look | claude in vgs is using a lot of memory |
-| `problem` | `shield-x` | danger | things that need attention | Agents are close to their memory limit |
-| `not-checking` | `shield-off` | neutral | none | Agent Warden hasn't checked in 3m |
-| `not-set-up` | `shield-question-mark` | neutral | none | Agent Warden isn't set up |
-| `update-warden` | `shield-alert` | warning | none | Agent Warden needs an update |
-
-A count of zero is not drawn. A click opens or closes the panel under the shield. The global shortcut `vgs.agent-warden:toggle`, bound to `SUPER+CTRL+Y` by default, opens the same panel at the plugin's placement.
-
-| Setting | Default | Effect |
-|---|---|---|
-| `showCount` | `true` | Draws the count beside the shield. |
-| `hideWhenIdle` | `false` | Hides the shield while the state is `calm` and no agent runs. |
-| `notify` | `problems` | Which notices go out: `problems`, `everything` or `off`. [§ Notifications](#notifications) lists each one. |
-
-## The panel
-
-The panel shows the heading Agents, one sentence for the state, at most three items, most serious first, and the agent group's memory against its slowdown point. It opens with keyboard focus on its primary button when one is shown. The meter is hidden when the warden did not report the memory or a limit. No text names a process id or a scope unit, because the published `detail` holds neither. A footer shows the time of the last check and Open vsys, which opens the `vsys` TUI: the vsys dashboard in a wide floating terminal. While vsys is missing, the link is Install vsys.
-
-When vsys is installed, each open runs `vsys --once --summary` once, and the panel shows vsys's verdict on the whole computer as one line: nothing wrong, the number of things worth a look, or the number of problems. It reads only the verdict's levels ([vsys verdict.md § Summary JSON](https://github.com/vanillagreencom/vsys/blob/main/docs/architecture/verdict.md#summary-json)) and never shows a verdict's subject. A run that fails, or a summary of another schema, is logged as `agent-warden: summary=...` and shows no line.
-
-A state that needs a setup step shows one button in place of the items:
-
-| State | Button | What it does |
-|---|---|---|
-| `not-set-up` | Set up | Opens the `setup` TUI, which runs `vsys warden install`. |
-| `update-warden` | Update | The same: the installer rewrites an older warden's units. |
-| `not-checking`, stale | Start checks | Runs `systemctl --user start agent-warden.timer` through the `run` capability. |
-| `not-set-up` or `update-warden` without vsys | Install vsys | Raises the shell's requirement notice for vsys through `shell.requirements.offer`. |
-
-A press that hands off closes the panel. A refusal stays in the panel as one sentence, such as "The setup window could not open. VGS is missing its terminal launcher, xdg-terminal-exec. Reinstall VGS to restore it.", and is logged as `agent-warden: action=<action> <reply>`.
-
-## Notifications
-
-The service sends one desktop notification when something starts to need a look, and again only after it has cleared and comes back. It takes over from the warden's own notices and words them for people. The service's contract, the heartbeat that takes the notices over and the rules for each episode are [D041](../../../docs/decisions/D041-agent-warden-observes-the-vsys-warden.md).
-
-| Kind | Scope | Opens when | Title, for example | Urgency | Open vsys |
-|---|---|---|---|---|---|
-| `tasks` | the lane's unit | an agent's lane is near its task ceiling | An agent is near its process limit | normal | yes |
-| `memory` | the lane's unit | an agent's lane is near its memory ceiling | An agent is near its memory limit | normal | yes |
-| `not-moving` | `agents.slice` | moves wait for memory headroom | Agents are close to their memory limit | critical | yes |
-| `move-failure` | the tree's unit | a move failed or left part behind in the last 5 minutes | Some agent processes still have no limits | normal | yes |
-| `reaped` | the leftover unit | leftover work was stopped in the last 5 minutes | Cleaned up after a finished agent | low | no |
-| `not-checking` | `agent-warden` | the status is stale | Agent Warden has stopped checking | normal | no |
-| `moved` | the tree's unit | an agent was moved back into its limits in the last 5 minutes | Moved an agent back into its limits | toast | no |
-
-`problems`, the default, sends every kind but `moved`, which the panel shows. `everything` also shows each move as a toast, the only toast the plugin shows. `off` sends nothing. The cleanups and the moves one status opens go out as one notice. The body gives the numbers from `status.json`, GB for GiB values through `WardenLogic.gib`, and the tool and worktree as the panel names them, and never a process id or a scope unit.
-
-## IPC
-
-| Name | Reply |
-|---|---|
-| `status` | The published values as one JSON line. |
-
-`bin/vgshell ipc call vgs.agent-warden invoke status`
-
-## Validation
-
-The service's reading, notices and their checks: [D041](../../../docs/decisions/D041-agent-warden-observes-the-vsys-warden.md).
+[developer.md](developer.md) states each state, notification and IPC function.
