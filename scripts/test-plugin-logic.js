@@ -1289,7 +1289,7 @@ const CONTROLS = [
     ["the catcher refuses a kind never built as a layer", "if (summonSurface(kind, false) !== \"layer\")\n        throw new Error(\"layerCatchesOutside", "if (false)\n        throw new Error(\"layerCatchesOutside"],
     ["a centred surface ignores reserved space", "exclusion: placement === \"center\" ? \"ignore\" : \"normal\"", "exclusion: \"normal\""],
     ["requires is refused by name", "if (hasOwn(raw, \"requires\"))", "if (false)"],
-    ["shortcut bind can omit its default key", "if (bind.key !== null) {\n            var key = hyprlandKey(bind.key);", "if (true) {\n            var key = hyprlandKey(bind.key);"],
+    ["shortcut bind can omit its default key", "if (bind.key === null)\n            continue;", "if (false)\n            continue;"],
     ["requirements is a manifest key", "\"hyprland\", \"requirements\", ", "\"hyprland\", "],
     ["requirements is a list", "if (!Array.isArray(requirements))\n        return \"requirements must be a list\";", "if (false)\n        return \"requirements must be a list\";"],
     ["a requirement is an object", "if (!isPlainObject(requirement))", "if (false)"],
