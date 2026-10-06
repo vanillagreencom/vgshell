@@ -2,10 +2,12 @@
 # own list, read by the core while a plugin holds the capability and read
 # again after each `configreloaded`, compared with what the nested Hyprland
 # answers hyprctl. The capability hands a plugin `outputs`, the panel
-# `support` `hyprctl systeminfo` prints, and to the owner of
-# `hyprland.monitors` alone the trial calls. The nested WAYLAND-1 has no
-# EDID and takes no adaptive sync, so its support reads all false and
-# offers sRGB alone. The row reads the Hyprland layer before any saved display rule and
+# `support` `hyprctl systeminfo` prints, the `wantSupport` hold, and to the
+# owner of `hyprland.monitors` alone the trial calls. The core reads no
+# support until the fixture holds it; held, it reads the nested WAYLAND-1,
+# which has no EDID, so its support reads all false and offers sRGB alone,
+# reads a headless output that comes, and drops it when it goes. Released,
+# it reads none for an output that comes. The row reads the Hyprland layer before any saved display rule and
 # finds no `hl.monitor` call (docs/architecture/hyprland.md). The row runs on the first nested
 # output alone, WAYLAND-1, which takes any mode and lists none.
 #
@@ -48,15 +50,19 @@ output_read() { read_monitors outputs | py_reply 'import json,sys; m=[o for o in
 # `outputs` hold, each as a JSON list in Hyprland's order.
 listed_names() { hypr -j monitors all | py_reply 'import json,sys; print(json.dumps([o["name"] for o in json.load(sys.stdin)]))'; }
 read_names() { read_monitors outputs | py_reply 'import json,sys; print(json.dumps([o["name"] for o in json.load(sys.stdin)]))'; }
-# The fixture's `support` entry for output NAME, its flags and modes.
-support_read() { read_monitors support | py_reply 'import json,sys; s=json.load(sys.stdin) or {}; e=s.get(sys.argv[1]); print("absent" if e is None else "hdr=%s chroma=%s bt2020=%s vrr=%s modes=%s" % (e["hdr"], e["chroma"], e["bt2020"], e["vrr"], ",".join(e["colourModes"])))' "$1"; }
+# The fixture's `support` entry for output NAME, its flags and modes,
+# `absent` for none and `unread` while the core holds no support.
+support_read() { read_monitors support | py_reply 'import json,sys; s=json.load(sys.stdin); e=None if s is None else s.get(sys.argv[1]); print("unread" if s is None else "absent" if e is None else "hdr=%s chroma=%s bt2020=%s modes=%s" % (e["hdr"], e["chroma"], e["bt2020"], ",".join(e["colourModes"])))' "$1"; }
+output_listed() { read_monitors outputs | py_reply 'import json,sys; print("yes" if any(o["name"] == sys.argv[1] for o in json.load(sys.stdin) or []) else "no")' "$1"; }
+invoke_monitors() { ipc smoke invokeInstance service acme.monitors "$1" ""; }
+support_output=SMOKE-SUPPORT
 read_identifiers() { read_monitors outputs | py_reply 'import json,sys; print(json.dumps([o["identifier"] for o in json.load(sys.stdin)]))'; }
 
 rescan "rescan discovers the monitors fixture"
 expect_poll "the monitors fixture is known" True plugin_known acme.monitors
 expect "enabling the monitors fixture is allowed" ok ipc shell setPluginEnabled acme.monitors true
 expect_poll "the monitors fixture builds" True record_exists acme.monitors
-expect_poll "the fixture reads back the exact monitors members it was given" '"keep,outputs,overridden,revert,support,trial,trialState"' read_monitors members
+expect_poll "the fixture reads back the exact monitors members it was given" '"keep,outputs,overridden,revert,support,trial,trialState,wantSupport"' read_monitors members
 expect_poll "the core reads the outputs while a plugin holds monitors" true reads_active
 
 if ! outputs_names="$(listed_names)" || ! outputs_first="$(first_name)" || ! outputs_base="$(unscaled_mode_of "$outputs_first")" || ! outputs_double="$(hidpi_mode_of "$outputs_first")"; then
@@ -66,7 +72,9 @@ else
   # The nested outputs carry no serial, so each is named by its connector.
   expect "an output with no serial is identified by its connector" "$outputs_names" read_identifiers
   expect_poll "the fixture's outputs list $outputs_first at its own mode" "$outputs_base scale=1" output_read "$outputs_first"
-  expect_poll "the fixture's support reads $outputs_first with no EDID and no adaptive sync" "hdr=False chroma=False bt2020=False vrr=False modes=srgb" support_read "$outputs_first"
+  expect "the core reads no panel support while nothing holds it" unread support_read "$outputs_first"
+  expect "the fixture holds the panel support" ok invoke_monitors wantSupport
+  expect_poll "the fixture's support reads $outputs_first with no EDID" "hdr=False chroma=False bt2020=False modes=srgb" support_read "$outputs_first"
 
   hold_mode "the nested compositor holds $outputs_first at double its mode and scale 2" "$outputs_first" "$outputs_double" 2
   if [[ ${#mode_hold[@]} -gt 0 ]]; then
@@ -76,6 +84,20 @@ else
   release_mode "the nested compositor gives $outputs_first its own mode at scale 1 again" "$outputs_first" "$outputs_base"
   expect "the nested instance reloads its configuration without the hold" ok hypr reload config-only
   expect_poll "the fixture's outputs follow the reload back to the output's own mode" "$outputs_base scale=1" output_read "$outputs_first"
+fi
+if [[ -n ${outputs_first:-} ]]; then
+  expect "the nested compositor adds an output while the support is held" ok hypr output create headless "$support_output"
+  expect_poll "the held support reads the output that came" "hdr=False chroma=False bt2020=False modes=srgb" support_read "$support_output"
+  expect "the nested compositor removes that output" ok hypr output remove "$support_output"
+  expect_poll "the support drops the output that went" absent support_read "$support_output"
+  expect "the fixture releases the panel support" ok invoke_monitors releaseSupport
+  expect "the nested compositor adds an output while nothing holds the support" ok hypr output create headless "$support_output"
+  expect_poll "the fixture's outputs list the output that came" yes output_listed "$support_output"
+  # A read the outputs change started would answer within the 22-36 ms one
+  # systeminfo call took in this sandbox on 2026-10-06; the wait gives it 1 s.
+  sleep 1
+  expect "the released support reads no output that came" absent support_read "$support_output"
+  expect "the nested compositor removes the unheld output" ok hypr output remove "$support_output"
 fi
 expect "the Hyprland layer starts with no saved monitor rule" 0 layer_monitor_calls
 

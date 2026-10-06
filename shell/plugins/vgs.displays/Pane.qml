@@ -39,13 +39,12 @@ FocusScope {
     // Why the selected display may not be turned off, Logic.offBlock's key.
     readonly property string offBlock: selected === null ? "" : Logic.offBlock(outputs, outputRules, outputDraft, selectedOutput)
     readonly property var mirrorChoices: selected === null ? [] : Logic.mirrorChoices(outputs, outputRules, outputDraft, selectedOutput)
-    // What the selected display's panel takes, null while unread.
-    readonly property var selectedPanel: {
-        const support = shell === null ? null : shell.monitors.support;
-        return selected === null || support === null || support[selected.name] === undefined ? null : support[selected.name];
-    }
+    // What the selected display's panel takes, null while unread. The pane
+    // holds the panel reading while it is built.
+    readonly property var selectedPanel: selected === null || shell === null ? null : Logic.panelOf(shell.monitors.support, selected)
+    property var releaseSupport: null
     readonly property var selectedColour: selectedRule === null ? null : Logic.colourOf(selected, selectedRule)
-    readonly property var colourRows: selectedColour === null ? ({ mode: false, depth: false, hdr: false, vrr: false }) : Logic.colourRows(selectedRule, selectedPanel, selectedColour)
+    readonly property var colourRows: selectedColour === null ? ({ mode: false, depth: false, hdr: false }) : Logic.colourRows(selectedRule, selectedPanel, selectedColour)
     readonly property var displayChoices: Logic.outputChoices(outputs)
     readonly property bool outputDirty: Object.keys(Logic.dirtyRules(outputDraft, outputRules)).length > 0
     readonly property var trialState: shell === null ? ({ phase: "idle", token: "", deadline: 0, failure: "" }) : shell.monitors.trialState
@@ -60,6 +59,9 @@ FocusScope {
     // The refusal the last Dimming write was answered with, "" for none.
     property string dimProblem: ""
     readonly property Item initialFocus: arrangement
+
+    onShellChanged: if (shell !== null && releaseSupport === null) releaseSupport = shell.monitors.wantSupport()
+    Component.onDestruction: if (releaseSupport !== null) releaseSupport()
 
     function open(payloadJson) {
         problem = "";
@@ -451,26 +453,6 @@ FocusScope {
                     onActivated: index => {
                         root.setOutputDraft({ bitdepth: model[index].value });
                         currentIndex = Qt.binding(() => root.selectedColour === null ? 0 : Logic.indexByValue(model, root.selectedColour.bitdepth));
-                    }
-                }
-            }
-
-            FormRow {
-                width: parent.width
-                visible: root.colourRows.vrr
-                label: "Variable refresh rate"
-
-                Select {
-                    readonly property var choices: root.selectedColour === null ? Logic.VRR_CHOICES : Logic.vrrChoices(root.selectedColour.vrr)
-                    width: parent.width
-                    enabled: !root.trialHolding
-                    model: choices
-                    textRole: "label"
-                    currentIndex: root.selectedColour === null ? 0 : Logic.indexByValue(choices, root.selectedColour.vrr)
-                    Accessible.name: "Variable refresh rate"
-                    onActivated: index => {
-                        root.setOutputDraft({ vrr: choices[index].value });
-                        currentIndex = Qt.binding(() => root.selectedColour === null ? 0 : Logic.indexByValue(choices, root.selectedColour.vrr));
                     }
                 }
             }

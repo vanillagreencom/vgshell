@@ -123,15 +123,16 @@ function colourModes(panel) {
 // 0.56.2 prints each mark as ✔️ or ❌ (SystemInfo::getSystemInfo).
 var PANEL_LINE = /^\tPanel (.+?): [0-9]+x[0-9]+, .* -> backend \S+$/;
 var PANEL_FIELDS = [["", "\t\texplicit "], ["", "\t\tedid:"], ["hdr", "\t\t\thdr "], ["chroma", "\t\t\tchroma "],
-    ["bt2020", "\t\t\tbt2020 "], ["vrr", "\t\tvrr capable "], ["", "\t\tnon-desktop "]];
+    ["bt2020", "\t\t\tbt2020 "], ["", "\t\tvrr capable "], ["", "\t\tnon-desktop "]];
 var MARKS = { "✔️": true, "❌": false };
 
 // The reply to SUPPORT_REQUEST as the capability's `support`: { ok: true,
-// support: { <output name>: { hdr, chroma, bt2020, vrr, colourModes } } },
+// support: { <output name>: { hdr, chroma, bt2020, colourModes } } },
 // `hdr` the EDID's HDR metadata, `chroma` its chromaticity, `bt2020` its
-// BT.2020 colorimetry, `vrr` whether the output takes adaptive sync, or
-// { ok: false, error } with a keyed line. Hyprland lists the outputs that
-// are on and mirror nothing, the list `hl.get_monitors()` reads.
+// BT.2020 colorimetry, or { ok: false, error } with a keyed line. Hyprland
+// lists the outputs that are on and mirror nothing, the list
+// `hl.get_monitors()` reads. A panel's EDID does not change while it stays
+// on its connector.
 function parseSupport(text) {
     var lines = String(text).split("\n");
     var i = lines.indexOf("Monitor info:");
@@ -160,17 +161,43 @@ function parseSupport(text) {
     return { ok: true, support: support };
 }
 
+// The names of the OUTPUTS that are on and mirror nothing and that SUPPORT,
+// null while unread, lists no panel for: what a read of SUPPORT_REQUEST
+// would add.
+function supportMissing(outputs, support) {
+    return outputs.filter(function (output) {
+        return !output.disabled && output.mirrorOf === null && !hasOwn(support, output.name);
+    }).map(function (output) { return output.name; });
+}
+
+// SUPPORT without the panel on connector NAME, which went or was replaced:
+// Hyprland posts `monitorremovedv2` and `monitoraddedv2` with
+// `<id>,<name>,<description>` (CMonitor::onConnect, onDisconnect).
+function supportWithout(support, eventData) {
+    var name = String(eventData).split(",")[1];
+    if (!isPlainObject(support) || !hasOwn(support, name)) return support;
+    var out = Object.assign({}, support);
+    delete out[name];
+    return out;
+}
+
+// Whether RULES name a colour mode the panels must be read to judge.
+function supportNeeded(rules) {
+    return Object.keys(rules).some(function (id) {
+        return isPlainObject(rules[id]) && rules[id].cm !== undefined && rules[id].cm !== "srgb";
+    });
+}
+
 // `disabled` turns the output off; `mirror` names the output whose picture
 // it shows, by identifier or connector, as Hyprland's `mirror` selector
 // takes it. A rule that names an output sets both: an absent field means
 // on and not mirroring. `cm` is a colour mode, `bitdepth` 8 or 10, and
 // `sdrbrightness` and `sdrsaturation` the multipliers Hyprland applies to
 // SDR content on an HDR output; a rule that names `cm` sets both, an absent
-// one meaning Hyprland's 1. `vrr` is Hyprland's adaptive sync mode: 0 off,
-// 1 on, 2 for a full-screen window, 3 for a full-screen game or video
-// (MonitorRuleManager::ensureVRR). An absent colour field leaves Hyprland's.
-var RULE_KEYS = ["mode", "position", "scale", "transform", "disabled", "mirror", "cm", "bitdepth", "sdrbrightness", "sdrsaturation", "vrr"];
-var COLOUR_KEYS = ["cm", "bitdepth", "sdrbrightness", "sdrsaturation", "vrr"];
+// one meaning Hyprland's 1. An absent colour field leaves Hyprland's. No
+// rule sets `vrr`: Hyprland 0.56.2 applies a rule only when a field
+// CMonitorRule::compare reads changed, and compare leaves m_vrr out.
+var RULE_KEYS = ["mode", "position", "scale", "transform", "disabled", "mirror", "cm", "bitdepth", "sdrbrightness", "sdrsaturation"];
 var SDR_KEYS = ["sdrbrightness", "sdrsaturation"];
 var OUTPUT_NAME = /^[\x20\x21\x23-\x5b\x5d-\x7e]{1,512}$/;
 
@@ -270,25 +297,20 @@ function colourRuleError(rule, at) {
         if (typeof value !== "number" || !isFinite(value) || value <= 0) return at + "." + SDR_KEYS[k] + "=shape want=positive";
         if (HDR_MODES.indexOf(rule.cm) === -1) return at + "." + SDR_KEYS[k] + "=outside-hdr";
     }
-    if (rule.vrr !== undefined && [0, 1, 2, 3].indexOf(rule.vrr) === -1) return at + ".vrr=shape want=0-3";
     return "";
 }
 
-// The colour of OUTPUT's rule against the panel SUPPORT lists: a colour
-// mode the panel offers and adaptive sync only where it takes it. Hyprland
-// lists no support for an output that is off or mirrors, and shows sRGB
-// and no adaptive sync where the panel lacks them, so such an output is
-// judged by Hyprland alone.
+// The colour mode of OUTPUT's rule against the panel SUPPORT lists: one
+// the panel offers. Hyprland lists no support for an output that is off or
+// mirrors, and shows sRGB where the panel lacks a mode, so such an output
+// is judged by Hyprland alone.
 function colourOutputError(rule, output, support, at) {
-    var needsMode = rule.cm !== undefined && rule.cm !== "srgb";
-    var needsVrr = rule.vrr !== undefined && rule.vrr !== 0;
-    if (!needsMode && !needsVrr) return "";
-    if (output.disabled || output.mirrorOf !== null) return "";
+    if (rule.cm === undefined || rule.cm === "srgb") return "";
+    if (output.disabled) return "";
+    if (output.mirrorOf !== null) return "";
     if (!isPlainObject(support)) return at + " support=unread";
     if (!hasOwn(support, output.name)) return at + " support=absent";
-    var panel = support[output.name];
-    if (needsMode && panel.colourModes.indexOf(rule.cm) === -1) return at + ".cm=unsupported cm=" + rule.cm;
-    if (needsVrr && !panel.vrr) return at + ".vrr=unsupported";
+    if (support[output.name].colourModes.indexOf(rule.cm) === -1) return at + ".cm=unsupported cm=" + rule.cm;
     return "";
 }
 
@@ -447,7 +469,6 @@ function ruleFields(id, rule) {
     if (rule.cm !== undefined) fields.push("cm = " + luaString(rule.cm));
     if (rule.bitdepth !== undefined) fields.push("bitdepth = " + luaNumber(rule.bitdepth));
     SDR_KEYS.forEach(function (key) { if (rule[key] !== undefined) fields.push(key + " = " + luaNumber(rule[key])); });
-    if (rule.vrr !== undefined) fields.push("vrr = " + luaNumber(rule.vrr));
     return fields;
 }
 
@@ -611,10 +632,6 @@ function captureRules(outputs, rules) {
                 if (HDR_MODES.indexOf(rule.cm) !== -1) SDR_KEYS.forEach(function (key) { if (live[key] > 0) rule[key] = live[key]; });
             }
             if (named.bitdepth !== undefined) rule.bitdepth = output.bitdepth;
-            // Hyprland lists whether adaptive sync is on now, not the mode
-            // that set it, so a restore of a full-screen mode reads it as
-            // on or off until a reload reruns the layer.
-            if (named.vrr !== undefined) rule.vrr = output.vrr ? 1 : 0;
             selected[output.name] = rule;
         });
     });
@@ -623,11 +640,10 @@ function captureRules(outputs, rules) {
 
 // Whether the colour of OUTPUT, on and mirroring nothing, differs from the
 // fields RULE names. Hyprland lists the colour mode it shows, so a mode it
-// fell back from reads as changed; `auto` shows wide or sRGB. Adaptive sync
-// for a full-screen window turns on and off with the window, so modes 2
-// and 3 read as kept.
+// fell back from reads as changed; `auto` shows wide or sRGB.
 function colourOverridden(rule, output) {
-    if (output.disabled || output.mirrorOf !== null) return false;
+    if (output.disabled) return false;
+    if (output.mirrorOf !== null) return false;
     if (rule.cm !== undefined) {
         var shows = rule.cm === "auto" ? ["wide", "srgb"] : [rule.cm];
         if (shows.indexOf(output.colorManagementPreset) === -1) return true;
@@ -636,8 +652,7 @@ function colourOverridden(rule, output) {
             return Math.abs((rule[key] === undefined ? 1 : rule[key]) - live[key]) > 0.0001;
         })) return true;
     }
-    if (rule.bitdepth !== undefined && rule.bitdepth !== output.bitdepth) return true;
-    return (rule.vrr === 0 && output.vrr) || (rule.vrr === 1 && !output.vrr);
+    return rule.bitdepth !== undefined && rule.bitdepth !== output.bitdepth;
 }
 
 // Whether OUTPUT, as Hyprland lists it among OUTPUTS, differs from the saved

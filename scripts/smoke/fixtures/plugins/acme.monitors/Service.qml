@@ -1,11 +1,24 @@
 import QtQuick
 
 // Reads the `monitors` capability back for rows/monitor-outputs.sh: its
-// member names, the outputs and the panel support.
+// member names, the outputs and the panel support, which it holds the
+// reading of between `wantSupport` and `releaseSupport`.
 Item {
     id: root
     property var shell: null
+    property var release: null
     readonly property string members: shell === null ? "" : Object.keys(shell.monitors).sort().join(",")
     readonly property var outputs: shell === null ? null : shell.monitors.outputs
     readonly property var support: shell === null ? null : shell.monitors.support
+
+    function wantSupport() {
+        if (release === null) release = shell.monitors.wantSupport();
+        return "ok";
+    }
+
+    function releaseSupport() {
+        if (release !== null) release();
+        release = null;
+        return "ok";
+    }
 }

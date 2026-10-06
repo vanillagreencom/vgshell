@@ -250,12 +250,12 @@ function verify(logic) {
   const desk = [monitorOutput, Object.assign({}, side, { identifier: "desc:LG HDR 4K X1" })];
   same(logic.mirrorIndex(logic.mirrorChoices(desk, {}, {}, "DP-2"), "DP-3"), 1, "mirrorIndex finds a target saved by connector whose choice is its identifier");
 
-  // --- Colour and variable refresh rate --------------------------------------
-  const hdrLive = Object.assign({}, monitorOutput, { colorManagementPreset: "hdr", bitdepth: 10, sdrBrightness: 1.3, sdrSaturation: 1.1, vrr: true });
-  const sdrLive = Object.assign({}, monitorOutput, { colorManagementPreset: "srgb", bitdepth: 8, sdrBrightness: 1, sdrSaturation: 1, vrr: false });
+  // --- Colour ------------------------------------------------------------------
+  const hdrLive = Object.assign({}, monitorOutput, { colorManagementPreset: "hdr", bitdepth: 10, sdrBrightness: 1.3, sdrSaturation: 1.1 });
+  const sdrLive = Object.assign({}, monitorOutput, { colorManagementPreset: "srgb", bitdepth: 8, sdrBrightness: 1, sdrSaturation: 1 });
   const colourKeys = rule => Object.keys(rule).filter(key => ["mode", "position", "scale", "transform"].indexOf(key) === -1);
   same(colourKeys(logic.effectiveRule(hdrLive, undefined, undefined)), [], "effectiveRule names no colour field Hyprland set");
-  same(colourKeys(logic.effectiveRule(hdrLive, { cm: "wide", vrr: 2 }, undefined)), ["cm", "vrr"], "effectiveRule keeps the colour fields a rule names");
+  same(colourKeys(logic.effectiveRule(hdrLive, { cm: "wide", bitdepth: 10 }, undefined)), ["cm", "bitdepth"], "effectiveRule keeps the colour fields a rule names");
   const draftColour = (live, steps) => steps.reduce((draft, patch) => logic.withOutputDraft([live], {}, draft, "DP-2", patch), {})["DP-2"];
   // rows: [name, live output, patches, colour fields of the draft]
   const drafts = [
@@ -263,7 +263,7 @@ function verify(logic) {
     ["an HDR level beside an HDR mode", sdrLive, [{ cm: "hdr" }, { sdrbrightness: 1.5 }], { cm: "hdr", sdrbrightness: 1.5 }],
     ["an HDR level alone keeps the mode Hyprland shows", hdrLive, [{ sdrsaturation: 0.8 }], { cm: "hdr", sdrsaturation: 0.8 }],
     ["leaving HDR drops its levels", sdrLive, [{ cm: "hdr" }, { sdrbrightness: 1.5 }, { cm: "srgb" }], { cm: "srgb" }],
-    ["depth and variable refresh", sdrLive, [{ bitdepth: 10 }, { vrr: 2 }], { bitdepth: 10, vrr: 2 }]
+    ["a depth", sdrLive, [{ bitdepth: 10 }], { bitdepth: 10 }]
   ];
   for (const [name, live, steps, want] of drafts) {
     const rule = draftColour(live, steps);
@@ -273,34 +273,47 @@ function verify(logic) {
   }
   // rows: [name, live output, rule, colourOf]
   const colours = [
-    ["Hyprland's reading where the rule names none", hdrLive, {}, { cm: "hdr", bitdepth: 10, vrr: 1, sdrbrightness: 1.3, sdrsaturation: 1.1 }],
-    ["adaptive sync off reads as Off", sdrLive, {}, { cm: "srgb", bitdepth: 8, vrr: 0, sdrbrightness: 1, sdrsaturation: 1 }],
-    ["an HDR mode the rule names without levels", hdrLive, { cm: "hdredid" }, { cm: "hdredid", bitdepth: 10, vrr: 1, sdrbrightness: 1, sdrsaturation: 1 }],
-    ["the rule's own fields", sdrLive, { cm: "hdr", bitdepth: 10, vrr: 2, sdrbrightness: 1.5, sdrsaturation: 0.7 }, { cm: "hdr", bitdepth: 10, vrr: 2, sdrbrightness: 1.5, sdrsaturation: 0.7 }]
+    ["Hyprland's reading where the rule names none", hdrLive, {}, { cm: "hdr", bitdepth: 10, sdrbrightness: 1.3, sdrsaturation: 1.1 }],
+    ["an sRGB display at 8 bits", sdrLive, {}, { cm: "srgb", bitdepth: 8, sdrbrightness: 1, sdrsaturation: 1 }],
+    ["an HDR mode the rule names without levels", hdrLive, { cm: "hdredid" }, { cm: "hdredid", bitdepth: 10, sdrbrightness: 1, sdrsaturation: 1 }],
+    ["the rule's own fields", sdrLive, { cm: "hdr", bitdepth: 10, sdrbrightness: 1.5, sdrsaturation: 0.7 }, { cm: "hdr", bitdepth: 10, sdrbrightness: 1.5, sdrsaturation: 0.7 }]
   ];
   for (const [name, live, rule, want] of colours) same(logic.colourOf(live, rule), want, "colourOf: " + name);
-  const wide = { hdr: false, chroma: true, bt2020: true, vrr: false, colourModes: ["auto", "srgb", "wide", "edid", "dcip3", "dp3", "adobe"] };
+  const wide = { hdr: false, chroma: true, bt2020: true, colourModes: ["auto", "srgb", "wide", "edid", "dcip3", "dp3", "adobe"] };
   same(logic.colourModeChoices(null, "srgb").map(c => c.value), ["srgb"], "colourModeChoices: sRGB alone while no panel is read");
   same(logic.colourModeChoices(wide, "srgb").map(c => c.value), wide.colourModes, "colourModeChoices: the modes the panel offers");
   same(logic.colourModeChoices(wide, "hdr").map(c => c.value), wide.colourModes.concat(["hdr"]), "colourModeChoices: the current mode the panel does not offer");
   assert.ok(logic.colourModeChoices(wide, "hdr").every(c => typeof c.label === "string" && c.label !== ""), "colourModeChoices: every mode has a label");
-  same([logic.vrrChoices(1).map(c => c.value), logic.vrrChoices(3).map(c => c.value)], [[0, 1, 2], [0, 1, 2, 3]], "vrrChoices: the games-and-video mode only while it is set");
-  const takesAll = { hdr: true, chroma: true, bt2020: true, vrr: true, colourModes: ["auto", "srgb", "wide", "edid", "hdr", "hdredid", "dcip3", "dp3", "adobe"] };
-  const takesNone = { hdr: false, chroma: false, bt2020: false, vrr: false, colourModes: ["srgb"] };
+  const takesAll = { hdr: true, chroma: true, bt2020: true, colourModes: ["auto", "srgb", "wide", "edid", "hdr", "hdredid", "dcip3", "dp3", "adobe"] };
+  const takesNone = { hdr: false, chroma: false, bt2020: false, colourModes: ["srgb"] };
   const on = logic.effectiveRule(sdrLive, undefined, undefined);
   // rows: [name, rule, panel, colour, rows shown]
   const rowsShown = [
-    ["a display that is off", Object.assign({}, on, { disabled: true }), takesAll, logic.colourOf(hdrLive, {}), { mode: false, depth: false, hdr: false, vrr: false }],
-    ["a display that mirrors", Object.assign({}, on, { mirror: "DP-3" }), takesAll, logic.colourOf(hdrLive, {}), { mode: false, depth: false, hdr: false, vrr: false }],
-    ["a panel that takes nothing", on, takesNone, logic.colourOf(sdrLive, {}), { mode: false, depth: true, hdr: false, vrr: false }],
-    ["no panel read", on, null, logic.colourOf(sdrLive, {}), { mode: false, depth: true, hdr: false, vrr: false }],
-    ["an HDR panel in HDR", on, takesAll, logic.colourOf(hdrLive, {}), { mode: true, depth: true, hdr: true, vrr: true }],
-    ["an HDR panel in sRGB", on, takesAll, logic.colourOf(sdrLive, {}), { mode: true, depth: true, hdr: false, vrr: true }],
-    ["variable refresh on where the panel lacks it", on, takesNone, logic.colourOf(sdrLive, { vrr: 1 }), { mode: false, depth: true, hdr: false, vrr: true }],
-    ["a mode the panel lacks, so Standard is a choice", on, takesNone, logic.colourOf(sdrLive, { cm: "wide" }), { mode: true, depth: true, hdr: false, vrr: false }]
+    ["a display that is off", Object.assign({}, on, { disabled: true }), takesAll, logic.colourOf(hdrLive, {}), { mode: false, depth: false, hdr: false }],
+    ["a display that mirrors", Object.assign({}, on, { mirror: "DP-3" }), takesAll, logic.colourOf(hdrLive, {}), { mode: false, depth: false, hdr: false }],
+    ["a panel that takes nothing", on, takesNone, logic.colourOf(sdrLive, {}), { mode: false, depth: true, hdr: false }],
+    ["no panel read", on, null, logic.colourOf(sdrLive, {}), { mode: false, depth: true, hdr: false }],
+    ["an HDR panel in HDR", on, takesAll, logic.colourOf(hdrLive, {}), { mode: true, depth: true, hdr: true }],
+    ["an HDR panel in sRGB", on, takesAll, logic.colourOf(sdrLive, {}), { mode: true, depth: true, hdr: false }],
+    ["a mode the panel lacks, so Standard is a choice", on, takesNone, logic.colourOf(sdrLive, { cm: "wide" }), { mode: true, depth: true, hdr: false }]
   ];
   for (const [name, rule, panel, colour, want] of rowsShown) same(logic.colourRows(rule, panel, colour), want, "colourRows: " + name);
-  assert.equal(logic.levelText(1.25), "125 %");
+  assert.ok(/(^|[^0-9])125([^0-9]|$)/.test(logic.levelText(1.25)), "levelText shows a level as its percent");
+  // The panel of a display, keyed by connector. rows: [name, support, output, panel]
+  const panelRows = [
+    ["a capable panel", { "DP-2": takesAll }, monitorOutput, takesAll],
+    ["a panel not read", { "DP-3": takesAll }, monitorOutput, null],
+    ["no panel read", null, monitorOutput, null],
+    ["a display named by description, keyed by its connector", { "DP-2": takesAll }, lgDesk, takesAll]
+  ];
+  for (const [name, support, out, want] of panelRows) same(logic.panelOf(support, out), want, "panelOf: " + name);
+  same(logic.colourModeChoices(logic.panelOf({ "DP-3": takesAll }, monitorOutput), "srgb").map(c => c.value), ["srgb"], "a display with no panel read offers sRGB alone");
+  // A tiled display takes each colour change on every connector.
+  const tiledLive = tiledOutputs.map(o => Object.assign({}, o, sdrLive, { name: o.name, identifier: o.identifier, x: o.x }));
+  const tiledColour = [{ cm: "hdr" }, { sdrbrightness: 1.4 }, { bitdepth: 10 }].reduce((draft, patch) => logic.withOutputDraft(tiledLive, {}, draft, "xdr", patch), {});
+  same(["DP-1", "DP-5"].map(name => [tiledColour[name].cm, tiledColour[name].sdrbrightness, tiledColour[name].bitdepth]), [["hdr", 1.4, 10], ["hdr", 1.4, 10]], "withOutputDraft: a tiled display's colour on every connector");
+  const tiledBack = logic.withOutputDraft(tiledLive, {}, tiledColour, "xdr", { cm: "srgb" });
+  same(["DP-1", "DP-5"].map(name => [tiledBack[name].cm, tiledBack[name].sdrbrightness]), [["srgb", undefined], ["srgb", undefined]], "withOutputDraft: leaving HDR drops the levels on every connector");
 
   const present = resolved.displays.map(d => d.device);
   same(logic.setAssignment(entries, KEY_B, "Apple Studio Display", "DP-3", present).map(e => [e.device, e.output]), [
@@ -492,7 +505,7 @@ const CONTROLS = [
   ["Hyprland's mirror is lost", "var mirror = named ? rule.mirror : output.mirrorOf === null ? undefined : output.mirrorOf;", "var mirror = named ? rule.mirror : undefined;"],
   ["a display turned on keeps disabled", "if (out.disabled !== true) delete out.disabled;", ""],
   ["Off keeps an empty mirror", 'if (out.mirror === "" || out.mirror === undefined) delete out.mirror;', ""],
-  ["a tiled group turns off one connector", "next[member.name] = withState(ruleOf(saved, next, member), patch);", ""],
+  ["a tiled group turns off one connector", "        next[member.name] = rule;\n", ""],
   ["a size change moves a display that is off", "if (!staysOn(otherRule)) return;", ""],
   ["the canvas draws a mirroring display", "if (rules.every(function (rule) { return rule.mirror !== undefined; })) return;", ""],
   ["the canvas greys nothing", "off: rules.every(function (rule) { return rule.disabled === true; })", "off: false"],
@@ -509,18 +522,18 @@ const CONTROLS = [
   ["an HDR level drafted alone has no mode", "&& merged.cm === undefined) merged.cm = output.colorManagementPreset;", "&& false) merged.cm = output.colorManagementPreset;"],
   ["an HDR level outlives its HDR mode", "if (HDR_MODES.indexOf(merged.cm) === -1) SDR_LEVELS.forEach(function (level) { delete merged[level.key]; });", ""],
   ["the colour shown ignores the rule's mode", "cm: named ? rule.cm : output.colorManagementPreset,", "cm: output.colorManagementPreset,"],
-  ["the depth shown ignores Hyprland's", "bitdepth: rule.bitdepth !== undefined ? rule.bitdepth : output.bitdepth,", "bitdepth: rule.bitdepth !== undefined ? rule.bitdepth : 8,"],
-  ["adaptive sync on reads as Off", "vrr: rule.vrr !== undefined ? rule.vrr : output.vrr ? 1 : 0", "vrr: rule.vrr !== undefined ? rule.vrr : 0"],
+  ["the depth shown ignores Hyprland's", "bitdepth: rule.bitdepth !== undefined ? rule.bitdepth : output.bitdepth\n", "bitdepth: rule.bitdepth !== undefined ? rule.bitdepth : 8\n"],
   ["an HDR level beside a named mode reads as Hyprland's", "rule[level.key] !== undefined ? rule[level.key] : named ? 1 : live[level.key]", "rule[level.key] !== undefined ? rule[level.key] : live[level.key]"],
-  ["no panel read offers every mode", 'var modes = panel === null || panel === undefined ? ["srgb"] : panel.colourModes.slice();', 'var modes = panel === null || panel === undefined ? COLOUR_KEYS.slice() : panel.colourModes.slice();'],
+  ["no panel read offers every mode", 'var modes = panel === null ? ["srgb"] : panel.colourModes.slice();', 'var modes = panel === null ? Object.keys(COLOUR_MODE_LABELS) : panel.colourModes.slice();'],
   ["the current mode is no choice", "if (modes.indexOf(current) === -1) modes.push(current);", ""],
-  ["the games-and-video mode is always a choice", "return current === VRR_MEDIA.value ? VRR_CHOICES.concat([VRR_MEDIA]) : VRR_CHOICES;", "return VRR_CHOICES.concat([VRR_MEDIA]);"],
   ["colour rows show for a display that is off", "if (rule.disabled === true || rule.mirror !== undefined) return { mode: false", "if (rule.mirror !== undefined) return { mode: false"],
   ["colour rows show for a display that mirrors", "if (rule.disabled === true || rule.mirror !== undefined) return { mode: false", "if (rule.disabled === true) return { mode: false"],
   ["Colour mode shows with one choice", "mode: colourModeChoices(panel, colour.cm).length > 1,", "mode: true,"],
-  ["the HDR levels show outside HDR", "hdr: HDR_MODES.indexOf(colour.cm) !== -1,", "hdr: true,"],
-  ["variable refresh shows on any panel", "vrr: (panel !== null && panel !== undefined && panel.vrr) || colour.vrr !== 0", "vrr: true"],
-  ["variable refresh that is on hides", "vrr: (panel !== null && panel !== undefined && panel.vrr) || colour.vrr !== 0", "vrr: (panel !== null && panel !== undefined && panel.vrr)"]
+  ["the HDR levels show outside HDR", "hdr: HDR_MODES.indexOf(colour.cm) !== -1\n", "hdr: true\n"],
+  ["a panel is found by identifier", "return support !== null && hasOwn(support, output.name) ? support[output.name] : null;", "return support !== null && hasOwn(support, output.identifier) ? support[output.identifier] : null;"],
+  ["a panel not read is found", "return support !== null && hasOwn(support, output.name) ? support[output.name] : null;", "return support !== null ? support[Object.keys(support)[0]] : null;"],
+  ["a tiled display's colour reaches one connector", "if (member.name === output.name || (patch.disabled === undefined && patch.mirror === undefined && !colourPatch)) return;", "if (member.name === output.name || (patch.disabled === undefined && patch.mirror === undefined)) return;"],
+  ["a tiled connector keeps levels HDR left", "if (merged[key] === undefined) delete rule[key];", "if (merged[key] === undefined) return;"],
 ];
 
 const source = fs.readFileSync(file, "utf8");

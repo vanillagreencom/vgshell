@@ -58,7 +58,7 @@
 # user file, so vgs.system and vgs.displays are as it found them, and
 # removes the output, the assignments file and the stub backlight and
 # gives hidraw2 its mode back. The dim settings live in the user file.
-# inputs: shell/plugins/vgs.displays/* shell/plugins/vgs.system/* scripts/smoke/fixtures/devices/* shell/Core/SystemSteps.qml shell/Core/MonitorState.qml shell/Hosts/PaneHost.qml shell/Ui/controls/FormRow.qml shell/Ui/feedback/LinkText.qml bin/vgshell-system scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh bin/vgshell-tui
+# inputs: shell/plugins/vgs.displays/* shell/plugins/vgs.system/* scripts/smoke/fixtures/devices/* shell/Core/SystemSteps.qml shell/Core/MonitorState.qml shell/Core/MonitorLogic.js shell/Core/HyprctlReader.qml shell/Hosts/PaneHost.qml shell/Ui/controls/FormRow.qml shell/Ui/feedback/LinkText.qml bin/vgshell-system scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh bin/vgshell-tui
 set -euo pipefail
 devices_ready displays || return 0
 # The core probes the system steps once vgs.displays holds `system`, and
@@ -204,8 +204,7 @@ expect "the two Studio Displays wait for a choice, and no choice is saved" '{"en
 # The keyboard alone, in System → Displays: the pane opens on the
 # arrangement canvas, Tabs past Use this display, which the only output
 # cannot turn off, to Resolution, since one output has nothing to mirror,
-# past Colour depth, the one colour row a panel with no EDID or adaptive
-# sync shows, and on to the XDR's slider, Up raises it one step,
+# past Colour depth, the one colour row a panel with no EDID shows, and on to the XDR's slider, Up raises it one step,
 # Tab reaches its Screen choice and Down picks the first output, the main
 # one.
 read -r mon_w mon_h < <(hypr -j monitors | py_reply 'import json,sys; m=json.load(sys.stdin)[0]; print(m["width"], m["height"])')

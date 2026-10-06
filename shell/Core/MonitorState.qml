@@ -14,10 +14,16 @@ import "PluginLogic.js" as Logic
 // `configreloaded` after each reload, and the outputs are read again on
 // each. A failed read is logged
 // and returns `outputs` to null. `support`, what each panel takes, comes
-// from `hyprctl systeminfo`, which runs lspci inside Hyprland and holds the
-// compositor while it does, so it is read once as the reading starts and
-// again only when an output comes or goes or the config reloads
-//. The plugin that owns `hyprland.monitors`
+// from `hyprctl systeminfo`: Hyprland v0.56.2 prints it nowhere else, in
+// no JSON form, and only for the outputs that are on and mirror nothing.
+// That call runs lspci on Hyprland's main loop and holds the compositor
+// while it does (22-36 ms per call in the nested sandbox, host cachy,
+// 2026-10-06), so it is read only while a hold from
+// `wantSupport` stands, and then only when the outputs list a panel it
+// lacks or `monitoraddedv2` puts a panel on a connector; a trial that names
+// a colour mode with no panel read asks for one read. Each v2 event drops
+// the panel of its connector, and no reload reads it again. The plugin
+// that owns `hyprland.monitors`
 // may run a guarded trial: the guard is detached from Quickshell, and the
 // token file is the only state it shares with the shell.
 Scope {
@@ -31,6 +37,9 @@ Scope {
     // parseSupport's support, null until read while active and after a
     // failed read.
     property var support: null
+    // The `wantSupport` holds that stand.
+    property int supportHolds: 0
+    readonly property bool supportWanted: active && supportHolds > 0
     property string ownerId: ""
     property var trialState: ({ phase: "idle", token: "", deadline: 0, failure: "" })
     property string restoreLua: ""
@@ -46,14 +55,17 @@ Scope {
     onActiveChanged: {
         if (active) {
             readOutputs();
-            readSupport();
             return;
         }
         outputs = null;
         support = null;
     }
 
-    // The capability. It holds nothing to release.
+    onSupportWantedChanged: readMissingSupport()
+    onOutputsChanged: readMissingSupport()
+
+    // The capability. A `wantSupport` hold is released by the function it
+    // returns or with the instance.
     function provider(ctx) {
         return Object.freeze({
             get outputs() { return root.outputs === null ? null : Logic.frozenJson(root.outputs); },
@@ -62,8 +74,21 @@ Scope {
             overridden: rules => root.overridden(rules),
             trial: (rules, saved) => root.trial(ctx.id, rules, saved),
             keep: (token, done) => root.keep(ctx.id, token, done),
-            revert: token => root.revert(ctx.id, token)
+            revert: token => root.revert(ctx.id, token),
+            wantSupport: () => root.holdSupport(ctx)
         });
+    }
+
+    function holdSupport(ctx) {
+        let held = true;
+        const release = () => {
+            if (!held) return;
+            held = false;
+            root.supportHolds -= 1;
+        };
+        supportHolds += 1;
+        ctx.onDispose(release);
+        return release;
     }
 
     function record() {
@@ -76,6 +101,10 @@ Scope {
 
     function readSupport() {
         supportReader.read(Monitors.SUPPORT_REQUEST, null);
+    }
+
+    function readMissingSupport() {
+        if (supportWanted && outputs !== null && Monitors.supportMissing(outputs, support).length > 0) readSupport();
     }
 
     function mustOwn(id) {
@@ -99,6 +128,7 @@ Scope {
         if (ownership !== "") return ownership;
         if (outputs === null) return "refused: monitors=unread";
         if (trialState.phase !== "idle") return "refused: monitors-trial=active";
+        if (Monitors.supportNeeded(rules) && Monitors.supportMissing(outputs, support).length > 0) readSupport();
         const trial = Monitors.trialPlan(saved, rules, outputs, support);
         if (!trial.ok) return trial.error;
         const now = Math.floor(Date.now() / 1000);
@@ -146,17 +176,21 @@ Scope {
         target: root.active ? Hyprland : null
         function onRawEvent(event) {
             // Hyprland posts each v2 event beside its first form, so the
-            // support is read once for the pair.
+            // pair drops a panel once.
             switch (event.name) {
             case "monitoradded":
             case "monitorremoved":
+            case "configreloaded":
                 root.readOutputs();
                 return;
             case "monitoraddedv2":
-            case "monitorremovedv2":
-            case "configreloaded":
+                root.support = Monitors.supportWithout(root.support, event.data);
                 root.readOutputs();
-                root.readSupport();
+                if (root.supportWanted) root.readSupport();
+                return;
+            case "monitorremovedv2":
+                root.support = Monitors.supportWithout(root.support, event.data);
+                root.readOutputs();
                 return;
             }
         }
