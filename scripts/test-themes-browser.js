@@ -78,7 +78,6 @@ function verify(logic, files) {
         assert.equal(/view\.(listReason|catalogReason|imagesReason)/.test(text), false, qml + " reads status fields from root, not the captured refresh view");
     }
     const themeQml = fs.readFileSync(path.join(dir, "ThemeView.qml"), "utf8");
-    assert.ok(themeQml.includes("currentIndex = Qt.binding(() => root.scopeIndex);"), "ThemeView restores the scope control index binding after activation");
     assert.ok(themeQml.includes("onActiveFocusChanged: if (activeFocus) Qt.callLater(root.focusRail)"), "ThemeView tab clicks return focus to the carousel");
     const wallpaperQml = fs.readFileSync(path.join(dir, "WallpaperView.qml"), "utf8");
     assert.ok(wallpaperQml.includes("onActiveFocusChanged: if (activeFocus) Qt.callLater(root.takeKeys)"), "WallpaperView tab clicks return focus to the keyboard owner");
@@ -133,15 +132,15 @@ function verify(logic, files) {
     same(logic.cards(packages, null, null, "vgs").map(c => [c.name, c.image]), [["broken", null], ["dusk", null], ["mine", null], ["nord", null], ["vgs", null]]);
     same(logic.cards([], [], [], "vgs"), []);
 
-    // Filter and scope.
+    // Filter: one list holds every theme, installed or not.
     assert.equal(logic.matches(built[0], ""), true);
     assert.equal(logic.matches({ name: "arc-blueberry", label: "Arc Blueberry" }, "c b"), true, "the label matches with a space");
     assert.equal(logic.matches({ name: "arc-blueberry", label: "Arc Blueberry" }, "C-B"), true, "the name matches in any case");
     assert.equal(logic.matches({ name: "arc-blueberry", label: "Arc Blueberry" }, "nord"), false);
-    same(logic.shown(built, "", "installed").map(c => c.name), ["broken", "dusk", "mine", "nord", "vgs"]);
-    same(logic.shown(built, "n", "all").map(c => c.name), ["akane", "broken", "mine", "nord", "plain"], "the filter keeps the order");
-    same(logic.shown(built, "No", "installed").map(c => c.name), ["nord"]);
-    assert.throws(() => logic.shown(built, "", "starred"), /scope="starred" want=all\|installed/);
+    same(logic.shown(built, "").map(c => c.name), ["akane", "broken", "dusk", "mine", "nord", "plain", "vgs"], "an empty filter shows every card");
+    assert.ok(built.some(c => !c.installed) && built.some(c => c.installed), "the cards hold installed and catalog themes");
+    same(logic.shown(built, "n").map(c => c.name), ["akane", "broken", "mine", "nord", "plain"], "the filter keeps the order and the catalog cards");
+    same(logic.shown(built, "No").map(c => c.name), ["nord"]);
     const nordCard = built.find(c => c.name === "nord");
     assert.equal(logic.cardKey(nordCard), logic.cardKey(Object.assign({}, nordCard, { displayed: false, imagery: null })), "state the card does not draw keeps its key");
     for (const [label, change] of [
@@ -246,7 +245,8 @@ const THEME_KEYS = [
     ["Ctrl+Shift+Tab switches to the previous top tab", K.Tab, true, true, false, false, "tab-previous"],
     ["Ctrl+PageDown switches to the next top tab", K.PageDown, false, true, false, false, "tab-next"],
     ["Ctrl+PageUp switches to the previous top tab", K.PageUp, false, true, false, false, "tab-previous"],
-    ["Alt+I flips All and Installed", K.I, false, false, true, false, "scope"],
+    ["Alt+I passes on", K.I, false, false, true, false, ""],
+    ["Alt+Left passes on", K.Left, false, false, true, false, ""],
     ["plain I passes to the filter", K.I, false, false, false, false, ""],
     ["a Meta chord passes on", K.I, false, false, true, true, ""]
 ];
@@ -287,7 +287,8 @@ const WALLPAPER_KEYS = [
 // The wallpaper view: sources, scopes, cards, the offer card, the keys
 // and the selection.
 function verifyWallpapers(logic) {
-    same(logic.WALLPAPER_SOURCES.map(s => [s.source, s.label]), [["theme", "Theme"], ["all", "All"]]);
+    same(logic.WALLPAPER_SOURCES.map(s => [s.source, s.icon]), [["theme", "eye"], ["all", "eye-off"]]);
+    for (const s of logic.WALLPAPER_SOURCES) assert.ok(typeof s.switchLabel === "string" && s.switchLabel !== "", s.source + " names its source line");
     same(logic.SCREEN_SCOPES.map(s => [s.scope, s.label]), [["every", "All monitors"], ["this", "This monitor"]]);
 
     for (const [label, key, shift, control, alt, meta, action] of THEME_KEYS)
@@ -330,20 +331,21 @@ function verifyWallpapers(logic) {
         { background: "a.jpg", theme: "nord", path: "/t/nord/backgrounds/a.jpg" },
         { background: "b.jpg", theme: "nord", path: "/t/nord/backgrounds/b.jpg" }
     ];
-    const cardRow = c => [c.kind, c.key, c.path, c.label, c.sourceLabel];
+    const cardRow = c => [c.kind, c.key, c.path, c.theme];
     same(logic.wallpaperCards(images, catalog(true, pin(4000000), true, false), "nord", "theme").map(cardRow), [
-        ["image", "/t/nord/backgrounds/a.jpg", "/t/nord/backgrounds/a.jpg", "a.jpg", "Nord"],
-        ["image", "/t/nord/backgrounds/b.jpg", "/t/nord/backgrounds/b.jpg", "b.jpg", "Nord"]
+        ["image", "/t/nord/backgrounds/a.jpg", "/t/nord/backgrounds/a.jpg", "nord"],
+        ["image", "/t/nord/backgrounds/b.jpg", "/t/nord/backgrounds/b.jpg", "nord"]
     ], "theme lists the applied package's images");
     const updating = logic.wallpaperCards(images, catalog(true, pin(4000000), true, true), "nord", "theme");
-    same(updating.map(cardRow).slice(2), [["update", "update", null, "Update the wallpapers", "Nord"]], "the update card comes last");
-    assert.equal(updating[2].size, 4000000);
-    same(logic.wallpaperCards([], catalog(true, pin(4000000), false, false), "nord", "theme").map(cardRow), [["download", "download", null, "Download the wallpapers", "Nord"]]);
+    same(updating.map(cardRow).slice(2), [["update", "update", null, "nord"]], "the update card comes last");
+    const downloading = logic.wallpaperCards([], catalog(true, pin(4000000), false, false), "nord", "theme");
+    same(downloading.map(cardRow), [["download", "download", null, "nord"]]);
+    for (const offer of [updating[2], downloading[0]]) assert.ok(typeof offer.label === "string" && offer.label !== "", offer.kind + " card names itself");
     same(logic.wallpaperCards(images, catalog(true, pin(4000000), true, true), "nord", "all").map(cardRow), [
-        ["image", "/t/akane/backgrounds/a.jpg", "/t/akane/backgrounds/a.jpg", "a.jpg", "Akane"],
-        ["image", "/t/nord/backgrounds/a.jpg", "/t/nord/backgrounds/a.jpg", "a.jpg", "Nord"],
-        ["image", "/t/nord/backgrounds/b.jpg", "/t/nord/backgrounds/b.jpg", "b.jpg", "Nord"],
-        ["image", "/u/u.jpg", "/u/u.jpg", "u.jpg", "User folder"]
+        ["image", "/t/akane/backgrounds/a.jpg", "/t/akane/backgrounds/a.jpg", "akane"],
+        ["image", "/t/nord/backgrounds/a.jpg", "/t/nord/backgrounds/a.jpg", "nord"],
+        ["image", "/t/nord/backgrounds/b.jpg", "/t/nord/backgrounds/b.jpg", "nord"],
+        ["image", "/u/u.jpg", "/u/u.jpg", null]
     ], "all lists every package's images, the user folder last, and no card");
     same(logic.wallpaperCards(images, null, "vgs", "theme"), [], "a package with no images and no catalog has no card");
     assert.throws(() => logic.wallpaperCards(images, null, "nord", "some"), /source="some" want=theme\|all/);
@@ -389,7 +391,7 @@ const CONTROLS = [
     ["first image", "if (image.theme !== null && !hasOwn(first, image.theme)) first[image.theme] = image.path;", "if (image.theme !== null) first[image.theme] = image.path;"],
     ["name order", "out.sort(", "[].sort("],
     ["label matches", "|| card.label.toLowerCase().indexOf(needle) !== -1", ""],
-    ["installed scope", '(scope === "all" || card.installed)', "true"],
+    ["one list holds every theme", "return list.filter(function (card) { return matches(card, text); });", "return list.filter(function (card) { return card.installed && matches(card, text); });"],
     ["printable only", "return code >= 32 && code !== 127;", "return true;"],
     ["offer only when displayed", "card.installed && card.displayed && card.imagery", "card.installed && card.imagery"],
     ["offer only with bytes", "&& card.imagery.size > 0", ""],
@@ -400,7 +402,7 @@ const CONTROLS = [
     ["partial names the panel", 'if (result.state === "partial") return', 'if (false) return'],
     ["shared Ctrl+Tab switches top tabs", "if (key === K.Tab || key === K.PageDown) return shift ? TAB_ACTIONS.previous : TAB_ACTIONS.next;", "if (false) return shift ? TAB_ACTIONS.previous : TAB_ACTIONS.next;"],
     ["plain Tab switches top tabs", "if (key === K.Tab || key === K.Backtab) return (shift || key === K.Backtab) ? TAB_ACTIONS.previous : TAB_ACTIONS.next;", "if (false) return (shift || key === K.Backtab) ? TAB_ACTIONS.previous : TAB_ACTIONS.next;"],
-    ["theme toggle uses Alt", "if (alt) return key === KEY.I ? \"scope\" : \"\";", "if (true) return key === KEY.I ? \"scope\" : \"\";"],
+    ["no Alt key acts in the theme view", "if (control || alt) return \"\";", "if (control) return \"\";"],
     ["wallpaper meta chords pass on", 'function wallpaperAction(key, shift, control, alt, meta, scoped) {\n    if (meta) return "";', 'function wallpaperAction(key, shift, control, alt, meta, scoped) {'],
     ["wallpaper source uses Alt", "if (key === KEY.S) return \"source\";", "if (false) return \"source\";"],
     ["wallpaper scope uses Alt+M", "if (key === KEY.M) return scoped ? \"scope\" : \"\";", "if (false) return scoped ? \"scope\" : \"\";"],
@@ -411,8 +413,7 @@ const CONTROLS = [
     ["offer needs bytes", " || !(e.imagery.size > 0)", ""],
     ["update card", 'return e.imageryUpdate ? "update" : null;', "return null;"],
     ["theme source is the applied package", "return i.theme === applied; }).map(card);", "return true; }).map(card);"],
-    ["user folder last", "return packaged.concat(user).map(card);", "return images.map(card);"],
-    ["user folder label", "image.theme === null ? USER_FOLDER_LABEL : label(image.theme)", "label(image.theme)"]
+    ["user folder last", "return packaged.concat(user).map(card);", "return images.map(card);"]
 ];
 
 try {

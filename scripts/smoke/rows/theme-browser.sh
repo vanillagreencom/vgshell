@@ -1,16 +1,16 @@
 # The theme browser, vgs.themes' overlay and service: SUPER+T on the
 # nested seat opens it, and every row reads what it holds back through the
 # probe: the view's cards and state through readDescendant, the images the
-# cards draw through images, and the texts of its badges and its Dialog
-# through itemTexts. The rows page, filter, install and apply a catalog
+# cards draw through images, the texts it draws beside its rail and tabs
+# through descendantGeometry, and its Dialog's through itemTexts. The rows page, filter, install and apply a catalog
 # entry, and answer the wallpaper offer both ways. The sandbox copy's
 # catalog pins nord's wallpapers to an archive this row builds, served from
 # a file:// base, which the runner takes under the sandbox's test-run
 # marker. A stand-in holds the download behind a gate after two progress
 # lines, polled every 50 ms for at most 30 s, so the Dialog's progress and
 # the held close read back before the real download runs. The wallpaper
-# view's rows, SUPER+W, follow the theme view's: they flip its source and
-# scope, set an image for one screen and for every screen on a second
+# view's rows, SUPER+W, follow the theme view's: they flip its source,
+# from its source line and from Alt+S, and its scope, set an image for one screen and for every screen on a second
 # headless output and read each screen's drawn image back, and run the
 # update card against a second archive the catalog pins anew. A copy of
 # WallpaperView.qml that sets every image as the current one is their
@@ -31,7 +31,22 @@ job_step() { view_value job | py_reply 'import json,sys; j=json.load(sys.stdin);
 selected_installed() { view_value selected | py_reply 'import json,sys; print(json.load(sys.stdin)["installed"])'; }
 selected_preview() { view_value selected | py_reply 'import json,sys; print(json.load(sys.stdin).get("previewImage"))'; }
 offer_name() { view_value offer | py_reply 'import json,sys; o=json.load(sys.stdin); print("none" if o is None else o["name"])'; }
-badges() { ipc smoke itemTexts overlay vgs.themes Badge | py_reply 'import json,sys; print(json.dumps(sorted(t[0] for t in json.load(sys.stdin) if t)))'; }
+# rest_texts: every text the browser draws outside its rail and its tabs,
+# sorted and once each; rest_has TEXT: whether TEXT is one of them. At rest
+# the theme view draws none, and the wallpaper view its source line and,
+# with two screens, its scope control.
+rest_texts() {
+  ipc smoke descendantGeometry overlay vgs.themes | py_reply '
+import json, sys
+rows = json.load(sys.stdin)
+def under(j):
+    while j != -1:
+        if rows[j]["type"] in ("CardCarousel", "Tabs"): return True
+        j = rows[j]["parent"]
+    return False
+print(json.dumps(sorted({r["text"] for i, r in enumerate(rows) if isinstance(r.get("text"), str) and r["text"] != "" and r["visible"] and r["box"][2] > 0 and r["box"][3] > 0 and not under(i)})))'
+}
+rest_has() { rest_texts | py_reply 'import json,sys; print(sys.argv[1] in json.load(sys.stdin))' "$1"; }
 dialog_has() { ipc smoke itemTexts overlay vgs.themes Dialog | py_reply 'import json,sys; print(any(sys.argv[1] in t for t in json.load(sys.stdin)))' "$1"; }
 # The status of the card image drawing PATH, `none` when no card draws it.
 card_image() { ipc smoke images overlay vgs.themes | py_reply 'import json,sys; r=[i[1] for i in json.load(sys.stdin) if i[0]==sys.argv[1]]; print(r[0] if r else "none")' "$1"; }
@@ -39,7 +54,6 @@ card_image() { ipc smoke images overlay vgs.themes | py_reply 'import json,sys; 
 # label, and one whose image shows draws none.
 palette_card() { ipc smoke itemTexts overlay vgs.themes ThemeCard | py_reply 'import json,sys; print(any(sys.argv[1] in t for t in json.load(sys.stdin)))' "$1"; }
 theme_card_has_colour() { ipc smoke itemColours overlay vgs.themes ThemeCard Rectangle | py_reply 'import json,sys; print(any(sys.argv[1] in row for row in json.load(sys.stdin)))' "$1"; }
-has_badge() { ipc smoke itemTexts overlay vgs.themes Badge | py_reply 'import json,sys,re; print(any(re.fullmatch(sys.argv[1], x) for t in json.load(sys.stdin) for x in t))' "$1"; }
 lent_themes() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(sorted(s for s in json.load(sys.stdin)["shortcuts"] if s.startswith("vgs.themes"))))'; }
 # The binds of shortcut NAME, `themes` by default, as [modmask, key].
 themes_bind() { hypr -j binds | py_reply 'import json,sys; print(json.dumps([[b["modmask"], b["key"]] for b in json.load(sys.stdin) if b["description"] == "vgs.themes:" + sys.argv[1] and b.get("submap", "") in ("", "default")]))' "${1:-themes}"; }
@@ -249,15 +263,13 @@ expect_poll "the browser read the list, the catalog and the images" true view_va
 expect "the browser includes the shipped vgs card" True has_card vgs
 expect_poll "the retained catalog reaches the installed list with nord" True has_card nord
 expect "the applied theme is selected" '"vgs"' view_value selectedName
-expect_poll "the applied theme is badged Displayed" '["Displayed"]' badges
+expect_poll "the resting theme view draws no text beside its cards and tabs" '[]' rest_texts
 # The browser's layout, one finding per broken rule, `[]` the pass: its
-# chrome (the tabs, the scope control, the key caps, badges and texts
-# under the rail) lies inside the output less inset.overlay each side
-# (`inset`); the header ends above the rail, the rail holds the selected
-# card, and the rail ends above the caption (`order`); the rail is centred,
-# the same distance in from both output sides (`centre`); and the key
-# line's texts share one top (`hints`). Each holds within one pixel and
-# reads containment, so a theme with a larger font still passes.
+# tabs lie inside the output less inset.overlay each side (`inset`); the
+# tabs end above the rail and the rail holds the selected card (`order`);
+# and the rail is centred, the same distance in from both output sides
+# (`centre`). Each holds within one pixel and reads containment, so a
+# theme with a larger font still passes.
 # browser_geometry reads the overlay and keeps the reading;
 # browser_planted RULE judges that kept reading with one box moved, so
 # each rule's control requires its own finding on the reading the rule
@@ -276,38 +288,25 @@ import json, sys
 rows, inset, width, height, plant = json.load(sys.stdin), float(sys.argv[1]), float(sys.argv[2]), float(sys.argv[3]), sys.argv[4]
 out = []
 def shown(r): return r["box"][2] > 0 and r["box"][3] > 0
-def inside(j, i):
-    while j != -1:
-        if j == i: return True
-        j = rows[j]["parent"]
-    return False
 def of(kind): return [i for i, r in enumerate(rows) if r["type"] == kind and shown(r)]
 rail = of("CardCarousel")
-hints = of("KeyHints")
-if len(rail) != 1 or len(hints) != 1:
-    print(json.dumps(["rails=%d keylines=%d" % (len(rail), len(hints))])); sys.exit()
-rail, hints = rows[rail[0]]["box"][:], hints[0]
-caps = of("Kbd")
-header = [rows[i]["box"][:] for i in of("Tabs") + of("SegmentedControl") + [i for i in caps if not inside(i, hints)]]
-caption = [rows[i]["box"][:] for i in of("Badge") + [i for i in caps if inside(i, hints)]] + [r["box"][:] for r in rows if r["type"] == "Label" and r.get("role") == "display" and shown(r)]
-texts = [rows[j]["box"][:] for j in range(len(rows)) if rows[j]["type"] == "Label" and rows[j].get("role") == "hint" and shown(rows[j]) and inside(j, hints)]
+if len(rail) != 1:
+    print(json.dumps(["rails=%d" % len(rail)])); sys.exit()
+rail = rows[rail[0]]["box"][:]
+header = [rows[i]["box"][:] for i in of("Tabs")]
 cards = [r["box"] for r in rows if r["type"] == "AngledCard" and shown(r)]
-if plant == "inset": caption[0][0] += width
-if plant == "order": rail[3] += 40
+if plant == "inset": header[0][0] += width
+if plant == "order": rail[1] -= 40
 if plant == "centre": rail[0] += 8
-if plant == "hints": texts[-1][1] += 4
-for b in header + caption:
+for b in header:
     if b[0] < inset - 1 or b[1] < inset - 1 or b[0] + b[2] > width - inset + 1 or b[1] + b[3] > height - inset + 1:
         out.append("inset box=%s" % [round(v, 2) for v in b])
-if not header or not caption or not cards: out.append("order header=%d caption=%d cards=%d" % (len(header), len(caption), len(cards)))
+if not header or not cards: out.append("order header=%d cards=%d" % (len(header), len(cards)))
 else:
     card = max(cards, key=lambda b: b[2] * b[3])
     if max(b[1] + b[3] for b in header) > rail[1] + 1: out.append("order header.bottom=%.2f rail.top=%.2f" % (max(b[1] + b[3] for b in header), rail[1]))
-    if rail[1] + rail[3] > min(b[1] for b in caption) + 1: out.append("order rail.bottom=%.2f caption.top=%.2f" % (rail[1] + rail[3], min(b[1] for b in caption)))
     if card[1] < rail[1] - 1 or card[1] + card[3] > rail[1] + rail[3] + 1: out.append("order card=%s rail=%s" % (card, rail))
 if abs(rail[0] - (width - rail[0] - rail[2])) > 1: out.append("centre left=%.2f right=%.2f" % (rail[0], width - rail[0] - rail[2]))
-if len(texts) < 3: out.append("hints texts=%d" % len(texts))
-elif max(b[1] for b in texts) - min(b[1] for b in texts) > 1: out.append("hints tops=%s" % [round(b[1], 2) for b in texts])
 print(json.dumps(out))' "$1" "$mon_w" "$mon_h" "$2"
 }
 browser_planted() { # RULE
@@ -315,8 +314,8 @@ browser_planted() { # RULE
   { read -r inset && browser_judge "$inset" "$1"; } <"$browser_kept" \
     | py_reply 'import json,sys; print(any(e.startswith(sys.argv[1] + " ") for e in json.load(sys.stdin)))' "$1"
 }
-geometry expect_poll "the browser's chrome, rail and key line keep their places" '[]' browser_geometry
-for rule in inset order centre hints; do
+geometry expect_poll "the browser's tabs and rail keep their places" '[]' browser_geometry
+for rule in inset order centre; do
   expect "control: the browser's $rule rule refuses its planted box" True browser_planted "$rule"
 done
 expect_poll "every shown slice stacks its theme's eight colours top to bottom" '[]' collapsed_stacks
@@ -366,8 +365,8 @@ expect_poll "the browser rereads the changed package tokens" true view_value loa
 type_keys "$first_card" || fail "typing $first_card after the token change failed"
 expect_poll "the live preview changes when the package accent changes" '"#00ff00"' ipc smoke readDescendant overlay vgs.themes DesktopPreview accentHex
 expect_poll "the live preview's desktop and foot follow the changed accent" '[]' expanded_preview
-expect "a catalog card is badged Not installed" True has_badge "Not installed"
-expect "a catalog card is badged with its wallpapers' size" True has_badge "Wallpapers [0-9]+ MB"
+expect "the selected catalog card is not installed" False selected_installed
+expect "a catalog card draws only the typed filter beside the rail" "[\"$first_card\"]" rest_texts
 
 # Paging: Home, Right, Left and End move the selection.
 type_keys -k Escape || fail "clearing the catalog-card filter failed"
@@ -414,17 +413,9 @@ expect "the drawn centre theme card matches the selected name after filtering" '
 expect_poll "nord's package preview wins over its thumbnail and live preview" "$repo/themes/catalog/nord/preview.png" selected_preview
 expect_poll "nord's selected card draws preview.png" ready card_image "$repo/themes/catalog/nord/preview.png"
 expect "nord's selected card does not build the live preview" absent ipc smoke readDescendant overlay vgs.themes DesktopPreview visible
-click_in vgs:overlay overlay vgs.themes QQuickButton Installed || fail "the click on Installed failed"
-expect_poll "Installed hides the catalog's nord" '[]' view_names
-browser_focused "the rail takes the keyboard back after the scope click"
-click_in vgs:overlay overlay vgs.themes QQuickButton All || fail "the click on All failed"
-expect_poll "All shows nord again" '["nord"]' view_names
 type_keys -M alt -k i -m alt || fail "sending Alt+I in the theme view failed"
-expect_poll "Alt+I switches the theme view to Installed" 1 view_value scopeIndex
-expect_poll "Alt+I hides the catalog card under Installed" '[]' view_names
-type_keys -M alt -k i -m alt || fail "sending Alt+I in the theme view again failed"
-expect_poll "Alt+I switches the theme view back to All" 0 view_value scopeIndex
-expect_poll "Alt+I shows the catalog card again" '["nord"]' view_names
+expect "Alt+I leaves the filter" '"nord"' view_value filterText
+expect "Alt+I leaves the catalog's nord in the one list" '["nord"]' view_names
 
 # Enter installs nord, applies it, and offers its wallpapers; Not now
 # leaves it applied without them.
@@ -556,8 +547,7 @@ wall_job() { wall_value job | py_reply 'import json,sys; j=json.load(sys.stdin);
 press_wallpapers() { type_keys -M logo -k w -m logo; }
 nord_a="$installed/nord/backgrounds/a.jpg"; nord_b="$installed/nord/backgrounds/b.jpg"; nord_c="$installed/nord/backgrounds/c.jpg"
 wall_output=SMOKE-WALL
-# Whether the first segmented control, the source control in the wallpaper
-# view and the scope control in the theme view, holds the keyboard.
+# Whether the wallpaper view's scope control holds the keyboard.
 segment_focused() { ipc smoke readDescendant overlay vgs.themes SegmentedControl activeFocus; }
 thumbs="$repo/themes/catalog/thumbnails"
 # The width over the height of the file IMAGE, a JPEG, and of the ready card
@@ -686,37 +676,58 @@ expect "control: a band that takes the press leaves the browser open" 1 layer_co
 expect "the rail band control browser hides" ok ipc shell hide overlay vgs.themes
 expect_poll "the rail band control browser closes" 0 layer_count vgs:overlay
 plugin_restore ThemeView.qml "rail band"
+# Control for the resting texts: a copy of the theme view that draws a key
+# hint under the rail.
+plugin_control ThemeView.qml "resting text" $'                id: caption\n' $'                id: caption\n                Label { role: "hint"; text: "Enter" }\n'
+press_themes || fail "typing SUPER+T for the resting text control failed"
+expect_poll "SUPER+T opens the resting text control browser" 1 layer_count vgs:overlay
+expect_poll "the resting text control read its cards" true view_value loaded
+expect_poll "control: a key hint under the rail is a resting text" '["Enter"]' rest_texts
+type_keys -k Escape || fail "sending Escape to the resting text control failed"
+expect_poll "Escape closes the resting text control browser" 0 layer_count vgs:overlay
+plugin_restore ThemeView.qml "resting text"
 
 # vgs, applied, ships no wallpaper, so the wallpaper view's theme source is
-# empty; Show all wallpapers switches to all and hands the keys back to the
-# view, so Alt+S flips it back.
+# empty; a click on the source line's Show all switches to all, turns the
+# line to Show theme and leaves the keys with the view, so Alt+S flips it
+# back. Controls: a copy whose line flips nothing, one whose line takes the
+# keyboard, and one whose line keeps its first text.
 show_every() { # LABEL
   type_keys -M logo -k w -m logo || { fail "$1: typing SUPER+W failed"; return 1; }
   expect_poll "$1: SUPER+W opens the browser" 1 layer_count vgs:overlay
   expect_poll "$1: the wallpaper view read its lists" true ipc smoke readDescendant overlay vgs.themes WallpaperView loaded
   expect "$1: vgs's theme source lists no image" '[]' ipc smoke readDescendant overlay vgs.themes WallpaperView cards
-  click_in vgs:overlay overlay vgs.themes Button "Show all wallpapers" || { fail "$1: the click on Show all wallpapers failed"; return 1; }
+  click_in vgs:overlay overlay vgs.themes Label "Show all" || { fail "$1: the click on Show all failed"; return 1; }
 }
-show_every "Show all wallpapers"
-expect_poll "Show all wallpapers shows every source" '"all"' ipc smoke readDescendant overlay vgs.themes WallpaperView source
-type_keys -M alt -k s -m alt || fail "sending Alt+S after Show all wallpapers failed"
-expect_poll "Show all wallpapers hands the keys back to the view" '"theme"' ipc smoke readDescendant overlay vgs.themes WallpaperView source
-type_keys -k Escape || fail "sending Escape after Show all wallpapers failed"
-expect_poll "Escape after Show all wallpapers closes the browser" 0 layer_count vgs:overlay
-plugin_control WallpaperView.qml "show every source" $'onActivated: {\n                    root.flipSource();' 'onActivated: {'
-show_every "control: the show every source copy"
-expect "control: a Show all wallpapers that flips nothing keeps the theme source" '"theme"' ipc smoke readDescendant overlay vgs.themes WallpaperView source
-expect "the show every source control browser hides" ok ipc shell hide overlay vgs.themes
-expect_poll "the show every source control browser closes" 0 layer_count vgs:overlay
-plugin_restore WallpaperView.qml "show every source"
-plugin_control WallpaperView.qml "show every source keys" 'Qt.callLater(root.takeKeys);' ''
-show_every "control: the show every source keys copy"
-expect_poll "the show every source keys control shows every source" '"all"' ipc smoke readDescendant overlay vgs.themes WallpaperView source
-type_keys -M alt -k s -m alt || fail "sending Alt+S to the show every source keys control failed"
-expect "control: a Show all wallpapers that keeps the keys leaves Alt+S unread" '"all"' ipc smoke readDescendant overlay vgs.themes WallpaperView source
-expect "the show every source keys control browser hides" ok ipc shell hide overlay vgs.themes
-expect_poll "the show every source keys control browser closes" 0 layer_count vgs:overlay
-plugin_restore WallpaperView.qml "show every source keys"
+show_every "the source line"
+expect_poll "the source line's Show all shows every source" '"all"' ipc smoke readDescendant overlay vgs.themes WallpaperView source
+expect_poll "the source line then reads Show theme" True rest_has "Show theme"
+type_keys -M alt -k s -m alt || fail "sending Alt+S after the source line's click failed"
+expect_poll "the source line leaves the keys with the view" '"theme"' ipc smoke readDescendant overlay vgs.themes WallpaperView source
+expect_poll "Alt+S puts Show all back on the source line" True rest_has "Show all"
+type_keys -k Escape || fail "sending Escape after the source line's click failed"
+expect_poll "Escape after the source line's click closes the browser" 0 layer_count vgs:overlay
+plugin_control WallpaperView.qml "source line" 'onClicked: root.flipSource()' 'onClicked: {}'
+show_every "control: the source line copy"
+expect "control: a source line that flips nothing keeps the theme source" '"theme"' ipc smoke readDescendant overlay vgs.themes WallpaperView source
+expect "the source line control browser hides" ok ipc shell hide overlay vgs.themes
+expect_poll "the source line control browser closes" 0 layer_count vgs:overlay
+plugin_restore WallpaperView.qml "source line"
+plugin_control WallpaperView.qml "source line keys" 'onClicked: root.flipSource()' 'onClicked: { root.flipSource(); forceActiveFocus(); }'
+show_every "control: the source line keys copy"
+expect_poll "the source line keys control shows every source" '"all"' ipc smoke readDescendant overlay vgs.themes WallpaperView source
+type_keys -M alt -k s -m alt || fail "sending Alt+S to the source line keys control failed"
+expect "control: a source line that takes the keys leaves Alt+S unread" '"all"' ipc smoke readDescendant overlay vgs.themes WallpaperView source
+expect "the source line keys control browser hides" ok ipc shell hide overlay vgs.themes
+expect_poll "the source line keys control browser closes" 0 layer_count vgs:overlay
+plugin_restore WallpaperView.qml "source line keys"
+plugin_control WallpaperView.qml "source line text" 'text: BrowserLogic.WALLPAPER_SOURCES[root.sourceIndex].switchLabel' 'text: BrowserLogic.WALLPAPER_SOURCES[0].switchLabel'
+show_every "control: the source line text copy"
+expect_poll "the source line text control shows every source" '"all"' ipc smoke readDescendant overlay vgs.themes WallpaperView source
+expect "control: a source line that keeps its first text never reads Show theme" False rest_has "Show theme"
+expect "the source line text control browser hides" ok ipc shell hide overlay vgs.themes
+expect_poll "the source line text control browser closes" 0 layer_count vgs:overlay
+plugin_restore WallpaperView.qml "source line text"
 
 expect "the follow before the wallpaper rows ends" idle theme_idle
 expect "nord applies for the wallpaper rows" "ok theme=nord state=applied shell=applied" vgshell_theme apply nord
@@ -739,14 +750,14 @@ expect "the view starts on every monitor" '"every"' wall_value scope
 expect "two screens show the scope control" true wall_value scoped
 expect_poll "the selection starts on the image every screen shows" "$nord_a" wall_selected
 expect "the wallpaper card decodes at card size times screen scale" True card_source_size_matches "$nord_a"
-expect_poll "the shown image is badged Shown" True has_badge Shown
+expect_poll "the resting wallpaper view draws its source line and scope control alone" '["All monitors", "Show all", "This monitor"]' rest_texts
 
 # The toggles: Alt+S flips the source, Alt+M flips the scope, and
 # Tab and Shift+Tab switch the top tabs. None moves the selected card.
 type_keys -M alt -k s -m alt || fail "sending Alt+S failed"
 expect_poll "Alt+S shows every source" '"all"' wall_value source
 expect_poll "every source lists nord's images" True wall_has "$nord_a" "$nord_b"
-expect "the all source badges the image's package" True has_badge Nord
+expect_poll "every source turns the source line to Show theme" True rest_has "Show theme"
 type_keys -M alt -k s -m alt || fail "sending Alt+S again failed"
 expect_poll "Alt+S shows the theme again" '"theme"' wall_value source
 type_keys -k Tab || fail "sending Tab failed"
@@ -806,58 +817,30 @@ expect_poll "the scope control moves the other screen's image too" "$nord_b read
 plugin_restore WallpaperView.qml scope
 expect "set --every-screen puts nord's first image back on every screen" "ok background=a.jpg theme=nord path=$nord_a screen=*" vgshell_theme background set "$nord_a" --every-screen
 
-# A click on the segment already chosen hands the keyboard back as a
-# change does: Right then steps the rail and leaves the source. In the
-# theme view it leaves the scope. Controls: a copy of each view whose
-# control keeps the keyboard switches the source or the scope on Right.
+# A click on the scope segment already chosen hands the keyboard back as a
+# change does: Right then steps the rail and leaves the scope. Control: a
+# copy of the view whose scope control keeps the keyboard switches the
+# scope on Right.
 press_wallpapers || fail "typing SUPER+W for the segment click failed"
 expect_poll "SUPER+W opens the browser for the segment click" 1 layer_count vgs:overlay
 expect_poll "the segment-click view selects a.jpg" "$nord_a" wall_selected
-click_in vgs:overlay overlay vgs.themes QQuickButton Theme || fail "the click on the chosen Theme segment failed"
-expect_poll "the view takes the keyboard back after a click on the chosen source" false segment_focused
+click_in vgs:overlay overlay vgs.themes QQuickButton "All monitors" || fail "the click on the chosen All monitors segment failed"
+expect_poll "the view takes the keyboard back after a click on the chosen scope" false segment_focused
 type_keys -k Right || fail "sending Right after the segment click failed"
 expect_poll "Right after the click steps the rail" "$nord_b" wall_selected
-expect "Right after the click leaves the source" '"theme"' wall_value source
+expect "Right after the click leaves the scope" '"every"' wall_value scope
 type_keys -k Escape || fail "sending Escape after the segment click failed"
 expect_poll "Escape closes the browser after the segment click" 0 layer_count vgs:overlay
-press_themes || fail "typing SUPER+T for the segment click failed"
-expect_poll "SUPER+T opens the theme view for the segment click" 1 layer_count vgs:overlay
-expect_poll "the theme view read its cards for the segment click" true view_value loaded
-click_in vgs:overlay overlay vgs.themes QQuickButton All || fail "the click on the chosen All segment failed"
-expect_poll "the theme view takes the keyboard back after a click on the chosen scope" false segment_focused
-type_keys -k Right || fail "sending Right in the theme view failed"
-expect "Right after the click leaves the theme view's scope" 0 view_value scopeIndex
-type_keys -k Escape || fail "sending Escape to the theme view failed"
-expect_poll "Escape closes the theme view after the segment click" 0 layer_count vgs:overlay
-plugin_control WallpaperView.qml "wallpaper focus" $'currentIndex: root.sourceIndex\n                            onActiveFocusChanged: if (activeFocus) Qt.callLater(root.takeKeys)' 'currentIndex: root.sourceIndex'
+plugin_control WallpaperView.qml "wallpaper focus" $'currentIndex: root.scopeIndex\n                    onActiveFocusChanged: if (activeFocus) Qt.callLater(root.takeKeys)' 'currentIndex: root.scopeIndex'
 press_wallpapers || fail "typing SUPER+W for the wallpaper focus control failed"
 expect_poll "SUPER+W opens the wallpaper focus control's browser" 1 layer_count vgs:overlay
 expect_poll "the wallpaper focus control's view read its lists" true wall_value loaded
-click_in vgs:overlay overlay vgs.themes QQuickButton Theme || fail "the click on the focus control's Theme segment failed"
+click_in vgs:overlay overlay vgs.themes QQuickButton "All monitors" || fail "the click on the focus control's All monitors segment failed"
 type_keys -k Right || fail "sending Right to the wallpaper focus control failed"
-expect_poll "the wallpaper focus control's Right switches the source" '"all"' wall_value source
+expect_poll "the wallpaper focus control's Right switches the scope" '"this"' wall_value scope
 press_wallpapers || fail "typing SUPER+W to close the wallpaper focus control failed"
 expect_poll "SUPER+W closes the wallpaper focus control's browser, whose keys the control holds" 0 layer_count vgs:overlay
 plugin_restore WallpaperView.qml "wallpaper focus"
-plugin_control ThemeView.qml "theme focus" $'\n                        onActiveFocusChanged: if (activeFocus) Qt.callLater(root.focusRail)' ''
-press_themes || fail "typing SUPER+T for the theme focus control failed"
-expect_poll "SUPER+T opens the theme focus control's browser" 1 layer_count vgs:overlay
-expect_poll "the theme focus control read its cards" true view_value loaded
-click_in vgs:overlay overlay vgs.themes QQuickButton All || fail "the click on the focus control's All segment failed"
-type_keys -k Right || fail "sending Right to the theme focus control failed"
-expect_poll "the theme focus control's Right switches the scope" 1 view_value scopeIndex
-type_keys -k Escape || fail "sending Escape to the theme focus control failed"
-expect_poll "Escape closes the theme focus control's browser" 0 layer_count vgs:overlay
-plugin_restore ThemeView.qml "theme focus"
-plugin_control BrowserLogic.js "theme toggle key" 'if (alt) return key === KEY.I ? "scope" : "";' 'if (alt) return "";'
-press_themes || fail "typing SUPER+T for the theme toggle key control failed"
-expect_poll "SUPER+T opens the theme toggle key control browser" 1 layer_count vgs:overlay
-expect_poll "the theme toggle key control read its cards" true view_value loaded
-type_keys -M alt -k i -m alt || fail "sending Alt+I to the theme toggle key control failed"
-expect_poll "the theme toggle key control leaves the scope unchanged" 0 view_value scopeIndex
-type_keys -k Escape || fail "sending Escape to the theme toggle key control failed"
-expect_poll "Escape closes the theme toggle key control browser" 0 layer_count vgs:overlay
-plugin_restore BrowserLogic.js "theme toggle key"
 # Controls for the slices: a copy of the theme card whose stack lies
 # across the slice, and one whose stack reverses its colours.
 for control in vertical colours; do

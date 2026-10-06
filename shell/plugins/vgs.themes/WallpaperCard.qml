@@ -5,12 +5,12 @@ import "Files.js" as Files
 
 // One card on the wallpaper browser's rail: an image card draws its image,
 // decoded at the size the carousel hands it and loaded under the view's
-// generation, so a file replaced under its name is read again. The
-// download or update card, and an image card while its image loads or
-// when it cannot be read, fill with the surface colour and name the card
-// under an icon, the name keeping the card's lean from each side, as the
-// theme card's does. A Spinner turns over the card while the browser sets
-// its image or runs its download.
+// generation, so a file replaced under its name is read again. An image
+// card while its image loads or when it cannot be read fills with the
+// surface colour under an image icon. The download or update card fills
+// the same way and names itself under its icon, the name keeping the
+// card's lean from each side, as the theme card's does. A Spinner turns
+// over the card while the browser sets its image or runs its download.
 Item {
     id: root
 
@@ -45,10 +45,11 @@ Item {
 
             Label {
                 role: "bodyStrong"
+                visible: root.offer
                 width: parent.width
                 horizontalAlignment: Text.AlignHCenter
                 elide: Text.ElideMiddle
-                text: root.modelData.label
+                text: root.offer ? root.modelData.label : ""
                 color: Theme.color.textMuted
             }
         }

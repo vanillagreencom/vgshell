@@ -5,9 +5,11 @@ import qs.Ui
 import "BrowserLogic.js" as BrowserLogic
 
 // The theme view of the browser: every shipped, installed and catalog
-// theme as an angled card on a rail, a scope control, a typed filter, and
-// Enter or a click on the selected card installing a catalog theme if it
-// needs it and applying it. After an apply of a theme whose wallpapers are
+// theme as an angled card on one rail, a typed filter, and Enter or a
+// click on the selected card installing a catalog theme if it needs it and
+// applying it. At rest the view draws the cards and the tabs alone: the
+// selection, which opens on the applied theme, marks it, and a busy card
+// turns its own Spinner while its install or apply runs. After an apply of a theme whose wallpapers are
 // not downloaded, a Dialog offers the download; Download runs it on the
 // download lane, shows its progress from `last.downloading` and applies the
 // theme again, so its first wallpaper shows. A step that fails leaves the
@@ -16,8 +18,7 @@ import "BrowserLogic.js" as BrowserLogic
 //
 // Keys: Left, Right, Home, End and the wheel move through the rail, and Up
 // and Down step as Left and Right do. Tab and Shift+Tab switch the top
-// tabs. Alt+I switches the scope. A printable character types into the
-// filter, Backspace erases a character, Ctrl+Backspace a word and Ctrl+U
+// tabs. A printable character types into the filter, Backspace erases a character, Ctrl+Backspace a word and Ctrl+U
 // the whole filter. Escape clears the filter, then asks to close. Enter
 // applies the selected card.
 //
@@ -48,12 +49,11 @@ FocusScope {
 
     property var cards: []
     property string filterText: ""
-    property int scopeIndex: 0
-    readonly property var shownCards: BrowserLogic.shown(cards, filterText, BrowserLogic.SCOPES[scopeIndex].scope)
+    readonly property var shownCards: BrowserLogic.shown(cards, filterText)
     // The selected theme's name, kept across a filter and a refresh; the
     // displayed theme's until the first card is chosen.
     property string selectedName: ""
-    readonly property var selected: carousel.currentIndex >= 0 && carousel.currentIndex < shownCards.length ? Object.assign({}, shownCards[carousel.currentIndex], { displayed: shownCards[carousel.currentIndex].name === Theme.name }) : null
+    readonly property var selected: carousel.currentIndex >= 0 && carousel.currentIndex < shownCards.length ? shownCards[carousel.currentIndex] : null
 
     // The step this view runs, { step, name } with `step` `install`,
     // `apply` or `download`, or null.
@@ -113,10 +113,6 @@ FocusScope {
     }
 
     function focusRail() { carousel.forceActiveFocus(); }
-
-    function toggleScope() {
-        scopeIndex = (scopeIndex + 1) % BrowserLogic.SCOPES.length;
-    }
 
     function navigate(direction) {
         switch (direction) {
@@ -263,7 +259,7 @@ FocusScope {
     // it the previews and the shell that starts it.
     onSelectedChanged: if (started) requestPreview(selected)
 
-    // An apply from elsewhere moves the displayed badge.
+    // An apply from elsewhere changes the cards' applied and installed state.
     Connections {
         target: Theme
         function onRevisionChanged() {
@@ -316,9 +312,6 @@ FocusScope {
         case "close":
             cancel();
             break;
-        case "scope":
-            toggleScope();
-            break;
         case "tab-next":
             switchRequested(1);
             break;
@@ -340,10 +333,8 @@ FocusScope {
     // Keys the carousel passes on.
     Keys.onPressed: event => root.handleKey(event)
 
-    // One inset box centred on the output:
-    // the tabs and the scope in the header, the rail in the body, and the
-    // selected card's name, badges and filter, the running step, the
-    // failures and the keys in the footer.
+    // One inset box centred on the output: the tabs in the header, the rail
+    // in the body, and the typed filter and the failures in the footer.
     Pane {
         id: layout
         anchors.centerIn: parent
@@ -355,7 +346,6 @@ FocusScope {
         header: [
             Column {
                 width: layout.contentWidth
-                spacing: Theme.stack.group
 
                 Tabs {
                     anchors.horizontalCenter: parent.horizontalCenter
@@ -363,27 +353,6 @@ FocusScope {
                     currentIndex: 0
                     onActiveFocusChanged: if (activeFocus) Qt.callLater(root.focusRail)
                     onCurrentIndexChanged: if (currentIndex !== 0) root.switchRequested(1)
-                }
-
-                Row {
-                    id: scope
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    spacing: Theme.stack.inline
-
-                    SegmentedControl {
-                        anchors.verticalCenter: parent.verticalCenter
-                        model: BrowserLogic.SCOPES.map(s => s.label)
-                        currentIndex: root.scopeIndex
-                        // A segment click focuses the control, and a click on the chosen
-                        // segment emits no `activated`, so the control hands the keyboard
-                        // back to the rail whenever it takes it, after the click ends.
-                        onActiveFocusChanged: if (activeFocus) Qt.callLater(root.focusRail)
-                        onActivated: index => {
-                            root.scopeIndex = index;
-                            currentIndex = Qt.binding(() => root.scopeIndex);
-                        }
-                    }
-                    Kbd { anchors.verticalCenter: parent.verticalCenter; text: "Alt+I" }
                 }
             }
         ]
@@ -445,63 +414,13 @@ FocusScope {
                 width: Math.min(layout.contentWidth, Theme.carousel.expandedWidth)
                 spacing: Theme.stack.group
 
-                Column {
+                Label {
+                    role: "h3"
                     width: parent.width
-                    spacing: Theme.stack.row
-
-                    Label {
-                        role: "display"
-                        visible: root.selected !== null
-                        width: parent.width
-                        horizontalAlignment: Text.AlignHCenter
-                        elide: Text.ElideRight
-                        text: root.selected === null ? "" : root.selected.label
-                    }
-
-                    Row {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        spacing: Theme.stack.inline
-                        Badge {
-                            visible: root.selected !== null && root.selected.displayed
-                            text: "Displayed"
-                            tone: "accent"
-                        }
-                        Badge {
-                            visible: root.selected !== null && !root.selected.installed
-                            text: "Not installed"
-                        }
-                        Badge {
-                            visible: root.selected !== null && root.selected.state !== "ok"
-                            text: "Unavailable"
-                            tone: "danger"
-                        }
-                        Badge {
-                            visible: root.selected !== null && root.selected.imagery !== null && !root.selected.imagery.installed
-                            text: root.selected === null || root.selected.imagery === null ? "" : "Wallpapers " + BrowserLogic.sizeText(root.selected.imagery.size)
-                            tone: "info"
-                        }
-                    }
-
-                    Label {
-                        role: "h3"
-                        width: parent.width
-                        horizontalAlignment: Text.AlignHCenter
-                        elide: Text.ElideMiddle
-                        visible: root.filterText !== ""
-                        text: root.filterText
-                    }
-                }
-
-                Row {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    spacing: Theme.control.gap
-                    visible: root.job !== null && root.job.step !== "download"
-                    Spinner { anchors.verticalCenter: parent.verticalCenter }
-                    Label {
-                        role: "item"
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: root.job === null ? "" : (root.job.step === "install" ? "Installing " : "Applying ") + BrowserLogic.label(root.job.name)
-                    }
+                    horizontalAlignment: Text.AlignHCenter
+                    elide: Text.ElideMiddle
+                    visible: root.filterText !== ""
+                    text: root.filterText
                 }
 
                 Repeater {
@@ -520,16 +439,6 @@ FocusScope {
                         color: Theme.color.danger
                         text: modelData
                     }
-                }
-
-                KeyHints {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    hints: [
-                        { key: "Enter", text: "Apply theme" },
-                        { key: "Tab", text: "Themes / Wallpapers" },
-                        { key: "Esc", text: root.filterText === "" ? "Close" : "Clear filter" },
-                        { key: "", text: "Type to search" }
-                    ]
                 }
             }
 

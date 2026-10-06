@@ -5,9 +5,11 @@ import qs.Ui
 import "BrowserLogic.js" as BrowserLogic
 
 // The wallpaper view of the browser: the applied theme's wallpapers, or
-// every package's and the user folder's, as angled cards on a rail, a
-// source control, Theme or All, and with two screens or more a scope
-// control, All monitors or This monitor. Enter or a click on the selected
+// every package's and the user folder's, as angled cards on a rail, one
+// dim source line under it, Show all or Show theme, and with two screens
+// or more a scope control, All monitors or This monitor. At rest the view
+// draws the cards, the tabs and those controls alone: the selection, which
+// opens on the image the scope shows, marks it. Enter or a click on the selected
 // image sets it for the scope: on every screen, each screen's own image
 // cleared, or on the screen the browser shows on. The browser stays open
 // while the set runs, closes once it lands, and shows a line naming the
@@ -20,8 +22,9 @@ import "BrowserLogic.js" as BrowserLogic
 // Keys, BrowserLogic.WALLPAPER_KEYS: Left and Up step back, Right and Down
 // step forward, Home and End go to the first and the last card, Enter sets
 // the selected image or runs the selected card, and Escape asks to close.
-// Tab and Shift+Tab switch the top tabs. Alt+S flips the source, and Alt+M
-// flips the scope while its control shows. An item of the view holds the
+// Tab and Shift+Tab switch the top tabs. Alt+S or a click on the source
+// line flips the source, and Alt+M flips the scope while its control
+// shows. An item of the view holds the
 // keyboard and the rail never takes the focus, so Tab cannot leave the
 // view before the view handles it.
 //
@@ -256,7 +259,7 @@ FocusScope {
             root.downloading = null;
             const line = BrowserLogic.problem(kind, name, result);
             if (line !== "") root.finish(line);
-            else root.reapply(name);
+            else root.reapply(name, kind);
         }, kind === "update" ? { update: true } : undefined);
         if (reply !== "ok") {
             finish(BrowserLogic.reasonText(reply));
@@ -265,8 +268,10 @@ FocusScope {
         downloading = shell.theme.last.downloading;
     }
 
-    function reapply(name) {
-        job = { step: "apply", key: "", name: name };
+    // Apply NAME again after the download card KEY ran, the card's Spinner
+    // turning until the lists are read again.
+    function reapply(name, key) {
+        job = { step: "apply", key: key, name: name };
         const reply = shell.theme.apply(name, result => {
             // The selection follows the image the apply shows.
             root.moved = false;
@@ -301,10 +306,9 @@ FocusScope {
         onTriggered: root.downloading = root.shell.theme.last.downloading
     }
 
-    // One inset box centred on the output, as the theme view's: the tabs,
-    // the source and the scope in the header, the rail in the body, and
-    // the selected card's name and badges, the running step, the failures
-    // and the keys in the footer.
+    // One inset box centred on the output, as the theme view's: the tabs and
+    // the scope in the header, the rail in the body, and the source line, a
+    // download's progress and the failures in the footer.
     Pane {
         id: layout
         anchors.centerIn: parent
@@ -326,46 +330,19 @@ FocusScope {
                     onCurrentIndexChanged: if (currentIndex !== 1) root.switchRequested(-1)
                 }
 
-                Row {
+                // A segment click focuses the control, and a click on the chosen
+                // segment emits no `activated`, so the control hands the keyboard
+                // back to the view whenever it takes it, after the click ends.
+                SegmentedControl {
+                    id: scopeControl
                     anchors.horizontalCenter: parent.horizontalCenter
-                    spacing: Theme.stack.group
-
-                    // A segment click focuses its control, and a click on the chosen
-                    // segment emits no `activated`, so each control hands the keyboard
-                    // back to the view whenever it takes it, after the click ends.
-                    Row {
-                        anchors.verticalCenter: parent.verticalCenter
-                        spacing: Theme.stack.inline
-                        SegmentedControl {
-                            id: sourceControl
-                            anchors.verticalCenter: parent.verticalCenter
-                            model: BrowserLogic.WALLPAPER_SOURCES.map(s => s.label)
-                            currentIndex: root.sourceIndex
-                            onActiveFocusChanged: if (activeFocus) Qt.callLater(root.takeKeys)
-                            onActivated: index => {
-                                root.sourceIndex = index;
-                                currentIndex = Qt.binding(() => root.sourceIndex);
-                            }
-                        }
-                        Kbd { anchors.verticalCenter: parent.verticalCenter; text: "Alt+S" }
-                    }
-
-                    Row {
-                        anchors.verticalCenter: parent.verticalCenter
-                        visible: root.scoped
-                        spacing: Theme.stack.inline
-                        SegmentedControl {
-                            id: scopeControl
-                            anchors.verticalCenter: parent.verticalCenter
-                            model: BrowserLogic.SCREEN_SCOPES.map(s => s.label)
-                            currentIndex: root.scopeIndex
-                            onActiveFocusChanged: if (activeFocus) Qt.callLater(root.takeKeys)
-                            onActivated: index => {
-                                root.chooseScope(index);
-                                currentIndex = Qt.binding(() => root.scopeIndex);
-                            }
-                        }
-                        Kbd { anchors.verticalCenter: parent.verticalCenter; text: "Alt+M" }
+                    visible: root.scoped
+                    model: BrowserLogic.SCREEN_SCOPES.map(s => s.label)
+                    currentIndex: root.scopeIndex
+                    onActiveFocusChanged: if (activeFocus) Qt.callLater(root.takeKeys)
+                    onActivated: index => {
+                        root.chooseScope(index);
+                        currentIndex = Qt.binding(() => root.scopeIndex);
                     }
                 }
             }
@@ -398,19 +375,13 @@ FocusScope {
             }
 
             // No card to show: the lists loading, or no image under the
-            // source, where the applied theme's own empty list offers every
-            // source's images, as Alt+S does.
+            // source, which the source line under the rail flips.
             EmptyState {
                 anchors.centerIn: parent
                 width: Math.min(parent.width, Theme.carousel.expandedWidth)
                 visible: root.cards.length === 0 && root.imagesReason === ""
                 iconName: root.loaded ? "image-off" : ""
                 text: BrowserLogic.wallpaperEmpty(root.loaded, root.source, root.applied)
-                actionText: root.loaded && root.source === "theme" ? "Show all wallpapers" : ""
-                onActivated: {
-                    root.flipSource();
-                    Qt.callLater(root.takeKeys);
-                }
             }
         }
 
@@ -421,48 +392,39 @@ FocusScope {
                 width: Math.min(layout.contentWidth, Theme.carousel.expandedWidth)
                 spacing: Theme.stack.group
 
-                Column {
-                    width: parent.width
-                    spacing: Theme.stack.row
-
-                    Label {
-                        role: "display"
-                        visible: root.selected !== null
-                        width: parent.width
-                        horizontalAlignment: Text.AlignHCenter
-                        elide: Text.ElideMiddle
-                        text: root.selected === null ? "" : root.selected.label
-                    }
+                // The source line names the source a click shows, its eye
+                // open while it offers every image and shut while it offers
+                // the theme's alone. A MouseArea takes no focus, so the view
+                // keeps the keyboard.
+                // keyboard-path: Alt+S flips the source as a click does
+                MouseArea {
+                    id: sourceLine
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: sourceRow.implicitWidth
+                    height: sourceRow.implicitHeight
+                    hoverEnabled: true
+                    Accessible.role: Accessible.Button
+                    Accessible.name: sourceText.text
+                    onClicked: root.flipSource()
+                    PointerCursor {}
 
                     Row {
-                        anchors.horizontalCenter: parent.horizontalCenter
+                        id: sourceRow
                         spacing: Theme.stack.inline
-                        Badge {
-                            visible: root.selected !== null && root.selected.kind === "image" && root.selected.path === root.shownPath
-                            text: "Shown"
-                            tone: "accent"
-                        }
-                        Badge {
-                            visible: root.selected !== null && (root.source === "all" || root.selected.kind !== "image")
-                            text: root.selected === null ? "" : root.selected.sourceLabel
-                        }
-                        Badge {
-                            visible: root.selected !== null && root.selected.kind !== "image"
-                            text: root.selected === null || root.selected.kind === "image" ? "" : BrowserLogic.sizeText(root.selected.size)
-                            tone: "info"
-                        }
-                    }
-                }
 
-                Row {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    spacing: Theme.control.gap
-                    visible: root.job !== null && (root.job.step === "set" || root.job.step === "apply")
-                    Spinner { anchors.verticalCenter: parent.verticalCenter }
-                    Label {
-                        role: "item"
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: root.job === null ? "" : root.job.step === "set" ? "Setting " + root.job.name : "Applying " + BrowserLogic.label(root.job.name)
+                        Icon {
+                            anchors.verticalCenter: parent.verticalCenter
+                            name: BrowserLogic.WALLPAPER_SOURCES[root.sourceIndex].icon
+                            size: Theme.icon.size.sm
+                            color: sourceText.color
+                        }
+                        Label {
+                            id: sourceText
+                            anchors.verticalCenter: parent.verticalCenter
+                            role: "itemHint"
+                            text: BrowserLogic.WALLPAPER_SOURCES[root.sourceIndex].switchLabel
+                            color: sourceLine.containsMouse ? Theme.color.textMuted : Theme.color.textFaint
+                        }
                     }
                 }
 
@@ -499,15 +461,6 @@ FocusScope {
                         color: Theme.color.danger
                         text: modelData
                     }
-                }
-
-                KeyHints {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    hints: [
-                        { key: "Enter", text: root.selected === null || root.selected.kind === "image" ? "Set wallpaper" : root.selected.kind === "download" ? "Download wallpapers" : "Update wallpapers" },
-                        { key: "Tab", text: "Themes / Wallpapers" },
-                        { key: "Esc", text: "Close" }
-                    ]
                 }
             }
 

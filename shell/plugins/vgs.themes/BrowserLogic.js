@@ -23,12 +23,6 @@ var VIEWS = [
 ];
 var PAYLOAD_KEYS = ["view"];
 
-// The two choices of the scope control, in its order.
-var SCOPES = [
-    { scope: "all", label: "All" },
-    { scope: "installed", label: "Installed" }
-];
-
 // How often the browser reads `last.downloading` while a download it
 // started runs: the capability's `last` is a getter no binding follows.
 var PROGRESS_POLL_MS = 250;
@@ -159,11 +153,10 @@ function matches(card, text) {
     return needle === "" || card.name.toLowerCase().indexOf(needle) !== -1 || card.label.toLowerCase().indexOf(needle) !== -1;
 }
 
-// The cards the rail shows: those in SCOPE, `all` or `installed`, that
-// match the filter TEXT.
-function shown(list, text, scope) {
-    if (scope !== "all" && scope !== "installed") throw new Error("scope=" + JSON.stringify(scope) + " want=all|installed");
-    return list.filter(function (card) { return (scope === "all" || card.installed) && matches(card, text); });
+// The cards the rail shows: every theme, installed or not, that matches
+// the filter TEXT.
+function shown(list, text) {
+    return list.filter(function (card) { return matches(card, text); });
 }
 
 // The identity of CARD on the rail: everything its content draws. The
@@ -279,11 +272,13 @@ function progressValue(downloading) {
     return Math.min(1, downloading.bytes / downloading.total);
 }
 
-// The wallpaper view's sources, in its source control's order: the
-// applied package's images, or every package's and the user folder's.
+// The wallpaper view's sources, in the order its source line flips them:
+// the applied package's images, or every package's and the user folder's.
+// `switchLabel` and `icon` are what the line draws while the source is
+// shown, naming the other one.
 var WALLPAPER_SOURCES = [
-    { source: "theme", label: "Theme" },
-    { source: "all", label: "All" }
+    { source: "theme", switchLabel: "Show all", icon: "eye" },
+    { source: "all", switchLabel: "Show theme", icon: "eye-off" }
 ];
 
 // The wallpaper view's monitor scopes, in its scope control's order; the
@@ -298,14 +293,9 @@ var SCREEN_SCOPES = [
 // and clears each screen's own: docs/architecture/theme-capability.md.
 var EVERY_SCREEN = "*";
 
-// How the wallpaper view names an image of the user folder, which belongs
-// to no package.
-var USER_FOLDER_LABEL = "User folder";
-
 // Letter key codes the browsers read (Qt::Key in qnamespace.h). The
 // standard navigation keys come from qs.Ui KeyNavLogic.
 var KEY = {
-    I: 0x49,
     M: 0x4d,
     S: 0x53,
     W: 0x57
@@ -326,14 +316,13 @@ function tabAction(key, shift, control, alt, meta) {
     return "";
 }
 
-// The theme browser's control keys. Letter shortcuts use Alt so they never
-// collide with type-to-filter.
+// The theme browser's control keys. No Alt key acts, so a letter typed
+// with Alt neither filters nor runs anything.
 function themeAction(key, shift, control, alt, meta) {
     if (meta) return "";
     const tab = tabAction(key, shift, control, alt, meta);
     if (tab !== "") return tab;
-    if (control) return "";
-    if (alt) return key === KEY.I ? "scope" : "";
+    if (control || alt) return "";
     const K = Ui.KeyNavLogic.KEY;
     switch (key) {
     case K.Left:
@@ -449,11 +438,10 @@ function wallpaperOffer(entries, name) {
 // then its download or update card; `all` is every image, packages first
 // and the user folder last.
 //
-// An image card is { kind: "image", key, path, background, theme, label,
-// sourceLabel }: `key` its path, `label` its file name, `sourceLabel` its
-// package's label or USER_FOLDER_LABEL. The offer card is { kind, key,
-// path: null, background: null, theme, label, sourceLabel, size }: `kind`
-// and `key` `download` or `update`, `size` the archive's bytes.
+// An image card is { kind: "image", key, path, background, theme }: `key`
+// its path. The offer card is { kind, key, path: null, background: null,
+// theme, label }: `kind` and `key` `download` or `update`, `label` the
+// line the card draws under its icon.
 function wallpaperCards(images, entries, applied, source) {
     if (source !== "theme" && source !== "all") throw new Error("source=" + JSON.stringify(source) + " want=theme|all");
     var card = function (image) {
@@ -462,9 +450,7 @@ function wallpaperCards(images, entries, applied, source) {
             key: image.path,
             path: image.path,
             background: image.background,
-            theme: image.theme,
-            label: image.background,
-            sourceLabel: image.theme === null ? USER_FOLDER_LABEL : label(image.theme)
+            theme: image.theme
         };
     };
     if (source === "all") {
@@ -475,16 +461,13 @@ function wallpaperCards(images, entries, applied, source) {
     var out = images.filter(function (i) { return i.theme === applied; }).map(card);
     var offer = wallpaperOffer(entries, applied);
     if (offer !== null) {
-        var entry = entries.filter(function (e) { return e.name === applied; })[0];
         out.push({
             kind: offer,
             key: offer,
             path: null,
             background: null,
             theme: applied,
-            label: (offer === "download" ? "Download" : "Update") + " the wallpapers",
-            sourceLabel: label(applied),
-            size: entry.imagery.size
+            label: (offer === "download" ? "Download" : "Update") + " the wallpapers"
         });
     }
     return out;
