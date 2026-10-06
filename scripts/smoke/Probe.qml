@@ -372,10 +372,6 @@ Scope {
             try {
                 if (child.visualFocus === true && ("focusReason" in child))
                     child.focusReason = Qt.OtherFocusReason;
-                if (child.focusPreview === true)
-                    child.focusPreview = false;
-                if (root.typeName(child) === "FocusRing" && child.visible === true)
-                    child.visible = false;
             } catch (e) {}
         }
     }

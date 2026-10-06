@@ -130,9 +130,7 @@
 # network or desktop, and disables it again.
 # --hidden refuses every shot not taken with the nested window hidden on
 # the host (SHOT_WINDOW_REQUIRE in scripts/smoke/shot.sh), so a run that
-# exits 0 proves each shot's frame arrived while the window was not shown.
-# A host that lists no window for the nested compositor's pid also is not
-# showing it, so this runner records that as hidden only under --hidden.
+# exits 0 proves each shot's frame arrived while the window was hidden.
 #
 # PNGs go to DIR, which must lie under this checkout's tmp/; the default is
 # tmp/sandbox-shots/<UTC time>[-REV][-x2]. shots.tsv beside them lists each shot
@@ -411,11 +409,7 @@ ok "grim captures only $SHOT_SOCKET"
 # taken: the one read this runner makes of the host compositor.
 source "$checkout/scripts/smoke/host-window.sh"
 source "$checkout/scripts/smoke/webapps-browsers.sh"
-nested_window_state() {
-  local state
-  state="$(host_window_state "$compositor_pid")" || return
-  if [[ $require_window == hidden && $state == absent ]]; then echo hidden; else echo "$state"; fi
-}
+nested_window_state() { host_window_state "$compositor_pid"; }
 SHOT_WINDOW_READER=nested_window_state
 SHOT_WINDOW_REQUIRE="$require_window"
 # Hyprland's own notice that it was not started through start-hyprland
@@ -1192,7 +1186,7 @@ EOF
   # corner's curve.
   park_pointer
   if half="$(ipc smoke themeValue menu.item.height)" && [[ $half =~ ^[0-9]+$ ]]; then
-    if [[ $(ipc smoke scrollMenu "$settings_kind" vgs.settings "$((half / 2))") == "$((half / 2))" ]]; then ok "the title's menu scrolls its highlight half past the top"; else ok "the title menu's scrolled highlight is skipped"; fi
+    expect "the title's menu scrolls its highlight half past the top" "$((half / 2))" ipc smoke scrollMenu "$settings_kind" vgs.settings "$((half / 2))"
     take_posed "settings-$1-menu-scrolled"
   else
     fail "the title's menu entry height is unreadable: ${half:-}"
@@ -1223,7 +1217,7 @@ EOF
   else
     fail "the notifications' Slack section is unreadable: $section"
   fi
-  if "$has_setup_steps" && [[ ${README_SHOTS:-} != 1 ]]; then scene_setup_steps "$1"; fi
+  if "$has_setup_steps"; then scene_setup_steps "$1"; fi
   settings_close
   # The monitor made narrower than the window (narrow_begin): the gear
   # opens the window on its bar's monitor, the list first and then a page.
@@ -1857,15 +1851,11 @@ scene_themes_panel() { # MODE
   themes_stand_in || fail "the themes panel's stand-in runner could not be written"
   click_in vgs:panel panel vgs.themes ListItem vgs || fail "the click on the themes panel's vgs row failed"
   expect_poll "the themes panel shows the held apply" applying themes_panel_last
-  if [[ ${README_SHOTS:-} != 1 ]]; then
-    park_pointer
-    take "panels-$1-themes-applying"
-  else
-    ok "the themes panel's applying shot is not a README image"
-  fi
+  park_pointer
+  take "panels-$1-themes-applying"
   touch -- "$themes_gate"
   expect_poll "the themes panel shows the partial result" result themes_panel_last
-  ok "the themes panel's partial result is not a README image"
+  take "panels-$1-themes-failure"
   mv -T -- "$repo/bin/vgshell.real" "$repo/bin/vgshell" || fail "the real runner could not be restored"
   rm -f -- "$themes_gate"
   expect "the themes panel hides" ok ipc shell hide panel vgs.themes
@@ -1886,7 +1876,7 @@ scene_devtools() { # MODE
   take "devtools-$1-top"
   # The VGS row's Details button: the sandbox's install method is always
   # unknown, so it shows on the first page whatever the other scenes set up.
-  ok "the Dev Tools hover shot is not a README image"
+  hover_on "the pointer rests on the VGS row's $devtools_hover button" window vgs.devtools Button "$devtools_hover" "window:Dev Tools" && take_posed "devtools-$1-hover"
   park_pointer
   while (( page <= 4 )); do
     at="$(ipc smoke scrollTo window vgs.devtools "$y")" || at=""
@@ -2040,7 +2030,7 @@ scene_bluetooth() { # MODE
   expect "enabling vgs.bluetooth for its shot is allowed" ok ipc shell setPluginEnabled vgs.bluetooth true
   expect "enabling vgs.system for the Bluetooth shot is allowed" ok ipc shell setPluginEnabled vgs.system true
   expect "the Bluetooth section summons" ok ipc shell summon window vgs.system '{"pane":"vgs.bluetooth"}'
-  if [[ $(bluetooth_nearby) == 1 ]]; then ok "the Bluetooth section lists the nearby keyboard"; else ok "the Bluetooth section image proceeds without the nearby keyboard count"; fi
+  expect_poll "the Bluetooth section lists the nearby keyboard" 1 bluetooth_nearby
   park_pointer
   take "bluetooth-$1"
   expect "the System window hides" ok ipc shell hide window vgs.system
@@ -2327,15 +2317,18 @@ scene_automations() { # MODE
   click_in window:Automations window vgs.automations AutomationRow "Shot success" || fail "selecting the success automation failed"
   auto_shot_preview_ready() { ipc smoke readInstance window vgs.automations previewFirst | py_reply 'import json,sys; print(str(json.load(sys.stdin)).isdigit())'; }
   expect_poll "the preset preview has a first occurrence" True auto_shot_preview_ready
+  expect "the Automations window's root takes the focus for the preset image" focused ipc smoke invokeInstance window vgs.automations focusInstance ""
   take "automations-$1-editor-preset-next"
   automation_click Button "Test run" || fail "starting a test run from the editor failed"
   expect_poll "the editor test run reaches history" 1 automation_history_count shot-success
   auto_shot_transcript_ready() { ipc smoke readInstance window vgs.automations testTranscript | py_reply 'import json,sys; print(json.load(sys.stdin) != "")'; }
   expect_poll "the editor shows the test run transcript" True auto_shot_transcript_ready
-  take_posed "automations-$1-test-run-transcript"
+  expect "the Automations window's root takes the focus for the transcript image" focused ipc smoke invokeInstance window vgs.automations focusInstance ""
+  take "automations-$1-test-run-transcript"
   automation_click IconButton "Back to automations" || fail "returning to the automations list failed"
   click_in window:Automations window vgs.automations AutomationRow "Shot custom" || fail "selecting the custom automation failed"
   expect_poll "the custom preview has a first occurrence" True auto_shot_preview_ready
+  expect "the Automations window's root takes the focus for the custom image" focused ipc smoke invokeInstance window vgs.automations focusInstance ""
   take "automations-$1-editor-custom-next"
   automation_click Radio On || fail "showing the end date field failed"
   ipc smoke revealScopedText window vgs.automations Field Ends IconButton "Pick date" >/dev/null || fail "revealing the end date's picker failed"

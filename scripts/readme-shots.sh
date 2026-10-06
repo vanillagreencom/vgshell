@@ -129,7 +129,7 @@ if [[ -z $from ]]; then
   done
   from="$repo/tmp/readme-shots/$(date -u +%Y%m%dT%H%M%SZ)"
   status=0
-  README_SHOTS=1 "$repo/scripts/sandbox-shots.sh" "${SHOTS_ARGS[@]}" --out "$from" "${scenes[@]}" || status=$?
+  "$repo/scripts/sandbox-shots.sh" "${SHOTS_ARGS[@]}" --out "$from" "${scenes[@]}" || status=$?
   [[ $status -eq 0 ]] || exit "$status"
 fi
 [[ -d $from && -f $from/shots.tsv && -f $from/00-desktop.png ]] || stop from "$from"
