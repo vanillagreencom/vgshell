@@ -15,8 +15,8 @@ import "PluginLogic.js" as Logic
 // reply; this runs the reads while `active` and holds the last answers.
 // Hyprland posts `configreloaded` after each reload and `activelayout` when
 // a keyboard comes, goes or switches layout, but nothing when a pointer
-// comes or goes, so a change in /dev/input also reads the devices again
-// (docs/architecture/runtime-hyprland.md). A failed read is logged
+// comes or goes, so a change in /dev/input also reads the devices again.
+// A failed read is logged
 // and returns that member to null.
 Scope {
     id: root

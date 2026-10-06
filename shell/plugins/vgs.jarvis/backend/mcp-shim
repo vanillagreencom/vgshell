@@ -6,7 +6,7 @@
 // Exit 0: stdin EOF. 1: the daemon refused the hello. 64: a variable is
 // missing. 69: the socket is unavailable or the connection dropped. 74: stdout
 // failed. Every nonzero exit writes one keyed stderr line, "mcp-shim: key=value".
-// Contract: docs/architecture/jarvis-adapters.md.
+// Contract: docs/architecture/jarvis.md § Adapters.
 "use strict";
 const net = require("node:net");
 

@@ -1038,7 +1038,7 @@ function failureLine(rec) {
 
 // The notification a run event sends, or null when it sends none: an error
 // always, the start and a success only under notifyEveryRun. Each carries
-// the VGS hints docs/architecture/notification-hints.md states: a Lucide
+// the VGS hints vgs.notifications reads (its developer.md § Hints): a Lucide
 // icon, a design-system status tone, the transcript to open and what a
 // click does. `event` is start (with the started record) or end (with the
 // ended one).

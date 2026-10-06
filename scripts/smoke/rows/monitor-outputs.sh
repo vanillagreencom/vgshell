@@ -4,8 +4,7 @@
 # answers hyprctl. The capability hands a plugin `outputs` and nothing
 # else. The row reads the Hyprland layer before any saved display rule and
 # finds no `hl.monitor` call (docs/architecture/hyprland.md). The row runs on the first nested
-# output alone, WAYLAND-1, which takes any mode and lists none
-# (docs/architecture/runtime-hyprland.md).
+# output alone, WAYLAND-1, which takes any mode and lists none.
 #
 # The change the fixture must follow is the harness's own: hold_mode gives
 # the output double its sized mode at scale 2, as rows/hidpi.sh holds it,
@@ -13,7 +12,7 @@
 # file, so the held mode stands, and posts `configreloaded`, the event the
 # core reads the outputs again on. The readings under the
 # hold count as a mode reset when the host moved the output off it
-# (validation-smoke-faults.md). At the end the row gives the output its own
+# (docs/architecture/validation.md § Faults). At the end the row gives the output its own
 # mode at scale 1 again, puts shell.json back and disables the fixture.
 #
 # No latency is budgeted: each reading polls through expect_poll every

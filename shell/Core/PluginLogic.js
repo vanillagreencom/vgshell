@@ -993,9 +993,8 @@ function launcherRowFits(item) {
 }
 
 // A deep-frozen copy of plain JSON, so the writer cannot reach a published
-// value. The QML engine lets a frozen array be written in place
-// (docs/architecture/runtime-qml.md), so PluginStatus hands each reader a
-// copy of its own.
+// value. The QML engine lets a frozen array be written in place, so
+// PluginStatus hands each reader a copy of its own.
 function frozenJson(value) {
     var copy = JSON.parse(JSON.stringify(value));
     var freeze = function (node) {
@@ -1831,7 +1830,7 @@ function requirementRows(manifest, missing) {
 }
 
 // The requirement notice, shell/Core/Notices.qml
-// (requirement-notice.md). At most NOTICE_QUEUE_MAX plugins hold a notice at once, the
+// (docs/architecture/commands-are-data.md § Consent). At most NOTICE_QUEUE_MAX plugins hold a notice at once, the
 // first shown and the rest waiting. After the user answers a plugin's
 // notice Not now, the plugin's own offers are refused for
 // NOTICE_OFFER_REST_MS; the install and enable triggers are the user's own

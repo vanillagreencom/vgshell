@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Enforce the stand-in terminal rule docs/architecture/validation-smoke-host.md
-states.
+"""Enforce the stand-in terminal rule docs/architecture/validation.md
+§ Host safety states.
 
 The nested sandbox shares the host's files, PAM and sudo timestamp, so the
 stand-in xdg-terminal-exec in the shell's own PATH directory runs no plugin

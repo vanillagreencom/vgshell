@@ -15,7 +15,7 @@ Both take `--dry-run`, which makes every check and changes nothing outside `dist
 
 ## Versions
 
-- `VERSION` holds the release's SemVer version, and the tag is `v` followed by it: [distribution.md § Version](architecture/distribution.md).
+- `VERSION` holds the release's SemVer version, and the tag is `v` followed by it: [distribution.md § Version](architecture/distribution.md#version).
 - While VGS is at 0.x, a minor bump marks a breaking change to `shell.json`, the plugin API, the manifest or the theme package format. A patch bump marks fixes only.
 - Plugin manifest versions change independently of `VERSION`.
 - The archive name carries no architecture.
@@ -122,4 +122,4 @@ podman run --rm -e NIX_CONFIG='experimental-features = nix-command flakes' docke
   nix run github:vanillagreencom/vgshell/vX.Y.Z -- --version
 ```
 
-Packaged installs print `vgshell X.Y.Z`; checkout installs report `X.Y.Z` in `version --json` and print that report's `describe` value when present. Then run `vgshell run` from each install inside the nested sandbox: [validation-smoke.md](architecture/validation-smoke.md).
+Packaged installs print `vgshell X.Y.Z`; checkout installs report `X.Y.Z` in `version --json` and print that report's `describe` value when present. Then run `vgshell run` from each install inside the nested sandbox: [validation.md](architecture/validation.md#nested-sandbox).

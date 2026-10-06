@@ -118,7 +118,8 @@
 # record, 3 when the run is gone (`wait=<key> run=<run> reason=gone`), which
 # the shell reads as a normal end of a run it already saw end and as a
 # failure otherwise, 1 on any other refused wait (`wait=<key> run=<run>`),
-# and 2 on a bad invocation. docs/architecture/tui.md.
+# and 2 on a bad invocation. docs/architecture/commands-are-data.md
+# § Floating TUIs.
 set -euo pipefail
 
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"

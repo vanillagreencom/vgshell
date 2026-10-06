@@ -3,8 +3,7 @@ import QtQuick
 // Stands in for Quickshell.Io's FileView, whose plugin does not load outside
 // the shell. It arms an initial read and watcher when a path is assigned, so
 // a test can create a view and then set its path as production QML does. It
-// has the behaviours WatchedFile rests on
-// (docs/architecture/runtime-qml.md): a reload while the view's read is
+// has the Quickshell 0.3.1 behaviours WatchedFile rests on: a reload while the view's read is
 // outstanding, a result handler included, starts nothing; a reload of a
 // watching view builds its watcher again; and a view that blocks on its
 // writes takes the bytes, drops an outstanding read unreported and reports

@@ -4,18 +4,24 @@ import "TouchpadScrollLogic.js" as Logic
 // The one touchpad scroll of every view: a Flickable, a ListView or a
 // GridView declares it and hands itself as `view`. A two-finger swipe then
 // moves the view as far as it moves a GTK list, and the view coasts once
-// the fingers lift. Qt's own Flickable moves one pixel per pixel of delta
-// and never coasts, which crawls under a compositor that scales touchpad
-// deltas down for the toolkits that multiply them
-// (docs/architecture/runtime-pointer.md). ScrollArea declares it; a view a
-// control or a plugin declares itself declares it too.
+// the fingers lift. Qt Wayland turns a finger-source wl_pointer.axis into
+// a wheel event in the ScrollUpdate phase whose pixelDelta is the axis
+// length, and Qt's own Flickable moves one pixel per pixel of it and never
+// coasts (QQuickFlickable::wheelEvent, qtdeclarative 6.11), which crawls
+// under a compositor that scales touchpad deltas down for the toolkits that
+// multiply them, as Hyprland's input.touchpad.scroll_factor does; a window
+// rule's scroll_touchpad reaches no layer surface. ScrollArea declares it;
+// a view a control or a plugin declares itself declares it too.
 //
 // It makes itself an item of the view's content, which a list view's
 // declaration alone does not, covers the part in view under every other
-// item of the content, and takes no button and no hover: Qt
-// hands a wheel event to the items of the content first, then to this one,
-// then to the view (docs/architecture/runtime-pointer.md). It takes a
-// swipe's deltas, which come in the update phase, and leaves every other
+// item of the content, and takes no button and no hover: Qt hands a wheel
+// event to the items under the pointer in reverse paint order, and an item
+// stands among its children at z 0, so a child of the content at negative z
+// reads it after the content's other items and before the view
+// (QQuickDeliveryAgentPrivate::eventTargets, qtdeclarative 6.11). A
+// MouseArea, unlike a blocking WheelHandler, can leave one event to the
+// view by not accepting it. It takes a swipe's deltas, which come in the update phase, and leaves every other
 // wheel event to the view: a mouse wheel's, whose step stays Qt's, and a
 // swipe's begin and end, which press and release the view. It takes a
 // delta only while the view is interactive and has content past its size

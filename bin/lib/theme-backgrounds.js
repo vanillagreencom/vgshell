@@ -17,7 +17,7 @@
 // no screen image (D039). An absent file is no current image, nothing
 // remembered and no screen image; a state that is all three is written as
 // no file. The judge is this file's only writer:
-// docs/architecture/theme-backgrounds.md.
+// docs/architecture/themes.md § Backgrounds.
 "use strict";
 const fs = require("fs");
 const path = require("path");

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Enforce the smoke reader rule docs/architecture/validation-smoke.md
-states.
+"""Enforce the smoke reader rule docs/architecture/validation.md
+§ Nested sandbox states.
 
 A smoke row reads the shell through the probe or the compositor and parses
 the answer with an inline Python program. The probe answers a state word,

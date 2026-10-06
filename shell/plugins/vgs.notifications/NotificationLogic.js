@@ -419,7 +419,7 @@ function slackTokenStates(text) {
 }
 
 // A status item's label is one printable line of at most this many
-// characters (docs/architecture/status.md § Declared), counted as the
+// characters (PluginLogic.STATUS_LABEL_MAX), counted as the
 // judge counts them, in UTF-16 code units.
 var SLACK_LABEL_MAX = 60;
 
@@ -896,7 +896,7 @@ function lifetimeFor(urgency, expireTimeout, normal) {
 // -------------------------------------------------------------- hints
 
 // The VGS hints any sender may add, each a string hint, and the roles an
-// entry keeps them in (docs/architecture/notification-hints.md):
+// entry keeps them in (developer.md § Hints):
 //   x-vgs-icon   a Lucide icon name the card draws in its left slot
 //   x-vgs-tone   the design-system status tone the icon draws in
 //   x-vgs-open   an absolute path a click opens in the user's editor

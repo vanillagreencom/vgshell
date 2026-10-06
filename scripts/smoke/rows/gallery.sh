@@ -68,9 +68,10 @@ expect_poll "Tab reaches the current device's overflow" True device_focus_is Ico
 type_keys -k Tab || fail "tabbing past the device row failed"
 expect_poll "Tab skips an unselected device row and reaches its action" True device_focus_is Button Mouse
 
-# Pointer scrolling (components.md) on a plain Flickable a plugin declares,
-# the gallery's slim list, brought into the window first: a mouse drag
-# leaves it where it was and a wheel notch scrolls it. The control gives the
+# Pointer scrolling (design-system.md § Pointer) on a plain Flickable a
+# plugin declares, the gallery's slim list, brought into the window first:
+# a mouse drag leaves it where it was and a wheel notch scrolls it. The
+# control gives the
 # list Qt's left-button drag back through the probe, and the same drag then
 # scrolls it. The Tab tour below reads the window's keyboard reveal after.
 slim_revealed() { [[ $(ipc smoke revealText window vgs.gallery ListItem "Slim 1") =~ ^[0-9.]+$ ]] && echo revealed; }
@@ -83,8 +84,9 @@ expect "a wheel notch on the slim list scrolls it" moved view_pointer "window:VG
 expect "control: the probe gives the slim list Qt's left-button drag" 0 ipc smoke setViewButtons window vgs.gallery "Slim 1" 1
 expect "control: the same drag then scrolls the slim list" moved view_pointer "window:VGS Components" window vgs.gallery "Slim 1" drag
 expect "the slim list takes no mouse button again" 1 ipc smoke setViewButtons window vgs.gallery "Slim 1" 0
-# Touchpad scrolling (components.md) of a view inside a view: a two-finger
-# swipe of 10 px of axis length over the slim list moves it as far as GTK
+# Touchpad scrolling (design-system.md § Pointer) of a view inside a view:
+# a two-finger swipe of 10 px of axis length over the slim list moves it
+# as far as GTK
 # moves a list and leaves the page that holds it where it was, to the
 # pixel: a swipe's begin and end reach the page too, and Qt rounds a view's
 # position there. The control turns the list's touchpad scroll off through
@@ -105,8 +107,9 @@ expect "a two-finger swipe on the slim list moves it alone, as far as a GTK list
 expect "control: the probe turns the slim list's touchpad scroll off" true ipc smoke setViewTouchpad window vgs.gallery "Slim 1" false
 expect "control: the same swipe then moves the slim list one pixel per pixel" as-qt slim_swipe
 expect "the slim list's touchpad scroll is on again" false ipc smoke setViewTouchpad window vgs.gallery "Slim 1" true
-# A swipe across a view goes to the view under it (components.md): the same
-# swipe with the pointer over a tab strip, a list view that fits and stays
+# A swipe across a view goes to the view under it (design-system.md
+# § Pointer): the same swipe with the pointer over a tab strip, a list
+# view that fits and stays
 # interactive, scrolls the page that holds the strip. The pointer lies at
 # the strip's right end, past its tabs, so it leaves the arrow for the
 # cursor rows below. The slim list's swipe above is its control: a view

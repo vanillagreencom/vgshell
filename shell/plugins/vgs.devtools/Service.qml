@@ -39,7 +39,7 @@ Item {
     // The writeLaunchers setting and the plugin's TUI state as bindings,
     // for their change handlers. A handler of `shell` reads the new object
     // itself: these bindings may not have followed it yet when that handler
-    // runs (docs/architecture/runtime-qml.md).
+    // runs.
     readonly property bool writeLaunchers: shell !== null && shell.settings.writeLaunchers === true
     readonly property bool showInLauncher: shell !== null && shell.settings.showInLauncher !== false
     readonly property var tuiState: shell === null ? null : shell.tui.state

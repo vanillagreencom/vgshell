@@ -39,6 +39,9 @@ Flickable {
     contentHeight: measuredContentHeight
     boundsBehavior: Flickable.StopAtBounds
     interactive: overflowing
+    // No mouse drag (Qt 6.9's Flickable.acceptedButtons): a press goes to
+    // the child under the pointer, so a drag selects a text field's text,
+    // while a touch still drags and the wheel still scrolls.
     acceptedButtons: Qt.NoButton
 
     function measureContentHeight() {

@@ -29,8 +29,7 @@
 # alt-only control at scale 1, so the scale-2 row adds no second control.
 # The row starts its own shell because a scale change under a running
 # shell does not reach it: the screen reports no devicePixelRatio change,
-# and a window that exists keeps drawing at the old ratio
-# (docs/architecture/runtime-qml.md). It stops the shell
+# and a window that exists keeps drawing at the old ratio. It stops the shell
 # rows/notices-control.sh left running, starts the sandbox's tree over the
 # default set, every first-party plugin enabled (harness.sh's
 # default_set_prepare), stops that shell and gives the monitor its own

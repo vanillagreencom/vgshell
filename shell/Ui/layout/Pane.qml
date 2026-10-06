@@ -22,7 +22,7 @@ import qs.Ui
 // a gear at the header's end that opens that page, and the header takes
 // `headerWidth`, which leaves the gear its room. `padding`
 // and `cornerRadius` default to the container class's tokens; a plugin that
-// owns its look (appearance.md) hands its own. The `overlay` class is a
+// owns its look (design-system.md § Appearance) hands its own. The `overlay` class is a
 // full-screen surface over a scrim, which draws no container and so has
 // no corner for its content to clear. The viewport reaches the
 // focus ring's room past the content's left, top and bottom edges, so a

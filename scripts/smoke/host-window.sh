@@ -4,7 +4,7 @@
 # The nested Hyprland is one xdg toplevel of the host, class aquamarine,
 # owned by the nested compositor's process. The host sends that window frame
 # callbacks only while it draws it, unless a host rule gives it
-# render_unfocused (docs/architecture/runtime-hyprland.md). A shot
+# render_unfocused. A shot
 # records this state so its evidence says whether the nested window was
 # hidden when it was taken.
 #
@@ -16,8 +16,7 @@
 # host_window_state PID: one word for the host window PID owns.
 #   shown       visible on a workspace a host monitor shows, special or not
 #   hidden      on a workspace no host monitor shows, or not visible there,
-#               as a background group tab is (`visible: false`,
-#               docs/architecture/runtime-hyprland.md)
+#               as a background group tab is (`visible: false`)
 #   absent      the host lists no window of PID
 #   unreadable  no host instance in the environment, a read failed or a
 #               reply is not the JSON the reads expect; returns 1

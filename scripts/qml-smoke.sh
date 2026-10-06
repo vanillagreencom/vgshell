@@ -63,8 +63,8 @@
 # runs of this script on the owner's machine (host cachy, AMD Ryzen 9
 # 9950X) on 2026-10-02, at load average 5 to 12, on one nested monitor:
 # 576964 to 587008 KiB over main at 7bb195940, each the run's first shell
-# read at its first stop. docs/architecture/validation-latency.md holds the
-# readings. Each reading prints its high-water mark beside it.
+# read at its first stop: docs/architecture/validation.md § Latency budgets.
+# Each reading prints its high-water mark beside it.
 #
 # VGSHELL_SMOKE_FIRST_BAR_BUDGET_MS: ceiling on the time from the runner's exec
 # to the first bar surface with a client in the compositor's layer list,

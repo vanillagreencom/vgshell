@@ -33,7 +33,7 @@ Scope {
 
     // The directory bin/vgshell-tui writes the records in. `bin/vgshell run`
     // creates it before the shell starts: FolderListModel lists the working
-    // directory for a folder that is absent (runtime-qml-folders.md).
+    // directory for a folder that is absent.
     readonly property string recordDir: Quickshell.env("XDG_RUNTIME_DIR") + "/vgshell/tui"
     // The core's bin/ beside the shell directory, where a core TUI's command
     // lives: the shell's PATH need not hold it.
@@ -159,7 +159,7 @@ Scope {
         process.key = launch.key;
         process.run = launch.run;
         // Assigned after creation: a list handed to createObject crosses a
-        // QVariant conversion (runtime-qml.md).
+        // QVariant conversion.
         process.command = [root.coreBin + "/vgshell-tui"].concat(launch.argv);
         if (done !== undefined) wait(ctx, launch.run, done);
         pending = pending.concat([{ key: launch.key, run: launch.run }]);
@@ -202,7 +202,7 @@ Scope {
     // looked for among the dead once: a presenter killed outright leaves a
     // running record that only `vgshell-tui reap` ends. The windows come
     // from Hyprland's reply: Quickshell's Hyprland.toplevels can keep a
-    // closed window (docs/architecture/runtime-hyprland.md).
+    // closed window.
     function focus(key) {
         const slot = Object.prototype.hasOwnProperty.call(recordStore.runs.keys, key) ? recordStore.runs.keys[key] : null;
         if (slot === null || slot.running === null) return;
@@ -281,7 +281,7 @@ Scope {
     }
 
     // A command that fails to start emits only runningChanged, so the end
-    // is read there: no exit recorded is a failed start (runtime-qml.md).
+    // is read there: no exit recorded is a failed start.
     Process {
         id: prober
         property var completion: null

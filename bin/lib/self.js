@@ -32,7 +32,7 @@
 //
 // Every refusal is one line on stderr, `vgshell: refused: <key>=<value>`,
 // through bin/lib/judge-files.js, exit 1; a bad invocation exits 2.
-// docs/architecture/distribution-methods.md.
+// docs/architecture/distribution.md § Installation ownership.
 "use strict";
 const childProcess = require("child_process");
 const crypto = require("crypto");

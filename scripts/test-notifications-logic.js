@@ -89,7 +89,7 @@ const STATE_REFUSED = [
 ];
 
 // The VGS hints: [label, hints map, the roles an entry keeps, the names
-// refused, what a click does]. docs/architecture/notification-hints.md.
+// refused, what a click does]. shell/plugins/vgs.notifications/developer.md § Hints.
 const NO_HINTS = { hintIcon: "", hintTone: "", hintOpen: "", hintClick: "" };
 const HINT_ROWS = [
     ["no hints", {}, NO_HINTS, [], "default"],

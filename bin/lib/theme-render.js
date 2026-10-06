@@ -6,7 +6,7 @@
 // LOGIC is the shell's theme judge, shell/Commons/ThemeLogic.js, and TOKENS
 // its token table, both loaded by the caller through bin/lib/qml-library.js,
 // so a token path and a terminal slot name mean here what they mean to the
-// shell. docs/architecture/theme-targets.md holds the rules.
+// shell. docs/architecture/themes.md § Targets holds the rules.
 //
 // A refusal is { ok: false, reason, detail }; `refusalLine` prints it.
 "use strict";

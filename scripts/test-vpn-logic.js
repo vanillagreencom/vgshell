@@ -15,7 +15,8 @@ const { load } = require("../bin/lib/qml-library.js");
 const file = path.join(__dirname, "../shell/plugins/vgs.vpn/VpnLogic.js");
 const fixtures = path.join(__dirname, "fixtures/vpn");
 const text = name => fs.readFileSync(path.join(fixtures, name), "utf8");
-// The core's ceiling for one plugin's published status (status.md).
+// The core's ceiling for one plugin's published status
+// (PluginLogic.STATUS_MAX_BYTES).
 const STATUS_MAX_BYTES = 64 * 1024;
 const plain = value => JSON.parse(JSON.stringify(value));
 

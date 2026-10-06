@@ -32,4 +32,4 @@ A second secret store is needed, or a step needs an OAuth round trip no masked f
 
 ## Not governed
 
-Where a setup step's button sits and what it may run, which is [status.md](status.md); NetworkManager's own store, which [D098](../decisions/D098-networkmanager-only-secrets.md) leaves to it.
+Where a setup step's button sits and what it may run, which is [overview.md](overview.md); NetworkManager's own store, which [D098](../decisions/D098-networkmanager-only-secrets.md) leaves to it.

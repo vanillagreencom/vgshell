@@ -12,8 +12,8 @@ import "PluginLogic.js" as Logic
 // draws the first-start welcome around the Hyprland question.
 // Requirement notices decide which plugins' missing commands the user is
 // shown, in what order, on which screen, and the install the shown notice
-// runs (requirement-notice.md). Six triggers raise a notice: the
-// pluginInstalled IPC function `vgshell plugin add` calls, Plugins.setEnabled
+// runs (docs/architecture/commands-are-data.md § Consent). Six triggers
+// raise a notice: the pluginInstalled IPC function `vgshell plugin add` calls, Plugins.setEnabled
 // turning a plugin on, a plugin's own `requirements` capability, the
 // `manager` capability's installRequirements and its act on a status
 // action that installs, and the `doctor` capability asking for the core's
@@ -513,7 +513,7 @@ Singleton {
     }
 
     // A command that fails to start emits only runningChanged, so the end
-    // is read there: no exit recorded is a failed start (runtime-qml.md).
+    // is read there: no exit recorded is a failed start.
     Process {
         id: detector
         property var completion: null

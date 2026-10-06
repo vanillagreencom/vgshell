@@ -1,15 +1,15 @@
 # VG Shell (VGS)
 
-Quickshell + Hyprland. Everything is a plugin. Try it, you might like it.
+A desktop shell for Hyprland, built on Quickshell. It draws the bar, panels and windows on each screen, and every part of it is a plugin you can turn on or off.
 
 ![VGS: the bar and the theme browser on the desktop](docs/images/plugins/vgs.themes-browser.webp)
 
 ## Features
 
-- Plugins window (SUPER+M): every plugin's settings, keys and an on/off switch.
-- Highly curated, polished, and powerful [plugins](#plugins) shipped.
-- Themes: one click changes colours, fonts, wallpaper and window borders.
-- System + VGS updater. Agent audited on demand.
+- A Plugins window on SUPER+M holds every plugin's settings, shortcuts and on/off switch.
+- Ships the [plugins](#plugins) listed below.
+- Themes change the colours, wallpaper and window borders in one click.
+- Updates installs system, VGS, plugin and theme updates, and an AI agent can review third-party packages before they install.
 - Plugins do not depend on each other: turn one off and the others keep running.
 
 ## Install
@@ -22,7 +22,7 @@ paru -S vgshell-git
 
 On Arch, the curl install and checkout need an installed AUR helper: paru or yay.
 
-Fedora 44, answering `y` to each prompt:
+Fedora 44:
 
 ```bash
 sudo dnf copr enable vanillagreen/vgshell
@@ -52,7 +52,7 @@ More install options: [docs/architecture/distribution.md](docs/architecture/dist
 
 ## How it works
 
-VGS starts with Hyprland and draws the bar, panels and windows on each screen. Each of those is a plugin you can turn on, turn off, add or remove. A theme sets the colours and fonts every plugin uses.
+VGS starts with Hyprland and draws the bar, panels and windows on each screen. Each of those is a plugin you can turn on, turn off, add or remove. A theme sets the colours every plugin uses.
 
 ## Plugins
 
@@ -102,8 +102,8 @@ hl.on("hyprland.start", function () hl.exec_cmd("vgshell start") end)
 
 ## Writing a plugin
 
-Read [docs/architecture/plugins.md](docs/architecture/plugins.md). An agent loads the `vgs-plugin` skill, which scaffolds a plugin from templates and checks it.
+Read [docs/architecture/overview.md](docs/architecture/overview.md). An agent loads the `vgs-plugin` skill, which scaffolds a plugin from templates and checks it.
 
 ## Licence
 
-VGS is under the MIT licence: [LICENSE](LICENSE). Bundled fonts, icons and other third-party files: [DEVELOPMENT.md](DEVELOPMENT.md#licence).
+VGS is under the MIT licence: [LICENSE](LICENSE). Bundled fonts, icons and other third-party files are listed in [DEVELOPMENT.md](DEVELOPMENT.md).

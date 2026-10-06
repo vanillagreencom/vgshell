@@ -5,7 +5,8 @@ import qs.Ui
 // A list of devices, of any kind: one DeviceRow per entry of `rows`, one
 // ListCursor and one Tab stop, the selected row. The list is a FocusScope:
 // a Tab, or focus handed to the list, reaches the selected row alone, and
-// every other row takes no Tab stop (keyboard.md F6). Up, Down, Home, End
+// every other row takes no Tab stop (design-system.md § Keyboard). Up,
+// Down, Home, End
 // and the pages move the selection and the keyboard with it, through
 // KeyNav; Enter, Return, Space and a click run the row's action, and so
 // does its action button. Shift+F10 and the Menu key open a row's overflow

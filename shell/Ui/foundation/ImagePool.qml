@@ -13,7 +13,7 @@ import QtQuick
 // `Image` with those values puts its entry into that cache before its
 // reader thread decodes it, so a text that names the image after the entry
 // exists waits for that load instead of decoding it itself
-// (docs/architecture/runtime-qml.md). An entry's `Image` therefore keeps
+// (Qt 6.11). An entry's `Image` therefore keeps
 // the default fill mode and no clip, and sets `sourceSize` before its
 // `source`.
 //

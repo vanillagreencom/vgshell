@@ -72,6 +72,8 @@ FocusScope {
         target.forceActiveFocus(reason);
     }
 
+    // A keyboard summon focuses only once the window is active: a focus
+    // forced before then reports the activation reason, not the summon's.
     function focusInitial(reason) {
         pendingFocusTarget = null;
         pendingFocusReason = Qt.OtherFocusReason;

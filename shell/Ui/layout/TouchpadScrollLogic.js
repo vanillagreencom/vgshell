@@ -7,7 +7,9 @@
 // CardCarousel's rail. A delta is the distance the content moves, positive
 // toward its end.
 
-// GTK's numbers (docs/architecture/runtime-pointer.md), so a swipe moves a
+// GTK 4's numbers, MAGIC_SCROLL_FACTOR in gtk/gtkscrolledwindow.c and
+// SCROLL_CAPTURE_THRESHOLD_MS and DECELERATION_FRICTION in
+// gtk/gtkeventcontrollerscroll.c (GTK 4.22), so a swipe moves a
 // VGS view as far as a GTK list: each pixel of delta moves the content GAIN
 // pixels, a coast starts at the mean velocity of the deltas of the last
 // VELOCITY_WINDOW_MS and loses FRICTION of its velocity per second.

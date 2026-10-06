@@ -1,6 +1,7 @@
 // The Jarvis page's words for the account and key readers' typed outcomes
-// (docs/architecture/copy.md). A diagnostic key never reaches a value here;
-// the readers log it. Shared by Accounts.qml, Keys.qml and their tests.
+// (docs/architecture/design-system.md § Copy). A diagnostic key never
+// reaches a value here; the readers log it. Shared by Accounts.qml,
+// Keys.qml and their tests.
 
 function counted(count, one, many) {
     return count === 1 ? "1 " + one : count + " " + many;

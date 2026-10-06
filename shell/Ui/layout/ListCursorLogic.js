@@ -10,9 +10,11 @@ var POINTER_EPSILON = 1 / 512;
 
 // Whether the pointer moved from `last` to `at`, two scene points; `last`
 // is null before the first reading, which moves nothing. Qt delivers hover
-// again to a row that moves under a still pointer, as a list scrolls or a
-// card animates, and a point mapped back from a moving item differs by
-// float roundoff (docs/architecture/runtime-pointer.md): an exact
+// again, once per frame while any item is dirty, to a row that moves under
+// a still pointer, as a list scrolls or a card animates
+// (QQuickDeliveryAgentPrivate::flushFrameSynchronousEvents, qtdeclarative
+// 6.11), and a point mapped back from a moving item differs by float
+// roundoff: an exact
 // comparison reads that as motion, and the resting pointer takes the
 // cursor.
 function pointerMoved(last, at) {

@@ -2,8 +2,7 @@ import QtQuick
 
 // The click away from a shown pad. While a pad is shown, Hyprland hands a
 // click on that screen outside the pad's window to no window, and to the
-// layer under the windows instead (docs/architecture/runtime-hyprland.md),
-// so this instance is shown on a screen while a pad is shown there, draws
+// layer under the windows instead, so this instance is shown on a screen while a pad is shown there, draws
 // nothing, and hides the pad on a click. The service publishes which pad
 // each screen shows.
 Item {

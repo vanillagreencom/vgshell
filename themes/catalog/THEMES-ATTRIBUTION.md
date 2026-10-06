@@ -2,7 +2,7 @@
 
 ## Community theme imports
 
-Each package's palette and terminal colours come from its source repository, apart from the readability overrides in `docs/architecture/theme-catalog.md` § Readability. Wallpapers are credited in `BACKGROUNDS-ATTRIBUTION.md`.
+Each package's palette and terminal colours come from its source repository, apart from the readability overrides in `docs/architecture/themes.md` § Catalog. Wallpapers are credited in `BACKGROUNDS-ATTRIBUTION.md`.
 
 | VGS theme | Source repository | License |
 |-----------|-------------------|---------|
@@ -57,7 +57,7 @@ Each package's palette and terminal colours come from its source repository, apa
 
 ## Vendor ports
 
-Each vendor port takes its values from the upstream source named below, apart from the readability overrides in `docs/architecture/theme-catalog.md` § Readability. The catalog carries only shell palette values and terminal colours from these sources, and no application files.
+Each vendor port takes its values from the upstream source named below, apart from the readability overrides in `docs/architecture/themes.md` § Catalog. The catalog carries only shell palette values and terminal colours from these sources, and no application files.
 
 | VGS theme | Palette and terminal source | License |
 |---|---|---|

@@ -18,8 +18,7 @@ var CHOICES_MAX = 32;
 var CONTROL_OR_SEPARATOR = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g;
 
 // The id a list item names. An empty `item` is the Settings page's first
-// offered choice (docs/architecture/status.md § Setting choices),
-// `firstOffer` here, or no id while nothing is offered.
+// offered choice, `firstOffer` here, or no id while nothing is offered.
 function itemId(entry, firstOffer) {
     var id = entry !== null && typeof entry === "object" && typeof entry.item === "string" ? entry.item : "";
     return id !== "" ? id : (firstOffer || "");

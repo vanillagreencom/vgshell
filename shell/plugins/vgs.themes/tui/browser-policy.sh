@@ -3,7 +3,7 @@
 # browser theming button opens: `vgshell theme browser-policy install`, which
 # installs the Chromium-family colour writer and its sudoers rule once,
 # sudo asking for the password in this terminal
-# (docs/architecture/theme-targets.md). The VGS tree is the one
+# (docs/architecture/themes.md § Targets). The VGS tree is the one
 # VGS_TUI_LIB lies in. Ends with the install's exit code. Refusals, one keyed
 # line on stderr: `themes: refused: tui=missing`, exit 2, outside the
 # presenter; `themes: refused: argument=<arg>`, exit 2.

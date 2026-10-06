@@ -8,15 +8,13 @@
 # monitor_rule NAME MODE [SCALE]: the Lua monitor rule that gives output
 # NAME the mode MODE, such as 480x720, at SCALE, 1 by default, and the
 # layout's origin. The nested Wayland output takes any mode and an integer
-# scale; a headless output stays 0x0 in the sandbox
-# (docs/architecture/runtime-hyprland.md).
+# scale; a headless output stays 0x0 in the sandbox.
 monitor_rule() { printf 'hl.monitor({ output = "%s", mode = "%s", position = "0x0", scale = %s })\n' "$1" "$2" "${3:-1}"; }
 # output_mode NAME MODE [SCALE]: the nested compositor applies
 # monitor_rule's rule now through `hyprctl eval`; the reply is hyprctl's.
 # A configuration reload drops the rule but leaves the output at its mode
 # and scale, unless a rule the configuration loads gives the output
-# another (docs/architecture/runtime-hyprland.md). Under
-# a hold it stands for a reset, and a reload applies the held rule again
+# another. Under a hold it stands for a reset, and a reload applies the held rule again
 # from mode_hold_file. A row restores the mode it read first.
 output_mode() { hypr eval "$(monitor_rule "$@")"; }
 # mode_scale_of NAME: output NAME's mode and scale as `WxH scale=S`, such

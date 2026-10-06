@@ -31,8 +31,7 @@ Item {
         id: process
 
         // The exit of the run, { code }, null until `exited` arrives: a
-        // command that fails to start emits `runningChanged` alone
-        // (docs/architecture/runtime-qml.md).
+        // command that fails to start emits `runningChanged` alone.
         property var completion: null
 
         stdout: StdioCollector { id: out }

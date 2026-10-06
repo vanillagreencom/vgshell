@@ -33,7 +33,9 @@ Scope {
     // Hyprland's own binds still run, and only keys they leave reach it.
     property bool failed: false
     // Whether this capture holds no window, for a core caller whose owner
-    // releases it because Hyprland has no focused shell window to watch.
+    // releases it because Hyprland has no focused shell window to watch:
+    // the layer's `enter` refuses unless the active window is a shell
+    // window, and a press on the bar changes no active window.
     property bool anyWindow: false
     // Leave requests sent and not yet answered. A begin while one is
     // pending waits to send its enter until every leave was answered:

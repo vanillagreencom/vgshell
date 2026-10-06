@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# vgshell-migrate: VGS's one-time migrations (docs/architecture/migrations.md,
-# docs/decisions/D076-one-time-migrations.md).
+# vgshell-migrate: VGS's one-time migrations (docs/architecture/distribution.md
+# § Migrations, docs/decisions/D076-one-time-migrations.md).
 #
 #   vgshell-migrate run [--notice]    run each pending migration once, in name order
 #   vgshell-migrate pending           print each pending migration's name, one per line

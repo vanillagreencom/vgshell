@@ -274,7 +274,8 @@ expect_poll "the catalog answer is held behind installed rows" held latency_cata
 
 # Instrument only the sandbox plugin copies to separate view work and image
 # readiness from the window's presented frame. The row instruments no core
-# file because editing a live core file owes a restart (plugins.md).
+# file because editing a live core file owes a restart
+# (docs/architecture/overview.md § Plugins and kinds).
 python3 - "$repo" "$sandbox" <<'PY'
 from pathlib import Path
 import shutil, sys

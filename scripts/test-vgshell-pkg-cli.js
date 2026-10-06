@@ -126,8 +126,8 @@ function verifyCli(texts, tmp) {
         { source: "flatpak", count: 3, packages: [{ name: "org.gnome.Loupe", old: null, new: "stable" }, { name: "org.gnome.Platform", old: null, new: "47" },
             { name: "org.freedesktop.Platform.GL.default", old: null, new: "24.08" }], checkedAt: "<time>", error: null }]);
 
-    // Owner stubs answer as pacman and xbps-query do for one owned file,
-    // docs/architecture/packages.md; any other call exits 99.
+    // Owner stubs answer as pacman and xbps-query do for one owned file;
+    // any other call exits 99.
     const owned = "/usr/share/vgshell/VERSION";
     const ownerPath = stubPath(tmp, "owner", {
         pacman: "case \"$1 $2 $3\" in\n  \"-Qoq " + owned + " \") echo vgshell-git ;;\n  \"-Qoq \"*) echo \"error: No package owns $2\" >&2; exit 1 ;;\n" +

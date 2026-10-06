@@ -78,6 +78,8 @@ Item {
         path: store.path
         watchChanges: false
         atomicWrites: true
+        // SIGTERM ends the shell with no handler run, so a write left to
+        // the worker thread would be lost with it.
         blockWrites: true
         printErrors: false
         onLoaded: store.read(text())

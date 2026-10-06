@@ -196,6 +196,8 @@ Singleton {
         const component = Qt.createComponent(url);
         if (component.status !== Component.Ready) return failed("failed to load: " + component.errorString());
         compiledUrls[url] = true;
+        // No initial properties: that path drops functions and arrays, so
+        // `shell` and the context are assigned once the object exists.
         const instance = component.createObject(parent);
         if (instance === null) return failed("created no object");
         if (!(instance instanceof Item)) {
@@ -263,6 +265,9 @@ Singleton {
         return instance;
     }
 
+    // A drag takes the keyboard through the window-free key capture and
+    // leaves the bar's keyboard focus as it is: Hyprland v0.56.2 ends a held
+    // press when a layer surface's keyboard interactivity changes.
     function dragStart(hostKey, id, locator, item, point) {
         const row = rowFor(hostKey, item);
         const ctx = { onDispose: cleanup => row.lifetime.register(cleanup) };
@@ -299,8 +304,9 @@ Singleton {
 
     // A release outside the bar writes nothing. Hyprland ends the press at
     // the bar's edge when the pointer leaves the bar, so that release lands
-    // inside; the bar's leave follows it before a deferred call runs
-    // (runtime-pointer.md), so the drop waits one turn and barLeft cancels it.
+    // inside; the bar's leave, the window Leave event Qt Wayland makes of
+    // wl_pointer.leave, follows it before a deferred call runs, so the drop
+    // waits one turn and barLeft cancels it.
     function dragEnd(hostKey, point) {
         const drag = barDrag;
         barDrag = null;

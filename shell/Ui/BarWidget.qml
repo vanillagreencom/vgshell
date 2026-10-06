@@ -58,6 +58,11 @@ Item {
         return dragHandler.centroid.scenePosition;
     }
 
+    // Qt Quick still hands a press a child button accepted to this parent
+    // handler, which takes the grab from the button once the drag starts,
+    // so the button emits no click (QQuickPointerHandler::
+    // approveGrabTransition; QQuickAbstractButton sets no keepMouseGrab,
+    // qtdeclarative 6.11).
     DragHandler {
         id: dragHandler
         target: null

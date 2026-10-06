@@ -1,6 +1,6 @@
 # shell/Ui/
 
-The component library, module `qs.Ui`: what a plugin and the shell compose. `qmldir` is the list; files sit under `foundation/`, `controls/`, `feedback/`, `layout/` and `overlay/`. The contract is `docs/architecture/components.md`.
+The component library, module `qs.Ui`: what a plugin and the shell compose. `qmldir` is the list; files sit under `foundation/`, `controls/`, `feedback/`, `layout/` and `overlay/`. The contract is `docs/architecture/design-system.md` § Components, § Pointer and § Keyboard.
 
 - A control extends a `QtQuick.Templates` type and supplies its `background`, `contentItem`, `indicator`, `handle` or `delegate` from `Theme` tokens; no literal colour, font, radius, metric, opacity or duration. `scripts/check-design-tokens.py` enforces it.
 - Keyboard support is first class: a pointer action has a keyboard path, a focusable item has `FocusRing` or a named focus indicator, and `scripts/check-keyboard.py` enforces both.

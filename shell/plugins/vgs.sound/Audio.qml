@@ -39,6 +39,8 @@ Item {
             && Logic.isAppStream(root.property(n, "application.name"), root.property(n, "node.link-group")))
         .map(n => ({ name: String(n.name), label: root.property(n, "application.name"), node: n }))
 
+    // False once PipeWire stops: a lost connection resets the registry and
+    // its nodes go, and the socket a restarted PipeWire makes brings it back.
     readonly property bool available: Pipewire.ready
     readonly property var sink: Pipewire.defaultAudioSink
     readonly property var source: Pipewire.defaultAudioSource

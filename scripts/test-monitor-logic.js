@@ -3,8 +3,7 @@
 // `monitors` capability, loaded under node through
 // bin/lib/qml-library.js as the shell loads it. NESTED_REPLY is the reply
 // `hyprctl -j monitors all` printed in the nested sandbox; the other outputs
-// are built in the shape `CHyprCtl::getMonitorData` prints
-// (docs/architecture/runtime-hyprland.md).
+// are built in the shape `CHyprCtl::getMonitorData` prints.
 //
 // The layer's guard block runs under `lua` with a stub `hl` that lists the
 // outputs a row names and records each output the block turns off and each

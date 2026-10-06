@@ -33,8 +33,9 @@
 # thumbnail whose URL names another directory, a refusal without its toast,
 # and a service that starts no watcher again.
 # Every clipboard program runs with the nested socket in its environment.
-# `input:resolve_binds_by_sym` is on while the row types its key
-# (runtime-hyprland-capture.md), and the row puts the harness hyprland.lua
+# `input:resolve_binds_by_sym` is on while the row types its key, since a
+# bind resolves a virtual keyboard's key only by keysym, and the row puts
+# the harness hyprland.lua
 # back at its end.
 # No latency is measured; each reading polls every 200 ms for up to 5 s,
 # the watcher's return for up to 8 s, and a control that reads nothing

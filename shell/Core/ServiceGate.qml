@@ -50,8 +50,7 @@ Singleton {
 
     // Decide once the bars of the first applied scan are built. It runs
     // after the turn that built them, never inside it: a binding read in
-    // that turn can still hold the value from before the scan
-    // (docs/architecture/runtime-qml.md).
+    // that turn can still hold the value from before the scan.
     function judge() {
         if (release !== "") return;
         // No slot key is set before an applied scan and a ready

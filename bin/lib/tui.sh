@@ -4,7 +4,7 @@
 # sources it for its own colours. It defines functions and sets no shell
 # option. Colours are the #rrggbb values `vgshell-tui present` exports from
 # gum.env (VGS_TUI_ACCENT, VGS_TUI_SUCCESS, VGS_TUI_WARNING, VGS_TUI_DANGER),
-# each with an ANSI fallback when absent. docs/architecture/tui.md.
+# each with an ANSI fallback when absent.
 #
 # Every refusal prints one keyed line on stderr first:
 # `vgs-tui: refused: <key>=<value>`. A function that refuses returns 2 for a

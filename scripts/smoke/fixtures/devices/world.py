@@ -34,7 +34,7 @@ missing from a GetAll answer logs `missing from property set` and leaves
 the value unset, and NetworkManager's GetAllDevices is the call that
 lists devices. Each gap is filled through dbusmock's own
 org.freedesktop.DBus.Mock interface, AddProperty and AddMethod, so no
-second fake owns any object: docs/architecture/runtime-devices.md.
+second fake owns any object.
 
 The template's own Adapter1.StartDiscovery and StopDiscovery read a
 DiscoveryFilter property no adapter has until SetDiscoveryFilter, and

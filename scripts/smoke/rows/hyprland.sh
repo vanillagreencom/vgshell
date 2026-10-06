@@ -15,8 +15,7 @@
 # gives back its own mode. It restarts the shell, reloads Hyprland and
 # reads each vgs bind once in its submap.
 #
-# Hyprland v0.56.2 reads no layer rule back
-# (docs/architecture/runtime-hyprland.md), so the rows hold the layer rules
+# Hyprland v0.56.2 reads no layer rule back, so the rows hold the layer rules
 # through the written file and an empty configerrors, where Hyprland lists a
 # field it refuses.
 # inputs: shell/Core/HyprlandLayer.* bin/vgshell-hypr-judge bin/vgshell shell/plugins/vgs.launcher/* shell/plugins/vgs.notifications/* shell/plugins/vgs.themes/* shell/plugins/*/manifest.json themes/vgs/* themes/catalog/flexoki-light/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js bin/vgshell-theme-judge scripts/smoke/toplevel/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/hyprland-consent.sh scripts/smoke/rows/themes.sh scripts/smoke/rows/capabilities.sh
@@ -40,7 +39,7 @@ active_bar_binds() { binds_of bar; }
 # Every bind whose description starts with vgs, in every submap, as a
 # sorted JSON list of `<submap> <description> x<count>`. The overlay
 # capture binds each plugin bind once more in vgs:capture, so a description
-# alone appears twice by design (docs/architecture/runtime-hyprland.md).
+# alone appears twice by design (docs/architecture/hyprland.md § Keys).
 bind_census() { hypr -j binds | py_reply '
 import collections, json, sys
 counts = collections.Counter((b.get("submap", "") or "default", b["description"]) for b in json.load(sys.stdin) if b["description"].startswith("vgs"))
@@ -133,7 +132,7 @@ tui_size() { tui_client size "$1"; }
 # size PREF_W x PREF_H sits on a monitor's work area: its logical box less
 # the reserved space, [left, top, right, bottom], and less
 # general:float_gaps, CSS order, where Hyprland v0.56.2 centres a floating
-# window (docs/architecture/runtime-hyprland.md). The monitor, the clients
+# window. The monitor, the clients
 # and the gaps come from one batched request, which the compositor answers
 # from one state. Given MODE, the mode a row holds, a monitor at another
 # mode reads ["mode=<WxH> want=<MODE>"] and nothing is measured on it.
@@ -402,8 +401,8 @@ expect "no plugin reports a Hyprland problem" '[]' hypr_problems
 
 # Each vgs bind is registered once in its submap after a shell restart and
 # after a full Hyprland reload: the reload clears every bind and runs
-# hyprland.lua, so the layer, once, in a new Lua state
-# (docs/architecture/runtime-hyprland.md). The layer file is removed and
+# hyprland.lua, so the layer, once, in a new Lua state. The layer file is
+# removed and
 # Hyprland reloaded while no shell runs, so the binds the census reads after
 # the restart are the ones the restarted shell's own write and reload made.
 once_census='["default vgs.bar:toggle x1", "default vgs.launcher:toggle x1", "default vgs.notifications:inbox x1", "default vgs.settings:toggle x1", "vgs:capture vgs.bar:toggle x1", "vgs:capture vgs.launcher:toggle x1", "vgs:capture vgs.notifications:inbox x1", "vgs:capture vgs.settings:toggle x1", "vgs:passthrough vgs:passthrough-cancel x1"]'
@@ -443,8 +442,7 @@ expect_poll "without the unbind each vgs bind is registered once in its submap" 
 
 # Each bind reaches its plugin. wtype types on a virtual keyboard with
 # keycodes of its own, which a bind resolves only by keysym, so the sandbox
-# user's settings after the line turn that on
-# (docs/architecture/runtime-hyprland.md).
+# user's settings after the line turn that on.
 printf '%s\n' 'hl.config({ input = { resolve_binds_by_sym = true } })' >>"$hypr_lua"
 expect "the nested instance reloads with binds resolved by keysym" ok hypr reload config-only
 expect "no launcher surface shows before SUPER+SPACE" 0 layer_count vgs:overlay

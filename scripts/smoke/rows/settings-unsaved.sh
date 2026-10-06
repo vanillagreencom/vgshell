@@ -1,4 +1,4 @@
-# Unsaved edits on a Settings page (settings-window.md). The row installs
+# Unsaved edits on a Settings page. The row installs
 # its own fixture, acme.unsaved, whose page draws an unbounded number, Gap,
 # in a text field, a preset string, Label, with its Custom text field, a
 # list, Notes, whose one item holds a number, Size, in a text field and a
@@ -81,8 +81,7 @@ us_drawn() { [[ $(ipc smoke windowGeometry window vgs.settings DraftField "$1") 
 # scrolled into view when a scroll area holds it, once two readings of its
 # box 0.1 s apart match, for up to 3 s: a page that has just opened still
 # slides. The pointer moves there a pixel off first, since a window mapped
-# since the last press takes no click until the pointer moves
-# (validation-smoke.md).
+# since the last press takes no click until the pointer moves.
 us_press() {
   local box="" last="" x y
   ipc smoke revealText window vgs.settings "$1" "$2" >/dev/null || return 1

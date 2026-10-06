@@ -51,8 +51,7 @@ other_events() { local status=0; grep -cE -- "$1" "$other_log" || status=$?; [[ 
 # window_keyboard ID: true while Qt holds plugin ID's `window` activated,
 # its root item holding the active focus, false once the shell has read
 # the keyboard leaving it. Qt's Wayland client can drop a keyboard that
-# returns in one batch with the reply to the leave's sync
-# (docs/architecture/runtime-qml.md), so a row waits for false
+# returns in one batch with the reply to the leave's sync, so a row waits for false
 # before a dispatch returns the keyboard, and for true before it types.
 window_keyboard() { ipc smoke windowFocused window "$1"; }
 
@@ -61,8 +60,7 @@ window_address() { window_of "$1" address | python3 -c 'import json,sys; t=sys.s
 # `centred` when the one shell window titled TITLE has its centre within
 # 1 px of its monitor's work area centre, the monitor's box less its
 # reserved space and general:float_gaps, where Hyprland v0.56.2 centres a
-# floating window (docs/architecture/runtime-hyprland.md); else both
-# centres.
+# floating window; else both centres.
 window_centred() { # TITLE
   local clients monitors gaps
   clients="$(hypr -j clients)" && monitors="$(hypr -j monitors)" && gaps="$(hypr -j getoption general:float_gaps)" || return 1

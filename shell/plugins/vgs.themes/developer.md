@@ -68,4 +68,4 @@ In the theme browser, typing filters by package name or label. When no theme mat
 
 ## Browser theming
 
-Chromium, Google Chrome, Microsoft Edge and Brave take the theme's background colour through a managed policy. The Arch and Fedora packages install its writer for every user. A home install sets the writer up once through the Install browser theming action, the `browser-policy` TUI, which opens a floating terminal where sudo asks for the password. The `browserTheming` status reports whether the writer is there. [theme-targets.md](../../../docs/architecture/theme-targets.md) holds the targets.
+Chromium, Google Chrome, Microsoft Edge and Brave take the theme's background colour through a managed policy. The Arch and Fedora packages install its writer for every user. A home install sets the writer up once through the Install browser theming action, the `browser-policy` TUI, which opens a floating terminal where sudo asks for the password. The `browserTheming` status reports whether the writer is there. [themes.md § Targets](../../../docs/architecture/themes.md#targets) holds the target rules.

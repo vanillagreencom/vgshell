@@ -69,8 +69,7 @@ Item {
     Process {
         id: summaryRun
         // The run's exit, { code, status }, null until `exited` arrives: a
-        // command that fails to start emits `runningChanged` alone
-        // (docs/architecture/runtime-qml.md).
+        // command that fails to start emits `runningChanged` alone.
         property var completion: null
 
         command: ["vsys", "--once", "--summary"]

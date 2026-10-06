@@ -133,7 +133,7 @@
 # path derives from `prefix`, empty in production, and every command
 # resolves in the system directories alone. Exit 0 on success, 1 on a
 # refusal, 2 on a bad invocation, 130 when the question is cancelled.
-# docs/architecture/system-steps.md, docs/decisions/D081.
+# docs/architecture/commands-are-data.md § System steps, docs/decisions/D081.
 set -euo pipefail
 
 # Every system path below derives from prefix, empty in production.

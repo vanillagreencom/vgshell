@@ -150,6 +150,9 @@ Scope {
         }
     }
 
+    // The companion bind ignores modifiers, so it also fires on releases of
+    // unrelated chords, and a virtual keyboard can send one: it only ends a
+    // stroke a press started.
     Component {
         id: releaseComponent
         GlobalShortcut {

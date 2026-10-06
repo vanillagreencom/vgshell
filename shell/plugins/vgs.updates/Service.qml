@@ -50,7 +50,7 @@ Item {
     // and this handler can run before onShellChanged does, so the first read
     // is recorded and judged by nothing (UpdatesLogic.tuiRunEnded). It reads
     // the state from its source, since the binding may not have followed a
-    // new `shell` yet (docs/architecture/runtime-qml.md).
+    // new `shell` yet.
     onCurrentTuiStateChanged: {
         if (shell === null) return;
         const state = shell.tui.state;
@@ -158,7 +158,7 @@ Item {
     }
 
     // Reads the cache once, when start() sets its path; without `preload` it
-    // would never read (docs/architecture/runtime-qml.md).
+    // would never read.
     FileView {
         id: cacheReader
         printErrors: false

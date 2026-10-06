@@ -407,7 +407,7 @@ FocusScope {
                                         // A withheld screen's button takes no
                                         // press and no Tab stop; its reason opens
                                         // on hover, which reaches a disabled
-                                        // item (runtime-pointer.md), and the
+                                        // item in Qt Quick, and the
                                         // Setup state above names what is
                                         // missing for a keyboard user.
                                         Button {

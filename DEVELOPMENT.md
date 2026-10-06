@@ -36,7 +36,7 @@ scripts/sample-shell-memory.sh               # sample the live shell's memory un
 
 ```sh
 node scripts/check-readme.js --write-plugins   # README § Plugins, after a plugin is added, removed or renamed
-scripts/readme-shots.sh                        # every plugin README image, from docs/images/plugins/shots.tsv
+scripts/readme-shots.sh                        # every plugin README image, after its row is added to docs/images/plugins/shots.tsv
 packaging/install-system.sh                    # into a scratch DESTDIR and PREFIX, then:
 scripts/check-install-tree.sh --write DESTDIR PREFIX   # packaging/install-tree.manifest, after a shipped file is added
 scripts/measure-shader.sh --calibrate scripts/shader/ceilings.json --runs 3   # the shader ceilings

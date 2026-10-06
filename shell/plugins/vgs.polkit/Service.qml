@@ -109,7 +109,7 @@ Item {
 
     // bin/agents check, one run at a time; a run asked for while one runs
     // starts once it ends. `code` is null for a command that did not start,
-    // which emits `runningChanged` alone (docs/architecture/runtime-qml.md).
+    // which emits `runningChanged` alone.
     Process {
         id: checker
 

@@ -84,8 +84,7 @@ function inputProtectedClass(value) {
 // Hyprland v0.56.2 declares for it (src/config/values/ConfigValues.cpp). A
 // string row with `choices` takes those values alone. The path is the Lua
 // table key, `tap_to_click`, not the hyphenated option name: Hyprland's Lua
-// config refuses `["tap-to-click"]` as an unknown key
-// (docs/architecture/runtime-hyprland.md). The `device` row is no
+// config refuses `["tap-to-click"]` as an unknown key. The `device` row is no
 // option: Hyprland keeps `enabled` per device, so the layer writes it as one
 // `hl.device` per touchpad Hyprland lists.
 var OPTIONS = {
@@ -204,7 +203,8 @@ var OVERLAY_CAPTURE = {
 // shell asks Hyprland through Dispatch.js to enter `submap`, whose one bind
 // is `cancel`, so every other key reaches the focused app or shell window.
 // Hyprland leaves it on `cancel`, after `timeoutMs` and whenever the layer
-// runs again; captures entered through `enter` also leave when their window
+// runs again, since a reload cancels every `hl.timer` and a submap with no
+// timeout left would hold every bind; captures entered through `enter` also leave when their window
 // closes. The shell leaves it on commit and teardown. `timeoutMs` bounds how
 // long a wedged shell holds every bind: long enough to find and press a
 // chord. `table` is the name of the Lua table on `hl` that holds the
@@ -367,7 +367,7 @@ function motionLines(theme) {
 // No window gaps: zero inner and outer gaps on every workspace. Workspace
 // rules, not `general` gaps, so a user's own `general.gaps_*` after the
 // loading line leaves the switch in force; the empty selector matches every
-// workspace, special ones included (runtime-hyprland.md). Off, the layer
+// workspace, special ones included. Off, the layer
 // writes no gaps and the user's or Hyprland's own apply, whatever the theme.
 function noGapsLines() {
     return [
@@ -488,6 +488,12 @@ function tapTrackerWanted(plan) {
     });
 }
 
+// Hyprland v0.56.2 has no tap bind, and its release bind fires after every
+// chord and long hold, so one key tracker arms on a press while no other
+// key is down, disarms on any other press, and sends the shortcut on a
+// release inside `input:repeat_delay`. The shortcut's own bind is only a
+// non-consuming gate, so the lock, inhibitors and submaps still decide
+// whether the key reaches it.
 function tapTrackerLines() {
     return [
         "-- Tap shortcuts: a lone key press and release inside Hyprland's repeat delay sends the shortcut.",
@@ -615,7 +621,8 @@ function sessionLockLines() {
     ];
 }
 
-// USER_BINDS: the layer loads first, so it wraps `hl.bind` before any line
+// USER_BINDS: `hyprctl binds -j` names no bind's source file, so the layer
+// records it. The layer loads first, so it wraps `hl.bind` before any line
 // of the user's runs, and the overlay capture wraps it after, so this
 // wrapper is the one that calls Hyprland's own `hl.bind`. It finds the
 // nearest caller outside the layer's own functions: Hyprland keeps
@@ -765,7 +772,9 @@ function padMotion(theme) {
 // and focuses its window, all inside one Lua call. A `window.active` hook
 // hides a shown pad once the focus moves to a window outside it, and a
 // layout change, or the layer running again, fits each shown pad to its
-// monitor again (runtime-hyprland-pads.md).
+// monitor again. The pad is tiled because a floating `size` or `move` rule
+// applies once at map, while a tiled area is reapplied on every change
+// (docs/decisions/D102-pads-tiled-in-their-special-workspace.md).
 function padLines(section, motion) {
     var p = PADS;
     var lines = [

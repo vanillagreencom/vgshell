@@ -31,8 +31,8 @@ var PROGRESS_POLL_MS = 250;
 // its assets.
 var MEGABYTE = 1000000;
 
-// The apply result states in which the package is the applied one:
-// docs/architecture/theme-apply.md.
+// The apply result states in which the package is the applied one; a
+// partial apply lands every target but the failed ones.
 var APPLIED_STATES = ["applied", "unchanged", "partial"];
 
 function hasOwn(obj, key) {
@@ -292,7 +292,7 @@ var SCREEN_SCOPES = [
 ];
 
 // The theme capability's `set` screen that shows an image on every screen
-// and clears each screen's own: docs/architecture/theme-capability.md.
+// and clears each screen's own: docs/architecture/themes.md § Backgrounds.
 var EVERY_SCREEN = "*";
 
 // Letter key codes the browsers read (Qt::Key in qnamespace.h). The

@@ -23,7 +23,7 @@ import "HyprlandLayer.js" as Layer
 //
 // It also keeps the welcome-seen marker, `<stateDir>/welcome-seen`: the
 // consent slot draws the welcome around the question until the user
-// closes it once (requirement-notice.md § Welcome).
+// closes it once.
 // PluginLogic.consentSlotView decides what the slot draws and
 // PluginLogic.welcomeStep when the marker is written.
 //
@@ -179,8 +179,7 @@ Scope {
     }
 
     // A read or write asked from the view's own result handler would be
-    // lost (docs/architecture/runtime-qml.md), so both start once the
-    // handler returns.
+    // lost, so both start once the handler returns.
     function perform(action) {
         switch (action) {
         case "none": return;
@@ -202,6 +201,8 @@ Scope {
         path: root.path
         watchChanges: false
         atomicWrites: true
+        // SIGTERM ends the shell with no handler run, so a write left to
+        // the worker thread would be lost with it.
         blockWrites: true
         printErrors: false
         onLoaded: root.feed({ type: "loaded", content: text() })

@@ -16,7 +16,7 @@
 # as every application window is (app_window_rows,
 # scripts/smoke/app-window.sh); its edges within one pixel; and a keyboard
 # path from SUPER+PERIOD to every step and back out. Shell & Plugins hands
-# the Settings summon command (docs/architecture/settings-window.md) to a
+# the Settings summon command to a
 # stand-in vgshell in the shell's own PATH directory, which records its argv
 # and runs nothing.
 #
@@ -382,7 +382,7 @@ expect_poll "hiding the System window drops the mounted section" '[]' window_pan
 # Shell & Plugins open Settings, which Right never does; Escape clears a
 # query, then closes the window.
 # wtype types with keycodes of its own, which a bind resolves only by
-# keysym (docs/architecture/runtime-hyprland.md), so the row turns that on
+# keysym, so the row turns that on
 # after the layer's line and puts hyprland.lua back after the path.
 hypr_lua_save system-window
 printf '%s\n' 'hl.config({ input = { resolve_binds_by_sym = true } })' >>"$home/.config/hypr/hyprland.lua"

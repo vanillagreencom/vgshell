@@ -43,7 +43,7 @@ Item {
     onRequestIdChanged: reset()
 
     // A change handler can run before the bindings that read the changed
-    // property (runtime-qml.md), so this reads the request and the rename
+    // property, so this reads the request and the rename
     // itself, and the focus moves a turn later, once the dialog shows.
     function reset() {
         error = "";

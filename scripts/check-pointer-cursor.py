@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Enforce the pointer rules docs/architecture/components.md states.
+"""Enforce the pointer rules docs/architecture/design-system.md § Pointer states.
 
 Every element of shipped QML that takes a click shows the pointing hand
 through `PointerCursor` from qs.Ui, the one owner of the hand. Each view

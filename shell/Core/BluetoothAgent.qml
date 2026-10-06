@@ -29,8 +29,7 @@ Scope {
             agent.stdinEnabled = true;
             agent.running = true;
             return;
-        // The model writes only after the child printed, so it has started
-        // (runtime-qml.md).
+        // The model writes only after the child printed, so it has started.
         case "write":
             agent.write(effect.line + "\n");
             return;
@@ -94,7 +93,7 @@ Scope {
     }
 
     // A child that fails to start emits only runningChanged, so the end is
-    // read there: no exit recorded is a failed start (runtime-qml.md).
+    // read there: no exit recorded is a failed start.
     Process {
         id: agent
         property var completion: null

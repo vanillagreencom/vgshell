@@ -27,8 +27,9 @@
 # the shell started over: its rows hold a bind `hyprctl binds` does not
 # and the Themes row shows no hint. It leaves the launcher as it found it.
 # Every key goes to the nested instance alone, through wtype on its seat,
-# with `input:resolve_binds_by_sym` on so a typed key reaches its bind
-# (runtime-hyprland-capture.md), and the row puts the harness hyprland.lua
+# with `input:resolve_binds_by_sym` on so a typed key reaches its bind,
+# since a bind resolves a virtual keyboard's key only by keysym, and the
+# row puts the harness hyprland.lua
 # back at its end.
 # No latency is measured; each reading polls every 200 ms for up to 5 s.
 # inputs: shell/plugins/vgs.keyhints/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.launcher/manifest.json shell/plugins/vgs.voice/manifest.json shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Core/KeyCapture.qml shell/Core/HyprlandState.qml shell/Core/HyprlandState.js shell/Core/PluginLogic.js shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/HyprlandLayer.js bin/lib/qml-library.js

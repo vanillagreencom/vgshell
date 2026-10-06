@@ -82,8 +82,8 @@ centred = abs(cx + cw / 2 - w / 2) <= 1 and abs(cy + ch / 2 - h / 2) <= 1
 print("placed" if fills and centred else json.dumps({"layer": ls[0], "want": want, "card": card}))' "$layers" "$card" "$margin"
 }
 # hover_click X Y: the pointer moves a pixel off first, since a surface
-# mapped since the last press takes no click until the pointer moves
-# (validation-smoke.md), then one click at (X, Y).
+# mapped since the last press takes no click until the pointer moves,
+# then one click at (X, Y).
 hover_click() { hover "$(($1 + 1))" "$2" && click "$1" "$2"; }
 read_tick() { ipc smoke readInstance "$(bar_key)" acme.tick "$1"; }
 # notice_gap_point: the layout point on the notice's surface halfway

@@ -30,9 +30,10 @@ Item {
     readonly property var defaults: [Pipewire.defaultAudioSink === null ? null : Pipewire.defaultAudioSink.name,
         Pipewire.defaultAudioSource === null ? null : Pipewire.defaultAudioSource.name]
 
-    // Networking lists a Wi-Fi network only while its device scans, is
-    // connected to it or holds its settings
-    // (docs/architecture/runtime-devices.md), so each Wi-Fi device scans.
+    // Quickshell 0.3.1's Networking lists a Wi-Fi network only while its
+    // device scans, is connected to it or holds its settings
+    // (registerNetwork in network/nm/wireless.cpp), so each Wi-Fi device
+    // scans.
     Instantiator {
         model: Networking.devices
         delegate: QtObject {

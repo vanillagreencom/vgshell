@@ -1,50 +1,49 @@
-# Configuration
+# Shipped defaults under user edits, and no write without a read
 
-Covers: shell/Core/Config.qml, shell/Commons/Paths.qml, shell/Commons/WatchedFile.qml, config/shell.json
+Read before touching the configuration files, their merge, their judge or a write to them.
 
-The shell's configuration files: two layers of `shell.json` merged by entry id, and the theme file. `shell/Core/Config.qml` reads the first two, `shell/Commons/ThemeSource.qml` the third, and `shell/Commons/Paths.qml` derives the user directory once for both. `Paths.stateDir` is the directory `vgshell theme` keeps what it applied in, which the `vgs.themes` plugin reads for the wallpaper: [theme-backgrounds.md](theme-backgrounds.md).
+## The approach
 
-## Layers
+The shell's configuration is two layers of `shell.json`: the shipped layer, `config/shell.json`, and the user layer, `shell.json` under `~/.config/vgshell/` (`XDG_CONFIG_HOME` when set), a directory `shell/Commons/Paths.qml` derives once. A user key replaces the shipped key whole, except `plugins`, merged by id with the user entry winning, and `disabledPlugins`, which is the user list when present; `PluginLogic.effectiveConfig` is the one merge ([D006](../decisions/D006-two-configuration-layers.md)). `shell/Core/Config.qml` is the one reader of both layers and the one writer of the user layer, and it never writes a file it has not read. The theme file, `theme.json` beside it, is the applied package's document with no layer over it ([D025](../decisions/D025-no-theme-override-layer.md)); `shell/Commons/ThemeSource.qml` reads it and `vgshell theme apply` writes it.
 
-`config/shell.json` is the shipped layer and `~/.config/vgshell/shell.json` (under `XDG_CONFIG_HOME` when set) the user layer, [D006](../decisions/D006-two-configuration-layers.md). `PluginLogic.effectiveConfig` merges them: a user key replaces the shipped key whole, except `plugins`, merged by id with the user entry winning, and `disabledPlugins`, which is the user list when present. `scripts/test-plugin-logic.js` pins each merge rule and the seeding of the user `bar` key.
+## Why
 
-An enable or disable edit starts with the effective disabled list. This preserves inherited exclusions when the user file has no list. An explicit empty user list still overrides the shipped exclusions.
+One file stops delivering shipped defaults the moment a user edits it, and a deep merge makes the effective value unreadable; merging by id keeps what is running readable from two files. A write over a file the shell could not read replaces the user's hand edit with the shell's last value, and the user loses work they never saw fail. A second writer, or a theme overlay merged over the package, makes every value the product of two sources that must agree.
 
-## shell.json keys
+## Rules
 
-Both layers share one shape, judged by `PluginLogic.configError` after every parse. A file that fails the judge is in the `malformed` state: the last good value stands and the log names the defect. A user file in that state refuses every write until it passes again. The shell reads every key of the table but `disabledTargets`, which only `vgshell theme apply` reads ([theme-apply.md § Apply](theme-apply.md)), and `packages`, which only `vgshell pkg run` reads. The shell carries that key, and any key outside this table, untouched.
+### Layers
 
-| Key | Shape |
-|---|---|
-| `version` | `1` when present. |
-| `bar.id` | A string: the active bar's plugin id. |
-| `bar.layout.left[]`, `bar.layout.center[]`, `bar.layout.right[]` | Objects, each with a string `id` and the widget's settings beside it. |
-| `plugins[]` | Objects, each with a string `id` and the plugin's settings beside it. |
-| `plugins[].keys` | An object: each name is a shortcut the plugin's manifest binds in `hyprland.binds`, and each value is the key that replaces its default, a non-empty list of keys that each get a bind, such as `SUPER+ALT+SPACE`, `SUPER+code:108` or `["code:108", "code:105"]`, or `null` to unbind it. `PluginLogic.hyprlandSection` resolves it for the layer and the plugin's read-only `shell.shortcut.keys`, which reads the first bound key of a list: [hyprland.md](hyprland.md). The manager's `setKey` writes it, normalised, from the Settings window's Keys rows, [manager.md](manager.md). A name the manifest binds nothing under is reported by `listPlugins`, not refused. |
-| `disabledPlugins[]` | Strings: plugin ids. |
-| `disabledTargets[]` | Strings: theme target names an apply skips. A user list replaces the shipped one. |
-| `welcome.keys[]` | Objects, each with a string `id`, a string `shortcut` and non-empty string `text`: one Quick commands row of the first-start welcome, drawn as key chips and the text while plugin `id` binds `shortcut` ([requirement-notice.md](requirement-notice.md)). The shell reads it from the shipped layer alone, as it reads the default bar. |
-| `manager.id` | A string: the plugin whose window is the manager's user interface. A summoned panel's or menu's gear opens that window at the panel's plugin page, with the payload `{"plugin": "<id>"}`, while the plugin is enabled ([components-layout.md](components.md)). The shell reads it from the shipped layer alone. |
-| `packages.elevate` | `sudo`, `doas` or `run0`, from `PackageManagers.ELEVATORS`: the command `vgshell pkg run` puts before a step that needs root. Without it, the first of the three on PATH. `packages` is an object; a user `packages` replaces the shipped one whole. [packages.md § Running a plan](packages.md). |
+- Do merge only through `PluginLogic.effectiveConfig`. `scripts/test-plugin-logic.js` pins each merge rule and the seeding of the user `bar` key.
+- Do start an enable or disable edit from the effective disabled list, so a user file with no list keeps the shipped exclusions; an explicit empty user list still overrides them.
+- Do read `welcome.keys` and `manager.id` from the shipped layer alone, as the shell reads the default bar; they name the product's own surfaces, not a user preference.
 
-## Unknown ids
+### Reads and writes
 
-An id `disabledPlugins` or `plugins` lists that no discovered plugin has, as a removed plugin leaves behind, enables and disables nothing, and the shell keeps it in the file. `PluginLogic.unknownIds` names each one with the key that lists it, once per key. `listPlugins` carries the rows as `unknown` once the first scan has completed, and `vgshell plugin list` prints one `unknown <id> in <key>` line per row. `scripts/test-plugin-logic.js` pins the rule, `scripts/test-vgshell-plugin-list.sh` the line, and `scripts/smoke/rows/configuration.sh` the shell's report of a stale `disabledPlugins` entry.
+- Do judge each layer with `PluginLogic.configError` after every parse. A file that fails keeps its last good value, and the log names the defect.
+- Never build anything before the configuration is ready: the shipped file has loaded once and the user file has settled, so a bar never draws from the user file alone.
+- Never write the user file unless it is `loaded` or `absent`, so an unparseable, unreadable or malformed file is never overwritten unread. After the disk refuses a write, refuse every write until the file is read again.
+- Do answer `ok` only once the file holds the edit. `scripts/smoke/rows/style.sh` stops the shell as a toggle answers and reads the file.
+- Never drop a key the shell does not read; a write carries every other key untouched.
+- Do read a file again when an edit lands during a read, through `WatchedFile`, so the last edit is the one the configuration holds.
 
-## States
+### Unknown ids
 
-- Each file is in one state: `pending`, `loaded`, `absent` (the user file), `unparseable`, `unreadable` or `malformed`. `listPlugins` reports both.
-- The configuration is ready once the shipped file has loaded once and the user file has settled. Nothing is built before that, so a bar never draws from the user file alone.
-- A file that fails after one load keeps its last good value, so the shell draws from what it has and the log names the cause.
-- Each layer retains its accepted text. A reload of identical text keeps the value object, so a manager write and its file notification produce one configuration change.
-- Every write is refused unless the user file is `loaded` or `absent`, so a file the shell could not read is never overwritten unread. `ok` from a write means the file holds the edit: the shell writes before it answers, so a stop right after the answer keeps it. `scripts/smoke/rows/style.sh` stops the shell as a toggle answers and reads the file.
-- A write the disk refuses answers `refused: user-config=unwritable` with the error and leaves the value in memory as it was. Every write is refused that way until the shell has read the file again.
-- An edit to either file that lands while the shell reads it is read again, so the last edit is the one the configuration holds.
+- Do keep an id that `plugins` or `disabledPlugins` lists and no discovered plugin has, as a removed plugin leaves behind, in the file, and report it: `PluginLogic.unknownIds` names each one with its key, `listPlugins` carries it as `unknown`, and `vgshell plugin list` prints it. `scripts/test-plugin-logic.js`, `scripts/test-vgshell-plugin-list.sh` and `scripts/smoke/rows/configuration.sh` pin the rule, the line and the shell's report.
 
-## Theme
+### Theme file
 
-`~/.config/vgshell/theme.json` holds the shell document: `schemaVersion`, `name` and `tokens`, a nested tree of overrides for the token table. `ThemeSource.qml` reads it the way `Config.qml` reads `shell.json`, and `ThemeLogic.accept` is the one judge of the document. An absent file, including one deleted while the shell runs, publishes the defaults, the same theme a fresh start without the file draws. A file that becomes unreadable or that the judge refuses is logged with its token and reason and leaves the last accepted theme. The document shape, the tiers and the expression grammar are in [design-system.md](design-system.md). The file is the applied package's document: `vgshell theme apply <name>` replaces it with the package's `theme.json` bytes, and `vgshell theme list` reports it modified when a hand edit makes it differ, [theme-apply.md § Apply](theme-apply.md). No overlay layer merges over it; reverting an edit is applying the package again, and a lasting change is an edited copy installed as its own package, [D025](../decisions/D025-no-theme-override-layer.md). A five-key palette file is refused by its first key, and the defaults draw.
+- Do judge `theme.json` with `ThemeLogic.accept` alone. An absent file publishes the defaults; a file that becomes unreadable or that the judge refuses is logged and leaves the last accepted theme.
+- Never merge a user layer over the applied theme. A lasting change is an edited copy installed as its own package ([D025](../decisions/D025-no-theme-override-layer.md)).
 
-## Decisions
+## The canonical example
 
-[D006](../decisions/D006-two-configuration-layers.md), [D025](../decisions/D025-no-theme-override-layer.md).
+`writeUser` in `shell/Core/Config.qml`: the state check before any write, the held disk error, and `ok` only once the file holds the value. Copy its shape for any file the shell writes on the user's behalf.
+
+## Revisit when
+
+A third system-wide layer under `/etc` is needed, a shipped default must override a user value, or users need a local theme change that follows upstream updates of an installed package.
+
+## Not governed
+
+Each key's shape, which `PluginLogic.configError` judges; the theme document's tiers and tokens, which is [design-system.md](design-system.md); what `vgshell theme apply` writes and when, which is [themes.md](themes.md).

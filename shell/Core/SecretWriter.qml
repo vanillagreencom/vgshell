@@ -55,8 +55,7 @@ Scope {
         writer.exitCode = null;
         writer.stdinEnabled = record.feed !== null;
         // Assigned after the record: a list handed to a property crosses a
-        // QVariant conversion (runtime-qml.md), and nothing here holds the
-        // secret.
+        // QVariant conversion, and nothing here holds the secret.
         writer.command = request.argv;
         writer.running = true;
         return "ok";

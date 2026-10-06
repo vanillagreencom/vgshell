@@ -220,7 +220,7 @@ install_before="$(ended_record vgs.devtools/install)"
 forget_record
 # The stand-in's run ends at once, so its terminal would take the keyboard
 # and give it back before the shell read the leave, which Qt's Wayland
-# client can drop (docs/architecture/runtime-qml.md). The run is held
+# client can drop. The run is held
 # live, as a user's TUI is, until the shell reads the keyboard gone.
 hold_runs
 expect "the Dev Tools Tab tour reveals each focused action and Return reaches Install" ok devtools_keyboard_install

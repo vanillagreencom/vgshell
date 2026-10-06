@@ -74,9 +74,7 @@ MARGIN_PX=32
 # cachy on 2026-09-30 it drew within 4 device pixels of the corner.
 POINTER_PX=32
 # Lossy WebP at quality 85, the slowest and smallest method, with sharp
-# RGB-to-YUV conversion so thin coloured text keeps its colour; the
-# measurement that chose it is docs/architecture/readme.md
-# § Encoding.
+# RGB-to-YUV conversion so thin coloured text keeps its colour.
 WEBP_OPTIONS=(-quality 85 -define webp:method=6 -define webp:use-sharp-yuv=true)
 
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"

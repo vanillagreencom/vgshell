@@ -10,7 +10,9 @@ Read before touching anything that starts, stops, measures or talks to the shell
 
 A lock descriptor the shell inherits is held by every child the shell starts, so a long download kept the lock after the shell died. Quickshell 0.3.1 re-executes itself in the same pid after a crash signal, so a runner that trusted the exit alone would never see the crash. Two components polling one source cost twice and disagree, and a lookup per item that forks a process makes a scan cost a process per plugin. Quickshell links jemalloc, which purges retained pages lazily, so resident size falls in steps and reports live plus retained data; a rate read over a short span measures the allocator, not the shell.
 
-## Process
+## Rules
+
+### Process
 
 - Never start a second shell against the live session, and never kill Quickshell processes by name; other Quickshell applications share the seat. Validation runs in the nested sandbox alone.
 - Do exit a shell through the runner, never `Qt.quit()` from the root; `Qt.exit` does nothing while the root is still loading.
@@ -22,7 +24,7 @@ A lock descriptor the shell inherits is held by every child the shell starts, so
 - Never relaunch, restart or refuse a run from anywhere but the runner's supervision table in `bin/vgshell`; `scripts/test-vgshell-run.sh` and `scripts/smoke/rows/supervise.sh` pin it.
 - Do keep the autostart line one sentence here, because `scripts/check-readme.js` reads it and holds the README's install text to it. Autostart is `hl.on("hyprland.start", function () hl.exec_cmd("vgshell start") end)` in `hyprland.lua`; a system package also ships an XDG autostart entry that runs `vgshell start`, and VGS ships no systemd unit of its own.
 
-## Memory
+### Memory
 
 - Do give every run-time object an owner that destroys it; an object parented to a singleton lives the whole session.
 - Never hold a cache keyed by data other applications supply without a ceiling.
@@ -30,7 +32,7 @@ A lock descriptor the shell inherits is held by every child the shell starts, so
 - Never state a growth rate over a span under 600 s, and never append a sample to a log whose last row names another session. `scripts/test-sample-shell-memory.sh` pins both.
 - Never let the sampler signal, restart or drive the shell; it reads `/proc` alone. Attribution to a C++ class needs a profiled start, which `scripts/attribute-heap-profile.py` explains in its header.
 
-## Performance
+### Performance
 
 - Never let two components poll one source; the owner publishes, the rest read.
 - Never run a process-costing lookup per item; `bin/vgshell-scan` reads every manifest in one process.
@@ -49,4 +51,4 @@ Quickshell gives QML a file lock or relaunches after every unclean exit, or Quic
 
 ## Not governed
 
-What the shell does with Hyprland, which is [runtime-hyprland.md](runtime-hyprland.md); the Quickshell and Qt facts QML rests on, which is [runtime-qml.md](runtime-qml.md); the smoke's latency budgets, which is [validation-latency.md](validation-latency.md).
+What the shell does with Hyprland, which is [hyprland.md](hyprland.md); a Quickshell or Qt fact the code rests on, which is a comment at that code; the smoke's latency budgets, which is [validation.md](validation.md).

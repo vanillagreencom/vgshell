@@ -61,8 +61,7 @@ HEADER = "image\tscene\tshot\tcrop"
 CROPS = ("full", "bar", "content", "item", "backdrop")
 # The largest image scripts/readme-shots.sh made from the table on host
 # cachy on 2026-09-30, ImageMagick 7.1.2-32 with libwebp 1.6.0, was the Dev
-# Tools window at 54,996 bytes (docs/architecture/readme.md
-# § Encoding). The budget leaves near twice that for a larger surface and
+# Tools window at 54,996 bytes. The budget leaves near twice that for a larger surface and
 # stays under the 200 KB commit-guards byte ceiling.
 BUDGET_BYTES = 100 * 1024
 NAME = re.compile(r"^[a-z0-9][a-z0-9.-]*\.webp$")

@@ -59,7 +59,7 @@ Item {
         { accounts: accounts, action: action, login: login, problem: problem })
 
     // Read from the source, since a change handler can run before the
-    // bindings that read it (runtime-qml.md).
+    // bindings that read it.
     function commandMissing() { return shell === null || shell.requirements.missing.indexOf("tailscale") !== -1; }
 
     function stepState(name) {
@@ -156,7 +156,7 @@ Item {
     }
 
     // The exit code of a run that ended on its own, -1 for one a signal
-    // ended or that never started (runtime-qml.md).
+    // ended or that never started, which leaves `completion` null.
     function codeOf(completion) {
         return completion === null || completion.status !== 0 ? -1 : completion.code;
     }

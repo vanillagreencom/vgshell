@@ -289,8 +289,8 @@ expect "vgshell lock while locked answers ok" ok "${shell_env[@]}" "$repo/bin/vg
 expect "the session stays locked" locked session_lock
 release "the IPC lock"
 
-# SUPER+DELETE on the nested seat. wtype's keys resolve a bind by keysym only
-# (docs/architecture/runtime-hyprland.md), so the row turns that on.
+# SUPER+DELETE on the nested seat. wtype's keys resolve a bind by keysym
+# only, so the row turns that on.
 printf '%s\n' 'hl.config({ input = { resolve_binds_by_sym = true } })' >>"$lock_hypr_lua"
 expect "the nested instance reloads with binds resolved by keysym" ok hypr reload config-only
 type_keys -M logo -k Delete -m logo || fail "typing SUPER+DELETE failed"

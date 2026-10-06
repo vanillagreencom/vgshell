@@ -158,7 +158,7 @@
 # or when every failure was a grim that got no frame from the nested
 # compositor (nested-window=not-drawn: the host sends a hidden window no
 # frame callbacks unless a host window rule gives class aquamarine
-# render_unfocused, docs/architecture/validation-smoke-faults.md). Exit 1
+# render_unfocused, docs/architecture/validation.md § Faults). Exit 1
 # when any other step or shot failed.
 set -euo pipefail
 

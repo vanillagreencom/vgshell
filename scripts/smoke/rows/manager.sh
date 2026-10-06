@@ -75,8 +75,7 @@ settings_binds() { hypr -j binds | py_reply 'import json,sys; print(json.dumps(s
 # min(size.window.width, width - 2 * size.window.gutter) wide,
 # size.window.heightShare of the height tall and centred on the monitor's
 # work area, its box less the space the bar reserves and general:float_gaps,
-# where Hyprland centres a floating window
-# (docs/architecture/runtime-hyprland.md), within one pixel; else the
+# where Hyprland centres a floating window, within one pixel; else the
 # misfits. The monitor, the clients and the gaps come from one batched
 # request, which the compositor answers from one state. Given MODE, the
 # mode a row holds, a monitor at another mode reads

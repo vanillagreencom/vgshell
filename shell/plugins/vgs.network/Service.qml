@@ -97,6 +97,10 @@ Item {
         if (prompt !== null && network(prompt.key) === null) prompt = null;
     }
 
+    // Quickshell 0.3.1 lists a network only while its device scans, is
+    // connected to it or holds its settings, and setting scannerEnabled
+    // asks for a scan, again at most every scan interval
+    // (network/nm/wireless.cpp).
     function moveScanner() {
         const next = leaseCount > 0 ? wifiDevice : null;
         if (scannerDevice !== null && scannerDevice !== next) scannerDevice.scannerEnabled = false;

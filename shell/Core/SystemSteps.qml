@@ -66,7 +66,7 @@ Scope {
     }
 
     // A command that fails to start emits only runningChanged, so the end
-    // is read there: no exit recorded is a failed start (runtime-qml.md).
+    // is read there: no exit recorded is a failed start.
     Process {
         id: prober
         property var completion: null

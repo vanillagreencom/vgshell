@@ -321,7 +321,7 @@ close_note "$first_id"
 expect_poll "the sender's close ends the toast" none key_of "First toast, updated"
 expect_poll "the closed toast is in the history" True in_history "First toast, updated"
 
-# The VGS hints (docs/architecture/notification-hints.md): a card keeps the
+# The VGS hints (shell/plugins/vgs.notifications/developer.md § Hints): a card keeps the
 # hints the judge accepts, draws the hinted Lucide icon, and a click on an
 # `open` card hands the open TUI the file through the stand-in terminal,
 # which records the argv and runs no plugin script
@@ -481,9 +481,7 @@ focus_other() {
 # inbox_closed: 0 once the summon host holds no panel and the service no
 # panel mode, 1 when either still stands after 5 s, read every 200 ms. The
 # keyboard on another window closes the inbox, but only once the shell has
-# dispatched the reply to the sync Qt asks at the leave
-# ([runtime-qml-focus.md](../../../docs/architecture/runtime-qml.md)),
-# so the compositor names the other window focused while the panel still
+# dispatched the reply to the sync Qt asks at the leave, so the compositor names the other window focused while the panel still
 # stands, and `inbox` is a toggle that would close it.
 panel_stands() { [[ $(panel_rows) != absent ]]; }
 inbox_closed() {

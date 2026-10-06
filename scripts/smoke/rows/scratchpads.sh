@@ -40,8 +40,9 @@
 # a hide has no control: Hyprland gives it back to the window focused
 # last on its own.
 # Every key goes to the nested instance alone, through wtype on its seat,
-# with `input:resolve_binds_by_sym` on so a typed key reaches its bind
-# (runtime-hyprland-capture.md), and the row puts the harness hyprland.lua
+# with `input:resolve_binds_by_sym` on so a typed key reaches its bind,
+# since a bind resolves a virtual keyboard's key only by keysym, and the
+# row puts the harness hyprland.lua
 # back at its end.
 # No latency is measured; each reading polls every 200 ms for up to 5 s,
 # the toast reading every 200 ms for up to 25 s.
@@ -179,8 +180,7 @@ print("absent" if row is None else json.dumps([row.get("enabled"), row.get("styl
 # hyprctl's reply. The shell reloads Hyprland in a Process after it writes
 # the layer file, so the file can hold a change Hyprland has not loaded;
 # a press before that load toggles the old pad, and the load after it sets
-# the special workspace leaves back to the configuration's
-# (docs/architecture/runtime-hyprland.md). A function run
+# the special workspace leaves back to the configuration's. A function run
 # through `hyprctl dispatch` that raises answers its error text, not `ok`.
 sp_pad_loaded() {
   local reply

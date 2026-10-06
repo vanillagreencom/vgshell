@@ -2,7 +2,7 @@
 
 This is Kendex's first extensive Copilot consumer workload; report package or workflow failures with `kendex report`, using temporary consumer-side workarounds without editing Kendex-owned files.
 
-A desktop shell for Hyprland, built on Quickshell 0.3.1. A small fixed core starts the shell, talks to Hyprland, hosts surfaces and loads plugins. Everything outside the core is a plugin: one directory with a `manifest.json`, shown on the surfaces the core hosts, landed with the validation row that proves it is built and handed what it asked for. `docs/architecture/overview.md` holds the idea, the vocabulary and the invariants.
+A desktop shell for Hyprland, built on Quickshell 0.3.1. A small fixed core starts the shell, talks to Hyprland, hosts surfaces and loads plugins. Everything outside the core is a plugin: one directory with a `manifest.json`, shown on the surfaces the core hosts, landed with the validation row that proves it is built and handed what it asked for. `docs/architecture/overview.md` holds the idea and its rules.
 
 ## Commands
 
@@ -27,26 +27,25 @@ A desktop shell for Hyprland, built on Quickshell 0.3.1. A small fixed core star
 - Consumer features need no developer setup. A feature that needs an app, API key or token the user must create first is an owner-only extra: declared in the manifest's `extras`, off by default, absent from the Settings page and documented only under "Extras (not supported)" in its plugin's README: `docs/decisions/D075-consumer-features-need-no-developer-setup.md`.
 - Before writing or changing code, load the code-quality skill. Before writing a plugin, load the vgs-plugin skill.
 
-## Read next
+## Read when
 
-- `DEVELOPMENT.md`: before writing a plugin, running validation, regenerating the README's plugin table or changing a licence.
-- `docs/architecture/overview.md`: before structural work.
-- `docs/architecture/plugins.md` and `docs/architecture/plugin-manifest.md`: before writing a plugin or a host.
-- `docs/architecture/surfaces.md`: before choosing between an application window and an overlay, or touching the summon host.
-- `docs/architecture/manager.md`: before touching enablement, install, update, remove or the manager's panel.
-- `docs/architecture/configuration.md`: before touching the configuration files or their judge.
-- `docs/architecture/design-system.md`: before touching a token, the theme judge, `Theme`, a component of `qs.Ui`, or any value a surface draws with.
-- `docs/architecture/components.md`: before adding or changing a component of `qs.Ui`.
-- `docs/architecture/runtime.md`: before touching anything that starts, stops, measures or talks to the shell, and for every Quickshell fact the code rests on.
-- `docs/architecture/runtime-hyprland.md`: before touching a dispatch, `Compositor` or `Dispatch.js`, for every Hyprland fact the code rests on.
-- `docs/architecture/migrations.md`: before adding a one-time migration or touching `bin/vgshell-migrate`.
-- `docs/architecture/validation.md`: before touching `scripts/validate` or one of its rows.
-- `docs/architecture/validation-smoke.md`: before touching the nested sandbox, its harness or a smoke row's verdict.
-- `docs/architecture/validation-smoke-faults.md`: before touching a sandbox fault the smoke excuses, a mode a row holds on the nested output, or the smoke's closing verdict.
-- `docs/architecture/validation-latency.md`: before touching a latency or the resident size the smoke reads, or its budget.
-- `docs/architecture/runtime-qml.md`: before writing QML, for every Quickshell and Qt fact the QML rests on.
-- `docs/architecture/runtime-pointer.md`: before touching a pointer handler, a cursor, a hover reading or a popup, for the Qt and Wayland facts they rest on.
-- `shell/AGENTS.md`, `shell/plugins/AGENTS.md`, `scripts/AGENTS.md`: when working under that directory. Claude Code loads each through the `CLAUDE.md` shim beside it. Pi and Codex load only the root-to-cwd chain at launch, so an agent on those harnesses reads the nested file before working under the directory.
+- Before structural work: adding a surface, a service, a kind, a capability, a host or a core module: `docs/architecture/overview.md`.
+- Before writing a plugin or a host, choosing between an application window and an overlay, or touching the summon host, a capability's provider, a requirement, a manifest key, enablement, placement, plugin status, install, update, remove or the manager's panel: `docs/architecture/overview.md`.
+- Before touching the configuration files or their judge: `docs/architecture/configuration.md`.
+- Before touching a token, the theme judge, `Theme`, a component of `qs.Ui`, a plugin-owned look, a container's inset, a Settings field, or any value a surface draws with: `docs/architecture/design-system.md`.
+- Before touching a pointer handler, a cursor, a scroll, a hover reading, a popup, a focusable control, a keyboard path or a list's selection: `docs/architecture/design-system.md`.
+- Before writing text a user reads: a plugin description, a Settings row, a tooltip, a message or a setup screen: `docs/architecture/design-system.md`.
+- Before touching anything that starts, stops, measures or talks to the shell, or adding a watcher, a poller, a cache or a subprocess: `docs/architecture/runtime.md`.
+- Before touching the Hyprland layer, a dispatch, `Compositor` or `Dispatch.js`, a shortcut, a manifest's `hyprland` key or the key capture: `docs/architecture/hyprland.md`.
+- Before touching the `tui` capability, a floating TUI, `vgshell pkg` or the package table, a system step or `vgshell sudo grant`, the Dev Tools catalog, the requirement notice's install, or any place a plugin's or a user's text could become a command or a flow asks the user a question or a password: `docs/architecture/commands-are-data.md`.
+- Before touching a password field, a stored token, a clipboard reader, a probe of a credential, or any text that could carry a secret: `docs/architecture/secrets.md`.
+- Before touching a theme package, the package judge, the theme runner, the apply, the theme catalog, a theme target, the backgrounds or the `theme` capability: `docs/architecture/themes.md`.
+- Before touching the licence, `VERSION`, a package recipe, the installer, the flake, `vgshell self`, a one-time migration or `bin/vgshell-migrate`: `docs/architecture/distribution.md`.
+- Before touching the Jarvis service, its daemon, a child it starts, its wire, a brain or speech adapter, the tool bridge or a tool executor: `docs/architecture/jarvis.md`.
+- Before touching Jarvis release, the network door, a key lookup, or any path by which content or a credential could leave the daemon: `docs/architecture/jarvis-outbound.md`.
+- Before touching `scripts/validate` or one of its rows, a test's environment, the nested sandbox, its harness, a smoke row's verdict, a sandbox fault the smoke excuses, a latency or resident-size budget, or the Jarvis test world: `docs/architecture/validation.md`.
+- Before writing a plugin, running validation, regenerating the README's plugin table or images, or changing a licence: `DEVELOPMENT.md`.
+- When working under `shell/`, `shell/plugins/`, `shell/Ui/`, `shell/Commons/` or `scripts/`: the `AGENTS.md` in that directory. Claude Code loads each through the `CLAUDE.md` shim beside it. Pi and Codex load only the root-to-cwd chain at launch, so an agent on those harnesses reads the nested file before working under the directory.
 
 ## Code Review Rules
 

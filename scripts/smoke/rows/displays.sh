@@ -1,5 +1,5 @@
 # vgs.displays over the sandbox's device fakes
-# (docs/architecture/validation-smoke-host.md): the HID fake's Pro
+# (docs/architecture/validation.md § Host safety): the HID fake's Pro
 # Display XDR, hidraw0, and two Studio Displays with one serial, hidraw1
 # and hidraw2, which only their HID devices' directories tell apart. No
 # sandbox output has an Apple model, so the helper places none of them.
@@ -357,7 +357,7 @@ expect_poll "with every step ready the pane draws no Access section" '{"header":
 # Copies of the shipped pane, built under the shown pane and reading its
 # `shell`: one as shipped, one that takes every access entry as needed and
 # one whose Access section never hides. The type loader keeps the listing
-# of a directory it has read (runtime-qml.md), so the copies go in a fresh
+# of a directory it has read, so the copies go in a fresh
 # folder, named as the types they make, and import the plugin's directory
 # for its rows and its logic. A copy takes no focus from the pane.
 disp_copy_dir="$repo/shell/plugins/vgs.displays/access-copies"

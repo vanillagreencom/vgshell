@@ -12,7 +12,7 @@ import "PluginLogic.js" as Logic
 // every output. Hyprland posts `monitoradded`, `monitorremoved`,
 // `monitoraddedv2` and `monitorremovedv2` when an output comes or goes and
 // `configreloaded` after each reload, and the outputs are read again on
-// each (docs/architecture/runtime-hyprland.md). A failed read is logged
+// each. A failed read is logged
 // and returns `outputs` to null. The plugin that owns `hyprland.monitors`
 // may run a guarded trial: the guard is detached from Quickshell, and the
 // token file is the only state it shares with the shell.

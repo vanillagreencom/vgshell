@@ -68,11 +68,11 @@ var NETWORK_FRESH_MS = 10 * 60 * 1000;
 var VERBS = ["install", "update", "remove", "version", "pin", "unpin", "rollback", "update-all", "install-launch"];
 
 // The group whose first listed TUI entry updates VGS: the launcher's Update
-// row reads the same group (docs/architecture/tui-capability.md).
+// row reads the same group.
 var UPDATE_GROUP = "Update";
 
 // A status `text` and `state` text are at most this long
-// (docs/architecture/status.md).
+// (PluginLogic.STATUS_TEXT_MAX).
 var STATUS_TEXT_MAX = 200;
 
 // The queries whose answers the `checks` status reports.

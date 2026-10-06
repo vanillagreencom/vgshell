@@ -68,6 +68,9 @@ Item {
         anchor.gravity: Edges.Bottom
         anchor.adjustment: PopupAdjustment.Flip | PopupAdjustment.Slide
         anchor.margins.bottom: -Theme.tooltip.gap
+        // No grab: Quickshell makes this a Qt ToolTip, which an outside
+        // click leaves open; grabFocus true is a Popup with an xdg_popup
+        // grab the compositor dismisses on a click outside.
         grabFocus: false
         visible: false
         color: "transparent"

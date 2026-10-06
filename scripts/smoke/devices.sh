@@ -1,6 +1,6 @@
 # Sourced by harness.sh; owns the sandbox's device fakes, the stand-ins
 # for device commands and the guards a device row starts behind
-# (docs/architecture/validation-smoke-host.md). No smoke row may reach
+# (docs/architecture/validation.md § Host safety). No smoke row may reach
 # the host's audio, radios, network, VPN, DDC or hidraw: the sandbox shares
 # the host's devices and files.
 #
@@ -26,10 +26,12 @@
 #   leaves them up: python-dbusmock's bluez5 and networkmanager templates
 #   on the sandbox system bus with one adapter, one device and one Wi-Fi
 #   device planted, a private PipeWire and WirePlumber with null nodes
-#   only, and the HID feature-report fake. Quickshell's Bluetooth,
+#   only, and the HID feature-report fake. Quickshell 0.3.1's Bluetooth,
 #   Networking and Pipewire singletons look for their service once, when
-#   a plugin first reads them, so a row calls it before it enables a
-#   plugin that reads one (docs/architecture/runtime-devices.md).
+#   a plugin first reads them, and never watch for it to appear
+#   (bluetooth/bluez.cpp, network/nm/backend.cpp,
+#   services/pipewire/connection.cpp), so a row calls it before it enables
+#   a plugin that reads one.
 # - devices_ready ROW, a device row's first line: devices_up, then
 #   devices_guard over the running shell. A missing prerequisite or a
 #   guard that reads a leak records ROW not measured and returns 1, and

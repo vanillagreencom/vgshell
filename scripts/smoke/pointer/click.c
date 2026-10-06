@@ -28,9 +28,8 @@
  * the fingers speeding up to the middle of the swipe and slowing to rest,
  * then the axis stop of the lift, and prints `swiped X Y LENGTH`. The
  * compositor reads the source of an axis event from the request after it,
- * so each event names its source after its length: Hyprland 0.56.2 sent a
- * client `axis_source(wheel)` for a source named first, in the nested
- * sandbox on 2026-10-04 (docs/architecture/runtime-pointer.md).
+ * so each event names its source after its length: Hyprland 0.56.2 sends a
+ * client `axis_source(wheel)` for a source named before the axis.
  * Exit 2 on a bad invocation, 1 when the display cannot be opened or lacks
  * the protocol, printed as `click: refused: <key>=<value>`.
  */

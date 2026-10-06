@@ -177,8 +177,7 @@ Item {
         phase = "capturing";
         action = name;
         // The window boxes come from Hyprland's own reply: Quickshell's
-        // Hyprland.toplevels can keep a closed window
-        // (docs/architecture/runtime-hyprland.md).
+        // Hyprland.toplevels can keep a closed window.
         if (name === "screenshot-window" || name === "record-window" || ((name === "screenshot-area" || name === "record") && shell.settings.smart)) {
             const asked = windowsAsked + 1;
             windowsAsked = asked;
@@ -326,7 +325,7 @@ Item {
     // PARENT, the shell. It execs through the helper's parent-death
     // trampoline, so the shell's end sends notify-send SIGINT, which closes
     // the notification. A saved file is its image, a recording's thumbnail;
-    // the camera hint draws where there is no image (notification-hints.md);
+    // the x-vgs-icon camera hint draws where there is no image;
     // each of the worker's actions is a button, and notify-send prints the
     // id of the one pressed. A failed post-process keeps the recording as
     // recorded and shows the end of the recorder log.
@@ -357,7 +356,7 @@ Item {
     // closes.
     function notify(command, actions) {
         // A list crosses createObject's initial properties as something
-        // else (runtime-qml.md), so the run takes its lists after creation.
+        // else, so the run takes its lists after creation.
         const run = noticeComponent.createObject(root);
         if (run === null) {
             console.error("capture: notice=unsent cause=process");

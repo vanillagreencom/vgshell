@@ -101,8 +101,7 @@ FocusScope {
     // last held it, a clicked segmented control included, so the view
     // takes the keyboard back through this item and not through itself.
     // The table runs on the focused item itself because Qt moves the focus
-    // on a Tab that item leaves unaccepted before a parent's Keys see it
-    // (runtime-qml.md).
+    // on a Tab that item leaves unaccepted before a parent's Keys see it.
     Item {
         id: keyboard
         focus: true

@@ -180,7 +180,8 @@ expect_poll "a press outside closes the select list" false ovr selectOpen
 # the grabbing popover. The shell reads every popup's events on one
 # connection in order, so once the popover has closed each copy has had
 # any dismissal the same press brought. Every copy is written before the
-# first is built (runtime-qml.md). A copy is no member of qs.Ui and sees
+# first is built: the type loader keeps the listing of a directory it has
+# read and refuses a file written after it as a case mismatch. A copy is no member of qs.Ui and sees
 # the module's internal types only through their directories, so the
 # select's copy sits beside AnchorTracker in overlay/ and imports the
 # directory of ScrollBar, which its list draws.

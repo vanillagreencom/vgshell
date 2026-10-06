@@ -1,7 +1,7 @@
 #version 440
 
-// The default Qt Quick vertex shader shares this uniform buffer.
-// qt_Matrix and qt_Opacity must remain first (runtime-qml-shaders.md).
+// The default Qt Quick vertex shader shares this uniform buffer, so
+// qt_Matrix and qt_Opacity must remain first.
 layout(location = 0) in vec2 qt_TexCoord0;
 layout(location = 0) out vec4 fragColor;
 layout(std140, binding = 0) uniform buf {

@@ -46,7 +46,7 @@ BarItem {
         tint: root.tint
     }
 
-    // keyboard-path: the bar takes no keyboard focus (keyboard.md P2); a focused icon opens its menu on Shift+F10 or the Menu key, and the app's own window and keys carry its other actions
+    // keyboard-path: the bar takes no keyboard focus (design-system.md § Keyboard); a focused icon opens its menu on Shift+F10 or the Menu key, and the app's own window and keys carry its other actions
     MouseArea {
         anchors.fill: parent
         acceptedButtons: Qt.MiddleButton | Qt.RightButton

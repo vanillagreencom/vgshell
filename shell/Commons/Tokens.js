@@ -92,12 +92,10 @@ function merge() {
 }
 
 // Reading text and tooltips draw in sans; chrome (labels, buttons, key
-// caps, code and the bar) draws in mono at 12 and 13 px. The reference rule
-// each role is read from is docs/reference/design-values.md § Text roles. A
-// `lineHeight` is a multiple of the role's font size, chosen so a
-// multi-line role's line box is a multiple of 4 px at the default size.
-// Label turns it into a fixed line box unless that would undercut the
-// font's own line box.
+// caps, code and the bar) draws in mono at 12 and 13 px. A `lineHeight` is
+// a multiple of the role's font size, chosen so a multi-line role's line
+// box is a multiple of 4 px at the default size. Label turns it into a
+// fixed line box unless that would undercut the font's own line box.
 var TEXT = {
     display: role("sans", 2.27, 700, -0.02, 1.3, false, "textHeading"),
     h1: role("sans", 1.6, 700, -0.01, 1.333, false, "textHeading"),

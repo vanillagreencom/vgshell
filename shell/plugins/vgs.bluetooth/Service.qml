@@ -99,7 +99,7 @@ Item {
 
     // What is observed now, for the power operation. Read from the source
     // properties, since a change handler can run before the bindings that
-    // read them (runtime-qml.md).
+    // read them.
     function seen() { return { powered: adapters.some(a => a.enabled), rfkill: rfkill }; }
 
     // A press of a power switch; answers `ok` or the refusal, which the log
@@ -201,7 +201,7 @@ Item {
     }
 
     // A command that fails to start emits only runningChanged, so each end
-    // is read there: no exit recorded is a failed start (runtime-qml.md).
+    // is read there: no exit recorded is a failed start.
     Process {
         id: reader
         property var completion: null

@@ -6,7 +6,7 @@ import qs.Ui
 // The System window's sidebar: a search field, then every enabled section
 // under the heading of its group, in the order the panes capability lists
 // them, then the Shell & Plugins row at the foot. The search field holds
-// the keys, as the Settings list's does (keyboard.md K6): typed text
+// the keys, as the Settings list's does: typed text
 // filters the rows, and printable text typed elsewhere in the sidebar goes
 // to it. One ListCursor marks the selected row: Up, Down, the pages and
 // Ctrl+Home or Ctrl+End move it, and the plate follows the pointer over
@@ -69,8 +69,7 @@ FocusScope {
     function focusSearch(reason) { search.forceActiveFocus(reason === undefined ? Qt.TabFocusReason : reason); }
 
     // These read `shown` itself, not `footerIndex`: onShownChanged can run
-    // while that binding still holds the old list's length
-    // (runtime-qml.md).
+    // while that binding still holds the old list's length.
     function keyAt(index) { return index === shown.length ? footerKey : index >= 0 && index < shown.length ? shown[index].id : ""; }
     function indexOf(key) { return key === footerKey ? shown.length : shown.findIndex(p => p.id === key); }
 

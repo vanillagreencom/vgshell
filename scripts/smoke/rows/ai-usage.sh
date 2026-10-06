@@ -102,7 +102,7 @@ usage_panel() { ipc smoke readInstance panel vgs.ai-usage rows; }
 # usage_gear_shown reads `shown` once it has one. usage_gear_click: one
 # real click on its centre, the pointer moved there a pixel off first,
 # since a popup mapped while the pointer rests on the bar takes no click
-# until the pointer moves (validation-smoke.md). usage_settings_page: the
+# until the pointer moves. usage_settings_page: the
 # page the Settings window shows, `""` for its list, or `absent` with no
 # window.
 usage_gear() { ipc smoke labelledGeometry panel vgs.ai-usage IconButton Settings; }

@@ -14,8 +14,8 @@ import "Dispatch.js" as Dispatch
 // completion signals land: a dispatch is `hyprctl dispatch <request>`, and
 // a keyboard layout switch, which is no dispatcher, its own argv from
 // Dispatch.switchLayoutRequest.
-// `reveal` brings an application's window into view; its decisions are
-// Dispatch.js's and the Hyprland facts it rests on are runtime-hyprland.md's.
+// `reveal` brings an application's window into view; its decisions, and
+// the Hyprland facts they rest on, are Dispatch.js's.
 Singleton {
     id: root
 

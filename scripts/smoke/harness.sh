@@ -653,7 +653,7 @@ fi
 # starts with: `smoke`, the rows' own set above, or `default`, the shipped
 # configuration's, with every first-party plugin enabled as in a live
 # session, which rows/start-order.sh and the default-set first-bar
-# readings start (docs/architecture/validation-latency.md).
+# readings start (docs/architecture/validation.md § Latency budgets).
 plugin_set="${plugin_set:-smoke}"
 
 # devtools_stand_ins: vgs.devtools's host commands in the shell's own PATH
@@ -1832,8 +1832,8 @@ layer_count() { layers_of "$1" | python3 -c 'import json,sys; print(len(json.loa
 # summon_drawn KIND ID: 0 once the window of plugin ID's summoned KIND has
 # presented a frame at its configured size (Probe windowDrawn), 1 when it
 # has not within smoke_poll_bound_ms. A layer that has just mapped takes no
-# press before that ([runtime-pointer.md](../../docs/architecture/runtime-pointer.md)),
-# so a row waits for it before it presses on or beside a fresh summon.
+# press before that (Hyprland hit-tests a layer only where its committed
+# buffer reaches), so a row waits for it before it presses on or beside a fresh summon.
 summon_drawn() { # KIND ID
   smoke_poll_tries 200
   for _ in $(seq 1 "$smoke_poll_n"); do
@@ -2007,7 +2007,7 @@ background_source_size() { ipc smoke images "background:$1" vgs.themes | py_repl
 # and scale 2 for the whole run, so the layout keeps its logical size and
 # the shell draws in device pixels. The scale is set before the shell
 # starts: a shell already running when the scale changes keeps drawing its
-# windows at the old ratio (docs/architecture/runtime-qml.md).
+# windows at the old ratio.
 # shell_output_mode is the mode the run holds at scale 2, read before the
 # shell starts, and empty at scale 1: a row that leaves the hold for its
 # own returns to it, never to a mode it reads after a reset.
@@ -2215,7 +2215,7 @@ settings_page_close() {
 # for Details. settings_tab_click TEXT: a real click on the strip's tab
 # TEXT, brought into view first; the pointer moves there a pixel off
 # before it presses, since a window mapped since the last press takes no
-# click until the pointer moves (validation-smoke.md). settings_details:
+# click until the pointer moves. settings_details:
 # the mapped window's page moved to Details by that click, for every row
 # that reads or presses something drawn there.
 settings_tab() { ipc smoke readDescendant window vgs.settings TabPages currentIndex; }
@@ -2298,7 +2298,7 @@ settings_press() {
 # that draws SCOPE_TEXT, such as one row's button among rows that each
 # draw one with the same text. The pointer moves there a pixel off first:
 # a surface mapped since the last press takes no click until the pointer
-# moves (validation-smoke.md).
+# moves.
 click_scoped_in() {
   local rect x y
   rect="$(ipc smoke scopedWindowGeometry "$2" "$3" "$4" "$5" "$6" "$7")" || return 1

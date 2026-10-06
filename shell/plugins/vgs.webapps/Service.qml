@@ -114,8 +114,7 @@ Item {
     }
 
     // The list's apps, read from the setting each time: a handler of
-    // `items` may run before a binding on it holds the new list
-    // (docs/architecture/runtime-qml.md).
+    // `items` may run before a binding on it holds the new list.
     function current() {
         return WebApps.apps(shell === null ? [] : shell.settings.apps);
     }
@@ -286,8 +285,7 @@ Item {
 
     // The IPC `open`: the app's window brought into view, or the site
     // opened once a browser look ends. The windows come from Hyprland's
-    // reply: Quickshell's Hyprland.toplevels can keep a closed window
-    // (docs/architecture/runtime-hyprland.md).
+    // reply: Quickshell's Hyprland.toplevels can keep a closed window.
     function open(name) {
         if (current().good.find(app => app.name === name) === undefined) return "refused: app=" + name + " reason=unknown";
         shell.compositor.readWindows(state => root.windowsRead(name, state));

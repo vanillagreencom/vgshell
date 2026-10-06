@@ -6,8 +6,7 @@
 // guarded trial (docs/decisions/D096-vgs-reads-outputs-and-writes-no-monitor-rule.md).
 // Pure: no QML object, no I/O, so scripts/test-monitor-logic.js runs it
 // under node. MonitorState.qml runs the request and holds what parseOutputs
-// answers. Every Hyprland v0.56.2 fact the shapes rest on is in
-// docs/architecture/runtime-hyprland.md.
+// answers.
 
 var OUTPUTS_REQUEST = ["hyprctl", "-j", "monitors", "all"];
 

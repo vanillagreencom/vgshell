@@ -133,7 +133,7 @@ page_copy_line() { ipc smoke popupSelectList "$1" | page_empty_line; }
 # Copies of the shipped Select, one as shipped and one whose empty line
 # never draws, an empty popup. The type loader keeps the listing of a
 # directory it has read, so a .qml file written later beside the shipped
-# ones is refused as a file name case mismatch (runtime-qml.md): the copies
+# ones is refused as a file name case mismatch: the copies
 # go in a fresh folder under overlay/, named as the types they make, and
 # import the two directories whose internal types the Select draws
 # (AnchorTracker and ListMask, ScrollBar and ListCursorRow). Each closes

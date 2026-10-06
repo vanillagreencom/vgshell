@@ -51,7 +51,8 @@ FocusScope {
     property string notice: ""
     readonly property var row: rowOf(paneId)
     // The keyboard opens in the section a deep link names, else on the
-    // sidebar's search field, its primary input (keyboard.md F3).
+    // sidebar's search field, its primary input (design-system.md
+    // § Keyboard).
     property bool entered: false
     // Set by the first open(); the list changing before it picks nothing.
     property bool opened: false
@@ -161,9 +162,8 @@ FocusScope {
         return reply;
     }
 
-    // Open the Plugins window, the plugin manager, through the command
-    // docs/architecture/settings-window.md names under Payload for another
-    // plugin: the `surfaces` capability opens only this plugin's own
+    // Open the Plugins window, the plugin manager, through the shell's
+    // summon command: the `surfaces` capability opens only this plugin's own
     // surfaces.
     function openSettings() {
         const reply = shell.run.detached(["vgshell", "ipc", "call", "shell", "summon", "window", "vgs.settings", "{}"]);

@@ -101,16 +101,14 @@
 # package }` with package `{ manager, name }` or null: a list for `plugin
 # requirements`, and `{ core: [rows], plugins: { <id>: [rows] }, session:
 # { graphicalSession } }` for `doctor`. Both read the plugin directories,
-# PATH and D-Bus names as the shell's scan does, and change nothing:
-# docs/architecture/requirements.md.
+# PATH and D-Bus names as the shell's scan does, and change nothing.
 #
 # `plugin settings` prints the settings the plugin the shell would hold
 # under <id> hands its service, panel and floating TUIs: its manifest's
 # defaults under its plugins[] row in the shipped and user shell.json, as
 # one JSON object on one line. A value the plugin's schema refuses is
 # refused as setting=<key> want=<type> id=<id>, and an id no accepted
-# manifest names as unknown=<id>. It reads and changes nothing else:
-# docs/architecture/manager.md.
+# manifest names as unknown=<id>. It reads and changes nothing else.
 #
 # `plugin outdated` and `theme outdated` fetch every installed checkout
 # with no hook, no prompt and no askpass dialog, each fetch ended at 10 s,
@@ -124,7 +122,6 @@
 # null. Error rows still exit 0. `theme outdated` holds the theme lock
 # shared: a second outdated runs beside it, and it is refused with
 # outdated=themes reason=busy while any other theme command holds the lock.
-# docs/architecture/manager.md § Outdated.
 #
 # Theme packages are the shipped themes/<name>/ and the installed
 # ${XDG_CONFIG_HOME:-~/.config}/vgshell/themes/<name>/; an installed package
@@ -161,14 +158,14 @@
 # --screen it is that Hyprland output's own image, and with --every-screen
 # every output's own image is cleared. `theme background list`
 # names the applied package's images, and with --all every package's and
-# the user folder's: docs/architecture/theme-backgrounds.md.
+# the user folder's: docs/architecture/themes.md § Backgrounds.
 # `--json` prints the list, the apply's result `{ state, shell, targets,
 # theme, reason }`, the follow's, that result with its `follow` outcome,
 # the reload's `{ state, targets, reason }`, the background step's
 # `{ state, background, theme, path, reason }`, the set's, that result with
 # its `screen`, or the background list's `{ state, images, reason }`,
 # refusals included, as one JSON line on stdout. `theme` commands never
-# contact the shell: docs/architecture/theme-apply.md.
+# contact the shell: docs/architecture/themes.md.
 #
 # `theme add`, `update` and `remove` follow the plugin rules above for
 # ${XDG_CONFIG_HOME:-~/.config}/vgshell/themes/<name>, remove without a
@@ -199,7 +196,7 @@
 # catalog install behind 1 when the catalog's package changed.
 # `theme catalog` prints each index entry with `thumbnailPath`, `installed`,
 # `definitionUpdate`, `imageryInstalled` and `imageryUpdate`, `--json` as
-# `{ entries: [...] }`: docs/architecture/theme-catalog.md.
+# `{ entries: [...] }`: docs/architecture/themes.md § Catalog.
 #
 # `theme wallpapers` is the one catalog command that reaches the network;
 # `theme catalog` and `theme install` work offline. It fetches the archive
@@ -217,7 +214,7 @@
 # prints `{ state, bytes, total }` lines, then `{ state, theme, wallpapers,
 # images, sha256, reason }`, on stdout. VGS_THEME_ASSET_BASE replaces the
 # pin's release URL, and takes file:// only in a test run:
-# docs/architecture/theme-catalog.md.
+# docs/architecture/themes.md § Catalog.
 #
 # `theme browser-policy install` is the one command that asks for a
 # privilege: bin/vgshell-browser-policy installs itself root-owned with one
@@ -225,7 +222,7 @@
 # target's hook needs on a home install; the Arch and Fedora packages ship
 # both. Apply never prompts: until the setup exists that target is skipped
 # with reason=setup-absent, and its hook runs `sudo -n`.
-# docs/architecture/theme-targets.md.
+# docs/architecture/themes.md § Targets.
 #
 # The shell writes the Hyprland layer, one Lua file, to
 # ${XDG_STATE_HOME:-~/.local/state}/vgshell/hypr/vgs.lua. `hypr wire` keeps the
@@ -279,13 +276,14 @@
 # `ok updated=vgshell from=<old> to=<new>` and restarts a running shell from
 # the updated tree, whose restart status becomes the command's, or prints
 # shell=not-running; a current tree prints `ok up-to-date=vgshell`.
-# docs/architecture/distribution-methods.md.
+# docs/architecture/distribution.md § Installation ownership.
 #
 # `pkg` reads the one package-manager table, shell/Core/PackageManagers.js,
 # through bin/vgshell-pkg, which states its output and refusals. It needs no
 # running shell. Only `run`, `install` and `remove` change a package, and
 # they elevate only in a terminal the user sees: each refuses without one,
-# and in a process the shell started: docs/architecture/packages.md.
+# and in a process the shell started: docs/architecture/commands-are-data.md
+# § Packages.
 #
 # `sudo` runs bin/vgshell-sudo-grant, which states its output and refusals.
 # `status`, `grant` and `revoke` reach its root half through `sudo -N`,
@@ -294,13 +292,14 @@
 # `core/sudo-grant` runs `vgshell sudo grant` in one. No grant exists until
 # the owner runs `sudo install`. On NixOS, every sudo verb writes nothing,
 # reports `skipped=nixos-config`, and `grant` prints the
-# `security.sudo.extraRules` snippet: docs/architecture/system-steps.md.
+# `security.sudo.extraRules` snippet: docs/architecture/commands-are-data.md
+# § System steps.
 #
 # `system` runs bin/vgshell-system, which holds the closed table of system
 # steps and states its output and refusals. `apply` and `undo` ask one
 # question and run sudo, so each needs a terminal; the core floating TUI
 # `core/system` runs `vgshell system apply <step>` when a plugin's status
-# action names the step: docs/architecture/system-steps.md.
+# action names the step: docs/architecture/commands-are-data.md § System steps.
 #
 # `tui present` hands argv, never a shell string, to `bin/vgshell-tui launch`
 # with the full presentation, titled by --title or else by the command's
@@ -308,7 +307,7 @@
 # running shell, which decides what is listed and launches the TUI; `open`
 # prints `ok` once the launcher started, or the shell's refusal, such as
 # `tui=<key> reason=launcher-missing` while it found no terminal launcher:
-# docs/architecture/tui.md.
+# docs/architecture/commands-are-data.md § Floating TUIs.
 #
 # `reset` returns VGS to what a fresh install starts from. With mv it moves
 # into one new folder, ${XDG_DATA_HOME:-~/.local/share}/vgshell/backups/
@@ -981,7 +980,7 @@ owners_of() { # ID
 # function with its arguments, rescanPlugins when absent. add sends
 # `pluginInstalled <id>`, which starts the same scan and then raises the
 # shell's requirement notice for the plugin when a command it needs is
-# missing (docs/architecture/requirement-notice.md). Both answer
+# missing. Both answer
 # `ok scan=<N>` or `busy scan=<N>`; a bare `ok` or `busy` is the same
 # answer from a shell started before the installed vgshell, which keeps
 # running its old core until `vgshell restart`. N goes unused here.
@@ -1637,7 +1636,7 @@ theme_lock_hold() { # KEY FLOCK_OPTION...
 
 # Hold the theme lock as theme_lock_hold does, then finish or undo each
 # catalog update an interruption left, so add, install, update and remove
-# start from whole packages: docs/architecture/theme-catalog.md.
+# start from whole packages: docs/architecture/themes.md § Catalog.
 theme_lock_change() { # KEY
   theme_lock_hold "$1" -n
   node "$theme_judge" recover "$config_home/vgshell" || exit $?
@@ -2042,8 +2041,7 @@ reset_marker="$state_home/vgshell/reset-backup"
 
 # Whether ENTRY of CLASS's directory stays where it is: the theme lock reset
 # holds through the move, the backups, and the curl install's own entries,
-# which a fresh install has (docs/architecture/distribution-methods.md
-# § Curl layout).
+# which a fresh install has (the curl layout install.sh's header states).
 reset_keeps() { # CLASS ENTRY
   case "$1:$2" in
     config:theme.lock | data:backups | data:current | data:git | data:.self.lock | data:.self-update-*) return 0 ;;
@@ -2310,8 +2308,8 @@ shell_launch() {
   # The shell watches files in the first two directories and the floating
   # TUIs' exit records in the third from its start. A watch on a file whose
   # directory is absent never fires once the directory appears, and a
-  # folder listing of an absent directory lists the working directory:
-  # docs/architecture/runtime-qml.md. Quickshell 0.3.1's desktop entry
+  # folder listing of an absent directory lists the working directory.
+  # Quickshell 0.3.1's desktop entry
   # index watches only the applications directories that exist when it
   # first scans (src/core/desktopentrymonitor.cpp), so an entry written to
   # the user's applications directory made after that is never listed.
@@ -2323,9 +2321,15 @@ shell_launch() {
     [[ -e $stale || -L $stale ]] || continue
     rm -rf -- "${stale:?}" 9>&-
   done
-  # PipeWire that is not there when a plugin first reads it is connected
-  # once its socket appears, as a lost connection is
-  # (docs/architecture/runtime-devices.md).
+  # Quickshell 0.3.1's Pipewire connects once, when a plugin first reads
+  # it, and logs a failed first connection as an error and never tries
+  # again; only a lost connection watches the runtime dir for a new
+  # socket. This variable starts that watch after a failed first
+  # connection too, and does nothing else (PwConnection in
+  # services/pipewire/connection.cpp), so PipeWire that starts after the
+  # shell is connected as one that restarts is. Bluetooth, Networking,
+  # UPower and PowerProfiles have no such switch: each looks for its
+  # service once, when first read, and never sees one that starts later.
   export QS_PIPEWIRE_IMMEDIATE_RECONNECT=1
   # The shell runs as this process's child and never in its place: this
   # process keeps descriptor 9, and the child closes its copy before it

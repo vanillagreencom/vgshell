@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Enforce the plugin boundary docs/architecture/plugins.md states.
+"""Enforce the plugin boundary docs/architecture/overview.md § Plugins and kinds states.
 
 Plugin rules, one per QML or JS file under a plugin directory:
   import-module      a module import starts with QtQuick, QtQml, Qt.labs., qs.Commons,

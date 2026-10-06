@@ -5,7 +5,9 @@ import qs.Ui
 import "../foundation/KeyNavLogic.js" as KeyNavLogic
 
 // A popup under the item it is declared in: its own surface anchored to
-// that item, so it leaves a bar of any height; it takes keyboard focus
+// that item, so it leaves a bar of any height, which a Qt Popup.Window
+// cannot: Qt Wayland places one once, inside its parent window's bounds,
+// and never moves it. It takes keyboard focus
 // while open, and closes on a press outside and on Escape (DismissScope),
 // and when its anchor hides. It follows the anchor when that moves. Content goes in
 // the body; `width` is the author's, the height follows the content. The

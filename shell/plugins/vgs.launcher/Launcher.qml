@@ -178,8 +178,8 @@ Item {
         }
     }
 
-    // A watcher adds only a directory that exists when it is built
-    // (docs/architecture/runtime-qml.md), so the user menu's directory is
+    // A watcher adds only a directory that exists when it is built, so the
+    // user menu's directory is
     // made before its watch starts: a menu first created there while the
     // launcher is open is then read. A directory that could not be made is
     // logged and the watch starts anyway, reading the menu as absent.
@@ -657,6 +657,8 @@ Item {
         id: selectionWriter
         property bool failed: false
         preload: false
+        // SIGTERM ends the shell with no handler run, so a write left to
+        // the worker thread would be lost with it.
         blockWrites: true
         atomicWrites: true
         printErrors: false

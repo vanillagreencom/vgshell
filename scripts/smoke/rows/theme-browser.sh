@@ -292,8 +292,8 @@ themes_global() { hypr globalshortcuts | python3 -c 'import sys; print(sum(1 for
 expect_poll "the compositor lists the themes shortcut" 1 themes_global
 # wtype types on a virtual keyboard with keycodes of its own, which a bind
 # resolves only by keysym, so the sandbox user's settings turn that on
-# for these rows, as rows/hyprland.sh does for its own (docs/architecture/
-# runtime-hyprland.md), and the file is put back after them.
+# for these rows, as rows/hyprland.sh does for its own, and the file is
+# put back after them.
 hypr_lua="$home/.config/hypr/hyprland.lua"
 cp -p -- "$hypr_lua" "$sandbox/hyprland-before-browser.lua"
 {

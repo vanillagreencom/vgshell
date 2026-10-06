@@ -2,8 +2,8 @@ import QtQuick
 import qs.Ui
 
 // A slim scroll bar a list draws beside its own Flickable, for a plugin
-// that owns its look (appearance.md): every value it draws with is an
-// input, and it reads no theme token. It shows only while `flickable`
+// that owns its look (design-system.md § Appearance): every value it
+// draws with is an input, and it reads no theme token. It shows only while `flickable`
 // overflows; its thumb is the view's share of the content, never shorter
 // than `minLength`, and sits as far down the track as the view is down the
 // content. The thumb is `thin` wide at rest and `wide` under the pointer or

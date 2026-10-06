@@ -11,7 +11,7 @@
 // which bin/vgshell-hypr-judge runs. HyprlandState.qml runs each request
 // and holds what these answer; scripts/test-hyprland-state.js runs this file
 // under node. Each reply is in the shape Hyprland v0.56.2 prints
-// (src/debug/HyprCtl.cpp, docs/architecture/runtime-hyprland.md).
+// (src/debug/HyprCtl.cpp).
 
 var DEVICES_REQUEST = ["hyprctl", "-j", "devices"];
 var BINDS_REQUEST = ["hyprctl", "-j", "binds"];
@@ -203,8 +203,8 @@ function overridden(written, text) {
 }
 
 // The one `hyprctl eval` argv that asks the layer for the user's values
-// (HyprlandLayer.USER_VALUES). An eval prints only an error's text
-// (docs/architecture/runtime-hyprland.md), so the request raises the
+// (HyprlandLayer.USER_VALUES). An eval prints only an error's text, so
+// the request raises the
 // layer's answer; a session whose hyprland.lua does not load the layer has
 // no table and no user value.
 var USER_VALUES_REQUEST = ["hyprctl", "eval", "error(hl." + Layer.USER_VALUES.table + " == nil and \"" + Layer.USER_VALUES.key + "=[]\" or hl." + Layer.USER_VALUES.table + "." + Layer.USER_VALUES.verb + "(), 0)"];

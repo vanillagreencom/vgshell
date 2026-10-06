@@ -319,9 +319,9 @@ Item {
         onExited: code => { sleepWatch.recorded = code; }
         property var recorded: null
         // A command that fails to start emits only runningChanged, so the
-        // end is read there: no exit recorded is a failed start
-        // (runtime-qml.md). Each end reads its own exit and clears it, since
-        // a failed start need not report `running` true first. A hook that
+        // end is read there: no exit recorded is a failed start. Each end
+        // reads its own exit and clears it, since a failed start need not
+        // report `running` true first. A hook that
         // held and exited 0 ran a sleep and is taken again at once; any
         // other end is a failure, retried a minute later or at once by
         // retrySleep. The status records the failure, so the log line is

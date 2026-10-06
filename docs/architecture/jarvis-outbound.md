@@ -33,4 +33,4 @@ A supported provider requires redirects, a new credential placement, or a transp
 
 ## Not governed
 
-How an adapter is structured, which is [jarvis-adapters.md](jarvis-adapters.md); where a secret may sit anywhere else in VGS, which is [secrets.md](secrets.md).
+How an adapter is structured, which is [jarvis.md § Adapters](jarvis.md#adapters); where a secret may sit anywhere else in VGS, which is [secrets.md](secrets.md).

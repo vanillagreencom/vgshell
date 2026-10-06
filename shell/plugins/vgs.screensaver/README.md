@@ -1,6 +1,6 @@
 # Screensaver
 
-Screensaver shows animated text art when the desktop is inactive. You can also start it from the launcher.
+Screensaver shows animated text art on each screen when the desktop is inactive.
 
 ![Screensaver cover with text art](../../../docs/images/plugins/vgs.screensaver-cover.webp)
 
@@ -8,23 +8,22 @@ Screenshot made with `scripts/readme-shots.sh`.
 
 ## Features
 
-- Starts after the inactive time you choose.
-- Runs one cover on each screen.
-- Starts on demand from the launcher.
+- Starts after the inactive time you choose, with one cover on each screen.
+- Starts on demand from Screensaver in the launcher, or from a key you assign under Keys.
 - Stops on keyboard input, pointer movement or session lock.
-- Lets you choose the text effect when the effect tool reports its list.
-- Lets you change the art from an image, text edit or reset.
-- Shows whether the lock follows after the screensaver.
+- Random or one named text effect.
+- Change art makes the art from an image, opens the text to edit, or resets it.
+- Shows whether the lock follows the screensaver.
 
 ## Settings
 
-- Start when inactive: turns the idle start on or off.
-- Start after: sets the idle time in seconds. The screensaver time and lock time both count from the start of inactivity.
-- Effect: selects Random or one named effect.
-- Frame rate: sets how often the screensaver draws a new frame.
-- Change art: opens a setup window with From image, Edit text and Reset.
-- Keys: Screensaver starts the cover on demand. It has no default key.
+| Setting | What it changes |
+| --- | --- |
+| Start when inactive | Turns the start on inactivity on or off. |
+| Start after | The inactive time in seconds. This time and the lock time both count from the start of inactivity. |
+| Effect | Random, or one named effect. |
+| Frame rate | How many frames the screensaver draws each second. |
 
 ## Licence
 
-MIT. See `ATTRIBUTION` for the notice carried by the related scripts.
+MIT. Parts derive from MIT-licensed scripts; [ATTRIBUTION](ATTRIBUTION) carries their notice.

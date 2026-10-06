@@ -3,7 +3,7 @@
 // harness row, so Policy, the held approval and the pre-action audit judge it
 // as they judge a brain's tool call. The router's executor here only tells the
 // program to proceed and reports how its own action ended.
-// Contract: docs/architecture/jarvis-adapters.md.
+// Contract: docs/architecture/jarvis.md § Adapters.
 "use strict";
 const crypto = require("node:crypto");
 

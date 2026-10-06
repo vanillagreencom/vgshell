@@ -400,7 +400,7 @@ Singleton {
     // start is not reported back. The program does not inherit
     // VGSHELL_RUNNER_PID, the variable that marks the shell's own processes: a
     // terminal the user opens from the shell is not the shell, and
-    // `vgshell pkg run` refuses a caller that carries it (packages.md). A null
+    // `vgshell pkg run` refuses a caller that carries it. A null
     // value removes a variable from the inherited environment.
     function runDetached(argv) {
         if (!Array.isArray(argv) || argv.length === 0 || argv.some(a => typeof a !== "string" || a.length === 0))
@@ -415,8 +415,8 @@ Singleton {
 
     // The polkit capability's `register`: asks polkitd again for an agent it
     // has not accepted. A PolkitAgent registers once, when it is built, so
-    // the core destroys it and builds the next one, in a later turn
-    // (docs/architecture/runtime-qml.md); the holder reads no agent in
+    // the core destroys it and builds the next one, in a later turn; the
+    // holder reads no agent in
     // between and then the new one, through `agent` and `registered`. A
     // registered agent stays as it is, which keeps a live request. Answers
     // `ok` once the agent is destroyed, `registered`, or `refused:

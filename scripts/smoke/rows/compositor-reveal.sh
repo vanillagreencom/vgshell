@@ -10,8 +10,8 @@
 # first reads its target out of view, so `in view` cannot pass on the
 # state before the reveal. Hyprland v0.56.2's focus dispatcher already
 # shows the workspace, the special workspace, the group tab and the
-# monitor of the window it focuses, and ends a fullscreen over it
-# (docs/architecture/runtime-hyprland.md), so the old path, that
+# monitor of the window it focuses, and ends a fullscreen over it, so the
+# old path, that
 # dispatcher alone on the first window of the application, fails only
 # where the reveal decides something: whether the window already shows,
 # which of several windows, and whether to move at all when the

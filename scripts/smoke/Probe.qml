@@ -1992,7 +1992,7 @@ Scope {
         // with PROPERTIES, a JSON object, as its initial properties; a value
         // "@instance" there, at the top or one object down, is that item.
         // A list is assigned once the copy is made, since a list handed to
-        // createObject stops being an array (runtime-qml.md). Kept under
+        // createObject stops being an array. Kept under
         // NAME: `ok`, or the component's error.
         function popupLoad(name: string, file: string, hostKey: string, id: string, properties: string): string {
             if (name in root.popupCopies) return "loaded";
@@ -2135,8 +2135,7 @@ Scope {
             surface.screen = screen;
             prompt.anchors.fill = surface.contentItem;
             // Assigned after creation, as the core assigns it: a JS object
-            // handed to createObject crosses a QVariant conversion
-            // (docs/architecture/runtime-qml.md).
+            // handed to createObject crosses a QVariant conversion.
             prompt.shell = { polkit: { agent: { flow: flow } } };
             root.polkitStandIn = { surface: surface, prompt: prompt, flow: flow };
             surface.visible = true;

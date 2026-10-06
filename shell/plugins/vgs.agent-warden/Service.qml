@@ -50,8 +50,7 @@ Item {
     property var detail: null
     // The plugin's requirement commands the last scan did not find; its
     // change publishes again. publish() reads the source itself, since a
-    // dependent binding may still hold its old value in a change handler
-    // (docs/architecture/runtime-qml.md).
+    // dependent binding may still hold its old value in a change handler.
     readonly property var missing: shell === null ? null : shell.requirements.missing
     // The `notify` setting: which notices go out, one of Notices.MODES.
     readonly property string mode: shell === null ? "" : shell.settings.notify
@@ -142,7 +141,7 @@ Item {
             return;
         }
         // A list crosses createObject's initial properties as something
-        // else (runtime-qml.md), so the run takes its lists after creation.
+        // else, so the run takes its lists after creation.
         const run = sender.createObject(root, { kind: notice.kind, offers: Notices.offers(notice, waiting) });
         run.keys = notice.keys;
         run.command = Notices.argv(notice, waiting);
@@ -205,8 +204,9 @@ Item {
         }
     }
 
-    // The heartbeat: a write of the time, in milliseconds, which a changed
-    // text makes a real write each time (runtime-qml.md, FileView.setText).
+    // The heartbeat: a write of the time, in milliseconds, so the text
+    // changes and FileView.setText, which skips unchanged text, writes each
+    // time.
     // The warden reads only the file's age. The timer touches it at once
     // when the service starts to own the notices, and a file it stops
     // touching goes stale 120 s after its last write.
@@ -238,8 +238,8 @@ Item {
         onTriggered: root.derive()
     }
 
-    // A watcher adds only a directory that exists when it is built
-    // (docs/architecture/runtime-qml.md), so the warden's directory is made
+    // A watcher adds only a directory that exists when it is built, so the
+    // warden's directory is made
     // before the watches start: a warden set up while the shell runs is
     // then seen. A directory that could not be made is logged and the
     // watches start anyway, reading both files as absent.

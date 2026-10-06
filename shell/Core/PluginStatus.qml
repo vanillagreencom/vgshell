@@ -50,7 +50,7 @@ Singleton {
 
     // The values plugin `id` published, or an empty frozen object: a
     // deep-frozen copy made for this read, since the engine lets a frozen
-    // array be written in place (runtime-qml.md), so a reader that changes
+    // array be written in place, so a reader that changes
     // an array changes only its own copy. A binding that calls this
     // re-evaluates on every write.
     function valuesOf(id) {

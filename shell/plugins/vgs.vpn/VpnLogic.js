@@ -17,7 +17,7 @@ var LOGIN_MS = 300000;
 var LOGIN_SAID_MAX = 4096;
 // The ceilings of the published lists and of each drawn line, which keep
 // the `vpn` value under the core's 64 KiB status ceiling whatever a
-// tailnet holds (status.md); scripts/test-vpn-logic.js builds the largest
+// tailnet holds (PluginLogic.STATUS_MAX_BYTES); scripts/test-vpn-logic.js builds the largest
 // value. Each list keeps its full count.
 var PEER_MAX = 64;
 var EXIT_MAX = 80;

@@ -126,7 +126,7 @@ ShellRoot {
         function rescanPlugins(): string { return root.ifGuarded(() => Registry.scanReply(Registry.rescan())); }
         function scanRevision(): int { return Registry.requirementsRevision; }
         // `vgshell plugin add` landed plugin `id`: the same scan, then the
-        // requirement notice for it (requirement-notice.md).
+        // requirement notice for it.
         function pluginInstalled(id: string): string { return root.ifGuarded(() => Notices.installed(id)); }
         function setPluginEnabled(id: string, enabled: bool): string { return root.ifGuarded(() => Plugins.setEnabled(id, enabled)); }
         function setPluginPlaced(id: string, placed: bool): string { return root.ifGuarded(() => Plugins.setPlaced(id, placed)); }

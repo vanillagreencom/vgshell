@@ -225,8 +225,9 @@ Item {
         // The helper's refusals, one keyed line each; none holds copied data.
         stderr: SplitParser { onRead: line => console.warn("clipboard: watcher " + line) }
         // A watcher that ends takes the history with it while copying still
-        // works, so it is started again. A failed start emits only this
-        // signal (runtime-qml.md).
+        // works, so it is started again, from here: a failed start emits
+        // only this signal, and `exited` fires with the process already
+        // cleared.
         onRunningChanged: {
             if (running || !root.watching) return;
             console.warn("clipboard: watcher ended, started again in " + retry.interval + " ms");
@@ -251,7 +252,7 @@ Item {
         }
         onExited: code => { root.job.code = code; }
         // A run that failed to start emits only this signal, and its code
-        // stays null (runtime-qml.md).
+        // stays null.
         onRunningChanged: {
             if (running || root.job === null) return;
             const ended = root.job;

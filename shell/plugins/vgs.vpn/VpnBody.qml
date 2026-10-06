@@ -43,7 +43,7 @@ FocusScope {
     readonly property var pollChoices: [10, 30, 60]
     // The connection switch while it can be used, else the body, from
     // which Tab reaches the setup step: no view opens on a step that
-    // changes the system (keyboard.md F3).
+    // changes the system (design-system.md § Keyboard).
     readonly property Item initialFocus: connectField.visible && toggle.enabled ? toggle : root
 
     implicitHeight: content.implicitHeight

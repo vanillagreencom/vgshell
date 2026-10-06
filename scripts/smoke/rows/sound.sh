@@ -356,7 +356,7 @@ settings_page_open vgs.sound
 expect_poll "control: the copy's microphone mute key names the user's bind" "$snd_user_hint" key_field vgs.sound mic-mute conflict
 expect_poll "control: the copy offers Use my binding too" 1 snd_use_mine
 # The window mapped where the last press was, so the pointer moves before
-# it presses (validation-smoke.md).
+# it presses.
 rest_pointer || fail "control: resting the pointer failed"
 settings_press "Use my binding" || fail "control: the click on the copy's Use my binding failed"
 expect_poll "control: the copy's Use my binding writes the key in effect" '"XF86AUDIOMICMUTE"' snd_key mic-mute

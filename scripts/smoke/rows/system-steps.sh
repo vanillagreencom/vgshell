@@ -1,5 +1,5 @@
 # System steps, D081, over the sandbox's device fakes
-# (docs/architecture/validation-smoke-host.md). bin/vgshell-system pins its
+# (docs/architecture/validation.md § Host safety). bin/vgshell-system pins its
 # PATH to the system directories and derives every path from its
 # `prefix=` line, so before the fixture is enabled devices_system_tree
 # rewrites the sandbox copy's line to the fakes' tree. That tree's sys and

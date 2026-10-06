@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// The provider table against its vendors' documentation, fetched 2026-09-30
-// and cited in docs/architecture/jarvis-adapters.md; the GPT-Live row 2026-10-01,
-// cited in docs/decisions/D089-jarvis-chained-engine-and-heard-prefix.md. No request is made.
+// The provider table against its vendors' documentation; the GPT-Live row's
+// sources are in docs/decisions/D089-jarvis-chained-engine-and-heard-prefix.md.
+// No request is made.
 "use strict";
 const { assert, path, backend, world, control } = require("./fixtures/jarvis-voice/assertions.js");
 const Providers = require(path.join(backend, "Providers.js"));

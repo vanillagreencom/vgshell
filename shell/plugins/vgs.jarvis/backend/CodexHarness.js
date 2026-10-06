@@ -3,7 +3,7 @@
 // sockets. Jarvis hands it released text alone; the program's tools are its
 // MCP access to the tool bridge and the actions whose approval requests pass
 // HarnessGate. CodexAppServer is the protocol judge.
-// Contract: docs/architecture/jarvis-adapters.md.
+// Contract: docs/architecture/jarvis.md § Adapters.
 "use strict";
 const cp = require("node:child_process");
 const fs = require("node:fs");
