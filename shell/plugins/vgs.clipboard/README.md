@@ -17,7 +17,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 
 ## Setup
 
-Clipboard ships with VGS and is off until you turn it on, so VGS records no copy before you ask. Once on, it saves every copy to disk, and that includes a password copied from an app that does not mark it as secret. Open Plugins, select Clipboard in the plugin list and turn the plugin on. Turn it off there to stop recording; the history you have stays.
+Clipboard ships with VGS and is on by default. It saves every copy to disk, so the history stays after a restart. A copy that the source app marks as secret is never saved, but a password copied from an app that does not mark it is saved like any other copy. To stop recording, open Plugins, select Clipboard in the plugin list and turn the plugin off; the history you have stays. To clear the history, press Shift+Delete in the Clipboard list and answer the question. Pinned entries stay.
 
 The Keys row on the plugin's Settings page changes `SUPER+CTRL+V`. The same page lists the tools Clipboard needs and installs the missing ones.
 
