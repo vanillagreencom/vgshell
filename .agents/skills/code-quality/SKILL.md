@@ -32,7 +32,7 @@ Quickshell rules for this shell. They add to the rules above.
 - A figure in a docstring, comment or document names the tool and the run that produced it, as `docs/architecture/overview.md` invariant 7 states. A budget without its measurement is a blocker.
 - A smoke row goes under `scripts/smoke/rows/` and follows the `scripts/qml-smoke.sh` header's shape: the ceiling, the machine and date it was measured on, and the poll interval of each latency reading. A new check's row goes in `scripts/validate` with its control (D100).
 - One judge per decision: `shell/Core/PluginLogic.js` for manifests, configuration merging and enablement; `shell/Core/Dispatch.js` for every Hyprland request. A script that needs one of those answers runs the file under node.
-- The testing method is in `docs/architecture/validation-runner.md`: how a row declares its inputs, when the full set runs and the smoke input self-check.
+- The testing method is in `docs/architecture/validation.md`: how a row declares its inputs, when the full set runs and the smoke input self-check.
 
 <!-- kendex:project-instructions:end -->
 
