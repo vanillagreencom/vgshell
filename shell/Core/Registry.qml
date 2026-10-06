@@ -300,6 +300,16 @@ Singleton {
 
     readonly property string activeBarId: Logic.activeBarId(Config.effective, defaultBarId)
 
+    // The plugin whose Settings page a summoned `kind` of plugin `id`
+    // offers through its pane's gear: `id` for a panel or a menu while the
+    // manager's window plugin is enabled, else "". Every summoning host
+    // reads this one rule. The enablement is read on every path so a
+    // binding on the result follows it whatever the kind.
+    function settingsPageOf(kind, id) {
+        const managed = isEnabled(managerId);
+        return (kind === "panel" || kind === "menu") && managed ? id : "";
+    }
+
     // Why plugin `id` is not an enabled plugin, or "": `unknown: <id>` or
     // `refused: disabled=<id>`.
     function enableRefusal(id) {

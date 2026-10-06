@@ -23,8 +23,8 @@ FocusScope {
     // destroyed under this one.
     property string loadedHostKey: ""
     // The plugin whose Settings page the instance's Pane offers through its
-    // gear: a summoning host names its plugin while the manager's window
-    // plugin is enabled, and "" draws no gear.
+    // gear: a summoning host sets it from Registry.settingsPageOf, and ""
+    // draws no gear.
     property string settingsPage: ""
     // Call the instance's close() before destroying it: a summoned kind's
     // host sets it, so a plugin closed by hide or by being disabled hears it.
@@ -100,12 +100,16 @@ FocusScope {
 
     // Open the manager's window at the Settings page of `settingsPage`,
     // then hide this summon. The window opens first: the hide destroys
-    // this slot.
+    // this slot. A refused window, such as one a restart is owed for,
+    // leaves the summon open, so the click does not just close it.
     function openSettingsPage() {
         const kind = slot.kind;
         const id = slot.pluginId;
         const shown = Plugins.route("summon", "window", Registry.managerId, JSON.stringify({ plugin: settingsPage }), null);
-        if (shown !== "ok") console.warn("plugin slot: settings page of " + id + " " + shown);
+        if (shown !== "ok") {
+            console.warn("plugin slot: settings page of " + id + " " + shown);
+            return;
+        }
         const hidden = Plugins.route("hide", kind, id, "", null);
         if (hidden !== "ok") console.warn("plugin slot: hide of " + id + " for its settings page " + hidden);
     }

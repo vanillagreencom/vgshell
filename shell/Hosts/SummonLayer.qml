@@ -71,7 +71,7 @@ PanelWindow {
         kind: win.kind
         pluginId: win.pluginId
         hostKey: win.kind
-        settingsPage: (win.kind === "panel" || win.kind === "menu") && Registry.isEnabled(Registry.managerId) ? win.pluginId : ""
+        settingsPage: Registry.settingsPageOf(win.kind, win.pluginId)
         screen: win.screen
         closeOnUnload: true
         focus: true

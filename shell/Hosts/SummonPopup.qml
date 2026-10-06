@@ -87,7 +87,7 @@ PopupWindow {
         kind: popup.kind
         pluginId: popup.pluginId
         hostKey: popup.kind
-        settingsPage: (popup.kind === "panel" || popup.kind === "menu") && Registry.isEnabled(Registry.managerId) ? popup.pluginId : ""
+        settingsPage: Registry.settingsPageOf(popup.kind, popup.pluginId)
         screen: popup.screen
         closeOnUnload: true
         anchors.fill: parent

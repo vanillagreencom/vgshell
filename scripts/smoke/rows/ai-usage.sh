@@ -8,12 +8,16 @@
 # to each request. It reads the Settings page's Sign in per tool, withheld
 # while that tool is missing, whose TUI the stand-in terminal records; the
 # widget's share, tone and hidden state; the panel's rows and reset times;
-# and that no read changed a credential file's bytes or modification time.
+# the panel's Settings gear, absent while the Settings plugin is disabled
+# and, once it is enabled, clicked with the nested pointer, which opens the
+# Settings window on AI Usage's page and closes the panel; and that no read
+# changed a credential file's bytes or modification time.
 # Controls: a widget copy shown with no account, a helper copy that writes
-# the credential file and one that reads a failed request as 0 % each fail
-# their own reading.
+# the credential file, one that reads a failed request as 0 % and a panel
+# host copy whose slot opens Settings with no page each fail their own
+# reading.
 # This row has no latency ceiling; every reading polls through expect_poll.
-# inputs: shell/plugins/vgs.ai-usage/* bin/lib/account-folders.js bin/lib/anchored.js bin/lib/qml-library.js shell/Commons/AccountDirectories.js scripts/fixtures/ai-usage/* scripts/smoke/fixtures/ai-usage/* shell/plugins/vgs.settings/* shell/Core/PluginLogic.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml shell/Core/Capabilities.qml bin/vgshell-tui scripts/qml-smoke.sh shell/Commons/Duration.js shell/Commons/qmldir
+# inputs: shell/plugins/vgs.ai-usage/* bin/lib/account-folders.js bin/lib/anchored.js bin/lib/qml-library.js shell/Commons/AccountDirectories.js scripts/fixtures/ai-usage/* scripts/smoke/fixtures/ai-usage/* shell/plugins/vgs.settings/* shell/Core/PluginLogic.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Hosts/PluginSlot.qml shell/Hosts/SummonPopup.qml shell/Ui/layout/Pane.qml shell/Ui/controls/IconButton.qml config/shell.json bin/vgshell-tui scripts/qml-smoke.sh shell/Commons/Duration.js shell/Commons/qmldir
 set -euo pipefail
 usage_dir="$sandbox/ai-usage"
 mkdir -p -- "$usage_dir"
@@ -92,6 +96,24 @@ PY
 }
 usage_credentials_kept() { if [[ $(usage_credentials) == "$usage_credentials_before" ]]; then echo kept; else echo changed; fi; }
 usage_panel() { ipc smoke readInstance panel vgs.ai-usage rows; }
+# The panel's Settings gear: its box, or `absent` with no shown gear;
+# usage_gear_shown reads `shown` once it has one. usage_gear_click: one
+# real click on its centre, the pointer moved there a pixel off first,
+# since a popup mapped while the pointer rests on the bar takes no click
+# until the pointer moves (validation-smoke.md). usage_settings_page: the
+# page the Settings window shows, `""` for its list, or `absent` with no
+# window.
+usage_gear() { ipc smoke labelledGeometry panel vgs.ai-usage IconButton Settings; }
+usage_gear_shown() { local box; box="$(usage_gear)" || return; if [[ $box == \[* ]]; then echo shown; else echo "$box"; fi; }
+usage_gear_click() {
+  local box x y
+  box="$(usage_gear)" || return 1
+  [[ $box == \[* ]] || { echo "usage_gear_click: no gear: $box" >&2; return 1; }
+  read -r x y < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(int(x+w/2), int(y+h/2))' "$box") || return 1
+  hover "$((x + 1))" "$y" || return 1
+  click "$x" "$y"
+}
+usage_settings_page() { ipc smoke readInstance window vgs.settings page; }
 usage_panel_rows() { usage_panel | py_reply 'import json,sys; print(json.dumps([[r["provider"], r["label"], r["email"], r["plan"], [[w["name"], w["percent"], w["tone"]] for w in r["windows"]]] for r in json.load(sys.stdin)]))'; }
 # The time left on each window the panel shows, against the stand-ins'
 # answer of 5 h 30 min and 3 d 6 h after the request: `matched` while every
@@ -196,12 +218,48 @@ click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage from its widget
 expect_poll "the widget opens its panel" '[["claude", "default", "", "max", [["five_hour", 42, "normal"], ["seven_day", 83, "warning"], ["seven_day_fable", 12, "normal"]]], ["codex", "default", "person@example.invalid", "plus", [["five_hour", 27, "normal"], ["seven_day", 64, "normal"]]]]' usage_panel_rows
 expect_poll "the panel's reset times are the stand-ins'" matched usage_panel_resets
 summon_drawn panel vgs.ai-usage || fail "the panel never drew a frame"
+expect "with Settings disabled the panel draws no gear" absent usage_gear
 usage_panel_box() { ipc smoke instanceGeometry panel vgs.ai-usage | py_reply 'import json,sys; r=json.load(sys.stdin); print(r[2] > 0 and r[3] > 0)'; }
 expect "the panel has a size" True usage_panel_box
 expect_poll "the check the panel asks for is published" new usage_read_after "$usage_before_panel"
 expect "the panel's check changed no credential file" kept usage_credentials_kept
 expect "AI Usage's panel hides" ok ipc shell hide panel vgs.ai-usage
 expect_poll "the hidden panel is gone" absent usage_panel
+
+# The panel's gear, with Settings enabled: a click opens the Settings
+# window on AI Usage's page and closes the panel.
+expect "enabling the Settings plugin for the panel's gear is allowed" ok ipc shell setPluginEnabled vgs.settings true
+expect_poll "the Settings service is built for the panel's gear" True record_exists vgs.settings
+click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage from its widget for the gear failed"
+expect_poll "the panel draws its gear" shown usage_gear_shown
+summon_drawn panel vgs.ai-usage || fail "the panel with the gear never drew a frame"
+usage_gear_click || fail "the click on the panel's gear failed"
+expect_poll "the gear opens the Settings window on AI Usage's page" '"vgs.ai-usage"' usage_settings_page
+expect_poll "the gear closes the panel" absent usage_panel
+expect "the Settings window the gear opened hides" ok ipc shell hide window vgs.settings
+expect_poll "the hidden Settings window is gone" absent usage_settings_page
+# A panel host copy whose slot opens Settings with no page fails the page
+# reading on the Settings list. The copies sit in a fresh directory, written
+# before the first is built, so the host copy's PluginSlot is the slot copy
+# beside it (validation-smoke-input.md).
+usage_gear_dir="$repo/shell/Hosts/SettingsGearControl"
+mkdir -p -- "$usage_gear_dir"
+cp -- "$repo/shell/Hosts/SummonPopup.qml" "$repo/shell/Hosts/PluginSlot.qml" "$usage_gear_dir/"
+usage_edit "$usage_gear_dir/PluginSlot.qml" 'JSON.stringify({ plugin: settingsPage })' '"{}"' || fail "the pageless gear control's edit failed"
+expect "the probe builds the panel host copy whose gear opens no page" ok ipc smoke popupLoad usage-gear-control "$usage_gear_dir/SummonPopup.qml" "$(bar_key)" vgs.ai-usage '{"pluginId":"vgs.ai-usage","kind":"panel","request":{"anchor":"@instance","anchored":true,"payloadJson":"{}"}}'
+expect_poll "the host copy's panel draws its gear" shown usage_gear_shown
+summon_drawn panel vgs.ai-usage || fail "the host copy's panel never drew a frame"
+usage_gear_click || fail "the click on the host copy's gear failed"
+expect_poll "the host copy's gear opens the Settings list" '""' usage_settings_page
+expect "a gear that opens no page breaks the page reading" 1 \
+  usage_control "$usage_dir/gear-control.log" "the gear must open AI Usage's page" '"vgs.ai-usage"' usage_settings_page
+expect "the page reading fails on the Settings list" 1 grep -c -F -- "the gear must open AI Usage's page: got \"\"" "$usage_dir/gear-control.log"
+expect "the probe drops the panel host copy" ok ipc smoke popupDrop usage-gear-control
+expect_poll "the host copy's panel is gone" absent usage_panel
+expect "the Settings list the copy opened hides" ok ipc shell hide window vgs.settings
+expect_poll "the hidden Settings list is gone" absent usage_settings_page
+expect "disabling the Settings plugin after the gear is allowed" ok ipc shell setPluginEnabled vgs.settings false
+expect_poll "the Settings service is gone after the gear" False record_exists vgs.settings
 
 # A helper copy that writes the credential file it read fails that reading.
 usage_edit "$usage_helper" '    try { file = readHeld(Anchored, opened.fd, ".credentials.json"); }
