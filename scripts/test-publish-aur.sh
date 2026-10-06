@@ -28,8 +28,8 @@ done
 
 script="$repo/scripts/publish-aur.sh"
 sha="$(printf '%064d' 7)"
-record="$tmp/record"; stubs="$tmp/publish-stubs"; gh_dir="$tmp/gh"; scratch="$tmp/scratch"
-mkdir -p "$record" "$stubs" "$gh_dir" "$scratch"
+stubs="$tmp/publish-stubs"
+mkdir -p "$stubs"
 key="$tmp/aur_key"
 printf 'fixture key\n' >"$key"
 
@@ -58,15 +58,19 @@ version="$(cat -- "$base/VERSION")"
 # fixture NAME SCRIPT: sets r to a new clone of FIXTURE_BASE, default
 # $base, holding SCRIPT as scripts/publish-aur.sh, aur to its AUR stand-in
 # with an empty bare repository per package whose HEAD is master, as the
-# AUR's is, and h to its home. The gh answers start as no release. A
-# fixture that cannot be built stops the suite.
+# AUR's is, and h to its home, with the stubs' record, the gh answers and
+# the script's TMPDIR under $tmp, so a row job's are its own. The gh
+# answers start as no release. A fixture that cannot be built stops the
+# suite.
 fixtures=0
 fixture() {
   fixtures=$((fixtures + 1))
   r="$tmp/rows/$fixtures-$1"
   aur="$tmp/aur/$fixtures-$1"
   h="$tmp/homes/$fixtures-$1"
+  record="$tmp/record" gh_dir="$tmp/gh" scratch="$tmp/scratch"
   {
+    mkdir -p "$record" "$gh_dir" "$scratch" &&
     g clone -q "${FIXTURE_BASE:-$base}" "$r" && cp -- "$2" "$r/scripts/publish-aur.sh" &&
       mkdir -p "$aur" "$h" && g init -q --bare -b master "$aur/vgshell.git" && g init -q --bare -b master "$aur/vgshell-git.git" &&
       g config --file "$h/.gitconfig" user.name maintainer && g config --file "$h/.gitconfig" user.email maintainer@example.invalid &&
@@ -227,7 +231,8 @@ tweak_none() { :; }
 tweak_stale() { sed -i "s/^pkgdesc='/pkgdesc='Stale /" "$r/packaging/arch/vgshell-git/PKGBUILD" && g -C "$r" commit -q -am stale; }
 tweak_untracked() { printf 'x\n' >"$r/packaging/arch/vgshell-git/notes"; }
 tweak_no_key() { RUN_KEY=""; }
-tweak_absent_key() { RUN_KEY="$tmp/absent_key"; }
+absent_key="$tmp/absent_key"
+tweak_absent_key() { RUN_KEY="$absent_key"; }
 tweak_gh_down() { pin && printf '1\n' >"$gh_dir/list.exit"; }
 tweak_null_digest() { pin && release_answer "v$version" false null; }
 tweak_no_aur() { rm -rf -- "${aur:?}/vgshell-git.git"; }
@@ -238,7 +243,7 @@ declare -A refusals=(
   [stale-srcinfo]="tweak_stale|vgshell-git|1|publish-aur: refused: recipes=refused status=1"
   [uncommitted]="tweak_untracked|vgshell-git|1|publish-aur: refused: recipe=uncommitted package=vgshell-git"
   [no-key]="tweak_no_key|vgshell-git|1|publish-aur: refused: secret=missing name=AUR_SSH_KEY_FILE"
-  [absent-key]="tweak_absent_key|vgshell-git|1|publish-aur: refused: secret=missing name=AUR_SSH_KEY_FILE path=$tmp/absent_key"
+  [absent-key]="tweak_absent_key|vgshell-git|1|publish-aur: refused: secret=missing name=AUR_SSH_KEY_FILE path=$absent_key"
   [gh-down]="tweak_gh_down|vgshell|1|publish-aur: refused: gh=release-list repo=vanillagreencom/vgshell"
   [null-digest]="tweak_null_digest|vgshell|1|publish-aur: refused: gh=asset-digest-unreadable tag=v$version name=vgshell-$version.tar.gz status=5"
   [no-aur-repository]="tweak_no_aur|vgshell-git|1|publish-aur: refused: git=clone url=ssh://aur@aur.archlinux.org/vgshell-git.git"
@@ -255,35 +260,39 @@ refusal_row() { # SCRIPT NAME
     { [[ ! -d $aur/vgshell-git.git ]] || aur_empty vgshell-git; }
 }
 
-echo "rows"
-check "vgshell-git is committed as its version and pushed to master" publish_row "$script"
-check "ssh reads the key and the pinned host keys alone" ssh_row "$script"
-check "an unchanged recipe commits nothing" unchanged_row "$script"
-check "the AUR repository ends up holding the recipe's files alone" mirror_row "$script"
-check "--dry-run clones over HTTPS and pushes nothing" dry_row "$script"
-check "vgshell is published once its asset's digest is the pinned sha256" release_row "$script"
-for name in $(printf '%s\n' "${!deferrals[@]}" | LC_ALL=C sort); do
-  check "deferral: $name" deferral_row "$script" "$name"
-done
-for name in $(printf '%s\n' "${!refusals[@]}" | LC_ALL=C sort); do
-  check "refusal: $name" refusal_row "$script" "$name"
-done
-unset RUN_KEY
-
 # The fixtures from a source whose vgshell recipe is already pinned to another
 # sum, as it is after a release: each still reaches the checksum state it
 # states.
 pinned_source_row() { # SCRIPT
   local verdict=0
-  FIXTURE_BASE="$tmp/base-pinned"
+  FIXTURE_BASE="$base_pinned"
   { release_row "$1" && deferral_row "$1" unpinned && deferral_row "$1" checksum-mismatch; } || verdict=1
   unset FIXTURE_BASE
   return "$verdict"
 }
-r="$tmp/base-pinned"
+base_pinned="$tmp/base-pinned"
+r="$base_pinned"
 g clone -q "$base" "$r" || { echo "$suite: fixture=base-pinned" >&2; exit 1; }
 set_sum "$(printf '%064d' 9)"
-check "the fixtures reach their checksum state from an already-pinned recipe" pinned_source_row "$script"
+
+# Every row builds its own fixture, so the rows and then the controls run
+# as row jobs.
+echo "rows"
+row_job check "vgshell-git is committed as its version and pushed to master" publish_row "$script"
+row_job check "ssh reads the key and the pinned host keys alone" ssh_row "$script"
+row_job check "an unchanged recipe commits nothing" unchanged_row "$script"
+row_job check "the AUR repository ends up holding the recipe's files alone" mirror_row "$script"
+row_job check "--dry-run clones over HTTPS and pushes nothing" dry_row "$script"
+row_job check "vgshell is published once its asset's digest is the pinned sha256" release_row "$script"
+for name in $(printf '%s\n' "${!deferrals[@]}" | LC_ALL=C sort); do
+  row_job check "deferral: $name" deferral_row "$script" "$name"
+done
+for name in $(printf '%s\n' "${!refusals[@]}" | LC_ALL=C sort); do
+  row_job check "refusal: $name" refusal_row "$script" "$name"
+done
+
+row_job check "the fixtures reach their checksum state from an already-pinned recipe" pinned_source_row "$script"
+rows_join
 
 echo "controls"
 # rule NAME ROW NEEDLE REPLACEMENT [ROW_ARG]: a copy of the script without
@@ -293,18 +302,18 @@ rule() {
   if "$2" "$copy" ${5:+"$5"} >/dev/null; then fail "control: $1: $2 passed on the copy"; else ok "control: a copy without the $1 rule"; fi
   unset RUN_KEY
 }
-rule recipe-check refusal_row 'node "$repo/scripts/check-packaging.js" >&2 ||' 'true ||' stale-srcinfo
-rule committed-recipe refusal_row '[[ -z $changes ]] || refuse 1 "recipe=uncommitted' 'true || refuse 1 "recipe=uncommitted' uncommitted
-rule key-required refusal_row '[[ -n ${AUR_SSH_KEY_FILE:-} ]] ||' 'true ||' no-key
-rule gh-failure refusal_row '--json tagName,isDraft)" ||' '--json tagName,isDraft)" || true ||' gh-down
-rule strict-host-keys ssh_row '-o StrictHostKeyChecking=yes' '-o StrictHostKeyChecking=accept-new'
-rule no-ssh-config ssh_row 'ssh -F /dev/null ' 'ssh '
-rule mirror mirror_row 'git -C "$clone" rm -r --quiet --ignore-unmatch -- . ||' 'true ||'
-rule dry-run-https dry_row 'url="https://aur.archlinux.org/$package.git"' 'url="ssh://aur@aur.archlinux.org/$package.git"'
-rule dry-run-no-push dry_row 'if [[ $dry_run == true ]]; then printf' 'if false; then printf'
-rule unpinned-defers deferral_row '[[ $2 != SKIP ]] ||' 'true ||' unpinned
-rule draft-defers deferral_row 'found[0].isDraft ? "draft" : "published"' '"published"' draft
-rule checksum-defers deferral_row 'elif [[ $state != "$2" ]]; then' 'elif false; then' checksum-mismatch
-rule deferral-status deferral_row '((deferred == 0)) || exit 75' '((deferred == 0)) || exit 0' no-release
+row_job rule recipe-check refusal_row 'node "$repo/scripts/check-packaging.js" >&2 ||' 'true ||' stale-srcinfo
+row_job rule committed-recipe refusal_row '[[ -z $changes ]] || refuse 1 "recipe=uncommitted' 'true || refuse 1 "recipe=uncommitted' uncommitted
+row_job rule key-required refusal_row '[[ -n ${AUR_SSH_KEY_FILE:-} ]] ||' 'true ||' no-key
+row_job rule gh-failure refusal_row '--json tagName,isDraft)" ||' '--json tagName,isDraft)" || true ||' gh-down
+row_job rule strict-host-keys ssh_row '-o StrictHostKeyChecking=yes' '-o StrictHostKeyChecking=accept-new'
+row_job rule no-ssh-config ssh_row 'ssh -F /dev/null ' 'ssh '
+row_job rule mirror mirror_row 'git -C "$clone" rm -r --quiet --ignore-unmatch -- . ||' 'true ||'
+row_job rule dry-run-https dry_row 'url="https://aur.archlinux.org/$package.git"' 'url="ssh://aur@aur.archlinux.org/$package.git"'
+row_job rule dry-run-no-push dry_row 'if [[ $dry_run == true ]]; then printf' 'if false; then printf'
+row_job rule unpinned-defers deferral_row '[[ $2 != SKIP ]] ||' 'true ||' unpinned
+row_job rule draft-defers deferral_row 'found[0].isDraft ? "draft" : "published"' '"published"' draft
+row_job rule checksum-defers deferral_row 'elif [[ $state != "$2" ]]; then' 'elif false; then' checksum-mismatch
+row_job rule deferral-status deferral_row '((deferred == 0)) || exit 75' '((deferred == 0)) || exit 0' no-release
 
 rows_done "$suite"

@@ -1,8 +1,8 @@
 # The assertion library the bin/vgshell suites, scripts/test-vgshell*.sh, source:
 # the scratch directory, the child environment, the row helpers, the theme
 # tree fixture, the install source tree, the plugin and theme git source
-# fixtures, the stop rows' stand-in git and runner, the must-fail copy and
-# the working-tree repository. It sets
+# fixtures, the stop rows' stand-in git and runner, the must-fail copy,
+# the working-tree repository and the row jobs. It sets
 # `set -euo pipefail`, `repo`, `tmp` (removed on exit), `rt_empty`,
 # `node_bin`, `base_path`, `base_env`, `git_env` and `failures`.
 set -euo pipefail
@@ -365,6 +365,7 @@ source_tree() { # DIR VERSION_TEXT
 }
 
 rows_done() { # SUITE
+  rows_join
   if [[ $failures -gt 0 ]]; then echo "$1: failed=$failures"; exit 1; fi
   echo "$1: ok"
 }
@@ -413,4 +414,55 @@ work_tree_repo() {
     { echo "$suite_name: fixture=work-tree-copy" >&2; exit 1; }
   { g init -q "$1" && g -C "$1" add -A && g -C "$1" commit -q -m "working tree"; } ||
     { echo "$suite_name: fixture=work-tree-commit" >&2; exit 1; }
+}
+
+# Row jobs: independent rows run side by side, so a suite's wall time is
+# its longest row rather than the sum. row_job CMD... runs CMD, a `check`
+# row or a function holding several, in a background job whose $tmp and
+# stop_git_dir are a fresh directory of its own: every file a row writes
+# under $tmp is the job's, while a path the suite expanded before the job
+# still names the shared fixture, which a job may only read. At most
+# row_jobs_max jobs run at once. rows_join waits for the jobs, prints each
+# job's output in the order the jobs started and adds the failures each
+# printed; a job that ended without reporting its count, as `set -e` or
+# an `exit` in a fixture ends it, is one failure. A job starts no job.
+row_scratch="$tmp"
+row_jobs_max="$(nproc)"
+row_jobs=0
+row_jobs_joined=0
+row_job_live=()
+row_job() { # CMD...
+  local job="$row_scratch/jobs/$row_jobs" reaped i
+  [[ $tmp == "$row_scratch" ]] || { echo "$(basename -- "$0" .sh): row-jobs=nested" >&2; exit 1; }
+  mkdir -p -- "$job/tmp"
+  while ((${#row_job_live[@]} >= row_jobs_max)); do
+    reaped=""
+    wait -n -p reaped "${row_job_live[@]}" || true
+    [[ -n $reaped ]] || { echo "$(basename -- "$0" .sh): row-jobs=unwaitable" >&2; exit 1; }
+    for i in "${!row_job_live[@]}"; do [[ ${row_job_live[i]} != "$reaped" ]] || unset 'row_job_live[i]'; done
+    row_job_live=("${row_job_live[@]}")
+  done
+  (
+    # shellcheck disable=SC2030 # the job's own scratch and count, by design
+    tmp="$job/tmp" stop_git_dir="$job/tmp/stop-git" failures=0
+    "$@"
+    printf '%s\n' "$failures" >"$job/failures"
+  ) >"$job/out" 2>&1 </dev/null &
+  row_job_live+=("$!")
+  row_jobs=$((row_jobs + 1))
+}
+rows_join() {
+  local pid job count
+  for pid in "${row_job_live[@]}"; do wait "$pid" || true; done
+  row_job_live=()
+  for ((; row_jobs_joined < row_jobs; row_jobs_joined++)); do
+    job="$row_scratch/jobs/$row_jobs_joined"
+    cat -- "$job/out"
+    if count="$(cat -- "$job/failures" 2>/dev/null)" && [[ $count =~ ^[0-9]+$ ]]; then
+      # shellcheck disable=SC2031 # the parent's count, which the jobs left alone
+      failures=$((failures + count))
+    else
+      fail "row job $row_jobs_joined ended before it reported its rows"
+    fi
+  done
 }
