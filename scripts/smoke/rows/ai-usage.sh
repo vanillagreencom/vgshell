@@ -228,8 +228,6 @@ expect_poll "the check the panel asks for is published" new usage_read_after "$u
 expect "the panel's check changed no credential file" kept usage_credentials_kept
 expect "AI Usage's panel hides" ok ipc shell hide panel vgs.ai-usage
 expect_poll "the hidden panel is gone" absent usage_panel
-expect "enabling Settings for AI Usage settings edits is allowed" ok ipc shell setPluginEnabled vgs.settings true
-expect_poll "the Settings service is built for AI Usage settings edits" True record_exists vgs.settings
 expect "the Settings window is summoned for AI Usage settings edits" ok ipc shell summon window vgs.settings '{}'
 expect "the account choices list all read accounts" '["Claude Code \u00b7 default", "Codex \u00b7 person@example.invalid"]' usage_choices
 expect "choosing compact view is allowed" ok usage_apply_setting view '"compact"'
@@ -250,9 +248,7 @@ expect "restoring hidden accounts is allowed" ok usage_apply_setting hidden '[]'
 expect "restoring Codex provider is allowed" ok usage_apply_setting showCodex true
 expect "restoring full view is allowed" ok usage_apply_setting view '"full"'
 expect "the Settings window used for setting edits hides" ok ipc shell hide window vgs.settings
-expect_poll "the Settings window used for setting edits is gone" absent usage_settings_page
-expect "disabling Settings after AI Usage setting edits is allowed" ok ipc shell setPluginEnabled vgs.settings false
-expect_poll "the Settings service is gone after AI Usage setting edits" False record_exists vgs.settings
+expect_poll "the Settings window used for setting edits is gone" 0 window_count Plugins
 
 # The panel's gear, which Plugins, always on, gives every panel: a click
 # opens the Settings window on AI Usage's page and closes the panel.
