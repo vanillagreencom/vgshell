@@ -179,6 +179,15 @@ function verifyReveal(lib, report) {
     ];
     for (const [name, text, want] of workspaces) row("workspace state: " + name, lib.workspaceState(text), want);
     row("workspace state request asks for the two in that order", lib.WORKSPACE_STATE_REQUEST, "j/workspaces;j/monitors");
+    const windows = [
+        ["the two replies", '[{"address":"0xabc"}]\n\n\n[{"id":0}]\n', { ok: true, clients: [{ address: "0xabc" }], monitors: [{ id: 0 }] }],
+        ["no window", '[]\n\n\n[{"id":0}]', { ok: true, clients: [], monitors: [{ id: 0 }] }],
+        ["a reply missing", '[]', { ok: false, error: "refused: window state=parts count=1 want=2" }],
+        ["a reply that is no JSON", '[]\n\n\nok', { ok: false, error: "refused: window state=unparsed part=1" }],
+        ["an object in place of a list", '{}\n\n\n[]', { ok: false, error: "refused: window state=shape want=clients,monitors" }]
+    ];
+    for (const [name, text, want] of windows) row("window state: " + name, lib.windowState(text), want);
+    row("window state request asks for the two in that order", lib.WINDOW_STATE_REQUEST, "j/clients;j/monitors");
     row("reveal state: a null active window is refused", lib.revealState('[]\n\n\nnull\n\n\n[]'), { ok: false, error: "refused: reveal state=shape want=clients,activewindow,monitors" });
     return bad;
 }
@@ -288,6 +297,7 @@ const revealControls = [
     ["the active window alone is shown", "state: focused && onScreen(target, state.monitors) ? \"shown\" : \"reveal\"", "state: onScreen(target, state.monitors) ? \"shown\" : \"reveal\""],
     ["only a window on the screen is shown", "state: focused && onScreen(target, state.monitors) ? \"shown\" : \"reveal\"", "state: focused ? \"shown\" : \"reveal\""],
     ["a background group tab is not on the screen", "if (client.visible === false) return false;", ""],
+    ["the window state keeps the clients and the monitors apart", "return { ok: true, clients: read.values[0], monitors: read.values[1] };", "return { ok: true, clients: read.values[1], monitors: read.values[0] };"],
     ["a special workspace shows on some monitor", "return monitors.some(function (m) { return m.specialWorkspace && m.specialWorkspace.name === ws.name; });", "return false;"],
     ["a regular workspace shows on its own monitor", "return m.id === client.monitor && m.activeWorkspace", "return m.activeWorkspace"],
     ["no special workspace over it", "&& (!m.specialWorkspace || m.specialWorkspace.id === 0);", ";"],

@@ -30,6 +30,7 @@ The Hyprland v0.56.2 and Quickshell 0.3.1 facts the layer's pads ([hyprland.md](
 ## Events
 
 - The event socket reports `openwindow>>ADDRESS,WORKSPACE,CLASS,TITLE`, `closewindow>>ADDRESS` and `activespecial>>WORKSPACE,MONITOR`, with an empty workspace when the monitor hides its special workspace. Quickshell 0.3.1's `Hyprland.rawEvent` delivers every line. Its `HyprlandToplevel` has no class property: `lastIpcObject` holds one only after `Hyprland.refreshToplevels()` answers, and a toplevel an `openwindow` event makes has none until the next refresh (`HyprlandIpc::onEvent` and `HyprlandIpc::refreshToplevels` in `src/wayland/hyprland/ipc/connection.cpp`). Quickshell refreshes the toplevels once as it connects and on each `configreloaded`.
+- Quickshell 0.3.1's `Hyprland.toplevels` can keep a window Hyprland has closed, for the life of the shell. `closewindow` deletes the entry. A `j/clients` reply that Hyprland made before the close but Quickshell reads after it adds the entry again, and so does a late toplevel-mapping reply. `refreshToplevels` updates and adds entries but never removes one (`HyprlandIpc::refreshToplevels` and `HyprlandIpc::toplevelAddressed`, which calls `findToplevelByAddress(address, true)`, in `src/wayland/hyprland/ipc/connection.cpp`). A reader that needs the windows that exist reads `j/clients` through `Compositor.readWindows` (`Dispatch.windowState`).
 
 ## Readings
 

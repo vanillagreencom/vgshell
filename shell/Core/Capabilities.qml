@@ -117,6 +117,10 @@ Singleton {
                 if (!ctx.active) return;
                 Compositor.observeInput(point, value => { if (ctx.active) done(value); });
             };
+            out.readWindows = done => {
+                if (!ctx.active) return;
+                Compositor.readWindows(state => { if (ctx.active) done(state); });
+            };
             return out;
         },
         configure: ctx => ({

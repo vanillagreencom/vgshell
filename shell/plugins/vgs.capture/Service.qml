@@ -1,5 +1,4 @@
 import QtQuick
-import QtQml.Models
 import Quickshell
 import Quickshell.Io
 import Quickshell.Hyprland
@@ -20,8 +19,9 @@ Item {
     property var activeJob: null
     property int remaining: 0
     property var countdownToast: null
-    property var waitingWindows: []
-    property var waitingMonitors: []
+    // The windows read a selection waits for, counted so a reply to a
+    // cancelled or replaced read is dropped.
+    property int windowsAsked: 0
     // The notify-send runs that offer buttons, oldest first. A run waits for
     // its notification to close, and vgs.notifications keeps an expired
     // toast's notification open for its History row
@@ -151,8 +151,7 @@ Item {
         if ((phase === "capturing" || phase === "delaying") && action === name) {
             if (activeJob === null) {
                 windowDeadline.stop();
-                waitingWindows = [];
-                waitingMonitors = [];
+                windowsAsked += 1;
                 phase = "idle";
                 action = "";
                 publish();
@@ -177,54 +176,54 @@ Item {
         }
         phase = "capturing";
         action = name;
+        // The window boxes come from Hyprland's own reply: Quickshell's
+        // Hyprland.toplevels can keep a closed window (runtime-hyprland-pads.md).
         if (name === "screenshot-window" || name === "record-window" || ((name === "screenshot-area" || name === "record") && shell.settings.smart)) {
-            waitingWindows = Hyprland.toplevels.values.filter(t => t.address !== "").map(t => t.address);
-            waitingMonitors = Hyprland.monitors.values.map(m => m.name);
-            if (waitingWindows.length > 0 || waitingMonitors.length > 0) {
-                windowDeadline.restart();
-                Hyprland.refreshMonitors();
-                Hyprland.refreshToplevels();
-                publish();
-                return "ok";
-            }
+            const asked = windowsAsked + 1;
+            windowsAsked = asked;
+            windowDeadline.restart();
+            shell.compositor.readWindows(state => root.windowsRead(asked, state));
+            publish();
+            return "ok";
         }
-        return launch(name, output);
+        return launch(name, output, []);
     }
 
-    function windowRead(address) {
-        if (!windowDeadline.running) return;
-        waitingWindows = waitingWindows.filter(value => value !== address && Hyprland.toplevels.values.some(t => t.address === value));
-        selectionReady();
-    }
-
-    function monitorRead(name) {
-        if (!windowDeadline.running) return;
-        waitingMonitors = waitingMonitors.filter(value => value !== name && Hyprland.monitors.values.some(m => m.name === value));
-        selectionReady();
-    }
-
-    function selectionReady() {
-        if (waitingWindows.length > 0 || waitingMonitors.length > 0) return;
+    function windowsRead(asked, state) {
+        if (asked !== windowsAsked || !windowDeadline.running) return;
         windowDeadline.stop();
-        launch(action, "");
+        if (!state.ok) {
+            console.error("capture: " + state.error);
+            windowsUnread();
+            return;
+        }
+        launch(action, "", windowRectangles(state.clients, state.monitors));
     }
 
-    function windowRectangles() {
-        const monitors = Hyprland.monitors.values.map(m => m.lastIpcObject).filter(m => m !== null);
-        return Hyprland.toplevels.values.map(t => t.lastIpcObject).filter(window => window !== null && window.mapped && !window.hidden && shell.compositor.onScreen(window, monitors) && window.size[0] > 0 && window.size[1] > 0).map(window => ({ x: window.at[0], y: window.at[1], width: window.size[0], height: window.size[1], address: window.address, focus: window.focusHistoryID }));
+    function windowsUnread() {
+        windowsAsked += 1;
+        phase = "idle";
+        action = "";
+        notice("Capture failed", "Window information could not be read", "danger");
+        publish();
+    }
+
+    function windowRectangles(clients, monitors) {
+        return clients.filter(window => window.mapped && !window.hidden && shell.compositor.onScreen(window, monitors) && window.size[0] > 0 && window.size[1] > 0).map(window => ({ x: window.at[0], y: window.at[1], width: window.size[0], height: window.size[1], address: window.address, focus: window.focusHistoryID }));
     }
 
     function outputRectangles() {
         return outputs === null ? [] : outputs.filter(output => !output.disabled).map(output => ({ name: output.name, x: output.x, y: output.y, width: output.width, height: output.height, scale: output.scale, transform: output.transform }));
     }
 
-    function launch(name, output) {
+    // WINDOWS holds the window boxes a selection offers, from windowsRead.
+    function launch(name, output, windows) {
         const selection = ["screenshot-area", "screenshot-window", "screenshot-display", "record", "record-window", "record-display"].indexOf(name) >= 0;
         const focused = selection ? Hyprland.activeToplevel : null;
         const s = shell.settings;
         const request = { action: name, output: output, folder: s.folder, recordFolder: s.recordFolder, audio: s.audio, smart: s.smart, delay: s.delay, cursor: s.cursor, processing: s.processing, timeout: s.timeout,
             quality: s.quality, frameRate: s.frameRate, codec: s.codec, constantFrameRate: s.constantFrameRate, recordCursor: s.recordCursor, audioSources: s.audioSources, webcam: s.webcam, webcamDevice: s.webcamDevice,
-            postProcess: s.postProcess, ocrLanguages: s.ocrLanguages, editor: s.editor, viewer: s.viewer, player: s.player, stateDir: Paths.stateDir, windows: selection ? windowRectangles() : [], outputs: outputRectangles() };
+            postProcess: s.postProcess, ocrLanguages: s.ocrLanguages, editor: s.editor, viewer: s.viewer, player: s.player, stateDir: Paths.stateDir, windows: windows, outputs: outputRectangles() };
         const job = workerComponent.createObject(root, { actionName: name, focusAddress: focused === null ? "" : focused.address, command: ["python3", helperPath, JSON.stringify(request)] });
         if (job === null) {
             phase = "idle";
@@ -456,39 +455,9 @@ Item {
         onRunningChanged: if (!running && again) { again = false; root.probe(); }
     }
 
-    Instantiator {
-        model: Hyprland.toplevels
-        onCountChanged: root.windowRead("")
-        delegate: Connections {
-            required property var modelData
-            target: modelData
-            // refreshToplevels emits addressChanged even for an unchanged
-            // reply. Read on the next turn after its whole update lands.
-            function onAddressChanged() {
-                const address = modelData.address;
-                Qt.callLater(() => root.windowRead(address));
-            }
-        }
-    }
-    Instantiator {
-        model: Hyprland.monitors
-        onCountChanged: root.monitorRead("")
-        delegate: Connections {
-            required property var modelData
-            target: modelData
-            function onLastIpcObjectChanged() { root.monitorRead(modelData.name); }
-        }
-    }
     Timer {
         id: windowDeadline
         interval: root.shell === null ? 0 : root.shell.settings.timeout * 1000
-        onTriggered: {
-            root.waitingWindows = [];
-            root.waitingMonitors = [];
-            root.phase = "idle";
-            root.action = "";
-            root.notice("Capture failed", "Window information could not be read", "danger");
-            root.publish();
-        }
+        onTriggered: root.windowsUnread()
     }
 }

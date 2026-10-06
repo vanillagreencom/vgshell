@@ -244,6 +244,19 @@ function workspaceState(text) {
     return { ok: true, workspaces: read.values[0], monitors: read.values[1] };
 }
 
+// The windows and the monitors, from one `hyprctl --batch` of
+// WINDOW_STATE_REQUEST: { ok: true, clients, monitors } or { ok: false,
+// error }. Quickshell 0.3.1's Hyprland.toplevels can keep a window Hyprland
+// closed (runtime-hyprland-pads.md § Events), so a reader that needs the
+// windows that exist reads them here.
+var WINDOW_STATE_REQUEST = "j/clients;j/monitors";
+
+function windowState(text) {
+    var read = jsonReplies(text, [["clients", "array"], ["monitors", "array"]], "window state");
+    if (!read.ok) return read;
+    return { ok: true, clients: read.values[0], monitors: read.values[1] };
+}
+
 // One compositor snapshot. Layer rectangles are deliberately protected whole,
 // including pass-through gaps: hyprctl exposes no input-region geometry.
 var INPUT_STATE_REQUEST = "j/clients;j/activewindow;j/monitors;j/layers;j/cursorpos";

@@ -70,6 +70,30 @@ Singleton {
     }
     Timer { id: inputDeadline; interval: 2000; onTriggered: root.finishInput({ ok: false, error: "refused: input=timeout" }) }
 
+    // The windows and the monitors Hyprland has now: DONE takes
+    // Dispatch.windowState's answer, or { ok: false, error } when the read
+    // fails. Every caller waiting when a read ends takes that read, which
+    // started after each of them asked: HyprctlReader drops a running reply
+    // when a newer request comes.
+    property var windowsWaiting: []
+
+    function readWindows(done) {
+        if (typeof done !== "function") throw new Error("refused: windows=callback");
+        windowsWaiting = windowsWaiting.concat([done]);
+        windowsReader.read(["hyprctl", "--batch", Dispatch.WINDOW_STATE_REQUEST], null);
+    }
+
+    HyprctlReader {
+        id: windowsReader
+        label: "windows"
+        onReadDone: (request, text, failure) => {
+            const waiting = root.windowsWaiting;
+            root.windowsWaiting = [];
+            const state = failure === "" ? Dispatch.windowState(text) : { ok: false, error: "refused: windows=read-failed " + failure };
+            for (const done of waiting) done(state);
+        }
+    }
+
     // The screen a surface lands on when nothing chose one: the focused
     // monitor, or the first screen when Hyprland names none Quickshell
     // knows, or null with no screen at all.
