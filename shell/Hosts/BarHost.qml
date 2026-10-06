@@ -28,7 +28,10 @@ Item {
     property string brokenKey: ""
 
     Loader {
-        active: host.wantedKey !== "" && host.wantedKey !== host.brokenKey
+        // Quickshell.screens drops a removed screen before Qt moves its
+        // windows to another screen, and a window still built then gets a
+        // layer surface there, reserving space twice until it goes.
+        active: Quickshell.screens.indexOf(host.screen) !== -1 && host.wantedKey !== "" && host.wantedKey !== host.brokenKey
         sourceComponent: PanelWindow {
             screen: host.screen
 

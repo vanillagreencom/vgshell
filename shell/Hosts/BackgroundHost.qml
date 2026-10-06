@@ -44,7 +44,10 @@ Item {
     })
 
     Loader {
-        active: host.ids.length > 0
+        // Quickshell.screens drops a removed screen before Qt moves its
+        // windows to another screen, and a window still built then gets a
+        // layer surface there, a second background until it goes.
+        active: Quickshell.screens.indexOf(host.screen) !== -1 && host.ids.length > 0
         sourceComponent: PanelWindow {
             id: win
 
