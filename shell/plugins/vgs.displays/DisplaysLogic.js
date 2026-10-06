@@ -434,7 +434,7 @@ function colourRows(rule, panel, colour) {
 }
 
 function levelText(value) {
-    return Math.round(value * 100) + " %";
+    return Math.round(value * 100) + "%";
 }
 
 function dirtyRules(draft, saved) {
