@@ -543,6 +543,12 @@ if open_toplevel "$sandbox/toplevel-sender.log" "$sender_class" "Sender window" 
   expect_poll "the sender closed the other expired one" 1 closed_on_server "$gone_id"
   expect "the inbox opens on the expired toasts" ok notes inbox
   expect_poll "the expired toast is an inbox row" True has_row panel "Held for the inbox"
+  # The panel's rows read back before its layer maps, and Hyprland hands an
+  # on-demand layer the keyboard when it maps (CLayerSurface::onMap in
+  # src/desktop/view/LayerSurface.cpp, v0.56.2), so a focus dispatch before
+  # the map is undone by it. The controls below move the focus only once
+  # the service records that the panel holds the keyboard.
+  expect_poll "the inbox holds the keyboard before the focus moves" true read_notes panelFocused
 
   # The control of inbox_closed, the miss open_card waits out. With the
   # shell stopped while the focus moves and the nested compositor stopped
@@ -592,6 +598,7 @@ if open_toplevel "$sandbox/toplevel-sender.log" "$sender_class" "Sender window" 
   expect_poll "control: that dismissal closes the notification on the server" 1 closed_on_server "$standing_id"
   expect "control: the inbox opens on the dismissed toast" ok notes inbox
   expect_poll "control: the dismissed toast is an inbox row" True has_row panel "Opened while the inbox stands"
+  expect_poll "control: the standing inbox holds the keyboard before the late focus dispatch" true read_notes panelFocused
   late_focus_go="$sandbox/late-focus-go"
   rm -f -- "$late_focus_go" "$sandbox/late-focus.reply"
   (
