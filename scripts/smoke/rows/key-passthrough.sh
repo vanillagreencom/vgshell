@@ -89,14 +89,11 @@ kp_kill() {
 kp_control_start() {
   stop_shell
   start_shell "$sandbox/tree-$1" "$sandbox/key-passthrough-$1.log" || fail "$2: the control shell starts"
-  expect_poll "$2: the Settings service is built" True record_exists vgs.settings
 }
 
 hypr_lua_save key-passthrough
 printf '%s\n' 'hl.config({ input = { resolve_binds_by_sym = true } })' >>"$home/.config/hypr/hyprland.lua"
 expect "the nested instance reloads with keysym binds" ok hypr reload config-only
-expect "enabling Settings for the pass-through rows is allowed" ok ipc shell setPluginEnabled vgs.settings true
-expect_poll "the Settings service is built for the pass-through rows" True record_exists vgs.settings
 
 # The nominal paths.
 kp_commit "commit"
@@ -173,4 +170,3 @@ stop_shell
 hypr_lua_restore key-passthrough || fail "key passthrough puts the harness hyprland.lua back"
 start_shell "$repo" "$sandbox/key-passthrough-final.log" || fail "key passthrough leaves a live shell for the rows after it"
 expect "the nested instance reloads the harness hyprland.lua" ok hypr reload config-only
-expect "disabling the Settings plugin after the key rows is allowed" ok ipc shell setPluginEnabled vgs.settings false

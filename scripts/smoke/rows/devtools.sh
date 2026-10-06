@@ -328,8 +328,6 @@ expect "the doctor capability refuses an unknown owner" "refused: owner=acme.gon
 # command.
 installed_count() { in_shell_env node "$repo/shell/plugins/vgs.devtools/bin/devtools" --tree "$repo" list --json | py_reply 'import json,sys; d=json.load(sys.stdin); print(sum(1 for rows in d["sections"].values() for r in rows if r["installed"] is True) + sum(1 for r in d["other"] if r["installed"] is True))'; }
 missing_count() { in_shell_env "$repo/bin/vgshell" doctor --json | py_reply 'import json,sys; d=json.load(sys.stdin); print(sum(1 for rows in [d["core"]] + list(d["plugins"].values()) for r in rows if r["state"] == "missing"))'; }
-expect "enabling Settings is allowed" ok ipc shell setPluginEnabled vgs.settings true
-expect_poll "the Settings service is built" True record_exists vgs.settings
 expect "Settings opens the Dev Tools page" ok ipc vgs.settings invoke open '{"plugin":"vgs.devtools"}'
 expect_poll "the Settings window shows the Dev Tools page" '"vgs.devtools"' ipc smoke readInstance window vgs.settings page
 settings_details
@@ -353,7 +351,6 @@ if dev_installed="$(installed_count)" && dev_missing="$(missing_count)"; then
 else
   fail "the list or the doctor report is unreadable for the status counts"
 fi
-expect "disabling Settings after its rows is allowed" ok ipc shell setPluginEnabled vgs.settings false
 
 # Control: a copy of the plugin whose service ignores a run's end, in the
 # user directory, where it hides the shipped one. A run of its install TUI

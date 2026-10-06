@@ -4,7 +4,7 @@ Read before touching a manifest's `requirements`, `config/requirements.json`, th
 
 ## The approach
 
-A manifest's `requirements` lists the external commands a plugin runs, each with its package per manager; `config/requirements.json` lists the core's. The scan probes each command once and reports the missing ones, and the one install path is a `vgshell pkg run` the user starts from the requirement notice, a TUI or the add command's terminal question. The core, not a plugin, owns the one centred notice surface, so it works with the Settings plugin disabled. The choice is [D035](../decisions/D035-manifest-requirements.md).
+A manifest's `requirements` lists the external commands a plugin runs, each with its package per manager; `config/requirements.json` lists the core's. The scan probes each command once and reports the missing ones, and the one install path is a `vgshell pkg run` the user starts from the requirement notice, a TUI or the add command's terminal question. The core, not a plugin, owns the one centred notice surface. The choice is [D035](../decisions/D035-manifest-requirements.md).
 
 ## Why
 

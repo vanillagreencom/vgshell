@@ -501,7 +501,6 @@ if copy_tree unsaved-host \
   expect "control: the refused value is not written" 75 us_value gap
   expect "control: hiding the window after the refused save is allowed" ok ipc shell hide window vgs.settings
   expect_poll "control: the window is gone after the refused save" 0 window_count Plugins
-  expect "control: disabling Settings after the control is allowed" ok ipc shell setPluginEnabled vgs.settings false
   stop_shell
   start_shell "$repo" "$sandbox/unsaved-restart.log" || fail "the shell starts again after the held-hide control"
 fi

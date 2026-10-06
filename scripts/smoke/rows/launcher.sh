@@ -6,9 +6,11 @@
 # row. A picker answers
 # through two files under the sandbox's runtime directory, read here. The
 # Install, Remove and Update rows open floating TUIs, read back from the
-# stand-in terminal scripts/smoke/rows/tui.sh left. The row ends with the
-# plugin disabled and every registration released.
-# inputs: shell/plugins/vgs.launcher/* shell/Ui/BarWidget.qml scripts/smoke/fixtures/plugins/acme.tui/* shell/Ui/layout/ListCursor.qml shell/Core/TuiRunner.qml bin/vgshell-tui shell/Commons/DesktopLaunch.js scripts/smoke/rows/capabilities.sh scripts/smoke/rows/tui.sh
+# stand-in terminal scripts/smoke/rows/tui.sh left. The Settings category
+# holds Plugin settings and, while vgs.system is enabled, System settings,
+# each opening its window. The row ends with the plugin disabled and every
+# registration released.
+# inputs: shell/plugins/vgs.launcher/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Service.qml shell/plugins/vgs.system/manifest.json shell/plugins/vgs.system/Service.qml shell/Ui/BarWidget.qml scripts/smoke/fixtures/plugins/acme.tui/* shell/Ui/layout/ListCursor.qml shell/Core/TuiRunner.qml bin/vgshell-tui shell/Commons/DesktopLaunch.js scripts/smoke/rows/capabilities.sh scripts/smoke/rows/tui.sh
 set -euo pipefail
 launcher() { ipc vgs.launcher invoke "$1" "${2:-}"; }
 read_launcher() { ipc smoke readInstance overlay vgs.launcher "$1"; }
@@ -87,6 +89,47 @@ type_keys -k Return || fail "sending Return failed"
 expect_poll "Enter launched the application" True bash -c '[[ -f $1 ]] && echo True' _ "$home/launched-app"
 expect_poll "a launch closes the launcher" 0 layer_count vgs:overlay
 
+# Settings: Plugins, always on, declares the category and its Plugin
+# settings row in its manifest's `menu`; vgs.system adds System settings
+# under it while enabled. Each row runs its plugin's `open` shortcut, which
+# opens its window. The reading with vgs.system enabled is the control of
+# the reading without it, and a user menu file that relabels Plugin
+# settings is the control of the Plugin settings reading.
+launcher_settings_open() { # LABEL
+  expect "$1: the launcher opens on Settings" ok ipc shell summon overlay vgs.launcher '{"menu":"settings"}'
+  expect_poll "$1: the Settings menu is open" '"settings"' read_launcher activeMenu
+  focused "$1: the launcher holds the keyboard"
+}
+launcher_window_open() { [[ $(ipc smoke instanceGeometry window "$1") != absent ]] && echo open || echo closed; }
+expect "vgs.system starts disabled in the sandbox" False plugin_enabled vgs.system
+launcher_settings_open "without System"
+expect_poll "Settings lists Plugin settings" True launcher_has_row shortcut "Plugin settings"
+expect "Settings lists no System settings while vgs.system is disabled" False launcher_has_row shortcut "System settings"
+type_keys -k Return || fail "selecting Plugin settings failed"
+expect_poll "Plugin settings opens the Plugins window" open launcher_window_open vgs.settings
+expect_poll "the launcher closes on Plugin settings" 0 layer_count vgs:overlay
+expect "the Plugins window hides after Plugin settings" ok ipc shell hide window vgs.settings
+expect_poll "the Plugins window is gone after Plugin settings" closed launcher_window_open vgs.settings
+expect "enabling vgs.system for the Settings rows is allowed" ok ipc shell setPluginEnabled vgs.system true
+expect_poll "vgs.system's service is built for the Settings rows" True record_exists vgs.system
+launcher_settings_open "with System"
+expect_poll "control: Settings lists System settings while vgs.system is enabled" True launcher_has_row shortcut "System settings"
+expect "Settings lists Plugin settings beside System settings" True launcher_has_row shortcut "Plugin settings"
+type_keys -k Down -k Return || fail "selecting System settings failed"
+expect_poll "System settings opens the System window" open launcher_window_open vgs.system
+expect_poll "the launcher closes on System settings" 0 layer_count vgs:overlay
+expect "the System window hides after System settings" ok ipc shell hide window vgs.system
+expect_poll "the System window is gone after System settings" closed launcher_window_open vgs.system
+expect "disabling vgs.system after the Settings rows is allowed" ok ipc shell setPluginEnabled vgs.system false
+expect_poll "vgs.system's service is gone after the Settings rows" False record_exists vgs.system
+write_menu '{ "schemaVersion": 1, "items": { "settings.plugins": { "label": "Smoke plugins" } } }'
+launcher_settings_open "relabelled"
+expect_poll "control: a user menu that relabels Plugin settings shows its label" True launcher_has_row shortcut "Smoke plugins"
+expect "control: the relabelled menu reads no Plugin settings" False launcher_has_row shortcut "Plugin settings"
+expect "the host hides the relabelled launcher" ok ipc shell hide overlay vgs.launcher
+expect_poll "the relabelled launcher closes" 0 layer_count vgs:overlay
+rm -f -- "${user_menu:?}"
+
 # Categories: Ctrl+B shows the tree; a route opens a submenu by id or alias.
 expect "the service toggles the launcher open" ok launcher toggle ''
 expect_poll "the toggled launcher maps" 1 layer_count vgs:overlay
@@ -96,6 +139,7 @@ expect_poll "Ctrl+B shows the categories" True launcher_has_row menu System
 expect "the Install row lists the core's install picker" True launcher_has_row tui Install
 expect "the Remove row lists the core's remove picker" True launcher_has_row tui Remove
 expect "Update is hidden while no enabled plugin lists an Update entry" False launcher_has_row tui Update
+expect "the categories list Settings, which always-on Plugins declares" True launcher_has_row menu Settings
 type_keys -M ctrl -k b -m ctrl || fail "sending Ctrl+B failed"
 expect_poll "Ctrl+B hides them again" '[]' launcher_rows
 expect "a route by alias opens its menu" ok ipc shell summon overlay vgs.launcher '{"menu":"power-menu"}'

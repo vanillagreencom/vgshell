@@ -8,9 +8,8 @@
 # to each request. It reads the Settings page's Sign in per tool, withheld
 # while that tool is missing, whose TUI the stand-in terminal records; the
 # widget's share, tone and hidden state; the panel's rows and reset times;
-# the panel's Settings gear, absent while the Settings plugin is disabled
-# and, once it is enabled, clicked with the nested pointer, which opens the
-# Settings window on AI Usage's page and closes the panel; and that no read
+# the panel's Settings gear, which always-on Plugins gives every panel,
+# clicked with the nested pointer, which opens the Settings window on AI Usage's page and closes the panel; and that no read
 # changed a credential file's bytes or modification time.
 # Controls: a widget copy shown with no account, a helper copy that writes
 # the credential file, one that reads a failed request as 0 % and a panel
@@ -164,8 +163,6 @@ expect "AI Usage's widget is placed" ok ipc shell setPluginPlaced vgs.ai-usage t
 expect_poll "AI Usage's service is built" True record_exists vgs.ai-usage
 expect_poll "with no account the service publishes none" '[]' usage_states
 expect_poll "with no account the widget is hidden and empty" '[false, false, null, "normal"]' usage_widget_state
-expect "enabling the Settings plugin for AI Usage's rows is allowed" ok ipc shell setPluginEnabled vgs.settings true
-expect_poll "the Settings service is built" True record_exists vgs.settings
 expect "the Settings window is summoned" ok ipc shell summon window vgs.settings '{}'
 expect_poll "a missing codex withholds Codex's Sign in and not Claude Code's" '[["claude", "sign-in", true], ["codex", "withheld", true]]' usage_steps
 ln -sfn -- "$source_repo/scripts/fixtures/ai-usage/codex" "$shim/codex"
@@ -177,7 +174,6 @@ expect "Sign in to Claude Code is pressed" ok settings_act vgs.ai-usage claude
 expect_poll "Sign in opens Claude Code's sign-in TUI" '["vgs.ai-usage/sign-in-claude", "tui/sign-in-claude.sh"]' recorded_tail
 expect_run_end "Claude Code's sign-in TUI ends" vgs.ai-usage/sign-in-claude
 expect "the Settings window is hidden" ok ipc shell hide window vgs.settings
-expect "disabling the Settings plugin after the rows is allowed" ok ipc shell setPluginEnabled vgs.settings false
 
 # A widget copy shown with no account fails the hidden reading with the
 # shown widget's own reading.
@@ -218,7 +214,6 @@ click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage from its widget
 expect_poll "the widget opens its panel" '[["claude", "default", "", "max", [["five_hour", 42, "normal"], ["seven_day", 83, "warning"], ["seven_day_fable", 12, "normal"]]], ["codex", "default", "person@example.invalid", "plus", [["five_hour", 27, "normal"], ["seven_day", 64, "normal"]]]]' usage_panel_rows
 expect_poll "the panel's reset times are the stand-ins'" matched usage_panel_resets
 summon_drawn panel vgs.ai-usage || fail "the panel never drew a frame"
-expect "with Settings disabled the panel draws no gear" absent usage_gear
 usage_panel_box() { ipc smoke instanceGeometry panel vgs.ai-usage | py_reply 'import json,sys; r=json.load(sys.stdin); print(r[2] > 0 and r[3] > 0)'; }
 expect "the panel has a size" True usage_panel_box
 expect_poll "the check the panel asks for is published" new usage_read_after "$usage_before_panel"
@@ -226,10 +221,8 @@ expect "the panel's check changed no credential file" kept usage_credentials_kep
 expect "AI Usage's panel hides" ok ipc shell hide panel vgs.ai-usage
 expect_poll "the hidden panel is gone" absent usage_panel
 
-# The panel's gear, with Settings enabled: a click opens the Settings
-# window on AI Usage's page and closes the panel.
-expect "enabling the Settings plugin for the panel's gear is allowed" ok ipc shell setPluginEnabled vgs.settings true
-expect_poll "the Settings service is built for the panel's gear" True record_exists vgs.settings
+# The panel's gear, which Plugins, always on, gives every panel: a click
+# opens the Settings window on AI Usage's page and closes the panel.
 click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage from its widget for the gear failed"
 expect_poll "the panel draws its gear" shown usage_gear_shown
 summon_drawn panel vgs.ai-usage || fail "the panel with the gear never drew a frame"
@@ -258,8 +251,6 @@ expect "the probe drops the panel host copy" ok ipc smoke popupDrop usage-gear-c
 expect_poll "the host copy's panel is gone" absent usage_panel
 expect "the Settings list the copy opened hides" ok ipc shell hide window vgs.settings
 expect_poll "the hidden Settings list is gone" absent usage_settings_page
-expect "disabling the Settings plugin after the gear is allowed" ok ipc shell setPluginEnabled vgs.settings false
-expect_poll "the Settings service is gone after the gear" False record_exists vgs.settings
 
 # A helper copy that writes the credential file it read fails that reading.
 usage_edit "$usage_helper" '    try { file = readHeld(Anchored, opened.fd, ".credentials.json"); }

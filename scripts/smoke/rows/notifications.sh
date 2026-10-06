@@ -1892,8 +1892,6 @@ restart_notes() {
   expect "the notifications are enabled to read the tokens $1" ok ipc shell setPluginEnabled vgs.notifications true
   expect_poll "the service is built to read the tokens $1" True record_exists vgs.notifications
 }
-expect "enabling the Settings plugin for the token rows is allowed" ok ipc shell setPluginEnabled vgs.settings true
-expect_poll "the Settings service is built for the token rows" True record_exists vgs.settings
 expect "the notifications' Settings page opens" ok ipc shell summon window vgs.settings '{"plugin":"vgs.notifications"}'
 settings_details
 first_items="slack:T0ACME,present;slack:T0GLOBEX,present,served;slack,present"
@@ -2004,8 +2002,6 @@ expect "the probe answered every state with the stub" 0 probe_failures
 token_in_log() { log_lines 'xoxp-smoke'; }
 expect "the shell's log holds no token" 0 token_in_log
 expect "the Settings window closes after the token rows" ok ipc shell hide window vgs.settings
-expect "disabling the Settings plugin after the token rows is allowed" ok ipc shell setPluginEnabled vgs.settings false
-expect_poll "the Settings service is gone after the token rows" False record_exists vgs.settings
 seed_slack_photos
 slack_states "slack:T0ACME present;slack:T0GLOBEX absent;slack present"
 
@@ -2041,8 +2037,6 @@ expect_poll "the helper ran once and is idle with the extra off" True ran_once
 expect_poll "the helper's run swept the photos" '[]' photo_teams
 expect "with the extra off nothing asked the keyring or Slack" "" cat -- "$off_calls"
 expect "with the extra off the service publishes no token rows" False lent_has_tokens
-expect "enabling the Settings plugin with the extra off is allowed" ok ipc shell setPluginEnabled vgs.settings true
-expect_poll "the Settings service is built with the extra off" True record_exists vgs.settings
 expect "the notifications' Settings page opens with the extra off" ok ipc shell summon window vgs.settings '{"plugin":"vgs.notifications"}'
 settings_details
 settings_view() { ipc smoke readInstance window vgs.settings plugins | py_reply 'import json,sys; p=[p for p in json.load(sys.stdin) if p["id"] == "vgs.notifications"][0]; print(json.dumps([[s["key"] for s in p["status"]], [r["command"] for r in p["requirements"]], sorted(p["schema"])]))'; }
@@ -2057,8 +2051,6 @@ probe_logged() { if grep -q '^secret-tool search service vgs-notifications accou
 expect_poll "the call log reads the probe once the extra is on" True probe_logged
 expect_poll "the service publishes its token rows with the extra on" True lent_has_tokens
 expect "the Settings window closes after the extra rows" ok ipc shell hide window vgs.settings
-expect "disabling the Settings plugin after the extra rows is allowed" ok ipc shell setPluginEnabled vgs.settings false
-expect_poll "the Settings service is gone after the extra rows" False record_exists vgs.settings
 
 # Disabling and enabling again, three times over, leaves nothing behind.
 for round in 1 2 3; do

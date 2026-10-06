@@ -3,9 +3,8 @@
 # and a click on a text field gives that field keyboard focus. A write is
 # published once: its own file notification is read and found identical.
 # An unrelated change keeps an edit in progress: the same drawn field, its
-# focus, its text and its cursor. The plugin is disabled again at the end,
-# so the later rows' lending records hold no Settings shortcut or IPC
-# target. A plugin's page opens on Settings, and its tab strip shows
+# focus, its text and its cursor. The plug leaves the bar again at the
+# end, as the harness started it. A plugin's page opens on Settings, and its tab strip shows
 # Details and returns by the pointer and by the keyboard; a copy that opens
 # on Details is the control. A summonable plugin's page draws Open, which
 # opens the plugin's window or panel through the manager. A mouse drag leaves a page where it was, while a wheel notch and
@@ -667,8 +666,8 @@ rest_pointer || fail "moving the pointer off the Settings window failed"
 
 expect "the gear closes the Settings window after the edit rows" ok ipc smoke invokeInstance "$(bar_key)" vgs.settings toggle ''
 expect_poll "the Settings window is gone after the edit rows" 0 window_count Plugins
-expect "disabling the Settings plugin after its rows is allowed" ok ipc shell setPluginEnabled vgs.settings false
-expect_poll "the Settings service released its shortcut and IPC target" False settings_lent
+expect "taking the Settings plug off the bar after the edit rows is allowed" ok ipc shell setPluginPlaced vgs.settings false
+expect_poll "the Settings plug left every bar" True gear_gone
 
 # Control of the page rows: a copy of the Settings plugin whose page opens
 # on Details, drops the return to the top and forwards no key to its

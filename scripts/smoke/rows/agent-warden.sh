@@ -232,8 +232,6 @@ expect_poll "a status that reads again touches the heartbeat at once" fresh ward
 
 # The Settings page draws the three rows, never `detail`, and no row for
 # vsys, which the Requirements section lists.
-expect "enabling the Settings plugin for the warden's rows is allowed" ok ipc shell setPluginEnabled vgs.settings true
-expect_poll "the Settings service is built" True record_exists vgs.settings
 expect "the Settings window is summoned" ok ipc shell summon window vgs.settings '{}'
 expect_poll "the Settings rows show the warden, the agents and the last check" "$(python3 -c 'import json,sys; print(json.dumps([["Warden", "reported", {"tone": "ok", "text": "Running"}, "success", "vsys warden install"], ["Agents running", "reported", 1, "", ""], ["Last check", "reported", int(sys.argv[1]) * 1000, "", ""]]))' "$calm_time")" warden_rows
 # Enabling a plugin with a missing required command raises its notice.
@@ -250,7 +248,6 @@ expected_errors+=('settings: vgs\.agent-warden/warden refused: action=warden rea
 expect "the manager refuses Set up for a checking warden" "refused: action=warden reason=not-offered" settings_act vgs.agent-warden warden
 expect "the refused act raised no notice" null notice_shown
 expect "the Settings window is hidden" ok ipc shell hide window vgs.settings
-expect "disabling the Settings plugin after the rows is allowed" ok ipc shell setPluginEnabled vgs.settings false
 
 # vsys follows the scan: a stub on the sandbox PATH is present after a
 # rescan and gone after the next, and the service is not rebuilt. With the

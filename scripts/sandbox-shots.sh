@@ -2413,21 +2413,16 @@ PY
       expect "enabling AI Usage for its dropdown is allowed" ok ipc shell setPluginEnabled vgs.ai-usage true
       expect "AI Usage's widget is placed" ok ipc shell setPluginPlaced vgs.ai-usage true
       expect_poll "AI Usage's service is built" True record_exists vgs.ai-usage
-      # Settings enabled, so a tree whose dropdowns draw the gear draws it.
-      expect "enabling vgs.settings for the dropdown's gear is allowed" ok ipc shell setPluginEnabled vgs.settings true
-      expect_poll "vgs.settings is built" True record_exists vgs.settings
       usage_shot_states() { ipc smoke readInstance service vgs.ai-usage usage | py_reply 'import json,sys; u=json.load(sys.stdin); print("none" if u is None else json.dumps(sorted(a["state"] for a in u["accounts"])))'; }
       expect_poll "every planted account reads as signed in" '["ok", "ok", "ok"]' usage_shot_states
       expect_poll "AI Usage's widget shows" true ipc smoke readInstance "$(bar_key)" vgs.ai-usage visible ;;
     keyhints)
-      for id in vgs.launcher vgs.settings vgs.keyhints; do
+      for id in vgs.launcher vgs.keyhints; do
         expect "enabling $id for the Key Hints image is allowed" ok ipc shell setPluginEnabled "$id" true
         expect_poll "$id is built for the Key Hints image" True record_exists "$id"
       done ;;
     bar)
-      expect "enabling vgs.settings is allowed" ok ipc shell setPluginEnabled vgs.settings true
-      expect_poll "vgs.settings is built" True record_exists vgs.settings
-      ;;
+      expect "showing the Plugins plug in the bar is allowed" ok ipc shell setPluginPlaced vgs.settings true ;;
     tooltips)
       # Every first-party plugin with a bar widget, enabled and placed; the
       # requirement notices that raises close before any shot.

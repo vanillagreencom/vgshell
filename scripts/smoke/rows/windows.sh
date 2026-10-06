@@ -16,10 +16,10 @@
 # has kind `window`, read from the manifests, Updates among them, opens as
 # one client of the shell's class and closes on an Escape typed while it
 # has the keyboard; the themes panel is the control of that reading too,
-# and the manifests' list holds Updates and not Themes. The row enables the
-# Settings plugin and leaves it disabled, each other window's plugin as it
-# found it, hyprland.lua as it found it and no window open. The bar's gear
-# reads Plugins, the title of the window it opens.
+# and the manifests' list holds Updates and not Themes. The row shows the
+# Plugins plug in the bar and takes it off again, and leaves each other
+# window's plugin as it found it, hyprland.lua as it found it and no window
+# open. The bar's plug reads Plugins, the title of the window it opens.
 # inputs: shell/plugins/vgs.settings/* shell/plugins/*/manifest.json shell/plugins/vgs.automations/* shell/plugins/vgs.devtools/* shell/plugins/vgs.gallery/* shell/plugins/vgs.keyhints/* shell/plugins/vgs.system/* shell/plugins/vgs.updates/* shell/Commons/Reply.js shell/plugins/vgs.themes/* shell/Hosts/AppWindow.qml shell/Core/HyprlandLayer.js scripts/smoke/toplevel/* scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 windows_lua="$home/.config/hypr/hyprland.lua"
@@ -29,11 +29,10 @@ restore_windows_lua() { cp -- "$sandbox/hyprland-before-windows.lua" "$windows_l
 shell_clients() { hypr -j clients | py_reply 'import json,sys; print(json.dumps(sorted(c["title"] for c in json.load(sys.stdin) if c["pid"] == int(sys.argv[1]))))' "$shell_qs_pid"; }
 settings_search() { ipc smoke readDescendant window vgs.settings TextField text; }
 
-expect "enabling the Settings plugin for the window rows is allowed" ok ipc shell setPluginEnabled vgs.settings true
-expect_poll "the Settings service is built for the window rows" True record_exists vgs.settings
+expect "showing the Plugins plug in the bar for the window rows is allowed" ok ipc shell setPluginPlaced vgs.settings true
 expect "the IPC opens the Settings window" ok ipc shell summon window vgs.settings '{}'
 app_window_rows Plugins vgs.settings
-expect_poll "the gear in the bar reads Plugins" '"Plugins"' ipc smoke readDescendant "$(bar_key)" vgs.settings BarItem label
+expect_poll "the plug in the bar reads Plugins" '"Plugins"' ipc smoke readDescendant "$(bar_key)" vgs.settings BarItem label
 
 # The float comes from the layer's rule: disabled by name after the line,
 # the rule floats nothing and a new Settings window tiles.
@@ -181,7 +180,7 @@ expect "hiding the themes panel after the window rows is allowed" ok ipc shell h
 expect_poll "the themes panel's surface is gone after the window rows" 0 layer_count vgs:panel
 restore_windows_lua || fail "hyprland.lua is put back after the window rows"
 expect "the nested instance reloads hyprland.lua as the row found it" ok hypr reload config-only
-expect "disabling the Settings plugin after the window rows is allowed" ok ipc shell setPluginEnabled vgs.settings false
+expect "taking the Plugins plug off the bar after the window rows is allowed" ok ipc shell setPluginPlaced vgs.settings false
 for windows_file in "${shim:?}"/*; do
   [[ " ${windows_shim_before[*]} " == *" $windows_file "* ]] || rm -f -- "$windows_file"
 done

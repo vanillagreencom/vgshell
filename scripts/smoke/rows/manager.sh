@@ -1,6 +1,6 @@
 # The Settings plugin, vgs.settings, the plugin manager's user interface.
-# Enabled here, it places its gear in every bar and binds SUPER+M; the gear
-# opens a Hyprland window centred on its monitor's work area, half the
+# Always on, it binds SUPER+M and refuses every disable; shown here, its
+# plug sits last in every bar and opens a Hyprland window centred on its monitor's work area, half the
 # monitor tall and `size.window.width` wide or clamped on a narrower
 # monitor, which takes the keyboard. The pointer shows the hand over the
 # list's controls, the I-beam over its search field and the arrow over its
@@ -17,7 +17,7 @@
 # open behind the terminal, which Hyprland focuses; a bundled plugin's
 # page draws neither button, and each requirement row reads back with its
 # state and purpose. rows/settings.sh continues with the same window and
-# disables the plugin again.
+# takes the plug off the bar again.
 # inputs: shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Ui/controls/BindField.qml shell/Core/Plugins.qml shell/Core/TuiRunner.qml shell/Core/Notices.qml shell/Hosts/AppWindow.qml shell/Ui/foundation/PointerCursor.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* config/shell.json shell/Core/Capabilities.qml shell/Core/Registry.qml scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/layout/TabPages.qml shell/Ui/layout/Tabs.qml
 set -euo pipefail
 # rows/status.sh removes a monitor just before this row, and its bar's
@@ -120,12 +120,15 @@ print(json.dumps(out))' "$1" "${2:-}" "$shell_class" "$width" "$share" "$gutter"
 }
 first_monitor() { hypr -j monitors | py_reply 'import json,sys; print(json.load(sys.stdin)[0]["name"])'; }
 
-# Enable: the gear joins every bar's right section, the service registers
-# its shortcut and IPC target, and the Hyprland layer binds SUPER+M.
-expect "enabling the Settings plugin is allowed" ok ipc shell setPluginEnabled vgs.settings true
+# Plugins is always on: the service holds its shortcut and IPC target
+# from the start and the Hyprland layer binds SUPER+M. The harness keeps
+# its plug off the bar; shown, it joins every bar's right section last.
 expect_poll "listPlugins reads the Settings plugin enabled" True plugin_enabled vgs.settings
 gear_placed() { bar_widget_ids | py_reply 'import json,sys; b=json.load(sys.stdin); print(len(b) > 0 and all(ids[-1:] == ["vgs.settings"] for ids in b))'; }
-expect_poll "enabling places the gear last in every bar" True gear_placed
+gear_gone() { bar_widget_ids | py_reply 'import json,sys; print(all("vgs.settings" not in ids for ids in json.load(sys.stdin)))'; }
+expect "the harness starts with the plug off every bar" True gear_gone
+expect "showing the Settings plug in the bar is allowed" ok ipc shell setPluginPlaced vgs.settings true
+expect_poll "showing places the plug last in every bar" True gear_placed
 settings_lent() { ipc shell lent | py_reply 'import json,sys; d=json.load(sys.stdin); print("vgs.settings:toggle" in d["shortcuts"] and "vgs.settings" in d["ipcTargets"])'; }
 expect_poll "the Settings service registered its shortcut and IPC target" True settings_lent
 expect_poll "the Hyprland layer binds SUPER+M to the Settings shortcut" '[[64, "M"]]' settings_binds
@@ -1064,22 +1067,51 @@ expect "a number past its max is refused" "refused: setting=size want=at-most:40
 expect "the window refuses a setting outside the schema" "refused: setting=tags undeclared" ipc smoke invokeInstance window vgs.settings applySetting '{"id":"acme.probe","key":"tags","value":"x"}'
 expect "a later write clears the refusal" ok ipc smoke invokeInstance window vgs.settings applySetting '{"id":"acme.probe","key":"size","value":12}'
 
-# The Settings plugin disabled from its own page closes its window and
-# takes its gear away; setPluginEnabled brings both back.
+# Plugins is always on (its manifest's `alwaysOn`): its own page draws no
+# Enabled switch, and the core refuses its disable from the window, the IPC,
+# the command line and a `disabledPlugins` row alike, so it stays enabled
+# with its window open and its plug in the bar. The fixture, which sets no
+# `alwaysOn`, is the control: the same window toggle, IPC call, command and
+# row disable it.
 expect "the window opens its own page" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.settings
-# No window is left to turn Settings on again once it is off, so its own
-# page keeps the command that does behind Show command (D061).
-code_line() { ipc smoke windowGeometry window vgs.settings CodeLine "vgshell plugin enable vgs.settings" | py_reply 'import sys; print("absent" if sys.stdin.read().strip() == "absent" else "drawn")'; }
-expect_poll "its own page draws Show command" drawn settings_button "Show command"
-settings_press "Show command" || fail "the click on the own page's Show command failed"
-expect_poll "Show command reveals the command that enables Settings again" drawn code_line
-expect "the window disables its own plugin" ok ipc smoke invokeInstance window vgs.settings toggle vgs.settings
-expect_poll "listPlugins reads the Settings plugin disabled" False plugin_enabled vgs.settings
-expect_poll "the disabled plugin's window is gone" 0 window_count Plugins
-gear_gone() { bar_widget_ids | py_reply 'import json,sys; print(all("vgs.settings" not in ids for ids in json.load(sys.stdin)))'; }
-expect_poll "the disabled plugin's gear left every bar" True gear_gone
-expect "enabling the Settings plugin again is allowed" ok ipc shell setPluginEnabled vgs.settings true
-expect_poll "the gear is back in every bar" True gear_placed
+expect_poll "its own page is open" '"vgs.settings"' settings_page
+enabled_switch() { ipc smoke scopedWindowGeometry window vgs.settings Field Enabled Switch "" | py_reply 'import sys; print("drawn" if sys.stdin.read().startswith("[") else "absent")'; }
+expect_poll "its own page draws no Enabled switch" absent enabled_switch
+expected_errors+=('settings: vgs\.settings refused: enabled=vgs\.settings reason=always-on')
+expect "the window's toggle is refused for its own plugin" "refused: enabled=vgs.settings reason=always-on" ipc smoke invokeInstance window vgs.settings toggle vgs.settings
+expect "the IPC refuses to disable the Settings plugin" "refused: enabled=vgs.settings reason=always-on" ipc shell setPluginEnabled vgs.settings false
+cli_disable() { local out status=0; out="$("${shell_env[@]}" "$repo/bin/vgshell" plugin disable "$1" 2>&1)" || status=$?; printf '%s exit=%s\n' "$out" "$status"; }
+expect "vgshell plugin disable refuses the Settings plugin" "vgshell: refused: refused: enabled=vgs.settings reason=always-on exit=1" cli_disable vgs.settings
+disabled_row() { # IDS...: the user file's disabledPlugins, written as given
+  python3 - "$user_file" "$@" <<'PY'
+import json, os, sys
+p = sys.argv[1]
+d = json.load(open(p))
+d["disabledPlugins"] = [i for i in d.get("disabledPlugins", []) if i not in ("vgs.settings", "acme.probe")] + sys.argv[2:]
+json.dump(d, open(p + ".tmp", "w"), indent=2)
+os.replace(p + ".tmp", p)
+PY
+}
+expect_poll "listPlugins reads the Settings plugin enabled after the refusals" True plugin_enabled vgs.settings
+expect "the Settings window stays open after the refusals" 1 window_count Plugins
+expect_poll "the plug stays in every bar after the refusals" True gear_placed
+expect "the window toggles the fixture off, the control" ok ipc smoke invokeInstance window vgs.settings toggle acme.probe
+expect_poll "control: the window's toggle disables the fixture" False plugin_enabled acme.probe
+expect "the window toggles the fixture back on" ok ipc smoke invokeInstance window vgs.settings toggle acme.probe
+expect "control: the IPC disables the fixture" ok ipc shell setPluginEnabled acme.probe false
+expect_poll "control: listPlugins reads the fixture disabled by the IPC" False plugin_enabled acme.probe
+expect "the IPC enables the fixture again" ok ipc shell setPluginEnabled acme.probe true
+expect "control: vgshell plugin disable disables the fixture" "ok exit=0" cli_disable acme.probe
+expect_poll "control: listPlugins reads the fixture disabled by the command" False plugin_enabled acme.probe
+expect "the IPC enables the fixture after the command" ok ipc shell setPluginEnabled acme.probe true
+expect_poll "listPlugins reads the fixture enabled before the row" True plugin_enabled acme.probe
+disabled_row vgs.settings acme.probe
+expect_poll "control: a disabledPlugins row naming both disables the fixture" False plugin_enabled acme.probe
+expect "the same disabledPlugins row leaves the Settings plugin enabled" True plugin_enabled vgs.settings
+expect "the Settings window stays open beside the row" 1 window_count Plugins
+disabled_row
+expect_poll "the fixture is enabled again once the row is gone" True plugin_enabled acme.probe
+expect_poll "the fixture's service is built again" True record_exists acme.probe
 
 # The bar's built-ins: the manager built-in is gone, and a user row still
 # naming it draws nothing and is logged with the command that places the
@@ -1101,9 +1133,9 @@ json.dump(d, open(p + ".tmp", "w"), indent=2)
 os.replace(p + ".tmp", p)
 PY
 }
-expected_errors+=('bar: no built-in widget named "manager": the plugin manager moved to the Plugins plugin, vgs\.settings; `vgshell plugin enable vgs\.settings` places its gear in the bar')
+expected_errors+=('bar: no built-in widget named "manager": the plugin manager moved to the Plugins plugin, vgs\.settings; `vgshell plugin enable vgs\.settings` places its plug in the bar')
 bar_row '["manager"]'
-expect_log "a user row naming the retired manager built-in is logged by every bar" "$monitors" 'the plugin manager moved to the Plugins plugin, vgs\.settings; `vgshell plugin enable vgs\.settings` places its gear in the bar'
+expect_log "a user row naming the retired manager built-in is logged by every bar" "$monitors" 'the plugin manager moved to the Plugins plugin, vgs\.settings; `vgshell plugin enable vgs\.settings` places its plug in the bar'
 expect_builtins "the retired manager built-in draws nothing" '["vgs.bar/center-clock","vgs.bar/left-workspaces"]'
 bar_row '["clock"]'
 expect_builtins "a built-in listed in the right section registers there" '["vgs.bar/center-clock","vgs.bar/left-workspaces","vgs.bar/right-clock"]'

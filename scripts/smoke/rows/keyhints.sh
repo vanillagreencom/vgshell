@@ -134,9 +134,6 @@ expect "the refused key leaves shell.json as it was" "$kh_written" themes_key
 expect "the same key again is applied" applied ipc smoke invokeInstance window vgs.keyhints applyKey '{"id":"vgs.themes","shortcut":"themes","key":"SUPER+SLASH"}'
 expect_poll "the saved key clears the refusal" '""' ipc smoke readInstance window vgs.keyhints notice
 
-kh_settings_before="$(record_exists vgs.settings)"
-expect "enabling Settings is allowed" ok ipc shell setPluginEnabled vgs.settings true
-expect_poll "the Settings service is built" True record_exists vgs.settings
 expect "Settings is summoned on the Themes page" ok ipc shell summon window vgs.settings '{"plugin":"vgs.themes"}'
 expect_poll "the Settings window shows the Themes page" '"vgs.themes"' ipc smoke readInstance window vgs.settings page
 expect_poll "the Settings Keys row shows the key written here" '"SUPER+SLASH"' settings_field key
@@ -151,10 +148,6 @@ kh_settings_hint="$(settings_field conflict)" || kh_settings_hint=unread
 expect "the Settings Keys row still names this window's shortcut" '"Also used by Key Hints (toggle)."' printf '%s\n' "$kh_settings_hint"
 expect_poll "the Themes row here shows the hint the Settings page shows" "$kh_settings_hint" kh_field "$kh_themes" conflict
 expect "the Settings window is hidden" ok ipc shell hide window vgs.settings
-if [[ $kh_settings_before != True ]]; then
-  expect "Settings is disabled again" ok ipc shell setPluginEnabled vgs.settings false
-  expect_poll "the Settings service is gone" False record_exists vgs.settings
-fi
 
 # kh_bound_has BIND: whether hyprctl reports the bind "<plugin id>:<shortcut>".
 kh_bound_has() { kh_bound | py_reply 'import json,sys; print(sys.argv[1] in json.load(sys.stdin))' "$1"; }

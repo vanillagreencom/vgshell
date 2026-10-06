@@ -10,6 +10,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 
 - `SUPER+PERIOD` opens the window on the section shown last, or the first. The same key closes it. Change the key under Keys on the plugin's Settings page.
 - A section's own Settings link opens the window on that section.
+- Settings > System settings in the launcher opens the window.
 - The window opens with the keyboard in the search field. Typing filters the sections.
 - Up, Down, Page Up, Page Down, Ctrl+Home and Ctrl+End move the selection. Enter opens the selected section.
 - Escape in a section returns to the search field. There it clears the search, then closes the window.

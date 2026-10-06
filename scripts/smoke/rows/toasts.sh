@@ -78,13 +78,14 @@ geometry expect "the toast surface sits below the bar in the top-right corner" "
 # edge. So it overlaps the bar on a monitor of any size.
 expect "the layer/bar overlap predicate rejects an overlap" "violation overlap" layer_bar_contract_value <<<"layer=$((mon_w / 4)),$((bar_reserved / 2)),$((mon_w / 2)),$bar_reserved bar=0,0,$mon_w,$bar_reserved margin=$toast_margin"
 geometry expect "the toast surface clears the bar by the toast margin" ok layer_bar_clear vgs:toast toast.margin
-expect "enabling Settings for the toast click-through check is allowed" ok ipc shell setPluginEnabled vgs.settings true
-expect_poll "the Settings widget is on the bar for the toast click-through check" True record_exists vgs.settings
+expect "showing the Settings plug for the toast click-through check is allowed" ok ipc shell setPluginPlaced vgs.settings true
+toast_plug_placed() { bar_widget_ids | py_reply 'import json,sys; print(any("vgs.settings" in ids for ids in json.load(sys.stdin)))'; }
+expect_poll "the Settings plug is on the bar for the toast click-through check" True toast_plug_placed
 click_centre "$(bar_key)" vgs.settings || fail "the right-side Settings widget receives a click while a toast shows"
 expect_poll "the right-side Settings widget opens while a toast shows" open settings_open
 expect "the Settings window hides after the toast click-through check" ok ipc shell hide window vgs.settings
 expect_poll "the Settings window is gone after the toast click-through check" closed settings_open
-expect "disabling Settings after the toast click-through check is allowed" ok ipc shell setPluginEnabled vgs.settings false
+expect "taking the Settings plug off the bar after the toast click-through check is allowed" ok ipc shell setPluginPlaced vgs.settings false
 note_toast_bar_geometry
 
 # The stack shows three; the fourth waits and shows when one ends.

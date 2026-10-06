@@ -16,7 +16,6 @@ pane_file="$home/.config/vgshell/shell.json"
 pane_saved="$sandbox/shell-before-panes.json"
 pane_bar_key=""
 cp -- "$pane_file" "$pane_saved"
-pane_settings_was="$(plugin_enabled vgs.settings)" || fail "vgs.settings's enabled state is unreadable"
 
 # The fixture holder needs the exclusive `panes` capability, which
 # vgs.system holds while enabled, as it is in the default set
@@ -93,7 +92,6 @@ expect_poll "the service reads the pane edit" '"pane-edited"' ipc smoke readInst
 expect_poll "the widget reads the pane edit" '"pane-edited"' ipc smoke readInstance "$pane_bar_key" acme.pane label
 expect_poll "the pane reads its own edit" '"pane-edited"' ipc smoke readInstance window acme.pane label
 
-expect "enabling Settings for the pane edit check is allowed" ok ipc shell setPluginEnabled vgs.settings true
 expect "opening Settings on the pane plugin is allowed" ok ipc shell summon window vgs.settings '{"plugin":"acme.pane"}'
 expect_poll "Settings opens the pane plugin page" '"acme.pane"' ipc smoke readInstance window vgs.settings page
 expect "the Settings page writes the same setting" ok ipc smoke invokeInstance window vgs.settings applySetting '{"id":"acme.pane","key":"label","value":"pane-service"}'
@@ -324,5 +322,4 @@ cp -- "$pane_saved" "$pane_file.tmp" && mv -T -- "$pane_file.tmp" "$pane_file"
 rm -rf -- "${home:?}/.config/vgshell/plugins/acme.panehost" "${home:?}/.config/vgshell/plugins/acme.pane" "${home:?}/.config/vgshell/plugins/acme.pane-alt" "${home:?}/.config/vgshell/plugins/acme.panehost2"
 rescan "rescan after removing the pane fixtures answers ok"
 expect_poll "the pane fixture is gone after restore" absent plugin_enabled acme.pane
-expect_poll "vgs.settings is enabled as the row found it" "$pane_settings_was" plugin_enabled vgs.settings
 expect_poll "each shipped section the row set aside is enabled again" "$pane_aside" shipped_panes_enabled

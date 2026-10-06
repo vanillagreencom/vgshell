@@ -5,8 +5,8 @@
 # once, with no reading between; at the shipped motion a hover moves the
 # Settings list's plate on its first frame and rests it within a ceiling
 # the old travel misses, and the launcher's selection goes back to the
-# keys' row when the pointer leaves the list. The rows run with the plugins disabled as the rows
-# before left them, and leave them so, with the default theme.
+# keys' row when the pointer leaves the list. The rows run with the launcher disabled as the rows
+# before left it, and leave it so, with the default theme.
 # inputs: shell/Ui/layout/ListCursor* shell/Ui/layout/ListItem.qml shell/Commons/Tokens.js scripts/smoke/fixtures/list-cursor/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/plugins/vgs.launcher/*
 set -euo pipefail
 motion_theme="$home/.config/vgshell/theme.json"
@@ -39,7 +39,6 @@ PY
 write_motion_theme '{ "schemaVersion": 1, "name": "slowlist", "tokens": { "motion": { "scale": 4 } } }'
 expect_poll "the slowed scale reaches the list motion" 400 ipc smoke themeValue motion.list.travel.duration
 
-expect "enabling the Settings plugin for the list motion is allowed" ok ipc shell setPluginEnabled vgs.settings true
 expect "the Settings window summons for the list motion" ok ipc shell summon window vgs.settings '{}'
 expect_poll "the Settings window takes the keyboard" true ipc smoke activeFocusIn window vgs.settings
 expect_poll "the Settings list's cursor holds its first row" true ipc smoke readShownDescendant window vgs.settings ListCursor shown
@@ -63,7 +62,6 @@ else
 fi
 expect "hiding the Settings window after the list motion is allowed" ok ipc shell hide window vgs.settings
 expect_poll "the Settings window is gone" 0 window_count Plugins
-expect "disabling the Settings plugin after the list motion is allowed" ok ipc shell setPluginEnabled vgs.settings false
 
 # The pointer's travel in the Settings list at the shipped list motion: the
 # plate moves on the first frame after a hover takes the row and rests
@@ -139,7 +137,6 @@ PY
 
 write_motion_theme '{ "schemaVersion": 1, "name": "vgs", "tokens": {} }'
 expect_poll "the defaults return for the hover travel" vgs ipc smoke themeName
-expect "enabling the Settings plugin for the hover travel is allowed" ok ipc shell setPluginEnabled vgs.settings true
 expect "the Settings window summons for the hover travel" ok ipc shell summon window vgs.settings '{}'
 expect_poll "the Settings list's cursor holds a row for the hover travel" true ipc smoke readShownDescendant window vgs.settings ListCursor shown
 expect "the probe builds the cursor frame trace" ok ipc smoke popupLoad cursor-frames "$hover_fixture" window vgs.settings '{"host":"@instance"}'
@@ -159,7 +156,6 @@ expect "the probe drops the cursor frame trace" ok ipc smoke popupDrop cursor-fr
 rest_pointer || fail "moving the pointer off the Settings list failed"
 expect "hiding the Settings window after the hover travel is allowed" ok ipc shell hide window vgs.settings
 expect_poll "the Settings window is gone after the hover travel" 0 window_count Plugins
-expect "disabling the Settings plugin after the hover travel is allowed" ok ipc shell setPluginEnabled vgs.settings false
 
 # The launcher's list: Ctrl+B lists the categories and the first Down
 # gives the list its cursor, on the first row.

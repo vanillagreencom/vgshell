@@ -3,8 +3,8 @@
 # reuses the stand-in xdg-terminal-exec harness.sh's terminal_stand_in
 # wrote, which records the argv the core's TUI launch hands the terminal
 # and runs the core's command as `true`, and the harness's helpers. A stand-in bin/vgshell-pkg answers detection with pacman and
-# paru, whatever the host runs. The Settings plugin is disabled throughout:
-# the notice is the core's. Rows: `vgshell plugin add` raises the notice
+# paru, whatever the host runs. The notice is the core's, with the Plugins
+# window closed throughout. Rows: `vgshell plugin add` raises the notice
 # through pluginInstalled, which maps one surface on the focused monitor
 # holding the keyboard and drawing each missing command with this system's
 # package; the surface fills the monitor less the bar's reserved space less
@@ -110,7 +110,6 @@ needs_command_line="vgshell pkg run install vgs-smoke-needs-pkg"
 rows_hold() { ipc smoke noticeDrawn | py_reply 'import json,sys; print(str(any(sys.argv[1] in r for r in json.load(sys.stdin)["rows"])).lower())' "$1"; }
 all_needs='["vgs-smoke-needs", "vgs-smoke-extra", "vgs-smoke-unmapped"]'
 
-expect "the Settings plugin is disabled for the notice rows" False plugin_enabled vgs.settings
 expect "no notice shows at first" null notice_shown
 expect "the notice host has no surface at first" 0 layer_count vgs:notice
 # The layer under the notice counts the presses that pass its surface.

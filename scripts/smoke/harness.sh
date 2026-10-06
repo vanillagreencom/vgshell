@@ -609,9 +609,10 @@ fi
 # enabled by default, start disabled here: their shortcuts, IPC targets,
 # notification subscriber and server would sit in every lending record the
 # capability rows read back. rows/launcher.sh and rows/notifications.sh
-# enable them. vgs.settings starts disabled for the same reason, and its
-# service would be one more build in the bar rows' count;
-# rows/manager.sh enables it and rows/settings.sh disables it again.
+# enable them. vgs.settings, Plugins, is always on, so its service is
+# built in every run; its `plugins` row keeps its widget off the bar, so
+# the first presence places nothing. rows/manager.sh shows the widget and
+# rows/settings.sh hides it again.
 # vgs.agent-warden starts disabled for the same reason; rows/agent-warden.sh
 # enables it and disables it again. vgs.devtools starts disabled too: its
 # service's IPC target and status record would sit in the capability rows'
@@ -866,7 +867,7 @@ case "$plugin_set" in
     mkdir -p "$tick"
     cp -R "$repo/scripts/smoke/fixtures/plugins/acme.tick/." "$tick/"
     cat >"$home/.config/vgshell/shell.json" <<'JSON'
-{ "version": 1, "bar": { "id": "vgs.bar", "layout": { "left": [], "center": [{ "id": "acme.tick", "format": "ddd d MMM  HH:mm" }], "right": [] } }, "disabledPlugins": ["vgs.launcher", "vgs.notifications", "vgs.settings", "vgs.updates", "vgs.agent-warden", "vgs.devtools", "vgs.automations", "vgs.polkit", "vgs.lock", "vgs.jarvis", "vgs.system", "vgs.sound", "vgs.bluetooth", "vgs.power", "vgs.network", "vgs.vpn", "vgs.displays", "vgs.mouse", "vgs.keyboard", "vgs.capture", "vgs.greeter", "vgs.keyhints", "vgs.scratchpads", "vgs.ai-usage", "vgs.tray", "vgs.voice", "vgs.webapps"] }
+{ "version": 1, "bar": { "id": "vgs.bar", "layout": { "left": [], "center": [{ "id": "acme.tick", "format": "ddd d MMM  HH:mm" }], "right": [] } }, "plugins": [{ "id": "vgs.settings" }], "disabledPlugins": ["vgs.launcher", "vgs.notifications", "vgs.updates", "vgs.agent-warden", "vgs.devtools", "vgs.automations", "vgs.polkit", "vgs.lock", "vgs.jarvis", "vgs.system", "vgs.sound", "vgs.bluetooth", "vgs.power", "vgs.network", "vgs.vpn", "vgs.displays", "vgs.mouse", "vgs.keyboard", "vgs.capture", "vgs.greeter", "vgs.keyhints", "vgs.scratchpads", "vgs.ai-usage", "vgs.tray", "vgs.voice", "vgs.webapps"] }
 JSON
     ;;
   default) default_set_prepare '[]' ;;
@@ -2124,19 +2125,14 @@ try: px = float(moved)
 except ValueError: print(moved); sys.exit()
 print("as-gtk" if 3.5 * length <= px <= (2.5 + 25 / 6) * length else "no-coast" if 2.5 * length <= px < 3.5 * length else "as-qt" if 0 < px < 2.5 * length else "moved=" + moved)' "$moved" "$5"
 }
-# settings_page_open ID: the Settings plugin enabled and its window
-# summoned on plugin ID's page. settings_page_close: the window hidden and
-# the plugin disabled again, as the rows that open it leave it.
+# settings_page_open ID: the Plugins window summoned on plugin ID's page.
+# settings_page_close: the window hidden again.
 settings_page_open() {
-  expect "enabling Settings for $1's steps is allowed" ok ipc shell setPluginEnabled vgs.settings true
-  expect_poll "the Settings service is built for $1's steps" True record_exists vgs.settings
   expect "Settings is summoned on $1's page" ok ipc shell summon window vgs.settings "{\"plugin\":\"$1\"}"
   expect_poll "the Settings window shows $1's page" "\"$1\"" ipc smoke readInstance window vgs.settings page
 }
 settings_page_close() {
   expect "the Settings window is hidden after $1's steps" ok ipc shell hide window vgs.settings
-  expect "disabling Settings after $1's steps is allowed" ok ipc shell setPluginEnabled vgs.settings false
-  expect_poll "the Settings service is gone after $1's steps" False record_exists vgs.settings
 }
 # A plugin page's two pages (TabPages): every opened page shows Settings,
 # and its description, listing, Manage, Status and Requirements are on

@@ -22,8 +22,6 @@ kc_hypr_lua="$home/.config/hypr/hyprland.lua"
 read -r mon_w mon_h < <(hypr -j monitors | py_reply 'import json,sys; m=json.load(sys.stdin)[0]; print(m["width"], m["height"])')
 kc_marker() { [[ -f $1 ]] && echo 1 || echo 0; }
 kc_open() {
-  expect "$1: enabling Settings is allowed" ok ipc shell setPluginEnabled vgs.settings true
-  expect_poll "$1: the Settings service is built" True record_exists vgs.settings
   expect "$1: Settings is summoned on its own page" ok ipc shell summon window vgs.settings '{"plugin":"vgs.settings"}'
   expect_poll "$1: the Settings window shows its own page" '"vgs.settings"' ipc smoke readInstance window vgs.settings page
   expect_poll "$1: the Settings window has the keyboard" "[\"$shell_class\", \"Plugins\"]" active_window

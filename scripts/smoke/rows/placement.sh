@@ -10,7 +10,8 @@
 # prove a drag cancels the widget's own click. Controls run a copy whose move
 # ignores the index and a copy whose BarWidget cannot drag. The row restores
 # the user file byte for byte, so rows after it find the fixture placed as
-# before, and leaves Settings disabled.
+# before. The disabled widget the refusals name is acme.tick, disabled for
+# them and enabled again.
 # inputs: config/shell.json scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.tick/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/PluginLogic.js shell/Core/Plugins.qml shell/Core/Capabilities.qml shell/Core/Config.qml shell/Hosts/BarHost.qml shell/shell.qml shell/Ui/BarWidget.qml scripts/smoke/pointer/click.c scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/rows/plugins.sh
 set -euo pipefail
 placement_file="$home/.config/vgshell/shell.json"
@@ -78,21 +79,24 @@ placement_reads() {
 }
 
 expect "the fixture starts enabled and placed" '[true, true]' placement_listed acme.probe
-expect "Settings starts disabled" False plugin_enabled vgs.settings
 placement_disabled_before="$(placement_disabled)" || fail "the user file's disabledPlugins is unreadable"
 
+expect "disabling acme.tick for the refusals is allowed" ok ipc shell setPluginEnabled acme.tick false
+expect_poll "acme.tick reads disabled for the refusals" False plugin_enabled acme.tick
+placement_refused="$sandbox/shell-before-placement-refusals.json"
+cp -- "$placement_file" "$placement_refused"
 expect "an id no plugin has is unknown" "unknown: acme.nowhere" ipc shell setPluginPlaced acme.nowhere true
 expect "a plugin without a bar widget is refused" "refused: placed=acme.bare reason=no-bar-widget" ipc shell setPluginPlaced acme.bare true
-expect "a disabled plugin's widget is refused" "refused: placed=vgs.settings reason=disabled" ipc shell setPluginPlaced vgs.settings true
-expect "the refusals leave the user file as it was" unchanged placement_unchanged
-
-cp -- "$placement_file" "$sandbox/shell-before-move-refusals.json"
+expect "a disabled plugin's widget is refused" "refused: placed=acme.tick reason=disabled" ipc shell setPluginPlaced acme.tick true
+expect "the refusals leave the user file as it was" unchanged placement_same_as "$placement_refused"
 expect "an id no plugin has is unknown for move" "unknown: acme.nowhere" ipc shell movePluginWidget acme.nowhere center 0
 expect "a plugin without a bar widget is refused for move" "refused: moved=acme.bare reason=no-bar-widget" ipc shell movePluginWidget acme.bare center 0
-expect "a disabled plugin's widget is refused for move" "refused: moved=vgs.settings reason=disabled" ipc shell movePluginWidget vgs.settings center 0
+expect "a disabled plugin's widget is refused for move" "refused: moved=acme.tick reason=disabled" ipc shell movePluginWidget acme.tick left 0
 expect "an unknown section is refused for move" 'refused: section="top" want=left|center|right' ipc shell movePluginWidget acme.probe top 0
 expect "a negative index is refused for move" 'refused: index=-1 want=integer>=0' ipc shell movePluginWidget acme.probe center -1
-expect "the move refusals leave the user file as it was" unchanged placement_same_as "$sandbox/shell-before-move-refusals.json"
+expect "the move refusals leave the user file as it was" unchanged placement_same_as "$placement_refused"
+expect "enabling acme.tick after the refusals is allowed" ok ipc shell setPluginEnabled acme.tick true
+expect_poll "acme.tick reads enabled after the refusals" True plugin_enabled acme.tick
 
 expect "moving the fixture to the start of center is allowed" ok ipc shell movePluginWidget acme.probe center 0
 expect_poll "the user file order follows the move to center" '{"left": [], "center": ["acme.probe", "acme.tick"], "right": []}' placement_order

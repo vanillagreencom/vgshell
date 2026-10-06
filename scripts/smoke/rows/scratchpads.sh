@@ -268,7 +268,6 @@ expect "the nested instance reloads with typed keys reaching their binds" ok hyp
 expect_poll "the nested instance holds no configuration error" '[]' sp_config_errors
 
 sp_before="$(plugin_enabled "$sp_id")" || sp_before=unread
-sp_settings_before="$(record_exists vgs.settings)" || sp_settings_before=unread
 expect "enabling Scratchpads is allowed" ok ipc shell setPluginEnabled "$sp_id" true
 expect_poll "the Scratchpads service is built" True record_exists "$sp_id"
 sp_monitor_name="$(first_name)" || fail "the first monitor's name is unreadable"
@@ -630,10 +629,6 @@ expect_poll "no window of the pad's class is left" 0 sp_windows
 kill -TERM -- "$sp_events_pid" 2>/dev/null || true
 hypr_lua_restore scratchpads || fail "Scratchpads puts the harness hyprland.lua back"
 expect "the nested instance reloads the harness hyprland.lua" ok hypr reload config-only
-if [[ $sp_settings_before != True ]]; then
-  expect "Settings is disabled again after the pads" ok ipc shell setPluginEnabled vgs.settings false
-  expect_poll "the Settings service is gone after the pads" False record_exists vgs.settings
-fi
 case "$sp_before" in
   True) ;;
   False)
