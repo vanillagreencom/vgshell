@@ -86,8 +86,13 @@ for (const plugin of fs.readdirSync(path.join(root, "shell/plugins"), { withFile
     const manifest = JSON.parse(fs.readFileSync(path.join(root, "shell/plugins", plugin.name, "manifest.json"), "utf8"));
     for (const row of manifest.requirements || []) if (row.packages?.aur) aur.add(row.packages.aur);
 }
-const hard = [...fs.readFileSync(path.join(root, "packaging/arch/vgshell/.SRCINFO"), "utf8").matchAll(/^\tdepends = (\S+)$/gm)].map(match => match[1].split(/[<>=]/)[0]);
-const fedora = [...fs.readFileSync(path.join(root, "packaging/fedora/vgshell.spec"), "utf8").matchAll(/^Requires:\s+(\S+)/gm)].map(match => match[1]);
+const systemOnly = new Set(["xdg-desktop-portal-gnome"]);
+const hard = [...fs.readFileSync(path.join(root, "packaging/arch/vgshell/.SRCINFO"), "utf8").matchAll(/^\tdepends = (\S+)$/gm)]
+    .map(match => match[1].split(/[<>=]/)[0])
+    .filter(name => !systemOnly.has(name));
+const fedora = [...fs.readFileSync(path.join(root, "packaging/fedora/vgshell.spec"), "utf8").matchAll(/^Requires:\s+(\S+)/gm)]
+    .map(match => match[1])
+    .filter(name => !systemOnly.has(name));
 if (hard.length < 6 || fedora.length < 6 || !hard.includes("tesseract-data-eng") || !hard.includes("agent-browser-bin") || !fedora.includes("qrencode")) throw Error("package group extractor is broken");
 process.stdout.write(JSON.stringify({ pacman: hard.filter(name => !aur.has(name)), aur: hard.filter(name => aur.has(name)), dnf: fedora }));
 JS

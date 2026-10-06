@@ -18,7 +18,9 @@
 # 0440. Unset installs neither: the writer on PATH without its rule would
 # read as set up while every apply fails. SYSCONFDIR also installs the XDG
 # autostart entry $DESTDIR$SYSCONFDIR/xdg/autostart/vgshell.desktop, 0644, that
-# runs $PREFIX/bin/vgshell run at login in a uwsm-managed Hyprland session.
+# runs $PREFIX/bin/vgshell run at login in a uwsm-managed Hyprland session, and
+# the Hyprland portal preference
+# $DESTDIR$SYSCONFDIR/xdg/xdg-desktop-portal/hyprland-portals.conf, 0644.
 # Install into a fresh DESTDIR, or remove an
 # old runtime tree before running this script. Refusals print one keyed first
 # line.
@@ -194,6 +196,10 @@ Exec=$prefix/bin/vgshell run
 OnlyShowIn=Hyprland;
 NoDisplay=true
 EOF
+  portal_config_dir="$destdir$sysconfdir/xdg/xdg-desktop-portal"
+  install -d -m 0755 -- "$portal_config_dir" || refuse 1 "portal-config-dir=failed path=$portal_config_dir"
+  install -m 0644 -T -- "$source_root/packaging/xdg-desktop-portal/hyprland-portals.conf" "$portal_config_dir/hyprland-portals.conf" ||
+    refuse 1 "portal-config=failed path=$portal_config_dir/hyprland-portals.conf"
 fi
 
 printf 'install-system: ok prefix=%s root=%s\n' "$prefix" "$install_root"

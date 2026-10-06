@@ -35,6 +35,8 @@ theme
 themes
 theme-browse
 theme-browser
+# The portal accent row needs the theme rows' catalog state settled first.
+portal-accent
 theme-latency
 toasts
 layers

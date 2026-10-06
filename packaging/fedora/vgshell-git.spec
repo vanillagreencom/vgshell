@@ -69,6 +69,7 @@ Requires:       wireplumber
 Requires:       wl-clipboard
 Requires:       wlrctl
 Requires:       wtype
+Requires:       xdg-desktop-portal-gnome
 Requires:       xdg-terminal-exec
 Requires:       xdg-utils
 Recommends:     bluez
@@ -113,6 +114,7 @@ scripts/check-install-tree.sh %{buildroot} %{_prefix} %{_sysconfdir}
 %{_bindir}/vgshell-browser-policy
 %attr(0440,root,root) %config(noreplace) %{_sysconfdir}/sudoers.d/vgshell-theme-browser
 %config(noreplace) %{_sysconfdir}/xdg/autostart/vgshell.desktop
+%config(noreplace) %{_sysconfdir}/xdg/xdg-desktop-portal/hyprland-portals.conf
 %{_datadir}/vgshell/
 
 %post

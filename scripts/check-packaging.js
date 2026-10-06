@@ -7,6 +7,7 @@
 // DIR, this repository by default, holds the data judged: VERSION,
 // bin/vgshell's preflight_floor table, config/requirements.json, the plugins
 // under shell/plugins, packaging/arch, packaging/fedora,
+// packaging/xdg-desktop-portal/hyprland-portals.conf,
 // packaging/install-tree.manifest, docs/architecture/distribution.md, and
 // the git repository the release-tag lookup reads. The judge, its loader and
 // bin/vgshell-scan always come from this script's own repository, so a data
@@ -41,8 +42,10 @@
 //                or above it; under `floorExact` a hard dependency with no
 //                floor carries no constraint. With `epochs`, the
 //                constraint's epoch is the package's epoch there, else 0
-//   extra        no hard dependency the required union does not ask for;
-//                an `exact` channel also refuses extra soft dependencies
+//   portal       every backend named by the shipped Hyprland portals.conf is
+//                a hard dependency of the system package recipes that ship it
+//   extra        no hard dependency the required union and portal route do not
+//                ask for; an `exact` channel also refuses extra soft dependencies
 //   agree        every recipe of the channel declares the same hard and the
 //                same soft dependencies
 // Before any channel: packaging/install-tree.manifest lists MESSAGE, the
@@ -59,9 +62,9 @@
 // the scriptlet beside the PKGBUILD; its post_install prints MESSAGE under
 // /usr; the two scriptlets are the same text; the PKGBUILD's package()
 // holds PACMAN_INSTALL, the system install with SYSCONFDIR, so the package
-// ships the browser theme writer and its sudoers rule. Freshness, last:
-// each .SRCINFO is exactly `makepkg --printsrcinfo` of the PKGBUILD beside
-// it.
+// ships the browser theme writer, its sudoers rule and the Hyprland portal
+// preference. Freshness, last: each .SRCINFO is exactly
+// `makepkg --printsrcinfo` of the PKGBUILD beside it.
 // dnf (packaging/fedora/{vgshell,vgshell-git}.spec): the Requires and Recommends
 // lines between `# begin runtime dependencies` and `# end runtime
 // dependencies`, exactly the requirements' set. The block is the same in
@@ -69,8 +72,9 @@
 // BuildRequires and the %build, %install, %check, %files and %post
 // sections, install through packaging/install-system.sh with SYSCONFDIR,
 // check the tree with scripts/check-install-tree.sh and SYSCONFDIR, list
-// the browser theme writer, its sudoers rule, 0440 and noreplace, and the
-// XDG autostart entry, noreplace, in %files, and print MESSAGE from %post on a first install only. vgshell.spec's Version is VERSION's line and
+// the browser theme writer, its sudoers rule, 0440 and noreplace, the XDG
+// autostart entry, noreplace, and the Hyprland portal preference, noreplace,
+// in %files, and print MESSAGE from %post on a first install only. vgshell.spec's Version is VERSION's line and
 // its newest %changelog entry is that version at its Release. vgshell-git.spec
 // ends with an empty %changelog, which packaging/fedora/srpm.sh fills. Neither
 // spec has a Conflicts, Obsoletes or Provides tag, refused as
@@ -111,12 +115,17 @@ const REPO_URL = "https://github.com/vanillagreencom/vgshell";
 // runs no VGS code at install, so each channel's scriptlet prints this file.
 const MESSAGE = "share/vgshell/bin/lib/post-install.txt";
 const MANIFEST = "packaging/install-tree.manifest";
+const PORTALS_CONF = "packaging/xdg-desktop-portal/hyprland-portals.conf";
 // The system install every Arch recipe's package() runs.
 const PACMAN_INSTALL = 'DESTDIR="$pkgdir" PREFIX=/usr SYSCONFDIR=/etc ./packaging/install-system.sh';
 // The vgshell-git fetch. makepkg clones a git+ source as a mirror of every ref
 // the remote advertises, GitHub's refs/pull/* among them; this takes main's
 // commits, trees and tags and only the blobs of its checkout.
 const GIT_CLONE = 'git clone --filter=blob:none --single-branch --branch main -- "$url.git" "$srcdir/vgshell"';
+const PORTAL_BACKEND_PACKAGES = {
+    pacman: { gnome: "xdg-desktop-portal-gnome" },
+    dnf: { gnome: "xdg-desktop-portal-gnome" },
+};
 
 const scratchDirs = [];
 process.on("exit", () => { for (const dir of scratchDirs) fs.rmSync(dir, { recursive: true, force: true }); });
@@ -144,6 +153,7 @@ function readGaps(requirements) {
                 catch (error) { refuse("lock=unreadable", error.message); }
                 if (evidence.revision !== revision) refuse(`gap=revision manager=${manager} command=${command}`);
             }
+
             const rows = requirements.filter(row => row.command === command && !row.optional);
             if (rows.length === 0 || rows.some(row => packageOf(row, [manager]) !== undefined))
                 refuse(`gap=stale manager=${manager} command=${command}`);
@@ -165,6 +175,36 @@ function readText(rel, key) {
     }
 }
 
+function readPortalBackends() {
+    const backends = new Set();
+    let inPreferred = false;
+    for (const raw of readText(PORTALS_CONF, "portals=unreadable").split("\n")) {
+        const line = raw.trim();
+        if (line === "") continue;
+        if (line.startsWith("#") || line.startsWith(";")) continue;
+        const section = /^\[([^\]]+)\]$/.exec(line);
+        if (section !== null) {
+            inPreferred = section[1] === "preferred";
+            continue;
+        }
+        if (!inPreferred) continue;
+        const equals = line.indexOf("=");
+        if (equals === -1) continue;
+        for (const name of line.slice(equals + 1).split(";").map(value => value.trim()).filter(value => value !== "")) {
+            backends.add(name);
+        }
+    }
+    const packages = {};
+    for (const backend of backends) {
+        for (const manager of Object.keys(PORTAL_BACKEND_PACKAGES)) {
+            const pkg = PORTAL_BACKEND_PACKAGES[manager][backend];
+            if (pkg === undefined) refuse(`portal-backend=unknown backend=${backend} path=${PORTALS_CONF}`);
+            packages[manager] = packages[manager] || [];
+            packages[manager].push({ backend, package: pkg });
+        }
+    }
+    return packages;
+}
 // True when HAVE >= NEED, both dotted decimal integers compared component
 // by component, a missing component 0: bin/vgshell's version_at_least.
 function atLeast(have, need) {
@@ -362,7 +402,7 @@ const DNF_SECTION = /^%(description|prep|build|install|check|files|post|changelo
 const DNF_INSTALL = "DESTDIR=%{buildroot} PREFIX=%{_prefix} SYSCONFDIR=%{_sysconfdir} packaging/install-system.sh";
 const DNF_CHECK = "scripts/check-install-tree.sh %{buildroot} %{_prefix} %{_sysconfdir}";
 // The %files lines of what the system install adds beside the tree.
-const DNF_FILES = ["%{_bindir}/vgshell-browser-policy", "%attr(0440,root,root) %config(noreplace) %{_sysconfdir}/sudoers.d/vgshell-theme-browser", "%config(noreplace) %{_sysconfdir}/xdg/autostart/vgshell.desktop"];
+const DNF_FILES = ["%{_bindir}/vgshell-browser-policy", "%attr(0440,root,root) %config(noreplace) %{_sysconfdir}/sudoers.d/vgshell-theme-browser", "%config(noreplace) %{_sysconfdir}/xdg/autostart/vgshell.desktop", "%config(noreplace) %{_sysconfdir}/xdg/xdg-desktop-portal/hyprland-portals.conf"];
 // $1 is the count of this package installed after the transaction: 1 on a
 // first install, 2 on an upgrade.
 const DNF_POST = ['if [ "$1" -eq 1 ]; then', "cat %{_datadir}/" + MESSAGE.replace(/^share\//, ""), "fi"];
@@ -495,6 +535,7 @@ const CHANNELS = {
         licence: read => read.info.license || [],
         rules: pacmanRules,
         freshness: { tool: "makepkg", check: pacmanFresh },
+        shipPortalConfig: true,
     },
     dnf: {
         recipes: [{ name: "vgshell", spec: "vgshell.spec", file: "packaging/fedora/vgshell.spec" }, { name: "vgshell-git", spec: "vgshell-git.spec", file: "packaging/fedora/vgshell-git.spec" }],
@@ -513,6 +554,7 @@ const CHANNELS = {
         licence: read => read.tags.License || [],
         rules: dnfRules,
         freshness: null,
+        shipPortalConfig: true,
     },
     nix: {
         recipes: [{ name: "flake" }], managers: ["nix"], hardField: "runtimePackages", softField: "optional",
@@ -536,7 +578,7 @@ const CHANNELS = {
     },
 };
 
-function sharedRules(id, channel, recipe, read, requirements, gaps) {
+function sharedRules(id, channel, recipe, read, requirements, gaps, portalBackends) {
     const where = r => ` channel=${id} recipe=${recipe.name} scope=${r.scope}`;
     const hardWant = new Map(), softWant = new Map();
     for (const r of requirements) {
@@ -550,6 +592,14 @@ function sharedRules(id, channel, recipe, read, requirements, gaps) {
             if (!hardWant.has(pkg)) hardWant.set(pkg, r);
         } else if (!softWant.has(pkg)) {
             softWant.set(pkg, r);
+        }
+    }
+    if (channel.shipPortalConfig === true) {
+        for (const manager of channel.managers) {
+            for (const row of portalBackends[manager] || []) {
+                const requirement = { scope: "portal", command: "portal-backend:" + row.backend, floor: null, tool: null, optional: false };
+                if (!hardWant.has(row.package)) hardWant.set(row.package, requirement);
+            }
         }
     }
     for (const pkg of hardWant.keys()) softWant.delete(pkg);
@@ -605,13 +655,14 @@ function licenceRule(licences) {
 
 const requirements = readRequirements();
 const gaps = readGaps(requirements);
+const portalBackends = readPortalBackends();
 const version = readText("VERSION", "version=missing").replace(/\n$/, "");
 if (!readText(MANIFEST, "manifest=missing").split("\n").includes("f " + MESSAGE)) refuse(`message=unshipped path=${MESSAGE} manifest=${MANIFEST}`);
 const judged = [];
 const licences = [];
 for (const [id, channel] of Object.entries(CHANNELS)) {
     const reads = channel.recipes.map(recipe => channel.read(recipe));
-    channel.recipes.forEach((recipe, i) => sharedRules(id, channel, recipe, reads[i], requirements, gaps));
+    channel.recipes.forEach((recipe, i) => sharedRules(id, channel, recipe, reads[i], requirements, gaps, portalBackends));
     for (const [field, key] of [[channel.hardField, "hard"], [channel.softField, "soft"]]) {
         const sets = reads.map(read => read[key].map(dep => dep.text).sort().join("\n"));
         if (sets.some(set => set !== sets[0]))

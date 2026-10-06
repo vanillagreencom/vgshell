@@ -64,6 +64,7 @@ depends=(
   'wl-clipboard'
   'wlrctl'
   'wtype'
+  'xdg-desktop-portal-gnome'
   'xdg-terminal-exec'
   'xdg-utils'
 )

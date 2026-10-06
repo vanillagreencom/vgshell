@@ -1,3 +1,4 @@
 f SYSCONFDIR/sudoers.d/vgshell-theme-browser
 f SYSCONFDIR/xdg/autostart/vgshell.desktop
+f SYSCONFDIR/xdg/xdg-desktop-portal/hyprland-portals.conf
 f bin/vgshell-browser-policy

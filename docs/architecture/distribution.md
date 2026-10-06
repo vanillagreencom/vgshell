@@ -21,7 +21,7 @@ One installer gives every channel the same file set, and the install method deci
 - Do print `bin/lib/post-install.txt` from a scriptlet on a first install only; a scriptlet holds no text of its own. `scripts/check-packaging.js` and `scripts/check-readme.js` pin it.
 - Never add a required plugin command without a package on every channel or a row in `packaging/channel-gaps.json`. `scripts/check-packaging.js` pins it.
 - Never give a recipe `conflicts`, `replaces` or `provides`; the two packages own the same files. `scripts/check-packaging.js` pins it.
-- Do set `SYSCONFDIR` only in a system package; it installs the browser-policy sudoers rule and the autostart entry, which the flake and the curl installer must not ship. `scripts/test-install-tree.sh` pins it.
+- Do set `SYSCONFDIR` only in a system package; it installs the browser-policy sudoers rule, the autostart entry and the Hyprland portal preference, which the flake and the curl installer must not ship. `scripts/test-install-tree.sh` pins it.
 - Do name the autostart entry's `Exec` by absolute path, keep `OnlyShowIn=Hyprland;`, and never write a user entry from the installer. `scripts/test-install-tree.sh` runs the host generator.
 - Do write a Fedora node floor with its epoch, `nodejs >= 1:18`, keep `quickshell >= 0.3.1`, and compute the `Requires` block between its markers from data. `scripts/check-packaging.js` and `scripts/fedora-container.sh` pin them.
 - Do clone `vgshell-git` in `prepare()` with a single-branch filtered clone, never a `git+` source, which mirrors every advertised ref. `scripts/check-packaging.js` pins it.

@@ -323,6 +323,8 @@ check "the installer succeeds with SYSCONFDIR" test "$status" = 0
 check "the writer is a copy of bin/vgshell-browser-policy" cmp -s -- "$repo/bin/vgshell-browser-policy" "$system_dest/usr/bin/vgshell-browser-policy"
 check "the installed rule is the writer's package rule for /usr" test "$(<"$system_dest/etc/sudoers.d/vgshell-theme-browser")" = "$("$repo/bin/vgshell-browser-policy" package-rule /usr)"
 check "the rule's directory has sudo's own mode" test "$(stat -c %a -- "$system_dest/etc/sudoers.d")" = 750
+check "the installed portal preference has the shipped bytes" cmp -s -- "$repo/packaging/xdg-desktop-portal/hyprland-portals.conf" "$system_dest/etc/xdg/xdg-desktop-portal/hyprland-portals.conf"
+check "the installed portal preference is readable by the portal service" test "$(stat -c %a -- "$system_dest/etc/xdg/xdg-desktop-portal/hyprland-portals.conf")" = 644
 run_capture "$tmp/system-check.out" "$tmp/system-check.err" status "$repo/scripts/check-install-tree.sh" "$system_dest" /usr /etc
 check "the system manifests match the system install" test "$status" = 0
 check "the system check names both manifests" grep_out "install-tree=ok root=$system_dest/usr manifest=$repo/packaging/install-tree.manifest,$repo/packaging/install-tree-system.manifest" "$tmp/system-check.out"
@@ -408,6 +410,31 @@ run_capture "$tmp/autostart-mode-check.out" "$tmp/autostart-mode-check.err" stat
 check "the system check catches an autostart entry the session cannot read" test "$status" = 1
 check "the autostart entry's mode is named" grep_out "install-tree=mode path=$mutant_dest/etc/xdg/autostart/vgshell.desktop have=600 want=644" "$tmp/autostart-mode-check.out"
 
+python3 - "$repo/packaging/install-system.sh" "$source_copy/packaging/install-system.sh" <<'PY'
+import pathlib
+import sys
+
+text = pathlib.Path(sys.argv[1]).read_text()
+needle = 'install -m 0644 -T -- "$source_root/packaging/xdg-desktop-portal/hyprland-portals.conf" "$portal_config_dir/hyprland-portals.conf"'
+if text.count(needle) != 1:
+    raise SystemExit("install-control: portal config install did not occur once")
+changed = text.replace(needle, 'install -m 0600 -T -- "$source_root/packaging/xdg-desktop-portal/hyprland-portals.conf" "$portal_config_dir/hyprland-portals.conf"')
+pathlib.Path(sys.argv[2]).write_text(changed)
+PY
+mutant_dest="$tmp/portal-mode-mutant"
+run_capture "$tmp/portal-mode-install.out" "$tmp/portal-mode-install.err" status env DESTDIR="$mutant_dest" PREFIX=/usr SYSCONFDIR=/etc "$source_copy/packaging/install-system.sh"
+check "the private-portal-preference mutant still installs" test "$status" = 0
+run_capture "$tmp/portal-mode-check.out" "$tmp/portal-mode-check.err" status "$repo/scripts/check-install-tree.sh" "$mutant_dest" /usr /etc
+check "the system check catches a portal preference the portal service cannot read" test "$status" = 1
+check "the portal preference's mode is named" grep_out "install-tree=mode path=$mutant_dest/etc/xdg/xdg-desktop-portal/hyprland-portals.conf have=600 want=644" "$tmp/portal-mode-check.out"
+
+case_dest="$tmp/portal-differs"
+cp -a -- "$system_dest" "$case_dest"
+printf '%s\n' '[preferred]' 'org.freedesktop.impl.portal.Settings=gtk' >"$case_dest/etc/xdg/xdg-desktop-portal/hyprland-portals.conf"
+run_capture "$tmp/portal-differs.out" "$tmp/portal-differs.err" status "$repo/scripts/check-install-tree.sh" "$case_dest" /usr /etc
+check "the system check catches changed portal preference bytes" test "$status" = 1
+check "the changed portal preference is named" grep_out "install-tree=portal-config-differs path=$case_dest/etc/xdg/xdg-desktop-portal/hyprland-portals.conf" "$tmp/portal-differs.out"
+
 # The autostart entry, read by the host's own XDG autostart generator, the
 # one uwsm's xdg-desktop-autostart.target starts units from. The generator
 # skips an entry whose Exec binary does not exist, so the tree installs
@@ -448,9 +475,10 @@ user_writes() {
   LC_ALL=C sort <<<"$found" | paste -sd, -
 }
 if [[ -x $generator ]]; then
-  # package-rule requires a PREFIX without sudoers syntax. The checkout
-  # path can contain other characters, so only this fixture lives in /tmp.
-  autostart_root="$(mktemp -d /tmp/vgs-autostart.XXXXXX)"
+  # package-rule requires a PREFIX without sudoers syntax. This worktree's
+  # tmp path uses only characters that rule admits.
+  autostart_root="$tmp/autostart-root"
+  mkdir -p -- "$autostart_root"
   check "the generator starts the installed vgshell run in Hyprland alone" test "$(autostart_unit "$repo/packaging/install-system.sh" "$autostart_root/autostart")" = unit=ok
   check "the generated unit is wanted by xdg-desktop-autostart.target" test -L "$autostart_root/autostart/units/xdg-desktop-autostart.target.wants/app-vgshell@autostart.service"
   check "the autostart install writes nothing outside its prefix" test "$(user_writes "$autostart_root/autostart")" = ""

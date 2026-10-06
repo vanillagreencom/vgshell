@@ -47,7 +47,7 @@ function git(...args) {
 }
 
 const pristine = path.join(tmp, "pristine");
-const files = ["packaging/runtime-libraries.json", "packaging/channel-gaps.json", "flake.lock", "flake.nix", "install.sh", "packaging/install-tree.manifest", "VERSION", "config/requirements.json", "bin/vgshell", "docs/architecture/distribution.md"];
+const files = ["packaging/runtime-libraries.json", "packaging/channel-gaps.json", "flake.lock", "flake.nix", "install.sh", "packaging/install-tree.manifest", "packaging/xdg-desktop-portal/hyprland-portals.conf", "VERSION", "config/requirements.json", "bin/vgshell", "docs/architecture/distribution.md"];
 for (const plugin of fs.readdirSync(path.join(repo, "shell", "plugins"))) {
     if (fs.existsSync(path.join(repo, "shell", "plugins", plugin, "manifest.json"))) files.push(`shell/plugins/${plugin}/manifest.json`);
 }
@@ -267,6 +267,12 @@ const ROWS = [
         fs.writeFileSync(file, JSON.stringify(manifest));
     }, 1, () => refused("gap=stale manager=dnf command=vsys")],
     ["the committed recipes pass", () => {}, 0, tree => ok(countRequirements(tree))],
+    ["Arch: a portal backend dependency is required", t => edit(t, SRC, "^\\tdepends = xdg-desktop-portal-gnome\\n", ""),
+        1, () => refused("requirement=portal-backend:gnome package=xdg-desktop-portal-gnome want=depends channel=pacman recipe=vgshell scope=portal")],
+    ["dnf: a portal backend dependency is required", t => replaceIn(t, SPECS, "Requires:       xdg-desktop-portal-gnome\n", ""),
+        1, () => refused("requirement=portal-backend:gnome package=xdg-desktop-portal-gnome want=Requires channel=dnf recipe=vgshell scope=portal")],
+    ["an unknown portal backend is refused", t => replaceIn(t, ["packaging/xdg-desktop-portal/hyprland-portals.conf"], "org.freedesktop.impl.portal.Settings=gnome", "org.freedesktop.impl.portal.Settings=planted"),
+        1, () => refused("portal-backend=unknown backend=planted path=packaging/xdg-desktop-portal/hyprland-portals.conf")],
     ["a missing required runtime library is refused", t => edit(t, SRC, "^\\tdepends = libxkbcommon\\n", ""),
         1, () => refused("requirement=library:xkbcommon package=libxkbcommon want=depends " + where())],
     ["runtime library data rejects a duplicate identity", t => {

@@ -58,6 +58,7 @@ pkgbase = vgshell-git
 	depends = wl-clipboard
 	depends = wlrctl
 	depends = wtype
+	depends = xdg-desktop-portal-gnome
 	depends = xdg-terminal-exec
 	depends = xdg-utils
 	optdepends = voxtype-bin: Voice dictation engine

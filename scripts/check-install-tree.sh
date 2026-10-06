@@ -12,9 +12,9 @@
 # expected set adds packaging/install-tree-system.manifest, whose
 # SYSCONFDIR/ rows name files relative to it, the writer must be mode 0755,
 # the sudoers rule mode 0440, holding exactly what the installed writer's
-# `package-rule PREFIX` prints, and the autostart entry mode 0644, which
-# the user's session reads. --write takes no SYSCONFDIR: the system rows
-# are written by hand.
+# `package-rule PREFIX` prints, and the autostart entry and portal preference
+# must be mode 0644. --write takes no SYSCONFDIR: the system rows are written
+# by hand.
 set -euo pipefail
 
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"
@@ -103,7 +103,8 @@ if [[ -n $sysconf_root ]]; then
   # A row the list compare already reports missing or not a file is not
   # judged again here.
   writer="$root/bin/vgshell-browser-policy" rule="$sysconf_root/sudoers.d/vgshell-theme-browser"
-  for pair in "755 $writer" "440 $rule" "644 $sysconf_root/xdg/autostart/vgshell.desktop"; do
+  portal_config="$sysconf_root/xdg/xdg-desktop-portal/hyprland-portals.conf"
+  for pair in "755 $writer" "440 $rule" "644 $sysconf_root/xdg/autostart/vgshell.desktop" "644 $portal_config"; do
     want="${pair%% *}" path="${pair#* }"
     [[ -f $path && ! -L $path ]] || continue
     have="$(stat -c %a -- "$path")" || { printf 'install-tree: refused: stat=failed path=%s\n' "$path" >&2; exit 1; }
@@ -115,6 +116,12 @@ if [[ -n $sysconf_root ]]; then
       failed=true
     elif [[ $(<"$rule") != "$want_rule" ]]; then
       printf 'install-tree=rule-differs path=%s\n' "$rule"
+      failed=true
+    fi
+  fi
+  if [[ -f $portal_config && ! -L $portal_config ]]; then
+    if ! cmp -s -- "$repo/packaging/xdg-desktop-portal/hyprland-portals.conf" "$portal_config"; then
+      printf 'install-tree=portal-config-differs path=%s\n' "$portal_config"
       failed=true
     fi
   fi
