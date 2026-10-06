@@ -222,7 +222,7 @@ FocusScope {
                     model: dimColumn.afterChoices
                     textRole: "label"
                     currentIndex: dimColumn.indexOf(dimColumn.afterChoices, dimColumn.after)
-                    Accessible.name: parent.label
+                    Accessible.name: dimColumn.schema.dimAfterSeconds === undefined ? "" : dimColumn.schema.dimAfterSeconds.label
                     // The binding comes back after a choice, so the value
                     // the configuration holds is the one shown.
                     onActivated: index => {
@@ -243,7 +243,7 @@ FocusScope {
                     model: dimColumn.percentChoices
                     textRole: "label"
                     currentIndex: dimColumn.indexOf(dimColumn.percentChoices, dimColumn.percent)
-                    Accessible.name: parent.label
+                    Accessible.name: dimColumn.schema.dimPercent === undefined ? "" : dimColumn.schema.dimPercent.label
                     onActivated: index => {
                         const value = dimColumn.percentChoices[index].value;
                         if (value !== dimColumn.percent) root.configure("dimPercent", value);

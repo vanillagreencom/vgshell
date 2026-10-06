@@ -418,11 +418,13 @@ expect_poll "a level set while dimmed is no longer kept" '["dimmed", ["hidraw1",
 expect_poll "the helper is idle after the set while dimmed" True disp_idle
 type_keys -k Shift_L || fail "typing a key to end the dim failed"
 expect_poll "a key ends the dim" '["awake"]' disp_dim
+# A longer watch keeps a second dim off the readings below; the service
+# is awake, so the new watch writes nothing.
+disp_setting dimAfterSeconds 600
+expect_poll "the service watches for 600 s without input" '[600]' disp_watches
 expect_poll "a key brings Studio A back to 60 %, keeps Studio B at 40 % and the XDR at 10 %" \
   "[[\"hidraw0\", \"ready\", 10, [\"$disp_main\"], true], [\"hidraw1\", \"ready\", 60, [\"$disp_output\"], true], [\"hidraw2\", \"ready\", 40, [], false]]" disp_items
-# 400 + 60 % of 400..60000, 36160. The watch reports idle again 3 s
-# after the key; each reading here lands before that, and turning the dim
-# off below brings back any display a second dim set.
+# 400 + 60 % of 400..60000, 36160.
 expect_poll "the fake holds Studio A at 60 % again" 01408d00000000 disp_report hidraw1
 disp_setting dimAfterSeconds 0
 expect_poll "the dim is off again" '[]' disp_watches
