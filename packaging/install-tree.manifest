@@ -129,6 +129,7 @@ f share/vgshell/shell/Ui/controls/Slider.qml
 f share/vgshell/shell/Ui/controls/Switch.qml
 f share/vgshell/shell/Ui/controls/TextArea.qml
 f share/vgshell/shell/Ui/controls/TextField.qml
+f share/vgshell/shell/Ui/controls/TileGroup.qml
 f share/vgshell/shell/Ui/controls/TimeChipList.qml
 f share/vgshell/shell/Ui/controls/TimeField.qml
 f share/vgshell/shell/Ui/controls/TitleButton.qml
