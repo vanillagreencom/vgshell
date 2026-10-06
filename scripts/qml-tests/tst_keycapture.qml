@@ -2,6 +2,7 @@ import QtQuick
 import QtTest
 import Quickshell.Hyprland
 import qs.Core
+import "../../shell/plugins/vgs.settings"
 
 // The key capture owner, KeyCapture.qml, through the `capture` member the
 // shortcut capability hands a plugin: which control holds the keyboard,
@@ -10,7 +11,10 @@ import qs.Core
 // the submap Hyprland reports, a failed enter, a timeout, the user's
 // binds it reads from HyprlandState (a stand-in source here) for the
 // conflict hint, and the removal and undo of a user's bind line, whose
-// edits the stand-in records and answers by hand.
+// edits the stand-in records and answers by hand. A removal's undo record
+// is released by its Settings key field's destruction, by a removal that
+// answers after that field or its instance is gone, and by
+// releaseUserBind.
 Item {
     id: root
     // HyprlandState's binds members, set by hand.
@@ -47,6 +51,13 @@ Item {
     Item { id: second }
     Component { id: transient; Item {} }
     Component { id: fresh; ShortcutRegistry {} }
+    Component {
+        id: keyField
+        KeyField {
+            pluginId: "acme.keys"
+            bind: ({ shortcut: "open", key: "SUPER+SPACE", default: "SUPER+SPACE", description: "Open" })
+        }
+    }
 
     TestCase {
         name: "key-capture"
@@ -66,12 +77,20 @@ Item {
             source.reads = 0;
             source.userRows = {};
             source.edits = [];
+            owner().removedBinds.rows = {};
         }
 
         function sentEdits() { return JSON.stringify(source.edits.map(edit => edit.args)); }
         function userLine(removable) {
             return { file: "/h/.config/hypr/binds.lua", line: 12, text: 'hl.bind("SUPER + SPACE", f)', removable: removable, place: "~/.config/hypr/binds.lua" };
         }
+
+        // Answer edit INDEX as a removal of line 12 that printed its undo.
+        function removedOk(index) {
+            source.edits[index].done({ ok: true, said: 'ok hypr=bind-removed path=/h/.config/hypr/binds.lua line=12 undo={"text":"x","before":null,"after":null}' });
+        }
+        // The tokens whose undo records the capture holds.
+        function heldTokens() { return JSON.stringify(Object.keys(owner().removedBinds.rows)); }
 
         function submap(name) { Hyprland.rawEvent({ name: "submap", data: name }); }
         function sent() { return JSON.stringify(Compositor.requests); }
@@ -319,6 +338,56 @@ Item {
             root.capture.removeUserBind("SUPER+SPACE", root.answered);
             source.edits[1].done({ ok: true, said: "ok hypr=bind-removed path=/h/b.lua line=12" });
             compare(root.answers[1].error.split(" ")[1], "user-bind=unread");
+            compare(source.edits.length, 2);
+        }
+
+        function test_a_destroyed_key_field_releases_its_undo() {
+            source.userRows = { "SUPER+SPACE": [userLine(true)] };
+            const field = keyField.createObject(root, { capture: root.capture });
+            field.removeLine(userLine(true));
+            compare(sentEdits(), '[["remove-bind","/h/.config/hypr/binds.lua","12","SUPER+SPACE"]]');
+            removedOk(0);
+            const token = field.removed.token;
+            compare(heldTokens(), JSON.stringify([token]));
+            field.destroy();
+            wait(0); // QObject.destroy() completes after the current event turn.
+            compare(heldTokens(), "[]");
+            root.answers = [];
+            root.capture.restoreUserBind(token, root.answered);
+            compare(root.answers[0].error.split(" ")[1], "user-bind=no-undo");
+            compare(source.edits.length, 1);
+        }
+
+        function test_a_removal_answered_after_its_field_is_gone_is_released() {
+            source.userRows = { "SUPER+SPACE": [userLine(true)] };
+            const field = keyField.createObject(root, { capture: root.capture });
+            field.removeLine(userLine(true));
+            field.destroy();
+            wait(0); // QObject.destroy() completes after the current event turn.
+            removedOk(0);
+            compare(heldTokens(), "[]");
+            compare(source.edits.length, 1);
+        }
+
+        function test_a_released_or_orphaned_removal_keeps_no_undo() {
+            root.answers = [];
+            source.userRows = { "SUPER+SPACE": [userLine(true)] };
+            root.capture.removeUserBind("SUPER+SPACE", root.answered);
+            removedOk(0);
+            const token = root.answers[0].token;
+            compare(heldTokens(), JSON.stringify([token]));
+            root.capture.releaseUserBind(token);
+            compare(heldTokens(), "[]");
+            root.capture.restoreUserBind(token, root.answered);
+            compare(root.answers[1].error.split(" ")[1], "user-bind=no-undo");
+            // An instance torn down while its removal is in flight never
+            // hears the answer, so the capture releases it.
+            const ctx = root.context("acme.gone");
+            registry.provider(ctx).capture.removeUserBind("SUPER+SPACE", root.answered);
+            ctx.active = false;
+            removedOk(1);
+            compare(root.answers.length, 2);
+            compare(heldTokens(), "[]");
             compare(source.edits.length, 2);
         }
 

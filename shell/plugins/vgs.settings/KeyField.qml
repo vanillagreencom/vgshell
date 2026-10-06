@@ -18,7 +18,10 @@ import qs.Ui
 // key; Use my binding removes that key from the shortcut, unbinding it
 // when it was the only one, so the user's own bind keeps the key. After a
 // removal the line under the field says which line went, and Undo puts it
-// back. The field then shows what the configuration holds again.
+// back. The field then shows what the configuration holds again. The
+// removal's undo record lives in the key capture until the undo; a field
+// destroyed before it, such as by closing Plugins, releases the record, and
+// a removal that answers after the field is gone releases its own.
 //
 // A key typed as text waits in the text entry until it is saved: `edited`
 // says the entry holds a key other than the one in effect, `save()` sends
@@ -51,8 +54,14 @@ BindField {
         return rows.length === 1 ? rows[0] : null;
     }
     // { token, place, line } of the line Remove my line took out, which
-    // Undo puts back; null before a removal and after the undo.
+    // Undo puts back; null before a removal and after the undo. The
+    // capture keeps the token's record until the undo or the field's
+    // destruction releases it.
     property var removed: null
+    // Plain state a removal's reply reads: set when the field is destroyed,
+    // so a reply that comes later releases its record and touches no
+    // property of the field.
+    readonly property var life: ({ gone: false })
     property string problem: ""
     // The first user line holding the key, whose file and line the
     // conflict line cites as a link that opens it in the user's editor.
@@ -71,7 +80,13 @@ BindField {
     // Take ROW, the user line the page confirmed, out of its file.
     function removeLine(row) {
         problem = "";
-        capture.removeUserBind(found.key, reply => {
+        const keyCapture = capture;
+        const life = root.life;
+        keyCapture.removeUserBind(found.key, reply => {
+            if (life.gone) {
+                if (reply.ok) keyCapture.releaseUserBind(reply.token);
+                return;
+            }
             if (!reply.ok) {
                 console.warn("settings: remove-bind " + reply.error);
                 root.problem = "VGS could not remove that line.";
@@ -99,7 +114,11 @@ BindField {
         shortcutField.edit(keys.indexOf(found.key));
     }
 
-    Component.onDestruction: if (edits !== null) edits.forget(root)
+    Component.onDestruction: {
+        life.gone = true;
+        if (removed !== null && capture !== null) capture.releaseUserBind(removed.token);
+        if (edits !== null) edits.forget(root);
+    }
     onEditedChanged: if (edits !== null) edits.track(root)
     onEditableChanged: if (!editable) discard()
 

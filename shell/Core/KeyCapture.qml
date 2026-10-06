@@ -67,7 +67,10 @@ Scope {
     property var bindsRetry: ({ asked: false })
     // The lines removeUserBind took out, by the token it answered, each {
     // file, line, undo } with the undo the edit printed, so an undo puts
-    // back only a line the core itself removed. A later removal or undo in
+    // back only a line the core itself removed. A row goes when its undo
+    // succeeds, when the field that holds its token releases it on its
+    // destruction, and when the removal answers after its instance was torn
+    // down, since no one then holds the token. A later removal or undo in
     // the same file moves the lines after it, and each row's line with
     // them. Plain state: no binding reads it.
     property var removedBinds: ({ next: 1, rows: {} })
@@ -93,8 +96,12 @@ Scope {
                 }
                 return root.conflicts(key, id, shortcut);
             },
-            removeUserBind: (key, done) => root.removeUserBind(key, value => { if (ctx.active) done(value); }),
-            restoreUserBind: (token, done) => root.restoreUserBind(token, value => { if (ctx.active) done(value); })
+            removeUserBind: (key, done) => root.removeUserBind(key, value => {
+                if (ctx.active) done(value);
+                else if (value.ok) root.releaseUserBind(value.token);
+            }),
+            restoreUserBind: (token, done) => root.restoreUserBind(token, value => { if (ctx.active) done(value); }),
+            releaseUserBind: token => root.releaseUserBind(token)
         };
     }
 
@@ -236,12 +243,18 @@ Scope {
         if (row === null || bindsSource === null) { done({ ok: false, error: "refused: user-bind=no-undo token=" + token }); return; }
         bindsSource.editBinds(["restore-bind", row.file, String(row.line), JSON.stringify(row.undo)], value => {
             if (value.ok) {
-                delete removedBinds.rows[token];
+                root.releaseUserBind(token);
                 const m = / line=([0-9]+)$/.exec(value.said);
                 root.shiftRemoved(row.file, m === null ? row.line : Number(m[1]), 1);
             }
             done(value.ok ? { ok: true } : value);
         });
+    }
+
+    // Forget the line removeUserBind answered TOKEN for, whose undo no one
+    // will ask for: nothing is edited and nothing is answered.
+    function releaseUserBind(token) {
+        delete removedBinds.rows[token];
     }
 
     // Move by BY the line of each removed row of FILE at line FROM or after:
