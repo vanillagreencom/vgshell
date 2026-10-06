@@ -135,7 +135,9 @@ Item {
             const to = rows.y + row(1).y;
             root.current = 1;
             verify(plate.target === row(1), "the second row holds the cursor");
-            wait(100);
+            tryVerify(() => plate.y > from && plate.y < to
+                && plate.height > row(0).height && plate.height < row(1).height,
+                1000, "the cursor travels and resizes between rows");
             verify(plate.y > from && plate.y < to, "the cursor is between the rows, at " + plate.y + " of " + from + " to " + to);
             verify(plate.height > row(0).height && plate.height < row(1).height, "the cursor is resizing, " + plate.height);
             tryCompare(plate, "y", to, 3000);
@@ -155,8 +157,8 @@ Item {
             plate.snap();
             root.current = 2;
             compare(plate.y, rows.y + row(2).y);
-            // The snap lasts its turn; the next move travels.
-            wait(20);
+            // One event-loop turn lets Qt.callLater end the snap before the next move.
+            wait(0);
             root.current = 3;
             verify(plate.y < rows.y + row(3).y, "the cursor travels after the snap's turn, at " + plate.y);
         }
@@ -167,10 +169,10 @@ Item {
             compare(UnitTheme.override({ motion: { list: { travel: { duration: 2000 }, fade: { duration: 2000 } } } }), "ok");
             plate.follow(row(0), false);
             plate.follow(row(1), true);
-            wait(100);
             verify(plate.target === row(1), "the second row holds the cursor");
             compare(plate.opacity, 1);
-            verify(plate.y < rows.y + row(1).y, "the cursor travels, at " + plate.y);
+            tryVerify(() => plate.y > rows.y + row(0).y && plate.y < rows.y + row(1).y,
+                1000, "the cursor travels after the next row takes it");
         }
 
         function test_the_cursor_fades_out_and_appears_where_it_lands() {
@@ -181,8 +183,7 @@ Item {
             compare(UnitTheme.override({ motion: { list: { travel: { duration: 2000 }, fade: { duration: 2000 } } } }), "ok");
             root.current = 3;
             compare(plate.y, rows.y + row(3).y, "the cursor lands where it appears");
-            wait(100);
-            verify(plate.opacity > 0 && plate.opacity < 1, "the cursor fades in, " + plate.opacity);
+            tryVerify(() => plate.opacity > 0 && plate.opacity < 1, 1000, "the cursor fades in");
         }
 
         function test_the_cursor_follows_the_row_through_the_items_between() {
@@ -378,10 +379,10 @@ Item {
             compare(first.progress, 0);
             compare(first.y, Theme.motion.list.rise);
             compare(last.run.delay, 3 * 400);
-            wait(300);
-            verify(first.progress > 0, "the first row enters at once, " + first.progress);
+            tryVerify(() => first.progress > 0 && first.progress < 1
+                && row(0).opacity > 0 && row(0).opacity < 1,
+                1000, "the first row enters and opacity follows it");
             compare(last.progress, 0, "the fourth row waits its turn");
-            verify(row(0).opacity > 0 && row(0).opacity < 1, "the row's opacity follows its entrance, " + row(0).opacity);
             root.count = 0;
             root.count = 4;
             compare(row(0).transform[0].run.delay, 0, "a later turn's first row enters at once");
@@ -421,13 +422,15 @@ Item {
             owned.follow(ownRow, true);
             compare(ownPlate.height, 30);
             compare(owned.shown, true);
-            // The first claim lands at once for the rest of its turn.
-            wait(50);
+            // The cursor glides only once its fade-in has drawn it.
+            tryVerify(() => owned.opacity > 0, 1000, "the first claim fades the cursor in");
             ownRow.y = 100;
-            wait(100);
-            // A quarter of the way, the plugin's decelerating curve is past
-            // 60 of the 100 pixels, where a linear one is near 25.
-            verify(owned.y > 60 && owned.y < 100, "the plugin's own curve travels, at " + owned.y);
+            const travel = owned.data.find(child => child.target === owned && child.property === "y");
+            verify(travel !== undefined, "the cursor owns a travel animation");
+            compare(travel.running, true);
+            compare(travel.to, 100);
+            compare(travel.easing.type, Easing.BezierSpline);
+            compare(travel.easing.bezierCurve, [0.05, 0.7, 0.1, 1, 1, 1]);
             tryCompare(owned, "y", 100, 1000);
         }
     }

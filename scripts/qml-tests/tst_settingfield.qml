@@ -72,7 +72,7 @@ Item {
             list.forceActiveFocus();
             tryCompare(list.Window, "active", true);
             tryCompare(list, "activeFocus", true);
-            wait(50);
+            tryVerify(() => list.itemAtIndex(2) !== null, 1000, "the preset list builds the target entry");
             keyClick(Qt.Key_Down);
             keyClick(Qt.Key_Down);
             compare(list.currentIndex, 2);

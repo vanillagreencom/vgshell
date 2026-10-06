@@ -244,6 +244,7 @@ Item {
         function test_a_delegate_can_read_whether_it_is_current() {
             carousel.delegate = currentContent;
             carousel.model = 0;
+            // One event-loop turn lets the zero-count model clear before the entries return.
             wait(0);
             carousel.model = root.entries;
             carousel.currentIndex = 20;
@@ -377,16 +378,6 @@ Item {
             made.destroy();
         }
 
-        // Unit 1: card 21 starts 28 over card 20's right edge, at 1280.
-        function test_the_rail_moves_over_the_duration() {
-            compare(UnitTheme.override({ carousel: { duration: 2000 } }), "ok");
-            keyClick(Qt.Key_Right);
-            wait(300);
-            const x = slot(21).x;
-            verify(x < 1280 && x > 540, "card 21 is on its way at " + x);
-            tryCompare(slot(21), "x", 540, 5000);
-        }
-
         // A carousel declared at index 30 is built around it.
         function test_a_declared_index_builds_around_itself() {
             const made = Qt.createQmlObject("import qs.Ui\nCardCarousel { width: 1848; height: 476; model: 60; currentIndex: 30 }", root, "declared");
@@ -412,16 +403,16 @@ Item {
             verify(!slot(59).visible, "the card left behind is hidden");
         }
 
-        // 300 ms into a 2000 ms outCubic glide from 20 to 21 the rail is
-        // drawn at 20 + 1 - 0.85^3 = 20.39: card 14 is 6.39 from it and
-        // still shown, card 12 8.39 and still built, though each is past
-        // the shown slices and the band of 21.
         function test_a_near_move_glides_and_keeps_its_cards() {
             compare(UnitTheme.override({ carousel: { duration: 2000 } }), "ok");
             keyClick(Qt.Key_Right);
-            wait(300);
-            verify(slot(21).x > 540 && slot(21).x < 1280, "card 21 is between its places at " + slot(21).x);
-            verify(slot(20).x > 460 && slot(20).x < 540, "card 20 is between its places at " + slot(20).x);
+            compare(slot(21).x, 1280);
+            compare(slot(20).x, 540);
+            verify(slot(14).visible, "the edge card the rail leaves is drawn at the glide start");
+            verify(built().e12 !== undefined, "the card past the old edge is built at the glide start");
+            tryVerify(() => slot(21).x > 540 && slot(21).x < 1280
+                && slot(20).x > 460 && slot(20).x < 540,
+                1000, "cards move between whole places");
             verify(slot(20).visible && slot(21).visible, "the outgoing and incoming cards are drawn");
             verify(slot(14).visible, "the edge card the rail leaves is drawn");
             const names = builtNames();
@@ -435,8 +426,8 @@ Item {
         function test_the_rail_clips_to_the_carousel() {
             compare(UnitTheme.override({ carousel: { duration: 10000 } }), "ok");
             keyClick(Qt.Key_Right);
-            wait(50);
-            verify(slot(27).visible && slot(27).x + slot(27).width > 1848, "card 27 reaches past the edge at " + slot(27).x);
+            tryVerify(() => slot(27).visible && slot(27).x + slot(27).width > 1848
+                && built().e27 !== undefined, 1000, "card 27 reaches past the edge");
             const img = grabImage(root);
             let lit = 0;
             for (let x = carousel.x + carousel.width + 1; x < carousel.x + carousel.width + 16; x++)
@@ -464,7 +455,14 @@ Item {
             }
         }
 
-        function test_motion_scale_zero_moves_at_once() {
+        function test_motion_scale_zero_moves_at_once_data() {
+            return [
+                { tag: "motion scale zero", theme: { motion: { scale: 0 } } },
+                { tag: "zero carousel duration", theme: { motion: { scale: 1 }, carousel: { duration: 0 } } }
+            ];
+        }
+        function test_motion_scale_zero_moves_at_once(data) {
+            compare(UnitTheme.override(data.theme), "ok");
             keyClick(Qt.Key_Right);
             compare(slot(21).x, 540);
             compare(slot(20).x, 460);

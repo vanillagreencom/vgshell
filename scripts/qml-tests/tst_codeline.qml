@@ -39,6 +39,15 @@ Item {
             return paste.text;
         }
 
+        function grabWhen(item, ready, message) {
+            let img = null;
+            tryVerify(() => {
+                img = grabImage(item);
+                return ready(img);
+            }, 1000, message);
+            return img;
+        }
+
         function test_copy_puts_the_text_on_the_clipboard() {
             short.copy();
             compare(clipboardText(), "vgshell plugin update acme.weather", "a known text is on the clipboard first");
@@ -76,8 +85,12 @@ Item {
         function test_a_wrap_lands_between_words() {
             const text = label(line);
             verify(text.lineCount > 1, "the command wraps");
-            wait(50);
-            const img = grabImage(text);
+            const img = grabWhen(text, image => {
+                for (let x = 0; x < image.width; x++)
+                    for (let y = 0; y < text.lineBox; y++)
+                        if (image.red(x, y) > 96) return true;
+                return false;
+            }, "the first line drew");
             let right = -1;
             for (let x = 0; x < img.width; x++)
                 for (let y = 0; y < text.lineBox; y++)

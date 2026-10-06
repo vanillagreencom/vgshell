@@ -35,6 +35,21 @@ Item {
             return n;
         }
 
+        function grabWhen(item, ready, message) {
+            let img = null;
+            tryVerify(() => {
+                img = grabImage(item);
+                return ready(img);
+            }, 1000, message);
+            return img;
+        }
+        function hasInk(image, threshold) {
+            for (let x = 0; x < image.width; x++)
+                for (let y = 0; y < image.height; y++)
+                    if (image.red(x, y) > threshold) return true;
+            return false;
+        }
+
         // The painted extent of chevron-left, M15 18 l-6-6 6-6: x 9 to 15
         // and y 6 to 18 of the 24 unit box, grown by half the stroke. The
         // circle, two arcs of radius 10 around (12, 12), reaches 2 to 22 on
@@ -50,8 +65,12 @@ Item {
 
         // No ink lies outside the painted extent.
         function test_painted_extent_holds_the_ink() {
-            wait(100);
-            const img = grabImage(chevron);
+            const img = grabWhen(chevron, image => {
+                for (let x = 0; x < image.width; x++)
+                    for (let y = 0; y < image.height; y++)
+                        if (image.red(x, y) > 40) return true;
+                return false;
+            }, "the chevron drew");
             let left = chevron.size, right = -1;
             for (let x = 0; x < img.width; x++)
                 for (let y = 0; y < img.height; y++)
@@ -76,7 +95,7 @@ Item {
 
         function test_stroke_is_constant_across_sizes() {
             compare(small.stroke, Theme.icon.stroke);
-            wait(100);
+            tryVerify(() => inkRows(small, 6) > 0 && inkRows(large, 24) > 0, 1000, "both icons drew their strokes");
             const at12 = inkRows(small, 6);
             const at48 = inkRows(large, 24);
             verify(at12 > 0, "the 12 pixel icon drew a line");
@@ -84,15 +103,13 @@ Item {
         }
 
         function test_converted_circle_draws_a_ring() {
-            wait(100);
-            const img = grabImage(circle);
+            const img = grabWhen(circle, image => hasInk(image, 40), "the circle drew");
             verify(img.red(12, 12) < 128, "the centre of the ring is empty");
             verify(img.red(2, 12) > 128 || img.red(3, 12) > 128, "the ring passes the left edge");
         }
 
         function test_second_path_starts_at_the_origin() {
-            wait(100);
-            const img = grabImage(cross);
+            const img = grabWhen(cross, image => hasInk(image, 40), "the cross drew");
             // Both strokes of the x cross the centre and reach each corner.
             verify(img.red(12, 12) > 128, "the strokes cross at the centre");
             verify(img.red(6, 18) > 128 || img.red(6, 17) > 128, "the first stroke reaches the bottom-left");
@@ -100,11 +117,8 @@ Item {
         }
 
         function test_filled_node_keeps_its_stroke() {
-            wait(100);
-            const icon = Qt.createQmlObject("import qs.Ui\nIcon { name: \"palette\"; size: 48; color: \"white\" }", root, "palette");
-            icon.x = 150; icon.y = 40;
-            wait(100);
-            const img = grabImage(icon);
+            const icon = Qt.createQmlObject("import qs.Ui\nIcon { name: \"palette\"; size: 48; color: \"white\"; x: 150; y: 40 }", root, "palette");
+            const img = grabWhen(icon, image => hasInk(image, 40), "the palette icon drew");
             // The dot at (13, 6.5) in the box is a 0.5 unit circle: filled and
             // stroked at 1.5 pixels it covers its centre pixel at twice the box.
             verify(img.red(26, 13) > 128, "a filled dot is drawn");

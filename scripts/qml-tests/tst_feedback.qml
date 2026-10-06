@@ -30,21 +30,32 @@ Item {
         function init() { UnitTheme.reset(); }
 
         function fill(bar) { return bar.contentItem.children[0]; }
+        function instrumentedSpinner() {
+            const request = new XMLHttpRequest();
+            request.open("GET", UnitPaths.UI_DIR + "/feedback/Spinner.qml", false);
+            request.send();
+            let source = request.responseText;
+            verify(source.indexOf("Shape {") !== -1, "the spinner source has a Shape");
+            verify(source.indexOf("RotationAnimation on rotation {") !== -1, "the spinner source has a rotation animation");
+            source = source.replace("Shape {", "Shape { property alias spin: spin");
+            source = source.replace("RotationAnimation on rotation {", "RotationAnimation on rotation { id: spin");
+            return Qt.createQmlObject(source, root, "InstrumentedSpinner");
+        }
         function badgeLabel(item) { return item.children.find(child => child.role === "label"); }
         function badgeIconItem(item) { return item.children.find(child => child.name === item.iconName); }
         function kbdLabel(item) { return item.children[0]; }
 
         function test_spinner_turns_and_reduced_motion_stops_it() {
-            compare(spinner.width, Theme.spinner.size);
-            const shape = spinner.children[0];
+            const checked = instrumentedSpinner();
+            compare(checked.width, Theme.spinner.size);
+            const shape = checked.children[0];
+            const spin = shape.spin;
             const angle = shape.rotation;
-            wait(100);
-            verify(shape.rotation !== angle, "the arc turned");
+            tryVerify(() => shape.rotation !== angle, 1000, "the arc turned");
             compare(UnitTheme.override({ motion: { scale: 0 } }), "ok");
             compare(Theme.spinner.duration, 0);
-            const still = shape.rotation;
-            wait(100);
-            compare(shape.rotation, still);
+            compare(spin.running, false);
+            checked.destroy();
         }
 
         function test_progress_fill_follows_the_value() {
@@ -53,8 +64,7 @@ Item {
             compare(String(fill(progress).color), String(Qt.color(Theme.progress.fill)));
             const slide = fill(busy).x;
             fuzzyCompare(fill(busy).width, busy.contentItem.width * Theme.progress.indeterminateShare, 1);
-            wait(150);
-            verify(fill(busy).x !== slide, "the indeterminate fill moved");
+            tryVerify(() => fill(busy).x !== slide, 1000, "the indeterminate fill moved");
             // Leaving the indeterminate state returns the fill to the origin.
             busy.indeterminate = false;
             busy.value = 1;

@@ -29,6 +29,7 @@ Item {
     }
     SignalSpy { id: clicks; target: scrim; signalName: "clicked" }
     SignalSpy { id: underClicks; target: under; signalName: "clicked" }
+    SignalSpy { id: scrimWheels; target: scrim.children[0]; signalName: "wheel" }
 
     TestCase {
         name: "scrim"
@@ -38,6 +39,7 @@ Item {
             UnitTheme.reset();
             clicks.clear();
             underClicks.clear();
+            scrimWheels.clear();
             scrim.visible = true;
             scroller.contentY = 0;
             mouseMove(root, root.width - 1, root.height - 1);
@@ -75,7 +77,6 @@ Item {
             tryCompare(under, "hovered", false);
             scrim.visible = true;
             mouseMove(scrim, under.x + under.width / 2, under.y + under.height / 2);
-            wait(50);
             verify(!under.hovered, "the button under the scrim is hovered");
         }
 
@@ -87,10 +88,14 @@ Item {
             tryVerify(() => scroller.contentY > 0, 1000, "the wheel scrolls the area with no scrim");
             scroller.cancelFlick();
             scroller.contentY = 0;
+            tryCompare(scroller, "moving", false);
+            tryCompare(scroller, "flicking", false);
             scrim.visible = true;
+            scrimWheels.clear();
             mouseWheel(scrim, x, y, 0, -120);
-            wait(50);
+            tryCompare(scrimWheels, "count", 1);
             compare(scroller.contentY, 0);
+            verify(!scroller.moving && !scroller.flicking, "the Flickable under the scrim did not take the wheel");
         }
     }
 }
