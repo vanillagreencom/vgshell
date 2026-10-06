@@ -149,7 +149,7 @@ A widget reads its capabilities from its own `shell`, never from the bar.
 | `layers` | `shell.layers` |
 | `status` | `shell.status`; needs a manifest `status` |
 | `secrets` | `shell.secrets`; needs a manifest `secrets` |
-| `tui` | `shell.tui`; a manifest `tui` key needs it. A script's optional `requires` is a non-empty list of commands from the manifest's `requirements`, each once; a status action that opens it is withheld only while one of those is missing, and without `requires` every required command of the manifest counts |
+| `tui` | `shell.tui`; a manifest `tui` key needs it. A script's optional `requires` is a list of commands from the manifest's `requirements`, each once; a status action that opens it is withheld only while one of those is missing, an empty list says the script needs none of them, and without `requires` every required command of the manifest counts |
 | `system` | `shell.system`; needs a manifest `systemSteps` |
 | `bluetoothAgent` | `shell.bluetoothAgent`; exclusive |
 | `requirements` | `shell.requirements` |

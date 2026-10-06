@@ -103,8 +103,8 @@ function suite(ctx, check) {
         ["requires a declared optional command", ["acme-sync", "acme-other"], null],
         ["requires an undeclared command", ["acme-sync", "gum"], "tui.hello.requires.1 must name a command of the manifest's requirements, got \"gum\""],
         ["requires a command twice", ["acme-sync", "acme-sync"], "tui.hello.requires.1 repeats \"acme-sync\""],
-        ["requires nothing", [], "tui.hello.requires must be a non-empty list of the manifest's requirement commands"],
-        ["requires that is a string", "acme-sync", "tui.hello.requires must be a non-empty list"],
+        ["requires nothing", [], null],
+        ["requires that is a string", "acme-sync", "tui.hello.requires must be a list of the manifest's requirement commands"],
     ];
     for (const [name, requires, want] of requiresRows) {
         const raw = manifestWith({ hello: Object.assign({ requires: requires }, hello) });
@@ -125,6 +125,9 @@ function suite(ctx, check) {
     const requiring = manifestWith({ hello: Object.assign({ requires: ["acme-sync"] }, hello) });
     requiring.requirements = [{ command: "acme-sync", purpose: "Syncs" }];
     check("a declared requires is kept", ctx.validateManifest(requiring, "/p").manifest.tui.hello.requires, ["acme-sync"]);
+    const needless = manifestWith({ hello: Object.assign({ requires: [] }, hello) });
+    needless.requirements = [{ command: "acme-sync", purpose: "Syncs" }];
+    check("an empty requires is kept, not read as absent", ctx.validateManifest(needless, "/p").manifest.tui.hello.requires, []);
     check("the normalized entry does not alias the raw manifest", (() => { const raw = manifestWith({ update: JSON.parse(JSON.stringify(listed)) }); const m = ctx.validateManifest(raw, "/p").manifest; m.tui.update.entry.label = "x"; return raw.tui.update.entry.label; })(), "Update the system");
 
     // tuiArgsValid: [name, args, accepted].
@@ -669,7 +672,8 @@ const CONTROLS = [
     ["the manager's remove opens the plugin remove", "    remove: \"plugin-remove\"\n", "    remove: \"plugin-update\"\n"],
     ["the manifest judge runs the tui judge", "var badTui = tuiError(raw.tui, capabilities, requirements);", "var badTui = \"\";"],
     ["the tui judge runs the requires judge", "        var requiresError = tuiRequiresError(at, row.requires, requirements);\n        if (requiresError !== \"\")\n            return requiresError;\n", ""],
-    ["a requires is a non-empty list", "if (!Array.isArray(requires) || requires.length === 0)\n        return at + \".requires must", "if (false)\n        return at + \".requires must"],
+    ["a requires is a list", "if (!Array.isArray(requires))\n        return at + \".requires must", "if (false)\n        return at + \".requires must"],
+    ["an empty requires is accepted", "if (!Array.isArray(requires))\n        return at + \".requires must", "if (!Array.isArray(requires) || requires.length === 0)\n        return at + \".requires must"],
     ["a required command is declared", "if (declared.indexOf(requires[n]) === -1)\n            return at + \".requires.", "if (false)\n            return at + \".requires."],
     ["a required command is named once", "if (requires.indexOf(requires[n]) !== n)\n            return at + \".requires.", "if (false)\n            return at + \".requires."],
     ["a normalized requires is kept", "requires: row.requires === undefined ? null : row.requires.slice()", "requires: null"],

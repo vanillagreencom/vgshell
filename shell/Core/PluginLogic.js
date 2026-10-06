@@ -1161,8 +1161,9 @@ function statusActionRefusal(key, reason) {
 }
 
 // The commands MANIFEST's TUI NAME needs that MISSING holds, in declaration
-// order: its `requires`, or, for a TUI that declares none, every command of
-// the active manifest that is not optional.
+// order: its `requires`, none when that list is empty, or, for a TUI that
+// declares no `requires`, every command of the active manifest that is not
+// optional.
 function tuiMissingRequirements(manifest, name, missing) {
     var requires = manifest.tui[name].requires;
     var needed = requires !== null ? requires : manifest.requirements.filter(function (row) {
@@ -2211,12 +2212,13 @@ function tuiWindowError(at, row) {
 }
 
 // The first defect of the `requires` of a TUI row at AT, or "": absent, or
-// a non-empty list of commands of the manifest's REQUIREMENTS, each once.
+// a list of commands of the manifest's REQUIREMENTS, each once. An empty
+// list says the script needs none of them.
 function tuiRequiresError(at, requires, requirements) {
     if (requires === undefined)
         return "";
-    if (!Array.isArray(requires) || requires.length === 0)
-        return at + ".requires must be a non-empty list of the manifest's requirement commands";
+    if (!Array.isArray(requires))
+        return at + ".requires must be a list of the manifest's requirement commands";
     var declared = requirements.map(function (r) { return r.command; });
     for (var n = 0; n < requires.length; n++) {
         if (declared.indexOf(requires[n]) === -1)

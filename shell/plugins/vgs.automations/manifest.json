@@ -36,7 +36,8 @@
     "transcript": {
       "script": "tui/transcript.sh",
       "title": "Automation transcript",
-      "size": "wide"
+      "size": "wide",
+      "requires": []
     },
     "linger": {
       "script": "tui/linger.sh",

@@ -136,6 +136,14 @@ function suite(ctx, check) {
     const scopedLabel = missing => ctx.statusRows(scoped.manifest, { token: "absent" }, missing).find(row => row.key === "token").action.label;
     check("a row offers its TUI while a command the script does not need is missing", scopedLabel(["acme-other"]), "Set up token");
     check("a row withholds its TUI while a command the script needs is missing", scopedLabel(["acme-sync"]), "Install requirements");
+    // A script whose `requires` is empty needs none of the plugin's commands.
+    const needless = ctx.validateManifest(Object.assign({}, raw, {
+        tui: { setup: { script: "tui/setup.sh", title: "Set up", requires: [] } },
+        requirements: [{ command: "acme-sync", purpose: "Syncs" }]
+    }), "/p");
+    if (!needless.ok) throw new Error("the needless fixture manifest is refused: " + needless.error);
+    check("manager setup: a script that requires nothing runs while a required command is missing", ctx.tuiRunFor(needless.manifest, true, "/sources", runner, "setup", ["acme-sync"]).key, "acme.status/setup");
+    check("a row offers a TUI that requires nothing while a required command is missing", ctx.statusRows(needless.manifest, { token: "absent" }, ["acme-sync"]).find(row => row.key === "token").action.label, "Set up token");
 
     // Jarvis's key and account steps against the sandbox's missing OCR
     // command, which neither needs, and against the keyring command, which
@@ -504,6 +512,7 @@ const CONTROLS = [
     ["a setup ignores optional commands", "return !row.optional;\n    }).map", "return true;\n    }).map"],
     ["a setup installs only missing declared commands", "return needed.filter(function (command) { return missing.indexOf(command) !== -1; });", "return needed;"],
     ["a script's requires decides what it needs", "var needed = requires !== null ? requires : manifest", "var needed = false ? requires : manifest"],
+    ["an empty requires needs nothing", "var needed = requires !== null ? requires : manifest", "var needed = requires !== null && requires.length > 0 ? requires : manifest"],
     ["a missing required command routes setup to install", "if (tuiMissingRequirements(manifest, name, missing).length > 0) return { ok: true, kind: \"install\" };", ""],
     ["the row withholds the TUI label while requirements are missing", "{ label: lacking.length > 0 ? STATUS_WITHHELD_LABEL : offered.label, offered: true }", "{ label: offered.label, offered: true }"],
     ["a row reads the lacking commands of its offered TUI", "return offered !== null && offered.tui !== undefined ? tuiMissingRequirements(manifest, offered.tui, missing) : [];", "return [];"],

@@ -5,6 +5,7 @@
 - The bundled `light` theme is removed; `vgs` is the one bundled theme. The light themes are in the theme catalog, such as `flexoki-light`, which the theme browser installs.
 - New plugin Clipboard, `vgs.clipboard`: a history of the last 500 text and image copies. `SUPER+CTRL+V` opens it. Typing filters the entries, Enter pastes the selected entry into the application that had the keyboard, and Ctrl+P pins an entry. A copy that a password manager marks as secret is never recorded. The plugin is off until you turn it on in Settings, and records nothing before that.
 - New manifest key `optIn`: a first-party plugin that sets it is off until it is enabled.
+- A TUI's `requires` may be an empty list: the script needs none of the plugin's requirements, so a missing command never holds it back. Automations' run transcript and Updates' Update one source declare it.
 - Voice and Web Apps are on after an update that brings them, as every new plugin is: Voice's mic shows in the bar. A plugin you turned off stays off. Only Clipboard stays off until you turn it on.
 - Set up in Voice settings on a system without voxtype offers to install it, then runs the rest of the setup. Any plugin's setup screen that a missing command held back opens once the requirement notice installs that command; Not now cancels it.
 - `ListItem` of `qs.Ui` draws its text and its secondary line as plain text. A tag in a row's text is drawn as text, never as markup.

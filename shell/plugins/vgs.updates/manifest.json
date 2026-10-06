@@ -21,7 +21,7 @@
   ],
   "tui": {
     "update": { "script": "tui/update.sh", "title": "Update everything", "size": "tall", "entry": { "label": "Update everything", "icon": "refresh-cw", "group": "Update" } },
-    "update-source": { "script": "tui/update-source.sh", "title": "Update one source", "size": "tall" },
+    "update-source": { "script": "tui/update-source.sh", "title": "Update one source", "size": "tall", "requires": [] },
     "log": { "script": "tui/log.sh", "title": "Last update log", "size": "tall", "presentation": "plain" },
     "review": { "script": "tui/review.sh", "title": "Review third-party packages", "size": "tall" }
   },
