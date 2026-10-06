@@ -94,7 +94,7 @@ VGS starts with Hyprland and draws the bar, panels and windows on each screen. E
 
 ## Setup
 
-The Arch and Fedora packages start VGS after install and at login. For a curl, Nix or checkout install, add this line to `~/.config/hypr/hyprland.lua`:
+The Arch and Fedora packages start VGS after install. They start it at login in a uwsm session, and in any session once Connect in the welcome wires `hyprland.lua`. For a curl, Nix or checkout install, add this line to `~/.config/hypr/hyprland.lua`:
 
 ```lua
 hl.on("hyprland.start", function () hl.exec_cmd("vgshell start") end)

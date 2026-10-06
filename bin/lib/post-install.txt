@@ -1,4 +1,5 @@
 VGS is installed. Its command is vgshell.
-It starts now in each running Hyprland session, and at every login.
+It starts now in each running Hyprland session.
+It starts at login in a uwsm session, or after Connect in its welcome.
 Chromium, Chrome, Edge and Brave follow the theme.
 Detail: /usr/share/doc/vgshell/README.md, section "Setup".

@@ -281,8 +281,11 @@ function luaString(value) {
     }) + "\"";
 }
 
+// hl.exec_cmd hands its string to /bin/sh -c, so the path is shell-quoted
+// before it is Lua-quoted.
 function startLine(runner) {
-    return "hl.on(\"hyprland.start\", function () hl.exec_cmd(" + luaString(runner + " start") + ") end)";
+    var quoted = "'" + String(runner).replace(/'/g, "'\\''") + "'";
+    return "hl.on(\"hyprland.start\", function () hl.exec_cmd(" + luaString(quoted + " start") + ") end)";
 }
 
 function luaNumber(value) {

@@ -1083,7 +1083,11 @@ shell_start() { # OLD_PID USES_LUA [STEP]
   run_log="$run_dir/run.log"
   : >"$run_log" || refuse 1 "log=failed path=$run_log"
   request="$(shell_launch_request "$using_lua" "$run_log")"
-  written="$(stat -L -c '%y' -- "$lock" 2>/dev/null || printf 'absent')"
+  # The file exists before the reading, so the first change seen is a
+  # runner's write after it took the lock, never the runner's own create
+  # before its flock, which a probe here could beat and make it refuse.
+  : >>"$lock" || refuse 1 "lock=unwritable path=$lock"
+  written="$(stat -L -c '%y' -- "$lock")" || refuse 1 "lock=unreadable path=$lock"
   set +e
   dispatch_reply="$(hyprctl dispatch "$request" 2>&1)"
   set -e
@@ -1110,7 +1114,7 @@ shell_start() { # OLD_PID USES_LUA [STEP]
         return "$step_status"
       fi
     fi
-    if [[ $(stat -L -c '%y' -- "$lock" 2>/dev/null || printf 'absent') != "$written" ]] && flock -n "$lock" true; then
+    if [[ $(stat -L -c '%y' -- "$lock" 2>/dev/null) != "$written" ]] && flock -n "$lock" true; then
       refuse 1 "start=exited pid=$seen_pid" \
         "the new vgshell run ended with no guarded shell; read $run_log or start it with vgshell start"
     fi

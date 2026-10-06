@@ -31,17 +31,27 @@ for user_dir in "$runtime_root"/*; do
   account="$(passwd_entry "$uid")" || continue
   user="${account%%:*}"
   home="${account#*:}"
+  # One hand-off per user: the instance lock allows one shell per runtime
+  # directory, and a crashed Hyprland leaves its socket behind, so the
+  # newest socket names the live session. It also bounds the install's
+  # wait to one timeout per account, however many sockets a user makes.
+  newest="" newest_time=-1
   for socket in "$user_dir"/hypr/*/.socket.sock; do
     [[ -S $socket && ! -L $socket ]] || continue
-    [[ "$(stat -c '%u' -- "$socket" 2>/dev/null || :)" == "$uid" ]] || continue
-    signature="${socket%/.socket.sock}"
-    signature="${signature##*/}"
-    if ! timeout "$handoff_timeout" runuser -u "$user" -- env -i \
-      HOME="$home" PATH=/usr/local/bin:/usr/bin:/bin XDG_RUNTIME_DIR="$user_dir" \
-      HYPRLAND_INSTANCE_SIGNATURE="$signature" "$vgshell" start; then
-      printf 'first-start: start=failed uid=%s signature=%s\n' "$uid" "$signature" >&2
+    owner_time="$(stat -c '%u %Y' -- "$socket" 2>/dev/null || :)"
+    [[ ${owner_time% *} == "$uid" ]] || continue
+    if ((${owner_time#* } > newest_time)); then
+      newest="$socket" newest_time="${owner_time#* }"
     fi
   done
+  [[ -n $newest ]] || continue
+  signature="${newest%/.socket.sock}"
+  signature="${signature##*/}"
+  if ! timeout "$handoff_timeout" runuser -u "$user" -- env -i \
+    HOME="$home" PATH=/usr/local/bin:/usr/bin:/bin XDG_RUNTIME_DIR="$user_dir" \
+    HYPRLAND_INSTANCE_SIGNATURE="$signature" "$vgshell" start; then
+    printf 'first-start: start=failed uid=%s signature=%s\n' "$uid" "$signature" >&2
+  fi
 done
 
 exit 0

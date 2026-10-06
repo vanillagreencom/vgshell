@@ -686,8 +686,8 @@ function verify(logic, layer, shellText) {
     same(layer.USER_VALUES, { table: "__vgs_options", verb: "report", key: "vgs-user-values" }, "the applied section names its Lua table, its report and the key of its answer");
     const bare = layer.render([], theme, "vgs", 2);
     const bareLines = lines(bare);
-    const started = lines(layer.render([], theme, "vgs", 2, null, "", "/opt/VGS path/bin/vgshell"));
-    assert.ok(started.includes('hl.on("hyprland.start", function () hl.exec_cmd("/opt/VGS path/bin/vgshell start") end)'), "the layer starts the runner path with the start verb");
+    const started = lines(layer.render([], theme, "vgs", 2, null, "", "/opt/VGS's path/bin/vgshell"));
+    assert.ok(started.includes(`hl.on("hyprland.start", function () hl.exec_cmd("'/opt/VGS'\\\\''s path/bin/vgshell' start") end)`), "the layer starts the shell-quoted runner path with the start verb");
     const allOff = { borders: { setting: "b", enabled: false }, radius: { setting: "r", enabled: false }, motion: { setting: "m", enabled: false } };
     const quiet = lines(layer.render([section("vgs.themes", [], [], "1.0.0", allOff)], theme, "vgs", 1));
     same(quiet.slice(APPLIED_AT, quiet.indexOf(TUI_SECTION[0])), [
@@ -1313,7 +1313,8 @@ const CONTROLS = [
     [layerFile, "the values are applied after the configuration, not inline", "lines = header.concat(appliedLines(applied, paths), lines);", "lines = header.concat(applied, lines);"],
     [layerFile, "the applied section follows the header", "lines = header.concat(appliedLines(applied, paths), lines);", "lines = header.concat(lines, appliedLines(applied, paths));"],
     [layerFile, "plain Hyprland starts the runner path", `header = header.concat(["-- Start VGS with Hyprland; a start leaves a running shell alone.", startLine(runner), ""]);`, `header = header.concat(["-- Start VGS with Hyprland; a start leaves a running shell alone.", ""]);`],
-    [layerFile, "plain Hyprland uses the start verb", `return "hl.on(\\"hyprland.start\\", function () hl.exec_cmd(" + luaString(runner + " start") + ") end)";`, `return "hl.on(\\"hyprland.start\\", function () hl.exec_cmd(" + luaString(runner + " run") + ") end)";`],
+    [layerFile, "plain Hyprland uses the start verb", `return "hl.on(\\"hyprland.start\\", function () hl.exec_cmd(" + luaString(quoted + " start") + ") end)";`, `return "hl.on(\\"hyprland.start\\", function () hl.exec_cmd(" + luaString(quoted + " run") + ") end)";`],
+    [layerFile, "the runner path is shell-quoted", `luaString(quoted + " start")`, `luaString(runner + " start")`],
     [layerFile, "the values sit inside the callback", "].concat(values.map(function (line) { return \"        \" + line; }), [", "].concat(["],
     [layerFile, "a group that is on is applied", "if (switches.groups[group].enabled) applied = applied.concat(groupLines[group]());", "if (switches.groups[group].enabled) groups = groups.concat(groupLines[group](), [\"\"]);"],
     [layerFile, "an options line is applied", "if (optionText.applied.length > 0) applied = applied.concat([heading], optionText.applied);", "if (optionText.applied.length > 0) lines = lines.concat([\"\", heading], optionText.applied);"],

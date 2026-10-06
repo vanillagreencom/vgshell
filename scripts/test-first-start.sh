@@ -120,6 +120,18 @@ else
   fail "plain file control: exit=$status log=$(cat "$log" 2>/dev/null || :) err=$(cat "$err")"
 fi
 
+two="$tmp/two"
+mkdir -p -- "$two/$test_uid/hypr/sig-old" "$two/$test_uid/hypr/sig-new"
+start_socket "$two/$test_uid/hypr/sig-old/.socket.sock" || { echo "test-first-start: socket=failed" >&2; exit 77; }
+start_socket "$two/$test_uid/hypr/sig-new/.socket.sock" || { echo "test-first-start: socket=failed" >&2; exit 77; }
+touch -d '2 minutes ago' -- "$two/$test_uid/hypr/sig-old/.socket.sock"
+run_case two "$two"
+if [[ $status == 0 && $(grep -c '^vgshell ' "$log") == 1 ]] && grep -qxF -- "vgshell user=alice home=/home/alice runtime=$two/$test_uid signature=sig-new args=start" "$log"; then
+  ok "two sockets of one user get one hand-off, to the newest"
+else
+  fail "two sockets: exit=$status log=$(cat "$log" 2>/dev/null || :) err=$(cat "$err")"
+fi
+
 failrt="$tmp/failrt"
 mkdir -p -- "$failrt/$test_uid/hypr/sig-c"
 start_socket "$failrt/$test_uid/hypr/sig-c/.socket.sock" || { echo "test-first-start: socket=failed" >&2; exit 77; }
