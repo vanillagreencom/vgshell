@@ -13,8 +13,10 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 | Action | Default |
 |---|---|
 | Toggle dictation | `SUPER+CTRL+X` |
-| Tap a key to dictate | unset |
+| Tap a key to dictate | Right Alt (`code:108`) or Right Ctrl (`code:105`), pressed and released alone |
 | Dictate while held | `F9` |
+
+Right Alt used as AltGr with another key types as usual and starts no dictation.
 
 Change the keys in the plugin's Keys row on its Settings page.
 
