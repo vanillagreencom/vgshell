@@ -173,9 +173,8 @@ function verify(logic) {
   same(logic.refreshChoices(monitorOutput, { width: 3840, height: 2160, refresh: 144 }).map(c => c.label), ["144 Hz", "60 Hz"], "refresh choices follow the selected size");
   same(logic.scaleChoices({ width: 3840, height: 2160, refresh: 144 }, 2).map(c => c.value), [1, 1.25, 4 / 3, 1.5, 1.6, 5 / 3, 2, 2.5, 3], "scale choices keep whole logical pixels");
   const drafted = logic.withOutputDraft([monitorOutput], {}, {}, "DP-2", { mode: { width: 2560, height: 1440, refresh: 60 }, scale: 2.25 });
-  same(drafted, { "DP-2": { disabled: false, mode: { width: 2560, height: 1440, refresh: 60 }, position: { x: 10, y: 20 }, scale: 2.25, transform: 0 } }, "a draft carries position so a mode change does not move the output");
+  same(drafted, { "DP-2": { mode: { width: 2560, height: 1440, refresh: 60 }, position: { x: 10, y: 20 }, scale: 2.25, transform: 0 } }, "a draft carries position so a mode change does not move the output");
   same(logic.dirtyRules(drafted, {}), drafted, "dirty rules are the pending monitor rules");
-  assert.equal(logic.nextEnabledCount([monitorOutput], {}, { "DP-2": { disabled: true } }), 0, "the page can block the last enabled output");
   assert.equal(logic.countdownText(12.4), "Keep these display settings? Reverting in 13 s");
 
   const present = resolved.displays.map(d => d.device);

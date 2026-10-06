@@ -28,6 +28,7 @@ Scope {
     property var trialState: ({ phase: "idle", token: "", deadline: 0, failure: "" })
     property string restoreLua: ""
     property var restoreRules: ({})
+    property var trialRules: ({})
     property string trialLua: ""
     property string tokenPath: ""
     readonly property string trialDir: Paths.stateDir + "/display-trials"
@@ -49,7 +50,7 @@ Scope {
             get trialState() { return Logic.frozenJson(root.trialState); },
             overridden: rules => root.overridden(rules),
             trial: rules => root.trial(ctx.id, rules),
-            keep: token => root.keep(ctx.id, token),
+            keep: (token, done) => root.keep(ctx.id, token, done),
             revert: token => root.revert(ctx.id, token)
         });
     }
@@ -92,32 +93,37 @@ Scope {
         trialLua = trial.lua;
         restoreLua = restore.lua;
         restoreRules = Monitors.captureRules(outputs, Object.keys(rules));
+        trialRules = Logic.clone(rules);
         trialState = { phase: "arming", token: tokenPath, deadline: now + 15, failure: "" };
-        tokenInit.command = ["bash", "-c", "mkdir -p -- \"${1%/*}\" && : >\"$1\"", "vgs-display-token", tokenPath];
+        tokenInit.command = ["bash", "-c", "[[ -x \"$2\" ]] && mkdir -p -- \"${1%/*}\" && : >\"$1\"", "vgs-display-token", tokenPath, guardPath];
         tokenInit.running = true;
         return "ok";
     }
 
-    function keep(id, token) {
+    function keep(id, token, done) {
         const ownership = mustOwn(id);
         if (ownership !== "") return ownership;
-        if (token !== trialState.token || trialState.phase === "idle") return "refused: monitors-token=unknown";
-        keeper.command = ["mv", "--", token, token + ".keep"];
+        if (token !== trialState.token || trialState.phase !== "holding") return "refused: monitors-token=unknown";
+        keeper.done = typeof done === "function" ? done : null;
+        keeper.rules = Logic.clone(trialRules);
+        keeper.command = ["bash", "-c", "mv -- \"$1\" \"$1.keep\" && rm -f -- \"$1.keep\"", "vgs-display-keep", token];
         keeper.running = true;
-        trialState = { phase: "idle", token: "", deadline: 0, failure: "" };
-        return "ok";
+        trialState = { phase: "keeping", token: token, deadline: 0, failure: "" };
+        return "pending";
     }
 
     function revert(id, token) {
         const ownership = mustOwn(id);
         if (ownership !== "") return ownership;
         if (token !== trialState.token || trialState.phase === "idle") return "refused: monitors-token=unknown";
-        reverter.command = ["mv", "--", token, token + ".revert"];
+        reverter.command = ["bash", "-c", "mv -- \"$1\" \"$1.revert\" && rm -f -- \"$1.revert\"", "vgs-display-revert", token];
         reverter.running = true;
         const lua = restoreLua;
+        deadline.stop();
         trialState = { phase: "reverting", token: token, deadline: 0, failure: "" };
         Compositor.monitorEval(lua, answer => {
             root.trialState = { phase: "idle", token: "", deadline: 0, failure: answer === "ok" ? "" : answer };
+            root.trialRules = {};
             root.readOutputs();
         });
         return "ok";
@@ -161,12 +167,18 @@ Scope {
             if (running) return;
             if (root.trialState.phase !== "arming") return;
             if (completion !== 0) {
-                root.trialState = { phase: "idle", token: "", deadline: 0, failure: "token=failed" };
+                root.trialState = { phase: "idle", token: "", deadline: 0, failure: "guard=failed" };
                 return;
             }
-            guard.command = [root.guardPath, String(root.trialState.deadline), root.trialState.token, root.hyprlandSignature, root.restoreLua, JSON.stringify(root.restoreRules)];
-            guard.startDetached();
+            const guardCommand = [root.guardPath, String(root.trialState.deadline), root.trialState.token, root.hyprlandSignature, root.restoreLua, JSON.stringify(root.restoreRules)];
+            if (!guardPath.length) {
+                root.trialState = { phase: "idle", token: "", deadline: 0, failure: "guard=missing" };
+                return;
+            }
+            Quickshell.execDetached({ command: guardCommand, environment: { VGSHELL_RUNNER_PID: null } });
             root.trialState = { phase: "holding", token: root.trialState.token, deadline: root.trialState.deadline, failure: "" };
+            deadline.interval = Math.max(1, root.trialState.deadline - Math.floor(Date.now() / 1000)) * 1000;
+            deadline.restart();
             Compositor.monitorEval(root.trialLua, answer => {
                 if (answer !== "ok") root.trialState = { phase: "holding", token: root.trialState.token, deadline: root.trialState.deadline, failure: answer };
                 root.readOutputs();
@@ -174,7 +186,34 @@ Scope {
         }
     }
 
-    Process { id: keeper }
+    Timer {
+        id: deadline
+        onTriggered: {
+            if (root.trialState.phase !== "holding") return;
+            const token = root.trialState.token;
+            root.trialState = { phase: "idle", token: "", deadline: 0, failure: "deadline" };
+            root.trialRules = {};
+            root.readOutputs();
+            // The detached guard owns the actual restore.
+        }
+    }
+
+    Process {
+        id: keeper
+        property var done: null
+        property var rules: ({})
+        property var completion: null
+        onExited: code => completion = code
+        onRunningChanged: {
+            if (running) return;
+            const callback = done;
+            const saved = rules;
+            done = null;
+            rules = {};
+            if (root.trialState.phase === "keeping") root.trialState = { phase: "idle", token: "", deadline: 0, failure: completion === 0 ? "" : "claimed" };
+            root.trialRules = {};
+            if (callback !== null) callback(completion === 0 ? { ok: true, rules: saved } : { ok: false, error: "refused: monitors-token=claimed" });
+        }
+    }
     Process { id: reverter }
-    Process { id: guard }
 }

@@ -1,4 +1,5 @@
 .pragma library
+.import "MonitorLogic.js" as MonitorLogic
 
 // The Hyprland layer: the one Lua file the shell writes, which hyprland.lua
 // runs from the line `vgshell hypr wire` keeps first in it, so the user's
@@ -1048,28 +1049,17 @@ function monitorOwner(sections) {
 }
 
 function monitorLines(section, out) {
-    try {
-        var rules = section.monitors.value || {};
-        var ids = Object.keys(rules).sort();
-        var lines = ids.map(function (id) {
-            if (!/^[\x20\x21\x23-\x5b\x5d-\x7e]{1,512}$/.test(id)) throw new Error("identifier refused");
-            var rule = rules[id];
-            if (rule === null || typeof rule !== "object" || Array.isArray(rule)) throw new Error("rule refused");
-            var fields = ["output = \"" + id + "\""];
-            if (rule.mode !== undefined) fields.push("mode = \"" + rule.mode.width + "x" + rule.mode.height + "@" + luaNumber(rule.mode.refresh) + "\"");
-            if (rule.position !== undefined) fields.push("position = \"" + rule.position.x + "x" + rule.position.y + "\"");
-            if (rule.scale !== undefined) fields.push("scale = " + luaNumber(rule.scale));
-            if (rule.transform !== undefined) fields.push("transform = " + rule.transform);
-            if (rule.disabled !== undefined) fields.push("disabled = " + (rule.disabled ? "true" : "false"));
-            return "hl.monitor({ " + fields.join(", ") + " })";
-        });
-        if (lines.length === 0) return [];
-        return ["-- " + section.id + " " + commentText(section.version) + ": monitor rules from its settings"].concat(lines);
-    } catch (e) {
-        var error = String(e.message || e);
-        out.refusals.push({ id: section.id, setting: section.monitors.setting, error: error });
-        return ["-- monitor rules of " + section.id + " skipped: " + commentText(error)];
+    if (section.monitors.kind === "unfit") {
+        out.refusals.push({ id: section.id, setting: section.monitors.setting, error: section.monitors.error });
+        return ["-- monitor rules of " + section.id + " skipped: " + commentText(section.monitors.error)];
     }
+    var rendered = MonitorLogic.rulesLines(section.monitors.value || {});
+    if (!rendered.ok) {
+        out.refusals.push({ id: section.id, setting: section.monitors.setting, error: rendered.error });
+        return ["-- monitor rules of " + section.id + " skipped: " + commentText(rendered.error)];
+    }
+    if (rendered.lines.length === 0) return [];
+    return ["-- " + section.id + " " + commentText(section.version) + ": monitor rules from its settings"].concat(rendered.lines);
 }
 
 // The section that applies VALUES, Lua lines, once the whole configuration

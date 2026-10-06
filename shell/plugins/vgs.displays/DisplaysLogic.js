@@ -90,7 +90,6 @@ function effectiveRule(output, saved, draft) {
     var rule = Object.assign({}, saved || {}, draft || {});
     var mode = rule.mode === undefined ? modeOf(output) : rule.mode;
     return {
-        disabled: rule.disabled === undefined ? output.disabled : rule.disabled,
         mode: { width: mode.width, height: mode.height, refresh: mode.refresh },
         position: rule.position === undefined ? { x: output.x, y: output.y } : { x: rule.position.x, y: rule.position.y },
         scale: rule.scale === undefined ? output.scale : rule.scale,
@@ -146,14 +145,6 @@ function outputChoices(outputs) {
     return outputs.map(function (output) {
         return { label: output.name + (output.description === "" ? "" : ": " + output.description), value: output.identifier };
     });
-}
-
-function nextEnabledCount(outputs, saved, draft) {
-    var count = 0;
-    outputs.forEach(function (output) {
-        if (!effectiveRule(output, saved[output.identifier], draft[output.identifier]).disabled) count += 1;
-    });
-    return count;
 }
 
 function withOutputDraft(outputs, saved, draft, identifier, patch) {

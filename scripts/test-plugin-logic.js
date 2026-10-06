@@ -1147,8 +1147,8 @@ function suite(ctx, check) {
     check("hyprlandSection: a pad the core refuses is listed", padSection.padRefusals, [{ name: "3", error: "class=org.acme.pad held by pad 1" }]);
     check("hyprlandSection: a pad's key is no unknown key, another name is", padSection.unknownKeys, ["stray"]);
     check("hyprlandSection: a manifest without pads hands none", ctx.hyprlandSection({}, manifests["acme.svc"]).pads, null);
-    check("hyprlandSection: monitor rules are handed to the layer", ctx.hyprlandSection({ plugins: [{ id: "acme.svc", outputs: { "DP-1": { disabled: false } } }] }, ctx.validateManifest(monitorManifest, "/p").manifest).monitors,
-      { setting: "outputs", value: { "DP-1": { disabled: false } } });
+    check("hyprlandSection: monitor rules are handed to the layer", ctx.hyprlandSection({ plugins: [{ id: "acme.svc", outputs: { "DP-1": { scale: 1 } } }] }, ctx.validateManifest(monitorManifest, "/p").manifest).monitors,
+      { kind: "set", setting: "outputs", value: { "DP-1": { scale: 1 } } });
     const ownerMap = {
       "acme.svc": ctx.validateManifest(monitorManifest, "/p").manifest,
       "acme.other": ctx.validateManifest(Object.assign({}, monitorManifest, { id: "acme.other" }), "/p").manifest

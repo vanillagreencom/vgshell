@@ -116,9 +116,13 @@ Item {
     function keepTrial(arg) {
         let request = {};
         try { request = JSON.parse(arg); } catch (e) { return "refused: keep=json"; }
-        const reply = shell.monitors.keep(request.token);
-        if (reply !== "ok") return reply;
-        return shell.configure.set("outputs", request.rules);
+        let answer = "pending";
+        const reply = shell.monitors.keep(request.token, result => {
+            if (result.ok) answer = shell.configure.set("outputs", result.rules);
+            else answer = result.error;
+        });
+        if (reply !== "pending") return reply;
+        return "ok";
     }
 
     function revertTrial(arg) {

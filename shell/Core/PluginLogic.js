@@ -4,6 +4,7 @@
 .import "PackageManagers.js" as PackageManagers
 .import "HyprlandLayer.js" as HyprlandLayer
 .import "Pads.js" as Pads
+.import "MonitorLogic.js" as MonitorLogic
 
 // Pure decisions about plugins and configuration. No QML objects, no I/O, so
 // scripts/test-plugin-logic.js runs every function under node. The icon set
@@ -204,7 +205,6 @@ var NAME_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
 var HYPRLAND_KEYS = ["binds", "layerRules", "appearance", "options", "pads", "monitors"];
 var HYPRLAND_BIND_KEYS = ["shortcut", "key", "hold", "tap"];
 var HYPRLAND_RULE_KEYS = ["namespace", "blur", "ignoreAlpha"];
-var HYPRLAND_MONITOR_RULE_KEYS = ["disabled", "mode", "position", "scale", "transform"];
 // The modifiers a Hyprland key may hold, in the order a normalised key
 // writes them, and the key name after them: a keysym name, which Hyprland
 // looks up without regard to case.
@@ -1671,37 +1671,6 @@ function hyprlandOptionsError(options, schema) {
         var bad = optionSchemaError(HyprlandLayer.OPTIONS[path], schema[name]);
         if (bad !== "")
             return at + " " + bad;
-    }
-    return "";
-}
-
-function monitorRulesError(rules, prefix) {
-    if (!isPlainObject(rules)) return prefix + " must be an object";
-    var ids = Object.keys(rules);
-    if (ids.length > 0 && ids.every(function (id) { return isPlainObject(rules[id]) && rules[id].disabled === true; }))
-        return prefix + "=all-disabled";
-    for (var i = 0; i < ids.length; i++) {
-        var id = ids[i];
-        var at = prefix + "." + id;
-        if (typeof id !== "string" || !/^[\x20\x21\x23-\x5b\x5d-\x7e]{1,512}$/.test(id)) return at + " identifier refused";
-        var rule = rules[id];
-        if (!isPlainObject(rule)) return at + " must be an object";
-        var keys = Object.keys(rule);
-        for (var k = 0; k < keys.length; k++) if (HYPRLAND_MONITOR_RULE_KEYS.indexOf(keys[k]) === -1) return at + " has unknown key " + JSON.stringify(keys[k]);
-        if (rule.disabled !== undefined && typeof rule.disabled !== "boolean") return at + ".disabled must be a boolean";
-        if (rule.mode !== undefined) {
-            if (!isPlainObject(rule.mode)) return at + ".mode must be an object";
-            if (!Number.isInteger(rule.mode.width) || rule.mode.width <= 0) return at + ".mode.width must be a positive integer";
-            if (!Number.isInteger(rule.mode.height) || rule.mode.height <= 0) return at + ".mode.height must be a positive integer";
-            if (typeof rule.mode.refresh !== "number" || !isFinite(rule.mode.refresh) || rule.mode.refresh <= 0) return at + ".mode.refresh must be a positive number";
-        }
-        if (rule.position !== undefined) {
-            if (!isPlainObject(rule.position)) return at + ".position must be an object";
-            if (!Number.isInteger(rule.position.x)) return at + ".position.x must be an integer";
-            if (!Number.isInteger(rule.position.y)) return at + ".position.y must be an integer";
-        }
-        if (rule.scale !== undefined && (typeof rule.scale !== "number" || !isFinite(rule.scale) || rule.scale <= 0)) return at + ".scale must be a positive number";
-        if (rule.transform !== undefined && (!Number.isInteger(rule.transform) || rule.transform < 0 || rule.transform > 7)) return at + ".transform must be 0-7";
     }
     return "";
 }
@@ -3422,9 +3391,9 @@ function validateManifest(raw, sourceDir) {
                 return { ok: false, error: "hyprland.monitors names no settings key " + JSON.stringify(raw.hyprland.monitors) };
             if (hasOwn(schema, raw.hyprland.monitors))
                 return { ok: false, error: "hyprland.monitors must not name a schema entry" };
-            var badMonitorDefault = monitorRulesError(settings[raw.hyprland.monitors], "hyprland.monitors default");
+            var badMonitorDefault = MonitorLogic.rulesError(settings[raw.hyprland.monitors], null);
             if (badMonitorDefault !== "")
-                return { ok: false, error: badMonitorDefault };
+                return { ok: false, error: badMonitorDefault.replace("refused: monitors", "hyprland.monitors default") };
         }
     }
     if (raw.tui !== undefined) {
@@ -3683,6 +3652,12 @@ function hyprlandSection(config, manifest) {
         var literal = HyprlandLayer.optionLiteral(HyprlandLayer.OPTIONS[path], row[setting]);
         options.push(literal.ok ? { kind: "set", setting: setting, path: path, value: clone(row[setting]), lua: literal.lua } : { kind: "unfit", setting: setting, path: path, error: literal.error });
     });
+    var monitors = null;
+    if (declared.monitors !== undefined) {
+        var monitorValue = clone(settings[declared.monitors] || {});
+        var monitorBad = MonitorLogic.rulesError(monitorValue, null);
+        monitors = monitorBad === "" ? { kind: "set", setting: declared.monitors, value: monitorValue } : { kind: "unfit", setting: declared.monitors, error: monitorBad };
+    }
     return {
         id: manifest.id,
         version: manifest.version,
@@ -3690,7 +3665,7 @@ function hyprlandSection(config, manifest) {
         layerRules: clone(declared.layerRules),
         appearance: appearance,
         options: options,
-        monitors: declared.monitors === undefined ? null : { setting: declared.monitors, value: clone(settings[declared.monitors] || {}) },
+        monitors: monitors,
         pads: pads.pads,
         padRefusals: pads.refusals,
         unknownKeys: Object.keys(keys).filter(function (name) { return names.indexOf(name) === -1 && !Pads.isPadShortcut(declared, name, NAME_PATTERN); }).sort()
@@ -4059,8 +4034,8 @@ function withFirstPresence(user, manifests, effective) {
 // value of its type. The reply is one keyed line.
 function settingRefusal(manifest, key, value) {
     if (manifest.hyprland !== undefined && manifest.hyprland.monitors === key) {
-        var badMonitors = monitorRulesError(value, "setting=" + key);
-        return badMonitors === "" ? "" : "refused: " + badMonitors;
+        var badMonitors = MonitorLogic.rulesError(value, null);
+        return badMonitors === "" ? "" : badMonitors.replace("refused: monitors", "refused: setting=" + key);
     }
     if (!hasOwn(manifest.schema, key))
         return "refused: setting=" + key + " undeclared";

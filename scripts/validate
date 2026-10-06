@@ -696,7 +696,7 @@ runtime_reads_no_scripts() {
   echo "validate: the runtime loads nothing under scripts/"
 }
 
-# VGS writes monitor rules only through shell/Core/HyprlandLayer.js, the
+# VGS writes monitor rules only through shell/Core/MonitorLogic.js, the
 # renderer that judges the rule fields first. No other file an install ships
 # from bin/, shell/ or config/ holds an `hl.monitor` call, spelled
 # `hl.monitor` then an opening parenthesis with any blanks between them: the
@@ -731,7 +731,7 @@ runtime_writes_monitor_rule_once() {
     total=$((total + ${#lines[@]}))
   done
   err_file="$(scratch_file)" || return 1
-  out="$(git grep -n -I -E --untracked -e "$pattern" -- "${roots[@]}" ':(exclude)shell/Core/HyprlandLayer.js' 2>"$err_file")" || status=$?
+  out="$(git grep -n -I -E --untracked -e "$pattern" -- "${roots[@]}" ':(exclude)shell/Core/MonitorLogic.js' 2>"$err_file")" || status=$?
   err="$(cat -- "$err_file")" || status=2
   rm -f -- "$err_file"
   if [[ $status -gt 1 || ( $status -eq 1 && -n $err ) ]]; then

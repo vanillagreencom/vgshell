@@ -96,19 +96,8 @@ function parseOutputs(text) {
     return { ok: true, outputs: out };
 }
 
-var RULE_KEYS = ["disabled", "mode", "position", "scale", "transform"];
+var RULE_KEYS = ["mode", "position", "scale", "transform"];
 var OUTPUT_NAME = /^[\x20\x21\x23-\x5b\x5d-\x7e]{1,512}$/;
-var TRANSFORMS = [
-    { value: 0, label: "Normal" },
-    { value: 1, label: "90°" },
-    { value: 2, label: "180°" },
-    { value: 3, label: "270°" },
-    { value: 4, label: "Flipped" },
-    { value: 5, label: "Flipped 90°" },
-    { value: 6, label: "Flipped 180°" },
-    { value: 7, label: "Flipped 270°" }
-];
-var SCALE_CANDIDATES = [1, 1.25, 4 / 3, 1.5, 1.6, 5 / 3, 1.75, 2, 2.25, 2.5, 3];
 
 function modeOf(output) {
     return { width: output.width, height: output.height, refresh: output.refreshRate };
@@ -129,22 +118,6 @@ function scaleFits(mode, scale) {
     return Math.abs(w - Math.round(w)) <= 0.001 && Math.abs(h - Math.round(h)) <= 0.001;
 }
 
-function scaleChoices(mode, current) {
-    var out = [];
-    SCALE_CANDIDATES.concat([current]).forEach(function (scale) {
-        if (!scaleFits(mode, scale)) return;
-        if (!out.some(function (seen) { return Math.abs(seen - scale) < 0.000001; })) out.push(scale);
-    });
-    return out.sort(function (a, b) { return a - b; }).map(function (scale) {
-        return { label: scaleLabel(scale), value: scale };
-    });
-}
-
-function scaleLabel(scale) {
-    var rounded = Math.round(scale * 1000) / 1000;
-    return String(rounded).replace(/(\.[0-9]*?)0+$/, "$1").replace(/\.$/, "") + "×";
-}
-
 function outputByIdentifier(outputs, id) {
     for (var i = 0; i < outputs.length; i++) if (outputs[i].identifier === id) return outputs[i];
     return null;
@@ -154,7 +127,6 @@ function normalizedRule(output, rule) {
     var currentMode = modeOf(output);
     var mode = rule.mode === undefined ? currentMode : rule.mode;
     return {
-        disabled: rule.disabled === undefined ? output.disabled : rule.disabled,
         mode: { width: mode.width, height: mode.height, refresh: mode.refresh },
         position: rule.position === undefined ? positionOf(output) : { x: rule.position.x, y: rule.position.y },
         scale: rule.scale === undefined ? output.scale : rule.scale,
@@ -174,7 +146,6 @@ function ruleError(rule, at) {
     if (!isPlainObject(rule)) return at + " must be an object";
     var keys = Object.keys(rule);
     for (var k = 0; k < keys.length; k++) if (RULE_KEYS.indexOf(keys[k]) === -1) return at + " has unknown key " + JSON.stringify(keys[k]);
-    if (rule.disabled !== undefined && typeof rule.disabled !== "boolean") return at + ".disabled must be a boolean";
     if (rule.mode !== undefined) {
         var badMode = modeError(rule.mode, at);
         if (badMode !== "") return badMode;
@@ -195,7 +166,6 @@ function ruleError(rule, at) {
 function rulesError(rules, outputs) {
     if (!isPlainObject(rules)) return "refused: monitors=shape want=object";
     var ids = Object.keys(rules);
-    var enabled = 0;
     for (var i = 0; i < ids.length; i++) {
         var id = ids[i];
         var at = "monitors." + id;
@@ -204,8 +174,10 @@ function rulesError(rules, outputs) {
         var bad = ruleError(rule, at);
         if (bad !== "") return "refused: " + bad;
         if (Array.isArray(outputs)) {
-            var output = outputByIdentifier(outputs, id);
-            if (output === null) return "refused: " + at + " output=absent";
+            var matching = outputs.filter(function (o) { return o.identifier === id; });
+            if (matching.length === 0) return "refused: " + at + " output=absent";
+            if (matching.length > 1) return "refused: " + at + " output=tiled";
+            var output = matching[0];
             var normalized = normalizedRule(output, rule);
             var modes = output.availableModes;
             if (modes.length > 0 && !modes.some(function (mode) { return sameMode(mode, normalized.mode); }))
@@ -213,16 +185,6 @@ function rulesError(rules, outputs) {
             if (!scaleFits(normalized.mode, normalized.scale))
                 return "refused: " + at + ".scale fractional-logical-pixels";
         }
-    }
-    if (Array.isArray(outputs)) {
-        for (var o = 0; o < outputs.length; o++) {
-            var out = outputs[o];
-            var r = hasOwn(rules, out.identifier) ? rules[out.identifier] : {};
-            if (!normalizedRule(out, r).disabled) enabled += 1;
-        }
-        if (outputs.length > 0 && enabled === 0) return "refused: monitors=all-disabled";
-    } else if (ids.length > 0 && ids.every(function (id) { return rules[id].disabled === true; })) {
-        return "refused: monitors=all-disabled";
     }
     return "";
 }
@@ -252,8 +214,7 @@ function ruleLine(id, rule) {
     if (rule.position !== undefined) fields.push("position = " + luaString(positionText(rule.position)));
     if (rule.scale !== undefined) fields.push("scale = " + luaNumber(rule.scale));
     if (rule.transform !== undefined) fields.push("transform = " + rule.transform);
-    if (rule.disabled !== undefined) fields.push("disabled = " + (rule.disabled ? "true" : "false"));
-    return "hl." + "monitor({ " + fields.join(", ") + " })";
+    return "hl.monitor({ " + fields.join(", ") + " })";
 }
 
 function rulesLines(rules) {
@@ -273,7 +234,6 @@ function captureRules(outputs, ids) {
         var output = outputByIdentifier(outputs, id);
         if (output === null) return;
         selected[id] = {
-            disabled: output.disabled,
             mode: modeOf(output),
             position: positionOf(output),
             scale: output.scale,
@@ -286,8 +246,7 @@ function captureRules(outputs, ids) {
 function overridden(rule, output) {
     var current = normalizedRule(output, {});
     var saved = normalizedRule(output, rule);
-    return saved.disabled !== current.disabled
-        || !sameMode(saved.mode, current.mode)
+    return !sameMode(saved.mode, current.mode)
         || Math.abs(saved.scale - current.scale) > 0.000001
         || saved.transform !== current.transform
         || saved.position.x !== current.position.x

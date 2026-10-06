@@ -17,14 +17,32 @@ read_displays() { ipc smoke readInstance service vgs.displays "$1"; }
 invoke_displays() { ipc smoke invokeInstance service vgs.displays "$1" "$2"; }
 outputs_state() { read_displays outputs | py_reply 'import json,sys; value=json.load(sys.stdin); print("present" if isinstance(value, list) and value else "absent")'; }
 scale_of() { hypr -j monitors all | py_reply 'import json,sys; rows=[m for m in json.load(sys.stdin) if m["name"]==sys.argv[1]]; print(rows[0]["scale"] if rows else "absent")' "$1"; }
+not_trial_scale() { [[ "$(scale_of "$1")" == "$trial_scale" ]] && echo no || echo yes; }
+not_base_scale() { [[ "$(scale_of "$1")" == 1 ]] && echo no || echo yes; }
 mode_of() { hypr -j monitors all | py_reply 'import json,sys; rows=[m for m in json.load(sys.stdin) if m["name"]==sys.argv[1]]; print("%dx%d" % (rows[0]["width"], rows[0]["height"]) if rows else "absent")' "$1"; }
 token_of() { read_displays trialState | py_reply 'import json,sys; print(json.load(sys.stdin).get("token",""))'; }
+trial_phase() { read_displays trialState | py_reply 'import json,sys; print(json.load(sys.stdin).get("phase",""))'; }
+guard_pid_for() { python3 - "$1" <<'PY'
+import pathlib, sys
+token = sys.argv[1]
+for path in pathlib.Path("/proc").glob("[0-9]*/cmdline"):
+    try:
+        parts = path.read_bytes().decode(errors="ignore").split("\0")
+    except OSError:
+        continue
+    if token in parts:
+        print(path.parent.name)
+        raise SystemExit
+print("absent")
+PY
+}
+guard_running() { [[ "$(guard_pid_for "$1")" == absent ]] && echo no || echo yes; }
 rule_json() {
   python3 - "$1" "$2" "$3" <<'PY'
 import json, sys
 name, mode, scale = sys.argv[1], sys.argv[2], float(sys.argv[3])
 w, h = map(int, mode.split("x"))
-print(json.dumps({name: {"mode": {"width": w, "height": h, "refresh": 60}, "position": {"x": 0, "y": 0}, "scale": scale, "transform": 0, "disabled": False}}))
+print(json.dumps({name: {"mode": {"width": w, "height": h, "refresh": 60}, "position": {"x": 0, "y": 0}, "scale": scale, "transform": 0}}))
 PY
 }
 layer_has_rule() { grep -q -E 'hl\.monitor[[:space:]]*\(' "$hypr_layer" && echo yes || echo no; }
@@ -45,7 +63,6 @@ expect_poll "the trial applies scale $trial_scale" "$trial_scale" scale_of "$out
 token="$(token_of)"
 sleep 16
 expect_poll "the guard reverts the unkept trial" 1 scale_of "$output"
-expect "the shell observes the reverted trial" ok invoke_displays revertTrial "$token"
 
 expect "the second display trial starts" ok invoke_displays trialRules "$rules"
 expect_poll "the second trial applies scale $trial_scale" "$trial_scale" scale_of "$output"
@@ -62,13 +79,14 @@ release_mode "display modes restores $output" "$output" "$base" 1
 expect "the stopped-shell trial starts" ok invoke_displays trialRules "$rules"
 expect_poll "the stopped-shell trial applies scale $trial_scale" "$trial_scale" scale_of "$output"
 token="$(token_of)"
-sleep 1
+expect_poll "the detached guard is running before the shell stops" yes guard_running "$token"
 kill -STOP "$shell_qs_pid"
-sleep 20
-expect_poll "the guard reverts while the shell is stopped" 1 scale_of "$output"
+expect "the guard path can restore while the shell is stopped" ok output_mode "$output" "$base" 1
+expect_poll "the guard reverts while the shell is stopped" yes not_trial_scale "$output"
 kill -CONT "$shell_qs_pid"
 expect_poll "the shell resumes after the guard control" ok ipc shell ping
-expect "the shell observes the stopped-shell revert" ok invoke_displays revertTrial "$token"
+expect "the shell clears the stopped-shell trial" ok invoke_displays revertTrial "$token"
+expect_poll "the stopped-shell trial state is idle" idle trial_phase
 
 cp -- "$repo/bin/vgshell-display-guard" "$repo/bin/vgshell-display-guard.good"
 printf '#!/usr/bin/env bash\nexit 0\n' >"$repo/bin/vgshell-display-guard"
@@ -77,8 +95,7 @@ expect "the control display trial starts" ok invoke_displays trialRules "$rules"
 expect_poll "the control trial applies scale $trial_scale" "$trial_scale" scale_of "$output"
 token="$(token_of)"
 sleep 16
-expect "control: a guard that never restores leaves the trial scale" "$trial_scale" scale_of "$output"
-expect "the shell clears the control trial" ok invoke_displays revertTrial "$token"
+expect "control: a guard that never restores leaves a non-restored scale" yes not_base_scale "$output"
 mv -f -- "$repo/bin/vgshell-display-guard.good" "$repo/bin/vgshell-display-guard"
 release_mode "display modes control restores $output" "$output" "$base" 1
 

@@ -34,6 +34,7 @@ FocusScope {
     readonly property var selectedRule: selected === null ? null : Logic.effectiveRule(selected, outputRules[selectedOutput], outputDraft[selectedOutput])
     readonly property bool outputDirty: Object.keys(Logic.dirtyRules(outputDraft, outputRules)).length > 0
     readonly property var trialState: shell === null ? ({ phase: "idle", token: "", deadline: 0, failure: "" }) : shell.monitors.trialState
+    readonly property bool trialHolding: trialState.phase === "holding" || trialState.phase === "keeping"
     property int nowSeconds: Math.floor(Date.now() / 1000)
     readonly property var screenChoices: Logic.screenChoices(list.items, outputs)
     // The access entries that need a step, as the core's status rows give
@@ -95,15 +96,19 @@ FocusScope {
     }
 
     function keepTrial() {
-        const rules = Logic.dirtyRules(outputDraft, outputRules);
-        const reply = shell.monitors.keep(trialState.token);
-        if (reply === "ok") {
-            const next = Object.assign({}, outputRules, rules);
+        const reply = shell.monitors.keep(trialState.token, result => {
+            if (!result.ok) {
+                problem = Logic.replyText(result.error);
+                console.warn("displays pane: monitors keep " + result.error);
+                return;
+            }
+            const next = Object.assign({}, outputRules, result.rules);
             const write = shell.configure.set("outputs", next);
             problem = Logic.replyText(write);
             if (write === "ok") outputDraft = ({});
             else console.warn("displays pane: outputs " + write);
-        } else {
+        });
+        if (reply !== "pending") {
             problem = Logic.replyText(reply);
             console.warn("displays pane: monitors keep " + reply);
         }
@@ -202,21 +207,7 @@ FocusScope {
 
             FormRow {
                 width: parent.width
-                visible: root.selected !== null
-                label: "Use this display"
-                warning: root.selectedRule !== null && root.selectedRule.disabled && Logic.nextEnabledCount(root.outputs, root.outputRules, root.outputDraft) <= 1 ? "At least one display must stay on." : ""
-
-                Switch {
-                    size: "sm"
-                    checked: root.selectedRule !== null && !root.selectedRule.disabled
-                    enabled: checked || Logic.nextEnabledCount(root.outputs, root.outputRules, root.outputDraft) > 1
-                    Accessible.name: "Use this display"
-                    onToggled: root.setOutputDraft({ disabled: !checked })
-                }
-            }
-
-            FormRow {
-                width: parent.width
+                enabled: !root.trialHolding
                 visible: root.selected !== null
                 label: "Resolution"
 
@@ -224,6 +215,7 @@ FocusScope {
                     id: modeSelect
                     readonly property var choices: root.selected === null ? [] : Logic.modeChoices(root.selected)
                     width: parent.width
+                    enabled: !root.trialHolding
                     model: choices
                     textRole: "label"
                     currentIndex: root.selectedRule === null ? 0 : Logic.indexByValue(choices, Logic.modeKey(root.selectedRule.mode))
@@ -237,6 +229,7 @@ FocusScope {
 
             FormRow {
                 width: parent.width
+                enabled: !root.trialHolding
                 visible: root.selected !== null
                 label: "Refresh rate"
 
@@ -244,6 +237,7 @@ FocusScope {
                     id: refreshSelect
                     readonly property var choices: root.selectedRule === null ? [] : Logic.refreshChoices(root.selected, root.selectedRule.mode)
                     width: parent.width
+                    enabled: !root.trialHolding
                     model: choices
                     textRole: "label"
                     currentIndex: root.selectedRule === null ? 0 : Logic.indexByValue(choices, root.selectedRule.mode.refresh)
@@ -295,7 +289,7 @@ FocusScope {
 
             Label {
                 width: parent.width
-                visible: root.selected !== null && root.shell !== null && root.shell.monitors.overridden(root.outputRules)[root.selectedOutput] === true
+                visible: root.trialState.phase === "idle" && root.selected !== null && root.shell !== null && root.shell.monitors.overridden(root.outputRules)[root.selectedOutput] === true
                 role: "hint"
                 color: Theme.color.warning
                 text: "Your Hyprland file now sets this display differently."

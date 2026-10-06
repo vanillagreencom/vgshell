@@ -339,14 +339,14 @@ row "a file under bin/ the boundary check cannot read is an error, not a pass" "
 
 # The monitor-rule writer check: one file planted per row, untracked unless
 # the row says committed. An `hl.monitor` call under bin/, shell/ or config/
-# is refused outside the one renderer, shell/Core/HyprlandLayer.js; prose that
+# is refused outside the one renderer, shell/Core/MonitorLogic.js; prose that
 # names it, another `hl` call and a file outside the three roots, where the
 # nested test compositor's configuration lives, pass with the count of files
 # read. A root that lists no file is an error.
 monitor_cases=(
   'call|shell/Core/Layer.lua|untracked|1|hl.monitor({ output = "DP-1", disabled = true })'
   'committed call|shell/Core/Layer.lua|committed|1|hl.monitor({ output = "DP-1", disabled = true })'
-  'rendered line in the owner|shell/Core/HyprlandLayer.js|untracked|0|        return "hl.monitor({ " + fields.join(", ") + " })";'
+  'rendered line in the owner|shell/Core/MonitorLogic.js|untracked|0|        return "hl.monitor({ " + fields.join(", ") + " })";'
   'spaced call|bin/vgshell-monitor-guard|untracked|1|hyprctl eval '"'"'hl.monitor ({ output = "" })'"'"
   'call in a configuration file|config/hyprland.lua|untracked|1|hl.monitor{} hl.monitor({ output = "", mode = "preferred" })'
   'comment naming the call|shell/Core/MonitorLogic.js|untracked|0|// The user sets each output with hl.monitor in hyprland.lua.'

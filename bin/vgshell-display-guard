@@ -28,7 +28,9 @@ fi
 
 claim="${token}.revert"
 if ! mv -- "$token" "$claim" 2>/dev/null; then
-  echo "display-guard: token=kept path=$token"
+  line="display-guard: token=kept path=$token"
+  echo "$line" >>"$token.log"
+  echo "$line"
   exit 0
 fi
 
@@ -59,5 +61,8 @@ sys.exit(0 if ok else 1)
 PY
   then match=match; else match=mismatch; fi
 fi
-echo "display-guard: token=reverted path=$token eval=$eval_status read=$read_status readback=$match"
+line="display-guard: token=reverted path=$token eval=$eval_status read=$read_status readback=$match"
+echo "$line" >>"$token.log"
+echo "$line"
+rm -f -- "$claim"
 exit "$(( eval_status != 0 ? eval_status : read_status ))"

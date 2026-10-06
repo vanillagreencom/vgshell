@@ -134,26 +134,25 @@ function suite(lib, check) {
 
     const outputs = desk.outputs;
     const goodRules = {
-        "desc:Dell Inc. DELL U2720Q 8YT0R13": { mode: { width: 3840, height: 2160, refresh: 60 }, position: { x: 0, y: 0 }, scale: 1.5, transform: 0, disabled: false },
-        "DP-2": { mode: { width: 3840, height: 2160, refresh: 60 }, position: { x: 2560, y: 0 }, scale: 2, transform: 1, disabled: false }
+        "desc:Dell Inc. DELL U2720Q 8YT0R13": { mode: { width: 3840, height: 2160, refresh: 60 }, position: { x: 0, y: 0 }, scale: 1.5, transform: 0 },
+        "DP-2": { mode: { width: 3840, height: 2160, refresh: 60 }, position: { x: 2560, y: 0 }, scale: 2, transform: 1 }
     };
     check("rulesError accepts available modes and whole logical pixels", lib.rulesError(goodRules, outputs), "");
     check("rulesLines renders monitor rules", lib.rulesLines(goodRules), { ok: true, lines: [
-        'hl.monitor({ output = "DP-2", mode = "3840x2160@60", position = "2560x0", scale = 2, transform = 1, disabled = false })',
-        'hl.monitor({ output = "desc:Dell Inc. DELL U2720Q 8YT0R13", mode = "3840x2160@60", position = "0x0", scale = 1.5, transform = 0, disabled = false })'
+        'hl.monitor({ output = "DP-2", mode = "3840x2160@60", position = "2560x0", scale = 2, transform = 1 })',
+        'hl.monitor({ output = "desc:Dell Inc. DELL U2720Q 8YT0R13", mode = "3840x2160@60", position = "0x0", scale = 1.5, transform = 0 })'
     ] });
-    check("captureRules records explicit restore fields", lib.captureRules(outputs, ["DP-2"]), { "DP-2": { disabled: false, mode: { width: 3840, height: 2160, refresh: 59.997 }, position: { x: 2560, y: 0 }, scale: 2, transform: 0 } });
+    check("captureRules records explicit restore fields", lib.captureRules(outputs, ["DP-2"]), { "DP-2": { mode: { width: 3840, height: 2160, refresh: 59.997 }, position: { x: 2560, y: 0 }, scale: 2, transform: 0 } });
     check("overridden: live output differs from saved rule", lib.overridden({ scale: 1 }, outputs[1]), true);
     check("overridden: live output equals saved rule within refresh tolerance", lib.overridden(lib.captureRules(outputs, ["DP-2"])["DP-2"], outputs[1]), false);
-    check("scaleChoices filters fractional logical pixels and includes current", lib.scaleChoices({ width: 2880, height: 1800, refresh: 60 }, 2).map(c => c.value),
-        [1, 1.25, 4 / 3, 1.5, 1.6, 5 / 3, 2, 2.25, 2.5, 3]);
     const ruleRefusals = [
         ["mode outside availableModes", { "DP-2": { mode: { width: 1920, height: 1080, refresh: 60 } } }, "refused: monitors.DP-2.mode unavailable"],
         ["fractional logical pixels", { "DP-2": { mode: { width: 3840, height: 2160, refresh: 60 }, scale: 1.3 } }, "refused: monitors.DP-2.scale fractional-logical-pixels"],
-        ["all outputs off", { "desc:Dell Inc. DELL U2720Q 8YT0R13": { disabled: true }, "DP-2": { disabled: true } }, "refused: monitors=all-disabled"],
-        ["Lua text injection through an identifier", { "DP-1\"": { disabled: false } }, "refused: monitors.DP-1\" identifier refused"]
+        ["Lua text injection through an identifier", { "DP-1\"": { scale: 1 } }, "refused: monitors.DP-1\" identifier refused"]
     ];
     for (const [name, rules, want] of ruleRefusals) check("rulesError refuses " + name, lib.rulesError(rules, outputs), want);
+    const tiled = lib.parseOutputs(reply([DESK[0], monitor(3, "DP-5", { make: "Dell, Inc.", serial: "8YT0R13", x: 3840 })])).outputs;
+    check("rulesError refuses a tiled output group", lib.rulesError({ "desc:Dell Inc. DELL U2720Q 8YT0R13": { scale: 2 } }, tiled), "refused: monitors.desc:Dell Inc. DELL U2720Q 8YT0R13 output=tiled");
     check("rulesError accepts a mode when Hyprland lists no modes", lib.rulesError({ "WAYLAND-1": { mode: { width: 1754, height: 932, refresh: 60 }, scale: 2 } }, nested.outputs), "");
 }
 
@@ -179,7 +178,7 @@ const CONTROLS = [
     ["mirrorOf names an output", 'if (target.length !== 1) return { ok: false, error: "refused: outputs=shape output=" + j', 'if (false) return { ok: false, error: "refused: outputs=shape output=" + j']
     ,["fractional logical pixels accepted", "if (!scaleFits(normalized.mode, normalized.scale))", "if (false)"],
     ["mode outside availableModes accepted", "if (modes.length > 0 && !modes.some(function (mode) { return sameMode(mode, normalized.mode); }))", "if (false)"],
-    ["all outputs off accepted", "if (outputs.length > 0 && enabled === 0)", "if (false)"],
+    ["tiled output groups accepted", 'if (matching.length > 1) return "refused: " + at + " output=tiled";', ""],
     ["Lua text injection through a field", "if (!OUTPUT_NAME.test(id)) return \"refused: \" + at + \" identifier refused\";", "if (false) return \"refused: \" + at + \" identifier refused\";"],
     ["restore missing a field", "scale: output.scale,", ""]
 ];
