@@ -993,8 +993,8 @@ expect_poll "the themes panel closes" closed panel_open
 # ---- vgs.themes wallpaper: the theme's background image ------------------
 # The background kind of vgs.themes, built on every screen since the
 # harness started, and the panel's wallpaper section. An installed package
-# ships three generated images: a.png, larger than any nested screen, b.png
-# and c.png. What the background draws is read back from its Image on the
+# ships three generated images: a.png, twice the largest current monitor
+# mode, b.png and c.png. What the background draws is read back from its Image on the
 # first screen through the probe's `images`, and the surface the host maps
 # from the compositor: none while no image is drawn, one per screen while
 # one is. The panel is read back through the labels it draws and clicked
@@ -1010,15 +1010,16 @@ expect_poll "the themes panel closes" closed panel_open
 scenic="$installed/scenic"
 mkdir -p -- "$scenic/backgrounds"
 printf '%s\n' '{ "schemaVersion": 1, "name": "scenic", "tokens": {} }' >"$scenic/theme.json"
-solid_png "$scenic/backgrounds/a.png" 4000 2000 200 40 40
+read -r scenic_w scenic_h < <(hypr -j monitors | py_reply 'import json,sys; monitors=json.load(sys.stdin); print(max(m["width"] for m in monitors) * 2, max(m["height"] for m in monitors) * 2)') || { fail "the scenic background size could not be derived from the monitors"; exit 1; }
+solid_png "$scenic/backgrounds/a.png" "$scenic_w" "$scenic_h" 200 40 40
 solid_png "$scenic/backgrounds/b.png" 64 36 40 40 200
 solid_png "$scenic/backgrounds/c.png" 48 48 40 200 40
 vgshell_theme() { "${shell_env[@]}" "$repo/bin/vgshell" theme "$@"; }
 # What the first screen's background draws, as background_image_on in
 # harness.sh reads it. background_covers: whether the image decoded to
-# cover its box and smaller than the 4000x2000 file.
+# cover its box and smaller than the generated oversized file.
 background_image() { background_image_on "$screen_name"; }
-background_covers() { ipc smoke images "background:$screen_name" vgs.themes | py_reply 'import json,sys; _,_,box,size,*_=json.load(sys.stdin)[0]; print(box[0] > 0 and size[0] >= box[0] and size[1] >= box[1] and size[0] < 4000)'; }
+background_covers() { ipc smoke images "background:$screen_name" vgs.themes | py_reply 'import json,sys; file_w,file_h=(int(v) for v in sys.argv[1:3]); _,_,box,size,*_=json.load(sys.stdin)[0]; print(box[0] > 0 and size[0] >= box[0] and size[1] >= box[1] and size[0] < file_w and size[1] < file_h)' "$scenic_w" "$scenic_h"; }
 background_link() { if [[ -L $bg_state/background ]]; then readlink -- "$bg_state/background"; else echo absent; fi; }
 # The drawn image's decoded width over its height, to one decimal place;
 # `images=<n>` while the background draws other than one image.
@@ -1237,9 +1238,10 @@ fi
 bg_state_names "$scenic/backgrounds/a.png"; bg_state_names "$scenic/backgrounds/c.png"
 expect_poll "back-to-back state changes draw the later image" "$scenic/backgrounds/c.png ready" background_image
 # An image replaced under its name is decoded again once its package
-# applies again: the 2:1 a.png becomes a 16:9 image.
+# applies again: the monitor-derived a.png becomes a 16:9 image.
+scenic_ratio="$(python3 -c 'import sys; print("%.1f" % (int(sys.argv[1]) / int(sys.argv[2])))' "$scenic_w" "$scenic_h")"
 expect "the package applies over the hand-written state" "ok theme=scenic state=unchanged shell=unchanged" vgshell_theme apply scenic
-expect_poll "the package's first image is drawn at its 2:1 shape" 2.0 background_ratio
+expect_poll "the package's first image is drawn at its monitor-derived shape" "$scenic_ratio" background_ratio
 cp -- "$scenic/backgrounds/b.png" "$scenic/backgrounds/a.png.tmp" && mv -T -- "$scenic/backgrounds/a.png.tmp" "$scenic/backgrounds/a.png"
 expect "the package applies over its replaced image" "ok theme=scenic state=unchanged shell=unchanged" vgshell_theme apply scenic
 expect_poll "the replaced image is decoded again at its 16:9 shape" 1.8 background_ratio

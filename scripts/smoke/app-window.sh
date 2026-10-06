@@ -107,12 +107,18 @@ window_border_off() {
   expect "the nested instance reloads without the window rows' border" ok hypr reload config-only
 }
 window_border_size() { hypr -j getoption general:border_size | python3 -c 'import json,sys; print(json.load(sys.stdin)["int"])'; }
-# edge_pixels TITLE LEFT_OFFSETS...: the colour at each offset left of the
-# one shell window titled TITLE, at the height of its middle.
+# edge_pixels TITLE [LEFT_OFFSETS...]: the colour at each layout-pixel
+# offset left of the one shell window titled TITLE, at the height of its
+# middle. With no offsets, it samples the whole border the row set.
 edge_pixels() {
-  local box x y colours=() offset colour
+  local box x y colours=() offset colour border offset_args=()
   box="$(one_window "$1")" && [[ $box == \[* ]] || { echo "$box"; return; }
   shift
+  if (( $# == 0 )); then
+    border="$(window_border_size)" || return
+    for offset in $(seq 1 "$border"); do offset_args+=("$offset"); done
+    set -- "${offset_args[@]}"
+  fi
   read -r x y < <(python3 -c 'import json,sys; b=json.loads(sys.argv[1]); print(b[0], b[1] + b[3] // 2)' "$box")
   for offset; do colour="$(pixel "$((x - offset))" "$y")" || { echo "$colour"; return; }; colours+=("$colour"); done
   echo "${colours[*]}"
@@ -122,7 +128,16 @@ edge_pixels() {
 no_border_colour() { [[ $1 == ff0000 || $1 == 0000ff ]] && echo "$1" || echo none; }
 # past_border TITLE: what the pixel one past the border's size shows, read
 # as no_border_colour reads it.
-past_border() { local c; c="$(edge_pixels "$1" 5)" || return; no_border_colour "$c"; }
+past_border() { local c border; border="$(window_border_size)" || return; c="$(edge_pixels "$1" "$((border + 1))")" || return; no_border_colour "$c"; }
+window_border_expect() { # COLOUR
+  local border out=() i
+  border="$(window_border_size)" || return
+  for i in $(seq 1 "$border"); do out+=("$1"); done
+  echo "${out[*]}"
+}
+window_move_dx=40
+window_move_dy=30
+window_move_delta() { printf '[%s, %s]\n' "$window_move_dx" "$window_move_dy"; }
 
 # app_window_rows TITLE ID: the one shell window titled TITLE, plugin ID's
 # `window`, open and just mapped, is a Hyprland window: one client of the
@@ -143,12 +158,12 @@ app_window_rows() {
   expect_poll "the $title window is focused" "[\"$shell_class\", \"$title\"]" active_window
   expect_poll "the shell reads the $title window holding the keyboard" true window_keyboard "$id"
   window_border_on
-  render expect_poll "the focused $title window's border is 4 px of the active colour" "ff0000 ff0000 ff0000 ff0000" edge_pixels "$title" 1 2 3 4
+  render expect_poll "the focused $title window's border is the active colour across its set layout-pixel size" "$(window_border_expect ff0000)" edge_pixels "$title"
   render expect "the $title window's border ends at its size" none past_border "$title"
   if open_other "$sandbox/toplevel-$id.log"; then
     expect_poll "the helper beside $title takes the focus" '["smoke.other", "Other window"]' active_window
     expect_poll "the shell reads the $title window without the keyboard" false window_keyboard "$id"
-    render expect_poll "the unfocused $title window's border is 4 px of the inactive colour" "0000ff 0000ff 0000ff 0000ff" edge_pixels "$title" 1 2 3 4
+    render expect_poll "the unfocused $title window's border is the inactive colour across its set layout-pixel size" "$(window_border_expect 0000ff)" edge_pixels "$title"
     if address="$(window_address "$title")" && [[ $address == 0x* ]]; then
       at_before="$(window_of "$title" at)"
       # moved: how far the window's top-left moved since at_before, as
@@ -158,8 +173,8 @@ app_window_rows() {
         now="$(window_of "$title" at)" && [[ $now == \[* ]] || { echo "$now"; return; }
         python3 -c 'import json,sys; a=json.loads(sys.argv[1])[0]; b=json.loads(sys.argv[2])[0]; print(json.dumps([b[0] - a[0], b[1] - a[1]]))' "$at_before" "$now"
       }
-      expect "a move dispatch aimed at the $title window answers ok" ok hypr dispatch "hl.dsp.window.move({ x = 40, y = 30, relative = true, window = \"address:$address\" })"
-      geometry expect_poll "the move dispatch moved the $title window by 40, 30" '[40, 30]' moved
+      expect "a layout-pixel move dispatch aimed at the $title window answers ok" ok hypr dispatch "hl.dsp.window.move({ x = $window_move_dx, y = $window_move_dy, relative = true, window = \"address:$address\" })"
+      geometry expect_poll "the move dispatch moved the $title window by the requested layout-pixel delta" "$(window_move_delta)" moved
       keys_before="$(other_events '^key ')"
       type_keys -k Escape || fail "typing Escape into the helper beside $title failed"
       expect_poll "an Escape typed while the helper is focused reaches the helper" "$((keys_before + 2))" other_events '^key '
@@ -167,7 +182,7 @@ app_window_rows() {
       expect "a focus dispatch aimed at the $title window answers ok" ok hypr dispatch "hl.dsp.focus({ window = \"address:$address\" })"
       expect_poll "the focus dispatch focused the $title window" "[\"$shell_class\", \"$title\"]" active_window
       expect_poll "the shell reads the $title window holding the keyboard again" true window_keyboard "$id"
-      render expect_poll "the refocused $title window's border is the active colour again" "ff0000 ff0000 ff0000 ff0000" edge_pixels "$title" 1 2 3 4
+      render expect_poll "the refocused $title window's border is the active colour again" "$(window_border_expect ff0000)" edge_pixels "$title"
       type_keys -k Escape || fail "typing Escape into the $title window failed"
       expect_poll "an Escape typed while the $title window is focused closes it" 0 window_count "$title"
       expect_poll "the host dropped the $title window's instance" absent ipc smoke instanceGeometry window "$id"

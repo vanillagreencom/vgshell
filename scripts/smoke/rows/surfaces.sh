@@ -40,6 +40,7 @@ path.write_text(text)
 PYEDIT
 respaced() { "$@" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)))'; }
 surface_focused() { respaced ipc smoke focused "$1" acme.surfaces | py_reply 'import json,sys; row=json.load(sys.stdin); row[0]="Control"; print(json.dumps(row))'; }
+monitor_logical_size() { hypr -j monitors | py_reply 'import json,sys; m=json.load(sys.stdin)[0]; print(round(m["width"] / m["scale"]), round(m["height"] / m["scale"]))'; }
 rescan "rescan after adding the hosts fixture answers ok"
 expect_poll "the hosts fixture is discovered" True plugin_known acme.surfaces
 expect_poll "enabling the hosts fixture is allowed" ok ipc shell setPluginEnabled acme.surfaces true
@@ -60,8 +61,11 @@ summon_box() {
   python3 -c 'import json,sys; l=json.loads(sys.argv[1]); r=json.loads(sys.argv[2]); print(json.dumps([l[0] + r[0], l[1] + r[1], r[2], r[3]]))' "$layer" "$item"
 }
 geometry read_bar_settled "the bar set has settled before the panel rows read the bar's reserved height"
-geometry expect_poll "the panel's layer covers the free area below the bar" "[[0, $bar_reserved, $mon_w, $((mon_h - bar_reserved))]]" layers_of vgs:panel
-geometry expect_poll "the panel takes its top-right placement below the bar" "[$((mon_w - 8 - 200)), $((bar_reserved + 8)), 200, 120]" summon_box panel
+read -r mon_logical_w mon_logical_h < <(monitor_logical_size) || { fail "the monitor's logical size is readable for the panel geometry"; exit 1; }
+panel_gap="$(ipc smoke themeValue space.md)" || { fail "Theme.space.md is readable for the panel placement"; exit 1; }
+# The summoned fixture asks for 200x120 in acme.surfaces/Summoned.qml.
+geometry expect_poll "the panel's layer covers the logical free area below the bar" "[[0, $bar_reserved, $mon_logical_w, $((mon_logical_h - bar_reserved))]]" layers_of vgs:panel
+geometry expect_poll "the panel takes its top-right placement below the bar" "[$((mon_logical_w - panel_gap - 200)), $((bar_reserved + panel_gap)), 200, 120]" summon_box panel
 if before="$(builds)"; then
   expect "summoning an open panel is allowed" ok ipc shell summon panel acme.surfaces '{"n":2}'
   expect "the open panel received the new payload" 2 ipc smoke readInstance panel acme.surfaces opened
@@ -286,7 +290,8 @@ mv -T -- "$sandbox/Summoned.initial-focus" "$home/.config/vgshell/plugins/acme.s
 rescan "the fixture with initialFocus is restored"
 
 expect "an overlay summons over IPC" ok ipc shell summon overlay acme.surfaces '{}'
-geometry expect_poll "the overlay covers its screen" "[[0, 0, $mon_w, $mon_h]]" layers_of vgs:overlay
+read -r mon_logical_w mon_logical_h < <(monitor_logical_size) || { fail "the monitor's logical size is readable for the overlay geometry"; exit 1; }
+geometry expect_poll "the overlay covers its logical screen" "[[0, 0, $mon_logical_w, $mon_logical_h]]" layers_of vgs:overlay
 expect "hiding the overlay is allowed" ok ipc shell hide overlay acme.surfaces
 expect_poll "the overlay host destroyed its surface" 0 layer_count vgs:overlay
 expected_errors+=('summon host: acme\.surfaces open\(\) failed: probe open refused')
@@ -437,7 +442,7 @@ placed_below() { # POPUP_KIND ANCHOR_HOST ANCHOR_FUNCTION [WINDOW_X WINDOW_Y]
   actual="$(popup_geometry "$1")" || return
   anchor="$(ipc smoke invokeInstance "$2" acme.surfaces "$3" '')" || return
   # Answers `placed`, or the geometry read, so a failure names it.
-  python3 - "$actual" "$anchor" "$mon_w" "${4:-0}" "${5:-0}" <<'PY'
+  python3 - "$actual" "$anchor" "$mon_logical_w" "${4:-0}" "${5:-0}" <<'PY'
 import json, sys
 x, y, w, h = json.loads(sys.argv[1])
 ax, ay, aw, ah = json.loads(sys.argv[2])

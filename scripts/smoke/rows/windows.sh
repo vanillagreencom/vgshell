@@ -167,13 +167,25 @@ panel_edge() {
   local box item x y colour
   box="$(one_layer vgs:panel)" && [[ $box == \[* ]] || { echo "$box"; return; }
   item="$(ipc smoke instanceGeometry panel vgs.themes)" && [[ $item == \[* ]] || { echo "$item"; return; }
-  read -r x y < <(python3 -c 'import json,sys; l=json.loads(sys.argv[1]); b=json.loads(sys.argv[2]); print(l[0] + b[0] - 2, l[1] + b[1] + b[3] // 2)' "$box" "$item")
+  read -r x y < <(python3 -c '
+import json, sys
+l=json.loads(sys.argv[1]); b=json.loads(sys.argv[2])
+left, right = l[0] + b[0], l[0] + b[0] + b[2]
+layer_left, layer_right = l[0], l[0] + l[2]
+if left - layer_left >= 1:
+    x = left - 1
+elif layer_right - right >= 1:
+    x = right
+else:
+    print("absent absent"); sys.exit()
+print(x, l[1] + b[1] + b[3] // 2)' "$box" "$item")
+  [[ $x != absent ]] || { echo absent; return; }
   colour="$(pixel "$x" "$y")" || { echo "$colour"; return; }
   no_border_colour "$colour"
 }
 render expect "the themes panel's layer edge draws no window border" none panel_edge
 panel_before="$(layers_of vgs:panel)"
-expect "a move dispatch aimed at the themes panel answers ok" ok hypr dispatch 'hl.dsp.window.move({ x = 40, y = 30, relative = true, window = "title:^Themes$" })'
+expect "a layout-pixel move dispatch aimed at the themes panel answers ok" ok hypr dispatch "hl.dsp.window.move({ x = $window_move_dx, y = $window_move_dy, relative = true, window = \"title:^Themes$\" })"
 geometry expect "a move aimed at the themes panel moves no layer" "$panel_before" layers_of vgs:panel
 window_border_off
 expect "hiding the themes panel after the window rows is allowed" ok ipc shell hide panel vgs.themes

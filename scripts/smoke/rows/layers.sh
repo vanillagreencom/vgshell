@@ -15,6 +15,7 @@ built_screens() { respaced read_layers built; }
 lent_layers() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["layers"]))'; }
 on_overlay() { hypr -j layers | py_reply 'import json,sys; print(sum(1 for m in json.load(sys.stdin).values() for l in m["levels"].get("3", []) if l["namespace"]=="vgs:layer" and l["pid"]!=-1))'; }
 screen_names() { hypr -j monitors | py_reply 'import json,sys; print(json.dumps(sorted(m["name"] for m in json.load(sys.stdin))))'; }
+monitor_logical_size() { hypr -j monitors | py_reply 'import json,sys; m=json.load(sys.stdin)[0]; print(round(m["width"] / m["scale"]), round(m["height"] / m["scale"]))'; }
 
 rescan "rescan after adding the layers fixture answers ok"
 expect_poll "the layers fixture is discovered" True plugin_known acme.layers
@@ -32,7 +33,8 @@ expect "the lending record lists the layer under its plugin and screens" "[{\"pl
 surfaces_want="$(python3 -c 'import json,sys; print(json.dumps([[n, True, True, True] for n in json.loads(sys.argv[1])]))' "$screen_json")"
 expect "every surface takes no keyboard, sits on the overlay layer and clears reserved space" "$surfaces_want" respaced ipc smoke layerSurfaces acme.layers
 geometry read_bar_settled "the bar set has settled before the row reads the bar's reserved height"
-geometry expect_poll "the surface covers the screen below the bar's reserved space" "[[0, $bar_reserved, $mon_w, $((mon_h - bar_reserved))]]" layers_of vgs:layer
+read -r mon_logical_w mon_logical_h < <(monitor_logical_size) || { fail "the monitor's logical size is readable for the layer geometry"; exit 1; }
+geometry expect_poll "the surface covers the logical screen below the bar's reserved space" "[[0, $bar_reserved, $mon_logical_w, $((mon_logical_h - bar_reserved))]]" layers_of vgs:layer
 
 layer_hidden_assertion() {
   (failures=0 behaviour_failures=0
@@ -78,6 +80,7 @@ layer_input_result() {
   [[ $got == "$input_want" ]] && echo ok || echo violation
 }
 
+# The acme.layers fixture pads are 80x40 at x=0 and x=160 in Service.qml.
 left_x=40 right_x=200 gap_x=120 pad_y=$((bar_reserved + 20))
 away_x=$((mon_w / 2)) away_y=$((mon_h / 2))
 if ! open_other "$sandbox/toplevel-layers.log"; then fail "the client below the passive layer maps"; exit 1; fi

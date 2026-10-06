@@ -105,6 +105,38 @@ jd_signature() {
   tr '\0' '\n' <"/proc/$launcher/environ" | sed -n 's/^HYPRLAND_INSTANCE_SIGNATURE=//p'
 }
 jd_launched_count() { hypr -j clients | py_reply 'import json,sys; print(sum(c["class"] == "smoke.jarvis-app" and c["mapped"] for c in json.load(sys.stdin)))'; }
+jd_fit_request() { # ADDRESS: X Y W H inside the window's work area, or refused:...
+  hypr --batch 'j/monitors; j/clients; j/getoption general:float_gaps' | py_reply '
+import json, math, sys
+text = sys.stdin.read()
+decoder, at, parts = json.JSONDecoder(), 0, []
+while len(parts) < 3:
+    while at < len(text) and text[at].isspace(): at += 1
+    part, at = decoder.raw_decode(text, at)
+    parts.append(part)
+monitors, clients, gaps = parts
+cs = [c for c in clients if c["address"] == sys.argv[1]]
+if len(cs) != 1:
+    print("refused: jarvis-desktop target windows=%d" % len(cs)); sys.exit()
+c = cs[0]
+ms = [m for m in monitors if m["id"] == c["monitor"]]
+if len(ms) != 1:
+    print("refused: jarvis-desktop monitor id=%s absent" % c["monitor"]); sys.exit()
+m = ms[0]
+top, right, bottom, left = (int(v) for v in gaps["css"].split())
+rl, rt, rr, rb = m["reserved"]
+area_x = math.ceil(m["x"] + rl + left)
+area_y = math.ceil(m["y"] + rt + top)
+area_w = math.floor(m["width"] / m["scale"] - rl - rr - left - right)
+area_h = math.floor(m["height"] / m["scale"] - rt - rb - top - bottom)
+if area_w < 2 or area_h < 2:
+    print("refused: jarvis-desktop work-area=%dx%d too-small" % (area_w, area_h)); sys.exit()
+w = max(1, math.floor(area_w * 3 / 5))
+h = max(1, math.floor(area_h * 3 / 5))
+x = area_x + max(0, math.floor((area_w - w) / 2))
+y = area_y + max(0, math.floor((area_h - h) / 2))
+print(x, y, w, h)' "$1"
+}
 
 jarvis_enable
 expect "the service hands the daemon this session's Hyprland signature" "$signature" jd_signature
@@ -124,10 +156,16 @@ if open_toplevel "$sandbox/jarvis-desktop-target.log" smoke.jarvis-desktop targe
     expect "Hyprland shows the target focused" '["smoke.jarvis-desktop", "target"]' active_window
     jd_tool "windows.float reads floating back" completed windows.float "{\"window\": \"$jd_target\", \"action\": \"set\"}"
     expect "Hyprland shows the target floating" true jd_client "$jd_target" floating
-    jd_tool "windows.move reads the position back" completed windows.move "{\"window\": \"$jd_target\", \"x\": 140, \"y\": 130}"
-    geometry expect "Hyprland shows the target moved" '[140, 130]' jd_client "$jd_target" at
-    jd_tool "windows.resize reads the size back" completed windows.resize "{\"window\": \"$jd_target\", \"width\": 460, \"height\": 310}"
-    geometry expect "Hyprland shows the target resized" '[460, 310]' jd_client "$jd_target" size
+    jd_fit="$(jd_fit_request "$jd_target")" || jd_fit="refused: jarvis-desktop fit unreadable"
+    if [[ $jd_fit == refused:* ]]; then
+      geometry fail "$jd_fit"
+    else
+      read -r jd_x jd_y jd_w jd_h <<<"$jd_fit"
+      jd_tool "windows.move reads the position back" completed windows.move "{\"window\": \"$jd_target\", \"x\": $jd_x, \"y\": $jd_y}"
+      geometry expect "Hyprland shows the target moved" "[$jd_x, $jd_y]" jd_client "$jd_target" at
+      jd_tool "windows.resize reads the size back" completed windows.resize "{\"window\": \"$jd_target\", \"width\": $jd_w, \"height\": $jd_h}"
+      geometry expect "Hyprland shows the target resized" "[$jd_w, $jd_h]" jd_client "$jd_target" size
+    fi
 
     jd_tool "focus returns to the other window" completed windows.focus "{\"window\": \"$jd_other\"}"
     jd_tool "windows.fullscreen focuses its target first" completed windows.fullscreen "{\"window\": \"$jd_target\", \"mode\": \"fullscreen\", \"action\": \"set\"}"

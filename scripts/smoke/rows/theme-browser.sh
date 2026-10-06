@@ -88,10 +88,25 @@ selection_moved() {
   [[ $now == card=* ]] || { printf '%s\n' "$now"; return 0; }
   [[ $now != "$1" ]] && echo moved || echo same
 }
-# rail_band: a point on the band beside the cards, 2 px into the rail's
-# top-left corner, above the slices and left of the selected card, as
-# `X Y`: inside the browser's pane, over no card.
-rail_band() { ipc smoke descendantGeometry overlay vgs.themes | py_reply 'import json,sys; r=[x["box"] for x in json.load(sys.stdin) if x["type"] == "CardCarousel" and x["box"][2] > 0]; print("%d %d" % (r[0][0] + 2, r[0][1] + 2) if len(r) == 1 else "rails=%d" % len(r))'; }
+# rail_band: the midpoint of the empty band between the rail's left edge
+# and the first shown card, as `X Y`: inside the browser's pane, over no card.
+rail_band() {
+  ipc smoke descendantGeometry overlay vgs.themes | py_reply '
+import json,sys
+rows=json.load(sys.stdin)
+rails=[x["box"] for x in rows if x["type"] == "CardCarousel" and x["box"][2] > 0 and x["box"][3] > 0]
+if len(rails) != 1:
+    print("rails=%d" % len(rails)); sys.exit()
+rail=rails[0]
+cards=[r["box"] for r in rows if r["type"] == "AngledCard" and r["visible"] and r["box"][2] > 0 and r["box"][3] > 0]
+if not cards:
+    print("cards=0"); sys.exit()
+first=min(c[0] for c in cards)
+gap=first - rail[0]
+if gap <= 1:
+    print("gap=%.2f" % gap); sys.exit()
+print("%d %d" % (round(rail[0] + gap / 2), round(rail[1] + rail[3] / 2)))'
+}
 # band_click LABEL: summon the theme view and click the rail's band.
 band_click() {
   local at x y
@@ -299,13 +314,15 @@ expect_poll "the resting theme view draws no text beside its cards and tabs" '[]
 # passed and reads the overlay, a paged reply of seconds, no second time.
 browser_kept="$sandbox/theme-browser-reading"
 browser_geometry() {
-  local inset reading
+  local inset reading extent width height
   inset="$(ipc smoke themeValue inset.overlay)" || return
+  extent="$(surface_box vgs:overlay | py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); print(w, h)')" || return
+  read -r width height <<<"$extent"
   reading="$(ipc smoke descendantGeometry overlay vgs.themes)" || return
-  printf '%s\n%s\n' "$inset" "$reading" >"$browser_kept.tmp" && mv -T -- "$browser_kept.tmp" "$browser_kept" || return
-  browser_judge "$inset" "" <<<"$reading"
+  printf '%s %s %s\n%s\n' "$inset" "$width" "$height" "$reading" >"$browser_kept.tmp" && mv -T -- "$browser_kept.tmp" "$browser_kept" || return
+  browser_judge "$inset" "$width" "$height" "" <<<"$reading"
 }
-browser_judge() { # INSET PLANT, the reading on stdin
+browser_judge() { # INSET WIDTH HEIGHT PLANT, the reading on stdin
   py_reply '
 import json, sys
 rows, inset, width, height, plant = json.load(sys.stdin), float(sys.argv[1]), float(sys.argv[2]), float(sys.argv[3]), sys.argv[4]
@@ -319,8 +336,8 @@ rail = rows[rail[0]]["box"][:]
 header = [rows[i]["box"][:] for i in of("Tabs")]
 cards = [r["box"] for r in rows if r["type"] == "AngledCard" and shown(r)]
 if plant == "inset": header[0][0] += width
-if plant == "order": rail[1] -= 40
-if plant == "centre": rail[0] += 8
+if plant == "order" and header: rail[1] = max(b[1] + b[3] for b in header) - 0.5
+if plant == "centre": rail[0] += max(2, rail[2] / 100)
 for b in header:
     if b[0] < inset - 1 or b[1] < inset - 1 or b[0] + b[2] > width - inset + 1 or b[1] + b[3] > height - inset + 1:
         out.append("inset box=%s" % [round(v, 2) for v in b])
@@ -330,12 +347,15 @@ else:
     if max(b[1] + b[3] for b in header) > rail[1] + 1: out.append("order header.bottom=%.2f rail.top=%.2f" % (max(b[1] + b[3] for b in header), rail[1]))
     if card[1] < rail[1] - 1 or card[1] + card[3] > rail[1] + rail[3] + 1: out.append("order card=%s rail=%s" % (card, rail))
 if abs(rail[0] - (width - rail[0] - rail[2])) > 1: out.append("centre left=%.2f right=%.2f" % (rail[0], width - rail[0] - rail[2]))
-print(json.dumps(out))' "$1" "$mon_w" "$mon_h" "$2"
+print(json.dumps(out))' "$1" "$2" "$3" "$4"
 }
 browser_planted() { # RULE
-  local inset
-  { read -r inset && browser_judge "$inset" "$1"; } <"$browser_kept" \
+  local inset width height
+  { read -r inset width height && browser_judge "$inset" "$width" "$height" "$1"; } <"$browser_kept" \
     | py_reply 'import json,sys; print(any(e.startswith(sys.argv[1] + " ") for e in json.load(sys.stdin)))' "$1"
+}
+click_overlay_scrim() {
+  surface_box vgs:overlay | py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); print(int(x + max(1, min(w - 1, w / 100))), int(y + max(1, min(h - 1, h / 100))))' | while read -r x y; do click "$x" "$y"; done
 }
 geometry expect_poll "the browser's tabs and rail keep their places" '[]' browser_geometry
 for rule in inset order centre; do
@@ -516,7 +536,7 @@ expect_poll "SUPER+CTRL+T on the open theme view closes it" 0 layer_count vgs:ov
 expect "a summon over IPC opens the first view" ok ipc shell summon overlay vgs.themes '{}'
 expect_poll "the summon maps the browser" 1 layer_count vgs:overlay
 expect_poll "the summoned browser read its cards" true view_value loaded
-click 4 4
+click_overlay_scrim || fail "the click on the scrim failed"
 expect_poll "a click on the scrim closes the browser" 0 layer_count vgs:overlay
 # The band beside the cards lies in the browser's pane, whose body fits
 # and so takes no press: the click reaches the scrim.

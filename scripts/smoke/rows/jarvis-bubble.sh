@@ -133,7 +133,7 @@ jarvis_bubble_pass() { # X Y
   local down up
   down="$(other_events '^button 272 pressed$')" &&
     up="$(other_events '^button 272 released$')" || return 1
-  hover "$(($1 - 1))" "$2" && click "$1" "$2" || return 1
+  hover "$1" "$2" && click "$1" "$2" || return 1
   expect_poll "a decorative point delivers press to the client below" "$((down + 1))" other_events '^button 272 pressed$'
   expect_poll "a decorative point delivers release to the client below" "$((up + 1))" other_events '^button 272 released$'
 }
@@ -187,12 +187,28 @@ geometry expect_poll "the bubble follows the free area without a bar" bottom-cen
 expect "the bar returns without restarting Jarvis" ok ipc shell setPluginEnabled vgs.bar true
 expect_poll "the bubble follows the restored reserved space" presented jarvis_bubble_state
 
-read -r orb_x orb_y < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(round(x+w/2),round(y+h/2))' "$(control_box vgs:layer vgs.jarvis VoiceOrb active true)")
+read -r orb_x orb_y orb_w orb_h < <(python3 -c 'import json,sys; print(*json.loads(sys.argv[1]))' "$(control_box vgs:layer vgs.jarvis VoiceOrb active true)")
 read -r mute_x mute_y mute_w mute_h < <(python3 -c 'import json,sys; print(*json.loads(sys.argv[1]))' "$(control_box vgs:layer vgs.jarvis IconButton label 'Mute Jarvis')")
 read -r stop_x stop_y stop_w stop_h < <(python3 -c 'import json,sys; print(*json.loads(sys.argv[1]))' "$(control_box vgs:layer vgs.jarvis IconButton label 'Stop Jarvis')")
-jarvis_bubble_pass "$orb_x" "$orb_y"
+read -r orb_cx orb_cy mute_gap_x mute_gap_y < <(python3 -c '
+import sys
+orb = [float(v) for v in sys.argv[1:5]]
+mute = [float(v) for v in sys.argv[5:9]]
+ox, oy, ow, oh = orb
+mx, my, mw, mh = mute
+gap_left = ox + ow
+gap_right = mx
+if gap_right - gap_left < 1:
+    print("absent absent absent absent")
+else:
+    print(round(ox + ow / 2), round(oy + oh / 2), round((gap_left + gap_right) / 2), round(my + mh / 2))
+' "$orb_x" "$orb_y" "$orb_w" "$orb_h" "$mute_x" "$mute_y" "$mute_w" "$mute_h")
+if [[ $mute_gap_x == absent ]]; then
+  fail "the decorative gap between the Jarvis orb and Mute button is absent"
+fi
+jarvis_bubble_pass "$orb_cx" "$orb_cy"
 jarvis_bubble_pass "$(((mute_x + mute_w + stop_x) / 2))" "$((mute_y + mute_h / 2))"
-jarvis_bubble_pass "$((mute_x - 2))" "$mute_y"
+[[ $mute_gap_x == absent ]] || jarvis_bubble_pass "$mute_gap_x" "$mute_gap_y"
 expect "decorative clicks cannot mute" off jarvis_key_state mute
 expect "decorative clicks keep capture live" open jarvis_key_state capture
 jarvis_bubble_click "Stop Jarvis"

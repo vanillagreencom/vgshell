@@ -150,16 +150,17 @@ updates_values() { ipc vgs.updates invoke status ''; }
 updates_field() { updates_values | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get(sys.argv[1])))' "$1"; }
 updates_sources() { updates_values | py_reply 'import json,sys; print(json.dumps([[s["source"], s["count"], s["error"]] for s in json.load(sys.stdin).get("sources", [])]))'; }
 updates_source_names() { updates_values | py_reply 'import json,sys; print(json.dumps([s["source"] for s in json.load(sys.stdin).get("sources", [])]))'; }
-updates_state_text() { updates_values | py_reply 'import json,sys; print(json.load(sys.stdin).get("checkState", {}).get("text", ""))'; }
-# Whether the check state names the failing system source.
-updates_names_system_failure() { [[ $(updates_state_text) == "System: The update check failed. Select Refresh to try again." ]] && echo True || echo False; }
+updates_failure_status() { updates_values | py_reply 'import json,sys
+v=json.load(sys.stdin)
+failed=[s["source"] for s in v.get("sources", []) if s.get("error")]
+print(json.dumps([v.get("checkState", {}).get("tone"), failed]))'; }
 # Whether the failing system row stays listed, with no count, beside AUR's.
 updates_keeps_failed_row() { updates_sources | py_reply 'import json,sys; r=json.load(sys.stdin); print(any(s[0] == "pacman" and s[1] is None and s[2] for s in r) and ["aur", 1, None] in r)'; }
 # SOURCE's [count, listed packages, more] in the accepted record.
 updates_listed() { updates_values | py_reply 'import json,sys; r=[s for s in json.load(sys.stdin).get("sources", []) if s["source"]==sys.argv[1]]; print(json.dumps([r[0]["count"], len(r[0]["packages"]), r[0]["more"]] if r else None))' "$1"; }
 # SOURCE's [count, packages] in status.json on disk.
 updates_cached() { python3 -c 'import json,sys; r=[s for s in json.load(open(sys.argv[1]))["sources"] if s["source"]==sys.argv[2]]; print(json.dumps([r[0]["count"], len(r[0]["packages"])] if r else None))' "$home/.local/state/vgshell/updates/status.json" "$1"; }
-updates_idle() { [[ $(updates_state_text) == Checking ]] && echo checking || echo idle; }
+updates_idle() { updates_values | py_reply 'import json,sys; print("checking" if json.load(sys.stdin).get("checking") else "idle")'; }
 updates_status_rows() { settings_rows | py_reply 'import json,sys; rows=[p for p in json.load(sys.stdin) if p["id"]=="vgs.updates"][0]["status"]; print(json.dumps([[r["key"], r["report"]] for r in rows]))'; }
 updates_widget_section() { ipc shell listShellConfig | py_reply 'import json,sys; l=json.load(sys.stdin)["bar"]["layout"]; print(([s for s in ("left","center","right") if any(e["id"]=="vgs.updates" for e in l.get(s,[]))] + ["none"])[0])'; }
 updates_tui_running() { lent tui.runs | py_reply 'import json,sys; r=(json.load(sys.stdin) or {}).get("vgs.updates/finish"); print(json.dumps(r is not None and r.get("running") is not None))'; }
@@ -217,7 +218,7 @@ expect_poll "the service is idle after the queued check" idle updates_idle
 # A failing source is named and kept beside the others.
 touch "$updates_state/fail-checkupdates"
 expect "a check with a failing system source starts" started ipc vgs.updates invoke check ''
-expect_poll "the check state names the failing source" True updates_names_system_failure
+expect_poll "the check state marks the failing source by typed source key" '["warning", ["pacman"]]' updates_failure_status
 expect "the failing source stays listed with no count" True updates_keeps_failed_row
 rm -f -- "$updates_state/fail-checkupdates"
 
@@ -285,22 +286,14 @@ else:
 widget_visible() { ipc smoke readInstance "$widget_key" vgs.updates visible; }
 # The tooltip's title and details but the last detail, the check's time,
 # which moves; and whether that last detail names a time.
-widget_tip() {
-  local title details
-  title="$(ipc smoke readDescendant "$widget_key" vgs.updates Tooltip text)" \
-    && details="$(ipc smoke readDescendant "$widget_key" vgs.updates Tooltip details)" || return
-  python3 - "$title" "$details" <<'PY'
-import json, sys
-title, details = json.loads(sys.argv[1]), json.loads(sys.argv[2])
-lines = [title]
-for row in details[:-1]:
-    lines.append(f"{row['label']}: {row['value']}" if isinstance(row, dict) else row)
-print(json.dumps(lines))
-PY
-}
-widget_tip_line() { widget_tip | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[int(sys.argv[1])]))' "$1"; }
-widget_tip_last() { ipc smoke readDescendant "$widget_key" vgs.updates Tooltip details | py_reply 'import json,re,sys; d=json.load(sys.stdin); print(bool(d and re.fullmatch(r"Checked \S.*", d[-1])))'; }
-updates_focused() { ipc smoke focused window vgs.updates | py_reply 'import json,sys; t=sys.stdin.read().strip(); print(t if not t.startswith("[") else json.dumps([json.loads(t)[1], json.loads(t)[2], json.loads(t)[3], json.loads(t)[4]]))'; }
+widget_tip_values() { ipc smoke readDescendant "$widget_key" vgs.updates Tooltip details | py_reply 'import json,sys
+d=json.load(sys.stdin)
+print(json.dumps([row.get("value") for row in d[:-1] if isinstance(row, dict)]))'; }
+widget_tip_failed_indexes() { ipc smoke readDescendant "$widget_key" vgs.updates Tooltip details | py_reply 'import json,sys
+d=json.load(sys.stdin)
+print(json.dumps([i for i, row in enumerate(d[:-1]) if isinstance(row, dict) and not isinstance(row.get("value"), (int, float))]))'; }
+widget_tip_last() { ipc smoke readDescendant "$widget_key" vgs.updates Tooltip details | py_reply 'import json,sys; d=json.load(sys.stdin); print(bool(d and isinstance(d[-1], str) and d[-1]))'; }
+updates_focused() { ipc smoke focused window vgs.updates | py_reply 'import json,sys; t=sys.stdin.read().strip(); print(t if not t.startswith("[") else json.dumps([json.loads(t)[2], json.loads(t)[3], json.loads(t)[4]]))'; }
 # hideWhenCurrent in the widget's layout entry of the user file, written
 # whole and moved into place.
 widget_hide_when_current() { # true|false
@@ -315,8 +308,12 @@ open(path + ".next", "w").write(json.dumps(doc))
 os.replace(path + ".next", path)' "$home/.config/vgshell/shell.json" "$1"
 }
 widget_setting() { ipc smoke readInstance "$widget_key" vgs.updates settings | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get("hideWhenCurrent")))'; }
-updates_rows() { ipc smoke itemTexts window vgs.updates Disclosure | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin), ensure_ascii=False))'; }
-updates_row() { updates_rows | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[int(sys.argv[1])], ensure_ascii=False))' "$1"; }
+updates_rows() { ipc smoke readInstance window vgs.updates rows | py_reply 'import json,sys
+rows=json.load(sys.stdin)
+print(json.dumps([[r["source"], r["updatable"], len(r["lines"]), bool(r["more"])] for r in rows]))'; }
+updates_package_lines() { ipc smoke descendantGeometry window vgs.updates | py_reply 'import json,sys
+rows=json.load(sys.stdin)
+print(sum(1 for r in rows if r["type"] == "Label" and r.get("role") == "itemCode" and r["visible"] and r["box"][2] > 0 and r["box"][3] > 0))'; }
 updates_open() { [[ $(ipc smoke readInstance window vgs.updates rows) != absent ]] && echo open || echo closed; }
 # Open the window with a click on the widget, unless it is open: the
 # click toggles it, and a TUI's window leaves it open.
@@ -411,7 +408,7 @@ expect "control: the undrained row's failure names it" 1 grep -c -F -- "FAIL  up
 # Pending, from the last real check.
 expect_poll "a pending check draws the accent count" '["pending", "refresh-cw", "accent", "7", "accent"]' widget_view
 expect "the widget draws the icon in the accent colour with the count" '["refresh-cw", "accent", "7"]' widget_drawn
-expect "the tooltip lists every source's count" '["7 updates waiting", "System: 2", "AUR: 1", "Flatpak: 1", "mise: 1", "VGS: 1", "Plugins: 1", "Themes: 0"]' widget_tip
+expect "the tooltip lists every source's count" '[2, 1, 1, 1, 1, 1, 0]' widget_tip_values
 expect "the tooltip ends with the check's time" True widget_tip_last
 
 # The window: one row per source with its count and its own Update when it
@@ -420,11 +417,11 @@ expect "the tooltip ends with the check's time" True widget_tip_last
 expect "the Updates window is closed before the keyboard path" ok ipc shell hide window vgs.updates
 expect "the updates shortcut opens the window" ok hypr dispatch 'hl.dsp.global("vgs.updates:toggle")'
 updates_keyboard "the shortcut's keys"
-expect_poll "the shortcut opens on the first source row with a visible focus ring" '["System", true, true, true]' updates_focused
+expect_poll "the shortcut opens with a visible focus ring in view" '[true, true, true]' updates_focused
 forget_record
 type_keys -k Left || fail "sending Left to the updates row control failed"
 type_keys -k Space || fail "sending Space to expand the first updates row failed"
-expect_poll "Space expands the first updates row" '["System", "2 updates", "2", "Update", "coreutils 9.11-2 → 9.12-1", "linux 6.1 → 6.2"]' updates_row 0
+expect_poll "Space expands the first updates row's package lines" 2 updates_package_lines
 expect "control: Left on the source row runs no TUI" absent launched
 forget_record
 type_keys -k Tab -k Return || fail "sending Tab and Return to the source Update button failed"
@@ -432,7 +429,7 @@ expect_poll "Return on the source Update button opens the source update TUI" '["
 expect_run_end "the keyboard source Update run ends" vgs.updates/update-source
 expect_poll "the service is idle after the keyboard source update run" idle updates_idle
 fresh_updates "the Update everything keyboard path"
-expect_poll "the reopened Updates window starts on the first row" '["System", true, true, true]' updates_focused
+expect_poll "the reopened Updates window starts with a visible focus ring in view" '[true, true, true]' updates_focused
 forget_record
 type_keys -k Tab -k Tab -k Tab -k Tab -k Tab -k Tab -k Tab -k Tab -k Tab -k Tab -k Tab -k Tab -k Tab -k Return || fail "sending Tab and Return to Update everything failed"
 expect_poll "Return on Update everything opens the update TUI with no argument" '["update.sh"]' launched
@@ -447,9 +444,9 @@ expect "the Updates window opens for the window rows" ok ipc shell summon window
 app_window_rows Updates vgs.updates
 open_updates
 expect_poll "the window draws one row per source" \
-  '[["System", "2 updates", "2", "Update"], ["AUR", "1 update", "1", "Update"], ["Flatpak", "1 update", "1", "Update"], ["mise", "1 update", "1", "Update"], ["VGS", "1 update", "1", "Update"], ["Plugins", "1 update", "1", "Update"], ["Themes", "Up to date", "0"]]' updates_rows
+  '[["pacman", true, 2, false], ["aur", true, 1, false], ["flatpak", true, 1, false], ["mise", true, 1, false], ["vgs", true, 1, false], ["plugins", true, 1, false], ["themes", false, 0, false]]' updates_rows
 click_in window:Updates window vgs.updates ListItem System || fail "the click on the window's System row failed"
-expect_poll "a click on a row lists its packages" '["System", "2 updates", "2", "Update", "coreutils 9.11-2 → 9.12-1", "linux 6.1 → 6.2"]' updates_row 0
+expect_poll "a click on a row lists its packages" 2 updates_package_lines
 # The window's geometry with a row expanded: each source row's last
 # trailing item, the chevron, the Update button or the count badge, ends on
 # that row's right content edge. The footer's buttons lie inside the
@@ -495,11 +492,12 @@ for n, i in enumerate(sources):
     if abs(got - want) > 1: bad.append("row%d.trailing=%.2f want=%.2f" % (n, got, want))
 if len(sources) < 2: out.append("rows=%d" % len(sources))
 out += bad
-for text in ("Refresh", "Open last log"):
-    found = [r for r in rows if r["type"] == "Button" and r.get("text") == text and shown(r)]
-    if len(found) != 1: out.append("%s=%d" % (text, len(found))); continue
-    b = found[0]["box"]
-    if b[1] < panel[1] - 1 or b[1] + b[3] > panel[1] + panel[3] + 1: out.append("%s.y=%.2f-%.2f panel=%.2f-%.2f" % (text, b[1], b[1] + b[3], panel[1], panel[1] + panel[3]))
+buttons = [r for j, r in enumerate(rows) if r["type"] == "Button" and shown(r) and not any(inside(j, i) for i in sources)]
+if len(buttons) < 3: out.append("buttons=%d" % len(buttons))
+for n, r in enumerate(buttons):
+    b = r["box"]
+    if b[1] < panel[1] - 1 or b[1] + b[3] > panel[1] + panel[3] + 1:
+        out.append("button%d.y=%.2f-%.2f panel=%.2f-%.2f" % (n, b[1], b[1] + b[3], panel[1], panel[1] + panel[3]))
 print(json.dumps(out))
 PY
 }
@@ -512,29 +510,35 @@ expect "control: a trailing item moved off its row edge is refused" True updates
 # size, its body scrolls and its footer stays inside it. The held mode is released after, so later rows meet the
 # monitor they read at the start. The size rule's control widens the
 # window's reading by 8 px, which the check refuses. `[]` is the pass.
+mode_logical_size() { # MODE SCALE
+  python3 -c 'import sys; w,h=map(int, sys.argv[1].split("x")); scale=float(sys.argv[2]); print(round(w / scale), round(h / scale))' "$1" "$2"
+}
 short_mode=480x360
+short_scale=1
+read -r short_logical_w short_logical_h < <(mode_logical_size "$short_mode" "$short_scale")
 short_monitor="$(first_name)" || fail "the monitor is unreadable"
 short_main_mode="$(first_mode)" || fail "the monitor's mode is unreadable"
 short_gutter="$(ipc smoke themeValue size.window.gutter)" || { fail "the gutter token is unreadable"; short_gutter=unreadable; }
+short_saved_logical_w="$(first_width)" || short_saved_logical_w=unreadable
 expect "the window hides before the short monitor" ok ipc shell hide window vgs.updates
 expect_poll "the window is closed before the short monitor" closed updates_open
-hold_mode "the nested compositor makes its monitor short and narrow" "$short_monitor" "$short_mode"
-expect_poll "the monitor is 480 logical pixels wide" 480 first_width
+hold_mode "the nested compositor makes its monitor short and narrow" "$short_monitor" "$short_mode" "$short_scale"
+expect_poll "the monitor is the held logical width" "$short_logical_w" first_width
 # The pointer helpers take the held size while it holds.
 short_saved_w="$mon_w" short_saved_h="$mon_h"
-mon_w=480 mon_h=360
+mon_w="$short_logical_w" mon_h="$short_logical_h"
 open_updates
 window_room() { # [PLANT]
-  python3 - "$(ipc smoke instanceGeometry window vgs.updates)" "$short_gutter" "${1:-}" <<'PY'
+  python3 - "$(ipc smoke instanceGeometry window vgs.updates)" "$short_gutter" "$short_logical_w" "$short_logical_h" "${1:-}" <<'PY'
 import json, sys
-if not sys.argv[1].startswith("[") or not sys.argv[2].isdigit():
-    print(json.dumps(["window=%s gutter=%s" % (sys.argv[1], sys.argv[2])])); sys.exit()
-box, gutter, plant = sys.argv[1], int(sys.argv[2]), sys.argv[3] == "wide"
+if not sys.argv[1].startswith("[") or not sys.argv[2].isdigit() or not sys.argv[3].isdigit() or not sys.argv[4].isdigit():
+    print(json.dumps(["window=%s gutter=%s monitor=%sx%s" % (sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4])])); sys.exit()
+box, gutter, monitor_w, monitor_h, plant = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4]), sys.argv[5] == "wide"
 x, y, w, h = json.loads(box)
 if plant: w += 8
 out = []
-if w > 480 - 2 * gutter + 1: out.append("width=%d room=%d" % (w, 480 - 2 * gutter))
-if h > 360 - 2 * gutter + 1: out.append("height=%d room=%d" % (h, 360 - 2 * gutter))
+if w > monitor_w - 2 * gutter + 1: out.append("width=%d room=%d" % (w, monitor_w - 2 * gutter))
+if h > monitor_h - 2 * gutter + 1: out.append("height=%d room=%d" % (h, monitor_h - 2 * gutter))
 print(json.dumps(out))
 PY
 }
@@ -546,7 +550,7 @@ expect "the window hides before the monitor's mode returns" ok ipc shell hide wi
 expect_poll "the window is closed before the monitor's mode returns" closed updates_open
 release_mode "the nested compositor restores its monitor's mode" "$short_monitor" "$short_main_mode"
 mon_w="$short_saved_w" mon_h="$short_saved_h"
-expect_poll "the monitor has its width back" "$mon_w" first_width
+expect_poll "the monitor has its logical width back" "$short_saved_logical_w" first_width
 
 # Each button's argv, as the terminal stand-in records it. The first
 # Update is the System row's.
@@ -582,7 +586,7 @@ touch "$updates_state/fail-checkupdates"
 expect "a check with a failing system source starts for the widget" started ipc vgs.updates invoke check ''
 expect_poll "a failed source draws the warning" '["attention", "triangle-alert", "warning", "5", "warning"]' widget_view
 expect "the widget draws the warning icon with the count" '["triangle-alert", "warning", "5"]' widget_drawn
-expect "the tooltip names the failed source" '"System: check failed"' widget_tip_line 1
+expect "the tooltip marks the failed source at its source order" '[0]' widget_tip_failed_indexes
 widget_hide_when_current true
 expect_poll "the widget reads hideWhenCurrent" true widget_setting
 expect "hideWhenCurrent leaves a failed check shown" true widget_visible

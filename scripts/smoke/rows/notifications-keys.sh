@@ -32,7 +32,6 @@
 set -euo pipefail
 
 nk_hypr_lua="$home/.config/hypr/hyprland.lua"
-read -r mon_w mon_h < <(hypr -j monitors | py_reply 'import json,sys; m=json.load(sys.stdin)[0]; print(m["width"], m["height"])')
 nk_press() { type_keys -M logo -k n -m logo; }
 nk_press_with_key_marker() { type_keys -M logo -k n -m logo -k F9; }
 nk_key_marker_after() { # COUNT
@@ -58,6 +57,103 @@ inbox_shown() {
     "0 absent") echo closed ;;
     *) echo "between layers=$layers window=$window" ;;
   esac
+}
+nk_panel_outside_point() {
+  local layer box
+  layer="$(surface_box vgs:panel)" || return
+  box="$(ipc smoke instanceGeometry panel vgs.notifications)" || return
+  python3 - "$layer" "$box" <<'PY'
+import json, sys
+lx, ly, lw, lh = json.loads(sys.argv[1])
+px, py, pw, ph = json.loads(sys.argv[2])
+candidates = []
+if px > lx:
+    candidates.append(((lx + px) // 2, py + ph // 2))
+if px + pw < lx + lw:
+    candidates.append(((px + pw + lx + lw) // 2, py + ph // 2))
+if py > ly:
+    candidates.append((px + pw // 2, (ly + py) // 2))
+if py + ph < ly + lh:
+    candidates.append((px + pw // 2, (py + ph + ly + lh) // 2))
+for x, y in candidates:
+    x = int(max(lx, min(lx + lw - 1, int(x))))
+    y = int(max(ly, min(ly + lh - 1, int(y))))
+    if not (px <= x < px + pw and py <= y < py + ph):
+        print(x, y)
+        raise SystemExit(0)
+print(f"no-outside panel={[px, py, pw, ph]} layer={[lx, ly, lw, lh]}", file=sys.stderr)
+raise SystemExit(1)
+PY
+}
+nk_click_outside_panel() {
+  local x y
+  read -r x y < <(nk_panel_outside_point) || return
+  click "$x" "$y"
+}
+room_caps() {
+  local box max
+  box="$(ipc smoke instanceGeometry panel vgs.notifications)" || return
+  max="$(ipc smoke readInstance panel vgs.notifications panelMaxHeight)" || return
+  python3 -c 'import json,sys; print(json.loads(sys.argv[1])[3] < float(sys.argv[2]))' "$box" "$max"
+}
+nk_bottom_reserved() {
+  hypr -j monitors | py_reply 'import json,sys; m=json.load(sys.stdin)[0]; print(m["reserved"][3])'
+}
+nk_bottom_reserved_at_least() {
+  local got
+  got="$(nk_bottom_reserved)" || return
+  [[ $got =~ ^[0-9]+$ && $got -ge $1 ]] && echo True || echo "$got"
+}
+nk_short_room_reserve() { # PANEL_MAX_HEIGHT
+  local size
+  size="$(monitor_size)" || return
+  python3 - "$1" "$size" <<'PY'
+import sys
+max_height = float(sys.argv[1])
+width, height, top = [int(float(part)) for part in sys.argv[2].split()]
+if max_height <= 1:
+    raise SystemExit(1)
+target = max(1, min(int(max_height) - 1, max(240, int(max_height * 0.55))))
+print(max(1, height - top - target))
+PY
+}
+nk_install_short_room_fixture() { # RESERVE
+  local dir="$home/.config/vgshell/plugins/acme.notifications-short-room"
+  rm -rf -- "$dir"
+  mkdir -p -- "$dir"
+  cat >"$dir/manifest.json" <<'JSON'
+{ "schemaVersion": 1, "id": "acme.notifications-short-room", "name": "Notifications short room", "version": "0.1.0", "author": "acme", "description": "smoke fixture reserving room below a panel", "kinds": ["service"], "entryPoints": { "service": "Service.qml" } }
+JSON
+  cat >"$dir/Service.qml" <<QML
+import QtQuick
+import Quickshell
+import Quickshell.Wayland
+
+Item {
+    id: root
+    property var shell: null
+    readonly property int reserve: $1
+
+    Variants {
+        model: Quickshell.screens
+        PanelWindow {
+            required property var modelData
+            screen: modelData
+            anchors { bottom: true; left: true; right: true }
+            implicitHeight: root.reserve
+            color: "transparent"
+            exclusionMode: ExclusionMode.Normal
+            exclusiveZone: root.reserve
+            mask: emptyMask
+            WlrLayershell.namespace: "vgs:notifications-short-room"
+            WlrLayershell.layer: WlrLayer.Top
+            WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+
+            Region { id: emptyMask }
+        }
+    }
+}
+QML
 }
 # The long inbox's forty rows: thirty-nine tall cards and, newest, one
 # with actions, the card a selected inbox opens on. They are low, so their
@@ -186,7 +282,7 @@ expect "the nested instance reloads with binds resolved by symbol" ok hypr reloa
 
 nk_presses "from closed"
 if summon_drawn panel vgs.notifications; then
-  click 40 "$((mon_h - 40))" || fail "the press on the desktop beside the inbox failed"
+  nk_click_outside_panel || fail "the press on the desktop beside the inbox failed"
 else
   fail "the inbox before the desktop press never drew"
 fi
@@ -226,45 +322,33 @@ expect_poll "the service is built beside the restored panel" True record_exists 
 notes dismiss-all >/dev/null # `none` once every toast's clock ran out
 expect "clearing the long inbox's history is allowed" ok notes clear-history
 
-# The short room: the first monitor held at its own mode and the scale
-# from 2 to 4 that whole_scale_mode picks, the mode trimmed by under one
-# logical pixel a side when no scale divides it into whole logical pixels.
-# A running shell does not follow a scale change
-# (docs/architecture/runtime-qml.md), so the shell starts again under the
-# hold, and again at scale 1 after it.
-nk_output="$(first_name)"
-nk_room=""
-if ! nk_base="$(unscaled_mode_of "$nk_output" 2>&1)"; then
-  nk_room_error="the short room reads no own mode on ${nk_output:-unread}: $nk_base"
-elif ! nk_room="$(whole_scale_mode "$nk_base")"; then
-  nk_room_error="the short room finds no mode on ${nk_output:-unread}: $nk_room"
-  nk_room=""
-fi
-if [[ -n $nk_room ]]; then
-  read -r nk_mode nk_scale <<<"$nk_room"
-  stop_shell || :
-  hold_mode "the first monitor is held at $nk_mode, its own mode $nk_base, and scale $nk_scale for the short room" "$nk_output" "$nk_mode" "$nk_scale"
-  start_shell "$repo" "$sandbox/notifications-keys-short.log" || fail "the shell starts under the short room's hold"
-  expect_poll "the service is built in the short room" True record_exists vgs.notifications
-  expect_poll "the inbox shortcut is listed in the short room" 1 note_shortcuts
-  # True while the open panel is laid out shorter than its panelMaxHeight.
-  room_caps() {
-    local box max
-    box="$(ipc smoke instanceGeometry panel vgs.notifications)" || return
-    max="$(ipc smoke readInstance panel vgs.notifications panelMaxHeight)" || return
-    python3 -c 'import json,sys; print(json.loads(sys.argv[1])[3] < float(sys.argv[2]))' "$box" "$max"
-  }
-  expect "the short room's long inbox toasts leave the screen" 0 long_inbox_rows
-  nk_press || fail "the short room's open press failed"
-  expect_poll "the short room lays the inbox out shorter than its panelMaxHeight" True room_caps
-  nk_press || fail "the short room's close press failed"
-  expect_poll "the short room's inbox closes" closed inbox_shown
-  geometry expect "a long inbox opened by the key eight times in a short room shows its first card whole each time" fits long_inbox_cut nk_press
-  ok "short room long inbox readings: $(long_inbox_readings)"
-  expect "disabling the notifications before the whole-height list copy is allowed" ok ipc shell setPluginEnabled vgs.notifications false
-  expect_poll "the compositor lists no inbox shortcut before the whole-height list copy" 0 note_shortcuts
-  cp -- "$nk_panel" "$sandbox/Panel.qml.keys-kept"
-  python3 - "$nk_panel" <<'PY'
+# The short room: a row-owned fixture reserves the screen bottom, and the
+# open panel reads shorter than its panelMaxHeight. The reserve is computed
+# from the current monitor and the panel's own maximum height, so every
+# monitor leaves a room below that maximum without a scale or mode divisor.
+nk_press || fail "the short-room measurement opens the inbox"
+expect_poll "the short-room measurement maps the inbox" open inbox_shown
+nk_panel_max="$(ipc smoke readInstance panel vgs.notifications panelMaxHeight)" || { fail "the short-room panel maximum is unreadable"; nk_panel_max=0; }
+nk_press || fail "the short-room measurement closes the inbox"
+expect_poll "the short-room measurement leaves the inbox closed" closed inbox_shown
+nk_short_reserved_before="$(nk_bottom_reserved)" || { fail "the short-room starting bottom reserve is unreadable"; nk_short_reserved_before=0; }
+nk_short_reserve="$(nk_short_room_reserve "$nk_panel_max")" || { fail "the short-room reserve could not be derived"; nk_short_reserve=1; }
+nk_install_short_room_fixture "$nk_short_reserve" || fail "the short-room fixture is written"
+rescan "a rescan discovers the short-room fixture"
+expect_poll "the short-room fixture is known" True plugin_known acme.notifications-short-room
+expect "enabling the short-room fixture is allowed" ok ipc shell setPluginEnabled acme.notifications-short-room true
+expect_poll "the short-room fixture reserves bottom space it owns" True nk_bottom_reserved_at_least "$((nk_short_reserved_before + nk_short_reserve))"
+expect "the short room's long inbox toasts leave the screen" 0 long_inbox_rows
+nk_press || fail "the short room's open press failed"
+expect_poll "the short room lays the inbox out shorter than its panelMaxHeight" True room_caps
+nk_press || fail "the short room's close press failed"
+expect_poll "the short room's inbox closes" closed inbox_shown
+geometry expect "a long inbox opened by the key eight times in a short room shows its first card whole each time" fits long_inbox_cut nk_press
+ok "short room long inbox readings: $(long_inbox_readings)"
+expect "disabling the notifications before the whole-height list copy is allowed" ok ipc shell setPluginEnabled vgs.notifications false
+expect_poll "the compositor lists no inbox shortcut before the whole-height list copy" 0 note_shortcuts
+cp -- "$nk_panel" "$sandbox/Panel.qml.keys-kept"
+python3 - "$nk_panel" <<'PY'
 import sys
 path = sys.argv[1]
 text = open(path).read()
@@ -272,25 +356,22 @@ needle = "            Layout.fillHeight: true\n            Layout.minimumHeight:
 assert text.count(needle) == 1, "the list's room under the header occurs once"
 open(path, "w").write(text.replace(needle, ""))
 PY
-  rescan "a rescan reads the whole-height list copy"
-  expect "enabling the notifications beside the whole-height list copy is allowed" ok ipc shell setPluginEnabled vgs.notifications true
-  expect_poll "the service is built beside the whole-height list copy" True record_exists vgs.notifications
-  expect_poll "the inbox shortcut is listed beside the whole-height list copy" 1 note_shortcuts
-  long_inbox_warm nk_press || fail "the whole-height list copy's first open failed"
-  geometry expect "control: a panel whose list keeps its whole height runs a long inbox past the short room's panel on every open" "clipped=list" long_inbox_cut nk_press
-  ok "control short room readings: $(long_inbox_readings)"
-  cp -- "$sandbox/Panel.qml.keys-kept" "$nk_panel"
-  rescan "a rescan restores the panel after the short room"
-  notes dismiss-all >/dev/null # `none` once every toast's clock ran out
-  expect "clearing the short room's history is allowed" ok notes clear-history
-  stop_shell || :
-  release_mode "the first monitor gets its own mode at scale 1 back after the short room" "$nk_output" "$nk_base"
-  start_shell "$repo" "$sandbox/notifications-keys-restart.log" || fail "the shell starts again after the short room"
-  expect_poll "the service is built after the short room" True record_exists vgs.notifications
-  expect "the observer provides the notifications key ordering marker after the short room" ok ipc smoke holdMarkerStart
-else
-  fail "$nk_room_error"
-fi
+rescan "a rescan reads the whole-height list copy"
+expect "enabling the notifications beside the whole-height list copy is allowed" ok ipc shell setPluginEnabled vgs.notifications true
+expect_poll "the service is built beside the whole-height list copy" True record_exists vgs.notifications
+expect_poll "the inbox shortcut is listed beside the whole-height list copy" 1 note_shortcuts
+long_inbox_warm nk_press || fail "the whole-height list copy's first open failed"
+geometry expect "control: a panel whose list keeps its whole height runs a long inbox past the short room's panel on every open" "clipped=list" long_inbox_cut nk_press
+ok "control short room readings: $(long_inbox_readings)"
+cp -- "$sandbox/Panel.qml.keys-kept" "$nk_panel"
+rescan "a rescan restores the panel after the short room"
+notes dismiss-all >/dev/null # `none` once every toast's clock ran out
+expect "clearing the short room's history is allowed" ok notes clear-history
+expect "disabling the short-room fixture is allowed" ok ipc shell setPluginEnabled acme.notifications-short-room false
+expect_poll "the short-room fixture releases its bottom reservation" "$nk_short_reserved_before" nk_bottom_reserved
+rm -rf -- "$home/.config/vgshell/plugins/acme.notifications-short-room"
+rescan "a rescan removes the short-room fixture"
+expect_poll "the short-room fixture is gone" False plugin_known acme.notifications-short-room
 
 # Control: a service whose shortcut summons the open inbox again. The
 # plugin goes off before the copy is planted and on after, so the shortcut

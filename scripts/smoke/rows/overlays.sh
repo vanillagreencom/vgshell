@@ -25,7 +25,17 @@ import pathlib, sys
 path = pathlib.Path(sys.argv[1])
 text = path.read_text()
 needle = '    function tipTargetGeometry() { return rect(target); }\n'
-insert = '''    property int tipDelayRuns: 0
+insert = '''    function menuGeometry() {
+        if (!menu.opened) return "closed";
+        const boxes = menu.items().filter(item => item.visible).map(item => JSON.parse(rect(item)));
+        if (boxes.length === 0) return "items=0";
+        const left = Math.min(...boxes.map(box => box[0]));
+        const top = Math.min(...boxes.map(box => box[1]));
+        const right = Math.max(...boxes.map(box => box[0] + box[2]));
+        const bottom = Math.max(...boxes.map(box => box[1] + box[3]));
+        return JSON.stringify([left, top, right - left, bottom - top]);
+    }
+    property int tipDelayRuns: 0
     readonly property bool tipResting: tip.resting
     onTipRestingChanged: {
         tipDelayProbe.stop();
@@ -47,7 +57,36 @@ ovr() { ipc smoke readInstance "$ov_key" acme.overlays "$1"; }
 tooltip_resting() { ipc smoke readDescendant "$ov_key" acme.overlays Tooltip resting; }
 rect() { python3 -c 'import json,sys; print(*json.loads(sys.argv[1]))' "$1"; }
 centre_of() { python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(int(x+w/2), int(y+h/2))' "$1"; }
+monitor_logical_size() { hypr -j monitors | py_reply 'import json,sys; m=json.load(sys.stdin)[0]; print(round(m["width"] / m["scale"]), round(m["height"] / m["scale"]))'; }
+outside_box_point() {
+  local size
+  size="$(monitor_logical_size)" || return
+  python3 - "$1" $size <<'PY'
+import json, sys
+x, y, w, h = (float(v) for v in json.loads(sys.argv[1]))
+mw, mh = (float(v) for v in sys.argv[2:4])
+candidates = []
+if x + w < mw:
+    candidates.append(((x + w + mw - 1) / 2, y + h / 2))
+if x > 0:
+    candidates.append((x / 2, y + h / 2))
+if y + h < mh:
+    candidates.append((x + w / 2, (y + h + mh - 1) / 2))
+if y > 0:
+    candidates.append((x + w / 2, y / 2))
+for cx, cy in candidates:
+    ix, iy = round(cx), round(cy)
+    if 0 <= ix < mw and 0 <= iy < mh and not (x <= ix < x + w and y <= iy < y + h):
+        print(ix, iy)
+        sys.exit()
+print("no-outside")
+PY
+}
+press_outside_box() { local x y; read -r x y < <(outside_box_point "$1") && [[ $x =~ ^[0-9]+$ ]] && click "$x" "$y"; }
+hover_outside_box() { local x y; read -r x y < <(outside_box_point "$1") && [[ $x =~ ^[0-9]+$ ]] && hover "$x" "$y"; }
 bar_h="$(ovr barSize)"
+popover_gap="$(ipc smoke themeValue popover.gap)" || { fail "Theme.popover.gap is readable for the popover placement"; exit 1; }
+popover_fixture_width=160 # acme.overlays/Widget.qml sets Popover.width.
 click_centre "$ov_key" acme.overlays || fail "the click on the overlay widget failed"
 
 # A popover leaves the bar, takes focus and keys, and closes on Escape and
@@ -55,7 +94,7 @@ click_centre "$ov_key" acme.overlays || fail "the click on the overlay widget fa
 # theme's gap below.
 expect "the widget opens its popover" ok ovw openPopover
 expect_poll "the popover is open" true ovr popoverOpen
-placed_under() { python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); ax,ay,aw,ah=json.loads(sys.argv[2]); print("placed" if (x, y) == (ax, ay + ah + 4) and h > int(sys.argv[3]) and w == 160 else "popover=%s anchor=%s" % (sys.argv[1], sys.argv[2]))' "$(ovw popoverGeometry)" "$(ovw anchorGeometry)" "$bar_h"; }
+placed_under() { python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); ax,ay,aw,ah=json.loads(sys.argv[2]); gap,width,bar_h=(int(v) for v in sys.argv[3:6]); print("placed" if (x, y) == (ax, ay + ah + gap) and h > bar_h and w == width else "popover=%s anchor=%s gap=%s width=%s" % (sys.argv[1], sys.argv[2], gap, width))' "$(ovw popoverGeometry)" "$(ovw anchorGeometry)" "$popover_gap" "$popover_fixture_width" "$bar_h"; }
 render expect_poll "the popover sits under its anchor and is taller than the bar" placed placed_under
 expect "the popover's input takes focus" ok ovw focusInput
 expect_poll "the input holds active focus" true ovr inputFocus
@@ -65,7 +104,7 @@ type_keys -k Escape || fail "sending Escape failed"
 expect_poll "Escape closes the popover" false ovr popoverOpen
 expect "the widget opens its popover again" ok ovw openPopover
 expect_poll "the popover is open before the outside press" true ovr popoverOpen
-click "$((mon_w / 2))" "$((mon_h / 2))" || fail "the click outside the popover failed"
+press_outside_box "$(ovw popoverGeometry)" || fail "the click outside the popover failed"
 expect_poll "a press outside closes the popover" false ovr popoverOpen
 
 # The popover follows its anchor and closes when the anchor hides.
@@ -82,7 +121,7 @@ expect "showing the anchor again is allowed" ok ovw showAnchor
 read -r tx ty < <(centre_of "$(ovw tipTargetGeometry)")
 hover "$tx" "$ty" || fail "hovering the tooltip target failed"
 expect_poll "hovering the target opens its tooltip" true ovr tooltipOpen
-hover "$((mon_w / 2))" "$((mon_h / 2))" || fail "moving the pointer away failed"
+hover_outside_box "$(ovw tipTargetGeometry)" || fail "moving the pointer away failed"
 expect_poll "leaving the target closes its tooltip" false ovr tooltipOpen
 hover "$tx" "$ty" || fail "hovering the target under the popover failed"
 expect_poll "the tooltip target processed the hover before the popover" true tooltip_resting
@@ -94,7 +133,7 @@ expect_poll "the tooltip delay ran out under the popover" "$((tip_delay_before +
 expect "a tooltip does not open while a popover is open" false ovr tooltipOpen
 type_keys -k Escape || fail "sending Escape failed"
 expect_poll "Escape closes the popover under the hover" false ovr popoverOpen
-hover "$((mon_w / 2))" "$((mon_h / 2))" || fail "moving the pointer away failed"
+hover_outside_box "$(ovw tipTargetGeometry)" || fail "moving the pointer away failed"
 
 # A menu takes the arrow keys and Enter, and Escape closes it.
 expect "the widget opens its menu" ok ovw openMenu
@@ -129,11 +168,11 @@ expect_poll "the keyboard choice closes the list" false ovr selectOpen
 # Every flyout closes on a press outside it, as the popover does above.
 expect "the widget opens its menu for the outside press" ok ovw openMenu
 expect_poll "the menu is open before the outside press" true ovr menuOpen
-click "$((mon_w / 2))" "$((mon_h / 2))" || fail "the click outside the menu failed"
+press_outside_box "$(ovw menuGeometry)" || fail "the click outside the menu failed"
 expect_poll "a press outside closes the menu" false ovr menuOpen
 expect "the widget opens its select for the outside press" ok ovw openSelect
 expect_poll "the select list is open before the outside press" true ovr selectOpen
-click "$((mon_w / 2))" "$((mon_h / 2))" || fail "the click outside the select failed"
+press_outside_box "$(ovw selectListGeometry)" || fail "the click outside the select failed"
 expect_poll "a press outside closes the select list" false ovr selectOpen
 
 # Controls: a popover, a menu and a select copied without their grab and
@@ -212,7 +251,7 @@ for name in popover menu select; do
 done
 expect "the widget opens its popover beside the copies" ok ovw openPopover
 expect_poll "the popover is open beside the copies" true ovr popoverOpen
-click "$((mon_w / 2))" "$((mon_h / 2))" || fail "the click outside the copies failed"
+press_outside_box "$(ovw popoverGeometry)" || fail "the click outside the copies failed"
 expect_poll "the press outside closes the grabbing popover" false ovr popoverOpen
 for name in popover menu select; do
   read -r opener reader props <<<"${nograb_use[$name]}"

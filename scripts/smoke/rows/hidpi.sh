@@ -60,6 +60,16 @@ hidpi_held() {
   hold_restore || return
   "$@"
 }
+hidpi_larger_image_size() {
+  hold_restore || return
+  mode_scale_of "$hidpi_output" | python3 -c '
+import re, sys
+state = sys.stdin.read().strip()
+match = re.match(r"^([1-9][0-9]*)x([1-9][0-9]*) scale=", state)
+if not match:
+    raise SystemExit(1)
+print(int(match.group(1)) + 1, int(match.group(2)) + 1)'
+}
 
 if ! hidpi_output="$(first_name)" || ! hidpi_base="$(unscaled_mode_of "$hidpi_output")" || ! hidpi_mode="$(hidpi_mode_of "$hidpi_output")"; then
   fail "the HiDPI row reads no sized mode at scale 1 on the first monitor ${hidpi_output:-unread}"
@@ -95,7 +105,8 @@ else
     # state file the background reads; the file as it was comes back after.
     hidpi_image="$home/.config/vgshell/backgrounds/hidpi.png"
     mkdir -p -- "$(dirname -- "$hidpi_image")" "$bg_state"
-    solid_png "$hidpi_image" 4000 2000 40 120 200
+    read -r hidpi_image_w hidpi_image_h < <(hidpi_larger_image_size) || { fail "the HiDPI background image size is not derived from the held output"; hidpi_image_w=1 hidpi_image_h=1; }
+    solid_png "$hidpi_image" "$hidpi_image_w" "$hidpi_image_h" 40 120 200
     if [[ -e $bg_state/backgrounds.json ]]; then cp -p -- "$bg_state/backgrounds.json" "$sandbox/hidpi-backgrounds.json"; fi
     bg_state_names "$hidpi_image"
     default_set_prepare '[]'
