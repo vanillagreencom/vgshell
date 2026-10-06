@@ -88,6 +88,10 @@ Item {
 
         function init() { UnitTheme.reset(); popover.close(); menu.close(); nested.close(); select.choose(0); root.triggered = -1; dismissals.clear(); }
 
+        function tooltipDelay(of) {
+            return of.resources.find(child => child.running !== undefined && child.interval === Theme.tooltip.delay);
+        }
+
         function test_popover_opens_and_counts() {
             compare(popover.opened, false);
             compare(OverlayState.open, 0);
@@ -296,8 +300,7 @@ Item {
             long.move(1);
             compare(long.currentIndex, 6);
             // The cursor is on its way to the moved highlight.
-            wait(200);
-            verify(plate.y > items[4].y, "the cursor left the checked entry, at " + plate.y);
+            tryVerify(() => plate.y > items[4].y, 1000, "the cursor left the checked entry");
             long.close();
             long.open();
             compare(long.currentIndex, 4);
@@ -314,8 +317,7 @@ Item {
             tryCompare(plate, "opacity", 1);
             list.currentIndex = 2;
             // The cursor is on its way to the moved highlight.
-            wait(200);
-            verify(plate.y > list.itemAtIndex(0).y, "the cursor left the choice, at " + plate.y);
+            tryVerify(() => plate.y > list.itemAtIndex(0).y, 1000, "the cursor left the choice");
             list.Window.window.visible = false;
             compare(select.listOpen, false);
             select.openList();
@@ -376,8 +378,7 @@ Item {
             made.open();
             compare(OverlayState.open, 1);
             made.destroy();
-            wait(50);
-            compare(OverlayState.open, 0);
+            tryCompare(OverlayState, "open", 0);
         }
 
         // An entry that opens a submenu draws a chevron where the check
@@ -395,17 +396,14 @@ Item {
             compare(chevron(leafEntry).visible, false);
             submenuEntry.clicked();
             compare(root.triggered, 10);
-            wait(50);
             compare(nested.opened, true, "a submenu entry's click leaves the menu open");
             root.triggered = -1;
             nested.currentIndex = 0;
             nested.triggerCurrent();
             compare(root.triggered, 10, "the key triggers the submenu entry");
-            wait(50);
             compare(nested.opened, true, "a submenu entry's key leaves the menu open");
             backEntry.clicked();
             compare(root.triggered, 11);
-            wait(50);
             compare(nested.opened, true, "an entry that keeps the menu open leaves it open");
             leafEntry.clicked();
             compare(root.triggered, 12);
@@ -510,9 +508,8 @@ Item {
             list.forceActiveFocus();
             tryCompare(list.Window, "active", true);
             tryCompare(list, "activeFocus", true);
-            // The window's first key after it takes the focus goes astray
-            // under the offscreen platform.
-            wait(50);
+            // One event-loop turn lets the offscreen window finish activating before the first key.
+            wait(0);
             keyClick(Qt.Key_Down);
             compare(list.currentIndex, 1);
             mouseMove(second, 10, 5);
@@ -963,7 +960,7 @@ Item {
             tryCompare(tip, "opened", false);
             popover.open();
             mouseMove(host, host.width / 2, host.height / 2);
-            wait(200);
+            tryCompare(tooltipDelay(tip), "running", false);
             compare(tip.opened, false);
             popover.close();
             mouseMove(root, root.width - 1, root.height - 1);
@@ -985,7 +982,7 @@ Item {
             tryCompare(tip, "opened", true, 2000);
             mouseClick(host, host.width / 2, host.height / 2);
             compare(tip.opened, false);
-            wait(200);
+            tryCompare(tooltipDelay(tip), "running", false);
             compare(tip.opened, false);
             mouseMove(root, root.width - 1, root.height - 1);
             mouseMove(host, host.width / 2, host.height / 2);

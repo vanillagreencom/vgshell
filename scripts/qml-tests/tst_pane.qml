@@ -335,8 +335,10 @@ Item {
         function test_a_bare_header_beside_a_footer_loops_nothing() {
             const made = overTarget.createObject(root);
             const label = headerSlot(made.pane).children[0];
+            const footer = footerSlot(made.pane).children[0];
             compare(headerSlot(made.pane).implicitWidth, label.implicitWidth);
-            wait(50);
+            tryCompare(footer, "width", made.pane.contentWidth);
+            compare(footerSlot(made.pane).implicitWidth, footer.implicitWidth);
             made.destroy();
         }
 
@@ -456,8 +458,8 @@ Item {
             compare(made.cornerRadius, 0);
             tryCompare(made, "contentInset", 32);
             compare(UnitTheme.override({ radius: { md: 30 }, inset: { overlay: 4 } }), "ok");
+            tryCompare(made, "cornerRadius", 0);
             tryCompare(made, "contentInset", 4);
-            wait(50);
             compare(made.contentInset, 4);
             made.destroy();
         }
