@@ -1626,6 +1626,11 @@ scene_notifications() { # MODE
   expect "the inbox opens" ok notes inbox
   expect_poll "the panel is the inbox" '"inbox"' ipc smoke readInstance service vgs.notifications panelMode
   take "notifications-$1-inbox"
+  # A click on the newest notification runs its default action; the inbox
+  # shows what is left.
+  expect "a click on the newest notification is allowed" ok notes invoke-latest
+  expect_poll "the clicked toast leaves the screen" 2 on_screen
+  take "notifications-$1-inbox-clicked"
   expect "the inbox closes" ok notes close
   for id in "${ids[@]}"; do
     "${shell_env[@]}" gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications \
