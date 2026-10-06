@@ -2,7 +2,7 @@
 
 Covers: shell/plugins/vgs.notifications/slack-photos.js, shell/plugins/vgs.notifications/SlackPhotos.qml, shell/plugins/vgs.notifications/WorkspaceIcons.qml, scripts/test-notifications-slack-photos.js, shell/plugins/vgs.notifications/token-status.sh, scripts/test-notifications-token-status.sh
 
-How `vgs.notifications` reads the senders a rule in `NotificationLogic.js` (`ENRICHERS`) knows: which notifications a rule matches, which workspace a card belongs to, which of two copies of one message stays, and the optional Slack photo cache. [notification-slack-cache.md](notification-slack-cache.md) holds the one reader of Slack's disk cache and the Slack custom emoji. The plugin's [slack.md](../../shell/plugins/vgs.notifications/slack.md) says what the user sees and how to store a token. [D046](../decisions/D046-slack-tokens-per-workspace-and-one-card-per-message.md) and [D049](../decisions/D049-slack-custom-emoji-from-the-cache-drawn-inline.md) record the choices.
+How `vgs.notifications` reads the senders a rule in `NotificationLogic.js` (`ENRICHERS`) knows: which notifications a rule matches, which workspace a card belongs to, which of two copies of one message stays, and the optional Slack photo cache. [notification-slack-cache.md](notification-slack-cache.md) holds the one reader of Slack's disk cache and the Slack custom emoji. The plugin's [slack.md](../../shell/plugins/vgs.notifications/slack.md) says what the user sees and how to store a token. [D037](../decisions/D037-plugin-status.md) records the per-workspace token choice.
 
 ## Browser notifications
 
@@ -65,4 +65,4 @@ Slack's desktop client caches the photos it shows in its disk cache, keyed by UR
 
 ## Decisions
 
-[D046](../decisions/D046-slack-tokens-per-workspace-and-one-card-per-message.md), [D049](../decisions/D049-slack-custom-emoji-from-the-cache-drawn-inline.md), [D037](../decisions/D037-plugin-status.md).
+[D037](../decisions/D037-plugin-status.md).

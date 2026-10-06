@@ -1,24 +1,15 @@
-# D003: Everything outside the core is a plugin and the plugin manager is core
+# D003: Everything outside the core is a plugin, and the plugin manager is core
 
 [← Decision Index](INDEX.md)
 
 **Date**: 2026-09-21
-
 **Status**: Active
-
 **Research**: —
 
-**Context**: A shell that mixes features into its core lets a change to one surface break another, and grows a core no agent can hold in context.
+**Decision**: Every surface and every service is a plugin. The core is only what must exist before any plugin runs and keep running when one breaks: the process, the instance lock, the compositor link, the theme tokens, the hosts, the registry, the plugin manager's mechanism and IPC. The core names no plugin; the manager's user interface is itself a plugin.
 
-**Decision**: Every visible surface and every service is a plugin under `shell/plugins/` or the user plugin directory. The core is `shell/` outside `shell/plugins/`, `bin/` and `config/`: process, lock, compositor link, theme tokens, hosts, registry, manager and IPC. The core names no plugin; `config/shell.json` names the default bar. The manager mechanism is core because it must exist before any plugin and keep working when one breaks; its user interface is a plugin.
+**Why**: A small privileged core fits in one agent's context and changes rarely, and a plugin change cannot reach another plugin, so the review scope of a change is the plugin. `scripts/check-plugin-boundary.py` refuses a plugin id or a plugin import in a core file.
 
-**Rationale**:
+**Rejected**: Features in the core. A change to one surface then breaks another, and the core outgrows what one agent can hold.
 
-- A small privileged core fits in one agent's context and changes rarely.
-- A plugin change cannot reach another plugin, so review scope is the plugin.
-
-**Revisit When**: A feature needs a surface no host can give and the host cannot be added without a core rewrite, or the core grows past what one agent holds.
-
-**Verification**: `scripts/check-plugin-boundary.py` refuses a plugin id literal or a plugin import in the core.
-
-**References**: [D005](D005-kinds-are-surfaces-no-dependencies.md), [D010](D010-facade-scope-not-sandbox.md)
+**Revisit when**: A feature needs a surface no host can give without a core rewrite, or the core grows past one agent's context.

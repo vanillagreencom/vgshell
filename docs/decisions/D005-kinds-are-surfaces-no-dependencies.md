@@ -1,32 +1,15 @@
-# D005: Kinds are surfaces and plugins declare no dependencies
+# D005: Kinds are a closed list of surfaces, and plugins declare no dependencies
 
 [← Decision Index](INDEX.md)
 
 **Date**: 2026-09-21
-
-**Status**: Revisited
-
+**Status**: Active
 **Research**: —
 
-**Context**: A first design let a plugin require another by id and had the manager refuse to disable a required plugin. The owner rejected that as a flat structure was simpler and a plugin should keep working when part of it has nowhere to draw.
+**Decision**: A plugin fills kinds from the closed list the core owns, and declares no dependency on another plugin: a kind with no host is not shown, and an unknown manifest key such as a dependency list is refused. A widget a plugin draws inside its own surface, such as the bar's clock, is a built-in registered through the `builtins` capability and recorded under that plugin with origin `plugin`; it is never a kind value.
 
-**Decision**: A plugin declares the kinds it can fill, from the list `PluginLogic.KINDS` holds and `docs/architecture/overview.md` § Vocabulary states. The core owns the list; a new kind is a core change with its own host. A kind whose host is absent is not shown and the plugin's other kinds keep working. A manifest `requires` key is refused. Disabling the active bar answers with the widgets it hides; they stay enabled.
+**Why**: One closed list keeps every switch on `kind` exhaustive, and the core owns placement and lifecycle. No dependency graph means no load order, no refusal to explain and no plugin that names another; a plugin keeps working when part of it has nowhere to draw. `scripts/test-plugin-logic.js` pins the refusals.
 
-**Rationale**:
+**Rejected**: A `requires` list by plugin id with the manager refusing to disable a required plugin, and a `kind` value of its own for built-ins. The first brings an order and refusals; the second puts a word outside the closed list into the field every host switches on.
 
-- A closed kind list lets the core own placement, lifecycle and per-kind scoping.
-- No dependency graph means no load order to derive, no refusal to explain, and no plugin that names another.
-
-**Revisit When**: A plugin genuinely cannot work without another plugin's service and no core capability can carry that contract.
-
-**Verification**: `scripts/test-plugin-logic.js` pins the `requires` refusal and `hiddenByDisabling`; `scripts/smoke/rows/bar.sh` asserts the hidden-widgets reply.
-
-**References**: [D003](D003-everything-is-a-plugin.md), [D011](D011-native-manifest-no-cross-shell-compatibility.md), [D013](D013-built-in-widgets-are-the-bar-plugins.md)
-
-## Revisit Outcome (2026-09-25)
-
-The decision holds. The kind list gained `background` when its host landed; the list is `PluginLogic.KINDS`, and the overview's vocabulary entry is the one prose list of it; the per-kind tables in `docs/architecture/plugins.md` § Kinds and the plugin skill's API reference describe each kind's host. A built-in widget a plugin draws itself is not a kind: [D013](D013-built-in-widgets-are-the-bar-plugins.md).
-
-## Revisit Outcome (2026-09-28)
-
-The decision holds. [D035](D035-manifest-requirements.md) adds a manifest `requirements` key for the external commands a plugin runs; a requirement names a command and the packages that provide it, never a plugin. A plugin still names no plugin: `requires` is refused by name, and a requirement whose command is spelt as a plugin id is refused. `scripts/test-plugin-logic.js` pins both refusals.
+**Revisit when**: A plugin cannot work without another plugin's service and no core capability can carry that contract, or a built-in needs its own settings or enablement.

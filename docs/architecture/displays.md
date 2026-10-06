@@ -2,7 +2,7 @@
 
 Covers: shell/plugins/vgs.displays/helper/, scripts/test-displays-brightness.py
 
-`vgs.displays` reads and sets display brightness. This page is its brightness helper, `shell/plugins/vgs.displays/helper/brightness.py`; the service, the widget, the flyout, the pane, the keys and the assignments file that run it are [displays-plugin.md](displays-plugin.md). Why a helper and not QML, and the udev rule the Apple displays need: [D083](../decisions/D083-brightness-helper-and-uaccess-rule.md). The plan is [system-plan.md § 3.5](https://linear.app/vanillagreen/issue/VGS-697).
+`vgs.displays` reads and sets display brightness. This page is its brightness helper, `shell/plugins/vgs.displays/helper/brightness.py`; the service, the widget, the flyout, the pane, the keys and the assignments file that run it are [displays-plugin.md](displays-plugin.md). A helper runs because QML cannot send a HID feature report, and one run per call costs no resident process; the Apple displays' udev rule is a row of [D081](../decisions/D081-system-steps-closed-core-table.md)'s table. The plan is [system-plan.md § 3.5](https://linear.app/vanillagreen/issue/VGS-697).
 
 ## Helper
 

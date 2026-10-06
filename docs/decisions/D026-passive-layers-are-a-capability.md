@@ -3,27 +3,14 @@
 [← Decision Index](INDEX.md)
 
 **Date**: 2026-09-28
-
-**Status**: Active (input contract → D058)
-
-**Research**: VGS-476
-
+**Status**: Active
+**Research**: [VGS-476](https://linear.app/vanillagreen/issue/VGS-476), [VGS-619](https://linear.app/vanillagreen/issue/VGS-619)
 **Refines**: [D005](D005-kinds-are-surfaces-no-dependencies.md), [D012](D012-core-owns-lent-objects.md)
 
-**Context**: The `vgs.notifications` plugin draws a stack of cards on every screen, over every window, and its inbox over that stack, while the user keeps typing into the focused application. A plugin may not create a window: `scripts/check-plugin-boundary.py` refuses one as `surface-type`. The summonable kinds cannot carry the stack. An overlay covers its screen and takes the keyboard on demand, a panel sits at one placement, and `SummonHost` builds each on summon and destroys it on hide, so its lifetime is the summon's rather than the service's. The core toast stack draws each toast as the core's themed card, on one screen.
+**Decision**: `layers` is a capability, not a kind. A plugin hands the core a component, and the core draws one copy per screen on the overlay layer, never taking keyboard focus, released by a disposer or the instance's teardown. A copy declares `inputItems`, and the surface takes pointer input on the union of their rectangles; an empty list passes everything through, and `inputAll` takes the whole surface.
 
-**Decision**: Add a capability, `layers`, not a kind. `shell.layers.show(component)` hands the core a `Component` the plugin declares and answers a disposer. `shell/Core/Layers.qml` holds the registration. `shell/Hosts/LayerHost.qml` builds one surface per screen for it, with one copy of the component inside. The surface is anchored on every edge, sits on the overlay layer, respects reserved space, reserves none, and never takes keyboard focus. Pointer input reaches it only where the content's `inputAll` or `inputItem` says. The core assigns each copy its `screen`. The disposer, or the instance's teardown, destroys every copy.
+**Why**: A capability keeps the plugin's service the one owner of the state and the layer only its view. A surface that never takes the keyboard cannot steal a keystroke, so it can show while the user types. One bounding rectangle would steal clicks from the application in the gaps between a layer's controls, and the core notice surface already owns a region union, so one mask mechanism serves both. `scripts/smoke/rows/layers.sh` reads the copies back.
 
-**Rationale**:
+**Rejected**: A per-screen kind like `background`, which builds one instance per screen with state to reconcile; and a bounding rectangle for input.
 
-- The state lives in the plugin's service, and a layer is only its view on every screen. A capability keeps that one owner. A per-screen kind, as `background` is, builds one instance of the plugin on each screen, each with state of its own to reconcile.
-- A surface that never takes the keyboard cannot steal a keystroke, so it can show while the user types. The input region lets a press through everywhere the content does not ask for it.
-- The surface covers its screen at a fixed size, so adding or removing a card changes only the content and never the surface's size. Respecting reserved space places it below the bar without reading the bar.
-- The copy is built in the context of the file that declares the component, so the plugin reads its state through that file's ids and needs no API to hand the view its state.
-- The core lends the surface and releases it with the instance, as it does every lent object.
-
-**Revisit When**: A layer needs keyboard focus, one screen rather than every screen, or a layer other than overlay.
-
-**Verification**: `scripts/smoke/rows/layers.sh` runs against the `acme.layers` fixture. It reads each surface's layer, keyboard mode, exclusion and rectangle, clicks on the content's input, beside it and with `inputAll` set, adds and removes a monitor, refuses a value that is not a component and a content without `screen`, and releases the registration through its disposer and a disable.
-
-**References**: [D003](D003-everything-is-a-plugin.md), [D005](D005-kinds-are-surfaces-no-dependencies.md), [D012](D012-core-owns-lent-objects.md), [layers.md](../architecture/layers.md)
+**Revisit when**: A layer needs keyboard focus, one screen rather than every screen, a layer other than overlay, non-rectangular input, or input from an item outside its copy's tree.

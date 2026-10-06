@@ -724,8 +724,12 @@ scratch_open() { # COUNT
 # name a refusal carries, the version it needs, the extended regex whose
 # first group reads the version from the probe's output, and the probe.
 # `present` needs only a version the regex reads. The floor:
-# docs/architecture/runtime.md § Process; where the node floor was measured:
-# docs/decisions/D009-one-manifest-judge-under-node.md § Revisit Outcome (2026-09-28).
+# docs/architecture/runtime.md § Process. The node floor was measured on
+# cachy on 2026-09-28: node 18.0.0, 18.20.8, 20.20.2, 22.23.3 and 24.21.0 pass
+# every runtime suite, each run first on PATH in a node:18-bookworm container;
+# node 16.20.2 fails scripts/test-vgshell-reload.sh because its
+# fs.rmSync(file, { force: true }) returns on EACCES. The judges stay one file
+# the shell loads: docs/decisions/D009-one-manifest-judge-under-node.md.
 # scripts/check-packaging.js reads the first two columns, so a raised floor
 # fails that check until the package recipes' constraints follow.
 preflight_floor='

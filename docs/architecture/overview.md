@@ -13,7 +13,7 @@ Everything outside the core is a plugin, [D003](../decisions/D003-everything-is-
 - Kind: one of `bar-widget`, `bar`, `panel`, `overlay`, `menu`, `window`, `pane`, `service`, `background`. A kind is an entry point the core can host on a surface or inside a holder. Every kind has one core owner. The core owns the list; a new kind is a core change. A `window` is an application window, a Hyprland window; every other surface is a transient overlay: [surfaces.md](surfaces.md).
 - Host: a core-owned Wayland surface a plugin draws inside. A plugin creates no surface of its own; a popup an overlay component opens is a child of the host surface and dies with the instance that declared it.
 - Bar: the plugin of kind `bar` that is active. It declares three section containers the core mounts bar widgets into; it owns their geometry and its own built-in widgets.
-- Built-in widget: a widget a plugin draws itself inside its own surface, such as the shipped bar's clock. It is part of that plugin, not a plugin and not a kind. The plugin registers it through its `builtins` capability, and the build records list it under the plugin's host key as `<plugin id>/<name>` with origin `plugin` and the registering instance's kind. [D013](../decisions/D013-built-in-widgets-are-the-bar-plugins.md) records the choice.
+- Built-in widget: a widget a plugin draws itself inside its own surface, such as the shipped bar's clock. It is part of that plugin, not a plugin and not a kind. The plugin registers it through its `builtins` capability, and the build records list it under the plugin's host key as `<plugin id>/<name>` with origin `plugin` and the registering instance's kind. [D005](../decisions/D005-kinds-are-surfaces-no-dependencies.md) records the choice.
 - Bar widget: a plugin of kind `bar-widget`. It draws one item in a bar section.
 - Service: a plugin of kind `service`. No surface. It owns watchers, pollers and subprocesses.
 - Pane: a plugin of kind `pane`. It is an `Item` mounted inside the one enabled holder of the exclusive `panes` capability, so a section can draw inside one System window while keeping its own scoped `shell`.
@@ -48,7 +48,7 @@ Everything outside the core is a plugin, [D003](../decisions/D003-everything-is-
 
 ## Decisions
 
-One line per decision record is in [decisions.md](decisions.md) and its linked topic lists; the full log is [INDEX.md](../decisions/INDEX.md).
+The log is [INDEX.md](../decisions/INDEX.md), one row per record.
 
 ## Topics
 

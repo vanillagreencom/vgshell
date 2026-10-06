@@ -2,7 +2,7 @@
 
 Covers: scripts/measure-shader.sh, scripts/shader/**, scripts/test-measure-shader.py, scripts/smoke/rows/shader-frames.sh, scripts/smoke/fixtures/plugins/acme.layers/**
 
-The instrument measures two passive shaders: the generic VoiceOrb, whose boundary [D060](../decisions/D060-passive-voice-orb.md) owns, and Voice's plasma orb, fed a steady level in place of the bridge's frames. The Qt timing facts are in [runtime-qml-shaders.md § Frame timing](runtime-qml-shaders.md#frame-timing).
+The instrument measures two passive shaders: the generic VoiceOrb of `qs.Ui`, and Voice's plasma orb, fed a steady level in place of the bridge's frames. The Qt timing facts are in [runtime-qml-shaders.md § Frame timing](runtime-qml-shaders.md#frame-timing).
 
 ## Readings
 

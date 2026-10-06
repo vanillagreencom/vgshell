@@ -4,7 +4,7 @@ Covers: shell/Core/Layers.qml, shell/Hosts/LayerHost.qml, shell/Hosts/OverlaySur
 
 A passive layer is a surface a plugin draws in without taking the keyboard: a notification toast stack, an on-screen display, anything that shows while the user keeps typing into another window.
 
-`layers` is a capability rather than a kind: [D026](../decisions/D026-passive-layers-are-a-capability.md). Its input contract is [D058](../decisions/D058-layer-input-union.md).
+`layers` is a capability rather than a kind: [D026](../decisions/D026-passive-layers-are-a-capability.md). The same record holds its input contract.
 
 ## The contract
 

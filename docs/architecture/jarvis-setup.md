@@ -2,7 +2,7 @@
 
 Covers: shell/plugins/vgs.jarvis/setup-local, shell/plugins/vgs.jarvis/requirements-local*.lock, shell/plugins/vgs.jarvis/LocalRuntime.qml, shell/plugins/vgs.jarvis/tui/setup-local.sh, scripts/test-jarvis-setup.py, scripts/fixtures/jarvis-setup/, scripts/smoke/rows/jarvis-setup.sh
 
-The declared `setup-local` TUI gives Settings and the launcher the same setup path. [D033](../decisions/D033-floating-tuis-are-core.md) owns its presentation. [D042](../decisions/D042-tui-scripts-run-from-a-copy-of-the-whole-snapshot.md) keeps the complete plugin available through shell restarts.
+The declared `setup-local` TUI gives Settings and the launcher the same setup path. [D033](../decisions/D033-floating-tuis-are-core.md) owns its presentation. [D033](../decisions/D033-floating-tuis-are-core.md) keeps the complete plugin available through shell restarts.
 
 ## Inputs and boundary
 

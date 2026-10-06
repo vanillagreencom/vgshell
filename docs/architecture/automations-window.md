@@ -6,7 +6,7 @@ The Automations window is the user interface for `vgs.automations`. The engine, 
 
 ## Pages
 
-The Automations window is a `window` kind, [D065](../decisions/D065-automations-window.md). Hyprland handles the frame, focus, move, tile and close rules like the Settings, Dev Tools and Gallery windows ([surfaces.md](surfaces.md)). The window uses the Settings window width rule, asks for `size.panel.maxHeight`, and uses a page push: the list stays on the Automations page, and New or a row opens the editor page.
+The Automations window is a `window` kind, [D044](../decisions/D044-application-windows-are-hyprland-toplevels.md). Hyprland handles the frame, focus, move, tile and close rules like the Settings, Dev Tools and Gallery windows ([surfaces.md](surfaces.md)). The window uses the Settings window width rule, asks for `size.panel.maxHeight`, and uses a page push: the list stays on the Automations page, and New or a row opens the editor page.
 
 The editor starts with presets: Once, every day, weekdays, weekly on the start date's weekday, every two weeks, monthly by date, monthly by weekday, yearly and Custom. Once is not an engine preset. The UI writes it as a daily schedule ending after one occurrence, so the engine's schedule model stays unchanged and the summary reads `once`.
 

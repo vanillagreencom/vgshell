@@ -56,7 +56,7 @@ cron ORs a day with a weekday, so a week of the month is its weekday alone there
 
 ## Window
 
-The Automations window is a `window` kind, [D065](../decisions/D065-automations-window.md). [automations-window.md](automations-window.md) holds its page flow, recurrence editor and history rules.
+The Automations window is a `window` kind, [D044](../decisions/D044-application-windows-are-hyprland-toplevels.md). [automations-window.md](automations-window.md) holds its page flow, recurrence editor and history rules.
 
 
 ## Sync

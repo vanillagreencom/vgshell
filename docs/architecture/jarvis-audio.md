@@ -2,7 +2,7 @@
 
 Covers: shell/plugins/vgs.jarvis/backend/Audio.js, shell/plugins/vgs.jarvis/backend/audio-child.py, shell/plugins/vgs.jarvis/backend/jarvisd.js, shell/plugins/vgs.jarvis/Service.qml, scripts/test-jarvis-audio.js, scripts/test-jarvis-audio-daemon.js, scripts/fixtures/jarvis/audio*
 
-`Audio.js::Audio` owns capture, playback and the sidecar audio feed. [D064](../decisions/D064-jarvis-child-lease.md#refined-by-vgs-626-2026-09-30) records the lifetime mechanism. [Jarvis Session](jarvis.md#session) owns admission and retries. Audio uses that judge, not a second lock or mute policy. [Half-duplex audio](jarvis-audio-duplex.md) answers the plan's R3 and defines capture suppression during playback.
+`Audio.js::Audio` owns capture, playback and the sidecar audio feed. [D064](../decisions/D064-jarvis-child-lease.md) records the lifetime mechanism. [Jarvis Session](jarvis.md#session) owns admission and retries. Audio uses that judge, not a second lock or mute policy. [Half-duplex audio](jarvis-audio-duplex.md) answers the plan's R3 and defines capture suppression during playback.
 
 ## Child lifetime
 

@@ -97,7 +97,7 @@ The grid, type scale, control sizes, container classes and states every surface 
 ## Decisions
 
 - Tokens are a JavaScript table judged by pure functions and published as frozen objects, never generated QML properties: [D015](../decisions/D015-tokens-are-a-judged-table.md).
-- Two bundled variable fonts, so the default theme draws the same on every machine: [D016](../decisions/D016-bundled-variable-font.md).
+- Two bundled variable fonts, so the default theme draws the same on every machine: [D015](../decisions/D015-tokens-are-a-judged-table.md).
 - Controls extend `QtQuick.Templates` and icons are path data drawn with `QtQuick.Shapes`: [D017](../decisions/D017-templates-and-path-icons.md).
 - Overlays are Quickshell popup windows anchored to their item, not Qt window popups: [D018](../decisions/D018-overlays-are-quickshell-popups.md).
 - A setup step is automatic or one click, and a command only a "Show command" disclosure: [D061](../decisions/D061-no-manual-commands.md).

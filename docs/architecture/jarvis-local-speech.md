@@ -2,7 +2,7 @@
 
 Covers: shell/plugins/vgs.jarvis/backend/LocalSpeech.js, shell/plugins/vgs.jarvis/backend/local-speech.py, scripts/test-jarvis-local-speech.js, scripts/test-jarvis-local-speech.py, scripts/check-jarvis-local-speech.sh, scripts/fixtures/jarvis-local-speech/
 
-The local row of the [chained engine's](jarvis-engine.md) speech table runs speech to text and text to speech on the user's machine. One Python sidecar per conversation loads the tier [local setup](jarvis-setup.md) installed. [D089](../decisions/D089-jarvis-chained-engine-and-heard-prefix.md#refined-by-vgs-652-2026-10-02) records the boundary. [Local inputs](jarvis-local.md) owns the declaration and the measured input bounds this row obeys.
+The local row of the [chained engine's](jarvis-engine.md) speech table runs speech to text and text to speech on the user's machine. One Python sidecar per conversation loads the tier [local setup](jarvis-setup.md) installed. [D089](../decisions/D089-jarvis-chained-engine-and-heard-prefix.md) records the boundary. [Local inputs](jarvis-local.md) owns the declaration and the measured input bounds this row obeys.
 
 ## Boundary
 

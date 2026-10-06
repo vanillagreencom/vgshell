@@ -1,7 +1,8 @@
 // Executors for the Tools rows of the clipboard, media and notify executors
 // that ARGV maps, and the one runner of a desktop command, which the vision
 // executor shares. media.brightness has no entry: vgs.displays owns brightness
-// (D083), and Jarvis routes that row through its service once it exists.
+// through its own helper, and Jarvis routes that row through its service once
+// it exists.
 // ARGV is the one map from a frozen call to the arguments and stdin of the
 // command its Tools row names. Each command runs as a bounded Child, without a
 // shell, in its own process group, with only the variables ENVIRONMENT lists,

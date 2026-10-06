@@ -72,7 +72,7 @@ The layer that run read wrote each class's preferred size with no clamp, so the 
 ## A plugin's script
 
 - With `--plugin <id> --dir <snapshot>`, argv[0] is a path relative to the plugin's published snapshot, inside its `tui/` directory.
-- `present` copies the whole snapshot under `$XDG_RUNTIME_DIR`, runs argv[0] from the copy and removes the copy when it exits. A shell start removes old snapshot roots ([runtime.md § Process](runtime.md#process)), so a `vgshell restart` cannot remove a file the script reads ([D042](../decisions/D042-tui-scripts-run-from-a-copy-of-the-whole-snapshot.md)).
+- `present` copies the whole snapshot under `$XDG_RUNTIME_DIR`, runs argv[0] from the copy and removes the copy when it exits. A shell start removes old snapshot roots ([runtime.md § Process](runtime.md#process)), so a `vgshell restart` cannot remove a file the script reads ([D033](../decisions/D033-floating-tuis-are-core.md)).
 - `present` exports `VGS_PLUGIN_ID` and `VGS_PLUGIN_DIR`, the copy, to the script. A core command gets neither, whatever the caller's environment held.
 - argv[0] must resolve, after every link and `..`, to an executable file inside the copied `tui/` directory. Anything else is refused before it runs.
 

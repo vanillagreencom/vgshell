@@ -3,22 +3,13 @@
 [← Decision Index](INDEX.md)
 
 **Date**: 2026-09-21
-
 **Status**: Active
-
 **Research**: —
 
-**Context**: A shell that keeps one configuration file stops delivering shipped defaults the moment a user customises it, because nothing holds the shipped values apart from the user's.
+**Decision**: Configuration is a shipped layer and a user layer. A user key replaces the shipped key whole, except `plugins`, merged by entry id with the user entry winning, and `disabledPlugins`, which is the user's list alone. `shell/Core/PluginLogic.js` is the one merge.
 
-**Decision**: `config/shell.json` is the shipped layer and `~/.config/vgshell/shell.json` the user layer. A user key replaces the shipped key whole, except `plugins`, merged by id with the user entry winning, and `disabledPlugins`, which is the user list. The manager seeds the user `bar` key from the effective bar before its first edit.
+**Why**: One file stops delivering shipped defaults the moment a user edits it, and a deep merge makes the effective value unreadable. Merging by id keeps what is running readable from two files.
 
-**Rationale**:
+**Rejected**: One configuration file, or a deep merge. The first loses shipped defaults; the second hides the effective value.
 
-- A shipped default that never reaches a customised user file is a regression channel.
-- Merge by id keeps the answer to "what is running" readable from two files, never a deep merge.
-
-**Revisit When**: A third layer (system-wide under `/etc`) is needed, or a shipped default must override a user value.
-
-**Verification**: `scripts/test-plugin-logic.js` pins each merge rule and the seeding.
-
-**References**: [D005](D005-kinds-are-surfaces-no-dependencies.md)
+**Revisit when**: A third system-wide layer under `/etc` is needed, or a shipped default must override a user value.

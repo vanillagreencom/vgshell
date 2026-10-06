@@ -4,28 +4,13 @@
 
 **Date**: 2026-10-02
 **Status**: Active
-**Research**: [Jarvis plan](https://linear.app/vanillagreen/issue/VGS-623)
+**Research**: the Jarvis plan attached to [VGS-623](https://linear.app/vanillagreen/issue/VGS-623)
 **Refines**: [D059](D059-keycodes-and-effective-shortcut-keys.md), [D070](D070-jarvis-action-policy.md)
 
-**Context**: Synthetic input must not activate the assistant's controls or deliver input to a protected surface. Effective key strings do not resolve physical key aliases. An active application can remain listed while a shell layer owns the keyboard.
+**Decision**: The core's existing device and compositor owners supply fresh key and target facts, a read-only XKB helper resolves key aliases, and Policy refuses any synthetic input whose combination could be one of the shell's own binds when held modifiers cannot be observed. A protected rectangle includes its pass-through gaps.
 
-**Decision**: Existing Hyprland device and compositor owners provide fresh key and target observations. The core key judge normalizes strings. A read-only system XKB helper resolves both the active device layout and Hyprland's global group-zero bind translation map. Core hosts register raw Qt window activation with the compositor owner. The router reserves its serial slot while observations await their reply. Protected rectangles include pass-through gaps and use their monitor's logical origin. Input returns to the router's authority check after preparation awaits and before delivery. Policy refuses possible own-bind combinations when held physical modifiers cannot be observed.
+**Why**: Effective key strings do not resolve physical aliases, so a literal comparison misses a bind. Hyprland exposes rectangular layers but no input mask, so a gap inside a protected rectangle cannot be proven safe, and a plugin-owned reader would duplicate the core's device facts. `scripts/test-input-facts.js` holds the facts.
 
-**Rationale**:
-- A plugin-owned key or target reader would duplicate the core's device and surface facts.
-- Resolving symbol and code aliases through the system library avoids a second layout inventory.
-- The compositor exposes rectangular layers but no public input mask. Refusal of their gaps can lose usable clicks. Guessing permission could click an approval control.
-- Omarchy's voice tools use wtype and an input daemon. VGS keeps the typed input transport but retains its own serial policy and protected-target rules.
+**Rejected**: Treating an empty part of a protected rectangle as safe. It depends on an input region the compositor does not expose.
 
-**Alternatives considered**:
-- Literal key comparison misses symbol and keycode aliases.
-- A plugin-owned physical device reader needs permissions and bypasses the existing device owner.
-- Treating an empty part of a protected rectangle as safe depends on an input region the compositor does not expose.
-
-**Boundaries**: Facts grant no input authority. Policy owns grants and terminal restrictions. Input owns transport children. No setup changes a unit, module, group or global input option. Another same-user program can still generate physical-looking input outside Jarvis.
-
-**Revisit When**: Hyprland exposes atomic target-bound input or public protected input regions.
-
-**Verification**: `scripts/test-input-facts.js`, `scripts/test-xkb-keys.py`, `scripts/test-jarvis-input.js` and the nested `input-facts` row, with independent must-fail controls.
-
-**References**: [Core input facts](../architecture/input-facts.md), [Jarvis input](../architecture/jarvis-input.md)
+**Revisit when**: Hyprland exposes atomic target-bound input or public protected input regions.

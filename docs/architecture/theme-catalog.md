@@ -72,7 +72,7 @@ Every catalog entry passes the readability table of [design-system.md § Readabi
 
 The catalog still ships 480 px JPEG thumbnails as placeholders. On 2026-09-29 this worktree held 81 thumbnail files and 1419402 bytes total. The browser does not increase that shipped budget for sharp centre-card previews. A package may ship `preview.png`; otherwise the selected card renders a live QML preview from the package's tokens and may sharpen from a cached preview image after selection. The browser starts with no network request.
 
-The rejected larger-thumbnail options were measured from the first real image of the pinned Nord wallpaper archive with `magick` on 2026-09-29: a 1920 px JPEG sample was 459641 bytes, a 1920 px WebP sample was 328264 bytes and a 1920 px AVIF sample was 123653 bytes. This Qt install had no WebP or AVIF image plugin, so JPEG was the only no-new-dependency shipped format. The chosen preview cache wrote 3181112 bytes for the sampled Nord preview and kept 0 archive bytes after extraction. [D055](../decisions/D055-theme-browser-previews.md) records the choice.
+The rejected larger-thumbnail options were measured from the first real image of the pinned Nord wallpaper archive with `magick` on 2026-09-29: a 1920 px JPEG sample was 459641 bytes, a 1920 px WebP sample was 328264 bytes and a 1920 px AVIF sample was 123653 bytes. This Qt install had no WebP or AVIF image plugin, so JPEG was the only no-new-dependency shipped format. The chosen preview cache wrote 3181112 bytes for the sampled Nord preview and kept 0 archive bytes after extraction.
 
 ## Invariants
 

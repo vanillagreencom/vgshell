@@ -24,7 +24,7 @@ The Qt facts the passive shader component rests on. Its component contract is in
 
 ## Decisions
 
-- A generic passive visual belongs to `qs.Ui`: [D060](../decisions/D060-passive-voice-orb.md).
+- A generic passive visual belongs to `qs.Ui`, and takes no input: [D026](../decisions/D026-passive-layers-are-a-capability.md).
 
 ## Frame timing
 

@@ -2,7 +2,7 @@
 
 Covers: shell/plugins/vgs.notifications/slack-cache.js, shell/plugins/vgs.notifications/slack-emoji.js, shell/plugins/vgs.notifications/SlackPhotos.qml, shell/plugins/vgs.notifications/WorkspaceIcons.qml, scripts/test-notifications-slack-cache.js, scripts/test-notifications-slack-emoji.js
 
-How `vgs.notifications` reads Slack's disk cache, and the Slack custom emoji it builds from it. [notification-senders.md](notification-senders.md) holds the rules that read Slack's notifications, the workspace icons and the Slack photo cache. The plugin's [slack.md](../../shell/plugins/vgs.notifications/slack.md) says what the user sees. [D049](../decisions/D049-slack-custom-emoji-from-the-cache-drawn-inline.md) records the emoji choices.
+How `vgs.notifications` reads Slack's disk cache, and the Slack custom emoji it builds from it. [notification-senders.md](notification-senders.md) holds the rules that read Slack's notifications, the workspace icons and the Slack photo cache. The plugin's [slack.md](../../shell/plugins/vgs.notifications/slack.md) says what the user sees.
 
 ## Slack's disk cache
 
@@ -29,4 +29,4 @@ How `vgs.notifications` reads Slack's disk cache, and the Slack custom emoji it 
 
 ## Decisions
 
-[D049](../decisions/D049-slack-custom-emoji-from-the-cache-drawn-inline.md), [D046](../decisions/D046-slack-tokens-per-workspace-and-one-card-per-message.md).
+[D037](../decisions/D037-plugin-status.md).

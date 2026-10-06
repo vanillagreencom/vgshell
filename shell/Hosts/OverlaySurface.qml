@@ -66,7 +66,7 @@ PanelWindow {
         regions: inputRegions.items
     }
 
-    // REVISIT(D058): non-rectangular input needs more than an item's rectangle.
+    // REVISIT(D026): non-rectangular input needs more than an item's rectangle.
     Instantiator {
         id: inputRegions
         property var items: []

@@ -54,7 +54,7 @@ The generic fixture `acme.status` proves the Settings Select in `scripts/smoke/r
 
 ## Passive input
 
-The [bubble contract](jarvis-bubble.md) defines layout, presentation and input through the [passive layer input contract](layers.md), refined by [D058](../decisions/D058-layer-input-union.md).
+The [bubble contract](jarvis-bubble.md) defines layout, presentation and input through the [passive layer input contract](layers.md) ([D026](../decisions/D026-passive-layers-are-a-capability.md)).
 
 ## Ownership
 

@@ -6,7 +6,7 @@ The [chained engine](jarvis-engine.md) owns each conversation. This contract def
 
 ## Engine seam
 
-The daemon creates the chained engine with the router and the audit writer on the first hello. It installs the following ports alongside [D084's duplex speech port](../decisions/D084-duplex-speech-engine-sessions.md). The snapshot selects `chained`; voice and account selection must choose the duplex engine before the daemon can start it.
+The daemon creates the chained engine with the router and the audit writer on the first hello. It installs the following ports alongside the duplex speech port of [D089](../decisions/D089-jarvis-chained-engine-and-heard-prefix.md). The snapshot selects `chained`; voice and account selection must choose the duplex engine before the daemon can start it.
 
 | Member | Session or Audio consumer |
 |---|---|

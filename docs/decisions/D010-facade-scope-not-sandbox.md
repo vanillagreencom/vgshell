@@ -3,22 +3,13 @@
 [← Decision Index](INDEX.md)
 
 **Date**: 2026-09-21
-
 **Status**: Active
-
 **Research**: —
 
-**Context**: The owner's rule is that a plugin reads the core API and its own files only. A facade in one QML scene is an API boundary, not a sandbox, because a visual widget can walk the parent hierarchy to host objects. Quickshell's FAQ states that a process per widget costs significantly more memory.
+**Decision**: A plugin may import only the allowed module prefixes and its own files, names no window type, and receives a scoped `shell` object. Process, scene graph and privileges stay shared, and no sensitive state relies on the scope alone.
 
-**Decision**: A plugin file may import only the prefixes `scripts/check-plugin-boundary.py` allows (`QtQuick`, `QtQml`, `Qt.labs.`, `Quickshell`, `qs.Commons`, `qs.Ui`, never `Quickshell.Wayland` or `QtQuick.Window`) and files in its own directory, and may name no window type. At load a plugin receives a scoped `shell` object built from its manifest, never the host singletons. The shell process, scene and user privileges are shared. Sensitive state never relies on the scope alone.
+**Why**: A process per plugin multiplies the resident size the runtime budgets bound before any plugin justifies it. A static check plus a scoped object catches accidental coupling, and the remaining risk is stated rather than pretended away. `scripts/check-plugin-boundary.py` is the check; `scripts/test-check-plugin-boundary.py` plants one violation per rule.
 
-**Rationale**:
+**Rejected**: A process or QML engine per plugin. Quickshell's own guidance puts a process per widget at a significantly higher memory cost.
 
-- A process per plugin would multiply the resident size the runtime budgets bound, before any plugin exists to justify it.
-- Static plus scoped catches the accidental coupling; the remaining risk is documented rather than pretended away.
-
-**Revisit When**: The runtime budgets are measured against a process-per-plugin or engine-per-plugin design and it fits, or a plugin needs credentials the scope cannot protect.
-
-**Verification**: `scripts/test-check-plugin-boundary.py` plants one violation per rule.
-
-**References**: [D003](D003-everything-is-a-plugin.md)
+**Revisit when**: The budgets are measured against a process-per-plugin design and it fits, or a plugin needs credentials the scope cannot protect.
