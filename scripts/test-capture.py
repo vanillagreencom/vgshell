@@ -28,7 +28,7 @@ def service_rectangles():
     """Hyprland's undrawn group tab must not reach either screenshot selector."""
     service = (HELPER.parent.parent / "Service.qml").read_text()
     capabilities = (REPO / "shell/Core/Capabilities.qml").read_text()
-    start, end = "    function windowRectangles() {\n", "\n    }\n\n    function outputRectangles()"
+    start, end = "    function windowRectangles(clients, monitors) {\n", "\n    }\n\n    function outputRectangles()"
     assert service.count(start) == service.count(end) == 1, "window rectangle function boundary"
     body = service.split(start)[1].split(end)[0]
     start, end = "        compositor: ctx => {\n", "\n        },\n        configure:"
@@ -64,11 +64,7 @@ const monitors = [
 ];
 function addresses(body, factory) {
     const compositor = new Function("Dispatch", "Compositor", "ctx", factory)(Dispatch, {}, { active: true });
-    const Hyprland = {
-        monitors: { values: [...monitors, null].map(lastIpcObject => ({ lastIpcObject })) },
-        toplevels: { values: [...clients, null].map(lastIpcObject => ({ lastIpcObject })) },
-    };
-    return new Function("Hyprland", "shell", body)(Hyprland, { compositor }).map(window => window.address);
+    return new Function("clients", "monitors", "shell", body)(clients, monitors, { compositor }).map(window => window.address);
 }
 const expected = JSON.stringify(["shown", "shown-special"]);
 console.log(JSON.stringify([

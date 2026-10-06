@@ -247,8 +247,8 @@ function workspaceState(text) {
 // The windows and the monitors, from one `hyprctl --batch` of
 // WINDOW_STATE_REQUEST: { ok: true, clients, monitors } or { ok: false,
 // error }. Quickshell 0.3.1's Hyprland.toplevels can keep a window Hyprland
-// closed (runtime-hyprland-pads.md § Events), so a reader that needs the
-// windows that exist reads them here.
+// closed (docs/architecture/runtime-hyprland-pads.md § Events), so a reader
+// that needs the windows that exist reads them here.
 var WINDOW_STATE_REQUEST = "j/clients;j/monitors";
 
 function windowState(text) {
