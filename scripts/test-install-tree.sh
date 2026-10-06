@@ -475,10 +475,9 @@ user_writes() {
   LC_ALL=C sort <<<"$found" | paste -sd, -
 }
 if [[ -x $generator ]]; then
-  # package-rule requires a PREFIX without sudoers syntax. This worktree's
-  # tmp path uses only characters that rule admits.
-  autostart_root="$tmp/autostart-root"
-  mkdir -p -- "$autostart_root"
+  # package-rule requires a PREFIX without sudoers syntax. The checkout
+  # path can contain other characters, so only this fixture lives in /tmp.
+  autostart_root="$(mktemp -d /tmp/vgs-autostart.XXXXXX)"
   check "the generator starts the installed vgshell run in Hyprland alone" test "$(autostart_unit "$repo/packaging/install-system.sh" "$autostart_root/autostart")" = unit=ok
   check "the generated unit is wanted by xdg-desktop-autostart.target" test -L "$autostart_root/autostart/units/xdg-desktop-autostart.target.wants/app-vgshell@autostart.service"
   check "the autostart install writes nothing outside its prefix" test "$(user_writes "$autostart_root/autostart")" = ""

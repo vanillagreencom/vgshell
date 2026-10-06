@@ -52,7 +52,7 @@
 // file of the installed tree every package prints on a first install.
 // pacman (packaging/arch/{vgshell,vgshell-git}/.SRCINFO): depends and optdepends;
 // optdepends may name more than the requirements. Hard dependencies are
-// exactly the required union. vgshell: pkgver is VERSION's
+// exactly the required union plus portal backends. vgshell: pkgver is VERSION's
 // line; arch is any; source is the release tarball URL; one sha256sums entry, SKIP
 // only while the tag v<pkgver> does not exist, otherwise 64 lower-case hex
 // digits. vgshell-git: arch is any; makedepends holds git; no source; url is
@@ -67,7 +67,7 @@
 // `makepkg --printsrcinfo` of the PKGBUILD beside it.
 // dnf (packaging/fedora/{vgshell,vgshell-git}.spec): the Requires and Recommends
 // lines between `# begin runtime dependencies` and `# end runtime
-// dependencies`, exactly the requirements' set. The block is the same in
+// dependencies`, the requirements' set plus portal backends. The block is the same in
 // both specs; both are noarch, named for their package, share License, URL,
 // BuildRequires and the %build, %install, %check, %files and %post
 // sections, install through packaging/install-system.sh with SYSCONFDIR,

@@ -6,8 +6,8 @@
 # every bus variable in a hook environment; the row tests portal routing,
 # which reads GSettings through the same API whatever backend stores it.
 # The sandbox tree ships no theme targets, so this row copies only the real
-# accent-color target into that tree. It then runs the real `vgshell theme apply`
-# under the test-run hook guard, which exercises the target hook.
+# accent-color and color-scheme targets into that tree. It then runs the real
+# `vgshell theme apply` under the test-run hook guard, which exercises the target hook.
 # inputs: packaging/xdg-desktop-portal/hyprland-portals.conf themes/targets/accent-color/* themes/targets/color-scheme/* bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/catalog/gruvbox/* themes/catalog/flexoki-light/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js bin/lib/qml-library.js
 set -euo pipefail
 
