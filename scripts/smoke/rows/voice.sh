@@ -648,6 +648,9 @@ voice_notice_escape() { # LABEL
 voice_asked='["vgs.voice", ["voxtype", "voxtype-audio-bridge"], ["voxtype", "voxtype-audio-bridge"], false]'
 # Idle, so the stubs the package step puts back show no recording.
 voice_set_state idle
+# The service a fresh install leaves, which Voice probes once voxtype is
+# back.
+device_reply systemctl 1 disabled --user is-enabled voxtype
 
 expect "enabling Voice without voxtype is allowed" ok ipc shell setPluginEnabled vgs.voice true
 expect_poll "Voice without voxtype is built" True record_exists vgs.voice
