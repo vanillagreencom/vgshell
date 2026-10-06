@@ -83,6 +83,8 @@ instance-guard
 diagnostics
 supervise
 lock
+# After lock, since it verifies that each plugin can run while the other is disabled.
+screensaver
 read-only-prefix
 hyprland-consent-decline
 notices-control

@@ -149,8 +149,8 @@ fi
 # background host, whose binding the scan reaches first, still claims
 # first.
 if copy_tree backgrounds-late && edit_tree backgrounds-late shell/Hosts/BackgroundHost.qml \
-    'readonly property var ids: Registry.enabledOfKind("background").filter(id => {' \
-    'readonly property var ids: (Plugins.built["service"] === undefined ? [] : Registry.enabledOfKind("background")).filter(id => {' \
+    'readonly property var ids: Registry.enabledOfKind(kind).filter(id => {' \
+    'readonly property var ids: (Plugins.built["service"] === undefined ? [] : Registry.enabledOfKind(kind)).filter(id => {' \
   && restart_over "$sandbox/tree-backgrounds-late" "$sandbox/start-order-backgrounds-late-qs.log"; then
   expect_poll "control: a background built after the services leaves the lock with the service" '["acme.locker"]' lent holders.lock
 fi

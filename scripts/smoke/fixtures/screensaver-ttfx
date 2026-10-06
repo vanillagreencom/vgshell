@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ ${1:-} == --help ]]; then
+  cat <<'HELP'
+Commands:
+  planted         Smoke planted effect
+  beams           Beams
+  help            Print this message or the help of the given subcommand(s)
+
+Options:
+  --frame-rate <FRAME_RATE>
+HELP
+  exit 0
+fi
+log="${VGS_SCREENSAVER_TTFX_LOG:-$HOME/.local/state/vgshell/screensaver-ttfx.log}"
+mkdir -p -- "$(dirname -- "$log")"
+printf '%s\n' "$*" >>"$log"
+trap 'exit 0' TERM INT HUP
+while :; do
+  printf '\0338\033[38;2;0;200;255mVGS\033[0m\n'
+  sleep 0.2
+done

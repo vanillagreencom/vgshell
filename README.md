@@ -81,6 +81,7 @@ VGS starts with Hyprland and draws the bar, panels and windows on each screen. E
 | [Polkit](shell/plugins/vgs.polkit/README.md) | Enter your password when an app needs administrator access. |
 | [Power](shell/plugins/vgs.power/README.md) | Show battery level and choose the power profile. |
 | [Scratchpads](shell/plugins/vgs.scratchpads/README.md) | Show and hide an app with one key. |
+| [Screensaver](shell/plugins/vgs.screensaver/README.md) | Show animated text art when the desktop is inactive. |
 | [Plugins](shell/plugins/vgs.settings/README.md) | Manage your plugins, settings and shortcuts. |
 | [Sound](shell/plugins/vgs.sound/README.md) | Set the volume, the sound devices and each app's volume. |
 | [System Settings](shell/plugins/vgs.system/README.md) | Sound, displays, network and other system settings in one window. |

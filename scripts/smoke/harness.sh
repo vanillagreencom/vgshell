@@ -629,7 +629,9 @@ fi
 # it and disables it again. vgs.keyhints starts disabled for the
 # launcher's reason; rows/keyhints.sh enables it and disables it again.
 # vgs.scratchpads starts disabled for the launcher's reason;
-# rows/scratchpads.sh enables it and disables it again.
+# rows/scratchpads.sh enables it and disables it again. vgs.screensaver
+# starts disabled so its idle watch, TUI row and unbound shortcut do not
+# change the neutral smoke set; rows/screensaver.sh enables it.
 # The System family's ids, vgs.system, vgs.sound, vgs.bluetooth,
 # vgs.network, vgs.vpn, vgs.displays, vgs.mouse and vgs.keyboard, start
 # disabled before any of them ships, so a section that lands enables its
@@ -838,6 +840,8 @@ default_set_prepare() { # PLUGINS_JSON [DISABLED_JSON]
 import json, os, sys
 user, plugins, disabled = sys.argv[1], json.loads(sys.argv[2]), json.loads(sys.argv[3])
 installed = os.path.join(os.path.dirname(user), "plugins")
+if "vgs.screensaver" not in plugins and "vgs.screensaver" not in disabled:
+    disabled.append("vgs.screensaver")
 left = sorted(d for d in os.listdir(installed) if d not in plugins and d not in disabled) if os.path.isdir(installed) else []
 disabled = disabled + left
 with open(user + ".tmp", "w") as out:
@@ -867,7 +871,7 @@ case "$plugin_set" in
     mkdir -p "$tick"
     cp -R "$repo/scripts/smoke/fixtures/plugins/acme.tick/." "$tick/"
     cat >"$home/.config/vgshell/shell.json" <<'JSON'
-{ "version": 1, "bar": { "id": "vgs.bar", "layout": { "left": [], "center": [{ "id": "acme.tick", "format": "ddd d MMM  HH:mm" }], "right": [] } }, "plugins": [{ "id": "vgs.settings" }], "disabledPlugins": ["vgs.launcher", "vgs.notifications", "vgs.updates", "vgs.agent-warden", "vgs.devtools", "vgs.automations", "vgs.polkit", "vgs.lock", "vgs.jarvis", "vgs.system", "vgs.sound", "vgs.bluetooth", "vgs.power", "vgs.network", "vgs.vpn", "vgs.displays", "vgs.mouse", "vgs.keyboard", "vgs.capture", "vgs.greeter", "vgs.keyhints", "vgs.scratchpads", "vgs.ai-usage", "vgs.tray", "vgs.voice", "vgs.webapps"] }
+{ "version": 1, "bar": { "id": "vgs.bar", "layout": { "left": [], "center": [{ "id": "acme.tick", "format": "ddd d MMM  HH:mm" }], "right": [] } }, "plugins": [{ "id": "vgs.settings" }], "disabledPlugins": ["vgs.launcher", "vgs.notifications", "vgs.updates", "vgs.agent-warden", "vgs.devtools", "vgs.automations", "vgs.polkit", "vgs.lock", "vgs.jarvis", "vgs.system", "vgs.sound", "vgs.bluetooth", "vgs.power", "vgs.network", "vgs.vpn", "vgs.displays", "vgs.mouse", "vgs.keyboard", "vgs.capture", "vgs.greeter", "vgs.keyhints", "vgs.scratchpads", "vgs.screensaver", "vgs.ai-usage", "vgs.tray", "vgs.voice", "vgs.webapps"] }
 JSON
     ;;
   default) default_set_prepare '[]' ;;

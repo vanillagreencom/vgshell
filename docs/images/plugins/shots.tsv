@@ -12,6 +12,7 @@ vgs.notifications-inbox.webp	notifications	notifications-dark-inbox	content
 vgs.notifications-toasts.webp	notifications	notifications-dark-toasts	content
 vgs.polkit-prompt.webp	polkit	polkit-dark	full
 vgs.power-panel.webp	power	power-dark-panel	content
+vgs.screensaver-cover.webp	screensaver	screensaver-dark-cover	full
 vgs.settings-window.webp	settings	settings-dark-list	content
 vgs.displays-pane.webp	system	system-dark-displays	content
 vgs.mouse-pane.webp	system	system-dark-mouse	content
