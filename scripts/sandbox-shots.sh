@@ -179,7 +179,7 @@ while [[ $# -gt 0 ]]; do
     --keep) keep=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    gallery|settings|focus|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|ai-usage|devtools|system|network|vpn|bluetooth|power|dialog|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|tooltips|screensaver) scenes+=("$1"); shift ;;
+    gallery|settings|focus|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|ai-usage|devtools|system|network|vpn|bluetooth|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|tooltips|screensaver) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
