@@ -16,14 +16,16 @@
 
 # SCENE is gallery, settings, focus, plugin-pages, manager, launcher,
 # notifications, bar, panels, devtools, system, network, vpn, bluetooth, dialog, lock, polkit,
-# greeter, narrow, theme-browser, wallpaper-browser, automations, capture,
+# greeter, narrow, theme-browser, wallpaper-browser, automations, tooltips, capture,
 # keyhints, clipboard, voice or ai-usage. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
 # each when the tree ships its plugin. plugin-pages, taken only when named, opens every
 # plugin the Settings window lists, in that window's order, and captures
 # every screen of an overflowing page. bar is the bar with every
 # first-party widget and each widget's tooltip or
-# hover; panels is the Agent Warden panel, the Updates window and the
+# hover; tooltips, taken only when named, enables and places every
+# first-party plugin with a bar widget and shoots each widget's tooltip;
+# panels is the Agent Warden panel, the Updates window and the
 # themes panel over planted status or packages, the themes panel's
 # apply held and answered by a stand-in
 # runner that changes no theme; devtools is the Dev Tools window; system
@@ -170,7 +172,7 @@ while [[ $# -gt 0 ]]; do
     --keep) keep=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    gallery|settings|focus|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|ai-usage|devtools|system|network|vpn|bluetooth|dialog|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations) scenes+=("$1"); shift ;;
+    gallery|settings|focus|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|ai-usage|devtools|system|network|vpn|bluetooth|dialog|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|tooltips) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -248,6 +250,10 @@ tree_has shell/Ui/layout/AngledCard.qml "property bool hovered" && card_hover_st
 tree_rescan() { # LABEL
   if tree_has shell/shell.qml "function scanRevision("; then rescan "$1"; else expect "$1" ok ipc shell rescanPlugins; fi
 }
+tooltip_widgets=()
+for widget in "$tree"/shell/plugins/vgs.*/Widget.qml; do
+  [[ -f $widget ]] && tooltip_widgets+=("$(basename -- "$(dirname -- "$widget")")")
+done
 manager_scene=""
 if [[ -f $tree/shell/plugins/vgs.settings/manifest.json ]]; then manager_scene=settings
 elif [[ -f $tree/shell/plugins/vgs.bar/Manager.qml ]]; then manager_scene=manager
@@ -264,6 +270,7 @@ scene_ships() {
     launcher|notifications) ships_plugin "vgs.$1" ;;
     automations) ships_plugin vgs.automations ;;
     bar) ships_plugin vgs.bar vgs.launcher vgs.agent-warden vgs.updates vgs.themes ;;
+    tooltips) scene_ships bar ;;
     panels) ships_plugin vgs.agent-warden vgs.updates vgs.themes ;;
     capture) ships_plugin vgs.capture ;;
     keyhints) ships_plugin vgs.keyhints vgs.launcher vgs.settings vgs.themes ;;
@@ -1621,6 +1628,24 @@ scene_bar() { # MODE
   take "bar-$1"
 }
 
+# The pointer on each first-party bar widget the sandbox draws, its tooltip
+# open; a widget whose plugin draws no bar item here, for a device or
+# program the sandbox lacks, is named and not shot.
+widget_centre() { python3 -c 'import json,sys; t=sys.argv[1]; r=json.loads(t) if t.startswith("[") else None; print("%d %d" % (r[0] + r[2] / 2, r[1] + r[3] / 2) if r and r[2] > 0 and r[3] > 0 else "none")' "$1"; }
+scene_tooltips() { # MODE
+  local id at
+  warden_status calm calm
+  for id in "${tooltip_widgets[@]}"; do
+    at="$(widget_centre "$(ipc smoke instanceGeometry "$(bar_key)" "$id")")" || at=none
+    if [[ $at == none ]]; then ok "$id draws no bar item in the sandbox"; continue; fi
+    hover_widget "the pointer rests on $id" "$id" || continue
+    expect_poll "the $id tooltip opens" true tooltip_opened "$id"
+    take "tooltips-$1-${id#vgs.}"
+    park_pointer
+    expect_poll "the $id tooltip closes" false tooltip_opened "$id"
+  done
+}
+
 # The Agent Warden panel opened from its shield over a calm status and then
 # a problem one, and the Updates window opened from its widget over the
 # planted snapshot, with its System row expanded and then the pointer on
@@ -2274,6 +2299,7 @@ scene_automations() { # MODE
 for scene in "${scenes[@]}"; do
   case $scene in
     bar) need_setup launcher; need_setup panels; need_setup bar ;;
+    tooltips) need_setup launcher; need_setup panels; need_setup bar; need_setup tooltips ;;
     focus) need_setup settings ;;
     narrow) for s in launcher panels bar devtools dialog notifications gallery; do need_setup "$s"; done
       ! scene_ships lock || need_setup lock ;;
@@ -2369,6 +2395,23 @@ PY
       expect "enabling vgs.settings is allowed" ok ipc shell setPluginEnabled vgs.settings true
       expect_poll "vgs.settings is built" True record_exists vgs.settings
       ;;
+    tooltips)
+      # Every first-party plugin with a bar widget, enabled and placed; the
+      # requirement notices that raises close before any shot.
+      for id in "${tooltip_widgets[@]}"; do
+        expect "enabling $id for its tooltip is allowed" ok ipc shell setPluginEnabled "$id" true
+        expect "$id is placed for its tooltip" ok ipc shell setPluginPlaced "$id" true
+      done
+      for _ in $(seq 1 25); do [[ $(notice_shown) != null ]] && break; sleep 0.2; done
+      for _ in $(seq 1 16); do
+        shown="$(notice_plugin)" || shown=unread
+        [[ $shown == null ]] && break
+        expect_poll "the requirement notice of $shown maps" 1 layer_count vgs:notice
+        expect_poll "the requirement notice of $shown holds the keyboard" true ipc smoke noticeFocused
+        type_keys -k Escape || fail "sending Escape to the requirement notice of $shown failed"
+        expect_poll "Escape closes the requirement notice of $shown" closed notice_moved_from "$shown"
+      done
+      expect_poll "Escape closed every requirement notice" null notice_shown ;;
     panels)
       # The warden reads a fresh status from its runtime dir, with a vsys
       # whose summary names one warning and a notify-send that sends
