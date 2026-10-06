@@ -20,6 +20,7 @@ Item {
     property int code: -1
     readonly property string helper: decodeURIComponent(String(Qt.resolvedUrl("backend/usage.js")).replace(/^file:\/\//, ""))
     readonly property int intervalMs: (shell === null ? 15 : shell.settings.refreshMinutes) * 60000
+    readonly property bool gatewayEnabled: shell !== null && shell.settings.aiGateway === true
     readonly property var claudeEnded: ended("sign-in-claude")
     readonly property var codexEnded: ended("sign-in-codex")
 
@@ -45,7 +46,9 @@ Item {
         pending = false;
         output = "";
         code = -1;
-        reader.command = ["node", helper, "--tree", Quickshell.shellDir + "/.."];
+        const command = ["node", helper, "--tree", Quickshell.shellDir + "/.."]
+        if (gatewayEnabled) command.push("--gateway");
+        reader.command = command;
         reader.running = true;
     }
 
@@ -64,7 +67,7 @@ Item {
         const value = reading();
         if (value === null) console.warn("ai-usage: read=failed exit=" + code);
         usage = View.merge(usage, value, Date.now());
-        for (const [key, entry] of [["usage", usage], ["claude", View.signIn(usage, "claude")], ["codex", View.signIn(usage, "codex")]]) {
+        for (const [key, entry] of [["usage", usage], ["accounts", View.accountChoices(usage)], ["claude", View.signIn(usage, "claude")], ["codex", View.signIn(usage, "codex")], ["gatewayKey", View.gatewayKey(gatewayEnabled && usage.gatewayKey !== null ? usage.gatewayKey : "absent")]]) {
             const reply = shell.status.set(key, entry);
             if (reply !== "ok") console.warn("ai-usage: status=" + key + " " + reply);
         }

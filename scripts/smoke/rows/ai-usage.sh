@@ -114,6 +114,11 @@ usage_gear_click() {
 }
 usage_settings_page() { ipc smoke readInstance window vgs.settings page; }
 usage_panel_rows() { usage_panel | py_reply 'import json,sys; print(json.dumps([[r["provider"], r["label"], r["email"], r["plan"], [[w["name"], w["percent"], w["tone"]] for w in r["windows"]]] for r in json.load(sys.stdin)]))'; }
+
+usage_panel_details() { usage_panel | py_reply 'import json,sys; print(json.dumps([[r["provider"], r["label"], [[d["label"], d["value"]] for d in r["details"]]] for r in json.load(sys.stdin)]))'; }
+usage_panel_view() { ipc smoke readInstance panel vgs.ai-usage fullView; }
+usage_choices() { ipc smoke statusValues vgs.ai-usage | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps([c["label"] for c in v["accounts"]]))'; }
+usage_apply_setting() { ipc smoke invokeInstance window vgs.settings applySetting "{\"id\":\"vgs.ai-usage\",\"key\":\"$1\",\"value\":$2}"; }
 # The time left on each window the panel shows, against the stand-ins'
 # answer of 5 h 30 min and 3 d 6 h after the request: `matched` while every
 # window reads within the minutes since the request and the panel clock's
@@ -214,6 +219,8 @@ expect_poll "the service is idle before the panel opens" idle usage_idle
 click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage from its widget failed"
 expect_poll "the widget opens its panel" '[["claude", "default", "", "max", [["five_hour", 42, "normal"], ["seven_day", 83, "warning"], ["seven_day_fable", 12, "normal"]]], ["codex", "default", "person@example.invalid", "plus", [["five_hour", 27, "normal"], ["seven_day", 64, "normal"]]]]' usage_panel_rows
 expect_poll "the panel's reset times are the stand-ins'" matched usage_panel_resets
+expect "the full panel is selected by default" true usage_panel_view
+expect "the full panel carries provider details" '[["claude", "default", [["Extra usage", "$123.45 of $500.00"]]], ["codex", "default", [["Codex credits", "12345 available"]]]]' usage_panel_details
 summon_drawn panel vgs.ai-usage || fail "the panel never drew a frame"
 usage_panel_box() { ipc smoke instanceGeometry panel vgs.ai-usage | py_reply 'import json,sys; r=json.load(sys.stdin); print(r[2] > 0 and r[3] > 0)'; }
 expect "the panel has a size" True usage_panel_box
@@ -221,6 +228,31 @@ expect_poll "the check the panel asks for is published" new usage_read_after "$u
 expect "the panel's check changed no credential file" kept usage_credentials_kept
 expect "AI Usage's panel hides" ok ipc shell hide panel vgs.ai-usage
 expect_poll "the hidden panel is gone" absent usage_panel
+expect "enabling Settings for AI Usage settings edits is allowed" ok ipc shell setPluginEnabled vgs.settings true
+expect_poll "the Settings service is built for AI Usage settings edits" True record_exists vgs.settings
+expect "the Settings window is summoned for AI Usage settings edits" ok ipc shell summon window vgs.settings '{}'
+expect "the account choices list all read accounts" '["Claude Code \u00b7 default", "Codex \u00b7 person@example.invalid"]' usage_choices
+expect "choosing compact view is allowed" ok usage_apply_setting view '"compact"'
+click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage for compact view failed"
+expect_poll "the compact panel is selected" false usage_panel_view
+expect_poll "the compact panel still shows every limit" '[["claude", "default", "", "max", [["five_hour", 42, "normal"], ["seven_day", 83, "warning"], ["seven_day_fable", 12, "normal"]]], ["codex", "default", "person@example.invalid", "plus", [["five_hour", 27, "normal"], ["seven_day", 64, "normal"]]]]' usage_panel_rows
+expect "the compact panel hides" ok ipc shell hide panel vgs.ai-usage
+expect_poll "the compact panel is gone" absent usage_panel
+expect "hiding Codex by provider is allowed" ok usage_apply_setting showCodex false
+expect_poll "the widget recomputes without Codex" '[true, true, 83, "warning"]' usage_widget_state
+click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage with Codex filtered failed"
+expect_poll "the provider filter leaves Claude only" '[["claude", "default", "", "max", [["five_hour", 42, "normal"], ["seven_day", 83, "warning"], ["seven_day_fable", 12, "normal"]]]]' usage_panel_rows
+expect "the filtered panel hides" ok ipc shell hide panel vgs.ai-usage
+expect_poll "the filtered panel is gone" absent usage_panel
+expect "hiding the first offered account is allowed" ok usage_apply_setting hidden '[{"name":"item-1","account":""}]'
+expect_poll "the widget hides when all visible accounts are filtered" '[false, false, null, "normal"]' usage_widget_state
+expect "restoring hidden accounts is allowed" ok usage_apply_setting hidden '[]'
+expect "restoring Codex provider is allowed" ok usage_apply_setting showCodex true
+expect "restoring full view is allowed" ok usage_apply_setting view '"full"'
+expect "the Settings window used for setting edits hides" ok ipc shell hide window vgs.settings
+expect_poll "the Settings window used for setting edits is gone" absent usage_settings_page
+expect "disabling Settings after AI Usage setting edits is allowed" ok ipc shell setPluginEnabled vgs.settings false
+expect_poll "the Settings service is gone after AI Usage setting edits" False record_exists vgs.settings
 
 # The panel's gear, which Plugins, always on, gives every panel: a click
 # opens the Settings window on AI Usage's page and closes the panel.

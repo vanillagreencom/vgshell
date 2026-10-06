@@ -39,6 +39,10 @@ function relativeClaude() {
     }
     return reply;
 }
+function gatewayBody(mode) {
+    if (mode === "gateway-string") return { balance: "10.50", total_used: "5.25" };
+    return { balance: 10.50, total_used: 5.25 };
+}
 function copilotBody(mode) {
     const base = { token_based_billing: true, copilot_plan: "enterprise", quota_reset_date_utc: "2026-11-01T00:00:00.000Z",
         quota_snapshots: { premium_interactions: { entitlement: 1000000, remaining: 954775, credits_used: 362327,
@@ -65,6 +69,15 @@ function start(portFile, modeFile, logFile) {
             response.writeHead(reply[0], { "content-type": "application/json" });
             response.end(reply[1] === null ? (mode === "malformed" ? "{\"five_hour\": " : "{}")
                 : fs.readFileSync(path.join(__dirname, reply[1])));
+            return;
+        }
+        if (request.url === "/v1/credits") {
+            if (request.method !== "GET") { response.writeHead(404); response.end(); return; }
+            if (mode === "gateway-refused") { response.writeHead(401, { "content-type": "application/json" }); response.end("{}"); return; }
+            if (mode === "gateway-malformed") { response.writeHead(200, { "content-type": "application/json" }); response.end("{"); return; }
+            if (mode === "gateway-error") { response.writeHead(500); response.end("{}"); return; }
+            response.writeHead(200, { "content-type": "application/json" });
+            response.end(JSON.stringify(gatewayBody(mode)));
             return;
         }
         if (request.url === "/copilot_internal/user") {

@@ -221,15 +221,15 @@ async function main() {
     await control("origin-edited", "backend/usage.js", 'const ORIGIN = "https://api.anthropic.com";',
         'const ORIGIN = "http://127.0.0.1:9";', shipped);
     await control("default-origin", "backend/usage.js",
-        'async function read(tree, env, { origin = ORIGIN, copilotOrigin = COPILOT_ORIGIN, secretTool = "secret-tool" } = {}) {',
-        'async function read(tree, env, { origin = "http://127.0.0.1:9", copilotOrigin = COPILOT_ORIGIN, secretTool = "secret-tool" } = {}) {', shipped);
+        'async function read(tree, env, { origin = ORIGIN, copilotOrigin = COPILOT_ORIGIN, gatewayOrigin = GATEWAY_ORIGIN, secretTool = "secret-tool", gateway = false } = {}) {',
+        'async function read(tree, env, { origin = "http://127.0.0.1:9", copilotOrigin = COPILOT_ORIGIN, gatewayOrigin = GATEWAY_ORIGIN, secretTool = "secret-tool", gateway = false } = {}) {', shipped);
 
     // The recorded replies, parsed. A window the reply leaves out or holds
     // as null is absent, never a 0 % window; a reply of another shape is null.
     const claudeReply = JSON.parse(fs.readFileSync(path.join(fixtures, "claude-usage.json"), "utf8"));
     const codexReply = JSON.parse(fs.readFileSync(path.join(fixtures, "codex-rate-limits.json"), "utf8"));
     const recorded = folder => {
-        const { claudeWindows, codexWindows } = usageIn(folder);
+        const { claudeWindows, claudeDetails, codexWindows } = usageIn(folder);
         assert.deepEqual(claudeWindows(claudeReply), [
             { name: "five_hour", usedPercent: 42, resetsAt: Date.parse("2026-10-05T18:00:00.461Z") },
             { name: "seven_day", usedPercent: 83, resetsAt: Date.parse("2026-10-09T08:00:00.461Z") },
@@ -246,11 +246,12 @@ async function main() {
         for (const body of ["text", [], null, { five_hour: { utilization: "42", resets_at: null } }, { seven_day: 7 },
             { five_hour: { utilization: 4, resets_at: "soon" } }])
             assert.equal(claudeWindows(body), null, JSON.stringify(body));
-        assert.deepEqual(codexWindows(codexReply), { plan: "plus", windows: [
+        assert.deepEqual(claudeDetails(claudeReply), { claudeExtra: { used: 123.45, limit: 500, currency: "USD", utilization: 24.69 } });
+        assert.deepEqual(codexWindows(codexReply), { plan: "plus", details: { codexCredits: { balance: "12345" } }, windows: [
             { name: "five_hour", usedPercent: 27, resetsAt: 1791223200000 },
-            { name: "seven_day", usedPercent: 64, resetsAt: 1791561600000 }] });
-        assert.deepEqual(codexWindows({ rateLimits: { primary: { usedPercent: 5, windowDurationMins: 60, resetsAt: null }, secondary: null } }),
-            { plan: "", windows: [{ name: "minutes_60", usedPercent: 5, resetsAt: null }] });
+            { name: "seven_day", usedPercent: 64, resetsAt: 1791561600000 }], details: { codexCredits: { balance: "12345" } } });
+        assert.deepEqual(codexWindows({ rateLimits: { primary: { usedPercent: 5, windowDurationMins: 60, resetsAt: null }, secondary: null, credits: { hasCredits: true, unlimited: true, balance: null } } }),
+            { plan: "", details: { codexCredits: { unlimited: true } }, windows: [{ name: "minutes_60", usedPercent: 5, resetsAt: null }] });
         for (const body of [{}, { rateLimits: 3 }, { rateLimits: { primary: { usedPercent: "5" } } }, { rateLimits: { primary: [] } }])
             assert.equal(codexWindows(body), null, JSON.stringify(body));
     };
@@ -284,7 +285,8 @@ async function main() {
         assert.deepEqual(await readOf(fresh, "ok"), { state: "ok", plan: "max", windows: [
             { name: "five_hour", usedPercent: 42, resetsAt: Date.parse("2026-10-05T18:00:00.461Z") },
             { name: "seven_day", usedPercent: 83, resetsAt: Date.parse("2026-10-09T08:00:00.461Z") },
-            { name: "seven_day_fable", usedPercent: 12, resetsAt: null }] });
+            { name: "seven_day_fable", usedPercent: 12, resetsAt: null }],
+            details: { claudeExtra: { used: 123.45, limit: 500, currency: "USD", utilization: 24.69 } } });
         assert.deepEqual(requests().slice(sent), [{ method: "GET", path: "/api/oauth/usage", beta: "oauth-2025-04-20",
             token: tokenHash, authHash: null, userAgent: null }]);
         assert.deepEqual((await readOf(fresh, "missing")).windows.map(row => row.name), ["seven_day", "seven_day_fable"], "a missing window is absent");
@@ -335,7 +337,7 @@ async function main() {
         const started = calls(signed).length;
         assert.deepEqual(await readOf("ok"), { state: "ok", email: "person@example.invalid", plan: "plus", windows: [
             { name: "five_hour", usedPercent: 27, resetsAt: 1791223200000 },
-            { name: "seven_day", usedPercent: 64, resetsAt: 1791561600000 }] });
+            { name: "seven_day", usedPercent: 64, resetsAt: 1791561600000 }], details: { codexCredits: { balance: "12345" } } });
         const run = calls(signed).slice(started);
         assert.deepEqual(run.map(call => [call.args, call.codexHome]), [[["app-server"], signed]]);
         assert.deepEqual(await readOf("signed-out"), { state: "signed-out" });
@@ -378,14 +380,15 @@ async function main() {
         const { copilotCredits, readCopilot } = usageIn(folder);
         const enterprise = { state: "ok", plan: "enterprise", email: "octo-user", windows: [
             { name: "credits", usedPercent: 4.5225, resetsAt: Date.parse("2026-11-01T00:00:00.000Z") }],
-            credits: { unit: "credits", used: 45225, granted: 1000000, monthUsed: 362327 } };
+            credits: { unit: "credits", used: 45225, granted: 1000000, monthUsed: 362327 },
+            details: { copilotRenewsAt: Date.parse("2026-11-01T00:00:00.000Z"), copilotMonthUsed: 362327 } };
         mode("copilot");
         assert.deepEqual(copilotCredits({ copilot_plan: "enterprise" }), { state: "ok", plan: "enterprise", windows: [], credits: null });
         assert.deepEqual(copilotCredits({ copilot_plan: "enterprise", quota_snapshots: { premium_interactions: {
             unlimited: true, token_based_billing: false } } }),
-        { state: "ok", plan: "enterprise", windows: [], credits: { unit: "requests", unlimited: true } });
+        { state: "ok", plan: "enterprise", windows: [], credits: { unit: "requests", unlimited: true }, details: {} });
         assert.deepEqual(copilotCredits({ quota_snapshots: { premium_interactions: { entitlement: 0, token_based_billing: true } } }),
-            { state: "ok", plan: "", windows: [], credits: { unit: "credits", granted: 0 } });
+            { state: "ok", plan: "", windows: [], credits: { unit: "credits", granted: 0 }, details: {} });
         assert.equal(copilotCredits({ quota_snapshots: { premium_interactions: { entitlement: -1, remaining: 0 } } }), null);
         assert.deepEqual(await readCopilot(Anchored, copilotDir, { origin, secretTool, env: copilotEnv }), enterprise);
         assert.deepEqual(await readCopilot(Anchored, objectDir, { origin, secretTool, env: copilotEnv }), enterprise);
@@ -425,10 +428,58 @@ async function main() {
     cases++;
     await control("copilot-credits-used", "backend/usage.js", "const used = entitlement - Math.max(remaining, 0);",
         "const used = snap.credits_used;", copilotCases);
-    await control("copilot-user-agent", "backend/usage.js", 'accept: "application/json", "user-agent": "vgs-ai-usage"',
-        'accept: "application/json"', copilotCases);
-    await control("secret-tool-search", "backend/usage.js", 'const child = cp.spawn(secretTool, ["search", "service", "copilot-cli", "username", username],',
-        'const child = cp.spawn(secretTool, ["lookup", "service", "copilot-cli", "username", username],', copilotCases);
+    await control("copilot-user-agent", "backend/usage.js", 'authorization: "token " + token.token, accept: "application/json", "user-agent": "vgs-ai-usage"',
+        'authorization: "token " + token.token, accept: "application/json"', copilotCases);
+    await control("secret-tool-search", "backend/usage.js", 'const result = await secretSearch(secretTool, ["service", "copilot-cli", "username", username], env);',
+        'const result = await secretSearch(secretTool, ["service", "copilot-cli", "account", username], env);', copilotCases);
+
+    // AI Gateway is an owner-only extra. With its flag off, the helper does
+    // not read the key and sends no Gateway request. With it on, it reads one
+    // libsecret account, keeps the key out of output, and maps the credits
+    // reply into a Gateway account and full-view details.
+    const gatewayHome = path.join(root, "gateway-home");
+    fs.mkdirSync(gatewayHome, { recursive: true });
+    claudeAccount(path.join(gatewayHome, ".claude"), -HOUR, Date.now());
+    const gatewayToken = "vga_" + TOKEN;
+    const gatewayEnv = { PATH, HOME: gatewayHome, LANG: "C.UTF-8" };
+    const gatewayCases = async folder => {
+        const usage = usageIn(folder);
+        fs.rmSync(path.join(gatewayHome, "secret-tool-calls"), { force: true });
+        fs.writeFileSync(path.join(gatewayHome, "secret-tool-mode"), "ok\n");
+        fs.writeFileSync(path.join(gatewayHome, "secret-tool-map.json"), JSON.stringify({ "vgs-ai-usage:ai-gateway": gatewayToken }) + "\n");
+        mode("gateway-string");
+        const beforeRequests = requests().length;
+        const off = await usage.read(tree, gatewayEnv, { origin, gatewayOrigin: origin, secretTool, gateway: false });
+        assert.equal(off.gatewayKey, null);
+        assert.equal(secretCalls(gatewayHome).length, 0, "the extra-off read does not ask the keyring");
+        assert.equal(requests().slice(beforeRequests).some(row => row.path === "/v1/credits"), false, "the extra-off read sends no Gateway request");
+        const on = await usage.read(tree, gatewayEnv, { origin, gatewayOrigin: origin, secretTool, gateway: true });
+        const gatewayAccount = on.accounts.find(row => row.provider === "gateway");
+        assert.equal(on.gatewayKey, "present");
+        assert.deepEqual(secretCalls(gatewayHome).slice(-1)[0], ["search", "service", "vgs-ai-usage", "account", "ai-gateway"]);
+        assert.deepEqual(gatewayAccount.state, "ok");
+        assert.deepEqual(gatewayAccount.details, { gateway: { balance: 10.5, totalUsed: 5.25 } });
+        assert.deepEqual(gatewayAccount.windows.map(row => [row.name, row.usedPercent, row.resetsAt]), [["credits", 100 * 5.25 / 15.75, null]]);
+        const lastGateway = requests().filter(row => row.path === "/v1/credits").slice(-1)[0];
+        assert.deepEqual([lastGateway.token, lastGateway.userAgent], [crypto.createHash("sha256").update(gatewayToken).digest("hex"), "vgs-ai-usage"]);
+        mode("gateway-malformed");
+        assert.deepEqual((await usage.read(tree, gatewayEnv, { origin, gatewayOrigin: origin, secretTool, gateway: true })).accounts
+            .filter(row => row.provider === "gateway").map(row => [row.state, row.windows]), [["failed", []]]);
+        fs.writeFileSync(path.join(gatewayHome, "secret-tool-mode"), "missing\n");
+        const missing = await usage.read(tree, gatewayEnv, { origin, gatewayOrigin: origin, secretTool, gateway: true });
+        assert.equal(missing.gatewayKey, "absent");
+        assert.equal(missing.accounts.some(row => row.provider === "gateway"), false);
+        fs.writeFileSync(path.join(gatewayHome, "secret-tool-mode"), "locked\n");
+        assert.equal((await usage.read(tree, gatewayEnv, { origin, gatewayOrigin: origin, secretTool, gateway: true })).gatewayKey, "locked");
+        const child = await run([path.join(folder, "backend/usage.js"), "--tree", tree, "--gateway"], gatewayEnv);
+        assert.equal(child.status, 0, child.stderr);
+        assert.equal((child.stdout + child.stderr).includes(gatewayToken), false, "the Gateway key reaches no output");
+    };
+    await gatewayCases(plugin);
+    cases++;
+    await control("gateway-flag-ignored", "backend/usage.js", 'if (gateway) {', 'if (true) {', gatewayCases);
+    await control("gateway-balance-string", "backend/usage.js", 'const balance = numberValue(body.balance);', 'const balance = typeof body.balance === "number" ? body.balance : undefined;', gatewayCases);
+    await control("gateway-secret-service", "backend/usage.js", '["service", "vgs-ai-usage", "account", GATEWAY_ACCOUNT]', '["service", "copilot-cli", "account", GATEWAY_ACCOUNT]', gatewayCases);
 
     // Discovery includes Copilot homes and the account limit now covers the
     // owner's mix of Claude, Codex and Copilot directories without a partial
@@ -578,12 +629,12 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
     const views = folder => {
         const View = viewIn(folder);
         const plainOf = value => JSON.parse(JSON.stringify(value));
-        const shown = usage => { const w = View.widget(usage); return [w.shown, w.percent, w.tone]; };
+        const shown = (usage, settings) => { const w = View.widget(usage, settings); return [w.shown, w.percent, w.tone]; };
         const first = View.merge(null, reading("ok", [{ name: "seven_day", usedPercent: 80, resetsAt: NOW + 26 * HOUR }]), NOW);
         assert.deepEqual(shown(first), [true, 80, "warning"]);
         const failedRead = View.merge(first, reading("failed", []), NOW + 1);
         assert.deepEqual(plainOf(failedRead.accounts[0]), { id: "claude-a", provider: "claude", label: "default", email: "", plan: "max",
-            state: "stale", windows: [{ name: "seven_day", usedPercent: 80, resetsAt: NOW + 26 * HOUR }], credits: null },
+            state: "stale", windows: [{ name: "seven_day", usedPercent: 80, resetsAt: NOW + 26 * HOUR }], credits: null, details: {} },
         "a failed read keeps its last figures");
         assert.equal(failedRead.readAt, NOW + 1);
         const failedRun = View.merge(first, null, NOW + 2);
@@ -614,20 +665,29 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
             assert.equal(View.resetText(resetAt, NOW), text);
         const copilot = View.merge(null, { accounts: [{ id: "copilot-a", provider: "copilot", label: "work", email: "octo-user",
             plan: "enterprise", state: "ok", credits: { unit: "credits", used: 45225, granted: 1000000, monthUsed: 362327 },
+            details: { copilotMonthUsed: 362327, copilotRenewsAt: Date.parse("2026-11-01T00:00:00Z") },
             windows: [{ name: "credits", usedPercent: 4.5225, resetsAt: Date.parse("2026-11-01T00:00:00Z") }] },
         { id: "copilot-b", provider: "copilot", label: "zero", email: "zero-user", plan: "", state: "ok",
-            credits: { unit: "requests", granted: 0 }, windows: [] },
+            credits: { unit: "requests", granted: 0 }, details: {}, windows: [] },
         { id: "claude-enterprise", provider: "claude", label: "enterprise", email: "", plan: "enterprise", state: "ok",
-            credits: null, windows: [] }], partial: "" }, NOW);
+            credits: null, details: {}, windows: [] },
+        { id: "gateway-a", provider: "gateway", label: "AI Gateway", email: "", plan: "$10.50 left", state: "ok", credits: null,
+            details: { gateway: { balance: 10.5, totalUsed: 5.25 } }, windows: [{ name: "credits", usedPercent: 33.3333333333, resetsAt: null }] }], partial: "" }, NOW);
         assert.deepEqual(plainOf(View.panel(copilot, NOW).map(r => [r.id, r.detail, r.note,
-            r.windows.map(w => [w.label, w.text, w.percent])])), [
-            ["copilot-a", "octo-user · Enterprise plan · 362k AI credits used this month", "", [["AI credits", "45.2k of 1M", 4.5225]]],
-            ["copilot-b", "zero-user · No premium request pool", "", []],
-            ["claude-enterprise", "Enterprise plan", "This plan reports no usage limits.", []]]);
+            r.windows.map(w => [w.label, w.text, w.percent]), r.details.map(d => [d.label, d.value])])), [
+            ["copilot-a", "octo-user · Enterprise plan · 362k AI credits used this month", "", [["AI credits", "45.2k of 1M", 4.5225]], [["Month credits used", "362k"], ["Subscription renewal", "Renews 2026-11-01"]]],
+            ["copilot-b", "zero-user · No premium request pool", "", [], []],
+            ["claude-enterprise", "Enterprise plan", "This plan reports no usage limits.", [], []],
+            ["gateway-a", "$10.50 left", "", [["AI Gateway credits", "33%", 33.3333333333]], [["Balance left", "$10.50"], ["Total used", "$5.25"]]]]);
+        assert.deepEqual(shown(copilot, { showCopilot: false }), [true, 33.3333333333, "normal"], "provider filters remove Copilot from the widget");
+        assert.deepEqual(View.panel(copilot, NOW, { showCopilot: false }).map(r => r.provider), ["claude", "gateway"]);
+        assert.deepEqual(View.panel(copilot, NOW, { hidden: [{ account: "" }] }).map(r => r.id), ["copilot-b", "claude-enterprise", "gateway-a"], "empty hidden account means the first offer");
+        assert.deepEqual(View.accountChoices(copilot).map(r => r.value), ["copilot-a", "copilot-b", "claude-enterprise", "gateway-a"]);
+        assert.deepEqual(plainOf(View.gatewayKey("present")), [{ label: "AI Gateway", value: "present", secret: "ai-gateway", command: "secret-tool store --label='VGS AI Usage AI Gateway key' service vgs-ai-usage account ai-gateway" }]);
         const failedCreditless = View.merge(copilot, { accounts: [{ id: "copilot-b", provider: "copilot", label: "zero",
             email: "", plan: "", state: "failed", windows: [], credits: null }], partial: "" }, NOW + 1);
         assert.deepEqual(plainOf(failedCreditless.accounts[0]), { id: "copilot-b", provider: "copilot", label: "zero",
-            email: "zero-user", plan: "", state: "stale", windows: [], credits: { unit: "requests", granted: 0 } },
+            email: "zero-user", plan: "", state: "stale", windows: [], credits: { unit: "requests", granted: 0 }, details: {} },
         "a failed read keeps credit data that has no meter");
         assert.equal(View.panel(View.merge(null, { accounts: [{ id: "copilot-expired", provider: "copilot", label: "default",
             email: "", plan: "", state: "expired", windows: [], credits: null }], partial: "" }, NOW), NOW)[0].note,
@@ -644,12 +704,15 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
     };
     views(plugin);
     cases++;
-    await control("stale-dropped", "UsageView.js", 'if (row.state === "failed" && last !== null && (last.windows.length > 0 || last.credits !== null))',
+    await control("stale-dropped", "UsageView.js", 'if (row.state === "failed" && last !== null && (last.windows.length > 0 || last.credits !== null || hasDetails(last.details)))',
         "if (false)", views);
     await control("warning-boundary", "UsageView.js", "percent !== null && percent >= WARNING_PERCENT", "percent !== null && percent > WARNING_PERCENT", views);
     await control("lowest-share", "UsageView.js", "row.windows[j].usedPercent > percent", "row.windows[j].usedPercent < percent", views);
     await control("always-shown", "UsageView.js", "shown: accounts.length > 0", "shown: true", views);
     await control("no-plan-counted", "UsageView.js", 'return row.state !== "signed-out" && row.state !== "no-plan";', 'return row.state !== "signed-out";', views);
+    await control("provider-filter-ignored", "UsageView.js", 'if (provider === "copilot") return settings.showCopilot !== false;', 'if (provider === "copilot") return true;', views);
+    await control("hidden-first-ignored", "UsageView.js", 'if (id === "") id = first;', 'if (id === "") id = "";', views);
+    await control("details-dropped", "UsageView.js", 'if (d.gateway !== undefined) {', 'if (false) {', views);
     await control("reset-rounded-down", "UsageView.js", "var minutes = Math.ceil((resetsAt - now) / 60000);", "var minutes = Math.floor((resetsAt - now) / 60000);", views);
 
     // The sign-in TUIs run each tool's own login, through the presentation

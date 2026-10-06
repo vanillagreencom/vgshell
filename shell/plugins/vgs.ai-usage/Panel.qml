@@ -3,15 +3,17 @@ import qs.Commons
 import qs.Ui
 import "UsageView.js" as View
 
-// Each signed-in account in a card of its own: its name, email and plan,
-// and a meter and reset time for each plan limit it reports. Opening the panel asks the service
-// for a new check; the panel draws status alone.
+// Each signed-in and visible account in a card of its own. Compact view
+// shows account identity and one text row per limit. Full view adds meters
+// and the provider detail fields the helper received. Opening the panel asks
+// the service for a new check; the panel draws status alone.
 Item {
     id: root
     property var shell: null
     property Item initialFocus: refreshButton
     readonly property var usage: shell === null || shell.status.values.usage === undefined ? null : shell.status.values.usage
-    readonly property var rows: View.panel(usage, Time.now.getTime())
+    readonly property var rows: View.panel(usage, Time.now.getTime(), shell === null ? null : shell.settings)
+    readonly property bool fullView: shell !== null && shell.settings.view !== "compact"
 
     function refresh() {
         const reply = shell.ipc.call("refresh", "");
@@ -39,7 +41,7 @@ Item {
             visible: root.rows.length === 0
             role: "body"
             wrapMode: Text.Wrap
-            text: root.usage === null ? "Checking your sign-ins." : "No account is signed in. Sign in from Plugins."
+            text: root.usage === null ? "Checking your sign-ins." : "No visible account is signed in. Check your AI Usage settings."
         }
 
         Repeater {
@@ -49,6 +51,7 @@ Item {
                 width: layout.contentWidth
 
                 Label { role: "label"; text: modelData.title }
+                Label { visible: text !== ""; role: "hint"; text: modelData.email }
                 Label { visible: text !== ""; role: "hint"; text: modelData.detail }
                 Label {
                     width: parent.width
@@ -58,27 +61,49 @@ Item {
                     text: modelData.note
                     color: Theme.badge.tone.warning.foreground
                 }
-                Repeater {
-                    model: modelData.windows
-                    Column {
-                        required property var modelData
-                        width: parent.width
-                        spacing: Theme.row.lineGap
 
-                        Item {
+                Section {
+                    visible: modelData.windows.length > 0
+                    title: root.fullView ? "Limits" : ""
+                    rowSpacing: Theme.card.gap
+                    Repeater {
+                        model: modelData.windows
+                        Column {
+                            required property var modelData
                             width: parent.width
-                            implicitHeight: Math.max(limit.implicitHeight, share.implicitHeight)
-                            Label { id: limit; role: "body"; text: modelData.label }
-                            Label {
-                                id: share
-                                anchors.right: parent.right
-                                role: "body"
-                                text: modelData.text
-                                color: modelData.tone === "warning" ? Theme.badge.tone.warning.foreground : Theme.color.text
+                            spacing: Theme.row.lineGap
+
+                            Item {
+                                width: parent.width
+                                implicitHeight: Math.max(limit.implicitHeight, share.implicitHeight)
+                                Label { id: limit; role: "body"; text: modelData.label }
+                                Label {
+                                    id: share
+                                    anchors.right: parent.right
+                                    role: "body"
+                                    text: modelData.text
+                                    color: modelData.tone === "warning" ? Theme.badge.tone.warning.foreground : Theme.color.text
+                                }
                             }
+                            ProgressBar { visible: root.fullView; width: parent.width; value: Math.min(modelData.percent, 100) / 100 }
+                            Label { role: "hint"; text: modelData.reset }
                         }
-                        ProgressBar { width: parent.width; value: Math.min(modelData.percent, 100) / 100 }
-                        Label { role: "hint"; text: modelData.reset }
+                    }
+                }
+
+                Section {
+                    visible: root.fullView && modelData.details.length > 0
+                    title: "Details"
+                    rowSpacing: Theme.row.lineGap
+                    Repeater {
+                        model: modelData.details
+                        Item {
+                            required property var modelData
+                            width: parent.width
+                            implicitHeight: Math.max(detailName.implicitHeight, detailValue.implicitHeight)
+                            Label { id: detailName; role: "hint"; text: modelData.label }
+                            Label { id: detailValue; anchors.right: parent.right; role: "body"; text: modelData.value }
+                        }
                     }
                 }
             }

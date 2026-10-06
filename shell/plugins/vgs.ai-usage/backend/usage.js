@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 // usage.js --tree ABSOLUTE_VGS_TREE
 // Reads the plan limits of every Claude Code, Codex and Copilot account the
-// core's account discovery finds, through each tool's own sign-in, and
+// core's account discovery finds, and optionally Vercel AI Gateway credits
+// from the keyring, through each provider's own sign-in or secret, and
 // prints one JSON line on stdout: { accounts: [{ id, provider, label, email,
-// plan, state, windows: [{ name, usedPercent, resetsAt }], credits }], partial }.
+// plan, state, windows: [{ name, usedPercent, resetsAt }], credits, details }],
+// partial, gatewayKey }.
 // state is ok, expired, signed-out, no-plan for a sign-in that has no plan
 // limits, or failed; a window the tool does not report is left out, never
 // read as 0. Diagnostics are lines of `ai-usage: <key>=<value>` pairs on
@@ -23,6 +25,9 @@ const USAGE_PATH = "/api/oauth/usage";
 const OAUTH_BETA = "oauth-2025-04-20";
 const COPILOT_ORIGIN = "https://api.github.com";
 const COPILOT_PATH = "/copilot_internal/user";
+const GATEWAY_ORIGIN = "https://ai-gateway.vercel.sh";
+const GATEWAY_PATH = "/v1/credits";
+const GATEWAY_ACCOUNT = "ai-gateway";
 // Bounds on a stalled endpoint or program, not latency budgets.
 const REQUEST_MS = 15000;
 const CODEX_MS = 20000;
@@ -43,6 +48,16 @@ function failed(reason) { return { state: "failed", reason }; }
 // A percentage the tool reported, or undefined for a value of another shape.
 function percent(value) {
     return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+function numberValue(value) {
+    if (typeof value === "boolean" || value === null || value === undefined) return undefined;
+    if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
+    if (typeof value === "string" && value.trim() !== "") {
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : undefined;
+    }
+    return undefined;
 }
 
 function resetTime(value) {
@@ -74,6 +89,20 @@ function claudeWindow(name, value) {
  * null is absent. Returns the windows, or null for a reply that is no object
  * or holds a present window of another shape.
  */
+
+function claudeDetails(body) {
+    const extra = plain(body.extra_usage) ? body.extra_usage : null;
+    if (extra === null || extra.is_enabled !== true) return {};
+    const limit = numberValue(extra.monthly_limit);
+    const used = numberValue(extra.used_credits);
+    if (limit === undefined || used === undefined) return null;
+    const out = { claudeExtra: { used: used / 100, limit: limit / 100 } };
+    if (printable(extra.currency, 12)) out.claudeExtra.currency = extra.currency;
+    const utilization = percent(extra.utilization);
+    if (utilization !== undefined) out.claudeExtra.utilization = utilization;
+    return out;
+}
+
 function claudeWindows(body) {
     if (!plain(body)) return null;
     const windows = [];
@@ -95,13 +124,15 @@ function claudeWindows(body) {
 }
 
 /**
- * The windows of a Codex rate-limit reply, `account/rateLimits/read`'s
- * result: rateLimits.primary and .secondary, each { usedPercent,
- * windowDurationMins, resetsAt } with resetsAt in Unix seconds, named by
- * their length: five_hour, seven_day or minutes_<n>, else primary or
- * secondary. Returns { windows, plan }, or null for a reply of another
- * shape. Source: codex-rs/app-server-protocol/src/protocol/v2/account.rs,
- * GetAccountRateLimitsResponse, RateLimitSnapshot and RateLimitWindow.
+ * The windows and credit balance of a Codex rate-limit reply,
+ * `account/rateLimits/read`'s result: rateLimits.primary and .secondary,
+ * each { usedPercent, windowDurationMins, resetsAt } with resetsAt in Unix
+ * seconds, named by their length: five_hour, seven_day or minutes_<n>, else
+ * primary or secondary; and rateLimits.credits, a CreditsSnapshot. Returns
+ * { windows, plan, details }, or null for a reply of another shape. Source:
+ * codex-rs/app-server-protocol/src/protocol/v2/account.rs,
+ * GetAccountRateLimitsResponse, RateLimitSnapshot, RateLimitWindow and
+ * CreditsSnapshot.
  */
 function codexWindows(result) {
     if (!plain(result) || !plain(result.rateLimits)) return null;
@@ -120,7 +151,18 @@ function codexWindows(result) {
             : Number.isSafeInteger(minutes) ? "minutes_" + minutes : slot;
         windows.push({ name, usedPercent, resetsAt: Number.isSafeInteger(resets) ? resets * 1000 : null });
     }
-    return { windows, plan: printable(snapshot.planType, 40) ? snapshot.planType : "" };
+    const details = {};
+    if (snapshot.credits !== undefined && snapshot.credits !== null) {
+        const credits = snapshot.credits;
+        if (!plain(credits) || typeof credits.hasCredits !== "boolean" || typeof credits.unlimited !== "boolean"
+            || (credits.balance !== null && credits.balance !== undefined && typeof credits.balance !== "string")) return null;
+        if (credits.unlimited === true) details.codexCredits = { unlimited: true };
+        else if (credits.hasCredits === true) {
+            details.codexCredits = {};
+            if (credits.balance !== null && credits.balance !== undefined) details.codexCredits.balance = credits.balance;
+        }
+    }
+    return { windows, plan: printable(snapshot.planType, 40) ? snapshot.planType : "", details };
 }
 
 /**
@@ -197,8 +239,9 @@ async function readClaude(Anchored, directory, { origin = ORIGIN, now = Date.now
     let body;
     try { body = JSON.parse(reply.body); } catch { return failed("reply-json"); }
     const windows = claudeWindows(body);
-    if (windows === null) return failed("reply-shape");
-    return { state: "ok", plan, windows };
+    const details = claudeDetails(body);
+    if (windows === null || details === null) return failed("reply-shape");
+    return { state: "ok", plan, windows, details };
 }
 
 /**
@@ -266,7 +309,7 @@ async function readCodex(Anchored, directory, { command = "codex", deadlineMs = 
             } else {
                 const read = codexWindows(message.result);
                 if (read === null) return finish(failed("codex-shape"));
-                finish({ state: "ok", email: account.email, plan: account.plan || read.plan, windows: read.windows });
+                finish({ state: "ok", email: account.email, plan: account.plan || read.plan, windows: read.windows, details: read.details });
             }
         };
         child.stdout.on("data", chunk => {
@@ -294,9 +337,9 @@ function childEnv(env) {
     return result;
 }
 
-function secretSearch(secretTool, username, env) {
+function secretSearch(secretTool, attrs, env) {
     return new Promise(resolve => {
-        const child = cp.spawn(secretTool, ["search", "service", "copilot-cli", "username", username], {
+        const child = cp.spawn(secretTool, ["search"].concat(attrs), {
             stdio: ["ignore", "pipe", "pipe"], env: childEnv(env), cwd: env.HOME || undefined
         });
         let stdout = "";
@@ -349,7 +392,7 @@ async function copilotToken(config, host, login, secretTool, env) {
     if (plain(tokens) && printable(tokens[host + ":" + login], 8192))
         return { kind: "found", token: tokens[host + ":" + login] };
     for (const username of [host + ":" + login + ":github", host + ":" + login]) {
-        const result = await secretSearch(secretTool, username, env);
+        const result = await secretSearch(secretTool, ["service", "copilot-cli", "username", username], env);
         if (result.kind !== "absent") return result;
     }
     return { kind: "failed", reason: "token-missing" };
@@ -364,15 +407,18 @@ function copilotCredits(body) {
     const unit = (snap.token_based_billing ?? body.token_based_billing) === true ? "credits" : "requests";
     const resetsAt = resetTime(body.quota_reset_date_utc);
     if (resetsAt === undefined) return null;
-    if (snap.unlimited === true) return { state: "ok", plan, windows: [], credits: { unit, unlimited: true } };
+    const details = {};
+    if (resetsAt !== null) details.copilotRenewsAt = resetsAt;
+    if (snap.unlimited === true) return { state: "ok", plan, windows: [], credits: { unit, unlimited: true }, details };
     const entitlement = snap.entitlement;
     const remaining = snap.remaining;
-    if (entitlement === 0) return { state: "ok", plan, windows: [], credits: { unit, granted: 0 } };
+    if (entitlement === 0) return { state: "ok", plan, windows: [], credits: { unit, granted: 0 }, details };
     if (!Number.isFinite(entitlement) || entitlement < 0 || !Number.isFinite(remaining)) return null;
     const used = entitlement - Math.max(remaining, 0);
     const monthUsed = Number.isFinite(snap.credits_used) && snap.credits_used >= 0 ? snap.credits_used : null;
+    if (monthUsed !== null) details.copilotMonthUsed = monthUsed;
     return { state: "ok", plan, windows: [{ name: "credits", usedPercent: used * 100 / entitlement, resetsAt }],
-        credits: { unit, used, granted: entitlement, monthUsed } };
+        credits: { unit, used, granted: entitlement, monthUsed }, details };
 }
 
 async function readCopilot(Anchored, directory, { origin = COPILOT_ORIGIN, secretTool = "secret-tool", env = process.env,
@@ -406,6 +452,42 @@ async function readCopilot(Anchored, directory, { origin = COPILOT_ORIGIN, secre
     return { ...credits, email: printable(login, 120) ? login : "" };
 }
 
+async function gatewaySecret(secretTool, env) {
+    const result = await secretSearch(secretTool, ["service", "vgs-ai-usage", "account", GATEWAY_ACCOUNT], env);
+    if (result.kind === "failed" && result.reason === "keyring-locked") return { kind: "locked" };
+    if (result.kind === "failed") return { kind: "unavailable", reason: result.reason };
+    return result;
+}
+
+function gatewayCredits(body) {
+    if (!plain(body)) return null;
+    const balance = numberValue(body.balance);
+    const totalUsed = numberValue(body.total_used);
+    if (balance === undefined || totalUsed === undefined || balance < 0 || totalUsed < 0) return null;
+    const pool = balance + totalUsed;
+    return { balance, totalUsed, usedPercent: pool > 0 ? totalUsed * 100 / pool : 0 };
+}
+
+async function readGateway({ origin = GATEWAY_ORIGIN, secretTool = "secret-tool", env = process.env, deadlineMs = REQUEST_MS } = {}) {
+    const secret = await gatewaySecret(secretTool, env);
+    if (secret.kind !== "found") return { key: secret.kind === "locked" ? "locked" : secret.kind === "absent" ? "absent" : "unavailable", account: null };
+    const reply = await get(new URL(GATEWAY_PATH, origin), {
+        authorization: "Bearer " + secret.token, accept: "application/json", "user-agent": "vgs-ai-usage"
+    }, deadlineMs);
+    const id = "gateway-" + crypto.createHash("sha256").update(GATEWAY_ACCOUNT).digest("hex").slice(0, 12);
+    const base = { id, provider: "gateway", label: "AI Gateway", email: "", plan: "", windows: [], credits: null, details: {} };
+    if (reply.error) return { key: "present", account: { ...base, state: "failed", reason: reply.error } };
+    if (reply.status === 401 || reply.status === 403) return { key: "present", account: { ...base, state: "expired" } };
+    if (reply.status !== 200) return { key: "present", account: { ...base, state: "failed", reason: "http-" + reply.status } };
+    let body;
+    try { body = JSON.parse(reply.body); } catch { return { key: "present", account: { ...base, state: "failed", reason: "reply-json" } }; }
+    const credits = gatewayCredits(body);
+    if (credits === null) return { key: "present", account: { ...base, state: "failed", reason: "reply-shape" } };
+    return { key: "present", account: { ...base, state: "ok", plan: "$" + credits.balance.toFixed(2) + " left",
+        windows: [{ name: "credits", usedPercent: credits.usedPercent, resetsAt: null }],
+        details: { gateway: { balance: credits.balance, totalUsed: credits.totalUsed } } } };
+}
+
 // Every live app-server, killed if this process ends before its read does.
 const children = new Set();
 process.on("exit", () => { for (const child of children) child.kill("SIGKILL"); });
@@ -416,7 +498,7 @@ process.on("exit", () => { for (const child of children) child.kill("SIGKILL"); 
  * directory that is absent is no account; one past MAX_ACCOUNTS is not read
  * and the run is partial "account-limit".
  */
-async function read(tree, env, { origin = ORIGIN, copilotOrigin = COPILOT_ORIGIN, secretTool = "secret-tool" } = {}) {
+async function read(tree, env, { origin = ORIGIN, copilotOrigin = COPILOT_ORIGIN, gatewayOrigin = GATEWAY_ORIGIN, secretTool = "secret-tool", gateway = false } = {}) {
     const Anchored = require(path.join(tree, "bin/lib/anchored.js"));
     const { accountFolders } = require(path.join(tree, "bin/lib/account-folders.js"));
     const home = env.HOME;
@@ -436,19 +518,29 @@ async function read(tree, env, { origin = ORIGIN, copilotOrigin = COPILOT_ORIGIN
         const id = folder.provider + "-" + crypto.createHash("sha256").update(folder.directory).digest("hex").slice(0, 12);
         if (result.state === "failed") process.stderr.write("ai-usage: account=" + id + " failed=" + result.reason + "\n");
         return { id, provider: folder.provider, label: folder.label.slice(0, 60), email: result.email || "",
-            plan: result.plan || "", state: result.state, windows: result.windows || [], credits: result.credits || null };
+            plan: result.plan || "", state: result.state, windows: result.windows || [], credits: result.credits || null, details: result.details || {} };
     }));
-    return { accounts, partial };
+    let gatewayKey = null;
+    if (gateway) {
+        const gatewayRead = await readGateway({ origin: gatewayOrigin, secretTool, env });
+        gatewayKey = gatewayRead.key;
+        if (gatewayRead.account !== null) {
+            if (gatewayRead.account.state === "failed") process.stderr.write("ai-usage: account=" + gatewayRead.account.id + " failed=" + gatewayRead.account.reason + "\n");
+            accounts.push(gatewayRead.account);
+        }
+    }
+    return { accounts, partial, gatewayKey };
 }
 
-module.exports = { ORIGIN, COPILOT_ORIGIN, claudeWindows, codexWindows, copilotCredits, readClaude, readCodex, readCopilot, read };
+module.exports = { ORIGIN, COPILOT_ORIGIN, GATEWAY_ORIGIN, claudeWindows, claudeDetails, codexWindows, copilotCredits, gatewayCredits, readClaude, readCodex, readCopilot, readGateway, read };
 
 if (require.main === module) {
-    if (process.argv.length !== 4 || process.argv[2] !== "--tree" || !path.isAbsolute(process.argv[3])) {
+    if ((process.argv.length !== 4 && process.argv.length !== 5) || process.argv[2] !== "--tree" || !path.isAbsolute(process.argv[3])
+        || (process.argv.length === 5 && process.argv[4] !== "--gateway")) {
         process.stderr.write("ai-usage: arguments=expected-tree\n");
         process.exit(2);
     }
-    read(path.resolve(process.argv[3]), process.env).then(result => {
+    read(path.resolve(process.argv[3]), process.env, { gateway: process.argv[4] === "--gateway" }).then(result => {
         process.stdout.write(JSON.stringify(result) + "\n");
     }, error => {
         const key = /^account-folders: ([a-z]+=[a-z-]+)$/.exec(error.message);

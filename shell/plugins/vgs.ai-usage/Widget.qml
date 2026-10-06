@@ -9,7 +9,7 @@ import "UsageView.js" as View
 BarWidget {
     id: root
     readonly property var usage: shell === null || shell.status.values.usage === undefined ? null : shell.status.values.usage
-    readonly property var view: View.widget(usage)
+    readonly property var view: View.widget(usage, shell === null ? null : shell.settings)
     readonly property bool shown: view.shown
     readonly property var percent: view.percent
     readonly property string tone: view.tone
