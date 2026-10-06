@@ -106,6 +106,7 @@ FocusScope {
             const state = JSON.parse(raw);
             const previousKey = selectedKey;
             const previousIndex = currentIndex;
+            const previousRows = rows;
             mode = state.mode === "history" ? "history" : "inbox";
             subtitle = String(state.subtitle || "");
             silenced = state.silenced === true;
@@ -114,7 +115,7 @@ FocusScope {
             const kept = indexOfKey(previousKey);
             if (rows.length === 0) currentIndex = -1;
             else if (kept !== -1) currentIndex = kept;
-            else currentIndex = Math.max(0, Math.min(previousIndex, rows.length - 1));
+            else currentIndex = successorIndex(previousRows, previousIndex, previousKey);
             const row = rowAt(currentIndex);
             selectedKey = row === null ? "" : row.key;
             if (selectedKey !== previousKey || actionIndex >= actionsOf(currentIndex).length) actionIndex = -1;
@@ -131,6 +132,23 @@ FocusScope {
             refreshing = false;
             updateSelectionHover();
         }
+    }
+
+    // Where the selection goes once its row left: the nearest row of the
+    // previous list still listed, the one that took its place first, since
+    // a row that arrived meanwhile may now stand at the old index.
+    function successorIndex(previousRows, previousIndex, previousKey) {
+        if (previousKey !== "") {
+            for (let i = previousIndex + 1; i < previousRows.length; i++) {
+                const at = indexOfKey(previousRows[i].key);
+                if (at !== -1) return at;
+            }
+            for (let i = Math.min(previousIndex, previousRows.length) - 1; i >= 0; i--) {
+                const at = indexOfKey(previousRows[i].key);
+                if (at !== -1) return at;
+            }
+        }
+        return Math.max(0, Math.min(previousIndex, rows.length - 1));
     }
 
     function indexOfKey(key) {
