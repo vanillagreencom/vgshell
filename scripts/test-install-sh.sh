@@ -135,7 +135,12 @@ new_home() {
   homes=$((homes + 1))
   h="$tmp/homes/$homes-$1"
   d="$h/.local/share/vgshell"
-  mkdir -p "$h"
+  scratch="$tmp/scratch/$homes-$1"
+  install_log="$tmp/runtime-install-$homes-$1.log"
+  gnupg_empty="$tmp/gnupg-empty-$homes-$1"
+  rt_empty="$tmp/rt-empty-$homes-$1"
+  mkdir -p "$h" "$scratch" "$rt_empty"
+  mkdir -m 700 "$gnupg_empty"
 }
 
 # run BIN ARGS...: install.sh BIN from $h under the rows' environment.
@@ -238,6 +243,13 @@ copy_with signing "$installer" "$published" "release_key=\"$release_fpr\""
 signing="$copy"
 copy_with no-key "$installer" "$published" 'release_key=""'
 no_key="$copy"
+release_keys="$tmp/release-keys.asc"
+GNUPGHOME="$keys" gpg --batch --quiet --armor --export "$release_fpr" "$other_fpr" >"$release_keys"
+release_keyring() {
+  RUN_GNUPG="$tmp/gnupg-row-$homes"
+  mkdir -m 700 "$RUN_GNUPG"
+  GNUPGHOME="$RUN_GNUPG" gpg --batch --quiet --import "$release_keys" >/dev/null 2>&1
+}
 
 # The rows each judge one rule, on the install.sh BIN names, so a control
 # can run them again on a copy with that rule removed.
@@ -276,7 +288,9 @@ busy_row() { # BIN
 }
 signature_other_row() { # BIN: a signature by another key in the keyring refuses and leaves nothing
   new_home sig-other
-  RUN_GNUPG="$keys" run "$1" --version 0.6.0
+  release_keyring
+  run "$1" --version 0.6.0
+  unset RUN_GNUPG
   refused 1 "install.sh: refused: signature=bad name=SHA256SUMS key=$release_fpr" && [[ ! -e $h/.local ]]
 }
 root_row() { # BIN
@@ -355,9 +369,9 @@ stash_row() { # BIN: --uninstall refuses a clone holding a stash
   run "$1" --uninstall
   refused 1 "install.sh: refused: stash=present path=$d/git" && [[ -d $d/git ]]
 }
-rt_shell="$tmp/rt-shell"; mkdir -p "$rt_shell"
 running_row() { # BIN: --uninstall refuses while the running shell was started from a tree it removes
-  local pid ok=0
+  local pid ok=0 rt_shell="$tmp/rt-shell"
+  mkdir -p "$rt_shell"
   git_home running
   # A stand-in for the running shell: one process whose command line names
   # the tree as `qs -p <tree>/shell` does, ended once the row has run.
@@ -379,22 +393,23 @@ keep_foreign_row() { # BIN: --uninstall removes the install and keeps a foreign 
     out_has "kept=$h/.local/bin/vgshell reason=foreign"
 }
 
-echo "releases"
-new_home latest
-run "$installer"
-check "the newest release installs" test "$status" = 0
-check "it names the release it installed" out_has "ok installed=vgshell version=0.2.0 path=$d/0.2.0"
-check "a release with no signature says so" out_has "signature=unchecked reason=no-signature"
-check "the version directory holds the release's runtime tree" test -f "$d/0.2.0/bin/vgshell" -a -f "$d/0.2.0/VERSION" -a ! -e "$d/0.2.0/share"
-check "current is a relative link to the version" test -L "$d/current" -a "$(readlink -- "$d/current")" = 0.2.0
-check "the command links to current's vgshell" test -L "$h/.local/bin/vgshell" -a "$(readlink -- "$h/.local/bin/vgshell")" = "$d/current/bin/vgshell"
-check "it prints the Hyprland autostart line" out_has "  hl.on(\"hyprland.start\", function () hl.exec_cmd(\"$h/.local/bin/vgshell run\") end)"
-check "it names a command directory missing from PATH" out_has "path=missing dir=$h/.local/bin: add it to PATH to run vgshell by name"
-check "it leaves no staging directory" no_stage
-check "it leaves nothing in TMPDIR" scratch_empty
-check "the linked vgshell runs the installed tree" test "$("${base_env[@]}" HOME="$h" "$h/.local/bin/vgshell" --version)" = "vgshell 0.2.0"
-"${base_env[@]}" HOME="$h" XDG_CONFIG_HOME="$h/.config" VGS_RELEASE_API=http://127.0.0.1:9 "$h/.local/bin/vgshell" self status --json >"$tmp/status.json" 2>/dev/null
-check "vgshell self status judges the layout a curl install" json_is "$tmp/status.json" 'd["method"] == "curl" and d["version"] == "0.2.0" and d["current"] == "0.2.0"'
+latest_row() {
+  new_home latest
+  run "$installer"
+  check "the newest release installs" test "$status" = 0
+  check "it names the release it installed" out_has "ok installed=vgshell version=0.2.0 path=$d/0.2.0"
+  check "a release with no signature says so" out_has "signature=unchecked reason=no-signature"
+  check "the version directory holds the release's runtime tree" test -f "$d/0.2.0/bin/vgshell" -a -f "$d/0.2.0/VERSION" -a ! -e "$d/0.2.0/share"
+  check "current is a relative link to the version" test -L "$d/current" -a "$(readlink -- "$d/current")" = 0.2.0
+  check "the command links to current's vgshell" test -L "$h/.local/bin/vgshell" -a "$(readlink -- "$h/.local/bin/vgshell")" = "$d/current/bin/vgshell"
+  check "it prints the Hyprland autostart line" out_has "  hl.on(\"hyprland.start\", function () hl.exec_cmd(\"$h/.local/bin/vgshell run\") end)"
+  check "it names a command directory missing from PATH" out_has "path=missing dir=$h/.local/bin: add it to PATH to run vgshell by name"
+  check "it leaves no staging directory" no_stage
+  check "it leaves nothing in TMPDIR" scratch_empty
+  check "the linked vgshell runs the installed tree" test "$("${base_env[@]}" HOME="$h" XDG_RUNTIME_DIR="$rt_empty" "$h/.local/bin/vgshell" --version)" = "vgshell 0.2.0"
+  "${base_env[@]}" HOME="$h" XDG_CONFIG_HOME="$h/.config" XDG_RUNTIME_DIR="$rt_empty" VGS_RELEASE_API=http://127.0.0.1:9 "$h/.local/bin/vgshell" self status --json >"$tmp/status.json" 2>/dev/null
+  check "vgshell self status judges the layout a curl install" json_is "$tmp/status.json" 'd["method"] == "curl" and d["version"] == "0.2.0" and d["current"] == "0.2.0"'
+}
 
 packages_row() { # BIN: required packages use the existing floating presenter
   new_home runtime-packages
@@ -408,31 +423,38 @@ packages_row() { # BIN: required packages use the existing floating presenter
 }
 # A missing launcher refuses before fetch. The real presenter also refuses
 # before setsid; its isolated PATH has no launcher or live-session program.
-missing_launcher="$tmp/missing-launcher"; mkdir -p "$missing_launcher"
-for tool in "$stubs"/*; do [[ ${tool##*/} == xdg-terminal-exec ]] || cp -- "$tool" "$missing_launcher/"; done
-cat >"$missing_launcher/curl" <<SH
+missing_launcher_fixture() {
+  missing_launcher="$tmp/missing-launcher"
+  launcher_fetches="$tmp/launcher-fetches"
+  launcher_starts="$tmp/launcher-starts"
+  mkdir -p "$missing_launcher"
+  for tool in "$stubs"/*; do [[ ${tool##*/} == xdg-terminal-exec ]] || cp -- "$tool" "$missing_launcher/"; done
+  cat >"$missing_launcher/curl" <<SH
 #!/bin/sh
-printf 'fetch\n' >>"$tmp/launcher-fetches"
+printf 'fetch\n' >>"$launcher_fetches"
 exec "$tools/curl" "\$@"
 SH
-cat >"$missing_launcher/setsid" <<SH
+  cat >"$missing_launcher/setsid" <<SH
 #!/bin/sh
-printf 'launch\n' >>"$tmp/launcher-starts"
+printf 'launch\n' >>"$launcher_starts"
 exit 0
 SH
-chmod +x "$missing_launcher/curl" "$missing_launcher/setsid"
+  chmod +x "$missing_launcher/curl" "$missing_launcher/setsid"
+  : >"$launcher_fetches"; : >"$launcher_starts"
+}
 launcher_row() { # BIN: prerequisite and real presenter both stop before launch
   local presenter_status=0
   new_home missing-launcher
-  : >"$tmp/launcher-fetches"; : >"$tmp/launcher-starts"; : >"$install_log"
+  missing_launcher_fixture
+  : >"$install_log"
   RUN_PATH="$missing_launcher:$install_managers:$tools" run "$1" --version 0.1.0
   refused 78 "install.sh: refused: floor=xdg-terminal-exec have=none need=present" &&
     err_has "Install them as root: pacman -S --needed -- xdg-terminal-exec" &&
-    [[ ! -e $h/.local && ! -s $tmp/launcher-fetches && ! -s $install_log ]] && scratch_empty || return 1
+    [[ ! -e $h/.local && ! -s $launcher_fetches && ! -s $install_log ]] && scratch_empty || return 1
   env -i PATH="$missing_launcher:$tools" HOME="$h" XDG_RUNTIME_DIR="$rt_empty" \
     "$repo/bin/vgshell-tui" launch --title "Prerequisite fixture" -- "$tools/sh" -c ':' \
     >"$tmp/presenter-out" 2>"$tmp/presenter-err" </dev/null || presenter_status=$?
-  [[ $presenter_status == 69 && ! -s $tmp/launcher-starts ]] &&
+  [[ $presenter_status == 69 && ! -s $launcher_starts ]] &&
     [[ $(sed -n '1p' "$tmp/presenter-err") == "vgshell-tui: refused: terminal=missing" ]]
 }
 
@@ -487,6 +509,7 @@ nix_missing_row() { # BIN: only the absent available package blocks publication
 
 terminal_row() { # BIN: no launcher is needed in the caller's terminal
   new_home terminal-install
+  missing_launcher_fixture
   : >"$install_log"
   RUN_PATH="$missing_launcher:$install_managers:$tools" RUN_TTY=true run "$1" --version 0.1.0
   [[ $status == 0 && $(readlink -- "$d/current") == 0.1.0 ]] || return 1
@@ -498,8 +521,6 @@ terminal_row() { # BIN: no launcher is needed in the caller's terminal
   [[ $status == 1 && $(readlink -- "$d/current") == 0.1.0 && ! -e $d/0.2.0 ]] &&
     grep -q 'requirements=install-failed manager=pacman code=42' "$tmp/out" && no_stage
 }
-check "the caller's terminal installs launcher packages and preserves failed-install status" terminal_row "$installer"
-
 runtime_failure_row() { # BIN: a failed recorded install leaves current unchanged
   new_home runtime-failure
   run "$installer" --version 0.1.0
@@ -508,67 +529,95 @@ runtime_failure_row() { # BIN: a failed recorded install leaves current unchange
   refused 1 "install.sh: refused: requirements=install-failed manager=pacman code=42" &&
     [[ $(readlink -- "$d/current") == 0.1.0 && ! -e $d/0.2.0 ]] && no_stage
 }
-check "required packages install through the floating presenter, with AUR and English data and no optional packages" packages_row "$installer"
-check "a failed dependency install keeps the previous release and removes staging" runtime_failure_row "$installer"
-check "the launcher prerequisite and real presenter refuse before fetch or launch" launcher_row "$installer"
-check "Nix with every available required command permits release, current and Git installs" nix_present_row "$installer"
-check "Nix names only the missing available required package" nix_missing_row "$installer"
+pinned_row() {
+  new_home pinned
+  run "$installer" --version v0.1.0
+  check "--version installs the release it names" test "$status" = 0 -a "$(readlink -- "$d/current")" = 0.1.0
+  run "$installer" --version 0.2.0
+  check "a reinstall of a newer release succeeds" test "$status" = 0
+  check "the reinstall swaps current to the new version" test -L "$d/current" -a "$(readlink -- "$d/current")" = 0.2.0
+  check "the reinstall keeps the earlier version's tree" test -f "$d/0.1.0/VERSION"
+  run "$installer"
+  check "the installed release again is up to date" out_has "ok up-to-date=vgshell version=0.2.0 path=$d/0.2.0"
+  check "an up-to-date run leaves current alone" test "$(readlink -- "$d/current")" = 0.2.0
+}
+stage_row() {
+  new_home stage
+  mkdir -p "$d/.self-update-dead"
+  run "$installer"
+  no_stage
+}
+missing_release_row() {
+  new_home missing
+  run "$installer" --version 0.9.0
+  [[ $status == 1 && $(first_err | cut -d' ' -f3-4) == "release=failed url=file://$www/repos/vanillagreencom/vgshell/releases/tags/v0.9.0" ]]
+}
 
-new_home pinned
-run "$installer" --version v0.1.0
-check "--version installs the release it names" test "$status" = 0 -a "$(readlink -- "$d/current")" = 0.1.0
-run "$installer" --version 0.2.0
-check "a reinstall of a newer release succeeds" test "$status" = 0
-check "the reinstall swaps current to the new version" test -L "$d/current" -a "$(readlink -- "$d/current")" = 0.2.0
-check "the reinstall keeps the earlier version's tree" test -f "$d/0.1.0/VERSION"
-run "$installer"
-check "the installed release again is up to date" out_has "ok up-to-date=vgshell version=0.2.0 path=$d/0.2.0"
-check "an up-to-date run leaves current alone" test "$(readlink -- "$d/current")" = 0.2.0
-new_home stage
-mkdir -p "$d/.self-update-dead"
-run "$installer"
-check "a writer under the lock removes a dead run's staging directory" no_stage
+echo "releases"
+row_job latest_row
+row_job check "the caller's terminal installs launcher packages and preserves failed-install status" terminal_row "$installer"
+row_job check "required packages install through the floating presenter, with AUR and English data and no optional packages" packages_row "$installer"
+row_job check "a failed dependency install keeps the previous release and removes staging" runtime_failure_row "$installer"
+row_job check "the launcher prerequisite and real presenter refuse before fetch or launch" launcher_row "$installer"
+row_job check "Nix with every available required command permits release, current and Git installs" nix_present_row "$installer"
+row_job check "Nix names only the missing available required package" nix_missing_row "$installer"
+row_job pinned_row
+row_job check "a writer under the lock removes a dead run's staging directory" stage_row
+row_job check "a checksum mismatch refuses and leaves nothing: no data directory, no link, no download" mismatch_row "$installer"
+row_job check "an archive SHA256SUMS does not list refuses and leaves nothing" unlisted_row "$installer"
+row_job check "a release tag that is no version refuses" tag_row "$installer"
+row_job check "a release that does not exist refuses on the fetch" missing_release_row
+row_job check "an archive with another top directory refuses and leaves current, no version and no stage" layout_row "$installer"
+row_job check "a held self lock refuses with 75 and installs nothing" busy_row "$installer"
+rows_join
 
-check "a checksum mismatch refuses and leaves nothing: no data directory, no link, no download" mismatch_row "$installer"
-check "an archive SHA256SUMS does not list refuses and leaves nothing" unlisted_row "$installer"
-check "a release tag that is no version refuses" tag_row "$installer"
-new_home missing
-run "$installer" --version 0.9.0
-check "a release that does not exist refuses on the fetch" test "$status" = 1 -a "$(first_err | cut -d' ' -f3-4)" = "release=failed url=file://$www/repos/vanillagreencom/vgshell/releases/tags/v0.9.0"
-check "an archive with another top directory refuses and leaves current, no version and no stage" layout_row "$installer"
-check "a held self lock refuses with 75 and installs nothing" busy_row "$installer"
-
+signature_rows() {
+  new_home sig-none
+  run "$no_key" --version 0.5.0
+  check "with no release key published the signature is unchecked" out_has "signature=unchecked reason=no-release-key"
+  new_home sig-good
+  release_keyring
+  run "$signing" --version 0.5.0
+  check "a signature by the release key passes" test "$status" = 0
+  check "it names the key" out_has "signature=good key=$release_fpr"
+  unset RUN_GNUPG
+  check "a signature by another key in the keyring refuses and leaves nothing" signature_other_row "$signing"
+  new_home sig-unimported
+  run "$signing" --version 0.5.0
+  check "a release key gpg does not hold leaves the signature unchecked" out_has "signature=unchecked reason=key-not-imported key=$release_fpr"
+}
 echo "signatures"
-new_home sig-none
-run "$no_key" --version 0.5.0
-check "with no release key published the signature is unchecked" out_has "signature=unchecked reason=no-release-key"
-new_home sig-good
-RUN_GNUPG="$keys" run "$signing" --version 0.5.0
-check "a signature by the release key passes" test "$status" = 0
-check "it names the key" out_has "signature=good key=$release_fpr"
-check "a signature by another key in the keyring refuses and leaves nothing" signature_other_row "$signing"
-new_home sig-unimported
-run "$signing" --version 0.5.0
-check "a release key gpg does not hold leaves the signature unchecked" out_has "signature=unchecked reason=key-not-imported key=$release_fpr"
+row_job signature_rows
+rows_join
 
+args_row() {
+  new_home args
+  run "$installer" --version 1.2
+  check "a malformed --version exits 2" refused 2 "install.sh: refused: version=1.2"
+  run "$installer" --git --uninstall
+  check "--git with --uninstall exits 2" refused 2 "install.sh: refused: argument=--uninstall conflict=--git"
+  run "$installer" --version 0.1.0 --git
+  check "--version with --git exits 2" refused 2 "install.sh: refused: argument=--version conflict=--git"
+}
+force_system_row() {
+  new_home force-system
+  RUN_PATH="$vgs_db:$run_path" run "$installer" --force
+  [[ $status == 0 ]]
+}
+foreign_force_row() {
+  check "a command install.sh did not make is refused and stays" foreign_row "$installer"
+  run "$installer" --force
+  check "--force replaces the foreign link" test "$status" = 0 -a "$(readlink -- "$h/.local/bin/vgshell")" = "$d/current/bin/vgshell"
+}
 echo "refusals"
-new_home args
-run "$installer" --version 1.2
-check "a malformed --version exits 2" refused 2 "install.sh: refused: version=1.2"
-run "$installer" --git --uninstall
-check "--git with --uninstall exits 2" refused 2 "install.sh: refused: argument=--uninstall conflict=--git"
-run "$installer" --version 0.1.0 --git
-check "--version with --git exits 2" refused 2 "install.sh: refused: argument=--version conflict=--git"
-check "root is refused" root_row "$installer"
-check "a system other than Linux is refused" os_row "$installer"
-check "an installed system package is refused" system_row "$installer"
-RUN_PATH="$vgs_db:$run_path" run "$installer" --force
-check "--force installs beside a system package" test "$status" = 0
-check "a command install.sh did not make is refused and stays" foreign_row "$installer"
-run "$installer" --force
-check "--force replaces the foreign link" test "$status" = 0 -a "$(readlink -- "$h/.local/bin/vgshell")" = "$d/current/bin/vgshell"
+row_job args_row
+row_job check "root is refused" root_row "$installer"
+row_job check "a system other than Linux is refused" os_row "$installer"
+row_job check "an installed system package is refused" system_row "$installer"
+row_job check "--force installs beside a system package" force_system_row
+row_job foreign_force_row
+rows_join
 
-echo "floor"
 arch_os="$tmp/os-arch"; printf 'NAME="Arch Linux"\nID=arch\n' >"$arch_os"
 pm_all="$tmp/pm-all"; mkdir -p "$pm_all"
 for pm in pacman apt-get dnf5 dnf xbps-install emerge nix; do stub "$pm_all" "$pm" "" 1; done
@@ -576,18 +625,20 @@ low="$tmp/low"; mkdir -p "$low"
 stub "$low" Hyprland "Hyprland 0.55.2 built from branch fixture"
 stub "$low" nmcli "nmcli tool, version 1.56.0"
 stub "$low" qrencode "qrencode version 4.1.1"
-new_home floor
-with_os "$arch_os"
-RUN_PATH="$low:$pm_all:$tools_nogit" run "$installer" --version 0.1.0
-RUN_WRAP=()
-check "a floor miss exits 78" test "$status" = 78
-check "a missing tool is named with have=none" err_has "install.sh: refused: floor=quickshell have=none need=0.3.1"
-check "a tool below its floor names its version" err_has "install.sh: refused: floor=hyprland have=0.55.2 need=0.56"
-check "every miss is named, not the first alone" err_has "install.sh: refused: floor=git have=none need=present"
-check "the missing launcher is named with have=none" err_has "install.sh: refused: floor=xdg-terminal-exec have=none need=present"
-check "the miss names the distribution's install command" err_has "Install them as root: pacman -S --needed -- quickshell hyprland git xdg-terminal-exec"
-check "the floor miss writes nothing" test ! -e "$h/.local"
-check "the floor miss leaves nothing in TMPDIR" scratch_empty
+floor_rows() {
+  new_home floor
+  with_os "$arch_os"
+  RUN_PATH="$low:$pm_all:$tools_nogit" run "$installer" --version 0.1.0
+  RUN_WRAP=()
+  check "a floor miss exits 78" test "$status" = 78
+  check "a missing tool is named with have=none" err_has "install.sh: refused: floor=quickshell have=none need=0.3.1"
+  check "a tool below its floor names its version" err_has "install.sh: refused: floor=hyprland have=0.55.2 need=0.56"
+  check "every miss is named, not the first alone" err_has "install.sh: refused: floor=git have=none need=present"
+  check "the missing launcher is named with have=none" err_has "install.sh: refused: floor=xdg-terminal-exec have=none need=present"
+  check "the miss names the distribution's install command" err_has "Install them as root: pacman -S --needed -- quickshell hyprland git xdg-terminal-exec"
+  check "the floor miss writes nothing" test ! -e "$h/.local"
+  check "the floor miss leaves nothing in TMPDIR" scratch_empty
+}
 
 # Hyprland's main() throws before it parses --version when XDG_RUNTIME_DIR
 # is unset: an uncaught std::runtime_error, so SIGABRT and 134.
@@ -627,9 +678,6 @@ unreadable_row() { # BIN: an installed Hyprland whose version cannot be read is 
     ! grep -q -e '^Install them' -e '^No supported package manager' "$tmp/err" &&
     [[ ! -e $h/.local ]] && scratch_empty
 }
-check "a Hyprland that needs a runtime directory meets the floor from a shell with none" runtime_row "$installer"
-check "an installed Hyprland whose version cannot be read is named with its exit and error, not an install command" unreadable_row "$installer"
-
 # The distributions: os-release text and the package managers on PATH. Each
 # row leaves git missing and compares the command install.sh names with the
 # one `vgshell pkg detect` and `vgshell pkg plan install` give on the same system.
@@ -680,11 +728,6 @@ print(("Install them as root: " if p["elevate"] else "Install them: ") + " ".joi
   sed 's/^/    got  /' "$tmp/err"
   return 1
 }
-for row in "${distros[@]}"; do
-  IFS='|' read -r name os_text pm_dir <<<"$row"
-  check "on $name install.sh names vgshell pkg's install command" distro_row "$installer" "$name" "$os_text" "$pm_dir"
-done
-
 # The tables against their sources, read by node from the files themselves.
 drift_row() { # BIN: prints each drift, fails on any
   node - "$1" "$repo/bin/vgshell" "$repo/config/requirements.json" <<'JS'
@@ -733,39 +776,48 @@ for (const d of drift) console.log(d);
 process.exit(drift.length === 0 ? 0 : 1);
 JS
 }
-check "the floor and package tables match bin/vgshell and config/requirements.json" drift_row "$installer"
+echo "floor"
+row_job floor_rows
+row_job check "a Hyprland that needs a runtime directory meets the floor from a shell with none" runtime_row "$installer"
+row_job check "an installed Hyprland whose version cannot be read is named with its exit and error, not an install command" unreadable_row "$installer"
+for row in "${distros[@]}"; do
+  IFS='|' read -r name os_text pm_dir <<<"$row"
+  row_job check "on $name install.sh names vgshell pkg's install command" distro_row "$installer" "$name" "$os_text" "$pm_dir"
+done
+row_job check "the floor and package tables match bin/vgshell and config/requirements.json" drift_row "$installer"
+rows_join
 
+git_rows() {
+  git_home git
+  check "--git clones main" test "$(g -C "$d/git" rev-parse HEAD)" = "$(g -C "$bare" rev-parse main)"
+  check "--git names the clone" out_has "ok installed=vgshell git=$d/git"
+  check "--git points the command at the clone" test "$(readlink -- "$h/.local/bin/vgshell")" = "$d/git/bin/vgshell"
+  check "--git leaves the release's current alone" test "$(readlink -- "$d/current")" = 0.1.0
+  "${base_env[@]}" HOME="$h" XDG_CONFIG_HOME="$h/.config" XDG_RUNTIME_DIR="$rt_empty" "$h/.local/bin/vgshell" self status --json >"$tmp/status.json" 2>/dev/null
+  check "vgshell self status judges the clone a checkout" json_is "$tmp/status.json" 'd["method"] == "checkout"'
+  run "$installer" --git
+  check "a second --git refuses" refused 1 "install.sh: refused: git=exists path=$d/git"
+}
 echo "git"
-git_home git
-check "--git clones main" test "$(g -C "$d/git" rev-parse HEAD)" = "$(g -C "$bare" rev-parse main)"
-check "--git names the clone" out_has "ok installed=vgshell git=$d/git"
-check "--git points the command at the clone" test "$(readlink -- "$h/.local/bin/vgshell")" = "$d/git/bin/vgshell"
-check "--git leaves the release's current alone" test "$(readlink -- "$d/current")" = 0.1.0
-"${base_env[@]}" HOME="$h" XDG_CONFIG_HOME="$h/.config" "$h/.local/bin/vgshell" self status --json >"$tmp/status.json" 2>/dev/null
-check "vgshell self status judges the clone a checkout" json_is "$tmp/status.json" 'd["method"] == "checkout"'
-run "$installer" --git
-check "a second --git refuses" refused 1 "install.sh: refused: git=exists path=$d/git"
+row_job git_rows
+rows_join
 
-echo "uninstall"
-check "--uninstall refuses a clone with changes and removes nothing" modified_row "$installer"
-check "--uninstall refuses a clone with a commit no remote branch has" unpublished_row "$installer"
-check "--uninstall refuses a clone whose other local branch holds such a commit" branch_row "$installer"
-check "--uninstall refuses a clone holding a stash" stash_row "$installer"
-check "--uninstall refuses while the running shell was started from a tree it removes" running_row "$installer"
-git_home uninstall
-mkdir -p "$h/.config/vgshell" "$h/.local/state/vgshell"
-printf 'mine\n' >"$h/.config/vgshell/shell.json"; printf 'mine\n' >"$h/.local/state/vgshell/applied.json"
-printf 'other\n' >"$d/notes"
-run "$installer" --uninstall
-check "--uninstall succeeds" test "$status" = 0
-check "it removes the versions, current and the clone" test ! -e "$d/0.1.0" -a ! -e "$d/current" -a ! -e "$d/git"
-check "it keeps a file it did not install" test -f "$d/notes"
-check "it says it kept the data directory" out_has "kept=$d reason=not-vgs-files"
-check "it removes the link" test ! -e "$h/.local/bin/vgshell" -a ! -L "$h/.local/bin/vgshell"
-check "it keeps the configuration" test -f "$h/.config/vgshell/shell.json"
-check "it names the configuration it kept" out_has "kept=$h/.config/vgshell"
-check "it keeps the state" test -f "$h/.local/state/vgshell/applied.json"
-check "it names the state it kept" out_has "kept=$h/.local/state/vgshell"
+uninstall_rows() {
+  git_home uninstall
+  mkdir -p "$h/.config/vgshell" "$h/.local/state/vgshell"
+  printf 'mine\n' >"$h/.config/vgshell/shell.json"; printf 'mine\n' >"$h/.local/state/vgshell/applied.json"
+  printf 'other\n' >"$d/notes"
+  run "$installer" --uninstall
+  check "--uninstall succeeds" test "$status" = 0
+  check "it removes the versions, current and the clone" test ! -e "$d/0.1.0" -a ! -e "$d/current" -a ! -e "$d/git"
+  check "it keeps a file it did not install" test -f "$d/notes"
+  check "it says it kept the data directory" out_has "kept=$d reason=not-vgs-files"
+  check "it removes the link" test ! -e "$h/.local/bin/vgshell" -a ! -L "$h/.local/bin/vgshell"
+  check "it keeps the configuration" test -f "$h/.config/vgshell/shell.json"
+  check "it names the configuration it kept" out_has "kept=$h/.config/vgshell"
+  check "it keeps the state" test -f "$h/.local/state/vgshell/applied.json"
+  check "it names the state it kept" out_has "kept=$h/.local/state/vgshell"
+}
 lock_kept_row() { # BIN: --uninstall keeps the lock file, the inode a concurrent writer may hold open
   local inode
   git_home lock-kept
@@ -773,8 +825,16 @@ lock_kept_row() { # BIN: --uninstall keeps the lock file, the inode a concurrent
   run "$1" --uninstall
   [[ $status == 0 && ! -e $d/current && $(stat -c %i -- "$d/.self.lock" 2>/dev/null) == "$inode" ]]
 }
-check "it keeps the lock a concurrent writer may hold open" lock_kept_row "$installer"
-check "--uninstall keeps a foreign link and names it" keep_foreign_row "$installer"
+echo "uninstall"
+row_job check "--uninstall refuses a clone with changes and removes nothing" modified_row "$installer"
+row_job check "--uninstall refuses a clone with a commit no remote branch has" unpublished_row "$installer"
+row_job check "--uninstall refuses a clone whose other local branch holds such a commit" branch_row "$installer"
+row_job check "--uninstall refuses a clone holding a stash" stash_row "$installer"
+row_job check "--uninstall refuses while the running shell was started from a tree it removes" running_row "$installer"
+row_job uninstall_rows
+row_job check "it keeps the lock a concurrent writer may hold open" lock_kept_row "$installer"
+row_job check "--uninstall keeps a foreign link and names it" keep_foreign_row "$installer"
+rows_join
 
 echo "truncation"
 # truncated_row BIN: no prefix of BIN piped to bash runs a command. The
@@ -782,26 +842,50 @@ echo "truncation"
 # which hold main's call; bash -x traces each command it runs as a line
 # starting with +.
 truncated_row() {
-  local size cut body LC_ALL=C
-  local -a cuts
+  local size cut body chunks chunk pid failed=0 LC_ALL=C
+  local -a cuts pids
   # A cut that drops only the trailing newlines leaves the whole script.
   body="$(<"$1")"
   size="${#body}"
   mapfile -t cuts < <({ LC_ALL=C awk '{ n += length($0) + 1; print n }' "$1"; seq 97 97 "$size"; seq $((size > 256 ? size - 256 : 1)) "$size"; } | sort -nu)
   ((${#cuts[@]} > 300)) || { echo "    cuts=${#cuts[@]}: the cut extractor read too few"; return 1; }
   new_home truncated
-  for cut in "${cuts[@]}"; do
-    ((cut < size)) || continue
-    head -c "$cut" "$1" | env -i PATH="$run_path" HOME="$h" TMPDIR="$scratch" VGS_TEST_RUN=1 VGS_RELEASE_API="file://$www" \
-      XDG_RUNTIME_DIR="$rt_empty" bash -x >/dev/null 2>"$tmp/trace" || true
-    if grep -q '^+' "$tmp/trace"; then
-      echo "    cut=$cut ran: $(grep -m1 '^+' "$tmp/trace")"
-      return 1
-    fi
+  chunks="$(nproc)"
+  ((chunks > 8)) && chunks=8
+  ((chunks > ${#cuts[@]})) && chunks=${#cuts[@]}
+  mkdir -p "$tmp/truncated"
+  for ((chunk = 0; chunk < chunks; chunk++)); do
+    (
+      local i line trace="$tmp/truncated/trace-$chunk"
+      for ((i = chunk; i < ${#cuts[@]}; i += chunks)); do
+        [[ ! -e $tmp/truncated/found ]] || exit 0
+        cut="${cuts[i]}"
+        ((cut < size)) || continue
+        printf '%s' "${body:0:cut}" | env -i PATH="$run_path" HOME="$h" TMPDIR="$scratch" VGS_TEST_RUN=1 VGS_RELEASE_API="file://$www" \
+          XDG_RUNTIME_DIR="$rt_empty" bash -x >/dev/null 2>"$trace" || true
+        line=""
+        while IFS= read -r line; do
+          [[ $line != +* ]] || break
+          line=""
+        done <"$trace"
+        if [[ -n $line ]] && mkdir "$tmp/truncated/found" 2>/dev/null; then
+          printf 'cut=%s ran: %s\n' "$cut" "$line" >"$tmp/truncated/found/message"
+          exit 0
+        fi
+      done
+    ) &
+    pids+=("$!")
   done
+  for pid in "${pids[@]}"; do wait "$pid" || failed=1; done
+  ((failed == 0)) || return 1
+  if [[ -s $tmp/truncated/found/message ]]; then
+    echo "    $(<"$tmp/truncated/found/message")"
+    return 1
+  fi
   [[ ! -e $h/.local ]]
 }
-check "no truncated download of install.sh runs a command" truncated_row "$installer"
+row_job check "no truncated download of install.sh runs a command" truncated_row "$installer"
+rows_join
 
 echo "controls"
 # control NAME ROW [ARGS...]: ROW must fail on $copy, which the caller made.
@@ -837,9 +921,9 @@ open(target, "w").write("\n".join(l for i, l in enumerate(lines) if i not in cut
 PY
 }
 unwrap unwrapped group-open main-open main-close call group-close
-control "a copy with the body outside main runs a truncated download" truncated_row
+row_job control "a copy with the body outside main runs a truncated download" truncated_row
 unwrap ungrouped group-open group-close
-control "a copy whose call of main stands outside the group runs a cut after the word main" truncated_row
+row_job control "a copy whose call of main stands outside the group runs a cut after the word main" truncated_row
 
 # rule NAME ROW NEEDLE REPLACEMENT: a copy of install.sh without one rule,
 # NEEDLE replaced, on which ROW, the row that judges the rule, must fail.
@@ -847,38 +931,39 @@ rule() {
   copy_with "$1" "$installer" "$3" "$4"
   control "a copy without the $1 rule" "$2"
 }
-rule checksum mismatch_row '[[ $got == "$want" ]] ||' '[[ $got == "$got" ]] ||'
-rule sum-count unlisted_row '((count == 1)) || refuse 1 "checksum=unlisted' '((count == count)) || refuse 1 "checksum=unlisted'
-rule tag tag_row '[[ $tag =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]] ||' '[[ v0.8.0 =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]] ||'
-rule layout layout_row 'if ((${#top[@]} != 1)) || [[' 'if ((${#top[@]} != 1)) && [['
-rule lock busy_row 'flock -n 9 || refuse 75' 'flock -n 9 || true || refuse 75'
-rule root root_row '((EUID != 0)) ||' '((EUID != -1)) ||'
-rule os os_row '[[ $os == Linux ]] ||' '[[ $os == "$os" ]] ||'
-rule package-database system_row 'pacman -Q -- "$name" >/dev/null 2>&1; then' 'pacman -Q -- "$name" >/dev/null 2>&1 && false; then'
-rule foreign-link foreign_row '&& $(link_state) == foreign ]]' '&& $(link_state) == none ]]'
-rule modified-clone modified_row '[[ -z $out ]] || refuse 1 "modified=' 'true || refuse 1 "modified='
-rule unpublished-commit unpublished_row '((out == 0)) || refuse 1 "unpublished=' 'true || refuse 1 "unpublished='
-rule other-branches branch_row 'rev-list --count HEAD --branches --not --remotes' 'rev-list --count HEAD --not --remotes'
-rule stash stash_row 'if "${git_in[@]}" rev-parse -q --verify refs/stash >/dev/null; then' 'if false; then'
-rule running-shell running_row 'if [[ $tree == "$(readlink -f -- "$data")"/* ]]; then' 'if false; then'
-rule keep-foreign-link keep_foreign_row '[[ $state != ours ]] || rm -f -- "$link"' 'rm -f -- "$link"'
-rule keep-lock lock_kept_row '^(current|git|\.self-update-.*|[0-9]+' '^(current|git|\.self\.lock|\.self-update-.*|[0-9]+'
-rule floor-need drift_row 'quickshell 0.3.1   ^Quickshell' 'quickshell 0.3.0   ^Quickshell'
-rule requirement-package drift_row 'dnf=util-linux-core' 'dnf=util-linux'
-rule runtime-packages packages_row 'runtime_install() { # TREE' 'runtime_install() { return 0 # TREE'
-rule runtime-result runtime_failure_row '[[ $code == 0 ]] || refuse 1' '[[ $code == "$code" ]] || refuse 1'
-rule package-verb packages_row '"$tree/bin/vgshell" pkg run install' '"$tree/bin/vgshell" pkg plan install'
-rule launcher-prerequisite launcher_row 'start_tools=(xdg-terminal-exec)' 'start_tools=()'
-rule caller-terminal terminal_row 'if { : 2>/dev/null <>/dev/tty; }; then' 'if false; then'
-rule nix-present nix_present_row '[[ -z $names ]] || refuse 78 "requirements=configuration manager=nix"' '[[ -n $names ]] || refuse 78 "requirements=configuration manager=nix"'
-rule nix-missing nix_missing_row 'row.state === "missing"' 'row.state === "present"'
-rule nix-optional nix_present_row '!row.optional && row.state' 'true && row.state'
-rule probe-runtime runtime_row 'XDG_RUNTIME_DIR="$tmp/runtime" "${argv[@]}"' 'XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-}" "${argv[@]}"'
-rule unknown-not-installable unreadable_row '[[ $have == unknown ]] || names+=' '[[ $have == nothing ]] || names+='
+row_job rule checksum mismatch_row '[[ $got == "$want" ]] ||' '[[ $got == "$got" ]] ||'
+row_job rule sum-count unlisted_row '((count == 1)) || refuse 1 "checksum=unlisted' '((count == count)) || refuse 1 "checksum=unlisted'
+row_job rule tag tag_row '[[ $tag =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]] ||' '[[ v0.8.0 =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]] ||'
+row_job rule layout layout_row 'if ((${#top[@]} != 1)) || [[' 'if ((${#top[@]} != 1)) && [['
+row_job rule lock busy_row 'flock -n 9 || refuse 75' 'flock -n 9 || true || refuse 75'
+row_job rule root root_row '((EUID != 0)) ||' '((EUID != -1)) ||'
+row_job rule os os_row '[[ $os == Linux ]] ||' '[[ $os == "$os" ]] ||'
+row_job rule package-database system_row 'pacman -Q -- "$name" >/dev/null 2>&1; then' 'pacman -Q -- "$name" >/dev/null 2>&1 && false; then'
+row_job rule foreign-link foreign_row '&& $(link_state) == foreign ]]' '&& $(link_state) == none ]]'
+row_job rule modified-clone modified_row '[[ -z $out ]] || refuse 1 "modified=' 'true || refuse 1 "modified='
+row_job rule unpublished-commit unpublished_row '((out == 0)) || refuse 1 "unpublished=' 'true || refuse 1 "unpublished='
+row_job rule other-branches branch_row 'rev-list --count HEAD --branches --not --remotes' 'rev-list --count HEAD --not --remotes'
+row_job rule stash stash_row 'if "${git_in[@]}" rev-parse -q --verify refs/stash >/dev/null; then' 'if false; then'
+row_job rule running-shell running_row 'if [[ $tree == "$(readlink -f -- "$data")"/* ]]; then' 'if false; then'
+row_job rule keep-foreign-link keep_foreign_row '[[ $state != ours ]] || rm -f -- "$link"' 'rm -f -- "$link"'
+row_job rule keep-lock lock_kept_row '^(current|git|\.self-update-.*|[0-9]+' '^(current|git|\.self\.lock|\.self-update-.*|[0-9]+'
+row_job rule floor-need drift_row 'quickshell 0.3.1   ^Quickshell' 'quickshell 0.3.0   ^Quickshell'
+row_job rule requirement-package drift_row 'dnf=util-linux-core' 'dnf=util-linux'
+row_job rule runtime-packages packages_row 'runtime_install() { # TREE' 'runtime_install() { return 0 # TREE'
+row_job rule runtime-result runtime_failure_row '[[ $code == 0 ]] || refuse 1' '[[ $code == "$code" ]] || refuse 1'
+row_job rule package-verb packages_row '"$tree/bin/vgshell" pkg run install' '"$tree/bin/vgshell" pkg plan install'
+row_job rule launcher-prerequisite launcher_row 'start_tools=(xdg-terminal-exec)' 'start_tools=()'
+row_job rule caller-terminal terminal_row 'if { : 2>/dev/null <>/dev/tty; }; then' 'if false; then'
+row_job rule nix-present nix_present_row '[[ -z $names ]] || refuse 78 "requirements=configuration manager=nix"' '[[ -n $names ]] || refuse 78 "requirements=configuration manager=nix"'
+row_job rule nix-missing nix_missing_row 'row.state === "missing"' 'row.state === "present"'
+row_job rule nix-optional nix_present_row '!row.optional && row.state' 'true && row.state'
+row_job rule probe-runtime runtime_row 'XDG_RUNTIME_DIR="$tmp/runtime" "${argv[@]}"' 'XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-}" "${argv[@]}"'
+row_job rule unknown-not-installable unreadable_row '[[ $have == unknown ]] || names+=' '[[ $have == nothing ]] || names+='
 copy_with manager-order "$installer" 'fedora        dnf5,dnf' 'fedora        dnf,dnf5'
-control "a copy that prefers dnf 4 over dnf5" distro_row "fedora with dnf5" "ID=fedora" "$pm_all"
+row_job control "a copy that prefers dnf 4 over dnf5" distro_row "fedora with dnf5" "ID=fedora" "$pm_all"
 copy_with any-key "$signing" '[[ ${field[2]} == "$release_key" ||' '[[ -n ${field[2]} ||'
-control "a copy that accepts a signature by any key in the keyring" signature_other_row
+row_job control "a copy that accepts a signature by any key in the keyring" signature_other_row
+rows_join
 
 check "the rows' git writes leave the caller's XDG git configuration unchanged" cmp -s -- "$tmp/caller-git-config" "$caller_config/git/config"
 
