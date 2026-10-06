@@ -3,7 +3,6 @@
 ## Unreleased
 
 - A dropdown's title switch that controls less than the title names shows what it controls in a small dim label at its left: "Wi-Fi" in Network, "Tailscale" in VPN. Bluetooth's switch shows no label.
-- A plain `fastfetch` shows the theme: apply links its `config.jsonc` unless you have your own. In Ghostty and kitty the logo is a square crop of the current wallpaper, as tall as the information beside it and level with its first line; it follows each wallpaper change. Other terminals show the VGS logo as text. `fastfetch --config vgs` is gone. The theme's list leaves out Host and GPU and shows the root disk only, so its height stays 15 lines.
 - The VGS logo is a new drawing: the letters in solid blocks with a shaded shadow. Floating terminals draw it in the theme accent.
 - The bundled `light` theme is removed; `vgs` is the one bundled theme. The light themes are in the theme catalog, such as `flexoki-light`, which the theme browser installs.
 - New plugin Clipboard, `vgs.clipboard`: a history of the last 500 text and image copies. `SUPER+CTRL+V` opens it. Typing filters the entries, Enter pastes the selected entry into the application that had the keyboard, and Ctrl+P pins an entry. A copy that a password manager marks as secret is never recorded. The plugin is off until you turn it on in Settings, and records nothing before that.

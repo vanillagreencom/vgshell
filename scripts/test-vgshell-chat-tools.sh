@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Controls for the chat and tool targets of `vgshell theme apply`: Vesktop,
-# Equibop, Vencord, btop, fastfetch, tmux, Oh My Posh and Obsidian. Each
-# lands its file with its encoder and keeps its wiring, links in the
-# application's theme directory or tmux's source-file line, and each hook
+# Equibop, Vencord, btop, tmux, Oh My Posh and Obsidian. Each lands its file
+# with its encoder and keeps its wiring, links in the application's theme
+# directory or tmux's source-file line, and each hook
 # reaches only a stub. Obsidian's links stand in every vault its registry
 # lists, the entry form's `vaults`. Every detect command, the signal command
 # and tmux are stubs on the rows' PATH, under a temporary HOME,
@@ -11,7 +11,7 @@
 set -euo pipefail
 
 source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/vgshell-rows.sh"
-theme_tree btop equibop fastfetch obsidian oh-my-posh tmux vencord vesktop
+theme_tree btop equibop obsidian oh-my-posh tmux vencord vesktop
 live="$state/theme"; uid="$(id -u)"; pending="$state/reload-pending.json"
 theme_pkg "$tree/themes/dusk" '{ "schemaVersion": 1, "name": "dusk", "tokens": { "palette": { "accent": "#111111" } } }'
 theme_pkg "$tree/themes/nord" '{ "schemaVersion": 1, "name": "nord", "tokens": { "palette": { "accent": "#222222" } } }'
@@ -27,7 +27,7 @@ for tool in sh id touch; do
   tool_bin="$(command -v "$tool")" || { echo "test-vgshell-chat-tools: status=not-measured missing=$tool"; exit 77; }
   ln -s -- "$tool_bin" "$hook_tools/$tool"
 done
-for stub in vesktop equibop discord btop fastfetch oh-my-posh obsidian; do
+for stub in vesktop equibop discord btop oh-my-posh obsidian; do
   printf '#!/bin/sh\n: >"%s/ran-$(basename "$0")"\nexit 1\n' "$tmp" >"$stubs/$stub"
   chmod +x "$stubs/$stub"
 done
@@ -63,22 +63,21 @@ calls_are() { [[ "$(cat "$1")" == "$2" ]]; } # FILE WANT: the lines a stub recor
 link_time() { stat -c %Y -- "$@" | tr '\n' ' '; } # PATH...: each link's own modification time
 none_at_1000() { [[ " $(link_time "$@")" != *" 1000 "* ]]; } # PATH...: no link still holds the time the rows set
 disable() { printf '{ "disabledTargets": [%s] }\n' "$1" >"$cfg/vgshell/shell.json"; }
-tools="btop equibop fastfetch obsidian oh-my-posh tmux vencord vesktop"
+tools="btop equibop obsidian oh-my-posh tmux vencord vesktop"
 all_state() { # WANT: every tool target's state and reason, one "name state reason" per target
   local name got=""
   for name in $tools; do got+="$name $(target_state "$name");"; done
   [[ $got == "$1" ]]
 }
-all_written="btop written None;equibop written None;fastfetch written None;obsidian written None;oh-my-posh written None;tmux written None;vencord written None;vesktop written None;"
+all_written="btop written None;equibop written None;obsidian written None;oh-my-posh written None;tmux written None;vencord written None;vesktop written None;"
 
 # The configuration home holds the user's own files beside each wiring:
-# btop.conf, which apply never edits, a fastfetch directory with no
-# config.jsonc of the user's, a theme of the user's in Equibop's themes
-# directory, a tmux.conf, and an Obsidian
-# registry listing a vault with .obsidian, a second one, a vault that is
-# gone, one never opened, which has no .obsidian, and a relative path.
+# btop.conf, which apply never edits, a theme of the user's in Equibop's
+# themes directory, a tmux.conf, and an Obsidian registry listing a vault
+# with .obsidian, a second one, a vault that is gone, one never opened,
+# which has no .obsidian, and a relative path.
 cfg="$tmp/cfg-tools"; vaults="$tmp/vaults"
-mkdir -p "$cfg/vgshell" "$cfg/btop" "$cfg/fastfetch" "$cfg/equibop/themes" "$cfg/tmux" "$cfg/obsidian" \
+mkdir -p "$cfg/vgshell" "$cfg/btop" "$cfg/equibop/themes" "$cfg/tmux" "$cfg/obsidian" \
   "$vaults/notes/.obsidian/themes" "$vaults/work/.obsidian" "$vaults/fresh"
 printf 'color_theme = "vgs"\nupdate_ms = 1000\n' >"$cfg/btop/btop.conf"
 printf '/** @name mine */\n' >"$cfg/equibop/themes/mine.css"
@@ -112,7 +111,6 @@ vesktop.css|    --streaming: #a855f7;
 btop.theme|theme[main_bg]="#000000"
 btop.theme|theme[hi_fg]="#111111"
 btop.theme|theme[used_start]="#f43f5e"
-fastfetch.jsonc|      "keys": "#111111",
 tmux.conf|set -g clock-mode-colour "#111111"
 tmux.conf|set -g pane-active-border-style "#{?pane_in_mode,fg=#ffb000,#{?synchronize-panes,fg=#f43f5e,fg=#111111}}"
 oh-my-posh.json|    "accent": "#111111",
@@ -122,17 +120,6 @@ EOF
 check "Equibop and Vencord render the Vesktop file" test "$(cmp -s "$live/vesktop.css" "$live/equibop.css"; echo $?)$(cmp -s "$live/vesktop.css" "$live/vencord.css"; echo $?)" == 00
 check "the theme CSS names itself vgs to Vencord's theme list" grep -qxF -- ' * @name vgs' "$live/vesktop.css"
 check "tmux's #{pane_id} and the formats around it pass through the render" grep -qF -- '#{pane_index} #{pane_id}#[default] \"#{pane_title}\""' "$live/tmux.conf"
-check "the fastfetch file is JSONC with the accent on its keys" python3 -c 'import json,sys; t = "".join(l for l in open(sys.argv[1]) if not l.lstrip().startswith("//")); sys.exit(0 if json.loads(t)["display"]["color"]["keys"] == "#111111" else 1)' "$live/fastfetch.jsonc"
-# The fastfetch logo: fastfetch's auto type with no width, so an image keeps
-# its square, as many rows as the modules print lines, one each and two for
-# colors, from the first line, in the terminal's own foreground, its source
-# the background's square crop or the VGS logo text.
-fastfetch_logo() { python3 -c 'import json,sys
-c = json.loads("".join(l for l in open(sys.argv[1]) if not l.lstrip().startswith("//")))
-logo, lines = c["logo"], sum(2 if m == "colors" else 1 for m in c["modules"])
-sys.exit(0 if logo["type"] == "auto" and "width" not in logo and logo["height"] == lines and logo["padding"]["top"] == 0
-  and logo["color"] == {"1": "default"} and "/vgshell/background-square.png" in logo["source"] and "/lib/logo.txt" in logo["source"] else 1)' "$1"; }
-check "the fastfetch logo is as tall as the info and drawn in the terminal's foreground" fastfetch_logo "$live/fastfetch.jsonc"
 check "the Oh My Posh file is JSON whose segments draw from its palette" python3 -c 'import json,sys; c = json.load(open(sys.argv[1])); s = c["blocks"][0]["segments"]; sys.exit(0 if c["palette"]["danger"] == "#f43f5e" and s[0]["foreground"] == "p:accent" and s[0]["template"] == "{{ .Path }} " else 1)' "$live/oh-my-posh.json"
 check "the Obsidian manifest names the theme vgs" python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1]))["name"] == "vgs" else 1)' "$live/obsidian.manifest.json"
 
@@ -144,7 +131,6 @@ check "the user's Equibop theme stays" test "$(cat "$cfg/equibop/themes/mine.css
 check "Vencord's theme link stands in its themes directory" links_to "$cfg/Vencord/themes/vgs.css" "$live/vencord.css"
 check "btop's theme link stands in its themes directory" links_to "$cfg/btop/themes/vgs.theme" "$live/btop.theme"
 check "btop.conf is left byte for byte" cmp -s "$tmp/btop/btop.conf" "$cfg/btop/btop.conf"
-check "fastfetch's config.jsonc is the link a plain fastfetch reads" links_to "$cfg/fastfetch/config.jsonc" "$live/fastfetch.jsonc"
 check "Oh My Posh's config link stands in its directory" links_to "$cfg/oh-my-posh/vgs.omp.json" "$live/oh-my-posh.json"
 check "tmux.conf takes the source-file line first and keeps its own text" test "$(cat "$cfg/tmux/tmux.conf")" == "source-file -q '$live/tmux.conf'"$'\nset -g mouse on'
 check "each opened vault takes the theme's two links" test "$(links_to "$notes_theme/theme.css" "$live/obsidian.css" && links_to "$notes_theme/manifest.json" "$live/obsidian.manifest.json" && links_to "$work_theme/theme.css" "$live/obsidian.css" && echo yes)" == yes
@@ -197,26 +183,6 @@ apply_json "the creating tmux mutant applies" 0 dusk
 check "the creating tmux mutant writes a tmux.conf" test -f "$cfg/tmux/tmux.conf"
 unset THEME_BIN
 rm -f -- "$cfg/tmux/tmux.conf"
-
-# A user's own config.jsonc wins: fastfetch is skipped and the file kept.
-rm -- "$cfg/fastfetch/config.jsonc"
-printf '{ "modules": ["os"] }\n' >"$cfg/fastfetch/config.jsonc"
-cp -- "$cfg/fastfetch/config.jsonc" "$tmp/fastfetch-own.jsonc"
-apply_json "a user's own fastfetch config.jsonc" 0 nord
-check "a user's own config.jsonc skips fastfetch as occupied" test "$(target_state fastfetch)" == "skipped entry-occupied"
-check "a user's own config.jsonc is left byte for byte" cmp -s "$tmp/fastfetch-own.jsonc" "$cfg/fastfetch/config.jsonc"
-rm -- "$cfg/fastfetch/config.jsonc"
-
-# Controls on the fastfetch target: a preset link a plain fastfetch never
-# reads, and a logo a row shorter than the info.
-tree_control fastfetch-preset themes/targets/fastfetch/target.json '"config.jsonc": "fastfetch.jsonc"' '"vgs.jsonc": "fastfetch.jsonc"'
-apply_json "the preset-link fastfetch mutant applies" 0 dusk
-check "the preset-link fastfetch mutant leaves no config.jsonc" test ! -e "$cfg/fastfetch/config.jsonc" -a ! -L "$cfg/fastfetch/config.jsonc"
-rm -f -- "$cfg/fastfetch/vgs.jsonc"
-tree_control fastfetch-short themes/targets/fastfetch/fastfetch.jsonc '"height": 15,' '"height": 14,'
-apply_json "the short-logo fastfetch mutant applies" 0 nord
-check "the short-logo fastfetch mutant fails the logo check" test "$(fastfetch_logo "$live/fastfetch.jsonc" && echo held || echo turned)" == turned
-unset THEME_BIN
 
 # Obsidian's registry: absent, or listing no opened vault, skips it;
 # one that is no vault list fails it and leaves every vault as it stands.

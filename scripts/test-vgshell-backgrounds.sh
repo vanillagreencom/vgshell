@@ -2,12 +2,10 @@
 # Controls for a theme package's backgrounds: what `vgshell theme apply` makes
 # the current background, what `vgshell theme background next` and `previous`
 # move to, what `set` takes, for every screen, one output or every screen
-# with each output's own image cleared, what `list` names, and the square
-# crop of the current image.
+# with each output's own image cleared, and what `list` names.
 # Each row pins an exit status, the last stdout line, the keyed stderr line,
 # the state directory's `background` symlink and backgrounds.json. The
-# image files are bytes no row decodes, the judge reading only their names,
-# but for the crop rows' images.
+# image files are bytes no row decodes: the judge reads only their names.
 set -euo pipefail
 
 source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/vgshell-rows.sh"
@@ -389,111 +387,6 @@ rm -rf -- "${state:?}"; mv -- "$tmp/state-kept" "$state"
 reset_dusk "accepted control"
 judge_control accepted '.filter(row => row.state === "ok")' ''
 tinst "the accepted mutant sets a refused package's image" "$cfg" "$rt_empty" 0 "$(set_line z.png bad "$cfg/vgshell/themes/bad/backgrounds/z.png")" "" theme background set "$cfg/vgshell/themes/bad/backgrounds/z.png"
-unset THEME_BIN
-
-# The square crop fastfetch draws: the centre square of the current image,
-# written with ImageMagick by a detached process the command does not wait
-# for. The judge's PATH holds a stand-in magick, which only these rows put
-# there: it runs ImageMagick, holds a crop of held.png until $gate exists or
-# five seconds pass, and records the pid of the crop process that ran it, so
-# a row waits for that process to end. wide.png is blue between two red
-# bands, so a centred crop holds no red; held.png is all red. An image
-# ImageMagick cannot read, and no current image, leave no crop.
-magick_bin="$(command -v magick)" || { echo "test-vgshell-backgrounds: status=not-measured missing=magick"; exit 77; }
-gate="$tmp/crop-gate"; crops="$tmp/crops"; : >"$crops"
-# The judge's PATH holds no sleep.
-sleep_bin="$(command -v sleep)"
-cat >"$theme_path/magick" <<EOF
-#!/usr/bin/env bash
-if [[ \$1 == */held.png ]]; then
-  for (( i = 0; i < 500; i++ )); do [[ -e '$gate' ]] && break; '$sleep_bin' 0.01; done
-fi
-'$magick_bin' "\$@"; status=\$?
-printf '%s\n' "\$PPID" >>'$crops'
-exit \$status
-EOF
-chmod +x "$theme_path/magick"
-square="$state/background-square.png"
-"$magick_bin" -size 300x200 xc:blue -fill red -draw 'rectangle 0,0 49,199' -draw 'rectangle 250,0 299,199' "$user/wide.png"
-"$magick_bin" -size 300x200 xc:red "$user/held.png"
-square_reads() { [[ -f $square && "$("$magick_bin" identify -format '%m %wx%h %[fx:maxima.r]' "$square")" == "PNG 200x200 $1" ]]; }
-square_is() { square_reads 0; }
-square_red() { square_reads 1; }
-no_square() { [[ ! -e $square && ! -L $square ]]; }
-crop_count() { wc -l <"$crops"; }
-# crops_end N: N crops have run and every crop process has ended, within ten
-# seconds.
-crops_end() {
-  local pid
-  for _ in $(seq 1000); do
-    if (( $(crop_count) >= $1 )); then
-      while read -r pid; do kill -0 "$pid" 2>/dev/null && continue 2; done <"$crops"
-      return 0
-    fi
-    sleep 0.01
-  done
-  return 1
-}
-# reset_dusk, then wait for the crop its apply starts, so the rows after
-# count only their own crops.
-square_reset() { # LABEL
-  rm -f -- "${gate:?}"
-  reset_dusk "$1"
-  crops_end "$(( $(crop_count) + 1 ))" || fail "$1: the apply's crop did not end"
-  : >"$crops"
-}
-square_reset "square rows"
-tinst "set of a wide image is accepted" "$cfg" "$rt_empty" 0 "$(set_line wide.png - "$user/wide.png")" "" theme background set "$user/wide.png"
-check "the wide image's crop ends" crops_end 1
-check "the crop is the wide image's centre square" square_is
-tinst "set of an image ImageMagick cannot read is accepted" "$cfg" "$rt_empty" 0 "$(set_line u.png - "$user/u.png")" "" theme background set "$user/u.png"
-check "the unreadable image's crop ends" crops_end 2
-check "an image ImageMagick cannot read leaves no crop" no_square
-tinst "set of the wide image again" "$cfg" "$rt_empty" 0 "$(set_line wide.png - "$user/wide.png")" "" theme background set "$user/wide.png"
-check "the wide image's second crop ends" crops_end 3
-check "the wide image again is cropped again" square_is
-tinst "nord applies with no image" "$cfg" "$rt_empty" 0 "$any_out" "" theme apply nord
-check "no current image removes the crop" no_square
-# A held crop: the set answers before it ends, and when a later set has
-# landed its own crop, the held one ends without replacing it. Sets
-# held_answer and wide_again, and leaves every crop ended. A control names
-# the tree copy it runs: NAME NEEDLE REPLACEMENT of bg_control.
-held_rows() { # LABEL [NAME NEEDLE REPLACEMENT]
-  square_reset "$1"
-  [[ $# -eq 1 ]] || bg_control "$2" "$3" "$4"
-  tinst "$1: the wide image sets" "$cfg" "$rt_empty" 0 "$(set_line wide.png - "$user/wide.png")" "" theme background set "$user/wide.png"
-  crops_end 1 || fail "$1: the wide image's crop did not end"
-  tinst "$1: the held image sets" "$cfg" "$rt_empty" 0 "$(set_line held.png - "$user/held.png")" "" theme background set "$user/held.png"
-  held_answer="$( (( $(crop_count) == 1 )) && square_is && echo before || echo after)"
-  tinst "$1: the wide image sets again" "$cfg" "$rt_empty" 0 "$(set_line wide.png - "$user/wide.png")" "" theme background set "$user/wide.png"
-  crops_end 2 || fail "$1: the second wide crop did not end"
-  wide_again="$(square_is && echo wide || echo other)"
-  touch -- "$gate"
-  crops_end 3 || fail "$1: the held crop did not end"
-}
-held_rows "held crop rows"
-check "the set answers before its crop ends" test "$held_answer" == before
-check "a later set lands its own crop while an earlier crop is held" test "$wide_again" == wide
-check "a held crop a later set overtook leaves the later crop" square_is
-square_reset "lock rows"
-tinst "lock rows: the held image sets" "$cfg" "$rt_empty" 0 "$(set_line held.png - "$user/held.png")" "" theme background set "$user/held.png"
-tinst "a set while a crop is held takes the theme lock" "$cfg" "$rt_empty" 0 "$(set_line wide.png - "$user/wide.png")" "" theme background set "$user/wide.png"
-touch -- "$gate"
-check "every lock row crop ends" crops_end 2
-square_reset "square control"
-judge_control no-square 'backgrounds.landSquare(stateDir, after.current, shown.current, key);' ''
-tinst "the no-square mutant sets the wide image" "$cfg" "$rt_empty" 0 "$(set_line wide.png - "$user/wide.png")" "" theme background set "$user/wide.png"
-check "the no-square mutant fails the crop check" test "$(crops_end 1 && square_is && echo cropped || echo none)" == none
-square_reset "apply square control"
-tinst "the apply square control sets the wide image" "$cfg" "$rt_empty" 0 "$(set_line wide.png - "$user/wide.png")" "" theme background set "$user/wide.png"
-check "the apply square control's crop ends" crops_end 1
-judge_control apply-keeps-square 'backgrounds.landSquare(stateDir, background, shown.current, key);' ''
-tinst "the apply-keeps-square mutant applies nord" "$cfg" "$rt_empty" 0 "$any_out" "" theme apply nord
-check "the apply-keeps-square mutant fails the removal check" test "$(no_square && echo removed || echo kept)" == kept
-held_rows "wait control" waits 'const crop = spawn(process.execPath, [__filename, "crop", stateDir, current.path, current.stamp], { detached: true, stdio: "ignore" });' 'cropSquare(stateDir, current.path, current.stamp); const crop = { on() {}, unref() {} };'
-check "the waiting mutant fails the answer check" test "$held_answer" == after
-held_rows "overtaken control" overtaken 'if (!stillCurrent(stateDir, image, stamp)) return;' ''
-check "the overtaken mutant fails the later-crop check" square_red
 unset THEME_BIN
 
 rows_done test-vgshell-backgrounds

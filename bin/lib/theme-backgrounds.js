@@ -18,19 +18,14 @@
 // remembered and no screen image; a state that is all three is written as
 // no file. The judge is this file's only writer:
 // docs/architecture/theme-backgrounds.md.
-//
-// background-square.png beside them is the centre square of the current
-// image, the logo themes/targets/fastfetch draws.
 "use strict";
 const fs = require("fs");
 const path = require("path");
-const { spawn, spawnSync } = require("child_process");
 const { refuse, readJson, writing, replaceFile } = require(path.join(__dirname, "judge-files.js"));
 
 const DIR = "backgrounds";
 const STATE_FILE = "backgrounds.json";
 const LINK = "background";
-const SQUARE = "background-square.png";
 // What the shell's Image reads with the image plugins Qt ships by default.
 const EXTENSIONS = [".png", ".jpg", ".jpeg"];
 
@@ -207,62 +202,9 @@ function choose(list, remembered) {
     return list.length === 0 ? null : list[0];
 }
 
-// Keep STATE_DIR's background-square.png the centre square of CURRENT, a
-// stamped image or null, scaled down to at most 1024 px: removed here with
-// no image, and cropped by `cropSquare` in a detached process when CURRENT
-// differs from BEFORE, the stamped image `read` answered, or the file is
-// absent. The caller's answer never waits for ImageMagick, and the theme
-// browser closes on that answer: on cachy, 2026-10-06, `magick` took 107 to
-// 119 ms to crop a 3840x2160 JPEG. ImageMagick is a package dependency. An
-// image it cannot read, or its absence, leaves no file rather than refusing
-// the background change, and fastfetch then draws its ASCII logo: the crop
-// is that logo alone.
-function landSquare(stateDir, current, before, key) {
-    const square = path.join(stateDir, SQUARE);
-    if (current === null) return writing(square, key, () => fs.rmSync(square, { force: true }));
-    const same = before !== null && before.path === current.path && before.stamp === current.stamp;
-    if (same && lstatOrNull(square, key) !== null) return;
-    const crop = spawn(process.execPath, [__filename, "crop", stateDir, current.path, current.stamp], { detached: true, stdio: "ignore" });
-    crop.on("error", () => fs.rmSync(square, { force: true }));
-    crop.unref();
-}
-
-// The detached crop of IMAGE, stamped STAMP, into a scratch file that
-// replaces STATE_DIR's square only while backgrounds.json still names IMAGE
-// at STAMP current, so a crop that a later change overtook never replaces
-// that change's square. An image ImageMagick cannot read removes the square
-// on the same condition. Nothing reads this process's output.
-function cropSquare(stateDir, image, stamp) {
-    const square = path.join(stateDir, SQUARE);
-    const tmp = square + ".vgshell-" + process.pid;
-    try {
-        const run = spawnSync("magick", [image, "-auto-orient", "-gravity", "center", "-crop", "1:1", "+repage",
-            "-resize", "1024x1024>", "-define", "png:compression-level=1", "png:" + tmp], { stdio: "ignore" });
-        if (!stillCurrent(stateDir, image, stamp)) return;
-        if (run.error === undefined && run.status === 0) fs.renameSync(tmp, square);
-        else fs.rmSync(square, { force: true });
-    } finally {
-        fs.rmSync(tmp, { force: true });
-    }
-}
-
-// Whether STATE_DIR's backgrounds.json names IMAGE at STAMP current. A file
-// that cannot be read or parsed names no image.
-function stillCurrent(stateDir, image, stamp) {
-    let doc;
-    try {
-        doc = JSON.parse(fs.readFileSync(path.join(stateDir, STATE_FILE), "utf8"));
-    } catch (e) {
-        return false;
-    }
-    return doc !== null && typeof doc === "object" && doc.current === image && doc.stamp === stamp;
-}
-
 // Make AFTER, a state as `read` answers it, the background state: the
 // `background` symlink to its `current` first, replaced by rename, then
 // backgrounds.json when it differs from BEFORE, the state `read` answered.
-// The caller lands the square after every file the shell draws from, so
-// no theme or background change waits for ImageMagick.
 // The state directory is created first: `set` can be the first command a
 // fresh home runs. KEY leads the refusal for each write that fails.
 function land(stateDir, after, before, key) {
@@ -301,6 +243,4 @@ function land(stateDir, after, before, key) {
     }
 }
 
-module.exports = { DIR, STATE_FILE, LINK, isImageName, entryKind, firstImageName, images, imagePath, locate, stamped, read, choose, land, landSquare };
-
-if (require.main === module && process.argv.length === 6 && process.argv[2] === "crop") cropSquare(...process.argv.slice(3));
+module.exports = { DIR, STATE_FILE, LINK, isImageName, entryKind, firstImageName, images, imagePath, locate, stamped, read, choose, land };

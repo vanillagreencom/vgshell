@@ -951,8 +951,6 @@ f share/vgshell/themes/targets/emacs/emacs.el
 f share/vgshell/themes/targets/emacs/target.json
 f share/vgshell/themes/targets/equibop/equibop.css
 f share/vgshell/themes/targets/equibop/target.json
-f share/vgshell/themes/targets/fastfetch/fastfetch.jsonc
-f share/vgshell/themes/targets/fastfetch/target.json
 f share/vgshell/themes/targets/foot/foot.ini
 f share/vgshell/themes/targets/foot/target.json
 f share/vgshell/themes/targets/gemini/gemini.json

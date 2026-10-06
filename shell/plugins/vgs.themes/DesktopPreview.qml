@@ -392,7 +392,7 @@ Item {
                 anchors.margins: root.contentInset(terminal)
                 spacing: Theme.desktopPreview.lineGap
 
-                Label { role: "code"; color: root.terminalColor(2); text: "~ ❯ fastfetch" }
+                Label { role: "code"; color: root.terminalColor(2); text: "~ ❯ ls" }
                 Repeater {
                     model: [
                         { key: "user", value: "you", color: 1 },

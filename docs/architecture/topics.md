@@ -36,7 +36,7 @@ One line per architecture document: the change to read it before. [overview.md](
 - [theme-capability.md](theme-capability.md): read before touching `ThemeRunner`, the `theme` capability, or a plugin view that applies, installs or previews a theme.
 - [theme-capability.md](theme-capability.md): read before touching the `vgs.themes` browser, its views or `BrowserLogic.js`.
 - [theme-targets.md](theme-targets.md): read before touching a theme target, a template, an encoder, the wiring text, a target's `select` or `setup` key, or an application's one-time step.
-- [theme-targets.md](theme-targets.md): read before touching a Discord client's, btop's, fastfetch's, tmux's, Oh My Posh's, Obsidian's or gum's target.
+- [theme-targets.md](theme-targets.md): read before touching a Discord client's, btop's, tmux's, Oh My Posh's, Obsidian's or gum's target.
 - [packages.md](packages.md): read before touching `shell/Core/PackageManagers.js`, `vgshell pkg`, an update check, or any step that installs or removes a package.
 - [requirements.md](requirements.md): read before touching a manifest's `requirements`, `config/requirements.json`, the scan's probe, the requirement notice, or the `requirements` and `doctor` capabilities.
 - [requirement-notice.md](requirement-notice.md): read before touching the core notice host, a requirement notice, its triggers, the Hyprland consent question or the `requirements` and `doctor` capabilities.

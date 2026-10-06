@@ -1390,7 +1390,6 @@ function applyTo(result, failures, configDir, stateDir, lock, name) {
     // Once the theme file holds the package's bytes, so a follow never
     // takes bytes this apply did not write for its own.
     replaceFile(path.join(stateDir, APPLIED_FILE), JSON.stringify({ schemaVersion: 1, name, file: sha256(row.files.theme), package: digest }) + "\n", key);
-    backgrounds.landSquare(stateDir, background, shown.current, key);
     // Last, so each application re-reads files that are all in place.
     result.targets = droppedRows.concat(landed.map((entry, i) => entry.state !== "failed" && due.includes(entry.name)
         ? reloadRow(entry.name, entry.target, configHome, live, result.targets[droppedRows.length + i], failures)
@@ -1888,7 +1887,6 @@ function stepBackground(result, step, configDir, stateDir, lock) {
     const chosen = list[(at + BACKGROUND_STEPS[step] + list.length) % list.length];
     const image = backgrounds.stamped(row.path, chosen, key);
     backgrounds.land(stateDir, { current: image, themes: Object.assign({}, shown.themes, { [name]: chosen }), screens: shown.screens }, shown, key);
-    backgrounds.landSquare(stateDir, image, shown.current, key);
     result.background = chosen;
     result.path = image.path;
     result.state = "ok";
@@ -1938,7 +1936,6 @@ function setBackground(result, argument, target, configDir, stateDir, lock) {
         throw new Error("background set: unreachable target kind=" + target.kind);
     }
     backgrounds.land(stateDir, after, shown, key);
-    backgrounds.landSquare(stateDir, after.current, shown.current, key);
     result.path = image.path;
     result.state = "ok";
 }
