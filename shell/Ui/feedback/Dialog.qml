@@ -5,7 +5,8 @@ import qs.Ui
 import "../foundation/KeyNavLogic.js" as KeyNavLogic
 
 // A confirmation card: a title, a message, the content declared inside it
-// and a row of actions. It is a card, not a window: the host places it in
+// and its actions, flush right, wrapping to a further line rather than
+// passing the text's left edge. It is a card, not a window: the host places it in
 // its own surface and owns its lifetime, so `accepted` and `rejected`
 // report the answer and the dialog hides nothing. Its card takes the
 // presses and the hover that land on it and that no control in it takes,
@@ -288,15 +289,52 @@ FocusScope {
                     anchors.left: parent.left
                     anchors.verticalCenter: parent.verticalCenter
                 }
-                Row {
+                // The actions in their order, in lines flush right within
+                // the content width, beside the spinner while it shows: an
+                // action that does not fit after the ones before it starts
+                // the next line, and one wider than the area takes its width.
+                Item {
                     id: row
+                    readonly property real spacing: Theme.dialog.actionGap
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
-                    spacing: Theme.dialog.actionGap
+                    width: parent.width - (root.busy ? spinner.implicitWidth + spacing : 0)
+                    onWidthChanged: place()
+                    onSpacingChanged: place()
+
+                    function place() {
+                        const lines = [];
+                        for (const button of root.buttons()) {
+                            if (button === null) continue;
+                            const width = Math.min(button.implicitWidth, row.width);
+                            const line = lines[lines.length - 1];
+                            if (line !== undefined && line.width + row.spacing + width <= row.width) {
+                                line.buttons.push(button);
+                                line.width += row.spacing + width;
+                            } else {
+                                lines.push({ buttons: [button], width: width });
+                            }
+                        }
+                        let y = 0;
+                        for (const line of lines) {
+                            const height = Math.max(...line.buttons.map(button => button.implicitHeight));
+                            let x = row.width - line.width;
+                            for (const button of line.buttons) {
+                                button.width = Math.min(button.implicitWidth, row.width);
+                                button.x = x;
+                                button.y = y + (height - button.implicitHeight) / 2;
+                                x += button.width + row.spacing;
+                            }
+                            y += height + row.spacing;
+                        }
+                        row.implicitHeight = lines.length === 0 ? 0 : y - row.spacing;
+                    }
 
                     Repeater {
                         id: repeater
                         model: root.entries
+                        onItemAdded: row.place()
+                        onItemRemoved: row.place()
                         Button {
                             id: actionButton
                             required property var modelData
@@ -305,6 +343,8 @@ FocusScope {
                             variant: modelData.variant
                             enabled: modelData.enabled && !root.busy
                             onClicked: root.trigger(index)
+                            onImplicitWidthChanged: row.place()
+                            onImplicitHeightChanged: row.place()
                         }
                     }
                 }

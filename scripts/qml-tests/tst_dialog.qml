@@ -18,8 +18,10 @@ import qs.Unit
 // Escape answering and Tab cycling through it; a Select listed in
 // `tabItems` taking Tab and Backtab ahead of the field, and skipped while
 // hidden; the card taking the press, the hover and the wheel from what lies
-// under it, and passing the wheel on while not modal; and a theme change
-// reaching the card and the roles.
+// under it, and passing the wheel on while not modal; actions too wide
+// for one line wrapping in order, flush right, inside the text's edges and
+// clear of a busy spinner; and a theme change reaching the card and the
+// roles.
 Item {
     id: root
     width: 800
@@ -563,6 +565,56 @@ Item {
             compare(Theme.dialog.padding, 27);
             compare(pane(emptyBody).contentInset, 27);
             compare(headerSlot(emptyBody).x, 27);
+        }
+
+        // Actions wider together than the text column, the reset notice's
+        // pair among them, and one wider alone: every action stays between
+        // the text's edges, in its order, in lines flush right, and clears
+        // the spinner while the dialog is busy.
+        function test_actions_too_wide_for_one_line_wrap_inside_the_text() {
+            const crowded = Qt.createQmlObject("import QtQuick\nimport qs.Ui\nDialog {\n"
+                + "    title: \"VGS was reset\"\n"
+                + "    message: \"Your previous settings are in a backup.\"\n"
+                + "    actions: [{ label: \"Restore previous settings\", role: \"accept\" }, { label: \"Keep these\", role: \"cancel\" },"
+                + " { label: \"Restore every previous setting, plugin and theme from the backup\", role: \"cancel\" }]\n"
+                + "}", root);
+            const text = messageLabel(crowded);
+            tryVerify(() => text.width > 0 && crowded.buttons().every(button => button.width > 0), 1000, "the dialog is laid out");
+            const left = text.mapToItem(crowded, 0, 0).x;
+            const right = left + text.width;
+            const buttons = crowded.buttons();
+            const gap = Theme.dialog.actionGap;
+            verify(buttons[2].implicitWidth > text.width, "the long action is wider than the text column");
+
+            function edges() {
+                return buttons.map(button => {
+                    const at = button.mapToItem(crowded, 0, 0);
+                    return { left: at.x, right: at.x + button.width, top: at.y, bottom: at.y + button.height };
+                });
+            }
+
+            const placed = edges();
+            for (let i = 0; i < placed.length; i++) {
+                verify(placed[i].left >= left - 0.5, "action " + i + " starts at " + placed[i].left + ", left of the text at " + left);
+                verify(placed[i].right <= right + 0.5, "action " + i + " ends at " + placed[i].right + ", right of the text at " + right);
+                if (i === 0) continue;
+                const sameLine = Math.abs(placed[i].top - placed[i - 1].top) < 1;
+                verify(sameLine ? placed[i].left >= placed[i - 1].right : placed[i].top >= placed[i - 1].bottom, "action " + i + " follows action " + (i - 1));
+                if (!sameLine) fuzzyCompare(placed[i - 1].right, right, 0.5, "line before action " + i + " ends at the text's right edge");
+            }
+            fuzzyCompare(placed[placed.length - 1].right, right, 0.5, "the last line ends at the text's right edge");
+            verify(placed[2].top > placed[0].top, "the actions wrap to a further line");
+            const bottom = Math.max(...placed.map(edge => edge.bottom));
+            verify(footer(crowded).mapToItem(crowded, 0, footer(crowded).height).y >= bottom - 0.5, "the footer holds every line");
+
+            crowded.busy = true;
+            const turning = spinner(crowded);
+            const clear = turning.mapToItem(crowded, turning.width, 0).x + gap;
+            for (const [i, edge] of edges().entries()) {
+                verify(edge.left >= clear - 0.5, "busy action " + i + " starts at " + edge.left + ", over the spinner ending at " + clear);
+                verify(edge.right <= right + 0.5, "busy action " + i + " ends right of the text");
+            }
+            crowded.destroy();
         }
     }
 }
