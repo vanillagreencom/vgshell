@@ -1,11 +1,12 @@
 import QtQuick
 
-// The Plugins service: the global shortcut and the IPC functions that
+// The Plugins service: the global shortcuts and the IPC functions that
 // open the window. It draws nothing and owns nothing else; each
-// registration's disposer is the core's, so disabling the plugin releases
-// them. The shortcut and the IPC open the window on the focused monitor.
+// registration's disposer is the core's. The shortcuts and the IPC open
+// the window on the focused monitor.
 //   shortcut vgs.settings:toggle            SUPER+M from the manifest's
 //                                            `hyprland` binds
+//   shortcut vgs.settings:open              the launcher's Plugin settings row; no key
 //   vgshell ipc call vgs.settings invoke toggle '<payload>'
 //   vgshell ipc call vgs.settings invoke open '<payload>'
 // A payload is the window's, `{}` or `{"plugin":"<id>"}`; an empty argument
@@ -23,6 +24,7 @@ Item {
         if (shell === null || registeredWith !== null) return;
         registeredWith = shell;
         shell.shortcut.register("toggle", "Open or close Plugins", () => root.route("toggle", ""));
+        shell.shortcut.register("open", "Open Plugins", () => root.route("summon", ""));
         shell.ipc.handle("toggle", arg => root.route("toggle", arg));
         shell.ipc.handle("open", arg => root.route("summon", arg));
     }

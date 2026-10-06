@@ -175,6 +175,7 @@ FocusScope {
                     // keyboard-path: open the row and use the plugin page's Enabled switch
                     Switch {
                         size: "sm"
+                        visible: !entry.modelData.alwaysOn
                         checked: entry.modelData.enabled
                         focusPolicy: Qt.NoFocus
                         anchors.verticalCenter: parent.verticalCenter

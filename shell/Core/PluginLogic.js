@@ -69,7 +69,7 @@ var PANE_GROUP_MAX = 60;
 
 // Every key a manifest may carry. An unknown key is refused, so a misspelt
 // key fails loudly instead of being carried and ignored.
-var MANIFEST_KEYS = ["schemaVersion", "id", "name", "version", "author", "description", "license", "icon", "kinds", "entryPoints", "capabilities", "systemSteps", "settings", "schema", "defaultSection", "pane", "appearance", "hyprland", "requirements", "status", "tui", "menu", "secrets", "extras", "optIn"];
+var MANIFEST_KEYS = ["schemaVersion", "id", "name", "version", "author", "description", "license", "icon", "kinds", "entryPoints", "capabilities", "systemSteps", "settings", "schema", "defaultSection", "pane", "appearance", "hyprland", "requirements", "status", "tui", "menu", "secrets", "extras", "optIn", "alwaysOn"];
 
 // What one entry of a manifest's `extras` may carry: the status entries and
 // the requirement commands that serve that extra alone (extrasError).
@@ -3160,6 +3160,14 @@ function validateManifest(raw, sourceDir) {
         if (raw.kinds.indexOf("bar") !== -1 || raw.kinds.every(function (k) { return k === "bar-widget"; }))
             return { ok: false, error: "optIn needs a kind other than bar, and one beside bar-widget" };
     }
+    // `alwaysOn` holds the "first-party" rule of enablementRule against
+    // every disable, so only a manifest that rule serves may set it.
+    if (raw.alwaysOn !== undefined) {
+        if (typeof raw.alwaysOn !== "boolean")
+            return { ok: false, error: "alwaysOn must be a boolean when present" };
+        if (raw.alwaysOn && enablementRule(raw) !== "first-party")
+            return { ok: false, error: "alwaysOn needs the first-party rule: a vgs. id, no optIn, no kind bar, and a kind beside bar-widget" };
+    }
     if (raw.pane !== undefined) {
         var badPane = paneError(raw.pane, raw.kinds);
         if (badPane !== "")
@@ -3468,6 +3476,8 @@ function enablementRule(manifest) {
 
 // Whether a plugin is enabled under this configuration, by its
 // enablementRule.
+// - A plugin whose manifest sets `alwaysOn` is enabled whatever the
+//   configuration says, a disabledPlugins[] row included.
 // - disabledPlugins[] wins over every other rule.
 // - A plugin declaring kind bar is enabled only as the active bar; every
 //   other kind it declares comes and goes with its bar.
@@ -3477,6 +3487,8 @@ function enablementRule(manifest) {
 //   `vgs.` prefix) without `optIn`. A bar's settings row in plugins[]
 //   enables nothing.
 function isEnabled(config, manifest, defaultBarId) {
+    if (manifest.alwaysOn === true)
+        return true;
     var disabled = Array.isArray(config.disabledPlugins) ? config.disabledPlugins : [];
     if (disabled.indexOf(manifest.id) !== -1)
         return false;
@@ -3618,8 +3630,7 @@ function placedRefusal(config, manifest, defaultBarId) {
 function moveRefusal(config, manifest, section, index, defaultBarId) {
     if (manifest.kinds.indexOf("bar-widget") === -1)
         return "refused: moved=" + manifest.id + " reason=no-bar-widget";
-    var disabled = Array.isArray(config.disabledPlugins) ? config.disabledPlugins : [];
-    if (disabled.indexOf(manifest.id) !== -1)
+    if (isPlaced(config, manifest) && !isEnabled(config, manifest, defaultBarId))
         return "refused: moved=" + manifest.id + " reason=disabled";
     if (!isPlaced(config, manifest))
         return "refused: moved=" + manifest.id + " reason=unplaced";
@@ -3627,6 +3638,14 @@ function moveRefusal(config, manifest, section, index, defaultBarId) {
         return "refused: section=" + JSON.stringify(section) + " want=left|center|right";
     if (typeof index !== "number" || !Number.isInteger(index) || index < 0)
         return "refused: index=" + JSON.stringify(index) + " want=integer>=0";
+    return "";
+}
+
+// Why plugin MANIFEST may not be set to ENABLED, or "": a plugin whose
+// manifest sets `alwaysOn` refuses a disable. The reply is one keyed line.
+function enabledRefusal(manifest, enabled) {
+    if (!enabled && manifest.alwaysOn === true)
+        return "refused: enabled=" + manifest.id + " reason=always-on";
     return "";
 }
 

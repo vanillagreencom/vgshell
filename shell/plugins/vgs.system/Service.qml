@@ -1,6 +1,6 @@
 import QtQuick
 
-// The System service: the global shortcut and the IPC functions that open
+// The System service: the global shortcuts and the IPC functions that open
 // the window. A window instance exists only while the window is open, so
 // the shortcut, which must answer while it is closed, is registered here.
 // It draws nothing and owns nothing else; each registration's disposer is
@@ -8,6 +8,7 @@ import QtQuick
 // IPC open the window on the focused monitor.
 //   shortcut vgs.system:toggle            SUPER+PERIOD from the manifest's
 //                                          `hyprland` binds
+//   shortcut vgs.system:open              the launcher's System settings row; no key
 //   vgshell ipc call vgs.system invoke toggle '<payload>'
 //   vgshell ipc call vgs.system invoke open '<payload>'
 // A payload is the window's, `{}` or `{"pane":"<id>", ...}`; an empty
@@ -25,6 +26,7 @@ Item {
         if (shell === null || registeredWith !== null) return;
         registeredWith = shell;
         shell.shortcut.register("toggle", "Open or close System Settings", () => root.route("toggle", ""));
+        shell.shortcut.register("open", "Open System Settings", () => root.route("summon", ""));
         shell.ipc.handle("toggle", arg => root.route("toggle", arg));
         shell.ipc.handle("open", arg => root.route("summon", arg));
     }

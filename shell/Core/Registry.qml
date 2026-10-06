@@ -466,6 +466,7 @@ Singleton {
                 capabilities: m.capabilities,
                 source: sourceOf(m),
                 enabled: isEnabled(id),
+                alwaysOn: m.alwaysOn === true,
                 placed: Logic.isPlaced(config, m),
                 schema: m.schema,
                 settings: settings,

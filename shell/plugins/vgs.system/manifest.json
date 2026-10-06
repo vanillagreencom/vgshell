@@ -24,6 +24,9 @@
     "surfaces"
   ],
   "settings": {},
+  "menu": {
+    "settings.system": { "label": "System settings", "icon": "sliders-horizontal", "aliases": ["system"], "shortcut": "open" }
+  },
   "hyprland": {
     "binds": [
       { "shortcut": "toggle", "key": "SUPER+PERIOD" }

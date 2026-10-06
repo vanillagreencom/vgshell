@@ -6,7 +6,7 @@
   "author": "VanillaGreen",
   "description": "Manage your plugins, settings and shortcuts.",
   "license": "MIT",
-  "icon": "settings",
+  "icon": "plug",
   "kinds": [
     "window",
     "bar-widget",
@@ -27,6 +27,11 @@
   ],
   "settings": {},
   "defaultSection": "right",
+  "alwaysOn": true,
+  "menu": {
+    "settings": { "label": "Settings", "icon": "settings" },
+    "settings.plugins": { "label": "Plugin settings", "icon": "plug", "aliases": ["plugins"], "shortcut": "open" }
+  },
   "hyprland": {
     "binds": [
       { "shortcut": "toggle", "key": "SUPER+M" }

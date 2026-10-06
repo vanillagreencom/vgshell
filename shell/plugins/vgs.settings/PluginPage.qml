@@ -258,11 +258,11 @@ FocusScope {
                         spacing: Theme.stack.row
 
                         Field {
-                            id: enabledField
                             width: parent.width
                             label: "Enabled"
                             inline: true
-                            hint: page.isSelf ? "Turning off Plugins closes this window." : page.row !== null && !page.row.enabled && !page.bare ? "Turn on " + page.row.name + " to change its settings and shortcuts." : ""
+                            visible: page.row !== null && !page.row.alwaysOn
+                            hint: page.row !== null && !page.row.enabled && !page.bare ? "Turn on " + page.row.name + " to change its settings and shortcuts." : ""
                             Switch {
                                 size: "sm"
                                 checked: page.row !== null && page.row.enabled
@@ -271,16 +271,6 @@ FocusScope {
                                     if (page.row !== null) page.panel.toggle(page.row.id);
                                 }
                             }
-                        }
-
-                        // Once Settings is off no window is left to hold a
-                        // button that turns it on, so its own page keeps the
-                        // command that does, behind Show command (D061).
-                        CommandDisclosure {
-                            x: enabledField.valueX
-                            width: parent.width - x - enabledField.rightPadding
-                            visible: page.isSelf
-                            command: page.row === null ? "" : "vgshell plugin enable " + page.row.id
                         }
 
                         Field {

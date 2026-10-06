@@ -95,6 +95,13 @@ function suite(ctx, check) {
         ["optIn not a boolean", { kinds: ["service"], entryPoints: { service: "S.qml" }, optIn: "yes" }, "optIn must be a boolean"],
         ["optIn on a bar", { optIn: true }, "optIn needs a kind other than bar"],
         ["optIn on a widget-only plugin", { kinds: ["bar-widget"], entryPoints: { "bar-widget": "W.qml" }, optIn: true }, "optIn needs a kind other than bar"],
+        ["alwaysOn on a first-party service", { id: "vgs.always", kinds: ["service"], entryPoints: { service: "S.qml" }, alwaysOn: true }, null],
+        ["alwaysOn false on a third-party service", { id: "acme.always", kinds: ["service"], entryPoints: { service: "S.qml" }, alwaysOn: false }, null],
+        ["alwaysOn not a boolean", { id: "vgs.always", kinds: ["service"], entryPoints: { service: "S.qml" }, alwaysOn: "yes" }, "alwaysOn must be a boolean"],
+        ["alwaysOn on a third-party service", { id: "acme.always", kinds: ["service"], entryPoints: { service: "S.qml" }, alwaysOn: true }, "alwaysOn needs the first-party rule"],
+        ["alwaysOn with optIn", { id: "vgs.always", kinds: ["service"], entryPoints: { service: "S.qml" }, optIn: true, alwaysOn: true }, "alwaysOn needs the first-party rule"],
+        ["alwaysOn on a bar", { alwaysOn: true }, "alwaysOn needs the first-party rule"],
+        ["alwaysOn on a widget-only plugin", { kinds: ["bar-widget"], entryPoints: { "bar-widget": "W.qml" }, alwaysOn: true }, "alwaysOn needs the first-party rule"],
         ["defaultSection unknown", { kinds: ["bar-widget"], entryPoints: { "bar-widget": "W.qml" }, defaultSection: "top" }, "defaultSection must be one of"],
         ["known capability", { capabilities: ["compositor"] }, null],
         ["a tap bind", { capabilities: ["shortcut"], hyprland: { binds: [{ shortcut: "tap", key: "code:108", tap: true }] } }, null],
@@ -693,6 +700,20 @@ function suite(ctx, check) {
     check("isEnabled: a first-party plugin with optIn is on once listed", ctx.isEnabled(ctx.effectiveConfig(shipped, optInOn), optIn, "vgs.bar"), true);
     const optInOff = ctx.withEnabled(optInOn, optIn, false, ctx.effectiveConfig(shipped, optInOn));
     check("isEnabled: a first-party plugin with optIn is off once disabled", ctx.isEnabled(ctx.effectiveConfig(shipped, optInOff), optIn, "vgs.bar"), false);
+    // A plugin whose manifest sets `alwaysOn` stays on whatever the
+    // configuration lists, and the core refuses to disable it.
+    const alwaysOn = ctx.validateManifest(Object.assign({}, svc, { id: "vgs.always", alwaysOn: true }), "/p").manifest;
+    check("isEnabled: an alwaysOn plugin listed in disabledPlugins is on", ctx.isEnabled(ctx.effectiveConfig(shipped, { disabledPlugins: ["vgs.always"] }), alwaysOn, "vgs.bar"), true);
+    check("isEnabled: a plugin without alwaysOn listed in disabledPlugins is off", ctx.isEnabled(ctx.effectiveConfig(shipped, { disabledPlugins: ["vgs.svc"] }), manifests["vgs.svc"], "vgs.bar"), false);
+    check("enabledRefusal: an alwaysOn plugin refuses a disable", ctx.enabledRefusal(alwaysOn, false), "refused: enabled=vgs.always reason=always-on");
+    check("enabledRefusal: an alwaysOn plugin takes an enable", ctx.enabledRefusal(alwaysOn, true), "");
+    check("enabledRefusal: a plugin without alwaysOn takes a disable", ctx.enabledRefusal(manifests["vgs.svc"], false), "");
+    const alwaysWidget = ctx.validateManifest(Object.assign({}, svc, { id: "vgs.alwayswidget", kinds: ["service", "bar-widget"], entryPoints: { service: "S.qml", "bar-widget": "W.qml" }, alwaysOn: true }), "/p").manifest;
+    const alwaysPlaced = ctx.effectiveConfig(shipped, { disabledPlugins: ["vgs.alwayswidget"], bar: { id: "vgs.bar", layout: { left: [], center: [], right: [{ id: "vgs.alwayswidget" }] } } });
+    check("moveRefusal: an alwaysOn widget a disabledPlugins row names still moves", ctx.moveRefusal(alwaysPlaced, alwaysWidget, "left", 0, "vgs.bar"), "");
+    // Plugins, the manager, is the plugin the owner made always on.
+    const shippedSettings = ctx.validateManifest(JSON.parse(fs.readFileSync(path.join(__dirname, "..", "shell", "plugins", "vgs.settings", "manifest.json"), "utf8")), "/p");
+    check("enabledRefusal: the shipped Plugins manifest refuses a disable", shippedSettings.ok ? ctx.enabledRefusal(shippedSettings.manifest, false) : shippedSettings.error, "refused: enabled=vgs.settings reason=always-on");
 
     // A plugin with a settings schema, for the setting rows.
     const tunable = ctx.validateManifest({ schemaVersion: 1, id: "acme.tune", name: "T", version: "1", author: "a", description: "d", kinds: ["service", "bar-widget"], entryPoints: { service: "S.qml", "bar-widget": "W.qml" },
@@ -1274,7 +1295,7 @@ const CONTROLS = [
     ["unplacing removes the entries", "return entry.id !== manifest.id; });", "return true; });"],
     ["unplacing lists a plugin with no row", "    seedUserBar(out, effective);\n    if (pluginRow(effective, manifest.id) === undefined) {", "    seedUserBar(out, effective);\n    if (false) {"],
     ["moving refuses a plugin without a widget", "if (manifest.kinds.indexOf(\"bar-widget\") === -1)\n        return \"refused: moved=\" + manifest.id + \" reason=no-bar-widget\";", "if (false)\n        return \"refused: moved=\" + manifest.id + \" reason=no-bar-widget\";"],
-    ["moving refuses a disabled widget", "if (disabled.indexOf(manifest.id) !== -1)\n        return \"refused: moved=\" + manifest.id + \" reason=disabled\";", "if (false)\n        return \"refused: moved=\" + manifest.id + \" reason=disabled\";"],
+    ["moving refuses a disabled widget", "if (isPlaced(config, manifest) && !isEnabled(config, manifest, defaultBarId))\n        return \"refused: moved=\" + manifest.id + \" reason=disabled\";", "if (false)\n        return \"refused: moved=\" + manifest.id + \" reason=disabled\";"],
     ["moving refuses an unplaced widget", "if (!isPlaced(config, manifest))\n        return \"refused: moved=\"", "if (false)\n        return \"refused: moved=\""],
     ["moving refuses an unknown section", "if (SECTIONS.indexOf(section) === -1)\n        return \"refused: section=\" + JSON.stringify(section) + \" want=left|center|right\";", "if (false)\n        return \"refused: section=\" + JSON.stringify(section) + \" want=left|center|right\";"],
     ["moving refuses a bad index", "if (typeof index !== \"number\" || !Number.isInteger(index) || index < 0)\n        return \"refused: index=\" + JSON.stringify(index) + \" want=integer>=0\";", "if (false)\n        return \"refused: index=\" + JSON.stringify(index) + \" want=integer>=0\";"],
@@ -1294,9 +1315,16 @@ const CONTROLS = [
     ["the first presence places each widget", "forEach(function (id) { placeWidget(out, manifests[id], effective); });", "forEach(function (id) {});"],
     ["a third-party plugin of another kind is enabled by its row", "return manifest.id.indexOf(FIRST_PARTY_PREFIX) === 0 ? \"first-party\" : \"row\";", "return \"first-party\";"],
     ["a first-party plugin with optIn is enabled by its row", "if (manifest.optIn === true) return \"row\";", ""],
-    ["optIn is a manifest key", "\"extras\", \"optIn\"];", "\"extras\"];"],
+    ["optIn is a manifest key", "\"extras\", \"optIn\", ", "\"extras\", "],
     ["optIn is a boolean", "if (typeof raw.optIn !== \"boolean\")", "if (false)"],
     ["optIn serves no bar", "if (raw.kinds.indexOf(\"bar\") !== -1 || raw.kinds.every(", "if (raw.kinds.every("],
+    ["moving reads enablement from isEnabled", "isPlaced(config, manifest) && !isEnabled(config, manifest, defaultBarId)", "isPlaced(config, manifest) && (Array.isArray(config.disabledPlugins) ? config.disabledPlugins : []).indexOf(manifest.id) !== -1"],
+    ["alwaysOn is a manifest key", "\"optIn\", \"alwaysOn\"];", "\"optIn\"];"],
+    ["alwaysOn is a boolean", "if (typeof raw.alwaysOn !== \"boolean\")", "if (false)"],
+    ["alwaysOn needs the first-party rule", "if (raw.alwaysOn && enablementRule(raw) !== \"first-party\")", "if (false)"],
+    ["an alwaysOn plugin is enabled whatever the configuration lists", "if (manifest.alwaysOn === true)\n        return true;", ""],
+    ["an alwaysOn plugin refuses a disable", "if (!enabled && manifest.alwaysOn === true)", "if (false)"],
+    ["an alwaysOn plugin takes an enable", "if (!enabled && manifest.alwaysOn === true)", "if (manifest.alwaysOn === true)"],
     ["optIn serves no widget-only plugin", "if (raw.kinds.indexOf(\"bar\") !== -1 || raw.kinds.every(function (k) { return k === \"bar-widget\"; }))", "if (raw.kinds.indexOf(\"bar\") !== -1)"],
     ["a widget-only plugin is enabled only by its placement", "if (manifest.kinds.every(function (k) { return k === \"bar-widget\"; })) return \"widget\";", ""],
     ["a copied entry setting shares nothing with its source", "target[k] = clone(entry[k]);", "target[k] = entry[k];"],
