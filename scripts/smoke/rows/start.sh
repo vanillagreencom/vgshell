@@ -9,12 +9,13 @@
 # inputs: bin/vgshell shell/Core/Notices.qml shell/Core/PluginLogic.js
 set -euo pipefail
 
-# Ceiling on latency_start_ms, from `vgshell start` invocation to its
-# `ok pid=<pid>` reply, polled through the command itself. Measured with
-# this row through scripts/qml-smoke.sh --rows start on host cachy on
-# 2026-10-06, with one nested monitor and 200 ms row polling: update after
-# the first measured run. Temporary ceiling for the first measurement.
-start_budget_ms=5000
+# Ceiling on latency_start_ms, the wall time from `vgshell start` to its
+# `ok pid=<pid>` reply, read once per start with no polling of its own;
+# start itself polls the lock file and the shell every 100 ms, so the
+# reading carries at most 100 ms of polling. Twice the highest of six
+# readings, two per run of `scripts/qml-smoke.sh --rows start` on host
+# cachy on 2026-10-06 at load average 16 to 17: 273 to 353 ms.
+start_budget_ms=706
 
 start_log="$home/.local/state/vgshell/run.log"
 welcome_seen="$home/.local/state/vgshell/welcome-seen"
@@ -78,6 +79,9 @@ welcome_state() { welcome_record | py_reply 'import json,sys; print(json.load(sy
 consent_title() { ipc shell lent | py_reply 'import json,sys; c=json.load(sys.stdin)["notices"]["consent"]; print(None if c is None else c["title"])'; }
 file_exists() { [[ -f $1 ]] && echo true || echo false; }
 
+welcome_found=absent
+[[ -e $welcome_seen ]] && welcome_found=present
+notice_found="$(consent_title)"
 stop_shell || :
 rm -f -- "${welcome_seen:?}" "$start_log"
 start_and_check "start returns after the guarded shell answers" "$repo"
@@ -125,7 +129,10 @@ if copy_tree skip-running && edit_tree skip-running bin/vgshell \
   if [[ $skipped != ok\ running* ]]; then ok "control: skipping the running check does not answer ok running"; else fail "control: skipping the running check answered $skipped"; fi
 fi
 
+# The welcome-seen marker as the row found it, so the next row meets the
+# same notice.
 rm -f -- "${welcome_seen:?}"
-: >"$welcome_seen"
+[[ $welcome_found == absent ]] || : >"$welcome_seen"
 stop_shell || :
 start_shell "$repo" "$sandbox/start-qs.log" || fail "the start row leaves a harness-tracked shell"
+expect_poll "the restored shell shows the notice the row found" "$notice_found" consent_title
