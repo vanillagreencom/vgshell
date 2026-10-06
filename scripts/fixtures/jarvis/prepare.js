@@ -5,6 +5,12 @@ const fs = require("node:fs");
 const path = require("node:path");
 const cp = require("node:child_process");
 const { standins } = require("./audio.js");
+const { closure } = require("../../../bin/lib/qml-library.js");
+
+// The shell libraries the suites load. Each is copied with every library its
+// imports reach, so a new import needs no entry here.
+const libraries = ["shell/Core/Dispatch.js", "shell/Commons/DesktopLaunch.js", "shell/Commons/AccountDirectories.js",
+    "shell/plugins/vgs.jarvis/JarvisProtocol.js"];
 
 // Synthetic Tasks.js records from the Jarvis plan, 2026-09-30: working
 // events FROM through COUNT, after any events the folder already holds.
@@ -14,19 +20,48 @@ function seedTaskEvents(folder, count, from = 1) {
             JSON.stringify({ v: 1, seq, at: seq, kind: "working", data: {} }) + "\n", { mode: 0o600 });
 }
 
+// Copy each of ENTRIES under TREE to CLONE with the libraries its imports
+// reach. A library that cannot be read is refused, never left out.
+function copyLibraries(tree, clone, entries) {
+    for (const entry of entries)
+        for (const file of closure(path.join(tree, entry))) {
+            const relative = path.relative(tree, file);
+            assert.ok(!relative.startsWith(".."), "copy-libraries: outside-tree path=" + file);
+            fs.mkdirSync(path.dirname(path.join(clone, relative)), { recursive: true });
+            fs.copyFileSync(file, path.join(clone, relative));
+        }
+}
+
+// Control: an entry imports a library that imports a missing one. The copy
+// must refuse on the missing library, two imports away from the entry.
+function missingImportControl(root) {
+    const partial = path.join(root, "partial");
+    fs.mkdirSync(partial);
+    fs.writeFileSync(path.join(partial, "a.js"), '.pragma library\n.import "b.js" as B\n');
+    fs.writeFileSync(path.join(partial, "b.js"), '.pragma library\n.import "c.js" as C\n');
+    const refused = cp.spawnSync(process.execPath, [__filename, "--copy-libraries", partial, path.join(root, "partial-copy"), "a.js"],
+        { env: { PATH: "/usr/bin:/bin", LC_ALL: "C" }, encoding: "utf8" });
+    assert.equal(refused.error, undefined);
+    assert.equal(refused.status, 2, refused.stdout + refused.stderr);
+    assert.match(refused.stderr, /^qml-library: refused: unreadable path=\S+\/partial\/c\.js error=ENOENT$/m);
+    fs.rmSync(partial, { recursive: true });
+    fs.rmSync(path.join(root, "partial-copy"), { recursive: true, force: true });
+}
+
 // Run the real suite and a missing-parent control in a private source export.
 // The export owns its tmp directory; no existing worktree tmp is removed.
 function freshSuite(tree, suite, root, timeoutMs = 180000) {
     assert.ok(Number.isSafeInteger(timeoutMs) && timeoutMs > 0, "fresh-suite: timeout=positive-safe-integer");
     const clone = path.join(root, "f");
     const relative = "scripts/test-jarvis-" + suite + ".js";
+    missingImportControl(root);
     for (const folder of ["scripts/fixtures/jarvis", "scripts/fixtures/jarvis-brain", "scripts/lib", "scripts/smoke/rows", "bin/lib",
-        "shell/Core", "shell/Commons", "shell/plugins/vgs.jarvis/backend"])
+        "shell/plugins/vgs.jarvis/backend"])
         fs.mkdirSync(path.join(clone, folder), { recursive: true });
+    copyLibraries(tree, clone, libraries);
     for (const file of [relative, "scripts/fixtures/jarvis/prepare.js", "scripts/lib/jarvis-env.sh",
         "bin/lib/qml-library.js", "bin/lib/judge-files.js", "bin/lib/anchored.js", "bin/lib/account-folders.js",
-        "shell/Commons/AccountDirectories.js", "shell/plugins/vgs.jarvis/JarvisProtocol.js",
-        "shell/plugins/vgs.jarvis/Session.js", "shell/plugins/vgs.jarvis/backend/session-runner.js",
+        "shell/plugins/vgs.jarvis/backend/session-runner.js",
         "shell/plugins/vgs.jarvis/backend/jarvisd.js", "shell/plugins/vgs.jarvis/backend/Tasks.js",
         "shell/plugins/vgs.jarvis/backend/task-event", "shell/plugins/vgs.jarvis/manifest.json",
         "scripts/fixtures/jarvis/scripted.js", "shell/plugins/vgs.jarvis/backend/Audio.js",
@@ -34,8 +69,7 @@ function freshSuite(tree, suite, root, timeoutMs = 180000) {
         "scripts/fixtures/jarvis/audio-tool.py", "scripts/fixtures/jarvis/desktop.js", "scripts/fixtures/jarvis/desktop-driver.js", "scripts/fixtures/jarvis/desktop-tool.py",
         "scripts/fixtures/jarvis/vision.js", "scripts/fixtures/jarvis/vision-tool.py",
         "scripts/smoke/harness.sh", "scripts/smoke/rows/jarvis-keys.sh",
-        "bin/lib/judge-files.js", "shell/Core/Dispatch.js", "shell/Core/HyprlandLayer.js", "shell/Commons/DesktopLaunch.js",
-        "scripts/fixtures/jarvis/engine.js", "scripts/fixtures/schema-check.js",
+        "bin/lib/judge-files.js", "scripts/fixtures/jarvis/engine.js", "scripts/fixtures/schema-check.js",
         "scripts/fixtures/jarvis-brain/openai-chat.schema.json", "scripts/fixtures/jarvis-brain/openai-chat-frames.js"])
         fs.copyFileSync(path.join(tree, file), path.join(clone, file));
     fs.cpSync(path.join(tree, "shell/plugins/vgs.jarvis/backend"), path.join(clone, "shell/plugins/vgs.jarvis/backend"),
@@ -290,7 +324,10 @@ function service(sourceTree, tree, root) {
 
 module.exports = { freshSuite, seedTaskEvents, shellState };
 if (require.main === module) {
-    if (process.argv[2] === "--gate-daemon") {
+    if (process.argv[2] === "--copy-libraries") {
+        assert.ok(process.argv.length > 5);
+        copyLibraries(process.argv[3], process.argv[4], process.argv.slice(5));
+    } else if (process.argv[2] === "--gate-daemon") {
         assert.equal(process.argv.length, 6);
         gateDaemon(...process.argv.slice(3));
     } else if (process.argv[2] === "--drop-initial-replies") {
