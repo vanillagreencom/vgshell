@@ -180,7 +180,7 @@ expect_poll "the Keys row's line names the user's file and line" "\"Also used by
 settings_press "Remove my line" || fail "the click on Remove my line failed"
 expect_poll "Remove my line asks before it removes" True removal_asked
 expect "the line stays while the confirmation asks" yes user_bind_line
-click_in window:Settings window vgs.settings Button "Remove line" || fail "the click on Remove line failed"
+click_in window:Plugins window vgs.settings Button "Remove line" || fail "the click on Remove line failed"
 expect_poll "the answer closes the prompt" False removal_asked
 expect_poll "the confirmed removal takes the line out of the user's hyprland.lua" no user_bind_line
 expect_poll "the user's bind leaves Hyprland" False foreign_has SUPER+F7
