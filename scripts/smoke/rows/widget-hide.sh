@@ -135,14 +135,14 @@ settings_page_close acme.hideable
 # The control: no first presence and no menu. An installed widget stays
 # off the bar, and a right click on a placed widget opens nothing. The same
 # copy marks vgs.voice and vgs.webapps `optIn`, so the user file from before
-# they shipped leaves both off, and lets vgs.tray past the disabled check,
-# so the plugin the user turned off comes on.
+# they shipped leaves both off, and lets vgs.tray past isEnabled's disabled
+# check, so the plugin the user turned off comes on.
 if copy_tree widget-hide-control \
   && edit_tree widget-hide-control shell/Core/PluginLogic.js 'return !isPlaced(effective, m) && pluginRow(effective, id) === undefined;' 'return false;' \
   && edit_tree widget-hide-control shell/Ui/BarWidget.qml 'frameUi.item.openMenu();' '' \
   && edit_tree widget-hide-control shell/plugins/vgs.voice/manifest.json '"schemaVersion": 1,' '"schemaVersion": 1, "optIn": true,' \
   && edit_tree widget-hide-control shell/plugins/vgs.webapps/manifest.json '"schemaVersion": 1,' '"schemaVersion": 1, "optIn": true,' \
-  && edit_tree widget-hide-control shell/Core/PluginLogic.js 'if (disabled.indexOf(manifest.id) !== -1)' 'if (disabled.indexOf(manifest.id) !== -1 && manifest.id !== "vgs.tray")'; then
+  && edit_tree widget-hide-control shell/Core/PluginLogic.js $'if (disabled.indexOf(manifest.id) !== -1)\n        return false;' $'if (disabled.indexOf(manifest.id) !== -1 && manifest.id !== "vgs.tray")\n        return false;'; then
   stop_shell
   hide_before_update || fail "control: the user file from before the shipped plugins could not be written"
   start_shell "$sandbox/tree-widget-hide-control" "$sandbox/widget-hide-control.log" || fail "the widget-hide control shell starts"
