@@ -17,7 +17,7 @@
 # SCENE is gallery, settings, focus, plugin-pages, manager, launcher,
 # notifications, bar, panels, devtools, system, network, vpn, bluetooth, power, dialog, by-hand, reset, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, tooltips, capture,
-# keyhints, clipboard, voice or ai-usage. settings takes the
+# keyhints, clipboard, voice, voice-setup or ai-usage. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
 # each when the tree ships its plugin. plugin-pages, taken only when named, opens every
 # plugin the Settings window lists, in that window's order, and captures
@@ -48,7 +48,10 @@
 # nested instance's own clipboard, taken only when named; voice is Voice's
 # on-screen display while dictating, its plasma orb fed by stand-ins for
 # voxtype's status stream and audio bridge, so no audio device opens, taken
-# only when named; focus is
+# only when named; voice-setup is the requirement notice Voice's Set up
+# raises without voxtype, then the screen after a Set up run over a
+# voxtype stand-in ended with code 0, with the Voice toast where the tree
+# has it, taken only when named; focus is
 # the keyboard focus proof set; dialog is the core's requirement notice;
 # lock is the vgs.lock screen, locked and after wrong attempts; polkit is
 # the vgs.polkit prompt, asking and after a failed attempt; greeter is the
@@ -179,7 +182,7 @@ while [[ $# -gt 0 ]]; do
     --keep) keep=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    gallery|settings|focus|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|ai-usage|devtools|system|network|vpn|bluetooth|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|tooltips|screensaver) scenes+=("$1"); shift ;;
+    gallery|settings|focus|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|ai-usage|devtools|system|network|vpn|bluetooth|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|tooltips|screensaver) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -284,6 +287,7 @@ scene_ships() {
     keyhints) ships_plugin vgs.keyhints vgs.launcher vgs.settings vgs.themes ;;
     clipboard) ships_plugin vgs.clipboard ;;
     voice) ships_plugin vgs.voice ;;
+    voice-setup) ships_plugin vgs.voice vgs.settings ;;
     ai-usage) ships_plugin vgs.ai-usage ;;
     devtools) ships_plugin vgs.devtools ;;
     system) ships_plugin vgs.system ;;
@@ -337,6 +341,11 @@ fi
 if [[ " ${scenes[*]} " == *" by-hand "* ]]; then
   # shellcheck disable=SC2034 # the harness sourced below reads it
   shell_hidden_commands+=(pacman paru yay apt-get dnf5 dnf xbps-install emerge nix flatpak mise sudo doas run0)
+fi
+# Voice's Set up runs over stand-ins alone, so the shell finds no host
+# voxtype or bridge.
+if [[ " ${scenes[*]} " == *" voice-setup "* ]]; then
+  shell_hidden_commands+=(voxtype voxtype-audio-bridge)
 fi
 # AI Usage reads the sign-ins through stand-ins alone, so the shell finds no
 # host claude or codex.
@@ -1841,6 +1850,135 @@ EOF
   rescan "the Voice stand-ins are removed"
 }
 voice_level_flowing() { ipc smoke readInstance service vgs.voice level | py_reply 'import json,sys; print(str(json.load(sys.stdin) > 0).lower())'; }
+
+# Voice's Set up as a first-time user meets it. Without voxtype, Set up on
+# the Settings window raises the core's requirement notice, which a stand-in
+# bin/vgshell-pkg answers with pacman and paru, so voxtype's AUR package
+# shows whatever the host runs; Escape closes it and drops the Set up it
+# owed. Then a voxtype stand-in reports the speech model missing, Set up
+# runs, the stand-in terminal runs `true` for the script (harness.sh's
+# terminal_stand_in) and the run ends with code 0. A tree whose Voice shows
+# a toast for that end is shot once the toast shows; an older one after a
+# bounded wait. Enablement, stand-ins and the package script are put back.
+scene_voice-setup() { # MODE
+  local voice_found settings_found pkg_real="$sandbox/voice-setup-vgshell-pkg.real" stood=() command before
+  voice_found="$(plugin_enabled vgs.voice)" || voice_found=unread
+  settings_found="$(plugin_enabled vgs.settings)" || settings_found=unread
+  [[ $voice_found == True || $voice_found == False ]] || fail "vgs.voice's enablement is unreadable before the Voice setup scene: $voice_found"
+  [[ $settings_found == True || $settings_found == False ]] || fail "vgs.settings' enablement is unreadable before the Voice setup scene: $settings_found"
+  # Voice's required commands stand in where the shell finds none, so
+  # enabling it raises no notice of its own.
+  for command in wtype wl-copy; do
+    [[ $(shell_resolves "$command") == none ]] || continue
+    printf '#!/bin/sh\nexit 0\n' >"$shim/$command"
+    chmod 755 "$shim/$command"
+    stood+=("$command")
+  done
+  cp -- "$repo/bin/vgshell-pkg" "$pkg_real"
+  cat >"$sandbox/voice-setup-vgshell-pkg.stub" <<'EOF_PKG'
+#!/usr/bin/env node
+if (process.argv[2] === "detect" && process.argv[3] === "--json") {
+    process.stdout.write('{"primary":{"id":"pacman","binary":"pacman"},"overlays":[{"id":"aur","binary":"paru"}],"sources":[]}\n');
+    process.exit(0);
+}
+process.stderr.write("vgshell: refused: stub=vgshell-pkg\n");
+process.exit(70);
+EOF_PKG
+  chmod 755 "$sandbox/voice-setup-vgshell-pkg.stub"
+  cp -- "$sandbox/voice-setup-vgshell-pkg.stub" "$repo/bin/vgshell-pkg.next" && mv -T -- "$repo/bin/vgshell-pkg.next" "$repo/bin/vgshell-pkg"
+  rm -f -- "${shim:?}/voxtype" "${shim:?}/voxtype-audio-bridge"
+  rescan "the Voice setup scene's commands are scanned"
+  expect_poll "voxtype is missing for the Voice setup dialog" missing voice_setup_requirement voxtype
+  if [[ $settings_found == False ]]; then
+    expect "enabling vgs.settings for the Voice setup scene is allowed" ok ipc shell setPluginEnabled vgs.settings true
+    expect_poll "vgs.settings is built for the Voice setup scene" True record_exists vgs.settings
+  fi
+  expect "enabling vgs.voice without voxtype is allowed" ok ipc shell setPluginEnabled vgs.voice true
+  expect_poll "vgs.voice is built without voxtype" True record_exists vgs.voice
+  expect "no notice shows before Set up" null notice_shown
+
+  voice_setup_press "the Voice setup dialog"
+  expect_poll "Set up without voxtype raises Voice's notice" '"vgs.voice"' notice_plugin
+  expect_poll "Voice's notice maps its surface" 1 layer_count vgs:notice
+  expect_poll "Voice's notice holds the keyboard" true ipc smoke noticeFocused
+  park_pointer
+  take "voice-setup-$1-dialog"
+  type_keys -k Escape || fail "sending Escape to Voice's notice failed"
+  expect_poll "Escape closes Voice's notice" 0 layer_count vgs:notice
+
+  cat >"$shim/voxtype" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  'status --follow --extended --format json') printf '{"state":"idle"}\n'; exec sleep infinity ;;
+  'config get engine --json') printf '{"value":"parakeet"}\n' ;;
+  'config get parakeet.model --json') printf '{"value":"parakeet-tdt-0.6b-v3"}\n' ;;
+  'info models --json') printf '{"engines":{"parakeet":{"models":[{"name":"parakeet-tdt-0.6b-v3","installed":false,"downloadable":true,"download_arg":"parakeet-tdt-0.6b-v3"}],"default":"parakeet-tdt-0.6b-v3"}},"verified":true}\n' ;;
+  'info engines --json') printf '[{"name":"parakeet","compiled":true,"active":true}]\n' ;;
+esac
+EOF
+  chmod 755 "$shim/voxtype"
+  rescan "the voxtype stand-in is scanned"
+  expect_poll "Voice finds the voxtype stand-in" true ipc smoke readInstance service vgs.voice voxtypePresent
+  terminal_stand_in
+  voice_setup_launcher_ready
+  before="$(voice_setup_run)" || before=unread
+  voice_setup_press "the Voice setup run"
+  expect_poll "the Set up run ends with code 0" 0 voice_setup_code "$before"
+  if grep -qF '"toasts"' "$tree/shell/plugins/vgs.voice/manifest.json"; then
+    expect_poll "the finished Set up shows Voice's toast" 1 voice_setup_toasts
+  else
+    # A tree from before the toast: a short bounded wait, 2 s, for the
+    # page and the bar to settle after the run.
+    for _ in $(seq 1 10); do [[ $(voice_setup_toasts) == 0 ]] || break; sleep 0.2; done
+  fi
+  park_pointer
+  take "voice-setup-$1-done"
+
+  # The toast goes before the next mode's dialog, so no shot holds both.
+  expect_poll "Voice's toast is gone after the Voice setup scene" 0 voice_setup_toasts
+  if [[ $voice_found == False ]]; then
+    expect "disabling vgs.voice after the Voice setup scene is allowed" ok ipc shell setPluginEnabled vgs.voice false
+    expect_poll "vgs.voice is gone after the Voice setup scene" False record_exists vgs.voice
+  fi
+  if [[ $settings_found == False ]]; then
+    expect "disabling vgs.settings after the Voice setup scene is allowed" ok ipc shell setPluginEnabled vgs.settings false
+    expect_poll "vgs.settings is gone after the Voice setup scene" False record_exists vgs.settings
+  fi
+  rm -f -- "${shim:?}/voxtype"
+  for command in "${stood[@]}"; do rm -f -- "${shim:?}/$command"; done
+  cp -- "$pkg_real" "$repo/bin/vgshell-pkg.next" && mv -T -- "$repo/bin/vgshell-pkg.next" "$repo/bin/vgshell-pkg"
+  rescan "the Voice setup scene's stand-ins are removed"
+}
+# voice_setup_press LABEL: Set up pressed on the Settings window, through
+# the manager's openTui as its Setup button hands it on (harness.sh's
+# settings_open_tui), then the window hidden, so the shot shows what the
+# press raised over the desktop.
+voice_setup_press() { # LABEL
+  expect "$1: the Settings window opens" ok ipc shell summon "$settings_kind" vgs.settings '{}'
+  expect_poll "$1: the Settings window maps" 1 settings_count
+  expect "$1: Set up is answered" ok settings_open_tui vgs.voice setup
+  settings_close
+}
+voice_setup_requirement() { ipc shell listPlugins | py_reply 'import json,sys; print([r["state"] for p in json.load(sys.stdin)["plugins"] if p["id"] == "vgs.voice" for r in p["requirements"] if r["name"] == sys.argv[1]][0])' "$1"; }
+# The run id of Set up's last ended run, or `none`.
+voice_setup_run() { ipc shell lent | py_reply 'import json,sys; r=json.load(sys.stdin)["tui"]["runs"].get("vgs.voice/setup") or {}; e=r.get("ended"); print(e["run"] if e else "none")'; }
+# The code of Set up's ended run once it is another run than BEFORE and no
+# run of the key is live, else `pending`.
+voice_setup_code() { # BEFORE
+  ipc shell lent | py_reply 'import json,sys; r=json.load(sys.stdin)["tui"]["runs"].get("vgs.voice/setup") or {}; e=r.get("ended"); print(e["code"] if e and e["run"] != sys.argv[1] and r.get("running") is None else "pending")' "$1"
+}
+voice_setup_toasts() { ipc shell lent | py_reply 'import json,sys; t=json.load(sys.stdin)["toasts"]; print(sum(r["plugin"] == "vgs.voice" for k in ("visible", "waiting") for r in t[k]))'; }
+# The launcher state present, so the press launches: a host without
+# xdg-terminal-exec left it missing at the shell's start, and one request
+# then answers launcher-missing, launches nothing and probes again, now
+# against the stand-in.
+voice_setup_launcher() { ipc shell lent | py_reply 'import json,sys; print(json.load(sys.stdin)["tui"]["launcher"])'; }
+voice_setup_launcher_ready() {
+  if [[ $(voice_setup_launcher) == missing ]]; then
+    expect "a request before the stand-in's probe answers launcher-missing" "refused: tui=core/doctor reason=launcher-missing" ipc shell openTui core/doctor
+  fi
+  expect_poll "the launcher state is present for the Voice setup run" present voice_setup_launcher
+}
 
 # The themes panel summoned over the shipped and catalog
 # packages and a refused one: its top, the pointer on a row, its catalog
