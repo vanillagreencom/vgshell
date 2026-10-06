@@ -1,6 +1,7 @@
 import QtQuick
 import qs.Commons
 import qs.Ui
+import "TouchpadScrollLogic.js" as Logic
 
 // A rail of angled cards over a model: the current card expanded in the
 // middle, the others as slices beside it that overlap their neighbours.
@@ -32,7 +33,12 @@ import qs.Ui
 // wheel notch up step back, Right, Tab and a notch down step forward, each
 // wrapping at the ends, and Home and End go to the first and the last
 // card. A wheel notch is 120 units of Qt's angleDelta, eighths of a degree
-// at 15 degrees a notch, and parts of a notch add up.
+// at 15 degrees a notch, and parts of a notch add up. A two-finger swipe on
+// a touchpad moves the rail as TouchpadScroll moves a view's content, the
+// same pixels per pixel of its delta along the delta's larger axis, and
+// steps one card each slice step of that travel, so a longer swipe steps
+// more cards and a larger rail fewer; travel short of a card adds up until
+// the fingers lift. The rail does not coast.
 //
 // The rail shows one event-loop turn after the carousel is visible with a
 // size, so its first frame is the settled layout. From then on a new
@@ -150,6 +156,7 @@ Item {
         onReadyChanged: {
             settled = false;
             wheel = 0;
+            swipe = 0;
             if (ready) Qt.callLater(internal.settle);
         }
         Component.onCompleted: if (ready) Qt.callLater(internal.settle)
@@ -158,6 +165,8 @@ Item {
         // Wheel travel short of a notch, kept for the next event.
         property real wheel: 0
         readonly property int notch: 120
+        // Swipe travel short of a card, kept until the fingers lift.
+        property real swipe: 0
 
         // The card `offset` places from the current one. A fractional
         // offset lies on the line between the two whole places around it,
@@ -196,6 +205,19 @@ Item {
         anchors.fill: parent
         acceptedButtons: Qt.NoButton
         onWheel: wheel => {
+            // Qt's pixelDelta runs toward the content's start, so it is
+            // negated, as TouchpadScroll negates it.
+            if (wheel.phase === Qt.ScrollUpdate) {
+                const dx = -wheel.pixelDelta.x, dy = -wheel.pixelDelta.y;
+                const swiped = Logic.cardSteps(Math.abs(dx) > Math.abs(dy) ? dx : dy, internal.swipe, internal.pitch);
+                internal.swipe = swiped.carry;
+                root.step(swiped.steps);
+                return;
+            }
+            if (wheel.phase !== Qt.NoScrollPhase) {
+                internal.swipe = 0;
+                return;
+            }
             internal.wheel += wheel.angleDelta.y !== 0 ? wheel.angleDelta.y : wheel.angleDelta.x;
             const notches = Math.trunc(internal.wheel / internal.notch);
             internal.wheel -= notches * internal.notch;

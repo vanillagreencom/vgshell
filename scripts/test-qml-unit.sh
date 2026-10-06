@@ -488,6 +488,8 @@ mutations=(
   "the rail moves over another duration|layout/CardCarousel.qml|duration: Theme.carousel.duration|duration: Theme.motion.duration.normal|tst_carousel.qml"
   "the cards jump to the current index|layout/CardCarousel.qml|internal.place(index - internal.position)|internal.place(offset)|tst_carousel.qml"
   "the cards jump between whole places|layout/CardCarousel.qml|const t = offset - whole;|const t = 0;|tst_carousel.qml"
+  "the carousel reads a mouse wheel as a swipe|layout/CardCarousel.qml|if (wheel.phase === Qt.ScrollUpdate) {|if (true) {|tst_carousel.qml"
+  "the carousel drops a mouse wheel as a swipe's begin|layout/CardCarousel.qml|if (wheel.phase !== Qt.NoScrollPhase) {|if (true) {|tst_carousel.qml"
   "the scrim does not fill its parent|foundation/Scrim.qml|anchors.fill: parent|anchors.centerIn: parent|tst_scrim.qml"
   "the scrim draws another colour|foundation/Scrim.qml|color: Theme.color.scrim|color: Theme.color.background|tst_scrim.qml"
   "a click on the scrim is not reported|foundation/Scrim.qml|onClicked: root.clicked()|onClicked: {}|tst_scrim.qml"

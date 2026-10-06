@@ -131,6 +131,71 @@ print("page-moved" if strip["type"] == "QQuickListView" and page["type"] == "Scr
 }
 expect "a tab strip is brought into the gallery's view" revealed tabs_revealed
 expect "a two-finger swipe down over a tab strip scrolls the page that holds it" page-moved tabs_swipe
+# Touchpad steps on a carousel: a swipe moves the rail as
+# TouchpadScroll moves a view's content and steps one card per slice step of
+# travel, so the cards a swipe steps fall as the rail's scale grows. The
+# same swipe of 100 px down goes over a 60-card copy at the height of the
+# Gallery's carousel, then over one twice as tall, whose slice step is
+# twice as long: `as-rail` when the first steps at least four cards and the
+# second half as many, within one. A rail that steps a card per notch of
+# the swipe's angle steps both alike, `per-notch`. The control loads a copy
+# of the carousel without its touchpad step, which reads the swipe by the
+# notch, and the check refuses it. The pointer then goes back to where the
+# tab strip's swipe left it, over the arrow the cursor rows below start on.
+carousel_rest="$pointer_at"
+mkdir -p "$repo/shell/Core/CarouselSwipeControl"
+carousel_box='    readonly property var windowBox: { const at = mapToItem(null, 0, 0); return [at.x, at.y, width, height]; }'
+printf 'import QtQuick\nimport qs.Ui\n\nCardCarousel {\n%s\n}\n' "$carousel_box" >"$repo/shell/Core/CarouselSwipeControl/SwipeRail.qml"
+python3 - "$repo/shell/Ui/layout/CardCarousel.qml" "$repo/shell/Core/CarouselSwipeControl/NotchRail.qml" "$carousel_box" <<'PY'
+from pathlib import Path
+import json, sys
+source, destination, box = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
+text = source.read_text()
+logic = source.with_name("TouchpadScrollLogic.js").as_uri()
+for needle, replacement in [
+    ('import "TouchpadScrollLogic.js" as Logic', "import " + json.dumps(logic) + " as Logic"),
+    ("    id: root\n", "    id: root\n" + box + "\n"),
+    ("if (wheel.phase === Qt.ScrollUpdate) {", "if (false) {"),
+    ("if (wheel.phase !== Qt.NoScrollPhase) {", "if (false) {"),
+]:
+    assert text.count(needle) == 1, needle
+    changed = text.replace(needle, replacement)
+    assert changed != text
+    text = changed
+destination.write_text(text)
+PY
+carousel_swipe() { # FILE TAG: the cards one swipe steps on each rail, kept under TAG
+  local height n name box x y now steps=()
+  height="$(ipc smoke readDescendant window vgs.gallery CardCarousel height)" || return 1
+  [[ $height =~ ^[0-9.]+$ ]] || { echo "height=$height"; return 0; }
+  for n in 1 2; do
+    name="carousel-swipe-$n"
+    [[ $(ipc smoke popupLoad "$name" "$1" window vgs.gallery "{\"width\":4000,\"height\":$(python3 -c 'import sys; print(float(sys.argv[1]) * int(sys.argv[2]))' "$height" "$n"),\"model\":60,\"currentIndex\":30}") == ok ]] || { echo "load=$name"; return 0; }
+    box="$(ipc smoke popupRead "$name" windowBox)" || return 1
+    read -r x y < <(at_centre "window:VGS Components" "$(python3 -c 'import json,sys; x, y, w, h = json.loads(sys.argv[1]); print(json.dumps([x, y, 80, h]))' "$box")") || return 1
+    hover "$x" "$y" || return 1
+    swipe "$x" "$y" 100 || return 1
+    # The rail steps in the frames that take the deltas.
+    sleep 0.3
+    now="$(ipc smoke popupRead "$name" currentIndex)" || return 1
+    ipc smoke popupDrop "$name" >/dev/null || return 1
+    [[ $now =~ ^[0-9]+$ ]] || { echo "index=$now"; return 0; }
+    steps+=("$((now - 30))")
+  done
+  printf '%s,%s\n' "${steps[@]}" >"$sandbox/carousel-swipe-$2"
+  python3 -c 'import sys
+small, large = int(sys.argv[1]), int(sys.argv[2])
+print("as-rail" if small >= 4 and abs(2 * large - small) <= 1 else "per-notch" if small == large else "steps=%d,%d" % (small, large))' "${steps[@]}"
+}
+expect "a two-finger swipe steps a carousel by the rail's travel" as-rail carousel_swipe "$repo/shell/Core/CarouselSwipeControl/SwipeRail.qml" rail
+[[ -f $sandbox/carousel-swipe-rail ]] && printf '  carousel-swipe length=100 steps=%s\n' "$(<"$sandbox/carousel-swipe-rail")"
+expect "control: a carousel that steps a swipe by the notch is refused" per-notch carousel_swipe "$repo/shell/Core/CarouselSwipeControl/NotchRail.qml" notch
+[[ -f $sandbox/carousel-swipe-notch ]] && printf '  carousel-swipe-control length=100 steps=%s\n' "$(<"$sandbox/carousel-swipe-notch")"
+rm -r -- "${repo:?}/shell/Core/CarouselSwipeControl" || fail "removing the carousel swipe controls failed"
+if [[ -n $carousel_rest ]]; then
+  read -r rest_x rest_y <<<"$carousel_rest"
+  hover "$rest_x" "$rest_y" || fail "moving the pointer back after the carousel swipes failed"
+fi
 
 expect_poll "the gallery draws every focus example" '[]' ipc smoke galleryFocusMissing window vgs.gallery
 gallery_tab_tour() {

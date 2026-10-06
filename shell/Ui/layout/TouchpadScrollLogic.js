@@ -2,9 +2,10 @@
 
 // TouchpadScroll's decisions, with no QML objects, so scripts/test-touchpad-
 // scroll-logic.js runs them under node: how far a view moves for a finger's
-// scroll delta, how far it coasts once the fingers lift, and the velocity
-// that makes a Flickable's flick travel that far. A delta is the distance
-// the content moves, positive toward its end.
+// scroll delta, how far it coasts once the fingers lift, the velocity that
+// makes a Flickable's flick travel that far, and the cards a delta steps
+// CardCarousel's rail. A delta is the distance the content moves, positive
+// toward its end.
 
 // GTK's numbers (docs/architecture/runtime-pointer.md), so a swipe moves a
 // VGS view as far as a GTK list: each pixel of delta moves the content GAIN
@@ -57,4 +58,15 @@ function coast(history, at) {
 // distance's.
 function flickVelocity(distance, deceleration) {
     return Math.sign(distance) * Math.sqrt(2 * deceleration * Math.abs(distance));
+}
+
+// The cards a delta steps a carousel's rail, which a swipe moves GAIN
+// pixels per pixel of delta as it moves a view's content, one card for each
+// `pitch` pixels of travel, the rail's slice step, counted toward zero; and
+// the travel short of a card it leaves for the next delta: `carry` is the
+// travel the delta before left.
+function cardSteps(delta, carry, pitch) {
+    const travel = delta * GAIN + carry;
+    const steps = Math.trunc(travel / pitch);
+    return { steps: steps, carry: travel - steps * pitch };
 }

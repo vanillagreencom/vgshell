@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 // TouchpadScroll's decisions, shell/Ui/layout/TouchpadScrollLogic.js, under
 // node: how far a delta moves a view, where its bounds hold it, which
-// deltas a coast is read from, how far it coasts and the velocity a flick
-// of that distance needs. Expected values are written out by hand from
-// GTK's rule: 2.5 px per pixel of delta, a coast from the mean velocity of
-// the last 150 ms that loses 4 of its velocity per second. The controls at
+// deltas a coast is read from, how far it coasts, the velocity a flick of
+// that distance needs and the cards a delta steps a carousel's rail.
+// Expected values are written out by hand from GTK's rule: 2.5 px per pixel
+// of delta, a coast from the mean velocity of the last 150 ms that loses 4
+// of its velocity per second. The controls at
 // the end edit a copy of the logic, one rule at a time, and require this
 // suite to fail on each copy.
 "use strict";
@@ -67,6 +68,19 @@ const FLICKS = [
     ["a platform's own deceleration", 250, 5000, Math.sqrt(2500000)]
 ];
 
+// Card steps: [label, delta, travel kept before, slice step, cards, travel
+// kept after]. 28 px is the slice step of a carousel at its smallest scale.
+const CARDS = [
+    ["no delta steps nothing", 0, 0, 28, 0, 0],
+    ["a delta short of a card keeps its travel", 4, 0, 28, 0, 10],
+    ["travel past a slice step steps one card", 12, 0, 28, 1, 2],
+    ["kept travel adds up", 8, 10, 28, 1, 2],
+    ["a long delta steps several", 40, 0, 28, 3, 16],
+    ["toward the start", -12, 0, 28, -1, -2],
+    ["a delta back pays kept travel off first", -4, 10, 28, 0, 0],
+    ["a rail twice the scale steps half the cards", 40, 0, 56, 1, 44]
+];
+
 // The logic's objects come from its own context and a rounded half is -0,
 // so each number is compared as a number.
 function near(got, want, label) {
@@ -96,6 +110,11 @@ function verify(logic) {
     }
     for (const [label, distance, deceleration, want] of FLICKS)
         near(logic.flickVelocity(distance, deceleration), want, `flick: ${label}`);
+    for (const [label, delta, carry, pitch, cards, left] of CARDS) {
+        const got = logic.cardSteps(delta, carry, pitch);
+        near(got.steps, cards, `cards: ${label}: steps`);
+        near(got.carry, left, `cards: ${label}: carry`);
+    }
 }
 verify(load(file));
 
@@ -115,7 +134,12 @@ const CONTROLS = [
     ["the coast's gain", "const scale = 1000 / span * GAIN / FRICTION;", "const scale = 1000 / span / FRICTION;"],
     ["the coast's friction", "const scale = 1000 / span * GAIN / FRICTION;", "const scale = 1000 / span * GAIN;"],
     ["the flick's direction", "return Math.sign(distance) * Math.sqrt(2 * deceleration * Math.abs(distance));", "return Math.sqrt(2 * deceleration * Math.abs(distance));"],
-    ["the flick's deceleration", "return Math.sign(distance) * Math.sqrt(2 * deceleration * Math.abs(distance));", "return Math.sign(distance) * Math.sqrt(2 * Math.abs(distance));"]
+    ["the flick's deceleration", "return Math.sign(distance) * Math.sqrt(2 * deceleration * Math.abs(distance));", "return Math.sign(distance) * Math.sqrt(2 * Math.abs(distance));"],
+    ["the rail's gain", "const travel = delta * GAIN + carry;", "const travel = delta + carry;"],
+    ["the rail's kept travel", "const travel = delta * GAIN + carry;", "const travel = delta * GAIN;"],
+    ["the slice step", "const steps = Math.trunc(travel / pitch);", "const steps = Math.trunc(travel / 28);"],
+    ["whole cards toward the start", "const steps = Math.trunc(travel / pitch);", "const steps = Math.floor(travel / pitch);"],
+    ["the travel a step leaves", "return { steps: steps, carry: travel - steps * pitch };", "return { steps: steps, carry: 0 };"]
 ];
 
 const source = fs.readFileSync(file, "utf8");
@@ -136,4 +160,4 @@ try {
 } finally {
     fs.rmSync(temp, { recursive: true, force: true });
 }
-console.log(`test-touchpad-scroll-logic: ok steps=${STEPS.length} clamps=${CLAMPS.length} remembers=${REMEMBERS.length} coasts=${COASTS.length} flicks=${FLICKS.length} controls=${CONTROLS.length}`);
+console.log(`test-touchpad-scroll-logic: ok steps=${STEPS.length} clamps=${CLAMPS.length} remembers=${REMEMBERS.length} coasts=${COASTS.length} flicks=${FLICKS.length} cards=${CARDS.length} controls=${CONTROLS.length}`);
