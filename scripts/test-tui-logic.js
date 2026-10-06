@@ -10,12 +10,14 @@
 // and the runs, state and `done` answers they make, and a run's window. The
 // file loads under node through bin/lib/qml-library.js,
 // as the shell loads it. The controls at the end edit a copy of the judge,
-// one rule at a time, and the suite must fail on every copy. Exit 1 when a
+// one rule at a time, and the suite must fail on every copy. TuiRunner.qml's
+// focus runs here too, on the windows of Hyprland's reply. Exit 1 when a
 // row or a control fails.
 "use strict";
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const vm = require("vm");
 const { load } = require("../bin/lib/qml-library.js");
 
 const CORE = path.join(__dirname, "..", "shell", "Core");
@@ -563,6 +565,56 @@ function suite(ctx, check) {
 }
 
 suite(load(LOGIC), report);
+
+// TuiRunner's focus reads the windows of Hyprland's reply, never
+// Quickshell's Hyprland.toplevels, which can keep a closed window
+// (docs/architecture/runtime-hyprland-pads.md § Events). windowsRead and
+// windows run as TuiRunner.qml holds them, with the judge above, against a
+// model that keeps a closed window of the same app-id and title; the
+// control reads that model, as the runner once did.
+const RUNNER = fs.readFileSync(path.join(CORE, "TuiRunner.qml"), "utf8");
+function runnerFunction(source, header) {
+    const parts = source.split("    function " + header + " {\n");
+    if (parts.length !== 2) throw new Error("TuiRunner function " + header + " occurs " + (parts.length - 1) + " times");
+    return "function " + header + " {\n" + parts[1].split("\n    }\n")[0] + "\n}\n";
+}
+function runnerSuite(source, logic, check) {
+    const win = { appId: "org.vgs.tui", title: "VGS · Hello" };
+    const client = (address, appClass, title) => ({ address: address, class: appClass, title: title, mapped: true });
+    const focused = state => {
+        const calls = { reveal: [], reaps: 0, logs: [] };
+        vm.runInNewContext(runnerFunction(source, "windowsRead(key, window, state)") + runnerFunction(source, "windows(clients)")
+            + "windowsRead(\"acme.tui/hello\", window, state);", {
+            Logic: logic, window: win, state: state, JSON: JSON, Error: Error, String: String,
+            Hyprland: { toplevels: { values: [{ address: "dead", title: win.title, wayland: null, lastIpcObject: { class: win.appId } },
+                { address: "a1", title: win.title, wayland: { appId: win.appId }, lastIpcObject: { class: win.appId } }] } },
+            Compositor: { reveal: (addresses, awaitSender) => { calls.reveal.push(addresses); return "ok"; } },
+            recordStore: { reap: () => { calls.reaps += 1; } },
+            console: { warn: text => calls.logs.push(text), error: text => calls.logs.push(text) },
+        });
+        return { reveal: calls.reveal, reaps: calls.reaps, logs: calls.logs.length };
+    };
+    // rows: [name, Hyprland's reply, what the focus does]
+    const rows = [
+        ["the run's one window in the reply is brought into view", { ok: true, clients: [client("0xa1", win.appId, win.title), client("0xb2", win.appId, "VGS · Other")] }, { reveal: [["0xa1"]], reaps: 0, logs: 0 }],
+        ["no window in the reply looks for dead runs", { ok: true, clients: [] }, { reveal: [], reaps: 1, logs: 1 }],
+        ["a failed read moves nothing and logs", { ok: false, error: "refused: windows=read-failed windows=failed status=1" }, { reveal: [], reaps: 0, logs: 1 }],
+    ];
+    for (const [name, state, want] of rows) check("TuiRunner focus: " + name, focused(state), want);
+}
+runnerSuite(RUNNER, load(LOGIC), report);
+{
+    const reader = "        return clients.map(client => ({ address: String(client.address), appId: String(client[\"class\"]), title: String(client.title) }));";
+    const model = "        return Hyprland.toplevels.values.map(t => ({ address: t.address, appId: t.wayland ? t.wayland.appId : t.lastIpcObject.class, title: t.title }));";
+    report("control: TuiRunner's window reader occurs once", RUNNER.split(reader).length - 1, 1);
+    let red = 0;
+    try {
+        runnerSuite(RUNNER.replace(reader, () => model), load(LOGIC), (name, got, want) => { if (JSON.stringify(got) !== JSON.stringify(want)) red += 1; });
+    } catch (e) {
+        red += 1;
+    }
+    report("control: the focus rows fail when the runner reads Hyprland.toplevels", red > 0, true);
+}
 
 // Each control removes one rule from a copy of the judge and keeps the text
 // around it; the suite must fail on every copy. The copy sits at the

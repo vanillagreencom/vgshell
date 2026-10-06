@@ -1,6 +1,5 @@
 import QtQuick
 import Quickshell
-import Quickshell.Hyprland
 import Quickshell.Io
 import qs.Commons
 import "WebApps.js" as WebApps
@@ -61,11 +60,6 @@ Item {
     property var opening: []
     // App name -> the time its launch stops holding back another.
     property var launching: ({})
-    // Window address, lower case without 0x -> its class, from Hyprland's
-    // openwindow and closewindow events: a toplevel Quickshell makes from
-    // an event holds no class until the next refresh of the toplevels
-    // (docs/architecture/runtime-hyprland-pads.md).
-    property var classes: ({})
     readonly property var childEnvironment: ({
         PATH: Quickshell.env("PATH"), HOME: home, LANG: "C.UTF-8",
         XDG_CONFIG_HOME: Quickshell.env("XDG_CONFIG_HOME") || "", XDG_DATA_HOME: Quickshell.env("XDG_DATA_HOME") || "",
@@ -82,7 +76,6 @@ Item {
         if (started || shell === null) return;
         started = true;
         shell.ipc.handle("open", name => root.open(String(name)));
-        Hyprland.refreshToplevels();
         lookForBrowser();
         run({ kind: "read" }, ["read", iconsDir]);
     }
@@ -284,33 +277,43 @@ Item {
         for (const name of waiting) launch(name);
     }
 
-    // The address of an open window of APP, "0x…", or "".
-    function windowOf(app) {
-        for (const toplevel of Hyprland.toplevels.values) {
-            const address = String(toplevel.address).toLowerCase();
-            const appClass = classes[address] || (toplevel.lastIpcObject && toplevel.lastIpcObject["class"]) || "";
-            if (address !== "" && WebApps.classMatches(appClass, app.url)) return "0x" + address;
-        }
-        return "";
+    // The address of an open window of APP among CLIENTS, Hyprland's
+    // `j/clients` reply, "0x…", or "".
+    function windowOf(clients, app) {
+        const found = clients.find(client => WebApps.classMatches(client["class"], app.url));
+        return found === undefined ? "" : String(found.address);
     }
 
     // The IPC `open`: the app's window brought into view, or the site
-    // opened once a browser look ends. A launch that has not mapped its
-    // window yet holds back another.
+    // opened once a browser look ends. The windows come from Hyprland's
+    // reply: Quickshell's Hyprland.toplevels can keep a closed window
+    // (docs/architecture/runtime-hyprland-pads.md § Events).
     function open(name) {
+        if (current().good.find(app => app.name === name) === undefined) return "refused: app=" + name + " reason=unknown";
+        shell.compositor.readWindows(state => root.windowsRead(name, state));
+        return "ok";
+    }
+
+    // A launch that has not mapped its window yet holds back another.
+    function windowsRead(name, state) {
         const app = current().good.find(app => app.name === name);
-        if (app === undefined) return "refused: app=" + name + " reason=unknown";
-        const address = windowOf(app);
+        if (app === undefined) return;
+        if (!state.ok) {
+            console.error("webapps: open=" + name + " " + state.error);
+            return;
+        }
+        const address = windowOf(state.clients, app);
         if (address !== "") {
             const next = Object.assign({}, launching);
             delete next[name];
             launching = next;
-            return shell.compositor.reveal([address], false);
+            const reply = shell.compositor.reveal([address], false);
+            if (reply !== "ok") console.warn("webapps: open=" + name + " " + reply);
+            return;
         }
-        if (launching[name] !== undefined && launching[name] > Date.now()) return "ok";
+        if (launching[name] !== undefined && launching[name] > Date.now()) return;
         if (opening.indexOf(name) === -1) opening = opening.concat([name]);
         lookForBrowser();
-        return "ok";
     }
 
     function launch(name) {
@@ -345,29 +348,6 @@ Item {
             const ended = code;
             code = -1;
             root.finished(ended);
-        }
-    }
-
-    Connections {
-        target: Hyprland
-        function onRawEvent(event) {
-            const data = String(event.data);
-            if (event.name === "openwindow") {
-                const parts = data.split(",");
-                if (parts.length < 3) return;
-                // Only windows Quickshell still lists stay, so a missed
-                // closewindow leaves nothing behind.
-                const next = { [parts[0].toLowerCase()]: parts[2] };
-                for (const toplevel of Hyprland.toplevels.values) {
-                    const address = String(toplevel.address).toLowerCase();
-                    if (root.classes[address] !== undefined) next[address] = root.classes[address];
-                }
-                root.classes = next;
-            } else if (event.name === "closewindow") {
-                const next = Object.assign({}, root.classes);
-                delete next[data.toLowerCase()];
-                root.classes = next;
-            }
         }
     }
 

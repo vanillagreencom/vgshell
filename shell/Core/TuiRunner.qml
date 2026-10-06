@@ -1,6 +1,5 @@
 import QtQuick
 import Quickshell
-import Quickshell.Hyprland
 import Quickshell.Io
 import "PluginLogic.js" as Logic
 
@@ -183,11 +182,22 @@ Scope {
     // Brings the window of KEY's live run into view. A key busy only because its
     // launcher still waits has no window yet. A live run with no window is
     // looked for among the dead once: a presenter killed outright leaves a
-    // running record that only `vgshell-tui reap` ends.
+    // running record that only `vgshell-tui reap` ends. The windows come
+    // from Hyprland's reply: Quickshell's Hyprland.toplevels can keep a
+    // closed window (docs/architecture/runtime-hyprland-pads.md § Events).
     function focus(key) {
         const slot = Object.prototype.hasOwnProperty.call(recordStore.runs.keys, key) ? recordStore.runs.keys[key] : null;
         if (slot === null || slot.running === null) return;
-        const found = Logic.tuiWindow(windows(), slot.running.window);
+        const window = slot.running.window;
+        Compositor.readWindows(state => root.windowsRead(key, window, state));
+    }
+
+    function windowsRead(key, window, state) {
+        if (!state.ok) {
+            console.error("tui: focus=unread tui=" + key + " " + state.error);
+            return;
+        }
+        const found = Logic.tuiWindow(windows(state.clients), window);
         switch (found.state) {
         case "found":
             Compositor.reveal([found.address], false);
@@ -204,12 +214,9 @@ Scope {
         }
     }
 
-    function windows() {
-        return Hyprland.toplevels.values.map(t => ({
-            address: t.address,
-            appId: t.wayland ? t.wayland.appId : ((t.lastIpcObject && t.lastIpcObject.class) || ""),
-            title: t.title
-        }));
+    // CLIENTS, Hyprland's `j/clients` reply, as tuiWindow reads windows.
+    function windows(clients) {
+        return clients.map(client => ({ address: String(client.address), appId: String(client["class"]), title: String(client.title) }));
     }
 
     // A launch whose run has a record is no longer pending. It reads the

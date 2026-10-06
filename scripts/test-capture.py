@@ -41,6 +41,9 @@ def service_rectangles():
     assert factory.count(before) == 1, "compositor drawn-window control"
     no_delegate = factory.replace(before, "out.onScreen = (window, monitors) => true;")
     assert no_query != body and no_delegate != factory
+    before = "return clients.filter("
+    assert body.count(before) == 1, "service window reply control"
+    from_model = body.replace(before, "return Hyprland.toplevels.values.map(t => t.lastIpcObject).filter(")
     program = r'''
 const path = require("path");
 const input = JSON.parse(process.argv[1]);
@@ -62,24 +65,28 @@ const monitors = [
     { id: 0, activeWorkspace: { id: 1 }, specialWorkspace: { id: 0, name: "" } },
     { id: 1, activeWorkspace: { id: 2 }, specialWorkspace: { id: -3, name: "special:pad" } },
 ];
+// The model keeps a closed window that would be drawn and on the screen.
+const Hyprland = { toplevels: { values: [...clients, { ...base, address: "closed" }].map(lastIpcObject => ({ lastIpcObject })) } };
 function addresses(body, factory) {
     const compositor = new Function("Dispatch", "Compositor", "ctx", factory)(Dispatch, {}, { active: true });
-    return new Function("clients", "monitors", "shell", body)(clients, monitors, { compositor }).map(window => window.address);
+    return new Function("clients", "monitors", "shell", "Hyprland", body)(clients, monitors, { compositor }, Hyprland).map(window => window.address);
 }
 const expected = JSON.stringify(["shown", "shown-special"]);
 console.log(JSON.stringify([
     addresses(input.body, input.factory),
     JSON.stringify(addresses(input.no_query, input.factory)) === expected,
     JSON.stringify(addresses(input.body, input.no_delegate)) === expected,
+    JSON.stringify(addresses(input.from_model, input.factory)) === expected,
 ]));
 '''
-    payload = dict(repo=str(REPO), body=body, factory=factory, no_query=no_query, no_delegate=no_delegate)
+    payload = dict(repo=str(REPO), body=body, factory=factory, no_query=no_query, no_delegate=no_delegate, from_model=from_model)
     result = subprocess.run(["node", "-e", program, json.dumps(payload)], stdin=subprocess.DEVNULL, capture_output=True, text=True, env={"PATH": os.defpath, "LC_ALL": "C"}, timeout=10)
     assert result.returncode == 0, result.stderr
-    actual, query_control, delegate_control = json.loads(result.stdout)
+    actual, query_control, delegate_control, model_control = json.loads(result.stdout)
     assert actual == ["shown", "shown-special"], ("drawn screenshot windows", actual)
     assert not query_control, "omitting the drawn-window query must fail the same candidate readback"
     assert not delegate_control, "bypassing Dispatch.onScreen must fail the same candidate readback"
+    assert not model_control, "reading Hyprland.toplevels must fail the same candidate readback"
 
 
 def plant(root, config):
@@ -1410,7 +1417,7 @@ def main():
         assert not killed_owner_holds(root, request(root, "record"), config, helper), "control did not fail: unowned child"
     if unmeasured is None:
         recording_controls += ",no-trim"
-    controls = ("undrawn-windows,drawn-window-delegate,raw-ocr-error,no-output,no-clipboard,hard-stop,inherited-stdin,kept-freeze,unowned-child,invalid-delay-accepted,invalid-timeout-accepted,invalid-processing-accepted,empty-selection-accepted,empty-displays-accepted,smart-snap,window-boxes,display-boxes,all-bounds,no-scale,no-rotation,no-cursor,copy-saves,save-copies,no-delay,delay-ignores-cancel,no-timeout,no-selection-end," + recording_controls + "," + notification_controls)
+    controls = ("undrawn-windows,drawn-window-delegate,model-windows,raw-ocr-error,no-output,no-clipboard,hard-stop,inherited-stdin,kept-freeze,unowned-child,invalid-delay-accepted,invalid-timeout-accepted,invalid-processing-accepted,empty-selection-accepted,empty-displays-accepted,smart-snap,window-boxes,display-boxes,all-bounds,no-scale,no-rotation,no-cursor,copy-saves,save-copies,no-delay,delay-ignores-cancel,no-timeout,no-selection-end," + recording_controls + "," + notification_controls)
     if unmeasured is not None:
         # The rest passed, but the real post-process could not run: not a pass.
         print(f"test-capture: status=not-measured cause={unmeasured}; controls={controls}")
