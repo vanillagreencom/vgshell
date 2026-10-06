@@ -177,7 +177,7 @@ theme_tree() { # SHIPPED_TARGET...
   done
   for target in "$@"; do cp -R -- "$repo/themes/targets/$target" "$tree/themes/targets/"; done
   cp -- "$repo/config/shell.json" "$tree/config/"
-  cp -- "$repo/shell/Core/PluginLogic.js" "$repo/shell/Core/PackageManagers.js" "$repo/shell/Core/HyprlandLayer.js" "$repo/shell/Core/Pads.js" "$tree/shell/Core/"
+  cp -- "$repo/shell/Core/PluginLogic.js" "$repo/shell/Core/PackageManagers.js" "$repo/shell/Core/HyprlandLayer.js" "$repo/shell/Core/HyprlandState.js" "$repo/shell/Core/Dispatch.js" "$repo/shell/Core/Pads.js" "$tree/shell/Core/"
   cp -- "$repo/shell/Ui/icons/Lucide.js" "$tree/shell/Ui/icons/"
   cp -- "$repo/shell/Commons/AccountDirectories.js" "$repo/shell/Commons/SettingValues.js" "$repo/shell/Commons/ThemeLogic.js" "$repo/shell/Commons/Tokens.js" "$tree/shell/Commons/"
   theme_path="$tmp/theme-path"; stubs="$tmp/stubs"; mkdir -p "$theme_path" "$stubs"

@@ -43,6 +43,11 @@ import qs.Ui
 // `holdsHide()` before it hides the window, and the window hides itself
 // through its `surfaces` capability once the prompt is answered. A close
 // through Hyprland asks nothing: the window is gone, and its edits with it.
+//
+// Remove my line on a Keys row asks first, over a scrim: the confirmation
+// says which line of which file goes, that Hyprland reloads and that Undo
+// puts it back. Remove line runs it; Cancel, Escape and a press on the
+// scrim keep the line. Either answer returns the keyboard to the row.
 FocusScope {
     id: root
 
@@ -79,7 +84,10 @@ FocusScope {
     property int askedReason: Qt.OtherFocusReason
 
     readonly property var current: rowOf(drawn)
-    property Item initialFocus: pending !== null ? prompt : page === "" ? list.initialFocus : detail.initialFocus
+    // The Keys row whose user line waits on the removal prompt, and that
+    // line, as { field, row }, or null.
+    property var removal: null
+    property Item initialFocus: pending !== null || removal !== null ? prompt : page === "" ? list.initialFocus : detail.initialFocus
 
     implicitWidth: Math.floor(Math.min(Theme.size.window.width, OverlayState.room(screen).width))
     implicitHeight: screen === null ? Theme.size.panel.maxHeight : Math.floor(Theme.size.window.heightShare * screen.height)
@@ -125,6 +133,20 @@ FocusScope {
         if (held && askedFrom !== null) askedFrom.forceActiveFocus(askedReason);
         askedFrom = null;
         if (left) then();
+    }
+
+    // FIELD, a Keys row, asks to take ROW, a user line holding its key, out
+    // of the user's file.
+    function confirmRemoval(field, row) {
+        removal = { field: field, row: row };
+    }
+
+    function answerRemoval(accepted) {
+        const asked = removal;
+        removal = null;
+        if (asked === null) return;
+        asked.field.forceActiveFocus(Qt.OtherFocusReason);
+        if (accepted) asked.field.removeLine(asked.row);
     }
 
     // The window host asks before it hides the window: true keeps it open
@@ -382,28 +404,37 @@ FocusScope {
     }
 
     Scrim {
-        visible: root.pending !== null
-        onClicked: root.answer("cancel")
+        visible: prompt.visible
+        onClicked: prompt.removing ? root.answerRemoval(false) : root.answer("cancel")
     }
 
+    // The window's one prompt: the unsaved edit's, or a Keys row's removal
+    // while no edit waits.
     Dialog {
         id: prompt
+        readonly property var asked: root.removal
+        readonly property bool removing: root.pending === null && asked !== null
         anchors.centerIn: parent
-        visible: root.pending !== null
+        visible: root.pending !== null || root.removal !== null
         availableHeight: root.height
-        title: "Save your changes?"
-        message: root.current === null ? "" : root.current.name + " has unsaved changes."
-        actions: [
+        title: removing ? "Remove your Hyprland shortcut?" : "Save your changes?"
+        message: removing && asked !== null ? "VGS deletes line " + asked.row.line + " of " + asked.row.place + " and reloads Hyprland, so " + asked.field.bind.key + " runs only " + asked.field.label + ". Undo puts the line back."
+            : root.current === null ? "" : root.current.name + " has unsaved changes."
+        actions: removing ? [
+            { label: "Remove line", role: "accept" },
+            { label: "Cancel", role: "cancel", focused: true }
+        ] : [
             { label: "Save", role: "accept" },
             { label: "Cancel", role: "cancel" }
         ]
-        tabItems: [discardChanges]
+        tabItems: removing ? [] : [discardChanges]
         onVisibleChanged: if (visible) forceActiveFocus()
-        onAccepted: root.answer("save")
-        onRejected: root.answer("cancel")
+        onAccepted: removing ? root.answerRemoval(true) : root.answer("save")
+        onRejected: removing ? root.answerRemoval(false) : root.answer("cancel")
 
         Button {
             id: discardChanges
+            visible: !prompt.removing
             text: "Discard"
             variant: "tertiary"
             onClicked: root.answer("discard")

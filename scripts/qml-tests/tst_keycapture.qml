@@ -7,9 +7,10 @@ import qs.Core
 // shortcut capability hands a plugin: which control holds the keyboard,
 // the pass-through requests it sends Compositor (a stand-in that records
 // them and takes their answers by hand), every end that leaves the submap,
-// the submap Hyprland reports, a failed enter, a timeout, and the user's
+// the submap Hyprland reports, a failed enter, a timeout, the user's
 // binds it reads from HyprlandState (a stand-in source here) for the
-// conflict hint.
+// conflict hint, and the removal and undo of a user's bind line, whose
+// edits the stand-in records and answers by hand.
 Item {
     id: root
     // HyprlandState's binds members, set by hand.
@@ -18,15 +19,23 @@ Item {
         property var foreignKeys: null
         property string bindsFailure: ""
         property int reads: 0
+        // userBindsFor's rows by key, and each edit asked: { args, done }.
+        property var userRows: ({})
+        property var edits: []
         function readBinds() { reads += 1; }
+        function userBindsFor(key) { return userRows[key] || []; }
+        function editBinds(args, done) { edits = edits.concat([{ args: args, done: done }]); }
     }
     ShortcutRegistry { id: registry; bindsSource: source }
     property var disposers: []
+    // An answer per removal or undo, in the order they came.
+    property var answers: []
+    function answered(value) { answers = answers.concat([value]); }
     property var capture: registry.provider(context("acme.keys")).capture
     property var other: registry.provider(context("acme.other")).capture
 
     function context(id) {
-        return { id: id, onDispose: fn => {
+        return { id: id, active: true, onDispose: fn => {
             let pending = true;
             const dispose = () => { if (pending) { pending = false; fn(); } };
             root.disposers = root.disposers.concat([dispose]);
@@ -55,6 +64,13 @@ Item {
             source.foreignKeys = null;
             source.bindsFailure = "";
             source.reads = 0;
+            source.userRows = {};
+            source.edits = [];
+        }
+
+        function sentEdits() { return JSON.stringify(source.edits.map(edit => edit.args)); }
+        function userLine(removable) {
+            return { file: "/h/.config/hypr/binds.lua", line: 12, text: 'hl.bind("SUPER + SPACE", f)', removable: removable, place: "~/.config/hypr/binds.lua" };
         }
 
         function submap(name) { Hyprland.rawEvent({ name: "submap", data: name }); }
@@ -211,16 +227,80 @@ Item {
 
         function test_conflicts_read_the_user_binds() {
             source.foreignKeys = ["SUPER+SPACE"];
-            compare(JSON.stringify(root.capture.conflicts("super+space", "acme.other", "x")), '{"plugins":[{"id":"acme.keys","shortcut":"open"}],"user":true,"binds":"read","hint":"Also used by acme.keys (open), your other shortcuts."}');
+            compare(JSON.stringify(root.capture.conflicts("super+space", "acme.other", "x")), '{"plugins":[{"id":"acme.keys","shortcut":"open"}],"user":true,"binds":"read","userBinds":[],"hint":"Also used by acme.keys (open), your other shortcuts."}');
+            source.userRows = { "SUPER+SPACE": [userLine(true)] };
+            compare(JSON.stringify(root.capture.conflicts("super+space", "acme.other", "x").userBinds), JSON.stringify([userLine(true)]));
             source.foreignKeys = [];
-            compare(JSON.stringify(root.capture.conflicts("SUPER+SPACE", "acme.other", "x")), '{"plugins":[{"id":"acme.keys","shortcut":"open"}],"user":false,"binds":"read","hint":"Also used by acme.keys (open)."}');
+            compare(JSON.stringify(root.capture.conflicts("SUPER+SPACE", "acme.other", "x")), '{"plugins":[{"id":"acme.keys","shortcut":"open"}],"user":false,"binds":"read","userBinds":[],"hint":"Also used by acme.keys (open)."}');
             const before = Registry.manifests;
             Registry.manifests = { "acme.keys": { name: "Keys" } };
             try {
-                compare(JSON.stringify(root.capture.conflicts("SUPER+SPACE", "acme.other", "x")), '{"plugins":[{"id":"acme.keys","shortcut":"open"}],"user":false,"binds":"read","hint":"Also used by Keys (open)."}');
+                compare(JSON.stringify(root.capture.conflicts("SUPER+SPACE", "acme.other", "x")), '{"plugins":[{"id":"acme.keys","shortcut":"open"}],"user":false,"binds":"read","userBinds":[],"hint":"Also used by Keys (open)."}');
             } finally {
                 Registry.manifests = before;
             }
+        }
+
+        function test_a_removal_takes_the_one_whole_user_line_of_a_plugin_key() {
+            root.answers = [];
+            source.userRows = { "SUPER+SPACE": [userLine(true)], "SUPER+N": [userLine(true)] };
+            root.capture.removeUserBind("SUPER+N", root.answered);
+            compare(root.answers[0].error.split(" ")[1], "user-bind=no-plugin-key");
+            source.userRows = { "SUPER+SPACE": [userLine(false)] };
+            root.capture.removeUserBind("SUPER+SPACE", root.answered);
+            compare(root.answers[1].error.split(" ")[1], "user-bind=lines");
+            source.userRows = { "SUPER+SPACE": [userLine(true), userLine(true)] };
+            root.capture.removeUserBind("SUPER+SPACE", root.answered);
+            compare(root.answers[2].error.split(" ")[1], "user-bind=lines");
+            compare(sentEdits(), "[]");
+            source.userRows = { "SUPER+SPACE": [userLine(true)] };
+            root.capture.removeUserBind("super+space", root.answered);
+            compare(sentEdits(), '[["remove-bind","/h/.config/hypr/binds.lua","12","SUPER+SPACE"]]');
+            const undo = '{"text":"hl.bind(\\"SUPER + SPACE\\", f)\\n","before":"a = 1\\n","after":null}';
+            source.edits[0].done({ ok: true, said: "ok hypr=bind-removed path=/h/.config/hypr/binds.lua line=12 undo=" + undo });
+            const removed = root.answers[3];
+            compare(JSON.stringify([removed.ok, removed.file, removed.line]), '[true,"/h/.config/hypr/binds.lua",12]');
+            root.capture.restoreUserBind(removed.token, root.answered);
+            compare(JSON.stringify(source.edits[1].args), JSON.stringify(["restore-bind", "/h/.config/hypr/binds.lua", "12", undo]));
+            source.edits[1].done({ ok: true, said: "ok hypr=bind-restored path=/h/.config/hypr/binds.lua line=12" });
+            compare(root.answers[4].ok, true);
+            root.capture.restoreUserBind(removed.token, root.answered);
+            compare(root.answers[5].error.split(" ")[1], "user-bind=no-undo");
+            root.capture.restoreUserBind("1' or '1", root.answered);
+            compare(root.answers[6].error.split(" ")[1], "user-bind=no-undo");
+            compare(source.edits.length, 2);
+        }
+
+        // Two removals in one file: the later lines move up a line, and each
+        // undo moves the lines after it down again, so every token names
+        // the line its neighbours expect.
+        function test_removals_move_the_lines_after_them() {
+            root.answers = [];
+            const at = (line, key) => ({ file: "/h/.config/hypr/binds.lua", line: line, text: "", removable: true, place: "" });
+            const removed = line => "ok hypr=bind-removed path=/h/.config/hypr/binds.lua line=" + line + ' undo={"text":"x","before":null,"after":null}';
+            Registry.hyprlandSections = [{ id: "acme.keys", binds: [{ shortcut: "q", key: "SUPER+Q" }, { shortcut: "w", key: "SUPER+W" }] }];
+            source.userRows = { "SUPER+Q": [at(2)], "SUPER+W": [at(9)] };
+            root.capture.removeUserBind("SUPER+W", root.answered);
+            source.edits[0].done({ ok: true, said: removed(9) });
+            root.capture.removeUserBind("SUPER+Q", root.answered);
+            source.edits[1].done({ ok: true, said: removed(2) });
+            root.capture.restoreUserBind(root.answers[1].token, root.answered);
+            compare(source.edits[2].args[2], "2");
+            source.edits[2].done({ ok: true, said: "ok hypr=bind-restored path=/h/.config/hypr/binds.lua line=2" });
+            root.capture.restoreUserBind(root.answers[0].token, root.answered);
+            compare(source.edits[3].args[2], "9");
+        }
+
+        function test_a_failed_edit_is_answered_and_keeps_no_undo() {
+            root.answers = [];
+            source.userRows = { "SUPER+SPACE": [userLine(true)] };
+            root.capture.removeUserBind("SUPER+SPACE", root.answered);
+            source.edits[0].done({ ok: false, error: "refused: hypr=user-bind path=/h/b.lua not-whole" });
+            compare(root.answers[0].error, "refused: hypr=user-bind path=/h/b.lua not-whole");
+            root.capture.removeUserBind("SUPER+SPACE", root.answered);
+            source.edits[1].done({ ok: true, said: "ok hypr=bind-removed path=/h/b.lua line=12" });
+            compare(root.answers[1].error.split(" ")[1], "user-bind=unread");
+            compare(source.edits.length, 2);
         }
 
         function test_a_question_and_a_capture_want_the_binds() {

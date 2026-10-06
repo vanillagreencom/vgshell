@@ -3,12 +3,18 @@ import qs.Ui
 
 // One row of a plugin's Keys section: the bind row of qs.Ui, which sends
 // a pressed or typed key and the unbind, with the manifest's key under it,
-// or none for a pad's key, and two buttons of its own, shown only where they
+// or none for a pad's key, and buttons of its own, shown only where they
 // change something. The reset button, for a key with a default, sends undefined, which removes the shell.json entry so the
-// manifest's key applies. While a user Hyprland bind holds the key, Use my
-// binding sends null, which unbinds the shortcut so the user's own bind
-// keeps the key, in one click. The field then shows what the configuration
-// holds again.
+// manifest's key applies. While a user Hyprland bind holds the key, the
+// conflict line under the field names the file and line that bind sits
+// on, and three buttons under that line resolve it in one click: Remove my line asks the
+// page to confirm, then the key capture takes that line out of the user's
+// file and reloads Hyprland, so the plugin's bind keeps the key; Pick
+// another key starts a capture for the plugin's bind; Use my binding
+// sends null, which unbinds the shortcut so the user's own bind keeps the
+// key. After a removal the line under the field says which line went, and
+// Undo puts it back. The field then shows what the configuration holds
+// again.
 //
 // A key typed as text waits in the text entry until it is saved: `edited`
 // says the entry holds a key other than the one in effect, `save()` sends
@@ -24,12 +30,54 @@ BindField {
     property var edits: null
     readonly property bool edited: shortcutField.edited
     readonly property bool userHolds: found !== null && found.user === true
+    // The one user line that binds the key as a whole `hl.bind` call, which
+    // Remove my line takes out; null when there is none or more than one.
+    readonly property var userLine: {
+        const rows = found === null || !userHolds ? [] : (found.userBinds || []).filter(row => row.removable);
+        return rows.length === 1 ? rows[0] : null;
+    }
+    // { token, place, line } of the line Remove my line took out, which
+    // Undo puts back; null before a removal and after the undo.
+    property var removed: null
+    property string problem: ""
+    signal removalAsked(var row)
 
     function save() { shortcutField.acceptTyped(); }
     function discard() { shortcutField.stopTyping(); }
     function settle(key, accepted) {
         sent.accepted = accepted;
         if (!accepted && typeof key === "string") shortcutField.startTyping(key);
+    }
+
+    // Take ROW, the user line the page confirmed, out of its file.
+    function removeLine(row) {
+        problem = "";
+        capture.removeUserBind(bind.key, reply => {
+            if (!reply.ok) {
+                console.warn("settings: remove-bind " + reply.error);
+                root.problem = "VGS could not remove that line.";
+                return;
+            }
+            root.removed = { token: reply.token, place: row.place, line: reply.line };
+        });
+    }
+
+    function undoRemoval() {
+        const token = removed.token;
+        problem = "";
+        capture.restoreUserBind(token, reply => {
+            if (!reply.ok) {
+                console.warn("settings: restore-bind " + reply.error);
+                root.problem = "VGS could not put that line back.";
+                return;
+            }
+            root.removed = null;
+        });
+    }
+
+    function pickAnotherKey() {
+        shortcutField.forceActiveFocus(Qt.TabFocusReason);
+        shortcutField.start();
     }
 
     Component.onDestruction: if (edits !== null) edits.forget(root)
@@ -49,9 +97,27 @@ BindField {
         function onTyped() { if (root.edits !== null && sent.accepted) root.edits.wrote(); }
     }
 
-    hint: bind["default"] === null ? "No default shortcut." : "Default shortcut: " + bind["default"] + "."
+    hint: removed !== null ? "Removed line " + removed.line + " of " + removed.place + "."
+        : bind["default"] === null ? "No default shortcut." : "Default shortcut: " + bind["default"] + "."
+    error: problem
 
-    actions: [
+    hintActions: [
+        Button {
+            objectName: "removeUserLine"
+            text: "Remove my line"
+            size: "sm"
+            variant: "secondary"
+            visible: root.editable && root.userLine !== null && root.removed === null
+            onClicked: root.removalAsked(root.userLine)
+        },
+        Button {
+            objectName: "pickAnotherKey"
+            text: "Pick another key"
+            size: "sm"
+            variant: "secondary"
+            visible: root.editable && root.userHolds && root.capture !== null
+            onClicked: root.pickAnotherKey()
+        },
         Button {
             text: "Use my binding"
             size: "sm"
@@ -59,6 +125,17 @@ BindField {
             visible: root.editable && root.userHolds
             onClicked: root.applyKey(null)
         },
+        Button {
+            objectName: "undoUserLine"
+            text: "Undo"
+            size: "sm"
+            variant: "secondary"
+            visible: root.editable && root.removed !== null
+            onClicked: root.undoRemoval()
+        }
+    ]
+
+    actions: [
         IconButton {
             iconName: "rotate-ccw"
             label: "Reset to " + root.bind["default"]

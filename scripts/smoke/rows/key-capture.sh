@@ -62,6 +62,7 @@ hypr_lua_save key-capture
   printf '%s\n' "hl.bind(\"F5\", hl.dsp.exec_cmd(\"touch $sandbox/key-capture-f5\"), { description = \"Smoke capture f5\" })"
 } >>"$kc_hypr_lua"
 expect "the nested instance reloads with the key capture harness binds" ok hypr reload config-only
+kc_space_line="$(grep -nF 'hl.bind("SUPER + SPACE"' "$kc_hypr_lua" | cut -d: -f1)"
 kc_config_errors() { hypr -j configerrors | py_reply 'import json,sys; print(json.dumps([e for e in json.load(sys.stdin) if e]))'; }
 expect_poll "the nested instance holds no configuration error" '[]' kc_config_errors
 
@@ -76,7 +77,7 @@ expect "Tab presses reach the Keys row's field" true settings_key_field focus
 expect "the field shows its focus ring for the Tab focus" true settings_key_field visualFocus
 
 kc_capture "SUPER+SPACE" SUPER+SPACE "$sandbox/key-capture-space" -M logo -k space -m logo
-expect_poll "the field names the Launcher shortcut and the user bind holding SUPER+SPACE" '"Also used by Launcher (toggle), your other shortcuts."' settings_key_field conflict
+expect_poll "the field names the Launcher shortcut and the user bind holding SUPER+SPACE by its file and line" "\"Also used by Launcher (toggle), your Hyprland config at ~/.config/hypr/hyprland.lua line $kc_space_line.\"" settings_key_field conflict
 kc_typed "SUPER+SPACE typed" "super+space" SUPER+SPACE
 kc_capture "CTRL+ALT+T" CTRL+ALT+T "$sandbox/key-capture-t" -M ctrl -M alt -k t -m alt -m ctrl
 kc_typed "CTRL+ALT+T typed" "ctrl+alt+t" CTRL+ALT+T

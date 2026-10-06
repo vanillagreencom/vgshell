@@ -126,7 +126,8 @@ function suite(ctx, check) {
     const names = { "vgs.launcher": "Launcher" };
     const launcher = { id: "vgs.launcher", shortcut: "toggle" };
     const keys = { id: "acme.keys", shortcut: "open" };
-    // conflictHint rows: [name, plugins, user, binds, want]
+    const binds = [{ place: "~/.config/hypr/binds.lua", line: 12 }, { place: "~/.config/hypr/hyprland.lua", line: 3 }];
+    // conflictHint rows: [name, plugins, user, binds, want, userBinds]
     const hints = [
         ["nobody else asks", [], false, "read", ""],
         ["nobody else asks while the binds are unread", [], false, "unread", ""],
@@ -135,9 +136,12 @@ function suite(ctx, check) {
         ["the user's binds after every plugin", [keys, launcher], true, "read", "Also used by acme.keys (open), Launcher (toggle), your other shortcuts."],
         ["the user's binds alone", [], true, "read", "Also used by your other shortcuts."],
         ["a failed read with nobody else", [], false, "failed", "VGS could not check your other shortcuts."],
-        ["a failed read beside a plugin", [launcher], false, "failed", "Also used by Launcher (toggle) (VGS could not check other shortcuts)."]
+        ["a failed read beside a plugin", [launcher], false, "failed", "Also used by Launcher (toggle) (VGS could not check other shortcuts)."],
+        ["the user's bind by its file and line", [], true, "read", "Also used by your Hyprland config at ~/.config/hypr/binds.lua line 12.", binds.slice(0, 1)],
+        ["each of the user's binds after every plugin", [launcher], true, "read", "Also used by Launcher (toggle), your Hyprland config at ~/.config/hypr/binds.lua line 12 and ~/.config/hypr/hyprland.lua line 3.", binds],
+        ["no recorded line names the user's other shortcuts", [], true, "read", "Also used by your other shortcuts.", []]
     ];
-    for (const [name, plugins, user, binds, want] of hints) check("conflictHint: " + name, ctx.conflictHint({ plugins: plugins, user: user, binds: binds }, names), want);
+    for (const [name, plugins, user, state, want, userBinds] of hints) check("conflictHint: " + name, ctx.conflictHint(Object.assign({ plugins: plugins, user: user, binds: state }, userBinds === undefined ? {} : { userBinds: userBinds }), names), want);
 }
 
 suite(load(LOGIC), report);
@@ -166,7 +170,8 @@ const CONTROLS = [
     ["the user's binds compare normalised keys", "foreign.indexOf(parsed.key) !== -1", "foreign.indexOf(key) !== -1"],
     ["a conflict compares normalised keys", "if (bind.key === parsed.key && !(section.id", "if (bind.key === key && !(section.id"],
     ["the hint names a plugin by its name", "return (hasOwn(names, p.id) ? names[p.id] : p.id) + \" (\" + p.shortcut + \")\";", "return p.id + \" (\" + p.shortcut + \")\";"],
-    ["the hint names the user's binds", ".concat(found.user ? [\"your other shortcuts\"] : []);", ";"],
+    ["the hint names the user's binds", ".concat(!found.user ? [] : places.length > 0 ? [\"your Hyprland config at \" + places.join(\" and \")] : [\"your other shortcuts\"]);", ";"],
+    ["the hint names the user's file and line", "return row.place + \" line \" + row.line; });", "return \"\"; }).filter(Boolean);"],
     ["the hint says a failed read", "var unread = found.binds === \"failed\";", "var unread = false;"],
     ["the plugins are named by id", "sections.slice().sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; }).forEach(", "sections.slice().reverse().forEach("],
 ];

@@ -128,6 +128,13 @@ var DEVICE_NAME = /^[\x20\x21\x23-\x5b\x5d-\x7e]+$/;
 // HyprlandState.js asks for and judges.
 var USER_VALUES = { table: "__vgs_options", verb: "report", key: "vgs-user-values" };
 
+// The binds the user's configuration makes: `table` on `hl` holds `rows`,
+// one per default-submap bind made outside the layer at this load, and
+// `verb` answers them as one line, `key`, `=` and a JSON list of { file,
+// line, text, modmask, key, keycode } in the order the binds were made,
+// which HyprlandState.js asks for and judges.
+var USER_BINDS = { table: "__vgs_binds", verb: "report", key: "vgs-user-binds" };
+
 var APPEARANCE_GROUPS = ["borders", "radius", "motion", "noGaps"];
 // The groups whose values a user's own line would replace: they are applied
 // after the configuration. `noGaps` is a workspace rule, which holds where
@@ -599,6 +606,69 @@ function sessionLockLines() {
     ];
 }
 
+// USER_BINDS: the layer loads first, so it wraps `hl.bind` before any line
+// of the user's runs. The wrapper records the file and line of each
+// default-submap bind whose nearest caller outside the layer's own
+// functions is not this file: Hyprland keeps `debug.getinfo`
+// (CConfigManager::reinitLuaState removes only `sethook` and `gethook`,
+// v0.56.2), and the bind it returns names its mask, key and keycode. A
+// call site with no file, such as a chunk `load` built, is not recorded.
+// `report` reads each recorded line's text from its file as it stands.
+function userBindLines() {
+    var u = USER_BINDS;
+    return [
+        "-- User binds: where the user's configuration binds each key, which the shell names beside a key it also binds.",
+        "do",
+        "    local binds = hl." + u.table + " or {}",
+        "    hl." + u.table + " = binds",
+        "    binds.layer = debug.getinfo(1, \"S\").source",
+        "    binds.rows = {}",
+        "    local function json(value)",
+        "        return \"\\\"\" .. string.gsub(value, \"[%c\\\"\\\\]\", function(c) return string.format(\"\\\\u%04x\", string.byte(c)) end) .. \"\\\"\"",
+        "    end",
+        "    if not binds.wrapped then",
+        "        binds.wrapped = true",
+        "        binds.bind = hl.bind",
+        "        hl.bind = function(...)",
+        "            local bind = binds.bind(...)",
+        "            pcall(function()",
+        "                if bind == nil or (bind.submap ~= \"\" and bind.submap ~= \"default\") then return end",
+        "                local level = 1",
+        "                while true do",
+        "                    local info = debug.getinfo(level, \"Sl\")",
+        "                    if info == nil then return end",
+        "                    if info.what ~= \"C\" and not (info.source == binds.layer and info.what ~= \"main\") then",
+        "                        if info.source ~= binds.layer and string.sub(info.source, 1, 1) == \"@\" then",
+        "                            binds.rows[#binds.rows + 1] = { file = string.sub(info.source, 2), line = info.currentline, modmask = bind.modmask, key = bind.key, keycode = bind.keycode }",
+        "                        end",
+        "                        return",
+        "                    end",
+        "                    level = level + 1",
+        "                end",
+        "            end)",
+        "            return bind",
+        "        end",
+        "    end",
+        "    function binds." + u.verb + "()",
+        "        local files, out = {}, {}",
+        "        for _, row in ipairs(binds.rows) do",
+        "            if files[row.file] == nil then",
+        "                local lines = {}",
+        "                local handle = io.open(row.file, \"rb\")",
+        "                if handle ~= nil then",
+        "                    for text in handle:lines() do lines[#lines + 1] = text end",
+        "                    handle:close()",
+        "                end",
+        "                files[row.file] = lines",
+        "            end",
+        "            out[#out + 1] = \"{\\\"file\\\":\" .. json(row.file) .. \",\\\"line\\\":\" .. row.line .. \",\\\"text\\\":\" .. json(files[row.file][row.line] or \"\") .. \",\\\"modmask\\\":\" .. row.modmask .. \",\\\"key\\\":\" .. json(row.key) .. \",\\\"keycode\\\":\" .. row.keycode .. \"}\"",
+        "        end",
+        "        return \"" + u.key + "=[\" .. table.concat(out, \",\") .. \"]\"",
+        "    end",
+        "end"
+    ];
+}
+
 // The key capture pass-through's submap, KEY_PASSTHROUGH. Its two functions
 // on `hl.<table>` are what Dispatch.js asks for: `enter`
 // refuses unless a shell window has the focus and records that window, and
@@ -1006,8 +1076,9 @@ function appliedLines(values, paths) {
 // A group whose switch is off is a comment after it, and `noGaps` follows
 // them, written where it stands. The floating
 // TUIs' window rules follow them, then the shell's application window
-// rule, the overlay capture, the key capture pass-through and the session
-// lock's restore, before any plugin section, whatever the sections. A
+// rule, the overlay capture, the key capture pass-through, the session
+// lock's restore and the user binds' recorder (userBindLines), before any
+// plugin section, whatever the sections. A
 // section whose plugins row sets options is preceded by its options
 // section, the touchpad lines and comments of optionLines, when it has
 // any; an option two sections set goes to the first by
@@ -1033,7 +1104,7 @@ function render(sections, theme, themeName, highestScale, touchpads, touchpadFai
     else groups.push(disabledGroupLine("noGaps", switches.groups.noGaps.setting));
     var lines = [""].concat(groups, [""], tuiWindowLines(theme.tuiMargins), [""], appWindowLines());
     if (tapTrackerWanted(plan)) lines = lines.concat([""], tapTrackerLines());
-    lines = lines.concat([""], overlayCaptureLines(plan), [""], keyPassthroughLines(), [""], sessionLockLines());
+    lines = lines.concat([""], overlayCaptureLines(plan), [""], keyPassthroughLines(), [""], sessionLockLines(), [""], userBindLines());
     var written = Object.create(null);
     var options = { written: [], conflicts: [], refusals: [] };
     var optionsHeld = Object.create(null);

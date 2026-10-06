@@ -5,6 +5,8 @@
 //   vgshell-hypr-judge state CONFIG_HOME STATE_DIR
 //   vgshell-hypr-judge wire CONFIG_HOME STATE_DIR
 //   vgshell-hypr-judge unwire CONFIG_HOME STATE_DIR
+//   vgshell-hypr-judge remove-bind CONFIG_HOME STATE_DIR FILE LINE KEY
+//   vgshell-hypr-judge restore-bind CONFIG_HOME STATE_DIR FILE LINE UNDO
 //
 // The line is `pcall(dofile, "<STATE_DIR>/hypr/vgs.lua")` and its file is
 // CONFIG_HOME/hypr/hyprland.lua. `wire` puts the line first unless the file
@@ -13,6 +15,21 @@
 // rule a theme target's include line follows. Through bin/lib/judge-files.js
 // a symlink is resolved and the file it names is replaced with its mode
 // kept, no other byte changes, and the file is never created.
+//
+// `remove-bind` takes line LINE out of FILE, a user file under
+// CONFIG_HOME/hypr that the shell found binding KEY, when that line is one
+// whole `hl.bind` call binding KEY, and prints `ok hypr=bind-removed
+// path=<file> line=<n> undo=<JSON>`: the line and its two neighbours, one
+// character per byte as the file is read. `restore-bind` takes that UNDO
+// back and puts the line back where those neighbours still meet, LINE
+// among several, and prints `ok hypr=bind-restored path=<file> line=<n>`
+// with the line it took. Both
+// follow the wiring's rules above; the line rules are
+// shell/Core/HyprlandState.js's removeBindLine, restoreBindLine and
+// bindFileEditable, and each line refusal is `hypr=user-bind` with their
+// detail. A FILE bindFileEditable refuses, or the layer itself, is refused
+// as `hypr=outside-config path=<file>`, and an absent one as
+// `hypr=wiring-file-absent`.
 //
 // `state` is read-only and prints `ok hypr=wired|unwired|absent path=<file>`.
 // Prints `ok hypr=wired|unwired|unchanged path=<file>` for edits. Every refusal is one
@@ -25,16 +42,52 @@
 const path = require("path");
 const { refuse, main, editFile } = require(path.join(__dirname, "lib", "judge-files.js"));
 const render = require(path.join(__dirname, "lib", "theme-render.js"));
+const State = require(path.join(__dirname, "lib", "qml-library.js")).load(path.join(__dirname, "..", "shell", "Core", "HyprlandState.js"));
 
 const fs = require("fs");
 
 const EDITS = { wire: render.wiredText, unwire: render.unwiredText };
 const DONE = { wire: "wired", unwire: "unwired" };
 
+const BIND_EDITS = { "remove-bind": true, "restore-bind": true };
+
 const [verb, configHome, stateDir, ...extra] = process.argv.slice(2);
-if ((verb !== "state" && EDITS[verb] === undefined) || typeof configHome !== "string" || typeof stateDir !== "string" || extra.length > 0) {
-    process.stderr.write("vgshell-hypr-judge: usage: vgshell-hypr-judge state|wire|unwire CONFIG_HOME STATE_DIR\n");
+if ((verb !== "state" && EDITS[verb] === undefined && BIND_EDITS[verb] === undefined) || typeof configHome !== "string" || typeof stateDir !== "string"
+    || extra.length !== (BIND_EDITS[verb] === undefined ? 0 : 3)) {
+    process.stderr.write("vgshell-hypr-judge: usage: vgshell-hypr-judge state|wire|unwire CONFIG_HOME STATE_DIR\n"
+        + "       vgshell-hypr-judge remove-bind|restore-bind CONFIG_HOME STATE_DIR FILE LINE KEY|UNDO\n");
     process.exit(2);
+}
+
+// Take a user's bind line out of its file, or put it back.
+function bindEdit(layer) {
+    const [given, lineText, arg] = extra;
+    const target = path.resolve(given);
+    if (!State.bindFileEditable(target, path.join(path.resolve(configHome), "hypr")) || target === path.resolve(layer)) refuse("hypr=outside-config path=" + given, "outside-config");
+    const line = /^[1-9][0-9]{0,8}$/.test(lineText) ? Number(lineText) : NaN;
+    let removed = null;
+    let placed = line;
+    const failure = editFile("hypr", target, false, text => {
+        if (text === undefined) return { reason: "wiring-file-absent", detail: "" };
+        let undo = null;
+        if (verb === "restore-bind") {
+            try {
+                undo = JSON.parse(arg);
+            } catch (e) {
+                return { reason: "user-bind", detail: "undo-unread" };
+            }
+        }
+        const next = verb === "remove-bind" ? State.removeBindLine(text, line, arg) : State.restoreBindLine(text, line, undo);
+        if (!next.ok) return { reason: "user-bind", detail: next.error.replace(/^refused: user-bind=/, "") };
+        if (verb === "remove-bind") removed = next.undo;
+        else placed = next.line;
+        return next.text;
+    });
+    if (failure !== null) refuse(failure.failure, failure.reason);
+    if (verb === "remove-bind")
+        process.stdout.write("ok hypr=bind-removed path=" + target + " line=" + line + " undo=" + JSON.stringify(removed) + "\n");
+    else
+        process.stdout.write("ok hypr=bind-restored path=" + target + " line=" + placed + "\n");
 }
 
 main(() => {
@@ -46,6 +99,10 @@ main(() => {
     // The file is read and written as latin1, one character per byte, so
     // the line takes the same encoding of its UTF-8 bytes.
     const line = Buffer.from("pcall(dofile, \"" + layer + "\")", "utf8").toString("latin1");
+    if (BIND_EDITS[verb] !== undefined) {
+        bindEdit(layer);
+        return;
+    }
     if (verb === "state") {
         let text;
         try {

@@ -35,6 +35,9 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // `shortcut` naming the plugin bind the key belongs to, `found` is the
 // capture's `conflicts` answer for the key in effect and `conflict` its
 // `hint`, so every field that shows a bind's key shows the same line. The
+// `hintActions` are controls for the hint, such as the ways out of a
+// conflict it names: they draw on a line of their own under it, wrapping
+// within the field's width, and take no room while none shows. The
 // field is one focus scope
 // whose focus starts on the box; Enter, Return and keypad Enter activate the
 // box through KeyNavLogic.activate, as every button-like control does
@@ -56,6 +59,7 @@ FocusScope {
     property string conflict: found === null ? "" : found.hint
     property bool focusPreview: false
     property alias actions: actionRow.data
+    property alias hintActions: hintActionRow.data
     readonly property bool capturing: capture !== null && capture.holder === root
     // Whether the text entry is open: stored, since the entry's own
     // `visible` reads false under a hidden ancestor, and a typed key is
@@ -275,6 +279,15 @@ FocusScope {
             color: root.hintIsNotice ? Theme.color.danger : Theme.color.warning
             text: root.hint
             visible: text !== ""
+        }
+
+        // Always visible, since a hidden parent would hide the controls it
+        // waits on; a Column lays out no item of zero height, so an empty
+        // line takes no room.
+        Flow {
+            id: hintActionRow
+            width: parent.width
+            spacing: Theme.textField.gap
         }
     }
 }

@@ -8,8 +8,10 @@ import "PluginLogic.js" as Logic
 
 // Owns the reads behind the `hyprland` capability: Hyprland's input
 // devices, the options the layer wrote that read back otherwise, the values
-// the user's configuration gave them, and the keys something other than
-// the layer binds. HyprlandState.js judges every
+// the user's configuration gave them, the keys something other than the
+// layer binds and where the user's configuration binds each. It also runs
+// the edit that takes such a bind line out of the user's file or puts it
+// back, then reloads Hyprland. HyprlandState.js judges every
 // reply; this runs the reads while `active` and holds the last answers.
 // Hyprland posts `configreloaded` after each reload and `activelayout` when
 // a keyboard comes, goes or switches layout, but nothing when a pointer
@@ -45,6 +47,13 @@ Scope {
     property var userValueRows: null
     // The last binds read's keyed failure, "" once one succeeds.
     property string bindsFailure: ""
+    // State.userBinds' binds, where the user's configuration binds each
+    // key; null while unread or after a failed read.
+    property var userBindRows: null
+    // The bind line edit running, { done, said }, or null.
+    property var bindEdit: null
+    // The user's Hyprland directory, as bin/vgshell names it.
+    readonly property string hyprDir: (Quickshell.env("XDG_CONFIG_HOME") || (Quickshell.env("HOME") || "") + "/.config") + "/hypr"
     property var keyResolution: null
 
     onActiveChanged: {
@@ -63,6 +72,7 @@ Scope {
         userValueRows = null;
         foreignKeys = null;
         bindsFailure = "";
+        userBindRows = null;
     }
 
     // The capability for one instance; it holds nothing to release.
@@ -154,6 +164,32 @@ Scope {
     function readBinds() {
         if (!active) return;
         bindsReader.read(State.BINDS_REQUEST, null);
+        userBindsReader.read(State.USER_BINDS_REQUEST, null);
+    }
+
+    // The user's binds of KEY, as hyprlandKey writes it: [{ file, line,
+    // text, removable, place }], `place` the file as a notice names it.
+    function userBindsFor(key) {
+        if (root.userBindRows === null) return [];
+        const home = Quickshell.env("HOME") || "";
+        return root.userBindRows.filter(row => row.key === key)
+            .map(row => ({ file: row.file, line: row.line, text: row.text, removable: row.removable, place: State.bindPlace(row.file, home) }));
+    }
+
+    // Run `vgshell hypr ARGS`, a bind line edit, then reload Hyprland, and
+    // answer DONE with { ok: true, said } or { ok: false, error }; one edit
+    // at a time.
+    function editBinds(args, done) {
+        if (bindEdit !== null) { done({ ok: false, error: "refused: user-bind=busy" }); return; }
+        bindEdit = { done: done, said: "" };
+        bindEditor.command = [Quickshell.shellDir + "/../bin/vgshell", "hypr"].concat(args);
+        bindEditor.running = true;
+    }
+
+    function finishEdit(value) {
+        const pending = bindEdit;
+        bindEdit = null;
+        if (pending !== null) pending.done(value);
     }
 
     // Each reading is replaced only when it changed, so a reload that
@@ -265,6 +301,62 @@ Scope {
             } else if (!root.same(read.values, root.userValueRows)) {
                 root.userValueRows = read.values;
             }
+        }
+    }
+
+    // The layer's record of the user's binds is an error's text, as the
+    // user values are.
+    HyprctlReader {
+        id: userBindsReader
+        label: "user-binds"
+        onReadDone: (request, text, failure) => {
+            if (!root.active) return;
+            const read = State.userBinds(text, root.hyprDir);
+            if (!read.ok) {
+                root.userBindRows = null;
+                console.error("hyprland: " + read.error + (failure === "" ? "" : " " + failure));
+            } else if (!root.same(read.binds, root.userBindRows)) {
+                root.userBindRows = read.binds;
+            }
+        }
+    }
+
+    Process {
+        id: bindEditor
+        property var completion: null
+        stdout: StdioCollector { id: bindEditOut }
+        stderr: StdioCollector { id: bindEditErr }
+        onExited: (code, status) => { completion = { code: code, status: status }; }
+        onRunningChanged: {
+            if (running) return;
+            const done = completion;
+            completion = null;
+            const said = bindEditOut.text.trim();
+            if (done === null || done.code !== 0) {
+                const error = bindEditErr.text.trim().split("\n")[0].replace(/^vgshell: /, "");
+                console.error("hyprland: user-bind edit " + (done === null ? "start=failed" : "status=" + done.code + " " + error));
+                root.finishEdit({ ok: false, error: error === "" ? "refused: user-bind=edit-failed" : error });
+                return;
+            }
+            root.bindEdit = Object.assign({}, root.bindEdit, { said: said });
+            bindReloader.running = true;
+        }
+    }
+
+    Process {
+        id: bindReloader
+        command: ["hyprctl", "reload", "config-only"]
+        property var completion: null
+        stdout: StdioCollector { id: bindReloadOut }
+        onExited: (code, status) => { completion = { code: code, status: status }; }
+        onRunningChanged: {
+            if (running) return;
+            const done = completion;
+            completion = null;
+            const said = root.bindEdit === null ? "" : root.bindEdit.said;
+            if (done === null || done.code !== 0 || bindReloadOut.text.trim() !== "ok")
+                console.error("hyprland: user-bind reload=failed reply=" + JSON.stringify(bindReloadOut.text.trim()));
+            root.finishEdit({ ok: true, said: said });
         }
     }
 

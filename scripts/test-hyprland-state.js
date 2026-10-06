@@ -122,17 +122,114 @@ function suite(lib, check) {
         ["modifiers in the key judge's order, each key once", [bind(65, "space", "mine"), bind(77, "F7", ""), bind(65, "SPACE", "")], { ok: true, keys: ["SUPER+CTRL+ALT+SHIFT+F7", "SUPER+SHIFT+SPACE"] }],
         ["a bind in another submap", [bind(64, "N", "", { submap: "vgs:capture" })], { ok: true, keys: [] }],
         ["a bind in the submap named default", [bind(64, "N", "", { submap: "default" })], { ok: true, keys: ["SUPER+N"] }],
-        ["a keycode bind prints no key", [bind(64, "", "")], { ok: true, keys: [] }],
+        ["a keycode bind by its keycode", [bind(64, "", "", { keycode: 24 })], { ok: true, keys: ["SUPER+code:24"] }],
+        ["a bind with neither key nor keycode", [bind(64, "", "")], { ok: true, keys: [] }],
         ["a mouse bind", [bind(64, "mouse:272", "")], { ok: true, keys: [] }],
         ["Num Lock in the mask", [bind(64 | 16, "N", "")], { ok: true, keys: [] }],
         ["no JSON", "ok", { ok: false, error: "refused: binds=unparsed " }],
         ["no list", "{}", { ok: false, error: "refused: binds=shape want=list" }],
-        ["a bind with no modmask", [{ submap: "", key: "N", description: "" }], { ok: false, error: "refused: binds=shape bind=0" }]
+        ["a bind with no modmask", [{ submap: "", key: "N", description: "", keycode: 0 }], { ok: false, error: "refused: binds=shape bind=0" }],
+        ["a bind with no keycode", [{ submap: "", key: "N", description: "", modmask: 64 }], { ok: false, error: "refused: binds=shape bind=0" }]
     ];
     for (const [name, binds, want] of foreign) {
         const got = lib.foreignBinds(typeof binds === "string" ? binds : JSON.stringify(binds, null, 4), layerBinds);
         check("foreign binds: " + name, got.ok ? got : { ok: false, error: got.error.slice(0, want.ok ? 0 : want.error.length) }, want);
     }
+
+    // The layer's record of the user's binds, as `hyprctl eval` prints the
+    // error the request raises with it.
+    check("user binds request: one eval that raises the layer's answer, or none without the layer", lib.USER_BINDS_REQUEST, ["hyprctl", "eval", "error(hl.__vgs_binds == nil and \"vgs-user-binds=[]\" or hl.__vgs_binds.report(), 0)"]);
+    const record = (file, line, text, modmask, key, keycode) => ({ file: file, line: line, text: text, modmask: modmask, key: key, keycode: keycode });
+    const recorded = rows => "error: vgs-user-binds=" + JSON.stringify(rows) + "\n";
+    const whole = 'hl.bind("SUPER + F7", hl.dsp.exec_cmd("true"))';
+    // rows: [name, reply, want]
+    const userBindRows = [
+        ["no user bind", recorded([]), { ok: true, binds: [] }],
+        ["a whole line binding its key", recorded([record("/h/.config/hypr/hyprland.lua", 2, whole, 64, "F7", 0)]), { ok: true, binds: [{ key: "SUPER+F7", file: "/h/.config/hypr/hyprland.lua", line: 2, text: whole, removable: true }] }],
+        ["a call over lines is no whole line", recorded([record("/h/.config/hypr/b.lua", 3, "hl.bind(", 64, "F8", 0)]), { ok: true, binds: [{ key: "SUPER+F8", file: "/h/.config/hypr/b.lua", line: 3, text: "hl.bind(", removable: false }] }],
+        ["a line binding another key is not removable for this one", recorded([record("/h/.config/hypr/b.lua", 1, whole, 64, "F9", 0)]), { ok: true, binds: [{ key: "SUPER+F9", file: "/h/.config/hypr/b.lua", line: 1, text: whole, removable: false }] }],
+        ["a keycode bind by its keycode, in the order made", recorded([record("/h/.config/hypr/b.lua", 9, 'hl.bind("SUPER + code:24", f)', 64, "", 24), record("/h/.config/hypr/a.lua", 1, whole, 64, "F7", 0)]), { ok: true, binds: [
+            { key: "SUPER+code:24", file: "/h/.config/hypr/b.lua", line: 9, text: 'hl.bind("SUPER + code:24", f)', removable: true }, { key: "SUPER+F7", file: "/h/.config/hypr/a.lua", line: 1, text: whole, removable: true }] }],
+        ["a whole line outside the hypr directory is not removable", recorded([record("/h/dotfiles/b.lua", 1, whole, 64, "F7", 0)]), { ok: true, binds: [{ key: "SUPER+F7", file: "/h/dotfiles/b.lua", line: 1, text: whole, removable: false }] }],
+        ["a bind no key names is left out", recorded([record("/h/.config/hypr/b.lua", 1, whole, 64 | 16, "F7", 0)]), { ok: true, binds: [] }],
+        ["another error", "error: attempt to call a nil value", { ok: false, error: "refused: user-binds=unread reply=" }],
+        ["no JSON", "error: vgs-user-binds=[{", { ok: false, error: "refused: user-binds=unparsed " }],
+        ["no list", "error: vgs-user-binds={}", { ok: false, error: "refused: user-binds=shape want=list" }],
+        ["a row with no line", recorded([{ file: "/h/.config/hypr/b.lua", text: whole, modmask: 64, key: "F7", keycode: 0 }]), { ok: false, error: "refused: user-binds=shape row=0" }],
+        ["a row at line 0", recorded([record("/h/.config/hypr/b.lua", 0, whole, 64, "F7", 0)]), { ok: false, error: "refused: user-binds=shape row=0" }]
+    ];
+    for (const [name, text, want] of userBindRows) {
+        const got = lib.userBinds(text, "/h/.config/hypr");
+        check("user binds: " + name, got.ok ? got : { ok: false, error: got.error.slice(0, want.ok ? 0 : want.error.length) }, want);
+    }
+    check("bind place: a file under home from ~", lib.bindPlace("/home/u/.config/hypr/b.lua", "/home/u"), "~/.config/hypr/b.lua");
+    check("bind place: a file elsewhere as it is", lib.bindPlace("/home/user2/b.lua", "/home/u"), "/home/user2/b.lua");
+
+    // rows: [name, line, want]: the key a line binds as one whole call
+    const calls = [
+        ["a call with nested parentheses", whole, "SUPER+F7"],
+        ["single quotes, a table, a ; and a comment", "  hl.bind('super + q', hl.dsp.window.close(), { description = \"a ( b\" }) ; -- mine", "SUPER+Q"],
+        ["a carriage return ends the line", whole + "\r", "SUPER+F7"],
+        ["a comment marker inside a string", 'hl.bind("SUPER + F7", f("--"))', "SUPER+F7"],
+        ["the call's first line only", "hl.bind(", null],
+        ["a further statement after the call", whole + " x = 1", null],
+        ["an assigned call", "local b = " + whole, null],
+        ["a comment inside the call", 'hl.bind("SUPER + F7", f, -- why', null],
+        ["a long string inside the call", 'hl.bind("SUPER + F7", [[x]])', null],
+        ["an escape in the key string", 'hl.bind("SUPER + \\x46", f)', null],
+        ["a key the judge refuses", 'hl.bind("HYPER + F7", f)', null],
+        ["another call", 'hl.unbind("SUPER + F7")', null]
+    ];
+    for (const [name, line, want] of calls) check("bind call: " + name, lib.bindCall(line), want);
+
+    // rows: [name, text, line, key, want]
+    const file = "a = 1\n" + whole + "\nb = 2";
+    const removals = [
+        ["a middle line goes with its break, beside its neighbours", file, 2, "SUPER+F7", { ok: true, text: "a = 1\nb = 2", undo: { text: whole + "\n", before: "a = 1\n", after: "b = 2" } }],
+        ["a last line with no break goes alone", "a = 1\n" + whole, 2, "SUPER+F7", { ok: true, text: "a = 1\n", undo: { text: whole, before: "a = 1\n", after: null } }],
+        ["a first line has no line before it", whole + "\nb = 2", 1, "SUPER+F7", { ok: true, text: "b = 2", undo: { text: whole + "\n", before: null, after: "b = 2" } }],
+        ["a line binding another key", file, 2, "SUPER+F8", { ok: false, error: "refused: user-bind=not-whole line=2 key=SUPER+F8" }],
+        ["a line that is no bind", file, 1, "SUPER+F7", { ok: false, error: "refused: user-bind=not-whole line=1 key=SUPER+F7" }],
+        ["a line past the end", file, 4, "SUPER+F7", { ok: false, error: "refused: user-bind=no-line line=4 lines=3" }]
+    ];
+    for (const [name, text, line, key, want] of removals) check("remove bind line: " + name, lib.removeBindLine(text, line, key), want);
+    // Two binds around a block, each removed and put back in either order,
+    // as two Keys rows of one page do: each goes back where it stood.
+    const block = "a = 1\n\nhl.bind(\"SUPER+Q\", f)\n\nif laptop then\n  x()\nend\n\nhl.bind(\"SUPER+W\", g)\n\n";
+    const q = lib.removeBindLine(block, 3, "SUPER+Q");
+    const w = lib.removeBindLine(q.text, 8, "SUPER+W");
+    const order = (first, firstLine, second, secondLine) => {
+        const one = lib.restoreBindLine(w.text, firstLine, first.undo);
+        return one.ok ? lib.restoreBindLine(one.text, secondLine, second.undo).text : one.error;
+    };
+    check("restore bind line: two lines put back in the order removed land where they stood", order(q, 3, w, 9), block);
+    check("restore bind line: two lines put back in reverse order land where they stood", order(w, 8, q, 3), block);
+    const u = (text, before, after) => ({ text: text, before: before, after: after });
+    // rows: [name, text, line, undo, want]
+    const restores = [
+        ["a middle line goes back byte for byte", "a = 1\nb = 2", 2, u(whole + "\n", "a = 1\n", "b = 2"), { ok: true, text: file, line: 2 }],
+        ["a last line with no break goes back last", "a = 1\n", 2, u(whole, "a = 1\n", null), { ok: true, text: "a = 1\n" + whole, line: 2 }],
+        ["a first line goes back first", "b = 2", 1, u(whole + "\n", null, "b = 2"), { ok: true, text: whole + "\nb = 2", line: 1 }],
+        ["a line whose neighbours meet elsewhere goes there", "z = 0\na = 1\nb = 2", 2, u(whole + "\n", "a = 1\n", "b = 2"), { ok: true, text: "z = 0\na = 1\n" + whole + "\nb = 2", line: 3 }],
+        ["the expected line picks among several places", "a = 1\na = 1\na = 1\n", 3, u(whole + "\n", "a = 1\n", "a = 1\n"), { ok: true, text: "a = 1\na = 1\n" + whole + "\na = 1\n", line: 3 }],
+        ["several places none expected", "a = 1\na = 1\na = 1\n", 9, u(whole + "\n", "a = 1\n", "a = 1\n"), { ok: false, error: "refused: user-bind=moved line=9 places=2" }],
+        ["neighbours that no longer meet", "a = 1\nc = 3\nb = 2", 2, u(whole + "\n", "a = 1\n", "b = 2"), { ok: false, error: "refused: user-bind=moved line=2 places=0" }],
+        ["a last line after a line that lost its break", "a = 1", 2, u(whole, "a = 1\n", null), { ok: false, error: "refused: user-bind=moved line=2 places=0" }],
+        ["a text that is no bind call", "a = 1\n", 1, u('os.execute("x")\n', null, "a = 1\n"), { ok: false, error: "refused: user-bind=not-whole line=1" }],
+        ["a text of two lines", "a = 1\n", 1, u(whole + "\n" + whole + "\n", null, "a = 1\n"), { ok: false, error: "refused: user-bind=not-whole line=1" }],
+        ["an undo with no neighbours named", "a = 1\n", 1, { text: whole + "\n" }, { ok: false, error: "refused: user-bind=not-whole line=1" }]
+    ];
+    for (const [name, text, line, undo, want] of restores) check("restore bind line: " + name, lib.restoreBindLine(text, line, undo), want);
+    // rows: [name, file, want]
+    const editable = [
+        ["a file in the hypr directory", "/h/.config/hypr/binds.lua", true],
+        ["a file in a directory under it", "/h/.config/hypr/conf/binds.lua", true],
+        ["a file beside the directory", "/h/.config/hypr-old/binds.lua", false],
+        ["a file elsewhere", "/h/dotfiles/binds.lua", false],
+        ["a file that is not Lua", "/h/.config/hypr/binds.conf", false],
+        ["a path that climbs out", "/h/.config/hypr/../binds.lua", false]
+    ];
+    for (const [name, file, want] of editable) check("bind file editable: " + name, lib.bindFileEditable(file, "/h/.config/hypr"), want);
 }
 
 suite(load(STATE), report);
@@ -156,7 +253,7 @@ const CONTROLS = [
     ["a float within a millionth is the same", "Math.abs(read - want) > 0.000001", "read !== want"],
     ["a differing value is overridden", "if (differs(Layer.OPTIONS[rows[i].path].type, rows[i].value, read.value[field]))", "if (false)"],
     ["a session without the layer has no user value", 'hl." + Layer.USER_VALUES.table + " == nil and \\"" + Layer.USER_VALUES.key + "=[]\\" or ', ""],
-    ["the answer is read by its key", "if (line === undefined) return", "if (false) return"],
+    ["the answer is read by its key", 'if (line === undefined) return { ok: false, error: "refused: user-values=unread', 'if (false) return { ok: false, error: "refused: user-values=unread'],
     ["the answer is a list", 'if (!Array.isArray(read.value)) return { ok: false, error: "refused: user-values=shape want=list" };', ""],
     ["a user value row names a path", '|| typeof row.path !== "string")', ")"],
     ["a user value has its option's type", "if (typeof named[path].value !== VALUE_TYPE[Layer.OPTIONS[path].type])", "if (false)"],
@@ -164,11 +261,37 @@ const CONTROLS = [
     ["only the default submap", '(bind.submap !== "" && bind.submap !== "default") || ', ""],
     ["the submap named default counts", ' && bind.submap !== "default")', ")"],
     ["the layer's binds are not foreign", " || descriptions.indexOf(bind.description) !== -1) continue;", ") continue;"],
-    ["an unnamed modifier is left out", "if ((bind.modmask & ~NAMED_BITS) !== 0) continue;", ""],
-    ["the modifiers are read from the mask", "return (bind.modmask & row[1]) !== 0; })", "return false; })"],
-    ["the key judge normalises", "if (key.ok && keys.indexOf(key.key) === -1) keys.push(key.key);", "keys.push(mods.concat([bind.key]).join(\"+\"));"],
+    ["an unnamed modifier is left out", "if ((modmask & ~NAMED_BITS) !== 0) return null;", ""],
+    ["the modifiers are read from the mask", "return (modmask & row[1]) !== 0; })", "return false; })"],
+    ["the key judge normalises", "return read.ok ? read.key : null;", "return mods.concat([name]).join(\"+\");"],
+    ["each foreign key once", "if (key !== null && keys.indexOf(key) === -1) keys.push(key);", "if (key !== null) keys.push(key);"],
     ["the keys are sorted", "return { ok: true, keys: keys.sort() };", "return { ok: true, keys: keys };"],
-    ["a bind's shape is judged", '|| typeof bind.description !== "string" || !Number.isInteger(bind.modmask))', ")"]
+    ["a bind's shape is judged", '|| typeof bind.description !== "string" || !Number.isInteger(bind.modmask) || !Number.isInteger(bind.keycode))', ")"],
+    ["a keycode bind names its keycode", 'var name = key !== "" ? key : keycode > 0 ? "code:" + keycode : "";', "var name = key;"],
+    ["a session without the layer has no user bind", 'hl." + Layer.USER_BINDS.table + " == nil and \\"" + Layer.USER_BINDS.key + "=[]\\" or ', ""],
+    ["the user binds are read by their key", 'if (line === undefined) return { ok: false, error: "refused: user-binds=unread', 'if (false) return { ok: false, error: "refused: user-binds=unread'],
+    ["the user binds are a list", 'if (!Array.isArray(read.value)) return { ok: false, error: "refused: user-binds=shape want=list" };', ""],
+    ["a user bind's line is a positive whole number", '|| !Number.isInteger(row.line) || row.line < 1', ""],
+    ["a user bind no key names is left out", "if (key === null) continue;", ""],
+    ["a user bind is removable only as a whole call of its key", "removable: bindCall(row.text) === key", "removable: true"],
+    ["a place under home starts with ~", 'return home !== "" && file.indexOf(home + "/") === 0 ? "~" + file.slice(home.length) : file;', "return file;"],
+    ["a whole call starts the line", "var BIND_CALL = /^\\s*hl\\.bind", "var BIND_CALL = /hl\\.bind"],
+    ["a string inside the call is skipped", 'if (c === "\\\\") i++;\n            else if (c === quote) quote = null;', 'quote = null;'],
+    ["a comment or long bracket inside the call is refused", 'else if (c === "-" && text[i + 1] === "-" || c === "[" && /^\\[=*\\[/.test(text.slice(i))) {\n            return null;', 'else if (false) {\n            return null;'],
+    ["nothing but a ; and a comment follows the call", "if (depth !== 0 || !/^\\s*;?\\s*(?:--(?!\\[=*\\[).*)?\\r?$/.test(text.slice(i))) return null;", "if (depth !== 0) return null;"],
+    ["a removed line is a whole call of its key", "if (bindCall(lines[line - 1].replace(/\\n$/, \"\")) !== key)", "if (false)"],
+    ["a removed line is in the file", "if (!Number.isInteger(line) || line < 1 || line > lines.length)\n", "if (!Number.isInteger(line) || line < 1)\n"],
+    ["a removal names its neighbours", "before: line > 1 ? lines[line - 2] : null, after: line < lines.length ? lines[line] : null", "before: null, after: null"],
+    ["a restored text is one whole call", '|| bindCall(undo.text.replace(/\\n$/, "")) === null || ', "|| "],
+    ["a restored line goes where its neighbours meet", "(undo.before === null ? at === 1 : lines[at - 2] === undo.before)\n", "true\n"],
+    ["a restored line goes before the line after it", "&& (undo.after === null ? at === lines.length + 1 : lines[at - 1] === undo.after))", ")"],
+    ["the expected line picks among places", "places.indexOf(line) !== -1 ? line : places.length === 1", "places.length >= 1"],
+    ["several places none expected are refused", "places.length === 1 ? places[0] : null", "places.length > 0 ? places[0] : null"],
+    ["a bind file is under the hypr directory", 'return file.indexOf(hyprDir + "/") === 0 && ', "return "],
+    ["a bind file is Lua", '&& /\\.lua$/.test(file) && ', "&& "],
+    ["a bind file names no climbing segment", ' && !/\\/\\.\\.?(\\/|$)/.test(file);', ";"],
+    ["a user bind outside the hypr directory is not removable", " && bindFileEditable(row.file, hyprDir) });", " });"],
+    ["the lines keep their breaks", "return text.match(/[^\\n]*\\n|[^\\n]+$/g) || [];", "return text.split(\"\\n\");"]
 ];
 
 fs.mkdirSync(path.join(__dirname, "..", "tmp"), { recursive: true });

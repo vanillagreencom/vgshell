@@ -9,7 +9,8 @@ import qs.Unit
 // the capture's answer and the line under it the answer's hint, and takes
 // `editable`; a combo, a typed key, an empty typed key and the unbind
 // button each send what the manager writes; a caller's actions draw in the
-// field's tool row. The capture here answers every conflict question with
+// field's tool row, and its hint actions on a line under the hint, taking
+// no room while none shows. The capture here answers every conflict question with
 // one hint and records each question as "KEY ID SHORTCUT".
 Item {
     id: root
@@ -38,6 +39,20 @@ Item {
             onApplyKey: key => root.sent = root.sent.concat([key])
             actions: [
                 Button { id: extra; text: "Extra"; size: "sm" }
+            ]
+            hintActions: [
+                Button { id: fix; text: "Fix"; size: "sm" },
+                Button { id: hidden; text: "Hidden"; size: "sm"; visible: false }
+            ]
+        }
+        BindField {
+            id: later
+            width: parent.width
+            pluginId: "vgs.lock"
+            bind: ({ shortcut: "lock", key: "SUPER+L", default: "SUPER+L" })
+            capture: asker
+            hintActions: [
+                Button { id: late; text: "Late"; size: "sm"; visible: false }
             ]
         }
         BindField {
@@ -109,6 +124,26 @@ Item {
             let parent = extra.parent;
             while (parent !== null && parent !== input(row)) parent = parent.parent;
             verify(parent === input(row), "the action sits inside the row's ShortcutField");
+        }
+
+        function test_a_hint_action_shown_later_draws() {
+            late.visible = true;
+            tryVerify(() => late.visible && late.width > 0, 1000, "an action hidden at first shows once it is shown");
+            late.visible = false;
+        }
+
+        function test_a_hint_action_draws_under_the_hint() {
+            const field = input(row);
+            const hint = descendant(field, item => item.text === "Also used by your other shortcuts.");
+            verify(hint !== null && hint.visible, "the hint draws");
+            const below = fix.mapToItem(field, 0, 0).y;
+            verify(below >= hint.mapToItem(field, 0, 0).y + hint.height, "the action sits under the hint");
+            verify(fix.mapToItem(field, 0, 0).x < extra.mapToItem(field, 0, 0).x, "the action starts the line, not the tool row");
+            hidden.visible = false;
+            fix.visible = false;
+            tryVerify(() => field.implicitHeight <= hint.mapToItem(field, 0, 0).y + hint.height + 1, 1000, "a line with no shown action takes no room");
+            fix.visible = true;
+            tryVerify(() => fix.mapToItem(field, 0, 0).y >= hint.mapToItem(field, 0, 0).y + hint.height, 1000, "an action shown again draws under the hint");
         }
     }
 }

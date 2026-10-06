@@ -433,6 +433,7 @@ FocusScope {
                                 objectProp: "shortcut"
                             }
                             KeyField {
+                                id: keyField
                                 required property var modelData
                                 width: body.width
                                 pluginId: page.row.id
@@ -441,6 +442,7 @@ FocusScope {
                                 capture: page.panel.capture
                                 edits: unsaved
                                 onApplyKey: key => { if (page !== null && page.row !== null) settle(key, Reply.isOk(page.panel.writeKey(pluginId, modelData.shortcut, key))); }
+                                onRemovalAsked: row => page.panel.confirmRemoval(keyField, row)
                             }
                         }
                     }

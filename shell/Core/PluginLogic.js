@@ -1397,15 +1397,18 @@ function keyConflicts(key, sections, foreign, id, shortcut) {
 
 // The hint a key field draws under its key, from FOUND, keyConflicts'
 // answer with `binds`, the state of the read of the user's binds
-// (`unread`, `read` or `failed`), beside it: each plugin that asks for the
-// key by its name in NAMES (plugin id -> name; the id where NAMES has
-// none) with the shortcut, then the user's own binds, and whether those
+// (`unread`, `read` or `failed`), and `userBinds`, where the user's
+// configuration binds the key ([{ place, line }], HyprlandState), beside
+// it: each plugin that asks for the key by its name in NAMES (plugin id ->
+// name; the id where NAMES has none) with the shortcut, then the user's own
+// binds, by file and line where the layer recorded them, and whether those
 // could not be read. "" when nobody else asks and the read did not fail.
 // Every surface that shows a key draws this one line.
 function conflictHint(found, names) {
+    var places = (found.userBinds || []).map(function (row) { return row.place + " line " + row.line; });
     var holders = found.plugins.map(function (p) {
         return (hasOwn(names, p.id) ? names[p.id] : p.id) + " (" + p.shortcut + ")";
-    }).concat(found.user ? ["your other shortcuts"] : []);
+    }).concat(!found.user ? [] : places.length > 0 ? ["your Hyprland config at " + places.join(" and ")] : ["your other shortcuts"]);
     var unread = found.binds === "failed";
     if (holders.length === 0) return unread ? "VGS could not check your other shortcuts." : "";
     return "Also used by " + holders.join(", ") + (unread ? " (VGS could not check other shortcuts)." : ".");

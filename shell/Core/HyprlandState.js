@@ -5,8 +5,10 @@
 
 // Pure readings behind the `hyprland` capability: Hyprland's input devices,
 // the options the layer wrote that read back otherwise, the values the
-// user's configuration gave them, and the keys bound by something other
-// than the layer. HyprlandState.qml runs each request
+// user's configuration gave them, the keys bound by something other than
+// the layer, the file and line where the user's configuration binds each,
+// and the edit that takes such a line out of its file and puts it back,
+// which bin/vgshell-hypr-judge runs. HyprlandState.qml runs each request
 // and holds what these answer; scripts/test-hyprland-state.js runs this file
 // under node. Each reply is in the shape Hyprland v0.56.2 prints
 // (src/debug/HyprCtl.cpp, docs/architecture/runtime-hyprland.md).
@@ -240,14 +242,26 @@ function userValues(written, text) {
     return { ok: true, values: out };
 }
 
+// The key PluginLogic.hyprlandKey writes for a bind of MODMASK on KEY, the
+// keysym name Hyprland prints, or on KEYCODE where KEY is empty, as a
+// keycode bind has it; null where no such key names it: a modifier outside
+// SHIFT, CTRL, ALT and SUPER, or a name the key judge does not take.
+function boundKey(modmask, key, keycode) {
+    if ((modmask & ~NAMED_BITS) !== 0) return null;
+    var mods = MODIFIER_BITS.filter(function (row) { return (modmask & row[1]) !== 0; }).map(function (row) { return row[0]; });
+    var name = key !== "" ? key : keycode > 0 ? "code:" + keycode : "";
+    var read = Logic.hyprlandKey(mods.concat([name]).join("+"));
+    return read.ok ? read.key : null;
+}
+
 // The keys `hyprctl -j binds` binds in the default submap, which it names
 // "" or "default", by something
 // other than the layer: each bind whose description is not one of
-// DESCRIPTIONS, the layer's `binds`, as the normalised key
-// PluginLogic.hyprlandKey writes, sorted, each once. A bind whose key no
-// such key can name is left out: a keycode bind, which binds -j prints with
-// an empty key, a mouse bind, or a modifier outside SHIFT, CTRL, ALT and
-// SUPER. { ok: true, keys } or { ok: false, error } with a keyed line.
+// DESCRIPTIONS, the layer's `binds`, as boundKey writes it, sorted, each
+// once. A keycode bind, which binds -j prints with an empty key, is its
+// keycode. A bind boundKey cannot name is left out: a mouse bind or a
+// modifier outside SHIFT, CTRL, ALT and SUPER. { ok: true, keys } or
+// { ok: false, error } with a keyed line.
 function foreignBinds(text, descriptions) {
     var read = parsed(text);
     if (!read.ok) return { ok: false, error: "refused: binds=unparsed " + read.error };
@@ -256,13 +270,140 @@ function foreignBinds(text, descriptions) {
     for (var i = 0; i < read.value.length; i++) {
         var bind = read.value[i];
         if (bind === null || typeof bind !== "object" || typeof bind.submap !== "string" || typeof bind.key !== "string"
-            || typeof bind.description !== "string" || !Number.isInteger(bind.modmask))
+            || typeof bind.description !== "string" || !Number.isInteger(bind.modmask) || !Number.isInteger(bind.keycode))
             return { ok: false, error: "refused: binds=shape bind=" + i };
         if ((bind.submap !== "" && bind.submap !== "default") || descriptions.indexOf(bind.description) !== -1) continue;
-        if ((bind.modmask & ~NAMED_BITS) !== 0) continue;
-        var mods = MODIFIER_BITS.filter(function (row) { return (bind.modmask & row[1]) !== 0; }).map(function (row) { return row[0]; });
-        var key = Logic.hyprlandKey(mods.concat([bind.key]).join("+"));
-        if (key.ok && keys.indexOf(key.key) === -1) keys.push(key.key);
+        var key = boundKey(bind.modmask, bind.key, bind.keycode);
+        if (key !== null && keys.indexOf(key) === -1) keys.push(key);
     }
     return { ok: true, keys: keys.sort() };
+}
+
+// The one `hyprctl eval` argv that asks the layer where the user's
+// configuration binds each key (HyprlandLayer.USER_BINDS), raised as
+// USER_VALUES_REQUEST raises its answer; a session whose hyprland.lua does
+// not load the layer has no record.
+var USER_BINDS_REQUEST = ["hyprctl", "eval", "error(hl." + Layer.USER_BINDS.table + " == nil and \"" + Layer.USER_BINDS.key + "=[]\" or hl." + Layer.USER_BINDS.table + "." + Layer.USER_BINDS.verb + "(), 0)"];
+
+// The binds the user's configuration makes, from the reply to
+// USER_BINDS_REQUEST: { ok: true, binds: [{ key, file, line, text,
+// removable }] } in the order they were made, each `key` as boundKey
+// writes it, or { ok: false, error } with a keyed line. A bind boundKey
+// cannot name is left out. `removable` says the line is one whole call
+// that binds that key (bindCall) in a file under HYPR_DIR
+// (bindFileEditable), the only line `vgshell hypr remove-bind` takes.
+function userBinds(text, hyprDir) {
+    var marker = Layer.USER_BINDS.key + "=";
+    var line = String(text || "").split("\n").filter(function (l) { return l.indexOf(marker) !== -1; })[0];
+    if (line === undefined) return { ok: false, error: "refused: user-binds=unread reply=" + JSON.stringify(String(text || "").slice(0, 120)) };
+    var read = parsed(line.slice(line.indexOf(marker) + marker.length));
+    if (!read.ok) return { ok: false, error: "refused: user-binds=unparsed " + read.error };
+    if (!Array.isArray(read.value)) return { ok: false, error: "refused: user-binds=shape want=list" };
+    var out = [];
+    for (var i = 0; i < read.value.length; i++) {
+        var row = read.value[i];
+        if (row === null || typeof row !== "object" || typeof row.file !== "string" || !Number.isInteger(row.line) || row.line < 1
+            || typeof row.text !== "string" || !Number.isInteger(row.modmask) || typeof row.key !== "string" || !Number.isInteger(row.keycode))
+            return { ok: false, error: "refused: user-binds=shape row=" + i };
+        var key = boundKey(row.modmask, row.key, row.keycode);
+        if (key === null) continue;
+        out.push({ key: key, file: row.file, line: row.line, text: row.text, removable: bindCall(row.text) === key && bindFileEditable(row.file, hyprDir) });
+    }
+    return { ok: true, binds: out };
+}
+
+// FILE as a notice names it: under HOME, from `~`.
+function bindPlace(file, home) {
+    return home !== "" && file.indexOf(home + "/") === 0 ? "~" + file.slice(home.length) : file;
+}
+
+// A line that is one whole `hl.bind` call: the key string first, in quotes
+// that hold no escape, then the rest of the call, then at most a `;` and a
+// comment. Removing such a line removes one bind and leaves the file's
+// other statements as they were.
+var BIND_CALL = /^\s*hl\.bind\s*\(\s*(?:"([^"\\]*)"|'([^'\\]*)')/;
+
+// The key, as PluginLogic.hyprlandKey writes it, that TEXT, one line with
+// no line break, binds when it is one whole `hl.bind` call; else null. A
+// long bracket or a comment inside the call, which could hide its end, is
+// no whole call.
+function bindCall(text) {
+    var head = BIND_CALL.exec(text);
+    if (head === null) return null;
+    var depth = 1;
+    var quote = null;
+    var i = head[0].length;
+    for (; i < text.length && depth > 0; i++) {
+        var c = text[i];
+        if (quote !== null) {
+            if (c === "\\") i++;
+            else if (c === quote) quote = null;
+        } else if (c === "\"" || c === "'") {
+            quote = c;
+        } else if (c === "-" && text[i + 1] === "-" || c === "[" && /^\[=*\[/.test(text.slice(i))) {
+            return null;
+        } else if ("({[".indexOf(c) !== -1) {
+            depth++;
+        } else if (")}]".indexOf(c) !== -1) {
+            depth--;
+        }
+    }
+    if (depth !== 0 || !/^\s*;?\s*(?:--(?!\[=*\[).*)?\r?$/.test(text.slice(i))) return null;
+    var key = Logic.hyprlandKey(head[1] !== undefined ? head[1] : head[2]);
+    return key.ok ? key.key : null;
+}
+
+// TEXT's lines, each with its line break; a last line without one is kept
+// as it is, so joining them gives TEXT back byte for byte.
+function fileLines(text) {
+    return text.match(/[^\n]*\n|[^\n]+$/g) || [];
+}
+
+// TEXT, a file's bytes, without line LINE, which must be one whole
+// `hl.bind` call binding KEY (bindCall): { ok: true, text, undo }, or
+// { ok: false, error } with a keyed line. UNDO is what restoreBindLine
+// takes: { text, before, after }, the removed line and the lines on either
+// side of it, each with its line break, null at the file's start or end.
+function removeBindLine(text, line, key) {
+    var lines = fileLines(text);
+    if (!Number.isInteger(line) || line < 1 || line > lines.length)
+        return { ok: false, error: "refused: user-bind=no-line line=" + line + " lines=" + lines.length };
+    if (bindCall(lines[line - 1].replace(/\n$/, "")) !== key)
+        return { ok: false, error: "refused: user-bind=not-whole line=" + line + " key=" + key };
+    var undo = { text: lines[line - 1], before: line > 1 ? lines[line - 2] : null, after: line < lines.length ? lines[line] : null };
+    lines.splice(line - 1, 1);
+    return { ok: true, text: lines.join(""), undo: undo };
+}
+
+// TEXT with UNDO's line, a removeBindLine answer, back between the two
+// lines it stood between: { ok: true, text, line } or { ok: false, error }
+// with a keyed line. The line must still be one whole `hl.bind` call. LINE
+// is where the caller expects it; it decides only among several places
+// where those two lines still meet, and where they meet nowhere, or in
+// several places none of them LINE, the file stays unchanged rather than
+// take the line in another place.
+function restoreBindLine(text, line, undo) {
+    var lines = fileLines(text);
+    var nullOrString = function (v) { return v === null || typeof v === "string"; };
+    if (undo === null || typeof undo !== "object" || typeof undo.text !== "string" || !/^[^\n]*\n?$/.test(undo.text)
+        || bindCall(undo.text.replace(/\n$/, "")) === null || !nullOrString(undo.before) || !nullOrString(undo.after))
+        return { ok: false, error: "refused: user-bind=not-whole line=" + line };
+    var places = [];
+    for (var at = 1; at <= lines.length + 1; at++) {
+        if ((undo.before === null ? at === 1 : lines[at - 2] === undo.before)
+            && (undo.after === null ? at === lines.length + 1 : lines[at - 1] === undo.after))
+            places.push(at);
+    }
+    var place = places.indexOf(line) !== -1 ? line : places.length === 1 ? places[0] : null;
+    if (place === null)
+        return { ok: false, error: "refused: user-bind=moved line=" + line + " places=" + places.length };
+    lines.splice(place - 1, 0, undo.text);
+    return { ok: true, text: lines.join(""), line: place };
+}
+
+// Whether FILE, an absolute path, names a user file a bind line may be
+// taken out of: a `.lua` file under HYPR_DIR, the user's Hyprland
+// directory, through no `.` or `..` segment.
+function bindFileEditable(file, hyprDir) {
+    return file.indexOf(hyprDir + "/") === 0 && /\.lua$/.test(file) && !/\/\.\.?(\/|$)/.test(file);
 }

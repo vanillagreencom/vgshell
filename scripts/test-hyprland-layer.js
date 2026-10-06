@@ -83,6 +83,65 @@ const LOCK_SECTION = [
     "hl.config({ misc = { allow_session_lock_restore = true } })"
 ];
 
+// The user binds' recorder, byte for byte: it wraps hl.bind once and
+// records the file and line of each default-submap bind made outside the
+// layer, and its report reads each line's text. scripts/smoke/rows/
+// hyprland-options.sh reads the record back from the nested Hyprland
+// v0.56.2.
+const USER_BINDS_SECTION = [
+    "-- User binds: where the user's configuration binds each key, which the shell names beside a key it also binds.",
+    "do",
+    "    local binds = hl.__vgs_binds or {}",
+    "    hl.__vgs_binds = binds",
+    "    binds.layer = debug.getinfo(1, \"S\").source",
+    "    binds.rows = {}",
+    "    local function json(value)",
+    "        return \"\\\"\" .. string.gsub(value, \"[%c\\\"\\\\]\", function(c) return string.format(\"\\\\u%04x\", string.byte(c)) end) .. \"\\\"\"",
+    "    end",
+    "    if not binds.wrapped then",
+    "        binds.wrapped = true",
+    "        binds.bind = hl.bind",
+    "        hl.bind = function(...)",
+    "            local bind = binds.bind(...)",
+    "            pcall(function()",
+    "                if bind == nil or (bind.submap ~= \"\" and bind.submap ~= \"default\") then return end",
+    "                local level = 1",
+    "                while true do",
+    "                    local info = debug.getinfo(level, \"Sl\")",
+    "                    if info == nil then return end",
+    "                    if info.what ~= \"C\" and not (info.source == binds.layer and info.what ~= \"main\") then",
+    "                        if info.source ~= binds.layer and string.sub(info.source, 1, 1) == \"@\" then",
+    "                            binds.rows[#binds.rows + 1] = { file = string.sub(info.source, 2), line = info.currentline, modmask = bind.modmask, key = bind.key, keycode = bind.keycode }",
+    "                        end",
+    "                        return",
+    "                    end",
+    "                    level = level + 1",
+    "                end",
+    "            end)",
+    "            return bind",
+    "        end",
+    "    end",
+    "    function binds.report()",
+    "        local files, out = {}, {}",
+    "        for _, row in ipairs(binds.rows) do",
+    "            if files[row.file] == nil then",
+    "                local lines = {}",
+    "                local handle = io.open(row.file, \"rb\")",
+    "                if handle ~= nil then",
+    "                    for text in handle:lines() do lines[#lines + 1] = text end",
+    "                    handle:close()",
+    "                end",
+    "                files[row.file] = lines",
+    "            end",
+    "            out[#out + 1] = \"{\\\"file\\\":\" .. json(row.file) .. \",\\\"line\\\":\" .. row.line .. \",\\\"text\\\":\" .. json(files[row.file][row.line] or \"\") .. \",\\\"modmask\\\":\" .. row.modmask .. \",\\\"key\\\":\" .. json(row.key) .. \",\\\"keycode\\\":\" .. row.keycode .. \"}\"",
+    "        end",
+    "        return \"vgs-user-binds=[\" .. table.concat(out, \",\") .. \"]\"",
+    "    end",
+    "end"
+];
+// The index of the last line of the core's sections in LINES.
+const coreEnd = lines => lines.indexOf(USER_BINDS_SECTION[0]) + USER_BINDS_SECTION.length - 1;
+
 // The key capture pass-through, byte for byte: its submap's one bind is
 // Escape, so every other key reaches the shell window that entered it;
 // Hyprland leaves it on Escape, on that window's close, after the 10 s
@@ -637,14 +696,14 @@ function verify(logic, layer, shellText) {
     const gapsOther = lines(layer.render([gapsSection(true)], otherTheme, "dusk", 1));
     same(gapsOther.slice(gapsOther.indexOf(NO_GAPS_SECTION[0]), gapsOther.indexOf(NO_GAPS_SECTION[0]) + NO_GAPS_SECTION.length), NO_GAPS_SECTION, "another theme leaves the gap rule as it was");
     assert.ok(bareLines.indexOf(TUI_SECTION[0]) < bareLines.indexOf(APP_SECTION[0]), "floating TUIs are before application windows");
-    same(bareLines.slice(bareLines.indexOf(TUI_SECTION[0])), [...TUI_SECTION, "", ...APP_SECTION, "", ...captureSection([]), "", ...PASSTHROUGH_SECTION, "", ...LOCK_SECTION, "", ...SWEEP_SECTION, ""], "a layer with no plugin section ends with the floating TUIs window rules, the application window rule, overlay capture, the key capture pass-through, the session lock's restore, then the pads' sweep");
+    same(bareLines.slice(bareLines.indexOf(TUI_SECTION[0])), [...TUI_SECTION, "", ...APP_SECTION, "", ...captureSection([]), "", ...PASSTHROUGH_SECTION, "", ...LOCK_SECTION, "", ...USER_BINDS_SECTION, "", ...SWEEP_SECTION, ""], "a layer with no plugin section ends with the floating TUIs window rules, the application window rule, overlay capture, the key capture pass-through, the session lock's restore, the user binds' recorder, then the pads' sweep");
     // Pads: the section of the first plugin by id whose pads are declared,
     // after its binds, its motion from the theme.
     same(layer.PADS, { table: "__vgs_pads", verb: "toggle", workspace: "special:vgs-pad-", curve: "vgsPad", answers: ["no-pad", "no-window", "no-screen"] }, "the pads name their Lua table, toggle, workspace prefix, curve and the keys of their refusals");
     const padsLines = lines(layer.render([padsFixture(logic, "acme.pads")], theme, "vgs", 1, null, ""));
     const padsAt = padsLines.indexOf(PADS_SECTION[0]);
     same(padsLines.slice(padsAt, padsAt + PADS_SECTION.length), PADS_SECTION, "the pads section is written byte for byte");
-    assert.ok(padsAt > padsLines.indexOf("hl.bind(\"SUPER + ALT + P\", hl.dsp.global(\"acme.pads:pad-1\"), { description = \"acme.pads:pad-1\" })") && padsAt > padsLines.indexOf(LOCK_SECTION[1]), "the pads follow the plugin's binds and the core's sections");
+    assert.ok(padsAt > padsLines.indexOf("hl.bind(\"SUPER + ALT + P\", hl.dsp.global(\"acme.pads:pad-1\"), { description = \"acme.pads:pad-1\" })") && padsAt > coreEnd(padsLines), "the pads follow the plugin's binds and the core's sections");
     const padsOf = (out, line) => lines(out).filter(l => l.startsWith(line));
     const stillTheme = Object.assign({}, theme, { motionScale: 0 });
     same(padsOf(layer.render([padsFixture(logic, "acme.pads")], stillTheme, "vgs", 1, null, ""), "    local pads = { list"), ["    local pads = { list = {}, before = {}, prefix = \"special:vgs-pad-\", motion = nil }"], "a theme that moves nothing gives the pads no motion");
@@ -789,6 +848,8 @@ function verify(logic, layer, shellText) {
         "",
         ...LOCK_SECTION,
         "",
+        ...USER_BINDS_SECTION,
+        "",
         "-- acme.keys 2?os.exit(): binds and layer rules from its manifest",
         "hl.layer_rule({ name = \"acme.keys:overlay\", match = { namespace = \"^vgs:overlay$\" }, blur = true, ignore_alpha = 0.6 })",
         "hl.layer_rule({ name = \"acme.keys:layer\", match = { namespace = \"^vgs:layer$\" }, blur = false })",
@@ -842,7 +903,7 @@ function verify(logic, layer, shellText) {
     const optionSection = row => logic.hyprlandSection(optionConfig(row), optionManifest);
     const optionText = (sections, touchpads) => layer.render(sections, theme, "vgs", 1, touchpads);
     const optionsOut = optionText([optionSection({ sensitivity: 0.35, tap: false, layouts: "us,de" })], null);
-    const optionsTail = lines(optionsOut).slice(lines(optionsOut).indexOf(LOCK_SECTION[1]) + 1);
+    const optionsTail = lines(optionsOut).slice(coreEnd(lines(optionsOut)) + 1);
     same(applied(optionsOut).slice(-2), [
         "-- acme.keys 1.0.0: input options its settings set",
         "hl.config({ input = { sensitivity = 0.35, touchpad = { tap_to_click = false }, kb_layout = \"us,de\" } })"
@@ -852,7 +913,7 @@ function verify(logic, layer, shellText) {
     same(quietOptions.slice(APPLIED_AT, quietOptions.indexOf("-- Theme appearance: borders left to the user's config; b is off.") - 1),
         appliedSection(["input.sensitivity"], ["-- acme.keys 1.0.0: input options its settings set", "hl.config({ input = { sensitivity = 0.35 } })"]),
         "the applied section holds the options line, byte for byte, and reads no per-device option");
-    same(quietOptions.slice(quietOptions.indexOf(LOCK_SECTION[1]) + 1, quietOptions.indexOf(LOCK_SECTION[1]) + 4), ["", "-- acme.keys 1.0.0: input options its settings set", "hl.device({ name = \"elan-touchpad\", enabled = false })"], "a touchpad's line stays with its plugin's section");
+    same(quietOptions.slice(coreEnd(quietOptions) + 1, coreEnd(quietOptions) + 4), ["", "-- acme.keys 1.0.0: input options its settings set", "hl.device({ name = \"elan-touchpad\", enabled = false })"], "a touchpad's line stays with its plugin's section");
     same(optionsTail, [
         "",
         "-- acme.keys 1.0.0: binds and layer rules from its manifest",
@@ -1160,10 +1221,12 @@ const CONTROLS = [
     [layerFile, "floating TUI class anchored", "return \"\\\"^\" + appId.split(\".\").join(\"\\\\\\\\.\") + \"$\\\"\";", "return \"\\\"\" + appId.split(\".\").join(\"\\\\\\\\.\") + \"\\\"\";"],
     [layerFile, "application window rule written", "tuiWindowLines(theme.tuiMargins), [\"\"], appWindowLines());", "tuiWindowLines(theme.tuiMargins));"],
     [layerFile, "application window rule after the TUIs", "tuiWindowLines(theme.tuiMargins), [\"\"], appWindowLines());", "appWindowLines(), [\"\"], tuiWindowLines(theme.tuiMargins));"],
-    [layerFile, "session lock restore written", "keyPassthroughLines(), [\"\"], sessionLockLines());", "keyPassthroughLines());"],
-    [layerFile, "no monitor rule written", "[\"\"], keyPassthroughLines(), [\"\"], sessionLockLines());", "[\"\"], keyPassthroughLines(), [\"\"], sessionLockLines(), [\"hl.monitor({ output = \\\"DP-1\\\", disabled = true })\"]);"],
+    [layerFile, "session lock restore written", "keyPassthroughLines(), [\"\"], sessionLockLines(), [\"\"], userBindLines());", "keyPassthroughLines(), [\"\"], userBindLines());"],
+    [layerFile, "user binds' recorder written", "sessionLockLines(), [\"\"], userBindLines());", "sessionLockLines());"],
+    [layerFile, "user binds' recorder records the user's call sites", "binds.rows[#binds.rows + 1] = { file = ", "local _ = { file = "],
+    [layerFile, "no monitor rule written", "[\"\"], sessionLockLines(), [\"\"], userBindLines());", "[\"\"], sessionLockLines(), [\"\"], userBindLines(), [\"hl.monitor({ output = \\\"DP-1\\\", disabled = true })\"]);"],
     [layerFile, "key pass-through written", "[\"\"], keyPassthroughLines(), [\"\"], sessionLockLines()", "[\"\"], sessionLockLines()"],
-    [layerFile, "key pass-through before the lock restore", "lines = lines.concat([\"\"], overlayCaptureLines(plan), [\"\"], keyPassthroughLines(), [\"\"], sessionLockLines());", "lines = lines.concat([\"\"], overlayCaptureLines(plan), [\"\"], sessionLockLines(), [\"\"], keyPassthroughLines());"],
+    [layerFile, "key pass-through before the lock restore", "lines = lines.concat([\"\"], overlayCaptureLines(plan), [\"\"], keyPassthroughLines(), [\"\"], sessionLockLines(),", "lines = lines.concat([\"\"], overlayCaptureLines(plan), [\"\"], sessionLockLines(), [\"\"], keyPassthroughLines(),"],
     [layerFile, "key pass-through cancels on Escape", "hl.dsp.submap(\\\"reset\\\"), { description = ", "hl.dsp.exec_cmd(\\\"true\\\"), { description = "],
     [layerFile, "key pass-through leaves only its submap", "        \"        if hl.get_current_submap() == passthrough.submap then hl.dispatch(hl.dsp.submap(\\\"reset\\\")) end\",", "        \"        hl.dispatch(hl.dsp.submap(\\\"reset\\\"))\","],
     [layerFile, "key pass-through enters only from a shell window", "if window == nil or window.class ~= passthrough.class then error(", "if window == nil then error("],
@@ -1178,7 +1241,7 @@ const CONTROLS = [
     [shellFile, "shell.qml sets the shell's app-id", "//@ pragma AppId org.vgs.shell\n", ""],
     [shellFile, "shell.qml's app-id is the layer's", "//@ pragma AppId org.vgs.shell\n", "//@ pragma AppId org.vgs.other\n"],
     [shellFile, "the app-id pragma comes before the imports", "//@ pragma AppId org.vgs.shell\nimport QtQuick\n", "import QtQuick\n//@ pragma AppId org.vgs.shell\n"],
-    [layerFile, "overlay capture section written", "lines = lines.concat([\"\"], overlayCaptureLines(plan), [\"\"], keyPassthroughLines(), [\"\"], sessionLockLines());", "lines = lines.concat([\"\"], keyPassthroughLines(), [\"\"], sessionLockLines());"],
+    [layerFile, "overlay capture section written", "lines = lines.concat([\"\"], overlayCaptureLines(plan), [\"\"], keyPassthroughLines(),", "lines = lines.concat([\"\"], keyPassthroughLines(),"],
     [layerFile, "capture binds enabled plugin shortcuts", "].concat(overlayCapturePluginBindLines(plan), [", "].concat([], ["],
     [layerFile, "capture wraps focus dispatchers", "hl.dsp.focus = function(opts)", "hl.dsp.focus = capture.focus --"],
     [layerFile, "capture wraps binds", "hl.bind = function(keys, dispatcher, opts)", "hl.bind = capture.bind --"],

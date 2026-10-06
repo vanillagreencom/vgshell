@@ -14,7 +14,10 @@ import "HyprlandLayer.js" as Layer
 // itself on Escape, on the close of the window that entered it, on a
 // timeout and when the layer runs again; the owner reads each submap change
 // from Hyprland's event socket and ends a capture whose submap is gone, so
-// the control and Hyprland agree.
+// the control and Hyprland agree. It also answers who else holds a key,
+// with the file and line of each user bind that holds it, and takes such a
+// line out of the user's file, or puts it back, for the field that shows
+// the conflict.
 Scope {
     id: root
 
@@ -56,6 +59,12 @@ Scope {
     // Plain state a conflict question writes while a binding reads it, so
     // the write notifies no binding.
     property var bindsRetry: ({ asked: false })
+    // The lines removeUserBind took out, by the token it answered, each {
+    // file, line, undo } with the undo the edit printed, so an undo puts
+    // back only a line the core itself removed. A later removal or undo in
+    // the same file moves the lines after it, and each row's line with
+    // them. Plain state: no binding reads it.
+    property var removedBinds: ({ next: 1, rows: {} })
 
     onHolderChanged: if (holder === null && phase !== "idle") finish("destroyed")
 
@@ -77,7 +86,9 @@ Scope {
                     Qt.callLater(() => root.ask(ctx));
                 }
                 return root.conflicts(key, id, shortcut);
-            }
+            },
+            removeUserBind: (key, done) => root.removeUserBind(key, value => { if (ctx.active) done(value); }),
+            restoreUserBind: (token, done) => root.restoreUserBind(token, value => { if (ctx.active) done(value); })
         };
     }
 
@@ -180,9 +191,58 @@ Scope {
         const names = {};
         for (const p of found.plugins)
             if (Logic.hasOwn(Registry.manifests, p.id)) names[p.id] = Registry.manifests[p.id].name;
-        const answer = { plugins: found.plugins, user: found.user, binds: state };
+        const userBinds = found.user ? source.userBindsFor(Logic.hyprlandKey(key).key) : [];
+        const answer = { plugins: found.plugins, user: found.user, binds: state, userBinds: userBinds };
         answer.hint = Logic.conflictHint(answer, names);
         return answer;
+    }
+
+    // Take the one user line that binds KEY, a key a plugin's bind asks
+    // for, out of its file, and answer DONE with { ok: true, token, file,
+    // line } or { ok: false, error }. The core finds the line itself; the
+    // caller names only the key.
+    function removeUserBind(key, done) {
+        const read = Logic.hyprlandKey(key);
+        const asked = read.ok && Registry.hyprlandSections.some(section => section.binds.some(bind => bind.key === read.key));
+        const rows = read.ok && bindsSource !== null ? bindsSource.userBindsFor(read.key).filter(row => row.removable) : [];
+        if (!asked) { done({ ok: false, error: "refused: user-bind=no-plugin-key key=" + key }); return; }
+        if (rows.length !== 1) { done({ ok: false, error: "refused: user-bind=lines count=" + rows.length + " key=" + read.key }); return; }
+        const row = rows[0];
+        bindsSource.editBinds(["remove-bind", row.file, String(row.line), read.key], value => {
+            if (!value.ok) { done(value); return; }
+            root.shiftRemoved(row.file, row.line + 1, -1);
+            const m = / undo=(\{.*\})$/.exec(value.said);
+            if (m === null) { done({ ok: false, error: "refused: user-bind=unread reply=" + JSON.stringify(value.said) }); return; }
+            const token = String(removedBinds.next);
+            removedBinds.next += 1;
+            removedBinds.rows[token] = { file: row.file, line: row.line, undo: JSON.parse(m[1]) };
+            done({ ok: true, token: token, file: row.file, line: row.line });
+        });
+    }
+
+    // Put back the line removeUserBind answered TOKEN for, once; DONE gets
+    // { ok: true } or { ok: false, error }.
+    function restoreUserBind(token, done) {
+        const row = Logic.hasOwn(removedBinds.rows, token) ? removedBinds.rows[token] : null;
+        if (row === null || bindsSource === null) { done({ ok: false, error: "refused: user-bind=no-undo token=" + token }); return; }
+        bindsSource.editBinds(["restore-bind", row.file, String(row.line), JSON.stringify(row.undo)], value => {
+            if (value.ok) {
+                delete removedBinds.rows[token];
+                const m = / line=([0-9]+)$/.exec(value.said);
+                root.shiftRemoved(row.file, m === null ? row.line : Number(m[1]), 1);
+            }
+            done(value.ok ? { ok: true } : value);
+        });
+    }
+
+    // Move by BY the line of each removed row of FILE at line FROM or after:
+    // a hint restore-bind reads only where the line's neighbours meet in
+    // several places.
+    function shiftRemoved(file, from, by) {
+        for (const token of Object.keys(removedBinds.rows)) {
+            const row = removedBinds.rows[token];
+            if (row.file === file && row.line >= from) row.line += by;
+        }
     }
 
     Connections {

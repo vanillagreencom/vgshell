@@ -101,6 +101,7 @@ kh_hint_within() {
 hypr_lua_save keyhints
 kh_lua
 expect "the nested instance reloads with the Key Hints harness bind" ok hypr reload config-only
+kh_user_hint="\"Also used by your Hyprland config at ~/.config/hypr/hyprland.lua line $(grep -nF 'hl.bind("SUPER + T"' "$home/.config/hypr/hyprland.lua" | cut -d: -f1).\""
 kh_config_errors() { hypr -j configerrors | py_reply 'import json,sys; print(json.dumps([e for e in json.load(sys.stdin) if e]))'; }
 expect_poll "the nested instance holds no configuration error" '[]' kh_config_errors
 
@@ -110,7 +111,7 @@ kh_toggle || fail "typing SUPER+SLASH failed"
 expect_poll "SUPER+SLASH opens the Key Hints window" 1 window_count "$kh_title"
 expect_poll "the Key Hints window has the keyboard" "[\"$shell_class\", \"$kh_title\"]" active_window
 expect_poll "the window draws exactly the vgs. binds hyprctl reports" same kh_same
-expect_poll "the Themes row shows the user bind on its default key with no interaction" '"Also used by your other shortcuts."' kh_field "$kh_themes" conflict
+expect_poll "the Themes row shows the user bind on its default key with no interaction" "$kh_user_hint" kh_field "$kh_themes" conflict
 
 expect_poll "the Themes row's field takes the focus" focused ipc smoke invokeInstance window vgs.keyhints focusKeyField "$kh_themes"
 type_keys "wallpaper" || fail "typing on the Themes row's field failed"
@@ -194,7 +195,7 @@ if copy_tree keyhints-unfiltered \
   expect_poll "control: the unfiltered window draws the disabled launcher's row" '["vgs.launcher:toggle"]' kh_rows vgs.launcher
   kh_differs() { local got; got="$(kh_same)" || return 1; [[ $got == same ]] && echo same || echo differs; }
   expect_poll "control: rows of disabled plugins differ from hyprctl's binds" differs kh_differs
-  expect "control: the Themes row draws no hint within the real reading's window" absent kh_hint_within "$kh_themes" '"Also used by your other shortcuts."'
+  expect "control: the Themes row draws no hint within the real reading's window" absent kh_hint_within "$kh_themes" "$kh_user_hint"
   expect "control: Key Hints is hidden" ok ipc shell hide window vgs.keyhints
   case "$kh_launcher_before" in
     True)

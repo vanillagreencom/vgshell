@@ -80,6 +80,38 @@ inst "a missing hypr subcommand is exit 2" "$cfg" "$rt_empty" 2 "" "vgshell: ref
 inst "an argument after wire is exit 2" "$cfg" "$rt_empty" 2 "" "vgshell: refused: argument=now" hypr wire now
 inst "an argument after state is exit 2" "$cfg" "$rt_empty" 2 "" "vgshell: refused: argument=now" hypr state now
 
+# remove-bind takes one whole bind line out of a user file under the hypr
+# directory, through the directory's symlink, with the mode kept and no
+# other byte changed; restore-bind puts the printed line back byte for
+# byte. Each refuses a line that is no whole call binding the key, a file
+# outside the hypr directory and an absent file.
+cfg="$tmp/cfg-binds"; mkdir -p "$cfg" "$tmp/dot-binds"; ln -s -- "$tmp/dot-binds" "$cfg/hypr"
+binds="$cfg/hypr/binds.lua"
+printf 'local mod = "SUPER"\nhl.bind("SUPER + F7", hl.dsp.exec_cmd("true")) -- mine\nhl.bind(\n  "SUPER + F8", hl.dsp.exec_cmd("true"))\n' >"$tmp/dot-binds/binds.lua"
+chmod 640 -- "$tmp/dot-binds/binds.lua"; cp -- "$tmp/dot-binds/binds.lua" "$tmp/binds-own"
+removed_line='hl.bind("SUPER + F7", hl.dsp.exec_cmd("true")) -- mine'
+undo='{"text":"hl.bind(\"SUPER + F7\", hl.dsp.exec_cmd(\"true\")) -- mine\n","before":"local mod = \"SUPER\"\n","after":"hl.bind(\n"}'
+inst "remove-bind takes the line out and prints it with its neighbours" "$cfg" "$rt_empty" 0 "ok hypr=bind-removed path=$binds line=2 undo=$undo" "" hypr remove-bind "$binds" 2 SUPER+F7
+check "remove-bind leaves every other line as it was" cmp -s -- "$tmp/dot-binds/binds.lua" <(grep -vxF -- "$removed_line" "$tmp/binds-own")
+check "remove-bind keeps the directory a symlink" test "$(readlink -- "$cfg/hypr")" == "$tmp/dot-binds"
+check "remove-bind keeps the file's mode" test "$(stat -c %a -- "$tmp/dot-binds/binds.lua")" == 640
+inst "restore-bind puts the line back" "$cfg" "$rt_empty" 0 "ok hypr=bind-restored path=$binds line=2" "" hypr restore-bind "$binds" 2 "$undo"
+check "restore-bind gives the file its bytes back" cmp -s -- "$tmp/dot-binds/binds.lua" "$tmp/binds-own"
+inst "a line binding another key is refused" "$cfg" "$rt_empty" 1 "" "vgshell: refused: hypr=user-bind path=$binds not-whole line=2 key=SUPER+F9" hypr remove-bind "$binds" 2 SUPER+F9
+inst "a call over two lines is refused" "$cfg" "$rt_empty" 1 "" "vgshell: refused: hypr=user-bind path=$binds not-whole line=3 key=SUPER+F8" hypr remove-bind "$binds" 3 SUPER+F8
+inst "a line past the end is refused" "$cfg" "$rt_empty" 1 "" "vgshell: refused: hypr=user-bind path=$binds no-line line=9 lines=4" hypr remove-bind "$binds" 9 SUPER+F7
+inst "a restored line that is no bind call is refused" "$cfg" "$rt_empty" 1 "" "vgshell: refused: hypr=user-bind path=$binds not-whole line=1" hypr restore-bind "$binds" 1 '{"text":"os.execute(\"true\")\n","before":null,"after":"local mod = \"SUPER\"\n"}'
+inst "an undo that is no JSON is refused" "$cfg" "$rt_empty" 1 "" "vgshell: refused: hypr=user-bind path=$binds undo-unread" hypr restore-bind "$binds" 1 'hl.bind("SUPER + F7", f)'
+inst "a line whose neighbours no longer meet is refused" "$cfg" "$rt_empty" 1 "" "vgshell: refused: hypr=user-bind path=$binds moved line=2 places=0" hypr restore-bind "$binds" 2 "$undo"
+check "the refusals leave the file as it was" cmp -s -- "$tmp/dot-binds/binds.lua" "$tmp/binds-own"
+printf '%s\n' "$removed_line" >"$tmp/outside.lua"
+inst "a file outside the hypr directory is refused" "$cfg" "$rt_empty" 1 "" "vgshell: refused: hypr=outside-config path=$tmp/outside.lua" hypr remove-bind "$tmp/outside.lua" 1 SUPER+F7
+inst "a path climbing out of the hypr directory is refused" "$cfg" "$rt_empty" 1 "" "vgshell: refused: hypr=outside-config path=$cfg/hypr/../../outside.lua" hypr remove-bind "$cfg/hypr/../../outside.lua" 1 SUPER+F7
+check "the outside file keeps its line" grep -qxF -- "$removed_line" "$tmp/outside.lua"
+inst "an absent file is refused and not created" "$cfg" "$rt_empty" 1 "" "vgshell: refused: hypr=wiring-file-absent path=$cfg/hypr/none.lua" hypr remove-bind "$cfg/hypr/none.lua" 1 SUPER+F7
+check "the absent file stays absent" test ! -e "$cfg/hypr/none.lua"
+inst "remove-bind with two arguments is exit 2" "$cfg" "$rt_empty" 2 "" "vgshell: refused: arguments=2 want=3" hypr remove-bind "$binds" 2
+
 # render asks the running shell, and needs one.
 inst "render with no shell exits 69" "$cfg" "$rt_empty" 69 "" "vgshell: refused: shell=not-running lock=$rt_empty/vgshell.lock" hypr render
 INST_REPLY=ok inst "render prints the shell's ok" "$cfg" "$rt_live" 0 "ok" "" hypr render
@@ -146,6 +178,10 @@ tree_control always-changed bin/vgshell-hypr-judge 'changed = typeof next === "s
 INST_BIN="$THEME_BIN" inst "the always-changed mutant reports an unchanged unwire as a change" "$cfg" "$rt_empty" 0 "ok hypr=unwired path=$lua" "" hypr unwire
 tree_control state-always-wired bin/vgshell-hypr-judge 'render.wiredText(text, line, undefined) === null ? "wired" : "unwired"' 'true ? "wired" : "unwired"'
 INST_BIN="$THEME_BIN" inst "the state mutant reports an unwired file as wired" "$cfg" "$rt_empty" 0 "ok hypr=wired path=$lua" "" hypr state
+cfg="$tmp/cfg-binds"; cp -- "$tmp/binds-own" "$tmp/dot-binds/binds.lua"
+tree_control binds-outside bin/vgshell-hypr-judge 'if (!State.bindFileEditable(target, path.join(path.resolve(configHome), "hypr")) || ' 'if ('
+INST_BIN="$THEME_BIN" inst "the unconfined mutant edits a file outside the hypr directory" "$cfg" "$rt_empty" 0 "$any_out" "" hypr remove-bind "$tmp/outside.lua" 1 SUPER+F7
+check "the unconfined mutant removes the outside line" test ! -s "$tmp/outside.lua"
 unset THEME_BIN
 # shellcheck disable=SC2016
 tree_control edit-parent bin/vgshell '[[ $part != .. ]] || return 3' '[[ $part != .. ]] || return 0'

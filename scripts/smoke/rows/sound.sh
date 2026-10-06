@@ -240,6 +240,7 @@ hypr_lua_save sound
   printf '%s\n' 'hl.config({ input = { resolve_binds_by_sym = true, follow_mouse = 0 }, cursor = { no_warps = true }, misc = { mouse_move_focuses_monitor = false } })'
   printf '%s\n' "hl.bind(\"XF86AudioMicMute\", hl.dsp.exec_cmd(\"touch $sandbox/sound-user-mic\"), { description = \"Smoke user mic mute\" })"
 } >>"$home/.config/hypr/hyprland.lua"
+snd_user_hint="\"Also used by your Hyprland config at ~/.config/hypr/hyprland.lua line $(grep -nF 'hl.bind("XF86AudioMicMute"' "$home/.config/hypr/hyprland.lua" | cut -d: -f1).\""
 expect "the nested instance reloads with the Sound row's binds" ok hypr reload config-only
 expect_poll "the nested instance holds no configuration error" '[]' hypr_config_errors
 
@@ -323,7 +324,7 @@ expect_poll "the service reads the 5% step again" 5 ipc smoke readInstance servi
 
 # Use my binding: the user's own bind holds XF86AudioMicMute.
 settings_page_open vgs.sound
-expect_poll "the microphone mute key names the user's bind" '"Also used by your other shortcuts."' key_field vgs.sound mic-mute conflict
+expect_poll "the microphone mute key names the user's bind" "$snd_user_hint" key_field vgs.sound mic-mute conflict
 expect "only the key a user bind holds offers Use my binding" 1 snd_use_mine
 settings_press "Use my binding" || fail "the click on Use my binding failed"
 expect_poll "Use my binding unbinds the microphone mute shortcut" null snd_key mic-mute
@@ -353,7 +354,7 @@ open(path, "w").write(text.replace(old, "            onClicked: root.applyKey(ro
 PY
 rescan "rescan picks the Settings copy"
 settings_page_open vgs.sound
-expect_poll "control: the copy's microphone mute key names the user's bind" '"Also used by your other shortcuts."' key_field vgs.sound mic-mute conflict
+expect_poll "control: the copy's microphone mute key names the user's bind" "$snd_user_hint" key_field vgs.sound mic-mute conflict
 expect_poll "control: the copy offers Use my binding too" 1 snd_use_mine
 # The window mapped where the last press was, so the pointer moves before
 # it presses (validation-smoke.md).

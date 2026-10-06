@@ -26,7 +26,19 @@
 # reading []. A callback that keeps every value it reads failed "no option
 # has a user value while the user sets none after the line" and named
 # tap_to_click, kb_layout and repeat_rate beside the sensitivity.
-# inputs: scripts/smoke/fixtures/plugins/acme.hyprland/* scripts/smoke/fixtures/plugins/acme.hyprland-other/* shell/Core/PluginLogic.js shell/Core/HyprlandLayer.js shell/Core/HyprlandState.* shell/Core/Dispatch.js shell/Core/Compositor.qml scripts/smoke/rows/hyprland-consent.sh
+#
+# The user's own bind on the fixture's key: the capture and the Settings
+# Keys row name the file and line, the removal waits for the prompt and
+# Undo puts the line back byte for byte. Control runs on 2026-10-06, host
+# cachy, through this row after the consent row, each on a source_tree
+# copy of the shell: a layer whose recorder records no call site failed
+# "the capture names the user's file and line for the key", reading [],
+# and the Keys row named "your other shortcuts"; a copy whose restore puts
+# the line first and whose Keys row removes without asking failed "Remove
+# my line asks before it removes", "the line stays while the confirmation
+# asks" and "the user's files, their modes and the symlink are as they
+# were".
+# inputs: scripts/smoke/fixtures/plugins/acme.hyprland/* scripts/smoke/fixtures/plugins/acme.hyprland-other/* shell/Core/PluginLogic.js shell/Core/HyprlandLayer.js shell/Core/HyprlandState.* shell/Core/KeyCapture.qml shell/Core/Dispatch.js shell/Core/Compositor.qml shell/plugins/vgs.settings/* shell/Ui/controls/BindField.qml shell/Ui/controls/ShortcutField.qml bin/vgshell bin/vgshell-hypr-judge scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 hypr_lua="$home/.config/hypr/hyprland.lua"
 hypr_layer="$home/.local/state/vgshell/hypr/vgs.lua"
@@ -49,6 +61,12 @@ option_value() { hypr -j getoption "$1" | py_reply 'import json,sys; v=json.load
 keymaps() { hypr -j devices | py_reply 'import json,sys; print(json.dumps(sorted({k["active_keymap"] for k in json.load(sys.stdin)["keyboards"]})))'; }
 user_value_named() { read_options userValues | py_reply 'import json,sys; print(any(v["path"] == sys.argv[1] for v in json.load(sys.stdin)))' "$1"; }
 foreign_has() { read_options foreignBinds | py_reply 'import json,sys; print(sys.argv[1] in json.load(sys.stdin))' "$1"; }
+# Where the user binds the fixture's key, as the capture answers it:
+# [place, line, removable] per user line.
+user_bind_rows() { read_options conflict | py_reply 'import json,sys; print(json.dumps([[b["place"], b["line"], b["removable"]] for b in json.load(sys.stdin)["userBinds"]]))'; }
+user_bind_line() { if grep -qxF -- 'hl.bind("SUPER + F7", hl.dsp.exec_cmd("true"))' "$user_hypr/hyprland.lua"; then echo yes; else echo no; fi; }
+# Whether the Settings window's prompt shows.
+removal_asked() { ipc smoke dialogCard window vgs.settings | py_reply 'import json,sys; print(json.load(sys.stdin)["shown"])'; }
 reads_active() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["hyprland"]["active"]))'; }
 layer_has() { if grep -qxF -- "$1" "$hypr_layer"; then echo yes; else echo no; fi; }
 # The user's own files as they stand: the bytes and mode of input.lua and of
@@ -150,6 +168,28 @@ expect_poll "an option that holds is not overridden" '[]' read_options overridde
 expect_poll "the second fixture lists only its own user value" '[{"path":"input.repeat_delay","value":700}]' read_other_options userValues
 expect_poll "the second fixture's lost path is its one overridden path" '["input.sensitivity"]' read_other_options overridden
 expect_poll "a user bind on the same key shows in foreignBinds" True foreign_has SUPER+F7
+
+# The user's bind on the fixture's key: the capture and the Settings Keys
+# row name its file and line, Remove my line takes the line out only once
+# the confirmation is answered, and Undo puts it back; the user's files
+# reading as they were below proves the bytes, the mode and the symlink.
+bind_line="$(wc -l <"$user_hypr/hyprland.lua")"
+expect_poll "the capture names the user's file and line for the key" "[[\"~/.config/hypr/hyprland.lua\", $bind_line, true]]" user_bind_rows
+settings_page_open acme.hyprland
+expect_poll "the Keys row's line names the user's file and line" "\"Also used by your Hyprland config at ~/.config/hypr/hyprland.lua line $bind_line.\"" key_field acme.hyprland ping conflict
+settings_press "Remove my line" || fail "the click on Remove my line failed"
+expect_poll "Remove my line asks before it removes" True removal_asked
+expect "the line stays while the confirmation asks" yes user_bind_line
+click_in window:Settings window vgs.settings Button "Remove line" || fail "the click on Remove line failed"
+expect_poll "the answer closes the prompt" False removal_asked
+expect_poll "the confirmed removal takes the line out of the user's hyprland.lua" no user_bind_line
+expect_poll "the user's bind leaves Hyprland" False foreign_has SUPER+F7
+expect "the hypr directory stays a symlink to the user's directory" "$user_hypr" readlink -- "$home/.config/hypr"
+expect "the removal holds no configuration error" '[]' config_errors
+settings_press "Undo" || fail "the click on Undo failed"
+expect_poll "Undo puts the user's line back" yes user_bind_line
+expect_poll "the user's bind holds the key again" True foreign_has SUPER+F7
+settings_page_close acme.hyprland
 expect "the user's lines hold no configuration error" '[]' config_errors
 expect "a second reload is accepted" ok hypr reload
 expect "the set sensitivity holds after the second reload" '[0.35, true]' option_value input:sensitivity float
