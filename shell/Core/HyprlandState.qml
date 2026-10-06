@@ -52,8 +52,10 @@ Scope {
     property var userBindRows: null
     // The bind line edit running, { done, said }, or null.
     property var bindEdit: null
-    // The user's Hyprland directory, as bin/vgshell names it.
-    readonly property string hyprDir: (Quickshell.env("XDG_CONFIG_HOME") || (Quickshell.env("HOME") || "") + "/.config") + "/hypr"
+    // The user's configuration directory and Hyprland directory, as
+    // bin/vgshell names them.
+    readonly property string configDir: Quickshell.env("XDG_CONFIG_HOME") || (Quickshell.env("HOME") || "") + "/.config"
+    readonly property string hyprDir: configDir + "/hypr"
     property var keyResolution: null
 
     onActiveChanged: {
@@ -168,12 +170,15 @@ Scope {
     }
 
     // The user's binds of KEY, as hyprlandKey writes it: [{ file, line,
-    // text, removable, place }], `place` the file as a notice names it.
+    // text, removable, place, config }], `place` the file as a notice names
+    // it and `config` its path under the configuration directory, which
+    // `vgshell edit` opens, or "" for a file outside it.
     function userBindsFor(key) {
         if (root.userBindRows === null) return [];
         const home = Quickshell.env("HOME") || "";
         return root.userBindRows.filter(row => row.key === key)
-            .map(row => ({ file: row.file, line: row.line, text: row.text, removable: row.removable, place: State.bindPlace(row.file, home) }));
+            .map(row => ({ file: row.file, line: row.line, text: row.text, removable: row.removable, place: State.bindPlace(row.file, home),
+                config: row.file.indexOf(root.configDir + "/") === 0 ? row.file.slice(root.configDir.length + 1) : "" }));
     }
 
     // Run `vgshell hypr ARGS`, a bind line edit, then reload Hyprland, and

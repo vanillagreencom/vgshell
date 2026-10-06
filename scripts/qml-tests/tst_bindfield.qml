@@ -27,6 +27,7 @@ Item {
     }
 
     property var sent: []
+    property int linked: 0
 
     Column {
         width: parent.width
@@ -40,6 +41,8 @@ Item {
             actions: [
                 Button { id: extra; text: "Extra"; size: "sm" }
             ]
+            hintLink: "your other shortcuts"
+            onHintLinkActivated: root.linked += 1
             hintActions: [
                 Button { id: fix; text: "Fix"; size: "sm" },
                 Button { id: hidden; text: "Hidden"; size: "sm"; visible: false }
@@ -124,6 +127,16 @@ Item {
             let parent = extra.parent;
             while (parent !== null && parent !== input(row)) parent = parent.parent;
             verify(parent === input(row), "the action sits inside the row's ShortcutField");
+        }
+
+        function test_the_hint_cites_its_link_and_reports_it() {
+            const link = descendant(input(row), item => item.linked !== undefined && item.text === "Also used by your other shortcuts.");
+            verify(link !== null && link.linked, "the hint draws its cited text as a link");
+            const before = root.linked;
+            link.activated();
+            compare(root.linked, before + 1);
+            const plain = descendant(input(later), item => item.linked !== undefined && item.text === "Also used by your other shortcuts.");
+            verify(plain !== null && !plain.linked, "a field with no link draws plain text");
         }
 
         function test_a_hint_action_shown_later_draws() {

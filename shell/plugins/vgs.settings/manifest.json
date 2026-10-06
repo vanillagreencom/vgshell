@@ -22,7 +22,8 @@
     "manager",
     "screens",
     "shortcut",
-    "surfaces"
+    "surfaces",
+    "tui"
   ],
   "settings": {},
   "defaultSection": "right",

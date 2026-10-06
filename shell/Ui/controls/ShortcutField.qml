@@ -34,7 +34,9 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // the warning colour; it never blocks a combo. With `pluginId` and
 // `shortcut` naming the plugin bind the key belongs to, `found` is the
 // capture's `conflicts` answer for the key in effect and `conflict` its
-// `hint`, so every field that shows a bind's key shows the same line. The
+// `hint`, so every field that shows a bind's key shows the same line.
+// `hintLink`, when set, names the substring of that conflict line that
+// opens a cited file through `hintLinkActivated`. The
 // `hintActions` are controls for the hint, such as the ways out of a
 // conflict it names: they draw on a line of their own under it, wrapping
 // within the field's width, and take no room while none shows. The
@@ -57,6 +59,7 @@ FocusScope {
     // null with no capture, no bind or no key.
     readonly property var found: capture === null || pluginId === "" || key === "" ? null : capture.conflicts(key, pluginId, shortcut)
     property string conflict: found === null ? "" : found.hint
+    property string hintLink: ""
     property bool focusPreview: false
     property alias actions: actionRow.data
     property alias hintActions: hintActionRow.data
@@ -80,6 +83,7 @@ FocusScope {
     signal committed(string key)
     signal typed(string text)
     signal cleared()
+    signal hintLinkActivated()
 
     implicitWidth: column.implicitWidth
     implicitHeight: column.implicitHeight
@@ -272,13 +276,15 @@ FocusScope {
             }
         }
 
-        Label {
+        LinkText {
             role: "hint"
             width: parent.width
             wrapMode: Text.Wrap
             color: root.hintIsNotice ? Theme.color.danger : Theme.color.warning
             text: root.hint
+            link: root.hintIsNotice ? "" : root.hintLink
             visible: text !== ""
+            onActivated: root.hintLinkActivated()
         }
 
         // Always visible, since a hidden parent would hide the controls it

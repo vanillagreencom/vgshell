@@ -443,6 +443,7 @@ FocusScope {
                                 edits: unsaved
                                 onApplyKey: key => { if (page !== null && page.row !== null) settle(key, Reply.isOk(page.panel.writeKey(pluginId, modelData.shortcut, key))); }
                                 onRemovalAsked: row => page.panel.confirmRemoval(keyField, row)
+                                onLineAsked: row => page.panel.openUserLine(row)
                             }
                         }
                     }

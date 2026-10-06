@@ -7,7 +7,8 @@ import qs.Ui
 // change something. The reset button, for a key with a default, sends undefined, which removes the shell.json entry so the
 // manifest's key applies. While a user Hyprland bind holds the key, the
 // conflict line under the field names the file and line that bind sits
-// on, and three buttons under that line resolve it in one click: Remove my line asks the
+// on, as a link that opens that line in the user's editor, and three
+// buttons under that line resolve it in one click: Remove my line asks the
 // page to confirm, then the key capture takes that line out of the user's
 // file and reloads Hyprland, so the plugin's bind keeps the key; Pick
 // another key starts a capture for the plugin's bind; Use my binding
@@ -40,7 +41,11 @@ BindField {
     // Undo puts back; null before a removal and after the undo.
     property var removed: null
     property string problem: ""
+    // The first user line holding the key, whose file and line the
+    // conflict line cites as a link that opens it in the user's editor.
+    readonly property var citedLine: found === null || !userHolds || !found.userBinds || found.userBinds.length === 0 ? null : found.userBinds[0]
     signal removalAsked(var row)
+    signal lineAsked(var row)
 
     function save() { shortcutField.acceptTyped(); }
     function discard() { shortcutField.stopTyping(); }
@@ -100,6 +105,8 @@ BindField {
     hint: removed !== null ? "Removed line " + removed.line + " of " + removed.place + "."
         : bind["default"] === null ? "No default shortcut." : "Default shortcut: " + bind["default"] + "."
     error: problem
+    hintLink: citedLine === null || citedLine.config === "" ? "" : citedLine.place + " line " + citedLine.line
+    onHintLinkActivated: if (citedLine !== null) lineAsked(citedLine)
 
     hintActions: [
         Button {

@@ -135,6 +135,13 @@ FocusScope {
         if (left) then();
     }
 
+    // Open ROW, a user line a Keys row cites, at its line in the user's
+    // editor.
+    function openUserLine(row) {
+        const answer = shell.tui.edit(row.config, row.line);
+        if (answer !== "ok") console.warn("settings: edit " + answer);
+    }
+
     // FIELD, a Keys row, asks to take ROW, a user line holding its key, out
     // of the user's file.
     function confirmRemoval(field, row) {

@@ -10,7 +10,8 @@ import qs.Ui
 // capture's conflict hint for the key, the same line wherever a bind is
 // shown. `found` is the capture's `conflicts` answer the hint comes from,
 // `actions` are buttons a caller adds after the field's own,
-// `hintActions` controls it draws on a line under that hint, and
+// `hintActions` controls it draws on a line under that hint, `hintLink`
+// the hint's cited file, reported by `hintLinkActivated`, and
 // `shortcutField` is the field itself, for a caller that reads or ends its
 // text entry.
 Field {
@@ -24,9 +25,11 @@ Field {
     property var capture: null
     property alias actions: input.actions
     property alias hintActions: input.hintActions
+    property alias hintLink: input.hintLink
     readonly property var found: input.found
     readonly property alias shortcutField: input
     signal applyKey(var key)
+    signal hintLinkActivated()
 
     readonly property string shown: bind.key === null || bind.key === undefined ? "" : String(bind.key)
 
@@ -44,5 +47,6 @@ Field {
         onCommitted: key => root.applyKey(key)
         onTyped: text => root.applyKey(text === "" ? null : text)
         onCleared: root.applyKey(null)
+        onHintLinkActivated: root.hintLinkActivated()
     }
 }
