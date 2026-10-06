@@ -78,14 +78,15 @@ Item {
         // background's, so no second border shows outside the control. On
         // a primary button's accent fill, which the focus colour meets
         // below 3:1, it draws in white or black, whichever contrasts more
-        // with the fill; a secondary button paints no fill, so its ring
-        // keeps focusRing.color.
+        // with the fill, focusRing.offset inside the edge so the fill
+        // shows on both sides; a secondary button paints no fill, so its
+        // ring keeps focusRing.color on the edge.
         function test_the_ring_draws_on_the_control_edge_in_a_colour_its_fill_shows() {
             const contrast = Theme.contrastOf(primary.background.color);
             verify(String(Qt.color(contrast)) !== String(Qt.color(Theme.focusRing.color)), "the primary case draws apart from the focus colour");
             const cases = [
-                { button: primary, color: contrast },
-                { button: secondary, color: Theme.focusRing.color }
+                { button: primary, color: contrast, inset: Theme.focusRing.offset },
+                { button: secondary, color: Theme.focusRing.color, inset: 0 }
             ];
             for (const c of cases) {
                 const fill = c.button.background;
@@ -97,8 +98,9 @@ Item {
                 c.button.focus = false;
                 c.button.forceActiveFocus(Qt.TabFocusReason);
                 tryCompare(ring, "visible", true);
-                compare([ring.x, ring.y, ring.width, ring.height], [0, 0, fill.width, fill.height], c.button.text + " ring box");
-                compare(ring.radius, fill.radius);
+                const i = c.inset;
+                compare([ring.x, ring.y, ring.width, ring.height], [i, i, fill.width - 2 * i, fill.height - 2 * i], c.button.text + " ring box");
+                compare(ring.radius, fill.radius === 0 ? 0 : Math.max(0, fill.radius - i), c.button.text + " ring corner");
                 compare(String(ring.border.color), String(Qt.color(c.color)), c.button.text + " ring colour");
                 c.button.focus = false;
                 tryCompare(ring, "visible", false);
@@ -147,14 +149,15 @@ Item {
         }
 
         // The ring follows the button's own corner under a rounded theme,
-        // and the side padding grows until the label clears the round end.
+        // inset with the primary button's contrast ring, and the side
+        // padding grows until the label clears the round end.
         function test_rounded_button_clears_its_corner_and_rings_it() {
             compare(UnitTheme.override({ button: { radius: 4096 } }), "ok");
             const want = Inset.controlPadding(Theme.button.size.sm.paddingX, 4096, small.height, small.implicitContentHeight, Theme.space.xs);
             verify(want > Theme.button.size.sm.paddingX, "the sm pill's label needs more than its pad: " + want);
             tryCompare(small, "leftPadding", want);
             const ring = small.background.children[small.background.children.length - 1];
-            compare(ring.radius, 4096);
+            compare(ring.radius, 4096 - Theme.focusRing.offset);
         }
 
         // An icon button's glyph insets reach the ink: chevron-left's ink
