@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- A dropdown's title switch that controls less than the title names shows what it controls in a small dim label at its left: "Wi-Fi" in Network, "Tailscale" in VPN. Bluetooth's switch shows no label.
 - A plain `fastfetch` shows the theme: apply links its `config.jsonc` unless you have your own. In Ghostty and kitty the logo is a square crop of the current wallpaper, as tall as the information beside it and level with its first line; it follows each wallpaper change. Other terminals show the VGS logo as text. `fastfetch --config vgs` is gone. The theme's list leaves out Host and GPU and shows the root disk only, so its height stays 15 lines.
 - The VGS logo in floating terminals takes the terminal's own text colour, not the theme accent.
 - The bundled `light` theme is removed; `vgs` is the one bundled theme. The light themes are in the theme catalog, such as `flexoki-light`, which the theme browser installs.

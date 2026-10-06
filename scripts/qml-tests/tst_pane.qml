@@ -279,6 +279,36 @@ Item {
             made.destroy();
         }
 
+        function switchLabel(of) { return titleRow(of).children[2]; }
+
+        // A switch that controls less than the title names says what it
+        // controls at its left; one that controls the titled feature, or
+        // no switch at all, draws no label.
+        function test_switch_label_shows_only_when_the_switch_names_another_thing_data() {
+            return [
+                { tag: "names another thing", title: "Network", name: "Wi-Fi", shown: true, labelled: true },
+                { tag: "names the title", title: "Bluetooth", name: "Bluetooth", shown: true, labelled: false },
+                { tag: "no switch", title: "Network", name: "Wi-Fi", shown: false, labelled: false },
+            ];
+        }
+
+        function test_switch_label_shows_only_when_the_switch_names_another_thing(data) {
+            const made = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nPane { width: 240; container: "panel"; fitToContent: true\nItem { width: parent.width; height: 20 } }', root, "switchLabel");
+            made.title = data.title;
+            made.switchName = data.name;
+            made.switchShown = data.shown;
+            const label = switchLabel(made);
+            compare(label.visible, data.labelled);
+            if (data.labelled) {
+                const toggle = made.headerSwitch;
+                compare(label.text, data.name);
+                compare(label.role, "hint");
+                compare(label.x + label.width + Theme.stack.inline, toggle.mapToItem(titleRow(made), 0, 0).x);
+                verify(titleLabel(made).width <= label.x - Theme.stack.inline, "the title leaves the label room");
+            }
+            made.destroy();
+        }
+
         function test_title_switch_sits_beside_the_settings_gear() {
             const host = settingsHost.createObject(root);
             const of = host.titled;

@@ -7,7 +7,9 @@ import qs.Ui
 // edge. A non-empty `title` draws the shared dropdown title as h3 and can
 // put a feature switch at the row's end; plugins pass the switch's state
 // and action, and the switch stays beside the Settings gear when one
-// shows. The header slot stays below that row, so a plugin can add a
+// shows. A switch that controls less than the title names, such as Wi-Fi
+// under Network, carries its `switchName` as a hint label at its left, so
+// it does not read as switching off the whole feature. The header slot stays below that row, so a plugin can add a
 // sentence without owning the dropdown title pattern. The scroll bar lives
 // in the right inset strip, outside the body's content width, so content
 // never moves when it overflows. The footer stays outside the scrolling
@@ -69,7 +71,9 @@ Item {
     readonly property real gearRoom: gear.item ? gear.item.width + Theme.stack.inline : 0
     readonly property Item headerSwitch: switchLoader.item
     readonly property bool hasTitle: title !== ""
-    readonly property real switchRoom: switchLoader.item ? switchLoader.item.width + Theme.stack.inline : 0
+    readonly property bool switchLabelShown: switchLoader.item !== null && switchName !== title
+    readonly property real switchLabelRoom: switchLabelShown ? switchLabel.implicitWidth + Theme.stack.inline : 0
+    readonly property real switchRoom: switchLoader.item ? switchLoader.item.width + Theme.stack.inline + switchLabelRoom : 0
     readonly property real titleRowHeight: hasTitle ? Math.max(titleLabel.implicitHeight, switchLoader.item ? switchLoader.item.height : 0, gear.item ? gear.item.height : 0) : 0
     readonly property real headerSlotImplicitHeight: headerSlot.children.length > 0 ? headerSlot.implicitHeight : 0
     readonly property real titleToHeaderGap: titleRowHeight > 0 && headerSlotImplicitHeight > 0 ? Theme.row.lineGap : 0
@@ -198,6 +202,18 @@ Item {
                     root.switchToggled(wanted);
                 }
             }
+        }
+
+        // The switch's accessible name already says this, so a screen
+        // reader skips the label rather than read the name twice.
+        Label {
+            id: switchLabel
+            role: "hint"
+            text: root.switchName
+            visible: root.switchLabelShown
+            x: switchLoader.x - Theme.stack.inline - width
+            y: topForCapCenter(parent.height)
+            Accessible.ignored: true
         }
     }
 
