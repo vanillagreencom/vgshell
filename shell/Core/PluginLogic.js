@@ -1931,11 +1931,12 @@ function noticeAdmit(queue, rest, id, request, trigger, now) {
 // What NOTICE, { commands, required }, shows for plugin MANIFEST after the
 // last scan, whose missing requirements are MISSING, on a system whose managers
 // are FOUND, detect's answer, or null when detection has no answer:
-// { satisfied, rows, install, byHand }. `satisfied` holds once no requirement
-// of `required` is missing. `rows` are the listed requirements still missing,
-// in declaration order, each { name, purpose, optional, package }, the
-// package PackageManagers.installGroups picks, null with FOUND null or when
-// no present manager maps one. `install` is the arguments after
+// { satisfied, rows, groups, install, byHand }. `satisfied` holds once no
+// requirement of `required` is missing. `rows` are the listed requirements
+// still missing, in declaration order, each { name, purpose, optional,
+// package }, the package PackageManagers.installGroups picks, null with
+// FOUND null or when no present manager maps one. `groups` are those rows
+// as noticeGroups gathers them. `install` is the arguments after
 // `vgshell pkg run install` of the first group whose manager installs, null
 // when none does; one Install runs one manager's packages, and the notice
 // offers the next group once a rescan finds the first installed.
@@ -1947,12 +1948,31 @@ function noticeView(manifest, missing, notice, found) {
     var plan = found === null ? { picks: rows.map(function () { return null; }), groups: [] } : PackageManagers.installGroups(rows, found);
     var installable = plan.groups.filter(function (g) { return g.installs; });
     var install = installable.length === 0 ? null : PackageManagers.installArgs(installable[0]);
+    var shown = rows.map(function (row, i) { return { name: row.name, purpose: row.purpose, optional: row.optional, package: plan.picks[i] }; });
     return {
         satisfied: satisfied,
-        rows: rows.map(function (row, i) { return { name: row.name, purpose: row.purpose, optional: row.optional, package: plan.picks[i] }; }),
+        rows: shown,
+        groups: noticeGroups(shown),
         install: install,
         byHand: plan.groups.filter(function (g) { return !g.installs; }).map(function (g) { return { manager: g.manager, names: g.names }; })
     };
+}
+
+// ROWS, noticeView's, as the user installs them: one entry per package,
+// keyed by its name, or per requirement when no package is known, keyed by
+// the requirement's name, in first-appearance order, each { chip, packaged,
+// purposes }. Two requirements one package provides read as one thing to
+// install, and a package is never merged with a requirement of its name.
+function noticeGroups(rows) {
+    var out = [];
+    rows.forEach(function (row) {
+        var packaged = row.package !== null;
+        var chip = packaged ? row.package.name : row.name;
+        var held = out.filter(function (g) { return g.packaged === packaged && g.chip === chip; })[0];
+        if (held === undefined) out.push({ chip: chip, packaged: packaged, purposes: [row.purpose] });
+        else held.purposes.push(row.purpose);
+    });
+    return out;
 }
 
 // QUEUE after a scan, the notices of OWNERS, the core's owner and each

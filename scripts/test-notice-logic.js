@@ -157,6 +157,31 @@ function suite(ctx, check) {
         const v = ctx.noticeView(needs, missing, notice, found);
         check("noticeView: " + name, [v.satisfied, v.rows.map(rowText), v.install, v.byHand], want);
     }
+    // noticeView's groups: [name, found, want as chip, packaged and
+    // purposes per group]. vgs-a and vgs-b come from one package, and the
+    // command `shared`, with no package, carries that package's name.
+    const sharing = ctx.validateManifest({
+        schemaVersion: 1, id: "acme.sharing", name: "Sharing", version: "1", author: "a", description: "d",
+        kinds: ["service"], entryPoints: { service: "S.qml" }, capabilities: ["requirements"],
+        requirements: [
+            { command: "vgs-a", packages: { pacman: "shared" }, purpose: "A" },
+            { command: "vgs-c", purpose: "C" },
+            { command: "vgs-b", packages: { pacman: "shared" }, optional: true, purpose: "B" },
+            { command: "shared", purpose: "D" },
+            { command: "vgs-e", packages: { aur: "other-git" }, purpose: "E" },
+        ],
+    }, "/p").manifest;
+    const sharingMissing = ["vgs-a", "vgs-c", "vgs-b", "shared", "vgs-e"];
+    const groupRows = [
+        ["requirements one package provides are one group, in first-appearance order", ARCH,
+            [["shared", true, ["A", "B"]], ["vgs-c", false, ["C"]], ["shared", false, ["D"]], ["other-git", true, ["E"]]]],
+        ["without packages each requirement is its own group", null,
+            [["vgs-a", false, ["A"]], ["vgs-c", false, ["C"]], ["vgs-b", false, ["B"]], ["shared", false, ["D"]], ["vgs-e", false, ["E"]]]],
+    ];
+    for (const [name, found, want] of groupRows) {
+        const v = ctx.noticeView(sharing, sharingMissing, n("acme.sharing", sharingMissing, ["vgs-a"]), found);
+        check("noticeView groups: " + name, v.groups.map(g => [g.chip, g.packaged, g.purposes]), want);
+    }
     const coreView = ctx.noticeView(core, ["gum"], n("core", ["gum"], ["gum"]), ARCH);
     check("noticeView: the core's notice installs its package", [coreView.satisfied, coreView.rows.map(rowText), coreView.install], [false, ["gum (pacman/gum) optional: Dialogs"], ["gum"]]);
 
@@ -320,6 +345,8 @@ const CONTROLS = [
     ["the queue is not changed in place", "var merged = queue.slice();", "var merged = queue;"],
     ["a view lists only missing commands", "return row.state === \"missing\" && notice.commands.indexOf(row.name) !== -1; });\n    var satisfied", "return notice.commands.indexOf(row.name) !== -1; });\n    var satisfied"],
     ["a view is satisfied only without a required command", "var satisfied = !notice.required.some(", "var satisfied = notice.required.some("],
+    ["a view groups the requirements one package provides", "if (held === undefined) out.push(", "if (true) out.push("],
+    ["a group keeps a package apart from a requirement of its name", "g.packaged === packaged && g.chip === chip", "g.chip === chip"],
     ["a view installs only through an installing manager", "var installable = plan.groups.filter(function (g) { return g.installs; });", "var installable = plan.groups;"],
     ["a settle keeps the installing notice", "        if (n.id === installing)\n            return true;\n", ""],
     ["a settle drops a notice whose owner went", "        if (!hasOwn(owners, n.id))\n            return false;\n", ""],

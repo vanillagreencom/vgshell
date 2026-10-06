@@ -891,8 +891,9 @@ Scope {
         function toastCloseGeometry(index: int): string { return Plugins.hosts.toast === undefined ? "absent" : IpcPages.answer(Plugins.hosts.toast.closeGeometry(index)); }
         function toastWindowGeometry(index: int): string { return Plugins.hosts.toast === undefined ? "absent" : IpcPages.answer(Plugins.hosts.toast.toastWindowGeometry(index)); }
         // The core notice dialog: whether an item in it holds the keyboard
-        // focus, and what it draws as { title, message, rows, actions,
-        // busy }, `rows` the visible lines under the message.
+        // focus, and what it draws as { title, message, rows, groups,
+        // actions, busy }, `rows` the visible lines under the message and
+        // `groups` each chip with the lines under it.
         function noticeFocused(): bool {
             const dialog = Plugins.hosts.notice === undefined ? null : Plugins.hosts.notice.dialog;
             return dialog !== null && root.descendants(dialog).some(child => child.activeFocus);
@@ -938,10 +939,18 @@ Scope {
                 const label = root.descendants(cap.parent).find(child => root.typeName(child) === "Label" && child.visible);
                 return { shortcut: cap.shortcut, text: label === undefined ? "" : label.text };
             });
+            // A requirement notice's entries: each chip's text, then the
+            // lines drawn under it in its block.
+            const groups = root.descendants(dialog).filter(child => root.typeName(child) === "Badge" && child.visible).map(badge => {
+                const inBadge = root.descendants(badge);
+                const lines = root.descendants(badge.parent).filter(child => root.typeName(child) === "Label" && child.visible && inBadge.indexOf(child) === -1);
+                return [badge.text, lines.map(line => line.text)];
+            });
             return root.json({
                 title: dialog.title,
                 message: dialog.message,
                 rows: linkTexts.map(link => link.text).concat(labels.map(label => label.text)).filter(text => text !== dialog.title && text !== dialog.message && !dialog.entries.some(entry => entry.label === text)),
+                groups: groups,
                 keysTitle: keyTitle === undefined ? "" : keyTitle.text,
                 keys: keyRows,
                 // The button that holds the keyboard, by its text or label.

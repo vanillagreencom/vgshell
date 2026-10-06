@@ -5,7 +5,8 @@
 # when the stub reports it installed, then disables the plugin and checks its
 # shortcuts, its status child and its bridge child are gone. Without
 # voxtype, the openTui IPC function, the launcher's route, raises the
-# Voice requirement notice in place of Configure and opens no script; its
+# Voice requirement notice in place of Configure and opens no script, the
+# notice drawing voxtype and its bridge under the one package of both; its
 # control is a disposable manifest copy whose Configure declares no
 # `requires`, which launches the script with no notice. Set up on the
 # Settings page raises the same notice in place of its script; Install hands the terminal voxtype-bin through the AUR helper,
@@ -39,7 +40,7 @@
 # setting, theme and copy the display part changes is put back; it reuses
 # the Voice client above. States and frames poll once per IPC round trip;
 # no latency budget is claimed.
-# inputs: shell/plugins/vgs.voice/* shell/plugins/vgs.voice/shaders/* shell/Ui/feedback/VoiceOrb.qml shell/Ui/feedback/shaders/* shell/Core/Layers.qml shell/Hosts/LayerHost.qml shell/Hosts/OverlaySurface.qml shell/Core/ShortcutRegistry.qml shell/Core/HyprlandLayer.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Core/PluginLogic.js shell/Core/PackageManagers.js bin/vgshell-pkg bin/vgshell-tui shell/plugins/vgs.settings/* scripts/smoke/keyboard/* scripts/smoke/toplevel/* scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/plugins/vgs.voice/* shell/plugins/vgs.voice/shaders/* shell/Ui/feedback/VoiceOrb.qml shell/Ui/feedback/shaders/* shell/Core/Layers.qml shell/Hosts/LayerHost.qml shell/Hosts/OverlaySurface.qml shell/Core/ShortcutRegistry.qml shell/Core/HyprlandLayer.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Ui/feedback/Badge.qml shell/Ui/foundation/Divider.qml shell/Core/PluginLogic.js shell/Core/PackageManagers.js bin/vgshell-pkg bin/vgshell-tui shell/plugins/vgs.settings/* scripts/smoke/keyboard/* scripts/smoke/toplevel/* scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 
 voice_log="$sandbox/voice-record.log"
@@ -639,6 +640,8 @@ EOF_PKG
 chmod 755 "$sandbox/voice-vgshell-pkg.stub"
 cp -- "$sandbox/voice-vgshell-pkg.stub" "$repo/bin/vgshell-pkg.next" && mv -T -- "$repo/bin/vgshell-pkg.next" "$repo/bin/vgshell-pkg"
 voice_resumes() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["notices"]["resumes"]))'; }
+# The notice's entries as [chip, the number of lines under it].
+voice_notice_groups() { ipc smoke noticeDrawn | py_reply 'import json,sys; print(json.dumps([[g[0], len(g[1])] for g in json.load(sys.stdin)["groups"]]))'; }
 voice_engine_installed() {
   cp -- "$sandbox/voice-voxtype.stub" "$voice_stub" && cp -- "$sandbox/voice-bridge.stub" "$voice_bridge_stub" && chmod 755 "$voice_stub" "$voice_bridge_stub"
 }
@@ -665,6 +668,7 @@ forget_record
 expect "openTui of Configure without voxtype is answered" ok ipc shell openTui vgs.voice/configure
 expect_poll "openTui of Configure without voxtype raises the Voice notice in place of its script" "$voice_asked" notice_shown
 expect "the notice holds the Configure the open asked for" '{"vgs.voice": "configure"}' voice_resumes
+expect_poll "the notice draws voxtype and its bridge under the one package that provides both" '[["voxtype-bin", 2]]' voice_notice_groups
 expect "no Configure run is asked for while the notice shows" idle key_idle vgs.voice/configure
 expect "the terminal is handed no Configure script" absent recorded
 voice_notice_escape "the Configure notice"

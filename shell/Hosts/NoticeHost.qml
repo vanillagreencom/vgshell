@@ -9,9 +9,10 @@ import qs.Ui
 // existing only while a requirement notice, the restart notice, the reset
 // question, the "VGS was reset" notice or the core consent slot shows,
 // taking the keyboard on demand. It draws one Dialog at a time. A
-// requirement notice has priority: each missing requirement with its purpose
-// first, then Install and Not now, or Close alone when no manager here
-// installs a listed package. Install runs Notices.accept, every other
+// requirement notice has priority: one entry per package that installs a
+// missing requirement, its name as a chip with each purpose under it, then
+// Install and Not now, or Close alone when no manager here installs a
+// listed package. Install runs Notices.accept, every other
 // answer Notices.dismiss. The consent slot draws its view's title, message,
 // lines, file link, quick commands and actions: the Hyprland question's
 // Connect and Not now, or the welcome's Connect, Not now or Close. The
@@ -34,16 +35,16 @@ Scope {
     // The dialog, for a validation row that reads its focus.
     readonly property Item dialog: loader.item === null ? null : loader.item.dialog
 
-    // What names a listed requirement under its purpose: the requirement,
-    // then this system's package for it, as the command line's reports
-    // name it (requirements.md § Command line), then whether it is
-    // optional, joined by a middle dot.
-    function rowNote(row) {
-        return [row.name].concat(row.package === null ? [] : ["package " + row.package.name], row.optional ? ["optional"] : []).join(" · ");
+    // "<Name> needs one package" or "<Name> needs N packages", counting
+    // the shown notice's groups (PluginLogic.noticeGroups); requirements
+    // when no group has a package.
+    function title(shown) {
+        const noun = shown.groups.some(g => g.packaged) ? "package" : "requirement";
+        return shown.name + " needs " + (shown.groups.length === 1 ? "one " + noun : shown.groups.length + " " + noun + "s");
     }
 
     function message(shown) {
-        if (shown.install !== null) return "Install the missing packages now? The package manager asks for your password in a terminal.";
+        if (shown.install !== null) return "Install opens a terminal. The package manager asks for your password there.";
         if (shown.byHand.length > 0) return "Add these packages to the system configuration: " + shown.byHand.map(g => g.manager + " " + g.names.join(" ")).join(", ") + ".";
         if (Notices.detection === "failed") return "VGS could not detect this system's package manager. Install these requirements by hand.";
         return "No package manager here provides these requirements. Install them by hand.";
@@ -78,7 +79,7 @@ Scope {
                 id: card
                 anchors.centerIn: parent
                 width: implicitWidth
-                title: win.consentMode ? win.consent.title : win.shown.name + " needs " + (win.shown.rows.length === 1 ? "one requirement" : win.shown.rows.length + " requirements")
+                title: win.consentMode ? win.consent.title : host.title(win.shown)
                 message: win.consentMode ? win.consent.message : host.message(win.shown)
                 actions: win.consentMode ? win.consent.actions : win.shown.install !== null ? [{ label: "Install", role: "accept" }, { label: "Not now", role: "cancel" }] : [{ label: "Close", role: "cancel" }]
                 busy: win.consentMode && win.consent.busy
@@ -145,31 +146,44 @@ Scope {
                         }
                     }
                 }
-                // The missing requirements, one list `stack.row` apart, a
-                // block of the dialog's body `dialog.gap` under the message:
-                // each its purpose, with its name under it as a hint, as a
-                // Field draws a label's hint.
+                // The packages to install, a block of the dialog's body
+                // `dialog.gap` under the message: each its name as a chip,
+                // with each purpose under it as a hint, as a Field draws a
+                // label's hint, and a divider `stack.row` from each side
+                // between two entries.
                 Column {
                     width: parent.width
                     spacing: Theme.stack.row
                     visible: !win.consentMode
                     Repeater {
-                        model: win.consentMode ? [] : win.shown.rows
+                        model: win.consentMode ? [] : win.shown.groups
                         Column {
                             required property var modelData
+                            required property int index
                             width: parent.width
-                            spacing: Theme.field.gap
-                            Label {
-                                role: Theme.dialog.bodyRole
+                            spacing: Theme.stack.row
+                            Divider {
                                 width: parent.width
-                                wrapMode: Text.Wrap
-                                text: modelData.purpose
+                                visible: index > 0
                             }
-                            Label {
-                                role: "hint"
+                            Column {
                                 width: parent.width
-                                wrapMode: Text.Wrap
-                                text: host.rowNote(modelData)
+                                spacing: Theme.field.gap
+                                Badge {
+                                    text: modelData.chip
+                                    tone: "neutral"
+                                    size: "sm"
+                                }
+                                Repeater {
+                                    model: modelData.purposes
+                                    Label {
+                                        required property string modelData
+                                        role: "hint"
+                                        width: parent.width
+                                        wrapMode: Text.Wrap
+                                        text: modelData
+                                    }
+                                }
                             }
                         }
                     }

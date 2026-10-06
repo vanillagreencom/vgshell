@@ -6,8 +6,8 @@
 # paru, whatever the host runs. The notice is the core's, with the Plugins
 # window closed throughout. Rows: `vgshell plugin add` raises the notice
 # through pluginInstalled, which maps one surface on the focused monitor
-# holding the keyboard and drawing each missing command with this system's
-# package; the surface fills the monitor less the bar's reserved space less
+# holding the keyboard and drawing one chip per package with the purposes
+# under it, the command's name when no package is known; the surface fills the monitor less the bar's reserved space less
 # `dialog.margin`, clears the bar by that margin and centres the dialog; a
 # click on the bar's acme.tick widget reaches it while the notice shows; a
 # click on the surface beside the dialog reaches the acme.layers fixture's
@@ -26,7 +26,7 @@
 # alone with Close. The enable trigger's control is
 # scripts/smoke/rows/notices-control.sh, the suite's last row: a shell copy
 # without the trigger raises no notice.
-# inputs: scripts/smoke/fixtures/plugins/acme.needs/* shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Core/PackageManagers.js bin/vgshell-pkg bin/vgshell shell/Core/PluginLogic.js scripts/smoke/fixtures/plugins/acme.layers/* scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/rows/toasts.sh scripts/smoke/rows/manager.sh scripts/smoke/rows/settings.sh bin/vgshell-tui
+# inputs: scripts/smoke/fixtures/plugins/acme.needs/* shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Ui/feedback/Badge.qml shell/Ui/foundation/Divider.qml shell/Core/PackageManagers.js bin/vgshell-pkg bin/vgshell shell/Core/PluginLogic.js scripts/smoke/fixtures/plugins/acme.layers/* scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/rows/toasts.sh scripts/smoke/rows/manager.sh scripts/smoke/rows/settings.sh bin/vgshell-tui
 set -euo pipefail
 needs_src="$sandbox/src/acme.needs"
 mkdir -p "$needs_src"
@@ -101,11 +101,13 @@ install_words() {
   words --app-id=org.vgs.tui "--title=VGS · Install requirements" -- "$tui_self" present --presentation full \
     --record core/requirements-install --run RUN --record-dir "$rt_dir/vgshell/tui" --app-id org.vgs.tui --window-title "VGS · Install requirements" -- "$core_vgshell" pkg run install "$@"
 }
-# Each listed requirement reads as its purpose, then a hint naming its
-# command, this system's package and whether it is optional (D061), as
-# `drawn` prints them, the middle dot escaped.
-needs_rows='["The command the fixture runs", "vgs-smoke-needs \u00b7 package vgs-smoke-needs-pkg", "An extra the fixture can do without", "vgs-smoke-extra \u00b7 package vgs-smoke-extra-git \u00b7 optional", "A command no manager here provides", "vgs-smoke-unmapped \u00b7 optional"]'
+# The notice draws one entry per package: its name as a chip with each
+# purpose under it, or the command's name when no package is known (D061).
+# group_shape reads each entry as [chip, the number of lines under it].
+group_shape() { ipc smoke noticeDrawn | py_reply 'import json,sys; print(json.dumps([[g[0], len(g[1])] for g in json.load(sys.stdin)["groups"]]))'; }
+needs_groups='[["vgs-smoke-needs-pkg", 1], ["vgs-smoke-extra-git", 1], ["vgs-smoke-unmapped", 1]]'
 rows_hold() { ipc smoke noticeDrawn | py_reply 'import json,sys; print(str(any(sys.argv[1] in r for r in json.load(sys.stdin)["rows"])).lower())' "$1"; }
+row_drawn() { ipc smoke noticeDrawn | py_reply 'import json,sys; print(str(sys.argv[1] in json.load(sys.stdin)["rows"]).lower())' "$1"; }
 all_needs='["vgs-smoke-needs", "vgs-smoke-extra", "vgs-smoke-unmapped"]'
 
 expect "no notice shows at first" null notice_shown
@@ -159,8 +161,10 @@ expect "the layer under the notice is hidden" ok layered undraw
 expect "disabling the layers fixture under the notice is allowed" ok ipc shell setPluginEnabled acme.layers false
 expect_poll "the layers fixture under the notice is gone" False record_exists acme.layers
 expect_poll "the notice holds the keyboard after the clicks" true ipc smoke noticeFocused
-expect "the notice names the plugin and the count" '"Needs needs 3 requirements"' drawn title
-expect "each missing requirement is drawn as its purpose, then its command and this system's package" "$needs_rows" drawn rows
+expect "the notice draws one chip per package, the command's when no package is known" "$needs_groups" group_shape
+expect "no line names a command whose package is known" false row_drawn "vgs-smoke-needs"
+expect "control: the same reading finds the command no package provides" true row_drawn "vgs-smoke-unmapped"
+expect "no line marks a requirement optional" false rows_hold "optional"
 expect "the notice draws no Show command control" false rows_hold "Show command"
 expect "no row of the notice's body draws a command line" false rows_hold "pkg run install"
 expect "control: the same reading finds a purpose the body draws" true rows_hold "The command the fixture runs"
@@ -300,7 +304,7 @@ expected_errors+=('notices: detect=failed exit=70 status=0 vgshell: refused: stu
 expect "enabling the fixture while detection fails raises the notice" ok ipc shell setPluginEnabled acme.needs true
 expect_poll "the notice shows with detection failed" 1 layer_count vgs:notice
 expect_log "the failed detection is logged" 1 'notices: detect=failed exit=70 status=0 vgshell: refused: stub=vgshell-pkg'
-expect "a notice without managers draws each requirement without a package" '["The command the fixture runs", "vgs-smoke-needs", "An extra the fixture can do without", "vgs-smoke-extra \u00b7 optional", "A command no manager here provides", "vgs-smoke-unmapped \u00b7 optional"]' drawn rows
+expect "a notice without managers draws each requirement's command as its chip" '[["vgs-smoke-needs", 1], ["vgs-smoke-extra", 1], ["vgs-smoke-unmapped", 1]]' group_shape
 expect "a notice without an install draws no Show command control" false rows_hold "Show command"
 expect "a notice without an install offers Close alone" '["Close"]' drawn actions
 expect "the message says detection failed" '"VGS could not detect this system'"'"'s package manager. Install these requirements by hand."' drawn message
