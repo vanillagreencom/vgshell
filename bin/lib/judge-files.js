@@ -191,8 +191,8 @@ function lockFile(file, wait) {
 // The edit then runs once more on a fresh read, so EDIT may run twice and
 // must assign only what each run answers. A second change answers the
 // failure `KEY=changed path=<file>`, the file a symlink names, the user's
-// bytes left as they saved them. A save inside the instant between the last read and the rename is
-// still lost, since no editor takes a lock.
+// bytes left as they saved them. A save inside the instant between the
+// last read and the rename is still lost, since no editor takes a lock.
 function editFile(key, file, create, edit) {
     const first = editOnce(key, file, create, edit);
     return first !== null && first.reason === "changed" ? editOnce(key, file, create, edit) : first;

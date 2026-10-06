@@ -58,9 +58,9 @@ BindField {
     // capture keeps the token's record until the undo or the field's
     // destruction releases it.
     property var removed: null
-    // Plain state a removal's reply reads: set when the field is destroyed,
-    // so a reply that comes later releases its record and touches no
-    // property of the field.
+    // Plain state a removal's or an undo's reply reads: set when the field
+    // is destroyed, so a reply that comes later touches no property of the
+    // field, and a removal's releases its record.
     readonly property var life: ({ gone: false })
     property string problem: ""
     // The first user line holding the key, whose file and line the
@@ -98,8 +98,10 @@ BindField {
 
     function undoRemoval() {
         const token = removed.token;
+        const life = root.life;
         problem = "";
         capture.restoreUserBind(token, reply => {
+            if (life.gone) return;
             if (!reply.ok) {
                 console.warn("settings: restore-bind " + reply.error);
                 root.problem = "VGS could not put that line back.";
