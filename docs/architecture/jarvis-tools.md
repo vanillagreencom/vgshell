@@ -55,7 +55,7 @@ No other daemon variable reaches a child: no key, no `VGSHELL_RUNNER_PID`.
 
 ## Bounds and outcomes
 
-The output ceiling is the [plan's command bound](../plans/jarvis-plan.md#311-bounds), 64 KiB. A child ends after 10 s, and Session's tool limit is 12 s, so the child's own end reports first. These are recovery bounds for a compositor, bus or daemon that never answers, not measured latencies.
+The output ceiling is the [plan's command bound](https://linear.app/vanillagreen/issue/VGS-623), 64 KiB. A child ends after 10 s, and Session's tool limit is 12 s, so the child's own end reports first. These are recovery bounds for a compositor, bus or daemon that never answers, not measured latencies.
 
 | Child result | Outcome | Content |
 |---|---|---|

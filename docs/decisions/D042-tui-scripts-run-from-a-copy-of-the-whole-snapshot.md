@@ -6,7 +6,7 @@
 
 **Status**: Active
 
-**Research**: [docs/plans/platform-roadmap.md](../plans/platform-roadmap.md) § vgs.devtools (issues 45-47)
+**Research**: [platform roadmap, attached to VGS-511](https://linear.app/vanillagreen/issue/VGS-511) § vgs.devtools (issues 45-47)
 
 **Refines**: [D033](D033-floating-tuis-are-core.md)
 

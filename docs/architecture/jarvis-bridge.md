@@ -2,7 +2,7 @@
 
 Covers: shell/plugins/vgs.jarvis/backend/ToolBridge.js, shell/plugins/vgs.jarvis/backend/Mcp.js, shell/plugins/vgs.jarvis/backend/mcp-shim, shell/plugins/vgs.jarvis/backend/Private.js, scripts/test-jarvis-bridge.js, scripts/test-jarvis-mcp.js, scripts/fixtures/jarvis-bridge/
 
-[The plan § Process model](../plans/jarvis-plan.md#32-process-model-and-capture-lifetime) defines `mcp-shim`: the stdio MCP server a harness brain starts, relaying to `tools.sock` so the harness's tools reach the same router. [D079](../decisions/D079-brains-wire-and-harness-adapters.md) names the harness adapters. [D082](../decisions/D082-jarvis-approval-bound-to-the-action.md) makes the [action router](jarvis-approval.md) the one gate. The bridge adds no decision of its own.
+[The plan § Process model](https://linear.app/vanillagreen/issue/VGS-623) defines `mcp-shim`: the stdio MCP server a harness brain starts, relaying to `tools.sock` so the harness's tools reach the same router. [D079](../decisions/D079-brains-wire-and-harness-adapters.md) names the harness adapters. [D082](../decisions/D082-jarvis-approval-bound-to-the-action.md) makes the [action router](jarvis-approval.md) the one gate. The bridge adds no decision of its own.
 
 ## Owners
 

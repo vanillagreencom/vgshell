@@ -2,7 +2,7 @@
 
 Covers: shell/plugins/vgs.jarvis/Session.js, shell/plugins/vgs.jarvis/backend/Audio.js, shell/plugins/vgs.jarvis/backend/jarvisd.js, shell/plugins/vgs.jarvis/manifest.json, scripts/test-jarvis-audio.js, scripts/test-jarvis-audio-daemon.js, scripts/test-jarvis-session.js, scripts/test-jarvis-protocol.js
 
-Jarvis uses the half-duplex alternative in [the plan's J15](../plans/jarvis-plan.md#12-issue-breakdown). `Session.canCapture` and `Session.canPlayback` own admission. [Audio](jarvis-audio.md) executes those decisions through its existing leased recorder, player and feeds. It loads no echo module, so no module can retain a microphone after capture closes.
+Jarvis uses the half-duplex alternative in [the plan's J15](https://linear.app/vanillagreen/issue/VGS-623). `Session.canCapture` and `Session.canPlayback` own admission. [Audio](jarvis-audio.md) executes those decisions through its existing leased recorder, player and feeds. It loads no echo module, so no module can retain a microphone after capture closes.
 
 ## Admission and resume
 

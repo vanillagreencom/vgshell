@@ -12,7 +12,7 @@ This file holds how VGS is licensed and versioned, the install tree every channe
 - [distribution-nix.md](distribution-nix.md): the Nix flake.
 - [RELEASING.md](../RELEASING.md): the release flow, `scripts/release` and `scripts/publish-aur.sh`.
 
-Debian, Ubuntu, openSUSE, Gentoo and Void get no channel until their repositories carry Quickshell 0.3.1 and Hyprland with Lua configuration: decision 5 of [the platform roadmap](../plans/platform-roadmap.md#decisions). There, the install script or a checkout works once those tools are installed.
+Debian, Ubuntu, openSUSE, Gentoo and Void get no channel until their repositories carry Quickshell 0.3.1 and Hyprland with Lua configuration: decision 5 of [the platform roadmap](https://linear.app/vanillagreen/issue/VGS-511). There, the install script or a checkout works once those tools are installed.
 
 ## Licence
 

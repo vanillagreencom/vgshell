@@ -4,7 +4,7 @@
 
 **Date**: 2026-09-30
 **Status**: Active
-**Research**: [Jarvis plan § Brain adapters](../plans/jarvis-plan.md#36-brain-adapters), [§ 2.4 subscriptions](../plans/jarvis-plan-research.md#24-inference-what-may-run-on-a-subscription)
+**Research**: [Jarvis plan § Brain adapters](https://linear.app/vanillagreen/issue/VGS-623), [§ 2.4 subscriptions](https://linear.app/vanillagreen/issue/VGS-623)
 **Refines**: [D009](D009-one-manifest-judge-under-node.md), [D046](D046-slack-tokens-per-workspace-and-one-card-per-message.md)
 
 **Context**: Jarvis thinks on a model account the user already has. An account is an API key, a local server or a vendor subscription. Vendor terms allow a subscription only through the vendor's unmodified program; Anthropic forbids routing plan credentials elsewhere. VGS ships no npm tree, and the install tree and its four package channels have no route for one. Ten providers speak one HTTP wire, OpenAI's Chat Completions.
@@ -30,7 +30,7 @@
 
 | Alternative | Reason rejected |
 |---|---|
-| Vendor npm SDKs | VGS ships no npm tree and has no install route for one ([review finding 21](../plans/jarvis-plan-review.md)). The Claude path must stay the unmodified program. |
+| Vendor npm SDKs | VGS ships no npm tree and has no install route for one ([review finding 21](https://linear.app/vanillagreen/issue/VGS-623)). The Claude path must stay the unmodified program. |
 | Claude Code's permission prompt tool asking Policy for each built-in operation | A built-in tool takes a program, path or URL that Policy cannot classify from its arguments, and the bridge already carries every typed tool. Off is the simpler rule to verify. |
 | A Claude Code process per turn, resumed by session id | Resuming needs session files in the account directory, which keep conversation text outside Jarvis's retention settings. |
 | A subscription token read from a vendor's credential files | Vendor terms forbid it, and it copies a credential Jarvis does not own. |

@@ -2,7 +2,7 @@
 
 Covers: shell/plugins/vgs.displays/*.qml, shell/plugins/vgs.displays/*.js, shell/plugins/vgs.displays/manifest.json, scripts/test-displays-logic.js, scripts/smoke/rows/displays.sh
 
-`vgs.displays` sets the brightness of each display on its own: a bar widget per screen, a flyout, the brightness keys with an on-screen display, and System → Displays. It runs the brightness helper that [displays.md](displays.md) describes, and nothing else. The plan is [system-plan.md § 3.5](../plans/system-plan.md#35-displays--vgsdisplays-s15s17-s24). [D083](../decisions/D083-brightness-helper-and-uaccess-rule.md) records why a helper runs.
+`vgs.displays` sets the brightness of each display on its own: a bar widget per screen, a flyout, the brightness keys with an on-screen display, and System → Displays. It runs the brightness helper that [displays.md](displays.md) describes, and nothing else. The plan is [system-plan.md § 3.5](https://linear.app/vanillagreen/issue/VGS-697). [D083](../decisions/D083-brightness-helper-and-uaccess-rule.md) records why a helper runs.
 
 ## Parts
 

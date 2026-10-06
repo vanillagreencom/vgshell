@@ -6,7 +6,7 @@
 
 **Status**: Revisited
 
-**Research**: VGS-544, [docs/plans/platform-roadmap.md § vgs.themes](../plans/platform-roadmap.md#vgsthemes-catalog-per-screen-wallpaper-browsers-issues-29-41)
+**Research**: VGS-544, [platform roadmap, attached to VGS-511 § vgs.themes](https://linear.app/vanillagreen/issue/VGS-511)
 
 **Context**: Every screen draws the one `current` image in `backgrounds.json`, and no command shows an image the user chose. Users with more than one monitor want a different image per monitor, and the wallpaper browser needs a command that sets one image, for every screen or for one. A per-monitor mode flag would have to seed four maps from what each screen showed, so that turning the mode on changed nothing on screen, and every enable site would have to seed.
 

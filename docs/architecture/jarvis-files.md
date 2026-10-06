@@ -2,7 +2,7 @@
 
 Covers: shell/plugins/vgs.jarvis/backend/Files.js, bin/lib/anchored.js, scripts/test-jarvis-files.js
 
-The [Jarvis plan § 6](../plans/jarvis-plan.md#6-computer-use-and-browser-reference-set) defines the six file tools: list, read, search, write, move and delete, with Node's `fs` under `Denied.js`. [Policy](jarvis-policy.md) judges each call and [the router](jarvis-approval.md) proposes it after [Audit](jarvis-audit.md). This file defines the executor behind those calls.
+The [Jarvis plan § 6](https://linear.app/vanillagreen/issue/VGS-623) defines the six file tools: list, read, search, write, move and delete, with Node's `fs` under `Denied.js`. [Policy](jarvis-policy.md) judges each call and [the router](jarvis-approval.md) proposes it after [Audit](jarvis-audit.md). This file defines the executor behind those calls.
 
 ## Owners
 
@@ -74,7 +74,7 @@ These are recovery and resource ceilings for a large tree or file, not measured 
 
 ## Release labels and taint
 
-`files.list`, `files.read` and `files.search` carry source `file` in `Tools.TABLE`. A file name is content an outside party can choose, as the plan's [§ 3.8](../plans/jarvis-plan.md#38-release-gate-what-leaves-the-machine) labels it. The router taints the turn when a `file` result reaches it, and the [release gate](jarvis-release.md) withholds it from a cloud recipient as `[withheld: file text]` until the user grants it. Write, move and delete results carry no source label.
+`files.list`, `files.read` and `files.search` carry source `file` in `Tools.TABLE`. A file name is content an outside party can choose, as the plan's [§ 3.8](https://linear.app/vanillagreen/issue/VGS-623) labels it. The router taints the turn when a `file` result reaches it, and the [release gate](jarvis-release.md) withholds it from a cloud recipient as `[withheld: file text]` until the user grants it. Write, move and delete results carry no source label.
 
 ## Residual races
 

@@ -4,7 +4,7 @@
 
 **Date**: 2026-10-02
 **Status**: Active
-**Research**: [Jarvis plan](../plans/jarvis-plan.md#37-policy-authority-effects-approval-audit)
+**Research**: [Jarvis plan](https://linear.app/vanillagreen/issue/VGS-623)
 **Refines**: [D059](D059-keycodes-and-effective-shortcut-keys.md), [D070](D070-jarvis-action-policy.md)
 
 **Context**: Synthetic input must not activate the assistant's controls or deliver input to a protected surface. Effective key strings do not resolve physical key aliases. An active application can remain listed while a shell layer owns the keyboard.

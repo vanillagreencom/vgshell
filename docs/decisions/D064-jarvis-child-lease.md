@@ -4,7 +4,7 @@
 
 **Date**: 2026-09-30
 **Status**: Active
-**Research**: [Jarvis plan](../plans/jarvis-plan.md)
+**Research**: [Jarvis plan](https://linear.app/vanillagreen/issue/VGS-623)
 **Refines**: [D010](D010-facade-scope-not-sandbox.md), [D052](D052-automations-engine.md)
 
 **Context**: Jarvis must stop when its plugin or shell goes away. Its future microphone owner cannot outlive the indicator.

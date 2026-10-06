@@ -6,7 +6,7 @@
 
 **Status**: Active
 
-**Research**: [docs/plans/platform-roadmap.md](../plans/platform-roadmap.md) § 4
+**Research**: [platform roadmap, attached to VGS-511](https://linear.app/vanillagreen/issue/VGS-511) § 4
 
 **Context**: A long update or install session asks for the sudo password at every elevated step, and a session with an AI agent asks it for commands the owner watches but does not type. The owner asked for Omarchy's answer: `omarchy-sudo-passwordless` writes a sudoers rule that lets the user run any command as root without a password until a deadline, then removes it (basecamp/omarchy `e332dc97`). Such a grant is root for every process of the user while it lasts, so it must be opt-in, bounded, removed at the deadline, removed at boot and hard to reach by accident. [D033](D033-floating-tuis-are-core.md) gave the core a place where a user answers a question in a terminal they see; [D029](D029-chromium-policy-writer.md) set the precedent of a root half installed once by an owner command.
 

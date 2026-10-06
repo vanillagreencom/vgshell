@@ -29,7 +29,7 @@ Covers: shell/plugins/vgs.jarvis/backend/Sandbox.js, scripts/test-jarvis-sandbox
 | `error` | Filesystem, spawn or launch protocol failure. `stderr` or `error` names its cause. |
 | `stopped` | Cancellation, timeout, output limit or status limit. J49 reports this result and clipping, never success. |
 
-The owner acquires bwrap and tears down its namespace. [`Child.run`](jarvis-tools.md#owners) bounds its lifetime and output, as it does for the desktop tools; it ends bwrap alone, and bwrap's die-with-parent ends every descendant. The [plan § Bounds](../plans/jarvis-plan.md#311-bounds) sets the deadline and shared output ceiling Sandbox passes. Output counts UTF-8 text bytes after replacement of invalid bytes. The injected clock tests the deadline without waiting for it. J49 uses these bounds instead of creating another lifetime owner.
+The owner acquires bwrap and tears down its namespace. [`Child.run`](jarvis-tools.md#owners) bounds its lifetime and output, as it does for the desktop tools; it ends bwrap alone, and bwrap's die-with-parent ends every descendant. The [plan § Bounds](https://linear.app/vanillagreen/issue/VGS-623) sets the deadline and shared output ceiling Sandbox passes. Output counts UTF-8 text bytes after replacement of invalid bytes. The injected clock tests the deadline without waiting for it. J49 uses these bounds instead of creating another lifetime owner.
 
 Only bubblewrap's separate JSON status descriptor proves that exec completed. Stdout, stderr and a command's exit status cannot establish a valid launch. Bubblewrap closes that descriptor in the sandbox child.
 

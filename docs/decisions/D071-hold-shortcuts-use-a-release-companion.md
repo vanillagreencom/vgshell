@@ -6,7 +6,7 @@
 
 **Status**: Active
 
-**Research**: VGS-615, [Jarvis plan § Decisions to record](../plans/jarvis-plan.md#10-decisions-to-record), [Hyprland key research](../plans/jarvis-plan-research.md#21-hyprland-super--right-alt-v0562-source-not-yet-run-on-a-compositor)
+**Research**: VGS-615, [Jarvis plan § Decisions to record](https://linear.app/vanillagreen/issue/VGS-623), [Hyprland key research](https://linear.app/vanillagreen/issue/VGS-623)
 
 **Refines**: [D028](D028-one-generated-hyprland-layer.md), [D012](D012-core-owns-lent-objects.md)
 

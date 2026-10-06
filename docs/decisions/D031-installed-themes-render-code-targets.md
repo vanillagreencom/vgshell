@@ -6,7 +6,7 @@
 
 **Status**: Active
 
-**Research**: VGS-495, [docs/plans/omarchy-audit.md § Theme install, update, remove and trust](../plans/omarchy-audit.md#theme-install-update-remove-and-trust)
+**Research**: VGS-495, [Omarchy audit, attached to VGS-495 § Theme install, update, remove and trust](https://linear.app/vanillagreen/issue/VGS-495)
 
 **Context**: [D019](D019-theme-packages-carry-plugin-trust.md) wrote every curated target file byte for byte and gave any package plugin trust. Some target files load or run code when their application starts: `neovim.lua`, `wezterm.lua`, `emacs.el`, a terminal configuration that names the program it launches. Users install themes more casually than anything else. Unlike a plugin under [D007](D007-install-runs-no-plugin-code.md), a theme has no step that lands it disabled for review. `vgshell theme update` fast-forwards an installed package, and follow applies it again with no explicit apply. New code from a theme's author would therefore run at the next editor or terminal start. Omarchy's `omarchy-theme-set` drops every such file from a cloned theme (`INSTALLED_THEME_DENIED` and every `*.lua`) and renders the template in its place. Its `test/shell.d/theme-staging-test.sh` fails on a generated file it has not classified as code or colour.
 

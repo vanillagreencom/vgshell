@@ -6,7 +6,7 @@
 
 **Status**: Active
 
-**Research**: VGS-539, [docs/plans/platform-roadmap.md § Decisions](../plans/platform-roadmap.md#decisions)
+**Research**: VGS-539, [platform roadmap, attached to VGS-511 § Decisions](https://linear.app/vanillagreen/issue/VGS-511)
 
 **Context**: VGS offers 81 themes beyond the two it ships, with wallpapers in per-theme release archives on `vanillagreencom/vgs-themes` (release `themes`, pinned by size and sha256). `vgshell theme add` installs a theme only from a git URL. The theme-browser research weighed four sources for catalog definitions:
 

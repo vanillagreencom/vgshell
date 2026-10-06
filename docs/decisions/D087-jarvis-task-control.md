@@ -4,7 +4,7 @@
 
 **Date**: 2026-10-01
 **Status**: Active
-**Research**: [Jarvis plan § Coding-task delegation](../plans/jarvis-plan.md#7-coding-task-delegation), [review finding 12](../plans/jarvis-plan-review.md#13-review-dispositions)
+**Research**: [Jarvis plan § Coding-task delegation](https://linear.app/vanillagreen/issue/VGS-623), [review finding 12](https://linear.app/vanillagreen/issue/VGS-623)
 **Refines**: [D072](D072-coding-task-records-and-four-fact-state.md), [D033](D033-floating-tuis-are-core.md)
 
 **Context**: A coding agent runs in a terminal the user can watch: a tmux session or a floating TUI. Jarvis must stop it on request, and must never signal a process that is no longer the task's. A terminal's own process tree or window says nothing reliable about which processes belong to the agent, and a pid can be reallocated after the agent ends.

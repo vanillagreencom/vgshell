@@ -6,7 +6,7 @@
 
 **Status**: Active (tui/ copy → [D042](D042-tui-scripts-run-from-a-copy-of-the-whole-snapshot.md); run ends → [D043](D043-tui-run-ends-by-lock-release.md))
 
-**Research**: [docs/plans/platform-roadmap.md](../plans/platform-roadmap.md) § 1
+**Research**: [platform roadmap, attached to VGS-511](https://linear.app/vanillagreen/issue/VGS-511) § 1
 
 **Context**: VGS had no terminal window of its own. `vgshell plugin update` and `vgshell theme update` refuse `no-terminal` from the GUI, because the diff review is a question someone must answer. Updates, package installs, a passwordless sudo grant and plugin requirements all need a place where the user sees a password prompt or a `[y/N]` and answers it, and the shell process must never be that place. Omarchy solves this with one launcher script, `omarchy-launch-floating-terminal-with-presentation`, an app-id its window rule floats, and two helpers, `omarchy-show-logo` and `omarchy-show-done` (basecamp/omarchy `e332dc97`).
 

@@ -21,4 +21,4 @@
 
 **Verification**: `scripts/smoke/rows/layers.sh` reads press and release at each pad and from a real xdg client below their gap. It exercises empty input, item removal and restoration, `inputAll`, disposer, disable and monitor changes. Its controls omit either region, catch the gap, drop the host's item binding and hide client button records. Each breaks the shared input assertion.
 
-**References**: [layers.md](../architecture/layers.md), [Jarvis plan § Bubble and orb](../plans/jarvis-plan.md#43-bubble-and-orb), [Quickshell 0.3.1 Region](https://quickshell.org/docs/v0.3.1/types/Quickshell/Region/), [Quickshell 0.3.1 QsWindow mask](https://quickshell.org/docs/v0.3.1/types/Quickshell/QsWindow/)
+**References**: [layers.md](../architecture/layers.md), [Jarvis plan § Bubble and orb](https://linear.app/vanillagreen/issue/VGS-623), [Quickshell 0.3.1 Region](https://quickshell.org/docs/v0.3.1/types/Quickshell/Region/), [Quickshell 0.3.1 QsWindow mask](https://quickshell.org/docs/v0.3.1/types/Quickshell/QsWindow/)

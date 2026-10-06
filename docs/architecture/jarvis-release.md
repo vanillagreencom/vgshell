@@ -2,7 +2,7 @@
 
 Covers: shell/plugins/vgs.jarvis/backend/Policy.js, shell/plugins/vgs.jarvis/backend/net.js, scripts/test-jarvis-release.js, scripts/test-jarvis-net.js, scripts/fixtures/jarvis/policy.js, scripts/fixtures/jarvis/keys-world.js, scripts/fixtures/jarvis/key-tui.py
 
-[D073](../decisions/D073-jarvis-release-and-origin-bound-keys.md) records the outbound boundary. [The plan § Release gate](../plans/jarvis-plan.md#38-release-gate-what-leaves-the-machine) fixes the label rules. The [chained engine](jarvis-engine.md) creates one transport owner per conversation. This interface does not implement an adapter, account store, approval prompt, audit writer or conversation lifecycle.
+[D073](../decisions/D073-jarvis-release-and-origin-bound-keys.md) records the outbound boundary. [The plan § Release gate](https://linear.app/vanillagreen/issue/VGS-623) fixes the label rules. The [chained engine](jarvis-engine.md) creates one transport owner per conversation. This interface does not implement an adapter, account store, approval prompt, audit writer or conversation lifecycle.
 
 ## Owners
 

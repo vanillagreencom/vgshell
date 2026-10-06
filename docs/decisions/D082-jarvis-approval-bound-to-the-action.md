@@ -4,7 +4,7 @@
 
 **Date**: 2026-10-01
 **Status**: Active
-**Research**: [Jarvis plan § Policy](../plans/jarvis-plan.md#37-policy-authority-effects-approval-audit), [review dispositions](../plans/jarvis-plan-review.md)
+**Research**: [Jarvis plan § Policy](https://linear.app/vanillagreen/issue/VGS-623), [review dispositions](https://linear.app/vanillagreen/issue/VGS-623)
 **Refines**: [D070](D070-jarvis-action-policy.md)
 
 **Context**: File, page and model output can request synthetic input. A generic confirmation command would let that output approve its own action.

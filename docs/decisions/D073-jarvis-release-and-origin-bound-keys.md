@@ -4,7 +4,7 @@
 
 **Date**: 2026-09-30
 **Status**: Active
-**Research**: [Jarvis plan § Release gate](../plans/jarvis-plan.md#38-release-gate-what-leaves-the-machine)
+**Research**: [Jarvis plan § Release gate](https://linear.app/vanillagreen/issue/VGS-623)
 **Refines**: [D046](D046-slack-tokens-per-workspace-and-one-card-per-message.md)
 
 **Context**: A brain's answer can reach a speech provider. Checking only the first destination can release file or screen content to a second provider without consent. A custom endpoint or redirect can also deliver a stored key to the wrong origin.
@@ -35,4 +35,4 @@
 
 **Verification**: `scripts/test-jarvis-release.js` and `scripts/test-jarvis-net.js` run through the private Jarvis namespace world. Their disposable mutants remove independent rules. Selection and install-tree controls run through `scripts/validate`.
 
-**References**: [Jarvis release](../architecture/jarvis-release.md), [action policy](../architecture/jarvis-policy.md), [validation world](../architecture/validation-jarvis.md), [review dispositions](../plans/jarvis-plan-review.md).
+**References**: [Jarvis release](../architecture/jarvis-release.md), [action policy](../architecture/jarvis-policy.md), [validation world](../architecture/validation-jarvis.md), [review dispositions](https://linear.app/vanillagreen/issue/VGS-623).

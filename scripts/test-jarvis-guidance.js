@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Source: docs/plans/jarvis-plan.md § 5. Voice-agent skill
+// Source: the Jarvis plan attached to VGS-623, § 5. Voice-agent skill
 // Synthetic fixtures authored 2026-09-30. No provider wire or recording.
 "use strict";
 const { assert, fs, path, backend, world, control } = require("./fixtures/jarvis-voice/assertions.js");

@@ -53,7 +53,7 @@ Each refusal prints `vgshell: refused: wallpapers=<name> reason=<key>` and its f
 
 ## Omarchy
 
-Omarchy (basecamp/omarchy, e332dc9, read 2026-09-28) ships each theme's `backgrounds/` inside the theme's git repository, and `omarchy-theme-set` reads user images from `~/.config/omarchy/backgrounds/<theme>`. VGS keeps the wallpapers out of git instead: pinned per-theme archives in the `themes` release of `vgs-themes`, sha256-verified and streamed. The 81 themes' archives total 1.05 GB ([platform-roadmap.md](../plans/platform-roadmap.md)), and a definition install needs none of them.
+Omarchy (basecamp/omarchy, e332dc9, read 2026-09-28) ships each theme's `backgrounds/` inside the theme's git repository, and `omarchy-theme-set` reads user images from `~/.config/omarchy/backgrounds/<theme>`. VGS keeps the wallpapers out of git instead: pinned per-theme archives in the `themes` release of `vgs-themes`, sha256-verified and streamed. The 81 themes' archives total 1.05 GB ([platform-roadmap.md](https://linear.app/vanillagreen/issue/VGS-511)), and a definition install needs none of them.
 
 ## Invariants
 

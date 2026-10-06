@@ -2,7 +2,7 @@
 
 Covers: shell/plugins/vgs.jarvis/backend/ClaudeCode.js, scripts/test-jarvis-claude.js, scripts/fixtures/jarvis-claude/
 
-[D079](../decisions/D079-brains-wire-and-harness-adapters.md) makes a subscription brain a harness adapter: the vendor's own program, which owns its login. [The plan § Brain adapters](../plans/jarvis-plan.md#36-brain-adapters) sets the harness rule: the program's own tools are off, or each of its operations asks Policy first; otherwise it is refused as a brain. Claude Code meets the rule with its built-in tools off and the [tool bridge](jarvis-bridge.md) as its only MCP server, so every call reaches the [action router](jarvis-approval.md). This page defines that adapter and the Claude route of [account Verify](jarvis-accounts.md#account-state-and-verification).
+[D079](../decisions/D079-brains-wire-and-harness-adapters.md) makes a subscription brain a harness adapter: the vendor's own program, which owns its login. [The plan § Brain adapters](https://linear.app/vanillagreen/issue/VGS-623) sets the harness rule: the program's own tools are off, or each of its operations asks Policy first; otherwise it is refused as a brain. Claude Code meets the rule with its built-in tools off and the [tool bridge](jarvis-bridge.md) as its only MCP server, so every call reaches the [action router](jarvis-approval.md). This page defines that adapter and the Claude route of [account Verify](jarvis-accounts.md#account-state-and-verification).
 
 ## Owners
 

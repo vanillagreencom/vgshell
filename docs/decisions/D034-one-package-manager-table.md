@@ -6,7 +6,7 @@
 
 **Status**: Active
 
-**Research**: [platform-roadmap.md](../plans/platform-roadmap.md) § 2, VGS-516
+**Research**: [platform-roadmap.md](https://linear.app/vanillagreen/issue/VGS-511) § 2, VGS-516
 
 **Context**: Updates, Dev Tools, a plugin's external requirements and the installer's hints all need to know the system's package managers. Without one owner, each flow keeps its own partial list: an install argv per family, the owner queries, and an update checker for a few managers, and the lists disagree. VGS runs on any distribution that carries Quickshell 0.3.1 and Hyprland, so it cannot assume Arch.
 

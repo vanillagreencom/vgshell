@@ -2,7 +2,7 @@
 
 Covers: shell/plugins/vgs.jarvis/artifacts.json, shell/plugins/vgs.jarvis/measure-local, shell/plugins/vgs.jarvis/fixtures/, scripts/check-jarvis-local.sh, scripts/test-jarvis-local.py, scripts/fixtures/jarvis-local/
 
-[D066](../decisions/D066-pinned-local-speech-and-bounded-inputs.md) closes the local stack choices. [The measured run](../measurements/jarvis-local-2026-09-30.md) records execution, load, turn, unload and memory observations.
+[D066](../decisions/D066-pinned-local-speech-and-bounded-inputs.md) closes the local stack choices. [The measured run](https://linear.app/vanillagreen/issue/VGS-651) records execution, load, turn, unload and memory observations.
 
 ## Boundary
 
@@ -30,7 +30,7 @@ The measured VGS bound is `80000` mono float32 samples at `16000` Hz, or `5` sec
 
 The feasibility instrument uses non-overlapping fixed chunks. It is not production VAD segmentation. The sidecar chooses speech boundaries within the measured bound. J59 owns the semantic-quality and room checks. The raw `60`-second input remains unsupported by this export/runtime pair.
 
-The test-only `scripts/fixtures/jarvis-local/probe-moonshine.py` removes the bound on a disposable artifact declaration and calls the real instrument. [The supplemental log](../measurements/jarvis-local-2026-09-30-fix.txt) preserves its source/runtime binding, command, native broadcast diagnostic and exit. This is separate from the original successful bounded-run log.
+The test-only `scripts/fixtures/jarvis-local/probe-moonshine.py` removes the bound on a disposable artifact declaration and calls the real instrument. [The supplemental log](https://linear.app/vanillagreen/issue/VGS-651) preserves its source/runtime binding, command, native broadcast diagnostic and exit. This is separate from the original successful bounded-run log.
 
 ## Whisper input contract
 

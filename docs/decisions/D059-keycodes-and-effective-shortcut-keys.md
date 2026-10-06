@@ -6,7 +6,7 @@
 
 **Status**: Active
 
-**Research**: VGS-614, [Jarvis plan § Keys](../plans/jarvis-plan.md#41-keys-manifest-hyprlandbinds-rebindable-in-settings-and-shelljson)
+**Research**: VGS-614, [Jarvis plan § Keys](https://linear.app/vanillagreen/issue/VGS-623)
 
 **Refines**: [D028](D028-one-generated-hyprland-layer.md)
 

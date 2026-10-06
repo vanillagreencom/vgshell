@@ -1,10 +1,10 @@
 # Jarvis
 
-Covers: shell/Core/SessionLock.qml, shell/plugins/vgs.jarvis/, scripts/test-jarvis-protocol.js, scripts/test-jarvis-daemon.js, scripts/fixtures/jarvis/, scripts/smoke/fixtures/plugins/acme.session/, scripts/smoke/rows/session.sh, scripts/smoke/rows/jarvis.sh, scripts/smoke/rows/jarvis-keys.sh, scripts/smoke/rows/read-only-prefix.sh, docs/plans/jarvis-plan.md, shell/Hosts/LayerHost.qml
+Covers: shell/Core/SessionLock.qml, shell/plugins/vgs.jarvis/, scripts/test-jarvis-protocol.js, scripts/test-jarvis-daemon.js, scripts/fixtures/jarvis/, scripts/smoke/fixtures/plugins/acme.session/, scripts/smoke/rows/session.sh, scripts/smoke/rows/jarvis.sh, scripts/smoke/rows/jarvis-keys.sh, scripts/smoke/rows/read-only-prefix.sh, shell/Hosts/LayerHost.qml
 
 [Input facts](input-facts.md) defines the fresh core target and key observations. [Jarvis input](jarvis-input.md) defines their policy and transport consumer.
 
-The [Jarvis plan](../plans/jarvis-plan.md) defines the voice assistant's scope. The service owns one Node child and publishes its health and Session state. The daemon installs the [audio owner](jarvis-audio.md) and its real reducer ports and persists privacy mute. The [bubble](jarvis-bubble.md) supplies the presented-indicator handshake. It observes and stops recorded coding tasks. The [chained engine](jarvis-engine.md) connects the brain to the registered tools. Its only speech row is [local speech](jarvis-local-speech.md), so the daemon stays unconfigured until local setup publishes a runtime and the selected brain is available. [D064](../decisions/D064-jarvis-child-lease.md) records the process choice. The installed [action policy](jarvis-policy.md) judges each routed call.
+The [Jarvis plan](https://linear.app/vanillagreen/issue/VGS-623) defines the voice assistant's scope. The service owns one Node child and publishes its health and Session state. The daemon installs the [audio owner](jarvis-audio.md) and its real reducer ports and persists privacy mute. The [bubble](jarvis-bubble.md) supplies the presented-indicator handshake. It observes and stops recorded coding tasks. The [chained engine](jarvis-engine.md) connects the brain to the registered tools. Its only speech row is [local speech](jarvis-local-speech.md), so the daemon stays unconfigured until local setup publishes a runtime and the selected brain is available. [D064](../decisions/D064-jarvis-child-lease.md) records the process choice. The installed [action policy](jarvis-policy.md) judges each routed call.
 
 The service owns metadata-only key and [account discovery](jarvis-accounts.md) readers. Settings opens the masked Add key and Accounts terminals. [Jarvis secrets](jarvis-secrets.md) owns key storage and references. The chained engine opens the selected brain at the first turn.
 
@@ -46,7 +46,7 @@ The service treats a missing shell or lock value as locked. Each hello carries t
 
 ## Setting options
 
-The starred strings in [the plan's settings section](../plans/jarvis-plan.md#310-settings-status-and-files) use `optionsFrom`: voice, language, microphone, speaker, brain, model and coding agent. The service that owns discovery publishes each offer list through its plugin's declared `choices` status. A label names the choice to the user; its stable id is the setting.
+The starred strings in [the plan's settings section](https://linear.app/vanillagreen/issue/VGS-623) use `optionsFrom`: voice, language, microphone, speaker, brain, model and coding agent. The service that owns discovery publishes each offer list through its plugin's declared `choices` status. A label names the choice to the user; its stable id is the setting.
 
 [status.md § Setting choices](status.md#setting-choices) defines the generic shape, bounds, empty-string first-offered convention and retained unavailable ids. [D057](../decisions/D057-setting-options-from-status.md) records the core choice and its Omarchy comparison. Each discovery owner resolves empty string from its own first offer and treats no offers as no selection. Discovery failure must not silently change the configured provider or device.
 

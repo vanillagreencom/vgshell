@@ -6,7 +6,7 @@
 
 **Status**: Active
 
-**Research**: [platform-roadmap.md](../plans/platform-roadmap.md) § 3, VGS-520
+**Research**: [platform-roadmap.md](https://linear.app/vanillagreen/issue/VGS-511) § 3, VGS-520
 
 **Refines**: [D007](D007-install-runs-no-plugin-code.md)
 

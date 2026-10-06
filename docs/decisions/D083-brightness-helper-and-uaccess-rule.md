@@ -6,7 +6,7 @@
 
 **Status**: Active
 
-**Research**: [VGS-705](https://linear.app/vanillagreen/issue/VGS-705), [System plan § 3.5](../plans/system-plan.md#35-displays--vgsdisplays-s15s17-s24), [§ 4](../plans/system-plan.md#4-brightness-protocol-facts), [plan review](../plans/system-plan-review.md) E1, E2, M12, M13
+**Research**: [VGS-705](https://linear.app/vanillagreen/issue/VGS-705), [System plan § 3.5](https://linear.app/vanillagreen/issue/VGS-697), [§ 4](https://linear.app/vanillagreen/issue/VGS-697), [plan review](https://linear.app/vanillagreen/issue/VGS-697) E1, E2, M12, M13
 
 **Applies to**: `vgs.displays`
 

@@ -6,7 +6,7 @@
 
 **Status**: Active
 
-**Research**: [platform-roadmap.md](../plans/platform-roadmap.md) § Decisions row 4 and § vgs.agent-warden, from the research report `agent-warden.md` (options A-F, § Tradeoffs)
+**Research**: [platform-roadmap.md](https://linear.app/vanillagreen/issue/VGS-511) § Decisions row 4 and § vgs.agent-warden, from the research report `agent-warden.md` (options A-F, § Tradeoffs)
 
 **Refines**: [D037](D037-plugin-status.md), [D035](D035-manifest-requirements.md)
 

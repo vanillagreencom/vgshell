@@ -4,7 +4,7 @@
 
 **Date**: 2026-09-30
 **Status**: Active
-**Research**: [Jarvis plan § Policy](../plans/jarvis-plan.md#37-policy-authority-effects-approval-audit), [Omarchy comparison](../plans/jarvis-plan-research.md#25-omarchy-voice-v030-mit)
+**Research**: [Jarvis plan § Policy](https://linear.app/vanillagreen/issue/VGS-623), [Omarchy comparison](https://linear.app/vanillagreen/issue/VGS-623)
 **Refines**: [D070](D070-jarvis-action-policy.md)
 
 **Context**: A command can start another program. Argument classification and a shell-token scanner cannot mediate those later operations.

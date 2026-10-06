@@ -39,4 +39,4 @@ The costly control read a GPU cost of 0.0144 to 0.0148 ms at scale 1 and 0.0197 
 
 The disconnected reader fails the advancing-frame assertion. A disposable orb without its zero-motion guard first proves it presents frames, then fails the quiet-window assertion. A remapped listening layer also fails that assertion. The row restores the theme, drops the copies and releases its window reader before it destroys the fixture. Unit properties and animation counts remain separate from this presentation evidence.
 
-Omarchy's read-only `quattro` shell uses token-scaled Qt animations, such as `Ui/CursorSurface.qml`. It has no voice-orb or shader-cost instrument. VGS keeps Qt animation ownership and adds the measurements required by the [Jarvis plan §9](../plans/jarvis-plan.md#9-testing-strategy).
+Omarchy's read-only `quattro` shell uses token-scaled Qt animations, such as `Ui/CursorSurface.qml`. It has no voice-orb or shader-cost instrument. VGS keeps Qt animation ownership and adds the measurements required by the [Jarvis plan §9](https://linear.app/vanillagreen/issue/VGS-623).

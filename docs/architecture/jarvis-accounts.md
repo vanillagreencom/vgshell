@@ -2,7 +2,7 @@
 
 Covers: shell/plugins/vgs.jarvis/AccountProviders.js, shell/plugins/vgs.jarvis/AccountStatus.js, shell/plugins/vgs.jarvis/Accounts.qml, shell/plugins/vgs.jarvis/Keys.qml, shell/plugins/vgs.jarvis/backend/Accounts.js, shell/plugins/vgs.jarvis/backend/Core.js, shell/Commons/AccountDirectories.js, bin/lib/account-folders.js, shell/plugins/vgs.jarvis/backend/accounts.js, shell/plugins/vgs.jarvis/tui/accounts.sh, scripts/test-jarvis-accounts.js, scripts/test-jarvis-accounts-tui.js, scripts/fixtures/jarvis/accounts-world.js, scripts/fixtures/jarvis/accounts-tui.py, scripts/smoke/rows/jarvis-page.sh
 
-The [Jarvis plan's account section](../plans/jarvis-plan.md#39-secrets-and-accounts) owns discovery and explicit verification. `shell/plugins/vgs.jarvis/backend/Accounts.js::Accounts` is the one account judge. `AccountProviders.js::PROVIDERS` is the shared provider declaration. QML reads that declaration to pass key-variable presence as booleans, never key values, into the helper.
+The [Jarvis plan's account section](https://linear.app/vanillagreen/issue/VGS-623) owns discovery and explicit verification. `shell/plugins/vgs.jarvis/backend/Accounts.js::Accounts` is the one account judge. `AccountProviders.js::PROVIDERS` is the shared provider declaration. QML reads that declaration to pass key-variable presence as booleans, never key values, into the helper.
 
 ## Discovery
 

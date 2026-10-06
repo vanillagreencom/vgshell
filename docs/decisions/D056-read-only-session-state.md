@@ -6,7 +6,7 @@
 
 **Status**: Active
 
-**Research**: [Jarvis plan § Decisions to record](../plans/jarvis-plan.md#10-decisions-to-record), VGS-617
+**Research**: [Jarvis plan § Decisions to record](https://linear.app/vanillagreen/issue/VGS-623), VGS-617
 
 **Refines**: [D012](D012-core-owns-lent-objects.md)
 

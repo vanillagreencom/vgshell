@@ -2,7 +2,7 @@
 
 Covers: shell/plugins/vgs.jarvis/backend/Guidance.js, shell/plugins/vgs.jarvis/backend/Speakable.js, shell/plugins/vgs.jarvis/backend/SpeechLanguage.js, shell/plugins/vgs.jarvis/backend/skills/voice/, scripts/test-jarvis-guidance.js, scripts/test-jarvis-speakable.js, scripts/test-jarvis-speech-language.js, scripts/fixtures/jarvis-voice/
 
-The [voice contract](../plans/jarvis-plan.md#5-voice-agent-skill) assigns guidance layers to model classes. These Node modules are the engines' text boundary. The [chained engine](jarvis-engine.md) consumes both. They open no provider, device, account or process. They add no runtime dependency.
+The [voice contract](https://linear.app/vanillagreen/issue/VGS-623) assigns guidance layers to model classes. These Node modules are the engines' text boundary. The [chained engine](jarvis-engine.md) consumes both. They open no provider, device, account or process. They add no runtime dependency.
 
 ## Guidance
 
@@ -14,7 +14,7 @@ The [voice contract](../plans/jarvis-plan.md#5-voice-agent-skill) assigns guidan
 - Consumers send `instructions` through their adapter's instruction channel. They do not treat tool results as instructions. They supply the session timing and heard-prefix context separately.
 - The guidance describes authority but grants none. The router, policy, release and task owners still enforce their contracts.
 
-The selector offers English (`en`) and Spanish (`es`). Empty language selects English. An unsupported language fails, rather than silently changing the user's choice. The language/voice selection engine belongs to the [multilingual row](../plans/jarvis-plan.md#12-issue-breakdown).
+The selector offers English (`en`) and Spanish (`es`). Empty language selects English. An unsupported language fails, rather than silently changing the user's choice. The language/voice selection engine belongs to the [multilingual row](https://linear.app/vanillagreen/issue/VGS-623).
 
 ## Speakable
 
@@ -29,7 +29,7 @@ The selector offers English (`en`) and Spanish (`es`). Empty language selects En
 
 `Speakable.js::violations(text, language)` returns counts by machine-detectable kind over a final transcript window. Streaming consumers can use `counts()` on the text owner instead. Counts include numeric notation that needs spoken expansion. They contain no transcript or audio. A caller counts each final, non-overlapping window once, not each revised partial transcript.
 
-The duplex engine sanitizes delegated commentary before append. It measures its own output transcript separately. It never holds duplex audio for transcript approval. The [review disposition](../plans/jarvis-plan-review.md#13-review-dispositions) states why that delay is rejected. Provider behavior and a violation rate remain hand-check work, not evidence from these pure tests.
+The duplex engine sanitizes delegated commentary before append. It measures its own output transcript separately. It never holds duplex audio for transcript approval. The [review disposition](https://linear.app/vanillagreen/issue/VGS-623) states why that delay is rejected. Provider behavior and a violation rate remain hand-check work, not evidence from these pure tests.
 
 ## Bounds
 

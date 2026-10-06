@@ -4,7 +4,7 @@
 
 **Date**: 2026-10-02
 **Status**: Active
-**Research**: [Jarvis plan § 6.1 Vision](../plans/jarvis-plan.md#61-vision), [§ 3.8 Release](../plans/jarvis-plan.md#38-release-gate-what-leaves-the-machine), [§ 3.11 Bounds](../plans/jarvis-plan.md#311-bounds)
+**Research**: [Jarvis plan § 6.1 Vision](https://linear.app/vanillagreen/issue/VGS-623), [§ 3.8 Release](https://linear.app/vanillagreen/issue/VGS-623), [§ 3.11 Bounds](https://linear.app/vanillagreen/issue/VGS-623)
 **Refines**: [D070](D070-jarvis-action-policy.md), [D082](D082-jarvis-approval-bound-to-the-action.md)
 
 **Context**: The plan's vision row lets the brain read the screen, a monitor, a window, a region or an area the user draws. A screenshot can hold a password manager, a private browser window or any text on the screen, and the image can leave the machine. Hyprland reports layout coordinates; grim returns one composed image. A window can move, and the session can lock, while grim runs. No consent producer for release grants exists.

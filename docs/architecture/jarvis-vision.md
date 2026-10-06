@@ -2,7 +2,7 @@
 
 Covers: shell/plugins/vgs.jarvis/backend/Vision.js, shell/plugins/vgs.jarvis/backend/Screen.js, shell/plugins/vgs.jarvis/backend/skills/computer/vision.md
 
-The [plan § 6.1](../plans/jarvis-plan.md#61-vision) defines the screen tools. [D093](../decisions/D093-jarvis-screenshots.md) records the choices. [The router](jarvis-approval.md) still owns policy, approval, audit and the result label. This file defines the executor behind the `vision.*` rows of `Tools.TABLE`, its geometry, its races and its release route.
+The [plan § 6.1](https://linear.app/vanillagreen/issue/VGS-623) defines the screen tools. [D093](../decisions/D093-jarvis-screenshots.md) records the choices. [The router](jarvis-approval.md) still owns policy, approval, audit and the result label. This file defines the executor behind the `vision.*` rows of `Tools.TABLE`, its geometry, its races and its release route.
 
 ## Owners
 
@@ -68,7 +68,7 @@ One call reads Hyprland, asks the router's authority, runs grim, reads Hyprland 
 
 | Bound | Value | Past it |
 |---|---|---|
-| Captures a turn | 4, the [plan's bound](../plans/jarvis-plan.md#311-bounds) | `screenshot-limit` |
+| Captures a turn | 4, the [plan's bound](https://linear.app/vanillagreen/issue/VGS-623) | `screenshot-limit` |
 | One image on the image route | 3 MiB | `image-bytes`. A [wire brain](jarvis-brain.md) sends only the current turn's images, so the turn's four, base64-encoded, stay under its 20 MiB request. The text route sends no image and has no image bound |
 | `grim`, `magick` | 5 s each | the child's group is killed |
 | `slurp` | 15 s, the user drawing | killed |

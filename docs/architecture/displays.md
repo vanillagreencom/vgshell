@@ -2,7 +2,7 @@
 
 Covers: shell/plugins/vgs.displays/helper/, scripts/test-displays-brightness.py
 
-`vgs.displays` reads and sets display brightness. This page is its brightness helper, `shell/plugins/vgs.displays/helper/brightness.py`; the service, the widget, the flyout, the pane, the keys and the assignments file that run it are [displays-plugin.md](displays-plugin.md). Why a helper and not QML, and the udev rule the Apple displays need: [D083](../decisions/D083-brightness-helper-and-uaccess-rule.md). The plan is [system-plan.md § 3.5](../plans/system-plan.md#35-displays--vgsdisplays-s15s17-s24).
+`vgs.displays` reads and sets display brightness. This page is its brightness helper, `shell/plugins/vgs.displays/helper/brightness.py`; the service, the widget, the flyout, the pane, the keys and the assignments file that run it are [displays-plugin.md](displays-plugin.md). Why a helper and not QML, and the udev rule the Apple displays need: [D083](../decisions/D083-brightness-helper-and-uaccess-rule.md). The plan is [system-plan.md § 3.5](https://linear.app/vanillagreen/issue/VGS-697).
 
 ## Helper
 
@@ -35,7 +35,7 @@ A DISPLAY is `{"id", "backend", "label", "state", "percent", "outputs"}`:
 
 ## Apple HID
 
-The protocol table is in [plan § 4](../plans/system-plan.md#4-brightness-protocol-facts).
+The protocol table is in [plan § 4](https://linear.app/vanillagreen/issue/VGS-697).
 
 | USB id | Product | Hyprland model | Raw range |
 |---|---|---|---|

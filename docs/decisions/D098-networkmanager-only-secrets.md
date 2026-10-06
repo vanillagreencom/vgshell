@@ -4,7 +4,7 @@
 
 **Date**: 2026-10-02
 **Status**: Active
-**Research**: [System plan](../plans/system-plan.md#33-network--vgsnetwork-s12-hidden-and-enterprise-networks-in-s23)
+**Research**: [System plan](https://linear.app/vanillagreen/issue/VGS-697)
 
 **Context**: Wi-Fi joining needs a saved profile and a secret store. VGS must show a stopped or absent backend without replacing the owner's network service.
 

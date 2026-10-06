@@ -6,7 +6,7 @@
 
 **Status**: Active
 
-**Research**: [docs/plans/system-plan.md](../plans/system-plan.md) §§ 2.6, 3.2
+**Research**: [System plan, attached to VGS-697](https://linear.app/vanillagreen/issue/VGS-697) §§ 2.6, 3.2
 
 **Refines**: [D012](D012-core-owns-lent-objects.md)
 

@@ -2,7 +2,7 @@
 
 Covers: shell/plugins/vgs.jarvis/backend/Secrets.js, shell/plugins/vgs.jarvis/backend/keys.js, shell/plugins/vgs.jarvis/tui/add-key.sh, shell/plugins/vgs.jarvis/Keys.qml, scripts/test-jarvis-secrets.js, scripts/fixtures/jarvis/keys-world.js, scripts/fixtures/jarvis/key-tui.py
 
-The [Jarvis plan's secrets section](../plans/jarvis-plan.md#39-secrets-and-accounts) owns this scope. [D035](../decisions/D035-manifest-requirements.md) owns the install notice. [D037](../decisions/D037-plugin-status.md) owns presence status. [D033](../decisions/D033-floating-tuis-are-core.md) owns the terminal presentation.
+The [Jarvis plan's secrets section](https://linear.app/vanillagreen/issue/VGS-623) owns this scope. [D035](../decisions/D035-manifest-requirements.md) owns the install notice. [D037](../decisions/D037-plugin-status.md) owns presence status. [D033](../decisions/D033-floating-tuis-are-core.md) owns the terminal presentation.
 
 ## Add key
 

@@ -63,10 +63,6 @@ qmlcache/
 .DS_Store
 Thumbs.db
 
-# Local planning and research artifacts
-docs/plans/
-docs/research/
-docs/handoff/
 # An archived copy of another project's Quickshell work, kept locally as a
 # reference only. Nothing in VGS reads, runs or links to it.
 /assets/

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Synthetic isolation probes, authored 2026-09-30.
 
-Source: docs/plans/jarvis-plan.md, Testing strategy.
+Source: the Jarvis plan attached to VGS-623, Testing strategy.
 These are OS behavior probes, not provider protocol recordings. No schema or
 vendor version applies. D-Bus cases use org.freedesktop.DBus's standard API.
 """

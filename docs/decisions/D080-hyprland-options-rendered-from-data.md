@@ -8,7 +8,7 @@
 
 **Superseded in part**: [D096](D096-vgs-reads-outputs-and-writes-no-monitor-rule.md) removes the monitor half of this record: `monitors.json`, its judge, the layer's Monitors section, the `monitors` capability's writer and the guarded preview, with the files, tests and pages the text below names for them. The options half stands.
 
-**Research**: VGS-694, VGS-695, VGS-696; plan [system-plan.md](../plans/system-plan.md) §2.6, §3.5, §3.6, §3.7, §7 and its review [system-plan-review.md](../plans/system-plan-review.md) B1, B2, M3, M4, M14
+**Research**: VGS-694, VGS-695, VGS-696; plan [system-plan.md](https://linear.app/vanillagreen/issue/VGS-697) §2.6, §3.5, §3.6, §3.7, §7 and its review [system-plan-review.md](https://linear.app/vanillagreen/issue/VGS-697) B1, B2, M3, M4, M14
 
 **Refines**: [D028](D028-one-generated-hyprland-layer.md), [D053](D053-runner-holds-the-instance-lock.md)
 

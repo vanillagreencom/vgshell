@@ -2,7 +2,7 @@
 
 Covers: shell/plugins/vgs.jarvis/backend/Tasks.js, shell/plugins/vgs.jarvis/backend/task-event, shell/plugins/vgs.jarvis/backend/jarvisd.js, scripts/test-jarvis-tasks.js, scripts/test-task-event.js
 
-[D072](../decisions/D072-coding-task-records-and-four-fact-state.md) records the four-fact choice. [jarvis-task-control.md](jarvis-task-control.md) owns launch, identity, stop and display. The [Jarvis plan § Coding-task delegation](../plans/jarvis-plan.md#7-coding-task-delegation) owns task delegation and its later profile and voice work.
+[D072](../decisions/D072-coding-task-records-and-four-fact-state.md) records the four-fact choice. [jarvis-task-control.md](jarvis-task-control.md) owns launch, identity, stop and display. The [Jarvis plan § Coding-task delegation](https://linear.app/vanillagreen/issue/VGS-623) owns task delegation and its later profile and voice work.
 
 ## Ownership
 
@@ -53,7 +53,7 @@ Startup runs the same lock-held producer's prune command. It reads the metadata,
 
 The state directory holds `tasks.lock` and `tasks/<id>/`. Each task holds `task.json`, numbered files under `events/`, and an optional `noisy.json`. Only the writer's private temporary names are uncommitted. Readers ignore them after an interrupted publication.
 
-`Store.append` enforces the [plan's bounds table](../plans/jarvis-plan.md#311-bounds). A dropped event increments the noisy marker and returns an explicit overflow refusal. At the event ceiling, the marker also retains the latest valid exited, lost or stopped observation as one bounded raw event, except that a retained `stopped` stays. Other dropped events leave the retained facts unchanged. Consumers must expose `noisy` and `dropped`; lost evidence cannot certify a task outcome. The derived display state is noisy until the task's record is removed.
+`Store.append` enforces the [plan's bounds table](https://linear.app/vanillagreen/issue/VGS-623). A dropped event increments the noisy marker and returns an explicit overflow refusal. At the event ceiling, the marker also retains the latest valid exited, lost or stopped observation as one bounded raw event, except that a retained `stopped` stays. Other dropped events leave the retained facts unchanged. Consumers must expose `noisy` and `dropped`; lost evidence cannot certify a task outcome. The derived display state is noisy until the task's record is removed.
 
 `Store.read` validates the marker's terminal observation through the existing event judge and replays it through the same four-fact reducer after the retained events. It returns that raw observation as `terminal`. The event files stay at the hard ceiling. Process and end time remain derived independently of noisy state. An overflow does not produce or overwrite an outcome.
 

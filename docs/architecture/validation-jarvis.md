@@ -2,7 +2,7 @@
 
 Covers: scripts/lib/jarvis-env.sh, scripts/test-jarvis-env.js, scripts/fixtures/jarvis-env/, scripts/test-jarvis-tools.js, scripts/test-jarvis-denied.js, scripts/test-jarvis-policy.js, scripts/test-jarvis-audit.js, scripts/test-jarvis-redact.js, scripts/test-jarvis-release.js, scripts/test-jarvis-net.js, scripts/fixtures/jarvis/policy.js
 
-The shared test world implements the isolation boundary in [the Jarvis plan § Testing strategy](../plans/jarvis-plan.md#9-testing-strategy). It contains no installed runtime code. The [Jarvis service](jarvis.md) and its tests consume this owner. [Validation](validation.md) owns row selection.
+The shared test world implements the isolation boundary in [the Jarvis plan § Testing strategy](https://linear.app/vanillagreen/issue/VGS-623). It contains no installed runtime code. The [Jarvis service](jarvis.md) and its tests consume this owner. [Validation](validation.md) owns row selection.
 
 The independent local-model consumer and its actual-model row are in [Jarvis local inputs](jarvis-local.md). They reuse this world for CPU behavior checks. CUDA measurement uses a network-only namespace to retain the host process identity needed by its memory sampler.
 

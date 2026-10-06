@@ -4,7 +4,7 @@
 
 **Date**: 2026-09-30
 **Status**: Active
-**Research**: [Jarvis plan §10](../plans/jarvis-plan.md#10-decisions-to-record)
+**Research**: [Jarvis plan §10](https://linear.app/vanillagreen/issue/VGS-623)
 **Refines**: [D015](D015-tokens-are-a-judged-table.md), [D026](D026-passive-layers-are-a-capability.md)
 
 **Context**: A listening indicator needs a reusable visual before a voice plugin or its bubble exists. The indicator must remain useful under reduced motion and must not take a press from the application below a passive layer.
@@ -22,7 +22,7 @@
 
 **Verification**: `scripts/qml-tests/tst_voiceorb.qml` reads properties and animation lifetime, with mutations in `scripts/test-qml-unit.sh`. `scripts/check-voiceorb-shader.py` compiles and checks the shipped pack, with controls in `scripts/test-check-voiceorb-shader.py`. `scripts/smoke/rows/gallery.sh` captures each example's actual tone pixels, beside a control that must draw before its shader is hidden. The read-only prefix row runs the installed component.
 
-**References**: [Jarvis plan §4.3](../plans/jarvis-plan.md#43-bubble-and-orb), [runtime-qml-shaders.md](../architecture/runtime-qml-shaders.md)
+**References**: [Jarvis plan §4.3](https://linear.app/vanillagreen/issue/VGS-623), [runtime-qml-shaders.md](../architecture/runtime-qml-shaders.md)
 
 ## Bubble composition
 

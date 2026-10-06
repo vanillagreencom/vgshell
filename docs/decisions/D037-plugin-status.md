@@ -6,7 +6,7 @@
 
 **Status**: Active (value types, Slack token row → [D046](D046-slack-tokens-per-workspace-and-one-card-per-message.md))
 
-**Research**: [VGS-525](../plans/platform-roadmap.md)
+**Research**: [VGS-525](https://linear.app/vanillagreen/issue/VGS-511)
 
 **Refines**: [D032](D032-settings-plugin-and-manifest-settings-convention.md)
 
@@ -73,4 +73,4 @@ Checked against basecamp/omarchy `main` at `e332dc9`: `shell/plugins/bar/widgets
 
 **Verification**: `scripts/test-plugin-logic.js` pins each `status` manifest refusal; `scripts/test-plugin-status.js` pins `statusWrite`, the size ceiling, the frozen copy, `statusRows` and the tone tables, each rule with a control; `scripts/test-check-manifests.js` pins the manifest rule offline. `scripts/smoke/rows/status.sh` reads one revision and one set of values back from the fixture's service, a bar widget on each of two screens and a summoned panel, the refusals by text, the record dropped on disable and on a new revision, and a retired provider's write refused. `scripts/smoke/rows/settings.sh` reads the Status rows of `acme.status` and `vgs.notifications` back, labels, values, tones and commands, and that no row takes an edit. `scripts/test-notifications-token-status.sh` proves the Slack token probe never reads or prints the token, with a control that prints it; `scripts/smoke/rows/notifications.sh` flips the stub store absent, present and locked and reads the row each time. `scripts/qml-tests/tst_codeline.qml` holds `CodeLine`.
 
-**References**: [D012](D012-core-owns-lent-objects.md), [D014](D014-source-revisions-are-published-snapshots.md), [D032](D032-settings-plugin-and-manifest-settings-convention.md), [status.md](../architecture/status.md), [docs/plans/platform-roadmap.md § 5](../plans/platform-roadmap.md)
+**References**: [D012](D012-core-owns-lent-objects.md), [D014](D014-source-revisions-are-published-snapshots.md), [D032](D032-settings-plugin-and-manifest-settings-convention.md), [status.md](../architecture/status.md), [the platform roadmap attached to VGS-511 § 5](https://linear.app/vanillagreen/issue/VGS-511)

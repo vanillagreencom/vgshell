@@ -6,7 +6,7 @@
 
 **Status**: Active
 
-**Research**: [docs/plans/system-plan.md](../plans/system-plan.md) §§ 2.6, 3.4, 3.5, 4, 7; review dispositions M12, M14 and B3 in [docs/plans/system-plan-review.md](../plans/system-plan-review.md)
+**Research**: [System plan, attached to VGS-697](https://linear.app/vanillagreen/issue/VGS-697) §§ 2.6, 3.4, 3.5, 4, 7; review dispositions M12, M14 and B3 in [System plan review, attached to VGS-697](https://linear.app/vanillagreen/issue/VGS-697)
 
 **Refines**: [D036](D036-time-boxed-passwordless-sudo-grant.md), [D061](D061-no-manual-commands.md)
 

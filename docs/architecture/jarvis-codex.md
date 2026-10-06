@@ -2,7 +2,7 @@
 
 Covers: shell/plugins/vgs.jarvis/backend/CodexAppServer.js, shell/plugins/vgs.jarvis/backend/CodexHarness.js, shell/plugins/vgs.jarvis/backend/HarnessGate.js, scripts/test-jarvis-codex-protocol.js, scripts/test-jarvis-codex.js, scripts/fixtures/jarvis-codex/
 
-[D079](../decisions/D079-brains-wire-and-harness-adapters.md) names the harness adapter: a subscription runs only through the vendor's own program. [The plan § Brain adapters](../plans/jarvis-plan.md#36-brain-adapters) gives Codex its rule: approvals are server requests. This page defines the Codex app-server harness, plan row J31. It implements the [brain interface](jarvis-brain.md#driver-contract) without tool-call events, uses the [tool bridge](jarvis-bridge.md) for its tools and the [action router](jarvis-approval.md) for its approvals.
+[D079](../decisions/D079-brains-wire-and-harness-adapters.md) names the harness adapter: a subscription runs only through the vendor's own program. [The plan § Brain adapters](https://linear.app/vanillagreen/issue/VGS-623) gives Codex its rule: approvals are server requests. This page defines the Codex app-server harness, plan row J31. It implements the [brain interface](jarvis-brain.md#driver-contract) without tool-call events, uses the [tool bridge](jarvis-bridge.md) for its tools and the [action router](jarvis-approval.md) for its approvals.
 
 ## Owners
 

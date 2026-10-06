@@ -4,7 +4,7 @@
 
 **Date**: 2026-09-30
 **Status**: Active
-**Research**: [VGS-616](../plans/jarvis-plan.md#310-settings-status-and-files)
+**Research**: [VGS-616](https://linear.app/vanillagreen/issue/VGS-623)
 **Refines**: [D032](D032-settings-plugin-and-manifest-settings-convention.md), [D037](D037-plugin-status.md)
 
 **Context**: A manifest cannot list the devices, accounts and models a service discovers at runtime. The Settings page still comes from manifest data alone. Removing an offered option must not remove the user's configured value.

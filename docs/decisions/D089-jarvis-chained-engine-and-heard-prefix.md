@@ -4,7 +4,7 @@
 
 **Date**: 2026-10-01
 **Status**: Active
-**Research**: [Jarvis plan § Speech engines](../plans/jarvis-plan.md#35-speech-engines-playback-accounting-latency), [§ 3.4 State](../plans/jarvis-plan.md#34-state), [§ 3.11 Bounds](../plans/jarvis-plan.md#311-bounds)
+**Research**: [Jarvis plan § Speech engines](https://linear.app/vanillagreen/issue/VGS-623), [§ 3.4 State](https://linear.app/vanillagreen/issue/VGS-623), [§ 3.11 Bounds](https://linear.app/vanillagreen/issue/VGS-623)
 **Refines**: [D084](D084-duplex-speech-engine-sessions.md)
 
 **Context**: The plan needs a chained engine: speech to text, brain, `Speakable`, text to speech, playback. Session owns identity and deadlines. Audio owns pacing and a conservative heard-frame account. WireBrain owns history. ToolRouter owns calls and approval. `Policy.release` and Audit gate transfers. No owner connected them for a conversation, and no owner told the brain what the user heard after an interruption. A chained engine has no provider-side truncation.

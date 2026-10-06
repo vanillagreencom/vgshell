@@ -2,7 +2,7 @@
 
 Covers: shell/plugins/vgs.jarvis/backend/DesktopSession.js, shell/Commons/DesktopLaunch.js, scripts/test-desktop-launch.js, shell/plugins/vgs.jarvis/backend/ShellRequests.js, scripts/test-jarvis-desktop.js, scripts/test-jarvis-requests.js, scripts/fixtures/jarvis/desktop.js, scripts/fixtures/jarvis/desktop-driver.js, scripts/smoke/rows/jarvis-desktop.sh
 
-The [Jarvis plan § 6](../plans/jarvis-plan.md#6-computer-use-and-browser-reference-set) defines the window, workspace and application tools. [The router](jarvis-approval.md) proposes each call after [Policy](jarvis-policy.md) and [Audit](jarvis-audit.md). This file defines the executors behind those calls and the request wire they use.
+The [Jarvis plan § 6](https://linear.app/vanillagreen/issue/VGS-623) defines the window, workspace and application tools. [The router](jarvis-approval.md) proposes each call after [Policy](jarvis-policy.md) and [Audit](jarvis-audit.md). This file defines the executors behind those calls and the request wire they use.
 
 ## Owners
 
@@ -71,7 +71,7 @@ These are recovery rules for a compositor or service that does not answer, not m
 
 ## Request wire
 
-The plan's [§ 3.3](../plans/jarvis-plan.md#33-the-wire-between-shell-and-daemon) names the `request` and `reply` types. `JarvisProtocol.REQUESTS` is the closed kind table. Each kind lists its argument types and its reply data shape. The compositor kinds carry the dispatcher's arguments; the core's argument check still judges their values.
+The plan's [§ 3.3](https://linear.app/vanillagreen/issue/VGS-623) names the `request` and `reply` types. `JarvisProtocol.REQUESTS` is the closed kind table. Each kind lists its argument types and its reply data shape. The compositor kinds carry the dispatcher's arguments; the core's argument check still judges their values.
 
 - `request` is daemon to shell: `{v, type, gen, revision, id, kind, args}`. `id` is a positive integer assigned in order. Text holds 1 to 4096 characters without NUL. A command holds 1 to 64 such words. [Task display](jarvis-task-control.md#display) shares this owner: `tui.run` holds one absolute spec path and opens only `task`.
 - `reply` is shell to daemon: `{v, type, gen, revision, id, kind, answer, data}`. `answer` is `ok` or the capability's refusal, one printable line of at most 300 characters. `data` is `null` unless the answer is `ok` and the kind returns data.

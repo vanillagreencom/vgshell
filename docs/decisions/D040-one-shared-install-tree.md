@@ -6,7 +6,7 @@
 
 **Status**: Active
 
-**Research**: [docs/plans/platform-roadmap.md](../plans/platform-roadmap.md), VGS-531 packaging research
+**Research**: [platform roadmap, attached to VGS-511](https://linear.app/vanillagreen/issue/VGS-511), VGS-531 packaging research
 
 **Context**: VGS needs AUR packages, a Nix flake and a curl installer to install the same runtime files. The shell must also prove that startup and theme apply do not write into a system prefix.
 

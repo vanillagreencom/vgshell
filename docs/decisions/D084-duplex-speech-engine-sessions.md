@@ -4,7 +4,7 @@
 
 **Date**: 2026-10-01
 **Status**: Active
-**Research**: [Jarvis plan § Speech engines](../plans/jarvis-plan.md#35-speech-engines-playback-accounting-latency), [§ 2.2 speech providers](../plans/jarvis-plan-research.md#22-speech-providers)
+**Research**: [Jarvis plan § Speech engines](https://linear.app/vanillagreen/issue/VGS-623), [§ 2.2 speech providers](https://linear.app/vanillagreen/issue/VGS-623)
 **Refines**: none
 
 **Context**: GPT-Live is a full-duplex voice model on one WebSocket. It owns turn-taking and speech, needs a continuous input stream to advance its session timeline, sends output audio without timing or a done event, and has no truncate event. Delegation is client or Responses mode, chosen at startup; client mode is also the default when the field is omitted. Session's reducer was built around a chained turn: collect, brain, play.

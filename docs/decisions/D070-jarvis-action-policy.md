@@ -4,7 +4,7 @@
 
 **Date**: 2026-09-30
 **Status**: Active
-**Research**: [Jarvis plan](../plans/jarvis-plan.md), [research comparison](../plans/jarvis-plan-research.md#25-omarchy-voice-v030-mit)
+**Research**: [Jarvis plan](https://linear.app/vanillagreen/issue/VGS-623), [research comparison](https://linear.app/vanillagreen/issue/VGS-623)
 **Refines**: [D010](D010-facade-scope-not-sandbox.md)
 **Refined by**: [D074](D074-jarvis-kernel-sandbox.md): kernel confinement consumes the same protected paths.
 **Refined by**: [D082](D082-jarvis-approval-bound-to-the-action.md): serial immutable calls and reducer-owned confirmation.
@@ -26,4 +26,4 @@
 
 **Verification**: `scripts/test-jarvis-policy.js`, `scripts/test-jarvis-tools.js` and `scripts/test-jarvis-denied.js` through `scripts/validate`. Their controls remove each independent rule's behavior on disposable copies.
 
-**References**: [Jarvis action policy](../architecture/jarvis-policy.md), [Jarvis](../architecture/jarvis.md), [review dispositions](../plans/jarvis-plan-review.md).
+**References**: [Jarvis action policy](../architecture/jarvis-policy.md), [Jarvis](../architecture/jarvis.md), [review dispositions](https://linear.app/vanillagreen/issue/VGS-623).

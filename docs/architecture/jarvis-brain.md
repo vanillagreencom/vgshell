@@ -2,7 +2,7 @@
 
 Covers: shell/plugins/vgs.jarvis/backend/OpenAIChat.js, shell/plugins/vgs.jarvis/backend/WireBrain.js, shell/plugins/vgs.jarvis/backend/Providers.js, shell/plugins/vgs.jarvis/backend/Sse.js, scripts/test-jarvis-brain-openai.js, scripts/test-jarvis-providers.js, scripts/test-jarvis-sse.js, scripts/test-schema-check.js, scripts/fixtures/schema-check.js, scripts/fixtures/jarvis-brain/
 
-[D079](../decisions/D079-brains-wire-and-harness-adapters.md) records the brain adapter kinds. [The plan § Brain adapters](../plans/jarvis-plan.md#36-brain-adapters) fixes the interface. This page defines the shared wire owner and the OpenAI-compatible driver. [Anthropic Messages](jarvis-anthropic.md) defines the other driver. The [chained engine](jarvis-engine.md) creates a brain per conversation.
+[D079](../decisions/D079-brains-wire-and-harness-adapters.md) records the brain adapter kinds. [The plan § Brain adapters](https://linear.app/vanillagreen/issue/VGS-623) fixes the interface. This page defines the shared wire owner and the OpenAI-compatible driver. [Anthropic Messages](jarvis-anthropic.md) defines the other driver. The [chained engine](jarvis-engine.md) creates a brain per conversation.
 
 ## Owners
 
@@ -76,7 +76,7 @@ The OpenAI-compatible rows below use the pinned schema's bearer `ApiKeyAuth`. Th
 - Local servers use the numeric loopback address that `net.endpoint` pins for `localhost`.
 - A custom base URL is HTTP or HTTPS without credentials, a query or a fragment. No documentation states a custom server's image input, so its images take [the OCR route](jarvis-vision.md#release-and-route). A key on a plaintext non-loopback base is refused by net.
 - The table also holds the `codex` row of [the Codex harness](jarvis-codex.md): driver `codex-app-server`, key `none`, no images, no no-store fields and no cited retention source. Its base names the release recipient; no wire driver serves it.
-- xAI marks Chat Completions deprecated ([plan research § 2.4](../plans/jarvis-plan-research.md#24-inference-what-may-run-on-a-subscription)), so it has no row.
+- xAI marks Chat Completions deprecated ([plan research § 2.4](https://linear.app/vanillagreen/issue/VGS-623)), so it has no row.
 - The retention text in each row is what a future Settings page shows. OpenAI's API data is not used for training, and abuse logs stay up to 30 days. OpenRouter stores no prompts unless the account opts in. Groq retains none by default and logs up to 30 days for reliability or abuse. Cerebras retains no inference inputs or outputs. Mistral keeps 30 rolling days for abuse monitoring. Gemini's paid tier logs for a limited period for abuse; its unpaid quota is used to improve products.
 
 ## Evidence

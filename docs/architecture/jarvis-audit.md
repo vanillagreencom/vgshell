@@ -2,7 +2,7 @@
 
 Covers: shell/plugins/vgs.jarvis/backend/Audit.js, shell/plugins/vgs.jarvis/backend/Redact.js, scripts/test-jarvis-audit.js, scripts/test-jarvis-redact.js
 
-[D070](../decisions/D070-jarvis-action-policy.md) assigns the pre-action audit boundary. The [plan's policy section](../plans/jarvis-plan.md#37-policy-authority-effects-approval-audit) defines the record. The [bounds section](../plans/jarvis-plan.md#311-bounds) defines retention.
+[D070](../decisions/D070-jarvis-action-policy.md) assigns the pre-action audit boundary. The [plan's policy section](https://linear.app/vanillagreen/issue/VGS-623) defines the record. The [bounds section](https://linear.app/vanillagreen/issue/VGS-623) defines retention.
 
 ## Integration
 

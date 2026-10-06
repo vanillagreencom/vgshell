@@ -2,7 +2,7 @@
 
 Covers: shell/plugins/vgs.jarvis/backend/Audio.js, scripts/test-jarvis-playback.js, scripts/test-jarvis-playback-pipewire.js, scripts/fixtures/jarvis/playback*
 
-`Audio` owns playback within the [audio lifetime](jarvis-audio.md). It implements the [Jarvis plan § 3.5](../plans/jarvis-plan.md#35-speech-engines-playback-accounting-latency). No second player, queue owner or release path exists.
+`Audio` owns playback within the [audio lifetime](jarvis-audio.md). It implements the [Jarvis plan § 3.5](https://linear.app/vanillagreen/issue/VGS-623). No second player, queue owner or release path exists.
 
 ## Pacing and interruption
 

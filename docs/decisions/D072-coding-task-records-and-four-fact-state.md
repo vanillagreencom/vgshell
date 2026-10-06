@@ -6,7 +6,7 @@
 
 **Status**: Active
 
-**Research**: [Jarvis plan § Coding-task delegation](../plans/jarvis-plan.md#7-coding-task-delegation), [review disposition § 13](../plans/jarvis-plan-review.md#13-review-dispositions)
+**Research**: [Jarvis plan § Coding-task delegation](https://linear.app/vanillagreen/issue/VGS-623), [review disposition § 13](https://linear.app/vanillagreen/issue/VGS-623)
 
 **Refines**: [D033](D033-floating-tuis-are-core.md), [D052](D052-automations-engine.md)
 
