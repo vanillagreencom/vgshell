@@ -92,7 +92,7 @@ var CONTROL_CHARACTER = /[\u0000-\u001f\u007f-\u009f]/;
 // types. `data` is structured JSON only the plugin's own instances read; the
 // Settings window draws every other type unless the entry is `hidden`;
 // `choices` feeds a setting's Select instead of a Status row.
-var STATUS_TYPES = ["presence", "presenceList", "state", "text", "count", "time", "data", "choices"];
+var STATUS_TYPES = ["presence", "presenceList", "state", "text", "count", "time", "data", "choices", "launcherRows"];
 var STATUS_ENTRY_KEYS = ["type", "label", "group", "hint", "command", "hidden", "action", "actions"];
 // A status key names a value in `shell.status.values`, so it is a plain
 // identifier.
@@ -130,6 +130,11 @@ var STATUS_LIST_ITEM_KEYS = ["label", "value", "hint", "command", "secret"];
 // Choice values are stable ids, not their display labels. Empty string is
 // reserved for a setting that follows the first offered value.
 var STATUS_CHOICE_KEYS = ["label", "value"];
+// A plugin-published launcher provider can expose a category of dynamic
+// rows. The ceiling admits a 150-row catalog with growth room and keeps
+// search work bounded.
+var LAUNCHER_ROWS_MAX = 256;
+var LAUNCHER_ROW_KEYS = ["id", "label", "icon", "description", "aliases", "menu"];
 
 // A status entry's `action` (D061): the one-click setup step the Settings
 // page draws as a button beside the entry. It carries a printable `label`
@@ -560,11 +565,11 @@ function statusError(status, capabilities, tui, requirements, system) {
         }
         if (entry.command !== undefined && entry.action === undefined && entry.type !== "data")
             return at + ".command needs an action: a command is only the Show command disclosure beside a one-click action (D061)";
-        if (entry.type === "data") {
+        if (entry.type === "data" || entry.type === "launcherRows") {
             var drawn = ["group", "hint", "command", "hidden", "action", "actions"];
             for (var d = 0; d < drawn.length; d++) {
                 if (entry[drawn[d]] !== undefined)
-                    return at + "." + drawn[d] + " needs a type Settings draws; data is never drawn";
+                    return at + "." + drawn[d] + " needs a type Settings draws; " + entry.type + " is never drawn";
             }
         }
     }
@@ -899,6 +904,21 @@ function statusValueFits(type, value) {
             if (!statusListItemFits(value[n])) return false;
         return true;
     }
+    if (type === "launcherRows") {
+        if (!Array.isArray(value) || value.length > LAUNCHER_ROWS_MAX) return false;
+        var seenLauncherIds = [];
+        var launcherMenus = [];
+        for (var r = 0; r < value.length; r++) {
+            var item = value[r];
+            if (!launcherRowFits(item)) return false;
+            if (seenLauncherIds.indexOf(item.id) !== -1) return false;
+            var dot = item.id.lastIndexOf(".");
+            if (dot >= 0 && launcherMenus.indexOf(item.id.substring(0, dot)) === -1) return false;
+            seenLauncherIds.push(item.id);
+            if (item.menu === true) launcherMenus.push(item.id);
+        }
+        return true;
+    }
     if (type === "choices") {
         if (!Array.isArray(value) || value.length > STATUS_LIST_MAX) return false;
         var seen = [];
@@ -946,6 +966,22 @@ function statusListItemFits(item) {
         && (item.hint === undefined || isPrintableLine(item.hint, STATUS_HINT_MAX))
         && (item.secret === undefined || (typeof item.secret === "string" && SECRET_ACCOUNT_PATTERN.test(item.secret)))
         && (item.command === undefined || (item.secret !== undefined && isPrintableLine(item.command, STATUS_COMMAND_MAX)));
+}
+
+// Whether item is one row of a launcherRows status value. It is JSON with
+// only row fields the launcher can render or activate. Parent existence and
+// duplicate ids are list-level rules in statusValueFits.
+function launcherRowFits(item) {
+    if (!isPlainObject(item) || !isPlainJson(item)) return false;
+    var keys = Object.keys(item);
+    for (var i = 0; i < keys.length; i++)
+        if (LAUNCHER_ROW_KEYS.indexOf(keys[i]) === -1) return false;
+    return typeof item.id === "string" && MENU_ID_PATTERN.test(item.id)
+        && isPrintableLine(item.label, MENU_TEXT_MAX)
+        && typeof item.icon === "string" && hasOwn(Lucide.ICONS, item.icon)
+        && (item.description === undefined || isPrintableLine(item.description, MENU_DESCRIPTION_MAX))
+        && (item.aliases === undefined || (Array.isArray(item.aliases) && item.aliases.every(function (alias) { return isPrintableLine(alias, MENU_TEXT_MAX); })))
+        && (item.menu === undefined || typeof item.menu === "boolean");
 }
 
 // A deep-frozen copy of plain JSON, so the writer cannot reach a published
@@ -1019,7 +1055,7 @@ function statusDeclarationFits(manifest, entry, value) {
 // Whether the Settings window draws status entry `entry`: every type but
 // `data` and `choices`, unless the entry is `hidden`. Choices feed editors.
 function statusDisplayable(entry) {
-    return entry.type !== "data" && entry.type !== "choices" && entry.hidden !== true;
+    return entry.type !== "data" && entry.type !== "choices" && entry.type !== "launcherRows" && entry.hidden !== true;
 }
 
 // Select models keyed by string setting name. Only accepted status enters
@@ -2914,9 +2950,11 @@ function perScreenLayerTakesKeyboard(kind, screens, screen) {
 // What a manifest's `menu` key may hold: launcher rows keyed by a dotted id
 // whose dots name its parent, as in the launcher's menu files. A row with a
 // `shortcut` runs that registered shortcut of the plugin's own; one without
-// is a category. A `toggle` names a boolean setting of the plugin's schema
-// and the label, and optionally the icon, the row shows while it is true.
-var MENU_ROW_KEYS = ["label", "icon", "aliases", "description", "shortcut", "toggle"];
+// is a category. A provider row names a launcherRows status key whose items
+// fill the category and whose activations call the shortcut with an item id.
+// A `toggle` names a boolean setting of the plugin's schema and the label,
+// and optionally the icon, the row shows while it is true.
+var MENU_ROW_KEYS = ["label", "icon", "aliases", "description", "shortcut", "toggle", "provider"];
 var MENU_TOGGLE_KEYS = ["setting", "label", "icon"];
 var MENU_ID_PATTERN = /^[a-z0-9][a-z0-9-]*(\.[a-z0-9][a-z0-9-]*)*$/;
 var MENU_TEXT_MAX = 60;
@@ -2927,8 +2965,9 @@ var MENU_DESCRIPTION_MAX = 120;
 // `label` and a shipped `icon`, optional printable `aliases` and
 // `description`, an optional `shortcut` name, which needs capability
 // `shortcut`, and an optional `toggle` of MENU_TOGGLE_KEYS, which needs a
-// shortcut and names a boolean schema entry.
-function menuError(menu, capabilities, schema) {
+// shortcut and names a boolean schema entry. A `provider` names a status key
+// of type `launcherRows`, needs a shortcut and refuses a toggle.
+function menuError(menu, capabilities, schema, status) {
     if (!isPlainObject(menu) || Object.keys(menu).length === 0)
         return "menu must be a non-empty object of row ids to rows";
     var ids = Object.keys(menu);
@@ -2958,6 +2997,14 @@ function menuError(menu, capabilities, schema) {
                 return at + ".shortcut must be a shortcut name, got " + JSON.stringify(item.shortcut);
             if (capabilities.indexOf("shortcut") === -1)
                 return at + ".shortcut needs capability shortcut";
+        }
+        if (item.provider !== undefined) {
+            if (typeof item.provider !== "string" || !STATUS_KEY_PATTERN.test(item.provider) || !hasOwn(status, item.provider) || status[item.provider].type !== "launcherRows")
+                return at + ".provider must name a launcherRows status entry, got " + JSON.stringify(item.provider);
+            if (item.shortcut === undefined)
+                return at + ".provider needs a shortcut";
+            if (item.toggle !== undefined)
+                return at + ".provider must not declare toggle";
         }
         if (item.toggle === undefined)
             continue;
@@ -3019,7 +3066,8 @@ function menuRows(manifests, enabledIds, config) {
                 icon: on && row.toggle.icon !== undefined ? row.toggle.icon : row.icon,
                 aliases: (row.aliases || []).slice(),
                 description: row.description || "",
-                shortcut: row.shortcut === undefined ? "" : plugin + ":" + row.shortcut
+                shortcut: row.shortcut === undefined ? "" : plugin + ":" + row.shortcut,
+                provider: row.provider === undefined ? "" : row.provider
             });
         });
     });
@@ -3041,12 +3089,53 @@ function menuRows(manifests, enabledIds, config) {
     return { rows: ordered, conflicts: conflicts };
 }
 
+// Dynamic rows published by the provider row MENU_ID, read from VALUES, the
+// publishing plugin's status values. Each row id is nested under MENU_ID; a
+// non-menu row carries ITEM, the id handed back to the shortcut handler.
+function providerRows(rows, menuId, values) {
+    var parent = null;
+    for (var i = 0; i < rows.length; i++)
+        if (rows[i].id === menuId && rows[i].provider !== undefined && rows[i].provider !== "") parent = rows[i];
+    if (parent === null || !isPlainObject(values) || !Array.isArray(values[parent.provider])) return [];
+    return values[parent.provider].map(function (item) {
+        return {
+            id: menuId + "." + item.id,
+            label: item.label,
+            icon: item.icon,
+            description: item.description || "",
+            aliases: item.aliases ? item.aliases.slice() : [],
+            menu: item.menu === true,
+            shortcut: parent.shortcut,
+            item: item.id
+        };
+    });
+}
+
+function providerItemListed(row, values, item) {
+    if (row.provider === undefined || row.provider === "" || !isPlainObject(values) || !Array.isArray(values[row.provider])) return false;
+    return values[row.provider].some(function (published) { return published.id === item && published.menu !== true; });
+}
+
 // The answer to running global KEY from a launcher row: "ok" when ROWS,
-// menuRows' rows, list a row that runs it and REGISTERED, the shortcut
-// registry's map by global, holds it; otherwise
-// `refused: shortcut=<key> reason=unlisted|unregistered`.
-function menuActivation(rows, registered, key) {
-    var listed = typeof key === "string" && key !== "" && rows.some(function (row) { return row.shortcut === key; });
+// menuRows' rows, list a plain row that runs it and REGISTERED holds it.
+// With ITEM, only a provider row may run, and only for a published non-menu
+// item. VALUES_BY_PLUGIN maps plugin id to that plugin's status values.
+function menuActivation(rows, registered, key, item, valuesByPlugin) {
+    if (item !== undefined && item !== null && item !== "") {
+        var listed = false;
+        for (var p = 0; p < rows.length; p++) {
+            var row = rows[p];
+            if (row.shortcut !== key || row.provider === undefined || row.provider === "") continue;
+            var values = isPlainObject(valuesByPlugin) && hasOwn(valuesByPlugin, row.plugin) ? valuesByPlugin[row.plugin] : {};
+            if (providerItemListed(row, values, item)) listed = true;
+        }
+        if (!listed)
+            return "refused: shortcut=" + tuiLabel(key) + " item=" + tuiLabel(item) + " reason=unlisted";
+        if (!hasOwn(registered, key))
+            return "refused: shortcut=" + tuiLabel(key) + " reason=unregistered";
+        return "ok";
+    }
+    var listed = typeof key === "string" && key !== "" && rows.some(function (row) { return row.shortcut === key && (row.provider === undefined || row.provider === ""); });
     if (!listed)
         return "refused: shortcut=" + tuiLabel(key) + " reason=unlisted";
     if (!hasOwn(registered, key))
@@ -3210,7 +3299,7 @@ function validateManifest(raw, sourceDir) {
             return { ok: false, error: badTui };
     }
     if (raw.menu !== undefined) {
-        var badMenu = menuError(raw.menu, capabilities, schema);
+        var badMenu = menuError(raw.menu, capabilities, schema, raw.status === undefined ? {} : raw.status);
         if (badMenu !== "")
             return { ok: false, error: badMenu };
     }

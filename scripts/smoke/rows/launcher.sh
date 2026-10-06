@@ -10,9 +10,10 @@
 # holds Plugin settings and, while vgs.system is enabled, System Settings,
 # each opening its window. The row ends with the plugin disabled and every
 # registration released.
-# inputs: shell/plugins/vgs.launcher/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Service.qml shell/plugins/vgs.system/manifest.json shell/plugins/vgs.system/Service.qml shell/Ui/BarWidget.qml scripts/smoke/fixtures/plugins/acme.tui/* shell/Ui/layout/ListCursor.qml shell/Core/TuiRunner.qml bin/vgshell-tui shell/Commons/DesktopLaunch.js scripts/smoke/rows/capabilities.sh scripts/smoke/rows/tui.sh
+# inputs: shell/plugins/vgs.launcher/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Service.qml shell/plugins/vgs.system/manifest.json shell/plugins/vgs.system/Service.qml shell/Ui/BarWidget.qml scripts/smoke/fixtures/plugins/acme.tui/* shell/Ui/layout/ListCursor.qml shell/Core/TuiRunner.qml shell/Core/ShortcutRegistry.qml shell/Core/PluginLogic.js shell/Core/PluginStatus.qml bin/vgshell-tui shell/Commons/DesktopLaunch.js scripts/smoke/rows/capabilities.sh scripts/smoke/rows/tui.sh
 set -euo pipefail
 launcher() { ipc vgs.launcher invoke "$1" "${2:-}"; }
+tui_fixture() { ipc acme.tui invoke "$1" "${2:-}"; }
 read_launcher() { ipc smoke readInstance overlay vgs.launcher "$1"; }
 launcher_rows() { ipc smoke launcherRows overlay vgs.launcher | py_reply 'import json,sys; t=sys.stdin.read(); print(json.dumps(json.loads(t)) if t.startswith("[") else t.strip())'; }
 # The launcher's rows whose kind is $1, as [label, detail] pairs.
@@ -270,6 +271,32 @@ expect_poll "the open launcher hides Update once the fixture leaves the list" Fa
 type_keys -k Escape || fail "sending Escape failed"
 expect_poll "Escape closes the launcher after Update" 0 layer_count vgs:overlay
 
+# Plugin-published launcher providers: the category is hidden until the
+# fixture publishes rows, live rows search from the root, and activation
+# passes the provider's item id to the shortcut handler.
+provider_marker="$rt_dir/launcher-provider-item"
+rm -f -- "$provider_marker"
+categories "empty plugin provider"
+expect "the disabled provider fixture has no category" False launcher_has_row menu "Smoke provider"
+expect "enabling the provider fixture while the launcher is open is allowed" ok ipc shell setPluginEnabled acme.tui true
+expect_poll "the provider fixture's service is built" True record_exists acme.tui
+expect "an enabled provider with no rows stays hidden" False launcher_has_row menu "Smoke provider"
+expect "publishing provider rows is allowed" ok tui_fixture publish-launcher "$provider_marker"
+expect_poll "publishing rows shows the provider category live" True launcher_has_row menu "Smoke provider"
+expect "the launcher searches provider rows from the root" ok ipc shell summon overlay vgs.launcher '{"query":"provideralias"}'
+focused "the provider search holds the keyboard"
+expect_poll "root search finds the plugin provider row by alias" True launcher_has_row plugin "Smoke clean"
+type_keys -k Return || fail "activating the provider row failed"
+expect_poll "the provider row handed its item id to the shortcut" "'tools.clean'" file_text "$provider_marker"
+expect_poll "the provider row activation closes the launcher" 0 layer_count vgs:overlay
+expect "an unlisted provider item is refused" "refused: shortcut=acme.tui:open item=missing reason=unlisted" tui_fixture activate-launcher missing
+categories "provider removal"
+expect_poll "the provider category shows before disable" True launcher_has_row menu "Smoke provider"
+expect "disabling the provider fixture while the launcher is open is allowed" ok ipc shell setPluginEnabled acme.tui false
+expect_poll "disabling the provider fixture removes the category" False launcher_has_row menu "Smoke provider"
+type_keys -k Escape || fail "sending Escape after provider disable failed"
+expect_poll "Escape closes the launcher after provider disable" 0 layer_count vgs:overlay
+
 # A refusal other than busy stays in the list as a notice. tui.sh's
 # stand-in bin/vgshell-tui, which finds no terminal, makes the core's launcher
 # state missing through one launch that answered ok; the next pick answers
@@ -345,6 +372,8 @@ rm -f -- "${user_menu:?}"
 # the revision the last completed scan published.
 launcher_qml="$repo/shell/plugins/vgs.launcher/Launcher.qml"
 cp -p -- "$launcher_qml" "$sandbox/Launcher.qml.real"
+menu_model_js="$repo/shell/plugins/vgs.launcher/MenuModel.js"
+cp -p -- "$menu_model_js" "$sandbox/MenuModel.js.real"
 # launcher_source LABEL FILE: install FILE as the plugin's source and wait
 # for the scan that publishes it; false when it could not be installed.
 launcher_source() {
@@ -361,6 +390,31 @@ launcher_mutant() {
   python3 -c 'import sys; p, q, old, new = sys.argv[1:]; open(q, "w").write(open(p).read().replace(old, new))' "$sandbox/Launcher.qml.real" "$sandbox/Launcher.qml.mutant" "$2" "$3" || { fail "$1: the mutant could not be written"; return 1; }
   launcher_source "$1" "$sandbox/Launcher.qml.mutant"
 }
+menu_model_source() {
+  cp -p -- "$2" "$menu_model_js.tmp" && mv -T -- "$menu_model_js.tmp" "$menu_model_js" || { fail "$1: $2 could not be installed"; return 1; }
+  rescan "a rescan publishes $1"
+}
+menu_model_mutant() {
+  if [[ $(grep -c -F -- "$2" "$sandbox/MenuModel.js.real") != 1 ]]; then
+    fail "$1: its text occurs once in $menu_model_js"
+    return 1
+  fi
+  python3 -c 'import sys; p, q, old, new = sys.argv[1:]; open(q, "w").write(open(p).read().replace(old, new))' "$sandbox/MenuModel.js.real" "$sandbox/MenuModel.js.mutant" "$2" "$3" || { fail "$1: the mutant could not be written"; return 1; }
+  menu_model_source "$1" "$sandbox/MenuModel.js.mutant"
+}
+
+# A copy that always shows provider menus exposes an empty plugin provider
+# category before its service publishes any rows.
+if menu_model_mutant "the empty-provider control" 'if (entry.provider && entry.provider !== "plugin") return true;' 'if (entry.provider) return true;'; then
+  categories "the empty-provider control"
+  expect "enabling the provider fixture under the empty-provider control is allowed" ok ipc shell setPluginEnabled acme.tui true
+  expect_poll "control: the provider fixture builds under the empty-provider control" True record_exists acme.tui
+  expect_poll "control: the empty-provider control shows the empty category" True launcher_has_row menu "Smoke provider"
+  expect "disabling the provider fixture under the empty-provider control is allowed" ok ipc shell setPluginEnabled acme.tui false
+  expect "the host hides the empty-provider control" ok ipc shell hide overlay vgs.launcher
+  expect_poll "the empty-provider control closed" 0 layer_count vgs:overlay
+fi
+menu_model_source "the restored menu model" "$sandbox/MenuModel.js.real" || true
 
 # A copy that never reads on a change keeps the menu it read when it was
 # built. It waits the five seconds of sleep in expect_poll's 25 polls, the

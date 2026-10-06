@@ -32,8 +32,9 @@ var ITEM_KEYS = ["label", "icon", "title", "description", "aliases", "parent", "
 // The keys that each give a row its kind; a merged row states one at most.
 // `shortcut` comes from a plugin's row alone, never from a menu file.
 var KIND_KEYS = ["run", "target", "provider", "unavailable", "tui", "tuiGroup", "shortcut"];
-// Menus whose rows the launcher lists itself: installed applications, and
-// the theme packages the theme capability reports.
+// Menus whose rows a menu file may ask the launcher to list itself:
+// installed applications, and the theme packages the theme capability
+// reports. Plugin providers enter only through pluginEntries.
 var PROVIDERS = ["apps", "themes"];
 var ID_PATTERN = /^[a-z0-9][a-z0-9-]*(\.[a-z0-9][a-z0-9-]*)*$/;
 var COMMAND_PATTERN = /^[A-Za-z0-9._+-]+$/;
@@ -140,7 +141,7 @@ function parseMenu(text) {
 // One merged item in the shape every other function reads.
 function normalizeItem(id, raw, order) {
     var parent = hasOwn(raw, "parent") ? raw.parent : (id.indexOf(".") >= 0 ? id.split(".").slice(0, -1).join(".") : "root");
-    var kind = hasOwn(raw, "unavailable") ? "unavailable" : (hasOwn(raw, "tui") || hasOwn(raw, "tuiGroup") ? "tui" : (hasOwn(raw, "shortcut") ? "shortcut" : (hasOwn(raw, "run") ? "action" : (hasOwn(raw, "target") ? "link" : "menu"))));
+    var kind = hasOwn(raw, "unavailable") ? "unavailable" : (hasOwn(raw, "tui") || hasOwn(raw, "tuiGroup") ? "tui" : (hasOwn(raw, "provider") ? "menu" : (hasOwn(raw, "shortcut") ? "shortcut" : (hasOwn(raw, "run") ? "action" : (hasOwn(raw, "target") ? "link" : "menu")))));
     return {
         id: id,
         parent: id === "root" ? "" : parent,
@@ -161,6 +162,8 @@ function normalizeItem(id, raw, order) {
         tuiKey: "",
         // The global a plugin's row runs, `<plugin id>:<name>`.
         shortcut: raw.shortcut || "",
+        // The provider item id handed to a plugin shortcut.
+        item: raw.item || "",
         order: order
     };
 }
@@ -172,7 +175,10 @@ function pluginEntries(rows) {
     return (rows || []).map(function (row) {
         var raw = { label: row.label, icon: row.icon, aliases: row.aliases.slice() };
         if (row.description !== "") raw.description = row.description;
-        if (row.shortcut !== "") raw.shortcut = row.shortcut;
+        if (row.provider !== undefined && row.provider !== "") {
+            raw.provider = "plugin";
+            raw.shortcut = row.shortcut;
+        } else if (row.shortcut !== "") raw.shortcut = row.shortcut;
         return { id: row.id, raw: raw };
     });
 }
@@ -218,7 +224,7 @@ function mergeMenuSources(shipped, user, plugin) {
     var items = {};
     for (var k = 0; k < order.length; k++) {
         var raw = merged[order[k]];
-        var stated = KIND_KEYS.filter(function (name) { return hasOwn(raw, name); });
+        var stated = KIND_KEYS.filter(function (name) { return hasOwn(raw, name) && !(name === "shortcut" && hasOwn(raw, "provider")); });
         if (stated.length > 1) return { ok: false, error: "items." + order[k] + " states " + stated.join(" and ") };
         items[order[k]] = normalizeItem(order[k], raw, k);
     }
@@ -261,6 +267,7 @@ function routeTarget(items, itemOrder, route) {
     var entry = items[id];
     if (entry !== undefined && entry.kind === "action") return { action: "run", run: entry.run.slice() };
     if (entry !== undefined && entry.kind === "shortcut") return { action: "shortcut", shortcut: entry.shortcut };
+    if (entry !== undefined && entry.kind === "plugin") return { action: "plugin", shortcut: entry.shortcut, item: entry.item };
     var target = entry !== undefined && entry.kind === "link" ? entry.target : id;
     return { action: "open", menu: hasOwn(items, target) ? target : "root" };
 }
@@ -307,6 +314,30 @@ function swapProviderRows(items, itemOrder, menuId, rows) {
         nextOrder.push(row.id);
     }
     return { items: nextItems, itemOrder: nextOrder };
+}
+
+// Whether provider rows under `menuId` already match `rows`. The launcher
+// can then ignore a provider revision that changed other status keys.
+function providerRowsChanged(items, itemOrder, menuId, rows) {
+    var current = itemOrder.filter(function (id) { return items[id].providerMenu === menuId; }).map(function (id) { return providerComparable(items[id]); });
+    var next = rows.map(providerComparable);
+    return JSON.stringify(current) !== JSON.stringify(next);
+}
+
+function providerComparable(row) {
+    return {
+        id: row.id,
+        parent: row.parent,
+        kind: row.kind,
+        icon: row.icon,
+        appIcon: row.appIcon || "",
+        label: row.label,
+        target: row.target || "",
+        description: row.description || "",
+        aliases: row.aliases ? row.aliases.slice() : [],
+        shortcut: row.shortcut || "",
+        item: row.item || ""
+    };
 }
 
 // Every loaded `apps` menu's rows swapped for one row per entry of `apps`,
@@ -382,6 +413,34 @@ function themeRow(menuId, pkg) {
     };
 }
 
+// One plugin-published provider row under menuId. Menu rows become
+// categories; action rows call the provider row's shortcut with item id.
+function pluginRow(menuId, row) {
+    return {
+        id: row.id,
+        parent: row.id.indexOf(".") >= 0 ? row.id.split(".").slice(0, -1).join(".") : menuId,
+        kind: row.menu ? "menu" : "plugin",
+        icon: row.icon,
+        appIcon: "",
+        appId: "",
+        label: row.label,
+        title: "",
+        target: "",
+        description: row.description || "",
+        run: [],
+        provider: "",
+        aliases: row.aliases ? row.aliases.slice() : [],
+        requires: [],
+        reason: "",
+        tui: "",
+        tuiGroup: "",
+        tuiKey: "",
+        shortcut: row.shortcut,
+        item: row.item,
+        order: 0
+    };
+}
+
 function slugify(value) {
     return String(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "item";
 }
@@ -397,7 +456,7 @@ function resolveRoute(items, itemOrder, input) {
     if (hasOwn(items, raw)) return raw;
     for (var i = 0; i < itemOrder.length; i++) {
         var entry = items[itemOrder[i]];
-        if (entry.kind === "app") continue;
+        if (entry.kind === "app" || entry.kind === "plugin" || (entry.providerMenu && items[entry.providerMenu] && items[entry.providerMenu].provider === "plugin")) continue;
         for (var j = 0; j < entry.aliases.length; j++)
             if (entry.aliases[j].toLowerCase().replace(/_/g, "-") === raw) return entry.id;
     }
@@ -467,7 +526,7 @@ function isVisible(items, itemOrder, entry, depth) {
     if (!isAttached(items, entry)) return false;
     if (entry.kind === "tui") return entry.tuiKey !== "";
     if (entry.kind !== "menu" && entry.kind !== "link") return true;
-    if (entry.provider) return true;
+    if (entry.provider && entry.provider !== "plugin") return true;
     var guard = depth || 0;
     if (guard >= DEPTH_LIMIT) return false;
     var target = entry.kind === "link" ? entry.target : entry.id;

@@ -11,7 +11,6 @@
 "use strict";
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
-const os = require("node:os");
 const path = require("node:path");
 const { load } = require("../bin/lib/qml-library.js");
 
@@ -43,6 +42,7 @@ const MENU_REFUSED = [
     ["a run with an empty argument", menuText({ apps: { run: ["a", ""] } }), "items.apps.run must be a non-empty list"],
     ["a required command with a space", menuText({ apps: { requires: ["a b"] } }), "items.apps.requires must be a list of command names"],
     ["an unknown provider", menuText({ apps: { provider: "fonts" } }), "items.apps.provider must be one of apps, themes"],
+    ["a plugin provider in a menu file", menuText({ apps: { provider: "plugin" } }), "items.apps.provider must be one of apps, themes"],
     ["a parent that is no id", menuText({ "a.b": { parent: "A" } }), "items.a.b.parent is not an id"],
     ["a target that is no id", menuText({ apps: { target: "../x" } }), "items.apps.target is not an id"],
     ["a tui key that is no string", menuText({ apps: { tui: 3 } }), "items.apps.tui must be a string"],
@@ -71,6 +71,7 @@ const STYLE = { id: "style", plugin: "vgs.themes", label: "Style", icon: "paintb
 const THEME = { id: "style.theme", plugin: "vgs.themes", label: "Theme", icon: "palette", aliases: ["themes"], description: "", shortcut: "vgs.themes:themes" };
 const BAR = { id: "style.bar", plugin: "vgs.bar", label: "Hide top bar", icon: "panel-top-close", aliases: [], description: "Give the bar's space to windows", shortcut: "vgs.bar:toggle" };
 const TAKEN = { id: "system", plugin: "acme.taken", label: "Mine", icon: "star", aliases: [], description: "", shortcut: "acme.taken:go" };
+const CATALOG = { id: "tools.catalog", plugin: "acme.catalog", label: "Catalog", icon: "blocks", aliases: ["catalog"], description: "Dynamic tools", shortcut: "acme.catalog:open", provider: "rows" };
 
 // Payloads the judge refuses: [label, text, the start of the error].
 const PAYLOAD_REFUSED = [
@@ -181,6 +182,9 @@ function verify(model, menu = shippedMenu) {
         { id: "style.theme", raw: { label: "Theme", icon: "palette", aliases: ["themes"], shortcut: "vgs.themes:themes" } },
         { id: "style.bar", raw: { label: "Hide top bar", icon: "panel-top-close", aliases: [], description: "Give the bar's space to windows", shortcut: "vgs.bar:toggle" } }
     ]);
+    same(model.pluginEntries([CATALOG]), [
+        { id: "tools.catalog", raw: { label: "Catalog", icon: "blocks", aliases: ["catalog"], description: "Dynamic tools", provider: "plugin", shortcut: "acme.catalog:open" } }
+    ], "a provider row becomes a plugin provider menu, not a shortcut row");
     const plugged = model.mergeMenuSources(shipped.entries, [], model.pluginEntries([STYLE, THEME, BAR, TAKEN]));
     assert.equal(plugged.ok, true, plugged.error);
     same(plugged.refused, ["system"], "a plugin row with a shipped id is refused");
@@ -192,6 +196,25 @@ function verify(model, menu = shippedMenu) {
     same(model.menuRows(plugged.items, plugged.itemOrder, "style", []).map(r => [r.kind, r.label, r.detail]),
         [["shortcut", "Theme", ""], ["shortcut", "Hide top bar", "Give the bar's space to windows"]]);
     same(model.searchRows(plugged.items, plugged.itemOrder, "root", "top bar", []).map(r => [r.kind, r.label]), [["shortcut", "Hide top bar"]], "a search finds a plugin row");
+    const providerPlugged = model.mergeMenuSources(shipped.entries, [], model.pluginEntries([CATALOG]));
+    assert.equal(providerPlugged.items["tools.catalog"].kind, "menu", "a provider row is a menu");
+    assert.equal(providerPlugged.items["tools.catalog"].provider, "plugin");
+    const emptyProvider = providerPlugged;
+    assert.equal(model.isVisible(emptyProvider.items, emptyProvider.itemOrder, emptyProvider.items["tools.catalog"]), false, "an empty plugin provider menu is hidden");
+    const publishedProviderRows = [
+        model.pluginRow("tools.catalog", { id: "tools.catalog.group", label: "Group", icon: "blocks", aliases: ["groupalias"], menu: true, shortcut: "acme.catalog:open", item: "group" }),
+        model.pluginRow("tools.catalog", { id: "tools.catalog.clean", label: "Clean", icon: "sparkles", description: "Clean state", aliases: ["wipe"], menu: false, shortcut: "acme.catalog:open", item: "clean" })
+    ];
+    const providerRows = model.swapProviderRows(providerPlugged.items, providerPlugged.itemOrder, "tools.catalog", publishedProviderRows);
+    assert.equal(model.isVisible(providerRows.items, providerRows.itemOrder, providerRows.items["tools.catalog"]), true, "a plugin provider menu shows while a row under it shows");
+    same(model.searchRows(providerRows.items, providerRows.itemOrder, "root", "wipe", []).map(r => [r.kind, r.label]), [["plugin", "Clean"]], "search finds a plugin provider row by alias from root");
+    assert.equal(model.resolveRoute(providerRows.items, providerRows.itemOrder, "wipe"), "wipe", "a plugin provider alias is never a route");
+    assert.equal(model.resolveRoute(providerRows.items, providerRows.itemOrder, "groupalias"), "groupalias", "a plugin provider menu alias is never a route");
+    assert.equal(model.resolveRoute(providerRows.items, providerRows.itemOrder, "tools.catalog.clean"), "tools.catalog.clean", "a plugin provider exact id is a route");
+    same(model.routeTarget(providerRows.items, providerRows.itemOrder, "tools.catalog.clean"), { action: "plugin", shortcut: "acme.catalog:open", item: "clean" });
+    assert.equal(model.providerRowsChanged(providerRows.items, providerRows.itemOrder, "tools.catalog", publishedProviderRows), false, "an unchanged plugin provider skips its swap");
+    assert.equal(model.providerRowsChanged(providerRows.items, providerRows.itemOrder, "tools.catalog", [Object.assign({}, publishedProviderRows[0], { label: "Moved" }), publishedProviderRows[1]]), true, "a changed plugin provider swaps rows");
+    assert.equal(model.providerRowsChanged(providerRows.items, providerRows.itemOrder, "tools.catalog", [publishedProviderRows[0], Object.assign({}, publishedProviderRows[1], { item: "other" })]), true, "a changed plugin provider item id swaps rows");
     const relabelled = model.mergeMenuSources(shipped.entries, model.parseMenu(menuText({ "style.theme": { label: "Pick a theme" } })).entries, model.pluginEntries([STYLE, THEME]));
     same([relabelled.items["style.theme"].label, relabelled.items["style.theme"].shortcut], ["Pick a theme", "vgs.themes:themes"], "the user's file relabels a plugin row");
     // A user row with a kind of its own replaces a plugin row's kind and
@@ -282,6 +305,10 @@ function verify(model, menu = shippedMenu) {
     assert.equal(themes.items["style.theme.vgs"].icon, "check");
     assert.equal(themes.items["style.theme.broken"].kind, "unavailable");
     assert.equal(themes.items["style.theme.broken"].description, "Unavailable");
+    const pluginAction = model.pluginRow("tools.catalog", { id: "tools.catalog.clean", label: "Clean", icon: "sparkles", description: "Clean state", aliases: ["wipe"], menu: false, shortcut: "acme.catalog:open", item: "clean" });
+    same([pluginAction.kind, pluginAction.parent, pluginAction.shortcut, pluginAction.item, pluginAction.description, pluginAction.aliases], ["plugin", "tools.catalog", "acme.catalog:open", "clean", "Clean state", ["wipe"]]);
+    const pluginMenu = model.pluginRow("tools.catalog", { id: "tools.catalog.group", label: "Group", icon: "blocks", menu: true, shortcut: "acme.catalog:open", item: "group" });
+    same([pluginMenu.kind, pluginMenu.parent], ["menu", "tools.catalog"]);
 
     // Search and rank: an app named with the whole word wins over an exact
     // menu label; deeper matches sit after direct ones in the drilldown.
@@ -387,6 +414,8 @@ const CONTROLS = [
     ["shortcut exclusive", '"tui", "tuiGroup", "shortcut"]', '"tui", "tuiGroup"]'],
     ["shortcut kind", 'hasOwn(raw, "shortcut") ? "shortcut"', 'false ? "shortcut"'],
     ["a category runs nothing", 'if (row.shortcut !== "") raw.shortcut = row.shortcut;', "raw.shortcut = row.shortcut;"],
+    ["a provider row is a plugin menu", "if (row.provider !== undefined && row.provider !== \"\") {", "if (false) {"],
+    ["a provider row keeps shortcut", "raw.provider = \"plugin\";\n            raw.shortcut = row.shortcut;", "raw.provider = \"plugin\";"],
     ["a plugin row takes no shipped id", "if (shippedIds.indexOf(entry.id) === -1) return true;", "return true;"],
     ["plugin rows merge before the user's", "var sources = [shipped || [], plugins, user || []];", "var sources = [shipped || [], user || [], plugins];"],
     ["a user kind replaces a plugin row's", "if (s === 2 && pluginIds.indexOf(entry.id) !== -1 && KIND_KEYS.some(", "if (false && KIND_KEYS.some("],
@@ -396,6 +425,7 @@ const CONTROLS = [
     ["a merge refusal shows a notice", 'if (mergeError !== "" && !hasOwn(refusals, "user")) out.push(', "if (false) out.push("],
     ["a read refusal stands for the user's file", 'if (mergeError !== "" && !hasOwn(refusals, "user")) out.push(', 'if (mergeError !== "") out.push('],
     ["a plugin row's route runs it", 'if (entry !== undefined && entry.kind === "shortcut") return', "if (false) return"],
+    ["a plugin provider route runs with item", "if (entry !== undefined && entry.kind === \"plugin\") return", "if (false) return"],
     ["an action route runs it", 'if (entry !== undefined && entry.kind === "action") return', "if (false) return"],
     ["a link route opens its target", 'var target = entry !== undefined && entry.kind === "link" ? entry.target : id;', "var target = id;"],
     ["an orphan is hidden", "if (!isAttached(items, entry)) return false;", ""],
@@ -409,9 +439,12 @@ const CONTROLS = [
     ["resolution is fresh", "Object.assign({}, entry, { tuiKey: tuiKeyFor(entry, entries) })", "(entry.tuiKey = tuiKeyFor(entry, entries), entry)"],
     ["unresolved hidden", 'if (entry.kind === "tui") return entry.tuiKey !== "";', 'if (entry.kind === "tui") return true;'],
     ["exact id first", "if (hasOwn(items, raw)) return raw;", ""],
-    ["apps are no route", 'if (entry.kind === "app") continue;\n        for', "for"],
+    ["apps are no route", 'if (entry.kind === "app" || entry.kind === "plugin" || (entry.providerMenu && items[entry.providerMenu] && items[entry.providerMenu].provider === "plugin")) continue;\n        for', 'if (entry.kind === "plugin" || (entry.providerMenu && items[entry.providerMenu] && items[entry.providerMenu].provider === "plugin")) continue;\n        for'],
+    ["plugin provider menu aliases are no route", 'if (entry.kind === "app" || entry.kind === "plugin" || (entry.providerMenu && items[entry.providerMenu] && items[entry.providerMenu].provider === "plugin")) continue;\n        for', 'if (entry.kind === "app" || entry.kind === "plugin") continue;\n        for'],
     ["handed maps unwritten", "var row = Object.assign({}, rows[j], { providerMenu: menuId, order: nextOrder.length });", "var row = rows[j]; row.providerMenu = menuId; row.order = nextOrder.length; items[row.id] = row;"],
     ["taken id once", "if (hasOwn(nextItems, rows[j].id)) continue;", ""],
+    ["unchanged provider rows skip swap", "return JSON.stringify(current) !== JSON.stringify(next);", "return true;"],
+    ["provider row comparison includes item", "item: row.item || \"\"", "item: \"\""],
     ["apps menus picked before the first swap",
         "var menus = itemOrder.filter(function (id) { return items[id].provider === \"apps\" && loaded[id] === true; });\n    var next = { items: items, itemOrder: itemOrder };\n    for (var i = 0; i < menus.length; i++) {\n        var menuId = menus[i];",
         "var next = { items: items, itemOrder: itemOrder };\n    for (var i = 0; i < itemOrder.length; i++) {\n        var menuId = itemOrder[i];\n        if (!(next.items[menuId].provider === \"apps\" && loaded[menuId] === true)) continue;"],
@@ -421,6 +454,7 @@ const CONTROLS = [
     ["drilldown section", 'for (var d = 0; d < deeper.length; d++) deeper[d].section = "drilldown";', ""],
     ["missing command", 'kind: lacking !== "" ? "unavailable" : entry.kind,', "kind: entry.kind,"],
     ["hidden empty menu", "if (child.parent === target && isVisible(items, itemOrder, child, guard + 1)) return true;", "return true;"],
+    ["empty plugin provider menu hidden", "if (entry.provider && entry.provider !== \"plugin\") return true;", "if (entry.provider) return true;"],
     ["depth limit", "while (current && current.parent && current.parent !== \"root\" && depth < DEPTH_LIMIT)", "while (current && current.parent && current.parent !== \"root\" && depth < 1000)"],
     ["payload unknown key", "if (PAYLOAD_KEYS.indexOf(keys[i]) === -1) return", "if (false) return"],
     ["payload inside runtime", "if (!insideDirectory(file, runtimeDir))", "if (false)"],
@@ -440,7 +474,9 @@ for (const id of ["tools.terminal", "tools.files"]) {
     const restored = Object.assign({}, JSON.parse(shippedMenu).items, { [id]: { label: id, run: ["true"] } });
     assert.throws(() => verify(load(file), menuText(restored)), { code: "ERR_ASSERTION", actual: true, expected: false, operator: "strictEqual" });
 }
-const temp = fs.mkdtempSync(path.join(os.tmpdir(), "launcher-model-control-"));
+const scratchRoot = path.join(__dirname, "..", "tmp");
+fs.mkdirSync(scratchRoot, { recursive: true });
+const temp = fs.mkdtempSync(path.join(scratchRoot, "launcher-model-control-"));
 try {
     for (const [label, needle, replacement] of CONTROLS) {
         assert.equal(source.split(needle).length, 2, `control "${label}": the text to replace must occur once`);

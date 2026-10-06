@@ -12,6 +12,18 @@ Item {
     property var shell: null
     property bool registered: false
     property var dones: []
+    property string marker: ""
+    property string lastItem: ""
+    property bool shortcutRegistered: false
+
+    function ensureLauncherShortcut() {
+        if (shortcutRegistered) return;
+        shortcutRegistered = true;
+        shell.shortcut.register("open", "Open a published launcher row", item => {
+            root.lastItem = String(item || "");
+            if (root.marker) root.shell.run.detached(["sh", "-c", "printf '%s' \"$1\" >\"$2\"", "sh", root.lastItem, root.marker]);
+        });
+    }
 
     function request(arg, done) {
         const parts = arg.split("|");
@@ -31,5 +43,16 @@ Item {
         shell.ipc.handle("open", key => root.shell.tui.open(key));
         shell.ipc.handle("entries", () => JSON.stringify(root.shell.tui.entries));
         shell.ipc.handle("state", () => JSON.stringify(root.shell.tui.state));
+        shell.ipc.handle("publish-launcher", arg => {
+            root.marker = arg;
+            root.ensureLauncherShortcut();
+            return root.shell.status.set("launcher", [
+                { id: "tools", label: "Smoke tools", icon: "blocks", menu: true },
+                { id: "tools.clean", label: "Smoke clean", icon: "sparkles", description: "Runs the clean fixture", aliases: ["provideralias"] }
+            ]);
+        });
+        shell.ipc.handle("clear-launcher", () => root.shell.status.set("launcher", []));
+        shell.ipc.handle("activate-launcher", item => root.shell.shortcut.activate("acme.tui:open", item));
+        shell.ipc.handle("last-launcher", () => root.lastItem);
     }
 }

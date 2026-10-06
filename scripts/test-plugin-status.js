@@ -8,7 +8,6 @@
 // suite must fail on every copy. Exit 1 when any row or control fails.
 "use strict";
 const fs = require("fs");
-const os = require("os");
 const path = require("path");
 const { load } = require("../bin/lib/qml-library.js");
 const { spawnSync } = require("node:child_process");
@@ -37,6 +36,7 @@ function suite(ctx, check) {
         schema: { device: { type: "string", label: "Device", optionsFrom: "devices" }, plain: { type: "string", label: "Plain", presets: [{ value: "text" }], allowCustom: true } },
         status: {
             devices: { type: "choices", label: "Devices" },
+            catalog: { type: "launcherRows", label: "Catalog" },
             token: { type: "presence", label: "Token", group: "Keys", hint: "Needed", action: { label: "Set up token", tui: "setup" }, command: "secret-tool store x" },
             tokens: { type: "presenceList", label: "Tokens", group: "Keys", hint: "One per workspace" },
             check: { type: "state", label: "Check", action: { label: "Install sync", install: ["acme-sync"] } },
@@ -64,7 +64,9 @@ function suite(ctx, check) {
     const jarvisRaw = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "manifest.json"), "utf8"));
     const jarvis = ctx.validateManifest(jarvisRaw, "/jarvis").manifest;
     const voiceValues = { localRuntime: { tone: "warning", text: "Setup needed", action: true } };
-    const commands = fs.mkdtempSync(path.join(os.tmpdir(), "settings-tui-path-"));
+    const scratchRoot = path.join(__dirname, "..", "tmp");
+    fs.mkdirSync(scratchRoot, { recursive: true });
+    const commands = fs.mkdtempSync(path.join(scratchRoot, "settings-tui-path-"));
     try {
         for (const requirement of jarvis.requirements)
             fs.writeFileSync(path.join(commands, requirement.command), "#!/bin/sh\nexit 99\n", { mode: 0o700 });
@@ -198,6 +200,23 @@ function suite(ctx, check) {
         ["choices at text bounds", "devices", [{ label: "x".repeat(60), value: "x".repeat(200) }], "ok"],
         ["choices duplicate labels are allowed", "devices", [{ label: "A", value: "a" }, { label: "A", value: "b" }], "ok"],
         ["choices duplicate values are refused", "devices", [{ label: "A", value: "a" }, { label: "B", value: "a" }], "refused: status=devices reason=type"],
+        ["launcher rows list", "catalog", [{ id: "tools", label: "Tools", icon: "blocks", menu: true }, { id: "tools.clean", label: "Clean", icon: "sparkles", description: "Clean state", aliases: ["wipe"] }], "ok"],
+        ["empty launcher rows", "catalog", [], "ok"],
+        ["launcher rows at the ceiling", "catalog", Array.from({ length: 256 }, (_, i) => ({ id: "row" + i, label: "Row", icon: "blocks" })), "ok"],
+        ["launcher rows over the ceiling", "catalog", Array.from({ length: 257 }, (_, i) => ({ id: "row" + i, label: "Row", icon: "blocks" })), "refused: status=catalog reason=type"],
+        ["launcher rows must be a list", "catalog", {}, "refused: status=catalog reason=type"],
+        ["launcher row must be an object", "catalog", ["tools"], "refused: status=catalog reason=type"],
+        ["launcher row holds only its keys", "catalog", [{ id: "tools", label: "Tools", icon: "blocks", run: ["true"] }], "refused: status=catalog reason=type"],
+        ["launcher row id is a menu id", "catalog", [{ id: "Tools", label: "Tools", icon: "blocks" }], "refused: status=catalog reason=type"],
+        ["launcher row id is distinct", "catalog", [{ id: "tools", label: "Tools", icon: "blocks" }, { id: "tools", label: "Other", icon: "blocks" }], "refused: status=catalog reason=type"],
+        ["launcher dotted row needs earlier menu parent", "catalog", [{ id: "tools.clean", label: "Clean", icon: "sparkles" }], "refused: status=catalog reason=type"],
+        ["launcher dotted row accepts earlier menu parent", "catalog", [{ id: "tools", label: "Tools", icon: "blocks", menu: true }, { id: "tools.clean", label: "Clean", icon: "sparkles" }], "ok"],
+        ["launcher row parent must be a menu", "catalog", [{ id: "tools", label: "Tools", icon: "blocks" }, { id: "tools.clean", label: "Clean", icon: "sparkles" }], "refused: status=catalog reason=type"],
+        ["launcher row label is printable", "catalog", [{ id: "tools", label: "", icon: "blocks" }], "refused: status=catalog reason=type"],
+        ["launcher row icon is shipped", "catalog", [{ id: "tools", label: "Tools", icon: "not-real" }], "refused: status=catalog reason=type"],
+        ["launcher row description is printable", "catalog", [{ id: "tools", label: "Tools", icon: "blocks", description: "a\nb" }], "refused: status=catalog reason=type"],
+        ["launcher row aliases are printable", "catalog", [{ id: "tools", label: "Tools", icon: "blocks", aliases: [""] }], "refused: status=catalog reason=type"],
+        ["launcher row menu is boolean", "catalog", [{ id: "tools", label: "Tools", icon: "blocks", menu: "yes" }], "refused: status=catalog reason=type"],
         ["a presence value present", "token", "present", "ok"],
         ["a presence value absent", "token", "absent", "ok"],
         ["a presence value locked", "token", "locked", "ok"],
@@ -349,7 +368,8 @@ function suite(ctx, check) {
     check("statusTone: every tone is a badge tone", Object.values(ctx.STATUS_PRESENCE_TONES).concat(Object.values(ctx.STATUS_STATE_TONES)).every(t => badges.indexOf(t) !== -1), true);
     check("statusTone: a text type has none", ["text", "count", "time"].map(t => ctx.statusTone(t, 1)), ["", "", ""]);
     check("statusTone: a presence list has none of its own", ctx.statusTone("presenceList", [{ label: "A", value: "present" }]), "");
-    check("STATUS_TYPES", ctx.STATUS_TYPES, ["presence", "presenceList", "state", "text", "count", "time", "data", "choices"]);
+    check("STATUS_TYPES", ctx.STATUS_TYPES, ["presence", "presenceList", "state", "text", "count", "time", "data", "choices", "launcherRows"]);
+    check("LAUNCHER_ROWS_MAX", ctx.LAUNCHER_ROWS_MAX, 256);
     check("STATUS_LIST_MAX", ctx.STATUS_LIST_MAX, 64);
 
     const offered = [{ label: "Alpha", value: "a" }, { label: "Beta", value: "b" }];
@@ -527,6 +547,14 @@ const CONTROLS = [
     ["choices label is bounded printable text", "if (!isPrintableLine(choice.label, STATUS_LABEL_MAX)) return false;", "if (false) return false;"],
     ["choices value is bounded non-empty printable text", "if (!isPrintableLine(choice.value, STATUS_TEXT_MAX)) return false;", "if (false) return false;"],
     ["choices values are distinct", "if (seen.indexOf(choice.value) !== -1) return false;", "if (false) return false;"],
+    ["launcher rows is a list", "if (!Array.isArray(value) || value.length > LAUNCHER_ROWS_MAX) return false;\n        var seenLauncherIds", "if (value.length > LAUNCHER_ROWS_MAX) return false;\n        var seenLauncherIds"],
+    ["launcher rows is bounded", "if (!Array.isArray(value) || value.length > LAUNCHER_ROWS_MAX) return false;\n        var seenLauncherIds", "if (!Array.isArray(value)) return false;\n        var seenLauncherIds"],
+    ["launcher row fits", "if (!launcherRowFits(item)) return false;", "if (false) return false;"],
+    ["launcher row ids are distinct", "if (seenLauncherIds.indexOf(item.id) !== -1) return false;", "if (false) return false;"],
+    ["launcher row dotted ids need a menu", "if (dot >= 0 && launcherMenus.indexOf(item.id.substring(0, dot)) === -1) return false;", "if (false) return false;"],
+    ["launcher menus are explicit", "if (item.menu === true) launcherMenus.push(item.id);", "launcherMenus.push(item.id);"],
+    ["launcher row has only its keys", "if (LAUNCHER_ROW_KEYS.indexOf(keys[i]) === -1) return false;", "if (false) return false;"],
+    ["launcher row icon is shipped", "&& typeof item.icon === \"string\" && hasOwn(Lucide.ICONS, item.icon)", "&& typeof item.icon === \"string\""],
     ["choices preserves an unavailable id", "model.push({ label: configured + \" (unavailable)\", value: configured });", "model.push({ label: configured + \" (unavailable)\", value: \"\" });"],
     ["no offer adds no automatic entry", "offered.length === 0 ? [] : [{", "offered.length === 0 ? [{ label: \"First offered\", value: \"\" }] : [{"],
     ["choices exposes the automatic empty string", "value: \"\" }];\n        offered.forEach", "value: \"auto\" }];\n        offered.forEach"],
@@ -539,7 +567,7 @@ const CONTROLS = [
     ["a presence list is a list", "if (!Array.isArray(value) || value.length > STATUS_LIST_MAX) return false;\n        for (var n", "if (value.length > STATUS_LIST_MAX) return false;\n        for (var n"],
     ["a presence list has at most STATUS_LIST_MAX items", "if (!Array.isArray(value) || value.length > STATUS_LIST_MAX) return false;\n        for (var n", "if (!Array.isArray(value)) return false;\n        for (var n"],
     ["a presence list judges every item", "if (!statusListItemFits(value[n])) return false;", ""],
-    ["a presence list item is plain JSON", "if (!isPlainObject(item) || !isPlainJson(item)) return false;", "if (!isPlainObject(item)) return false;"],
+    ["a presence list item is plain JSON", "function statusListItemFits(item) {\n    if (!isPlainObject(item) || !isPlainJson(item)) return false;", "function statusListItemFits(item) {\n    if (!isPlainObject(item)) return false;"],
     ["a presence list item has only its keys", "if (STATUS_LIST_ITEM_KEYS.indexOf(keys[i]) === -1) return false;", ""],
     ["a presence list item label is a printable line", "return isPrintableLine(item.label, STATUS_LABEL_MAX)\n        && typeof item.value", "return typeof item.value"],
     ["a presence list item value is a presence", "&& typeof item.value === \"string\" && hasOwn(STATUS_PRESENCE_TONES, item.value)", "&& typeof item.value === \"string\""],
@@ -560,9 +588,10 @@ const CONTROLS = [
     ["plain JSON objects have a plain prototype", "if (Object.prototype.toString.call(value) !== \"[object Object]\" || (proto !== null && Object.getPrototypeOf(proto) !== null))\n        return false;", ""],
     ["published values are frozen", "return Object.freeze(node);", "return node;"],
     ["published values are a copy", "var copy = JSON.parse(JSON.stringify(value));", "var copy = value;"],
-    ["a row leaves data out", "return entry.type !== \"data\" && entry.type !== \"choices\" && entry.hidden !== true;", "return entry.type !== \"choices\" && entry.hidden !== true;"],
-    ["a row leaves choices out", "return entry.type !== \"data\" && entry.type !== \"choices\" && entry.hidden !== true;", "return entry.type !== \"data\" && entry.hidden !== true;"],
-    ["a row leaves hidden entries out", "return entry.type !== \"data\" && entry.type !== \"choices\" && entry.hidden !== true;", "return entry.type !== \"data\" && entry.type !== \"choices\";"],
+    ["a row leaves data out", "return entry.type !== \"data\" && entry.type !== \"choices\" && entry.type !== \"launcherRows\" && entry.hidden !== true;", "return entry.type !== \"choices\" && entry.type !== \"launcherRows\" && entry.hidden !== true;"],
+    ["a row leaves choices out", "return entry.type !== \"data\" && entry.type !== \"choices\" && entry.type !== \"launcherRows\" && entry.hidden !== true;", "return entry.type !== \"data\" && entry.type !== \"launcherRows\" && entry.hidden !== true;"],
+    ["a row leaves launcher rows out", "return entry.type !== \"data\" && entry.type !== \"choices\" && entry.type !== \"launcherRows\" && entry.hidden !== true;", "return entry.type !== \"data\" && entry.type !== \"choices\" && entry.hidden !== true;"],
+    ["a row leaves hidden entries out", "return entry.type !== \"data\" && entry.type !== \"choices\" && entry.type !== \"launcherRows\" && entry.hidden !== true;", "return entry.type !== \"data\" && entry.type !== \"choices\" && entry.type !== \"launcherRows\";"],
     ["an unreported row says so", "report: reported ? \"reported\" : \"unreported\",", "report: \"reported\","],
     ["a presence has its tone", "if (type === \"presence\") return STATUS_PRESENCE_TONES[value];", "if (type === \"presence\") return \"neutral\";"],
     ["a locked presence is info", "locked: \"info\"", "locked: \"warning\""],
@@ -615,7 +644,9 @@ const CONTROLS = [
     ["a secret account is named as JSON when malformed", "SECRET_ACCOUNT_PATTERN.test(account) ? account : JSON.stringify(String(account));", "SECRET_ACCOUNT_PATTERN.test(account) ? account : String(account);"],
 ];
 
-const temp = fs.mkdtempSync(path.join(os.tmpdir(), "plugin-status-control-"));
+const scratchRoot = path.join(__dirname, "..", "tmp");
+fs.mkdirSync(scratchRoot, { recursive: true });
+const temp = fs.mkdtempSync(path.join(scratchRoot, "plugin-status-control-"));
 try {
     fs.mkdirSync(path.join(temp, "shell", "Core"), { recursive: true });
     fs.mkdirSync(path.join(temp, "shell", "Commons"), { recursive: true });

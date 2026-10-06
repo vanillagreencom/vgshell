@@ -178,7 +178,7 @@ function suite(ctx, check) {
         ["enum default outside its options", { settings: { a: "z" }, schema: { a: { type: "enum", label: "A", options: ["x", "y"] } } }, "settings.a does not fit its schema: want=one-of:x|y"],
         ["configure without a schema", { capabilities: ["configure"] }, "capability configure needs a schema"],
         ["configure with a schema", { capabilities: ["configure"], settings: { a: true }, schema: { a: { type: "boolean", label: "A" } } }, null],
-        ["status with every entry key", { capabilities: ["status"], requirements: [{ command: "secret-tool", purpose: "p" }], status: { slackToken: { type: "presence", label: "Slack token", group: "Slack", hint: "h", action: { label: "Install", install: ["secret-tool"] }, command: "secret-tool store x", hidden: false }, detail: { type: "data", label: "Detail" } } }, null],
+        ["status with every entry key", { capabilities: ["status"], requirements: [{ command: "secret-tool", purpose: "p" }], status: { slackToken: { type: "presence", label: "Slack token", group: "Slack", hint: "h", action: { label: "Install", install: ["secret-tool"] }, command: "secret-tool store x", hidden: false }, detail: { type: "data", label: "Detail" }, catalog: { type: "launcherRows", label: "Catalog" } } }, null],
         ["status not an object", { capabilities: ["status"], status: [] }, "status must be an object"],
         ["status with no entry", { capabilities: ["status"], status: {} }, "status must declare at least one entry"],
         ["status without capability status", { status: { a: { type: "text", label: "A" } } }, "status needs capability status"],
@@ -187,7 +187,7 @@ function suite(ctx, check) {
         ["a status key starting upper case", { capabilities: ["status"], status: { Token: { type: "text", label: "A" } } }, "status key \"Token\" must match"],
         ["a status entry not an object", { capabilities: ["status"], status: { a: "text" } }, "status.a must be an object"],
         ["a status entry with an unknown key", { capabilities: ["status"], status: { a: { type: "text", label: "A", run: true } } }, "status.a has unknown key \"run\""],
-        ["a status entry with an unknown type", { capabilities: ["status"], status: { a: { type: "secret", label: "A" } } }, "status.a.type must be one of presence, presenceList, state, text, count, time, data, choices"],
+        ["a status entry with an unknown type", { capabilities: ["status"], status: { a: { type: "secret", label: "A" } } }, "status.a.type must be one of presence, presenceList, state, text, count, time, data, choices, launcherRows"],
         ["a presenceList entry with its group and hint", { capabilities: ["status"], status: { tokens: { type: "presenceList", label: "Tokens", group: "Slack", hint: "h" } } }, null],
         ["a presenceList entry with a command", { capabilities: ["status"], status: { tokens: { type: "presenceList", label: "Tokens", command: "secret-tool store x" } } }, "status.tokens.command needs an action: a command is only the Show command disclosure beside a one-click action (D061)"],
         ["a status entry without a label", { capabilities: ["status"], status: { a: { type: "text" } } }, "status.a.label must be a printable line of 1 to 60"],
@@ -258,6 +258,8 @@ function suite(ctx, check) {
         ["a data entry with a hint", { capabilities: ["status"], status: { a: { type: "data", label: "A", hint: "h" } } }, "status.a.hint needs a type Settings draws"],
         ["a data entry with a command", { capabilities: ["status"], status: { a: { type: "data", label: "A", command: "c" } } }, "status.a.command needs a type Settings draws"],
         ["a data entry that is hidden", { capabilities: ["status"], status: { a: { type: "data", label: "A", hidden: true } } }, "status.a.hidden needs a type Settings draws"],
+        ["a launcherRows entry with a group", { capabilities: ["status"], status: { a: { type: "launcherRows", label: "A", group: "Launch" } } }, "status.a.group needs a type Settings draws"],
+        ["a launcherRows entry with an action", { capabilities: ["status"], requirements: [{ command: "gum", purpose: "q" }], status: { a: { type: "launcherRows", label: "A", action: { label: "Go", install: ["gum"] } } } }, "status.a.action needs a type whose value says when it applies"],
     ];
     for (const [name, patch, want] of manifestRows) {
         const raw = Object.assign(JSON.parse(JSON.stringify(bar)), patch);
@@ -1257,6 +1259,7 @@ const CONTROLS = [
     ["a printable line has a ceiling", "text.length <= max &&", ""],
     ["status hidden is a boolean", "if (entry.hidden !== undefined && typeof entry.hidden !== \"boolean\")", "if (false)"],
     ["a data entry is never drawn", "if (entry[drawn[d]] !== undefined)", "if (false)"],
+    ["a launcherRows entry is never drawn", "if (entry.type === \"data\" || entry.type === \"launcherRows\")", "if (entry.type === \"data\")"],
     ["an absent status is normalised", "manifest.status = raw.status === undefined ? {} : clone(raw.status);", "manifest.status = clone(raw.status);"],
     ["window is a kind", "\"menu\", \"window\", \"pane\", \"service\"", "\"menu\", \"pane\", \"service\""],
     ["cover is a kind", "\"service\", \"background\", \"cover\"", "\"service\", \"background\""],

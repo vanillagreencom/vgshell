@@ -32,7 +32,9 @@ Scope {
             register: (name, description, onPressed, onReleased) => root.registerShortcut(ctx, name, description, onPressed, onReleased),
             // Every enabled plugin's launcher rows, a frozen copy per read.
             get menu() { return Logic.frozenJson(Registry.menu.rows); },
-            activate: key => root.activate(key),
+            rows: menuId => root.rows(menuId),
+            get revision() { return root.providerRevision(); },
+            activate: (key, item) => root.activate(key, item),
             capture: capture.provider(ctx)
         };
     }
@@ -48,9 +50,30 @@ Scope {
     // Run the press handler of global KEY, `<plugin id>:<name>`, for a
     // launcher row: only a key a listed row names and a live registration
     // holds, as PluginLogic.menuActivation answers.
-    function activate(key) {
-        const answer = Logic.menuActivation(Registry.menu.rows, shortcuts, key);
-        if (answer === "ok") shortcuts[key].handler();
+    function providerValues() {
+        const out = {};
+        const plugins = {};
+        for (const row of Registry.menu.rows) if (row.provider) plugins[row.plugin] = true;
+        for (const id of Object.keys(plugins)) out[id] = PluginStatus.valuesOf(id);
+        return out;
+    }
+
+    function rows(menuId) {
+        let owner = null;
+        for (const row of Registry.menu.rows) if (row.id === menuId && row.provider) owner = row;
+        return Logic.frozenJson(owner === null ? [] : Logic.providerRows(Registry.menu.rows, menuId, PluginStatus.valuesOf(owner.plugin)));
+    }
+
+    function providerRevision() {
+        // Reads Registry.menu and PluginStatus.records, so bindings refresh
+        // after either provider membership or its published rows change.
+        void PluginStatus.records;
+        return Registry.menu.rows.filter(row => row.provider).map(row => row.plugin + ":" + PluginStatus.revisionOf(row.plugin)).join("|");
+    }
+
+    function activate(key, item) {
+        const answer = Logic.menuActivation(Registry.menu.rows, shortcuts, key, item, providerValues());
+        if (answer === "ok") shortcuts[key].handler(item);
         return answer;
     }
 

@@ -122,7 +122,9 @@ Item {
     // The enabled plugins' rows, which merge between the shipped file and
     // the user's; they follow enablement and each toggle row's setting.
     readonly property var pluginMenu: shell === null ? [] : shell.shortcut.menu
+    readonly property string shortcutRevision: shell === null ? "" : shell.shortcut.revision
     onPluginMenuChanged: rebuildItems()
+    onShortcutRevisionChanged: refreshPluginProviders()
 
     function readMenu(source, path, text) {
         const parsed = MenuModel.parseMenu(text);
@@ -152,6 +154,7 @@ Item {
         itemOrder = merged.itemOrder;
         providersLoaded = ({});
         rowsLoaded = true;
+        refreshPluginProviders();
         checkRequires();
         if (opened) {
             rebuildDisplay();
@@ -271,11 +274,23 @@ Item {
         providersLoaded = loaded;
         if (entry.provider === "apps") mergeAppRows(id);
         else if (entry.provider === "themes") loadThemes(id);
+        else if (entry.provider === "plugin") loadPluginRows(id);
     }
 
     // The menus are picked before the first load: an apps menu's load
     // replaces the items and the order, and drops the rows of applications
     // that left.
+    function refreshPluginProviders() {
+        if (!rowsLoaded || shell === null) return;
+        const pending = itemOrder.filter(id => items[id].provider === "plugin");
+        for (const id of pending) {
+            const loaded = Object.assign({}, providersLoaded);
+            delete loaded[id];
+            providersLoaded = loaded;
+            loadProvider(id);
+        }
+    }
+
     function loadProvidersForSearch() {
         const active = items[activeMenu] ? activeMenu : "root";
         const pending = itemOrder.filter(id => items[id].provider && !providersLoaded[id]
@@ -303,6 +318,13 @@ Item {
 
     function mergeAppRows(menuId) {
         swapRows(menuId, desktopApps().map(app => MenuModel.appRow(menuId, app)));
+    }
+
+    function loadPluginRows(menuId) {
+        if (shell === null) return;
+        const rows = shell.shortcut.rows(menuId).map(row => MenuModel.pluginRow(menuId, row));
+        if (!MenuModel.providerRowsChanged(items, itemOrder, menuId, rows)) return;
+        swapRows(menuId, rows);
     }
 
     Connections {
@@ -363,8 +385,8 @@ Item {
             closeRoute();
             return;
         }
-        if (target.action === "shortcut") {
-            const reply = shell === null ? "refused: shell=none" : shell.shortcut.activate(target.shortcut);
+        if (target.action === "shortcut" || target.action === "plugin") {
+            const reply = shell === null ? "refused: shell=none" : shell.shortcut.activate(target.shortcut, target.item);
             if (reply === "ok") {
                 closeRoute();
                 return;
@@ -513,8 +535,8 @@ Item {
     // A plugin's row: its global through the shortcut capability, which
     // runs only a listed row's registered shortcut. The launcher closes on
     // `ok`; a refusal is logged and stays in the list as a notice.
-    function activateShortcut(key) {
-        const reply = shell === null ? "refused: shell=none" : shell.shortcut.activate(key);
+    function activateShortcut(key, item) {
+        const reply = shell === null ? "refused: shell=none" : shell.shortcut.activate(key, item);
         if (reply === "ok") {
             dismiss();
             return;
@@ -565,7 +587,10 @@ Item {
             openTui(items[row.itemId].tuiKey);
             return;
         case "shortcut":
-            activateShortcut(items[row.itemId].shortcut);
+            activateShortcut(items[row.itemId].shortcut, undefined);
+            return;
+        case "plugin":
+            activateShortcut(items[row.itemId].shortcut, items[row.itemId].item);
             return;
         case "theme":
             applyTheme(items[row.itemId].theme);

@@ -110,7 +110,7 @@ EXEMPT = (
     ("status", "*", "actions", "*", "tui"), ("status", "*", "actions", "*", "install"), ("status", "*", "actions", "*", "system"),
     ("requirements", "*", "command"), ("requirements", "*", "packages"), ("requirements", "*", "optional"),
     ("tui", "*", "script"), ("tui", "*", "size"), ("tui", "*", "presentation"), ("tui", "*", "requires"), ("tui", "*", "entry", "icon"),
-    ("menu", "*", "icon"), ("menu", "*", "aliases"), ("menu", "*", "shortcut"), ("menu", "*", "toggle", "setting"), ("menu", "*", "toggle", "icon"),
+    ("menu", "*", "icon"), ("menu", "*", "aliases"), ("menu", "*", "shortcut"), ("menu", "*", "provider"), ("menu", "*", "toggle", "setting"), ("menu", "*", "toggle", "icon"),
     ("secrets", "service"),
     ("hyprland", "binds", "*", "shortcut"), ("hyprland", "binds", "*", "key"), ("hyprland", "binds", "*", "hold"), ("hyprland", "binds", "*", "tap"), ("hyprland", "appearance"),
     ("hyprland", "layerRules", "*", "namespace"), ("hyprland", "layerRules", "*", "blur"), ("hyprland", "layerRules", "*", "ignoreAlpha"),
