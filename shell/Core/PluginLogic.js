@@ -3285,6 +3285,31 @@ function layoutEntryOf(config, id) {
     return null;
 }
 
+// The position of LOCATOR, `{ section, nth }`, for plugin ID in CONFIG, or
+// null. `nth` counts entries with ID in one section, the same locator
+// withSetting receives from a mounted widget.
+function layoutPositionOf(config, id, locator) {
+    if (isPlainObject(locator) && SECTIONS.indexOf(locator.section) !== -1 && Number.isInteger(locator.nth) && locator.nth >= 0) {
+        var seen = 0;
+        var entries = sectionEntries(config, locator.section);
+        for (var i = 0; i < entries.length; i++) {
+            if (entries[i].id !== id) continue;
+            if (seen === locator.nth) return { section: locator.section, index: i, nth: locator.nth, entry: entries[i] };
+            seen += 1;
+        }
+        return null;
+    }
+    for (var s = 0; s < SECTIONS.length; s++) {
+        var section = SECTIONS[s];
+        var rows = sectionEntries(config, section);
+        for (var n = 0; n < rows.length; n++) {
+            if (rows[n].id !== id) continue;
+            return { section: section, index: n, nth: 0, entry: rows[n] };
+        }
+    }
+    return null;
+}
+
 // The plugins[] row with `id`, or undefined.
 function pluginRow(config, id) {
     return (config && Array.isArray(config.plugins) ? config.plugins : []).filter(function (entry) {
@@ -3583,6 +3608,25 @@ function placedRefusal(config, manifest, defaultBarId) {
     return "";
 }
 
+// Why plugin MANIFEST's widget may not be moved under CONFIG to SECTION at
+// INDEX, or "". Moving keeps the existing layout entry and its settings, so
+// it needs a placed and enabled widget. SECTION and INDEX are the persisted
+// layout address, not pixel geometry.
+function moveRefusal(config, manifest, section, index, defaultBarId) {
+    if (manifest.kinds.indexOf("bar-widget") === -1)
+        return "refused: moved=" + manifest.id + " reason=no-bar-widget";
+    var disabled = Array.isArray(config.disabledPlugins) ? config.disabledPlugins : [];
+    if (disabled.indexOf(manifest.id) !== -1)
+        return "refused: moved=" + manifest.id + " reason=disabled";
+    if (!isPlaced(config, manifest))
+        return "refused: moved=" + manifest.id + " reason=unplaced";
+    if (SECTIONS.indexOf(section) === -1)
+        return "refused: section=" + JSON.stringify(section) + " want=left|center|right";
+    if (typeof index !== "number" || !Number.isInteger(index) || index < 0)
+        return "refused: index=" + JSON.stringify(index) + " want=integer>=0";
+    return "";
+}
+
 // The user-file change that shows or hides plugin MANIFEST's widget in the
 // bar. disabledPlugins is never read or written. Returns the new user
 // object; the caller checks placedRefusal first and writes it.
@@ -3616,6 +3660,67 @@ function withPlaced(user, manifest, placed, effective) {
             out.bar.layout[section] = entries.filter(function (entry) { return entry.id !== manifest.id; });
     });
     return out;
+}
+
+// The user-file change that moves plugin MANIFEST's widget. FROM is
+// `{ section, nth }` or null for the first entry in section order. INDEX is
+// the target section's entry index after the source entry has been removed.
+// The moved entry keeps its settings.
+function withMoved(user, manifest, from, section, index, effective) {
+    var out = isPlainObject(user) ? clone(user) : {};
+    if (out.version === undefined) out.version = CONFIG_VERSION;
+    seedUserBar(out, effective);
+    if (!isPlainObject(out.bar.layout)) out.bar.layout = { left: [], center: [], right: [] };
+    for (var s = 0; s < SECTIONS.length; s++)
+        if (!Array.isArray(out.bar.layout[SECTIONS[s]])) out.bar.layout[SECTIONS[s]] = [];
+    var source = layoutPositionOf(out, manifest.id, from);
+    if (source === null) return out;
+    var entry = out.bar.layout[source.section].splice(source.index, 1)[0];
+    var target = out.bar.layout[section];
+    var at = Math.max(0, Math.min(index, target.length));
+    target.splice(at, 0, entry);
+    return out;
+}
+
+function locatorEquals(locator, id, section, nth) {
+    return isPlainObject(locator) && locator.section === section && locator.id === id && locator.nth === nth;
+}
+
+// Convert a drop target `{ section, before }` into the configuration index
+// `withMoved` takes: the index of BEFORE in SECTION after FROM has been
+// removed, or the section's end when BEFORE is null.
+function barDropIndex(config, section, before, from, movingId) {
+    var kept = [];
+    var nthById = {};
+    var entries = sectionEntries(config, section);
+    for (var i = 0; i < entries.length; i++) {
+        var entry = entries[i];
+        var nth = nthById[entry.id] || 0;
+        nthById[entry.id] = nth + 1;
+        var removes = isPlainObject(from) && from.section === section && entry.id === movingId && from.nth === nth;
+        if (!removes && before !== null && locatorEquals(before, entry.id, section, nth))
+            return kept.length;
+        if (!removes) kept.push(entry);
+    }
+    return kept.length;
+}
+
+// The geometry rule for a bar widget drop. X is in bar-window
+// coordinates. SECTIONS maps each section to `{ x, width, widgets }`, and
+// each widget is `{ x, width, locator }`, with the dragged widget already
+// excluded.
+function barDropTarget(width, x, sections) {
+    var section = x < width / 3 ? "left" : x < 2 * width / 3 ? "center" : "right";
+    var info = isPlainObject(sections) && isPlainObject(sections[section]) ? sections[section] : { x: 0, width: width, widgets: [] };
+    var widgets = Array.isArray(info.widgets) ? info.widgets : [];
+    var slot = 0;
+    while (slot < widgets.length && widgets[slot].x + widgets[slot].width / 2 < x) slot += 1;
+    var before = slot < widgets.length ? clone(widgets[slot].locator) : null;
+    var markerX;
+    if (before !== null) markerX = widgets[slot].x;
+    else if (widgets.length > 0) markerX = widgets[widgets.length - 1].x + widgets[widgets.length - 1].width;
+    else markerX = (typeof info.x === "number" ? info.x : 0) + (typeof info.width === "number" ? info.width : width) / 2;
+    return { section: section, before: before, markerX: markerX };
 }
 
 // Whether plugin MANIFEST's widget shows in the bar once the plugin is

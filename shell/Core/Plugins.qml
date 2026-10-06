@@ -46,6 +46,8 @@ Singleton {
     // A source change or screen removal expires the record. Stored screen
     // names survive the destruction of the screen objects they identify.
     property var failedBuilds: Object.create(null)
+    // Null, or the current bar-widget drag target for one bar host.
+    property var barDrag: null
 
     // The source revisions of every instance the core built, which a scan
     // keeps on disk while the instance lives.
@@ -233,7 +235,13 @@ Singleton {
             instance.bar = barRow.instance;
             instance.moduleName = id;
             instance.settings = instance.shell.settings;
-            instance.frame = { describe: () => root.frameFacts(id), hide: () => root.setPlaced(id, false) };
+            instance.frame = {
+                describe: () => root.frameFacts(id),
+                hide: () => root.setPlaced(id, false),
+                dragStart: point => root.dragStart(hostKey, id, locator, point),
+                dragMove: point => root.dragMove(hostKey, point),
+                dragEnd: point => root.dragEnd(hostKey, point)
+            };
         } catch (e) {
             const error = "bar-widget not built: " + e.message;
             console.error("plugins: " + id + " " + error);
@@ -242,6 +250,55 @@ Singleton {
             return null;
         }
         return instance;
+    }
+
+    function dragStart(hostKey, id, locator, point) {
+        barDrag = { hostKey: hostKey, id: id, from: Object.assign({ id: id }, locator), section: locator.section, before: null, index: 0, markerX: 0 };
+        dragMove(hostKey, point);
+    }
+
+    function barDragSectionGeometry(hostKey, section) {
+        const mount = mounts[hostKey];
+        const container = sectionContainer(mount.row, section);
+        if (container === null) return { x: 0, width: 0, widgets: [] };
+        const sectionPoint = container.mapToItem(null, 0, 0);
+        const widgets = [];
+        for (const entry of mount.sections[section].entries) {
+            if (entry.widget === null || (barDrag !== null && entry.locator.id === barDrag.id && entry.locator.section === barDrag.from.section && entry.locator.nth === barDrag.from.nth))
+                continue;
+            const point = entry.widget.mapToItem(null, 0, 0);
+            widgets.push({ x: point.x, width: entry.widget.width, locator: entry.locator });
+        }
+        return { x: sectionPoint.x, width: container.width, widgets: widgets };
+    }
+
+    function dragMove(hostKey, point) {
+        if (barDrag === null || barDrag.hostKey !== hostKey || !Logic.hasOwn(mounts, hostKey)) return;
+        const mount = mounts[hostKey];
+        const sections = {};
+        for (const section of Logic.SECTIONS)
+            sections[section] = barDragSectionGeometry(hostKey, section);
+        const target = Logic.barDropTarget(mount.row.instance.width, point.x, sections);
+        const index = Logic.barDropIndex(Config.effective, target.section, target.before, barDrag.from, barDrag.id);
+        barDrag = Object.assign({}, barDrag, { section: target.section, before: target.before, index: index, markerX: target.markerX });
+    }
+
+    function dragEnd(hostKey, point) {
+        if (barDrag === null || barDrag.hostKey !== hostKey || !Logic.hasOwn(mounts, hostKey)) {
+            barDrag = null;
+            return;
+        }
+        const drag = barDrag;
+        barDrag = null;
+        const bar = mounts[hostKey].row.instance;
+        if (point.x < 0 || point.y < 0 || point.x >= bar.width || point.y >= bar.height)
+            return;
+        const reply = moveWidget(drag.id, drag.section, drag.index, drag.from);
+        if (reply !== "ok") console.warn("plugins: move " + drag.id + " " + reply);
+    }
+
+    function cancelBarDrag() {
+        barDrag = null;
     }
 
     // What the widget frame's Hide dialog says about plugin `id`, read when it
@@ -359,7 +416,7 @@ Singleton {
                 for (let i = 0; i < wanted.length; i++) {
                     const nth = wanted.slice(0, i).filter(e => e.id === wanted[i].id).length;
                     const widget = createWidget(wanted[i].id, container, mount.row, wanted[i], hostKey, { section: section, nth: nth });
-                    entries.push({ key: entryKeys[i], revision: manifests[wanted[i].id].__revision, widget: widget });
+                    entries.push({ key: entryKeys[i], revision: manifests[wanted[i].id].__revision, widget: widget, locator: { id: wanted[i].id, section: section, nth: nth } });
                 }
                 state.entries = entries;
                 state.idsKey = idsKey;
@@ -377,6 +434,7 @@ Singleton {
                     const container = sectionContainer(mount.row, section);
                     const nth = wanted.slice(0, i).filter(e => e.id === wanted[i].id).length;
                     entry.widget = container === null ? null : createWidget(wanted[i].id, container, mount.row, wanted[i], hostKey, { section: section, nth: nth });
+                    entry.locator = { id: wanted[i].id, section: section, nth: nth };
                     entry.revision = revision;
                     if (entry.widget !== null)
                         for (const later of state.entries.slice(i + 1))
@@ -526,6 +584,14 @@ Singleton {
         const refusal = Logic.placedRefusal(Config.effective, m, Registry.defaultBarId);
         if (refusal !== "") return refusal;
         return Config.writeUser(Logic.withPlaced(Config.user, m, placed, Config.effective));
+    }
+
+    function moveWidget(id, section, index, from) {
+        if (!Registry.has(id)) return "unknown: " + id;
+        const m = Registry.manifests[id];
+        const refusal = Logic.moveRefusal(Config.effective, m, section, index, Registry.defaultBarId);
+        if (refusal !== "") return refusal;
+        return Config.writeUser(Logic.withMoved(Config.user, m, from || null, section, index, Config.effective));
     }
 
     // Write one setting of one plugin into each configuration entry in

@@ -587,6 +587,63 @@ function suite(ctx, check) {
     check("withPlaced: unplace a third-party widget-only plugin keeps the user's disabled list", unplacedWidget.disabledPlugins, ["vgs.svc"]);
     check("withPlaced: a third-party widget-only plugin reads disabled once unplaced", ctx.isEnabled(ctx.effectiveConfig(shipped, unplacedWidget), manifests["acme.widget"], "vgs.bar"), false);
 
+    // moveRefusal rows: [name, config, id, section, index, want].
+    const movedConfig = { version: 1, bar: { id: "vgs.bar", layout: { left: [{ id: "acme.both", label: "left" }], center: [{ id: "vgs.clock" }], right: [] } } };
+    const moveRefusalRows = [
+        ["a placed widget may move", movedConfig, "acme.both", "right", 0, ""],
+        ["a service has no widget", movedConfig, "acme.svc", "right", 0, "refused: moved=acme.svc reason=no-bar-widget"],
+        ["a disabled widget is refused", ctx.effectiveConfig(shipped, Object.assign({ disabledPlugins: ["acme.both"] }, movedConfig)), "acme.both", "right", 0, "refused: moved=acme.both reason=disabled"],
+        ["an unplaced widget is refused", shipped, "acme.both", "right", 0, "refused: moved=acme.both reason=unplaced"],
+        ["an unknown section is refused", movedConfig, "acme.both", "top", 0, "refused: section=\"top\" want=left|center|right"],
+        ["a negative index is refused", movedConfig, "acme.both", "right", -1, "refused: index=-1 want=integer>=0"],
+        ["a fractional index is refused", movedConfig, "acme.both", "right", 1.5, "refused: index=1.5 want=integer>=0"],
+    ];
+    for (const [name, config, id, section, index, want] of moveRefusalRows)
+        check("moveRefusal: " + name, ctx.moveRefusal(config, manifests[id], section, index, "vgs.bar"), want);
+
+    const moveUser = { version: 1, bar: { id: "vgs.bar", layout: {
+        left: [{ id: "vgs.workspaces" }, { id: "acme.both", label: "left", nested: ["l"] }, { id: "acme.widget" }],
+        center: [{ id: "vgs.clock" }, { id: "acme.both", label: "center" }],
+        right: []
+    } }, plugins: [{ id: "acme.both", label: "row" }] };
+    const moveEffective = ctx.effectiveConfig(shipped, moveUser);
+    const moveRows = [
+        ["within a section forward", moveUser, moveEffective, { section: "left", nth: 0 }, "left", 2, { left: [{ id: "vgs.workspaces" }, { id: "acme.widget" }, { id: "acme.both", label: "left", nested: ["l"] }], center: [{ id: "vgs.clock" }, { id: "acme.both", label: "center" }], right: [] }],
+        ["within a section back", moveUser, moveEffective, { section: "left", nth: 0 }, "left", 0, { left: [{ id: "acme.both", label: "left", nested: ["l"] }, { id: "vgs.workspaces" }, { id: "acme.widget" }], center: [{ id: "vgs.clock" }, { id: "acme.both", label: "center" }], right: [] }],
+        ["across sections", moveUser, moveEffective, { section: "left", nth: 0 }, "right", 0, { left: [{ id: "vgs.workspaces" }, { id: "acme.widget" }], center: [{ id: "vgs.clock" }, { id: "acme.both", label: "center" }], right: [{ id: "acme.both", label: "left", nested: ["l"] }] }],
+        ["into an empty section", moveUser, moveEffective, { section: "center", nth: 0 }, "right", 0, { left: [{ id: "vgs.workspaces" }, { id: "acme.both", label: "left", nested: ["l"] }, { id: "acme.widget" }], center: [{ id: "vgs.clock" }], right: [{ id: "acme.both", label: "center" }] }],
+        ["index past the end clamps", moveUser, moveEffective, { section: "left", nth: 0 }, "center", 99, { left: [{ id: "vgs.workspaces" }, { id: "acme.widget" }], center: [{ id: "vgs.clock" }, { id: "acme.both", label: "center" }, { id: "acme.both", label: "left", nested: ["l"] }], right: [] }],
+        ["nth selects the second entry with the id", moveUser, moveEffective, { section: "center", nth: 0 }, "left", 1, { left: [{ id: "vgs.workspaces" }, { id: "acme.both", label: "center" }, { id: "acme.both", label: "left", nested: ["l"] }, { id: "acme.widget" }], center: [{ id: "vgs.clock" }], right: [] }],
+        ["a null source moves the first entry in section order", moveUser, moveEffective, null, "right", 0, { left: [{ id: "vgs.workspaces" }, { id: "acme.widget" }], center: [{ id: "vgs.clock" }, { id: "acme.both", label: "center" }], right: [{ id: "acme.both", label: "left", nested: ["l"] }] }],
+    ];
+    for (const [name, user, effective, from, section, index, want] of moveRows)
+        check("withMoved: " + name, ctx.withMoved(user, manifests["acme.both"], from, section, index, effective).bar.layout, want);
+    check("withMoved: settings travel with the entry", ctx.withMoved(moveUser, manifests["acme.both"], { section: "left", nth: 0 }, "right", 0, moveEffective).bar.layout.right[0], { id: "acme.both", label: "left", nested: ["l"] });
+    check("withMoved: seeds the user bar from the effective bar", ctx.withMoved(null, manifests["vgs.clock"], null, "right", 0, shipped).bar.layout.right, [{ id: "vgs.clock" }]);
+    check("withMoved does not alias the user file", (() => { const u = ctx.clone(moveUser); const out = ctx.withMoved(u, manifests["acme.both"], { section: "left", nth: 0 }, "right", 0, moveEffective); out.bar.layout.right[0].nested.push("r"); return u.bar.layout.left[1].nested; })(), ["l"]);
+    check("withMoved: moving to the same slot keeps the layout", ctx.withMoved(moveUser, manifests["acme.both"], { section: "left", nth: 0 }, "left", 1, moveEffective).bar.layout, moveUser.bar.layout);
+
+    const dropSections = {
+        left: { x: 0, width: 300, widgets: [{ x: 20, width: 40, locator: { id: "a.one", section: "left", nth: 0 } }, { x: 90, width: 40, locator: { id: "a.two", section: "left", nth: 0 } }] },
+        center: { x: 300, width: 300, widgets: [{ x: 360, width: 40, locator: { id: "a.three", section: "center", nth: 0 } }] },
+        right: { x: 600, width: 300, widgets: [] }
+    };
+    const dropRows = [
+        ["left zone before first centre", 900, 30, "left", { id: "a.one", section: "left", nth: 0 }, 20],
+        ["left zone after a centre", 900, 80, "left", { id: "a.two", section: "left", nth: 0 }, 90],
+        ["left zone at end", 900, 200, "left", null, 130],
+        ["center zone", 900, 360, "center", { id: "a.three", section: "center", nth: 0 }, 360],
+        ["right empty zone", 900, 760, "right", null, 750],
+    ];
+    for (const [name, width, x, section, before, markerX] of dropRows) {
+        const got = ctx.barDropTarget(width, x, dropSections);
+        check("barDropTarget: " + name, [got.section, got.before, got.markerX], [section, before, markerX]);
+    }
+    const indexConfig = { bar: { layout: { left: [{ id: "a.one" }, { id: "a.two" }, { id: "a.one" }], center: [{ id: "a.three" }], right: [] } } };
+    check("barDropIndex: before maps to the index after removal", ctx.barDropIndex(indexConfig, "left", { id: "a.one", section: "left", nth: 1 }, { section: "left", nth: 0 }, "a.one"), 1);
+    check("barDropIndex: before in another section keeps its index", ctx.barDropIndex(indexConfig, "left", { id: "a.two", section: "left", nth: 0 }, { section: "center", nth: 0 }, "a.three"), 1);
+    check("barDropIndex: a null before maps to the end after removal", ctx.barDropIndex(indexConfig, "left", null, { section: "left", nth: 0 }, "a.one"), 2);
+
     // firstPresence: an unnamed widget is placed; a plugin the user
     // disabled, hid (its row), already placed, marked optIn or without a
     // widget is not.
@@ -1213,6 +1270,11 @@ const CONTROLS = [
     ["a widget already as asked changes nothing", "if (placed === isPlaced(effective, manifest))\n        return out;", "if (false)\n        return out;"],
     ["unplacing removes the entries", "return entry.id !== manifest.id; });", "return true; });"],
     ["unplacing lists a plugin with no row", "    seedUserBar(out, effective);\n    if (pluginRow(effective, manifest.id) === undefined) {", "    seedUserBar(out, effective);\n    if (false) {"],
+    ["moving uses the requested index", "target.splice(at, 0, entry);", "target.push(entry);"],
+    ["moving removes the source entry", "var entry = out.bar.layout[source.section].splice(source.index, 1)[0];", "var entry = clone(out.bar.layout[source.section][source.index]);"],
+    ["moving refuses an unplaced widget", "if (!isPlaced(config, manifest))\n        return \"refused: moved=\"", "if (false)\n        return \"refused: moved=\""],
+    ["drop target uses the bar zone", "var section = x < width / 3 ? \"left\" : x < 2 * width / 3 ? \"center\" : \"right\";", "var section = \"left\";"],
+    ["drop index removes the source before counting", "var removes = isPlainObject(from) && from.section === section && entry.id === movingId && from.nth === nth;", "var removes = false;"],
     ["an unnamed widget takes its first presence", "return !isPlaced(effective, m) && pluginRow(effective, id) === undefined;", "return false;"],
     ["a widget with a plugins row keeps no presence", "return !isPlaced(effective, m) && pluginRow(effective, id) === undefined;", "return !isPlaced(effective, m);"],
     ["a placed widget takes no second presence", "return !isPlaced(effective, m) && pluginRow(effective, id) === undefined;", "return pluginRow(effective, id) === undefined;"],
