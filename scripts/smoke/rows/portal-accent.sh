@@ -28,6 +28,7 @@ fi
 
 portal_root="$sandbox/portal-accent"
 mkdir -p -- "$portal_root/config/xdg-desktop-portal" "$portal_root/data/xdg-desktop-portal/portals" "$portal_root/bin"
+mkdir -m 0700 -- "$portal_root/run"
 cp -- "$repo/packaging/xdg-desktop-portal/hyprland-portals.conf" "$portal_root/config/xdg-desktop-portal/hyprland-portals.conf"
 cp -- /usr/share/xdg-desktop-portal/portals/gtk.portal "$portal_root/data/xdg-desktop-portal/portals/gtk.portal"
 if [[ -f /usr/share/xdg-desktop-portal/portals/hyprland.portal ]]; then
@@ -42,14 +43,11 @@ else
   not_measured portal-accent missing=gnome.portal
   return 0
 fi
-ln -s -- "$(command -v sh)" "$portal_root/bin/sh"
-ln -s -- "$(command -v bash)" "$portal_root/bin/bash"
-ln -s -- "$(command -v cat)" "$portal_root/bin/cat"
-ln -s -- "$(command -v readlink)" "$portal_root/bin/readlink"
-ln -s -- "$(command -v dirname)" "$portal_root/bin/dirname"
-ln -s -- "$(command -v mkdir)" "$portal_root/bin/mkdir"
-ln -s -- "$(command -v flock)" "$portal_root/bin/flock"
-ln -s -- "$(command -v gsettings)" "$portal_root/bin/gsettings"
+# The tools bin/vgshell, its judge and the two hooks call, as
+# scripts/vgshell-rows.sh theme_tree links them for the offline theme rows.
+for tool in sh bash cat readlink dirname mkdir flock awk git mktemp mv rm gsettings; do
+  ln -s -- "$(command -v "$tool")" "$portal_root/bin/$tool"
+done
 ln -s -- "$node_bin" "$portal_root/bin/node"
 
 mkdir -p -- "$repo/themes/targets/accent-color" "$repo/themes/targets/color-scheme"
@@ -65,10 +63,10 @@ printf '%s\n' '[preferred]' 'default=hyprland;gtk' >"$home/.config/xdg-desktop-p
 portal_common_env=(HOME="$home" XDG_CONFIG_HOME="$home/.config" XDG_DATA_HOME="$home/.local/share"
   XDG_STATE_HOME="$home/.local/state" XDG_CACHE_HOME="$home/.cache" XDG_CURRENT_DESKTOP=Hyprland
   GSETTINGS_BACKEND=keyfile GSETTINGS_SCHEMA_DIR=/usr/share/glib-2.0/schemas
-  XDG_CONFIG_DIRS="$portal_root/config" XDG_DATA_DIRS="$portal_root/data:/usr/share" PATH="$portal_root/bin" TMPDIR="$sandbox" TMUX_TMPDIR="$sandbox/tmux")
+  XDG_CONFIG_DIRS="$portal_root/config" XDG_DATA_DIRS="$portal_root/data:/usr/share" TMPDIR="$sandbox" TMUX_TMPDIR="$sandbox/tmux")
 portal_env=("${shell_env[@]}" "${portal_common_env[@]}" WAYLAND_DISPLAY="$nested_socket")
 hook_env=(env -u DBUS_SESSION_BUS_ADDRESS -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u TMUX "${portal_common_env[@]}"
-  XDG_RUNTIME_DIR="$rt_dir")
+  PATH="$portal_root/bin" XDG_RUNTIME_DIR="$portal_root/run" VGS_TEST_RUN=1)
 
 name_owned() { "${portal_env[@]}" gdbus call --session --dest org.freedesktop.DBus --object-path /org/freedesktop/DBus --method org.freedesktop.DBus.NameHasOwner "$1" 2>>"$sandbox/ipc.log" | grep -q '(true,'; }
 wait_name() { # BUS_NAME
