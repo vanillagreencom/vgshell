@@ -93,7 +93,7 @@ expect_poll "control: a user file relabels a plugin row" '[["shortcut", "Pick a 
 rm -f -- "$user_menu"
 expect_poll "the plugin's label returns with the user file gone" "$(style_rows "No window gaps" "Hide top bar")" row_labels
 
-# Theme and Wallpaper summon the browser on the views SUPER+T and SUPER+W
+# Theme and Wallpaper summon the browser on the views SUPER+CTRL+T and SUPER+CTRL+W
 # open; the launcher closes and the browser holds the keyboard. Each reading
 # is the other's control.
 pick_row 0 || fail "selecting Theme failed"

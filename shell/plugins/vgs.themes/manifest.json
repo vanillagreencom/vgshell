@@ -104,8 +104,8 @@
       "noGaps": "noWindowGaps"
     },
     "binds": [
-      { "shortcut": "themes", "key": "SUPER+T" },
-      { "shortcut": "wallpapers", "key": "SUPER+W" },
+      { "shortcut": "themes", "key": "SUPER+CTRL+T" },
+      { "shortcut": "wallpapers", "key": "SUPER+CTRL+W" },
       { "shortcut": "panel", "key": "SUPER+CTRL+J" },
       { "shortcut": "gaps", "key": "SUPER+SHIFT+BACKSPACE" }
     ]

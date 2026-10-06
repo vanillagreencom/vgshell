@@ -209,7 +209,7 @@ function suite(ctx, check) {
         kinds: ["service"], entryPoints: { service: "S.qml" }, capabilities: ["shortcut"], hyprland: { binds: [{ shortcut, key }] },
     }, "/p").manifest;
     const keyhints = ctx.hyprlandSection({}, binder("vgs.keyhints", "toggle", "SUPER+SLASH"));
-    const themes = ctx.hyprlandSection({}, binder("vgs.themes", "themes", "SUPER+T"));
+    const themes = ctx.hyprlandSection({}, binder("vgs.themes", "themes", "SUPER+CTRL+T"));
     const keyhintsUnbound = ctx.hyprlandSection({ plugins: [{ id: "vgs.keyhints", keys: { toggle: null } }] }, binder("vgs.keyhints", "toggle", "SUPER+SLASH"));
     const keyhintsMoved = ctx.hyprlandSection({ plugins: [{ id: "vgs.keyhints", keys: { toggle: "SUPER+SHIFT+K" } }] }, binder("vgs.keyhints", "toggle", "SUPER+SLASH"));
     const QUESTION = "Let VGS manage its Hyprland settings?";
@@ -234,7 +234,7 @@ function suite(ctx, check) {
     const question = { welcome: false, title: QUESTION, message: "present", lineCount: 0, link: null, keys: [], keysTitle: "", disclosure: "vgshell hypr wire", actions: CONNECT, failure: "", busy: false };
     const keyLine = (shortcut, text) => ({ shortcut, text });
     const keyHintsLine = keyLine("Super+/", "shows every key VGS adds.");
-    const themeLine = keyLine("Super+T", "picks a theme.");
+    const themeLine = keyLine("Super+Ctrl+T", "picks a theme.");
     // [name, consent, welcome state, shipped, sections, want].
     const slotRows = [
         ["an unseen welcome asks with Connect and Not now", phase("asking"), "unseen", shipped, [keyhints, themes], welcome(3, [keyHintsLine, themeLine], true)],

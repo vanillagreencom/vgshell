@@ -17,9 +17,9 @@ import "SetupLogic.js" as SetupLogic
 // so (D061). Settings asks for a scan each time it opens, so the row also
 // reads a setup run from a terminal or a package installed while the shell
 // ran.
-//   shortcut vgs.themes:themes              SUPER+T from the manifest's
+//   shortcut vgs.themes:themes              SUPER+CTRL+T from the manifest's
 //                                            `hyprland` binds (README)
-//   shortcut vgs.themes:wallpapers          SUPER+W, the same way
+//   shortcut vgs.themes:wallpapers          SUPER+CTRL+W, the same way
 //   shortcut vgs.themes:panel               SUPER+CTRL+J from the manifest's
 //                                            `hyprland` binds
 //   shortcut vgs.themes:gaps                SUPER+SHIFT+BACKSPACE from the

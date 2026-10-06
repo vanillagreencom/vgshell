@@ -8,8 +8,8 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 
 ## Features
 
-- A full-screen theme browser on `SUPER+T`. It shows shipped, installed and catalog themes as cards in one list, with no labels or hints. The selection opens on the applied theme. Type to filter, and Enter applies the selected theme. A catalog theme installs first.
-- A full-screen wallpaper browser on `SUPER+W`. It opens on the applied theme's wallpapers. Show all, under the cards, lists every theme's wallpapers and your own in `~/.config/vgshell/backgrounds/`; Show theme goes back. Enter sets the selected image.
+- A full-screen theme browser on `SUPER+CTRL+T`. It shows shipped, installed and catalog themes as cards in one list, with no labels or hints. The selection opens on the applied theme. Type to filter, and Enter applies the selected theme. A catalog theme installs first.
+- A full-screen wallpaper browser on `SUPER+CTRL+W`. It opens on the applied theme's wallpapers. Show all, under the cards, lists every theme's wallpapers and your own in `~/.config/vgshell/backgrounds/`; Show theme goes back. Enter sets the selected image.
 - With two or more monitors, the wallpaper browser sets the image on All monitors or on This monitor alone.
 - A catalog of themes VGS ships. Install adds a theme, and Download wallpapers fetches its wallpapers. After a catalog theme applies without its wallpapers, the browser offers to download them.
 - A Themes panel on `SUPER+CTRL+J`. One row per theme shows its colours, and a click applies it. The Wallpaper section shows the applied theme's previous or next wallpaper. Add from URL installs a theme from a git address.

@@ -1,15 +1,17 @@
-# The theme browser, vgs.themes' overlay and service: SUPER+T on the
+# The theme browser, vgs.themes' overlay and service: SUPER+CTRL+T on the
 # nested seat opens it, and every row reads what it holds back through the
 # probe: the view's cards and state through readDescendant, the images the
 # cards draw through images, the texts it draws beside its rail and tabs
 # through descendantGeometry, and its Dialog's through itemTexts. The rows page, filter, install and apply a catalog
-# entry, and answer the wallpaper offer both ways. The sandbox copy's
+# entry, and answer the wallpaper offer both ways. The old keys, SUPER+T
+# and SUPER+W, open nothing, and each view's key moves an open browser to
+# that view; a manifest copy still bound to SUPER+T is their control. The sandbox copy's
 # catalog pins nord's wallpapers to an archive this row builds, served from
 # a file:// base, which the runner takes under the sandbox's test-run
 # marker. A stand-in holds the download behind a gate after two progress
 # lines, polled every 50 ms for at most 30 s, so the Dialog's progress and
 # the held close read back before the real download runs. The wallpaper
-# view's rows, SUPER+W, follow the theme view's: they flip its source,
+# view's rows, SUPER+CTRL+W, follow the theme view's: they flip its source,
 # from its source line and from Alt+S, and its scope, set an image for one screen and for every screen on a second
 # headless output and read each screen's drawn image back, and run the
 # update card against a second archive the catalog pins anew. A copy of
@@ -65,8 +67,12 @@ card_source_size_matches() { # PATH
   dpr="$(ipc smoke readDescendant overlay vgs.themes CardCarousel devicePixelRatio)" || return 1
   ipc smoke images overlay vgs.themes | py_reply 'import json,sys; path, dpr = sys.argv[1], float(sys.argv[2]); rows=[i for i in json.load(sys.stdin) if i[0] == path and i[1] == "ready"]; print(bool(rows and rows[0][4] == [round(rows[0][2][0] * dpr), round(rows[0][2][1] * dpr)]))' "$1" "$dpr"
 }
-# SUPER+T typed on the nested seat.
-press_themes() { type_keys -M logo -k t -m logo; }
+# SUPER+CTRL+T and SUPER+CTRL+W typed on the nested seat, and the keys
+# the two browsers had before them.
+press_themes() { type_keys -M logo -M ctrl -k t -m ctrl -m logo; }
+press_wallpapers() { type_keys -M logo -M ctrl -k w -m ctrl -m logo; }
+press_old_themes() { type_keys -M logo -k t -m logo; }
+press_old_wallpapers() { type_keys -M logo -k w -m logo; }
 rail_focused() { ipc smoke readDescendant overlay vgs.themes CardCarousel activeFocus; }
 # The selected card as `card=<name>`, read from the view's card object
 # through py_reply; `no-selection` for none, and a state word the probe
@@ -234,11 +240,11 @@ if [[ \${2:-} == wallpapers ]]; then
   for _ in \$(seq 1 600); do [[ -e $(printf %q "$wallpaper_gate") ]] && break; sleep 0.05; done
 fi"
 
-# The service registers the shortcut and the layer binds SUPER+T.
+# The service registers the shortcut and the layer binds SUPER+CTRL+T.
 expect "enabling vgs.themes for the browser rows is allowed" ok ipc shell setPluginEnabled vgs.themes true
 expect_poll "the themes service registered its shortcuts" '["vgs.themes:gaps", "vgs.themes:panel", "vgs.themes:themes", "vgs.themes:wallpapers"]' lent_themes
-expect_poll "the nested instance binds SUPER+T to the theme browser" '[[64, "T"]]' themes_bind
-expect_poll "the nested instance binds SUPER+W to the wallpaper browser" '[[64, "W"]]' themes_bind wallpapers
+expect_poll "the nested instance binds SUPER+CTRL+T to the theme browser" '[[68, "T"]]' themes_bind
+expect_poll "the nested instance binds SUPER+CTRL+W to the wallpaper browser" '[[68, "W"]]' themes_bind wallpapers
 themes_global() { hypr globalshortcuts | python3 -c 'import sys; print(sum(1 for line in sys.stdin if "vgs.themes:themes" in line))'; }
 expect_poll "the compositor lists the themes shortcut" 1 themes_global
 # wtype types on a virtual keyboard with keycodes of its own, which a bind
@@ -253,10 +259,27 @@ cp -p -- "$hypr_lua" "$sandbox/hyprland-before-browser.lua"
   printf '%s\n' 'hl.bind("SUPER + D", hl.dsp.focus({ direction = "right" }), { description = "Smoke focus right" })'
 } >>"$hypr_lua"
 expect "the nested instance reloads with binds resolved by keysym and smoke focus keys" ok hypr reload config-only
-expect "no browser shows before SUPER+T" 0 layer_count vgs:overlay
-# SUPER+T opens the theme view on the applied theme.
-press_themes || fail "typing SUPER+T failed"
-expect_poll "SUPER+T opens the browser" 1 layer_count vgs:overlay
+expect "no browser shows before SUPER+CTRL+T" 0 layer_count vgs:overlay
+# The old keys open nothing: each goes just before the new key of the same
+# browser, which would close a browser the old key opened. Inside one
+# browser the other browser's key switches the view, and its own key
+# closes it.
+press_old_wallpapers || fail "typing SUPER+W failed"
+press_wallpapers || fail "typing SUPER+CTRL+W after SUPER+W failed"
+expect_poll "SUPER+W opens nothing, so SUPER+CTRL+W opens the browser" 1 layer_count vgs:overlay
+expect_poll "SUPER+CTRL+W opens the wallpaper view" '"wallpapers"' ipc smoke readInstance overlay vgs.themes view
+press_themes || fail "typing SUPER+CTRL+T in the wallpaper view failed"
+expect_poll "SUPER+CTRL+T in the wallpaper view switches to the theme view" '"themes"' ipc smoke readInstance overlay vgs.themes view
+expect "the switch to the theme view keeps the browser open" 1 layer_count vgs:overlay
+press_wallpapers || fail "typing SUPER+CTRL+W in the theme view failed"
+expect_poll "SUPER+CTRL+W in the theme view switches to the wallpaper view" '"wallpapers"' ipc smoke readInstance overlay vgs.themes view
+expect "the switch to the wallpaper view keeps the browser open" 1 layer_count vgs:overlay
+press_wallpapers || fail "typing SUPER+CTRL+W to close the switched browser failed"
+expect_poll "SUPER+CTRL+W on the switched wallpaper view closes it" 0 layer_count vgs:overlay
+# SUPER+CTRL+T opens the theme view on the applied theme.
+press_old_themes || fail "typing SUPER+T failed"
+press_themes || fail "typing SUPER+CTRL+T failed"
+expect_poll "SUPER+T opens nothing, so SUPER+CTRL+T opens the browser" 1 layer_count vgs:overlay
 expect "the browser shows the theme view" '"themes"' ipc smoke readInstance overlay vgs.themes view
 browser_focused "the open browser holds the keyboard"
 expect_poll "the browser read the list, the catalog and the images" true view_value loaded
@@ -439,8 +462,8 @@ type_keys -k Return || fail "sending Return to the Dialog failed"
 expect_poll "Download runs the download" "download nord" job_step
 expect_poll "the Dialog shows the download's progress" True dialog_has "Downloading 2 of 4 MB"
 type_keys -k Escape || fail "sending Escape during the download failed"
-press_themes || fail "typing SUPER+T during the download failed"
-expect "Escape and SUPER+T leave the browser open during the download" 1 layer_count vgs:overlay
+press_themes || fail "typing SUPER+CTRL+T during the download failed"
+expect "Escape and SUPER+CTRL+T leave the browser open during the download" 1 layer_count vgs:overlay
 touch -- "$wallpaper_gate"
 expect_poll "the download and the apply after it close the browser" 0 layer_count vgs:overlay
 expect "the wallpapers are unpacked into nord" True bash -c '[[ -f $1/nord/backgrounds/a.jpg && -f $1/nord/backgrounds/b.jpg ]] && echo True' _ "$installed"
@@ -449,8 +472,8 @@ expect_poll "the apply after the download shows nord's first wallpaper" "\"$inst
 
 # nord's card now draws its first wallpaper; Escape clears the filter,
 # then closes.
-press_themes || fail "typing SUPER+T to reopen failed"
-expect_poll "SUPER+T opens the browser again" 1 layer_count vgs:overlay
+press_themes || fail "typing SUPER+CTRL+T to reopen failed"
+expect_poll "SUPER+CTRL+T opens the browser again" 1 layer_count vgs:overlay
 browser_focused
 expect_poll "the reopened browser selects the applied nord" '"nord"' view_value selectedName
 expect_poll "nord's card draws its first wallpaper" ready card_image "$installed/nord/backgrounds/a.jpg"
@@ -465,8 +488,8 @@ expect_poll "Escape with no filter closes the browser" 0 layer_count vgs:overlay
 # the filter and hands the keyboard back to the rail, so Right steps and
 # Escape closes.
 clear_filter() { # LABEL
-  press_themes || { fail "$1: typing SUPER+T failed"; return 1; }
-  expect_poll "$1: SUPER+T opens the browser" 1 layer_count vgs:overlay
+  press_themes || { fail "$1: typing SUPER+CTRL+T failed"; return 1; }
+  expect_poll "$1: SUPER+CTRL+T opens the browser" 1 layer_count vgs:overlay
   expect_poll "$1: the browser read its cards" true view_value loaded
   type_keys zzqx || { fail "$1: typing the filter failed"; return 1; }
   expect_poll "$1: a filter no card matches empties the rail" 0 view_count
@@ -485,11 +508,11 @@ expect_poll "Escape after Clear filter closes the browser" 0 layer_count vgs:ove
 # Control: the closed browser answers a state word, which names no card
 # and so reads as no move.
 expect "control: a closed browser is no step of the rail" absent selection_moved "$cleared_on"
-# SUPER+T closes the view it opened, and a click on the scrim closes it.
-press_themes || fail "typing SUPER+T failed"
-expect_poll "SUPER+T opens the browser" 1 layer_count vgs:overlay
-press_themes || fail "typing SUPER+T again failed"
-expect_poll "SUPER+T on the open theme view closes it" 0 layer_count vgs:overlay
+# SUPER+CTRL+T closes the view it opened, and a click on the scrim closes it.
+press_themes || fail "typing SUPER+CTRL+T failed"
+expect_poll "SUPER+CTRL+T opens the browser" 1 layer_count vgs:overlay
+press_themes || fail "typing SUPER+CTRL+T again failed"
+expect_poll "SUPER+CTRL+T on the open theme view closes it" 0 layer_count vgs:overlay
 expect "a summon over IPC opens the first view" ok ipc shell summon overlay vgs.themes '{}'
 expect_poll "the summon maps the browser" 1 layer_count vgs:overlay
 expect_poll "the summoned browser read its cards" true view_value loaded
@@ -506,8 +529,8 @@ expect_poll "a refused summon leaves no browser" 0 layer_count vgs:overlay
 
 # An install whose apply fails leaves the theme installed: the cards are
 # read again, so Enter retries the apply and not the install.
-press_themes || fail "typing SUPER+T for akane failed"
-expect_poll "SUPER+T opens the browser for akane" 1 layer_count vgs:overlay
+press_themes || fail "typing SUPER+CTRL+T for akane failed"
+expect_poll "SUPER+CTRL+T opens the browser for akane" 1 layer_count vgs:overlay
 browser_focused
 type_keys "akane" || fail "typing akane failed"
 expect_poll "the filter selects akane" '"akane"' view_value selectedName
@@ -525,8 +548,8 @@ type_keys -k Escape || fail "sending Escape to close after akane failed"
 expect_poll "Escape twice closes the browser after akane" 0 layer_count vgs:overlay
 
 # vgs applies from the browser, which closes it, since vgs offers nothing.
-press_themes || fail "typing SUPER+T for vgs failed"
-expect_poll "SUPER+T opens the browser for vgs" 1 layer_count vgs:overlay
+press_themes || fail "typing SUPER+CTRL+T for vgs failed"
+expect_poll "SUPER+CTRL+T opens the browser for vgs" 1 layer_count vgs:overlay
 browser_focused
 type_keys "vgs" || fail "typing vgs failed"
 expect_poll "the filter selects vgs" '"vgs"' view_value selectedName
@@ -544,7 +567,6 @@ wall_selected() { wall_value selected | py_reply 'import json,sys; s=json.load(s
 # Whether the cards hold every KEY.
 wall_has() { wall_value cards | py_reply 'import json,sys; keys=[c["key"] for c in json.load(sys.stdin)]; print(all(k in keys for k in sys.argv[1:]))' "$@"; }
 wall_job() { wall_value job | py_reply 'import json,sys; j=json.load(sys.stdin); print("none" if j is None else j["step"])'; }
-press_wallpapers() { type_keys -M logo -k w -m logo; }
 nord_a="$installed/nord/backgrounds/a.jpg"; nord_b="$installed/nord/backgrounds/b.jpg"; nord_c="$installed/nord/backgrounds/c.jpg"
 wall_output=SMOKE-WALL
 # Whether the wallpaper view's scope control holds the keyboard.
@@ -617,9 +639,22 @@ plugin_restore() {
   themes_rescan "the view the $2 control replaced"
 }
 
+# Control: a manifest copy that still binds the theme browser to SUPER+T.
+# The bind reads the old key, and SUPER+CTRL+T opens nothing: the SUPER+T
+# typed after it, which would close a browser it opened, opens the browser.
+plugin_control manifest.json "old theme key" '{ "shortcut": "themes", "key": "SUPER+CTRL+T" }' '{ "shortcut": "themes", "key": "SUPER+T" }'
+expect_poll "control: the copy binds SUPER+T to the theme browser" '[[64, "T"]]' themes_bind
+press_themes || fail "typing SUPER+CTRL+T for the old theme key control failed"
+press_old_themes || fail "typing SUPER+T for the old theme key control failed"
+expect_poll "control: SUPER+CTRL+T on the copy opens nothing, so SUPER+T opens the browser" 1 layer_count vgs:overlay
+type_keys -k Escape || fail "closing the old theme key control browser failed"
+expect_poll "the old theme key control browser closes" 0 layer_count vgs:overlay
+plugin_restore manifest.json "old theme key"
+expect_poll "the restored manifest binds SUPER+CTRL+T to the theme browser" '[[68, "T"]]' themes_bind
+
 # Controls for the preview guarantees above.
 plugin_control ThemeCard.qml "preview sourceSize" "sourceSize: root.decodeSize" "sourceSize: Qt.size(1, 1)"
-press_themes || fail "typing SUPER+T for the preview sourceSize control failed"
+press_themes || fail "typing SUPER+CTRL+T for the preview sourceSize control failed"
 expect_poll "the sourceSize control opens the theme browser" 1 layer_count vgs:overlay
 expect_poll "the sourceSize control read its cards" true view_value loaded
 type_keys -k Home || fail "sending Home for the sourceSize control failed"
@@ -629,7 +664,7 @@ expect_poll "the sourceSize control browser closes" 0 layer_count vgs:overlay
 plugin_restore ThemeCard.qml "preview sourceSize"
 
 plugin_control ThemeCard.qml "live preview token" "tokens: root.modelData.tokens" "tokens: ({})"
-press_themes || fail "typing SUPER+T for the live preview control failed"
+press_themes || fail "typing SUPER+CTRL+T for the live preview control failed"
 expect_poll "the live preview control opens the theme browser" 1 layer_count vgs:overlay
 expect_poll "the live preview control read its cards" true view_value loaded
 type_keys "$first_card" || fail "typing $first_card for the live preview control failed"
@@ -641,7 +676,7 @@ expect_poll "the live preview control browser closes" 0 layer_count vgs:overlay
 plugin_restore ThemeCard.qml "live preview token"
 
 plugin_control ThemeCard.qml "preview precedence" "readonly property bool packagePreview: typeof modelData.previewImage === \"string\" && modelData.previewImage !== \"\"" "readonly property bool packagePreview: false"
-press_themes || fail "typing SUPER+T for the preview precedence control failed"
+press_themes || fail "typing SUPER+CTRL+T for the preview precedence control failed"
 expect_poll "the preview precedence control opens the theme browser" 1 layer_count vgs:overlay
 expect_poll "the preview precedence control read its cards" true view_value loaded
 type_keys "nord" || fail "typing nord for the preview precedence control failed"
@@ -679,8 +714,8 @@ plugin_restore ThemeView.qml "rail band"
 # Control for the resting texts: a copy of the theme view that draws a key
 # hint under the rail.
 plugin_control ThemeView.qml "resting text" $'                id: caption\n' $'                id: caption\n                Label { role: "hint"; text: "Enter" }\n'
-press_themes || fail "typing SUPER+T for the resting text control failed"
-expect_poll "SUPER+T opens the resting text control browser" 1 layer_count vgs:overlay
+press_themes || fail "typing SUPER+CTRL+T for the resting text control failed"
+expect_poll "SUPER+CTRL+T opens the resting text control browser" 1 layer_count vgs:overlay
 expect_poll "the resting text control read its cards" true view_value loaded
 expect_poll "control: a key hint under the rail is a resting text" '["Enter"]' rest_texts
 type_keys -k Escape || fail "sending Escape to the resting text control failed"
@@ -693,8 +728,8 @@ plugin_restore ThemeView.qml "resting text"
 # back. Controls: a copy whose line flips nothing, one whose line takes the
 # keyboard, and one whose line keeps its first text.
 show_every() { # LABEL
-  type_keys -M logo -k w -m logo || { fail "$1: typing SUPER+W failed"; return 1; }
-  expect_poll "$1: SUPER+W opens the browser" 1 layer_count vgs:overlay
+  press_wallpapers || { fail "$1: typing SUPER+CTRL+W failed"; return 1; }
+  expect_poll "$1: SUPER+CTRL+W opens the browser" 1 layer_count vgs:overlay
   expect_poll "$1: the wallpaper view read its lists" true ipc smoke readDescendant overlay vgs.themes WallpaperView loaded
   expect "$1: vgs's theme source lists no image" '[]' ipc smoke readDescendant overlay vgs.themes WallpaperView cards
   click_in vgs:overlay overlay vgs.themes Label "Show all" || { fail "$1: the click on Show all failed"; return 1; }
@@ -736,8 +771,8 @@ expect "the nested compositor adds a monitor for the wallpaper rows" ok hypr out
 expect_poll "the wallpaper rows' monitor is listed" True screen_listed "$wall_output"
 expect_poll "the wallpaper rows' monitor draws nord's first image" "$nord_a ready" background_image_on "$wall_output"
 
-press_wallpapers || fail "typing SUPER+W failed"
-expect_poll "SUPER+W opens the browser" 1 layer_count vgs:overlay
+press_wallpapers || fail "typing SUPER+CTRL+W failed"
+expect_poll "SUPER+CTRL+W opens the browser" 1 layer_count vgs:overlay
 expect "the browser shows the wallpaper view" '"wallpapers"' ipc smoke readInstance overlay vgs.themes view
 browser_focused "the wallpaper view holds the keyboard"
 expect_poll "the wallpaper view read the images and the catalog" true wall_value loaded
@@ -788,8 +823,8 @@ expect "a set for this monitor keeps the current image" "\"$nord_a\"" bg_current
 # Each open starts on every monitor; This monitor selects the screen's own
 # image, and All monitors sets the current image on every screen, the
 # screen's own cleared.
-press_wallpapers || fail "typing SUPER+W to reopen failed"
-expect_poll "SUPER+W opens the browser again" 1 layer_count vgs:overlay
+press_wallpapers || fail "typing SUPER+CTRL+W to reopen failed"
+expect_poll "SUPER+CTRL+W opens the browser again" 1 layer_count vgs:overlay
 expect_poll "the reopened view read its lists" true wall_value loaded
 expect "the reopened view is on every monitor again" '"every"' wall_value scope
 expect_poll "every monitor selects the current image" "$nord_a" wall_selected
@@ -806,8 +841,8 @@ expect "a set for every monitor clears each screen's own image" '{}' bg_screens
 # Control: a copy of the view that sets every image as the current one
 # moves the other screen's image under This monitor.
 plugin_control WallpaperView.qml scope "shell.theme.set(card.path, BrowserLogic.setScreen(scope, screenName), result => {" "shell.theme.set(card.path, null, result => {"
-press_wallpapers || fail "typing SUPER+W for the scope control failed"
-expect_poll "SUPER+W opens the scope control's browser" 1 layer_count vgs:overlay
+press_wallpapers || fail "typing SUPER+CTRL+W for the scope control failed"
+expect_poll "SUPER+CTRL+W opens the scope control's browser" 1 layer_count vgs:overlay
 expect_poll "the scope control's view read its lists" true wall_value loaded
 type_keys -M alt -k m -m alt -k Right || fail "sending Alt+M and Right to the scope control failed"
 expect_poll "the scope control selects b.jpg for this monitor" "$nord_b" wall_selected
@@ -821,8 +856,8 @@ expect "set --every-screen puts nord's first image back on every screen" "ok bac
 # change does: Right then steps the rail and leaves the scope. Control: a
 # copy of the view whose scope control keeps the keyboard switches the
 # scope on Right.
-press_wallpapers || fail "typing SUPER+W for the segment click failed"
-expect_poll "SUPER+W opens the browser for the segment click" 1 layer_count vgs:overlay
+press_wallpapers || fail "typing SUPER+CTRL+W for the segment click failed"
+expect_poll "SUPER+CTRL+W opens the browser for the segment click" 1 layer_count vgs:overlay
 expect_poll "the segment-click view selects a.jpg" "$nord_a" wall_selected
 click_in vgs:overlay overlay vgs.themes QQuickButton "All monitors" || fail "the click on the chosen All monitors segment failed"
 expect_poll "the view takes the keyboard back after a click on the chosen scope" false segment_focused
@@ -832,14 +867,14 @@ expect "Right after the click leaves the scope" '"every"' wall_value scope
 type_keys -k Escape || fail "sending Escape after the segment click failed"
 expect_poll "Escape closes the browser after the segment click" 0 layer_count vgs:overlay
 plugin_control WallpaperView.qml "wallpaper focus" $'currentIndex: root.scopeIndex\n                    onActiveFocusChanged: if (activeFocus) Qt.callLater(root.takeKeys)' 'currentIndex: root.scopeIndex'
-press_wallpapers || fail "typing SUPER+W for the wallpaper focus control failed"
-expect_poll "SUPER+W opens the wallpaper focus control's browser" 1 layer_count vgs:overlay
+press_wallpapers || fail "typing SUPER+CTRL+W for the wallpaper focus control failed"
+expect_poll "SUPER+CTRL+W opens the wallpaper focus control's browser" 1 layer_count vgs:overlay
 expect_poll "the wallpaper focus control's view read its lists" true wall_value loaded
 click_in vgs:overlay overlay vgs.themes QQuickButton "All monitors" || fail "the click on the focus control's All monitors segment failed"
 type_keys -k Right || fail "sending Right to the wallpaper focus control failed"
 expect_poll "the wallpaper focus control's Right switches the scope" '"this"' wall_value scope
-press_wallpapers || fail "typing SUPER+W to close the wallpaper focus control failed"
-expect_poll "SUPER+W closes the wallpaper focus control's browser, whose keys the control holds" 0 layer_count vgs:overlay
+press_wallpapers || fail "typing SUPER+CTRL+W to close the wallpaper focus control failed"
+expect_poll "SUPER+CTRL+W closes the wallpaper focus control's browser, whose keys the control holds" 0 layer_count vgs:overlay
 plugin_restore WallpaperView.qml "wallpaper focus"
 # Controls for the slices: a copy of the theme card whose stack lies
 # across the slice, and one whose stack reverses its colours.
@@ -848,8 +883,8 @@ for control in vertical colours; do
     vertical) plugin_control ThemeCard.qml "stack $control" $'        vertical: true\n' '' ;;
     colours) plugin_control ThemeCard.qml "stack $control" $'vertical: true\n        colours: root.swatches === null ? [] : root.swatches' $'vertical: true\n        colours: root.swatches === null ? [] : root.swatches.slice().reverse()' ;;
   esac
-  press_themes || fail "typing SUPER+T for the stack $control control failed"
-  expect_poll "SUPER+T opens the stack $control control browser" 1 layer_count vgs:overlay
+  press_themes || fail "typing SUPER+CTRL+T for the stack $control control failed"
+  expect_poll "SUPER+CTRL+T opens the stack $control control browser" 1 layer_count vgs:overlay
   expect_poll "the stack $control control read its cards" true view_value loaded
   expect_poll "control: the stack $control copy breaks the $control rule" True judged_rule collapsed_stacks "$control"
   type_keys -k Escape || fail "sending Escape to the stack $control control failed"
@@ -866,8 +901,8 @@ done
 # old decode for the same path.
 plugin_control WallpaperCard.qml identity "Files.stampedUrl(root.modelData.path, root.modelData.generation)" "Files.fileUrl(root.modelData.path)"
 pin_nord vgs-theme-nord-smoke2.tar.gz "$thumbs/frankenstein.jpg"
-press_wallpapers || fail "typing SUPER+W for the identity control failed"
-expect_poll "SUPER+W opens the identity control's browser" 1 layer_count vgs:overlay
+press_wallpapers || fail "typing SUPER+CTRL+W for the identity control failed"
+expect_poll "SUPER+CTRL+W opens the identity control's browser" 1 layer_count vgs:overlay
 expect_poll "the theme source ends with the update card" "[\"$nord_a\", \"$nord_b\", \"update\"]" wall_keys
 expect_poll "the identity control draws nord's b.jpg" "$(file_ratio "$thumbs/nord.jpg")" card_ratio "$nord_b"
 type_keys -k End || fail "sending End failed"
@@ -882,8 +917,8 @@ type_keys -k Escape || fail "sending Escape to the identity control failed"
 expect_poll "Escape closes the identity control's browser" 0 layer_count vgs:overlay
 plugin_restore WallpaperCard.qml identity
 pin_nord vgs-theme-nord-smoke3.tar.gz "$thumbs/biscuit-de-mar.jpg"
-press_wallpapers || fail "typing SUPER+W for the update failed"
-expect_poll "SUPER+W opens the browser for the update" 1 layer_count vgs:overlay
+press_wallpapers || fail "typing SUPER+CTRL+W for the update failed"
+expect_poll "SUPER+CTRL+W opens the browser for the update" 1 layer_count vgs:overlay
 expect_poll "a new open draws the b.jpg the last update replaced" "$(file_ratio "$thumbs/frankenstein.jpg")" card_ratio "$nord_b"
 expect_poll "the theme source ends with the next update card" "[\"$nord_a\", \"$nord_b\", \"$nord_c\", \"update\"]" wall_keys
 type_keys -k End || fail "sending End for the update failed"
@@ -900,8 +935,8 @@ expect_poll "Escape closes the browser after the update" 0 layer_count vgs:overl
 # One screen: no scope control, Alt+M does nothing and Tab switches tabs.
 expect "the nested compositor removes the wallpaper rows' monitor" ok hypr output remove "$wall_output"
 expect_poll "the wallpaper rows' monitor is gone" False screen_listed "$wall_output"
-press_wallpapers || fail "typing SUPER+W on one screen failed"
-expect_poll "SUPER+W opens the browser on one screen" 1 layer_count vgs:overlay
+press_wallpapers || fail "typing SUPER+CTRL+W on one screen failed"
+expect_poll "SUPER+CTRL+W opens the browser on one screen" 1 layer_count vgs:overlay
 expect_poll "the one-screen view read its lists" true wall_value loaded
 expect "one screen shows no scope control" false wall_value scoped
 expect_poll "one screen selects the current image" "$nord_a" wall_selected
@@ -911,16 +946,16 @@ type_keys -k Tab || fail "sending Tab on one screen failed"
 expect_poll "Tab on one screen switches to the theme view" '"themes"' ipc smoke readInstance overlay vgs.themes view
 type_keys -M shift -k Tab -m shift || fail "sending Shift+Tab on one screen failed"
 expect_poll "Shift+Tab on one screen switches back to the wallpaper view" '"wallpapers"' ipc smoke readInstance overlay vgs.themes view
-press_wallpapers || fail "typing SUPER+W to close failed"
-expect_poll "SUPER+W on the open wallpaper view closes it" 0 layer_count vgs:overlay
+press_wallpapers || fail "typing SUPER+CTRL+W to close failed"
+expect_poll "SUPER+CTRL+W on the open wallpaper view closes it" 0 layer_count vgs:overlay
 expect "the follow after the wallpaper rows ends" idle theme_idle
 expect "vgs applies after the wallpaper rows" "ok theme=vgs state=applied shell=applied" vgshell_theme apply vgs
 expect_poll "the shell follows vgs after the wallpaper rows" vgs ipc smoke themeName
 
 expect "disabling vgs.themes after the browser rows is allowed" ok ipc shell setPluginEnabled vgs.themes false
 expect_poll "disabling vgs.themes released its shortcut" '[]' lent_themes
-expect_poll "disabling vgs.themes unbinds SUPER+T" '[]' themes_bind
-expect_poll "disabling vgs.themes unbinds SUPER+W" '[]' themes_bind wallpapers
+expect_poll "disabling vgs.themes unbinds SUPER+CTRL+T" '[]' themes_bind
+expect_poll "disabling vgs.themes unbinds SUPER+CTRL+W" '[]' themes_bind wallpapers
 cp -p -- "$sandbox/hyprland-before-browser.lua" "$hypr_lua.next" && mv -T -- "$hypr_lua.next" "$hypr_lua"
 expect "the nested instance reloads the hyprland.lua the browser rows found" ok hypr reload config-only
 mv -T -- "$repo/bin/vgshell.real" "$repo/bin/vgshell"

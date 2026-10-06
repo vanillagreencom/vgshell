@@ -57,7 +57,7 @@ function suite(ctx, check) {
         ["a bare Return edits text", KEY.ret, MOD.none, { kind: "text" }],
         ["a bare Backspace edits text", KEY.backspace, MOD.none, { kind: "text" }],
         ["a bare Delete edits text", KEY.del, MOD.none, { kind: "text" }],
-        ["SUPER+T", KEY.t, MOD.meta, { kind: "key", key: "SUPER+T" }],
+        ["SUPER+CTRL+T", KEY.t, MOD.meta | MOD.ctrl, { kind: "key", key: "SUPER+CTRL+T" }],
         ["SHIFT with another modifier is a combo", KEY.t, MOD.shift | MOD.ctrl, { kind: "key", key: "CTRL+SHIFT+T" }],
         ["a digit", KEY.nine, MOD.meta, { kind: "key", key: "SUPER+9" }],
         ["the first digit", KEY.zero, MOD.ctrl, { kind: "key", key: "CTRL+0" }],

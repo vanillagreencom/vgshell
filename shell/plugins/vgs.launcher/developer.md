@@ -69,7 +69,7 @@ Install opens `core/pkg-install` and Remove `core/pkg-remove`, the core's packag
 - `Shift+F10` or Menu: open the selected file's flyout. The flyout owns the keys while open. `Up`, `Down`, `Home`, `End` and typed letters move inside it. `Enter` picks the highlighted entry. `Esc` closes it.
 - The user's Hyprland directional focus keys call `navigate(direction)`: Up and Down move the selection, Left goes back and Right opens menus only.
 
-The launcher does not bind `SUPER+W`, `SUPER+A`, `SUPER+S` or `SUPER+D` inside QML. The Hyprland capture submap from [D067](../../../docs/decisions/D067-overlay-keyboard-capture.md) sends the user's focus binds to `navigate(direction)`, and `vgs.themes` keeps `SUPER+W` for the wallpaper browser.
+The launcher does not bind `SUPER+W`, `SUPER+A`, `SUPER+S` or `SUPER+D` inside QML. The Hyprland capture submap from [D067](../../../docs/decisions/D067-overlay-keyboard-capture.md) sends the user's focus binds to `navigate(direction)`.
 
 ## Look
 

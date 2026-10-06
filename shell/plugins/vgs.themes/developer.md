@@ -6,7 +6,7 @@
 
 `surfaces`: open the panel and the full-screen browser, and close them from their own controls.
 
-`shortcut`: register `vgs.themes:themes`, `vgs.themes:wallpapers`, `vgs.themes:panel` and `vgs.themes:gaps`, which the manifest binds to `SUPER+T`, `SUPER+W`, `SUPER+CTRL+J` and `SUPER+SHIFT+BACKSPACE`. The manifest's `menu` rows open the first two and the last from the launcher.
+`shortcut`: register `vgs.themes:themes`, `vgs.themes:wallpapers`, `vgs.themes:panel` and `vgs.themes:gaps`, which the manifest binds to `SUPER+CTRL+T`, `SUPER+CTRL+W`, `SUPER+CTRL+J` and `SUPER+SHIFT+BACKSPACE`. The manifest's `menu` rows open the first two and the last from the launcher.
 
 `configure`: write the No window gaps setting when its toggle runs.
 

@@ -2,7 +2,7 @@
 # draws one row for each bind of an enabled first-party plugin: the same
 # set as the binds `hyprctl -j binds` reports with a `vgs.` description in
 # the default submap, a hold's release companion folded into its bind. A
-# harness user bind on SUPER+T, the Themes shortcut's default key, shows
+# harness user bind on SUPER+CTRL+T, the Themes shortcut's default key, shows
 # the hint under the Themes row with no key or click. Typing while the
 # Themes row's field has the focus goes into the search field and filters
 # the rows, and clearing the search draws them all again. A key typed into
@@ -72,10 +72,10 @@ settings_field() { ipc smoke invokeInstance window vgs.settings keyField "$kh_th
 themes_key() { python3 -c 'import json,sys; rows=[r for r in json.load(open(sys.argv[1])).get("plugins", []) if r["id"] == "vgs.themes"]; k=rows[0].get("keys", {}) if rows else {}; print(json.dumps(k["themes"]) if "themes" in k else "absent")' "$home/.config/vgshell/shell.json"; }
 kh_toggle() { type_keys -M logo -k slash -m logo; }
 # The lines the row appends to the harness hyprland.lua: typed keys reach
-# their binds, and a user bind on SUPER+T, the Themes shortcut's default.
+# their binds, and a user bind on SUPER+CTRL+T, the Themes shortcut's default.
 kh_lua() {
   printf '%s\n' 'hl.config({ input = { resolve_binds_by_sym = true } })' \
-    'hl.bind("SUPER + T", hl.dsp.exec_cmd("true"), { description = "Smoke keyhints t" })' >>"$home/.config/hypr/hyprland.lua"
+    'hl.bind("SUPER + CTRL + T", hl.dsp.exec_cmd("true"), { description = "Smoke keyhints t" })' >>"$home/.config/hypr/hyprland.lua"
 }
 # kh_refused: the line the window shows for the Themes key SUPER+, as JSON:
 # the manager's key judge's refusal, worded by the shared reply line.
@@ -101,7 +101,7 @@ kh_hint_within() {
 hypr_lua_save keyhints
 kh_lua
 expect "the nested instance reloads with the Key Hints harness bind" ok hypr reload config-only
-kh_user_hint="\"Also used by your Hyprland config at ~/.config/hypr/hyprland.lua line $(grep -nF 'hl.bind("SUPER + T"' "$home/.config/hypr/hyprland.lua" | cut -d: -f1).\""
+kh_user_hint="\"Also used by your Hyprland config at ~/.config/hypr/hyprland.lua line $(grep -nF 'hl.bind("SUPER + CTRL + T"' "$home/.config/hypr/hyprland.lua" | cut -d: -f1).\""
 kh_config_errors() { hypr -j configerrors | py_reply 'import json,sys; print(json.dumps([e for e in json.load(sys.stdin) if e]))'; }
 expect_poll "the nested instance holds no configuration error" '[]' kh_config_errors
 
@@ -140,7 +140,7 @@ expect_poll "the Settings Keys row shows the key written here" '"SUPER+SLASH"' s
 expect_poll "the Settings Keys row shows the same hint" '"Also used by Key Hints (toggle)."' settings_field conflict
 expect "the Settings Keys row's reset is applied" applied ipc smoke invokeInstance window vgs.settings applyKey "$kh_themes"
 expect_poll "the reset removes the Themes key from shell.json" absent themes_key
-expect_poll "the Themes row here shows the default key again" '"SUPER+T"' kh_field "$kh_themes" key
+expect_poll "the Themes row here shows the default key again" '"SUPER+CTRL+T"' kh_field "$kh_themes" key
 expect "the Settings Keys row writes the same key" applied ipc smoke invokeInstance window vgs.settings applyKey '{"id":"vgs.themes","shortcut":"themes","key":"super+slash"}'
 expect_poll "the Settings page writes the value this window wrote" "$kh_written" themes_key
 expect_poll "the Themes row here shows the key the Settings page wrote" '"SUPER+SLASH"' kh_field "$kh_themes" key
