@@ -39,7 +39,7 @@ Scope {
         for (const row of view.entries) names[row.name] = true;
         if (view.shownCards.length !== Object.keys(names).length) return false;
         for (const card of children.filter(child => typeName(child) === "ThemeCard" && visibleInTree(child))) {
-            if (card.cheapImage === "") continue;
+            if (card.picture === "") continue;
             const shown = descendants(card).filter(child => child instanceof Image && visibleInTree(child) && String(child.source) !== "");
             if (!shown.some(image => image.status === Image.Ready)) return false;
         }
@@ -87,7 +87,7 @@ Scope {
     function selectedPictureReady(item) {
         const card = selectedCard(item);
         if (card === undefined || !visibleInTree(card)) return false;
-        const path = typeName(card) === "ThemeCard" ? card.cheapImage : card.modelData.path;
+        const path = typeName(card) === "ThemeCard" ? card.picture : card.modelData.path;
         if (typeof path !== "string" || path === "") return true;
         return descendants(card).some(child => child instanceof Image && visibleInTree(child) && String(child.source) !== "" && child.status === Image.Ready);
     }

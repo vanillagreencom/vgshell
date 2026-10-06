@@ -174,6 +174,33 @@ function cardKey(card) {
     return JSON.stringify([card.name, card.label, card.previewImage, card.palette, card.tokens, card.terminal]);
 }
 
+// The eight colours a theme card shows, in order: top to bottom on a
+// slice, left to right under the selected card. Each names a group of the
+// card's tokens and a token of it; `palette` reads the card's palette.
+var SWATCHES = [
+    ["palette", "background"],
+    ["color", "surfaceRaised"],
+    ["palette", "foreground"],
+    ["palette", "accent"],
+    ["palette", "info"],
+    ["palette", "success"],
+    ["palette", "warning"],
+    ["palette", "danger"]
+];
+
+// The `#rrggbbaa` colours of SWATCHES from a card's PALETTE and TOKENS, or
+// null when either lacks one, as a refused package's card does.
+function swatches(palette, tokens) {
+    var out = [];
+    for (var i = 0; i < SWATCHES.length; i++) {
+        var group = SWATCHES[i][0] === "palette" ? palette : hasOwn(tokens, SWATCHES[i][0]) ? tokens[SWATCHES[i][0]] : null;
+        var value = hasOwn(group, SWATCHES[i][1]) ? group[SWATCHES[i][1]] : null;
+        if (typeof value !== "string") return null;
+        out.push(value);
+    }
+    return out;
+}
+
 // The identity of a card on a rail from its KEY and the view's
 // GENERATION, the changed package's image stamp: a new stamp rebuilds
 // its cards, so each reads its image again. The carousel hands a card's

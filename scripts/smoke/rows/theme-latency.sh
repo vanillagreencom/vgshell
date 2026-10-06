@@ -87,7 +87,7 @@ function verify(text) {
     c.latencyFrame(bar, 'bar'); assert.equal(typeof c.root.themeLatency.drawn, 'number');
     c.begin('step', '');
     const picture = new Image('file:///a.jpg'), card = item('ThemeCard', [picture]), browser = item('Browser', [card]);
-    card.current = true; card.cheapImage = 'file:///a.jpg';
+    card.current = true; card.picture = 'file:///a.jpg';
     for (const name of ['one', 'two', 'three']) { card.modelData = { name }; c.latencyFrame(browser, 'overlay'); }
     assert.equal(c.root.themeLatency.steps, 3); assert.equal(c.root.themeLatency.late || 0, 0);
     c.latencyFrame(item('Browser'), 'overlay');
@@ -204,7 +204,7 @@ repo, saved = map(Path, sys.argv[1:])
 changes = {
     'shell/plugins/vgs.themes/Browser.qml': [('onLoaded: {', 'onLoaded: { console.log("theme-latency-stage page-loaded " + Date.now());')],
     'shell/plugins/vgs.themes/ThemeView.qml': [('started = true;', 'console.log("theme-latency-stage view-start " + Date.now()); started = true;'), ('        focusRail();\n    }\n\n    Component.onCompleted: start()', '        focusRail();\n        console.log("theme-latency-stage view-ready " + Date.now());\n    }\n\n    Component.onCompleted: start()')],
-    'shell/plugins/vgs.themes/ThemeCard.qml': [('onStatusChanged: if (status === Image.Error)', 'onStatusChanged: { if (status === Image.Ready) console.log("theme-latency-stage image-ready " + Date.now() + " " + root.modelData.name); if (status === Image.Error)'), ('console.warn("themes: card image unreadable path=" + root.cheapImage)', 'console.warn("themes: card image unreadable path=" + root.cheapImage); }')],
+    'shell/plugins/vgs.themes/ThemeCard.qml': [('onStatusChanged: if (status === Image.Error)', 'onStatusChanged: { if (status === Image.Ready) console.log("theme-latency-stage image-ready " + Date.now() + " " + root.modelData.name); if (status === Image.Error)'), ('console.warn("themes: card image unreadable path=" + root.picture)', 'console.warn("themes: card image unreadable path=" + root.picture); }')],
 }
 for name, replacements in changes.items():
     target = repo / name

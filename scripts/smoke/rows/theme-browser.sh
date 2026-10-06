@@ -83,31 +83,100 @@ band_click() {
   click "$x" "$y"
 }
 browser_focused() { expect_poll "${1:-the browser holds the keyboard}" true ipc smoke activeFocusIn overlay vgs.themes; }
-all_theme_cards_have_palette() {
-  local shown
+# A card's eight colours from its own palette and tokens, written out here
+# apart from BrowserLogic: the palette's background, the raised surface,
+# then the palette's foreground, accent, info, success, warning and danger.
+theme_eight_py='
+def eight(card):
+    p, c = card.get("palette") or {}, (card.get("tokens") or {}).get("color") or {}
+    v = [p.get("background"), c.get("surfaceRaised"), p.get("foreground"), p.get("accent"), p.get("info"), p.get("success"), p.get("warning"), p.get("danger")]
+    return v if all(isinstance(x, str) for x in v) else None
+'
+# collapsed_stacks: one finding per broken rule, `[]` the pass. Every
+# shown slice, a visible paletteStack, is 8 bands across its whole width,
+# stacked top to bottom with no gap, each an eighth of its height
+# (`vertical`), in the eight colours of a shown theme, top first
+# (`colours`); and at least 3 slices show (`stacks`). The strips and their
+# drawn colours are read in the probe's one tree order.
+collapsed_stacks() {
+  local shown colours
   shown="$(view_value shownCards)" || return
-  ipc smoke paletteStrips overlay vgs.themes | py_reply 'import json, sys
-strips = json.load(sys.stdin)
-shown = json.loads(sys.argv[1])
-shown_ok = {card["name"] for card in shown if card.get("state") != "refused"}
-visible_cards = {name for name, card_visible, strip_visible, count in strips if card_visible and name in shown_ok}
-visible_strips = [(name, count) for name, card_visible, strip_visible, count in strips if strip_visible and name in shown_ok]
-strips_by_name = {name for name, card_visible, strip_visible, count in strips if strip_visible}
-print(len(visible_strips) >= 3 and all(count > 0 for name, count in visible_strips) and visible_cards <= strips_by_name)' "$shown"
+  colours="$(ipc smoke itemColours overlay vgs.themes ThemePaletteStrip QQuickRectangle)" || return
+  ipc smoke descendantGeometry overlay vgs.themes | py_reply "$theme_eight_py"'
+import json, sys
+rows, shown, colours = json.load(sys.stdin), json.loads(sys.argv[1]), json.loads(sys.argv[2])
+want = [w for w in (eight(c) for c in shown if c.get("state") == "ok") if w is not None]
+strips = [i for i, r in enumerate(rows) if r["type"] == "ThemePaletteStrip"]
+if len(strips) != len(colours):
+    print(json.dumps(["readers strips=%d colours=%d" % (len(strips), len(colours))])); sys.exit()
+out, stacks = [], 0
+for k, i in enumerate(strips):
+    x, y, w, h = rows[i]["box"]
+    if rows[i]["name"] != "paletteStack" or not rows[i]["visible"] or w <= 0 or h <= 0: continue
+    stacks += 1
+    bands = sorted((r["box"] for r in rows if r["parent"] == i and r["type"] == "QQuickRectangle" and r["visible"]), key=lambda b: (b[1], b[0]))
+    at = y
+    for b in bands:
+        if len(bands) != 8 or abs(b[0] - x) > 1 or abs(b[2] - w) > 1 or abs(b[1] - at) > 1 or abs(b[3] - h / 8) > 1:
+            out.append("vertical stack=%d bands=%d band=%s stack=%s" % (k, len(bands), [round(v, 2) for v in b], [round(v, 2) for v in rows[i]["box"]])); break
+        at = b[1] + b[3]
+    if colours[k] not in want: out.append("colours stack=%d got=%s" % (k, colours[k]))
+if stacks < 3: out.append("stacks shown=%d" % stacks)
+print(json.dumps(out))' "$shown" "$colours"
 }
-palette_control_card() {
-  local shown
-  shown="$(view_value shownCards)" || return
-  ipc smoke paletteStrips overlay vgs.themes | py_reply 'import json, sys
-strips = json.load(sys.stdin)
-shown = json.loads(sys.argv[1])
-shown_ok = {card["name"] for card in shown if card.get("state") != "refused"}
-for name, card_visible, strip_visible, count in strips:
-    if name in shown_ok and card_visible and strip_visible and count > 0:
-        print(name)
-        sys.exit()
-sys.exit(1)' "$shown"
+# expanded_preview: the same for the selected card, read once its desktop
+# shows. One visible paletteStrip lies along the card's foot as 8 bands
+# side by side, left to right with no gap, each an eighth of its width
+# (`strip`), in the selected theme's eight colours, left first
+# (`strip-colours`); the terminal, the Settings window and the
+# launcher's search lie inside the card above that strip, stand apart and
+# cover less than half the card, so the wallpaper shows (`windows`); and
+# the desktop draws the theme's raised surface, accent and background
+# (`windows-colours`).
+expanded_preview() {
+  local selected strips drawn
+  selected="$(view_value selected)" || return
+  strips="$(ipc smoke itemColours overlay vgs.themes ThemePaletteStrip QQuickRectangle)" || return
+  drawn="$(ipc smoke itemColours overlay vgs.themes DesktopPreview QQuickRectangle)" || return
+  ipc smoke descendantGeometry overlay vgs.themes | py_reply "$theme_eight_py"'
+import json, sys
+rows, card, strips, drawn = json.load(sys.stdin), json.loads(sys.argv[1]), json.loads(sys.argv[2]), json.loads(sys.argv[3])
+want, out = eight(card), []
+def shown(r): return r["visible"] and r["box"][2] > 0 and r["box"][3] > 0
+cards = [r["box"] for r in rows if r["type"] == "AngledCard" and shown(r)]
+feet = [(k, i) for k, i in enumerate(i for i, r in enumerate(rows) if r["type"] == "ThemePaletteStrip") if rows[i]["name"] == "paletteStrip" and shown(rows[i])]
+if want is None or not cards or len(feet) != 1 or len(drawn) != 1:
+    print(json.dumps(["readers eight=%s cards=%d strips=%d previews=%d" % (want is not None, len(cards), len(feet), len(drawn))])); sys.exit()
+cx, cy, cw, ch = max(cards, key=lambda b: b[2] * b[3])
+k, i = feet[0]
+sx, sy, sw, sh = rows[i]["box"]
+bands = sorted((r["box"] for r in rows if r["parent"] == i and r["type"] == "QQuickRectangle" and r["visible"]), key=lambda b: (b[0], b[1]))
+at = sx
+if abs(sy + sh - (cy + ch)) > 1 or abs(sw - cw) > 1: out.append("strip strip=%s card=%s" % (rows[i]["box"], [cx, cy, cw, ch]))
+for b in bands:
+    if len(bands) != 8 or abs(b[1] - sy) > 1 or abs(b[3] - sh) > 1 or abs(b[0] - at) > 1 or abs(b[2] - sw / 8) > 1:
+        out.append("strip bands=%d band=%s strip=%s" % (len(bands), [round(v, 2) for v in b], [round(v, 2) for v in rows[i]["box"]])); break
+    at = b[0] + b[2]
+if strips[k] != want: out.append("strip-colours got=%s want=%s" % (strips[k], want))
+boxes = {}
+for name in ("previewTerminal", "previewWindow", "previewLauncher"):
+    found = [r["box"] for r in rows if r["name"] == name and shown(r)]
+    if len(found) != 1: out.append("windows %s=%d" % (name, len(found))); continue
+    boxes[name] = found[0]
+for name, (x, y, w, h) in boxes.items():
+    if x < cx - 1 or y < cy - 1 or x + w > cx + cw + 1 or y + h > sy + 1: out.append("windows outside %s=%s card=%s" % (name, [round(v, 2) for v in (x, y, w, h)], [cx, cy, cw, ch]))
+names = sorted(boxes)
+for a in range(len(names)):
+    for b in range(a + 1, len(names)):
+        (ax, ay, aw, ah), (bx, by, bw, bh) = boxes[names[a]], boxes[names[b]]
+        if not (ax + aw <= bx + 1 or bx + bw <= ax + 1 or ay + ah <= by + 1 or by + bh <= ay + 1): out.append("windows overlap %s %s" % (names[a], names[b]))
+if sum(w * h for x, y, w, h in boxes.values()) >= cw * ch / 2: out.append("windows cover=%.0f card=%.0f" % (sum(w * h for x, y, w, h in boxes.values()), cw * ch))
+for colour in (want[1], want[3], want[0]):
+    if colour not in drawn[0]: out.append("windows-colours missing=%s" % colour)
+print(json.dumps(out))' "$selected" "$strips" "$drawn"
 }
+# judged_rule JUDGE RULE: whether JUDGE reports a finding of RULE.
+judged_rule() { "$1" | py_reply 'import json,sys; print(any(e.startswith(sys.argv[1] + " ") for e in json.load(sys.stdin)))' "$2"; }
 
 # The fixture archive and nord's pin to it, in the sandbox copy's catalog.
 index="$repo/themes/catalog/index.json"
@@ -247,7 +316,7 @@ geometry expect_poll "the browser's chrome, rail and key line keep their places"
 for rule in inset order centre hints; do
   expect "control: the browser's $rule rule refuses its planted box" True browser_planted "$rule"
 done
-expect_poll "every built theme card exposes palette colours" True all_theme_cards_have_palette
+expect_poll "every shown slice stacks its theme's eight colours top to bottom" '[]' collapsed_stacks
 type_keys -k Home || fail "sending Home before focus bind failed"
 focus_first="$(card_at 0)"
 focus_second="$(card_at 1)"
@@ -268,6 +337,7 @@ type_keys "$first_card" || fail "typing $first_card failed"
 expect_poll "the filter selects the catalog card" "\"$first_card\"" view_value selectedName
 expect_poll "the catalog card draws its thumbnail" ready card_image "$repo/themes/catalog/thumbnails/$first_card.jpg"
 expect "the catalog card decodes at card size times screen scale" True card_source_size_matches "$repo/themes/catalog/thumbnails/$first_card.jpg"
+expect_poll "the selected card draws its desktop with windows and its eight colours across the foot" '[]' expanded_preview
 before_accent="$(ipc smoke readDescendant overlay vgs.themes DesktopPreview accentHex)" || before_accent=""
 python3 - "$repo/themes/catalog/$first_card/theme.json" "$index" "$first_card" <<'PY'
 import json, os, sys
@@ -292,7 +362,7 @@ expect_poll "the browser reopens after the live preview token change" 1 layer_co
 expect_poll "the browser rereads the changed package tokens" true view_value loaded
 type_keys "$first_card" || fail "typing $first_card after the token change failed"
 expect_poll "the live preview changes when the package accent changes" '"#00ff00"' ipc smoke readDescendant overlay vgs.themes DesktopPreview accentHex
-expect "the live-preview card keeps the palette strip layer" true ipc smoke readDescendant overlay vgs.themes ThemePaletteStrip visible
+expect_poll "the live preview's desktop and foot follow the changed accent" '[]' expanded_preview
 expect "a catalog card is badged Not installed" True has_badge "Not installed"
 expect "a catalog card is badged with its wallpapers' size" True has_badge "Wallpapers [0-9]+ MB"
 
@@ -555,7 +625,7 @@ plugin_restore() {
 }
 
 # Controls for the preview guarantees above.
-plugin_control ThemeCard.qml "preview sourceSize" "decodeSize: root.decodeSize" "decodeSize: Qt.size(1, 1)"
+plugin_control ThemeCard.qml "preview sourceSize" "sourceSize: root.decodeSize" "sourceSize: Qt.size(1, 1)"
 press_themes || fail "typing SUPER+T for the preview sourceSize control failed"
 expect_poll "the sourceSize control opens the theme browser" 1 layer_count vgs:overlay
 expect_poll "the sourceSize control read its cards" true view_value loaded
@@ -571,12 +641,13 @@ expect_poll "the live preview control opens the theme browser" 1 layer_count vgs
 expect_poll "the live preview control read its cards" true view_value loaded
 type_keys "$first_card" || fail "typing $first_card for the live preview control failed"
 expect "control: the live preview no longer uses the package accent" '"#ff5a36"' ipc smoke readDescendant overlay vgs.themes DesktopPreview accentHex
+expect_poll "control: the windows no longer draw the theme's colours" True judged_rule expanded_preview windows-colours
 type_keys -k Escape || fail "clearing the live preview control filter failed"
 type_keys -k Escape || fail "closing the live preview control browser failed"
 expect_poll "the live preview control browser closes" 0 layer_count vgs:overlay
 plugin_restore ThemeCard.qml "live preview token"
 
-plugin_control ThemeCard.qml "preview precedence" "readonly property string cheapImage: packagePreview ? modelData.previewImage : typeof modelData.sharpenedImage === \"string\" && modelData.sharpenedImage !== \"\" ? modelData.sharpenedImage : modelData.image" "readonly property string cheapImage: modelData.image"
+plugin_control ThemeCard.qml "preview precedence" "readonly property bool packagePreview: typeof modelData.previewImage === \"string\" && modelData.previewImage !== \"\"" "readonly property bool packagePreview: false"
 press_themes || fail "typing SUPER+T for the preview precedence control failed"
 expect_poll "the preview precedence control opens the theme browser" 1 layer_count vgs:overlay
 expect_poll "the preview precedence control read its cards" true view_value loaded
@@ -784,20 +855,21 @@ expect_poll "the theme toggle key control leaves the scope unchanged" 0 view_val
 type_keys -k Escape || fail "sending Escape to the theme toggle key control failed"
 expect_poll "Escape closes the theme toggle key control browser" 0 layer_count vgs:overlay
 plugin_restore BrowserLogic.js "theme toggle key"
-press_themes || fail "typing SUPER+T to choose a palette control card failed"
-expect_poll "SUPER+T opens the browser to choose a palette control card" 1 layer_count vgs:overlay
-expect_poll "the palette control chooser read its cards" true view_value loaded
-palette_card_name="$(palette_control_card)" || { fail "the palette control card is readable"; return; }
-type_keys -k Escape || fail "sending Escape after choosing a palette control card failed"
-expect_poll "Escape closes the palette control chooser" 0 layer_count vgs:overlay
-plugin_control ThemeCard.qml palette 'palette: root.colors' "palette: root.modelData.name === \"$palette_card_name\" ? null : root.colors"
-press_themes || fail "typing SUPER+T for the palette control failed"
-expect_poll "SUPER+T opens the palette control browser" 1 layer_count vgs:overlay
-expect_poll "the palette control read its cards" true view_value loaded
-expect_poll "the palette control removes one visible card's swatches" False all_theme_cards_have_palette
-type_keys -k Escape || fail "sending Escape to the palette control failed"
-expect_poll "Escape closes the palette control browser" 0 layer_count vgs:overlay
-plugin_restore ThemeCard.qml palette
+# Controls for the slices: a copy of the theme card whose stack lies
+# across the slice, and one whose stack reverses its colours.
+for control in vertical colours; do
+  case $control in
+    vertical) plugin_control ThemeCard.qml "stack $control" $'        vertical: true\n' '' ;;
+    colours) plugin_control ThemeCard.qml "stack $control" $'vertical: true\n        colours: root.swatches === null ? [] : root.swatches' $'vertical: true\n        colours: root.swatches === null ? [] : root.swatches.slice().reverse()' ;;
+  esac
+  press_themes || fail "typing SUPER+T for the stack $control control failed"
+  expect_poll "SUPER+T opens the stack $control control browser" 1 layer_count vgs:overlay
+  expect_poll "the stack $control control read its cards" true view_value loaded
+  expect_poll "control: the stack $control copy breaks the $control rule" True judged_rule collapsed_stacks "$control"
+  type_keys -k Escape || fail "sending Escape to the stack $control control failed"
+  expect_poll "Escape closes the stack $control control browser" 0 layer_count vgs:overlay
+  plugin_restore ThemeCard.qml "stack $control"
+done
 
 # The update card: the catalog pins a newer archive, which replaces b.jpg
 # under its name with an image of another shape and adds c.jpg. Enter on

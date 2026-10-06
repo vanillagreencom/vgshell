@@ -29,8 +29,8 @@ Item {
         id: preview
         width: 400
         height: 250
-        title: "Probe"
-        commandLine: "vgshell theme apply probe"
+        name: "probe"
+        label: "Probe"
         tokens: ({
             palette: root.samplePalette,
             color: {
@@ -46,7 +46,6 @@ Item {
             }
         })
         terminal: root.terminalSlots()
-        decodeSize: Qt.size(800, 500)
     }
 
     TestCase {
@@ -62,7 +61,6 @@ Item {
             return out;
         }
         function rects() { return descendants(preview).filter(child => String(child).startsWith("QQuickRectangle(")); }
-        function images() { return preview.children.filter(child => child instanceof Image); }
         function labels() {
             const out = [];
             function walk(item) {
@@ -93,19 +91,20 @@ Item {
             compare(preview.windowRadius, 12);
         }
 
-        function test_wallpaper_decodes_at_the_handed_size() {
-            compare(images()[0].sourceSize, Qt.size(800, 500));
-        }
-
-        // The three windows, each a Rectangle holding its content Column,
-        // in x then y order: the terminal, the editor, the notification.
+        // The windows: the Settings window and the terminal, each holding
+        // its content first, then the launcher's search.
         function windows() {
-            return descendants(preview).filter(child => String(child).startsWith("QQuickRectangle(") && child.children.some(c => String(c).startsWith("QQuickColumn(")))
-                .sort((a, b) => a.x - b.x || a.y - b.y);
+            return ["previewWindow", "previewTerminal", "previewLauncher"].map(name => descendants(preview).find(child => child.objectName === name));
         }
-        function content(box) { return box.children.find(c => String(c).startsWith("QQuickColumn(")); }
+        function content(box) { return box.children[0]; }
         function withRadius(radius) {
             preview.tokens = Object.assign({}, preview.tokens, { hyprland: { border: { size: 4 }, window: { radius: radius }, shadow: { color: "#00000080" } } });
+        }
+        function init() {
+            preview.width = 400;
+            preview.height = 250;
+            preview.footHeight = 0;
+            withRadius(8);
         }
 
         // A 32 px window corner with the content's top 12 in: dy = 32 - 12
@@ -113,29 +112,43 @@ Item {
         // each window's content stands 13 in; an 8 px corner keeps the
         // 12 px padding.
         function test_window_content_clears_the_theme_window_corner() {
-            preview.width = 400;
-            preview.height = 250;
             withRadius(32);
-            const boxes = windows();
-            compare(boxes.length, 3);
-            for (const box of boxes) compare([content(box).x, content(box).y], [13, 13]);
+            const boxes = windows().slice(0, 2);
+            for (const box of boxes) compare([content(box).x, content(box).y], [13, 13], box.objectName);
             withRadius(8);
-            for (const box of windows()) compare([content(box).x, content(box).y], [12, 12]);
+            for (const box of boxes) compare([content(box).x, content(box).y], [12, 12], box.objectName);
         }
 
         // 400 by 250: scale = max(400 / 1600, 250 / 900) = 250 / 900, so the
         // card's 28 px lean is 28 * 900 / 250 = 100.8 reference px and the
-        // safe inset 24 + 100.8 = 124.8. The terminal and the notification
-        // end at 900 - 124.8 = 775.2; the right side's overhang would put
-        // them at 695.2.
-        function test_the_windows_end_at_the_safe_inset() {
-            preview.width = 400;
-            preview.height = 250;
-            withRadius(8);
-            const [terminal, editor, notification] = windows();
-            fuzzyCompare(terminal.y + terminal.height, 775.2, 1e-6);
-            fuzzyCompare(notification.y + notification.height, 775.2, 1e-6);
-            verify(notification.y > editor.y, "the notification sits under the editor");
+        // safe inset 24 + 100.8 = 124.8. A 50 px foot is 50 * 900 / 250 =
+        // 180 reference px, so the windows end by 900 - 124.8 - 180 =
+        // 595.2: the terminal, from 0.5 * 900 = 450 for 0.36 * 900 = 324,
+        // ends there, and the Settings window, from 0.14 * 900 = 126 for
+        // 0.42 * 900 = 378, ends at 504 above it. The right side's
+        // overhang would end the terminal at 515.2, and no foot at 774.
+        function test_the_windows_end_above_the_foot_at_the_safe_inset() {
+            preview.footHeight = 50;
+            const [settings, terminal] = windows();
+            fuzzyCompare(terminal.y + terminal.height, 595.2, 1e-6);
+            fuzzyCompare(settings.y + settings.height, 504, 1e-6);
+        }
+
+        // The windows stand apart, inside the reference display, and leave
+        // more than half of it to the wallpaper.
+        function test_the_wallpaper_shows_around_the_windows() {
+            const boxes = windows();
+            let covered = 0;
+            for (let i = 0; i < boxes.length; i++) {
+                const a = boxes[i];
+                verify(a.x >= 0 && a.y >= 0 && a.x + a.width <= 1600 && a.y + a.height <= 900, a.objectName + " lies on the display");
+                covered += a.width * a.height;
+                for (let j = i + 1; j < boxes.length; j++) {
+                    const b = boxes[j];
+                    verify(a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y, a.objectName + " and " + b.objectName + " stand apart");
+                }
+            }
+            verify(covered < 1600 * 900 / 2, "the windows cover " + covered + " of the display");
         }
 
         function test_mock_desktop_covers_different_card_aspects() {

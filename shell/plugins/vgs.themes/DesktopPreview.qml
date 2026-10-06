@@ -2,37 +2,37 @@ import QtQuick
 import qs.Commons
 import qs.Ui
 
-// A theme's desktop drawn from its tokens: its wallpaper, a bar, a
-// terminal, an editor and a notification, laid out on a reference display
-// of `desktopPreview.referenceWidth` by `referenceHeight` and scaled to
-// cover the card, so every length below is a reference pixel. Each window
-// keeps `safeInset` from the card's edge plus the card's lean, so none
-// crosses the angled edge, and its content clears the theme's own window
-// corner (Inset.clearing).
+// A theme's desktop drawn from its tokens over the card's wallpaper: the
+// VGS bar across the top and, where `desktopPreview` places them, a
+// Settings window, the launcher's search and a terminal, the wallpaper
+// showing around them. Every colour comes from `tokens` and `terminal`, the
+// package's own, never from Theme, which holds the applied theme; Theme
+// gives the shapes and the type. The desktop is laid out on a reference
+// display of `desktopPreview.referenceWidth` by `referenceHeight` and
+// scaled to cover the card, so every length below is a reference pixel.
+// Each window keeps `safeInset` from the card's edge plus the card's lean,
+// so none crosses the angled edge, ends above the card's `footHeight`, and
+// its content clears the theme's own window corner (Inset.clearing).
 Item {
     id: root
 
     property var tokens: ({})
     property var terminal: null
-    property url wallpaper: ""
-    property size decodeSize: Qt.size(width, height)
-    property string title: "Theme"
-    property string commandLine: "vgshell theme apply"
-    property var terminalLines: []
-    property var fetchLines: []
-    property var codeLines: []
-    property string notificationTitle: ""
-    property string notificationBody: ""
-    readonly property bool wallpaperReady: wallpaper.toString() === "" || wallpaperImage.status === Image.Ready || wallpaperImage.status === Image.Error
+    // The theme's package name and title, which the terminal names.
+    property string name: ""
+    property string label: "Theme"
+    // The card's height, in card pixels, that its palette strip covers.
+    property real footHeight: 0
 
     readonly property color backgroundColor: tokenColor("palette.background", Theme.color.background)
     readonly property color foregroundColor: tokenColor("palette.foreground", Theme.color.text)
     readonly property color accentColor: tokenColor("palette.accent", Theme.color.accent)
     readonly property color surfaceColor: tokenColor("color.surfaceRaised", backgroundColor)
     readonly property color borderColor: tokenColor("color.border", foregroundColor)
-    readonly property color activeBorderColor: tokenColor("color.accent", accentColor)
-    readonly property color inactiveBorderColor: tokenColor("color.border", borderColor)
+    readonly property color activeBorderColor: accentColor
+    readonly property color inactiveBorderColor: borderColor
     readonly property color mutedColor: tokenColor("color.textMuted", foregroundColor)
+    readonly property color selectedColor: tokenColor("color.accentSubtle", "transparent")
     readonly property color shadowColor: tokenColor("hyprland.shadow.color", Theme.hyprland.shadow.color)
     readonly property real borderSize: tokenNumber("hyprland.border.size", Theme.hyprland.border.size)
     readonly property real windowRadius: tokenNumber("hyprland.window.radius", Theme.hyprland.window.radius)
@@ -82,21 +82,6 @@ Item {
         return mutedColor;
     }
 
-    Rectangle {
-        anchors.fill: parent
-        color: root.backgroundColor
-    }
-
-    Image {
-        id: wallpaperImage
-        anchors.fill: parent
-        source: root.wallpaper
-        sourceSize: root.decodeSize
-        fillMode: Image.PreserveAspectCrop
-        asynchronous: true
-        visible: source.toString() !== ""
-    }
-
     Item {
         id: desktop
         x: (root.width - width * scale) / 2
@@ -106,33 +91,47 @@ Item {
         scale: root.scale
         transformOrigin: Item.TopLeft
 
-        // Where the terminal and the notification end: `safeInset` above
-        // the desktop's bottom, which the card's lean does not reach.
-        readonly property real windowBottom: height - root.safeInset
+        // Where the windows end: `safeInset` above the card's foot, which
+        // the card's lean does not reach.
+        readonly property real windowBottom: height - root.safeInset - root.footHeight / Math.max(root.scale, 0.1)
+
+        // The x of a window SHARE of the width in, WIDE wide, moved in
+        // until it keeps the safe inset on both sides.
+        function placeX(share, wide) {
+            return Math.max(root.safeLeft, Math.min(width * share, width - root.safeRight - wide));
+        }
 
         Rectangle {
             id: bar
+            objectName: "previewBar"
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: parent.top
             height: Theme.desktopPreview.barHeight
-            color: root.surfaceColor
-            opacity: Theme.desktopPreview.barOpacity
+            color: root.backgroundColor
 
             Row {
                 anchors.left: parent.left
                 anchors.leftMargin: root.safeLeft
                 anchors.verticalCenter: parent.verticalCenter
-                spacing: Theme.space.md
+                spacing: Theme.bar.item.gap
 
                 Repeater {
-                    model: 5
+                    model: ["1", "2", "3", "5"]
                     Rectangle {
+                        required property string modelData
                         required property int index
-                        width: Theme.space.xxl
-                        height: Theme.space.md
-                        radius: Theme.radius.full
-                        color: index === 1 ? root.accentColor : root.borderColor
+                        width: Theme.bar.item.height
+                        height: Theme.bar.item.height
+                        radius: Theme.bar.item.radius
+                        color: index === 0 ? root.accentColor : "transparent"
+
+                        Label {
+                            anchors.centerIn: parent
+                            role: "bar"
+                            text: parent.modelData
+                            color: parent.index === 0 ? root.backgroundColor : root.mutedColor
+                        }
                     }
                 }
             }
@@ -140,7 +139,7 @@ Item {
             Label {
                 anchors.centerIn: parent
                 role: "bar"
-                text: "Tue 16:46"
+                text: "Monday Oct 5, 5:06 PM"
                 color: root.foregroundColor
             }
 
@@ -148,10 +147,10 @@ Item {
                 anchors.right: parent.right
                 anchors.rightMargin: root.safeRight
                 anchors.verticalCenter: parent.verticalCenter
-                spacing: Theme.space.md
+                spacing: Theme.bar.gap
 
                 Repeater {
-                    model: ["wifi", "cpu", "bat"]
+                    model: ["wifi", "vol", "79%"]
                     Label {
                         required property string modelData
                         role: "bar"
@@ -162,115 +161,269 @@ Item {
             }
         }
 
+        Repeater {
+            model: [settings, launcher, terminal]
+            Rectangle {
+                required property Item modelData
+                x: modelData.x + Theme.desktopPreview.shadowOffset
+                y: modelData.y + Theme.desktopPreview.shadowOffset
+                width: modelData.width
+                height: modelData.height
+                radius: modelData.radius
+                color: root.shadowColor
+            }
+        }
+
+        // The Settings window, focused: the theme's active border, a
+        // sidebar with its search and its selected section, and that
+        // section's page.
         Rectangle {
-            x: terminal.x + Theme.desktopPreview.shadowOffset
-            y: terminal.y + Theme.desktopPreview.shadowOffset
-            width: terminal.width
-            height: terminal.height
-            radius: terminal.radius
-            color: root.shadowColor
+            id: settings
+            objectName: "previewWindow"
+            width: desktop.width * Theme.desktopPreview.settings.width
+            x: desktop.placeX(Theme.desktopPreview.settings.x, width)
+            y: desktop.height * Theme.desktopPreview.settings.y
+            height: Math.min(desktop.height * Theme.desktopPreview.settings.height, desktop.windowBottom - y)
+            radius: root.windowRadius
+            color: root.backgroundColor
+            border.color: root.activeBorderColor
+            border.width: Math.max(Theme.border.thin, root.borderSize)
+            clip: true
+
+            Item {
+                anchors.fill: parent
+                anchors.margins: root.contentInset(settings)
+
+                Column {
+                    id: sidebar
+                    width: Theme.row.labelWidth
+                    spacing: Theme.stack.row
+
+                    Rectangle {
+                        width: parent.width
+                        height: Theme.size.control.sm
+                        color: "transparent"
+                        border.color: root.borderColor
+                        border.width: Theme.border.thin
+                        Label {
+                            anchors.verticalCenter: parent.verticalCenter
+                            x: Theme.control.sm.paddingX
+                            role: "itemHint"
+                            color: root.mutedColor
+                            text: "Search sections"
+                        }
+                    }
+                    Repeater {
+                        model: [
+                            { text: "Connectivity", heading: true },
+                            { text: "Bluetooth" },
+                            { text: "Network" },
+                            { text: "VPN", selected: true },
+                            { text: "Hardware", heading: true },
+                            { text: "Sound" },
+                            { text: "Displays" }
+                        ]
+                        Rectangle {
+                            required property var modelData
+                            width: sidebar.width
+                            height: Theme.size.control.sm
+                            color: modelData.selected === true ? root.selectedColor : "transparent"
+                            Label {
+                                anchors.verticalCenter: parent.verticalCenter
+                                x: Theme.control.sm.paddingX
+                                role: parent.modelData.heading === true ? "label" : "item"
+                                color: parent.modelData.heading === true || parent.modelData.selected === true ? root.accentColor : root.foregroundColor
+                                text: parent.modelData.text
+                            }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    id: rule
+                    anchors.left: sidebar.right
+                    anchors.leftMargin: Theme.desktopPreview.padding
+                    width: Theme.border.thin
+                    height: parent.height
+                    color: root.borderColor
+                }
+
+                Column {
+                    id: page
+                    anchors.left: rule.right
+                    anchors.leftMargin: Theme.desktopPreview.padding
+                    anchors.right: parent.right
+                    spacing: Theme.stack.row
+
+                    Item {
+                        width: page.width
+                        height: Theme.size.control.sm
+                        Label { anchors.verticalCenter: parent.verticalCenter; role: "bodyStrong"; color: root.foregroundColor; text: "Sound" }
+                        Rectangle {
+                            id: toggle
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: Theme.toggle.size.sm.width
+                            height: Theme.toggle.size.sm.height
+                            radius: Theme.toggle.radius
+                            color: root.accentColor
+                            Rectangle {
+                                x: parent.width - width - Theme.toggle.inset
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: parent.height - 2 * Theme.toggle.inset
+                                height: width
+                                radius: Theme.toggle.radius
+                                color: root.backgroundColor
+                            }
+                        }
+                    }
+                    Repeater {
+                        model: [
+                            { text: "Output", heading: true },
+                            { text: "Device", value: "Studio Display" },
+                            { text: "Volume", level: 0.3 },
+                            { text: "Input", heading: true },
+                            { text: "Device", value: "Shure MV7" },
+                            { text: "Volume", level: 1 }
+                        ]
+                        Item {
+                            id: line
+                            required property var modelData
+                            width: page.width
+                            height: Theme.size.control.sm
+                            Label {
+                                anchors.verticalCenter: parent.verticalCenter
+                                role: "label"
+                                color: line.modelData.heading === true ? root.accentColor : root.mutedColor
+                                text: line.modelData.text
+                            }
+                            Rectangle {
+                                visible: typeof line.modelData.value === "string"
+                                anchors.right: parent.right
+                                width: page.width / 2 + Theme.space.xxl
+                                height: parent.height
+                                color: "transparent"
+                                border.color: root.borderColor
+                                border.width: Theme.border.thin
+                                Label {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    x: Theme.control.sm.paddingX
+                                    role: "item"
+                                    color: root.foregroundColor
+                                    text: typeof line.modelData.value === "string" ? line.modelData.value : ""
+                                }
+                            }
+                            Rectangle {
+                                id: track
+                                visible: typeof line.modelData.level === "number"
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: page.width / 2 + Theme.space.xxl
+                                height: Theme.slider.track
+                                radius: Theme.slider.radius
+                                color: root.borderColor
+                                Rectangle {
+                                    width: parent.width * (typeof line.modelData.level === "number" ? line.modelData.level : 0)
+                                    height: parent.height
+                                    radius: Theme.slider.radius
+                                    color: root.accentColor
+                                }
+                                Rectangle {
+                                    x: parent.width * (typeof line.modelData.level === "number" ? line.modelData.level : 0) - width / 2
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: Theme.slider.handle
+                                    height: Theme.slider.handle
+                                    radius: Theme.slider.radius
+                                    color: root.foregroundColor
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // The launcher's search, open over the desktop.
+        Rectangle {
+            id: launcher
+            objectName: "previewLauncher"
+            width: desktop.width * Theme.desktopPreview.launcher.width
+            x: (desktop.width - width) / 2
+            y: desktop.height * Theme.desktopPreview.launcher.y
+            height: Theme.size.control.lg
+            radius: Theme.radius.full
+            color: root.surfaceColor
+            border.color: root.borderColor
+            border.width: Theme.border.thin
+
+            Row {
+                anchors.left: parent.left
+                anchors.leftMargin: Theme.control.lg.paddingX
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: Theme.control.gap
+                Rectangle {
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: Theme.icon.size.sm
+                    height: Theme.icon.size.sm
+                    radius: Theme.radius.full
+                    color: "transparent"
+                    border.color: root.mutedColor
+                    border.width: Theme.border.thick
+                }
+                Label { anchors.verticalCenter: parent.verticalCenter; role: "body"; color: root.mutedColor; text: "Search" }
+            }
         }
 
         Rectangle {
             id: terminal
-            x: root.safeLeft
-            y: bar.height + Theme.desktopPreview.gap
-            width: (parent.width - root.safeLeft - root.safeRight - Theme.desktopPreview.gap) * Theme.desktopPreview.terminalWidthShare
-            height: desktop.windowBottom - y
+            objectName: "previewTerminal"
+            width: desktop.width * Theme.desktopPreview.terminal.width
+            x: desktop.placeX(Theme.desktopPreview.terminal.x, width)
+            y: desktop.height * Theme.desktopPreview.terminal.y
+            height: Math.min(desktop.height * Theme.desktopPreview.terminal.height, desktop.windowBottom - y)
             radius: root.windowRadius
-            color: root.surfaceColor
-            border.color: root.activeBorderColor
+            color: root.terminalColor(0)
+            border.color: root.inactiveBorderColor
             border.width: Math.max(Theme.border.thin, root.borderSize)
+            clip: true
 
             Column {
                 anchors.fill: parent
                 anchors.margins: root.contentInset(terminal)
                 spacing: Theme.desktopPreview.lineGap
 
+                Label { role: "code"; color: root.terminalColor(2); text: "~ ❯ fastfetch" }
                 Repeater {
-                    model: root.terminalLines
-                    Label {
+                    model: [
+                        { key: "user", value: "you", color: 1 },
+                        { key: "distro", value: "Arch Linux", color: 4 },
+                        { key: "wm", value: "Hyprland", color: 5 },
+                        { key: "shell", value: "VGS on Quickshell", color: 6 },
+                        { key: "theme", value: root.label, color: 3 },
+                        { key: "term", value: "ANSI 16", color: 2 }
+                    ]
+                    Row {
                         required property var modelData
-                        role: "code"
-                        color: root.terminalColor(modelData.color)
-                        text: modelData.text
+                        spacing: Theme.space.xl
+                        Label { width: Theme.row.labelWidth / 2; role: "code"; color: root.terminalColor(parent.modelData.color); text: parent.modelData.key }
+                        Label { role: "code"; color: root.terminalColor(7); text: parent.modelData.value }
                     }
                 }
-                Grid {
-                    id: swatches
-                    width: parent.width
-                    columns: 8
-                    spacing: Theme.space.xs
+                Row {
+                    spacing: Theme.space.sm
                     Repeater {
-                        model: 16
+                        model: 8
                         Rectangle {
                             required property int index
-                            width: (swatches.width - 7 * Theme.space.xs) / 8
-                            height: Theme.space.lg
-                            color: root.terminalColor(index)
+                            width: Theme.icon.size.xs
+                            height: Theme.icon.size.xs
+                            radius: Theme.radius.full
+                            color: root.terminalColor(index + 8)
                         }
                     }
                 }
-                Repeater {
-                    model: root.fetchLines
-                    Label {
-                        required property var modelData
-                        role: "code"
-                        color: root.terminalColor(modelData.color)
-                        text: modelData.text
-                    }
-                }
-            }
-        }
-
-        Rectangle {
-            id: editor
-            x: terminal.x + terminal.width + Theme.desktopPreview.gap
-            y: terminal.y
-            width: parent.width - editor.x - root.safeRight
-            height: terminal.height * Theme.desktopPreview.panelHeightShare
-            radius: root.windowRadius
-            color: root.surfaceColor
-            border.color: root.inactiveBorderColor
-            border.width: Math.max(Theme.border.thin, root.borderSize)
-
-            Column {
-                anchors.fill: parent
-                anchors.margins: root.contentInset(editor)
-                spacing: Theme.desktopPreview.lineGap
-
-                Repeater {
-                    model: root.codeLines
-                    Label {
-                        required property var modelData
-                        role: "code"
-                        color: root.terminalColor(modelData.color)
-                        text: modelData.text
-                    }
-                }
-            }
-        }
-
-        Rectangle {
-            id: notification
-            x: editor.x
-            y: editor.y + editor.height + Theme.desktopPreview.gap
-            width: editor.width
-            height: desktop.windowBottom - y
-            radius: root.windowRadius
-            color: root.surfaceColor
-            border.color: root.inactiveBorderColor
-            border.width: Theme.border.thin
-
-            Column {
-                anchors.fill: parent
-                anchors.margins: root.contentInset(notification)
-                spacing: Theme.desktopPreview.lineGap
-
-                Label { role: "label"; color: root.mutedColor; text: root.title }
-                Rectangle { width: parent.width; height: Theme.space.xxl; radius: Theme.radius.sm; color: root.accentColor }
-                Label { role: "body"; color: root.foregroundColor; width: parent.width; elide: Text.ElideRight; text: root.notificationTitle }
-                Label { role: "hint"; color: root.mutedColor; width: parent.width; elide: Text.ElideRight; text: root.notificationBody }
+                Label { role: "code"; color: root.terminalColor(4); text: "~ ❯ vgshell theme apply " + root.name }
+                Rectangle { width: Theme.space.md; height: Theme.space.lg; color: root.terminalColor(7) }
             }
         }
     }

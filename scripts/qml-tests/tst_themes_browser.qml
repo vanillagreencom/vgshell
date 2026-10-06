@@ -95,7 +95,6 @@ Item {
             return null;
         }
 
-        // expected-log: Member palette of the object ThemePaletteStrip -- ThemePaletteStrip's own palette property shadows Item.palette, which Qt 6.11 reports when a theme card builds
         function test_a_preview_answer_after_a_view_switch_lands_in_the_browser() {
             browser.open(JSON.stringify({ view: "themes" }));
             tryVerify(() => root.asked.length === 1, 5000, "the theme view asks a preview for the catalog card");

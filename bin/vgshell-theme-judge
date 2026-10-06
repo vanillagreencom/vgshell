@@ -741,7 +741,8 @@ function previewTokens(values, includePalette) {
         color: {
             surfaceRaised: values.color.surfaceRaised,
             border: values.color.border,
-            textMuted: values.color.textMuted
+            textMuted: values.color.textMuted,
+            accentSubtle: values.color.accentSubtle
         },
         hyprland: values.hyprland
     };

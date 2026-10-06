@@ -1,15 +1,21 @@
 import QtQuick
 import qs.Commons
 import qs.Ui
+import "BrowserLogic.js" as BrowserLogic
 import "Files.js" as Files
 
-// One theme's card on the browser's rail: a package preview image wins
-// when one ships, else the selected card draws a live desktop preview from
-// the package's tokens over its wallpaper. Side cards stay cheap image or
-// palette cards. A Spinner turns over the card while the browser installs
-// or applies its theme. The palette card's name keeps the card's lean from
-// each side, which clears the angled edge at mid-height for every unit up
-// to `carousel.maxScale` 2, where the drawn lean is twice the token.
+// One theme's card on the browser's rail. A slice shows the theme's eight
+// colours (BrowserLogic.SWATCHES) stacked top to bottom. The selected card
+// shows the package's preview image when one ships, else the theme's first
+// wallpaper over its background with a desktop drawn from the package's
+// tokens on it, and the eight colours across its foot. A card with no
+// colours, a refused package's, names its theme instead; the name keeps
+// the card's lean from each side, which clears the angled edge at
+// mid-height for every unit up to `carousel.maxScale` 2, where the drawn
+// lean is twice the token. Every built card loads its image at the
+// carousel's decodeSize, so a step finds the next card's picture decoded.
+// A Spinner turns over the card while the browser installs or applies its
+// theme.
 Item {
     id: root
 
@@ -25,54 +31,62 @@ Item {
     property bool busy: false
 
     readonly property var colors: modelData.palette
+    readonly property var swatches: BrowserLogic.swatches(modelData.palette, modelData.tokens)
     readonly property bool packagePreview: typeof modelData.previewImage === "string" && modelData.previewImage !== ""
-    readonly property bool livePreview: root.current && !packagePreview && modelData.state === "ok"
-    readonly property string cheapImage: packagePreview ? modelData.previewImage : typeof modelData.sharpenedImage === "string" && modelData.sharpenedImage !== "" ? modelData.sharpenedImage : modelData.image
-    readonly property bool previewReady: preview.status === Loader.Ready && livePreview && preview.item.wallpaperReady
-    readonly property bool imageCard: !previewReady && typeof cheapImage === "string" && cheapImage !== ""
+    readonly property bool live: !packagePreview && modelData.state === "ok"
+    // The first wallpaper: the sharpened catalog image once it lands, else
+    // the package's first image or the catalog thumbnail.
+    readonly property string wallpaper: typeof modelData.sharpenedImage === "string" && modelData.sharpenedImage !== "" ? modelData.sharpenedImage : typeof modelData.image === "string" ? modelData.image : ""
+    readonly property string image: packagePreview ? modelData.previewImage : live ? wallpaper : ""
+    readonly property bool expanded: current && (packagePreview || live)
+    // The image the card draws, "" for none: a slice draws none.
+    readonly property string picture: expanded ? image : ""
 
     anchors.fill: parent
+
+    Rectangle {
+        anchors.fill: parent
+        visible: root.expanded && root.live
+        color: root.colors === null ? Theme.color.surface : Theme.toColor(root.colors.background)
+    }
+
+    Image {
+        id: picture
+        anchors.fill: parent
+        visible: root.expanded && status !== Image.Null && status !== Image.Error
+        source: root.image === "" ? "" : Files.stampedUrl(root.image, root.modelData.generation)
+        sourceSize: root.decodeSize
+        fillMode: Image.PreserveAspectCrop
+        asynchronous: true
+        onStatusChanged: if (status === Image.Error) console.warn("themes: card image unreadable path=" + root.image)
+    }
 
     Loader {
         id: preview
         anchors.fill: parent
-        active: root.livePreview
-        visible: root.previewReady
+        active: root.expanded && root.live
+        visible: status === Loader.Ready
         asynchronous: true
         sourceComponent: DesktopPreview {
             tokens: root.modelData.tokens
             terminal: root.modelData.terminal
-            title: root.modelData.label
-            commandLine: "vgshell theme apply " + root.modelData.name
-            terminalLines: [
-                { text: "➜  " + root.modelData.name + " theme", color: 2 },
-                { text: "drwxr-xr-x  shell  plugins  themes", color: 7 },
-                { text: "cat theme.json terminal.json", color: 4 }
-            ]
-            fetchLines: [
-                { text: "OS       VGS", color: 6 },
-                { text: "WM       Hyprland", color: 5 },
-                { text: "Shell    Quickshell", color: 3 },
-                { text: "Theme    " + root.modelData.label, color: 2 },
-                { text: "Terminal ANSI 16", color: 4 },
-                { text: "Font     Mono", color: 7 }
-            ]
-            codeLines: [
-                { text: "const theme = tokens.palette;", color: 5 },
-                { text: "window.border = theme.accent;", color: 4 },
-                { text: "bar.workspaces.active = accent;", color: 3 },
-                { text: "notify(\"Theme applied\");", color: 2 }
-            ]
-            notificationTitle: "Theme applied"
-            notificationBody: root.modelData.label
-            wallpaper: root.cheapImage === "" ? "" : Files.stampedUrl(root.cheapImage, root.modelData.generation)
-            decodeSize: root.decodeSize
+            name: root.modelData.name
+            label: root.modelData.label
+            footHeight: Theme.space.xxl
         }
+    }
+
+    ThemePaletteStrip {
+        objectName: "paletteStack"
+        anchors.fill: parent
+        visible: !root.expanded && root.swatches !== null
+        vertical: true
+        colours: root.swatches === null ? [] : root.swatches
     }
 
     Rectangle {
         anchors.fill: parent
-        visible: !root.previewReady && (image.status === Image.Null || image.status === Image.Error)
+        visible: root.swatches === null && !(root.expanded && picture.visible)
         color: root.colors === null ? Theme.color.surface : Theme.toColor(root.colors.background)
 
         Label {
@@ -84,18 +98,6 @@ Item {
             text: root.modelData.label
             color: root.colors === null ? Theme.color.textMuted : Theme.toColor(root.colors.foreground)
         }
-
-    }
-
-    Image {
-        id: image
-        anchors.fill: parent
-        visible: !root.previewReady && status !== Image.Null && status !== Image.Error
-        source: root.imageCard ? Files.stampedUrl(root.cheapImage, root.modelData.generation) : ""
-        sourceSize: root.decodeSize
-        fillMode: Image.PreserveAspectCrop
-        asynchronous: true
-        onStatusChanged: if (status === Image.Error) console.warn("themes: card image unreadable path=" + root.cheapImage)
     }
 
     ThemePaletteStrip {
@@ -104,7 +106,8 @@ Item {
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         height: Theme.space.xxl
-        palette: root.colors
+        visible: root.expanded && root.swatches !== null
+        colours: root.swatches === null ? [] : root.swatches
     }
 
     Spinner {

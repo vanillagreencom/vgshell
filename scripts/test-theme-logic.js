@@ -293,16 +293,17 @@ const DEFAULTS = [
     ["carousel.duration", 150],
     ["desktopPreview.referenceWidth", 1600],
     ["desktopPreview.referenceHeight", 900],
-    // The preview's desktop: a 40 pixel bar, windows space.xxl 24 apart,
-    // their content space.lg 12 in with lines space.md 8 apart, and a
-    // shadow space.md 8 off.
-    ["desktopPreview.barHeight", 40],
+    // The preview's desktop: the bar's own 28 pixels, windows space.xxl
+    // 24 in from the card's edge, their content space.lg 12 in with lines
+    // space.md 8 apart, and a shadow space.md 8 off.
+    ["desktopPreview.barHeight", 28],
     ["desktopPreview.gap", 24],
     ["desktopPreview.padding", 12],
     ["desktopPreview.lineGap", 8],
     ["desktopPreview.shadowOffset", 8],
-    ["desktopPreview.terminalWidthShare", 0.56],
-    ["desktopPreview.barOpacity", 0.86]
+    ["desktopPreview.settings.width", 0.27],
+    ["desktopPreview.launcher.y", 0.2],
+    ["desktopPreview.terminal.x", 0.46]
 ];
 
 // A document that is accepted, and the values it must resolve to.

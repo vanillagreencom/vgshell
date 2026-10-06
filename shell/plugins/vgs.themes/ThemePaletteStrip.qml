@@ -1,22 +1,24 @@
 import QtQuick
 import qs.Commons
 
-// A theme card's palette as one strip of equal blocks, every colour but
-// the background, which the card itself shows. The card places and sizes
-// it over its preview.
-Row {
+// A theme card's colours as equal blocks: across the strip, or stacked
+// top to bottom when `vertical`. The card places and sizes it.
+Grid {
     id: root
 
-    property var palette: null
-    readonly property var keys: palette === null ? [] : Object.keys(palette).filter(key => key !== "background")
+    // The `#rrggbbaa` colours, in order; empty draws nothing.
+    property var colours: []
+    property bool vertical: false
+
+    columns: vertical ? 1 : Math.max(colours.length, 1)
 
     Repeater {
-        model: root.keys
+        model: root.colours
         Rectangle {
             required property string modelData
-            width: root.keys.length === 0 ? 0 : root.width / root.keys.length
-            height: root.height
-            color: Theme.toColor(root.palette[modelData])
+            width: root.vertical ? root.width : root.width / root.colours.length
+            height: root.vertical ? root.height / root.colours.length : root.height
+            color: Theme.toColor(modelData)
         }
     }
 }
