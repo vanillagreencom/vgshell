@@ -1,12 +1,20 @@
 # System -> Displays monitor-mode writes: the plugin's monitor trial applies
 # a nested output rule, the detached guard reverts it when it is not kept,
 # Keep saves it into the generated layer, a position trial reverts, and the
-# guard still reverts while the shell is stopped. The row uses WAYLAND-1,
-# whose nested backend takes any mode and integer scale. Each poll reads every
-# 0.2 s for up to 5 s.
+# guard still reverts while the shell is stopped. A kept rule that turns
+# the main output off holds while the headless output stays on, the layer
+# turns the main output back on when that output goes, and a reload with
+# the main output alone leaves it on. The row uses WAYLAND-1, whose nested
+# backend takes any mode and integer scale. The nested headless output
+# takes no mirror rule, so the unit rows alone hold Mirror. Each poll reads
+# every 0.2 s for up to 5 s.
 # Control run on 2026-10-06, host cachy, through this row after the setup
 # rows: a guard copy that exits before restore leaves the trial scale in
 # place and the control reports the defect.
+# Control run on 2026-10-06, host cachy, through this row after the setup
+# rows: a rule that turns the main output off with no check, sent while it
+# is the only output, leaves it off, and the control reports the defect;
+# a reload of the layer turns it back on.
 # inputs: shell/plugins/vgs.displays/* shell/Core/MonitorState.qml shell/Core/MonitorLogic.js shell/Core/HyprlandLayer.js shell/Core/Dispatch.js shell/Core/Compositor.qml bin/vgshell-display-guard
 set -euo pipefail
 
@@ -65,6 +73,16 @@ print(json.dumps({name: {"position": {"x": x, "y": y}}}))
 PY
 }
 layer_has_rule() { grep -q -E 'hl\.monitor[[:space:]]*\(' "$hypr_layer" && echo yes || echo no; }
+disabled_of() { hypr -j monitors all | py_reply 'import json,sys; rows=[m for m in json.load(sys.stdin) if m["name"]==sys.argv[1]]; print(str(rows[0]["disabled"]).lower() if rows else "absent")' "$1"; }
+layer_turns_off() { grep -q -F -x -- "    local vgs_monitors_off = { \"$1\" }" "$hypr_layer" && echo yes || echo no; }
+off_rule_json() {
+  python3 - "$1" "$2" <<'PY'
+import json, sys
+name, mode = sys.argv[1], sys.argv[2]
+w, h = map(int, mode.split("x"))
+print(json.dumps({name: {"mode": {"width": w, "height": h, "refresh": 60}, "position": {"x": 0, "y": 0}, "scale": 1, "transform": 0, "disabled": True}}))
+PY
+}
 
 expect "enabling vgs.displays for display modes is allowed" ok ipc shell setPluginEnabled vgs.displays true
 expect_poll "vgs.displays is built for display modes" True record_exists vgs.displays
@@ -144,6 +162,34 @@ expect "control: a guard that never restores leaves a non-restored scale" yes no
 mv -f -- "$repo/bin/vgshell-display-guard.good" "$repo/bin/vgshell-display-guard"
 release_mode "display modes control restores $output" "$output" "$base" 1
 
+# Use this display: the headless output stays on, so the main one may go
+# off; the layer turns it off only while another output is on. While the
+# main output is off and no other is left, Hyprland lists FALLBACK, and
+# Quickshell 0.3.1 warns when it goes, since it never tracked it.
+expected_errors+=('WARN quickshell\.hyprland\.ipc: Got removal for monitor "FALLBACK" which was not previously tracked\.')
+off_rules="$(off_rule_json "$output" "$base")"
+expect "the off trial starts" ok invoke_displays trialRules "$off_rules"
+expect_poll "the off trial turns $output off" true disabled_of "$output"
+token="$(token_of)"
+expect "Keep saves the off rule" ok invoke_displays keepTrial "{\"token\":\"$token\",\"rules\":$off_rules}"
+expect_poll "the layer turns $output off inside its check" yes layer_turns_off "$output"
+expect "reload with the headless output on" ok hypr reload config-only
+expect_poll "the kept off rule holds while the headless output is on" true disabled_of "$output"
+expect "the nested compositor removes the headless output" ok hypr output remove "$extra_output"
+expect_poll "the layer turns $output back on when no other output is left" false disabled_of "$output"
+expect "reload with $output alone" ok hypr reload config-only
+expect_poll "$output stays on after a reload with no other output" false disabled_of "$output"
+
+# Control: the same rule with no check, sent while $output is the only
+# output, leaves the session dark; a reload of the layer turns it back on.
+expect "control: the unchecked off rule is sent" ok hypr eval "hl.monitor({ output = \"$output\", disabled = true })"
+expect_poll "control: an unchecked off rule leaves the only output off" true disabled_of "$output"
+expect "reload after the control" ok hypr reload config-only
+expect_poll "the layer turns $output back on after the control" false disabled_of "$output"
+expect "clearing the off rule is allowed" ok invoke_displays clearRules ""
+expect_poll "the layer drops the off rule" no layer_has_rule
+expect "reload drops the off rule" ok hypr reload config-only
+release_mode "display modes restores $output after the off rule" "$output" "$base" 1
+
 cp -- "$sandbox/shell-before-displays-modes.json" "$user_config.next" && mv -T -- "$user_config.next" "$user_config"
 expect "disabling vgs.displays after display modes is allowed" ok ipc shell setPluginEnabled vgs.displays false
-expect "the nested compositor removes the display position monitor" ok hypr output remove "$extra_output"

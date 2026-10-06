@@ -72,7 +72,7 @@ Scope {
         const out = {};
         for (const id of Object.keys(rules || {})) {
             const output = outputs.find(o => o.identifier === id || o.name === id);
-            if (output !== undefined) out[id] = Monitors.overridden(rules[id], output);
+            if (output !== undefined) out[id] = Monitors.overridden(rules[id], output, outputs);
         }
         return out;
     }

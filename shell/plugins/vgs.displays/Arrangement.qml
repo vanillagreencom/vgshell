@@ -72,6 +72,7 @@ FocusScope {
                 property real startX: 0
                 property real startY: 0
                 readonly property bool current: modelData.identifier === root.selected
+                opacity: modelData.off ? Theme.opacity.disabled : 1
                 x: dragging ? dragX : modelData.x * root.scaleFactor
                 y: dragging ? dragY : modelData.y * root.scaleFactor
                 width: Math.max(Theme.size.control.lg, modelData.width * root.scaleFactor)

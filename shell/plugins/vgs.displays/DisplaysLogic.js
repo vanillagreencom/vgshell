@@ -89,15 +89,34 @@ function outputByIdentifier(outputs, identifier) {
     return null;
 }
 
+// OUTPUT's rule as the page draws and drafts it: the DRAFT, which always
+// holds a whole rule, else the SAVED one, each field Hyprland's reading
+// where the rule names none. `disabled` and `mirror` are present only while
+// the display is off or mirrors: as the rule says when one names the
+// output, as MonitorLogic judges it, else as Hyprland lists it, the mirror
+// by its connector.
 function effectiveRule(output, saved, draft) {
-    var rule = Object.assign({}, saved || {}, draft || {});
+    var named = draft !== undefined && draft !== null ? draft : saved;
+    var rule = named || {};
     var mode = rule.mode === undefined ? modeOf(output) : rule.mode;
-    return {
+    var out = {
         mode: { width: mode.width, height: mode.height, refresh: mode.refresh },
         position: rule.position === undefined ? { x: output.x, y: output.y } : { x: rule.position.x, y: rule.position.y },
         scale: rule.scale === undefined ? output.scale : rule.scale,
         transform: rule.transform === undefined ? output.transform : rule.transform
     };
+    if (named ? rule.disabled === true : output.disabled) out.disabled = true;
+    var mirror = named ? rule.mirror : output.mirrorOf === null ? undefined : output.mirrorOf;
+    if (mirror !== undefined) out.mirror = mirror;
+    return out;
+}
+
+function ruleOf(saved, draft, output) {
+    return effectiveRule(output, saved[output.name] || saved[output.identifier], draft[output.name] || draft[output.identifier]);
+}
+
+function staysOn(rule) {
+    return rule.disabled !== true && rule.mirror === undefined;
 }
 
 function modeChoices(output) {
@@ -159,10 +178,58 @@ function indexByValue(choices, value) {
     return 0;
 }
 
+// One choice a display, a tiled group's connectors together.
 function outputChoices(outputs) {
-    return outputs.map(function (output) {
-        return { label: output.name + (output.description === "" ? "" : ": " + output.description), value: output.identifier };
+    return outputGroups(outputs).map(function (g) { return { label: groupLabel(g), value: g.identifier }; });
+}
+
+// Whether a display outside the group IDENTIFIER names stays on and mirrors
+// nothing once SAVED and DRAFT apply, as MonitorLogic's judge requires of
+// at least one.
+function othersOn(outputs, saved, draft, identifier) {
+    return outputs.some(function (output) {
+        return output.identifier !== identifier && staysOn(ruleOf(saved, draft, output));
     });
+}
+
+// The displays outside the group IDENTIFIER names that mirror it.
+function mirroredBy(outputs, saved, draft, identifier) {
+    var names = outputGroup(outputs, identifier).map(function (output) { return output.name; });
+    return outputs.filter(function (output) {
+        var mirror = ruleOf(saved, draft, output).mirror;
+        return output.identifier !== identifier && mirror !== undefined && (mirror === identifier || names.indexOf(mirror) !== -1);
+    });
+}
+
+// Why the group IDENTIFIER names may not be turned off: "only-on" while no
+// other display stays on, "mirrored" while another shows its picture, else
+// "". MonitorLogic's judge refuses either.
+function offBlock(outputs, saved, draft, identifier) {
+    if (!othersOn(outputs, saved, draft, identifier)) return "only-on";
+    return mirroredBy(outputs, saved, draft, identifier).length > 0 ? "mirrored" : "";
+}
+
+// The Mirror choices for the group IDENTIFIER names: Off, then each other
+// single display that stays on and mirrors nothing, by identifier. A
+// display another one mirrors offers Off alone, since Hyprland mirrors no
+// mirror.
+function mirrorChoices(outputs, saved, draft, identifier) {
+    var choices = [{ label: "Off", value: "", names: [] }];
+    if (mirroredBy(outputs, saved, draft, identifier).length > 0) return choices;
+    outputGroups(outputs).forEach(function (g) {
+        if (g.identifier === identifier || g.names.length > 1) return;
+        var output = outputGroup(outputs, g.identifier)[0];
+        if (staysOn(ruleOf(saved, draft, output))) choices.push({ label: groupLabel(g), value: g.identifier, names: g.names });
+    });
+    return choices;
+}
+
+// The index of the choice MIRROR names, by identifier or connector; 0, Off,
+// for none.
+function mirrorIndex(choices, mirror) {
+    if (mirror === undefined) return 0;
+    for (var i = 0; i < choices.length; i++) if (choices[i].value === mirror || choices[i].names.indexOf(mirror) !== -1) return i;
+    return 0;
 }
 
 function outputGroup(outputs, identifier) {
@@ -177,12 +244,14 @@ function arrangementItems(outputs, saved, draft) {
         seen[output.identifier] = true;
         var members = outputGroup(outputs, output.identifier);
         var rules = members.map(function (member) { return effectiveRule(member, saved[member.name] || saved[member.identifier], draft[member.name] || draft[member.identifier]); });
+        // A mirroring display shows another's picture and takes no place.
+        if (rules.every(function (rule) { return rule.mirror !== undefined; })) return;
         var left = Math.min.apply(null, rules.map(function (rule) { return rule.position.x; }));
         var top = Math.min.apply(null, rules.map(function (rule) { return rule.position.y; }));
         var right = Math.max.apply(null, rules.map(function (rule) { var rect = logicalRect(rule); return rect.x + rect.width; }));
         var bottom = Math.max.apply(null, rules.map(function (rule) { var rect = logicalRect(rule); return rect.y + rect.height; }));
         groups.push({ identifier: output.identifier, label: members.map(function (m) { return m.name; }).join(" + "), x: left, y: top, width: right - left, height: bottom - top,
-            members: members.map(function (member) { return member.name; }) });
+            members: members.map(function (member) { return member.name; }), off: rules.every(function (rule) { return rule.disabled === true; }) });
     });
     return groups;
 }
@@ -246,21 +315,41 @@ function nudgeGroup(outputs, saved, draft, identifier, dx, dy) {
     return item === undefined ? draft : moveGroup(outputs, saved, draft, identifier, item.x + dx, item.y + dy);
 }
 
+// RULE with PATCH's `disabled` and `mirror`: `disabled: false` and
+// `mirror: ""` clear them, so a rule holds each only while it applies.
+function withState(rule, patch) {
+    var out = Object.assign({}, rule);
+    if (patch.disabled !== undefined) out.disabled = patch.disabled;
+    if (patch.mirror !== undefined) out.mirror = patch.mirror;
+    if (out.disabled !== true) delete out.disabled;
+    if (out.mirror === "" || out.mirror === undefined) delete out.mirror;
+    return out;
+}
+
+// DRAFT with PATCH applied to the display IDENTIFIER names: its mode,
+// scale and orientation on its first connector, turning it off and its
+// mirror on every connector of a tiled group. A size change moves the
+// displays past its right or bottom edge that stay on by the difference.
 function withOutputDraft(outputs, saved, draft, identifier, patch) {
     var output = outputByIdentifier(outputs, identifier);
     if (output === null) return draft;
     var next = clone(draft || {});
     var current = effectiveRule(output, saved[output.name] || saved[identifier], next[output.name] || next[identifier]);
     var before = logicalSize(current);
-    var merged = Object.assign({}, current, patch);
+    var merged = withState(Object.assign({}, current, patch), patch);
     merged.position = { x: current.position.x, y: current.position.y };
     if (patch.mode !== undefined && patch.scale === undefined && !scaleFits(patch.mode, merged.scale)) merged.scale = scaleChoices(patch.mode, output.scale)[0].value;
     var after = logicalSize(merged);
     next[output.name] = merged;
+    outputGroup(outputs, identifier).forEach(function (member) {
+        if (member.name === output.name || (patch.disabled === undefined && patch.mirror === undefined)) return;
+        next[member.name] = withState(ruleOf(saved, next, member), patch);
+    });
     outputs.forEach(function (other) {
         var key = other.name;
         if (key === output.name) return;
         var otherRule = effectiveRule(other, saved[key] || saved[other.identifier], next[key] || next[other.identifier]);
+        if (!staysOn(otherRule)) return;
         var moved = false;
         if (otherRule.position.x >= current.position.x + before.width) {
             otherRule.position.x += after.width - before.width;
@@ -285,6 +374,8 @@ function dirtyRules(draft, saved) {
 
 function outputSummary(output) {
     if (output === null) return "";
+    if (output.disabled) return "Off";
+    if (output.mirrorOf !== null) return "Mirrors " + output.mirrorOf;
     return modeLabel(modeOf(output)) + " at " + refreshLabel(modeOf(output)) + ", " + scaleLabel(output.scale);
 }
 
@@ -508,6 +599,10 @@ function outputGroups(outputs) {
     return groups;
 }
 
+function groupLabel(g) {
+    return g.names.join(" + ") + (g.product === "" ? "" : ": " + g.product);
+}
+
 function groupOf(groups, identifier) {
     for (var g = 0; g < groups.length; g++) if (groups[g].identifier === identifier) return groups[g];
     return null;
@@ -571,7 +666,7 @@ function screenChoices(displays, outputs) {
     var choices = [{ label: "Choose a screen", value: "" }];
     outputGroups(outputs).forEach(function (g) {
         if (g.names.some(function (name) { return helperLit[name] === true; })) return;
-        choices.push({ label: g.names.join(" + ") + (g.product === "" ? "" : ": " + g.product), value: g.identifier });
+        choices.push({ label: groupLabel(g), value: g.identifier });
     });
     return choices;
 }

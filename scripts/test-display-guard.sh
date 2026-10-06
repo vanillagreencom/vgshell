@@ -13,7 +13,7 @@ cat >"$SCRATCH/bin/hyprctl" <<'SH'
 set -euo pipefail
 printf '%s\n' "$*" >>"$HYPRCTL_LOG"
 if [[ $* == *"monitors all"* ]]; then
-  printf '[{"name":"DP-1","width":100,"height":100,"refreshRate":60,"scale":1,"transform":0,"disabled":false}]\n'
+  printf '%s\n' "$HYPRCTL_MONITORS"
 else
   printf 'ok\n'
 fi
@@ -33,6 +33,18 @@ check() {
 
 export PATH="$SCRATCH/bin:$PATH"
 export HYPRCTL_LOG="$SCRATCH/hyprctl.log"
+# The fields the read-back compares, as `hyprctl -j monitors all` prints
+# them: DP-1 on and mirroring nothing.
+ONE='[{"id":0,"name":"DP-1","description":"Dell U2720Q 8YT","width":100,"height":100,"refreshRate":60,"scale":1,"transform":0,"disabled":false,"mirrorOf":"none"}]'
+export HYPRCTL_MONITORS=$ONE
+
+# readback RESTORE_JSON MONITORS: the guard's read-back verdict for a
+# restore of RESTORE_JSON when Hyprland then lists MONITORS. GUARD_COPY
+# runs in place of the guard when set.
+readback() {
+  : >"$SCRATCH/token"
+  HYPRCTL_MONITORS=$2 "${GUARD_COPY:-$GUARD}" "$(date +%s)" "$SCRATCH/token" "sig" 'hl.monitor({ output = "DP-2", scale = 1 })' "$1" | grep -o 'readback=[^ ]*'
+}
 
 : >"$SCRATCH/token"
 : >"$HYPRCTL_LOG"
@@ -58,7 +70,23 @@ sleep 0.1
 wait "$guard_pid"
 check "guard outlives its launcher wait" "$(wc -l <"$HYPRCTL_LOG")" "2"
 
-for mutant in never-reverts restores-before-claim; do
+MIRRORED='[{"id":0,"name":"DP-1","description":"Dell U2720Q 8YT","width":100,"height":100,"refreshRate":60,"scale":1,"transform":0,"disabled":false,"mirrorOf":"none"},{"id":1,"name":"DP-2","description":"","width":100,"height":100,"refreshRate":60,"scale":1,"transform":0,"disabled":false,"mirrorOf":"0"}]'
+UNMIRRORED=${MIRRORED/\"mirrorOf\":\"0\"/\"mirrorOf\":\"none\"}
+OFF=${ONE/\"disabled\":false/\"disabled\":true}
+# rows: name|restore JSON|monitors|verdict
+while IFS='|' read -r name restore monitors want; do
+  check "readback: $name" "$(readback "$restore" "${!monitors}")" "readback=$want"
+done <<'ROWS'
+a mirror by description matches|{"DP-2":{"mirror":"desc:Dell U2720Q 8YT"}}|MIRRORED|match
+a mirror by connector matches|{"DP-2":{"mirror":"DP-1"}}|MIRRORED|match
+a mirror Hyprland dropped mismatches|{"DP-2":{"mirror":"DP-1"}}|UNMIRRORED|mismatch
+a mirror onto another output mismatches|{"DP-2":{"mirror":"DP-3"}}|MIRRORED|mismatch
+a mirror Hyprland kept mismatches a rule with none|{"DP-2":{"scale":1}}|MIRRORED|mismatch
+an output left off mismatches a rule that turns it on|{"DP-1":{"scale":1}}|OFF|mismatch
+an output off matches a rule that turns it off|{"DP-1":{"disabled":true}}|OFF|match
+ROWS
+
+for mutant in never-reverts restores-before-claim ignores-mirror ignores-disabled; do
   copy="$SCRATCH/$mutant"
   cp -- "$GUARD" "$copy"
   case $mutant in
@@ -78,8 +106,28 @@ s = s.replace('if ! mv -- "$token" "$claim" 2>/dev/null; then', 'hyprctl --insta
 p.write_text(s)
 PY
       ;;
+    ignores-mirror|ignores-disabled) python3 - "$copy" "$mutant" <<'PY'
+import pathlib, sys
+p = pathlib.Path(sys.argv[1])
+s = p.read_text()
+needle = {
+    "ignores-mirror": 'ok = ok and target is not None and rule["mirror"] in (target["name"], "desc:" + target["description"])',
+    "ignores-disabled": 'ok = ok and row.get("disabled") == rule.get("disabled", False)',
+}[sys.argv[2]]
+assert s.count(needle) == 1, needle
+p.write_text(s.replace(needle, "pass"))
+PY
+      ;;
   esac
   chmod +x "$copy"
+  case $mutant in
+    ignores-mirror)
+      check "control $mutant is detected" "$(GUARD_COPY=$copy readback '{"DP-2":{"mirror":"DP-1"}}' "$UNMIRRORED")" "readback=match"
+      continue ;;
+    ignores-disabled)
+      check "control $mutant is detected" "$(GUARD_COPY=$copy readback '{"DP-1":{"scale":1}}' "$OFF")" "readback=match"
+      continue ;;
+  esac
   : >"$SCRATCH/token"
   : >"$HYPRCTL_LOG"
   "$copy" "$(date +%s)" "$SCRATCH/token" "sig" 'hl.monitor({ output = "DP-1", scale = 1 })' >/dev/null

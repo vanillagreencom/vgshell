@@ -772,6 +772,14 @@ function verify(logic, layer, shellText) {
     const otherMonitor = Object.assign(section("acme.monitors", [], []), { monitors: { kind: "set", setting: "outputs", value: { "DP-3": { scale: 1 } } } });
     const monitorConflict = layer.render([otherMonitor, monitorSection], theme, "vgs", 1, null, "", "vgs.displays");
     same([monitorCalls(monitorConflict), monitorConflict.monitorConflicts], [['hl.monitor({ output = "DP-2", mode = "3840x2160@60", position = "0x0", scale = 2, transform = 0 })'], [{ id: "acme.monitors", heldBy: "vgs.displays" }]], "the shared owner chooses the rendered monitors section");
+    const offSection = Object.assign(section("vgs.displays", [], []), { monitors: { kind: "set", setting: "outputs", value: { "eDP-1": { scale: 1, disabled: true }, "DP-2": { scale: 2 } } } });
+    const offLines = lines(layer.render([offSection], theme, "vgs", 1, null, "", "vgs.displays"));
+    const offStart = offLines.indexOf("-- vgs.displays 1.0.0: monitor rules from its settings") + 3;
+    const offEnd = offLines.indexOf("end", offStart);
+    const turnsOff = offLines.map((line, index) => /disabled = true/.test(line) ? index : -1).filter(index => index !== -1);
+    same([offLines.slice(offStart - 2, offStart + 1), offLines.slice(offStart, offEnd).includes('    local vgs_monitors_off = { "eDP-1" }'), turnsOff.length > 0 && turnsOff.every(index => index > offStart && index < offEnd)],
+        [['hl.monitor({ output = "DP-2", scale = 2 })', 'hl.monitor({ output = "eDP-1", scale = 1 })', "do"], true, true],
+        "an output a rule turns off is turned off only inside the guard block after the rules");
     same(layer.OVERLAY_CAPTURE, { submap: "vgs:capture", namespace: "vgs:overlay", appid: "vgs", shortcuts: { left: "overlay-left", right: "overlay-right", up: "overlay-up", down: "overlay-down" } }, "the overlay capture names its submap, namespace and shortcuts");
     same(layer.overlayCaptureDirections(), ["left", "right", "up", "down"], "the overlay capture direction list");
     assert.equal(layer.overlayCaptureGlobal("left"), "vgs:overlay-left", "the overlay capture global is derived");
@@ -1272,6 +1280,7 @@ const CONTROLS = [
     [layerFile, "user binds' recorder records the user's call sites", "binds.rows[#binds.rows + 1] = { file = ", "local _ = { file = "],
     [layerFile, "user binds' recorder calls hl.bind at the user's call site", "local bind = call(binds.bind, ...)", "local bind = binds.bind(...)"],
     [layerFile, "monitor rules rendered", "return [\"-- \" + section.id + \" \" + commentText(section.version) + \": monitor rules from its settings\"].concat(rendered.lines);", "return [];"],
+    [layerFile, "the monitors section drops the guard block", ": monitor rules from its settings\"].concat(rendered.lines);", ": monitor rules from its settings\"].concat(rendered.lines.filter(function (line) { return line.indexOf(\"hl.monitor\") === 0; }));"],
     [layerFile, "refused monitor rules skipped", "if (section.monitors.kind === \"unfit\") {", "if (false) {"],
     [layerFile, "monitor rules use the shared owner", "var owner = owners.filter(function (section) { return section.id === ownerId; })[0] || null;", "var owner = owners[0] || null;"],
     [layerFile, "key pass-through written", "[\"\"], keyPassthroughLines(), [\"\"], sessionLockLines()", "[\"\"], sessionLockLines()"],

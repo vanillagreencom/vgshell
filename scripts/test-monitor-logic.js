@@ -6,9 +6,15 @@
 // are built in the shape `CHyprCtl::getMonitorData` prints
 // (docs/architecture/runtime-hyprland.md).
 //
+// The layer's guard block runs under `lua` with a stub `hl` that lists the
+// outputs a row names and records each output the block turns off and each
+// command it runs; Hyprland 0.56.2 on host cachy links Lua 5.5, the `lua`
+// on PATH there. A missing interpreter fails the suite.
+//
 // The controls at the end edit a copy of the file, one rule at a time, and
 // the suite must fail on every copy. Exit 1 when a row or a control fails.
 "use strict";
+const childProcess = require("child_process");
 const fs = require("fs");
 const path = require("path");
 const { load } = require("../bin/lib/qml-library.js");
@@ -90,6 +96,44 @@ const DESK = [
     monitor(2, "eDP-1", { make: "BOE", model: "0x0BCA", disabled: true, availableModes: ["2880x1800@120.00Hz", "2880x1800@60.00Hz"], width: 2880, height: 1800 })
 ];
 
+// The stub world: `reload` clears the handlers, lists OUTPUTS and runs the
+// layer text as Hyprland runs the file; `list` changes what
+// `hl.get_monitors()` answers; `fire` calls each handler of an event;
+// `mark` records where a row's steps stand. Each
+// output is [name, description]. The answer is the turned-off outputs
+// (`off <output>`) and the commands run (`exec <command>`), in order.
+const LUA_STUB = `
+local events, outputs, handlers = {}, {}, {}
+hl = {
+    get_monitors = function() return outputs end,
+    monitor = function(rule) if rule.disabled == true then events[#events + 1] = "off " .. rule.output end end,
+    on = function(name, fn) handlers[name] = handlers[name] or {}; table.insert(handlers[name], fn) end,
+    exec_cmd = function(command) events[#events + 1] = "exec " .. command end
+}
+local function listed(rows)
+    local out = {}
+    for _, row in ipairs(rows) do out[#out + 1] = { name = row[1], description = row[2] } end
+    return out
+end
+local function reload(rows) handlers = {}; outputs = listed(rows); assert(load(LAYER))() end
+local function list(rows) outputs = listed(rows) end
+local function fire(name) for _, fn in ipairs(handlers[name] or {}) do fn() end end
+local function mark() events[#events + 1] = "mark" end
+`;
+
+function luaEvents(lines, steps) {
+    const text = lines.join("\n");
+    if (text.includes("]==]")) throw new Error("layer text holds the long-string end");
+    const program = "LAYER = [==[\n" + text + "\n]==]\n" + LUA_STUB
+        + steps.map(([verb, arg]) => verb === "mark" ? "mark()" : verb === "fire" ? "fire(" + JSON.stringify(arg) + ")"
+            : verb + "({ " + arg.map(([name, description]) => "{ " + JSON.stringify(name) + ", " + JSON.stringify(description || "") + " }").join(", ") + " })").join("\n")
+        + "\nfor _, event in ipairs(events) do print(event) end\n";
+    const run = childProcess.spawnSync("lua", ["-"], { input: program, encoding: "utf8", timeout: 10000 });
+    if (run.error) throw new Error("lua=" + (run.error.code === "ENOENT" ? "absent" : run.error.message));
+    if (run.status !== 0) return { status: run.status, stderr: run.stderr.trim() };
+    return run.stdout.split("\n").filter(line => line !== "");
+}
+
 function suite(lib, check) {
     const nested = lib.parseOutputs(NESTED_REPLY);
     check("parseOutputs: the nested reply", nested, { ok: true, outputs: [{
@@ -143,8 +187,8 @@ function suite(lib, check) {
         'hl.monitor({ output = "desc:Dell Inc. DELL U2720Q 8YT0R13", mode = "3840x2160@60", position = "0x0", scale = 1.5, transform = 0 })'
     ] });
     check("captureRules records explicit restore fields", lib.captureRules(outputs, ["DP-2"]), { "DP-2": { mode: { width: 3840, height: 2160, refresh: 59.997 }, position: { x: 2560, y: 0 }, scale: 2, transform: 0 } });
-    check("overridden: live output differs from saved rule", lib.overridden({ scale: 1 }, outputs[1]), true);
-    check("overridden: live output equals saved rule within refresh tolerance", lib.overridden(lib.captureRules(outputs, ["DP-2"])["DP-2"], outputs[1]), false);
+    check("overridden: live output differs from saved rule", lib.overridden({ scale: 1 }, outputs[1], outputs), true);
+    check("overridden: live output equals saved rule within refresh tolerance", lib.overridden(lib.captureRules(outputs, ["DP-2"])["DP-2"], outputs[1], outputs), false);
     const ruleRefusals = [
         ["mode outside availableModes", { "DP-2": { mode: { width: 1920, height: 1080, refresh: 60 } } }, "refused: monitors.DP-2.mode unavailable"],
         ["fractional logical pixels", { "DP-2": { mode: { width: 3840, height: 2160, refresh: 60 }, scale: 1.3 } }, "refused: monitors.DP-2.scale fractional-logical-pixels"],
@@ -159,10 +203,109 @@ function suite(lib, check) {
     check("layoutError refuses overlap", lib.layoutError({ "DP-2": { position: { x: 0, y: 0 } } }, outputs), "refused: monitors.layout=overlap a=DP-1 b=DP-2");
     check("layoutError refuses a gap", lib.layoutError({ "DP-2": { position: { x: 5000, y: 0 } } }, outputs), "refused: monitors.layout=gap");
     check("layoutError ignores an unsized nested headless output", lib.layoutError({ "DP-2": { position: { x: 2560, y: 0 } } },
-        outputs.concat([monitor(3, "SMOKE-DISPLAYS-MODES", { width: 0, height: 0 })])), "");
+        outputs.concat(lib.parseOutputs(reply([monitor(3, "SMOKE-DISPLAYS-MODES", { width: 0, height: 0 })])).outputs)), "");
     check("logicalRect swaps rotated sides", lib.logicalRect({ mode: { width: 100, height: 50, refresh: 60 }, position: { x: 0, y: 0 }, scale: 1, transform: 1 }), { x: 0, y: 0, width: 50, height: 100 });
     check("captureRules can capture tiled connectors separately", lib.captureRules(tiled, ["DP-1", "DP-5"]), { "DP-1": { mode: { width: 3840, height: 2160, refresh: 59.997 }, position: { x: 0, y: 0 }, scale: 1.5, transform: 0 }, "DP-5": { mode: { width: 3840, height: 2160, refresh: 59.997 }, position: { x: 3840, y: 0 }, scale: 1.5, transform: 0 } });
-    check("captureRules skips an invalid mode for an unsized nested headless output", lib.captureRules([monitor(3, "SMOKE-DISPLAYS-MODES", { width: 0, height: 0 })], ["SMOKE-DISPLAYS-MODES"]),
+    // Turning an output off and mirroring one, judged without outputs.
+    // rows: [name, rules, refusal]
+    const DELL = "desc:Dell Inc. DELL U2720Q 8YT0R13";
+    const ruleShapes = [
+        ["disabled that is no boolean", { "DP-2": { disabled: 1 } }, "refused: monitors.DP-2.disabled must be a boolean"],
+        ["an empty mirror", { "DP-2": { mirror: "" } }, "refused: monitors.DP-2.mirror must be an output identifier"],
+        ["Lua text injection through a mirror", { "DP-2": { mirror: "DP-1\"" } }, "refused: monitors.DP-2.mirror must be an output identifier"],
+        ["a mirror of its own rule", { "DP-2": { mirror: "DP-2" } }, "refused: monitors.DP-2.mirror=self"],
+        ["a mirror on an output it turns off", { "DP-2": { disabled: true, mirror: "DP-1" } }, "refused: monitors.DP-2.mirror=while-off"],
+        ["a mirror of a mirror", { "DP-2": { mirror: "DP-1" }, "DP-1": { mirror: "eDP-1" } }, "refused: monitors.DP-2.mirror=chain target=DP-1"],
+        ["a mirror of an output its rule turns off", { "DP-2": { mirror: "DP-1" }, "DP-1": { disabled: true } }, "refused: monitors.DP-2.mirror=target-off target=DP-1"],
+        ["nothing for a mirror whose target has no rule", { "DP-2": { mirror: "DP-1" } }, ""],
+        ["nothing for an output turned on", { "DP-2": { disabled: false } }, ""]
+    ];
+    for (const [name, rules, want] of ruleShapes) check("rulesError without outputs: " + name, lib.rulesError(rules, null), want);
+    const mirroring = lib.parseOutputs(reply([DESK[0], monitor(1, "DP-2", { x: 2560, scale: 2, mirrorOf: "0" }), DESK[2]])).outputs;
+    const tiledDesk = tiled.concat(outputs.slice(1));
+    // Against the listed outputs. rows: [name, rules, outputs, refusal]
+    const outputRefusals = [
+        ["a mirror of an output nobody listed", { "DP-2": { mirror: "HDMI-A-1" } }, outputs, "refused: monitors.DP-2.mirror=target-absent target=HDMI-A-1"],
+        ["a mirror of a tiled group", { "DP-2": { mirror: DELL } }, tiledDesk, "refused: monitors.DP-2.mirror=target-tiled target=" + DELL],
+        ["a mirror of its own output by another name", { [DELL]: { mirror: "DP-1" } }, outputs, "refused: monitors." + DELL + ".mirror=self"],
+        ["a mirror of an output Hyprland keeps off", { "DP-2": { mirror: "eDP-1" } }, outputs, "refused: monitors.DP-2.mirror=target-off target=eDP-1"],
+        ["a mirror of an output a rule by identifier turns off", { "DP-2": { mirror: "DP-1" }, [DELL]: { disabled: true } }, outputs, "refused: monitors.DP-2.mirror=target-off target=DP-1"],
+        ["a mirror of an output Hyprland mirrors", { "eDP-1": { mirror: "DP-2" } }, mirroring, "refused: monitors.eDP-1.mirror=chain target=DP-2"],
+        ["every output off", { [DELL]: { disabled: true }, "DP-2": { disabled: true } }, outputs, "refused: monitors.layout=all-off"],
+        ["one output on", { [DELL]: { disabled: true } }, outputs, ""],
+        ["an output a rule turns back on", { [DELL]: { disabled: true }, "DP-2": { disabled: true }, "eDP-1": { disabled: false } }, outputs, ""],
+        ["a mirror of an output that stays on", { "DP-2": { mirror: DELL } }, outputs, ""],
+        ["a rule that stops a mirror", { "DP-2": { scale: 2 } }, mirroring, ""]
+    ];
+    for (const [name, rules, list, want] of outputRefusals) check("rulesError with outputs: " + name, lib.rulesError(rules, list), want);
+    check("layoutError leaves out an output turned off", lib.layoutError({ [DELL]: { disabled: true }, "DP-2": { position: { x: 0, y: 0 } } }, outputs), "");
+    check("layoutError leaves out a mirroring output", lib.layoutError({ "DP-2": { position: { x: 0, y: 0 }, mirror: DELL } }, outputs), "");
+    check("layoutError refuses every output off", lib.layoutError({ [DELL]: { disabled: true }, "DP-2": { disabled: true } }, outputs), "refused: monitors.layout=all-off");
+
+    check("rulesLines writes a mirror and leaves disabled to the guard", lib.rulesLines({ "DP-2": { scale: 2, mirror: DELL }, "eDP-1": { scale: 1, disabled: true } }).lines.slice(0, 3), [
+        'hl.monitor({ output = "DP-2", scale = 2, mirror = "' + DELL + '" })',
+        'hl.monitor({ output = "eDP-1", scale = 1 })',
+        "do"
+    ]);
+    check("rulesLua writes disabled and mirror on every rule", lib.rulesLua({ "DP-2": { scale: 2, mirror: DELL }, "eDP-1": { disabled: true }, "HDMI-A-1": { scale: 1 } }), { ok: true, lua: [
+        'hl.monitor({ output = "DP-2", scale = 2, disabled = false, mirror = "' + DELL + '" })',
+        'hl.monitor({ output = "HDMI-A-1", scale = 1, disabled = false, mirror = "" })',
+        'hl.monitor({ output = "eDP-1", disabled = true, mirror = "" })'
+    ].join("\n") });
+    check("rulesLua refuses what the judge refuses", lib.rulesLua({ "DP-2": { mirror: "DP-2" } }), { ok: false, error: "refused: monitors.DP-2.mirror=self" });
+    check("rulesLua holds no handler", /hl\.on\(/.test(lib.rulesLua({ "eDP-1": { disabled: true }, "DP-2": { scale: 1 } }).lua), false);
+
+    // The guard block, run under Lua. rows: [name, rules, steps, events]
+    const laptop = ["eDP-1", "BOE 0x0BCA"], dock = ["DP-1", "Dell U2720Q"], fallback = ["FALLBACK", ""], side = ["DP-2", "LG"];
+    const offLaptop = { "eDP-1": { scale: 1, disabled: true } };
+    const guardRows = [
+        ["boot: no output at load, the laptop, then a dock turns the laptop off once", offLaptop,
+            [["reload", []], ["list", [laptop]], ["fire", "monitor.added"], ["list", [laptop, dock]], ["fire", "monitor.added"], ["list", [dock, side]], ["fire", "monitor.added"]],
+            ["off eDP-1"]],
+        ["undock: the last other output goes and the layer reloads", offLaptop,
+            [["reload", [laptop, dock]], ["list", [dock]], ["fire", "monitor.removed"], ["list", [fallback]], ["fire", "monitor.removed"]],
+            ["off eDP-1", "exec hyprctl reload"]],
+        ["a reload with the laptop alone leaves it on", offLaptop,
+            [["reload", [laptop]], ["fire", "monitor.removed"]],
+            []],
+        ["FALLBACK keeps nothing on", offLaptop,
+            [["reload", [fallback]], ["fire", "monitor.added"]],
+            []],
+        ["an output a rule mirrors keeps nothing on", Object.assign({ "DP-2": { scale: 1, mirror: "eDP-1" } }, { "DP-1": { scale: 1, disabled: true } }),
+            [["reload", [dock, side]]],
+            []],
+        ["a desc: rule names its output by short description", { "desc:BOE 0x0BCA": { scale: 1, disabled: true } },
+            [["reload", [laptop]], ["fire", "monitor.added"], ["mark"], ["list", [laptop, dock]], ["fire", "monitor.added"]],
+            ["mark", "off desc:BOE 0x0BCA"]],
+        ["no rule turns an output off: no guard", { "eDP-1": { scale: 1 } },
+            [["reload", [laptop, dock]], ["list", [laptop]], ["fire", "monitor.removed"]],
+            []]
+    ];
+    for (const [name, rules, steps, want] of guardRows) check("guard block: " + name, luaEvents(lib.rulesLines(rules).lines, steps), want);
+
+    check("captureRules records an output that is off", lib.captureRules(outputs, ["eDP-1"]),
+        { "eDP-1": { mode: { width: 2880, height: 1800, refresh: 59.997 }, position: { x: 0, y: 0 }, scale: 1.5, transform: 0, disabled: true } });
+    check("captureRules records a mirror by the target's identifier", lib.captureRules(mirroring, ["DP-2"])["DP-2"].mirror, DELL);
+    check("captureRules records a mirror of a tiled member by connector",
+        lib.captureRules(lib.parseOutputs(reply([DESK[0], monitor(3, "DP-5", { make: "Dell, Inc.", serial: "8YT0R13", x: 3840 }), monitor(4, "HDMI-A-1", { mirrorOf: "3" })])).outputs, ["HDMI-A-1"])["HDMI-A-1"].mirror, "DP-5");
+    check("captureRules records no field for an output on", Object.keys(lib.captureRules(outputs, ["DP-2"])["DP-2"]), ["mode", "position", "scale", "transform"]);
+    // rows: [name, rule, output index, outputs, overridden]
+    const overrides = [
+        ["a rule that turns an output off while another is on", { disabled: true }, 1, outputs, true],
+        ["a rule that turns the only output off", { disabled: true }, 0, lib.parseOutputs(reply([DESK[0], DESK[2]])).outputs, false],
+        ["an output off that the rule keeps off", { disabled: true }, 2, outputs, false],
+        ["an output off that the rule turns on", {}, 2, outputs, true],
+        ["a mirror Hyprland shows", { mirror: DELL }, 1, mirroring, false],
+        ["a mirror Hyprland does not show", { mirror: DELL }, 1, outputs, true],
+        ["a mirror of another output", { mirror: "eDP-1" }, 1, mirroring, true],
+        ["a mirror the rule does not name", {}, 1, mirroring, true]
+    ];
+    for (const [name, rule, index, list, want] of overrides) {
+        const live = list[index];
+        const current = { mode: { width: live.width, height: live.height, refresh: live.refreshRate }, position: { x: live.x, y: live.y }, scale: live.scale, transform: live.transform };
+        check("overridden: " + name, lib.overridden(Object.assign(current, rule), live, list), want);
+    }
+    check("captureRules skips an invalid mode for an unsized nested headless output", lib.captureRules(lib.parseOutputs(reply([monitor(3, "SMOKE-DISPLAYS-MODES", { width: 0, height: 0 })])).outputs, ["SMOKE-DISPLAYS-MODES"]),
         { "SMOKE-DISPLAYS-MODES": { position: { x: 0, y: 0 }, scale: 1.5, transform: 0 } });
 }
 
@@ -195,7 +338,40 @@ const CONTROLS = [
     ["overlap accepted", "if (overlap(rects[i].rect, rects[j].rect)) return \"refused: monitors.layout=overlap a=\" + rects[i].id + \" b=\" + rects[j].id;", ""],
     ["gap accepted", "if (seen.length !== rects.length) return \"refused: monitors.layout=gap\";", ""],
     ["unsized output blocks a layout", "if (rect.width > 0 && rect.height > 0) rects.push({ id: output.name, rect: rect });", "rects.push({ id: output.name, rect: rect });"],
-    ["rotated side swap lost", "if (sideSwapped(rule.transform)) return { width: height, height: width };", ""]
+    ["rotated side swap lost", "if (sideSwapped(rule.transform)) return { width: height, height: width };", ""],
+    ["disabled is a boolean in a rule", 'if (rule.disabled !== undefined && typeof rule.disabled !== "boolean")', "if (false)"],
+    ["a mirror is an output identifier", 'if (rule.mirror !== undefined && (typeof rule.mirror !== "string" || !OUTPUT_NAME.test(rule.mirror)))', "if (false)"],
+    ["a rule mirrors itself", 'if (rule.mirror === id) return at + ".mirror=self";', ""],
+    ["a rule mirrors while off", 'if (rule.disabled === true) return at + ".mirror=while-off";', ""],
+    ["a rule mirrors a mirror rule", 'if (isPlainObject(target) && target.mirror !== undefined) return at + ".mirror=chain target=" + rule.mirror;', ""],
+    ["a rule mirrors a rule that turns off", 'if (isPlainObject(target) && target.disabled === true) return at + ".mirror=target-off target=" + rule.mirror;', ""],
+    ["a mirror names no listed output", 'if (targets.length === 0) return at + ".mirror=target-absent target=" + rule.mirror;', ""],
+    ["a mirror names a tiled group", 'if (targets.length > 1 && targets[0].identifier === rule.mirror) return at + ".mirror=target-tiled target=" + rule.mirror;', ""],
+    ["a mirror names its own output", 'if (targets[0].name === output.name) return at + ".mirror=self";', ""],
+    ["a mirror shows a mirroring output", 'if (state.mirror) return at + ".mirror=chain target=" + rule.mirror;', ""],
+    ["a mirror shows an output that is off", 'if (state.disabled) return at + ".mirror=target-off target=" + rule.mirror;', ""],
+    ["every output off accepted", 'if (Array.isArray(outputs) && !outputs.some(function (output) { return staysOn(rules, output); })) return "refused: monitors.layout=all-off";', ""],
+    ["a rule's state loses to Hyprland's", "if (rule === null) return { disabled: output.disabled, mirror: output.mirrorOf !== null };", "return { disabled: output.disabled, mirror: output.mirrorOf !== null };"],
+    ["the layout draws outputs that are off", "outputs.filter(function (output) { return staysOn(rules, output); }).forEach(", "outputs.filter(function (output) { return !output.disabled; }).forEach("],
+    ["the layer line drops the mirror", 'if (rule.mirror !== undefined) fields.push("mirror = " + luaString(rule.mirror));', ""],
+    ["an eval leaves disabled out", 'fields.push("disabled = " + (rule.disabled === true ? "true" : "false"));', ""],
+    ["an eval leaves an empty mirror out", 'fields.push("mirror = " + (rule.mirror === undefined ? "\\"\\"" : luaString(rule.mirror)));', 'if (rule.mirror !== undefined) fields.push("mirror = " + luaString(rule.mirror));'],
+    ["a layer with nothing off holds a guard", "if (off.length === 0) return [];", ""],
+    ["the guard counts FALLBACK as on", 'if m.name ~= \\"FALLBACK\\" and not', "if not"],
+    ["the guard counts a mirroring output as on", " and not vgs_monitors_named(m, vgs_monitors_mirroring) then return true end", " then return true end"],
+    ["the guard matches no desc: identifier", ' or \\"desc:\\" .. m.description == id', ""],
+    ["the guard waits for an output at load", '"    vgs_monitors_apply()",', ""],
+    ["the guard waits for no output to come", '"    hl.on(\\"monitor.added\\", vgs_monitors_apply)",', ""],
+    ["the guard turns outputs off twice", "if vgs_monitors_applied or not vgs_monitors_others_on() then return end", "if not vgs_monitors_others_on() then return end"],
+    ["the guard never reloads", 'then hl.exec_cmd(\\"hyprctl reload\\") end', "then end"],
+    ["the guard reloads with nothing it turned off", "if vgs_monitors_applied and not vgs_monitors_others_on() then", "if not vgs_monitors_others_on() then"],
+    ["restore leaves an output off on", "if (output.disabled) rule.disabled = true;", ""],
+    ["restore drops a mirror", "if (output.mirrorOf !== null) rule.mirror = mirrorTarget(outputs, output.mirrorOf);", ""],
+    ["restore names a tiled mirror by its group", "return outputs.filter(function (output) { return output.identifier === target.identifier; }).length > 1 ? name : target.identifier;", "return target.identifier;"],
+    ["overridden ignores disabled", "return (rule.disabled === true ? othersOn && !output.disabled : output.disabled)\n        || !mirrored", "return !mirrored"],
+    ["overridden flags an off rule the layer left on", "rule.disabled === true ? othersOn && !output.disabled", "rule.disabled === true ? !output.disabled"],
+    ["overridden ignores the mirror", "        || !mirrored\n", "\n"],
+    ["overridden ignores the mirror's target", "output.mirrorOf !== null && outputsByKey(outputs, rule.mirror).some(function (target) { return target.name === output.mirrorOf; })", "output.mirrorOf !== null"]
 ];
 
 fs.mkdirSync(path.join(__dirname, "..", "tmp"), { recursive: true });

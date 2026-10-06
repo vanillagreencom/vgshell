@@ -33,6 +33,12 @@ FocusScope {
     property string selectedOutput: outputs.length > 0 ? outputs[0].identifier : ""
     readonly property var selected: Logic.outputByIdentifier(outputs, selectedOutput)
     readonly property var selectedRule: selected === null ? null : Logic.effectiveRule(selected, outputRules[selected.name] || outputRules[selectedOutput], outputDraft[selected.name] || outputDraft[selectedOutput])
+    readonly property bool selectedOn: selectedRule !== null && selectedRule.disabled !== true
+    readonly property bool selectedMirrors: selectedRule !== null && selectedRule.mirror !== undefined
+    // Why the selected display may not be turned off, Logic.offBlock's key.
+    readonly property string offBlock: selected === null ? "" : Logic.offBlock(outputs, outputRules, outputDraft, selectedOutput)
+    readonly property var mirrorChoices: selected === null ? [] : Logic.mirrorChoices(outputs, outputRules, outputDraft, selectedOutput)
+    readonly property var displayChoices: Logic.outputChoices(outputs)
     readonly property bool outputDirty: Object.keys(Logic.dirtyRules(outputDraft, outputRules)).length > 0
     readonly property var trialState: shell === null ? ({ phase: "idle", token: "", deadline: 0, failure: "" }) : shell.monitors.trialState
     readonly property bool trialHolding: trialState.phase === "holding" || trialState.phase === "keeping"
@@ -87,6 +93,12 @@ FocusScope {
 
     function setOutputDraft(patch) {
         outputDraft = Logic.withOutputDraft(outputs, outputRules, outputDraft, selectedOutput, patch);
+    }
+
+    function offBlockText(key) {
+        if (key === "only-on") return "This is the only display that is on.";
+        if (key === "mirrored") return "Another display mirrors this one.";
+        return "";
     }
 
     function applyOutputDraft() {
@@ -194,6 +206,26 @@ FocusScope {
                 onClicked: root.identifyAll()
             }
 
+            // The canvas leaves out a display that mirrors, so this picks it.
+            FormRow {
+                width: parent.width
+                visible: arrangement.items.length < root.displayChoices.length
+                label: "Display"
+
+                Select {
+                    width: parent.width
+                    enabled: !root.trialHolding
+                    model: root.displayChoices
+                    textRole: "label"
+                    currentIndex: Logic.indexByValue(root.displayChoices, root.selectedOutput)
+                    Accessible.name: "Display"
+                    onActivated: index => {
+                        root.selectedOutput = root.displayChoices[index].value;
+                        currentIndex = Qt.binding(() => Logic.indexByValue(root.displayChoices, root.selectedOutput));
+                    }
+                }
+            }
+
             Label {
                 width: parent.width
                 visible: root.selected !== null
@@ -204,8 +236,49 @@ FocusScope {
 
             FormRow {
                 width: parent.width
-                enabled: !root.trialHolding
                 visible: root.selected !== null
+                label: "Use this display"
+                warning: root.selectedOn ? root.offBlockText(root.offBlock) : ""
+                warningTone: "muted"
+
+                Switch {
+                    size: "sm"
+                    enabled: !root.trialHolding && (!root.selectedOn || root.offBlock === "")
+                    checked: root.selectedOn
+                    Accessible.name: "Use this display"
+                    // The binding comes back after a toggle, so the draft
+                    // is what shows.
+                    onToggled: {
+                        const wanted = checked;
+                        checked = Qt.binding(() => root.selectedOn);
+                        root.setOutputDraft(wanted ? { disabled: false } : { disabled: true, mirror: "" });
+                    }
+                }
+            }
+
+            FormRow {
+                width: parent.width
+                visible: root.selected !== null && root.selectedOn
+                label: "Mirror"
+
+                Select {
+                    width: parent.width
+                    enabled: !root.trialHolding
+                    model: root.mirrorChoices
+                    textRole: "label"
+                    currentIndex: root.selectedRule === null ? 0 : Logic.mirrorIndex(root.mirrorChoices, root.selectedRule.mirror)
+                    Accessible.name: "Mirror"
+                    onActivated: index => {
+                        root.setOutputDraft({ mirror: root.mirrorChoices[index].value });
+                        currentIndex = Qt.binding(() => root.selectedRule === null ? 0 : Logic.mirrorIndex(root.mirrorChoices, root.selectedRule.mirror));
+                    }
+                }
+            }
+
+            FormRow {
+                width: parent.width
+                enabled: !root.trialHolding
+                visible: root.selected !== null && root.selectedOn
                 label: "Resolution"
 
                 Select {
@@ -227,7 +300,7 @@ FocusScope {
             FormRow {
                 width: parent.width
                 enabled: !root.trialHolding
-                visible: root.selected !== null
+                visible: root.selected !== null && root.selectedOn
                 label: "Refresh rate"
 
                 Select {
@@ -248,7 +321,7 @@ FocusScope {
 
             FormRow {
                 width: parent.width
-                visible: root.selected !== null
+                visible: root.selected !== null && root.selectedOn && !root.selectedMirrors
                 label: "Scale"
 
                 Select {
@@ -268,7 +341,7 @@ FocusScope {
 
             FormRow {
                 width: parent.width
-                visible: root.selected !== null
+                visible: root.selected !== null && root.selectedOn && !root.selectedMirrors
                 label: "Orientation"
 
                 Select {

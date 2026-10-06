@@ -96,7 +96,11 @@ function parseOutputs(text) {
     return { ok: true, outputs: out };
 }
 
-var RULE_KEYS = ["mode", "position", "scale", "transform"];
+// `disabled` turns the output off; `mirror` names the output whose picture
+// it shows, by identifier or connector, as Hyprland's `mirror` selector
+// takes it. A rule that names an output sets both: an absent field means
+// on and not mirroring.
+var RULE_KEYS = ["mode", "position", "scale", "transform", "disabled", "mirror"];
 var OUTPUT_NAME = /^[\x20\x21\x23-\x5b\x5d-\x7e]{1,512}$/;
 
 function modeOf(output) {
@@ -178,12 +182,62 @@ function ruleError(rule, at) {
     }
     if (rule.scale !== undefined && (typeof rule.scale !== "number" || !isFinite(rule.scale) || rule.scale <= 0)) return at + ".scale must be a positive number";
     if (rule.transform !== undefined && (!Number.isInteger(rule.transform) || rule.transform < 0 || rule.transform > 7)) return at + ".transform must be 0-7";
+    if (rule.disabled !== undefined && typeof rule.disabled !== "boolean") return at + ".disabled must be a boolean";
+    if (rule.mirror !== undefined && (typeof rule.mirror !== "string" || !OUTPUT_NAME.test(rule.mirror))) return at + ".mirror must be an output identifier";
+    return "";
+}
+
+function ruleFor(rules, output) {
+    if (hasOwn(rules, output.name)) return rules[output.name];
+    return hasOwn(rules, output.identifier) ? rules[output.identifier] : null;
+}
+
+// Whether OUTPUT stays off or mirrors once RULES apply: as the rule that
+// names it says, else as Hyprland lists it now.
+function effectiveState(rules, output) {
+    var rule = ruleFor(rules, output);
+    if (rule === null) return { disabled: output.disabled, mirror: output.mirrorOf !== null };
+    return { disabled: rule.disabled === true, mirror: rule.mirror !== undefined };
+}
+
+function staysOn(rules, output) {
+    var state = effectiveState(rules, output);
+    return !state.disabled && !state.mirror;
+}
+
+// The mirror of rule ID, judged against RULES alone: not its own output,
+// not on an output it turns off, and not onto a rule that mirrors or turns
+// its output off, since Hyprland mirrors no mirror.
+function mirrorRuleError(rules, id, at) {
+    var rule = rules[id];
+    if (rule.mirror === undefined) return "";
+    if (rule.mirror === id) return at + ".mirror=self";
+    if (rule.disabled === true) return at + ".mirror=while-off";
+    if (!hasOwn(rules, rule.mirror)) return "";
+    var target = rules[rule.mirror];
+    if (isPlainObject(target) && target.mirror !== undefined) return at + ".mirror=chain target=" + rule.mirror;
+    if (isPlainObject(target) && target.disabled === true) return at + ".mirror=target-off target=" + rule.mirror;
+    return "";
+}
+
+// The mirror of OUTPUT's rule against the listed OUTPUTS: one listed output,
+// not OUTPUT itself, that stays on and does not mirror.
+function mirrorOutputError(rules, rule, output, outputs, at) {
+    if (rule.mirror === undefined) return "";
+    var targets = outputsByKey(outputs, rule.mirror);
+    if (targets.length === 0) return at + ".mirror=target-absent target=" + rule.mirror;
+    if (targets.length > 1 && targets[0].identifier === rule.mirror) return at + ".mirror=target-tiled target=" + rule.mirror;
+    if (targets[0].name === output.name) return at + ".mirror=self";
+    var state = effectiveState(rules, targets[0]);
+    if (state.mirror) return at + ".mirror=chain target=" + rule.mirror;
+    if (state.disabled) return at + ".mirror=target-off target=" + rule.mirror;
     return "";
 }
 
 // Judge the saved or trial monitor RULES, keyed by output identifier. With
 // OUTPUTS, this also proves every mode is offered by that output, the scale
-// makes whole logical pixels, and at least one output remains enabled.
+// makes whole logical pixels, each mirror shows a listed output that stays
+// on, and at least one listed output stays on and mirrors nothing.
 function rulesError(rules, outputs) {
     if (!isPlainObject(rules)) return "refused: monitors=shape want=object";
     var ids = Object.keys(rules);
@@ -194,6 +248,8 @@ function rulesError(rules, outputs) {
         var rule = rules[id];
         var bad = ruleError(rule, at);
         if (bad !== "") return "refused: " + bad;
+        var badMirror = mirrorRuleError(rules, id, at);
+        if (badMirror !== "") return "refused: " + badMirror;
         if (Array.isArray(outputs)) {
             var matching = outputsByKey(outputs, id);
             if (matching.length === 0) return "refused: " + at + " output=absent";
@@ -205,8 +261,11 @@ function rulesError(rules, outputs) {
                 return "refused: " + at + ".mode unavailable";
             if (!scaleFits(normalized.mode, normalized.scale))
                 return "refused: " + at + ".scale fractional-logical-pixels";
+            var badTarget = mirrorOutputError(rules, rule, output, outputs, at);
+            if (badTarget !== "") return "refused: " + badTarget;
         }
     }
+    if (Array.isArray(outputs) && !outputs.some(function (output) { return staysOn(rules, output); })) return "refused: monitors.layout=all-off";
     return "";
 }
 
@@ -226,9 +285,8 @@ function layoutError(rules, outputs) {
     var bad = rulesError(rules, outputs);
     if (bad !== "") return bad;
     var rects = [];
-    outputs.filter(function (output) { return !output.disabled; }).forEach(function (output) {
-        var rule = hasOwn(rules, output.name) ? rules[output.name] : hasOwn(rules, output.identifier) ? rules[output.identifier] : {};
-        var rect = logicalRect(normalizedRule(output, rule));
+    outputs.filter(function (output) { return staysOn(rules, output); }).forEach(function (output) {
+        var rect = logicalRect(normalizedRule(output, ruleFor(rules, output) || {}));
         if (rect.width > 0 && rect.height > 0) rects.push({ id: output.name, rect: rect });
     });
     for (var i = 0; i < rects.length; i++) {
@@ -272,24 +330,101 @@ function positionText(position) {
     return position.x + "x" + position.y;
 }
 
-function ruleLine(id, rule) {
+function ruleFields(id, rule) {
     var fields = ["output = " + luaString(id)];
     if (rule.mode !== undefined) fields.push("mode = " + luaString(modeText(rule.mode)));
     if (rule.position !== undefined) fields.push("position = " + luaString(positionText(rule.position)));
     if (rule.scale !== undefined) fields.push("scale = " + luaNumber(rule.scale));
     if (rule.transform !== undefined) fields.push("transform = " + rule.transform);
+    return fields;
+}
+
+function monitorCall(fields) {
     return "hl.monitor({ " + fields.join(", ") + " })";
+}
+
+// The layer's rule for ID: `disabled` is left to the guard block, which
+// turns the output off only while another output stays on.
+function ruleLine(id, rule) {
+    var fields = ruleFields(id, rule);
+    if (rule.mirror !== undefined) fields.push("mirror = " + luaString(rule.mirror));
+    return monitorCall(fields);
+}
+
+// A trial or restore rule for ID: both fields written, so an eval undoes
+// the rule an earlier eval merged into, and no handler, since every eval
+// would add one. The judge has proved another output stays on.
+function evalLine(id, rule) {
+    var fields = ruleFields(id, rule);
+    fields.push("disabled = " + (rule.disabled === true ? "true" : "false"));
+    fields.push("mirror = " + (rule.mirror === undefined ? "\"\"" : luaString(rule.mirror)));
+    return monitorCall(fields);
+}
+
+function luaList(ids) {
+    return "{ " + ids.map(luaString).join(", ") + " }";
+}
+
+// The layer turns an output off only while another output stays on, so a
+// laptop that starts or is left undocked never stays dark. The layer runs
+// before Hyprland lists any output at start, so the check runs again as each
+// output comes; Hyprland 0.56.2 lists enabled outputs that mirror nothing,
+// or FALLBACK when none is left, in `hl.get_monitors()`, each with the short
+// description a `desc:` identifier names (docs/architecture/runtime-hyprland.md).
+function guardLines(rules, ids) {
+    var off = ids.filter(function (id) { return rules[id].disabled === true; });
+    if (off.length === 0) return [];
+    var mirroring = ids.filter(function (id) { return rules[id].mirror !== undefined; });
+    return [
+        "do",
+        "    local vgs_monitors_off = " + luaList(off),
+        "    local vgs_monitors_mirroring = " + luaList(mirroring),
+        "    local vgs_monitors_applied = false",
+        "    local function vgs_monitors_named(m, ids)",
+        "        for _, id in ipairs(ids) do",
+        "            if m.name == id or \"desc:\" .. m.description == id then return true end",
+        "        end",
+        "        return false",
+        "    end",
+        "    local function vgs_monitors_others_on()",
+        "        for _, m in ipairs(hl.get_monitors()) do",
+        "            if m.name ~= \"FALLBACK\" and not vgs_monitors_named(m, vgs_monitors_off) and not vgs_monitors_named(m, vgs_monitors_mirroring) then return true end",
+        "        end",
+        "        return false",
+        "    end",
+        "    local function vgs_monitors_apply()",
+        "        if vgs_monitors_applied or not vgs_monitors_others_on() then return end",
+        "        for _, id in ipairs(vgs_monitors_off) do " + monitorCall(["output = id", "disabled = true"]) + " end",
+        "        vgs_monitors_applied = true",
+        "    end",
+        "    vgs_monitors_apply()",
+        "    hl.on(\"monitor.added\", vgs_monitors_apply)",
+        "    hl.on(\"monitor.removed\", function()",
+        "        -- A rule set from a handler waits for a render tick that never comes with only FALLBACK left, so a reload turns the outputs back on; it goes when Hyprland applies such a rule at once.",
+        "        if vgs_monitors_applied and not vgs_monitors_others_on() then hl.exec_cmd(\"hyprctl reload\") end",
+        "    end)",
+        "end"
+    ];
 }
 
 function rulesLines(rules) {
     var bad = rulesError(rules, null);
     if (bad !== "") return { ok: false, error: bad, lines: [] };
-    return { ok: true, lines: Object.keys(rules).sort().map(function (id) { return ruleLine(id, rules[id]); }) };
+    var ids = Object.keys(rules).sort();
+    return { ok: true, lines: ids.map(function (id) { return ruleLine(id, rules[id]); }).concat(guardLines(rules, ids)) };
 }
 
 function rulesLua(rules) {
-    var rendered = rulesLines(rules);
-    return rendered.ok ? { ok: true, lua: rendered.lines.join("\n") } : { ok: false, error: rendered.error };
+    var bad = rulesError(rules, null);
+    if (bad !== "") return { ok: false, error: bad };
+    return { ok: true, lua: Object.keys(rules).sort().map(function (id) { return evalLine(id, rules[id]); }).join("\n") };
+}
+
+// The identifier that names the output NAME, or NAME itself where a tiled
+// group shares that identifier.
+function mirrorTarget(outputs, name) {
+    var target = outputs.filter(function (output) { return output.name === name; })[0];
+    return outputs.filter(function (output) { return output.identifier === target.identifier; }).length > 1 ? name : target.identifier;
 }
 
 function captureRules(outputs, ids) {
@@ -303,16 +438,26 @@ function captureRules(outputs, ids) {
                 transform: output.transform
             };
             if (output.width <= 0 || output.height <= 0) delete rule.mode;
+            if (output.disabled) rule.disabled = true;
+            if (output.mirrorOf !== null) rule.mirror = mirrorTarget(outputs, output.mirrorOf);
             selected[output.name] = rule;
         });
     });
     return selected;
 }
 
-function overridden(rule, output) {
+// Whether OUTPUT, as Hyprland lists it among OUTPUTS, differs from the saved
+// RULE. An output the rule turns off reads as kept while no other output is
+// on, since the layer then leaves it on.
+function overridden(rule, output, outputs) {
     var current = normalizedRule(output, {});
     var saved = normalizedRule(output, rule);
-    return !sameMode(saved.mode, current.mode)
+    var othersOn = outputs.some(function (other) { return other.name !== output.name && !other.disabled && other.mirrorOf === null; });
+    var mirrored = rule.mirror === undefined ? output.mirrorOf === null
+        : output.mirrorOf !== null && outputsByKey(outputs, rule.mirror).some(function (target) { return target.name === output.mirrorOf; });
+    return (rule.disabled === true ? othersOn && !output.disabled : output.disabled)
+        || !mirrored
+        || !sameMode(saved.mode, current.mode)
         || Math.abs(saved.scale - current.scale) > 0.000001
         || saved.transform !== current.transform
         || saved.position.x !== current.position.x

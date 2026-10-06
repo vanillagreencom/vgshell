@@ -166,7 +166,7 @@ function verify(logic) {
   same(logic.screenChoices([], [output("DP-1", "tile"), output("DP-5", "tile"), { name: "HDMI-A-2", identifier: "HDMI-A-2", make: "", model: "", serial: "" }]), [
     { label: "Choose a screen", value: "" }, { label: "DP-1 + DP-5: Apple M", value: "tile" }, { label: "HDMI-A-2", value: "HDMI-A-2" }],
     "one choice per identifier, named by its outputs and product");
-  const monitorOutput = { identifier: "DP-2", name: "DP-2", description: "LG HDR 4K", width: 3840, height: 2160, refreshRate: 144, x: 10, y: 20, scale: 2, transform: 0, disabled: false,
+  const monitorOutput = { identifier: "DP-2", name: "DP-2", description: "LG HDR 4K", make: "LG", model: "HDR 4K", serial: "", width: 3840, height: 2160, refreshRate: 144, x: 10, y: 20, scale: 2, transform: 0, disabled: false, mirrorOf: null,
     availableModes: [{ width: 3840, height: 2160, refresh: 144 }, { width: 3840, height: 2160, refresh: 60 }, { width: 2560, height: 1440, refresh: 60 }] };
   same(logic.outputChoices([monitorOutput]), [{ label: "DP-2: LG HDR 4K", value: "DP-2" }], "the output chooser names the connector and description");
   same(logic.modeChoices(monitorOutput).map(c => c.label), ["3840 × 2160", "2560 × 1440"], "mode choices group refresh rates by size");
@@ -194,6 +194,61 @@ function verify(logic) {
     "a tiled group moves through connector rules and keeps tile offsets after normalisation");
   same([logic.arrangementContentWidth([{ x: 5, width: 10 }]), logic.arrangementContentHeight([{ y: 7, height: 11 }])], [15, 18],
     "the arrangement canvas sizes from its drawn rectangles");
+
+  // --- Use this display and Mirror -------------------------------------------
+  same(logic.outputChoices(tiledOutputs), [{ label: "DP-1 + DP-5: LG HDR 4K", value: "xdr" }], "the output chooser takes a tiled group once");
+  const offLive = Object.assign({}, side, { disabled: true });
+  const mirrorLive = Object.assign({}, side, { mirrorOf: "DP-2" });
+  const third = Object.assign({}, monitorOutput, { identifier: "HDMI-A-1", name: "HDMI-A-1", x: 3850 });
+  const stateOf = rule => [rule.disabled === true, rule.mirror === undefined ? null : rule.mirror];
+  // rows: [name, output, saved, draft, [off, mirror]]
+  const states = [
+    ["Hyprland's off output with no rule", offLive, undefined, undefined, [true, null]],
+    ["Hyprland's mirror with no rule, by connector", mirrorLive, undefined, undefined, [false, "DP-2"]],
+    ["a saved rule over Hyprland's state", offLive, { scale: 2 }, undefined, [false, null]],
+    ["a draft over the saved rule, whole", side, { mirror: "DP-2" }, { scale: 2 }, [false, null]],
+    ["a draft that turns the output off", side, undefined, { scale: 2, disabled: true }, [true, null]]
+  ];
+  for (const [name, out, saved, draft, want] of states) same(stateOf(logic.effectiveRule(out, saved, draft)), want, "effectiveRule: " + name);
+  const pair = [monitorOutput, side];
+  const off = logic.withOutputDraft(pair, {}, {}, "DP-3", { disabled: true, mirror: "" });
+  same(stateOf(off["DP-3"]), [true, null], "turning a display off drafts disabled");
+  same(Object.keys(logic.withOutputDraft(pair, {}, off, "DP-3", { disabled: false })["DP-3"]).sort(), ["mode", "position", "scale", "transform"], "turning it back on leaves no disabled field");
+  const mirrored = logic.withOutputDraft(pair, {}, {}, "DP-3", { mirror: "DP-2" });
+  same(stateOf(mirrored["DP-3"]), [false, "DP-2"], "a mirror choice drafts the mirror");
+  same(stateOf(logic.withOutputDraft(pair, {}, mirrored, "DP-3", { mirror: "" })["DP-3"]), [false, null], "Off leaves no mirror field");
+  same(stateOf(logic.withOutputDraft(pair, {}, mirrored, "DP-3", { disabled: true, mirror: "" })["DP-3"]), [true, null], "turning a mirroring display off drops its mirror");
+  const tiledOff = logic.withOutputDraft(tiledOutputs.concat([side]), {}, {}, "xdr", { disabled: true, mirror: "" });
+  same([stateOf(tiledOff["DP-1"]), stateOf(tiledOff["DP-5"])], [[true, null], [true, null]], "a tiled group turns off on every connector");
+  same(Object.keys(logic.withOutputDraft([monitorOutput, offLive], {}, {}, "DP-2", { scale: 1 })), ["DP-2"], "a size change moves no display that is off");
+  const arranged = logic.arrangementItems([monitorOutput, offLive, Object.assign({}, third, { mirrorOf: "DP-2" })], {}, {});
+  same(arranged.map(item => [item.identifier, item.off]), [["DP-2", false], ["DP-3", true]], "the canvas greys a display that is off and leaves out one that mirrors");
+  const LG = "desc:LG HDR 4K X0";
+  const lgDesk = Object.assign({}, monitorOutput, { identifier: LG });
+  // rows: [name, outputs, saved, identifier, offBlock]
+  const blocks = [
+    ["another display on", pair, {}, "DP-2", ""],
+    ["the other display off", [monitorOutput, offLive], {}, "DP-2", "only-on"],
+    ["the other display mirrors it", [monitorOutput, mirrorLive], {}, "DP-2", "only-on"],
+    ["a third display on while one mirrors it by connector", [lgDesk, mirrorLive, third], {}, LG, "mirrored"],
+    ["a saved rule mirrors it by identifier", [lgDesk, side, third], { "DP-3": { mirror: LG } }, LG, "mirrored"],
+    ["the other connector of its own tiled group", tiledOutputs.concat([side]), {}, "xdr", ""]
+  ];
+  for (const [name, list, saved, id, want] of blocks) same(logic.offBlock(list, saved, {}, id), want, "offBlock: " + name);
+  // rows: [name, outputs, draft, identifier, choice values]
+  const mirrorRows = [
+    ["each other display on", [monitorOutput, side, third], {}, "DP-2", ["", "DP-3", "HDMI-A-1"]],
+    ["no display that is off", [monitorOutput, offLive, third], {}, "DP-2", ["", "HDMI-A-1"]],
+    ["no display drafted off", [monitorOutput, side, third], off, "DP-2", ["", "HDMI-A-1"]],
+    ["no display that mirrors", [monitorOutput, side, Object.assign({}, third, { mirrorOf: "DP-3" })], {}, "DP-2", ["", "DP-3"]],
+    ["Off alone for a display another mirrors", [monitorOutput, mirrorLive, third], {}, "DP-2", [""]],
+    ["no tiled group", tiledOutputs.concat([side]), {}, "DP-3", [""]]
+  ];
+  for (const [name, list, draft, id, want] of mirrorRows) same(logic.mirrorChoices(list, {}, draft, id).map(c => c.value), want, "mirrorChoices: " + name);
+  const choices = logic.mirrorChoices([monitorOutput, side, third], {}, {}, "DP-2");
+  same([logic.mirrorIndex(choices, undefined), logic.mirrorIndex(choices, "HDMI-A-1"), logic.mirrorIndex(choices, "DP-3"), logic.mirrorIndex(choices, "DP-9")], [0, 2, 1, 0], "mirrorIndex finds the target by identifier or connector");
+  const desk = [monitorOutput, Object.assign({}, side, { identifier: "desc:LG HDR 4K X1" })];
+  same(logic.mirrorIndex(logic.mirrorChoices(desk, {}, {}, "DP-2"), "DP-3"), 1, "mirrorIndex finds a target saved by connector whose choice is its identifier");
 
   const present = resolved.displays.map(d => d.device);
   same(logic.setAssignment(entries, KEY_B, "Apple Studio Display", "DP-3", present).map(e => [e.device, e.output]), [
@@ -379,7 +434,24 @@ const CONTROLS = [
   ["normalisation leaves a non-zero origin", "out[key].position = { x: out[key].position.x - left, y: out[key].position.y - top };", ""],
   ["snap ignores neighbour edges", "if (Math.abs(x - candidate) <= SNAP) x = candidate;", "if (false) x = candidate;"],
   ["mode resize leaves neighbours behind", "if (otherRule.position.x >= current.position.x + before.width) {", "if (false) {"],
-  ["a tiled group loses its tile offsets", "var dx = rule.position.x - item.x;", "var dx = output.x - item.x;"]
+  ["a tiled group loses its tile offsets", "var dx = rule.position.x - item.x;", "var dx = output.x - item.x;"],
+  ["the draft merges over the saved rule", "var rule = named || {};", "var rule = Object.assign({}, saved || {}, draft || {});"],
+  ["Hyprland's off state is lost", "if (named ? rule.disabled === true : output.disabled) out.disabled = true;", "if (named && rule.disabled === true) out.disabled = true;"],
+  ["Hyprland's mirror is lost", "var mirror = named ? rule.mirror : output.mirrorOf === null ? undefined : output.mirrorOf;", "var mirror = named ? rule.mirror : undefined;"],
+  ["a display turned on keeps disabled", "if (out.disabled !== true) delete out.disabled;", ""],
+  ["Off keeps an empty mirror", 'if (out.mirror === "" || out.mirror === undefined) delete out.mirror;', ""],
+  ["a tiled group turns off one connector", "next[member.name] = withState(ruleOf(saved, next, member), patch);", ""],
+  ["a size change moves a display that is off", "if (!staysOn(otherRule)) return;", ""],
+  ["the canvas draws a mirroring display", "if (rules.every(function (rule) { return rule.mirror !== undefined; })) return;", ""],
+  ["the canvas greys nothing", "off: rules.every(function (rule) { return rule.disabled === true; })", "off: false"],
+  ["a display counts itself on", "return output.identifier !== identifier && staysOn(ruleOf(saved, draft, output));", "return staysOn(ruleOf(saved, draft, output));"],
+  ["a mirror by connector goes unseen", "(mirror === identifier || names.indexOf(mirror) !== -1)", "mirror === identifier"],
+  ["a mirrored display turns off", 'return mirroredBy(outputs, saved, draft, identifier).length > 0 ? "mirrored" : "";', 'return "";'],
+  ["a mirrored display mirrors", "if (mirroredBy(outputs, saved, draft, identifier).length > 0) return choices;", ""],
+  ["a tiled group is a mirror choice", "if (g.identifier === identifier || g.names.length > 1) return;", "if (g.identifier === identifier) return;"],
+  ["a display mirrors itself", "if (g.identifier === identifier || g.names.length > 1) return;", "if (g.names.length > 1) return;"],
+  ["a display off is a mirror choice", "if (staysOn(ruleOf(saved, draft, output))) choices.push(", "choices.push("],
+  ["a mirror saved by connector shows Off", " || choices[i].names.indexOf(mirror) !== -1", ""]
 ];
 
 const source = fs.readFileSync(file, "utf8");
