@@ -8,15 +8,16 @@ import "DisplaysLogic.js" as Logic
 // it from being ready; under a display the helper could not place, or one
 // placed by the user's choice, the screen it shows on, picked from the
 // outputs Hyprland reads, and Identify, which shows each screen's name and
-// flashes that display; Link displays; the saved choices whose display or
-// screen is gone, each with Forget; and, while a step is needed, the
-// access entries that need one (`accessNeeded`), each as one line with its
-// action while offered. The holder draws the title, the inset and the
-// scrolling. It draws the status the service publishes and asks the
-// service, or the core through `status.act`, for every change; it runs
-// nothing itself. Each access entry's tone and offered action come from
-// the core's status rows (`status.rows`). Tab moves through the controls
-// in reading order; the arrows move a slider and a closed Select.
+// flashes that display; Link displays; Dimming; the saved
+// choices whose display or screen is gone, each with Forget; and, while a
+// step is needed, the access entries that need one (`accessNeeded`), each
+// as one line with its action while offered. The holder draws the title,
+// the inset and the scrolling. It draws the status the service publishes
+// and asks the service, or the core through `status.act`, for every
+// change; it runs nothing itself. Each access entry's tone and offered
+// action come from the core's status rows (`status.rows`). Tab moves
+// through the controls in reading order; the arrows move a slider and a
+// closed Select.
 FocusScope {
     id: root
 
@@ -32,10 +33,13 @@ FocusScope {
     readonly property var accessRows: shell === null ? [] : shell.status.rows.filter(r => r.group === "Access" && r.report === "reported" && Logic.accessNeeded(r.value))
     // The refusal the last step was answered with, "" for none.
     property string problem: ""
+    // The refusal the last Dimming write was answered with, "" for none.
+    property string dimProblem: ""
     readonly property Item initialFocus: displaysColumn.firstFocus !== null ? displaysColumn.firstFocus : linkRow.toggle
 
     function open(payloadJson) {
         problem = "";
+        dimProblem = "";
     }
     function close() {}
 
@@ -50,6 +54,13 @@ FocusScope {
     function assign(device, output) { return answered(shell.ipc.call("assign", JSON.stringify({ device: device, output: output }))); }
     function identify(id) { return answered(shell.ipc.call("identify", id)); }
     function runAction(key) { return answered(shell.status.act(key)); }
+    // Write the plugin's setting KEY; answers the core's reply.
+    function configure(key, value) {
+        const reply = shell.configure.set(key, value);
+        dimProblem = Logic.replyText(reply);
+        if (reply !== "ok") console.warn("displays pane: " + key + " " + reply);
+        return reply;
+    }
 
     // The Select index of the choice that names IDENTIFIER, 0 for none.
     function choiceIndex(identifier) {
@@ -173,6 +184,80 @@ FocusScope {
                 role: "hint"
                 color: Theme.color.danger
                 text: root.problem
+                wrapMode: Text.Wrap
+            }
+        }
+
+        // Dimming: how long without input before the displays dim, and the
+        // level they dim to, each a Select over its schema entry's presets,
+        // written through `configure`; a custom value, set on the plugin's
+        // settings page, shows as one more choice.
+        Column {
+            id: dimColumn
+            readonly property var schema: root.shell === null ? ({}) : root.shell.manifest.schema
+            readonly property int after: root.shell === null ? 0 : root.shell.settings.dimAfterSeconds
+            readonly property int percent: root.shell === null ? 0 : root.shell.settings.dimPercent
+            readonly property var afterChoices: root.shell === null ? [] : Logic.presetChoices(schema.dimAfterSeconds, after, SettingValues.presetText)
+            readonly property var percentChoices: root.shell === null ? [] : Logic.presetChoices(schema.dimPercent, percent, SettingValues.presetText)
+            width: parent.width
+            spacing: Theme.stack.group
+
+            function indexOf(choices, value) {
+                for (let i = 0; i < choices.length; i++) if (choices[i].value === value) return i;
+                return 0;
+            }
+
+            SectionHeader {
+                width: parent.width
+                text: "Dimming"
+                description: "Any input brings each display back to its level."
+            }
+
+            FormRow {
+                width: parent.width
+                label: dimColumn.schema.dimAfterSeconds === undefined ? "" : dimColumn.schema.dimAfterSeconds.label
+
+                Select {
+                    width: parent.width
+                    model: dimColumn.afterChoices
+                    textRole: "label"
+                    currentIndex: dimColumn.indexOf(dimColumn.afterChoices, dimColumn.after)
+                    Accessible.name: parent.label
+                    // The binding comes back after a choice, so the value
+                    // the configuration holds is the one shown.
+                    onActivated: index => {
+                        const value = dimColumn.afterChoices[index].value;
+                        if (value !== dimColumn.after) root.configure("dimAfterSeconds", value);
+                        currentIndex = Qt.binding(() => dimColumn.indexOf(dimColumn.afterChoices, dimColumn.after));
+                    }
+                }
+            }
+
+            FormRow {
+                width: parent.width
+                label: dimColumn.schema.dimPercent === undefined ? "" : dimColumn.schema.dimPercent.label
+
+                Select {
+                    width: parent.width
+                    enabled: dimColumn.after > 0
+                    model: dimColumn.percentChoices
+                    textRole: "label"
+                    currentIndex: dimColumn.indexOf(dimColumn.percentChoices, dimColumn.percent)
+                    Accessible.name: parent.label
+                    onActivated: index => {
+                        const value = dimColumn.percentChoices[index].value;
+                        if (value !== dimColumn.percent) root.configure("dimPercent", value);
+                        currentIndex = Qt.binding(() => dimColumn.indexOf(dimColumn.percentChoices, dimColumn.percent));
+                    }
+                }
+            }
+
+            Label {
+                width: parent.width
+                visible: text !== ""
+                role: "hint"
+                color: Theme.color.danger
+                text: root.dimProblem
                 wrapMode: Text.Wrap
             }
         }

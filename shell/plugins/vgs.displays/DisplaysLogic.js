@@ -2,10 +2,10 @@
 
 // Pure decisions for vgs.displays: the brightness helper's answers judged,
 // the order its runs go in, the assignments file judged and applied, what
-// a brightness key, a scroll or a linked slider changes, and the status the
-// service publishes and every surface reads. QML owns the processes, the
-// files and the timers; helper/brightness.py owns the devices
-// (docs/architecture/displays.md).
+// a brightness key, a scroll or a linked slider changes, what the idle dim
+// sets and brings back, and the status the service publishes and every
+// surface reads. QML owns the processes, the files and the timers;
+// helper/brightness.py owns the devices (docs/architecture/displays.md).
 
 // A slider, a key and a scroll never go below 1 %: a kernel backlight at
 // 0 % turns its panel off.
@@ -448,6 +448,49 @@ function parseSetRequest(text) {
     if (!isPlainObject(r) || typeof r.id !== "string" || r.id === "" || clampPercent(r.percent) === null || (hasOwn(r, "osd") && typeof r.osd !== "boolean"))
         return { ok: false, error: "refused: set=shape want={id,percent,osd?}" };
     return { ok: true, id: r.id, percent: clampPercent(r.percent), osd: r.osd === true };
+}
+
+// --- Idle dim -------------------------------------------------------------------
+
+// What dimming DISPLAYS to PERCENT does: `sets`, [{ id, percent }], puts
+// every ready display brighter than PERCENT at it, and `kept`, [{ id,
+// percent }], holds each of those displays' level before, which input
+// brings back. A display at PERCENT or darker keeps its level and is not
+// kept.
+function dimPlan(displays, percent) {
+    var level = clampPercent(percent);
+    if (level === null) throw new Error("displays: dimPercent " + JSON.stringify(percent) + " is not a number");
+    var brighter = displays.filter(function (d) { return d.state === "ready" && d.percent > level; });
+    return {
+        sets: brighter.map(function (d) { return { id: d.id, percent: level }; }),
+        kept: brighter.map(function (d) { return { id: d.id, percent: d.percent }; })
+    };
+}
+
+// KEPT without the displays IDS name: a level set while the displays are
+// dimmed is the one that stays.
+function releaseKept(kept, ids) {
+    return kept.filter(function (k) { return ids.indexOf(k.id) === -1; });
+}
+
+// What input brings back: [{ id, percent }], each kept display DISPLAYS
+// still lists ready, at its kept level. A display gone or no longer ready
+// is skipped.
+function restoreChanges(displays, kept) {
+    return kept.filter(function (k) {
+        var display = displayById(displays, k.id);
+        return display !== null && display.state === "ready";
+    }).map(function (k) { return { id: k.id, percent: k.percent }; });
+}
+
+// The choices of a Select over the number setting ENTRY, its schema entry,
+// holding VALUE: [{ label, value }], one per preset, TEXT(entry, preset)
+// naming it, and VALUE last when it is none of them, since a custom value
+// is set on the plugin's settings page.
+function presetChoices(entry, value, text) {
+    var choices = entry.presets.map(function (preset) { return { label: text(entry, preset), value: preset.value }; });
+    if (!choices.some(function (c) { return c.value === value; })) choices.push({ label: text(entry, { value: value }), value: value });
+    return choices;
 }
 
 // --- Status ---------------------------------------------------------------------

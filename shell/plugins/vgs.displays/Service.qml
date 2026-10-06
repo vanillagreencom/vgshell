@@ -5,8 +5,8 @@ import qs.Commons
 import "DisplaysLogic.js" as Logic
 
 // Owns vgs.displays: every run of the brightness helper, the assignments
-// file, the brightness keys, the on-screen display, Identify, the plugin's
-// IPC and every status write. The widget, the flyout and the pane read the
+// file, the brightness keys, the on-screen display, Identify, the idle dim,
+// the plugin's IPC and every status write. The widget, the flyout and the pane read the
 // status and ask for changes through the plugin's IPC; none of them runs
 // anything.
 //
@@ -25,6 +25,15 @@ import "DisplaysLogic.js" as Logic
 // Paths.stateDir, maps the rest, as the user chose in the pane
 // (DisplaysLogic.resolve). A file the judge refuses is logged and read as
 // no choices; the next choice replaces it.
+//
+// The idle dim: one idle watch of `dimAfterSeconds`, none at 0. When it
+// reports idle, the service lists, as a key does, so it keeps each
+// display's real level, and sets every ready display brighter than
+// `dimPercent` to it (DisplaysLogic.dimPlan). When input returns, each
+// display it dimmed goes back to its kept level; a display set while dimmed
+// keeps the level it was set to. Changing `dimAfterSeconds` replaces the
+// watch, and the old one would never report the input, so it brings the
+// displays back first.
 Item {
     id: root
 
@@ -51,6 +60,11 @@ Item {
     // flashes, { id, percent } to put back, or null.
     property bool identifying: false
     property var flashed: null
+    // The idle dim: { state: "awake" }, { state: "reading" } while the
+    // list it waits for runs, or { state: "dimmed", kept } with kept
+    // [{ id, percent }], each dimmed display's level before.
+    property var dim: ({ state: "awake" })
+    property var idleDisposer: null
 
     readonly property var outputs: shell === null ? null : shell.monitors.outputs
     readonly property var steps: shell === null ? null : shell.system.state
@@ -65,6 +79,7 @@ Item {
         fileError === "" ? null : fileError, listState)
     readonly property string focusedOutput: Hyprland.focusedMonitor === null ? "" : Hyprland.focusedMonitor.name
     readonly property int step: shell === null ? 5 : shell.settings.brightnessStep
+    readonly property int dimAfterSeconds: shell === null ? 0 : shell.settings.dimAfterSeconds
     readonly property string assignmentsPath: Paths.stateDir + "/plugins/vgs.displays/assignments.json"
     readonly property string helperPath: String(Qt.resolvedUrl("helper/brightness.py")).replace(/^file:\/\//, "")
 
@@ -73,6 +88,7 @@ Item {
     onOutputsChanged: if (listed === null) requestList(); else rescan.restart()
     onSystemRevisionChanged: rescan.restart()
     onRequirementsRevisionChanged: rescan.restart()
+    onDimAfterSecondsChanged: watchIdle()
 
     function start() {
         if (shell === null || registered) return;
@@ -167,6 +183,7 @@ Item {
             keyPresses = [];
             apply(Logic.keyChanges(current, focusedOutput, shell.settings.keysTarget, presses, step, shell.settings.linked === true), true);
         }
+        if (run.verb === "list" && dim.state === "reading") dimNow();
         pump();
     }
 
@@ -189,6 +206,7 @@ Item {
     // keeps.
     function apply(changes, osdShown) {
         if (flashed !== null && changes.some(c => c.id === flashed.id)) flashed = null;
+        if (dim.state === "dimmed") dim = { state: "dimmed", kept: Logic.releaseKept(dim.kept, changes.map(c => c.id)) };
         for (const change of changes) requestSet(change.id, change.percent);
         if (osdShown && changes.length > 0) {
             const display = Logic.displayById(current, changes[0].id);
@@ -268,7 +286,41 @@ Item {
         }
     }
 
-    Component.onDestruction: if (flashed !== null) console.warn("displays: identify ended with the service; display=" + flashed.id + " keeps its flash level")
+    function watchIdle() {
+        if (idleDisposer !== null) idleDisposer();
+        idleDisposer = null;
+        wake();
+        if (shell === null || dimAfterSeconds <= 0) return;
+        idleDisposer = shell.idle.watch(dimAfterSeconds, idle => { if (idle) root.dimSoon(); else root.wake(); });
+    }
+
+    // The seat went idle: dim once the next list to end has read each
+    // display's level. With no list possible, for want of the outputs,
+    // nothing dims.
+    function dimSoon() {
+        if (listed === null || outputs === null) return;
+        dim = { state: "reading" };
+        if (runs.busy === null || runs.busy.verb !== "list") requestList();
+    }
+
+    function dimNow() {
+        const plan = Logic.dimPlan(current, shell.settings.dimPercent);
+        dim = { state: "dimmed", kept: plan.kept };
+        for (const change of plan.sets) requestSet(change.id, change.percent);
+    }
+
+    // Input returned: every display the dim set goes back to its kept level.
+    function wake() {
+        const was = dim;
+        dim = { state: "awake" };
+        if (was.state !== "dimmed") return;
+        for (const change of Logic.restoreChanges(current, was.kept)) requestSet(change.id, change.percent);
+    }
+
+    Component.onDestruction: {
+        if (flashed !== null) console.warn("displays: identify ended with the service; display=" + flashed.id + " keeps its flash level");
+        if (dim.state === "dimmed") console.warn("displays: the idle dim ended with the service; displays=" + JSON.stringify(dim.kept.map(k => k.id)) + " keep the dim level");
+    }
 
     Process {
         id: helper

@@ -3,8 +3,8 @@
 // (shell/plugins/vgs.displays/DisplaysLogic.js): the helper's answers
 // judged, the coalescing of the helper's runs, what a brightness key and a
 // linked slider change, the assignments file's judge and how its entries,
-// stale ones included, apply, the pane's Screen choices, and the status
-// and sentences the surfaces read. Expected
+// stale ones included, apply, the pane's Screen choices, what the idle dim
+// sets and brings back, and the status and sentences the surfaces read. Expected
 // values are written here by hand. Controls edit one rule in a copy of the
 // logic and require this suite to fail on each copy.
 "use strict";
@@ -221,6 +221,25 @@ function verify(logic) {
   for (const request of [{ id: XDR, percent: "60" }, { id: XDR, percent: 60, osd: "yes" }])
     same(logic.parseSetRequest(JSON.stringify(request)), { ok: false, error: "refused: set=shape want={id,percent,osd?}" }, "parseSetRequest: " + JSON.stringify(request));
 
+  // --- The idle dim ----------------------------------------------------------
+  // `shown` holds the XDR at 50, Studio A at 30, Studio B at 95, the DDC
+  // display not ready and the backlight at 3.
+  same(logic.dimPlan(shown, 30),
+    { sets: [{ id: XDR, percent: 30 }, { id: STUDIO_B, percent: 30 }], kept: [{ id: XDR, percent: 50 }, { id: STUDIO_B, percent: 95 }] },
+    "every ready display brighter than the level dims to it and keeps its level before; one at the level or darker is left");
+  same(logic.dimPlan(shown, 100), { sets: [], kept: [] }, "a level no display is above dims nothing");
+  assert.throws(() => logic.dimPlan(shown, "30"), /dimPercent "30"/);
+  const kept = [{ id: XDR, percent: 50 }, { id: STUDIO_B, percent: 95 }, { id: "hidraw:gone", percent: 40 }, { id: "ddc:HDMI-A-1", percent: 60 }];
+  same(logic.restoreChanges(shown, kept), [{ id: XDR, percent: 50 }, { id: STUDIO_B, percent: 95 }],
+    "input brings back each kept display still ready, at its kept level; one gone or not ready is skipped");
+  same(logic.releaseKept(kept, [XDR, "ddc:HDMI-A-1"]), [{ id: STUDIO_B, percent: 95 }, { id: "hidraw:gone", percent: 40 }],
+    "a display set while dimmed is no longer brought back");
+  const presetText = (entry, preset) => preset.label !== undefined ? preset.label : preset.value + " " + entry.unit;
+  const after = { unit: "seconds", presets: [{ value: 0, label: "Never" }, { value: 60 }, { value: 120 }] };
+  same(logic.presetChoices(after, 60, presetText), [{ label: "Never", value: 0 }, { label: "60 seconds", value: 60 }, { label: "120 seconds", value: 120 }],
+    "one choice per preset, in order");
+  same(logic.presetChoices(after, 45, presetText).slice(-1), [{ label: "45 seconds", value: 45 }], "a custom value is the last choice");
+
   // --- Status ----------------------------------------------------------------
   let waiting = logic.queueSet(logic.emptyRuns(), XDR, 80);
   assert.equal(logic.displaysValue(resolved, waiting)[0].percent, 80, "a display shows the level waiting for it");
@@ -316,7 +335,13 @@ const CONTROLS = [
   ["the set judge takes a negative percent", "!Number.isInteger(answer.percent) || answer.percent < 0 ||", "!Number.isInteger(answer.percent) ||"],
   ["assignment text has no length cap", "value.length <= ASSIGNMENT_TEXT_MAX && ", ""],
   ["a set request takes any osd", "(hasOwn(r, \"osd\") && typeof r.osd !== \"boolean\")", "false"],
-  ["an assign request takes an empty device", "!isPlainObject(r) || !isText(r.device) ||", "!isPlainObject(r) ||"]
+  ["an assign request takes an empty device", "!isPlainObject(r) || !isText(r.device) ||", "!isPlainObject(r) ||"],
+  ["the dim raises a darker display", "return d.state === \"ready\" && d.percent > level;", "return d.state === \"ready\";"],
+  ["the dim keeps the dimmed level", "kept: brighter.map(function (d) { return { id: d.id, percent: d.percent }; })", "kept: brighter.map(function (d) { return { id: d.id, percent: level }; })"],
+  ["a level set while dimmed is brought back over", "return ids.indexOf(k.id) === -1;", "return true;"],
+  ["a display gone is brought back", "return display !== null && display.state === \"ready\";", "return display === null || display.state === \"ready\";"],
+  ["a display no longer ready is brought back", "return display !== null && display.state === \"ready\";", "return display !== null;"],
+  ["a custom value has no choice", "if (!choices.some(function (c) { return c.value === value; }))", "if (false)"]
 ];
 
 const source = fs.readFileSync(file, "utf8");

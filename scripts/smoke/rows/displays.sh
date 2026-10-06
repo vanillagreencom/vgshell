@@ -26,7 +26,13 @@
 # terminal `vgshell system apply apple-displays`; with hidraw2 open again
 # the pane draws no Access section; the choices persist in the assignments
 # file and come back after the service is rebuilt, and the second Studio
-# Display still waits for its own; a stub kernel backlight, which the
+# Display still waits for its own; the service holds one idle watch at
+# the default 120 s and none at 0, which the rest of the row keeps, so no
+# dim lands between its readings; System → Displays draws the Dimming
+# section with the settings' values; after 3 s without input every display
+# brighter than the dim level, 20 %, dims to it and a darker one takes no
+# write, a level set while dimmed stays, and a key brings each other
+# display back to its level; a stub kernel backlight, which the
 # brightnessctl stand-in lists and sets, reads as a laptop panel, and a
 # mouse drag on its slider in System → Displays sets it while the drag
 # moves and leaves it at the drag's end, 1 %; after another program sets
@@ -42,13 +48,15 @@
 # built under the shown pane with its `shell`, are read as the pane is: the
 # copy as shipped draws no Access section, the copy that takes every entry
 # as needed draws the ready Apple entry, and the copy that never hides the
-# section keeps its heading over no line. The helper runs and their
+# section keeps its heading over no line. With the dim off, 4 s without
+# input write no display, so the dim's writes are the watch's. The helper
+# runs and their
 # levels are read from the HID fake's log, every feature report it
 # served, and from the brightnessctl stand-in's calls. Every
 # reading is expect_poll's: 25 reads 0.2 s apart. The row puts back the
 # user file, so vgs.system and vgs.displays are as it found them, and
 # removes the output, the assignments file and the stub backlight and
-# gives hidraw2 its mode back.
+# gives hidraw2 its mode back. The dim settings live in the user file.
 # inputs: shell/plugins/vgs.displays/* shell/plugins/vgs.system/* scripts/smoke/fixtures/devices/* shell/Core/SystemSteps.qml shell/Core/MonitorState.qml shell/Hosts/PaneHost.qml shell/Ui/controls/FormRow.qml bin/vgshell-system scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh bin/vgshell-tui
 set -euo pipefail
 devices_ready displays || return 0
@@ -137,6 +145,40 @@ for row in mine:
     line = lambda role: next((p.get("text") for p in parts if p["type"] == "Label" and p.get("role") == role and p["parent"] == row), None)
     lines.append([line("label"), line("hint"), next((p.get("text") for p in parts if p["type"] == "Button"), None)])
 print(json.dumps({"header": items[headers[0]]["visible"], "lines": lines}))' "${1:-}" "${disp_access_copies[@]}"; }
+# disp_setting KEY VALUE: the plugin's setting KEY in the user file, a
+# JSON VALUE, or `null` for the manifest's default.
+disp_setting() {
+  python3 - "$disp_user" "$1" "$2" <<'PY'
+import json, os, sys
+path, key, value = sys.argv[1], sys.argv[2], json.loads(sys.argv[3])
+config = json.load(open(path))
+rows = config.setdefault("plugins", [])
+row = next((r for r in rows if r.get("id") == "vgs.displays"), None)
+if row is None:
+    row = {"id": "vgs.displays"}
+    rows.append(row)
+if value is None:
+    row.pop(key, None)
+else:
+    row[key] = value
+with open(path + ".tmp", "w") as out:
+    json.dump(config, out)
+os.replace(path + ".tmp", path)
+PY
+}
+# The timeouts of the plugin's idle watches, as the lending record lists
+# them.
+disp_watches() { ipc shell lent | py_reply 'import json,sys; print(json.dumps([w["timeout"] for w in json.load(sys.stdin)["idle"] if w["id"] == "vgs.displays"]))'; }
+# The idle dim as the service holds it: its state, and while dimmed each
+# kept display as [node, level].
+disp_dim() { disp_read dim | py_reply '
+import json, re, sys
+dim = json.load(sys.stdin)
+print(json.dumps([dim["state"]] + ([[re.search(r"hidraw\d+", k["id"]).group(0), k["percent"]] for k in dim["kept"]] if dim["state"] == "dimmed" else [])))'; }
+# True when System → Displays' Dimming section, the pane's last two
+# Selects, shows the two values given.
+disp_dim_drawn() { ipc smoke itemTexts window vgs.displays Select | py_reply 'import json,sys; print(json.load(sys.stdin)[-2:] == [[sys.argv[1]], [sys.argv[2]]])' "$1" "$2"; }
+disp_all_sets() { echo "$(disp_sets hidraw0) $(disp_sets hidraw1) $(disp_sets hidraw2)"; }
 disp_file_entries() { python3 -c 'import json,sys; print(json.dumps(sorted([e["device"], e["output"]] for e in json.load(open(sys.argv[1]))["assignments"])))' "$disp_file"; }
 
 disp_main="$(hypr -j monitors | py_reply 'import json,sys; print(sorted(json.load(sys.stdin), key=lambda m: m["id"])[0]["name"])')" || { fail "displays: the main output is unreadable"; return 0; }
@@ -148,6 +190,9 @@ expect "enabling vgs.displays is allowed" ok ipc shell setPluginEnabled vgs.disp
 # its widget in the bar.
 expect "placing the displays widget is allowed" ok ipc shell setPluginPlaced vgs.displays true
 expect_poll "the displays service is built" True record_exists vgs.displays
+expect_poll "the service watches for 120 s without input, the dim's default" '[120]' disp_watches
+disp_setting dimAfterSeconds 0
+expect_poll "with the dim off the service holds no idle watch" '[]' disp_watches
 # rows/device-fakes.sh left the XDR's report at 20000, 40 %.
 expect_poll "the service lists the three Apple displays and places none" \
   '[["hidraw0", "ready", 40, [], false], ["hidraw1", "ready", 50, [], false], ["hidraw2", "ready", 70, [], false]]' disp_items
@@ -344,6 +389,52 @@ expect "enabling vgs.displays again is allowed" ok ipc shell setPluginEnabled vg
 expect_poll "the rebuilt service puts Studio A on the new output from the file" "[\"hidraw1\", \"ready\", 60, [\"$disp_output\"], true]" disp_item hidraw1
 expect "the rebuilt service puts the XDR on the main output from the file" "[\"hidraw0\", \"ready\", 36, [\"$disp_main\"], true]" disp_item hidraw0
 expect "the second Studio Display still waits after the rebuild" '["hidraw2", "ready", 70, [], false]' disp_item hidraw2
+
+# The idle dim over the three displays: the XDR at 10 %, below the dim
+# level, Studio A at 60 % and Studio B at 70 %. System → Displays draws
+# the Dimming section with the settings' values.
+expect "the XDR is set to 10 % for the dim" ok ipc vgs.displays invoke set "{\"id\":\"$disp_xdr\",\"percent\":10}"
+expect_poll "the helper is idle before the dim" True disp_idle
+expect "the deep link opens System → Displays for the dim" ok ipc shell summon window vgs.system '{"pane":"vgs.displays"}'
+expect_poll "the System window mounts the displays pane for the dim" '["vgs.displays"]' window_panes
+expect_poll "the Dimming section draws the dim off at the default level" True disp_dim_drawn Never 30%
+disp_setting dimPercent 20
+expect_poll "the Dimming section follows the dim level" True disp_dim_drawn Never 20%
+expect "hiding the System window before the dim is allowed" ok ipc shell hide window vgs.system
+expect_poll "the System window is gone before the dim" 0 window_count System
+expect_poll "the helper is idle before the dim's watch" True disp_idle
+disp_xdr_sets="$(disp_sets hidraw0)"
+disp_setting dimAfterSeconds 3
+expect_poll "the service watches for 3 s without input" '[3]' disp_watches
+expect_poll "3 s without input dim the displays above 20 %, keeping their levels" '["dimmed", ["hidraw1", 60], ["hidraw2", 70]]' disp_dim
+expect_poll "the helper is idle after the dim" True disp_idle
+expect "the dim set Studio A and Studio B to 20 % and left the darker XDR" \
+  "[[\"hidraw0\", \"ready\", 10, [\"$disp_main\"], true], [\"hidraw1\", \"ready\", 20, [\"$disp_output\"], true], [\"hidraw2\", \"ready\", 20, [], false]]" disp_items
+# 400 + 20 % of 400..60000, 12320, little-endian after report id 1.
+expect "the fake holds Studio A at 20 %" 01203000000000 disp_report hidraw1
+expect "the dim wrote nothing to the darker XDR" "$disp_xdr_sets" disp_sets hidraw0
+expect "Studio B is set to 40 % while dimmed" ok ipc vgs.displays invoke set "{\"id\":\"$disp_b\",\"percent\":40}"
+expect_poll "a level set while dimmed is no longer kept" '["dimmed", ["hidraw1", 60]]' disp_dim
+expect_poll "the helper is idle after the set while dimmed" True disp_idle
+type_keys -k Shift_L || fail "typing a key to end the dim failed"
+expect_poll "a key ends the dim" '["awake"]' disp_dim
+expect_poll "a key brings Studio A back to 60 %, keeps Studio B at 40 % and the XDR at 10 %" \
+  "[[\"hidraw0\", \"ready\", 10, [\"$disp_main\"], true], [\"hidraw1\", \"ready\", 60, [\"$disp_output\"], true], [\"hidraw2\", \"ready\", 40, [], false]]" disp_items
+# 400 + 60 % of 400..60000, 36160. The watch reports idle again 3 s
+# after the key; each reading here lands before that, and turning the dim
+# off below brings back any display a second dim set.
+expect_poll "the fake holds Studio A at 60 % again" 01408d00000000 disp_report hidraw1
+disp_setting dimAfterSeconds 0
+expect_poll "the dim is off again" '[]' disp_watches
+expect_poll "the helper is idle with the dim off" True disp_idle
+expect "turning the dim off leaves every level" \
+  "[[\"hidraw0\", \"ready\", 10, [\"$disp_main\"], true], [\"hidraw1\", \"ready\", 60, [\"$disp_output\"], true], [\"hidraw2\", \"ready\", 40, [], false]]" disp_items
+# Control: with the dim off, 4 s without input, past the 3 s watch above,
+# write no display.
+disp_quiet_sets="$(disp_all_sets)"
+sleep 4
+expect "control: with the dim off, 4 s without input write no display" "$disp_quiet_sets" disp_all_sets
+expect "control: with the dim off the service stays awake" '["awake"]' disp_dim
 
 # A laptop panel: a stub kernel backlight in the fakes' sysfs, which the
 # brightnessctl stand-in lists at 50 % and sets to any level. A mouse drag

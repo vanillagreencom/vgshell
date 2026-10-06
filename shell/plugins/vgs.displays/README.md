@@ -11,7 +11,8 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 - A brightness item in each bar. It controls the display on its own screen: scroll to change the brightness, click to open the flyout. It hides while no display it can control lights that screen.
 - A flyout with one slider per display, the bar's own display first, Link displays, and Display Settings.
 - The brightness keys change the display you work on, or every display, as Brightness keys change sets. An on-screen display shows the new level on the screen you work on, or, when no display there changed, on the first display that did.
-- System → Displays: each display's brightness, the screen a display shows on when VGS cannot tell, Identify, Link displays, and the access each kind of display needs.
+- System → Displays: each display's brightness, the screen a display shows on when VGS cannot tell, Identify, Link displays, Dimming, and the access each kind of display needs.
+- The displays dim after a time without input, to a level you choose. Any input brings each display back to its level. A display already darker keeps its level, and a playing video keeps the displays from dimming.
 
 ## How it works
 
@@ -27,6 +28,8 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 | Key and scroll step | 5% | How much one brightness key press or bar scroll changes the level. The level itself is set in System → Displays. |
 | Brightness keys change | focused | The display the brightness keys change: the one you work on, or all. |
 | Link displays | off | Change every display by the same amount. |
+| Dim when inactive | 2 minutes | Time without input before the displays dim, or Never. The lock starts later by default, so input during the dim brings the displays back before the session locks. |
+| Dimmed brightness | 30% | The level the displays dim to. |
 
 The keys are `XF86MonBrightnessUp` and `XF86MonBrightnessDown`. When your Hyprland configuration also binds them, the Keys row in Settings shows the conflict, and Clear there leaves your own binding.
 

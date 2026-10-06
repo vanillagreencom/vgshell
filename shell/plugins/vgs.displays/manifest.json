@@ -9,7 +9,7 @@
   "icon": "sun",
   "kinds": ["service", "bar-widget", "panel", "pane"],
   "entryPoints": { "service": "Service.qml", "bar-widget": "Widget.qml", "panel": "Panel.qml", "pane": "Pane.qml" },
-  "capabilities": ["configure", "ipc", "layers", "monitors", "requirements", "screens", "shortcut", "status", "surfaces", "system"],
+  "capabilities": ["configure", "idle", "ipc", "layers", "monitors", "requirements", "screens", "shortcut", "status", "surfaces", "system"],
   "defaultSection": "right",
   "pane": { "group": "Hardware", "order": 20 },
   "requirements": [
@@ -20,12 +20,16 @@
   "settings": {
     "brightnessStep": 5,
     "keysTarget": "focused",
-    "linked": false
+    "linked": false,
+    "dimAfterSeconds": 120,
+    "dimPercent": 30
   },
   "schema": {
     "brightnessStep": { "type": "number", "label": "Key and scroll step", "description": "How much one brightness key press or bar scroll changes the level. Set the level itself in System → Displays", "min": 1, "max": 25, "step": 1, "unit": "%", "group": "Brightness" },
     "keysTarget": { "type": "enum", "label": "Brightness keys change", "description": "The display the brightness keys change", "options": ["focused", "all"], "group": "Brightness" },
-    "linked": { "type": "boolean", "label": "Link displays", "description": "Change every display by the same amount", "group": "Brightness" }
+    "linked": { "type": "boolean", "label": "Link displays", "description": "Change every display by the same amount", "group": "Brightness" },
+    "dimAfterSeconds": { "type": "number", "label": "Dim when inactive", "description": "Time without input before the displays dim. Any input brings each display back to its level", "min": 0, "max": 3600, "step": 10, "unit": "seconds", "allowCustom": true, "presets": [{ "value": 0, "label": "Never" }, { "value": 60 }, { "value": 120 }, { "value": 300 }, { "value": 600 }], "group": "Dimming" },
+    "dimPercent": { "type": "number", "label": "Dimmed brightness", "description": "The level the displays dim to. A display already darker keeps its level", "min": 1, "max": 90, "step": 1, "unit": "%", "allowCustom": true, "presets": [{ "value": 10 }, { "value": 20 }, { "value": 30 }, { "value": 40 }, { "value": 50 }], "group": "Dimming" }
   },
   "hyprland": {
     "binds": [

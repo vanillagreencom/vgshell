@@ -8,10 +8,10 @@ Covers: shell/plugins/vgs.displays/*.qml, shell/plugins/vgs.displays/*.js, shell
 
 | Part | File | Role |
 |---|---|---|
-| Service | `Service.qml` | Owns every helper run, the assignments file, the brightness keys, the on-screen display, Identify, the plugin's IPC and every status write. |
+| Service | `Service.qml` | Owns every helper run, the assignments file, the brightness keys, the on-screen display, Identify, the idle dim, the plugin's IPC and every status write. |
 | Widget | `Widget.qml` | One per bar. It controls the display on its own screen (`screens.current`): a scroll moves it one `brightnessStep` a notch and shows the on-screen display there, and a click opens the flyout. It hides while no ready display lights its screen. |
 | Flyout | `Panel.qml` | One row per display, the display on the flyout's own screen first; Link displays; Display Settings, which opens the plugin's pane. |
-| Pane | `Pane.qml` | System → Displays: the rows, a Screen choice and Identify under each display the helper left unplaced or the user placed (`placeable`), Link displays, the stale choices, and, while a step is needed, the access entries that need one, each with its action. |
+| Pane | `Pane.qml` | System → Displays: the rows, a Screen choice and Identify under each display the helper left unplaced or the user placed (`placeable`), Link displays, Dimming, the stale choices, and, while a step is needed, the access entries that need one, each with its action. |
 | Rows | `DisplayRow.qml`, `LinkRow.qml` | In the flyout and the pane: one display, a Slider while it is ready, else its state and Allow while its access entry offers it; and Link displays. |
 | Layers | `Osd.qml`, `Identify.qml` | The passive layers the service shows through `layers`: a `LevelOsd`, and each screen's name. |
 | Logic | `DisplaysLogic.js` | Every decision on this page. |
