@@ -314,7 +314,10 @@ for row in "${rows[@]}"; do
   started=$SECONDS
   status=0
   case "${block_image[$block]}" in
-    arch) wrapper='printf -v argv "%q " timeout "$1" bash -o pipefail -c "$2"; while printf "\\n"; do sleep 1; done | script -qE never -ec "$argv" /dev/null' ;;
+    # The newline feeder is the wrapper's own child, ended once script
+    # returns: as a pipeline's head it held the wrapper up to its next
+    # write, and as script's own child it kept script from exiting.
+    arch) wrapper='printf -v argv "%q " timeout "$1" bash -o pipefail -c "$2"; exec 3< <(while printf "\\n"; do sleep 1; done 2>/dev/null); feeder=$!; script -qE never -ec "$argv" /dev/null <&3 3<&-; status=$?; kill "$feeder"; exit "$status"' ;;
     fedora) wrapper='yes y | timeout "$1" bash -o pipefail -c "$2"' ;;
     *) wrapper='yes "" | timeout "$1" bash -o pipefail -c "$2"' ;;
   esac
