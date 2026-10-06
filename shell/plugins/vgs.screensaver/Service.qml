@@ -10,11 +10,14 @@ Item {
     property var idleDisposer: null
     property bool running: false
     property var published: ({})
+    property var seenArtEndedAt: null
 
     readonly property bool locked: shell !== null && shell.session.locked
     readonly property bool idleEnabled: shell !== null && shell.settings.idleEnabled === true
     readonly property int idleSeconds: shell === null ? 150 : shell.settings.idleSeconds
     readonly property int requirementsRevision: shell === null ? 0 : shell.requirements.revision
+    readonly property var artRun: shell === null ? ({ running: false, code: null, endedAt: null }) : shell.tui.state.art
+    readonly property string managerKey: shell === null ? "" : JSON.stringify(shell.manager.plugins)
 
     onShellChanged: {
         if (shell === null) return;
@@ -28,13 +31,15 @@ Item {
         publish("effects", [{ label: "Random", value: "random" }]);
         refreshEffects();
         watchIdle();
-        publishState();
+        publishAll();
     }
-    onIdleEnabledChanged: watchIdle()
-    onIdleSecondsChanged: watchIdle()
+    onIdleEnabledChanged: { watchIdle(); publishLockOrder(); }
+    onIdleSecondsChanged: { watchIdle(); publishLockOrder(); }
     onRequirementsRevisionChanged: refreshEffects()
     onLockedChanged: if (locked) stop()
     onRunningChanged: publishState()
+    onArtRunChanged: checkArtRun()
+    onManagerKeyChanged: publishLockOrder()
 
     function start() {
         if (shell === null) return "refused: screensaver=not-ready";
@@ -46,6 +51,13 @@ Item {
     function stop() {
         running = false;
         return "ok";
+    }
+
+    function checkArtRun() {
+        if (shell === null || artRun === undefined || artRun === null) return;
+        if (artRun.endedAt === null || artRun.endedAt === seenArtEndedAt) return;
+        seenArtEndedAt = artRun.endedAt;
+        if (artRun.code === 0) start();
     }
 
     function watchIdle() {
@@ -76,8 +88,37 @@ Item {
         published = next;
     }
 
+    function publishAll() {
+        publishState();
+        publishArt();
+        publishLockOrder();
+    }
+
     function publishState() {
         publish("state", running ? { tone: "info", text: "Running" } : { tone: "ok", text: "Off" });
+    }
+
+    function publishArt() {
+        publish("art", { tone: "info", text: "Default art", action: true });
+    }
+
+    function publishLockOrder() {
+        if (shell === null) return;
+        const plugins = shell.manager.plugins || [];
+        const lock = plugins.find(row => row.id === "vgs.lock" && row.enabled === true);
+        if (lock === undefined) {
+            return;
+        }
+        const seconds = Number(lock.settings.idleLockSeconds || 0);
+        if (seconds <= 0) {
+            publish("lockOrder", { tone: "warning", text: "Lock is off" });
+            return;
+        }
+        if (!idleEnabled) {
+            publish("lockOrder", { tone: "info", text: "Idle start is off" });
+            return;
+        }
+        publish("lockOrder", { tone: idleSeconds < seconds ? "ok" : "warning", text: "Lock follows at " + seconds + " s" });
     }
 
     function refreshEffects() {

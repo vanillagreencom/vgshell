@@ -9,9 +9,12 @@
   "icon": "monitor-play",
   "kinds": ["service", "cover"],
   "entryPoints": { "service": "Service.qml", "cover": "Cover.qml" },
-  "capabilities": ["idle", "ipc", "requirements", "session", "shortcut", "status"],
+  "capabilities": ["idle", "ipc", "manager", "requirements", "session", "shortcut", "status", "tui"],
   "requirements": [
-    { "command": "ttfx", "packages": { "aur": "ttfx" }, "optional": false, "purpose": "Animates the screensaver text art" }
+    { "command": "ttfx", "packages": { "aur": "ttfx" }, "optional": false, "purpose": "Animates the screensaver text art" },
+    { "command": "magick", "packages": { "pacman": "imagemagick", "dnf": "ImageMagick", "nix": "imagemagick" }, "optional": false, "purpose": "Converts an image into screensaver text art" },
+    { "command": "gum", "packages": { "pacman": "gum", "apt": "gum", "dnf": "gum", "nix": "gum" }, "optional": false, "purpose": "Shows the art choices in a setup window" },
+    { "command": "awk", "packages": { "pacman": "gawk", "apt": "gawk", "dnf": "gawk", "nix": "gawk" }, "optional": false, "purpose": "Builds text art from converted image pixels" }
   ],
   "settings": {
     "idleEnabled": true,
@@ -24,6 +27,7 @@
     "idleSeconds": {
       "type": "number",
       "label": "Start after",
+      "description": "This time and the lock time both count from the start of inactivity.",
       "min": 1,
       "max": 86400,
       "step": 30,
@@ -59,9 +63,24 @@
   },
   "status": {
     "state": { "type": "state", "label": "Screensaver" },
+    "art": { "type": "state", "label": "Art", "action": { "label": "Change art", "tui": "art" } },
+    "lockOrder": { "type": "state", "label": "Lock order" },
     "effects": { "type": "choices", "label": "Effects", "hidden": true }
+  },
+  "hyprland": {
+    "binds": [
+      { "shortcut": "start", "key": null }
+    ]
   },
   "menu": {
     "system.screensaver": { "label": "Screensaver", "icon": "monitor-play", "shortcut": "start" }
+  },
+  "tui": {
+    "art": {
+      "script": "tui/art.sh",
+      "title": "Screensaver art",
+      "requires": ["magick", "gum", "awk"],
+      "entry": { "label": "Screensaver art", "icon": "image", "group": "Style" }
+    }
   }
 }

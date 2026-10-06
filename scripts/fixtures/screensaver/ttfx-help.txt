@@ -50,15 +50,15 @@ Options:
       --tab-width <TAB_WIDTH>
           [default: 4]
       --xterm-colors
-          
+
       --no-color
-          
+
       --terminal-background-color <TERMINAL_BACKGROUND_COLOR>
           [default: #000000]
       --existing-color-handling <EXISTING_COLOR_HANDLING>
           [default: ignore]
       --wrap-text
-          
+
       --frame-rate <FRAME_RATE>
           [default: 60]
       --canvas-width <CANVAS_WIDTH>
@@ -70,13 +70,13 @@ Options:
       --anchor-text <ANCHOR_TEXT>
           [default: sw]
       --ignore-terminal-dimensions
-          
+
       --reuse-canvas
-          
+
       --no-eol
-          
+
       --no-restore-cursor
-          
+
       --seed <SEED>
           Seed for the random number generator (deterministic within ttfx)
       --print-completion <SHELL>
