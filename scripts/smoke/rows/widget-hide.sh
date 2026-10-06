@@ -11,12 +11,17 @@
 # row and no disabledPlugins change. A restart keeps it hidden while
 # acme.hideable-new, installed while the shell was stopped, is placed by
 # the same pass, and the Settings page's Show in bar switch brings the
-# hidden widget back. The control starts a tree whose firstPresence names
-# nothing and whose frame opens no menu on a right click: an installed
-# widget then stays off the bar and the right click opens nothing. The row
+# hidden widget back. That restart is an update too: with a user file from
+# before vgs.voice and vgs.webapps shipped, both are on after it and Voice's
+# widget is placed, while vgs.tray, which the user file turned off, stays
+# off. The control starts a tree whose firstPresence names nothing, whose
+# frame opens no menu on a right click, whose vgs.voice and vgs.webapps
+# manifests set `optIn` and whose disabled check lets vgs.tray past: an
+# installed widget then stays off the bar, the right click opens nothing,
+# the two shipped plugins stay off and vgs.tray comes on. The row
 # restores the user file, removes its copies and puts the pointer back
 # where it found it.
-# inputs: shell/Ui/BarWidget.qml shell/Ui/feedback/Dialog.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Ui/overlay/DismissScope.qml shell/Core/PluginLogic.js shell/Core/Plugins.qml shell/Core/Config.qml scripts/smoke/fixtures/plugins/acme.pane/* shell/plugins/vgs.settings/*
+# inputs: shell/Ui/BarWidget.qml shell/Ui/feedback/Dialog.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Ui/overlay/DismissScope.qml shell/Core/PluginLogic.js shell/Core/Plugins.qml shell/Core/Config.qml scripts/smoke/fixtures/plugins/acme.pane/* shell/plugins/vgs.settings/* shell/plugins/vgs.voice/manifest.json shell/plugins/vgs.webapps/manifest.json shell/plugins/vgs.tray/manifest.json
 set -euo pipefail
 hide_file="$home/.config/vgshell/shell.json"
 hide_saved="$sandbox/shell-before-widget-hide.json"
@@ -32,6 +37,25 @@ hide_sections() { python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); l
 hide_row() { python3 -c 'import json,sys; print(any(e["id"] == sys.argv[2] for e in json.load(open(sys.argv[1])).get("plugins", [])))' "$hide_file" "$1"; }
 hide_disabled() { python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1])).get("disabledPlugins")))' "$hide_file"; }
 hide_read() { ipc smoke readInstance "$(bar_key)" "$1" "$2"; }
+# Rewrite the user file as one from before vgs.voice and vgs.webapps
+# shipped, neither id in disabledPlugins, plugins[] or a layout section,
+# whose user turned vgs.tray off: its id in disabledPlugins.
+hide_before_update() {
+  python3 - "$hide_file" <<'PY'
+import json, os, sys
+path = sys.argv[1]
+d = json.load(open(path))
+new = ("vgs.voice", "vgs.webapps")
+d["disabledPlugins"] = [i for i in d.get("disabledPlugins", []) if i not in new and i != "vgs.tray"] + ["vgs.tray"]
+d["plugins"] = [r for r in d.get("plugins", []) if r["id"] not in new]
+layout = d.get("bar", {}).get("layout", {})
+for section in layout:
+    layout[section] = [e for e in layout[section] if e["id"] not in new]
+with open(path + ".tmp", "w") as out:
+    json.dump(d, out)
+os.replace(path + ".tmp", path)
+PY
+}
 # hide_right_click ID: a real right click on the centre of ID's widget on
 # the first bar, the pointer moved a pixel off first so the press follows a
 # motion.
@@ -83,12 +107,23 @@ expect "Hide leaves disabledPlugins as it was" "$hide_disabled_before" hide_disa
 
 # A restart keeps the hidden widget hidden; the same pass places a widget
 # installed while the shell was stopped, which proves the pass ran.
+# The restart is also an update: the user file is made one from before
+# vgs.voice and vgs.webapps shipped, so it names neither. Each is on after
+# the restart, Voice with its widget in its default section, while
+# vgs.tray, which that file turned off, stays off and in no bar.
 stop_shell
 install_plugin_copy acme.pane acme.hideable-new "Hideable New" 10
+hide_before_update || fail "the user file from before the shipped plugins could not be written"
 start_shell "$repo" "$sandbox/widget-hide-restart.log" || fail "the shell starts again for the hidden widget"
 expect_poll "after a restart a widget installed meanwhile is placed" '[true, true]' hide_listed acme.hideable-new
 expect "after a restart the hidden widget stays hidden" '[true, false]' hide_listed acme.hideable
 expect "after a restart the hidden widget is in no bar" '[false]' hide_in_bars acme.hideable
+expect_poll "after an update a shipped plugin the user never had is on with its widget placed" '[true, true]' hide_listed vgs.voice
+expect "after an update the shipped widget sits in its default section" '["right"]' hide_sections vgs.voice
+expect_poll "after an update the shipped widget is in every bar" '[true]' hide_in_bars vgs.voice
+expect "after an update a shipped plugin with no widget is on" '[true, false]' hide_listed vgs.webapps
+expect "after an update a shipped plugin the user turned off stays off" False plugin_enabled vgs.tray
+expect "after an update a shipped widget the user turned off is in no bar" '[false]' hide_in_bars vgs.tray
 
 # The Settings page's Show in bar switch brings it back.
 settings_page_open acme.hideable
@@ -98,16 +133,26 @@ expect_poll "Show in bar puts the hidden widget back in its default section" '["
 settings_page_close acme.hideable
 
 # The control: no first presence and no menu. An installed widget stays
-# off the bar, and a right click on a placed widget opens nothing.
+# off the bar, and a right click on a placed widget opens nothing. The same
+# copy marks vgs.voice and vgs.webapps `optIn`, so the user file from before
+# they shipped leaves both off, and lets vgs.tray past the disabled check,
+# so the plugin the user turned off comes on.
 if copy_tree widget-hide-control \
   && edit_tree widget-hide-control shell/Core/PluginLogic.js 'return !isPlaced(effective, m) && pluginRow(effective, id) === undefined;' 'return false;' \
-  && edit_tree widget-hide-control shell/Ui/BarWidget.qml 'frameUi.item.openMenu();' ''; then
+  && edit_tree widget-hide-control shell/Ui/BarWidget.qml 'frameUi.item.openMenu();' '' \
+  && edit_tree widget-hide-control shell/plugins/vgs.voice/manifest.json '"schemaVersion": 1,' '"schemaVersion": 1, "optIn": true,' \
+  && edit_tree widget-hide-control shell/plugins/vgs.webapps/manifest.json '"schemaVersion": 1,' '"schemaVersion": 1, "optIn": true,' \
+  && edit_tree widget-hide-control shell/Core/PluginLogic.js 'if (disabled.indexOf(manifest.id) !== -1)' 'if (disabled.indexOf(manifest.id) !== -1 && manifest.id !== "vgs.tray")'; then
   stop_shell
+  hide_before_update || fail "control: the user file from before the shipped plugins could not be written"
   start_shell "$sandbox/tree-widget-hide-control" "$sandbox/widget-hide-control.log" || fail "the widget-hide control shell starts"
   install_plugin_copy acme.pane acme.hideable-control "Hideable Control" 10
   rescan "control: rescan after installing a widget answers ok"
   expect_poll "control: the installed widget is discovered" True plugin_known acme.hideable-control
   expect "control: with no first presence the installed widget stays off the bar" '[false, false]' hide_listed acme.hideable-control
+  expect "control: a shipped plugin marked optIn stays off after an update" '[false, false]' hide_listed vgs.voice
+  expect "control: a shipped plugin with no widget marked optIn stays off after an update" '[false, false]' hide_listed vgs.webapps
+  expect "control: a disabled check that lets vgs.tray past turns it on" True plugin_enabled vgs.tray
   expect_poll "control: the placed widget is built" '[true]' hide_in_bars acme.hideable
   hide_right_click acme.hideable || fail "control: the right click on the widget failed"
   sleep 0.5

@@ -163,6 +163,5 @@
       }
     }
   },
-  "appearance": "Appearance.js",
-  "optIn": true
+  "appearance": "Appearance.js"
 }

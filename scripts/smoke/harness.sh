@@ -820,13 +820,16 @@ PY
 # earlier row left there, so the first presence places none of their
 # widgets.
 # Every host command a default-set service runs at start reaches a
-# stand-in or does not run: vgs.devtools's queries reach
+# stand-in, does not run or only reads: vgs.devtools's queries reach
 # devtools_stand_ins; vgs.updates reads updates_cache_fresh's status cache;
 # vgs.agent-warden notifies only once the warden's status file exists,
 # which no start finds; vgs.notifications reads its token only through the
 # secret-tool sentinel, which answers every search with nothing stored and
 # every lookup with no secret; vgs.ai-usage finds no account folder in
-# the sandbox HOME, so it runs no tool and sends no request.
+# the sandbox HOME, so it runs no tool and sends no request; vgs.voice's
+# service probe reaches the systemctl stand-in, and only a host that has
+# voxtype runs it, to read its state; vgs.webapps lists its own icons
+# under the sandbox HOME and asks xdg-mime for the https default.
 default_set_prepare() { # PLUGINS_JSON [DISABLED_JSON]
   devtools_stand_ins
   updates_cache_fresh
@@ -863,7 +866,7 @@ case "$plugin_set" in
     mkdir -p "$tick"
     cp -R "$repo/scripts/smoke/fixtures/plugins/acme.tick/." "$tick/"
     cat >"$home/.config/vgshell/shell.json" <<'JSON'
-{ "version": 1, "bar": { "id": "vgs.bar", "layout": { "left": [], "center": [{ "id": "acme.tick", "format": "ddd d MMM  HH:mm" }], "right": [] } }, "disabledPlugins": ["vgs.launcher", "vgs.notifications", "vgs.settings", "vgs.updates", "vgs.agent-warden", "vgs.devtools", "vgs.automations", "vgs.polkit", "vgs.lock", "vgs.jarvis", "vgs.system", "vgs.sound", "vgs.bluetooth", "vgs.network", "vgs.vpn", "vgs.displays", "vgs.mouse", "vgs.keyboard", "vgs.capture", "vgs.greeter", "vgs.keyhints", "vgs.scratchpads", "vgs.ai-usage", "vgs.tray"] }
+{ "version": 1, "bar": { "id": "vgs.bar", "layout": { "left": [], "center": [{ "id": "acme.tick", "format": "ddd d MMM  HH:mm" }], "right": [] } }, "disabledPlugins": ["vgs.launcher", "vgs.notifications", "vgs.settings", "vgs.updates", "vgs.agent-warden", "vgs.devtools", "vgs.automations", "vgs.polkit", "vgs.lock", "vgs.jarvis", "vgs.system", "vgs.sound", "vgs.bluetooth", "vgs.network", "vgs.vpn", "vgs.displays", "vgs.mouse", "vgs.keyboard", "vgs.capture", "vgs.greeter", "vgs.keyhints", "vgs.scratchpads", "vgs.ai-usage", "vgs.tray", "vgs.voice", "vgs.webapps"] }
 JSON
     ;;
   default) default_set_prepare '[]' ;;

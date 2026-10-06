@@ -14,8 +14,6 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 - Select it again while its window is open, and VGS brings that window into view, on whatever workspace it is.
 - Remove a web app, and its launcher entry and icon go with it.
 
-Web Apps is off until you turn it on in Settings.
-
 ## Settings
 
 Each web app has these fields under Web apps:
