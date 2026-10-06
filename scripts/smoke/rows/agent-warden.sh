@@ -77,6 +77,14 @@ warden_info="Shows whether the vsys warden is set up, checking agents and report
 info_label() { ipc smoke popupItemGeometry window vgs.settings "" "" Label "$1" | py_reply 'import sys; print("shown" if sys.stdin.read().strip().startswith("[") else "absent")'; }
 warden_info_dialog() { printf '%s|%s\n' "$(info_label Warden)" "$(info_label "$warden_info")"; }
 warden_info_closed() { info_label "$warden_info"; }
+warden_info_focus() { ipc smoke focused window vgs.settings | py_reply 'import json,sys; t=sys.stdin.read().strip(); print(t if not t.startswith("[") else json.dumps(json.loads(t)[:2]))'; }
+info_close_click() {
+  local rect x y
+  rect="$(ipc smoke popupItemGeometry window vgs.settings Dialog "$1" Button Close)" || return 1
+  [[ $rect == \[* ]] || { echo "info_close_click: no Close button in dialog $1: $rect" >&2; return 1; }
+  read -r x y < <(at_centre window:Plugins "$rect") || return 1
+  click "$x" "$y"
+}
 # A notify-send stand-in in the shell's own PATH directory, written before
 # the service first runs, so no notice of the row reaches a notification
 # server: it appends each call's argv as one JSON line to $warden_sent;
@@ -268,8 +276,9 @@ expect_poll "a checking warden with vsys present offers no Set up" '[["warden", 
 expect_poll "the Warden row draws Running, its hint and no step" "$(words Warden Running "$warden_hint")" warden_drawn
 settings_press --type InfoButton "About Warden" StatusRow Warden || fail "the click on the Warden row's info icon failed"
 expect_poll "the Warden info dialog opens with its title and text" "shown|shown" warden_info_dialog
-click_item "popup:window" vgs.settings "" "" Button Close || fail "the click on the Warden info dialog's Close button failed"
+info_close_click Warden || fail "the click on the Warden info dialog's Close button failed"
 expect_poll "the Warden info dialog closes from its Close button" absent warden_info_closed
+expect_poll "the Warden info dialog returns focus to its icon after Close" '["InfoButton", "About Warden"]' warden_info_focus
 settings_press --type InfoButton "About Warden" StatusRow Warden || fail "the second click on the Warden row's info icon failed"
 expect_poll "the Warden info dialog opens again for the outside press" "shown|shown" warden_info_dialog
 click 40 "$((mon_h - 40))" || fail "the outside press for the Warden info dialog failed"
@@ -305,7 +314,7 @@ QML
 expect "the info dialog close control builds" ok ipc smoke popupLoad info-control "$info_control_dir/Item.qml" window vgs.settings '{}'
 expect "the info dialog close control opens" ok ipc smoke popupCall info-control openInfo
 expect_poll "the info dialog close control is open" true ipc smoke popupRead info-control opened
-click_item "popup:window" vgs.settings "" "" Button Close || fail "the click on the control info dialog's Close button failed"
+info_close_click Control || fail "the click on the control info dialog's Close button failed"
 expect "control: an info dialog whose Close action is removed stays open" true ipc smoke popupRead info-control opened
 expect "the info dialog close control is released" ok ipc smoke popupDrop info-control
 rm -r -- "${info_control_dir:?}" || fail "removing the info dialog close control failed"
