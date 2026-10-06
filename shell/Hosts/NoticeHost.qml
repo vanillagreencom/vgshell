@@ -149,11 +149,11 @@ Scope {
                 // The packages to install, a block of the dialog's body
                 // `dialog.gap` under the message: each its name as a chip,
                 // with each purpose under it as a hint, as a Field draws a
-                // label's hint, and a divider `stack.row` from each side
-                // between two entries.
+                // label's hint. Between two entries a divider sits in a band
+                // that holds `dialog.gap` above it and below it, so the break
+                // reads as the one between the dialog's blocks.
                 Column {
                     width: parent.width
-                    spacing: Theme.stack.row
                     visible: !win.consentMode
                     Repeater {
                         model: win.consentMode ? [] : win.shown.groups
@@ -161,10 +161,15 @@ Scope {
                             required property var modelData
                             required property int index
                             width: parent.width
-                            spacing: Theme.stack.row
-                            Divider {
+                            Item {
                                 width: parent.width
+                                height: 2 * Theme.dialog.gap + entryBreak.height
                                 visible: index > 0
+                                Divider {
+                                    id: entryBreak
+                                    width: parent.width
+                                    y: Theme.dialog.gap
+                                }
                             }
                             Column {
                                 width: parent.width
