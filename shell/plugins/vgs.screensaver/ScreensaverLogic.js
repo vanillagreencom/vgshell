@@ -7,23 +7,42 @@ function createState() {
     return { rawRows: [], rows: [], colorsIn: [], colorsOut: [], cache: ({}), cacheSize: 0, parsedRows: 0, reusedRows: 0 };
 }
 
-function htmlEscape(text) {
-    return /[&<> ]/.test(text) ? String(text).replace(/[&<> ]/g, ch => {
-        if (ch === "&") return "&amp;";
-        if (ch === "<") return "&lt;";
-        if (ch === ">") return "&gt;";
-        return "\u00a0";
-    }) : text;
+function appendText(pieces, text) {
+    if (text === "") return;
+    if (text.indexOf("\u001b") === -1 && text.indexOf("\r") === -1 && text.indexOf("&") === -1 && text.indexOf("<") === -1 && text.indexOf(">") === -1 && text.indexOf(" ") === -1) {
+        pieces.push(text);
+        return;
+    }
+    let out = "";
+    for (let i = 0; i < text.length; i++) {
+        const ch = text.charAt(i);
+        if (ch === "\u001b") {
+            i += 1;
+        } else if (ch === "\r") {
+            continue;
+        } else if (ch === "&") {
+            out += "&amp;";
+        } else if (ch === "<") {
+            out += "&lt;";
+        } else if (ch === ">") {
+            out += "&gt;";
+        } else if (ch === " ") {
+            out += "\u00a0";
+        } else {
+            out += ch;
+        }
+    }
+    if (out !== "") pieces.push(out);
 }
 
-function colorFromRgbParts(parts, start) {
-    const r = Number(parts[start]);
-    const g = Number(parts[start + 1]);
-    const b = Number(parts[start + 2]);
-    if (!isFinite(r) || !isFinite(g) || !isFinite(b)) return KEEP_COLOR;
-    const rc = Math.max(0, Math.min(255, Math.round(r)));
-    const gc = Math.max(0, Math.min(255, Math.round(g)));
-    const bc = Math.max(0, Math.min(255, Math.round(b)));
+function colorFromChannels(r, g, b) {
+    const rn = Number(r);
+    const gn = Number(g);
+    const bn = Number(b);
+    if (!isFinite(rn) || !isFinite(gn) || !isFinite(bn)) return KEEP_COLOR;
+    const rc = Math.max(0, Math.min(255, Math.round(rn)));
+    const gc = Math.max(0, Math.min(255, Math.round(gn)));
+    const bc = Math.max(0, Math.min(255, Math.round(bn)));
     return "#" + (rc < 16 ? "0" : "") + rc.toString(16)
         + (gc < 16 ? "0" : "") + gc.toString(16)
         + (bc < 16 ? "0" : "") + bc.toString(16);
@@ -31,19 +50,38 @@ function colorFromRgbParts(parts, start) {
 
 function sgrColor(params, state) {
     const key = params === "" ? "0" : params;
-    if (state.cache[key] !== undefined) return state.cache[key];
+    const cached = state.cache[key];
+    if (cached !== undefined) return cached;
     let color = KEEP_COLOR;
-    const parts = key.split(";");
-    for (let i = 0; i < parts.length; i++) {
-        const code = parts[i] === "" ? 0 : Number(parts[i]);
+    let tokenStart = 0;
+    while (tokenStart <= key.length) {
+        let tokenEnd = key.indexOf(";", tokenStart);
+        if (tokenEnd === -1) tokenEnd = key.length;
+        const codeText = key.slice(tokenStart, tokenEnd);
+        const code = codeText === "" ? 0 : Number(codeText);
+        tokenStart = tokenEnd + 1;
         if (code === 0 || code === 39) {
             color = "";
-        } else if (code === 38 && parts[i + 1] === "2") {
-            color = colorFromRgbParts(parts, i + 2);
-            i += 4;
-        } else if (code === 48 && parts[i + 1] === "2") {
-            i += 4;
+        } else if (code === 38 || code === 48) {
+            let modeEnd = key.indexOf(";", tokenStart);
+            if (modeEnd === -1) modeEnd = key.length;
+            const mode = key.slice(tokenStart, modeEnd);
+            tokenStart = modeEnd + 1;
+            if (mode !== "2") continue;
+            const rEnd = key.indexOf(";", tokenStart);
+            if (rEnd === -1) break;
+            const r = key.slice(tokenStart, rEnd);
+            const gStart = rEnd + 1;
+            const gEnd = key.indexOf(";", gStart);
+            if (gEnd === -1) break;
+            const g = key.slice(gStart, gEnd);
+            const bStart = gEnd + 1;
+            let bEnd = key.indexOf(";", bStart);
+            if (bEnd === -1) bEnd = key.length;
+            if (code === 38) color = colorFromChannels(r, g, key.slice(bStart, bEnd));
+            tokenStart = bEnd + 1;
         }
+        if (tokenEnd === key.length) break;
     }
     state.cache[key] = color;
     state.cacheSize += 1;
@@ -54,35 +92,44 @@ function sgrColor(params, state) {
     return color;
 }
 
+function csiFinalIndex(piece) {
+    for (let i = 0; i < piece.length; i++) {
+        const code = piece.charCodeAt(i);
+        if ((code >= 65 && code <= 90) || (code >= 97 && code <= 122)) return i;
+    }
+    return -1;
+}
+
 function parseRow(raw, color, state) {
-    const pieces = [];
+    const out = [];
     let open = false;
     let current = color;
     if (current !== "") {
-        pieces.push("<font color=\"", current, "\">");
+        out.push("<font color=\"", current, "\">");
         open = true;
     }
-    const pattern = /\u001b\[([0-9;?]*)([A-Za-z])|\u001b.|([^\u001b]+)/g;
-    let match;
-    while ((match = pattern.exec(raw)) !== null) {
-        if (match[3] !== undefined) {
-            const text = match[3].replace(/\r/g, "");
-            if (text !== "") pieces.push(htmlEscape(text));
-            continue;
+    const pieces = raw.split("\u001b[");
+    appendText(out, pieces[0]);
+    for (let i = 1; i < pieces.length; i++) {
+        const piece = pieces[i];
+        const finalIndex = csiFinalIndex(piece);
+        if (finalIndex === -1) continue;
+        if (piece.charAt(finalIndex) === "m") {
+            const next = sgrColor(piece.slice(0, finalIndex), state);
+            if (next !== KEEP_COLOR && next !== current) {
+                if (open) out.push("</font>");
+                current = next;
+                open = false;
+                if (current !== "") {
+                    out.push("<font color=\"", current, "\">");
+                    open = true;
+                }
+            }
         }
-        if (match[2] !== "m") continue;
-        const next = sgrColor(match[1] || "", state);
-        if (next === KEEP_COLOR || next === current) continue;
-        if (open) pieces.push("</font>");
-        current = next;
-        open = false;
-        if (current !== "") {
-            pieces.push("<font color=\"", current, "\">");
-            open = true;
-        }
+        appendText(out, piece.slice(finalIndex + 1));
     }
-    if (open) pieces.push("</font>");
-    return { row: pieces.join(""), color: current };
+    if (open) out.push("</font>");
+    return { row: out.join(""), color: current };
 }
 
 function parseFrame(frame, previous) {

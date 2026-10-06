@@ -33,6 +33,7 @@ function suite(ctx, check) {
 
   const frame = "\u001b7\u001b[2A\u001b[38;2;255;0;0mR R\u001b[0m&\n<\u001b[48;2;0;0;255mB";
   check("frame parser escapes text, preserves spaces and resets SGR", rowsOf(ctx, frame), ["<font color=\"#ff0000\">R\u00a0R</font>&amp;", "&lt;B"]);
+  check("non-SGR CSI is ignored but trailing text stays", rowsOf(ctx, "\u001b[?25lA\u001b[2NB"), ["AB"]);
   check("run merging keeps one font tag for same colour", rowsOf(ctx, "\u001b[38;2;1;2;3mA\u001b[38;2;1;2;3mB"), ["<font color=\"#010203\">AB</font>"]);
   const first = ctx.parseFrame("\u001b[38;2;1;2;3m\nA");
   const second = ctx.parseFrame("\u001b[38;2;4;5;6m\nA", first);
@@ -59,10 +60,10 @@ const controls = [
   ["SGR reset is handled", "if (code === 0 || code === 39) {\n            color = \"\";\n        }", "if (false) {\n            color = \"\";\n        }"],
   ["help is not an effect", "if (value === \"help\" || seen[value]) continue;", "if (seen[value]) continue;"],
   ["only newest frame is kept", "function newestFrame(previous, next) {\n    return next;\n}", "function newestFrame(previous, next) {\n    return (previous || []).concat(next);\n}"],
-  ["NBSP preserves spaces", "return \"\\u00a0\";", "return ch;"],
-  ["entity escaping handles ampersand", "if (ch === \"&\") return \"&amp;\";", "if (ch === \"&\") return ch;"],
+  ["NBSP preserves spaces", "out += \"\\u00a0\";", "out += ch;"],
+  ["entity escaping handles ampersand", "out += \"&amp;\";", "out += ch;"],
   ["same raw row with changed carried colour reparses", "state.rawRows[i] === raw && state.colorsIn[i] === color", "state.rawRows[i] === raw"],
-  ["same colour run is merged", "if (next === KEEP_COLOR || next === current) continue;", "if (next === KEEP_COLOR) continue;"],
+  ["same colour run is merged", "if (next !== KEEP_COLOR && next !== current) {", "if (next !== KEEP_COLOR) {"],
   ["colour cache is bounded", "if (state.cacheSize > COLOR_CACHE_MAX) {", "if (false) {"],
 ];
 
