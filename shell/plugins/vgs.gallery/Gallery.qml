@@ -405,6 +405,18 @@ Item {
                     title: "Dialogs"
                     rowSpacing: Theme.stack.group
                     description: "Confirmations, progress and disabled actions"
+                Field {
+                    label: "Info"
+                    inline: true
+                    info: "This icon opens a small explanation without adding another hint line to the page."
+                    Label { role: "value"; text: "Declared explanation" }
+                }
+                Dialog {
+                    modal: false
+                    title: "Warden"
+                    message: "Shows whether Agent Warden is checking agents and reporting problems."
+                    actions: [{ label: "Close", role: "cancel", focused: true }]
+                }
                 Dialog {
                     modal: false
                     title: "Download wallpapers for Nord?"
@@ -431,18 +443,6 @@ Item {
                     actions: [{ label: "Not now", role: "cancel" }, { label: "Install", role: "accept", enabled: false }]
                     Label { role: "itemCode"; text: "gum" }
                     Label { role: "itemCode"; text: "xdg-terminal-exec" }
-                }
-                Field {
-                    label: "Info"
-                    inline: true
-                    info: "This icon opens a small explanation without adding another hint line to the page."
-                    Label { role: "value"; text: "Declared explanation" }
-                }
-                Dialog {
-                    modal: false
-                    title: "Warden"
-                    message: "Shows whether Agent Warden is checking agents and reporting problems."
-                    actions: [{ label: "Close", role: "cancel", focused: true }]
                 }
 
                 }
