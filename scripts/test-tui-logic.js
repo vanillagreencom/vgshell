@@ -248,6 +248,16 @@ function suite(ctx, check) {
         check("tuiCore: " + name, r.ok ? r.argv : [r.answer, r.action], want);
     }
     check("tuiCore keys a launch by core/<name>", ctx.tuiCore(core, "/core/bin", runner("present", []), "quiet", []).key, "core/quiet");
+    const editArgRows = [
+        ["relative path", "hypr/hyprland.lua", undefined, { ok: true, args: ["hypr/hyprland.lua"] }],
+        ["relative path with line", "hypr/hyprland.lua", 12, { ok: true, args: ["hypr/hyprland.lua", "12"] }],
+        ["absolute path refused", "/home/me/.config/hypr/hyprland.lua", undefined, { ok: false, answer: "refused: edit=/home/me/.config/hypr/hyprland.lua reason=absolute" }],
+        ["parent path refused", "hypr/../secret", undefined, { ok: false, answer: "refused: edit=hypr/../secret reason=parent" }],
+        ["empty path refused", "", undefined, { ok: false, answer: "refused: edit=path reason=empty" }],
+        ["bad line refused", "hypr/hyprland.lua", "0", { ok: false, answer: "refused: line=0 reason=positive-integer" }],
+    ];
+    for (const [name, file, line, want] of editArgRows)
+        check("editArgs: " + name, ctx.editArgs(file, line), want);
     check("tuiEntries: the core's and every enabled plugin's listed TUIs, by key", ctx.tuiEntries(manifests, ["acme.tui"], core), [
         { key: "acme.tui/update", plugin: "acme.tui", name: "update", title: "Update", label: "Update the system", icon: "terminal", group: "System" },
         { key: "core/doctor", plugin: "core", name: "doctor", title: "Doctor", label: "Check the system", icon: "stethoscope", group: "System" },
@@ -330,6 +340,7 @@ function suite(ctx, check) {
         "theme-add": { argv: ["vgshell", "theme", "add"], title: "Add a theme", size: "default", presentation: "full", entry: { label: "Add a theme", icon: "palette", group: "Themes" } },
         "system": { argv: ["vgshell", "system"], title: "System setup", size: "default", presentation: "full", entry: null },
         "requirements-install": { argv: ["vgshell", "pkg", "run", "install"], title: "Install requirements", size: "default", presentation: "full", entry: null },
+        "edit": { argv: ["vgshell", "edit"], title: "Edit a file", size: "default", presentation: "plain", entry: null },
         "plugin-update": { argv: ["vgshell", "plugin", "update"], title: "Update a plugin", size: "wide", presentation: "full", entry: null },
         "plugin-remove": { argv: ["vgshell", "plugin", "remove"], title: "Remove a plugin", size: "default", presentation: "full", entry: null },
     };
@@ -687,6 +698,9 @@ const CONTROLS = [
     ["an argument is not empty", "typeof arg === \"string\" && arg.length > 0 && ", "typeof arg === \"string\" && "],
     ["an argument is at most 256 characters", "Array.from(arg).length <= TUI_ARG_MAX && ", ""],
     ["an argument holds no control character", " && !CONTROL_CHARACTER.test(arg);", ";"],
+    ["edit refuses an absolute path", "if (path.charAt(0) === \"/\")", "if (false)"],
+    ["edit refuses a parent path", "if (path.split(\"/\").indexOf(\"..\") !== -1)", "if (false)"],
+    ["edit refuses a bad line", "if (!/^[1-9][0-9]*$/.test(text))", "if (false)"],
     ["run opens only a declared script", "if (typeof name !== \"string\" || !hasOwn(manifest.tui, name))", "if (false)"],
     ["run refuses a disabled plugin", "if (!enabled)\n        return tuiRefusal(name, \"disabled\");", "if (false)\n        return tuiRefusal(name, \"disabled\");"],
     ["run judges its arguments", "    if (!tuiArgsValid(args))\n        return tuiRefusal(name, \"args\");", "    if (false)\n        return tuiRefusal(name, \"args\");"],

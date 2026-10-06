@@ -5,7 +5,7 @@
 // merges, rests and fills, which notices a scan keeps, what the shown
 // notice lists and installs, and
 // how a detection's answer is read, and what the consent slot draws: the
-// first-start welcome, its key lines and when it is seen. The file loads under node through
+// first-start welcome, its key rows and when it is seen. The file loads under node through
 // bin/lib/qml-library.js, as the shell loads it. The controls at the end
 // edit a copy of the judge, one rule at a time, and the suite must fail on
 // every copy. Exit 1 when a row or a control fails.
@@ -201,7 +201,7 @@ function suite(ctx, check) {
     }
 
     // consentSlotView: the first-start welcome around the Hyprland question.
-    // The key lines are the repository's shipped shell.json's, so a key row
+    // The key rows are the repository's shipped shell.json's, so a key row
     // it drops fails here too.
     const shipped = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "config", "shell.json"), "utf8"));
     const binder = (id, shortcut, key) => ctx.validateManifest({
@@ -212,30 +212,42 @@ function suite(ctx, check) {
     const themes = ctx.hyprlandSection({}, binder("vgs.themes", "themes", "SUPER+T"));
     const keyhintsUnbound = ctx.hyprlandSection({ plugins: [{ id: "vgs.keyhints", keys: { toggle: null } }] }, binder("vgs.keyhints", "toggle", "SUPER+SLASH"));
     const keyhintsMoved = ctx.hyprlandSection({ plugins: [{ id: "vgs.keyhints", keys: { toggle: "SUPER+SHIFT+K" } }] }, binder("vgs.keyhints", "toggle", "SUPER+SLASH"));
-    const PLUGINS_LINE = "VGS is a bar and a set of plugins on top of your Hyprland. Turn plugins on and off from the plugins button at the top right of the bar.";
-    const LINE_LINE = "VGS adds one line to the top of your hyprland.lua. It loads a file VGS generates. VGS changes nothing else in that file.";
-    const KEYS_LINE = "Super+/ shows every key VGS adds.";
-    const THEME_LINE = "Super+T picks a theme.";
     const QUESTION = "Let VGS manage its Hyprland settings?";
-    const QUESTION_MESSAGE = "One line at the top of hyprland.lua loads the keys, border colours and blur rules VGS generates. VGS changes no other line of that file.";
     const CONNECT = [{ label: "Connect", role: "accept", answer: "connect" }, { label: "Not now", role: "cancel", answer: "decline" }];
     const CLOSE = [{ label: "Close", role: "cancel", answer: "close" }];
+    const LINK = { text: "hyprland.lua", path: "hypr/hyprland.lua" };
     const phase = (name, queued, failure) => ({ phase: name, queued: queued || "", failure: failure || "" });
-    const welcome = (lines, asking, failure, busy) => ({ welcome: true, title: "Welcome to VGS", message: "", lines: [PLUGINS_LINE, LINE_LINE].concat(lines), disclosure: asking ? "vgshell hypr wire" : "", actions: asking ? CONNECT : CLOSE, failure: failure || "", busy: busy === true });
-    const question = { welcome: false, title: QUESTION, message: QUESTION_MESSAGE, lines: [], disclosure: "vgshell hypr wire", actions: CONNECT, failure: "", busy: false };
+    const shape = view => view === null ? null : ({
+        welcome: view.welcome,
+        title: view.title,
+        message: view.message === "" ? "" : "present",
+        lineCount: view.lines.length,
+        link: view.link,
+        keys: view.keys,
+        keysTitle: view.keysTitle,
+        disclosure: view.disclosure,
+        actions: view.actions,
+        failure: view.failure,
+        busy: view.busy
+    });
+    const welcome = (lineCount, keys, asking, failure, busy, link) => ({ welcome: true, title: "Welcome to VGS", message: "", lineCount, link: link === undefined ? LINK : link, keys, keysTitle: "Quick commands", disclosure: "", actions: asking ? CONNECT : CLOSE, failure: failure || "", busy: busy === true });
+    const question = { welcome: false, title: QUESTION, message: "present", lineCount: 0, link: null, keys: [], keysTitle: "", disclosure: "vgshell hypr wire", actions: CONNECT, failure: "", busy: false };
+    const keyLine = (shortcut, text) => ({ shortcut, text });
+    const keyHintsLine = keyLine("Super+/", "shows every key VGS adds.");
+    const themeLine = keyLine("Super+T", "picks a theme.");
     // [name, consent, welcome state, shipped, sections, want].
     const slotRows = [
-        ["an unseen welcome asks with Connect and Not now", phase("asking"), "unseen", shipped, [keyhints, themes], welcome([KEYS_LINE, THEME_LINE], true)],
-        ["the key-hints line is absent while its shortcut is not bound", phase("asking"), "unseen", shipped, [themes], welcome([THEME_LINE], true)],
-        ["the key-hints line is absent while the user unbinds it", phase("asking"), "unseen", shipped, [keyhintsUnbound, themes], welcome([THEME_LINE], true)],
-        ["a key line reads the key the user binds", phase("asking"), "unseen", shipped, [keyhintsMoved], welcome(["Super+Shift+K shows every key VGS adds."], true)],
-        ["no enabled plugin binds a key line", phase("asking"), "unseen", shipped, [], welcome([], true)],
-        ["a shipped file without welcome keys draws the two lines", phase("asking"), "unseen", { version: 1 }, [keyhints, themes], welcome([], true)],
-        ["a failed Connect keeps the welcome with the failure", phase("asking", "", "wire=failed status=1"), "unseen", shipped, [themes], welcome([THEME_LINE], true, "wire=failed status=1")],
-        ["a queued answer makes the welcome busy", phase("asking", "connect"), "unseen", shipped, [themes], welcome([THEME_LINE], true, "", true)],
-        ["an unseen welcome over a wired file offers Close alone", phase("wired"), "unseen", shipped, [themes], welcome([THEME_LINE], false)],
-        ["an unseen welcome with no hyprland.lua offers Close alone", phase("settled"), "unseen", shipped, [themes], welcome([THEME_LINE], false)],
-        ["an unseen welcome declined this session offers Close alone", phase("declined"), "unseen", shipped, [themes], welcome([THEME_LINE], false)],
+        ["an unseen welcome asks with Connect and Not now", phase("asking"), "unseen", shipped, [keyhints, themes], welcome(3, [keyHintsLine, themeLine], true)],
+        ["the key-hints row is absent while its shortcut is not bound", phase("asking"), "unseen", shipped, [themes], welcome(3, [themeLine], true)],
+        ["the key-hints row is absent while the user unbinds it", phase("asking"), "unseen", shipped, [keyhintsUnbound, themes], welcome(3, [themeLine], true)],
+        ["a key row reads the key the user binds", phase("asking"), "unseen", shipped, [keyhintsMoved], welcome(3, [keyLine("Super+Shift+K", "shows every key VGS adds.")], true)],
+        ["no enabled plugin binds a key row", phase("asking"), "unseen", shipped, [], welcome(3, [], true)],
+        ["a shipped file without welcome keys draws the fixed lines", phase("asking"), "unseen", { version: 1 }, [keyhints, themes], welcome(3, [], true)],
+        ["a failed Connect keeps the welcome with the failure", phase("asking", "", "wire=failed status=1"), "unseen", shipped, [themes], welcome(3, [themeLine], true, "wire=failed status=1")],
+        ["a queued answer makes the welcome busy", phase("asking", "connect"), "unseen", shipped, [themes], welcome(3, [themeLine], true, "", true)],
+        ["an unseen welcome over a wired file offers Close alone", phase("wired"), "unseen", shipped, [themes], welcome(2, [themeLine], false)],
+        ["an unseen welcome with no hyprland.lua offers Close alone without a link", phase("settled"), "unseen", shipped, [themes], welcome(2, [themeLine], false, "", false, null)],
+        ["an unseen welcome declined this session offers Close alone", phase("declined"), "unseen", shipped, [themes], welcome(2, [themeLine], false)],
         ["the welcome waits for the probe", phase("pending"), "unseen", shipped, [themes], null],
         ["the welcome waits for the decline marker's read", phase("unwired"), "unseen", shipped, [themes], null],
         ["the slot waits for the welcome marker's read", phase("asking"), "reading", shipped, [themes], null],
@@ -244,7 +256,7 @@ function suite(ctx, check) {
         ["a seen welcome after Not now draws nothing", phase("declined"), "seen", shipped, [themes], null],
     ];
     for (const [name, consent, state, file, sections, want] of slotRows)
-        check("consentSlotView: " + name, ctx.consentSlotView(consent, state, file, sections), want);
+        check("consentSlotView: " + name, shape(ctx.consentSlotView(consent, state, file, sections)), want);
     const throws = (fn) => { try { fn(); return "returned"; } catch (e) { return e.message.split(":")[0]; } };
     check("consentSlotView: an unknown welcome state is refused", throws(() => ctx.consentSlotView(phase("asking"), "maybe", shipped, [])), "consentSlotView");
     check("consentSlotView: an unknown consent phase is refused", throws(() => ctx.consentSlotView(phase("later"), "unseen", shipped, [])), "consentSlotView");
@@ -326,7 +338,9 @@ const CONTROLS = [
     ["a seen welcome leaves the plain question", "    if (welcomeState === \"seen\")\n", "    if (false)\n"],
     ["the welcome waits for the marker's read", "    if (welcomeState === \"reading\") return null;\n", ""],
     ["the welcome waits for the consent answer", "    if (WELCOME_WAITS.indexOf(consent.phase) !== -1) return null;\n", ""],
-    ["a key line needs its bind", "return typeof key === \"string\" ? keyLabel(key) + \" \" + row.text : null;", "return keyLabel(typeof key === \"string\" ? key : \"SUPER+SLASH\") + \" \" + row.text;"],
+    ["a key row needs its bind", "return typeof key === \"string\" ? { shortcut: keyLabel(key), text: row.text } : null;", "return { shortcut: keyLabel(typeof key === \"string\" ? key : \"SUPER+SLASH\"), text: row.text };"],
+    ["the welcome carries its file link except settled", "link: consent.phase === \"settled\" ? null : WELCOME.link,", "link: null,"],
+    ["the welcome has no command disclosure", "disclosure: \"\",", "disclosure: asking ? question.disclosure : \"\","],
     ["a settled consent offers Close alone", "actions: question === null ? [{ label: WELCOME.close, role: \"cancel\", answer: \"close\" }] : actions,", "actions: actions,"],
     ["a key that types a character reads as it", "        if (hasOwn(KEY_GLYPHS, part)) return KEY_GLYPHS[part];\n", ""],
     ["a read records the marker", "return { welcome: event.seen ? \"seen\" : \"unseen\", write: false };", "return { welcome: \"unseen\", write: false };"],

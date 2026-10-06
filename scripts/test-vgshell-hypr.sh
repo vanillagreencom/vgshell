@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Controls for `vgshell hypr`: wire and unwire keep or remove the line that
-# loads the Hyprland layer in hyprland.lua, under a temporary HOME and
-# XDG_CONFIG_HOME, and render asks a running shell through a stub qs. No row
-# reads or writes the developer's own Hyprland configuration.
+# Controls for `vgshell hypr` and `vgshell edit`: wire and unwire keep or
+# remove the line that loads the Hyprland layer in hyprland.lua, edit opens
+# cited configuration files, under a temporary HOME and XDG_CONFIG_HOME, and
+# render asks a running shell through a stub qs. No row reads or writes the
+# developer's own Hyprland configuration.
 set -euo pipefail
 
 source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/vgshell-rows.sh"
@@ -85,6 +86,43 @@ INST_REPLY=ok inst "render prints the shell's ok" "$cfg" "$rt_live" 0 "ok" "" hy
 check "render calls the shell's renderHyprland" test "$(cat "$tmp/args")" == "ipc --pid $$ call shell renderHyprland"
 INST_REPLY="refused: hyprland=pending" inst "a shell refusal is a refusal with exit 1" "$cfg" "$rt_live" 1 "" "vgshell: refused: hyprland=pending" hypr render
 
+# edit opens a cited configuration file under XDG_CONFIG_HOME, with $EDITOR
+# first and xdg-open as the fallback. It refuses paths outside that tree
+# before it launches an opener.
+edit_dir="$tmp/edit-bin"; mkdir -p "$edit_dir"
+cat >"$edit_dir/stub" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$@" >"$EDIT_RECORD"
+EOF
+chmod +x "$edit_dir/stub"
+ln -s -- "$edit_dir/stub" "$edit_dir/nvim"
+ln -s -- "$edit_dir/stub" "$edit_dir/code"
+ln -s -- "$edit_dir/stub" "$edit_dir/xdg-open"
+cfg="$tmp/cfg-edit"; mkdir -p "$cfg/hypr"; printf 'return {}\n' >"$cfg/hypr/hyprland.lua"
+inst_env=(EDITOR="stub --wait" EDIT_RECORD="$tmp/edit-argv")
+INST_PATH="$edit_dir:$base_path" inst "edit uses EDITOR split on spaces" "$cfg" "$rt_empty" 0 "" "" edit hypr/hyprland.lua
+check "EDITOR receives the absolute file path after its own argument" test "$(tr '\n' ' ' <"$tmp/edit-argv")" == "--wait $cfg/hypr/hyprland.lua "
+inst_env=(EDITOR="$edit_dir/nvim --wait" EDIT_RECORD="$tmp/edit-argv")
+INST_PATH="$edit_dir:$base_path" inst "edit gives a line to an editor that accepts one" "$cfg" "$rt_empty" 0 "" "" edit hypr/hyprland.lua 12
+check "nvim receives +LINE before the path" test "$(tr '\n' ' ' <"$tmp/edit-argv")" == "--wait +12 $cfg/hypr/hyprland.lua "
+inst_env=(EDITOR="$edit_dir/code --wait" EDIT_RECORD="$tmp/edit-argv")
+INST_PATH="$edit_dir:$base_path" inst "edit omits the line for another editor" "$cfg" "$rt_empty" 0 "" "" edit hypr/hyprland.lua 12
+check "code receives no +LINE argument" test "$(tr '\n' ' ' <"$tmp/edit-argv")" == "--wait $cfg/hypr/hyprland.lua "
+inst_env=(EDIT_RECORD="$tmp/edit-argv")
+INST_PATH="$edit_dir:$base_path" inst "edit falls back to xdg-open" "$cfg" "$rt_empty" 0 "" "" edit hypr/hyprland.lua
+check "xdg-open receives the absolute file path" test "$(cat "$tmp/edit-argv")" == "$cfg/hypr/hyprland.lua"
+edit_min="$tmp/edit-min"; mkdir -p "$edit_min"
+for tool in bash readlink dirname id basename; do ln -s -- "$(command -v "$tool")" "$edit_min/$tool"; done
+inst_env=()
+INST_PATH="$edit_min" inst "edit refuses without an opener" "$cfg" "$rt_empty" 1 "" "vgshell: refused: opener=missing" edit hypr/hyprland.lua
+INST_PATH="$edit_dir:$base_path" inst "edit refuses an absolute path" "$cfg" "$rt_empty" 2 "" "vgshell: refused: edit=/etc/passwd reason=absolute" edit /etc/passwd
+INST_PATH="$edit_dir:$base_path" inst "edit refuses a parent path" "$cfg" "$rt_empty" 2 "" "vgshell: refused: edit=hypr/../secret reason=parent" edit hypr/../secret
+INST_PATH="$edit_dir:$base_path" inst "edit refuses a missing file" "$cfg" "$rt_empty" 1 "" "vgshell: refused: file=unreadable path=$cfg/hypr/missing.lua" edit hypr/missing.lua
+INST_PATH="$edit_dir:$base_path" inst "edit refuses a bad line" "$cfg" "$rt_empty" 2 "" "vgshell: refused: line=0 reason=positive-integer" edit hypr/hyprland.lua 0
+INST_PATH="$edit_dir:$base_path" inst "edit refuses an extra argument" "$cfg" "$rt_empty" 2 "" "vgshell: refused: argument=extra" edit hypr/hyprland.lua 1 extra
+unset INST_PATH
+inst_env=()
+
 # Must-fail controls, each on a copy of the runner whose judge breaks one
 # rule the rows above hold.
 theme_tree
@@ -109,5 +147,18 @@ INST_BIN="$THEME_BIN" inst "the always-changed mutant reports an unchanged unwir
 tree_control state-always-wired bin/vgshell-hypr-judge 'render.wiredText(text, line, undefined) === null ? "wired" : "unwired"' 'true ? "wired" : "unwired"'
 INST_BIN="$THEME_BIN" inst "the state mutant reports an unwired file as wired" "$cfg" "$rt_empty" 0 "ok hypr=wired path=$lua" "" hypr state
 unset THEME_BIN
+# shellcheck disable=SC2016
+tree_control edit-parent bin/vgshell '[[ $part != .. ]] || return 3' '[[ $part != .. ]] || return 0'
+inst_env=(EDIT_RECORD="$tmp/edit-argv")
+INST_BIN="$THEME_BIN" INST_PATH="$edit_dir:$base_path" inst "the edit parent mutant accepts a parent path" "$cfg" "$rt_empty" 0 "" "" edit hypr/../hypr/hyprland.lua
+check "control: the edit parent mutant opens a path with a parent component" grep -qxF -- "$cfg/hypr/../hypr/hyprland.lua" "$tmp/edit-argv"
+# shellcheck disable=SC2016
+tree_control edit-line bin/vgshell 'editor_takes_line "${opener[0]}"' 'true'
+inst_env=(EDITOR="$edit_dir/code --wait" EDIT_RECORD="$tmp/edit-argv")
+INST_BIN="$THEME_BIN" INST_PATH="$edit_dir:$base_path" inst "the edit line mutant opens code with a line" "$cfg" "$rt_empty" 0 "" "" edit hypr/hyprland.lua 12
+check "control: the edit line mutant gives +LINE to code" grep -qxF -- "+12" "$tmp/edit-argv"
+unset INST_BIN INST_PATH THEME_BIN
+# shellcheck disable=SC2034
+inst_env=()
 
 rows_done test-vgshell-hypr

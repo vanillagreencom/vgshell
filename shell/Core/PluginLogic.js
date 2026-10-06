@@ -1873,16 +1873,18 @@ function noticeDetected(completion, stdout, stderr) {
 }
 
 // The welcome the consent slot draws on the shell's first start for a
-// user, until the user closes it: its title, the two lines it always
-// draws, and its one answer when no Hyprland question is asked. Its key
-// lines come from the shipped shell.json's `welcome.keys`, since the core
-// names no plugin.
+// user, until the user closes it: its title, the lines for the asking and
+// Close-alone states, its cited file, and its one answer when no Hyprland
+// question is asked. Its key rows come from the shipped shell.json's
+// `welcome.keys`, since the core names no plugin.
 var WELCOME = {
     title: "Welcome to VGS",
-    lines: [
-        "VGS is a bar and a set of plugins on top of your Hyprland. Turn plugins on and off from the plugins button at the top right of the bar.",
-        "VGS adds one line to the top of your hyprland.lua. It loads a file VGS generates. VGS changes nothing else in that file."
-    ],
+    firstLine: "VGS is a bar and a set of plugins on top of your Hyprland. Turn plugins on and off from the plugins button at the top right of the bar.",
+    connectLine: "Press Connect below to add one line to the top of your hyprland.lua and wire up VGS. That line loads the keys, border colours and blur rules VGS generates. VGS changes nothing else in that file.",
+    notNowLine: "Not now leaves hyprland.lua as it is. VGS asks again the next time Hyprland starts.",
+    settledLine: "VGS adds one line to the top of your hyprland.lua. It loads a file VGS generates. VGS changes nothing else in that file.",
+    link: { text: "hyprland.lua", path: "hypr/hyprland.lua" },
+    keysTitle: "Quick commands",
     close: "Close"
 };
 // What the welcome-seen marker says: `reading` until its read ends, then
@@ -1924,11 +1926,11 @@ function keyLabel(key) {
 // asks that question with Connect and Not now while CONSENT is asking, and
 // offers Close alone once CONSENT settled without one. SHIPPED is the
 // shipped shell.json: each of its `welcome.keys`, { id, shortcut, text },
-// is a line `<key> <text>` while SECTIONS, the enabled plugins'
-// PluginLogic.hyprlandSection results, bind that shortcut, and no line
-// otherwise. The view is { welcome, title, message, lines, disclosure,
-// actions, failure, busy }; each action is { label, role, answer }, the
-// answer `connect`, `decline` or `close`.
+// is a key row while SECTIONS, the enabled plugins'
+// PluginLogic.hyprlandSection results, bind that shortcut, and no row
+// otherwise. The view is { welcome, title, message, lines, link, keys,
+// keysTitle, disclosure, actions, failure, busy }; each action is
+// { label, role, answer }, the answer `connect`, `decline` or `close`.
 function consentSlotView(consent, welcomeState, shipped, sections) {
     if (WELCOME_STATES.indexOf(welcomeState) === -1)
         throw new Error("consentSlotView: welcome state " + JSON.stringify(welcomeState) + " is not one of " + WELCOME_STATES.join(", "));
@@ -1941,19 +1943,23 @@ function consentSlotView(consent, welcomeState, shipped, sections) {
     ];
     if (welcomeState === "reading") return null;
     if (welcomeState === "seen")
-        return question === null ? null : { welcome: false, title: question.title, message: question.message, lines: [], disclosure: question.disclosure, actions: actions, failure: question.failure, busy: question.busy };
+        return question === null ? null : { welcome: false, title: question.title, message: question.message, lines: [], link: null, keys: [], keysTitle: "", disclosure: question.disclosure, actions: actions, failure: question.failure, busy: question.busy };
     if (WELCOME_WAITS.indexOf(consent.phase) !== -1) return null;
     var rows = isPlainObject(shipped) && isPlainObject(shipped.welcome) ? shipped.welcome.keys : [];
-    var keyLines = rows.map(function (row) {
+    var keyRows = rows.map(function (row) {
         var key = HyprlandLayer.shortcutKeys(sections, row.id)[row.shortcut];
-        return typeof key === "string" ? keyLabel(key) + " " + row.text : null;
+        return typeof key === "string" ? { shortcut: keyLabel(key), text: row.text } : null;
     }).filter(function (line) { return line !== null; });
+    var asking = question !== null;
     return {
         welcome: true,
         title: WELCOME.title,
         message: "",
-        lines: WELCOME.lines.concat(keyLines),
-        disclosure: question === null ? "" : question.disclosure,
+        lines: asking ? [WELCOME.firstLine, WELCOME.connectLine, WELCOME.notNowLine] : [WELCOME.firstLine, WELCOME.settledLine],
+        link: consent.phase === "settled" ? null : WELCOME.link,
+        keys: keyRows,
+        keysTitle: WELCOME.keysTitle,
+        disclosure: "",
         actions: question === null ? [{ label: WELCOME.close, role: "cancel", answer: "close" }] : actions,
         failure: question === null ? "" : question.failure,
         busy: question !== null && question.busy
@@ -2047,13 +2053,13 @@ var TUI_RUN_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
 // rest as a normalized manifest `tui` entry has them. coreTuiTable judges
 // the table when this file loads. The package pickers run in the default
 // size.
-// `requirements-install` is not listed: the requirement notice opens it
-// through tuiCore with the arguments PluginLogic.noticeView names. `system`
-// is not listed either: the `manager` capability's act opens it with
-// `apply <step>` for a status action that names a system step (D081).
-// `plugin-update` and `plugin-remove` are not listed either: the `manager`
-// capability opens them with one plugin id (MANAGER_TUIS). A plugin update
-// shows its incoming diff, so it opens wide.
+// `edit`, `requirements-install`, `system`, `plugin-update` and
+// `plugin-remove` are not listed. The first opens a cited file from a
+// surface, the requirement notice opens the install row with the arguments
+// PluginLogic.noticeView names, the `manager` capability's act opens
+// `system` with `apply <step>` for a status action that names a system step
+// (D081), and the plugin manager opens update and remove with one plugin id
+// (MANAGER_TUIS). A plugin update shows its incoming diff, so it opens wide.
 var CORE_TUIS = coreTuiTable({
     "pkg-install": {
         argv: ["vgshell", "pkg", "install"],
@@ -2102,6 +2108,13 @@ var CORE_TUIS = coreTuiTable({
         title: "Install requirements",
         size: "default",
         presentation: "full",
+        entry: null
+    },
+    "edit": {
+        argv: ["vgshell", "edit"],
+        title: "Edit a file",
+        size: "default",
+        presentation: "plain",
         entry: null
     },
     "plugin-update": {
@@ -2406,6 +2419,26 @@ function tuiArgsValid(args) {
     return args.every(function (arg) {
         return typeof arg === "string" && arg.length > 0 && Array.from(arg).length <= TUI_ARG_MAX && !CONTROL_CHARACTER.test(arg);
     });
+}
+
+// The arguments for the core file editor: PATH is relative to the user's
+// configuration directory and LINE, when present, is a positive integer.
+// The CLI judges the same contract again before it opens anything.
+function editArgs(path, line) {
+    if (typeof path !== "string" || path.length === 0)
+        return { ok: false, answer: "refused: edit=path reason=empty" };
+    if (path.charAt(0) === "/")
+        return { ok: false, answer: "refused: edit=" + tuiLabel(path) + " reason=absolute" };
+    if (path.split("/").indexOf("..") !== -1)
+        return { ok: false, answer: "refused: edit=" + tuiLabel(path) + " reason=parent" };
+    if (line === undefined || line === null || line === "")
+        return { ok: true, args: [path] };
+    if (typeof line !== "string" && typeof line !== "number")
+        return { ok: false, answer: "refused: line=" + tuiLabel(line) + " reason=positive-integer" };
+    var text = String(line);
+    if (!/^[1-9][0-9]*$/.test(text))
+        return { ok: false, answer: "refused: line=" + tuiLabel(line) + " reason=positive-integer" };
+    return { ok: true, args: [path, text] };
 }
 
 // The arguments after bin/vgshell-tui that open ROW, a normalized `tui` entry

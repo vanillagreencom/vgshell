@@ -382,6 +382,7 @@ Commands:
   sudo       Turn on passwordless sudo for a set time
   system     Apply or undo one-time system setup steps
   hypr       Connect the VGS Hyprland settings to hyprland.lua
+  edit       Open one file from your configuration directory
   tui        Run a command in a VGS floating terminal
 
 Other commands: pid, ipc, log, migrate, version
@@ -467,6 +468,13 @@ Subcommands:
   wire      Keep the VGS Hyprland layer load line first
   unwire    Remove the VGS Hyprland layer load line
   render    Write the Hyprland layer again and reload Hyprland
+EOF_HELP
+      ;;
+    edit) cat <<'EOF_HELP'
+Usage: vgshell edit <path> [line]
+
+Open a file under the user configuration directory in $EDITOR, or xdg-open.
+The path is relative to ${XDG_CONFIG_HOME:-$HOME/.config}.
 EOF_HELP
       ;;
     pkg) cat <<'EOF_HELP'
@@ -582,6 +590,73 @@ try_help() {
   else
     printf "Run 'vgshell --help' for usage.\n" >&2
   fi
+}
+
+refuse_edit() { # STATUS KEYED_LINE [ENGLISH...]
+  local status="$1"
+  printf 'vgshell: refused: %s\n' "$2" >&2
+  shift 2
+  [[ $# -gt 0 ]] && printf '%s\n' "$@" >&2
+  exit "$status"
+}
+
+editor_takes_line() { # EDITOR_ARGV0
+  local name="${1##*/}"
+  # These terminal editors accept +LINE before the path.
+  case "$name" in
+    vi|vim|nvim|nano|emacs|emacsclient|micro|kak|ne|joe|mg) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+edit_path_valid() { # PATH
+  local path="$1" part rest
+  [[ -n $path ]] || return 1
+  [[ $path != /* ]] || return 2
+  rest="$path"
+  while [[ $rest == */* ]]; do
+    part="${rest%%/*}"
+    [[ $part != .. ]] || return 3
+    rest="${rest#*/}"
+  done
+  [[ $rest != .. ]] || return 3
+  return 0
+}
+
+vgs_edit() {
+  local rel="${1:-}" line="${2:-}" file path_status opener=()
+  if [[ -n ${VGS_TUI_LIB:-} ]]; then
+    # shellcheck source=bin/lib/tui.sh
+    source "$VGS_TUI_LIB"
+    trap 'status=$?; [[ $status == 0 ]] || vgs_tui_close_prompt "$status"' EXIT
+  fi
+  if [[ $# -eq 0 ]]; then refuse_edit 2 "edit=path reason=missing"; fi
+  if [[ $# -gt 2 ]]; then refuse_edit 2 "argument=${3:-}"; fi
+  edit_path_valid "$rel" || path_status=$?
+  if [[ ${path_status:-0} != 0 ]]; then
+    case "$path_status" in
+      1) refuse_edit 2 "edit=path reason=empty" ;;
+      2) refuse_edit 2 "edit=$rel reason=absolute" ;;
+      3) refuse_edit 2 "edit=$rel reason=parent" ;;
+      *) refuse_edit 2 "edit=$rel reason=malformed" ;;
+    esac
+  fi
+  if [[ -n $line && ! $line =~ ^[1-9][0-9]*$ ]]; then
+    refuse_edit 2 "line=$line reason=positive-integer"
+  fi
+  file="$config_home/$rel"
+  [[ -f $file && -r $file ]] || refuse_edit 1 "file=unreadable path=$file" "The file is missing or cannot be read."
+  if [[ -n ${EDITOR:-} ]]; then
+    read -r -a opener <<<"$EDITOR"
+    if [[ -n $line && ${#opener[@]} -gt 0 ]] && editor_takes_line "${opener[0]}"; then
+      "${opener[@]}" "+$line" "$file"
+    else
+      "${opener[@]}" "$file"
+    fi
+    exit
+  fi
+  command -v xdg-open >/dev/null || refuse_edit 1 "opener=missing" "Set EDITOR or install xdg-open."
+  xdg-open "$file"
 }
 
 # Prints the pid the lock file records, or returns 69 after the refusal.
@@ -2566,6 +2641,9 @@ case "$cmd" in
         printf 'vgshell: refused: hypr-subcommand=%s\n' "${sub:-missing}" >&2; try_help; exit 2
         ;;
     esac
+    ;;
+  edit)
+    vgs_edit "$@"
     ;;
   pkg)
     exec node "$root/bin/vgshell-pkg" "$@"

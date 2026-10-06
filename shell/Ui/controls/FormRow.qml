@@ -11,17 +11,19 @@ import qs.Ui
 // wraps to a second line before it elides. `warning` is the row's message:
 // `hint` text under the value column, `field.gap` below the row box and
 // wrapped to the column, in the colour `warningTone` names, `warning`,
-// `danger` or `muted`. The row grows by the gap and the message's height,
-// and the label and the control stay centred on the row box, so a message
-// takes no room from its control. Light feedback in a form is this line,
-// plain sentence-case text in a muted or status colour. A chip, a fill or
-// capitals are for a state the user must act on now, with the action
-// beside it. `action` is one control for the message, such as a Button
-// that undoes what the message names: it draws on the message's line, on
-// the row's end edge, only while the row has a message, and the message
-// wraps `stack.inline` before it. Where that would leave the message less
-// than `field.labelWidth`, as in a narrow flyout, the action goes on a line
-// of its own, `field.gap` under the message, from the value column's start.
+// `danger` or `muted`. `warningLink`, when set, names the substring of
+// `warning` that opens a cited file through `warningLinkActivated`. The
+// row grows by the gap and the message's height, and the label and the
+// control stay centred on the row box, so a message takes no room from its
+// control. Light feedback in a form is this line, plain sentence-case text
+// in a muted or status colour. A chip, a fill or capitals are for a state
+// the user must act on now, with the action beside it. `action` is one
+// control for the message, such as a Button that undoes what the message
+// names: it draws on the message's line, on the row's end edge, only while
+// the row has a message, and the message wraps `stack.inline` before it.
+// Where that would leave the message less than `field.labelWidth`, as in a
+// narrow flyout, the action goes on a line of its own, `field.gap` under
+// the message, from the value column's start.
 // A hidden action takes no room. While
 // `labelColumn` is false the row draws no label and keeps
 // no row height: the control takes the full width at its own height, as a
@@ -33,6 +35,7 @@ Item {
 
     property string label: ""
     property string warning: ""
+    property string warningLink: ""
     property string warningTone: "warning"
     property bool labelColumn: true
     default property alias control: slot.data
@@ -44,6 +47,7 @@ Item {
     readonly property real valueX: labelColumn ? Theme.field.labelWidth + Theme.field.labelGap : 0
     readonly property real messageRoom: warning === "" ? 0 : Theme.field.gap + messageLine
     readonly property real boxHeight: height - messageRoom
+    signal warningLinkActivated()
 
     function toneColor(name) {
         if (name === "warning") return Theme.color.warning;
@@ -79,16 +83,18 @@ Item {
         y: root.labelColumn ? Math.round((root.boxHeight - height) / 2) : 0
     }
 
-    Label {
+    LinkText {
         id: message
         role: "hint"
         text: root.warning
+        link: root.warningLink
         color: root.toneColor(root.warningTone)
         visible: root.warning !== ""
         x: slot.x
         y: root.boxHeight + Theme.field.gap + (root.actionBelow ? 0 : Math.round((root.messageLine - height) / 2))
         width: slot.width - root.actionRoom
         wrapMode: Text.Wrap
+        onActivated: root.warningLinkActivated()
     }
 
     Item {

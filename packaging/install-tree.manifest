@@ -143,6 +143,7 @@ f share/vgshell/shell/Ui/feedback/KeyCaps.qml
 f share/vgshell/shell/Ui/feedback/KeyHints.qml
 f share/vgshell/shell/Ui/feedback/LevelLabel.qml
 f share/vgshell/shell/Ui/feedback/LevelOsd.qml
+f share/vgshell/shell/Ui/feedback/LinkText.qml
 f share/vgshell/shell/Ui/feedback/ProgressBar.qml
 f share/vgshell/shell/Ui/feedback/SaveBar.qml
 f share/vgshell/shell/Ui/feedback/Spinner.qml

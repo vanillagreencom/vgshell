@@ -30,7 +30,7 @@
 # message and whose action hands the keys to no control failed "no row
 # shows a message before the user table", read the flyout's message -10.95
 # px wide beside an action 186.95 px wide, and read the keys on the action.
-# inputs: shell/plugins/vgs.mouse/* shell/plugins/vgs.system/* shell/Core/PluginLogic.js shell/Core/HyprlandLayer.* shell/Core/HyprlandState.* shell/Core/Capabilities.qml shell/Core/Plugins.qml shell/Core/PluginStatus.qml shell/Hosts/PaneHost.qml shell/Ui/controls/Button.qml shell/Ui/controls/Slider.qml shell/Ui/controls/Switch.qml shell/Ui/controls/SegmentedControl.qml shell/Ui/controls/FormRow.qml shell/Ui/layout/DeviceRow.qml bin/vgshell scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/plugins/vgs.mouse/* shell/plugins/vgs.system/* shell/Core/PluginLogic.js shell/Core/HyprlandLayer.* shell/Core/HyprlandState.* shell/Core/Capabilities.qml shell/Core/Plugins.qml shell/Core/PluginStatus.qml shell/Hosts/PaneHost.qml shell/Ui/controls/Button.qml shell/Ui/controls/Slider.qml shell/Ui/controls/Switch.qml shell/Ui/controls/SegmentedControl.qml shell/Ui/controls/FormRow.qml shell/Ui/feedback/LinkText.qml shell/Ui/layout/DeviceRow.qml bin/vgshell scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 
 mouse_file="$home/.config/vgshell/shell.json"
@@ -59,7 +59,7 @@ def under(index, row):
             return True
         index = items[index]["parent"]
     return False
-rows = [i["parent"] for i in items if i["type"] == "Label" and i.get("role") == "hint" and i["visible"] and i.get("text") and items[i["parent"]].get("name") == "fieldRow"]
+rows = [i["parent"] for i in items if i["type"] in ("Label", "LinkText") and i.get("role") == "hint" and i["visible"] and i.get("text") and items[i["parent"]].get("name") == "fieldRow"]
 print(json.dumps([sorted({c["type"] for n, c in enumerate(items) if c["type"] in ("Slider", "Switch", "SegmentedControl") and under(n, row)}) for row in rows]))'; }
 # The user's values the pane's controls hold from the `hyprland` capability.
 mouse_user_values() { ipc smoke readDescendant window vgs.mouse MouseControls userValues; }
@@ -82,7 +82,7 @@ if not found:
     print("absent"); sys.exit(0)
 row = row_of(found[0])
 action = items[found[0]]["box"]
-message = next(i["box"] for i in items if i["type"] == "Label" and i.get("role") == "hint" and i["visible"] and i.get("text") and i["parent"] == row)
+message = next(i["box"] for i in items if i["type"] in ("Label", "LinkText") and i.get("role") == "hint" and i["visible"] and i.get("text") and i["parent"] == row)
 if message[2] > 0 and action[1] >= message[1] + message[3]: print("under")
 elif message[2] > 0 and action[1] < message[1] + message[3] and action[0] >= message[0] + message[2]: print("beside")
 else: print("action=%s message=%s" % (action, message))'; }

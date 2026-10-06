@@ -58,6 +58,7 @@ Scope {
             run: (name, args, done) => root.run(ctx, name, args, done),
             get entries() { return root.entries; },
             open: key => root.open(key),
+            edit: (path, line) => root.edit(path, line),
             get state() { return root.stateOf(ctx); }
         };
     }
@@ -104,6 +105,14 @@ Scope {
     // lifetime, since the core has no instance to drop it with.
     function openCore(name, args, done) {
         return start(Logic.tuiCore(Logic.CORE_TUIS, coreBin, runner(), name, args), null, done);
+    }
+
+    // edit: one file under the user's configuration directory, through the
+    // core editor TUI. It answers as open does, so a live editor is raised.
+    function edit(path, line) {
+        const judged = Logic.editArgs(path, line);
+        if (!judged.ok) return judged.answer;
+        return Logic.tuiShownAnswer("core/edit", openCore("edit", judged.args));
     }
 
     // The state a request is judged against, with the id a launch gets:

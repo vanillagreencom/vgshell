@@ -16,7 +16,7 @@
 # leave that plugin either way, so the row enables it for those starts. The
 # row leaves hyprland.lua wired, the welcome seen, vgs.themes disabled only
 # when it found it so and the real shell running.
-# inputs: shell/Core/HyprlandLayer.* shell/Core/Notices.qml bin/vgshell bin/vgshell-hypr-judge shell/Hosts/NoticeHost.qml shell/Core/PluginLogic.js config/shell.json shell/plugins/vgs.themes/manifest.json scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/Core/HyprlandLayer.* shell/Core/Notices.qml bin/vgshell bin/vgshell-hypr-judge shell/Hosts/NoticeHost.qml shell/Core/PluginLogic.js config/shell.json shell/plugins/vgs.themes/manifest.json shell/Ui/feedback/LinkText.qml shell/Ui/feedback/KeyCaps.qml shell/Ui/feedback/Kbd.qml scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 
 hypr_lua="$home/.config/hypr/hyprland.lua"
@@ -29,6 +29,7 @@ tail_matches_harness() { tail -n +2 -- "$hypr_lua" | cmp -s - "$sandbox/hyprland
 marker_content() { cat -- "$marker" 2>/dev/null || true; }
 prepare_unwired_start() { vgshell_run hypr unwire >/dev/null; }
 welcome_record() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["notices"]["welcome"]))'; }
+welcome_shape() { welcome_record | py_reply 'import json,sys; w=json.load(sys.stdin); print(json.dumps({"state": w["state"], "lineCount": None if w["lines"] is None else len(w["lines"]), "actions": w["actions"], "keys": w["keys"], "link": w["link"]}, sort_keys=True))'; }
 welcome_seen="$home/.local/state/vgshell/welcome-seen"
 welcome_marker() { [[ -e $welcome_seen ]] && echo present || echo absent; }
 # Whether the user file on disk lists vgs.themes as disabled, which the
@@ -37,14 +38,14 @@ themes_on_disk() { [[ -e $home/.config/vgshell/shell.json ]] || { echo enabled; 
 # The consent phase, its queued answer and the slot's title, while an
 # answer runs.
 decline_view() { ipc shell lent | py_reply 'import json,sys; n=json.load(sys.stdin)["notices"]; s=n.get("consentState") or {}; c=n["consent"]; print(json.dumps({"phase": s.get("phase"), "queued": s.get("queued"), "title": None if c is None else c["title"]}))'; }
-welcome_lines='["VGS is a bar and a set of plugins on top of your Hyprland. Turn plugins on and off from the plugins button at the top right of the bar.", "VGS adds one line to the top of your hyprland.lua. It loads a file VGS generates. VGS changes nothing else in that file.", "Super+T picks a theme."]'
+welcome_shape_close='{"actions": ["Close"], "keys": [{"shortcut": "Super+T", "text": "picks a theme."}], "lineCount": 2, "link": {"path": "hypr/hyprland.lua", "text": "hyprland.lua"}, "state": "unseen"}'
 
 prepare_unwired_start
 if stop_shell && start_shell "$repo" "$sandbox/hypr-consent-decline.log"; then
   ok "the real shell restarts for the consent decline row"
 fi
 expect_poll "the restarted shell asks before wiring an unchanged layer" '{"title": "Let VGS manage its Hyprland settings?", "command": "vgshell hypr wire", "failure": ""}' hypr_consent_record
-expect "a later start with the welcome seen draws no welcome" '{"state": "seen", "lines": null, "actions": null}' welcome_record
+expect "a later start with the welcome seen draws no welcome" '{"actions": null, "keys": null, "lineCount": null, "link": null, "state": "seen"}' welcome_shape
 type_keys -k Escape || fail "sending Escape to the Hyprland consent notice failed"
 expect_poll "Not now reaches the declined consent state" declined hypr_consent_phase
 expect_poll "Not now closes the Hyprland consent notice" null hypr_consent_record
@@ -106,7 +107,7 @@ rm -f -- "${marker:?}" "${welcome_seen:?}"
 if stop_shell && start_shell "$sandbox/tree-welcome-slow" "$sandbox/hypr-welcome-decline.log"; then
   ok "the slow welcome copy starts without either marker"
 fi
-expect_poll "an unwired start without the welcome-seen marker asks inside the welcome" '{"title": "Welcome to VGS", "command": "vgshell hypr wire", "failure": ""}' hypr_consent_record
+expect_poll "an unwired start without the welcome-seen marker asks inside the welcome" '{"title": "Welcome to VGS", "command": "", "failure": ""}' hypr_consent_record
 expect_poll "the asking welcome holds the keyboard" true ipc smoke noticeFocused
 type_keys -k Escape || fail "sending Escape to the asking welcome failed"
 expect_poll "the welcome stays, busy, while its decline runs" '{"phase": "asking", "queued": "decline", "title": "Welcome to VGS"}' decline_view
@@ -124,7 +125,7 @@ rm -f -- "${marker:?}" "${welcome_seen:?}"
 if stop_shell && start_shell "$sandbox/tree-welcome-early" "$sandbox/hypr-welcome-early.log"; then
   ok "the welcome control copy starts without either marker"
 fi
-expect_poll "control: the copy asks inside the welcome" '{"title": "Welcome to VGS", "command": "vgshell hypr wire", "failure": ""}' hypr_consent_record
+expect_poll "control: the copy asks inside the welcome" '{"title": "Welcome to VGS", "command": "", "failure": ""}' hypr_consent_record
 expect_poll "control: the copy's welcome holds the keyboard" true ipc smoke noticeFocused
 type_keys -k Escape || fail "sending Escape to the control copy's welcome failed"
 expect_poll "control: marking the welcome seen on the answer shows the plain question while the decline runs" '{"phase": "asking", "queued": "decline", "title": "Let VGS manage its Hyprland settings?"}' decline_view
@@ -150,18 +151,18 @@ rm -f -- "${welcome_seen:?}"
 if stop_shell && start_shell "$repo" "$sandbox/hypr-welcome-close.log"; then
   ok "the real shell restarts wired without the welcome-seen marker"
 fi
-expect_poll "a wired start without the marker draws the welcome with Close alone" "{\"state\": \"unseen\", \"lines\": $welcome_lines, \"actions\": [\"Close\"]}" welcome_record
+expect_poll "a wired start without the marker draws the welcome with Close alone" "$welcome_shape_close" welcome_shape
 expect "the Close-alone welcome follows the wired consent state" wired hypr_consent_phase
 expect_poll "the Close-alone welcome holds the keyboard" true ipc smoke noticeFocused
 type_keys -k Escape || fail "sending Escape to the Close-alone welcome failed"
 expect_poll "Escape closes the Close-alone welcome" null hypr_consent_record
 expect_poll "Escape on the Close-alone welcome writes the welcome-seen marker" present welcome_marker
-expect "Escape on the Close-alone welcome marks it seen" '{"state": "seen", "lines": null, "actions": null}' welcome_record
+expect "Escape on the Close-alone welcome marks it seen" '{"actions": null, "keys": null, "lineCount": null, "link": null, "state": "seen"}' welcome_shape
 
 if stop_shell && start_shell "$repo" "$sandbox/hypr-welcome-seen.log"; then
   ok "the real shell restarts wired with the welcome-seen marker"
 fi
-expect_poll "control: a wired start with the marker reads the welcome seen" '{"state": "seen", "lines": null, "actions": null}' welcome_record
+expect_poll "control: a wired start with the marker reads the welcome seen" '{"actions": null, "keys": null, "lineCount": null, "link": null, "state": "seen"}' welcome_shape
 expect_poll "control: a wired start with the marker reaches the wired consent state" wired hypr_consent_phase
 expect "control: a wired start with the marker draws nothing" null hypr_consent_record
 if [[ $themes_were_enabled == False ]]; then

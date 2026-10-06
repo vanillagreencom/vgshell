@@ -34,6 +34,16 @@ Column {
         if (reply !== "ok") console.warn("mouse: configure " + reply);
     }
 
+    function openHyprlandConfig() {
+        const answer = shell.tui.edit("hypr/hyprland.lua");
+        if (answer !== "ok") console.warn("mouse: edit " + answer);
+    }
+
+    component MouseFormRow: FormRow {
+        warningLink: warning === "" ? "" : "Hyprland config"
+        onWarningLinkActivated: root.openHyprlandConfig()
+    }
+
     // The action beside a row's line that names the user's own value.
     component UserValueButton: Button {
         property string setting: ""
@@ -44,10 +54,10 @@ Column {
         size: "sm"
         text: "Use my Hyprland value"
         // The button hides once the setting is gone, and a hidden item
-        // holds no focus: the row's own control, the tab stop before it,
-        // takes the keys first.
+        // holds no focus. The row message hides with it, so step back past
+        // the message link to the row's own control.
         onClicked: {
-            nextItemInFocusChain(false).forceActiveFocus(focusReason);
+            nextItemInFocusChain(false).nextItemInFocusChain(false).forceActiveFocus(focusReason);
             root.useHyprlandValue(setting);
         }
     }
@@ -62,7 +72,7 @@ Column {
         width: parent.width
         spacing: Theme.stack.row
 
-        FormRow {
+        MouseFormRow {
             width: parent.width
             label: "Pointer speed"
             warning: Logic.warningText(root.overridden, root.userValues, root.optionPaths, "sensitivity")
@@ -103,7 +113,7 @@ Column {
             }
         }
 
-        FormRow {
+        MouseFormRow {
             width: parent.width
             label: "Acceleration"
             warning: Logic.warningText(root.overridden, root.userValues, root.optionPaths, "accelProfile")
@@ -115,7 +125,7 @@ Column {
             }
         }
 
-        FormRow {
+        MouseFormRow {
             width: parent.width
             label: "Natural scroll"
             warning: Logic.warningText(root.overridden, root.userValues, root.optionPaths, "naturalScroll")
@@ -132,7 +142,7 @@ Column {
             }
         }
 
-        FormRow {
+        MouseFormRow {
             visible: !root.compact
             width: parent.width
             label: "Left-handed"
@@ -150,7 +160,7 @@ Column {
             }
         }
 
-        FormRow {
+        MouseFormRow {
             visible: !root.compact
             width: parent.width
             label: "Scroll speed"
@@ -205,7 +215,7 @@ Column {
         width: parent.width
         spacing: Theme.stack.row
 
-        FormRow {
+        MouseFormRow {
             visible: root.compact
             width: parent.width
             label: "Touchpad"
@@ -222,7 +232,7 @@ Column {
             }
         }
 
-        FormRow {
+        MouseFormRow {
             visible: !root.compact
             width: parent.width
             label: "Touchpad"
@@ -239,7 +249,7 @@ Column {
             }
         }
 
-        FormRow {
+        MouseFormRow {
             visible: !root.compact
             width: parent.width
             label: "Tap to click"
@@ -257,7 +267,7 @@ Column {
             }
         }
 
-        FormRow {
+        MouseFormRow {
             visible: !root.compact
             width: parent.width
             label: "Natural scroll"
@@ -275,7 +285,7 @@ Column {
             }
         }
 
-        FormRow {
+        MouseFormRow {
             visible: !root.compact
             width: parent.width
             label: "Disable while typing"
@@ -293,7 +303,7 @@ Column {
             }
         }
 
-        FormRow {
+        MouseFormRow {
             visible: !root.compact
             width: parent.width
             label: "Two-finger right-click"
@@ -311,7 +321,7 @@ Column {
             }
         }
 
-        FormRow {
+        MouseFormRow {
             visible: !root.compact
             width: parent.width
             label: "Touchpad scroll speed"

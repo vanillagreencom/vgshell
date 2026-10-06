@@ -7,15 +7,17 @@ import qs.Ui
 
 // The core notice surface: one OverlaySurface on the screen Notices chose,
 // existing only while a requirement notice, the restart notice, the reset
-// question, the "VGS was reset" notice or the core consent slot shows, taking the keyboard on demand. It draws one Dialog at a time. A
+// question, the "VGS was reset" notice or the core consent slot shows,
+// taking the keyboard on demand. It draws one Dialog at a time. A
 // requirement notice has priority: each missing command with its purpose
 // first, then Install and Not now, or Close alone when no manager here
 // installs a listed package. The command Install runs is only behind Show
 // command (D061). Install runs Notices.accept, every other answer
 // Notices.dismiss. The consent slot draws its view's title, message,
-// lines and actions: the Hyprland question's Connect and Not now, with its
-// command only behind Show command, or the welcome's Close. The restart
-// notice is drawn as the consent slot is, from Notices.restartView, and its
+// lines, file link, quick commands and actions: the Hyprland question's
+// Connect and Not now, with its command only behind Show command, or the
+// welcome's Connect, Not now or Close without a command disclosure. The
+// restart notice is drawn as the consent slot is, from Notices.restartView, and its
 // Restart runs Notices.restartShell; so are the reset question, from
 // Notices.resetView, whose Reset runs Notices.resetVgs, and the "VGS was
 // reset" notice, from Notices.resetDoneView, whose Restore previous
@@ -82,6 +84,7 @@ Scope {
                 message: win.consentMode ? win.consent.message : host.message(win.shown)
                 actions: win.consentMode ? win.consent.actions : win.shown.install !== null ? [{ label: "Install", role: "accept" }, { label: "Not now", role: "cancel" }] : [{ label: "Close", role: "cancel" }]
                 busy: win.consentMode && win.consent.busy
+                tabItems: card.tabStops()
                 onAccepted: {
                     if (!win.consentMode) Notices.accept();
                     else if (Notices.showingRestart) Notices.restartShell();
@@ -90,23 +93,58 @@ Scope {
                     else Notices.answerConsent("accept");
                 }
                 onRejected: Notices.dismiss()
-                // Tab reaches Show command and, while it is open, its Copy.
-                tabItems: [disclosure.toggle, disclosure.copyButton]
+
+                function tabStops() {
+                    const links = consentLines.visible ? consentLines.visibleChildren.filter(item => item.linked === true) : [];
+                    const command = disclosure.command === "" ? [] : [disclosure.toggle, disclosure.copyButton];
+                    return links.concat(command);
+                }
 
                 // The consent slot's lines, the welcome's: paragraphs
                 // `dialog.gap` apart, as the dialog's message and body are.
                 Column {
+                    id: consentLines
                     width: parent.width
                     spacing: Theme.dialog.gap
                     visible: win.consentMode && win.consent.lines.length > 0
                     Repeater {
                         model: win.consentMode ? win.consent.lines : []
-                        Label {
+                        LinkText {
                             required property var modelData
                             role: Theme.dialog.bodyRole
                             width: parent.width
                             wrapMode: Text.Wrap
                             text: modelData
+                            link: win.consent.link === null || win.consent.link === undefined ? "" : win.consent.link.text
+                            onActivated: Notices.openConsentLink()
+                        }
+                    }
+                }
+                Column {
+                    width: parent.width
+                    spacing: Theme.stack.row
+                    visible: win.consentMode && win.consent.keys !== undefined && win.consent.keys.length > 0
+                    Label {
+                        role: "eyebrow"
+                        text: win.consentMode ? win.consent.keysTitle : ""
+                    }
+                    Repeater {
+                        model: win.consentMode && win.consent.keys !== undefined ? win.consent.keys : []
+                        Row {
+                            required property var modelData
+                            spacing: Theme.stack.inline
+                            width: parent.width
+                            KeyCaps {
+                                shortcut: modelData.shortcut
+                                anchors.verticalCenter: parent.verticalCenter
+                            }
+                            Label {
+                                role: Theme.dialog.bodyRole
+                                text: modelData.text
+                                width: parent.width - x
+                                wrapMode: Text.Wrap
+                                anchors.verticalCenter: parent.verticalCenter
+                            }
                         }
                     }
                 }

@@ -57,7 +57,7 @@
 # user file, so vgs.system and vgs.displays are as it found them, and
 # removes the output, the assignments file and the stub backlight and
 # gives hidraw2 its mode back. The dim settings live in the user file.
-# inputs: shell/plugins/vgs.displays/* shell/plugins/vgs.system/* scripts/smoke/fixtures/devices/* shell/Core/SystemSteps.qml shell/Core/MonitorState.qml shell/Hosts/PaneHost.qml shell/Ui/controls/FormRow.qml bin/vgshell-system scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh bin/vgshell-tui
+# inputs: shell/plugins/vgs.displays/* shell/plugins/vgs.system/* scripts/smoke/fixtures/devices/* shell/Core/SystemSteps.qml shell/Core/MonitorState.qml shell/Hosts/PaneHost.qml shell/Ui/controls/FormRow.qml shell/Ui/feedback/LinkText.qml bin/vgshell-system scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh bin/vgshell-tui
 set -euo pipefail
 devices_ready displays || return 0
 # The core probes the system steps once vgs.displays holds `system`, and
@@ -142,7 +142,7 @@ lines = []
 for row in mine:
     if items[row].get("name") != "fieldRow" or items[row]["parent"] != items[headers[0]]["parent"] or not items[row]["visible"]: continue
     parts = [items[n] for n in mine if items[n]["visible"] and under(n, row)]
-    line = lambda role: next((p.get("text") for p in parts if p["type"] == "Label" and p.get("role") == role and p["parent"] == row), None)
+    line = lambda role: next((p.get("text") for p in parts if p["type"] in ("Label", "LinkText") and p.get("role") == role and p["parent"] == row), None)
     lines.append([line("label"), line("hint"), next((p.get("text") for p in parts if p["type"] == "Button"), None)])
 print(json.dumps({"header": items[headers[0]]["visible"], "lines": lines}))' "${1:-}" "${disp_access_copies[@]}"; }
 # disp_setting KEY VALUE: the plugin's setting KEY in the user file, a

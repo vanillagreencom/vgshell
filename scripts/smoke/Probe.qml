@@ -860,17 +860,39 @@ Scope {
                     if (disclosures.indexOf(p) !== -1) return true;
                 return false;
             };
-            const labels = root.descendants(dialog).filter(child => root.typeName(child) === "Label" && child.visible && !inDisclosure(child));
+            const linkTexts = root.descendants(dialog).filter(child => root.typeName(child) === "LinkText" && child.visible);
+            const inLinkText = item => {
+                for (let p = item.parent; p !== null; p = p.parent)
+                    if (linkTexts.indexOf(p) !== -1) return true;
+                return false;
+            };
+            const keyCaps = root.descendants(dialog).filter(child => root.typeName(child) === "KeyCaps" && child.visible);
+            const keyTitle = root.descendants(dialog).find(child => root.typeName(child) === "Label" && child.visible && child.role === "eyebrow");
+            const hasAncestor = (item, type) => {
+                for (let p = item.parent; p !== null; p = p.parent)
+                    if (root.typeName(p) === type) return true;
+                return false;
+            };
+            const inKeyRow = item => (item.parent !== null && root.descendants(item.parent).some(child => root.typeName(child) === "KeyCaps")) || hasAncestor(item, "KeyCaps") || hasAncestor(item, "Kbd");
+            const labels = root.descendants(dialog).filter(child => root.typeName(child) === "Label" && child.visible && !inDisclosure(child) && !inLinkText(child) && !inKeyRow(child) && child.role !== "eyebrow");
+            const keyRows = keyCaps.map(cap => {
+                const label = root.descendants(cap.parent).find(child => root.typeName(child) === "Label" && child.visible);
+                return { shortcut: cap.shortcut, text: label === undefined ? "" : label.text };
+            });
             const shownDisclosure = disclosures.find(d => d.visible);
             return root.json({
                 title: dialog.title,
                 message: dialog.message,
-                rows: labels.map(label => label.text).filter(text => text !== dialog.title && text !== dialog.message && !dialog.entries.some(entry => entry.label === text)),
+                rows: linkTexts.map(link => link.text).concat(labels.map(label => label.text)).filter(text => text !== dialog.title && text !== dialog.message && !dialog.entries.some(entry => entry.label === text)),
+                keysTitle: keyTitle === undefined ? "" : keyTitle.text,
+                keys: keyRows,
                 command: shownDisclosure === undefined ? null : { toggle: shownDisclosure.toggle.text, expanded: shownDisclosure.expanded, text: shownDisclosure.command },
                 // The button that holds the keyboard, by its text or label.
                 focused: (() => {
                     const held = root.descendants(dialog).find(child => child.activeFocus === true && ["Button", "IconButton"].includes(root.typeName(child)));
-                    return held === undefined ? null : (held.text || held.label);
+                    if (held !== undefined) return held.text || held.label;
+                    const linked = root.descendants(dialog).find(child => child.activeFocus === true && root.typeName(child) === "LinkText");
+                    return linked === undefined ? null : "link:" + linked.link;
                 })(),
                 actions: dialog.entries.map(entry => entry.label),
                 busy: dialog.busy

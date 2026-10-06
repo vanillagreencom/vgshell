@@ -9,7 +9,7 @@
   "icon": "mouse-pointer",
   "kinds": ["service", "bar-widget", "panel", "pane"],
   "entryPoints": { "service": "Service.qml", "bar-widget": "Widget.qml", "panel": "Panel.qml", "pane": "Pane.qml" },
-  "capabilities": ["status", "surfaces", "configure", "hyprland"],
+  "capabilities": ["status", "surfaces", "configure", "hyprland", "tui"],
   "defaultSection": "right",
   "pane": { "group": "Hardware", "order": 30 },
   "settings": {

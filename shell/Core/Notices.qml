@@ -435,6 +435,12 @@ Singleton {
         consentAnswered(action.answer);
     }
 
+    function openConsentLink() {
+        if (consent === null || consent.link === null || consent.link === undefined) return;
+        const answer = Capabilities.tuis.edit(consent.link.path, consent.link.line);
+        if (answer !== "ok") console.warn("notices: edit-link path=" + consent.link.path + " " + answer);
+    }
+
     // One detection at a time; one asked for while one runs follows it.
     function detect() {
         if (detector.running) {
@@ -456,7 +462,13 @@ Singleton {
             reset: { asked: resetAsked, backup: resetBackup === "" ? null : resetBackup },
             consent: consent === null ? null : { title: consent.title, command: consent.disclosure, failure: consent.failure },
             consentState: consentState === null ? null : { phase: consentState.phase, queued: consentState.queued || "", failure: consentState.failure || "" },
-            welcome: { state: welcome, lines: consent !== null && consent.welcome ? consent.lines : null, actions: consent !== null && consent.welcome ? consent.actions.map(a => a.label) : null },
+            welcome: {
+                state: welcome,
+                lines: consent !== null && consent.welcome ? consent.lines : null,
+                actions: consent !== null && consent.welcome ? consent.actions.map(a => a.label) : null,
+                keys: consent !== null && consent.welcome ? consent.keys : null,
+                link: consent !== null && consent.welcome ? consent.link : null
+            },
             waiting: queue.slice(1).map(n => n.id),
             resumes: resumes,
             resting: Object.keys(rest).filter(id => rest[id] > now).sort(),
