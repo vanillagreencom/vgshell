@@ -4,7 +4,7 @@
 setpriv arms parent death before this bootstrap checks its expected parent.
 The namespace init retains the lease and exits on EOF. Its death kills every
 descendant, including a tool that forks or creates another process group.
-See docs/architecture/jarvis-audio.md § Child lifetime.
+See docs/decisions/D064-jarvis-child-lease.md.
 """
 import os
 import selectors

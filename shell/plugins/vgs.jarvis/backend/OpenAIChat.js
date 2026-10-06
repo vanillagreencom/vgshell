@@ -1,5 +1,5 @@
 // OpenAI-compatible encoding and stream judge. WireBrain owns the conversation.
-// Contract: docs/architecture/jarvis-brain.md.
+// Contract: docs/architecture/jarvis-adapters.md.
 "use strict";
 const WireBrain = require("./WireBrain.js");
 const AUTH = Object.freeze({ header: "authorization", prefix: "Bearer " });

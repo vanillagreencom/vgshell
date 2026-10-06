@@ -3,7 +3,7 @@
 // tool bridge as its only MCP server. Every tool call it makes reaches the
 // router through mcp-shim; this owner judges the stream-json wire, releases
 // what each user turn carries and owns the process for the conversation.
-// Contract: docs/architecture/jarvis-claude.md.
+// Contract: docs/architecture/jarvis-adapters.md.
 "use strict";
 const cp = require("node:child_process");
 const fs = require("node:fs");

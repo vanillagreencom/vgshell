@@ -1,7 +1,7 @@
 // The GPT-Live duplex speech engine: one provider session per conversation,
 // its input and output audio and its captions. Session owns the lifetime
 // through the speech port; Audio owns devices and calls captureSink and
-// playbackSource. Contract and pinned protocol: docs/architecture/jarvis-live.md.
+// playbackSource. Contract and pinned protocol: docs/decisions/D089-jarvis-chained-engine-and-heard-prefix.md.
 "use strict";
 const { Readable, Writable } = require("node:stream");
 const Policy = require("./Policy.js");

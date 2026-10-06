@@ -1,6 +1,6 @@
 // The provider table: wire brain drivers and the duplex voice engine. One row
 // per provider names its driver, endpoint, key need, documented retention and
-// no-store request fields. Sources and fetch dates: docs/architecture/jarvis-brain.md,
+// no-store request fields. Sources and fetch dates: docs/architecture/jarvis-adapters.md,
 // and jarvis-live.md for the voice row.
 "use strict";
 const Net = require("./net.js");

@@ -2,7 +2,7 @@
 // Session owns identity and deadlines, Audio owns pacing and heard accounting,
 // WireBrain owns history and ToolRouter owns actions. This owner connects them
 // per conversation and keeps the heard prefix that the next turn reports.
-// Contract: docs/architecture/jarvis-engine.md.
+// Contract: docs/decisions/D089-jarvis-chained-engine-and-heard-prefix.md.
 "use strict";
 const { Readable, Writable } = require("node:stream");
 const Policy = require("./Policy.js");

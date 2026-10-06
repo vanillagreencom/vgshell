@@ -1,6 +1,6 @@
 // Anthropic Messages encoding and ordered event judge. WireBrain owns release,
 // history, keys and cancellation; Sse owns the byte stream.
-// Contract and vendor sources: docs/architecture/jarvis-anthropic.md.
+// Contract and vendor sources: docs/architecture/jarvis-adapters.md.
 "use strict";
 const WireBrain = require("./WireBrain.js");
 const TOOL_CALLS = 16;

@@ -2,7 +2,7 @@
 // started from the runtime local setup published, in a private network
 // namespace and under the daemon's parent-death signal. Audio's PCM is
 // resampled to the models' 16 kHz and each voice's rate back to Audio's.
-// Contract: docs/architecture/jarvis-local-speech.md.
+// Contract: docs/architecture/jarvis.md.
 "use strict";
 const cp = require("node:child_process");
 const fs = require("node:fs");

@@ -2,7 +2,7 @@
 
 Covers: shell/Core/Capabilities.qml, shell/Core/ShortcutRegistry.qml, shell/Core/IdleRegistry.qml, shell/Core/IpcRegistry.qml, shell/Core/NotificationHub.qml, shell/Core/SessionLock.qml, shell/Core/Lifetime.js, shell/Core/Toasts.qml, shell/Hosts/ToastHost.qml, scripts/smoke/rows/toasts.sh, scripts/test-plugin-menu.js, scripts/smoke/rows/style.sh
 
-[Input facts](input-facts.md) defines the fresh core target and key observations. [Jarvis input](jarvis-input.md) defines their policy and transport consumer.
+[Input facts](input-facts.md) defines the fresh core target and key observations. [jarvis-executors.md](jarvis-executors.md) defines their policy and transport consumer.
 
 How the core lends a plugin the APIs its manifest names, holds them for one instance and releases them. The manifest and the kinds are [plugins.md](plugins.md).
 

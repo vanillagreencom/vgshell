@@ -131,7 +131,7 @@ function create(selected) {
         const decision = Policy.release(value, selected, grants);
         if (decision.kind !== "send") return decision;
         // Node 22's bundled WebSocketInit supports headers. Its handshake uses
-        // redirect:error. See docs/architecture/jarvis-release.md § Node contract.
+        // redirect:error. See docs/decisions/D073-jarvis-release-and-origin-bound-keys.md.
         const socket = new WebSocket(target.url, { headers: metadata });
         const events = new EventTarget();
         const stop = () => socket.close();

@@ -13,15 +13,12 @@ One line per architecture document: the change to read it before. [overview.md](
 - [secrets.md](secrets.md): read before touching a password field, a stored token, a clipboard reader, a probe of a credential, or any text that could carry a secret.
 - [status.md](status.md): read before touching plugin status or the Settings page's Status rows.
 - [status-actions.md](status-actions.md): read before touching a setup step a user takes and its one-click rule, a status action, a manifest's `secrets` or the core's libsecret writer.
-- [jarvis.md](jarvis.md): read before implementing a Jarvis plan consumer of a landed core contract.
-- [jarvis-local.md](jarvis-local.md): read before changing local speech artifacts, model input bounds, fixture outcomes or the measurement instrument.
-- [jarvis-policy.md](jarvis-policy.md): read before touching the Jarvis action judge, tool schemas, protected paths or turn taint.
-- [jarvis-policy-paths.md](jarvis-policy-paths.md): read before touching `Denied`, its protected roots or the account name rule.
-- [jarvis-codex.md](jarvis-codex.md): read before touching the Codex harness brain, its app-server judge, a harness program's approvals or Codex Verify.
+- [jarvis.md](jarvis.md): read before touching the Jarvis service, its daemon, a child it starts, its wire, its records, or the capture indicator.
+- [jarvis-executors.md](jarvis-executors.md): read before adding or changing a Jarvis tool executor: a desktop, file, input, shell, browser or screen tool.
+- [jarvis-adapters.md](jarvis-adapters.md): read before adding or changing a brain, a speech engine, a provider row, a harness program adapter or the tool bridge.
 - [D051](../decisions/D051-notification-actions-reveal-the-sender.md): read before touching what a click on a notification does, which window it raises, or which notifications the service keeps holding for the inbox.
 - [notification-hints.md](notification-hints.md): read before touching the VGS notification hints, a card's hinted icon or click, or the notifications' `open` TUI.
 - [D052](../decisions/D052-automations-engine.md): read before touching `vgs.automations`, its schedule compiler, its units, its runner or its records.
-- [jarvis.md](jarvis.md): read before implementing a Jarvis core boundary or its voice service.
 - [D062](../decisions/D062-native-lock-and-polkit-plugins.md): read before touching `vgshell lock`, `vgs.lock`, its PAM stack or sleep hook, the `idle` capability, `vgs.polkit` or their smoke rows.
 - [capabilities.md](capabilities.md): read before touching how `vgs.polkit` finds another polkit agent, its status row's Uninstall, Stop and Install, or `shell.polkit.register`.
 - [D101](../decisions/D101-greeter-host-and-greeter-system-step.md): read before touching the login screen: `shell/greeter.qml`, `vgs.greeter`, its view, its theme copy or the greeter's Hyprland and PAM files.
@@ -65,8 +62,8 @@ One line per architecture document: the change to read it before. [overview.md](
 - [readme-images.md](readme-images.md): read before touching a plugin README's screenshot, `docs/images/plugins/`, `scripts/readme-shots.sh` or its check.
 - [distribution.md](distribution.md): read before touching the licence, `VERSION`, `vgshell --version`, a package recipe, the installer, the flake, the autostart entry, or anything that packages or installs VGS.
 - [install-guide.md](install-guide.md): read before touching README § Install, `scripts/check-readme.js` or `scripts/readme-install.sh`.
-- [jarvis-tasks.md](jarvis-tasks.md): read before changing coding-task records, their event producer or consumers.
 
 - [system-steps.md](system-steps.md): read before touching a system step, `bin/vgshell-system`, `vgshell sudo grant`, a udev rule VGS ships, or a plugin that needs a privileged one-time setup.
 - [distribution-methods.md](distribution-methods.md): read before touching `vgshell self`, the curl installer, `bin/lib/self.js`, or a tree's `current` link.
 - [commands-are-data.md](commands-are-data.md): read before touching the `tui` capability, a manifest's `tui` key, the Dev Tools catalog, or any place a plugin's or a user's text could become a command.
+- [jarvis-outbound.md](jarvis-outbound.md): read before touching Jarvis release, the network door, a key lookup, a presence probe, or any path by which content or a credential could leave the daemon.

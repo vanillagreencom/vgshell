@@ -1,6 +1,6 @@
 // The tool bridge's one MCP judge: it accepts or refuses one JSON-RPC line of
 // the initialization-era protocol and builds every answer the bridge writes.
-// No other file parses MCP. Contract and sources: docs/architecture/jarvis-bridge.md.
+// No other file parses MCP. Contract and sources: docs/architecture/jarvis-adapters.md.
 "use strict";
 
 // The newest first: an unsupported request is answered with VERSIONS[0].

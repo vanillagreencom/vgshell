@@ -1,100 +1,40 @@
-# Jarvis
+# Jarvis is one service, one leased child and one wire judge
 
-Covers: shell/Core/SessionLock.qml, shell/plugins/vgs.jarvis/, scripts/test-jarvis-protocol.js, scripts/test-jarvis-daemon.js, scripts/fixtures/jarvis/, scripts/smoke/fixtures/plugins/acme.session/, scripts/smoke/rows/session.sh, scripts/smoke/rows/jarvis.sh, scripts/smoke/rows/jarvis-keys.sh, scripts/smoke/rows/read-only-prefix.sh, shell/Hosts/LayerHost.qml
+Read before touching the Jarvis service, its daemon, a child it starts, its wire, its records, or the capture indicator.
 
-[Input facts](input-facts.md) defines the fresh core target and key observations. [Jarvis input](jarvis-input.md) defines their policy and transport consumer.
+## The approach
 
-The [Jarvis plan](https://linear.app/vanillagreen/issue/VGS-623) defines the voice assistant's scope. The service owns one Node child and publishes its health and Session state. The daemon installs the [audio owner](jarvis-audio.md) and its real reducer ports and persists privacy mute. The [bubble](jarvis-bubble.md) supplies the presented-indicator handshake. It observes and stops recorded coding tasks. The [chained engine](jarvis-engine.md) connects the brain to the registered tools. Its only speech row is [local speech](jarvis-local-speech.md), so the daemon stays unconfigured until local setup publishes a runtime and the selected brain is available. [D064](../decisions/D064-jarvis-child-lease.md) records the process choice. The installed [action policy](jarvis-policy.md) judges each routed call.
+`vgs.jarvis` is one service that owns one Node child whose lease is its closed stdin; every module reaches the shell only through that child's wire, and every process the daemon starts dies with it. One wire judge, `JarvisProtocol.accept`, owns every shape in both directions, and the daemon owns the generation identity the service carries back. `Session` is the sole admission judge: capture opens only after the shell has presented the indicator, a passive layer the service owns, and never from a component's existence, a status file or a pending request. Private records hold names, never values. A failure is a keyed `jarvis: <area>=<cause>` with no provider text, and readiness comes only from its one judge. The choices are [D064](../decisions/D064-jarvis-child-lease.md), [D082](../decisions/D082-jarvis-approval-bound-to-the-action.md) and [D087](../decisions/D087-jarvis-task-control.md).
 
-The service owns metadata-only key and [account discovery](jarvis-accounts.md) readers. Settings opens the masked Add key and Accounts terminals. [Jarvis secrets](jarvis-secrets.md) owns key storage and references. The chained engine opens the selected brain at the first turn.
+## Why
 
-The [voice text contract](jarvis-voice.md) defines the guidance and speech-text APIs the chained engine consumes.
+A pipe closes after a shell crash without QML teardown, where a parent-death signal alone misses a parent already dead. Linux clears the parent-death signal across fork and a process group misses a descendant that closed its pipes, so only the death of a namespace's init kills every descendant. The microphone owner must not outlive the indicator, so a sidecar is a leased child and never a service. A pending mute while the daemon is unavailable means mute on, because no toggle state exists. An audit that stored a value would hold the secret it exists to keep out.
 
-[Jarvis audit](jarvis-audit.md) defines redaction and pre-action persistence. [Action routing and approval](jarvis-approval.md) defines the installed serial router, action grants and reducer confirmation judge. The daemon audits refused confirmations and privacy cleanup. It registers the [window and application executors](jarvis-desktop-tools.md) after their Hyprland probe, [input executors](jarvis-input.md) after harmless transport probes, the [clipboard, media and notify executors](jarvis-tools.md) whose commands are present, the [file tools](jarvis-files.md), [shell tools](jarvis-shell-tools.md) after kernel readiness and the [vision executor](jarvis-vision.md) when `grim` and `magick` are present and Hyprland answered. The [chained engine](jarvis-engine.md) routes the brain's calls. The [tool bridge](jarvis-bridge.md) gives a harness brain's MCP calls the same router; the daemon creates its owner on first hello, and only a harness brain's conversation opens a session and its `tools.sock`. The [Codex harness](jarvis-codex.md) is the brain the chained engine selects for a Codex subscription; its approval requests reach the same router. The [Claude Code harness](jarvis-claude.md) opens a session per conversation; the chained engine does not select it yet.
+## Rules
 
-The installed [release policy and transport](jarvis-release.md) define the outbound interface for adapters. The chained engine owns that transport for each conversation.
+- Do end the child by closing its stdin; never add a systemd unit or a detached keeper. `scripts/test-jarvis-daemon.js` and `scripts/smoke/rows/jarvis.sh` pin it.
+- Do start every child through `setpriv --pdeathsig KILL` with a parent check, run audio children inside a PID namespace that dies with the daemon, and give each child an explicit environment with no key and no `VGSHELL_RUNNER_PID`. `scripts/test-jarvis-audio-daemon.js`, `scripts/test-jarvis-audio.js` and `scripts/test-jarvis-desktop-tools.js` pin each.
+- Never fall back to a host process, a unit or a privilege prompt when user namespaces are refused; report an audio fault.
+- Do start one speech sidecar per conversation, load models when it opens and unload when it closes; never write under the plugin directory from a child. `scripts/test-jarvis-local-speech.js` and the read-only-prefix row pin both.
+- Never read the core from the plugin snapshot; the daemon loads shared libraries from the VGS tree passed as argv. The read-only-prefix row pins it.
+- Do add a wire type only in `JarvisProtocol.accept`, with both endpoint consumers; unknown types, extra fields and oversized lines fail. Never assign a daemon generation from the service. `scripts/test-jarvis-protocol.js` and `scripts/test-jarvis-daemon.js` pin both.
+- Do treat a missing shell or lock value as locked; neither `locked` nor `ready` health permits capture. Never grant capture from a component's existence; the presented observation travels on the child's ordered wire. `scripts/test-jarvis-daemon.js` and `scripts/smoke/rows/jarvis-bubble.sh` pin both.
+- Never start playback before Audio acknowledges the recorder closed, never queue microphone data for replay, and never add an echo loader whose success cannot be verified. `scripts/test-jarvis-session.js` and `scripts/test-jarvis-audio.js` pin it.
+- Never let talk or stop clear mute, never copy mute into the mode setting, and register talk through the core hold-shortcut contract. `scripts/smoke/rows/jarvis-keys.sh` pins it.
+- Do call `Audit.before` after authorization and before an executor or transfer starts, never put a value, image, transcript or key in a record, and use `cleanup` for stop, mute and teardown so an unwritable store cannot block privacy teardown. `scripts/test-jarvis-audit.js` and `scripts/test-jarvis-redact.js` pin each.
+- Do exit 78 for a permanent configuration failure and never retry it; never let a successful hello replenish the restart allowance. `scripts/smoke/rows/jarvis.sh` pins both.
+- Do publish every settings offer list through the plugin's `choices` status; a discovery failure never changes a configured provider or device. `scripts/smoke/rows/settings.sh` pins it.
+- Never fall back to a default for a status shape the service does not produce, never infer readiness from an installer's exit status or a directory's presence, and never map a scratch or helper failure to exit 77. `scripts/test-jarvis-widget.js` and `scripts/test-jarvis-setup.py` pin them.
+- Do keep a coding task the one child that outlives the daemon, reached only through records written by rename under one lock ([D072](../decisions/D072-coding-task-records-and-four-fact-state.md)); never put a goal or a path in TUI arguments. `scripts/test-jarvis-task-runner.js` pins it.
 
-The [wire brain](jarvis-brain.md) defines the shared owner, OpenAI-compatible driver and provider table. [Anthropic Messages](jarvis-anthropic.md) uses the same release, request lifetime and event stream reader. The [chained engine](jarvis-engine.md) connects speech, brain, router, release and audit per conversation.
+## The canonical example
 
-## Chained engine
+`shell/plugins/vgs.jarvis/backend/Audio.js`: children in a leased namespace, one teardown path, bounded buffers that fault instead of retaining. Copy its lifetime shape for a new child owner.
 
-[jarvis-engine.md](jarvis-engine.md) defines the turn loop, the speech adapter contract, barge-in with the heard prefix, conversation lifetime and the selection path.
+## Revisit when
 
-The [GPT-Live engine](jarvis-live.md) defines the duplex speech session, its audio path, interruption and idle close, and the Session regions it uses. The daemon does not select the duplex engine yet.
+Quickshell provides a stronger child lease, capture moves to a process the shell cannot own, or an echo implementation can verify both module acquisition and routing before admitting simultaneous capture and playback.
 
-## Local speech inputs
+## Not governed
 
-[jarvis-local.md](jarvis-local.md) defines the artifact declaration, bounded model inputs and execution oracle. [D066](../decisions/D066-pinned-local-speech-and-bounded-inputs.md) records the choices. [Local setup](jarvis-setup.md) verifies installation and publishes readiness. [jarvis-local-speech.md](jarvis-local-speech.md) defines the local speech row, its sidecar, segmentation and wire. Admission remains a separate owner.
-
-## Coding-task records
-
-[jarvis-tasks.md](jarvis-tasks.md) defines the disk record owner, copied event producer and four-fact replay. [D072](../decisions/D072-coding-task-records-and-four-fact-state.md) records the choice. The daemon validates those records before ready. [jarvis-task-control.md](jarvis-task-control.md) defines launch, identity, stop and display; the daemon observes and stops recorded tasks and registers no task executor yet. Vendor profiles and voice remain later work.
-
-## Session observation
-
-A privacy-sensitive service declares capability `session` and binds to `shell.session.locked`. The [capability contract](capabilities.md) defines that state and its tests. It grants no lock authority and introduces no dependency on a lock plugin: [D056](../decisions/D056-read-only-session-state.md).
-
-The service treats a missing shell or lock value as locked. Each hello carries the observed lock state. The daemon answers `locked` or `ready` for health, and neither answer permits capture. Session stays down with reason `locked` or `unconfigured`. The core capability does not enforce capture or action policy.
-
-## Controls
-
-[jarvis-controls.md](jarvis-controls.md) defines the implemented keys, modes, persistent mute and wire. [jarvis-widget.md](jarvis-widget.md) defines the bar widget's states and its mute path. Without local setup the stock daemon remains unconfigured. Only disposable test copies acquire scripted capture or playback.
-
-## Session
-
-[jarvis-session.md](jarvis-session.md) defines the region reducer, effect owner and lifetime rules, with their owning test evidence.
-
-## Setting options
-
-The starred strings in [the plan's settings section](https://linear.app/vanillagreen/issue/VGS-623) use `optionsFrom`: voice, language, microphone, speaker, brain, model and coding agent. The service that owns discovery publishes each offer list through its plugin's declared `choices` status. A label names the choice to the user; its stable id is the setting.
-
-[status.md § Setting choices](status.md#setting-choices) defines the generic shape, bounds, empty-string first-offered convention and retained unavailable ids. [D057](../decisions/D057-setting-options-from-status.md) records the core choice and its Omarchy comparison. Each discovery owner resolves empty string from its own first offer and treats no offers as no selection. Discovery failure must not silently change the configured provider or device.
-
-The generic fixture `acme.status` proves the Settings Select in `scripts/smoke/rows/settings.sh`. Jarvis publishes its own [read-only device offers](jarvis-audio.md#device-discovery). Both use synthetic offers in validation and write only sandbox configuration. No real microphone, speaker, provider account or network is needed.
-
-## Passive input
-
-The [bubble contract](jarvis-bubble.md) defines layout, presentation and input through the [passive layer input contract](layers.md) ([D026](../decisions/D026-passive-layers-are-a-capability.md)).
-
-## Ownership
-
-- `Service.qml` owns the Process, its parsers, the hello deadline and the restart timer. Disable destroys that owner. It closes stdin before Quickshell destroys the Process. A crashed shell closes the pipe without running QML teardown.
-- The daemon exits when stdin closes. No systemd unit or detached process keeps it alive. It uses the shared library loader from the real VGS tree, passed as argv, because its published plugin snapshot contains no core files.
-- A successful hello does not replenish the restart allowance. Five restarts use exponential delays, then the service publishes a problem and raises one toast. The hello deadline bounds a child that starts but sends no answer. These are recovery rules, not measured latency budgets.
-- The daemon's normal exit 78 is permanent configuration failure. The service publishes its cause without a restart. Node below the plugin floor and privacy-record failures take this path. VGS's package floor remains Node 18; only Jarvis requires Node 22.
-- Node below the plugin floor refuses before reading hello. The manifest names the daemon, audio, key-flow, task-record, sandbox, local-setup, file-opening, desktop, input and screen commands. D035 supplies the system package notice; the user-started local setup installs only private Python and model files.
-
-## Wire
-
-The wire contract is in [jarvis-controls.md § Wire](jarvis-controls.md#wire).
-
-## Boundaries still owned by later rows
-
-[The audio owner](jarvis-audio.md) implements audio process lifetime and capture teardown. [Half duplex](jarvis-audio-duplex.md) implements J15 and answers R3. [Playback accounting](jarvis-playback.md) implements J14. J37 owns GPT-Live delegation; [the engine](jarvis-live.md#delegation) refuses a delegation until then. Selecting the duplex engine in the daemon waits for the voice and account selection. The [bubble](jarvis-bubble.md) supplies the mapped indicator handshake. J20 owns the approval bubble, confirm key and final-transcript matcher. The [chained engine](jarvis-engine.md) connects the brain to the installed router. J42 owns local toggle turn detection; J43 owns always runtime; J57 owns the console. Their settings and actions enter only with their consumers. The reducer's ports do not implement those owners. Engines, adapter integrations and user interfaces stay with their assigned issues. [Account discovery](jarvis-accounts.md) implements explicit API and local Verify through the outbound door, Claude subscription Verify through the [Claude Code harness](jarvis-claude.md#account-verify) and Codex Verify through the [Codex harness](jarvis-codex.md#verify). Speech-only verification remains with its separate owner. [The action policy](jarvis-policy.md) names the routing, approval, audit, release and confinement owners.
-
-## Evidence
-
-- `scripts/test-jarvis-protocol.js` pins shape, direction, unknown-type and UTF-8 line-bound refusals with per-rule controls.
-- `scripts/test-jarvis-daemon.js` runs the real daemon and lease controls through the [J09 test world](validation-jarvis.md). Its fixture parameters enter as arguments. No caller environment reaches the world. It also runs startup task observation and the `task-stop` intent on a launcher group the test starts ([task control](jarvis-task-control.md#evidence)).
-- `scripts/smoke/rows/jarvis.sh` proves zero-retry hello, Session detail delivery, disable cleanup and bounded recovery. Removing state publication breaks the real consumer assertion. Recovery checks name their retry count. Its suppressed first reply retains the timeout log and fails the ordinary startup assertion once. Its six-retry copy breaks the five-retry assertion.
-- Its gated real daemon proves startup lock forwarding beside the test-only lock holder. That holder locks and unlocks through the core without authentication. Its control removes the startup resend and the stale-reply filter, and the service then publishes the stale snapshot. The row also proves Node-floor exit 78 does not retry.
-- The key row waits for the service's next `starting` state before reading the gated daemon's hello marker. Its fixture retry delay is not daemon startup time. The daemon suite runs the same row reads and shared poller with an injected clock; removing that state wait fails the hello assertion. It also proves that a fresh and a restarted scripted daemon write the marker before their reply gate opens, with an empty-marker control.
-- Every IPC JSON reader in that row follows the shared [validation-smoke.md](validation-smoke.md). State words and empty replies do not enter a direct JSON parse.
-- `scripts/smoke/rows/read-only-prefix.sh` adds the shared observer to its disposable installed tree. It requires zero-retry hello from the non-writable prefix and checks that startup changes no installed file. `scripts/smoke/rows/start-order.sh` uses the same fresh-start read for the default set.
-- Smoke instruments only disposable service copies to launch the child through the real J09 helper. `scripts/fixtures/jarvis/prepare.js` keeps that instrumentation in one place. Its `--task-requests` option gives the [task row](jarvis-task-control.md#evidence) a gated daemon copy that sends task TUI requests. The helper itself owns worktree-local scratch allocation. A fixture launcher carries the stdin pipe through a descriptor, because Bash replaces stdin with `/dev/null` for the helper's asynchronous namespace supervisor. It restores stdin inside the namespace before executing the real daemon.
-
-The Jarvis row reads the service's `transcript` status from a daemon copy that writes captions for the current and another generation. Removing the generation filter or the status write each breaks the same caption assertion.
-
-The Jarvis row also reads stable microphone and speaker offers from the service's status. Removing the service's offer publication fails that real consumer assertion. The installed-prefix row reads the same offers before it compares its tree snapshots. Both run the production audio discovery owner against stand-ins.
-
-[Audio evidence](jarvis-audio.md#evidence) holds the child-lifetime and buffer checks.
-
-## Omarchy comparison
-
-The read-only Omarchy shell reference's `plugins/agents/Main.qml` separates display from external collectors. VGS keeps that separation, with the daemon as the worker and the service as its health publisher. Omarchy's collectors do not own a continuously leased child.
-
-The read-only omarchy-voice reference's `share/omarchy-voice.service` uses a graphical-session systemd unit with restart limiting. VGS keeps bounded restart but ties the daemon to the enabled service's stdin instead. A unit can outlive the shell and its future capture indicator. The audio owner enforces child lifetime. The mapped-indicator owner must still land before production capture can start.
-
-omarchy-voice's `session.py` forwards local control commands through a socket; its `playback.py` owns the playback queue. VGS keeps effect ownership separate from state transitions. One pure reducer must judge overlapping capture, playback, tools and approvals without sharing mutable flags between adapter callbacks.
-
-[The audio comparison](jarvis-audio.md#omarchy-comparison) names the adopted interfaces and different lifetimes.
+What a tool executor does, which is [jarvis-executors.md](jarvis-executors.md); how a brain or speech adapter is written, which is [jarvis-adapters.md](jarvis-adapters.md); what leaves the machine, which is [jarvis-outbound.md](jarvis-outbound.md); the test world, which is [validation-jarvis.md](validation-jarvis.md).

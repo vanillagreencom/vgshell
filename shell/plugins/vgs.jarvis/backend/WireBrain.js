@@ -1,6 +1,6 @@
 // Conversation, labelled history and request lifetime shared by the two wire
 // brains. Protocol drivers own only their provider's encoding and event judge.
-// Contract: docs/architecture/jarvis-brain.md.
+// Contract: docs/architecture/jarvis-adapters.md.
 "use strict";
 const Policy = require("./Policy.js");
 const Providers = require("./Providers.js");

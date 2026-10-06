@@ -4,7 +4,7 @@
 // its OCR text. Screen.js judges the geometry; DesktopSession lends the one
 // Hyprland reader; Desktop.runCommand runs each command. Policy, approval,
 // audit and release stay with the router and the brain's transport.
-// Contract: docs/architecture/jarvis-vision.md.
+// Contract: docs/decisions/D093-jarvis-screenshots.md.
 "use strict";
 const crypto = require("node:crypto");
 const fs = require("node:fs");

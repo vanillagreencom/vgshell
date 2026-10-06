@@ -1,7 +1,7 @@
 // The one judge from a Hyprland state reading and a vision call to a capture
 // plan: the layout box grim captures, the scale its image takes, and the
 // image pixels each private window covers. Pure: it runs no process and
-// touches no file. Contract: docs/architecture/jarvis-vision.md.
+// touches no file. Contract: docs/decisions/D093-jarvis-screenshots.md.
 "use strict";
 
 function refuse(reason) { return { kind: "refuse", reason }; }

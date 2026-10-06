@@ -1,7 +1,7 @@
 // The Codex harness's one app-server judge: it builds every message Jarvis
 // writes to `codex app-server` and narrows every line the program writes back.
 // No other file parses this protocol. Contract, sources and the pinned schema
-// excerpt: docs/architecture/jarvis-codex.md.
+// excerpt: docs/architecture/jarvis-adapters.md.
 "use strict";
 
 // One JSON-RPC message per line. A thread or turn reply can carry a whole

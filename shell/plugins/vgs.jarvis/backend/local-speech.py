@@ -16,7 +16,7 @@ mono. Ids are positive integers; each new request takes a larger id.
 A failed frame without an id ends the sidecar. A message for an utterance the
 sidecar already answered crossed that answer and is dropped. Stdin EOF exits 0;
 the runtime not ready exits 77; a protocol violation exits 65; other failures 1.
-Contract: docs/architecture/jarvis-local-speech.md.
+Contract: docs/architecture/jarvis.md.
 """
 import argparse
 from array import array

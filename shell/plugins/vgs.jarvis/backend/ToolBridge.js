@@ -1,7 +1,7 @@
 // One bridge owner per daemon: the private tools.sock, its session token, the
 // MCP connections mcp-shim relays and the bridge's calls pending in the router.
 // The router is the gate; this owner never starts an executor or judges an
-// action. Contract: docs/architecture/jarvis-bridge.md.
+// action. Contract: docs/architecture/jarvis-adapters.md.
 "use strict";
 const crypto = require("node:crypto");
 const fs = require("node:fs");

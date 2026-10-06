@@ -2,7 +2,7 @@
 
 Covers: shell/Core/Compositor.qml, shell/Core/Dispatch.js, shell/Core/HyprlandState.qml, shell/Core/HyprlandState.js, shell/Core/HyprlandLayer.js, shell/Core/Capabilities.qml, shell/Hosts/PluginSlot.qml, shell/Hosts/OverlaySurface.qml, bin/lib/xkb-keys.py, scripts/test-input-facts.js, scripts/test-xkb-keys.py, scripts/smoke/rows/input-facts.sh, scripts/smoke/fixtures/plugins/acme.input-facts/**
 
-[D090](../decisions/D090-core-input-facts.md) adds read-only input observations to the existing compositor and Hyprland device owners. [Jarvis input](jarvis-input.md) consumes them. An observation grants no authority to send input.
+[D090](../decisions/D090-core-input-facts.md) adds read-only input observations to the existing compositor and Hyprland device owners. [jarvis-executors.md](jarvis-executors.md) consumes them. An observation grants no authority to send input.
 
 ## Owners
 
