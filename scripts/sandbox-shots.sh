@@ -4,6 +4,8 @@
 # Usage: scripts/sandbox-shots.sh [--out DIR] [--rev REV] [--modes LIST]
 #                                 [--size WxH] [--scale N]
 #                                 [--theme-card NAME] [--hidden]
+#                                 [--preview-themes LIST] [--preview-wallpapers DIR]
+#                                 [--dotfiles DIR]
 #                                 [--timeout SECONDS] [--keep] [SCENE...]
 #
 # The sandbox is the smoke's own (scripts/smoke/harness.sh): its own HOME,
@@ -17,7 +19,7 @@
 # SCENE is gallery, settings, wide-settings, focus, plugin-pages, manager, launcher,
 # notifications, bar, panels, devtools, system, network, vpn, bluetooth, power, dialog, by-hand, reset, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, tooltips, capture,
-# keyhints, clipboard, voice, voice-setup, plugin-messages or ai-usage. settings takes the
+# keyhints, clipboard, voice, voice-setup, plugin-messages, ai-usage or theme-previews. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
 # each when the tree ships its plugin. plugin-pages, taken only when named, opens every
 # plugin the Settings window lists, in that window's order, and captures
@@ -115,6 +117,15 @@
 # hyphens is refused as `sandbox-shots: refused: theme-card=<value>`, and
 # with the theme-browser scene a name the tree's catalog lacks as
 # `sandbox-shots: refused: theme-card=<value> tree=<rev or checkout>`.
+# theme-previews, taken only when named, applies each theme of
+# --preview-themes, a comma list of package names, and shoots
+# theme-preview-<name>: the theme's desktop with the standard bar widgets,
+# the System window on Displays and Ghostty running tmux and Neovim from
+# --dotfiles, a stow tree holding tmux/ and nvim/, with the Neovim plugins
+# and tmux plugin of this user's home copied in. A catalog package's
+# wallpaper is the one file of --preview-wallpapers named after it
+# (scripts/theme-previews.sh makes them). A scene argument that is missing
+# or names nothing is refused as `sandbox-shots: refused: <option>=<value>`.
 # The lock scene enables vgs.lock with its sleep hook and idle watch off,
 # locks the nested session, and shoots the lock screen, then after one and
 # after ten wrong attempts. No password is typed and no PAM runs: the
@@ -180,6 +191,9 @@ modes=""
 scale=1
 shot_size=""
 theme_card="frankenstein"
+preview_themes=()
+preview_wallpapers=""
+preview_dotfiles=""
 require_window=""
 scenes=()
 while [[ $# -gt 0 ]]; do
@@ -190,12 +204,15 @@ while [[ $# -gt 0 ]]; do
     --size) shot_size="$2"; shift 2 ;;
     --scale) scale="$2"; shift 2 ;;
     --theme-card) theme_card="$2"; shift 2 ;;
+    --preview-themes) IFS=, read -r -a preview_themes <<<"$2"; shift 2 ;;
+    --preview-wallpapers) preview_wallpapers="$2"; shift 2 ;;
+    --dotfiles) preview_dotfiles="$2"; shift 2 ;;
     --hidden) require_window=hidden; shift ;;
     --timeout) timeout_s="$2"; shift 2 ;;
     --keep) keep=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    gallery|settings|wide-settings|focus|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-keys|plugin-messages|ai-usage|devtools|system|network|vpn|bluetooth|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|tooltips|screensaver) scenes+=("$1"); shift ;;
+    gallery|settings|wide-settings|focus|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-keys|plugin-messages|ai-usage|devtools|system|network|vpn|bluetooth|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|tooltips|screensaver|theme-previews) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -310,6 +327,7 @@ scene_ships() {
     bluetooth) ships_plugin vgs.system vgs.bluetooth ;;
     power) ships_plugin vgs.power ;;
     theme-browser|wallpaper-browser) ships_plugin vgs.themes ;;
+    theme-previews) ships_plugin vgs.themes vgs.system vgs.displays vgs.network vgs.bluetooth vgs.sound vgs.ai-usage vgs.agent-warden vgs.updates ;;
     dialog|by-hand|reset) [[ -f $tree/shell/Hosts/NoticeHost.qml ]] ;;
     lock) ships_plugin vgs.lock ;;
     polkit) ships_plugin vgs.polkit ;;
@@ -332,6 +350,14 @@ for scene in "${scenes[@]}"; do
   if ! scene_ships "$scene"; then
     printf 'sandbox-shots: refused: scene=%s tree=%s\n' "$scene" "${rev:-checkout}" >&2
     exit 2
+  fi
+  if [[ $scene == theme-previews ]]; then
+    [[ ${#preview_themes[@]} -gt 0 ]] || { printf 'sandbox-shots: refused: preview-themes=\n' >&2; exit 2; }
+    for name in "${preview_themes[@]}"; do
+      [[ $name == vgs || -f $tree/themes/catalog/$name/theme.json ]] || { printf 'sandbox-shots: refused: preview-themes=%s\n' "$name" >&2; exit 2; }
+    done
+    [[ -d $preview_wallpapers ]] || { printf 'sandbox-shots: refused: preview-wallpapers=%s\n' "$preview_wallpapers" >&2; exit 2; }
+    [[ -f $preview_dotfiles/tmux/.tmux.conf && -d $preview_dotfiles/nvim/.config/nvim ]] || { printf 'sandbox-shots: refused: dotfiles=%s\n' "$preview_dotfiles" >&2; exit 2; }
   fi
   if [[ $scene == theme-browser && ! -f $tree/themes/catalog/$theme_card/theme.json ]]; then
     printf 'sandbox-shots: refused: theme-card=%s tree=%s\n' "$theme_card" "${rev:-checkout}" >&2
@@ -1404,6 +1430,155 @@ scene_focus() { # MODE
   expect_poll "the Settings list cursor is shown after keys" true ipc smoke readShownDescendant "$settings_kind" vgs.settings ListCursor shown
   take_posed "focus-$1-settings-list-cursor"
   settings_close
+}
+
+# The theme previews, one shot a theme, taken only when named: each theme
+# applied on the desktop a user sees, the standard bar widgets over the
+# stand-ins the bar, panels, AI Usage and Network scenes use, the System
+# window on Displays over the device fakes, and Ghostty running the
+# owner's tmux and LazyVim (--dotfiles) on this plugin's files with
+# Neo-tree open. Each shot is theme-preview-<name>; scripts/theme-previews.sh
+# makes each package's preview.jpg from it.
+preview_workspaces() { hypr -j workspaces | py_reply 'import json,sys; print(json.dumps(sorted(w["name"] for w in json.load(sys.stdin))))'; }
+preview_windows() { hypr -j clients | py_reply 'import json,sys; print(len([c for c in json.load(sys.stdin) if c["mapped"]]))'; }
+preview_tmux() { "${shell_env[@]}" PATH="$shell_start_path" tmux "$@"; }
+# preview_drawn: whether Neovim has drawn Neo-tree and its status line.
+preview_drawn() {
+  local pane
+  pane="$(preview_tmux capture-pane -p -t vgshell:1 2>/dev/null)" || { echo False; return; }
+  [[ $pane == *"~/Projects/vgshell"* && $pane == *NORMAL* ]] && echo True || echo False
+}
+preview_terminal_pid=""
+# preview_terminal_start: tmux with Neovim in its first window and fish in
+# its second, then Ghostty on it, so the theme just applied is the one
+# Ghostty, tmux and Neovim read as they start.
+preview_terminal_start() {
+  preview_tmux new-session -d -s vgshell -c "$home/Projects/vgshell" -x 140 -y 42 || { fail "the preview's tmux session did not start"; return; }
+  preview_tmux new-window -d -t vgshell -c "$home/Projects/vgshell" || fail "the preview's second tmux window did not open"
+  preview_tmux send-keys -t vgshell:1 "nvim ThemeCard.qml -c 'Neotree show'" Enter || fail "Neovim did not start in tmux"
+  spawn "$sandbox/preview-terminal.log" "${shell_env[@]}" PATH="$shell_start_path" TERM=xterm-256color ghostty -e tmux attach -t vgshell
+  preview_terminal_pid="$spawn_pid"
+  expect_poll "Neovim draws Neo-tree and its status line" True preview_drawn
+}
+preview_terminal_stop() {
+  [[ -z $preview_terminal_pid ]] || kill -- "-$preview_terminal_pid" 2>/dev/null || true
+  preview_terminal_pid=""
+  preview_tmux kill-server 2>/dev/null || true
+}
+# preview_package NAME: NAME's package where apply finds it: vgs ships in
+# the tree; a catalog package is laid out as install lays it out, with the
+# wallpaper it applies first (scripts/theme-preview-wallpaper.js).
+preview_package() {
+  local name="$1" dest wallpaper
+  [[ $name == vgs ]] && return 0
+  dest="$home/.config/vgshell/themes/$name"
+  rm -rf -- "${dest:?}"
+  mkdir -p -- "$dest/backgrounds"
+  cp -- "$checkout/themes/catalog/$name/theme.json" "$dest/theme.json"
+  [[ ! -f $checkout/themes/catalog/$name/terminal.json ]] || cp -- "$checkout/themes/catalog/$name/terminal.json" "$dest/terminal.json"
+  [[ ! -d $checkout/themes/catalog/$name/targets ]] || cp -R -- "$checkout/themes/catalog/$name/targets" "$dest/targets"
+  for wallpaper in "$preview_wallpapers/$name".*; do
+    [[ -f $wallpaper ]] && cp -- "$wallpaper" "$dest/backgrounds/"
+  done
+}
+scene_theme-previews() { # MODE
+  local id name status=0 first_output
+  # The harness keeps workspace 100 alive for the bar rows' wide pill; a
+  # user's desktop has no such workspace. The two windows float at set
+  # places, so the wallpaper shows around them, and the pointer is hidden.
+  # They go in the configuration, since each theme's apply reloads it.
+  hypr_lua_save previews
+  sed -i '/workspace = "100", persistent = true/d' "$home/.config/hypr/hyprland.lua"
+  cat >>"$home/.config/hypr/hyprland.lua" <<'LUA'
+hl.window_rule({ name = "preview-system", match = { title = "^System Settings$" }, float = true, size = { 960, 660 }, move = { 920, 470 } })
+hl.window_rule({ name = "preview-terminal", match = { class = "^com\\.mitchellh\\.ghostty$" }, float = true, size = { 1100, 700 }, move = { 60, 80 } })
+hl.config({ cursor = { invisible = true } })
+LUA
+  expect "Hyprland reloads without workspace 100" ok hypr reload
+  expect_poll "workspace 100 is gone" '["1", "2"]' preview_workspaces
+  devices_up || status=$?
+  ((status == 0)) || { fail "the device fakes for the previews did not start: $devices_state"; return; }
+  devices_system_tree >/dev/null || { fail "the fakes' system tree for the previews is unreadable"; return; }
+  devices_ready network-shot || { fail "the network fakes for the previews are not ready"; return; }
+  device_reply nmcli 0 'org.freedesktop.NetworkManager.network-control:yes' -t -f PERMISSION,VALUE general permissions
+  expect "the previews have a saved fake profile" ok python3 "$repo/scripts/smoke/fixtures/devices/network.py" "unix:path=$rt_dir/system-bus" prepare
+  expect "the previews have two wired fake devices" ok python3 "$repo/scripts/smoke/fixtures/devices/network.py" "unix:path=$rt_dir/system-bus" wired
+  device_reply nmcli 0 $'GENERAL.DEVICE:enp10s0\nGENERAL.TYPE:ethernet\nGENERAL.STATE:100 (connected)\nIP4.ADDRESS[1]:192.0.2.10/24\nIP4.GATEWAY:192.0.2.1' -t device show enp10s0
+  for id in vgs.network vgs.bluetooth vgs.sound vgs.displays vgs.system; do
+    expect "enabling $id for the previews is allowed" ok ipc shell setPluginEnabled "$id" true
+  done
+  for id in vgs.launcher vgs.updates vgs.ai-usage vgs.agent-warden vgs.network vgs.bluetooth vgs.sound vgs.settings; do
+    expect "$id is placed for the previews" ok ipc shell setPluginPlaced "$id" true
+  done
+  for _ in $(seq 1 25); do [[ $(notice_shown) != null ]] && break; sleep 0.2; done
+  for _ in $(seq 1 16); do
+    id="$(notice_plugin)" || id=unread
+    [[ $id == null ]] && break
+    expect_poll "the requirement notice of $id maps" 1 layer_count vgs:notice
+    expect_poll "the requirement notice of $id holds the keyboard" true ipc smoke noticeFocused
+    type_keys -k Escape || fail "sending Escape to the requirement notice of $id failed"
+    expect_poll "Escape closes the requirement notice of $id" closed notice_moved_from "$id"
+  done
+  expect_poll "no requirement notice is left" null notice_shown
+  expect_poll "the displays service lists the three fake displays" 3 displays_listed
+  first_output="$(ipc smoke readInstance service vgs.displays outputs | py_reply 'import json,sys; print(json.load(sys.stdin)[0]["identifier"])')" || fail "the outputs the displays service reads are unreadable"
+  expect "the XDR is on the output" ok ipc vgs.displays invoke assign "{\"device\":\"usb:class/hidraw/hidraw0/device#VGSSMOKEXDR01\",\"output\":\"$first_output\"}"
+  # The owner's tmux and LazyVim, copied, never linked. For the sandbox:
+  # panes start fish, not his agent-confine shell; his pane-exit reap hook,
+  # which needs his systemd scopes, is dropped; status-right, which names
+  # his user and host, is empty; his Neovim reads the sandbox's theme
+  # state. His installed plugins and Mason tools are copied, so nothing installs.
+  rm -rf -- "${home:?}/.config/tmux" "${home:?}/.config/nvim" "${home:?}/Projects/vgshell"
+  mkdir -p -- "$home/.config/ghostty" "$home/.tmux/plugins" "$home/.local/share/nvim" "$home/Projects"
+  cp -R -- "$preview_dotfiles/tmux/.config/tmux" "$home/.config/tmux"
+  cp -- "$preview_dotfiles/tmux/.tmux.conf" "$home/.tmux.conf"
+  sed -i -e '/^set-hook -ga pane-exited .*tmux-scope-reap/d' -e 's|^set -g default-shell .*|set -g default-shell /usr/bin/fish|' \
+    -e 's|^set -g status-right .*|set -g status-right ""|' "$home/.tmux.conf"
+  cp -R -- "$HOME/.tmux/plugins/tmux-smooth-scroll" "$home/.tmux/plugins/"
+  cp -R -- "$preview_dotfiles/nvim/.config/nvim" "$home/.config/nvim"
+  printf 'dofile("%s/.local/state/vgshell/theme/neovim.lua")\n' "$home" >"$home/.config/nvim/plugin/vgs-theme.lua"
+  cp -R --reflink=auto -- "$HOME/.local/share/nvim/lazy" "$HOME/.local/share/nvim/site" "$HOME/.local/share/nvim/mason" "$home/.local/share/nvim/"
+  cp -R -- "$repo/shell/plugins/vgs.themes" "$home/Projects/vgshell"
+  # His Ghostty font and padding; the theme's colours come from its target.
+  cat >"$home/.config/ghostty/config" <<'GHOSTTY'
+font-family = "JetBrainsMono Nerd Font Mono"
+font-style = Normal
+font-size = 10
+adjust-cell-height = 15%
+window-padding-x = 10
+window-padding-y = 10,0
+window-padding-balance = false
+window-theme = ghostty
+cursor-style = block
+cursor-style-blink = false
+resize-overlay = never
+confirm-close-surface = false
+GHOSTTY
+  for id in ghostty neovim; do cp -R -- "$checkout/themes/targets/$id" "$repo/themes/targets/$id"; done
+  hover "$((mon_w - 2))" "$((mon_h - 2))" || true
+  for name in "${preview_themes[@]}"; do
+    preview_package "$name"
+    sandbox_vgshell theme apply "$name" >/dev/null || true
+    expect_poll "the $name theme is published" "$name" ipc smoke themeName
+    if [[ $name == vgs ]]; then
+      expect_poll "vgs draws no background" 0 layer_count vgs:background
+    else
+      expect_poll "$name's wallpaper is drawn" 1 layer_count vgs:background
+    fi
+    preview_terminal_start
+    expect_poll "the terminal is mapped" 1 preview_windows
+    # The System window opens last, so it is on top and focused.
+    expect "System → Displays summons" ok ipc shell summon window vgs.system '{"pane":"vgs.displays"}'
+    expect_poll "System → Displays is shown" '["vgs.displays"]' window_panes
+    expect_poll "both windows are mapped" 2 preview_windows
+    take_raw "theme-preview-$name"
+    expect "the System window hides" ok ipc shell hide window vgs.system
+    expect_poll "the System window is gone" hidden system_shown
+    preview_terminal_stop
+    expect_poll "the terminal is gone" 0 preview_windows
+  done
+  hypr_lua_restore previews
+  expect "Hyprland reloads the harness's configuration" ok hypr reload
 }
 
 scene_theme-browser() { # MODE
@@ -3024,6 +3199,7 @@ PY
 for scene in "${scenes[@]}"; do
   case $scene in
     bar) need_setup launcher; need_setup panels; need_setup bar ;;
+    theme-previews) need_setup launcher; need_setup panels; need_setup bar; need_setup ai-usage ;;
     tooltips) need_setup launcher; need_setup panels; need_setup bar; need_setup tooltips ;;
     focus) need_setup settings ;;
     narrow) for s in launcher panels bar devtools dialog notifications gallery; do need_setup "$s"; done
