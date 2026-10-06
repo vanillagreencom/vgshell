@@ -231,13 +231,22 @@ vgshell_version() { # PACKAGE
   [[ $out == "vgshell $version" ]] || refuse "vgshell-version=${out// /_} want=vgshell_$version package=$1"
 }
 
+# The doctor reads D-Bus requirements on a private system bus over the
+# installed system-services directory, so such a requirement reads present
+# only when an installed package can activate its name.
 doctor_holds() { # PACKAGE
-  local report
-  mkdir -p /tmp/doctor-home /tmp/doctor-runtime
+  local report bus_pid status=0
+  mkdir -p /tmp/doctor-home /tmp/doctor-runtime /tmp/doctor-bus
   chown builder:builder /tmp/doctor-home /tmp/doctor-runtime
+  printf '%s\n' '<busconfig>' '  <type>system</type>' '  <listen>unix:path=/tmp/doctor-bus/socket</listen>' '  <auth>EXTERNAL</auth>' \
+    '  <standard_system_servicedirs/>' '  <policy context="default"><allow user="*"/><allow own="*"/><allow send_destination="*"/><allow receive_sender="*"/></policy>' \
+    '</busconfig>' >/tmp/doctor-bus/bus.conf
+  bus_pid="$(dbus-daemon --config-file=/tmp/doctor-bus/bus.conf --fork --print-pid 2>/tmp/doctor-bus.err)" ||
+    refuse "doctor-bus=failed package=$1" "$(cat /tmp/doctor-bus.err)"
   report="$(runuser -u builder -- env -i PATH=/usr/bin HOME=/tmp/doctor-home XDG_CONFIG_HOME=/tmp/doctor-home/.config \
-    XDG_RUNTIME_DIR=/tmp/doctor-runtime vgshell doctor --json 2>/tmp/doctor.err)" ||
-    refuse "doctor=failed package=$1" "$(cat /tmp/doctor.err)"
+    XDG_RUNTIME_DIR=/tmp/doctor-runtime DBUS_SYSTEM_BUS_ADDRESS=unix:path=/tmp/doctor-bus/socket vgshell doctor --json 2>/tmp/doctor.err)" || status=$?
+  kill "$bus_pid"
+  [[ $status -eq 0 ]] || refuse "doctor=failed package=$1" "$(cat /tmp/doctor.err)"
   python -c 'import json,sys
 report=json.loads(sys.argv[1])
 missing=[row["name"] for rows in [report["core"], *report["plugins"].values()] for row in rows if not row["optional"] and row["state"] == "missing"]
