@@ -1910,7 +1910,8 @@ voice_level_flowing() { ipc smoke readInstance service vgs.voice level | py_repl
 # a toast for that end is shot once the toast shows; an older one after a
 # bounded wait. Voice's Settings page is shot without voxtype and once the
 # stand-ins report the model installed and a systemctl stand-in the
-# service enabled and running, at its top, where the Setup section is. A
+# service enabled and running, scrolled so its whole Setup section is in
+# view. A
 # tree whose Voice puts its setup state in the Setup group is shot once
 # the section draws its chip. Enablement, stand-ins and the package script
 # are put back, and the Settings window is hidden again.
@@ -2044,8 +2045,9 @@ voice_setup_press() { # LABEL
   settings_close
 }
 # voice_setup_page LABEL SHOT CHIP: the Settings window opened on Voice's
-# page, at its top once every status row is reported, shot as SHOT with
-# the pointer parked, then hidden. On a tree whose Voice puts its setup
+# page, scrolled so its whole Setup section, the button row included, is in
+# view once every status row is reported, shot as SHOT with the pointer
+# parked, then hidden. On a tree whose Voice puts its setup
 # state in the Setup group, the shot waits for the section's chip to read
 # CHIP; an older tree draws none.
 voice_setup_page() { # LABEL SHOT CHIP
@@ -2056,11 +2058,24 @@ voice_setup_page() { # LABEL SHOT CHIP
   if grep -qF '"group": "Setup"' "$tree/shell/plugins/vgs.voice/manifest.json"; then
     expect_poll "$1: the Setup section's chip reads $3" "$3" voice_setup_chip
   fi
-  expect_poll "$1: Voice's page is at its top" True settings_at_top
+  voice_setup_reveal || fail "$1: the Setup section could not be scrolled into view"
+  expect_poll "$1: the whole Setup section, its buttons included, is in view" in-view voice_setup_in_view
   park_pointer
   take "$2"
   settings_close
 }
+# voice_setup_reveal: the page's scroll area moved, through the probe's
+# scrollTo, so the Setup section's top and its bottom, the button row, both
+# lie in view: as far as its bottom needs, never past its top.
+voice_setup_reveal() {
+  local span y
+  span="$(ipc smoke sectionSpan "$settings_kind" vgs.settings Setup)" && [[ $span == \[* ]] || return 1
+  y="$(python3 -c 'import json,sys; top, bottom, _, height = json.loads(sys.argv[1]); print(int(min(top, max(0, bottom - height))))' "$span")" || return 1
+  ipc smoke scrollTo "$settings_kind" vgs.settings "$y" >/dev/null
+}
+# `in-view` once the Setup section lies whole in the page's view, else
+# its span.
+voice_setup_in_view() { ipc smoke sectionSpan "$settings_kind" vgs.settings Setup | py_reply 'import json,sys; t=sys.stdin.read(); s=json.loads(t) if t.startswith("[") else None; print("in-view" if s is not None and s[0] >= s[2] - 0.5 and s[1] <= s[2] + s[3] + 0.5 else t.strip())'; }
 voice_setup_chip() { ipc smoke setupSection "$settings_kind" vgs.settings | py_reply 'import json,sys; c=json.load(sys.stdin)["chips"]; print(c[0][0] if c else "none")'; }
 # Whether Voice's own setup state offers Set up, as its service holds it.
 voice_setup_wanted() { ipc smoke readInstance service vgs.voice setupValue | py_reply 'import json,sys; print(json.load(sys.stdin).get("action"))'; }
