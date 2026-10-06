@@ -92,7 +92,7 @@ mouse_action_count() { mouse_actions | py_reply 'import json,sys; print(len(json
 mouse_action_point() {
   local rect now last=""
   for _ in $(seq 1 30); do
-    rect="$(mouse_actions | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[0]))')" && now="$(at_centre window:System "$rect")" || return 1
+    rect="$(mouse_actions | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[0]))')" && now="$(at_centre "window:System Settings" "$rect")" || return 1
     [[ $now == "$last" ]] && { echo "$now"; return 0; }
     last="$now"
     sleep 0.1
@@ -115,7 +115,7 @@ mouse_slider_point() {
   local rect
   rect="$(ipc smoke descendantGeometry window vgs.mouse | py_reply 'import json,sys; r=[i["box"] for i in json.load(sys.stdin) if i["type"] == "Slider" and i["visible"]]; print(json.dumps(r[0]) if r else "absent")')" || return 1
   [[ $rect == \[* ]] || { echo "mouse_slider_point: no slider: $rect" >&2; return 1; }
-  read -r x y < <(at_centre window:System "$rect") || return 1
+  read -r x y < <(at_centre "window:System Settings" "$rect") || return 1
   python3 -c 'import json,sys; r=json.loads(sys.argv[1]); print(int(int(sys.argv[2]) - r[2] / 2 + r[2] * float(sys.argv[4])), sys.argv[3])' "$rect" "$x" "$y" "$1"
 }
 mouse_widget_point() { local rect; rect="$(ipc smoke instanceGeometry "$(bar_key)" vgs.mouse)" && at_centre vgs:bar "$rect"; }

@@ -139,7 +139,7 @@ snd_slider_at() {
   local rect
   rect="$(ipc smoke descendantGeometry window vgs.sound | py_reply 'import json,sys; r=[i["box"] for i in json.load(sys.stdin) if i["type"] == "Slider" and i["visible"]]; print(json.dumps(r[0]) if r else "absent")')" || return 1
   [[ $rect == \[* ]] || { echo "snd_slider_at: no slider: $rect" >&2; return 1; }
-  read -r x y < <(at_centre window:System "$rect") || return 1
+  read -r x y < <(at_centre "window:System Settings" "$rect") || return 1
   python3 -c 'import json,sys; r=json.loads(sys.argv[1]); print(int(int(sys.argv[2]) - r[2] / 2 + r[2] * float(sys.argv[4])), sys.argv[3])' "$rect" "$x" "$y" "$1"
 }
 # snd_key_step LABEL KEY NODE WANT: KEY typed on the nested seat and NODE's
@@ -294,7 +294,7 @@ snd_tab_slider "the player's slider" smoke-player
 type_keys -k Escape || fail "Escape in the section failed"
 expect_poll "Escape returns the keyboard to the search field" true snd_search_focused
 type_keys -k Escape || fail "Escape in the search field failed"
-expect_poll "a second Escape closes System" 0 window_count System
+expect_poll "a second Escape closes System" 0 window_count "System Settings"
 
 # The volume keys, with a second output beside the focused one.
 expect "the nested compositor adds a second output" ok hypr output create headless "$snd_output"

@@ -25,7 +25,7 @@
     "dimPercent": 30
   },
   "schema": {
-    "brightnessStep": { "type": "number", "label": "Key and scroll step", "description": "How much one brightness key press or bar scroll changes the level. Set the level itself in System → Displays", "min": 1, "max": 25, "step": 1, "unit": "%", "group": "Brightness" },
+    "brightnessStep": { "type": "number", "label": "Key and scroll step", "description": "How much one brightness key press or bar scroll changes the level. Set the level itself in System Settings → Displays", "min": 1, "max": 25, "step": 1, "unit": "%", "group": "Brightness" },
     "keysTarget": { "type": "enum", "label": "Brightness keys change", "description": "The display the brightness keys change", "options": ["focused", "all"], "group": "Brightness" },
     "linked": { "type": "boolean", "label": "Link displays", "description": "Change every display by the same amount", "group": "Brightness" },
     "dimAfterSeconds": { "type": "number", "label": "Dim when inactive", "description": "Time without input before the displays dim. Any input brings each display back to its level", "min": 0, "max": 3600, "step": 10, "unit": "seconds", "allowCustom": true, "presets": [{ "value": 0, "label": "Never" }, { "value": 60 }, { "value": 120 }, { "value": 300 }, { "value": 600 }], "group": "Dimming" },

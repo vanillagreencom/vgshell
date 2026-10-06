@@ -3,17 +3,17 @@ import qs.Commons
 import qs.Ui
 import "Memory.js" as Memory
 
-// The System window: the sidebar of every enabled section, and the chosen
-// section beside it. A section is a plugin of kind `pane`; this window
-// holds the exclusive `panes` capability, lists the sections from
+// The System Settings window: the sidebar of every enabled section, and
+// the chosen section beside it. A section is a plugin of kind `pane`; this
+// window holds the exclusive `panes` capability, lists the sections from
 // `shell.panes.list` and mounts one at a time through `shell.panes.mount`,
 // which builds it with that plugin's own shell and destroys the one before
 // it (D088). The window host builds the window as a Hyprland window titled
-// System. It asks to be `size.panel.sm` wider than `size.window.width`, the
-// sidebar's width beside a page as wide as a Settings page, or the
-// monitor's width less `size.window.gutter` a side when that is less, and
-// `size.window.heightShare` of the monitor's height tall, read from the
-// screen its `screens` capability gives.
+// System Settings. It asks to be `size.panel.sm` wider than
+// `size.window.width`, the sidebar's width beside a page as wide as a
+// Settings page, or the monitor's width less `size.window.gutter` a side
+// when that is less, and `size.window.heightShare` of the monitor's height
+// tall, read from the screen its `screens` capability gives.
 //
 // The detail draws the section's icon and name, and a "Show in bar" switch
 // for a section with a bar widget, which places or removes the widget
@@ -53,6 +53,8 @@ FocusScope {
     // The keyboard opens in the section a deep link names, else on the
     // sidebar's search field, its primary input (keyboard.md F3).
     property bool entered: false
+    // Set by the first open(); the list changing before it picks nothing.
+    property bool opened: false
     readonly property Item initialFocus: entered ? detail : sidebar.searchField
 
     implicitWidth: Math.floor(Math.min(Theme.size.panel.sm + Theme.size.window.width, OverlayState.room(screen).width))
@@ -62,16 +64,21 @@ FocusScope {
     function rowOf(id) { return panes.find(p => p.id === id) || null; }
 
     // A section that leaves the list while shown, disabled or removed, is
-    // unmounted by the core; the window says so and shows none.
+    // unmounted by the core; the window says so and shows the first section
+    // left. A section that joins an open window showing none is shown.
+    // Before open() runs, open() picks the section.
     onPanesChanged: {
-        if (paneId === "" || rowOf(paneId) !== null) return;
-        notice = paneName + " is no longer enabled.";
+        if (!opened || (paneId !== "" && rowOf(paneId) !== null)) return;
+        const left = paneName;
         paneId = "";
         paneName = "";
         paneDisposer = null;
+        const reply = panes.length > 0 ? show(panes[0].id, "{}") : "ok";
+        if (left !== "" && reply === "ok") notice = left + " is no longer enabled.";
     }
 
     function open(payloadJson) {
+        opened = true;
         const payload = JSON.parse(payloadJson === "" ? "{}" : payloadJson);
         if (payload === null || typeof payload !== "object" || Array.isArray(payload))
             throw new Error("payload must be a JSON object, got " + payloadJson);
@@ -253,7 +260,7 @@ FocusScope {
                 width: page.contentWidth
                 visible: root.panes.length === 0
                 iconName: "sliders-horizontal"
-                text: "No System section is enabled"
+                text: "No section is enabled"
                 actionText: "Shell & Plugins"
                 onActivated: root.openSettings()
             }

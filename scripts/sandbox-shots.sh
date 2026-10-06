@@ -2045,7 +2045,7 @@ scene_network() { # MODE
   park_pointer
   take "network-$1-pane"
   expect "enp10s0 scrolls into view" scrolled network_shot_reveal
-  click_in window:System window vgs.network ListItem enp10s0 || fail "the click on enp10s0 failed"
+  click_in "window:System Settings" window vgs.network ListItem enp10s0 || fail "the click on enp10s0 failed"
   expect_poll "enp10s0's details draw" True network_shot_details
   park_pointer
   take "network-$1-pane-details"

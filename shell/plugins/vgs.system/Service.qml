@@ -24,7 +24,7 @@ Item {
     onShellChanged: {
         if (shell === null || registeredWith !== null) return;
         registeredWith = shell;
-        shell.shortcut.register("toggle", "Open or close System", () => root.route("toggle", ""));
+        shell.shortcut.register("toggle", "Open or close System Settings", () => root.route("toggle", ""));
         shell.ipc.handle("toggle", arg => root.route("toggle", arg));
         shell.ipc.handle("open", arg => root.route("summon", arg));
     }

@@ -224,7 +224,7 @@ type_keys -k Down || fail "typing Down on the Screen choice failed"
 expect_poll "Down on the Screen choice puts the XDR on the main output" "[\"hidraw0\", \"ready\", 31, [\"$disp_main\"], true]" disp_item hidraw0
 expect_poll "the main bar's widget shows for the XDR" true disp_widget "$disp_main" visible
 expect "hiding the System window after the keyboard path is allowed" ok ipc shell hide window vgs.system
-expect_poll "the System window is gone" 0 window_count System
+expect_poll "the System window is gone" 0 window_count "System Settings"
 
 # A second output, whose bar's widget hides until a display lights it.
 expect "the nested compositor adds a monitor for the displays rows" ok hypr output create headless "$disp_output"
@@ -401,7 +401,7 @@ expect_poll "the Dimming section draws the dim off at the default level" True di
 disp_setting dimPercent 20
 expect_poll "the Dimming section follows the dim level" True disp_dim_drawn Never 20%
 expect "hiding the System window before the dim is allowed" ok ipc shell hide window vgs.system
-expect_poll "the System window is gone before the dim" 0 window_count System
+expect_poll "the System window is gone before the dim" 0 window_count "System Settings"
 expect_poll "the helper is idle before the dim's watch" True disp_idle
 disp_xdr_sets="$(disp_sets hidraw0)"
 disp_setting dimAfterSeconds 3
@@ -497,7 +497,7 @@ expect_poll "the panel's row scrolls into view" scrolled disp_bl_reveal
 # is no box, or `outside` when the line lies outside the window.
 disp_bl_points() {
   local window row level box
-  window="$(surface_box window:System)" || return 1
+  window="$(surface_box "window:System Settings")" || return 1
   row="$(ipc smoke windowGeometry window vgs.displays DisplayRow "Built-in display")" || return 1
   level="$(ipc smoke scopedWindowGeometry window vgs.displays DisplayRow "Built-in display" Label "$1")" || return 1
   for box in "$window" "$row" "$level"; do [[ $box == \[* ]] || { echo "$box"; return 1; }; done

@@ -1,17 +1,19 @@
 # The System window, vgs.system: the holder of the exclusive `panes`
-# capability (D088), a Hyprland window titled System. Over four copies of
-# the acme.pane fixture, three enabled in two groups and one left disabled,
-# the row reads the sidebar listing exactly the enabled sections under
-# their groups in the capability's order; `{}` opening the first section,
-# then the one shown last; a deep link mounting its section with the rest
-# of the payload; an unknown id opening with a notice; the plugin's own
-# open and toggle IPC; an own-pane summon; each switch destroying the
+# capability (D088), a Hyprland window titled System Settings. Over four
+# copies of the acme.pane fixture, three enabled in two groups and one left
+# disabled, the row reads the sidebar listing exactly the enabled sections
+# under their groups in the capability's order; `{}` opening the first
+# section, then the one shown last; a deep link mounting its section with
+# the rest of the payload; an unknown id opening with a notice; the plugin's
+# own open and toggle IPC; an own-pane summon; each switch destroying the
 # section before it in the window host's build records; a click on Show in
 # bar placing and removing the fixture widget, offered only to a section
 # with one; a section taller than the room scrolling in the page and a
 # shorter one filling it; the selection staying on its section as another
-# joins and leaves; a disabled section leaving the sidebar while the
-# window is open; the window read as every application window is (app_window_rows,
+# joins and leaves; a disabled section leaving the sidebar while the window
+# is open, the window showing the first section left in place of the shown
+# one and a group with no section left losing its heading; the window read
+# as every application window is (app_window_rows,
 # scripts/smoke/app-window.sh); its edges within one pixel; and a keyboard
 # path from SUPER+PERIOD to every step and back out. Shell & Plugins hands
 # the Settings summon command (docs/architecture/settings-window.md) to a
@@ -19,18 +21,19 @@
 # and runs nothing.
 #
 # A hover in the sidebar moves its plate and not its selection, the shown
-# section's text alone keeps the accent, and the plate returns to the
-# shown section once the pointer leaves the list.
+# section's text alone keeps the accent, and the plate returns to the shown
+# section once the pointer leaves the list.
 #
-# Controls: a copy of the window that keeps the list it read when it
-# opened lists a section disabled while it is open, a shell copy whose
-# PaneHost hands the holder no pane height shows the tall section cut to
-# the room, and SUPER+COMMA opens no System window. The row reads no
-# latency. It starts with no other panes holder installed and every
-# enabled shipped section set aside, so the sidebar
-# lists its fixtures alone, and leaves the user file, vgs.system's and
-# each shipped section's enablement, the plugins directory and the shell's
-# PATH directory as it found them.
+# Controls: a copy of the window that keeps the list it read when it opened
+# lists a section disabled while it is open and is titled with its own name,
+# a copy that shows nothing in place of a section that leaves while shown
+# mounts no section, a shell copy whose PaneHost hands the holder no pane
+# height shows the tall section cut to the room, and SUPER+COMMA opens no
+# System window. The row reads no latency. It starts with no other panes
+# holder installed and every enabled shipped section set aside, so the
+# sidebar lists its fixtures alone, and leaves the user file, vgs.system's
+# and each shipped section's enablement, the plugins directory and the
+# shell's PATH directory as it found them.
 # inputs: shell/plugins/vgs.system/* shell/Ui/layout/ListCursor* shell/Ui/layout/ListItem.qml shell/Core/PluginLogic.js shell/plugins/*/manifest.json scripts/smoke/fixtures/plugins/acme.pane/* shell/Hosts/PaneHost.qml shell/Hosts/AppWindow.qml shell/Core/Capabilities.qml shell/Core/Config.qml shell/Commons/WatchedFile.qml scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 
@@ -164,7 +167,7 @@ expect "the first section receives an empty payload" '"{}"' sys_payload acme.pan
 expect_poll "{} opens with the keyboard in the search field" "Search sections" sys_focus
 expect "a section with no bar widget offers no Show in bar" '[false]' sys_switch
 geometry expect_poll "a section taller than the room grows the page, which scrolls it" fits sys_pane_fits acme.pane-net
-app_window_rows System vgs.system
+app_window_rows "System Settings" vgs.system
 
 # Deep links: the section named, with the rest of the payload; an id no
 # section has, which opens the last section with a notice; and payloads
@@ -183,11 +186,11 @@ expect "an unknown id keeps the section shown last" '["acme.pane-alt"]' window_p
 expect "the plugin's IPC opens a section" ok ipc vgs.system invoke open '{"pane":"acme.pane-net"}'
 expect_poll "the plugin's IPC open mounts its section" '["acme.pane-net"]' window_panes
 expect "the plugin's IPC open again answers ok" ok ipc vgs.system invoke open '{"pane":"acme.pane-net"}'
-expect "a second open keeps the System window open" 1 window_count System
+expect "a second open keeps the System window open" 1 window_count "System Settings"
 expect "the plugin's IPC toggle answers ok" ok ipc vgs.system invoke toggle ''
-expect_poll "toggle closes the open System window" 0 window_count System
+expect_poll "toggle closes the open System window" 0 window_count "System Settings"
 expect "the plugin's IPC toggle again answers ok" ok ipc vgs.system invoke toggle ''
-expect_poll "toggle opens the System window again" 1 window_count System
+expect_poll "toggle opens the System window again" 1 window_count "System Settings"
 expect_poll "toggle opens on the section shown last" '["acme.pane-net"]' window_panes
 
 # Switching destroys the section before it.
@@ -235,8 +238,8 @@ want = norm(sys.argv[1])
 print(json.dumps(sorted(r["text"] for r in json.load(sys.stdin) if r["role"] == "item" and r["text"] in names and norm(r["color"]) == want)))' "$accent"
 }
 sys_hover_box="$(ipc smoke windowGeometry window vgs.system ListItem "Pane Net")" || sys_hover_box=""
-sys_box="$(surface_box window:System)" || sys_box=""
-if read -r sys_hx sys_hy < <(at_centre window:System "$sys_hover_box") && [[ $sys_box == \[* ]]; then
+sys_box="$(surface_box "window:System Settings")" || sys_box=""
+if read -r sys_hx sys_hy < <(at_centre "window:System Settings" "$sys_hover_box") && [[ $sys_box == \[* ]]; then
   expect_poll "before the hover the plate sits on the shown section" Pane sys_plate_row
   hover "$((sys_hx - 6))" "$sys_hy"; hover "$sys_hx" "$sys_hy"
   expect_poll "a hover puts the sidebar's plate on Pane Net" "Pane Net" sys_plate_row
@@ -266,11 +269,11 @@ expect_poll "the selection stays on Pane as Pane Off leaves" 2 sys_current
 expect_poll "a section with a bar widget offers Show in bar" '[true]' sys_switch
 expect_poll "the fixture widget starts in the bar" True widget_placed acme.pane
 expect "Show in bar reads the widget placed" true sys_switch_checked
-click_in window:System window vgs.system Switch "Show in bar" || fail "the click on Show in bar failed"
+click_in "window:System Settings" window vgs.system Switch "Show in bar" || fail "the click on Show in bar failed"
 expect_poll "the fixture widget leaves the bar" False widget_placed acme.pane
 expect_poll "Show in bar follows the removal" false sys_switch_checked
 expect "the fixture stays enabled once unplaced" True plugin_enabled acme.pane
-click_in window:System window vgs.system Switch "Show in bar" || fail "the second click on Show in bar failed"
+click_in "window:System Settings" window vgs.system Switch "Show in bar" || fail "the second click on Show in bar failed"
 expect_poll "the fixture widget returns to the bar" True widget_placed acme.pane
 expect_poll "Show in bar follows the placement" true sys_switch_checked
 
@@ -339,25 +342,32 @@ PY
 }
 geometry expect_poll "the sidebar, the rule and the detail share their edges within one pixel" '[]' sys_edges
 
-# A section disabled while the window is open leaves the sidebar, and its
-# mount goes with it.
+# A section disabled while the window is open leaves the sidebar, its
+# mount goes with it, and the window shows the first section left. A group
+# whose last section leaves loses its heading.
 expect "showing Pane Alt before it is disabled is allowed" ok ipc smoke invokeInstance window vgs.system enterPane acme.pane-alt
 expect_poll "Pane Alt is mounted before it is disabled" '["acme.pane-alt"]' window_panes
 expect "disabling the shown section is allowed" ok ipc shell setPluginEnabled acme.pane-alt false
 expect_poll "the sidebar lists exactly the sections still enabled" '[["Connectivity","Fixtures"],["Pane Net","Pane","Shell & Plugins"]]' sys_sidebar
-expect_poll "disabling the shown section drops its mount" '[]' window_panes
+expect_poll "disabling the shown section mounts the first section left in its place" '["acme.pane-net"]' window_panes
+expect_poll "the window shows the first section left" '"acme.pane-net"' sys_read paneId
 expect_poll "the window names the section that left" '"Pane Alt is no longer enabled."' sys_read notice
+expect "disabling Pane Net, the last of its group, is allowed" ok ipc shell setPluginEnabled acme.pane-net false
+expect_poll "an emptied group leaves the sidebar" '[["Fixtures"],["Pane","Shell & Plugins"]]' sys_sidebar
+expect_poll "the window shows the first section left again" '["acme.pane"]' window_panes
 expect "enabling Pane Alt again is allowed" ok ipc shell setPluginEnabled acme.pane-alt true
-expect_poll "Pane Alt returns to the sidebar" '[["Connectivity","Fixtures"],["Pane Net","Pane Alt","Pane","Shell & Plugins"]]' sys_sidebar
+expect "enabling Pane Net again is allowed" ok ipc shell setPluginEnabled acme.pane-net true
+expect_poll "Pane Alt and Pane Net return to the sidebar" '[["Connectivity","Fixtures"],["Pane Net","Pane Alt","Pane","Shell & Plugins"]]' sys_sidebar
+expect "the returning sections leave the shown section mounted" '["acme.pane"]' window_panes
 
 # A payload open() refuses closes the window.
 expect "a payload that is no object is refused" "refused: open-failed=vgs.system" ipc shell summon window vgs.system '[1]'
 expect "a payload key without pane is refused" "refused: open-failed=vgs.system" ipc shell summon window vgs.system '{"from":"x"}'
 expect "a pane that is no string is refused" "refused: open-failed=vgs.system" ipc shell summon window vgs.system '{"pane":5}'
-expect_poll "a refused payload leaves no System window" 0 window_count System
+expect_poll "a refused payload leaves no System window" 0 window_count "System Settings"
 
 # Own-pane summon: a section's own Settings link opens the window on it.
-expect_poll "the System window is closed" 0 window_count System
+expect_poll "the System window is closed" 0 window_count "System Settings"
 expect "a section's own-pane summon answers ok" ok ipc smoke invokeInstance service acme.pane summonPane ''
 expect_poll "the own-pane summon mounts the caller's section" '["acme.pane"]' window_panes
 expect "the caller's section receives its payload without pane" '"{\"from\":\"service\"}"' sys_payload acme.pane
@@ -379,7 +389,7 @@ printf '%s\n' 'hl.config({ input = { resolve_binds_by_sym = true } })' >>"$home/
 expect "the nested instance reloads with binds resolved by keysym" ok hypr reload config-only
 rest_pointer || fail "moving the pointer off the System window failed"
 press_system || fail "typing SUPER+PERIOD failed"
-expect_poll "SUPER+PERIOD opens the System window" 1 window_count System
+expect_poll "SUPER+PERIOD opens the System window" 1 window_count "System Settings"
 expect_poll "SUPER+PERIOD opens the section shown last" '["acme.pane"]' window_panes
 expect_poll "the keyboard starts in the search field" "Search sections" sys_focus
 expect "the selection starts on the shown section" 2 sys_current
@@ -419,18 +429,18 @@ type_keys zz || fail "typing into the System search failed"
 expect_poll "typing filters every section out" '[[],["Shell & Plugins"]]' sys_sidebar
 type_keys -k Escape || fail "typing Escape in the System search failed"
 expect_poll "Escape with a query clears it" '""' sys_search
-expect "Escape with a query keeps the window open" 1 window_count System
+expect "Escape with a query keeps the window open" 1 window_count "System Settings"
 type_keys -k Escape || fail "typing Escape in the empty System search failed"
-expect_poll "Escape with no query closes the System window" 0 window_count System
+expect_poll "Escape with no query closes the System window" 0 window_count "System Settings"
 expect_poll "closing the window drops its section" '[]' window_panes
 expect "vgshell still holds that one call once the window closed" '[["ipc", "call", "shell", "summon", "window", "vgs.settings", "{}"]]' sys_calls_all
 press_system || fail "typing SUPER+PERIOD again failed"
 expect_poll "SUPER+PERIOD reopens on the section shown last" '["acme.pane-alt"]' window_panes
 expect_poll "the reopened window starts with an empty query" '""' sys_search
 press_system || fail "typing SUPER+PERIOD to close failed"
-expect_poll "SUPER+PERIOD closes the open System window" 0 window_count System
+expect_poll "SUPER+PERIOD closes the open System window" 0 window_count "System Settings"
 # Control: SUPER+COMMA, typed as SUPER+PERIOD is, opens no System window.
-sys_never_opens() { local got; for _ in $(seq 1 10); do got="$(window_count System)" || return 1; [[ $got == 0 ]] || { echo opened; return 0; }; sleep 0.2; done; echo closed; }
+sys_never_opens() { local got; for _ in $(seq 1 10); do got="$(window_count "System Settings")" || return 1; [[ $got == 0 ]] || { echo opened; return 0; }; sleep 0.2; done; echo closed; }
 type_keys -M logo -k comma -m logo || fail "control: typing SUPER+COMMA failed"
 expect "control: SUPER+COMMA opens no System window" closed sys_never_opens
 hypr_lua_restore system-window || fail "hyprland.lua is put back after the System keyboard path"
@@ -464,6 +474,8 @@ expect_poll "the stale-list copy is discovered" False plugin_enabled acme.system
 expect "enabling the stale-list copy is allowed" ok ipc shell setPluginEnabled acme.system-stale true
 expect "the stale-list copy opens" ok ipc shell summon window acme.system-stale '{}'
 expect_poll "the stale-list copy lists the enabled sections when it opens" '[["Connectivity","Fixtures"],["Pane Net","Pane Alt","Pane","Shell & Plugins"]]' sys_sidebar acme.system-stale
+expect_poll "control: the copy's window is titled with its own name" 1 window_count "System Copy"
+expect "control: no window titled System Settings is open beside the copy" 0 window_count "System Settings"
 expect "disabling Pane Alt under the stale-list copy is allowed" ok ipc shell setPluginEnabled acme.pane-alt false
 expect_poll "control: a sidebar that keeps its first list still lists the disabled section" '[["Connectivity","Fixtures"],["Pane Net","Pane Alt","Pane","Shell & Plugins"]]' sys_sidebar acme.system-stale
 expect "hiding the stale-list copy is allowed" ok ipc shell hide window acme.system-stale
@@ -472,6 +484,42 @@ rm -rf -- "${stale_dir:?}"
 rescan "rescan after removing the stale-list copy answers ok"
 expect_poll "the stale-list copy is gone" absent plugin_enabled acme.system-stale
 expect "enabling Pane Alt after the stale-list control is allowed" ok ipc shell setPluginEnabled acme.pane-alt true
+
+# Control: a copy of the window that shows nothing in place of a section
+# that leaves while shown. Disabling the shown section leaves no section
+# mounted.
+blank_dir="$home/.config/vgshell/plugins/acme.system-blank"
+rm -rf -- "${blank_dir:?}"
+cp -R -- "$repo/shell/plugins/vgs.system" "$blank_dir"
+python3 - "$blank_dir" <<'PY'
+import json, os, sys
+root = sys.argv[1]
+path = os.path.join(root, "manifest.json")
+doc = json.load(open(path))
+doc["id"], doc["name"] = "acme.system-blank", "System Blank"
+del doc["hyprland"]
+json.dump(doc, open(path, "w"))
+qml = os.path.join(root, "Window.qml")
+text = open(qml).read()
+old = 'const reply = panes.length > 0 ? show(panes[0].id, "{}") : "ok";'
+assert text.count(old) == 1, old
+changed = text.replace(old, 'const reply = "ok";')
+assert changed != text
+open(qml, "w").write(changed)
+PY
+rescan "rescan after adding the blank copy answers ok"
+expect_poll "the blank copy is discovered" False plugin_enabled acme.system-blank
+expect "enabling the blank copy is allowed" ok ipc shell setPluginEnabled acme.system-blank true
+expect "the blank copy opens on Pane Alt" ok ipc shell summon window acme.system-blank '{"pane":"acme.pane-alt"}'
+expect_poll "the blank copy mounts Pane Alt" '["acme.pane-alt"]' window_panes
+expect "disabling Pane Alt under the blank copy is allowed" ok ipc shell setPluginEnabled acme.pane-alt false
+expect_poll "control: a window that shows nothing in place of the section that left mounts no section" '[]' window_panes
+expect "hiding the blank copy is allowed" ok ipc shell hide window acme.system-blank
+expect "disabling the blank copy is allowed" ok ipc shell setPluginEnabled acme.system-blank false
+rm -rf -- "${blank_dir:?}"
+rescan "rescan after removing the blank copy answers ok"
+expect_poll "the blank copy is gone" absent plugin_enabled acme.system-blank
+expect "enabling Pane Alt after the blank control is allowed" ok ipc shell setPluginEnabled acme.pane-alt true
 expect "enabling vgs.system after the stale-list control is allowed" ok ipc shell setPluginEnabled vgs.system true
 
 # Control: a shell copy whose PaneHost takes no implicit height from the
@@ -492,7 +540,7 @@ expect_poll "the restored shell knows vgs.system" True plugin_enabled vgs.system
 expect "the restored shell opens Pane Net" ok ipc shell summon window vgs.system '{"pane":"acme.pane-net"}'
 geometry expect_poll "the restored shell grows the page to the tall section" fits sys_pane_fits acme.pane-net
 expect "hiding the System window after the controls is allowed" ok ipc shell hide window vgs.system
-expect_poll "the System window is gone after the controls" 0 window_count System
+expect_poll "the System window is gone after the controls" 0 window_count "System Settings"
 
 cp -- "$sys_saved" "$sys_file.tmp" && mv -T -- "$sys_file.tmp" "$sys_file"
 rm -rf -- "${home:?}/.config/vgshell/plugins/acme.pane" "${home:?}/.config/vgshell/plugins/acme.pane-alt" "${home:?}/.config/vgshell/plugins/acme.pane-net" "${home:?}/.config/vgshell/plugins/acme.pane-off"

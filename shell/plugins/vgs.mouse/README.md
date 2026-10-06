@@ -2,7 +2,7 @@
 
 Mouse sets pointer speed, scrolling and touchpad options. It is for anyone who wants to change these without editing a Hyprland file.
 
-![The Mouse section of the System window, with pointer controls, devices and a try-it area](../../../docs/images/plugins/vgs.mouse-pane.webp)
+![The Mouse section of the System Settings window, with pointer controls, devices and a try-it area](../../../docs/images/plugins/vgs.mouse-pane.webp)
 
 Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2.
 
@@ -10,7 +10,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 
 - A bar icon that opens the Mouse flyout.
 - A flyout with pointer speed, natural scroll, the touchpad switch when a touchpad exists, and Mouse Settings.
-- A Mouse section in the System window with pointer settings, touchpad settings, device rows and a try-it area.
+- A Mouse section in the System Settings window with pointer settings, touchpad settings, device rows and a try-it area.
 - A setting you change here applies over your own Hyprland config. Where your config sets another value, the row shows that value and offers Use my Hyprland value, which makes VGS stop setting it.
 
 ## Settings

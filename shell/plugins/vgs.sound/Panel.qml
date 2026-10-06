@@ -25,7 +25,7 @@ Item {
         const reply = shell.surfaces.summon("pane", "{}");
         if (reply !== "ok") {
             console.warn("sound panel: pane " + reply);
-            controls.problem = "System is not available. Turn it on in Plugins.";
+            controls.problem = "System Settings is not available. Turn it on in Plugins.";
             return reply;
         }
         shell.surfaces.hide("panel");

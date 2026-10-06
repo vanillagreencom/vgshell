@@ -1,8 +1,8 @@
 # VPN
 
-`vgs.vpn`: see your Tailscale connection, turn it on and off, choose an exit node, switch accounts and sign in. It has a bar icon with a flyout, and a VPN section in the System window.
+`vgs.vpn`: see your Tailscale connection, turn it on and off, choose an exit node, switch accounts and sign in. It has a bar icon with a flyout, and a VPN section in the System Settings window.
 
-![The VPN section of the System window, with the connection switch and the exit nodes](../../../docs/images/plugins/vgs.vpn-pane.webp)
+![The VPN section of the System Settings window, with the connection switch and the exit nodes](../../../docs/images/plugins/vgs.vpn-pane.webp)
 
 Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2, over a stand-in `tailscale`.
 
@@ -12,7 +12,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 |---|---|
 | Bar icon | Connected, off, or an exit node in use. A click opens the flyout. It hides while Tailscale is not installed. |
 | Flyout | The title row's connection switch, Sign in while you are signed out, and the exit nodes. VPN settings opens the section. |
-| System → VPN | The same, then this device, your accounts with Add account, the other devices, and Check every. |
+| System Settings → VPN | The same, then this device, your accounts with Add account, the other devices, and Check every. |
 
 ## Connection
 
@@ -45,7 +45,7 @@ Each setup window shows its commands and asks before it runs them.
 
 ## Keys
 
-The bar takes no keyboard focus. `SUPER+PERIOD` opens the System window: type "vpn" and press Enter. In the section, Tab moves between the switch, the buttons and the lists, Space turns the switch on or off, Up and Down move in a list, and Enter chooses the selected exit node or account. Escape returns to the sidebar.
+The bar takes no keyboard focus. `SUPER+PERIOD` opens the System Settings window: type "vpn" and press Enter. In the section, Tab moves between the switch, the buttons and the lists, Space turns the switch on or off, Up and Down move in a list, and Enter chooses the selected exit node or account. Escape returns to the sidebar.
 
 ## Validation
 

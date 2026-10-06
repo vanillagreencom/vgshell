@@ -131,7 +131,7 @@ bt_field_kept() {
   echo kept
 }
 bt_service_action() { ipc smoke readInstance window "${bt_id:-vgs.bluetooth}" serviceAction | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)))'; }
-bt_window_closed() { [[ $(window_count System) == 0 ]] && echo closed || echo open; }
+bt_window_closed() { [[ $(window_count "System Settings") == 0 ]] && echo closed || echo open; }
 # The transcript of an agent that registers, takes the default role, then
 # prints PROMPT and runs the steps of REST, a JSON list's inside, before
 # its release.
@@ -300,9 +300,9 @@ bt_main() {
 
   # Connect and disconnect by pointer.
   expect_poll "My Devices lists the four devices" '[["Smoke Headphones", true], ["Smoke Keyboard", true], ["Smoke Mouse", true], ["Smoke Speaker", true]]' bt_mine
-  click_in window:System window vgs.bluetooth Button Disconnect || fail "the click on Disconnect failed"
+  click_in "window:System Settings" window vgs.bluetooth Button Disconnect || fail "the click on Disconnect failed"
   expect_poll "Disconnect disconnects the first device" "False" bt_device "$bt_headphones" Connected
-  click_in window:System window vgs.bluetooth Button Connect || fail "the click on Connect failed"
+  click_in "window:System Settings" window vgs.bluetooth Button Connect || fail "the click on Connect failed"
   expect_poll "Connect connects it again" "True" bt_device "$bt_headphones" Connected
   expect "hiding the System window after pairing is allowed" ok ipc shell hide window vgs.system
   expect_poll "the System window is closed after pairing" closed bt_window_closed
@@ -392,7 +392,7 @@ PY
   expect_poll "the section offers the status row's action" '{"label": "Turn on the service"}' bt_service_action
   forget_record
   expect "no terminal is asked for before the click" absent recorded
-  click_in window:System window acme.bluetooth-bare Button "Turn on the service" || fail "the click on Turn on the service failed"
+  click_in "window:System Settings" window acme.bluetooth-bare Button "Turn on the service" || fail "the click on Turn on the service failed"
   expect_poll "Turn on the service hands the terminal vgshell system apply service-bluetooth" \
     "$(core_words core/system "System setup" org.vgs.tui system apply service-bluetooth)" recorded
   expect_run_end "the Turn on the service core/system run ends" core/system
@@ -417,7 +417,7 @@ PY
   expect "the nested instance reloads with binds resolved by keysym" ok hypr reload config-only
   rest_pointer || fail "moving the pointer off the System window failed"
   type_keys -M logo -k period -m logo || fail "typing SUPER+PERIOD failed"
-  expect_poll "SUPER+PERIOD opens the System window" 1 window_count System
+  expect_poll "SUPER+PERIOD opens the System window" 1 window_count "System Settings"
   expect_poll "the keyboard starts in the search field" "Search sections" bt_focus vgs.system
   type_keys bluetooth || fail "typing the search failed"
   type_keys -k Return || fail "typing Return in the search failed"

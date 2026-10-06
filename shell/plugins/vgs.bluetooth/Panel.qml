@@ -25,7 +25,7 @@ Item {
     function pairInPane(address) {
         const reply = shell.surfaces.summon("pane", JSON.stringify({ pair: address }));
         if (reply !== "ok") {
-            power.problem = "Open System to pair this device.";
+            power.problem = "Open System Settings to pair this device.";
             console.warn("bluetooth panel: pane " + reply);
             return reply;
         }

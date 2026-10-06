@@ -337,7 +337,7 @@ net_details_layout() {
   expect "$1: enp10s0 scrolls into view" scrolled net_reveal
   before="$(net_below)" || before=unread
   touch -- "$net_hold"
-  click_in window:System window vgs.network ListItem enp10s0 || fail "$1: the click on enp10s0 failed"
+  click_in "window:System Settings" window vgs.network ListItem enp10s0 || fail "$1: the click on enp10s0 failed"
   expect_poll "$1: the held read is loading" "enp10s0 loading" net_detail_state
   expect_poll "$1: the expanded row shows one spinner" 1 net_spinners
   during="$(net_below)" || during=unread
