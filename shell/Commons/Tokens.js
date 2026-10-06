@@ -450,6 +450,24 @@ var TOKENS = {
         pressed: color("{color.border}")
     },
 
+    tileGroup: {
+        height: length("mul({size.control.lg}, 1.6)"),
+        paddingX: length("{control.sm.paddingX}"),
+        gap: length("{stack.inline}"),
+        contentGap: length("{stack.row}"),
+        radius: length("{radius.md}"),
+        icon: length("{icon.size.lg}"),
+        captionRole: textRole("label"),
+        background: color("{color.surface}"),
+        border: color("{color.border}"),
+        foreground: color("{color.textMuted}"),
+        hover: color("{color.surfaceHover}"),
+        pressed: color("{color.surfaceRaised}"),
+        selectedBackground: color("{color.accentSubtle}"),
+        selectedBorder: color("{color.accent}"),
+        selectedForeground: color("{color.accent}")
+    },
+
     toggle: {
         size: {
             sm: { width: length(28), height: length(16) },

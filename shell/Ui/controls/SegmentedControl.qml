@@ -17,6 +17,13 @@ T.Control {
     property var model: []
     property int currentIndex: 0
     property bool focusPreview: false
+    readonly property real naturalContentWidth: {
+        let total = Math.max(0, model.length - 1) * Theme.segmented.gap;
+        for (const child of row.children) {
+            if (child.implicitWidth !== undefined) total += child.implicitWidth;
+        }
+        return total;
+    }
     signal activated(int index)
 
     function choose(index) {
@@ -25,7 +32,7 @@ T.Control {
         activated(index);
     }
 
-    implicitWidth: row.implicitWidth + leftPadding + rightPadding
+    implicitWidth: naturalContentWidth + leftPadding + rightPadding
     implicitHeight: Theme.segmented.height
     padding: Theme.segmented.padding
     focusPolicy: Qt.StrongFocus
@@ -55,6 +62,9 @@ T.Control {
                 readonly property bool current: index === root.currentIndex
 
                 height: row.height
+                width: root.availableWidth > root.naturalContentWidth && root.model.length > 0
+                    ? (root.availableWidth - Math.max(0, root.model.length - 1) * Theme.segmented.gap) / root.model.length
+                    : implicitWidth
                 focusPolicy: Qt.NoFocus
                 implicitWidth: implicitContentWidth + leftPadding + rightPadding
                 leftPadding: Theme.controlPadding(Theme.segmented.paddingX, Math.max(0, Theme.segmented.radius - Theme.segmented.padding), row.height, implicitContentHeight)
@@ -69,6 +79,7 @@ T.Control {
                     role: "button"
                     text: segment.text
                     color: segment.current ? Theme.segmented.selectedForeground : Theme.segmented.foreground
+                    horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                 }
 

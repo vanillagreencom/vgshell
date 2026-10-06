@@ -16,6 +16,7 @@ IconButton 1.0 controls/IconButton.qml
 BarItem 1.0 controls/BarItem.qml
 ToggleButton 1.0 controls/ToggleButton.qml
 SegmentedControl 1.0 controls/SegmentedControl.qml
+TileGroup 1.0 controls/TileGroup.qml
 Switch 1.0 controls/Switch.qml
 Checkbox 1.0 controls/Checkbox.qml
 Radio 1.0 controls/Radio.qml
