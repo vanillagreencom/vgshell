@@ -1,14 +1,16 @@
 import QtQuick
 
 // Reads the `hyprland` capability back for rows/hyprland-options.sh: its
-// member names, the paths reported overridden, the foreign keys and the
-// keymaps the keyboards are on; `switch` sends a layout switch.
+// member names, the paths reported overridden, the values the user's own
+// configuration gave its options, the foreign keys and the keymaps the
+// keyboards are on; `switch` sends a layout switch.
 Item {
     id: root
     property var shell: null
     property bool registered: false
     readonly property string members: shell === null ? "" : Object.keys(shell.hyprland).sort().join(",")
     readonly property var overridden: shell === null ? [] : shell.hyprland.overridden
+    readonly property var userValues: shell === null ? [] : shell.hyprland.userValues
     readonly property var foreignBinds: shell === null ? [] : shell.hyprland.foreignBinds
     // Each keymap a keyboard is on, once, sorted; null before the first read.
     readonly property var keymaps: {

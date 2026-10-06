@@ -45,6 +45,8 @@ bind_census() { hypr -j binds | py_reply '
 import collections, json, sys
 counts = collections.Counter((b.get("submap", "") or "default", b["description"]) for b in json.load(sys.stdin) if b["description"].startswith("vgs"))
 print(json.dumps(sorted("%s %s x%d" % (s, d, n) for (s, d), n in counts.items())))'; }
+# Whether the default submap holds a bind of each DESCRIPTION, as a JSON list.
+default_binds() { hypr -j binds | py_reply 'import json,sys; held={b["description"] for b in json.load(sys.stdin) if (b.get("submap", "") or "default") == "default"}; print(json.dumps([d in held for d in sys.argv[1:]]))' "$@"; }
 fixture_bind() { hypr -j binds | py_reply '
 import json, sys
 print(json.dumps([
@@ -301,11 +303,19 @@ expect "the switch-off radius baseline is Hyprland's default" 0 printf '%s\n' "$
 motion_before="$(animation_leaf windows)" || fail "the nested windows animation baseline is readable"
 expect "the switch-off motion baseline has no VGS curve" no animation_curve vgsSnappy
 expect "the switch-off appearance baseline holds no configuration error" '[]' config_errors
+# A user's own border size after the loading line applies while the border
+# group is off, and the theme's holds over it while the group is on.
+# Control run on 2026-10-05, host cachy: a source_tree copy of the shell
+# whose layer writes the groups where the file loads, not in the callback,
+# failed "the theme border size holds over the user's later line", reading 7.
+printf '%s\n' 'hl.config({ general = { border_size = 7 } })' >>"$hypr_lua"
+expect "the nested instance reloads with the user's border size" ok hypr reload config-only
+expect_poll "with the border group off the user's border size applies" 7 hypr_option general:border_size
 set_theme_switches true true false
 expect "the shell reloads the probe border and radius switches on" ok ipc shell reloadConfig
 expect_poll "the effective config has the probe border and radius switches on" '{"setCornerRadius": true, "setWindowAnimations": false, "setWindowBorders": true}' theme_switches
 expect "the Hyprland probe package applies" "ok theme=hyprland-probe" applied hyprland-probe
-expect_poll "the theme border size reaches Hyprland" 4 hypr_option general:border_size
+expect_poll "the theme border size holds over the user's later line" 4 hypr_option general:border_size
 expect_poll "the theme corner radius reaches Hyprland" 8 hypr_option decoration:rounding
 expect "the theme border and radius hold no configuration error" '[]' config_errors
 set_theme_switches false false false
@@ -316,7 +326,10 @@ expect_poll "the effective config has the probe theme switches off" '{"setCorner
 # failed the two restore rows below, reading 4 and 8 instead of 1 and 0.
 expect_poll "turning the border switch off removes the border size line" no layer_matches '^[[:space:]]*border_size ='
 expect_poll "turning the radius switch off removes the window rounding line" no layer_matches '^[[:space:]]*rounding ='
-expect_poll "turning the border switch off leaves Hyprland's own border size" "$border_before" hypr_option general:border_size
+expect_poll "turning the border switch off leaves the user's border size" 7 hypr_option general:border_size
+restore_hypr_lua || fail "hyprland.lua is put back after the user's border size"
+expect "the nested instance reloads without the user's border size" ok hypr reload config-only
+expect_poll "without the user's line the border size is Hyprland's own" "$border_before" hypr_option general:border_size
 expect_poll "turning the radius switch off leaves Hyprland's own rounding" "$radius_before" hypr_option decoration:rounding
 expect "the switched-off theme appearance holds no configuration error" '[]' config_errors
 set_theme_switches false false true
@@ -331,7 +344,7 @@ expect_poll "the default smooth preset writes the windows leaf" '{"bezier": "vgs
 expect "the smooth preset holds no configuration error" '[]' config_errors
 set_theme_switches false false false
 expect "the shell reloads the probe motion switch off" ok ipc shell reloadConfig
-expect_poll "turning the motion switch off removes the windows animation line" no layer_matches '^hl\.animation\(\{ leaf = "windows"'
+expect_poll "turning the motion switch off removes the windows animation line" no layer_matches '^[[:space:]]*hl\.animation\(\{ leaf = "windows"'
 expect_poll "turning the motion switch off restores the windows animation leaf" "$motion_before" animation_leaf windows
 cp -- "$sandbox/shell-before-appearance.json" "$user_config.next" && mv -T -- "$user_config.next" "$user_config"
 expect "the shell reloads the restored theme settings" ok ipc shell reloadConfig
@@ -420,6 +433,15 @@ expect_poll "control: a layer run twice in one generation registers each vgs bin
 restore_hypr_lua || fail "hyprland.lua is put back after the bind census control"
 expect "the nested instance reloads the consent-wired hyprland.lua after the bind census control" ok hypr reload config-only
 expect_poll "with one loading line again each vgs bind is registered once in its submap" "$once_census" bind_census
+# A user's own unbind after the line removes a bind the layer made: the
+# layer loaded first, so the bind exists when the unbind runs.
+printf '%s\n' 'hl.unbind("SUPER + SPACE")' >>"$hypr_lua"
+expect "the nested instance reloads with the user's unbind" ok hypr reload config-only
+expect_poll "a user's unbind after the line removes the launcher's key and leaves the others" '[false, true, true]' default_binds vgs.launcher:toggle vgs.bar:toggle vgs.notifications:inbox
+expect "the user's unbind holds no configuration error" '[]' config_errors
+restore_hypr_lua || fail "hyprland.lua is put back after the user's unbind"
+expect "the nested instance reloads without the user's unbind" ok hypr reload config-only
+expect_poll "without the unbind each vgs bind is registered once in its submap" "$once_census" bind_census
 
 # Each bind reaches its plugin. wtype types on a virtual keyboard with
 # keycodes of its own, which a bind resolves only by keysym, so the sandbox

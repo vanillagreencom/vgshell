@@ -82,12 +82,16 @@ print("centred" if abs(at_x - area_x) <= 1 and abs(at_y - area_y) <= 1 else "cen
 }
 
 # The border the readings look for: a size and two colours no theme draws,
-# set after the Hyprland layer's line, with no rounding, so the middle of
-# a window's left edge shows the border alone. Hyprland draws the border
+# with no rounding, so the middle of a window's left edge shows the border
+# alone. The Hyprland layer applies the theme's border and radius in a
+# `config.reloaded` callback, and Hyprland v0.56.2 runs an event's callbacks
+# in the order they registered (`CLuaEventHandler::dispatch`), so this
+# border is set in a callback of its own after the layer's line and holds
+# over the theme's. Hyprland draws the border
 # outside the window's box. window_border_on appends it to the nested
 # instance's hyprland.lua and reloads; window_border_off puts the file back
 # as window_border_on found it and reloads.
-window_border_lua='hl.config({ general = { border_size = 4, col = { active_border = "rgba(ff0000ff)", inactive_border = "rgba(0000ffff)" } }, decoration = { rounding = 0 } })'
+window_border_lua='hl.on("config.reloaded", function() hl.config({ general = { border_size = 4, col = { active_border = "rgba(ff0000ff)", inactive_border = "rgba(0000ffff)" } }, decoration = { rounding = 0 } }) end)'
 window_border_on() {
   cp -- "$home/.config/hypr/hyprland.lua" "$sandbox/hyprland-before-border.lua"
   printf '%s\n' "$window_border_lua" >>"$home/.config/hypr/hyprland.lua"

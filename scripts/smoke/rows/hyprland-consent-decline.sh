@@ -37,7 +37,7 @@ themes_on_disk() { [[ -e $home/.config/vgshell/shell.json ]] || { echo enabled; 
 # The consent phase, its queued answer and the slot's title, while an
 # answer runs.
 decline_view() { ipc shell lent | py_reply 'import json,sys; n=json.load(sys.stdin)["notices"]; s=n.get("consentState") or {}; c=n["consent"]; print(json.dumps({"phase": s.get("phase"), "queued": s.get("queued"), "title": None if c is None else c["title"]}))'; }
-welcome_lines='["VGS is a bar and a set of plugins on top of your Hyprland. Turn plugins on and off from the plugins button at the top right of the bar.", "VGS adds one line to the top of your hyprland.lua. It loads a file VGS generates. Your own settings come after it and win. VGS changes nothing else in that file.", "Super+T picks a theme."]'
+welcome_lines='["VGS is a bar and a set of plugins on top of your Hyprland. Turn plugins on and off from the plugins button at the top right of the bar.", "VGS adds one line to the top of your hyprland.lua. It loads a file VGS generates. VGS changes nothing else in that file.", "Super+T picks a theme."]'
 
 prepare_unwired_start
 if stop_shell && start_shell "$repo" "$sandbox/hypr-consent-decline.log"; then

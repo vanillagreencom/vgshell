@@ -26,7 +26,7 @@ notice_fit() { ipc smoke noticeFit | py_reply 'import json,sys; f=json.load(sys.
 # notice_overflows HEIGHT: `yes` while the dialog is taller than its
 # surface or scrolls, on a surface at most HEIGHT high.
 notice_overflows() { ipc smoke noticeFit | py_reply 'import json,sys; f=json.load(sys.stdin); print("yes" if f["surface"] <= int(sys.argv[1]) and (f["dialog"] > f["surface"] or f["overflowing"] > 0) else json.dumps(f, sort_keys=True))' "$1"; }
-welcome_lines='["VGS is a bar and a set of plugins on top of your Hyprland. Turn plugins on and off from the plugins button at the top right of the bar.", "VGS adds one line to the top of your hyprland.lua. It loads a file VGS generates. Your own settings come after it and win. VGS changes nothing else in that file.", "Super+T picks a theme."]'
+welcome_lines='["VGS is a bar and a set of plugins on top of your Hyprland. Turn plugins on and off from the plugins button at the top right of the bar.", "VGS adds one line to the top of your hyprland.lua. It loads a file VGS generates. VGS changes nothing else in that file.", "Super+T picks a theme."]'
 
 expect "the harness starts without the VGS loading line" 0 wire_count
 expect "the sandbox starts without the welcome-seen marker" absent welcome_marker
@@ -36,7 +36,7 @@ expect_poll "the first start's welcome asks the Hyprland question" '{"title": "W
 expect_poll "the welcome is recorded with its lines and Connect, Not now" "{\"state\": \"unseen\", \"lines\": $welcome_lines, \"actions\": [\"Connect\", \"Not now\"]}" welcome_record
 expect_poll "the welcome maps" 1 layer_count vgs:notice
 expect_poll "the welcome holds the keyboard" true ipc smoke noticeFocused
-expect_poll "the welcome draws its lines, Connect, Not now and the closed command disclosure" '{"title":"Welcome to VGS","message":"","rows":["VGS is a bar and a set of plugins on top of your Hyprland. Turn plugins on and off from the plugins button at the top right of the bar.","VGS adds one line to the top of your hyprland.lua. It loads a file VGS generates. Your own settings come after it and win. VGS changes nothing else in that file.","Super+T picks a theme."],"command":{"toggle":"Show command","expanded":false,"text":"vgshell hypr wire"},"focused":"Connect","actions":["Connect","Not now"],"busy":false}' ipc smoke noticeDrawn
+expect_poll "the welcome draws its lines, Connect, Not now and the closed command disclosure" '{"title":"Welcome to VGS","message":"","rows":["VGS is a bar and a set of plugins on top of your Hyprland. Turn plugins on and off from the plugins button at the top right of the bar.","VGS adds one line to the top of your hyprland.lua. It loads a file VGS generates. VGS changes nothing else in that file.","Super+T picks a theme."],"command":{"toggle":"Show command","expanded":false,"text":"vgshell hypr wire"},"focused":"Connect","actions":["Connect","Not now"],"busy":false}' ipc smoke noticeDrawn
 fit_monitor="$(first_name)" || fail "the first monitor's name is unreadable"
 fit_base_mode="$(first_mode)" || fail "the first monitor's mode is unreadable"
 hold_mode "the nested compositor holds $fit_monitor at 1440x900 for the welcome" "$fit_monitor" 1440x900
