@@ -466,6 +466,30 @@ var TOKENS = {
         pressed: color("{color.border}")
     },
 
+    // A row of equal tiles, each an icon over a caption, that picks one
+    // choice. The chosen tile takes the checked button's accent outline and
+    // tint, not an accent fill, which is a surface's one primary action.
+    // The focus ring draws in `focus`, which the chosen tile's accent
+    // border is not, so the ring shows on it.
+    tileGroup: {
+        height: length("mul({size.control.lg}, 1.6)"),
+        paddingX: length("{control.sm.paddingX}"),
+        gap: length("{stack.inline}"),
+        contentGap: length("{stack.row}"),
+        radius: length("{radius.md}"),
+        icon: length("{icon.size.lg}"),
+        captionRole: textRole("label"),
+        background: color("{color.surface}"),
+        border: color("{color.border}"),
+        foreground: color("{color.textMuted}"),
+        hover: color("{color.surfaceHover}"),
+        pressed: color("{color.surfaceRaised}"),
+        selectedBackground: color("{color.accentSubtle}"),
+        selectedBorder: color("{color.accent}"),
+        selectedForeground: color("{color.accent}"),
+        focus: color("{color.text}")
+    },
+
     toggle: {
         size: {
             sm: { width: length(28), height: length(16) },

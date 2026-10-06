@@ -973,6 +973,14 @@ mutations=(
   "Use my binding removes the first key|../plugins/vgs.settings/KeyField.qml|root.remove(root.keys.indexOf(root.found.key))|root.remove(0)|tst_settings_edits.qml"
   "the reset sends the unbind|../plugins/vgs.settings/KeyField.qml|onClicked: root.applyKey(undefined)|onClicked: root.applyKey(null)|tst_settings_edits.qml"
   "a plugin page draws a row per key|../plugins/vgs.settings/PluginPage.qml|values: page.row === null ? [] : page.row.binds|values: page.row === null ? [] : page.row.binds.concat(page.row.binds.map(b => Object.assign({}, b, { shortcut: b.shortcut + \"-2\" })))|tst_settings_edits.qml"
+  "tiles keep their own widths|controls/TileGroup.qml|width: root.tileWidth|width: implicitWidth|tst_tilegroup.qml"
+  "the arrows choose no tile|controls/TileGroup.qml|onMoved: index => root.choose(index)|onMoved: index => {}|tst_tilegroup.qml"
+  "the chosen tile rings in its accent|controls/TileGroup.qml|ringColor: Theme.tileGroup.focus|ringColor: Theme.tileGroup.selectedBorder|tst_tilegroup.qml"
+  "an unavailable tile stays enabled|controls/TileGroup.qml|enabled: root.available(index)|enabled: true|tst_tilegroup.qml"
+  "a click chooses no tile|controls/TileGroup.qml|onClicked: { root.forceActiveFocus(Qt.MouseFocusReason); root.choose(index); }|onClicked: root.forceActiveFocus(Qt.MouseFocusReason)|tst_tilegroup.qml"
+  "a clicked tile group shows its ring|controls/TileGroup.qml|root.visualFocus)|root.activeFocus)|tst_tilegroup.qml"
+  "every tile draws the ring|controls/TileGroup.qml|visible: tile.current && (|visible: (|tst_tilegroup.qml"
+  "segments keep their own widths in a set width|controls/SegmentedControl.qml|width: root.segmentShare > 0 ? root.segmentShare : implicitWidth|width: implicitWidth|tst_segmented.qml"
 )
 
 mutation_target_path() { # FILE-FIELD

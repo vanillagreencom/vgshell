@@ -4,7 +4,7 @@ Capture takes PNG screenshots. It can save them, copy them, or do both. It also 
 
 ![Capture widget](../../../docs/images/plugins/vgs.capture-widget.webp)
 
-![Capture options](../../../docs/images/plugins/vgs.capture-panel.webp)
+![Capture panel](../../../docs/images/plugins/vgs.capture-panel.webp)
 
 Images come from `scripts/readme-shots.sh` in the nested sandbox.
 
@@ -21,7 +21,9 @@ Images come from `scripts/readme-shots.sh` in the nested sandbox.
 - Finished recordings lose their first tenth of a second and get even loudness.
 - Text recognition from a selected area in one or more languages.
 - A notification for each finished capture. Open and Edit start your own image viewer, image editor or video player.
-- Capture options and a recording indicator in the bar. A click on the indicator, or the recording shortcut again, stops and saves.
+- A panel from the bar: choose Screenshot, Record or Text, choose what to capture, then press one button. While a recording runs, the button stops it.
+- A few options under the button for each choice: what happens after a screenshot, the delay, the pointer, the recording audio, quality and camera, and the text language. The Settings page holds every other option.
+- A recording indicator in the bar. A click on the indicator, or the recording shortcut again, stops and saves.
 - Shortcuts: Print for a screenshot, `SUPER+SHIFT+S` for an area, `SUPER+SHIFT+R` for a recording, `SUPER+CTRL+PRINT` for text and `SUPER+CTRL+SHIFT+S` for the options. The Keys row on the plugin's Settings page changes them.
 
 ## Settings

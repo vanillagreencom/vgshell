@@ -137,6 +137,8 @@ const DEFAULTS = [
     ["textField.height", 32],
     ["segmented.height", 32],
     ["segmented.paddingX", 12],
+    // A tile holds a 20 px icon over a label line: mul(40, 1.6) = 64.
+    ["tileGroup.height", 64],
     ["tabs.paddingX", 12],
     ["listItem.paddingX", 12],
     ["menu.item.paddingX", 12],

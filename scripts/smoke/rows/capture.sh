@@ -7,7 +7,8 @@
 # shell.json's restore at the end puts it back as found.
 # inputs: shell/plugins/vgs.capture/* shell/plugins/vgs.notifications/* shell/Core/NotificationHub.qml shell/Core/Layers.qml shell/Core/Capabilities.qml shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/IpcRegistry.qml shell/Core/Lifetime.js shell/Core/MonitorLogic.js shell/Core/MonitorState.qml shell/Core/Notices.qml shell/Core/PackageManagers.js shell/Core/PluginLogic.js shell/Core/Plugins.qml shell/Core/PluginStatus.qml shell/Core/Registry.qml shell/Core/ServiceGate.qml shell/Core/ShortcutRegistry.qml shell/Core/Toasts.qml shell/Core/TuiRecords.qml shell/Core/TuiRunner.qml bin/vgshell-tui shell/Hosts/BarHost.qml shell/Hosts/NoticeHost.qml shell/Hosts/OverlaySurface.qml shell/Hosts/PluginSlot.qml shell/Hosts/ServiceHost.qml shell/Hosts/Summon* shell/Hosts/ToastHost.qml shell/Ui/* shell/Commons/* bin/vgshell-scan bin/lib/check-manifests.js bin/lib/qml-library.js scripts/test-capture.py scripts/smoke/fixtures/capture/*
 # Expected rectangles come from Hyprland. Disposable copies remove each
-# screenshot choice, countdown cleanup and the owned tool deadline.
+# screenshot choice, countdown cleanup and the owned tool deadline, and
+# the panel's mode and target choices, its press and its opening focus.
 # Readbacks use the harness's state poll, with no capture latency budget.
 set -euo pipefail
 capture_state="$sandbox/capture-world"
@@ -692,11 +693,124 @@ expect_poll "the second recording is active" recording capture_phase
 click_centre "$(bar_key)" vgs.capture || fail "the recording widget could not be clicked"
 expect_poll "clicking the recording widget stops capture" idle capture_phase
 expect "the widget clears its recording indicator after finalization" false ipc smoke readInstance "$(bar_key)" vgs.capture recording
+# The panel opens on its primary action. Shift+Tab reaches the target tiles
+# and then the mode switch; an arrow choice on either changes the action the
+# primary button hands the service, and the mode its text. A press starts
+# the panel's action, which a delay holds in its countdown until the same
+# action cancels it. Each panel copy below plants the defects its readings
+# must fail on and is rebuilt as the service copies above are.
+capture_focus() { ipc smoke focused panel vgs.capture | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)))'; }
+capture_focus_type() { ipc smoke focused panel vgs.capture | py_reply 'import json,sys; print(json.load(sys.stdin)[0])'; }
+capture_primary() { ipc smoke readInstance panel vgs.capture primaryActionName | py_reply 'import json,sys; print(json.load(sys.stdin))'; }
+capture_choice() { ipc smoke readDescendant panel vgs.capture "$1" currentIndex; }
+capture_action() { capture_read action | py_reply 'import json,sys; print(json.load(sys.stdin))'; }
+capture_back() { type_keys -M shift -k Tab -m shift || fail "capture: sending Shift+Tab to the panel failed"; }
+capture_key() { type_keys -k "$1" || fail "capture: sending $1 to the panel failed"; }
+capture_shot_focus='["Button", "Take screenshot", true, true, true]'
+capture_record_focus='["Button", "Start recording", true, true, true]'
+capture_panel_file="$repo/shell/plugins/vgs.capture/Panel.qml"
+capture_panel_plant() { # walk | focus | original
+  expect "capture stops before the $1 panel copy" ok ipc shell setPluginEnabled vgs.capture false
+  expect_poll "the $1 panel copy releases the service" False record_exists vgs.capture
+  python3 - "$capture_panel_file" "$sandbox" "$rt_dir" "$capture_state/panel-original.qml" "$1" <<'PY'
+from pathlib import Path
+import sys
+panel, sandbox, runtime, original, control = sys.argv[1:]
+panel, original = Path(panel), Path(original)
+assert any(panel.resolve().is_relative_to(Path(root).resolve()) for root in (sandbox, runtime)), "panel control must stay inside the sandbox or its private runtime"
+if not original.exists():
+    original.write_text(panel.read_text())
+source = original.read_text()
+changes = {
+    "walk": [
+        ("onActivated: index => root.chooseMode(index)", "onActivated: index => {}"),
+        ("onActivated: index => root.chooseTarget(index)", "onActivated: index => {}"),
+        ("onClicked: root.invoke(root.primaryActionName)", 'onClicked: root.invoke("screenshot")'),
+    ],
+    "focus": [("property Item initialFocus: primaryAction", "property Item initialFocus: modeSwitch")],
+    "original": [],
+}
+changed = source
+for before, after in changes[control]:
+    assert changed.count(before) == 1, control + ": " + before
+    changed = changed.replace(before, after)
+assert control == "original" or changed != source, control
+panel.write_text(changed)
+PY
+  rescan "the $1 panel copy is rescanned"
+  expect "capture enables the $1 panel copy" ok ipc shell setPluginEnabled vgs.capture true
+  expect_poll "the $1 panel copy's service is built" True record_exists vgs.capture
+}
+capture_setting delay 3
 expect "capture opens its panel" ok ipc vgs.capture invoke toggle ''
 expect_poll "capture panel maps" false capture_panel
 expect_poll "capture panel has a drawn layer with geometry" True capture_panel_geometry
-expect "capture closes its panel" ok ipc vgs.capture invoke toggle ''
-expect_poll "capture panel unmaps" absent capture_panel
+expect_poll "the panel opens on Take screenshot with its ring" "$capture_shot_focus" capture_focus
+expect "the primary action screenshots an area" screenshot-area capture_primary
+capture_back
+expect_poll "Shift+Tab reaches the target tiles" TileGroup capture_focus_type
+capture_key Right
+expect_poll "Right chooses the Window tile" 1 capture_choice TileGroup
+expect "the Window tile makes the primary action a window screenshot" screenshot-window capture_primary
+capture_back
+expect_poll "Shift+Tab reaches the mode switch" SegmentedControl capture_focus_type
+capture_key Right
+expect_poll "Right chooses Record" 1 capture_choice SegmentedControl
+expect "Record makes the primary action an area recording" record capture_primary
+capture_key Tab
+capture_key Tab
+expect_poll "Tab returns to the primary action" Button capture_focus_type
+expect "Record names the primary action Start recording" "$capture_record_focus" capture_focus
+capture_back
+capture_back
+expect_poll "Shift+Tab reaches the mode switch again" SegmentedControl capture_focus_type
+capture_key Left
+expect_poll "Left chooses Screenshot" 0 capture_choice SegmentedControl
+capture_key Tab
+capture_key End
+expect_poll "End chooses the All tile" 3 capture_choice TileGroup
+expect "the All tile makes the primary action an all-displays screenshot" screenshot-all capture_primary
+capture_key Tab
+expect_poll "Tab reaches the primary action" Button capture_focus_type
+capture_pressed="$(capture_primary)"
+capture_key Return
+expect_poll "the pressed primary action reaches its countdown" delaying capture_phase
+expect "the press starts the panel's own action" "$capture_pressed" capture_action
+expect_poll "the started action closes the panel" absent capture_panel
+expect "the same action cancels the panel's countdown" ok ipc vgs.capture invoke "$(capture_action)" ''
+expect_poll "the cancelled countdown leaves capture idle" idle capture_phase
+capture_panel_plant walk
+expect "capture opens the walk copy's panel" ok ipc vgs.capture invoke toggle ''
+expect_poll "control: the walk copy opens on Take screenshot" "$capture_shot_focus" capture_focus
+capture_back
+expect_poll "control: Shift+Tab reaches the walk copy's tiles" TileGroup capture_focus_type
+capture_key Right
+expect_poll "control: Right moves the walk copy's tiles" 1 capture_choice TileGroup
+expect "control: a tile choice the panel drops fails the window-screenshot readback" False capture_is capture_primary screenshot-window
+capture_back
+expect_poll "control: Shift+Tab reaches the walk copy's mode switch" SegmentedControl capture_focus_type
+capture_key Right
+expect_poll "control: Right moves the walk copy's mode switch" 1 capture_choice SegmentedControl
+expect "control: a mode choice the panel drops fails the area-recording readback" False capture_is capture_primary record
+capture_key Tab
+capture_key Tab
+expect_poll "control: Tab returns to the walk copy's primary action" Button capture_focus_type
+expect "control: a mode choice the panel drops fails the Start recording readback" False capture_is capture_focus "$capture_record_focus"
+capture_pressed="$(capture_primary)"
+capture_key Return
+expect_poll "control: the walk copy's press reaches a countdown" delaying capture_phase
+expect "control: a press of another action fails the pressed-action readback" False capture_is capture_action "$capture_pressed"
+expect "control: the walk copy's action cancels its countdown" ok ipc vgs.capture invoke "$(capture_action)" ''
+expect_poll "control: the walk copy's countdown leaves capture idle" idle capture_phase
+expect_poll "control: the walk copy's panel closes" absent capture_panel
+capture_panel_plant focus
+expect "capture opens the focus copy's panel" ok ipc vgs.capture invoke toggle ''
+expect_poll "control: the focus copy opens on the mode switch" SegmentedControl capture_focus_type
+expect "control: opening on the mode switch fails the Take screenshot readback" False capture_is capture_focus "$capture_shot_focus"
+expect "capture closes the focus copy's panel" ok ipc vgs.capture invoke toggle ''
+expect_poll "the focus copy's panel unmaps" absent capture_panel
+capture_panel_plant original
+capture_setting delay 0
 expect_poll "capture panel leaves no layer" 0 layer_count vgs:panel
 rm -f -- "${shim:?}/tesseract"
 rescan "the missing OCR command is rescanned"

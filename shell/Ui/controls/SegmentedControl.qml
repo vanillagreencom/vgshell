@@ -4,8 +4,11 @@ import qs.Commons
 import qs.Ui
 
 // One choice among a few, drawn as adjoining segments: `model` lists the
-// segment texts and `currentIndex` the chosen one. A click or the left and
-// right keys move it; `activated` fires on a change the user made. The
+// segment texts and `currentIndex` the chosen one. Set wider than its
+// content, the control gives each segment an equal share of its width,
+// with the label centred, while the share holds the widest segment;
+// unsized, each segment is as wide as its own label. A click or the left
+// and right keys move it; `activated` fires on a change the user made. The
 // control is one tab stop: the segments take no focus of their own, so the
 // ring draws around the whole control and the keys act on it. A segment
 // that is not chosen fills on hover and more on a press, and the chosen
@@ -18,6 +21,29 @@ T.Control {
     property var model: []
     property int currentIndex: 0
     property bool focusPreview: false
+    // The segments' own widths and gaps, which the control's implicit width
+    // reads rather than the row's, whose children may take a share.
+    readonly property real naturalContentWidth: {
+        let total = Math.max(0, model.length - 1) * Theme.segmented.gap;
+        for (const child of row.children) {
+            if (child.implicitWidth !== undefined) total += child.implicitWidth;
+        }
+        return total;
+    }
+    readonly property real widestSegment: {
+        let widest = 0;
+        for (const child of row.children) {
+            if (child.implicitWidth !== undefined) widest = Math.max(widest, child.implicitWidth);
+        }
+        return widest;
+    }
+    // Each segment's equal share of the width, or 0 while that share is
+    // narrower than the widest segment, which then keeps its own width.
+    readonly property real segmentShare: {
+        if (model.length === 0) return 0;
+        const share = (availableWidth - (model.length - 1) * Theme.segmented.gap) / model.length;
+        return share >= widestSegment ? share : 0;
+    }
     signal activated(int index)
 
     function choose(index) {
@@ -26,7 +52,7 @@ T.Control {
         activated(index);
     }
 
-    implicitWidth: row.implicitWidth + leftPadding + rightPadding
+    implicitWidth: naturalContentWidth + leftPadding + rightPadding
     implicitHeight: Theme.segmented.height
     padding: Theme.segmented.padding
     focusPolicy: Qt.StrongFocus
@@ -55,6 +81,7 @@ T.Control {
                 required property var modelData
                 readonly property bool current: index === root.currentIndex
 
+                width: root.segmentShare > 0 ? root.segmentShare : implicitWidth
                 height: row.height
                 focusPolicy: Qt.NoFocus
                 implicitWidth: implicitContentWidth + leftPadding + rightPadding
@@ -70,6 +97,7 @@ T.Control {
                     role: "button"
                     text: segment.text
                     color: segment.current ? Theme.segmented.selectedForeground : Theme.segmented.foreground
+                    horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                 }
 

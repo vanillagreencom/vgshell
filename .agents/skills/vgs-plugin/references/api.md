@@ -184,7 +184,8 @@ Types refused as an instantiation anywhere in a plugin's QML or JS: `PanelWindow
 | `Surface`, `Divider`, `FocusRing`, `KeyNav`, `KeyNavLogic` | `Rectangle`, `Item`, JavaScript module | `level`; `vertical`; `target`; roving keyboard navigation for one composite; shared key intent and activation helpers |
 | `Button`, `IconButton`, `InfoButton`, `ToggleButton` | `T.Button` | `text`, `iconName`, `variant` (`primary`, `secondary`, `tertiary`, `ghost`, `danger`), `size` (`sm`, `md`, `lg`), `focusPreview`; `label` and `shortcut` for an icon button; `title` and `info` for an `InfoButton` explanation dialog |
 | `BarItem` | `T.AbstractButton` | one item of the bar, which every bar widget draws: `iconName`, `text`, `count`, `tone` (the bar's colour), `active`, `spinning`, `label` for an icon alone, `shortcut`, `focusPreview`; `clicked` |
-| `SegmentedControl` | `T.Control` | `model`, `currentIndex`, `focusPreview`, `activated(index)` |
+| `SegmentedControl` | `T.Control` | `model`, `currentIndex`, `focusPreview`, `activated(index)`; set wider than its content, the segments share the width equally |
+| `TileGroup` | `T.Control` | `model` (`{ text, icon, available }` entries; an entry with `available` false is disabled), `currentIndex`, `focusPreview`, `activated(index)`: one choice among equal-width icon tiles, one tab stop whose arrows choose |
 | `Switch`, `Checkbox`, `Radio` | `T.Switch`, `T.CheckBox`, `T.RadioButton` | `text`, `checked` |
 | `Slider` | `T.Slider` | `from`, `to`, `value`, `stepSize`, `pageStep`, `focusPreview` |
 | `TextField` | `T.TextField` | `placeholderText`, `leadingIcon`, `trailingIcon`, `actions`, `error`, `validator`, `password`, which masks what is typed |

@@ -51,6 +51,7 @@ Singleton {
     readonly property var focusRing: published.focusRing
     readonly property var button: published.button
     readonly property var segmented: published.segmented
+    readonly property var tileGroup: published.tileGroup
     readonly property var toggle: published.toggle
     readonly property var checkbox: published.checkbox
     readonly property var radio: published.radio

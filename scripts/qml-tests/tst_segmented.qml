@@ -104,6 +104,23 @@ Item {
             after.focus = false;
         }
 
+        // Set wider than its content, the control splits its width into
+        // equal segments; unsized, each segment keeps its own width.
+        function test_a_set_width_splits_equally() {
+            const natural = segment(0).implicitWidth;
+            verify(segment(2).implicitWidth !== natural, "the labels differ in width");
+            compare(segment(0).width, natural);
+            control.width = 290;
+            const share = (control.availableWidth - 2 * Theme.segmented.gap) / 3;
+            verify(share > segment(2).implicitWidth, "the share holds every label");
+            for (let i = 0; i < 3; i++) {
+                compare(segment(i).width, share);
+                tryCompare(segment(i), "x", i * (share + Theme.segmented.gap));
+            }
+            control.width = Qt.binding(() => control.implicitWidth);
+            compare(segment(0).width, natural);
+        }
+
         function test_theme_change_moves_the_segments() {
             compare(UnitTheme.override({ segmented: { height: 40, selected: "#00ff00" } }), "ok");
             compare(control.height, 40);

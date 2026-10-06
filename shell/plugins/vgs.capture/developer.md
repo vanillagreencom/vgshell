@@ -17,7 +17,7 @@ Each action is a shortcut `vgs.capture:<name>` and an IPC function of the same n
 | `record-output` | Starts or stops recording the focused display | None |
 | `record-portal` | Starts or stops recording what the screen picker shares | None |
 | `text` | Copies text from a selected area | Super+Ctrl+Print |
-| `toggle` | Opens or closes the options panel | Super+Ctrl+Shift+S |
+| `toggle` | Opens or closes the Capture panel | Super+Ctrl+Shift+S |
 
 The IPC form, with the action's name in place of `screenshot-area`:
 

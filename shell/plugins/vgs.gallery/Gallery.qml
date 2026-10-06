@@ -162,7 +162,7 @@ Item {
                 Section {
                     title: "Choices"
                     rowSpacing: Theme.stack.group
-                    description: "Switch, checkbox, radio, segments and select"
+                    description: "Switch, checkbox, radio, segments, tiles and select"
                 Column {
                     width: parent.width
                     spacing: Theme.stack.row
@@ -191,6 +191,13 @@ Item {
                     SegmentedControl { model: ["Day", "Week", "Month"]; currentIndex: 1 }
                     Select { model: ["Default", "Ocean", "Forest"] }
                     Select { model: ["Disabled"]; enabled: false }
+                }
+                Column {
+                    width: parent.width
+                    spacing: Theme.stack.row
+                    Field { label: "Tiles"; inline: true; width: parent.width; TileGroup { width: parent.width; model: [{ text: "Area", icon: "scan" }, { text: "Window", icon: "app-window" }, { text: "Display", icon: "monitor" }]; currentIndex: 1 } }
+                    Field { label: "Tiles unavailable"; inline: true; width: parent.width; TileGroup { width: parent.width; model: [{ text: "Area", icon: "scan" }, { text: "Picker", icon: "screen-share", available: false }]; currentIndex: 0 } }
+                    Field { label: "Tiles disabled"; inline: true; width: parent.width; TileGroup { width: parent.width; enabled: false; model: [{ text: "Area", icon: "scan" }, { text: "Window", icon: "app-window" }]; currentIndex: 0 } }
                 }
 
                 }
@@ -583,6 +590,12 @@ Item {
                                 focusPreview: true
                                 model: ["One", "Two", "Three"]
                                 currentIndex: 1
+                            }
+                            TileGroup {
+                                property string focusExample: "TileGroup"
+                                focusPreview: true
+                                model: [{ text: "Area", icon: "scan" }, { text: "Window", icon: "app-window" }]
+                                currentIndex: 0
                             }
                         }
                     }
