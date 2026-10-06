@@ -1,8 +1,12 @@
 # Key Hints. SUPER+SLASH, typed on the nested seat, opens one window that
 # draws one row for each bind of an enabled first-party plugin: the same
 # set as the binds `hyprctl -j binds` reports with a `vgs.` description in
-# the default submap, a hold's release companion folded into its bind. A
-# harness user bind on SUPER+CTRL+T, the Themes shortcut's default key, shows
+# the default submap, a hold's release companion folded into its bind, and
+# one row with no key for a bind whose manifest key is null. The row enables
+# Voice for that keyless bind, its tap shortcut, whatever set the shell
+# started over; with Voice disabled the window draws the same keyed rows
+# and no Voice tap row, the keyless reading's control. It then leaves Voice
+# as it found it. A harness user bind on SUPER+CTRL+T, the Themes shortcut's default key, shows
 # the hint under the Themes row with no key or click. Typing while the
 # Themes row's field has the focus goes into the search field and filters
 # the rows, and clearing the search draws them all again. A key typed into
@@ -26,7 +30,7 @@
 # (runtime-hyprland-capture.md), and the row puts the harness hyprland.lua
 # back at its end.
 # No latency is measured; each reading polls every 200 ms for up to 5 s.
-# inputs: shell/plugins/vgs.keyhints/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.launcher/manifest.json shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Core/KeyCapture.qml shell/Core/HyprlandState.qml shell/Core/HyprlandState.js shell/Core/PluginLogic.js shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/HyprlandLayer.js bin/lib/qml-library.js
+# inputs: shell/plugins/vgs.keyhints/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.launcher/manifest.json shell/plugins/vgs.voice/manifest.json shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Core/KeyCapture.qml shell/Core/HyprlandState.qml shell/Core/HyprlandState.js shell/Core/PluginLogic.js shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/HyprlandLayer.js bin/lib/qml-library.js
 set -euo pipefail
 
 kh_title="Key Hints"
@@ -50,8 +54,10 @@ for b in json.load(sys.stdin):
         seen.add(d[:-len(".release")] if d.endswith(".release") else d)
 print(json.dumps(sorted(seen)))'
 }
-# kh_same: `same` when the window's vgs. rows are hyprctl's vgs. binds and
-# hold this window's own and the Themes one, else both lists.
+# kh_same: `same` when the window's keyed vgs. rows are hyprctl's vgs. binds,
+# hold this window's own and the Themes one, and its keyless rows hold the
+# Voice tap; `tap-missing` and the keyless rows when only the Voice tap is
+# absent; else every list.
 kh_same() {
   local rows bound
   rows="$(ipc smoke itemValues window vgs.keyhints BindField pluginId,bind)" && bound="$(kh_bound)" || return 1
@@ -60,8 +66,16 @@ items, b = json.loads(sys.argv[1]), json.loads(sys.argv[2])
 rows = sorted("%s:%s" % (r["pluginId"], r["bind"]["shortcut"]) for r in items if r["pluginId"].startswith("vgs.") and r["bind"]["key"] is not None)
 keyless = sorted("%s:%s" % (r["pluginId"], r["bind"]["shortcut"]) for r in items if r["pluginId"].startswith("vgs.") and r["bind"]["key"] is None)
 required = {"vgs.keyhints:toggle", "vgs.themes:themes"}
-print("same" if rows == b and required <= set(rows) and "vgs.voice:tap" in keyless else "rows=%s binds=%s keyless=%s" % (json.dumps(rows), sys.argv[2], json.dumps(keyless)))' "$rows" "$bound"
+keyed = rows == b and required <= set(rows)
+if keyed and "vgs.voice:tap" in keyless:
+    print("same")
+elif keyed:
+    print("tap-missing keyless=%s" % json.dumps(keyless))
+else:
+    print("rows=%s binds=%s keyless=%s" % (json.dumps(rows), sys.argv[2], json.dumps(keyless)))' "$rows" "$bound"
 }
+# kh_verdict: the first word of kh_same.
+kh_verdict() { local got; got="$(kh_same)" || return 1; echo "${got%% *}"; }
 # kh_field ARG PROPERTY: one property of a drawn row's ShortcutField (the
 # probe's keyField, which reads the window's rows as it reads the Settings
 # page's), as JSON; settings_field PROPERTY: the Settings page's Themes row.
@@ -103,6 +117,9 @@ kh_lua
 expect "the nested instance reloads with the Key Hints harness bind without configuration errors" '[]' hypr_reload_errors
 kh_user_hint="\"Also used by your Hyprland config at ~/.config/hypr/hyprland.lua line $(grep -nF 'hl.bind("SUPER + CTRL + T"' "$home/.config/hypr/hyprland.lua" | cut -d: -f1).\""
 
+kh_voice_before="$(plugin_enabled vgs.voice)" || kh_voice_before=unread
+expect "enabling Voice, whose tap shortcut has no key, is allowed" ok ipc shell setPluginEnabled vgs.voice true
+expect_poll "the Voice service is built" True record_exists vgs.voice
 expect "enabling Key Hints is allowed" ok ipc shell setPluginEnabled vgs.keyhints true
 expect_poll "the Key Hints service is built" True record_exists vgs.keyhints
 kh_toggle || fail "typing SUPER+SLASH failed"
@@ -117,6 +134,16 @@ expect_poll "typing on a row's field filters the rows" '["vgs.themes:wallpapers"
 type_keys -M ctrl -k a -m ctrl -k BackSpace || fail "clearing the search field failed"
 expect_poll "a cleared search draws every row again" same kh_same
 
+expect "control: disabling Voice is allowed" ok ipc shell setPluginEnabled vgs.voice false
+expect_poll "control: with Voice disabled the keyed rows match hyprctl and no keyless Voice tap row is drawn" tap-missing kh_verdict
+case "$kh_voice_before" in
+  True)
+    expect "Voice is enabled again as the row found it" ok ipc shell setPluginEnabled vgs.voice true
+    expect_poll "the Voice service is built again" True record_exists vgs.voice
+    ;;
+  False) ;;
+  *) fail "Voice's enabled state before the row: got $kh_voice_before" ;;
+esac
 expect "the Themes row's text entry opens" typing ipc smoke invokeInstance window vgs.keyhints typeKeyField "$kh_themes"
 type_keys "super+slash" || fail "typing the Themes key failed"
 type_keys -k Return || fail "Return in the Themes row's text entry failed"
