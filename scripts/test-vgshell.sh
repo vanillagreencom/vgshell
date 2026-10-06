@@ -1247,7 +1247,7 @@ check "a busy remove leaves the package" test -f "$moss/theme.json"
 # The must-fail control: a copy of vgshell whose install verbs never take the
 # lock removes the package under the held lock.
 mutant="$tmp/tree-install-nolock"; cp -R -- "$tree" "$mutant"
-take='flock "${@:2}" -n -E 75 9 || rc=$?'
+take='flock "${@:2}" -E 75 9 || rc=$?'
 check "the install verbs take the theme lock once in bin/vgshell" test "$(grep -o -F -- "$take" "$repo/bin/vgshell" | wc -l)" == 1
 sed -i "s/$take/true/" "$mutant/bin/vgshell"
 check "the install lockless mutant differs from bin/vgshell" test "$(cmp -s "$repo/bin/vgshell" "$mutant/bin/vgshell"; echo $?)" == 1
