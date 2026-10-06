@@ -6,14 +6,12 @@
 # a service plus a bar widget that rows/plugins.sh enabled and placed, each
 # call is read back from the bar's build records, the user shell.json,
 # listPlugins and the service's build record. Pointer checks drag real
-# widgets, cancel outside and with Escape, prove a still click stays a
-# click, and prove a drag emits no click. Controls run a copy whose move
+# widgets, cancel outside the bar, prove a still click stays a click, and
+# prove a drag cancels the widget's own click. Controls run a copy whose move
 # ignores the index and a copy whose BarWidget cannot drag. The row restores
 # the user file byte for byte, so rows after it find the fixture placed as
 # before, and leaves Settings disabled.
-# The restart drops the notice layer that an earlier row left mapped.
-# leaves: layers
-# inputs: scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.tick/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/PluginLogic.js shell/Core/Plugins.qml shell/Core/Capabilities.qml shell/Core/Config.qml shell/Core/KeyCapture.qml shell/Hosts/BarHost.qml shell/shell.qml shell/Ui/BarWidget.qml scripts/smoke/pointer/click.c scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/rows/plugins.sh
+# inputs: config/shell.json scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.tick/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/PluginLogic.js shell/Core/Plugins.qml shell/Core/Capabilities.qml shell/Core/Config.qml shell/Hosts/BarHost.qml shell/shell.qml shell/Ui/BarWidget.qml scripts/smoke/pointer/click.c scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/rows/plugins.sh
 set -euo pipefail
 placement_file="$home/.config/vgshell/shell.json"
 placement_saved="$sandbox/shell-before-placement.json"
@@ -61,25 +59,11 @@ placement_right_click() {
   read -r x y < <(placement_point "$1") || return 1
   hover "$((x + 1))" "$y" && right_click "$x" "$y"
 }
-placement_drag_hold_escape() {
-  local id="$1" x y pid status=0 got submap
-  read -r x y < <(placement_point "$id") || return 1
-  ("${shell_env[@]}" "$sandbox/click" "$x" "$y" "$mon_w" "$mon_h" drag "$2" "$3" 3000 >/dev/null) &
-  pid=$!
-  for _ in $(seq 1 40); do
-    got="$(ipc smoke readInstance "$(bar_key)" "$id" frameDragging)" || got=false
-    submap="$(key_submap)" || submap=
-    [[ $got == true && $submap == vgs:passthrough ]] && break
-    sleep 0.05
-  done
-  [[ $got == true && $submap == vgs:passthrough ]] || { wait "$pid" || true; return 1; }
-  type_keys -k Escape || status=$?
-  wait "$pid" || status=$?
-  pointer_at="$2 $3"
-  return "$status"
-}
 placement_bar_below() {
   surface_box vgs:bar | py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); print("%d %d" % (x + w / 2, y + h + 20))'
+}
+placement_bar_below_left() {
+  surface_box vgs:bar | py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); print("%d %d" % (x + w / 6, y + h + 20))'
 }
 # placement_reads LABEL PLACED SECTIONS: the reads after a placement edit.
 placement_reads() {
@@ -128,20 +112,9 @@ placement_drag_widget acme.probe "$((tick_x + 40))" "$tick_y" || fail "dragging 
 expect_poll "a pointer drag reorders within center in the file" '{"left": [], "center": ["acme.tick", "acme.probe"], "right": []}' placement_order
 expect_poll "a pointer drag reorders within center on the bar" '["acme.tick", "acme.probe"]' placement_visual_order
 cp -- "$placement_file" "$sandbox/shell-before-outside-drop.json"
-read -r below_x below_y < <(placement_bar_below) || fail "the point below the bar is unreadable"
+read -r below_x below_y < <(placement_bar_below_left) || fail "the point below the left third of the bar is unreadable"
 placement_drag_widget acme.probe "$below_x" "$below_y" || fail "dragging the fixture below the bar failed"
-expect "a drag released below the bar leaves the user file as it was" unchanged placement_same_as "$sandbox/shell-before-outside-drop.json"
-# wtype's Escape reaches the pass-through submap's bind only with keysym
-# binds (docs/architecture/runtime-hyprland-capture.md).
-hypr_lua_save placement
-printf '%s\n' 'hl.config({ input = { resolve_binds_by_sym = true } })' >>"$home/.config/hypr/hyprland.lua"
-expect "the nested instance reloads with keysym binds" ok hypr reload config-only
-read -r tick_x tick_y < <(placement_point acme.tick) || fail "the tick widget point is unreadable before Escape"
-placement_drag_hold_escape acme.probe "$tick_x" "$tick_y" || fail "holding a drag and pressing Escape failed"
-expect "Escape during a drag leaves the user file as it was" unchanged placement_same_as "$sandbox/shell-before-outside-drop.json"
-expect_poll "Escape during a drag leaves the pass-through submap" default key_submap
-hypr_lua_restore placement || fail "placement puts the harness hyprland.lua back"
-expect "the nested instance reloads the harness hyprland.lua" ok hypr reload config-only
+expect_poll "a drag released below the left third of the bar leaves the user file as it was" unchanged placement_same_as "$sandbox/shell-before-outside-drop.json"
 tick_clicks_before="$(ipc smoke readInstance "$(bar_key)" acme.tick clicks)" || fail "the tick click count is unreadable"
 placement_click_widget acme.tick || fail "clicking acme.tick failed"
 expect_poll "a click without movement reaches acme.tick" "$((tick_clicks_before + 1))" ipc smoke readInstance "$(bar_key)" acme.tick clicks
@@ -201,7 +174,8 @@ expect_poll "the fixture is back in the right section after restart" '{"left": [
 cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
 expect_poll "the restored user file is ready for placement controls" '{"left": [], "center": ["acme.tick"], "right": ["acme.probe"]}' placement_order
 if copy_tree placement-move-control \
-  && edit_tree placement-move-control shell/Core/PluginLogic.js 'target.splice(at, 0, entry);' 'target.push(entry);'; then
+  && edit_tree placement-move-control shell/Core/PluginLogic.js 'target.splice(at, 0, entry);' 'target.push(entry);' \
+  && edit_tree placement-move-control shell/Core/Plugins.qml 'if (outside) return;' 'if (false) return;'; then
   stop_shell
   start_shell "$sandbox/tree-placement-move-control" "$sandbox/placement-move-control.log" || fail "the placement move control shell starts"
   expect "control: moving the fixture to center answers ok" ok ipc shell movePluginWidget acme.probe center 0
@@ -211,6 +185,11 @@ if copy_tree placement-move-control \
   else
     fail "control: withMoved ignoring the index did not read red: $control_order"
   fi
+  cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
+  expect_poll "control: the user file is restored before the outside-drop control" '{"left": [], "center": ["acme.tick"], "right": ["acme.probe"]}' placement_order
+  read -r below_x below_y < <(placement_bar_below_left) || fail "control: the point below the left third of the bar is unreadable"
+  placement_drag_widget acme.probe "$below_x" "$below_y" || fail "control: dragging the fixture below the left third failed"
+  expect_poll "control: without the outside-bar guard the file changes" changed placement_same_as "$placement_saved"
   stop_shell
   cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
   start_shell "$repo" "$sandbox/placement-move-control-restored.log" || fail "the shell starts again after the move control"
@@ -221,10 +200,11 @@ if copy_tree placement-drag-control \
   stop_shell
   cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
   start_shell "$sandbox/tree-placement-drag-control" "$sandbox/placement-drag-control.log" || fail "the placement drag control shell starts"
-  read -r tick_x tick_y < <(placement_point acme.tick) || fail "control: the tick widget point is unreadable"
-  placement_drag_widget acme.probe "$tick_x" "$tick_y" || fail "control: dragging the fixture into center failed"
-  sleep 0.3
-  expect "control: a BarWidget with no DragHandler writes nothing" unchanged placement_same_as "$placement_saved"
+  tick_presses_before="$(ipc smoke readInstance "$(bar_key)" acme.tick presses)" || fail "control: the tick press count is unreadable"
+  read -r below_x below_y < <(placement_bar_below) || fail "control: the point below the bar is unreadable"
+  placement_drag_widget acme.tick "$below_x" "$below_y" || fail "control: dragging acme.tick below the bar failed"
+  expect_poll "control: the pointer still reached acme.tick without frame drag" "$((tick_presses_before + 1))" ipc smoke readInstance "$(bar_key)" acme.tick presses
+  expect "control: a BarWidget without frame drag writes nothing" unchanged placement_same_as "$placement_saved"
   stop_shell
   cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
   start_shell "$repo" "$sandbox/placement-drag-control-restored.log" || fail "the shell starts again after the drag control"

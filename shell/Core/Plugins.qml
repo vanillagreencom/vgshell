@@ -77,15 +77,6 @@ Singleton {
             Qt.callLater(root.giveFirstPresence);
         }
     }
-    Connections {
-        target: Capabilities.keyCapture
-        function onEndedChanged() {
-            const ended = Capabilities.keyCapture.ended;
-            if (root.barDrag !== null && ended.item === root.barDrag.item && ended.reason !== "commit")
-                root.barDrag = null;
-        }
-    }
-
     // Place every widget that has no presence yet (PluginLogic.firstPresence)
     // in one user-file write: after a scan that changed the plugin set and
     // when the configuration turns ready, so a plugin shows in the bar when
@@ -246,7 +237,7 @@ Singleton {
             instance.frame = {
                 describe: () => root.frameFacts(id),
                 hide: () => root.setPlaced(id, false),
-                dragStart: point => root.dragStart(hostKey, id, locator, instance, point),
+                dragStart: point => root.dragStart(hostKey, id, locator, point),
                 dragMove: point => root.dragMove(hostKey, point),
                 dragEnd: point => root.dragEnd(hostKey, point)
             };
@@ -260,11 +251,8 @@ Singleton {
         return instance;
     }
 
-    function dragStart(hostKey, id, locator, item, point) {
-        const row = rowFor(hostKey, item);
-        const ctx = { onDispose: cleanup => row.lifetime.register(cleanup) };
-        barDrag = { hostKey: hostKey, id: id, item: item, from: Object.assign({ id: id }, locator), section: locator.section, before: null, index: 0, markerX: 0 };
-        Capabilities.keyCapture.begin(ctx, item);
+    function dragStart(hostKey, id, locator, point) {
+        barDrag = { hostKey: hostKey, id: id, from: Object.assign({ id: id }, locator), section: locator.section, before: null, index: 0, markerX: 0 };
         dragMove(hostKey, point);
     }
 
@@ -296,22 +284,16 @@ Singleton {
 
     function dragEnd(hostKey, point) {
         if (barDrag === null || barDrag.hostKey !== hostKey || !Logic.hasOwn(mounts, hostKey)) {
-            const current = barDrag;
             barDrag = null;
-            if (current !== null && current !== undefined) Capabilities.keyCapture.end(current.item, "commit");
             return;
         }
         const drag = barDrag;
         const bar = mounts[hostKey].row.instance;
         const outside = point.x < 0 || point.y < 0 || point.x >= bar.width || point.y >= bar.height;
         barDrag = null;
-        if (outside) {
-            Capabilities.keyCapture.end(drag.item, "commit");
-            return;
-        }
+        if (outside) return;
         const reply = moveWidget(drag.id, drag.section, drag.index, drag.from);
         if (reply !== "ok") console.warn("plugins: move " + drag.id + " " + reply);
-        Capabilities.keyCapture.end(drag.item, "commit");
     }
 
     // What the widget frame's Hide dialog says about plugin `id`, read when it

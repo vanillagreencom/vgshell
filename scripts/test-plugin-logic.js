@@ -618,7 +618,9 @@ function suite(ctx, check) {
     ];
     for (const [name, user, effective, from, section, index, want] of moveRows)
         check("withMoved: " + name, ctx.withMoved(user, manifests["acme.both"], from, section, index, effective).bar.layout, want);
-    check("withMoved: settings travel with the entry", ctx.withMoved(moveUser, manifests["acme.both"], { section: "left", nth: 0 }, "right", 0, moveEffective).bar.layout.right[0], { id: "acme.both", label: "left", nested: ["l"] });
+    const duplicateMoveUser = { version: 1, bar: { id: "vgs.bar", layout: { left: [{ id: "acme.both", label: "first" }, { id: "vgs.workspaces" }, { id: "acme.both", label: "second", nested: ["two"] }], center: [], right: [] } } };
+    check("withMoved: from nth 1 moves the second copy with its settings", ctx.withMoved(duplicateMoveUser, manifests["acme.both"], { section: "left", nth: 1 }, "right", 0, ctx.effectiveConfig(shipped, duplicateMoveUser)).bar.layout,
+        { left: [{ id: "acme.both", label: "first" }, { id: "vgs.workspaces" }], center: [], right: [{ id: "acme.both", label: "second", nested: ["two"] }] });
     check("withMoved: seeds the user bar from the effective bar", ctx.withMoved(null, manifests["vgs.clock"], null, "right", 0, shipped).bar.layout.right, [{ id: "vgs.clock" }]);
     check("withMoved does not alias the user file", (() => { const u = ctx.clone(moveUser); const out = ctx.withMoved(u, manifests["acme.both"], { section: "left", nth: 0 }, "right", 0, moveEffective); out.bar.layout.right[0].nested.push("r"); return u.bar.layout.left[1].nested; })(), ["l"]);
     check("withMoved: moving to the same slot keeps the layout", ctx.withMoved(moveUser, manifests["acme.both"], { section: "left", nth: 0 }, "left", 1, moveEffective).bar.layout, moveUser.bar.layout);
@@ -642,6 +644,7 @@ function suite(ctx, check) {
     const indexConfig = { bar: { layout: { left: [{ id: "a.one" }, { id: "a.two" }, { id: "a.one" }], center: [{ id: "a.three" }], right: [] } } };
     check("barDropIndex: before maps to the index after removal", ctx.barDropIndex(indexConfig, "left", { id: "a.one", section: "left", nth: 1 }, { section: "left", nth: 0 }, "a.one"), 1);
     check("barDropIndex: before in another section keeps its index", ctx.barDropIndex(indexConfig, "left", { id: "a.two", section: "left", nth: 0 }, { section: "center", nth: 0 }, "a.three"), 1);
+    check("barDropIndex: before nth 1 selects the second matching locator", ctx.barDropIndex(indexConfig, "left", { id: "a.one", section: "left", nth: 1 }, { section: "center", nth: 0 }, "a.three"), 2);
     check("barDropIndex: a null before maps to the end after removal", ctx.barDropIndex(indexConfig, "left", null, { section: "left", nth: 0 }, "a.one"), 2);
 
     // firstPresence: an unnamed widget is placed; a plugin the user
@@ -1270,11 +1273,17 @@ const CONTROLS = [
     ["a widget already as asked changes nothing", "if (placed === isPlaced(effective, manifest))\n        return out;", "if (false)\n        return out;"],
     ["unplacing removes the entries", "return entry.id !== manifest.id; });", "return true; });"],
     ["unplacing lists a plugin with no row", "    seedUserBar(out, effective);\n    if (pluginRow(effective, manifest.id) === undefined) {", "    seedUserBar(out, effective);\n    if (false) {"],
+    ["moving refuses a plugin without a widget", "if (manifest.kinds.indexOf(\"bar-widget\") === -1)\n        return \"refused: moved=\" + manifest.id + \" reason=no-bar-widget\";", "if (false)\n        return \"refused: moved=\" + manifest.id + \" reason=no-bar-widget\";"],
+    ["moving refuses a disabled widget", "if (disabled.indexOf(manifest.id) !== -1)\n        return \"refused: moved=\" + manifest.id + \" reason=disabled\";", "if (false)\n        return \"refused: moved=\" + manifest.id + \" reason=disabled\";"],
+    ["moving refuses an unplaced widget", "if (!isPlaced(config, manifest))\n        return \"refused: moved=\"", "if (false)\n        return \"refused: moved=\""],
+    ["moving refuses an unknown section", "if (SECTIONS.indexOf(section) === -1)\n        return \"refused: section=\" + JSON.stringify(section) + \" want=left|center|right\";", "if (false)\n        return \"refused: section=\" + JSON.stringify(section) + \" want=left|center|right\";"],
+    ["moving refuses a bad index", "if (typeof index !== \"number\" || !Number.isInteger(index) || index < 0)\n        return \"refused: index=\" + JSON.stringify(index) + \" want=integer>=0\";", "if (false)\n        return \"refused: index=\" + JSON.stringify(index) + \" want=integer>=0\";"],
+    ["moving uses the locator nth", "if (seen === locator.nth) return { section: locator.section, index: i, nth: locator.nth, entry: entries[i] };", "if (seen === 0) return { section: locator.section, index: i, nth: locator.nth, entry: entries[i] };"],
     ["moving uses the requested index", "target.splice(at, 0, entry);", "target.push(entry);"],
     ["moving removes the source entry", "var entry = out.bar.layout[source.section].splice(source.index, 1)[0];", "var entry = clone(out.bar.layout[source.section][source.index]);"],
-    ["moving refuses an unplaced widget", "if (!isPlaced(config, manifest))\n        return \"refused: moved=\"", "if (false)\n        return \"refused: moved=\""],
     ["drop target uses the bar zone", "var section = x < width / 3 ? \"left\" : x < 2 * width / 3 ? \"center\" : \"right\";", "var section = \"left\";"],
     ["drop index removes the source before counting", "var removes = isPlainObject(from) && from.section === section && entry.id === movingId && from.nth === nth;", "var removes = false;"],
+    ["drop index matches locator nth", "return isPlainObject(locator) && locator.section === section && locator.id === id && locator.nth === nth;", "return isPlainObject(locator) && locator.section === section && locator.id === id;"],
     ["an unnamed widget takes its first presence", "return !isPlaced(effective, m) && pluginRow(effective, id) === undefined;", "return false;"],
     ["a widget with a plugins row keeps no presence", "return !isPlaced(effective, m) && pluginRow(effective, id) === undefined;", "return !isPlaced(effective, m);"],
     ["a placed widget takes no second presence", "return !isPlaced(effective, m) && pluginRow(effective, id) === undefined;", "return pluginRow(effective, id) === undefined;"],

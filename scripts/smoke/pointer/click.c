@@ -3,7 +3,7 @@
  * nested compositor's and never the live session's: the helper connects to
  * the socket it is given and to nothing else.
  *
- *   click X Y WIDTH HEIGHT [move | right | middle | drag X2 Y2 [HOLD_MS] | wheel STEPS | swipe LENGTH]
+ *   click X Y WIDTH HEIGHT [move | right | middle | drag X2 Y2 | wheel STEPS | swipe LENGTH]
  *
  * Moves the pointer to (X, Y) on a layout WIDTH by HEIGHT, presses and
  * releases the left button, and prints `clicked X Y`. With `move` it only
@@ -11,13 +11,12 @@
  * With `right` it clicks the right button, as a context menu wants, and
  * with `middle` the middle button, as a bar widget's mute wants; each
  * prints `clicked X Y`.
- * With `drag X2 Y2 [HOLD_MS]` it presses at (X, Y), moves to (X2, Y2) in
- * steps no more than DRAG_STEP_PX apart and DRAG_STEP_MS apart with the
- * button held, optionally holds there for HOLD_MS, releases there and
- * prints `dragged X Y X2 Y2`. The steps are paced as a hand moves a
- * mouse, one 60 Hz frame apart: sent back to back, a loaded client can
- * read the press, the moves and the release in one batch, and a Flickable
- * that takes the left button then reads no drag.
+ * With `drag X2 Y2` it presses at (X, Y), moves to (X2, Y2) in ten steps
+ * DRAG_STEP_MS apart with the button held, releases there and prints
+ * `dragged X Y X2 Y2`. The steps are paced as a hand moves a mouse, one
+ * 60 Hz frame apart: sent back to back, a loaded client can read the
+ * press, the moves and the release in one batch, and a Flickable that
+ * takes the left button then reads no drag.
  * With `wheel STEPS` it turns a vertical wheel STEPS notches at (X, Y),
  * positive down, as one discrete axis event of WHEEL_NOTCH per notch, and
  * prints `wheeled X Y STEPS`.
@@ -46,8 +45,6 @@
 /* The axis length of one wheel notch, libinput's 15 degrees. */
 #define WHEEL_NOTCH 15
 #define DRAG_STEP_MS 16
-#define DRAG_STEP_PX 4
-#define DRAG_MAX_STEPS 240
 #define SWIPE_STEPS 30
 #define SWIPE_STEP_MS 10
 
@@ -99,18 +96,18 @@ static int steps_of(const char *text, long limit, int *out) {
 static double swipe_share(double t) { return t < 0.5 ? 2 * t * t : 1 - 2 * (1 - t) * (1 - t); }
 
 int main(int argc, char **argv) {
-    uint32_t x, y, width, height, x2 = 0, y2 = 0, hold_ms = 0;
+    uint32_t x, y, width, height, x2 = 0, y2 = 0;
     int steps = 0;
     int move_only = argc == 6 && strcmp(argv[5], "move") == 0;
     int right = argc == 6 && strcmp(argv[5], "right") == 0;
     int middle = argc == 6 && strcmp(argv[5], "middle") == 0;
-    int drag = (argc == 8 || argc == 9) && strcmp(argv[5], "drag") == 0;
+    int drag = argc == 8 && strcmp(argv[5], "drag") == 0;
     int wheel = argc == 7 && strcmp(argv[5], "wheel") == 0;
     int swipe = argc == 7 && strcmp(argv[5], "swipe") == 0;
     uint32_t button = right ? BTN_RIGHT : middle ? BTN_MIDDLE : BTN_LEFT;
     if ((argc != 5 && !move_only && !right && !middle && !drag && !wheel && !swipe) || !number(argv[1], &x) || !number(argv[2], &y) || !number(argv[3], &width) || !number(argv[4], &height) || width == 0 || height == 0
-        || (drag && (!number(argv[6], &x2) || !number(argv[7], &y2) || (argc == 9 && !number(argv[8], &hold_ms)))) || (wheel && !steps_of(argv[6], 100, &steps)) || (swipe && !steps_of(argv[6], 2000, &steps))) {
-        fprintf(stderr, "click: refused: usage=X Y WIDTH HEIGHT [move | right | middle | drag X2 Y2 [HOLD_MS] | wheel STEPS | swipe LENGTH]\n");
+        || (drag && (!number(argv[6], &x2) || !number(argv[7], &y2))) || (wheel && !steps_of(argv[6], 100, &steps)) || (swipe && !steps_of(argv[6], 2000, &steps))) {
+        fprintf(stderr, "click: refused: usage=X Y WIDTH HEIGHT [move | right | middle | drag X2 Y2 | wheel STEPS | swipe LENGTH]\n");
         return 2;
     }
     struct wl_display *display = wl_display_connect(NULL);
@@ -154,22 +151,13 @@ int main(int argc, char **argv) {
         zwlr_virtual_pointer_v1_button(pointer, now_ms(), button, WL_POINTER_BUTTON_STATE_PRESSED);
         zwlr_virtual_pointer_v1_frame(pointer);
         wl_display_roundtrip(display);
-        long dx = labs((long)x2 - (long)x);
-        long dy = labs((long)y2 - (long)y);
-        long far = dx > dy ? dx : dy;
-        int drag_steps = (int)((far + DRAG_STEP_PX - 1) / DRAG_STEP_PX);
-        if (drag_steps < 10) drag_steps = 10;
-        if (drag_steps > DRAG_MAX_STEPS) drag_steps = DRAG_MAX_STEPS;
-        for (int step = 1; drag && step <= drag_steps; step++) {
-            uint32_t at_x = (uint32_t)((int64_t)x + ((int64_t)x2 - (int64_t)x) * step / drag_steps);
-            uint32_t at_y = (uint32_t)((int64_t)y + ((int64_t)y2 - (int64_t)y) * step / drag_steps);
+        for (int step = 1; drag && step <= 10; step++) {
+            uint32_t at_x = (uint32_t)((int64_t)x + ((int64_t)x2 - (int64_t)x) * step / 10);
+            uint32_t at_y = (uint32_t)((int64_t)y + ((int64_t)y2 - (int64_t)y) * step / 10);
             zwlr_virtual_pointer_v1_motion_absolute(pointer, now_ms(), at_x, at_y, width, height);
             zwlr_virtual_pointer_v1_frame(pointer);
             wl_display_roundtrip(display);
             nanosleep(&(struct timespec){ .tv_nsec = DRAG_STEP_MS * 1000000L }, NULL);
-        }
-        if (drag && hold_ms > 0) {
-            nanosleep(&(struct timespec){ .tv_sec = hold_ms / 1000, .tv_nsec = (hold_ms % 1000) * 1000000L }, NULL);
         }
         zwlr_virtual_pointer_v1_button(pointer, now_ms(), button, WL_POINTER_BUTTON_STATE_RELEASED);
         zwlr_virtual_pointer_v1_frame(pointer);

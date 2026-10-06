@@ -23,6 +23,8 @@ Hyprland v0.56.2 answers `ok` to a window move with no window and to a float tog
 - Do read the outputs again after `configreloaded`, and hold a nested mode in a file `hyprland.lua` runs; a reload applies monitor rules before it answers and drops a rule `hyprctl eval` added. `scripts/smoke/rows/monitor-outputs.sh` and `hidpi.sh` pin both.
 - Do apply the layer's option values inside `hl.on("config.reloaded")`, and write a Lua option key with underscores; a reload resets every option and `hl.device` setting before it reruns `hyprland.lua`. `scripts/test-hyprland-layer.js` and `scripts/smoke/rows/hyprland-options.sh` pin both.
 - Do map a pad window tiled into its own special workspace; a floating `size` or `move` rule applies once at map, while a tiled area is reapplied on every change ([D102](../decisions/D102-pads-tiled-in-their-special-workspace.md)). `scripts/test-hyprland-layer.js` pins the rule.
+- Never change a layer surface's keyboard interactivity during a held pointer press; Hyprland v0.56.2 ends the press, and Quickshell 0.3.1 applies a `WlrLayershell.keyboardFocus` change through `set_keyboard_interactivity` on the same surface (`src/wayland/wlr_layershell/surface.cpp`). `scripts/smoke/rows/placement.sh` drags bar widgets with the bar's focus unchanged.
+- Never expect a press on a layer surface to enter the key pass-through submap; its enter verb refuses unless the active window's class is `org.vgs.shell` (`keyPassthroughLines` in `shell/Core/HyprlandLayer.js`), and a press on the bar changes no active window.
 
 ## The canonical example
 
