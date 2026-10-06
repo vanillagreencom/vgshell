@@ -999,18 +999,18 @@ control_hovered() {
 # where it has placed the surface, which can trail the layout the probe
 # reads after the surface resizes, and a list that grows after it opens or
 # a card that slides in moves the control, so a box read once goes stale.
-# Every 100 ms, for up to 5 s, the helper reads the control's box again,
-# moves the pointer to its point, one pixel apart each time so each move
-# is a motion, and reads whether the control reports the pointer. It stops
-# after two such readings in a row at one box, so a reading taken before
-# the move reached the shell never decides it, and reads the box once more
-# before it returns: a box that moved starts the count again. Returns 1
-# when the control is absent at the first reading or never reports the
-# pointer; a control absent at a later reading is being laid out again,
-# and the count starts again. notifications.sh rests the pointer through
-# it on the cards whose hover pauses a clock or shows actions: the held
-# toast, the actionable toast, the hover geometry card and the restored
-# toast.
+# Every 100 ms, for up to smoke_poll_bound_ms, the helper reads the
+# control's box again, moves the pointer to its point, one pixel apart
+# each time so each move is a motion, and reads whether the control
+# reports the pointer. It stops after two such readings in a row at one
+# box, so a reading taken before the move reached the shell never decides
+# it, and reads the box once more before it returns: a box that moved
+# starts the count again. Returns 1 when the control is absent at the
+# first reading or never reports the pointer; a control absent at a later
+# reading is being laid out again, and the count starts again.
+# notifications.sh rests the pointer through it on the cards whose hover
+# pauses a clock or shows actions: the held toast, the actionable toast,
+# the hover geometry card and the restored toast.
 point_item() { # LOOKUP [DX DY]
   local n=4 lookup rect seen="" x="" y="" px hovered held=0 i
   [[ $1 == vgs:* ]] && n=5
@@ -1018,7 +1018,8 @@ point_item() { # LOOKUP [DX DY]
   if (( $# != n && $# != n + 2 )); then echo "point_item: refused: arguments=$# lookup=$n" >&2; return 1; fi
   lookup=("${@:1:n}")
   shift "$n"
-  for i in $(seq 1 50); do
+  smoke_poll_tries 100 1
+  for i in $(seq 1 "$smoke_poll_n"); do
     rect="$(control_box "${lookup[@]}")" || return 1
     if [[ $rect == absent ]]; then
       [[ $i -gt 1 ]] || return 1
@@ -1059,8 +1060,8 @@ click_item() { # LOOKUP [DX DY]
 # so a last line that already names SHAPE before the move proves nothing:
 # the helper fails then, and a row expects another shape between two
 # readings of one. The pointer moves every 100 ms, one pixel apart so each
-# move is a motion, for up to 5 s. expect_cursor LABEL SHAPE SURFACE
-# RECT_JSON does the same at the centre of RECT_JSON, a box in the
+# move is a motion, for up to smoke_poll_bound_ms. expect_cursor LABEL
+# SHAPE SURFACE RECT_JSON does the same at the centre of RECT_JSON, a box in the
 # coordinates of SURFACE's window, a surface_box name.
 cursor_shape() { hypr rollinglog | sed -n 's/.*cursorImage request: shape [0-9]* -> //p' | tail -n 1; }
 expect_cursor() { # LABEL SHAPE SURFACE RECT_JSON
@@ -1073,7 +1074,8 @@ expect_cursor_at() { # LABEL SHAPE X Y
   local label="$1" want="$2" x="$3" y="$4" got="" seen="" i
   got="$(cursor_shape)" || { fail "$label: the compositor's log is unreadable"; return; }
   if [[ $got == "$want" ]]; then fail "$label: the compositor already shows $want before the move; expect another shape first"; return; fi
-  for i in $(seq 1 50); do
+  smoke_poll_tries 100
+  for i in $(seq 1 "$smoke_poll_n"); do
     hover "$((x + i % 2))" "$y" || { fail "$label: moving the pointer failed"; return; }
     got="$(cursor_shape)" || { fail "$label: the compositor's log is unreadable"; return; }
     if [[ $got == "$want" ]]; then ok "$label"; return; fi
@@ -1678,21 +1680,23 @@ log_lines() {
   printf '%s\n' "$count"
 }
 # smoke_poll_bound_ms: how long expect_log, expect_poll, summon_drawn,
-# view_at_rest, read_bar_settled, expect_widgets and expect_builtins keep
-# reading before they fail. A read that matches returns at once, so the
-# bound decides nothing on a healthy run; it only ends a wait for a state
-# that never arrives, and it sits far past what a loaded host takes, so load
-# cannot fail a check. A control runs the row's own assertions in a subshell
-# and expects them to fail: there smoke_poll_tries uses
-# smoke_control_poll_bound_ms instead, so each expected failure ends after
-# the 5 s the harness has always given it rather than the long bound.
+# view_at_rest, read_bar_settled, expect_widgets, expect_builtins,
+# point_item and expect_cursor keep reading before they fail. A read that
+# matches returns at once, so the bound decides nothing on a healthy run;
+# it only ends a wait for a state that never arrives, and it sits far past
+# what a loaded host takes, so load cannot fail a check. A control runs
+# the row's own assertions in a subshell and expects them to fail: there
+# smoke_poll_tries uses smoke_control_poll_bound_ms instead, so each
+# expected failure ends after the 5 s the harness has always given it
+# rather than the long bound.
 smoke_poll_bound_ms=30000
 smoke_control_poll_bound_ms=5000
-# smoke_poll_tries STEP_MS: the reads a poll of STEP_MS steps makes before
-# its bound, in smoke_poll_n. Called directly, never in $(), so it sees the
-# caller's subshell depth.
-smoke_poll_tries() {
-  if (( BASH_SUBSHELL == 0 )); then smoke_poll_n=$((smoke_poll_bound_ms / $1)); else smoke_poll_n=$((smoke_control_poll_bound_ms / $1)); fi
+# smoke_poll_tries STEP_MS [CALLER_DEPTH]: the reads a poll of STEP_MS
+# steps makes before its bound, in smoke_poll_n. Called directly, never in
+# $(), so it sees the caller's subshell depth: deeper than CALLER_DEPTH (0,
+# or 1 for point_item, which every caller reads through $()) is a control.
+smoke_poll_tries() { # STEP_MS [CALLER_DEPTH]
+  if (( BASH_SUBSHELL <= ${2:-0} )); then smoke_poll_n=$((smoke_poll_bound_ms / $1)); else smoke_poll_n=$((smoke_control_poll_bound_ms / $1)); fi
 }
 # expect_log LABEL COUNT PATTERN: the log holds at least COUNT matching
 # lines within smoke_poll_bound_ms. A row that asserts something did not
