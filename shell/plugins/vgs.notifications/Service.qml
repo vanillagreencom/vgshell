@@ -777,16 +777,17 @@ Item {
         return true;
     }
 
-    // A chosen toast leaves as leave() says. A chosen panel row, dismissed
-    // or acted on, leaves the store, and the notification held for it
-    // closes on the server.
+    // A chosen toast on screen leaves as leave() says. A chosen panel row
+    // leaves the store; a toast already leaving, whose entry leave() put in
+    // the history, leaves it after an action. Either way the notification
+    // held for it closes on the server.
     function leaveChosen(key, reason) {
         const at = indexOf(key);
-        if (at !== -1) {
+        if (at !== -1 && rowModel.get(at).leaving === "") {
             leave(key, reason);
             return;
         }
-        store.dropHistory(key);
+        if (at === -1 || Logic.storedAfterLeave(reason) === "forget") store.dropHistory(key);
         if (Logic.hasOwn(held, key)) unlink(key, Logic.heldAfterLeave(reason, false));
         bumpPanel();
     }

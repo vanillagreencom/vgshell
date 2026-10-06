@@ -487,14 +487,19 @@ left_unstored "the toast clicked for its first action leaves no history entry" "
 # Dismiss pill, which raises nothing, must leave it there. The controls:
 # the inbox rows of a notification its sender closed and of one whose
 # toast was dismissed deliver nothing, and still raise. A dismissed toast
-# goes into the history; every row an action ran on leaves it. Where the
-# window is on the screen is the reveal row's (rows/compositor-reveal.sh).
+# goes into the history; every row an action ran on leaves it. A resident
+# notification, which the server keeps open after its action, closes on
+# the server once its toast or its inbox row is opened. Where the window
+# is on the screen is the reveal row's (rows/compositor-reveal.sh).
 sender_class=smoke.sender
 sender_focused="[\"$sender_class\", \"Sender window\"]"
 other_focused='["smoke.other", "Other window"]'
 # sender_note SUMMARY URGENCY: a notification in the sender's name with a
 # default action and a Reply, URGENCY a byte; prints its id.
 sender_note() { notify "$sender_class" 0 "$1" "" '["default", "Open", "reply", "Reply"]' "{\"desktop-entry\": <\"$sender_class\">, \"urgency\": <byte $2>}" 0; }
+# resident_note SUMMARY URGENCY: as sender_note, a resident notification
+# with a default action alone.
+resident_note() { notify "$sender_class" 0 "$1" "" '["default", "Open"]' "{\"desktop-entry\": <\"$sender_class\">, \"urgency\": <byte $2>, \"resident\": <true>}" 0; }
 # delivered ID ACTION: how many times ACTION reached notification ID.
 delivered() { grep -c "ActionInvoked (uint32 $1, '$2')" -- "$signals" || true; }
 activation_tokens() { grep -c "ActivationToken" -- "$signals" || true; }
@@ -593,6 +598,16 @@ if open_toplevel "$sandbox/toplevel-sender.log" "$sender_class" "Sender window" 
   expect_poll "the Open pill delivers the default action once" 1 delivered "$pill_id" default
   expect_poll "the Open pill raises the sender's window" "$sender_focused" active_window
   expect_poll "the toast opened by its pill leaves" none key_of "Opened from its pill"
+
+  focus_other
+  resident_id="$(resident_note "Resident toast" 1)"
+  expect_poll "the resident toast shows" True has_row live "Resident toast"
+  expect_poll "the resident toast is stored as on screen" True in_live "Resident toast"
+  open_card "the resident toast" "Resident toast"
+  expect_poll "a click on the resident toast delivers its default action once" 1 delivered "$resident_id" default
+  expect_poll "a click on the resident toast closes it on the server" 1 closed_on_server "$resident_id"
+  expect_poll "the opened resident toast leaves" none key_of "Resident toast"
+  left_unstored "the opened resident toast leaves no history entry" "Resident toast"
 
   dismissed_id="$(sender_note "Dismissed from its toast" 1)"
   expect_poll "the toast to dismiss shows" True has_row live "Dismissed from its toast"
@@ -703,6 +718,21 @@ if open_toplevel "$sandbox/toplevel-sender.log" "$sender_class" "Sender window" 
   expect_poll "the inbox row of a dismissed toast still raises the sender's window" "$sender_focused" active_window
   expect "that row delivers no action" 0 delivered "$dismissed_id" default
   expect_poll "the opened dismissed inbox row leaves the history" False in_history "Dismissed from its toast"
+
+  # A resident notification whose toast expired: the service still holds
+  # it for its inbox row, and opening that row closes it on the server.
+  focus_other
+  inbox_closed || fail "the inbox never closed before the resident inbox row"
+  resident_inbox_id="$(resident_note "Resident in the inbox" 0)"
+  expect_poll "the resident toast for the inbox shows" True has_row live "Resident in the inbox"
+  hover "$((mon_w - 5))" "$((mon_h - 5))" || fail "moving the pointer off the resident toast failed"
+  wait_for "the resident toast for the inbox expires" none 9 key_of "Resident in the inbox"
+  expect "the resident toast's expiry closes nothing on the server" 0 closed_on_server "$resident_inbox_id"
+  expect_poll "the expired resident toast is in the history" True in_history "Resident in the inbox"
+  open_card "the resident inbox row" "Resident in the inbox"
+  expect_poll "a click on the resident inbox row delivers its default action once" 1 delivered "$resident_inbox_id" default
+  expect_poll "a click on the resident inbox row closes it on the server" 1 closed_on_server "$resident_inbox_id"
+  expect_poll "the opened resident inbox row leaves the history" False in_history "Resident in the inbox"
 
   expect "the server sent the sender no activation token" 0 activation_tokens
   expect "the inbox closes after the open rows" ok notes close
