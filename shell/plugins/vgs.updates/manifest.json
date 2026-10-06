@@ -25,6 +25,12 @@
     "log": { "script": "tui/log.sh", "title": "Last update log", "size": "tall", "presentation": "plain" },
     "review": { "script": "tui/review.sh", "title": "Review third-party packages", "size": "tall" }
   },
+  "menu": {
+    "packages": { "label": "Packages", "icon": "package" },
+    "packages.install": { "label": "Install", "icon": "package", "tui": "core/pkg-install" },
+    "packages.update": { "label": "Update", "icon": "refresh-cw", "tui": "vgs.updates/update" },
+    "packages.remove": { "label": "Remove", "icon": "package", "aliases": ["uninstall"], "tui": "core/pkg-remove" }
+  },
   "settings": {
     "intervalHours": 6,
     "hideWhenCurrent": false,

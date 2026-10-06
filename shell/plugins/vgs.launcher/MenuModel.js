@@ -169,8 +169,9 @@ function normalizeItem(id, raw, order) {
 }
 
 // The enabled plugins' rows, shell.shortcut.menu's `{ id, label, icon,
-// aliases, description, shortcut }`, as entries mergeMenuSources reads: a
-// row with an empty `shortcut` is a category.
+// aliases, description, shortcut, tui, tuiGroup }`, as entries
+// mergeMenuSources reads: a row with an empty `shortcut`, `tui` and
+// `tuiGroup` is a category.
 function pluginEntries(rows) {
     return (rows || []).map(function (row) {
         var raw = { label: row.label, icon: row.icon, aliases: row.aliases.slice() };
@@ -179,6 +180,8 @@ function pluginEntries(rows) {
             raw.provider = "plugin";
             raw.shortcut = row.shortcut;
         } else if (row.shortcut !== "") raw.shortcut = row.shortcut;
+        if (row.tui !== undefined && row.tui !== "") raw.tui = row.tui;
+        if (row.tuiGroup !== undefined && row.tuiGroup !== "") raw.tuiGroup = row.tuiGroup;
         return { id: row.id, raw: raw };
     });
 }

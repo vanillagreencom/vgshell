@@ -3023,12 +3023,13 @@ function perScreenLayerTakesKeyboard(kind, screens, screen) {
 
 // What a manifest's `menu` key may hold: launcher rows keyed by a dotted id
 // whose dots name its parent, as in the launcher's menu files. A row with a
-// `shortcut` runs that registered shortcut of the plugin's own; one without
-// is a category. A provider row names a launcherRows status key whose items
-// fill the category and whose activations call the shortcut with an item id.
-// A `toggle` names a boolean setting of the plugin's schema and the label,
-// and optionally the icon, the row shows while it is true.
-var MENU_ROW_KEYS = ["label", "icon", "aliases", "description", "shortcut", "toggle", "provider"];
+// `shortcut` runs that registered shortcut of the plugin's own; a row with
+// `tui` or `tuiGroup` opens a listed TUI through the launcher; one without a
+// kind is a category. A provider row names a launcherRows status key whose
+// items fill the category and whose activations call the shortcut with an
+// item id. A `toggle` names a boolean setting of the plugin's schema and the
+// label, and optionally the icon, the row shows while it is true.
+var MENU_ROW_KEYS = ["label", "icon", "aliases", "description", "shortcut", "tui", "tuiGroup", "toggle", "provider"];
 var MENU_TOGGLE_KEYS = ["setting", "label", "icon"];
 var MENU_ID_PATTERN = /^[a-z0-9][a-z0-9-]*(\.[a-z0-9][a-z0-9-]*)*$/;
 var MENU_TEXT_MAX = 60;
@@ -3037,10 +3038,13 @@ var MENU_DESCRIPTION_MAX = 120;
 // The first defect of a manifest's `menu` key, or "": a non-empty object of
 // MENU_ID_PATTERN ids to rows of MENU_ROW_KEYS, each with a printable
 // `label` and a shipped `icon`, optional printable `aliases` and
-// `description`, an optional `shortcut` name, which needs capability
-// `shortcut`, and an optional `toggle` of MENU_TOGGLE_KEYS, which needs a
-// shortcut and names a boolean schema entry. A `provider` names a status key
-// of type `launcherRows`, needs a shortcut and refuses a toggle.
+// `description`, and at most one of `shortcut`, `tui` and `tuiGroup`.
+// `shortcut` names a plugin shortcut and needs capability `shortcut`; `tui`
+// names `core/<name>` or `<plugin id>/<name>` and needs no capability; and
+// `tuiGroup` names one printable launcher TUI group. A `toggle` of
+// MENU_TOGGLE_KEYS needs a shortcut and names a boolean schema entry. A
+// `provider` names a status key of type `launcherRows`, needs a shortcut and
+// refuses a toggle, `tui` and `tuiGroup`.
 function menuError(menu, capabilities, schema, status) {
     if (!isPlainObject(menu) || Object.keys(menu).length === 0)
         return "menu must be a non-empty object of row ids to rows";
@@ -3072,18 +3076,30 @@ function menuError(menu, capabilities, schema, status) {
             if (capabilities.indexOf("shortcut") === -1)
                 return at + ".shortcut needs capability shortcut";
         }
+        if (item.tui !== undefined && !tuiKeyValid(item.tui))
+            return at + ".tui is not a TUI key, core/<name> or <plugin id>/<name>";
+        if (item.tuiGroup !== undefined && !isPrintableLine(item.tuiGroup, MENU_TEXT_MAX))
+            return at + ".tuiGroup must be a printable line of 1 to " + MENU_TEXT_MAX + " characters";
         if (item.provider !== undefined) {
             if (typeof item.provider !== "string" || !STATUS_KEY_PATTERN.test(item.provider) || !hasOwn(status, item.provider) || status[item.provider].type !== "launcherRows")
                 return at + ".provider must name a launcherRows status entry, got " + JSON.stringify(item.provider);
+            if (item.tui !== undefined || item.tuiGroup !== undefined)
+                return at + ".provider must not declare tui or tuiGroup";
             if (item.shortcut === undefined)
                 return at + ".provider needs a shortcut";
             if (item.toggle !== undefined)
                 return at + ".provider must not declare toggle";
         }
-        if (item.toggle === undefined)
+        if (item.toggle === undefined) {
+            var kindKeys = ["shortcut", "tui", "tuiGroup"].filter(function (key) { return item[key] !== undefined; });
+            if (kindKeys.length > 1)
+                return at + " states " + kindKeys.join(" and ");
             continue;
+        }
         if (item.shortcut === undefined)
             return at + ".toggle needs a shortcut";
+        if (item.tui !== undefined || item.tuiGroup !== undefined)
+            return at + ".toggle must not declare tui or tuiGroup";
         var toggle = item.toggle;
         if (!isPlainObject(toggle))
             return at + ".toggle must be an object";
@@ -3108,12 +3124,13 @@ function menuError(menu, capabilities, schema, status) {
 // top-level id: each top-level id where its first row is listed, and under
 // it the rows of the plugin that declares that id first, so a plugin's row
 // in another plugin's category follows that plugin's own. Each row is
-// { id, plugin, label, icon, aliases, description, shortcut }: `shortcut` the global
-// `<plugin id>:<name>` the row runs, "" for a category, and a toggle row's
-// label and icon those its setting, read from the plugin's `plugins` row
-// as its service reads it, makes true. A row id an earlier plugin listed
-// stays with that plugin; the later row is one of `conflicts`,
-// { id, plugin, heldBy }.
+// { id, plugin, label, icon, aliases, description, shortcut, provider, tui,
+// tuiGroup }: `shortcut` the global `<plugin id>:<name>` the row runs, ""
+// for a category or TUI row, `tui` and `tuiGroup` the launcher TUI row fields
+// or "", and a toggle row's label and icon those its setting, read from the
+// plugin's `plugins` row as its service reads it, makes true. A row id an
+// earlier plugin listed stays with that plugin; the later row is one of
+// `conflicts`, { id, plugin, heldBy }.
 function menuRows(manifests, enabledIds, config) {
     var rows = [];
     var conflicts = [];
@@ -3141,7 +3158,9 @@ function menuRows(manifests, enabledIds, config) {
                 aliases: (row.aliases || []).slice(),
                 description: row.description || "",
                 shortcut: row.shortcut === undefined ? "" : plugin + ":" + row.shortcut,
-                provider: row.provider === undefined ? "" : row.provider
+                provider: row.provider === undefined ? "" : row.provider,
+                tui: row.tui === undefined ? "" : row.tui,
+                tuiGroup: row.tuiGroup === undefined ? "" : row.tuiGroup
             });
         });
     });

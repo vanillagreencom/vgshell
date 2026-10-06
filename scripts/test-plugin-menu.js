@@ -48,9 +48,12 @@ function suite(ctx, check) {
     const manifestRows = [
         ["a category, a row and a toggle row", () => {}, null],
         ["a category alone needs no shortcut capability", m => { m.capabilities = []; m.menu = { style: { label: "Style", icon: "paintbrush" } }; }, null],
+        ["a tui row needs no shortcut capability", m => { m.capabilities = []; m.menu = { packages: { label: "Packages", icon: "package" }, "packages.install": { label: "Install", icon: "package", tui: "core/pkg-install" } }; }, null],
+        ["a tui group row needs no shortcut capability", m => { m.capabilities = []; m.menu = { packages: { label: "Packages", icon: "package" }, "packages.update": { label: "Update", icon: "refresh-cw", tuiGroup: "Update" } }; }, null],
         ["a provider names a launcherRows status key", m => { m.capabilities = ["shortcut", "status"]; m.status = { catalog: { type: "launcherRows", label: "Catalog" } }; m.menu = { tools: { label: "Tools", icon: "blocks", shortcut: "open", provider: "catalog" } }; }, null],
         ["a provider without a shortcut", m => { m.capabilities = ["shortcut", "status"]; m.status = { catalog: { type: "launcherRows", label: "Catalog" } }; m.menu = { tools: { label: "Tools", icon: "blocks", provider: "catalog" } }; }, "menu.tools.provider needs a shortcut"],
         ["a provider with a toggle", m => { m.capabilities = ["shortcut", "status"]; m.status = { catalog: { type: "launcherRows", label: "Catalog" } }; m.menu = { tools: { label: "Tools", icon: "blocks", shortcut: "open", provider: "catalog", toggle: { setting: "noGaps", label: "No gaps" } } }; }, "menu.tools.provider must not declare toggle"],
+        ["a provider with a tui", m => { m.capabilities = ["shortcut", "status"]; m.status = { catalog: { type: "launcherRows", label: "Catalog" } }; m.menu = { tools: { label: "Tools", icon: "blocks", shortcut: "open", provider: "catalog", tui: "core/pkg-install" } }; }, "menu.tools.provider must not declare tui or tuiGroup"],
         ["a provider naming text status", m => { m.capabilities = ["shortcut", "status"]; m.status = { catalog: { type: "text", label: "Catalog" } }; m.menu = { tools: { label: "Tools", icon: "blocks", shortcut: "open", provider: "catalog" } }; }, "menu.tools.provider must name a launcherRows status entry"],
         ["a provider naming an undeclared status", m => { m.capabilities = ["shortcut", "status"]; m.status = { other: { type: "launcherRows", label: "Other" } }; m.menu = { tools: { label: "Tools", icon: "blocks", shortcut: "open", provider: "catalog" } }; }, "menu.tools.provider must name a launcherRows status entry"],
         ["a toggle without its own icon", m => { delete m.menu["style.gaps"].toggle.icon; }, null],
@@ -71,7 +74,11 @@ function suite(ctx, check) {
         ["a description of 121 characters", m => { m.menu["style.open"].description = "x".repeat(121); }, "menu.style.open.description must be a printable line"],
         ["a shortcut that is no name", m => { m.menu["style.open"].shortcut = "acme.style:open"; }, "menu.style.open.shortcut must be a shortcut name, got \"acme.style:open\""],
         ["a shortcut without the capability", m => { m.capabilities = []; }, "menu.style.open.shortcut needs capability shortcut"],
+        ["a tui key without an owner", m => { m.menu["style.open"] = { label: "Open", icon: "palette", tui: "pkg-install" }; }, "menu.style.open.tui is not a TUI key"],
+        ["a tui group of two lines", m => { m.menu["style.open"] = { label: "Open", icon: "palette", tuiGroup: "Up\ndate" }; }, "menu.style.open.tuiGroup must be a printable line"],
+        ["a row with shortcut and tui", m => { m.menu["style.open"].tui = "core/pkg-install"; }, "menu.style.open states shortcut and tui"],
         ["a toggle without a shortcut", m => { delete m.menu["style.gaps"].shortcut; }, "menu.style.gaps.toggle needs a shortcut"],
+        ["a toggle with a tui", m => { m.menu["style.gaps"].tui = "core/pkg-install"; }, "menu.style.gaps.toggle must not declare tui or tuiGroup"],
         ["a toggle that is no object", m => { m.menu["style.gaps"].toggle = "noGaps"; }, "menu.style.gaps.toggle must be an object"],
         ["a toggle with an unknown key", m => { m.menu["style.gaps"].toggle.description = "x"; }, "menu.style.gaps.toggle has unknown key \"description\""],
         ["a toggle naming no setting", m => { m.menu["style.gaps"].toggle.setting = "nope"; }, "menu.style.gaps.toggle.setting must name a boolean schema entry, got \"nope\""],
@@ -112,10 +119,10 @@ function suite(ctx, check) {
     const labels = (config, enabled) => ctx.menuRows(manifests, enabled, config).rows.map(r => [r.id, r.label, r.icon]);
     check("menuRows: the category's own plugin first, then a row another plugin adds, each fully listed", ctx.menuRows(manifests, ["acme.style", "acme.bar"], {}), {
         rows: [
-            { id: "style", plugin: "acme.style", label: "Style", icon: "paintbrush", aliases: [], description: "", shortcut: "", provider: "" },
-            { id: "style.open", plugin: "acme.style", label: "Open", icon: "palette", aliases: ["themes"], description: "Open the browser", shortcut: "acme.style:open", provider: "" },
-            { id: "style.gaps", plugin: "acme.style", label: "No gaps", icon: "maximize", aliases: [], description: "", shortcut: "acme.style:gaps", provider: "" },
-            { id: "style.bar", plugin: "acme.bar", label: "Hide bar", icon: "panel-top-close", aliases: [], description: "", shortcut: "acme.bar:toggle", provider: "" }
+            { id: "style", plugin: "acme.style", label: "Style", icon: "paintbrush", aliases: [], description: "", shortcut: "", provider: "", tui: "", tuiGroup: "" },
+            { id: "style.open", plugin: "acme.style", label: "Open", icon: "palette", aliases: ["themes"], description: "Open the browser", shortcut: "acme.style:open", provider: "", tui: "", tuiGroup: "" },
+            { id: "style.gaps", plugin: "acme.style", label: "No gaps", icon: "maximize", aliases: [], description: "", shortcut: "acme.style:gaps", provider: "", tui: "", tuiGroup: "" },
+            { id: "style.bar", plugin: "acme.bar", label: "Hide bar", icon: "panel-top-close", aliases: [], description: "", shortcut: "acme.bar:toggle", provider: "", tui: "", tuiGroup: "" }
         ],
         conflicts: []
     });
@@ -140,7 +147,7 @@ function suite(ctx, check) {
     check("menuRows: an enabled id with no manifest lists nothing", labels({}, ["acme.gone"]), []);
     check("menuRows: a taken id stays with the first plugin by id", ctx.menuRows(manifests, ["zeta.style", "acme.style"], {}),
         {
-            rows: ctx.menuRows(manifests, ["acme.style"], {}).rows.concat([{ id: "style.zeta", plugin: "zeta.style", label: "Zeta", icon: "star", aliases: [], description: "", shortcut: "zeta.style:go", provider: "" }]),
+            rows: ctx.menuRows(manifests, ["acme.style"], {}).rows.concat([{ id: "style.zeta", plugin: "zeta.style", label: "Zeta", icon: "star", aliases: [], description: "", shortcut: "zeta.style:go", provider: "", tui: "", tuiGroup: "" }]),
             conflicts: [{ id: "style", plugin: "zeta.style", heldBy: "acme.style" }]
         });
 
@@ -158,8 +165,8 @@ function suite(ctx, check) {
         { id: "other", label: "Other", icon: "blocks" }
     ] };
     check("menuRows: provider rows carry their status keys", providerMenuRows, [
-        { id: "catalog", plugin: "acme.catalog", label: "Catalog", icon: "blocks", aliases: [], description: "", shortcut: "acme.catalog:open", provider: "rows" },
-        { id: "more", plugin: "acme.catalog", label: "More", icon: "blocks", aliases: [], description: "", shortcut: "acme.catalog:open", provider: "moreRows" }
+        { id: "catalog", plugin: "acme.catalog", label: "Catalog", icon: "blocks", aliases: [], description: "", shortcut: "acme.catalog:open", provider: "rows", tui: "", tuiGroup: "" },
+        { id: "more", plugin: "acme.catalog", label: "More", icon: "blocks", aliases: [], description: "", shortcut: "acme.catalog:open", provider: "moreRows", tui: "", tuiGroup: "" }
     ]);
     check("providerRows: a provider row expands published rows", ctx.providerRows(providerMenuRows, "catalog", providerValues), [
         { id: "catalog.tools", label: "Tools", icon: "blocks", description: "", aliases: [], menu: true, shortcut: "acme.catalog:open", item: "tools" },
@@ -167,6 +174,20 @@ function suite(ctx, check) {
     ]);
     check("providerRows: an unlisted provider is empty", ctx.providerRows(providerMenuRows, "missing", providerValues), []);
     check("providerRows: an unpublished provider is empty", ctx.providerRows(providerMenuRows, "catalog", {}), []);
+    const packagesManifest = ctx.validateManifest({
+        schemaVersion: 1, id: "acme.packages", name: "Packages", version: "1", author: "a", description: "d",
+        kinds: ["service"], entryPoints: { service: "S.qml" },
+        menu: {
+            packages: { label: "Packages", icon: "package" },
+            "packages.install": { label: "Install", icon: "package", tui: "core/pkg-install" },
+            "packages.update": { label: "Update", icon: "refresh-cw", tuiGroup: "Update" }
+        }
+    }, "/packages").manifest;
+    check("menuRows: tui rows carry their key and group", ctx.menuRows({ "acme.packages": packagesManifest }, ["acme.packages"], {}).rows, [
+        { id: "packages", plugin: "acme.packages", label: "Packages", icon: "package", aliases: [], description: "", shortcut: "", provider: "", tui: "", tuiGroup: "" },
+        { id: "packages.install", plugin: "acme.packages", label: "Install", icon: "package", aliases: [], description: "", shortcut: "", provider: "", tui: "core/pkg-install", tuiGroup: "" },
+        { id: "packages.update", plugin: "acme.packages", label: "Update", icon: "refresh-cw", aliases: [], description: "", shortcut: "", provider: "", tui: "", tuiGroup: "Update" }
+    ]);
 
     // menuActivation: a listed row's registered global runs; anything else
     // is refused by key.
@@ -199,16 +220,22 @@ const CONTROLS = [
     ["a row id is dotted", "if (!MENU_ID_PATTERN.test(id))", "if (false)"],
     ["a row is an object", "if (!isPlainObject(item))\n            return at + \" must be an object\";\n        var keys = Object.keys(item);\n        for (var k = 0; k < keys.length; k++) {\n            if (MENU_ROW_KEYS", "if (false)\n            return at + \" must be an object\";\n        var keys = Object.keys(row);\n        for (var k = 0; k < keys.length; k++) {\n            if (MENU_ROW_KEYS"],
     ["a row has only its keys", "if (MENU_ROW_KEYS.indexOf(keys[k]) === -1)", "if (false)"],
+    ["tui is a menu row key", "\"shortcut\", \"tui\", \"tuiGroup\", \"toggle\"", "\"shortcut\", \"toggle\""],
     ["a provider names launcher rows", "status[item.provider].type !== \"launcherRows\")", "false)"],
     ["a provider needs a shortcut", "if (item.shortcut === undefined)\n                return at + \".provider needs a shortcut\";", "if (false)\n                return at + \".provider needs a shortcut\";"],
     ["a provider refuses toggle", "if (item.toggle !== undefined)\n                return at + \".provider must not declare toggle\";", "if (false)\n                return at + \".provider must not declare toggle\";"],
+    ["a provider refuses tui rows", "if (item.tui !== undefined || item.tuiGroup !== undefined)\n                return at + \".provider must not declare tui or tuiGroup\";", "if (false)\n                return at + \".provider must not declare tui or tuiGroup\";"],
     ["a row label is printable", "if (!isPrintableLine(item.label, MENU_TEXT_MAX))", "if (false)"],
     ["a row icon is shipped", "if (typeof item.icon !== \"string\" || !hasOwn(Lucide.ICONS, item.icon))", "if (false)"],
     ["aliases are printable", "if (item.aliases !== undefined && (!Array.isArray(item.aliases) || !item.aliases.every(", "if (false && (!Array.isArray(item.aliases) || !item.aliases.every("],
     ["a description is printable", "if (item.description !== undefined && !isPrintableLine(item.description, MENU_DESCRIPTION_MAX))", "if (false)"],
     ["a shortcut is a name", "if (typeof item.shortcut !== \"string\" || !NAME_PATTERN.test(item.shortcut))", "if (false)"],
     ["a shortcut needs the capability", "if (capabilities.indexOf(\"shortcut\") === -1)\n                return at + \".shortcut", "if (false)\n                return at + \".shortcut"],
+    ["a tui key is valid", "if (item.tui !== undefined && !tuiKeyValid(item.tui))", "if (false)"],
+    ["a tui group is printable", "if (item.tuiGroup !== undefined && !isPrintableLine(item.tuiGroup, MENU_TEXT_MAX))", "if (false)"],
+    ["one row kind is stated", "if (kindKeys.length > 1)", "if (false)"],
     ["a toggle needs a shortcut", "if (item.shortcut === undefined)\n            return at + \".toggle needs a shortcut\";", "if (false)\n            return at + \".toggle needs a shortcut\";"],
+    ["a toggle refuses tui rows", "if (item.tui !== undefined || item.tuiGroup !== undefined)\n            return at + \".toggle must not declare tui or tuiGroup\";", "if (false)\n            return at + \".toggle must not declare tui or tuiGroup\";"],
     ["a toggle is an object", "if (!isPlainObject(toggle))", "if (false)"],
     ["a toggle has only its keys", "if (MENU_TOGGLE_KEYS.indexOf(toggleKeys[t]) === -1)", "if (false)"],
     ["a toggle names a schema entry", "|| !hasOwn(schema, toggle.setting) || schema[toggle.setting].type", "|| !hasOwn(schema, toggle.setting) || false && schema[toggle.setting].type"],
@@ -222,6 +249,7 @@ const CONTROLS = [
     ["a toggle shows its icon", "icon: on && row.toggle.icon !== undefined ? row.toggle.icon : row.icon,", "icon: on ? row.toggle.icon : row.icon,"],
     ["a row names its plugin's global", "shortcut: row.shortcut === undefined ? \"\" : plugin + \":\" + row.shortcut", "shortcut: row.shortcut === undefined ? \"\" : row.shortcut"],
     ["menuRows carries provider", "provider: row.provider === undefined ? \"\" : row.provider", "provider: \"\""],
+    ["menuRows carries tui rows", "tui: row.tui === undefined ? \"\" : row.tui,\n                tuiGroup: row.tuiGroup === undefined ? \"\" : row.tuiGroup", "tui: \"\",\n                tuiGroup: \"\""],
     ["provider rows need published values", "if (parent === null || !isPlainObject(values) || !Array.isArray(values[parent.provider])) return [];", "if (parent === null) return [];"],
     ["provider item keeps id", "item: item.id", "item: row.id"],
     ["provider activation rejects menus", "published.id === item && published.menu !== true", "published.id === item"],

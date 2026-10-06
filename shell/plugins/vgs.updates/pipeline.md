@@ -2,7 +2,7 @@
 
 The plugin declares two floating TUIs that update.
 
-- `update` runs `tui/update.sh`: every source in one run. Its launcher entry is in the `Update` group, so the launcher's Update row opens it.
+- `update` runs `tui/update.sh`: every source in one run. The plugin's Packages category in the launcher opens it.
 - `update-source` runs `tui/update-source.sh <source>`: one source. `<source>` is a status row's `source`: the primary package manager's id, `aur`, `flatpak`, `mise`, `vgs`, `plugins` or `themes`. It is not listed, because it needs its argument: `shell.tui.run("update-source", [source])` opens it.
 
 Both take `-y`, which skips the start question only. They share `tui/pipeline.sh`, whose header is the full contract. A run takes these steps in this order:

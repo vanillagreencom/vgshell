@@ -17,6 +17,8 @@ const { load } = require("../bin/lib/qml-library.js");
 const dir = path.join(__dirname, "..", "shell", "plugins", "vgs.launcher");
 const file = path.join(dir, "MenuModel.js");
 const shippedMenu = fs.readFileSync(path.join(dir, "menu.json"), "utf8");
+const pluginLogic = load(path.join(__dirname, "..", "shell", "Core", "PluginLogic.js"));
+const updatesManifest = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "shell", "plugins", "vgs.updates", "manifest.json"), "utf8"));
 const RUNTIME = "/run/user/1000";
 const menuText = items => JSON.stringify({ schemaVersion: 1, items: items });
 // The model runs in its own context, whose arrays and objects are not this
@@ -72,6 +74,11 @@ const THEME = { id: "style.theme", plugin: "vgs.themes", label: "Theme", icon: "
 const BAR = { id: "style.bar", plugin: "vgs.bar", label: "Hide top bar", icon: "panel-top-close", aliases: [], description: "Give the bar's space to windows", shortcut: "vgs.bar:toggle" };
 const TAKEN = { id: "system", plugin: "acme.taken", label: "Mine", icon: "star", aliases: [], description: "", shortcut: "acme.taken:go" };
 const CATALOG = { id: "tools.catalog", plugin: "acme.catalog", label: "Catalog", icon: "blocks", aliases: ["catalog"], description: "Dynamic tools", shortcut: "acme.catalog:open", provider: "rows" };
+const PACKAGES = { id: "packages", plugin: "acme.packages", label: "Packages", icon: "package", aliases: [], description: "", shortcut: "", provider: "", tui: "", tuiGroup: "" };
+const PACKAGE_INSTALL = { id: "packages.install", plugin: "acme.packages", label: "Install", icon: "package", aliases: [], description: "", shortcut: "", provider: "", tui: "core/pkg-install", tuiGroup: "" };
+const PACKAGE_UPDATE_GROUP = { id: "packages.update", plugin: "acme.packages", label: "Update", icon: "refresh-cw", aliases: [], description: "", shortcut: "", provider: "", tui: "", tuiGroup: "Update" };
+const PACKAGE_REMOVE = { id: "packages.remove", plugin: "acme.packages", label: "Remove", icon: "package", aliases: ["uninstall"], description: "", shortcut: "", provider: "", tui: "core/pkg-remove", tuiGroup: "" };
+const VGS_UPDATE = { key: "vgs.updates/update", plugin: "vgs.updates", name: "update", title: "Update everything", label: "Update everything", icon: "refresh-cw", group: "Update" };
 
 // Payloads the judge refuses: [label, text, the start of the error].
 const PAYLOAD_REFUSED = [
@@ -116,8 +123,7 @@ function verify(model, menu = shippedMenu) {
     same(alone.items["tools.screenshot"].run, ["vgshell", "ipc", "call", "vgs.capture", "invoke", "screenshot-area", "{}"], "Screenshot asks the capture service");
     assert.equal(alone.items["system.reboot"].kind, "action");
     assert.equal(alone.items["system.reboot"].parent, "system");
-    same(["install", "remove", "update"].map(id => [alone.items[id].kind, alone.items[id].tui, alone.items[id].tuiGroup]),
-        [["tui", "core/pkg-install", ""], ["tui", "core/pkg-remove", ""], ["tui", "", "Update"]]);
+    same(["install", "remove", "update", "packages"].map(id => Object.hasOwn(alone.items, id)), [false, false, false, false], "package rows are not in the shipped menu");
     // Lock asks the shell's own lock through `vgshell lock`: loginctl only
     // asks a logind listener the shell does not provide. Without vgshell on
     // PATH the row says so.
@@ -144,35 +150,38 @@ function verify(model, menu = shippedMenu) {
     assert.equal(both.ok, false);
     assert.equal(both.error, "items.system.reboot states run and target");
     assert.equal(model.mergeMenuSources([], model.parseMenu(menuText({ x: { parent: "" } })).entries).items.x.parent, "");
-    const tuiRun = model.mergeMenuSources(shipped.entries, model.parseMenu(menuText({ install: { run: ["true"] } })).entries);
-    assert.equal(tuiRun.error, "items.install states run and tui");
-    const keyAndGroup = model.mergeMenuSources(shipped.entries, model.parseMenu(menuText({ update: { tui: "core/pkg-install" } })).entries);
-    assert.equal(keyAndGroup.error, "items.update states tui and tuiGroup");
-    const otherKey = model.mergeMenuSources(shipped.entries, model.parseMenu(menuText({ install: { tui: "acme.tui/hello" } })).entries);
-    assert.equal(otherKey.ok, true, "a user row may point a shipped tui row at another key");
-    assert.equal(otherKey.items.install.tui, "acme.tui/hello");
+    const packageEntries = model.pluginEntries([PACKAGES, PACKAGE_INSTALL, PACKAGE_UPDATE_GROUP, PACKAGE_REMOVE]);
+    const tuiRun = model.mergeMenuSources(shipped.entries, model.parseMenu(menuText({ "packages.install": { run: ["true"], tui: "core/pkg-install" } })).entries, packageEntries);
+    assert.equal(tuiRun.error, "items.packages.install states run and tui");
+    const keyAndGroup = model.mergeMenuSources(shipped.entries, model.parseMenu(menuText({ "packages.update": { tui: "core/pkg-install", tuiGroup: "Update" } })).entries, packageEntries);
+    assert.equal(keyAndGroup.error, "items.packages.update states tui and tuiGroup");
+    const otherKey = model.mergeMenuSources(shipped.entries, model.parseMenu(menuText({ "packages.install": { tui: "acme.tui/hello" } })).entries, packageEntries);
+    assert.equal(otherKey.ok, true, "a user row may point a plugin tui row at another key");
+    assert.equal(otherKey.items["packages.install"].tui, "acme.tui/hello");
 
     // TUI rows: a key opens when listed, a group opens its first listed
     // entry in the list's order, and a row that resolves to nothing hides.
     const judgedTuis = model.parseMenu(menuText({ a: { tui: "core/pkg-install" }, b: { tui: "acme.tui/hello" }, c: { tuiGroup: "Update" } }));
     assert.equal(judgedTuis.ok, true, judgedTuis.error);
+    const packageMenu = model.mergeMenuSources(shipped.entries, [], packageEntries);
+    assert.equal(packageMenu.ok, true, packageMenu.error);
     const tuiKeys = (from, entries) => {
         const resolved = model.resolveTuiRows(from.items, from.itemOrder, entries);
-        return ["install", "remove", "update"].map(id => resolved[id].tuiKey);
+        return ["packages.install", "packages.remove", "packages.update"].map(id => resolved[id].tuiKey);
     };
-    same(tuiKeys(alone, CORE_ENTRIES), ["core/pkg-install", "core/pkg-remove", ""], "no Update entry leaves update unresolved");
-    same(tuiKeys(alone, CORE_ENTRIES.concat([UPDATES])), ["core/pkg-install", "core/pkg-remove", "acme.updates/pipeline"]);
-    same(tuiKeys(alone, [ZETA, UPDATES]), ["", "", "zeta.up/all"], "the first Update entry in the list wins");
-    same(tuiKeys(alone, [UPDATES, ZETA]), ["", "", "acme.updates/pipeline"], "the first Update entry in the list wins");
-    same(tuiKeys(alone, [Object.assign({}, UPDATES, { key: "core/pkg-install", group: "Packages" })]), ["core/pkg-install", "", ""], "a key row matches by key, never by group");
-    const enabled = model.resolveTuiRows(alone.items, alone.itemOrder, CORE_ENTRIES.concat([UPDATES]));
-    assert.equal(alone.items.update.tuiKey, "", "the map handed in is never written");
-    same(model.menuRows(enabled, alone.itemOrder, "root", []).filter(r => r.kind === "tui").map(r => r.label), ["Install", "Remove", "Update"]);
-    same(tuiKeys({ items: enabled, itemOrder: alone.itemOrder }, CORE_ENTRIES), ["core/pkg-install", "core/pkg-remove", ""], "a disabled plugin's entry leaving the list unresolves the row");
-    const disabled = model.resolveTuiRows(enabled, alone.itemOrder, CORE_ENTRIES);
-    same(model.menuRows(disabled, alone.itemOrder, "root", []).filter(r => r.kind === "tui").map(r => r.label), ["Install", "Remove"], "an unresolved row is hidden");
-    same(model.searchRows(disabled, alone.itemOrder, "root", "update", []).map(r => r.label), [], "an unresolved row is hidden from search");
-    same(model.menuRows(model.resolveTuiRows(alone.items, alone.itemOrder, []), alone.itemOrder, "root", []).filter(r => r.kind === "tui"), [], "an empty list hides every tui row");
+    same(tuiKeys(packageMenu, CORE_ENTRIES), ["core/pkg-install", "core/pkg-remove", ""], "no Update entry leaves update unresolved");
+    same(tuiKeys(packageMenu, CORE_ENTRIES.concat([UPDATES])), ["core/pkg-install", "core/pkg-remove", "acme.updates/pipeline"]);
+    same(tuiKeys(packageMenu, [ZETA, UPDATES]), ["", "", "zeta.up/all"], "the first Update entry in the list wins");
+    same(tuiKeys(packageMenu, [UPDATES, ZETA]), ["", "", "acme.updates/pipeline"], "the first Update entry in the list wins");
+    same(tuiKeys(packageMenu, [Object.assign({}, UPDATES, { key: "core/pkg-install", group: "Packages" })]), ["core/pkg-install", "", ""], "a key row matches by key, never by group");
+    const enabled = model.resolveTuiRows(packageMenu.items, packageMenu.itemOrder, CORE_ENTRIES.concat([UPDATES]));
+    assert.equal(packageMenu.items["packages.update"].tuiKey, "", "the map handed in is never written");
+    same(model.menuRows(enabled, packageMenu.itemOrder, "packages", []).filter(r => r.kind === "tui").map(r => r.label), ["Install", "Update", "Remove"]);
+    same(tuiKeys({ items: enabled, itemOrder: packageMenu.itemOrder }, CORE_ENTRIES), ["core/pkg-install", "core/pkg-remove", ""], "a disabled plugin's entry leaving the list unresolves the row");
+    const disabled = model.resolveTuiRows(enabled, packageMenu.itemOrder, CORE_ENTRIES);
+    same(model.menuRows(disabled, packageMenu.itemOrder, "packages", []).filter(r => r.kind === "tui").map(r => r.label), ["Install", "Remove"], "an unresolved row is hidden");
+    same(model.searchRows(disabled, packageMenu.itemOrder, "root", "update", []).map(r => r.label), [], "an unresolved row is hidden from search");
+    same(model.menuRows(model.resolveTuiRows(packageMenu.items, packageMenu.itemOrder, []), packageMenu.itemOrder, "packages", []).filter(r => r.kind === "tui"), [], "an empty list hides every tui row");
 
     // Plugin rows: a row with a shortcut runs it, one without is a
     // category; they merge after the shipped menu and before the user's,
@@ -185,6 +194,11 @@ function verify(model, menu = shippedMenu) {
     same(model.pluginEntries([CATALOG]), [
         { id: "tools.catalog", raw: { label: "Catalog", icon: "blocks", aliases: ["catalog"], description: "Dynamic tools", provider: "plugin", shortcut: "acme.catalog:open" } }
     ], "a provider row becomes a plugin provider menu, not a shortcut row");
+    same(model.pluginEntries([PACKAGES, PACKAGE_INSTALL, PACKAGE_UPDATE_GROUP]), [
+        { id: "packages", raw: { label: "Packages", icon: "package", aliases: [] } },
+        { id: "packages.install", raw: { label: "Install", icon: "package", aliases: [], tui: "core/pkg-install" } },
+        { id: "packages.update", raw: { label: "Update", icon: "refresh-cw", aliases: [], tuiGroup: "Update" } }
+    ], "plugin tui rows become tui items");
     const plugged = model.mergeMenuSources(shipped.entries, [], model.pluginEntries([STYLE, THEME, BAR, TAKEN]));
     assert.equal(plugged.ok, true, plugged.error);
     same(plugged.refused, ["system"], "a plugin row with a shipped id is refused");
@@ -196,6 +210,18 @@ function verify(model, menu = shippedMenu) {
     same(model.menuRows(plugged.items, plugged.itemOrder, "style", []).map(r => [r.kind, r.label, r.detail]),
         [["shortcut", "Theme", ""], ["shortcut", "Hide top bar", "Give the bar's space to windows"]]);
     same(model.searchRows(plugged.items, plugged.itemOrder, "root", "top bar", []).map(r => [r.kind, r.label]), [["shortcut", "Hide top bar"]], "a search finds a plugin row");
+    const realUpdates = pluginLogic.validateManifest(updatesManifest, path.join(__dirname, "..", "shell", "plugins", "vgs.updates"));
+    assert.equal(realUpdates.ok, true, realUpdates.error);
+    const realUpdatesRows = pluginLogic.menuRows({ "vgs.updates": realUpdates.manifest }, ["vgs.updates"], {}).rows;
+    const realPackages = model.mergeMenuSources(shipped.entries, [], model.pluginEntries(realUpdatesRows));
+    assert.equal(realPackages.ok, true, realPackages.error);
+    const realResolved = model.resolveTuiRows(realPackages.items, realPackages.itemOrder, CORE_ENTRIES.concat([VGS_UPDATE]));
+    same(model.menuRows(realResolved, realPackages.itemOrder, "root", []).map(r => [r.kind, r.label]), [["menu", "Apps"], ["menu", "System"], ["menu", "Tools"], ["menu", "Packages"]], "vgs.updates adds the Packages category");
+    same(model.menuRows(realResolved, realPackages.itemOrder, "packages", []).map(r => [r.kind, r.label]), [["tui", "Install"], ["tui", "Update"], ["tui", "Remove"]], "vgs.updates owns the package rows");
+    same(["packages.install", "packages.update", "packages.remove"].map(id => realResolved[id].tuiKey), ["core/pkg-install", "vgs.updates/update", "core/pkg-remove"], "package rows open their declared TUIs");
+    const noUpdatesRows = pluginLogic.menuRows({ "vgs.updates": realUpdates.manifest }, [], {}).rows;
+    const noUpdatesPackages = model.mergeMenuSources(shipped.entries, [], model.pluginEntries(noUpdatesRows));
+    assert.equal(Object.hasOwn(noUpdatesPackages.items, "packages"), false, "disabled vgs.updates adds no Packages category");
     const providerPlugged = model.mergeMenuSources(shipped.entries, [], model.pluginEntries([CATALOG]));
     assert.equal(providerPlugged.items["tools.catalog"].kind, "menu", "a provider row is a menu");
     assert.equal(providerPlugged.items["tools.catalog"].provider, "plugin");
@@ -229,13 +255,13 @@ function verify(model, menu = shippedMenu) {
     assert.equal(twoOnPlugin.error, "items.style.theme states run and target");
     // The launcher's merge: a refused user file leaves its rows out and names
     // why; an accepted one carries no error, so its notice goes.
-    const refusedMerge = model.mergeMenu(shipped.entries, model.parseMenu(menuText({ "install": { run: ["true"] }, "tools.mine": { label: "Mine", run: ["true"] } })).entries, model.pluginEntries([STYLE, THEME]));
-    same([refusedMerge.ok, refusedMerge.error, "tools.mine" in refusedMerge.items, refusedMerge.items["style.theme"].kind], [true, "items.install states run and tui", false, "shortcut"]);
+    const refusedMerge = model.mergeMenu(shipped.entries, model.parseMenu(menuText({ "packages.install": { run: ["true"], tui: "core/pkg-install" }, "tools.mine": { label: "Mine", run: ["true"] } })).entries, model.pluginEntries([STYLE, THEME]).concat(packageEntries));
+    same([refusedMerge.ok, refusedMerge.error, "tools.mine" in refusedMerge.items, refusedMerge.items["style.theme"].kind], [true, "items.packages.install states run and tui", false, "shortcut"]);
     const acceptedMerge = model.mergeMenu(shipped.entries, model.parseMenu(menuText({ "tools.mine": { label: "Mine", run: ["true"] } })).entries, model.pluginEntries([STYLE, THEME]));
     same([acceptedMerge.error, acceptedMerge.items["tools.mine"].kind], ["", "action"]);
     same(model.menuNotices({}, ""), [], "no refusal shows no notice");
-    same(model.menuNotices({}, "items.install states run and tui"), [{ source: "user", error: "items.install states run and tui" }], "a merge refusal shows under the user's file");
-    same(model.menuNotices({ user: "not-json: x" }, "items.install states run and tui"), [{ source: "user", error: "not-json: x" }], "a read refusal of the user's file stands for it");
+    same(model.menuNotices({}, "items.packages.install states run and tui"), [{ source: "user", error: "items.packages.install states run and tui" }], "a merge refusal shows under the user's file");
+    same(model.menuNotices({ user: "not-json: x" }, "items.packages.install states run and tui"), [{ source: "user", error: "not-json: x" }], "a read refusal of the user's file stands for it");
     same(model.menuNotices({ user: "not-json: x", shipped: "not-object" }, ""), [{ source: "shipped", error: "not-object" }, { source: "user", error: "not-json: x" }], "the shipped file's refusal shows first");
     // Routes: an action row or a plugin's row, by id or alias, runs without
     // opening; a menu opens; an unknown route opens the root.
@@ -320,7 +346,7 @@ function verify(model, menu = shippedMenu) {
     const reboot = model.searchRows(again.items, again.itemOrder, "root", "reb", []);
     same(reboot.map(r => [r.label, r.detail, r.section]), [["Reboot", "Power", ""]]);
     const re = model.searchRows(again.items, again.itemOrder, "root", "re", []);
-    same(re.map(r => [r.label, r.section]), [["Remove", ""], ["Reboot", "drilldown"], ["Screenshot", "drilldown"]]);
+    same(re.map(r => [r.label, r.section]), [["Reboot", ""], ["Screenshot", ""]]);
     same(model.searchRows(again.items, again.itemOrder, "system", "lock", []).map(r => r.label), ["Lock"]);
     assert.equal(model.matchesQuery(alone.items.system, "power"), true, "an alias matches");
     assert.equal(model.matchesQuery(again.items["tools.screenshot"], "region"), true, "a whole description word matches");
@@ -329,7 +355,7 @@ function verify(model, menu = shippedMenu) {
     // Menu rows: in file order, a menu with no visible row hidden, apps by
     // label, a missing command named.
     const roots = model.menuRows(again.items, again.itemOrder, "root", []);
-    same(roots.map(r => r.label), ["Apps", "Power", "Tools", "Install", "Remove"]);
+    same(roots.map(r => r.label), ["Apps", "Power", "Tools"]);
     const lacking = model.menuRows(again.items, again.itemOrder, "tools", ["grim"]);
     same(lacking.filter(r => r.kind === "unavailable").map(r => [r.label, r.detail]), [], "Capture owns missing-tool setup");
     assert.equal(lacking.find(r => r.label === "Screenshot").kind, "action");
@@ -416,12 +442,14 @@ const CONTROLS = [
     ["a category runs nothing", 'if (row.shortcut !== "") raw.shortcut = row.shortcut;', "raw.shortcut = row.shortcut;"],
     ["a provider row is a plugin menu", "if (row.provider !== undefined && row.provider !== \"\") {", "if (false) {"],
     ["a provider row keeps shortcut", "raw.provider = \"plugin\";\n            raw.shortcut = row.shortcut;", "raw.provider = \"plugin\";"],
+    ["a plugin row keeps tui", "if (row.tui !== undefined && row.tui !== \"\") raw.tui = row.tui;", "if (false) raw.tui = row.tui;"],
+    ["a plugin row keeps tuiGroup", "if (row.tuiGroup !== undefined && row.tuiGroup !== \"\") raw.tuiGroup = row.tuiGroup;", "if (false) raw.tuiGroup = row.tuiGroup;"],
     ["a plugin row takes no shipped id", "if (shippedIds.indexOf(entry.id) === -1) return true;", "return true;"],
     ["plugin rows merge before the user's", "var sources = [shipped || [], plugins, user || []];", "var sources = [shipped || [], user || [], plugins];"],
     ["a user kind replaces a plugin row's", "if (s === 2 && pluginIds.indexOf(entry.id) !== -1 && KIND_KEYS.some(", "if (false && KIND_KEYS.some("],
     ["only a plugin row's kind is replaced", "if (s === 2 && pluginIds.indexOf(entry.id) !== -1 && KIND_KEYS.some(", "if (s === 2 && KIND_KEYS.some("],
     ["an accepted merge carries no error", 'if (merged.ok) return Object.assign(merged, { error: "" });', 'if (merged.ok) return Object.assign(merged, { error: "stale" });'],
-    ["a refused merge leaves the user's file out", "var fallback = mergeMenuSources(shipped, [], plugin);", "var fallback = mergeMenuSources(shipped, (user || []).filter(function (entry) { return entry.id !== \"install\"; }), plugin);"],
+    ["a refused merge leaves the user's file out", "var fallback = mergeMenuSources(shipped, [], plugin);", "var fallback = mergeMenuSources(shipped, (user || []).filter(function (entry) { return entry.id !== \"packages.install\"; }), plugin);"],
     ["a merge refusal shows a notice", 'if (mergeError !== "" && !hasOwn(refusals, "user")) out.push(', "if (false) out.push("],
     ["a read refusal stands for the user's file", 'if (mergeError !== "" && !hasOwn(refusals, "user")) out.push(', 'if (mergeError !== "") out.push('],
     ["a plugin row's route runs it", 'if (entry !== undefined && entry.kind === "shortcut") return', "if (false) return"],
