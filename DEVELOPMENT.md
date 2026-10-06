@@ -12,7 +12,7 @@ Read [docs/architecture/plugins.md](docs/architecture/plugins.md). An agent load
 
 ## README
 
-The README's plugin table is generated from each shipped plugin's `name` and `description` in `manifest.json`. After a plugin is added, removed or renamed, or its description changes, run `node scripts/check-readme.js --write-plugins`. `node scripts/check-readme.js` fails while the table differs: [docs/architecture/install-guide.md](docs/architecture/install-guide.md).
+The README's plugin table is generated from each shipped plugin's `name` and `description` in `manifest.json`. After a plugin is added, removed or renamed, or its description changes, run `node scripts/check-readme.js --write-plugins`. `node scripts/check-readme.js` fails while the table differs: [readme.md](docs/architecture/readme.md).
 
 ## Licence
 

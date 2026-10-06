@@ -5,7 +5,7 @@
 # hook. Each lock is read back from the compositor, a monitor naming LOCK
 # among the reasons it cannot go solitary in `hyprctl -j monitors`, and
 # from the core's lending record. The lock screen's geometry holds the
-# design standard on every screen (docs/architecture/design-quality.md):
+# design standard on every screen (docs/architecture/design-system.md):
 # each part inside its surface, the time and the date at least `stack.row`
 # apart, the field and the status line each at least `stack.group` below
 # the block above, the field at least `size.control.md` tall and centred;

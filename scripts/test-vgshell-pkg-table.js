@@ -359,7 +359,7 @@ const QUERY_ROWS = [
 ];
 
 // Answer rows: name, manager, query, what the query printed, the answer.
-// The formats come from the sources docs/architecture/packages.md § Queries
+// The formats come from the sources docs/architecture/packages.md
 // names.
 const ANSWER_ROWS = [
     ["pacman -Qoq prints the name", "pacman", "owner", "vgshell-git\n", "vgshell-git"],

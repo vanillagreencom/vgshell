@@ -1,38 +1,32 @@
-# One-time migrations
+# A migration changes a user's files once, and never asks
 
-Covers: bin/vgshell-migrate, bin/migrations/*, scripts/test-vgshell-migrate.sh, scripts/test-migration-slack-photos.sh
+Read before adding a one-time migration or touching `bin/vgshell-migrate`.
 
-A migration is a change VGS makes once to a user's own files when a new version needs it, such as turning on a setting the user relied on before it became opt-in. [D076](../decisions/D076-one-time-migrations.md) records the choice; Omarchy's `bin/omarchy-migrate` is the model.
+## The approach
 
-## Migrations
+A migration is a script under `bin/migrations/`, named `<unix time, 10 digits>-<slug>.sh`, run once per user in name order by `bin/vgshell-migrate`, from `vgshell run` before the shell starts and from `vgshell self update` before its restart. It reads the state, changes nothing when there is nothing to change, uses no network, asks no question, takes no privilege and edits nothing under `/etc`. A failure stops the run, shows a notice, and runs again next start; the shell starts whatever it answered. The choice is [D076](../decisions/D076-one-time-migrations.md).
 
-- One bash script per migration under `bin/migrations/`, named `<unix time, 10 digits>-<slug>.sh`, the slug lower-case letters, digits and single hyphens. The names sort in the order the migrations run, so a new migration takes the time it was written. A name outside the pattern refuses the whole run before any migration runs.
-- A migration runs once per user. It is idempotent: it reads the state it would change and changes nothing when there is nothing to change, so it is safe on a fresh profile and after a partial run.
-- A migration uses no network and asks for no privilege. It edits the user's own files, never `/etc`, and asks nothing: no prompt, no terminal. It writes a setting through `vgshell-plugin-judge seed-setting`, which keeps a symlinked file a link and leaves a key the user already set.
-- A migration that reads a credential store reads presence alone, never a secret, and unlocks nothing, as the plugin's own probe does ([secrets.md](secrets.md)).
+## Why
 
-## The runner
+`vgshell run` is the only path every install method reaches, so a package hook or a unit would miss installs. A broken migration must never leave the user without a bar. `setpriv --no-new-privs` keeps a program a migration starts from gaining a privilege, and the per-migration timeout sits below the time `vgshell restart` waits for the new shell.
 
-`bin/vgshell-migrate run [--notice]` runs each pending migration, one without a marker under `${XDG_STATE_HOME:-~/.local/state}/vgshell/migrations/`, in name order. `bin/vgshell-migrate`'s header states every line it prints and every refusal.
+## Rules
 
-- Each runs as `bash -euo pipefail` with stdin from `/dev/null`, `VGS_ROOT` the tree's root and `VGS_MIGRATION` its name, under `setpriv --no-new-privs`, so no setuid program it starts, such as `sudo`, gains a privilege, and under `timeout` 20 s, so a stuck migration holds the shell's start for 20 s at most, below the 30 s `vgshell restart` waits for the new shell.
-- A migration that exits 0 gets its marker, a file of its name holding the time it ran. One that fails or times out gets none and stops the run: no later migration runs, the run exits 1, and the next run tries it again first. With `--notice` a failure also shows a Hyprland warning notice for 10 minutes, which names no command ([D061](../decisions/D061-no-manual-commands.md)).
-- One run at a time: a run holds `flock` on the state directory's `.lock`, and a second run refuses at once with exit 75, leaving the migrations to the first.
+- Do name a migration by the pattern; a name outside it refuses the whole run. `scripts/test-vgshell-migrate.sh` pins it.
+- Do make it idempotent: read the state, change nothing when there is nothing to change. Review holds it.
+- Never use the network, ask for a privilege, prompt, or edit `/etc`; the runner gives no new privileges, no stdin and a bounded time. `scripts/test-vgshell-migrate.sh` pins each.
+- Do write a setting through `vgshell-plugin-judge seed-setting`, which keeps a symlink a link and leaves a key the user set.
+- Never read a secret from a credential store; read presence and unlock nothing. `scripts/test-migration-slack-photos.sh` pins it.
+- Do show a failure as a notice that names no command. `scripts/check-user-commands.py` refuses one ([D061](../decisions/D061-no-manual-commands.md)).
 
-## When migrations run
+## The canonical example
 
-- **`vgshell run`**, once it holds the instance lock and before it starts the shell, runs `vgshell-migrate run --notice` and starts the shell whatever it answers. Every install method reaches this: a package update restarts the shell through the updates pipeline, and a login starts `vgshell run` ([runtime.md § Process](runtime.md)).
-- **`vgshell self update`** runs the updated tree's `vgshell-migrate run` before it restarts the shell, for a checkout and a curl install ([distribution-methods.md](distribution-methods.md)). A failure prints its line and leaves the migration to the next `vgshell run`.
-- **`vgshell migrate`** runs them on the command line, and `vgshell migrate --pending` lists the pending names.
+`bin/migrations/1790801764-slack-photos-extra.sh`: a presence read, one seeded setting, nothing when nothing applies. Copy it.
 
-## The migrations
+## Revisit when
 
-| Migration | What it does |
-|---|---|
-| `1790801764-slack-photos-extra.sh` | Turns on the owner-only Slack photos extra ([D075](../decisions/D075-consumer-features-need-no-developer-setup.md)) for a user who had Slack photos: when the photo cache records an account it served, or libsecret holds an item of service `vgs-notifications`, and the user's `vgs.notifications` row does not name `slackPhotos`, it writes `"slackPhotos": true`. The keyring is asked with `secret-tool search` without `--unlock`, stdout discarded, as `token-status.sh` asks it. No `secret-tool`, a store that refuses the search and no cache record leave the extra off; a search that times out fails the migration, which runs again at the next start. |
+VGS ships a systemd user unit or a package hook that could run migrations earlier, or a migration needs a privilege or a question.
 
-## Invariants
+## Not governed
 
-1. Each migration runs once, in name order; a failed one stops the later ones, gets no marker and runs again; a run holds the lock alone; a migration runs with no new privileges, no stdin and a bounded time. Enforced by `scripts/test-vgshell-migrate.sh`, each rule with a control.
-2. `vgshell run` migrates before it starts the shell and starts it after a failure, with the notice; `vgshell self update` runs the updated tree's migrations. Enforced by `scripts/test-vgshell-migrate.sh` and `scripts/test-vgshell-self.sh`, each with a control.
-3. The Slack photos migration reads no token, unlocks nothing and keeps a user's own choice. Enforced by `scripts/test-migration-slack-photos.sh` with a stub `secret-tool`, each rule with a control.
+The runner's own lifetime, which is [runtime.md](runtime.md).

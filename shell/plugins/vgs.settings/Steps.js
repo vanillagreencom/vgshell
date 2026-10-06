@@ -5,7 +5,7 @@
 // the command behind Show command, shows only while its value offers it: a
 // `presence` while `absent` and a `state` while it carries `action: true`
 // or names one of its entry's actions, so a failing state its writer gives
-// no action shows neither (see docs/architecture/status-actions.md
+// no action shows neither (see docs/architecture/status.md
 // § Actions and secrets). The core decides when a step applies
 // (PluginLogic.statusActionOffered, SECRET_ACCESS, requirementRows); this
 // file decides what the page then draws, so a command never sits on a line

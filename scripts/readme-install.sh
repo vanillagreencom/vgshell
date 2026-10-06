@@ -4,7 +4,7 @@
 # Usage: scripts/readme-install.sh
 #
 # The release check of the README's install section, run by hand like
-# scripts/fedora-container.sh: docs/architecture/install-guide.md § The runner.
+# scripts/fedora-container.sh: docs/architecture/readme.md.
 # The commands come from `node scripts/check-readme.js --commands` alone, so
 # a README that check refuses is refused here first. Each command runs as
 # the README prints it, so it installs from GitHub, the AUR, COPR and the

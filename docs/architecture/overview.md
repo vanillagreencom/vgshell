@@ -1,55 +1,47 @@
-# VGS architecture
+# Everything outside the core is a plugin
 
-A Quickshell shell for Hyprland. A small fixed core owns the process, the compositor connection, the theme tokens, the surface hosts, the plugin loader and the plugin manager. Everything a user sees or a service does is a plugin, and every plugin carries the validation row that proves it is built, shown and handed what it asked for. The smoke measures the shell's startup and reconcile latency and its resident size against budgets; no row measures one plugin alone.
+Read before structural work: adding a surface, a service, a kind, a capability or a core module.
 
-## The one idea
+## The approach
 
-Everything outside the core is a plugin, [D003](../decisions/D003-everything-is-a-plugin.md). The plugin is the unit of change and the core is the foundation it stands on. The core changes rarely, fits in one agent's context, and names no plugin. A plugin is one directory with one manifest, declares every surface it can fill and every core capability it uses, and is shown on each surface whose host exists. Plugins do not depend on one another. A change that needs a new core capability lands the capability first, with its own validation row, then the plugin that uses it. The plugin manager is part of the core, because it must exist before any plugin does and must keep working when a plugin breaks.
+VGS is a Quickshell shell for Hyprland. The core is what has to exist before any plugin can run and keep running when one breaks: the runner and its instance lock, the Hyprland connection and its reply judge, the design tokens, the surface hosts, the plugin registry, the plugin manager's mechanism and IPC. Everything a user sees or a service does is a plugin: one directory with one `manifest.json`, one QML entry point per kind, shown on each surface whose host exists, handed one scoped `shell` object with exactly the capabilities its manifest names. Plugins declare no dependency on one another; a kind is one of the closed list the core owns; a widget a plugin draws inside its own surface is a built-in of that plugin, never a kind; a section of the System window is a `pane` mounted by the one `panes` holder. The core names no plugin; `config/shell.json` names the default bar. The choices are [D003](../decisions/D003-everything-is-a-plugin.md), [D005](../decisions/D005-kinds-are-surfaces-no-dependencies.md), [D010](../decisions/D010-facade-scope-not-sandbox.md) and [D088](../decisions/D088-system-panes.md).
+
+## Why
+
+A core that holds features lets a change to one surface break another and grows past what one agent holds in context. A small privileged core changes rarely, and a plugin change cannot reach another plugin, so the review scope of a change is the plugin. The boundary is a static import check plus the scoped object, not a process sandbox: a process per plugin would multiply the resident size before any plugin justified it, and the remaining risk is stated rather than pretended away.
 
 ## Vocabulary
 
-- Core: the runner, the instance lock, the Hyprland connection and its reply judge, the design system, the hosts, the plugin registry, the plugin manager and the IPC surface. `scripts/check-plugin-boundary.py` draws the line.
-- Plugin: a directory with `manifest.json` at its root, in the schema [plugins.md](plugins.md) states, plus one QML entry point per kind.
-- Kind: one of `bar-widget`, `bar`, `panel`, `overlay`, `menu`, `window`, `pane`, `service`, `background`. A kind is an entry point the core can host on a surface or inside a holder. Every kind has one core owner. The core owns the list; a new kind is a core change. A `window` is an application window, a Hyprland window; every other surface is a transient overlay: [surfaces.md](surfaces.md).
-- Host: a core-owned Wayland surface a plugin draws inside. A plugin creates no surface of its own; a popup an overlay component opens is a child of the host surface and dies with the instance that declared it.
-- Bar: the plugin of kind `bar` that is active. It declares three section containers the core mounts bar widgets into; it owns their geometry and its own built-in widgets.
-- Built-in widget: a widget a plugin draws itself inside its own surface, such as the shipped bar's clock. It is part of that plugin, not a plugin and not a kind. The plugin registers it through its `builtins` capability, and the build records list it under the plugin's host key as `<plugin id>/<name>` with origin `plugin` and the registering instance's kind. [D005](../decisions/D005-kinds-are-surfaces-no-dependencies.md) records the choice.
-- Bar widget: a plugin of kind `bar-widget`. It draws one item in a bar section.
-- Service: a plugin of kind `service`. No surface. It owns watchers, pollers and subprocesses.
-- Pane: a plugin of kind `pane`. It is an `Item` mounted inside the one enabled holder of the exclusive `panes` capability, so a section can draw inside one System window while keeping its own scoped `shell`.
-- Capability: a core API a plugin names in its manifest and receives on its scoped `shell` object at load. Its provider is made for one instance, and everything the instance registers through it is released when the instance is destroyed.
-- Status: runtime values a plugin declares in its manifest and publishes through capability `status`, held once per plugin for its instances and the Settings page.
-- Plugin manager: the core component that discovers, validates, enables and disables plugins, and installs, updates and removes them. Its user interface is the Settings plugin, `vgs.settings`, through the `manager` capability; its mechanism is core.
-- Requirement: an external command a plugin or the core runs, declared with its package per manager in a manifest's `requirements` or in `config/requirements.json`. It names a command, never a plugin; the scan probes it, the manager reports its state and the core's notice installs a missing one: [requirements.md](requirements.md), [requirement-notice.md](requirement-notice.md).
-- Token: one named value the shell draws with, typed and defaulted in `shell/Commons/Tokens.js`, read as `Theme.<group>.<token>`. A theme is a document that overrides tokens; the defaults are the `vgs` theme.
-- Component: one type of `qs.Ui` that draws from tokens alone, listed in `shell/Ui/qmldir`. A plugin composes components; it draws a value of its own only through a token, or through its own judged table when it owns its look ([appearance.md](appearance.md)).
-- Floating TUI: a core terminal window that runs one command as argv under the VGS presentation ([tui.md](tui.md)).
-- Budget: a ceiling a validation row asserts in the nested sandbox.
-- Validation row: an assertion under `scripts/smoke/rows/` that a plugin is built, shown and handed what it asked for, read back from the instance. A plugin without one does not merge.
+- Core: the runner, the lock, the Hyprland connection, the design system, the hosts, the registry, the manager and IPC. `scripts/check-plugin-boundary.py` draws the line.
+- Kind: `bar-widget`, `bar`, `panel`, `overlay`, `menu`, `window`, `pane`, `service` or `background`; `PluginLogic.KINDS` is the list. A `window` is a Hyprland window; every other surface is a transient overlay.
+- Host: a core-owned Wayland surface a plugin draws inside. A plugin creates no surface of its own.
+- Capability: a core API a plugin names in its manifest and receives on its `shell` object at load, made for one instance and released with it.
+- Requirement: an external command a plugin or the core runs, declared with its package per manager; it names a command, never a plugin.
+- Token: one named value the shell draws with, from `shell/Commons/Tokens.js`; a theme is a document that overrides tokens.
+- Validation row: an assertion under `scripts/smoke/rows/` that a plugin is built, shown and handed what it asked for, read back from the instance.
 
-## Boundaries
+## Rules
 
-- Core: depends on Quickshell, Qt, the Hyprland socket and `config/shell.json`. Contains no plugin code and no plugin name. Enforced by `scripts/check-plugin-boundary.py`.
-- Plugin: depends on the import set [plugins.md § Isolation](plugins.md#isolation) lists, the capabilities its manifest names, and its own directory. Enforced by the same check.
-- Plugin manager: depends on the core and git. Runs no code from a plugin. Enforced by the install rows in `scripts/test-vgshell.sh`.
-- Validation: depends on the nested compositor sandbox, built from the repository alone, with its runtime dir under the host's `XDG_RUNTIME_DIR`. Never touches the live session.
-- Packages: `shell/Core/PackageManagers.js` is the one package-manager table. The shell never elevates for a package. Enforced for the table by `scripts/test-vgshell-pkg-table.js`.
-- The plugin boundary is a static import check plus a scoped API object. It is not a process sandbox. Read [plugins.md § Isolation](plugins.md#isolation) before relying on it.
+- Do put a new surface or service in a plugin, with its own directory, manifest and validation row in the same change.
+- Never name a plugin id in the core, let one plugin import another, or import a plugin's file from a core file. `scripts/check-plugin-boundary.py` refuses each, planted by `scripts/test-check-plugin-boundary.py`.
+- Do import in a plugin only the module prefixes the boundary check allows and the plugin's own files; never instantiate a window type or a lent object. The same check refuses it.
+- Do make every decision about a manifest, the configuration, enablement, placement and the TUIs a plugin may open once, in `shell/Core/PluginLogic.js`; `scripts/test-plugin-logic.js` and `bin/lib/check-manifests.js` load the same file ([D009](../decisions/D009-one-manifest-judge-under-node.md)).
+- Do land a new core capability first, with its validation row, then the plugin that uses it.
+- Never let the plugin manager run plugin code or ask for a privilege; the install rows of `scripts/test-vgshell.sh` run every git call with hooks off.
+- Do declare `shown` on a bar or background that has nothing to draw; a hidden surface reserves no space. The disable rows of `scripts/smoke/rows/bar.sh` read the reserved geometry.
+- Do draw a pane as a body alone from x 0 with no `Pane` and no title; the holder owns the chrome. `scripts/smoke/rows/system-window.sh` plants a holder that hands no height.
+- Do run `vgshell restart` after a core file changes; a first build after that is refused `restart=owed`. `scripts/smoke/rows/core-drift.sh` pins it.
+- Never start a second shell against the live session, and never kill Quickshell processes by name; validation runs in the nested sandbox alone.
+- Do name the tool and the run that produced every figure a document or comment states.
 
-## Invariants
+## The canonical example
 
-1. One shell process per session. The runner holds the lock and starts the shell as its child, which records its own pid; the shell draws and accepts state changes only when its process is the one the runner started, and no process the shell starts holds the lock; the CLI addresses that pid alone. Enforced by `scripts/test-vgshell.sh` (lock contention, argument refusal, pid selection), `scripts/test-vgshell-run.sh` (the runner's lock, its wait and the shell's death with it), `scripts/smoke/rows/instance-guard.sh`, which starts a bare `qs` beside the runner and asserts it neither draws, writes nor follows the applied theme package, with an ungated shell copy that follows as its control, and `scripts/smoke/rows/start-order.sh` (restart and run while a process the shell started runs).
-2. Every Wayland object the shell creates is dispatched or destroyed. No check enforces it. A long sampled session with `scripts/sample-shell-memory.sh` is the instrument.
-3. A disabled plugin leaves the core's build records and the bar, and a disabled bar leaves no surface and reserves no space. Enforced by the disable rows in `scripts/smoke/rows/bar.sh`, which read the compositor's layer list and reserved geometry. That no object of it remains is not checked.
-4. A plugin receives exactly the capabilities its own manifest names, a disabled plugin holds none of them, and a running plugin holds the settings the configuration currently gives it. Enforced by the fixture rows in `scripts/smoke/rows/plugins.sh` and `scripts/smoke/rows/capability-release.sh`, which read the fixture instances and the core's lending record back.
-5. The plugin manager runs no plugin code and asks for no privilege. Enforced by the install rows in `scripts/test-vgshell.sh`, which run every git call with hooks off and install from local repositories.
-6. Every decision about a manifest, the shape of `shell.json`, the merged configuration, enablement, the settings entry a kind reads, placement and the floating TUIs a plugin may open is made once in `shell/Core/PluginLogic.js`. Enforced by `scripts/test-plugin-logic.js`, `scripts/test-tui-logic.js` and `bin/lib/check-manifests.js`, which loads the same file.
-7. A figure in a document names the tool and the run that produced it. Enforced by review; the `scripts/qml-smoke.sh` header names the machine and date behind each ceiling.
+`scripts/smoke/fixtures/plugins/acme.status/`: a manifest that declares its kinds and the capabilities it needs, a service that publishes through one of them, and nothing of the core. Copy it.
 
-## Decisions
+## Revisit when
 
-The log is [INDEX.md](../decisions/INDEX.md), one row per record.
+A feature needs a surface no host can give without a core rewrite, a plugin cannot work without another plugin's service and no capability can carry it, or the budgets are measured against a process-per-plugin design and it fits.
 
-## Topics
+## Not governed
 
-[topics.md](topics.md) names the document to read before each kind of change.
+What a plugin does inside its surface, which is its own tests and README; the manifest's keys, which is [plugin-manifest.md](plugin-manifest.md); the capabilities themselves, which is [capabilities.md](capabilities.md); the surface classes, which is [surfaces.md](surfaces.md).

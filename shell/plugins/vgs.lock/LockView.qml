@@ -10,7 +10,7 @@ import qs.Ui
 // field. While PAM checks, the field waits and a spinner turns; a failure
 // shows under the field in the danger colour.
 //
-// Layout follows docs/architecture/design-quality.md: the time and the date
+// Layout follows docs/architecture/design-system.md: the time and the date
 // are rows of one group, `stack.row` apart; the clock, the field and the
 // status line are blocks, `stack.group` apart; the spinner and its label
 // are inline, `stack.inline` apart. Each view reports itself to the

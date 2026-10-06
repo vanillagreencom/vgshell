@@ -46,7 +46,7 @@ README_TWO = (
 )
 
 
-# The per-image budget docs/architecture/readme-images.md § Budget states,
+# The per-image budget docs/architecture/readme.md,
 # written here rather than read from the check, so the cases pin the figure
 # and not only the comparison.
 BUDGET = 100 * 1024
