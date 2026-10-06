@@ -315,7 +315,7 @@ world(async () => {
         resetStartPids();
         const answer = run("windows.focus", { window: "0xa1" }).then(value => { answered = true; return value; });
         await waitUntil("the state before and the first poll finish", () => desk.hyprctlCalls().length >= 2);
-        await waitUntil("the executor waits for its next poll", () => testClock.pending(), eventLoopPoll);
+        await waitUntil("the executor waits for its next poll", () => testClock.pending());
         const reads = desk.hyprctlCalls().length;
         const starts = startPids().length;
         desktop.close();
