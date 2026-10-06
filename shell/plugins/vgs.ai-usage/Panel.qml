@@ -62,9 +62,31 @@ Item {
                     color: Theme.badge.tone.warning.foreground
                 }
 
+                Column {
+                    visible: !root.fullView && modelData.windows.length > 0
+                    width: parent.width
+                    spacing: Theme.row.lineGap
+                    Repeater {
+                        model: modelData.windows
+                        Item {
+                            required property var modelData
+                            width: parent.width
+                            implicitHeight: Math.max(limit.implicitHeight, share.implicitHeight)
+                            Label { id: limit; role: "body"; text: modelData.label }
+                            Label {
+                                id: share
+                                anchors.right: parent.right
+                                role: "body"
+                                text: modelData.text + " · " + modelData.reset
+                                color: modelData.tone === "warning" ? Theme.badge.tone.warning.foreground : Theme.color.text
+                            }
+                        }
+                    }
+                }
+
                 Section {
-                    visible: modelData.windows.length > 0
-                    title: root.fullView ? "Limits" : ""
+                    visible: root.fullView && modelData.windows.length > 0
+                    title: "Limits"
                     rowSpacing: Theme.card.gap
                     Repeater {
                         model: modelData.windows
@@ -81,12 +103,12 @@ Item {
                                     id: share
                                     anchors.right: parent.right
                                     role: "body"
-                                    text: root.fullView ? modelData.text : modelData.text + " · " + modelData.reset
+                                    text: modelData.text
                                     color: modelData.tone === "warning" ? Theme.badge.tone.warning.foreground : Theme.color.text
                                 }
                             }
-                            ProgressBar { visible: root.fullView; width: parent.width; value: Math.min(modelData.percent, 100) / 100 }
-                            Label { visible: root.fullView; role: "hint"; text: modelData.reset }
+                            ProgressBar { width: parent.width; value: Math.min(modelData.percent, 100) / 100 }
+                            Label { role: "hint"; text: modelData.reset }
                         }
                     }
                 }
