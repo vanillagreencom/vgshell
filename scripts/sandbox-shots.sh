@@ -175,7 +175,7 @@ while [[ $# -gt 0 ]]; do
     --keep) keep=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    gallery|settings|focus|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|ai-usage|devtools|system|network|vpn|bluetooth|power|dialog|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|tooltips) scenes+=("$1"); shift ;;
+    gallery|settings|focus|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|ai-usage|devtools|system|network|vpn|bluetooth|power|dialog|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|tooltips|screensaver) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -272,6 +272,7 @@ scene_ships() {
     focus) ships_plugin vgs.gallery vgs.settings ;;
     launcher|notifications) ships_plugin "vgs.$1" ;;
     automations) ships_plugin vgs.automations ;;
+    screensaver) ships_plugin vgs.screensaver ;;
     bar) ships_plugin vgs.bar vgs.launcher vgs.agent-warden vgs.updates vgs.themes ;;
     tooltips) scene_ships bar ;;
     panels) ships_plugin vgs.agent-warden vgs.updates vgs.themes ;;
@@ -300,7 +301,7 @@ if [[ ${#scenes[@]} -eq 0 ]]; then
     scenes=(gallery)
     [[ -z $manager_scene ]] || scenes+=("$manager_scene")
   else
-    for scene in gallery settings focus launcher notifications bar panels ai-usage devtools system network vpn bluetooth power dialog lock polkit greeter automations narrow; do
+    for scene in gallery settings focus launcher notifications bar panels ai-usage devtools system network vpn bluetooth power dialog lock polkit greeter automations screensaver narrow; do
       if scene_ships "$scene"; then scenes+=("$scene"); fi
     done
   fi
@@ -2278,6 +2279,34 @@ scene_greeter() { # MODE
   kill -TERM "$pid" 2>/dev/null || fail "stopping the greeter host pid $pid failed"
   wait "$pid" 2>/dev/null || true
   expect_poll "the greeter host's surface is gone" 0 layer_count vgs:greeter
+}
+
+scene_screensaver() { # MODE
+  command -v ttfx >/dev/null 2>&1 || { printf 'sandbox-shots: status=not-measured missing=ttfx\n'; exit 77; }
+  python3 - "$home/.config/vgshell/shell.json" <<'PY'
+import json, os, sys
+path = sys.argv[1]
+doc = json.load(open(path))
+rows = doc.setdefault("plugins", [])
+row = next((r for r in rows if r.get("id") == "vgs.screensaver"), None)
+if row is None:
+    row = {"id": "vgs.screensaver"}
+    rows.append(row)
+row.update({"idleEnabled": False, "effect": "print", "frameRate": 30})
+with open(path + ".tmp", "w") as out:
+    json.dump(doc, out)
+os.replace(path + ".tmp", path)
+PY
+  expect "enabling vgs.screensaver is allowed" ok ipc shell setPluginEnabled vgs.screensaver true
+  expect "reload config for the screensaver shot" ok ipc shell reloadConfig
+  expect_poll "vgs.screensaver is built" True record_exists vgs.screensaver
+  expect "starting the screensaver for the shot is allowed" ok ipc vgs.screensaver invoke start ''
+  expect_poll "the screensaver cover is shown for the shot" 1 layer_count vgs:cover
+  sleep 8
+  take "screensaver-$1-cover"
+  expect "stopping the screensaver after the shot is allowed" ok ipc vgs.screensaver invoke stop ''
+  expect_poll "the screensaver cover is gone after the shot" 0 layer_count vgs:cover
+  expect "disabling vgs.screensaver after the shot is allowed" ok ipc shell setPluginEnabled vgs.screensaver false
 }
 
 # The setup each scene needs, once each, in the order the scenes first

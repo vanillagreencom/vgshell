@@ -1,5 +1,6 @@
 import QtQuick
 import Quickshell.Io
+import qs.Commons
 import "ScreensaverLogic.js" as Logic
 
 Item {
@@ -11,6 +12,7 @@ Item {
     property bool running: false
     property var published: ({})
     property var seenArtEndedAt: null
+    property string artStatus: "Default art"
 
     readonly property bool locked: shell !== null && shell.session.locked
     readonly property bool idleEnabled: shell !== null && shell.settings.idleEnabled === true
@@ -38,6 +40,7 @@ Item {
     onRequirementsRevisionChanged: refreshEffects()
     onLockedChanged: if (locked) stop()
     onRunningChanged: publishState()
+    onArtStatusChanged: publishArt()
     onArtRunChanged: checkArtRun()
     onManagerKeyChanged: publishLockOrder()
 
@@ -99,7 +102,7 @@ Item {
     }
 
     function publishArt() {
-        publish("art", { tone: "info", text: "Default art", action: true });
+        publish("art", { tone: artStatus === "Custom art" ? "ok" : "info", text: artStatus, action: true });
     }
 
     function publishLockOrder() {
@@ -107,6 +110,7 @@ Item {
         const plugins = shell.manager.plugins || [];
         const lock = plugins.find(row => row.id === "vgs.lock" && row.enabled === true);
         if (lock === undefined) {
+            publish("lockOrder", null);
             return;
         }
         const seconds = Number(lock.settings.idleLockSeconds || 0);
@@ -124,6 +128,16 @@ Item {
     function refreshEffects() {
         if (shell === null || effectsHelp.running) return;
         effectsHelp.running = true;
+    }
+
+    FileView {
+        id: artFile
+        path: Paths.configDir + "/screensaver.txt"
+        watchChanges: true
+        printErrors: false
+        onLoaded: root.artStatus = "Custom art"
+        onLoadFailed: error => root.artStatus = "Default art"
+        onFileChanged: reload()
     }
 
     Process {

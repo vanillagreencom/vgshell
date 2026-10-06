@@ -629,9 +629,8 @@ fi
 # it and disables it again. vgs.keyhints starts disabled for the
 # launcher's reason; rows/keyhints.sh enables it and disables it again.
 # vgs.scratchpads starts disabled for the launcher's reason;
-# rows/scratchpads.sh enables it and disables it again. vgs.screensaver
-# starts disabled so its idle watch, TUI row and unbound shortcut do not
-# change the neutral smoke set; rows/screensaver.sh enables it.
+# rows/scratchpads.sh enables it and disables it again. The screensaver
+# row enables vgs.screensaver for the smoke set.
 # The System family's ids, vgs.system, vgs.sound, vgs.bluetooth,
 # vgs.network, vgs.vpn, vgs.displays, vgs.mouse and vgs.keyboard, start
 # disabled before any of them ships, so a section that lands enables its
@@ -840,8 +839,6 @@ default_set_prepare() { # PLUGINS_JSON [DISABLED_JSON]
 import json, os, sys
 user, plugins, disabled = sys.argv[1], json.loads(sys.argv[2]), json.loads(sys.argv[3])
 installed = os.path.join(os.path.dirname(user), "plugins")
-if "vgs.screensaver" not in plugins and "vgs.screensaver" not in disabled:
-    disabled.append("vgs.screensaver")
 left = sorted(d for d in os.listdir(installed) if d not in plugins and d not in disabled) if os.path.isdir(installed) else []
 disabled = disabled + left
 with open(user + ".tmp", "w") as out:

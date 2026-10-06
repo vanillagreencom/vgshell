@@ -23,12 +23,9 @@ case "$choice" in
     ;;
   "Edit text")
     [[ -f $art ]] || cp -- "$plugin_dir/logo.txt" "$art"
-    if [[ -n ${EDITOR:-} ]]; then
-      read -r -a editor <<<"$EDITOR"
-      "${editor[@]}" "$art"
-    else
-      ${VISUAL:-vi} "$art"
-    fi
+    [[ -n ${EDITOR:-} ]] || refuse "editor=missing" 1
+    read -r -a editor <<<"$EDITOR"
+    "${editor[@]}" "$art"
     ;;
   "Reset") cp -- "$plugin_dir/logo.txt" "$art" ;;
   *) refuse "choice=unknown" 2 ;;

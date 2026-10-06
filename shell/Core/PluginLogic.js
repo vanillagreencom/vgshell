@@ -982,6 +982,13 @@ function statusWrite(manifest, values, key, value) {
     var refused = function (reason) { return { ok: false, error: statusRefusal(key, reason) }; };
     if (typeof key !== "string" || !hasOwn(manifest.status, key))
         return refused("undeclared");
+    if (value === null && manifest.status[key].type !== "data") {
+        var cleared = {};
+        var kept = Object.keys(values);
+        for (var c = 0; c < kept.length; c++)
+            if (kept[c] !== key) cleared[kept[c]] = values[kept[c]];
+        return { ok: true, values: frozenJson(cleared), bytes: SettingValues.utf8Bytes(JSON.stringify(cleared)) };
+    }
     if (!statusValueFits(manifest.status[key].type, value) || !statusDeclarationFits(manifest, manifest.status[key], value))
         return refused("type");
     var next = {};

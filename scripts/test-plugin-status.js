@@ -419,6 +419,7 @@ function suite(ctx, check) {
     const mNamed = ctx.validateManifest({ schemaVersion: 1, id: "acme.agent", name: "A", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "S.qml" }, capabilities: ["status", "tui"], tui: { remove: { script: "tui/remove.sh", title: "Remove" } }, requirements: [{ command: "acme-sync", purpose: "p" }],
         status: { agent: { type: "state", label: "Agent", actions: { remove: { label: "Uninstall", tui: "remove" }, get: { label: "Install", install: ["acme-sync"] } } }, plain: { type: "state", label: "Plain", action: { label: "Go", tui: "remove" } } } }, "/p").manifest;
     const named = (key, value) => { const r = ctx.statusWrite(mNamed, {}, key, value); return r.ok ? "ok" : r.error; };
+    check("statusWrite: null clears a non-data value", ctx.statusWrite(mNamed, ctx.statusWrite(mNamed, {}, "plain", { tone: "ok", text: "Ready" }).values, "plain", null).values, {});
     const refusedAgent = "refused: status=agent reason=type";
     for (const [name, key, value, want] of [
         ["a named action the entry declares", "agent", { tone: "warning", text: "t", action: "remove" }, "ok"],
@@ -567,6 +568,7 @@ const CONTROLS = [
     ["a locked presence is info", "locked: \"info\"", "locked: \"warning\""],
     ["a state has its tone", "if (type === \"state\") return STATUS_STATE_TONES[value.tone];", "if (type === \"state\") return \"neutral\";"],
     ["a write fits its declaration", "|| !statusDeclarationFits(manifest, manifest.status[key], value))", ")"],
+    ["null clears a non-data value", "if (value === null && manifest.status[key].type !== \"data\") {", "if (false) {"],
     ["a state action needs a declared action", "        return entry.action !== undefined;\n    }", "        return true;\n    }"],
     ["a named state action is one of the entry's", "return entry.actions !== undefined && hasOwn(entry.actions, value.action);", "return true;"],
     ["a state's further lines are printable lines", "\n                && value.lines.every(function (line) { return isPrintableLine(line, STATUS_TEXT_MAX); })", ""],
