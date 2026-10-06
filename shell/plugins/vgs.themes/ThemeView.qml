@@ -7,9 +7,10 @@ import "BrowserLogic.js" as BrowserLogic
 // The theme view of the browser: every shipped, installed and catalog
 // theme as an angled card on one rail, a typed filter, and Enter or a
 // click on the selected card installing a catalog theme if it needs it and
-// applying it. At rest the view draws the cards and the tabs alone: the
-// selection, which opens on the applied theme, marks it, and a busy card
-// turns its own Spinner while its install or apply runs. After an apply of a theme whose wallpapers are
+// applying it. At rest the view draws the cards, the tabs and the
+// selected theme's name under the rail: the selection, which opens on the
+// applied theme, marks it, and a busy card turns its own Spinner while its
+// install or apply runs. After an apply of a theme whose wallpapers are
 // not downloaded, a Dialog offers the download; Download runs it on the
 // download lane, shows its progress from `last.downloading` and applies the
 // theme again, so its first wallpaper shows. A step that fails leaves the
@@ -413,6 +414,15 @@ FocusScope {
                 x: (layout.contentWidth - width) / 2
                 width: Math.min(layout.contentWidth, Theme.carousel.expandedWidth)
                 spacing: Theme.stack.group
+
+                Label {
+                    role: "display"
+                    width: parent.width
+                    horizontalAlignment: Text.AlignHCenter
+                    elide: Text.ElideRight
+                    visible: root.selected !== null
+                    text: root.selected === null ? "" : root.selected.label
+                }
 
                 Label {
                     role: "h3"

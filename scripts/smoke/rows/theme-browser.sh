@@ -51,6 +51,27 @@ def under(j):
 print(json.dumps(sorted({r["text"] for i, r in enumerate(rows) if isinstance(r.get("text"), str) and r["text"] != "" and r["visible"] and r["box"][2] > 0 and r["box"][3] > 0 and not under(i)})))'
 }
 rest_has() { rest_texts | py_reply 'import json,sys; print(sys.argv[1] in json.load(sys.stdin))' "$1"; }
+# slice_names: the side cards the rail shows and how many of them draw no
+# name, as [shown, unnamed]: a side card is a shown AngledCard other than
+# the selected one, the largest, and it names its theme with a visible
+# Label inside it.
+slice_names() {
+  ipc smoke descendantGeometry overlay vgs.themes | py_reply '
+import json, sys
+rows = json.load(sys.stdin)
+def card_of(j):
+    while j != -1:
+        if rows[j]["type"] == "AngledCard": return j
+        j = rows[j]["parent"]
+    return -1
+cards = [i for i, r in enumerate(rows) if r["type"] == "AngledCard" and r["visible"] and r["box"][2] > 0 and r["box"][3] > 0]
+selected = max(cards, key=lambda i: rows[i]["box"][2] * rows[i]["box"][3]) if cards else -1
+named = {card_of(i) for i, r in enumerate(rows) if r["type"] == "Label" and r["visible"] and isinstance(r.get("text"), str) and r["text"] != "" and r["box"][2] > 0 and r["box"][3] > 0}
+sides = [i for i in cards if i != selected]
+print(json.dumps([len(sides), len([i for i in sides if i not in named])]))'
+}
+slices_named() { slice_names | py_reply 'import json,sys; shown, unnamed = json.load(sys.stdin); print("named" if shown > 0 and unnamed == 0 else "shown=%d unnamed=%d" % (shown, unnamed))'; }
+slices_unnamed() { slice_names | py_reply 'import json,sys; shown, unnamed = json.load(sys.stdin); print("unnamed" if shown > 0 and unnamed == shown else "shown=%d unnamed=%d" % (shown, unnamed))'; }
 dialog_has() { ipc smoke itemTexts overlay vgs.themes Dialog | py_reply 'import json,sys; print(any(sys.argv[1] in t for t in json.load(sys.stdin)))' "$1"; }
 # The status of the card image drawing PATH, `none` when no card draws it.
 card_image() { ipc smoke images overlay vgs.themes | py_reply 'import json,sys; r=[i[1] for i in json.load(sys.stdin) if i[0]==sys.argv[1]]; print(r[0] if r else "none")' "$1"; }
@@ -308,7 +329,8 @@ expect_poll "the browser read the list, the catalog and the images" true view_va
 expect "the browser includes the shipped vgs card" True has_card vgs
 expect_poll "the retained catalog reaches the installed list with nord" True has_card nord
 expect "the applied theme is selected" '"vgs"' view_value selectedName
-expect_poll "the resting theme view draws no text beside its cards and tabs" '[]' rest_texts
+expect_poll "the resting theme view draws the selected theme's name alone beside its cards and tabs" '["Vgs"]' rest_texts
+expect_poll "every side card names its theme" named slices_named
 # The browser's layout, one finding per broken rule, `[]` the pass: its
 # tabs lie inside the output less inset.overlay each side (`inset`); the
 # tabs end above the rail and the rail holds the selected card (`order`);
@@ -418,7 +440,7 @@ type_keys "$first_card" || fail "typing $first_card after the token change faile
 expect_poll "the live preview changes when the package accent changes" '"#00ff00"' ipc smoke readDescendant overlay vgs.themes DesktopPreview accentHex
 expect_poll "the live preview's desktop and foot follow the changed accent" '[]' expanded_preview
 expect "the selected catalog card is not installed" False selected_installed
-expect "a catalog card draws only the typed filter beside the rail" "[\"$first_card\"]" rest_texts
+expect "a catalog card draws only its name and the typed filter beside the rail" "[\"Akane\", \"$first_card\"]" rest_texts
 
 # Paging: Home, Right, Left and End move the selection.
 type_keys -k Escape || fail "clearing the catalog-card filter failed"
@@ -692,6 +714,16 @@ type_keys -k Escape || fail "closing the sourceSize control browser failed"
 expect_poll "the sourceSize control browser closes" 0 layer_count vgs:overlay
 plugin_restore ThemeCard.qml "preview sourceSize"
 
+# Control for the slice names: a card copy whose slice name is empty.
+plugin_control ThemeCard.qml "slice name" $'        text: root.modelData.label\n        color: root.colors === null ? Theme.color.text :' $'        text: ""\n        color: root.colors === null ? Theme.color.text :'
+press_themes || fail "typing SUPER+CTRL+T for the slice name control failed"
+expect_poll "the slice name control opens the theme browser" 1 layer_count vgs:overlay
+expect_poll "the slice name control read its cards" true view_value loaded
+expect_poll "control: side cards without their names read as unnamed" unnamed slices_unnamed
+type_keys -k Escape || fail "closing the slice name control browser failed"
+expect_poll "the slice name control browser closes" 0 layer_count vgs:overlay
+plugin_restore ThemeCard.qml "slice name"
+
 plugin_control ThemeCard.qml "live preview token" "tokens: root.modelData.tokens" "tokens: ({})"
 press_themes || fail "typing SUPER+CTRL+T for the live preview control failed"
 expect_poll "the live preview control opens the theme browser" 1 layer_count vgs:overlay
@@ -746,7 +778,7 @@ plugin_control ThemeView.qml "resting text" $'                id: caption\n' $' 
 press_themes || fail "typing SUPER+CTRL+T for the resting text control failed"
 expect_poll "SUPER+CTRL+T opens the resting text control browser" 1 layer_count vgs:overlay
 expect_poll "the resting text control read its cards" true view_value loaded
-expect_poll "control: a key hint under the rail is a resting text" '["Enter"]' rest_texts
+expect_poll "control: a key hint under the rail is a resting text" '["Enter", "Vgs"]' rest_texts
 type_keys -k Escape || fail "sending Escape to the resting text control failed"
 expect_poll "Escape closes the resting text control browser" 0 layer_count vgs:overlay
 plugin_restore ThemeView.qml "resting text"

@@ -5,7 +5,10 @@ import "BrowserLogic.js" as BrowserLogic
 import "Files.js" as Files
 
 // One theme's card on the browser's rail. A slice shows the theme's eight
-// colours (BrowserLogic.SWATCHES) stacked top to bottom. The selected card
+// colours (BrowserLogic.SWATCHES) stacked top to bottom and the theme's
+// name along its slanted edge, reading upward, in the theme's foreground
+// over a 1 px hard shadow in its background, so the name reads on every
+// colour of the stack. The selected card
 // shows the package's preview image when one ships, else the theme's first
 // wallpaper over its background with a desktop drawn from the package's
 // tokens on it, and the eight colours across its foot. A card with no
@@ -82,6 +85,23 @@ Item {
         visible: !root.expanded && root.swatches !== null
         vertical: true
         colours: root.swatches === null ? [] : root.swatches
+    }
+
+    // The slant is the card's lean over its height, which the carousel
+    // scales by one unit, so the token ratio gives the drawn angle.
+    Label {
+        objectName: "sliceName"
+        role: "bodyStrong"
+        anchors.centerIn: parent
+        width: parent.height - 2 * Theme.space.xl
+        visible: !root.expanded && root.swatches !== null
+        rotation: Math.atan2(Theme.angledCard.skew, Theme.carousel.sliceHeight) * 180 / Math.PI - 90
+        horizontalAlignment: Text.AlignHCenter
+        elide: Text.ElideRight
+        text: root.modelData.label
+        color: root.colors === null ? Theme.color.text : Theme.toColor(root.colors.foreground)
+        style: Text.Raised
+        styleColor: root.colors === null ? Theme.color.background : Theme.toColor(root.colors.background)
     }
 
     Rectangle {
