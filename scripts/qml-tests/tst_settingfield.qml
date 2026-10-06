@@ -8,7 +8,7 @@ import "../../shell/plugins/vgs.settings"
 Item {
     id: root
     width: 480
-    height: 160
+    height: 480
 
     property var applied: []
 
@@ -32,6 +32,20 @@ Item {
         onApply: value => root.applied.push(value)
     }
 
+    // A field whose description or custom field's description sits under
+    // it is followed by a group space, `stack.group`; the last ends at its
+    // line.
+    Column {
+        id: settingRows
+        y: 200
+        width: 420
+        spacing: Theme.stack.row
+        SettingField { id: described; key: "interval"; spec: ({ type: "boolean", label: "Check interval", description: "How often it checks." }); value: true }
+        SettingField { id: customDescribed; key: "unit"; spec: ({ type: "string", label: "Unit", description: "The unit it shows.", allowCustom: true, presets: [{ value: "kB" }] }); value: "MiB" }
+        SettingField { id: following; key: "view"; spec: ({ type: "boolean", label: "View" }); value: false }
+        SettingField { id: lastDescribed; key: "last"; spec: ({ type: "boolean", label: "Last", description: "Ends the column." }); value: true }
+    }
+
     TestCase {
         name: "settingfield"
         when: windowShown
@@ -48,6 +62,18 @@ Item {
             for (let i = 0; i < found.length; i++)
                 for (const child of found[i].children || []) found.push(child);
             return found;
+        }
+
+        function lineBottom(field, text) {
+            const line = descendants(field).find(child => child.role === "hint" && child.text === text && child.visible);
+            return line.mapToItem(settingRows, 0, line.height).y;
+        }
+
+        function test_a_group_space_follows_a_description() {
+            verify(customDescribed.customVisible, "the custom field shows");
+            tryVerify(() => customDescribed.y - lineBottom(described, "How often it checks.") === Theme.stack.group, 1000, "the field after a description");
+            compare(following.y - lineBottom(customDescribed, "The unit it shows."), Theme.stack.group, "the field after a custom field's description");
+            compare(settingRows.height, lineBottom(lastDescribed, "Ends the column."), "the column's end after its last field");
         }
 
         function selectOf(item) {

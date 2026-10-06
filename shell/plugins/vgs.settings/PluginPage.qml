@@ -313,129 +313,124 @@ FocusScope {
                     // manifest lists, opened through the manager as a status
                     // step is, under the state they set up. A keyed model
                     // keeps each button while the rows are replaced, and a
-                    // refusal reads under them.
+                    // refusal reads under them. The state and the buttons
+                    // are two groups, so the rows sit `stack.group` apart.
                     Section {
                         id: setup
                         width: parent.width
                         visible: page.row !== null && (page.row.tuis.length > 0 || page.setupEntries.length > 0)
                         title: "Setup"
+                        rowSpacing: Theme.stack.group
 
-                        // The state over the buttons, one group space
-                        // above them, as the page's blocks sit apart.
+                        // Each entry: a "Status" row in the page's
+                        // key/value style whose value is the entry's
+                        // chip in its tone, or its text while it has no
+                        // tone, so the label sits level with the chip;
+                        // then its lines and its hint under the row, from
+                        // the value column (Field.valueX). Unkeyed, so
+                        // each status write draws the entry anew.
                         Column {
                             width: setup.width
-                            spacing: Theme.stack.group
-
-                            // Each entry: a "Status" row in the page's
-                            // key/value style whose value is the entry's
-                            // chip in its tone, or its text while it has no
-                            // tone, so the label sits level with the chip;
-                            // then its lines and its hint under the row, from
-                            // the value column (Field.valueX). Unkeyed, so
-                            // each status write draws the entry anew.
-                            Column {
-                                width: setup.width
-                                spacing: Theme.stack.row
-                                visible: page.setupEntries.length > 0
-                                Repeater {
-                                    model: ScriptModel {
-                                        values: page.setupEntries
-                                    }
-                                    Column {
-                                        id: setupState
-                                        required property var modelData
-                                        readonly property var view: Steps.statusView(modelData, ms => new Date(ms).toLocaleString(Qt.locale(), Locale.ShortFormat))
-                                        width: setup.width
-                                        spacing: Theme.field.gap
-                                        Field {
-                                            id: statusField
-                                            width: parent.width
-                                            label: "Status"
-                                            inline: true
-                                            Row {
-                                                Badge {
-                                                    visible: setupState.view.tone !== ""
-                                                    text: setupState.view.text
-                                                    tone: setupState.view.tone === "" ? "neutral" : setupState.view.tone
-                                                }
-                                                Label {
-                                                    role: setupState.view.muted ? "itemHint" : "value"
-                                                    visible: setupState.view.tone === "" && setupState.view.text !== ""
-                                                    text: setupState.view.text
-                                                }
-                                            }
-                                        }
-                                        Column {
-                                            x: statusField.valueX
-                                            width: parent.width - x
-                                            spacing: Theme.field.gap
-                                            visible: setupState.view.lines.length > 0 || setupState.view.hint !== ""
-                                            Repeater {
-                                                model: setupState.view.lines
-                                                Label {
-                                                    required property string modelData
-                                                    role: "value"
-                                                    text: modelData
-                                                    width: parent.width
-                                                    wrapMode: Text.Wrap
-                                                }
+                            spacing: Theme.stack.row
+                            visible: page.setupEntries.length > 0
+                            Repeater {
+                                model: ScriptModel {
+                                    values: page.setupEntries
+                                }
+                                Column {
+                                    id: setupState
+                                    required property var modelData
+                                    readonly property var view: Steps.statusView(modelData, ms => new Date(ms).toLocaleString(Qt.locale(), Locale.ShortFormat))
+                                    width: setup.width
+                                    spacing: Theme.field.gap
+                                    Field {
+                                        id: statusField
+                                        width: parent.width
+                                        label: "Status"
+                                        inline: true
+                                        Row {
+                                            Badge {
+                                                visible: setupState.view.tone !== ""
+                                                text: setupState.view.text
+                                                tone: setupState.view.tone === "" ? "neutral" : setupState.view.tone
                                             }
                                             Label {
-                                                role: "hint"
-                                                visible: text !== ""
-                                                text: setupState.view.hint
+                                                role: setupState.view.muted ? "itemHint" : "value"
+                                                visible: setupState.view.tone === "" && setupState.view.text !== ""
+                                                text: setupState.view.text
+                                            }
+                                        }
+                                    }
+                                    Column {
+                                        x: statusField.valueX
+                                        width: parent.width - x
+                                        spacing: Theme.field.gap
+                                        visible: setupState.view.lines.length > 0 || setupState.view.hint !== ""
+                                        Repeater {
+                                            model: setupState.view.lines
+                                            Label {
+                                                required property string modelData
+                                                role: "value"
+                                                text: modelData
                                                 width: parent.width
                                                 wrapMode: Text.Wrap
                                             }
                                         }
+                                        Label {
+                                            role: "hint"
+                                            visible: text !== ""
+                                            text: setupState.view.hint
+                                            width: parent.width
+                                            wrapMode: Text.Wrap
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Column {
+                            width: setup.width
+                            spacing: Theme.field.gap
+
+                            Flow {
+                                width: parent.width
+                                spacing: Theme.stack.inline
+                                Repeater {
+                                    model: ScriptModel {
+                                        values: page.setupButtons
+                                        objectProp: "key"
+                                    }
+                                    // A withheld screen's button takes no
+                                    // press and no Tab stop; its reason opens
+                                    // on hover, which reaches a disabled
+                                    // item in Qt Quick, and the
+                                    // Setup state above names what is
+                                    // missing for a keyboard user.
+                                    Button {
+                                        required property var modelData
+                                        text: modelData.label
+                                        iconName: modelData.icon
+                                        variant: modelData.primary ? "primary" : "secondary"
+                                        enabled: page.editable && modelData.enabled
+                                        onClicked: page.panel.openTui(page.row.id, modelData.name)
+                                        Tooltip { text: modelData.reason }
                                     }
                                 }
                             }
 
-                            Column {
-                                width: setup.width
-                                spacing: Theme.field.gap
-
-                                Flow {
-                                    width: parent.width
-                                    spacing: Theme.stack.inline
-                                    Repeater {
-                                        model: ScriptModel {
-                                            values: page.setupButtons
-                                            objectProp: "key"
-                                        }
-                                        // A withheld screen's button takes no
-                                        // press and no Tab stop; its reason opens
-                                        // on hover, which reaches a disabled
-                                        // item in Qt Quick, and the
-                                        // Setup state above names what is
-                                        // missing for a keyboard user.
-                                        Button {
-                                            required property var modelData
-                                            text: modelData.label
-                                            iconName: modelData.icon
-                                            variant: modelData.primary ? "primary" : "secondary"
-                                            enabled: page.editable && modelData.enabled
-                                            onClicked: page.panel.openTui(page.row.id, modelData.name)
-                                            Tooltip { text: modelData.reason }
-                                        }
-                                    }
+                            Repeater {
+                                model: ScriptModel {
+                                    values: page.row === null ? [] : page.row.tuis
+                                    objectProp: "name"
                                 }
-
-                                Repeater {
-                                    model: ScriptModel {
-                                        values: page.row === null ? [] : page.row.tuis
-                                        objectProp: "name"
-                                    }
-                                    Label {
-                                        required property var modelData
-                                        role: "hint"
-                                        color: Theme.color.danger
-                                        text: page.row === null ? "" : page.panel.replyOf(page.row.id, page.panel.tuiKey(modelData.name))
-                                        visible: text !== ""
-                                        width: setup.width
-                                        wrapMode: Text.Wrap
-                                    }
+                                Label {
+                                    required property var modelData
+                                    role: "hint"
+                                    color: Theme.color.danger
+                                    text: page.row === null ? "" : page.panel.replyOf(page.row.id, page.panel.tuiKey(modelData.name))
+                                    visible: text !== ""
+                                    width: setup.width
+                                    wrapMode: Text.Wrap
                                 }
                             }
                         }

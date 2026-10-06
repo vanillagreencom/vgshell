@@ -679,6 +679,8 @@ mutations=(
   "a reopened menu's cursor travels from the dismissed entry|overlay/Menu.qml|        plate.snap();|        Qt.callLater(plate.snap);|tst_overlays.qml"
   "a reopened select list's cursor travels from the dismissed entry|controls/Select.qml|        plate.snap();|        Qt.callLater(plate.snap);|tst_overlays.qml"
   "an open preset list keeps its highlight across a clock tick|../plugins/vgs.settings/SettingField.qml|loader.item.listOpen !== true))|true)|tst_settingfield.qml"
+  "a setting's description takes no group space after it|../plugins/vgs.settings/SettingField.qml|    bottomPadding: Theme.subTextRoom((customVisible ? customField : primary).subText, Positioner.index, Positioner.isLastItem, parent)|    bottomPadding: 0|tst_settingfield.qml"
+  "a custom setting's description takes no group space after it|../plugins/vgs.settings/SettingField.qml|(customVisible ? customField : primary).subText|primary.subText|tst_settingfield.qml"
   "the info icon opens no dialog|controls/InfoButton.qml|onClicked: openInfo(visualFocus ? Qt.ShortcutFocusReason : Qt.MouseFocusReason)|onClicked: {}|tst_infobutton.qml"
   "the info dialog ignores rejection|controls/InfoButton.qml|onRejected: root.closeInfo()|onRejected: {}|tst_infobutton.qml"
   "a row without info shows the info icon|controls/FormRow.qml|active: root.info !== \"\" && root.labelColumn|active: root.labelColumn|tst_infobutton.qml"

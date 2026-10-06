@@ -18,7 +18,9 @@ import qs.Ui
 // refuses, or the custom editor's own check does, stays in its editor, so
 // the field stays edited. `edits` is the page's set of unsaved edits
 // (EditSet), which the field joins while edited and tells of each write
-// of its text the manager accepted.
+// of its text the manager accepted. A field that ends in a description or
+// an error line takes the room a Field takes under it, as its own last row
+// is last in this column and takes none.
 Column {
     id: root
 
@@ -47,6 +49,7 @@ Column {
 
     width: parent === null ? implicitWidth : parent.width
     spacing: Theme.field.gap
+    bottomPadding: Theme.subTextRoom((customVisible ? customField : primary).subText, Positioner.index, Positioner.isLastItem, parent)
 
     Component.onCompleted: rebuildPresetModel()
     Component.onDestruction: if (edits !== null) edits.forget(root)
