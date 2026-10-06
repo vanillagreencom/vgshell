@@ -2434,6 +2434,7 @@ function catalogList(format, configDir) {
         return Object.assign({}, entry, {
             thumbnailPath,
             previewPath: installedPreview === null ? catalogPreview : installedPreview,
+            wallpaperPath: entry.imagery === null ? null : cachedPreview(entry.imagery),
             tokens: verdict.ok ? previewTokens(verdict.values, false) : null,
             terminal: verdict.ok ? verdict.terminal : null
         }, catalog.installState(entry, marker, digest));
@@ -2546,6 +2547,20 @@ function previewPathFor(pin, file) {
     return path.join(previewCacheDir(), pin.sha256 + "-" + file.replace(/[^A-Za-z0-9._-]/g, "_"));
 }
 
+// The first wallpaper of PIN's archive a preview fetch left in the cache,
+// null before one did.
+function cachedPreview(pin) {
+    let entries;
+    try {
+        entries = fs.readdirSync(previewCacheDir(), { withFileTypes: true });
+    } catch (e) {
+        if (e.code === "ENOENT") return null;
+        throw e;
+    }
+    const entry = entries.find(entry => entry.isFile() && entry.name.startsWith(pin.sha256 + "-") && !entry.name.endsWith(".part"));
+    return entry === undefined ? null : path.join(previewCacheDir(), entry.name);
+}
+
 function removePreviewParts(pin, key) {
     let entries;
     try {
@@ -2569,14 +2584,9 @@ async function previewFetch(format, lock, name) {
         const pin = catalogEntry(name, key).imagery;
         if (pin === null) refuse(key + "=no-imagery", "no-imagery");
         const url = download.archiveUrl(pin, process.env[ASSET_BASE], Boolean(process.env[TEST_RUN]));
-        let cachedPreview;
-        try {
-            cachedPreview = fs.readdirSync(previewCacheDir(), { withFileTypes: true }).find(entry => entry.isFile() && entry.name.startsWith(pin.sha256 + "-") && !entry.name.endsWith(".part"));
-        } catch (e) {
-            if (e.code !== "ENOENT") throw e;
-        }
-        if (cachedPreview !== undefined) {
-            result.path = path.join(previewCacheDir(), cachedPreview.name);
+        const cached = cachedPreview(pin);
+        if (cached !== null) {
+            result.path = cached;
             result.state = "ok";
             return;
         }

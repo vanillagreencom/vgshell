@@ -1,7 +1,7 @@
 import QtQuick
 
-// The sharpened previews of the theme view's catalog cards, which the theme
-// capability renders one at a time, kept by theme name. The browser owns
+// The catalog wallpapers the theme capability fetched for the theme view's
+// cards that had none on disk, one at a time, kept by theme name. The browser owns
 // them, not the view: the capability hands its answer to a waiter that
 // lives as long as the plugin instance, the browser, while a view switch
 // destroys the theme view with a preview still running. The answer lands

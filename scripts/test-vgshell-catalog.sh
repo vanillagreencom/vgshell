@@ -61,6 +61,18 @@ check "catalog --json lists every index entry in index order" json_is "$tmp/cata
 check "catalog --json carries the index entry and its install state" json_is "$tmp/catalog.json" 'all(d["entries"][0][k] == v for k, v in {"name": "moor", "mode": "dark", "thumbnail": None, "thumbnailPath": None, "previewPath": "'"$shelf/moor/preview.png"'", "installed": False, "imageryInstalled": False, "imageryUpdate": False, "definitionUpdate": False}.items()) and d["entries"][0]["palette"]["accent"] == "#3366ffff" and d["entries"][0]["tokens"]["hyprland"]["border"]["size"] == 2 and d["entries"][0]["terminal"]["color0"] == "#202020ff" and len(d["entries"][0]["terminal"]) == 16 and d["entries"][0]["imagery"]["sha256"] == "'"$sha_a"'"'
 check "catalog --json resolves a thumbnail to its absolute path in the catalog" json_is "$tmp/catalog.json" 'd["entries"][2]["thumbnailPath"] == "'"$shelf/thumbnails/ivy.jpg"'"'
 check "catalog ignores a symlinked package preview" json_is "$tmp/catalog.json" 'd["entries"][2]["previewPath"] is None'
+# A preview fetch caches its pin's first wallpaper as <sha256>-<file>; the
+# list names it, and a .part the fetch is still writing is not one.
+previews="$tmp/home/.cache/vgshell/theme-assets/previews"
+check "catalog --json names no wallpaper before a preview fetch" json_is "$tmp/catalog.json" '[e["wallpaperPath"] for e in d["entries"]] == [None, None, None, None]'
+mkdir -p -- "$previews"
+printf 'part\n' >"$previews/$sha_a-a.jpg.part"
+catalog_json "$cfg"
+check "catalog --json skips a wallpaper still being written" json_is "$tmp/catalog.json" 'd["entries"][0]["wallpaperPath"] is None'
+printf 'image\n' >"$previews/$sha_a-a.jpg"
+catalog_json "$cfg"
+check "catalog --json names the wallpaper a preview fetch cached" json_is "$tmp/catalog.json" 'd["entries"][0]["wallpaperPath"] == "'"$previews/$sha_a-a.jpg"'"'
+rm -r -- "${previews:?}"
 tinst "catalog prints one text line per entry" "$cfg" "$rt_empty" 0 "theme=dusk mode=dark installed=false definitionUpdate=false imageryInstalled=false imageryUpdate=false" "" theme catalog
 tinst "catalog with an argument is exit 2" "$cfg" "$rt_empty" 2 "" "vgshell: refused: argument=moor" theme catalog moor
 

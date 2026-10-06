@@ -3,7 +3,9 @@
 # probe: the view's cards and state through readDescendant, the images the
 # cards draw through images, the texts it draws beside its rail and tabs
 # through descendantGeometry, and its Dialog's through itemTexts. The rows page, filter, install and apply a catalog
-# entry, and answer the wallpaper offer both ways. The old keys, SUPER+T
+# entry, and answer the wallpaper offer both ways. akane's first wallpaper waits in the
+# preview cache as a fetch leaves it, so its card draws that file and never
+# the catalog thumbnail. The old keys, SUPER+T
 # and SUPER+W, open nothing, and each view's key moves an open browser to
 # that view; a manifest copy still bound to SUPER+T is their control. The sandbox copy's
 # catalog pins nord's wallpapers to an archive this row builds, served from
@@ -255,6 +257,11 @@ if [[ \${2:-} == wallpapers ]]; then
   for _ in \$(seq 1 600); do [[ -e $(printf %q "$wallpaper_gate") ]] && break; sleep 0.05; done
 fi"
 
+# akane's first wallpaper as a preview fetch caches it, before the service
+# reads the catalog.
+akane_preview="$home/.cache/vgshell/theme-assets/previews/$(python3 -c 'import json,sys; print([e["imagery"]["sha256"] for e in json.load(open(sys.argv[1]))["entries"] if e["name"] == "akane"][0])' "$index")-a.jpg"
+mkdir -p -- "${akane_preview%/*}"
+cp -- "$repo/themes/catalog/thumbnails/akane.jpg" "$akane_preview"
 # The service registers the shortcut and the layer binds SUPER+CTRL+T.
 expect "enabling vgs.themes for the browser rows is allowed" ok ipc shell setPluginEnabled vgs.themes true
 expect_poll "the themes service registered its shortcuts" '["vgs.themes:gaps", "vgs.themes:panel", "vgs.themes:themes", "vgs.themes:wallpapers"]' lent_themes
@@ -377,11 +384,13 @@ browser_focused "the reopened browser holds the keyboard after the focus bind ch
 expect_poll "the reopened browser read its cards after the focus bind check" true view_value loaded
 first_card=akane
 
-# A catalog card draws its thumbnail and live preview from its own tokens.
+# A catalog card draws its cached wallpaper, never its thumbnail, and its
+# live preview from its own tokens.
 type_keys "$first_card" || fail "typing $first_card failed"
 expect_poll "the filter selects the catalog card" "\"$first_card\"" view_value selectedName
-expect_poll "the catalog card draws its thumbnail" ready card_image "$repo/themes/catalog/thumbnails/$first_card.jpg"
-expect "the catalog card decodes at card size times screen scale" True card_source_size_matches "$repo/themes/catalog/thumbnails/$first_card.jpg"
+expect_poll "the catalog card draws its cached wallpaper" ready card_image "$akane_preview"
+expect "the catalog card draws no thumbnail" none card_image "$repo/themes/catalog/thumbnails/$first_card.jpg"
+expect "the catalog card decodes at card size times screen scale" True card_source_size_matches "$akane_preview"
 expect_poll "the selected card draws its desktop with windows and its eight colours across the foot" '[]' expanded_preview
 before_accent="$(ipc smoke readDescendant overlay vgs.themes DesktopPreview accentHex)" || before_accent=""
 python3 - "$repo/themes/catalog/$first_card/theme.json" "$index" "$first_card" <<'PY'
@@ -678,7 +687,7 @@ press_themes || fail "typing SUPER+CTRL+T for the preview sourceSize control fai
 expect_poll "the sourceSize control opens the theme browser" 1 layer_count vgs:overlay
 expect_poll "the sourceSize control read its cards" true view_value loaded
 type_keys -k Home || fail "sending Home for the sourceSize control failed"
-expect_poll "control: the live preview no longer decodes at card size times scale" False card_source_size_matches "$repo/themes/catalog/thumbnails/$first_card.jpg"
+expect_poll "control: the live preview no longer decodes at card size times scale" False card_source_size_matches "$akane_preview"
 type_keys -k Escape || fail "closing the sourceSize control browser failed"
 expect_poll "the sourceSize control browser closes" 0 layer_count vgs:overlay
 plugin_restore ThemeCard.qml "preview sourceSize"
@@ -980,5 +989,5 @@ cp -p -- "$sandbox/hyprland-before-browser.lua" "$hypr_lua.next" && mv -T -- "$h
 expect "the nested instance reloads the hyprland.lua the browser rows found" ok hypr reload config-only
 mv -T -- "$repo/bin/vgshell.real" "$repo/bin/vgshell"
 cp -p -- "$sandbox/catalog-index.json" "$index"
-rm -r -- "$installed/nord" "$installed/akane" "$assets" "$wallpaper_gate" "$akane_refused"
+rm -r -- "$installed/nord" "$installed/akane" "$assets" "$wallpaper_gate" "$akane_refused" "$akane_preview"
 rm -f -- "$bg_state/backgrounds.json" "$bg_state/background"

@@ -153,10 +153,10 @@ FocusScope {
         else install(card.name);
     }
 
-    // A catalog card with a thumbnail and no shipped preview wants a
-    // sharpened one, started once the rail rests on it.
+    // A card with a catalog wallpaper pin and no image on disk wants the
+    // pin's first wallpaper fetched, started once the rail rests on it.
     function requestPreview(card) {
-        if (previews.want(card === null || card.installed || card.previewImage !== null || card.image === null ? "" : card.name))
+        if (previews.want(card === null || card.previewImage !== null || card.image !== null || card.imagery === null ? "" : card.name))
             previewTimer.restart();
     }
 

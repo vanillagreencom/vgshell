@@ -7,7 +7,7 @@ import "../../shell/plugins/vgs.themes"
 import "../../shell/plugins/vgs.themes/BrowserLogic.js" as BrowserLogic
 
 // The themes browser overlay over a stand-in shell: the theme view asks the
-// theme capability for a catalog card's sharpened preview, and the answer
+// theme capability for a catalog card's wallpaper, and the answer
 // arrives through a waiter that lives as long as the plugin instance, the
 // browser, not the view. The stand-in keeps that callback as the capability
 // does and calls it after a view switch destroyed the theme view.
@@ -26,11 +26,12 @@ Item {
         for (let i = 0; i < 16; i++) out["color" + i] = "#202020ff";
         return out;
     }
-    // A catalog theme, not installed, with a thumbnail and no shipped
-    // preview: a card the view asks a preview for.
+    // A catalog theme, not installed, with a wallpaper pin, a thumbnail,
+    // no wallpaper on disk and no shipped preview: a card the view asks a
+    // preview for.
     function entry(name) {
         return { name: name, installed: false, palette: root.colors, tokens: null, terminal: root.terminal(),
-            previewPath: null, thumbnailPath: root.imagePath, imagery: null, imageryInstalled: false };
+            previewPath: null, thumbnailPath: root.imagePath, wallpaperPath: null, imagery: { size: 1 }, imageryInstalled: false };
     }
     function snapshot() {
         const entries = [root.entry("probe"), root.entry("rival")];

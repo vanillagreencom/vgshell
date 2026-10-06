@@ -25,7 +25,7 @@ const PALETTE = { background: "#101010ff", foreground: "#eeeeeeff", accent: "#33
 const pkg = (name, source, state) => ({ name, source, state, reason: state === "refused" ? "unknown-token" : null, palette: state === "refused" ? null : PALETTE });
 const pin = size => ({ repo: "https://github.com/vanillagreencom/vgs-themes", release: "themes", archive: "a.tar.gz", size, sha256: "a".repeat(64) });
 const TERMINAL = Object.fromEntries(Array.from({ length: 16 }, (_, index) => ["color" + index, "#000000ff"]));
-const entry = (name, installed, imagery, imageryInstalled) => ({ name, mode: "dark", thumbnail: "thumbnails/" + name + ".jpg", thumbnailPath: "/c/thumbnails/" + name + ".jpg", previewPath: name === "akane" ? "/c/akane/preview.png" : null, palette: PALETTE, tokens: { palette: PALETTE }, terminal: TERMINAL, imagery, installed, imageryInstalled, imageryUpdate: false, definitionUpdate: false });
+const entry = (name, installed, imagery, imageryInstalled) => ({ name, mode: "dark", thumbnail: "thumbnails/" + name + ".jpg", thumbnailPath: "/c/thumbnails/" + name + ".jpg", wallpaperPath: imagery === null ? null : "/cache/" + name + ".jpg", previewPath: name === "akane" ? "/c/akane/preview.png" : null, palette: PALETTE, tokens: { palette: PALETTE }, terminal: TERMINAL, imagery, installed, imageryInstalled, imageryUpdate: false, definitionUpdate: false });
 
 // Payloads refused: [label, text, error].
 const PAYLOAD_REFUSED = [
@@ -112,12 +112,12 @@ function verify(logic, files) {
     ];
     const built = logic.cards(packages, entries, images, "nord");
     same(built.map(c => [c.name, c.source, c.state, c.installed, c.image, c.imagery, c.displayed]), [
-        ["akane", "catalog", "ok", false, "/c/thumbnails/akane.jpg", { size: 2000000, installed: false }, false],
+        ["akane", "catalog", "ok", false, "/cache/akane.jpg", { size: 2000000, installed: false }, false],
         ["broken", "installed", "refused", true, null, null, false],
         ["dusk", "installed", "ok", true, null, null, false],
         ["mine", "installed", "ok", true, null, null, false],
         ["nord", "installed", "ok", true, "/t/nord/backgrounds/a.jpg", { size: 41617647, installed: false }, true],
-        ["plain", "catalog", "ok", false, "/c/thumbnails/plain.jpg", null, false],
+        ["plain", "catalog", "ok", false, null, null, false],
         ["vgs", "shipped", "ok", true, null, null, false]
     ]);
     same(built.find(c => c.name === "akane").palette, PALETTE, "a catalog card carries the index palette");
@@ -126,8 +126,8 @@ function verify(logic, files) {
     same(built.find(c => c.name === "akane").tokens, { palette: PALETTE }, "a catalog card carries the package tokens");
     same(built.find(c => c.name === "akane").terminal, TERMINAL, "a catalog card carries the terminal palette");
     same(built.find(c => c.name === "broken").reason, "unknown-token");
-    // A catalog install with no image shows its thumbnail.
-    same(logic.cards([pkg("nord", "installed", "ok")], [entry("nord", true, pin(9), true)], [], "vgs")[0].image, "/c/thumbnails/nord.jpg");
+    // A catalog install with no image shows its cached wallpaper.
+    same(logic.cards([pkg("nord", "installed", "ok")], [entry("nord", true, pin(9), true)], [], "vgs")[0].image, "/cache/nord.jpg");
     // The catalog or the image list failing leaves the listed packages.
     same(logic.cards(packages, null, null, "vgs").map(c => [c.name, c.image]), [["broken", null], ["dusk", null], ["mine", null], ["nord", null], ["vgs", null]]);
     same(logic.cards([], [], [], "vgs"), []);
@@ -389,6 +389,8 @@ const CONTROLS = [
     ["listed name wins", "if (hasOwn(listed, e.name)) continue;", ""],
     ["catalog install only", "hasOwn(catalog, p.name) && catalog[p.name].installed ? catalog[p.name] : null", "hasOwn(catalog, p.name) ? catalog[p.name] : null"],
     ["first image", "if (image.theme !== null && !hasOwn(first, image.theme)) first[image.theme] = image.path;", "if (image.theme !== null) first[image.theme] = image.path;"],
+    ["catalog card draws its cached wallpaper", "image: e.wallpaperPath,", "image: e.thumbnailPath,"],
+    ["catalog install draws its cached wallpaper", "entry !== null ? entry.wallpaperPath : null", "entry !== null ? entry.thumbnailPath : null"],
     ["name order", "out.sort(", "[].sort("],
     ["label matches", "|| card.label.toLowerCase().indexOf(needle) !== -1", ""],
     ["one list holds every theme", "return list.filter(function (card) { return matches(card, text); });", "return list.filter(function (card) { return card.installed && matches(card, text); });"],

@@ -84,12 +84,31 @@ Scope {
         return children.find(child => typeName(child) === "ThemeCard" && child.current || typeName(child) === "WallpaperCard" && view !== undefined && view.selected !== null && child.modelData.key === view.selected.key);
     }
 
+    // CARD's picture: null when the card draws none, else whether it is
+    // ready, the size it decodes at, which the carousel sets to the card's
+    // drawn size in device pixels once a glide ends, and with SIZES, each
+    // source file's [width, height] in pixels by path, whether it is low:
+    // its file smaller than that size on both sides, so the card shows it
+    // stretched. Qt scales a cropped decode up to the requested size, so
+    // the decoded size cannot tell, and a gliding card is still narrower
+    // than it settles. A file SIZES lacks reads as low, so an unmeasured
+    // source fails.
+    function cardPicture(card, sizes) {
+        const path = typeName(card) === "ThemeCard" ? card.picture : card.modelData.path;
+        if (typeof path !== "string" || path === "") return null;
+        const image = descendants(card).find(child => child instanceof Image && visibleInTree(child) && String(child.source) !== "" && child.status === Image.Ready);
+        if (image === undefined) return { ready: false, low: false };
+        const drawn = [image.sourceSize.width, image.sourceSize.height];
+        if (sizes === null) return { ready: true, low: false, drawn: drawn };
+        const size = sizes[decodeURIComponent(String(image.source).replace(/^file:\/\//, "").split("?")[0])];
+        return { ready: true, low: size === undefined || size[0] < drawn[0] && size[1] < drawn[1], drawn: drawn };
+    }
+
     function selectedPictureReady(item) {
         const card = selectedCard(item);
         if (card === undefined || !visibleInTree(card)) return false;
-        const path = typeName(card) === "ThemeCard" ? card.picture : card.modelData.path;
-        if (typeof path !== "string" || path === "") return true;
-        return descendants(card).some(child => child instanceof Image && visibleInTree(child) && String(child.source) !== "" && child.status === Image.Ready);
+        const picture = cardPicture(card, null);
+        return picture === null || picture.ready;
     }
 
     function latencyFrame(item, kind) {
@@ -109,7 +128,14 @@ Scope {
                 reading.steps = (reading.steps || 0) + 1;
                 reading.last = key;
             }
-            if (!selectedPictureReady(item)) reading.late = (reading.late || 0) + 1;
+            const picture = cardPicture(card, reading.sizes === undefined ? null : reading.sizes);
+            if (picture !== null && !picture.ready) reading.late = (reading.late || 0) + 1;
+            if (picture !== null && picture.ready) reading.cardSize = picture.drawn;
+            if (picture !== null && picture.low) reading.low = (reading.low || 0) + 1;
+            // The epoch time of the first frame drawing each selection's
+            // full picture, against which the row reads its key press.
+            if (reading.full === undefined) reading.full = {};
+            if (picture !== null && picture.ready && !picture.low && reading.full[key] === undefined) reading.full[key] = frameTime;
             return;
         }
         if (reading.kind === "open") {
@@ -183,7 +209,14 @@ Scope {
             root.themeLatency = { kind: kind, want: want, background: background, started: Date.now(), jobs: [] };
             return "ok";
         }
-        function themeLatencyRead(): string { return JSON.stringify(root.themeLatency); }
+        // Each picture file's [width, height] by path, for a step reading
+        // to judge the pictures it draws by.
+        function themeLatencySizes(sizes: string): string {
+            if (root.themeLatency === null || root.themeLatency.kind !== "step") return "no-step";
+            root.themeLatency.sizes = JSON.parse(sizes);
+            return "ok";
+        }
+        function themeLatencyRead(): string { return JSON.stringify(Object.assign({}, root.themeLatency, { sizes: undefined })); }
         function themeCatalogReady(): string {
             const row = (Plugins.built.overlay || []).find(row => row.id === "vgs.themes");
             return row !== undefined && catalogReady(row.instance) ? "ready" : "pending";

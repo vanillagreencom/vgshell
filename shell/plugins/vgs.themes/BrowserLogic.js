@@ -80,11 +80,13 @@ function label(name) {
 // IMAGES (null when it failed); CURRENT is the displayed package's name.
 // A listed package is the card for its name, since it is what an apply
 // applies: a shadowed row is skipped, a catalog install carries its
-// entry's wallpaper pin and thumbnail, and a catalog entry of a listed name
+// entry's wallpaper pin and cached wallpaper, and a catalog entry of a listed name
 // adds no card. Every other catalog entry is a card that is not installed.
 // A card's previewImage is the package's own preview.png when it ships one.
-// A card's image is its package's first image, else the entry's thumbnail,
-// else null for a card drawn from its palette or from the live preview.
+// A card's image is its package's first image, else the entry's first
+// wallpaper a preview fetch cached, else null for a card drawn from its
+// palette or from the live preview: never the catalog thumbnail, which
+// the selected card would draw stretched far past its size.
 //
 // A card is { name, label, source, state, reason, installed, palette,
 // tokens, terminal, previewImage, image, imagery, displayed }: `source`
@@ -118,7 +120,7 @@ function cards(packages, entries, images, current) {
             tokens: p.tokens,
             terminal: p.terminal,
             previewImage: p.previewPath,
-            image: hasOwn(first, p.name) ? first[p.name] : entry !== null ? entry.thumbnailPath : null,
+            image: hasOwn(first, p.name) ? first[p.name] : entry !== null ? entry.wallpaperPath : null,
             imagery: entry === null || entry.imagery === null ? null : { size: entry.imagery.size, installed: entry.imageryInstalled },
             displayed: p.state === "ok" && p.name === current
         });
@@ -137,7 +139,7 @@ function cards(packages, entries, images, current) {
             tokens: e.tokens === null ? { palette: e.palette } : Object.assign({ palette: e.palette }, e.tokens),
             terminal: e.terminal,
             previewImage: e.previewPath,
-            image: e.thumbnailPath,
+            image: e.wallpaperPath,
             imagery: e.imagery === null ? null : { size: e.imagery.size, installed: false },
             displayed: false
         });

@@ -31,7 +31,8 @@ function declaration(text, name) {
     assert.equal(depth, 0, name);
     return text.slice(start, at);
 }
-class Image { constructor(source, status = Image.Ready) { this.source = source; this.status = status; this.visible = true; } }
+// A picture the card decodes at 200x100 device pixels.
+class Image { constructor(source, status = Image.Ready) { this.source = source; this.status = status; this.visible = true; this.sourceSize = { width: 200, height: 100 }; } }
 Image.Ready = 1; Image.Loading = 2;
 function item(type, children = []) {
     const result = { children, visible: true, toString: () => type };
@@ -41,7 +42,7 @@ function item(type, children = []) {
 function reader(text) {
     let clock = 10;
     const context = vm.createContext({ root: { themeLatency: null }, Theme: { name: 'latency' }, Plugins: { built: { overlay: [] } }, Image, Date: { now: () => clock++ } });
-    for (const name of ['typeName', 'descendants', 'visibleInTree', 'desktopExposed', 'backgroundReady', 'selectedCard', 'selectedPictureReady', 'latencyFrame']) vm.runInContext(declaration(text, name), context);
+    for (const name of ['typeName', 'descendants', 'visibleInTree', 'desktopExposed', 'backgroundReady', 'selectedCard', 'cardPicture', 'selectedPictureReady', 'latencyFrame']) vm.runInContext(declaration(text, name), context);
     context.root.selectedPictureReady = context.selectedPictureReady;
     context.begin = (kind, want, background = '') => { context.root.themeLatency = { kind, want, background, started: 0, jobs: [] }; };
     return context;
@@ -97,19 +98,31 @@ function verify(text) {
     assert.equal(c.root.themeLatency.late, 2, 'hidden selected card must also fail');
     card.visible = true; picture.status = Image.Loading; c.latencyFrame(browser, 'overlay');
     assert.equal(c.root.themeLatency.late, 3, 'loading selected picture must fail');
+    picture.status = Image.Ready; c.root.themeLatency.sizes = { '/a.jpg': [120, 60], '/b.jpg': [200, 80] };
+    card.modelData = { name: 'five' }; c.latencyFrame(browser, 'overlay');
+    assert.equal(c.root.themeLatency.low, 1, 'a file smaller than its drawn size must count as low');
+    assert.equal(c.root.themeLatency.full.five, undefined, 'a low picture is not the full one');
+    picture.source = 'file:///c.jpg?2'; c.latencyFrame(browser, 'overlay');
+    assert.equal(c.root.themeLatency.low, 2, 'an unmeasured file must count as low');
+    picture.source = 'file:///b.jpg?2'; c.latencyFrame(browser, 'overlay');
+    assert.equal(c.root.themeLatency.low, 2, 'a file as wide as its drawn size is full');
+    assert.equal(typeof c.root.themeLatency.full.five, 'number', 'the first full frame stamps the selection');
 }
 verify(source);
 const controls = [
     ['browser dismissal', 'if (["bar", "background"].indexOf(kind) === -1 || !desktopExposed()) return;', ''],
     ['wallpaper readiness', 'if (reading.barFrame === undefined || (reading.background !== "" && reading.backgroundFrame === undefined)) return;', 'if (reading.barFrame === undefined) return;'],
     ['live requested wallpaper', 'if (background !== "" && !backgroundReady(background)) return;', ''],
-    ['missing selected picture', 'if (card === undefined || !visibleInTree(card)) { reading.late = (reading.late || 0) + 1; return; }', 'if (card === undefined || !visibleInTree(card)) return;']
+    ['missing selected picture', 'if (card === undefined || !visibleInTree(card)) { reading.late = (reading.late || 0) + 1; return; }', 'if (card === undefined || !visibleInTree(card)) return;'],
+    ['low selected picture', 'if (picture !== null && picture.low) reading.low = (reading.low || 0) + 1;', ''],
+    ['a low picture is not full', '&& !picture.low && reading.full[key]', '&& reading.full[key]'],
+    ['an unmeasured file is low', 'size === undefined || size[0]', 'size !== undefined && size[0]']
 ];
 for (const [label, needle, replacement] of controls) {
     assert.equal(source.split(needle).length, 2, label + ': exact control match');
     assert.throws(() => verify(source.replace(needle, replacement)), { name: 'AssertionError' }, label + ': reader without this rule must fail');
 }
-console.log('theme-latency-reader: ok controls=4 browser-held=refused wallpaper-loading=refused retained-live=refused selected-missing=refused');
+console.log('theme-latency-reader: ok controls=7 browser-held=refused wallpaper-loading=refused retained-live=refused selected-missing=refused selected-low=refused low-full=refused unmeasured-low=refused');
 JS
 
 cp -- "$repo/scripts/smoke/ThemeLatencyProbe.qml" "$repo/shell/ThemeLatencyProbe.qml"
@@ -159,6 +172,13 @@ expect "theme reading over 292 ms fails below the median limit" over latency_the
 expect "theme median at 150 ms and reading at 292 ms pass" within latency_theme_bound '[{"drawn":292},{"drawn":150},{"drawn":150},{"drawn":150},{"drawn":150},{"drawn":0}]'
 latency_theme_value() { ipc smoke readDescendant overlay vgs.themes ThemeView "$1"; }
 latency_steps() { latency_read | py_reply 'import json,sys; x=json.load(sys.stdin); print("ready" if x.get("steps",0)>2 and x.get("late",0)==0 else "steps=%s late=%s" % (x.get("steps",0),x.get("late",0)))'; }
+latency_low() { latency_read | py_reply 'import json,sys; print(json.load(sys.stdin).get("low",0))'; }
+latency_low_seen() { latency_read | py_reply 'import json,sys; print(json.load(sys.stdin).get("low",0) > 0)'; }
+# The epoch ms of the first frame drawing card NAME's full picture, or
+# `pending`; latency_full_drawn NAME answers `drawn` once there is one.
+latency_full_at() { latency_read | py_reply 'import json,sys; t=json.load(sys.stdin).get("full",{}).get(sys.argv[1]); print("pending" if t is None else t)' "$1"; }
+latency_full_drawn() { [[ $(latency_full_at "$1") == pending ]] && echo pending || echo drawn; }
+latency_moved() { [[ $(latency_theme_value selectedName) != "$1" ]] && echo moved || echo same; }
 latency_catalog_ready() { latency_theme_value entries | py_reply 'import json,sys; print("ready" if isinstance(json.load(sys.stdin),list) else "pending")'; }
 latency_installed() { latency_theme_value shownCards | py_reply 'import json,sys; print(any(c["name"]=="latency" and c["installed"] for c in json.load(sys.stdin)))'; }
 latency_wall_value() { ipc smoke readDescendant overlay vgs.themes WallpaperView "$1"; }
@@ -190,6 +210,21 @@ exec '$repo/bin/vgshell.latency-real' "\$@"
 EOF
 chmod +x "$repo/bin/vgshell"
 latency_catalog_held() { [[ -e $latency_started ]] && echo held || echo pending; }
+# The switch reading's catalog themes, the filter `ar` shows, with their
+# first wallpapers in the preview cache as a fetch leaves them: a 3840x2160
+# image, a desktop's wallpaper, for the six it steps through, and the
+# 480-pixel catalog thumbnail for lunar, its control.
+latency_previews="$home/.cache/vgshell/theme-assets/previews"
+mkdir -p -- "$latency_previews"
+"$imagemagick" "$repo/themes/catalog/thumbnails/akane.jpg" -resize 3840x2160\! "$sandbox/latency-wallpaper.jpg" || fail "the switch wallpaper could not be made"
+latency_pins="$(python3 -c 'import json,sys; print(" ".join(e["name"] + "=" + e["imagery"]["sha256"] for e in json.load(open(sys.argv[1]))["entries"] if "ar" in e["name"]))' "$repo/themes/catalog/index.json")" || fail "the switch themes' pins are unreadable"
+for latency_pin in $latency_pins; do
+  if [[ ${latency_pin%%=*} == lunar ]]; then
+    cp -- "$repo/themes/catalog/thumbnails/akane.jpg" "$latency_previews/${latency_pin#*=}-a.jpg"
+  else
+    ln -- "$sandbox/latency-wallpaper.jpg" "$latency_previews/${latency_pin#*=}-a.jpg"
+  fi
+done
 expect "the theme service enables for latency readings" ok ipc shell setPluginEnabled vgs.themes true
 expect_poll "the theme service builds" false ipc smoke readInstance service vgs.themes setupPending
 expect_poll "the catalog answer is held behind installed rows" held latency_catalog_held
@@ -247,6 +282,43 @@ type_keys -P Right -s 900 -p Right || fail "the held theme key failed"
 expect "held theme steps keep the selected picture ready" ready latency_steps
 type_keys -k Escape || fail "the held theme browser close failed"
 expect_poll "the held theme browser closes" 0 layer_count vgs:overlay
+
+# Five switches over catalog themes, one Right each, the next pressed once
+# the last drew its full picture: no frame draws the selected picture
+# decoded smaller than the card, and each press reaches it. The row prints
+# each press-to-full time.
+type_keys -M logo -M ctrl -k t -m ctrl -m logo || fail "the switch browser open failed"
+expect_poll "the switch browser holds the keyboard" true latency_theme_value activeFocus
+type_keys ar || fail "the switch filter failed"
+expect_poll "the switch filter selects the first catalog theme" '"arc-blueberry"' latency_theme_value selectedName
+expect_poll "the first switch picture has drawn before arming" ready ipc theme-latency selectedPictureReady
+expect "the switch frame observer arms" ok ipc theme-latency themeLatencyBegin step '' ''
+latency_files=("$repo"/themes/catalog/thumbnails/*.jpg "$latency_previews"/*)
+latency_sizes="$("$imagemagick" -ping "${latency_files[@]}" -format '%d/%f %w %h\n' info: | python3 -c 'import json,os,sys
+rows = [l.rsplit(" ", 2) for l in sys.stdin.read().splitlines()]
+assert len(rows) == int(sys.argv[1]), "measured %d of %s files" % (len(rows), sys.argv[1])
+print(json.dumps({k: [int(w), int(h)] for p, w, h in rows for k in (p, os.path.realpath(p))}))' "${#latency_files[@]}")" || fail "the switch pictures could not be measured"
+expect "the switch reading takes the pictures' sizes" ok ipc theme-latency themeLatencySizes "$latency_sizes"
+for latency_switch in 1 2 3 4 5; do
+  latency_from="$(latency_theme_value selectedName)" || fail "switch $latency_switch: the selection is unreadable"
+  latency_pressed="$(now_ms)"
+  type_keys -k Right || fail "switch $latency_switch: the key failed"
+  expect_poll "switch $latency_switch moves the selection" moved latency_moved "$latency_from"
+  latency_to="$(latency_theme_value selectedName | tr -d '"')"
+  expect_poll "switch $latency_switch draws $latency_to's full picture" drawn latency_full_drawn "$latency_to"
+  latency_full="$(latency_full_at "$latency_to")"
+  [[ $latency_full == pending ]] || latency_full="$((latency_full - latency_pressed))"
+  printf 'theme-latency: switch=%s card=%s press_to_full_ms=%s\n' "$latency_switch" "$latency_to" "$latency_full"
+done
+expect "five catalog switches draw no picture smaller than its card" 0 latency_low
+printf 'theme-latency: switches=%s\n' "$(latency_read)"
+# Control: lunar's cached wallpaper is the catalog thumbnail, which the
+# card can only draw stretched; the reader counts its frames.
+type_keys -k Right || fail "the control switch key failed"
+expect_poll "the control switch selects lunar" '"lunar"' latency_theme_value selectedName
+expect_poll "control: a picture smaller than its card reads as low" True latency_low_seen
+type_keys -k Escape -k Escape || fail "the switch browser close failed"
+expect_poll "the switch browser closes" 0 layer_count vgs:overlay
 
 type_keys -M logo -M ctrl -k t -m ctrl -m logo || fail "the apply browser open failed"
 expect_poll "the apply browser reads cards" true latency_theme_value loaded
@@ -355,7 +427,8 @@ expect "vgs restores after latency readings" 'ok theme=vgs state=applied shell=a
 expect_poll "vgs restores the shell" vgs ipc smoke themeName
 cp -p -- "$sandbox/hyprland-before-latency.lua" "$hypr_lua"
 expect "latency input bindings restore" ok hypr reload config-only
-rm -r -- "${home:?}/.config/vgshell/themes/latency" "${home:?}/.config/vgshell/themes/sample-peer"
+rm -r -- "${home:?}/.config/vgshell/themes/latency" "${home:?}/.config/vgshell/themes/sample-peer" "${latency_previews:?}"
+rm -- "$sandbox/latency-wallpaper.jpg"
 
 expect "the latency observer drops" ok ipc smoke runnerDrop
 rm -- "$repo/shell/ThemeLatencyProbe.qml"

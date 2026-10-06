@@ -290,7 +290,7 @@ check "preview wrote the image byte for byte" cmp -s "$tmp/one.png" "$preview_di
 
 rm -rf -- "$themes/moor/backgrounds"; cp -- "$tmp/snapshot/.vgs-catalog.json" "$marker"
 rm -rf -- "$preview_dir"; mkdir -p "$preview_dir"; printf 'partial\n' >"$preview_dir/$r1_sha-0-one.png.part"
-judge_control part-hit 'cachedPreview = fs.readdirSync(previewCacheDir(), { withFileTypes: true }).find(entry => entry.isFile() && entry.name.startsWith(pin.sha256 + "-") && !entry.name.endsWith(".part"));' 'cachedPreview = fs.readdirSync(previewCacheDir(), { withFileTypes: true }).find(entry => entry.isFile() && entry.name.startsWith(pin.sha256 + "-"));'
+judge_control part-hit 'const entry = entries.find(entry => entry.isFile() && entry.name.startsWith(pin.sha256 + "-") && !entry.name.endsWith(".part"));' 'const entry = entries.find(entry => entry.isFile() && entry.name.startsWith(pin.sha256 + "-"));'
 tinst "the part-hit mutant returns the stale preview part" "$cfg" "$rt_empty" 0 "$any_out" "" theme preview --json moor
 check "the part-hit mutant reports the .part path" last_json 'd["state"] == "ok" and d["path"].endswith(".part")'
 unset THEME_BIN

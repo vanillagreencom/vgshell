@@ -34,9 +34,9 @@ Item {
     readonly property var swatches: BrowserLogic.swatches(modelData.palette, modelData.tokens)
     readonly property bool packagePreview: typeof modelData.previewImage === "string" && modelData.previewImage !== ""
     readonly property bool live: !packagePreview && modelData.state === "ok"
-    // The first wallpaper: the sharpened catalog image once it lands, else
-    // the package's first image or the catalog thumbnail.
-    readonly property string wallpaper: typeof modelData.sharpenedImage === "string" && modelData.sharpenedImage !== "" ? modelData.sharpenedImage : typeof modelData.image === "string" ? modelData.image : ""
+    // The first wallpaper: the package's first image or the catalog
+    // wallpaper on disk, else the one the browser fetched for this card.
+    readonly property string wallpaper: typeof modelData.image === "string" ? modelData.image : typeof modelData.sharpenedImage === "string" ? modelData.sharpenedImage : ""
     readonly property string image: packagePreview ? modelData.previewImage : live ? wallpaper : ""
     readonly property bool expanded: current && (packagePreview || live)
     // The image the card draws, "" for none: a slice draws none.
