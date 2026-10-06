@@ -30,8 +30,7 @@
 # needs travels in its argv, never in the environment: a single-instance
 # terminal opens the window from a process that was already running.
 #
-# present clears the screen, prints bin/lib/logo.txt with no colour, in the
-# terminal's own foreground,
+# present clears the screen, prints bin/lib/logo.txt in the theme accent,
 # runs argv as a list, never through a shell, and keeps its exit code.
 # Unless the code is 130, a Ctrl-C, it shows the library's closing prompt,
 # vgs_tui_close_prompt: `● Done! Press any key to close...` or `● Failed
@@ -99,10 +98,9 @@
 # shell judges both, and this file only keeps its file names safe. A key
 # lock's name holds one `@` and a run lock's two, and neither ends in .json.
 #
-# bin/lib/logo.txt is the VGS mark: the owner's VG logo with an S drawn from
-# the G's strokes, a filled shape in Unicode block and quadrant characters,
-# 9 lines by 63 columns. It is the one copy of the mark; every caller reads
-# the file.
+# bin/lib/logo.txt is the VGS mark: the letters V, G and S in full blocks
+# with a light-shade shadow, 9 lines by 48 columns. It is the one copy of
+# the mark; every caller reads the file.
 #
 # Every refusal prints one keyed line first: `vgshell-tui: refused: <key>=<value>`.
 # launch exits 2 on a bad invocation, 69 when xdg-terminal-exec is not on
@@ -439,9 +437,9 @@ present() {
     unset VGS_PLUGIN_ID VGS_PLUGIN_DIR
   fi
   if [[ $presentation == full ]]; then
-    printf '\033[H\033[2J\033[3J'
+    printf '\033[H\033[2J\033[3J%s' "$(vgs_tui_sgr "${VGS_TUI_ACCENT:-}" 33)"
     cat -- "$logo" || :
-    printf '\n'
+    printf '\033[0m\n'
   fi
   if [[ -n $refusal ]]; then
     printf 'vgshell-tui: refused: %s\n' "$refusal" >&2

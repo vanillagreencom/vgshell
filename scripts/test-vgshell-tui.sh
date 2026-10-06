@@ -142,10 +142,11 @@ check "a valid gum.env exports a gum colour" grep -qxF "CONFIRM=#aabbcc" "$tmp/o
 check "a valid gum.env exports the accent" grep -qxF "ACCENT=#FF5A36" "$tmp/out"
 check "a valid gum.env warns nothing" test ! -s "$tmp/err"
 on_tty "$subject" present -- exits 0
-# The logo takes no colour, the accent's above all: the clear runs straight
-# into its first line, and the accent appears nowhere.
-logo_plain() { python3 -c 'import sys; o = open(sys.argv[1], encoding="utf-8").read(); sys.exit(0 if "\033[3J" + sys.argv[2] in o and "\033[38;2;255;90;54m" not in o else 1)' "$tmp/out" "${logo_lines[0]}"; }
-check "the logo is drawn in the terminal's own foreground" logo_plain
+# The accent wraps the logo: the clear, the accent's truecolor escape and the
+# first line run together, and the reset follows the last line.
+logo_accent() { python3 -c 'import re,sys; o = open(sys.argv[1], encoding="utf-8").read()
+sys.exit(0 if "\033[3J\033[38;2;255;90;54m" + sys.argv[2] in o and re.search(re.escape(sys.argv[3]) + "\r?\n\033\\[0m", o) else 1)' "$tmp/out" "${logo_lines[0]}" "${logo_lines[-1]}"; }
+check "the logo is drawn in the theme accent" logo_accent
 bad_lines=(
   "PATH=#000000"
   "GUM_CONFIRM_PROMPT_FOREGROUND=red"
@@ -873,10 +874,13 @@ plain_run "$control_bin" present --presentation plain -- record 'a b' "\$(touch 
 check "the shell-string mutant runs an argument as shell code" test -e "$tmp/planted"
 rm -f -- "$tmp/planted"
 
-control accent-logo vgshell-tui $'    printf \'\\033[H\\033[2J\\033[3J\'\n' $'    printf \'\\033[H\\033[2J\\033[3J%s\' "$(vgs_tui_sgr "${VGS_TUI_ACCENT:-}" 33)"\n'
 printf '%s\n' "VGS_TUI_ACCENT=#FF5A36" >"$gum_env"
+control plain-logo vgshell-tui $'    printf \'\\033[H\\033[2J\\033[3J%s\' "$(vgs_tui_sgr "${VGS_TUI_ACCENT:-}" 33)"\n' $'    printf \'\\033[H\\033[2J\\033[3J\'\n'
 on_tty "$control_bin" present -- exits 0
-check "the accent-logo mutant fails the own-foreground check" test "$(logo_plain && echo plain || echo coloured)" == coloured
+check "the plain-logo mutant fails the accent check" test "$(logo_accent && echo accent || echo plain)" == plain
+control unreset-logo vgshell-tui $'    cat -- "$logo" || :\n    printf \'\\033[0m\\n\'\n' $'    cat -- "$logo" || :\n    printf \'\\n\'\n'
+on_tty "$control_bin" present -- exits 0
+check "the unreset-logo mutant fails the accent check" test "$(logo_accent && echo accent || echo unreset)" == unreset
 rm -f -- "$gum_env"
 
 control first-logo-line vgshell-tui '    cat -- "$logo" || :' '    head -n 1 -- "$logo" || :'
@@ -890,7 +894,7 @@ other_logo="$tmp/control-other-logo"
 tui_tree "$other_logo" "$repo/shell"
 rm -- "$other_logo/bin/lib"
 cp -R -- "$repo/bin/lib" "$other_logo/bin/lib"
-python3 -c 'import sys; p = sys.argv[1]; l = open(p).read().split("\n"); l[-2] = l[-2].replace("█", "▓"); open(p, "w").write("\n".join(l))' "$other_logo/bin/lib/logo.txt"
+python3 -c 'import sys; p = sys.argv[1]; l = open(p).read().split("\n"); l[-2] = l[-2].translate({ord("█"): "▓", ord("░"): "▒"}); open(p, "w").write("\n".join(l))' "$other_logo/bin/lib/logo.txt"
 check "the other-logo mutant differs" test "$(cmp -s "$logo" "$other_logo/bin/lib/logo.txt"; echo $?)" == 1
 on_tty "$other_logo/bin/vgshell-tui" present -- exits 0
 check "the other-logo mutant fails the whole-logo check" test "$(logo_drawn && echo drawn || echo short)" == short
