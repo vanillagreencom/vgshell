@@ -2439,11 +2439,9 @@ function catalogList(format, configDir) {
         const digest = marker === null ? null : packageDigest(source, key);
         const thumbnailPath = entry.thumbnail === null ? null : path.join(SHIPPED, CATALOG, entry.thumbnail);
         const verdict = logic.acceptPackage(tokens, { directoryName: entry.name, themeJson: text(source.files.theme), terminalJson: text(source.files.terminal), shipped: false });
-        const catalogPreview = previewPath(source.path);
-        const installedPreview = realDirectory(dir, key) ? previewPath(dir) : null;
         return Object.assign({}, entry, {
             thumbnailPath,
-            previewPath: installedPreview === null ? catalogPreview : installedPreview,
+            previewPath: previewPath(source.path),
             tokens: verdict.ok ? previewTokens(verdict.values, false) : null,
             terminal: verdict.ok ? verdict.terminal : null
         }, catalog.installState(entry, marker, digest));

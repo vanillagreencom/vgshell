@@ -123,6 +123,12 @@ unset THEME_BIN
 printf 'own\n' >"$themes/ivy/preview.jpg"
 tinst "list --json lists the git install with its own preview" "$cfg" "$rt_empty" 0 "$any_out" "" theme list --json
 check "list gives a git install its own preview" test "$(list_preview ivy)" == "$themes/ivy/preview.jpg"
+catalog_json "$cfg"
+check "catalog gives the entry of an installed name its catalog package's preview" json_is "$tmp/catalog.json" 'd["entries"][2]["previewPath"] == "'"$shelf/ivy/preview.jpg"'"'
+judge_control catalog-installed-preview '            previewPath: previewPath(source.path),' '            previewPath: previewPath(realDirectory(dir, key) ? dir : source.path),'
+catalog_json "$cfg"
+check "the catalog-installed-preview mutant gives the catalog entry the installed package's preview" json_is "$tmp/catalog.json" 'd["entries"][2]["previewPath"] == "'"$themes/ivy/preview.jpg"'"'
+unset THEME_BIN
 judge_control own-unpreferred '    if (own !== null || row.source !== "installed") return own;' '    if (row.source !== "installed") return own;'
 tinst "the own-unpreferred mutant lists the git install" "$cfg" "$rt_empty" 0 "$any_out" "" theme list --json
 check "the own-unpreferred mutant drops the git install's own preview" test "$(list_preview ivy)" == None
