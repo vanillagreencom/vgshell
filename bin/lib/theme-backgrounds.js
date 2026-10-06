@@ -24,7 +24,7 @@
 "use strict";
 const fs = require("fs");
 const path = require("path");
-const { spawnSync } = require("child_process");
+const { spawn, spawnSync } = require("child_process");
 const { refuse, readJson, writing, replaceFile } = require(path.join(__dirname, "judge-files.js"));
 
 const DIR = "backgrounds";
@@ -208,26 +208,54 @@ function choose(list, remembered) {
 }
 
 // Keep STATE_DIR's background-square.png the centre square of CURRENT, a
-// stamped image or null, scaled down to at most 1024 px: written by rename
-// when CURRENT differs from BEFORE, the stamped image `read` answered, or
-// the file is absent, removed with no
-// image. ImageMagick is a package dependency. An image it cannot read, or
-// its absence, leaves no file rather than refusing the background change,
-// and fastfetch then draws its ASCII logo: the crop is that logo alone.
+// stamped image or null, scaled down to at most 1024 px: removed here with
+// no image, and cropped by `cropSquare` in a detached process when CURRENT
+// differs from BEFORE, the stamped image `read` answered, or the file is
+// absent. The caller's answer never waits for ImageMagick, and the theme
+// browser closes on that answer: on cachy, 2026-10-06, `magick` took 107 to
+// 119 ms to crop a 3840x2160 JPEG. ImageMagick is a package dependency. An
+// image it cannot read, or its absence, leaves no file rather than refusing
+// the background change, and fastfetch then draws its ASCII logo: the crop
+// is that logo alone.
 function landSquare(stateDir, current, before, key) {
     const square = path.join(stateDir, SQUARE);
-    const remove = () => writing(square, key, () => fs.rmSync(square, { force: true }));
-    if (current === null) return remove();
+    if (current === null) return writing(square, key, () => fs.rmSync(square, { force: true }));
     const same = before !== null && before.path === current.path && before.stamp === current.stamp;
     if (same && lstatOrNull(square, key) !== null) return;
+    const crop = spawn(process.execPath, [__filename, "crop", stateDir, current.path, current.stamp], { detached: true, stdio: "ignore" });
+    crop.on("error", () => fs.rmSync(square, { force: true }));
+    crop.unref();
+}
+
+// The detached crop of IMAGE, stamped STAMP, into a scratch file that
+// replaces STATE_DIR's square only while backgrounds.json still names IMAGE
+// at STAMP current, so a crop that a later change overtook never replaces
+// that change's square. An image ImageMagick cannot read removes the square
+// on the same condition. Nothing reads this process's output.
+function cropSquare(stateDir, image, stamp) {
+    const square = path.join(stateDir, SQUARE);
     const tmp = square + ".vgshell-" + process.pid;
-    const run = spawnSync("magick", [current.path, "-auto-orient", "-gravity", "center", "-crop", "1:1", "+repage",
-        "-resize", "1024x1024>", "-define", "png:compression-level=1", "png:" + tmp], { stdio: "ignore" });
-    if (run.error !== undefined || run.status !== 0) {
-        writing(tmp, key, () => fs.rmSync(tmp, { force: true }));
-        return remove();
+    try {
+        const run = spawnSync("magick", [image, "-auto-orient", "-gravity", "center", "-crop", "1:1", "+repage",
+            "-resize", "1024x1024>", "-define", "png:compression-level=1", "png:" + tmp], { stdio: "ignore" });
+        if (!stillCurrent(stateDir, image, stamp)) return;
+        if (run.error === undefined && run.status === 0) fs.renameSync(tmp, square);
+        else fs.rmSync(square, { force: true });
+    } finally {
+        fs.rmSync(tmp, { force: true });
     }
-    writing(square, key, () => fs.renameSync(tmp, square));
+}
+
+// Whether STATE_DIR's backgrounds.json names IMAGE at STAMP current. A file
+// that cannot be read or parsed names no image.
+function stillCurrent(stateDir, image, stamp) {
+    let doc;
+    try {
+        doc = JSON.parse(fs.readFileSync(path.join(stateDir, STATE_FILE), "utf8"));
+    } catch (e) {
+        return false;
+    }
+    return doc !== null && typeof doc === "object" && doc.current === image && doc.stamp === stamp;
 }
 
 // Make AFTER, a state as `read` answers it, the background state: the
@@ -274,3 +302,5 @@ function land(stateDir, after, before, key) {
 }
 
 module.exports = { DIR, STATE_FILE, LINK, isImageName, entryKind, firstImageName, images, imagePath, locate, stamped, read, choose, land, landSquare };
+
+if (require.main === module && process.argv.length === 6 && process.argv[2] === "crop") cropSquare(...process.argv.slice(3));
