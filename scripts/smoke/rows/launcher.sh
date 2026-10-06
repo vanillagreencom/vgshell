@@ -45,6 +45,35 @@ theme="$home/.config/vgshell/theme.json"
 write_theme() { printf '%s\n' "$1" >"$theme.tmp" && mv -T -- "$theme.tmp" "$theme"; }
 user_menu="$home/.config/vgshell/launcher/menu.json"
 write_menu() { mkdir -p -- "${user_menu%/*}" && printf '%s\n' "$1" >"$user_menu.tmp" && mv -T -- "$user_menu.tmp" "$user_menu"; }
+launcher_shell_config="$home/.config/vgshell/shell.json"
+launcher_save_shell_config() { # NAME
+  if [[ -e $launcher_shell_config ]]; then
+    cp -p -- "$launcher_shell_config" "$sandbox/launcher-shell-$1.json"
+  else
+    rm -f -- "$sandbox/launcher-shell-$1.json"
+    : >"$sandbox/launcher-shell-$1.absent"
+  fi
+}
+launcher_same_shell_config() { # NAME
+  if [[ -e $sandbox/launcher-shell-$1.json ]]; then
+    if cmp -s -- "$launcher_shell_config" "$sandbox/launcher-shell-$1.json"; then echo same; else echo differs; fi
+  elif [[ -e $launcher_shell_config ]]; then
+    echo present
+  else
+    echo same
+  fi
+}
+launcher_restore_shell_config() { # NAME LABEL
+  if [[ -e $sandbox/launcher-shell-$1.json ]]; then
+    cp -p -- "$sandbox/launcher-shell-$1.json" "$launcher_shell_config.next"
+    mv -T -- "$launcher_shell_config.next" "$launcher_shell_config"
+  else
+    rm -f -- "${launcher_shell_config:?}"
+  fi
+  expect "$2: the shell reads the restored configuration" ok ipc shell reloadConfig
+  expect_poll "$2: the restored configuration settles" true ipc smoke configSettled
+  expect "$2: shell.json is as vgs.updates found it" same launcher_same_shell_config "$1"
+}
 selection="$rt_dir/launcher-selection"
 done_file="$rt_dir/launcher-done"
 reset_answer() { rm -f -- "${selection:?}" "${done_file:?}"; }
@@ -229,6 +258,9 @@ hover "$((mon_w / 2))" "$((mon_h / 2))" || fail "resting the pointer at the scre
 expect "vgs.updates starts disabled for Packages" False plugin_enabled vgs.updates
 categories "Packages disabled"
 expect "Packages is absent before vgs.updates is enabled" False launcher_has_row menu Packages
+launcher_save_shell_config packages
+# The shipped updates service would probe the real host without a fresh cache.
+updates_cache_fresh
 expect "enabling vgs.updates while the launcher is open is allowed" ok ipc shell setPluginEnabled vgs.updates true
 expect_poll "vgs.updates' service is built for Packages" True record_exists vgs.updates
 expect_poll "control: Packages appears when vgs.updates is enabled" True launcher_has_row menu Packages
@@ -273,8 +305,23 @@ categories "Packages disable"
 expect "Packages shows while vgs.updates is enabled" True launcher_has_row menu Packages
 expect "disabling vgs.updates while the launcher is open is allowed" ok ipc shell setPluginEnabled vgs.updates false
 expect_poll "the open launcher hides Packages once vgs.updates is disabled" False launcher_has_row menu Packages
+launcher_restore_shell_config packages "after Packages"
 type_keys -k Escape || fail "sending Escape failed"
 expect_poll "Escape closes the launcher after Packages" 0 layer_count vgs:overlay
+
+write_menu '{ "schemaVersion": 1, "items": { "tools.smoke-update": { "label": "Smoke update", "icon": "refresh-cw", "tuiGroup": "Update" } } }'
+expect "the Update fixture starts disabled, as tui.sh left it" False plugin_enabled acme.tui
+expect "the launcher opens Tools for the smoke update row" ok ipc shell summon overlay vgs.launcher '{"menu":"tools"}'
+expect_poll "the Tools menu is open for the smoke update row" '"tools"' read_launcher activeMenu
+focused "the Tools menu holds the keyboard for the smoke update row"
+expect "Smoke update is hidden while the Update fixture is disabled" False launcher_has_row tui "Smoke update"
+expect "enabling the Update fixture while the launcher is open is allowed" ok ipc shell setPluginEnabled acme.tui true
+expect_poll "the open launcher shows Smoke update once the fixture lists Update" True launcher_has_row tui "Smoke update"
+expect "disabling the Update fixture while the launcher is open is allowed" ok ipc shell setPluginEnabled acme.tui false
+expect_poll "the open launcher hides Smoke update once the fixture leaves Update" False launcher_has_row tui "Smoke update"
+type_keys -k Escape || fail "sending Escape after the smoke update row failed"
+expect_poll "Escape closes the launcher after the smoke update row" 0 layer_count vgs:overlay
+rm -f -- "${user_menu:?}"
 
 # Plugin-published launcher providers: the category is hidden until the
 # fixture publishes rows, live rows search from the root, and activation
@@ -307,6 +354,9 @@ expect_poll "Escape closes the launcher after provider disable" 0 layer_count vg
 # state missing through one launch that answered ok; the next pick answers
 # launcher-missing at once. The real one returns, and the probe a direct
 # request starts finds the terminal again.
+launcher_save_shell_config launcher-missing
+# The shipped updates service would probe the real host without a fresh cache.
+updates_cache_fresh
 expect "enabling vgs.updates for launcher-missing is allowed" ok ipc shell setPluginEnabled vgs.updates true
 expect_poll "vgs.updates is built for launcher-missing" True record_exists vgs.updates
 cp -- "$sandbox/vgshell-tui.missing" "$repo/bin/vgshell-tui.next" && mv -T -- "$repo/bin/vgshell-tui.next" "$repo/bin/vgshell-tui"
@@ -326,6 +376,7 @@ expect "a request before the next probe answers launcher-missing" "refused: tui=
 expect_poll "the probe that request started finds the terminal again" '"present"' lent tui.launcher
 expect "disabling vgs.updates after launcher-missing is allowed" ok ipc shell setPluginEnabled vgs.updates false
 expect_poll "vgs.updates is gone after launcher-missing" False record_exists vgs.updates
+launcher_restore_shell_config launcher-missing "after launcher-missing"
 type_keys -k Escape || fail "sending Escape failed"
 expect_poll "Escape closes the refused launcher" 0 layer_count vgs:overlay
 
@@ -472,6 +523,24 @@ if launcher_mutant "the undirected control" 'command: ["mkdir", "-p", "--", root
 fi
 rm -f -- "${user_menu:?}"
 
+# A copy that resolves its TUI rows only when its menus are read keeps a
+# user menu's Update group row hidden when the fixture is enabled while it
+# is open. It waits the five seconds the real launcher had to show the row
+# above.
+if launcher_mutant "the unresolved control" 'onTuiEntriesChanged: {' 'function unresolved() {'; then
+  write_menu '{ "schemaVersion": 1, "items": { "tools.smoke-update": { "label": "Smoke update", "icon": "refresh-cw", "tuiGroup": "Update" } } }'
+  expect "the unresolved control opens Tools" ok ipc shell summon overlay vgs.launcher '{"menu":"tools"}'
+  expect_poll "the unresolved control opens the Tools menu" '"tools"' read_launcher activeMenu
+  focused "the unresolved control holds the keyboard"
+  expect "the unresolved control hides Smoke update" False launcher_has_row tui "Smoke update"
+  expect "enabling the Update fixture under the unresolved control is allowed" ok ipc shell setPluginEnabled acme.tui true
+  sleep 5
+  expect "the unresolved control keeps Smoke update hidden" False launcher_has_row tui "Smoke update"
+  expect "disabling the Update fixture under the unresolved control is allowed" ok ipc shell setPluginEnabled acme.tui false
+  expect "the host hides the unresolved control" ok ipc shell hide overlay vgs.launcher
+  expect_poll "the unresolved control closed" 0 layer_count vgs:overlay
+  rm -f -- "${user_menu:?}"
+fi
 launcher_source "the restored launcher" "$sandbox/Launcher.qml.real" || true
 
 # A payload the judge refuses throws out of open(), and the host refuses the
