@@ -213,11 +213,11 @@ function suite(ctx, check) {
     const keyhintsUnbound = ctx.hyprlandSection({ plugins: [{ id: "vgs.keyhints", keys: { toggle: null } }] }, binder("vgs.keyhints", "toggle", "SUPER+SLASH"));
     const keyhintsMoved = ctx.hyprlandSection({ plugins: [{ id: "vgs.keyhints", keys: { toggle: "SUPER+SHIFT+K" } }] }, binder("vgs.keyhints", "toggle", "SUPER+SLASH"));
     const PLUGINS_LINE = "VGS is a bar and a set of plugins on top of your Hyprland. Turn plugins on and off from the plugins button at the top right of the bar.";
-    const LINE_LINE = "VGS adds one line to the top of your hyprland.lua. It loads a file VGS generates. Your own settings come after it and win. VGS changes nothing else in that file.";
+    const LINE_LINE = "VGS adds one line to the top of your hyprland.lua. It loads a file VGS generates. VGS changes nothing else in that file.";
     const KEYS_LINE = "Super+/ shows every key VGS adds.";
     const THEME_LINE = "Super+T picks a theme.";
     const QUESTION = "Let VGS manage its Hyprland settings?";
-    const QUESTION_MESSAGE = "One line at the top of hyprland.lua loads the keys, border colours and blur rules VGS generates. Your own settings after it still win.";
+    const QUESTION_MESSAGE = "One line at the top of hyprland.lua loads the keys, border colours and blur rules VGS generates. VGS changes no other line of that file.";
     const CONNECT = [{ label: "Connect", role: "accept", answer: "connect" }, { label: "Not now", role: "cancel", answer: "decline" }];
     const CLOSE = [{ label: "Close", role: "cancel", answer: "close" }];
     const phase = (name, queued, failure) => ({ phase: name, queued: queued || "", failure: failure || "" });

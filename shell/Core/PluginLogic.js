@@ -1861,7 +1861,7 @@ var WELCOME = {
     title: "Welcome to VGS",
     lines: [
         "VGS is a bar and a set of plugins on top of your Hyprland. Turn plugins on and off from the plugins button at the top right of the bar.",
-        "VGS adds one line to the top of your hyprland.lua. It loads a file VGS generates. Your own settings come after it and win. VGS changes nothing else in that file."
+        "VGS adds one line to the top of your hyprland.lua. It loads a file VGS generates. VGS changes nothing else in that file."
     ],
     close: "Close"
 };
@@ -3754,6 +3754,32 @@ function withSetting(user, manifest, key, value, effective, targets, locator) {
         row[key] = clone(value);
         out.plugins = plugins;
     }
+    return out;
+}
+
+// The user-file change that removes one setting of one plugin from each of
+// `targets`, so the plugin reads its manifest's default again and the
+// Hyprland layer stops writing the option the setting maps to. "layout"
+// removes the key from the user file's layout entries with the plugin's id,
+// or with `locator` from that one entry; "plugins" removes it from the
+// user file's plugins[] row. An entry the user file does not hold is not
+// seeded.
+function withoutSetting(user, manifest, key, targets, locator) {
+    var out = isPlainObject(user) ? clone(user) : {};
+    if (out.version === undefined) out.version = CONFIG_VERSION;
+    if (targets.indexOf("layout") !== -1 && isPlainObject(out.bar) && isPlainObject(out.bar.layout)) {
+        SECTIONS.forEach(function (section) {
+            if (isPlainObject(locator) && locator.section !== section) return;
+            var seen = 0;
+            (Array.isArray(out.bar.layout[section]) ? out.bar.layout[section] : []).forEach(function (entry) {
+                if (entry.id !== manifest.id) return;
+                if (!isPlainObject(locator) || seen === locator.nth) delete entry[key];
+                seen += 1;
+            });
+        });
+    }
+    var row = targets.indexOf("plugins") !== -1 ? pluginRow(out, manifest.id) : undefined;
+    if (row !== undefined) delete row[key];
     return out;
 }
 

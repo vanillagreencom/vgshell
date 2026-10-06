@@ -102,6 +102,44 @@ const PASSTHROUGH_SECTION = [
     "end"
 ];
 
+// The section that applies VALUES once the whole configuration has loaded,
+// byte for byte: as the layer loads it reads each of PATHS, and Hyprland's
+// `config.reloaded` callback reads them again, sets VALUES and keeps the
+// reading between as the user's where the user's configuration changed it
+// to something else. scripts/smoke/rows/hyprland-options.sh reads the values
+// and the record back from the nested Hyprland v0.56.2.
+function appliedSection(paths, values) {
+    return [
+        "-- Applied once the whole configuration has loaded: each value holds over the user's own line for it.",
+        "do",
+        "    local options = { start = {}, user = {} }",
+        "    hl.__vgs_options = options",
+        "    for _, path in ipairs({ " + paths.map(p => "\"" + p + "\"").join(", ") + " }) do options.start[path] = hl.get_config(path) end",
+        "    local function json(value)",
+        "        if type(value) ~= \"string\" then return tostring(value) end",
+        "        return \"\\\"\" .. string.gsub(value, \"[%c\\\"\\\\]\", function(c) return string.format(\"\\\\u%04x\", string.byte(c)) end) .. \"\\\"\"",
+        "    end",
+        "    function options.report()",
+        "        local rows = {}",
+        "        for path, value in pairs(options.user) do rows[#rows + 1] = \"{\\\"path\\\":\\\"\" .. path .. \"\\\",\\\"value\\\":\" .. json(value) .. \"}\" end",
+        "        table.sort(rows)",
+        "        return \"vgs-user-values=[\" .. table.concat(rows, \",\") .. \"]\"",
+        "    end",
+        "    hl.on(\"config.reloaded\", function()",
+        "        local theirs = {}",
+        "        for path in pairs(options.start) do theirs[path] = hl.get_config(path) end",
+        ...values.map(line => "        " + line),
+        "        for path, start in pairs(options.start) do",
+        "            if theirs[path] ~= start and theirs[path] ~= hl.get_config(path) then options.user[path] = theirs[path] end",
+        "        end",
+        "    end)",
+        "end"
+    ];
+}
+const APPLIED_AT = 6;
+const APPLIED_OPEN = 18;
+const APPLIED_CLOSE = 5;
+
 function captureSection(pluginLines) {
     return [
         "-- Overlay keyboard capture: full-screen vgs overlays own keys through a submap.",
@@ -496,10 +534,43 @@ function verify(logic, layer, shellText) {
 
     const section = (id, binds, layerRules, version, appearance) => ({ id: id, version: version || "1.0.0", binds: binds, layerRules: layerRules, appearance: appearance || {}, options: [], unknownKeys: [] });
     const lines = out => out.text.split("\n");
+    // The values a layer applies once the configuration has loaded: the
+    // lines inside its callback, without their indent. The section starts
+    // after the header and its end is the first line that closes a block
+    // at no indent.
+    const applied = out => {
+        const all = lines(out);
+        const end = all.indexOf("end", APPLIED_AT);
+        const frame = appliedSection([], []);
+        same(all.slice(APPLIED_AT, APPLIED_AT + APPLIED_OPEN).filter((line, i) => i !== 4), frame.slice(0, APPLIED_OPEN).filter((line, i) => i !== 4), "the applied section opens after the header");
+        same(all.slice(end + 1 - APPLIED_CLOSE, end + 2), [...frame.slice(frame.length - APPLIED_CLOSE), ""], "the applied section closes before the next section");
+        return all.slice(APPLIED_AT + APPLIED_OPEN, end + 1 - APPLIED_CLOSE).map(line => {
+            assert.ok(line.startsWith("        "), "an applied line sits inside the callback: " + line);
+            return line.slice(8);
+        });
+    };
+    const placed = out => lines(out).slice(lines(out).indexOf("end", APPLIED_AT) + 1);
+    same(layer.USER_VALUES, { table: "__vgs_options", verb: "report", key: "vgs-user-values" }, "the applied section names its Lua table, its report and the key of its answer");
     const bare = layer.render([], theme, "vgs", 2);
     const bareLines = lines(bare);
-    assert.ok(bareLines.indexOf("-- Theme vgs: window, group and group bar borders.") < bareLines.indexOf("-- Theme appearance: corner radius."), "borders are before radius");
-    assert.ok(bareLines.indexOf("-- Theme appearance: corner radius.") < bareLines.indexOf("-- Theme appearance: motion left to the user's config; core default is off."), "radius is before motion");
+    const allOff = { borders: { setting: "b", enabled: false }, radius: { setting: "r", enabled: false }, motion: { setting: "m", enabled: false } };
+    const quiet = lines(layer.render([section("vgs.themes", [], [], "1.0.0", allOff)], theme, "vgs", 1));
+    same(quiet.slice(APPLIED_AT, quiet.indexOf(TUI_SECTION[0])), [
+        ...appliedSection([], []),
+        "",
+        "-- Theme appearance: borders left to the user's config; b is off.",
+        "",
+        "-- Theme appearance: radius left to the user's config; r is off.",
+        "",
+        "-- Theme appearance: motion left to the user's config; m is off.",
+        "",
+        NO_GAPS_OFF,
+        ""
+    ], "with every group off the applied section sets nothing, byte for byte, and each group is a comment after it");
+    same(applied(bare).filter(line => line.startsWith("-- ")), ["-- Theme vgs: window, group and group bar borders.", "-- Theme appearance: corner radius.", "-- Group tabs use the window radius times the highest monitor scale (2), bounded to 20."], "the groups that are on are applied in order");
+    same(placed(bare).filter(line => /hl\.config\(\{$|border_size|rounding|hl\.animation|hl\.curve|animations = /.test(line)), [], "a group that is on writes none of its values where a user's line would replace them");
+    assert.ok(applied(bare).indexOf("-- Theme vgs: window, group and group bar borders.") < applied(bare).indexOf("-- Theme appearance: corner radius."), "borders are before radius");
+    assert.ok(lines(bare).indexOf("end", APPLIED_AT) < lines(bare).indexOf("-- Theme appearance: motion left to the user's config; core default is off."), "the applied groups are before the motion comment");
     assert.ok(bareLines.indexOf("-- Theme appearance: motion left to the user's config; core default is off.") < bareLines.indexOf(NO_GAPS_OFF), "motion is before the gaps switch");
     assert.ok(bareLines.indexOf(NO_GAPS_OFF) !== -1 && bareLines.indexOf(NO_GAPS_OFF) < bareLines.indexOf(TUI_SECTION[0]), "theme appearance, gaps last, is before floating TUIs");
     assert.ok(!bareLines.some(line => line.indexOf("hl.workspace_rule(") !== -1), "with no owner the layer writes no gap rule");
@@ -559,15 +630,15 @@ function verify(logic, layer, shellText) {
     same(pragmaAppId(shellText), layer.APP_WINDOW.appId, "shell.qml's AppId pragma is the application windows' app-id");
     assert.ok(lines(bare).some(line => line.includes("`" + layer.REGENERATE + "`")), "the header names the regenerate command");
     assert.strictEqual(layer.REGENERATE, "vgshell hypr render", "the regenerate command is the runner's verb");
-    assert.ok(lines(bare).includes("-- Theme vgs: window, group and group bar borders."), "the border block names its theme");
-    assert.ok(lines(bare).includes("            active_border = \"rgba(5a3659ff)\","), "a #aarrggbb accent is written rgba(rrggbbaa)");
-    assert.ok(lines(bare).includes("            inactive_border = \"rgba(11223380)\","), "the border keeps its alpha last");
-    assert.ok(lines(bare).includes("            text_color_locked_active = \"rgba(010101ff)\","), "the group bar's text colour is written");
-    assert.ok(lines(bare).includes("        border_size = 4,"), "the border block writes the theme's border size");
-    assert.ok(lines(bare).includes("            color = \"rgba(00008899)\","), "the border block writes the theme's shadow colour");
-    assert.ok(lines(bare).includes("        rounding = 8,"), "the radius block writes the theme's window radius");
-    assert.ok(lines(bare).includes("        rounding_power = 3,"), "the radius block writes the theme's rounding power");
-    assert.ok(lines(bare).includes("            rounding = 16,"), "the radius block scales group bar rounding");
+    assert.ok(applied(bare).includes("-- Theme vgs: window, group and group bar borders."), "the border block names its theme");
+    assert.ok(applied(bare).includes("            active_border = \"rgba(5a3659ff)\","), "a #aarrggbb accent is written rgba(rrggbbaa)");
+    assert.ok(applied(bare).includes("            inactive_border = \"rgba(11223380)\","), "the border keeps its alpha last");
+    assert.ok(applied(bare).includes("            text_color_locked_active = \"rgba(010101ff)\","), "the group bar's text colour is written");
+    assert.ok(applied(bare).includes("        border_size = 4,"), "the border block writes the theme's border size");
+    assert.ok(applied(bare).includes("            color = \"rgba(00008899)\","), "the border block writes the theme's shadow colour");
+    assert.ok(applied(bare).includes("        rounding = 8,"), "the radius block writes the theme's window radius");
+    assert.ok(applied(bare).includes("        rounding_power = 3,"), "the radius block writes the theme's rounding power");
+    assert.ok(applied(bare).includes("            rounding = 16,"), "the radius block scales group bar rounding");
     assert.throws(() => layer.render([], Object.assign({}, theme, { colours: Object.assign({}, colours, { accent: "#5a36" }) }), "vgs", 1), /colour accent must be #aarrggbb/, "a colour Theme never publishes is refused");
     // A margin Theme never publishes is refused by name, never written.
     [
@@ -590,10 +661,10 @@ function verify(logic, layer, shellText) {
     });
     const switched = layer.render([motionSection], theme, "vgs", 1.5);
     const switchedLines = lines(switched);
+    same(applied(switched)[0], "-- Theme appearance: window animations.", "with borders and radius off the motion group is the first value applied");
     assert.ok(!switchedLines.some(line => line.indexOf("border_size = 4") !== -1), "a disabled border group writes no border size");
     assert.ok(!switchedLines.some(line => line.indexOf("rounding = 8") !== -1), "a disabled radius group writes no radius");
     assert.ok(switchedLines.includes("-- Theme appearance: borders left to the user's config; setWindowBorders is off."), "a disabled border group names its switch");
-    assert.ok(!switchedLines.some(line => line.indexOf("hl.config({") !== -1 && switchedLines.indexOf(line) < switchedLines.indexOf("-- Theme appearance: window animations.")), "disabled border and radius groups write no config call");
     const motionRows = [
         {
             name: "snappy",
@@ -629,7 +700,7 @@ function verify(logic, layer, shellText) {
         const motionTheme = JSON.parse(JSON.stringify(theme));
         motionTheme.hyprland.motion.preset = row.name;
         motionTheme.motionScale = row.scale;
-        const motionLines = lines(layer.render([motionSection], motionTheme, "vgs", 1));
+        const motionLines = applied(layer.render([motionSection], motionTheme, "vgs", 1));
         for (const want of row.present)
             assert.ok(motionLines.includes(want), `motion preset ${row.name} writes ${want}`);
         for (const forbidden of row.absent)
@@ -638,10 +709,10 @@ function verify(logic, layer, shellText) {
     const switchOn = layer.render([section("vgs.themes", [], [], "1.0.0", { borders: { setting: "setWindowBorders", enabled: true }, radius: { setting: "setCornerRadius", enabled: false }, motion: { setting: "setWindowAnimations", enabled: false } })], theme, "vgs", 1);
     const switchOff = layer.render([section("vgs.themes", [], [], "1.0.0", { borders: { setting: "setWindowBorders", enabled: false }, radius: { setting: "setCornerRadius", enabled: false }, motion: { setting: "setWindowAnimations", enabled: false } })], theme, "vgs", 1);
     assert.notStrictEqual(switchOn.text, switchOff.text, "a switch change changes the rendered layer text");
-    assert.ok(lines(switchOn).includes("        border_size = 4,"), "the on switch writes the theme border value");
-    assert.ok(!lines(switchOff).includes("        border_size = 4,"), "the off switch writes no border value");
+    assert.ok(applied(switchOn).includes("        border_size = 4,"), "the on switch applies the theme border value");
+    assert.ok(!switchOff.text.includes("border_size"), "the off switch writes no border value");
     const still = layer.render([section("vgs.themes", [], [], "1.0.0", { motion: { setting: "setWindowAnimations", enabled: true } })], Object.assign({}, theme, { motionScale: 0 }), "vgs", 1);
-    assert.ok(lines(still).includes("hl.config({ animations = { enabled = false } })"), "motion scale 0 disables animations");
+    assert.ok(applied(still).includes("hl.config({ animations = { enabled = false } })"), "motion scale 0 disables animations");
     const firstOwner = layer.render([
         section("vgs.themes", [], [], "1.0.0", { borders: { setting: "b", enabled: false }, radius: { setting: "r", enabled: false } }),
         section("acme.theme", [], [], "1.0.0", { borders: { setting: "a", enabled: true } })
@@ -685,7 +756,7 @@ function verify(logic, layer, shellText) {
         ...SWEEP_SECTION,
         ""
     ], "the floating TUIs' rules, then sections by id, rules then binds, a key to the first id, an identical rule once, a differing one twice");
-    assert.ok(text.includes("-- Theme night?os.exit(): window, group and group bar borders."), "a theme name cannot leave its comment");
+    assert.ok(applied(out).includes("-- Theme night?os.exit(): window, group and group bar borders."), "a theme name cannot leave its comment");
     same(out.conflicts, [{ id: "vgs.notes", shortcut: "open", key: "SUPER+SPACE", heldBy: "acme.keys" }], "the skipped bind is the one conflict");
 
     // Input options: what hyprlandSection lists from the plugins row, and the
@@ -724,17 +795,24 @@ function verify(logic, layer, shellText) {
     const optionText = (sections, touchpads) => layer.render(sections, theme, "vgs", 1, touchpads);
     const optionsOut = optionText([optionSection({ sensitivity: 0.35, tap: false, layouts: "us,de" })], null);
     const optionsTail = lines(optionsOut).slice(lines(optionsOut).indexOf(LOCK_SECTION[1]) + 1);
-    same(optionsTail, [
-        "",
+    same(applied(optionsOut).slice(-2), [
         "-- acme.keys 1.0.0: input options its settings set",
-        "hl.config({ input = { sensitivity = 0.35, touchpad = { tap_to_click = false }, kb_layout = \"us,de\" } })",
+        "hl.config({ input = { sensitivity = 0.35, touchpad = { tap_to_click = false }, kb_layout = \"us,de\" } })"
+    ], "the set options are one hl.config, in the manifest's order, applied after the theme's groups");
+    same(lines(optionsOut)[APPLIED_AT + 4], "    for _, path in ipairs({ \"input.sensitivity\", \"input.touchpad.tap_to_click\", \"input.kb_layout\" }) do options.start[path] = hl.get_config(path) end", "the layer reads each written option as it loads");
+    const quietOptions = lines(layer.render([Object.assign({}, optionSection({ sensitivity: 0.35, touchpad: false }), { appearance: allOff })], theme, "vgs", 1, ["elan-touchpad"]));
+    same(quietOptions.slice(APPLIED_AT, quietOptions.indexOf("-- Theme appearance: borders left to the user's config; b is off.") - 1),
+        appliedSection(["input.sensitivity"], ["-- acme.keys 1.0.0: input options its settings set", "hl.config({ input = { sensitivity = 0.35 } })"]),
+        "the applied section holds the options line, byte for byte, and reads no per-device option");
+    same(quietOptions.slice(quietOptions.indexOf(LOCK_SECTION[1]) + 1, quietOptions.indexOf(LOCK_SECTION[1]) + 4), ["", "-- acme.keys 1.0.0: input options its settings set", "hl.device({ name = \"elan-touchpad\", enabled = false })"], "a touchpad's line stays with its plugin's section");
+    same(optionsTail, [
         "",
         "-- acme.keys 1.0.0: binds and layer rules from its manifest",
         "hl.bind(\"SUPER + SPACE\", hl.dsp.global(\"acme.keys:toggle\"), { description = \"acme.keys:toggle\" })",
         "",
         ...SWEEP_SECTION,
         ""
-    ], "the options section holds one hl.config of the set options, in the manifest's order, before the plugin's binds");
+    ], "a section whose options are all applied writes no options heading before its binds");
     assert.ok(!optionsOut.text.includes("tap-to-click"), "the layer writes the Lua name tap_to_click, never the hyphenated option name");
     assert.ok(!optionsOut.text.includes("natural_scroll") && !optionsOut.text.includes("repeat_rate"), "an option the plugins row does not set is not written");
     same(layer.optionLiteral(layer.OPTIONS["input.repeat_rate"], 2.5), { ok: false, error: "want=whole-number" }, "the option literal judge refuses a fractional int");
@@ -749,7 +827,7 @@ function verify(logic, layer, shellText) {
     ], "the render lists each option it wrote");
     same(optionsOut.binds, ["acme.keys:toggle"], "the render lists the description of each bind it wrote");
     same([optionsOut.optionConflicts, optionsOut.optionRefusals], [[], []], "a clean options section reports nothing");
-    assert.ok(!lines(optionText([optionSection({})], null)).includes("-- acme.keys 1.0.0: input options its settings set"), "a plugins row that sets no option writes no options section");
+    assert.ok(!optionText([optionSection({})], null).text.includes("-- acme.keys 1.0.0: input options its settings set"), "a plugins row that sets no option writes no options section");
     // rows: [name, plugins row, touchpads, lines the options section ends with, refusals]
     const optionRows = [
         ["a fractional int is refused", { rate: 2.5 }, null, ["-- skipped input.repeat_rate for acme.keys:rate: want=whole-number"], [{ id: "acme.keys", setting: "rate", path: "input.repeat_rate", error: "want=whole-number" }]],
@@ -769,10 +847,8 @@ function verify(logic, layer, shellText) {
     const rival = Object.assign({}, optionSection({ sensitivity: -0.5 }), { id: "acme.other" });
     const contested = optionText([optionSection({ sensitivity: 0.35 }), rival], null);
     const contestedLines = lines(contested);
-    same(contestedLines.slice(contestedLines.indexOf("-- acme.keys 1.0.0: input options its settings set")), [
-        "-- acme.keys 1.0.0: input options its settings set",
-        "hl.config({ input = { sensitivity = 0.35 } })",
-        "",
+    same(applied(contested).slice(-2), ["-- acme.keys 1.0.0: input options its settings set", "hl.config({ input = { sensitivity = 0.35 } })"], "the first plugin by id applies the path two plugins set");
+    same(contestedLines.slice(contestedLines.indexOf("-- acme.keys 1.0.0: binds and layer rules from its manifest")), [
         "-- acme.keys 1.0.0: binds and layer rules from its manifest",
         "hl.bind(\"SUPER + SPACE\", hl.dsp.global(\"acme.keys:toggle\"), { description = \"acme.keys:toggle\" })",
         "",
@@ -1010,20 +1086,20 @@ const CONTROLS = [
     [layerFile, "appearance defaults", "var APPEARANCE_DEFAULTS = { borders: true, radius: true, motion: false, noGaps: false };", "var APPEARANCE_DEFAULTS = { borders: true, radius: true, motion: true, noGaps: false };"],
     [layerFile, "no window gaps defaults off", "var APPEARANCE_DEFAULTS = { borders: true, radius: true, motion: false, noGaps: false };", "var APPEARANCE_DEFAULTS = { borders: true, radius: true, motion: false, noGaps: true };"],
     [layerFile, "no window gaps is an appearance group", "var APPEARANCE_GROUPS = [\"borders\", \"radius\", \"motion\", \"noGaps\"];", "var APPEARANCE_GROUPS = [\"borders\", \"radius\", \"motion\"];"],
-    [layerFile, "no window gaps is written while on", "if (switches.groups.noGaps.enabled) lines = lines.concat(noGapsLines());", "if (false) lines = lines.concat(noGapsLines());"],
+    [layerFile, "no window gaps is written while on", "if (switches.groups.noGaps.enabled) groups = groups.concat(noGapsLines());", "if (false) groups = groups.concat(noGapsLines());"],
     [layerFile, "zero gaps are a workspace rule", "\"hl.workspace_rule({ workspace = \\\"\\\", gaps_in = 0, gaps_out = 0 })\"", "\"hl.config({ general = { gaps_in = 0, gaps_out = 0 } })\""],
     [layerFile, "the gap rule matches every workspace", "workspace = \\\"\\\", gaps_in", "workspace = \\\"s[false]\\\", gaps_in"],
     [layerFile, "appearance owner sorted", "}).sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; });", "});"],
-    [layerFile, "floating TUI rules written", "lines = lines.concat([\"\"], tuiWindowLines(theme.tuiMargins), [\"\"], appWindowLines(), [\"\"], overlayCaptureLines(plan), [\"\"], keyPassthroughLines(), [\"\"], sessionLockLines());", "lines = lines.concat([\"\"], appWindowLines(), [\"\"], overlayCaptureLines(plan), [\"\"], keyPassthroughLines(), [\"\"], sessionLockLines());"],
-    [layerFile, "floating TUI rules after appearance", "lines = lines.concat([\"\"], tuiWindowLines(theme.tuiMargins), [\"\"], appWindowLines(), [\"\"], overlayCaptureLines(plan), [\"\"], keyPassthroughLines(), [\"\"], sessionLockLines());", "lines = tuiWindowLines(theme.tuiMargins).concat([\"\"], lines, [\"\"], appWindowLines(), [\"\"], overlayCaptureLines(plan), [\"\"], keyPassthroughLines(), [\"\"], sessionLockLines());"],
+    [layerFile, "floating TUI rules written", "[\"\"], tuiWindowLines(theme.tuiMargins), [\"\"], appWindowLines(),", "[\"\"], appWindowLines(),"],
+    [layerFile, "floating TUI rules after appearance", "var lines = [\"\"].concat(groups, [\"\"], tuiWindowLines(theme.tuiMargins), [\"\"], appWindowLines(),", "var lines = [\"\"].concat(tuiWindowLines(theme.tuiMargins), [\"\"], groups, [\"\"], appWindowLines(),"],
     [layerFile, "floating TUI width keeps the gutter", "var across = luaNumber(2 * tuiMargin(margins, \"gutter\"));", "var across = luaNumber(0 * tuiMargin(margins, \"gutter\"));"],
     [layerFile, "floating TUI height keeps the bar", "var down = luaNumber(tuiMargin(margins, \"bar\") + 2 * tuiMargin(margins, \"gutter\"));", "var down = luaNumber(0 * tuiMargin(margins, \"bar\") + 2 * tuiMargin(margins, \"gutter\"));"],
     [layerFile, "floating TUI size is clamped", "size = { \" + width + \", \" + height + \" } })\";", "size = { \" + row.width + \", \" + row.height + \" } })\";"],
     [layerFile, "a negative TUI margin is refused", "if (typeof value !== \"number\" || !isFinite(value) || value < 0)", "if (typeof value !== \"number\" || !isFinite(value))"],
     [layerFile, "floating TUI class escapes each dot", ".join(\"\\\\\\\\.\")", ".join(\".\")"],
     [layerFile, "floating TUI class anchored", "return \"\\\"^\" + appId.split(\".\").join(\"\\\\\\\\.\") + \"$\\\"\";", "return \"\\\"\" + appId.split(\".\").join(\"\\\\\\\\.\") + \"\\\"\";"],
-    [layerFile, "application window rule written", "lines = lines.concat([\"\"], tuiWindowLines(theme.tuiMargins), [\"\"], appWindowLines(), [\"\"], overlayCaptureLines(plan), [\"\"], keyPassthroughLines(), [\"\"], sessionLockLines());", "lines = lines.concat([\"\"], tuiWindowLines(theme.tuiMargins), [\"\"], overlayCaptureLines(plan), [\"\"], keyPassthroughLines(), [\"\"], sessionLockLines());"],
-    [layerFile, "application window rule after the TUIs", "lines = lines.concat([\"\"], tuiWindowLines(theme.tuiMargins), [\"\"], appWindowLines(), [\"\"], overlayCaptureLines(plan), [\"\"], keyPassthroughLines(), [\"\"], sessionLockLines());", "lines = lines.concat([\"\"], appWindowLines(), [\"\"], tuiWindowLines(theme.tuiMargins), [\"\"], overlayCaptureLines(plan), [\"\"], keyPassthroughLines(), [\"\"], sessionLockLines());"],
+    [layerFile, "application window rule written", "tuiWindowLines(theme.tuiMargins), [\"\"], appWindowLines(), [\"\"], overlayCaptureLines(plan)", "tuiWindowLines(theme.tuiMargins), [\"\"], overlayCaptureLines(plan)"],
+    [layerFile, "application window rule after the TUIs", "tuiWindowLines(theme.tuiMargins), [\"\"], appWindowLines(), [\"\"], overlayCaptureLines(plan)", "appWindowLines(), [\"\"], tuiWindowLines(theme.tuiMargins), [\"\"], overlayCaptureLines(plan)"],
     [layerFile, "session lock restore written", "keyPassthroughLines(), [\"\"], sessionLockLines());", "keyPassthroughLines());"],
     [layerFile, "no monitor rule written", "[\"\"], keyPassthroughLines(), [\"\"], sessionLockLines());", "[\"\"], keyPassthroughLines(), [\"\"], sessionLockLines(), [\"hl.monitor({ output = \\\"DP-1\\\", disabled = true })\"]);"],
     [layerFile, "key pass-through written", "[\"\"], keyPassthroughLines(), [\"\"], sessionLockLines()", "[\"\"], sessionLockLines()"],
@@ -1078,6 +1154,15 @@ const CONTROLS = [
     [logicFile, "an option value is judged by its schema entry", "var unfit = settingError(manifest.schema[setting], row[setting]);", "var unfit = \"\";"],
     [logicFile, "an option value is judged by its Lua literal", "var literal = HyprlandLayer.optionLiteral(HyprlandLayer.OPTIONS[path], row[setting]);", "var literal = { ok: true, lua: JSON.stringify(row[setting]) };"],
     [layerFile, "the options section is written", "if (section.options.length > 0) {", "if (false) {"],
+    [layerFile, "the applied section is written", "].concat(appliedLines(applied, paths), lines);", "].concat(lines);"],
+    [layerFile, "the values are applied after the configuration, not inline", "].concat(appliedLines(applied, paths), lines);", "].concat(applied, lines);"],
+    [layerFile, "the applied section follows the header", "].concat(appliedLines(applied, paths), lines);", "].concat(lines, appliedLines(applied, paths));"],
+    [layerFile, "the values sit inside the callback", "].concat(values.map(function (line) { return \"        \" + line; }), [", "].concat(["],
+    [layerFile, "a group that is on is applied", "if (switches.groups[group].enabled) applied = applied.concat(groupLines[group]());", "if (switches.groups[group].enabled) groups = groups.concat(groupLines[group](), [\"\"]);"],
+    [layerFile, "an options line is applied", "if (optionText.applied.length > 0) applied = applied.concat([heading], optionText.applied);", "if (optionText.applied.length > 0) lines = lines.concat([\"\", heading], optionText.applied);"],
+    [layerFile, "a per-device option is not read as a user value", "var paths = options.written.filter(function (option) { return OPTIONS[option.path].device === undefined; })", "var paths = options.written.filter(function (option) { return true; })"],
+    [layerFile, "the user's value is read before the layer's", ",\n        \"        for path in pairs(options.start) do theirs[path] = hl.get_config(path) end\"\n    ].concat(", "\n    ].concat("],
+    [layerFile, "a value the user's configuration left alone is no user value", "if theirs[path] ~= start and theirs[path] ~= hl.get_config(path) then", "if theirs[path] ~= hl.get_config(path) then"],
     [layerFile, "the options section precedes the binds", "    plan.sections.forEach(function (row) {\n        var section = row.section;\n        if (section.options.length > 0) {", "    plan.sections.slice().reverse().forEach(function (row) {\n        var section = row.section;\n        if (section.options.length > 0) {"],
     [layerFile, "options keep the manifest's order", "return Object.keys(tree).map(function (key) {", "return Object.keys(tree).sort().map(function (key) {"],
     [layerFile, "the Lua name, not the hyphenated option name", "\"input.touchpad.tap_to_click\": { type: \"bool\" },", "\"input.touchpad.tap-to-click\": { type: \"bool\" },"],

@@ -7,8 +7,9 @@ import "HyprlandState.js" as State
 import "PluginLogic.js" as Logic
 
 // Owns the reads behind the `hyprland` capability: Hyprland's input
-// devices, the options the layer wrote that read back otherwise, and the
-// keys something other than the layer binds. HyprlandState.js judges every
+// devices, the options the layer wrote that read back otherwise, the values
+// the user's configuration gave them, and the keys something other than
+// the layer binds. HyprlandState.js judges every
 // reply; this runs the reads while `active` and holds the last answers.
 // Hyprland posts `configreloaded` after each reload and `activelayout` when
 // a keyboard comes, goes or switches layout, but nothing when a pointer
@@ -38,6 +39,10 @@ Scope {
     // unread or after a failed read.
     property var overriddenRows: null
     property var foreignKeys: null
+    // [{ id, path, value }] for each written option the user's
+    // configuration gave another value, which the layer then replaced; null
+    // while unread or after a failed read.
+    property var userValueRows: null
     // The last binds read's keyed failure, "" once one succeeds.
     property string bindsFailure: ""
     property var keyResolution: null
@@ -46,6 +51,7 @@ Scope {
         if (active) {
             readDevices();
             readOptions();
+            readUserValues();
             readBinds();
             return;
         }
@@ -54,6 +60,7 @@ Scope {
         devices = null;
         devicesFailure = "";
         overriddenRows = null;
+        userValueRows = null;
         foreignKeys = null;
         bindsFailure = "";
     }
@@ -62,6 +69,7 @@ Scope {
     function provider(ctx) {
         return Object.freeze({
             get overridden() { return root.overriddenFor(ctx.id); },
+            get userValues() { return root.userValuesFor(ctx.id); },
             get devices() { return root.devices === null ? null : Logic.frozenJson(root.devices); },
             get foreignBinds() { return root.foreignKeys === null ? null : Logic.frozenJson(root.foreignKeys); },
             resolveKeys: (keys, done) => {
@@ -138,6 +146,11 @@ Scope {
         optionsReader.read(argv, written);
     }
 
+    function readUserValues() {
+        if (!active) return;
+        userValuesReader.read(State.USER_VALUES_REQUEST, written);
+    }
+
     function readBinds() {
         if (!active) return;
         bindsReader.read(State.BINDS_REQUEST, null);
@@ -156,12 +169,18 @@ Scope {
         return Logic.frozenJson(paths.filter((path, i, all) => all.indexOf(path) === i));
     }
 
+    function userValuesFor(id) {
+        if (root.userValueRows === null) return null;
+        return Logic.frozenJson(root.userValueRows.filter(row => row.id === id).map(row => ({ path: row.path, value: row.value })));
+    }
+
     Connections {
         target: root.active ? Hyprland : null
         function onRawEvent(event) {
             if (event.name === "configreloaded") {
                 root.readDevices();
                 root.readOptions();
+                root.readUserValues();
                 root.readBinds();
             } else if (event.name === "activelayout") {
                 root.readDevices();
@@ -227,6 +246,24 @@ Scope {
             } else {
                 for (const error of read.errors) console.error("hyprland: " + error);
                 if (!root.same(read.overridden, root.overriddenRows)) root.overriddenRows = read.overridden;
+            }
+        }
+    }
+
+    // The layer's answer is an error's text, so hyprctl exits 7 with it:
+    // the reply is judged whatever the exit, and the exit is named only
+    // beside a reply that holds no answer.
+    HyprctlReader {
+        id: userValuesReader
+        label: "user-values"
+        onReadDone: (asked, text, failure) => {
+            if (!root.active) return;
+            const read = State.userValues(asked, text);
+            if (!read.ok) {
+                root.userValueRows = null;
+                console.error("hyprland: " + read.error + (failure === "" ? "" : " " + failure));
+            } else if (!root.same(read.values, root.userValueRows)) {
+                root.userValueRows = read.values;
             }
         }
     }

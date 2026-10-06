@@ -542,6 +542,17 @@ Singleton {
         return Config.writeUser(Logic.withSetting(Config.user, m, key, value, Config.effective, targets, locator || null));
     }
 
+    // Remove one schema-declared setting of one plugin from each
+    // configuration entry in `targets`, as writeSetting names them, so the
+    // manifest's default applies again. The reply is one keyed line: `ok`
+    // (the file holds no value for it), `unknown: <id>` or a refusal.
+    function clearSetting(id, key, targets, locator) {
+        if (!Registry.has(id)) return "unknown: " + id;
+        const m = Registry.manifests[id];
+        if (!Logic.hasOwn(m.schema, key)) return "refused: setting=" + key + " undeclared";
+        return Config.writeUser(Logic.withoutSetting(Config.user, m, key, targets, locator || null));
+    }
+
     // Write one setting of plugin `id` into every configuration entry its
     // instances read, for the plugin manager. A disabled plugin is refused:
     // listing a third-party plugin's row would enable it.

@@ -1,8 +1,10 @@
 .pragma library
 
 // The Hyprland layer: the one Lua file the shell writes, which hyprland.lua
-// runs from the line `vgshell hypr wire` keeps first in it, so every setting
-// after that line wins. Pure: no QML object, no I/O, so
+// runs from the line `vgshell hypr wire` keeps first in it, so the user's
+// own unbinds and rule switches after that line act on what it made. Its
+// values are applied once the whole configuration has loaded
+// (appliedLines). Pure: no QML object, no I/O, so
 // scripts/test-hyprland-layer.js runs it under node. HyprlandLayer.qml is
 // its one caller, and PluginLogic.hyprlandSection makes every plugin section
 // it renders.
@@ -12,7 +14,7 @@ var REGENERATE = "vgshell hypr render";
 
 var CONSENT = {
     title: "Let VGS manage its Hyprland settings?",
-    message: "One line at the top of hyprland.lua loads the keys, border colours and blur rules VGS generates. Your own settings after it still win.",
+    message: "One line at the top of hyprland.lua loads the keys, border colours and blur rules VGS generates. VGS changes no other line of that file.",
     disclosure: "vgshell hypr wire",
     connect: "Connect",
     decline: "Not now"
@@ -117,7 +119,20 @@ var OPTION_STRING = /^[A-Za-z0-9_.,:()+-]*$/;
 // lower case with spaces and commas as dashes, and keeps every other byte.
 var DEVICE_NAME = /^[\x20\x21\x23-\x5b\x5d-\x7e]+$/;
 
+// The values the layer applies once the whole configuration has loaded:
+// `table` on `hl` holds `start`, each written option's value as the layer
+// loads, before any line of the user's, and `user`, the value the user's
+// configuration gave an option, where it changed that option to a value
+// other than the one the layer then set. `verb` answers `user` as one
+// line, `key`, `=` and a JSON list of { path, value } sorted by path, which
+// HyprlandState.js asks for and judges.
+var USER_VALUES = { table: "__vgs_options", verb: "report", key: "vgs-user-values" };
+
 var APPEARANCE_GROUPS = ["borders", "radius", "motion", "noGaps"];
+// The groups whose values a user's own line would replace: they are applied
+// after the configuration. `noGaps` is a workspace rule, which holds where
+// it stands.
+var APPLIED_GROUPS = ["borders", "radius", "motion"];
 var APPEARANCE_DEFAULTS = { borders: true, radius: true, motion: false, noGaps: false };
 
 // Hyprland animation presets VGS owns. `smooth` sets window, layer and fade
@@ -819,12 +834,13 @@ function shortcutKeys(sections, id) {
 }
 
 // One plugin section's options, as PluginLogic.hyprlandSection lists the
-// ones its plugins row sets, appended to OUT: one `hl.config({ input = ...
-// })` line holding every option written, in the manifest's order, then one
-// `hl.device` line per touchpad for the device row, then a comment for each
-// option not written. HELD maps each path written so far to its plugin, so
-// a path two plugins set stays with the first by id. TOUCHPADS is the
-// touchpad names Hyprland lists, or null while they are unread.
+// ones its plugins row sets, appended to OUT: `applied`, one `hl.config({
+// input = ... })` line holding every option written, in the manifest's
+// order, for appliedLines, and `placed`, one `hl.device` line per touchpad
+// for the device row, then a comment for each option not written, which
+// stay with the plugin's section. HELD maps each path written so far to its
+// plugin, so a path two plugins set stays with the first by id. TOUCHPADS
+// is the touchpad names Hyprland lists, or null while they are unread.
 function optionLines(section, held, touchpads, touchpadFailure, out) {
     var tree = {};
     var devices = [];
@@ -893,8 +909,47 @@ function optionLines(section, held, touchpads, touchpadFailure, out) {
         }
         node[parts[parts.length - 1]] = option.lua;
     });
-    var lines = Object.keys(tree).length > 0 ? ["hl.config({ " + optionTree(tree) + " })"] : [];
-    return lines.concat(devices, notes);
+    return { applied: Object.keys(tree).length > 0 ? ["hl.config({ " + optionTree(tree) + " })"] : [], placed: devices.concat(notes) };
+}
+
+// The section that applies VALUES, Lua lines, once the whole configuration
+// has loaded: Hyprland runs a `config.reloaded` callback at the end of every
+// load, the first included, so a value set there holds over the user's own
+// line for it, and the user's other keys of the same table keep theirs.
+// PATHS are the options among VALUES that `getoption` reads. As the layer
+// loads, the first line of hyprland.lua, it reads each one's value; the
+// callback reads each again before VALUES and after, and keeps the middle
+// reading as the user's where it is neither the first nor the last
+// (USER_VALUES). An option the user's configuration leaves alone, or sets
+// to the value the layer sets, has no user value.
+function appliedLines(values, paths) {
+    var u = USER_VALUES;
+    return [
+        "-- Applied once the whole configuration has loaded: each value holds over the user's own line for it.",
+        "do",
+        "    local options = { start = {}, user = {} }",
+        "    hl." + u.table + " = options",
+        "    for _, path in ipairs({ " + paths.map(function (path) { return "\"" + path + "\""; }).join(", ") + " }) do options.start[path] = hl.get_config(path) end",
+        "    local function json(value)",
+        "        if type(value) ~= \"string\" then return tostring(value) end",
+        "        return \"\\\"\" .. string.gsub(value, \"[%c\\\"\\\\]\", function(c) return string.format(\"\\\\u%04x\", string.byte(c)) end) .. \"\\\"\"",
+        "    end",
+        "    function options." + u.verb + "()",
+        "        local rows = {}",
+        "        for path, value in pairs(options.user) do rows[#rows + 1] = \"{\\\"path\\\":\\\"\" .. path .. \"\\\",\\\"value\\\":\" .. json(value) .. \"}\" end",
+        "        table.sort(rows)",
+        "        return \"" + u.key + "=[\" .. table.concat(rows, \",\") .. \"]\"",
+        "    end",
+        "    hl.on(\"config.reloaded\", function()",
+        "        local theirs = {}",
+        "        for path in pairs(options.start) do theirs[path] = hl.get_config(path) end"
+    ].concat(values.map(function (line) { return "        " + line; }), [
+        "        for path, start in pairs(options.start) do",
+        "            if theirs[path] ~= start and theirs[path] ~= hl.get_config(path) then options.user[path] = theirs[path] end",
+        "        end",
+        "    end)",
+        "end"
+    ]);
 }
 
 // The layer's text and the binds, options or appearance owner declarations
@@ -911,14 +966,17 @@ function optionLines(section, held, touchpads, touchpadFailure, out) {
 // becomes an `unbound` comment. A layer rule an earlier section already
 // wrote, the same namespace and effects, is written once. THEME gives the
 // theme's colours and Hyprland tokens, and `tuiMargins`, the margins
-// tuiWindowLines keeps the floating TUIs from the output's edges. The
-// fixed theme-appearance groups are written after the header, in order,
-// when their switch is on. The floating
+// tuiWindowLines keeps the floating TUIs from the output's edges. After
+// the header comes appliedLines: the APPLIED_GROUPS whose switch is on, in
+// order, then each section's `hl.config` options line under its heading.
+// A group whose switch is off is a comment after it, and `noGaps` follows
+// them, written where it stands. The floating
 // TUIs' window rules follow them, then the shell's application window
 // rule, the overlay capture, the key capture pass-through and the session
 // lock's restore, before any plugin section, whatever the sections. A
-// section whose plugins row sets options is followed by its options
-// section, optionLines; an option two sections set goes to the first by
+// section whose plugins row sets options is preceded by its options
+// section, the touchpad lines and comments of optionLines, when it has
+// any; an option two sections set goes to the first by
 // id. TOUCHPADS is the touchpad names Hyprland lists, or null while unread.
 // The pads' sweep, padSweepLines, ends the file whatever the sections.
 // The result also lists each option written,
@@ -930,26 +988,16 @@ function optionLines(section, held, touchpads, touchpadFailure, out) {
 function render(sections, theme, themeName, highestScale, touchpads, touchpadFailure) {
     var plan = resolveBinds(sections);
     var switches = groupSwitches(sections);
-    var lines = [
-        "-- Generated by the vgs shell; an edit here is lost. The shell writes this",
-        "-- file again when a plugin, shell.json or the theme changes, and",
-        "-- `" + REGENERATE + "` writes it on demand. hyprland.lua runs it from the",
-        "-- line `vgshell hypr wire` keeps first there, so every setting after that",
-        "-- line wins.",
-        ""
-    ];
-    if (switches.groups.borders.enabled) lines = lines.concat(borderLines(theme, themeName));
-    else lines.push(disabledGroupLine("borders", switches.groups.borders.setting));
-    lines.push("");
-    if (switches.groups.radius.enabled) lines = lines.concat(radiusLines(theme, highestScale));
-    else lines.push(disabledGroupLine("radius", switches.groups.radius.setting));
-    lines.push("");
-    if (switches.groups.motion.enabled) lines = lines.concat(motionLines(theme));
-    else lines.push(disabledGroupLine("motion", switches.groups.motion.setting));
-    lines.push("");
-    if (switches.groups.noGaps.enabled) lines = lines.concat(noGapsLines());
-    else lines.push(disabledGroupLine("noGaps", switches.groups.noGaps.setting));
-    lines = lines.concat([""], tuiWindowLines(theme.tuiMargins), [""], appWindowLines(), [""], overlayCaptureLines(plan), [""], keyPassthroughLines(), [""], sessionLockLines());
+    var applied = [];
+    var groups = [];
+    var groupLines = { borders: function () { return borderLines(theme, themeName); }, radius: function () { return radiusLines(theme, highestScale); }, motion: function () { return motionLines(theme); } };
+    APPLIED_GROUPS.forEach(function (group) {
+        if (switches.groups[group].enabled) applied = applied.concat(groupLines[group]());
+        else groups.push(disabledGroupLine(group, switches.groups[group].setting), "");
+    });
+    if (switches.groups.noGaps.enabled) groups = groups.concat(noGapsLines());
+    else groups.push(disabledGroupLine("noGaps", switches.groups.noGaps.setting));
+    var lines = [""].concat(groups, [""], tuiWindowLines(theme.tuiMargins), [""], appWindowLines(), [""], overlayCaptureLines(plan), [""], keyPassthroughLines(), [""], sessionLockLines());
     var written = Object.create(null);
     var options = { written: [], conflicts: [], refusals: [] };
     var optionsHeld = Object.create(null);
@@ -958,8 +1006,10 @@ function render(sections, theme, themeName, highestScale, touchpads, touchpadFai
     plan.sections.forEach(function (row) {
         var section = row.section;
         if (section.options.length > 0) {
-            lines.push("", "-- " + section.id + " " + commentText(section.version) + ": input options its settings set");
-            lines = lines.concat(optionLines(section, optionsHeld, touchpads, touchpadFailure || "", options));
+            var heading = "-- " + section.id + " " + commentText(section.version) + ": input options its settings set";
+            var optionText = optionLines(section, optionsHeld, touchpads, touchpadFailure || "", options);
+            if (optionText.applied.length > 0) applied = applied.concat([heading], optionText.applied);
+            if (optionText.placed.length > 0) lines = lines.concat(["", heading], optionText.placed);
         }
         if (section.binds.length === 0 && section.layerRules.length === 0 && !Array.isArray(section.pads)) return;
         lines.push("", "-- " + section.id + " " + commentText(section.version) + ": binds and layer rules from its manifest");
@@ -992,6 +1042,15 @@ function render(sections, theme, themeName, highestScale, touchpads, touchpadFai
         padsOwner = section.id;
         lines = lines.concat([""], padLines(section, padMotion(theme)));
     });
+    var paths = options.written.filter(function (option) { return OPTIONS[option.path].device === undefined; }).map(function (option) { return option.path; });
+    lines = [
+        "-- Generated by the vgs shell; an edit here is lost. The shell writes this",
+        "-- file again when a plugin, shell.json or the theme changes, and",
+        "-- `" + REGENERATE + "` writes it on demand. hyprland.lua runs it from the",
+        "-- line `vgshell hypr wire` keeps first there, so an unbind or a rule",
+        "-- switch after that line acts on what this file made.",
+        ""
+    ].concat(appliedLines(applied, paths), lines);
     lines = lines.concat([""], padSweepLines());
     return {
         text: lines.join("\n") + "\n",

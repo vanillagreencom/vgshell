@@ -785,6 +785,23 @@ function suite(ctx, check) {
     }
     check("withSetting does not alias the user file", (() => { const u = { plugins: [{ id: "acme.tune", size: 4 }] }; ctx.withSetting(u, tunable, "label", "new", shippedTune, ["plugins"]); return u.plugins[0]; })(), { id: "acme.tune", size: 4 });
 
+    // withoutSetting rows: [name, user, targets, path, want]
+    const labelled = { bar: { id: "vgs.bar", layout: { left: [{ id: "acme.tune", label: "l", size: 2 }], center: [{ id: "b.c", label: "other" }], right: [{ id: "acme.tune", label: "r" }] } }, plugins: [{ id: "acme.tune", label: "p", size: 4 }, { id: "b.c", label: "other" }] };
+    const unsetRows = [
+        ["plugins removes the key from the row and keeps its others", labelled, ["plugins"], "plugins", [{ id: "acme.tune", size: 4 }, { id: "b.c", label: "other" }]],
+        ["plugins leaves the layout alone", labelled, ["plugins"], "bar.layout.left", [{ id: "acme.tune", label: "l", size: 2 }]],
+        ["layout removes the key from every entry with the id", labelled, ["layout"], "bar.layout", { left: [{ id: "acme.tune", size: 2 }], center: [{ id: "b.c", label: "other" }], right: [{ id: "acme.tune" }] }],
+        ["layout leaves the plugins row alone", labelled, ["layout"], "plugins", [{ id: "acme.tune", label: "p", size: 4 }, { id: "b.c", label: "other" }]],
+        ["a locator removes it from its own entry alone", labelled, ["layout"], "bar.layout", { left: [{ id: "acme.tune", label: "l", size: 2 }], center: [{ id: "b.c", label: "other" }], right: [{ id: "acme.tune" }] }, { section: "right", nth: 0 }],
+        ["a file with no row seeds none", null, ["layout", "plugins"], "plugins", undefined],
+        ["a file with no bar seeds none", null, ["layout", "plugins"], "bar", undefined],
+        ["writes version 1", null, ["plugins"], "version", 1],
+    ];
+    for (const [name, user, targets, p, want, locator] of unsetRows) {
+        check("withoutSetting: " + name, dig(ctx.withoutSetting(user, tunable, "label", targets, locator || null), p), want);
+    }
+    check("withoutSetting does not alias the user file", (() => { const u = { plugins: [{ id: "acme.tune", label: "p" }] }; ctx.withoutSetting(u, tunable, "label", ["plugins"]); return u.plugins[0]; })(), { id: "acme.tune", label: "p" });
+
     // lendRefusal rows: [name, held, capabilities, want]
     const lendRows = [
         ["a free exclusive capability lends", {}, ["lock"], ""],
@@ -1037,6 +1054,11 @@ const CONTROLS = [
     ["a key string is judged", "return parsed.ok ? \"\" :", "return true ? \"\" :"],
     ["a written key is normalised", "row.keys[shortcut] = key === null ? null : hyprlandKey(key).key;", "row.keys[shortcut] = key === null ? null : key;"],
     ["null unbinds", "row.keys[shortcut] = key === null ? null : hyprlandKey(key).key;", "row.keys[shortcut] = hyprlandKey(key).key;"],
+    ["an unset removes the key from the plugins row", "    if (row !== undefined) delete row[key];\n", ""],
+    ["an unset removes the key from the layout entries", "if (!isPlainObject(locator) || seen === locator.nth) delete entry[key];", ""],
+    ["an unset of the plugins row leaves the layout", "if (targets.indexOf(\"layout\") !== -1 && isPlainObject(out.bar) && isPlainObject(out.bar.layout)) {", "if (isPlainObject(out.bar) && isPlainObject(out.bar.layout)) {"],
+    ["an unset of the layout leaves the plugins row", "var row = targets.indexOf(\"plugins\") !== -1 ? pluginRow(out, manifest.id) : undefined;", "var row = pluginRow(out, manifest.id);"],
+    ["an unset with a locator keeps the other entries", "if (isPlainObject(locator) && locator.section !== section) return;\n            var seen = 0;\n            (Array.isArray(out.bar.layout[section])", "var seen = 0;\n            (Array.isArray(out.bar.layout[section])"],
     ["a reset removes the entry", "            delete row.keys[shortcut];\n", ""],
     ["an empty keys is removed", "if (Object.keys(row.keys).length === 0) delete row.keys;", ""],
     ["a reset the row does not need changes nothing", "if (!needed)\n            return out;", "if (false)\n            return out;"],

@@ -126,7 +126,8 @@ Singleton {
             set: (key, value) => {
                 const targets = Logic.configureTargets(Config.effective, ctx.manifest, ctx.kind);
                 return Plugins.writeSetting(ctx.id, key, value, targets, ctx.locator);
-            }
+            },
+            unset: key => Plugins.clearSetting(ctx.id, key, Logic.configureTargets(Config.effective, ctx.manifest, ctx.kind), ctx.locator)
         }),
         idle: idleWatches.provider,
         ipc: commands.provider,

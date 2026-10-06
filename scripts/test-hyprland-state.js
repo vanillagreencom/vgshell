@@ -90,6 +90,30 @@ function suite(lib, check) {
         check("overridden: " + name, got.ok ? Object.assign({ ok: true, overridden: got.overridden }, want.errors === undefined ? {} : { errors: got.errors.map((e, i) => e.slice(0, want.errors[i].length)) }) : { ok: false, error: got.error.slice(0, want.ok ? 0 : want.error.length) }, want);
     }
 
+    // The layer's record of the user's values, as `hyprctl eval` prints the
+    // error the request raises with it.
+    check("user values request: one eval that raises the layer's answer, or none without the layer", lib.USER_VALUES_REQUEST, ["hyprctl", "eval", "error(hl.__vgs_options == nil and \"vgs-user-values=[]\" or hl.__vgs_options.report(), 0)"]);
+    const answer = rows => "error: vgs-user-values=" + JSON.stringify(rows) + "\n";
+    // rows: [name, reply, want]
+    const userRows = [
+        ["no user value", answer([]), { ok: true, values: [] }],
+        ["a value per option, in the written order, each with its plugin", answer([{ path: "input.kb_layout", value: "us" }, { path: "input.sensitivity", value: -0.5 }, { path: "input.touchpad.tap_to_click", value: true }]), { ok: true, values: [
+            { id: "acme.mouse", path: "input.sensitivity", value: -0.5 }, { id: "acme.keys", path: "input.kb_layout", value: "us" }, { id: "acme.mouse", path: "input.touchpad.tap_to_click", value: true }] }],
+        ["a path the layer no longer writes", answer([{ path: "input.natural_scroll", value: true }, { path: "input.repeat_rate", value: 30 }]), { ok: true, values: [{ id: "acme.keys", path: "input.repeat_rate", value: 30 }] }],
+        ["the per-device option has no user value", answer([{ path: "device.touchpad.enabled", value: true }]), { ok: true, values: [] }],
+        ["a string with an escaped quote", "error: vgs-user-values=[{\"path\":\"input.kb_layout\",\"value\":\"a\\u0022b\"}]", { ok: true, values: [{ id: "acme.keys", path: "input.kb_layout", value: "a\"b" }] }],
+        ["another error", "error: [string \"return error(hl.__vgs_options.report(), 0);\"]:1: attempt to call a nil value", { ok: false, error: "refused: user-values=unread reply=" }],
+        ["no reply", "", { ok: false, error: "refused: user-values=unread reply=\"\"" }],
+        ["no JSON", "error: vgs-user-values=[{", { ok: false, error: "refused: user-values=unparsed " }],
+        ["no list", "error: vgs-user-values={}", { ok: false, error: "refused: user-values=shape want=list" }],
+        ["a row with no path", answer([{ value: 1 }]), { ok: false, error: "refused: user-values=shape row=0" }],
+        ["a value of another type", answer([{ path: "input.sensitivity", value: "fast" }]), { ok: false, error: "refused: user-values=shape path=input.sensitivity want=float" }]
+    ];
+    for (const [name, text, want] of userRows) {
+        const got = lib.userValues(written, text);
+        check("user values: " + name, got.ok ? got : { ok: false, error: got.error.slice(0, want.ok ? 0 : want.error.length) }, want);
+    }
+
     const layerBinds = ["acme.keys:toggle", "acme.keys:talk", "acme.keys:talk.release"];
     // rows: [name, binds, want]
     const foreign = [
@@ -131,6 +155,12 @@ const CONTROLS = [
     ["each reply holds its type's field", " || !Object.prototype.hasOwnProperty.call(read.value, field))", ")"],
     ["a float within a millionth is the same", "Math.abs(read - want) > 0.000001", "read !== want"],
     ["a differing value is overridden", "if (differs(Layer.OPTIONS[rows[i].path].type, rows[i].value, read.value[field]))", "if (false)"],
+    ["a session without the layer has no user value", 'hl." + Layer.USER_VALUES.table + " == nil and \\"" + Layer.USER_VALUES.key + "=[]\\" or ', ""],
+    ["the answer is read by its key", "if (line === undefined) return", "if (false) return"],
+    ["the answer is a list", 'if (!Array.isArray(read.value)) return { ok: false, error: "refused: user-values=shape want=list" };', ""],
+    ["a user value row names a path", '|| typeof row.path !== "string")', ")"],
+    ["a user value has its option's type", "if (typeof named[path].value !== VALUE_TYPE[Layer.OPTIONS[path].type])", "if (false)"],
+    ["a user value carries its plugin", "out.push({ id: rows[r].id, path: path, value: named[path].value });", "out.push({ path: path, value: named[path].value });"],
     ["only the default submap", '(bind.submap !== "" && bind.submap !== "default") || ', ""],
     ["the submap named default counts", ' && bind.submap !== "default")', ")"],
     ["the layer's binds are not foreign", " || descriptions.indexOf(bind.description) !== -1) continue;", ") continue;"],

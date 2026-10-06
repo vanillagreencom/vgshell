@@ -4,8 +4,9 @@
 .import "Dispatch.js" as Dispatch
 
 // Pure readings behind the `hyprland` capability: Hyprland's input devices,
-// the options the layer wrote that read back otherwise, and the keys bound
-// by something other than the layer. HyprlandState.qml runs each request
+// the options the layer wrote that read back otherwise, the values the
+// user's configuration gave them, and the keys bound by something other
+// than the layer. HyprlandState.qml runs each request
 // and holds what these answer; scripts/test-hyprland-state.js runs this file
 // under node. Each reply is in the shape Hyprland v0.56.2 prints
 // (src/debug/HyprCtl.cpp, docs/architecture/runtime-hyprland-input.md).
@@ -197,6 +198,46 @@ function overridden(written, text) {
             out.push({ id: rows[i].id, path: rows[i].path });
     }
     return { ok: true, overridden: out, errors: errors };
+}
+
+// The one `hyprctl eval` argv that asks the layer for the user's values
+// (HyprlandLayer.USER_VALUES). An eval prints only an error's text
+// (docs/architecture/runtime-hyprland-pads.md), so the request raises the
+// layer's answer; a session whose hyprland.lua does not load the layer has
+// no table and no user value.
+var USER_VALUES_REQUEST = ["hyprctl", "eval", "error(hl." + Layer.USER_VALUES.table + " == nil and \"" + Layer.USER_VALUES.key + "=[]\" or hl." + Layer.USER_VALUES.table + "." + Layer.USER_VALUES.verb + "(), 0)"];
+
+// The JavaScript type of a value of each OPTIONS type.
+var VALUE_TYPE = { bool: "boolean", int: "number", float: "number", string: "string" };
+
+// The value the user's configuration gave each option of WRITTEN, from the
+// reply to USER_VALUES_REQUEST: { ok: true, values: [{ id, path, value }] }
+// in WRITTEN's order, or { ok: false, error } with a keyed line. A path the
+// reply names that WRITTEN does not hold belongs to a layer since replaced.
+function userValues(written, text) {
+    var key = Layer.USER_VALUES.key + "=";
+    var line = String(text || "").split("\n").filter(function (l) { return l.indexOf(key) !== -1; })[0];
+    if (line === undefined) return { ok: false, error: "refused: user-values=unread reply=" + JSON.stringify(String(text || "").slice(0, 120)) };
+    var read = parsed(line.slice(line.indexOf(key) + key.length));
+    if (!read.ok) return { ok: false, error: "refused: user-values=unparsed " + read.error };
+    if (!Array.isArray(read.value)) return { ok: false, error: "refused: user-values=shape want=list" };
+    var named = Object.create(null);
+    for (var i = 0; i < read.value.length; i++) {
+        var row = read.value[i];
+        if (row === null || typeof row !== "object" || typeof row.path !== "string")
+            return { ok: false, error: "refused: user-values=shape row=" + i };
+        named[row.path] = row;
+    }
+    var rows = readable(written);
+    var out = [];
+    for (var r = 0; r < rows.length; r++) {
+        var path = rows[r].path;
+        if (named[path] === undefined) continue;
+        if (typeof named[path].value !== VALUE_TYPE[Layer.OPTIONS[path].type])
+            return { ok: false, error: "refused: user-values=shape path=" + path + " want=" + Layer.OPTIONS[path].type };
+        out.push({ id: rows[r].id, path: path, value: named[path].value });
+    }
+    return { ok: true, values: out };
 }
 
 // The keys `hyprctl -j binds` binds in the default submap, which it names
