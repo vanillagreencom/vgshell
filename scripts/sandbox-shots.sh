@@ -31,7 +31,8 @@
 # runner that changes no theme; devtools is the Dev Tools window; system
 # is the System window as it opens with no System section enabled, then
 # System → Displays over the device fakes when the tree ships it, and
-# its Sound section over the sandbox's private PipeWire; bluetooth is
+# its Sound section over the sandbox's private PipeWire, then the window
+# as Sound is turned off while shown; bluetooth is
 # its Bluetooth section, then the Bluetooth dropdown, over the device
 # fakes; vpn is its VPN section, then the VPN dropdown, over the
 # tailscale stand-in; keyhints is the
@@ -1951,9 +1952,12 @@ scene_system() { # MODE
       expect_poll "the Sound section lists the test stream" true sound_lists_player
       park_pointer
       take "system-$1-sound"
+      expect "disabling vgs.sound while its section is shown is allowed" ok ipc shell setPluginEnabled vgs.sound false
+      expect_poll "the window names the Sound section that left" '"Sound is no longer enabled."' ipc smoke readInstance window vgs.system notice
+      park_pointer
+      take "system-$1-sound-disabled"
       expect "the System window hides after the Sound shot" ok ipc shell hide window vgs.system
       expect_poll "the System window is gone after the Sound shot" hidden system_shown
-      expect "disabling vgs.sound after its shot is allowed" ok ipc shell setPluginEnabled vgs.sound false
       kill -- "-$devices_player_pid" 2>/dev/null || true
     fi
   fi
