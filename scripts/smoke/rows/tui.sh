@@ -111,7 +111,7 @@ setup_button() {
   printf '%s %s\n' "$any" "$on"
 }
 settings_page_open acme.tui
-expect_poll "the Settings page draws one Setup button per listed script" '["Setup", "Each button opens a setup window.", "Say hello", "Update"]' setup_drawn
+expect_poll "the Settings page draws one Setup button per listed script" '["Setup", "Say hello", "Update"]' setup_drawn
 expect "an enabled plugin's Setup button takes a press" "drawn enabled" setup_button "Say hello"
 forget_record
 settings_press "Say hello" || fail "the click on the Setup section's Say hello failed"
@@ -288,11 +288,11 @@ expect_poll "a disabled plugin holds no tui capability" False tui_held
 # Its Setup buttons stay drawn and take no press, the manager refuses the
 # open, and the refusal reads under the buttons.
 settings_page_open acme.tui
-expect_poll "a disabled plugin's page draws its Setup buttons" '["Setup", "Each button opens a setup window.", "Say hello", "Update"]' setup_drawn
+expect_poll "a disabled plugin's page draws its Setup buttons" '["Setup", "Say hello", "Update"]' setup_drawn
 expect "a disabled plugin's Setup button takes no press" "drawn absent" setup_button "Say hello"
 forget_record
 expected_errors+=('settings: acme\.tui/tui:hello refused: tui=hello reason=disabled')
 expect "the manager refuses to open a disabled plugin's script" "refused: tui=hello reason=disabled" settings_open_tui acme.tui hello
 expect "the refused open of a disabled plugin's script reaches no terminal" absent recorded
-expect_poll "the refusal reads under the Setup buttons" '["Setup", "Each button opens a setup window.", "Say hello", "Update", "Turn on this plugin before you change it."]' setup_drawn
+expect_poll "the refusal reads under the Setup buttons" '["Setup", "Say hello", "Update", "Turn on this plugin before you change it."]' setup_drawn
 settings_page_close acme.tui
