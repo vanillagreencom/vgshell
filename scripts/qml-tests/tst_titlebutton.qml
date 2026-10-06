@@ -6,8 +6,9 @@ import qs.Unit
 
 // TitleButton: its text over an underline as wide as the text, a caret
 // after it; a click and Down open its menu, which a second click closes;
-// the text takes `titleButton.hover` while hovered or open; given less
-// width than it needs, the text elides and the caret stays inside.
+// the text takes `titleButton.hover` while hovered or open, and the
+// underline shows only with keyboard focus; given less width than it
+// needs, the text elides and the caret stays inside.
 Item {
     id: root
     width: 400
@@ -72,19 +73,31 @@ Item {
             mouseMove(root, root.width - 1, root.height - 1);
         }
 
-        // At rest the caret alone marks the menu: the underline shows on
-        // hover and while the menu is open. The caret centres on the
-        // text's capital centre on a whole pixel.
-        function test_the_underline_shows_only_while_engaged_and_the_caret_centres() {
+        // At rest the caret alone marks the menu. Hover and an open menu
+        // change the colour alone; the underline shows only while the
+        // button holds keyboard focus. The caret centres on the text's
+        // capital centre on a whole pixel.
+        function test_the_underline_marks_keyboard_focus_alone_and_the_caret_centres() {
             compare(underline(title).visible, false);
             menu.open();
-            compare(underline(title).visible, true);
+            compare(title.menuOpen, true);
+            compare(underline(title).visible, false, "an open menu draws no underline");
             menu.close();
-            compare(underline(title).visible, false);
             mouseMove(title, 5, 5);
-            tryCompare(underline(title), "visible", true);
+            tryCompare(title, "hovered", true);
+            compare(underline(title).visible, false, "hover draws no underline");
             mouseMove(root, root.width - 1, root.height - 1);
-            tryCompare(underline(title), "visible", false);
+            tryCompare(title, "hovered", false);
+            root.Window.window.requestActivate();
+            tryCompare(root.Window.window, "active", true);
+            narrow.forceActiveFocus();
+            tryCompare(narrow, "activeFocus", true);
+            keyClick(Qt.Key_Backtab);
+            tryCompare(title, "visualFocus", true);
+            compare(underline(title).visible, true, "keyboard focus draws the underline");
+            keyClick(Qt.Key_Tab);
+            tryCompare(narrow, "activeFocus", true);
+            compare(underline(title).visible, false);
             compare(caret(title).y, Math.round(caret(title).y));
             verify(Math.abs(caret(title).y + caret(title).height / 2 - label(title).capCentre) <= 0.5, "caret centre " + (caret(title).y + caret(title).height / 2) + ", capital centre " + label(title).capCentre);
         }

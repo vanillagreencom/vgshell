@@ -8,9 +8,10 @@ import qs.Ui
 // capital centre on a whole pixel. A click, Space, Enter or Down toggles
 // `menu`, a Menu the author declares inside the button, so the menu opens
 // under the title. The text and the caret take `titleButton.hover` while
-// hovered or open, and the underline under the text shows then and while
-// the button holds keyboard focus; at rest the caret alone marks the menu.
-// The template owns the click, hover and focus.
+// hovered or open, a change of colour alone; the underline under the text
+// shows only while the button holds keyboard focus, so a keyboard user
+// sees where focus is. At rest the caret alone marks the menu. The
+// template owns the click, hover and focus.
 T.AbstractButton {
     id: root
 
@@ -20,7 +21,6 @@ T.AbstractButton {
     property Item menu: null
     readonly property bool menuOpen: menu !== null && menu.opened
     readonly property color foreground: hovered || menuOpen ? Theme.titleButton.hover : Theme.titleButton.foreground
-    readonly property bool engaged: hovered || menuOpen || visualFocus
     // The title's capital centre from the button's top, so a header puts
     // the text, not the box with its underline, on its centre line.
     readonly property real capCentre: topPadding + label.capCentre
@@ -62,7 +62,7 @@ T.AbstractButton {
             width: label.width
             height: Theme.titleButton.underline
             color: root.hovered || root.menuOpen ? root.foreground : Theme.titleButton.underlineColor
-            visible: root.engaged
+            visible: root.visualFocus
         }
         Icon {
             id: caret
