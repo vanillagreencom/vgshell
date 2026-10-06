@@ -423,7 +423,7 @@ focus_other() {
 # panel mode, 1 when either still stands after 5 s, read every 200 ms. The
 # keyboard on another window closes the inbox, but only once the shell has
 # dispatched the reply to the sync Qt asks at the leave
-# ([runtime-qml-focus.md](../../../docs/architecture/runtime-qml-focus.md)),
+# ([runtime-qml-focus.md](../../../docs/architecture/runtime-qml.md)),
 # so the compositor names the other window focused while the panel still
 # stands, and `inbox` is a toggle that would close it.
 panel_stands() { [[ $(panel_rows) != absent ]]; }

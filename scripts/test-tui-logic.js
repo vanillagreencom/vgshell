@@ -571,7 +571,7 @@ suite(load(LOGIC), report);
 
 // TuiRunner's focus reads the windows of Hyprland's reply, never
 // Quickshell's Hyprland.toplevels, which can keep a closed window
-// (docs/architecture/runtime-hyprland-pads.md § Events). windowsRead and
+// (docs/architecture/runtime-hyprland.md). windowsRead and
 // windows run as TuiRunner.qml holds them, with the judge above, against a
 // model that keeps a closed window of the same app-id and title; the
 // control reads that model, as the runner once did.

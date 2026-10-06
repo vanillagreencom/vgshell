@@ -5,7 +5,7 @@ Usage: attribute-heap-profile.py BASE HEAD [--thread NAME] [--top N] [--no-symbo
 
 BASE and HEAD are `.heap` dumps from one process, written by jemalloc with
 `prof:true,prof_sys_thread_name:true` and named `<prefix>.<pid>.<seq>.<kind><seq>.heap`.
-docs/architecture/memory.md § Attribution limits says why an in-process
+docs/architecture/runtime.md § Memory
 profile is needed.
 
 Byte and object counts are jemalloc samples scaled to estimates the way jeprof

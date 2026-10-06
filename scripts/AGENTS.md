@@ -4,7 +4,7 @@ Validation and measurement scripts. A script here reads the repository and the n
 
 - A check is a row in `scripts/validate` with its must-fail control beside it, named `test-<subject>` for the script it exercises. `qml-smoke.sh` is a runner and has none; the checks `validate` makes itself have theirs in `test-validate.sh`. A new row whose inputs match a case's file in `test-validate.sh` adds its command to that case's expected plan.
 - What the sandbox needs, how it exits and where the shell's log is: `docs/architecture/validation-smoke.md` and `docs/architecture/runtime.md` § Process.
-- What a memory figure may claim and how the sampler finds the shell: `docs/architecture/memory.md`.
+- What a memory figure may claim and how the sampler finds the shell: `docs/architecture/runtime.md`.
 - Use `scripts/validate --list` to inspect the affected checks, then omit `--list` to run them once. Selection defaults to the newest commit holding what last passed the area in this worktree, else the default branch's merge base, and the run prints the base it used; `--changed BASE` names another base, and `--full` explicitly requests every row. The input globs beside each manifest row include its shared dependencies. An unmapped source input selects the full area; docs and harness-only changes do not start the product smoke.
 
 - `arch-packages.sh` builds and installs the Arch recipes in a podman container, the `package` area of `validate`. It is a runner like `qml-smoke.sh`; `check-packaging.js` is the recipes' offline check and has its control.

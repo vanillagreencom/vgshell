@@ -52,7 +52,7 @@ other_events() { local status=0; grep -cE -- "$1" "$other_log" || status=$?; [[ 
 # its root item holding the active focus, false once the shell has read
 # the keyboard leaving it. Qt's Wayland client can drop a keyboard that
 # returns in one batch with the reply to the leave's sync
-# (docs/architecture/runtime-qml-focus.md), so a row waits for false
+# (docs/architecture/runtime-qml.md), so a row waits for false
 # before a dispatch returns the keyboard, and for true before it types.
 window_keyboard() { ipc smoke windowFocused window "$1"; }
 

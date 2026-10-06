@@ -8,7 +8,7 @@ The [Jarvis architecture](jarvis.md) owns the service, child lease and Session r
 
 The manifest declares only controls with a consumer. Settings edits mode and the declared keys through the core's existing page. Always mode, confirmation and console binds remain absent until their assigned owners implement them.
 
-The service registers talk with the [core hold-shortcut contract](hyprland-shortcuts.md#hold-shortcuts), recorded by [D071](../decisions/D071-hold-shortcuts-use-a-release-companion.md). The core owns repeated-down suppression, release, rebind cancellation and disposal. Jarvis adds no second physical-hold owner.
+The service registers talk with the [core hold-shortcut contract](hyprland-shortcuts.md), recorded by [D071](../decisions/D071-hold-shortcuts-use-a-release-companion.md). The core owns repeated-down suppression, release, rebind cancellation and disposal. Jarvis adds no second physical-hold owner.
 
 `Session.js` selects hold or toggle from its settings. In hold, down interrupts before collecting; up closes capture and the engine supplies its final transcript. In toggle, down opens or ends conversation demand; up does nothing. The existing Session debounce applies to toggle presses. A mode change ends the conversation. Local turn detection and always listening remain separate work.
 

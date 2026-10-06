@@ -287,7 +287,7 @@ Item {
     // The IPC `open`: the app's window brought into view, or the site
     // opened once a browser look ends. The windows come from Hyprland's
     // reply: Quickshell's Hyprland.toplevels can keep a closed window
-    // (docs/architecture/runtime-hyprland-pads.md § Events).
+    // (docs/architecture/runtime-hyprland.md).
     function open(name) {
         if (current().good.find(app => app.name === name) === undefined) return "refused: app=" + name + " reason=unknown";
         shell.compositor.readWindows(state => root.windowsRead(name, state));

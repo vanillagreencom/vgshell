@@ -29,7 +29,7 @@ The [plan § 6.1](https://linear.app/vanillagreen/issue/VGS-623) defines the scr
 
 ## Geometry
 
-- Hyprland 0.56.2 prints an output's `width` and `height` as its mode in device pixels ([runtime-hyprland-monitors.md](runtime-hyprland-monitors.md)). Its layout size is that mode turned a quarter for an odd transform (1, 3, 5, 7), divided by the scale and rounded: `CMonitor::applyMonitorRule` in `src/output/Monitor.cpp`. `Screen.plan` uses the same rule, flipped transforms included.
+- Hyprland 0.56.2 prints an output's `width` and `height` as its mode in device pixels ([runtime-hyprland.md](runtime-hyprland.md)). Its layout size is that mode turned a quarter for an odd transform (1, 3, 5, 7), divided by the scale and rounded: `CMonitor::applyMonitorRule` in `src/output/Monitor.cpp`. `Screen.plan` uses the same rule, flipped transforms included.
 - grim composes every captured output into one image of the requested layout box, at one scale, with each output's transform and flip already applied (`render.c::render`, grim 1.5.0). The image is in layout orientation. Its size is `(int)(width * scale)` by `(int)(height * scale)`.
 - A mask is therefore `(layout - box origin) * scale` in image pixels. The output transform enters through each output's layout size, which sets the box and which windows it meets. A mask rotated by the transform would land on the wrong pixels of grim's upright image. The plan's sentence "then the output's transform" describes the output buffer, which grim never hands over.
 - The executor pins `-s` to the highest scale among the outputs the box meets, the scale grim itself would guess, so the image size is known before the capture.

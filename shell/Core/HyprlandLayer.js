@@ -86,7 +86,7 @@ function inputProtectedClass(value) {
 // string row with `choices` takes those values alone. The path is the Lua
 // table key, `tap_to_click`, not the hyphenated option name: Hyprland's Lua
 // config refuses `["tap-to-click"]` as an unknown key
-// (docs/architecture/runtime-hyprland-input.md). The `device` row is no
+// (docs/architecture/runtime-hyprland.md). The `device` row is no
 // option: Hyprland keeps `enabled` per device, so the layer writes it as one
 // `hl.device` per touchpad Hyprland lists.
 var OPTIONS = {

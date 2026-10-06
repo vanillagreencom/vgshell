@@ -4,9 +4,9 @@
 # answers hyprctl. The capability hands a plugin `outputs` and nothing
 # else, and the shell writes no monitor rule: the row reads the Hyprland
 # layer for an `hl.monitor` call and finds none
-# (docs/architecture/hyprland-monitors.md). The row runs on the first nested
+# (docs/architecture/hyprland.md). The row runs on the first nested
 # output alone, WAYLAND-1, which takes any mode and lists none
-# (docs/architecture/runtime-hyprland-monitors.md).
+# (docs/architecture/runtime-hyprland.md).
 #
 # The change the fixture must follow is the harness's own: hold_mode gives
 # the output double its sized mode at scale 2, as rows/hidpi.sh holds it,

@@ -8,9 +8,7 @@ One line per architecture document: the change to read it before. [overview.md](
 - [bluetooth-agent.md](bluetooth-agent.md): read before touching the `bluetoothAgent` capability, its bluetoothctl child, its transcript test or its smoke row.
 - [appearance.md](appearance.md): read before writing a plugin that owns its look, or touching `Theme.appearance` or its judge.
 - [layers.md](layers.md): read before drawing a passive surface that takes no keyboard, or touching the `layers` capability or its host.
-- [hyprland.md](hyprland.md): read before touching the Hyprland layer, a manifest's `hyprland` key, a `plugins[].keys` entry or `vgshell hypr`.
-- [hyprland-options.md](hyprland-options.md): read before touching a manifest's `hyprland.options`, the option table or the `hyprland` capability.
-- [hyprland-monitors.md](hyprland-monitors.md): read before touching the `monitors` capability, its outputs reading or the check that VGS writes no monitor rule.
+- [hyprland.md](hyprland.md): read before touching the Hyprland layer, a manifest's `hyprland` key, a `plugins[].keys` entry, `vgshell hypr`, or the `hyprland` and `monitors` capabilities.
 - [capture.md](capture.md): read before touching the Capture plugin, its tool worker or its nested capture row.
 - [clipboard.md](clipboard.md): read before touching the clipboard history plugin, its capture helper, its store or its paste.
 - [status.md](status.md): read before touching plugin status or the Settings page's Status rows.
@@ -53,14 +51,10 @@ One line per architecture document: the change to read it before. [overview.md](
 - [requirements.md](requirements.md): read before touching a manifest's `requirements`, `config/requirements.json`, the scan's probe or the `missing` lines.
 - [requirement-notice.md](requirement-notice.md): read before touching the core notice host, a requirement notice, its triggers, the Hyprland consent question or the `requirements` and `doctor` capabilities.
 - [tui.md](tui.md), [tui-capability.md](tui-capability.md), [tui-records.md](tui-records.md) and [tui-sudo.md](tui-sudo.md): read before touching a floating TUI, the `tui` capability, its exit records or `vgshell sudo`.
-- [runtime.md](runtime.md): read before touching anything that starts, stops, measures or talks to the shell.
-- [runtime-qml-folders.md](runtime-qml-folders.md): read before touching `FolderListModel`, folder pickers or directory listings in QML.
-- [runtime-qml-focus.md](runtime-qml-focus.md): read before touching keyboard focus in QML: a layer-shell focus rule, summoned-surface initial focus, a focus reason, a focus scope, or a row that hands a window the keyboard.
-- [runtime-hyprland.md](runtime-hyprland.md): read before touching a dispatch, `Compositor` or `Dispatch.js`, or relying on what Hyprland does.
-- [runtime-hyprland-nested.md](runtime-hyprland-nested.md): read before touching the nested sandbox's outputs, `scripts/smoke/shot.sh` or a fault that names the nested window.
-- [runtime-hyprland-capture.md](runtime-hyprland-capture.md): read before touching the overlay keyboard capture, the key capture pass-through, their submaps or `scripts/smoke/rows/overlay-capture.sh`, `key-capture.sh` and `key-passthrough.sh`.
-- [runtime-hyprland-input.md](runtime-hyprland-input.md): read before relying on a Hyprland input option, a device, a bind reading or `switchxkblayout`.
-- [runtime-hyprland-monitors.md](runtime-hyprland-monitors.md): read before relying on the `monitors -j` reply, a `desc:` selector or a monitor event.
+- [runtime.md](runtime.md): read before touching anything that starts, stops, measures or talks to the shell, and before adding a watcher, a poller, a cache or a subprocess.
+- [runtime-qml.md](runtime-qml.md): read before writing QML, for every Quickshell and Qt fact the QML rests on.
+- [runtime-hyprland.md](runtime-hyprland.md): read before touching a dispatch, `Compositor` or `Dispatch.js`, or relying on what Hyprland does with a request.
+- [hyprland-shortcuts.md](hyprland-shortcuts.md): read before touching a shortcut, a manifest's `hyprland.binds`, a hold shortcut, the overlay keyboard capture, the key capture pass-through, or their submaps.
 - [runtime-pointer.md](runtime-pointer.md): read before touching a pointer handler, a cursor, a hover reading or a popup.
 - [validation.md](validation.md), [validation-qml-unit.md](validation-qml-unit.md), [validation-smoke.md](validation-smoke.md), [validation-smoke-harness.md](validation-smoke-harness.md) and [validation-smoke-input.md](validation-smoke-input.md): read before touching `scripts/validate`, the nested sandbox, the HiDPI smoke row, its harness or a smoke row's verdict.
 - [validation-jarvis.md](validation-jarvis.md): read before touching the shared Jarvis test world, `scripts/lib/jarvis-env.sh` or a Jarvis suite's private services.
@@ -78,7 +72,6 @@ One line per architecture document: the change to read it before. [overview.md](
 - [distribution-autostart.md](distribution-autostart.md): read before touching the XDG autostart entry a system package ships.
 - [distribution.md](distribution.md): read before touching the licence, `VERSION`, `vgshell --version` or anything that packages or installs VGS; it links each channel's file.
 - [install-guide.md](install-guide.md): read before touching README § Install, `scripts/check-readme.js` or `scripts/readme-install.sh`.
-- [memory.md](memory.md): read before attributing memory growth or writing a memory budget.
 - [jarvis-tasks.md](jarvis-tasks.md): read before changing coding-task records, their event producer or consumers.
 
 - [network.md](network.md): before touching Network scanning, connection recovery, password handling or its System pane.

@@ -20,7 +20,7 @@ A floating TUI is a themed terminal window that floats over the session and runs
 
 - `launch` runs `setsid -f xdg-terminal-exec --app-id=<app-id> --title="VGS · <title>" -- vgshell-tui present ...` and exits 0 once setsid has forked it into a session of its own, or, for a run with a record, once the presenter wrote the record ([tui-records.md § Exit records](tui-records.md#exit-records)). The terminal outlives whatever started `launch`: Quickshell kills the processes it started when the shell stops, and a `vgshell restart` during a package install must not kill the install. xdg-terminal-exec picks the user's default terminal and maps `--app-id` onto that terminal's own flag through the `X-TerminalArgAppId` key of its desktop entry. VGS does not choose or configure the terminal.
 - `launch` removes `VGSHELL_RUNNER_PID`, which `vgshell pkg run` refuses, from the terminal's environment, which a single-instance terminal hands to later windows.
-- The app-id names a size class. `launch` reads it from `HyprlandLayer.TUI_WINDOWS` in `shell/Core/HyprlandLayer.js`, the table the Hyprland layer writes one window rule per class from; [hyprland.md § The file](hyprland.md#the-file) lists each class's app-id, rule and preferred size, and how the rule clamps that size to the output. A caller picks a class, never a geometry.
+- The app-id names a size class. `launch` reads it from `HyprlandLayer.TUI_WINDOWS` in `shell/Core/HyprlandLayer.js`, the table the Hyprland layer writes one window rule per class from; [hyprland.md § The file](hyprland.md) lists each class's app-id, rule and preferred size, and how the rule clamps that size to the output. A caller picks a class, never a geometry.
 - A terminal whose desktop entry has no `X-TerminalArgAppId` key opens the window without the app-id, so no rule for the class can match it and the window tiles.
 - A floating TUI needs `xdg-terminal-exec` on the path, `gum` for the library's dialogs, and `setsid` and `script` from util-linux. Without `xdg-terminal-exec`, `launch` exits 69 with `terminal=missing`.
 - On the owner's machine, read with `xdg-terminal-exec --print-id` on 2026-09-28, the default terminal is Ghostty 1.3.1 through `com.mitchellh.ghostty.desktop`. Its entry maps `--app-id` to `--class=`, and its `Exec` line forces `--gtk-single-instance=true`.
@@ -72,7 +72,7 @@ The layer that run read wrote each class's preferred size with no clamp, so the 
 ## A plugin's script
 
 - With `--plugin <id> --dir <snapshot>`, argv[0] is a path relative to the plugin's published snapshot, inside its `tui/` directory.
-- `present` copies the whole snapshot under `$XDG_RUNTIME_DIR`, runs argv[0] from the copy and removes the copy when it exits. A shell start removes old snapshot roots ([runtime.md § Process](runtime.md#process)), so a `vgshell restart` cannot remove a file the script reads ([D033](../decisions/D033-floating-tuis-are-core.md)).
+- `present` copies the whole snapshot under `$XDG_RUNTIME_DIR`, runs argv[0] from the copy and removes the copy when it exits. A shell start removes old snapshot roots ([runtime.md § Process](runtime.md)), so a `vgshell restart` cannot remove a file the script reads ([D033](../decisions/D033-floating-tuis-are-core.md)).
 - `present` exports `VGS_PLUGIN_ID` and `VGS_PLUGIN_DIR`, the copy, to the script. A core command gets neither, whatever the caller's environment held.
 - argv[0] must resolve, after every link and `..`, to an executable file inside the copied `tui/` directory. Anything else is refused before it runs.
 

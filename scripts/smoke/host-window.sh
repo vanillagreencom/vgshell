@@ -4,7 +4,7 @@
 # The nested Hyprland is one xdg toplevel of the host, class aquamarine,
 # owned by the nested compositor's process. The host sends that window frame
 # callbacks only while it draws it, unless a host rule gives it
-# render_unfocused (docs/architecture/runtime-hyprland-nested.md). A shot
+# render_unfocused (docs/architecture/runtime-hyprland.md). A shot
 # records this state so its evidence says whether the nested window was
 # hidden when it was taken.
 #

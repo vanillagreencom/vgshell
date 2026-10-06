@@ -185,7 +185,7 @@ Scope {
     // looked for among the dead once: a presenter killed outright leaves a
     // running record that only `vgshell-tui reap` ends. The windows come
     // from Hyprland's reply: Quickshell's Hyprland.toplevels can keep a
-    // closed window (docs/architecture/runtime-hyprland-pads.md § Events).
+    // closed window (docs/architecture/runtime-hyprland.md).
     function focus(key) {
         const slot = Object.prototype.hasOwnProperty.call(recordStore.runs.keys, key) ? recordStore.runs.keys[key] : null;
         if (slot === null || slot.running === null) return;

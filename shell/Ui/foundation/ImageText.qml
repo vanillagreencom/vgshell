@@ -14,7 +14,7 @@ import "ImageTextLogic.js" as Logic
 // Text with no image draws as a plain Text with Qt's own right elision.
 // Text with images elides itself: Qt's multi-line elision draws an image
 // from an earlier line over the elided line's text
-// (docs/architecture/runtime-qml-text.md). The cut keeps the longest run of
+// (docs/architecture/runtime-qml.md). The cut keeps the longest run of
 // whole words and whole images that fits `maximumLineCount` lines with one
 // ellipsis after it, measured on a hidden copy of the text, so an image is
 // never split. That text wraps at word boundaries, and breaks a word only

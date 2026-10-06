@@ -4,7 +4,7 @@
 // bin/lib/qml-library.js as the shell loads it. NESTED_REPLY is the reply
 // `hyprctl -j monitors all` printed in the nested sandbox; the other outputs
 // are built in the shape `CHyprCtl::getMonitorData` prints
-// (docs/architecture/runtime-hyprland-monitors.md).
+// (docs/architecture/runtime-hyprland.md).
 //
 // The controls at the end edit a copy of the file, one rule at a time, and
 // the suite must fail on every copy. Exit 1 when a row or a control fails.

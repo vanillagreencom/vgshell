@@ -57,7 +57,7 @@
 # in scripts/smoke/harness.sh). A row that stops and starts the shell
 # therefore hides no shell from the ceiling. It catches an allocation
 # blow-up at startup or in a row and nothing else: a run this short cannot
-# see growth over a session, which the sampler in docs/architecture/memory.md
+# see growth over a session, which the sampler in docs/architecture/runtime.md
 # measures, the largest reading grows with the rows the run holds, and it carries the machine's
 # graphics stack. The default is twice the highest rss_peak_kib of three
 # runs of this script on the owner's machine (host cachy, AMD Ryzen 9

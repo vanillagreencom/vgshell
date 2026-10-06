@@ -10,7 +10,7 @@ import "PluginLogic.js" as Logic
 // every output. Hyprland posts `monitoradded`, `monitorremoved`,
 // `monitoraddedv2` and `monitorremovedv2` when an output comes or goes and
 // `configreloaded` after each reload, and the outputs are read again on
-// each (docs/architecture/runtime-hyprland-monitors.md). A failed read is logged
+// each (docs/architecture/runtime-hyprland.md). A failed read is logged
 // and returns `outputs` to null.
 Scope {
     id: root

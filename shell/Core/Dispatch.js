@@ -247,7 +247,7 @@ function workspaceState(text) {
 // The windows and the monitors, from one `hyprctl --batch` of
 // WINDOW_STATE_REQUEST: { ok: true, clients, monitors } or { ok: false,
 // error }. Quickshell 0.3.1's Hyprland.toplevels can keep a window Hyprland
-// closed (docs/architecture/runtime-hyprland-pads.md § Events), so a reader
+// closed (docs/architecture/runtime-hyprland.md), so a reader
 // that needs the windows that exist reads them here.
 var WINDOW_STATE_REQUEST = "j/clients;j/monitors";
 
@@ -360,7 +360,7 @@ function revealTarget(state, addresses, named) {
 // The keyboard layout switch, the `hyprland` capability's
 // switchKeyboardLayout. `switchxkblayout` is a top-level hyprctl command,
 // not a dispatcher: `hyprctl dispatch switchxkblayout ...` is refused in a
-// Lua session (docs/architecture/runtime-hyprland-input.md), so the switch
+// Lua session (docs/architecture/runtime-hyprland.md), so the switch
 // runs as its own argv. `all` moves every keyboard: `next`, `prev`, or the
 // index of a layout in each keyboard's list, which Hyprland reads with
 // std::stoi, so an index stays in its signed 32-bit range.

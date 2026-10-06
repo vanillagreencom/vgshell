@@ -178,7 +178,7 @@ Item {
         action = name;
         // The window boxes come from Hyprland's own reply: Quickshell's
         // Hyprland.toplevels can keep a closed window
-        // (docs/architecture/runtime-hyprland-pads.md § Events).
+        // (docs/architecture/runtime-hyprland.md).
         if (name === "screenshot-window" || name === "record-window" || ((name === "screenshot-area" || name === "record") && shell.settings.smart)) {
             const asked = windowsAsked + 1;
             windowsAsked = asked;

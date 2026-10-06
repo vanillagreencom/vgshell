@@ -181,7 +181,7 @@ print("absent" if row is None else json.dumps([row.get("enabled"), row.get("styl
 # the layer file, so the file can hold a change Hyprland has not loaded;
 # a press before that load toggles the old pad, and the load after it sets
 # the special workspace leaves back to the configuration's
-# (docs/architecture/runtime-hyprland-pads.md § Motion). A function run
+# (docs/architecture/runtime-hyprland.md). A function run
 # through `hyprctl dispatch` that raises answers its error text, not `ok`.
 sp_pad_loaded() {
   local reply

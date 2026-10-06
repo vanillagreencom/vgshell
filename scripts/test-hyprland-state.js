@@ -2,7 +2,7 @@
 // Checks for shell/Core/HyprlandState.js, the readings behind the
 // `hyprland` capability, loaded under node through bin/lib/qml-library.js
 // as the shell loads it. The replies are the shapes Hyprland v0.56.2
-// printed in the nested sandbox (docs/architecture/runtime-hyprland-input.md).
+// printed in the nested sandbox (docs/architecture/runtime-hyprland.md).
 //
 // The controls at the end edit a copy of the file, one rule at a time, and
 // the suite must fail on every copy. Exit 1 when a row or a control fails.

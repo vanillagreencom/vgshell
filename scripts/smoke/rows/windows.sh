@@ -55,7 +55,7 @@ expect "the nested instance reloads hyprland.lua after the rule control" ok hypr
 # holding the keyboard before that leave: Qt's Wayland client can drop a
 # return that lands in one batch with the reply to the leave's sync,
 # leaving Settings with the keyboard and no focused item
-# (docs/architecture/runtime-qml-focus.md).
+# (docs/architecture/runtime-qml.md).
 expect "the IPC opens the Settings window for the keyboard rows" ok ipc shell summon window vgs.settings '{}'
 expect_poll "the Settings window is focused for the keyboard rows" "[\"$shell_class\", \"Plugins\"]" active_window
 expect_poll "the shell reads the Settings window holding the keyboard" true window_keyboard vgs.settings

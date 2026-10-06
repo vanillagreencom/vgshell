@@ -1,53 +1,35 @@
-# Hyprland shortcuts
+# One key grammar, one conflict judge, one key capture owner
 
-Covers: shell/Core/ShortcutRegistry.qml, shell/Core/KeyCapture.qml, shell/Core/PluginLogic.js, shell/Core/HyprlandLayer.js, scripts/test-hyprland-layer.js, scripts/test-key-capture.js, scripts/qml-tests/tst_shortcutregistry.qml, scripts/qml-tests/tst_keycapture.qml, scripts/smoke/rows/key-passthrough.sh, scripts/smoke/rows/keyhints.sh, shell/plugins/vgs.keyhints/**
+Read before touching a shortcut, a manifest's `hyprland.binds`, a hold shortcut, the overlay keyboard capture, the key capture pass-through, or their submaps.
 
-How a plugin's shortcut keys are written, read, held and captured: the key syntax and its overrides, the effective key map, hold shortcuts, the shell's one key capture and the layer's pass-through submap that serves it. [hyprland.md](hyprland.md) renders the binds; [D059](../decisions/D059-keycodes-and-effective-shortcut-keys.md) records the key syntax and the effective key reads.
+## The approach
 
-## Key syntax
+A key is written as `MOD+MOD+KEY`, normalised once by `PluginLogic.hyprlandKey`, with a keycode as lower-case `code:<n>` ([D059](../decisions/D059-keycodes-and-effective-shortcut-keys.md)). One conflict decision, `HyprlandLayer.resolveBinds`, is shared by the layer renderer, the overlay capture submap and `ShortcutRegistry`, so a plugin reads the key it actually holds. A hold shortcut gets a `<name>.release` companion bind ([D071](../decisions/D071-hold-shortcuts-use-a-release-companion.md)). Full-screen overlays capture the keyboard through one submap ([D067](../decisions/D067-overlay-keyboard-capture.md)), and a key field captures through a second, pass-through submap whose only bind is Escape ([D086](../decisions/D086-key-capture-passthrough-submap.md)); `shell/Core/KeyCapture.qml` is the one capture owner.
 
-A key is written `MOD+MOD+KEY`, with the modifiers `SUPER`, `CTRL`, `ALT` and `SHIFT`. `PluginLogic.hyprlandKey` orders modifiers, uppercases keysyms and normalizes a numeric keycode to lower-case `code:<n>` without leading zeros. It accepts decimal digits in Hyprland's unsigned 32-bit range.
+## Why
 
-A bind takes the key the plugin's `plugins[].keys` entry gives its shortcut, [configuration.md § shell.json keys](configuration.md#shelljson-keys), else the manifest's. A hand edit or the Settings window's Keys rows write that entry, [manager.md](manager.md). A `null` entry unbinds it and leaves `-- unbound <id>:<shortcut>: shell.json sets its key to null`.
+Hyprland runs a global bind before the focused layer or window sees the key, so a capture must start in the compositor, and a submap must be named by a bind to be enterable. A Lua bind can lose its release when the key changes the modifier mask, so a hold needs a companion that ignores modifiers, and that companion also sees unrelated releases, so the owner guards. `hl.timer` is cancelled on every reload, so the layer leaves the pass-through submap each time it loads, and a stuck submap would take every bind from the user.
 
-## Shortcut key reads
+## Rules
 
-`shell.shortcut.keys` is a read-only, bindable map for the calling plugin: shortcut name to normalized key. Declared shortcuts, a manifest's binds and the binds of the pads its `hyprland.pads` setting lists ([plugin-manifest.md § Pads](plugin-manifest.md#pads)), have `null` when unbound or skipped by a conflict. Undeclared names, including registered names without such a bind, are absent. Each read returns a new prototype-free map; changing that copy affects no configuration, bind or other instance.
+- Do write a key with `SUPER`, `CTRL`, `ALT` and `SHIFT`, and a keycode as `code:<n>` without leading zeros. `scripts/test-hyprland-layer.js` pins the grammar.
+- Do take the key from the `plugins[].keys` entry, then the manifest; `null` unbinds. `scripts/smoke/rows/hyprland.sh` reads it back.
+- Do resolve conflicts through `HyprlandLayer.resolveBinds` everywhere; the first plugin by id keeps the key, and a lost conflict reads as null so a label never advertises a key the shell skipped. `scripts/test-hyprland-layer.js` and `scripts/qml-tests/tst_shortcutregistry.qml` pin both.
+- Do give a hold shortcut a release companion with `release`, `non_consuming`, `transparent` and `ignore_mods`, and start a hold only from a down on a registration with a live key; a release bind authenticates nothing, since a virtual keyboard can trigger it. `scripts/smoke/rows/hold-shortcuts.sh` and `tst_shortcutregistry.qml` pin both.
+- Do capture keys only through `shell.shortcut.capture`; a control never dispatches. Do hold a new enter until the earlier leave is answered; the `submap` event precedes the dispatch reply. `scripts/qml-tests/tst_keycapture.qml` pins both.
+- Do let `leave` reset only `vgs:passthrough`, never the overlay's `vgs:capture`, and reset the capture submap only when it is the current one; the layer's close hook resets it when the shell dies. `scripts/test-hyprland-layer.js` and `scripts/smoke/rows/overlay-capture.sh` pin both.
+- Do refuse a captured key that types text with no modifier but Shift; a bind on it stops typing everywhere. `scripts/test-key-capture.js` pins it.
+- Do draw the same conflict hint in the Settings Keys row and the Key Hints window through `ShortcutField`. `scripts/test-key-capture.js` pins it.
+- Do turn `input:resolve_binds_by_sym` on in a smoke row that types a bind through `wtype`; keys from a virtual keyboard reach no bind otherwise. `scripts/smoke/rows/notifications-keys.sh` and `clipboard.sh` carry it.
 
-`Registry.hyprlandSections` holds the enabled manifests' `PluginLogic.hyprlandSection` results. The renderer, overlay capture and `ShortcutRegistry` use `HyprlandLayer.resolveBinds` for the same conflict decision. Reads follow configuration, enablement and manifest updates. They describe the shell's generated layer, not user Lua overrides after its loading line or physical keyboard labels.
+## The canonical example
 
-`scripts/test-hyprland-layer.js` pins the keycode grammar and effective maps with controls. `scripts/qml-tests/tst_shortcutregistry.qml` reads the actual provider through a QML binding. `scripts/smoke/rows/hyprland.sh` reads a fixture's default, rebound and unbound key from its running instance, plus the compositor's registered bind and configuration errors.
+`shell/Core/ShortcutRegistry.qml`: one registration per declared bind, the effective key read through the shared judges, the hold completed once, and the capture owner inside it. Copy its shape for a new shortcut consumer.
 
-## Hold shortcuts
+## Revisit when
 
-[D071](../decisions/D071-hold-shortcuts-use-a-release-companion.md) records the release-path choice.
+Hyprland changes keycode syntax, exposes shortcut identity through a readback API, guarantees Lua release delivery across modifier changes, lets a focused client receive bound keys without a submap, or stops running default-map binds ahead of the focused layer.
 
-A manifest bind may set `hold: true`; absent or `false` keeps an ordinary press bind. `PluginLogic.hyprlandError` refuses a non-boolean value. Key overrides preserve the hold declaration. An unbound or conflicting key produces neither bind.
+## Not governed
 
-The setup-text inventory treats `hold` as boolean data, not user-facing prose. `scripts/test-check-user-commands.py` checks that every admitted manifest field has a classification and controls the hold flag's classification.
-
-The plugin supplies the optional fourth callback, `shell.shortcut.register(name, description, onPressed, onReleased)`. `ShortcutRegistry` owns both native objects under one instance disposer. The main object receives down. A `<name>.release` companion receives up through a second bind with `release`, `non_consuming`, `transparent` and `ignore_mods` set. A dot is outside the public registration-name grammar, so a plugin cannot claim the companion name. Both default and overlay-capture maps use the same renderer.
-
-Only a down received by that registration with an available effective key starts a hold. The owner reads the current generated-layer key at the press, since Registry can change before Hyprland replaces its binds. A late press after unbind, conflict cancellation or section removal does nothing. Repeated down and unmatched up do nothing. Releasing another chord with the same terminal key cannot call an idle registration's callback. Changing the effective key, unbinding it or disposing the registration completes an active hold once. Disposal destroys both native objects even if the release callback throws. Ordinary callers keep their press-only behavior.
-
-The release bind ignores the live modifier mask but does not consume client input. Plain Right Alt therefore reaches the focused client without starting a hold. This API does not authenticate physical input: a Wayland virtual keyboard can activate it.
-
-`scripts/qml-tests/tst_shortcutregistry.qml` drives the shipped owner and its lifetime with controls in `scripts/test-qml-unit.sh`. `scripts/smoke/rows/hold-shortcuts.sh` sends physical keycodes on US, AltGr and swapped Right Alt layouts. It checks both modifier-release orders, plain-key client delivery, repeated input, early disposal and disable. Its controls drop modifier-independent release and virtual-keyboard delivery. [validation-smoke.md](validation-smoke.md) defines the shell-processed marker that orders negative reads and the healthy delayed controls.
-
-## Key capture
-
-[D086](../decisions/D086-key-capture-passthrough-submap.md) records the choice; [§ Key capture pass-through](#key-capture-pass-through) holds the section the layer writes, and [hyprland.md § The file](hyprland.md#the-file) its place.
-
-`shell.shortcut.capture` is the one key capture, owned by `KeyCapture.qml` for every instance. `begin(item)` makes ITEM the holder, ending an earlier holder's capture, and sends the pass-through `enter`; `end(item, reason)` ends the holder's capture and sends `leave`. The owner also ends it when the holder is destroyed and when the instance that began it is torn down. A begin while an earlier leave is unanswered waits to send its enter until that leave was answered, so the earlier capture's submap events never end the new one. The owner reads Hyprland's `submap` event: `passthrough` turns true once Hyprland reports the submap, and a change away from it ends the capture without a request, since Hyprland left it itself, as `timeout` once `timeoutMs` passed and as `compositor` before, with the submap name and the time held in the log. `failed` is true while the holder's enter was refused or answered with an error. `holder`, `passthrough`, `failed` and `ended`, the last capture's `{ item, reason }`, are bindable.
-
-`keyFor(key, modifiers)` is `PluginLogic.capturedKey`: a Qt key event names a key as `hyprlandKey` writes it, a keypad key by its `KP_` keysym, a modifier pressed alone names the held modifiers, a key that types or edits text with no modifier but Shift is `text`, and a key outside both tables is unnamed, for the text entry. `conflicts(key, id, shortcut)` is `PluginLogic.keyConflicts` over the key each enabled plugin's bind asks for and the keys something other than the layer binds, HyprlandState's `foreignKeys` ([hyprland-options.md](hyprland-options.md)), with `binds`, that read's state, beside them: `unread`, `read` or `failed`, and `hint`, the one line a key field draws: `PluginLogic.conflictHint` names each plugin by its manifest's `name` with the shortcut, then the user's own binds, and says when the read failed. A `ShortcutField` given the bind's `pluginId` and `shortcut` asks it and draws that hint, so the Settings page's Keys row and the Key Hints window ([`vgs.keyhints`](../../shell/plugins/vgs.keyhints/README.md)) show the same line for the same key, a manifest's default key included. HyprlandState's reads stay on while a capture runs and while an instance that asked a question lives, and read again after each `configreloaded`; a question after a failed read asks once more. The key capture reads no `hyprctl` itself.
-
-`scripts/test-key-capture.js` pins the key table, the bind reader, the conflict judge and its hint with controls. `scripts/qml-tests/tst_keycapture.qml` drives the owner against a recording `Compositor` stand-in, with mutations in `scripts/test-qml-unit.sh`.
-
-## Key capture pass-through
-
-The layer's section defines the `vgs:passthrough` submap, whose one bind is Escape, the `enter` and `leave` functions on `hl.__vgs_key_passthrough`, one timer, a `keybinds.submap` hook that arms the timer while the submap is current and forgets the entering window when it is not, and a `window.close` hook, and leaves the submap as it loads. [D086](../decisions/D086-key-capture-passthrough-submap.md) records the choice.
-
-While the Settings key field captures, `KeyCapture.qml` asks for `enter` through `Compositor.passthrough`. The layer's `enter` refuses unless a window of the shell's class has the focus, and Hyprland then passes every key but Escape to that window. The owner sends `leave` on commit, focus loss and teardown. The layer leaves the submap on Escape, on the close of the window `enter` recorded, `HyprlandLayer.KEY_PASSTHROUGH.timeoutMs` after it entered, and each time it loads. `leave` resets only this submap, so an overlay that entered `vgs:capture` keeps it.
-
-The layer's pass-through section is written byte for byte after the overlay keyboard capture section and before the session lock's restore; its submap's one bind is Escape, `enter` refuses a window of another class and `leave` resets only its own submap. Enforced by `scripts/test-hyprland-layer.js`, whose controls drop the section, move it, rebind Escape, make `leave` unconditional, drop the class check, the recorded window, the timer, the close hook and the reset on load. On the nested instance every exit [D086](../decisions/D086-key-capture-passthrough-submap.md) lists leaves the submap, a `hyprctl reload` included, each with a tree-copy control that keeps it: `scripts/smoke/rows/key-passthrough.sh`.
+What the rest of the layer writes, which is [hyprland.md](hyprland.md); the keyboard standard every surface meets, which is [keyboard.md](keyboard.md).

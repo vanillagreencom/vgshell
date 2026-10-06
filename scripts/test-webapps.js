@@ -2,7 +2,7 @@
 // Checks for vgs.webapps' `open`: the app's window is looked for among the
 // windows Hyprland's reply lists, never among Quickshell's
 // Hyprland.toplevels, which can keep a closed window
-// (docs/architecture/runtime-hyprland-pads.md § Events). windowOf and
+// (docs/architecture/runtime-hyprland.md). windowOf and
 // windowsRead run as Service.qml holds them, with WebApps.js loaded through
 // bin/lib/qml-library.js, against a model that keeps a closed window of the
 // app. The control reads that model, as the service once did, and the

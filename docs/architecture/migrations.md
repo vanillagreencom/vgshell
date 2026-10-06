@@ -21,7 +21,7 @@ A migration is a change VGS makes once to a user's own files when a new version 
 
 ## When migrations run
 
-- **`vgshell run`**, once it holds the instance lock and before it starts the shell, runs `vgshell-migrate run --notice` and starts the shell whatever it answers. Every install method reaches this: a package update restarts the shell through the updates pipeline, and a login starts `vgshell run` ([runtime.md § Process](runtime.md#process)).
+- **`vgshell run`**, once it holds the instance lock and before it starts the shell, runs `vgshell-migrate run --notice` and starts the shell whatever it answers. Every install method reaches this: a package update restarts the shell through the updates pipeline, and a login starts `vgshell run` ([runtime.md § Process](runtime.md)).
 - **`vgshell self update`** runs the updated tree's `vgshell-migrate run` before it restarts the shell, for a checkout and a curl install ([distribution-methods.md](distribution-methods.md)). A failure prints its line and leaves the migration to the next `vgshell run`.
 - **`vgshell migrate`** runs them on the command line, and `vgshell migrate --pending` lists the pending names.
 
