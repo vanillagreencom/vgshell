@@ -222,7 +222,6 @@ function creditLine(credits) {
     var noun = creditNoun(credits, false);
     if (credits.unlimited === true) return "Unlimited " + noun;
     if (credits.granted === 0) return "No " + creditNoun(credits, true) + " pool";
-    if (typeof credits.monthUsed === "number") return compact(credits.monthUsed) + " " + noun + " used this month";
     return "";
 }
 
@@ -263,7 +262,7 @@ function detailRows(row) {
         rows.push({ label: "Codex credits", value: codex.unlimited === true ? "Unlimited" : codex.balance !== undefined ? String(codex.balance) + " available" : "Available" });
     }
     if (d.copilotMonthUsed !== undefined) rows.push({ label: "Month credits used", value: compact(d.copilotMonthUsed) });
-    if (d.copilotRenewsAt !== undefined) rows.push({ label: "Subscription renewal", value: "Renews " + dateText(d.copilotRenewsAt) });
+    if (d.copilotRenewsAt !== undefined) rows.push({ label: "Renews", value: dateText(d.copilotRenewsAt) });
     if (d.gateway !== undefined) {
         rows.push({ label: "Balance left", value: money(d.gateway.balance, "USD") });
         rows.push({ label: "Total used", value: money(d.gateway.totalUsed, "USD") });
@@ -284,8 +283,8 @@ function windowRow(row, item, now) {
 // title, detail line, note, every limit and full-view detail rows.
 function panel(usage, now, settings) {
     return visibleAccounts(usage, settings).map(function (row) {
-        var title = (NAMES[row.provider] || row.provider) + " · " + (row.label === "default" ? cleanLine(row.email, row.label) : row.label);
-        var detail = [row.email, row.plan === "" ? "" : row.provider === "gateway" ? row.plan : row.plan.charAt(0).toUpperCase() + row.plan.slice(1) + " plan",
+        var title = (NAMES[row.provider] || row.provider) + (row.label === "default" ? "" : " · " + row.label);
+        var detail = [row.plan === "" ? "" : row.provider === "gateway" ? row.plan : row.plan.charAt(0).toUpperCase() + row.plan.slice(1) + " plan",
             row.provider === "copilot" ? creditLine(row.credits) : ""]
             .filter(Boolean).join(" · ");
         var note = row.state === "expired" ? EXPIRED[row.provider]

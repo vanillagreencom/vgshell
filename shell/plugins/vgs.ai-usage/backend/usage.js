@@ -89,20 +89,6 @@ function claudeWindow(name, value) {
  * null is absent. Returns the windows, or null for a reply that is no object
  * or holds a present window of another shape.
  */
-
-function claudeDetails(body) {
-    const extra = plain(body.extra_usage) ? body.extra_usage : null;
-    if (extra === null || extra.is_enabled !== true) return {};
-    const limit = numberValue(extra.monthly_limit);
-    const used = numberValue(extra.used_credits);
-    if (limit === undefined || used === undefined) return null;
-    const out = { claudeExtra: { used: used / 100, limit: limit / 100 } };
-    if (printable(extra.currency, 12)) out.claudeExtra.currency = extra.currency;
-    const utilization = percent(extra.utilization);
-    if (utilization !== undefined) out.claudeExtra.utilization = utilization;
-    return out;
-}
-
 function claudeWindows(body) {
     if (!plain(body)) return null;
     const windows = [];
@@ -121,6 +107,26 @@ function claudeWindows(body) {
         windows.push({ name, usedPercent, resetsAt });
     }
     return windows;
+}
+
+/**
+ * Claude's extra_usage details when the reply enables them. monthly_limit
+ * and used_credits are minor currency units, cents as v1 claudebar read
+ * them, so display values divide by 100. A reply without extra_usage keeps
+ * the details empty; a present extra_usage of another shape fails the reply.
+ */
+function claudeDetails(body) {
+    if (!plain(body)) return {};
+    const extra = plain(body.extra_usage) ? body.extra_usage : null;
+    if (extra === null || extra.is_enabled !== true) return {};
+    const limit = numberValue(extra.monthly_limit);
+    const used = numberValue(extra.used_credits);
+    if (limit === undefined || used === undefined) return null;
+    const out = { claudeExtra: { used: used / 100, limit: limit / 100 } };
+    if (printable(extra.currency, 12)) out.claudeExtra.currency = extra.currency;
+    const utilization = percent(extra.utilization);
+    if (utilization !== undefined) out.claudeExtra.utilization = utilization;
+    return out;
 }
 
 /**

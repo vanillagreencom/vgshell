@@ -3,7 +3,7 @@
 // Copilot usage endpoints on 127.0.0.1, for scripts/test-ai-usage.js and
 // scripts/smoke/rows/ai-usage.sh. It writes the port it listens on to
 // PORT_FILE. GET /api/oauth/usage answers by MODE_FILE for Claude: ok,
-// relative, missing, malformed, refused, error or hang. GET
+// relative, missing, null, malformed, refused, error or hang. GET
 // /copilot_internal/user answers by MODE_FILE for Copilot: copilot,
 // copilot-zero, copilot-unlimited, copilot-refused, copilot-malformed or
 // error. The Claude replies are written by hand from the recorded shape:
@@ -63,11 +63,11 @@ function start(portFile, modeFile, logFile) {
                 response.end(JSON.stringify(relativeClaude()));
                 return;
             }
-            const reply = { ok: [200, "claude-usage.json"], missing: [200, "claude-usage-missing.json"],
+            const reply = { ok: [200, "claude-usage.json"], missing: [200, "claude-usage-missing.json"], null: [200, null],
                 malformed: [200, null], refused: [401, null], error: [500, null] }[mode];
             if (reply === undefined) { response.writeHead(400); response.end(); return; }
             response.writeHead(reply[0], { "content-type": "application/json" });
-            response.end(reply[1] === null ? (mode === "malformed" ? "{\"five_hour\": " : "{}")
+            response.end(reply[1] === null ? (mode === "malformed" ? "{\"five_hour\": " : mode === "null" ? "null" : "{}")
                 : fs.readFileSync(path.join(__dirname, reply[1])));
             return;
         }

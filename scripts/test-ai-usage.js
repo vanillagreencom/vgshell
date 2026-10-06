@@ -246,10 +246,11 @@ async function main() {
         for (const body of ["text", [], null, { five_hour: { utilization: "42", resets_at: null } }, { seven_day: 7 },
             { five_hour: { utilization: 4, resets_at: "soon" } }])
             assert.equal(claudeWindows(body), null, JSON.stringify(body));
+        assert.deepEqual(claudeDetails(null), {}, "a null reply has no extra usage details");
         assert.deepEqual(claudeDetails(claudeReply), { claudeExtra: { used: 123.45, limit: 500, currency: "USD", utilization: 24.69 } });
         assert.deepEqual(codexWindows(codexReply), { plan: "plus", details: { codexCredits: { balance: "12345" } }, windows: [
             { name: "five_hour", usedPercent: 27, resetsAt: 1791223200000 },
-            { name: "seven_day", usedPercent: 64, resetsAt: 1791561600000 }], details: { codexCredits: { balance: "12345" } } });
+            { name: "seven_day", usedPercent: 64, resetsAt: 1791561600000 }] });
         assert.deepEqual(codexWindows({ rateLimits: { primary: { usedPercent: 5, windowDurationMins: 60, resetsAt: null }, secondary: null, credits: { hasCredits: true, unlimited: true, balance: null } } }),
             { plan: "", details: { codexCredits: { unlimited: true } }, windows: [{ name: "minutes_60", usedPercent: 5, resetsAt: null }] });
         for (const body of [{}, { rateLimits: 3 }, { rateLimits: { primary: { usedPercent: "5" } } }, { rateLimits: { primary: [] } }])
@@ -265,6 +266,8 @@ async function main() {
         "        if (window !== undefined) windows.push(window); else windows.push({ name, usedPercent: 0, resetsAt: null });", recorded);
     await control("shape-accepted", "backend/usage.js", "        const resetsAt = resetTime(entry.resets_at);\n        if (usedPercent === undefined || resetsAt === undefined) return null;",
         "        const resetsAt = resetTime(entry.resets_at);\n        if (usedPercent === undefined) continue;", recorded);
+    await control("claude-details-null-unguarded", "backend/usage.js", "    if (!plain(body)) return {};",
+        "    if (!plain(body)) return null;", recorded);
 
     // Claude through the stand-in endpoint. Each case's state and windows;
     // an expired token sends nothing, and no read changes a credential file.
@@ -295,6 +298,7 @@ async function main() {
         assert.equal(requests().length, quiet, "an expired token sends no request");
         assert.deepEqual(await readOf(fresh, "refused"), { state: "expired", plan: "max" }, "a refused token reads expired");
         assert.deepEqual(await readOf(fresh, "malformed"), { state: "failed", reason: "reply-json" }, "a malformed body fails");
+        assert.deepEqual(await readOf(fresh, "null"), { state: "failed", reason: "reply-shape" }, "a null body fails one account, not the whole run");
         assert.deepEqual(await readOf(fresh, "error"), { state: "failed", reason: "http-500" });
         assert.deepEqual(await readOf(unsigned, "ok"), { state: "signed-out" });
         assert.deepEqual(await readOf(path.join(home, ".claude-absent"), "ok"), { state: "signed-out" });
@@ -673,12 +677,12 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
             credits: null, details: {}, windows: [] },
         { id: "gateway-a", provider: "gateway", label: "AI Gateway", email: "", plan: "$10.50 left", state: "ok", credits: null,
             details: { gateway: { balance: 10.5, totalUsed: 5.25 } }, windows: [{ name: "credits", usedPercent: 33.3333333333, resetsAt: null }] }], partial: "" }, NOW);
-        assert.deepEqual(plainOf(View.panel(copilot, NOW).map(r => [r.id, r.detail, r.note,
+        assert.deepEqual(plainOf(View.panel(copilot, NOW).map(r => [r.id, r.title, r.email, r.detail, r.note,
             r.windows.map(w => [w.label, w.text, w.percent]), r.details.map(d => [d.label, d.value])])), [
-            ["copilot-a", "octo-user · Enterprise plan · 362k AI credits used this month", "", [["AI credits", "45.2k of 1M", 4.5225]], [["Month credits used", "362k"], ["Subscription renewal", "Renews 2026-11-01"]]],
-            ["copilot-b", "zero-user · No premium request pool", "", [], []],
-            ["claude-enterprise", "Enterprise plan", "This plan reports no usage limits.", [], []],
-            ["gateway-a", "$10.50 left", "", [["AI Gateway credits", "33%", 33.3333333333]], [["Balance left", "$10.50"], ["Total used", "$5.25"]]]]);
+            ["copilot-a", "Copilot · work", "octo-user", "Enterprise plan", "", [["AI credits", "45.2k of 1M", 4.5225]], [["Month credits used", "362k"], ["Renews", "2026-11-01"]]],
+            ["copilot-b", "Copilot · zero", "zero-user", "No premium request pool", "", [], []],
+            ["claude-enterprise", "Claude Code · enterprise", "", "Enterprise plan", "This plan reports no usage limits.", [], []],
+            ["gateway-a", "AI Gateway · AI Gateway", "", "$10.50 left", "", [["AI Gateway credits", "33%", 33.3333333333]], [["Balance left", "$10.50"], ["Total used", "$5.25"]]]]);
         assert.deepEqual(shown(copilot, { showCopilot: false }), [true, 33.3333333333, "normal"], "provider filters remove Copilot from the widget");
         assert.deepEqual(View.panel(copilot, NOW, { showCopilot: false }).map(r => r.provider), ["claude", "gateway"]);
         assert.deepEqual(View.panel(copilot, NOW, { hidden: [{ account: "" }] }).map(r => r.id), ["copilot-b", "claude-enterprise", "gateway-a"], "empty hidden account means the first offer");

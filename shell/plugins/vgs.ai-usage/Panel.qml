@@ -52,7 +52,7 @@ Item {
 
                 Label { role: "label"; text: modelData.title }
                 Label { visible: text !== ""; role: "hint"; text: modelData.email }
-                Label { visible: text !== ""; role: "hint"; text: modelData.detail }
+                Label { visible: root.fullView && text !== ""; role: "hint"; text: modelData.detail }
                 Label {
                     width: parent.width
                     visible: text !== ""
@@ -81,12 +81,12 @@ Item {
                                     id: share
                                     anchors.right: parent.right
                                     role: "body"
-                                    text: modelData.text
+                                    text: root.fullView ? modelData.text : modelData.text + " · " + modelData.reset
                                     color: modelData.tone === "warning" ? Theme.badge.tone.warning.foreground : Theme.color.text
                                 }
                             }
                             ProgressBar { visible: root.fullView; width: parent.width; value: Math.min(modelData.percent, 100) / 100 }
-                            Label { role: "hint"; text: modelData.reset }
+                            Label { visible: root.fullView; role: "hint"; text: modelData.reset }
                         }
                     }
                 }

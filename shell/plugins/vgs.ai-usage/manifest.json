@@ -7,203 +7,43 @@
   "description": "Show how much of your Claude Code, Codex and Copilot plan limits you have used.",
   "license": "MIT",
   "icon": "gauge",
-  "kinds": [
-    "service",
-    "bar-widget",
-    "panel"
-  ],
-  "entryPoints": {
-    "service": "Service.qml",
-    "bar-widget": "Widget.qml",
-    "panel": "Panel.qml"
-  },
-  "capabilities": [
-    "ipc",
-    "status",
-    "surfaces",
-    "tui",
-    "secrets"
-  ],
+  "kinds": ["service", "bar-widget", "panel"],
+  "entryPoints": { "service": "Service.qml", "bar-widget": "Widget.qml", "panel": "Panel.qml" },
+  "capabilities": ["ipc", "status", "surfaces", "tui", "secrets"],
   "defaultSection": "right",
   "requirements": [
-    {
-      "command": "node",
-      "packages": {
-        "pacman": "nodejs",
-        "apt": "nodejs",
-        "dnf": "nodejs",
-        "nix": "nodejs"
-      },
-      "optional": false,
-      "purpose": "Reads the plan limits of each signed-in account"
-    },
-    {
-      "command": "setpriv",
-      "packages": {
-        "pacman": "util-linux",
-        "apt": "util-linux",
-        "dnf": "util-linux",
-        "nix": "util-linux"
-      },
-      "optional": false,
-      "purpose": "Stops the Codex program when a usage check ends"
-    },
-    {
-      "command": "gum",
-      "packages": {
-        "pacman": "gum",
-        "apt": "gum",
-        "dnf": "gum",
-        "nix": "gum"
-      },
-      "optional": false,
-      "purpose": "Draws the header of the sign-in terminal"
-    },
-    {
-      "command": "claude",
-      "packages": {},
-      "optional": true,
-      "purpose": "Signs in to Claude Code"
-    },
-    {
-      "command": "codex",
-      "packages": {},
-      "optional": true,
-      "purpose": "Signs in to Codex and reports its plan limits"
-    },
-    {
-      "command": "secret-tool",
-      "packages": {
-        "pacman": "libsecret",
-        "apt": "libsecret-tools",
-        "dnf": "libsecret",
-        "nix": "libsecret"
-      },
-      "optional": true,
-      "purpose": "Reads the Copilot sign-in from the keyring"
-    }
+    { "command": "node", "packages": { "pacman": "nodejs", "apt": "nodejs", "dnf": "nodejs", "nix": "nodejs" }, "optional": false, "purpose": "Reads the plan limits of each signed-in account" },
+    { "command": "setpriv", "packages": { "pacman": "util-linux", "apt": "util-linux", "dnf": "util-linux", "nix": "util-linux" }, "optional": false, "purpose": "Stops the Codex program when a usage check ends" },
+    { "command": "gum", "packages": { "pacman": "gum", "apt": "gum", "dnf": "gum", "nix": "gum" }, "optional": false, "purpose": "Draws the header of the sign-in terminal" },
+    { "command": "claude", "packages": {}, "optional": true, "purpose": "Signs in to Claude Code" },
+    { "command": "codex", "packages": {}, "optional": true, "purpose": "Signs in to Codex and reports its plan limits" },
+    { "command": "secret-tool", "packages": { "pacman": "libsecret", "apt": "libsecret-tools", "dnf": "libsecret", "nix": "libsecret" }, "optional": true, "purpose": "Reads the Copilot sign-in from the keyring" }
   ],
-  "settings": {
-    "refreshMinutes": 15,
-    "view": "full",
-    "showClaude": true,
-    "showCodex": true,
-    "showCopilot": true,
-    "hidden": [],
-    "aiGateway": false
-  },
+  "settings": { "refreshMinutes": 15, "view": "full", "showClaude": true, "showCodex": true, "showCopilot": true, "hidden": [], "aiGateway": false },
   "schema": {
-    "refreshMinutes": {
-      "type": "number",
-      "label": "Check interval",
-      "description": "Time between usage checks. Opening the panel also checks.",
-      "min": 5,
-      "max": 120,
-      "step": 5,
-      "unit": "minutes"
-    },
-    "view": {
-      "type": "enum",
-      "label": "View",
-      "options": [
-        "compact",
-        "full"
-      ]
-    },
-    "showClaude": {
-      "type": "boolean",
-      "label": "Claude Code",
-      "group": "Providers"
-    },
-    "showCodex": {
-      "type": "boolean",
-      "label": "Codex",
-      "group": "Providers"
-    },
-    "showCopilot": {
-      "type": "boolean",
-      "label": "Copilot",
-      "group": "Providers"
-    },
+    "refreshMinutes": { "type": "number", "label": "Check interval", "description": "Time between usage checks. Opening the panel also checks.", "min": 5, "max": 120, "step": 5, "unit": "minutes" },
+    "view": { "type": "enum", "label": "View", "options": ["compact", "full"] },
+    "showClaude": { "type": "boolean", "label": "Claude Code", "group": "Providers" },
+    "showCodex": { "type": "boolean", "label": "Codex", "group": "Providers" },
+    "showCopilot": { "type": "boolean", "label": "Copilot", "group": "Providers" },
     "hidden": {
       "type": "list",
       "label": "Hidden accounts",
-      "items": {
-        "account": {
-          "type": "string",
-          "label": "Account",
-          "optionsFrom": "accounts"
-        }
-      },
-      "defaults": {
-        "account": ""
-      }
+      "items": { "account": { "type": "string", "label": "Account", "optionsFrom": "accounts" } },
+      "defaults": { "account": "" }
     }
   },
   "tui": {
-    "sign-in-claude": {
-      "script": "tui/sign-in-claude.sh",
-      "title": "Sign in to Claude Code",
-      "requires": [
-        "claude",
-        "gum"
-      ]
-    },
-    "sign-in-codex": {
-      "script": "tui/sign-in-codex.sh",
-      "title": "Sign in to Codex",
-      "requires": [
-        "codex",
-        "gum"
-      ]
-    }
+    "sign-in-claude": { "script": "tui/sign-in-claude.sh", "title": "Sign in to Claude Code", "requires": ["claude", "gum"] },
+    "sign-in-codex": { "script": "tui/sign-in-codex.sh", "title": "Sign in to Codex", "requires": ["codex", "gum"] }
   },
   "status": {
-    "usage": {
-      "type": "data",
-      "label": "Usage"
-    },
-    "accounts": {
-      "type": "choices",
-      "label": "Accounts",
-      "hidden": true
-    },
-    "claude": {
-      "type": "state",
-      "label": "Claude Code",
-      "group": "Sign-in",
-      "action": {
-        "label": "Sign in",
-        "tui": "sign-in-claude"
-      },
-      "command": "claude auth login"
-    },
-    "codex": {
-      "type": "state",
-      "label": "Codex",
-      "group": "Sign-in",
-      "action": {
-        "label": "Sign in",
-        "tui": "sign-in-codex"
-      },
-      "command": "codex login"
-    },
-    "gatewayKey": {
-      "type": "presenceList",
-      "label": "AI Gateway key",
-      "group": "Sign-in",
-      "hint": "Connect an AI Gateway key to show its credits."
-    }
+    "usage": { "type": "data", "label": "Usage" },
+    "accounts": { "type": "choices", "label": "Accounts", "hidden": true },
+    "claude": { "type": "state", "label": "Claude Code", "group": "Sign-in", "action": { "label": "Sign in", "tui": "sign-in-claude" }, "command": "claude auth login" },
+    "codex": { "type": "state", "label": "Codex", "group": "Sign-in", "action": { "label": "Sign in", "tui": "sign-in-codex" }, "command": "codex login" },
+    "gatewayKey": { "type": "presenceList", "label": "AI Gateway key", "group": "Sign-in", "hint": "Connect an AI Gateway key to show its credits." }
   },
-  "secrets": {
-    "service": "vgs-ai-usage",
-    "label": "VGS AI Usage AI Gateway key"
-  },
-  "extras": {
-    "aiGateway": {
-      "status": [
-        "gatewayKey"
-      ]
-    }
-  }
+  "secrets": { "service": "vgs-ai-usage", "label": "VGS AI Usage AI Gateway key" },
+  "extras": { "aiGateway": { "status": ["gatewayKey"] } }
 }

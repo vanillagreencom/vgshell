@@ -46,7 +46,7 @@ Item {
         pending = false;
         output = "";
         code = -1;
-        const command = ["node", helper, "--tree", Quickshell.shellDir + "/.."]
+        const command = ["node", helper, "--tree", Quickshell.shellDir + "/.."];
         if (gatewayEnabled) command.push("--gateway");
         reader.command = command;
         reader.running = true;
