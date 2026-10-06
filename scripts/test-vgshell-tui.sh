@@ -3,8 +3,7 @@
 # present`, which hands it a command. present runs on a pseudo-terminal
 # script(1) opens, with a key typed every 0.2 s, and runs stub commands: the
 # Done and Failed prompts, the skip on 130, a typed Ctrl-C, the exit code,
-# the plain
-# presentation, the gum.env parse, the argv list, the exported paths and
+# the logo, every line of bin/lib/logo.txt, the plain presentation, the gum.env parse, the argv list, the exported paths and
 # the plugin copy, and the exit record: its running and ended files, the
 # key's lock, a busy key, a termination and reap. launch and `vgshell tui
 # present` run against a stub
@@ -57,7 +56,19 @@ plain_run() {
 }
 out_has() { grep -qF -- "$1" "$tmp/out"; }
 err_first() { local line=""; [[ -s $tmp/err ]] && IFS= read -r line <"$tmp/err"; printf '%s' "$line"; }
-logo_line="███    ███   ███    ███   ███    ███"
+# The logo rows read bin/lib/logo.txt itself and hold no copy of its lines.
+# logo_drawn_count [FILE]: how many lines of the checkout's logo $tmp/out
+# holds; FILE, $tmp/out by default, names other output.
+logo="$repo/bin/lib/logo.txt"
+mapfile -t logo_lines <"$logo"
+check "the logo file holds lines" test "${#logo_lines[@]}" -gt 0
+check "no logo line is blank" test "$(printf '%s\n' "${logo_lines[@]}" | grep -c '^[[:space:]]*$')" == 0
+logo_drawn_count() {
+  local line n=0
+  for line in "${logo_lines[@]}"; do grep -qF -- "$line" "${1:-$tmp/out}" && n=$((n + 1)); done
+  printf '%s\n' "$n"
+}
+logo_drawn() { test "$(logo_drawn_count "$@")" == "${#logo_lines[@]}"; }
 done_text="Done! Press any key to close..."
 failed_text() { printf 'Failed (exit code %s)! Press any key to close...' "$1"; }
 
@@ -81,8 +92,8 @@ for row in "${rows[@]}"; do
     failed) check "$name prompts Failed with the code" out_has "$(failed_text "$code")" ;;
     none) check "$name prompts nothing" test "$(grep -c -e 'Done!' -e 'Failed (' "$tmp/out")" == 0 ;;
   esac
-  if [[ $want_logo == yes ]]; then check "$name draws the logo" out_has "$logo_line"
-  else check "$name draws no logo" test "$(grep -cF -- "$logo_line" "$tmp/out")" == 0; fi
+  if [[ $want_logo == yes ]]; then check "$name draws every line of the logo" logo_drawn
+  else check "$name draws no logo" test "$(logo_drawn_count)" == 0; fi
 done
 
 # The prompt is on /dev/tty: with present's stdout in a file, the terminal
@@ -337,7 +348,8 @@ rm -f -- "$rdir"/*.json
 plain_run "$subject" present "${record_opts[@]}" --run 1-1 -- exits 0
 check "a presenter of a held key exits 75" test "$plain_status" == 75
 check "a presenter of a held key names it" test "$(err_first)" == "vgshell-tui: refused: record=acme.tui/hello reason=busy"
-check "a presenter of a held key runs nothing and draws no logo" test "$(grep -c -e 'ran 0' -e "$logo_line" "$tmp/out")" == 0
+check "a presenter of a held key runs nothing" test "$(grep -c 'ran 0' "$tmp/out")" == 0
+check "a presenter of a held key draws no logo" test "$(logo_drawn_count)" == 0
 check "a presenter of a held key writes no record" test -z "$(ls "$rdir" | grep '\.json$')"
 exec {held}>&-
 # A termination while the command runs ends the record with present's code.
@@ -753,6 +765,22 @@ rm -f -- "$tmp/argv"
 plain_run "$control_bin" present --presentation plain -- record 'a b' "\$(touch $tmp/planted)"
 check "the shell-string mutant runs an argument as shell code" test -e "$tmp/planted"
 rm -f -- "$tmp/planted"
+
+control first-logo-line vgshell-tui '    cat -- "$logo" || :' '    head -n 1 -- "$logo" || :'
+on_tty "$control_bin" present -- exits 0
+check "the first-logo-line mutant draws the logo's first line" test "$(logo_drawn_count)" -gt 0
+check "the first-logo-line mutant fails the whole-logo check" test "$(logo_drawn && echo drawn || echo short)" == short
+
+# A presenter that draws another drawing: its tree's copy of bin/lib holds
+# a logo.txt whose last line differs from the checkout's.
+other_logo="$tmp/control-other-logo"
+tui_tree "$other_logo" "$repo/shell"
+rm -- "$other_logo/bin/lib"
+cp -R -- "$repo/bin/lib" "$other_logo/bin/lib"
+python3 -c 'import sys; p = sys.argv[1]; l = open(p).read().split("\n"); l[-2] = l[-2].replace("█", "▓"); open(p, "w").write("\n".join(l))' "$other_logo/bin/lib/logo.txt"
+check "the other-logo mutant differs" test "$(cmp -s "$logo" "$other_logo/bin/lib/logo.txt"; echo $?)" == 1
+on_tty "$other_logo/bin/vgshell-tui" present -- exits 0
+check "the other-logo mutant fails the whole-logo check" test "$(logo_drawn && echo drawn || echo short)" == short
 
 # The helper's own control: a command that exits without writing the marker,
 # under the plain presentation so nothing waits for a key, ends the helper

@@ -91,9 +91,10 @@
 # shell judges both, and this file only keeps its file names safe. A key
 # lock's name holds one `@` and a run lock's two, and neither ends in .json.
 #
-# bin/lib/logo.txt is the word VGS in the FIGlet font Delta Corps Priest 1 by
-# CoSMiC cHiLD, its V hand-adjusted to a point. Only the rendered text is in
-# the tree, not the font.
+# bin/lib/logo.txt is the VGS mark: the owner's VG logo with an S drawn from
+# the G's strokes, a filled shape in Unicode block and quadrant characters,
+# 9 lines by 63 columns. It is the one copy of the mark; every caller reads
+# the file.
 #
 # Every refusal prints one keyed line first: `vgshell-tui: refused: <key>=<value>`.
 # launch exits 2 on a bad invocation, 69 when xdg-terminal-exec is not on
