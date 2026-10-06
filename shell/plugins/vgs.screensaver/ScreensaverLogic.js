@@ -20,41 +20,31 @@ function newestFrame(previous, next) {
 }
 
 function closeSpan(style) {
-    return style.open ? "</span>" : "";
+    return style.open ? "</font>" : "";
 }
 
 function openSpan(style) {
-    let css = "";
-    const colorProperty = "co" + "lor:";
-    if (style.fg !== "") css += colorProperty + style.fg + ";";
-    if (style.bg !== "") css += "background-" + colorProperty + style.bg + ";";
-    if (css === "") return "";
+    if (style.fg === "") return "";
     style.open = true;
-    return "<span style=\"" + css + "\">";
+    return "<font color=\"" + style.fg + "\">";
 }
 
 function sameStyle(a, b) {
-    return a.fg === b.fg && a.bg === b.bg;
+    return a.fg === b.fg;
 }
 
 function parseSgr(sequence, style) {
     const parts = sequence.length === 0 ? ["0"] : sequence.split(";");
-    const next = { fg: style.fg, bg: style.bg };
+    const next = { fg: style.fg };
     for (let i = 0; i < parts.length; i++) {
         const code = parts[i] === "" ? 0 : Number(parts[i]);
         if (code === 0) {
             next.fg = "";
-            next.bg = "";
         } else if (code === 39) {
             next.fg = "";
-        } else if (code === 49) {
-            next.bg = "";
         } else if ((code === 38 || code === 48) && parts[i + 1] === "2") {
             const color = colorFromRgb(parts, i + 2);
-            if (color !== null) {
-                if (code === 38) next.fg = color;
-                else next.bg = color;
-            }
+            if (color !== null && code === 38) next.fg = color;
             i += 4;
         }
     }
@@ -64,13 +54,13 @@ function parseSgr(sequence, style) {
 function parseFrame(frame) {
     const rows = [];
     let current = "";
-    let style = { fg: "", bg: "", open: false };
-    let wanted = { fg: "", bg: "" };
+    let style = { fg: "", open: false };
+    let wanted = { fg: "" };
 
     function applyStyle(next) {
         if (sameStyle(style, next)) return;
         current += closeSpan(style);
-        style = { fg: next.fg, bg: next.bg, open: false };
+        style = { fg: next.fg, open: false };
         current += openSpan(style);
     }
 
@@ -78,7 +68,7 @@ function parseFrame(frame) {
         current += closeSpan(style);
         rows.push(current);
         current = "";
-        style = { fg: wanted.fg, bg: wanted.bg, open: false };
+        style = { fg: wanted.fg, open: false };
         current += openSpan(style);
     }
 
@@ -106,7 +96,7 @@ function parseFrame(frame) {
             finishRow();
             continue;
         }
-        current += htmlEscape(ch);
+        current += ch === " " ? "\u00a0" : htmlEscape(ch);
     }
     if (current !== "" || rows.length === 0) finishRow();
     return rows;

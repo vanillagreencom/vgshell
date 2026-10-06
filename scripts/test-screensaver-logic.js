@@ -27,8 +27,8 @@ function suite(ctx, check) {
   check("effects include thunderstorm", choices.some(c => c.value === "thunderstorm"), true);
   check("effects omit help", choices.some(c => c.value === "help"), false);
 
-  const frame = "\u001b7\u001b[2A\u001b[38;2;255;0;0mR\u001b[0m&\n<\u001b[48;2;0;0;255mB";
-  check("frame parser escapes text and resets SGR", ctx.parseFrame(frame), ["<span style=\"color:#ff0000;\">R</span>&amp;", "&lt;<span style=\"background-color:#0000ff;\">B</span>"]);
+  const frame = "\u001b7\u001b[2A\u001b[38;2;255;0;0mR R\u001b[0m&\n<\u001b[48;2;0;0;255mB";
+  check("frame parser escapes text, preserves spaces and resets SGR", ctx.parseFrame(frame), ["<font color=\"#ff0000\">R\u00a0R</font>&amp;", "&lt;B"]);
   check("canvas size floors cells", ctx.canvasSize(2560, 1440, 15, 32), { columns: 170, rows: 45 });
   check("newest frame drops older rows", ctx.newestFrame(["old"], ["new"]), ["new"]);
   check("background drops alpha for ttfx", ctx.backgroundHex("#ff102030"), "#102030");
@@ -44,7 +44,7 @@ function runCase(name, file) {
 runCase("screensaver logic", LOGIC);
 
 const controls = [
-  ["SGR reset is handled", "if (code === 0) {\n            next.fg = \"\";\n            next.bg = \"\";", "if (false) {\n            next.fg = \"\";\n            next.bg = \"\";"],
+  ["SGR reset is handled", "if (code === 0) {\n            next.fg = \"\";\n        }", "if (false) {\n            next.fg = \"\";\n        }"],
   ["help is not an effect", "if (value === \"help\" || seen[value]) continue;", "if (seen[value]) continue;"],
   ["only newest frame is kept", "function newestFrame(previous, next) {\n    return next;\n}", "function newestFrame(previous, next) {\n    return (previous || []).concat(next);\n}"],
 ];

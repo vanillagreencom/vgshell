@@ -10,7 +10,7 @@ Item {
     property var screen: null
     property string artPath: Logic.fileUrlPath(Qt.resolvedUrl("logo.txt"))
     property var rows: []
-    property var pendingRows: null
+    property string pendingFrame: ""
     property bool focusReady: false
     property bool pointerReady: false
     property real firstX: 0
@@ -18,7 +18,7 @@ Item {
 
     readonly property bool shown: shell !== null && shell.status.values.state !== undefined && shell.status.values.state.text === "Running" && !(shell.session.locked)
     readonly property bool canRun: shell !== null && shell.requirements.missing.indexOf("ttfx") === -1
-    readonly property int frameRate: shell === null || shell.settings.frameRate === undefined ? 30 : shell.settings.frameRate
+    readonly property int frameRate: shell === null || shell.settings.frameRate === undefined ? 20 : shell.settings.frameRate
     readonly property string selectedEffect: shell === null ? "random" : shell.settings.effect
     readonly property int cellWidth: Math.max(1, Math.ceil(cellSize.width))
     readonly property int cellHeight: Math.max(1, Math.ceil(fontMetrics.height))
@@ -35,7 +35,7 @@ Item {
         pointerReady = false;
         focusReady = false;
         rows = [];
-        pendingRows = null;
+        pendingFrame = "";
         if (shown) Qt.callLater(() => {
             root.forceActiveFocus(Qt.ActiveWindowFocusReason);
             start();
@@ -75,9 +75,7 @@ Item {
     }
 
     function receiveFrame(frame) {
-        const parsed = Logic.parseFrame(frame);
-        if (parsed.length === 0) return;
-        pendingRows = Logic.newestFrame(pendingRows, parsed);
+        pendingFrame = Logic.newestFrame(pendingFrame, frame);
     }
 
     FileView {
@@ -93,13 +91,13 @@ Item {
     FontMetrics {
         id: fontMetrics
         font.family: Theme.font.family.mono
-        font.pixelSize: Theme.text.code.size
+        font.pixelSize: Theme.text.h1.size
     }
 
     TextMetrics {
         id: cellSize
         font.family: Theme.font.family.mono
-        font.pixelSize: Theme.text.code.size
+        font.pixelSize: Theme.text.h1.size
         text: "M"
     }
 
@@ -120,10 +118,12 @@ Item {
     }
 
     FrameAnimation {
-        running: root.pendingRows !== null && root.shown
+        running: root.pendingFrame !== "" && root.shown
         onTriggered: {
-            root.rows = root.pendingRows;
-            root.pendingRows = null;
+            const parsed = Logic.parseFrame(root.pendingFrame);
+            root.pendingFrame = "";
+            if (parsed.length === 0) return;
+            root.rows = parsed;
         }
     }
 
@@ -136,13 +136,13 @@ Item {
         anchors.centerIn: parent
         spacing: 0
         Repeater {
-            model: root.rows
+            model: root.canvas.rows
             Text {
                 textFormat: Text.StyledText
-                text: modelData
+                text: root.rows[index] || ""
                 color: Theme.color.text
                 font.family: Theme.font.family.mono
-                font.pixelSize: Theme.text.code.size
+                font.pixelSize: Theme.text.h1.size
                 lineHeightMode: Text.FixedHeight
                 lineHeight: root.cellHeight
             }

@@ -17,7 +17,7 @@
     "idleEnabled": true,
     "idleSeconds": 150,
     "effect": "random",
-    "frameRate": 30
+    "frameRate": 20
   },
   "schema": {
     "idleEnabled": { "type": "boolean", "label": "Start when inactive", "group": "Screensaver" },
