@@ -86,8 +86,7 @@ print(m.group(1))'
 portal_read_failed() {
   local out status=0
   out="$(portal_read)" || status=$?
-  if [[ $status -ne 0 && ( $out == *org.freedesktop.portal.Error.NotFound* || $out == *not-found* || $out == *not found* ) ]]; then echo failed; else printf 'status=%s %s
-' "$status" "${out%%$'\n'*}"; fi
+  if [[ $status -ne 0 && $out == *org.freedesktop.portal.Error.NotFound* ]]; then echo failed; else printf 'status=%s %s\n' "$status" "${out%%$'\n'*}"; fi
 }
 portal_stack_pids=()
 start_portal_stack() { # LABEL CONFIG_DIR
