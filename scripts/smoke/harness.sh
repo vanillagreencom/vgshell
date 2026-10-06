@@ -1821,6 +1821,64 @@ layer_bar_clear() { # NAMESPACE TOKEN
 }
 # The first monitor's width and height and the bar's reserved height.
 monitor_size() { hypr -j monitors | py_reply 'import json,sys; m=json.load(sys.stdin)[0]; print(m["width"], m["height"], m["reserved"][1])'; }
+# bar_settled: monitor_size's reading once the bar set has settled, else
+# `unsettled` and each mismatch. Settled is the core's build records
+# holding one bar for each Hyprland monitor and no other, Hyprland mapping
+# one live vgs:bar layer on each monitor, and the first monitor reserving
+# space. A removed monitor's bar that still stands is a second bar on a
+# remaining monitor, which then reserves the bar's height twice.
+bar_settled() {
+  local screens
+  screens="$(bar_screens)" || return
+  hypr --batch 'j/monitors; j/layers' | bar_settled_judge "$screens"
+}
+# The screen names the core's build records hold a bar for.
+bar_screens() { ipc shell built | py_reply 'import json,sys; print(" ".join(k[4:] for k in json.load(sys.stdin) if k.startswith("bar:")))'; }
+# bar_settled_judge SCREENS: bar_settled's verdict over SCREENS, the screen
+# names the core built a bar for, and the monitors and layers replies of
+# one hyprctl batch on stdin.
+bar_settled_judge() { # SCREENS
+  py_reply '
+import json, sys
+text = sys.stdin.read()
+decoder, at, parts = json.JSONDecoder(), 0, []
+while len(parts) < 2:
+    while text[at].isspace(): at += 1
+    part, at = decoder.raw_decode(text, at)
+    parts.append(part)
+monitors, layers = parts
+built, names = sorted(sys.argv[1].split()), sorted(m["name"] for m in monitors)
+out = []
+if built != names:
+    out.append("built=%s monitors=%s" % (",".join(built), ",".join(names)))
+for name in sorted(set(names) | set(layers)):
+    bars = sum(1 for level in layers.get(name, {}).get("levels", {}).values() for l in level if l["namespace"] == "vgs:bar" and l["pid"] != -1)
+    if bars != 1:
+        out.append("%s.bars=%d" % (name, bars))
+m = monitors[0]
+if m["reserved"][1] <= 0:
+    out.append("reserved=%d" % m["reserved"][1])
+print("unsettled " + " ".join(out) if out else "%d %d %d" % (m["width"], m["height"], m["reserved"][1]))' "$1"
+}
+# read_bar_settled LABEL: mon_w, mon_h and bar_reserved from bar_settled,
+# polled as expect_poll polls, for a row that reads the bar's reserved
+# height after a row that changed the monitors or the bar. A reading that
+# does not settle fails LABEL with the last reading and keeps the three.
+read_bar_settled() { # LABEL
+  local got="" err="$sandbox/reader-$BASHPID.stderr" settled
+  for _ in $(seq 1 25); do
+    settled=false
+    if got="$(bar_settled 2>"$err")" && [[ $got =~ ^[0-9]+\ [0-9]+\ [0-9]+$ ]]; then settled=true; fi
+    reader_stderr "$1" "$err" || return 0
+    if [[ $settled == true ]]; then
+      read -r mon_w mon_h bar_reserved <<<"$got"
+      ok "$1"
+      return
+    fi
+    sleep 0.2
+  done
+  fail "$1: got $got"
+}
 # The first monitor's mode as WxH, its logical width, and its name.
 first_mode() { hypr -j monitors | python3 -c 'import json,sys; m=json.load(sys.stdin)[0]; print("%dx%d" % (m["width"], m["height"]))'; }
 first_width() { hypr -j monitors | python3 -c 'import json,sys; m=json.load(sys.stdin)[0]; print(round(m["width"] / m["scale"]))'; }

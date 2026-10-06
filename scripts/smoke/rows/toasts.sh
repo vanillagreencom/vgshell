@@ -71,6 +71,7 @@ expect "the shown toast is in the lending record under its plugin" '[{"plugin": 
 expect_poll "the toast host maps one surface" 1 layer_count vgs:toast
 expect "the toast sits on the focused screen" "$(bar_key | sed 's/^bar://')" toast_screen
 toast_margin="$(ipc smoke themeValue toast.margin)" || toast_margin=""
+geometry read_bar_settled "the bar set has settled before the toast rows read the bar's reserved height"
 geometry expect "the toast surface sits below the bar in the top-right corner" "[[$((mon_w - toast_margin - 360)), $((bar_reserved + toast_margin)), 360, $(toast_surface_height)]]" layers_of vgs:toast
 # The planted layer is a share of the monitor this run reads: the middle
 # half of the bar's span, from half the bar's height down past its lower

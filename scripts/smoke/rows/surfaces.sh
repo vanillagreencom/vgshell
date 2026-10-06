@@ -59,6 +59,7 @@ summon_box() {
   item="$(ipc smoke instanceGeometry "$1" acme.surfaces)" || return 1
   python3 -c 'import json,sys; l=json.loads(sys.argv[1]); r=json.loads(sys.argv[2]); print(json.dumps([l[0] + r[0], l[1] + r[1], r[2], r[3]]))' "$layer" "$item"
 }
+geometry read_bar_settled "the bar set has settled before the panel rows read the bar's reserved height"
 geometry expect_poll "the panel's layer covers the free area below the bar" "[[0, $bar_reserved, $mon_w, $((mon_h - bar_reserved))]]" layers_of vgs:panel
 geometry expect_poll "the panel takes its top-right placement below the bar" "[$((mon_w - 8 - 200)), $((bar_reserved + 8)), 200, 120]" summon_box panel
 if before="$(builds)"; then

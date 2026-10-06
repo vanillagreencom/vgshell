@@ -246,6 +246,7 @@ wait_for() {
   done
   fail "$label: got $got want $want"
 }
+geometry read_bar_settled "the bar set has settled before the toast rows read the monitor and the bar's reserved height"
 # Whether the first card is centred at the top; `no-card` before it is laid out.
 toast_centred() { ipc smoke layerItems vgs.notifications NotificationCard summary | py_reply 'import json,sys; c=json.load(sys.stdin)
 if not c: print("no-card"); sys.exit()

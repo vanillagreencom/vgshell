@@ -20,7 +20,38 @@
 # disables the plugin again.
 # inputs: shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Ui/controls/BindField.qml shell/Core/Plugins.qml shell/Core/TuiRunner.qml shell/Core/Notices.qml shell/Hosts/AppWindow.qml shell/Ui/foundation/PointerCursor.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* config/shell.json shell/Core/Capabilities.qml shell/Core/Registry.qml scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/layout/TabPages.qml shell/Ui/layout/Tabs.qml
 set -euo pipefail
-read -r mon_w mon_h bar_reserved < <(monitor_size)
+# rows/status.sh removes a monitor just before this row, and its bar's
+# layer can outlive the removal, so the reading waits for the settled set.
+geometry read_bar_settled "the bar set has settled before the row reads the bar's reserved height"
+# Controls for that reading: the live replies with one defect planted on
+# the first monitor each, which bar_settled_judge must refuse. `second-bar`
+# is the removed monitor's bar still standing there, its layer twice and
+# the bar's height reserved twice; `no-reserve` is its bar with no space
+# reserved yet.
+planted_batch() { # DEFECT
+  hypr --batch 'j/monitors; j/layers' | py_reply '
+import copy, json, sys
+text = sys.stdin.read()
+decoder, at, parts = json.JSONDecoder(), 0, []
+while len(parts) < 2:
+    while text[at].isspace(): at += 1
+    part, at = decoder.raw_decode(text, at)
+    parts.append(part)
+monitors, layers = parts
+m = monitors[0]
+if sys.argv[1] == "second-bar":
+    for level in layers[m["name"]]["levels"].values():
+        level.extend([copy.deepcopy(l) for l in level if l["namespace"] == "vgs:bar" and l["pid"] != -1])
+    m["reserved"][1] *= 2
+else:
+    m["reserved"][1] = 0
+print(json.dumps(monitors))
+print(json.dumps(layers))' "$1"
+}
+monitor_names="$(hypr -j monitors | py_reply 'import json,sys; print(",".join(sorted(m["name"] for m in json.load(sys.stdin))))')"
+expect "control: the removed monitor's bar still standing leaves the bar set unsettled" "unsettled $(first_name).bars=2" bar_settled_judge "$(bar_screens)" < <(planted_batch second-bar)
+expect "control: a bar the core holds for a screen Hyprland dropped leaves the bar set unsettled" "unsettled built=$monitor_names,ZZ-GONE monitors=$monitor_names" bar_settled_judge "$(bar_screens) ZZ-GONE" < <(hypr --batch 'j/monitors; j/layers')
+expect "control: a bar with no reserved space leaves the bar set unsettled" "unsettled reserved=0" bar_settled_judge "$(bar_screens)" < <(planted_batch no-reserve)
 
 # settings_geometry: the Settings window's descendant geometry, written to
 # a file whose path it prints. With every plugin listed the reply is past

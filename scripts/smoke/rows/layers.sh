@@ -31,7 +31,7 @@ screen_json="$(screen_names)"
 expect "the lending record lists the layer under its plugin and screens" "[{\"plugin\": \"acme.layers\", \"screens\": $screen_json}]" lent_layers
 surfaces_want="$(python3 -c 'import json,sys; print(json.dumps([[n, True, True, True] for n in json.loads(sys.argv[1])]))' "$screen_json")"
 expect "every surface takes no keyboard, sits on the overlay layer and clears reserved space" "$surfaces_want" respaced ipc smoke layerSurfaces acme.layers
-read -r mon_w mon_h bar_reserved < <(monitor_size)
+geometry read_bar_settled "the bar set has settled before the row reads the bar's reserved height"
 geometry expect_poll "the surface covers the screen below the bar's reserved space" "[[0, $bar_reserved, $mon_w, $((mon_h - bar_reserved))]]" layers_of vgs:layer
 
 layer_hidden_assertion() {

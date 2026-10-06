@@ -154,6 +154,7 @@ rm -rf -- "${home:?}/.config/vgshell/themes/flexoki-light"
 [[ -z $tile_pid ]] || { tui_pid="$tile_pid"; close_tui "the tiled window's helper exits 0 on SIGTERM"; }
 hypr_lua_restore style || fail "hyprland.lua is put back after the gaps rows"
 
+geometry read_bar_settled "the bar set has settled before the bar is hidden"
 # The bar. The toggle hides the bar on every screen and frees its space;
 # the IPC verb shows it again. Each reading is the other's control.
 open_style "Hide top bar"
