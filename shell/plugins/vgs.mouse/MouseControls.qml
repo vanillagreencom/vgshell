@@ -43,7 +43,13 @@ Column {
         variant: "secondary"
         size: "sm"
         text: "Use my Hyprland value"
-        onClicked: root.useHyprlandValue(setting)
+        // The button hides once the setting is gone, and a hidden item
+        // holds no focus: the row's own control, the tab stop before it,
+        // takes the keys first.
+        onClicked: {
+            nextItemInFocusChain(false).forceActiveFocus(focusReason);
+            root.useHyprlandValue(setting);
+        }
     }
 
     SectionHeader {
