@@ -76,7 +76,7 @@ Scope {
         motionScale: Theme.motion.scale,
         tuiMargins: { bar: Theme.bar.height, gutter: Theme.size.window.gutter }
     })
-    readonly property var rendered: inputsReady ? Layer.render(sections, themeAppearance, Theme.name, highestMonitorScale, Capabilities.hyprland.touchpads, Capabilities.hyprland.devicesFailure) : null
+    readonly property var rendered: inputsReady ? Layer.render(sections, themeAppearance, Theme.name, highestMonitorScale, Capabilities.hyprland.touchpads, Capabilities.hyprland.devicesFailure, Registry.monitorRuleOwnerId) : null
 
     // What `listPlugins` and the plugin manager report beside the manifest
     // errors, as { id, dir, error }: each bind a conflict skipped, each pad

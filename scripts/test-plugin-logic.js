@@ -1153,8 +1153,10 @@ function suite(ctx, check) {
       "acme.svc": ctx.validateManifest(monitorManifest, "/p").manifest,
       "acme.other": ctx.validateManifest(Object.assign({}, monitorManifest, { id: "acme.other" }), "/p").manifest
     };
-    check("monitor rule owner is unique", ctx.monitorRuleOwner(ownerMap, ["acme.svc"]), "acme.svc");
-    check("a second monitor rule owner is refused", ctx.monitorRuleRefusal(ownerMap, ["acme.svc", "acme.other"], "acme.other"), "refused: hyprland.monitors=acme.other held-by=acme.svc");
+    check("monitor rule owner is unique", ctx.monitorRuleOwner(ownerMap, ["acme.svc"], {}), "acme.svc");
+    check("a second monitor rule owner keeps the holder", ctx.monitorRuleOwner(ownerMap, ["acme.svc", "acme.other"], { monitors: "acme.svc" }), "acme.svc");
+    check("a second monitor rule owner is refused", ctx.monitorRuleRefusal(ownerMap, ["acme.svc", "acme.other"], { monitors: "acme.svc" }, "acme.other"), "refused: hyprland.monitors=acme.other held-by=acme.svc");
+    check("the held monitor rule owner is not refused", ctx.monitorRuleRefusal(ownerMap, ["acme.svc", "acme.other"], { monitors: "acme.svc" }, "acme.svc"), "");
     check("keyRefusal: a pad's key is written", ctx.keyRefusal(padsManifest.manifest, "pad-9", "SUPER+9"), "");
     check("keyRefusal: a pad's key is judged", ctx.keyRefusal(padsManifest.manifest, "pad-9", "SUPER+"), "refused: key=pad-9 has an empty part: \"SUPER+\"");
     check("keyRefusal: a shortcut of no pad is undeclared", ctx.keyRefusal(padsManifest.manifest, "toggle", "SUPER+9"), "refused: key=toggle undeclared");
@@ -1180,7 +1182,7 @@ const CONTROLS = [
     ["hyprland monitors need the capability", "if (monitors !== undefined && capabilities.indexOf(\"monitors\") === -1)\n        return \"hyprland.monitors needs capability monitors\";", "if (false)\n        return \"hyprland.monitors needs capability monitors\";"],
     ["hyprland monitors setting must exist", "if (!hasOwn(settings, raw.hyprland.monitors))\n                return { ok: false, error: \"hyprland.monitors names no settings key \" + JSON.stringify(raw.hyprland.monitors) };", "if (false)\n                return { ok: false, error: \"hyprland.monitors names no settings key \" + JSON.stringify(raw.hyprland.monitors) };"],
     ["hyprland monitors has no schema row", "if (hasOwn(schema, raw.hyprland.monitors))\n                return { ok: false, error: \"hyprland.monitors must not name a schema entry\" };", "if (false)\n                return { ok: false, error: \"hyprland.monitors must not name a schema entry\" };"],
-    ["a second monitor owner is refused", "return owners.length > 1 && owners.indexOf(id) !== -1 ? \"refused: hyprland.monitors=\" + id + \" held-by=\" + owners.filter", "return false ? \"refused: hyprland.monitors=\" + id + \" held-by=\" + owners.filter"],
+    ["a second monitor owner is refused", "return owner !== \"\" && id !== owner && monitorRuleOwners(manifests, enabledIds).indexOf(id) !== -1 ? \"refused: hyprland.monitors=\" + id + \" held-by=\" + owner : \"\";", "return \"\";"],
     ["hyprland options need the capability", "if (options !== undefined && capabilities.indexOf(\"hyprland\") === -1)\n        return \"hyprland.options needs capability hyprland\";", "if (false)\n        return \"hyprland.options needs capability hyprland\";"],
     ["hyprland option names are setting names", "if (!STATUS_KEY_PATTERN.test(name))\n            return at + \" must be a setting name\";", "if (false)\n            return at + \" must be a setting name\";"],
     ["optionsFrom names a status key", "if (typeof entry.optionsFrom !== \"string\" || !STATUS_KEY_PATTERN.test(entry.optionsFrom))", "if (false)"],

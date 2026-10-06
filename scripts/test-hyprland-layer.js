@@ -677,7 +677,6 @@ function verify(logic, layer, shellText) {
     }, "hyprlandSection resolves appearance switches from effective plugin settings");
 
     const section = (id, binds, layerRules, version, appearance) => ({ id: id, version: version || "1.0.0", binds: binds, layerRules: layerRules, appearance: appearance || {}, options: [], monitors: null, unknownKeys: [] });
-    const lines = out => out.text.split("\n");
     // The values a layer applies once the configuration has loaded: the
     // lines inside its callback, without their indent. The section starts
     // after the header and its end is the first line that closes a block
@@ -765,13 +764,14 @@ function verify(logic, layer, shellText) {
     const monitorCalls = out => lines(out).filter(line => /hl\.monitor\s*\(/.test(line));
     same(monitorCalls(bare), [], "a layer with no plugin section writes no monitor rule");
     const monitorSection = Object.assign(section("vgs.displays", [], []), { monitors: { kind: "set", setting: "outputs", value: { "DP-2": { mode: { width: 3840, height: 2160, refresh: 60 }, position: { x: 0, y: 0 }, scale: 2, transform: 0 } } } });
-    const monitorOut = layer.render([monitorSection], theme, "vgs", 1, null, "");
+    const monitorOut = layer.render([monitorSection], theme, "vgs", 1, null, "", "vgs.displays");
     same(monitorCalls(monitorOut), ['hl.monitor({ output = "DP-2", mode = "3840x2160@60", position = "0x0", scale = 2, transform = 0 })'], "the monitors section writes the judged rule");
     assert.ok(lines(monitorOut).indexOf("-- vgs.displays 1.0.0: monitor rules from its settings") > coreEnd(lines(monitorOut)), "the monitors section follows the core sections");
     const refusedMonitor = Object.assign(section("vgs.displays", [], []), { monitors: { kind: "unfit", setting: "outputs", error: "refused: monitors.DP-2\" identifier refused" } });
-    same([monitorCalls(layer.render([refusedMonitor], theme, "vgs", 1, null, "")).length, layer.render([refusedMonitor], theme, "vgs", 1, null, "").monitorRefusals.length], [0, 1], "a refused monitor rule writes no hl.monitor");
+    same([monitorCalls(layer.render([refusedMonitor], theme, "vgs", 1, null, "", "vgs.displays")).length, layer.render([refusedMonitor], theme, "vgs", 1, null, "", "vgs.displays").monitorRefusals.length], [0, 1], "a refused monitor rule writes no hl.monitor");
     const otherMonitor = Object.assign(section("acme.monitors", [], []), { monitors: { kind: "set", setting: "outputs", value: { "DP-3": { scale: 1 } } } });
-    same(layer.render([otherMonitor, monitorSection], theme, "vgs", 1, null, "").monitorConflicts, [{ id: "vgs.displays", heldBy: "acme.monitors" }], "a second monitor owner is reported");
+    const monitorConflict = layer.render([otherMonitor, monitorSection], theme, "vgs", 1, null, "", "vgs.displays");
+    same([monitorCalls(monitorConflict), monitorConflict.monitorConflicts], [['hl.monitor({ output = "DP-2", mode = "3840x2160@60", position = "0x0", scale = 2, transform = 0 })'], [{ id: "acme.monitors", heldBy: "vgs.displays" }]], "the shared owner chooses the rendered monitors section");
     same(layer.OVERLAY_CAPTURE, { submap: "vgs:capture", namespace: "vgs:overlay", appid: "vgs", shortcuts: { left: "overlay-left", right: "overlay-right", up: "overlay-up", down: "overlay-down" } }, "the overlay capture names its submap, namespace and shortcuts");
     same(layer.overlayCaptureDirections(), ["left", "right", "up", "down"], "the overlay capture direction list");
     assert.equal(layer.overlayCaptureGlobal("left"), "vgs:overlay-left", "the overlay capture global is derived");
@@ -1273,7 +1273,7 @@ const CONTROLS = [
     [layerFile, "user binds' recorder calls hl.bind at the user's call site", "local bind = call(binds.bind, ...)", "local bind = binds.bind(...)"],
     [layerFile, "monitor rules rendered", "return [\"-- \" + section.id + \" \" + commentText(section.version) + \": monitor rules from its settings\"].concat(rendered.lines);", "return [];"],
     [layerFile, "refused monitor rules skipped", "if (section.monitors.kind === \"unfit\") {", "if (false) {"],
-    [layerFile, "monitor rules have one owner", "var owners = sections.filter(function (section) { return section.monitors !== null && section.monitors !== undefined; })", "var owners = []"],
+    [layerFile, "monitor rules use the shared owner", "var owner = owners.filter(function (section) { return section.id === ownerId; })[0] || null;", "var owner = owners[0] || null;"],
     [layerFile, "key pass-through written", "[\"\"], keyPassthroughLines(), [\"\"], sessionLockLines()", "[\"\"], sessionLockLines()"],
     [layerFile, "key pass-through before the lock restore", "[\"\"], overlayCaptureLines(plan), [\"\"], keyPassthroughLines(), [\"\"], sessionLockLines());", "[\"\"], overlayCaptureLines(plan), [\"\"], sessionLockLines(), [\"\"], keyPassthroughLines());"],
     [layerFile, "key pass-through cancels on Escape", "hl.dsp.submap(\\\"reset\\\"), { description = ", "hl.dsp.exec_cmd(\\\"true\\\"), { description = "],

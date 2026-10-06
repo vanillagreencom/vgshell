@@ -1042,10 +1042,11 @@ function optionLines(section, held, touchpads, touchpadFailure, out) {
     return { applied: Object.keys(tree).length > 0 ? ["hl.config({ " + optionTree(tree) + " })"] : [], placed: devices.concat(notes) };
 }
 
-function monitorOwner(sections) {
+function monitorOwner(sections, ownerId) {
     var owners = sections.filter(function (section) { return section.monitors !== null && section.monitors !== undefined; })
         .sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; });
-    return { owner: owners.length === 0 ? null : owners[0], conflicts: owners.slice(1).map(function (section) { return { id: section.id, heldBy: owners[0].id }; }) };
+    var owner = owners.filter(function (section) { return section.id === ownerId; })[0] || null;
+    return { owner: owner, conflicts: owner === null ? [] : owners.filter(function (section) { return section.id !== owner.id; }).map(function (section) { return { id: section.id, heldBy: owner.id }; }) };
 }
 
 function monitorLines(section, out) {
@@ -1137,7 +1138,7 @@ function appliedLines(values, paths) {
 // `padConflicts`, each section whose pads a section before it by id
 // defines, { id, heldBy }, and `binds`, the description of every bind
 // written in the default submap.
-function render(sections, theme, themeName, highestScale, touchpads, touchpadFailure) {
+function render(sections, theme, themeName, highestScale, touchpads, touchpadFailure, monitorOwnerId) {
     var plan = resolveBinds(sections);
     var switches = groupSwitches(sections);
     var applied = [];
@@ -1156,7 +1157,7 @@ function render(sections, theme, themeName, highestScale, touchpads, touchpadFai
     var options = { written: [], conflicts: [], refusals: [] };
     var optionsHeld = Object.create(null);
     var monitors = { refusals: [] };
-    var monitor = monitorOwner(sections);
+    var monitor = monitorOwner(sections, monitorOwnerId || "");
     var padsOwner = null;
     var padConflicts = [];
     if (monitor.owner !== null) {

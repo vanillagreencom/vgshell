@@ -38,7 +38,7 @@ Singleton {
         return Object.keys(current).filter(id => root.isEnabled(id)).map(id => Logic.hyprlandSection(config, current[id]));
     }
     readonly property var enabledIds: Object.keys(manifests).filter(id => root.isEnabled(id))
-    readonly property string monitorRuleOwnerId: Logic.monitorRuleOwner(manifests, enabledIds)
+    readonly property string monitorRuleOwnerId: Logic.monitorRuleOwner(manifests, enabledIds, lendSnapshot)
     // The enabled manifests' launcher rows, PluginLogic.menuRows' answer,
     // which the shortcut capability lists and runs; its conflicts are
     // reported beside the Hyprland layer's problems.
@@ -334,7 +334,7 @@ Singleton {
         if (!isScanned) return "refused: scan=pending";
         if (notReady !== "") return "refused: config=" + notReady;
         if (enable !== "") return enable;
-        const monitorRefusal = Logic.monitorRuleRefusal(manifests, enabledIds, id);
+        const monitorRefusal = Logic.monitorRuleRefusal(manifests, enabledIds, holders, id);
         if (monitorRefusal !== "") return monitorRefusal;
         return Logic.lendRefusal(holders, manifests[id]);
     }

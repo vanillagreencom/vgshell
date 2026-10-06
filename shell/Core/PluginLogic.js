@@ -3679,14 +3679,16 @@ function monitorRuleOwners(manifests, enabledIds) {
     }).sort();
 }
 
-function monitorRuleOwner(manifests, enabledIds) {
+function monitorRuleOwner(manifests, enabledIds, held) {
     var owners = monitorRuleOwners(manifests, enabledIds);
-    return owners.length === 1 ? owners[0] : "";
+    var heldOwners = owners.filter(function (id) { return hasOwn(held || {}, "monitors") && held.monitors === id; });
+    if (heldOwners.length > 0) return heldOwners[0];
+    return owners.length === 0 ? "" : owners[0];
 }
 
-function monitorRuleRefusal(manifests, enabledIds, id) {
-    var owners = monitorRuleOwners(manifests, enabledIds);
-    return owners.length > 1 && owners.indexOf(id) !== -1 ? "refused: hyprland.monitors=" + id + " held-by=" + owners.filter(function (owner) { return owner !== id; })[0] : "";
+function monitorRuleRefusal(manifests, enabledIds, held, id) {
+    var owner = monitorRuleOwner(manifests, enabledIds, held);
+    return owner !== "" && id !== owner && monitorRuleOwners(manifests, enabledIds).indexOf(id) !== -1 ? "refused: hyprland.monitors=" + id + " held-by=" + owner : "";
 }
 
 // The settings the plugin manager shows for a plugin: the ones its placed
