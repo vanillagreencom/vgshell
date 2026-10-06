@@ -53,7 +53,7 @@ reads_active() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(js
 layer_has() { if grep -qxF -- "$1" "$hypr_layer"; then echo yes; else echo no; fi; }
 # The user's own files as they stand: the bytes and mode of input.lua and of
 # hyprland.lua, and where the hypr directory's symlink points.
-user_files() { printf '%s %s %s %s\n' "$(sha256sum <"$user_hypr/input.lua")" "$(stat -c %a -- "$user_hypr/input.lua")" "$(sha256sum <"$user_hypr/hyprland.lua")" "$(readlink -- "$home/.config/hypr")"; }
+user_files() { printf '%s %s %s %s %s\n' "$(sha256sum <"$user_hypr/input.lua")" "$(stat -c %a -- "$user_hypr/input.lua")" "$(sha256sum <"$user_hypr/hyprland.lua")" "$(stat -c %a -- "$user_hypr/hyprland.lua")" "$(readlink -- "$home/.config/hypr")"; }
 # The record the layer's callback keeps in the nested Hyprland's Lua state,
 # which starts empty at each reload: the answer the shell's own request
 # raises, so hyprctl exits 7 with it.

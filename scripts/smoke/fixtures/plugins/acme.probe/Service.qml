@@ -66,6 +66,7 @@ Item {
         shell.ipc.handle("throws", () => { throw new Error("planted"); });
         shell.ipc.handle("call-number", () => { try { return root.shell.ipc.call("echo", 3); } catch (e) { return e.message; } });
         shell.ipc.handle("set", arg => { const at = arg.indexOf("="); return root.shell.configure.set(arg.slice(0, at), JSON.parse(arg.slice(at + 1))); });
+        shell.ipc.handle("unset", key => root.shell.configure.unset(key));
         shell.ipc.handle("touch", path => root.shell.run.detached(["touch", path]));
         // The environment a detached process starts with, written to PATH.
         shell.ipc.handle("environ", path => root.shell.run.detached(["sh", "-c", "env >\"$1\"", "sh", path]));

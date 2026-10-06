@@ -787,12 +787,15 @@ function suite(ctx, check) {
 
     // withoutSetting rows: [name, user, targets, path, want]
     const labelled = { bar: { id: "vgs.bar", layout: { left: [{ id: "acme.tune", label: "l", size: 2 }], center: [{ id: "b.c", label: "other" }], right: [{ id: "acme.tune", label: "r" }] } }, plugins: [{ id: "acme.tune", label: "p", size: 4 }, { id: "b.c", label: "other" }] };
+    const tunedTwice = { bar: { id: "vgs.bar", layout: { right: [{ id: "acme.tune", label: "first" }, { id: "b.c", label: "other" }, { id: "acme.tune", label: "second" }] } } };
     const unsetRows = [
         ["plugins removes the key from the row and keeps its others", labelled, ["plugins"], "plugins", [{ id: "acme.tune", size: 4 }, { id: "b.c", label: "other" }]],
         ["plugins leaves the layout alone", labelled, ["plugins"], "bar.layout.left", [{ id: "acme.tune", label: "l", size: 2 }]],
         ["layout removes the key from every entry with the id", labelled, ["layout"], "bar.layout", { left: [{ id: "acme.tune", size: 2 }], center: [{ id: "b.c", label: "other" }], right: [{ id: "acme.tune" }] }],
         ["layout leaves the plugins row alone", labelled, ["layout"], "plugins", [{ id: "acme.tune", label: "p", size: 4 }, { id: "b.c", label: "other" }]],
         ["a locator removes it from its own entry alone", labelled, ["layout"], "bar.layout", { left: [{ id: "acme.tune", label: "l", size: 2 }], center: [{ id: "b.c", label: "other" }], right: [{ id: "acme.tune" }] }, { section: "right", nth: 0 }],
+        ["a locator removes it from the second of two entries in one section", tunedTwice, ["layout"], "bar.layout.right", [{ id: "acme.tune", label: "first" }, { id: "b.c", label: "other" }, { id: "acme.tune" }], { section: "right", nth: 1 }],
+        ["a locator removes it from the first of two entries in one section", tunedTwice, ["layout"], "bar.layout.right", [{ id: "acme.tune" }, { id: "b.c", label: "other" }, { id: "acme.tune", label: "second" }], { section: "right", nth: 0 }],
         ["a file with no row seeds none", null, ["layout", "plugins"], "plugins", undefined],
         ["a file with no bar seeds none", null, ["layout", "plugins"], "bar", undefined],
         ["writes version 1", null, ["plugins"], "version", 1],
@@ -1058,6 +1061,7 @@ const CONTROLS = [
     ["an unset removes the key from the layout entries", "if (!isPlainObject(locator) || seen === locator.nth) delete entry[key];", ""],
     ["an unset of the plugins row leaves the layout", "if (targets.indexOf(\"layout\") !== -1 && isPlainObject(out.bar) && isPlainObject(out.bar.layout)) {", "if (isPlainObject(out.bar) && isPlainObject(out.bar.layout)) {"],
     ["an unset of the layout leaves the plugins row", "var row = targets.indexOf(\"plugins\") !== -1 ? pluginRow(out, manifest.id) : undefined;", "var row = pluginRow(out, manifest.id);"],
+    ["an unset with a locator counts the entries of its id", "if (!isPlainObject(locator) || seen === locator.nth) delete entry[key];\n                seen += 1;", "if (!isPlainObject(locator) || seen === locator.nth) delete entry[key];\n                seen += 0;"],
     ["an unset with a locator keeps the other entries", "if (isPlainObject(locator) && locator.section !== section) return;\n            var seen = 0;\n            (Array.isArray(out.bar.layout[section])", "var seen = 0;\n            (Array.isArray(out.bar.layout[section])"],
     ["a reset removes the entry", "            delete row.keys[shortcut];\n", ""],
     ["an empty keys is removed", "if (Object.keys(row.keys).length === 0) delete row.keys;", ""],

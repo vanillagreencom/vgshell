@@ -3,9 +3,12 @@
 # drives the pane's real pointer-speed slider through the probe geometry and
 # a click, reads the nested Hyprland option, checks an untouched option, adds
 # a user table of two keys after the VGS loading line, reads that the pane's
-# value holds over it, that the row names the user's value in the message
-# under it and that the slider keeps its width, clicks the row's one action
-# and reads the setting gone and the user's value back, waits
+# value holds over it, that the pane holds the user's value, that the row
+# alone shows a message under it, that the slider keeps its width and that
+# the action stands beside the message in the pane and under it in the
+# narrower flyout, clicks
+# the row's one action and reads the setting gone, the user's value back and
+# the keys on the row's slider, waits
 # for Hyprland devices before checking the no-touchpad view and published
 # status, clicks the bar widget to open the flyout through surfaces, changes
 # the same slider from the keyboard, and installs a disposable vgs.mouse copy
@@ -18,11 +21,16 @@
 # layer held no vgs.mouse option section, so the row's real option contract
 # check went red on that copy. The control expects that red result.
 #
-# Control run on 2026-10-05, host cachy, through this row after the consent
-# row: a source_tree copy of the shell whose PluginLogic.withoutSetting
-# removes no key failed "the action removes the setting from the bar entry
-# and the plugins row", reading [0.55, 0.55], and getoption kept 0.55.
-# inputs: shell/plugins/vgs.mouse/* shell/plugins/vgs.system/* shell/Core/PluginLogic.js shell/Core/HyprlandLayer.* shell/Core/HyprlandState.* shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Hosts/PaneHost.qml shell/Ui/controls/Slider.qml shell/Ui/controls/Switch.qml shell/Ui/controls/SegmentedControl.qml shell/Ui/controls/FormRow.qml shell/Ui/layout/DeviceRow.qml bin/vgshell scripts/smoke/rows/hyprland-consent.sh
+# Control runs on 2026-10-05, host cachy, through this row after the consent
+# row, each on a source_tree copy of the shell. A copy whose
+# MouseControls.useHyprlandValue calls no configure.unset failed "the action
+# removes the setting from the bar entry and the plugins row", reading
+# [0.55, 0.55], and getoption kept 0.55. A copy whose MouseLogic.warningText
+# gives every row a line, whose FormRow never moves its action under the
+# message and whose action hands the keys to no control failed "no row
+# shows a message before the user table", read the flyout's message -10.95
+# px wide beside an action 186.95 px wide, and read the keys on the action.
+# inputs: shell/plugins/vgs.mouse/* shell/plugins/vgs.system/* shell/Core/PluginLogic.js shell/Core/HyprlandLayer.* shell/Core/HyprlandState.* shell/Core/Capabilities.qml shell/Core/Plugins.qml shell/Core/PluginStatus.qml shell/Hosts/PaneHost.qml shell/Ui/controls/Button.qml shell/Ui/controls/Slider.qml shell/Ui/controls/Switch.qml shell/Ui/controls/SegmentedControl.qml shell/Ui/controls/FormRow.qml shell/Ui/layout/DeviceRow.qml bin/vgshell scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 
 mouse_file="$home/.config/vgshell/shell.json"
@@ -38,15 +46,46 @@ mouse_was="$(plugin_enabled vgs.mouse)" || fail "vgs.mouse's enabled state is un
 mouse_option() { hypr -j getoption "$1" | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps([v.get(sys.argv[1]), v["set"]]))' "$2"; }
 mouse_placed() { bar_widget_ids | py_reply 'import json,sys; print(any("vgs.mouse" in ids for ids in json.load(sys.stdin)))'; }
 mouse_text_count() { ipc smoke itemTextCount window vgs.mouse "$1" "$2"; }
-# How many shown hint lines directly under a key/value row of the pane
-# read TEXT: a row's message, and no chip's label.
+# The key/value rows of the pane that show a message, whatever it says: for
+# each shown, non-empty hint line directly under a row, the types of that
+# row's controls among Slider, Switch and SegmentedControl, as a JSON list.
+# A chip's label is no message.
 mouse_messages() { ipc smoke descendantGeometry window vgs.mouse | py_reply '
 import json, sys
 items = json.load(sys.stdin)
-print(sum(1 for i in items if i["type"] == "Label" and i.get("role") == "hint" and i["visible"] and i.get("text") == sys.argv[1] and items[i["parent"]].get("name") == "fieldRow"))' "$1"; }
+def under(index, row):
+    while index >= 0:
+        if index == row:
+            return True
+        index = items[index]["parent"]
+    return False
+rows = [i["parent"] for i in items if i["type"] == "Label" and i.get("role") == "hint" and i["visible"] and i.get("text") and items[i["parent"]].get("name") == "fieldRow"]
+print(json.dumps([sorted({c["type"] for n, c in enumerate(items) if c["type"] in ("Slider", "Switch", "SegmentedControl") and under(n, row)}) for row in rows]))'; }
+# The user's values the pane's controls hold from the `hyprland` capability.
+mouse_user_values() { ipc smoke readDescendant window vgs.mouse MouseControls userValues; }
 mouse_slider_width() { ipc smoke descendantGeometry window vgs.mouse | py_reply 'import json,sys; r=[i["box"][2] for i in json.load(sys.stdin) if i["type"] == "Slider" and i["visible"]]; print(r[0] if r else "absent")'; }
 # The boxes of the drawn "use my Hyprland value" actions, as a JSON list.
 mouse_actions() { ipc smoke descendantGeometry window vgs.mouse | py_reply 'import json,sys; print(json.dumps([i["box"] for i in json.load(sys.stdin) if i["name"] == "useHyprlandValue" and i["visible"]]))'; }
+# mouse_action_place HOST_KEY: where the first drawn action of the Mouse
+# instance under that host stands against its row's message: `beside`, on
+# the message's line past its end, `under`, below a message that has a
+# width, else both boxes.
+mouse_action_place() { ipc smoke descendantGeometry "$1" vgs.mouse | py_reply '
+import json, sys
+items = json.load(sys.stdin)
+def row_of(index):
+    while index >= 0 and items[index].get("name") != "fieldRow":
+        index = items[index]["parent"]
+    return index
+found = [n for n, i in enumerate(items) if i["name"] == "useHyprlandValue" and i["visible"]]
+if not found:
+    print("absent"); sys.exit(0)
+row = row_of(found[0])
+action = items[found[0]]["box"]
+message = next(i["box"] for i in items if i["type"] == "Label" and i.get("role") == "hint" and i["visible"] and i.get("text") and i["parent"] == row)
+if message[2] > 0 and action[1] >= message[1] + message[3]: print("under")
+elif message[2] > 0 and action[1] < message[1] + message[3] and action[0] >= message[0] + message[2]: print("beside")
+else: print("action=%s message=%s" % (action, message))'; }
 mouse_action_count() { mouse_actions | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
 # The centre of the first drawn action once two readings 0.1 s apart match:
 # the row that holds it has just appeared, and the pane lays out again.
@@ -114,22 +153,38 @@ expect_poll "the Mouse layer records the sensitivity option" ok mouse_contract '
 expect "the user file holds the pane's sensitivity in the bar entry and the plugins row" '[0.55, 0.55]' mouse_saved_sensitivity
 expect "no row offers the user's Hyprland value while the user's config sets none" 0 mouse_action_count
 mouse_width="$(mouse_slider_width)" || fail "the Mouse pointer-speed slider's width is unreadable"
-expect "the pane shows no message before the user table" 0 mouse_messages 'Your Hyprland config sets this to -0.50×'
+expect "no row shows a message before the user table" '[]' mouse_messages
+expect "the pane holds no user value before the user table" '[]' mouse_user_values
 printf '%s\n' 'hl.config({ input = { accel_profile = "flat", sensitivity = -0.5 } })' >>"$mouse_hypr"
 expect "the nested instance reloads with the user Mouse table" ok hypr reload config-only
 expect_poll "the pane's sensitivity holds over the user Mouse table" '[0.55, true]' mouse_option input:sensitivity float
 expect_poll "the user's other key of that table keeps the user's value" '["flat", true]' mouse_option input:accel_profile str
-expect_poll "the pointer speed row names the user's value in the message under it" 1 mouse_messages 'Your Hyprland config sets this to -0.50×'
+expect_poll "the pane holds the user's value of the pointer speed" '[{"path":"input.sensitivity","value":-0.5}]' mouse_user_values
+expect_poll "the pointer speed row alone shows a message under it" '[["Slider"]]' mouse_messages
 expect "the message leaves the pointer-speed slider its width" "$mouse_width" mouse_slider_width
 expect_poll "the pointer speed row alone offers the user's Hyprland value" 1 mouse_action_count
+expect "the pane draws the action beside its message" beside mouse_action_place window
+expect "the Mouse pane closes before the flyout's action is read" ok ipc shell hide window vgs.system
+read -r fx fy < <(mouse_widget_point) || fail "the Mouse widget has no box before the action's flyout reading"
+hover "$fx" "$fy" || fail "hovering the Mouse widget before the action's flyout reading failed"
+click "$fx" "$fy" || fail "clicking the Mouse widget before the action's flyout reading failed"
+expect_poll "the widget opens its flyout while the user's value stands" 1 mouse_panel_built
+expect_poll "the flyout, too narrow for both, draws the action under its message" under mouse_action_place panel
+expect "hiding the flyout after the action's reading is allowed" ok ipc shell hide panel vgs.mouse
+expect_poll "the flyout is gone after the action's reading" 0 mouse_panel_built
+expect_poll "the Mouse pane opens again for the action" ok ipc shell summon window vgs.system '{"pane":"vgs.mouse"}'
+expect_poll "the Mouse pane is mounted again for the action" '["vgs.mouse"]' window_panes
+expect_poll "the reopened pane offers the user's Hyprland value" 1 mouse_action_count
 read -r ax ay < <(mouse_action_point) || fail "the Mouse action has no box"
 hover "$ax" "$ay" || fail "hovering the Mouse action failed"
 click "$ax" "$ay" || fail "clicking the Mouse action failed"
 expect_poll "the action removes the setting from the bar entry and the plugins row" '["absent", "absent"]' mouse_saved_sensitivity
+expect_poll "the action leaves the keys on the row's slider" '["Slider",null]' mouse_focus
 expect_poll "with the setting gone getoption reads the user's value again" '[-0.5, true]' mouse_option input:sensitivity float
 expect_poll "the layer writes no Mouse option once the setting is gone" no mouse_layer_mentions 'vgs.mouse 0.1.0: input options its settings set'
 expect_poll "no row offers the user's Hyprland value once VGS sets none" 0 mouse_action_count
-expect_poll "the row names no user value once VGS sets none" 0 mouse_messages 'Your Hyprland config sets this to -0.50×'
+expect_poll "no row shows a message once VGS sets none" '[]' mouse_messages
+expect_poll "the pane holds no user value once VGS sets none" '[]' mouse_user_values
 hypr_lua_restore mouse || fail "hyprland.lua is put back after the Mouse override read"
 expect "the nested instance reloads without the Mouse override line" ok hypr reload config-only
 

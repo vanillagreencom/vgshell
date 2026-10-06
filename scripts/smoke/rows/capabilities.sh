@@ -43,6 +43,7 @@ expect "configure writes a declared setting" ok probe set 'label="via-configure"
 expect_poll "the running service received the setting it wrote" '"via-configure"' read_service label
 expect "configure refuses a value of the wrong type" "refused: setting=label want=string" probe set 'label=3'
 expect "configure refuses an undeclared setting" "refused: setting=tags undeclared" probe set 'tags="x"'
+expect "configure refuses to unset an undeclared setting" "refused: setting=id undeclared" probe unset id
 
 # A widget placed twice writes only the layout entry it reads.
 right_entries() {

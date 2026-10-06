@@ -1813,6 +1813,8 @@ scene_devtools() { # MODE
 # several sections sees it.
 system_shown() { [[ $(ipc smoke instanceGeometry window vgs.system) != absent ]] && echo shown || echo hidden; }
 displays_listed() { ipc smoke readInstance service vgs.displays values | py_reply 'import json,sys; print(len(json.load(sys.stdin)["displays"]["items"]))'; }
+# How many shown actions of the Mouse section offer the user's own value.
+mouse_offers() { ipc smoke descendantGeometry window vgs.mouse | py_reply 'import json,sys; print(sum(1 for i in json.load(sys.stdin) if i["name"] == "useHyprlandValue" and i["visible"]))'; }
 mouse_speed() { hypr -j getoption input:sensitivity | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps([v.get("float"), v["set"]]))'; }
 take_mouse_overridden() { # MODE
   local user="$home/.config/vgshell/shell.json" saved="$sandbox/shell-before-mouse-shot.json"
@@ -1836,7 +1838,7 @@ PY
   expect_poll "the layer's pointer speed reaches Hyprland" '[0.5, true]' mouse_speed
   printf '%s\n' 'hl.config({ input = { sensitivity = -0.5 } })' >>"$home/.config/hypr/hyprland.lua"
   expect "the nested instance reloads with the user's pointer speed" ok hypr reload config-only
-  expect_poll "the Pointer speed row shows its message" 1 ipc smoke itemTextCount window vgs.mouse FormRow 'Your Hyprland config sets this to -0.50×'
+  expect_poll "the Pointer speed row offers the user's value" 1 mouse_offers
   park_pointer
   take "system-$1-mouse-overridden"
   hypr_lua_restore mouse-shot || fail "hyprland.lua is put back after the overridden Mouse shot"
