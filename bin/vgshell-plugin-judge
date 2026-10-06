@@ -32,7 +32,8 @@
 //       its default section; any other is listed in the user file's
 //       disabledPlugins when the configuration would enable it. Print
 //       `written` or `unchanged`. Either file that PluginLogic.configError
-//       refuses is refused as `malformed`.
+//       refuses is refused as `malformed`; a user file an editor keeps
+//       saving during the write is refused as `changed` (editFile).
 //   vgshell-plugin-judge seed-setting <shipped-config> <user-config> <plugin-dir> <key> <json-value>
 //       for a one-time migration (bin/vgshell-migrate): when the plugins row
 //       of the plugin at <plugin-dir> under the configuration the two files
@@ -106,7 +107,7 @@ const path = require("path");
 
 const repo = path.join(__dirname, "..");
 const logic = require(path.join(__dirname, "lib", "qml-library.js")).load(path.join(repo, "shell", "Core", "PluginLogic.js"));
-const { refuse, main, readJson, readConfig, replaceFile, editFile, onPath } = require(path.join(__dirname, "lib", "judge-files.js"));
+const { refuse, main, readJson, readConfig, editFile, onPath } = require(path.join(__dirname, "lib", "judge-files.js"));
 
 // What detection answers on a system where no manager is looked for.
 const NO_MANAGERS = { primary: null, overlays: [], sources: [] };
@@ -265,6 +266,20 @@ function effectiveOf(shippedPath, userPath) {
     return logic.effectiveConfig(readConfig(logic, shippedPath, "shipped-config"), readConfig(logic, userPath, "user-config", true));
 }
 
+// Edit the user file at USERPATH through editFile, which keeps a save the
+// user makes in an editor meanwhile and makes the file when absent: EDIT
+// maps its configuration, null for an absent file, to the configuration to
+// write, or null to leave the file. EDIT may run twice, as editFile's may.
+function editUserConfig(userPath, edit) {
+    const failure = editFile("user-config", userPath, true, current => {
+        const next = edit(current === undefined ? null : readConfig(logic, userPath, "user-config"));
+        if (next === null) return null;
+        // editFile writes one byte per character; the JSON is UTF-8.
+        return Buffer.from(JSON.stringify(next, null, 2) + "\n", "utf8").toString("latin1");
+    });
+    if (failure !== null) refuse(failure.failure, failure.reason);
+}
+
 // `unmet`'s lines for PLUGIN under CONFIG: its missing requirements, then
 // the commands that install their packages, one per manager in detection
 // order, or the packages alone for a manager that installs nothing
@@ -363,17 +378,16 @@ main(() => {
     case "land": {
         const [shippedPath, userPath, dir] = args;
         const shipped = readConfig(logic, shippedPath, "shipped-config");
-        const user = fs.existsSync(userPath) ? readConfig(logic, userPath, "user-config") : null;
         const manifest = validated(dir);
-        const effective = logic.effectiveConfig(shipped, user);
         const defaultBarId = logic.activeBarId(shipped, "");
         const shown = logic.landsShown(manifest);
-        if (shown === logic.isEnabled(effective, manifest, defaultBarId) && (!shown || logic.isPlaced(effective, manifest))) {
-            console.log("unchanged");
-            break;
-        }
-        replaceFile(userPath, JSON.stringify(logic.withEnabled(user, manifest, shown, effective), null, 2) + "\n", "user-config");
-        console.log("written");
+        let written = false;
+        editUserConfig(userPath, user => {
+            const effective = logic.effectiveConfig(shipped, user);
+            written = shown !== logic.isEnabled(effective, manifest, defaultBarId) || (shown && !logic.isPlaced(effective, manifest));
+            return written ? logic.withEnabled(user, manifest, shown, effective) : null;
+        });
+        console.log(written ? "written" : "unchanged");
         break;
     }
     case "seed-setting": {
@@ -394,16 +408,12 @@ main(() => {
         }
         const shipped = readConfig(logic, shippedPath, "shipped-config");
         let seeded = false;
-        const failure = editFile("user-config", userPath, true, current => {
-            const user = current === undefined ? null : readConfig(logic, userPath, "user-config");
+        editUserConfig(userPath, user => {
             const effective = logic.effectiveConfig(shipped, user);
             const row = logic.pluginRow(effective, manifest.id);
             seeded = row === undefined || !logic.hasOwn(row, key);
-            if (!seeded) return null;
-            // editFile writes one byte per character; the JSON is UTF-8.
-            return Buffer.from(JSON.stringify(logic.withSetting(user, manifest, key, value, effective, ["plugins"]), null, 2) + "\n", "utf8").toString("latin1");
+            return seeded ? logic.withSetting(user, manifest, key, value, effective, ["plugins"]) : null;
         });
-        if (failure !== null) refuse(failure.failure, failure.reason);
         console.log(seeded ? "written" : "unchanged");
         break;
     }

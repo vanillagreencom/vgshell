@@ -190,7 +190,7 @@ controls=(
   "a found item turns the extra on" "bin/migrations/$migration_name" "elif grep -q '^attribute\.' <<<\"\$err\"; then" 'elif false; then' 1
   "a failed search is no evidence" "bin/migrations/$migration_name" '  elif [[ $status -ne 0 ]]; then' '  elif false; then' 8
   "a secret-tool outside the stub's directory is refused" "bin/migrations/$migration_name" '[[ -z $stub_dir || -z $real_tool || $real_tool != "$stub_dir"/* ]]' 'false' 9
-  "the user's choice stays" bin/vgshell-plugin-judge 'if (!seeded) return null;' '' 6
+  "the user's choice stays" bin/vgshell-plugin-judge 'seeded = row === undefined || !logic.hasOwn(row, key);' 'seeded = true;' 6
   "the row keeps its other keys" bin/vgshell-plugin-judge 'logic.withSetting(user, manifest, key, value, effective, ["plugins"])' 'logic.withSetting(null, manifest, key, value, {}, ["plugins"])' 1
   "a link stays a link" bin/vgshell-plugin-judge 'const failure = editFile("user-config", userPath, true, current => {' 'const failure = ((key, file, create, edit) => { const next = edit(require("fs").existsSync(file) ? "" : undefined); if (next !== null) { require("fs").rmSync(file, { force: true }); require("fs").writeFileSync(file, next); } return null; })("user-config", userPath, true, current => {' 10
   "an undeclared key is refused" bin/vgshell-plugin-judge 'if (!logic.hasOwn(manifest.settings, key)) refuse(' 'if (false) refuse(' 13
