@@ -87,7 +87,7 @@ Hyprland blurs what is behind the glass only when a layer rule asks it to, for t
 hl.layer_rule({ name = "vgs.launcher:overlay", match = { namespace = "^vgs:overlay$" }, blur = true, ignore_alpha = 0.6 })
 ```
 
-`hyprland.lua` runs the layer from the line `vgshell hypr wire` keeps first in it, so your own settings after that line win. To change the rule, call `hl.layer_rule` with its name and new values after the line; `enabled = false` turns it off.
+`hyprland.lua` runs the layer from the line `vgshell hypr wire` keeps first in it, so your own lines after it act on what the layer made. To change the rule, call `hl.layer_rule` with its name and new values after the line; `enabled = false` turns it off.
 
 ## Shader
 

@@ -82,6 +82,6 @@ On the plugin's row in `plugins` in `~/.config/vgshell/shell.json`, for example 
 
 - `placement`: where the panel opens, for example from `bin/vgshell ipc call shell summon panel vgs.themes '{}'`, one of `top-left`, `top`, `top-right`, `left`, `center`, `right`, `bottom-left`, `bottom` and `bottom-right`. The plugin's Settings page offers the same list. Default: `top-right`.
 - `noWindowGaps`: no gaps around or between tiled windows on any workspace, which the Hyprland layer writes as a workspace rule ([hyprland.md](../../../docs/architecture/hyprland.md)). The launcher's gaps row and its shortcut flip it. Default: `false`.
-- `setWindowBorders`: whether themes set Hyprland border colours, border thickness and shadow colour. A user's own Hyprland setting after the VGS include line still wins. Default: `true`.
-- `setCornerRadius`: whether themes set Hyprland window radius, rounding power and grouped-window tab radius. A user's own Hyprland setting after the VGS include line still wins. Default: `true`.
-- `setWindowAnimations`: whether themes set Hyprland window, layer, workspace and fade animation presets. A user's own Hyprland setting after the VGS include line still wins. Default: `false`.
+- `setWindowBorders`: whether themes set Hyprland border colours, border thickness and shadow colour. While on, these apply over your own Hyprland lines; turn it off to keep yours. Default: `true`.
+- `setCornerRadius`: whether themes set Hyprland window radius, rounding power and grouped-window tab radius. While on, these apply over your own Hyprland lines; turn it off to keep yours. Default: `true`.
+- `setWindowAnimations`: whether themes set Hyprland window, layer, workspace and fade animation presets. While on, these apply over your own Hyprland lines; turn it off to keep yours. Default: `false`.

@@ -11,7 +11,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 - A bar icon that opens the Mouse flyout.
 - A flyout with pointer speed, natural scroll, the touchpad switch when a touchpad exists and Mouse Settings.
 - A Mouse section in the System window with pointer settings, touchpad settings, device rows and a try-it area.
-- Overridden rows show when your Hyprland config changes a value after the VGS loading line.
+- A setting you change here applies over your own Hyprland config. The row then shows the value your config sets and offers Use my Hyprland value, which makes VGS stop setting it.
 
 ## Settings
 
@@ -40,4 +40,4 @@ The bar takes no keyboard focus. Open System, type "mouse" and press Enter. In t
 
 ## Validation
 
-`scripts/test-mouse-logic.js` holds the option map and the Mouse decisions, with controls. `scripts/smoke/rows/mouse.sh` runs Mouse in the nested sandbox and checks option writes, untouched defaults, overridden badges, the no-touchpad view, the flyout and the keyboard path.
+`scripts/test-mouse-logic.js` holds the option map and the Mouse decisions, with controls. `scripts/smoke/rows/mouse.sh` runs Mouse in the nested sandbox and checks option writes, untouched defaults, a setting that holds over a user's Hyprland table, the line that names the user's value and its action, the no-touchpad view, the flyout and the keyboard path.
