@@ -95,6 +95,34 @@ function stateText(value) {
     return Object.prototype.hasOwnProperty.call(words, value) ? words[value] : words.unavailable;
 }
 
+// A wired device's state from NetworkManager's management, the device's
+// connection and the physical link. A device with no link has no cable.
+function ethernetState(managed, connected, link) {
+    if (!managed) return "unmanaged";
+    if (connected) return "connected";
+    return link ? "disconnected" : "no-cable";
+}
+
+function ethernetText(state) {
+    const words = { connected: "Connected", disconnected: "Not connected", "no-cable": "Cable not connected", unmanaged: "Not managed by NetworkManager" };
+    return Object.prototype.hasOwnProperty.call(words, state) ? words[state] : words.disconnected;
+}
+
+function ethernetOrdered(rows) {
+    return rows.slice().sort((a, b) => Number(b.state === "connected") - Number(a.state === "connected")
+        || a.name.localeCompare(b.name));
+}
+
+// The line that names what the computer is connected through: the joined
+// Wi-Fi network, else the first connected wired device, else the state.
+function summary(network) {
+    const joined = (network.wifi || []).find(row => row.connected);
+    if (network.state === "connected" && joined) return "Connected to " + (joined.name === "" ? "a hidden network" : joined.name);
+    const wired = (network.ethernet || []).find(row => row.state === "connected");
+    if (network.state === "connected" && wired) return "Connected through " + wired.name;
+    return stateText(network.state);
+}
+
 function writable(state) {
     return ["connected", "offline", "radio-off", "limited", "portal"].indexOf(state) >= 0;
 }

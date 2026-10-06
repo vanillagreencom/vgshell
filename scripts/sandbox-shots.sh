@@ -1962,6 +1962,8 @@ scene_network() { # MODE
   device_reply systemctl 0 $'LoadState=loaded\nActiveState=active' show --property=LoadState --property=ActiveState NetworkManager.service
   device_reply nmcli 0 'org.freedesktop.NetworkManager.network-control:yes' -t -f PERMISSION,VALUE general permissions
   expect "the network shot has a saved fake profile" ok python3 "$repo/scripts/smoke/fixtures/devices/network.py" "unix:path=$rt_dir/system-bus" prepare
+  expect "the network shot has two wired fake devices" ok python3 "$repo/scripts/smoke/fixtures/devices/network.py" "unix:path=$rt_dir/system-bus" wired
+  device_reply nmcli 0 $'GENERAL.DEVICE:enp10s0\nGENERAL.TYPE:ethernet\nGENERAL.STATE:100 (connected)\nIP4.ADDRESS[1]:192.0.2.10/24\nIP4.GATEWAY:192.0.2.1' -t device show enp10s0
   expect "Network enables for its shot" ok ipc shell setPluginEnabled vgs.network true
   expect "System enables for the network shot" ok ipc shell setPluginEnabled vgs.system true
   expect "Network's pane summons" ok ipc shell summon window vgs.system '{"pane":"vgs.network"}'
@@ -1969,7 +1971,18 @@ scene_network() { # MODE
   expect_poll "Network's pane reads the saved mock" '[["VGS Smoke Wi-Fi", "Wpa2Psk", true]]' network_shot_names
   park_pointer
   take "network-$1-pane"
+  expect "enp10s0 scrolls into view" scrolled network_shot_reveal
+  click_in window:System window vgs.network ListItem enp10s0 || fail "the click on enp10s0 failed"
+  expect_poll "enp10s0's details draw" True network_shot_details
+  park_pointer
+  take "network-$1-pane-details"
   expect "the network System window closes" ok ipc shell hide window vgs.system
+  click_centre "$(bar_key)" vgs.network || fail "the click on the network widget failed"
+  expect_poll "the network widget opens its panel" shown network_shot_panel
+  park_pointer
+  take "network-$1-dropdown"
+  expect "the network panel hides" ok ipc shell hide panel vgs.network
+  expect "the network shot removes its wired fake devices" ok python3 "$repo/scripts/smoke/fixtures/devices/network.py" "unix:path=$rt_dir/system-bus" unwired
   expect "Network disables after its shot" ok ipc shell setPluginEnabled vgs.network false
   expect "System disables after the network shot" ok ipc shell setPluginEnabled vgs.system false
   device_reply_clear nmcli
@@ -1997,6 +2010,9 @@ scene_vpn() { # MODE
 vpn_shot_shown() { [[ $(ipc smoke instanceGeometry window vgs.vpn) != absent ]] && echo shown || echo hidden; }
 vpn_shot_read() { ipc smoke readDescendant window vgs.vpn VpnBody vpn | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps([v["state"], len(v["accounts"])]))'; }
 network_shot_shown() { [[ $(ipc smoke instanceGeometry window vgs.network) != absent ]] && echo shown || echo hidden; }
+network_shot_reveal() { ipc smoke revealText window vgs.system ListItem enp10s0 | py_reply 'import json,sys; json.load(sys.stdin); print("scrolled")'; }
+network_shot_panel() { [[ $(ipc smoke instanceGeometry panel vgs.network) != absent ]] && echo shown || echo hidden; }
+network_shot_details() { ipc smoke networkDetails window | py_reply 'import json,sys; s=sys.stdin.read(); print(s.startswith("{") and len(json.loads(s)["rows"]) > 0)'; }
 network_shot_names() { ipc smoke readDescendant window vgs.network NetworkBody rows | py_reply 'import json,sys; print(json.dumps([[r["name"],r["security"],r["known"]] for r in json.load(sys.stdin)]))'; }
 
 scene_dialog() { # MODE

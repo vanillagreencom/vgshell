@@ -71,6 +71,22 @@ function suite(logic) {
     assert.doesNotMatch(logic.stateText("stopped"), /another|other service/i);
     for (const s of ["absent", "stopped", "unmanaged", "denied", "unavailable"]) assert.equal(logic.writable(s), false);
     for (const s of ["connected", "offline", "radio-off", "limited", "portal"]) assert.equal(logic.writable(s), true);
+    for (const [managed, connected, link, want] of [
+        [false, true, true, "unmanaged"], [false, false, false, "unmanaged"],
+        [true, true, true, "connected"], [true, false, true, "disconnected"], [true, false, false, "no-cable"]
+    ]) assert.equal(logic.ethernetState(managed, connected, link), want);
+    const wired = ["connected", "disconnected", "no-cable", "unmanaged"];
+    assert.equal(new Set(wired.map(s => logic.ethernetText(s))).size, wired.length);
+    assert.deepEqual(Array.from(logic.ethernetOrdered([
+        { name: "enp11s0", state: "no-cable" }, { name: "enp9s0", state: "disconnected" }, { name: "enp12s0", state: "connected" }
+    ]), row => row.name), ["enp12s0", "enp11s0", "enp9s0"]);
+    const ethernet = [{ name: "enp11s0", state: "no-cable" }, { name: "enp10s0", state: "connected" }];
+    const wifi = [{ name: "Cafe", connected: false }, { name: "Home", connected: true }];
+    assert.match(logic.summary({ state: "connected", wifi: [], ethernet }), /enp10s0/);
+    assert.doesNotMatch(logic.summary({ state: "connected", wifi: [], ethernet }), /enp11s0/);
+    assert.match(logic.summary({ state: "connected", wifi, ethernet }), /Home/);
+    assert.equal(logic.summary({ state: "offline", wifi: [], ethernet: [{ name: "enp11s0", state: "no-cable" }] }), logic.stateText("offline"));
+    assert.equal(logic.summary({ state: "limited", wifi, ethernet }), logic.stateText("limited"));
     assert.equal(JSON.stringify(logic.details("GENERAL.DEVICE:wlan0\nGENERAL.CONNECTION:Office\\:west\\\\desk\nIP6.ADDRESS[1]:fe80\\:\\:1/64\nWIFI.PSK:no")), JSON.stringify([
         { key: "GENERAL.DEVICE", value: "wlan0" }, { key: "GENERAL.CONNECTION", value: "Office:west\\desk" }, { key: "IP6.ADDRESS[1]", value: "fe80::1/64" }
     ]));
@@ -90,7 +106,10 @@ try {
         ["permission refusal", 'if (value === "no" || value === "auth") return "denied";', 'if (value === "no" || value === "auth") return "allowed";'],
         ["operation recovery", 'return "terminal";', 'return "pending";'],
         ["share requires a saved profile", '!!row.known && (supportsPsk', 'true && (supportsPsk'],
-        ["details allowlist", 'shown.test(key)', 'true']
+        ["details allowlist", 'shown.test(key)', 'true'],
+        ["a wired device without a link has no cable", 'return link ? "disconnected" : "no-cable";', 'return "disconnected";'],
+        ["connected wired devices first", 'Number(b.state === "connected") - Number(a.state === "connected")', '0'],
+        ["the summary names the connected wired device", 'row => row.state === "connected");', 'row => true);']
     ]) {
         assert.equal(source.split(needle).length - 1, 1, name + " mutation must match once");
         const mutant = path.join(scratch, "NetworkLogic.js");

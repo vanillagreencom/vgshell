@@ -50,10 +50,10 @@ Item {
         strength: Logic.strength(n.signalStrength), security: Logic.enumName(n.security, securityVariants),
         known: n.known, connected: n.connected, changing: n.stateChanging
     })))
-    readonly property var wiredRows: devices.filter(d => d.type === DeviceType.Wired).map(d => ({
+    readonly property var wiredRows: Logic.ethernetOrdered(devices.filter(d => d.type === DeviceType.Wired).map(d => ({
         name: d.name, connected: d.connected, managed: d.nmManaged, autoconnect: d.autoconnect,
-        speed: d.linkSpeed, link: d.hasLink, state: ConnectionState.toString(d.state)
-    }))
+        speed: d.linkSpeed, link: d.hasLink, state: Logic.ethernetState(d.nmManaged, d.connected, d.hasLink)
+    })))
     readonly property bool backendAvailable: Networking.backend === NetworkBackendType.NetworkManager
     readonly property bool managed: devices.length === 0 || devices.some(d => d.nmManaged)
     readonly property bool connected: devices.some(d => d.connected && (d.type !== DeviceType.Wifi || Networking.wifiEnabled))
@@ -62,7 +62,7 @@ Item {
         Networking.wifiEnabled, wifiDevice !== null)
     readonly property int leaseCount: Object.keys(leases).length
     readonly property bool nmcliPresent: shell !== null && shell.requirements.missing.indexOf("nmcli") === -1
-    readonly property var snapshot: ({ state: state, access: access, text: Logic.stateText(state),
+    readonly property var snapshot: ({ state: state, access: access, text: Logic.summary({ state: state, wifi: wifiRows, ethernet: wiredRows }),
         wifi: wifiRows, ethernet: wiredRows, wifiEnabled: Networking.wifiEnabled,
         wifiHardwareEnabled: Networking.wifiHardwareEnabled, hasWifi: wifiDevice !== null,
         wifiAutoconnect: wifiDevice ? wifiDevice.autoconnect : false, wifiInterface: wifiDevice ? wifiDevice.name : "",

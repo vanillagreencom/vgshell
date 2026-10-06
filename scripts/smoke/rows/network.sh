@@ -23,7 +23,9 @@ pathlib.Path(sys.argv[1]).write_text(json.dumps({"active":"--", "profiles":[{"uu
 PYWORLD
 }
 net_qr_world ready
-printf '#!/usr/bin/env bash\nif [[ " $* " == *" --get-values "* ]]; then\n  export NETWORK_QR_WORLD=%q NETWORK_QR_CALLS=%q NETWORK_QR_READY=%q\n  exec python3 %q "$@"\nfi\nexec %q "$@"\n' "$net_qr_dir/world.json" "$net_qr_dir/calls" "$net_qr_dir/ready" "$net_qr_dir/nmcli" "$(sentinel_saved "$shim/nmcli")" | sentinel_stand_over "$shim/nmcli"
+# A details read waits while $net_hold exists, so the row sees its loading state.
+net_hold="$sandbox/network-details-hold"
+printf '#!/usr/bin/env bash\nif [[ " $* " == *" --get-values "* ]]; then\n  export NETWORK_QR_WORLD=%q NETWORK_QR_CALLS=%q NETWORK_QR_READY=%q\n  exec python3 %q "$@"\nfi\nif [[ " $* " == *" device show "* ]]; then while [[ -e %q ]]; do sleep 0.05; done; fi\nexec %q "$@"\n' "$net_qr_dir/world.json" "$net_qr_dir/calls" "$net_qr_dir/ready" "$net_qr_dir/nmcli" "$net_hold" "$(sentinel_saved "$shim/nmcli")" | sentinel_stand_over "$shim/nmcli"
 net_qr_had_shim=false
 if [[ -e $shim/qrencode ]]; then net_qr_had_shim=true; else printf '#!/usr/bin/env bash\nexit 1\n' >"$shim/qrencode"; fi
 printf '#!/usr/bin/env bash\nexport NETWORK_QR_WORLD=%q NETWORK_QR_CALLS=%q NETWORK_QR_READY=%q\nexec python3 %q "$@"\n' "$net_qr_dir/world.json" "$net_qr_dir/calls" "$net_qr_dir/ready" "$net_qr_dir/qrencode" | sentinel_stand_over "$shim/qrencode"
@@ -295,6 +297,87 @@ net_permission yes
 expect "the working optional permissions probe refreshes" ok net_refresh
 expect_poll "the successful permission probe clears the notice" '""' ipc smoke readDescendant panel vgs.network NetworkBody permissionNotice
 expect "the permission-notice flyout closes" ok ipc shell hide panel vgs.network
+
+# The dropdown and Details over two wired fakes on the sandbox bus:
+# enp10s0 connected with its cable in, enp11s0 with no cable.
+net_wired() { net_snapshot | py_reply 'import json,sys; print(json.dumps([[r["name"],r["state"]] for r in json.load(sys.stdin)["network"]["ethernet"]]))'; }
+net_wired_text() { node -e 'const { load } = require(process.argv[1] + "/bin/lib/qml-library.js"); console.log(load(process.argv[1] + "/shell/plugins/vgs.network/NetworkLogic.js").ethernetText(process.argv[2]));' "$repo" "$1"; }
+net_wired_rows() { ipc smoke itemValues "$1" vgs.network ListItem text,secondary | py_reply 'import json,sys; print(json.dumps([[r["text"],r["secondary"]] for r in json.load(sys.stdin) if r["text"].startswith("enp")]))'; }
+net_wired_listed() { net_wired_rows "$1" | py_reply 'import json,sys; print(json.dumps([[t, s != ""] for t,s in json.load(sys.stdin)]))'; }
+# The System window's ScrollArea holds the pane, so its instance reveals.
+net_reveal() { ipc smoke revealText window vgs.system ListItem enp10s0 | py_reply 'import json,sys; json.load(sys.stdin); print("scrolled")'; }
+net_widget_click() { rest_pointer && click_centre "$(bar_key)" vgs.network; }
+net_below() { ipc smoke itemGeometry window vgs.network ListItem enp11s0 | py_reply 'import json,sys; print(json.load(sys.stdin)[1])'; }
+net_spinners() { ipc smoke itemValues window vgs.network Spinner visible | py_reply 'import json,sys; print(sum(1 for r in json.load(sys.stdin) if r["visible"]))'; }
+net_detail_state() { net_snapshot | py_reply 'import json,sys; d=json.load(sys.stdin)["network"]["detail"]; print(d["interface"] + " " + d["state"])'; }
+# net_details_layout LABEL: opens enp10s0's Details in System while its
+# read is held and sets net_layout to `steady` when the enp11s0 row stays
+# put during the read and moves once the rows draw, else to
+# `moved-while-loading` with the three readings.
+net_details_layout() {
+  local before during after
+  net_layout=unread
+  expect "$1: System opens the Network pane" ok ipc shell summon window vgs.system '{"pane":"vgs.network"}'
+  expect_poll "$1: the pane is mounted" shown net_shown window
+  expect_poll "$1: the pane lists the wired devices" '[["enp10s0", true], ["enp11s0", true]]' net_wired_listed window
+  expect "$1: enp10s0 scrolls into view" scrolled net_reveal
+  before="$(net_below)" || before=unread
+  touch -- "$net_hold"
+  click_in window:System window vgs.network ListItem enp10s0 || fail "$1: the click on enp10s0 failed"
+  expect_poll "$1: the held read is loading" "enp10s0 loading" net_detail_state
+  expect_poll "$1: the expanded row shows one spinner" 1 net_spinners
+  during="$(net_below)" || during=unread
+  rm -f -- "$net_hold"
+  expect_poll "$1: Details draws the device's rows" '{"visible":true,"rows":[["GENERAL.DEVICE","enp10s0"],["IP4.ADDRESS[1]","192.0.2.10/24"]]}' ipc smoke networkDetails window
+  expect "$1: the spinner stops once the rows draw" 0 net_spinners
+  after="$(net_below)" || after=unread
+  expect "$1: System closes the pane" ok ipc shell hide window vgs.system
+  expect_poll "$1: the pane is gone" hidden net_shown window
+  if [[ $before != unread && $during == "$before" && $after != "$before" ]]; then net_layout=steady
+  else net_layout="moved-while-loading before=$before during=$during after=$after"; fi
+}
+expect "the mock adds two Ethernet devices" ok net_fixture wired
+expect_poll "Network publishes each wired device's state" '[["enp10s0", "connected"], ["enp11s0", "no-cable"]]' net_wired
+expect_poll "the connected wired device connects the computer" '"connected"' net_state
+net_widget_click || fail "the click on the Network widget failed"
+expect_poll "a click on the widget opens the dropdown" shown net_shown panel
+expect "the dropdown is a popup under the widget, not a centred layer" 0 layer_count vgs:panel
+expect_poll "the dropdown lists both wired devices with their states" "[[\"enp10s0\", \"$(net_wired_text connected)\"], [\"enp11s0\", \"$(net_wired_text no-cable)\"]]" net_wired_rows panel
+summon_drawn panel vgs.network || fail "the dropdown never drew a frame"
+click 40 "$((mon_h - 40))" || fail "the press outside the dropdown failed"
+expect_poll "a press outside closes the dropdown" hidden net_shown panel
+device_reply nmcli 0 $'GENERAL.DEVICE:enp10s0\nIP4.ADDRESS[1]:192.0.2.10/24' -t device show enp10s0
+net_details_layout "Details"
+expect "Details expands with a stable layout" steady printf '%s\n' "$net_layout"
+# Controls: a widget that toggles without its anchor opens the centred
+# layer, and a body that draws a line while loading moves the row under it.
+net_copy="$home/.config/vgshell/plugins/vgs.network"
+mkdir -p -- "$net_copy"
+cp -R -- "$repo/shell/plugins/vgs.network/." "$net_copy/"
+python3 - "$net_copy/Widget.qml" "$net_copy/NetworkBody.qml" <<'PYWIRED'
+import pathlib,sys
+widget,body=map(pathlib.Path,sys.argv[1:])
+s=widget.read_text(); old='shell.surfaces.toggle("panel", "{}", root)'
+assert s.count(old)==1
+widget.write_text(s.replace(old,'shell.surfaces.toggle("panel", "{}")'))
+s=body.read_text(); old='visible: parent.detailState === "failed"'
+assert s.count(old)==1
+body.write_text(s.replace(old,'visible: parent.detailState !== "ready"'))
+PYWIRED
+rescan "the dropdown and layout controls are discovered"
+expect_poll "the controls' service publishes the wired devices" '[["enp10s0", "connected"], ["enp11s0", "no-cable"]]' net_wired
+net_widget_click || fail "the click on the control widget failed"
+expect_poll "the control widget opens its panel" shown net_shown panel
+expect_poll "control: a widget without its anchor opens the centred layer" 1 layer_count vgs:panel
+expect "the control's panel closes" ok ipc shell hide panel vgs.network
+expect_poll "the control's panel is gone" hidden net_shown panel
+net_details_layout "Details control"
+expect "control: a line drawn while loading moves the row under it" moved-while-loading printf '%s\n' "${net_layout%% *}"
+rm -rf -- "${net_copy:?}"
+rescan "the shipped plugin is restored after the dropdown controls"
+expect "the mock removes the Ethernet devices" ok net_fixture unwired
+expect_poll "Network lists no wired device" '[]' net_wired
+expect_poll "Network is disconnected again" '"offline"' net_state
 
 net_copy="$home/.config/vgshell/plugins/vgs.network"
 mkdir -p -- "$net_copy"

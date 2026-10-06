@@ -5,8 +5,11 @@ import qs.Commons
 import qs.Ui
 import "NetworkLogic.js" as Logic
 
-// Shared body for the flyout and System pane. Only this field holds a PSK.
+// Shared body for the dropdown and System pane. Only this field holds a PSK.
 // The service receives the network key; NetworkManager receives the secret.
+// A device's Details draws its rows once they are read: while the service
+// reads, the row shows a Spinner and its content takes no height, so the
+// rows under it move once.
 FocusScope {
     id: root
     focus: true
@@ -154,6 +157,12 @@ FocusScope {
         expandable: !!root.values.detailsTool && root.values.detailsTool.action === false
         Component.onCompleted: expanded = shouldOpen
         onShouldOpenChanged: expanded = shouldOpen
+        trailing: [
+            Spinner {
+                anchors.verticalCenter: parent.verticalCenter
+                visible: details.expanded && root.detailStateFor(details.device) === "loading" && root.detailRowsFor(details.device).length === 0
+            }
+        ]
         onExpandedChanged: {
             if (expanded) {
                 if (!shouldOpen) root.openDeviceDetails(device);
@@ -168,12 +177,6 @@ FocusScope {
             spacing: Theme.stack.row
             readonly property var rows: root.detailRowsFor(details.device)
             readonly property string detailState: root.detailStateFor(details.device)
-            Label {
-                width: parent.width
-                visible: parent.detailState === "loading" && parent.rows.length === 0
-                role: "hint"
-                text: "Loading…"
-            }
             Label {
                 width: parent.width
                 visible: parent.detailState === "failed"
@@ -329,10 +332,18 @@ FocusScope {
         }
         Section {
             width: parent.width
-            visible: root.expanded && !!root.network.hasWifi
+            visible: !!root.network.hasWifi && (root.expanded || root.openDetails === root.network.wifiInterface)
             title: "Wi-Fi options"
+            DeviceDetails {
+                device: root.network.wifiInterface
+                label: "Wi-Fi device"
+                stateLine: root.network.wifiInterface
+                glyph: "wifi"
+                visible: root.network.wifiInterface !== ""
+            }
             Field {
                 width: parent.width
+                visible: root.expanded
                 label: "Auto-join"
                 hint: "Allow this Wi-Fi device to join saved networks automatically."
                 control: Switch {
@@ -343,22 +354,15 @@ FocusScope {
                 }
             }
             Row {
+                visible: root.expanded
                 spacing: Theme.control.gap
                 Button { text: "Forget"; variant: "secondary"; enabled: root.selected !== null && root.selected.known && !root.busy; onClicked: root.action("forget", root.selected) }
                 Button { text: "Share QR code"; variant: "secondary"; enabled: Logic.shareable(root.selected); onClicked: root.share(root.selected) }
             }
         }
-        DeviceDetails {
-            device: root.network.wifiInterface
-            label: "Wi-Fi device"
-            stateLine: root.network.wifiInterface
-            glyph: "wifi"
-            visible: !!root.network.hasWifi && root.network.wifiInterface !== "" && (root.expanded || root.openDetails === root.network.wifiInterface)
-        }
         Section {
             width: parent.width
             title: "Ethernet"
-            visible: root.expanded
             description: (root.network.ethernet || []).length ? "" : "No Ethernet device detected."
             Repeater {
                 model: ScriptModel { values: root.network.ethernet || []; objectProp: "name" }
@@ -366,25 +370,29 @@ FocusScope {
                     required property var modelData
                     device: modelData.name
                     label: modelData.name
-                    stateLine: !modelData.managed ? Logic.stateText("unmanaged") : modelData.connected ? "Connected" : modelData.link ? "Not connected" : "Cable not connected"
+                    stateLine: Logic.ethernetText(modelData.state)
                     glyph: "ethernet-port"
                 }
             }
-        }
-        Field {
-            width: parent.width
-            visible: root.expanded
-            label: "Show disconnected icon"
-            control: Switch {
-                checked: root.shell === null || root.shell.settings.showDisconnected
-                onClicked: root.answered(root.shell.configure.set("showDisconnected", checked))
+            Button {
+                visible: root.expanded && !!root.values.detailsTool && root.values.detailsTool.action === true
+                text: "Install details tool"
+                variant: "secondary"
+                onClicked: root.answered(root.shell.status.act("detailsTool"))
             }
         }
-        Button {
-            visible: root.expanded && !!root.values.detailsTool && root.values.detailsTool.action === true
-            text: "Install details tool"
-            variant: "secondary"
-            onClicked: root.answered(root.shell.status.act("detailsTool"))
+        Section {
+            width: parent.width
+            visible: root.expanded
+            title: "Bar"
+            Field {
+                width: parent.width
+                label: "Show disconnected icon"
+                control: Switch {
+                    checked: root.shell === null || root.shell.settings.showDisconnected
+                    onClicked: root.answered(root.shell.configure.set("showDisconnected", checked))
+                }
+            }
         }
     }
 }

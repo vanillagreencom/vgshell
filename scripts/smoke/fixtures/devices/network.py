@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Network row operations on S08's existing NetworkManager mock.
 
-Usage: network.py SANDBOX_BUS prepare|fail|drop-active|replace|restore|calls
+Usage: network.py SANDBOX_BUS prepare|fail|drop-active|replace|restore|wired|unwired|calls
 
 prepare makes the existing Wi-Fi saved and makes saved-profile activation
 stay Connecting until fail emits NetworkManager's NoSecrets failure. An
@@ -10,7 +10,9 @@ The mock's own D-Bus argument log is disabled before it receives a PSK;
 method counts remain available through GetMethodCalls. replace adds wlan1
 and removes wlan0 from the manager's list while keeping the old fake object
 alive so the row can read that its scanner was released. restore returns
-wlan0 and removes wlan1. No operation contacts the host's bus or devices.
+wlan0 and removes wlan1. wired adds two Ethernet devices, enp10s0 activated
+with its cable in and enp11s0 with no cable; unwired removes both. No
+operation contacts the host's bus or devices.
 """
 import json
 import pathlib
@@ -28,6 +30,7 @@ MANAGER = ROOT + "/NetworkManager"
 DEVICE = MANAGER + "/Devices/wlan0"
 PROFILE = MANAGER + "/Settings/network_saved"
 AP = MANAGER + "/AccessPoint/ap0"
+WIRED = {"enp10s0": (100, True), "enp11s0": (20, False)}
 
 
 def configure(root, manager, device, bus, mode):
@@ -100,6 +103,21 @@ next_device.AddProperty("{WIFI}", "ActiveAccessPoint", dbus.ObjectPath("/"))
         manager.EmitSignal(NM, "DeviceRemoved", "o", [dbus.ObjectPath(MANAGER + "/Devices/wlan1")])
         manager.EmitSignal(NM, "DeviceAdded", "o", [dbus.ObjectPath(DEVICE)])
         root.RemoveObject(MANAGER + "/Devices/wlan1")
+    elif action == "wired":
+        for name, (state, carrier) in WIRED.items():
+            path = root.AddEthernetDevice(name, name, dbus.Int32(state))
+            wired = dbus.Interface(bus.get_object(NM, path), MOCK)
+            wired.AddProperty(DEV, "Autoconnect", dbus.Boolean(True))
+            # NM_DEVICE_INTERFACE_FLAG_CARRIER is 0x10000.
+            wired.AddProperty(DEV, "InterfaceFlags", dbus.UInt32(0x10000 if carrier else 0))
+            wired.UpdateProperties(DEV + ".Wired", dbus.Dictionary({"Carrier": dbus.Boolean(carrier)}, signature="sv"))
+    elif action == "unwired":
+        paths = [MANAGER + "/Devices/" + name for name in WIRED]
+        kept = [path for path in dbus.Interface(bus.get_object(NM, MANAGER), "org.freedesktop.DBus.Properties").Get(NM, "Devices") if str(path) not in paths]
+        manager.UpdateProperties(NM, dbus.Dictionary({"Devices": dbus.Array(kept, signature="o")}, signature="sv"))
+        for path in paths:
+            manager.EmitSignal(NM, "DeviceRemoved", "o", [dbus.ObjectPath(path)])
+            root.RemoveObject(path)
     elif action == "calls":
         print(json.dumps({"connect": len(manager.GetMethodCalls("ActivateConnection")), "new": len(manager.GetMethodCalls("AddAndActivateConnection"))}))
         return
