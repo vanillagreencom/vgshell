@@ -280,7 +280,7 @@ python3 - "$repo/shell/Ui/controls/IconButton.qml" "$info_control_dir/InfoButton
 import sys
 src, dst = sys.argv[1:]
 text = open(src).read()
-needle = "onRejected: if (pop.owner !== null) pop.owner.closeInfo();"
+needle = "dialog.rejected.connect(root.closeInfo);"
 replacement = "onRejected: {}"
 if text.count(needle) != 1:
     raise SystemExit("needle count is %d" % text.count(needle))

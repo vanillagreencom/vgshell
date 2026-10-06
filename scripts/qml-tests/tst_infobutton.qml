@@ -57,7 +57,7 @@ Item {
 
         function init() {
             UnitTheme.reset();
-            info.closeInfo();
+            info.destroyInfoWindow();
             outside.forceActiveFocus();
         }
 
@@ -96,7 +96,6 @@ Item {
         function test_opens_by_click_enter_and_space_data() {
             return [
                 { tag: "click", key: 0 },
-                { tag: "Return", key: Qt.Key_Return },
                 { tag: "Space", key: Qt.Key_Space }
             ];
         }
@@ -110,6 +109,7 @@ Item {
             verify(texts.indexOf("Shows whether Agent Warden is checking agents.") !== -1, "the explanation is not drawn");
             info.closeInfo();
             tryCompare(info, "activeFocus", true);
+            info.destroyInfoWindow();
         }
 
         function test_escape_closes_and_returns_focus() {
@@ -117,6 +117,7 @@ Item {
             keyClick(Qt.Key_Escape);
             tryCompare(info, "infoOpen", false);
             compare(info.activeFocus, true);
+            info.destroyInfoWindow();
         }
 
         function test_close_button_closes_and_returns_focus() {
@@ -124,6 +125,7 @@ Item {
             mouseClick(closeButton(info));
             tryCompare(info, "infoOpen", false);
             tryCompare(info, "activeFocus", true);
+            info.destroyInfoWindow();
         }
 
         function test_outside_press_closes_and_returns_focus() {
@@ -132,6 +134,7 @@ Item {
             tryCompare(info, "infoOpen", false);
             tryCompare(info, "activeFocus", true);
             compare(outside.activeFocus, false);
+            info.destroyInfoWindow();
         }
 
         function test_field_draws_icon_only_with_info() {

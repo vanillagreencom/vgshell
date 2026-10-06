@@ -29,7 +29,7 @@ Button {
     readonly property real glyphStart: leftPadding + contentItem.painted[0]
     readonly property real glyphEnd: rightPadding + contentItem.size - contentItem.painted[2]
     property var infoWindow: null
-    readonly property bool infoOpen: infoWindow !== null && infoWindow.opened
+    readonly property bool infoOpen: infoWindow !== null && infoWindow.tracker.popup.visible
     property bool infoReturnWasVisual: false
     property bool infoReturning: false
 
@@ -48,21 +48,51 @@ Button {
     function infoClosed() {
         if (!infoReturning) return;
         const reason = infoReturnWasVisual ? Qt.TabFocusReason : Qt.MouseFocusReason;
+        const closed = infoWindow;
+        infoWindow = null;
         Qt.callLater(() => {
             if (Window.window !== null) Window.window.requestActivate();
             forceActiveFocus(reason);
             infoReturning = false;
+            if (closed !== null) closed.destroy();
         });
     }
 
     function ensureInfoWindow() {
         if (info === "") return null;
         if (infoWindow !== null) return infoWindow;
+        const popover = Qt.createComponent(Qt.resolvedUrl("../overlay/Popover.qml"));
+        if (popover.status !== Component.Ready) {
+            console.error("IconButton: info dialog failed to build: " + popover.errorString());
+            return null;
+        }
         // A Window child has a top-level lifetime even while hidden, so the
         // popover is built only for buttons that show an explanation.
-        const qml = 'import QtQuick\nimport qs.Commons\nimport qs.Ui\nPopover { id: pop; property var owner: null; width: owner === null ? Theme.dialog.width : OverlayState.widthFor(owner, Theme.dialog.width); onOpenedChanged: if (!opened && owner !== null) owner.infoClosed(); Dialog { width: parent.width; modal: true; availableHeight: pop.availableHeight; title: pop.owner === null ? "" : pop.owner.infoTitle !== "" ? pop.owner.infoTitle : pop.owner.label; message: pop.owner === null ? "" : pop.owner.info; actions: [{ label: "Close", role: "cancel", focused: true }]; onRejected: if (pop.owner !== null) pop.owner.closeInfo(); } }';
-        infoWindow = Qt.createQmlObject(qml, root, "IconButtonInfoDialog");
-        infoWindow.owner = root;
+        infoWindow = popover.createObject(root);
+        if (infoWindow === null) console.error("IconButton: info dialog failed to build");
+        const dialogComponent = Qt.createComponent(Qt.resolvedUrl("../feedback/Dialog.qml"));
+        if (dialogComponent.status !== Component.Ready) {
+            console.error("IconButton: info dialog content failed to build: " + dialogComponent.errorString());
+            destroyInfoWindow();
+            return null;
+        }
+        const dialog = dialogComponent.createObject(infoWindow);
+        if (dialog === null) {
+            console.error("IconButton: info dialog content failed to build");
+            destroyInfoWindow();
+            return null;
+        }
+        const popup = infoWindow;
+        dialog.width = Qt.binding(() => popup.width);
+        dialog.modal = true;
+        dialog.availableHeight = Qt.binding(() => popup.availableHeight);
+        dialog.title = Qt.binding(() => root.infoTitle !== "" ? root.infoTitle : root.label);
+        dialog.message = Qt.binding(() => root.info);
+        dialog.actions = [{ label: "Close", role: "cancel", focused: true }];
+        dialog.rejected.connect(root.closeInfo);
+        infoWindow.content = [dialog];
+        infoWindow.width = Qt.binding(() => OverlayState.widthFor(root, Theme.dialog.width));
+        infoWindow.openedChanged.connect(() => Qt.callLater(() => { if (popup.opened === false) root.infoClosed(); }));
         return infoWindow;
     }
 
@@ -96,5 +126,4 @@ Button {
     Tooltip {
         text: root.label
     }
-
 }

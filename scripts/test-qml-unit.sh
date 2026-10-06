@@ -669,7 +669,7 @@ mutations=(
   "a reopened select list's cursor travels from the dismissed entry|controls/Select.qml|        plate.snap();|        Qt.callLater(plate.snap);|tst_overlays.qml"
   "an open preset list keeps its highlight across a clock tick|../plugins/vgs.settings/SettingField.qml|loader.item.listOpen !== true))|true)|tst_settingfield.qml"
   "the info icon opens no dialog|controls/IconButton.qml|if (info !== \"\") openInfo(visualFocus ? Qt.ShortcutFocusReason : Qt.MouseFocusReason)|if (false) openInfo(visualFocus ? Qt.ShortcutFocusReason : Qt.MouseFocusReason)|tst_infobutton.qml"
-  "the info dialog ignores rejection|controls/IconButton.qml|onRejected: if (pop.owner !== null) pop.owner.closeInfo();|onRejected: {}|tst_infobutton.qml"
+  "the info dialog ignores rejection|controls/IconButton.qml|dialog.rejected.connect(root.closeInfo);|{}|tst_infobutton.qml"
   "a row without info shows the info icon|controls/FormRow.qml|visible: root.info !== \"\" && root.labelColumn|visible: root.labelColumn|tst_infobutton.qml"
   "a click leaves the pointer disarmed|layout/ListCursor.qml|function arm() { state.armed = true; }|function arm() {}|tst_listcursor.qml"
   "the list cursor snaps past its turn|layout/ListCursor.qml|function settle() { snapping = false; }|function settle() {}|tst_listcursor.qml"
