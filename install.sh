@@ -392,10 +392,11 @@ process.stdout.write(String(record.code));
 
   # Refuses when a system package installed VGS: /usr/bin/vgshell exists, or
   # the pacman, rpm or dpkg database holds vgshell or vgshell-git. A database a
-  # query cannot read counts as not holding it.
+  # query cannot read counts as not holding it. A test run reads the path
+  # under its own $system_root, so the host's package stays out of its rows.
   system_package() {
     local name status
-    if [[ -e /usr/bin/vgshell || -L /usr/bin/vgshell ]]; then
+    if [[ -e $system_root/usr/bin/vgshell || -L $system_root/usr/bin/vgshell ]]; then
       refuse 1 "system=package path=/usr/bin/vgshell" \
         "a system package installed VGS: update it with its package manager, or pass --force for a second, user-local copy"
     fi
@@ -723,6 +724,12 @@ process.stdout.write(lines.join("\n") + "\n");
   config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/vgshell"
   state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/vgshell"
 
+  system_root=""
+  if [[ -n ${VGS_SYSTEM_ROOT:-} ]]; then
+    [[ -n ${VGS_TEST_RUN:-} ]] ||
+      refuse 1 "system-root=refused value=$VGS_SYSTEM_ROOT" "VGS_SYSTEM_ROOT is for a test run alone"
+    system_root="$VGS_SYSTEM_ROOT"
+  fi
   if [[ -n ${VGS_RELEASE_API:-} ]]; then
     [[ -n ${VGS_TEST_RUN:-} && $VGS_RELEASE_API == file:///* ]] ||
       refuse 1 "release-api=refused value=$VGS_RELEASE_API" "VGS_RELEASE_API is a file:// base for a test run alone"

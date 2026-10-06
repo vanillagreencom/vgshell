@@ -15,8 +15,10 @@
 # node below, and its package-manager choice and install command to
 # `vgshell pkg detect` and `vgshell pkg plan` under the same os-release.
 #
-# /usr/bin/vgshell is not planted: no user namespace can create a file there,
-# so the system-package rows use a stub pacman database instead.
+# install.sh reads /usr/bin/vgshell under VGS_SYSTEM_ROOT in a test run, so
+# every row hands it an empty fixture root and the host's package stays
+# invisible; the path rows plant the file and the link there. The database
+# rows use a stub pacman.
 #
 # The controls at the end run copies of install.sh with one rule removed
 # each, and every row that judges that rule must turn red on its copy.
@@ -72,6 +74,7 @@ export XDG_CONFIG_HOME="$caller_config"
 scratch="$tmp/scratch"; mkdir -p "$scratch"
 gnupg_empty="$tmp/gnupg-empty"; mkdir -m 700 "$gnupg_empty"
 default_os="$tmp/default-os"; printf 'ID=arch\n' >"$default_os"
+system_root="$tmp/system-root"; mkdir -p "$system_root/usr/bin"
 install_log="$tmp/runtime-install.log"
 
 # The independent package recipes supply the expected install groups.
@@ -150,8 +153,9 @@ new_home() {
 
 # run BIN ARGS...: install.sh BIN from $h under the rows' environment.
 # Stdout lands in $tmp/out, stderr in $tmp/err, the exit status in
-# $status. RUN_PATH, RUN_RT (XDG_RUNTIME_DIR) and RUN_GNUPG replace the
-# defaults; RUN_WRAP holds a command the script runs under.
+# $status. RUN_PATH, RUN_RT (XDG_RUNTIME_DIR), RUN_GNUPG, RUN_ROOT
+# (VGS_SYSTEM_ROOT) and RUN_TEST_RUN (VGS_TEST_RUN) replace the defaults;
+# RUN_WRAP holds a command the script runs under.
 RUN_WRAP=()
 run() {
   local bin="$1"
@@ -161,8 +165,8 @@ run() {
     wrap=(unshare -rm sh -c 'mount --bind "$1" /etc/os-release && u="$2" g="$3" && shift 3 && exec unshare --map-user="$u" --map-group="$g" "$@"' sh "$default_os" "$uid" "$gid")
   fi
   status=0
-  local -a invocation=(env -i PATH="${RUN_PATH:-$run_path}" HOME="$h" TMPDIR="$scratch" VGS_TEST_RUN=1 VGS_RELEASE_API="file://$www" \
-    XDG_RUNTIME_DIR="${RUN_RT:-$rt_empty}" GIT_CONFIG_NOSYSTEM=1 GNUPGHOME="${RUN_GNUPG:-$gnupg_empty}" \
+  local -a invocation=(env -i PATH="${RUN_PATH:-$run_path}" HOME="$h" TMPDIR="$scratch" VGS_TEST_RUN="${RUN_TEST_RUN-1}" VGS_RELEASE_API="file://$www" \
+    VGS_SYSTEM_ROOT="${RUN_ROOT:-$system_root}" XDG_RUNTIME_DIR="${RUN_RT:-$rt_empty}" GIT_CONFIG_NOSYSTEM=1 GNUPGHOME="${RUN_GNUPG:-$gnupg_empty}" \
     VGS_INSTALL_LOG="$install_log" VGS_INSTALL_EXPECTED="$install_expected" VGS_INSTALL_CODE="${RUN_INSTALL_CODE:-0}" \
     "${wrap[@]}" bash "$bin" "$@")
   if [[ ${RUN_TTY:-false} == true ]]; then
@@ -322,6 +326,22 @@ system_row() { # BIN: vgshell-git in the pacman database refuses
   new_home system
   RUN_PATH="$vgs_db:$run_path" run "$1"
   refused 1 "install.sh: refused: system=package manager=pacman package=vgshell-git" && [[ ! -e $h/.local ]]
+}
+# The package's own /usr/bin/vgshell, a link into /usr/share, dangles in the
+# fixture root, so the link row reaches -L alone and the file row -e.
+path_file_root="$tmp/system-file"; mkdir -p "$path_file_root/usr/bin"; : >"$path_file_root/usr/bin/vgshell"
+path_link_root="$tmp/system-link"; mkdir -p "$path_link_root/usr/bin"; ln -s ../share/vgshell/bin/vgshell "$path_link_root/usr/bin/vgshell"
+path_row() { # BIN ROOT: a /usr/bin/vgshell under ROOT refuses
+  new_home system-path
+  RUN_ROOT="$2" run "$1"
+  refused 1 "install.sh: refused: system=package path=/usr/bin/vgshell" && [[ ! -e $h/.local ]]
+}
+path_file_row() { path_row "$1" "$path_file_root"; }
+path_link_row() { path_row "$1" "$path_link_root"; }
+system_root_row() { # BIN: VGS_SYSTEM_ROOT outside a test run refuses
+  new_home system-root
+  RUN_TEST_RUN="" run "$1"
+  refused 1 "install.sh: refused: system-root=refused value=$system_root" && [[ ! -e $h/.local ]]
 }
 foreign_row() { # BIN: a ~/.local/bin/vgshell install.sh did not make refuses and stays
   new_home foreign
@@ -619,6 +639,9 @@ row_job args_row
 row_job check "root is refused" root_row "$installer"
 row_job check "a system other than Linux is refused" os_row "$installer"
 row_job check "an installed system package is refused" system_row "$installer"
+row_job check "a /usr/bin/vgshell file in the system root is refused" path_file_row "$installer"
+row_job check "a /usr/bin/vgshell link in the system root is refused" path_link_row "$installer"
+row_job check "VGS_SYSTEM_ROOT outside a test run is refused" system_root_row "$installer"
 row_job check "--force installs beside a system package" force_system_row
 row_job foreign_force_row
 rows_join
@@ -944,6 +967,9 @@ row_job rule lock busy_row 'flock -n 9 || refuse 75' 'flock -n 9 || true || refu
 row_job rule root root_row '((EUID != 0)) ||' '((EUID != -1)) ||'
 row_job rule os os_row '[[ $os == Linux ]] ||' '[[ $os == "$os" ]] ||'
 row_job rule package-database system_row 'pacman -Q -- "$name" >/dev/null 2>&1; then' 'pacman -Q -- "$name" >/dev/null 2>&1 && false; then'
+row_job rule package-file path_file_row '[[ -e $system_root/usr/bin/vgshell ||' '[[ -L $system_root/usr/bin/vgshell ||'
+row_job rule package-link path_link_row '|| -L $system_root/usr/bin/vgshell ]]' '|| -e $system_root/usr/bin/vgshell ]]'
+row_job rule system-root-test-run system_root_row '[[ -n ${VGS_TEST_RUN:-} ]] ||' '[[ -n x ]] ||'
 row_job rule foreign-link foreign_row '&& $(link_state) == foreign ]]' '&& $(link_state) == none ]]'
 row_job rule modified-clone modified_row '[[ -z $out ]] || refuse 1 "modified=' 'true || refuse 1 "modified='
 row_job rule unpublished-commit unpublished_row '((out == 0)) || refuse 1 "unpublished=' 'true || refuse 1 "unpublished='
