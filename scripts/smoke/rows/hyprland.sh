@@ -259,17 +259,17 @@ with open(path + ".next", "w") as f:
 os.replace(path + ".next", path)
 PY
 }
-both_binds='[[64, "N", "__lua", "vgs.notifications:inbox"], [64, "SPACE", "__lua", "vgs.launcher:toggle"]]'
-rebound='[[72, "SPACE", "__lua", "vgs.launcher:toggle"]]'
+both_binds='[[64, "M", "__lua", "vgs.settings:toggle"], [64, "N", "__lua", "vgs.notifications:inbox"], [64, "SPACE", "__lua", "vgs.launcher:toggle"]]'
+rebound='[[64, "M", "__lua", "vgs.settings:toggle"], [72, "SPACE", "__lua", "vgs.launcher:toggle"]]'
 
 # The consent row's Connect answer.
 expect "consent wired the loading line first in the sandbox's hyprland.lua" "$wire_line" head -n 1 -- "$hypr_lua"
 expect "consent changed nothing else in hyprland.lua" same bash -c 'tail -n +2 -- "$1" | cmp -s - "$2" && echo same' _ "$hypr_lua" "$sandbox/hyprland-harness.lua"
 expect "the layer's header names the command that writes it again" yes bash -c 'grep -qF -- "\`vgshell hypr render\`" "$1" && echo yes' _ "$hypr_layer"
-expect "no plugin declaring Hyprland data but the active bar is enabled, so its section alone is written" 1 section_count
+expect "no plugin declaring Hyprland data but the active bar and always-on Plugins is enabled, so their two sections alone are written" 2 section_count
 expect "the active bar's section names its id and version" yes layer_has "$(section_of vgs.bar)"
 expect_poll "the active bar's toggle is bound to SUPER+SHIFT+SPACE" '[[65, "SPACE", "__lua", "vgs.bar:toggle"]]' active_bar_binds
-expect_poll "the nested instance holds no other vgs bind" '[]' vgs_binds
+expect_poll "the nested instance holds no other vgs bind than Plugins' SUPER+M" '[[64, "M", "__lua", "vgs.settings:toggle"]]' vgs_binds
 expect "the nested configuration, the floating TUIs' window rules included, holds no error" '[]' config_errors
 
 border_before="$(hypr_option general:border_size)" || fail "the nested border_size is readable"
@@ -408,7 +408,7 @@ expect "no plugin reports a Hyprland problem" '[]' hypr_problems
 # (docs/architecture/runtime-hyprland.md). The layer file is removed and
 # Hyprland reloaded while no shell runs, so the binds the census reads after
 # the restart are the ones the restarted shell's own write and reload made.
-once_census='["default vgs.bar:toggle x1", "default vgs.launcher:toggle x1", "default vgs.notifications:inbox x1", "vgs:capture vgs.bar:toggle x1", "vgs:capture vgs.launcher:toggle x1", "vgs:capture vgs.notifications:inbox x1", "vgs:passthrough vgs:passthrough-cancel x1"]'
+once_census='["default vgs.bar:toggle x1", "default vgs.launcher:toggle x1", "default vgs.notifications:inbox x1", "default vgs.settings:toggle x1", "vgs:capture vgs.bar:toggle x1", "vgs:capture vgs.launcher:toggle x1", "vgs:capture vgs.notifications:inbox x1", "vgs:capture vgs.settings:toggle x1", "vgs:passthrough vgs:passthrough-cancel x1"]'
 expect_poll "before the restart each vgs bind is registered once in its submap" "$once_census" bind_census
 if stop_shell; then
   rm -- "${hypr_layer:?}"
@@ -429,7 +429,7 @@ fi
 # generation, and the census reads each bind twice.
 printf '%s\n' "$wire_line" >>"$hypr_lua"
 expect "the nested instance reloads with the layer loaded twice" ok hypr reload config-only
-expect_poll "control: a layer run twice in one generation registers each vgs bind twice" '["default vgs.bar:toggle x2", "default vgs.launcher:toggle x2", "default vgs.notifications:inbox x2", "vgs:capture vgs.bar:toggle x2", "vgs:capture vgs.launcher:toggle x2", "vgs:capture vgs.notifications:inbox x2", "vgs:passthrough vgs:passthrough-cancel x2"]' bind_census
+expect_poll "control: a layer run twice in one generation registers each vgs bind twice" '["default vgs.bar:toggle x2", "default vgs.launcher:toggle x2", "default vgs.notifications:inbox x2", "default vgs.settings:toggle x2", "vgs:capture vgs.bar:toggle x2", "vgs:capture vgs.launcher:toggle x2", "vgs:capture vgs.notifications:inbox x2", "vgs:capture vgs.settings:toggle x2", "vgs:passthrough vgs:passthrough-cancel x2"]' bind_census
 restore_hypr_lua || fail "hyprland.lua is put back after the bind census control"
 expect "the nested instance reloads the consent-wired hyprland.lua after the bind census control" ok hypr reload config-only
 expect_poll "with one loading line again each vgs bind is registered once in its submap" "$once_census" bind_census
@@ -562,5 +562,5 @@ expect_poll "the notifications are disabled again" False plugin_enabled vgs.noti
 expect_poll "the shared fixture keeps its original enabled state after the Hyprland rows" "$probe_enabled_before" plugin_enabled acme.probe
 restore_hypr_lua || fail "hyprland.lua is put back after the Hyprland rows"
 expect "the nested instance reloads the consent-wired hyprland.lua" ok hypr reload config-only
-expect_poll "the nested instance holds no vgs bind after the Hyprland rows" '[]' vgs_binds
+expect_poll "the nested instance holds no vgs bind after the Hyprland rows but Plugins' SUPER+M" '[[64, "M", "__lua", "vgs.settings:toggle"]]' vgs_binds
 expect "the configuration after the Hyprland rows holds no error" '[]' config_errors
