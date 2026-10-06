@@ -22,7 +22,7 @@
 # plugin disabled, and rows/theme-browse.sh leaves vgs applied, no current
 # wallpaper and nord not installed; this file enables the plugin and
 # leaves all four so.
-# inputs: shell/plugins/vgs.themes/* themes/catalog/* shell/Core/ThemeRunner.qml bin/vgshell bin/lib/theme-* shell/Ui/layout/CardCarousel.qml shell/Ui/feedback/Dialog.qml bin/vgshell-theme-judge shell/Core/ShortcutRegistry.qml shell/Core/Plugins.qml scripts/smoke/rows/themes.sh scripts/smoke/rows/theme-browse.sh scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/plugins/vgs.themes/* themes/catalog/* shell/Core/ThemeRunner.qml bin/vgshell bin/lib/theme-* shell/Ui/layout/CardCarousel.qml shell/Ui/layout/AngledCard.qml shell/Ui/feedback/Dialog.qml bin/vgshell-theme-judge shell/Core/ShortcutRegistry.qml shell/Core/Plugins.qml scripts/smoke/rows/themes.sh scripts/smoke/rows/theme-browse.sh scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 view_value() { ipc smoke readDescendant overlay vgs.themes ThemeView "$1"; }
 view_names() { view_value shownCards | py_reply 'import json,sys; print(json.dumps([c["name"] for c in json.load(sys.stdin)]))'; }
@@ -77,8 +77,14 @@ slices_unnamed() { slice_names | py_reply 'import json,sys; shown, unnamed = jso
 # its slice's slanted axis from the slice's bottom edge, on that axis
 # within a pixel (`inset`), and reads up it (`upward`); it draws in h2
 # (`role`), white (`colour`), over a shadow, one per shown name, of black
-# at 0.8 blurred 2 pixels (`shadow`). The axis runs from the bottom edge's
-# centre to the top edge's, the drawn lean apart, the card's height times
+# at 0.8 blurred 2 pixels (`shadow`); on a card whose dim wash shows, it
+# is drawn after the wash, so the wash does not reach it (`wash`). The
+# wash is the Rectangle AngledCard keeps beside its content inside the
+# masked item, a grandchild of the card; the name is over it when one of
+# its ancestors is a later sibling of the wash, as items of one z draw in
+# their parent's order, which a breadth-first list keeps. The axis runs
+# from the bottom edge's centre to the top edge's, the drawn lean apart,
+# the card's height times
 # angledCard.skew over carousel.sliceHeight; a name's start is the middle
 # of its leading edge, half its line box from its rotated origin. A
 # layer's effect is a sibling of the item it draws and reads as its C++
@@ -116,8 +122,19 @@ if not names or rotation == "absent":
 turn = math.radians(float(rotation))
 inset, lean = float(inset), float(skew) / float(height)
 found = set()
+def lineage(j):
+    out = []
+    while j != -1:
+        out.append(j)
+        j = rows[j]["parent"]
+    return out
 for r in names:
-    x, y, cw, ch = rows[card_of(r["parent"])]["box"] if card_of(r["parent"]) != -1 else (0, 0, 0, 0)
+    card = card_of(r["parent"])
+    washes = [k for k, w in enumerate(rows) if w["type"] == "QQuickRectangle" and w["parent"] != -1 and rows[w["parent"]]["type"] == "QQuickItem" and rows[w["parent"]]["parent"] == card]
+    own = next(k for k, row in enumerate(rows) if row is r)
+    if card == -1 or len(washes) != 1: found.add("wash")
+    elif rows[washes[0]]["visible"] and not any(rows[a]["parent"] == rows[washes[0]]["parent"] and a > washes[0] for a in lineage(own)): found.add("wash")
+    x, y, cw, ch = rows[card]["box"] if card != -1 else (0, 0, 0, 0)
     s = ch * lean
     bottom = (x + (cw - s) / 2, y + ch)
     length = math.hypot(s, ch) or 1
@@ -394,7 +411,7 @@ expect_poll "the retained catalog reaches the installed list with nord" True has
 expect "the applied theme is selected" '"vgs"' view_value selectedName
 expect_poll "the resting theme view draws the selected theme's name alone beside its cards and tabs" '["Vgs"]' rest_texts
 expect_poll "every side card names its theme" named slices_named
-expect_poll "every side card's name starts the inset up its slice, in h2, white over its shadow" '[]' slice_look
+expect_poll "every side card's name starts the inset up its slice, in h2, white over its shadow, above its card's wash" '[]' slice_look
 # The browser's layout, one finding per broken rule, `[]` the pass: its
 # tabs lie inside the output less inset.overlay each side (`inset`); the
 # tabs end above the rail and the rail holds the selected card (`order`);
@@ -816,6 +833,16 @@ expect_poll "control: a centred, downward, h3, text-coloured name without a shad
 type_keys -k Escape || fail "closing the slice look control browser failed"
 expect_poll "the slice look control browser closes" 0 layer_count vgs:overlay
 plugin_restore ThemeCard.qml "slice look"
+# Control for the name over the wash: a card copy that keeps its name with
+# the rest of the card, under the side card's dim wash.
+plugin_control ThemeCard.qml "slice name wash" "        parent: root.foreground ?? root" "        parent: root"
+press_themes || fail "typing SUPER+SHIFT+T for the slice name wash control failed"
+expect_poll "the slice name wash control opens the theme browser" 1 layer_count vgs:overlay
+expect_poll "the slice name wash control read its cards" true view_value loaded
+expect_poll "control: a name drawn with the card's content reads as under the wash" '["wash"]' slice_look
+type_keys -k Escape || fail "closing the slice name wash control browser failed"
+expect_poll "the slice name wash control browser closes" 0 layer_count vgs:overlay
+plugin_restore ThemeCard.qml "slice name wash"
 
 plugin_control ThemeCard.qml "live preview token" "tokens: root.modelData.tokens" "tokens: ({})"
 press_themes || fail "typing SUPER+SHIFT+T for the live preview control failed"

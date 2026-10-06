@@ -21,7 +21,9 @@ import "TouchpadScrollLogic.js" as Logic
 // step finds the next image decoded, the longer side no more than
 // `carousel.decodeCap`; the slice size for every other card. When the
 // delegate root declares a `current` property, the carousel binds it to
-// whether that card is selected. A built slot can survive a model change
+// whether that card is selected, and when it declares a `foreground`
+// property, the carousel hands it the card's AngledCard foreground, the
+// layer over the side cards' dim wash. A built slot can survive a model change
 // at the same index, so the carousel also rebinds modelData after creation.
 // Only the cards within `carousel.band` slices
 // of the shown ones are built; the rest hold no content.
@@ -301,6 +303,8 @@ Item {
                                         content.modelData = Qt.binding(() => slot.modelData);
                                         if ("current" in content)
                                             content.current = Qt.binding(() => slot.offset === 0);
+                                        if ("foreground" in content)
+                                            content.foreground = card.foreground;
                                     }
                                 }
                             }

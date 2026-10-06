@@ -11,7 +11,9 @@ import qs.Commons
 // outline. While `hovered`, which the caller sets from its pointer area, a
 // dimmed card lifts its wash to `angledCard.hoverDim`, and a card not
 // selected draws the `hoverBorder` outline; a selected card keeps its
-// outline. The caller sizes
+// outline. `foreground` is a layer over the wash, clipped to the same
+// parallelogram: an item the caller places in it, by setting its parent,
+// keeps its own colours on a dimmed or hovered card. The caller sizes
 // the card and places it; `corners` is the parallelogram, so a row of
 // cards can overlap them edge to edge.
 //
@@ -28,6 +30,7 @@ Item {
     property bool hovered: false
     property bool dimmed: !selected
     default property alias content: body.data
+    readonly property Item foreground: front
     // Top-left, top-right, bottom-right and bottom-left, in the card's own
     // coordinates.
     readonly property var corners: [
@@ -71,6 +74,10 @@ Item {
             color: root.hovered ? Theme.angledCard.hoverDim : Theme.angledCard.dim
             visible: root.dimmed
             Behavior on color { ColorAnimation { duration: Theme.motion.duration.fast; easing.type: Theme.motion.easing.standard } }
+        }
+        Item {
+            id: front
+            anchors.fill: parent
         }
     }
 

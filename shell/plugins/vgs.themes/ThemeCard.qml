@@ -10,8 +10,9 @@ import "Files.js" as Files
 // name up the slice, reading upward from `carousel.sliceName.inset` above
 // its bottom edge, in the `carousel.sliceName` text and shadow, which no
 // mode changes: the shadow keeps the name readable on every colour of the
-// stack. The side card's dim, which AngledCard draws over all of its
-// content, washes the name with the stack. The name runs along the slice's
+// stack. The side card's dim washes the stack; the name sits in the card's
+// foreground, over the wash, so neither the dim nor a hover's lighter dim
+// reaches its colour or its shadow. The name runs along the slice's
 // slanted axis, so it lies parallel to both slanted edges and its gap from
 // each is the same at every height, bottom-anchored or not: half of the
 // slice's width less its lean, times the cosine of the slant, less half the
@@ -36,6 +37,10 @@ Item {
     // Whether this is the centre card. The carousel sets it only for
     // delegates that declare it.
     property bool current: false
+    // The card's layer over its dim wash, which the carousel hands only to
+    // delegates that declare it; null draws the name with the rest of the
+    // card.
+    property Item foreground: null
     // Whether the browser is installing, applying or downloading for this
     // theme.
     property bool busy: false
@@ -105,6 +110,7 @@ Item {
     Label {
         objectName: "sliceName"
         readonly property real inset: Theme.carousel.sliceName.inset
+        parent: root.foreground ?? root
         role: Theme.carousel.sliceName.role
         x: (parent.width - parent.height * Math.tan(root.lean)) / 2 + inset * Math.sin(root.lean)
         y: parent.height - inset * Math.cos(root.lean) - height / 2

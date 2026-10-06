@@ -7,7 +7,8 @@ import qs.Unit
 // AngledCard: the parallelogram its corners state, leaning either way; the
 // clip wired as a mask of that parallelogram over the content; the dim wash
 // over a card that is not selected and none over one that is, either way
-// when `dimmed` is set; the lifted wash and outline of a hovered card and
+// when `dimmed` is set; the foreground layer over the wash, inside the
+// clip; the lifted wash and outline of a hovered card and
 // none on a hovered selected one; the outline's width and colour for each
 // state, read and drawn; and all of it under the default theme and a light theme that
 // moves the palette, the skew and the selected width. Expected values are
@@ -105,6 +106,20 @@ Item {
             plain.hovered = false;
             tryCompare(wash(plain), "color", Qt.color("#6b000000"));
             compare(String(pathOf(edge(plain)).strokeColor), "#3a3a3b");
+        }
+
+        // The foreground is drawn through the same mask as the content and
+        // after the wash, so what it holds is clipped but not dimmed.
+        function test_the_foreground_lies_over_the_wash_inside_the_clip() {
+            for (const card of [plain, mirrored]) {
+                const clipped = childrenOf(card, "QQuickItem")[0];
+                const layers = Array.from(clipped.children);
+                verify(card.foreground !== null, "the card has a foreground");
+                verify(card.foreground.parent === clipped, "the foreground is drawn through the card's mask");
+                verify(layers.indexOf(card.foreground) > layers.indexOf(wash(card)), "the foreground is drawn after the wash");
+                compare(card.foreground.z, wash(card).z);
+                compare([card.foreground.width, card.foreground.height], [200, 100]);
+            }
         }
 
         function test_dimmed_is_set_apart_from_selected() {

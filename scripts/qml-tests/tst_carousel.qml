@@ -9,7 +9,8 @@ import qs.Unit
 // ends of its range; the slices shown and the cards built, at two sizes
 // and after a step; the decode size each card's content is handed; the
 // click that selects, the click that activates and the parallelogram each
-// click and hover lands in; the height the width asks for; the keys and the wheel; the rail held hidden until it
+// click and hover lands in; the card's foreground handed to a delegate
+// that declares it; the height the width asks for; the keys and the wheel; the rail held hidden until it
 // settles; the motion, over the duration and stilled at motion.scale 0; a
 // glide that keeps the cards it leaves and builds the ones it reaches, a
 // wrap that lands at once, and the clip at the carousel's edge; and a
@@ -41,6 +42,15 @@ Item {
             property bool current: false
             anchors.fill: parent
             color: current ? "white" : "black"
+        }
+    }
+    Component {
+        id: foregroundContent
+        Rectangle {
+            required property var modelData
+            required property size decodeSize
+            property Item foreground: null
+            anchors.fill: parent
         }
     }
     // Delegates that cannot build a card: one without decodeSize, and one
@@ -251,6 +261,23 @@ Item {
             keyClick(Qt.Key_Right);
             compare(built().e21.current, true);
             compare(built().e20.current, false);
+            carousel.delegate = content;
+            carousel.model = root.entries;
+        }
+
+        // A delegate that declares a foreground is handed its own card's
+        // layer over the wash, the selected card's and a slice's alike.
+        function test_a_delegate_can_take_its_cards_foreground() {
+            carousel.delegate = foregroundContent;
+            carousel.model = 0;
+            wait(0);
+            carousel.model = root.entries;
+            carousel.currentIndex = 20;
+            tryVerify(() => builtNames().length === 17);
+            for (const index of [19, 20, 21]) {
+                verify(card(index).foreground !== null, "card " + index + " has a foreground");
+                verify(built()["e" + index].foreground === card(index).foreground, "content " + index + " holds its card's foreground");
+            }
             carousel.delegate = content;
             carousel.model = root.entries;
         }
