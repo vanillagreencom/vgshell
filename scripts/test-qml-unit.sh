@@ -764,7 +764,7 @@ mutations=(
   "a nested pane draws a second gear|layout/Pane.qml|            if (item.settingsHost !== undefined) return null;|            {}|tst_pane.qml"
   "the gear opens nothing|layout/Pane.qml|        onClicked: root.settingsHost.openSettingsPage()|        onClicked: {}|tst_pane.qml"
   "the header ignores the gear's room|layout/Pane.qml|    readonly property real headerWidth: Math.max(0, contentWidth - gearRoom)|    readonly property real headerWidth: contentWidth|tst_pane.qml"
-  "a header-less pane gives the gear no row|layout/Pane.qml|, gear.item ? gear.item.height : 0)|, 0)|tst_pane.qml"
+  "a header-less pane gives the gear no row|layout/Pane.qml|Math.max(headerSlotImplicitHeight, gear.item ? gear.item.height : 0)|Math.max(headerSlotImplicitHeight, 0)|tst_pane.qml"
   "a card ignores its padding|layout/Card.qml|        pad: Theme.card.padding|        pad: 0|tst_card.qml"
   "a card's lines touch|layout/Card.qml|        spacing: Theme.card.gap|        spacing: 0|tst_card.qml"
   "a card draws the panel's fill|layout/Card.qml|    color: Theme.card.background|    color: Theme.color.surface|tst_card.qml"
