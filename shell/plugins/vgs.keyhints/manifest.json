@@ -24,7 +24,7 @@
   "settings": {},
   "hyprland": {
     "binds": [
-      { "shortcut": "toggle", "key": "SUPER+SLASH" }
+      { "shortcut": "toggle", "key": "SUPER+SLASH", "info": "Shows every shortcut of the plugins you use, or closes the list." }
     ]
   }
 }

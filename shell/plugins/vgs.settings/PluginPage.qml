@@ -150,7 +150,7 @@ FocusScope {
         const total = Math.max(1, keys.length + extra);
         const out = [];
         for (let i = 0; i < total; i++)
-            out.push({ shortcut: bind.shortcut, index: i, last: i === total - 1, bind: Object.assign({}, bind, { key: i < keys.length ? keys[i] : null, description: i === 0 ? bind.description : "", keys: keys }) });
+            out.push({ shortcut: bind.shortcut, index: i, last: i === total - 1, bind: Object.assign({}, bind, { key: i < keys.length ? keys[i] : null, description: i === 0 ? bind.description : "", info: i === 0 ? bind.info : "", keys: keys }) });
         return out;
     }
 

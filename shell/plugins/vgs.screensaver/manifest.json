@@ -69,7 +69,7 @@
   },
   "hyprland": {
     "binds": [
-      { "shortcut": "start", "key": null }
+      { "shortcut": "start", "key": null, "info": "Starts the screensaver now, without waiting for the inactive time." }
     ]
   },
   "menu": {

@@ -4,10 +4,11 @@ import qs.Commons
 import qs.Ui
 import qs.Unit
 
-// InfoButton opens a dialog by click, Return
-// and Space; the dialog closes by Escape, its Close button and a press
-// outside, and focus returns to the icon. A Field draws the icon only when
-// `info` is set.
+// InfoButton shows its explanation in its tooltip on hover and on keyboard
+// focus, and its label there when it has none. It opens a dialog by click,
+// Return and Space; the dialog closes by Escape, its Close button and a
+// press outside, and focus returns to the icon. A Field draws the icon only
+// when `info` is set.
 Item {
     id: root
     width: 520
@@ -25,6 +26,13 @@ Item {
         title: "Warden"
         info: "Shows whether Agent Warden is checking agents."
         x: 20
+        y: 20
+    }
+
+    InfoButton {
+        id: bare
+        title: "Bare"
+        x: 80
         y: 20
     }
 
@@ -56,7 +64,11 @@ Item {
         function init() {
             UnitTheme.reset();
             info.destroyPopup();
+            // A tooltip an earlier test showed may still hold the window
+            // focus; keys and focus go to the test window.
+            root.Window.window.requestActivate();
             outside.forceActiveFocus();
+            tryCompare(outside, "activeFocus", true);
         }
 
         function descendants(item) {
@@ -78,6 +90,17 @@ Item {
         }
         function shownTexts(of) {
             return descendants(popup(of).contentItem).filter(child => child instanceof Text && child.visible && child.text !== "").map(child => child.text);
+        }
+        function tooltipOf(of) {
+            return descendants(of).find(child => child.anchorItem === of && child.details !== undefined);
+        }
+        function tooltipTitle(of) {
+            const window = tooltipOf(of).resources.find(child => child.anchor !== undefined);
+            return descendants(window.contentItem).find(child => child.objectName === "tooltipTitle");
+        }
+        function rest(of) {
+            mouseMove(root, root.width - 1, root.height - 1);
+            mouseMove(of, of.width / 2, of.height / 2);
         }
         function infoButtons(item) {
             return descendants(item).filter(child => typeName(child) === "InfoButton" && child.visible);
@@ -108,6 +131,44 @@ Item {
             info.closeInfo();
             tryCompare(info, "activeFocus", true);
             info.destroyPopup();
+        }
+
+        function test_hover_shows_the_explanation_in_the_tooltip() {
+            compare(UnitTheme.override({ tooltip: { delay: 50 } }), "ok");
+            rest(info);
+            tryCompare(tooltipOf(info), "opened", true, 2000);
+            compare(tooltipTitle(info).text, "Shows whether Agent Warden is checking agents.");
+            compare(info.infoOpen, false);
+            mouseMove(root, root.width - 1, root.height - 1);
+            tryCompare(tooltipOf(info), "opened", false);
+        }
+
+        // The offscreen platform activates a window when it shows, so the
+        // shown tooltip takes the focus from the icon and closes again; the
+        // test records what the tooltip drew when it opened.
+        function test_keyboard_focus_shows_the_explanation_in_the_tooltip() {
+            compare(UnitTheme.override({ tooltip: { delay: 50 } }), "ok");
+            mouseMove(root, root.width - 1, root.height - 1);
+            const tip = tooltipOf(info);
+            const shown = [];
+            const record = () => { if (tip.opened) shown.push(tooltipTitle(info).text); };
+            tip.openedChanged.connect(record);
+            try {
+                info.forceActiveFocus(Qt.TabFocusReason);
+                tryVerify(() => shown.length > 0, 2000, "keyboard focus opens the tooltip");
+            } finally {
+                tip.openedChanged.disconnect(record);
+            }
+            compare(shown[0], "Shows whether Agent Warden is checking agents.");
+        }
+
+        function test_a_button_without_an_explanation_shows_its_label() {
+            compare(UnitTheme.override({ tooltip: { delay: 50 } }), "ok");
+            rest(bare);
+            tryCompare(tooltipOf(bare), "opened", true, 2000);
+            compare(tooltipTitle(bare).text, "About Bare");
+            mouseMove(root, root.width - 1, root.height - 1);
+            tryCompare(tooltipOf(bare), "opened", false);
         }
 
         function test_escape_closes_and_returns_focus() {

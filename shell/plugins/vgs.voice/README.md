@@ -13,7 +13,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 | Action | Default |
 |---|---|
 | Toggle dictation | `SUPER+CTRL+X` |
-| Tap to start or stop dictation | unset |
+| Tap a key to dictate | unset |
 | Dictate while held | `F9` |
 
 Change the keys in the plugin's Keys row on its Settings page.

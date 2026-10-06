@@ -32,7 +32,7 @@
   "settings": {},
   "hyprland": {
     "binds": [
-      { "shortcut": "toggle", "key": "SUPER+CTRL+V" }
+      { "shortcut": "toggle", "key": "SUPER+CTRL+V", "info": "Opens your clipboard history, where you pick an earlier copy to paste, or closes it." }
     ]
   }
 }

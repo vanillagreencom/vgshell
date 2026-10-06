@@ -35,8 +35,8 @@
   "hyprland": {
     "monitors": "outputs",
     "binds": [
-      { "shortcut": "brightness-up", "key": "XF86MonBrightnessUp" },
-      { "shortcut": "brightness-down", "key": "XF86MonBrightnessDown" }
+      { "shortcut": "brightness-up", "key": "XF86MonBrightnessUp", "info": "Makes the screen brighter by one step." },
+      { "shortcut": "brightness-down", "key": "XF86MonBrightnessDown", "info": "Makes the screen dimmer by one step." }
     ]
   },
   "status": {

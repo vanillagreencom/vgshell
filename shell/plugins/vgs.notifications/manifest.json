@@ -86,7 +86,7 @@
   "appearance": "Appearance.js",
   "hyprland": {
     "binds": [
-      { "shortcut": "inbox", "key": "SUPER+N" }
+      { "shortcut": "inbox", "key": "SUPER+N", "info": "Opens the list of notifications you have not cleared, or closes it." }
     ],
     "layerRules": [
       { "namespace": "^vgs:layer$", "blur": true, "ignoreAlpha": 0.6 },

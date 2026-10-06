@@ -44,17 +44,20 @@
     "binds": [
       {
         "shortcut": "toggle",
-        "key": "SUPER+CTRL+X"
+        "key": "SUPER+CTRL+X",
+        "info": "A key combination that turns dictation on and off. Press it once to start, speak, and press it again to stop. VGS then types what you said into the field that has focus."
       },
       {
         "shortcut": "tap",
         "key": null,
-        "tap": true
+        "tap": true,
+        "info": "One key, tapped on its own, turns dictation on and off. A quick tap starts and the next tap stops. Hold the key, or press it with other keys, and it does its usual job, so a key such as Right Ctrl can do both."
       },
       {
         "shortcut": "talk",
         "key": "F9",
-        "hold": true
+        "hold": true,
+        "info": "Push to talk. Hold the key while you speak; dictation stops when you let go, and VGS types what you said into the field that has focus."
       }
     ]
   },

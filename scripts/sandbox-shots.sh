@@ -51,7 +51,10 @@
 # only when named; voice-setup is the requirement notice Voice's Set up
 # raises without voxtype, then the screen after a Set up run over a
 # voxtype stand-in ended with code 0, with the Voice toast where the tree
-# has it, taken only when named; focus is
+# has it, taken only when named; voice-keys is the Keys section of Voice's
+# Settings page with Voice on, then the pointer on its first key's info
+# icon with that icon's tooltip open where the tree draws one, taken only
+# when named; focus is
 # the keyboard focus proof set; dialog is the core's requirement notice;
 # lock is the vgs.lock screen, locked and after wrong attempts; polkit is
 # the vgs.polkit prompt, asking and after a failed attempt; greeter is the
@@ -182,7 +185,7 @@ while [[ $# -gt 0 ]]; do
     --keep) keep=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    gallery|settings|focus|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|ai-usage|devtools|system|network|vpn|bluetooth|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|tooltips|screensaver) scenes+=("$1"); shift ;;
+    gallery|settings|focus|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-keys|ai-usage|devtools|system|network|vpn|bluetooth|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|tooltips|screensaver) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -288,6 +291,7 @@ scene_ships() {
     clipboard) ships_plugin vgs.clipboard ;;
     voice) ships_plugin vgs.voice ;;
     voice-setup) ships_plugin vgs.voice vgs.settings ;;
+    voice-keys) [[ $manager_scene == settings ]] && ships_plugin vgs.voice ;;
     ai-usage) ships_plugin vgs.ai-usage ;;
     devtools) ships_plugin vgs.devtools ;;
     system) ships_plugin vgs.system ;;
@@ -1849,6 +1853,49 @@ EOF
   rm -f -- "${shim:?}/voxtype" "${shim:?}/voxtype-audio-bridge"
   rescan "the Voice stand-ins are removed"
 }
+# Voice's Keys section on its Settings page, with Voice on so each row
+# reads the description its shortcut registered; voxtype stays absent, so
+# nothing records. Then the pointer on the first key's info icon, its
+# tooltip open, on a tree whose Keys rows draw one.
+voice_keys_first="Start or stop dictation"
+voice_key_shown() { [[ $(ipc smoke windowGeometry "$settings_kind" vgs.settings KeyField "$voice_keys_first") == \[* ]] && echo shown || echo absent; }
+scene_voice-keys() { # MODE
+  local section start x y
+  expect "enabling vgs.voice for its keys is allowed" ok ipc shell setPluginEnabled vgs.voice true
+  expect_poll "vgs.voice is built for its keys" True record_exists vgs.voice
+  for _ in $(seq 1 10); do [[ $(notice_shown) != null ]] && break; sleep 0.2; done
+  close_notices
+  expect "the Settings window opens for Voice's keys" ok ipc shell summon "$settings_kind" vgs.settings '{}'
+  expect_poll "the Settings window maps for Voice's keys" 1 settings_count
+  expect "the window opens the Voice page" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.voice
+  expect_poll "the Voice page is shown" '"vgs.voice"' settings_page
+  expect_poll "the Voice page's first key reads its description" shown voice_key_shown
+  if section="$(settings_section Keys KeyField "Dictate while held")"; then
+    read -r start _ _ <<<"$section"
+    settings_scroll_to "$((start - 16))" || fail "the scroll to Voice's Keys section failed"
+    take "voice-keys-$1"
+  else
+    fail "Voice's Keys section is unreadable: $section"
+  fi
+  # The icon draws no text, so hover_on's text reading cannot find it; the
+  # pointer goes to its centre and the open tooltip is the proof.
+  if [[ $(ipc smoke windowGeometry "$settings_kind" vgs.settings InfoButton "About $voice_keys_first") == \[* ]]; then
+    settle_hold || fail "the held mode could not be taken again for the info icon"
+    if read -r x y < <(window_point "$settings_surface" "$settings_kind" vgs.settings InfoButton "About $voice_keys_first") && hover "$((x - 4))" "$y" && hover "$x" "$y"; then
+      expect_poll "the info icon's tooltip opens" tooltip shot_chrome_read
+      take_posed "voice-keys-$1-tooltip"
+    else
+      fail "the pointer could not reach the first key's info icon"
+    fi
+  else
+    ok "the tree draws no info icon on Voice's keys"
+  fi
+  park_pointer
+  settings_close
+  expect "disabling vgs.voice after its keys is allowed" ok ipc shell setPluginEnabled vgs.voice false
+  expect_poll "vgs.voice is gone after its keys" False record_exists vgs.voice
+}
+
 voice_level_flowing() { ipc smoke readInstance service vgs.voice level | py_reply 'import json,sys; print(str(json.load(sys.stdin) > 0).lower())'; }
 
 # Voice's Set up as a first-time user meets it. Without voxtype, Set up on

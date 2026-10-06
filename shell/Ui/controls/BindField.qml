@@ -3,7 +3,8 @@ import qs.Ui
 
 // One plugin bind as an inline form row, from one bind the manager lists:
 // the description the plugin registered (its shortcut name while it has
-// registered none) beside a ShortcutField holding the key in effect.
+// registered none), with the info icon of the bind's explanation when it
+// has one, beside a ShortcutField holding the key in effect.
 // Pressing a combo, or typing one as `MOD+KEY`, emits `applyKey` with that
 // key; an empty typed one and the field's unbind button emit null, which
 // unbinds it. The field names the bind, so the line under it is the
@@ -18,7 +19,8 @@ Field {
     id: root
 
     property string pluginId: ""
-    // { shortcut, key, default, description }; `key` is null while unbound.
+    // { shortcut, key, default, description, info }; `key` is null while
+    // unbound, `info` "" or absent for a bind with no explanation.
     property var bind: ({})
     property bool editable: true
     // The `shortcut` capability's key capture member, or null.
@@ -34,6 +36,7 @@ Field {
     readonly property string shown: bind.key === null || bind.key === undefined ? "" : String(bind.key)
 
     label: bind.description ? String(bind.description) : String(bind.shortcut)
+    info: bind.info ? String(bind.info) : ""
     inline: true
 
     ShortcutField {

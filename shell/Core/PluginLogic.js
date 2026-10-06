@@ -203,7 +203,7 @@ var NAME_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
 // the core renders it (HyprlandLayer.js), so no plugin text reaches the
 // compositor's Lua.
 var HYPRLAND_KEYS = ["binds", "layerRules", "appearance", "options", "pads", "monitors"];
-var HYPRLAND_BIND_KEYS = ["shortcut", "key", "hold", "tap"];
+var HYPRLAND_BIND_KEYS = ["shortcut", "key", "hold", "tap", "info"];
 var HYPRLAND_RULE_KEYS = ["namespace", "blur", "ignoreAlpha"];
 // The modifiers a Hyprland key may hold, in the order a normalised key
 // writes them, and the key name after them: a keysym name, which Hyprland
@@ -1521,7 +1521,7 @@ function keyHasModifiers(key) {
 }
 
 // The first defect of a manifest's `hyprland` key, or "". It holds `binds`,
-// a list of { shortcut, key, hold?, tap? }, `layerRules`, a list of { namespace,
+// a list of { shortcut, key, hold?, tap?, info? }, `layerRules`, a list of { namespace,
 // blur, ignoreAlpha }, and `appearance`, an object mapping the fixed
 // theme-appearance groups to boolean settings in this manifest. A bind's
 // shortcut is a name the plugin registers through its `shortcut` capability,
@@ -1577,6 +1577,8 @@ function hyprlandError(hyprland, capabilities, schema) {
             return at + ".tap must be a boolean";
         if (bind.tap === true && bind.hold === true)
             return at + " must not set tap and hold together";
+        if (bind.info !== undefined && (typeof bind.info !== "string" || bind.info.length === 0))
+            return at + ".info must be a non-empty string";
         if (bind.key === null)
             continue;
         var key = hyprlandKey(bind.key);
@@ -3458,6 +3460,7 @@ function validateManifest(raw, sourceDir) {
                 var result = { shortcut: bind.shortcut, key: bind.key === null ? null : hyprlandKey(bind.key).key };
                 if (bind.hold === true) result.hold = true;
                 if (bind.tap === true) result.tap = true;
+                if (bind.info !== undefined) result.info = bind.info;
                 return result;
             }),
             layerRules: clone(raw.hyprland.layerRules || []),
@@ -3618,7 +3621,7 @@ var ENTRY_RESERVED_KEYS = ["id", "keys"];
 
 // What plugin MANIFEST asks of Hyprland under CONFIG: { id, version, binds,
 // layerRules, appearance, options, unknownKeys }. `binds` follows the manifest's
-// `hyprland.binds` in order, each { shortcut, key, hold?, tap? }: each key
+// `hyprland.binds` in order, each { shortcut, key, hold?, tap?, info? }: each key
 // its plugins row's `keys` gives that shortcut becomes one bind,
 // normalised, null when the row gives it null (the user unbinds it), else
 // the manifest's. `appearance` resolves each declared group to the boolean
@@ -4121,28 +4124,33 @@ function withKey(user, manifest, shortcut, key, effective) {
 
 // The Keys rows the plugin manager shows for a plugin: one per shortcut its
 // manifest and pads declare, in order, as { shortcut, key, keys, default,
-// description }: the keys hyprlandSection puts in effect, the first key or
-// null when unbound, the manifest's key by shortcut or null for a pad, and
-// the description the plugin registered for `<id>:<shortcut>` in
-// `descriptions`, "" while none is registered.
+// description, info }: the keys hyprlandSection puts in effect, the first
+// key or null when unbound, the manifest's key by shortcut or null for a
+// pad, the description the plugin registered for `<id>:<shortcut>` in
+// `descriptions`, "" while none is registered, and the manifest's
+// explanation of the shortcut, "" for a pad or a bind that declares none.
 function bindRows(config, manifest, descriptions) {
     var defaults = manifest.hyprland === undefined ? [] : manifest.hyprland.binds;
     var defaultsByShortcut = Object.create(null);
-    defaults.forEach(function (bind) { defaultsByShortcut[bind.shortcut] = bind.key; });
+    var infoByShortcut = Object.create(null);
+    defaults.forEach(function (bind) {
+        defaultsByShortcut[bind.shortcut] = bind.key;
+        if (bind.info !== undefined) infoByShortcut[bind.shortcut] = bind.info;
+    });
     var rows = [];
     var byShortcut = Object.create(null);
     hyprlandSection(config, manifest).binds.forEach(function (bind) {
         var row = byShortcut[bind.shortcut];
         if (row === undefined) {
             var name = manifest.id + ":" + bind.shortcut;
-            row = { shortcut: bind.shortcut, keys: [], "default": hasOwn(defaultsByShortcut, bind.shortcut) ? defaultsByShortcut[bind.shortcut] : null, description: hasOwn(descriptions, name) ? descriptions[name] : "" };
+            row = { shortcut: bind.shortcut, keys: [], "default": hasOwn(defaultsByShortcut, bind.shortcut) ? defaultsByShortcut[bind.shortcut] : null, description: hasOwn(descriptions, name) ? descriptions[name] : "", info: hasOwn(infoByShortcut, bind.shortcut) ? infoByShortcut[bind.shortcut] : "" };
             byShortcut[bind.shortcut] = row;
             rows.push(row);
         }
         if (bind.key !== null) row.keys.push(bind.key);
     });
     return rows.map(function (row) {
-        return { shortcut: row.shortcut, key: row.keys.length === 0 ? null : row.keys[0], keys: row.keys, "default": row["default"], description: row.description };
+        return { shortcut: row.shortcut, key: row.keys.length === 0 ? null : row.keys[0], keys: row.keys, "default": row["default"], description: row.description, info: row.info };
     });
 }
 

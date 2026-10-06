@@ -84,7 +84,7 @@
   },
   "hyprland": {
     "binds": [
-      { "shortcut": "toggle", "key": "SUPER+CTRL+Y" }
+      { "shortcut": "toggle", "key": "SUPER+CTRL+Y", "info": "Opens the Agent Warden panel, or closes it when it is open." }
     ]
   },
   "tui": {

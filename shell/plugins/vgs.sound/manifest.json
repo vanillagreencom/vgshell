@@ -29,10 +29,10 @@
   },
   "hyprland": {
     "binds": [
-      { "shortcut": "volume-up", "key": "XF86AudioRaiseVolume" },
-      { "shortcut": "volume-down", "key": "XF86AudioLowerVolume" },
-      { "shortcut": "mute", "key": "XF86AudioMute" },
-      { "shortcut": "mic-mute", "key": "XF86AudioMicMute" }
+      { "shortcut": "volume-up", "key": "XF86AudioRaiseVolume", "info": "Raises the speaker volume by one step." },
+      { "shortcut": "volume-down", "key": "XF86AudioLowerVolume", "info": "Lowers the speaker volume by one step." },
+      { "shortcut": "mute", "key": "XF86AudioMute", "info": "Mutes the speakers, or turns the sound on again." },
+      { "shortcut": "mic-mute", "key": "XF86AudioMicMute", "info": "Mutes the microphone, or turns it on again." }
     ]
   },
   "status": {

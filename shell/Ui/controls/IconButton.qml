@@ -3,8 +3,8 @@ import qs.Commons
 import qs.Ui
 
 // A square button with one icon and no text. `label` is what a screen
-// reader and a tooltip say for it; a button without one is logged, since
-// an icon alone names nothing. The ghost variant is the default, so a row
+// reader says for it and, unless `tooltip` says more, what its tooltip
+// says; a button without one is logged, since an icon alone names nothing. The ghost variant is the default, so a row
 // of icon buttons draws no fills until one is hovered. A ghost button's
 // icon rests in `color.textMuted` and takes the variant's foreground on
 // hover, focus, press or checked; a filled variant's icon keeps its
@@ -20,6 +20,7 @@ Button {
     id: root
 
     property string label: ""
+    property string tooltip: label
     readonly property real glyphStart: leftPadding + contentItem.painted[0]
     readonly property real glyphEnd: rightPadding + contentItem.size - contentItem.painted[2]
 
@@ -41,6 +42,6 @@ Button {
     }
 
     Tooltip {
-        text: root.label
+        text: root.tooltip
     }
 }

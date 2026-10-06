@@ -116,6 +116,9 @@ function suite(ctx, check) {
         ["known capability", { capabilities: ["compositor"] }, null],
         ["a tap bind", { capabilities: ["shortcut"], hyprland: { binds: [{ shortcut: "tap", key: "code:108", tap: true }] } }, null],
         ["a null default key", { capabilities: ["shortcut"], hyprland: { binds: [{ shortcut: "tap", key: null, tap: true }] } }, null],
+        ["a bind with an explanation", { capabilities: ["shortcut"], hyprland: { binds: [{ shortcut: "tap", key: null, info: "Tap to talk." }] } }, null],
+        ["an empty bind explanation is refused", { capabilities: ["shortcut"], hyprland: { binds: [{ shortcut: "tap", key: null, info: "" }] } }, "hyprland.binds.0.info must be a non-empty string"],
+        ["a non-string bind explanation is refused", { capabilities: ["shortcut"], hyprland: { binds: [{ shortcut: "tap", key: null, info: ["Tap"] }] } }, "hyprland.binds.0.info must be a non-empty string"],
         ["a non-boolean tap is refused", { capabilities: ["shortcut"], hyprland: { binds: [{ shortcut: "tap", key: "code:108", tap: "yes" }] } }, "hyprland.binds.0.tap must be a boolean"],
         ["tap and hold together are refused", { capabilities: ["shortcut"], hyprland: { binds: [{ shortcut: "tap", key: "code:108", tap: true, hold: true }] } }, "hyprland.binds.0 must not set tap and hold together"],
         ["a tap manifest key with modifiers is refused", { capabilities: ["shortcut"], hyprland: { binds: [{ shortcut: "tap", key: "SUPER+code:108", tap: true }] } }, "hyprland.binds.0.key SUPER+code:108 must be a lone key for tap"],
@@ -993,7 +996,7 @@ function suite(ctx, check) {
 
     // A plugin with two Hyprland binds, for the key rows.
     const keyed = ctx.validateManifest({ schemaVersion: 1, id: "acme.keys", name: "K", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "S.qml" }, capabilities: ["shortcut"],
-        hyprland: { binds: [{ shortcut: "toggle", key: "super+m" }, { shortcut: "peek", key: "SUPER+P" }] } }, "/p").manifest;
+        hyprland: { binds: [{ shortcut: "toggle", key: "super+m", info: "Opens or closes it." }, { shortcut: "peek", key: "SUPER+P" }] } }, "/p").manifest;
     if (keyed === undefined) throw new Error("fixture manifest refused: acme.keys");
     const tapKeyed = ctx.validateManifest({ schemaVersion: 1, id: "acme.tap", name: "T", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "S.qml" }, capabilities: ["shortcut"],
         hyprland: { binds: [{ shortcut: "tap", key: null, tap: true }] } }, "/p").manifest;
@@ -1043,12 +1046,12 @@ function suite(ctx, check) {
     }
     check("withKey does not alias the user file", (() => { const u = { plugins: [{ id: "acme.keys", keys: { toggle: "SUPER+K" } }] }; ctx.withKey(u, keyed, "toggle", null, {}); return u.plugins[0]; })(), { id: "acme.keys", keys: { toggle: "SUPER+K" } });
 
-    // bindRows: the key in effect, the manifest's key and the registered description.
-    check("bindRows: each bind with its key in effect, its default and its description", ctx.bindRows({ plugins: [{ id: "acme.keys", keys: { toggle: null } }] }, keyed, { "acme.keys:toggle": "Open" }),
-        [{ shortcut: "toggle", key: null, keys: [], default: "SUPER+M", description: "Open" }, { shortcut: "peek", key: "SUPER+P", keys: ["SUPER+P"], default: "SUPER+P", description: "" }]);
-    check("bindRows: a rebound key is the one in effect", ctx.bindRows({ plugins: [{ id: "acme.keys", keys: { peek: "shift+super+p" } }] }, keyed, {})[1], { shortcut: "peek", key: "SUPER+SHIFT+P", keys: ["SUPER+SHIFT+P"], default: "SUPER+P", description: "" });
+    // bindRows: the key in effect, the manifest's key, the registered description and the manifest's explanation.
+    check("bindRows: each bind with its key in effect, its default, its description and its explanation", ctx.bindRows({ plugins: [{ id: "acme.keys", keys: { toggle: null } }] }, keyed, { "acme.keys:toggle": "Open" }),
+        [{ shortcut: "toggle", key: null, keys: [], default: "SUPER+M", description: "Open", info: "Opens or closes it." }, { shortcut: "peek", key: "SUPER+P", keys: ["SUPER+P"], default: "SUPER+P", description: "", info: "" }]);
+    check("bindRows: a rebound key is the one in effect", ctx.bindRows({ plugins: [{ id: "acme.keys", keys: { peek: "shift+super+p" } }] }, keyed, {})[1], { shortcut: "peek", key: "SUPER+SHIFT+P", keys: ["SUPER+SHIFT+P"], default: "SUPER+P", description: "", info: "" });
     check("bindRows: a two-key shortcut is one row with both keys", ctx.bindRows({ plugins: [{ id: "acme.keys", keys: { toggle: ["code:108", "code:105"] } }] }, keyed, { "acme.keys:toggle": "Open" })[0],
-        { shortcut: "toggle", key: "code:108", keys: ["code:108", "code:105"], default: "SUPER+M", description: "Open" });
+        { shortcut: "toggle", key: "code:108", keys: ["code:108", "code:105"], default: "SUPER+M", description: "Open", info: "Opens or closes it." });
     check("bindRows: a plugin without binds has none", ctx.bindRows({}, manifests["acme.svc"], {}), []);
 
     check("pluginIcon: a manifest's icon", ctx.pluginIcon(ctx.validateManifest(Object.assign({}, svc, { icon: "bell" }), "/p").manifest), "bell");
@@ -1161,7 +1164,7 @@ function suite(ctx, check) {
     check("keyRefusal: a pad's key is judged", ctx.keyRefusal(padsManifest.manifest, "pad-9", "SUPER+"), "refused: key=pad-9 has an empty part: \"SUPER+\"");
     check("keyRefusal: a shortcut of no pad is undeclared", ctx.keyRefusal(padsManifest.manifest, "toggle", "SUPER+9"), "refused: key=toggle undeclared");
     check("bindRows: a pad's key has no default", ctx.bindRows(padConfig, padsManifest.manifest, { "acme.pads:pad-1": "Show or hide pad 1" }),
-        [{ shortcut: "pad-1", key: "SUPER+ALT+P", keys: ["SUPER+ALT+P", "code:105"], default: null, description: "Show or hide pad 1" }, { shortcut: "pad-2", key: null, keys: [], default: null, description: "" }, { shortcut: "pad-3", key: null, keys: [], default: null, description: "" }]);
+        [{ shortcut: "pad-1", key: "SUPER+ALT+P", keys: ["SUPER+ALT+P", "code:105"], default: null, description: "Show or hide pad 1", info: "" }, { shortcut: "pad-2", key: null, keys: [], default: null, description: "", info: "" }, { shortcut: "pad-3", key: null, keys: [], default: null, description: "", info: "" }]);
 }
 
 suite(load(LOGIC), report);
@@ -1433,6 +1436,9 @@ const CONTROLS = [
     ["a pad's key is no unknown key", " && !Pads.isPadShortcut(declared, name, NAME_PATTERN); }).sort()", "; }).sort()"],
     ["a pad's key is declared", " && !Pads.isPadShortcut(manifest.hyprland, shortcut, NAME_PATTERN))\n        return \"refused: key=", ")\n        return \"refused: key="],
     ["placement needs the widget kind", "return manifest.kinds.indexOf(\"bar-widget\") !== -1 && layoutIds(config).indexOf(manifest.id) !== -1;", "return layoutIds(config).indexOf(manifest.id) !== -1;"],
+    ["a bind explanation must be text", "if (bind.info !== undefined && (typeof bind.info !== \"string\" || bind.info.length === 0))", "if (false)"],
+    ["a bind keeps its explanation", "if (bind.info !== undefined) result.info = bind.info;", ""],
+    ["a Keys row carries its bind's explanation", "if (bind.info !== undefined) infoByShortcut[bind.shortcut] = bind.info;", ""],
 ];
 
 fs.mkdirSync(path.join(__dirname, "..", "tmp"), { recursive: true });

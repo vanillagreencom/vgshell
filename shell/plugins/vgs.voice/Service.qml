@@ -57,7 +57,7 @@ Item {
         if (registeredWith === null) {
             registeredWith = shell;
             shell.shortcut.register("toggle", "Start or stop dictation", () => root.record("toggle"));
-            shell.shortcut.register("tap", "Tap to start or stop dictation", () => root.record("toggle"));
+            shell.shortcut.register("tap", "Tap a key to dictate", () => root.record("toggle"));
             shell.shortcut.register("talk", "Dictate while held", () => root.record("start"), () => root.record("stop"));
             shell.layers.show(osdLayer);
         }

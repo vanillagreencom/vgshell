@@ -3,9 +3,10 @@ import QtQuick.Window
 import qs.Commons
 import qs.Ui
 
-// A small info icon that opens one explanation in a dialog. Pointer,
-// Space, Enter or Return opens it. Close, Escape or a press outside closes
-// it and returns focus to the icon.
+// A small info icon for one explanation. Hover or keyboard focus shows the
+// explanation in the icon's tooltip; pointer, Space, Enter or Return opens
+// it in a dialog. Close, Escape or a press outside closes the dialog and
+// returns focus to the icon.
 IconButton {
     id: root
 
@@ -16,6 +17,7 @@ IconButton {
 
     iconName: "info"
     label: title === "" ? "More information" : "About " + title
+    tooltip: info === "" ? label : info
     size: "sm"
 
     property bool returnWasVisual: false

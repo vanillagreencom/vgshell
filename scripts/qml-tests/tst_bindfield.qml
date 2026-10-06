@@ -10,7 +10,8 @@ import qs.Unit
 // `editable`; a combo, a typed key, an empty typed key and the unbind
 // button each send what the manager writes; a caller's actions draw in the
 // field's tool row, and its hint actions on a line under the hint, taking
-// no room while none shows. The capture here answers every conflict question with
+// no room while none shows. A bind's explanation reaches the row's info
+// icon; a bind without one draws no icon. The capture here answers every conflict question with
 // one hint and records each question as "KEY ID SHORTCUT".
 Item {
     id: root
@@ -35,7 +36,7 @@ Item {
             id: row
             width: parent.width
             pluginId: "vgs.lock"
-            bind: ({ shortcut: "lock", key: "SUPER+L", default: "SUPER+L", description: "Lock the screen" })
+            bind: ({ shortcut: "lock", key: "SUPER+L", default: "SUPER+L", description: "Lock the screen", info: "Locks the screen at once." })
             capture: asker
             onApplyKey: key => root.sent = root.sent.concat([key])
             actions: [
@@ -96,6 +97,14 @@ Item {
         function test_the_label_is_the_description_else_the_shortcut() {
             compare(row.label, "Lock the screen");
             compare(unbound.label, "lock");
+        }
+
+        function test_the_bind_explanation_reaches_the_info_icon() {
+            const icon = descendant(row, item => String(item).indexOf("InfoButton") === 0 && item.visible);
+            verify(icon !== null && icon.visible, "a bind with an explanation draws the info icon");
+            compare(icon.info, "Locks the screen at once.");
+            compare(icon.tooltip, "Locks the screen at once.");
+            compare(descendant(later, item => String(item).indexOf("InfoButton") === 0 && item.visible), null);
         }
 
         function test_the_field_holds_the_key_in_effect() {

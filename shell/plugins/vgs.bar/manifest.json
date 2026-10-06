@@ -55,7 +55,7 @@
   },
   "hyprland": {
     "binds": [
-      { "shortcut": "toggle", "key": "SUPER+SHIFT+SPACE" }
+      { "shortcut": "toggle", "key": "SUPER+SHIFT+SPACE", "info": "Hides the top bar, or shows it again when it is hidden." }
     ]
   },
   "menu": {

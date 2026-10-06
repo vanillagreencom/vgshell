@@ -83,7 +83,8 @@
     "binds": [
       {
         "shortcut": "lock",
-        "key": "SUPER+DELETE"
+        "key": "SUPER+DELETE",
+        "info": "Locks the screen at once. You need your password to get back in."
       }
     ]
   }

@@ -42,7 +42,7 @@
   "appearance": "Appearance.js",
   "hyprland": {
     "binds": [
-      { "shortcut": "toggle", "key": "SUPER+SPACE" }
+      { "shortcut": "toggle", "key": "SUPER+SPACE", "info": "Opens the launcher to start an app or a command, or closes it." }
     ],
     "layerRules": [
       { "namespace": "^vgs:overlay$", "blur": true, "ignoreAlpha": 0.6 }

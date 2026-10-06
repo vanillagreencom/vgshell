@@ -20,7 +20,7 @@ One owner of the pointer hand means one check covers every click area, where the
 - Do extend a `QtQuick.Templates` type and import no Quickshell module except in an overlay, so `scripts/qml-unit.sh` runs every component offscreen.
 - Do open every popover, tooltip, menu and select list as a Quickshell `PopupWindow` with a focus grab, so Escape and a press outside close it; `Tooltip` alone takes no grab. `scripts/smoke/rows/overlays.sh` reads each beside a copy without the grab.
 - Do draw text a caller hands a row as plain text, never markup. `scripts/qml-tests/tst_layout.qml` pins it.
-- Do use `InfoButton` for one short explanation beside a row label. It opens a dialog and returns focus to itself when it closes.
+- Do use `InfoButton` for one short explanation beside a row label. Hover and keyboard focus show it in the icon's tooltip; a click opens it in a dialog, which returns focus to the icon when it closes.
 - Never give a decorative component such as `VoiceOrb` or `QrMatrix` a pointer handler, a process, a file, a cache or a secret store, so a passive layer that draws it stays input-free ([D026](../decisions/D026-passive-layers-are-a-capability.md)). `scripts/qml-tests/tst_voiceorb.qml` and `tst_qrmatrix.qml` pin it, and a shader's driver stops when the item, its window or `motion.scale` is off.
 - Do load every inline image through `ImagePool`, so nothing decodes on the GUI thread. `scripts/qml-tests/tst_imagetext.qml` pins it.
 - Do let `Scrim` and a `Dialog` card take the presses, hover and wheel on themselves, so nothing under them answers; a scrim's click-away never answers a click on the card. `scripts/smoke/rows/automations.sh` clicks a card over its scrim.
