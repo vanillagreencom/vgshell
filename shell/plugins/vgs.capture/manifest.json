@@ -75,6 +75,7 @@
     { "shortcut": "screenshot", "key": "PRINT", "info": "Takes a screenshot of the screen that has focus right away." },
     { "shortcut": "screenshot-area", "key": "SUPER+SHIFT+S", "info": "Lets you drag over an area of the screen, then takes a screenshot of that area." },
     { "shortcut": "record", "key": "SUPER+SHIFT+R", "info": "Lets you drag over an area and starts recording it. Press the key again to stop the recording." },
+    { "shortcut": "record-output", "key": null, "info": "Starts recording the screen that has focus. Press the key again to stop the recording." },
     { "shortcut": "toggle", "key": "SUPER+CTRL+SHIFT+S", "info": "Opens the Capture options, where you choose what to capture, or closes them." },
     { "shortcut": "text", "key": "SUPER+CTRL+PRINT", "info": "Lets you drag over an area, reads the text in it and copies that text." }
   ] },

@@ -24,7 +24,7 @@ Images come from `scripts/readme-shots.sh` in the nested sandbox.
 - A panel from the bar: choose Screenshot, Record or Text, choose what to capture, then press one button. While a recording runs, the button stops it.
 - A few options under the button for each choice: what happens after a screenshot, the delay, the pointer, the recording audio, quality and camera, and the text language. The Settings page holds every other option.
 - A recording indicator in the bar. A click on the indicator, or the recording shortcut again, stops and saves.
-- Shortcuts: Print for a screenshot, `SUPER+SHIFT+S` for an area, `SUPER+SHIFT+R` for a recording, `SUPER+CTRL+PRINT` for text and `SUPER+CTRL+SHIFT+S` for the options. The Keys row on the plugin's Settings page changes them.
+- Shortcuts: Print for a screenshot, `SUPER+SHIFT+S` for an area, `SUPER+SHIFT+R` for a recording, `SUPER+CTRL+PRINT` for text and `SUPER+CTRL+SHIFT+S` for the panel. A recording of the focused display has no key until you set one. The Keys row on the plugin's Settings page changes them.
 
 ## Settings
 

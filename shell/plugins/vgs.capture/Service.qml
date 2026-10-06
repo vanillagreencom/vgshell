@@ -76,8 +76,8 @@ Item {
             shell.shortcut.register(name, descriptions[name], () => root.invoke(name));
         }
         shell.ipc.handle("setting", arg => root.setFromRequest(arg));
-        // The panel asks again when it opens, so a device plugged in since
-        // shows there.
+        // The panel asks again each time it opens, which also refreshes the
+        // audio sources and cameras the Settings page offers.
         shell.ipc.handle("probe", () => { root.probe(); return "ok"; });
         publish();
         probe();

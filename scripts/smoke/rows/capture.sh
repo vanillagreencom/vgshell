@@ -699,6 +699,8 @@ expect "the widget clears its recording indicator after finalization" false ipc 
 # the panel's action, which a delay holds in its countdown until the same
 # action cancels it. Each panel copy below plants the defects its readings
 # must fail on and is rebuilt as the service copies above are.
+# capture_is READER EXPECTED: True when READER prints EXPECTED.
+capture_is() { [[ "$($1)" == "$2" ]] && echo True || echo False; }
 capture_focus() { ipc smoke focused panel vgs.capture | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)))'; }
 capture_focus_type() { ipc smoke focused panel vgs.capture | py_reply 'import json,sys; print(json.load(sys.stdin)[0])'; }
 capture_primary() { ipc smoke readInstance panel vgs.capture primaryActionName | py_reply 'import json,sys; print(json.load(sys.stdin))'; }
@@ -815,6 +817,24 @@ expect_poll "capture panel leaves no layer" 0 layer_count vgs:panel
 rm -f -- "${shim:?}/tesseract"
 rescan "the missing OCR command is rescanned"
 expect_poll "only OCR is unavailable" True capture_missing
+# A press on an action whose tool is missing still reaches the service,
+# which raises the install notice, and the panel names the cause. The panel
+# closes before the notice's Escape below, so the key reaches the notice.
+expect "capture opens its panel without OCR" ok ipc vgs.capture invoke toggle ''
+expect_poll "the panel without OCR opens on its primary action" Button capture_focus_type
+capture_back
+capture_back
+expect_poll "Shift+Tab reaches the mode switch without OCR" SegmentedControl capture_focus_type
+capture_key End
+expect_poll "End chooses Text" 2 capture_choice SegmentedControl
+capture_key Tab
+expect_poll "Tab from the mode switch reaches Copy text, past the hidden tiles" '["Button", "Copy text", true, true, true]' capture_focus
+capture_key Return
+expect_poll "a press without OCR names the missing tools in the panel" '"Install the missing tools to use this action."' ipc smoke readInstance panel vgs.capture problem
+expect_poll "the panel's press raises the core install notice" tesseract capture_notice
+expect "the refused press runs no capture" idle capture_phase
+expect "capture closes its panel over the install notice" ok ipc vgs.capture invoke toggle ''
+expect_poll "the panel over the install notice unmaps" absent capture_panel
 expect "missing OCR refuses capture before running tools" 'refused: capture=missing tesseract' ipc vgs.capture invoke text ''
 expect_poll "missing OCR raises the core install notice" tesseract capture_notice
 type_keys -k Escape || fail "capture: closing the install notice failed"
@@ -984,8 +1004,6 @@ print(json.dumps(argv[-1][:-2] if argv and argv[-1][-2] == "-o" else None))
 PY
 }
 capture_words() { python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "$@"; }
-# capture_is READER EXPECTED: True when READER prints EXPECTED.
-capture_is() { [[ "$($1)" == "$2" ]] && echo True || echo False; }
 capture_defaults=(-f 60 -k auto -q very_high -fm cfr -cursor no -a default_output -ac aac)
 capture_record() { # ACTION LABEL
   : >"$capture_state/calls.jsonl"

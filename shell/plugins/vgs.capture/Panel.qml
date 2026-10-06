@@ -41,30 +41,39 @@ Item {
         { label: "Microphone", value: "microphone" },
         { label: "Desktop and microphone", value: "both" }
     ]
+    // The language presets, and the saved value when Settings set codes no
+    // preset names, such as eng+deu, so the select shows it.
+    readonly property var languageChoices: {
+        const presets = shell === null ? [] : shell.manifest.schema.ocrLanguages.presets;
+        const current = setting("ocrLanguages", "");
+        return current === "" || presets.some(preset => preset.value === current) ? presets : presets.concat([{ label: current, value: current }]);
+    }
     readonly property var qualityChoices: [
         { label: "Medium", value: "medium" },
         { label: "High", value: "high" },
         { label: "Very high", value: "very_high" },
         { label: "Ultra", value: "ultra" }
     ]
+    // Every target stays choosable and pressable while a tool it needs is
+    // missing: the press reaches the service, which offers the install
+    // notice, and the panel says why the action did not start.
     readonly property var screenshotTargets: [
-        { text: "Area", icon: "scan", action: "screenshot-area", available: actionAvailable("screenshot-area") },
-        { text: "Window", icon: "app-window", action: "screenshot-window", available: actionAvailable("screenshot-window") },
-        { text: "Display", icon: "monitor", action: "screenshot-display", available: actionAvailable("screenshot-display") },
-        { text: "All", icon: "monitor-check", action: "screenshot-all", available: actionAvailable("screenshot-all") }
+        { text: "Area", icon: "scan", action: "screenshot-area" },
+        { text: "Window", icon: "app-window", action: "screenshot-window" },
+        { text: "Display", icon: "monitor", action: "screenshot-display" },
+        { text: "All", icon: "monitor-check", action: "screenshot-all" }
     ]
     readonly property var recordTargets: [
-        { text: "Area", icon: "scan", action: "record", available: actionAvailable("record") },
-        { text: "Window", icon: "app-window", action: "record-window", available: actionAvailable("record-window") },
-        { text: "Display", icon: "monitor", action: "record-display", available: actionAvailable("record-display") },
-        { text: "Picker", icon: "screen-share", action: "record-portal", available: actionAvailable("record-portal") }
+        { text: "Area", icon: "scan", action: "record" },
+        { text: "Window", icon: "app-window", action: "record-window" },
+        { text: "Display", icon: "monitor", action: "record-display" },
+        { text: "Picker", icon: "screen-share", action: "record-portal" }
     ]
     readonly property var currentTargets: mode === "Screenshot" ? screenshotTargets : mode === "Record" ? recordTargets : []
     readonly property int currentTargetIndex: mode === "Record" ? recordTargetIndex : screenshotTargetIndex
     readonly property var currentTarget: currentTargets.length === 0 ? null : currentTargets[currentTargetIndex]
     // The action the primary button hands the service.
     readonly property string primaryActionName: recording ? "record" : mode === "Text" ? "text" : currentTarget === null ? "" : currentTarget.action
-    readonly property bool primaryAvailable: recording ? capture.phase !== "stopping" : actionAvailable(primaryActionName)
     readonly property string primaryText: recording ? "Stop recording" : mode === "Screenshot" ? "Take screenshot" : mode === "Record" ? "Start recording" : "Copy text"
     readonly property string primaryIcon: recording ? "circle-stop" : mode === "Screenshot" ? "camera" : mode === "Record" ? "video" : "scan-text"
 
@@ -81,7 +90,6 @@ Item {
     }
     function installLanguages() { return shell.status.act("languages"); }
     function setting(key, fallback) { return shell === null || shell.settings[key] === undefined ? fallback : shell.settings[key]; }
-    function actionAvailable(name) { return name !== "" && capture.available[name] !== false; }
     function choiceIndex(choices, value) { return choices.findIndex(choice => choice.value === value); }
     function save(key, value) {
         const reply = shell.ipc.call("setting", JSON.stringify({ key: key, value: value }));
@@ -146,7 +154,7 @@ Item {
                     variant: root.recording ? "danger" : "primary"
                     text: root.primaryText
                     iconName: root.primaryIcon
-                    enabled: root.primaryAvailable
+                    enabled: root.capture.phase !== "stopping"
                     onClicked: root.invoke(root.primaryActionName)
                 }
                 Label {
@@ -264,12 +272,12 @@ Item {
                         label: "Language"
                         Select {
                             width: parent.width
-                            model: root.shell === null ? [] : root.shell.manifest.schema.ocrLanguages.presets
+                            model: root.languageChoices
                             textRole: "label"
-                            currentIndex: model.findIndex(preset => preset.value === root.setting("ocrLanguages", ""))
+                            currentIndex: root.choiceIndex(root.languageChoices, root.setting("ocrLanguages", ""))
                             onActivated: index => {
-                                root.save("ocrLanguages", model[index].value);
-                                currentIndex = Qt.binding(() => model.findIndex(preset => preset.value === root.setting("ocrLanguages", "")));
+                                root.save("ocrLanguages", root.languageChoices[index].value);
+                                currentIndex = Qt.binding(() => root.choiceIndex(root.languageChoices, root.setting("ocrLanguages", "")));
                             }
                         }
                     }
