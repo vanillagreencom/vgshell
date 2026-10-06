@@ -17,7 +17,7 @@
     "idleEnabled": true,
     "idleSeconds": 150,
     "effect": "random",
-    "frameRate": 5
+    "frameRate": 30
   },
   "schema": {
     "idleEnabled": { "type": "boolean", "label": "Start when inactive", "group": "Screensaver" },
@@ -40,7 +40,22 @@
       ],
       "group": "Screensaver"
     },
-    "effect": { "type": "string", "label": "Effect", "optionsFrom": "effects", "group": "Screensaver" }
+    "effect": { "type": "string", "label": "Effect", "optionsFrom": "effects", "group": "Screensaver" },
+    "frameRate": {
+      "type": "number",
+      "label": "Frame rate",
+      "min": 1,
+      "max": 120,
+      "step": 1,
+      "allowCustom": true,
+      "presets": [
+        { "value": 15 },
+        { "value": 30 },
+        { "value": 60 },
+        { "value": 120 }
+      ],
+      "group": "Screensaver"
+    }
   },
   "status": {
     "state": { "type": "state", "label": "Screensaver" },

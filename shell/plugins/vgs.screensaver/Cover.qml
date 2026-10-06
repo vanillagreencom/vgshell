@@ -10,6 +10,7 @@ Item {
     property var screen: null
     property string artPath: Logic.fileUrlPath(Qt.resolvedUrl("logo.txt"))
     property string pendingFrame: ""
+    property var frameState: Logic.createState()
     property bool focusReady: false
     property bool pointerReady: false
     property real firstX: 0
@@ -17,7 +18,7 @@ Item {
 
     readonly property bool shown: shell !== null && shell.status.values.state !== undefined && shell.status.values.state.text === "Running" && !(shell.session.locked)
     readonly property bool canRun: shell !== null && shell.requirements.missing.indexOf("ttfx") === -1
-    readonly property int frameRate: shell === null || shell.settings.frameRate === undefined ? 5 : shell.settings.frameRate
+    readonly property int frameRate: shell === null || shell.settings.frameRate === undefined ? 30 : shell.settings.frameRate
     readonly property string selectedEffect: shell === null ? "random" : shell.settings.effect
     readonly property int cellWidth: Math.max(1, Math.ceil(cellSize.width))
     readonly property int cellHeight: Math.max(1, Math.ceil(fontMetrics.height))
@@ -82,6 +83,7 @@ Item {
     }
 
     function clearRows() {
+        frameState = Logic.createState();
         for (let i = 0; i < lineRepeater.count; i++) {
             const item = lineRepeater.itemAt(i);
             if (item !== null) item.text = "";
@@ -110,13 +112,13 @@ Item {
     FontMetrics {
         id: fontMetrics
         font.family: Theme.font.family.mono
-        font.pixelSize: Theme.text.h2.size
+        font.pixelSize: Theme.text.display.size
     }
 
     TextMetrics {
         id: cellSize
         font.family: Theme.font.family.mono
-        font.pixelSize: Theme.text.h2.size
+        font.pixelSize: Theme.text.display.size
         text: "M"
     }
 
@@ -142,10 +144,11 @@ Item {
         running: root.shown
         onTriggered: {
             if (root.pendingFrame === "") return;
-            const parsed = Logic.parseFrame(root.pendingFrame);
+            const parsed = Logic.parseFrame(root.pendingFrame, root.frameState);
             root.pendingFrame = "";
-            if (parsed.length === 0) return;
-            root.setRows(parsed);
+            root.frameState = parsed;
+            if (parsed.rows.length === 0) return;
+            root.setRows(parsed.rows);
         }
     }
 
@@ -165,7 +168,7 @@ Item {
                 text: ""
                 color: Theme.color.text
                 font.family: Theme.font.family.mono
-                font.pixelSize: Theme.text.h2.size
+                font.pixelSize: Theme.text.display.size
                 lineHeightMode: Text.FixedHeight
                 lineHeight: root.cellHeight
             }

@@ -1,105 +1,122 @@
 .pragma library
 
+var COLOR_CACHE_MAX = 4096;
+var KEEP_COLOR = "__keep__";
+
+function createState() {
+    return { rawRows: [], rows: [], colorsIn: [], colorsOut: [], cache: ({}), cacheSize: 0, parsedRows: 0, reusedRows: 0 };
+}
+
 function htmlEscape(text) {
-    return String(text).replace(/[&<> "]/g, ch => {
+    return /[&<> ]/.test(text) ? String(text).replace(/[&<> ]/g, ch => {
         if (ch === "&") return "&amp;";
         if (ch === "<") return "&lt;";
         if (ch === ">") return "&gt;";
-        if (ch === " ") return "\u00a0";
-        return "&quot;";
-    });
+        return "\u00a0";
+    }) : text;
 }
 
-function colorFromRgb(parts, start) {
+function colorFromRgbParts(parts, start) {
     const r = Number(parts[start]);
     const g = Number(parts[start + 1]);
     const b = Number(parts[start + 2]);
-    if (!isFinite(r) || !isFinite(g) || !isFinite(b)) return null;
-    return "#" + [r, g, b].map(v => {
-        const channel = Math.max(0, Math.min(255, Math.round(v)));
-        return channel.toString(16).padStart(2, "0");
-    }).join("");
+    if (!isFinite(r) || !isFinite(g) || !isFinite(b)) return KEEP_COLOR;
+    const rc = Math.max(0, Math.min(255, Math.round(r)));
+    const gc = Math.max(0, Math.min(255, Math.round(g)));
+    const bc = Math.max(0, Math.min(255, Math.round(b)));
+    return "#" + (rc < 16 ? "0" : "") + rc.toString(16)
+        + (gc < 16 ? "0" : "") + gc.toString(16)
+        + (bc < 16 ? "0" : "") + bc.toString(16);
 }
 
-function newestFrame(previous, next) {
-    return next;
-}
-
-function closeSpan(style) {
-    return style.open ? "</font>" : "";
-}
-
-function openSpan(style) {
-    if (style.fg === "") return "";
-    style.open = true;
-    return "<font color=\"" + style.fg + "\">";
-}
-
-function sameStyle(a, b) {
-    return a.fg === b.fg;
-}
-
-function parseSgr(sequence, style) {
-    const parts = sequence.length === 0 ? ["0"] : sequence.split(";");
-    const next = { fg: style.fg };
+function sgrColor(params, state) {
+    const key = params === "" ? "0" : params;
+    if (state.cache[key] !== undefined) return state.cache[key];
+    let color = KEEP_COLOR;
+    const parts = key.split(";");
     for (let i = 0; i < parts.length; i++) {
         const code = parts[i] === "" ? 0 : Number(parts[i]);
-        if (code === 0) {
-            next.fg = "";
-        } else if (code === 39) {
-            next.fg = "";
-        } else if ((code === 38 || code === 48) && parts[i + 1] === "2") {
-            const color = colorFromRgb(parts, i + 2);
-            if (color !== null && code === 38) next.fg = color;
+        if (code === 0 || code === 39) {
+            color = "";
+        } else if (code === 38 && parts[i + 1] === "2") {
+            color = colorFromRgbParts(parts, i + 2);
+            i += 4;
+        } else if (code === 48 && parts[i + 1] === "2") {
             i += 4;
         }
     }
-    return next;
+    state.cache[key] = color;
+    state.cacheSize += 1;
+    if (state.cacheSize > COLOR_CACHE_MAX) {
+        state.cache = ({});
+        state.cacheSize = 0;
+    }
+    return color;
 }
 
-function parseFrame(frame) {
-    const rows = [];
-    let current = "";
-    let style = { fg: "", open: false };
-    let wanted = { fg: "" };
-    const escapePattern = /\u001b(?:\[([0-9;?]*)([A-Za-z~])|.)/g;
-
-    function applyStyle(next) {
-        if (sameStyle(style, next)) return;
-        current += closeSpan(style);
-        style = { fg: next.fg, open: false };
-        current += openSpan(style);
+function parseRow(raw, color, state) {
+    const pieces = [];
+    let open = false;
+    let current = color;
+    if (current !== "") {
+        pieces.push("<font color=\"", current, "\">");
+        open = true;
     }
-
-    function finishRow() {
-        current += closeSpan(style);
-        rows.push(current);
-        current = "";
-        style = { fg: wanted.fg, open: false };
-        current += openSpan(style);
-    }
-
-    function addText(text) {
-        const parts = text.replace(/\r/g, "").split("\n");
-        for (let i = 0; i < parts.length; i++) {
-            current += htmlEscape(parts[i]);
-            if (i !== parts.length - 1) finishRow();
-        }
-    }
-
-    let last = 0;
+    const pattern = /\u001b\[([0-9;?]*)([A-Za-z])|\u001b.|([^\u001b]+)/g;
     let match;
-    while ((match = escapePattern.exec(frame)) !== null) {
-        addText(frame.slice(last, match.index));
-        if (match[2] === "m") {
-            wanted = parseSgr(match[1] || "", wanted);
-            applyStyle(wanted);
+    while ((match = pattern.exec(raw)) !== null) {
+        if (match[3] !== undefined) {
+            const text = match[3].replace(/\r/g, "");
+            if (text !== "") pieces.push(htmlEscape(text));
+            continue;
         }
-        last = escapePattern.lastIndex;
+        if (match[2] !== "m") continue;
+        const next = sgrColor(match[1] || "", state);
+        if (next === KEEP_COLOR || next === current) continue;
+        if (open) pieces.push("</font>");
+        current = next;
+        open = false;
+        if (current !== "") {
+            pieces.push("<font color=\"", current, "\">");
+            open = true;
+        }
     }
-    addText(frame.slice(last));
-    if (current !== "" || rows.length === 0) finishRow();
-    return rows;
+    if (open) pieces.push("</font>");
+    return { row: pieces.join(""), color: current };
+}
+
+function parseFrame(frame, previous) {
+    const state = previous || createState();
+    const rawRows = String(frame).split("\n");
+    const rows = [];
+    const colorsIn = [];
+    const colorsOut = [];
+    let parsedRows = 0;
+    let reusedRows = 0;
+    let color = "";
+    for (let i = 0; i < rawRows.length; i++) {
+        const raw = rawRows[i];
+        colorsIn[i] = color;
+        if (state.rawRows[i] === raw && state.colorsIn[i] === color) {
+            rows[i] = state.rows[i];
+            color = state.colorsOut[i] || "";
+            colorsOut[i] = color;
+            reusedRows += 1;
+            continue;
+        }
+        const parsed = parseRow(raw, color, state);
+        rows[i] = parsed.row;
+        color = parsed.color;
+        colorsOut[i] = color;
+        parsedRows += 1;
+    }
+    state.rawRows = rawRows;
+    state.rows = rows;
+    state.colorsIn = colorsIn;
+    state.colorsOut = colorsOut;
+    state.parsedRows = parsedRows;
+    state.reusedRows = reusedRows;
+    return state;
 }
 
 function effectChoices(helpText) {
@@ -161,4 +178,8 @@ function command(artPath, effect, frameRate, columns, rows, background) {
     if (effect === "random" || effect === "") args.push("--random-effect");
     else args.push(effect);
     return args;
+}
+
+function newestFrame(previous, next) {
+    return next;
 }
