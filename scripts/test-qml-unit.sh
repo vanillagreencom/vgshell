@@ -673,6 +673,7 @@ mutations=(
   "the tooltip never wraps|overlay/Tooltip.qml|wrapMode: Text.Wrap|wrapMode: Text.NoWrap|tst_overlays.qml"
   "the tooltip grows past its maximum width|overlay/Tooltip.qml|Math.min(Math.ceil(label.implicitWidth) + capsWidth + 2 * Theme.tooltip.paddingX, OverlayState.widthFor(root.anchorItem, Theme.tooltip.maxWidth + capsWidth + 2 * Theme.tooltip.paddingX))|Math.ceil(label.implicitWidth) + capsWidth + 2 * Theme.tooltip.paddingX|tst_overlays.qml"
   "a rounded tooltip keeps its pad|overlay/Tooltip.qml|x: sideInset.inset|x: Theme.tooltip.paddingX|tst_overlays.qml"
+  "a tooltip's key caps sit beside its whole text|overlay/Tooltip.qml|y: label.y + (label.lineBox - height) / 2|anchors.verticalCenter: label.verticalCenter|tst_overlays.qml"
   "a pressed row leaves the plate at rest|layout/ListCursor.qml|color: root.pressed ? root.pressedColor : root.color|color: root.color|tst_listcursor.qml"
   "a loose row presses like a hover|layout/ListItem.qml|: root.down ? Theme.listItem.pressed : root.hovered|: root.down ? Theme.listItem.hover : root.hovered|tst_listcursor.qml"
   "a compact track keeps no input area|controls/Switch.qml|implicitHeight: Math.max(Theme.size.control.sm, implicitIndicatorHeight, implicitContentHeight)|implicitHeight: Math.max(implicitIndicatorHeight, implicitContentHeight)|tst_toggles.qml"

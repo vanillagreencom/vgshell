@@ -51,6 +51,7 @@ Item {
         }
         Tooltip { id: tip; text: "hint" }
         Tooltip { id: longTip; text: "method=unknown path=/home/user/.local/share/vgshell/repo is where VGS runs from, and no package manager owns it" }
+        Tooltip { id: capsTip; text: "6 updates waiting\nSystem: 3\nAUR: 1"; shortcut: "Super+Ctrl+U" }
         Menu { id: long
             Repeater {
                 model: ["Bar", "Gallery", "Launcher", "Notifications", "Settings", "Themes", "Beta", "Clock", "Dock", "Echo", "Files", "Grid", "Help", "Inbox", "Jobs"]
@@ -885,6 +886,16 @@ Item {
             // clears the round end.
             compare(UnitTheme.override({ tooltip: { radius: 4096, paddingX: 2 } }), "ok");
             tryVerify(() => shortLabel.x > 2, 1000, "the rounded tip's text moved in: " + shortLabel.x);
+        }
+
+        // A tip of several lines keeps its key caps on its first line.
+        function test_tooltip_key_caps_sit_beside_the_first_line() {
+            const window = tipWindow(capsTip);
+            const label = window.contentItem.children[1];
+            const caps = window.contentItem.children[2];
+            verify(label.lineCount > 1, "the tip runs to several lines: " + label.lineCount);
+            verify(caps.visible && caps.height > 0, "the tip shows its key caps");
+            fuzzyCompare(caps.y + caps.height / 2, label.y + label.lineBox / 2, 0.5);
         }
 
         function test_tooltip_opens_after_the_delay_and_not_under_an_overlay() {

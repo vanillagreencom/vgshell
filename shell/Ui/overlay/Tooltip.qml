@@ -109,8 +109,10 @@ Item {
         KeyCaps {
             id: caps
             shortcut: root.shortcut
+            // Beside the first line, the tip's title, when the text wraps
+            // or runs to more lines.
             x: label.x + label.width + Theme.tooltip.gap
-            anchors.verticalCenter: label.verticalCenter
+            y: label.y + (label.lineBox - height) / 2
         }
     }
 
