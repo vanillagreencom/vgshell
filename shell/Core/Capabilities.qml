@@ -118,8 +118,7 @@ Singleton {
                 Compositor.observeInput(point, value => { if (ctx.active) done(value); });
             };
             out.readWindows = done => {
-                if (!ctx.active) return;
-                Compositor.readWindows(state => { if (ctx.active) done(state); });
+                if (ctx.active) Compositor.readWindows(state => { if (ctx.active) done(state); });
             };
             return out;
         },
