@@ -371,7 +371,7 @@ Item {
 
     // Read once, when start() sets its path; written whole on each choice.
     // A write makes the plugin's state directory first
-    // (docs/architecture/displays-plugin.md § Assignments).
+    // (docs/decisions/D081-system-steps-closed-core-table.md).
     FileView {
         id: assignmentsFile
         atomicWrites: true

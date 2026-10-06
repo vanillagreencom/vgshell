@@ -30,7 +30,7 @@ Every path is relative to `${XDG_CONFIG_HOME:-~/.config}`. A linked theme is sel
 
 ## Floating TUI colours
 
-The `gum` target writes `gum.env`, the colours of every floating TUI: encoder `hex6`, detect `gum`, no wiring and no reload. `bin/vgshell-tui present` parses the file at each run and never sources it: [tui.md § Colours](tui.md#colours). The file sets Omarchy's gum variables from its `default/themed/gum_env.lua.tpl`: confirm, input, choose, filter, table, spin, file, pager, write and log, the generic `FOREGROUND`, `BACKGROUND` and `BORDER_FOREGROUND`, and the library's `VGS_TUI_ACCENT`, `VGS_TUI_SUCCESS`, `VGS_TUI_WARNING` and `VGS_TUI_DANGER`. Each Omarchy role takes one token:
+The `gum` target writes `gum.env`, the colours of every floating TUI: encoder `hex6`, detect `gum`, no wiring and no reload. `bin/vgshell-tui present` parses the file at each run and never sources it: [tui.md § Colours](tui.md). The file sets Omarchy's gum variables from its `default/themed/gum_env.lua.tpl`: confirm, input, choose, filter, table, spin, file, pager, write and log, the generic `FOREGROUND`, `BACKGROUND` and `BORDER_FOREGROUND`, and the library's `VGS_TUI_ACCENT`, `VGS_TUI_SUCCESS`, `VGS_TUI_WARNING` and `VGS_TUI_DANGER`. Each Omarchy role takes one token:
 
 | Role | Token |
 |---|---|

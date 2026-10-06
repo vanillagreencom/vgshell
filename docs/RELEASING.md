@@ -15,7 +15,7 @@ Both take `--dry-run`, which makes every check and changes nothing outside `dist
 
 ## Versions
 
-- `VERSION` holds the release's SemVer version, and the tag is `v` followed by it: [distribution.md § Version](architecture/distribution.md#version).
+- `VERSION` holds the release's SemVer version, and the tag is `v` followed by it: [distribution.md § Version](architecture/distribution.md).
 - While VGS is at 0.x, a minor bump marks a breaking change to `shell.json`, the plugin API, the manifest or the theme package format. A patch bump marks fixes only.
 - Plugin manifest versions change independently of `VERSION`.
 - The archive name carries no architecture.
@@ -68,8 +68,27 @@ Both take `--dry-run`, which makes every check and changes nothing outside `dist
    AUR_SSH_KEY_FILE=<the AUR account's private key> scripts/publish-aur.sh vgshell vgshell-git
    ```
 
-7. Rebuild the Fedora package: [distribution-fedora.md § Publication](architecture/distribution-fedora.md#publication).
+7. Rebuild the Fedora package: set `vgshell.spec`'s `Version`, `Release` and `%changelog` with `VERSION`, then run `copr-cli edit-package-scm vgshell --name vgshell --commit vX.Y.Z` and `copr-cli build-package vgshell --name vgshell`. The GitHub webhook rebuilds `vgshell-git` on every push to `main`: [§ Fedora](#fedora).
 8. Verify every channel, as below.
+
+## Fedora
+
+The COPR project `vanillagreen/vgshell` holds two packages, `vgshell` from a release tag and `vgshell-git` from `main`, and depends on the two third-party COPRs that ship Quickshell and Hyprland. These commands, run with a COPR API token, set up the project and its packages, and recreate them:
+
+```bash
+copr-cli create vgshell --chroot fedora-44-x86_64 --chroot fedora-44-aarch64 \
+  --repo copr://errornointernet/quickshell --repo copr://sdegler/hyprland \
+  --runtime-repo-dependency copr://errornointernet/quickshell \
+  --runtime-repo-dependency copr://sdegler/hyprland
+copr-cli add-package-scm vgshell --name vgshell-git --clone-url https://github.com/vanillagreencom/vgshell.git \
+  --commit main --spec packaging/fedora/vgshell-git.spec --method make_srpm --webhook-rebuild on
+copr-cli add-package-scm vgshell --name vgshell --clone-url https://github.com/vanillagreencom/vgshell.git \
+  --commit v0.1.0 --spec packaging/fedora/vgshell.spec --method make_srpm
+copr-cli build-package vgshell --name vgshell
+copr-cli build-package vgshell --name vgshell-git
+```
+
+Add the repository's GitHub webhook for `vgshell-git` only after the `v0.1.0` tag exists: `packaging/fedora/srpm.sh` builds `vgshell-git` without a release tag, so a webhook added earlier publishes a pre-tag build whose version sorts above the first builds after the tag, and a user who installed it gets no update. A user installs with `sudo dnf copr enable vanillagreen/vgshell`, then `sudo dnf install vgshell`. Once the first build installs in a clean container from the published project, the README gains a Fedora install command.
 
 ## Verification
 

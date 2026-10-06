@@ -14,7 +14,7 @@
 # A release lands in ${XDG_DATA_HOME:-~/.local/share}/vgshell/X.Y.Z. The link
 # vgshell/current names it and is replaced by rename alone, and ~/.local/bin/vgshell
 # links to vgshell/current/bin/vgshell: the curl layout `vgshell self status` detects
-# and `vgshell self update` keeps (docs/architecture/distribution-curl.md
+# and `vgshell self update` keeps (docs/architecture/distribution-methods.md
 # § Curl layout). --git clones main into vgshell/git and links ~/.local/bin/vgshell to
 # it. Every write under vgshell/ holds flock on vgshell/.self.lock.
 #
@@ -126,7 +126,7 @@ nix bash bubblewrap chromium coreutils curl dbus fd ffmpeg file fzf git glib gpu
   # The package that provides each floor tool, per primary manager. The rows
   # for required commands are config/requirements.json's. A
   # manager with no entry for quickshell or hyprland has no package in its
-  # own repositories that meets the floor (docs/architecture/distribution-curl.md).
+  # own repositories that meets the floor (docs/architecture/distribution-methods.md).
   packages='
 quickshell pacman=quickshell nix=quickshell
 hyprland   pacman=hyprland nix=hyprland
@@ -323,7 +323,7 @@ EOF
       fi
     done <<<"$managers"
     for tool in "${unpackaged[@]}"; do
-      printf '%s: %s has no package VGS knows of that meets the floor; see https://github.com/%s/blob/main/docs/architecture/distribution-curl.md\n' "$tool" "$manager" "$repository" >&2
+      printf '%s: %s has no package VGS knows of that meets the floor; see https://github.com/%s/blob/main/docs/architecture/distribution-methods.md\n' "$tool" "$manager" "$repository" >&2
     done
     exit 78
   }

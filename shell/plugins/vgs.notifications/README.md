@@ -56,7 +56,7 @@ The single-workspace token of earlier versions, `account slack`, still works. It
 
 Plugins shows a Slack tokens row: a line for each listed workspace, and a line for the single-workspace token when no workspace is listed or it is stored. Each reads Present, Absent, Locked or Unavailable (no `secret-tool`, or the keyring cannot be asked). Connect shows while a token is absent and Disconnect while one is stored; an Unavailable line offers neither, and the Requirements section offers to install `secret-tool`. The check runs at start, when the workspace list changes, after each Connect or Disconnect and after each photo refresh; it never reads a token or unlocks the keyring.
 
-The helper calls `team.info` and `users.list`. It stores only the team id, team names, the team icon, each user id, each user's display name, real name, Slack name and `image_48` photo, under `$XDG_CACHE_HOME/vgshell/notifications/slack-photos/`. It does not read or store messages, channels, presence, email, profile text or tokens. Without a token, faces stay initials: no local Slack store maps a sender's name to a photo. [notification-senders.md](../../../docs/architecture/notification-senders.md) holds the cache, its refresh and its limits.
+The helper calls `team.info` and `users.list`. It stores only the team id, team names, the team icon, each user id, each user's display name, real name, Slack name and `image_48` photo, under `$XDG_CACHE_HOME/vgshell/notifications/slack-photos/`. It does not read or store messages, channels, presence, email, profile text or tokens. Without a token, faces stay initials: no local Slack store maps a sender's name to a photo. [secrets.md](../../../docs/architecture/secrets.md) holds the cache, its refresh and its limits.
 
 ## Developer details
 
@@ -80,6 +80,6 @@ The service registers `vgs.notifications:inbox`. The manifest binds it to `SUPER
 | `dismiss-latest`, `invoke-latest` | none | dismisses, or clicks, the newest toast; `ok` or `none` |
 | `status` | none | one JSON line: `silence`, `panel`, `store` (`state`, `problem`), `onScreen`, `history`, `held` (below), `readBefore`, `duplicates` (`keptDesktop`, `keptBrowser`, below) |
 
-Senders can add VGS hints for an icon, tone or file to open: [notification-hints.md](../../../docs/architecture/notification-hints.md). Notification action ownership and window selection: [notification-actions.md](../../../docs/architecture/notification-actions.md).
+Senders can add VGS hints for an icon, tone or file to open: [notification-hints.md](../../../docs/architecture/notification-hints.md). Notification action ownership and window selection: [D051](../../../docs/decisions/D051-notification-actions-reveal-the-sender.md).
 
 State, appearance and shader details: [Developer reference](developer.md).

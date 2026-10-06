@@ -1,4 +1,4 @@
-# The login screen, vgs.greeter (D101, docs/architecture/greeter.md).
+# The login screen, vgs.greeter (D101, docs/decisions/D101-greeter-host-and-greeter-system-step.md).
 #
 # Its service in the running shell: the harness starts it disabled, and the
 # row enables it over the device fakes' system tree, where

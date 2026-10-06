@@ -58,7 +58,7 @@ A press that hands off closes the panel. A refusal stays in the panel as one sen
 
 ## Notifications
 
-The service sends one desktop notification when something starts to need a look, and again only after it has cleared and comes back. It takes over from the warden's own notices and words them for people. The service's contract, the heartbeat that takes the notices over and the rules for each episode are [agent-warden.md § Notifications](../../../docs/architecture/agent-warden.md#notifications).
+The service sends one desktop notification when something starts to need a look, and again only after it has cleared and comes back. It takes over from the warden's own notices and words them for people. The service's contract, the heartbeat that takes the notices over and the rules for each episode are [D041](../../../docs/decisions/D041-agent-warden-observes-the-vsys-warden.md).
 
 | Kind | Scope | Opens when | Title, for example | Urgency | Open vsys |
 |---|---|---|---|---|---|
@@ -82,4 +82,4 @@ The service sends one desktop notification when something starts to need a look,
 
 ## Validation
 
-The service's reading, notices and their checks: [agent-warden.md § Validation](../../../docs/architecture/agent-warden.md#validation).
+The service's reading, notices and their checks: [D041](../../../docs/decisions/D041-agent-warden-observes-the-vsys-warden.md).

@@ -1,6 +1,6 @@
 # shell/
 
-The Quickshell shell root. `shell.qml`, `greeter.qml` (the login screen's host, [greeter.md](../docs/architecture/greeter.md)), `Core/`, `Hosts/`, `Commons/` and `Ui/` are the core; `plugins/` holds first-party plugins and has its own `AGENTS.md`.
+The Quickshell shell root. `shell.qml`, `greeter.qml` (the login screen's host, [D101](../docs/decisions/D101-greeter-host-and-greeter-system-step.md)), `Core/`, `Hosts/`, `Commons/` and `Ui/` are the core; `plugins/` holds first-party plugins and has its own `AGENTS.md`.
 
 - The core names no plugin and imports no plugin directory. `scripts/check-plugin-boundary.py` enforces it.
 - What the loader, a host and a capability provider may do, and what each hands a plugin: `docs/architecture/plugins.md` § What the core builds and hands over and § Capabilities.

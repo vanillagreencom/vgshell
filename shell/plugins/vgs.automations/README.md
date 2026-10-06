@@ -44,7 +44,7 @@ automations history back-up-notes
 automations preview --schedule '{"frequency": "monthly", "interval": 1, "monthly": {"by": "weekday", "week": 2, "weekday": "tue"}, "times": ["09:00"], "start": "2026-10-01", "end": {"type": "count", "count": 6}}'
 ```
 
-The verbs are `list`, `add`, `edit`, `enable`, `disable`, `remove`, `run-now`, `history`, `clear`, `prune` and `preview`; `list` and `history` take `--json` for a program to read. The command's header states every verb, and `AutomationsLogic.js` every key of a definition. [automations.md](../../../docs/architecture/automations.md) holds the schedule rules, the files and how a run works.
+The verbs are `list`, `add`, `edit`, `enable`, `disable`, `remove`, `run-now`, `history`, `clear`, `prune` and `preview`; `list` and `history` take `--json` for a program to read. The command's header states every verb, and `AutomationsLogic.js` every key of a definition. [D052](../../../docs/decisions/D052-automations-engine.md) holds the schedule rules, the files and how a run works.
 
 ## Settings
 

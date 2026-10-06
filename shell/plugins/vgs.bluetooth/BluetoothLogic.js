@@ -419,7 +419,7 @@ function pairText(state) {
 // --- the pairing dialog ---------------------------------------------------
 
 // Each prompt of the pairing dialog, by kind: the agent's request kinds
-// (docs/architecture/bluetooth-agent.md § Requests) and `rename`. `field`
+// (docs/decisions/D085-bluetooth-agent-core-lent-over-bluetoothctl.md) and `rename`. `field`
 // is what the dialog's text field takes, "" for no field; `accept` how
 // Pair, Allow or Rename answers: `true`, the field's text, the field's
 // number, or the field's name (`alias`); `dismiss` the value Cancel,

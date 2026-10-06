@@ -479,7 +479,7 @@ const ROWS = [
         fs.writeFileSync(path.join(t, "bin/lib/qml-library.js"), "throw new Error('planted loader');\n");
         fs.writeFileSync(path.join(t, "bin/vgshell-scan"), "#!/bin/sh\nexit 9\n", { mode: 0o755 });
     }, 0, tree => ok(countRequirements(tree))],
-    // The licence: docs/architecture/distribution.md § Licence and every
+    // The licence: docs/architecture/distribution.md
     // recipe state one expression.
     ["a doc licence the recipes do not state is refused", t => edit(t, "docs/architecture/distribution.md", "^(- The SPDX licence expression of a VGS package is `)[^`]+(`\\.)$", "$1MIT$2"),
         1, tree => refused(`licence=mismatch channel=pacman recipe=vgshell have=${JSON.stringify(srcinfo(tree, SRC, "license"))} want="MIT"`)],

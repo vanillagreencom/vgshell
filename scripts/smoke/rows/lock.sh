@@ -35,7 +35,7 @@
 # No row types a password: PAM would check it against the real account,
 # whose pam_faillock counts each failure. The sandbox's own probe releases
 # the core's lock with no password, test code that never ships
-# (docs/architecture/lock-polkit.md § Validation). The evidence that no
+# (docs/decisions/D062-native-lock-and-polkit-plugins.md). The evidence that no
 # check ran spans the whole row, every plugin rebuild and both shell
 # relaunches: each shell's log, kept before its kill, holds a
 # `lock: check=started` line for every check started, and the harness's

@@ -101,7 +101,7 @@
 # after ten wrong attempts. No password is typed and no PAM runs: the
 # probe calls the service's `fail()`, the step PAM's refusal takes, and
 # releases the lock with `sessionUnlock`, test code that never ships
-# (docs/architecture/lock-polkit.md § Validation). It disables the probe
+# (docs/decisions/D062-native-lock-and-polkit-plugins.md). It disables the probe
 # fixture, which holds `lock`, while it runs, when the settings scene
 # enabled it.
 # The greeter scene starts a second qs on shell/greeter.qml, as
@@ -2120,7 +2120,7 @@ scene_lock() { # MODE
 # surface. vgs.polkit stays disabled and nothing is typed; the scene reads
 # that no request went live, that the stand-in was never submitted and
 # that no authentication helper ran while it was open, as rows/polkit.sh
-# reads them (docs/architecture/lock-polkit.md § Validation).
+# reads them (docs/decisions/D062-native-lock-and-polkit-plugins.md).
 polkit_flows() { ipc shell lent | py_reply 'import json,sys; print(json.load(sys.stdin)["polkitFlows"])'; }
 scene_polkit() { # MODE
   local watch_log="$sandbox/shots-polkit-$1-auth.log"
@@ -2141,7 +2141,7 @@ scene_polkit() { # MODE
 }
 
 # The login screen: the core's greeter host over vgs.greeter's view
-# (docs/architecture/greeter.md), with the smoke's fixture sessions, the
+# (docs/decisions/D101-greeter-host-and-greeter-system-step.md), with the smoke's fixture sessions, the
 # mode's theme file and one fixture account.
 scene_greeter() { # MODE
   local dir="$sandbox/shots-greeter-$1" word base_path="" pid ready=false

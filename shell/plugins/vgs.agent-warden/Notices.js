@@ -17,7 +17,7 @@
 // status that cannot tell, such as one with no lane listing or a stale
 // one, keeps what it cannot judge.
 //
-// The rules are docs/architecture/agent-warden.md § Notifications. The
+// The rules are docs/decisions/D041-agent-warden-observes-the-vsys-warden.md. The
 // words carry numbers from status.json and the figures, names and lists
 // written as the flyout writes them (ViewLogic.js). No text names a
 // process id or a scope unit.

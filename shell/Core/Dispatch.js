@@ -154,7 +154,7 @@ var REVEAL_WINDOWS_MAX = 16;
 // loop dispatching the focus through hyprctl, host cachy, 2026-09-29). The
 // bound is what a click may wait when the application raises nothing,
 // the common case, since Quickshell 0.3.1's notification server sends no
-// activation token (docs/architecture/notification-actions.md
+// activation token (docs/decisions/D051-notification-actions-reveal-the-sender.md
 // § Quickshell 0.3.1); an application slower than the bound raises its
 // window after the shell did.
 var SENDER_WAIT_MS = 250;

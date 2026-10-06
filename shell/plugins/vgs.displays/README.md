@@ -35,4 +35,4 @@ The keys are `XF86MonBrightnessUp` and `XF86MonBrightnessDown`. When your Hyprla
 
 ## Validation
 
-`scripts/test-displays-logic.js` holds the plugin's decisions, and `scripts/smoke/rows/displays.sh` runs it in the nested sandbox over fake displays: [docs/architecture/displays-plugin.md](../../../docs/architecture/displays-plugin.md).
+`scripts/test-displays-logic.js` holds the plugin's decisions, and `scripts/smoke/rows/displays.sh` runs it in the nested sandbox over fake displays: [D081](../../../docs/decisions/D081-system-steps-closed-core-table.md).

@@ -29,7 +29,7 @@ A site grant lets a click run the site's behavior. JavaScript can send data from
 
 The Settings action and launcher entry open the declared setup TUI from its snapshot. Settings offers Set up browser only while agent-browser is found. The launcher entry can still open setup without the driver. Setup then says that the driver is missing and asks to install it. On yes, it takes this system's package from `vgshell plugin requirements --json` and installs it with `vgshell pkg run install`, which rescans afterwards. A system without a package, or an install the terminal still cannot find, ends setup with a keyed refusal and a plain sentence. After the install, setup continues. With the driver found, setup tries a blank-page verification first. Only the vendor's missing-Chrome error offers a download. Download runs only after the user accepts. Setup passes no dependency-install option and changes no desktop configuration.
 
-The manifest declares the driver and Chromium as required requirements. Packages install them where the channel has a package. [The recipe check](distribution.md#recipe-check) records channel package gaps. The core notice retains its Install action for a missing driver. The installer includes the runtime stub and licence. The recipes and Nix metadata declare the added licence.
+The manifest declares the driver and Chromium as required requirements. Packages install them where the channel has a package. [The recipe check](distribution.md) records channel package gaps. The core notice retains its Install action for a missing driver. The installer includes the runtime stub and licence. The recipes and Nix metadata declare the added licence.
 
 ## Evidence and comparison
 

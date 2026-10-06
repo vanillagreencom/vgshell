@@ -57,4 +57,4 @@ The Keys row on the plugin's Settings page changes `SUPER+CTRL+V`. The same page
 | Change an entry | `vgshell ipc call vgs.clipboard invoke paste <id>`, and `copy`, `pin` and `delete` in its place. Each answers `ok` or a `refused:` line. |
 | Clear | `vgshell ipc call vgs.clipboard invoke clear ''` |
 
-[clipboard.md](../../../docs/architecture/clipboard.md) holds the plugin's rules and the tests that enforce them.
+[secrets.md](../../../docs/architecture/secrets.md) holds the plugin's rules and the tests that enforce them.

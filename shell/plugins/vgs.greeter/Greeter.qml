@@ -11,7 +11,7 @@ import "GreeterLogic.js" as Logic
 // plugin. The host assigns `screen` and `interactive`: every screen draws
 // the theme's background under the scrim and the time, and the one
 // interactive screen also lists the accounts and the sessions and talks to
-// greetd (docs/architecture/greeter.md). The look is the lock screen's
+// greetd (docs/decisions/D101-greeter-host-and-greeter-system-step.md). The look is the lock screen's
 // (vgs.lock's LockView), so boot, lock and unlock read as one product; the
 // theme and the background are the copies the service keeps under the
 // greeter's XDG_CONFIG_HOME.

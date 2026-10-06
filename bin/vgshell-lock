@@ -13,7 +13,7 @@
 # refuses when the compositor refused the lock (`refusals` grew), as
 # Hyprland does while another lock screen holds the session with
 # misc:allow_session_lock_restore off, or never confirmed it:
-# docs/architecture/lock-polkit.md.
+# docs/decisions/D062-native-lock-and-polkit-plugins.md.
 #
 # Refusals, each one keyed first line on stderr:
 #   vgshell: refused: argument=<arg>              exit 2; lock takes no argument

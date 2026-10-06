@@ -244,7 +244,7 @@
 # version=malformed path=<file>, tag=<tag> reason=not-a-version for a tag
 # of v, digits and dots that is not v<X.Y.Z>, and git=describe or
 # git=rev-list path=<tree> for a failed git call, a checkout with no commit
-# included. docs/architecture/distribution.md § Version.
+# included. docs/architecture/distribution.md.
 #
 # `self status` names this tree's install method, judged by
 # bin/lib/self.js in this order: `checkout` (the top level of its own git
@@ -285,13 +285,13 @@
 # `core/sudo-grant` runs `vgshell sudo grant` in one. No grant exists until
 # the owner runs `sudo install`. On NixOS, every sudo verb writes nothing,
 # reports `skipped=nixos-config`, and `grant` prints the
-# `security.sudo.extraRules` snippet: docs/architecture/tui-sudo.md.
+# `security.sudo.extraRules` snippet: docs/architecture/system-steps.md.
 #
 # `system` runs bin/vgshell-system, which holds the closed table of system
 # steps and states its output and refusals. `apply` and `undo` ask one
 # question and run sudo, so each needs a terminal; the core floating TUI
 # `core/system` runs `vgshell system apply <step>` when a plugin's status
-# action names the step: docs/architecture/tui-system.md.
+# action names the step: docs/architecture/system-steps.md.
 #
 # `tui present` hands argv, never a shell string, to `bin/vgshell-tui launch`
 # with the full presentation, titled by --title or else by the command's
@@ -1900,7 +1900,7 @@ reset_marker="$state_home/vgshell/reset-backup"
 
 # Whether ENTRY of CLASS's directory stays where it is: the theme lock reset
 # holds through the move, the backups, and the curl install's own entries,
-# which a fresh install has (docs/architecture/distribution-curl.md
+# which a fresh install has (docs/architecture/distribution-methods.md
 # § Curl layout).
 reset_keeps() { # CLASS ENTRY
   case "$1:$2" in
@@ -2145,7 +2145,7 @@ compositor_monitors() {
 # `unlocked` or `unknown`, as the core's one reading,
 # shell/Commons/SessionLockState.js, judges it for the core's session lock
 # and the lock plugin's stranded-lock check
-# (docs/architecture/lock-polkit.md). `unknown` too when node cannot run
+# (docs/decisions/D062-native-lock-and-polkit-plugins.md). `unknown` too when node cannot run
 # the judge, whose own error passes through on stderr.
 session_lock_state() { # TEXT
   node -e 'let text = "";

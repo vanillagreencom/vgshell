@@ -1,6 +1,6 @@
 # Maintainer: VanillaGreen <brad@vanillagreen.com>
 #
-# The development package, built from main. docs/architecture/distribution-arch.md
+# The development package, built from main. docs/architecture/distribution.md
 # states the rules scripts/check-packaging.js enforces on
 # this file and on ../vgshell/PKGBUILD. makepkg rewrites pkgver from pkgver().
 

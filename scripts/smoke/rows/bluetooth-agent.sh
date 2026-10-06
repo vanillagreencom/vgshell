@@ -13,7 +13,7 @@
 # request with its code; answering it true writes `yes`; release writes
 # `agent off`, closes stdin, and the lending record reads no child and no
 # lease. The core writes each of its own commands after 17 spaces, so no
-# held prompt accepts one (docs/architecture/bluetooth-agent.md), and the
+# held prompt accepts one (docs/decisions/D085-bluetooth-agent-core-lent-over-bluetoothctl.md), and the
 # stand-in reads them so. Over the second: a copy of the fixture under another id, which
 # names the capability, is not built while acme.pairing holds it and is
 # built once acme.pairing is disabled; disabling acme.pairing with its lease

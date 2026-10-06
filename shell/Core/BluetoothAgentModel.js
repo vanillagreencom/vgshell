@@ -13,7 +13,7 @@
 //   { kind: "resolve", lease }  call resolve(lease) after the caller returns
 //   { kind: "log", line }       one warning line
 // The BlueZ 5.87 facts each rule rests on are cited in
-// docs/architecture/bluetooth-agent.md.
+// docs/decisions/D085-bluetooth-agent-core-lent-over-bluetoothctl.md.
 
 // How long the child has for each acknowledgement, for `agent off`'s, and
 // for its exit once its stdin is closed.

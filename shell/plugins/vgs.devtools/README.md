@@ -22,7 +22,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 
 ## Catalog
 
-The catalog's sections, fields, install routes, mise specs and security rules are in [docs/architecture/devtools-catalog.md](../../../docs/architecture/devtools-catalog.md).
+The catalog's sections, fields, install routes, mise specs and security rules are in [commands-are-data.md](../../../docs/architecture/commands-are-data.md).
 
 Each tool is a `catalog.json` row with a `present` probe, installed through a package-manager id, a mise spec, a named installer route or container data, so the engine lists, installs and removes tools from one data file and parses no shell snippets. The PHP row installs the mise spec `github:nunomaduro/static-php-builds`, because bare `php` builds PHP from source and needs many system development packages.
 

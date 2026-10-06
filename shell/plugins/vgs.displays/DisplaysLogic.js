@@ -5,7 +5,7 @@
 // a brightness key, a scroll or a linked slider changes, what the idle dim
 // sets and brings back, and the status the service publishes and every
 // surface reads. QML owns the processes, the files and the timers;
-// helper/brightness.py owns the devices (docs/architecture/displays.md).
+// helper/brightness.py owns the devices (docs/decisions/D081-system-steps-closed-core-table.md).
 
 // A slider, a key and a scroll never go below 1 %: a kernel backlight at
 // 0 % turns its panel off.

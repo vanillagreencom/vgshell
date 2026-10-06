@@ -76,7 +76,7 @@
 // spec has a Conflicts, Obsoletes or Provides tag, refused as
 // <tag lowercase>=<value> spec=<file>.
 // Licence, after every channel: the package licence expression
-// docs/architecture/distribution.md § Licence states, its line
+// docs/architecture/distribution.md, its line
 // "- The SPDX licence expression of a VGS package is `<expr>`.", equals
 // every recipe's: each .SRCINFO's license and each spec's License.
 //

@@ -69,7 +69,7 @@ Scope {
     property var rememberedLayers: []
     // The vgs.polkit prompt over a stand-in authentication flow, for the
     // polkit scene of scripts/sandbox-shots.sh: no sandbox path runs a live
-    // flow (docs/architecture/lock-polkit.md § Validation). While shown it
+    // flow (docs/decisions/D062-native-lock-and-polkit-plugins.md). While shown it
     // is { surface, prompt, flow }, else null.
     property var polkitStandIn: null
     readonly property var runnerContext: ({ id: "smoke-runner-copy", onDispose: () => () => {} })
@@ -1169,7 +1169,7 @@ Scope {
         function readInstance(hostKey: string, id: string, property: string): string { return root.read(hostKey, id, property); }
         // The core's session lock, taken and released without a password,
         // for rows/lock.sh: a sandbox row never runs PAM against the real
-        // account (docs/architecture/lock-polkit.md § Validation). The bare
+        // account (docs/decisions/D062-native-lock-and-polkit-plugins.md). The bare
         // lock takes the session over with no lock screen, as after a lock
         // client died, so the release can follow.
         function sessionUnlock(): string { return Capabilities.sessionLock.unlock(); }

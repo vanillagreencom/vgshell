@@ -13,7 +13,7 @@ Covers: README.md, scripts/check-readme.js, scripts/test-check-readme.js, script
 | The install script: `curl -fsSL <main install.sh> \| bash`, and `bash -s -- <options>` | the option parser of `install.sh`; a `--version` value is `v` plus `VERSION` |
 | Nix: `nix run github:vanillagreencom/vgshell -- <vgshell args>`, the flake on `main`, or the tag with `vgshell/v<VERSION>` | `vgshell --help` for the command, and `VERSION` for a tag |
 | A checkout: `git clone https://github.com/vanillagreencom/vgshell`, then `vgshell/bin/vgshell <args>` | `vgshell --help` |
-| § Setup: the autostart line, in one `lua` fence | the autostart sentence in [runtime.md § Process](runtime.md), the line `install.sh` prints with `vgshell` for its absolute path, and the line of `bin/lib/post-install.txt` ([distribution.md § First-install text](distribution.md#first-install-text)) |
+| § Setup: the autostart line, in one `lua` fence | the autostart sentence in [runtime.md § Process](runtime.md), the line `install.sh` prints with `vgshell` for its absolute path, and the line of `bin/lib/post-install.txt` ([distribution.md § First-install text](distribution.md)) |
 | § Plugins: one row per plugin directory, its manifest's `name` linked to its README and its `description` | the directories `bin/vgshell-scan` lists under `shell/plugins/`, and their manifests |
 
 Every line of a `bash` fence in § Install is one command of one channel. A line that fits no channel above is refused, so a new install path needs a channel in the check first.
