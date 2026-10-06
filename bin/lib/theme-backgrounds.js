@@ -209,7 +209,8 @@ function choose(list, remembered) {
 
 // Keep STATE_DIR's background-square.png the centre square of CURRENT, a
 // stamped image or null, scaled down to at most 1024 px: written by rename
-// when CURRENT differs from BEFORE's or the file is absent, removed with no
+// when CURRENT differs from BEFORE, the stamped image `read` answered, or
+// the file is absent, removed with no
 // image. ImageMagick is a package dependency. An image it cannot read, or
 // its absence, leaves no file rather than refusing the background change,
 // and fastfetch then draws its ASCII logo: the crop is that logo alone.
@@ -231,9 +232,9 @@ function landSquare(stateDir, current, before, key) {
 
 // Make AFTER, a state as `read` answers it, the background state: the
 // `background` symlink to its `current` first, replaced by rename, then
-// backgrounds.json when it differs from BEFORE, the state `read` answered,
-// then the square, last so the plugin's watch of backgrounds.json never
-// waits for ImageMagick.
+// backgrounds.json when it differs from BEFORE, the state `read` answered.
+// The caller lands the square after every file the shell draws from, so
+// no theme or background change waits for ImageMagick.
 // The state directory is created first: `set` can be the first command a
 // fresh home runs. KEY leads the refusal for each write that fails.
 function land(stateDir, after, before, key) {
@@ -270,7 +271,6 @@ function land(stateDir, after, before, key) {
         if (empty) writing(state, key, () => fs.rmSync(state, { force: true }));
         else replaceFile(state, doc + "\n", key);
     }
-    landSquare(stateDir, after.current, before.current, key);
 }
 
-module.exports = { DIR, STATE_FILE, LINK, isImageName, entryKind, firstImageName, images, imagePath, locate, stamped, read, choose, land };
+module.exports = { DIR, STATE_FILE, LINK, isImageName, entryKind, firstImageName, images, imagePath, locate, stamped, read, choose, land, landSquare };

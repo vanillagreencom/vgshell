@@ -411,9 +411,14 @@ check "the wide image again is cropped again" square_is
 tinst "nord applies with no image" "$cfg" "$rt_empty" 0 "$any_out" "" theme apply nord
 check "no current image removes the crop" no_square
 reset_dusk "square control"
-bg_control no-square '    landSquare(stateDir, after.current, before.current, key);' ''
+judge_control no-square 'backgrounds.landSquare(stateDir, after.current, shown.current, key);' ''
 tinst "the no-square mutant sets the wide image" "$cfg" "$rt_empty" 0 "$(set_line wide.png - "$user/wide.png")" "" theme background set "$user/wide.png"
 check "the no-square mutant fails the crop check" test "$(square_is && echo cropped || echo none)" == none
+reset_dusk "apply square control"
+tinst "the apply square control sets the wide image" "$cfg" "$rt_empty" 0 "$(set_line wide.png - "$user/wide.png")" "" theme background set "$user/wide.png"
+judge_control apply-keeps-square 'backgrounds.landSquare(stateDir, background, shown.current, key);' ''
+tinst "the apply-keeps-square mutant applies nord" "$cfg" "$rt_empty" 0 "$any_out" "" theme apply nord
+check "the apply-keeps-square mutant fails the removal check" test "$(no_square && echo removed || echo kept)" == kept
 unset THEME_BIN
 
 rows_done test-vgshell-backgrounds
