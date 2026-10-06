@@ -275,6 +275,9 @@ if copy_tree placement-escape-control \
   expect_poll "control Escape: without drag capture the release drops the widget" changed placement_same_as "$sandbox/shell-before-escape-control.json"
   hypr_lua_restore placement-escape-control || fail "control Escape: placement puts the harness hyprland.lua back"
   expect "control Escape: the nested instance reloads the harness hyprland.lua" ok hypr reload config-only
+  # A fresh layer can miss the first press under a resting pointer.
+  read -r below_x below_y < <(placement_bar_below_left) || fail "control Escape: the point below the bar is unreadable before restart"
+  hover "$below_x" "$below_y" || fail "control Escape: resting the pointer below the bar failed"
   stop_shell
   cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
   start_shell "$repo" "$sandbox/placement-escape-control-restored.log" || fail "the shell starts again after the Escape control"
