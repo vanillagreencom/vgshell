@@ -11,7 +11,6 @@ var NAMES = { claude: "Claude Code", codex: "Codex", copilot: "Copilot", gateway
 var EXPIRED = { claude: "Open Claude Code to refresh the sign-in", copilot: "Open Copilot to sign in again" };
 var NO_PLAN = "Signed in with an API key, which has no plan limits";
 var GATEWAY_ACCOUNT = "ai-gateway";
-var GATEWAY_COMMAND = "secret-tool store --label='VGS AI Usage AI Gateway key' service vgs-ai-usage account ai-gateway";
 var LABEL_MAX = 60;
 
 function copyWindows(windows) {
@@ -157,7 +156,7 @@ function signIn(usage, provider) {
 
 function gatewayKey(presence) {
     var value = ["present", "absent", "locked", "unavailable", "unsafe"].indexOf(presence) === -1 ? "unavailable" : presence;
-    return [{ label: "AI Gateway", value: value, secret: GATEWAY_ACCOUNT, command: GATEWAY_COMMAND }];
+    return [{ label: "AI Gateway", value: value, secret: GATEWAY_ACCOUNT }];
 }
 
 // What a window measures: its length in minutes, null when the tool names

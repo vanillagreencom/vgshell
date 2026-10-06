@@ -7,15 +7,15 @@ import "Steps.js" as Steps
 // One Status row of a plugin's page, drawn from one entry of its manager
 // row's `status` (PluginLogic.statusRows) as StatusLines: the entry's label
 // beside its value, the manifest's hint and, while its step applies
-// (Steps.js), its action and its command behind "Show command". A presence
+// (Steps.js), its action. A presence
 // or a state draws as a Badge in the tone the entry carries, a state's
 // further lines each as a Badge of that tone under it; a text, a
 // count or a time as one line of text; an entry the plugin has not
 // published, or published while disabled, as "Not reported". A presence
 // list draws its label and hint alone, "None detected" while the list is
 // empty, then one line per item: the item's label beside a Badge of its
-// presence, its hint, Connect or Disconnect for an item that is a secret's
-// presence, and its command while the step is Connect. Each line is one
+// presence, its hint, and Connect or Disconnect for an item that is a secret's
+// presence. Each line is one
 // group of the row's GroupList, divided from the next as the rows of a
 // section are. No row takes an edit of a value: a step goes to the manager
 // through `panel` (D061).
@@ -52,17 +52,17 @@ GroupList {
     }
 
     readonly property var presenceWords: ({ present: "Present", absent: "Absent", locked: "Locked", unavailable: "Unavailable", unsafe: "Unsafe" })
-    // What the row draws: { label, hint, command, offered, tone, text, lines,
-    // muted, items }, `command` and `offered` its step's (Steps.statusStep),
+    // What the row draws: { label, hint, offered, tone, text, lines,
+    // muted, items }, `offered` its step's (Steps.statusStep),
     // `tone` "" for a value drawn as text, `lines` a state's further lines
     // and `items` a presence list's items, each
-    // { key, label, value, hint, command, tone, secret, access }.
+    // { key, label, value, hint, tone, secret, access }.
     // `key` names the item across writes: its secret's account, else its
     // label, with its count among earlier equal names after a second one.
     readonly property var view: {
-        if (entry === null) return { label: "", hint: "", info: "", command: "", offered: false, tone: "", text: "", lines: [], muted: true, items: [] };
+        if (entry === null) return { label: "", hint: "", info: "", offered: false, tone: "", text: "", lines: [], muted: true, items: [] };
         const step = Steps.statusStep(entry);
-        const out = { label: entry.label, hint: entry.hint, info: entry.info, command: step.command, offered: step.offered, tone: "", text: "Not reported", lines: [], muted: true, items: [] };
+        const out = { label: entry.label, hint: entry.hint, info: entry.info, offered: step.offered, tone: "", text: "Not reported", lines: [], muted: true, items: [] };
         if (entry.report !== "reported") return out;
         out.muted = false;
         out.tone = entry.tone;
@@ -93,7 +93,6 @@ GroupList {
         label: row.view.label
         hint: row.view.hint
         info: row.view.info
-        command: row.view.command
         tone: row.view.tone
         text: row.view.text
         lines: row.view.lines
@@ -114,7 +113,6 @@ GroupList {
             width: row.width
             label: modelData.label
             hint: modelData.hint
-            command: Steps.itemCommand(modelData)
             tone: modelData.tone
             text: row.presenceWords[modelData.value]
             access: modelData.access

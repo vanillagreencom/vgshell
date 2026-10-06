@@ -18,6 +18,14 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 
 The plugin's Settings page and its panel show each setup step as a button, only while the step is needed. Install vsys opens the install screen for vsys. Set up opens a floating terminal that starts the Agent Warden checks. Once Agent Warden runs, the page shows no setup button.
 
+<details><summary>Show command</summary>
+
+```bash
+vsys warden install
+```
+
+</details>
+
 | Setting | What it changes |
 | --- | --- |
 | Show count | Shows the number of running agents or problems beside the shield. |

@@ -38,9 +38,18 @@ These features need developer setup. They are off by default and do not appear i
 
 With no token, or with no `secret-tool` binary installed, Slack notifications keep the initials faces and the workspace icons above.
 
-Each workspace takes its own token, in libsecret under `service vgs-notifications` and `account slack:<team id>`, the team id Slack's workspace list gives it. The Settings page lists each workspace the list names, with its token's state: Present, Absent, Locked or Unavailable. **Connect** opens a masked field for the workspace's token. VGS stores it in your keyring through `secret-tool`, handing it over on stdin, never on a command line, and the photos load at once. **Disconnect** removes a stored token. Show command, beside each, reveals the `secret-tool` command that does the same by hand ([D061](../../../docs/decisions/D061-no-manual-commands.md)). The check runs at start, when the workspace list changes, after each Connect or Disconnect and after each photo refresh; it never reads a token or unlocks the keyring.
+Each workspace takes its own token, in libsecret under `service vgs-notifications` and `account slack:<team id>`, the team id Slack's workspace list gives it. The Settings page lists each workspace the list names, with its token's state: Present, Absent, Locked or Unavailable. **Connect** opens a masked field for the workspace's token. VGS stores it in your keyring through `secret-tool`, handing it over on stdin, never on a command line, and the photos load at once. **Disconnect** removes a stored token. The check runs at start, when the workspace list changes, after each Connect or Disconnect and after each photo refresh; it never reads a token or unlocks the keyring.
 
 A token is a Slack app's user token (`xoxp-`) with the user token scopes `users:read` and `team:read`, and `emoji:read` for custom emoji, installed to the workspace. The single-workspace token of earlier versions, `account slack`, still works for the one team its `team.info` names, unless that team has its own token.
+
+<details><summary>Show command</summary>
+
+```bash
+secret-tool store --label='VGS notifications Slack token' service vgs-notifications account slack
+secret-tool store --label='VGS notifications Slack token T0ACME' service vgs-notifications account slack:T0ACME
+```
+
+</details>
 
 The helper calls `team.info` and `users.list`. It stores only the team id, team names, the team icon, each user id, each user's display name, real name, Slack name and `image_48` photo, under `$XDG_CACHE_HOME/vgshell/notifications/slack-photos/`. It does not read or store messages, channels, presence, email, profile text or tokens. [secrets.md](../../../docs/architecture/secrets.md) holds the cache, its refresh and its limits.
 

@@ -17,7 +17,7 @@ A requirement is a fact about the system, so no plugin names another plugin and 
 - Never install or elevate without the user; install is a `vgshell pkg run` in a terminal the user watches, and the manager never takes `--noconfirm`. `scripts/test-vgshell-requirements.sh` and `scripts/test-vgshell-pkg-table.js` pin both.
 - Do ask a running shell to rescan after every package change, however it ends. `scripts/test-vgshell-requirements.sh` pins it.
 - Do raise a notice only for requirements its owner declares, never for optional requirements alone, and keep the installing notice in front until one scan after its run ended. `scripts/test-notice-logic.js` pins each.
-- Never bind a drawn property to a command line; a command sits behind "Show command" alone. `scripts/check-user-commands.py` refuses it under `drawn-command-line` ([D061](../decisions/D061-no-manual-commands.md)).
+- Never bind a drawn property to a command line, except the by-hand requirement notice for a step VGS cannot run on this system. `scripts/check-user-commands.py` refuses drawn command text ([D061](../decisions/D061-no-manual-commands.md)).
 - Do rest a plugin's own offers after Not now, and never rest the user's own triggers. `scripts/test-notice-logic.js` pins it.
 
 ## The canonical example

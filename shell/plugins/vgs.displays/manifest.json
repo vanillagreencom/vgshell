@@ -40,8 +40,8 @@
   "status": {
     "displays": { "type": "data", "label": "Displays" },
     "assignments": { "type": "data", "label": "Display choices" },
-    "appleAccess": { "type": "state", "label": "Apple displays", "group": "Access", "action": { "label": "Allow", "system": "apple-displays" }, "command": "vgshell system apply apple-displays" },
-    "ddcAccess": { "type": "state", "label": "External displays", "group": "Access", "action": { "label": "Allow", "system": "i2c-dev" }, "command": "vgshell system apply i2c-dev" },
+    "appleAccess": { "type": "state", "label": "Apple displays", "group": "Access", "action": { "label": "Allow", "system": "apple-displays" } },
+    "ddcAccess": { "type": "state", "label": "External displays", "group": "Access", "action": { "label": "Allow", "system": "i2c-dev" } },
     "ddcTool": { "type": "state", "label": "External display support", "group": "Access", "action": { "label": "Install", "install": ["ddcutil"] } },
     "backlightTool": { "type": "state", "label": "Built-in display support", "group": "Access", "action": { "label": "Install", "install": ["brightnessctl"] } }
   }

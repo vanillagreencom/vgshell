@@ -19,7 +19,7 @@
 # the backup holds the planted files, the shipped set runs with no user
 # plugin and vgs.launcher enabled, the theme is the default, the welcome is
 # unseen and the "VGS was reset" notice offers Restore previous settings,
-# Keep these holding the keyboard, its command behind Show command.
+# Keep these holding the keyboard, and no Show command.
 # Hyprland lists no config error. Escape hides that notice and keeps its
 # marker, so the shell `vgshell restart` brings next offers the restore
 # again. Shift+Tab, typed on that keyboard as a person types it, moves
@@ -269,7 +269,7 @@ PY
     expect_poll "the reset question is the one notice surface" 1 layer_count vgs:notice
     expect_poll "the reset question names the reset" '"Reset VGS?"' reset_drawn title
     expect "the reset question offers Cancel and Reset" '["Cancel", "Reset"]' reset_drawn actions
-    expect "the reset question's command is behind Show command, closed" '{"toggle": "Show command", "expanded": false, "text": "vgshell reset --yes"}' reset_drawn command
+    expect "the reset question draws no Show command" '[]' reset_drawn rows
     expect_poll "the reset question holds the keyboard" true ipc smoke noticeFocused
     expect_poll "Cancel holds the keyboard first" '"Cancel"' reset_drawn focused
     reset_send "down 9" "up 9" || fail "sending Escape to the reset question failed"
@@ -312,7 +312,7 @@ PY
       expect_poll "the reset's notice is the one notice surface" 1 layer_count vgs:notice
       expect_poll "the reset's notice names the reset" '"VGS was reset"' reset_drawn title
       expect "the reset's notice offers Restore previous settings and Keep these" '["Restore previous settings", "Keep these"]' reset_drawn actions
-      expect "the restore's command is behind Show command, closed" "{\"toggle\": \"Show command\", \"expanded\": false, \"text\": \"vgshell reset restore --yes $reset_folder\"}" reset_drawn command
+      expect "the restore notice draws no Show command" '[]' reset_drawn rows
       expect_poll "Keep these holds the keyboard first" '"Keep these"' reset_drawn focused
       expect_poll "the reset shell writes the Hyprland layer again" present reset_file "$reset_state/hypr/vgs.lua"
       expect_poll "Hyprland lists no config error after the reset" '[]' hypr_reload_errors

@@ -44,7 +44,6 @@ KeyCaps 1.0 feedback/KeyCaps.qml
 KeyHints 1.0 feedback/KeyHints.qml
 LinkText 1.0 feedback/LinkText.qml
 CodeLine 1.0 feedback/CodeLine.qml
-CommandDisclosure 1.0 feedback/CommandDisclosure.qml
 AvatarGroup 1.0 feedback/AvatarGroup.qml
 ScrollArea 1.0 layout/ScrollArea.qml
 TouchpadScroll 1.0 layout/TouchpadScroll.qml

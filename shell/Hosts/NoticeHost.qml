@@ -11,12 +11,10 @@ import qs.Ui
 // taking the keyboard on demand. It draws one Dialog at a time. A
 // requirement notice has priority: each missing requirement with its purpose
 // first, then Install and Not now, or Close alone when no manager here
-// installs a listed package. The command Install runs is only behind Show
-// command (D061). Install runs Notices.accept, every other answer
-// Notices.dismiss. The consent slot draws its view's title, message,
+// installs a listed package. Install runs Notices.accept, every other
+// answer Notices.dismiss. The consent slot draws its view's title, message,
 // lines, file link, quick commands and actions: the Hyprland question's
-// Connect and Not now, with its command only behind Show command, or the
-// welcome's Connect, Not now or Close without a command disclosure. The
+// Connect and Not now, or the welcome's Connect, Not now or Close. The
 // restart notice is drawn as the consent slot is, from Notices.restartView, and its
 // Restart runs Notices.restartShell; so are the reset question, from
 // Notices.resetView, whose Reset runs Notices.resetVgs, and the "VGS was
@@ -96,8 +94,7 @@ Scope {
 
                 function tabStops() {
                     const links = consentLines.visible ? consentLines.visibleChildren.filter(item => item.linked === true) : [];
-                    const command = disclosure.command === "" ? [] : [disclosure.toggle, disclosure.copyButton];
-                    return links.concat(command);
+                    return links;
                 }
 
                 // The consent slot's lines, the welcome's: paragraphs
@@ -176,12 +173,6 @@ Scope {
                             }
                         }
                     }
-                }
-                // The command Install runs, for a reader who runs it by hand.
-                CommandDisclosure {
-                    id: disclosure
-                    width: parent.width
-                    command: win.consentMode ? win.consent.disclosure : win.shown.commandLine
                 }
                 Label {
                     role: Theme.dialog.bodyRole

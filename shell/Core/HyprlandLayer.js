@@ -15,7 +15,6 @@ var REGENERATE = "vgshell hypr render";
 var CONSENT = {
     title: "Let VGS manage its Hyprland settings?",
     message: "One line at the top of hyprland.lua loads the keys, border colours and blur rules VGS generates. VGS changes no other line of that file.",
-    disclosure: "vgshell hypr wire",
     connect: "Connect",
     decline: "Not now"
 };
@@ -25,7 +24,6 @@ function consentView(consent) {
     return {
         title: CONSENT.title,
         message: CONSENT.message,
-        disclosure: CONSENT.disclosure,
         actions: { connect: CONSENT.connect, decline: CONSENT.decline },
         failure: consent.failure,
         busy: consent.queued !== ""

@@ -26,7 +26,7 @@
   ],
   "status": {
     "scheduler": { "type": "state", "label": "Scheduler" },
-    "linger": { "type": "state", "label": "While logged out", "hint": "Allow scheduled runs to continue after you log out", "action": { "label": "Enable while logged out", "tui": "linger" }, "command": "loginctl enable-linger" },
+    "linger": { "type": "state", "label": "While logged out", "hint": "Allow scheduled runs to continue after you log out", "action": { "label": "Enable while logged out", "tui": "linger" } },
     "active": { "type": "count", "label": "Scheduled automations" },
     "nextRun": { "type": "text", "label": "Next run" },
     "lastRuns": { "type": "state", "label": "Last runs", "hint": "Select a failure alert to open the run output" },

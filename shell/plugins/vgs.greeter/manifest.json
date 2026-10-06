@@ -12,7 +12,7 @@
   "capabilities": ["status", "system"],
   "systemSteps": ["greeter"],
   "status": {
-    "greeter": { "type": "state", "label": "Login screen", "action": { "label": "Set up", "system": "greeter" }, "command": "vgshell system apply greeter" },
+    "greeter": { "type": "state", "label": "Login screen", "action": { "label": "Set up", "system": "greeter" } },
     "theme": { "type": "state", "label": "Login screen theme", "hint": "The login screen shows your theme and background" }
   },
   "requirements": [

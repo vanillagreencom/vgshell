@@ -89,7 +89,7 @@ expect "the restart notice was raised once" "$((owed_logs + 1))" log_lines 'noti
 expect_poll "the restart notice is the one notice surface" 1 layer_count vgs:notice
 expect_poll "the restart notice names the action" '"Restart to update"' drift_drawn title
 expect "the restart notice offers Restart and Not now" '["Restart", "Not now"]' drift_drawn actions
-expect "the command Restart runs is behind Show command, closed" '{"toggle": "Show command", "expanded": false, "text": "vgshell restart"}' drift_drawn command
+expect "the restart notice draws no Show command row" '[]' drift_drawn rows
 expect "no row of the notice's body draws a command" '[]' drift_drawn rows
 
 # Must-fail control for the hot-load acceptance: after coreChanged, a plugin

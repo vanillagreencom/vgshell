@@ -65,8 +65,7 @@
       "label": "Warden",
       "hint": "Checks whether AI agents stay within their memory and process limits",
       "info": "Shows whether the vsys warden is set up, checking agents and reporting problems.",
-      "action": { "label": "Set up", "tui": "setup" },
-      "command": "vsys warden install"
+      "action": { "label": "Set up", "tui": "setup" }
     },
     "agents": {
       "type": "count",

@@ -332,7 +332,7 @@
 # stopped as `restart` does before anything moves, and started again after the apply, with restart's line;
 # with none running it prints shell=not-running. The shell started after a
 # reset reads reset-backup and offers the restore in its "VGS was reset"
-# notice, its command behind Show command. On a terminal reset lists what
+# notice. On a terminal reset lists what
 # moves and asks `vgshell: reset VGS? [y/N]` on stderr, and any other answer
 # than y or yes refuses declined=reset with nothing moved; --yes skips both.
 # With no terminal on stdin and no --yes it asks the running shell to show

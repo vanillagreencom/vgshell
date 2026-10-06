@@ -31,8 +31,25 @@ Images come from `scripts/readme-shots.sh` in the nested sandbox.
 
 When a Claude Code or Copilot sign-in has expired, open that tool once to refresh it.
 
+<details><summary>Show command</summary>
+
+```bash
+claude auth login
+codex login
+```
+
+</details>
+
 ## Extras (not supported)
 
 - **AI Gateway**, `aiGateway`: Vercel AI Gateway credits from an API key. `{ "id": "vgs.ai-usage", "aiGateway": true }` in `plugins` in `~/.config/vgshell/shell.json` turns it on. The Settings page then lists an AI Gateway key row with Connect. With it off, the plugin reads no AI Gateway key, calls no AI Gateway API and shows no AI Gateway row.
 
-Each AI Gateway key is stored in libsecret under `service vgs-ai-usage` and `account ai-gateway`. The Settings page shows the key state: Present, Absent, Locked or Unavailable. **Connect** opens a masked field for the key. VGS stores it in your keyring through `secret-tool`, handing it over on stdin, never on a command line. **Disconnect** removes the stored key. Show command, beside the row, reveals the `secret-tool` command that does the same by hand.
+Each AI Gateway key is stored in libsecret under `service vgs-ai-usage` and `account ai-gateway`. The Settings page shows the key state: Present, Absent, Locked or Unavailable. **Connect** opens a masked field for the key. VGS stores it in your keyring through `secret-tool`, handing it over on stdin, never on a command line. **Disconnect** removes the stored key.
+
+<details><summary>Show command</summary>
+
+```bash
+secret-tool store --label='VGS AI Usage AI Gateway key' service vgs-ai-usage account ai-gateway
+```
+
+</details>

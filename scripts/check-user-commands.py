@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Enforce the no-manual-commands rule of D061 on the text a user reads.
 
-A setup step is automatic or one click; a command the user could run by
-hand is only a secondary "Show command" disclosure beside that click. This
-check fails where user-facing text tells the user to run a command:
+A setup step is automatic or one click. The interface shows no command,
+except where VGS cannot run a step on this system and the user must run it
+by hand. A plugin README keeps commands behind a "Show command" details
+block. This check fails where user-facing text tells the user to run a
+command:
   instruction   a clause that opens with an imperative verb of VERBS and
                 names a command: inline code whose first word is a command
                 head, or, outside Markdown, a command head as the verb's
@@ -22,17 +24,10 @@ check fails where user-facing text tells the user to run a command:
                 notice, a toast or a CodeLine draws: inline code whose first
                 word is a command head, or a literal that opens with a head
                 and an argument, as "vgshell plugin enable x" does. A command
-                there is copied off a label, where the one route is a
-                CommandDisclosure. A log line is read by `instruction`
-                alone. A binding reaches back over the lines its statement
+                there is copied off a label. A log line is read by
+                `instruction` alone. A binding reaches back over the lines its statement
                 wraps across, so `text: ready` then `? "..."` on the next
                 line is bound to `text`.
-  drawn-command-line  a property of DRAWN bound, on its line, to an
-                expression naming COMMAND_LINE, the name a judge gives a
-                value that holds a whole command a reader could run, such
-                as PluginLogic.noticeView's `commandLine`: that value
-                reaches the screen only as a CommandDisclosure's `command`,
-                which DRAWN does not hold.
 A string literal is a quoted one or a template literal, whose `${...}`
 parts read as the argument $ARG.
 The text read is every Markdown file and every manifest.json of each plugin
@@ -40,10 +35,8 @@ directory under the root's plugins/, the user-facing strings of each
 manifest (FIELDS, each key the judge admits named there or in EXEMPT), and
 every string literal of every `.qml` and `.js` file
 under the root, comments blanked through scripts/qml_source.py. A
-`<details>` block of Markdown whose `<summary>` reads "Show command" is the
-disclosure and is not read; a manifest's status `command` is the
-disclosure the Settings page draws, and PluginLogic.statusError refuses one
-without its action.
+`<details>` block of Markdown whose `<summary>` reads "Show command" is not
+read.
 
 A command head is a command VGS knows a user could be told to run: a file
 name in bin/, a requirement `command` of any plugin manifest under the root
@@ -99,13 +92,12 @@ FIELDS = (
     ("secrets", "label"),
 )
 # The keys the judge admits that the check does not read, and why: an
-# identifier, a path or a value no one reads as prose, or the Show command
-# disclosure itself.
+# identifier, a path or a value no one reads as prose.
 EXEMPT = (
     ("schemaVersion",), ("id",), ("version",), ("license",), ("icon",), ("kinds",), ("entryPoints",),
     ("capabilities",), ("systemSteps",), ("settings",), ("defaultSection",), ("pane", "order"), ("appearance",), ("extras",), ("optIn",), ("alwaysOn",),
     ("schema", "*", "type"), ("schema", "*", "optionsFrom"), ("schema", "*", "defaults"), ("schema", "*", "presets", "*", "value"), ("schema", "*", "allowCustom"), ("schema", "*", "format"), ("schema", "*", "unit"), ("schema", "*", "min"), ("schema", "*", "max"), ("schema", "*", "step"),
-    ("status", "*", "type"), ("status", "*", "hidden"), ("status", "*", "command"),
+    ("status", "*", "type"), ("status", "*", "hidden"),
     ("status", "*", "action", "tui"), ("status", "*", "action", "install"), ("status", "*", "action", "system"),
     ("status", "*", "actions", "*", "tui"), ("status", "*", "actions", "*", "install"), ("status", "*", "actions", "*", "system"),
     ("requirements", "*", "command"), ("requirements", "*", "dbus"), ("requirements", "*", "packages"), ("requirements", "*", "optional"),
@@ -132,7 +124,6 @@ DETAILS = re.compile(r"<details>\s*<summary>\s*Show command\s*</summary>.*?</det
 # notice's title and message, a row's label and description.
 DRAWN = ("text", "hint", "error", "description", "placeholderText", "title", "message", "label", "secondary", "body", "summary")
 DRAWN_BEFORE = re.compile(r"\b(?:" + "|".join(DRAWN) + r")\s*:")
-COMMAND_LINE = "commandLine"
 STRING = re.compile(r'"(?:[^"\\\n]|\\.)*"|\'(?:[^\'\\\n]|\\.)*\'')
 # A quoted literal or a template literal, the quoted ones first, so a
 # backtick inside a quoted literal opens no template.
@@ -352,11 +343,6 @@ def main(argv):
             code_files += 1
             code = blank_comments(text)
             masked = blank(code, LITERAL)
-            for use in re.finditer(r"\b" + COMMAND_LINE + r"\b(?![ \t]*:)", masked):
-                start = statement_start(masked, use.start())
-                if DRAWN_BEFORE.search(masked, start, use.start()) is not None:
-                    end = masked.find("\n", use.end())
-                    findings.append(("drawn-command-line", path, line_of(masked, use.start()), masked[start:end if end != -1 else len(masked)].strip()[:120]))
             for literal in LITERAL.finditer(code):
                 strings += 1
                 token = literal.group(0)

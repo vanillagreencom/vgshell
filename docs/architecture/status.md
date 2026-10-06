@@ -6,20 +6,19 @@ The runtime values a plugin publishes for its own instances and for its Settings
 
 ## Declared
 
-The manifest's `status` key maps a status key to `{ type, label, group?, hint?, action?, actions?, command?, hidden? }`. `PluginLogic.validateManifest` judges it; `scripts/test-plugin-logic.js` pins each refusal by its text.
+The manifest's `status` key maps a status key to `{ type, label, group?, hint?, action?, actions?, hidden? }`. `PluginLogic.validateManifest` judges it; `scripts/test-plugin-logic.js` pins each refusal by its text.
 
 - A key matches `PluginLogic.STATUS_KEY_PATTERN`, a plain identifier such as `slackTokens`.
-- `type` is one of `PluginLogic.STATUS_TYPES`, the table below. `label` and `group` are printable lines of at most 60 characters, `hint` of at most 200, `command` of at most 300. `hidden` keeps a typed entry off the Settings page.
+- `type` is one of `PluginLogic.STATUS_TYPES`, the table below. `label` and `group` are printable lines of at most 60 characters, `hint` of at most 200. `hidden` keeps a typed entry off the Settings page.
 - `action` is the entry's one-click setup step, on a `presence` or `state` entry alone: `{ label, tui }`, one of the manifest's own `tui` scripts, `{ label, install }`, a list of its own requirement commands, each once, or `{ label, system }`, a step of its own `systemSteps` ([system-steps.md](system-steps.md)). `PluginLogic.statusActionError` judges it.
-- `actions`, on a `state` entry alone and in place of `action`, is two or more such steps by name, `{ <name>: { label, tui | install | system } }`, for a row whose step differs by what its writer found. The value names the one that applies. It takes no `command`, which would stand for one of them alone.
-- `command` is text, and needs an `action`: the page shows it only behind that action's Show command disclosure, a `CommandDisclosure`, and never runs it.
-- A `data` or `launcherRows` entry carries no `group`, `hint`, `action`, `actions`, `command` or `hidden`, because the page never draws it.
+- `actions`, on a `state` entry alone and in place of `action`, is two or more such steps by name, `{ <name>: { label, tui | install | system } }`, for a row whose step differs by what its writer found. The value names the one that applies.
+- A `data` or `launcherRows` entry carries no `group`, `hint`, `action`, `actions` or `hidden`, because the page never draws it.
 - `status` needs capability `status`, and capability `status` needs at least one entry.
 
 | Type | Value | Tone on the page |
 |---|---|---|
 | `presence` | `present`, `absent`, `locked`, `unavailable` or `unsafe` | `success`, `warning`, `info`, `neutral`, `danger`, from `PluginLogic.STATUS_PRESENCE_TONES` |
-| `presenceList` | a list of at most `PluginLogic.STATUS_LIST_MAX`, 64, items `{ label, value, hint?, secret?, command? }`, below | none of its own; each item the tone of its `value`, as a `presence` |
+| `presenceList` | a list of at most `PluginLogic.STATUS_LIST_MAX`, 64, items `{ label, value, hint?, secret? }`, below | none of its own; each item the tone of its `value`, as a `presence` |
 | `state` | `{ tone, text, lines?, action? }`: `tone` one of `ok`, `info`, `warning`, `danger`, a printable `text` of at most 200 characters, `lines`, 1 to 64 further such lines for a state that names several things, and `action`: a boolean, only for an entry that declares `action`, or the name of one of the entry's `actions` | `success`, `info`, `warning`, `danger`, from `PluginLogic.STATUS_STATE_TONES` |
 | `text` | a printable line of at most 200 characters | none |
 | `count` | a whole number from 0 | none |
@@ -32,11 +31,11 @@ A `presence` value answers whether a credential is stored without its value: sto
 
 A `launcherRows` value is a plugin-published launcher category. Each item holds only `id`, `label`, `icon`, optional `description`, optional `aliases` and optional `menu`. `id` is a launcher menu id. Dotted ids need an earlier parent item with `menu: true`. `label`, `description` and aliases are printable lines. `icon` names a shipped Lucide icon. A `menu: true` item opens a sub-category and runs nothing.
 
-A `presenceList` value is one `presence` per thing the manifest cannot list ahead, such as one credential per account the plugin finds. Each item carries only `STATUS_LIST_ITEM_KEYS`: a `label`, a printable line of at most 60 characters; a `value`, a `presence` value; and, when present, a `hint` of at most 200, a `secret`, the account of the manifest's `secrets` the item is the presence of, matching `PluginLogic.SECRET_ACCOUNT_PATTERN`, and a `command` of at most 300, which needs the `secret`. `PluginLogic.statusValueFits` judges each item, and `statusWrite` refuses a `secret` from a manifest without `secrets`, a state's boolean `action` for an entry without one and a name its `actions` do not hold, as `type`.
+A `presenceList` value is one `presence` per thing the manifest cannot list ahead, such as one credential per account the plugin finds. Each item carries only `STATUS_LIST_ITEM_KEYS`: a `label`, a printable line of at most 60 characters; a `value`, a `presence` value; and, when present, a `hint` of at most 200 and a `secret`, the account of the manifest's `secrets` the item is the presence of, matching `PluginLogic.SECRET_ACCOUNT_PATTERN`. `PluginLogic.statusValueFits` judges each item, and `statusWrite` refuses a `secret` from a manifest without `secrets`, a state's boolean `action` for an entry without one and a name its `actions` do not hold, as `type`.
 
 ## Actions and secrets
 
-An entry's `action`, its `command` and a manifest's `secrets`, the one-click setup steps the Settings page draws: [status.md](status.md).
+An entry's `action` and a manifest's `secrets`, the one-click setup steps the Settings page draws: [status.md](status.md).
 
 ## Setting choices
 
@@ -69,15 +68,15 @@ A string schema entry's `optionsFrom` names a `choices` status key of the same p
 
 ## Shown
 
-- `Registry.managerRows` gives each plugin `status`, `PluginLogic.statusRows` over `Registry.activeManifestOf`, the manifest without the entries of an owner-only extra that is off ([D075](../decisions/D075-consumer-features-need-no-developer-setup.md)); the manager's action and secret steps judge that view too, so they refuse such an entry as `undeclared`: one row per entry that is not `data`, `choices`, `launcherRows` or `hidden`, in manifest order, `{ key, type, label, group, hint, command, action, report, value, tone }`, `report` `reported` or `unreported` and `action` null or `{ label, offered }`. A reported `presenceList` row's `value` is its items, each `{ label, value, hint, command, tone, secret, access }` with `hint`, `command` and `secret` "" when the item omits them, `tone` its presence's and `access` `connect`, `disconnect` or ""; the row's own `tone` is "". Beside `status`, each plugin's manager row carries `secretLabel`, the manifest's `secrets` label or "", which a Connect's field asks for.
-- The Settings page draws a Status section on the plugin's Details page: one `StatusRow` per row, entries without a `group` first under `Status`, then each group in the order its first entry appears. A row draws `StatusLine`s: the label beside the value, a `Badge` in the row's tone for `presence` and `state`, one more for each of a state's `lines`, and a line of text otherwise, the hint under it and, while the action is offered, its button and the command behind Show command. A `presenceList` row draws its label and hint, "None detected" while the list is empty, then one line per item: the item's label beside a `Badge` of its presence, its hint, Connect or Disconnect by its access, and its command behind Show command while that access is Connect. [settings-window.md](settings-window.md) holds the rule. Connect opens one masked `TextField` on the line, whose Save or Enter hands what was typed to `storeSecret` and closes it. A refused or failed step reads under its line until a later step there succeeds. An unreported row, and every row of a disabled plugin, reads "Not reported". No row edits a value: its only input is a Connect's field.
+- `Registry.managerRows` gives each plugin `status`, `PluginLogic.statusRows` over `Registry.activeManifestOf`, the manifest without the entries of an owner-only extra that is off ([D075](../decisions/D075-consumer-features-need-no-developer-setup.md)); the manager's action and secret steps judge that view too, so they refuse such an entry as `undeclared`: one row per entry that is not `data`, `choices`, `launcherRows` or `hidden`, in manifest order, `{ key, type, label, group, hint, info, action, report, value, tone }`, `report` `reported` or `unreported` and `action` null or `{ label, offered }`. A reported `presenceList` row's `value` is its items, each `{ label, value, hint, tone, secret, access }` with `hint` and `secret` "" when the item omits them, `tone` its presence's and `access` `connect`, `disconnect` or ""; the row's own `tone` is "". Beside `status`, each plugin's manager row carries `secretLabel`, the manifest's `secrets` label or "", which a Connect's field asks for.
+- The Settings page draws a Status section on the plugin's Details page: one `StatusRow` per row, entries without a `group` first under `Status`, then each group in the order its first entry appears. A row draws `StatusLine`s: the label beside the value, a `Badge` in the row's tone for `presence` and `state`, one more for each of a state's `lines`, and a line of text otherwise, the hint under it and, while the action is offered, its button. A `presenceList` row draws its label and hint, "None detected" while the list is empty, then one line per item: the item's label beside a `Badge` of its presence, its hint, and Connect or Disconnect by its access. [settings-window.md](settings-window.md) holds the rule. Connect opens one masked `TextField` on the line, whose Save or Enter hands what was typed to `storeSecret` and closes it. A refused or failed step reads under its line until a later step there succeeds. An unreported row, and every row of a disabled plugin, reads "Not reported". No row edits a value: its only input is a Connect's field.
 
 ## Invariants
 
 1. Every instance of a plugin reads one record: the service, a bar widget on each of two screens and a summoned panel read one revision and one set of values. Enforced by `scripts/smoke/rows/status.sh`.
 2. Only a declared key with a value of its type, inside the ceiling, is published; the published values do not change in place. Enforced by `scripts/test-plugin-status.js`, each rule with a control, and by `scripts/smoke/rows/status.sh`, which reads each refusal by its text.
 3. A disabled plugin holds no record, a new source revision drops it, and a retired instance's write cannot bring it back. Enforced by `scripts/smoke/rows/status.sh`, from the lending record.
-4. The Status section draws no `data`, `choices` or hidden entry and no row edits a value; a command draws only behind Show command. Enforced by `scripts/test-plugin-status.js`, by `scripts/test-plugin-logic.js`, which refuses a `command` without an `action`, and by `scripts/smoke/rows/settings.sh`.
+4. The Status section draws no `data`, `choices` or hidden entry and no row edits a value. Enforced by `scripts/test-plugin-status.js`, `scripts/test-plugin-logic.js` and `scripts/smoke/rows/settings.sh`.
 5. A `presenceList` item holds only its keys, a label and a presence, and its row carries each item's tone and its secret's access. Enforced by `scripts/test-plugin-status.js`, each rule with a control.
 
 ## Decisions

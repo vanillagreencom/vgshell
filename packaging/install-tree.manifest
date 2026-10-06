@@ -137,7 +137,6 @@ f share/vgshell/shell/Ui/feedback/AvatarFace.qml
 f share/vgshell/shell/Ui/feedback/AvatarGroup.qml
 f share/vgshell/shell/Ui/feedback/Badge.qml
 f share/vgshell/shell/Ui/feedback/CodeLine.qml
-f share/vgshell/shell/Ui/feedback/CommandDisclosure.qml
 f share/vgshell/shell/Ui/feedback/Dialog.qml
 f share/vgshell/shell/Ui/feedback/EmptyState.qml
 f share/vgshell/shell/Ui/feedback/Kbd.qml

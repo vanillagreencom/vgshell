@@ -42,8 +42,7 @@
       "type": "state",
       "label": "Tool manager",
       "hint": "mise manages the developer tools",
-      "action": { "label": "Install mise", "install": ["mise"] },
-      "command": "vgshell pkg run install mise"
+      "action": { "label": "Install mise", "install": ["mise"] }
     },
     "checks": {
       "type": "state",

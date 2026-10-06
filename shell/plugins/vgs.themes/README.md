@@ -19,6 +19,14 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 - Chromium, Google Chrome, Microsoft Edge and Brave take the theme's background colour. The Arch and Fedora packages set this up for every user. On a home install, Install browser theming on the plugin's Settings page opens a terminal where sudo asks for your password.
 - Each shortcut changes under Keys on the plugin's Settings page.
 
+<details><summary>Show command</summary>
+
+```bash
+vgshell theme browser-policy install
+```
+
+</details>
+
 ## Settings
 
 | Setting | What it changes |

@@ -7,7 +7,7 @@
 # wires the Hyprland layer, so every later row starts with the notice
 # layer gone and the layer's options loaded.
 # leaves: layers options
-# inputs: shell/Core/HyprlandLayer.* shell/Core/Notices.qml shell/Core/PluginLogic.js config/shell.json bin/vgshell shell/Hosts/NoticeHost.qml shell/Ui/feedback/CommandDisclosure.qml shell/Ui/feedback/Dialog.qml shell/Ui/feedback/LinkText.qml shell/Ui/feedback/KeyCaps.qml shell/Ui/feedback/Kbd.qml shell/Ui/layout/Pane.qml scripts/smoke/Probe.qml
+# inputs: shell/Core/HyprlandLayer.* shell/Core/Notices.qml shell/Core/PluginLogic.js config/shell.json bin/vgshell shell/Hosts/NoticeHost.qml shell/Ui/feedback/Dialog.qml shell/Ui/feedback/LinkText.qml shell/Ui/feedback/KeyCaps.qml shell/Ui/feedback/Kbd.qml shell/Ui/layout/Pane.qml scripts/smoke/Probe.qml
 set -euo pipefail
 
 hypr_lua="$home/.config/hypr/hyprland.lua"
@@ -26,19 +26,19 @@ notice_fit() { ipc smoke noticeFit | py_reply 'import json,sys; f=json.load(sys.
 # notice_overflows HEIGHT: `yes` while the dialog is taller than its
 # surface or scrolls, on a surface at most HEIGHT high.
 notice_overflows() { ipc smoke noticeFit | py_reply 'import json,sys; f=json.load(sys.stdin); print("yes" if f["surface"] <= int(sys.argv[1]) and (f["dialog"] > f["surface"] or f["overflowing"] > 0) else json.dumps(f, sort_keys=True))' "$1"; }
-welcome_drawn_shape() { ipc smoke noticeDrawn | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps({"title": d["title"], "rowCount": len(d["rows"]), "hasLinkText": any("hyprland.lua" in row for row in d["rows"]), "keysTitle": d["keysTitle"], "keys": d["keys"], "command": d["command"], "focused": d["focused"], "actions": d["actions"], "busy": d["busy"]}, sort_keys=True))'; }
+welcome_drawn_shape() { ipc smoke noticeDrawn | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps({"title": d["title"], "rowCount": len(d["rows"]), "hasLinkText": any("hyprland.lua" in row for row in d["rows"]), "keysTitle": d["keysTitle"], "keys": d["keys"], "focused": d["focused"], "actions": d["actions"], "busy": d["busy"]}, sort_keys=True))'; }
 welcome_focused() { ipc smoke noticeDrawn | py_reply 'import json,sys; print(json.load(sys.stdin)["focused"])'; }
 welcome_shape_asking='{"actions": ["Connect", "Not now"], "keys": [{"shortcut": "Super+Ctrl+T", "text": "picks a theme."}], "lineCount": 3, "link": {"path": "hypr/hyprland.lua", "text": "hyprland.lua"}, "state": "unseen"}'
 
 expect "the harness starts without the VGS loading line" 0 wire_count
 expect "the sandbox starts without the welcome-seen marker" absent welcome_marker
-expect_poll "the first start's welcome asks the Hyprland question" '{"title": "Welcome to VGS", "command": "", "failure": ""}' hypr_consent_record
+expect_poll "the first start's welcome asks the Hyprland question" '{"title": "Welcome to VGS", "failure": ""}' hypr_consent_record
 # No key-hints plugin is installed, so its row is absent; the themes
 # plugin binds Super+Ctrl+T.
 expect_poll "the welcome is recorded with its link, key row and Connect, Not now" "$welcome_shape_asking" welcome_shape
 expect_poll "the welcome maps" 1 layer_count vgs:notice
 expect_poll "the welcome holds the keyboard" true ipc smoke noticeFocused
-expect_poll "the welcome draws link text, key chips, Connect and Not now without a command disclosure" '{"actions": ["Connect", "Not now"], "busy": false, "command": null, "focused": "Connect", "hasLinkText": true, "keys": [{"shortcut": "Super+Ctrl+T", "text": "picks a theme."}], "keysTitle": "Quick commands", "rowCount": 3, "title": "Welcome to VGS"}' welcome_drawn_shape
+expect_poll "the welcome draws link text, key chips, Connect and Not now without Show command" '{"actions": ["Connect", "Not now"], "busy": false, "focused": "Connect", "hasLinkText": true, "keys": [{"shortcut": "Super+Ctrl+T", "text": "picks a theme."}], "keysTitle": "Quick commands", "rowCount": 3, "title": "Welcome to VGS"}' welcome_drawn_shape
 fit_monitor="$(first_name)" || fail "the first monitor's name is unreadable"
 fit_base_mode="$(first_mode)" || fail "the first monitor's mode is unreadable"
 hold_mode "the nested compositor holds $fit_monitor at 1440x900 for the welcome" "$fit_monitor" 1440x900

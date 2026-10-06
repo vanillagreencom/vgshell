@@ -494,19 +494,17 @@ function verify(logic) {
 
     // The Settings rows: one per listed workspace, then the
     // single-workspace token when nothing is listed or it is stored.
-    const store = id => id === "" ? "secret-tool store --label='VGS notifications Slack token' service vgs-notifications account slack"
-        : "secret-tool store --label='VGS notifications Slack token " + id + "' service vgs-notifications account slack:" + id;
     const listedTwo = [{ id: "T1", domain: "acme", name: "Acme Corp" }, { id: "T2", domain: "globex", name: "" }];
     same(logic.slackTokenRows(listedTwo, { "slack:T1": "present", "slack:T2": "locked", slack: "absent" }, []), { ok: true, items: [
-        { label: "Acme Corp (acme)", value: "present", secret: "slack:T1", command: store("T1") },
-        { label: "globex", value: "locked", secret: "slack:T2", command: store("T2") }
-    ] }, "each workspace carries its own account's state and command; an absent single-workspace token shows no row");
+        { label: "Acme Corp (acme)", value: "present", secret: "slack:T1" },
+        { label: "globex", value: "locked", secret: "slack:T2" }
+    ] }, "each workspace carries its own account's state; an absent single-workspace token shows no row");
     same(logic.slackTokenRows(listedTwo, { "slack:T1": "absent", "slack:T2": "absent", slack: "present" }, [{ id: "T1", account: "slack" }, { id: "T2", account: "slack:T2" }]), { ok: true, items: [
         { label: "Acme Corp (acme)", value: "present", hint: "Uses the single-workspace token" },
-        { label: "globex", value: "absent", secret: "slack:T2", command: store("T2") },
-        { label: "Single-workspace token", value: "present", secret: "slack", command: store("") }
+        { label: "globex", value: "absent", secret: "slack:T2" },
+        { label: "Single-workspace token", value: "present", secret: "slack" }
     ] }, "a workspace the single-workspace token serves says so, with no account to connect, and a stored single-workspace token shows its row");
-    same(logic.slackTokenRows([], { slack: "absent" }, []), { ok: true, items: [{ label: "Single-workspace token", value: "absent", secret: "slack", command: store("") }] }, "with no workspace listed the single-workspace row shows");
+    same(logic.slackTokenRows([], { slack: "absent" }, []), { ok: true, items: [{ label: "Single-workspace token", value: "absent", secret: "slack" }] }, "with no workspace listed the single-workspace row shows");
     same(logic.slackTokenRows(listedTwo, { "slack:T1": "present", slack: "absent" }, []), { ok: false, missing: "slack:T2" }, "a workspace the probe has not answered for waits");
     same(logic.slackTokenRows([], {}, []), { ok: false, missing: "slack" });
     for (const [label, workspace, want] of [
@@ -795,7 +793,6 @@ const CONTROLS = [
     ["a workspace's row waits for its state", "if (!hasOwn(states, account)) return { ok: false, missing: account };", ""],
     ["a workspace the single-workspace token serves", "if (states[account] === \"absent\" && served) {", "if (false) {"],
     ["the single-workspace row shows when stored", "if (workspaces.length === 0 || legacy !== \"absent\")", "if (workspaces.length === 0)"],
-    ["the store command names the workspace's account", "service vgs-notifications account slack:\" + id;", "service vgs-notifications account slack\";"],
     ["a workspace label is cut", "if (label.length <= SLACK_LABEL_MAX) return label;", "if (true) return label;"],
     ["a workspace label is cut by code units", "if (label.length <= SLACK_LABEL_MAX) return label;", "if (Array.from(label).length <= SLACK_LABEL_MAX) return label;"],
     ["a workspace label cut keeps a surrogate pair whole", "if (last >= 0xd800 && last <= 0xdbff) cut = cut.slice(0, -1);", ""],
@@ -867,14 +864,13 @@ try {
 }
 // The libsecret service the manifest's `secrets` declares, the one the
 // core stores and clears under, is the one the photo helper, the token
-// probe and the Show command lines name: each names it as a literal, so
-// each literal is read back against the manifest. The controls: a
-// manifest naming another service, and a helper naming another one.
+// probe name: each names it as a literal, so each literal is read back
+// against the manifest. The controls: a manifest naming another service,
+// and a helper naming another one.
 const pluginDir = path.dirname(file);
 const SERVICE_SOURCES = [
     ["slack-photos.js", /const SERVICE = \["service", "([^"]+)", "account"\];/g],
     ["token-status.sh", /secret-tool search service (\S+) account/g],
-    ["NotificationLogic.js", /service ([A-Za-z0-9._-]+) account/g],
 ];
 function serviceMismatches(manifestText, read) {
     const declared = JSON.parse(manifestText).secrets.service;

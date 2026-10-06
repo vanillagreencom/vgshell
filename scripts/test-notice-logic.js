@@ -155,7 +155,6 @@ function suite(ctx, check) {
     for (const [name, missing, notice, found, want] of viewRows) {
         const v = ctx.noticeView(needs, missing, notice, found);
         check("noticeView: " + name, [v.satisfied, v.rows.map(rowText), v.install, v.byHand], want);
-        check("noticeView's command line, the one the notice keeps behind Show command: " + name, v.commandLine, want[2] === null ? "" : ["vgshell", "pkg", "run", "install"].concat(want[2]).join(" "));
     }
     const coreView = ctx.noticeView(core, ["gum"], n("core", ["gum"], ["gum"]), ARCH);
     check("noticeView: the core's notice installs its package", [coreView.satisfied, coreView.rows.map(rowText), coreView.install], [false, ["gum (pacman/gum) optional: Dialogs"], ["gum"]]);
@@ -225,13 +224,12 @@ function suite(ctx, check) {
         link: view.link,
         keys: view.keys,
         keysTitle: view.keysTitle,
-        disclosure: view.disclosure,
         actions: view.actions,
         failure: view.failure,
         busy: view.busy
     });
-    const welcome = (lineCount, keys, asking, failure, busy, link) => ({ welcome: true, title: "Welcome to VGS", message: "", lineCount, link: link === undefined ? LINK : link, keys, keysTitle: "Quick commands", disclosure: "", actions: asking ? CONNECT : CLOSE, failure: failure || "", busy: busy === true });
-    const question = { welcome: false, title: QUESTION, message: "present", lineCount: 0, link: null, keys: [], keysTitle: "", disclosure: "vgshell hypr wire", actions: CONNECT, failure: "", busy: false };
+    const welcome = (lineCount, keys, asking, failure, busy, link) => ({ welcome: true, title: "Welcome to VGS", message: "", lineCount, link: link === undefined ? LINK : link, keys, keysTitle: "Quick commands", actions: asking ? CONNECT : CLOSE, failure: failure || "", busy: busy === true });
+    const question = { welcome: false, title: QUESTION, message: "present", lineCount: 0, link: null, keys: [], keysTitle: "", actions: CONNECT, failure: "", busy: false };
     const keyLine = (shortcut, text) => ({ shortcut, text });
     const keyHintsLine = keyLine("Super+/", "shows every key VGS adds.");
     const themeLine = keyLine("Super+Ctrl+T", "picks a theme.");
@@ -321,8 +319,6 @@ const CONTROLS = [
     ["the queue is not changed in place", "var merged = queue.slice();", "var merged = queue;"],
     ["a view lists only missing commands", "return row.state === \"missing\" && notice.commands.indexOf(row.name) !== -1; });\n    var satisfied", "return notice.commands.indexOf(row.name) !== -1; });\n    var satisfied"],
     ["a view is satisfied only without a required command", "var satisfied = !notice.required.some(", "var satisfied = notice.required.some("],
-    ["a view's command line is the install TUI's argv and its arguments", "CORE_TUIS[\"requirements-install\"].argv.concat(install).join(\" \")", "install.join(\" \")"],
-    ["a view with no install has no command line", "commandLine: install === null ? \"\" :", "commandLine: install === null ? \"vgshell pkg run install\" :"],
     ["a view installs only through an installing manager", "var installable = plan.groups.filter(function (g) { return g.installs; });", "var installable = plan.groups;"],
     ["a settle keeps the installing notice", "        if (n.id === installing)\n            return true;\n", ""],
     ["a settle drops a notice whose owner went", "        if (!hasOwn(owners, n.id))\n            return false;\n", ""],
@@ -340,7 +336,6 @@ const CONTROLS = [
     ["the welcome waits for the consent answer", "    if (WELCOME_WAITS.indexOf(consent.phase) !== -1) return null;\n", ""],
     ["a key row needs its bind", "return typeof key === \"string\" ? { shortcut: keyLabel(key), text: row.text } : null;", "return { shortcut: keyLabel(typeof key === \"string\" ? key : \"SUPER+SLASH\"), text: row.text };"],
     ["the welcome carries its file link except settled", "link: consent.phase === \"settled\" ? null : WELCOME.link,", "link: null,"],
-    ["the welcome has no command disclosure", "disclosure: \"\",", "disclosure: asking ? question.disclosure : \"\","],
     ["a settled consent offers Close alone", "actions: question === null ? [{ label: WELCOME.close, role: \"cancel\", answer: \"close\" }] : actions,", "actions: actions,"],
     ["a key that types a character reads as it", "        if (hasOwn(KEY_GLYPHS, part)) return KEY_GLYPHS[part];\n", ""],
     ["a read records the marker", "return { welcome: event.seen ? \"seen\" : \"unseen\", write: false };", "return { welcome: \"unseen\", write: false };"],

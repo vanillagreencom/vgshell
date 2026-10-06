@@ -418,16 +418,6 @@ function slackTokenStates(text) {
     return { ok: true, states: states };
 }
 
-// The command that stores a Slack token in libsecret, as the Settings
-// page shows it: for workspace `id`'s own account, or with id "" the
-// single-workspace one. The id is one slackWorkspaces admitted, letters and
-// digits alone; no workspace name enters the command.
-function slackStoreCommand(id) {
-    return id === ""
-        ? "secret-tool store --label='VGS notifications Slack token' service vgs-notifications account slack"
-        : "secret-tool store --label='VGS notifications Slack token " + id + "' service vgs-notifications account slack:" + id;
-}
-
 // A status item's label is one printable line of at most this many
 // characters (docs/architecture/status.md § Declared), counted as the
 // judge counts them, in UTF-16 code units.
@@ -451,11 +441,11 @@ function slackWorkspaceLabel(workspace) {
 
 // The Settings page's Slack token rows, a `presenceList`: one item per
 // workspace Slack's list names, in its order, carrying that workspace's own
-// account's state, the account as its `secret`, whose Connect and
-// Disconnect the page offers, and the command that stores it. A workspace
+// account's state, and the account as its `secret`, whose Connect and
+// Disconnect the page offers. A workspace
 // whose own token is absent while the photo cache says the single-workspace
 // token serves it carries that token's state and says so, with no account
-// and no command: its photos load, and a Disconnect of the single-workspace
+// and no account: its photos load, and a Disconnect of the single-workspace
 // token leaves it absent, to connect its own. Then the single-workspace
 // token's own item, when no workspace is listed or it is stored.
 // `states` is slackTokenStates'; `teams` slackPhotos'. { ok: true,
@@ -475,12 +465,11 @@ function slackTokenRows(workspaces, states, teams) {
             item.hint = "Uses the single-workspace token";
         } else {
             item.secret = account;
-            item.command = slackStoreCommand(workspaces[i].id);
         }
         items.push(item);
     }
     if (workspaces.length === 0 || legacy !== "absent")
-        items.push({ label: "Single-workspace token", value: legacy, secret: SLACK_LEGACY_ACCOUNT, command: slackStoreCommand("") });
+        items.push({ label: "Single-workspace token", value: legacy, secret: SLACK_LEGACY_ACCOUNT });
     return { ok: true, items: items };
 }
 

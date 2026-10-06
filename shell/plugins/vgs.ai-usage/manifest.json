@@ -40,8 +40,8 @@
   "status": {
     "usage": { "type": "data", "label": "Usage" },
     "accounts": { "type": "choices", "label": "Accounts", "hidden": true },
-    "claude": { "type": "state", "label": "Claude Code", "group": "Sign-in", "action": { "label": "Sign in", "tui": "sign-in-claude" }, "command": "claude auth login" },
-    "codex": { "type": "state", "label": "Codex", "group": "Sign-in", "action": { "label": "Sign in", "tui": "sign-in-codex" }, "command": "codex login" },
+    "claude": { "type": "state", "label": "Claude Code", "group": "Sign-in", "action": { "label": "Sign in", "tui": "sign-in-claude" } },
+    "codex": { "type": "state", "label": "Codex", "group": "Sign-in", "action": { "label": "Sign in", "tui": "sign-in-codex" } },
     "gatewayKey": { "type": "presenceList", "label": "AI Gateway key", "group": "Sign-in", "hint": "Connect an AI Gateway key to show its credits." }
   },
   "secrets": { "service": "vgs-ai-usage", "label": "VGS AI Usage AI Gateway key" },

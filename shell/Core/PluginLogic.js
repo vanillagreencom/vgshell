@@ -96,16 +96,15 @@ var DBUS_NAME_PART = /^[A-Za-z_-][A-Za-z0-9_-]*$/;
 // Settings window draws every other type unless the entry is `hidden`;
 // `choices` feeds a setting's Select instead of a Status row.
 var STATUS_TYPES = ["presence", "presenceList", "state", "text", "count", "time", "data", "choices", "launcherRows"];
-var STATUS_ENTRY_KEYS = ["type", "label", "group", "hint", "info", "command", "hidden", "action", "actions"];
+var STATUS_ENTRY_KEYS = ["type", "label", "group", "hint", "info", "hidden", "action", "actions"];
 // A status key names a value in `shell.status.values`, so it is a plain
 // identifier.
 var STATUS_KEY_PATTERN = /^[a-z][A-Za-z0-9]*$/;
 // Declaration text lengths, in characters: a label and a group are one short
-// line, a hint a sentence, a command one shell line the page shows and never
-// runs. A `text` value and a `state` value's text are one line of this length.
+// line, and a hint a sentence. A `text` value and a `state` value's text are
+// one line of this length.
 var STATUS_LABEL_MAX = 60;
 var STATUS_HINT_MAX = 200;
-var STATUS_COMMAND_MAX = 300;
 var STATUS_TEXT_MAX = 200;
 // An info dialog is the longer help a row keeps out of the page.
 var INFO_MAX = 400;
@@ -127,11 +126,10 @@ var STATUS_STATE_TONES = { ok: "success", info: "info", warning: "warning", dang
 var STATUS_STATE_KEYS = ["tone", "text", "lines", "action"];
 // A `presenceList` value is a list of at most STATUS_LIST_MAX items, each
 // carrying these keys: a printable `label` and a `presence` value, with an
-// optional printable `hint`, an optional `secret`, the account of the
-// plugin's declared `secrets` the item is the presence of, and an optional
-// printable `command`, of the declaration's lengths, which needs `secret`.
+// optional printable `hint` and an optional `secret`, the account of the
+// plugin's declared `secrets` the item is the presence of.
 var STATUS_LIST_MAX = 64;
-var STATUS_LIST_ITEM_KEYS = ["label", "value", "hint", "command", "secret"];
+var STATUS_LIST_ITEM_KEYS = ["label", "value", "hint", "secret"];
 // Choice values are stable ids, not their display labels. Empty string is
 // reserved for a setting that follows the first offered value.
 var STATUS_CHOICE_KEYS = ["label", "value"];
@@ -148,11 +146,10 @@ var LAUNCHER_ROW_KEYS = ["id", "label", "icon", "description", "aliases", "menu"
 // `install`, a list of the manifest's own requirements the core
 // offers through the requirement notice; or `system`, a step of the
 // manifest's own `systemSteps` the core applies in its `core/system` TUI
-// (D081). An entry of a type in STATUS_ACTION_TYPES takes one; a `command`
-// is shown only as the "Show command" disclosure beside it, so it needs
-// one. A `state` entry whose step differs by what its writer found
-// declares `actions` instead: two or more such steps by name, a
-// STATUS_KEY_PATTERN identifier, of which a value names at most one.
+// (D081). An entry of a type in STATUS_ACTION_TYPES takes one. A `state`
+// entry whose step differs by what its writer found declares `actions`
+// instead: two or more such steps by name, a STATUS_KEY_PATTERN
+// identifier, of which a value names at most one.
 var STATUS_ACTION_ROUTES = ["tui", "install", "system"];
 var STATUS_ACTION_KEYS = ["label"].concat(STATUS_ACTION_ROUTES);
 var STATUS_ACTION_TYPES = ["presence", "state"];
@@ -512,14 +509,11 @@ function infoError(info, at) {
 // The first defect of a manifest's `status` key, or "". An object keyed by
 // status key (STATUS_KEY_PATTERN), each entry naming a type from
 // STATUS_TYPES and a printable `label`, with an optional printable `group`
-// and `hint`, an optional `action` statusActionError admits, an optional
-// printable `command` the Settings page shows behind its "Show command"
-// disclosure and never runs, which needs the `action`, and an optional
-// boolean `hidden`. A `state` entry may declare `actions` in place of
-// `action`: an object of two or more named actions, with no `command`,
-// which would stand for one of them alone. A `data` entry is never drawn,
-// so it carries none of `group`, `hint`, `command`, `hidden`, `action` or
-// `actions`. A plugin publishes status
+// and `hint`, an optional `action` statusActionError admits, and an
+// optional boolean `hidden`. A `state` entry may declare `actions` in
+// place of `action`: an object of two or more named actions. A `data`
+// entry is never drawn, so it carries none of `group`, `hint`, `hidden`,
+// `action` or `actions`. A plugin publishes status
 // only through its `status` capability, so the key needs the capability,
 // and the capability needs at least one entry. TUI is the manifest's `tui`
 // key or undefined, REQUIREMENTS its judged `requirements` list, SYSTEM
@@ -556,8 +550,6 @@ function statusError(status, capabilities, tui, requirements, system) {
         var statusInfo = infoError(entry.info, at);
         if (statusInfo !== "")
             return statusInfo;
-        if (entry.command !== undefined && !isPrintableLine(entry.command, STATUS_COMMAND_MAX))
-            return at + ".command must be a printable line of 1 to " + STATUS_COMMAND_MAX + " characters when present";
         if (entry.hidden !== undefined && typeof entry.hidden !== "boolean")
             return at + ".hidden must be a boolean when present";
         if (entry.action !== undefined && entry.actions !== undefined)
@@ -567,8 +559,6 @@ function statusError(status, capabilities, tui, requirements, system) {
                 return at + ".actions needs type state, whose value names the one that applies";
             if (!isPlainObject(entry.actions) || Object.keys(entry.actions).length < 2)
                 return at + ".actions must be an object of two or more actions; one action is the entry's action";
-            if (entry.command !== undefined)
-                return at + ".command needs an action: with actions it would stand for one of them alone";
         }
         var declared = statusEntryActions(entry);
         for (var a = 0; a < declared.length; a++) {
@@ -578,10 +568,8 @@ function statusError(status, capabilities, tui, requirements, system) {
             if (badAction !== "")
                 return badAction;
         }
-        if (entry.command !== undefined && entry.action === undefined && entry.type !== "data")
-            return at + ".command needs an action: a command is only the Show command disclosure beside a one-click action (D061)";
         if (entry.type === "data" || entry.type === "launcherRows") {
-            var drawn = ["group", "hint", "info", "command", "hidden", "action", "actions"];
+            var drawn = ["group", "hint", "info", "hidden", "action", "actions"];
             for (var d = 0; d < drawn.length; d++) {
                 if (entry[drawn[d]] !== undefined)
                     return at + "." + drawn[d] + " needs a type Settings draws; " + entry.type + " is never drawn";
@@ -973,10 +961,8 @@ function statusValueFits(type, value) {
 // Whether `item` is one item of a `presenceList` value: plain JSON holding
 // only STATUS_LIST_ITEM_KEYS, a printable `label` of at most
 // STATUS_LABEL_MAX characters, a `value` of STATUS_PRESENCE_TONES, and when
-// present a printable `hint` of at most STATUS_HINT_MAX, a `secret` of
-// SECRET_ACCOUNT_PATTERN and a printable `command` of at most
-// STATUS_COMMAND_MAX, as a declaration's are; a `command` needs the
-// `secret`, whose Connect it is the disclosure of (D061).
+// present a printable `hint` of at most STATUS_HINT_MAX and a `secret` of
+// SECRET_ACCOUNT_PATTERN.
 function statusListItemFits(item) {
     if (!isPlainObject(item) || !isPlainJson(item)) return false;
     var keys = Object.keys(item);
@@ -985,8 +971,7 @@ function statusListItemFits(item) {
     return isPrintableLine(item.label, STATUS_LABEL_MAX)
         && typeof item.value === "string" && hasOwn(STATUS_PRESENCE_TONES, item.value)
         && (item.hint === undefined || isPrintableLine(item.hint, STATUS_HINT_MAX))
-        && (item.secret === undefined || (typeof item.secret === "string" && SECRET_ACCOUNT_PATTERN.test(item.secret)))
-        && (item.command === undefined || (item.secret !== undefined && isPrintableLine(item.command, STATUS_COMMAND_MAX)));
+        && (item.secret === undefined || (typeof item.secret === "string" && SECRET_ACCOUNT_PATTERN.test(item.secret)));
 }
 
 // Whether item is one row of a launcherRows status value. It is JSON with
@@ -1110,11 +1095,10 @@ function statusTone(type, value) {
 }
 
 // A reported value as a Status row carries it: a `presenceList`'s items
-// each as { label, value, hint, command, tone, secret, access }, `hint`,
-// `command` and `secret` "" when the item omits them, `tone` its
-// presence's, and `access` what the page offers for its secret,
-// SECRET_ACCESS by its presence, "" for an item without one; any other
-// value as published.
+// each as { label, value, hint, tone, secret, access }, `hint` and `secret`
+// "" when the item omits them, `tone` its presence's, and `access` what the
+// page offers for its secret, SECRET_ACCESS by its presence, "" for an item
+// without one; any other value as published.
 function statusRowValue(type, value) {
     if (type !== "presenceList") return value;
     return value.map(function (item) {
@@ -1122,7 +1106,6 @@ function statusRowValue(type, value) {
             label: item.label,
             value: item.value,
             hint: item.hint === undefined ? "" : item.hint,
-            command: item.command === undefined ? "" : item.command,
             tone: STATUS_PRESENCE_TONES[item.value],
             secret: item.secret === undefined ? "" : item.secret,
             access: item.secret === undefined ? "" : SECRET_ACCESS[item.value]
@@ -1180,8 +1163,8 @@ function statusWithheldHint(lacking) {
 
 // The Status rows the plugin manager shows for a plugin: one per entry
 // statusDisplayable admits, in manifest key order, as { key, type, label,
-// group, hint, info, command, action, report, value, tone }. `group`, `hint`,
-// `info` and `command` are "" when the manifest omits them. `action` is
+// group, hint, info, action, report, value, tone }. `group`, `hint` and
+// `info` are "" when the manifest omits them. `action` is
 // statusRowAction's: null for an entry without one, else { label, offered },
 // `offered` false while unreported. `report` is `reported` with the published `value`
 // (statusRowValue) and its `tone`, or `unreported` with `value` null and
@@ -1209,7 +1192,6 @@ function statusRows(manifest, values, missing) {
             group: entry.group === undefined ? "" : entry.group,
             hint: hint,
             info: entry.info === undefined ? "" : entry.info,
-            command: entry.command === undefined ? "" : entry.command,
             action: statusRowAction(entry, value, lacking),
             report: reported ? "reported" : "unreported",
             value: reported ? statusRowValue(entry.type, value) : null,
@@ -1938,7 +1920,7 @@ function noticeAdmit(queue, rest, id, request, trigger, now) {
 // What NOTICE, { commands, required }, shows for plugin MANIFEST after the
 // last scan, whose missing requirements are MISSING, on a system whose managers
 // are FOUND, detect's answer, or null when detection has no answer:
-// { satisfied, rows, install, commandLine, byHand }. `satisfied` holds once no requirement
+// { satisfied, rows, install, byHand }. `satisfied` holds once no requirement
 // of `required` is missing. `rows` are the listed requirements still missing,
 // in declaration order, each { name, purpose, optional, package }, the
 // package PackageManagers.installGroups picks, null with FOUND null or when
@@ -1946,11 +1928,8 @@ function noticeAdmit(queue, rest, id, request, trigger, now) {
 // `vgshell pkg run install` of the first group whose manager installs, null
 // when none does; one Install runs one manager's packages, and the notice
 // offers the next group once a rescan finds the first installed.
-// `commandLine` is that install as one command a reader could run, the
-// core TUI's argv and `install` joined, or "" with `install` null: the
-// notice draws it only behind its Show command (D061). `byHand` is each
-// group whose manager installs nothing through vgshell, nix, as
-// { manager, names }.
+// `byHand` is each group whose manager installs nothing through vgshell,
+// nix, as { manager, names }.
 function noticeView(manifest, missing, notice, found) {
     var rows = requirementRows(manifest, missing).filter(function (row) { return row.state === "missing" && notice.commands.indexOf(row.name) !== -1; });
     var satisfied = !notice.required.some(function (c) { return missing.indexOf(c) !== -1; });
@@ -1961,7 +1940,6 @@ function noticeView(manifest, missing, notice, found) {
         satisfied: satisfied,
         rows: rows.map(function (row, i) { return { name: row.name, purpose: row.purpose, optional: row.optional, package: plan.picks[i] }; }),
         install: install,
-        commandLine: install === null ? "" : CORE_TUIS["requirements-install"].argv.concat(install).join(" "),
         byHand: plan.groups.filter(function (g) { return !g.installs; }).map(function (g) { return { manager: g.manager, names: g.names }; })
     };
 }
@@ -2062,8 +2040,8 @@ function keyLabel(key) {
 // is a key row while SECTIONS, the enabled plugins'
 // PluginLogic.hyprlandSection results, bind that shortcut, and no row
 // otherwise. The view is { welcome, title, message, lines, link, keys,
-// keysTitle, disclosure, actions, failure, busy }; each action is
-// { label, role, answer }, the answer `connect`, `decline` or `close`.
+// keysTitle, actions, failure, busy }; each action is { label, role,
+// answer }, the answer `connect`, `decline` or `close`.
 function consentSlotView(consent, welcomeState, shipped, sections) {
     if (WELCOME_STATES.indexOf(welcomeState) === -1)
         throw new Error("consentSlotView: welcome state " + JSON.stringify(welcomeState) + " is not one of " + WELCOME_STATES.join(", "));
@@ -2076,7 +2054,7 @@ function consentSlotView(consent, welcomeState, shipped, sections) {
     ];
     if (welcomeState === "reading") return null;
     if (welcomeState === "seen")
-        return question === null ? null : { welcome: false, title: question.title, message: question.message, lines: [], link: null, keys: [], keysTitle: "", disclosure: question.disclosure, actions: actions, failure: question.failure, busy: question.busy };
+        return question === null ? null : { welcome: false, title: question.title, message: question.message, lines: [], link: null, keys: [], keysTitle: "", actions: actions, failure: question.failure, busy: question.busy };
     if (WELCOME_WAITS.indexOf(consent.phase) !== -1) return null;
     var rows = isPlainObject(shipped) && isPlainObject(shipped.welcome) ? shipped.welcome.keys : [];
     var keyRows = rows.map(function (row) {
@@ -2092,7 +2070,6 @@ function consentSlotView(consent, welcomeState, shipped, sections) {
         link: consent.phase === "settled" ? null : WELCOME.link,
         keys: keyRows,
         keysTitle: WELCOME.keysTitle,
-        disclosure: "",
         actions: question === null ? [{ label: WELCOME.close, role: "cancel", answer: "close" }] : actions,
         failure: question === null ? "" : question.failure,
         busy: question !== null && question.busy

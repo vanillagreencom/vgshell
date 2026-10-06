@@ -324,8 +324,7 @@ expect "the doctor capability refuses a command the core does not declare" "refu
 expect "the doctor capability refuses a disabled plugin" "refused: owner=acme.status reason=disabled" ipc smoke doctorOffer service vgs.devtools acme.status token
 expect "the doctor capability refuses an unknown owner" "refused: owner=acme.gone reason=unknown" ipc smoke doctorOffer service vgs.devtools acme.gone x
 
-# Settings reads the status rows back, read-only, each command behind Show
-# command.
+# Settings reads the status rows back, read-only.
 installed_count() { in_shell_env node "$repo/shell/plugins/vgs.devtools/bin/devtools" --tree "$repo" list --json | py_reply 'import json,sys; d=json.load(sys.stdin); print(sum(1 for rows in d["sections"].values() for r in rows if r["installed"] is True) + sum(1 for r in d["other"] if r["installed"] is True))'; }
 missing_count() { in_shell_env "$repo/bin/vgshell" doctor --json | py_reply 'import json,sys; d=json.load(sys.stdin); print(sum(1 for rows in [d["core"]] + list(d["plugins"].values()) for r in rows if r["state"] == "missing"))'; }
 expect "Settings opens the Dev Tools page" ok ipc vgs.settings invoke open '{"plugin":"vgs.devtools"}'
@@ -336,7 +335,7 @@ settings_details
 checks_text="Checks failed"
 if dev_installed="$(installed_count)" && dev_missing="$(missing_count)"; then
   expect_poll "the manager row carries the published status" \
-    "$(python3 -c 'import json,sys; print(json.dumps([["Tool manager", "reported", {"tone": "ok", "text": "2026.9.9"}, "success", "vgshell pkg run install mise"], ["Checks", "reported", {"tone": "warning", "text": sys.argv[3]}, "warning", ""], ["Tools installed", "reported", int(sys.argv[1]), "", ""], ["Tool updates", "reported", 0, "", ""], ["Missing tools", "reported", int(sys.argv[2]), "", ""]]))' "$dev_installed" "$dev_missing" "$checks_text")" status_of vgs.devtools
+    "$(python3 -c 'import json,sys; print(json.dumps([["Tool manager", "reported", {"tone": "ok", "text": "2026.9.9"}, "success"], ["Checks", "reported", {"tone": "warning", "text": sys.argv[3]}, "warning"], ["Tools installed", "reported", int(sys.argv[1]), ""], ["Tool updates", "reported", 0, ""], ["Missing tools", "reported", int(sys.argv[2]), ""]]))' "$dev_installed" "$dev_missing" "$checks_text")" status_of vgs.devtools
   expect_poll "the page draws each status row, the catalog data not" \
     "$(python3 -c 'import json,sys; print(json.dumps([["Tool manager", "2026.9.9", "mise manages the developer tools"], ["Checks", sys.argv[3], "Open Dev Tools again after 10 minutes to retry all checks."], ["Tools installed", sys.argv[1]], ["Tool updates", "0"], ["Missing tools", sys.argv[2], "Install these tools from the VGS section in Dev Tools"]]))' "$dev_installed" "$dev_missing" "$checks_text")" drawn_status
   expect "no Dev Tools status row takes an edit" '[[],[],[],[],[]]' ipc smoke statusRowInputs window vgs.settings

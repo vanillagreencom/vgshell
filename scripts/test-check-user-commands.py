@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """One planted violation per rule of check-user-commands.py, the text each
-rule must pass, the "Show command" disclosure's reach, the unreadable trees,
-and the repository's own shell/ against a coverage floor. Each row builds a
+rule must pass, the README "Show command" details exemption, the unreadable
+trees, and the repository's own shell/ against a coverage floor. Each row builds a
 throwaway shell/ holding one plugin, runs the check on it and asserts the
 rule key, the location and the exit status. Each control runs its own copy
 of the check with one rule removed, and a row or classification check must
@@ -65,12 +65,11 @@ ROWS = [
     ("a block of a script that is no command", {"README.md": "A caller waits:\n\n" + FENCE + "bash\nuntil [[ -s $done ]]; do sleep 0.05; done\n" + FENCE + "\n"}, None, None),
     ("a block of another language", {"README.md": "The layer writes:\n\n" + FENCE + "lua\nvgshell.rule()\n" + FENCE + "\n"}, None, None),
     ("an instruction inside a code block is the block's", {"README.md": FENCE + "text\nRun `gum` now.\n" + FENCE + "\n"}, None, None),
-    ("the Show command disclosure", {"README.md": "Settings offers Set up.\n\n<details><summary>Show command</summary>\n\nRun `vsys warden install`.\n\n" + FENCE + "bash\nvsys warden install\n" + FENCE + "\n\n</details>\n"}, None, None),
+    ("README Show command details", {"README.md": "Settings offers Set up.\n\n<details><summary>Show command</summary>\n\nRun `vsys warden install`.\n\n" + FENCE + "bash\nvsys warden install\n" + FENCE + "\n\n</details>\n"}, None, None),
     ("a disclosure under another summary", {"README.md": "<details><summary>More</summary>\n\n" + FENCE + "bash\nvsys warden install\n" + FENCE + "\n\n</details>\n"}, "shell-block", "README.md:3"),
     ("a manifest hint telling the user to run a command", {"manifest.json": manifest(capabilities='["status"]', status='{ "a": { "type": "text", "label": "A", "hint": "Run loginctl enable-linger once" } }')}, "instruction", "manifest.json:status.a.hint"),
     ("a manifest named action label telling the user to run a command", {"manifest.json": manifest(capabilities='["status"]', requirements='[{ "command": "git", "purpose": "Syncs" }]', status='{ "a": { "type": "state", "label": "A", "actions": { "fix": { "label": "Fix", "install": ["git"] }, "linger": { "label": "Run loginctl enable-linger once", "install": ["git"] } } } }')}, "instruction", "manifest.json:status.a.actions.linger.label"),
     ("a manifest description telling the user to run code", {"manifest.json": manifest(description='"Shows a token. Run `vgshell doctor` first"')}, "instruction", "manifest.json:description"),
-    ("a manifest status command is the disclosure", {"manifest.json": manifest(capabilities='["status"]', status='{ "a": { "type": "text", "label": "A", "command": "loginctl enable-linger" } }')}, None, None),
     ("a manifest hold bind is boolean data", {"manifest.json": manifest(capabilities='["shortcut"]', hyprland='{ "binds": [{ "shortcut": "talk", "key": "SUPER+code:108", "hold": true }] }')}, None, None),
     ("a manifest tap bind is boolean data", {"manifest.json": manifest(capabilities='["shortcut"]', hyprland='{ "binds": [{ "shortcut": "tap", "key": "code:108", "tap": true }] }')}, None, None),
     ("a drawn QML string naming a command", {"Service.qml": qml('    property string hint: "Off; `vgshell plugin enable " + id + "` brings it back"')}, "code-command", "Service.qml:3"),
@@ -79,11 +78,6 @@ ROWS = [
     ("a log line telling the user to run a command", {"Service.qml": qml('    Component.onCompleted: console.warn("acme: refused: run vgshell doctor")')}, "instruction", "Service.qml:3"),
     ("a JavaScript toast telling the user to run a command", {"Logic.js": '.pragma library\nvar TOAST = { title: "Token missing", message: "Run `secret-tool store` to add it" };\n'}, "instruction", "Logic.js:2"),
     ("a command in a comment", {"Service.qml": qml('    // Run `vgshell doctor` to see it.')}, None, None),
-    ("a notice body drawing its command line", {"Service.qml": qml('    Label { text: "Install with " + view.commandLine }')}, "drawn-command-line", "Service.qml:3"),
-    ("a message bound to a command line", {"Logic.js": '.pragma library\nvar TOAST = { title: "Missing", message: shown.commandLine };\n'}, "drawn-command-line", "Logic.js:2"),
-    ("a command line behind Show command", {"Service.qml": qml('    CommandDisclosure { command: view.commandLine }')}, None, None),
-    ("a judge naming its command line", {"Logic.js": '.pragma library\nvar VIEW = { commandLine: "vgshell pkg run install a" };\n'}, None, None),
-    ("a drawn string that only says commandLine", {"Service.qml": qml('    Label { text: "commandLine" }')}, None, None),
     ("a command named by its path", {"README.md": "Run `bin/vgshell plugin enable acme.setup` once.\n"}, "instruction", "README.md:1"),
     ("a command as the subject of a verb that says what it does", {"README.md": "After a crash, `vgshell run` starts the shell again.\n"}, None, None),
     ("a command as the clause's subject", {"README.md": "Turn it off in Settings; `bin/vgshell plugin enable acme.setup` brings it back.\n"}, "instruction", "README.md:1"),
@@ -97,7 +91,6 @@ ROWS = [
     ("a template literal telling the user to run a command", {"Logic.js": '.pragma library\nvar TOAST = { title: "Missing", message: `Run vgshell doctor for ${name}` };\n'}, "instruction", "Logic.js:2"),
     ("a drawn template literal holding a command", {"Service.qml": qml('    Label { text: `vgshell plugin enable ${id}` }')}, "code-command", "Service.qml:3"),
     ("a drawn binding wrapped over lines", {"Service.qml": qml('    Label {\n        text: ready\n            ? "Done"\n            : "`vgshell doctor` shows it"\n    }')}, "code-command", "Service.qml:6"),
-    ("a command line bound to a drawn property over lines", {"Service.qml": qml('    Label {\n        text: shown\n            ? shown.commandLine\n            : ""\n    }')}, "drawn-command-line", "Service.qml:5"),
     ("a secrets label telling the user to run a command", {"manifest.json": manifest(capabilities='["secrets"]', secrets='{ "service": "acme", "label": "Run `vgshell doctor` first" }')}, "instruction", "manifest.json:secrets.label"),
 ]
 
@@ -273,10 +266,8 @@ CONTROLS = [
     ("the shell-block rule", "if lang in SHELL_FENCES and body and first_word(body[0]) in heads:", "if False:"),
     ("the code-command rule", "                    findings.append((\"code-command\", path, line, value.strip()[:120]))", "                    pass"),
     ("the manifest strings", "            for _index, excerpt in instructions(text, heads, True):\n                findings.append((\"instruction\", path, where, excerpt))", "            pass"),
-    ("the disclosure's reach", "text = blank(read(path), DETAILS)", "text = read(path)"),
+    ("the README Show command details exemption", "text = blank(read(path), DETAILS)", "text = read(path)"),
     ("the drawn-property reach of code-command", "if DRAWN_BEFORE.search(masked, start, literal.start()) is None:", "if False:"),
-    ("the drawn-command-line rule", "if DRAWN_BEFORE.search(masked, start, use.start()) is not None:", "if False:"),
-    ("a string literal names no command line", "masked = blank(code, LITERAL)", "masked = code"),
     ("a command named by its path", 'return os.path.basename(match.group(0).rstrip("/")) if match else ""', 'return match.group(0) if match else ""'),
     ("a command as the clause's subject", "    for match in SUBJECT.finditer(text):\n", "    for match in []:\n"),
     ("the verbs use, call and install with", ', "use", "call", r"install\\s+with")', ")"),
@@ -285,7 +276,6 @@ CONTROLS = [
     ("drawn prose is no command line", "    return copied or (not text.endswith(", "    return True or (not text.endswith("),
     ("template literals", 'LITERAL = re.compile(STRING.pattern + r"|`(?:[^`\\\\]|\\\\.)*`", re.S)', "LITERAL = re.compile(STRING.pattern, re.S)"),
     ("a literal's binding reaches back over wrapped lines", "                start = statement_start(masked, literal.start())\n", "                start = masked.rfind(\"\\n\", 0, literal.start()) + 1\n"),
-    ("a command line's binding reaches back over wrapped lines", "                start = statement_start(masked, use.start())\n", "                start = masked.rfind(\"\\n\", 0, use.start()) + 1\n"),
     ("a user-facing manifest key is read", '    ("secrets", "label"),\n)', ")"),
     ("a named action's label is read", '("status", "*", "action", "label"), ("status", "*", "actions", "*", "label"),', '("status", "*", "action", "label"),'),
     ("every admitted manifest key is classified", '("license",), ("icon",), ("kinds",)', '("license",), ("kinds",)'),

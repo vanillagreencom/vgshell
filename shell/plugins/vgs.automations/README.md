@@ -23,6 +23,14 @@ The plugin ships with VGS and is enabled by default. It schedules runs through s
 
 Scheduled runs stop when you log out unless systemd keeps your user session running. Enable while logged out, on the plugin's Settings page and in the launcher as Run automations while logged out, opens a floating terminal that asks, then turns that on.
 
+<details><summary>Show command</summary>
+
+```bash
+loginctl enable-linger
+```
+
+</details>
+
 | Setting | What it changes |
 | --- | --- |
 | Keep history | How long to keep each run's history and output, from 1 to 30 days. |

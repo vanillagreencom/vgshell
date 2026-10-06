@@ -26,7 +26,6 @@ One owner of the pointer hand means one check covers every click area, where the
 - Do let `Scrim` and a `Dialog` card take the presses, hover and wheel on themselves, so nothing under them answers; a scrim's click-away never answers a click on the card. `scripts/smoke/rows/automations.sh` clicks a card over its scrim.
 - Do keep `SlimScrollBar` free of theme reads, so a plugin-owned look can draw it; `scripts/qml-tests/tst_slimscrollbar.qml` pins it.
 - Do compose `BarItem` for every bar widget and workspace pill, `FormRow` for every key/value row and `BindField` for every bind row, so Settings and the Key Hints window draw one row from one owner. `scripts/smoke/rows/bar.sh` holds every item to the bar's centre within one pixel.
-- Do put a "Show command" step in `CommandDisclosure` beside the button that runs it, never alone; `scripts/check-user-commands.py` refuses the text ([D061](../decisions/D061-no-manual-commands.md)).
 - Do add a new component to the Gallery in the same change, in every variant and state, with a focused example for a focusable control. `scripts/smoke/rows/gallery.sh` refuses a missing component, a missing focus example and an example past the window's edge.
 - Never edit `shell/Ui/icons/Lucide.js`; run `scripts/vendor-lucide`. `scripts/test-lucide-data.js` pins the data.
 

@@ -3,10 +3,8 @@ import qs.Commons
 import qs.Ui
 
 // One read-only line of a Status row: `label` beside its value, `hint`
-// under it, then the line's one-click setup step (D061), and last the
-// `command` behind it, in a CommandDisclosure the reader opens to copy it
-// and the page never runs. The value is a Badge reading `text` in `tone`,
-// with one more Badge of that tone under it for each of `lines`; with
+// under it, then the line's one-click setup step (D061). The value is a
+// Badge reading `text` in `tone`, with one more Badge of that tone under it for each of `lines`; with
 // `tone` "", `text` as one line in the value role, the label's pair,
 // or the itemHint role while `muted`; with neither, the hint itself on the
 // label's row, so a line that names a group never leaves its value column
@@ -25,7 +23,6 @@ Column {
     property string label: ""
     property string hint: ""
     property string info: ""
-    property string command: ""
     property string tone: ""
     property string text: ""
     property var lines: []
@@ -148,12 +145,6 @@ Column {
                 onClicked: line.cancelConnect()
             }
         }
-    }
-
-    CommandDisclosure {
-        x: field.valueX
-        width: line.width - x - field.rightPadding
-        command: line.command
     }
 
     Component {

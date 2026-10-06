@@ -245,7 +245,6 @@ Item {
                         width: groups.width
                         spacing: Theme.field.gap
                         Field { id: wardenRow; label: "Warden"; inline: true; hint: "Checks whether AI agents stay within their memory and process limits"; width: parent.width; Badge { text: "Within limits"; tone: "success" } }
-                        CommandDisclosure { x: wardenRow.valueX; width: parent.width - x; command: "systemctl --user start agent-warden.timer" }
                     }
                     Field { label: "Agents running"; inline: true; width: groups.width; Label { role: "value"; text: "3"; width: parent.width; elide: Text.ElideRight } }
                     Field { label: "Last check"; inline: true; width: groups.width; Label { role: "value"; text: "9/30/26 3:57 PM"; width: parent.width; elide: Text.ElideRight } }
@@ -327,7 +326,6 @@ Item {
                 }
                 CodeLine { width: parent.width; text: "~/.config/vgshell/shell.json"; copyLabel: "Copy the path" }
                 LinkText { width: parent.width; role: "body"; text: "Open hyprland.lua to inspect the line VGS adds."; link: "hyprland.lua" }
-                CommandDisclosure { width: parent.width; command: "vgshell plugin enable vgs.agent-warden" }
                 EmptyState { width: parent.width; iconName: "search-x"; text: "No plugin matches \"zzqx\""; actionText: "Clear search" }
                 SaveBar { width: parent.width; dirty: true }
                 Flow {

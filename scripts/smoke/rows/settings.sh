@@ -198,16 +198,14 @@ fi
 # keep from Settings, read-only, with its label, its value in the tone of
 # its type and its hint, the entries without a group first; `data` and
 # hidden entries are not drawn, an entry nothing published says so, and a
-# disabled plugin's rows all say so. An entry draws its command, behind Show
-# command, only while its step applies: the present token draws none, the
-# absent one draws it beside Set up token, and a disabled plugin's row none.
-# The status fixture,
+# disabled plugin's rows all say so. An entry draws its action button only
+# while its step applies: the present token draws none, the absent one draws
+# Set up token, and a disabled plugin's row none. The status fixture,
 # which rows/status.sh left disabled, publishes; the notifications, which
 # the harness starts disabled, have published nothing.
-fixture_command="secret-tool store --label='acme token' service acme account token"
 # The drawn texts of the Token row, the Sync group's first.
 token_drawn() { drawn_status | py_reply 'import json,sys; r=[r for r in json.load(sys.stdin) if r and r[0] == "Token"]; print(json.dumps(r[0] if len(r) == 1 else "rows=%d" % len(r)))'; }
-status_of() { settings_rows | py_reply 'import json,sys; r=[p for p in json.load(sys.stdin) if p["id"] == sys.argv[1]][0]["status"]; print(json.dumps([[s["label"], s["report"], s["value"], s["tone"], s["command"]] for s in r]))' "$1"; }
+status_of() { settings_rows | py_reply 'import json,sys; r=[p for p in json.load(sys.stdin) if p["id"] == sys.argv[1]][0]["status"]; print(json.dumps([[s["label"], s["report"], s["value"], s["tone"]] for s in r]))' "$1"; }
 drawn_status() { ipc smoke itemTexts window vgs.settings StatusRow | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)))'; }
 page_fields_of() { ipc smoke drawnFields window vgs.settings | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([d[sys.argv[1]], sum(v for k, v in d.items() if k != sys.argv[1])]))' "$1"; }
 # The drawn rows with the `Last check` value replaced by `time` when it
@@ -231,42 +229,11 @@ expect "the fixture publishes data" ok ipc acme.status invoke detail ''
 expect "the window opens the status fixture's page" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.status
 expect_poll "the status fixture's Settings page heads its one settings section" '["Settings"]' section_names
 settings_details
-expect_poll "the manager row lists each drawn entry in manifest order, with its value and tone" "$(python3 -c 'import json,sys; print(json.dumps([["Token", "reported", "present", "success", sys.argv[1]], ["Check", "reported", {"tone": "warning", "text": "Two sources failed"}, "warning", ""], ["Pending", "reported", 3, "", ""], ["Last check", "reported", int(sys.argv[2]), "", ""], ["Note", "unreported", None, "", ""]]))' "$fixture_command" "$fixture_time")" status_of acme.status
+expect_poll "the manager row lists each drawn entry in manifest order, with its value and tone" "$(python3 -c 'import json,sys; print(json.dumps([["Token", "reported", "present", "success"], ["Check", "reported", {"tone": "warning", "text": "Two sources failed"}, "warning"], ["Pending", "reported", 3, ""], ["Last check", "reported", int(sys.argv[1]), ""], ["Note", "unreported", None, ""]]))' "$fixture_time")" status_of acme.status
 expect_poll "the page draws the ungrouped entries, then each group's, read-only, and no command for the present token" '[["Check", "Two sources failed"], ["Last check", "time"], ["Note", "Not reported"], ["Token", "Present", "Needed for the fixture'"'"'s sync"], ["Pending", "3"]]' drawn_status_timeless
 expect_poll "Details head the status sections, then Requirements" '["Status", "Sync", "Requirements"]' section_names
 expect "no Status row takes an edit" '[[],[],[],[],[]]' ipc smoke statusRowInputs window vgs.settings
 expect "the page draws the choices setting only" '[1, 0]' page_fields_of acme.status
-# The control of that reading: two disposable copies of StatusRow.qml, each
-# handed the present token's manager row, read by the same reader. The
-# unchanged copy draws no command; the copy that binds the entry's command
-# past the rule, Steps.statusStep, draws Show command for the present token.
-# They go in a fresh directory beside copies of the StatusLine.qml and
-# Steps.js they import, so the engine never lists vgs.settings before the
-# Choices controls below are written into it (validation-smoke-input.md).
-step_controls="$repo/shell/Core/StatusStepControls"
-mkdir -p -- "$step_controls" || fail "creating the status step controls' directory failed"
-python3 - "$repo/shell/plugins/vgs.settings" "$step_controls" <<'PYEDIT'
-import pathlib, shutil, sys
-source_dir, root = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
-for name in ("StatusLine.qml", "Steps.js"):
-    shutil.copyfile(source_dir / name, root / name)
-source = (source_dir / "StatusRow.qml").read_text()
-needle = "command: step.command, offered: step.offered"
-assert source.count(needle) == 1, needle
-(root / "StepsGood.qml").write_text(source)
-(root / "StepsCommandKept.qml").write_text(source.replace(needle, "command: entry.command, offered: step.offered"))
-PYEDIT
-step_props="$(status_row acme.status token | py_reply 'import json,sys; print(json.dumps({"entry": json.load(sys.stdin), "panel": "@instance", "pluginId": "acme.status"}))')" || fail "the present token's manager row is unreadable for the controls"
-step_copy_drawn() { ipc smoke itemTexts window vgs.settings "$1" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)))'; }
-for control in StepsGood StepsCommandKept; do
-  expect "the probe builds $control" ok ipc smoke popupLoad "$control" "$step_controls/$control.qml" window vgs.settings "$step_props"
-done
-expect_poll "the unchanged row copy draws no command for a present token" '[["Token", "Present", "Needed for the fixture'"'"'s sync"]]' step_copy_drawn StepsGood
-expect_poll "control: a row that keeps a present entry's command draws Show command" '[["Token", "Present", "Needed for the fixture'"'"'s sync", "Show command"]]' step_copy_drawn StepsCommandKept
-for control in StepsGood StepsCommandKept; do
-  expect "the probe drops $control" ok ipc smoke popupDrop "$control"
-done
-rm -r -- "${step_controls:?}" || fail "removing the status step controls failed"
 
 # Status actions, D061: an entry's action is offered while its published
 # value calls for it, a presence while absent and a state while it says so,
@@ -288,18 +255,12 @@ expect "the refused acts raised no notice" null notice_shown
 expect_poll "the refusal reads under the Token line" '["Token", "Present", "This setup step is not needed now."]' token_drawn
 expect "the fixture publishes its token absent" ok ipc acme.status invoke set 'token="absent"'
 expect_poll "an absent token offers Set up token and the check offers nothing" '[["token", "Set up token", true], ["check", "Install the tool", false]]' offered_actions acme.status
-expect_poll "the Token row draws its Set up token button and its command behind Show command" '["Token", "Absent", "This setup step is not needed now.", "Set up token", "Show command"]' token_drawn
+expect_poll "the Token row draws its Set up token button" '["Token", "Absent", "This setup step is not needed now.", "Set up token"]' token_drawn
 settings_press "Set up token" || fail "the click on Set up token failed"
 expect_poll "Set up token hands the terminal the fixture's setup TUI" "$(words acme.status/setup tui/setup.sh)" recorded_tail
-expect_poll "the step that ran clears the Token line's refusal" '["Token", "Absent", "Needed for the fixture'"'"'s sync", "Set up token", "Show command"]' token_drawn
+expect_poll "the step that ran clears the Token line's refusal" '["Token", "Absent", "Needed for the fixture'"'"'s sync", "Set up token"]' token_drawn
 expect_run_end "the setup TUI's run ends" acme.status/setup
 expect_poll "the setup TUI's terminal closes" 0 tui_windows
-# Show command: its click shows the entry's command in a CodeLine, and a
-# second hides it.
-settings_press "Show command" || fail "the click on Show command failed"
-expect_poll "the Token row draws its command" "$(python3 -c 'import json,sys; print(json.dumps(["Token", "Absent", "Needed for the fixture'"'"'s sync", "Set up token", "Hide command", sys.argv[1]]))' "$fixture_command")" token_drawn
-settings_press "Hide command" || fail "the click on Hide command failed"
-expect_poll "the Token row hides its command" '["Token", "Absent", "Needed for the fixture'"'"'s sync", "Set up token", "Show command"]' token_drawn
 expect "the check publishes that its tool is missing" ok ipc acme.status invoke set 'check={"tone":"warning","text":"Tool missing","action":true}'
 expect_poll "the check offers Install the tool" '[["token", "Set up token", true], ["check", "Install the tool", true]]' offered_actions acme.status
 # The press scans before it raises: the last scan found the command, from a
@@ -602,7 +563,7 @@ expect_poll "the page draws no Status row with the extra off" '[]' drawn_status
 # The control: the same readers find the row once the plugins row turns
 # the extra on.
 set_slack_photos on
-expect_poll "the disabled notifications list the Slack tokens row unreported" '[["Slack tokens", "unreported", null, "", ""]]' status_of vgs.notifications
+expect_poll "the disabled notifications list the Slack tokens row unreported" '[["Slack tokens", "unreported", null, ""]]' status_of vgs.notifications
 expect_poll "the page draws the Slack tokens row with its hint and no line per account" "$(python3 -c 'import json,sys; print(json.dumps([["Slack tokens", "Not reported", sys.argv[1]]]))' "$slack_tokens_hint")" drawn_status
 expect "no Slack tokens row takes an edit" '[[]]' ipc smoke statusRowInputs window vgs.settings
 set_slack_photos absent

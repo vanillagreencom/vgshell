@@ -16,6 +16,15 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 - The displays dim after a time without input, to a level you choose. Any input brings each display back to its level. A playing video keeps the displays from dimming.
 - When a display needs your permission, Allow opens a terminal that shows the one-time setup and asks for your password.
 
+<details><summary>Show command</summary>
+
+```bash
+vgshell system apply apple-displays
+vgshell system apply i2c-dev
+```
+
+</details>
+
 ## Settings
 
 | Setting | What it changes |

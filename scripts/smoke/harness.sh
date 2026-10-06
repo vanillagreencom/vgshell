@@ -2636,10 +2636,10 @@ print(json.dumps([e for e in json.loads(errors) if e]))'
 hypr_wire_count() { local line="pcall(dofile, \"$home/.local/state/vgshell/hypr/vgs.lua\")"; grep -cxF -- "$line" "$home/.config/hypr/hyprland.lua" || true; }
 # The consent slot's question, whether the first-start welcome holds it or
 # it stands alone, as { command, failure }.
-hypr_consent_question() { ipc shell lent | python3 -c 'import json,sys; c=json.load(sys.stdin)["notices"]["consent"]; print(json.dumps(None if c is None else {"command": c["command"], "failure": c["failure"]}))'; }
+hypr_consent_question() { ipc shell lent | python3 -c 'import json,sys; c=json.load(sys.stdin)["notices"]["consent"]; print(json.dumps(None if c is None else {"failure": c["failure"]}))'; }
 hypr_consent_connect() { # LABEL
   local label="$1"
-  expect_poll "$label: the Hyprland consent question is shown" '{"command": "vgshell hypr wire", "failure": ""}' hypr_consent_question
+  expect_poll "$label: the Hyprland consent question is shown" '{"failure": ""}' hypr_consent_question
   type_keys -k Return || fail "$label: sending Return to the Hyprland consent notice failed"
   expect_poll "$label: the consent step reaches wired" wired hypr_consent_phase
   expect_poll "$label: the loading line is present once" 1 hypr_wire_count

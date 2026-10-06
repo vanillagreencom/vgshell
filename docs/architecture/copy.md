@@ -15,7 +15,7 @@ A user reads a label once; a diagnostic key or a reason code sends them to a log
 - Do give a plugin description one or two short sentences with no command and no feature list.
 - Do give a hint one short sentence, and remove it when the label already says it; longer help goes in an info dialog.
 - Do keep diagnostic keys, reason codes and command errors in logs; show a plain sentence that explains the result or the action. A field made to show a technical value may name it.
-- Never tell the user to run a command. `scripts/check-user-commands.py` refuses the text, and a command shows only behind "Show command".
+- Never tell the user to run a command, except a by-hand requirement notice for a step VGS cannot run on this system. `scripts/check-user-commands.py` refuses the text elsewhere. A plugin README keeps button commands behind Show command details.
 - Never show an unsupported extra to a consumer. `scripts/test-plugin-extras.js` pins it.
 - Do map plugin-owned messages before the plugin shows them; keep a user's own commands, their output and child command streams unchanged.
 - Do keep developer logs, code comments, developer documentation and machine-readable output technical; a component preview may name the component, property or state it shows.

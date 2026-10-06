@@ -1869,12 +1869,11 @@ expect_poll "the last toast's exit has played" 0 layer_count vgs:layer
 
 # The Slack token rows: the service publishes whether the stub libsecret
 # holds each listed workspace's token and the single-workspace one, never a
-# token, and the Settings page draws a line per account with the command
-# that stores it. The probe runs when the service starts, so each set of
-# states is read after a disable and an enable. No state here makes the
-# photo helper call Slack.
+# token, and the Settings page draws a line per account. The probe runs
+# when the service starts, so each set of states is read after a disable
+# and an enable. No state here makes the photo helper call Slack.
 token_hint="Connect each workspace to show sender photos."
-token_row() { ipc smoke readInstance window vgs.settings plugins | py_reply 'import json,sys; r=[p for p in json.load(sys.stdin) if p["id"] == "vgs.notifications"][0]["status"]; print(json.dumps([[s["label"], s["report"], s["tone"], s["command"], s["value"]] for s in r]))'; }
+token_row() { ipc smoke readInstance window vgs.settings plugins | py_reply 'import json,sys; r=[p for p in json.load(sys.stdin) if p["id"] == "vgs.notifications"][0]["status"]; print(json.dumps([[s["label"], s["report"], s["tone"], s["value"]] for s in r]))'; }
 drawn_token_row() { ipc smoke itemTexts window vgs.settings StatusRow | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)))'; }
 # want_rows rows|drawn ITEMS: the manager row, or the texts the page draws,
 # for ITEMS, `;`-separated `<account>,<state>[,served]` items, `served`
@@ -1887,26 +1886,20 @@ what, items, hint = sys.argv[1], sys.argv[2], sys.argv[3]
 labels = {"slack:T0ACME": "Acme Corp (acme)", "slack:T0GLOBEX": "Globex", "slack": "Single-workspace token"}
 tones = {"present": "success", "absent": "warning", "locked": "info"}
 words = {"present": "Present", "absent": "Absent", "locked": "Locked"}
-def command(account):
-    if account == "slack":
-        return "secret-tool store --label='VGS notifications Slack token' service vgs-notifications account slack"
-    team = account.split(":")[1]
-    return "secret-tool store --label='VGS notifications Slack token %s' service vgs-notifications account %s" % (team, account)
-# A line offers Connect, with its command behind Show command, while its
-# token is absent, and Disconnect alone while one is stored; a served line
-# offers neither and names no command.
+# A line offers Connect while its token is absent, and Disconnect while one
+# is stored; a served line offers neither.
 steps = {"present": "Disconnect", "absent": "Connect", "locked": "Disconnect"}
 accesses = {"present": "disconnect", "absent": "connect", "locked": "disconnect"}
 rows, drawn = [], ["Slack tokens", hint]
 for item in items.split(";"):
     account, state, *served = item.split(",")
     if served:
-        rows.append({"label": labels[account], "value": state, "hint": "Uses the single-workspace token", "command": "", "tone": tones[state], "secret": "", "access": ""})
+        rows.append({"label": labels[account], "value": state, "hint": "Uses the single-workspace token", "tone": tones[state], "secret": "", "access": ""})
         drawn += [labels[account], words[state], "Uses the single-workspace token"]
     else:
-        rows.append({"label": labels[account], "value": state, "hint": "", "command": command(account), "tone": tones[state], "secret": account, "access": accesses[state]})
-        drawn += [labels[account], words[state], steps[state]] + (["Show command"] if state == "absent" else [])
-print(json.dumps([["Slack tokens", "reported", "", "", rows]]) if what == "rows" else json.dumps([drawn]))
+        rows.append({"label": labels[account], "value": state, "hint": "", "tone": tones[state], "secret": account, "access": accesses[state]})
+        drawn += [labels[account], words[state], steps[state]]
+print(json.dumps([["Slack tokens", "reported", "", rows]]) if what == "rows" else json.dumps([drawn]))
 PY
 }
 restart_notes() {
@@ -1919,7 +1912,7 @@ expect "the notifications' Settings page opens" ok ipc shell summon window vgs.s
 settings_details
 first_items="slack:T0ACME,present;slack:T0GLOBEX,present,served;slack,present"
 expect_poll "the page reads each workspace's token, globex served by the single-workspace one" "$(want_rows rows "$first_items")" token_row
-expect_poll "the page draws a line per account with its step, and no command for a stored token" "$(want_rows drawn "$first_items")" drawn_token_row
+expect_poll "the page draws a line per account with its step, and no Show command" "$(want_rows drawn "$first_items")" drawn_token_row
 # Flips: label | the stub's states | the items the page reads.
 flips=(
   "locked|slack:T0ACME locked;slack:T0GLOBEX locked;slack present|slack:T0ACME,locked;slack:T0GLOBEX,locked;slack,present"

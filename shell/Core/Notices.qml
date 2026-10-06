@@ -69,13 +69,11 @@ Singleton {
     // first build was refused because a restart is owed, from then until
     // the user answers it.
     property bool restart: false
-    // What the restart notice draws, in the consent slot's form. Restart is
-    // the click; the command it runs is only behind Show command (D061).
+    // What the restart notice draws, in the consent slot's form.
     readonly property var restartView: ({
         title: "Restart to update",
         message: "VGS changed on disk. Plugins keep running as they are. New plugin windows wait for the restart. Open windows stay open.",
         lines: [],
-        disclosure: "vgshell restart",
         actions: [{ label: "Restart", role: "accept" }, { label: "Not now", role: "cancel" }],
         failure: "",
         busy: false
@@ -84,18 +82,12 @@ Singleton {
     // which `vgshell reset` calls with no terminal and no --yes, or the
     // `manager` capability's reset, until the user answers it.
     property bool resetAsked: false
-    // The commands the reset question's Reset and the "VGS was reset"
-    // notice's Restore previous settings run, shown only behind Show
-    // command (D061).
-    readonly property string resetCommand: "vgshell reset --yes"
-    readonly property string restoreCommand: "vgshell reset restore --yes " + resetBackup
     // What the reset question draws, in the consent slot's form. Cancel,
     // the action that cannot change anything, holds the keyboard first.
     readonly property var resetView: ({
         title: "Reset VGS?",
         message: "Your settings, installed plugins and themes move to a backup, and VGS restarts as on a fresh install. You can restore them afterwards.",
         lines: [],
-        disclosure: resetCommand,
         actions: [{ label: "Cancel", role: "cancel", focused: true }, { label: "Reset", role: "accept", variant: "danger" }],
         failure: "",
         busy: false
@@ -111,7 +103,6 @@ Singleton {
         title: "VGS was reset",
         message: "Your previous settings, plugins and themes are in a backup. Restore them, or keep this fresh start.",
         lines: [],
-        disclosure: restoreCommand,
         actions: [{ label: "Restore previous settings", role: "accept" }, { label: "Keep these", role: "cancel", focused: true }],
         failure: "",
         busy: false
@@ -460,7 +451,7 @@ Singleton {
             shown: current === null ? null : { plugin: current.id, commands: current.commands, required: current.required, installing: installing, failure: failure },
             restart: restart,
             reset: { asked: resetAsked, backup: resetBackup === "" ? null : resetBackup },
-            consent: consent === null ? null : { title: consent.title, command: consent.disclosure, failure: consent.failure },
+            consent: consent === null ? null : { title: consent.title, failure: consent.failure },
             consentState: consentState === null ? null : { phase: consentState.phase, queued: consentState.queued || "", failure: consentState.failure || "" },
             welcome: {
                 state: welcome,

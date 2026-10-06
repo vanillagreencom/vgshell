@@ -33,7 +33,7 @@ A state that needs a setup step shows one button in place of the items:
 
 A press that hands off closes the panel. A refusal stays in the panel as one sentence, such as "The setup window could not open. VGS is missing its terminal launcher, xdg-terminal-exec. Reinstall VGS to restore it.", and is logged as `agent-warden: action=<action> <reply>`.
 
-Beside Set up on the Settings page, Show command reveals the command the step runs ([D061](../../../docs/decisions/D061-no-manual-commands.md)).
+The Settings page shows Set up while the warden is not installed ([D061](../../../docs/decisions/D061-no-manual-commands.md)).
 
 ## Notifications
 

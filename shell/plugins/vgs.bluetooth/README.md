@@ -22,6 +22,14 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 - With no adapter and the Bluetooth service stopped, System Settings → Bluetooth and the plugin's Settings page offer Turn on the service, which starts the service in a setup window.
 - The plugin needs `rfkill`. When it is missing, VGS offers to install it.
 
+<details><summary>Show command</summary>
+
+```bash
+vgshell system apply service-bluetooth
+```
+
+</details>
+
 ## Pairing
 
 - Pair takes the core's pairing agent while it runs. Every request from the device shows in a dialog in the section: confirm a code, enter a PIN or passkey, type the shown code on the device, allow a service, or a cancel from the device.

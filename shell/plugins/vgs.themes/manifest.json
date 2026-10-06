@@ -75,8 +75,7 @@
       "type": "state",
       "label": "Browser theming",
       "hint": "Apply theme colours to Chromium, Chrome, Edge and Brave after setup",
-      "action": { "label": "Install browser theming", "tui": "browser-policy" },
-      "command": "vgshell theme browser-policy install"
+      "action": { "label": "Install browser theming", "tui": "browser-policy" }
     },
     "themeWiring": {
       "type": "presenceList",

@@ -14,6 +14,14 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 - A tool that something outside VGS provides shows Managed outside VGS and offers no action.
 - mise manages the tools. The plugin's Settings page offers Install mise while it is missing.
 
+<details><summary>Show command</summary>
+
+```bash
+vgshell pkg run install mise
+```
+
+</details>
+
 ## Settings
 
 | Setting | What it changes |

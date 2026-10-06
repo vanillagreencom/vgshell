@@ -10,8 +10,8 @@ import "../../shell/plugins/vgs.settings"
 // neither, a group list inside another divides its own groups alike, and a
 // theme moves both. The groups are the Settings page's own Status lines
 // and Requirements rows, so the page's rhythm is read where it is drawn:
-// a line's own lines, its value, its hint and its command, sit `field.gap`
-// apart, less than the gap between groups.
+// a line's own lines, its value and its hint sit `field.gap` apart, less
+// than the gap between groups.
 Item {
     id: root
     width: 480
@@ -20,7 +20,7 @@ Item {
     GroupList {
         id: list
         width: 400
-        StatusLine { id: warden; width: list.width; label: "Warden"; tone: "success"; text: "Checking"; hint: "Keeps AI agents within their memory and task limits"; command: "systemctl --user start agent-warden.timer" }
+        StatusLine { id: warden; width: list.width; label: "Warden"; tone: "success"; text: "Checking"; hint: "Keeps AI agents within their memory and task limits" }
         StatusLine { id: agents; width: list.width; label: "Agents running"; text: "3" }
         StatusLine { id: hidden; width: list.width; label: "Hidden"; text: "gone"; visible: false }
         RequirementRow { id: vsys; width: list.width; requirement: ({ name: "vsys", bus: null, state: "present", optional: false, purpose: "The agent dashboard that ships the warden" }) }
@@ -107,14 +107,11 @@ Item {
             compare(String(hairlinesOf(list)[0].color), String(Qt.color("#80ff0000")));
         }
 
-        // The lines of one group sit `field.gap` apart: the key/value row,
-        // its hint, and its command's disclosure.
+        // The lines of one group sit `field.gap` apart: the key/value row
+        // and its hint.
         function test_a_groups_own_lines_sit_close() {
             const field = warden.children.find(child => child.valueX !== undefined);
-            const disclosure = warden.children.find(child => child.command !== undefined && child.toggle !== undefined);
-            verify(field !== undefined && disclosure !== undefined, "the line holds its field and its disclosure");
-            compare(disclosure.visible, true);
-            compare(disclosure.y - (field.y + field.height), Theme.field.gap);
+            verify(field !== undefined, "the line holds its field");
             compare(warden.spacing, Theme.field.gap);
             const row = field.children.find(child => child.objectName === "fieldRow");
             const hint = field.children.find(child => child.height > 0 && child.children.length === 1 && child.children[0].role === "hint");

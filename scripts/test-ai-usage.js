@@ -687,7 +687,7 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
         assert.deepEqual(View.panel(copilot, NOW, { showCopilot: false }).map(r => r.provider), ["claude", "gateway"]);
         assert.deepEqual(View.panel(copilot, NOW, { hidden: [{ account: "" }] }).map(r => r.id), ["copilot-b", "claude-enterprise", "gateway-a"], "empty hidden account means the first offer");
         assert.deepEqual(View.accountChoices(copilot).map(r => r.value), ["copilot-a", "copilot-b", "claude-enterprise", "gateway-a"]);
-        assert.deepEqual(plainOf(View.gatewayKey("present")), [{ label: "AI Gateway", value: "present", secret: "ai-gateway", command: "secret-tool store --label='VGS AI Usage AI Gateway key' service vgs-ai-usage account ai-gateway" }]);
+        assert.deepEqual(plainOf(View.gatewayKey("present")), [{ label: "AI Gateway", value: "present", secret: "ai-gateway" }]);
         const failedCreditless = View.merge(copilot, { accounts: [{ id: "copilot-b", provider: "copilot", label: "zero",
             email: "", plan: "", state: "failed", windows: [], credits: null }], partial: "" }, NOW + 1);
         assert.deepEqual(plainOf(failedCreditless.accounts[0]), { id: "copilot-b", provider: "copilot", label: "zero",

@@ -37,7 +37,7 @@ function suite(ctx, check) {
         status: {
             devices: { type: "choices", label: "Devices" },
             catalog: { type: "launcherRows", label: "Catalog" },
-            token: { type: "presence", label: "Token", group: "Keys", hint: "Needed", info: "Explains this status", action: { label: "Set up token", tui: "setup" }, command: "secret-tool store x" },
+            token: { type: "presence", label: "Token", group: "Keys", hint: "Needed", info: "Explains this status", action: { label: "Set up token", tui: "setup" } },
             tokens: { type: "presenceList", label: "Tokens", group: "Keys", hint: "One per workspace" },
             check: { type: "state", label: "Check", action: { label: "Install sync", install: ["acme-sync"] } },
             note: { type: "text", label: "Note" },
@@ -225,14 +225,13 @@ function suite(ctx, check) {
         ["a presence value outside the set", "token", "stored", "refused: status=token reason=type"],
         ["a presence value that is a boolean", "token", true, "refused: status=token reason=type"],
         ["a presence value that is an inherited key", "token", "toString", "refused: status=token reason=type"],
-        ["a presence list", "tokens", [{ label: "Acme (acme)", value: "present", hint: "h", secret: "acme:T1", command: "secret-tool store y" }, { label: "Globex", value: "locked" }], "ok"],
+        ["a presence list", "tokens", [{ label: "Acme (acme)", value: "present", hint: "h", secret: "acme:T1" }, { label: "Globex", value: "locked" }], "ok"],
         ["a presence list item naming its account", "tokens", [{ label: "A", value: "absent", secret: "slack:T0123ABCD" }], "ok"],
         ["a presence list item account of 128 characters", "tokens", [{ label: "A", value: "absent", secret: "a".repeat(128) }], "ok"],
         ["a presence list item account of 129 characters", "tokens", [{ label: "A", value: "absent", secret: "a".repeat(129) }], "refused: status=tokens reason=type"],
         ["a presence list item account with a space", "tokens", [{ label: "A", value: "absent", secret: "a b" }], "refused: status=tokens reason=type"],
         ["a presence list item account starting with a dash", "tokens", [{ label: "A", value: "absent", secret: "-a" }], "refused: status=tokens reason=type"],
         ["a presence list item account that is no string", "tokens", [{ label: "A", value: "absent", secret: 7 }], "refused: status=tokens reason=type"],
-        ["a presence list item command without its account", "tokens", [{ label: "A", value: "absent", command: "secret-tool store y" }], "refused: status=tokens reason=type"],
         ["an empty presence list", "tokens", [], "ok"],
         ["a presence list of 64 items", "tokens", Array.from({ length: 64 }, (_, i) => ({ label: "w" + i, value: "absent" })), "ok"],
         ["a presence list of 65 items", "tokens", Array.from({ length: 65 }, (_, i) => ({ label: "w" + i, value: "absent" })), "refused: status=tokens reason=type"],
@@ -246,8 +245,6 @@ function suite(ctx, check) {
         ["a presence list item label with a newline", "tokens", [{ label: "A\nB", value: "present" }], "refused: status=tokens reason=type"],
         ["a presence list item hint of 201 characters", "tokens", [{ label: "A", value: "present", hint: "x".repeat(201) }], "refused: status=tokens reason=type"],
         ["a presence list item with an empty hint", "tokens", [{ label: "A", value: "present", hint: "" }], "refused: status=tokens reason=type"],
-        ["a presence list item command of 300 characters", "tokens", [{ label: "A", value: "present", secret: "a", command: "x".repeat(300) }], "ok"],
-        ["a presence list item command of 301 characters", "tokens", [{ label: "A", value: "present", secret: "a", command: "x".repeat(301) }], "refused: status=tokens reason=type"],
         ["a presence list item with a key of its own", "tokens", [{ label: "A", value: "present", tone: "success" }], "refused: status=tokens reason=type"],
         ["a presence list item holding a function", "tokens", [{ label: "A", value: "present", hint: function () {} }], "refused: status=tokens reason=type"],
         ["a presence list item that is a class instance", "tokens", [new (class Item { constructor() { this.label = "A"; this.value = "present"; } })()], "refused: status=tokens reason=type"],
@@ -331,10 +328,10 @@ function suite(ctx, check) {
     const values = ctx.statusWrite(m, ctx.statusWrite(m, ctx.statusWrite(m, {}, "token", "locked").values, "check", { tone: "ok", text: "Up to date" }).values, "pending", 0).values;
     const rows = ctx.statusRows(m, values, []);
     check("statusRows: one row per displayable entry, in manifest order", rows.map(r => r.key), ["token", "tokens", "check", "note", "pending", "lastCheck", "health"]);
-    check("statusRows: a reported presence carries its tone and the declaration", rows[0], { key: "token", type: "presence", label: "Token", group: "Keys", hint: "Needed", info: "Explains this status", command: "secret-tool store x", action: { label: "Set up token", offered: false }, report: "reported", value: "locked", tone: "info" });
+    check("statusRows: a reported presence carries its tone and the declaration", rows[0], { key: "token", type: "presence", label: "Token", group: "Keys", hint: "Needed", info: "Explains this status", action: { label: "Set up token", offered: false }, report: "reported", value: "locked", tone: "info" });
     check("statusRows: a declaration carries info", rows[0].info, "Explains this status");
     check("statusRows: a reported state carries its tone", [rows[2].report, rows[2].value, rows[2].tone], ["reported", { tone: "ok", text: "Up to date" }, "success"]);
-    check("statusRows: an unreported entry has no value and no tone", rows[3], { key: "note", type: "text", label: "Note", group: "", hint: "", info: "", command: "", action: null, report: "unreported", value: null, tone: "" });
+    check("statusRows: an unreported entry has no value and no tone", rows[3], { key: "note", type: "text", label: "Note", group: "", hint: "", info: "", action: null, report: "unreported", value: null, tone: "" });
     check("statusRows: a reported count of 0 is reported, drawn without a tone", [rows[4].report, rows[4].value, rows[4].tone], ["reported", 0, ""]);
     check("statusRows: nothing published leaves every row unreported", ctx.statusRows(m, {}, []).map(r => r.report), ["unreported", "unreported", "unreported", "unreported", "unreported", "unreported", "unreported"]);
     // An action is offered while the published value calls for it: a
@@ -347,15 +344,15 @@ function suite(ctx, check) {
     check("statusRows: a state that says no offers none", actionsOffered(ctx.statusWrite(m, {}, "check", { tone: "warning", text: "t", action: false }).values)[1], ["check", false]);
     check("statusRows: a state that says nothing offers none", actionsOffered(ctx.statusWrite(m, {}, "check", { tone: "warning", text: "t" }).values)[1], ["check", false]);
     // A presence list's row carries each item with its own tone, an omitted
-    // hint or command as "", and no tone of its own.
-    const listed = ctx.statusRows(m, ctx.statusWrite(m, {}, "tokens", [{ label: "Acme (acme)", value: "present", secret: "acme:T1", command: "secret-tool store y" }, { label: "Globex", value: "locked", hint: "Served elsewhere", secret: "acme:T2" }, { label: "Initech", value: "absent", secret: "acme:T3" }, { label: "Hooli", value: "unavailable", secret: "acme:T4" }, { label: "Umbrella", value: "unsafe", secret: "acme:T5" }, { label: "Plain", value: "absent" }]).values, [])[1];
+    // hint as "", and no tone of its own.
+    const listed = ctx.statusRows(m, ctx.statusWrite(m, {}, "tokens", [{ label: "Acme (acme)", value: "present", secret: "acme:T1" }, { label: "Globex", value: "locked", hint: "Served elsewhere", secret: "acme:T2" }, { label: "Initech", value: "absent", secret: "acme:T3" }, { label: "Hooli", value: "unavailable", secret: "acme:T4" }, { label: "Umbrella", value: "unsafe", secret: "acme:T5" }, { label: "Plain", value: "absent" }]).values, [])[1];
     check("statusRows: a presence list carries each item with its tone and its secret's access", [listed.report, listed.tone, listed.value], ["reported", "", [
-        { label: "Acme (acme)", value: "present", hint: "", command: "secret-tool store y", tone: "success", secret: "acme:T1", access: "disconnect" },
-        { label: "Globex", value: "locked", hint: "Served elsewhere", command: "", tone: "info", secret: "acme:T2", access: "disconnect" },
-        { label: "Initech", value: "absent", hint: "", command: "", tone: "warning", secret: "acme:T3", access: "connect" },
-        { label: "Hooli", value: "unavailable", hint: "", command: "", tone: "neutral", secret: "acme:T4", access: "" },
-        { label: "Umbrella", value: "unsafe", hint: "", command: "", tone: "danger", secret: "acme:T5", access: "disconnect" },
-        { label: "Plain", value: "absent", hint: "", command: "", tone: "warning", secret: "", access: "" }
+        { label: "Acme (acme)", value: "present", hint: "", tone: "success", secret: "acme:T1", access: "disconnect" },
+        { label: "Globex", value: "locked", hint: "Served elsewhere", tone: "info", secret: "acme:T2", access: "disconnect" },
+        { label: "Initech", value: "absent", hint: "", tone: "warning", secret: "acme:T3", access: "connect" },
+        { label: "Hooli", value: "unavailable", hint: "", tone: "neutral", secret: "acme:T4", access: "" },
+        { label: "Umbrella", value: "unsafe", hint: "", tone: "danger", secret: "acme:T5", access: "disconnect" },
+        { label: "Plain", value: "absent", hint: "", tone: "warning", secret: "", access: "" }
     ]]);
     check("statusRows: an empty presence list is reported empty", ctx.statusRows(m, ctx.statusWrite(m, {}, "tokens", []).values, [])[1].value, []);
     const noStatus = ctx.validateManifest({ schemaVersion: 1, id: "acme.none", name: "N", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "S.qml" } }, "/p").manifest;
@@ -573,7 +570,6 @@ const CONTROLS = [
     ["a presence list item label is a printable line", "return isPrintableLine(item.label, STATUS_LABEL_MAX)\n        && typeof item.value", "return typeof item.value"],
     ["a presence list item value is a presence", "&& typeof item.value === \"string\" && hasOwn(STATUS_PRESENCE_TONES, item.value)", "&& typeof item.value === \"string\""],
     ["a presence list item hint is a printable line", "(item.hint === undefined || isPrintableLine(item.hint, STATUS_HINT_MAX))", "true"],
-    ["a presence list item command is a printable line", "(item.secret !== undefined && isPrintableLine(item.command, STATUS_COMMAND_MAX))", "(item.secret !== undefined)"],
     ["a presence list row item has its tone", "tone: STATUS_PRESENCE_TONES[item.value]", "tone: \"neutral\""],
     ["a presence list row item omits no hint", "hint: item.hint === undefined ? \"\" : item.hint,", "hint: item.hint,"],
     ["a presence list row carries its items", "value: reported ? statusRowValue(entry.type, value) : null,", "value: reported ? value : null,"],
@@ -607,7 +603,6 @@ const CONTROLS = [
     ["an item account needs declared secrets", "return manifest.secrets !== undefined || value.every(", "return true || value.every("],
     ["a state action is a boolean or a name", "&& (value.action === undefined || typeof value.action === \"boolean\" || typeof value.action === \"string\");", ";"],
     ["an item account matches its pattern", "(typeof item.secret === \"string\" && SECRET_ACCOUNT_PATTERN.test(item.secret))", "true"],
-    ["an item command needs its account", "(item.secret !== undefined && isPrintableLine(item.command, STATUS_COMMAND_MAX))", "isPrintableLine(item.command, STATUS_COMMAND_MAX)"],
     ["a row item carries its secret", "secret: item.secret === undefined ? \"\" : item.secret,", "secret: \"\","],
     ["a row item's access follows its presence", "access: item.secret === undefined ? \"\" : SECRET_ACCESS[item.value]", "access: item.secret === undefined ? \"\" : \"connect\""],
     ["a locked secret disconnects", "locked: \"disconnect\"", "locked: \"\""],

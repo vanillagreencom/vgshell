@@ -15,7 +15,7 @@
 #
 
 # SCENE is gallery, settings, focus, plugin-pages, manager, launcher,
-# notifications, bar, panels, devtools, system, network, vpn, bluetooth, power, dialog, lock, polkit,
+# notifications, bar, panels, devtools, system, network, vpn, bluetooth, power, dialog, by-hand, reset, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, tooltips, capture,
 # keyhints, clipboard, voice or ai-usage. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
@@ -292,7 +292,7 @@ scene_ships() {
     bluetooth) ships_plugin vgs.system vgs.bluetooth ;;
     power) ships_plugin vgs.power ;;
     theme-browser|wallpaper-browser) ships_plugin vgs.themes ;;
-    dialog) [[ -f $tree/shell/Hosts/NoticeHost.qml ]] ;;
+    dialog|by-hand|reset) [[ -f $tree/shell/Hosts/NoticeHost.qml ]] ;;
     lock) ships_plugin vgs.lock ;;
     polkit) ships_plugin vgs.polkit ;;
     greeter) ships_plugin vgs.greeter && [[ -f $tree/shell/greeter.qml ]] ;;
@@ -323,15 +323,20 @@ done
 
 # shellcheck disable=SC2034 # the harness sourced below reads it
 shell_output_scale="$scale"
+shell_hidden_commands=()
 # The setup steps' shots draw each install button, which a Settings page
 # offers only while its command is absent; on a host that has vsys, mise or
 # the browser-policy writer they would draw none. The shell finds those
 # three absent (harness.sh's shell_hidden_commands); a scene that stands
 # its own stand-in for one, as panels does for vsys and devtools for mise,
 # still finds it, and the shot of that button is then skipped.
-if [[ " ${scenes[*]} " == *" settings "* && -f $tree/shell/Ui/feedback/CommandDisclosure.qml ]]; then
+if [[ " ${scenes[*]} " == *" settings "* && -f $tree/shell/plugins/vgs.settings/Steps.js ]]; then
   # shellcheck disable=SC2034 # the harness sourced below reads it
   shell_hidden_commands=(vsys mise vgshell-browser-policy)
+fi
+if [[ " ${scenes[*]} " == *" by-hand "* ]]; then
+  # shellcheck disable=SC2034 # the harness sourced below reads it
+  shell_hidden_commands+=(pacman paru yay apt-get dnf5 dnf xbps-install emerge nix flatpak mise sudo doas run0)
 fi
 # AI Usage reads the sign-ins through stand-ins alone, so the shell finds no
 # host claude or codex.
@@ -392,7 +397,7 @@ has_setup_steps=false
 has_voice=false
 has_ai_usage=false
 has_tray=false
-[[ -f $tree/shell/Ui/feedback/CommandDisclosure.qml ]] && has_setup_steps=true
+[[ -f $tree/shell/plugins/vgs.settings/Steps.js ]] && has_setup_steps=true
 [[ -f $tree/shell/plugins/vgs.agent-warden/manifest.json ]] && has_agent_warden=true
 [[ -f $tree/shell/plugins/vgs.automations/manifest.json ]] && has_automations=true
 [[ -f $tree/shell/plugins/vgs.jarvis/manifest.json ]] && has_jarvis=true
@@ -774,11 +779,10 @@ slack_section() {
   fi
 }
 # The setup steps of D061 on the open Settings window: Globex's Connect with
-# its masked field typed into and then its command behind Show command, the
-# status fixture's Set up token and Install the tool, Automations' Enable
-# while logged out, Agent Warden's Set up, Dev Tools'
-# Install mise, Themes' Install browser theming once the chromium target
-# ships, and Settings' own page with its command revealed.
+# its masked field typed into, the status fixture's Set up token and Install
+# the tool, Automations' Enable while logged out, Agent Warden's Set up, Dev
+# Tools' Install mise, and Themes' Install browser theming once the chromium
+# target ships.
 # step_offered ID KEY: whether plugin ID's Settings page offers the step of
 # its status entry KEY.
 step_offered() { status_row "$1" "$2" | py_reply 'import json,sys; r=json.load(sys.stdin); print(str(bool(r["action"] and r["action"]["offered"])).lower())'; }
@@ -816,15 +820,11 @@ scene_setup_steps() { # MODE
   park_pointer
   take_posed "setup-$1-slack-connect"
   type_keys -k Escape || fail "sending Escape to the masked field failed"
-  settings_press "Show command" StatusLine "Globex" || fail "the click on Globex's Show command failed"
-  park_pointer
-  take "setup-$1-slack-show-command"
   expect "the status fixture publishes its token absent" ok ipc acme.status invoke set 'token="absent"'
   expect "the status fixture publishes a check that offers its install" ok ipc acme.status invoke set 'check={"tone":"warning","text":"Tool missing","action":true}'
   expect "the window opens the status fixture's page" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin acme.status
   expect_poll "the status fixture's page is shown" '"acme.status"' settings_page
   page_details
-  settings_press "Show command" || fail "the click on the Token's Show command failed"
   park_pointer
   take "setup-$1-actions"
   # The harness's loginctl sentinel answers lingering off on every host, so
@@ -848,11 +848,6 @@ scene_setup_steps() { # MODE
   fi
   step_shot "$1" vgs.devtools mise "Install mise" devtools-install-mise
   step_shot "$1" vgs.themes browserTheming "Install browser theming" browser-theming
-  expect "the window opens its own page" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.settings
-  expect_poll "its own page is shown" '"vgs.settings"' settings_page
-  settings_press "Show command" || fail "the click on the own page's Show command failed"
-  park_pointer
-  take "setup-$1-settings-command"
 }
 # The Settings window: the list opened from the gear, the pointer on the
 # gear; a search nothing matches; a plugin page with many grouped settings at its top, with a typed
@@ -2112,6 +2107,10 @@ power_shot_level() { ipc smoke statusValues vgs.power | py_reply 'import json,sy
 # fixture, which misses a command it needs; Escape closes it, and the
 # fixture is disabled again so the next mode raises it anew.
 notice_plugin() { notice_shown | py_reply 'import json,sys; s=json.load(sys.stdin); print(json.dumps(s[0] if s else None))'; }
+notice_drawn_key() { ipc smoke noticeDrawn | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[sys.argv[1]]))' "$1"; }
+notice_message_hold() { ipc smoke noticeDrawn | py_reply 'import json,sys; print(str(sys.argv[1] in json.load(sys.stdin)["message"]).lower())' "$1"; }
+notice_rows_hold() { ipc smoke noticeDrawn | py_reply 'import json,sys; print(str(any(sys.argv[1] in row for row in json.load(sys.stdin)["rows"])).lower())' "$1"; }
+shot_reset_ask() { "${shell_env[@]}" "$tree/bin/vgshell" reset </dev/null; }
 # notice_moved_from PLUGIN: `closed` once the shown notice is no longer
 # PLUGIN's, JSON-quoted as notice_plugin prints it.
 notice_moved_from() { local now; now="$(notice_plugin)" || return 1; if [[ $now != "$1" ]]; then echo closed; else echo "$now"; fi; }
@@ -2206,6 +2205,45 @@ scene_dialog() { # MODE
   type_keys -k Escape || fail "sending Escape to the notice failed"
   expect_poll "Escape closes the notice" 0 layer_count vgs:notice
   expect "disabling acme.needs is allowed" ok ipc shell setPluginEnabled acme.needs false
+}
+
+scene_by-hand() { # MODE
+  expect "enabling acme.needs for the by-hand notice is allowed" ok ipc shell setPluginEnabled acme.needs true
+  expect_poll "the by-hand notice shows for acme.needs" '"acme.needs"' notice_plugin
+  expect_poll "the by-hand notice maps its surface" 1 layer_count vgs:notice
+  expect "the by-hand notice offers Close alone" '["Close"]' notice_drawn_key actions
+  expect "the by-hand notice says to install by hand" true notice_message_hold "by hand"
+  park_pointer
+  take "by-hand-$1"
+  type_keys -k Escape || fail "sending Escape to the by-hand notice failed"
+  expect_poll "Escape closes the by-hand notice" 0 layer_count vgs:notice
+  expect "disabling acme.needs after the by-hand shot is allowed" ok ipc shell setPluginEnabled acme.needs false
+}
+
+scene_reset() { # MODE
+  local marker backup
+  expect "reset with no terminal asks the running shell" shell=asked shot_reset_ask
+  expect_poll "the reset question maps" 1 layer_count vgs:notice
+  expect_poll "the reset question title is shown" '"Reset VGS?"' notice_drawn_key title
+  park_pointer
+  take "reset-ask-$1"
+  type_keys -k Escape || fail "sending Escape to the reset question failed"
+  expect_poll "Escape closes the reset question" 0 layer_count vgs:notice
+
+  marker="$home/.local/state/vgshell/reset-backup"
+  backup="$home/.local/state/vgshell/reset-shot-backup"
+  mkdir -p -- "$backup"
+  printf '%s\n' "$backup" >"$marker"
+  stop_shell
+  start_shell "$tree" "$sandbox/shell-reset-$1.log"
+  expect_poll "the reset-done notice maps" 1 layer_count vgs:notice
+  expect_poll "the reset-done title is shown" '"VGS was reset"' notice_drawn_key title
+  park_pointer
+  take "reset-done-$1"
+  type_keys -k Escape || fail "sending Escape to the reset-done notice failed"
+  expect_poll "Escape hides the reset-done notice" 0 layer_count vgs:notice
+  rm -f -- "$marker"
+  rm -rf -- "$backup"
 }
 
 # Every surface class again on a monitor 480 by 720 logical pixels.
@@ -2599,7 +2637,7 @@ PY2
       tree_rescan "the Dev Tools stand-ins are scanned"
       expect "enabling vgs.devtools is allowed" ok ipc shell setPluginEnabled vgs.devtools true
       expect_poll "vgs.devtools is built" True record_exists vgs.devtools ;;
-    dialog)
+    dialog|by-hand)
       mkdir -p "$home/.config/vgshell/plugins/acme.needs"
       cp -R -- "$fixtures/acme.needs/." "$home/.config/vgshell/plugins/acme.needs/"
       tree_rescan "the needs fixture is scanned"
