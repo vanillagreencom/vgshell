@@ -8,7 +8,7 @@ import QtQuick
 // IPC open the window on the focused monitor.
 //   shortcut vgs.system:toggle            SUPER+PERIOD from the manifest's
 //                                          `hyprland` binds
-//   shortcut vgs.system:open              the launcher's System settings row; no key
+//   shortcut vgs.system:open              the launcher's System Settings row; no key
 //   vgshell ipc call vgs.system invoke toggle '<payload>'
 //   vgshell ipc call vgs.system invoke open '<payload>'
 // A payload is the window's, `{}` or `{"pane":"<id>", ...}`; an empty

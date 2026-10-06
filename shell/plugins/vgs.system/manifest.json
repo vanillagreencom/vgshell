@@ -25,7 +25,7 @@
   ],
   "settings": {},
   "menu": {
-    "settings.system": { "label": "System settings", "icon": "sliders-horizontal", "aliases": ["system"], "shortcut": "open" }
+    "settings.system": { "label": "System Settings", "icon": "sliders-horizontal", "aliases": ["system"], "shortcut": "open" }
   },
   "hyprland": {
     "binds": [

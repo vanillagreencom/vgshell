@@ -7,7 +7,7 @@
 # through two files under the sandbox's runtime directory, read here. The
 # Install, Remove and Update rows open floating TUIs, read back from the
 # stand-in terminal scripts/smoke/rows/tui.sh left. The Settings category
-# holds Plugin settings and, while vgs.system is enabled, System settings,
+# holds Plugin settings and, while vgs.system is enabled, System Settings,
 # each opening its window. The row ends with the plugin disabled and every
 # registration released.
 # inputs: shell/plugins/vgs.launcher/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Service.qml shell/plugins/vgs.system/manifest.json shell/plugins/vgs.system/Service.qml shell/Ui/BarWidget.qml scripts/smoke/fixtures/plugins/acme.tui/* shell/Ui/layout/ListCursor.qml shell/Core/TuiRunner.qml bin/vgshell-tui shell/Commons/DesktopLaunch.js scripts/smoke/rows/capabilities.sh scripts/smoke/rows/tui.sh
@@ -90,7 +90,7 @@ expect_poll "Enter launched the application" True bash -c '[[ -f $1 ]] && echo T
 expect_poll "a launch closes the launcher" 0 layer_count vgs:overlay
 
 # Settings: Plugins, always on, declares the category and its Plugin
-# settings row in its manifest's `menu`; vgs.system adds System settings
+# settings row in its manifest's `menu`; vgs.system adds System Settings
 # under it while enabled. Each row runs its plugin's `open` shortcut, which
 # opens its window. The reading with vgs.system enabled is the control of
 # the reading without it, and a user menu file that relabels Plugin
@@ -104,7 +104,7 @@ launcher_window_open() { [[ $(ipc smoke instanceGeometry window "$1") != absent 
 expect "vgs.system starts disabled in the sandbox" False plugin_enabled vgs.system
 launcher_settings_open "without System"
 expect_poll "Settings lists Plugin settings" True launcher_has_row shortcut "Plugin settings"
-expect "Settings lists no System settings while vgs.system is disabled" False launcher_has_row shortcut "System settings"
+expect "Settings lists no System Settings while vgs.system is disabled" False launcher_has_row shortcut "System Settings"
 type_keys -k Return || fail "selecting Plugin settings failed"
 expect_poll "Plugin settings opens the Plugins window" open launcher_window_open vgs.settings
 expect_poll "the launcher closes on Plugin settings" 0 layer_count vgs:overlay
@@ -113,13 +113,13 @@ expect_poll "the Plugins window is gone after Plugin settings" closed launcher_w
 expect "enabling vgs.system for the Settings rows is allowed" ok ipc shell setPluginEnabled vgs.system true
 expect_poll "vgs.system's service is built for the Settings rows" True record_exists vgs.system
 launcher_settings_open "with System"
-expect_poll "control: Settings lists System settings while vgs.system is enabled" True launcher_has_row shortcut "System settings"
-expect "Settings lists Plugin settings beside System settings" True launcher_has_row shortcut "Plugin settings"
-type_keys -k Down -k Return || fail "selecting System settings failed"
-expect_poll "System settings opens the System window" open launcher_window_open vgs.system
-expect_poll "the launcher closes on System settings" 0 layer_count vgs:overlay
-expect "the System window hides after System settings" ok ipc shell hide window vgs.system
-expect_poll "the System window is gone after System settings" closed launcher_window_open vgs.system
+expect_poll "control: Settings lists System Settings while vgs.system is enabled" True launcher_has_row shortcut "System Settings"
+expect "Settings lists Plugin settings beside System Settings" True launcher_has_row shortcut "Plugin settings"
+type_keys -k Down -k Return || fail "selecting System Settings failed"
+expect_poll "System Settings opens the System window" open launcher_window_open vgs.system
+expect_poll "the launcher closes on System Settings" 0 layer_count vgs:overlay
+expect "the System window hides after System Settings" ok ipc shell hide window vgs.system
+expect_poll "the System window is gone after System Settings" closed launcher_window_open vgs.system
 expect "disabling vgs.system after the Settings rows is allowed" ok ipc shell setPluginEnabled vgs.system false
 expect_poll "vgs.system's service is gone after the Settings rows" False record_exists vgs.system
 write_menu '{ "schemaVersion": 1, "items": { "settings.plugins": { "label": "Smoke plugins" } } }'
