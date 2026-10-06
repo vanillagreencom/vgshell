@@ -89,6 +89,15 @@ elif turn_end is None: print("no-scan")
 else: print("in-scan-turn" if follow < turn_end else "late")'
 }
 order_count() { start_order | py_reply 'import json,sys; print(sum(1 for e in json.load(sys.stdin) if e[0] == sys.argv[1]))' "$1"; }
+gate_release_state() {
+  start_order | py_reply '
+import json, sys
+order = json.load(sys.stdin)
+releases = [e[1] for e in order if e[0] == "release"]
+if releases: print(releases[-1])
+elif any(e[0] == "scan-turn-end" for e in order): print("unreleased")
+else: print("pending")'
+}
 # The follows the probe noted for one rescan, started once the theme
 # runner is idle. A scan's revision, its note and its follow come in one
 # turn, so the count read once the scan has landed (scan_landed) is final.
@@ -105,13 +114,13 @@ rescan_follows() {
   done
   echo scan-pending
 }
-release_reason() { local reason waited; read -r reason waited < <(service_release) && echo "$reason"; }
+release_reason() { gate_release_state; }
 
 if restart_over "$repo" "$sandbox/start-order-qs.log"; then
   expect "default-set Jarvis starts without spending recovery allowance" ready jarvis_wait_ready
   echo "  latency_first_bar_ms=${first_bar_ms:-unmeasured} budget_ms=$default_first_bar_budget_ms cpu_some_pct=$first_bar_cpu_some_pct plugin_set=default"
   if [[ -n $first_bar_ms && $first_bar_ms -le $default_first_bar_budget_ms ]]; then ok "the first bar of the default set maps within its budget"; else fail "default-set first bar latency ${first_bar_ms:-unmeasured} ms over budget $default_first_bar_budget_ms ms"; fi
-  expect "the gate released the services on the first bar frame" first-frame release_reason
+  expect_poll "the gate released the services on the first bar frame" first-frame release_reason
   expect "every bar presented its first frame before the core built a service" bars-first services_order
   # The service's build, if the gate's lending snapshot let one through,
   # is refused on the live hold.
@@ -345,13 +354,14 @@ fi
 # releases at once. Its control is a gate that waits for a bar however
 # many were built: it never releases.
 if restart_over "$repo" "$sandbox/start-order-no-bar-qs.log" '["vgs.bar"]' no-bar; then
-  expect "with the bar disabled the gate releases with no bar to wait for" no-bar release_reason
+  expect_poll "with the bar disabled the gate releases with no bar to wait for" no-bar release_reason
   expect_poll "with the bar disabled the services are built" True record_exists vgs.themes
 fi
 if copy_tree no-bar-held && edit_tree no-bar-held shell/Core/ServiceGate.qml \
     'if (built.length === 0) { open("no-bar", []); return; }' \
-    'if (built.length === 0) return;' \
+    'if (built.length === 0) { console.info("smoke: service-gate-no-bar-held"); return; }' \
   && restart_over "$sandbox/tree-no-bar-held" "$sandbox/start-order-no-bar-held-qs.log" '["vgs.bar"]' no-bar; then
+  expect_log "control: the no-bar gate made its no-release decision" 1 'smoke: service-gate-no-bar-held'
   expect "control: a gate that waits when no bar is built never releases" unreleased release_reason
 fi
 
@@ -366,12 +376,15 @@ bar_hidden() { # NAME
 }
 deadline_warnings() { log_lines 'WARN qml: plugins: services released reason=deadline waited_ms=[0-9]+ unpresented=bar:'; }
 if bar_hidden bar-hidden && restart_over "$sandbox/tree-bar-hidden" "$sandbox/start-order-bar-hidden-qs.log" '[]' no-bar; then
-  expect "a bar that never presents holds the services until the deadline" deadline release_reason
+  expect_poll "a bar that never presents holds the services until the deadline" deadline release_reason
   expect "the deadline's one warning names the bar host" 1 deadline_warnings
   expect_poll "past the deadline the services are built" True record_exists vgs.themes
 fi
-if bar_hidden no-deadline && edit_tree no-deadline shell/Core/ServiceGate.qml $'            deadline.start();\n' '' \
+if bar_hidden no-deadline && edit_tree no-deadline shell/Core/ServiceGate.qml \
+    '        onTriggered: root.open("deadline", root.unpresented(root.bars()))' \
+    '        onTriggered: console.info("smoke: service-gate-deadline-fired")' \
   && restart_over "$sandbox/tree-no-deadline" "$sandbox/start-order-no-deadline-qs.log" '[]' no-bar; then
+  expect_log "control: the deadline timer fires in the no-release copy" 1 'smoke: service-gate-deadline-fired'
   expect "control: a gate with no deadline never releases past a bar that never presents" unreleased release_reason
 fi
 

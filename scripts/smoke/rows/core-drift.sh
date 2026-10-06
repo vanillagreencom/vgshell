@@ -34,6 +34,7 @@ drift_relaunched() { # OLD_PID
   local pid
   if IFS= read -r pid 2>/dev/null <"$rt_dir/vgshell.lock" && [[ $pid =~ ^[0-9]+$ && $pid != "$1" && -d /proc/$pid ]]; then echo "$pid"; else echo none; fi
 }
+drift_relaunch_deadline_ms=120000
 
 [[ $shell_tree == "$repo" ]] || fail "the row needs the sandbox's own tree as the running shell, found $shell_tree"
 install_plugin_copy acme.drift acme.drift Drift
@@ -127,11 +128,13 @@ drift_old="$shell_qs_pid"
 drift_new=none
 drift_where="$(drift_sandboxed)" || drift_where=unreadable
 if [[ $drift_where == sandboxed ]]; then
+  drift_deadline=$(( $(now_ms) + drift_relaunch_deadline_ms ))
   ok "the shell that draws the notice is the sandbox's"
   type_keys -k Return || fail "sending Return to Restart failed"
-  for _ in $(seq 1 $((timeout_s * 5))); do
+  while :; do
     drift_new="$(drift_relaunched "$drift_old")"
     [[ $drift_new == none ]] || break
+    (( $(now_ms) < drift_deadline )) || break
     sleep 0.2
   done
 else
@@ -151,7 +154,7 @@ if [[ $drift_new != none ]]; then
     expect "the copy hides after the restart" ok ipc shell hide panel acme.drift-b
   fi
 elif [[ $drift_where == sandboxed ]]; then
-  fail "Restart brought no new shell within ${timeout_s}s: the lock names [$(cat -- "$rt_dir/vgshell.lock" 2>/dev/null)]"
+  fail "Restart brought no live replacement shell before the restart deadline: deadline_ms=$drift_relaunch_deadline_ms lock=[$(cat -- "$rt_dir/vgshell.lock" 2>/dev/null)]"
 fi
 
 # The fixtures and the type go, and the sandbox's tree starts again over

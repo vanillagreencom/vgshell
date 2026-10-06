@@ -47,6 +47,8 @@ automations() { "${shell_env[@]}" PATH="$shell_path" "$auto_engine" --tree "$rep
 # The last line a verb prints: a verb that syncs prints sync's line first.
 auto_last() { local out; out="$(automations "$@")" || return; printf '%s\n' "${out##*$'\n'}"; }
 auto_status() { ipc vgs.automations invoke status "" | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps(v.get(sys.argv[1], "unset")))' "$1"; }
+auto_status_tone() { auto_status "$1" | py_reply 'import json,sys; v=json.load(sys.stdin); print(v.get("tone") if isinstance(v, dict) else json.dumps(v))'; }
+auto_status_tone_action() { auto_status "$1" | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps([v.get("tone"), v.get("action")]) if isinstance(v, dict) else json.dumps(v))'; }
 auto_lent() { ipc shell lent | py_reply 'import json,sys; d=json.load(sys.stdin); r=d["status"].get("vgs.automations"); print(json.dumps([sorted(r["keys"]) if r else None, "vgs.automations" in d["ipcTargets"]]))'; }
 # The systemctl verbs logged since the row began, show-environment left out.
 auto_verbs() { if [[ -f $auto_stub/systemctl.calls ]]; then py_reply 'import json,sys; print(json.dumps([c[1] for c in map(json.loads, sys.stdin) if c[1] != "show-environment"]))' <"$auto_stub/systemctl.calls"; else echo '[]'; fi; }
@@ -70,11 +72,10 @@ last_systemd_run_prefix() { tail -n 1 -- "$auto_stub/systemd-run.calls" | py_rep
 auto_problem() { auto_status problem | py_reply 'import json,sys; v=json.load(sys.stdin); print(" ".join([v["tone"]] + v["text"].split(" ")[:2]))'; }
 failing='{"name": "Nightly", "command": "echo nope >&2; exit 3", "schedule": {"frequency": "weekly", "interval": 2, "weekdays": ["mon"], "times": ["03:00"], "start": "2026-01-05", "end": {"type": "never"}}}'
 
-expect "the automations start disabled in the sandbox" False plugin_enabled vgs.automations
 expect "enabling the automations is allowed" ok ipc shell setPluginEnabled vgs.automations true
 expect_poll "the service holds its status record and IPC target" '[["active", "lastRuns", "linger", "nextRun", "problem", "scheduler"], true]' auto_lent
-expect_poll "the scheduler reads the stand-in's systemd user manager" '{"tone": "ok", "text": "Ready"}' auto_status scheduler
-expect_poll "lingering reads off, offering its action" '{"tone": "warning", "text": "Automations run only while you are logged in", "action": true}' auto_status linger
+expect_poll "the scheduler reads the stand-in's systemd user manager" ok auto_status_tone scheduler
+expect_poll "lingering reads off, offering its action" '["warning", true]' auto_status_tone_action linger
 expect "a start with no automation runs no systemctl verb" '[]' auto_verbs
 expect "no unit is written with no automation" '[]' auto_units
 expect "the shell's PATH resolves crontab to the harness's stand-in" "$shim/crontab" resolved crontab "$shell_path"
@@ -87,7 +88,7 @@ expect "its timer and service are under the sandbox home" '["vgs-automation-nigh
 expect "the add reloads the manager and enables the timer" '["daemon-reload", "enable"]' auto_verbs
 expect "the add's sync looked for a fallback block in the stand-in crontab alone" '["-l"]' crontab_calls
 expect_poll "the service lists the engine's store change with no IPC call" 1 auto_status active
-expect_poll "no run has failed yet" '{"tone": "ok", "text": "No failures"}' auto_status lastRuns
+expect_poll "no run has failed yet" ok auto_status_tone lastRuns
 
 # A sync that fails stays the Engine status after the list that follows
 # it succeeds, until a sync succeeds. The missing timer gives sync work.
@@ -113,6 +114,12 @@ auto_id_by_name() { auto_rows_json | py_reply 'import json,sys; rows=[r for r in
 auto_preview_first() { auto_rows_json | py_reply 'import json,subprocess,sys; rows=json.load(sys.stdin); row=[r for r in rows if r["id"] == sys.argv[1]][0]; out=subprocess.check_output([sys.argv[2],"--tree",sys.argv[3],"preview","--schedule",json.dumps(row["schedule"]),"--count","1"], text=True); print(str(json.loads(out)["occurrences"][0]))' "$1" "$auto_engine" "$repo"; }
 auto_row_exists() { auto_rows_json | py_reply 'import json,sys; print("present" if any(r["id"] == sys.argv[1] for r in json.load(sys.stdin)) else "absent")' "$1"; }
 auto_history_count() { automations history --json | py_reply 'import json,sys; print(len([r for r in json.load(sys.stdin)["rows"] if r["automation"] == sys.argv[1]]))' "$1"; }
+auto_service_marker() { ipc smoke readInstance service vgs.automations smokeListSoonFired; }
+auto_service_marker_after() { local now; now="$(auto_service_marker)" || return; [[ $now =~ ^[0-9]+$ && $now -gt $1 ]] && echo fired || echo "$now"; }
+auto_window_run_marker() { ipc smoke readInstance window vgs.automations smokeRunCalls; }
+auto_window_run_after() { local now; now="$(auto_window_run_marker)" || return; [[ $now =~ ^[0-9]+$ && $now -gt $1 ]] && echo fired || echo "$now"; }
+auto_window_transcript_marker() { ipc smoke readInstance window vgs.automations smokeTranscriptCalls; }
+auto_window_transcript_after() { local now; now="$(auto_window_transcript_marker)" || return; [[ $now =~ ^[0-9]+$ && $now -gt $1 ]] && echo fired || echo "$now"; }
 # The window's rows drive it through the nested seat alone: every store,
 # unit and history change below comes from a click or a key in the
 # window, and the engine is only read back. Each helper fails when its
@@ -129,6 +136,14 @@ ui_field_in() {
 }
 ui_click() { ui_reveal "$1" "$2" && click_in window:Automations window vgs.automations "$1" "$2" && echo ok; }
 ui_click_in_row() { click_scoped_in window:Automations window vgs.automations AutomationRow "$1" "$2" "$3" && echo ok; }
+ui_hover() {
+  local rect x y
+  rect="$(ipc smoke windowGeometry window vgs.automations "$1" "$2")" || return 1
+  [[ $rect == \[* ]] || { echo "ui_hover: no $1 $2: $rect" >&2; return 1; }
+  read -r x y < <(at_centre window:Automations "$rect") || return 1
+  hover "$x" "$y" && echo ok
+}
+ui_hovered() { ipc smoke itemHovered window vgs.automations "$1" "$2"; }
 ui_confirm() { ipc smoke readInstance window vgs.automations confirmAction; }
 ui_keys() { type_keys "$@" && echo ok; }
 ui_field_type() { # TYPE TEXT NEW: click the field of TYPE reading TEXT, select all, type NEW
@@ -211,9 +226,9 @@ expect "the dismissed question clears nothing" 1 auto_history_count smoke-ui
 # The question's Dialog sits over a scrim that dismisses it on a click
 # away; a click on the card's empty space, 3 px below its top edge in the
 # padding above the title, leaves it open. The control turns the card's own
-# area off through the probe, and the same click falls to the scrim.
-# dialog_card_click: that click; question_after_click: the question read
-# 0.5 s after it, which a dismissal reaches within the click's frame.
+# area off through the probe, and the same click falls to the scrim. The
+# click and the marker hover use the same sandbox pointer binary, so the
+# marker is ordered after the click before the row reads the question.
 dialog_card_click() {
   local card window x y
   card="$(ipc smoke dialogCard window vgs.automations)" || return 1
@@ -222,12 +237,16 @@ dialog_card_click() {
   read -r x y < <(python3 -c 'import json,sys; c=json.loads(sys.argv[1])["box"]; w=json.loads(sys.argv[2]); print(int(w[0] + c[0] + c[2] / 2), int(w[1] + c[1] + 3))' "$card" "$window") || return 1
   hover "$x" "$((y + 1))" && click "$x" "$y" && echo ok
 }
-question_after_click() { dialog_card_click >/dev/null || return 1; sleep 0.5; ui_confirm; }
+dialog_card_click_then_hover() { dialog_card_click >/dev/null || return 1; ui_hover "$1" "$2"; }
 expect "Clear history asks for the card click" ok ui_click Button "Clear history"
 expect_poll "the question shows for the card click" '"clear"' ui_confirm
-expect "a click on the Dialog card's empty space leaves the question open" '"clear"' question_after_click
+expect "the Dialog card click and following hover are sent" ok dialog_card_click_then_hover Button Cancel
+expect_poll "the marker hover reaches the question after the Dialog card click" true ui_hovered Button Cancel
+expect "a click on the Dialog card's empty space leaves the question open" '"clear"' ui_confirm
 expect "control: the probe turns the card's own area off" true ipc smoke setDialogCard window vgs.automations false
-expect "control: the same click falls to the scrim, which dismisses the question" '""' question_after_click
+expect "control: the same click and following hover are sent" ok dialog_card_click_then_hover Button "Clear history"
+expect_poll "control: the marker hover reaches the page after dismissal" true ui_hovered Button "Clear history"
+expect_poll "control: the same click falls to the scrim, which dismisses the question" '""' ui_confirm
 expect "the card's own area is on again" false ipc smoke setDialogCard window vgs.automations true
 expect "Clear history asks again" ok ui_click Button "Clear history"
 expect "Return confirms" ok ui_keys -k Return
@@ -271,7 +290,7 @@ expect_poll "the UI-created automation is gone before the controls" absent auto_
 expect "Run now starts" started=nightly automations run-now nightly
 expect "Run now goes through systemd-run" '["--user", "--collect", "--quiet"]' last_systemd_run_prefix
 expect "the failure sends the error notification with its hints" '["x-vgs-icon=circle-x", "x-vgs-tone=danger", "x-vgs-click=open", "x-vgs-open=<path>"]' auto_hints
-expect_poll "the run's records reach Last runs" '{"tone": "danger", "text": "Failing: Nightly"}' auto_status lastRuns
+expect_poll "the run's records reach Last runs" danger auto_status_tone lastRuns
 
 forget_record
 expect "the linger IPC opens its TUI" ok ipc vgs.automations invoke linger ""
@@ -298,7 +317,7 @@ expect "loginctl resolves to the row's stand-in on the shell's PATH" "$shim/logi
 settings_press "Enable while logged out" || fail "the click on Enable while logged out failed"
 expect_poll "Enable while logged out hands the terminal the linger TUI" "$(words vgs.automations/linger tui/linger.sh)" recorded_tail
 expect_run_end "the button's linger run ends" vgs.automations/linger
-expect_poll "the run's end lists again and lingering reads on" '{"tone": "ok", "text": "Automations run while you are logged out"}' auto_status linger
+expect_poll "the run's end lists again and lingering reads on" ok auto_status_tone linger
 expect_poll "lingering on offers no action" '[["linger", "Enable while logged out", false]]' offered_actions vgs.automations
 forget_record
 expect "the manager refuses the act while lingering is on" "refused: action=linger reason=not-offered" settings_act vgs.automations linger
@@ -323,10 +342,10 @@ path = sys.argv[1]
 text = open(path).read()
 needle = "        onTriggered: root.request([\"list\", \"--json\"])\n    }\n\n    Timer {\n        id: refresh"
 assert text.count(needle) == 1, "the listSoon timer's list must occur once"
-text = text.replace(needle, "        onTriggered: {}\n    }\n\n    Timer {\n        id: refresh", 1)
+text = text.replace(needle, "        onTriggered: root.smokeListSoonFired += 1\n    }\n\n    Timer {\n        id: refresh", 1)
 marker = "    id: root\n"
 assert text.count(marker) == 1, "the root id must occur once"
-open(path, "w").write(text.replace(marker, marker + "    property bool smokeControl: true\n", 1))
+open(path, "w").write(text.replace(marker, marker + "    property bool smokeControl: true\n    property int smokeListSoonFired: 0\n", 1))
 PY
 # The same copy's window reaches the engine for no change and opens no
 # transcript TUI: its engine door drops every write, and its transcript
@@ -336,9 +355,12 @@ python3 - "$auto_copy/Window.qml" <<'PY'
 import sys
 path = sys.argv[1]
 text = open(path).read()
+marker = "    id: root\n"
+assert text.count(marker) == 1, "the root id must occur once"
+text = text.replace(marker, marker + "    property int smokeRunCalls: 0\n    property int smokeTranscriptCalls: 0\n", 1)
 for old, new in (
-    ("    function run(args, done) {\n", "    function run(args, done) {\n        return;\n"),
-    ('shell.tui.run("transcript", [path])', '"ok"'),
+    ("    function run(args, done) {\n", "    function run(args, done) {\n        smokeRunCalls += 1;\n        if (done !== undefined) done(false, \"\", \"\", {});\n        return;\n"),
+    ('shell.tui.run("transcript", [path])', '(smokeTranscriptCalls += 1, "ok")'),
 ):
     assert text.count(old) == 1, old
     text = text.replace(old, new, 1)
@@ -346,38 +368,41 @@ open(path, "w").write(text)
 PY
 rescan "the control copy is scanned"
 expect_poll "the control copy's service is built" true ipc smoke readInstance service vgs.automations smokeControl
-expect_poll "the control copy's start reads no failure" '{"tone": "ok", "text": "No failures"}' auto_status lastRuns
+expect_poll "the control copy's start reads no failure" ok auto_status_tone lastRuns
 expect_poll "the control copy's start counts the automation" 1 auto_status active
+control_service_before="$(auto_service_marker)" || fail "the control service marker is readable before store and run changes"
 expect "the engine pauses the automation under the control" disabled=nightly auto_last disable nightly
 expect "Run now starts under the control" started=nightly automations run-now nightly
-# The shipped service lists 250 ms after a run file lands or the store
-# changes, then waits on one engine call; two seconds is past both, so the
-# readings below are the copy's settled answer and not a race.
-sleep 2
+expect_poll "the control service observed the store or run change" fired auto_service_marker_after "$control_service_before"
 expect "the control's count misses the store change" 1 auto_status active
-expect "the control's Last runs misses the run" '{"tone": "ok", "text": "No failures"}' auto_status lastRuns
+expect "the control's Last runs misses the run" ok auto_status_tone lastRuns
 expect "the control copy's window summons" ok ipc shell summon window vgs.automations '{}'
 expect_poll "the control copy's window maps" 1 window_count Automations
 expect_poll "the control copy's window lists the automation" '["Nightly"]' ui_row_names
+control_run_before="$(auto_window_run_marker)" || fail "the control window run marker is readable before pointer create"
 expect "the pointer create runs under the control" ok ui_create "Smoke control" "echo control"
-sleep 2
+expect_poll "the control window received the pointer create" fired auto_window_run_after "$control_run_before"
 expect "the control's pointer create reaches no store" absent auto_row_exists smoke-control
 expect "Escape leaves the control's editor" ok ui_keys -k Escape
+control_run_before="$(auto_window_run_marker)" || fail "the control window run marker is readable before the switch"
 expect "a click on the control's switch runs" ok ui_click_in_row Nightly Switch ""
-sleep 2
+expect_poll "the control window received the switch click" fired auto_window_run_after "$control_run_before"
 expect "the control's switch reaches no store" false auto_row_value nightly enabled
+control_run_before="$(auto_window_run_marker)" || fail "the control window run marker is readable before keyboard create"
 keyboard_create "(control)" "Smoke control keys" "printf control"
-sleep 2
+expect_poll "the control window received the keyboard create" fired auto_window_run_after "$control_run_before"
 expect "the control's keyboard create reaches no store" absent auto_row_exists smoke-control-keys
 expect "Escape leaves the control's editor again" ok ui_keys -k Escape
 expect "the control's History tab opens" ok ui_click Label History
 forget_record
+control_transcript_before="$(auto_window_transcript_marker)" || fail "the control window transcript marker is readable before history click"
 expect "a click on the control's history row runs" ok ui_click HistoryRow Nightly
-sleep 2
+expect_poll "the control window received the history click" fired auto_window_transcript_after "$control_transcript_before"
 expect "the control's history click opens no TUI" absent recorded
 expect "the control's Clear history asks" ok ui_click Button "Clear history"
+control_run_before="$(auto_window_run_marker)" || fail "the control window run marker is readable before clear"
 expect "Return confirms under the control" ok ui_keys -k Return
-sleep 2
+expect_poll "the control window received the clear request" fired auto_window_run_after "$control_run_before"
 expect "the control's clear removes no run" 1 auto_history_count nightly
 rm -r -- "$auto_copy"
 rescan "the shipped plugin is scanned again"

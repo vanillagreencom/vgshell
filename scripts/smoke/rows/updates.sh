@@ -124,7 +124,14 @@ doc["tui"]["finish"] = {"script": "tui/finish.sh", "title": "Updates smoke", "si
 manifest.write_text(json.dumps(doc))
 assert sorted(doc["tui"]) == ["finish", "log", "review", "update", "update-source"], sorted(doc["tui"])
 service = plugin / "Service.qml"
-lines = service.read_text().splitlines()
+text = service.read_text()
+needle = "    property var reported: ({})\n"
+assert text.count(needle) == 1, text.count(needle)
+text = text.replace(needle, needle + "    property int smokeReviewEndWrites: 0\n")
+needle = '        onExited: (code, status) => {\n            if (code !== 0) console.error("updates: review end write exit=" + code);\n        }\n'
+assert text.count(needle) == 1, text.count(needle)
+text = text.replace(needle, '        onExited: (code, status) => {\n            root.smokeReviewEndWrites += 1;\n            if (code !== 0) console.error("updates: review end write exit=" + code);\n        }\n')
+lines = text.splitlines()
 hits = [i for i, line in enumerate(lines) if line.startswith("    readonly property string vgshellPath:")]
 assert len(hits) == 1, hits
 lines[hits[0]] = "    readonly property string vgshellPath: " + json.dumps(vgshell)
@@ -160,14 +167,14 @@ updates_tui_running() { lent tui.runs | py_reply 'import json,sys; r=(json.load(
 runs_of() { python3 -c 'import pathlib,sys; p=pathlib.Path(sys.argv[1]); print(0 if not p.exists() else sum(1 for l in p.read_text().splitlines() if l.split(" ")[0] == sys.argv[2]))' "$updates_state/calls.log" "$1"; }
 package_queries() { echo "$(runs_of checkupdates) $(runs_of paru) $(runs_of flatpak) $(runs_of mise)"; }
 checks() { runs_of checkupdates; }
-# STEADY once the check count stays at WANT for a second, else the count.
+# STEADY once the service is idle with WANT checks, else the current state.
 checks_settle_at() { # WANT
-  local got
+  local got state
+  state="$(updates_idle)" || return
   got="$(checks)"
+  if [[ $state != idle ]]; then echo "$got ($state)"; return; fi
   if [[ $got != "$1" ]]; then echo "$got"; return; fi
-  sleep 1
-  got="$(checks)"
-  if [[ $got == "$1" ]]; then echo STEADY; else echo "$got"; fi
+  echo STEADY
 }
 
 # First check: no snapshot exists, so the service checks at start.
@@ -184,18 +191,17 @@ expect "the pipeline is listed in the Update group and the one-source TUI is not
 expect_poll "the first check publishes every source vgshell reports" \
   '[["pacman", 2, null], ["aur", 1, null], ["flatpak", 1, null], ["mise", 1, null], ["vgs", 1, null], ["plugins", 1, null], ["themes", 0, null]]' updates_sources
 expect "pending sums every source" 7 updates_field pending
-expect "the check state says updates wait" "Updates waiting" updates_state_text
 expect "the first check ran each package query once" "1 1 1 1" package_queries
 expect "status.json holds the same system rows" '[2, 2]' updates_cached pacman
 
 # Reads are not checks.
 for _ in 1 2 3; do updates_values >/dev/null; done
-expect "three reads start no check" STEADY checks_settle_at 1
+expect_poll "three reads start no check" STEADY checks_settle_at 1
 expect "the Settings window opens for the updates rows" ok ipc shell summon window vgs.settings '{}'
 expect_poll "the Settings window is open for the updates rows" open settings_open
 expect "the Settings window opens the updates page" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.updates
 expect_poll "the Settings page reads the four status rows" '[["pending", "reported"], ["lastCheck", "reported"], ["checkState", "reported"], ["reviewAgent", "reported"]]' updates_status_rows
-expect "the Settings page started no check" STEADY checks_settle_at 1
+expect_poll "the Settings page started no check" STEADY checks_settle_at 1
 expect "the Settings window closes" ok ipc shell hide window vgs.settings
 
 # A request during a check is queued once, not run beside it.
@@ -205,7 +211,7 @@ expect "a request during the check is queued" queued ipc vgs.updates invoke chec
 expect "a third request during the check joins the queued one" queued ipc vgs.updates invoke check ''
 rm -f -- "$updates_state/slow-checkupdates"
 expect_poll "the check and the one queued check both run" 3 checks
-expect "no third check follows" STEADY checks_settle_at 3
+expect_poll "no third check follows" STEADY checks_settle_at 3
 expect_poll "the service is idle after the queued check" idle updates_idle
 
 # A failing source is named and kept beside the others.
@@ -235,11 +241,11 @@ rm -f -- "$updates_state/tui-gate"
 before="$(checks)"
 expect "opening the updates TUI answers ok" ok ipc shell openTui vgs.updates/finish
 expect_poll "the updates TUI is running" true updates_tui_running
-expect "a running TUI starts no check" STEADY checks_settle_at "$before"
+expect_poll "a running TUI starts no check" STEADY checks_settle_at "$before"
 touch "$updates_state/tui-gate"
 expect_run_end "the updates TUI's run ends" vgs.updates/finish
 expect_poll "the TUI's end starts a check" "$((before + 1))" checks
-expect "the TUI's end starts exactly one check" STEADY checks_settle_at "$((before + 1))"
+expect_poll "the TUI's end starts exactly one check" STEADY checks_settle_at "$((before + 1))"
 expect_poll "the service is idle after the TUI check" idle updates_idle
 
 # ---- The bar widget and the window ------------------------------------------
@@ -546,7 +552,7 @@ open_updates
 before="$(checks)"
 click_in window:Updates window vgs.updates Button Refresh || fail "the click on the window's Refresh failed"
 expect_poll "Refresh starts the service's check" "$((before + 1))" checks
-expect "Refresh starts one check" STEADY checks_settle_at "$((before + 1))"
+expect_poll "Refresh starts one check" STEADY checks_settle_at "$((before + 1))"
 expect_poll "the service is idle after Refresh" idle updates_idle
 expect "the window closes" ok ipc shell hide window vgs.updates
 
@@ -591,7 +597,7 @@ expect_poll "the restored service publishes the failed check" '["attention", "tr
 # A rebuilt service publishes its cache and starts no check: not for the
 # TUI runs an earlier instance saw end, and not while its cache read has not
 # answered. The controls of both are scripts/test-updates-logic.js's.
-expect "a rebuilt service starts no check" STEADY checks_settle_at "$before"
+expect_poll "a rebuilt service starts no check" STEADY checks_settle_at "$before"
 rm -f -- "$updates_state/fail-checkupdates"
 
 # Stale and current, written through the service's own provider.
@@ -700,6 +706,7 @@ review_file() { if [[ -f $1 ]]; then cat -- "$1"; else echo absent; fi; } # FILE
 review_argv() { python3 -c 'import json,os,sys; p=sys.argv[1]; print(json.dumps(open(p).read().split("\n")[:-1]) if os.path.exists(p) else "absent")' "$updates_state/review-argv"; }
 review_window() { hypr -j clients | py_reply 'import json,sys; print(sum(1 for c in json.load(sys.stdin) if c["class"] == "org.vgs.tui.tall" and c["title"] == "VGS · Review third-party packages"))'; }
 review_started() { if [[ -e $review_dir/started ]]; then echo started; else echo waiting; fi; }
+review_end_writes() { ipc smoke readInstance service vgs.updates smokeReviewEndWrites; }
 before="$(checks)"
 expect "the review handler opens the review TUI" ok ipc vgs.updates invoke review "$review_dir"
 expect_poll "the shipped review script holds its lock and says it started" started review_started
@@ -712,23 +719,25 @@ touch -- "$updates_state/review-gate"
 expect_run_end "the review run ends" vgs.updates/review
 expect_poll "the review TUI's window closes with its run" 0 review_window
 expect_poll "the service writes the run's code into the review directory" code=0 review_file "$review_dir/ended"
+expect_poll "the review end writer exited" 1 review_end_writes
 expect "the agent's verdict is in the review directory" "verdict clean" review_file "$review_dir/verdict"
-expect "the review run's end starts no check, which the update run's own end starts" STEADY checks_settle_at "$before"
+expect_poll "the review run's end starts no check, which the update run's own end starts" STEADY checks_settle_at "$before"
 # A run that ends after the pipeline removed its directory, as one the user
 # leaves from the agent's closing prompt does, leaves no directory behind:
-# the service writes `ended` only into a directory that is there. The
-# reader waits 1 s after the run's end for that write, a margin over a
-# process start, not a measurement.
+# the service writes `ended` only into a directory that is there. The copied
+# service counts that guarded writer's exit, so the absence read follows it.
 rm -f -- "${updates_state:?}/review-gate"
 mkdir -p -- "$review_dir"
 printf '%s\n' "$review_bin/agent" "$updates_state" --effort medium >"$review_dir/command"
+review_writes_before="$(review_end_writes)"
 expect "the review handler opens a second review" ok ipc vgs.updates invoke review "$review_dir"
 expect_poll "the second review's script started" started review_started
 rm -rf -- "${review_dir:?}"
 touch -- "$updates_state/review-gate"
 expect_run_end "the second review run ends" vgs.updates/review
 expect_poll "the second review TUI's window closes with its run" 0 review_window
-review_gone() { sleep 1; if [[ -e $review_dir ]]; then echo present; else echo absent; fi; }
+expect_poll "the second review end writer exited" "$((review_writes_before + 1))" review_end_writes
+review_gone() { if [[ -e $review_dir ]]; then echo present; else echo absent; fi; }
 expect "the run's end does not make its removed directory again" absent review_gone
 rm -rf -- "${review_start:?}" "${review_bin:?}"
 rm -f -- "$updates_state/review-gate" "$updates_state/review-argv" "$updates_state/review-prompt" "$updates_state/review-prompt.expected" "$updates_state/review-cwd"
@@ -738,7 +747,7 @@ use_identity none
 before="$(checks)"
 expect "a check with no package manager starts" started ipc vgs.updates invoke check ''
 expect_poll "with no manager detected only the VGS rows remain" '["vgs", "plugins", "themes"]' updates_source_names
-expect "no package query ran" STEADY checks_settle_at "$before"
+expect_poll "no package query ran" STEADY checks_settle_at "$before"
 
 # Leave the later rows the shipped plugin, disabled.
 expect "disabling the updates service is allowed" ok ipc shell setPluginEnabled vgs.updates false

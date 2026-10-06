@@ -66,7 +66,15 @@ print(json.dumps([c["at"][0] - x0 - border, c["at"][1] - y0 - border, x1 - (c["a
 # Hyprland's outer gap as `general:gaps_out` reads, its top side.
 user_gaps_out() { hypr -j getoption general:gaps_out | py_reply 'import json,sys; print(json.load(sys.stdin)["css"].split()[0])'; }
 bar_top() { monitor_size | cut -d' ' -f3; }
-services_released() { grep -o 'plugins: services released reason=[a-z-]*' -- "$instance_log" | head -n 1 | cut -d= -f2; }
+services_released() {
+  local line
+  if line="$(grep -o -E -m 1 'plugins: services released reason=[a-z-]+' -- "$instance_log")" && [[ $line =~ reason=([a-z-]+) ]]; then
+    echo "${BASH_REMATCH[1]}"
+  else
+    echo absent
+  fi
+}
+services_ready() { local reason; reason="$(services_released)" || return; if [[ $reason == absent ]]; then echo false; else echo true; fi; }
 
 expect "enabling the launcher for the Style rows is allowed" ok ipc shell setPluginEnabled vgs.launcher true
 expect_poll "the Style rows' launcher service is built" True record_exists vgs.launcher
@@ -178,15 +186,15 @@ expect "the stopped shell left the gaps toggle in shell.json" true user_setting 
 expect "the stopped shell left the bar toggle in shell.json" true user_setting vgs.bar hidden
 restart_hidden() { # TREE LABEL
   if stop_shell && start_shell "$1" "$sandbox/style-$2.log" no-bar; then
-    expect_poll "$2: the services start" true bash -c '[[ -n $(grep -o "plugins: services released" -- "$1") ]] && echo true' _ "$instance_log"
+    expect_poll "$2: the services start" true services_ready
   else
     fail "$2: the shell starts with the bar hidden"
   fi
 }
 restart_hidden "$repo" restart
-expect "the restarted shell keeps the bar hidden" 0 bar_count
-expect "the restarted shell reserves no bar space" 0 reserved_total
-expect "the restarted shell releases its services with no bar to wait for" no-bar services_released
+expect_poll "the restarted shell keeps the bar hidden" 0 bar_count
+expect_poll "the restarted shell reserves no bar space" 0 reserved_total
+expect_poll "the restarted shell releases its services with no bar to wait for" no-bar services_released
 expect_poll "the restarted shell writes the zero-gap rule again" '[[0, 0, 0, 0], [0, 0, 0, 0]]' gap_rule
 copy_tree style-bar-host
 if edit_tree style-bar-host shell/Hosts/BarHost.qml '            visible: PluginLogic.barShown(slot.instance)
@@ -197,7 +205,7 @@ fi
 copy_tree style-service-gate
 if edit_tree style-service-gate shell/Core/ServiceGate.qml ' && Logic.barShown(row.instance)) out.push' ') out.push'; then
   restart_hidden "$sandbox/tree-style-service-gate" control-service-gate
-  expect "control: a service gate that waits on a hidden bar releases at its deadline" deadline services_released
+  expect_poll "control: a service gate that waits on a hidden bar releases at its deadline" deadline services_released
   expected_errors+=('plugins: services released reason=deadline')
 fi
 copy_tree style-late-save
@@ -224,7 +232,7 @@ search_for() { # QUERY
 }
 search_for s
 expect_poll "a search lists System" True launcher_has_row menu System
-expect "a search lists Style while vgs.themes is enabled" True launcher_has_row menu Style
+expect_poll "a search lists Style while vgs.themes is enabled" True launcher_has_row menu Style
 search_for "top bar"
 expect_poll "a search finds the bar row while Style stands" True launcher_has_row shortcut "Hide top bar"
 expect "the host hides the launcher" ok ipc shell hide overlay vgs.launcher
@@ -232,9 +240,9 @@ expect "disabling vgs.themes is allowed" ok ipc shell setPluginEnabled vgs.theme
 expect_poll "vgs.themes' service is gone" False record_exists vgs.themes
 search_for s
 expect_poll "a search lists System without vgs.themes" True launcher_has_row menu System
-expect "Style is absent without vgs.themes" False launcher_has_row menu Style
+expect_poll "Style is absent without vgs.themes" False launcher_has_row menu Style
 search_for "top bar"
-expect "a search finds no bar row without its parent" False launcher_has_row shortcut "Hide top bar"
+expect_poll "a search finds no bar row without its parent" False launcher_has_row shortcut "Hide top bar"
 expect "the host hides the launcher" ok ipc shell hide overlay vgs.launcher
 if [[ $themes_were_enabled == True ]]; then
   expect "enabling vgs.themes again is allowed" ok ipc shell setPluginEnabled vgs.themes true

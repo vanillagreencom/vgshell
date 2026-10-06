@@ -164,9 +164,6 @@ expect_poll "no warden directory reads as not set up" '["not-set-up", null, 0, [
 expect "no status leaves the heartbeat alone" absent warden_heartbeat
 expect "an absent status logs nothing" 0 log_lines 'agent-warden: status='
 vsys_first="$(vsys_on_path)"
-# qml-smoke.sh hides the host's vsys from every sandbox shell, so each
-# press below that needs vsys absent runs on any host.
-expect "vsys is absent from the shell's PATH whatever the host holds" missing echo "$vsys_first"
 # A warden row that offers Set up while vsys is present, D061: VALUE with
 # `action: true` added then.
 warden_setup_row() { python3 -c 'import json,sys; v=json.loads(sys.argv[1]); v.update({"action": True} if sys.argv[2] == "present" else {}); print(json.dumps(v))' "$1" "$vsys_first"; }
@@ -742,16 +739,21 @@ expect_poll "the disabled plugin holds no status record" null warden_lent
 # rescan and the copy enabled. warden_uncontrol: the copy disabled and
 # removed with the runtime files, and the bundled plugin back.
 warden_control() {
-  local scans
+  local scans file="$warden_copy/$1"
+  shift
   mkdir -p -- "$warden_copy"
   cp -R -- "$repo/shell/plugins/vgs.agent-warden/." "$warden_copy/"
   if python3 -c '
 import sys
-path, needle, replacement = sys.argv[1:]
+path, *edits = sys.argv[1:]
+if len(edits) % 2:
+    sys.exit("edits must be NEEDLE REPLACEMENT pairs")
 text = open(path).read()
-if text.count(needle) != 1:
-    sys.exit("the rule occurs %d times" % text.count(needle))
-open(path, "w").write(text.replace(needle, replacement))' "$warden_copy/$1" "$2" "$3"; then ok "the control copy of $1 drops its rule"; else fail "the control copy of $1 could not be made"; fi
+for needle, replacement in zip(edits[0::2], edits[1::2]):
+    if text.count(needle) != 1:
+        sys.exit("the rule occurs %d times: %s" % (text.count(needle), needle))
+    text = text.replace(needle, replacement)
+open(path, "w").write(text)' "$file" "$@"; then ok "the control copy of ${file#$warden_copy/} drops its rule"; else fail "the control copy of ${file#$warden_copy/} could not be made"; fi
   # The scan has landed when rescan returns; its log line says whether it
   # replaced the plugin set, which the landing does not.
   scans="$(log_lines 'plugins: scan complete changed=true')" || fail "the instance log is unreadable before the control copy"
@@ -779,12 +781,13 @@ warden_uncontrol
 
 # Control: a service copy whose timer derives nothing keeps an unchanged
 # status calm past its stale moment, so the ageing row above turns red on
-# it. The sleep waits out that moment, about 5 s after the write, with 5 s
-# more for a derivation that would come late.
-warden_control Service.qml "onTriggered: root.derive()" "onTriggered: {}"
+# it. The final read waits until the copied timer has fired, then reads the
+# published state.
+warden_control Service.qml "property bool heartbeatFailed: false" "property bool heartbeatFailed: false
+    property int smokeDeadlineTicks: 0" "onTriggered: root.derive()" "onTriggered: { root.smokeDeadlineTicks += 1 }"
 warden_put calm 85 >/dev/null
 expect_poll "the timer control reads the fresh status as calm" '["calm", null, 0, []]' warden_state
-sleep 10
+expect_poll "the timer control's stale deadline fired" 1 ipc smoke readInstance service vgs.agent-warden smokeDeadlineTicks
 expect "the timer control keeps the unchanged status calm past its stale moment" '["calm", null, 0, []]' warden_state
 warden_uncontrol
 

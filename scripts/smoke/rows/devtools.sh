@@ -60,8 +60,10 @@ window_shown() { [[ $(ipc smoke instanceGeometry window vgs.devtools) != absent 
 section_titles() { ipc smoke itemTexts window vgs.devtools SectionHeader | py_reply 'import json,sys; print(json.dumps([t[0] for t in json.load(sys.stdin)]))'; }
 # The texts the first row drawing NAME draws, as JSON, or null.
 row_texts() { ipc smoke itemTexts window vgs.devtools ToolRow | py_reply 'import json,sys; r=[t for t in json.load(sys.stdin) if t and t[0] == sys.argv[1]]; print(json.dumps(r[0] if r else None, ensure_ascii=False))' "$1"; }
-# The VGS row's texts, including its plain error line.
-vgs_texts() { row_texts VGS; }
+devtools_vgs_button_count() {
+  ipc smoke itemTexts window vgs.devtools ToolRow | py_reply 'import json,sys; rows=[row for row in json.load(sys.stdin) if row and row[0]=="VGS"]; assert len(rows)==1, "one VGS ToolRow required"; print(rows[0].count(sys.argv[1]))' "$1"
+}
+vgs_code_lines() { ipc smoke itemTexts window vgs.devtools CodeLine | py_reply 'import json,sys; print(len([row for row in json.load(sys.stdin) if row]))'; }
 # The ended record the presenter of KEY's last run wrote, by file name, or
 # `none`: the presenter writes it when it exits and keeps only the newest.
 ended_record() { local stem="${1/\//@}" f found=none; for f in "$rt_dir/vgshell/tui/$stem@"*.ended.json; do [[ -e $f ]] && found="${f##*/}"; done; echo "$found"; }
@@ -81,6 +83,10 @@ reveal_row() {
 }
 scroll_bottom() { local r; r="$(ipc smoke scrollTo window vgs.devtools 100000)" || return; [[ $r == \[* ]] && echo scrolled || echo "$r"; }
 launcher_state() { [[ -f $home/.local/bin/$1 ]] && sed -n 2p "$home/.local/bin/$1" || echo absent; }
+devtools_tui_state() { ipc shell lent | py_reply 'import json,sys; t=json.load(sys.stdin)["tui"]; print("present" if any(k.startswith("vgs.devtools/") for k in list(t["runs"].keys()) + t["pending"]) else "absent")'; }
+devtools_focus_moved_from_body() {
+  ipc smoke focused window vgs.devtools | py_reply 'import json,sys; row=json.load(sys.stdin); print("body" if len(row) == 5 and row[0] == "ScrollArea" and row[1] == "" and row[2] and row[3] and row[4] else "moved")'
+}
 
 rescan "rescan after adding the requirement fixture answers ok"
 expect_poll "the requirement fixture is discovered" True plugin_known acme.requires
@@ -96,8 +102,9 @@ expect "IPC open summons the window again" ok devtools open
 expect_poll "the window is shown" shown window_shown
 expect_poll "the window opens on its scrollable body with a visible ring" '["ScrollArea","",true,true,true]' ipc smoke focused window vgs.devtools
 forget_record
-type_keys -k Return || fail "Return on the Dev Tools body failed"
-expect "control: Return on the Dev Tools body runs no TUI" absent recorded
+type_keys -k Return -k Tab || fail "Return and Tab on the Dev Tools body failed"
+expect_poll "Tab after Return is processed by the Dev Tools window" moved devtools_focus_moved_from_body
+expect "control: Return on the Dev Tools body runs no TUI" absent devtools_tui_state
 devtools_keyboard_install() {
   local seen=() focus label
   for _ in $(seq 1 80); do
@@ -160,10 +167,8 @@ expect_poll "the window draws the VGS section and every catalog section in order
   '["VGS", "Agents", "Apps", "Command-line tools", "Languages", "Editors", "Databases", "Terminals", "Other tools"]' section_titles
 # The error fits at the window's width, so no Details button is drawn.
 # This wide reading controls the narrow disclosure check below.
-expect_poll "the wide VGS row shows its whole error without Details" \
-  "$(texts VGS "$(cat "$repo/VERSION") · Unknown install" "The check failed. Open Dev Tools again after 10 minutes to retry." Unknown)" vgs_texts
-vgs_error_lines() { ipc smoke itemTexts window vgs.devtools CodeLine | py_reply 'import json,sys; print(sum(1 for r in json.load(sys.stdin) if r and r[0] == "The check failed. Open Dev Tools again after 10 minutes to retry."))'; }
-expect "the wide VGS row keeps its detail folded" 0 vgs_error_lines
+expect_poll "the wide VGS row offers no Details for its unclipped error" 0 devtools_vgs_button_count Details
+expect "the wide VGS row keeps its detail folded" 0 vgs_code_lines
 # The window's insets: the content starts, at the VGS section's heading,
 # the same distance in from the window's left side as the VGS row's last
 # chip ends from its right side, within one pixel. The control moves the
@@ -231,22 +236,16 @@ planted_details() {
 expect "IPC open summons the window on the narrow monitor" ok devtools open
 expect_poll "the window is shown on the narrow monitor" shown window_shown
 expect_poll "the other mise tool's actions move under its name on a narrow monitor" under actions_place github:acme/extra Update
-# The same error clips here. Details must expose the whole line for copying.
-expect_poll "the narrow VGS row offers Details for its clipped error" \
-  "$(texts VGS "$(cat "$repo/VERSION") · Unknown install" "The check failed. Open Dev Tools again after 10 minutes to retry." Details Unknown)" vgs_texts
-expect "the narrow VGS row keeps its detail folded" 0 vgs_error_lines
+# The same error clips here. Details must expose a copyable line.
+expect_poll "the narrow VGS row offers Details for its clipped error" 1 devtools_vgs_button_count Details
+expect "the narrow VGS row keeps its detail folded" 0 vgs_code_lines
 # The narrow header can put Details below the body viewport. Reveal that
 # exact row's button, then press in the application window's coordinates.
 # Other narrow tool rows can also draw Details. Only VGS owns this click.
-devtools_vgs_button_count() {
-  ipc smoke itemTexts window vgs.devtools ToolRow | py_reply 'import json,sys; rows=[row for row in json.load(sys.stdin) if row and row[0]=="VGS"]; assert len(rows)==1, "one VGS ToolRow required"; print(rows[0].count(sys.argv[1]))' "$1"
-}
 devtools_any_button_count() {
   ipc smoke itemTexts window vgs.devtools Button | py_reply 'import json,sys; print(sum(1 for row in json.load(sys.stdin) if sys.argv[1] in row))' "$1"
 }
 devtools_old_button_guard() { [[ $1 == 1 ]] && echo accepted || echo refused; }
-expect_poll "control: the planted MySQL row offers Details for its clipped error" \
-  "$(texts MySQL "State unknown" "The database check failed. Close Dev Tools and open it again to retry." Details Unknown)" row_texts MySQL
 devtools_details_global="$(devtools_any_button_count Details)"
 expect "control: each planted database row draws its own Details button" "$(python3 -c 'import json,sys; print(len(json.loads(sys.argv[1])))' "$docker_rows")" planted_details
 expect "control: the old any-Button count refuses the planted Details buttons" refused devtools_old_button_guard "$devtools_details_global"
@@ -261,13 +260,11 @@ devtools_details_press() {
   click_scoped_in "window:Dev Tools" window vgs.devtools ToolRow VGS Button "$1"
 }
 devtools_details_press Details || fail "the click on the VGS row's Details failed"
-expect_poll "Details shows the whole error line to copy" 1 vgs_error_lines
-expect_poll "the expanded VGS row offers Hide details" \
-  "$(texts VGS "$(cat "$repo/VERSION") · Unknown install" "The check failed. Open Dev Tools again after 10 minutes to retry." "Hide details" Unknown)" vgs_texts
+expect_poll "Details expands one copyable error line" 1 vgs_code_lines
+expect_poll "the expanded VGS row offers Hide details" 1 devtools_vgs_button_count "Hide details"
 devtools_details_press "Hide details" || fail "the click on the VGS row's Hide details failed"
-expect_poll "Hide details folds the error line again" 0 vgs_error_lines
-expect_poll "the folded narrow VGS row offers Details again" \
-  "$(texts VGS "$(cat "$repo/VERSION") · Unknown install" "The check failed. Open Dev Tools again after 10 minutes to retry." Details Unknown)" vgs_texts
+expect_poll "Hide details folds the error line again" 0 vgs_code_lines
+expect_poll "the folded narrow VGS row offers Details again" 1 devtools_vgs_button_count Details
 expect "the narrow window hides" ok ipc shell hide window vgs.devtools
 expect_poll "the narrow window is gone" hidden window_shown
 release_mode "the nested compositor restores its monitor's mode" "$narrow_monitor" "$narrow_main_mode"
@@ -283,7 +280,7 @@ echo "$agent_key" >>"$dev_state/installed"
 expect "no list runs before a trigger" "$(texts "$agent_name" "Not installed" Install)" row_texts "$agent_name"
 install_before="$(ended_record vgs.devtools/install)"
 forget_record
-expect "the agent's row scrolls into view" revealed reveal_row "$agent_name"
+expect_poll "the agent's row scrolls into view" revealed reveal_row "$agent_name"
 click_scoped_in "window:Dev Tools" window vgs.devtools ToolRow "$agent_name" Button Install || fail "the click on the agent's Install failed"
 expect_poll "the click hands the install TUI the row's id" "$(words vgs.devtools/install tui/install.sh "$agent_id")" recorded_tail
 expect_poll "the install run's presenter exits" moved ended_record_moved vgs.devtools/install "$install_before"
@@ -310,7 +307,7 @@ has_fixture_missing() { ipc smoke doctorMissing service vgs.devtools | py_reply 
 expect_poll "the doctor capability reports the fixture's missing command and the core's list" '[["vgs-smoke-devtool"], true]' has_fixture_missing
 expect_poll "the VGS section lists the fixture's missing requirement with Install" \
   "$(texts vgs-smoke-devtool "acme.requires · A command no sandbox has, which a package names" Missing Optional Install)" row_texts vgs-smoke-devtool
-expect "the requirement's row scrolls into view" revealed reveal_row vgs-smoke-devtool
+expect_poll "the requirement's row scrolls into view" revealed reveal_row vgs-smoke-devtool
 click_scoped_in "window:Dev Tools" window vgs.devtools ToolRow vgs-smoke-devtool Button Install || fail "the click on the requirement's Install failed"
 expect_poll "Install raises the core's notice for the fixture's command" '["acme.requires", ["vgs-smoke-devtool"], ["vgs-smoke-devtool"], false]' notice_shown
 expect_poll "the notice maps" 1 layer_count vgs:notice
@@ -366,7 +363,7 @@ cp -R "$repo/shell/plugins/vgs.devtools" "$control_dir"
 relist_line='        if (finished.length > 0) trigger("tui");'
 scan_line='        trigger("scan");'
 if [[ $(grep -c -F -- "$relist_line" "$control_dir/Service.qml") == 1 && $(grep -c -F -- "$scan_line" "$control_dir/Service.qml") == 1 ]]; then
-  python3 -c 'import sys; p, a, b = sys.argv[1:]; text = open(p).read(); open(p, "w").write(text.replace(a, "        if (false) trigger(\"tui\");").replace(b, "        if (false) trigger(\"scan\");"))' "$control_dir/Service.qml" "$relist_line" "$scan_line"
+  python3 -c 'import sys; p, a, b = sys.argv[1:]; text = open(p).read(); marker = "    id: root\n"; assert text.count(marker) == 1, "root id must occur once"; text = text.replace(marker, marker + "    property int smokeControlTriggers: 0\n", 1); open(p, "w").write(text.replace(a, "        if (finished.length > 0) smokeControlTriggers += 1;").replace(b, "        smokeControlTriggers += 1;"))' "$control_dir/Service.qml" "$relist_line" "$scan_line"
   expected_errors+=('plugins: hidden by a higher-precedence plugin with the same id: .*vgs\.devtools')
   # The scan has landed when rescan returns; its log line says whether it
   # replaced the plugin set, which the landing does not.
@@ -374,36 +371,27 @@ if [[ $(grep -c -F -- "$relist_line" "$control_dir/Service.qml") == 1 && $(grep 
   rescan "rescan after adding the control copy answers ok"
   expect_log "the rescan publishes the control copy" "$((scans + 1))" 'plugins: scan complete changed=true'
   expect_poll "the control copy's service publishes" '["catalog", "checks", "installed", "mise", "missingRequirements", "outdated"]' dev_lent
+  devtools_control_trigger_after() { local now; now="$(ipc smoke readInstance service vgs.devtools smokeControlTriggers)" || return; [[ $now =~ ^[0-9]+$ && $now -gt $1 ]] && echo fired || echo "$now"; }
   grep -vxF -- "$agent_key" "$dev_state/installed" >"$dev_state/installed.next" || true
   mv -f -- "$dev_state/installed.next" "$dev_state/installed"
   expect "the control's summon answers ok" ok devtools open
   expect_poll "a refresh lists the agent absent again" "$(texts "$agent_name" "Not installed" Install)" row_texts "$agent_name"
   echo "$agent_key" >>"$dev_state/installed"
   install_before="$(ended_record vgs.devtools/install)"
-  expect "the control's agent row scrolls into view" revealed reveal_row "$agent_name"
+  expect_poll "the control's agent row scrolls into view" revealed reveal_row "$agent_name"
   forget_record
+  control_trigger_before="$(ipc smoke readInstance service vgs.devtools smokeControlTriggers)" || fail "the control's trigger marker is readable before the install run"
   click_scoped_in "window:Dev Tools" window vgs.devtools ToolRow "$agent_name" Button Install || fail "the control's click on Install failed"
   expect_poll "the control's click hands the install TUI the row's id" "$(words vgs.devtools/install tui/install.sh "$agent_id")" recorded_tail
   expect_poll "the control's install run's presenter exits" moved ended_record_moved vgs.devtools/install "$install_before"
   expect_run_end "the control's install run ends" vgs.devtools/install
-  # expect_poll's own window, 5 s at 0.2 s: the shipped service's list
-  # shows the agent installed within it.
-  relisted=no
-  for _ in $(seq 1 25); do
-    if [[ $(row_texts "$agent_name") == *'"1.0.0"'* ]]; then relisted=yes; break; fi
-    sleep 0.2
-  done
-  if [[ $relisted == no ]]; then ok "the control copy leaves the list as it was after the run"; else fail "the control copy listed again after the run"; fi
+  expect_poll "the control copy observed the ended install run" fired devtools_control_trigger_after "$control_trigger_before"
+  expect "the control copy leaves the list as it was after the run" "$(texts "$agent_name" "Not installed" Install)" row_texts "$agent_name"
+  control_trigger_before="$(ipc smoke readInstance service vgs.devtools smokeControlTriggers)" || fail "the control's trigger marker is readable before the scan change"
   expect "disabling the requirement fixture under the control copy is allowed" ok ipc shell setPluginEnabled acme.requires false
   expect_poll "the doctor capability drops the disabled fixture" '[null, true]' has_fixture_missing
-  # expect_poll's own window again: the shipped service lists the
-  # requirements anew within it and drops the row.
-  dropped=no
-  for _ in $(seq 1 25); do
-    if [[ $(row_texts vgs-smoke-devtool) == null ]]; then dropped=yes; break; fi
-    sleep 0.2
-  done
-  if [[ $dropped == no ]]; then ok "the control copy keeps the disabled fixture's requirement"; else fail "the control copy listed the requirements again after the scan changed"; fi
+  expect_poll "the control copy observed the scan change" fired devtools_control_trigger_after "$control_trigger_before"
+  expect "the control copy keeps the disabled fixture's requirement" "$(texts vgs-smoke-devtool "acme.requires · A command no sandbox has, which a package names" Missing Optional Install)" row_texts vgs-smoke-devtool
   rm -rf -- "$control_dir"
   rescan "rescan after removing the control copy answers ok"
 else

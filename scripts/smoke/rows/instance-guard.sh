@@ -10,6 +10,8 @@ bare_pid="$spawn_pid"
 count_reply() { py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
 instance_count() { qs_list -p "$1" | count_reply; }
 bare_ipc() { "${shell_env[@]}" qs ipc --pid "$bare_pid" call "$@" 2>/dev/null | tail -n 1; }
+bare_scanned() { ipc_at "$bare_pid" shell listPlugins | py_reply 'import json,sys; print(json.load(sys.stdin)["scanned"])'; }
+bare_built_bar() { ipc_at "$bare_pid" shell built | py_reply 'import json,sys; print(any(r["kind"] == "bar" for rows in json.load(sys.stdin).values() for r in rows))'; }
 bare_guarded=""
 for _ in $(seq 1 100); do
   # Wait until the bare instance is registered, then address it by pid.
@@ -17,7 +19,8 @@ for _ in $(seq 1 100); do
   sleep 0.2
 done
 if [[ $bare_guarded == false ]]; then ok "a bare qs beside the runner refuses to draw"; else fail "bare qs guarded=$bare_guarded"; fi
-sleep 0.5
+expect_poll "the bare qs's scan completes before the bar read" True bare_scanned
+expect "the bare qs built no bar record before the bar read" False bare_built_bar
 if bars_after="$(bar_count)" && [[ $bars_after == "$bars" ]]; then ok "the bare qs mapped no bar surface"; else fail "bar surfaces after bare qs: ${bars_after:-unreadable}"; fi
 user_before="$(cat "$home/.config/vgshell/shell.json")"
 expect "the bare qs refuses to write configuration" "refused: guard=unowned pid=$bare_pid" bare_ipc shell setPluginEnabled acme.tick false
@@ -86,9 +89,7 @@ cp -- "$theme_file" "$sandbox/guard-applied.json"
 guard_doc '#12ab39'
 start_unguarded "$sandbox/bare-follow.log" "$repo/shell" "a bare qs started over a due follow is unguarded"
 expect_poll "the bare qs's scan completes" True scanned_at "$unguarded_pid"
-# A follow's judge run takes well under a second; two seconds leave one the
-# scan queued time to write.
-sleep 2
+expect "the bare qs's guarded follow ends" idle theme_idle unguarded_call
 expect "the bare qs follows no changed package" same same_bytes "$sandbox/guard-applied.json" "$theme_file"
 kill -TERM "$unguarded_pid" 2>/dev/null || true
 

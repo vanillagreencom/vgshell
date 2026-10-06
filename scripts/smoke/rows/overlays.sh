@@ -20,6 +20,23 @@ set -euo pipefail
 ov="$home/.config/vgshell/plugins/acme.overlays"
 mkdir -p "$ov"
 cp -R "$repo/scripts/smoke/fixtures/plugins/acme.overlays/." "$ov/"
+python3 - "$ov/Widget.qml" <<'PYEDIT'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+text = path.read_text()
+needle = '    function tipTargetGeometry() { return rect(target); }\n'
+insert = '''    property int tipDelayRuns: 0
+    readonly property bool tipResting: tip.resting
+    onTipRestingChanged: {
+        tipDelayProbe.stop();
+        if (tipResting) tipDelayProbe.restart();
+    }
+    Timer { id: tipDelayProbe; interval: Theme.tooltip.delay; repeat: false; onTriggered: root.tipDelayRuns += 1 }
+    function startTipDelayProbe() { tipDelayProbe.restart(); return "ok"; }
+'''
+assert text.count(needle) == 1, "tipTargetGeometry must occur once"
+path.write_text(text.replace(needle, needle + insert, 1))
+PYEDIT
 rescan "rescan after adding the overlay fixture answers ok"
 expect_poll "the overlay fixture is discovered" True plugin_known acme.overlays
 expect_poll "enabling the overlay fixture is allowed" ok ipc shell setPluginEnabled acme.overlays true
@@ -27,6 +44,7 @@ ov_key="$(bar_key)"
 expect_poll "the overlay widget is built in the bar" True record_exists acme.overlays
 ovw() { ipc smoke invokeInstance "$ov_key" acme.overlays "$1" ''; }
 ovr() { ipc smoke readInstance "$ov_key" acme.overlays "$1"; }
+tooltip_resting() { ipc smoke readDescendant "$ov_key" acme.overlays Tooltip resting; }
 rect() { python3 -c 'import json,sys; print(*json.loads(sys.argv[1]))' "$1"; }
 centre_of() { python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(int(x+w/2), int(y+h/2))' "$1"; }
 bar_h="$(ovr barSize)"
@@ -66,10 +84,13 @@ hover "$tx" "$ty" || fail "hovering the tooltip target failed"
 expect_poll "hovering the target opens its tooltip" true ovr tooltipOpen
 hover "$((mon_w / 2))" "$((mon_h / 2))" || fail "moving the pointer away failed"
 expect_poll "leaving the target closes its tooltip" false ovr tooltipOpen
+hover "$tx" "$ty" || fail "hovering the target under the popover failed"
+expect_poll "the tooltip target processed the hover before the popover" true tooltip_resting
 expect "the widget opens its popover beside the tooltip target" ok ovw openPopover
 expect_poll "the popover is open under the hover" true ovr popoverOpen
-hover "$tx" "$ty" || fail "hovering the target under the popover failed"
-sleep 1
+tip_delay_before="$(ovr tipDelayRuns)" || fail "the tooltip delay count is readable before the blocked hover"
+expect "the tooltip delay probe starts under the popover" ok ovw startTipDelayProbe
+expect_poll "the tooltip delay ran out under the popover" "$((tip_delay_before + 1))" ovr tipDelayRuns
 expect "a tooltip does not open while a popover is open" false ovr tooltipOpen
 type_keys -k Escape || fail "sending Escape failed"
 expect_poll "Escape closes the popover under the hover" false ovr popoverOpen
@@ -142,9 +163,23 @@ scope, scope_copy, defect, select, select_copy, name = sys.argv[1:]
 old, new = defect.split("|")
 text = pathlib.Path(scope).read_text()
 assert text.count(old) == 1, "the defect's line must occur once in DismissScope.qml"
-pathlib.Path(scope_copy).write_text(text.replace(old, new))
+if name == "NoCatch":
+    new = "onPressed: { scope.smokePressed(); }"
+    signal = "    signal smokePressed()\n"
+elif name == "NoEscape":
+    new = "Keys.onEscapePressed: { scope.smokeEscaped(); }"
+    signal = "    signal smokeEscaped()\n"
+else:
+    signal = ""
+text = text.replace(old, new)
+if signal:
+    marker = "    required property Item anchor\n"
+    assert text.count(marker) == 1, "the DismissScope anchor must occur once"
+    text = text.replace(marker, marker + signal, 1)
+pathlib.Path(scope_copy).write_text(text)
 text = pathlib.Path(select).read_text()
-for line, replacement in (("import qs.Ui\n", "import qs.Ui\nimport \"../layout\"\n"), ("        DismissScope {\n", "        DismissScope" + name + " {\n")):
+handler = "                onSmokePressed: root.smokeMarks += 1\n" if name == "NoCatch" else "                onSmokeEscaped: root.smokeMarks += 1\n"
+for line, replacement in (("import qs.Ui\n", "import qs.Ui\nimport \"../layout\"\n"), ("    property string emptyText: \"\"\n", "    property string emptyText: \"\"\n    property int smokeMarks: 0\n"), ("        DismissScope {\n", "        DismissScope" + name + " {\n" + handler)):
     assert text.count(line) == 1, line + " must occur once in Select.qml"
     text = text.replace(line, replacement)
 pathlib.Path(select_copy).write_text(text)
@@ -208,14 +243,14 @@ expect "the probe builds the select copy without the catch" ok ipc smoke popupLo
 expect "the select copy without the catch opens" ok ipc smoke popupCall select-NoCatch openList
 expect_poll "the select copy without the catch is open" true ipc smoke popupRead select-NoCatch listOpen
 click "$((wx + ww - 10))" "$((wy + 10))" || fail "the press in the window beside the copy failed"
-sleep 1
+expect_poll "the select copy without the catch processed the window press" 1 ipc smoke popupRead select-NoCatch smokeMarks
 expect "the press in the window leaves the select copy without the catch open" true ipc smoke popupRead select-NoCatch listOpen
 expect "the probe drops the select copy without the catch" ok ipc smoke popupDrop select-NoCatch
 expect "the probe builds the select copy without Escape" ok ipc smoke popupLoad select-NoEscape "$repo/shell/Ui/overlay/SelectNoEscape.qml" window acme.overlays "$copy_props"
 expect "the select copy without Escape opens" ok ipc smoke popupCall select-NoEscape openList
 expect_poll "the select copy without Escape is open" true ipc smoke popupRead select-NoEscape listOpen
 type_keys -k Escape || fail "sending Escape to the copy failed"
-sleep 1
+expect_poll "the select copy without Escape processed Escape" 1 ipc smoke popupRead select-NoEscape smokeMarks
 expect "Escape leaves the select copy without Escape open" true ipc smoke popupRead select-NoEscape listOpen
 expect "the probe drops the select copy without Escape" ok ipc smoke popupDrop select-NoEscape
 expect "hiding the overlay window is allowed" ok ipc shell hide window acme.overlays

@@ -15,6 +15,7 @@ current_submap() { local out; out="$(hypr submap)" || return; [[ -n $out ]] && p
 marker_count() { [[ -f $1 ]] && echo 1 || echo 0; }
 failed_submap_control() { ( hypr() { return 23; }; current_submap ) >/dev/null 2>&1 && echo pass || echo fail; }
 view_selected_name() { ipc smoke readDescendant overlay vgs.themes ThemeView selectedName | tr -d '"'; }
+theme_filter_text() { ipc smoke readDescendant overlay vgs.themes ThemeView filterText; }
 capture_catalog_ready() { ipc smoke readDescendant overlay vgs.themes ThemeView entries | py_reply 'import json,sys; print(isinstance(json.load(sys.stdin),list))'; }
 card_at() { ipc smoke readDescendant overlay vgs.themes ThemeView shownCards | py_reply 'import json,sys; print(json.load(sys.stdin)[int(sys.argv[1])]["name"])' "$1"; }
 
@@ -42,7 +43,7 @@ helper_events() { local status=0; grep -cE -- "$2" "$1" || status=$?; [[ $status
 capture_typing_probe() {
   # bash expands every word of a `local` before it assigns any, so log is
   # declared after label holds its value.
-  local label="$1" outcome="$2" helper_pid before
+  local label="$1" outcome="$2" helper_pid before helper_address
   local log="$sandbox/overlay-capture-${label//[^A-Za-z0-9]/-}-helper.log"
   if open_toplevel "$log" "smoke.overlay-capture-helper" "Overlay capture helper"; then
     helper_pid="$toplevel_pid"
@@ -50,26 +51,24 @@ capture_typing_probe() {
     fail "$label: the toplevel helper maps"
     return
   fi
+  helper_address="$(toplevel_address "$helper_pid")" || { fail "$label: the helper address is readable"; close_toplevel "$helper_pid" "$label: the toplevel helper exits after a failed address read"; return; }
+  expect "$label: focusing the helper while the browser is open is allowed" ok hypr dispatch "hl.dsp.focus({ window = \"address:$helper_address\" })"
+  if [[ $outcome == received ]]; then
+    expect_poll "$label: OnDemand lets the helper take the keyboard" '["smoke.overlay-capture-helper", "Overlay capture helper"]' active_window
+  else
+    expect_poll "$label: the browser keeps focus after the helper focus dispatch" true ipc smoke activeFocusIn overlay vgs.themes
+  fi
   before="$(helper_events "$log" '^key ')" || { fail "$label: the helper key log is readable"; close_toplevel "$helper_pid" "$label: the toplevel helper exits after a failed read"; return; }
   type_keys z || fail "$label: typing z with the browser open failed"
   case "$outcome" in
     blocked)
+      expect_poll "$label: the browser processes the typed key while capture holds focus" '"z"' theme_filter_text
       expect "$label: typing while the browser is open does not reach the background client" "$before" helper_events "$log" '^key '
       type_keys -k BackSpace || fail "$label: clearing the typing probe failed"
+      expect_poll "$label: clearing the typing probe reaches the browser" '""' theme_filter_text
       ;;
     received)
       expect_poll "$label: OnDemand focus lets typing reach the background client" "$((before + 2))" helper_events "$log" '^key '
-      ;;
-    maybe-received)
-      for _ in $(seq 1 25); do
-        if [[ $(helper_events "$log" '^key ') == "$((before + 2))" ]]; then
-          ok "$label: OnDemand focus lets typing reach the background client"
-          close_toplevel "$helper_pid" "$label: the toplevel helper exits 0 on SIGTERM"
-          return
-        fi
-        sleep 0.2
-      done
-      expect "$label: OnDemand focus still leaves typing off the background client" "$before" helper_events "$log" '^key '
       ;;
     *) fail "$label: refused typing probe outcome=$outcome" ;;
   esac
@@ -101,7 +100,6 @@ capture_nominal() {
   rm -f -- "$marker"
   open_browser_for_capture "$label kill"
   kill -KILL -- "$shell_qs_pid" 2>/dev/null || fail "$label: killing recorded shell pid failed"
-  for _ in $(seq 1 50); do [[ $(layer_count vgs:overlay) == 0 ]] && break; sleep 0.1; done
   expect_poll "$label: the browser layer closes after SIGKILL" 0 layer_count vgs:overlay
   expect_poll "$label: the capture submap resets after SIGKILL" default current_submap
   press_exec || fail "$label: typing the exec bind after SIGKILL failed"
@@ -195,15 +193,11 @@ control_closed_hook() {
   rm -f -- "$marker"
   open_browser_for_capture "control no-close"
   kill -KILL -- "$shell_qs_pid" 2>/dev/null || fail "control no-close: killing recorded shell pid failed"
-  for _ in $(seq 1 50); do [[ $(layer_count vgs:overlay) == 0 ]] && break; sleep 0.1; done
   expect_poll "control no-close: the browser layer closes" 0 layer_count vgs:overlay
   submap_after="$(current_submap)" || { fail "control no-close: submap after SIGKILL is readable"; return; }
   case "$submap_after" in
     default)
-      ok "control no-close: Hyprland reset the submap after SIGKILL without the close hook"
-      before="$(marker_count "$marker")"
-      press_exec || fail "control no-close: typing exec bind failed"
-      expect_poll "control no-close: the exec bind fires after Hyprland reset" "$((before + 1))" marker_count "$marker"
+      fail "control no-close: the capture submap reset before the no-close defect was observable"
       ;;
     vgs:capture)
       ok "control no-close: without the close hook the capture submap stays after SIGKILL"
@@ -258,8 +252,7 @@ control_on_demand_typing() {
   tree="$(copy_capture_tree on-demand shell/Hosts/SummonLayer.qml 'WlrKeyboardFocus.Exclusive' 'WlrKeyboardFocus.OnDemand')" || { fail "the OnDemand control copy is made"; return; }
   start_capture_tree "$tree" "$sandbox/overlay-capture-on-demand.log" "$marker"
   open_browser_for_capture "control OnDemand"
-  # Hyprland v0.56.2 keeps the browser as the key target after the helper maps while vgs:capture is active, so this production edit does not redden the typing check on the sandbox that read D067.
-  capture_typing_probe "control OnDemand" maybe-received
+  capture_typing_probe "control OnDemand" received
   expect "control OnDemand: browser hide is allowed" ok ipc shell hide overlay vgs.themes
   expect_poll "control OnDemand: browser closes" 0 layer_count vgs:overlay
   expect_poll "control OnDemand: the submap resets after browser hide" default current_submap

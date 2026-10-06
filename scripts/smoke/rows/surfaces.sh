@@ -10,6 +10,34 @@ set -euo pipefail
 surf="$home/.config/vgshell/plugins/acme.surfaces"
 mkdir -p "$surf"
 cp -R "$repo/scripts/smoke/fixtures/plugins/acme.surfaces/." "$surf/"
+python3 - "$surf/Summoned.qml" <<'PYEDIT'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+text = path.read_text()
+marker = "    property string lastPayload: \"\"\n"
+assert text.count(marker) == 1, "lastPayload must occur once"
+text = text.replace(marker, marker + "    property int smokePressMarks: 0\n", 1)
+marker = "    function geometry() { const p = mapToGlobal(0, 0); return JSON.stringify([p.x, p.y, width, height]); }\n"
+assert text.count(marker) == 1, "geometry must occur once"
+text = text.replace(marker, marker + "    function smokeMarkerGeometry() { const p = smokeMarker.mapToGlobal(0, 0); return JSON.stringify([p.x, p.y, smokeMarker.width, smokeMarker.height]); }\n", 1)
+marker = "    T.Control {\n"
+insert = '''    Item {
+        id: smokeMarker
+        x: 4
+        y: 84
+        width: 24
+        height: 24
+        MouseArea {
+            anchors.fill: parent
+            acceptedButtons: Qt.AllButtons
+            onPressed: root.smokePressMarks += 1
+        }
+    }
+'''
+assert text.count(marker) == 1, "focus control must occur once"
+text = text.replace(marker, insert + marker, 1)
+path.write_text(text)
+PYEDIT
 respaced() { "$@" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)))'; }
 surface_focused() { respaced ipc smoke focused "$1" acme.surfaces | py_reply 'import json,sys; row=json.load(sys.stdin); row[0]="Control"; print(json.dumps(row))'; }
 rescan "rescan after adding the hosts fixture answers ok"
@@ -287,6 +315,15 @@ layer_press() {
 # layer_copy_state NAME: the dismissals the probe counted for SummonLayer
 # copy NAME and the panel layers mapped, as `<dismissals> <layers>`.
 layer_copy_state() { printf '%s %s\n' "$(ipc smoke summonLayerDismissals "$1")" "$(layer_count vgs:panel)"; }
+smoke_marks() { ipc smoke readInstance panel acme.surfaces smokePressMarks; }
+smoke_marker_press() {
+  local box layer x y
+  box="$(ipc smoke invokeInstance panel acme.surfaces smokeMarkerGeometry '')" || return 1
+  [[ $box == \[* ]] || { echo "$box"; return 1; }
+  layer="$(surface_box vgs:panel)" || return 1
+  read -r x y < <(python3 -c 'import json,sys; b=json.loads(sys.argv[1]); l=json.loads(sys.argv[2]); print(int(l[0] + b[0] + b[2] / 2), int(l[1] + b[1] + b[3] / 2))' "$box" "$layer") || return 1
+  click "$x" "$y" >/dev/null && echo ok
+}
 expect "a panel summons for the outside press on the desktop" ok ipc shell summon panel acme.surfaces "{\"closeMarker\":\"$sandbox/closed-by-desktop-press\"}"
 expect_poll "the panel is mapped before the inside press" 1 layer_count vgs:panel
 summon_drawn panel acme.surfaces || fail "the panel never drew before the inside press"
@@ -294,8 +331,10 @@ summon_drawn panel acme.surfaces || fail "the panel never drew before the inside
 # centred control, so no item of the plugin takes the press and the catcher
 # under it must leave it.
 if panel_inside="$(python3 -c 'import json,sys; b=json.loads(sys.argv[1]); print(int(b[0] + 6), int(b[1] + 6))' "$(summon_box panel)")"; then
+  inside_mark="$(smoke_marks)" || fail "the press marker is readable before the inside press"
   layer_press "the press inside the panel" "$panel_inside"
-  sleep 0.5 # a press outside closes the panel well within this; nothing else marks a press that closed nothing
+  expect "the marker press after the inside press is sent" ok smoke_marker_press
+  expect_poll "the panel processes input after the inside press" "$((inside_mark + 1))" smoke_marks
   expect "a press inside the panel leaves it open" 1 layer_count vgs:panel
 else
   fail "the panel's box is unreadable"
@@ -326,11 +365,15 @@ if open_other "$sandbox/toplevel-surfaces-outside-press.log"; then
   expect_poll "the catchless layer copy has opened its panel" 1 ipc smoke readInstance panel acme.surfaces opened
   expect_poll "the catchless layer copy is mapped" "0 1" layer_copy_state layer-nocatch
   summon_drawn panel acme.surfaces || fail "the catchless layer copy never drew"
+  client_mark="$(smoke_marks)" || fail "the press marker is readable before the catchless client-window press"
   layer_press "the press on the other window beside the catchless copy" "$layer_window_point"
-  sleep 0.5 # the shipped layer closed on the same press within this time
+  expect "the marker press after the client-window press is sent" ok smoke_marker_press
+  expect_poll "the catchless copy processes input after the client-window press" "$((client_mark + 1))" smoke_marks
   expect "control: a press on a client window leaves the catchless copy open" "0 1" layer_copy_state layer-nocatch
+  desktop_mark="$(smoke_marks)" || fail "the press marker is readable before the catchless desktop press"
   layer_press "the press on the desktop beside the catchless copy" "$layer_desktop_point"
-  sleep 0.5 # as above
+  expect "the marker press after the desktop press is sent" ok smoke_marker_press
+  expect_poll "the catchless copy processes input after the desktop press" "$((desktop_mark + 1))" smoke_marks
   expect "control: a press on the desktop leaves the catchless copy open" "0 1" layer_copy_state layer-nocatch
   expect "the probe drops the catchless layer copy" ok ipc smoke popupDrop layer-nocatch
   expect_poll "the catchless layer copy leaves the build records" absent ipc smoke readInstance panel acme.surfaces opened
