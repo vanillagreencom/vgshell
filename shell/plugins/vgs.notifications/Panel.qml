@@ -68,12 +68,15 @@ FocusScope {
 
     function open(payloadJson) {
         const payload = parsePayload(payloadJson);
+        // The service summons an open panel again after each choice, and the
+        // user stays on the row that took the chosen one's place.
+        const reopen = opened && mode === payload.mode;
         mode = payload.mode;
         opened = true;
         call("panel-opened", mode);
         refresh();
         Qt.callLater(() => {
-            selectIndex(rows.length > 0 ? 0 : -1);
+            if (!reopen) selectIndex(rows.length > 0 ? 0 : -1);
             call("panel-focused", root.activeFocus ? "on" : "off");
         });
     }
