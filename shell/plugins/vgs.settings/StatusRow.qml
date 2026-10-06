@@ -39,52 +39,8 @@ GroupList {
         return panel === null || entry === null ? "" : panel.replyOf(pluginId, entry.key, account);
     }
 
-    // ITEMS, each with the `key` a line keeps across writes, so a status
-    // write elsewhere, which hands the page new objects, keeps each line's
-    // delegate, an open Connect field and what it holds with it.
-    function itemsKeyed(items) {
-        const seen = Object.create(null);
-        return items.map(item => {
-            const name = item.secret !== "" ? "secret " + item.secret : "label " + item.label;
-            seen[name] = (seen[name] || 0) + 1;
-            return Object.assign({ key: seen[name] === 1 ? name : name + " " + seen[name] }, item);
-        });
-    }
-
-    readonly property var presenceWords: ({ present: "Present", absent: "Absent", locked: "Locked", unavailable: "Unavailable", unsafe: "Unsafe" })
-    // What the row draws: { label, hint, offered, tone, text, lines,
-    // muted, items }, `offered` its step's (Steps.statusStep),
-    // `tone` "" for a value drawn as text, `lines` a state's further lines
-    // and `items` a presence list's items, each
-    // { key, label, value, hint, tone, secret, access }.
-    // `key` names the item across writes: its secret's account, else its
-    // label, with its count among earlier equal names after a second one.
-    readonly property var view: {
-        if (entry === null) return { label: "", hint: "", info: "", offered: false, tone: "", text: "", lines: [], muted: true, items: [] };
-        const step = Steps.statusStep(entry);
-        const out = { label: entry.label, hint: entry.hint, info: entry.info, offered: step.offered, tone: "", text: "Not reported", lines: [], muted: true, items: [] };
-        if (entry.report !== "reported") return out;
-        out.muted = false;
-        out.tone = entry.tone;
-        switch (entry.type) {
-        case "presence": out.text = presenceWords[entry.value]; return out;
-        case "presenceList":
-            out.items = itemsKeyed(entry.value);
-            out.text = entry.value.length === 0 ? "None detected" : "";
-            out.muted = true;
-            return out;
-        case "state":
-            out.text = entry.value.text;
-            if (entry.value.lines !== undefined) out.lines = entry.value.lines;
-            return out;
-        case "text": out.text = entry.value; return out;
-        case "count": out.text = String(entry.value); return out;
-        case "time": out.text = new Date(entry.value).toLocaleString(Qt.locale(), Locale.ShortFormat); return out;
-        }
-        console.error("StatusRow: no rule for status type " + JSON.stringify(entry.type));
-        out.text = "";
-        return out;
-    }
+    // What the row draws: Steps.statusView of its entry.
+    readonly property var view: Steps.statusView(entry, ms => new Date(ms).toLocaleString(Qt.locale(), Locale.ShortFormat))
 
     visible: entry !== null
 
@@ -114,7 +70,7 @@ GroupList {
             label: modelData.label
             hint: modelData.hint
             tone: modelData.tone
-            text: row.presenceWords[modelData.value]
+            text: Steps.PRESENCE_WORDS[modelData.value]
             access: modelData.access
             secretLabel: row.secretLabel
             busy: row.panel !== null && row.panel.writing !== ""

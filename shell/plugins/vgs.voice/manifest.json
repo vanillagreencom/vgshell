@@ -127,6 +127,7 @@
     "setup": {
       "type": "state",
       "label": "Setup",
+      "group": "Setup",
       "hint": "Setup copies defaults, downloads the speech model and enables the service.",
       "action": {
         "label": "Set up",
@@ -144,19 +145,6 @@
     }
   },
   "tui": {
-    "setup": {
-      "script": "tui/setup.sh",
-      "title": "Set up Voice",
-      "requires": [
-        "voxtype",
-        "systemctl"
-      ],
-      "entry": {
-        "label": "Set up",
-        "icon": "download",
-        "group": "Voice"
-      }
-    },
     "configure": {
       "script": "tui/configure.sh",
       "title": "Configure Voice",
@@ -180,6 +168,19 @@
       "entry": {
         "label": "Choose model",
         "icon": "brain",
+        "group": "Voice"
+      }
+    },
+    "setup": {
+      "script": "tui/setup.sh",
+      "title": "Set up Voice",
+      "requires": [
+        "voxtype",
+        "systemctl"
+      ],
+      "entry": {
+        "label": "Set up again",
+        "icon": "download",
         "group": "Voice"
       }
     }

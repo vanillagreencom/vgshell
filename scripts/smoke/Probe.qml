@@ -1741,6 +1741,27 @@ Scope {
         // Every item named `type` under an instance, in tree order, as the
         // values of its comma-separated `properties`, a colour as its
         // #aarrggbb name, as layerItems reads a layer's.
+        // A plugin page's shown Setup section, as { chips, lines, buttons }:
+        // each visible Badge as [text, tone], every other visible line of
+        // text outside a Badge or a Button, and each visible Button as
+        // [text, variant], each in tree order, which is the drawn and the
+        // Tab order; "absent" while no Setup section shows.
+        function setupSection(hostKey: string, id: string): string {
+            const item = root.instance(hostKey, id);
+            if (item === null) return "absent";
+            const section = root.descendants(item).find(child => root.typeName(child) === "Section" && child.visible && child.title === "Setup");
+            if (section === undefined) return "absent";
+            const shown = root.descendants(section).filter(child => child.visible);
+            const badges = shown.filter(child => root.typeName(child) === "Badge");
+            const buttons = shown.filter(child => root.typeName(child) === "Button");
+            const inside = (child, owners) => owners.some(owner => owner !== child && root.descendants(owner).indexOf(child) !== -1);
+            const lines = shown.filter(child => root.typeName(child) === "Label" && child.text !== "" && !inside(child, badges) && !inside(child, buttons) && child.text !== section.title && child.text !== section.description);
+            return root.json({
+                chips: badges.map(badge => [badge.text, badge.tone]),
+                lines: lines.map(line => line.text),
+                buttons: buttons.map(button => [button.text, button.variant])
+            });
+        }
         function itemValues(hostKey: string, id: string, type: string, properties: string): string {
             const item = root.instance(hostKey, id);
             if (item === null) return "absent";

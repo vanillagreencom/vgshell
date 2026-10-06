@@ -20,7 +20,7 @@ Change the keys in the plugin's Keys row on its Settings page.
 
 ## Setup
 
-The Voice Settings page shows Set up while the speech model, the speech engine or the user service is missing.
+The Setup section of the Voice Settings page shows what voxtype reports. When Voice is ready, it shows Ready with the voxtype version and the speech model, and that the Voice service runs. Otherwise it names what is missing, and Set up comes first. When Voice is ready, Set up again runs the setup again.
 
 When voxtype is missing, Set up, Configure and Choose model on the Voice Settings page first offer to install it. Once voxtype is installed, the screen you chose opens. A step that needs your password says so before it asks.
 

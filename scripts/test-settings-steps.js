@@ -26,7 +26,7 @@ const MANIFEST = {
     tui: { setup: { script: "tui/setup.sh", title: "Set up", size: "default", presentation: "full", entry: null, requires: null } },
     status: {
         token: { type: "presence", label: "Token", action: { label: "Set up token", tui: "setup" } },
-        warden: { type: "state", label: "Warden", action: { label: "Set up", tui: "setup" } },
+        warden: { type: "state", label: "Warden", group: "Setup", action: { label: "Set up", tui: "setup" } },
         bare: { type: "state", label: "Bare", action: { label: "Fix", tui: "setup" } },
         pending: { type: "count", label: "Pending" },
         accounts: { type: "presenceList", label: "Accounts" }
@@ -46,11 +46,43 @@ const ENTRIES = [
     ["an entry without an action offers nothing", "pending", { pending: 3 }, { offered: false }]
 ];
 
+// The manager row's listed setup screens.
+const TUIS = [
+    { name: "setup", label: "Set up again", icon: "download" },
+    { name: "configure", label: "Configure", icon: "sliders-horizontal" }
+];
+const BUTTONS = [
+    ["a state that calls for its step draws it first, primary", { warden: { tone: "warning", text: "Not set up", action: true } }, [], [["setup", "Set up", true], ["configure", "Configure", false]]],
+    ["a ready state draws every screen secondary, in manifest order", { warden: { tone: "ok", text: "Ready" } }, [], [["setup", "Set up again", false], ["configure", "Configure", false]]],
+    ["nothing published draws every screen secondary", {}, [], [["setup", "Set up again", false], ["configure", "Configure", false]]],
+    ["a withheld step keeps its place with the withheld label", { warden: { tone: "warning", text: "Not set up", action: true } }, ["acme-other"], [["setup", "Install requirements", true], ["configure", "Configure", false]]],
+    ["two entries offering one screen draw it once, the first's", { token: "absent", warden: { tone: "warning", text: "Not set up", action: true } }, [], [["setup", "Set up token", true], ["configure", "Configure", false]]]
+];
+
+// MANIFEST with its requirements as the judge hands them on, which a
+// withheld step reads.
+const NORMAL = Object.assign({}, MANIFEST, { requirements: producer.normalRequirements(MANIFEST.requirements) });
+
 function verify(logic) {
     for (const [label, key, values, want] of ENTRIES) {
         const row = producer.statusRows(MANIFEST, values, []).find(entry => entry.key === key);
         same(logic.statusStep(row), want, label);
     }
+    // setupEntries: the Setup group's entries alone.
+    same(logic.setupEntries(producer.statusRows(MANIFEST, {}, [])).map(entry => entry.key), ["warden"], "the Setup section takes the Setup group's entries");
+    // setupButtons: [label, published values, missing requirements, the
+    // buttons as [name, label, primary]]. The manager row lists setup and
+    // configure; a step is drawn first, primary, with its action's label.
+    for (const [label, values, missing, want] of BUTTONS) {
+        const buttons = logic.setupButtons(TUIS, producer.statusRows(NORMAL, values, missing));
+        same(buttons.map(b => [b.name, b.label, b.primary]), want, "setupButtons: " + label);
+    }
+    same(new Set(logic.setupButtons(TUIS, producer.statusRows(MANIFEST, { warden: { tone: "warning", text: "Not set up", action: true } }, [])).concat(logic.setupButtons(TUIS, producer.statusRows(MANIFEST, {}, [])))
+        .map(b => b.key)).size, 3, "setupButtons: a step and the same screen's plain button are drawn as different buttons");
+    // statusView: what a line draws of a state, with its lines.
+    same(logic.statusView(producer.statusRows(MANIFEST, { warden: { tone: "ok", text: "Ready", lines: ["v1"] } }, []).find(e => e.key === "warden"), String),
+        { label: "Warden", hint: "", info: "", offered: false, tone: "success", text: "Ready", lines: ["v1"], muted: false, items: [] }, "a reported state draws its text, tone and lines");
+    same(logic.statusView(producer.statusRows(MANIFEST, {}, []).find(e => e.key === "warden"), String).text, "Not reported", "an unreported entry reads Not reported");
     const requirements = producer.requirementRows({ requirements: producer.normalRequirements(MANIFEST.requirements) }, ["acme-tool"]);
     same(requirements.map(logic.requirementApplies), [true, false], "the install step applies to the missing requirement alone");
 }
@@ -61,7 +93,13 @@ verify(load(file));
 // text around it. The suite must fail on every copy.
 const CONTROLS = [
     ["a declared action is always offered", "entry.action !== null && entry.action.offered", "entry.action !== null"],
-    ["a present requirement still offers its install", "return requirement.state === \"missing\";", "return true;"]
+    ["a present requirement still offers its install", "return requirement.state === \"missing\";", "return true;"],
+    ["the Setup section takes every group", "return entry.group === SETUP_GROUP;", "return true;"],
+    ["an offered step draws secondary", "add(tui, entry.action.label, true);", "add(tui, entry.action.label, false);"],
+    ["an offered step keeps its screen's label", "add(tui, entry.action.label, true);", "add(tui, tui.label, true);"],
+    ["a screen draws twice", "if (tui !== undefined && !has(tui.name))", "if (tui !== undefined)"],
+    ["a button's key ignores its prominence", "key: tui.name + \" \" + label + \" \" + primary,", "key: tui.name,"],
+    ["a state draws no lines", "if (entry.value.lines !== undefined) out.lines = entry.value.lines;", ""]
 ];
 
 const source = fs.readFileSync(file, "utf8");

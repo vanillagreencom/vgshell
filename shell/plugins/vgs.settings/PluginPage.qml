@@ -15,8 +15,12 @@ import "Steps.js" as Steps
 // switch of a plugin with a bar widget and another kind besides bar and
 // bar-widget, which stays enabled once unplaced, the switch turning only
 // while the plugin is enabled (for a widget-only plugin Enabled is the
-// placement), a Setup section with one button per setup screen the
-// manifest lists, which opens it through the manager, one settings section
+// placement), a Setup section with the plugin's status entries of the
+// `Setup` group at its top, each a Badge chip in its tone with its lines and
+// hint under it, then one button per setup screen the manifest lists, which
+// opens it through the manager: a screen an offered status action opens
+// first, primary, with the action's label, then the others secondary
+// (Steps.setupButtons), one settings section
 // per schema group (entries without a group first, under `Settings`), one
 // section per `list` entry, titled with its label, and the Keys section,
 // then, for a plugin of kind `pane` while a panes holder is enabled, a
@@ -69,7 +73,7 @@ FocusScope {
     // or null.
     readonly property var paneHolder: row === null || row.paneHolder === "" ? null : panel.plugins.find(p => p.id === row.paneHolder) || null
     // Whether the Settings page holds nothing below its switches.
-    readonly property bool bare: row !== null && row.tuis.length === 0 && sections.length === 0 && lists.length === 0 && row.binds.length === 0 && paneHolder === null
+    readonly property bool bare: row !== null && row.tuis.length === 0 && setupEntries.length === 0 && sections.length === 0 && lists.length === 0 && row.binds.length === 0 && paneHolder === null
     // Whether a field of the page holds an unsaved edit.
     readonly property bool dirty: unsaved.edited
     property var extraKeySlots: ({})
@@ -99,6 +103,10 @@ FocusScope {
     }
 
     readonly property var lists: row === null ? [] : Object.keys(row.schema).filter(key => row.schema[key].type === "list")
+    // The status entries the Setup section draws at its top, and its
+    // buttons in drawn order.
+    readonly property var setupEntries: row === null ? [] : Steps.setupEntries(row.status)
+    readonly property var setupButtons: row === null ? [] : Steps.setupButtons(row.tuis, row.status)
 
     // The displayable status entries' keys by section, as `sections` holds
     // the schema's: [{ group, keys }], ungrouped first, then each group in
@@ -363,12 +371,13 @@ FocusScope {
 
                     // The plugin's own setup screens, each a TUI its
                     // manifest lists, opened through the manager as a status
-                    // step is. A keyed model keeps each button while the
-                    // rows are replaced, and a refusal reads under them.
+                    // step is, under the state they set up. A keyed model
+                    // keeps each button while the rows are replaced, and a
+                    // refusal reads under them.
                     Section {
                         id: setup
                         width: parent.width
-                        visible: page.row !== null && page.row.tuis.length > 0
+                        visible: page.row !== null && (page.row.tuis.length > 0 || page.setupEntries.length > 0)
                         title: "Setup"
                         description: "Each button opens a setup window."
 
@@ -376,19 +385,65 @@ FocusScope {
                             width: setup.width
                             spacing: Theme.field.gap
 
+                            // Each entry: its value as a chip in its tone,
+                            // or as text while it has no tone, then its
+                            // lines and its hint. Unkeyed, so each status
+                            // write draws the entry anew.
+                            Repeater {
+                                model: ScriptModel {
+                                    values: page.setupEntries
+                                }
+                                Column {
+                                    id: setupState
+                                    required property var modelData
+                                    readonly property var view: Steps.statusView(modelData, ms => new Date(ms).toLocaleString(Qt.locale(), Locale.ShortFormat))
+                                    width: setup.width
+                                    spacing: Theme.field.gap
+                                    Badge {
+                                        visible: setupState.view.tone !== ""
+                                        text: setupState.view.text
+                                        tone: setupState.view.tone === "" ? "neutral" : setupState.view.tone
+                                    }
+                                    Label {
+                                        role: setupState.view.muted ? "itemHint" : "value"
+                                        visible: setupState.view.tone === "" && setupState.view.text !== ""
+                                        text: setupState.view.text
+                                        width: setup.width
+                                        wrapMode: Text.Wrap
+                                    }
+                                    Repeater {
+                                        model: setupState.view.lines
+                                        Label {
+                                            required property string modelData
+                                            role: "value"
+                                            text: modelData
+                                            width: setup.width
+                                            wrapMode: Text.Wrap
+                                        }
+                                    }
+                                    Label {
+                                        role: "hint"
+                                        visible: text !== ""
+                                        text: setupState.view.hint
+                                        width: setup.width
+                                        wrapMode: Text.Wrap
+                                    }
+                                }
+                            }
+
                             Flow {
                                 width: parent.width
                                 spacing: Theme.stack.inline
                                 Repeater {
                                     model: ScriptModel {
-                                        values: page.row === null ? [] : page.row.tuis
-                                        objectProp: "name"
+                                        values: page.setupButtons
+                                        objectProp: "key"
                                     }
                                     Button {
                                         required property var modelData
                                         text: modelData.label
                                         iconName: modelData.icon
-                                        variant: "secondary"
+                                        variant: modelData.primary ? "primary" : "secondary"
                                         enabled: page.editable
                                         onClicked: page.panel.openTui(page.row.id, modelData.name)
                                     }
