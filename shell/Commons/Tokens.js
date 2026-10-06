@@ -182,9 +182,6 @@ var TOKENS = {
         accentPressed: color("mix({palette.accent}, {palette.background}, 0.18)"),
         accentSubtle: color("alpha({palette.accent}, 0.14)"),
         onAccent: color("contrast({palette.accent})"),
-        inverse: color("{palette.foreground}"),
-        inverseHover: color("mix({palette.foreground}, {palette.background}, 0.12)"),
-        onInverse: color("contrast({palette.foreground})"),
         focus: color("{palette.accent}"),
         selection: color("alpha({palette.accent}, 0.35)"),
         scrim: color("alpha({palette.background}, 0.6)")
@@ -719,8 +716,10 @@ var TOKENS = {
         // A tooltip wraps its text past `maxWidth`, and never grows past its
         // output less `size.window.gutter` a side.
         maxWidth: length("{size.panel.sm}"),
-        background: color("{color.inverse}"),
-        foreground: color("contrast({tooltip.background})")
+        // A raised surface, as a popover, a menu, a toast and an OSD are.
+        background: color("{color.surfaceRaised}"),
+        border: color("{color.borderStrong}"),
+        foreground: color("{color.text}")
     },
 
     // `maxHeight` is the height the entries take before the menu scrolls,

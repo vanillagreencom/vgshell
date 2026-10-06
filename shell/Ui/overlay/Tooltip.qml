@@ -91,6 +91,8 @@ Item {
             anchors.fill: parent
             radius: Theme.tooltip.radius
             color: Theme.tooltip.background
+            border.width: Theme.border.thin
+            border.color: Theme.tooltip.border
         }
 
         Label {

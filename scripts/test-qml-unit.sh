@@ -211,7 +211,7 @@ mutations=(
   "focus preview shows no ring|foundation/FocusRing.qml|target.focusPreview === true|false|tst_button.qml"
   "Return activates no button|controls/Button.qml|Keys.onReturnPressed: KeyNavLogic.activate(root)|Keys.onReturnPressed: {}|tst_button.qml"
   "secondary buttons lose their outline|../Commons/Tokens.js|                border: color(\"{color.borderStrong}\")|                border: color(\"alpha({palette.background}, 0)\")|tst_button.qml"
-  "secondary buttons regain their fill|../Commons/Tokens.js|secondary: merge(variant(\"button.variant.secondary\", \"alpha({palette.background}, 0)\", 500, \"palette.foreground\", \"palette.foreground\"), {|secondary: merge(variant(\"button.variant.secondary\", \"{color.inverse}\", 500, \"palette.foreground\", \"palette.foreground\"), {|tst_button.qml"
+  "secondary buttons regain their fill|../Commons/Tokens.js|secondary: merge(variant(\"button.variant.secondary\", \"alpha({palette.background}, 0)\", 500, \"palette.foreground\", \"palette.foreground\"), {|secondary: merge(variant(\"button.variant.secondary\", \"{palette.foreground}\", 500, \"palette.foreground\", \"palette.foreground\"), {|tst_button.qml"
   "text field Escape does not restore the committed text|controls/TextField.qml|if (escapeReverts && text !== committedText) {|if (false && escapeReverts && text !== committedText) {|tst_textfield.qml"
   "text field Escape no longer reaches the owner|controls/TextField.qml|event.accepted = false;|event.accepted = true;|tst_textfield.qml"
   "a text field uses the old side inset|../Commons/Tokens.js|paddingX: step(2.5)|paddingX: length(\"{control.paddingX}\")|tst_textfield.qml"
