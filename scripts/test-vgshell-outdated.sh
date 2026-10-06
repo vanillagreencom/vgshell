@@ -31,6 +31,7 @@ done
 source_repo probe "$(manifest acme.probe 0.1.0)"
 for name in gone loose plain slow prompt http stop; do source_repo "$name" "$(manifest "acme.$name" 0.1.0)"; done
 theme_source moss "$(doc moss)"
+shared_tmp="$tmp"
 
 # Git hooks are live for every git call from here on: the fixture home's
 # global configuration points core.hooksPath at a reference-transaction
@@ -137,24 +138,110 @@ inst "plugin outdated --json with an argument is exit 2" "$cfg" "$rt_empty" 2 ""
 # records what ssh would consult before it prompts: the prompt setting git
 # hands it, whether it may run an askpass, and whether it can open a
 # terminal. It then fails, after 12 s for the slow host.
-stub="$tmp/ssh-stub"; mkdir -p "$stub"
-printf '%s\n' '#!/bin/sh' \
-  'if (: </dev/tty) 2>/dev/null; then tty=yes; else tty=no; fi' \
-  'printf "prompt=%s require=%s tty=%s\n" "${GIT_TERMINAL_PROMPT-unset}" "${SSH_ASKPASS_REQUIRE-unset}" "$tty" >>"$0.record"' \
-  'case "$*" in *slow.invalid*) sleep 12 ;; esac' \
-  'exit 1' >"$stub/ssh"
-chmod +x "$stub/ssh"
+ssh_stub() { # DIR
+  mkdir -p "$1"
+  printf '%s\n' '#!/bin/sh' \
+    'if (: </dev/tty) 2>/dev/null; then tty=yes; else tty=no; fi' \
+    'printf "prompt=%s require=%s tty=%s\n" "${GIT_TERMINAL_PROMPT-unset}" "${SSH_ASKPASS_REQUIRE-unset}" "$tty" >>"$0.record"' \
+    'case "$*" in *slow.invalid*) sleep 12 ;; esac' \
+    'exit 1' >"$1/ssh"
+  chmod +x "$1/ssh"
+}
+# A job's own home, runtime directory and checkout of acme.NAME, since
+# timed jobs overlap; a checkout that cannot be added stops the job.
+job_checkout() { # CFG NAME
+  local before=$failures
+  mkdir -p "$tmp/home" "$tmp/rt-empty"
+  inst_env=(HOME="$tmp/home" XDG_RUNTIME_DIR="$tmp/rt-empty" GIT_CEILING_DIRECTORIES="$tmp")
+  inst "add installs acme.$2" "$1" "$tmp/rt-empty" 0 "shell=not-running" "" plugin add --yes "$shared_tmp/src/$2.git" >/dev/null
+  ((failures == before)) || { echo "test-vgshell-outdated: fixture=plugin-add id=acme.$2" >&2; cat -- "$tmp/err" >&2; exit 1; }
+}
+slow_timeout_row() {
+  local cfg="$tmp/cfg-slow-timeout" stub="$tmp/ssh-stub" started
+  ssh_stub "$stub"
+  job_checkout "$cfg" slow
+  g -C "$cfg/vgshell/plugins/acme.slow" remote set-url origin ssh://slow.invalid/slow.git
+  # Real waits: the timeout is production's fixed 10 s, and the stub answers
+  # the slow host after 12 s.
+  started=$SECONDS
+  INST_PATH="$stub:$base_path" inst "a fetch the timeout ends is an error row" "$cfg" "$tmp/rt-empty" 0 "acme.slow error=fetch=acme.slow timeout=10s" "$any_out" plugin outdated
+  check "the timeout ends the fetch before the remote answers" test $((SECONDS - started)) -lt 12
+}
+slow_untimed_control() {
+  local cfg="$tmp/cfg-slow-untimed" stub="$tmp/ssh-stub"
+  ssh_stub "$stub"
+  job_checkout "$cfg" slow
+  g -C "$cfg/vgshell/plugins/acme.slow" remote set-url origin ssh://slow.invalid/slow.git
+  tree_control untimed bin/vgshell 'timeout --kill-after="$outdated_kill_grace" "$outdated_fetch_timeout" ' ''
+  INST_PATH="$stub:$base_path" INST_BIN="$THEME_BIN" inst "the untimed mutant waits for the remote's failure" "$cfg" "$tmp/rt-empty" 0 "acme.slow error=fetch=acme.slow" "$any_out" plugin outdated
+  unset THEME_BIN
+}
+stop_signal_row() { # SIGNAL WANT_EXIT
+  local sig="$1" want="$2" cfg="$tmp/cfg-stop-$1"
+  job_checkout "$cfg" stop
+  stop_git slow
+  stop_run "$sig" plugin outdated --json
+  check "$sig ends plugin outdated with exit $want" test "$stop_status" == "$want"
+  check "plugin outdated stopped by $sig prints no report" test ! -s "$tmp/out"
+  check "plugin outdated returns after the fetch $sig stopped has ended" test "$stop_ended" == yes
+  check "no fetch process outlives plugin outdated stopped by $sig" test "$stop_alive" == no
+}
+stop_trapless_control() {
+  local cfg="$tmp/cfg-stop-trapless"
+  job_checkout "$cfg" stop
+  stop_git slow
+  tree_control trapless bin/vgshell 'trap_stops unattended_git_stop' ':'
+  INST_BIN="$THEME_BIN" stop_run TERM plugin outdated --json
+  check "the trapless mutant's fetch outlives plugin outdated" test "$stop_alive" == yes
+  unset THEME_BIN
+}
+stop_stepless_control() {
+  local cfg="$tmp/cfg-stop-stepless"
+  job_checkout "$cfg" stop
+  stop_git slow
+  tree_control stepless bin/vgshell 'trap_stops step_stop' ':'
+  INST_BIN="$THEME_BIN" stop_run TERM plugin outdated --json
+  check "the stepless mutant's plugin outdated returns before its fetch ended" test "$stop_ended" == no
+  unset THEME_BIN
+}
+stop_deaf10_row() {
+  local cfg="$tmp/cfg-stop-deaf10"
+  job_checkout "$cfg" stop
+  stop_git deaf 10
+  stop_run TERM plugin outdated --json
+  check "TERM ends plugin outdated with exit 143 when the fetch ignores TERM" test "$stop_status" == 143
+  check "the kill grace ends a fetch that ignores TERM before its own end" test "$stop_ended/$stop_alive" == no/no
+}
+stop_graceless_control() {
+  local cfg="$tmp/cfg-stop-graceless"
+  job_checkout "$cfg" stop
+  stop_git deaf 10
+  tree_control graceless bin/vgshell '--kill-after="$outdated_kill_grace" ' ''
+  INST_BIN="$THEME_BIN" stop_run TERM plugin outdated --json
+  check "the graceless mutant waits out a fetch that ignores TERM" test "$stop_ended" == yes
+  unset THEME_BIN
+}
+stop_deaf17_timeout_row() {
+  local cfg="$tmp/cfg-stop-deaf17"
+  job_checkout "$cfg" stop
+  stop_git deaf 17
+  rm -f -- "$stop_git_dir/ended"
+  INST_PATH="$stop_git_dir:$base_path" inst "a fetch the timeout's kill grace ends is a timeout row" "$cfg" "$tmp/rt-empty" 0 "acme.stop error=fetch=acme.stop timeout=10s" "" plugin outdated
+  check "the grace's SIGKILL ended the fetch before its own end" test ! -e "$stop_git_dir/ended"
+}
+stop_killblind_control() {
+  local cfg="$tmp/cfg-stop-killblind"
+  job_checkout "$cfg" stop
+  stop_git deaf 17
+  tree_control killblind bin/vgshell 'if [[ $rc == 137 ]]' 'if false'
+  INST_PATH="$stop_git_dir:$base_path" INST_BIN="$THEME_BIN" inst "the kill-blind mutant loses the timeout from the row" "$cfg" "$tmp/rt-empty" 0 "acme.stop error=fetch=acme.stop" "" plugin outdated
+  unset THEME_BIN
+}
+
 cfg="$tmp/cfg-slow"
 inst "add installs acme.slow" "$cfg" "$rt_empty" 0 "shell=not-running" "" plugin add --yes "$tmp/src/slow.git"
-g -C "$cfg/vgshell/plugins/acme.slow" remote set-url origin ssh://slow.invalid/slow.git
-# Real waits: the timeout is production's fixed 10 s, and the stub answers
-# the slow host after 12 s.
-started=$SECONDS
-INST_PATH="$stub:$base_path" inst "a fetch the timeout ends is an error row" "$cfg" "$rt_empty" 0 "acme.slow error=fetch=acme.slow timeout=10s" "$any_out" plugin outdated
-check "the timeout ends the fetch before the remote answers" test $((SECONDS - started)) -lt 12
-tree_control untimed bin/vgshell 'timeout --kill-after="$outdated_kill_grace" "$outdated_fetch_timeout" ' ''
-INST_PATH="$stub:$base_path" INST_BIN="$THEME_BIN" inst "the untimed mutant waits for the remote's failure" "$cfg" "$rt_empty" 0 "acme.slow error=fetch=acme.slow" "$any_out" plugin outdated
-unset THEME_BIN
+row_job slow_timeout_row
+row_job slow_untimed_control
 
 # Stops: the Updates check stops a probe by signalling its process group,
 # which the fetch's own session is not in. The verb ends the fetch, returns
@@ -163,48 +250,29 @@ unset THEME_BIN
 # returns before its end.
 cfg="$tmp/cfg-stop"
 inst "add installs acme.stop" "$cfg" "$rt_empty" 0 "shell=not-running" "" plugin add --yes "$tmp/src/stop.git"
-stop_git slow
-for row in "TERM 143" "INT 130" "HUP 129"; do
-  read -r sig want <<<"$row"
-  stop_run "$sig" plugin outdated --json
-  check "$sig ends plugin outdated with exit $want" test "$stop_status" == "$want"
-  check "plugin outdated stopped by $sig prints no report" test ! -s "$tmp/out"
-  check "plugin outdated returns after the fetch $sig stopped has ended" test "$stop_ended" == yes
-  check "no fetch process outlives plugin outdated stopped by $sig" test "$stop_alive" == no
-done
+row_job stop_signal_row TERM 143
+row_job stop_signal_row INT 130
+row_job stop_signal_row HUP 129
 # The must-fail control of the fetch's trap: without it the fetch's session
 # never hears the stop and outlives the verb.
-tree_control trapless bin/vgshell 'trap_stops unattended_git_stop' ':'
-INST_BIN="$THEME_BIN" stop_run TERM plugin outdated --json
-check "the trapless mutant's fetch outlives plugin outdated" test "$stop_alive" == yes
-unset THEME_BIN
+row_job stop_trapless_control
 # The must-fail control of the verb's wait: without step_run's trap the
 # verb returns while the fetch still ends.
-tree_control stepless bin/vgshell 'trap_stops step_stop' ':'
-INST_BIN="$THEME_BIN" stop_run TERM plugin outdated --json
-check "the stepless mutant's plugin outdated returns before its fetch ended" test "$stop_ended" == no
-unset THEME_BIN
+row_job stop_stepless_control
 # The bound: a fetch that ignores TERM gets SIGKILL 5 s later, before its
 # own 10 s end; the control without the grace waits that end out.
-stop_git deaf 10
-stop_run TERM plugin outdated --json
-check "TERM ends plugin outdated with exit 143 when the fetch ignores TERM" test "$stop_status" == 143
-check "the kill grace ends a fetch that ignores TERM before its own end" test "$stop_ended/$stop_alive" == no/no
-tree_control graceless bin/vgshell '--kill-after="$outdated_kill_grace" ' ''
-INST_BIN="$THEME_BIN" stop_run TERM plugin outdated --json
-check "the graceless mutant waits out a fetch that ignores TERM" test "$stop_ended" == yes
-unset THEME_BIN
+row_job stop_deaf10_row
+row_job stop_graceless_control
 # Unstopped, a fetch that ignores TERM until its own 17 s end outlives its
 # timeout's TERM and ends by the grace's SIGKILL, which timeout reports as
 # 137: still the timeout's row. Real waits: the timeout and the grace are
 # production's fixed 10 s and 5 s.
-stop_git deaf 17
-rm -f -- "$stop_git_dir/ended"
-INST_PATH="$stop_git_dir:$base_path" inst "a fetch the timeout's kill grace ends is a timeout row" "$cfg" "$rt_empty" 0 "acme.stop error=fetch=acme.stop timeout=10s" "" plugin outdated
-check "the grace's SIGKILL ended the fetch before its own end" test ! -e "$stop_git_dir/ended"
-tree_control killblind bin/vgshell 'if [[ $rc == 137 ]]' 'if false'
-INST_PATH="$stop_git_dir:$base_path" INST_BIN="$THEME_BIN" inst "the kill-blind mutant loses the timeout from the row" "$cfg" "$rt_empty" 0 "acme.stop error=fetch=acme.stop" "" plugin outdated
-unset THEME_BIN
+row_job stop_deaf17_timeout_row
+row_job stop_killblind_control
+rows_join
+
+stub="$tmp/ssh-stub"
+ssh_stub "$stub"
 cfg="$tmp/cfg-prompt"
 inst "add installs acme.prompt" "$cfg" "$rt_empty" 0 "shell=not-running" "" plugin add --yes "$tmp/src/prompt.git"
 g -C "$cfg/vgshell/plugins/acme.prompt" remote set-url origin ssh://fail.invalid/prompt.git
