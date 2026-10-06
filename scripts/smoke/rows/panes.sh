@@ -112,7 +112,7 @@ more_settings_click() {
   ipc smoke revealText window vgs.settings Button "$text" >/dev/null || return 1
   rect="$(ipc smoke windowGeometry window vgs.settings Button "$text")" || return 1
   [[ $rect == \[* ]] || { echo "more_settings_click: no button: $rect" >&2; return 1; }
-  read -r x y < <(at_centre window:Settings "$rect") || return 1
+  read -r x y < <(at_centre window:Plugins "$rect") || return 1
   hover "$((x + 1))" "$y" || return 1
   click "$x" "$y"
 }
