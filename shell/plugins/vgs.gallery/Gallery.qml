@@ -438,6 +438,12 @@ Item {
                     info: "This icon opens a small explanation without adding another hint line to the page."
                     Label { role: "value"; text: "Declared explanation" }
                 }
+                Dialog {
+                    modal: false
+                    title: "Warden"
+                    message: "Shows whether Agent Warden is checking agents and reporting problems."
+                    actions: [{ label: "Close", role: "cancel", focused: true }]
+                }
 
                 }
                 Section {
