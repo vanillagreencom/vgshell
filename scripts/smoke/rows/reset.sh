@@ -22,7 +22,9 @@
 # Keep these holding the keyboard, its command behind Show command.
 # Hyprland lists no config error. Escape hides that notice and keeps its
 # marker, so the shell `vgshell restart` brings next offers the restore
-# again. Restore previous settings, pressed while another theme command
+# again. Shift+Tab, typed on that keyboard as a person types it, moves
+# the notice's focus from Keep these back to Restore previous settings.
+# Restore previous settings, pressed while another theme command
 # holds the theme lock, as the follow after that shell's first scan can,
 # waits on that lock and brings another
 # new shell over the planted files, the theme file byte for byte: the user
@@ -35,7 +37,7 @@
 # keyboard before it, its Return as Escape, so Escape hid the notice in
 # place of Restore previous settings, in 1 of 4 runs of this row on host
 # cachy on 2026-10-06.
-# inputs: bin/vgshell bin/vgshell-theme-judge shell/shell.qml shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Core/Capabilities.qml shell/Core/HyprlandLayer.qml shell/plugins/vgs.settings/* shell/plugins/vgs.updates/bin/check config/shell.json themes/vgs/theme.json scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/keyboard/* scripts/smoke/rows/hyprland-consent.sh
+# inputs: bin/vgshell bin/vgshell-theme-judge shell/shell.qml shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Ui/feedback/Dialog.qml shell/Core/Capabilities.qml shell/Core/HyprlandLayer.qml shell/plugins/vgs.settings/* shell/plugins/vgs.updates/bin/check config/shell.json themes/vgs/theme.json scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/keyboard/* scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 reset_tree="$sandbox/tree-reset"
 reset_config="$home/.config/vgshell"
@@ -334,8 +336,8 @@ PY
         expect_poll "the next start offers the restore again" "{\"asked\": false, \"backup\": \"$reset_folder\"}" reset_record
         expect_poll "the reset's notice shows again" '"VGS was reset"' reset_drawn title
         expect_poll "Keep these holds the keyboard again" '"Keep these"' reset_drawn focused
-        # Tab past Show command; this keyboard's Shift+Tab moved no focus.
-        reset_send "down 23" "up 23" "down 23" "up 23" || fail "sending Tab to the reset's notice failed"
+        reset_send "down 50" "down 23" "up 23" "up 50" || fail "sending Shift+Tab to the reset's notice failed"
+        expect_poll "Shift+Tab from Keep these reaches Restore previous settings" '"Restore previous settings"' reset_drawn focused
         reset_hold_theme_lock >"$reset_hold" &
         reset_holder=$!
         expect_poll "another theme command holds the theme lock at the press" held reset_hold_first

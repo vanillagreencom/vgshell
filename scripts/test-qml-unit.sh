@@ -394,6 +394,7 @@ mutations=(
   "Tab stops at the dialog's last action|feedback/Dialog.qml|reach[(at + step + reach.length) % reach.length]|reach[Math.max(0, Math.min(at + step, reach.length - 1))]|tst_dialog.qml"
   "modal dialog lets Tab leave|feedback/Dialog.qml|property bool modal: true|property bool modal: false|tst_dialog.qml"
   "Tab focus draws no ring in the dialog|feedback/Dialog.qml|next.forceActiveFocus(step > 0 ? Qt.TabFocusReason : Qt.BacktabFocusReason)|next.forceActiveFocus()|tst_dialog.qml"
+  "Shift+Tab typed as Tab with Shift steps nowhere in the dialog|feedback/Dialog.qml|sequence: \"Shift+Tab\"|sequence: \"Backtab\"|tst_dialog.qml"
   "a pressed dialog action answers nothing|feedback/Dialog.qml|onClicked: root.trigger(index)|onClicked: {}|tst_dialog.qml"
   "a cancel action draws the accept variant|feedback/Dialog.qml|role === \"accept\" ? \"primary\" : \"tertiary\"|\"primary\"|tst_dialog.qml"
   "an unknown action role accepts|feedback/Dialog.qml|role = \"cancel\";|role = \"accept\";|tst_dialog.qml"

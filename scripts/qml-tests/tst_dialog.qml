@@ -9,7 +9,8 @@ import qs.Unit
 // tokens; the accept action focused first with a ring, or the action
 // marked `focused`; Enter and Return
 // pressing the focused action or the accept action, Escape rejecting; Tab
-// and Backtab cycling the enabled actions with the ring and never leaving
+// and Shift+Tab, in either form a keymap reports it, cycling the enabled
+// actions with the ring and never leaving
 // the dialog; a press answering with the action's role; the default
 // variant per role and an unknown role read as cancel; actions with no
 // cancel action logged, and with one, or no action at all, not; `busy` and a
@@ -191,9 +192,9 @@ Item {
             keyClick(Qt.Key_Tab);
             compare(download.activeFocus, true);
             compare(ring(download).visible, true);
-            keyClick(Qt.Key_Backtab);
+            keyClick(Qt.Key_Backtab, Qt.ShiftModifier);
             compare(notNow.activeFocus, true);
-            keyClick(Qt.Key_Backtab);
+            keyClick(Qt.Key_Backtab, Qt.ShiftModifier);
             compare(edit.activeFocus, true);
             for (let i = 0; i < 5; i++) {
                 keyClick(Qt.Key_Tab);
@@ -201,6 +202,23 @@ Item {
             }
         }
 
+
+        // A us keyboard reports Shift+Tab as Backtab with Shift held; a
+        // keymap whose Tab key has one level, as wtype's, as Tab with Shift.
+        function test_shift_tab_steps_back_in_either_form_data() {
+            return [
+                { tag: "Backtab with Shift", key: Qt.Key_Backtab },
+                { tag: "Tab with Shift", key: Qt.Key_Tab }
+            ];
+        }
+
+        function test_shift_tab_steps_back_in_either_form(data) {
+            dialog.forceActiveFocus();
+            const [notNow, download] = dialog.buttons();
+            download.forceActiveFocus(Qt.TabFocusReason);
+            keyClick(data.key, Qt.ShiftModifier);
+            compare(notNow.activeFocus, true);
+        }
 
         function test_an_initial_focus_field_takes_the_focus_and_answers() {
             const [cancel, authenticate] = prompt.buttons();
@@ -236,7 +254,7 @@ Item {
             compare(shown.toggle.activeFocus, true, "Tab wraps to Show command");
             keyClick(Qt.Key_Tab);
             compare(install.activeFocus, true, "a closed disclosure's hidden Copy takes no Tab");
-            keyClick(Qt.Key_Backtab);
+            keyClick(Qt.Key_Backtab, Qt.ShiftModifier);
             compare(shown.toggle.activeFocus, true);
             keyClick(Qt.Key_Return);
             compare(shown.expanded, true, "Return presses the focused toggle");
@@ -258,7 +276,7 @@ Item {
             compare(authenticate.activeFocus, true);
             keyClick(Qt.Key_Tab);
             compare(secret.activeFocus, true);
-            keyClick(Qt.Key_Backtab);
+            keyClick(Qt.Key_Backtab, Qt.ShiftModifier);
             compare(authenticate.activeFocus, true);
         }
 
@@ -266,9 +284,9 @@ Item {
             const [cancel, authenticate] = chooser.buttons();
             chooser.forceActiveFocus();
             compare(chooserSecret.activeFocus, true);
-            keyClick(Qt.Key_Backtab);
+            keyClick(Qt.Key_Backtab, Qt.ShiftModifier);
             compare(who.activeFocus, true, "Backtab from the field reaches the Select");
-            keyClick(Qt.Key_Backtab);
+            keyClick(Qt.Key_Backtab, Qt.ShiftModifier);
             compare(authenticate.activeFocus, true, "Backtab from the Select wraps to the last action");
             keyClick(Qt.Key_Tab);
             compare(who.activeFocus, true);
@@ -283,7 +301,7 @@ Item {
             who.visible = false;
             const [cancel, authenticate] = chooser.buttons();
             chooser.forceActiveFocus();
-            keyClick(Qt.Key_Backtab);
+            keyClick(Qt.Key_Backtab, Qt.ShiftModifier);
             compare(authenticate.activeFocus, true);
             keyClick(Qt.Key_Tab);
             compare(chooserSecret.activeFocus, true);
@@ -307,9 +325,9 @@ Item {
             keyClick(Qt.Key_Tab);
             compare(outside.activeFocus, false);
             compare(dialog.buttons()[0].activeFocus, true);
-            keyClick(Qt.Key_Backtab);
+            keyClick(Qt.Key_Backtab, Qt.ShiftModifier);
             compare(edit.activeFocus, true);
-            keyClick(Qt.Key_Backtab);
+            keyClick(Qt.Key_Backtab, Qt.ShiftModifier);
             compare(dialog.buttons()[1].activeFocus, true);
             compare(outside.activeFocus, false);
         }

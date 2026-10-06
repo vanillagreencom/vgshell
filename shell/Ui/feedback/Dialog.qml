@@ -210,8 +210,12 @@ FocusScope {
         onActivated: root.cycle(1)
     }
 
+    // One sequence: a key press that matches two sequences of this Shortcut
+    // arrives as an ambiguous match, which emits activatedAmbiguously and
+    // not activated. A us keyboard's Shift+Tab reads as both Shift+Tab and
+    // Backtab; a Backtab that carries Shift is also tried as Shift+Tab.
     Shortcut {
-        sequences: ["Backtab", "Shift+Tab"]
+        sequence: "Shift+Tab"
         enabled: root.modal && root.activeFocus
         onActivated: root.cycle(-1)
     }
