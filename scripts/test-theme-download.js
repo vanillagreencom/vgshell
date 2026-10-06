@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // The verified fetch and the tar reader, bin/lib/theme-download.js, which
-// `vgshell theme wallpapers` and `vgshell theme preview` run. Every expected
-// value below was written by hand, never read from the library. The fetch
-// rows read file:// fixtures, and the HTTPS redirect row a server on
+// `vgshell theme wallpapers` runs. Every expected value below was written
+// by hand, never read from the library. The fetch rows read file://
+// fixtures, and the HTTPS redirect row a server on
 // 127.0.0.1; no row reaches the network. The redirect row needs openssl to
 // make its throwaway key and certificate; without it that row and its
 // control are not measured and the suite exits 77.

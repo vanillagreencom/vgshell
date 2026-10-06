@@ -2,7 +2,7 @@
 
 ## Capabilities
 
-`theme`: list packages, read the catalog, install a catalog package, apply a package, list and set images, download or update wallpapers, and fetch a selected catalog preview.
+`theme`: list packages, read the catalog, install a catalog package, apply a package, list and set images, and download or update wallpapers.
 
 `surfaces`: open the panel and the full-screen browser, and close them from their own controls.
 
@@ -62,7 +62,7 @@ A monitor shows its own image once `bin/vgshell theme background set <path> --sc
 
 ## Browser cards
 
-A package `preview.png` draws first on a card. Without it, the selected card draws a live desktop preview from the package's tokens and terminal colours. Side cards draw the package's colours and its name.
+A package `preview.jpg`, the theme on a real desktop, draws first on a card; an installed catalog theme draws its catalog package's. Without one, the selected card draws the package's first wallpaper over its background, else its background and name. Side cards draw the package's colours and its name.
 
 In the theme browser, typing filters by package name or label. When no theme matches, Clear filter clears the filter, as Esc does. In the wallpaper browser, Alt+S, as a click on the source line under the rail does, switches between the applied theme's wallpapers and every wallpaper, Alt+M between All monitors and This monitor, and Space sets the selected wallpaper or runs the Download or Update card. Tab, Shift+Tab, Ctrl+Tab, Ctrl+Shift+Tab, Ctrl+PageDown and Ctrl+PageUp switch between the two browsers.
 

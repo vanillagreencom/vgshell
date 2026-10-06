@@ -1582,13 +1582,9 @@ GHOSTTY
 }
 
 scene_theme-browser() { # MODE
-  local selected preview_path
-  selected_path() { ipc smoke readDescendant overlay vgs.themes ThemeView selected | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("sharpenedImage") or d.get("image") or d.get("previewImage") or "")'; }
+  local selected
+  selected_path() { ipc smoke readDescendant overlay vgs.themes ThemeView selected | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("previewImage") or d.get("image") or "")'; }
   selected_ready() { selected="$(selected_path)" && [[ -n $selected ]] && ipc smoke images overlay vgs.themes | python3 -c 'import json,sys; path=sys.argv[1]; print(any(i[0] == path and i[1] == "ready" for i in json.load(sys.stdin)))' "$selected"; }
-  preview_cached() { ipc smoke readDescendant overlay vgs.themes ThemePreviews cache | python3 -c 'import json,sys; t=sys.stdin.read(); d=json.loads(t) if t.startswith("{") else {}; print(sys.argv[1] in d and bool(d[sys.argv[1]]))' "$1"; }
-  card_image() { ipc smoke images overlay vgs.themes | python3 -c 'import json,sys; r=[i[1] for i in json.load(sys.stdin) if i[0]==sys.argv[1]]; print(r[0] if r else "none")' "$1"; }
-  preview_path_of() { ipc smoke readDescendant overlay vgs.themes ThemePreviews cache | python3 -c 'import json,sys; t=sys.stdin.read(); d=json.loads(t) if t.startswith("{") else {}; print(d.get(sys.argv[1], ""))' "$1"; }
-  wait_preview_cached() { local _; for _ in $(seq 1 50); do [[ $(preview_cached "$1") == True ]] && return 0; sleep 0.2; done; return 1; }
   mkdir -p -- "$themes_mismatch"
   printf '%s\n' '{ "schemaVersion": 1, "name": "other", "tokens": {} }' >"$themes_mismatch/theme.json"
   expect "vgs.themes enables for the theme browser shot" ok ipc shell setPluginEnabled vgs.themes true
@@ -1617,15 +1613,8 @@ scene_theme-browser() { # MODE
   expect_poll "the theme browser reads its cards for the catalog shot" true ipc smoke readDescendant overlay vgs.themes ThemeView loaded
   type_keys "$theme_card" || fail "typing the theme-browser card failed"
   expect_poll "the theme browser selects $theme_card" "\"$theme_card\"" ipc smoke readDescendant overlay vgs.themes ThemeView selectedName
-  if wait_preview_cached "$theme_card"; then
-    ok "the selected catalog preview is cached"
-    preview_path="$(preview_path_of "$theme_card")"
-    expect_poll "the selected catalog preview image is ready" ready card_image "$preview_path"
-    take "theme-browser-$1-catalog-$theme_card-sharpened"
-  else
-    expect_poll "the selected catalog image is ready" True selected_ready
-    take "theme-browser-$1-catalog-$theme_card"
-  fi
+  expect_poll "the selected catalog image is ready" True selected_ready
+  take "theme-browser-$1-catalog-$theme_card"
   # Enter installs and applies the catalog card, whose wallpapers are not
   # downloaded, so the view offers them; Not now declines, and vgs and
   # the mode's theme are applied again before the installed shot.

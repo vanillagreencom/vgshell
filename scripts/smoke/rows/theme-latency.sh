@@ -251,23 +251,12 @@ exec '$repo/bin/vgshell.latency-real' "\$@"
 EOF
 chmod +x "$repo/bin/vgshell"
 latency_catalog_held() { [[ -e $latency_started ]] && echo held || echo pending; }
-# The switch reading's catalog themes, the filter `ar` shows, with their
-# first wallpapers in the preview cache as a fetch leaves them: a 6016x3384
-# image, the size of the catalog's wallpapers (everforest, tycho,
-# flexoki-light, akane and untitled measured 6016 wide, 2026-10-06), for
-# the six it steps through, and the 480-pixel catalog thumbnail for lunar,
-# its control.
-latency_previews="$home/.cache/vgshell/theme-assets/previews"
-mkdir -p -- "$latency_previews"
-"$imagemagick" "$repo/themes/catalog/thumbnails/akane.jpg" -resize 6016x3384\! "$sandbox/latency-wallpaper.jpg" || fail "the switch wallpaper could not be made"
-latency_pins="$(python3 -c 'import json,sys; print(" ".join(e["name"] + "=" + e["imagery"]["sha256"] for e in json.load(open(sys.argv[1]))["entries"] if "ar" in e["name"]))' "$repo/themes/catalog/index.json")" || fail "the switch themes' pins are unreadable"
-for latency_pin in $latency_pins; do
-  if [[ ${latency_pin%%=*} == lunar ]]; then
-    cp -- "$repo/themes/catalog/thumbnails/akane.jpg" "$latency_previews/${latency_pin#*=}-a.jpg"
-  else
-    ln -- "$sandbox/latency-wallpaper.jpg" "$latency_previews/${latency_pin#*=}-a.jpg"
-  fi
-done
+# The switch reading's catalog themes, the filter `ar` shows, draw the
+# package previews they ship; in the sandbox copy lunar's is the 480-pixel
+# catalog thumbnail instead, its control.
+latency_lunar="$repo/themes/catalog/lunar/preview.jpg"
+cp -p -- "$latency_lunar" "$sandbox/latency-lunar-preview.jpg"
+cp -- "$repo/themes/catalog/thumbnails/akane.jpg" "$latency_lunar"
 expect "the theme service enables for latency readings" ok ipc shell setPluginEnabled vgs.themes true
 expect_poll "the theme service builds" false ipc smoke readInstance service vgs.themes setupPending
 expect_poll "the catalog answer is held behind installed rows" held latency_catalog_held
@@ -337,7 +326,7 @@ type_keys ar || fail "the switch filter failed"
 expect_poll "the switch filter selects the first catalog theme" '"arc-blueberry"' latency_theme_value selectedName
 expect_poll "the first switch picture has drawn before arming" ready ipc theme-latency selectedPictureReady
 expect "the switch frame observer arms" ok ipc theme-latency themeLatencyBegin step '' ''
-latency_files=("$repo"/themes/catalog/thumbnails/*.jpg "$latency_previews"/*)
+latency_files=("$repo"/themes/catalog/*/preview.jpg)
 latency_sizes="$("$imagemagick" -ping "${latency_files[@]}" -format '%d/%f %w %h\n' info: | python3 -c 'import json,os,sys
 rows = [l.rsplit(" ", 2) for l in sys.stdin.read().splitlines()]
 assert len(rows) == int(sys.argv[1]), "measured %d of %s files" % (len(rows), sys.argv[1])
@@ -356,8 +345,8 @@ for latency_switch in 1 2 3 4 5; do
 done
 expect "five catalog switches draw no picture smaller than its card" 0 latency_low
 printf 'theme-latency: switches=%s\n' "$(latency_read)"
-# Control: lunar's cached wallpaper is the catalog thumbnail, which the
-# card can only draw stretched; the reader counts its frames.
+# Control: lunar's preview is the catalog thumbnail, which the card can
+# only draw stretched; the reader counts its frames.
 type_keys -k Right || fail "the control switch key failed"
 expect_poll "the control switch selects lunar" '"lunar"' latency_theme_value selectedName
 expect_poll "control: a picture smaller than its card reads as low" True latency_low_seen
@@ -471,8 +460,8 @@ expect "vgs restores after latency readings" 'ok theme=vgs state=applied shell=a
 expect_poll "vgs restores the shell" vgs ipc smoke themeName
 cp -p -- "$sandbox/hyprland-before-latency.lua" "$hypr_lua"
 expect "latency input bindings restore" ok hypr reload config-only
-rm -r -- "${home:?}/.config/vgshell/themes/latency" "${home:?}/.config/vgshell/themes/sample-peer" "${latency_previews:?}"
-rm -- "$sandbox/latency-wallpaper.jpg"
+rm -r -- "${home:?}/.config/vgshell/themes/latency" "${home:?}/.config/vgshell/themes/sample-peer"
+mv -T -- "$sandbox/latency-lunar-preview.jpg" "$latency_lunar"
 
 expect "the latency observer drops" ok ipc smoke runnerDrop
 rm -- "$repo/shell/ThemeLatencyProbe.qml"

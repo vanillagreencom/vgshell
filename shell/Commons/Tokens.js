@@ -899,7 +899,6 @@ var TOKENS = {
         maxScale: number(2, 1, 4),
         band: number(2, 0, 16),
         decodeCap: length(2048),
-        previewDwell: duration("{motion.duration.slow}"),
         duration: duration("{motion.duration.normal}"),
         sliceName: {
             role: textRole("h2"),
@@ -910,28 +909,6 @@ var TOKENS = {
             blur: length(4),
             shadowOffset: length(2)
         }
-    },
-
-    // A theme's desktop drawn at a reference display of `referenceWidth`
-    // by `referenceHeight` and scaled to its card: the bar `barHeight`
-    // tall, each window at least `gap` in from the card's edge, its
-    // content `padding` in and its lines `lineGap` apart, with a shadow
-    // `shadowOffset` down and right. The Settings window, the launcher's
-    // search and the terminal stand where `settings`, `launcher` and
-    // `terminal` put them, each `x`, `y`, `width` and `height` a share of
-    // the display, the launcher centred and as tall as a large control, so
-    // the wallpaper shows around them as on a desktop.
-    desktopPreview: {
-        referenceWidth: length(1600),
-        referenceHeight: length(900),
-        barHeight: length("{bar.height}"),
-        gap: length("{space.xxl}"),
-        padding: length("{space.lg}"),
-        lineGap: length("{space.md}"),
-        shadowOffset: length("{space.md}"),
-        settings: { x: share(0.09), y: share(0.14), width: share(0.27), height: share(0.42) },
-        launcher: { y: share(0.2), width: share(0.2) },
-        terminal: { x: share(0.46), y: share(0.5), width: share(0.38), height: share(0.36) }
     },
 
     // The embedded bar: `barWidth` thick, `barInset` from the area's edge,

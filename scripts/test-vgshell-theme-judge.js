@@ -67,7 +67,7 @@ function writeCatalog(base) {
     fs.writeFileSync(path.join(base, "catalog", "index.json"), JSON.stringify({ schemaVersion: 1, entries: [catalogEntry("probe")] }));
     fs.writeFileSync(path.join(dir, "theme.json"), catalogTheme("probe"));
     fs.writeFileSync(path.join(dir, "terminal.json"), JSON.stringify({ schemaVersion: 1, slots }));
-    fs.writeFileSync(path.join(dir, "preview.png"), "preview");
+    fs.writeFileSync(path.join(dir, "preview.jpg"), "preview");
     fs.writeFileSync(path.join(dir, "thumbnail.jpg"), "jpeg");
     fs.writeFileSync(path.join(dir, "targets", "plain.conf"), "curated");
     fs.writeFileSync(path.join(dir, "targets", "keyed.json"), JSON.stringify({ colors: {} }));
@@ -118,8 +118,8 @@ function catalogRows(check, root) {
     base = path.join(root, "preview-symlink-accepted");
     {
         const dir = writeCatalog(base);
-        fs.rmSync(path.join(dir, "preview.png"));
-        fs.symlinkSync("theme.json", path.join(dir, "preview.png"));
+        fs.rmSync(path.join(dir, "preview.jpg"));
+        fs.symlinkSync("theme.json", path.join(dir, "preview.jpg"));
         proc = judge("catalog-check", base);
         assert.equal(proc.status, 0, "preview symlink ignored: " + proc.stdout + proc.stderr);
     }

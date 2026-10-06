@@ -71,8 +71,6 @@ FocusScope {
     // `last.downloading` as last read while a download this view started
     // runs, else null.
     property var downloading: null
-    // The browser's previews, assigned before the shell starts the view.
-    property ThemePreviews previews: null
     // What the last step that failed answered, "" when none did.
     property string problem: ""
     // The service advances only the changed package's image stamp. A
@@ -152,13 +150,6 @@ FocusScope {
 
         if (card.installed) apply(card.name);
         else install(card.name);
-    }
-
-    // A card with a catalog wallpaper pin and no image on disk wants the
-    // pin's first wallpaper fetched, started once the rail rests on it.
-    function requestPreview(card) {
-        if (previews.want(card === null || card.previewImage !== null || card.image !== null || card.imagery === null ? "" : card.name))
-            previewTimer.restart();
     }
 
     function install(name) {
@@ -252,13 +243,7 @@ FocusScope {
     }
 
     Component.onCompleted: start()
-    // A preview that finishes after the view is gone starts no other: the
-    // card wanted is one a shown theme view rests on.
-    Component.onDestruction: previews.want("")
     onShellChanged: start()
-    // The selection moves while the view builds, before the browser hands
-    // it the previews and the shell that starts it.
-    onSelectedChanged: if (started) requestPreview(selected)
 
     // An apply from elsewhere changes the cards' applied and installed state.
     Connections {
@@ -274,12 +259,6 @@ FocusScope {
         repeat: true
         running: root.job !== null && root.job.step === "download"
         onTriggered: root.downloading = root.shell.theme.last.downloading
-    }
-
-    Timer {
-        id: previewTimer
-        interval: Theme.carousel.previewDwell
-        onTriggered: root.previews.start()
     }
 
     function handleKey(event) {
@@ -376,19 +355,13 @@ FocusScope {
                 Keys.onTabPressed: event => { root.switchRequested(1); event.accepted = true; }
                 Keys.onBacktabPressed: event => { root.switchRequested(-1); event.accepted = true; }
                 model: ScriptModel {
-                    values: root.shownCards.map(card => {
-                        const sharpened = root.previews.cache[card.name] === undefined ? card : Object.assign({}, card, { sharpenedImage: root.previews.cache[card.name] });
-                        return Object.assign({ key: BrowserLogic.railKey(card.contentKey || BrowserLogic.cardKey(sharpened), root.imageGeneration(card.name)), generation: root.imageGeneration(card.name) }, sharpened);
-                    })
+                    values: root.shownCards.map(card => Object.assign({ key: BrowserLogic.railKey(card.contentKey || BrowserLogic.cardKey(card), root.imageGeneration(card.name)), generation: root.imageGeneration(card.name) }, card))
                     objectProp: "key"
                 }
                 delegate: ThemeCard {
                     busy: root.job !== null && root.job.name === modelData.name
                 }
-                onCurrentIndexChanged: if (currentIndex >= 0 && currentIndex < root.shownCards.length) {
-                    root.selectedName = root.shownCards[currentIndex].name;
-                    root.requestPreview(root.shownCards[currentIndex]);
-                }
+                onCurrentIndexChanged: if (currentIndex >= 0 && currentIndex < root.shownCards.length) root.selectedName = root.shownCards[currentIndex].name
                 onActivated: root.activate()
             }
 

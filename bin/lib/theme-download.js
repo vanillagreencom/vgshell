@@ -1,8 +1,8 @@
-// The verified fetch and the tar reader of `vgshell theme wallpapers` and
-// `vgshell theme preview` (bin/vgshell-theme-judge): a theme's wallpaper
-// archive, pinned by a catalog entry's `imagery` `{ repo, release,
-// archive, size, sha256 }`, streamed into the cache, checked against the
-// pin, then read member by member. Each caller keeps its own
+// The verified fetch and the tar reader of `vgshell theme wallpapers`
+// (bin/vgshell-theme-judge) and scripts/theme-preview-wallpaper.js: a
+// theme's wallpaper archive, pinned by a catalog entry's `imagery` `{ repo,
+// release, archive, size, sha256 }`, streamed into the cache, checked
+// against the pin, then read member by member. Each caller keeps its own
 // member policy and its own refusal lines; this file refuses through
 // AssetRefusal, which names the step and a stable reason.
 //

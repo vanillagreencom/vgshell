@@ -18,8 +18,8 @@ import "Files.js" as Files
 // slice's width less its lean, times the cosine of the slant, less half the
 // name's line box, at the carousel's unit. The selected card shows the
 // package's preview image when one ships, else the theme's first wallpaper
-// over its background with a desktop drawn from the package's tokens on it,
-// and the eight colours across its foot. A card with no colours, a refused
+// over its background, else its background and name, and the eight
+// colours across its foot. A card with no colours, a refused
 // package's, names its theme instead, across the card at its centre; that
 // name keeps the card's lean from each side, which clears the angled edge
 // at mid-height for every unit up to `carousel.maxScale` 2, where the drawn
@@ -48,12 +48,13 @@ Item {
     readonly property var colors: modelData.palette
     readonly property var swatches: BrowserLogic.swatches(modelData.palette, modelData.tokens)
     readonly property bool packagePreview: typeof modelData.previewImage === "string" && modelData.previewImage !== ""
-    readonly property bool live: !packagePreview && modelData.state === "ok"
-    // The first wallpaper: the package's first image or the catalog
-    // wallpaper on disk, else the one the browser fetched for this card.
-    readonly property string wallpaper: typeof modelData.image === "string" ? modelData.image : typeof modelData.sharpenedImage === "string" ? modelData.sharpenedImage : ""
-    readonly property string image: packagePreview ? modelData.previewImage : live ? wallpaper : ""
-    readonly property bool expanded: current && (packagePreview || live)
+    // An accepted package with no preview draws its own backdrop: its
+    // wallpaper, else its background and name.
+    readonly property bool backdrop: !packagePreview && modelData.state === "ok"
+    // The first wallpaper: the package's first image.
+    readonly property string wallpaper: typeof modelData.image === "string" ? modelData.image : ""
+    readonly property string image: packagePreview ? modelData.previewImage : backdrop ? wallpaper : ""
+    readonly property bool expanded: current && (packagePreview || backdrop)
     // The image the card draws, "" for none: a slice draws none.
     readonly property string picture: expanded ? image : ""
     // The slant of a slice's axis from the vertical. The slant is the
@@ -65,7 +66,7 @@ Item {
 
     Rectangle {
         anchors.fill: parent
-        visible: root.expanded && root.live
+        visible: root.expanded && root.backdrop
         color: root.colors === null ? Theme.color.surface : Theme.toColor(root.colors.background)
     }
 
@@ -78,21 +79,6 @@ Item {
         fillMode: Image.PreserveAspectCrop
         asynchronous: true
         onStatusChanged: if (status === Image.Error) console.warn("themes: card image unreadable path=" + root.image)
-    }
-
-    Loader {
-        id: preview
-        anchors.fill: parent
-        active: root.expanded && root.live
-        visible: status === Loader.Ready
-        asynchronous: true
-        sourceComponent: DesktopPreview {
-            tokens: root.modelData.tokens
-            terminal: root.modelData.terminal
-            name: root.modelData.name
-            label: root.modelData.label
-            footHeight: Theme.space.xxl
-        }
     }
 
     ThemePaletteStrip {
@@ -152,7 +138,7 @@ Item {
 
     Rectangle {
         anchors.fill: parent
-        visible: root.swatches === null && !(root.expanded && picture.visible)
+        visible: (root.swatches === null || root.expanded && root.backdrop) && !(root.expanded && picture.visible)
         color: root.colors === null ? Theme.color.surface : Theme.toColor(root.colors.background)
 
         Label {

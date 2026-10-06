@@ -3,9 +3,8 @@
 # probe: the view's cards and state through readDescendant, the images the
 # cards draw through images, the texts it draws beside its rail and tabs
 # through descendantGeometry, and its Dialog's through itemTexts. The rows page, filter, install and apply a catalog
-# entry, and answer the wallpaper offer both ways. akane's first wallpaper waits in the
-# preview cache as a fetch leaves it, so its card draws that file and never
-# the catalog thumbnail. The old keys, SUPER+T
+# entry, and answer the wallpaper offer both ways. akane's card draws its
+# package preview and never the catalog thumbnail. The old keys, SUPER+T
 # and SUPER+W, open nothing, and each view's key moves an open browser to
 # that view; a manifest copy still bound to SUPER+T is their control. The sandbox copy's
 # catalog pins nord's wallpapers to an archive this row builds, served from
@@ -271,30 +270,23 @@ for k, i in enumerate(strips):
 if stacks < 3: out.append("stacks shown=%d" % stacks)
 print(json.dumps(out))' "$shown" "$colours"
 }
-# expanded_preview: the same for the selected card, read once its desktop
-# shows. One visible paletteStrip lies along the card's foot as 8 bands
-# side by side, left to right with no gap, each an eighth of its width
-# (`strip`), in the selected theme's eight colours, left first
-# (`strip-colours`); the terminal, the Settings window and the
-# launcher's search lie inside the card above that strip, stand apart and
-# cover less than half the card, so the wallpaper shows (`windows`); and
-# the desktop draws the theme's raised surface, accent and background
-# (`windows-colours`).
-expanded_preview() {
-  local selected strips drawn scale
+# expanded_foot: the same for the selected card. One visible paletteStrip
+# lies along the card's foot as 8 bands side by side, left to right with
+# no gap, each an eighth of its width (`strip`), in the selected theme's
+# eight colours, left first (`strip-colours`).
+expanded_foot() {
+  local selected strips
   selected="$(view_value selected)" || return
-  scale="$(ipc smoke readDescendant overlay vgs.themes DesktopPreview scale)" || return
   strips="$(ipc smoke itemColours overlay vgs.themes ThemePaletteStrip QQuickRectangle)" || return
-  drawn="$(ipc smoke itemColours overlay vgs.themes DesktopPreview QQuickRectangle)" || return
   ipc smoke descendantGeometry overlay vgs.themes | py_reply "$theme_eight_py"'
 import json, sys
-rows, card, strips, drawn, scale = json.load(sys.stdin), json.loads(sys.argv[1]), json.loads(sys.argv[2]), json.loads(sys.argv[3]), json.loads(sys.argv[4])
+rows, card, strips = json.load(sys.stdin), json.loads(sys.argv[1]), json.loads(sys.argv[2])
 want, out = eight(card), []
 def shown(r): return r["visible"] and r["box"][2] > 0 and r["box"][3] > 0
 cards = [r["box"] for r in rows if r["type"] == "AngledCard" and shown(r)]
 feet = [(k, i) for k, i in enumerate(i for i, r in enumerate(rows) if r["type"] == "ThemePaletteStrip") if rows[i]["name"] == "paletteStrip" and shown(rows[i])]
-if want is None or not cards or len(feet) != 1 or len(drawn) != 1 or not isinstance(scale, (int, float)):
-    print(json.dumps(["readers eight=%s cards=%d strips=%d previews=%d scale=%s" % (want is not None, len(cards), len(feet), len(drawn), scale)])); sys.exit()
+if want is None or not cards or len(feet) != 1:
+    print(json.dumps(["readers eight=%s cards=%d strips=%d" % (want is not None, len(cards), len(feet))])); sys.exit()
 cx, cy, cw, ch = max(cards, key=lambda b: b[2] * b[3])
 k, i = feet[0]
 sx, sy, sw, sh = rows[i]["box"]
@@ -306,24 +298,7 @@ for b in bands:
         out.append("strip bands=%d band=%s strip=%s" % (len(bands), [round(v, 2) for v in b], [round(v, 2) for v in rows[i]["box"]])); break
     at = b[0] + b[2]
 if strips[k] != want: out.append("strip-colours got=%s want=%s" % (strips[k], want))
-boxes = {}
-for name in ("previewTerminal", "previewWindow", "previewLauncher"):
-    found = [r["box"] for r in rows if r["name"] == name and shown(r)]
-    if len(found) != 1: out.append("windows %s=%d" % (name, len(found))); continue
-    # The desktop draws at its reference size scaled to the card, and the
-    # reader gives a box its own size at its scaled origin.
-    boxes[name] = [found[0][0], found[0][1], found[0][2] * scale, found[0][3] * scale]
-for name, (x, y, w, h) in boxes.items():
-    if x < cx - 1 or y < cy - 1 or x + w > cx + cw + 1 or y + h > sy + 1: out.append("windows outside %s=%s card=%s" % (name, [round(v, 2) for v in (x, y, w, h)], [cx, cy, cw, ch]))
-names = sorted(boxes)
-for a in range(len(names)):
-    for b in range(a + 1, len(names)):
-        (ax, ay, aw, ah), (bx, by, bw, bh) = boxes[names[a]], boxes[names[b]]
-        if not (ax + aw <= bx + 1 or bx + bw <= ax + 1 or ay + ah <= by + 1 or by + bh <= ay + 1): out.append("windows overlap %s %s" % (names[a], names[b]))
-if sum(w * h for x, y, w, h in boxes.values()) >= cw * ch / 2: out.append("windows cover=%.0f card=%.0f" % (sum(w * h for x, y, w, h in boxes.values()), cw * ch))
-for colour in (want[1], want[3], want[0]):
-    if colour not in drawn[0]: out.append("windows-colours missing=%s" % colour)
-print(json.dumps(out))' "$selected" "$strips" "$drawn" "$scale"
+print(json.dumps(out))' "$selected" "$strips"
 }
 # judged_rule JUDGE RULE: whether JUDGE reports a finding of RULE.
 judged_rule() { "$1" | py_reply 'import json,sys; print(any(e.startswith(sys.argv[1] + " ") for e in json.load(sys.stdin)))' "$2"; }
@@ -333,10 +308,6 @@ index="$repo/themes/catalog/index.json"
 cp -p -- "$index" "$sandbox/catalog-index.json"
 assets="$sandbox/theme-assets"
 mkdir -p -- "$assets/themes"
-python3 - "$repo/themes/catalog/nord/preview.png" <<'PY'
-import base64, sys
-open(sys.argv[1], "wb").write(base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="))
-PY
 python3 - "$assets/themes/vgs-theme-nord-smoke.tar.gz" "$repo/themes/catalog/thumbnails/nord.jpg" "$index" <<'PY'
 import hashlib, io, json, os, sys, tarfile
 out, image, index = sys.argv[1:]
@@ -367,11 +338,6 @@ if [[ \${2:-} == wallpapers ]]; then
   for _ in \$(seq 1 600); do [[ -e $(printf %q "$wallpaper_gate") ]] && break; sleep 0.05; done
 fi"
 
-# akane's first wallpaper as a preview fetch caches it, before the service
-# reads the catalog.
-akane_preview="$home/.cache/vgshell/theme-assets/previews/$(python3 -c 'import json,sys; print([e["imagery"]["sha256"] for e in json.load(open(sys.argv[1]))["entries"] if e["name"] == "akane"][0])' "$index")-a.jpg"
-mkdir -p -- "${akane_preview%/*}"
-cp -- "$repo/themes/catalog/thumbnails/akane.jpg" "$akane_preview"
 # The service registers the shortcut and the layer binds SUPER+SHIFT+T.
 expect "enabling vgs.themes for the browser rows is allowed" ok ipc shell setPluginEnabled vgs.themes true
 expect_poll "the themes service registered its shortcuts" '["vgs.themes:gaps", "vgs.themes:panel", "vgs.themes:themes", "vgs.themes:wallpapers"]' lent_themes
@@ -496,15 +462,14 @@ browser_focused "the reopened browser holds the keyboard after the focus bind ch
 expect_poll "the reopened browser read its cards after the focus bind check" true view_value loaded
 first_card=akane
 
-# A catalog card draws its cached wallpaper, never its thumbnail, and its
-# live preview from its own tokens.
+# A catalog card draws its package preview, and the colours of its own
+# tokens across its foot.
 type_keys "$first_card" || fail "typing $first_card failed"
 expect_poll "the filter selects the catalog card" "\"$first_card\"" view_value selectedName
-expect_poll "the catalog card draws its cached wallpaper" ready card_image "$akane_preview"
+expect_poll "the catalog card draws its package preview" ready card_image "$repo/themes/catalog/$first_card/preview.jpg"
 expect "the catalog card draws no thumbnail" none card_image "$repo/themes/catalog/thumbnails/$first_card.jpg"
-expect "the catalog card decodes at card size times screen scale" True card_source_size_matches "$akane_preview"
-expect_poll "the selected card draws its desktop with windows and its eight colours across the foot" '[]' expanded_preview
-before_accent="$(ipc smoke readDescendant overlay vgs.themes DesktopPreview accentHex)" || before_accent=""
+expect "the catalog card decodes at card size times screen scale" True card_source_size_matches "$repo/themes/catalog/$first_card/preview.jpg"
+expect_poll "the selected card draws its eight colours across the foot" '[]' expanded_foot
 python3 - "$repo/themes/catalog/$first_card/theme.json" "$index" "$first_card" <<'PY'
 import json, os, sys
 theme_file, index_file, name = sys.argv[1:]
@@ -521,14 +486,13 @@ with open(index_file + ".next", "w") as f:
     json.dump(doc, f)
 os.replace(index_file + ".next", index_file)
 PY
-press_themes || fail "closing the browser for the live preview token change failed"
-expect_poll "the browser closes before the live preview token check" 0 layer_count vgs:overlay
-press_themes || fail "reopening the browser for the live preview token change failed"
-expect_poll "the browser reopens after the live preview token change" 1 layer_count vgs:overlay
+press_themes || fail "closing the browser for the package token change failed"
+expect_poll "the browser closes before the package token check" 0 layer_count vgs:overlay
+press_themes || fail "reopening the browser for the package token change failed"
+expect_poll "the browser reopens after the package token change" 1 layer_count vgs:overlay
 expect_poll "the browser rereads the changed package tokens" true view_value loaded
 type_keys "$first_card" || fail "typing $first_card after the token change failed"
-expect_poll "the live preview changes when the package accent changes" '"#00ff00"' ipc smoke readDescendant overlay vgs.themes DesktopPreview accentHex
-expect_poll "the live preview's desktop and foot follow the changed accent" '[]' expanded_preview
+expect_poll "the selected card's foot follows the changed accent" '[]' expanded_foot
 expect "the selected catalog card is not installed" False selected_installed
 expect "a catalog card draws only its name and the typed filter beside the rail" "[\"Akane\", \"$first_card\"]" rest_texts
 
@@ -574,9 +538,8 @@ expect_poll "the filter leaves nord alone" '["nord"]' view_names
 expect "the selection moves to the one match" '"nord"' view_value selectedName
 # Control: scripts/test-qml-unit.sh deletes CardCarousel's modelData rebind and tst_carousel.qml fails.
 expect "the drawn centre theme card matches the selected name after filtering" '"nord"' ipc smoke currentThemeCardName overlay vgs.themes
-expect_poll "nord's package preview wins over its thumbnail and live preview" "$repo/themes/catalog/nord/preview.png" selected_preview
-expect_poll "nord's selected card draws preview.png" ready card_image "$repo/themes/catalog/nord/preview.png"
-expect "nord's selected card does not build the live preview" absent ipc smoke readDescendant overlay vgs.themes DesktopPreview visible
+expect_poll "nord's package preview wins over its thumbnail" "$repo/themes/catalog/nord/preview.jpg" selected_preview
+expect_poll "nord's selected card draws preview.jpg" ready card_image "$repo/themes/catalog/nord/preview.jpg"
 type_keys -M alt -k i -m alt || fail "sending Alt+I in the theme view failed"
 expect "Alt+I leaves the filter" '"nord"' view_value filterText
 expect "Alt+I leaves the catalog's nord in the one list" '["nord"]' view_names
@@ -611,13 +574,13 @@ expect "the wallpapers are unpacked into nord" True bash -c '[[ -f $1/nord/backg
 expect "the catalog records the wallpapers" True catalog_imagery nord
 expect_poll "the apply after the download shows nord's first wallpaper" "\"$installed/nord/backgrounds/a.jpg\"" bg_current
 
-# nord's card now draws its first wallpaper; Escape clears the filter,
-# then closes.
+# The installed nord's card still draws its catalog preview; Escape clears
+# the filter, then closes.
 press_themes || fail "typing SUPER+SHIFT+T to reopen failed"
 expect_poll "SUPER+SHIFT+T opens the browser again" 1 layer_count vgs:overlay
 browser_focused
 expect_poll "the reopened browser selects the applied nord" '"nord"' view_value selectedName
-expect_poll "nord's card draws its first wallpaper" ready card_image "$installed/nord/backgrounds/a.jpg"
+expect_poll "the installed nord's card draws its catalog preview" ready card_image "$repo/themes/catalog/nord/preview.jpg"
 type_keys "x" || fail "typing x failed"
 expect_poll "x filters" '"x"' view_value filterText
 type_keys -k Escape || fail "sending Escape failed"
@@ -817,7 +780,7 @@ press_themes || fail "typing SUPER+SHIFT+T for the preview sourceSize control fa
 expect_poll "the sourceSize control opens the theme browser" 1 layer_count vgs:overlay
 expect_poll "the sourceSize control read its cards" true view_value loaded
 type_keys -k Home || fail "sending Home for the sourceSize control failed"
-expect_poll "control: the live preview no longer decodes at card size times scale" False card_source_size_matches "$akane_preview"
+expect_poll "control: the card no longer decodes at card size times scale" False card_source_size_matches "$repo/themes/catalog/$first_card/preview.jpg"
 type_keys -k Escape || fail "closing the sourceSize control browser failed"
 expect_poll "the sourceSize control browser closes" 0 layer_count vgs:overlay
 plugin_restore ThemeCard.qml "preview sourceSize"
@@ -853,26 +816,13 @@ type_keys -k Escape || fail "closing the slice name wash control browser failed"
 expect_poll "the slice name wash control browser closes" 0 layer_count vgs:overlay
 plugin_restore ThemeCard.qml "slice name wash"
 
-plugin_control ThemeCard.qml "live preview token" "tokens: root.modelData.tokens" "tokens: ({})"
-press_themes || fail "typing SUPER+SHIFT+T for the live preview control failed"
-expect_poll "the live preview control opens the theme browser" 1 layer_count vgs:overlay
-expect_poll "the live preview control read its cards" true view_value loaded
-type_keys "$first_card" || fail "typing $first_card for the live preview control failed"
-expect "control: the live preview no longer uses the package accent" '"#ff5a36"' ipc smoke readDescendant overlay vgs.themes DesktopPreview accentHex
-expect_poll "control: the windows no longer draw the theme's colours" True judged_rule expanded_preview windows-colours
-type_keys -k Escape || fail "clearing the live preview control filter failed"
-type_keys -k Escape || fail "closing the live preview control browser failed"
-expect_poll "the live preview control browser closes" 0 layer_count vgs:overlay
-plugin_restore ThemeCard.qml "live preview token"
-
 plugin_control ThemeCard.qml "preview precedence" "readonly property bool packagePreview: typeof modelData.previewImage === \"string\" && modelData.previewImage !== \"\"" "readonly property bool packagePreview: false"
 press_themes || fail "typing SUPER+SHIFT+T for the preview precedence control failed"
 expect_poll "the preview precedence control opens the theme browser" 1 layer_count vgs:overlay
 expect_poll "the preview precedence control read its cards" true view_value loaded
 type_keys "nord" || fail "typing nord for the preview precedence control failed"
 expect_poll "the preview precedence control selects nord" '"nord"' view_value selectedName
-expect "control: nord no longer draws preview.png first" none card_image "$repo/themes/catalog/nord/preview.png"
-expect "control: nord shows the live preview instead" true ipc smoke readDescendant overlay vgs.themes DesktopPreview visible
+expect "control: nord no longer draws preview.jpg first" none card_image "$repo/themes/catalog/nord/preview.jpg"
 type_keys -k Escape || fail "clearing the preview precedence control filter failed"
 type_keys -k Escape || fail "closing the preview precedence control browser failed"
 expect_poll "the preview precedence control browser closes" 0 layer_count vgs:overlay
@@ -1153,5 +1103,5 @@ cp -p -- "$sandbox/hyprland-before-browser.lua" "$hypr_lua.next" && mv -T -- "$h
 expect "the nested instance reloads the hyprland.lua the browser rows found" ok hypr reload config-only
 mv -T -- "$repo/bin/vgshell.real" "$repo/bin/vgshell"
 cp -p -- "$sandbox/catalog-index.json" "$index"
-rm -r -- "$installed/nord" "$installed/akane" "$assets" "$wallpaper_gate" "$akane_refused" "$akane_preview"
+rm -r -- "$installed/nord" "$installed/akane" "$assets" "$wallpaper_gate" "$akane_refused"
 rm -f -- "$bg_state/backgrounds.json" "$bg_state/background"

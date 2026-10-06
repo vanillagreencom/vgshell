@@ -12,8 +12,7 @@ import "BrowserLogic.js" as BrowserLogic
 // through `dismiss`, which holds the browser open while the view runs a
 // step: the theme view's install, apply and download, whose next step it
 // starts itself, and the wallpaper view's set, download and the apply
-// after it. The theme view's previews live here, as long as the browser,
-// so one that finishes after a switch to another view lands.
+// after it.
 Item {
     id: root
 
@@ -61,11 +60,6 @@ Item {
         onClicked: root.dismiss()
     }
 
-    ThemePreviews {
-        id: previews
-        shell: root.shell
-    }
-
     Loader {
         id: page
         anchors.fill: parent
@@ -74,7 +68,6 @@ Item {
         // A view takes the shell through a binding, so a settings change's
         // new shell object reaches it as it reaches the browser.
         onLoaded: {
-            if (item.previews !== undefined) item.previews = previews;
             item.shell = Qt.binding(() => root.shell);
             item.closeRequested.connect(root.dismiss);
             if (item.switchRequested) item.switchRequested.connect(root.switchView);

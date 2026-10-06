@@ -538,13 +538,11 @@ f share/vgshell/shell/plugins/vgs.themes/Background.qml
 f share/vgshell/shell/plugins/vgs.themes/Browser.qml
 f share/vgshell/shell/plugins/vgs.themes/BrowserData.qml
 f share/vgshell/shell/plugins/vgs.themes/BrowserLogic.js
-f share/vgshell/shell/plugins/vgs.themes/DesktopPreview.qml
 f share/vgshell/shell/plugins/vgs.themes/Files.js
 f share/vgshell/shell/plugins/vgs.themes/Service.qml
 f share/vgshell/shell/plugins/vgs.themes/SetupLogic.js
 f share/vgshell/shell/plugins/vgs.themes/ThemeCard.qml
 f share/vgshell/shell/plugins/vgs.themes/ThemePaletteStrip.qml
-f share/vgshell/shell/plugins/vgs.themes/ThemePreviews.qml
 f share/vgshell/shell/plugins/vgs.themes/ThemeRow.qml
 f share/vgshell/shell/plugins/vgs.themes/ThemeView.qml
 f share/vgshell/shell/plugins/vgs.themes/ThemesPanel.qml

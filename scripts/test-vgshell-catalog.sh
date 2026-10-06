@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Controls for the theme catalog verbs: `vgshell theme catalog`, `vgshell theme
-# install`, and `update`, `remove` and `outdated` on a catalog install. The
+# install`, and `update`, `remove`, `outdated` and the `list` preview on a catalog install. The
 # rows run a tree copy whose themes/catalog/ is this suite's own fixture, so
 # no shipped catalog change moves a row. Each row pins an exit status, the
 # last stdout line, the keyed stderr line, a file's bytes or a JSON value.
@@ -31,11 +31,11 @@ sha_a="$(printf 'a%.0s' $(seq 64))"; sha_b="$(printf 'b%.0s' $(seq 64))"
 entry() { printf '{ "name": "%s", "mode": "dark", "thumbnail": %s, "palette": %s, "imagery": %s }' "$1" "${3:-null}" "$palette" "$2"; } # NAME IMAGERY [THUMBNAIL]
 printf '{ "schemaVersion": 1, "entries": [%s, %s, %s, %s] }\n' "$(entry moor "$(pin moor-r1 "$sha_a")")" "$(entry bad null)" "$(entry ivy null '"thumbnails/ivy.jpg"')" "$(entry dusk null)" >"$shelf/index.json"
 theme_pkg "$shelf/moor" "$(doc moor '{ "palette": { "accent": "#3366ff" } }')" "$(slots_json '#202020')"
-printf 'preview\n' >"$shelf/moor/preview.png"
+printf 'preview\n' >"$shelf/moor/preview.jpg"
 mkdir -p "$shelf/moor/targets"; printf 'curated\n' >"$shelf/moor/targets/foot.ini"
 theme_pkg "$shelf/bad" "$(doc bad)" '{ "schemaVersion": 1, "slots": { "color0": "#000000" } }'
 theme_pkg "$shelf/ivy" "$(doc ivy)"
-ln -s theme.json "$shelf/ivy/preview.png"
+ln -s theme.json "$shelf/ivy/preview.jpg"
 theme_pkg "$shelf/dusk" "$(doc dusk)"
 theme_pkg "$tree/themes/dusk" "$(doc dusk)"
 
@@ -58,21 +58,9 @@ not_installed='installed=false definitionUpdate=false imageryInstalled=false ima
 # The list.
 catalog_json "$cfg"
 check "catalog --json lists every index entry in index order" json_is "$tmp/catalog.json" '[e["name"] for e in d["entries"]] == ["moor", "bad", "ivy", "dusk"]'
-check "catalog --json carries the index entry and its install state" json_is "$tmp/catalog.json" 'all(d["entries"][0][k] == v for k, v in {"name": "moor", "mode": "dark", "thumbnail": None, "thumbnailPath": None, "previewPath": "'"$shelf/moor/preview.png"'", "installed": False, "imageryInstalled": False, "imageryUpdate": False, "definitionUpdate": False}.items()) and d["entries"][0]["palette"]["accent"] == "#3366ffff" and d["entries"][0]["tokens"]["hyprland"]["border"]["size"] == 2 and d["entries"][0]["terminal"]["color0"] == "#202020ff" and len(d["entries"][0]["terminal"]) == 16 and d["entries"][0]["imagery"]["sha256"] == "'"$sha_a"'"'
+check "catalog --json carries the index entry and its install state" json_is "$tmp/catalog.json" 'all(d["entries"][0][k] == v for k, v in {"name": "moor", "mode": "dark", "thumbnail": None, "thumbnailPath": None, "previewPath": "'"$shelf/moor/preview.jpg"'", "installed": False, "imageryInstalled": False, "imageryUpdate": False, "definitionUpdate": False}.items()) and d["entries"][0]["palette"]["accent"] == "#3366ffff" and d["entries"][0]["tokens"]["hyprland"]["border"]["size"] == 2 and d["entries"][0]["terminal"]["color0"] == "#202020ff" and len(d["entries"][0]["terminal"]) == 16 and d["entries"][0]["imagery"]["sha256"] == "'"$sha_a"'"'
 check "catalog --json resolves a thumbnail to its absolute path in the catalog" json_is "$tmp/catalog.json" 'd["entries"][2]["thumbnailPath"] == "'"$shelf/thumbnails/ivy.jpg"'"'
 check "catalog ignores a symlinked package preview" json_is "$tmp/catalog.json" 'd["entries"][2]["previewPath"] is None'
-# A preview fetch caches its pin's first wallpaper as <sha256>-<file>; the
-# list names it, and a .part the fetch is still writing is not one.
-previews="$tmp/home/.cache/vgshell/theme-assets/previews"
-check "catalog --json names no wallpaper before a preview fetch" json_is "$tmp/catalog.json" '[e["wallpaperPath"] for e in d["entries"]] == [None, None, None, None]'
-mkdir -p -- "$previews"
-printf 'part\n' >"$previews/$sha_a-a.jpg.part"
-catalog_json "$cfg"
-check "catalog --json skips a wallpaper still being written" json_is "$tmp/catalog.json" 'd["entries"][0]["wallpaperPath"] is None'
-printf 'image\n' >"$previews/$sha_a-a.jpg"
-catalog_json "$cfg"
-check "catalog --json names the wallpaper a preview fetch cached" json_is "$tmp/catalog.json" 'd["entries"][0]["wallpaperPath"] == "'"$previews/$sha_a-a.jpg"'"'
-rm -r -- "${previews:?}"
 tinst "catalog prints one text line per entry" "$cfg" "$rt_empty" 0 "theme=dusk mode=dark installed=false definitionUpdate=false imageryInstalled=false imageryUpdate=false" "" theme catalog
 tinst "catalog with an argument is exit 2" "$cfg" "$rt_empty" 2 "" "vgshell: refused: argument=moor" theme catalog moor
 
@@ -81,12 +69,22 @@ tinst "install lands a catalog package" "$cfg" "$rt_empty" 0 "ok installed=moor 
 for part in theme.json terminal.json targets/foot.ini; do
   check "install copies $part byte for byte" cmp -s "$shelf/moor/$part" "$themes/moor/$part"
 done
-check "install does not copy the catalog preview into the package definition" test ! -e "$themes/moor/preview.png"
+check "install does not copy the catalog preview into the package definition" test ! -e "$themes/moor/preview.jpg"
 check "install writes the catalog marker" test "$(marker_field "$marker" source) $(marker_field "$marker" imagery)" == '"catalog" null'
 installed_digest="$(marker_field "$marker" digest)"
 check "the marker records a sha256 digest" test "${#installed_digest}" == 66
 check "install leaves no staging directory" unstaged
 check "catalog reports the install" test "$(state_of moor)" == 'installed=true definitionUpdate=false imageryInstalled=false imageryUpdate=false'
+# The preview `theme list --json` gives installed package NAME, read from
+# the last run's stdout.
+list_preview() { python3 -c 'import json,sys; print([p for p in json.load(open(sys.argv[1]))["packages"] if p["name"] == sys.argv[2] and p["source"] == "installed"][0]["previewPath"])' "$tmp/out" "$1"; } # NAME
+tinst "list --json lists the catalog install" "$cfg" "$rt_empty" 0 "$any_out" "" theme list --json
+check "list gives a catalog install its catalog package's preview" test "$(list_preview moor)" == "$shelf/moor/preview.jpg"
+check "catalog gives an installed entry its catalog package's preview" json_is "$tmp/catalog.json" 'd["entries"][0]["previewPath"] == "'"$shelf/moor/preview.jpg"'"'
+judge_control catalog-unpreviewed '    return previewPath(path.join(SHIPPED, CATALOG, row.name));' '    return null;'
+tinst "the catalog-unpreviewed mutant lists the catalog install" "$cfg" "$rt_empty" 0 "$any_out" "" theme list --json
+check "the catalog-unpreviewed mutant gives the catalog install no preview" test "$(list_preview moor)" == None
+unset THEME_BIN
 tinst "a reinstall is refused as installed" "$cfg" "$rt_empty" 1 "" "vgshell: refused: theme=moor reason=installed path=$themes/moor" theme install moor
 tinst "install of a package the judge refuses is refused" "$cfg" "$rt_empty" 1 "" 'vgshell: refused: theme=bad reason=terminal-slot token=terminal missing=color1' theme install bad
 check "a refused install lands nothing" test ! -e "$themes/bad"
@@ -113,6 +111,23 @@ check "catalog does not list a git install as installed" test "$(state_of ivy)" 
 ivy_head="$(head_of "$themes/ivy")"
 tinst "outdated fetches a git install carrying a marker" "$cfg" "$rt_empty" 0 "moor behind=0 head=${installed_digest:1:12} upstream=${installed_digest:1:12}" "" theme outdated
 check "the git install's row is its checkout" has_line "ivy behind=0 head=${ivy_head:0:12} upstream=${ivy_head:0:12}"
+# A git install of a catalog name shows its own preview, never the
+# catalog's.
+rm -- "${shelf:?}/ivy/preview.jpg"; printf 'catalog\n' >"$shelf/ivy/preview.jpg"
+tinst "list --json lists the git install" "$cfg" "$rt_empty" 0 "$any_out" "" theme list --json
+check "list gives a git install of a catalog name no catalog preview" test "$(list_preview ivy)" == None
+judge_control originless '        if (installOrigin(row.path, "theme=" + row.name + " reason").origin !== "catalog") return null;' ''
+tinst "the originless mutant lists the git install" "$cfg" "$rt_empty" 0 "$any_out" "" theme list --json
+check "the originless mutant gives the git install the catalog's preview" test "$(list_preview ivy)" == "$tmp/tree-originless/themes/catalog/ivy/preview.jpg"
+unset THEME_BIN
+printf 'own\n' >"$themes/ivy/preview.jpg"
+tinst "list --json lists the git install with its own preview" "$cfg" "$rt_empty" 0 "$any_out" "" theme list --json
+check "list gives a git install its own preview" test "$(list_preview ivy)" == "$themes/ivy/preview.jpg"
+judge_control own-unpreferred '    if (own !== null || row.source !== "installed") return own;' '    if (row.source !== "installed") return own;'
+tinst "the own-unpreferred mutant lists the git install" "$cfg" "$rt_empty" 0 "$any_out" "" theme list --json
+check "the own-unpreferred mutant drops the git install's own preview" test "$(list_preview ivy)" == None
+unset THEME_BIN
+rm -- "${themes:?}/ivy/preview.jpg"
 
 # Update: the catalog's package changes, as a VGS update changes it, under
 # an applied, unedited moor holding a background and an unpacked archive's
@@ -225,10 +240,15 @@ check "the staged-backup mutant loses the package" test ! -e "$themes/moor" -a !
 unset THEME_BIN
 tinst "moor installs again after the interruption controls" "$cfg" "$rt_empty" 0 "$any_out" "" theme install moor
 
-# A marker that is no marker refuses the list and the update; remove still
-# deletes the package.
+# A marker that is no marker refuses the update; the list still answers,
+# and remove still deletes the package.
 mkdir -p "$themes/fen"; doc fen >"$themes/fen/theme.json"; printf '{}\n' >"$themes/fen/.vgs-catalog.json"
 tinst "update refuses a malformed marker" "$cfg" "$rt_empty" 1 "" "vgshell: refused: theme=fen reason=marker path=$themes/fen/.vgs-catalog.json key=source" theme update fen
+tinst "list answers beside a malformed marker" "$cfg" "$rt_empty" 0 "$any_out" "" theme list --json
+check "a malformed marker gives its package no preview" test "$(list_preview fen)" == None
+judge_control marker-refuses-list '        if (e instanceof Refusal) return null;' ''
+tinst "the marker-refuses-list mutant refuses the list" "$cfg" "$rt_empty" 1 "" "vgshell: refused: theme=fen reason=marker path=$themes/fen/.vgs-catalog.json key=source" theme list --json
+unset THEME_BIN
 printf '{}\n' >"$themes/ivy/.vgs-catalog.json"
 tinst "a malformed marker beside a .git is not read" "$cfg" "$rt_empty" 0 "$any_out" "" theme catalog
 tinst "remove deletes a package with a malformed marker" "$cfg" "$rt_empty" 0 "ok removed=fen" "" theme remove fen

@@ -82,7 +82,6 @@ Singleton {
     readonly property var dialog: published.dialog
     readonly property var angledCard: published.angledCard
     readonly property var carousel: published.carousel
-    readonly property var desktopPreview: published.desktopPreview
     readonly property var bar: published.bar
 
     // The accepted values converted once, as one frozen tree. It follows

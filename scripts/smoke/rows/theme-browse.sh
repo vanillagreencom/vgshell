@@ -30,7 +30,6 @@ image_count() { read_service themeAnswers | py_reply 'import json,sys; print(len
 # The state file's `screens` map as JSON, {} for a file without it.
 bg_screens() { python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1])).get("screens", {})))' "$bg_state/backgrounds.json"; }
 theme_download() { ipc shell lent | py_reply 'import json,sys; d=json.load(sys.stdin)["theme"]["download"]; print("null" if d is None else json.dumps([d["verb"], d["name"], d["waiters"]]))'; }
-theme_preview() { ipc shell lent | py_reply 'import json,sys; d=json.load(sys.stdin)["theme"].get("preview"); print("null" if d is None else json.dumps([d["verb"], d["name"], d["waiters"]]))'; }
 
 expect "enabling the fixture for the browse rows is allowed" ok ipc shell setPluginEnabled acme.probe true
 expect_poll "the fixture service is back for the browse rows" True service_built
@@ -84,87 +83,6 @@ expect "a malformed name's download is refused at once" 'refused: wallpapers="..
 expect "the fixture downloads a package that is no catalog install" ok probe theme-wallpapers browse
 expect_poll "the runner's refusal reaches the fixture as the result" '[1, "failed", "browse", "not-catalog"]' answer wallpapers state theme reason
 expect "no download runs after the refusal" null last_part downloading
-
-apply_during_download() {
-  local applies_before downloads_before
-  applies_before="$1"; downloads_before="$2"; shift 2
-  for _ in $(seq 1 25); do
-    if [[ $("$1") -gt $applies_before ]]; then
-      if [[ $("$2") -gt $downloads_before ]]; then echo download-ended; else echo answered; fi
-      return
-    fi
-    sleep 0.2
-  done
-  echo waiting
-}
-fixture_downloads() { answers wallpapers; }
-
-preview_gate="$sandbox/theme-preview-gate"
-preview_slow="$sandbox/slow-preview"
-cat >"$preview_slow" <<SH
-#!/usr/bin/env bash
-lock="\$(node $(printf %q "$repo/bin/vgshell-theme-judge") asset-lock)"
-mkdir -p -- "\${lock%/*}"
-exec 9>>"\$lock"
-flock -n -E 75 9 || exit \$?
-for _ in \$(seq 1 600); do [[ -e $(printf %q "$preview_gate") ]] && break; sleep 0.05 9>&-; done
-printf '{\"state\":\"ok\",\"theme\":\"%s\",\"path\":\"/tmp/preview.jpg\",\"reason\":null}\n' "\$4"
-SH
-chmod 755 -- "$preview_slow"
-cp -p -- "$repo/bin/vgshell" "$repo/bin/vgshell.real"
-stand_in_vgshell "[[ \${2:-} == preview ]] && exec $(printf %q "$preview_slow") \"\$@\""
-expect "the fixture starts a slow preview fetch" ok probe theme-preview nord
-expect_poll "the lending record holds the preview fetch" '["preview", "nord", 1]' theme_preview
-before_applies="$(applies)"; before_downloads="$(fixture_downloads)"
-expect "an apply while preview fetch runs is accepted" ok probe theme-apply vgs
-expect_poll "the apply cancels the preview fetch" null theme_preview
-expect "the apply during preview completes" answered apply_during_download "$before_applies" "$before_downloads" applies fixture_downloads
-expect "the fixture starts another slow preview fetch for install" ok probe theme-preview nord
-expect_poll "the second preview fetch runs" '["preview", "nord", 1]' theme_preview
-expect "an install while preview fetch runs is accepted" ok probe theme-install nord
-expect_poll "the install cancels the preview fetch" null theme_preview
-expect "the fixture starts another slow preview fetch for wallpapers" ok probe theme-preview nord
-expect_poll "the third preview fetch runs" '["preview", "nord", 1]' theme_preview
-expect "a wallpaper command while preview fetch runs is accepted" ok probe theme-wallpapers browse
-expect "a second wallpaper command while the first waits for preview cancellation is busy" "refused: wallpapers=nord reason=busy" probe theme-wallpapers nord
-expect_poll "the wallpaper download cancels the preview fetch" null theme_preview
-expect_poll "the wallpaper command returns its runner result" '[2, "failed", "browse", "not-catalog"]' answer wallpapers state theme reason
-touch -- "$preview_gate"
-mv -T -- "$repo/bin/vgshell.real" "$repo/bin/vgshell"
-
-rm -f -- "$preview_gate"
-cp -p -- "$repo/bin/vgshell" "$repo/bin/vgshell.real"
-stand_in_vgshell "[[ \${2:-} == preview ]] && exec $(printf %q "$preview_slow") \"\$@\""
-expect "a wallpaper command accepted before preview starts runs" "ok|ok" probe theme-preview-then-wallpapers browse
-expect_poll "the same-turn wallpaper command reaches the runner" '[3, "failed", "browse", "not-catalog"]' answer wallpapers state theme reason
-expect "the same-turn preview was canceled before start" null theme_preview
-touch -- "$preview_gate"
-mv -T -- "$repo/bin/vgshell.real" "$repo/bin/vgshell"
-
-rm -f -- "$preview_gate"
-cp -p -- "$repo/bin/vgshell" "$repo/bin/vgshell.real"
-stand_in_vgshell "if [[ \${2:-} == preview ]]; then
-  $(printf %q "$preview_slow") \"\$@\"
-  exit \$?
-fi
-if [[ \${2:-} == wallpapers ]]; then
-  lock=\"\$(node $(printf %q "$repo/bin/vgshell-theme-judge") asset-lock)\"
-  mkdir -p -- \"\${lock%/*}\"
-  exec 8>>\"\$lock\"
-  if ! flock -n -E 75 8; then
-    printf '{\"state\":\"failed\",\"theme\":\"%s\",\"wallpapers\":null,\"images\":null,\"sha256\":null,\"reason\":\"busy\"}\n' \"\$4\"
-    exit 75
-  fi
-  printf '{\"state\":\"ok\",\"theme\":\"%s\",\"wallpapers\":\"installed\",\"images\":1,\"sha256\":null,\"reason\":null}\n' \"\$4\"
-  exit 0
-fi"
-expect "control: a non-exec preview wrapper starts" ok probe theme-preview nord
-expect_poll "control: the non-exec preview is recorded" '["preview", "nord", 1]' theme_preview
-expect "control: a wallpaper command cannot take the lock from the non-exec preview child" ok probe theme-wallpapers nord
-expect_poll "control: the wallpaper command reports busy" '[4, "failed", "nord", "busy"]' answer wallpapers state theme reason
-touch -- "$preview_gate"
-expect_poll "control: the non-exec preview eventually ends" null theme_preview
-mv -T -- "$repo/bin/vgshell.real" "$repo/bin/vgshell"
 
 download_gate="$sandbox/theme-download-gate"
 slow_download="$sandbox/slow-download"
