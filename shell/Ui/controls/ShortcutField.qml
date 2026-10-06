@@ -4,11 +4,18 @@ import qs.Commons
 import qs.Ui
 import "../foundation/KeyNavLogic.js" as KeyNavLogic
 
-// A key combo entry the user presses instead of typing. The box shows the
-// key in effect as key caps; a click, Enter, Return or Space starts a
-// capture, and the box then takes every key: held modifiers show as caps,
-// the first other key commits the combo, and Escape or a focus loss
-// cancels. `capture` is the core's key capture member,
+// A key combo entry the user presses instead of typing. The box shows
+// `keys`, the shortcut's alternative keys in effect, each as its own key
+// caps with "or" between them, so alternatives never read as one chord,
+// and the border and focus ring surround them all, wrapping onto more
+// lines when they need the room. One alternative is the one edited,
+// `editing`, and `key` is its combo: a click on an alternative edits it,
+// Left and Right move to the next one, Delete removes it, and while the
+// box has the focus a selection mark shows which one it is. `add()` edits
+// a new alternative after the last. A click, Enter, Return or Space starts
+// a capture for the alternative edited, and the box then takes every key:
+// held modifiers show as caps, the first other key commits the combo, and
+// Escape or a focus loss cancels. `capture` is the core's key capture member,
 // `shell.shortcut.capture`, which owns the capture and the Hyprland
 // pass-through that lets a combo a bind holds reach the box; the field asks
 // it to begin and end and asks it what each key names, and never reaches
@@ -28,26 +35,32 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // `edited` says the entry holds a text other than the key in effect,
 // `acceptTyped()` sends it as Enter does, `startTyping(text)` opens the
 // entry on a text its owner hands back, such as a key it refused, and
-// `stopTyping()` drops it. `committed(key)` reports a captured combo, written as the text
-// field's judge writes it, `typed(text)` a typed one as entered, and
-// `cleared()` the clear button. `conflict` is a hint drawn under the box in
+// `stopTyping()` drops it. Each edit names the index of the alternative it
+// changes: `committed(key, index)` reports a captured combo, written as the
+// text field's judge writes it, `typed(text, index)` a typed one as
+// entered, and `cleared(index)` the clear button or Delete, which removes
+// that alternative. `conflict` is a hint drawn under the box in
 // the warning colour; it never blocks a combo. With `pluginId` and
-// `shortcut` naming the plugin bind the key belongs to, `found` is the
-// capture's `conflicts` answer for the key in effect and `conflict` its
-// `hint`, so every field that shows a bind's key shows the same line.
+// `shortcut` naming the plugin bind the keys belong to, `found` is the
+// capture's `conflicts` answer for the first alternative another holder
+// asks for, else for the first alternative, with `key` naming that
+// alternative, and `conflict` its `hint`, so every field that shows a
+// bind's keys shows the same line.
 // `hintLink`, when set, names the substring of that conflict line that
 // opens a cited file through `hintLinkActivated`. The
 // `hintActions` are controls for the hint, such as the ways out of a
 // conflict it names: they draw on a line of their own under it, wrapping
 // within the field's width, and take no room while none shows. The
-// field is one focus scope
-// whose focus starts on the box; Enter, Return and keypad Enter activate the
-// box through KeyNavLogic.activate, as every button-like control does
-// (D068), and `focusPreview` draws its focus ring for the gallery.
+// field is one focus scope whose focus starts on the box, one tab stop
+// whose arrows move among the alternatives through KeyNav; Enter, Return
+// and keypad Enter activate the alternative edited through it, or the box
+// through KeyNavLogic.activate while none is there, as every button-like
+// control does (D068), and `focusPreview` draws its focus ring for the
+// gallery.
 FocusScope {
     id: root
 
-    property string key: ""
+    property var keys: []
     property var capture: null
     property bool editable: true
     property string placeholder: "Unbound"
@@ -55,9 +68,25 @@ FocusScope {
     // for a key that is no plugin bind's.
     property string pluginId: ""
     property string shortcut: ""
-    // Who else asks for the key, as the capture's `conflicts` answers, or
+    // The alternative the box edits, kept as the last one picked; `adding`
+    // edits a new one after the last until the field leaves the focus, an
+    // Escape cancels the capture or the edit is sent.
+    property int current: 0
+    property bool adding: false
+    readonly property int editing: adding ? keys.length : Math.max(0, Math.min(current, keys.length - 1))
+    readonly property string key: editing < keys.length ? String(keys[editing]) : ""
+    // Who else asks for the keys, as the capture's `conflicts` answers, or
     // null with no capture, no bind or no key.
-    readonly property var found: capture === null || pluginId === "" || key === "" ? null : capture.conflicts(key, pluginId, shortcut)
+    readonly property var found: {
+        if (capture === null || pluginId === "") return null;
+        let first = null;
+        for (const each of keys) {
+            const answer = Object.assign({ key: String(each) }, capture.conflicts(String(each), pluginId, shortcut));
+            if (answer.hint !== "") return answer;
+            if (first === null) first = answer;
+        }
+        return first;
+    }
     property string conflict: found === null ? "" : found.hint
     property string hintLink: ""
     property bool focusPreview: false
@@ -80,9 +109,23 @@ FocusScope {
     readonly property bool hintIsNotice: notice !== "" || (capturing && capture.failed)
     readonly property real sidePadding: Theme.controlPadding(Theme.textField.paddingX, Theme.textField.radius, Math.max(Theme.textField.height, box.height), box.implicitContentHeight)
     readonly property var caps: capturing ? held : key === "" ? [] : key.split("+")
-    signal committed(string key)
-    signal typed(string text)
-    signal cleared()
+    // What the box draws, one group per alternative: the combo its caps
+    // spell and the text that stands in while it has none. A new
+    // alternative draws while its capture runs.
+    readonly property var groups: {
+        const live = capturing ? editing : -1;
+        const count = Math.max(1, keys.length, live + 1);
+        const out = [];
+        for (let i = 0; i < count; i++) {
+            const combo = i === live ? held.join("+") : i < keys.length ? String(keys[i]) : "";
+            const text = i === live ? (held.length === 0 ? "Press keys, Escape to cancel" : "") : keys.length === 0 ? placeholder : "";
+            out.push({ combo: combo, text: text });
+        }
+        return out;
+    }
+    signal committed(string key, int index)
+    signal typed(string text, int index)
+    signal cleared(int index)
     signal hintLinkActivated()
 
     implicitWidth: column.implicitWidth
@@ -99,6 +142,42 @@ FocusScope {
         if (capturing) capture.end(root, reason);
     }
 
+    // Escape drops a new alternative with its capture.
+    function cancel() {
+        adding = false;
+        stop("cancel");
+    }
+
+    // Edit alternative INDEX, a new one past the last, and listen for it.
+    function edit(index) {
+        adding = index >= keys.length;
+        current = index;
+        start();
+    }
+
+    function add() {
+        root.forceActiveFocus(Qt.TabFocusReason);
+        edit(keys.length);
+    }
+
+    // After an edit sent for alternative AT, the box edits it, unless the
+    // entry reopened on a refused key, which stays the one edited.
+    function sent(at) {
+        if (typing) return;
+        current = at;
+        adding = false;
+    }
+
+    // The alternative drawn at X in the box, else the one edited.
+    function groupAt(x) {
+        for (let i = 0; i < groupRepeater.count; i++) {
+            const group = groupRepeater.itemAt(i).chips;
+            const left = group.mapToItem(box, 0, 0).x;
+            if (x >= left && x < left + group.width) return i;
+        }
+        return editing;
+    }
+
     function pressed(event) {
         if ((event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) && (event.modifiers & ~Qt.ShiftModifier) === Qt.NoModifier) {
             stop("tab");
@@ -108,7 +187,7 @@ FocusScope {
         event.accepted = true;
         if (event.isAutoRepeat) return;
         if (event.key === Qt.Key_Escape) {
-            stop("cancel");
+            cancel();
             return;
         }
         const read = capture.keyFor(event.key, event.modifiers);
@@ -123,12 +202,22 @@ FocusScope {
         case "text":
             notice = "Hold Super, Ctrl or Alt with this key: alone it types text, so a shortcut on it would stop typing everywhere.";
             return;
-        case "key":
+        case "key": {
+            const at = editing;
             stop("commit");
-            if (read.key !== key) committed(read.key);
+            if (read.key !== key) committed(read.key, at);
+            sent(at);
             return;
         }
+        }
         throw new Error("ShortcutField: key kind " + JSON.stringify(read.kind) + " is not one of held, unnamed, text, key");
+    }
+
+    // Enter and Return have handlers of their own, which run before
+    // `Keys.onPressed`.
+    function enterPressed(event) {
+        if (capturing) pressed(event);
+        else if (!nav.handle(event)) KeyNavLogic.activate(box);
     }
 
     function released(event) {
@@ -151,6 +240,11 @@ FocusScope {
     // ends the typing from elsewhere, such as a page's Save, the keyboard
     // stays where it is and the box is the field's focus for a later Tab.
     function stopTyping() {
+        closeEntry();
+        adding = false;
+    }
+
+    function closeEntry() {
         entry.open = false;
         if (root.activeFocus) box.forceActiveFocus(Qt.TabFocusReason);
         else box.focus = true;
@@ -158,8 +252,10 @@ FocusScope {
 
     function acceptTyped() {
         const text = entry.text.trim();
-        root.stopTyping();
-        if (text !== root.key) root.typed(text);
+        const at = root.editing;
+        root.closeEntry();
+        if (text !== root.key) root.typed(text, at);
+        root.sent(at);
     }
 
     // Escape the text entry leaves unaccepted, with the key in effect
@@ -171,6 +267,8 @@ FocusScope {
         }
         stopTyping();
     }
+
+    onActiveFocusChanged: if (!activeFocus && !typing) adding = false
 
     onCapturingChanged: {
         if (capturing) return;
@@ -195,7 +293,7 @@ FocusScope {
                 visible: !root.typing
                 focus: true
                 width: line.width - tools.width - line.spacing
-                implicitHeight: Theme.textField.height
+                implicitHeight: Math.max(Theme.textField.height, groupFlow.implicitHeight + 2 * Theme.space.xs)
                 leftPadding: root.sidePadding
                 rightPadding: root.sidePadding
                 enabled: root.editable
@@ -203,14 +301,38 @@ FocusScope {
                 hoverEnabled: true
                 opacity: enabled ? 1 : Theme.opacity.disabled
                 Accessible.role: Accessible.Button
-                Accessible.name: root.capturing ? "Press keys" : root.key === "" ? root.placeholder : root.key
+                Accessible.name: root.capturing ? "Press keys" : root.keys.length === 0 ? root.placeholder : root.keys.join(" or ")
                 PointerCursor {}
-                onClicked: root.start()
+                // A key click lands mid-box, so only the pointer picks an
+                // alternative; a new one keeps being the one edited.
+                onClicked: root.edit(root.adding ? root.editing : root.groupAt(box.pressX))
                 onActiveFocusChanged: if (!activeFocus) root.stop("focus")
-                Keys.onPressed: event => { if (root.capturing) root.pressed(event); }
-                Keys.onReturnPressed: event => { if (root.capturing) root.pressed(event); else KeyNavLogic.activate(box); }
-                Keys.onEnterPressed: event => { if (root.capturing) root.pressed(event); else KeyNavLogic.activate(box); }
+                // The navigator takes the arrows that move among the
+                // alternatives, Delete and Space; Page Up, Page Down, Home
+                // and End go on to the page around the field. Space, like
+                // Enter and Return, reaches the button while no alternative
+                // is there for the navigator to activate.
+                Keys.onPressed: event => {
+                    if (root.capturing) root.pressed(event);
+                    else event.accepted = [Qt.Key_Left, Qt.Key_Right, Qt.Key_Delete, Qt.Key_Space].indexOf(event.key) !== -1 && nav.handle(event);
+                }
+                Keys.onReturnPressed: event => root.enterPressed(event)
+                Keys.onEnterPressed: event => root.enterPressed(event)
                 Keys.onReleased: event => { if (root.capturing) root.released(event); }
+
+                KeyNav {
+                    id: nav
+                    count: root.keys.length
+                    currentIndex: root.editing
+                    orientation: "horizontal"
+                    wrap: false
+                    onMoved: index => {
+                        root.current = index;
+                        root.adding = false;
+                    }
+                    onActivated: index => root.edit(index)
+                    onRemoved: index => { if (root.editable) root.cleared(index); }
+                }
 
                 background: Rectangle {
                     radius: Theme.textField.radius
@@ -221,21 +343,71 @@ FocusScope {
                     FocusRing { target: box }
                 }
 
-                contentItem: Row {
-                    spacing: root.caps.length === 0 ? 0 : Theme.space.sm
-                    KeyCaps {
-                        id: capRow
+                contentItem: Item {
+                    implicitHeight: groupFlow.implicitHeight
+
+                    Flow {
+                        id: groupFlow
+                        width: parent.width
                         anchors.verticalCenter: parent.verticalCenter
-                        shortcut: root.caps.join("+")
-                    }
-                    Label {
-                        role: "item"
-                        width: box.availableWidth - (capRow.visible ? capRow.width : 0) - parent.spacing
-                        anchors.verticalCenter: parent.verticalCenter
-                        elide: Text.ElideRight
-                        color: Theme.textField.placeholder
-                        text: root.capturing ? (root.held.length === 0 ? "Press keys, Escape to cancel" : "") : root.key === "" ? root.placeholder : ""
-                        visible: text !== ""
+                        spacing: Theme.space.sm
+
+                        Repeater {
+                            id: groupRepeater
+                            model: root.groups
+
+                            Row {
+                                id: group
+                                required property var modelData
+                                required property int index
+                                readonly property alias chips: chips
+                                spacing: Theme.space.sm
+
+                                Label {
+                                    objectName: "alternativeSeparator"
+                                    role: "item"
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    color: Theme.textField.placeholder
+                                    text: "or"
+                                    visible: group.index > 0
+                                }
+
+                                Item {
+                                    id: chips
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    implicitWidth: chipRow.implicitWidth
+                                    implicitHeight: chipRow.implicitHeight
+
+                                    Rectangle {
+                                        anchors.fill: parent
+                                        anchors.margins: -Theme.space.xxs
+                                        radius: Theme.kbd.radius
+                                        color: Theme.color.selection
+                                        visible: root.groups.length > 1 && group.index === root.editing && (box.activeFocus || root.capturing)
+                                    }
+
+                                    Row {
+                                        id: chipRow
+                                        spacing: comboCaps.visible && prompt.visible ? Theme.space.sm : 0
+                                        KeyCaps {
+                                            id: comboCaps
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            shortcut: group.modelData.combo
+                                        }
+                                        Label {
+                                            id: prompt
+                                            role: "item"
+                                            width: Math.min(implicitWidth, box.availableWidth)
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            elide: Text.ElideRight
+                                            color: Theme.textField.placeholder
+                                            text: group.modelData.text
+                                            visible: text !== ""
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -264,10 +436,10 @@ FocusScope {
                 }
                 IconButton {
                     iconName: "x"
-                    label: "Unbind"
+                    label: root.keys.length > 1 ? "Remove " + KeyNavLogic.keyCaps(root.key).join("+") : "Unbind"
                     size: "sm"
                     visible: root.editable && root.key !== ""
-                    onClicked: root.cleared()
+                    onClicked: root.cleared(root.editing)
                 }
                 Row {
                     id: actionRow

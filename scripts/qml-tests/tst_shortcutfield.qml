@@ -13,9 +13,13 @@ import qs.Unit
 // pass-through and a timeout say so, the caps clear a rounded corner as a
 // text field does; the keyboard button types a
 // combo instead, the clear button unbinds, a read-only field asks nothing,
-// and the field is one Tab stop. The capture here records what the field
-// asks and names keys with the core's own judge. A field naming a plugin
-// bind draws the hint its capture's `conflicts` answers for the key.
+// and the field is one Tab stop. A shortcut's alternative keys draw as one
+// group each with a separator between them, in one box that grows to hold
+// them; a click on one, or Left and Right, picks the one edited, a combo
+// and Delete name it, and add() edits a new one after the last. The
+// capture here records what the field asks and names keys with the core's
+// own judge. A field naming a plugin bind draws the hint its capture's
+// `conflicts` answers for the first alternative another holder asks for.
 Item {
     id: root
     width: 480
@@ -44,8 +48,16 @@ Item {
             return { plugins: [], user: true, binds: "read", hint: "Also used by your other shortcuts." };
         }
     }
+    // Answers a conflict only for Right Ctrl.
+    QtObject {
+        id: picky
+        function conflicts(key, id, shortcut) {
+            return { plugins: [], user: key === "code:105", binds: "read", hint: key === "code:105" ? "Also used by your other shortcuts." : "" };
+        }
+    }
     // Outside the column, so the Tab chain the cases walk holds none of it.
-    ShortcutField { id: bound; visible: false; width: 480; key: "SUPER+L"; capture: asker; pluginId: "vgs.lock"; shortcut: "lock" }
+    ShortcutField { id: bound; visible: false; width: 480; keys: ["SUPER+L"]; capture: asker; pluginId: "vgs.lock"; shortcut: "lock" }
+    ShortcutField { id: pickyBound; visible: false; width: 480; keys: ["code:108", "code:105"]; capture: picky; pluginId: "vgs.voice"; shortcut: "tap" }
 
     property var events: []
     // Escapes the fields leave to their surface, as a page's back step reads them.
@@ -60,13 +72,22 @@ Item {
         ShortcutField {
             id: field
             width: parent.width
-            key: "SUPER+M"
+            keys: ["SUPER+M"]
             capture: capture
             onCommitted: key => root.events = root.events.concat(["committed " + key])
             onTyped: text => root.events = root.events.concat(["typed " + text])
             onCleared: root.events = root.events.concat(["cleared"])
         }
-        ShortcutField { id: readOnly; width: parent.width; key: "SUPER+N"; capture: capture; editable: false }
+        ShortcutField { id: readOnly; width: parent.width; keys: ["SUPER+N"]; capture: capture; editable: false }
+        ShortcutField {
+            id: pair
+            width: parent.width
+            keys: ["code:108", "code:105"]
+            capture: capture
+            onCommitted: (key, index) => root.events = root.events.concat(["committed " + key + " " + index])
+            onTyped: (text, index) => root.events = root.events.concat(["typed " + text + " " + index])
+            onCleared: index => root.events = root.events.concat(["cleared " + index])
+        }
         Button { id: after; text: "After"; focusPolicy: Qt.StrongFocus }
     }
 
@@ -87,6 +108,10 @@ Item {
             field.capture = capture;
             column.visible = true;
             field.stopTyping();
+            pair.keys = ["code:108", "code:105"];
+            pair.width = column.width;
+            pair.current = 0;
+            pair.stopTyping();
             before.forceActiveFocus(Qt.TabFocusReason);
         }
 
@@ -394,9 +419,9 @@ Item {
         function test_a_bind_field_draws_its_capture_hint() {
             compare(bound.conflict, "Also used by your other shortcuts.");
             compare(asker.log.asked[asker.log.asked.length - 1], "SUPER+L vgs.lock lock");
-            bound.key = "";
+            bound.keys = [];
             compare(bound.conflict, "");
-            bound.key = "SUPER+L";
+            bound.keys = ["SUPER+L"];
             compare(bound.conflict, "Also used by your other shortcuts.");
             compare(field.conflict, "");
         }
@@ -409,6 +434,84 @@ Item {
             arm();
             keyClick(Qt.Key_Space, Qt.MetaModifier);
             compare(JSON.stringify(root.events), '["committed SUPER+SPACE"]');
+        }
+
+        // The groups the box draws, each with its caps, and the separators
+        // between them that are shown.
+        function groupCaps(f) { return descendants(box(f)).filter(item => String(item).indexOf("KeyCaps") === 0 && item.visible).map(item => item.caps.join("+")); }
+        function separators(f) { return descendants(box(f)).filter(item => item.objectName === "alternativeSeparator" && item.visible).length; }
+        function descendants(f) {
+            const found = [f];
+            for (let i = 0; i < found.length; i++)
+                for (const child of found[i].children || []) found.push(child);
+            return found;
+        }
+
+        function test_alternatives_draw_apart_with_a_separator_between() {
+            compare(JSON.stringify(groupCaps(pair)), JSON.stringify(["Right Alt", "Right Ctrl"]));
+            compare(separators(pair), 1);
+            compare(JSON.stringify(groupCaps(field)), JSON.stringify(["Super+M"]));
+            compare(separators(field), 0, "one key draws no separator");
+        }
+
+        function test_the_box_grows_to_hold_every_alternative() {
+            const b = box(pair);
+            const oneLine = b.height;
+            pair.keys = ["SUPER+CTRL+SHIFT+F1", "SUPER+CTRL+SHIFT+F2", "SUPER+CTRL+SHIFT+F3", "SUPER+CTRL+SHIFT+F4"];
+            pair.width = Theme.size.panel.sm / 2;
+            tryVerify(() => b.height > oneLine, 1000, "the box takes a second line");
+            const caps = descendants(b).filter(item => String(item).indexOf("KeyCaps") === 0 && item.visible);
+            compare(caps.length, 4);
+            for (const each of caps) {
+                const at = each.mapToItem(b, 0, 0);
+                verify(at.y >= 0 && at.y + each.height <= b.height, "every alternative sits inside the border");
+            }
+        }
+
+        function test_arrows_pick_the_alternative_delete_and_a_combo_edit() {
+            box(pair).forceActiveFocus(Qt.TabFocusReason);
+            compare(pair.editing, 0);
+            keyClick(Qt.Key_Right);
+            compare(pair.editing, 1);
+            compare(pair.key, "code:105");
+            keyClick(Qt.Key_Delete);
+            keyClick(Qt.Key_Left);
+            compare(pair.editing, 0);
+            keyClick(Qt.Key_Return);
+            compare(pair.capturing, true);
+            keyClick(Qt.Key_K, Qt.MetaModifier);
+            compare(JSON.stringify(root.events), JSON.stringify(["cleared 1", "committed SUPER+K 0"]));
+        }
+
+        function test_a_click_edits_the_alternative_under_it() {
+            const second = descendants(box(pair)).filter(item => String(item).indexOf("KeyCaps") === 0 && item.visible)[1];
+            mouseClick(second);
+            compare(pair.capturing, true);
+            compare(pair.editing, 1);
+            keyClick(Qt.Key_K, Qt.MetaModifier);
+            compare(JSON.stringify(root.events), JSON.stringify(["committed SUPER+K 1"]));
+        }
+
+        function test_add_edits_a_new_alternative_after_the_last() {
+            pair.add();
+            compare(pair.capturing, true);
+            compare(pair.editing, 2);
+            compare(separators(pair), 2, "the new alternative draws while it listens");
+            keyClick(Qt.Key_K, Qt.MetaModifier);
+            compare(JSON.stringify(root.events), JSON.stringify(["committed SUPER+K 2"]));
+            pair.add();
+            keyClick(Qt.Key_Escape);
+            compare(pair.capturing, false);
+            compare(pair.editing, 1, "a cancelled new alternative leaves the last one edited");
+        }
+
+        function test_the_hint_names_the_alternative_another_holder_asks_for() {
+            compare(pickyBound.found.key, "code:105");
+            compare(pickyBound.conflict, "Also used by your other shortcuts.");
+            pickyBound.keys = ["code:108"];
+            compare(pickyBound.found.key, "code:108");
+            compare(pickyBound.conflict, "");
+            pickyBound.keys = ["code:108", "code:105"];
         }
     }
 }

@@ -347,9 +347,9 @@ python3 - "$snd_settings_copy/KeyField.qml" <<'PY'
 import sys
 path = sys.argv[1]
 text = open(path).read()
-old = "            onClicked: root.applyKey(null)"
+old = "            onClicked: root.remove(root.keys.indexOf(root.found.key))"
 assert text.count(old) == 1, old
-open(path, "w").write(text.replace(old, "            onClicked: root.applyKey(root.shown)"))
+open(path, "w").write(text.replace(old, "            onClicked: root.applyKey(root.found.key)"))
 PY
 rescan "rescan picks the Settings copy"
 settings_page_open vgs.sound

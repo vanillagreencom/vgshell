@@ -1,47 +1,45 @@
 import QtQuick
 import qs.Ui
 
-// One row of a plugin's Keys section: the bind row of qs.Ui, which sends a
-// pressed or typed key and the unbind, with the manifest's keys under it,
-// or none for a pad's key, and buttons of its own, shown only where they
-// change something. The reset button, shown while the keys in effect are
+// One row of a plugin's Keys section, one per shortcut: the bind row of
+// qs.Ui, which draws every alternative key of the shortcut in one field and
+// sends a pressed or typed key and a removal, with the manifest's keys
+// under it, or none for a pad's key, and buttons of its own, shown only
+// where they change something. The add button edits a new alternative and
+// listens for it. The reset button, shown while the keys in effect are
 // not the manifest's, sends undefined, which removes the shell.json entry
 // so the manifest's key or list of keys applies. While a user Hyprland
-// bind holds the key, the conflict line under the field names the file and
-// line that bind sits on, as a link that opens that line in the user's
-// editor, and three buttons under that line resolve it in one click:
-// Remove my line asks the page to confirm, then the key capture takes that
-// line out of the user's file and reloads Hyprland, so the plugin's bind
-// keeps the key; Pick another key starts a capture for the plugin's bind;
-// Use my binding sends null, which unbinds the shortcut so the user's own
-// bind keeps the key. After a removal the line under the field says which
-// line went, and Undo puts it back. The field then shows what the
-// configuration holds again.
+// bind holds one of the keys, the conflict line under the field names the
+// file and line that bind sits on, as a link that opens that line in the
+// user's editor, and three buttons under that line resolve it in one
+// click: Remove my line asks the page to confirm, then the key capture
+// takes that line out of the user's file and reloads Hyprland, so the
+// plugin's bind keeps the key; Pick another key starts a capture for that
+// key; Use my binding removes that key from the shortcut, unbinding it
+// when it was the only one, so the user's own bind keeps the key. After a
+// removal the line under the field says which line went, and Undo puts it
+// back. The field then shows what the configuration holds again.
 //
 // A key typed as text waits in the text entry until it is saved: `edited`
 // says the entry holds a key other than the one in effect, `save()` sends
 // it as Enter there does and `discard()` drops it. The page tells the row
-// through `settle` whether the manager accepted each key it sent, and a
-// refused key returns to the text entry, so it stays an unsaved edit the
-// user corrects. `edits` is the page's set of unsaved edits (EditSet),
-// which the row joins while edited and tells of each typed key the
-// manager accepted; a pressed key is no edit, so the set hears of none.
+// through `settle(key, accepted)` whether the manager accepted the key an
+// edit set, null for a removal, and a refused key returns to the text
+// entry, so it stays an unsaved edit the user corrects. `edits` is the
+// page's set of unsaved edits (EditSet), which the row joins while edited
+// and tells of each typed key the manager accepted; a pressed key is no
+// edit, so the set hears of none.
 BindField {
     id: root
 
     property var edits: null
-    property bool addVisible: false
-    property bool resetVisible: true
     readonly property bool edited: shortcutField.edited
-    // The manifest's keys, from one key or a list, and every key in effect;
-    // the page's slot binds carry the shortcut's whole list in `keys`.
+    // The manifest's keys, from one key or a list.
     readonly property var defaultKeys: bind["default"] === null || bind["default"] === undefined ? []
         : typeof bind["default"] === "string" ? [bind["default"]] : Array.from(bind["default"])
     // The manifest's keys as the field's caps spell them, such as
-    // `Super+Ctrl+X, Right Alt`.
-    readonly property string defaultLabel: defaultKeys.map(key => KeyNavLogic.keyCaps(key).join("+")).join(", ")
-    readonly property var keysInEffect: bind.keys !== undefined && bind.keys !== null ? Array.from(bind.keys)
-        : bind.key === null || bind.key === undefined ? [] : [bind.key]
+    // `Right Alt or Right Ctrl`.
+    readonly property string defaultLabel: defaultKeys.map(key => KeyNavLogic.keyCaps(key).join("+")).join(" or ")
     readonly property bool userHolds: found !== null && found.user === true
     // The one user line that binds the key as a whole `hl.bind` call, which
     // Remove my line takes out; null when there is none or more than one.
@@ -58,7 +56,6 @@ BindField {
     readonly property var citedLine: found === null || !userHolds || !found.userBinds || found.userBinds.length === 0 ? null : found.userBinds[0]
     signal removalAsked(var row)
     signal lineAsked(var row)
-    signal addKey()
 
     function save() { shortcutField.acceptTyped(); }
     function discard() { shortcutField.stopTyping(); }
@@ -70,7 +67,7 @@ BindField {
     // Take ROW, the user line the page confirmed, out of its file.
     function removeLine(row) {
         problem = "";
-        capture.removeUserBind(bind.key, reply => {
+        capture.removeUserBind(found.key, reply => {
             if (!reply.ok) {
                 console.warn("settings: remove-bind " + reply.error);
                 root.problem = "VGS could not remove that line.";
@@ -95,7 +92,7 @@ BindField {
 
     function pickAnotherKey() {
         shortcutField.forceActiveFocus(Qt.TabFocusReason);
-        shortcutField.start();
+        shortcutField.edit(keys.indexOf(found.key));
     }
 
     Component.onDestruction: if (edits !== null) edits.forget(root)
@@ -139,11 +136,12 @@ BindField {
             onClicked: root.pickAnotherKey()
         },
         Button {
+            objectName: "useMyBinding"
             text: "Use my binding"
             size: "sm"
             variant: "secondary"
             visible: root.editable && root.userHolds
-            onClicked: root.applyKey(null)
+            onClicked: root.remove(root.keys.indexOf(root.found.key))
         },
         Button {
             objectName: "undoUserLine"
@@ -160,15 +158,15 @@ BindField {
             iconName: "rotate-ccw"
             label: "Reset to " + root.defaultLabel
             size: "sm"
-            visible: root.editable && root.resetVisible && root.defaultKeys.length > 0 && JSON.stringify(root.keysInEffect) !== JSON.stringify(root.defaultKeys)
+            visible: root.editable && root.defaultKeys.length > 0 && JSON.stringify(root.keys) !== JSON.stringify(root.defaultKeys)
             onClicked: root.applyKey(undefined)
         },
         IconButton {
             iconName: "plus"
             label: "Add another key"
             size: "sm"
-            visible: root.editable && root.addVisible
-            onClicked: root.addKey()
+            visible: root.editable && root.capture !== null
+            onClicked: root.shortcutField.add()
         }
     ]
 }

@@ -77,12 +77,6 @@ FocusScope {
     readonly property bool bare: row !== null && row.tuis.length === 0 && setupEntries.length === 0 && sections.length === 0 && lists.length === 0 && row.binds.length === 0 && paneHolder === null
     // Whether a field of the page holds an unsaved edit.
     readonly property bool dirty: unsaved.edited
-    property var extraKeySlots: ({})
-    property string captureKeySlot: ""
-    onRowChanged: {
-        extraKeySlots = ({});
-        captureKeySlot = "";
-    }
 
     // The schema's keys by section: [{ group, keys }], entries without a
     // group first under "", then each group in the order its first entry
@@ -144,61 +138,6 @@ FocusScope {
 
     function discard() {
         unsaved.discard();
-    }
-
-    function bindKeys(bind) {
-        if (bind === null) return [];
-        // `keys` can arrive as a list-like rather than an Array, as from a ListModel.
-        if (bind.keys !== undefined && bind.keys !== null) return Array.from(bind.keys);
-        return bind.key === null || bind.key === undefined ? [] : [bind.key];
-    }
-
-    function keySlotRows(bind) {
-        const keys = bindKeys(bind);
-        const extra = extraKeySlots[bind.shortcut] || 0;
-        const total = Math.max(1, keys.length + extra);
-        const out = [];
-        for (let i = 0; i < total; i++)
-            out.push({ shortcut: bind.shortcut, index: i, last: i === total - 1, bind: Object.assign({}, bind, { key: i < keys.length ? keys[i] : null, description: i === 0 ? bind.description : "", info: i === 0 ? bind.info : "", keys: keys }) });
-        return out;
-    }
-
-    function addKeySlot(shortcut, index) {
-        const next = Object.assign({}, extraKeySlots);
-        next[shortcut] = (next[shortcut] || 0) + 1;
-        captureKeySlot = shortcut + ":" + index;
-        extraKeySlots = next;
-    }
-
-    function removeKeySlot(shortcut) {
-        const next = Object.assign({}, extraKeySlots);
-        if (next[shortcut] > 1) next[shortcut] -= 1;
-        else delete next[shortcut];
-        extraKeySlots = next;
-    }
-
-    function keySlotAccepted(bind, index, key) {
-        if (key === undefined) {
-            const next = Object.assign({}, extraKeySlots);
-            delete next[bind.shortcut];
-            extraKeySlots = next;
-            return;
-        }
-        if (index >= bindKeys(bind).length) removeKeySlot(bind.shortcut);
-    }
-
-    function keyValueAfter(bind, index, key) {
-        if (key === undefined) return undefined;
-        const keys = bindKeys(bind);
-        if (key === null) {
-            if (index < keys.length) keys.splice(index, 1);
-        } else if (index < keys.length) {
-            keys[index] = key;
-        } else {
-            keys.push(key);
-        }
-        if (keys.length === 0) return null;
-        return keys.length === 1 ? keys[0] : keys;
     }
 
     EditSet {
@@ -573,49 +512,20 @@ FocusScope {
                                 values: page.row === null ? [] : page.row.binds
                                 objectProp: "shortcut"
                             }
-                            Column {
+                            KeyField {
+                                id: keyField
                                 required property var modelData
                                 width: body.width
-                                spacing: Theme.stack.row
-
-                                Repeater {
-                                    model: ScriptModel {
-                                        values: page.keySlotRows(modelData)
-                                        objectProp: "index"
-                                    }
-                                    KeyField {
-                                        id: keyField
-                                        required property var modelData
-                                        width: parent.width
-                                        pluginId: page.row.id
-                                        bind: modelData.bind
-                                        editable: page.editable
-                                        capture: page.panel.capture
-                                        edits: unsaved
-                                        addVisible: modelData.last
-                                        resetVisible: modelData.index === 0
-                                        onAddKey: page.addKeySlot(modelData.shortcut, modelData.index + 1)
-                                        onRemovalAsked: row => page.panel.confirmRemoval(keyField, row)
-                                        onLineAsked: row => page.panel.openUserLine(row)
-                                        onApplyKey: key => {
-                                            if (page === null || page.row === null) return;
-                                            const value = page.keyValueAfter(bind, modelData.index, key);
-                                            const accepted = Reply.isOk(page.panel.writeKey(pluginId, modelData.shortcut, value));
-                                            const slot = modelData.index;
-                                            const slotBind = bind;
-                                            // Settle first: closing the added slot can rebuild the
-                                            // slots and take this field with them.
-                                            settle(key, accepted);
-                                            if (accepted) page.keySlotAccepted(slotBind, slot, key);
-                                        }
-                                        Component.onCompleted: {
-                                            const slot = modelData.shortcut + ":" + modelData.index;
-                                            if (page.captureKeySlot === slot) {
-                                                shortcutField.start();
-                                                page.captureKeySlot = "";
-                                            }
-                                        }
-                                    }
+                                pluginId: page.row.id
+                                bind: modelData
+                                editable: page.editable
+                                capture: page.panel.capture
+                                edits: unsaved
+                                onRemovalAsked: row => page.panel.confirmRemoval(keyField, row)
+                                onLineAsked: row => page.panel.openUserLine(row)
+                                onApplyKey: (key, alternative) => {
+                                    if (page === null || page.row === null) return;
+                                    settle(alternative, Reply.isOk(page.panel.writeKey(pluginId, modelData.shortcut, key)));
                                 }
                             }
                         }

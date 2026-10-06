@@ -4,10 +4,15 @@ import qs.Ui
 // One plugin bind as an inline form row, from one bind the manager lists:
 // the description the plugin registered (its shortcut name while it has
 // registered none), with the info icon of the bind's explanation when it
-// has one, beside a ShortcutField holding the key in effect.
-// Pressing a combo, or typing one as `MOD+KEY`, emits `applyKey` with that
-// key; an empty typed one and the field's unbind button emit null, which
-// unbinds it. The field names the bind, so the line under it is the
+// has one, beside a ShortcutField holding the keys in effect, one key or
+// the alternatives of a list. Each edit changes one alternative and emits
+// `applyKey(key, alternative)`: `key` is what the manager writes, one key,
+// a list of two or more, or null once none is left, which unbinds the
+// shortcut; `alternative` is the key the edit set, null for a removal.
+// Pressing a combo, or typing one as `MOD+KEY`, sets the alternative
+// edited; an empty typed one, the field's unbind button and Delete remove
+// it, and `remove(index)` removes another. The field names the bind, so
+// the line under it is the
 // capture's conflict hint for the key, the same line wherever a bind is
 // shown. `found` is the capture's `conflicts` answer the hint comes from,
 // `actions` are buttons a caller adds after the field's own,
@@ -19,8 +24,10 @@ Field {
     id: root
 
     property string pluginId: ""
-    // { shortcut, key, default, description, info }; `key` is null while
-    // unbound, `info` "" or absent for a bind with no explanation.
+    // { shortcut, key, keys, default, description, info }; `key` is null
+    // while unbound, `keys` every key in effect, absent for a bind that
+    // holds one key at most, `info` "" or absent for a bind with no
+    // explanation.
     property var bind: ({})
     property bool editable: true
     // The `shortcut` capability's key capture member, or null.
@@ -30,10 +37,26 @@ Field {
     property alias hintLink: input.hintLink
     readonly property var found: input.found
     readonly property alias shortcutField: input
-    signal applyKey(var key)
+    signal applyKey(var key, var alternative)
     signal hintLinkActivated()
 
-    readonly property string shown: bind.key === null || bind.key === undefined ? "" : String(bind.key)
+    // `keys` can arrive as a list-like rather than an Array, as from a ListModel.
+    readonly property var keys: bind.keys !== undefined && bind.keys !== null ? Array.from(bind.keys, String)
+        : bind.key === null || bind.key === undefined ? [] : [String(bind.key)]
+
+    // Send the keys with alternative INDEX set to KEY, or removed for null;
+    // an INDEX past the last adds KEY, and a key twice counts once.
+    function edit(index, key) {
+        const next = keys.slice();
+        if (key === null) next.splice(index, 1);
+        else next[index] = key;
+        const value = next.filter((each, i) => next.indexOf(each) === i);
+        applyKey(value.length === 0 ? null : value.length === 1 ? value[0] : value, key);
+    }
+
+    function remove(index) {
+        edit(index, null);
+    }
 
     label: bind.description ? String(bind.description) : String(bind.shortcut)
     info: bind.info ? String(bind.info) : ""
@@ -42,14 +65,14 @@ Field {
     ShortcutField {
         id: input
         width: parent.width
-        key: root.shown
+        keys: root.keys
         capture: root.capture
         editable: root.editable
         pluginId: root.pluginId
         shortcut: String(root.bind.shortcut)
-        onCommitted: key => root.applyKey(key)
-        onTyped: text => root.applyKey(text === "" ? null : text)
-        onCleared: root.applyKey(null)
+        onCommitted: (key, index) => root.edit(index, key)
+        onTyped: (text, index) => root.edit(index, text === "" ? null : text)
+        onCleared: index => root.remove(index)
         onHintLinkActivated: root.hintLinkActivated()
     }
 }

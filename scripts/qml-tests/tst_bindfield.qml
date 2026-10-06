@@ -8,7 +8,9 @@ import qs.Unit
 // effect, empty while unbound, names the bind to its capture, so `found` is
 // the capture's answer and the line under it the answer's hint, and takes
 // `editable`; a combo, a typed key, an empty typed key and the unbind
-// button each send what the manager writes; a caller's actions draw in the
+// button each send what the manager writes, and for a bind with a list of
+// keys that is the list with the one alternative set or removed, one key
+// once one is left and a key twice once; a caller's actions draw in the
 // field's tool row, and its hint actions on a line under the hint, taking
 // no room while none shows. A bind's explanation reaches the row's info
 // icon; a bind without one draws no icon. The capture here answers every conflict question with
@@ -28,6 +30,7 @@ Item {
     }
 
     property var sent: []
+    property var pairs: []
     property int linked: 0
 
     Column {
@@ -67,6 +70,13 @@ Item {
             capture: asker
         }
         BindField {
+            id: listed
+            width: parent.width
+            pluginId: "vgs.voice"
+            bind: ({ shortcut: "tap", key: "code:108", keys: ["code:108", "code:105"], default: ["code:108", "code:105"] })
+            onApplyKey: (key, alternative) => root.pairs = root.pairs.concat([[key, alternative]])
+        }
+        BindField {
             id: readOnly
             width: parent.width
             editable: false
@@ -81,6 +91,7 @@ Item {
         function init() {
             UnitTheme.reset();
             root.sent = [];
+            root.pairs = [];
         }
 
         function descendant(f, matches) {
@@ -120,11 +131,30 @@ Item {
 
         function test_each_edit_sends_what_the_manager_writes() {
             const field = input(row);
-            field.committed("SUPER+K");
-            field.typed("CTRL+K");
-            field.typed("");
-            field.cleared();
+            field.committed("SUPER+K", 0);
+            field.typed("CTRL+K", 0);
+            field.typed("", 0);
+            field.cleared(0);
             compare(JSON.stringify(root.sent), JSON.stringify(["SUPER+K", "CTRL+K", null, null]));
+        }
+
+        function test_an_edit_of_a_list_sends_the_whole_list() {
+            compare(JSON.stringify(input(listed).keys), JSON.stringify(["code:108", "code:105"]));
+            const field = input(listed);
+            // [why, edit, [what the manager writes, the key the edit set]]
+            for (const [why, edit, want] of [
+                ["a combo sets its alternative", () => field.committed("SUPER+K", 1), [["code:108", "SUPER+K"], "SUPER+K"]],
+                ["a combo past the last adds one", () => field.committed("SUPER+K", 2), [["code:108", "code:105", "SUPER+K"], "SUPER+K"]],
+                ["a typed key sets its alternative", () => field.typed("CTRL+K", 0), [["CTRL+K", "code:105"], "CTRL+K"]],
+                ["a removal leaves the one other key", () => field.cleared(0), ["code:105", null]],
+                ["an empty typed key removes its alternative", () => field.typed("", 1), ["code:108", null]],
+                ["a key twice counts once", () => field.committed("code:105", 0), ["code:105", "code:105"]],
+                ["remove takes the alternative it names", () => listed.remove(1), ["code:108", null]]
+            ]) {
+                root.pairs = [];
+                edit();
+                compare(JSON.stringify(root.pairs), JSON.stringify([want]), why);
+            }
         }
 
         function test_a_read_only_row_offers_no_edit() {

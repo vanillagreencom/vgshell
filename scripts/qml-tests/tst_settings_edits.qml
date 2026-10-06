@@ -1,6 +1,7 @@
 import QtQuick
 import QtTest
 import qs.Commons
+import qs.Core
 import qs.Ui
 import qs.Unit
 import "../../shell/plugins/vgs.settings"
@@ -16,8 +17,13 @@ import "../../shell/plugins/vgs.settings"
 // its text entry when its owner refuses it and leaves a read-only row; a
 // key the row sends without its text entry is no edit. A Keys row offers
 // its reset while the keys in effect are not every default key, one or a
-// list, and the reset sends undefined. The owner here
-// stands in for the page: it records each write and takes it or refuses it.
+// list, and the reset sends undefined. A plugin page draws one Keys row per
+// shortcut, every alternative key in its one field: Delete on one writes
+// the keys left, the add button and a pressed combo write the list with
+// the new key, Use my binding removes the key a user bind holds, and the
+// reset sends undefined. The owner here stands in for the page: it records
+// each write and takes it or refuses it; the page's capture names keys
+// with the core's judge and says a user bind holds Right Ctrl when asked.
 Item {
     id: root
     width: 480
@@ -47,18 +53,33 @@ Item {
         tuis: [],
         opens: "",
         paneHolder: "",
-        binds: [{ shortcut: "tap", key: "code:108", keys: ["code:108", "code:105"], default: "code:108", description: "Tap" }],
+        binds: [{ shortcut: "tap", key: "code:108", keys: ["code:108", "code:105"], default: ["code:108", "code:105"], description: "Tap" }],
         requirements: [],
         errors: []
     })
 
     EditSet { id: unsaved }
+    QtObject {
+        id: pageCapture
+        property Item holder: null
+        property bool failed: false
+        property bool userHoldsRightCtrl: false
+        property var ended: ({ item: null, reason: "" })
+        readonly property int timeoutMs: 10000
+        function begin(item) { holder = item; return "ok"; }
+        function end(item, reason) { if (item !== holder) return; ended = { item: item, reason: reason }; holder = null; }
+        function keyFor(key, modifiers) { return PluginLogic.capturedKey(key, modifiers); }
+        function conflicts(key, id, shortcut) {
+            const user = userHoldsRightCtrl && key === "code:105";
+            return { plugins: [], user: user, binds: "read", userBinds: [], hint: user ? "Also used by your Hyprland config." : "" };
+        }
+    }
     SignalSpy { id: saved; target: unsaved; signalName: "saved" }
     Item {
         id: fakePanel
         property var shell: null
         property var plugins: []
-        property var capture: null
+        property var capture: pageCapture
         property var keyWrites: []
         function writeKey(id, shortcut, key) {
             keyWrites.push([id, shortcut, key]);
@@ -396,26 +417,55 @@ Item {
             compare(root.keys, [undefined], "the reset sends undefined, so the default list applies");
         }
 
-        function test_plugin_page_shows_each_key_and_add_writes_a_list() {
+        function test_plugin_page_draws_one_row_per_shortcut() {
             fakePanel.keyWrites = [];
+            pageCapture.userHoldsRightCtrl = false;
             const shipped = root.pageRow;
+            const shownWith = keys => {
+                const row = JSON.parse(JSON.stringify(shipped));
+                row.binds[0].keys = keys;
+                row.binds[0].key = keys.length === 0 ? null : keys[0];
+                root.pageRow = row;
+            };
             const page = pluginPageComponent.createObject(root);
             verify(page !== null);
-            const shown = () => JSON.stringify(keyFields(page).map(field => field.bind.key));
-            settle(() => keyFields(page).length === 2);
-            compare(shown(), JSON.stringify(["code:108", "code:105"]));
-            page.addKeySlot("tap", 2);
-            settle(() => keyFields(page).length === 3);
-            compare(keyFields(page).length, 3);
-            keyFields(page)[2].applyKey("code:97");
-            compare(JSON.stringify(fakePanel.keyWrites), JSON.stringify([["acme.unit", "tap", ["code:108", "code:105", "code:97"]]]));
-            const row = JSON.parse(JSON.stringify(shipped));
-            row.binds[0].keys = ["code:108", "code:105", "code:97"];
-            root.pageRow = row;
-            settle(() => keyFields(page).length === 3 && keyFields(page)[2].bind.key !== null);
-            compare(shown(), JSON.stringify(["code:108", "code:105", "code:97"]));
-            keyFields(page)[1].applyKey(null);
-            compare(JSON.stringify(fakePanel.keyWrites[1]), JSON.stringify(["acme.unit", "tap", ["code:108", "code:97"]]));
+            settle(() => keyFields(page).length === 1);
+            compare(keyFields(page).length, 1, "one row for a shortcut with two keys");
+            const field = () => keyFields(page)[0];
+            compare(JSON.stringify(field().shortcutField.keys), JSON.stringify(["code:108", "code:105"]));
+            const lastWrite = () => JSON.stringify(fakePanel.keyWrites[fakePanel.keyWrites.length - 1]);
+
+            field().shortcutField.forceActiveFocus(Qt.TabFocusReason);
+            keyClick(Qt.Key_Right);
+            keyClick(Qt.Key_Delete);
+            compare(lastWrite(), JSON.stringify(["acme.unit", "tap", "code:108"]), "removing one alternative writes the key left");
+
+            shownWith(["code:108"]);
+            settle(() => field().shortcutField.keys.length === 1);
+            const add = descendants(field()).find(child => child.iconName === "plus");
+            verify(add !== undefined && add.visible, "the row draws its add button");
+            add.clicked();
+            verify(field().shortcutField.capturing, "the add button listens for the new key");
+            keyClick(Qt.Key_K, Qt.MetaModifier);
+            compare(lastWrite(), JSON.stringify(["acme.unit", "tap", ["code:108", "SUPER+K"]]), "the new key joins the list");
+
+            pageCapture.userHoldsRightCtrl = true;
+            shownWith(["code:108", "code:105"]);
+            settle(() => field().userHolds);
+            const mine = descendants(field()).find(child => child.objectName === "useMyBinding");
+            verify(mine !== undefined && mine.visible, "a user bind on one key offers Use my binding");
+            mine.clicked();
+            compare(lastWrite(), JSON.stringify(["acme.unit", "tap", "code:108"]), "Use my binding removes the key the user bind holds");
+            pageCapture.userHoldsRightCtrl = false;
+
+            shownWith(["code:108", "SUPER+K"]);
+            settle(() => field().shortcutField.keys[1] === "SUPER+K");
+            const reset = descendants(field()).find(child => child.iconName === "rotate-ccw");
+            verify(reset !== undefined && reset.visible, "keys other than the default offer the reset");
+            const before = fakePanel.keyWrites.length;
+            reset.clicked();
+            compare(fakePanel.keyWrites.length, before + 1);
+            compare(fakePanel.keyWrites[before][2], undefined, "the reset sends undefined, so the default list applies");
             root.pageRow = shipped;
             page.destroy();
         }

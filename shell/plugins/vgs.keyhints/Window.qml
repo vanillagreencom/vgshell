@@ -17,7 +17,7 @@ import qs.Ui
 // less, and `size.window.heightShare` of the screen's height tall, as the
 // Settings window does, so a short monitor shows all of it. The search
 // field filters the rows by the plugin's name, what a shortcut does, its
-// name and its key; a printable key typed while it does not have the focus
+// name and its keys; a printable key typed while it does not have the focus
 // goes into it. An Escape nothing here takes goes on to the window host,
 // which closes the window.
 //
@@ -44,7 +44,7 @@ FocusScope {
         return shell.manager.plugins.filter(p => p.enabled).map(p => ({
             id: p.id,
             name: p.name,
-            binds: p.binds.map(displayBind).filter(b => holds([p.name, b.description, b.shortcut, b.key === null ? "" : b.key]))
+            binds: p.binds.filter(b => holds([p.name, b.description, b.shortcut].concat(Array.from(b.keys))))
         })).filter(g => g.binds.length > 0);
     }
     property Item initialFocus: search
@@ -61,13 +61,9 @@ FocusScope {
 
     function close() {}
 
-    function displayBind(bind) {
-        const keys = bind.keys !== undefined && bind.keys !== null ? Array.from(bind.keys) : (bind.key === null || bind.key === undefined ? [] : [bind.key]);
-        return Object.assign({}, bind, { key: keys.length === 0 ? null : keys.join(", ") });
-    }
-
-    // Set the key of shortcut `shortcut` of plugin `id` through the
-    // manager: a key string rebinds, null unbinds; answers its reply.
+    // Set the keys of shortcut `shortcut` of plugin `id` through the
+    // manager: a key string or a list of them rebinds, null unbinds;
+    // answers its reply.
     function writeKey(id, shortcut, key) {
         const reply = shell.manager.setKey(id, shortcut, key);
         notice = Reply.line(reply);
