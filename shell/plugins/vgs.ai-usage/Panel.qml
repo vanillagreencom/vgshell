@@ -3,10 +3,11 @@ import qs.Commons
 import qs.Ui
 import "UsageView.js" as View
 
-// Each signed-in and visible account in a card of its own. Compact view
-// shows account identity and one text row per limit. Full view adds meters
-// and the provider detail fields the helper received. Opening the panel asks
-// the service for a new check; the panel draws status alone.
+// Each signed-in and visible account in a card of its own: the provider,
+// the account's email and one row per limit with its time to reset. Full
+// view adds a meter under each limit and the provider detail fields the
+// helper received. The pane is at most half its output's height. Opening
+// the panel asks the service for a new check; the panel draws status alone.
 Item {
     id: root
     property var shell: null
@@ -14,6 +15,7 @@ Item {
     readonly property var usage: shell === null || shell.status.values.usage === undefined ? null : shell.status.values.usage
     readonly property var rows: View.panel(usage, Time.now.getTime(), shell === null ? null : shell.settings)
     readonly property bool fullView: shell !== null && shell.settings.view !== "compact"
+    readonly property var output: OverlayState.outputOf(root)
 
     function refresh() {
         const reply = shell.ipc.call("refresh", "");
@@ -33,7 +35,7 @@ Item {
         anchors.fill: parent
         container: "panel"
         fitToContent: true
-        maximumHeight: Theme.size.panel.maxHeight
+        maximumHeight: root.output === null ? Theme.size.panel.maxHeight : root.output.height * Theme.size.window.heightShare
         title: "AI Usage"
 
         Label {
@@ -59,35 +61,13 @@ Item {
                     role: "hint"
                     wrapMode: Text.Wrap
                     text: modelData.note
-                    color: Theme.badge.tone.warning.foreground
+                    color: modelData.noteTone === "warning" ? Theme.badge.tone.warning.foreground : Theme.text.hint.color
                 }
 
                 Column {
-                    visible: !root.fullView && modelData.windows.length > 0
+                    visible: modelData.windows.length > 0
                     width: parent.width
-                    spacing: Theme.row.lineGap
-                    Repeater {
-                        model: modelData.windows
-                        Item {
-                            required property var modelData
-                            width: parent.width
-                            implicitHeight: Math.max(limit.implicitHeight, share.implicitHeight)
-                            Label { id: limit; role: "body"; text: modelData.label }
-                            Label {
-                                id: share
-                                anchors.right: parent.right
-                                role: "body"
-                                text: modelData.text + " · " + modelData.reset
-                                color: modelData.tone === "warning" ? Theme.badge.tone.warning.foreground : Theme.color.text
-                            }
-                        }
-                    }
-                }
-
-                Section {
-                    visible: root.fullView && modelData.windows.length > 0
-                    title: "Limits"
-                    rowSpacing: Theme.card.gap
+                    spacing: root.fullView ? Theme.stack.inline : Theme.row.lineGap
                     Repeater {
                         model: modelData.windows
                         Column {
@@ -98,17 +78,41 @@ Item {
                             Item {
                                 width: parent.width
                                 implicitHeight: Math.max(limit.implicitHeight, share.implicitHeight)
-                                Label { id: limit; role: "body"; text: modelData.label }
                                 Label {
+                                    id: limit
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: parent.width - share.width - Theme.stack.inline
+                                    elide: Text.ElideRight
+                                    role: "body"
+                                    text: modelData.label
+                                }
+                                Row {
                                     id: share
                                     anchors.right: parent.right
-                                    role: "body"
-                                    text: modelData.text
-                                    color: modelData.tone === "warning" ? Theme.badge.tone.warning.foreground : Theme.color.text
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    spacing: Theme.stack.inline
+                                    Row {
+                                        visible: modelData.reset !== ""
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        spacing: Theme.row.lineGap
+                                        Icon {
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            name: "rotate-ccw"
+                                            size: Theme.icon.size.xs
+                                            color: Theme.text.hint.color
+                                        }
+                                        Label { anchors.verticalCenter: parent.verticalCenter; role: "hint"; text: modelData.reset }
+                                    }
+                                    Label {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        role: "body"
+                                        text: modelData.text
+                                        color: modelData.tone === "warning" ? Theme.badge.tone.warning.foreground
+                                            : modelData.started ? Theme.color.text : Theme.text.hint.color
+                                    }
                                 }
                             }
-                            ProgressBar { width: parent.width; value: Math.min(modelData.percent, 100) / 100 }
-                            Label { role: "hint"; text: modelData.reset }
+                            ProgressBar { visible: root.fullView; width: parent.width; value: Math.min(modelData.percent, 100) / 100 }
                         }
                     }
                 }

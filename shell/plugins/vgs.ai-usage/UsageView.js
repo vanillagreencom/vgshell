@@ -12,6 +12,9 @@ var EXPIRED = { claude: "Open Claude Code to refresh the sign-in", copilot: "Ope
 var NO_PLAN = "Signed in with an API key, which has no plan limits";
 var GATEWAY_ACCOUNT = "ai-gateway";
 var LABEL_MAX = 60;
+// What the bar's number is under each Bar number setting, for its tooltip.
+var BAR_MEANING = { average: "Average of each account's highest limit", "most-left": "Account with the most left",
+    "most-used": "Highest plan limit" };
 
 function copyWindows(windows) {
     return windows.map(function (row) { return { name: row.name, usedPercent: row.usedPercent, resetsAt: row.resetsAt }; });
@@ -37,7 +40,7 @@ function previousOf(previous, id) {
 }
 
 function accountCopy(row, extra) {
-    return Object.assign({ id: row.id, provider: row.provider, label: row.label, email: row.email || "", plan: row.plan || "",
+    return Object.assign({ id: row.id, provider: row.provider, label: row.label, email: row.email || "",
         state: row.state, windows: copyWindows(row.windows || []), credits: copyCredits(row.credits), details: copyDetails(row.details) }, extra || {});
 }
 
@@ -60,7 +63,7 @@ function merge(previous, reading, now) {
     return { accounts: reading.accounts.map(function (row) {
         var last = previousOf(previous, row.id);
         if (row.state === "failed" && last !== null && (last.windows.length > 0 || last.credits !== null || hasDetails(last.details)))
-            return accountCopy(row, { email: row.email || last.email, plan: row.plan || last.plan, state: "stale",
+            return accountCopy(row, { email: row.email || last.email, state: "stale",
                 windows: copyWindows(last.windows), credits: copyCredits(last.credits), details: copyDetails(last.details) });
         return accountCopy(row);
     }), readAt: now, gatewayKey: reading.gatewayKey || null };
@@ -114,29 +117,48 @@ function visibleAccounts(usage, settings) {
     return signedIn(usage).filter(function (row) { return shownProvider(row.provider, settings) && hidden.indexOf(row.id) === -1; });
 }
 
+// The used share the bar figures from PEAKS, each account's highest used
+// share, under the Bar number setting MODE: their mean rounded, the least
+// ("most-left") or the most ("most-used"); null with no peak.
+function barNumber(peaks, mode) {
+    if (peaks.length === 0) return null;
+    if (mode === "most-left") return Math.min.apply(null, peaks);
+    if (mode === "average") return Math.round(peaks.reduce(function (sum, peak) { return sum + peak; }, 0) / peaks.length);
+    return Math.max.apply(null, peaks);
+}
+
 /**
  * The bar widget: shown while an account is signed in and not hidden by
- * settings; percent, the highest used share of a shown window, or null
- * while no window holds one; tone "warning" from WARNING_PERCENT, else
- * "normal".
+ * settings. used is the used share barNumber figures from each shown
+ * account's peak, the highest used share of its windows; an account with
+ * no window is left out, never counted as 0. percent is what the bar
+ * draws: used, or what is left of it under Bar shows "left"; null while no
+ * window holds a share. tone is "warning" from WARNING_PERCENT of used
+ * while Colour by usage is on, else "normal".
  */
 function widget(usage, settings) {
+    var given = settings === null || settings === undefined ? {} : settings;
+    var mode = BAR_MEANING[given.barNumber] === undefined ? "most-used" : given.barNumber;
+    var left = given.barShows === "left";
     var accounts = visibleAccounts(usage, settings);
-    var percent = null;
+    var peaks = [];
     var expired = "";
     var stale = false;
     for (var i = 0; i < accounts.length; i++) {
         var row = accounts[i];
         if (row.state === "expired" && expired === "") expired = EXPIRED[row.provider];
         if (row.state === "stale") stale = true;
-        for (var j = 0; j < row.windows.length; j++)
-            if (percent === null || row.windows[j].usedPercent > percent) percent = row.windows[j].usedPercent;
+        if (row.windows.length > 0)
+            peaks.push(Math.max.apply(null, row.windows.map(function (item) { return item.usedPercent; })));
     }
-    var tooltip = percent === null ? "No usage figures yet" : "Highest plan limit used: " + Math.round(percent) + "%";
+    var used = barNumber(peaks, mode);
+    var percent = used === null ? null : left ? Math.max(0, 100 - used) : used;
+    var text = percent === null ? "" : Math.round(percent) + "%";
+    var tooltip = percent === null ? "No usage figures yet" : BAR_MEANING[mode] + ": " + text + (left ? " left" : " used");
     if (expired !== "") tooltip += ". " + expired;
     else if (stale) tooltip += ". The last check failed; figures may be old";
-    return { shown: accounts.length > 0, percent: percent, tone: percent !== null && percent >= WARNING_PERCENT ? "warning" : "normal",
-        text: percent === null ? "" : Math.round(percent) + "%", tooltip: tooltip };
+    return { shown: accounts.length > 0, used: used, percent: percent,
+        tone: used !== null && given.colourByUsage !== false && used >= WARNING_PERCENT ? "warning" : "normal", text: text, tooltip: tooltip };
 }
 
 // The Settings row of PROVIDER's sign-in: a state value, whose action, Sign
@@ -199,10 +221,24 @@ function trimNumber(value) {
     return text.indexOf(".") < 0 ? text : text.replace(/\.?0+$/, "");
 }
 
+// NUMBER, a numeral, with a comma between each group of three digits of
+// its whole part.
+function grouped(number) {
+    return number.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
 function money(value, currency) {
     if (typeof value !== "number" || !Number.isFinite(value)) return "";
-    var text = value.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-    return (currency === "USD" || currency === "" || currency === undefined ? "$" : currency + " ") + text;
+    return (currency === "USD" || currency === "" || currency === undefined ? "$" : currency + " ") + grouped(value.toFixed(2));
+}
+
+// VALUE, a number or a numeral string such as Codex's credit balance,
+// rounded to a whole number and grouped; "" for no finite number.
+function wholeNumber(value) {
+    var n = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : NaN;
+    if (!Number.isFinite(n)) return "";
+    var whole = Math.round(n);
+    return (whole < 0 ? "-" : "") + grouped(String(Math.abs(whole)));
 }
 
 function dateText(value) {
@@ -235,12 +271,14 @@ function resetIn(resetsAt, now) {
     return { kind: "in", days: Math.floor(minutes / 1440), hours: Math.floor(minutes / 60) % 24, minutes: minutes % 60 };
 }
 
+// The time left until a window resets, drawn after the reset icon: "" with
+// no reset time, "now" once it has passed.
 function resetText(resetsAt, now) {
     var left = resetIn(resetsAt, now);
-    if (left.kind === "none") return "No reset time";
-    if (left.kind === "now") return "Resets now";
+    if (left.kind === "none") return "";
+    if (left.kind === "now") return "now";
     var seconds = (left.days * 1440 + left.hours * 60 + left.minutes) * 60;
-    return "Resets in " + Commons.Duration.format(seconds, seconds < 3600 ? 1 : 2);
+    return Commons.Duration.format(seconds, seconds < 3600 ? 1 : 2);
 }
 
 // The only lines of the helper's stderr the service logs: its own keyed
@@ -258,7 +296,8 @@ function detailRows(row) {
     }
     if (d.codexCredits !== undefined) {
         var codex = d.codexCredits;
-        rows.push({ label: "Codex credits", value: codex.unlimited === true ? "Unlimited" : codex.balance !== undefined ? String(codex.balance) + " available" : "Available" });
+        var balance = wholeNumber(codex.balance);
+        rows.push({ label: "Codex credits", value: codex.unlimited === true ? "Unlimited" : balance !== "" ? balance + " available" : "Available" });
     }
     if (d.copilotMonthUsed !== undefined) rows.push({ label: "Month credits used", value: compact(d.copilotMonthUsed) });
     if (d.copilotRenewsAt !== undefined) rows.push({ label: "Renews", value: dateText(d.copilotRenewsAt) });
@@ -269,28 +308,46 @@ function detailRows(row) {
     return rows;
 }
 
+// A time window not yet started: none used and no reset time, as Claude
+// Code's 5-hour window reads before its first message. A credit pool has no
+// start, so it never reads so.
+function started(item) {
+    return item.name === "credits" || item.usedPercent > 0 || (item.resetsAt !== null && item.resetsAt !== undefined);
+}
+
 function windowRow(row, item, now) {
     var creditWindow = row.provider === "copilot" && item.name === "credits" && row.credits !== null;
     var gatewayWindow = row.provider === "gateway" && item.name === "credits";
+    var begun = started(item);
     return { name: item.name, percent: item.usedPercent, tone: item.usedPercent >= WARNING_PERCENT ? "warning" : "normal",
-        resetIn: resetIn(item.resetsAt, now), label: creditWindow ? (row.credits.unit === "credits" ? "AI credits" : "Premium requests") : gatewayWindow ? "AI Gateway credits" : windowLabel(item.name),
-        text: creditWindow ? compact(row.credits.used) + " of " + compact(row.credits.granted) : Math.round(item.usedPercent) + "%",
+        started: begun, resetIn: resetIn(item.resetsAt, now),
+        label: creditWindow ? (row.credits.unit === "credits" ? "AI credits" : "Premium requests") : gatewayWindow ? "AI Gateway credits" : windowLabel(item.name),
+        text: creditWindow ? compact(row.credits.used) + " of " + compact(row.credits.granted) : begun ? Math.round(item.usedPercent) + "%" : "Not started",
         reset: resetText(item.resetsAt, now) };
 }
 
+// An account read whose every window reads 0 %: it has had no use yet.
+function unused(row) {
+    return row.state === "ok" && row.windows.length > 0 && row.windows.every(function (item) { return item.usedPercent === 0; });
+}
+
 // The panel's rows: one per signed-in account after settings filters, with
-// title, detail line, note, every limit and full-view detail rows.
+// title, the provider's name; email, the account's email or the login its
+// provider gives; detail line; note, in tone "warning" for a failed or old
+// read, else "normal"; every limit, none while unused; and full-view detail
+// rows.
 function panel(usage, now, settings) {
     return visibleAccounts(usage, settings).map(function (row) {
-        var title = (NAMES[row.provider] || row.provider) + (row.label === "default" ? "" : " · " + row.label);
-        var detail = [row.plan === "" ? "" : row.provider === "gateway" ? row.plan : row.plan.charAt(0).toUpperCase() + row.plan.slice(1) + " plan",
-            row.provider === "copilot" ? creditLine(row.credits) : ""]
-            .filter(Boolean).join(" · ");
-        var note = row.state === "expired" ? EXPIRED[row.provider]
+        var idle = unused(row);
+        var warning = row.state === "expired" ? EXPIRED[row.provider]
             : row.state === "stale" ? "The last check failed. These figures may be old."
-            : row.state === "failed" ? "Usage could not be read."
+            : row.state === "failed" ? "Usage could not be read." : "";
+        var note = warning !== "" ? warning
+            : idle ? "No usage yet."
             : row.state === "ok" && row.windows.length === 0 && row.credits === null && !hasDetails(row.details) ? "This plan reports no usage limits." : "";
-        return { id: row.id, provider: row.provider, label: row.label, email: row.email, plan: row.plan, state: row.state,
-            title: title, detail: detail, note: note, details: detailRows(row), windows: row.windows.map(function (item) { return windowRow(row, item, now); }) };
+        return { id: row.id, provider: row.provider, label: row.label, email: row.email, state: row.state,
+            title: NAMES[row.provider] || row.provider, detail: row.provider === "copilot" ? creditLine(row.credits) : "",
+            note: note, noteTone: warning !== "" ? "warning" : "normal", details: detailRows(row),
+            windows: idle ? [] : row.windows.map(function (item) { return windowRow(row, item, now); }) };
     });
 }

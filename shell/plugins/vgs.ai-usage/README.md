@@ -8,9 +8,12 @@ Images come from `scripts/readme-shots.sh` in the nested sandbox.
 
 ## Features
 
-- The highest share of a visible plan limit used, in the bar. It turns to the warning colour at 80 %.
-- A compact panel view with each visible account and one line for each limit and reset time.
-- A full panel view with meters, plan details and provider details when the provider sends them.
+- One number for your visible accounts in the bar: by default the highest share of a plan limit used. It turns to the warning colour at 80 % used.
+- A card for each visible account, with the provider and the account's email. Copilot gives no email, so its card shows the GitHub login.
+- A compact panel view with one line for each limit and the time left until it resets.
+- A full panel view with meters and provider details when the provider sends them.
+- An account that has had no use yet says so instead of showing 0 %. A limit that starts with your first message reads Not started until then.
+- The panel grows to half the screen height before it scrolls.
 - Copilot AI credits per account, with the amount used this month and the renewal date.
 - Claude Code extra usage and Codex credit balance when those providers report them.
 - Every Claude Code, Codex and Copilot account on this computer.
@@ -25,6 +28,9 @@ Images come from `scripts/readme-shots.sh` in the nested sandbox.
 | --- | --- |
 | Check interval | Time between usage checks. Opening the panel also checks. |
 | View | Compact shows account identity and limit lines. Full adds meters and provider details. |
+| Bar number | How the bar figures one number from each account's highest limit: Average, Most left or Most used. An account with no limits is left out. |
+| Bar shows | Used shows the share used. Left shows the share that is left. |
+| Colour by usage | Shows the bar number in the warning colour from 80 % used, whichever share it shows. |
 | Providers | Show or hide Claude Code, Codex and Copilot in the panel and bar total. |
 | Hidden accounts | Hide selected accounts from the panel and bar total. |
 | Sign-in | One row per tool. While no account of a tool is signed in, its row offers Sign in, which opens the tool's own sign-in in a terminal window. |

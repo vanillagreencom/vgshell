@@ -3,9 +3,9 @@ import qs.Commons
 import qs.Ui
 import "UsageView.js" as View
 
-// The highest share of a plan limit used among the signed-in accounts, in
-// the warning tone from View.WARNING_PERCENT. It takes no room while no
-// account is signed in. A click opens or closes the panel under it.
+// One share of the signed-in accounts' plan limits, figured and toned as
+// the Bar settings choose (View.widget). It takes no room while no account
+// is signed in. A click opens or closes the panel under it.
 BarWidget {
     id: root
     readonly property var usage: shell === null || shell.status.values.usage === undefined ? null : shell.status.values.usage

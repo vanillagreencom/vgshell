@@ -113,7 +113,7 @@ usage_gear_click() {
   click "$x" "$y"
 }
 usage_settings_page() { ipc smoke readInstance window vgs.settings page; }
-usage_panel_rows() { usage_panel | py_reply 'import json,sys; print(json.dumps([[r["provider"], r["label"], r["email"], r["plan"], [[w["name"], w["percent"], w["tone"]] for w in r["windows"]]] for r in json.load(sys.stdin)]))'; }
+usage_panel_rows() { usage_panel | py_reply 'import json,sys; print(json.dumps([[r["provider"], r["label"], r["email"], [[w["name"], w["percent"], w["tone"]] for w in r["windows"]]] for r in json.load(sys.stdin)]))'; }
 
 usage_panel_details() { usage_panel | py_reply 'import json,sys; print(json.dumps([[r["provider"], r["label"], [[d["label"], d["value"]] for d in r["details"]]] for r in json.load(sys.stdin)]))'; }
 usage_panel_view() { ipc smoke readInstance panel vgs.ai-usage fullView; }
@@ -217,10 +217,10 @@ expect "the read changed no credential file" kept usage_credentials_kept
 usage_before_panel="$(usage_read_at)" || usage_before_panel=0
 expect_poll "the service is idle before the panel opens" idle usage_idle
 click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage from its widget failed"
-expect_poll "the widget opens its panel" '[["claude", "default", "", "max", [["five_hour", 42, "normal"], ["seven_day", 83, "warning"], ["seven_day_fable", 12, "normal"]]], ["codex", "default", "person@example.invalid", "plus", [["five_hour", 27, "normal"], ["seven_day", 64, "normal"]]]]' usage_panel_rows
+expect_poll "the widget opens its panel" '[["claude", "default", "", [["five_hour", 42, "normal"], ["seven_day", 83, "warning"], ["seven_day_fable", 12, "normal"]]], ["codex", "default", "person@example.invalid", [["five_hour", 27, "normal"], ["seven_day", 64, "normal"]]]]' usage_panel_rows
 expect_poll "the panel's reset times are the stand-ins'" matched usage_panel_resets
 expect "the full panel is selected by default" true usage_panel_view
-expect "the full panel carries provider details" '[["claude", "default", [["Extra usage", "$123.45 of $500.00"]]], ["codex", "default", [["Codex credits", "12345 available"]]]]' usage_panel_details
+expect "the full panel carries provider details" '[["claude", "default", [["Extra usage", "$123.45 of $500.00"]]], ["codex", "default", [["Codex credits", "12,345 available"]]]]' usage_panel_details
 summon_drawn panel vgs.ai-usage || fail "the panel never drew a frame"
 usage_panel_box() { ipc smoke instanceGeometry panel vgs.ai-usage | py_reply 'import json,sys; r=json.load(sys.stdin); print(r[2] > 0 and r[3] > 0)'; }
 expect "the panel has a size" True usage_panel_box
@@ -233,13 +233,13 @@ expect "the account choices list all read accounts" '["Claude Code \u00b7 defaul
 expect "choosing compact view is allowed" ok usage_apply_setting view '"compact"'
 click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage for compact view failed"
 expect_poll "the compact panel is selected" false usage_panel_view
-expect_poll "the compact panel still shows every limit" '[["claude", "default", "", "max", [["five_hour", 42, "normal"], ["seven_day", 83, "warning"], ["seven_day_fable", 12, "normal"]]], ["codex", "default", "person@example.invalid", "plus", [["five_hour", 27, "normal"], ["seven_day", 64, "normal"]]]]' usage_panel_rows
+expect_poll "the compact panel still shows every limit" '[["claude", "default", "", [["five_hour", 42, "normal"], ["seven_day", 83, "warning"], ["seven_day_fable", 12, "normal"]]], ["codex", "default", "person@example.invalid", [["five_hour", 27, "normal"], ["seven_day", 64, "normal"]]]]' usage_panel_rows
 expect "the compact panel hides" ok ipc shell hide panel vgs.ai-usage
 expect_poll "the compact panel is gone" absent usage_panel
 expect "hiding Codex by provider is allowed" ok usage_apply_setting showCodex false
 expect_poll "the widget recomputes without Codex" '[true, true, 83, "warning"]' usage_widget_state
 click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage with Codex filtered failed"
-expect_poll "the provider filter leaves Claude only" '[["claude", "default", "", "max", [["five_hour", 42, "normal"], ["seven_day", 83, "warning"], ["seven_day_fable", 12, "normal"]]]]' usage_panel_rows
+expect_poll "the provider filter leaves Claude only" '[["claude", "default", "", [["five_hour", 42, "normal"], ["seven_day", 83, "warning"], ["seven_day_fable", 12, "normal"]]]]' usage_panel_rows
 expect "the filtered panel hides" ok ipc shell hide panel vgs.ai-usage
 expect_poll "the filtered panel is gone" absent usage_panel
 expect "hiding the first offered account is allowed" ok usage_apply_setting hidden '[{"name":"item-1","account":""}]'
@@ -310,9 +310,9 @@ expect_poll "the widget keeps the stale share" '[true, true, 83, "warning"]' usa
 expect "the failed read changed no credential file" kept usage_credentials_kept
 # A helper copy that reads a failed request as 0 % fails that reading: its
 # service, rebuilt, first reads the figures, then the failure.
-usage_edit "$usage_helper" '    if (reply.status === 401 || reply.status === 403) return { state: "expired", plan };
-    if (reply.status !== 200) return failed("http-" + reply.status);' '    if (reply.status === 401 || reply.status === 403) return { state: "expired", plan };
-    if (reply.status !== 200) return { state: "ok", plan, windows: [{ name: "five_hour", usedPercent: 0, resetsAt: null }] };' || fail "the zero control's edit failed"
+usage_edit "$usage_helper" '    if (reply.status === 401 || reply.status === 403) return { state: "expired", email };
+    if (reply.status !== 200) return failed("http-" + reply.status);' '    if (reply.status === 401 || reply.status === 403) return { state: "expired", email };
+    if (reply.status !== 200) return { state: "ok", email, windows: [{ name: "five_hour", usedPercent: 0, resetsAt: null }] };' || fail "the zero control's edit failed"
 usage_mode relative
 rescan "the zero copy is scanned"
 usage_refresh "the zero copy's first read"

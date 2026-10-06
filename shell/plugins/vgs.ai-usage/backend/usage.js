@@ -4,13 +4,14 @@
 // core's account discovery finds, and optionally Vercel AI Gateway credits
 // from the keyring, through each provider's own sign-in or secret, and
 // prints one JSON line on stdout: { accounts: [{ id, provider, label, email,
-// plan, state, windows: [{ name, usedPercent, resetsAt }], credits, details }],
-// partial, gatewayKey }.
+// state, windows: [{ name, usedPercent, resetsAt }], credits, details }],
+// partial, gatewayKey }. email is the account's email address, or the login
+// where the provider gives no email (Copilot), else "".
 // state is ok, expired, signed-out, no-plan for a sign-in that has no plan
 // limits, or failed; a window the tool does not report is left out, never
 // read as 0. Diagnostics are lines of `ai-usage: <key>=<value>` pairs on
 // stderr. No token or reply body reaches either stream; of what the tools
-// report, only an account's email, plan, windows and credit totals do.
+// report, only an account's email, windows and credit totals do.
 // Nothing here writes or refreshes a credential file.
 "use strict";
 const fs = require("node:fs");
@@ -35,6 +36,11 @@ const SECRET_TOOL_MS = 5000;
 // The largest credential file and reply read; a larger one is refused.
 const MAX_BYTES = 64 * 1024;
 const MAX_LINE_BYTES = 1024 * 1024;
+// The largest Claude Code profile (.claude.json) read for the account's
+// email. Claude Code keeps per-project history in it, so it grows with use:
+// 147,884 bytes on the owner's ~/.nclaude/.claude.json (stat, 2026-10-06). A
+// larger one leaves the email unread.
+const PROFILE_MAX_BYTES = 4 * 1024 * 1024;
 // The accounts read in one run; past it the run is partial.
 const MAX_ACCOUNTS = 32;
 const CLIENT = Object.freeze({ name: "vgs_ai_usage", title: "VGS AI usage", version: "1" });
@@ -135,7 +141,7 @@ function claudeDetails(body) {
  * each { usedPercent, windowDurationMins, resetsAt } with resetsAt in Unix
  * seconds, named by their length: five_hour, seven_day or minutes_<n>, else
  * primary or secondary; and rateLimits.credits, a CreditsSnapshot. Returns
- * { windows, plan, details }, or null for a reply of another shape. Source:
+ * { windows, details }, or null for a reply of another shape. Source:
  * codex-rs/app-server-protocol/src/protocol/v2/account.rs,
  * GetAccountRateLimitsResponse, RateLimitSnapshot, RateLimitWindow and
  * CreditsSnapshot.
@@ -168,21 +174,21 @@ function codexWindows(result) {
             if (credits.balance !== null && credits.balance !== undefined) details.codexCredits.balance = credits.balance;
         }
     }
-    return { windows, plan: printable(snapshot.planType, 40) ? snapshot.planType : "", details };
+    return { windows, details };
 }
 
 /**
  * The credential file FILE inside the held directory FD, read once without
- * following a link: { kind: "absent" }, { kind: "file", text } or
- * { kind: "refused", reason }.
+ * following a link, refused past MAX bytes: { kind: "absent" },
+ * { kind: "file", text } or { kind: "refused", reason }.
  */
-function readHeld(Anchored, fd, file) {
+function readHeld(Anchored, fd, file, max = MAX_BYTES) {
     let handle;
     try {
         handle = fs.openSync(Anchored.child(fd, file), O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_NOCTTY);
         const stat = fs.fstatSync(handle);
         if (!stat.isFile()) return { kind: "refused", reason: "credentials-not-file" };
-        if (stat.size > MAX_BYTES) return { kind: "refused", reason: "credentials-size" };
+        if (stat.size > max) return { kind: "refused", reason: "credentials-size" };
         return { kind: "file", text: fs.readFileSync(handle, "utf8") };
     } catch (error) {
         if (error.code === "ENOENT") return { kind: "absent" };
@@ -215,12 +221,32 @@ function get(url, headers, deadlineMs) {
 }
 
 /**
+ * The email of the Claude Code profile `.claude.json` in PROFILE, its
+ * oauthAccount.emailAddress, read without following a link; "" when the
+ * file is absent, unreadable, too large or holds no email, since the email
+ * only names the account and never fails its read.
+ */
+function claudeEmail(Anchored, profile) {
+    const opened = Anchored.directory(profile);
+    if (opened.kind !== "directory") return "";
+    let file;
+    try { file = readHeld(Anchored, opened.fd, ".claude.json", PROFILE_MAX_BYTES); }
+    finally { fs.closeSync(opened.fd); }
+    if (file.kind !== "file") return "";
+    let account;
+    try { account = JSON.parse(file.text).oauthAccount; } catch { return ""; }
+    return plain(account) && printable(account.emailAddress, 120) ? account.emailAddress : "";
+}
+
+/**
  * The Claude Code account in DIRECTORY: its `.credentials.json`, read
  * without following a link and never written, then one GET of the usage
  * endpoint at ORIGIN with the access token. An expired token sends nothing
- * and reads expired, as does a token the endpoint refuses.
+ * and reads expired, as does a token the endpoint refuses. PROFILE is the
+ * folder whose `.claude.json` Claude Code reads for this account, which
+ * names its email.
  */
-async function readClaude(Anchored, directory, { origin = ORIGIN, now = Date.now(), deadlineMs = REQUEST_MS } = {}) {
+async function readClaude(Anchored, directory, { origin = ORIGIN, now = Date.now(), deadlineMs = REQUEST_MS, profile = directory } = {}) {
     const opened = Anchored.directory(directory);
     if (opened.kind === "absent") return { state: "signed-out" };
     if (opened.kind !== "directory") return failed("directory-" + opened.kind);
@@ -234,20 +260,20 @@ async function readClaude(Anchored, directory, { origin = ORIGIN, now = Date.now
     if (oauth === undefined) return { state: "signed-out" };
     if (!plain(oauth) || !printable(oauth.accessToken, 8192) || typeof oauth.expiresAt !== "number")
         return failed("credentials-shape");
-    const plan = printable(oauth.subscriptionType, 40) ? oauth.subscriptionType : "";
-    if (oauth.expiresAt <= now) return { state: "expired", plan };
+    const email = claudeEmail(Anchored, profile);
+    if (oauth.expiresAt <= now) return { state: "expired", email };
     const reply = await get(new URL(USAGE_PATH, origin), {
         authorization: "Bearer " + oauth.accessToken, "anthropic-beta": OAUTH_BETA, accept: "application/json"
     }, deadlineMs);
     if (reply.error) return failed(reply.error);
-    if (reply.status === 401 || reply.status === 403) return { state: "expired", plan };
+    if (reply.status === 401 || reply.status === 403) return { state: "expired", email };
     if (reply.status !== 200) return failed("http-" + reply.status);
     let body;
     try { body = JSON.parse(reply.body); } catch { return failed("reply-json"); }
     const windows = claudeWindows(body);
     const details = claudeDetails(body);
     if (windows === null || details === null) return failed("reply-shape");
-    return { state: "ok", plan, windows, details };
+    return { state: "ok", email, windows, details };
 }
 
 /**
@@ -310,12 +336,12 @@ async function readCodex(Anchored, directory, { command = "codex", deadlineMs = 
                 // Codex refuses the rate-limit read for any other
                 // (codex-rs/app-server/src/request_processors/account_processor.rs).
                 if (value.type !== "chatgpt") return finish({ state: "no-plan" });
-                account = { email: printable(value.email, 120) ? value.email : "", plan: printable(value.planType, 40) ? value.planType : "" };
+                account = { email: printable(value.email, 120) ? value.email : "" };
                 send({ id: 3, method: "account/rateLimits/read" });
             } else {
                 const read = codexWindows(message.result);
                 if (read === null) return finish(failed("codex-shape"));
-                finish({ state: "ok", email: account.email, plan: account.plan || read.plan, windows: read.windows, details: read.details });
+                finish({ state: "ok", email: account.email, windows: read.windows, details: read.details });
             }
         };
         child.stdout.on("data", chunk => {
@@ -406,24 +432,23 @@ async function copilotToken(config, host, login, secretTool, env) {
 
 function copilotCredits(body) {
     if (!plain(body)) return null;
-    const plan = printable(body.copilot_plan, 40) ? body.copilot_plan : "";
     const snap = plain(body.quota_snapshots) && plain(body.quota_snapshots.premium_interactions)
         ? body.quota_snapshots.premium_interactions : null;
-    if (snap === null) return { state: "ok", plan, windows: [], credits: null };
+    if (snap === null) return { state: "ok", windows: [], credits: null };
     const unit = (snap.token_based_billing ?? body.token_based_billing) === true ? "credits" : "requests";
     const resetsAt = resetTime(body.quota_reset_date_utc);
     if (resetsAt === undefined) return null;
     const details = {};
     if (resetsAt !== null) details.copilotRenewsAt = resetsAt;
-    if (snap.unlimited === true) return { state: "ok", plan, windows: [], credits: { unit, unlimited: true }, details };
+    if (snap.unlimited === true) return { state: "ok", windows: [], credits: { unit, unlimited: true }, details };
     const entitlement = snap.entitlement;
     const remaining = snap.remaining;
-    if (entitlement === 0) return { state: "ok", plan, windows: [], credits: { unit, granted: 0 }, details };
+    if (entitlement === 0) return { state: "ok", windows: [], credits: { unit, granted: 0 }, details };
     if (!Number.isFinite(entitlement) || entitlement < 0 || !Number.isFinite(remaining)) return null;
     const used = entitlement - Math.max(remaining, 0);
     const monthUsed = Number.isFinite(snap.credits_used) && snap.credits_used >= 0 ? snap.credits_used : null;
     if (monthUsed !== null) details.copilotMonthUsed = monthUsed;
-    return { state: "ok", plan, windows: [{ name: "credits", usedPercent: used * 100 / entitlement, resetsAt }],
+    return { state: "ok", windows: [{ name: "credits", usedPercent: used * 100 / entitlement, resetsAt }],
         credits: { unit, used, granted: entitlement, monthUsed }, details };
 }
 
@@ -449,7 +474,7 @@ async function readCopilot(Anchored, directory, { origin = COPILOT_ORIGIN, secre
         authorization: "token " + token.token, accept: "application/json", "user-agent": "vgs-ai-usage"
     }, deadlineMs);
     if (reply.error) return failed(reply.error);
-    if (reply.status === 401) return { state: "expired", plan: "" };
+    if (reply.status === 401) return { state: "expired" };
     if (reply.status !== 200) return failed("http-" + reply.status);
     let body;
     try { body = JSON.parse(reply.body); } catch { return failed("reply-json"); }
@@ -481,7 +506,7 @@ async function readGateway({ origin = GATEWAY_ORIGIN, secretTool = "secret-tool"
         authorization: "Bearer " + secret.token, accept: "application/json", "user-agent": "vgs-ai-usage"
     }, deadlineMs);
     const id = "gateway-" + crypto.createHash("sha256").update(GATEWAY_ACCOUNT).digest("hex").slice(0, 12);
-    const base = { id, provider: "gateway", label: "AI Gateway", email: "", plan: "", windows: [], credits: null, details: {} };
+    const base = { id, provider: "gateway", label: "AI Gateway", email: "", windows: [], credits: null, details: {} };
     if (reply.error) return { key: "present", account: { ...base, state: "failed", reason: reply.error } };
     if (reply.status === 401 || reply.status === 403) return { key: "present", account: { ...base, state: "expired" } };
     if (reply.status !== 200) return { key: "present", account: { ...base, state: "failed", reason: "http-" + reply.status } };
@@ -489,7 +514,7 @@ async function readGateway({ origin = GATEWAY_ORIGIN, secretTool = "secret-tool"
     try { body = JSON.parse(reply.body); } catch { return { key: "present", account: { ...base, state: "failed", reason: "reply-json" } }; }
     const credits = gatewayCredits(body);
     if (credits === null) return { key: "present", account: { ...base, state: "failed", reason: "reply-shape" } };
-    return { key: "present", account: { ...base, state: "ok", plan: "$" + credits.balance.toFixed(2) + " left",
+    return { key: "present", account: { ...base, state: "ok",
         windows: [{ name: "credits", usedPercent: credits.usedPercent, resetsAt: null }],
         details: { gateway: { balance: credits.balance, totalUsed: credits.totalUsed } } } };
 }
@@ -518,13 +543,16 @@ async function read(tree, env, { origin = ORIGIN, copilotOrigin = COPILOT_ORIGIN
     let partial = found.partial;
     if (folders.length > MAX_ACCOUNTS) partial ||= "account-limit";
     const accounts = await Promise.all(folders.slice(0, MAX_ACCOUNTS).map(async folder => {
-        const result = folder.provider === "claude" ? await readClaude(Anchored, folder.directory, { origin })
+        // Claude Code reads the default folder's profile from HOME and any
+        // other folder's from inside it.
+        const result = folder.provider === "claude" ? await readClaude(Anchored, folder.directory,
+            { origin, profile: folder.source === "default" ? home : folder.directory })
             : folder.provider === "copilot" ? await readCopilot(Anchored, folder.directory, { origin: copilotOrigin, secretTool, env })
             : await readCodex(Anchored, folder.directory, { env });
         const id = folder.provider + "-" + crypto.createHash("sha256").update(folder.directory).digest("hex").slice(0, 12);
         if (result.state === "failed") process.stderr.write("ai-usage: account=" + id + " failed=" + result.reason + "\n");
         return { id, provider: folder.provider, label: folder.label.slice(0, 60), email: result.email || "",
-            plan: result.plan || "", state: result.state, windows: result.windows || [], credits: result.credits || null, details: result.details || {} };
+            state: result.state, windows: result.windows || [], credits: result.credits || null, details: result.details || {} };
     }));
     let gatewayKey = null;
     if (gateway) {
