@@ -39,9 +39,10 @@ Item {
             MenuItem { id: wide; text: "An entry far wider than the menu's minimum width, with a shortcut"; shortcut: "Ctrl+Shift+W" }
         }
         Menu { id: nested
-            MenuItem { id: submenuEntry; text: "Accounts"; opensSubmenu: true; onTriggered: root.triggered = 10 }
+            MenuItem { id: submenuEntry; text: "Accounts"; opensSubmenu: true; checked: true; onTriggered: root.triggered = 10 }
             MenuItem { id: backEntry; text: "Back"; keepsOpen: true; onTriggered: root.triggered = 11 }
             MenuItem { id: leafEntry; text: "Quit"; onTriggered: root.triggered = 12 }
+            MenuItem { id: uncheckedSubmenu; text: "Devices"; opensSubmenu: true }
         }
         Menu { id: mid
             MenuItem { text: "Rescan every plugin"; iconName: "refresh-cw"; shortcut: "R" }
@@ -374,16 +375,19 @@ Item {
             nested.open();
             compare(chevron(submenuEntry).visible, true);
             compare(chevron(submenuEntry).x + chevron(submenuEntry).width, submenuEntry.width - submenuEntry.sidePadding - submenuEntry.barRoom, "the chevron ends a side padding before the bar");
-            compare(submenuEntry.rightPadding, submenuEntry.sidePadding + submenuEntry.barRoom + Theme.icon.size.sm + submenuEntry.spacing, "the chevron takes the check mark's room");
-            compare(submenuEntry.indicator.visible, false);
+            compare(uncheckedSubmenu.rightPadding, uncheckedSubmenu.sidePadding + uncheckedSubmenu.barRoom + Theme.icon.size.sm + uncheckedSubmenu.spacing, "the chevron takes the check mark's room");
+            compare(chevron(uncheckedSubmenu).visible, true);
+            compare(submenuEntry.indicator.visible, false, "a checked submenu entry draws its chevron, not its check mark");
             compare(chevron(backEntry).visible, false);
             compare(chevron(leafEntry).visible, false);
             submenuEntry.clicked();
             compare(root.triggered, 10);
             wait(50);
             compare(nested.opened, true, "a submenu entry's click leaves the menu open");
+            root.triggered = -1;
             nested.currentIndex = 0;
             nested.triggerCurrent();
+            compare(root.triggered, 10, "the key triggers the submenu entry");
             wait(50);
             compare(nested.opened, true, "a submenu entry's key leaves the menu open");
             backEntry.clicked();

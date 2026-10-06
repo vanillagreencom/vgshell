@@ -15,14 +15,18 @@ BarItem {
 
     property var trayItem: null
     property color tint: Theme.bar.foreground
+    // An app that quits takes its item away before the bar drops its icon;
+    // until then the icon draws nothing and takes no input.
+    readonly property bool live: trayItem !== null && trayItem !== undefined
     readonly property bool menuOpen: menuUi.item !== null && menuUi.item.opened
 
     function openMenu() {
-        if (!trayItem.hasMenu) return;
+        if (!live || !trayItem.hasMenu) return;
         menuUi.active = true;
         menuUi.item.open();
     }
 
+    enabled: live
     label: TrayLogic.labelOf(trayItem)
     tooltip: TrayLogic.tooltipOf(trayItem)
     onClicked: {
@@ -37,7 +41,7 @@ BarItem {
     }
 
     contentItem: TrayIcon {
-        source: root.trayItem.icon
+        source: root.live ? root.trayItem.icon : ""
         size: Theme.bar.item.icon
         tint: root.tint
     }

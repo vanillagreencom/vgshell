@@ -244,6 +244,7 @@ mutations=(
   "the check mark takes no room|overlay/MenuItem.qml|rightPadding: sidePadding + barRoom + (endMark ? Theme.icon.size.sm + spacing : 0)|rightPadding: sidePadding + barRoom|tst_overlays.qml"
   "a submenu's chevron takes no room|overlay/MenuItem.qml|readonly property bool endMark: checked ? true : opensSubmenu|readonly property bool endMark: checked|tst_overlays.qml"
   "a submenu entry draws no chevron|overlay/MenuItem.qml|visible: root.opensSubmenu|visible: false|tst_overlays.qml"
+  "a checked submenu entry draws its check mark over the chevron|overlay/MenuItem.qml|visible: root.checked && !root.opensSubmenu|visible: root.checked|tst_overlays.qml"
   "a menu entry's text runs under the bar|overlay/MenuItem.qml|rightPadding: sidePadding + barRoom + (|rightPadding: sidePadding + (|tst_overlays.qml"
   "a menu entry's check mark sits under the bar|overlay/MenuItem.qml|x: root.width - root.sidePadding - root.barRoom - width|x: root.width - root.sidePadding - width|tst_overlays.qml"
   "an overflowing menu leaves its entries no room for the bar|overlay/Menu.qml|scroll.overflowing ? Theme.scrollArea.gutter : 0|0|tst_overlays.qml"

@@ -4,8 +4,10 @@ import qs.Commons
 import qs.Ui
 import "TrayLogic.js" as TrayLogic
 
-// The tray in the bar: an arrow, the drawer of tray icons behind it and the
-// pinned icons after it, in the buckets TrayLogic.buckets gives. The drawer
+// The tray in the bar: the drawer of tray icons, an arrow and the pinned
+// icons, in the buckets TrayLogic.buckets gives. The drawer opens to the
+// arrow's left, away from it: the right section keeps its end fixed, so the
+// widget grows leftward and the arrow stays under the pointer. The drawer
 // opens while the pointer rests on the arrow or the drawer, and a click or
 // Enter on the arrow holds it open until the next one; it slides open and
 // shut over motion.duration.slow. The frame menu, a right click on the
@@ -17,12 +19,13 @@ BarWidget {
     id: widget
 
     readonly property var trayItems: SystemTray.items.values
-    readonly property var entries: trayItems.map(item => ({ id: item.id, passive: item.status === Status.Passive }))
+    readonly property var entries: trayItems.map(item => ({ id: item.id, passive: item.status === Status.Passive, item: item }))
     readonly property var offers: shell === null ? [] : (shell.status.values.items || [])
     readonly property string firstOffer: offers.length > 0 ? offers[0].value : ""
     readonly property var pinnedIds: TrayLogic.ids(setting("pinned", []), firstOffer)
     readonly property var hiddenIds: TrayLogic.ids(setting("hidden", []), firstOffer)
-    // Each bucket as a list of { id, index }, `index` into trayItems.
+    // Each bucket as a list of { id, index, item }, `item` the tray item
+    // itself, so a delegate never reads trayItems past an app that quit.
     readonly property var buckets: TrayLogic.buckets(entries, pinnedIds, hiddenIds)
     readonly property bool shown: buckets.pinned.length + buckets.drawer.length > 0
 
@@ -46,37 +49,24 @@ BarWidget {
     implicitHeight: barSize
     frameActions: [{ label: "Manage tray icons", action: () => Qt.callLater(manage.open) }]
 
-    function itemOf(row) { return widget.trayItems[row.index]; }
-
-    // The arrow and the drawer: the pointer resting anywhere on them keeps
-    // the drawer open.
+    // The drawer and the arrow: the pointer resting anywhere on them keeps
+    // the drawer open. The drawer's icons slide in from the arrow's side.
     Item {
         id: drawerArea
-        width: arrow.width + widget.revealExtent
+        width: widget.revealExtent + arrow.width
         height: parent.height
 
         HoverHandler { id: drawerHover }
 
-        BarItem {
-            id: arrow
-            anchors.verticalCenter: parent.verticalCenter
-            label: "Tray icons"
-            iconName: widget.expanded ? "chevron-right" : "chevron-left"
-            tone: widget.bar ? widget.bar.foreground : Theme.bar.foreground
-            active: widget.held
-            onClicked: widget.held = !widget.held
-        }
-
         Item {
             id: drawerClip
-            x: arrow.width
             width: widget.revealExtent
             height: parent.height
             clip: true
 
             Row {
                 id: drawerRow
-                x: Theme.bar.item.gap + widget.revealExtent - widget.drawerExtent
+                x: widget.revealExtent - widget.drawerExtent
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: Theme.bar.item.gap
 
@@ -84,13 +74,24 @@ BarWidget {
                     model: widget.buckets.drawer
                     TrayButton {
                         required property var modelData
-                        trayItem: widget.itemOf(modelData)
+                        trayItem: modelData.item
                         tint: widget.bar ? widget.bar.foreground : Theme.bar.foreground
                         onMenuOpenChanged: widget.drawerMenuOpen = menuOpen
                         Component.onDestruction: if (menuOpen) widget.drawerMenuOpen = false
                     }
                 }
             }
+        }
+
+        BarItem {
+            id: arrow
+            x: drawerClip.width
+            anchors.verticalCenter: parent.verticalCenter
+            label: "Tray icons"
+            iconName: widget.expanded ? "chevron-right" : "chevron-left"
+            tone: widget.bar ? widget.bar.foreground : Theme.bar.foreground
+            active: widget.held
+            onClicked: widget.held = !widget.held
         }
     }
 
@@ -104,7 +105,7 @@ BarWidget {
             model: widget.buckets.pinned
             TrayButton {
                 required property var modelData
-                trayItem: widget.itemOf(modelData)
+                trayItem: modelData.item
                 tint: widget.bar ? widget.bar.foreground : Theme.bar.foreground
             }
         }
@@ -127,10 +128,9 @@ BarWidget {
             model: widget.buckets.listed
             ManageRow {
                 required property var modelData
-                readonly property var trayItem: widget.itemOf(modelData)
                 width: parent.width
-                title: TrayLogic.labelOf(trayItem)
-                icon: trayItem.icon
+                title: TrayLogic.labelOf(modelData.item)
+                icon: modelData.item ? modelData.item.icon : ""
                 pinned: widget.pinnedIds.indexOf(modelData.id) !== -1
                 hidden: widget.hiddenIds.indexOf(modelData.id) !== -1
                 onPinToggled: widget.ask("pin", modelData.id)

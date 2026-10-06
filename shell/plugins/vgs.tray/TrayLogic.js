@@ -37,8 +37,8 @@ function ids(list, firstOffer) {
     return out;
 }
 
-// The buckets of the tray, each a list of { id, index }, `index` the item's
-// place in `entries`, in that order. A passive item, one the app says needs
+// The buckets of the tray, each a list of { id, index, item }, `index` the
+// item's place in `entries` and `item` the entry's own `item`, in that order. A passive item, one the app says needs
 // no attention, takes no bucket. Of the others, an id `hidden` names is
 // hidden, whatever `pinned` says; then an id `pinned` names is pinned; every
 // other item sits in the drawer. `listed` is every item that is not passive,
@@ -48,7 +48,7 @@ function buckets(entries, pinned, hidden) {
     for (var i = 0; i < entries.length; i++) {
         var entry = entries[i];
         if (entry.passive) continue;
-        var row = { id: entry.id, index: i };
+        var row = { id: entry.id, index: i, item: entry.item };
         out.listed.push(row);
         if (hidden.indexOf(entry.id) !== -1) out.hidden.push(row);
         else if (pinned.indexOf(entry.id) !== -1) out.pinned.push(row);
@@ -86,8 +86,9 @@ function toggle(kind, id, pinned, hidden, firstOffer) {
 
 // The name of an item, as the manage popup, its icon's label and the
 // Settings choices give it: its title, else its tooltip's title, else its
-// id after the last slash.
+// id after the last slash; "" for an item already gone.
 function labelOf(entry) {
+    entry = entry || {};
     var title = String(entry.title || "").trim();
     if (title !== "") return title;
     var tip = String(entry.tooltipTitle || "").trim();
@@ -97,8 +98,9 @@ function labelOf(entry) {
 }
 
 // The text of an item's tooltip: its tooltip's title, else its title, else
-// its id.
+// its id; "" for an item already gone.
 function tooltipOf(entry) {
+    entry = entry || {};
     return String(entry.tooltipTitle || entry.title || entry.id || "");
 }
 

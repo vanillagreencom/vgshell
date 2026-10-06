@@ -10,7 +10,10 @@ import "TrayLogic.js" as TrayLogic
 // opener per level, since a child entry belongs to its parent opener's
 // list and dies with it. A level below the root starts with a Back entry
 // named after the level above it. Any other entry is the app's action: its
-// trigger reaches the app and the menu closes. Closing destroys the
+// trigger reaches the app and the menu closes. A level change replaces the
+// rows under a pointer that has not moved, so for motion.duration.slow
+// after it every row's trigger is ignored and leaves the menu open: the
+// second click of a double click on a submenu entry reaches nothing. Closing destroys the
 // openers deepest first, then `closed` lets the owner release this item.
 Item {
     id: root
@@ -26,6 +29,7 @@ Item {
     // Whether the shown level's entries have taken the highlight, which a
     // level whose entries arrive after it opens gives them once they do.
     property bool settled: false
+    readonly property bool settling: settleTimer.running
 
     signal closed()
 
@@ -36,17 +40,22 @@ Item {
     }
 
     function enter(entry, title) {
+        if (settling) return;
         const opener = openerComponent.createObject(root, { menu: entry });
         if (opener === null) return;
+        menu.scrollArea.contentY = 0;
         levels = levels.concat([{ opener: opener, title: title }]);
+        settleTimer.restart();
         settled = false;
         Qt.callLater(settle);
     }
 
     function leave() {
-        if (levels.length === 0) return;
+        if (settling || levels.length === 0) return;
         const top = levels[levels.length - 1];
+        menu.scrollArea.contentY = 0;
         levels = levels.slice(0, -1);
+        settleTimer.restart();
         top.opener.destroy();
         settled = false;
         Qt.callLater(settle);
@@ -71,6 +80,11 @@ Item {
         settled = true;
         menu.currentIndex = -1;
         menu.keyTo(first);
+    }
+
+    Timer {
+        id: settleTimer
+        interval: Theme.motion.duration.slow
     }
 
     QsMenuOpener {
@@ -120,7 +134,9 @@ Item {
                 opacity: separator || modelData.enabled ? 1 : Theme.opacity.disabled
                 checked: modelData.checkState === Qt.Checked
                 opensSubmenu: !separator && modelData.hasChildren
+                keepsOpen: opensSubmenu || root.settling
                 onTriggered: {
+                    if (root.settling) return;
                     if (modelData.hasChildren) root.enter(modelData, modelData.text);
                     else modelData.triggered();
                 }

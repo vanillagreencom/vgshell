@@ -534,6 +534,7 @@ f share/vgshell/shell/plugins/vgs.themes/WallpaperState.qml
 f share/vgshell/shell/plugins/vgs.themes/WallpaperView.qml
 f share/vgshell/shell/plugins/vgs.themes/manifest.json
 f share/vgshell/shell/plugins/vgs.themes/tui/browser-policy.sh
+f share/vgshell/shell/plugins/vgs.tray/LICENSE
 f share/vgshell/shell/plugins/vgs.tray/ManageRow.qml
 f share/vgshell/shell/plugins/vgs.tray/Service.qml
 f share/vgshell/shell/plugins/vgs.tray/TrayButton.qml

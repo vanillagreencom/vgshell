@@ -35,6 +35,10 @@ function suite(logic) {
     // Each row carries its place in the tray, so two items of one id each
     // keep their own icon.
     assert.deepEqual(plain(logic.buckets([item("x"), item("x", { passive: true }), item("x")], [], [])).drawer, [{ id: "x", index: 0 }, { id: "x", index: 2 }]);
+    // Each row carries the entry's own item, which a delegate draws, so it
+    // never reads the tray's list past an app that quit.
+    const own = { name: "the tray item" };
+    assert.equal(logic.buckets([item("a", { item: own })], [], []).drawer[0].item, own);
 
     // A setting's ids: in order, each once, an empty item the first offer.
     assert.deepEqual(plain(logic.ids([{ name: "item-1", item: "b" }, { name: "item-2", item: "a" }, { name: "item-3", item: "b" }], "")), ["b", "a"]);
@@ -71,6 +75,9 @@ function suite(logic) {
     assert.equal(logic.tooltipOf(item("id", { title: "Title", tooltipTitle: "Tip" })), "Tip");
     assert.equal(logic.tooltipOf(item("id", { title: "Title" })), "Title");
     assert.equal(logic.tooltipOf(item("id")), "id");
+    // An item already gone reads as no name, not an error.
+    assert.equal(logic.labelOf(null), "");
+    assert.equal(logic.tooltipOf(undefined), "");
     for (const [icon, want] of [
         ["image://icon/network-wireless-symbolic", true],
         ["image://icon/audio-volume-high-symbolic?path=/opt/app/icons", true],
@@ -116,12 +123,13 @@ try {
         ["a new item takes a taken name", 'if (taken.indexOf("item-" + n) === -1) return "item-" + n;', 'return "item-" + (list.length + 1);'],
         ["an empty item names no offer", 'return id !== "" ? id : (firstOffer || "");', "return id;"],
         ["a choice repeats an id", "|| seen.indexOf(id) !== -1) continue;", ") continue;"],
-        ["the root keeps a leading separator", "return row.isSeparator === true && index <= 1;", "return false;"]
+        ["the root keeps a leading separator", "return row.isSeparator === true && index <= 1;", "return false;"],
+        ["a row drops its item", "var row = { id: entry.id, index: i, item: entry.item };", "var row = { id: entry.id, index: i };"]
     ]) {
         assert.equal(source.split(needle).length - 1, 1, name + " mutation must match once");
         const mutant = path.join(scratch, "TrayLogic.js");
         fs.writeFileSync(mutant, source.replace(needle, replacement));
-        assert.throws(() => suite(load(mutant)), undefined, "control: " + name);
+        assert.throws(() => suite(load(mutant)), assert.AssertionError, "control: " + name);
         console.log("tray-logic: control=" + name + " red");
     }
 } finally { fs.rmSync(scratch, { recursive: true, force: true }); }
