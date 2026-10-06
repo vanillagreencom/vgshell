@@ -2,10 +2,10 @@
 set -euo pipefail
 
 usage() {
-  echo "usage: vgshell-display-guard DEADLINE_EPOCH TOKEN HYPRLAND_INSTANCE RESTORE_LUA" >&2
+  echo "usage: vgshell-display-guard DEADLINE_EPOCH TOKEN HYPRLAND_INSTANCE RESTORE_LUA [RESTORE_JSON]" >&2
 }
 
-if [[ $# -ne 4 ]]; then
+if [[ $# -lt 4 || $# -gt 5 ]]; then
   usage
   exit 2
 fi
@@ -14,6 +14,7 @@ deadline=$1
 token=$2
 instance=$3
 restore_lua=$4
+restore_json=${5:-}
 
 if [[ ! $deadline =~ ^[0-9]+$ || -z $token || -z $instance || -z $restore_lua ]]; then
   usage
@@ -34,6 +35,29 @@ fi
 eval_status=0
 hyprctl --instance "$instance" eval "$restore_lua" >/dev/null || eval_status=$?
 read_status=0
-hyprctl --instance "$instance" -j monitors all >/dev/null || read_status=$?
-echo "display-guard: token=reverted path=$token eval=$eval_status read=$read_status"
+readback="$(hyprctl --instance "$instance" -j monitors all)" || read_status=$?
+match=unavailable
+if [[ $read_status -eq 0 && -n $restore_json ]]; then
+  if python3 - "$restore_json" "$readback" <<'PY'
+import json, math, sys
+want = json.loads(sys.argv[1])
+rows = json.loads(sys.argv[2])
+by_name = {row["name"]: row for row in rows}
+ok = True
+for name, rule in want.items():
+    row = by_name.get(name)
+    ok = ok and row is not None
+    ok = ok and row.get("disabled") == rule.get("disabled", row.get("disabled"))
+    mode = rule.get("mode")
+    if mode:
+        ok = ok and row.get("width") == mode.get("width") and row.get("height") == mode.get("height") and abs(row.get("refreshRate") - mode.get("refresh", 0)) <= 0.015
+    if "scale" in rule:
+        ok = ok and abs(row.get("scale") - rule["scale"]) <= 0.000001
+    if "transform" in rule:
+        ok = ok and row.get("transform") == rule["transform"]
+sys.exit(0 if ok else 1)
+PY
+  then match=match; else match=mismatch; fi
+fi
+echo "display-guard: token=reverted path=$token eval=$eval_status read=$read_status readback=$match"
 exit "$(( eval_status != 0 ? eval_status : read_status ))"

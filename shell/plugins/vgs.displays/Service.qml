@@ -67,6 +67,7 @@ Item {
     property var idleDisposer: null
 
     readonly property var outputs: shell === null ? null : shell.monitors.outputs
+    readonly property var trialState: shell === null ? ({ phase: "idle", token: "", deadline: 0, failure: "" }) : shell.monitors.trialState
     readonly property var steps: shell === null ? null : shell.system.state
     readonly property int systemRevision: shell === null ? 0 : shell.system.revision
     readonly property int requirementsRevision: shell === null ? 0 : shell.requirements.revision
@@ -104,6 +105,28 @@ Item {
         assignmentsFile.path = assignmentsPath;
         publish();
         requestList();
+    }
+
+    function trialRules(arg) {
+        let rules = {};
+        try { rules = JSON.parse(arg); } catch (e) { return "refused: trial=json"; }
+        return shell.monitors.trial(rules);
+    }
+
+    function keepTrial(arg) {
+        let request = {};
+        try { request = JSON.parse(arg); } catch (e) { return "refused: keep=json"; }
+        const reply = shell.monitors.keep(request.token);
+        if (reply !== "ok") return reply;
+        return shell.configure.set("outputs", request.rules);
+    }
+
+    function revertTrial(arg) {
+        return shell.monitors.revert(arg);
+    }
+
+    function clearRules() {
+        return shell.configure.set("outputs", {});
     }
 
     function publish() {

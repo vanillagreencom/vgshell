@@ -154,6 +154,7 @@ function suite(lib, check) {
         ["Lua text injection through an identifier", { "DP-1\"": { disabled: false } }, "refused: monitors.DP-1\" identifier refused"]
     ];
     for (const [name, rules, want] of ruleRefusals) check("rulesError refuses " + name, lib.rulesError(rules, outputs), want);
+    check("rulesError accepts a mode when Hyprland lists no modes", lib.rulesError({ "WAYLAND-1": { mode: { width: 1754, height: 932, refresh: 60 }, scale: 2 } }, nested.outputs), "");
 }
 
 suite(load(LOGIC), report);
@@ -177,7 +178,7 @@ const CONTROLS = [
     ["mirrorOf names the mirrored output", "out[j].mirrorOf = target[0].name;", "out[j].mirrorOf = out[j].mirrorOf;"],
     ["mirrorOf names an output", 'if (target.length !== 1) return { ok: false, error: "refused: outputs=shape output=" + j', 'if (false) return { ok: false, error: "refused: outputs=shape output=" + j']
     ,["fractional logical pixels accepted", "if (!scaleFits(normalized.mode, normalized.scale))", "if (false)"],
-    ["mode outside availableModes accepted", "if (!modes.some(function (mode) { return sameMode(mode, normalized.mode); }))", "if (false)"],
+    ["mode outside availableModes accepted", "if (modes.length > 0 && !modes.some(function (mode) { return sameMode(mode, normalized.mode); }))", "if (false)"],
     ["all outputs off accepted", "if (outputs.length > 0 && enabled === 0)", "if (false)"],
     ["Lua text injection through a field", "if (!OUTPUT_NAME.test(id)) return \"refused: \" + at + \" identifier refused\";", "if (false) return \"refused: \" + at + \" identifier refused\";"],
     ["restore missing a field", "scale: output.scale,", ""]

@@ -207,8 +207,8 @@ function rulesError(rules, outputs) {
             var output = outputByIdentifier(outputs, id);
             if (output === null) return "refused: " + at + " output=absent";
             var normalized = normalizedRule(output, rule);
-            var modes = output.availableModes.length === 0 ? [modeOf(output)] : output.availableModes;
-            if (!modes.some(function (mode) { return sameMode(mode, normalized.mode); }))
+            var modes = output.availableModes;
+            if (modes.length > 0 && !modes.some(function (mode) { return sameMode(mode, normalized.mode); }))
                 return "refused: " + at + ".mode unavailable";
             if (!scaleFits(normalized.mode, normalized.scale))
                 return "refused: " + at + ".scale fractional-logical-pixels";

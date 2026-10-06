@@ -13,7 +13,7 @@ cat >"$SCRATCH/bin/hyprctl" <<'SH'
 set -euo pipefail
 printf '%s\n' "$*" >>"$HYPRCTL_LOG"
 if [[ $* == *"monitors all"* ]]; then
-  printf '[]\n'
+  printf '[{"name":"DP-1","width":100,"height":100,"refreshRate":60,"scale":1,"transform":0,"disabled":false}]\n'
 else
   printf 'ok\n'
 fi
@@ -36,9 +36,10 @@ export HYPRCTL_LOG="$SCRATCH/hyprctl.log"
 
 : >"$SCRATCH/token"
 : >"$HYPRCTL_LOG"
-"$GUARD" "$(date +%s)" "$SCRATCH/token" "sig" 'hl.monitor({ output = "DP-1", scale = 1 })' >"$SCRATCH/revert.out"
+"$GUARD" "$(date +%s)" "$SCRATCH/token" "sig" 'hl.monitor({ output = "DP-1", scale = 1 })' '{"DP-1":{"scale":1}}' >"$SCRATCH/revert.out"
 check "deadline reverts" "$(wc -l <"$HYPRCTL_LOG")" "2"
 check "deadline log" "$(cut -d' ' -f1 <"$SCRATCH/revert.out")" "display-guard:"
+check "deadline readback compares" "$(grep -o 'readback=[^ ]*' "$SCRATCH/revert.out")" "readback=match"
 
 : >"$SCRATCH/token"
 mv -- "$SCRATCH/token" "$SCRATCH/token.keep"

@@ -27,6 +27,7 @@ Scope {
     property string ownerId: ""
     property var trialState: ({ phase: "idle", token: "", deadline: 0, failure: "" })
     property string restoreLua: ""
+    property var restoreRules: ({})
     property string trialLua: ""
     property string tokenPath: ""
     readonly property string trialDir: Paths.stateDir + "/display-trials"
@@ -90,6 +91,7 @@ Scope {
         tokenPath = trialDir + "/" + now + "-" + Math.floor(Math.random() * 1000000) + ".token";
         trialLua = trial.lua;
         restoreLua = restore.lua;
+        restoreRules = Monitors.captureRules(outputs, Object.keys(rules));
         trialState = { phase: "arming", token: tokenPath, deadline: now + 15, failure: "" };
         tokenInit.command = ["bash", "-c", "mkdir -p -- \"${1%/*}\" && : >\"$1\"", "vgs-display-token", tokenPath];
         tokenInit.running = true;
@@ -162,7 +164,7 @@ Scope {
                 root.trialState = { phase: "idle", token: "", deadline: 0, failure: "token=failed" };
                 return;
             }
-            guard.command = [root.guardPath, String(root.trialState.deadline), root.trialState.token, root.hyprlandSignature, root.restoreLua];
+            guard.command = [root.guardPath, String(root.trialState.deadline), root.trialState.token, root.hyprlandSignature, root.restoreLua, JSON.stringify(root.restoreRules)];
             guard.startDetached();
             root.trialState = { phase: "holding", token: root.trialState.token, deadline: root.trialState.deadline, failure: "" };
             Compositor.monitorEval(root.trialLua, answer => {

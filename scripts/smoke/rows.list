@@ -74,6 +74,7 @@ input-facts
 # plugin itself and disables it again.
 clipboard
 monitor-outputs
+displays-modes
 hold-shortcuts
 # After hold-shortcuts, over the same generated hold-bind path.
 voice
