@@ -55,12 +55,12 @@ Item {
         return null;
     }
     readonly property bool showsSettings: settingsHost !== null && settingsHost.settingsPage !== ""
-    readonly property real gearRoom: showsSettings ? gear.width + Theme.stack.inline : 0
+    readonly property real gearRoom: gear.item ? gear.item.width + Theme.stack.inline : 0
     // The header's width: the content width less the gear and its gap
     // while the gear shows.
     readonly property real headerWidth: Math.max(0, contentWidth - gearRoom)
     readonly property real bodyContentHeight: bodyColumn.implicitHeight
-    readonly property real headerHeight: Math.max(headerSlot.children.length > 0 ? headerSlot.implicitHeight : 0, showsSettings ? gear.height : 0)
+    readonly property real headerHeight: Math.max(headerSlot.children.length > 0 ? headerSlot.implicitHeight : 0, gear.item ? gear.item.height : 0)
     readonly property real footerHeight: footerSlot.children.length > 0 ? footerSlot.implicitHeight : 0
     readonly property bool contentBelowHeader: bodyContentHeight > 0 || footerHeight > 0
     readonly property real headerGap: headerHeight > 0 && contentBelowHeader ? gap : 0
@@ -154,16 +154,21 @@ Item {
         implicitWidth: root.slotWidth(headerSlot)
     }
 
-    // Declared after the header, so Tab reaches it before the body.
-    IconButton {
+    // Built only while it shows, so a pane without a Settings page holds no
+    // gear. Declared after the header, so Tab reaches it before the body.
+    // `x` reads the button's width, not the Loader's: a move resizes the
+    // Loader to its item, which fed its own `width` back into `x`.
+    Loader {
         id: gear
-        x: root.contentInset + root.contentWidth - width
+        x: root.contentInset + root.contentWidth - (item ? item.width : 0)
         y: root.contentInset
-        visible: root.showsSettings
-        size: "sm"
-        iconName: "settings"
-        label: "Settings"
-        onClicked: root.settingsHost.openSettingsPage()
+        active: root.showsSettings
+        sourceComponent: IconButton {
+            size: "sm"
+            iconName: "settings"
+            label: "Settings"
+            onClicked: root.settingsHost.openSettingsPage()
+        }
     }
 
     // The viewport starts `ringRoom` left of and above the content edge and

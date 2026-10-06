@@ -185,7 +185,8 @@ Item {
         function init() { UnitTheme.reset(); }
         function headerSlot(of) { return of.children[0]; }
         function scroll(of) { return of.scrollArea; }
-        function gear(of) { return of.children[1]; }
+        // The gear's Loader holds no item while the gear does not show.
+        function gear(of) { return of.children[1].item; }
         function footerSlot(of) { return of.children[3]; }
         function divider(of) { return of.children[4]; }
         function footerDivider(of) { return of.children[5]; }
@@ -405,12 +406,13 @@ Item {
             const host = settingsHost.createObject(root);
             const of = host.pane;
             const button = gear(of);
-            verify(button.visible, "the gear shows");
+            verify(button !== null && button.visible, "the gear shows");
             compare(of.headerWidth, of.contentWidth - 32);
             compare(headerSlot(of).width, of.headerWidth);
-            verify(button.x >= of.contentInset + of.headerWidth, "the gear sits after the header");
-            compare(button.x + button.width, of.contentInset + of.contentWidth);
-            compare(button.y, of.contentInset);
+            const at = button.mapToItem(of, 0, 0);
+            verify(at.x >= of.contentInset + of.headerWidth, "the gear sits after the header");
+            compare(at.x + button.width, of.contentInset + of.contentWidth);
+            compare(at.y, of.contentInset);
             verify((button.focusPolicy & Qt.TabFocus) !== 0, "the gear takes Tab");
             mouseClick(button);
             compare(host.opened, 1);
@@ -419,19 +421,19 @@ Item {
             compare(host.opened, 2);
             keyClick(Qt.Key_Return);
             compare(host.opened, 3);
-            verify(!gear(host.nested).visible, "a nested pane draws no gear");
+            compare(gear(host.nested), null, "a nested pane holds no gear");
             compare(host.nested.headerWidth, host.nested.contentWidth);
             host.destroy();
         }
 
-        // A host that names no page, and a pane with no host, draw no gear
+        // A host that names no page, and a pane with no host, hold no gear
         // and give the header the whole content width.
         function test_no_named_page_draws_no_gear() {
-            verify(!gear(pane).visible, "a pane with no host draws no gear");
+            compare(gear(pane), null, "a pane with no host holds no gear");
             compare(pane.headerWidth, pane.contentWidth);
             const host = settingsHost.createObject(root);
             host.settingsPage = "";
-            verify(!gear(host.pane).visible, "a host that names no page draws no gear");
+            compare(gear(host.pane), null, "a host that names no page holds no gear");
             compare(host.pane.headerWidth, host.pane.contentWidth);
             host.destroy();
         }
@@ -441,9 +443,11 @@ Item {
         function test_the_gear_keeps_its_row_without_a_header() {
             const host = settingsHost.createObject(root);
             const of = host.bare;
-            verify(gear(of).visible, "the gear shows");
+            verify(gear(of) !== null && gear(of).visible, "the gear shows");
             compare(of.headerHeight, gear(of).height);
-            verify(body(of).mapToItem(of, 0, 0).y >= gear(of).y + gear(of).height + of.gap, "the body starts below the gear");
+            // The body's column lays out on the next polish.
+            tryVerify(() => of.bodyContentHeight > 0, 1000, "the body is laid out");
+            verify(body(of).mapToItem(of, 0, 0).y >= gear(of).mapToItem(of, 0, 0).y + gear(of).height + of.gap, "the body starts below the gear");
             host.destroy();
         }
 
