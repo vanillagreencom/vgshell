@@ -7,11 +7,12 @@
 # and raises Restart to update without a plugin rescan. A rescan after that
 # change holds the manifest map, so the open panel keeps its old snapshot
 # and the unbuilt copy is refused with `refused: restart=owed`, not built
-# against the changed core. Restart is pressed only after the row proves
+# against the changed core; the notice that refusal owes waits while a
+# floating TUI run is live and shows once it ends. Restart is pressed only after the row proves
 # the notice belongs to the sandbox shell. The relaunched shell then builds
 # both panels from the changed core. Cleanup removes the fixtures and type
 # and starts the sandbox tree again.
-# inputs: scripts/smoke/fixtures/plugins/acme.drift/* bin/vgshell-scan bin/vgshell shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Hosts/PluginSlot.qml shell/Hosts/SummonHost.qml shell/Ui/qmldir scripts/smoke/rows/hyprland-consent.sh
+# inputs: scripts/smoke/fixtures/plugins/acme.drift/* bin/vgshell-scan bin/vgshell shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Core/TuiRunner.qml shell/Hosts/PluginSlot.qml shell/Hosts/SummonHost.qml shell/Ui/qmldir scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 drift="$home/.config/vgshell/plugins/acme.drift"
 drift_b="$home/.config/vgshell/plugins/acme.drift-b"
@@ -113,10 +114,21 @@ expect "the compiled panel hides again" ok ipc shell hide panel acme.drift
 
 # Acceptance: a never-compiled entry is refused before Qt.createComponent.
 # Must-fail control: the unchanged-core defect above proves the failed-load
-# counter can move when the engine is allowed to compile.
+# counter can move when the engine is allowed to compile. A floating TUI
+# run held live meanwhile holds the owed notice back, so it never comes up
+# in the middle of a setup flow; it shows once the run ends. The reading
+# while the run is live and the one after it are each other's control.
+hold_runs
+expect "a core TUI opens while the restart notice is closed" ok ipc shell openTui core/doctor
+expect_poll "the core TUI's run is live" busy key_idle core/doctor
 expect "the never-built panel is refused because restart is owed" "refused: restart=owed" ipc shell summon panel acme.drift-b '{}'
 expect "the refused first build adds no failed load" "$loads_after_control" log_lines 'plugins: acme\.drift failed to load: '
 expect "the refused first build raises the restart notice again" "$((owed_logs + 2))" log_lines 'notices: restart=owed'
+expect "the owed restart notice is held while a TUI run is live" true drift_owed
+expect "the held restart notice draws no dialog" absent ipc smoke noticeDrawn
+expect "the held restart notice maps no surface" 0 layer_count vgs:notice
+release_runs
+expect_run_end "the core TUI's run ends" core/doctor
 expect_poll "the restart notice is one surface again" 1 layer_count vgs:notice
 expect_poll "the restart notice holds the keyboard" true ipc smoke noticeFocused
 expect_poll "Restart holds the keyboard first" '"Restart"' drift_drawn focused

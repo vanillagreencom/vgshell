@@ -39,6 +39,11 @@ Scope {
     // lives: the shell's PATH need not hold it.
     readonly property string coreBin: Quickshell.shellDir + "/../bin"
 
+    // Whether any run is live: launching or running, as the busy keys
+    // read. Notices holds the restart notice while it is, so the notice
+    // never comes up in the middle of a setup flow.
+    readonly property bool live: Logic.tuiBusyKeys(recordStore.runs, pending.map(p => p.key)).length > 0
+
     // Every listed TUI: the core's and every enabled plugin's, as
     // PluginLogic.tuiEntries returns them.
     readonly property var entries: Logic.tuiEntries(Registry.manifests, enabledIds(), Logic.CORE_TUIS)

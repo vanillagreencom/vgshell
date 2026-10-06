@@ -72,7 +72,7 @@ Singleton {
     // What the restart notice draws, in the consent slot's form.
     readonly property var restartView: ({
         title: "Restart to update",
-        message: "VGS changed on disk. Plugins keep running as they are. New plugin windows wait for the restart. Open windows stay open.",
+        message: "New plugin windows open after the restart; open windows keep working.",
         lines: [],
         actions: [{ label: "Restart", role: "accept" }, { label: "Not now", role: "cancel" }],
         failure: "",
@@ -113,10 +113,14 @@ Singleton {
     property var afterScans: []
 
     readonly property var current: queue.length > 0 ? queue[0] : null
+    // Whether the restart notice waits: while a floating TUI run is live or
+    // a notice still owes a plugin's setup TUI (resumes), so it never comes
+    // up in the middle of a setup flow. The slots behind it wait with it.
+    readonly property bool restartHeld: Capabilities.tuis.live || Object.keys(resumes).length > 0
     // The restart notice shows behind every requirement notice, the reset
     // question behind it, the "VGS was reset" notice behind that, and the
     // consent slot last, so the welcome follows a reset's notice.
-    readonly property bool showingRestart: current === null && restart
+    readonly property bool showingRestart: current === null && restart && !restartHeld
     readonly property bool showingResetAsk: current === null && !restart && resetAsked
     readonly property bool showingResetDone: current === null && !restart && !resetAsked && resetBackup !== ""
     readonly property bool showingConsent: current === null && !restart && !resetAsked && resetBackup === "" && consent !== null
@@ -135,7 +139,7 @@ Singleton {
         return shown;
     }
     readonly property bool installing: current !== null && installingId === current.id
-    readonly property string shownId: current !== null ? current.id : restart ? "core-restart" : resetAsked ? "core-reset" : resetBackup !== "" ? "core-reset-done" : consent !== null ? "core-consent" : ""
+    readonly property string shownId: current !== null ? current.id : showingRestart ? "core-restart" : showingResetAsk ? "core-reset" : showingResetDone ? "core-reset-done" : showingConsent ? "core-consent" : ""
     // The consent slot's answer, `connect`, `decline` or `close`, which
     // HyprlandLayer acts on.
     signal consentAnswered(string answer)
