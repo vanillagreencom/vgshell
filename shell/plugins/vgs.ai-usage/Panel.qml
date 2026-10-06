@@ -98,17 +98,11 @@ Item {
                                     anchors.right: parent.right
                                     anchors.verticalCenter: parent.verticalCenter
                                     spacing: Theme.stack.inline
-                                    Row {
-                                        visible: modelData.reset !== ""
+                                    Label {
+                                        visible: text !== ""
                                         anchors.verticalCenter: parent.verticalCenter
-                                        spacing: Theme.row.lineGap
-                                        Icon {
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            name: "rotate-ccw"
-                                            size: Theme.icon.size.xs
-                                            color: Theme.text.hint.color
-                                        }
-                                        Label { anchors.verticalCenter: parent.verticalCenter; role: "hint"; text: modelData.reset }
+                                        role: "hint"
+                                        text: modelData.reset
                                     }
                                     Label {
                                         anchors.verticalCenter: parent.verticalCenter

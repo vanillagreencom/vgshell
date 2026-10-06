@@ -271,7 +271,7 @@ function resetIn(resetsAt, now) {
     return { kind: "in", days: Math.floor(minutes / 1440), hours: Math.floor(minutes / 60) % 24, minutes: minutes % 60 };
 }
 
-// The time left until a window resets, drawn after the reset icon: "" with
+// The time left until a window resets, drawn dim beside its share: "" with
 // no reset time, "now" once it has passed.
 function resetText(resetsAt, now) {
     var left = resetIn(resetsAt, now);
