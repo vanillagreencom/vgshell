@@ -178,9 +178,9 @@ tree_control always-changed bin/vgshell-hypr-judge 'changed = typeof next === "s
 INST_BIN="$THEME_BIN" inst "the always-changed mutant reports an unchanged unwire as a change" "$cfg" "$rt_empty" 0 "ok hypr=unwired path=$lua" "" hypr unwire
 tree_control state-always-wired bin/vgshell-hypr-judge 'render.wiredText(text, line, undefined) === null ? "wired" : "unwired"' 'true ? "wired" : "unwired"'
 INST_BIN="$THEME_BIN" inst "the state mutant reports an unwired file as wired" "$cfg" "$rt_empty" 0 "ok hypr=wired path=$lua" "" hypr state
-cfg="$tmp/cfg-binds"; cp -- "$tmp/binds-own" "$tmp/dot-binds/binds.lua"
+cp -- "$tmp/binds-own" "$tmp/dot-binds/binds.lua"
 tree_control binds-outside bin/vgshell-hypr-judge 'if (!State.bindFileEditable(target, path.join(path.resolve(configHome), "hypr")) || ' 'if ('
-INST_BIN="$THEME_BIN" inst "the unconfined mutant edits a file outside the hypr directory" "$cfg" "$rt_empty" 0 "$any_out" "" hypr remove-bind "$tmp/outside.lua" 1 SUPER+F7
+INST_BIN="$THEME_BIN" inst "the unconfined mutant edits a file outside the hypr directory" "$tmp/cfg-binds" "$rt_empty" 0 "$any_out" "" hypr remove-bind "$tmp/outside.lua" 1 SUPER+F7
 check "the unconfined mutant removes the outside line" test ! -s "$tmp/outside.lua"
 unset THEME_BIN
 # shellcheck disable=SC2016
