@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Templates as T
 import Quickshell
 import qs.Commons
 import qs.Ui
@@ -38,6 +39,13 @@ FocusScope {
     // Why the selected display may not be turned off, Logic.offBlock's key.
     readonly property string offBlock: selected === null ? "" : Logic.offBlock(outputs, outputRules, outputDraft, selectedOutput)
     readonly property var mirrorChoices: selected === null ? [] : Logic.mirrorChoices(outputs, outputRules, outputDraft, selectedOutput)
+    // What the selected display's panel takes, null while unread.
+    readonly property var selectedPanel: {
+        const support = shell === null ? null : shell.monitors.support;
+        return selected === null || support === null || support[selected.name] === undefined ? null : support[selected.name];
+    }
+    readonly property var selectedColour: selectedRule === null ? null : Logic.colourOf(selected, selectedRule)
+    readonly property var colourRows: selectedColour === null ? ({ mode: false, depth: false, hdr: false, vrr: false }) : Logic.colourRows(selectedRule, selectedPanel, selectedColour)
     readonly property var displayChoices: Logic.outputChoices(outputs)
     readonly property bool outputDirty: Object.keys(Logic.dirtyRules(outputDraft, outputRules)).length > 0
     readonly property var trialState: shell === null ? ({ phase: "idle", token: "", deadline: 0, failure: "" }) : shell.monitors.trialState
@@ -168,7 +176,7 @@ FocusScope {
             SectionHeader {
                 width: parent.width
                 text: "Display"
-                description: "Set the mode, scale and orientation of one screen."
+                description: "Set the mode, scale, orientation and colour of one screen."
             }
 
             Dialog {
@@ -353,6 +361,116 @@ FocusScope {
                     onActivated: index => {
                         root.setOutputDraft({ transform: model[index].value });
                         currentIndex = Qt.binding(() => root.selectedRule === null ? 0 : Logic.indexByValue(model, root.selectedRule.transform));
+                    }
+                }
+            }
+
+            FormRow {
+                width: parent.width
+                visible: root.colourRows.mode
+                label: "Colour mode"
+
+                Select {
+                    readonly property var choices: root.selectedColour === null ? [] : Logic.colourModeChoices(root.selectedPanel, root.selectedColour.cm)
+                    width: parent.width
+                    enabled: !root.trialHolding
+                    model: choices
+                    textRole: "label"
+                    currentIndex: root.selectedColour === null ? 0 : Logic.indexByValue(choices, root.selectedColour.cm)
+                    Accessible.name: "Colour mode"
+                    onActivated: index => {
+                        root.setOutputDraft({ cm: choices[index].value });
+                        currentIndex = Qt.binding(() => root.selectedColour === null ? 0 : Logic.indexByValue(choices, root.selectedColour.cm));
+                    }
+                }
+            }
+
+            Repeater {
+                model: root.colourRows.hdr ? Logic.SDR_LEVELS : []
+
+                FormRow {
+                    id: levelRow
+                    required property var modelData
+                    readonly property real level: root.selectedColour === null ? 1 : root.selectedColour[modelData.key]
+                    width: parent.width
+                    label: modelData.label
+
+                    Item {
+                        id: levelItem
+                        width: parent.width
+                        implicitHeight: Math.max(levelSlider.implicitHeight, levelValue.implicitHeight)
+
+                        // The binding comes back after a change, so the
+                        // draft is what shows.
+                        function commit() {
+                            const wanted = levelSlider.value;
+                            levelSlider.value = Qt.binding(() => levelRow.level);
+                            if (Math.abs(wanted - levelRow.level) > 0.0001) root.setOutputDraft({ [levelRow.modelData.key]: wanted });
+                        }
+
+                        Slider {
+                            id: levelSlider
+                            width: parent.width - levelValue.width - Theme.field.labelGap
+                            anchors.verticalCenter: parent.verticalCenter
+                            enabled: !root.trialHolding
+                            from: Logic.SDR_FROM
+                            to: Logic.SDR_TO
+                            stepSize: Logic.SDR_STEP
+                            snapMode: T.Slider.SnapAlways
+                            value: levelRow.level
+                            Accessible.name: levelRow.modelData.label
+                            onPressedChanged: if (!pressed) levelItem.commit()
+                            onMoved: if (!pressed) levelItem.commit()
+                        }
+
+                        Label {
+                            id: levelValue
+                            role: "label"
+                            text: Logic.levelText(levelSlider.value)
+                            width: Math.max(implicitWidth, Theme.size.control.md)
+                            horizontalAlignment: Text.AlignRight
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                    }
+                }
+            }
+
+            FormRow {
+                width: parent.width
+                visible: root.colourRows.depth
+                label: "Colour depth"
+
+                Select {
+                    width: parent.width
+                    enabled: !root.trialHolding
+                    model: Logic.DEPTH_CHOICES
+                    textRole: "label"
+                    currentIndex: root.selectedColour === null ? 0 : Logic.indexByValue(model, root.selectedColour.bitdepth)
+                    Accessible.name: "Colour depth"
+                    onActivated: index => {
+                        root.setOutputDraft({ bitdepth: model[index].value });
+                        currentIndex = Qt.binding(() => root.selectedColour === null ? 0 : Logic.indexByValue(model, root.selectedColour.bitdepth));
+                    }
+                }
+            }
+
+            FormRow {
+                width: parent.width
+                visible: root.colourRows.vrr
+                label: "Variable refresh rate"
+
+                Select {
+                    readonly property var choices: root.selectedColour === null ? Logic.VRR_CHOICES : Logic.vrrChoices(root.selectedColour.vrr)
+                    width: parent.width
+                    enabled: !root.trialHolding
+                    model: choices
+                    textRole: "label"
+                    currentIndex: root.selectedColour === null ? 0 : Logic.indexByValue(choices, root.selectedColour.vrr)
+                    Accessible.name: "Variable refresh rate"
+                    onActivated: index => {
+                        root.setOutputDraft({ vrr: choices[index].value });
+                        currentIndex = Qt.binding(() => root.selectedColour === null ? 0 : Logic.indexByValue(choices, root.selectedColour.vrr));
                     }
                 }
             }

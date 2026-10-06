@@ -9,6 +9,8 @@
 // answers.
 
 var OUTPUTS_REQUEST = ["hyprctl", "-j", "monitors", "all"];
+// The panel support: `systeminfo` has no JSON form in Hyprland 0.56.2.
+var SUPPORT_REQUEST = ["hyprctl", "systeminfo"];
 
 var AVAILABLE_MODE = /^([0-9]+)x([0-9]+)@([0-9]+\.[0-9]+)Hz$/;
 
@@ -40,10 +42,13 @@ function identifier(output) {
 // The reply to OUTPUTS_REQUEST as the capability's `outputs`: { ok: true,
 // outputs: [{ identifier, id, name, description, make, model, serial,
 // width, height, refreshRate, x, y, scale, transform, vrr, disabled,
-// mirrorOf, availableModes: [{ width, height, refresh }], currentFormat }] }
-// colorManagementPreset, sdrBrightness, sdrSaturation }] } in Hyprland's
-// order, `mirrorOf` the name of the output mirrored or null,
-// or { ok: false, error } with a keyed line.
+// mirrorOf, availableModes: [{ width, height, refresh }], currentFormat,
+// bitdepth, colorManagementPreset, sdrBrightness, sdrSaturation }] } in
+// Hyprland's order, `mirrorOf` the name of the output mirrored or null,
+// `bitdepth` 10 while Hyprland scans out a 10-bit format, else 8, or
+// { ok: false, error } with a keyed line. Hyprland names the formats it
+// sets XRGB2101010, XBGR2101010, XRGB8888 and XBGR8888, else Invalid
+// (formatToString in HyprCtl.cpp).
 function parseOutputs(text) {
     var list;
     try {
@@ -78,6 +83,7 @@ function parseOutputs(text) {
             identifier: "", id: m.id, name: m.name, description: m.description, make: m.make, model: m.model, serial: m.serial,
             width: m.width, height: m.height, refreshRate: m.refreshRate, x: m.x, y: m.y, scale: m.scale, transform: m.transform,
             vrr: m.vrr, disabled: m.disabled, mirrorOf: m.mirrorOf, availableModes: modes, currentFormat: m.currentFormat,
+            bitdepth: /2101010$/.test(m.currentFormat) ? 10 : 8,
             colorManagementPreset: m.colorManagementPreset, sdrBrightness: m.sdrBrightness, sdrSaturation: m.sdrSaturation
         });
     }
@@ -95,11 +101,77 @@ function parseOutputs(text) {
     return { ok: true, outputs: out };
 }
 
+// The colour modes Hyprland's `cm` takes (CMType.cpp), and what each needs
+// of the panel's EDID before Hyprland 0.56.2 shows it rather than sRGB
+// (CMonitor::applyMonitorRuleSoft): `edid` its chromaticity, `hdr` and
+// `hdredid` BT.2020 and HDR metadata, the rest BT.2020; `auto` is wide only
+// at 10 bits on such a panel.
+var COLOUR_MODES = ["auto", "srgb", "wide", "edid", "hdr", "hdredid", "dcip3", "dp3", "adobe"];
+var HDR_MODES = ["hdr", "hdredid"];
+
+function colourModes(panel) {
+    return COLOUR_MODES.filter(function (mode) {
+        if (mode === "srgb") return true;
+        if (mode === "edid") return panel.chroma;
+        if (HDR_MODES.indexOf(mode) !== -1) return panel.bt2020 && panel.hdr;
+        return panel.bt2020;
+    });
+}
+
+// The lines under each `Panel` line of `systeminfo`, in order: [field, the
+// line up to its mark]; a field of "" is read for its shape alone. Hyprland
+// 0.56.2 prints each mark as ✔️ or ❌ (SystemInfo::getSystemInfo).
+var PANEL_LINE = /^\tPanel (.+?): [0-9]+x[0-9]+, .* -> backend \S+$/;
+var PANEL_FIELDS = [["", "\t\texplicit "], ["", "\t\tedid:"], ["hdr", "\t\t\thdr "], ["chroma", "\t\t\tchroma "],
+    ["bt2020", "\t\t\tbt2020 "], ["vrr", "\t\tvrr capable "], ["", "\t\tnon-desktop "]];
+var MARKS = { "✔️": true, "❌": false };
+
+// The reply to SUPPORT_REQUEST as the capability's `support`: { ok: true,
+// support: { <output name>: { hdr, chroma, bt2020, vrr, colourModes } } },
+// `hdr` the EDID's HDR metadata, `chroma` its chromaticity, `bt2020` its
+// BT.2020 colorimetry, `vrr` whether the output takes adaptive sync, or
+// { ok: false, error } with a keyed line. Hyprland lists the outputs that
+// are on and mirror nothing, the list `hl.get_monitors()` reads.
+function parseSupport(text) {
+    var lines = String(text).split("\n");
+    var i = lines.indexOf("Monitor info:");
+    if (i === -1) return { ok: false, error: "refused: support=shape want=monitor-info" };
+    var support = {};
+    for (i += 1; i < lines.length; i++) {
+        if (lines[i].trim() === "") continue;
+        var panel = PANEL_LINE.exec(lines[i]);
+        if (panel === null) break;
+        var entry = {};
+        for (var k = 0; k < PANEL_FIELDS.length; k++) {
+            var line = lines[i + 1 + k];
+            var prefix = PANEL_FIELDS[k][1];
+            var name = PANEL_FIELDS[k][0] || prefix.trim().replace(/:$/, "");
+            var bad = { ok: false, error: "refused: support=shape panel=" + shown(panel[1]) + " line=" + name };
+            if (line === undefined || line.indexOf(prefix) !== 0) return bad;
+            var mark = line.slice(prefix.length);
+            if (prefix === "\t\tedid:" ? mark !== "" : !hasOwn(MARKS, mark)) return bad;
+            if (PANEL_FIELDS[k][0] !== "") entry[PANEL_FIELDS[k][0]] = MARKS[mark];
+        }
+        entry.colourModes = colourModes(entry);
+        support[panel[1]] = entry;
+        i += PANEL_FIELDS.length;
+    }
+    if (lines[i] !== "State:") return { ok: false, error: "refused: support=shape line=" + shown(i < lines.length ? lines[i] : "end") };
+    return { ok: true, support: support };
+}
+
 // `disabled` turns the output off; `mirror` names the output whose picture
 // it shows, by identifier or connector, as Hyprland's `mirror` selector
 // takes it. A rule that names an output sets both: an absent field means
-// on and not mirroring.
-var RULE_KEYS = ["mode", "position", "scale", "transform", "disabled", "mirror"];
+// on and not mirroring. `cm` is a colour mode, `bitdepth` 8 or 10, and
+// `sdrbrightness` and `sdrsaturation` the multipliers Hyprland applies to
+// SDR content on an HDR output; a rule that names `cm` sets both, an absent
+// one meaning Hyprland's 1. `vrr` is Hyprland's adaptive sync mode: 0 off,
+// 1 on, 2 for a full-screen window, 3 for a full-screen game or video
+// (MonitorRuleManager::ensureVRR). An absent colour field leaves Hyprland's.
+var RULE_KEYS = ["mode", "position", "scale", "transform", "disabled", "mirror", "cm", "bitdepth", "sdrbrightness", "sdrsaturation", "vrr"];
+var COLOUR_KEYS = ["cm", "bitdepth", "sdrbrightness", "sdrsaturation", "vrr"];
+var SDR_KEYS = ["sdrbrightness", "sdrsaturation"];
 var OUTPUT_NAME = /^[\x20\x21\x23-\x5b\x5d-\x7e]{1,512}$/;
 
 function modeOf(output) {
@@ -183,6 +255,40 @@ function ruleError(rule, at) {
     if (rule.transform !== undefined && (!Number.isInteger(rule.transform) || rule.transform < 0 || rule.transform > 7)) return at + ".transform must be 0-7";
     if (rule.disabled !== undefined && typeof rule.disabled !== "boolean") return at + ".disabled=shape want=boolean";
     if (rule.mirror !== undefined && (typeof rule.mirror !== "string" || !OUTPUT_NAME.test(rule.mirror))) return at + ".mirror=shape want=identifier";
+    return colourRuleError(rule, at);
+}
+
+// Hyprland's value parsers take any number for the SDR multipliers and use
+// one only above zero (CHyprRenderer's SDR settings); they apply only to an
+// HDR mode.
+function colourRuleError(rule, at) {
+    if (rule.cm !== undefined && COLOUR_MODES.indexOf(rule.cm) === -1) return at + ".cm=shape want=colour-mode";
+    if (rule.bitdepth !== undefined && rule.bitdepth !== 8 && rule.bitdepth !== 10) return at + ".bitdepth=shape want=8|10";
+    for (var k = 0; k < SDR_KEYS.length; k++) {
+        var value = rule[SDR_KEYS[k]];
+        if (value === undefined) continue;
+        if (typeof value !== "number" || !isFinite(value) || value <= 0) return at + "." + SDR_KEYS[k] + "=shape want=positive";
+        if (HDR_MODES.indexOf(rule.cm) === -1) return at + "." + SDR_KEYS[k] + "=outside-hdr";
+    }
+    if (rule.vrr !== undefined && [0, 1, 2, 3].indexOf(rule.vrr) === -1) return at + ".vrr=shape want=0-3";
+    return "";
+}
+
+// The colour of OUTPUT's rule against the panel SUPPORT lists: a colour
+// mode the panel offers and adaptive sync only where it takes it. Hyprland
+// lists no support for an output that is off or mirrors, and shows sRGB
+// and no adaptive sync where the panel lacks them, so such an output is
+// judged by Hyprland alone.
+function colourOutputError(rule, output, support, at) {
+    var needsMode = rule.cm !== undefined && rule.cm !== "srgb";
+    var needsVrr = rule.vrr !== undefined && rule.vrr !== 0;
+    if (!needsMode && !needsVrr) return "";
+    if (output.disabled || output.mirrorOf !== null) return "";
+    if (!isPlainObject(support)) return at + " support=unread";
+    if (!hasOwn(support, output.name)) return at + " support=absent";
+    var panel = support[output.name];
+    if (needsMode && panel.colourModes.indexOf(rule.cm) === -1) return at + ".cm=unsupported cm=" + rule.cm;
+    if (needsVrr && !panel.vrr) return at + ".vrr=unsupported";
     return "";
 }
 
@@ -236,8 +342,9 @@ function mirrorOutputError(rules, rule, output, outputs, at) {
 // Judge the saved or trial monitor RULES, keyed by output identifier. With
 // OUTPUTS, this also proves every mode is offered by that output, the scale
 // makes whole logical pixels, each mirror shows a listed output that stays
-// on, and at least one listed output stays on and mirrors nothing.
-function rulesError(rules, outputs) {
+// on, at least one listed output stays on and mirrors nothing, and each
+// colour field fits the panel SUPPORT lists.
+function rulesError(rules, outputs, support) {
     if (!isPlainObject(rules)) return "refused: monitors=shape want=object";
     var ids = Object.keys(rules);
     for (var i = 0; i < ids.length; i++) {
@@ -262,6 +369,8 @@ function rulesError(rules, outputs) {
                 return "refused: " + at + ".scale fractional-logical-pixels";
             var badTarget = mirrorOutputError(rules, rule, output, outputs, at);
             if (badTarget !== "") return "refused: " + badTarget;
+            var badColour = colourOutputError(rule, output, support, at);
+            if (badColour !== "") return "refused: " + badColour;
         }
     }
     if (Array.isArray(outputs) && !outputs.some(function (output) { return staysOn(rules, output); })) return "refused: monitors.layout=all-off";
@@ -280,8 +389,8 @@ function sharesEdge(a, b) {
     return vertical || horizontal;
 }
 
-function layoutError(rules, outputs) {
-    var bad = rulesError(rules, outputs);
+function layoutError(rules, outputs, support) {
+    var bad = rulesError(rules, outputs, support);
     if (bad !== "") return bad;
     var rects = [];
     outputs.filter(function (output) { return staysOn(rules, output); }).forEach(function (output) {
@@ -335,6 +444,10 @@ function ruleFields(id, rule) {
     if (rule.position !== undefined) fields.push("position = " + luaString(positionText(rule.position)));
     if (rule.scale !== undefined) fields.push("scale = " + luaNumber(rule.scale));
     if (rule.transform !== undefined) fields.push("transform = " + rule.transform);
+    if (rule.cm !== undefined) fields.push("cm = " + luaString(rule.cm));
+    if (rule.bitdepth !== undefined) fields.push("bitdepth = " + luaNumber(rule.bitdepth));
+    SDR_KEYS.forEach(function (key) { if (rule[key] !== undefined) fields.push(key + " = " + luaNumber(rule[key])); });
+    if (rule.vrr !== undefined) fields.push("vrr = " + luaNumber(rule.vrr));
     return fields;
 }
 
@@ -350,11 +463,14 @@ function ruleLine(id, rule) {
     return monitorCall(fields);
 }
 
-// A trial or restore rule for ID: both fields written, so an eval undoes
-// the rule an earlier eval merged into, and no handler, since every eval
-// would add one. The judge has proved another output stays on.
+// A trial or restore rule for ID: `disabled` and `mirror` written, and the
+// SDR multipliers beside a `cm`, so an eval undoes the rule an earlier eval
+// merged into, and no handler, since every eval would add one. A restore
+// names every colour field its trial named. The judge has proved another
+// output stays on.
 function evalLine(id, rule) {
     var fields = ruleFields(id, rule);
+    if (rule.cm !== undefined) SDR_KEYS.forEach(function (key) { if (rule[key] === undefined) fields.push(key + " = 1"); });
     fields.push("disabled = " + (rule.disabled === true ? "true" : "false"));
     fields.push("mirror = " + (rule.mirror === undefined ? "\"\"" : luaString(rule.mirror)));
     return monitorCall(fields);
@@ -437,17 +553,18 @@ function rulesLines(rules) {
 // restore, restoreRules }, `kept` the set Keep saves, SAVED with RULES over
 // them, `restore` the Lua that puts back the outputs RULES name as OUTPUTS
 // list them, and the reload once none but FALLBACK is lit, or { ok: false,
-// error }. RULES are judged against the listed OUTPUTS and `kept` as the
-// settings write judges it, so a trial never shows what Keep cannot save.
-function trialPlan(saved, rules, outputs) {
-    var bad = layoutError(rules, outputs);
+// error }. RULES are judged against the listed OUTPUTS and the panel
+// SUPPORT, and `kept` as the settings write judges it, so a trial never
+// shows what Keep cannot save.
+function trialPlan(saved, rules, outputs, support) {
+    var bad = layoutError(rules, outputs, support);
     if (bad !== "") return { ok: false, error: bad };
     var kept = Object.assign({}, saved, rules);
     var badKept = rulesError(kept, null);
     if (badKept !== "") return { ok: false, error: badKept };
     var trial = rulesLua(rules);
     if (!trial.ok) return trial;
-    var restoreRules = captureRules(outputs, Object.keys(rules));
+    var restoreRules = captureRules(outputs, rules);
     var restore = rulesLua(restoreRules);
     if (!restore.ok) return restore;
     return { ok: true, lua: trial.lua, kept: kept, restore: restore.lua + "\n" + relightLines("").join("\n"), restoreRules: restoreRules };
@@ -466,9 +583,18 @@ function mirrorTarget(outputs, name) {
     return outputs.filter(function (output) { return output.identifier === target.identifier; }).length > 1 ? name : target.identifier;
 }
 
-function captureRules(outputs, ids) {
+function liveSdr(output) {
+    return { sdrbrightness: output.sdrBrightness, sdrsaturation: output.sdrSaturation };
+}
+
+// The outputs RULES name as OUTPUTS list them, by connector: each one's
+// mode, position, scale, orientation, off and mirror state, and each colour
+// field its rule names, so a restore sets back what the trial set and
+// leaves the rest as Hyprland holds it.
+function captureRules(outputs, rules) {
     var selected = {};
-    ids.forEach(function (id) {
+    Object.keys(rules).forEach(function (id) {
+        var named = rules[id];
         outputsByKey(outputs, id).forEach(function (output) {
             var rule = {
                 mode: modeOf(output),
@@ -479,10 +605,39 @@ function captureRules(outputs, ids) {
             if (output.width <= 0 || output.height <= 0) delete rule.mode;
             if (output.disabled) rule.disabled = true;
             if (output.mirrorOf !== null) rule.mirror = mirrorTarget(outputs, output.mirrorOf);
+            if (named.cm !== undefined) {
+                rule.cm = output.colorManagementPreset;
+                var live = liveSdr(output);
+                if (HDR_MODES.indexOf(rule.cm) !== -1) SDR_KEYS.forEach(function (key) { if (live[key] > 0) rule[key] = live[key]; });
+            }
+            if (named.bitdepth !== undefined) rule.bitdepth = output.bitdepth;
+            // Hyprland lists whether adaptive sync is on now, not the mode
+            // that set it, so a restore of a full-screen mode reads it as
+            // on or off until a reload reruns the layer.
+            if (named.vrr !== undefined) rule.vrr = output.vrr ? 1 : 0;
             selected[output.name] = rule;
         });
     });
     return selected;
+}
+
+// Whether the colour of OUTPUT, on and mirroring nothing, differs from the
+// fields RULE names. Hyprland lists the colour mode it shows, so a mode it
+// fell back from reads as changed; `auto` shows wide or sRGB. Adaptive sync
+// for a full-screen window turns on and off with the window, so modes 2
+// and 3 read as kept.
+function colourOverridden(rule, output) {
+    if (output.disabled || output.mirrorOf !== null) return false;
+    if (rule.cm !== undefined) {
+        var shows = rule.cm === "auto" ? ["wide", "srgb"] : [rule.cm];
+        if (shows.indexOf(output.colorManagementPreset) === -1) return true;
+        var live = liveSdr(output);
+        if (HDR_MODES.indexOf(rule.cm) !== -1 && SDR_KEYS.some(function (key) {
+            return Math.abs((rule[key] === undefined ? 1 : rule[key]) - live[key]) > 0.0001;
+        })) return true;
+    }
+    if (rule.bitdepth !== undefined && rule.bitdepth !== output.bitdepth) return true;
+    return (rule.vrr === 0 && output.vrr) || (rule.vrr === 1 && !output.vrr);
 }
 
 // Whether OUTPUT, as Hyprland lists it among OUTPUTS, differs from the saved
@@ -500,5 +655,6 @@ function overridden(rule, output, outputs) {
         || Math.abs(saved.scale - current.scale) > 0.000001
         || saved.transform !== current.transform
         || saved.position.x !== current.position.x
-        || saved.position.y !== current.position.y;
+        || saved.position.y !== current.position.y
+        || colourOverridden(rule, output);
 }

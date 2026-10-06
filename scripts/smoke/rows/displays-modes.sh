@@ -4,7 +4,9 @@
 # guard still reverts while the shell is stopped. A kept rule that turns
 # the main output off holds while the headless output stays on, the layer
 # turns the main output back on when that output goes, and a reload with
-# the main output alone leaves it on. The row uses WAYLAND-1, whose nested
+# the main output alone leaves it on. An sRGB colour rule goes through
+# trial, Keep and reload, and the judge refuses an HDR trial, since the
+# nested panel has no EDID. The row uses WAYLAND-1, whose nested
 # backend takes any mode and integer scale. The nested headless output
 # takes no mirror rule, so the unit rows alone hold Mirror. Each poll reads
 # every 0.2 s for up to 5 s.
@@ -15,6 +17,9 @@
 # rows: a rule that turns the main output off with no check, sent while it
 # is the only output, leaves it off, and the control reports the defect;
 # a reload of the layer turns it back on.
+# Control run on 2026-10-06, host cachy, through this row after the setup
+# rows: an HDR rule sent with no judge is answered ok, and Hyprland shows
+# sRGB in its place, the fallback the judge's refusal spares the user.
 # inputs: shell/plugins/vgs.displays/* shell/Core/MonitorState.qml shell/Core/MonitorLogic.js shell/Core/HyprlandLayer.js shell/Core/Dispatch.js shell/Core/Compositor.qml bin/vgshell-display-guard
 set -euo pipefail
 
@@ -81,6 +86,16 @@ import json, sys
 name, mode = sys.argv[1], sys.argv[2]
 w, h = map(int, mode.split("x"))
 print(json.dumps({name: {"mode": {"width": w, "height": h, "refresh": 60}, "position": {"x": 0, "y": 0}, "scale": 1, "transform": 0, "disabled": True}}))
+PY
+}
+preset_of() { hypr -j monitors all | py_reply 'import json,sys; rows=[m for m in json.load(sys.stdin) if m["name"]==sys.argv[1]]; print(rows[0]["colorManagementPreset"] if rows else "absent")' "$1"; }
+layer_sets_colour() { grep -q -F -- "cm = \"$1\"" "$hypr_layer" && echo yes || echo no; }
+colour_rule_json() {
+  python3 - "$1" "$2" "$3" <<'PY'
+import json, sys
+name, mode, cm = sys.argv[1], sys.argv[2], sys.argv[3]
+w, h = map(int, mode.split("x"))
+print(json.dumps({name: {"mode": {"width": w, "height": h, "refresh": 60}, "position": {"x": 0, "y": 0}, "scale": 1, "transform": 0, "cm": cm}}))
 PY
 }
 
@@ -190,6 +205,27 @@ expect "clearing the off rule is allowed" ok invoke_displays clearRules ""
 expect_poll "the layer drops the off rule" no layer_has_rule
 expect "reload drops the off rule" ok hypr reload config-only
 release_mode "display modes restores $output after the off rule" "$output" "$base" 1
+
+# Colour: the nested panel has no EDID, so sRGB is the one colour mode it
+# offers. An sRGB rule goes through trial, Keep and reload; an HDR trial is
+# refused before it reaches Hyprland.
+expect "the sRGB trial starts" ok invoke_displays trialRules "$(colour_rule_json "$output" "$base" srgb)"
+expect_poll "the sRGB trial holds" holding trial_phase
+token="$(token_of)"
+expect "Keep saves the sRGB rule" ok invoke_displays keepTrial "{\"token\":\"$token\",\"rules\":$(colour_rule_json "$output" "$base" srgb)}"
+expect_poll "the layer sets $output to sRGB" yes layer_sets_colour srgb
+expect "reload with the sRGB rule" ok hypr reload config-only
+expect_poll "$output shows sRGB after the reload" srgb preset_of "$output"
+expect "the judge refuses an HDR trial on a panel without HDR" "refused: monitors.$output.cm=unsupported cm=hdr" invoke_displays trialRules "{\"$output\":{\"cm\":\"hdr\"}}"
+expect "the refused HDR trial leaves the trial idle" idle trial_phase
+# Control: the same HDR rule with no judge is taken, and Hyprland shows
+# sRGB in its place with no error.
+expect "control: the unjudged HDR rule is sent" ok hypr eval "hl.monitor({ output = \"$output\", cm = \"hdr\" })"
+expect_poll "control: Hyprland answers ok to the unjudged HDR rule and still shows sRGB" srgb preset_of "$output"
+expect "clearing the sRGB rule is allowed" ok invoke_displays clearRules ""
+expect_poll "the layer drops the sRGB rule" no layer_has_rule
+expect "reload drops the sRGB rule" ok hypr reload config-only
+release_mode "display modes restores $output after the colour rule" "$output" "$base" 1
 
 cp -- "$sandbox/shell-before-displays-modes.json" "$user_config.next" && mv -T -- "$user_config.next" "$user_config"
 expect "disabling vgs.displays after display modes is allowed" ok ipc shell setPluginEnabled vgs.displays false

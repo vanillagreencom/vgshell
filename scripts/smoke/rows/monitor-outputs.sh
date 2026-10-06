@@ -1,8 +1,11 @@
 # The outputs a plugin reads through the `monitors` capability: Hyprland's
 # own list, read by the core while a plugin holds the capability and read
 # again after each `configreloaded`, compared with what the nested Hyprland
-# answers hyprctl. The capability hands a plugin `outputs` and nothing
-# else. The row reads the Hyprland layer before any saved display rule and
+# answers hyprctl. The capability hands a plugin `outputs`, the panel
+# `support` `hyprctl systeminfo` prints, and to the owner of
+# `hyprland.monitors` alone the trial calls. The nested WAYLAND-1 has no
+# EDID and takes no adaptive sync, so its support reads all false and
+# offers sRGB alone. The row reads the Hyprland layer before any saved display rule and
 # finds no `hl.monitor` call (docs/architecture/hyprland.md). The row runs on the first nested
 # output alone, WAYLAND-1, which takes any mode and lists none.
 #
@@ -45,13 +48,15 @@ output_read() { read_monitors outputs | py_reply 'import json,sys; m=[o for o in
 # `outputs` hold, each as a JSON list in Hyprland's order.
 listed_names() { hypr -j monitors all | py_reply 'import json,sys; print(json.dumps([o["name"] for o in json.load(sys.stdin)]))'; }
 read_names() { read_monitors outputs | py_reply 'import json,sys; print(json.dumps([o["name"] for o in json.load(sys.stdin)]))'; }
+# The fixture's `support` entry for output NAME, its flags and modes.
+support_read() { read_monitors support | py_reply 'import json,sys; s=json.load(sys.stdin) or {}; e=s.get(sys.argv[1]); print("absent" if e is None else "hdr=%s chroma=%s bt2020=%s vrr=%s modes=%s" % (e["hdr"], e["chroma"], e["bt2020"], e["vrr"], ",".join(e["colourModes"])))' "$1"; }
 read_identifiers() { read_monitors outputs | py_reply 'import json,sys; print(json.dumps([o["identifier"] for o in json.load(sys.stdin)]))'; }
 
 rescan "rescan discovers the monitors fixture"
 expect_poll "the monitors fixture is known" True plugin_known acme.monitors
 expect "enabling the monitors fixture is allowed" ok ipc shell setPluginEnabled acme.monitors true
 expect_poll "the monitors fixture builds" True record_exists acme.monitors
-expect_poll "the fixture reads back the exact monitors members it was given" '"keep,outputs,overridden,revert,trial,trialState"' read_monitors members
+expect_poll "the fixture reads back the exact monitors members it was given" '"keep,outputs,overridden,revert,support,trial,trialState"' read_monitors members
 expect_poll "the core reads the outputs while a plugin holds monitors" true reads_active
 
 if ! outputs_names="$(listed_names)" || ! outputs_first="$(first_name)" || ! outputs_base="$(unscaled_mode_of "$outputs_first")" || ! outputs_double="$(hidpi_mode_of "$outputs_first")"; then
@@ -61,6 +66,7 @@ else
   # The nested outputs carry no serial, so each is named by its connector.
   expect "an output with no serial is identified by its connector" "$outputs_names" read_identifiers
   expect_poll "the fixture's outputs list $outputs_first at its own mode" "$outputs_base scale=1" output_read "$outputs_first"
+  expect_poll "the fixture's support reads $outputs_first with no EDID and no adaptive sync" "hdr=False chroma=False bt2020=False vrr=False modes=srgb" support_read "$outputs_first"
 
   hold_mode "the nested compositor holds $outputs_first at double its mode and scale 2" "$outputs_first" "$outputs_double" 2
   if [[ ${#mode_hold[@]} -gt 0 ]]; then

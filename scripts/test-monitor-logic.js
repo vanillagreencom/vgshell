@@ -95,6 +95,25 @@ const DESK = [
     monitor(2, "eDP-1", { make: "BOE", model: "0x0BCA", disabled: true, availableModes: ["2880x1800@120.00Hz", "2880x1800@60.00Hz"], width: 2880, height: 1800 })
 ];
 
+// The tail of the reply `hyprctl systeminfo` printed in the nested sandbox
+// of scripts/qml-smoke.sh on host cachy on 2026-10-06: the Wayland
+// backend's output, with no make, model or serial and no EDID.
+const NESTED_SYSTEMINFO = "plugins:\n\nExplicit sync: supported\nGL ver: 3.2\nBackend: sessionless\n\nMonitor info:\n"
+    + "\tPanel WAYLAND-1: 1755x933, WAYLAND-1    -> backend wayland\n\t\texplicit \u274c\n\t\tedid:\n\t\t\thdr \u274c\n\t\t\tchroma \u274c\n"
+    + "\t\t\tbt2020 \u274c\n\t\tvrr capable \u274c\n\t\tnon-desktop \u274c\n\t\t\n\nState:\n\nconfigProvider: lua\nbackend: wayland\n\n\n";
+
+// `hyprctl systeminfo` as SystemInfo::getSystemInfo prints it: the head
+// cut short, each panel block, then the state section. A panel is
+// [name, { hdr, chroma, bt2020, vrr }].
+const MARK = { true: "\u2714\ufe0f", false: "\u274c" };
+const panelBlock = ([name, f]) => "\n\tPanel " + name + ": 3840x2160, " + name + " Dell Inc. DELL U2720Q 8YT0R13 -> backend drm"
+    + "\n\t\texplicit " + MARK[true] + "\n\t\tedid:\n\t\t\thdr " + MARK[f.hdr] + "\n\t\t\tchroma " + MARK[f.chroma]
+    + "\n\t\t\tbt2020 " + MARK[f.bt2020] + "\n\t\tvrr capable " + MARK[f.vrr] + "\n\t\tnon-desktop " + MARK[false] + "\n\t\t";
+const systeminfo = panels => "Hyprland 0.56.2 built from branch main\n\nSystem Information:\nSystem name: Linux\n\nGPU information: \n00:02.0 VGA\n\n"
+    + "plugins:\n\nExplicit sync: supported\nGL ver: 3.2\nBackend: drm\n\nMonitor info:" + panels.map(panelBlock).join("") + "\n\nState:\nconfigProvider: lua\nbackend: drm\n\n";
+const ALL = { hdr: true, chroma: true, bt2020: true, vrr: true };
+const NONE = { hdr: false, chroma: false, bt2020: false, vrr: false };
+
 // The stub world: `reload` clears the handlers, lists OUTPUTS and runs the
 // layer text as Hyprland runs the file; `list` changes what
 // `hl.get_monitors()` answers; `fire` calls each handler of an event;
@@ -140,8 +159,8 @@ function suite(lib, check) {
     const nested = lib.parseOutputs(NESTED_REPLY);
     check("parseOutputs: the nested reply", nested, { ok: true, outputs: [{
         identifier: "WAYLAND-1", id: 0, name: "WAYLAND-1", description: "", make: "", model: "", serial: "", width: 1756, height: 933,
-        refreshRate: 60, x: 0, y: 0, scale: 1, transform: 0,         vrr: false, disabled: false, mirrorOf: null, availableModes: [], currentFormat: "XRGB8888",
-        colorManagementPreset: "srgb", sdrBrightness: 1, sdrSaturation: 1
+        refreshRate: 60, x: 0, y: 0, scale: 1, transform: 0, vrr: false, disabled: false, mirrorOf: null, availableModes: [], currentFormat: "XRGB8888",
+        bitdepth: 8, colorManagementPreset: "srgb", sdrBrightness: 1, sdrSaturation: 1
     }] });
     const desk = lib.parseOutputs(reply(DESK));
     check("parseOutputs: a mode list parsed to numbers", desk.ok ? desk.outputs[1].availableModes : desk, [{ width: 3840, height: 2160, refresh: 60 }]);
@@ -188,9 +207,9 @@ function suite(lib, check) {
         'hl.monitor({ output = "DP-2", mode = "3840x2160@60", position = "2560x0", scale = 2, transform = 1 })',
         'hl.monitor({ output = "desc:Dell Inc. DELL U2720Q 8YT0R13", mode = "3840x2160@60", position = "0x0", scale = 1.5, transform = 0 })'
     ] });
-    check("captureRules records explicit restore fields", lib.captureRules(outputs, ["DP-2"]), { "DP-2": { mode: { width: 3840, height: 2160, refresh: 59.997 }, position: { x: 2560, y: 0 }, scale: 2, transform: 0 } });
+    check("captureRules records explicit restore fields", lib.captureRules(outputs, { "DP-2": {} }), { "DP-2": { mode: { width: 3840, height: 2160, refresh: 59.997 }, position: { x: 2560, y: 0 }, scale: 2, transform: 0 } });
     check("overridden: live output differs from saved rule", lib.overridden({ scale: 1 }, outputs[1], outputs), true);
-    check("overridden: live output equals saved rule within refresh tolerance", lib.overridden(lib.captureRules(outputs, ["DP-2"])["DP-2"], outputs[1], outputs), false);
+    check("overridden: live output equals saved rule within refresh tolerance", lib.overridden(lib.captureRules(outputs, { "DP-2": {} })["DP-2"], outputs[1], outputs), false);
     const ruleRefusals = [
         ["mode outside availableModes", { "DP-2": { mode: { width: 1920, height: 1080, refresh: 60 } } }, "refused: monitors.DP-2.mode unavailable"],
         ["fractional logical pixels", { "DP-2": { mode: { width: 3840, height: 2160, refresh: 60 }, scale: 1.3 } }, "refused: monitors.DP-2.scale fractional-logical-pixels"],
@@ -207,7 +226,7 @@ function suite(lib, check) {
     check("layoutError ignores an unsized nested headless output", lib.layoutError({ "DP-2": { position: { x: 2560, y: 0 } } },
         outputs.concat(lib.parseOutputs(reply([monitor(3, "SMOKE-DISPLAYS-MODES", { width: 0, height: 0 })])).outputs)), "");
     check("logicalRect swaps rotated sides", lib.logicalRect({ mode: { width: 100, height: 50, refresh: 60 }, position: { x: 0, y: 0 }, scale: 1, transform: 1 }), { x: 0, y: 0, width: 50, height: 100 });
-    check("captureRules can capture tiled connectors separately", lib.captureRules(tiled, ["DP-1", "DP-5"]), { "DP-1": { mode: { width: 3840, height: 2160, refresh: 59.997 }, position: { x: 0, y: 0 }, scale: 1.5, transform: 0 }, "DP-5": { mode: { width: 3840, height: 2160, refresh: 59.997 }, position: { x: 3840, y: 0 }, scale: 1.5, transform: 0 } });
+    check("captureRules can capture tiled connectors separately", lib.captureRules(tiled, { "DP-1": {}, "DP-5": {} }), { "DP-1": { mode: { width: 3840, height: 2160, refresh: 59.997 }, position: { x: 0, y: 0 }, scale: 1.5, transform: 0 }, "DP-5": { mode: { width: 3840, height: 2160, refresh: 59.997 }, position: { x: 3840, y: 0 }, scale: 1.5, transform: 0 } });
     // Turning an output off and mirroring one, judged without outputs.
     // rows: [name, rules, refusal]
     const DELL = "desc:Dell Inc. DELL U2720Q 8YT0R13";
@@ -300,8 +319,8 @@ function suite(lib, check) {
         lib.trialPlan({ "DP-1": { mirror: "eDP-1" } }, offPanel, office), { ok: false, error: "refused: monitors.DP-1.mirror=target-off target=eDP-1" });
     const plan = lib.trialPlan({ "HDMI-A-1": { scale: 2 }, "eDP-1": { scale: 1.5 } }, offPanel, office);
     check("trialPlan keeps the saved rules under the trial's", [plan.ok, plan.lua, plan.kept, plan.restoreRules],
-        [true, lib.rulesLua(offPanel).lua, { "HDMI-A-1": { scale: 2 }, "eDP-1": { disabled: true } }, lib.captureRules(office, ["eDP-1"])]);
-    check("trialPlan's restore starts with the captured rules", plan.restore.indexOf(lib.rulesLua(lib.captureRules(office, ["eDP-1"])).lua + "\n"), 0);
+        [true, lib.rulesLua(offPanel).lua, { "HDMI-A-1": { scale: 2 }, "eDP-1": { disabled: true } }, lib.captureRules(office, { "eDP-1": {} })]);
+    check("trialPlan's restore starts with the captured rules", plan.restore.indexOf(lib.rulesLua(lib.captureRules(office, { "eDP-1": {} })).lua + "\n"), 0);
     // The restore, run under Lua after the trial's outputs change.
     // rows: [name, outputs lit once the restore's pass ends, events]
     const restoreRows = [
@@ -311,12 +330,12 @@ function suite(lib, check) {
     for (const [name, lit, want] of restoreRows) check("restore: " + name, luaEvents([plan.restore], [["reload", lit], ["tick"]]), want);
     check("trialPlan judges the trial against the outputs first", lib.trialPlan({}, { "eDP-1": { disabled: true }, "HDMI-A-1": { disabled: true } }, office),
         { ok: false, error: "refused: monitors.layout=all-off" });
-    check("captureRules records an output that is off", lib.captureRules(outputs, ["eDP-1"]),
+    check("captureRules records an output that is off", lib.captureRules(outputs, { "eDP-1": {} }),
         { "eDP-1": { mode: { width: 2880, height: 1800, refresh: 59.997 }, position: { x: 0, y: 0 }, scale: 1.5, transform: 0, disabled: true } });
-    check("captureRules records a mirror by the target's identifier", lib.captureRules(mirroring, ["DP-2"])["DP-2"].mirror, DELL);
+    check("captureRules records a mirror by the target's identifier", lib.captureRules(mirroring, { "DP-2": {} })["DP-2"].mirror, DELL);
     check("captureRules records a mirror of a tiled member by connector",
-        lib.captureRules(lib.parseOutputs(reply([DESK[0], monitor(3, "DP-5", { make: "Dell, Inc.", serial: "8YT0R13", x: 3840 }), monitor(4, "HDMI-A-1", { mirrorOf: "3" })])).outputs, ["HDMI-A-1"])["HDMI-A-1"].mirror, "DP-5");
-    check("captureRules records no field for an output on", Object.keys(lib.captureRules(outputs, ["DP-2"])["DP-2"]), ["mode", "position", "scale", "transform"]);
+        lib.captureRules(lib.parseOutputs(reply([DESK[0], monitor(3, "DP-5", { make: "Dell, Inc.", serial: "8YT0R13", x: 3840 }), monitor(4, "HDMI-A-1", { mirrorOf: "3" })])).outputs, { "HDMI-A-1": {} })["HDMI-A-1"].mirror, "DP-5");
+    check("captureRules records no field for an output on", Object.keys(lib.captureRules(outputs, { "DP-2": {} })["DP-2"]), ["mode", "position", "scale", "transform"]);
     // rows: [name, rule, output index, outputs, overridden]
     const overrides = [
         ["a rule that turns an output off while another is on", { disabled: true }, 1, outputs, true],
@@ -333,8 +352,131 @@ function suite(lib, check) {
         const current = { mode: { width: live.width, height: live.height, refresh: live.refreshRate }, position: { x: live.x, y: live.y }, scale: live.scale, transform: live.transform };
         check("overridden: " + name, lib.overridden(Object.assign(current, rule), live, list), want);
     }
-    check("captureRules skips an invalid mode for an unsized nested headless output", lib.captureRules(lib.parseOutputs(reply([monitor(3, "SMOKE-DISPLAYS-MODES", { width: 0, height: 0 })])).outputs, ["SMOKE-DISPLAYS-MODES"]),
+    check("captureRules skips an invalid mode for an unsized nested headless output", lib.captureRules(lib.parseOutputs(reply([monitor(3, "SMOKE-DISPLAYS-MODES", { width: 0, height: 0 })])).outputs, { "SMOKE-DISPLAYS-MODES": {} }),
         { "SMOKE-DISPLAYS-MODES": { position: { x: 0, y: 0 }, scale: 1.5, transform: 0 } });
+
+    colourSuite(lib, check, outputs);
+}
+
+// Colour mode, depth, HDR levels and variable refresh rate.
+function colourSuite(lib, check, outputs) {
+    check("support request", lib.SUPPORT_REQUEST, ["hyprctl", "systeminfo"]);
+    // rows: [name, panels, support]
+    const reads = [
+        ["a panel that takes everything", [["DP-1", ALL]], { "DP-1": { hdr: true, chroma: true, bt2020: true, vrr: true, colourModes: ["auto", "srgb", "wide", "edid", "hdr", "hdredid", "dcip3", "dp3", "adobe"] } }],
+        ["a panel that takes nothing", [["DP-1", NONE]], { "DP-1": { hdr: false, chroma: false, bt2020: false, vrr: false, colourModes: ["srgb"] } }],
+        ["two panels, each its own", [["DP-1", Object.assign({}, NONE, { chroma: true })], ["eDP-1", Object.assign({}, NONE, { vrr: true })]],
+            { "DP-1": { hdr: false, chroma: true, bt2020: false, vrr: false, colourModes: ["srgb", "edid"] }, "eDP-1": { hdr: false, chroma: false, bt2020: false, vrr: true, colourModes: ["srgb"] } }],
+        ["no panel", [], {}]
+    ];
+    for (const [name, panels, want] of reads) check("parseSupport: " + name, lib.parseSupport(systeminfo(panels)), { ok: true, support: want });
+    check("parseSupport: the nested reply", lib.parseSupport(NESTED_SYSTEMINFO), { ok: true, support: { "WAYLAND-1": { hdr: false, chroma: false, bt2020: false, vrr: false, colourModes: ["srgb"] } } });
+    const full = systeminfo([["DP-1", ALL]]);
+    // rows: [name, text, refusal]
+    const supportRefusals = [
+        ["a panel missing a line", full.replace("\n\t\t\tbt2020 " + MARK[true], ""), "refused: support=shape panel=\"DP-1\" line=bt2020"],
+        ["a line under another name", full.replace("\t\t\tchroma ", "\t\t\tchromo "), "refused: support=shape panel=\"DP-1\" line=chroma"],
+        ["a mark Hyprland never prints", full.replace("vrr capable " + MARK[true], "vrr capable yes"), "refused: support=shape panel=\"DP-1\" line=vrr"],
+        ["an edid line that carries a mark", full.replace("\t\tedid:", "\t\tedid: " + MARK[true]), "refused: support=shape panel=\"DP-1\" line=edid"],
+        ["no monitor section", "Couldn't connect to the socket", "refused: support=shape want=monitor-info"],
+        ["a section that ends before the state", full.slice(0, full.indexOf("\n\nState:")), "refused: support=shape line=\"end\""],
+        ["a panel line in another shape", full.replace("\tPanel DP-1: 3840x2160, ", "\tPanel DP-1 "), "refused: support=shape line=\"\\tPanel DP-1 DP-1 Dell Inc. DELL U2720Q 8YT0R13 -> backe..."]
+    ];
+    for (const [name, text, want] of supportRefusals) check("parseSupport refuses " + name, lib.parseSupport(text), { ok: false, error: want });
+    // rows: [name, panel flags, colour modes]
+    const offered = [
+        ["BT.2020 without HDR metadata", { hdr: false, chroma: false, bt2020: true }, ["auto", "srgb", "wide", "dcip3", "dp3", "adobe"]],
+        ["HDR metadata without BT.2020", { hdr: true, chroma: false, bt2020: false }, ["srgb"]],
+        ["chromaticity alone", { hdr: false, chroma: true, bt2020: false }, ["srgb", "edid"]],
+        ["BT.2020 and HDR metadata", { hdr: true, chroma: false, bt2020: true }, ["auto", "srgb", "wide", "hdr", "hdredid", "dcip3", "dp3", "adobe"]]
+    ];
+    for (const [name, panel, want] of offered) check("colourModes: " + name, lib.colourModes(panel), want);
+
+    const tenBit = lib.parseOutputs(reply([monitor(0, "DP-1", { currentFormat: "XBGR2101010" })]));
+    check("parseOutputs: a 10-bit format reads as depth 10", tenBit.ok ? tenBit.outputs[0].bitdepth : tenBit, 10);
+    // Judged without outputs. rows: [name, rule, refusal]
+    const shapes = [
+        ["a colour mode Hyprland lacks", { cm: "rec709" }, "refused: monitors.DP-2.cm=shape want=colour-mode"],
+        ["a depth of 12", { bitdepth: 12 }, "refused: monitors.DP-2.bitdepth=shape want=8|10"],
+        ["an HDR brightness of 0", { cm: "hdr", sdrbrightness: 0 }, "refused: monitors.DP-2.sdrbrightness=shape want=positive"],
+        ["an HDR saturation that is no number", { cm: "hdr", sdrsaturation: "1" }, "refused: monitors.DP-2.sdrsaturation=shape want=positive"],
+        ["an HDR level outside an HDR mode", { cm: "wide", sdrbrightness: 1.2 }, "refused: monitors.DP-2.sdrbrightness=outside-hdr"],
+        ["an HDR level with no colour mode", { sdrsaturation: 1.2 }, "refused: monitors.DP-2.sdrsaturation=outside-hdr"],
+        ["a variable refresh mode of 4", { vrr: 4 }, "refused: monitors.DP-2.vrr=shape want=0-3"],
+        ["Hyprland's own vrr default", { vrr: -1 }, "refused: monitors.DP-2.vrr=shape want=0-3"],
+        ["every colour field Hyprland takes", { cm: "hdredid", bitdepth: 10, sdrbrightness: 1.5, sdrsaturation: 0.8, vrr: 3 }, ""]
+    ];
+    for (const [name, rule, want] of shapes) check("rulesError without outputs: " + name, lib.rulesError({ "DP-2": rule }, null), want);
+
+    // Judged against the outputs and the panels. DP-1 takes everything,
+    // DP-2 nothing, eDP-1 is off. rows: [name, rule, support, refusal]
+    const panels = { "DP-1": lib.parseSupport(systeminfo([["DP-1", ALL]])).support["DP-1"], "DP-2": lib.parseSupport(systeminfo([["DP-2", NONE]])).support["DP-2"] };
+    const DELL = "desc:Dell Inc. DELL U2720Q 8YT0R13";
+    const fits = [
+        ["HDR on a panel without it", { "DP-2": { cm: "hdr" } }, panels, "refused: monitors.DP-2.cm=unsupported cm=hdr"],
+        ["the display's own colours without its chromaticity", { "DP-2": { cm: "edid" } }, panels, "refused: monitors.DP-2.cm=unsupported cm=edid"],
+        ["variable refresh on a panel without it", { "DP-2": { vrr: 2 } }, panels, "refused: monitors.DP-2.vrr=unsupported"],
+        ["a wide mode before the panels are read", { [DELL]: { cm: "wide" } }, null, "refused: monitors." + DELL + " support=unread"],
+        ["a wide mode on an output the panels leave out", { [DELL]: { cm: "wide" } }, { "DP-2": panels["DP-2"] }, "refused: monitors." + DELL + " support=absent"],
+        ["sRGB before the panels are read", { "DP-2": { cm: "srgb", vrr: 0 } }, null, ""],
+        ["HDR and variable refresh on a panel that takes them", { [DELL]: { cm: "hdr", sdrbrightness: 1.4, vrr: 1 } }, panels, ""],
+        ["a colour mode for an output that is off", { "eDP-1": { cm: "hdr" } }, panels, ""]
+    ];
+    for (const [name, rules, support, want] of fits) check("rulesError with panels: " + name, lib.rulesError(rules, outputs, support), want);
+    const office = lib.parseOutputs(reply([DESK[2], monitor(1, "HDMI-A-1", { x: 1920, scale: 2 })].map(o => Object.assign({}, o, { disabled: false })))).outputs;
+    check("trialPlan judges a colour mode against the panels", lib.trialPlan({}, { "HDMI-A-1": { cm: "hdr" } }, office, { "HDMI-A-1": panels["DP-2"], "eDP-1": panels["DP-2"] }),
+        { ok: false, error: "refused: monitors.HDMI-A-1.cm=unsupported cm=hdr" });
+
+    check("rulesLines renders each colour field", lib.rulesLines({ "DP-2": { scale: 2, cm: "hdr", bitdepth: 10, sdrbrightness: 1.25, sdrsaturation: 0.9, vrr: 2 } }).lines, [
+        'hl.monitor({ output = "DP-2", scale = 2, cm = "hdr", bitdepth = 10, sdrbrightness = 1.25, sdrsaturation = 0.9, vrr = 2 })'
+    ]);
+    check("rulesLines leaves out a colour field the rule does not name", lib.rulesLines({ "DP-2": { cm: "wide" } }).lines, ['hl.monitor({ output = "DP-2", cm = "wide" })']);
+    check("rulesLua writes the HDR levels beside a colour mode", lib.rulesLua({ "DP-2": { cm: "srgb" }, "DP-1": { cm: "hdr", sdrbrightness: 1.5 }, "eDP-1": { vrr: 1 } }), { ok: true, lua: [
+        'hl.monitor({ output = "DP-1", cm = "hdr", sdrbrightness = 1.5, sdrsaturation = 1, disabled = false, mirror = "" })',
+        'hl.monitor({ output = "DP-2", cm = "srgb", sdrbrightness = 1, sdrsaturation = 1, disabled = false, mirror = "" })',
+        'hl.monitor({ output = "eDP-1", vrr = 1, disabled = false, mirror = "" })'
+    ].join("\n") });
+
+    // The restore takes back each colour field the trial names, as
+    // Hyprland lists it. rows: [name, live fields, trial rule, captured colour]
+    const base = ["mode", "position", "scale", "transform"];
+    const captures = [
+        ["the colour mode alone", {}, { cm: "wide" }, { cm: "srgb" }],
+        ["the HDR levels Hyprland shows beside an HDR mode", { colorManagementPreset: "hdr", sdrBrightness: 1.3, sdrSaturation: 1.1 }, { cm: "srgb" }, { cm: "hdr", sdrbrightness: 1.3, sdrsaturation: 1.1 }],
+        ["a 10-bit depth", { currentFormat: "XRGB2101010" }, { bitdepth: 8 }, { bitdepth: 10 }],
+        ["adaptive sync on as mode 1", { vrr: true }, { vrr: 0 }, { vrr: 1 }],
+        ["adaptive sync off as mode 0", {}, { vrr: 2 }, { vrr: 0 }],
+        ["no colour field for a trial that names none", { colorManagementPreset: "hdr", vrr: true }, { scale: 2 }, {}]
+    ];
+    for (const [name, live, rule, want] of captures) {
+        const list = lib.parseOutputs(reply([monitor(0, "DP-1", live)])).outputs;
+        const got = lib.captureRules(list, { "DP-1": rule })["DP-1"];
+        const colour = {};
+        Object.keys(got).filter(key => base.indexOf(key) === -1).forEach(key => { colour[key] = got[key]; });
+        check("captureRules: " + name, colour, want);
+    }
+
+    // rows: [name, rule, live fields, overridden]
+    const overrides = [
+        ["a colour mode Hyprland fell back from", { cm: "hdr" }, {}, true],
+        ["a colour mode Hyprland shows", { cm: "wide" }, { colorManagementPreset: "wide" }, false],
+        ["auto shown as wide", { cm: "auto" }, { colorManagementPreset: "wide" }, false],
+        ["auto shown as sRGB", { cm: "auto" }, {}, false],
+        ["an HDR level Hyprland does not show", { cm: "hdr", sdrbrightness: 1.5 }, { colorManagementPreset: "hdr" }, true],
+        ["an HDR level left at 1", { cm: "hdr" }, { colorManagementPreset: "hdr", sdrSaturation: 1.2 }, true],
+        ["a depth Hyprland could not set", { bitdepth: 10 }, {}, true],
+        ["a depth Hyprland shows", { bitdepth: 10 }, { currentFormat: "XRGB2101010" }, false],
+        ["variable refresh on that Hyprland left off", { vrr: 1 }, {}, true],
+        ["variable refresh off that Hyprland left on", { vrr: 0 }, { vrr: true }, true],
+        ["full-screen variable refresh, off outside full screen", { vrr: 2 }, {}, false],
+        ["a colour mode on an output that is off", { cm: "hdr", disabled: true }, { disabled: true }, false]
+    ];
+    for (const [name, rule, live, want] of overrides) {
+        const list = lib.parseOutputs(reply([monitor(0, "DP-1", live), monitor(1, "DP-2", { x: 3840 })])).outputs;
+        const output = list[0];
+        const current = { mode: { width: output.width, height: output.height, refresh: output.refreshRate }, position: { x: output.x, y: output.y }, scale: output.scale, transform: output.transform };
+        check("overridden: " + name, lib.overridden(Object.assign(current, rule), output, list), want);
+    }
 }
 
 suite(load(LOGIC), report);
@@ -405,7 +547,51 @@ const CONTROLS = [
     ["overridden ignores disabled", "return (rule.disabled === true ? othersOn && !output.disabled : output.disabled)\n        || !mirrored", "return !mirrored"],
     ["overridden flags an off rule the layer left on", "rule.disabled === true ? othersOn && !output.disabled", "rule.disabled === true ? !output.disabled"],
     ["overridden ignores the mirror", "        || !mirrored\n", "\n"],
-    ["overridden ignores the mirror's target", "output.mirrorOf !== null && outputsByKey(outputs, rule.mirror).some(function (target) { return target.name === output.mirrorOf; })", "output.mirrorOf !== null"]
+    ["overridden ignores the mirror's target", "output.mirrorOf !== null && outputsByKey(outputs, rule.mirror).some(function (target) { return target.name === output.mirrorOf; })", "output.mirrorOf !== null"],
+    ["the panels need no monitor section", 'if (i === -1) return { ok: false, error: "refused: support=shape want=monitor-info" };', ""],
+    ["a panel line under another name reads", "if (line === undefined || line.indexOf(prefix) !== 0) return bad;", "if (line === undefined) return bad;"],
+    ["a panel takes any mark", "!hasOwn(MARKS, mark)) return bad;", "false) return bad;"],
+    ["the edid line takes a mark", 'prefix === "\\t\\tedid:" ? mark !== "" :', 'prefix === "\\t\\tedid:" ? false :'],
+    ["the panels need no state section after them", 'if (lines[i] !== "State:") return', "if (false) return"],
+    ["a blank line ends the panels", 'if (lines[i].trim() === "") continue;', ""],
+    ["a panel's marks are lost", "entry[PANEL_FIELDS[k][0]] = MARKS[mark];", "entry[PANEL_FIELDS[k][0]] = true;"],
+    ["sRGB needs BT.2020", 'if (mode === "srgb") return true;', ""],
+    ["the display's own colours need BT.2020", 'if (mode === "edid") return panel.chroma;', ""],
+    ["HDR needs no HDR metadata", "return panel.bt2020 && panel.hdr;", "return panel.bt2020;"],
+    ["HDR needs no BT.2020", "return panel.bt2020 && panel.hdr;", "return panel.hdr;"],
+    ["a 10-bit format reads as 8", "bitdepth: /2101010$/.test(m.currentFormat) ? 10 : 8,", "bitdepth: 8,"],
+    ["any colour mode is a rule", "if (rule.cm !== undefined && COLOUR_MODES.indexOf(rule.cm) === -1)", "if (false)"],
+    ["any depth is a rule", "if (rule.bitdepth !== undefined && rule.bitdepth !== 8 && rule.bitdepth !== 10)", "if (false)"],
+    ["an HDR level of 0 is a rule", '|| value <= 0) return at + "." + SDR_KEYS[k]', ') return at + "." + SDR_KEYS[k]'],
+    ["an HDR level need be no number", 'if (typeof value !== "number" || !isFinite(value) || value <= 0)', "if (value <= 0)"],
+    ["an HDR level holds outside an HDR mode", 'if (HDR_MODES.indexOf(rule.cm) === -1) return at + "." + SDR_KEYS[k] + "=outside-hdr";', ""],
+    ["any variable refresh mode is a rule", "if (rule.vrr !== undefined && [0, 1, 2, 3].indexOf(rule.vrr) === -1)", "if (false)"],
+    ["a judge that ignores the panels lets HDR through", "if (needsMode && panel.colourModes.indexOf(rule.cm) === -1)", "if (false)"],
+    ["variable refresh on any panel", "if (needsVrr && !panel.vrr)", "if (false)"],
+    ["an unread panel list reads as absent", 'if (!isPlainObject(support)) return at + " support=unread";', ""],
+    ["an output the panels leave out is judged", 'if (!hasOwn(support, output.name)) return at + " support=absent";', ""],
+    ["sRGB needs the panels", 'var needsMode = rule.cm !== undefined && rule.cm !== "srgb";', "var needsMode = rule.cm !== undefined;"],
+    ["variable refresh off needs the panels", "var needsVrr = rule.vrr !== undefined && rule.vrr !== 0;", "var needsVrr = rule.vrr !== undefined;"],
+    ["an output that is off needs the panels", 'if (output.disabled || output.mirrorOf !== null) return "";\n    if (!isPlainObject(support))', "if (!isPlainObject(support))"],
+    ["a trial ignores the panels", "var bad = rulesError(rules, outputs, support);", "var bad = rulesError(rules, outputs);"],
+    ["the layer line drops the colour mode", 'if (rule.cm !== undefined) fields.push("cm = " + luaString(rule.cm));', ""],
+    ["the layer line drops the depth", 'if (rule.bitdepth !== undefined) fields.push("bitdepth = " + luaNumber(rule.bitdepth));', ""],
+    ["the layer line drops the HDR levels", 'SDR_KEYS.forEach(function (key) { if (rule[key] !== undefined) fields.push(key + " = " + luaNumber(rule[key])); });', ""],
+    ["the layer line drops variable refresh", 'if (rule.vrr !== undefined) fields.push("vrr = " + luaNumber(rule.vrr));', ""],
+    ["an eval leaves the HDR levels out beside a colour mode", 'if (rule.cm !== undefined) SDR_KEYS.forEach(function (key) { if (rule[key] === undefined) fields.push(key + " = 1"); });', ""],
+    ["a restore puts the trial's colour mode back", "rule.cm = output.colorManagementPreset;", "rule.cm = named.cm;"],
+    ["a restore drops the HDR levels", "if (HDR_MODES.indexOf(rule.cm) !== -1) SDR_KEYS.forEach(function (key) { if (live[key] > 0) rule[key] = live[key]; });", ""],
+    ["a restore drops the depth", "if (named.bitdepth !== undefined) rule.bitdepth = output.bitdepth;", ""],
+    ["a restore puts the trial's variable refresh back", "if (named.vrr !== undefined) rule.vrr = output.vrr ? 1 : 0;", "if (named.vrr !== undefined) rule.vrr = named.vrr;"],
+    ["a restore sets a colour mode the trial left", "if (named.cm !== undefined) {", "if (true) {"],
+    ["overridden ignores the colour mode", "if (shows.indexOf(output.colorManagementPreset) === -1) return true;", ""],
+    ["overridden reads auto as itself", 'var shows = rule.cm === "auto" ? ["wide", "srgb"] : [rule.cm];', "var shows = [rule.cm];"],
+    ["overridden ignores the HDR levels", "return Math.abs((rule[key] === undefined ? 1 : rule[key]) - live[key]) > 0.0001;", "return false;"],
+    ["overridden reads an absent HDR level as Hyprland's", "(rule[key] === undefined ? 1 : rule[key])", "(rule[key] === undefined ? live[key] : rule[key])"],
+    ["overridden ignores the depth", "if (rule.bitdepth !== undefined && rule.bitdepth !== output.bitdepth) return true;", ""],
+    ["overridden ignores variable refresh left off", " || (rule.vrr === 1 && !output.vrr);", ";"],
+    ["overridden ignores variable refresh left on", "return (rule.vrr === 0 && output.vrr) || ", "return "],
+    ["overridden reads the colour of an output that is off", 'function colourOverridden(rule, output) {\n    if (output.disabled || output.mirrorOf !== null) return false;', "function colourOverridden(rule, output) {"]
 ];
 
 fs.mkdirSync(path.join(__dirname, "..", "tmp"), { recursive: true });

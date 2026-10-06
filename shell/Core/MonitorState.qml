@@ -13,7 +13,11 @@ import "PluginLogic.js" as Logic
 // `monitoraddedv2` and `monitorremovedv2` when an output comes or goes and
 // `configreloaded` after each reload, and the outputs are read again on
 // each. A failed read is logged
-// and returns `outputs` to null. The plugin that owns `hyprland.monitors`
+// and returns `outputs` to null. `support`, what each panel takes, comes
+// from `hyprctl systeminfo`, which runs lspci inside Hyprland and holds the
+// compositor while it does, so it is read once as the reading starts and
+// again only when an output comes or goes or the config reloads
+//. The plugin that owns `hyprland.monitors`
 // may run a guarded trial: the guard is detached from Quickshell, and the
 // token file is the only state it shares with the shell.
 Scope {
@@ -24,6 +28,9 @@ Scope {
     // parseOutputs's outputs, null until read while active and after a
     // failed read.
     property var outputs: null
+    // parseSupport's support, null until read while active and after a
+    // failed read.
+    property var support: null
     property string ownerId: ""
     property var trialState: ({ phase: "idle", token: "", deadline: 0, failure: "" })
     property string restoreLua: ""
@@ -39,15 +46,18 @@ Scope {
     onActiveChanged: {
         if (active) {
             readOutputs();
+            readSupport();
             return;
         }
         outputs = null;
+        support = null;
     }
 
     // The capability. It holds nothing to release.
     function provider(ctx) {
         return Object.freeze({
             get outputs() { return root.outputs === null ? null : Logic.frozenJson(root.outputs); },
+            get support() { return root.support === null ? null : Logic.frozenJson(root.support); },
             get trialState() { return Logic.frozenJson(root.trialState); },
             overridden: rules => root.overridden(rules),
             trial: (rules, saved) => root.trial(ctx.id, rules, saved),
@@ -62,6 +72,10 @@ Scope {
 
     function readOutputs() {
         reader.read(Monitors.OUTPUTS_REQUEST, null);
+    }
+
+    function readSupport() {
+        supportReader.read(Monitors.SUPPORT_REQUEST, null);
     }
 
     function mustOwn(id) {
@@ -85,7 +99,7 @@ Scope {
         if (ownership !== "") return ownership;
         if (outputs === null) return "refused: monitors=unread";
         if (trialState.phase !== "idle") return "refused: monitors-trial=active";
-        const trial = Monitors.trialPlan(saved, rules, outputs);
+        const trial = Monitors.trialPlan(saved, rules, outputs, support);
         if (!trial.ok) return trial.error;
         const now = Math.floor(Date.now() / 1000);
         tokenPath = trialDir + "/" + now + "-" + Math.floor(Math.random() * 1000000) + ".token";
@@ -131,13 +145,18 @@ Scope {
     Connections {
         target: root.active ? Hyprland : null
         function onRawEvent(event) {
+            // Hyprland posts each v2 event beside its first form, so the
+            // support is read once for the pair.
             switch (event.name) {
             case "monitoradded":
-            case "monitoraddedv2":
             case "monitorremoved":
+                root.readOutputs();
+                return;
+            case "monitoraddedv2":
             case "monitorremovedv2":
             case "configreloaded":
                 root.readOutputs();
+                root.readSupport();
                 return;
             }
         }
@@ -154,6 +173,21 @@ Scope {
                 console.error("monitors: " + read.error);
             } else if (JSON.stringify(read.outputs) !== JSON.stringify(root.outputs)) {
                 root.outputs = read.outputs;
+            }
+        }
+    }
+
+    HyprctlReader {
+        id: supportReader
+        label: "support"
+        onReadDone: (request, text, failure) => {
+            if (!root.active) return;
+            const read = failure === "" ? Monitors.parseSupport(text) : { ok: false, error: failure };
+            if (!read.ok) {
+                root.support = null;
+                console.error("monitors: " + read.error);
+            } else if (JSON.stringify(read.support) !== JSON.stringify(root.support)) {
+                root.support = read.support;
             }
         }
     }

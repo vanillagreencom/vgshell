@@ -47,6 +47,24 @@ var TRANSFORMS = [
     { value: 7, label: "Flipped 270°" }
 ];
 var SCALE_CANDIDATES = [1, 1.25, 4 / 3, 1.5, 1.6, 5 / 3, 1.75, 2, 2.25, 2.5, 3];
+// The colour fields of a monitor rule, as shell/Core/MonitorLogic.js
+// judges them, and the labels of Hyprland's colour modes.
+var COLOUR_KEYS = ["cm", "bitdepth", "sdrbrightness", "sdrsaturation", "vrr"];
+var HDR_MODES = ["hdr", "hdredid"];
+var COLOUR_MODE_LABELS = {
+    auto: "Automatic", srgb: "Standard (sRGB)", wide: "Wide (BT.2020)", edid: "As the display reports",
+    hdr: "HDR", hdredid: "HDR, as the display reports", dcip3: "DCI-P3", dp3: "Display P3", adobe: "Adobe RGB"
+};
+var DEPTH_CHOICES = [{ value: 8, label: "8-bit" }, { value: 10, label: "10-bit" }];
+var VRR_CHOICES = [{ value: 0, label: "Off" }, { value: 1, label: "On" }, { value: 2, label: "Full screen only" }];
+var VRR_MEDIA = { value: 3, label: "Full-screen games and video" };
+// The HDR levels, each a multiplier Hyprland applies to SDR content on an
+// HDR display. Hyprland takes any one above zero; the slider offers half
+// to double.
+var SDR_LEVELS = [{ key: "sdrbrightness", label: "HDR brightness" }, { key: "sdrsaturation", label: "HDR saturation" }];
+var SDR_FROM = 0.5;
+var SDR_TO = 2;
+var SDR_STEP = 0.05;
 var SNAP = 24;
 var NUDGE = 24;
 var NUDGE_BIG = 96;
@@ -94,7 +112,8 @@ function outputByIdentifier(outputs, identifier) {
 // where the rule names none. `disabled` and `mirror` are present only while
 // the display is off or mirrors: as the rule says when one names the
 // output, as MonitorLogic judges it, else as Hyprland lists it, the mirror
-// by its connector.
+// by its connector. A colour field is present only where the rule names
+// it, so a rule leaves the colour it does not set to Hyprland.
 function effectiveRule(output, saved, draft) {
     var named = draft !== undefined && draft !== null ? draft : saved;
     var rule = named || {};
@@ -108,6 +127,7 @@ function effectiveRule(output, saved, draft) {
     if (named ? rule.disabled === true : output.disabled) out.disabled = true;
     var mirror = named ? rule.mirror : output.mirrorOf === null ? undefined : output.mirrorOf;
     if (mirror !== undefined) out.mirror = mirror;
+    COLOUR_KEYS.forEach(function (key) { if (rule[key] !== undefined) out[key] = rule[key]; });
     return out;
 }
 
@@ -338,6 +358,10 @@ function withOutputDraft(outputs, saved, draft, identifier, patch) {
     var before = logicalSize(current);
     var merged = withState(Object.assign({}, current, patch), patch);
     merged.position = { x: current.position.x, y: current.position.y };
+    // An HDR level holds only beside an HDR colour mode; a level drafted
+    // alone keeps the mode Hyprland shows.
+    if ((patch.sdrbrightness !== undefined || patch.sdrsaturation !== undefined) && merged.cm === undefined) merged.cm = output.colorManagementPreset;
+    if (HDR_MODES.indexOf(merged.cm) === -1) SDR_LEVELS.forEach(function (level) { delete merged[level.key]; });
     if (patch.mode !== undefined && patch.scale === undefined && !scaleFits(patch.mode, merged.scale)) merged.scale = scaleChoices(patch.mode, output.scale)[0].value;
     var after = logicalSize(merged);
     next[output.name] = merged;
@@ -362,6 +386,54 @@ function withOutputDraft(outputs, saved, draft, identifier, patch) {
         if (moved) next[key] = otherRule;
     });
     return normaliseRules(next);
+}
+
+// The colour RULE sets on OUTPUT, each field Hyprland's reading where the
+// rule names none: `vrr` 1 while adaptive sync is on, and an HDR level 1
+// beside a colour mode the rule names without it, as the trial writes it.
+function colourOf(output, rule) {
+    var named = rule.cm !== undefined;
+    var live = { sdrbrightness: output.sdrBrightness, sdrsaturation: output.sdrSaturation };
+    var out = {
+        cm: named ? rule.cm : output.colorManagementPreset,
+        bitdepth: rule.bitdepth !== undefined ? rule.bitdepth : output.bitdepth,
+        vrr: rule.vrr !== undefined ? rule.vrr : output.vrr ? 1 : 0
+    };
+    SDR_LEVELS.forEach(function (level) { out[level.key] = rule[level.key] !== undefined ? rule[level.key] : named ? 1 : live[level.key]; });
+    return out;
+}
+
+// The Colour mode choices: those PANEL, the display's `support` entry,
+// offers, sRGB alone while none is read, and the mode CURRENT names.
+function colourModeChoices(panel, current) {
+    var modes = panel === null || panel === undefined ? ["srgb"] : panel.colourModes.slice();
+    if (modes.indexOf(current) === -1) modes.push(current);
+    return modes.map(function (mode) { return { label: COLOUR_MODE_LABELS[mode], value: mode }; });
+}
+
+// The Variable refresh rate choices, with Hyprland's games-and-video mode
+// while CURRENT names it.
+function vrrChoices(current) {
+    return current === VRR_MEDIA.value ? VRR_CHOICES.concat([VRR_MEDIA]) : VRR_CHOICES;
+}
+
+// Which colour rows the page shows for a display RULE leaves on and not
+// mirroring, COLOUR as colourOf reads it and PANEL its `support` entry:
+// the colour mode while it offers a second choice, the depth, the HDR
+// levels in an HDR mode, and variable refresh where the panel takes it or
+// it is on.
+function colourRows(rule, panel, colour) {
+    if (rule.disabled === true || rule.mirror !== undefined) return { mode: false, depth: false, hdr: false, vrr: false };
+    return {
+        mode: colourModeChoices(panel, colour.cm).length > 1,
+        depth: true,
+        hdr: HDR_MODES.indexOf(colour.cm) !== -1,
+        vrr: (panel !== null && panel !== undefined && panel.vrr) || colour.vrr !== 0
+    };
+}
+
+function levelText(value) {
+    return Math.round(value * 100) + " %";
 }
 
 function dirtyRules(draft, saved) {
