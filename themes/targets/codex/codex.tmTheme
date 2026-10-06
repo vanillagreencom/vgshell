@@ -119,6 +119,8 @@
 			<dict>
 				<key>foreground</key>
 				<string>#@{color.success}</string>
+				<key>background</key>
+				<string>#@{color.successSubtle}</string>
 			</dict>
 		</dict>
 		<dict>
@@ -128,6 +130,8 @@
 			<dict>
 				<key>foreground</key>
 				<string>#@{color.danger}</string>
+				<key>background</key>
+				<string>#@{color.dangerSubtle}</string>
 			</dict>
 		</dict>
 		<dict>
@@ -181,7 +185,7 @@
 			<key>settings</key>
 			<dict>
 				<key>foreground</key>
-				<string>#@{color.accent}</string>
+				<string>#@{color.info}</string>
 			</dict>
 		</dict>
 	</array>

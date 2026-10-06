@@ -88,6 +88,81 @@ apply_json() { # NAME WANT_EXIT PACKAGE [WANT_FIRST_STDERR]: apply with --json i
   (cd "$tmp/opencode-cwd" && tinst "$1" "$cfg" "$rt_empty" "$2" "$any_out" "${4:-}" theme apply --json "$3")
   tail -n 1 "$tmp/out" >"$tmp/apply.json"
 }
+agent_theme_pins() { # ROOT LIVE: changed agent roles match resolved tokens, independent of the renderer
+  "$node_bin" - "$1" "$2" <<'EOF'
+"use strict";
+const fs = require("fs");
+const path = require("path");
+const [root, live] = process.argv.slice(2);
+const { load } = require(path.join(root, "bin", "lib", "qml-library.js"));
+const logic = load(path.join(root, "shell", "Commons", "ThemeLogic.js"));
+const tokens = load(path.join(root, "shell", "Commons", "Tokens.js")).TOKENS;
+const pkgDir = path.join(root, "themes", "dusk");
+const vgsDir = path.join(root, "themes", "vgs");
+const pkg = logic.acceptPackage(tokens, { directoryName: "dusk", themeJson: fs.readFileSync(path.join(pkgDir, "theme.json"), "utf8"), terminalJson: undefined, shipped: false });
+const defaults = logic.acceptPackage(tokens, { directoryName: "vgs", themeJson: fs.readFileSync(path.join(vgsDir, "theme.json"), "utf8"), terminalJson: fs.readFileSync(path.join(vgsDir, "terminal.json"), "utf8"), shipped: true });
+if (!pkg.ok || !defaults.ok) process.exit(2);
+const values = pkg.values;
+const slots = defaults.terminal;
+const at = (object, dotted) => dotted.split(".").reduce((node, key) => node[key], object);
+const channel = (hex, index) => parseInt(hex.slice(index, index + 2), 16);
+const byteHex = value => value.toString(16).padStart(2, "0");
+const hex6 = hex => {
+    if (hex.length < 9 || channel(hex, 7) === 255) return "#" + hex.slice(1, 7);
+    const alpha = channel(hex, 7) / 255;
+    const background = values.color.background;
+    return "#" + [1, 3, 5].map(index => byteHex(Math.round(channel(hex, index) * alpha + channel(background, index) * (1 - alpha)))).join("");
+};
+const token = dotted => hex6(at(values, dotted));
+const slot = name => "#" + slots[name].slice(1, 7);
+let bad = 0;
+const note = message => { console.log(message); bad++; };
+const equals = (label, got, want) => { if (got !== want) note(label + " got=" + got + " want=" + want); };
+const claude = JSON.parse(fs.readFileSync(path.join(live, "claude.json"), "utf8")).overrides;
+const claudeWant = {
+    diffAdded: token("color.successSubtle"),
+    diffRemoved: token("color.dangerSubtle"),
+    diffAddedWord: token("color.selection"),
+    diffRemovedWord: token("color.selection"),
+    diffAddedDimmed: token("color.surfaceHover"),
+    diffRemovedDimmed: token("color.surfaceHover"),
+    background: slot("color6"),
+    clawd_body: token("color.accent"),
+    clawd_background: token("color.onAccent"),
+    professionalBlue: slot("color4"),
+    claudeBlue_FOR_SYSTEM_SPINNER: slot("color4"),
+    claudeBlueShimmer_FOR_SYSTEM_SPINNER: slot("color12"),
+    chromeYellow: slot("color3"),
+    skill: slot("color5"),
+    autoAcceptShimmer: slot("color13"),
+    composerSidebarBackground: token("color.surfaceSunken")
+};
+for (const [key, want] of Object.entries(claudeWant)) equals("claude." + key, claude[key], want);
+const gemini = JSON.parse(fs.readFileSync(path.join(live, "gemini.json"), "utf8"));
+equals("gemini.background.diff.added", gemini.background.diff.added, token("color.successSubtle"));
+equals("gemini.background.diff.removed", gemini.background.diff.removed, token("color.dangerSubtle"));
+const opencode = JSON.parse(fs.readFileSync(path.join(live, "opencode.json"), "utf8")).theme;
+const opencodeWant = {
+    diffAddedBg: token("color.successSubtle"),
+    diffRemovedBg: token("color.dangerSubtle"),
+    diffAddedLineNumberBg: token("color.successSubtle"),
+    diffRemovedLineNumberBg: token("color.dangerSubtle"),
+    diffHighlightAdded: token("color.success"),
+    diffHighlightRemoved: token("color.danger")
+};
+for (const [key, want] of Object.entries(opencodeWant)) equals("opencode." + key, opencode[key], want);
+const plist = fs.readFileSync(path.join(live, "codex.tmTheme"), "utf8");
+const scopeSettings = scope => {
+    const escaped = scope.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const match = plist.match(new RegExp("<key>scope</key>\\s*<string>" + escaped + "</string>[\\s\\S]*?<key>settings</key>\\s*<dict>([\\s\\S]*?)</dict>"));
+    return Object.fromEntries([...match[1].matchAll(/<key>([^<]+)<\/key>\s*<string>(#[^<]+)<\/string>/g)].map(item => [item[1], item[2]]));
+};
+equals("codex.inserted.background", scopeSettings("markup.inserted, diff.inserted").background, token("color.successSubtle"));
+equals("codex.deleted.background", scopeSettings("markup.deleted, diff.deleted").background, token("color.dangerSubtle"));
+equals("codex.meta.diff.foreground", scopeSettings("meta.diff, meta.diff.header, meta.diff.range").foreground, token("color.info"));
+process.exit(bad === 0 ? 0 : 1);
+EOF
+}
 opencode_signals_only_tui() {
   test -f "$tmp/opencode-bare-signaled" -a -f "$tmp/opencode-attach-signaled" -a -f "$tmp/opencode-project-signaled" \
     -a ! -e "$tmp/opencode-serve-signaled" -a ! -e "$tmp/opencode-run-signaled" -a ! -e "$tmp/opencode-option_serve-signaled" \
@@ -108,9 +183,11 @@ disable() { printf '{ "disabledTargets": [%s] }\n' "$1" >"$cfg/vgshell/shell.jso
 
 # The CLIs' own settings files, each holding keys of the user's beside the
 # one apply sets. Codex's is a dotfile manager's link to an owner-only file.
-cfg="$tmp/cfg-agents"; dotfiles="$tmp/dotfiles"
-mkdir -p "$cfg/vgshell" "$cfg/opencode" "$home/.claude" "$home/.codex" "$home/.gemini" "$home/.hermes" "$home/.omp/agent" "$home/.pi/agent" "$dotfiles"
-claude_settings="$home/.claude/settings.json"; codex_config="$home/.codex/config.toml"; gemini_settings="$home/.gemini/settings.json"
+cfg="$tmp/cfg-agents"; dotfiles="$tmp/dotfiles"; claude_explicit="$tmp/claude-explicit"
+mkdir -p "$cfg/vgshell" "$cfg/opencode" "$home/.claude" "$home/.claude-work" "$home/.claude-empty" "$home/.codex" "$home/.2codex" "$home/.gemini" "$home/.hermes" "$home/.omp/agent" "$home/.pi/agent" "$claude_explicit" "$dotfiles"
+inst_env=(CLAUDE_CONFIG_DIR="$claude_explicit")
+claude_settings="$home/.claude/settings.json"; claude_work_settings="$home/.claude-work/settings.json"; claude_explicit_settings="$claude_explicit/settings.json"
+codex_config="$home/.codex/config.toml"; codex_second_config="$home/.2codex/config.toml"; gemini_settings="$home/.gemini/settings.json"
 hermes_config="$home/.hermes/config.yaml"; omp_config="$home/.omp/agent/config.yml"; opencode_tui="$cfg/opencode/tui.json"; pi_settings="$home/.pi/agent/settings.json"
 claude_text=$'{\n  "model": "opus",\n  "permissions": { "allow": ["Bash(ls)"] }\n}\n'
 claude_selected=$'{\n  "theme": "custom:vgs",\n  "model": "opus",\n  "permissions": { "allow": ["Bash(ls)"] }\n}\n'
@@ -127,12 +204,15 @@ opencode_text=$'{\n  "$schema": "https://opencode.ai/tui.json"\n}\n'
 opencode_selected=$'{\n  "theme": "vgs",\n  "$schema": "https://opencode.ai/tui.json"\n}\n'
 pi_text=$'{"defaultModel":"x"}'
 pi_selected=$'{"theme": "vgs", "defaultModel":"x"}'
-settings=("$claude_settings" "$codex_config" "$gemini_settings" "$hermes_config" "$omp_config" "$opencode_tui" "$pi_settings")
+settings=("$claude_settings" "$claude_work_settings" "$claude_explicit_settings" "$codex_config" "$codex_second_config" "$gemini_settings" "$hermes_config" "$omp_config" "$opencode_tui" "$pi_settings")
 seed() { # each settings file as the user left it; a link a row left in its place goes first
   rm -f -- "${settings[@]}"
   printf '%s' "$claude_text" >"$claude_settings"; chmod 640 -- "$claude_settings"
+  printf '%s' "$claude_text" >"$claude_work_settings"
+  printf '%s' "$claude_text" >"$claude_explicit_settings"
   printf '%s' "$codex_text" >"$dotfiles/codex.toml"; chmod 600 -- "$dotfiles/codex.toml"
   ln -sfn -- "$dotfiles/codex.toml" "$codex_config"
+  printf '%s' "$codex_text" >"$codex_second_config"
   printf '%s' "$gemini_text" >"$gemini_settings"
   printf '%s' "$hermes_text" >"$hermes_config"
   printf '%s' "$omp_text" >"$omp_config"
@@ -140,9 +220,23 @@ seed() { # each settings file as the user left it; a link a row left in its plac
   printf '%s' "$pi_text" >"$pi_settings"
 }
 selected() { # every settings file holds its selection and the rest of its text
-  has_text "$claude_settings" "$claude_selected" && has_text "$codex_config" "$codex_selected" && has_text "$gemini_settings" "$gemini_selected" &&
+  has_text "$claude_settings" "$claude_selected" && has_text "$claude_work_settings" "$claude_selected" && has_text "$claude_explicit_settings" "$claude_selected" &&
+    has_text "$codex_config" "$codex_selected" && has_text "$codex_second_config" "$codex_selected" && has_text "$gemini_settings" "$gemini_selected" &&
     has_text "$hermes_config" "$hermes_selected" && has_text "$omp_config" "$omp_selected" && has_text "$opencode_tui" "$opencode_selected" && has_text "$pi_settings" "$pi_selected"
 }
+codex_unselected() {
+  has_text "$codex_config" "$codex_text" && has_text "$codex_second_config" "$codex_text"
+}
+seed
+mkdir -p "$home/.2codex/themes"
+printf 'owner-v1
+' >"$home/.2codex/themes/vgs.tmTheme"
+apply_json "a Codex occupied account entry" 0 dusk
+check "an occupied Codex account skips the whole target" test "$(target_state codex)" == "skipped entry-occupied"
+check "the occupied Codex entry is left byte for byte" has_text "$home/.2codex/themes/vgs.tmTheme" $'owner-v1\n'
+check "an occupied Codex account writes no Codex selection" codex_unselected
+rm -f -- "$home/.2codex/themes/vgs.tmTheme"
+rm -rf -- "$state/theme" "$state/applied.json" "$state/theme.name"
 seed
 
 apply_json "the agent targets land" 0 dusk
@@ -166,21 +260,42 @@ unset THEME_BIN
 # is #111111, the table's background #000000 and the shipped slot color5
 # #a855f7.
 hex6='^#[0-9a-f]{6}$'
-check "Claude's theme is dark-based JSON whose overrides are all hex6" python3 -c 'import json,re,sys; t = json.load(open(sys.argv[1])); o = t["overrides"]; sys.exit(0 if t["name"] == "vgs" and t["base"] == "dark" and o["claude"] == "#111111" and o["inverseText"] == "#000000" and all(re.match(sys.argv[2], v) for v in o.values()) else 1)' "$live/claude.json" "$hex6"
-check "Claude's theme leaves the diff fills to its base" python3 -c 'import json,sys; sys.exit(0 if not [k for k in json.load(open(sys.argv[1]))["overrides"] if k.startswith("diff")] else 1)' "$live/claude.json"
-check "Codex's theme is a TextMate plist whose foregrounds are all hex6" python3 -c 'import plistlib,re,sys; t = plistlib.load(open(sys.argv[1], "rb")); f = [s["settings"]["foreground"] for s in t["settings"]]; h = [s["settings"]["foreground"] for s in t["settings"] if s.get("scope") == "markup.heading, entity.name.section"]; sys.exit(0 if t["name"] == "vgs" and h == ["#111111"] and all(re.match(sys.argv[2], v) for v in f) else 1)' "$live/codex.tmTheme" "$hex6"
+check "Claude's theme is dark-based JSON whose overrides are all hex6" python3 -c 'import json,re,sys; t = json.load(open(sys.argv[1])); o = t["overrides"]; sys.exit(0 if t["name"] == "vgs" and t["base"] == "dark" and o["claude"] == "#111111" and o["inverseText"] == "#000000" and len(o) == 72 and all(re.match(sys.argv[2], v) for v in o.values()) else 1)' "$live/claude.json" "$hex6"
+check "Codex's theme is a TextMate plist whose colours are all hex6" python3 -c 'import plistlib,re,sys; t = plistlib.load(open(sys.argv[1], "rb")); colours = [v for s in t["settings"] for v in s["settings"].values()]; h = [s["settings"]["foreground"] for s in t["settings"] if s.get("scope") == "markup.heading, entity.name.section"]; sys.exit(0 if t["name"] == "vgs" and h == ["#111111"] and all(re.match(sys.argv[2], v) for v in colours) else 1)' "$live/codex.tmTheme" "$hex6"
 check "Gemini's theme is a custom JSON theme with the accent" python3 -c 'import json,sys; t = json.load(open(sys.argv[1])); sys.exit(0 if t["type"] == "custom" and t["text"]["accent"] == "#111111" and t["background"]["primary"] == "#000000" and t["ui"]["gradient"][1] == "#a855f7" else 1)' "$live/gemini.json"
 check "Hermes's skin names itself vgs" grep -qxF -- 'name: vgs' "$live/hermes.yaml"
 check "every Hermes colour is a double-quoted hex6" python3 -c 'import re,sys; l = open(sys.argv[1]).read().split("colors:\n")[1].splitlines(); sys.exit(0 if len(l) == 30 and all(re.fullmatch(r"  [a-z_]+: \"#[0-9a-f]{6}\"", x) for x in l) and "  banner_title: \"#111111\"" in l else 1)' "$live/hermes.yaml"
 check "oh-my-pi's theme holds its 67 colours and 3 export colours as hex6" python3 -c 'import json,re,sys; t = json.load(open(sys.argv[1])); c = t["colors"]; e = t["export"]; sys.exit(0 if t["name"] == "vgs" and len(c) == 67 and sorted(e) == ["cardBg", "infoBg", "pageBg"] and c["accent"] == "#111111" and c["statusLineModel"] == "#111111" and all(re.match(sys.argv[2], v) for v in list(c.values()) + list(e.values())) else 1)' "$live/omp.json" "$hex6"
 check "opencode's theme holds its 52 colours as hex6" python3 -c 'import json,re,sys; t = json.load(open(sys.argv[1])); c = t["theme"]; sys.exit(0 if t["$schema"] == "https://opencode.ai/theme.json" and len(c) == 52 and c["primary"] == "#111111" and all(re.match(sys.argv[2], v) for v in c.values()) else 1)' "$live/opencode.json" "$hex6"
 check "Pi's theme holds its 56 colours and 3 export colours as hex6" python3 -c 'import json,re,sys; t = json.load(open(sys.argv[1])); c = t["colors"]; e = t["export"]; sys.exit(0 if t["name"] == "vgs" and len(c) == 56 and sorted(e) == ["cardBg", "infoBg", "pageBg"] and c["accent"] == "#111111" and all(re.match(sys.argv[2], v) for v in list(c.values()) + list(e.values())) else 1)' "$live/pi.json" "$hex6"
+check "agent diff role keys match resolved tokens" agent_theme_pins "$tree" "$live"
+tree_control claude-diff-pin themes/targets/claude/claude.json '"diffAdded": "#@{color.successSubtle}"' '"diffAdded": "#@{color.dangerSubtle}"'
+apply_json "the Claude pin mutant applies" 0 dusk
+check "the Claude pin mutant fails the role pins" test "$(agent_theme_pins "$tree" "$live" >/dev/null; echo $?)" == 1
+unset THEME_BIN
+tree_control codex-diff-pin themes/targets/codex/codex.tmTheme '<string>#@{color.successSubtle}</string>' '<string>#@{color.dangerSubtle}</string>'
+apply_json "the Codex pin mutant applies" 0 dusk
+check "the Codex pin mutant fails the role pins" test "$(agent_theme_pins "$tree" "$live" >/dev/null; echo $?)" == 1
+unset THEME_BIN
+tree_control gemini-diff-pin themes/targets/gemini/gemini.json '"added": "#@{color.successSubtle}"' '"added": "#@{color.dangerSubtle}"'
+apply_json "the Gemini pin mutant applies" 0 dusk
+check "the Gemini pin mutant fails the role pins" test "$(agent_theme_pins "$tree" "$live" >/dev/null; echo $?)" == 1
+unset THEME_BIN
+tree_control opencode-diff-pin themes/targets/opencode/opencode.json '"diffAddedBg": "#@{color.successSubtle}"' '"diffAddedBg": "#@{color.dangerSubtle}"'
+apply_json "the opencode pin mutant applies" 0 dusk
+check "the opencode pin mutant fails the role pins" test "$(agent_theme_pins "$tree" "$live" >/dev/null; echo $?)" == 1
+unset THEME_BIN
+apply_json "the agent targets land after pin controls" 0 dusk
 
 # The entries stand where each CLI reads its themes; Claude Code, Hermes,
 # oh-my-pi and Pi get watched copies, Codex and opencode keep links, and
 # Gemini reads its theme by the path its setting names and takes none.
-check "Claude's theme copy stands in its themes directory" same_file "$home/.claude/themes/vgs.json" "$live/claude.json"
-check "Codex's theme link stands in its themes directory" links_to "$home/.codex/themes/vgs.tmTheme" "$live/codex.tmTheme"
+check "Claude's theme copy stands in its default themes directory" same_file "$home/.claude/themes/vgs.json" "$live/claude.json"
+check "Claude's theme copy stands in its sibling account" same_file "$home/.claude-work/themes/vgs.json" "$live/claude.json"
+check "Claude's theme copy stands in its explicit account" same_file "$claude_explicit/themes/vgs.json" "$live/claude.json"
+check "a settings-less Claude account gets no theme copy" test ! -e "$home/.claude-empty/themes/vgs.json"
+check "Codex's theme link stands in its default themes directory" links_to "$home/.codex/themes/vgs.tmTheme" "$live/codex.tmTheme"
+check "Codex's theme link stands in its sibling account" links_to "$home/.2codex/themes/vgs.tmTheme" "$live/codex.tmTheme"
 check "Hermes's skin copy stands in its skins directory" same_file "$home/.hermes/skins/vgs.yaml" "$live/hermes.yaml"
 check "oh-my-pi's theme copy stands in its themes directory" same_file "$home/.omp/agent/themes/vgs.json" "$live/omp.json"
 check "opencode's theme link stands in its themes directory" links_to "$cfg/opencode/themes/vgs.json" "$live/opencode.json"
@@ -196,11 +311,11 @@ check "the modes of Codex's dotfile and Claude's settings are kept" test "$(stat
 # Unchanged: a second apply writes no settings file.
 touch -d @1000 -- "${settings[@]}"
 if ! before="$(stamp "${settings[@]}")"; then fail "the settings files can be read before the unchanged apply"; before=none; fi
-if ! entries_before="$(entry_stamp "$home/.claude/themes/vgs.json" "$home/.hermes/skins/vgs.yaml" "$home/.omp/agent/themes/vgs.json" "$home/.pi/agent/themes/vgs.json")"; then fail "the copied theme entries can be read before the unchanged apply"; entries_before=none; fi
+if ! entries_before="$(entry_stamp "$home/.claude/themes/vgs.json" "$home/.claude-work/themes/vgs.json" "$claude_explicit/themes/vgs.json" "$home/.hermes/skins/vgs.yaml" "$home/.omp/agent/themes/vgs.json" "$home/.pi/agent/themes/vgs.json")"; then fail "the copied theme entries can be read before the unchanged apply"; entries_before=none; fi
 apply_json "an unchanged apply" 0 dusk
 check "an unchanged apply leaves every agent target unchanged" all_state "claude unchanged None;codex unchanged None;gemini unchanged None;hermes unchanged None;omp unchanged None;opencode unchanged None;pi unchanged None;"
 check "an unchanged apply writes no settings file" test "$(stamp "${settings[@]}")" == "$before"
-check "an unchanged apply writes no copied theme entry" test "$(entry_stamp "$home/.claude/themes/vgs.json" "$home/.hermes/skins/vgs.yaml" "$home/.omp/agent/themes/vgs.json" "$home/.pi/agent/themes/vgs.json")" == "$entries_before"
+check "an unchanged apply writes no copied theme entry" test "$(entry_stamp "$home/.claude/themes/vgs.json" "$home/.claude-work/themes/vgs.json" "$claude_explicit/themes/vgs.json" "$home/.hermes/skins/vgs.yaml" "$home/.omp/agent/themes/vgs.json" "$home/.pi/agent/themes/vgs.json")" == "$entries_before"
 
 # A changed theme replaces each watched copy and writes no settings file.
 apply_json "a changed theme" 0 nord
@@ -251,7 +366,7 @@ apply_json "the agent targets land again" 0 dusk
 disable '"claude"'
 apply_json "a disabled Claude" 0 nord
 check "a disabled Claude is skipped" test "$(target_state claude)" == "skipped disabled"
-check "a disabled Claude loses its copy" test ! -e "$home/.claude/themes/vgs.json"
+check "a disabled Claude loses its copies" test ! -e "$home/.claude/themes/vgs.json" -a ! -e "$home/.claude-work/themes/vgs.json" -a ! -e "$claude_explicit/themes/vgs.json" -a ! -e "$home/.claude-empty/themes/vgs.json"
 check "a disabled Claude leaves its theme key" has_text "$claude_settings" "$claude_selected"
 disable ''
 
@@ -263,12 +378,23 @@ apply_json "the selection-skipping mutant applies" 0 dusk
 check "the selection-skipping mutant leaves the hand-edited key" has_text "$claude_settings" "${claude_selected/custom:vgs/dark}"
 unset THEME_BIN
 
-# No agent template names a translucent token: hex6 drops alpha, so a
-# 14 % fill would draw as the whole colour. Each template is rendered
-# against the shipped vgs package with the hex8 encoder, which writes every
-# resolved colour whole; the count of colours each writes must equal the
-# `#@{` placeholders its template holds, and each must be opaque.
-translucent_check() { # ROOT: the tree whose agent targets are judged
+seed
+rm -rf -- "$home/.claude/themes" "$home/.claude-work/themes" "$claude_explicit/themes" "$home/.claude-empty/themes" "$home/.codex/themes" "$home/.2codex/themes"
+judge_control account-first-only '.map(row => row.directory)' '.map(row => row.directory).slice(0, 1)'
+apply_json "the first-account mutant applies" 0 dusk
+check "the first-account mutant misses served accounts" test ! -e "$home/.claude-work/themes/vgs.json" -o ! -e "$home/.2codex/themes/vgs.tmTheme"
+unset THEME_BIN
+rm -rf -- "$home/.claude/themes" "$home/.claude-work/themes" "$claude_explicit/themes" "$home/.claude-empty/themes" "$home/.codex/themes" "$home/.2codex/themes"
+judge_control account-settingsless-served '.filter(dir => !served || existingPath(path.join(dir, target.select.file)) !== undefined);' '.filter(dir => true);'
+apply_json "the settings-less-account mutant applies" 0 dusk
+check "the settings-less-account mutant fails the account plan" test "$(target_state claude)" == "skipped selection-file-absent"
+unset THEME_BIN
+
+# Agent templates render as opaque hex6 colours. Each template is rendered
+# against the shipped vgs package with the hex6 encoder; the count of colours
+# each writes must equal the `#@{` placeholders its template holds, and each
+# must be opaque.
+hex6_agent_check() { # ROOT: the tree whose agent targets are judged
   "$node_bin" - "$1" $agents <<'EOF'
 "use strict";
 const fs = require("fs");
@@ -285,24 +411,30 @@ for (const name of names) {
     const dir = path.join(root, "themes", "targets", name);
     const target = render.acceptTarget(logic, name, fs.readFileSync(path.join(dir, "target.json"), "utf8")).target;
     const templates = new Map(target.files.map(file => [file.template, fs.readFileSync(path.join(dir, file.template), "utf8")]));
-    const out = render.renderTarget(logic, tokens, Object.assign({}, target, { encoder: "hex8" }), templates, { values: pkg.values, slots: pkg.terminal, curated: new Map(), installed: false });
-    const written = out.files.map(file => file.bytes.toString("utf8")).join("").match(/#[0-9a-f]{8}/g) || [];
+    const out = render.renderTarget(logic, tokens, target, templates, { values: pkg.values, slots: pkg.terminal, curated: new Map(), installed: false });
+    const written = out.files.map(file => file.bytes.toString("utf8")).join("").match(/#[0-9a-f]{6,8}/g) || [];
     const placeholders = [...templates.values()].join("").split("#@{").length - 1;
     if (placeholders < 10 || written.length !== placeholders) {
-        console.log("translucent-check: broken extractor target=" + name + " placeholders=" + placeholders + " colours=" + written.length);
+        console.log("hex6-agent-check: broken extractor target=" + name + " placeholders=" + placeholders + " colours=" + written.length);
         bad++;
     }
-    for (const colour of written.filter(hex => !hex.endsWith("ff"))) {
-        console.log("translucent-check: translucent target=" + name + " colour=" + colour);
+    for (const colour of written.filter(hex => !/^#[0-9a-f]{6}$/.test(hex))) {
+        console.log("hex6-agent-check: not-hex6 target=" + name + " colour=" + colour);
         bad++;
     }
 }
 process.exit(bad === 0 ? 0 : 1);
 EOF
 }
-check "no agent template names a translucent token" translucent_check "$tree"
-tree_control translucent-token themes/targets/pi/pi.json '"selectedBg": "#@{color.surfaceHover}"' '"selectedBg": "#@{color.accentSubtle}"'
-check "the translucent-token mutant fails the check" test "$(translucent_check "$tmp/tree-translucent-token" >/dev/null; echo $?)" == 1
+check "agent templates render opaque hex6 colours" hex6_agent_check "$tree"
+tree_control hex8-agent themes/targets/pi/target.json '"encoder": "hex6"' '"encoder": "hex8"'
+check "the hex8 agent mutant fails the check" test "$(hex6_agent_check "$tmp/tree-hex8-agent" >/dev/null; echo $?)" == 1
+unset THEME_BIN
+
+# The judge refuses an `accounts` id the account rule does not name.
+tree_control unknown-accounts themes/targets/claude/target.json '"accounts": "claude"' '"accounts": "gemini"'
+apply_json "the unknown-accounts mutant applies" 3 dusk "vgshell: refused: target=claude reason=target-schema key=accounts"
+check "the unknown-accounts mutant fails Claude as target-schema" test "$(target_state claude)" == "failed target-schema"
 unset THEME_BIN
 
 rows_done test-vgshell-agents

@@ -38,7 +38,7 @@ An application that reads no include line from its configuration finds its theme
 
 | Key | Holds |
 |---|---|
-| `base` | `config` for `${XDG_CONFIG_HOME:-~/.config}`, `home` for the home directory, `cache` for `${XDG_CACHE_HOME:-~/.cache}`. |
+| `base` | `config` for `${XDG_CONFIG_HOME:-~/.config}`, `home` for the home directory, `cache` for `${XDG_CACHE_HOME:-~/.cache}`, or `account` for each account directory of a target with `accounts`. |
 | `dir` | The directory the entries stand in, relative to `base`, each segment a directory name that may start with a dot: `.vscode/extensions/vgs-theme`. |
 | `owned` | `true` when `dir` itself belongs to the target, such as an extension directory; `false` when it is the application's own directory. |
 | `links` | One or more `"<name>": "<destination>"`: a link's file name in `dir`, and the target file it names, one of the target's `destination`s. Exactly one of `links` or `copies` is present. |
@@ -53,6 +53,7 @@ An application that reads no include line from its configuration finds its theme
 - **Occupied.** A `dir` that exists and is no directory, or an entry path holding anything but its managed form, skips the target with reason `entry-occupied`. Nothing at that path is replaced.
 - **Vaults.** `vaultDirs` reads the registry's `vaults.<id>.path`, each absolute one once, in its order. A vault whose first `dir` segment is no directory, one that is gone or was never opened, takes no entries. An absent registry, or one listing no such vault, skips the target with `wiring-file-absent`; one that cannot be read, or that is no JSON object with an object `vaults`, fails it with `unreadable`, on apply and on disable. Apply keeps the entries in every such vault, and a disabled target's removal takes them from every one.
 - **Symlinked directories.** `dir` and its parents are followed where they stand, so a dotfile manager's link to a directory serves, and the link is created in the directory it names.
+- **Accounts.** `account` is valid only when target.json names `accounts`. Apply keeps entries in each discovered account directory whose selection file exists. Disable removes managed entries from each discovered account directory.
 
 ## Invariants
 

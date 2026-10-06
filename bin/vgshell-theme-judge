@@ -150,12 +150,14 @@ const { load } = require(path.join(__dirname, "lib", "qml-library.js"));
 const logic = load(path.join(repo, "shell", "Commons", "ThemeLogic.js"));
 const tokens = load(path.join(repo, "shell", "Commons", "Tokens.js")).TOKENS;
 const pluginLogic = load(path.join(repo, "shell", "Core", "PluginLogic.js"));
+const accountRule = load(path.join(repo, "shell", "Commons", "AccountDirectories.js"));
 const { spawnSync } = require("child_process");
 const { Refusal, refuse, main, readJson, readConfig, writing, replaceFile, editFile, onPath } = require(path.join(__dirname, "lib", "judge-files.js"));
 const render = require(path.join(__dirname, "lib", "theme-render.js"));
 const backgrounds = require(path.join(__dirname, "lib", "theme-backgrounds.js"));
 const select = require(path.join(__dirname, "lib", "theme-select.js"));
 const catalog = require(path.join(__dirname, "lib", "theme-catalog.js"));
+const { accountFolders } = require(path.join(__dirname, "lib", "account-folders.js"));
 
 const SHIPPED = path.join(repo, "themes");
 const SHIPPED_CONFIG = path.join(repo, "config", "shell.json");
@@ -355,10 +357,13 @@ function checkPackages(dirArg) {
 }
 
 // A target directory's judged target.json and the text of every template
-// it names, or `templates` null for a refused target. Any read failure
-// throws the fs error.
+// it names, or `templates` null for a refused target. An `accounts` id that
+// names no harness of the account rule is refused here, where that rule is
+// read. Any read failure throws the fs error.
 function readTarget(dir) {
-    const verdict = render.acceptTarget(logic, path.basename(dir), fs.readFileSync(path.join(dir, render.TARGET_FILE), "utf8"));
+    let verdict = render.acceptTarget(logic, path.basename(dir), fs.readFileSync(path.join(dir, render.TARGET_FILE), "utf8"));
+    if (verdict.ok && verdict.target.accounts !== undefined && accountRule.harness(verdict.target.accounts) === null)
+        verdict = { ok: false, reason: "target-schema", detail: "key=accounts" };
     if (!verdict.ok) return { verdict, templates: null };
     const templates = new Map();
     for (const file of verdict.target.files)
@@ -819,9 +824,13 @@ function planTarget(dir, row, slots, disabled, configHome, live) {
     // the target before anything lands, so its application keeps its theme.
     if (target.select !== undefined) {
         const selected = reading(name, dir, () => {
-            const selection = selectionEdit(target, configHome, live);
-            const verdict = selection.edit(latin1(readIfPresent(selection.file)));
-            return verdict === null || typeof verdict === "string" ? null : verdict.reason;
+            const selections = selectionEdits(target, configHome, live);
+            if (selections.length === 0) return "selection-file-absent";
+            for (const selection of selections) {
+                const verdict = selection.edit(latin1(readIfPresent(selection.file)));
+                if (verdict !== null && typeof verdict !== "string") return verdict.reason;
+            }
+            return null;
         }, failed);
         if (!selected.ok) return selected.entry;
         if (selected.value !== null) return skipped(selected.value);
@@ -983,6 +992,23 @@ function isDirectory(dir) {
     }
 }
 
+function isAccountTarget(target) {
+    return target.accounts !== undefined;
+}
+
+function accountRoots(target, served) {
+    const config = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config");
+    const data = process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local/share");
+    return accountFolders({ home: os.homedir(), config, data, env: process.env }).folders
+        .filter(row => row.provider === target.accounts && isDirectory(row.directory))
+        .map(row => row.directory)
+        .filter(dir => !served || existingPath(path.join(dir, target.select.file)) !== undefined);
+}
+
+function accountEntryDirs(target, served) {
+    return accountRoots(target, served).map(dir => path.join(dir, target.wiring.dir));
+}
+
 // Edit every configuration file of TARGET, includeFiles' list, as editFile
 // edits one, stopping at the first failure. EDIT maps a file's text, or
 // undefined for an absent file, the include line pointing at LIVE and the
@@ -1026,6 +1052,7 @@ function baseDir(base, configHome) {
 // registry vaultDirs cannot read a vault list from.
 function entryDirs(target, configHome) {
     const wiring = target.wiring;
+    if (isAccountTarget(target)) return accountEntryDirs(target, true);
     const base = baseDir(wiring.base, configHome);
     if (wiring.vaults === undefined) return [path.join(base, wiring.dir)];
     const registry = path.join(base, wiring.vaults);
@@ -1156,7 +1183,8 @@ function dropEntries(name, target, configHome, live) {
     const key = "target=" + name + " reason";
     let plan;
     try {
-        plan = currentEntries(target, entryDirs(target, configHome), live);
+        const dirs = isAccountTarget(target) ? accountEntryDirs(target, false) : entryDirs(target, configHome);
+        plan = currentEntries(target, dirs, live);
     } catch (e) {
         return entryDirsFailure(key, e);
     }
@@ -1187,13 +1215,14 @@ function dropEntries(name, target, configHome, live) {
 // The settings file TARGET's `select` names, under its base, and the edit
 // theme-select.js makes in that file's latin1 text, the value's `@{state}`
 // written as LIVE.
-function selectionEdit(target, configHome, live) {
+function selectionEdits(target, configHome, live) {
     const selection = target.select;
     const value = latin1(Buffer.from(render.selectValue(target, live), "utf8"));
-    return {
-        file: path.join(baseDir(selection.base, configHome), selection.file),
+    const roots = isAccountTarget(target) ? accountRoots(target, true) : [baseDir(selection.base, configHome)];
+    return roots.map(root => ({
+        file: path.join(root, selection.file),
         edit: text => select.selectedText(selection.format, text, render.selectKeys(target), value)
-    };
+    }));
 }
 
 // Keep a landed ENTRY's wiring: its include line in its configuration file,
@@ -1209,8 +1238,10 @@ function wire(entry, configHome, live) {
     default: throw new Error("vgshell-theme-judge: wire: target " + entry.name + " has no known wiring form");
     }
     if (failure === null && entry.target.select !== undefined) {
-        const selection = selectionEdit(entry.target, configHome, live);
-        failure = editFile("target=" + entry.name + " reason", selection.file, false, selection.edit);
+        for (const selection of selectionEdits(entry.target, configHome, live)) {
+            failure = editFile("target=" + entry.name + " reason", selection.file, false, selection.edit);
+            if (failure !== null) break;
+        }
     }
     return failure === null ? entry : Object.assign({ name: entry.name, state: "failed", dropped: entry.dropped }, failure);
 }

@@ -2,7 +2,11 @@
   "name": "vgs",
   "type": "custom",
   "background": {
-    "primary": "#@{color.background}"
+    "primary": "#@{color.background}",
+    "diff": {
+      "added": "#@{color.successSubtle}",
+      "removed": "#@{color.dangerSubtle}"
+    }
   },
   "text": {
     "primary": "#@{color.text}",

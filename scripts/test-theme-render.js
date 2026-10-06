@@ -52,6 +52,9 @@ const wiring = { file: "probe/probe.conf", line: "include=@{state}/probe.conf", 
 // never a file edit. Two files so an entry can name either.
 const entry = { base: "config", dir: "probe/themes", owned: false, links: { "vgs.conf": "probe.conf" } };
 const copyEntry = { base: "config", dir: "probe/themes", owned: false, copies: { "vgs.conf": "probe.conf" } };
+const accountEntry = { base: "account", dir: "themes", owned: false, links: { "vgs.conf": "probe.conf" } };
+const accountCopyEntry = { base: "account", dir: "themes", owned: false, copies: { "vgs.conf": "probe.conf" } };
+const accountSelect = { base: "account", file: "settings.json", format: "json", key: ["theme"], value: "custom:vgs" };
 const twoFiles = [{ template: "a.conf", destination: "probe.conf" }, { template: "b.json", destination: "probe.pkg.json" }];
 const entryText = (fields = {}) => targetText({ files: twoFiles, wiring: Object.assign({}, entry, fields) });
 const copyEntryText = (fields = {}) => targetText({ files: twoFiles, wiring: Object.assign({}, copyEntry, fields) });
@@ -78,6 +81,8 @@ const ACCEPTED_TARGETS = [
     ["probe", entryText()],
     ["probe", entryText({ base: "home", dir: ".probe/extensions/vgs-theme", owned: true, links: { "package.json": "probe.pkg.json", "vgs-color-theme.json": "probe.conf" } })],
     ["probe", copyEntryText()],
+    ["probe", targetText({ wiring: accountEntry, select: accountSelect, accounts: "claude" })],
+    ["probe", targetText({ wiring: accountCopyEntry, select: accountSelect, accounts: "codex" })],
     ["probe", targetText({ wiring: null })],
     ["probe", targetText({ reload: { command: ["probe", "--file=@{state}/probe.conf", "@@{x}"], timeoutMs: 2000, always: true } })],
     ["probe", targetText({ reload: { command: ["probe"], timeoutMs: 2000, always: false } })],
@@ -178,6 +183,12 @@ const REFUSED_TARGETS = [
     ["probe", copyEntryText({ copies: {} }), "target-schema", "key=wiring.copies"],
     ["probe", copyEntryText({ copies: { "../vgs.conf": "probe.conf" } }), "target-schema", "key=wiring.copies.../vgs.conf"],
     ["probe", copyEntryText({ copies: { "vgs.conf": "other.conf" } }), "target-schema", "key=wiring.copies.vgs.conf"],
+    ["probe", targetText({ wiring: accountEntry, select: accountSelect, accounts: 7 }), "target-schema", "key=accounts"],
+    ["probe", targetText({ wiring: accountEntry, accounts: "claude" }), "target-schema", "key=accounts"],
+    ["probe", targetText({ wiring: entry, select: accountSelect, accounts: "claude" }), "target-schema", "key=accounts"],
+    ["probe", targetText({ wiring: accountEntry, select: Object.assign({}, accountSelect, { base: "home" }), accounts: "claude" }), "target-schema", "key=accounts"],
+    ["probe", targetText({ wiring: accountEntry, select: accountSelect }), "target-schema", "key=wiring.base"],
+    ["probe", targetText({ select: accountSelect }), "target-schema", "key=select.base"],
     ["probe", targetText({ reload: { command: ["probe"] } }), "target-schema", "key=reload"],
     ["probe", targetText({ reload: { command: [], timeoutMs: 2000 } }), "target-schema", "key=reload.command"],
     ["probe", targetText({ reload: { command: ["probe"], timeoutMs: 0 } }), "target-schema", "key=reload.timeoutMs"],
@@ -197,9 +208,9 @@ const REFUSED_TARGETS = [
 ];
 
 // One colour through each encoder: the defaults' color.selection is
-// alpha(#ff5a36, 0.35), #ff5a3659; 0x59 = 89 and 89 / 255 = 0.349.
+// alpha(#ff5a36, 0.35), #ff5a3659, composited over #000000ff. 0x59 = 89 and 89 / 255 = 0.349.
 const ENCODED = [
-    ["hex6", "ff5a36"],
+    ["hex6", "591f13"],
     ["hex8", "ff5a3659"],
     ["rgba", "rgba(255, 90, 54, 0.349)"]
 ];
@@ -581,7 +592,7 @@ verify(require(rendererFile));
 // Each control removes one rule's behaviour from a copy of the renderer and
 // keeps the text around it. The suite must fail on every copy.
 const CONTROLS = [
-    ["hex6 encoder", "hex6: hex => hex.slice(1, 7)", "hex6: hex => hex.slice(0, 7)"],
+    ["hex6 encoder", "hex6: (hex, background) => hex6(hex, background)", "hex6: hex => hex.slice(1, 7)"],
     ["hex8 encoder", "hex8: hex => hex.slice(1, 9)", "hex8: hex => hex.slice(1, 7)"],
     ["rgba alpha", "String(Math.round(parseInt(hex.slice(7, 9), 16) / 255 * 1000) / 1000)", "String(parseInt(hex.slice(7, 9), 16))"],
     ["escape", 'if (m[0] === "@@{") {', "if (false) {"],
@@ -617,7 +628,7 @@ const CONTROLS = [
     ["own terminal first", "for (const candidate of [pkg, defaults]) {", "for (const candidate of [defaults, pkg]) {"],
     ["terminal fallback", "for (const candidate of [pkg, defaults]) {", "for (const candidate of [pkg]) {"],
     ["target name", "if (typeof name !== \"string\" || !TARGET_NAME_PATTERN.test(name))", "if (false)"],
-    ["unknown key", "if (!TARGET_KEYS.includes(key) && key !== SELECT_KEY && key !== SETUP_KEY) return", "if (false) return"],
+    ["unknown key", "if (!TARGET_KEYS.includes(key) && key !== SELECT_KEY && key !== SETUP_KEY && key !== ACCOUNTS_KEY) return", "if (false) return"],
     ["missing key", "if (!logic.hasOwn(document, key)) return", "if (false) return"],
     ["app", "if (!isLine(document.app)) return", "if (false) return"],
     ["encoder name", "if (!logic.hasOwn(ENCODERS, document.encoder)) return", "if (false) return"],
@@ -664,7 +675,7 @@ const CONTROLS = [
     ["reload names wiring", "return names !== null && names.includes(WIRING_PLACEHOLDER);", "return false;"],
     ["reload argument state", "target.reload.command.map(arg => withValues(arg, values,", "target.reload.command.map(arg => String(arg,"],
     ["reload always read", "target.reload.always === true", "target.reload.always !== undefined"],
-    ["setup admitted", "key !== SELECT_KEY && key !== SETUP_KEY)", "key !== SELECT_KEY)"],
+    ["setup admitted", "key !== SELECT_KEY && key !== SETUP_KEY && key !== ACCOUNTS_KEY)", "key !== SELECT_KEY && key !== ACCOUNTS_KEY)"],
     ["setup is a command name", "!logic.isPackageName(document.setup)", "false"],
     ["setup read", "target.setup === undefined || onPath(target.setup)", "true"],
     ["wiring none form", "if (wiring === null) return \"none\";", "if (false) return \"none\";"],
@@ -716,8 +727,12 @@ const CONTROLS = [
     ["vault entry is an object", "logic.isPlainObject(vault) ? vault.path : undefined", "vault.path"],
     ["vault path absolute", 'dir.startsWith("/") && !dirs.includes(dir)', "!dirs.includes(dir)"],
     ["vault listed once", "&& !dirs.includes(dir)) dirs.push(dir);", ") dirs.push(dir);"],
-    ["entry base", "if (!ENTRY_BASES.includes(wiring.base)) return", "if (false) return"],
+    ["entry base", "if (!entryBaseAccepted(wiring.base, hasAccounts)) return", "if (false) return"],
     ["entry cache base", 'const ENTRY_BASES = ["config", "home", "cache"];', 'const ENTRY_BASES = ["config", "home"];'],
+    ["accounts key admitted", "&& key !== ACCOUNTS_KEY) return", ") return"],
+    ["accounts id shape", "if (hasAccounts && !logic.isPackageName(document.accounts)) return", "if (false) return"],
+    ["account base requires accounts", "return ENTRY_BASES.includes(base) || (hasAccounts && base === ACCOUNT_BASE);", "return ENTRY_BASES.includes(base) || base === ACCOUNT_BASE;"],
+    ["accounts require account wiring and selection", "if (hasAccounts) {", "if (false) {"],
     ["entry dir segment", "const DIR_SEGMENT_PATTERN = /^\\.?[A-Za-z0-9][A-Za-z0-9._-]*$/;", "const DIR_SEGMENT_PATTERN = /^[.A-Za-z0-9_-]+$/;"],
     ["entry owned", "if (typeof wiring.owned !== \"boolean\") return", "if (false) return"],
     ["entry item present", "if (!logic.isPlainObject(wiring[itemKey]) || Object.keys(wiring[itemKey]).length === 0) return", "if (!logic.isPlainObject(wiring[itemKey])) return"],

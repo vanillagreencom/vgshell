@@ -16,6 +16,12 @@
 // the target's files, so an installed package's curated file there is
 // dropped and the template rendered in its place: renderTarget.
 const TARGET_KEYS = ["app", "encoder", "files", "detect", "wiring", "reload", "runsCode"];
+// An optional account target writes one render into each account directory
+// of one harness, named by its id in shell/Commons/AccountDirectories.js.
+// Its entry wiring and selection are relative to each account directory.
+// The caller, which reads the account rule, judges that the id names a
+// harness: readTarget in bin/vgshell-theme-judge.
+const ACCOUNTS_KEY = "accounts";
 // The one optional top-level key: the theme selection apply keeps in the
 // application's own settings file, `{ base, file, format, key, value }`,
 // beside any wiring form. `key` is one key path, or a list of two or more
@@ -57,6 +63,7 @@ const ENTRY_OPTIONAL_KEYS = ["vaults"];
 // to: the user's configuration home, ${XDG_CONFIG_HOME:-~/.config}, the home
 // directory, or the user's cache home, ${XDG_CACHE_HOME:-~/.cache}.
 const ENTRY_BASES = ["config", "home", "cache"];
+const ACCOUNT_BASE = "account";
 const RELOAD_KEYS = ["command", "timeoutMs"];
 // The one optional reload key: `true` makes the hook due on every apply that
 // lands the target, for a hook that asserts a setting no file carries.
@@ -114,11 +121,25 @@ const MARKER = /@@\{|@\{([^}]*)\}|@\{/g;
 
 // Each encoder writes one resolved colour, which is `#rrggbbaa`.
 const ENCODERS = {
-    hex6: hex => hex.slice(1, 7),
+    hex6: (hex, background) => hex6(hex, background),
     hex8: hex => hex.slice(1, 9),
     rgba: hex => "rgba(" + [1, 3, 5].map(at => parseInt(hex.slice(at, at + 2), 16)).join(", ") + ", " +
         String(Math.round(parseInt(hex.slice(7, 9), 16) / 255 * 1000) / 1000) + ")"
 };
+
+function channel(hex, at) {
+    return parseInt(hex.slice(at, at + 2), 16);
+}
+
+function byteHex(value) {
+    return value.toString(16).padStart(2, "0");
+}
+
+function hex6(hex, background) {
+    if (hex.length < 9 || channel(hex, 7) === 255) return hex.slice(1, 7);
+    const alpha = channel(hex, 7) / 255;
+    return [1, 3, 5].map(at => byteHex(Math.round(channel(hex, at) * alpha + channel(background, at) * (1 - alpha)))).join("");
+}
 
 function refused(reason, detail) {
     return { ok: false, reason, detail };
@@ -237,11 +258,15 @@ function isRelativePath(value) {
 // under `base` lists, one directory name per segment. Exactly one of
 // `links` or `copies` maps each entry's file name in `dir` to one of
 // DESTINATIONS, the target's own files.
-function entryError(logic, wiring, destinations) {
+function entryBaseAccepted(base, hasAccounts) {
+    return ENTRY_BASES.includes(base) || (hasAccounts && base === ACCOUNT_BASE);
+}
+
+function entryError(logic, wiring, destinations, hasAccounts) {
     const itemKey = entryItemKey(wiring);
     if (itemKey === "" || !ENTRY_BASE_KEYS.every(key => logic.hasOwn(wiring, key)) ||
         !Object.keys(wiring).every(key => ENTRY_BASE_KEYS.includes(key) || ENTRY_ITEM_KEYS.includes(key) || ENTRY_OPTIONAL_KEYS.includes(key))) return "key=wiring";
-    if (!ENTRY_BASES.includes(wiring.base)) return "key=wiring.base";
+    if (!entryBaseAccepted(wiring.base, hasAccounts)) return "key=wiring.base";
     if (!isRelativePath(wiring.dir)) return "key=wiring.dir";
     if (logic.hasOwn(wiring, "vaults") && !isRelativePath(wiring.vaults)) return "key=wiring.vaults";
     if (typeof wiring.owned !== "boolean") return "key=wiring.owned";
@@ -336,9 +361,9 @@ function isKeyPrefix(a, b) {
 // named at, or a list of two or more such paths none of which is another or
 // lies on another's path, and one line of value whose only placeholder is
 // `@{state}`.
-function selectError(logic, select) {
+function selectError(logic, select, hasAccounts) {
     if (!hasExactKeys(logic, select, SELECT_KEYS)) return "key=select";
-    if (!ENTRY_BASES.includes(select.base)) return "key=select.base";
+    if (!entryBaseAccepted(select.base, hasAccounts)) return "key=select.base";
     if (!isRelativePath(select.file)) return "key=select.file";
     if (!SELECT_FORMATS.includes(select.format)) return "key=select.format";
     if (!isKeyPath(select.format, select.key)) {
@@ -365,7 +390,7 @@ function acceptTarget(logic, name, text) {
     }
     if (!logic.isPlainObject(document)) return refused("target-schema", "key=document");
     for (const key of Object.keys(document))
-        if (!TARGET_KEYS.includes(key) && key !== SELECT_KEY && key !== SETUP_KEY) return refused("target-schema", "unknown=" + key);
+        if (!TARGET_KEYS.includes(key) && key !== SELECT_KEY && key !== SETUP_KEY && key !== ACCOUNTS_KEY) return refused("target-schema", "unknown=" + key);
     for (const key of TARGET_KEYS)
         if (!logic.hasOwn(document, key)) return refused("target-schema", "missing=" + key);
     if (!isLine(document.app)) return refused("target-schema", "key=app");
@@ -381,14 +406,23 @@ function acceptTarget(logic, name, text) {
     }
     if (!Array.isArray(document.detect) || !document.detect.every(entry => isDetectEntry(logic, entry))) return refused("target-schema", "key=detect");
     if (logic.hasOwn(document, SETUP_KEY) && !logic.isPackageName(document.setup)) return refused("target-schema", "key=setup");
+    const hasAccounts = logic.hasOwn(document, ACCOUNTS_KEY);
+    if (hasAccounts && !logic.isPackageName(document.accounts)) return refused("target-schema", "key=accounts");
     const wiring = document.wiring === null ? ""
-        : logic.isPlainObject(document.wiring) && wiringForm(document.wiring) === "entry" ? entryError(logic, document.wiring, destinations)
+        : logic.isPlainObject(document.wiring) && wiringForm(document.wiring) === "entry" ? entryError(logic, document.wiring, destinations, hasAccounts)
         : wiringError(logic, document.wiring);
     if (wiring !== "") return refused("target-schema", wiring);
     const reload = reloadError(logic, document.reload, document);
     if (reload !== "") return refused("target-schema", reload);
-    const select = logic.hasOwn(document, SELECT_KEY) ? selectError(logic, document.select) : "";
+    const select = logic.hasOwn(document, SELECT_KEY) ? selectError(logic, document.select, hasAccounts) : "";
     if (select !== "") return refused("target-schema", select);
+    if (hasAccounts) {
+        if (!logic.hasOwn(document, SELECT_KEY) || wiringForm(document.wiring) !== "entry" ||
+            document.wiring.base !== ACCOUNT_BASE || document.select.base !== ACCOUNT_BASE) return refused("target-schema", "key=accounts");
+    } else if ((logic.isPlainObject(document.wiring) && document.wiring.base === ACCOUNT_BASE) ||
+        (logic.hasOwn(document, SELECT_KEY) && document.select.base === ACCOUNT_BASE)) {
+        return refused("target-schema", "key=accounts");
+    }
     return { ok: true, target: Object.assign({ name }, document) };
 }
 
@@ -469,7 +503,7 @@ function renderTarget(logic, tokens, target, templates, input) {
         throw new Error("theme-render: renderTarget: target " + target.name + " rendered without terminal slots");
     if (typeof input.installed !== "boolean")
         throw new Error("theme-render: renderTarget: target " + target.name + " rendered without the package's source");
-    const encode = ENCODERS[target.encoder];
+    const encode = hex => ENCODERS[target.encoder](hex, input.values.color.background);
     const files = [];
     const dropped = [];
     for (const file of target.files) {

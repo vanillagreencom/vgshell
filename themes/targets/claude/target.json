@@ -4,7 +4,8 @@
   "encoder": "hex6",
   "files": [{ "template": "claude.json", "destination": "claude.json" }],
   "detect": ["claude"],
-  "wiring": { "base": "home", "dir": ".claude/themes", "owned": false, "copies": { "vgs.json": "claude.json" } },
-  "select": { "base": "home", "file": ".claude/settings.json", "format": "json", "key": ["theme"], "value": "custom:vgs" },
+  "accounts": "claude",
+  "wiring": { "base": "account", "dir": "themes", "owned": false, "copies": { "vgs.json": "claude.json" } },
+  "select": { "base": "account", "file": "settings.json", "format": "json", "key": ["theme"], "value": "custom:vgs" },
   "reload": null
 }
