@@ -8,21 +8,17 @@ for _ in $(seq 1 100); do
   if plugins_json="$(ipc shell listPlugins)" && [[ $(py_reply 'import json,sys; ids={p["id"] for p in json.load(sys.stdin)["plugins"]}; print({"vgs.bar","acme.tick"} <= ids)' <<<"$plugins_json") == True ]]; then break; fi
   sleep 0.2
 done
-# A bundled plugin is enabled unless the harness's user file disables it or
-# its shipped manifest sets `optIn`; one that sets it is off here, where no
-# plugins row names it.
-if python3 - "$plugins_json" "$home/.config/vgshell/shell.json" "$repo/shell/plugins" <<'PY'
-import json, os, sys
+# A bundled plugin is enabled unless the harness's user file disables it.
+if python3 - "$plugins_json" "$home/.config/vgshell/shell.json" <<'PY'
+import json, sys
 d = json.loads(sys.argv[1])
 harness_disabled = json.load(open(sys.argv[2])).get("disabledPlugins", [])
 by = {p["id"]: p for p in d["plugins"]}
 missing = [i for i in ("vgs.bar", "acme.tick") if i not in by]
 bundled = [i for i in by if i.startswith("vgs.")]
-opt_in = [i for i in bundled if json.load(open(os.path.join(sys.argv[3], i, "manifest.json"))).get("optIn") is True]
-disabled = [i for i in bundled if not by[i]["enabled"] and i not in harness_disabled and i not in opt_in]
-enabled = [i for i in opt_in if by[i]["enabled"]]
-if missing or disabled or enabled or d["errors"] or d["collisions"]:
-    print("missing=%s disabled=%s opt-in-enabled=%s errors=%s collisions=%s" % (missing, disabled, enabled, d["errors"], d["collisions"]))
+disabled = [i for i in bundled if not by[i]["enabled"] and i not in harness_disabled]
+if missing or disabled or d["errors"] or d["collisions"]:
+    print("missing=%s disabled=%s errors=%s collisions=%s" % (missing, disabled, d["errors"], d["collisions"]))
     sys.exit(1)
 PY
 then ok "bundled plugins discovered, enabled and error-free"; else fail "bundled plugin state"; fi

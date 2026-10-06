@@ -101,15 +101,10 @@ function suite(ctx, check) {
         ["settings placement outside PLACEMENTS", { settings: { placement: "middle" } }, "settings.placement must be one of"],
         ["settings placement in PLACEMENTS", { settings: { placement: "top-right" } }, null],
         ["defaultSection without the widget kind", { defaultSection: "left" }, "defaultSection needs kind bar-widget"],
-        ["optIn on a service", { kinds: ["service"], entryPoints: { service: "S.qml" }, optIn: true }, null],
-        ["optIn not a boolean", { kinds: ["service"], entryPoints: { service: "S.qml" }, optIn: "yes" }, "optIn must be a boolean"],
-        ["optIn on a bar", { optIn: true }, "optIn needs a kind other than bar"],
-        ["optIn on a widget-only plugin", { kinds: ["bar-widget"], entryPoints: { "bar-widget": "W.qml" }, optIn: true }, "optIn needs a kind other than bar"],
         ["alwaysOn on a first-party service", { id: "vgs.always", kinds: ["service"], entryPoints: { service: "S.qml" }, alwaysOn: true }, null],
         ["alwaysOn false on a third-party service", { id: "acme.always", kinds: ["service"], entryPoints: { service: "S.qml" }, alwaysOn: false }, null],
         ["alwaysOn not a boolean", { id: "vgs.always", kinds: ["service"], entryPoints: { service: "S.qml" }, alwaysOn: "yes" }, "alwaysOn must be a boolean"],
         ["alwaysOn on a third-party service", { id: "acme.always", kinds: ["service"], entryPoints: { service: "S.qml" }, alwaysOn: true }, "alwaysOn needs the first-party rule"],
-        ["alwaysOn with optIn", { id: "vgs.always", kinds: ["service"], entryPoints: { service: "S.qml" }, optIn: true, alwaysOn: true }, "alwaysOn needs the first-party rule"],
         ["alwaysOn on a bar", { alwaysOn: true }, "alwaysOn needs the first-party rule"],
         ["alwaysOn on a widget-only plugin", { kinds: ["bar-widget"], entryPoints: { "bar-widget": "W.qml" }, alwaysOn: true }, "alwaysOn needs the first-party rule"],
         ["defaultSection unknown", { kinds: ["bar-widget"], entryPoints: { "bar-widget": "W.qml" }, defaultSection: "top" }, "defaultSection must be one of"],
@@ -689,22 +684,18 @@ function suite(ctx, check) {
     check("barDropIndex: a null before maps to the end after removal", ctx.barDropIndex(indexConfig, "left", null, { section: "left", nth: 0 }, "a.one"), 2);
 
     // firstPresence: an unnamed widget is placed; a plugin the user
-    // disabled, hid (its row), already placed, marked optIn or without a
-    // widget is not.
-    const optInWidget = ctx.validateManifest({ schemaVersion: 1, id: "vgs.optinwidget", name: "O", version: "1", author: "a", description: "d", kinds: ["service", "bar-widget"], entryPoints: { service: "S.qml", "bar-widget": "W.qml" }, optIn: true }, "/p").manifest;
-    if (optInWidget === undefined) throw new Error("fixture manifest refused: vgs.optinwidget");
-    const withOptIn = Object.assign({}, manifests, { "vgs.optinwidget": optInWidget });
+    // disabled, hid (its row), already placed or without a widget is not.
     const presenceRows = [
         ["every unnamed widget, sorted", shipped, ["acme.both", "acme.pane", "acme.widget", "vgs.widgetpanel"]],
         ["a widget with a plugins row keeps no presence", ctx.effectiveConfig(shipped, { plugins: [{ id: "acme.both" }] }), ["acme.pane", "acme.widget", "vgs.widgetpanel"]],
         ["a disabled widget keeps no presence", ctx.effectiveConfig(shipped, { disabledPlugins: ["acme.widget"] }), ["acme.both", "acme.pane", "vgs.widgetpanel"]],
         ["a placed widget is not placed again", ctx.effectiveConfig(shipped, { bar: { id: "vgs.bar", layout: { left: [], center: [], right: [{ id: "acme.pane" }] } } }), ["acme.both", "acme.widget", "vgs.clock", "vgs.widgetpanel", "vgs.workspaces"]],
     ];
-    for (const [name, config, want] of presenceRows) check("firstPresence: " + name, ctx.firstPresence(withOptIn, config), want);
+    for (const [name, config, want] of presenceRows) check("firstPresence: " + name, ctx.firstPresence(manifests, config), want);
     check("firstPresence: a plugin with no widget is never placed", ctx.firstPresence({ "vgs.svc": manifests["vgs.svc"] }, shipped), []);
     // landsShown rows: [id, want]. What `vgshell plugin add` tells the user.
-    for (const [id, want] of [["acme.both", true], ["acme.widget", true], ["vgs.widgetpanel", true], ["acme.svc", false], ["vgs.bar", false], ["vgs.optinwidget", false]])
-        check("landsShown: " + id, ctx.landsShown(withOptIn[id]), want);
+    for (const [id, want] of [["acme.both", true], ["acme.widget", true], ["vgs.widgetpanel", true], ["acme.svc", false], ["vgs.bar", false]])
+        check("landsShown: " + id, ctx.landsShown(manifests[id]), want);
     const given = ctx.withFirstPresence(null, manifests, shipped);
     check("withFirstPresence: places each widget at the end of its default section", given.bar.layout, { left: [{ id: "vgs.workspaces" }], center: [{ id: "vgs.clock" }, { id: "acme.widget" }], right: [{ id: "acme.both" }, { id: "acme.pane" }, { id: "vgs.widgetpanel" }] });
     check("withFirstPresence: lists nothing and disables nothing", [given.plugins, given.disabledPlugins], [undefined, undefined]);
@@ -724,16 +715,6 @@ function suite(ctx, check) {
     // enablementRule rows: [id, want].
     for (const [id, want] of [["vgs.bar", "bar"], ["vgs.barpanel", "bar"], ["vgs.clock", "widget"], ["acme.widget", "widget"], ["vgs.svc", "first-party"], ["vgs.widgetpanel", "first-party"], ["acme.svc", "row"], ["acme.both", "row"]])
         check("enablementRule: " + id, ctx.enablementRule(manifests[id]), want);
-    // A first-party plugin whose manifest sets `optIn` takes the "row" rule:
-    // off until its plugins[] row is written, which enabling does.
-    const optIn = ctx.validateManifest(Object.assign({}, svc, { id: "vgs.optin", optIn: true }), "/p").manifest;
-    const optInOn = ctx.withEnabled(null, optIn, true, shipped);
-    check("enablementRule: a first-party plugin with optIn", ctx.enablementRule(optIn), "row");
-    check("isEnabled: a first-party plugin with optIn is off unlisted", ctx.isEnabled(shipped, optIn, "vgs.bar"), false);
-    check("withEnabled: enabling a first-party plugin with optIn lists it", optInOn.plugins, [{ id: "vgs.optin" }]);
-    check("isEnabled: a first-party plugin with optIn is on once listed", ctx.isEnabled(ctx.effectiveConfig(shipped, optInOn), optIn, "vgs.bar"), true);
-    const optInOff = ctx.withEnabled(optInOn, optIn, false, ctx.effectiveConfig(shipped, optInOn));
-    check("isEnabled: a first-party plugin with optIn is off once disabled", ctx.isEnabled(ctx.effectiveConfig(shipped, optInOff), optIn, "vgs.bar"), false);
     // A plugin whose manifest sets `alwaysOn` stays on whatever the
     // configuration lists, and the core refuses to disable it.
     const alwaysOn = ctx.validateManifest(Object.assign({}, svc, { id: "vgs.always", alwaysOn: true }), "/p").manifest;
@@ -1397,22 +1378,17 @@ const CONTROLS = [
     ["a placed widget takes no second presence", "return !isPlaced(effective, m) && pluginRow(effective, id) === undefined;", "return pluginRow(effective, id) === undefined;"],
     ["a disabled widget keeps no presence", "if (!landsShown(m) || disabled.indexOf(id) !== -1)", "if (!landsShown(m))"],
     ["a widget that lands shown takes its first presence", "if (!landsShown(m) || disabled.indexOf(id) !== -1)", "if (disabled.indexOf(id) !== -1)"],
-    ["an optIn widget waits for Enable", "return manifest.kinds.indexOf(\"bar-widget\") !== -1 && manifest.optIn !== true;", "return manifest.kinds.indexOf(\"bar-widget\") !== -1;"],
-    ["a plugin with no widget lands disabled", "return manifest.kinds.indexOf(\"bar-widget\") !== -1 && manifest.optIn !== true;", "return manifest.optIn !== true;"],
+    ["a plugin with no widget lands disabled", "return manifest.kinds.indexOf(\"bar-widget\") !== -1;", "return true;"],
     ["the first presence places each widget", "forEach(function (id) { placeWidget(out, manifests[id], effective); });", "forEach(function (id) {});"],
     ["a third-party plugin of another kind is enabled by its row", "return manifest.id.indexOf(FIRST_PARTY_PREFIX) === 0 ? \"first-party\" : \"row\";", "return \"first-party\";"],
-    ["a first-party plugin with optIn is enabled by its row", "if (manifest.optIn === true) return \"row\";", ""],
-    ["optIn is a manifest key", "\"extras\", \"optIn\", ", "\"extras\", "],
-    ["optIn is a boolean", "if (typeof raw.optIn !== \"boolean\")", "if (false)"],
-    ["optIn serves no bar", "if (raw.kinds.indexOf(\"bar\") !== -1 || raw.kinds.every(", "if (raw.kinds.every("],
+    ["a first-party plugin of another kind is enabled unlisted", "return manifest.id.indexOf(FIRST_PARTY_PREFIX) === 0 ? \"first-party\" : \"row\";", "return \"row\";"],
     ["moving reads enablement from isEnabled", "isPlaced(config, manifest) && !isEnabled(config, manifest, defaultBarId)", "isPlaced(config, manifest) && (Array.isArray(config.disabledPlugins) ? config.disabledPlugins : []).indexOf(manifest.id) !== -1"],
-    ["alwaysOn is a manifest key", "\"optIn\", \"alwaysOn\"];", "\"optIn\"];"],
+    ["alwaysOn is a manifest key", "\"extras\", \"alwaysOn\"];", "\"extras\"];"],
     ["alwaysOn is a boolean", "if (typeof raw.alwaysOn !== \"boolean\")", "if (false)"],
     ["alwaysOn needs the first-party rule", "if (raw.alwaysOn && enablementRule(raw) !== \"first-party\")", "if (false)"],
     ["an alwaysOn plugin is enabled whatever the configuration lists", "if (manifest.alwaysOn === true)\n        return true;", ""],
     ["an alwaysOn plugin refuses a disable", "if (!enabled && manifest.alwaysOn === true)", "if (false)"],
     ["an alwaysOn plugin takes an enable", "if (!enabled && manifest.alwaysOn === true)", "if (manifest.alwaysOn === true)"],
-    ["optIn serves no widget-only plugin", "if (raw.kinds.indexOf(\"bar\") !== -1 || raw.kinds.every(function (k) { return k === \"bar-widget\"; }))", "if (raw.kinds.indexOf(\"bar\") !== -1)"],
     ["a widget-only plugin is enabled only by its placement", "if (manifest.kinds.every(function (k) { return k === \"bar-widget\"; })) return \"widget\";", ""],
     ["a copied entry setting shares nothing with its source", "target[k] = clone(entry[k]);", "target[k] = entry[k];"],
     ["an unplaced plugin's new row carries the entry's settings", "copyEntrySettings({ id: manifest.id }, layoutEntryOf(out, manifest.id))", "{ id: manifest.id }"],

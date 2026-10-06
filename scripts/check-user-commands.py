@@ -96,7 +96,7 @@ FIELDS = (
 # identifier, a path or a value no one reads as prose.
 EXEMPT = (
     ("schemaVersion",), ("id",), ("version",), ("license",), ("icon",), ("kinds",), ("entryPoints",),
-    ("capabilities",), ("systemSteps",), ("settings",), ("defaultSection",), ("pane", "order"), ("appearance",), ("extras",), ("optIn",), ("alwaysOn",),
+    ("capabilities",), ("systemSteps",), ("settings",), ("defaultSection",), ("pane", "order"), ("appearance",), ("extras",), ("alwaysOn",),
     ("schema", "*", "type"), ("schema", "*", "optionsFrom"), ("schema", "*", "defaults"), ("schema", "*", "presets", "*", "value"), ("schema", "*", "allowCustom"), ("schema", "*", "format"), ("schema", "*", "unit"), ("schema", "*", "min"), ("schema", "*", "max"), ("schema", "*", "step"),
     ("status", "*", "type"), ("status", "*", "hidden"),
     ("status", "*", "action", "tui"), ("status", "*", "action", "install"), ("status", "*", "action", "system"),

@@ -4,7 +4,7 @@
   "name": "Clipboard",
   "version": "0.1.0",
   "author": "VanillaGreen",
-  "description": "Find and paste anything you copied earlier.",
+  "description": "Find and paste anything you copied earlier. Your history is saved on disk, and Shift+Delete in the Clipboard list clears it.",
   "license": "MIT",
   "icon": "clipboard-list",
   "kinds": [
@@ -28,7 +28,6 @@
     { "command": "wl-copy", "packages": { "pacman": "wl-clipboard", "apt": "wl-clipboard", "dnf": "wl-clipboard", "nix": "wl-clipboard" }, "optional": false, "purpose": "Puts an entry of the history back on the clipboard" },
     { "command": "wtype", "packages": { "pacman": "wtype", "apt": "wtype", "dnf": "wtype", "nix": "wtype" }, "optional": false, "purpose": "Sends the paste key to the application" }
   ],
-  "optIn": true,
   "settings": {},
   "hyprland": {
     "binds": [

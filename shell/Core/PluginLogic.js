@@ -70,7 +70,7 @@ var PANE_GROUP_MAX = 60;
 
 // Every key a manifest may carry. An unknown key is refused, so a misspelt
 // key fails loudly instead of being carried and ignored.
-var MANIFEST_KEYS = ["schemaVersion", "id", "name", "version", "author", "description", "license", "icon", "kinds", "entryPoints", "capabilities", "systemSteps", "settings", "schema", "defaultSection", "pane", "appearance", "hyprland", "requirements", "status", "tui", "menu", "secrets", "extras", "optIn", "alwaysOn"];
+var MANIFEST_KEYS = ["schemaVersion", "id", "name", "version", "author", "description", "license", "icon", "kinds", "entryPoints", "capabilities", "systemSteps", "settings", "schema", "defaultSection", "pane", "appearance", "hyprland", "requirements", "status", "tui", "menu", "secrets", "extras", "alwaysOn"];
 
 // What one entry of a manifest's `extras` may carry: the status entries and
 // the requirements that serve that extra alone (extrasError).
@@ -3414,21 +3414,13 @@ function validateManifest(raw, sourceDir) {
         if (SECTIONS.indexOf(raw.defaultSection) === -1)
             return { ok: false, error: "defaultSection must be one of " + SECTIONS.join(", ") + ", got " + JSON.stringify(raw.defaultSection) };
     }
-    // `optIn` asks for the "row" rule of enablementRule, which a bar and a
-    // widget-only plugin never reach.
-    if (raw.optIn !== undefined) {
-        if (typeof raw.optIn !== "boolean")
-            return { ok: false, error: "optIn must be a boolean when present" };
-        if (raw.kinds.indexOf("bar") !== -1 || raw.kinds.every(function (k) { return k === "bar-widget"; }))
-            return { ok: false, error: "optIn needs a kind other than bar, and one beside bar-widget" };
-    }
     // `alwaysOn` holds the "first-party" rule of enablementRule against
     // every disable, so only a manifest that rule serves may set it.
     if (raw.alwaysOn !== undefined) {
         if (typeof raw.alwaysOn !== "boolean")
             return { ok: false, error: "alwaysOn must be a boolean when present" };
         if (raw.alwaysOn && enablementRule(raw) !== "first-party")
-            return { ok: false, error: "alwaysOn needs the first-party rule: a vgs. id, no optIn, no kind bar, and a kind beside bar-widget" };
+            return { ok: false, error: "alwaysOn needs the first-party rule: a vgs. id, no kind bar, and a kind beside bar-widget" };
     }
     if (raw.pane !== undefined) {
         var badPane = paneError(raw.pane, raw.kinds);
@@ -3771,15 +3763,12 @@ function isPlaced(config, manifest) {
 // - "widget": its only kind is bar-widget, so only a placed widget
 //   enables it.
 // - "first-party": it declares another kind, its id is under the `vgs.`
-//   prefix and its manifest sets no `optIn`, so it is enabled whether
-//   placed or not.
-// - "row": a third-party plugin of another kind, or a first-party one
-//   whose manifest sets `optIn`, enabled by its plugins[] row or by a
-//   placed widget.
+//   prefix, so it is enabled whether placed or not.
+// - "row": a third-party plugin of another kind, enabled by its plugins[]
+//   row or by a placed widget.
 function enablementRule(manifest) {
     if (manifest.kinds.indexOf("bar") !== -1) return "bar";
     if (manifest.kinds.every(function (k) { return k === "bar-widget"; })) return "widget";
-    if (manifest.optIn === true) return "row";
     return manifest.id.indexOf(FIRST_PARTY_PREFIX) === 0 ? "first-party" : "row";
 }
 
@@ -3793,7 +3782,7 @@ function enablementRule(manifest) {
 // - A bar widget is enabled when placed in a bar section.
 // - A plugin declaring a kind other than bar and bar-widget is enabled when
 //   listed in plugins[], and unlisted when it is first-party (id under the
-//   `vgs.` prefix) without `optIn`. A bar's settings row in plugins[]
+//   `vgs.` prefix). A bar's settings row in plugins[]
 //   enables nothing.
 function isEnabled(config, manifest, defaultBarId) {
     if (manifest.alwaysOn === true)
@@ -4055,18 +4044,17 @@ function barDropTarget(width, x, sections) {
 }
 
 // Whether plugin MANIFEST's widget shows in the bar once the plugin is
-// installed or first discovered: it declares kind bar-widget and sets no
-// `optIn`. firstPresence and `vgshell plugin add` ask it.
+// installed or first discovered: it declares kind bar-widget.
+// firstPresence and `vgshell plugin add` ask it.
 function landsShown(manifest) {
-    return manifest.kinds.indexOf("bar-widget") !== -1 && manifest.optIn !== true;
+    return manifest.kinds.indexOf("bar-widget") !== -1;
 }
 
 // The ids of the plugins in MANIFESTS whose widget takes its first presence
 // under EFFECTIVE, sorted: each lands shown (landsShown), is not in
 // disabledPlugins, is placed in no section and has no plugins[] row. A plugin the user disabled or hid (withPlaced leaves its row) keeps
-// its state, and an `optIn` plugin waits for Enable. So every widget a
-// plugin brings shows in the bar when the plugin is installed or first
-// discovered, with no step in Settings.
+// its state. So every widget a plugin brings shows in the bar when the
+// plugin is installed or first discovered, with no step in Settings.
 function firstPresence(manifests, effective) {
     var disabled = Array.isArray(effective.disabledPlugins) ? effective.disabledPlugins : [];
     return Object.keys(manifests).sort().filter(function (id) {

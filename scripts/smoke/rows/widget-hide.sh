@@ -15,8 +15,9 @@
 # before vgs.voice and vgs.webapps shipped, both are on after it and Voice's
 # widget is placed, while vgs.tray, which the user file turned off, stays
 # off. The control starts a tree whose firstPresence names nothing, whose
-# frame opens no menu on a right click, whose vgs.voice and vgs.webapps
-# manifests set `optIn` and whose disabled check lets vgs.tray past: an
+# frame opens no menu on a right click, whose enablement rule asks every
+# first-party plugin for a plugins row and whose disabled check lets
+# vgs.tray past: an
 # installed widget then stays off the bar, the right click opens nothing,
 # the two shipped plugins stay off and vgs.tray comes on. The row
 # restores the user file, removes its copies and puts the pointer back
@@ -134,14 +135,14 @@ settings_page_close acme.hideable
 
 # The control: no first presence and no menu. An installed widget stays
 # off the bar, and a right click on a placed widget opens nothing. The same
-# copy marks vgs.voice and vgs.webapps `optIn`, so the user file from before
-# they shipped leaves both off, and lets vgs.tray past isEnabled's disabled
+# copy gives every first-party plugin the row rule, so the user file from
+# before vgs.voice and vgs.webapps shipped leaves both off, and lets
+# vgs.tray past isEnabled's disabled
 # check, so the plugin the user turned off comes on.
 if copy_tree widget-hide-control \
   && edit_tree widget-hide-control shell/Core/PluginLogic.js 'return !isPlaced(effective, m) && pluginRow(effective, id) === undefined;' 'return false;' \
   && edit_tree widget-hide-control shell/Ui/BarWidget.qml 'frameUi.item.openMenu();' '' \
-  && edit_tree widget-hide-control shell/plugins/vgs.voice/manifest.json '"schemaVersion": 1,' '"schemaVersion": 1, "optIn": true,' \
-  && edit_tree widget-hide-control shell/plugins/vgs.webapps/manifest.json '"schemaVersion": 1,' '"schemaVersion": 1, "optIn": true,' \
+  && edit_tree widget-hide-control shell/Core/PluginLogic.js 'return manifest.id.indexOf(FIRST_PARTY_PREFIX) === 0 ? "first-party" : "row";' 'return "row";' \
   && edit_tree widget-hide-control shell/Core/PluginLogic.js $'if (disabled.indexOf(manifest.id) !== -1)\n        return false;' $'if (disabled.indexOf(manifest.id) !== -1 && manifest.id !== "vgs.tray")\n        return false;'; then
   stop_shell
   hide_before_update || fail "control: the user file from before the shipped plugins could not be written"
@@ -150,8 +151,8 @@ if copy_tree widget-hide-control \
   rescan "control: rescan after installing a widget answers ok"
   expect_poll "control: the installed widget is discovered" True plugin_known acme.hideable-control
   expect "control: with no first presence the installed widget stays off the bar" '[false, false]' hide_listed acme.hideable-control
-  expect "control: a shipped plugin marked optIn stays off after an update" '[false, false]' hide_listed vgs.voice
-  expect "control: a shipped plugin with no widget marked optIn stays off after an update" '[false, false]' hide_listed vgs.webapps
+  expect "control: a shipped plugin under the row rule stays off after an update" '[false, false]' hide_listed vgs.voice
+  expect "control: a shipped plugin with no widget under the row rule stays off after an update" '[false, false]' hide_listed vgs.webapps
   expect "control: a disabled check that lets vgs.tray past turns it on" True plugin_enabled vgs.tray
   expect_poll "control: the placed widget is built" '[true]' hide_in_bars acme.hideable
   hide_right_click acme.hideable || fail "control: the right click on the widget failed"

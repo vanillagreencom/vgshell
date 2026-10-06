@@ -1,11 +1,11 @@
 # The clipboard history, vgs.clipboard: a first-party service and overlay.
-# Its manifest sets `optIn`, so it is off until its plugins row exists; the
-# row reads that no disabled list names it, enables it through the manager,
-# which writes the row, copies on the nested instance's own clipboard with the real wl-copy, and
-# reads the history back through the plugin's IPC and the drawn rows through
-# the probe. A copy made before the plugin is enabled, a text copy and an
-# image copy are recorded, a repeat moves to the front, and a copy made with
-# `wl-copy --sensitive` is not recorded, read after a later copy is. The
+# It is on from the start: the row reads that no disabled list and no
+# plugins row names it and that it is enabled, copies on the nested
+# instance's own clipboard with the real wl-copy, and reads the history back
+# through the plugin's IPC and the drawn rows through the probe. A first
+# copy, a text copy and an image copy are recorded, a repeat moves to the
+# front, and a copy made with `wl-copy --sensitive` is not recorded, read
+# after a later copy is. The
 # image is larger than the largest pipe the host allows, so its capture and
 # its paste go through the real wl-copy while the copy's first transfer
 # waits on the helper's stdin. A watcher ended by its PID is started again,
@@ -161,17 +161,14 @@ hypr_lua_save clipboard
 printf '%s\n' 'hl.config({ input = { resolve_binds_by_sym = true } })' >>"$home/.config/hypr/hyprland.lua"
 expect "the nested instance reloads with typed keys reaching binds" ok hypr reload config-only
 
-# A copy made before the plugin is enabled is the watcher's first event.
-clip_copy "smoke before enable"
 expect "no disabled list and no plugins row names the clipboard history" '[false, false]' clip_listed
-expect "the clipboard history is off until enabled" False plugin_enabled vgs.clipboard
-expect "enabling the clipboard history is allowed" ok ipc shell setPluginEnabled vgs.clipboard true
-expect_poll "enabling wrote the plugins row" '[false, true]' clip_listed
+expect "the clipboard history is on from the start" True plugin_enabled vgs.clipboard
 expect_poll "the clipboard service is built" True record_exists vgs.clipboard
 expect_poll "the service registered its shortcut and IPC target" '[["vgs.clipboard:toggle"], ["vgs.clipboard"]]' clip_lent
 expect_poll "the store is ready" '"ready"' clip_read service store
 expect_poll "the service runs one watcher" 1 clip_watchers
-expect_poll "the copy made before the plugin was enabled is recorded" '[["text", "smoke before enable"]]' clip_labels
+clip_copy "smoke first copy"
+expect_poll "the first copy is recorded" '[["text", "smoke first copy"]]' clip_labels
 
 # The watcher ends while it is wanted: the service starts it again, and the
 # new watcher records the copies below.
@@ -183,13 +180,13 @@ fi
 
 # Text, an image, a repeat and a secret.
 clip_copy "Smoke Alpha one"
-expect_poll "a text copy is recorded first" '[["text", "Smoke Alpha one"], ["text", "smoke before enable"]]' clip_labels
+expect_poll "a text copy is recorded first" '[["text", "Smoke Alpha one"], ["text", "smoke first copy"]]' clip_labels
 clip_copy_file image/png "$clip_image"
-expect_poll "an image copy is recorded" '[["image", "PNG image"], ["text", "Smoke Alpha one"], ["text", "smoke before enable"]]' clip_labels
+expect_poll "an image copy is recorded" '[["image", "PNG image"], ["text", "Smoke Alpha one"], ["text", "smoke first copy"]]' clip_labels
 clip_copy "smoke beta two"
 expect_poll "a second text copy is recorded" True clip_has "smoke beta two"
 clip_copy "Smoke Alpha one"
-expect_poll "a repeat moves its entry to the front and adds none" '[["text", "Smoke Alpha one"], ["text", "smoke beta two"], ["image", "PNG image"], ["text", "smoke before enable"]]' clip_labels
+expect_poll "a repeat moves its entry to the front and adds none" '[["text", "Smoke Alpha one"], ["text", "smoke beta two"], ["image", "PNG image"], ["text", "smoke first copy"]]' clip_labels
 clip_copy_secret "smoke secret zeta"
 expect_poll "the secret is on the nested clipboard" "smoke secret zeta" clip_holds
 clip_copy "smoke after secret"
@@ -216,7 +213,7 @@ if clip_window "$sandbox/clipboard-terminal.log" smoke.clipboard-terminal "Clipb
   clip_terminal_pid="$toplevel_pid"
   expect "a closed history holds no surface" 0 layer_count vgs:overlay
   clip_open "terminal"
-  expect_poll "the history draws its entries, newest first" '["smoke after secret", "Smoke Alpha one", "smoke beta two", "PNG image", "smoke before enable"]' clip_drawn
+  expect_poll "the history draws its entries, newest first" '["smoke after secret", "Smoke Alpha one", "smoke beta two", "PNG image", "smoke first copy"]' clip_drawn
   expect "the first entry is selected" '["smoke after secret"]' clip_selected
   expect_poll "the image entry's thumbnail is decoded from the file the store names by its id" "[[\"$clip_png\", \"ready\"]]" clip_thumbs
   type_keys "ALPHA" || fail "typing the filter failed"
@@ -261,8 +258,8 @@ expected_errors+=('QML Image at .*/Overlay\.qml\[[0-9:]+\]: Cannot open: file://
 if clip_window "$sandbox/clipboard-unknown.log" smoke.clipboard-unknown "Clipboard unknown"; then
   clip_unknown_pid="$toplevel_pid"
   clip_open "unknown"
-  type_keys "before" || fail "typing the filter failed"
-  expect_poll "the filter finds the first copy" '["smoke before enable"]' clip_drawn
+  type_keys "first" || fail "typing the filter failed"
+  expect_poll "the filter finds the first copy" '["smoke first copy"]' clip_drawn
   clip_from="$(clip_lines "$sandbox/clipboard-unknown.log")"
   type_keys -k Return || fail "sending Return failed"
   expect_poll "Enter closes the history over an unknown window" 0 layer_count vgs:overlay
@@ -270,15 +267,15 @@ if clip_window "$sandbox/clipboard-unknown.log" smoke.clipboard-unknown "Clipboa
   expect "a change of an entry the history does not hold is refused" "refused: entry=unknown" clip_invoke pin "$clip_no_id"
   expect_poll "the refused change shows a toast" 2 clip_toasts
   expect "an unknown window has the keyboard back and receives no key" '["enter"]' clip_keys_of "$sandbox/clipboard-unknown.log" "$clip_from"
-  expect "the entry stays on the clipboard" "smoke before enable" clip_holds
+  expect "the entry stays on the clipboard" "smoke first copy" clip_holds
   close_toplevel "$clip_unknown_pid" "the unknown helper exits 0 on SIGTERM"
 fi
 
 # Pin, remove and clear, from the keyboard. Each paste above copied its
 # entry again, so the last one pasted is first.
-expect_poll "the last pasted entry is first in the history" "smoke before enable" clip_first
+expect_poll "the last pasted entry is first in the history" "smoke first copy" clip_first
 clip_open "edit"
-expect_poll "the history draws its five entries" '["smoke before enable", "PNG image", "smoke beta two", "Smoke Alpha one", "smoke after secret"]' clip_drawn
+expect_poll "the history draws its five entries" '["smoke first copy", "PNG image", "smoke beta two", "Smoke Alpha one", "smoke after secret"]' clip_drawn
 type_keys "x" || fail "typing a filter failed"
 expect_poll "a filter no entry holds draws none" 0 clip_drawn_count
 type_keys -k Escape || fail "sending Escape failed"
@@ -288,7 +285,7 @@ type_keys -k Down -k Down || fail "sending Down failed"
 expect_poll "Down moves the selection" '["smoke beta two"]' clip_selected
 type_keys -M ctrl -k p -m ctrl || fail "sending Ctrl+P failed"
 expect_poll "Ctrl+P pins the selected entry" '["smoke beta two"]' clip_pins
-expect_poll "a pinned entry is drawn first" '["smoke beta two", "smoke before enable", "PNG image", "Smoke Alpha one", "smoke after secret"]' clip_drawn
+expect_poll "a pinned entry is drawn first" '["smoke beta two", "smoke first copy", "PNG image", "Smoke Alpha one", "smoke after secret"]' clip_drawn
 expect_poll "the selection stays on the third row" '["PNG image"]' clip_selected
 type_keys -k Delete || fail "sending Delete failed"
 expect_poll "Delete removes the selected entry" False clip_has "PNG image"
@@ -383,7 +380,7 @@ expect_poll "the restored service is built" True record_exists vgs.clipboard
 expect_poll "the restored store is ready" '"ready"' clip_read service store
 
 expect "disabling the clipboard history is allowed" ok ipc shell setPluginEnabled vgs.clipboard false
-expect_poll "disabling listed the id and kept the plugins row" '[true, true]' clip_listed
+expect_poll "disabling listed the id" '[true, false]' clip_listed
 expect_poll "the disabled history leaves no service" False record_exists vgs.clipboard
 expect_poll "the disabled history holds no registration" '[[], []]' clip_lent
 expect_poll "the disabled history leaves no watcher" 0 clip_watchers
