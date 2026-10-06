@@ -119,3 +119,31 @@ function modelData(status, setup) {
     var model = setup && setup.model ? setup.model : status && status.model ? status.model : DEFAULT_MODEL;
     return { engine: engine, model: model };
 }
+
+// The key a person dictates with, from KEYS, shell.shortcut.keys: the hold
+// key first, then the toggle key, then the tap key, as { kind, key }, kind
+// `hold`, `toggle`, `tap`, or `none` with key null when none is bound.
+function readyKey(keys) {
+    if (typeof keys.talk === "string") return { kind: "hold", key: keys.talk };
+    if (typeof keys.toggle === "string") return { kind: "toggle", key: keys.toggle };
+    if (typeof keys.tap === "string") return { kind: "tap", key: keys.tap };
+    return { kind: "none", key: null };
+}
+
+// The message of the toast a finished Set up shows: readyKey's key, spelled
+// for people by SPELL.
+function readyMessage(keys, spell) {
+    var ready = readyKey(keys);
+    if (ready.kind === "hold") return "Hold " + spell(ready.key) + " to dictate.";
+    if (ready.kind === "toggle") return "Press " + spell(ready.key) + " to start or stop dictation.";
+    if (ready.kind === "tap") return "Tap " + spell(ready.key) + " to start or stop dictation.";
+    return "Set a key in Voice settings to dictate.";
+}
+
+// Whether SETUP, the `setup` entry of shell.tui.state, holds a run that
+// ended with code 0 since SEEN, the endedAt this instance read last. SEEN
+// is undefined before the instance's first read, so a run that ended before
+// the instance started shows nothing.
+function setupFinished(seen, setup) {
+    return seen !== undefined && setup.endedAt !== null && setup.endedAt !== seen && setup.code === 0;
+}

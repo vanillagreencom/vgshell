@@ -13,6 +13,7 @@
 #   vgs_tui_header TITLE [LINE...]   one blank line, then a bordered box:
 #                                    TITLE, then each LINE
 #   vgs_tui_step TEXT                a bold accent line after a blank line
+#   vgs_tui_success TEXT             a success line after a blank line
 #   vgs_tui_warn TEXT                a warning line on stderr
 #   vgs_tui_error TEXT               an error line on stderr
 #   vgs_tui_confirm QUESTION [GUM_FLAG...]
@@ -72,6 +73,10 @@ vgs_tui_header() { # TITLE [LINE...]
 
 vgs_tui_step() { # TEXT
   printf '\n%s\033[1m%s\033[0m\n' "$(vgs_tui_sgr "${VGS_TUI_ACCENT:-}" 32)" "$*"
+}
+
+vgs_tui_success() { # TEXT
+  printf '\n%s%s\033[0m\n' "$(vgs_tui_sgr "${VGS_TUI_SUCCESS:-}" 32)" "$*"
 }
 
 vgs_tui_warn() { # TEXT

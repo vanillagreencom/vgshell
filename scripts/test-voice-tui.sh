@@ -74,6 +74,26 @@ if grep -q "__VGS_VOICE_BLOOP_THEME__" "$config1"; then fail "setup left the sou
 order="$(grep -E 'sudo voxtype setup onnx --enable|voxtype setup (--download --model parakeet-tdt-0.6b-v3 --no-post-install|systemd)|systemctl --user restart voxtype' "$TMP_ROOT/calls" | paste -sd '|' -)"
 want='sudo voxtype setup onnx --enable|voxtype setup --download --model parakeet-tdt-0.6b-v3 --no-post-install|voxtype setup systemd|systemctl --user restart voxtype'
 if [[ $order == "$want" ]]; then ok "setup calls sudo engine, download, systemd and restart in order"; else fail "setup order: got [$order]"; fi
+# The run ends on the library's success line: the success colour, ANSI
+# green with no theme, without the bold a step line carries.
+ends_ready() {
+  local last
+  last="$(tail -n 1 "$TMP_ROOT/out")"
+  [[ $status == 0 && $last == $'\033[32m'* && $last != *$'\033[1m'* ]]
+}
+if ends_ready; then ok "setup ends with a success line after the service restart"; else fail "setup end: status=$status last=[$(tail -n 1 "$TMP_ROOT/out")]"; fi
+control="$TMP_ROOT/setup-unfinished.sh"
+python3 - "$plugin/tui/setup.sh" "$control" <<'PY'
+import sys
+source = open(sys.argv[1]).read()
+needle = 'vgs_tui_success "Voice is ready."\n'
+if source.count(needle) != 1:
+    raise SystemExit('success line count')
+open(sys.argv[2], 'w').write(source.replace(needle, ''))
+PY
+chmod 755 "$control"
+run_setup "$TMP_ROOT/home-unfinished" "$control"
+if ends_ready; then fail "control success line: the copy without it still ended on a success line"; else ok "control success line turns the finished case red"; fi
 
 home2="$TMP_ROOT/home2"
 mkdir -p -- "$home2/.config/voxtype" "$TMP_ROOT/dotfiles"

@@ -78,6 +78,10 @@ for row in "${rows[@]}"; do
 done
 run 'vgs_tui_step "Updating"' VGS_TUI_ACCENT='#010203'
 check "a step is an accent bold line after a blank line" test "$(cat "$tmp/out")" == $'\n'"${esc}[38;2;1;2;3m${esc}[1mUpdating${esc}[0m"
+run 'vgs_tui_success "Ready."' VGS_TUI_SUCCESS='#070809'
+check "a success line is in the success colour after a blank line" test "$(cat "$tmp/out")" == $'\n'"${esc}[38;2;7;8;9mReady.${esc}[0m"
+run 'vgs_tui_success "Ready."'
+check "a success line without a theme is ANSI green" test "$(cat "$tmp/out")" == $'\n'"${esc}[32mReady.${esc}[0m"
 run 'vgs_tui_warn "careful"' VGS_TUI_WARNING='#040506'
 check "a warning is on stderr alone" test ! -s "$tmp/out"
 check "a warning is in the warning colour" test "$(cat "$tmp/err")" == "${esc}[38;2;4;5;6mcareful${esc}[0m"
@@ -378,6 +382,9 @@ check "the no-header-blank mutant fails the header blank row" test "$(starts_one
 control no-prompt-blank "_vgs_tui_prompt_gap() { printf '\\n' >&2; }" "_vgs_tui_prompt_gap() { :; }"
 on_tty 'vgs_tui_confirm "Remove it?"'
 check "the no-prompt-blank mutant fails the prompt blank row" test "$(starts_one_blank "$tmp/out" && echo green || echo red)" == red
+control accent-success '"$(vgs_tui_sgr "${VGS_TUI_SUCCESS:-}" 32)" "$*"' '"$(vgs_tui_sgr "${VGS_TUI_ACCENT:-}" 32)" "$*"'
+run 'vgs_tui_success "Ready."' VGS_TUI_SUCCESS='#070809' VGS_TUI_ACCENT='#010203'
+check "the accent-success mutant fails the success colour row" test "$(cat "$tmp/out")" != $'\n'"${esc}[38;2;7;8;9mReady.${esc}[0m"
 LIB="$lib"
 
 # The template's control: a copy that turns every confirm status into success.

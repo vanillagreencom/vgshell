@@ -12,8 +12,8 @@
 # Settings page raises the same notice in place of its script; Install hands the terminal voxtype-bin through the AUR helper,
 # the row puts the stubs back as the package step would, and the scan after
 # the run closes the notice and opens Set up on its own; the stubs then
-# report the model and the service in place, and the toggle shortcut runs a
-# test dictation. Its control: Not now on that notice drops the Set up, so
+# report the model and the service in place, a finished Set up shows one
+# Voice toast, and the toggle shortcut runs a test dictation. Its control: Not now on that notice drops the Set up, so
 # no setup TUI opens once a scan finds voxtype. A stand-in bin/vgshell-pkg
 # answers detection with pacman and paru, whatever the host runs, for
 # that part alone. The key delivery
@@ -641,6 +641,9 @@ chmod 755 "$sandbox/voice-vgshell-pkg.stub"
 cp -- "$sandbox/voice-vgshell-pkg.stub" "$repo/bin/vgshell-pkg.next" && mv -T -- "$repo/bin/vgshell-pkg.next" "$repo/bin/vgshell-pkg"
 voice_resumes() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["notices"]["resumes"]))'; }
 # The notice's entries as [chip, the number of lines under it].
+# The toasts Voice shows, shown or waiting; Voice shows none but the one a
+# finished Set up raises.
+voice_toasts() { ipc shell lent | py_reply 'import json,sys; t=json.load(sys.stdin)["toasts"]; print(sum(r["plugin"] == "vgs.voice" for k in ("visible", "waiting") for r in t[k]))'; }
 voice_notice_groups() { ipc smoke noticeDrawn | py_reply 'import json,sys; print(json.dumps([[g[0], len(g[1])] for g in json.load(sys.stdin)["groups"]]))'; }
 voice_engine_installed() {
   cp -- "$sandbox/voice-voxtype.stub" "$voice_stub" && cp -- "$sandbox/voice-bridge.stub" "$voice_bridge_stub" && chmod 755 "$voice_stub" "$voice_bridge_stub"
@@ -727,6 +730,9 @@ rescan "control: voxtype is removed again"
 expect_poll "control: voxtype is missing again" missing voice_requirement voxtype
 
 # One press of Set up: the notice installs voxtype, then Set up runs.
+# The toast count before it and the one after its run ended are each
+# other's control.
+expect "no Voice toast shows before Set up runs" 0 voice_toasts
 forget_record
 expect "Set up without voxtype is answered again" ok settings_open_tui vgs.voice setup
 expect_poll "Set up raises the notice again" "$voice_asked" notice_shown
@@ -743,6 +749,7 @@ expect_poll "the scan after the install closes the notice" null notice_shown
 expect_poll "the closed notice opens Set up on its own" "$(words vgs.voice/setup tui/setup.sh)" recorded_tail
 expect "nothing waits on a notice once Set up opened" '{}' voice_resumes
 expect_run_end "the setup run ends" vgs.voice/setup
+expect_poll "the setup run that ended with code 0 shows one Voice toast" 1 voice_toasts
 expect_poll "Voice sees voxtype after the install" true ipc smoke readInstance service vgs.voice voxtypePresent
 # The stand-in terminal runs `true` for the setup script, so the stubs take
 # the state the script leaves, which scripts/test-voice-tui.sh reads.
@@ -756,6 +763,7 @@ expect "the toggle shortcut reaches Voice" ok hypr dispatch 'hl.dsp.global("vgs.
 expect_poll "a test dictation runs only voxtype record toggle" ok voice_toggle_only
 settings_page_close vgs.voice
 expect "disabling Voice after the setup rows is allowed" ok ipc shell setPluginEnabled vgs.voice false
+expect_poll "no Voice toast is left for the next row" 0 voice_toasts
 cp -- "$voice_pkg_real" "$repo/bin/vgshell-pkg.next" && mv -T -- "$repo/bin/vgshell-pkg.next" "$repo/bin/vgshell-pkg"
 voice_engine_removed
 rm -f -- "${voice_installed:?}"

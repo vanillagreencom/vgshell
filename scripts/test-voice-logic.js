@@ -7,6 +7,10 @@ const { load } = require("../bin/lib/qml-library.js");
 
 const repo = path.join(__dirname, "..");
 const file = path.join(repo, "shell", "plugins", "vgs.voice", "VoiceLogic.js");
+// Keys spelled as the shell's KeyCaps spells them, the helper the service
+// passes.
+const keyNav = load(path.join(repo, "shell", "Ui", "foundation", "KeyNavLogic.js"));
+const spell = key => keyNav.keyCaps(key).join("+");
 const same = (got, want, message) => assert.deepEqual(JSON.parse(JSON.stringify(got)), want, message);
 
 const modelsReady = '{"engines":{"parakeet":{"models":[{"name":"parakeet-tdt-0.6b-v3","installed":true,"downloadable":true,"download_arg":"parakeet-tdt-0.6b-v3"}],"default":"parakeet-tdt-0.6b-v3"}},"verified":true}';
@@ -51,6 +55,30 @@ function verify(logic) {
   assert.equal(logic.frameLevel(0.5, 0), 1, "a loud peak reaches the full level");
   assert.ok(Math.abs(logic.frameLevel(0.01, 0) - Math.pow(0.06, 0.62)) < 1e-12, "a quiet peak is lifted by the gamma");
   assert.ok(Math.abs(logic.frameLevel(0.01, 0.02) - Math.pow(0.02 * 1.7 * 6, 0.62)) < 1e-12, "a louder weighted RMS sets the level");
+
+  // readyKey: [name, shell.shortcut.keys, { kind, key }].
+  const readyRows = [
+    ["the hold key comes first", { toggle: "SUPER+CTRL+X", tap: null, talk: "F9" }, { kind: "hold", key: "F9" }],
+    ["the toggle key without a hold key", { toggle: "SUPER+CTRL+X", tap: "SUPER+ALT+V", talk: null }, { kind: "toggle", key: "SUPER+CTRL+X" }],
+    ["the tap key alone", { toggle: null, tap: "SUPER+ALT+V", talk: null }, { kind: "tap", key: "SUPER+ALT+V" }],
+    ["no key bound", { toggle: null, tap: null, talk: null }, { kind: "none", key: null }],
+    ["no key declared", {}, { kind: "none", key: null }],
+  ];
+  for (const [name, keys, want] of readyRows) same(logic.readyKey(keys), want, `readyKey: ${name}`);
+  assert.ok(logic.readyMessage({ toggle: "SUPER+CTRL+X", talk: null }, spell).includes("Super+Ctrl+X"), "the message spells the bound key for people");
+  assert.ok(!logic.readyMessage({ toggle: null, tap: null, talk: null }, spell).includes("null"), "the message names no key when none is bound");
+
+  // setupFinished: [name, the endedAt seen last, the setup state, want].
+  const ended = (endedAt, code) => ({ running: false, code: code, endedAt: endedAt });
+  const finishedRows = [
+    ["a run ended before the first read shows nothing", undefined, ended("t1", 0), false],
+    ["the first run ending with code 0 shows", null, ended("t1", 0), true],
+    ["a new run ending with code 0 shows", "t1", ended("t2", 0), true],
+    ["the end already seen shows nothing again", "t2", ended("t2", 0), false],
+    ["a failed run shows nothing", "t1", ended("t2", 1), false],
+    ["a run that never ended shows nothing", null, { running: true, code: null, endedAt: null }, false],
+  ];
+  for (const [name, seen, setup, want] of finishedRows) assert.equal(logic.setupFinished(seen, setup), want, `setupFinished: ${name}`);
 }
 
 verify(load(file));
@@ -67,6 +95,10 @@ const controls = [
   ["bridge status lines read as frames", "if (frame.status === \"connected\" || frame.status === \"disconnected\") return { ok: true, kind: frame.status };", ""],
   ["level not lifted", "Math.pow(Math.max(peak, rms * RMS_WEIGHT) * LEVEL_GAIN, LEVEL_GAMMA)", "Math.max(peak, rms * RMS_WEIGHT) * LEVEL_GAIN"],
   ["level ignores rms", "Math.max(peak, rms * RMS_WEIGHT)", "peak"],
+  ["the toggle key wins over the hold key", "if (typeof keys.talk === \"string\") return { kind: \"hold\", key: keys.talk };\n", ""],
+  ["a past run's end at startup shows", "return seen !== undefined && ", "return "],
+  ["a failed run shows", " && setup.code === 0;", ";"],
+  ["a seen end shows again", " && setup.endedAt !== seen", ""],
   ["stream model wins", "var model = setup && setup.model ? setup.model : status && status.model ? status.model : DEFAULT_MODEL;", "var model = status && status.model ? status.model : setup && setup.model ? setup.model : DEFAULT_MODEL;"]
 ];
 const source = fs.readFileSync(file, "utf8");

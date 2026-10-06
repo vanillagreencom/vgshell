@@ -76,3 +76,4 @@ voxtype setup --download --model "$model" --no-post-install
 vgs_tui_step "Enabling the Voice service"
 voxtype setup systemd
 systemctl --user restart voxtype
+vgs_tui_success "Voice is ready."
