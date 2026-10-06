@@ -43,6 +43,7 @@ Requires:       fd-find
 Requires:       ffmpeg-free
 Requires:       file
 Requires:       fzf
+Requires:       gawk
 Requires:       glib2
 Requires:       grim
 Requires:       gum

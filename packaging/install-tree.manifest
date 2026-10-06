@@ -495,6 +495,13 @@ f share/vgshell/shell/plugins/vgs.power/manifest.json
 f share/vgshell/shell/plugins/vgs.scratchpads/Background.qml
 f share/vgshell/shell/plugins/vgs.scratchpads/Service.qml
 f share/vgshell/shell/plugins/vgs.scratchpads/manifest.json
+f share/vgshell/shell/plugins/vgs.screensaver/Cover.qml
+f share/vgshell/shell/plugins/vgs.screensaver/ScreensaverLogic.js
+f share/vgshell/shell/plugins/vgs.screensaver/Service.qml
+f share/vgshell/shell/plugins/vgs.screensaver/bin/transcode-ascii
+f share/vgshell/shell/plugins/vgs.screensaver/logo.txt
+f share/vgshell/shell/plugins/vgs.screensaver/manifest.json
+f share/vgshell/shell/plugins/vgs.screensaver/tui/art.sh
 f share/vgshell/shell/plugins/vgs.settings/EditSet.qml
 f share/vgshell/shell/plugins/vgs.settings/KeyField.qml
 f share/vgshell/shell/plugins/vgs.settings/ListField.qml

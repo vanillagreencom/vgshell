@@ -22,6 +22,7 @@
         pkgs.ffmpeg
         pkgs.file
         pkgs.fzf
+        pkgs.gawk
         pkgs.git
         pkgs.glib
         pkgs.gpu-screen-recorder
