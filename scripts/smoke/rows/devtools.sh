@@ -91,15 +91,12 @@ ended_record() { local stem="${1/\//@}" f found=none; for f in "$rt_dir/vgshell/
 # than BEFORE, so the presenter of the run a click started has exited and
 # expect_run_end times only the core's reading of it.
 ended_record_moved() { [[ $(ended_record "$1") != "$2" ]] && echo moved || echo waiting; }
-# reveal_row NAME: the window scrolled so the first row drawing NAME sits
-# near its top, from where the row's box lies with the list at its start.
+# reveal_row NAME: the window scrolled so the first row drawing NAME sits a
+# third of the way down its view, whatever height the monitor gives it.
 reveal_row() {
-  local box y
-  ipc smoke scrollTo window vgs.devtools 0 >/dev/null || return
-  box="$(ipc smoke scopedWindowGeometry window vgs.devtools ToolRow "$1" Label "$1")" || return
-  [[ $box == \[* ]] || { echo "absent"; return; }
-  y="$(python3 -c 'import json,sys; print(max(0, int(json.loads(sys.argv[1])[1]) - 200))' "$box")" || return
-  ipc smoke scrollTo window vgs.devtools "$y" >/dev/null && echo revealed
+  local shown
+  shown="$(ipc smoke revealScopedText window vgs.devtools ToolRow "$1" Label "$1")" || return
+  [[ $shown =~ ^[0-9.]+$ ]] && echo revealed || echo "$shown"
 }
 scroll_bottom() { local r; r="$(ipc smoke scrollTo window vgs.devtools 100000)" || return; [[ $r == \[* ]] && echo scrolled || echo "$r"; }
 launcher_state() { [[ -f $home/.local/bin/$1 ]] && sed -n 2p "$home/.local/bin/$1" || echo absent; }
