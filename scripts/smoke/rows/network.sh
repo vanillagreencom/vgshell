@@ -313,7 +313,7 @@ net_detail_state() { net_snapshot | py_reply 'import json,sys; d=json.load(sys.s
 # net_details_layout LABEL: opens enp10s0's Details in System while its
 # read is held and sets net_layout to `steady` when the enp11s0 row stays
 # put during the read and moves once the rows draw, else to
-# `moved-while-loading` with the three readings.
+# `moved-while-loading`, `never-moved` or `unread` with the readings.
 net_details_layout() {
   local before during after
   net_layout=unread
@@ -333,17 +333,19 @@ net_details_layout() {
   after="$(net_below)" || after=unread
   expect "$1: System closes the pane" ok ipc shell hide window vgs.system
   expect_poll "$1: the pane is gone" hidden net_shown window
-  if [[ $before != unread && $during == "$before" && $after != "$before" ]]; then net_layout=steady
-  else net_layout="moved-while-loading before=$before during=$during after=$after"; fi
+  if [[ $before == unread || $during == unread || $after == unread ]]; then net_layout="unread before=$before during=$during after=$after"
+  elif [[ $during != "$before" ]]; then net_layout="moved-while-loading before=$before during=$during after=$after"
+  elif [[ $after == "$before" ]]; then net_layout="never-moved before=$before after=$after"
+  else net_layout=steady; fi
 }
 expect "the mock adds two Ethernet devices" ok net_fixture wired
 expect_poll "Network publishes each wired device's state" '[["enp10s0", "connected"], ["enp11s0", "no-cable"]]' net_wired
 expect_poll "the connected wired device connects the computer" '"connected"' net_state
 net_widget_click || fail "the click on the Network widget failed"
 expect_poll "a click on the widget opens the dropdown" shown net_shown panel
+summon_drawn panel vgs.network || fail "the dropdown never drew a frame"
 expect "the dropdown is a popup under the widget, not a centred layer" 0 layer_count vgs:panel
 expect_poll "the dropdown lists both wired devices with their states" "[[\"enp10s0\", \"$(net_wired_text connected)\"], [\"enp11s0\", \"$(net_wired_text no-cable)\"]]" net_wired_rows panel
-summon_drawn panel vgs.network || fail "the dropdown never drew a frame"
 click 40 "$((mon_h - 40))" || fail "the press outside the dropdown failed"
 expect_poll "a press outside closes the dropdown" hidden net_shown panel
 device_reply nmcli 0 $'GENERAL.DEVICE:enp10s0\nIP4.ADDRESS[1]:192.0.2.10/24' -t device show enp10s0
