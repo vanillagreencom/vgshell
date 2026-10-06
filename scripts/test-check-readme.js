@@ -177,9 +177,9 @@ const ROWS = [
         0, tree => [ok(tree)]],
     ["a nix tag other than v<VERSION> is refused", t => replaceIn(t, "README.md", `\n${NIX} -- run\n`, `\n${NIX}/v0.0.0-planted -- run\n`),
         1, tree => [`command README.md:${lineOf(tree, NIX + "/v0.0.0-planted -- run")} channel=nix tag=v0.0.0-planted want=v${version(tree)}`]],
-    ["an untagged nix run of a vgshell command the usage header does not list is refused", t => replaceIn(t, "README.md", `\n${NIX} -- run\n`, `\n${NIX} -- start\n`),
+    ["an untagged nix run of a vgshell command the help screen does not list is refused", t => replaceIn(t, "README.md", `\n${NIX} -- run\n`, `\n${NIX} -- start\n`),
         1, tree => [`command README.md:${lineOf(tree, NIX + " -- start")} vgshell-command=start reason=not-in-usage`]],
-    ["a vgshell command the usage header does not list is refused", t => replaceIn(t, "README.md", "vgshell/bin/vgshell run", "vgshell/bin/vgshell start"),
+    ["a vgshell command the help screen does not list is refused", t => replaceIn(t, "README.md", "vgshell/bin/vgshell run", "vgshell/bin/vgshell start"),
         1, tree => [`command README.md:${lineOf(tree, "vgshell/bin/vgshell start")} vgshell-command=start reason=not-in-usage`]],
     ["an Install section with no command is refused", t => {
         const text = read(t, "README.md");

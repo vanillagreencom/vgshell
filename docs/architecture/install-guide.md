@@ -11,8 +11,8 @@ Covers: README.md, scripts/check-readme.js, scripts/test-check-readme.js, script
 | Arch: `paru -S <pkg>`, each package in its own fence | the recipes under `packaging/arch/` |
 | Fedora: `sudo dnf copr enable <project>`, then `sudo dnf install <pkg>` | the `project` line of `packaging/fedora/copr-project`, and the specs under `packaging/fedora/` |
 | The install script: `curl -fsSL <main install.sh> \| bash`, and `bash -s -- <options>` | the option parser of `install.sh`; a `--version` value is `v` plus `VERSION` |
-| Nix: `nix run github:vanillagreencom/vgshell -- <vgshell args>`, the flake on `main`, or the tag with `vgshell/v<VERSION>` | the usage header of `bin/vgshell` for the command, and `VERSION` for a tag |
-| A checkout: `git clone https://github.com/vanillagreencom/vgshell`, then `vgshell/bin/vgshell <args>` | the usage header of `bin/vgshell` |
+| Nix: `nix run github:vanillagreencom/vgshell -- <vgshell args>`, the flake on `main`, or the tag with `vgshell/v<VERSION>` | `vgshell --help` for the command, and `VERSION` for a tag |
+| A checkout: `git clone https://github.com/vanillagreencom/vgshell`, then `vgshell/bin/vgshell <args>` | `vgshell --help` |
 | § Setup: the autostart line, in one `lua` fence | the autostart sentence in [runtime.md § Process](runtime.md#process), the line `install.sh` prints with `vgshell` for its absolute path, and the line of `bin/lib/post-install.txt` ([distribution.md § First-install text](distribution.md#first-install-text)) |
 | § Plugins: one row per plugin directory, its manifest's `name` linked to its README and its `description` | the directories `bin/vgshell-scan` lists under `shell/plugins/`, and their manifests |
 

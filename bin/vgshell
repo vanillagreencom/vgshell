@@ -1,100 +1,7 @@
 #!/usr/bin/env bash
 # vgshell: the VGS shell runner and plugin manager CLI.
 #
-#   vgshell run                       start the shell in the foreground; holds the instance lock
-#   vgshell restart                   stop the running shell and relaunch it through Hyprland
-#   vgshell pid                       print the running shell's pid from the instance lock
-#   vgshell ipc <qs ipc args...>      talk to the running shell; failed client replies exit 69
-#   vgshell log <qs log args...>      read the running shell's log
-#   vgshell plugin list               every discovered plugin with its enabled state, each configured id no plugin has,
-#                                  and each requirement the last scan did not find as `missing <id> <command> (<package>)`
-#   vgshell plugin requirements [--json] <id>
-#                                  one plugin's requirements, each with its state and this system's package
-#   vgshell plugin settings <id>      the settings one plugin's service, panel and floating TUIs receive, as one JSON line
-#   vgshell plugin rescan             have a running shell scan the plugin directories again
-#   vgshell plugin enable <id>        enable one plugin; a bar becomes the active bar
-#   vgshell plugin disable <id>       disable one plugin; names the bar widgets it takes off screen
-#   vgshell plugin validate <dir>     validate a plugin directory's manifest offline
-#   vgshell plugin add [--yes] [<git url>]
-#                                  clone, validate, say how the plugin lands, ask, and install it: one
-#                                  with a bar widget enabled with its widget in the bar, any other
-#                                  disabled; then offer to install the packages of the commands it
-#                                  requires that are missing; without a url, ask for it on a terminal
-#   vgshell plugin update [--yes] <id>
-#                                  fetch, show the diff, ask, and fast-forward an installed plugin
-#   vgshell plugin remove [--yes] <id>
-#                                  ask, and delete an installed plugin's directory
-#   vgshell plugin outdated [--json]  fetch every installed plugin and report how far it is behind its upstream
-#   vgshell theme list [--json]       every theme package, its state and palette, and the theme file's state
-#   vgshell theme apply [--json] <name>
-#                                  apply one theme package to the shell and every enabled target; `apply vgs` restores the defaults
-#   vgshell theme reload [--json]     run every pending reload hook again
-#   vgshell theme follow [--json]     apply the applied package again when it changed and the theme file is unedited
-#   vgshell theme background [--json] next|previous
-#                                  show the applied package's next or previous background image and remember it
-#   vgshell theme background [--json] set <path> [--screen <output> | --every-screen]
-#                                  show one package's or the user folder's image, on one output only, or on every output
-#   vgshell theme background [--json] list [--all]
-#                                  the applied package's background images, or every package's and the user folder's
-#   vgshell theme add [<git url>]     clone, judge and install one theme package; without a url, ask for it on a terminal,
-#                                  then offer to apply the new package
-#   vgshell theme update [--yes] <name>
-#                                  fetch, show the diff, ask, and fast-forward an installed theme package, then follow it
-#   vgshell theme remove <name>       delete an installed theme package's directory
-#   vgshell theme catalog [--json]    every catalog theme with its install state
-#   vgshell theme install [--json] <name>
-#                                  install one catalog theme package, with no network
-#   vgshell theme wallpapers [--json] <name> [--update]
-#                                  download, verify and unpack a catalog install's wallpapers; --update replaces another archive's
-#   vgshell theme outdated [--json]   fetch every installed theme package and report how far it is behind its upstream
-#   vgshell theme browser-policy install
-#                                  install the Chromium-family colour writer and its sudoers rule, once; sudo asks for the password
-#   vgshell theme setup [--json]      each theme target's one-time setup and whether it is done
-#   vgshell hypr state                report whether hyprland.lua loads the Hyprland layer; read-only
-#   vgshell hypr wire                 keep the line that loads the Hyprland layer first in hyprland.lua
-#   vgshell hypr unwire               remove that line from hyprland.lua
-#   vgshell hypr render               have the running shell write the Hyprland layer again and reload Hyprland
-#   vgshell pkg detect [--json]       the system's primary package manager and every overlay and source present
-#   vgshell pkg present <command>...  which commands are on PATH, as JSON; exit 1 when one is missing
-#   vgshell pkg plan install|remove|upgrade <manager> [names...]
-#                                  print the argv of each step the action takes; runs nothing
-#   vgshell pkg check [--json] [--source <manager>]
-#                                  count each manager's pending updates without root
-#   vgshell pkg run install|remove|upgrade [--manager <id>] [names...]
-#                                  run the plan in this terminal, elevating through sudo, doas or run0
-#   vgshell pkg run upgrade [--manager <id>] --ignore <name>...
-#                                  upgrade without the packages named; pacman and the AUR alone
-#   vgshell pkg install|remove [--manager <id>] [names...]
-#                                  run install or remove; without names, pick them in fzf
-#   vgshell doctor [--json]           the core's and every enabled plugin's requirements, each with its state and package,
-#                                  and whether the session is uwsm-managed, with the entry to log in with when not
-#   vgshell sudo status               whether a passwordless sudo grant is active, until when, and its root half's state
-#   vgshell sudo grant [minutes]      warn, ask and grant passwordless sudo for 1 to 1440 minutes, 15 when absent;
-#                                  while a grant is active it revokes that grant instead; on NixOS, print
-#                                  a security.sudo.extraRules snippet and write nothing
-#   vgshell sudo revoke               end the active grant now
-#   vgshell sudo install              install the grant's root half and its boot cleanup, once; sudo asks for the password;
-#                                  on NixOS, report skipped=nixos-config
-#   vgshell sudo uninstall            remove every grant, then the root half and its boot cleanup; on NixOS, report skipped=nixos-config
-#   vgshell system status [--json]    each system step's state: ready, needed, denied, absent, unknown or nixos
-#   vgshell system apply <step>       show a system step's root commands, ask, and run them through sudo; on NixOS,
-#                                  print the configuration snippet and change nothing
-#   vgshell system undo <step>        revert only what VGS changed for the step, after showing the commands and asking
-#   vgshell --version                 print `vgshell <version>`, with the commit distance in a git checkout
-#   vgshell version [--json]          the same; --json prints `{ version, describe }` as one JSON line
-#   vgshell self status [--json]      how this tree was installed, the newest version its channel offers, and whether it is behind
-#   vgshell self update               update a checkout or a curl install, run its pending migrations, then restart
-#                                  a running shell
-#   vgshell migrate [--pending]       run each pending one-time migration once, or list them (bin/vgshell-migrate)
-#   vgshell reset [--yes]             move every VGS setting, installed plugin, theme and state file into one
-#                                  dated backup and restart a running shell as on a fresh install
-#   vgshell reset restore [--yes] [<backup>]
-#                                  move a reset's backup, the newest when none is named, back into place
-#   vgshell tui present [--title <text>] [--size default|wide|tall] -- <argv...>
-#                                  run one command in a floating terminal under the VGS presentation
-#   vgshell tui list                  every floating TUI the running shell lists: the core's and every enabled plugin's
-#   vgshell tui open <key>            open one listed floating TUI, `core/<name>` or `<plugin id>/<name>`, with no arguments
-#   vgshell lock                      ask the running shell's lock plugin to lock the session
+# User-facing help is in help_text below. This header holds developer notes.
 #
 # `run` takes no arguments: the shell always runs as this process's child,
 # and this process stays in the foreground and supervises it. A shell that
@@ -445,7 +352,7 @@
 # lock, another theme command holds the theme lock, another self update
 # holds its lock or another wallpaper download holds the download lock,
 # 69 when the shell is not running, 78 when `run` or `restart` finds a tool below the runtime
-# floor. The usage text is this header; `vgshell --help` prints it and exits 0.
+# floor. `vgshell --help` prints the short screen from help_text and exits 0.
 set -euo pipefail
 
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"
@@ -455,7 +362,227 @@ rt_dir="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 lock="$rt_dir/vgshell.lock"
 config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
 
-usage() { awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$self" >&2; }
+help_text() { # [COMMAND]
+  case "${1:-main}" in
+    main|"") cat <<'EOF_HELP'
+Usage: vgshell <command> [arguments]
+
+Run and control the VGS desktop shell for Hyprland.
+
+Commands:
+  run        Start the shell in this terminal
+  restart    Stop the running shell and start it again
+  plugin     List, add, enable, update and remove plugins
+  theme      Apply, install and update themes and backgrounds
+  doctor     Check that the programs VGS and its plugins need are installed
+  self       Check for a VGS update and install it
+  reset      Move all VGS settings into a backup and start fresh
+  lock       Lock the session
+  pkg        Install, remove and upgrade system packages
+  sudo       Turn on passwordless sudo for a set time
+  system     Apply or undo one-time system setup steps
+  hypr       Connect the VGS Hyprland settings to hyprland.lua
+  tui        Run a command in a VGS floating terminal
+
+Other commands: pid, ipc, log, migrate, version
+
+Run 'vgshell <command> --help' for the options of one command.
+EOF_HELP
+      ;;
+    run) cat <<'EOF_HELP'
+Usage: vgshell run
+
+Start the shell in this terminal and hold the instance lock.
+EOF_HELP
+      ;;
+    restart) cat <<'EOF_HELP'
+Usage: vgshell restart
+
+Stop the running shell and ask Hyprland to start it again.
+EOF_HELP
+      ;;
+    pid) cat <<'EOF_HELP'
+Usage: vgshell pid
+
+Print the running shell's process ID from the instance lock.
+EOF_HELP
+      ;;
+    ipc) cat <<'EOF_HELP'
+Usage: vgshell ipc <qs ipc arguments...>
+
+Send arguments to qs ipc for the running shell.
+EOF_HELP
+      ;;
+    log) cat <<'EOF_HELP'
+Usage: vgshell log <qs log arguments...>
+
+Read the running shell's log through qs log.
+EOF_HELP
+      ;;
+    plugin) cat <<'EOF_HELP'
+Usage: vgshell plugin <subcommand> [arguments]
+
+Subcommands:
+  list                              List plugins and missing requirements
+  requirements [--json] <id>        Show one plugin's requirements
+  settings <id>                     Print one plugin's settings as JSON
+  rescan                            Ask the running shell to scan plugins
+  enable <id>                       Enable one plugin
+  disable <id>                      Disable one plugin
+  validate <dir>                    Validate a plugin manifest
+  add [--yes] [<git url>]           Install a plugin from git
+  update [--yes] <id>               Fast-forward an installed plugin
+  remove [--yes] <id>               Remove an installed plugin
+  outdated [--json]                 Check installed plugins for updates
+EOF_HELP
+      ;;
+    theme) cat <<'EOF_HELP'
+Usage: vgshell theme <subcommand> [arguments]
+
+Subcommands:
+  list [--json]                     List theme packages
+  apply [--json] <name>             Apply a theme package
+  reload [--json]                   Run pending reload hooks again
+  follow [--json]                   Reapply the theme when its package changed
+  background [--json] next|previous Show another background image
+  background [--json] set <path> [--screen <output> | --every-screen]
+  background [--json] list [--all]  List background images
+  add [<git url>]                   Install a theme package from git
+  update [--yes] <name>             Fast-forward an installed theme
+  remove <name>                     Remove an installed theme
+  catalog [--json]                  List catalog themes
+  install [--json] <name>           Install one catalog theme
+  wallpapers [--json] <name> [--update]
+  preview [--json] <name>           Preview a theme package
+  outdated [--json]                 Check installed themes for updates
+  browser-policy install            Install the Chromium color policy
+  setup [--json]                    Show one-time theme setup steps
+EOF_HELP
+      ;;
+    hypr) cat <<'EOF_HELP'
+Usage: vgshell hypr <subcommand>
+
+Subcommands:
+  state     Show whether hyprland.lua loads the VGS Hyprland layer
+  wire      Keep the VGS Hyprland layer load line first
+  unwire    Remove the VGS Hyprland layer load line
+  render    Write the Hyprland layer again and reload Hyprland
+EOF_HELP
+      ;;
+    pkg) cat <<'EOF_HELP'
+Usage: vgshell pkg <subcommand> [arguments]
+
+Subcommands:
+  detect [--json]                         Show available package managers
+  present <command>...                    Check commands on PATH
+  plan install|remove|upgrade <manager> [names...]
+  check [--json] [--source <manager>]     Count pending updates
+  run install|remove|upgrade [--manager <id>] [names...]
+  run upgrade [--manager <id>] --ignore <name>...
+  install|remove [--manager <id>] [names...]
+EOF_HELP
+      ;;
+    doctor) cat <<'EOF_HELP'
+Usage: vgshell doctor [--json]
+
+Check the core and enabled plugin requirements.
+EOF_HELP
+      ;;
+    lock) cat <<'EOF_HELP'
+Usage: vgshell lock
+
+Ask the running shell's lock plugin to lock the session.
+EOF_HELP
+      ;;
+    sudo) cat <<'EOF_HELP'
+Usage: vgshell sudo <subcommand> [arguments]
+
+Subcommands:
+  status             Show whether a passwordless sudo grant is active
+  grant [minutes]    Grant passwordless sudo for a limited time
+  revoke             End the active grant now
+  install            Install the root half of the grant
+  uninstall          Remove every grant and the root half
+EOF_HELP
+      ;;
+    system) cat <<'EOF_HELP'
+Usage: vgshell system <subcommand> [arguments]
+
+Subcommands:
+  status [--json]      Show each one-time system step's state
+  apply <step>         Show and apply a system step
+  undo <step>          Undo only what VGS changed for the step
+EOF_HELP
+      ;;
+    tui) cat <<'EOF_HELP'
+Usage: vgshell tui <subcommand> [arguments]
+
+Subcommands:
+  present [--title <text>] [--size default|wide|tall] -- <argv...>
+  list       List floating terminal commands
+  open <key> Open one listed floating terminal command
+EOF_HELP
+      ;;
+    self) cat <<'EOF_HELP'
+Usage: vgshell self <subcommand> [arguments]
+
+Subcommands:
+  status [--json]    Show install state and available update
+  update             Update VGS, run migrations and restart the shell
+EOF_HELP
+      ;;
+    reset) cat <<'EOF_HELP'
+Usage: vgshell reset [--yes]
+       vgshell reset restore [--yes] [<backup>]
+
+Options:
+  --yes      Do not ask before moving files or restoring a backup
+
+Subcommands:
+  restore    Restore a backup, or the newest backup when absent
+EOF_HELP
+      ;;
+    migrate) cat <<'EOF_HELP'
+Usage: vgshell migrate [--pending]
+
+Options:
+  --pending    List pending one-time migrations
+EOF_HELP
+      ;;
+    version) cat <<'EOF_HELP'
+Usage: vgshell version [--json]
+       vgshell --version
+
+Options:
+  --json    Print version data as JSON
+EOF_HELP
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+help_requested() { # COMMAND ARG...
+  local command="$1" arg
+  shift || true
+  case "$command" in
+    ipc|log) [[ ${1:-} == -h || ${1:-} == --help ]] ;;
+    *)
+      for arg in "$@"; do
+        [[ $arg == -- ]] && return 1
+        [[ $arg == -h || $arg == --help ]] && return 0
+      done
+      return 1
+      ;;
+  esac
+}
+
+try_help() {
+  if help_text "$cmd" >/dev/null; then
+    printf "Run 'vgshell %s --help' for usage.\n" "$cmd" >&2
+  else
+    printf "Run 'vgshell --help' for usage.\n" >&2
+  fi
+}
 
 # Prints the pid the lock file records, or returns 69 after the refusal.
 # A pid is only written by the runner's child after the runner took the
@@ -909,13 +1036,13 @@ installed_dir() { # ID
 # The git URL `plugin add` or `theme add` clones when the command line
 # names none: on a terminal, the line the user types into gum input, the
 # floating TUI's prompt, trimmed of surrounding blanks. With no terminal on
-# stdin it is the usage refusal url=missing, exit 2, as before any prompt
+# stdin it is the bad-invocation refusal url=missing, exit 2, as before any prompt
 # existed; an empty answer is url=missing too, a cancelled prompt
 # cancelled=url, and a system without gum gum=missing. KIND, `plugin` or
 # `theme`, names what the URL is of. Print the URL.
 ask_url() { # KIND
   local url status=0
-  if [[ ! -t 0 ]]; then printf 'vgshell: refused: url=missing\n' >&2; usage; exit 2; fi
+  if [[ ! -t 0 ]]; then printf 'vgshell: refused: url=missing\n' >&2; try_help; exit 2; fi
   command -v gum >/dev/null || refuse 1 "gum=missing" "gum draws the prompt for the URL: install it (vgshell doctor names its package) or run vgshell $1 add <git url>"
   # shellcheck source=lib/tui.sh
   source "$root/bin/lib/tui.sh" || refuse 1 "library=missing path=$root/bin/lib/tui.sh"
@@ -2141,10 +2268,33 @@ shell_supervise() {
 
 cmd="${1:-}"
 [[ $# -gt 0 ]] && shift
+if [[ -z $cmd || $cmd == -h || $cmd == --help ]]; then
+  help_text
+  exit 0
+fi
+if [[ $cmd == help ]]; then
+  if [[ $# -eq 0 || ($# -eq 1 && (${1:-} == -h || ${1:-} == --help)) ]]; then
+    help_text
+    exit 0
+  fi
+  if [[ $# -gt 1 ]]; then
+    printf 'vgshell: refused: argument=%s\n' "$2" >&2
+    try_help
+    exit 2
+  fi
+  if help_text "$1"; then exit 0; fi
+  printf 'vgshell: refused: command=%s\n' "$1" >&2
+  try_help
+  exit 2
+fi
+if help_requested "$cmd" "$@" && help_text "$cmd"; then
+  exit 0
+fi
 case "$cmd" in
   run)
     if [[ $# -gt 0 ]]; then
-      printf 'vgshell: refused: argument=%s\nrun takes no arguments; the shell runs in the foreground under the runner\n' "$1" >&2
+      printf 'vgshell: refused: argument=%s\n' "$1" >&2
+      try_help
       exit 2
     fi
     # First, so a refused run takes no lock, creates no directory and
@@ -2164,12 +2314,14 @@ case "$cmd" in
     case "${1:-}" in
       "") exec "$root/bin/vgshell-migrate" run ;;
       --pending) shift; exec "$root/bin/vgshell-migrate" pending "$@" ;;
-      *) refuse 2 "argument=$1" "migrate takes only --pending" ;;
+      *) printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2 ;;
     esac
     ;;
   restart)
     if [[ $# -gt 0 ]]; then
-      refuse 2 "argument=$1" "restart takes no arguments"
+      printf 'vgshell: refused: argument=%s\n' "$1" >&2
+      try_help
+      exit 2
     fi
     # Before the stop: the relaunched `vgshell run` would refuse below the
     # floor and leave no shell.
@@ -2215,25 +2367,25 @@ case "$cmd" in
         format=text
         if [[ ${1:-} == --json ]]; then format=json; shift; fi
         id="${1:-}"
-        if [[ -z $id ]]; then printf 'vgshell: refused: id=missing\n' >&2; usage; exit 2; fi
-        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; usage; exit 2; fi
+        if [[ -z $id ]]; then printf 'vgshell: refused: id=missing\n' >&2; try_help; exit 2; fi
+        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; try_help; exit 2; fi
         scan="$(plugin_scan)" || exit 1
         node "$judge" requirements "$format" "$root/config/shell.json" "$config_home/vgshell/shell.json" "$id" <<<"$scan"
         ;;
       settings)
         id="${1:-}"
-        if [[ -z $id ]]; then printf 'vgshell: refused: id=missing\n' >&2; usage; exit 2; fi
-        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; usage; exit 2; fi
+        if [[ -z $id ]]; then printf 'vgshell: refused: id=missing\n' >&2; try_help; exit 2; fi
+        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; try_help; exit 2; fi
         scan="$(plugin_scan)" || exit 1
         node "$judge" settings "$root/config/shell.json" "$config_home/vgshell/shell.json" "$id" <<<"$scan"
         ;;
       rescan)
-        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; usage; exit 2; fi
+        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2; fi
         rescan_if_running
         ;;
       enable|disable)
         id="${1:-}"
-        if [[ -z $id ]]; then printf 'vgshell: refused: id=missing\n' >&2; usage; exit 2; fi
+        if [[ -z $id ]]; then printf 'vgshell: refused: id=missing\n' >&2; try_help; exit 2; fi
         enabled=true; [[ $sub == disable ]] && enabled=false
         reply="$(ipc shell setPluginEnabled "$id" "$enabled")" || exit $?
         case "$reply" in
@@ -2243,30 +2395,30 @@ case "$cmd" in
         esac
         ;;
       add)
-        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; usage; exit 2; fi
+        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; try_help; exit 2; fi
         url="${1:-}"
         if [[ -z $url ]]; then url="$(ask_url plugin)" || exit $?; fi
         plugin_add "$url"
         ;;
       update|remove)
         id="${1:-}"
-        if [[ -z $id ]]; then printf 'vgshell: refused: id=missing\n' >&2; usage; exit 2; fi
-        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; usage; exit 2; fi
+        if [[ -z $id ]]; then printf 'vgshell: refused: id=missing\n' >&2; try_help; exit 2; fi
+        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; try_help; exit 2; fi
         "plugin_$sub" "$id"
         ;;
       validate)
         dir="${1:-}"
-        if [[ -z $dir ]]; then printf 'vgshell: refused: dir=missing\n' >&2; usage; exit 2; fi
+        if [[ -z $dir ]]; then printf 'vgshell: refused: dir=missing\n' >&2; try_help; exit 2; fi
         exec node "$manifest_check" -- "$dir"
         ;;
       outdated)
         format=text
         if [[ ${1:-} == --json ]]; then format=json; shift; fi
-        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; usage; exit 2; fi
+        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2; fi
         plugin_outdated "$format"
         ;;
       *)
-        printf 'vgshell: refused: plugin-subcommand=%s\n' "${sub:-missing}" >&2; usage; exit 2
+        printf 'vgshell: refused: plugin-subcommand=%s\n' "${sub:-missing}" >&2; try_help; exit 2
         ;;
     esac
     ;;
@@ -2277,23 +2429,23 @@ case "$cmd" in
     if [[ ${1:-} == --json ]]; then format=json; shift; fi
     case "$sub" in
       list)
-        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; usage; exit 2; fi
+        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2; fi
         exec node "$theme_judge" list "$format" "$config_home/vgshell" "$state_home/vgshell"
         ;;
       apply)
         name="${1:-}"
-        if [[ -z $name ]]; then printf 'vgshell: refused: name=missing\n' >&2; usage; exit 2; fi
-        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; usage; exit 2; fi
+        if [[ -z $name ]]; then printf 'vgshell: refused: name=missing\n' >&2; try_help; exit 2; fi
+        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; try_help; exit 2; fi
         theme_lock_verdict
         exec node "$theme_judge" apply "$format" "$config_home/vgshell" "$state_home/vgshell" "$verdict" "$name"
         ;;
       reload)
-        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; usage; exit 2; fi
+        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2; fi
         theme_lock_verdict
         exec node "$theme_judge" reload "$format" "$config_home/vgshell" "$state_home/vgshell" "$verdict"
         ;;
       follow)
-        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; usage; exit 2; fi
+        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2; fi
         theme_lock_verdict
         exec node "$theme_judge" follow "$format" "$config_home/vgshell" "$state_home/vgshell" "$verdict"
         ;;
@@ -2302,71 +2454,71 @@ case "$cmd" in
         [[ $# -gt 0 ]] && shift
         case "$verb" in
           next|previous)
-            if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; usage; exit 2; fi
+            if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2; fi
             theme_lock_verdict
             exec node "$theme_judge" background "$format" "$verb" "$config_home/vgshell" "$state_home/vgshell" "$verdict"
             ;;
           set)
             image="${1:-}"
-            if [[ -z $image ]]; then printf 'vgshell: refused: path=missing\n' >&2; usage; exit 2; fi
+            if [[ -z $image ]]; then printf 'vgshell: refused: path=missing\n' >&2; try_help; exit 2; fi
             shift
             screen=()
             if [[ ${1:-} == --screen ]]; then
-              if [[ -z ${2:-} ]]; then printf 'vgshell: refused: screen=missing\n' >&2; usage; exit 2; fi
+              if [[ -z ${2:-} ]]; then printf 'vgshell: refused: screen=missing\n' >&2; try_help; exit 2; fi
               screen=(--screen "$2")
               shift 2
             elif [[ ${1:-} == --every-screen ]]; then
               screen=(--every-screen)
               shift
             fi
-            if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; usage; exit 2; fi
+            if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2; fi
             theme_lock_verdict
             exec node "$theme_judge" background "$format" set "$config_home/vgshell" "$state_home/vgshell" "$verdict" "$image" "${screen[@]}"
             ;;
           list)
             scope=applied
             if [[ ${1:-} == --all ]]; then scope=all; shift; fi
-            if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; usage; exit 2; fi
+            if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2; fi
             exec node "$theme_judge" background "$format" list "$config_home/vgshell" "$state_home/vgshell" "$scope"
             ;;
           *)
-            printf 'vgshell: refused: background-subcommand=%s\n' "${verb:-missing}" >&2; usage; exit 2
+            printf 'vgshell: refused: background-subcommand=%s\n' "${verb:-missing}" >&2; try_help; exit 2
             ;;
         esac
         ;;
       browser-policy)
-        [[ $format == json ]] && { printf 'vgshell: refused: argument=--json\n' >&2; usage; exit 2; }
-        if [[ ${1:-} != install ]]; then printf 'vgshell: refused: browser-policy-subcommand=%s\n' "${1:-missing}" >&2; usage; exit 2; fi
-        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; usage; exit 2; fi
+        [[ $format == json ]] && { printf 'vgshell: refused: argument=--json\n' >&2; try_help; exit 2; }
+        if [[ ${1:-} != install ]]; then printf 'vgshell: refused: browser-policy-subcommand=%s\n' "${1:-missing}" >&2; try_help; exit 2; fi
+        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; try_help; exit 2; fi
         exec "$root/bin/vgshell-browser-policy" install
         ;;
       catalog)
-        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; usage; exit 2; fi
+        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2; fi
         exec node "$theme_judge" catalog "$format" "$config_home/vgshell"
         ;;
       setup)
-        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; usage; exit 2; fi
+        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2; fi
         exec node "$theme_judge" setup "$format"
         ;;
       install)
         name="${1:-}"
-        if [[ -z $name ]]; then printf 'vgshell: refused: name=missing\n' >&2; usage; exit 2; fi
-        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; usage; exit 2; fi
+        if [[ -z $name ]]; then printf 'vgshell: refused: name=missing\n' >&2; try_help; exit 2; fi
+        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; try_help; exit 2; fi
         theme_install "$format" "$name"
         ;;
       add|update|remove)
-        [[ $format == json ]] && { printf 'vgshell: refused: argument=--json\n' >&2; usage; exit 2; }
+        [[ $format == json ]] && { printf 'vgshell: refused: argument=--json\n' >&2; try_help; exit 2; }
         if [[ $sub == update && ${1:-} == --yes ]]; then assume_yes=1; shift; fi
-        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; usage; exit 2; fi
+        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; try_help; exit 2; fi
         arg="${1:-}"
         prompted=0
         if [[ -z $arg && $sub == add ]]; then arg="$(ask_url theme)" || exit $?; prompted=1; fi
-        if [[ -z $arg ]]; then printf 'vgshell: refused: name=missing\n' >&2; usage; exit 2; fi
+        if [[ -z $arg ]]; then printf 'vgshell: refused: name=missing\n' >&2; try_help; exit 2; fi
         "theme_$sub" "$arg"
         if [[ $sub == add && $prompted == 1 ]]; then offer_theme_apply "$theme_added"; fi
         ;;
       outdated)
-        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; usage; exit 2; fi
+        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2; fi
         theme_outdated "$format"
         ;;
       wallpapers)
@@ -2374,27 +2526,27 @@ case "$cmd" in
         for arg in "$@"; do
           if [[ $arg == --update && $mode == install ]]; then mode=update
           elif [[ -z $name && $arg != --* ]]; then name="$arg"
-          else printf 'vgshell: refused: argument=%s\n' "$arg" >&2; usage; exit 2
+          else printf 'vgshell: refused: argument=%s\n' "$arg" >&2; try_help; exit 2
           fi
         done
-        if [[ -z $name ]]; then printf 'vgshell: refused: name=missing\n' >&2; usage; exit 2; fi
+        if [[ -z $name ]]; then printf 'vgshell: refused: name=missing\n' >&2; try_help; exit 2; fi
         theme_wallpapers "$format" "$name" "$mode"
         ;;
       preview)
         name="${1:-}"
-        if [[ -z $name ]]; then printf 'vgshell: refused: name=missing\n' >&2; usage; exit 2; fi
-        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; usage; exit 2; fi
+        if [[ -z $name ]]; then printf 'vgshell: refused: name=missing\n' >&2; try_help; exit 2; fi
+        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; try_help; exit 2; fi
         theme_preview "$format" "$name"
         ;;
       *)
-        printf 'vgshell: refused: theme-subcommand=%s\n' "${sub:-missing}" >&2; usage; exit 2
+        printf 'vgshell: refused: theme-subcommand=%s\n' "${sub:-missing}" >&2; try_help; exit 2
         ;;
     esac
     ;;
   hypr)
     sub="${1:-}"
     [[ $# -gt 0 ]] && shift
-    if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; usage; exit 2; fi
+    if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2; fi
     case "$sub" in
       state|wire|unwire)
         exec node "$hypr_judge" "$sub" "$config_home" "$state_home/vgshell"
@@ -2407,7 +2559,7 @@ case "$cmd" in
         esac
         ;;
       *)
-        printf 'vgshell: refused: hypr-subcommand=%s\n' "${sub:-missing}" >&2; usage; exit 2
+        printf 'vgshell: refused: hypr-subcommand=%s\n' "${sub:-missing}" >&2; try_help; exit 2
         ;;
     esac
     ;;
@@ -2417,7 +2569,7 @@ case "$cmd" in
   doctor)
     format=text
     if [[ ${1:-} == --json ]]; then format=json; shift; fi
-    if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; usage; exit 2; fi
+    if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2; fi
     scan="$(plugin_scan)" || exit 1
     node "$judge" doctor "$format" "$root/config/shell.json" "$config_home/vgshell/shell.json" "$root/config/requirements.json" "$(graphical_session)" <<<"$scan"
     ;;
@@ -2427,13 +2579,13 @@ case "$cmd" in
   sudo)
     case "${1:-}" in
       status|grant|revoke|install|uninstall) exec "$root/bin/vgshell-sudo-grant" "$@" ;;
-      *) printf 'vgshell: refused: sudo-subcommand=%s\n' "${1:-missing}" >&2; usage; exit 2 ;;
+      *) printf 'vgshell: refused: sudo-subcommand=%s\n' "${1:-missing}" >&2; try_help; exit 2 ;;
     esac
     ;;
   system)
     case "${1:-}" in
       status|apply|undo) exec "$root/bin/vgshell-system" "$@" ;;
-      *) printf 'vgshell: refused: system-subcommand=%s\n' "${1:-missing}" >&2; usage; exit 2 ;;
+      *) printf 'vgshell: refused: system-subcommand=%s\n' "${1:-missing}" >&2; try_help; exit 2 ;;
     esac
     ;;
   tui)
@@ -2442,34 +2594,34 @@ case "$cmd" in
     case "$sub" in
       present) ;;
       list)
-        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; usage; exit 2; fi
+        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2; fi
         reply="$(ipc shell listTuis)" || exit $?
         node "$judge" tuis <<<"$reply"
         exit
         ;;
       open)
-        if [[ $# -eq 0 ]]; then printf 'vgshell: refused: key=missing\n' >&2; usage; exit 2; fi
-        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; usage; exit 2; fi
+        if [[ $# -eq 0 ]]; then printf 'vgshell: refused: key=missing\n' >&2; try_help; exit 2; fi
+        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; try_help; exit 2; fi
         reply="$(ipc shell openTui "$1")" || exit $?
         case "$reply" in
           ok) echo ok; exit 0 ;;
           *) printf 'vgshell: refused: %s\n' "${reply#refused: }" >&2; exit 1 ;;
         esac
         ;;
-      *) printf 'vgshell: refused: tui-subcommand=%s\n' "${sub:-missing}" >&2; usage; exit 2 ;;
+      *) printf 'vgshell: refused: tui-subcommand=%s\n' "${sub:-missing}" >&2; try_help; exit 2 ;;
     esac
     title="" size=default
     while [[ $# -gt 0 && $1 != -- ]]; do
       case "$1" in
         --title|--size)
-          if [[ $# -lt 2 ]]; then printf 'vgshell: refused: option=%s value=missing\n' "$1" >&2; usage; exit 2; fi
+          if [[ $# -lt 2 ]]; then printf 'vgshell: refused: option=%s value=missing\n' "$1" >&2; try_help; exit 2; fi
           if [[ $1 == --title ]]; then title="$2"; else size="$2"; fi
           shift 2
           ;;
-        *) printf 'vgshell: refused: argument=%s\n' "$1" >&2; usage; exit 2 ;;
+        *) printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2 ;;
       esac
     done
-    if [[ $# -lt 2 ]]; then printf 'vgshell: refused: command=missing\n' >&2; usage; exit 2; fi
+    if [[ $# -lt 2 ]]; then printf 'vgshell: refused: command=missing\n' >&2; try_help; exit 2; fi
     shift
     exec "$root/bin/vgshell-tui" launch --title "${title:-${1##*/}}" --size "$size" --presentation full -- "$@"
     ;;
@@ -2480,15 +2632,15 @@ case "$cmd" in
       status)
         format=text
         if [[ ${1:-} == --json ]]; then format=json; shift; fi
-        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; usage; exit 2; fi
+        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2; fi
         self_status "$format"
         ;;
       update)
-        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; usage; exit 2; fi
+        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2; fi
         self_update
         ;;
       *)
-        printf 'vgshell: refused: self-subcommand=%s\n' "${sub:-missing}" >&2; usage; exit 2
+        printf 'vgshell: refused: self-subcommand=%s\n' "${sub:-missing}" >&2; try_help; exit 2
         ;;
     esac
     ;;
@@ -2496,25 +2648,25 @@ case "$cmd" in
     if [[ ${1:-} == restore ]]; then
       shift
       if [[ ${1:-} == --yes ]]; then assume_yes=1; shift; fi
-      if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; usage; exit 2; fi
-      if [[ ${1:-} == -* ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; usage; exit 2; fi
+      if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; try_help; exit 2; fi
+      if [[ ${1:-} == -* ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2; fi
       reset_restore "${1:-}"
     else
       if [[ ${1:-} == --yes ]]; then assume_yes=1; shift; fi
-      if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; usage; exit 2; fi
+      if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2; fi
       reset_vgs
     fi
     ;;
   -h|--help|help)
-    usage; exit 0
+    help_text; exit 0
     ;;
   --version|version)
     format=text
     if [[ $cmd == version && ${1:-} == --json ]]; then format=json; shift; fi
-    if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; usage; exit 2; fi
+    if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2; fi
     version_report "$format"
     ;;
   *)
-    printf 'vgshell: refused: command=%s\n' "${cmd:-missing}" >&2; usage; exit 2
+    printf 'vgshell: refused: command=%s\n' "${cmd:-missing}" >&2; try_help; exit 2
     ;;
 esac

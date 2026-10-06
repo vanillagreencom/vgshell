@@ -30,8 +30,8 @@
 //                          flake on main, or the same with `vgshell/v<VERSION>`
 //                checkout  `git clone https://github.com/vanillagreencom/vgshell`,
 //                          or `vgshell/bin/vgshell <vgshell args>`
-//              <vgshell args> start with a command the usage header of bin/vgshell
-//              lists. § Install holds at least one command.
+//              <vgshell args> start with a command `vgshell --help` lists.
+//              § Install holds at least one command.
 //   autostart  § Setup holds one ```lua fence of one line. The line equals
 //              the autostart line docs/architecture/runtime.md states, the
 //              line install.sh prints with `vgshell` for its absolute path,
@@ -118,14 +118,17 @@ function finding(rule, line, detail) {
 const version = readText("VERSION").replace(/\n$/, "");
 const vgshellText = readText("bin/vgshell");
 
-// The first word after `vgshell` on each command line of bin/vgshell's usage
-// header, the comment block after the shebang.
+// The commands in bin/vgshell's main help screen.
 const vgshellCommands = (() => {
-    const header = /^#!.*\n((?:#.*\n)+)/.exec(vgshellText);
+    const help = /main\|""\) cat <<'EOF_HELP'\n([\s\S]*?)\nEOF_HELP/.exec(vgshellText);
     const names = new Set();
-    if (header !== null)
-        for (const m of header[1].matchAll(/^#\s+vgshell (\S+)/gm)) names.add(m[1]);
-    if (!names.has("run")) unreadable("bin/vgshell", "the usage header lists no `vgshell run`, so the reader is broken");
+    if (help !== null) {
+        for (const m of help[1].matchAll(/^  (\S+)/gm)) names.add(m[1]);
+        const other = /^Other commands: (.*)$/m.exec(help[1]);
+        if (other !== null)
+            for (const name of other[1].split(",").map(text => text.trim()).filter(Boolean)) names.add(name);
+    }
+    if (!names.has("run")) unreadable("bin/vgshell", "`vgshell --help` lists no `run`, so the reader is broken");
     return names;
 })();
 
@@ -264,7 +267,7 @@ function fences(sec) {
 }
 
 // The vgshell arguments ARGS as a string when their first word is a command
-// the usage header lists, else a finding.
+// the help screen lists, else a finding.
 function vgshellArgs(args, n) {
     const first = args.split(/\s+/)[0];
     if (!vgshellCommands.has(first)) {

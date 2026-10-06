@@ -1396,14 +1396,188 @@ check "the line-keeping mutant's line names a dropped file" test ! -e "$live/foo
 unset THEME_BIN
 disable_foot '"off"'
 
-# --help prints the header comment of the script itself on stderr and exits
-# 0; the expected first line is read from the script, not restated here.
-set +e
-help_out="$("${base_env[@]}" XDG_RUNTIME_DIR="$rt_empty" "$repo/bin/vgshell" --help 2>"$tmp/err")"
-status=$?
-set -e
-help_first=""; IFS= read -r help_first <"$tmp/err" || true
-want_first="$(sed -n '2{s/^# \{0,1\}//;p}' "$repo/bin/vgshell")"
-if [[ $status == 0 && -z $help_out && -n $want_first && $help_first == "$want_first" ]]; then ok "help prints the script header on stderr and exits 0"; else fail "help: exit=$status stdout=[$help_out] first=[$help_first] want=[$want_first]"; fi
+help_capture() { # BIN [ARGS...]
+  local bin="$1"
+  shift
+  set +e
+  help_out="$("${base_env[@]}" XDG_RUNTIME_DIR="$rt_empty" "$bin" "$@" 2>"$tmp/help-err")"
+  help_status=$?
+  set -e
+  printf '%s\n' "$help_out" >"$tmp/help-out"
+}
+
+help_err_lines() { awk 'END { print NR }' "$tmp/help-err"; }
+help_out_lines() { awk 'END { print NR }' "$tmp/help-out"; }
+help_lines_fit() { awk 'length > 80 { exit 1 } END { exit NR <= 23 ? 0 : 1 }' "$tmp/help-out"; }
+
+help_dispatch_commands() { # BIN
+  awk '
+    /^case "\$cmd" in$/ { in_case = 1; next }
+    in_case && /^esac$/ { exit }
+    in_case && /^  [^[:space:]#][^)]*\)/ {
+      label = $0
+      sub(/^  /, "", label)
+      sub(/\).*/, "", label)
+      n = split(label, parts, /\|/)
+      for (i = 1; i <= n; i++) {
+        if (parts[i] !~ /^-/ && parts[i] != "\"\"" && parts[i] != "*" && parts[i] != "help") {
+          print parts[i]
+        }
+      }
+    }
+  ' "$1" | awk '!seen[$0]++'
+}
+
+help_row_names() { # OUT_FILE
+  awk '/^  [^ ]/ { print $1 }' "$1"
+}
+
+help_other_commands() { # OUT_FILE
+  awk '
+    /^Other commands: / {
+      sub(/^Other commands: /, "")
+      gsub(/,/, "")
+      for (i = 1; i <= NF; i++) print $i
+    }
+  ' "$1"
+}
+
+help_main_screen_fits() { # BIN
+  help_capture "$1" || return 1
+  [[ $help_status == 0 && ! -s $tmp/help-err ]] || return 1
+  help_lines_fit
+}
+
+help_main_names_present() { # BIN
+  local bin="$1" name rows
+  help_capture "$bin" || return 1
+  rows="$(help_row_names "$tmp/help-out")"
+  for name in run restart plugin theme doctor self reset lock pkg sudo system hypr tui; do
+    grep -qxF -- "$name" <<<"$rows" || return 1
+  done
+}
+
+help_inventory_covers_dispatch() { # BIN
+  local bin="$1" command commands listed
+  help_capture "$bin" || return 1
+  commands="$(help_dispatch_commands "$bin")"
+  [[ $(grep -c . <<<"$commands") -ge 13 ]] || return 1
+  listed="$( { help_row_names "$tmp/help-out"; help_other_commands "$tmp/help-out"; } | awk '!seen[$0]++' )"
+  while IFS= read -r command; do
+    [[ -n $command ]] || continue
+    grep -qxF -- "$command" <<<"$listed" || return 1
+  done <<<"$commands"
+}
+
+help_entrypoints_match_main() { # BIN
+  local bin="$1" main screen args
+  help_capture "$bin" || return 1
+  [[ $help_status == 0 && ! -s $tmp/help-err ]] || return 1
+  main="$help_out"
+  for args in "--help" "-h" "help"; do
+    # shellcheck disable=SC2086
+    help_capture "$bin" $args || return 1
+    [[ $help_status == 0 && ! -s $tmp/help-err && $help_out == "$main" ]] || return 1
+  done
+}
+
+help_per_command_blocks() { # BIN
+  local bin="$1" main commands command command_help
+  help_capture "$bin" || return 1
+  main="$help_out"
+  commands="$(help_dispatch_commands "$bin")"
+  while IFS= read -r command; do
+    [[ -n $command ]] || continue
+    help_capture "$bin" "$command" --help || return 1
+    [[ $help_status == 0 && ! -s $tmp/help-err ]] || return 1
+    help_lines_fit || return 1
+    [[ $help_out != "$main" && $help_out == *"vgshell $command"* ]] || return 1
+    command_help="$help_out"
+    help_capture "$bin" help "$command" || return 1
+    [[ $help_status == 0 && ! -s $tmp/help-err && $help_out == "$command_help" ]] || return 1
+  done <<<"$commands"
+}
+
+vgshell_help_contract() { # BIN
+  help_main_screen_fits "$1" &&
+    help_main_names_present "$1" &&
+    help_inventory_covers_dispatch "$1" &&
+    help_entrypoints_match_main "$1" &&
+    help_per_command_blocks "$1"
+}
+
+help_copy_with() { # NAME NEEDLE REPLACEMENT
+  local tree="$tmp/help-ctl/$1"
+  mkdir -p "$tree/bin"
+  copy_with "help-$1" "$repo/bin/vgshell" "$2" "$3"
+  cp -- "$copy" "$tree/bin/vgshell"
+  chmod +x "$tree/bin/vgshell"
+  ln -s -- "$repo/bin/lib" "$tree/bin/lib"
+  vgshell_copy_loads "$tree/bin/vgshell" || { echo "test-vgshell: control=$1 copy=not-loadable" >&2; exit 1; }
+  control_bin="$tree/bin/vgshell"
+}
+
+help_copy_line_with() { # NAME LINE REPLACEMENT
+  local tree="$tmp/help-ctl/$1" count
+  mkdir -p "$tree/bin" "$tmp/copies"
+  count="$(LINE="$2" python3 - "$repo/bin/vgshell" <<'PY'
+import os, sys
+line = os.environ["LINE"]
+print(sum(1 for candidate in open(sys.argv[1]).read().splitlines() if candidate == line))
+PY
+)"
+  [[ $count == 1 ]] || { echo "test-vgshell: control=help-$1 needle-count=$count" >&2; exit 1; }
+  copy="$tmp/copies/help-$1"
+  LINE="$2" REPLACEMENT="$3" python3 - "$repo/bin/vgshell" "$copy" <<'PY'
+import os, sys
+line = os.environ["LINE"]
+replacement = os.environ["REPLACEMENT"].splitlines()
+out = []
+replaced = False
+for candidate in open(sys.argv[1]).read().splitlines():
+    if candidate == line and not replaced:
+        out.extend(replacement)
+        replaced = True
+    else:
+        out.append(candidate)
+open(sys.argv[2], "w").write("\n".join(out) + "\n")
+PY
+  if cmp -s -- "$repo/bin/vgshell" "$copy"; then echo "test-vgshell: control=help-$1 unchanged" >&2; exit 1; fi
+  cp -- "$copy" "$tree/bin/vgshell"
+  chmod +x "$tree/bin/vgshell"
+  ln -s -- "$repo/bin/lib" "$tree/bin/lib"
+  vgshell_copy_loads "$tree/bin/vgshell" || { echo "test-vgshell: control=$1 copy=not-loadable" >&2; exit 1; }
+  control_bin="$tree/bin/vgshell"
+}
+
+if vgshell_help_contract "$repo/bin/vgshell"; then ok "help screens follow the CLI contract"; else fail "help screens follow the CLI contract"; fi
+
+help_capture "$repo/bin/vgshell" plugin frobnicate
+refusal_first=""; IFS= read -r refusal_first <"$tmp/help-err" || true
+if [[ $help_status == 2 && -z $help_out && $refusal_first == "vgshell: refused: plugin-subcommand=frobnicate" && $(help_err_lines) == 2 ]]; then
+  ok "bad plugin invocation keeps its keyed refusal and one hint"
+else
+  fail "bad plugin invocation: exit=$help_status stdout=[$help_out] first=[$refusal_first] stderr-lines=$(help_err_lines)"
+fi
+
+help_copy_with fit \
+  "Commands:" \
+  $'Commands:\n  overflow-a\n  overflow-b\n  overflow-c'
+if help_main_screen_fits "$control_bin"; then fail "fit control did not reject"; else ok "fit control rejected"; fi
+
+help_copy_with names \
+  "  run        Start the shell in this terminal" \
+  ""
+if help_main_names_present "$control_bin"; then fail "names control did not reject"; else ok "names control rejected"; fi
+
+help_copy_line_with inventory \
+  "  run)" \
+  $'  frob)\n    ;;\n  run)'
+if help_inventory_covers_dispatch "$control_bin"; then fail "inventory control did not reject"; else ok "inventory control rejected"; fi
+
+help_copy_with per-command \
+  "    restart) cat <<'EOF_HELP'" \
+  "    restart) return 1 <<'EOF_HELP'"
+if help_per_command_blocks "$control_bin"; then fail "per-command control did not reject"; else ok "per-command control rejected"; fi
 
 rows_done test-vgshell
