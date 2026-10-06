@@ -74,7 +74,7 @@ Item {
             width: parent.width
             pluginId: "vgs.voice"
             bind: ({ shortcut: "tap", key: "code:108", keys: ["code:108", "code:105"], default: ["code:108", "code:105"] })
-            onApplyKey: (key, alternative) => root.pairs = root.pairs.concat([[key, alternative]])
+            onApplyKey: key => root.pairs = root.pairs.concat([[key, listed.alternative]])
         }
         BindField {
             id: readOnly
@@ -155,6 +155,8 @@ Item {
                 edit();
                 compare(JSON.stringify(root.pairs), JSON.stringify([want]), why);
             }
+            field.committed("SUPER+K", 0);
+            compare(listed.alternative, null, "the edit's key is named only while it is sent");
         }
 
         function test_a_read_only_row_offers_no_edit() {

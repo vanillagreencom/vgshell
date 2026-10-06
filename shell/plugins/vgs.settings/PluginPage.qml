@@ -523,7 +523,7 @@ FocusScope {
                                 edits: unsaved
                                 onRemovalAsked: row => page.panel.confirmRemoval(keyField, row)
                                 onLineAsked: row => page.panel.openUserLine(row)
-                                onApplyKey: (key, alternative) => {
+                                onApplyKey: key => {
                                     if (page === null || page.row === null) return;
                                     settle(alternative, Reply.isOk(page.panel.writeKey(pluginId, modelData.shortcut, key)));
                                 }

@@ -6,9 +6,10 @@ import qs.Ui
 // registered none), with the info icon of the bind's explanation when it
 // has one, beside a ShortcutField holding the keys in effect, one key or
 // the alternatives of a list. Each edit changes one alternative and emits
-// `applyKey(key, alternative)`: `key` is what the manager writes, one key,
-// a list of two or more, or null once none is left, which unbinds the
-// shortcut; `alternative` is the key the edit set, null for a removal.
+// `applyKey(key)`: `key` is what the manager writes, one key, a list of two
+// or more, or null once none is left, which unbinds the shortcut. While
+// that signal runs, `alternative` is the key the edit set, null for a
+// removal and for a key a caller sends itself.
 // Pressing a combo, or typing one as `MOD+KEY`, sets the alternative
 // edited; an empty typed one, the field's unbind button and Delete remove
 // it, and `remove(index)` removes another. The field names the bind, so
@@ -37,8 +38,10 @@ Field {
     property alias hintLink: input.hintLink
     readonly property var found: input.found
     readonly property alias shortcutField: input
-    signal applyKey(var key, var alternative)
+    signal applyKey(var key)
     signal hintLinkActivated()
+
+    property var alternative: null
 
     // `keys` can arrive as a list-like rather than an Array, as from a ListModel.
     readonly property var keys: bind.keys !== undefined && bind.keys !== null ? Array.from(bind.keys, String)
@@ -51,7 +54,9 @@ Field {
         if (key === null) next.splice(index, 1);
         else next[index] = key;
         const value = next.filter((each, i) => next.indexOf(each) === i);
-        applyKey(value.length === 0 ? null : value.length === 1 ? value[0] : value, key);
+        alternative = key;
+        applyKey(value.length === 0 ? null : value.length === 1 ? value[0] : value);
+        alternative = null;
     }
 
     function remove(index) {
