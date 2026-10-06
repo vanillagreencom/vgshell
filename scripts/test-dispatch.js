@@ -103,6 +103,23 @@ function verifyDispatch(lib, report, forms = formRows) {
 verifyDispatch(ctx, true);
 check("control: a plugin dispatcher without form rows fails coverage", verifyDispatch(ctx, false, formRows.filter(r => r[0] !== "moveCursor")), 1);
 
+function verifyMonitorEval(lib, report) {
+    let bad = 0;
+    const row = (name, got, want) => {
+        if (JSON.stringify(got) !== JSON.stringify(want)) bad += 1;
+        if (report) check(name, got, want);
+    };
+    row("monitor eval: accepted in Lua sessions", lib.monitorEvalRequest('hl.monitor({ output = "DP-1", scale = 2 })', true),
+        { ok: true, argv: ["hyprctl", "eval", 'hl.monitor({ output = "DP-1", scale = 2 })'] });
+    row("monitor eval: classic sessions are refused", lib.monitorEvalRequest('hl.monitor({ output = "DP-1", scale = 2 })', false),
+        { ok: false, error: "refused: monitor-eval=session=classic" });
+    row("monitor eval: a non-monitor Lua string is refused", lib.monitorEvalRequest('hl.exec("x")', true),
+        { ok: false, error: "refused: monitor-eval=lua" });
+    row("monitor eval: empty Lua is refused", lib.monitorEvalRequest("", true), { ok: false, error: "refused: monitor-eval=lua" });
+    return bad;
+}
+failures += verifyMonitorEval(ctx, true);
+
 // Bringing a window into view: the request's judge, what a Hyprland event
 // means to a waiting reveal and which window a reveal focuses. Every value
 // is written out by hand; verifyReveal answers how many rows failed, so
@@ -314,6 +331,7 @@ const source = fs.readFileSync(dispatchFile, "utf8");
 fs.mkdirSync(path.join(__dirname, "..", "tmp"), { recursive: true });
 const scratch = fs.mkdtempSync(path.join(__dirname, "..", "tmp", "test-dispatch-"));
 fs.copyFileSync(path.join(path.dirname(dispatchFile), "HyprlandLayer.js"), path.join(scratch, "HyprlandLayer.js"));
+fs.copyFileSync(path.join(path.dirname(dispatchFile), "MonitorLogic.js"), path.join(scratch, "MonitorLogic.js"));
 try {
     const dispatchControls = [
         ["known dispatcher", "if (!Object.prototype.hasOwnProperty.call(DISPATCHERS, name))", "if (false)"],
@@ -368,6 +386,20 @@ try {
         try { bad = verifySwitch(require("../bin/lib/qml-library.js").load(mutant), false); }
         catch (e) { bad = 1; }
         check("control " + name + " fails the switch rows", bad > 0, true);
+    }
+    const monitorEvalControls = [
+        ["classic sessions are refused", "if (usingLua !== true)\n        return { ok: false, error: \"refused: monitor-eval=session=classic\" };", "if (false)\n        return { ok: false, error: \"refused: monitor-eval=session=classic\" };"],
+        ["the request starts with hl.monitor", "lua.indexOf(\"hl.\" + \"monitor({ \") !== 0", "false"],
+        ["the request is sent as eval", 'argv: ["hyprctl", "eval", lua]', 'argv: ["hyprctl", "dispatch", lua]']
+    ];
+    for (const [name, needle, replacement] of monitorEvalControls) {
+        if (source.split(needle).length !== 2) { check("control monitor eval " + name + " matches once", false, true); continue; }
+        const mutant = path.join(scratch, "Dispatch.js");
+        fs.writeFileSync(mutant, source.replace(needle, () => replacement));
+        let bad;
+        try { bad = verifyMonitorEval(require("../bin/lib/qml-library.js").load(mutant), false); }
+        catch (e) { bad = 1; }
+        check("control monitor eval " + name + " fails the rows", bad > 0, true);
     }
     const passthroughControls = [
         ["the verb is judged", "if (typeof verb !== \"string\" || !Object.prototype.hasOwnProperty.call(passthrough.verbs, verb))", "if (typeof verb !== \"string\")"],

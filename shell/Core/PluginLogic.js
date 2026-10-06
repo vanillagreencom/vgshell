@@ -197,12 +197,14 @@ var NAME_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
 
 // What a manifest's `hyprland` key may hold: binds of the plugin's own
 // shortcuts, blur rules for the core's layer namespaces, the theme
-// appearance switches and the input options its settings set. Data only;
+// appearance switches, the input options its settings set and one monitor
+// rule setting. Data only;
 // the core renders it (HyprlandLayer.js), so no plugin text reaches the
 // compositor's Lua.
-var HYPRLAND_KEYS = ["binds", "layerRules", "appearance", "options", "pads"];
+var HYPRLAND_KEYS = ["binds", "layerRules", "appearance", "options", "pads", "monitors"];
 var HYPRLAND_BIND_KEYS = ["shortcut", "key", "hold", "tap"];
 var HYPRLAND_RULE_KEYS = ["namespace", "blur", "ignoreAlpha"];
+var HYPRLAND_MONITOR_RULE_KEYS = ["disabled", "mode", "position", "scale", "transform"];
 // The modifiers a Hyprland key may hold, in the order a normalised key
 // writes them, and the key name after them: a keysym name, which Hyprland
 // looks up without regard to case.
@@ -1527,7 +1529,9 @@ function keyHasModifiers(key) {
 // rule matches `^vgs:<name>$` and sets blur, ignoreAlpha from 0 to 1, or
 // both. Appearance needs the `theme` capability because those switches change
 // how the theme reaches Hyprland. Options need the `hyprland` capability
-// because the same plugin must read the compositor state back.
+// because the same plugin must read the compositor state back. Monitors
+// need the `monitors` capability and name a plugin settings key without a
+// schema row, so the Settings page does not draw it.
 // Neither a shortcut, a key nor a namespace appears twice.
 function hyprlandError(hyprland, capabilities, schema) {
     if (!isPlainObject(hyprland))
@@ -1541,12 +1545,13 @@ function hyprlandError(hyprland, capabilities, schema) {
     var rules = hyprland.layerRules === undefined ? [] : hyprland.layerRules;
     var appearance = hyprland.appearance;
     var options = hyprland.options;
+    var monitors = hyprland.monitors;
     if (!Array.isArray(binds))
         return "hyprland.binds must be a list";
     if (!Array.isArray(rules))
         return "hyprland.layerRules must be a list";
-    if (binds.length === 0 && rules.length === 0 && appearance === undefined && options === undefined && hyprland.pads === undefined)
-        return "hyprland declares no binds, layer rules, appearance, options or pads";
+    if (binds.length === 0 && rules.length === 0 && appearance === undefined && options === undefined && hyprland.pads === undefined && monitors === undefined)
+        return "hyprland declares no binds, layer rules, appearance, options, pads or monitors";
     if (binds.length > 0 && capabilities.indexOf("shortcut") === -1)
         return "hyprland.binds needs capability shortcut";
     var shortcuts = [];
@@ -1633,6 +1638,12 @@ function hyprlandError(hyprland, capabilities, schema) {
         return "hyprland.options needs capability hyprland";
     if (options !== undefined)
         return hyprlandOptionsError(options, schema);
+    if (monitors !== undefined && capabilities.indexOf("monitors") === -1)
+        return "hyprland.monitors needs capability monitors";
+    if (monitors !== undefined) {
+        if (typeof monitors !== "string" || !STATUS_KEY_PATTERN.test(monitors))
+            return "hyprland.monitors must name a settings key";
+    }
     return "";
 }
 
@@ -1660,6 +1671,37 @@ function hyprlandOptionsError(options, schema) {
         var bad = optionSchemaError(HyprlandLayer.OPTIONS[path], schema[name]);
         if (bad !== "")
             return at + " " + bad;
+    }
+    return "";
+}
+
+function monitorRulesError(rules, prefix) {
+    if (!isPlainObject(rules)) return prefix + " must be an object";
+    var ids = Object.keys(rules);
+    if (ids.length > 0 && ids.every(function (id) { return isPlainObject(rules[id]) && rules[id].disabled === true; }))
+        return prefix + "=all-disabled";
+    for (var i = 0; i < ids.length; i++) {
+        var id = ids[i];
+        var at = prefix + "." + id;
+        if (typeof id !== "string" || !/^[\x20\x21\x23-\x5b\x5d-\x7e]{1,512}$/.test(id)) return at + " identifier refused";
+        var rule = rules[id];
+        if (!isPlainObject(rule)) return at + " must be an object";
+        var keys = Object.keys(rule);
+        for (var k = 0; k < keys.length; k++) if (HYPRLAND_MONITOR_RULE_KEYS.indexOf(keys[k]) === -1) return at + " has unknown key " + JSON.stringify(keys[k]);
+        if (rule.disabled !== undefined && typeof rule.disabled !== "boolean") return at + ".disabled must be a boolean";
+        if (rule.mode !== undefined) {
+            if (!isPlainObject(rule.mode)) return at + ".mode must be an object";
+            if (!Number.isInteger(rule.mode.width) || rule.mode.width <= 0) return at + ".mode.width must be a positive integer";
+            if (!Number.isInteger(rule.mode.height) || rule.mode.height <= 0) return at + ".mode.height must be a positive integer";
+            if (typeof rule.mode.refresh !== "number" || !isFinite(rule.mode.refresh) || rule.mode.refresh <= 0) return at + ".mode.refresh must be a positive number";
+        }
+        if (rule.position !== undefined) {
+            if (!isPlainObject(rule.position)) return at + ".position must be an object";
+            if (!Number.isInteger(rule.position.x)) return at + ".position.x must be an integer";
+            if (!Number.isInteger(rule.position.y)) return at + ".position.y must be an integer";
+        }
+        if (rule.scale !== undefined && (typeof rule.scale !== "number" || !isFinite(rule.scale) || rule.scale <= 0)) return at + ".scale must be a positive number";
+        if (rule.transform !== undefined && (!Number.isInteger(rule.transform) || rule.transform < 0 || rule.transform > 7)) return at + ".transform must be 0-7";
     }
     return "";
 }
@@ -3375,6 +3417,15 @@ function validateManifest(raw, sourceDir) {
         var badHyprland = hyprlandError(raw.hyprland, capabilities, schema);
         if (badHyprland !== "")
             return { ok: false, error: badHyprland };
+        if (raw.hyprland.monitors !== undefined) {
+            if (!hasOwn(settings, raw.hyprland.monitors))
+                return { ok: false, error: "hyprland.monitors names no settings key " + JSON.stringify(raw.hyprland.monitors) };
+            if (hasOwn(schema, raw.hyprland.monitors))
+                return { ok: false, error: "hyprland.monitors must not name a schema entry" };
+            var badMonitorDefault = monitorRulesError(settings[raw.hyprland.monitors], "hyprland.monitors default");
+            if (badMonitorDefault !== "")
+                return { ok: false, error: badMonitorDefault };
+        }
     }
     if (raw.tui !== undefined) {
         var badTui = tuiError(raw.tui, capabilities, requirements);
@@ -3418,7 +3469,8 @@ function validateManifest(raw, sourceDir) {
             layerRules: clone(raw.hyprland.layerRules || []),
             appearance: clone(raw.hyprland.appearance || {}),
             options: clone(raw.hyprland.options || {}),
-            pads: raw.hyprland.pads
+            pads: raw.hyprland.pads,
+            monitors: raw.hyprland.monitors
         };
     }
     manifest.__sourceDir = sourceDir;
@@ -3638,10 +3690,28 @@ function hyprlandSection(config, manifest) {
         layerRules: clone(declared.layerRules),
         appearance: appearance,
         options: options,
+        monitors: declared.monitors === undefined ? null : { setting: declared.monitors, value: clone(settings[declared.monitors] || {}) },
         pads: pads.pads,
         padRefusals: pads.refusals,
         unknownKeys: Object.keys(keys).filter(function (name) { return names.indexOf(name) === -1 && !Pads.isPadShortcut(declared, name, NAME_PATTERN); }).sort()
     };
+}
+
+function monitorRuleOwners(manifests, enabledIds) {
+    return enabledIds.filter(function (id) {
+        var manifest = manifests[id];
+        return manifest !== undefined && manifest.hyprland !== undefined && manifest.hyprland.monitors !== undefined;
+    }).sort();
+}
+
+function monitorRuleOwner(manifests, enabledIds) {
+    var owners = monitorRuleOwners(manifests, enabledIds);
+    return owners.length === 1 ? owners[0] : "";
+}
+
+function monitorRuleRefusal(manifests, enabledIds, id) {
+    var owners = monitorRuleOwners(manifests, enabledIds);
+    return owners.length > 1 && owners.indexOf(id) !== -1 ? "refused: hyprland.monitors=" + id + " held-by=" + owners.filter(function (owner) { return owner !== id; })[0] : "";
 }
 
 // The settings the plugin manager shows for a plugin: the ones its placed
@@ -3988,6 +4058,10 @@ function withFirstPresence(user, manifests, effective) {
 // Only a key the manifest's schema declares is writable, and only with a
 // value of its type. The reply is one keyed line.
 function settingRefusal(manifest, key, value) {
+    if (manifest.hyprland !== undefined && manifest.hyprland.monitors === key) {
+        var badMonitors = monitorRulesError(value, "setting=" + key);
+        return badMonitors === "" ? "" : "refused: " + badMonitors;
+    }
     if (!hasOwn(manifest.schema, key))
         return "refused: setting=" + key + " undeclared";
     var bad = settingError(manifest.schema[key], value);

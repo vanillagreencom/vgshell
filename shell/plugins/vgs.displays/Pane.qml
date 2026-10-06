@@ -27,6 +27,14 @@ FocusScope {
     readonly property var assignments: values.assignments === undefined ? ({ entries: [], error: null }) : values.assignments
     readonly property var stale: assignments.entries.filter(e => e.state === "stale")
     readonly property var outputs: shell === null || shell.monitors.outputs === null ? [] : shell.monitors.outputs
+    readonly property var outputRules: shell === null ? ({}) : (shell.settings.outputs || ({}))
+    property var outputDraft: ({})
+    property string selectedOutput: outputs.length > 0 ? outputs[0].identifier : ""
+    readonly property var selected: Logic.outputByIdentifier(outputs, selectedOutput)
+    readonly property var selectedRule: selected === null ? null : Logic.effectiveRule(selected, outputRules[selectedOutput], outputDraft[selectedOutput])
+    readonly property bool outputDirty: Object.keys(Logic.dirtyRules(outputDraft, outputRules)).length > 0
+    readonly property var trialState: shell === null ? ({ phase: "idle", token: "", deadline: 0, failure: "" }) : shell.monitors.trialState
+    property int nowSeconds: Math.floor(Date.now() / 1000)
     readonly property var screenChoices: Logic.screenChoices(list.items, outputs)
     // The access entries that need a step, as the core's status rows give
     // them.
@@ -53,6 +61,7 @@ FocusScope {
     // answers the service's reply.
     function assign(device, output) { return answered(shell.ipc.call("assign", JSON.stringify({ device: device, output: output }))); }
     function identify(id) { return answered(shell.ipc.call("identify", id)); }
+    function identifyAll() { return answered(shell.ipc.call("identify", "")); }
     function runAction(key) { return answered(shell.status.act(key)); }
     // Write the plugin's setting KEY; answers the core's reply.
     function configure(key, value) {
@@ -74,6 +83,58 @@ FocusScope {
         return entry === undefined ? "" : entry.output;
     }
 
+    function setOutputDraft(patch) {
+        outputDraft = Logic.withOutputDraft(outputs, outputRules, outputDraft, selectedOutput, patch);
+    }
+
+    function applyOutputDraft() {
+        const rules = Logic.dirtyRules(outputDraft, outputRules);
+        const reply = shell.monitors.trial(rules);
+        problem = Logic.replyText(reply);
+        if (reply !== "ok") console.warn("displays pane: monitors trial " + reply);
+    }
+
+    function keepTrial() {
+        const rules = Logic.dirtyRules(outputDraft, outputRules);
+        const reply = shell.monitors.keep(trialState.token);
+        if (reply === "ok") {
+            const next = Object.assign({}, outputRules, rules);
+            const write = shell.configure.set("outputs", next);
+            problem = Logic.replyText(write);
+            if (write === "ok") outputDraft = ({});
+            else console.warn("displays pane: outputs " + write);
+        } else {
+            problem = Logic.replyText(reply);
+            console.warn("displays pane: monitors keep " + reply);
+        }
+    }
+
+    function revertTrial() {
+        const reply = shell.monitors.revert(trialState.token);
+        problem = Logic.replyText(reply);
+        if (reply === "ok") outputDraft = ({});
+        else console.warn("displays pane: monitors revert " + reply);
+    }
+
+    Keys.onReturnPressed: event => {
+        if (trialState.phase === "holding") {
+            keepTrial();
+            event.accepted = true;
+        }
+    }
+    Keys.onEnterPressed: event => {
+        if (trialState.phase === "holding") {
+            keepTrial();
+            event.accepted = true;
+        }
+    }
+    Keys.onEscapePressed: event => {
+        if (trialState.phase === "holding") {
+            revertTrial();
+            event.accepted = true;
+        }
+    }
+
     implicitWidth: Theme.size.window.width
     implicitHeight: content.implicitHeight
     focus: true
@@ -82,6 +143,205 @@ FocusScope {
         id: content
         width: root.width
         spacing: Theme.stack.section
+
+        Column {
+            width: parent.width
+            spacing: Theme.stack.group
+
+            SectionHeader {
+                width: parent.width
+                text: "Display"
+                description: "Set the mode, scale and orientation of one screen."
+            }
+
+            Row {
+                width: parent.width
+                spacing: Theme.stack.inline
+
+                Select {
+                    visible: root.outputs.length > 1
+                    width: parent.width - identifyAllButton.width - parent.spacing
+                    model: Logic.outputChoices(root.outputs)
+                    textRole: "label"
+                    currentIndex: Logic.indexByValue(model, root.selectedOutput)
+                    Accessible.name: "Display"
+                    onActivated: index => {
+                        root.selectedOutput = model[index].value;
+                        currentIndex = Qt.binding(() => Logic.indexByValue(model, root.selectedOutput));
+                    }
+                }
+
+                Label {
+                    visible: root.outputs.length <= 1
+                    width: parent.width - identifyAllButton.width - parent.spacing
+                    anchors.verticalCenter: parent.verticalCenter
+                    role: "body"
+                    text: root.selected === null ? "No display is connected." : root.selected.name
+                    elide: Text.ElideRight
+                }
+
+                Button {
+                    id: identifyAllButton
+                    variant: "secondary"
+                    size: "sm"
+                    text: "Identify"
+                    iconName: "scan-eye"
+                    enabled: root.outputs.length > 0
+                    anchors.verticalCenter: parent.verticalCenter
+                    onClicked: root.identifyAll()
+                }
+            }
+
+            Label {
+                width: parent.width
+                visible: root.selected !== null
+                role: "hint"
+                text: root.selected === null ? "" : Logic.outputSummary(root.selected)
+                wrapMode: Text.Wrap
+            }
+
+            FormRow {
+                width: parent.width
+                visible: root.selected !== null
+                label: "Use this display"
+                warning: root.selectedRule !== null && root.selectedRule.disabled && Logic.nextEnabledCount(root.outputs, root.outputRules, root.outputDraft) <= 1 ? "At least one display must stay on." : ""
+
+                Switch {
+                    size: "sm"
+                    checked: root.selectedRule !== null && !root.selectedRule.disabled
+                    enabled: checked || Logic.nextEnabledCount(root.outputs, root.outputRules, root.outputDraft) > 1
+                    Accessible.name: "Use this display"
+                    onToggled: root.setOutputDraft({ disabled: !checked })
+                }
+            }
+
+            FormRow {
+                width: parent.width
+                visible: root.selected !== null
+                label: "Resolution"
+
+                Select {
+                    id: modeSelect
+                    readonly property var choices: root.selected === null ? [] : Logic.modeChoices(root.selected)
+                    width: parent.width
+                    model: choices
+                    textRole: "label"
+                    currentIndex: root.selectedRule === null ? 0 : Logic.indexByValue(choices, Logic.modeKey(root.selectedRule.mode))
+                    Accessible.name: "Resolution"
+                    onActivated: index => {
+                        root.setOutputDraft({ mode: choices[index].mode });
+                        currentIndex = Qt.binding(() => root.selectedRule === null ? 0 : Logic.indexByValue(choices, Logic.modeKey(root.selectedRule.mode)));
+                    }
+                }
+            }
+
+            FormRow {
+                width: parent.width
+                visible: root.selected !== null
+                label: "Refresh rate"
+
+                Select {
+                    id: refreshSelect
+                    readonly property var choices: root.selectedRule === null ? [] : Logic.refreshChoices(root.selected, root.selectedRule.mode)
+                    width: parent.width
+                    model: choices
+                    textRole: "label"
+                    currentIndex: root.selectedRule === null ? 0 : Logic.indexByValue(choices, root.selectedRule.mode.refresh)
+                    Accessible.name: "Refresh rate"
+                    onActivated: index => {
+                        root.setOutputDraft({ mode: choices[index].mode });
+                        currentIndex = Qt.binding(() => root.selectedRule === null ? 0 : Logic.indexByValue(choices, root.selectedRule.mode.refresh));
+                    }
+                }
+            }
+
+            FormRow {
+                width: parent.width
+                visible: root.selected !== null
+                label: "Scale"
+
+                Select {
+                    id: scaleSelect
+                    readonly property var choices: root.selectedRule === null ? [] : Logic.scaleChoices(root.selectedRule.mode, root.selectedRule.scale)
+                    width: parent.width
+                    model: choices
+                    textRole: "label"
+                    currentIndex: root.selectedRule === null ? 0 : Logic.indexByValue(choices, root.selectedRule.scale)
+                    Accessible.name: "Scale"
+                    onActivated: index => {
+                        root.setOutputDraft({ scale: choices[index].value });
+                        currentIndex = Qt.binding(() => root.selectedRule === null ? 0 : Logic.indexByValue(choices, root.selectedRule.scale));
+                    }
+                }
+            }
+
+            FormRow {
+                width: parent.width
+                visible: root.selected !== null
+                label: "Orientation"
+
+                Select {
+                    width: parent.width
+                    model: Logic.TRANSFORMS
+                    textRole: "label"
+                    currentIndex: root.selectedRule === null ? 0 : Logic.indexByValue(model, root.selectedRule.transform)
+                    Accessible.name: "Orientation"
+                    onActivated: index => {
+                        root.setOutputDraft({ transform: model[index].value });
+                        currentIndex = Qt.binding(() => root.selectedRule === null ? 0 : Logic.indexByValue(model, root.selectedRule.transform));
+                    }
+                }
+            }
+
+            Label {
+                width: parent.width
+                visible: root.selected !== null && root.shell !== null && root.shell.monitors.overridden(root.outputRules)[root.selectedOutput] === true
+                role: "hint"
+                color: Theme.color.warning
+                text: "Your Hyprland file now sets this display differently."
+                wrapMode: Text.Wrap
+            }
+
+            Surface {
+                width: parent.width
+                visible: root.trialState.phase === "holding"
+                level: "raised"
+                implicitHeight: trialColumn.implicitHeight + 2 * Theme.stack.row
+
+                Column {
+                    id: trialColumn
+                    anchors.fill: parent
+                    anchors.margins: Theme.stack.row
+                    spacing: Theme.stack.row
+
+                    Label {
+                        width: parent.width
+                        role: "body"
+                        text: Logic.countdownText(root.trialState.deadline - root.nowSeconds)
+                        wrapMode: Text.Wrap
+                    }
+                    Row {
+                        spacing: Theme.stack.inline
+                        Button { text: "Keep"; variant: "primary"; onClicked: root.keepTrial() }
+                        Button { text: "Revert"; variant: "secondary"; onClicked: root.revertTrial() }
+                    }
+                }
+            }
+
+            SaveBar {
+                width: parent.width
+                dirty: root.outputDirty && root.trialState.phase !== "holding"
+                onSave: root.applyOutputDraft()
+                onDiscard: root.outputDraft = ({})
+            }
+
+            Timer {
+                interval: 250
+                running: root.trialState.phase === "holding"
+                repeat: true
+                onTriggered: root.nowSeconds = Math.floor(Date.now() / 1000)
+            }
+        }
 
         Column {
             width: parent.width

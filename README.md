@@ -68,7 +68,7 @@ VGS starts with Hyprland and draws the bar, panels and windows on each screen. E
 | [Capture](shell/plugins/vgs.capture/README.md) | Save screenshots, record the screen and copy text from an area. |
 | [Clipboard](shell/plugins/vgs.clipboard/README.md) | Find and paste anything you copied earlier. |
 | [Dev Tools](shell/plugins/vgs.devtools/README.md) | Install and update developer tools. |
-| [Displays](shell/plugins/vgs.displays/README.md) | Set each display's brightness. |
+| [Displays](shell/plugins/vgs.displays/README.md) | Set each display's mode, scale, orientation and brightness. |
 | [VGS Components](shell/plugins/vgs.gallery/README.md) | Preview VGS controls in the current theme. |
 | [Login screen](shell/plugins/vgs.greeter/README.md) | Log in on a screen in your VGS theme. |
 | [Jarvis](shell/plugins/vgs.jarvis/README.md) | Talk to a voice assistant. |

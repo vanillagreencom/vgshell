@@ -157,6 +157,15 @@ Singleton {
         return enqueue(r.argv, null);
     }
 
+    function monitorEval(lua, done) {
+        const r = Dispatch.monitorEvalRequest(lua, Hyprland.usingLua);
+        if (!r.ok) {
+            console.error("compositor: " + r.error);
+            return r.error;
+        }
+        return enqueue(r.argv, done, typeof done === "function");
+    }
+
     function enqueue(argv, done, judged) {
         if (queue.length >= Dispatch.QUEUE_LIMIT) {
             const error = "refused: dispatch-queue=full limit=" + Dispatch.QUEUE_LIMIT + " request=" + JSON.stringify(argv);

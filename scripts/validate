@@ -121,6 +121,27 @@ case "$area" in
 esac
 failed=()
 skipped=()
+scratch_path() {
+  local root path
+  root="$(git rev-parse --path-format=absolute --git-path vgs-validate-tmp)" || return 1
+  mkdir -p -- "$root" || return 1
+  while :; do
+    path="$root/validate-$$-$RANDOM"
+    [[ -e $path ]] || { printf '%s\n' "$path"; return 0; }
+  done
+}
+scratch_file() {
+  local path
+  path="$(scratch_path)" || return 1
+  : >"$path" || return 1
+  printf '%s\n' "$path"
+}
+scratch_dir() {
+  local path
+  path="$(scratch_path)" || return 1
+  mkdir -- "$path" || return 1
+  printf '%s\n' "$path"
+}
 
 # node on PATH may be a version-manager shim that reads the caller's own
 # configuration and refuses under a row's temporary home, so each row reaches
@@ -147,7 +168,7 @@ fi
 run() { # AREA LABEL CMD...
   local area="$1" label="$2" started status elapsed row_home
   shift 2
-  row_home="$(mktemp -d)" || { echo 'validate: row-home=mktemp-failed' >&2; exit 1; }
+  row_home="$(scratch_dir)" || { echo 'validate: row-home=scratch-failed' >&2; exit 1; }
   echo "== $label"
   started=$SECONDS
   status=0
@@ -204,6 +225,7 @@ rows=(
   "logic|core input facts|node scripts/test-input-facts.js|shell/Core/HyprlandState.js shell/Core/Dispatch.js shell/Core/HyprlandLayer.js shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Commons/SettingValues.js shell/Ui/icons/Lucide.js bin/lib/qml-library.js"
   "logic|active XKB input identities|python3 -I scripts/test-xkb-keys.py|bin/lib/xkb-keys.py"
   "logic|monitor outputs reading|node scripts/test-monitor-logic.js|shell/Core/MonitorLogic.js bin/lib/qml-library.js"
+  "cli|display guard|scripts/test-display-guard.sh|bin/vgshell-display-guard"
   "logic|dispatch table|node scripts/test-dispatch.js|shell/Core/Dispatch.js shell/Core/HyprlandLayer.js bin/lib/qml-library.js"
   "logic|instance lifetime cleanup|node scripts/test-lifetime.js|shell/Core/Lifetime.js shell/Core/Plugins.qml shell/Core/Capabilities.qml shell/Core/HyprlandState.qml bin/lib/qml-library.js"
   "logic|library loader controls|node scripts/test-qml-library.js|bin/lib/qml-library.js"
@@ -427,7 +449,7 @@ rows=(
   "repo|whitespace errors against the base|whitespace_check|"
   "repo|every test file has a row|rows_cover_tests|"
   "repo|the runtime loads nothing under scripts/|runtime_reads_no_scripts|"
-  "repo|no shipped file writes a monitor rule|runtime_writes_no_monitor_rule|"
+  "repo|monitor rules have one renderer|runtime_writes_monitor_rule_once|"
   "repo|no private key in the tree|private_keys_check|"
   "repo|markdown references and source citations|md_refs_check|"
   "tools|document byte ceilings|doc_limits_check|*.md docs/* tools/doc-limits-excludes kendex.settings.toml .kendex/settings.toml .kendex-generated.json .agents/skills/doc-limits/scripts/* .agents/skills/commit-guards/scripts/lib/generated-paths.sh .agents/skills/commit-guards/scripts/lib/messages.sh"
@@ -539,7 +561,7 @@ whitespace_check() {
 scratch_index() { # PATHSPEC...
   local index scratch
   index="$(git rev-parse --path-format=absolute --git-path index)" || index=""
-  if [[ -z $index ]] || ! scratch="$(mktemp)"; then
+  if [[ -z $index ]] || ! scratch="$(scratch_file)"; then
     echo "${index:-unresolved}"
     return 1
   fi
@@ -655,7 +677,7 @@ rows_cover_tests() {
 runtime_reads_no_scripts() {
   local pattern='(["'\'']scripts["'\'']|(\$[A-Za-z_][A-Za-z0-9_]*|[}).])/scripts([/"'\'']|$))'
   local out err err_file status=0 lines=()
-  err_file="$(mktemp)" || return 1
+  err_file="$(scratch_file)" || return 1
   out="$(git grep -n -I -E --untracked -e "$pattern" -- bin shell ':(exclude)*.md' 2>"$err_file")" || status=$?
   err="$(cat -- "$err_file")" || status=2
   rm -f -- "$err_file"
@@ -674,16 +696,15 @@ runtime_reads_no_scripts() {
   echo "validate: the runtime loads nothing under scripts/"
 }
 
-# VGS reads the outputs Hyprland lists and writes no monitor rule: the
-# user's own Hyprland config sets every output
-# (docs/decisions/D096-vgs-reads-outputs-and-writes-no-monitor-rule.md). So
-# no file an install ships from bin/, shell/ or config/ holds an `hl.monitor`
-# call, spelled `hl.monitor` then an opening parenthesis with any blanks
-# between them: the call itself, or the text a renderer would write into a
-# Hyprland config or hand `hyprctl eval`. Prose that names `hl.monitor` with
-# no parenthesis is not matched, and neither is text assembled from parts,
-# such as "hl." + "monitor(", which stays open. The nested test compositor's
-# own configuration under scripts/smoke/ is no shipped file and is not read.
+# VGS writes monitor rules only through shell/Core/HyprlandLayer.js, the
+# renderer that judges the rule fields first. No other file an install ships
+# from bin/, shell/ or config/ holds an `hl.monitor` call, spelled
+# `hl.monitor` then an opening parenthesis with any blanks between them: the
+# call itself, or the text a second renderer would write into a Hyprland
+# config or hand `hyprctl eval`. Prose that names `hl.monitor` with no
+# parenthesis is not matched, and neither is text assembled from parts, such
+# as "hl." + "monitor(", which stays open. The nested test compositor's own
+# configuration under scripts/smoke/ is no shipped file and is not read.
 # Tracked and untracked files are read, binary files skipped. The files are
 # the tree's own, listed by git under each root. A root that lists no file
 # means the listing is broken, not that the root is clean, so it is refused.
@@ -693,7 +714,7 @@ runtime_reads_no_scripts() {
 #   validate: refused: monitor-rule-writer=<matching line count>
 #   validate: unreadable: monitor-rule-writer status=<n>
 #   validate: unreadable: monitor-rule-writer root=<root> files=0
-runtime_writes_no_monitor_rule() {
+runtime_writes_monitor_rule_once() {
   local pattern='hl\.monitor[[:space:]]*\('
   local roots=(bin shell config) root listed total=0
   local out err err_file status=0 lines=()
@@ -709,8 +730,8 @@ runtime_writes_no_monitor_rule() {
     mapfile -t lines <<<"$listed"
     total=$((total + ${#lines[@]}))
   done
-  err_file="$(mktemp)" || return 1
-  out="$(git grep -n -I -E --untracked -e "$pattern" -- "${roots[@]}" 2>"$err_file")" || status=$?
+  err_file="$(scratch_file)" || return 1
+  out="$(git grep -n -I -E --untracked -e "$pattern" -- "${roots[@]}" ':(exclude)shell/Core/HyprlandLayer.js' 2>"$err_file")" || status=$?
   err="$(cat -- "$err_file")" || status=2
   rm -f -- "$err_file"
   if [[ $status -gt 1 || ( $status -eq 1 && -n $err ) ]]; then
@@ -725,7 +746,7 @@ runtime_writes_no_monitor_rule() {
     [[ -z $err ]] || printf '%s\n' "$err"
     return 1
   fi
-  echo "validate: no shipped file writes a monitor rule files=$total"
+  echo "validate: monitor rule renderer is unique files=$total"
 }
 
 # No file in the tree holds a PEM private-key armor line: PRIVATE KEY with
@@ -744,7 +765,7 @@ runtime_writes_no_monitor_rule() {
 private_keys_check() {
   local pattern='-----BEGIN ([[:upper:][:digit:]]+ )*PRIVATE KEY( BLOCK)?-----'
   local out err err_file status=0 lines=()
-  err_file="$(mktemp)" || return 1
+  err_file="$(scratch_file)" || return 1
   out="$(git grep -n -o -I -E --untracked -e "$pattern" -- . 2>"$err_file")" || status=$?
   err="$(cat -- "$err_file")" || status=2
   rm -f -- "$err_file"
@@ -1539,7 +1560,7 @@ smoke_scoped=false
 affected=()
 for i in "${!rows[@]}"; do affected[i]=true; done
 if [[ -n $change_base ]]; then
-  paths_file="$(mktemp)"
+  paths_file="$(scratch_file)"
   trap 'rm -f -- "${paths_file:?}"' EXIT
   if ! git diff --name-only --no-renames -z "$change_base" -- >"$paths_file" ||
      ! git ls-files -z --others --exclude-standard >>"$paths_file" ||

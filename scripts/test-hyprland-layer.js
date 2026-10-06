@@ -353,7 +353,7 @@ const MANIFESTS = [
     ["hyprland with an unknown key", { hyprland: { binds: [toggle], windowRules: [] } }, "hyprland has unknown key \"windowRules\""],
     ["binds not a list", { hyprland: { binds: toggle } }, "hyprland.binds must be a list"],
     ["layerRules not a list", { hyprland: { layerRules: overlayRule } }, "hyprland.layerRules must be a list"],
-    ["no binds, rules, appearance, options or pads", { hyprland: { binds: [], layerRules: [] } }, "hyprland declares no binds, layer rules, appearance, options or pads"],
+    ["no binds, rules, appearance, options, pads or monitors", { hyprland: { binds: [], layerRules: [] } }, "hyprland declares no binds, layer rules, appearance, options, pads or monitors"],
     ["appearance alone", { capabilities: ["theme"], settings: { setBorders: true }, schema: { setBorders: { type: "boolean", label: "Set borders" } }, hyprland: { appearance: { borders: "setBorders" } } }, null],
     ["appearance unknown group", { capabilities: ["theme"], settings: { setBorders: true }, schema: { setBorders: { type: "boolean", label: "Set borders" } }, hyprland: { appearance: { gaps: "setBorders" } } }, "hyprland.appearance.gaps must be one of borders, radius, motion, noGaps"],
     ["appearance noGaps", { capabilities: ["theme"], settings: { noGaps: false }, schema: { noGaps: { type: "boolean", label: "No gaps" } }, hyprland: { appearance: { noGaps: "noGaps" } } }, null],
@@ -660,12 +660,13 @@ function verify(logic, layer, shellText) {
         layerRules: [overlayRule],
         appearance: {},
         options: [],
+        monitors: null,
         pads: null,
         padRefusals: [],
         unknownKeys: ["early", "later"]
     }, "hyprlandSection takes the row's keys over the manifest's and names the unknown ones");
     same(logic.hyprlandSection({}, declared).binds, declared.hyprland.binds, "hyprlandSection keeps the manifest's keys without a row");
-    same(logic.hyprlandSection(config, manifestOf(logic, {})), { id: "acme.keys", version: "1.0.0", binds: [], layerRules: [], appearance: {}, options: [], pads: null, padRefusals: [], unknownKeys: ["early", "inbox", "later", "toggle"] }, "a manifest asking nothing leaves every row name unknown");
+    same(logic.hyprlandSection(config, manifestOf(logic, {})), { id: "acme.keys", version: "1.0.0", binds: [], layerRules: [], appearance: {}, options: [], monitors: null, pads: null, padRefusals: [], unknownKeys: ["early", "inbox", "later", "toggle"] }, "a manifest asking nothing leaves every row name unknown");
     const appearanceManifest = manifestOf(logic, { capabilities: ["theme"], settings: { setBorders: true, setMotion: false }, schema: { setBorders: { type: "boolean", label: "Set borders" }, setMotion: { type: "boolean", label: "Set motion" } }, hyprland: { appearance: { borders: "setBorders", motion: "setMotion" } } });
     const gapsManifest = manifestOf(logic, { capabilities: ["theme"], settings: { noGaps: false }, schema: { noGaps: { type: "boolean", label: "No gaps" } }, hyprland: { appearance: { noGaps: "noGaps" } } });
     same(logic.hyprlandSection({ plugins: [{ id: "acme.keys", noGaps: true }] }, gapsManifest).appearance, { noGaps: { setting: "noGaps", enabled: true } }, "hyprlandSection resolves the gaps switch from the plugins row");
@@ -675,7 +676,8 @@ function verify(logic, layer, shellText) {
         motion: { setting: "setMotion", enabled: true }
     }, "hyprlandSection resolves appearance switches from effective plugin settings");
 
-    const section = (id, binds, layerRules, version, appearance) => ({ id: id, version: version || "1.0.0", binds: binds, layerRules: layerRules, appearance: appearance || {}, options: [], unknownKeys: [] });
+    const section = (id, binds, layerRules, version, appearance) => ({ id: id, version: version || "1.0.0", binds: binds, layerRules: layerRules, appearance: appearance || {}, options: [], monitors: null, unknownKeys: [] });
+    const lines = out => out.text.split("\n");
     // The values a layer applies once the configuration has loaded: the
     // lines inside its callback, without their indent. The section starts
     // after the header and its end is the first line that closes a block
@@ -759,12 +761,17 @@ function verify(logic, layer, shellText) {
     const sweptLines = lines(layer.render([padsFixture(logic, "acme.pads")], theme, "vgs", 1, null, ""));
     same(sweptLines.slice(sweptLines.length - SWEEP_SECTION.length - 1), [...SWEEP_SECTION, ""], "the pads' sweep ends a layer with pads, after them");
     same(layer.KEY_PASSTHROUGH, { submap: "vgs:passthrough", cancel: "Escape", description: "vgs:passthrough-cancel", timeoutMs: 10000, table: "__vgs_key_passthrough", verbs: { enter: "enter", enterAnyWindow: "enterAnyWindow", leave: "leave" } }, "the key capture pass-through names its submap, cancel key, bind description, timeout, Lua table and verbs");
-    // VGS writes no monitor rule: the user's own Hyprland config sets every
-    // output, so no rendered layer holds an `hl.monitor` call, whatever the
-    // sections.
+    // Monitor rules: only the declared owner writes the one section.
     const monitorCalls = out => lines(out).filter(line => /hl\.monitor\s*\(/.test(line));
     same(monitorCalls(bare), [], "a layer with no plugin section writes no monitor rule");
-    same(monitorCalls(layer.render([section("acme.keys", [toggle], [overlayRule])], theme, "vgs", 1, null, "")), [], "a layer with a plugin section writes no monitor rule");
+    const monitorSection = Object.assign(section("vgs.displays", [], []), { monitors: { kind: "set", setting: "outputs", value: { "DP-2": { mode: { width: 3840, height: 2160, refresh: 60 }, position: { x: 0, y: 0 }, scale: 2, transform: 0 } } } });
+    const monitorOut = layer.render([monitorSection], theme, "vgs", 1, null, "");
+    same(monitorCalls(monitorOut), ['hl.monitor({ output = "DP-2", mode = "3840x2160@60", position = "0x0", scale = 2, transform = 0 })'], "the monitors section writes the judged rule");
+    assert.ok(lines(monitorOut).indexOf("-- vgs.displays 1.0.0: monitor rules from its settings") > coreEnd(lines(monitorOut)), "the monitors section follows the core sections");
+    const refusedMonitor = Object.assign(section("vgs.displays", [], []), { monitors: { kind: "unfit", setting: "outputs", error: "refused: monitors.DP-2\" identifier refused" } });
+    same([monitorCalls(layer.render([refusedMonitor], theme, "vgs", 1, null, "")).length, layer.render([refusedMonitor], theme, "vgs", 1, null, "").monitorRefusals.length], [0, 1], "a refused monitor rule writes no hl.monitor");
+    const otherMonitor = Object.assign(section("acme.monitors", [], []), { monitors: { kind: "set", setting: "outputs", value: { "DP-3": { scale: 1 } } } });
+    same(layer.render([otherMonitor, monitorSection], theme, "vgs", 1, null, "").monitorConflicts, [{ id: "vgs.displays", heldBy: "acme.monitors" }], "a second monitor owner is reported");
     same(layer.OVERLAY_CAPTURE, { submap: "vgs:capture", namespace: "vgs:overlay", appid: "vgs", shortcuts: { left: "overlay-left", right: "overlay-right", up: "overlay-up", down: "overlay-down" } }, "the overlay capture names its submap, namespace and shortcuts");
     same(layer.overlayCaptureDirections(), ["left", "right", "up", "down"], "the overlay capture direction list");
     assert.equal(layer.overlayCaptureGlobal("left"), "vgs:overlay-left", "the overlay capture global is derived");
@@ -1166,7 +1173,7 @@ const CONTROLS = [
     [logicFile, "hyprland keys", "if (HYPRLAND_KEYS.indexOf(keys[u]) === -1)", "if (false)"],
     [logicFile, "binds list", "if (!Array.isArray(binds))", "if (false)"],
     [logicFile, "rules list", "if (!Array.isArray(rules))", "if (false)"],
-    [logicFile, "declares something", "if (binds.length === 0 && rules.length === 0 && appearance === undefined && options === undefined && hyprland.pads === undefined)", "if (false)"],
+    [logicFile, "declares something", "if (binds.length === 0 && rules.length === 0 && appearance === undefined && options === undefined && hyprland.pads === undefined && monitors === undefined)", "if (false)"],
     [logicFile, "binds need shortcut", "if (binds.length > 0 && capabilities.indexOf(\"shortcut\") === -1)", "if (false)"],
     [logicFile, "bind object", "if (!isPlainObject(bind))", "if (false)"],
     [logicFile, "bind keys", "if (HYPRLAND_BIND_KEYS.indexOf(bindKeys[k]) === -1)", "if (false)"],
@@ -1185,7 +1192,7 @@ const CONTROLS = [
     [layerFile, "release runs on key up", "release = true, non_consuming = true, transparent = true, ignore_mods = true", "release = false, non_consuming = true, transparent = true, ignore_mods = true"],
     [logicFile, "bind key judged", "if (!key.ok)\n            return at + \".key \" + key.error;", "if (false)\n            return at + \".key \" + key.error;"],
     [logicFile, "key once", "if (boundKeys.indexOf(key.key) !== -1)", "if (false)"],
-    [logicFile, "rule object", "if (!isPlainObject(rule))", "if (false)"],
+    [logicFile, "rule object", "if (!isPlainObject(rule))\n            return where + \" must be an object\";", "if (false)\n            return where + \" must be an object\";"],
     [logicFile, "rule keys", "if (HYPRLAND_RULE_KEYS.indexOf(ruleKeys[q]) === -1)", "if (false)"],
     [logicFile, "namespace anchored", "var HYPRLAND_NAMESPACE = /^\\^vgs:[a-z][a-z0-9-]*\\$$/;", "var HYPRLAND_NAMESPACE = /vgshell:/;"],
     [logicFile, "namespace once", "if (namespaces.indexOf(rule.namespace) !== -1)", "if (false)"],
@@ -1264,7 +1271,9 @@ const CONTROLS = [
     [layerFile, "user binds' recorder written", "[\"\"], userBindLines(), [\"\"], overlayCaptureLines(plan)", "[\"\"], overlayCaptureLines(plan)"],
     [layerFile, "user binds' recorder records the user's call sites", "binds.rows[#binds.rows + 1] = { file = ", "local _ = { file = "],
     [layerFile, "user binds' recorder calls hl.bind at the user's call site", "local bind = call(binds.bind, ...)", "local bind = binds.bind(...)"],
-    [layerFile, "no monitor rule written", "[\"\"], sessionLockLines());", "[\"\"], sessionLockLines(), [\"hl.monitor({ output = \\\"DP-1\\\", disabled = true })\"]);"],
+    [layerFile, "monitor rules rendered", "return ["-- " + section.id + " " + commentText(section.version) + ": monitor rules from its settings"].concat(rendered.lines);", "return [];"],
+    [layerFile, "refused monitor rules skipped", "if (section.monitors.kind === "unfit") {", "if (false) {"],
+    [layerFile, "monitor rules have one owner", "var owners = sections.filter(function (section) { return section.monitors !== null && section.monitors !== undefined; })", "var owners = []"],
     [layerFile, "key pass-through written", "[\"\"], keyPassthroughLines(), [\"\"], sessionLockLines()", "[\"\"], sessionLockLines()"],
     [layerFile, "key pass-through before the lock restore", "[\"\"], overlayCaptureLines(plan), [\"\"], keyPassthroughLines(), [\"\"], sessionLockLines());", "[\"\"], overlayCaptureLines(plan), [\"\"], sessionLockLines(), [\"\"], keyPassthroughLines());"],
     [layerFile, "key pass-through cancels on Escape", "hl.dsp.submap(\\\"reset\\\"), { description = ", "hl.dsp.exec_cmd(\\\"true\\\"), { description = "],
@@ -1385,6 +1394,7 @@ try {
     fs.symlinkSync(path.join(__dirname, "..", "shell", "Ui", "icons", "Lucide.js"), path.join(temp, "shell", "Ui", "icons", "Lucide.js"));
     fs.symlinkSync(path.join(__dirname, "..", "shell", "Core", "PackageManagers.js"), path.join(temp, "shell", "Core", "PackageManagers.js"));
     fs.symlinkSync(layerFile, path.join(temp, "shell", "Core", "HyprlandLayer.js"));
+    fs.symlinkSync(path.join(__dirname, "..", "shell", "Core", "MonitorLogic.js"), path.join(temp, "shell", "Core", "MonitorLogic.js"));
     fs.symlinkSync(path.join(__dirname, "..", "shell", "Core", "Pads.js"), path.join(temp, "shell", "Core", "Pads.js"));
     CONTROLS.forEach(([file, label, needle, replacement], index) => {
         const source = fs.readFileSync(file, "utf8");

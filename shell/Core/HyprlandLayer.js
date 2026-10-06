@@ -1041,6 +1041,37 @@ function optionLines(section, held, touchpads, touchpadFailure, out) {
     return { applied: Object.keys(tree).length > 0 ? ["hl.config({ " + optionTree(tree) + " })"] : [], placed: devices.concat(notes) };
 }
 
+function monitorOwner(sections) {
+    var owners = sections.filter(function (section) { return section.monitors !== null && section.monitors !== undefined; })
+        .sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; });
+    return { owner: owners.length === 0 ? null : owners[0], conflicts: owners.slice(1).map(function (section) { return { id: section.id, heldBy: owners[0].id }; }) };
+}
+
+function monitorLines(section, out) {
+    try {
+        var rules = section.monitors.value || {};
+        var ids = Object.keys(rules).sort();
+        var lines = ids.map(function (id) {
+            if (!/^[\x20\x21\x23-\x5b\x5d-\x7e]{1,512}$/.test(id)) throw new Error("identifier refused");
+            var rule = rules[id];
+            if (rule === null || typeof rule !== "object" || Array.isArray(rule)) throw new Error("rule refused");
+            var fields = ["output = \"" + id + "\""];
+            if (rule.mode !== undefined) fields.push("mode = \"" + rule.mode.width + "x" + rule.mode.height + "@" + luaNumber(rule.mode.refresh) + "\"");
+            if (rule.position !== undefined) fields.push("position = \"" + rule.position.x + "x" + rule.position.y + "\"");
+            if (rule.scale !== undefined) fields.push("scale = " + luaNumber(rule.scale));
+            if (rule.transform !== undefined) fields.push("transform = " + rule.transform);
+            if (rule.disabled !== undefined) fields.push("disabled = " + (rule.disabled ? "true" : "false"));
+            return "hl.monitor({ " + fields.join(", ") + " })";
+        });
+        if (lines.length === 0) return [];
+        return ["-- " + section.id + " " + commentText(section.version) + ": monitor rules from its settings"].concat(lines);
+    } catch (e) {
+        var error = String(e.message || e);
+        out.refusals.push({ id: section.id, setting: section.monitors.setting, error: error });
+        return ["-- monitor rules of " + section.id + " skipped: " + commentText(error)];
+    }
+}
+
 // The section that applies VALUES, Lua lines, once the whole configuration
 // has loaded: Hyprland runs a `config.reloaded` callback at the end of every
 // load, the first included, so a value set there holds over the user's own
@@ -1134,8 +1165,14 @@ function render(sections, theme, themeName, highestScale, touchpads, touchpadFai
     var written = Object.create(null);
     var options = { written: [], conflicts: [], refusals: [] };
     var optionsHeld = Object.create(null);
+    var monitors = { refusals: [] };
+    var monitor = monitorOwner(sections);
     var padsOwner = null;
     var padConflicts = [];
+    if (monitor.owner !== null) {
+        var monitorText = monitorLines(monitor.owner, monitors);
+        if (monitorText.length > 0) lines = lines.concat([""], monitorText);
+    }
     plan.sections.forEach(function (row) {
         var section = row.section;
         if (section.options.length > 0) {
@@ -1195,6 +1232,8 @@ function render(sections, theme, themeName, highestScale, touchpads, touchpadFai
         text: lines.join("\n") + "\n",
         conflicts: plan.conflicts,
         appearanceConflicts: switches.conflicts,
+        monitorConflicts: monitor.conflicts,
+        monitorRefusals: monitors.refusals,
         padConflicts: padConflicts,
         options: options.written,
         optionConflicts: options.conflicts,

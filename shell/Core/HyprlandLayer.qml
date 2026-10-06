@@ -103,6 +103,12 @@ Scope {
         if (rendered !== null)
             for (const c of rendered.optionRefusals)
                 out.push({ id: c.id, dir: dirOf(c.id), error: "hyprland: " + c.path + " for " + c.id + ":" + c.setting + " skipped: " + c.error });
+        if (rendered !== null)
+            for (const c of (rendered.monitorConflicts || []))
+                out.push({ id: c.id, dir: dirOf(c.id), error: "hyprland: monitors of " + c.id + " skipped: already defined by " + c.heldBy });
+        if (rendered !== null)
+            for (const c of (rendered.monitorRefusals || []))
+                out.push({ id: c.id, dir: dirOf(c.id), error: "hyprland: monitors for " + c.id + ":" + c.setting + " skipped: " + c.error });
         for (const section of sections)
             for (const refusal of section.padRefusals)
                 out.push({ id: section.id, dir: dirOf(section.id), error: "hyprland: pad " + (refusal.name === "" ? "list" : refusal.name) + " of " + section.id + " skipped: " + refusal.error });
@@ -119,6 +125,7 @@ Scope {
     Binding { target: Capabilities.hyprland; property: "written"; value: root.rendered === null ? [] : root.rendered.options }
     Binding { target: Capabilities.hyprland; property: "optionConflicts"; value: root.rendered === null ? [] : root.rendered.optionConflicts }
     Binding { target: Capabilities.hyprland; property: "layerBinds"; value: root.rendered === null ? [] : root.rendered.binds }
+    Binding { target: Capabilities.monitors; property: "ownerId"; value: Registry.monitorRuleOwnerId }
     Binding { target: Notices; property: "consent"; value: Logic.consentSlotView(root.machine.consent, root.welcome, Config.shipped, root.sections) }
     Binding { target: Notices; property: "consentState"; value: root.machine.consent }
     Binding { target: Notices; property: "welcome"; value: root.welcome }

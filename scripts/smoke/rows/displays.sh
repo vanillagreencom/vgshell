@@ -99,12 +99,12 @@ PY
 }
 disp_report() { hid_fake_call "$1" 0xC0074807 01000000000000 | py_reply 'import json,sys; print(json.load(sys.stdin)["data"])'; }
 # The screens each passive layer of the plugin maps on, in registration
-# order: the on-screen display, then Identify.
+# order: the on-screen display, Identify, then the display-trial banner.
 disp_layers() { ipc smoke layerWindows vgs.displays | py_reply '
 import json, sys
 rows = json.load(sys.stdin)
-half = len(rows) // 2
-print(json.dumps([sorted(r["screen"] for r in rows[:half] if r["shown"]), sorted(r["screen"] for r in rows[half:] if r["shown"])]))'; }
+third = len(rows) // 3
+print(json.dumps([sorted(r["screen"] for r in rows[:third] if r["shown"]), sorted(r["screen"] for r in rows[third:2*third] if r["shown"])]))'; }
 disp_keys() { ipc shell lent | py_reply 'import json,sys; s=json.load(sys.stdin)["shortcuts"]; print("vgs.displays:brightness-up" in s and "vgs.displays:brightness-down" in s)'; }
 disp_focus() { ipc smoke focused window vgs.system | py_reply 'import json,sys; r=json.load(sys.stdin); print(json.dumps(r[:2]) if isinstance(r, list) else r)'; }
 disp_widget_id() { disp_widget "$1" display | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["id"]))'; }

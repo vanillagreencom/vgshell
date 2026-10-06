@@ -2,9 +2,8 @@
 # own list, read by the core while a plugin holds the capability and read
 # again after each `configreloaded`, compared with what the nested Hyprland
 # answers hyprctl. The capability hands a plugin `outputs` and nothing
-# else, and the shell writes no monitor rule: the row reads the Hyprland
-# layer for an `hl.monitor` call and finds none
-# (docs/architecture/hyprland.md). The row runs on the first nested
+# else. The row reads the Hyprland layer before any saved display rule and
+# finds no `hl.monitor` call (docs/architecture/hyprland.md). The row runs on the first nested
 # output alone, WAYLAND-1, which takes any mode and lists none
 # (docs/architecture/runtime-hyprland.md).
 #
@@ -53,7 +52,7 @@ rescan "rescan discovers the monitors fixture"
 expect_poll "the monitors fixture is known" True plugin_known acme.monitors
 expect "enabling the monitors fixture is allowed" ok ipc shell setPluginEnabled acme.monitors true
 expect_poll "the monitors fixture builds" True record_exists acme.monitors
-expect_poll "the fixture reads back the exact monitors members it was given" '"outputs"' read_monitors members
+expect_poll "the fixture reads back the exact monitors members it was given" '"keep,outputs,overridden,revert,trial,trialState"' read_monitors members
 expect_poll "the core reads the outputs while a plugin holds monitors" true reads_active
 
 if ! outputs_names="$(listed_names)" || ! outputs_first="$(first_name)" || ! outputs_base="$(unscaled_mode_of "$outputs_first")" || ! outputs_double="$(hidpi_mode_of "$outputs_first")"; then
@@ -73,7 +72,7 @@ else
   expect "the nested instance reloads its configuration without the hold" ok hypr reload config-only
   expect_poll "the fixture's outputs follow the reload back to the output's own mode" "$outputs_base scale=1" output_read "$outputs_first"
 fi
-expect "the Hyprland layer holds no hl.monitor call" 0 layer_monitor_calls
+expect "the Hyprland layer starts with no saved monitor rule" 0 layer_monitor_calls
 
 cp -- "$sandbox/shell-before-monitors.json" "$user_config.next" && mv -T -- "$user_config.next" "$user_config"
 expect "disabling the monitors fixture is allowed" ok ipc shell setPluginEnabled acme.monitors false

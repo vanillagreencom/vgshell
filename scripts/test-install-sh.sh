@@ -100,7 +100,7 @@ installer_source_tree() {
   local manifest plugin
   source_tree "$1" "$2"
   cp -- "$repo/config/requirements.json" "$1/config/"
-  cp -- "$repo/shell/Core/PluginLogic.js" "$repo/shell/Core/Pads.js" "$repo/shell/Core/HyprlandLayer.js" "$1/shell/Core/"
+  cp -- "$repo/shell/Core/PluginLogic.js" "$repo/shell/Core/Pads.js" "$repo/shell/Core/HyprlandLayer.js" "$repo/shell/Core/MonitorLogic.js" "$1/shell/Core/"
   mkdir -p "$1/shell/Commons" "$1/shell/Ui/icons" "$1/shell/plugins"
   cp -- "$repo/shell/Commons/SettingValues.js" "$1/shell/Commons/"
   cp -- "$repo/shell/Ui/icons/Lucide.js" "$1/shell/Ui/icons/"

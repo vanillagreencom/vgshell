@@ -109,14 +109,14 @@ done
 cp -- "$tests/stand-ins/ThemeSource.qml" "$imports/qs/Commons/ThemeSource.qml"
 cp -- "$tests/stand-ins/Time.qml" "$imports/qs/Commons/Time.qml"
 printf 'module qs.Commons\nsingleton Theme 1.0 Theme.qml\ninternal ThemeSource ThemeSource.qml\nsingleton Time 1.0 Time.qml\nInset 1.0 Inset.js\nSettingValues 1.0 SettingValues.js\nSessionLockState 1.0 SessionLockState.js\nClearingInset 1.0 ClearingInset.qml\nWatchedFile 1.0 WatchedFile.qml\nsingleton Paths 1.0 Paths.qml\nDesktopLaunch 1.0 DesktopLaunch.js\nAccountDirectories 1.0 AccountDirectories.js\nReply 1.0 Reply.js\n' >"$imports/qs/Commons/qmldir"
-for file in TuiRecords.qml ThemeRunner.qml SessionLock.qml ShortcutRegistry.qml KeyCapture.qml HyprlandState.qml HyprlandState.js HyprctlReader.qml PluginLogic.js Pads.js PackageManagers.js HyprlandLayer.js Dispatch.js; do
+for file in TuiRecords.qml ThemeRunner.qml SessionLock.qml ShortcutRegistry.qml KeyCapture.qml HyprlandState.qml HyprlandState.js HyprctlReader.qml PluginLogic.js Pads.js PackageManagers.js MonitorLogic.js HyprlandLayer.js Dispatch.js; do
   [[ -f $core/$file ]] || { printf 'qml-unit: refused: missing=%s\n' "$core/$file" >&2; exit 2; }
   ln -s -- "$core/$file" "$imports/qs/Core/$file"
 done
 cp -- "$tests/stand-ins/ShortcutRegistryInputs.qml" "$imports/qs/Core/Registry.qml"
 cp -- "$tests/stand-ins/ShortcutCapabilities.qml" "$imports/qs/Core/Capabilities.qml"
 cp -- "$tests/stand-ins/KeyCaptureCompositor.qml" "$imports/qs/Core/Compositor.qml"
-printf 'module qs.Core\nTuiRecords 1.0 TuiRecords.qml\nThemeRunner 1.0 ThemeRunner.qml\nSessionLock 1.0 SessionLock.qml\nShortcutRegistry 1.0 ShortcutRegistry.qml\nKeyCapture 1.0 KeyCapture.qml\nHyprlandState 1.0 HyprlandState.qml\nHyprctlReader 1.0 HyprctlReader.qml\nsingleton Registry 1.0 Registry.qml\nsingleton Capabilities 1.0 Capabilities.qml\nsingleton Compositor 1.0 Compositor.qml\nPluginLogic 1.0 PluginLogic.js\nPackageManagers 1.0 PackageManagers.js\nHyprlandLayer 1.0 HyprlandLayer.js\nDispatch 1.0 Dispatch.js\n' >"$imports/qs/Core/qmldir"
+printf 'module qs.Core\nTuiRecords 1.0 TuiRecords.qml\nThemeRunner 1.0 ThemeRunner.qml\nSessionLock 1.0 SessionLock.qml\nShortcutRegistry 1.0 ShortcutRegistry.qml\nKeyCapture 1.0 KeyCapture.qml\nHyprlandState 1.0 HyprlandState.qml\nHyprctlReader 1.0 HyprctlReader.qml\nsingleton Registry 1.0 Registry.qml\nsingleton Capabilities 1.0 Capabilities.qml\nsingleton Compositor 1.0 Compositor.qml\nPluginLogic 1.0 PluginLogic.js\nPackageManagers 1.0 PackageManagers.js\nMonitorLogic 1.0 MonitorLogic.js\nHyprlandLayer 1.0 HyprlandLayer.js\nDispatch 1.0 Dispatch.js\n' >"$imports/qs/Core/qmldir"
 cp -- "$tests/stand-ins/UnitTheme.qml" "$imports/qs/Unit/UnitTheme.qml"
 # Where the module under test is, for the test that reads its qmldir.
 printf '.pragma library\nvar UI_DIR = %s;\n' "$(python3 -c 'import json, sys; print(json.dumps("file://" + sys.argv[1]))' "$ui")" >"$imports/qs/Unit/UnitPaths.js"

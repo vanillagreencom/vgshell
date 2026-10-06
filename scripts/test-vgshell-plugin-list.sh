@@ -102,6 +102,7 @@ ln -s -- "$repo/shell/Commons/SettingValues.js" "$tree/shell/Commons/SettingValu
 ln -s -- "$repo/shell/Core/PluginLogic.js" "$tree/shell/Core/PluginLogic.js"
 ln -s -- "$repo/shell/Core/PackageManagers.js" "$tree/shell/Core/PackageManagers.js"
 ln -s -- "$repo/shell/Core/HyprlandLayer.js" "$tree/shell/Core/HyprlandLayer.js"
+ln -s -- "$repo/shell/Core/MonitorLogic.js" "$tree/shell/Core/MonitorLogic.js"
 ln -s -- "$repo/shell/Core/Pads.js" "$tree/shell/Core/Pads.js"
 ln -s -- "$repo/shell/Ui/icons/Lucide.js" "$tree/shell/Ui/icons/Lucide.js"
 

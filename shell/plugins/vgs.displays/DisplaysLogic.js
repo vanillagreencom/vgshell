@@ -36,6 +36,17 @@ var BACKEND_STATES = ["ready", "missing", "module-not-loaded", "no-access", "err
 var KEY_TARGETS = ["focused", "all"];
 var ASSIGNMENT_KEYS = ["device", "label", "output"];
 var STEP_STATES = ["ready", "needed", "denied", "absent", "unknown", "nixos"];
+var TRANSFORMS = [
+    { value: 0, label: "Normal" },
+    { value: 1, label: "90°" },
+    { value: 2, label: "180°" },
+    { value: 3, label: "270°" },
+    { value: 4, label: "Flipped" },
+    { value: 5, label: "Flipped 90°" },
+    { value: 6, label: "Flipped 180°" },
+    { value: 7, label: "Flipped 270°" }
+];
+var SCALE_CANDIDATES = [1, 1.25, 4 / 3, 1.5, 1.6, 5 / 3, 1.75, 2, 2.25, 2.5, 3];
 
 function hasOwn(object, key) {
     return object !== null && typeof object === "object" && Object.prototype.hasOwnProperty.call(object, key);
@@ -47,6 +58,131 @@ function isPlainObject(value) {
 
 function clone(value) {
     return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
+}
+
+function sameMode(a, b) {
+    return a.width === b.width && a.height === b.height && Math.abs(a.refresh - b.refresh) <= 0.015;
+}
+
+function modeOf(output) {
+    return { width: output.width, height: output.height, refresh: output.refreshRate };
+}
+
+function modeLabel(mode) {
+    return mode.width + " × " + mode.height;
+}
+
+function refreshLabel(mode) {
+    var rounded = Math.round(mode.refresh * 100) / 100;
+    return String(Math.abs(rounded - Math.round(rounded)) < 0.001 ? Math.round(rounded) : rounded) + " Hz";
+}
+
+function modeKey(mode) {
+    return mode.width + "x" + mode.height;
+}
+
+function outputByIdentifier(outputs, identifier) {
+    for (var i = 0; i < outputs.length; i++) if (outputs[i].identifier === identifier) return outputs[i];
+    return null;
+}
+
+function effectiveRule(output, saved, draft) {
+    var rule = Object.assign({}, saved || {}, draft || {});
+    var mode = rule.mode === undefined ? modeOf(output) : rule.mode;
+    return {
+        disabled: rule.disabled === undefined ? output.disabled : rule.disabled,
+        mode: { width: mode.width, height: mode.height, refresh: mode.refresh },
+        position: rule.position === undefined ? { x: output.x, y: output.y } : { x: rule.position.x, y: rule.position.y },
+        scale: rule.scale === undefined ? output.scale : rule.scale,
+        transform: rule.transform === undefined ? output.transform : rule.transform
+    };
+}
+
+function modeChoices(output) {
+    var modes = output.availableModes.length === 0 ? [modeOf(output)] : output.availableModes;
+    var seen = {};
+    var choices = [];
+    modes.forEach(function (mode) {
+        var key = modeKey(mode);
+        if (seen[key]) return;
+        seen[key] = true;
+        choices.push({ label: modeLabel(mode), value: key, mode: { width: mode.width, height: mode.height, refresh: mode.refresh } });
+    });
+    return choices;
+}
+
+function refreshChoices(output, selectedMode) {
+    var modes = output.availableModes.length === 0 ? [modeOf(output)] : output.availableModes;
+    return modes.filter(function (mode) { return mode.width === selectedMode.width && mode.height === selectedMode.height; })
+        .map(function (mode) { return { label: refreshLabel(mode), value: mode.refresh, mode: { width: mode.width, height: mode.height, refresh: mode.refresh } }; });
+}
+
+function scaleFits(mode, scale) {
+    if (typeof scale !== "number" || !isFinite(scale) || scale <= 0) return false;
+    return Math.abs(mode.width / scale - Math.round(mode.width / scale)) <= 0.001
+        && Math.abs(mode.height / scale - Math.round(mode.height / scale)) <= 0.001;
+}
+
+function scaleChoices(mode, current) {
+    var out = [];
+    SCALE_CANDIDATES.concat([current]).forEach(function (scale) {
+        if (!scaleFits(mode, scale)) return;
+        if (!out.some(function (seen) { return Math.abs(seen - scale) < 0.000001; })) out.push(scale);
+    });
+    return out.sort(function (a, b) { return a - b; }).map(function (scale) { return { label: scaleLabel(scale), value: scale }; });
+}
+
+function scaleLabel(scale) {
+    var rounded = Math.round(scale * 1000) / 1000;
+    return String(rounded).replace(/(\.[0-9]*?)0+$/, "$1").replace(/\.$/, "") + "×";
+}
+
+function indexByValue(choices, value) {
+    for (var i = 0; i < choices.length; i++) if (choices[i].value === value) return i;
+    return 0;
+}
+
+function outputChoices(outputs) {
+    return outputs.map(function (output) {
+        return { label: output.name + (output.description === "" ? "" : ": " + output.description), value: output.identifier };
+    });
+}
+
+function nextEnabledCount(outputs, saved, draft) {
+    var count = 0;
+    outputs.forEach(function (output) {
+        if (!effectiveRule(output, saved[output.identifier], draft[output.identifier]).disabled) count += 1;
+    });
+    return count;
+}
+
+function withOutputDraft(outputs, saved, draft, identifier, patch) {
+    var output = outputByIdentifier(outputs, identifier);
+    if (output === null) return draft;
+    var next = clone(draft || {});
+    var current = effectiveRule(output, saved[identifier], next[identifier]);
+    var merged = Object.assign({}, current, patch);
+    merged.position = { x: output.x, y: output.y };
+    if (patch.mode !== undefined && patch.scale === undefined && !scaleFits(patch.mode, merged.scale)) merged.scale = scaleChoices(patch.mode, output.scale)[0].value;
+    next[identifier] = merged;
+    return next;
+}
+
+function dirtyRules(draft, saved) {
+    var out = {};
+    Object.keys(draft || {}).forEach(function (id) {
+        if (JSON.stringify(draft[id]) !== JSON.stringify((saved || {})[id] || {})) out[id] = clone(draft[id]);
+    });
+    return out;
+}
+
+function outputSummary(output) {
+    if (output === null) return "";
+    return modeLabel(modeOf(output)) + " at " + refreshLabel(modeOf(output)) + ", " + scaleLabel(output.scale);
+}
+
+function countdownText(seconds) {
+    return "Keep these display settings? Reverting in " + Math.max(0, Math.ceil(seconds)) + " s";
 }
 
 // VALUE as a refusal shows it: JSON, cut to 60 characters.

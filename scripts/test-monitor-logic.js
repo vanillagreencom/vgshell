@@ -94,7 +94,8 @@ function suite(lib, check) {
     const nested = lib.parseOutputs(NESTED_REPLY);
     check("parseOutputs: the nested reply", nested, { ok: true, outputs: [{
         identifier: "WAYLAND-1", id: 0, name: "WAYLAND-1", description: "", make: "", model: "", serial: "", width: 1756, height: 933,
-        refreshRate: 60, x: 0, y: 0, scale: 1, transform: 0, vrr: false, disabled: false, mirrorOf: null, availableModes: [], currentFormat: "XRGB8888"
+        refreshRate: 60, x: 0, y: 0, scale: 1, transform: 0,         vrr: false, disabled: false, mirrorOf: null, availableModes: [], currentFormat: "XRGB8888",
+        colorManagementPreset: "srgb", sdrBrightness: 1, sdrSaturation: 1
     }] });
     const desk = lib.parseOutputs(reply(DESK));
     check("parseOutputs: a mode list parsed to numbers", desk.ok ? desk.outputs[1].availableModes : desk, [{ width: 3840, height: 2160, refresh: 60 }]);
@@ -130,6 +131,29 @@ function suite(lib, check) {
     for (const [name, output, want] of identifiers) check("identifier: " + name, lib.identifier(output), want);
     check("identifier: each parsed output carries its own", desk.ok ? desk.outputs.map(o => o.identifier) : desk, ["desc:Dell Inc. DELL U2720Q 8YT0R13", "DP-2", "eDP-1"]);
     check("outputs request", lib.OUTPUTS_REQUEST, ["hyprctl", "-j", "monitors", "all"]);
+
+    const outputs = desk.outputs;
+    const goodRules = {
+        "desc:Dell Inc. DELL U2720Q 8YT0R13": { mode: { width: 3840, height: 2160, refresh: 60 }, position: { x: 0, y: 0 }, scale: 1.5, transform: 0, disabled: false },
+        "DP-2": { mode: { width: 3840, height: 2160, refresh: 60 }, position: { x: 2560, y: 0 }, scale: 2, transform: 1, disabled: false }
+    };
+    check("rulesError accepts available modes and whole logical pixels", lib.rulesError(goodRules, outputs), "");
+    check("rulesLines renders monitor rules", lib.rulesLines(goodRules), { ok: true, lines: [
+        'hl.monitor({ output = "DP-2", mode = "3840x2160@60", position = "2560x0", scale = 2, transform = 1, disabled = false })',
+        'hl.monitor({ output = "desc:Dell Inc. DELL U2720Q 8YT0R13", mode = "3840x2160@60", position = "0x0", scale = 1.5, transform = 0, disabled = false })'
+    ] });
+    check("captureRules records explicit restore fields", lib.captureRules(outputs, ["DP-2"]), { "DP-2": { disabled: false, mode: { width: 3840, height: 2160, refresh: 59.997 }, position: { x: 2560, y: 0 }, scale: 2, transform: 0 } });
+    check("overridden: live output differs from saved rule", lib.overridden({ scale: 1 }, outputs[1]), true);
+    check("overridden: live output equals saved rule within refresh tolerance", lib.overridden(lib.captureRules(outputs, ["DP-2"])["DP-2"], outputs[1]), false);
+    check("scaleChoices filters fractional logical pixels and includes current", lib.scaleChoices({ width: 2880, height: 1800, refresh: 60 }, 2).map(c => c.value),
+        [1, 1.25, 4 / 3, 1.5, 1.6, 5 / 3, 2, 2.25, 2.5, 3]);
+    const ruleRefusals = [
+        ["mode outside availableModes", { "DP-2": { mode: { width: 1920, height: 1080, refresh: 60 } } }, "refused: monitors.DP-2.mode unavailable"],
+        ["fractional logical pixels", { "DP-2": { mode: { width: 3840, height: 2160, refresh: 60 }, scale: 1.3 } }, "refused: monitors.DP-2.scale fractional-logical-pixels"],
+        ["all outputs off", { "desc:Dell Inc. DELL U2720Q 8YT0R13": { disabled: true }, "DP-2": { disabled: true } }, "refused: monitors=all-disabled"],
+        ["Lua text injection through an identifier", { "DP-1\"": { disabled: false } }, "refused: monitors.DP-1\" identifier refused"]
+    ];
+    for (const [name, rules, want] of ruleRefusals) check("rulesError refuses " + name, lib.rulesError(rules, outputs), want);
 }
 
 suite(load(LOGIC), report);
@@ -152,6 +176,11 @@ const CONTROLS = [
     ["a listed mode parses", 'if (parsed === null) return bad("availableModes");', "if (parsed === null) continue;"],
     ["mirrorOf names the mirrored output", "out[j].mirrorOf = target[0].name;", "out[j].mirrorOf = out[j].mirrorOf;"],
     ["mirrorOf names an output", 'if (target.length !== 1) return { ok: false, error: "refused: outputs=shape output=" + j', 'if (false) return { ok: false, error: "refused: outputs=shape output=" + j']
+    ,["fractional logical pixels accepted", "if (!scaleFits(normalized.mode, normalized.scale))", "if (false)"],
+    ["mode outside availableModes accepted", "if (!modes.some(function (mode) { return sameMode(mode, normalized.mode); }))", "if (false)"],
+    ["all outputs off accepted", "if (outputs.length > 0 && enabled === 0)", "if (false)"],
+    ["Lua text injection through a field", "if (!OUTPUT_NAME.test(id)) return \"refused: \" + at + \" identifier refused\";", "if (false) return \"refused: \" + at + \" identifier refused\";"],
+    ["restore missing a field", "scale: output.scale,", ""]
 ];
 
 fs.mkdirSync(path.join(__dirname, "..", "tmp"), { recursive: true });

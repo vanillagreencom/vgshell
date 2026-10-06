@@ -10,7 +10,6 @@
 "use strict";
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
-const os = require("node:os");
 const path = require("node:path");
 const { load } = require("../bin/lib/qml-library.js");
 
@@ -167,6 +166,17 @@ function verify(logic) {
   same(logic.screenChoices([], [output("DP-1", "tile"), output("DP-5", "tile"), { name: "HDMI-A-2", identifier: "HDMI-A-2", make: "", model: "", serial: "" }]), [
     { label: "Choose a screen", value: "" }, { label: "DP-1 + DP-5: Apple M", value: "tile" }, { label: "HDMI-A-2", value: "HDMI-A-2" }],
     "one choice per identifier, named by its outputs and product");
+  const monitorOutput = { identifier: "DP-2", name: "DP-2", description: "LG HDR 4K", width: 3840, height: 2160, refreshRate: 144, x: 10, y: 20, scale: 2, transform: 0, disabled: false,
+    availableModes: [{ width: 3840, height: 2160, refresh: 144 }, { width: 3840, height: 2160, refresh: 60 }, { width: 2560, height: 1440, refresh: 60 }] };
+  same(logic.outputChoices([monitorOutput]), [{ label: "DP-2: LG HDR 4K", value: "DP-2" }], "the output chooser names the connector and description");
+  same(logic.modeChoices(monitorOutput).map(c => c.label), ["3840 × 2160", "2560 × 1440"], "mode choices group refresh rates by size");
+  same(logic.refreshChoices(monitorOutput, { width: 3840, height: 2160, refresh: 144 }).map(c => c.label), ["144 Hz", "60 Hz"], "refresh choices follow the selected size");
+  same(logic.scaleChoices({ width: 3840, height: 2160, refresh: 144 }, 2).map(c => c.value), [1, 1.25, 4 / 3, 1.5, 1.6, 5 / 3, 2, 2.5, 3], "scale choices keep whole logical pixels");
+  const drafted = logic.withOutputDraft([monitorOutput], {}, {}, "DP-2", { mode: { width: 2560, height: 1440, refresh: 60 }, scale: 2.25 });
+  same(drafted, { "DP-2": { disabled: false, mode: { width: 2560, height: 1440, refresh: 60 }, position: { x: 10, y: 20 }, scale: 2.25, transform: 0 } }, "a draft carries position so a mode change does not move the output");
+  same(logic.dirtyRules(drafted, {}), drafted, "dirty rules are the pending monitor rules");
+  assert.equal(logic.nextEnabledCount([monitorOutput], {}, { "DP-2": { disabled: true } }), 0, "the page can block the last enabled output");
+  assert.equal(logic.countdownText(12.4), "Keep these display settings? Reverting in 13 s");
 
   const present = resolved.displays.map(d => d.device);
   same(logic.setAssignment(entries, KEY_B, "Apple Studio Display", "DP-3", present).map(e => [e.device, e.output]), [
@@ -342,10 +352,15 @@ const CONTROLS = [
   ["a display gone is brought back", "return display !== null && display.state === \"ready\";", "return display === null || display.state === \"ready\";"],
   ["a display no longer ready is brought back", "return display !== null && display.state === \"ready\";", "return display !== null;"],
   ["a custom value has no choice", "if (!choices.some(function (c) { return c.value === value; }))", "if (false)"]
+  ,["mode choices do not group sizes", "if (seen[key]) return;", ""],
+  ["scale choices allow fractional logical pixels", "if (!scaleFits(mode, scale)) return;", ""],
+  ["a draft loses the current position", "merged.position = { x: output.x, y: output.y };", "merged.position = { x: 0, y: 0 };"],
+  ["dirty rules ignore pending changes", "if (JSON.stringify(draft[id]) !== JSON.stringify((saved || {})[id] || {}))", "if (false)"]
 ];
 
 const source = fs.readFileSync(file, "utf8");
-const temp = fs.mkdtempSync(path.join(os.tmpdir(), "displays-logic-control-"));
+fs.mkdirSync(path.join(__dirname, "..", "tmp"), { recursive: true });
+const temp = fs.mkdtempSync(path.join(__dirname, "..", "tmp", "displays-logic-control-"));
 try {
   for (const [label, needle, replacement] of CONTROLS) {
     assert.equal(source.split(needle).length, 2, `control "${label}": the text to replace must occur once`);

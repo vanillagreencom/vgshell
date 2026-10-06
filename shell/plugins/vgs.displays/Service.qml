@@ -100,6 +100,7 @@ Item {
         shell.ipc.handle("identify", arg => root.identify(arg));
         shell.layers.show(osdLayer);
         shell.layers.show(identifyLayer);
+        shell.layers.show(trialLayer);
         assignmentsFile.path = assignmentsPath;
         publish();
         requestList();
@@ -264,11 +265,11 @@ Item {
     // screen it is; it then goes back. A press during Identify ends the one
     // running first, so its level is read after the previous return waits.
     function identify(id) {
-        if (Logic.displayById(current, id) === null) return "refused: identify=" + id + " reason=absent";
+        if (id !== "" && Logic.displayById(current, id) === null) return "refused: identify=" + id + " reason=absent";
         endIdentify();
-        const display = Logic.displayById(current, id);
+        const display = id === "" ? null : Logic.displayById(current, id);
         identifying = true;
-        if (display.state === "ready") {
+        if (display !== null && display.state === "ready") {
             flashed = { id: id, percent: display.percent };
             requestSet(id, display.percent >= 50 ? 10 : 100);
         }
@@ -409,5 +410,10 @@ Item {
     Component {
         id: identifyLayer
         Identify { service: root }
+    }
+
+    Component {
+        id: trialLayer
+        TrialBanner { service: root }
     }
 }

@@ -322,6 +322,12 @@ function suite(ctx, check) {
     }
     check("hyprland.options needs the hyprland capability", ctx.validateManifest(Object.assign({}, svc, { settings: optionSettings, schema: optionSchema, hyprland: { options: { sensitivity: "input.sensitivity" } } }), "/p").error, "hyprland.options needs capability hyprland");
     check("hyprland.options setting names are schema setting names", ctx.validateManifest(Object.assign({}, svc, { capabilities: ["hyprland"], settings: Object.assign({}, optionSettings, { "bad\nos.exit()": "us" }), schema: Object.assign({}, optionSchema, { "bad\nos.exit()": { type: "string", label: "Bad", presets: [{ value: "us" }] } }), hyprland: { options: { "bad\nos.exit()": "input.kb_layout" } } }), "/p").error, "hyprland.options.bad\nos.exit() must be a setting name");
+    const monitorManifest = Object.assign({}, svc, { capabilities: ["monitors"], settings: { outputs: {} }, hyprland: { monitors: "outputs" } });
+    check("hyprland.monitors is judged", ctx.validateManifest(monitorManifest, "/p").ok, true);
+    check("hyprland.monitors needs the monitors capability", ctx.validateManifest(Object.assign({}, svc, { settings: { outputs: {} }, hyprland: { monitors: "outputs" } }), "/p").error, "hyprland.monitors needs capability monitors");
+    check("hyprland.monitors setting must exist", ctx.validateManifest(Object.assign({}, svc, { capabilities: ["monitors"], settings: {}, hyprland: { monitors: "outputs" } }), "/p").error, "hyprland.monitors names no settings key \"outputs\"");
+    check("hyprland.monitors has no schema row", ctx.validateManifest(Object.assign({}, svc, { capabilities: ["monitors"], settings: { outputs: false }, schema: { outputs: { type: "boolean", label: "Outputs" } }, hyprland: { monitors: "outputs" } }), "/p").error, "hyprland.monitors must not name a schema entry");
+    check("hyprland.monitors default is judged", ctx.validateManifest(Object.assign({}, svc, { capabilities: ["monitors"], settings: { outputs: { "DP-1\"": { disabled: false } } }, hyprland: { monitors: "outputs" } }), "/p").error, "hyprland.monitors default.DP-1\" identifier refused");
     check("hyprland is a known capability", ctx.validateManifest(Object.assign({}, svc, { capabilities: ["hyprland"] }), "/p").ok, true);
     check("monitors is a known capability", ctx.validateManifest(Object.assign({}, svc, { capabilities: ["monitors"] }), "/p").ok, true);
     check("panes is a known capability on a window", ctx.validateManifest(Object.assign({}, svc, { kinds: ["window"], entryPoints: { window: "Window.qml" }, capabilities: ["panes"] }), "/p").ok, true);
@@ -330,6 +336,7 @@ function suite(ctx, check) {
         const m = ctx.validateManifest(Object.assign({}, svc, { capabilities: ["hyprland"], settings: optionSettings, schema: optionSchema, hyprland: { options: { sensitivity: "input.sensitivity" } } }), "/p").manifest;
         return m.hyprland.options;
     })(), { sensitivity: "input.sensitivity" });
+    check("a normalised manifest carries its monitor setting", ctx.validateManifest(monitorManifest, "/p").manifest.hyprland.monitors, "outputs");
     check("validateManifest does not alias its input", (() => { const raw = JSON.parse(JSON.stringify(bar)); const m = ctx.validateManifest(raw, "/p").manifest; m.kinds.push("x"); return raw.kinds; })(), ["bar"]);
     check("validateManifest normalizes capabilities and settings", (() => { const m = ctx.validateManifest(bar, "/p").manifest; return [m.capabilities, m.settings, m.defaultSection]; })(), [[], {}, undefined]);
     check("validateManifest normalizes an absent schema to an object", ctx.validateManifest(bar, "/p").manifest.schema, {});
@@ -1140,6 +1147,14 @@ function suite(ctx, check) {
     check("hyprlandSection: a pad the core refuses is listed", padSection.padRefusals, [{ name: "3", error: "class=org.acme.pad held by pad 1" }]);
     check("hyprlandSection: a pad's key is no unknown key, another name is", padSection.unknownKeys, ["stray"]);
     check("hyprlandSection: a manifest without pads hands none", ctx.hyprlandSection({}, manifests["acme.svc"]).pads, null);
+    check("hyprlandSection: monitor rules are handed to the layer", ctx.hyprlandSection({ plugins: [{ id: "acme.svc", outputs: { "DP-1": { disabled: false } } }] }, ctx.validateManifest(monitorManifest, "/p").manifest).monitors,
+      { setting: "outputs", value: { "DP-1": { disabled: false } } });
+    const ownerMap = {
+      "acme.svc": ctx.validateManifest(monitorManifest, "/p").manifest,
+      "acme.other": ctx.validateManifest(Object.assign({}, monitorManifest, { id: "acme.other" }), "/p").manifest
+    };
+    check("monitor rule owner is unique", ctx.monitorRuleOwner(ownerMap, ["acme.svc"]), "acme.svc");
+    check("a second monitor rule owner is refused", ctx.monitorRuleRefusal(ownerMap, ["acme.svc", "acme.other"], "acme.other"), "refused: hyprland.monitors=acme.other held-by=acme.svc");
     check("keyRefusal: a pad's key is written", ctx.keyRefusal(padsManifest.manifest, "pad-9", "SUPER+9"), "");
     check("keyRefusal: a pad's key is judged", ctx.keyRefusal(padsManifest.manifest, "pad-9", "SUPER+"), "refused: key=pad-9 has an empty part: \"SUPER+\"");
     check("keyRefusal: a shortcut of no pad is undeclared", ctx.keyRefusal(padsManifest.manifest, "toggle", "SUPER+9"), "refused: key=toggle undeclared");
@@ -1160,7 +1175,12 @@ const CONTROLS = [
     ["monitors is not exclusive", 'var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent", "panes"];', 'var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent", "monitors", "panes"];'],
     ["panes is exclusive", 'var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent", "panes"];', 'var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent"];'],
     ["monitors is a capability", "\"hyprland\", \"bluetoothAgent\", \"monitors\"];", "\"hyprland\", \"bluetoothAgent\"];"],
+    ["hyprland monitors is a key", 'var HYPRLAND_KEYS = ["binds", "layerRules", "appearance", "options", "pads", "monitors"];', 'var HYPRLAND_KEYS = ["binds", "layerRules", "appearance", "options", "pads"];'],
     ["optionsFrom needs a string", "if (entry.type !== \"string\")\n                return at + \".optionsFrom needs type string\";", "if (false)\n                return at + \".optionsFrom needs type string\";"],
+    ["hyprland monitors need the capability", "if (monitors !== undefined && capabilities.indexOf(\"monitors\") === -1)\n        return \"hyprland.monitors needs capability monitors\";", "if (false)\n        return \"hyprland.monitors needs capability monitors\";"],
+    ["hyprland monitors setting must exist", "if (!hasOwn(settings, raw.hyprland.monitors))\n                return { ok: false, error: \"hyprland.monitors names no settings key \" + JSON.stringify(raw.hyprland.monitors) };", "if (false)\n                return { ok: false, error: \"hyprland.monitors names no settings key \" + JSON.stringify(raw.hyprland.monitors) };"],
+    ["hyprland monitors has no schema row", "if (hasOwn(schema, raw.hyprland.monitors))\n                return { ok: false, error: \"hyprland.monitors must not name a schema entry\" };", "if (false)\n                return { ok: false, error: \"hyprland.monitors must not name a schema entry\" };"],
+    ["a second monitor owner is refused", "return owners.length > 1 && owners.indexOf(id) !== -1 ? \"refused: hyprland.monitors=\" + id + \" held-by=\" + owners.filter", "return false ? \"refused: hyprland.monitors=\" + id + \" held-by=\" + owners.filter"],
     ["hyprland options need the capability", "if (options !== undefined && capabilities.indexOf(\"hyprland\") === -1)\n        return \"hyprland.options needs capability hyprland\";", "if (false)\n        return \"hyprland.options needs capability hyprland\";"],
     ["hyprland option names are setting names", "if (!STATUS_KEY_PATTERN.test(name))\n            return at + \" must be a setting name\";", "if (false)\n            return at + \" must be a setting name\";"],
     ["optionsFrom names a status key", "if (typeof entry.optionsFrom !== \"string\" || !STATUS_KEY_PATTERN.test(entry.optionsFrom))", "if (false)"],
@@ -1226,8 +1246,8 @@ const CONTROLS = [
     ["secrets is a manifest key", "\"tui\", \"menu\", \"secrets\", \"extras\"", "\"tui\", \"menu\", \"extras\""],
     ["secrets is a capability", "\"doctor\", \"secrets\", ", "\"doctor\", "],
     ["hyprland is a capability", "\"secrets\", \"hyprland\", ", "\"secrets\", "],
-    ["options is a hyprland key", "\"appearance\", \"options\", \"pads\"];", "\"appearance\", \"pads\"];"],
-    ["options alone declare something", " && options === undefined && hyprland.pads === undefined)", " && hyprland.pads === undefined)"],
+    ["options is a hyprland key", 'var HYPRLAND_KEYS = ["binds", "layerRules", "appearance", "options", "pads", "monitors"];', 'var HYPRLAND_KEYS = ["binds", "layerRules", "appearance", "pads", "monitors"];'],
+    ["options alone declare something", "appearance === undefined && options === undefined && hyprland.pads === undefined && monitors === undefined", "appearance === undefined && hyprland.pads === undefined && monitors === undefined"],
     ["options are judged", "return hyprlandOptionsError(options, schema);", "return \"\";"],
     ["options are a non-empty object", "if (!isPlainObject(options) || Object.keys(options).length === 0)", "if (false)"],
     ["an option names a table path", "if (typeof path !== \"string\" || !hasOwn(HyprlandLayer.OPTIONS, path))", "if (typeof path !== \"string\")"],
@@ -1402,9 +1422,9 @@ const CONTROLS = [
     ["a list value is judged", "if (entry.type === \"list\") return Pads.listValueError(entry, value, settingError, NAME_PATTERN);", "if (entry.type === \"list\") return \"\";"],
     ["list is a setting type", "\"enum\", \"list\"];", "\"enum\"];"],
     ["items and defaults are schema entry keys", ", \"items\", \"defaults\"];", "];"],
-    ["pads are a hyprland key", "\"options\", \"pads\"];", "\"options\"];"],
+    ["pads are a hyprland key", 'var HYPRLAND_KEYS = ["binds", "layerRules", "appearance", "options", "pads", "monitors"];', 'var HYPRLAND_KEYS = ["binds", "layerRules", "appearance", "options", "monitors"];'],
     ["pads are judged", "var padsBad = Pads.manifestError(hyprland.pads, capabilities, schema);", "var padsBad = \"\";"],
-    ["a manifest carries its pads", "            pads: raw.hyprland.pads\n", "            pads: undefined\n"],
+    ["a manifest carries its pads", "            pads: raw.hyprland.pads,\n", "            pads: undefined,\n"],
     ["pads are expanded", "var pads = Pads.expand(declared.pads, manifest.schema, settings, keys, hyprlandKey, settingError);", "var pads = Pads.expand(undefined, manifest.schema, settings, keys, hyprlandKey, settingError);"],
     ["pad binds end the binds", "binds: binds.concat(pads.binds),", "binds: binds,"],
     ["pad refusals are handed on", "padRefusals: pads.refusals,", "padRefusals: [],"],
@@ -1423,6 +1443,7 @@ try {
     fs.symlinkSync(LUCIDE, path.join(temp, "shell", "Ui", "icons", "Lucide.js"));
     fs.symlinkSync(MANAGERS, path.join(temp, "shell", "Core", "PackageManagers.js"));
     fs.symlinkSync(LAYER, path.join(temp, "shell", "Core", "HyprlandLayer.js"));
+    fs.symlinkSync(path.join(path.dirname(LAYER), "MonitorLogic.js"), path.join(temp, "shell", "Core", "MonitorLogic.js"));
     fs.symlinkSync(path.join(path.dirname(LAYER), "Pads.js"), path.join(temp, "shell", "Core", "Pads.js"));
     const source = fs.readFileSync(LOGIC, "utf8");
     for (const [label, needle, replacement] of CONTROLS) {

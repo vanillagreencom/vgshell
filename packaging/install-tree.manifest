@@ -23,6 +23,7 @@ f share/vgshell/bin/lib/xkb-keys.py
 f share/vgshell/bin/migrations/1790801764-slack-photos-extra.sh
 f share/vgshell/bin/vgshell
 f share/vgshell/bin/vgshell-browser-policy
+f share/vgshell/bin/vgshell-display-guard
 f share/vgshell/bin/vgshell-hypr-judge
 f share/vgshell/bin/vgshell-lock
 f share/vgshell/bin/vgshell-migrate
@@ -292,6 +293,7 @@ f share/vgshell/shell/plugins/vgs.displays/Osd.qml
 f share/vgshell/shell/plugins/vgs.displays/Pane.qml
 f share/vgshell/shell/plugins/vgs.displays/Panel.qml
 f share/vgshell/shell/plugins/vgs.displays/Service.qml
+f share/vgshell/shell/plugins/vgs.displays/TrialBanner.qml
 f share/vgshell/shell/plugins/vgs.displays/Widget.qml
 f share/vgshell/shell/plugins/vgs.displays/helper/brightness.py
 f share/vgshell/shell/plugins/vgs.displays/manifest.json

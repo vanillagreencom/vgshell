@@ -29,6 +29,7 @@ var SIZE = {
 
 // Bound pending input independently of how long the compositor takes.
 var QUEUE_LIMIT = 32;
+var MONITOR_EVAL = /^[\x09\x0a\x0d\x20-\x7e]+$/;
 
 // name -> { args: [pattern per argument], lua(args), classic(args) }
 var DISPATCHERS = {
@@ -379,6 +380,14 @@ function switchLayoutRequest(target) {
     if (!(typeof value === "string" && LAYOUT_TARGET.test(value)))
         return { ok: false, error: "refused: layout=" + JSON.stringify(target === undefined ? null : target) + " want=next|prev|index" };
     return { ok: true, argv: ["hyprctl", "switchxkblayout", "all", value] };
+}
+
+function monitorEvalRequest(lua, usingLua) {
+    if (usingLua !== true)
+        return { ok: false, error: "refused: monitor-eval=session=classic" };
+    if (typeof lua !== "string" || lua === "" || !MONITOR_EVAL.test(lua) || lua.indexOf("hl." + "monitor({ ") !== 0)
+        return { ok: false, error: "refused: monitor-eval=lua" };
+    return { ok: true, argv: ["hyprctl", "eval", lua] };
 }
 
 // Build one request. Returns { ok: true, request } or { ok: false, error }

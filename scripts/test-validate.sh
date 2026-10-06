@@ -16,7 +16,9 @@ if [[ $(id -u) == 0 ]]; then
   echo "test-validate: status=not-measured reason=euid-0"
   exit 77
 fi
-tmp="$(mktemp -d)"
+tmp="$repo/tmp/test-validate-$$"
+rm -rf -- "$tmp"
+mkdir -p -- "$tmp"
 trap 'chmod -R u+rwx -- "${tmp:?}" 2>/dev/null; rm -rf -- "${tmp:?}"' EXIT
 
 # Every git and validate call runs with this environment and nothing else.
@@ -337,14 +339,14 @@ row "a file under bin/ the boundary check cannot read is an error, not a pass" "
 
 # The monitor-rule writer check: one file planted per row, untracked unless
 # the row says committed. An `hl.monitor` call under bin/, shell/ or config/
-# is refused with the count and the line, as code or as the text a renderer
-# would write; prose that names it, another `hl` call and a file outside the
-# three roots, where the nested test compositor's configuration lives, pass
-# with the count of files read. A root that lists no file is an error.
+# is refused outside the one renderer, shell/Core/HyprlandLayer.js; prose that
+# names it, another `hl` call and a file outside the three roots, where the
+# nested test compositor's configuration lives, pass with the count of files
+# read. A root that lists no file is an error.
 monitor_cases=(
   'call|shell/Core/Layer.lua|untracked|1|hl.monitor({ output = "DP-1", disabled = true })'
   'committed call|shell/Core/Layer.lua|committed|1|hl.monitor({ output = "DP-1", disabled = true })'
-  'rendered line|shell/Core/MonitorLogic.js|untracked|1|        return "hl.monitor({ " + fields.join(", ") + " })";'
+  'rendered line in the owner|shell/Core/HyprlandLayer.js|untracked|0|        return "hl.monitor({ " + fields.join(", ") + " })";'
   'spaced call|bin/vgshell-monitor-guard|untracked|1|hyprctl eval '"'"'hl.monitor ({ output = "" })'"'"
   'call in a configuration file|config/hyprland.lua|untracked|1|hl.monitor{} hl.monitor({ output = "", mode = "preferred" })'
   'comment naming the call|shell/Core/MonitorLogic.js|untracked|0|// The user sets each output with hl.monitor in hyprland.lua.'
@@ -366,7 +368,7 @@ for spec in "${monitor_cases[@]}"; do
     row "an hl.monitor $name under $file is refused" "$d" 1 "" \
       "validate: refused: monitor-rule-writer=1" "$file:1:$text"
   else
-    row "a $name under $file passes" "$d" 0 "" "validate: no shipped file writes a monitor rule files=$files"
+    row "a $name under $file passes" "$d" 0 "" "validate: monitor rule renderer is unique files=$files"
   fi
 done
 
@@ -474,7 +476,7 @@ test_args=()
 
 # Selection is checked through the command the caller will run. Expected
 # plans name consumers independently of the dependency table under test.
-repo_plan=$'whitespace_check\nrows_cover_tests\nruntime_reads_no_scripts\nruntime_writes_no_monitor_rule\nprivate_keys_check\nmd_refs_check'
+repo_plan=$'whitespace_check\nrows_cover_tests\nruntime_reads_no_scripts\nruntime_writes_monitor_rule_once\nprivate_keys_check\nmd_refs_check'
 install_plan=$'scripts/test-install-tree.sh\n'"$repo_plan"
 installer_plan=$'scripts/test-install-tree.sh\nnode scripts/check-packaging.js\nnode scripts/test-check-packaging.js\nscripts/test-vgshell-self.sh\nscripts/test-install-sh.sh\nscripts/test-release.sh\n'"$repo_plan"
 # The README check reads VERSION, bin/vgshell, install.sh, the Arch recipes,
@@ -1791,7 +1793,9 @@ home_fixture() { # DIR: a fixture holding the planted row in tools and nix
 #!/bin/sh
 set -e
 printf 'row-home=%s row-config=%s\n' "$HOME" "$XDG_CONFIG_HOME"
-scratch="$(mktemp -d)"
+scratch="tmp/home-row-$$"
+rm -rf -- "$scratch"
+mkdir -p -- "$scratch"
 HOME="$scratch" git config --global url.file:///nowhere/vgs.git.insteadOf https://example.invalid/vgs.git
 if [ "${1-}" = home ]; then [ -f "$scratch/.gitconfig" ]; fi
 rm -rf -- "${scratch:?}"

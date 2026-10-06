@@ -300,7 +300,7 @@ try {
     fs.mkdirSync(path.join(temp, "shell", "Core"), { recursive: true });
     fs.mkdirSync(path.join(temp, "shell", "Ui", "icons"), { recursive: true });
     fs.mkdirSync(path.join(temp, "shell", "Commons"), { recursive: true });
-    for (const name of ["PluginLogic.js", "HyprlandLayer.js", "Pads.js", "PackageManagers.js", "Dispatch.js"])
+    for (const name of ["PluginLogic.js", "HyprlandLayer.js", "MonitorLogic.js", "Pads.js", "PackageManagers.js", "Dispatch.js"])
         fs.symlinkSync(path.join(__dirname, "..", "shell", "Core", name), path.join(temp, "shell", "Core", name));
     fs.symlinkSync(path.join(__dirname, "..", "shell", "Ui", "icons", "Lucide.js"), path.join(temp, "shell", "Ui", "icons", "Lucide.js"));
     fs.symlinkSync(path.join(__dirname, "..", "shell", "Commons", "SettingValues.js"), path.join(temp, "shell", "Commons", "SettingValues.js"));

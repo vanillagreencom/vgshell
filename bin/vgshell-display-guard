@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  echo "usage: vgshell-display-guard DEADLINE_EPOCH TOKEN HYPRLAND_INSTANCE RESTORE_LUA" >&2
+}
+
+if [[ $# -ne 4 ]]; then
+  usage
+  exit 2
+fi
+
+deadline=$1
+token=$2
+instance=$3
+restore_lua=$4
+
+if [[ ! $deadline =~ ^[0-9]+$ || -z $token || -z $instance || -z $restore_lua ]]; then
+  usage
+  exit 2
+fi
+
+now=$(date +%s)
+if (( deadline > now )); then
+  sleep "$(( deadline - now ))"
+fi
+
+claim="${token}.revert"
+if ! mv -- "$token" "$claim" 2>/dev/null; then
+  echo "display-guard: token=kept path=$token"
+  exit 0
+fi
+
+eval_status=0
+hyprctl --instance "$instance" eval "$restore_lua" >/dev/null || eval_status=$?
+read_status=0
+hyprctl --instance "$instance" -j monitors all >/dev/null || read_status=$?
+echo "display-guard: token=reverted path=$token eval=$eval_status read=$read_status"
+exit "$(( eval_status != 0 ? eval_status : read_status ))"
