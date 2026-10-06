@@ -297,22 +297,22 @@ async function main() {
         assert.deepEqual(await readOf(expired, "ok"), { state: "expired", email: "" }, "an expired token reads expired");
         assert.equal(requests().length, quiet, "an expired token sends no request");
         assert.deepEqual(await readOf(fresh, "refused"), { state: "expired", email: "" }, "a refused token reads expired");
-        assert.deepEqual(await readOf(fresh, "malformed"), { state: "failed", reason: "reply-json" }, "a malformed body fails");
-        assert.deepEqual(await readOf(fresh, "null"), { state: "failed", reason: "reply-shape" }, "a null body fails one account, not the whole run");
-        assert.deepEqual(await readOf(fresh, "error"), { state: "failed", reason: "http-500" });
+        assert.deepEqual(await readOf(fresh, "malformed"), { state: "failed", reason: "reply-json", email: "" }, "a malformed body fails");
+        assert.deepEqual(await readOf(fresh, "null"), { state: "failed", reason: "reply-shape", email: "" }, "a null body fails one account, not the whole run");
+        assert.deepEqual(await readOf(fresh, "error"), { state: "failed", reason: "http-500", email: "" });
         assert.deepEqual(await readOf(unsigned, "ok"), { state: "signed-out" });
         assert.deepEqual(await readOf(path.join(home, ".claude-absent"), "ok"), { state: "signed-out" });
         assert.deepEqual(await readOf(linked, "ok"), { state: "failed", reason: "credentials-link" }, "a linked credential file is not followed");
         assert.deepEqual(await readOf(fresh + "/../.claude", "ok"), { state: "failed", reason: "directory-not-absolute" });
         assert.deepEqual(await bounded(readOf(fresh, "hang", 500), 5000, "a read of a silent endpoint"),
-            { state: "failed", reason: "deadline" }, "a silent endpoint ends at the deadline");
+            { state: "failed", reason: "deadline", email: "" }, "a silent endpoint ends at the deadline");
         assert.deepEqual(credentials(home), before, "no credential file changed");
     };
     await claudeCases(plugin);
     cases++;
     await control("expired-sends", "backend/usage.js", '    if (oauth.expiresAt <= now) return { state: "expired", email };\n', "", claudeCases);
     await control("malformed-zero", "backend/usage.js",
-        'try { body = JSON.parse(reply.body); } catch { return failed("reply-json"); }\n    const windows = claudeWindows(body);',
+        'try { body = JSON.parse(reply.body); } catch { return lost("reply-json"); }\n    const windows = claudeWindows(body);',
         "try { body = JSON.parse(reply.body); } catch { body = { five_hour: { utilization: 0, resets_at: null } }; }\n    const windows = claudeWindows(body);",
         claudeCases);
     await control("link-followed", "backend/usage.js", "fs.openSync(Anchored.child(fd, file), O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_NOCTTY)",
@@ -346,6 +346,11 @@ async function main() {
         assert.deepEqual(result.accounts.map(row => [row.label, row.state, row.email]).sort(), [
             ["2", "ok", ""], ["3", "ok", ""], ["default", "ok", "home@example.invalid"], ["n", "ok", "n@example.invalid"]]);
         for (const row of result.accounts) assert.equal("plan" in row, false, row.label + " carries no plan");
+        mode("error");
+        const failing = await usageIn(folder).read(tree, { PATH, HOME: emailHome, LANG: "C.UTF-8" }, { origin });
+        assert.deepEqual(failing.accounts.map(row => [row.label, row.state, row.email]).sort(), [
+            ["2", "failed", ""], ["3", "failed", ""], ["default", "failed", "home@example.invalid"], ["n", "failed", "n@example.invalid"]],
+        "a failed read keeps the email");
     };
     await emails(plugin);
     cases++;
@@ -357,6 +362,9 @@ async function main() {
         'readHeld(Anchored, opened.fd, ".claude.json", PROFILE_MAX_BYTES)', 'readHeld(Anchored, opened.fd, ".claude.json")', emails);
     await control("profile-link-followed", "backend/usage.js", "fs.openSync(Anchored.child(fd, file), O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_NOCTTY)",
         "fs.openSync(Anchored.child(fd, file), O_RDONLY | O_NONBLOCK | O_NOCTTY)", emails);
+    await control("claude-failure-unnamed", "backend/usage.js",
+        '    if (reply.status !== 200) return lost("http-" + reply.status);\n    let body;\n    try { body = JSON.parse(reply.body); } catch { return lost("reply-json"); }\n    const windows',
+        '    if (reply.status !== 200) return failed("http-" + reply.status);\n    let body;\n    try { body = JSON.parse(reply.body); } catch { return lost("reply-json"); }\n    const windows', emails);
     await control("plan-published", "backend/usage.js", 'email: result.email || "",\n            state: result.state,',
         'email: result.email || "", plan: "max",\n            state: result.state,', emails);
 
@@ -381,13 +389,14 @@ async function main() {
         const run = calls(signed).slice(started);
         assert.deepEqual(run.map(call => [call.args, call.codexHome]), [[["app-server"], signed]]);
         assert.deepEqual(await readOf("signed-out"), { state: "signed-out" });
-        assert.deepEqual(await readOf("error"), { state: "failed", reason: "codex-error" });
+        assert.deepEqual(await readOf("error"), { state: "failed", reason: "codex-error", email: "person@example.invalid" },
+            "a rate-limit failure keeps the email account/read gave");
         const methods = path.join(signed, "stand-in-methods");
         fs.rmSync(methods, { force: true });
         assert.deepEqual(await readOf("api-key"), { state: "no-plan" }, "an API-key sign-in has no plan limits");
         assert.deepEqual(fs.readFileSync(methods, "utf8").trim().split("\n"), ["initialize", "initialized", "account/read"],
             "an API-key sign-in asks for no limits");
-        assert.deepEqual(await readOf("hang", { deadlineMs: 1500 }), { state: "failed", reason: "codex-deadline" });
+        assert.deepEqual(await readOf("hang", { deadlineMs: 1500 }), { state: "failed", reason: "codex-deadline", email: "person@example.invalid" });
         assert.equal(await ended(calls(signed).slice(started).map(call => call.pid)), true, "every program ended");
         assert.deepEqual(await readCodex(Anchored, noAuth, { command: codex, env }), { state: "signed-out" });
         assert.equal(calls(noAuth).length, 0, "nothing runs for a folder with no sign-in");
@@ -396,6 +405,8 @@ async function main() {
     cases++;
     await control("deadline-kept", "backend/usage.js", '            child.stdin.destroy();\n            child.kill("SIGKILL");\n',
         '            child.stdin.destroy();\n', codexCases);
+    await control("codex-failure-unnamed", "backend/usage.js",
+        'resolve(account !== null && value.state === "failed" ? { ...value, email: account.email } : value);', "resolve(value);", codexCases);
     await control("api-key-limits", "backend/usage.js", '                if (value.type !== "chatgpt") return finish({ state: "no-plan" });\n', "", codexCases);
     for (const call of calls(signed)) if (alive(call.pid)) process.kill(call.pid, "SIGKILL");
 
@@ -445,15 +456,16 @@ async function main() {
             ["search", "service", "copilot-cli", "username", "https://github.com:octo-user:github"],
             ["search", "service", "copilot-cli", "username", "https://github.com:octo-user"]]);
         fs.writeFileSync(path.join(copilotHome, "secret-tool-mode"), "locked\n");
-        assert.deepEqual(await readCopilot(Anchored, lockedDir, { origin, secretTool, env: copilotEnv }), { state: "failed", reason: "keyring-locked" });
+        assert.deepEqual(await readCopilot(Anchored, lockedDir, { origin, secretTool, env: copilotEnv }), { state: "failed", reason: "keyring-locked", email: "octo-user" });
         fs.writeFileSync(path.join(copilotHome, "secret-tool-mode"), "missing\n");
-        assert.deepEqual(await readCopilot(Anchored, missingDir, { origin, secretTool, env: copilotEnv }), { state: "failed", reason: "token-missing" });
+        assert.deepEqual(await readCopilot(Anchored, missingDir, { origin, secretTool, env: copilotEnv }), { state: "failed", reason: "token-missing", email: "octo-user" });
         assert.deepEqual(await readCopilot(Anchored, missingDir, { origin, secretTool: path.join(standins, "absent-secret-tool"), env: copilotEnv }),
-            { state: "failed", reason: "keyring-missing" });
-        assert.deepEqual(await readCopilot(Anchored, foreignDir, { origin, secretTool, env: copilotEnv }), { state: "failed", reason: "copilot-host" });
+            { state: "failed", reason: "keyring-missing", email: "octo-user" });
+        assert.deepEqual(await readCopilot(Anchored, foreignDir, { origin, secretTool, env: copilotEnv }), { state: "failed", reason: "copilot-host", email: "octo-user" });
         assert.deepEqual(await readCopilot(Anchored, signedOutDir, { origin, secretTool, env: copilotEnv }), { state: "signed-out" });
         mode("copilot-refused");
-        assert.deepEqual(await readCopilot(Anchored, copilotDir, { origin, secretTool, env: copilotEnv }), { state: "expired" });
+        assert.deepEqual(await readCopilot(Anchored, copilotDir, { origin, secretTool, env: copilotEnv }), { state: "expired", email: "octo-user" },
+            "an expired sign-in keeps its login");
         mode("copilot-zero");
         assert.deepEqual((await readCopilot(Anchored, copilotDir, { origin, secretTool, env: copilotEnv })).credits,
             { unit: "credits", granted: 0 });
@@ -461,13 +473,17 @@ async function main() {
         assert.deepEqual((await readCopilot(Anchored, copilotDir, { origin, secretTool, env: copilotEnv })).credits,
             { unit: "credits", unlimited: true });
         mode("copilot-malformed");
-        assert.deepEqual(await readCopilot(Anchored, copilotDir, { origin, secretTool, env: copilotEnv }), { state: "failed", reason: "reply-json" });
+        assert.deepEqual(await readCopilot(Anchored, copilotDir, { origin, secretTool, env: copilotEnv }), { state: "failed", reason: "reply-json", email: "octo-user" });
         assert.deepEqual(credentials(copilotHome), copilotBefore, "no Copilot config file changed");
     };
     await copilotCases(plugin);
     cases++;
     await control("copilot-credits-used", "backend/usage.js", "const used = entitlement - Math.max(remaining, 0);",
         "const used = snap.credits_used;", copilotCases);
+    await control("copilot-expired-unnamed", "backend/usage.js", 'if (reply.status === 401) return { state: "expired", email };',
+        'if (reply.status === 401) return { state: "expired" };', copilotCases);
+    await control("copilot-failure-unnamed", "backend/usage.js", "const lost = reason => ({ ...failed(reason), email });\n    if (user.host",
+        "const lost = failed;\n    if (user.host", copilotCases);
     await control("copilot-user-agent", "backend/usage.js", 'authorization: "token " + token.token, accept: "application/json", "user-agent": "vgs-ai-usage"',
         'authorization: "token " + token.token, accept: "application/json"', copilotCases);
     await control("secret-tool-search", "backend/usage.js", 'const result = await secretSearch(secretTool, ["service", "copilot-cli", "username", username], env);',
@@ -603,12 +619,12 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
     await leaks(plugin);
     cases++;
     await control("token-in-log", "backend/usage.js",
-        '    if (reply.status === 401 || reply.status === 403) return { state: "expired", email };\n    if (reply.status !== 200) return failed("http-" + reply.status);',
-        '    if (reply.status === 401 || reply.status === 403) return { state: "expired", email };\n    if (reply.status !== 200) return failed("http-" + reply.status + "-" + oauth.accessToken);',
+        '    if (reply.status === 401 || reply.status === 403) return { state: "expired", email };\n    if (reply.status !== 200) return lost("http-" + reply.status);',
+        '    if (reply.status === 401 || reply.status === 403) return { state: "expired", email };\n    if (reply.status !== 200) return lost("http-" + reply.status + "-" + oauth.accessToken);',
         leaks);
     await control("copilot-token-in-log", "backend/usage.js",
-        '    if (reply.status === 401) return { state: "expired" };\n    if (reply.status !== 200) return failed("http-" + reply.status);',
-        '    if (reply.status === 401) return { state: "expired" };\n    if (reply.status !== 200) return failed("http-" + reply.status + "-" + token.token);',
+        '    if (reply.status === 401) return { state: "expired", email };\n    if (reply.status !== 200) return lost("http-" + reply.status);',
+        '    if (reply.status === 401) return { state: "expired", email };\n    if (reply.status !== 200) return lost("http-" + reply.status + "-" + token.token);',
         leaks);
 
     // The shipped entry point under the same HOME, with no unexpired Claude
@@ -750,6 +766,21 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
         assert.equal(half.windows[1].text, "40%");
         assert.deepEqual([half.note, half.noteTone], ["", "normal"]);
         assert.deepEqual(shown(fresh), [true, 40, "normal"], "the bar keeps the used account's share");
+        const pool = View.panel(View.merge(null, { accounts: [{ id: "copilot-p", provider: "copilot", label: "default", email: "octo-user",
+            state: "ok", credits: { unit: "requests", used: 0, granted: 300, monthUsed: 0 }, details: {},
+            windows: [{ name: "credits", usedPercent: 0, resetsAt: Date.parse("2026-11-01T00:00:00Z") }] }], partial: "" }, NOW), NOW)[0];
+        assert.deepEqual(plainOf([pool.note, pool.windows.map(w => [w.name, w.text, w.started])]), ["", [["credits", "0 of 300", true]]],
+            "a credit pool at 0 used keeps its allowance");
+
+        // The account line: the email or login, else the folder's label,
+        // never the default folder's or the AI Gateway's.
+        const nameless = View.merge(null, { accounts: [
+            { id: "claude-n", provider: "claude", label: "n", email: "", state: "expired", windows: [] },
+            { id: "claude-d", provider: "claude", label: "default", email: "", state: "expired", windows: [] },
+            { id: "copilot-w", provider: "copilot", label: "work", email: "octo-user", state: "failed", windows: [] },
+            { id: "gateway-x", provider: "gateway", label: "AI Gateway", email: "", state: "failed", windows: [] }], partial: "" }, NOW);
+        assert.deepEqual(View.panel(nameless, NOW).map(r => [r.id, r.account]),
+            [["claude-n", "n"], ["claude-d", ""], ["copilot-w", "octo-user"], ["gateway-x", ""]]);
 
         const copilot = View.merge(null, { accounts: [{ id: "copilot-a", provider: "copilot", label: "work", email: "octo-user",
             state: "ok", credits: { unit: "credits", used: 45225, granted: 1000000, monthUsed: 362327 },
@@ -823,6 +854,10 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
         'title: (NAMES[row.provider] || row.provider) + (row.label === "default" ? "" : " · " + row.label),', views);
     await control("unused-limits-drawn", "UsageView.js", "windows: idle ? [] : row.windows.map(", "windows: row.windows.map(", views);
     await control("not-started-percent", "UsageView.js", 'return item.name === "credits" || item.usedPercent > 0 || ', "return true || ", views);
+    await control("pool-unused", "UsageView.js", 'return item.name !== "credits" && item.usedPercent === 0;', "return item.usedPercent === 0;", views);
+    await control("account-line-unlabelled", "UsageView.js",
+        '    if (row.email !== "") return row.email;\n    return row.label === "default" || row.provider === "gateway" ? "" : row.label;',
+        "    return row.email;", views);
     await control("credits-raw", "UsageView.js", '    return (whole < 0 ? "-" : "") + grouped(String(Math.abs(whole)));', "    return String(n);", views);
 
     // The sign-in TUIs run each tool's own login, through the presentation

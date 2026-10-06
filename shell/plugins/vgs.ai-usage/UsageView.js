@@ -326,14 +326,24 @@ function windowRow(row, item, now) {
         reset: resetText(item.resetsAt, now) };
 }
 
-// An account read whose every window reads 0 %: it has had no use yet.
+// An account read whose every window is a time window at 0 %: it has had
+// no use yet. A credit pool at 0 used still shows its allowance.
 function unused(row) {
-    return row.state === "ok" && row.windows.length > 0 && row.windows.every(function (item) { return item.usedPercent === 0; });
+    return row.state === "ok" && row.windows.length > 0
+        && row.windows.every(function (item) { return item.name !== "credits" && item.usedPercent === 0; });
+}
+
+// The account line: the email or login the helper read, else the folder's
+// label, so two cards of one provider stay apart. The default folder and
+// the AI Gateway key, which is no folder, have no label to show.
+function accountLine(row) {
+    if (row.email !== "") return row.email;
+    return row.label === "default" || row.provider === "gateway" ? "" : row.label;
 }
 
 // The panel's rows: one per signed-in account after settings filters, with
 // title, the provider's name; email, the account's email or the login its
-// provider gives; detail line; note, in tone "warning" for a failed or old
+// provider gives; account, the line drawn under the title; detail line; note, in tone "warning" for a failed or old
 // read, else "normal"; every limit, none while unused; and full-view detail
 // rows.
 function panel(usage, now, settings) {
@@ -345,7 +355,7 @@ function panel(usage, now, settings) {
         var note = warning !== "" ? warning
             : idle ? "No usage yet."
             : row.state === "ok" && row.windows.length === 0 && row.credits === null && !hasDetails(row.details) ? "This plan reports no usage limits." : "";
-        return { id: row.id, provider: row.provider, label: row.label, email: row.email, state: row.state,
+        return { id: row.id, provider: row.provider, label: row.label, email: row.email, account: accountLine(row), state: row.state,
             title: NAMES[row.provider] || row.provider, detail: row.provider === "copilot" ? creditLine(row.credits) : "",
             note: note, noteTone: warning !== "" ? "warning" : "normal", details: detailRows(row),
             windows: idle ? [] : row.windows.map(function (item) { return windowRow(row, item, now); }) };

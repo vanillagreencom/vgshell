@@ -261,18 +261,19 @@ async function readClaude(Anchored, directory, { origin = ORIGIN, now = Date.now
     if (!plain(oauth) || !printable(oauth.accessToken, 8192) || typeof oauth.expiresAt !== "number")
         return failed("credentials-shape");
     const email = claudeEmail(Anchored, profile);
+    const lost = reason => ({ ...failed(reason), email });
     if (oauth.expiresAt <= now) return { state: "expired", email };
     const reply = await get(new URL(USAGE_PATH, origin), {
         authorization: "Bearer " + oauth.accessToken, "anthropic-beta": OAUTH_BETA, accept: "application/json"
     }, deadlineMs);
-    if (reply.error) return failed(reply.error);
+    if (reply.error) return lost(reply.error);
     if (reply.status === 401 || reply.status === 403) return { state: "expired", email };
-    if (reply.status !== 200) return failed("http-" + reply.status);
+    if (reply.status !== 200) return lost("http-" + reply.status);
     let body;
-    try { body = JSON.parse(reply.body); } catch { return failed("reply-json"); }
+    try { body = JSON.parse(reply.body); } catch { return lost("reply-json"); }
     const windows = claudeWindows(body);
     const details = claudeDetails(body);
-    if (windows === null || details === null) return failed("reply-shape");
+    if (windows === null || details === null) return lost("reply-shape");
     return { state: "ok", email, windows, details };
 }
 
@@ -306,13 +307,15 @@ async function readCodex(Anchored, directory, { command = "codex", deadlineMs = 
         let done = false;
         let account = null;
         let tail = "";
+        // A read that fails once account/read named the account keeps its
+        // email, so the card still says whose it is.
         const finish = value => {
             if (done) return;
             done = true;
             clearTimeout(timer);
             child.stdin.destroy();
             child.kill("SIGKILL");
-            resolve(value);
+            resolve(account !== null && value.state === "failed" ? { ...value, email: account.email } : value);
         };
         const send = message => child.stdin.write(JSON.stringify(message) + "\n");
         const timer = setTimeout(() => finish(failed("codex-deadline")), deadlineMs);
@@ -466,21 +469,25 @@ async function readCopilot(Anchored, directory, { origin = COPILOT_ORIGIN, secre
     try { config = JSON.parse(uncommentJson(file.text)); } catch { return failed("config-json"); }
     const user = plain(config.lastLoggedInUser) ? config.lastLoggedInUser : null;
     if (user === null || typeof user.login !== "string" || user.login.trim() === "") return { state: "signed-out" };
-    if (user.host !== "https://github.com") return failed("copilot-host");
     const login = user.login;
+    // Copilot gives no email: the login names the account, on every read
+    // from here on, failed or expired ones too.
+    const email = printable(login, 120) ? login : "";
+    const lost = reason => ({ ...failed(reason), email });
+    if (user.host !== "https://github.com") return lost("copilot-host");
     const token = await copilotToken(config, user.host, login, secretTool, env);
-    if (token.kind !== "found") return failed(token.reason);
+    if (token.kind !== "found") return lost(token.reason);
     const reply = await get(new URL(COPILOT_PATH, origin), {
         authorization: "token " + token.token, accept: "application/json", "user-agent": "vgs-ai-usage"
     }, deadlineMs);
-    if (reply.error) return failed(reply.error);
-    if (reply.status === 401) return { state: "expired" };
-    if (reply.status !== 200) return failed("http-" + reply.status);
+    if (reply.error) return lost(reply.error);
+    if (reply.status === 401) return { state: "expired", email };
+    if (reply.status !== 200) return lost("http-" + reply.status);
     let body;
-    try { body = JSON.parse(reply.body); } catch { return failed("reply-json"); }
+    try { body = JSON.parse(reply.body); } catch { return lost("reply-json"); }
     const credits = copilotCredits(body);
-    if (credits === null) return failed("reply-shape");
-    return { ...credits, email: printable(login, 120) ? login : "" };
+    if (credits === null) return lost("reply-shape");
+    return { ...credits, email };
 }
 
 async function gatewaySecret(secretTool, env) {

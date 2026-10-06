@@ -7,14 +7,15 @@
 # and a claude the row plants. Both stand-ins answer reset times relative
 # to each request. It reads the Settings page's Sign in per tool, withheld
 # while that tool is missing, whose TUI the stand-in terminal records; the
-# widget's share, tone and hidden state; the panel's rows and reset times;
+# widget's share, tone and hidden state; the panel's rows, reset times and
+# height cap, half its output's logical height;
 # the panel's Settings gear, which always-on Plugins gives every panel,
 # clicked with the nested pointer, which opens the Settings window on AI Usage's page and closes the panel; and that no read
 # changed a credential file's bytes or modification time.
-# Controls: a widget copy shown with no account, a helper copy that writes
-# the credential file, one that reads a failed request as 0 % and a panel
-# host copy whose slot opens Settings with no page each fail their own
-# reading.
+# Controls: a widget copy shown with no account, a panel copy capped at its
+# output's whole height, a helper copy that writes the credential file, one
+# that reads a failed request as 0 % and a panel host copy whose slot opens
+# Settings with no page each fail their own reading.
 # This row has no latency ceiling; every reading polls through expect_poll.
 # inputs: shell/plugins/vgs.ai-usage/* bin/lib/account-folders.js bin/lib/anchored.js bin/lib/qml-library.js shell/Commons/AccountDirectories.js scripts/fixtures/ai-usage/* scripts/smoke/fixtures/ai-usage/* shell/plugins/vgs.settings/* shell/Core/PluginLogic.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Hosts/PluginSlot.qml shell/Hosts/SummonPopup.qml shell/Ui/layout/Pane.qml shell/Ui/controls/IconButton.qml config/shell.json bin/vgshell-tui scripts/qml-smoke.sh shell/Commons/Duration.js shell/Commons/qmldir
 set -euo pipefail
@@ -23,10 +24,12 @@ mkdir -p -- "$usage_dir"
 usage_plugin="$repo/shell/plugins/vgs.ai-usage"
 usage_helper="$usage_plugin/backend/usage.js"
 usage_widget="$usage_plugin/Widget.qml"
+usage_panel_qml="$usage_plugin/Panel.qml"
 usage_saved="$usage_dir/shell-before.json"
 cp -- "$home/.config/vgshell/shell.json" "$usage_saved"
 cp -- "$usage_helper" "$usage_dir/usage.js.original"
 cp -- "$usage_widget" "$usage_dir/Widget.qml.original"
+cp -- "$usage_panel_qml" "$usage_dir/Panel.qml.original"
 usage_edit() { python3 "$source_repo/scripts/smoke/fixtures/ai-usage/edit.py" "$@"; }
 usage_mode() { printf '%s\n' "$1" >"$usage_dir/mode"; }
 usage_mode relative
@@ -117,6 +120,18 @@ usage_panel_rows() { usage_panel | py_reply 'import json,sys; print(json.dumps([
 
 usage_panel_details() { usage_panel | py_reply 'import json,sys; print(json.dumps([[r["provider"], r["label"], [[d["label"], d["value"]] for d in r["details"]]] for r in json.load(sys.stdin)]))'; }
 usage_panel_view() { ipc smoke readInstance panel vgs.ai-usage fullView; }
+# usage_panel_cap: `matched` while the open panel's height cap is half the
+# logical height of the output its bar is on, else both figures.
+usage_panel_cap() {
+  local cap screen
+  cap="$(ipc smoke readInstance panel vgs.ai-usage heightCap)" || return
+  screen="$(bar_key)" || return
+  hypr -j monitors | py_reply 'import json,sys
+cap, name = float(sys.argv[1]), sys.argv[2][len("bar:"):]
+m = [m for m in json.load(sys.stdin) if m["name"] == name][0]
+want = m["height"] / m["scale"] / 2
+print("matched" if abs(cap - want) < 0.5 else "cap=%g want=%g" % (cap, want))' "$cap" "$screen"
+}
 usage_choices() { ipc smoke statusValues vgs.ai-usage | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps([c["label"] for c in v["accounts"]]))'; }
 usage_apply_setting() { ipc smoke invokeInstance window vgs.settings applySetting "{\"id\":\"vgs.ai-usage\",\"key\":\"$1\",\"value\":$2}"; }
 # The time left on each window the panel shows, against the stand-ins'
@@ -224,10 +239,24 @@ expect "the full panel carries provider details" '[["claude", "default", [["Extr
 summon_drawn panel vgs.ai-usage || fail "the panel never drew a frame"
 usage_panel_box() { ipc smoke instanceGeometry panel vgs.ai-usage | py_reply 'import json,sys; r=json.load(sys.stdin); print(r[2] > 0 and r[3] > 0)'; }
 expect "the panel has a size" True usage_panel_box
+expect_poll "the panel's height cap is half its output's height" matched usage_panel_cap
 expect_poll "the check the panel asks for is published" new usage_read_after "$usage_before_panel"
 expect "the panel's check changed no credential file" kept usage_credentials_kept
 expect "AI Usage's panel hides" ok ipc shell hide panel vgs.ai-usage
 expect_poll "the hidden panel is gone" absent usage_panel
+# A panel copy capped at its output's whole height fails the cap reading
+# with its own figure.
+usage_edit "$usage_panel_qml" 'output.height * Theme.size.window.heightShare' 'output.height' || fail "the whole-height control's edit failed"
+rescan "the whole-height panel copy is scanned"
+click_centre "$(bar_key)" vgs.ai-usage || fail "opening the whole-height panel copy failed"
+summon_drawn panel vgs.ai-usage || fail "the whole-height panel copy never drew a frame"
+expect "a panel capped at its output's whole height breaks the cap reading" 1 \
+  usage_control "$usage_dir/cap-control.log" "the panel's cap must be half its output's height" matched usage_panel_cap
+expect "the cap reading fails on the whole height" 1 grep -c -F -- "the panel's cap must be half its output's height: got cap=" "$usage_dir/cap-control.log"
+expect "the whole-height panel copy hides" ok ipc shell hide panel vgs.ai-usage
+expect_poll "the whole-height panel copy is gone" absent usage_panel
+cp -- "$usage_dir/Panel.qml.original" "$usage_panel_qml"
+rescan "the restored panel is scanned"
 expect "the Settings window is summoned for AI Usage settings edits" ok ipc shell summon window vgs.settings '{}'
 expect "the account choices list all read accounts" '["Claude Code \u00b7 default", "Codex \u00b7 person@example.invalid"]' usage_choices
 expect "choosing compact view is allowed" ok usage_apply_setting view '"compact"'
@@ -311,7 +340,7 @@ expect "the failed read changed no credential file" kept usage_credentials_kept
 # A helper copy that reads a failed request as 0 % fails that reading: its
 # service, rebuilt, first reads the figures, then the failure.
 usage_edit "$usage_helper" '    if (reply.status === 401 || reply.status === 403) return { state: "expired", email };
-    if (reply.status !== 200) return failed("http-" + reply.status);' '    if (reply.status === 401 || reply.status === 403) return { state: "expired", email };
+    if (reply.status !== 200) return lost("http-" + reply.status);' '    if (reply.status === 401 || reply.status === 403) return { state: "expired", email };
     if (reply.status !== 200) return { state: "ok", email, windows: [{ name: "five_hour", usedPercent: 0, resetsAt: null }] };' || fail "the zero control's edit failed"
 usage_mode relative
 rescan "the zero copy is scanned"

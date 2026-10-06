@@ -1,4 +1,5 @@
 import QtQuick
+import Quickshell
 import qs.Commons
 import qs.Ui
 import "UsageView.js" as View
@@ -15,7 +16,13 @@ Item {
     readonly property var usage: shell === null || shell.status.values.usage === undefined ? null : shell.status.values.usage
     readonly property var rows: View.panel(usage, Time.now.getTime(), shell === null ? null : shell.settings)
     readonly property bool fullView: shell !== null && shell.settings.view !== "compact"
-    readonly property var output: OverlayState.outputOf(root)
+    // The output the panel's popup window occupies, a ShellScreen whose
+    // height is logical, or null before the panel has a window.
+    readonly property var host: QsWindow.window
+    readonly property var output: host === null || host === undefined || host.screen === null || host.screen === undefined ? null : host.screen
+    // The tallest the pane draws: half its output, or panel.maxHeight with
+    // no output yet.
+    readonly property real heightCap: output === null ? Theme.size.panel.maxHeight : output.height * Theme.size.window.heightShare
 
     function refresh() {
         const reply = shell.ipc.call("refresh", "");
@@ -35,7 +42,7 @@ Item {
         anchors.fill: parent
         container: "panel"
         fitToContent: true
-        maximumHeight: root.output === null ? Theme.size.panel.maxHeight : root.output.height * Theme.size.window.heightShare
+        maximumHeight: root.heightCap
         title: "AI Usage"
 
         Label {
@@ -53,7 +60,7 @@ Item {
                 width: layout.contentWidth
 
                 Label { role: "label"; text: modelData.title }
-                Label { visible: text !== ""; role: "hint"; text: modelData.email }
+                Label { visible: text !== ""; role: "hint"; text: modelData.account }
                 Label { visible: root.fullView && text !== ""; role: "hint"; text: modelData.detail }
                 Label {
                     width: parent.width
