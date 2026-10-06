@@ -152,6 +152,76 @@ else
   fail "qml mutation planning unreadable list: status=$status output=$out"
 fi
 
+# A table edit runs the rows it adds or edits. A git copy of the script
+# holds the shipped table as its base; each case edits the copy as a lane
+# would, and the plan must run exactly the rows the case names.
+q="$tmp/qml-table"
+mkdir -p "$q/scripts"
+cp -- "$repo/scripts/test-qml-unit.sh" "$q/scripts/test-qml-unit.sh"
+"${base_env[@]}" git -C "$q" init -q
+"${base_env[@]}" git -C "$q" add -A
+"${base_env[@]}" git -C "$q" commit -q -m base
+q_base="$("${base_env[@]}" git -C "$q" rev-parse HEAD)"
+printf '%s\0' scripts/test-qml-unit.sh >"$tmp/qml-table.paths"
+# table_case NAME EDIT BASE WANT-SCOPE WANT-RUNS [WANT-LINE]: EDIT names
+# one change to the copy; the edit prints the label of the row it adds or
+# edits, which must be the run line; BASE `-` leaves VGS_VALIDATE_BASE unset.
+table_case() {
+  local name="$1" edit="$2" base="$3" want_scope="$4" want_runs="$5" want_line="${6:-}" label out status=0 run_count
+  local -a base_arg=()
+  [[ $base == - ]] || base_arg=(VGS_VALIDATE_BASE="$base")
+  "${base_env[@]}" git -C "$q" checkout -q -- scripts/test-qml-unit.sh
+  label="$(python3 - "$q/scripts/test-qml-unit.sh" "$edit" <<'PY'
+import sys
+path, edit = sys.argv[1:]
+old = open(path, encoding="utf-8").read()
+lines = old.split("\n")
+start = lines.index("mutations=(") + 1
+label = ""
+if edit == "edit-row":
+    lines[start] = '  "edited ' + lines[start][3:]
+    label = lines[start][3:].split("|")[0]
+elif edit == "add-row":
+    lines.insert(start + 1, '  "an added row|foundation/QrMatrix.qml|planted|planted|tst_qrmatrix.qml"')
+    label = "an added row"
+elif edit == "remove-row":
+    del lines[start]
+elif edit == "move-row":
+    lines[start], lines[start + 1] = lines[start + 1], lines[start]
+elif edit == "outside-table":
+    lines.insert(start - 1, "# an edit outside the table")
+elif edit == "row-shape":
+    lines.insert(start + 1, "  # a line in the table that is no row")
+new = "\n".join(lines)
+if edit != "none" and new == old:
+    sys.exit("edit=unchanged " + edit)
+open(path, "w", encoding="utf-8").write(new)
+print(label)
+PY
+)" || { fail "$name: the edit did not apply"; return; }
+  out="$("${base_env[@]}" VGS_VALIDATE_CHANGED="$tmp/qml-table.paths" "${base_arg[@]}" "$q/scripts/test-qml-unit.sh" --plan 2>&1)" || status=$?
+  run_count="$(grep -c '^run ' <<<"$out" || true)"
+  if [[ $status == 0 && $run_count == "$want_runs" ]] &&
+     grep -qxF "test-qml-unit: scope=changed mutations=$want_scope" <<<"$out" &&
+     { [[ -z $label ]] || grep -qxF "run $label" <<<"$out"; } &&
+     { [[ -z $want_line ]] || grep -qF -e "$want_line" <<<"$out"; }; then
+    ok "$name"
+  else
+    fail "$name: status=$status runs=$run_count want=$want_runs label=$label"
+    printf '%s\n' "$out" | grep -v '^skip ' | sed 's/^/        /'
+  fi
+}
+if [[ $qml_total != unread ]]; then
+  table_case "qml mutation planning runs an edited table row alone" edit-row "$q_base" "1/$qml_total" 1
+  table_case "qml mutation planning runs an added table row alone" add-row "$q_base" "1/$((qml_total + 1))" 1
+  table_case "qml mutation planning runs nothing for a removed table row" remove-row "$q_base" "0/$((qml_total - 1))" 0
+  table_case "qml mutation planning runs nothing for a moved table row" move-row "$q_base" "0/$qml_total" 0
+  table_case "qml mutation planning runs every row for an edit outside the table" outside-table "$q_base" "$qml_total/$qml_total" "$qml_total" "test-qml-unit: table=all reason=outside-table"
+  table_case "qml mutation planning runs every row for a table line that is no row" row-shape "$q_base" "$qml_total/$qml_total" "$qml_total" "test-qml-unit: table=all reason=row-shape"
+  table_case "qml mutation planning runs every row for an unreadable base" edit-row "0000000000000000000000000000000000000000" "$qml_total/$qml_total" "$qml_total" "test-qml-unit: table=all reason=base-unreadable"
+  table_case "qml mutation planning runs every row with no base" edit-row - "$qml_total/$qml_total" "$qml_total" "test-qml-unit: table=all reason=base-unset"
+fi
+
 d="$tmp/clean"; fresh "$d"
 trunk="$("${base_env[@]}" git -C "$d" rev-parse refs/remotes/origin/trunk)"
 row "a clean tree passes against the base the settings file names" "$d" 0 "" \

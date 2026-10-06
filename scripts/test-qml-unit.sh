@@ -18,7 +18,11 @@
 # the script prints the mutation rows that would run or skip, using the same
 # scoping rule as the real run. When VGS_VALIDATE_CHANGED names a readable
 # NUL-delimited changed-path list, only mutations for a changed target, a
-# changed test file, or a changed harness or stand-in module run. An unset
+# changed test file, a changed table row, or a changed harness or stand-in
+# module run. A change to this script runs the rows whose line the table at
+# VGS_VALIDATE_BASE does not hold, an added or edited row; a change outside
+# the table, or a base copy it cannot read, runs every mutation and prints
+# `test-qml-unit: table=all reason=<reason>`. An unset
 # or empty VGS_VALIDATE_CHANGED runs every mutation. A shared file can weaken
 # a test of a component it did not touch; that is test strength, not product
 # behavior. Product QML unit tests still run in full, and direct runs or
@@ -904,11 +908,50 @@ path_changed() { # REPO-PATH
   return 1
 }
 
+# table_part rows|rest: the lines of the script on stdin inside the
+# mutations=( ) table, or every other line.
+table_part() {
+  awk -v want="$1" '
+    inside && /^\)$/ { inside = 0 }
+    { if ((inside ? "rows" : "rest") == want) print }
+    /^mutations=\($/ { inside = 1 }'
+}
+
+# A row's own line is one of its inputs: mark in edited_rows each row whose
+# line the table at the change base does not hold. Returns 1 after naming
+# the reason when the change reaches past the table's rows.
+edited_rows=()
+table_edit() {
+  local base_text line index
+  local -a row_lines
+  local -A base_rows=()
+  if [[ -z ${VGS_VALIDATE_BASE:-} ]]; then
+    echo 'test-qml-unit: table=all reason=base-unset'; return 1
+  fi
+  if ! base_text="$(git -C "$repo" show "$VGS_VALIDATE_BASE:scripts/test-qml-unit.sh" 2>/dev/null)"; then
+    printf 'test-qml-unit: table=all reason=base-unreadable base=%s\n' "$VGS_VALIDATE_BASE"; return 1
+  fi
+  if [[ "$(table_part rest <<<"$base_text")" != "$(table_part rest <"$self")" ]]; then
+    echo 'test-qml-unit: table=all reason=outside-table'; return 1
+  fi
+  # One line per row is what maps a line to its mutation.
+  mapfile -t row_lines < <(table_part rows <"$self")
+  if [[ ${#row_lines[@]} -ne ${#mutations[@]} ]]; then
+    printf 'test-qml-unit: table=all reason=row-shape lines=%s rows=%s\n' "${#row_lines[@]}" "${#mutations[@]}"; return 1
+  fi
+  while IFS= read -r line; do base_rows[$line]=1; done < <(table_part rows <<<"$base_text")
+  for index in "${!row_lines[@]}"; do
+    [[ -n ${base_rows[${row_lines[index]}]-} ]] || edited_rows[index]=1
+  done
+  printf 'test-qml-unit: table=rows edited=%s\n' "${#edited_rows[@]}"
+}
+
 shared_change=false
 if [[ $scope == changed ]]; then
   for changed_path in "${changed_paths[@]}"; do
     case "$changed_path" in
-      scripts/qml-unit.sh|scripts/test-qml-unit.sh) shared_change=true ;;
+      scripts/qml-unit.sh) shared_change=true ;;
+      scripts/test-qml-unit.sh) table_edit || shared_change=true ;;
       scripts/qml-tests/*)
         base_name="${changed_path##*/}"
         [[ $base_name == tst_*.qml ]] || shared_change=true ;;
@@ -916,10 +959,11 @@ if [[ $scope == changed ]]; then
   done
 fi
 
-mutation_selected() { # FILE-FIELD TEST-FILE
-  local file="$1" test="$2"
+mutation_selected() { # INDEX FILE-FIELD TEST-FILE
+  local index="$1" file="$2" test="$3"
   [[ $scope == all ]] && return 0
   [[ $shared_change == true ]] && return 0
+  [[ -n ${edited_rows[index]-} ]] && return 0
   path_changed "$(mutation_target_path "$file")" && return 0
   path_changed "scripts/qml-tests/$test" && return 0
   return 1
@@ -928,9 +972,9 @@ mutation_selected() { # FILE-FIELD TEST-FILE
 mutation_plan=()
 ran_mutations=0
 skipped_mutations=0
-for row in "${mutations[@]}"; do
-  IFS='|' read -r label file _needle _replacement test <<<"$row"
-  if mutation_selected "$file" "$test"; then
+for index in "${!mutations[@]}"; do
+  IFS='|' read -r label file _needle _replacement test <<<"${mutations[index]}"
+  if mutation_selected "$index" "$file" "$test"; then
     mutation_plan+=("run $label")
     ran_mutations=$((ran_mutations + 1))
   else
