@@ -35,6 +35,7 @@ Hyprland runs a global bind before the focused layer or window sees the key, so 
 - Do remove a user's line only after the user confirms it, only a whole `hl.bind` line under the Hyprland directory that binds a plugin's key, through `vgshell hypr remove-bind`, and put it back only between the lines it stood between. `scripts/test-hyprland-state.js`, `scripts/test-vgshell-hypr.sh` and `scripts/smoke/rows/hyprland-options.sh` pin it.
 - Do render the layer in the runner's shell only, after the first scan, the configuration and the theme are read.
 - Do read outputs on activation and on every monitor and `configreloaded` event, and keep `monitors` non-exclusive. `scripts/smoke/rows/monitor-outputs.sh` and `scripts/test-plugin-logic.js` pin both.
+- Do turn an output off in the layer only inside a check that another output stays on, run as the file loads and on `monitor.added`, and reload once no output but `FALLBACK` is lit; a display trial's restore ends with the same reload. The Hyprland behaviour this rests on is stated at `shell/Core/MonitorLogic.js`. `scripts/test-monitor-logic.js` runs the block under Lua and `scripts/smoke/rows/displays-modes.sh` reads it back.
 
 ### Dispatch
 

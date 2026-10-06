@@ -582,7 +582,7 @@ expect "no Slack tokens row takes an edit" '[[]]' ipc smoke statusRowInputs wind
 set_slack_photos absent
 expect_poll "the extra off again takes the Slack tokens row away" '[]' status_of vgs.notifications
 
-# Pointer scrolling (design-system.md § Pointer): a mouse drag on the page
+# Pointer scrolling (docs/architecture/design-system.md § Pointer): a mouse drag on the page
 # leaves it where it was, a wheel notch scrolls it, and Tab still scrolls
 # each focused
 # row into view. The control gives the same page Qt's left-button drag back
@@ -598,7 +598,7 @@ expect "a wheel notch on the page scrolls it" moved view_pointer window:Plugins 
 expect "control: the probe gives the page Qt's left-button drag" 0 ipc smoke setViewButtons window vgs.settings Layout 1
 expect "control: the same drag then scrolls the page" moved view_pointer window:Plugins window vgs.settings Layout drag
 expect "the page takes no mouse button again" 1 ipc smoke setViewButtons window vgs.settings Layout 0
-# Touchpad scrolling (design-system.md § Pointer): a two-finger swipe of
+# Touchpad scrolling (docs/architecture/design-system.md § Pointer): a two-finger swipe of
 # 40 px of axis length moves the page as far as GTK moves a list, and a
 # wheel notch still
 # moves it Qt's own step, 72 px. The control turns the page's touchpad

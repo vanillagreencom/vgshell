@@ -372,7 +372,7 @@ function luaList(ids) {
 // ensureMonitorStatus (MonitorRuleManager.cpp), posting `monitor.removed`
 // for each output a rule turns off, so the outputs are read from a oneshot
 // timer, which the event loop runs once that pass has returned; any timeout
-// above zero does (docs/architecture/runtime-hyprland.md).
+// above zero does (docs/architecture/hyprland.md § Configuration layer).
 function relightLines(gate) {
     return [
         "hl.timer(function()",
@@ -390,7 +390,7 @@ function relightLines(gate) {
 // before Hyprland lists any output at start, so the check runs again as each
 // output comes; Hyprland 0.56.2 lists enabled outputs that mirror nothing,
 // or FALLBACK when none is left, in `hl.get_monitors()`, each with the short
-// description a `desc:` identifier names (docs/architecture/runtime-hyprland.md).
+// description a `desc:` identifier names (docs/architecture/hyprland.md § Configuration layer).
 function guardLines(rules, ids) {
     var off = ids.filter(function (id) { return rules[id].disabled === true; });
     if (off.length === 0) return [];

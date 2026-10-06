@@ -68,7 +68,7 @@ expect_poll "Tab reaches the current device's overflow" True device_focus_is Ico
 type_keys -k Tab || fail "tabbing past the device row failed"
 expect_poll "Tab skips an unselected device row and reaches its action" True device_focus_is Button Mouse
 
-# Pointer scrolling (design-system.md § Pointer) on a plain Flickable a
+# Pointer scrolling (docs/architecture/design-system.md § Pointer) on a plain Flickable a
 # plugin declares, the gallery's slim list, brought into the window first:
 # a mouse drag leaves it where it was and a wheel notch scrolls it. The
 # control gives the
@@ -84,7 +84,7 @@ expect "a wheel notch on the slim list scrolls it" moved view_pointer "window:VG
 expect "control: the probe gives the slim list Qt's left-button drag" 0 ipc smoke setViewButtons window vgs.gallery "Slim 1" 1
 expect "control: the same drag then scrolls the slim list" moved view_pointer "window:VGS Components" window vgs.gallery "Slim 1" drag
 expect "the slim list takes no mouse button again" 1 ipc smoke setViewButtons window vgs.gallery "Slim 1" 0
-# Touchpad scrolling (design-system.md § Pointer) of a view inside a view:
+# Touchpad scrolling (docs/architecture/design-system.md § Pointer) of a view inside a view:
 # a two-finger swipe of 10 px of axis length over the slim list moves it
 # as far as GTK
 # moves a list and leaves the page that holds it where it was, to the

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The vgs.notifications `open` floating TUI: opens the file a notification's
 # x-vgs-open hint names, when its x-vgs-click hint is `open`
-# (the plugin's developer.md § Hints). It runs $EDITOR on the file,
+# (shell/plugins/vgs.notifications/developer.md § Hints). It runs $EDITOR on the file,
 # split on white space so `code --wait` works, in this terminal, so a
 # terminal editor has a window; with EDITOR unset or empty it hands the
 # file to xdg-open. The path is absolute, so no editor reads it as an
