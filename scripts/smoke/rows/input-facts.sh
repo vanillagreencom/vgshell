@@ -4,7 +4,11 @@
 # No key, click, TUI, authentication or network operation is sent. The layer
 # controls drop the layer reply and suppress host keyboard-focus records
 # only inside a disposable fixture. The same protection assertions must
-# fail once. Polls use expect_poll's 200 ms interval;
+# fail once. The row removes the fixtures it installed: a bar-widget
+# fixture left installed with no place in the restored configuration takes
+# its first presence on the next scan that changes the plugin set, and
+# acme.surfaces' background then maps in a later row; a planted copy left
+# installed is that rule's control. Polls use expect_poll's 200 ms interval;
 # no latency or resource budget is measured here.
 # inputs: scripts/smoke/fixtures/plugins/acme.input-facts/* scripts/smoke/fixtures/plugins/acme.surfaces/* scripts/smoke/fixtures/plugins/acme.layers/* shell/Core/Compositor.qml shell/Core/HyprlandState.* scripts/smoke/toplevel/* bin/lib/xkb-keys.py shell/Core/Dispatch.js scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
@@ -13,7 +17,11 @@ input_facts_config="$home/.config/vgshell/shell.json"
 input_facts_lua="$home/.config/hypr/hyprland.lua"
 cp -- "$input_facts_config" "$sandbox/input-facts-config-before.json"
 cp -- "$input_facts_lua" "$sandbox/input-facts-lua-before"
+# The fixtures this row installs, which it removes at its end; a fixture an
+# earlier row installed stays.
+input_facts_installed=()
 for input_facts_id in acme.input-facts acme.surfaces acme.layers; do
+  [[ -e $home/.config/vgshell/plugins/$input_facts_id ]] || input_facts_installed+=("$input_facts_id")
   mkdir -p "$home/.config/vgshell/plugins/$input_facts_id"
   cp -R "$repo/scripts/smoke/fixtures/plugins/$input_facts_id/." "$home/.config/vgshell/plugins/$input_facts_id/"
 done
@@ -78,6 +86,14 @@ print(json.dumps({"x":int(x+w/2),"y":int(y+h/2)},separators=(",", ":")))' "$1"
 input_facts_keyboard_protected() {
   expect "an interactive VGS layer protects keyboard input over an external active window" \
     '{"kind":"vgs","id":"keyboard"}' input_facts_result target
+}
+# input_facts_placed ID...: the IDs the bar layout places, sorted. Read over
+# IPC after a scan, so the first presence that scan queued has run.
+input_facts_placed() {
+  ipc shell listShellConfig | py_reply 'import json,sys
+layout=json.load(sys.stdin).get("bar",{}).get("layout",{})
+placed={e.get("id") for s in layout.values() if isinstance(s,list) for e in s if isinstance(e,dict)}
+print(json.dumps(sorted(placed & set(sys.argv[1:]))))' "$@"
 }
 
 printf '%s\n' 'hl.config({ input = { kb_layout = "us,de", kb_variant = "", kb_options = "" } })' >>"$input_facts_lua"
@@ -230,6 +246,24 @@ else
 fi
 
 expect "the input facts fixture disables" ok ipc shell setPluginEnabled acme.input-facts false
+# Control: a bar-widget fixture left installed with no place, row or
+# disabledPlugins entry takes its first presence on the next scan that
+# changes the plugin set, and a background it brings then maps in
+# whichever row runs that scan.
+input_facts_left="$home/.config/vgshell/plugins/acme.surfaces-left"
+cp -R "$repo/scripts/smoke/fixtures/plugins/acme.surfaces/." "$input_facts_left/"
+python3 - "$input_facts_left/manifest.json" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1]); assert not p.is_symlink()
+s=p.read_text()
+before='"id": "acme.surfaces"'
+assert s.count(before)==1
+p.write_text(s.replace(before, '"id": "acme.surfaces-left"'))
+PY
+rescan "control: the sandbox discovers a fixture left installed"
+expect_poll "control: the next changed scan places the fixture left installed" '["acme.surfaces-left"]' input_facts_placed acme.surfaces-left
+expect_poll "control: the placed fixture maps a background" "$monitors" layer_count vgs:background
 cp -- "$sandbox/input-facts-config-before.json" "$input_facts_config.next"
 mv -T -- "$input_facts_config.next" "$input_facts_config"
 cp -- "$sandbox/input-facts-lua-before" "$input_facts_lua.next"
@@ -238,3 +272,13 @@ expect "the input facts row restores shell configuration" ok ipc shell reloadCon
 expect "the input facts row restores keyboard configuration" ok hypr reload config-only
 rm -- "$home/.local/share/applications/smoke.input-facts.desktop"
 expect "the input facts row leaves no nested configuration errors" '[]' config_errors
+rm -rf -- "$input_facts_left"
+for input_facts_id in "${input_facts_installed[@]}"; do
+  rm -rf -- "$home/.config/vgshell/plugins/${input_facts_id:?}"
+done
+rescan "the fixtures the row installed leave the plugin set"
+for input_facts_id in acme.surfaces-left "${input_facts_installed[@]}"; do
+  expect "the scan no longer knows $input_facts_id" False plugin_known "$input_facts_id"
+done
+expect "the scan after the row places none of the fixtures it removed" '[]' input_facts_placed acme.surfaces-left "${input_facts_installed[@]}"
+expect_poll "no background is mapped after the row" 0 layer_count vgs:background
