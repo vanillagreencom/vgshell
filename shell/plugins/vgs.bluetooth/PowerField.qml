@@ -7,18 +7,18 @@ import qs.Ui
 // hint or an error. A refused press keeps its line until the next press.
 Field {
     id: root
-    property var shell: null
-    property var shell: null
-    readonly property alias power: state.power
-    readonly property alias toggle: powerSwitch
-    readonly property alias toggle: powerSwitch
-    property alias problem: state.problem
-    readonly property alias line: state.line
 
-    function setPower(on) { return state.setPower(on); }
+    property var shell: null
+    readonly property alias power: powerState.power
+    readonly property alias powerOn: powerState.powerOn
+    readonly property alias toggle: powerSwitch
+    property alias problem: powerState.problem
+    readonly property alias line: powerState.line
+
+    function setPower(on) { return powerState.setPower(on); }
 
     Power {
-        id: state
+        id: powerState
         shell: root.shell
     }
 

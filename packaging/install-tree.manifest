@@ -251,6 +251,7 @@ f share/vgshell/shell/plugins/vgs.bluetooth/DiscoveryLease.qml
 f share/vgshell/shell/plugins/vgs.bluetooth/Pairing.qml
 f share/vgshell/shell/plugins/vgs.bluetooth/Pane.qml
 f share/vgshell/shell/plugins/vgs.bluetooth/Panel.qml
+f share/vgshell/shell/plugins/vgs.bluetooth/Power.qml
 f share/vgshell/shell/plugins/vgs.bluetooth/PowerField.qml
 f share/vgshell/shell/plugins/vgs.bluetooth/Prompt.qml
 f share/vgshell/shell/plugins/vgs.bluetooth/Service.qml

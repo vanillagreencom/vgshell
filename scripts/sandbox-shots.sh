@@ -30,8 +30,9 @@
 # is the System window as it opens with no System section enabled, then
 # System → Displays over the device fakes when the tree ships it, and
 # its Sound section over the sandbox's private PipeWire; bluetooth is
-# its Bluetooth section over the device fakes; vpn is its VPN section over
-# the tailscale stand-in; keyhints is the
+# its Bluetooth section, then the Bluetooth dropdown, over the device
+# fakes; vpn is its VPN section, then the VPN dropdown, over the
+# tailscale stand-in; keyhints is the
 # Key Hints window over the Launcher's, Settings' and Themes' shortcuts and
 # its own; ai-usage is AI Usage's dropdown opened from its bar widget over
 # three signed-in accounts, two Claude Code and one Codex, at rest and
@@ -1967,9 +1968,15 @@ scene_bluetooth() { # MODE
   take "bluetooth-$1"
   expect "the System window hides" ok ipc shell hide window vgs.system
   expect_poll "the System window is gone" hidden system_shown
+  click_centre "$(bar_key)" vgs.bluetooth || fail "the click on the Bluetooth widget failed"
+  expect_poll "the Bluetooth widget opens its dropdown" shown bluetooth_shot_panel
+  park_pointer
+  take "bluetooth-$1-dropdown"
+  expect "the Bluetooth dropdown hides" ok ipc shell hide panel vgs.bluetooth
   expect "disabling vgs.system after the Bluetooth shot is allowed" ok ipc shell setPluginEnabled vgs.system false
   expect "disabling vgs.bluetooth after its shot is allowed" ok ipc shell setPluginEnabled vgs.bluetooth false
 }
+bluetooth_shot_panel() { [[ $(ipc smoke instanceGeometry panel vgs.bluetooth) != absent ]] && echo shown || echo hidden; }
 bluetooth_nearby() { ipc smoke readInstance window vgs.bluetooth lists | py_reply 'import json,sys; print(len(json.load(sys.stdin)["nearby"]))'; }
 
 # The core's requirement notice, raised by enabling the acme.needs
@@ -2043,10 +2050,16 @@ scene_vpn() { # MODE
   park_pointer
   take "vpn-$1-pane"
   expect "the VPN System window closes" ok ipc shell hide window vgs.system
+  click_centre "$(bar_key)" vgs.vpn || fail "the click on the VPN widget failed"
+  expect_poll "the VPN widget opens its dropdown" shown vpn_shot_panel
+  park_pointer
+  take "vpn-$1-dropdown"
+  expect "the VPN dropdown hides" ok ipc shell hide panel vgs.vpn
   expect "VPN disables after its shot" ok ipc shell setPluginEnabled vgs.vpn false
   expect "System disables after the VPN shot" ok ipc shell setPluginEnabled vgs.system false
   device_reply_clear tailscale
 }
+vpn_shot_panel() { [[ $(ipc smoke instanceGeometry panel vgs.vpn) != absent ]] && echo shown || echo hidden; }
 vpn_shot_shown() { [[ $(ipc smoke instanceGeometry window vgs.vpn) != absent ]] && echo shown || echo hidden; }
 vpn_shot_read() { ipc smoke readDescendant window vgs.vpn VpnBody vpn | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps([v["state"], len(v["accounts"])]))'; }
 network_shot_shown() { [[ $(ipc smoke instanceGeometry window vgs.network) != absent ]] && echo shown || echo hidden; }
