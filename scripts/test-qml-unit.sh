@@ -98,6 +98,7 @@ mutations=(
   "a released undo is kept|../Core/KeyCapture.qml|delete removedBinds.rows[token];|;|tst_keycapture.qml"
   "a removal answered after its instance is gone is kept|../Core/KeyCapture.qml|else if (value.ok) root.releaseUserBind(value.token);|else if (false) root.releaseUserBind(value.token);|tst_keycapture.qml"
   "a destroyed key field keeps its undo|../plugins/vgs.settings/KeyField.qml|if (removed !== null && capture !== null) capture.releaseUserBind(removed.token);|{}|tst_keycapture.qml"
+  "an undo answered after its key field is gone writes to the field|../plugins/vgs.settings/KeyField.qml|if (life.gone) return;|{}|tst_keycapture.qml"
   "a removal answered after its key field is gone is kept|../plugins/vgs.settings/KeyField.qml|if (reply.ok) keyCapture.releaseUserBind(reply.token);|{}|tst_keycapture.qml"
   "the conflict carries no user line|../Core/KeyCapture.qml|const userBinds = found.user ? source.userBindsFor(Logic.hyprlandKey(key).key) : [];|const userBinds = [];|tst_keycapture.qml"
   "key capture never enters the pass-through|../Core/KeyCapture.qml|const answer = Compositor.passthrough(verb, reply => root.entered(at, reply));|const answer = \"ok\";|tst_keycapture.qml"

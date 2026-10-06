@@ -834,6 +834,14 @@ printf '{ "version": 1, "plugins": [ { "id": "acme.probe", "label": "kept" } ] }
 inst "add of a plugin the configuration lists succeeds" "$cfg" "$rt_empty" 0 "shell=not-running" "" plugin add --yes "$tmp/src/probe.git"
 check "add of a listed plugin reports the user file written" test "$(head -n 1 "$tmp/out")" == "ok added=acme.probe path=$cfg/vgshell/plugins/acme.probe config=written lands=disabled"
 check "add lands a listed plugin disabled and keeps its settings row" json_is "$cfg/vgshell/shell.json" 'd["disabledPlugins"] == ["acme.probe"] and d["plugins"] == [{"id": "acme.probe", "label": "kept"}]'
+# A user file a dotfile manager keeps as a link stays a link: the landing
+# edits the file the link names.
+cfg="$tmp/cfg-linked"; mkdir -p "$cfg/vgshell" "$tmp/dotfiles"
+printf '{ "version": 1, "plugins": [ { "id": "acme.probe", "label": "kept" } ] }\n' >"$tmp/dotfiles/shell.json"
+ln -s "$tmp/dotfiles/shell.json" "$cfg/vgshell/shell.json"
+inst "add with a linked user file succeeds" "$cfg" "$rt_empty" 0 "shell=not-running" "" plugin add --yes "$tmp/src/probe.git"
+check "add keeps a linked user file a link" test -L "$cfg/vgshell/shell.json"
+check "add lands the plugin in the file the link names" json_is "$tmp/dotfiles/shell.json" 'd["disabledPlugins"] == ["acme.probe"] and d["plugins"] == [{"id": "acme.probe", "label": "kept"}]'
 
 # A plugin with a bar widget lands shown: enabled, its widget at the end of
 # its default section, a disabled entry an earlier install left unlisted.

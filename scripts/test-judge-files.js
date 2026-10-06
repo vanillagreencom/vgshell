@@ -193,6 +193,7 @@ try {
         ["owner-only staging", '{ flag: "wx", mode: 0o600 }', '{ flag: "wx" }'],
         ["stale staging removed", "                fs.rmSync(tmp, { force: true });\n", ""],
         ["kept mode", "                fs.chmodSync(tmp, mode);\n", ""],
+        ["a refused rename leaves no staging file", "if (changed) fs.rmSync(tmp, { force: true });", "if (changed) {}"],
         ["the file is compared before the rename", "if (current !== undefined) changed = !holds(file, current);", ""],
         ["a changed file is edited once more", 'first.reason === "changed" ? editOnce(key, file, create, edit) : first', 'false ? editOnce(key, file, create, edit) : first'],
         ["a file that appeared before the create is changed", 'e.code === "EEXIST" && fs.existsSync(file)', 'false'],

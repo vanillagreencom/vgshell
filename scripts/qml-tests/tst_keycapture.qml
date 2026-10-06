@@ -369,6 +369,19 @@ Item {
             compare(source.edits.length, 1);
         }
 
+        function test_an_undo_answered_after_its_field_is_gone_touches_nothing() {
+            source.userRows = { "SUPER+SPACE": [userLine(true)] };
+            const field = keyField.createObject(root, { capture: root.capture });
+            field.removeLine(userLine(true));
+            removedOk(0);
+            field.undoRemoval();
+            compare(source.edits.length, 2);
+            field.destroy();
+            wait(0); // QObject.destroy() completes after the current event turn.
+            source.edits[1].done({ ok: false, error: "refused: hypr=changed path=/h/.config/hypr/binds.lua" });
+            compare(heldTokens(), "[]");
+        }
+
         function test_a_released_or_orphaned_removal_keeps_no_undo() {
             root.answers = [];
             source.userRows = { "SUPER+SPACE": [userLine(true)] };
