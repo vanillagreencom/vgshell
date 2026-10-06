@@ -57,7 +57,7 @@ Item {
         "record": "Record an area",
         "record-window": "Start or stop recording a window",
         "record-display": "Start or stop recording a chosen display",
-        "record-output": "Start or stop recording the focused display",
+        "record-output": "Record this screen",
         "record-portal": "Start or stop recording what the screen picker shares",
         "text": "Copy text from an area",
         "toggle": "Open or close Capture"
