@@ -114,6 +114,7 @@ for (const { dir, text } of manifests()) {
     seen[r.manifest.id] = dir;
     let missing = false;
     for (const bind of (r.manifest.hyprland === undefined ? [] : r.manifest.hyprland.binds)) {
+        if (bind.key === null) continue;
         const prior = defaultKeys[bind.key];
         const owner = r.manifest.id + ":" + bind.shortcut;
         if (prior !== undefined) {

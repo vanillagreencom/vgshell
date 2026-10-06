@@ -97,6 +97,11 @@ function suite(ctx, check) {
         ["optIn on a widget-only plugin", { kinds: ["bar-widget"], entryPoints: { "bar-widget": "W.qml" }, optIn: true }, "optIn needs a kind other than bar"],
         ["defaultSection unknown", { kinds: ["bar-widget"], entryPoints: { "bar-widget": "W.qml" }, defaultSection: "top" }, "defaultSection must be one of"],
         ["known capability", { capabilities: ["compositor"] }, null],
+        ["a tap bind", { capabilities: ["shortcut"], hyprland: { binds: [{ shortcut: "tap", key: "code:108", tap: true }] } }, null],
+        ["a null default key", { capabilities: ["shortcut"], hyprland: { binds: [{ shortcut: "tap", key: null, tap: true }] } }, null],
+        ["a non-boolean tap is refused", { capabilities: ["shortcut"], hyprland: { binds: [{ shortcut: "tap", key: "code:108", tap: "yes" }] } }, "hyprland.binds.0.tap must be a boolean"],
+        ["tap and hold together are refused", { capabilities: ["shortcut"], hyprland: { binds: [{ shortcut: "tap", key: "code:108", tap: true, hold: true }] } }, "hyprland.binds.0 must not set tap and hold together"],
+        ["a tap manifest key with modifiers is refused", { capabilities: ["shortcut"], hyprland: { binds: [{ shortcut: "tap", key: "SUPER+code:108", tap: true }] } }, "hyprland.binds.0.key SUPER+code:108 must be a lone key for tap"],
         ["schema not an object", { schema: [] }, "schema must be an object"],
         ["schema entry carrying the id key", { schema: { id: { type: "string", label: "x" } } }, "schema must not carry an id key"],
         ["schema entry not an object", { settings: { a: "x" }, schema: { a: "string" } }, "schema.a must be an object"],
@@ -862,6 +867,9 @@ function suite(ctx, check) {
     const keyed = ctx.validateManifest({ schemaVersion: 1, id: "acme.keys", name: "K", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "S.qml" }, capabilities: ["shortcut"],
         hyprland: { binds: [{ shortcut: "toggle", key: "super+m" }, { shortcut: "peek", key: "SUPER+P" }] } }, "/p").manifest;
     if (keyed === undefined) throw new Error("fixture manifest refused: acme.keys");
+    const tapKeyed = ctx.validateManifest({ schemaVersion: 1, id: "acme.tap", name: "T", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "S.qml" }, capabilities: ["shortcut"],
+        hyprland: { binds: [{ shortcut: "tap", key: null, tap: true }] } }, "/p").manifest;
+    if (tapKeyed === undefined) throw new Error("fixture manifest refused: acme.tap");
 
     // keyRefusal rows: [name, manifest, shortcut, key, want]
     const keyRefusalRows = [
@@ -869,6 +877,8 @@ function suite(ctx, check) {
         ["Settings accepts a keycode", keyed, "toggle", "shift+super+CODE:00108", ""],
         ["null unbinds a declared shortcut", keyed, "toggle", null, ""],
         ["undefined resets a declared shortcut", keyed, "toggle", undefined, ""],
+        ["a tap shortcut takes a lone key", tapKeyed, "tap", "code:108", ""],
+        ["a tap shortcut refuses modifiers", tapKeyed, "tap", "SUPER+code:108", "refused: key=tap tap-lone-key"],
         ["an undeclared shortcut is refused", keyed, "other", "SUPER+K", "refused: key=other undeclared"],
         ["a prototype name is undeclared", keyed, "constructor", "SUPER+K", "refused: key=constructor undeclared"],
         ["a plugin without binds declares none", manifests["acme.svc"], "toggle", "SUPER+K", "refused: key=toggle undeclared"],
@@ -1059,9 +1069,10 @@ const CONTROLS = [
     ["group a non-empty string", "(typeof entry.group !== \"string\" || entry.group.length === 0)", "false"],
     ["a number under min does not fit", "if (entry.min !== undefined && value < entry.min) return", "if (false) return"],
     ["a number over max does not fit", "if (entry.max !== undefined && value > entry.max) return", "if (false) return"],
-    ["a key needs a declared bind", "if (!binds.some(function (bind) { return bind.shortcut === shortcut; }) && !Pads.isPadShortcut(manifest.hyprland, shortcut, NAME_PATTERN))", "if (false)"],
+    ["a key needs a declared bind", "if (bind === undefined && !Pads.isPadShortcut(manifest.hyprland, shortcut, NAME_PATTERN))", "if (false)"],
     ["a key is a string or null", "if (typeof key !== \"string\")\n        return \"refused: key=\" + shortcut + \" want=string-or-null\";", "if (false)\n        return \"refused: key=\" + shortcut + \" want=string-or-null\";"],
-    ["a key string is judged", "return parsed.ok ? \"\" :", "return true ? \"\" :"],
+    ["a key string is judged", "if (!parsed.ok)\n        return \"refused: key=\" + shortcut + \" \" + parsed.error;", "if (false)\n        return \"refused: key=\" + shortcut + \" \" + parsed.error;"],
+    ["a tap key from settings is lone", "if (bind !== undefined && bind.tap === true && keyHasModifiers(parsed.key))", "if (false)"],
     ["a written key is normalised", "row.keys[shortcut] = key === null ? null : hyprlandKey(key).key;", "row.keys[shortcut] = key === null ? null : key;"],
     ["null unbinds", "row.keys[shortcut] = key === null ? null : hyprlandKey(key).key;", "row.keys[shortcut] = hyprlandKey(key).key;"],
     ["an unset removes the key from the plugins row", "    if (row !== undefined) delete row[key];\n", ""],

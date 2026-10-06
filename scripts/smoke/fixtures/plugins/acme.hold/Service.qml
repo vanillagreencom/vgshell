@@ -17,6 +17,7 @@ Item {
         registered = true;
         shell.shortcut.register("talk", "hold talk", () => root.edge("talk-down"), () => root.edge("talk-up"));
         const releaseOther = shell.shortcut.register("other", "hold other", () => root.edge("other-down"), () => root.edge("other-up"));
+        shell.shortcut.register("tap", "tap", () => root.edge("tap"));
         shell.ipc.handle("reset", () => { root.edges = []; return "ok"; });
         shell.ipc.handle("release-other", () => { releaseOther(); return "ok"; });
     }

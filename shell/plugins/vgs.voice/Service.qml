@@ -51,7 +51,8 @@ Item {
         if (shell === null) return;
         if (registeredWith === null) {
             registeredWith = shell;
-            shell.shortcut.register("toggle", "Start or stop dictation", () => root.record("toggle"));
+            shell.shortcut.register("toggle", "Start or stop dictation", () => root.toggleDictation());
+            shell.shortcut.register("tap", "Tap to start or stop dictation", () => root.toggleDictation());
             shell.shortcut.register("talk", "Dictate while held", () => root.record("start"), () => root.record("stop"));
             shell.layers.show(osdLayer);
         }
@@ -93,6 +94,10 @@ Item {
         dictation = state;
         const tone = state === "recording" ? "warning" : state === "transcribing" ? "info" : state === "stopped" ? "warning" : "ok";
         publish("dictation", { tone: tone, text: state });
+    }
+
+    function toggleDictation() {
+        return root.record("toggle");
     }
 
     function setupStatusValue() {

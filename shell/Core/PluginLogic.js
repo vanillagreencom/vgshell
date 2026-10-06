@@ -194,7 +194,7 @@ var NAME_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
 // the core renders it (HyprlandLayer.js), so no plugin text reaches the
 // compositor's Lua.
 var HYPRLAND_KEYS = ["binds", "layerRules", "appearance", "options", "pads"];
-var HYPRLAND_BIND_KEYS = ["shortcut", "key", "hold"];
+var HYPRLAND_BIND_KEYS = ["shortcut", "key", "hold", "tap"];
 var HYPRLAND_RULE_KEYS = ["namespace", "blur", "ignoreAlpha"];
 // The modifiers a Hyprland key may hold, in the order a normalised key
 // writes them, and the key name after them: a keysym name, which Hyprland
@@ -1431,8 +1431,12 @@ function keysError(keys, at) {
     return "";
 }
 
+function keyHasModifiers(key) {
+    return typeof key === "string" && key.indexOf("+") !== -1;
+}
+
 // The first defect of a manifest's `hyprland` key, or "". It holds `binds`,
-// a list of { shortcut, key, hold? }, `layerRules`, a list of { namespace,
+// a list of { shortcut, key, hold?, tap? }, `layerRules`, a list of { namespace,
 // blur, ignoreAlpha }, and `appearance`, an object mapping the fixed
 // theme-appearance groups to boolean settings in this manifest. A bind's
 // shortcut is a name the plugin registers through its `shortcut` capability,
@@ -1481,9 +1485,17 @@ function hyprlandError(hyprland, capabilities, schema) {
         shortcuts.push(bind.shortcut);
         if (bind.hold !== undefined && typeof bind.hold !== "boolean")
             return at + ".hold must be a boolean";
+        if (bind.tap !== undefined && typeof bind.tap !== "boolean")
+            return at + ".tap must be a boolean";
+        if (bind.tap === true && bind.hold === true)
+            return at + " must not set tap and hold together";
+        if (bind.key === null)
+            continue;
         var key = hyprlandKey(bind.key);
         if (!key.ok)
             return at + ".key " + key.error;
+        if (bind.tap === true && keyHasModifiers(key.key))
+            return at + ".key " + key.key + " must be a lone key for tap";
         if (boundKeys.indexOf(key.key) !== -1)
             return at + ".key " + key.key + " is bound twice";
         boundKeys.push(key.key);
@@ -3158,8 +3170,9 @@ function validateManifest(raw, sourceDir) {
     if (raw.hyprland !== undefined) {
         manifest.hyprland = {
             binds: (raw.hyprland.binds || []).map(function (bind) {
-                var result = { shortcut: bind.shortcut, key: hyprlandKey(bind.key).key };
+                var result = { shortcut: bind.shortcut, key: bind.key === null ? null : hyprlandKey(bind.key).key };
                 if (bind.hold === true) result.hold = true;
+                if (bind.tap === true) result.tap = true;
                 return result;
             }),
             layerRules: clone(raw.hyprland.layerRules || []),
@@ -3294,7 +3307,7 @@ var ENTRY_RESERVED_KEYS = ["id", "keys"];
 
 // What plugin MANIFEST asks of Hyprland under CONFIG: { id, version, binds,
 // layerRules, appearance, options, unknownKeys }. `binds` follows the manifest's
-// `hyprland.binds` in order, each { shortcut, key, hold? }: the key its plugins
+// `hyprland.binds` in order, each { shortcut, key, hold?, tap? }: the key its plugins
 // row's `keys` gives that shortcut, normalised, null when the row gives it
 // null (the user unbinds it), else the manifest's. `appearance` resolves
 // each declared group to the boolean effective setting the plugin receives.
@@ -3318,7 +3331,10 @@ function hyprlandSection(config, manifest) {
         var key = hyprlandKey(keys[bind.shortcut]);
         if (!key.ok)
             throw new Error("hyprlandSection: plugins row " + manifest.id + " passed configError with keys." + bind.shortcut + " " + key.error);
-        return Object.assign({}, bind, { key: key.key });
+        var result = Object.assign({}, bind, { key: key.key });
+        if (bind.tap === true && keyHasModifiers(key.key))
+            result.error = "tap key must be a lone key with no modifiers";
+        return result;
     });
     var names = declared.binds.map(function (bind) { return bind.shortcut; });
     var settings = settingsFor(config, manifest, "plugins", null);
@@ -3619,14 +3635,19 @@ function settingRefusal(manifest, key, value) {
 // line.
 function keyRefusal(manifest, shortcut, key) {
     var binds = manifest.hyprland === undefined ? [] : manifest.hyprland.binds;
-    if (!binds.some(function (bind) { return bind.shortcut === shortcut; }) && !Pads.isPadShortcut(manifest.hyprland, shortcut, NAME_PATTERN))
+    var bind = binds.filter(function (row) { return row.shortcut === shortcut; })[0];
+    if (bind === undefined && !Pads.isPadShortcut(manifest.hyprland, shortcut, NAME_PATTERN))
         return "refused: key=" + shortcut + " undeclared";
     if (key === undefined || key === null)
         return "";
     if (typeof key !== "string")
         return "refused: key=" + shortcut + " want=string-or-null";
     var parsed = hyprlandKey(key);
-    return parsed.ok ? "" : "refused: key=" + shortcut + " " + parsed.error;
+    if (!parsed.ok)
+        return "refused: key=" + shortcut + " " + parsed.error;
+    if (bind !== undefined && bind.tap === true && keyHasModifiers(parsed.key))
+        return "refused: key=" + shortcut + " tap-lone-key";
+    return "";
 }
 
 // The user-file change that sets one shortcut's key in the plugin's plugins

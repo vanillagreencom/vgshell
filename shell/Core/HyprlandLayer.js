@@ -440,6 +440,7 @@ function resolveBinds(sections) {
             var global = section.id + ":" + bind.shortcut;
             keys[section.id][bind.shortcut] = null;
             if (bind.key === null) return { kind: "unbound", bind: bind, global: global };
+            if (bind.error !== undefined) return { kind: "refused", bind: bind, global: global, error: bind.error };
             if (held[bind.key] !== undefined) {
                 conflicts.push({ id: section.id, shortcut: bind.shortcut, key: bind.key, heldBy: held[bind.key] });
                 return { kind: "skipped", bind: bind, global: global, heldBy: held[bind.key] };
@@ -465,9 +466,42 @@ function releaseGlobal(entry) {
     return entry.bind.hold === true ? releaseShortcutName(entry.global) : null;
 }
 
+function tapTrackerWanted(plan) {
+    return plan.sections.some(function (row) {
+        return row.binds.some(function (entry) { return entry.kind === "bound" && entry.bind.tap === true; });
+    });
+}
+
+function tapTrackerLines() {
+    return [
+        "-- Tap shortcuts: a lone key press and release inside Hyprland's repeat delay sends the shortcut.",
+        "do",
+        "    hl.__vgs_tap = { held = {}, armed = nil, gate = nil }",
+        "    hl.on(\"input.keyboard.key\", function(code, ms, state)",
+        "        local tap = hl.__vgs_tap",
+        "        if state == 1 then",
+        "            for held in pairs(tap.held) do if not hl.is_key_down(held) then tap.held[held] = nil end end",
+        "            tap.armed = next(tap.held) == nil and { code = code, ms = ms } or nil",
+        "            if tap.armed ~= nil then tap.gate = nil end",
+        "            tap.held[code] = true",
+        "        elseif state == 0 then",
+        "            tap.held[code] = nil",
+        "            local armed, gate = tap.armed, tap.gate",
+        "            tap.armed, tap.gate = nil, nil",
+        "            if armed ~= nil and armed.code == code and gate ~= nil and ms - armed.ms < hl.get_config(\"input.repeat_delay\") then",
+        "                hl.dispatch(hl.dsp.global(gate))",
+        "            end",
+        "        end",
+        "    end)",
+        "end"
+    ];
+}
+
 function shortcutBindLines(entry) {
     var global = entry.global;
-    var lines = ["hl.bind(\"" + bindKeys(entry.bind.key) + "\", hl.dsp.global(\"" + global + "\"), { description = \"" + global + "\" })"];
+    var lines = entry.bind.tap === true
+        ? ["hl.bind(\"" + bindKeys(entry.bind.key) + "\", function() hl.__vgs_tap.gate = \"" + global + "\" end, { description = \"" + global + "\", non_consuming = true, transparent = true, ignore_mods = true })"]
+        : ["hl.bind(\"" + bindKeys(entry.bind.key) + "\", hl.dsp.global(\"" + global + "\"), { description = \"" + global + "\" })"];
     var release = releaseGlobal(entry);
     if (release !== null) {
         lines.push("hl.bind(\"" + bindKeys(entry.bind.key) + "\", hl.dsp.global(\"" + release + "\"), { description = \"" + release + "\", release = true, non_consuming = true, transparent = true, ignore_mods = true })");
@@ -998,7 +1032,9 @@ function render(sections, theme, themeName, highestScale, touchpads, touchpadFai
     });
     if (switches.groups.noGaps.enabled) groups = groups.concat(noGapsLines());
     else groups.push(disabledGroupLine("noGaps", switches.groups.noGaps.setting));
-    var lines = [""].concat(groups, [""], tuiWindowLines(theme.tuiMargins), [""], appWindowLines(), [""], overlayCaptureLines(plan), [""], keyPassthroughLines(), [""], sessionLockLines());
+    var lines = [""].concat(groups, [""], tuiWindowLines(theme.tuiMargins), [""], appWindowLines());
+    if (tapTrackerWanted(plan)) lines = lines.concat([""], tapTrackerLines());
+    lines = lines.concat([""], overlayCaptureLines(plan), [""], keyPassthroughLines(), [""], sessionLockLines());
     var written = Object.create(null);
     var options = { written: [], conflicts: [], refusals: [] };
     var optionsHeld = Object.create(null);
@@ -1025,7 +1061,11 @@ function render(sections, theme, themeName, highestScale, touchpads, touchpadFai
         });
         row.binds.forEach(function (entry) {
             if (entry.kind === "unbound") {
-                lines.push("-- unbound " + entry.global + ": shell.json sets its key to null");
+                lines.push("-- unbound " + entry.global + ": no key is set");
+                return;
+            }
+            if (entry.kind === "refused") {
+                lines.push("-- skipped " + entry.bind.key + ": " + commentText(entry.error));
                 return;
             }
             if (entry.kind === "skipped") {

@@ -46,6 +46,11 @@
         "key": "SUPER+CTRL+X"
       },
       {
+        "shortcut": "tap",
+        "key": null,
+        "tap": true
+      },
+      {
         "shortcut": "talk",
         "key": "F9",
         "hold": true

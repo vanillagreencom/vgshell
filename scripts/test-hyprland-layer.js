@@ -55,6 +55,28 @@ const APP_SECTION = [
     "-- Application windows: the shell's windows float, centred, at the size they ask.",
     "hl.window_rule({ name = \"vgs:window\", match = { class = \"^org\\\\.vgs\\\\.shell$\" }, float = true, center = true })"
 ];
+const TAP_SECTION = [
+    "-- Tap shortcuts: a lone key press and release inside Hyprland's repeat delay sends the shortcut.",
+    "do",
+    "    hl.__vgs_tap = { held = {}, armed = nil, gate = nil }",
+    "    hl.on(\"input.keyboard.key\", function(code, ms, state)",
+    "        local tap = hl.__vgs_tap",
+    "        if state == 1 then",
+    "            for held in pairs(tap.held) do if not hl.is_key_down(held) then tap.held[held] = nil end end",
+    "            tap.armed = next(tap.held) == nil and { code = code, ms = ms } or nil",
+    "            if tap.armed ~= nil then tap.gate = nil end",
+    "            tap.held[code] = true",
+    "        elseif state == 0 then",
+    "            tap.held[code] = nil",
+    "            local armed, gate = tap.armed, tap.gate",
+    "            tap.armed, tap.gate = nil, nil",
+    "            if armed ~= nil and armed.code == code and gate ~= nil and ms - armed.ms < hl.get_config(\"input.repeat_delay\") then",
+    "                hl.dispatch(hl.dsp.global(gate))",
+    "            end",
+    "        end",
+    "    end)",
+    "end"
+];
 // The session lock's restore, byte for byte, so a shell started after a
 // crash while locked locks again.
 const LOCK_SECTION = [
@@ -277,9 +299,15 @@ const MANIFESTS = [
     ["a modifier after the key", { hyprland: { binds: [toggle, { shortcut: "open", key: "space+super" }] } }, "hyprland.binds.1.key ends in the modifier SUPER"],
     ["one key bound twice", { hyprland: { binds: [toggle, { shortcut: "open", key: "super + space" }] } }, "hyprland.binds.1.key SUPER+SPACE is bound twice"],
     ["a keycode bind", { hyprland: { binds: [{ shortcut: "talk", key: "SUPER+code:108" }] } }, null],
+    ["a null default key", { hyprland: { binds: [{ shortcut: "talk", key: null }] } }, null],
     ["a hold bind", { hyprland: { binds: [{ shortcut: "talk", key: "SUPER+code:108", hold: true }] } }, null],
     ["a non-hold bind", { hyprland: { binds: [{ shortcut: "talk", key: "SUPER+code:108", hold: false }] } }, null],
     ["hold is not a boolean", { hyprland: { binds: [{ shortcut: "talk", key: "SUPER+code:108", hold: "yes" }] } }, "hyprland.binds.0.hold must be a boolean"],
+    ["a tap bind", { hyprland: { binds: [{ shortcut: "tap", key: "code:108", tap: true }] } }, null],
+    ["a non-tap bind", { hyprland: { binds: [{ shortcut: "tap", key: "code:108", tap: false }] } }, null],
+    ["tap is not a boolean", { hyprland: { binds: [{ shortcut: "tap", key: "code:108", tap: "yes" }] } }, "hyprland.binds.0.tap must be a boolean"],
+    ["tap and hold conflict", { hyprland: { binds: [{ shortcut: "tap", key: "code:108", tap: true, hold: true }] } }, "hyprland.binds.0 must not set tap and hold together"],
+    ["tap needs a lone key", { hyprland: { binds: [{ shortcut: "tap", key: "SUPER+code:108", tap: true }] } }, "hyprland.binds.0.key SUPER+code:108 must be a lone key for tap"],
     ["one keycode bound twice", { hyprland: { binds: [{ shortcut: "talk", key: "SUPER+code:108" }, { shortcut: "mute", key: "super+CODE:00108" }] } }, "hyprland.binds.1.key SUPER+code:108 is bound twice"],
     ["a rule that is no object", { hyprland: { layerRules: ["^vgs:overlay$"] } }, "hyprland.layerRules.0 must be an object"],
     ["a rule with an unknown key", { hyprland: { layerRules: [{ namespace: "^vgs:overlay$", blur: true, xray: true }] } }, "hyprland.layerRules.0 has unknown key \"xray\""],
@@ -482,6 +510,10 @@ function verify(logic, layer, shellText) {
     assert.ok(keycodeText.includes("-- skipped SUPER+code:108: already bound by acme.keys"), "renderer shares the keycode conflict judge");
     const holdManifest = manifestOf(logic, { hyprland: { binds: [{ shortcut: "talk", key: "super+CODE:00108", hold: true }] } });
     same(holdManifest.hyprland.binds, [{ shortcut: "talk", key: "SUPER+code:108", hold: true }], "manifest retains hold");
+    const tapManifest = manifestOf(logic, { hyprland: { binds: [{ shortcut: "tap", key: "CODE:00108", tap: true }] } });
+    same(tapManifest.hyprland.binds, [{ shortcut: "tap", key: "code:108", tap: true }], "manifest retains tap");
+    const nullManifest = manifestOf(logic, { hyprland: { binds: [{ shortcut: "tap", key: null, tap: true }] } });
+    same(nullManifest.hyprland.binds, [{ shortcut: "tap", key: null, tap: true }], "manifest retains a null default key");
     assert.equal(layer.releaseShortcutName("talk"), "talk.release", "companion cannot be a public registration name");
     for (const [label, keys, key] of [
         ["default", {}, "SUPER+code:108"],
@@ -501,6 +533,23 @@ function verify(logic, layer, shellText) {
     const losingHold = Object.assign({}, logic.hyprlandSection({}, holdManifest), { id: "acme.other" });
     assert.ok(!layer.render([logic.hyprlandSection({}, holdManifest), losingHold], theme, "hold").text.includes("acme.other:talk.release"), "conflict skips both hold binds");
     assert.ok(!keycodeText.includes("talk.release"), "ordinary bind has no release companion");
+    const tapSection = logic.hyprlandSection({}, tapManifest);
+    const tapText = layer.render([tapSection], theme, "tap").text.split("\n");
+    const tapBind = 'hl.bind("code:108", function() hl.__vgs_tap.gate = "acme.keys:tap" end, { description = "acme.keys:tap", non_consuming = true, transparent = true, ignore_mods = true })';
+    assert.ok(tapText.indexOf(TAP_SECTION[0]) > tapText.indexOf(APP_SECTION[0]), "the tap tracker follows application windows");
+    same(tapText.slice(tapText.indexOf(TAP_SECTION[0]), tapText.indexOf(TAP_SECTION[0]) + TAP_SECTION.length), TAP_SECTION, "the tap tracker is written byte for byte");
+    assert.ok(tapText.indexOf(TAP_SECTION[0]) < tapText.indexOf("    " + tapBind), "the tap tracker precedes overlay tap binds");
+    assert.ok(tapText.indexOf(TAP_SECTION[0]) < tapText.indexOf(tapBind), "the tap tracker precedes default tap binds");
+    assert.equal(tapText.filter(line => line === TAP_SECTION[0]).length, 1, "the tap tracker is written once");
+    assert.ok(tapText.includes(tapBind), "default map tap bind records the gate");
+    assert.ok(tapText.includes("    " + tapBind), "overlay map tap bind records the gate");
+    assert.ok(!tapText.some(line => line.includes('hl.dsp.global("acme.keys:tap")')), "tap binds do not dispatch on press");
+    assert.ok(!layer.render([logic.hyprlandSection({}, nullManifest)], theme, "tap").text.split("\n").includes(TAP_SECTION[0]), "an unbound tap writes no tracker");
+    const tapOverride = logic.hyprlandSection({ plugins: [{ id: "acme.keys", keys: { tap: "SUPER+code:108" } }] }, tapManifest);
+    const tapOverrideText = layer.render([tapOverride], theme, "tap").text.split("\n");
+    assert.ok(tapOverrideText.includes("-- skipped SUPER+code:108: tap key must be a lone key with no modifiers"), "a tap override with modifiers is a visible comment");
+    assert.ok(!tapOverrideText.some(line => line.includes('function() hl.__vgs_tap.gate = "acme.keys:tap"')), "a tap override with modifiers writes no bind");
+    same(layer.shortcutKeys([tapOverride], "acme.keys"), { tap: null }, "a refused tap override is not an effective key");
     same(declared.hyprland, { binds: [{ shortcut: "toggle", key: "SUPER+SPACE" }, { shortcut: "inbox", key: "SUPER+N" }], layerRules: [overlayRule], appearance: {}, options: {} }, "a normalised manifest holds normalised keys");
     same(manifestOf(logic, { hyprland: { layerRules: [overlayRule] } }).hyprland.binds, [], "a normalised manifest without binds holds none");
     assert.strictEqual(manifestOf(logic, {}).hyprland, undefined, "a manifest declaring no hyprland key carries none");
@@ -745,7 +794,7 @@ function verify(logic, layer, shellText) {
         "hl.layer_rule({ name = \"acme.keys:overlay\", match = { namespace = \"^vgs:overlay$\" }, blur = true, ignore_alpha = 0.6 })",
         "hl.layer_rule({ name = \"acme.keys:layer\", match = { namespace = \"^vgs:layer$\" }, blur = false })",
         "hl.bind(\"SUPER + SPACE\", hl.dsp.global(\"acme.keys:toggle\"), { description = \"acme.keys:toggle\" })",
-        "-- unbound acme.keys:gone: shell.json sets its key to null",
+        "-- unbound acme.keys:gone: no key is set",
         "",
         "-- vgs.notes 1.0.0: binds and layer rules from its manifest",
         "hl.layer_rule({ name = \"vgs.notes:layer\", match = { namespace = \"^vgs:layer$\" }, blur = true, ignore_alpha = 0.6 })",
@@ -1028,12 +1077,16 @@ const CONTROLS = [
     [logicFile, "shortcut name", "if (typeof bind.shortcut !== \"string\" || !NAME_PATTERN.test(bind.shortcut))", "if (typeof bind.shortcut !== \"string\")"],
     [logicFile, "shortcut once", "if (shortcuts.indexOf(bind.shortcut) !== -1)", "if (false)"],
     [logicFile, "hold boolean", "if (bind.hold !== undefined && typeof bind.hold !== \"boolean\")", "if (false)"],
+    [logicFile, "tap boolean", "if (bind.tap !== undefined && typeof bind.tap !== \"boolean\")", "if (false)"],
+    [logicFile, "tap excludes hold", "if (bind.tap === true && bind.hold === true)", "if (false)"],
+    [logicFile, "tap manifest key is lone", "if (bind.tap === true && keyHasModifiers(key.key))\n            return at + \".key \" + key.key + \" must be a lone key for tap\";", "if (false)\n            return at + \".key \" + key.key + \" must be a lone key for tap\";"],
     [logicFile, "hold retained", "if (bind.hold === true) result.hold = true;", "if (false) result.hold = true;"],
+    [logicFile, "tap retained", "if (bind.tap === true) result.tap = true;", "if (false) result.tap = true;"],
     [layerFile, "hold release emitted", "return entry.bind.hold === true ? releaseShortcutName", "return false ? releaseShortcutName"],
-    [layerFile, "release ignores live modifiers", "ignore_mods = true", "ignore_mods = false"],
-    [layerFile, "release does not consume input", "non_consuming = true", "non_consuming = false"],
-    [layerFile, "release is not shadowed", "transparent = true", "transparent = false"],
-    [layerFile, "release runs on key up", "release = true", "release = false"],
+    [layerFile, "release ignores live modifiers", "release = true, non_consuming = true, transparent = true, ignore_mods = true", "release = true, non_consuming = true, transparent = true, ignore_mods = false"],
+    [layerFile, "release does not consume input", "release = true, non_consuming = true, transparent = true, ignore_mods = true", "release = true, non_consuming = false, transparent = true, ignore_mods = true"],
+    [layerFile, "release is not shadowed", "release = true, non_consuming = true, transparent = true, ignore_mods = true", "release = true, non_consuming = true, transparent = false, ignore_mods = true"],
+    [layerFile, "release runs on key up", "release = true, non_consuming = true, transparent = true, ignore_mods = true", "release = false, non_consuming = true, transparent = true, ignore_mods = true"],
     [logicFile, "bind key judged", "if (!key.ok)\n            return at + \".key \" + key.error;", "if (false)\n            return at + \".key \" + key.error;"],
     [logicFile, "key once", "if (boundKeys.indexOf(key.key) !== -1)", "if (false)"],
     [logicFile, "rule object", "if (!isPlainObject(rule))", "if (false)"],
@@ -1049,7 +1102,7 @@ const CONTROLS = [
     [logicFile, "appearance schema key", "if (!hasOwn(schema, setting))", "if (false)"],
     [logicFile, "appearance boolean setting", "if (schema[setting].type !== \"boolean\")", "if (false)"],
     [logicFile, "keys setting reserved", "if (hasOwn(settings, \"keys\"))", "if (false)"],
-    [logicFile, "manifest keys normalised", "var result = { shortcut: bind.shortcut, key: hyprlandKey(bind.key).key };", "var result = { shortcut: bind.shortcut, key: bind.key };"],
+    [logicFile, "manifest keys normalised", "var result = { shortcut: bind.shortcut, key: bind.key === null ? null : hyprlandKey(bind.key).key };", "var result = { shortcut: bind.shortcut, key: bind.key };"],
     [logicFile, "config keys judged", "if (config.plugins[p].keys !== undefined && (bad = keysError(", "if (false && (bad = keysError("],
     [logicFile, "keys object", "if (!isPlainObject(keys))\n        return at + \" must be an object\";", "if (false)\n        return at + \" must be an object\";"],
     [logicFile, "keys names", "if (!NAME_PATTERN.test(names[i]))", "if (false)"],
@@ -1058,19 +1111,26 @@ const CONTROLS = [
     [logicFile, "keys no setting", "var ENTRY_RESERVED_KEYS = [\"id\", \"keys\"];", "var ENTRY_RESERVED_KEYS = [\"id\"];"],
     [logicFile, "row key wins", "if (!hasOwn(keys, bind.shortcut)) return Object.assign({}, bind);", "return Object.assign({}, bind);"],
     [logicFile, "null unbinds", "if (keys[bind.shortcut] === null) return Object.assign({}, bind, { key: null });", ""],
-    [logicFile, "row key normalised", "return Object.assign({}, bind, { key: key.key });\n    });", "return Object.assign({}, bind, { key: keys[bind.shortcut] });\n    });"],
+    [logicFile, "row key normalised", "var result = Object.assign({}, bind, { key: key.key });", "var result = Object.assign({}, bind, { key: keys[bind.shortcut] });"],
+    [logicFile, "tap override key is refused", "if (bind.tap === true && keyHasModifiers(key.key))\n            result.error = \"tap key must be a lone key with no modifiers\";", "if (false)\n            result.error = \"tap key must be a lone key with no modifiers\";"],
     [logicFile, "unknown keys", "return names.indexOf(name) === -1 && !Pads.isPadShortcut(declared, name, NAME_PATTERN); }).sort()", "return false; }).sort()"],
     [logicFile, "appearance setting resolved", "appearance[group] = { setting: setting, enabled: settings[setting] === true };", "appearance[group] = { setting: setting, enabled: true };"],
     [layerFile, "sections by id", "var rows = sections.slice().sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; }).map(", "var rows = sections.slice().map("],
     [layerFile, "empty section unwritten", "if (section.binds.length === 0 && section.layerRules.length === 0 && !Array.isArray(section.pads)) return;", ""],
     [layerFile, "first id keeps a key", "if (held[bind.key] !== undefined) {", "if (false) {"],
     [layerFile, "unbound bind", "if (bind.key === null) return { kind: \"unbound\"", "if (false) return { kind: \"unbound\""],
+    [layerFile, "refused bind", "if (bind.error !== undefined) return { kind: \"refused\"", "if (false) return { kind: \"refused\""],
     [logicFile, "keycode grammar", "/^CODE:[0-9]+$/", "/^CODE:.+$/"],
     [logicFile, "keycode uint32", " && Number(name.slice(5)) <= 4294967295", ""],
     [logicFile, "keycode lower-case prefix", 'name = "code:" + String(Number(name.slice(5)));', 'name = "CODE:" + String(Number(name.slice(5)));'],
     [logicFile, "keycode leading zeros", 'String(Number(name.slice(5)))', 'name.slice(5)'],
     [layerFile, "shortcut read respects conflicts", 'if (held[bind.key] !== undefined) {\n                conflicts.push', 'if (held[bind.key] !== undefined) {\n                keys[section.id][bind.shortcut] = bind.key;\n                conflicts.push'],
     [layerFile, "shortcut map has no inherited names", 'keys[section.id] = Object.create(null);', 'keys[section.id] = {};'],
+    [layerFile, "tap tracker emitted", "if (tapTrackerWanted(plan)) lines = lines.concat([\"\"], tapTrackerLines());", "if (false) lines = lines.concat([\"\"], tapTrackerLines());"],
+    [layerFile, "tap bind gates", "function() hl.__vgs_tap.gate = \\\"\" + global + \"\\\" end", "hl.dsp.global(\\\"\" + global + \"\\\")"],
+    [layerFile, "tap bind is non-consuming", "function() hl.__vgs_tap.gate = \\\"\" + global + \"\\\" end, { description = \\\"\" + global + \"\\\", non_consuming = true, transparent = true, ignore_mods = true", "function() hl.__vgs_tap.gate = \\\"\" + global + \"\\\" end, { description = \\\"\" + global + \"\\\", non_consuming = false, transparent = true, ignore_mods = true"],
+    [layerFile, "tap press disarms chords", "tap.armed = next(tap.held) == nil and { code = code, ms = ms } or nil", "tap.armed = next(tap.held) == nil and { code = code, ms = ms } or tap.armed"],
+    [layerFile, "tap checks repeat delay", "ms - armed.ms < hl.get_config(\\\"input.repeat_delay\\\")", "true"],
     [layerFile, "identical rule once", "if (written[key] !== undefined) {", "if (false) {"],
     [layerFile, "rule effects compared", "return JSON.stringify([rule.namespace, rule.blur", "return JSON.stringify([rule.namespace]); ([rule.namespace, rule.blur"],
     [layerFile, "comment text", "return String(text).replace(/[^\\x20-\\x7e]/g, \"?\");", "return String(text);"],
@@ -1090,20 +1150,20 @@ const CONTROLS = [
     [layerFile, "zero gaps are a workspace rule", "\"hl.workspace_rule({ workspace = \\\"\\\", gaps_in = 0, gaps_out = 0 })\"", "\"hl.config({ general = { gaps_in = 0, gaps_out = 0 } })\""],
     [layerFile, "the gap rule matches every workspace", "workspace = \\\"\\\", gaps_in", "workspace = \\\"s[false]\\\", gaps_in"],
     [layerFile, "appearance owner sorted", "}).sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; });", "});"],
-    [layerFile, "floating TUI rules written", "[\"\"], tuiWindowLines(theme.tuiMargins), [\"\"], appWindowLines(),", "[\"\"], appWindowLines(),"],
-    [layerFile, "floating TUI rules after appearance", "var lines = [\"\"].concat(groups, [\"\"], tuiWindowLines(theme.tuiMargins), [\"\"], appWindowLines(),", "var lines = [\"\"].concat(tuiWindowLines(theme.tuiMargins), [\"\"], groups, [\"\"], appWindowLines(),"],
+    [layerFile, "floating TUI rules written", "[\"\"], tuiWindowLines(theme.tuiMargins), [\"\"], appWindowLines());", "[\"\"], appWindowLines());"],
+    [layerFile, "floating TUI rules after appearance", "var lines = [\"\"].concat(groups, [\"\"], tuiWindowLines(theme.tuiMargins), [\"\"], appWindowLines());", "var lines = [\"\"].concat(tuiWindowLines(theme.tuiMargins), [\"\"], groups, [\"\"], appWindowLines());"],
     [layerFile, "floating TUI width keeps the gutter", "var across = luaNumber(2 * tuiMargin(margins, \"gutter\"));", "var across = luaNumber(0 * tuiMargin(margins, \"gutter\"));"],
     [layerFile, "floating TUI height keeps the bar", "var down = luaNumber(tuiMargin(margins, \"bar\") + 2 * tuiMargin(margins, \"gutter\"));", "var down = luaNumber(0 * tuiMargin(margins, \"bar\") + 2 * tuiMargin(margins, \"gutter\"));"],
     [layerFile, "floating TUI size is clamped", "size = { \" + width + \", \" + height + \" } })\";", "size = { \" + row.width + \", \" + row.height + \" } })\";"],
     [layerFile, "a negative TUI margin is refused", "if (typeof value !== \"number\" || !isFinite(value) || value < 0)", "if (typeof value !== \"number\" || !isFinite(value))"],
     [layerFile, "floating TUI class escapes each dot", ".join(\"\\\\\\\\.\")", ".join(\".\")"],
     [layerFile, "floating TUI class anchored", "return \"\\\"^\" + appId.split(\".\").join(\"\\\\\\\\.\") + \"$\\\"\";", "return \"\\\"\" + appId.split(\".\").join(\"\\\\\\\\.\") + \"\\\"\";"],
-    [layerFile, "application window rule written", "tuiWindowLines(theme.tuiMargins), [\"\"], appWindowLines(), [\"\"], overlayCaptureLines(plan)", "tuiWindowLines(theme.tuiMargins), [\"\"], overlayCaptureLines(plan)"],
-    [layerFile, "application window rule after the TUIs", "tuiWindowLines(theme.tuiMargins), [\"\"], appWindowLines(), [\"\"], overlayCaptureLines(plan)", "appWindowLines(), [\"\"], tuiWindowLines(theme.tuiMargins), [\"\"], overlayCaptureLines(plan)"],
+    [layerFile, "application window rule written", "tuiWindowLines(theme.tuiMargins), [\"\"], appWindowLines());", "tuiWindowLines(theme.tuiMargins));"],
+    [layerFile, "application window rule after the TUIs", "tuiWindowLines(theme.tuiMargins), [\"\"], appWindowLines());", "appWindowLines(), [\"\"], tuiWindowLines(theme.tuiMargins));"],
     [layerFile, "session lock restore written", "keyPassthroughLines(), [\"\"], sessionLockLines());", "keyPassthroughLines());"],
     [layerFile, "no monitor rule written", "[\"\"], keyPassthroughLines(), [\"\"], sessionLockLines());", "[\"\"], keyPassthroughLines(), [\"\"], sessionLockLines(), [\"hl.monitor({ output = \\\"DP-1\\\", disabled = true })\"]);"],
     [layerFile, "key pass-through written", "[\"\"], keyPassthroughLines(), [\"\"], sessionLockLines()", "[\"\"], sessionLockLines()"],
-    [layerFile, "key pass-through before the lock restore", "overlayCaptureLines(plan), [\"\"], keyPassthroughLines(), [\"\"], sessionLockLines());", "overlayCaptureLines(plan), [\"\"], sessionLockLines(), [\"\"], keyPassthroughLines());"],
+    [layerFile, "key pass-through before the lock restore", "lines = lines.concat([\"\"], overlayCaptureLines(plan), [\"\"], keyPassthroughLines(), [\"\"], sessionLockLines());", "lines = lines.concat([\"\"], overlayCaptureLines(plan), [\"\"], sessionLockLines(), [\"\"], keyPassthroughLines());"],
     [layerFile, "key pass-through cancels on Escape", "hl.dsp.submap(\\\"reset\\\"), { description = ", "hl.dsp.exec_cmd(\\\"true\\\"), { description = "],
     [layerFile, "key pass-through leaves only its submap", "        \"        if hl.get_current_submap() == passthrough.submap then hl.dispatch(hl.dsp.submap(\\\"reset\\\")) end\",", "        \"        hl.dispatch(hl.dsp.submap(\\\"reset\\\"))\","],
     [layerFile, "key pass-through enters only from a shell window", "if window == nil or window.class ~= passthrough.class then error(", "if window == nil then error("],
@@ -1118,7 +1178,7 @@ const CONTROLS = [
     [shellFile, "shell.qml sets the shell's app-id", "//@ pragma AppId org.vgs.shell\n", ""],
     [shellFile, "shell.qml's app-id is the layer's", "//@ pragma AppId org.vgs.shell\n", "//@ pragma AppId org.vgs.other\n"],
     [shellFile, "the app-id pragma comes before the imports", "//@ pragma AppId org.vgs.shell\nimport QtQuick\n", "import QtQuick\n//@ pragma AppId org.vgs.shell\n"],
-    [layerFile, "overlay capture section written", 'appWindowLines(), [""], overlayCaptureLines(plan)', 'appWindowLines()'],
+    [layerFile, "overlay capture section written", "lines = lines.concat([\"\"], overlayCaptureLines(plan), [\"\"], keyPassthroughLines(), [\"\"], sessionLockLines());", "lines = lines.concat([\"\"], keyPassthroughLines(), [\"\"], sessionLockLines());"],
     [layerFile, "capture binds enabled plugin shortcuts", "].concat(overlayCapturePluginBindLines(plan), [", "].concat([], ["],
     [layerFile, "capture wraps focus dispatchers", "hl.dsp.focus = function(opts)", "hl.dsp.focus = capture.focus --"],
     [layerFile, "capture wraps binds", "hl.bind = function(keys, dispatcher, opts)", "hl.bind = capture.bind --"],

@@ -59,6 +59,12 @@ row("duplicate first-party default key across manifests is refused", tmp => {
     plugin(b, Object.assign({}, good, { id: "acme.two", capabilities: ["shortcut"], hyprland: { binds: [{ shortcut: "toggle", key: "SUPER+CTRL+Y" }] } }), true);
     return ["--", a, b];
 }, 1, "default key SUPER+CTRL+Y for acme.two:toggle already used by acme.one:open", "ok       acme.two");
+row("two unset default keys pass", tmp => {
+    const a = path.join(tmp, "a"), b = path.join(tmp, "b");
+    plugin(a, Object.assign({}, good, { capabilities: ["shortcut"], hyprland: { binds: [{ shortcut: "open", key: null }] } }), true);
+    plugin(b, Object.assign({}, good, { id: "acme.two", capabilities: ["shortcut"], hyprland: { binds: [{ shortcut: "toggle", key: null }] } }), true);
+    return ["--", a, b];
+}, 0, "ok       acme.two", "default key null");
 // Pads: the check refuses a second manifest that declares pads, since the
 // layer holds one pads table.
 const padItems = { "class": { type: "string", label: "Class", presets: [{ value: "org.acme.pad" }], allowCustom: true }, width: { type: "number", label: "Width", min: 10, max: 100 }, height: { type: "number", label: "Height", min: 10, max: 100 },

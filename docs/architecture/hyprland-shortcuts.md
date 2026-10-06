@@ -1,6 +1,6 @@
 # One key grammar, one conflict judge, one key capture owner
 
-Read before touching a shortcut, a manifest's `hyprland.binds`, a hold shortcut, the overlay keyboard capture, the key capture pass-through, or their submaps.
+Read before touching a shortcut, a manifest's `hyprland.binds`, a hold or tap shortcut, the overlay keyboard capture, the key capture pass-through, or their submaps.
 
 ## The approach
 
@@ -16,6 +16,7 @@ Hyprland runs a global bind before the focused layer or window sees the key, so 
 - Do take the key from the `plugins[].keys` entry, then the manifest; `null` unbinds. `scripts/smoke/rows/hyprland.sh` reads it back.
 - Do resolve conflicts through `HyprlandLayer.resolveBinds` everywhere; the first plugin by id keeps the key, and a lost conflict reads as null so a label never advertises a key the shell skipped. `scripts/test-hyprland-layer.js` and `scripts/qml-tests/tst_shortcutregistry.qml` pin both.
 - Do give a hold shortcut a release companion with `release`, `non_consuming`, `transparent` and `ignore_mods`, and start a hold only from a down on a registration with a live key; a release bind authenticates nothing, since a virtual keyboard can trigger it. `scripts/smoke/rows/hold-shortcuts.sh` and `tst_shortcutregistry.qml` pin both.
+- Do give a tap shortcut a lone key and fire it from the layer's one `input.keyboard.key` tracker: it arms only when no other key is down, any other press disarms it, and it sends the global on the release that comes before `input:repeat_delay`, allowed by a non-consuming gate bind so the lock, inhibitors and submaps still apply. Hyprland 0.56.2 has no tap bind, and its release bind fires after every chord and long hold. `scripts/test-hyprland-layer.js` and `scripts/smoke/rows/hold-shortcuts.sh` pin it.
 - Do capture keys only through `shell.shortcut.capture`; a control never dispatches. Do hold a new enter until the earlier leave is answered; the `submap` event precedes the dispatch reply. `scripts/qml-tests/tst_keycapture.qml` pins both.
 - Do let `leave` reset only `vgs:passthrough`, never the overlay's `vgs:capture`, and reset the capture submap only when it is the current one; the layer's close hook resets it when the shell dies. `scripts/test-hyprland-layer.js` and `scripts/smoke/rows/overlay-capture.sh` pin both.
 - Do refuse a captured key that types text with no modifier but Shift; a bind on it stops typing everywhere. `scripts/test-key-capture.js` pins it.

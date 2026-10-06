@@ -112,7 +112,7 @@ EXEMPT = (
     ("tui", "*", "script"), ("tui", "*", "size"), ("tui", "*", "presentation"), ("tui", "*", "requires"), ("tui", "*", "entry", "icon"),
     ("menu", "*", "icon"), ("menu", "*", "aliases"), ("menu", "*", "shortcut"), ("menu", "*", "toggle", "setting"), ("menu", "*", "toggle", "icon"),
     ("secrets", "service"),
-    ("hyprland", "binds", "*", "shortcut"), ("hyprland", "binds", "*", "key"), ("hyprland", "binds", "*", "hold"), ("hyprland", "appearance"),
+    ("hyprland", "binds", "*", "shortcut"), ("hyprland", "binds", "*", "key"), ("hyprland", "binds", "*", "hold"), ("hyprland", "binds", "*", "tap"), ("hyprland", "appearance"),
     ("hyprland", "layerRules", "*", "namespace"), ("hyprland", "layerRules", "*", "blur"), ("hyprland", "layerRules", "*", "ignoreAlpha"),
     ("hyprland", "options"), ("hyprland", "pads"),
 )

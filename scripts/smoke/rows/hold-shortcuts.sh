@@ -18,7 +18,7 @@ rescan "rescan discovers the hold fixture"
 expect_poll "the hold fixture is known" True plugin_known acme.hold
 expect "enable the hold fixture" ok ipc shell setPluginEnabled acme.hold true
 expect_poll "the hold fixture builds" True record_exists acme.hold
-expect_poll "both physical hold keys reach the provider" '"{\"talk\":\"SUPER+code:108\",\"other\":\"CTRL+code:108\"}"' ipc smoke readInstance service acme.hold keys
+expect_poll "the physical hold and tap keys reach the provider" '"{\"talk\":\"SUPER+code:108\",\"other\":\"CTRL+code:108\",\"tap\":\"code:108\"}"' ipc smoke readInstance service acme.hold keys
 
 # wtype's symbol-resolution setting does not model physical keycodes.
 printf '%s\n' \
@@ -61,6 +61,7 @@ hold_barrier() {
   expect_poll "the shell processes the marker after the checked keys" "$hold_markers" hold_marker_count
 }
 hold_acceptance() { local got; got="$(hold_read)" || return; [[ $got == '["talk-down","talk-up"]' ]] && echo ok || echo violation; }
+hold_no_tap() { local got; got="$(hold_read)" || return; [[ $got == '[]' ]] && echo ok || echo violation; }
 hold_stop_keyboard() {
   hold_send quit
   exec {hold_fd}>&-
@@ -77,6 +78,19 @@ hold_pair() { # ORDER
     modifier-first) hold_send "up 133" "up 108" ;;
   esac
   expect_poll "$1: physical up completes the hold once" '["talk-down","talk-up"]' hold_read
+}
+hold_chord_no_tap() { # LABEL XKB_CODE EVDEV_CODE ORDER
+  hold_reset
+  local pressed
+  pressed="$(hold_client_events "^key $3 pressed$")"
+  hold_send "down 108" "down $2"
+  case "$4" in
+    key-first) hold_send "up $2" "up 108" ;;
+    modifier-first) hold_send "up 108" "up $2" ;;
+  esac
+  hold_barrier
+  expect "$1: the client receives key $3" "$((pressed + 1))" hold_client_events "^key $3 pressed$"
+  expect "$1: the chord calls no tap handler" ok hold_no_tap
 }
 
 for mode in us altgr swapped; do
@@ -97,7 +111,19 @@ for mode in us altgr swapped; do
   expect "$mode: plain Right Alt down reaches the client" "$((client_down + 1))" hold_client_events '^key 100 pressed$'
   expect "$mode: plain Right Alt up reaches the client" "$((client_up + 1))" hold_client_events '^key 100 released$'
   hold_barrier
-  expect "$mode: plain Right Alt calls no hold handler" '[]' hold_read
+  expect "$mode: plain Right Alt tap calls the tap handler" '["tap"]' hold_read
+  hold_chord_no_tap "$mode: Right Alt plus W key-first" 25 17 key-first
+  hold_chord_no_tap "$mode: Right Alt plus W modifier-first" 25 17 modifier-first
+  hold_chord_no_tap "$mode: Right Alt plus S key-first" 39 31 key-first
+  hold_chord_no_tap "$mode: Right Alt plus S modifier-first" 39 31 modifier-first
+  hold_reset
+  repeat_delay_ms="$(hypr -j getoption input:repeat_delay | py_reply 'import json,sys; print(json.load(sys.stdin)["int"])')"
+  hold_sleep="$(python3 -c 'import sys; print((int(sys.argv[1]) + 150) / 1000)' "$repeat_delay_ms")"
+  hold_send "down 108"
+  sleep "$hold_sleep"
+  hold_send "up 108"
+  hold_barrier
+  expect "$mode: held Right Alt calls no tap handler" ok hold_no_tap
   hold_stop_keyboard
 done
 
@@ -155,18 +181,35 @@ hold_barrier
 expect "control: losing modifier-independent release breaks acceptance" violation hold_acceptance
 cp -- "$sandbox/hold-layer-good.lua" "$hold_layer"
 expect "restore the generated release bind" ok hypr reload config-only
+python3 - "$hold_layer" <<'PY'
+import pathlib, sys
+p = pathlib.Path(sys.argv[1])
+s = p.read_text()
+needle = 'tap.armed = next(tap.held) == nil and { code = code, ms = ms } or nil'
+assert s.count(needle) == 1, "tap control: expected one press disarm"
+changed = s.replace(needle, 'tap.armed = next(tap.held) == nil and { code = code, ms = ms } or tap.armed')
+assert changed != s
+p.write_text(changed)
+PY
+expect "control: reload the chord-sensitive tap tracker" ok hypr reload config-only
+hold_reset
+hold_send "down 108" "down 25" "up 25" "up 108"
+hold_barrier
+expect "control: losing tap disarm breaks chord rejection" violation hold_no_tap
+cp -- "$sandbox/hold-layer-good.lua" "$hold_layer"
+expect "restore the generated tap tracker" ok hypr reload config-only
 # A key change cancels the control's pending hold through the real provider.
 set_keys '{"acme.hold":{"talk":null}}'
 expect "reload after unbinding the held key" ok ipc shell reloadConfig
 expect_poll "unbinding completes the pending hold" '["talk-down","talk-up"]' hold_read
-expect_poll "the effective talk key is unbound" '"{\"talk\":null,\"other\":\"CTRL+code:108\"}"' ipc smoke readInstance service acme.hold keys
+expect_poll "the effective talk key is unbound" '"{\"talk\":null,\"other\":\"CTRL+code:108\",\"tap\":\"code:108\"}"' ipc smoke readInstance service acme.hold keys
 hold_reset
 hold_send "down 133" "down 108" "up 133" "up 108"
 hold_barrier
 expect "an unbound hold calls no handler" '[]' hold_read
 set_keys '{"acme.hold":{}}'
 expect "restore the hold's default key" ok ipc shell reloadConfig
-expect_poll "the default physical key is back" '"{\"talk\":\"SUPER+code:108\",\"other\":\"CTRL+code:108\"}"' ipc smoke readInstance service acme.hold keys
+expect_poll "the default physical key is back" '"{\"talk\":\"SUPER+code:108\",\"other\":\"CTRL+code:108\",\"tap\":\"code:108\"}"' ipc smoke readInstance service acme.hold keys
 hold_reset
 hold_send "down 133" "down 108"
 expect_poll "a physical hold starts before a live unbind" '["talk-down"]' hold_read
@@ -178,7 +221,7 @@ hold_barrier
 expect "the old physical up cannot complete the hold twice" '["talk-down","talk-up"]' hold_read
 set_keys '{"acme.hold":{}}'
 expect "restore the key after the live unbind" ok ipc shell reloadConfig
-expect_poll "the live unbind leaves no stale effective key" '"{\"talk\":\"SUPER+code:108\",\"other\":\"CTRL+code:108\"}"' ipc smoke readInstance service acme.hold keys
+expect_poll "the live unbind leaves no stale effective key" '"{\"talk\":\"SUPER+code:108\",\"other\":\"CTRL+code:108\",\"tap\":\"code:108\"}"' ipc smoke readInstance service acme.hold keys
 
 # A silent sender retains its command acknowledgments but drops key events.
 python3 - "$repo/scripts/smoke/keyboard/keyboard.c" "$sandbox/keyboard-silent.c" <<'PY'
