@@ -1,12 +1,37 @@
-# Plugin manifest
+# One judge decides every manifest
 
-Covers: shell/plugins/**/manifest.json, shell/Core/PluginLogic.js, shell/Core/Pads.js, shell/Commons/SettingValues.js, shell/Core/PackageManagers.js, shell/Ui/icons/Lucide.js, bin/vgshell-scan, bin/lib/check-manifests.js, scripts/test-plugin-logic.js, scripts/test-setting-values.js, scripts/test-plugin-extras.js, scripts/test-plugin-menu.js, scripts/test-hyprland-layer.js, scripts/test-pads.js, scripts/test-check-manifests.js
+Read before touching a manifest key, `PluginLogic.validateManifest`, the settings schema, or a plugin's `hyprland`, `status`, `tui`, `menu` or `extras` entry.
 
-The manifest contract for a plugin directory. The broader plugin lifecycle, kinds, capabilities and isolation rules are in [plugins.md](plugins.md).
+## The approach
+
+A plugin is a directory with `manifest.json` at its root. `shell/Core/PluginLogic.js` is the one judge of a manifest, offline and in the shell alike: `bin/lib/check-manifests.js` and `vgshell plugin validate` run the same file under node, and `scripts/test-plugin-logic.js` pins each refusal. A key the judge does not list refuses the manifest, so a misspelt key fails loudly instead of being carried and ignored. The schema is VGS's own ([D011](../decisions/D011-native-manifest-no-cross-shell-compatibility.md)), and every key below is data the core renders: a plugin never ships page code, Lua or a command string.
+
+## Why
+
+A carried-and-ignored key hides a typo until a user reports the missing feature. One judge with one list has no second format to drift from, and a judge that runs under node tests in milliseconds without a compositor ([D009](../decisions/D009-one-manifest-judge-under-node.md)).
+
+## Rules
+
+- Never add a manifest key without adding it to the judge and a refusal row to `scripts/test-plugin-logic.js`; `bin/lib/check-manifests.js` validates every bundled manifest offline.
+- Do give every `schema` entry a default of its type, inside its bounds, in `settings`; never declare both `presets` and `optionsFrom` on one string entry. `scripts/test-plugin-logic.js` pins both.
+- Do judge a `list` entry's items through `shell/Core/Pads.js`; `scripts/test-pads.js` pins each refusal.
+- Do declare an owner-only extra under `extras` with its own status and requirement entries and no schema entry ([D075](../decisions/D075-consumer-features-need-no-developer-setup.md)); `scripts/test-plugin-extras.js` pins it.
+- Do declare a status entry's setup step as an `action` and its command only behind "Show command" ([D061](../decisions/D061-no-manual-commands.md)); `PluginLogic.statusError` refuses a command without its action.
+- Never name a plugin in `requirements`; a dotted command is refused because it reads as a plugin id ([D035](../decisions/D035-manifest-requirements.md)).
+
+## The canonical example
+
+`shell/plugins/vgs.tray/manifest.json`: kinds, one capability, a schema with defaults in `settings`, and nothing the core does not render. Copy it.
+
+## Revisit when
+
+A plugin marketplace with a stable, versioned schema exists that VGS gains more from joining than from owning its own, or a plugin needs a setting no schema type can hold.
+
+## Not governed
+
+What a kind is and how an instance is built, which is [overview.md](overview.md); the capabilities the keys name, which is [capabilities.md](capabilities.md). The key table below is reference content; its home is the vgs-plugin skill's `references/api.md` § Manifest once that file takes it.
 
 ## Manifest
-
-A plugin is a directory with `manifest.json` at its root. `shell/Core/PluginLogic.js` is the one judge of a manifest; `bin/lib/check-manifests.js` and `vgshell plugin validate` run that judge offline, and `scripts/test-plugin-logic.js` pins each refusal by its text, the `hyprland` key's in `scripts/test-hyprland-layer.js` but for `hyprland.options`, whose stay in `scripts/test-plugin-logic.js`, and the `menu` key's in `scripts/test-plugin-menu.js`. A key not in this table refuses the manifest, so a misspelt key fails loudly instead of being carried and ignored.
 
 | Field | Required | Meaning |
 |---|---|---|
