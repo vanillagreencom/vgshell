@@ -347,11 +347,12 @@ var TOKENS = {
         overlay: length("{space.xxxl}")
     },
 
-    // The gaps of a body: `row` between rows of one group, `group` between
-    // its blocks, `page` between the blocks of a window's page, which a
-    // reader holds longer than a flyout, `section` before a section, and
-    // `inline` between controls side by side in one group, such as a row
-    // of buttons.
+    // The gaps of a body: `row` between rows of one group, `group` before
+    // each logical group of content or actions and nowhere else, such as a
+    // button row after text or the row after a row's sub-text, `page`
+    // between the blocks of a window's page, which a reader holds longer
+    // than a flyout, `section` before a section, and `inline` between
+    // controls side by side in one group, such as a row of buttons.
     stack: {
         row: length("{space.xs}"),
         group: length("{space.lg}"),

@@ -11,6 +11,9 @@ import qs.Ui
 // side. The default is zero, so a field's unboxed label sits on the
 // container's content edge and its control ends on that edge. `valueX` is
 // where the value column starts, for content that belongs under it.
+// `subText` holds while the hint or error line shows; the field then takes
+// room under it so the next row of its column starts `stack.group` below
+// the line (Theme.subTextRoom).
 Column {
     id: root
 
@@ -25,9 +28,11 @@ Column {
     // its children.
     readonly property real bodyWidth: width - leftPadding - rightPadding
     readonly property real valueX: leftPadding + controlRow.valueX
+    readonly property bool subText: hintLine.text !== ""
 
     leftPadding: Theme.field.paddingX
     rightPadding: Theme.field.paddingX
+    bottomPadding: Theme.subTextRoom(subText, Positioner.index, Positioner.isLastItem, parent)
     spacing: Theme.field.gap
 
     Item {
@@ -68,7 +73,7 @@ Column {
 
     Item {
         id: hintSlot
-        visible: hintLine.text !== ""
+        visible: root.subText
         width: root.bodyWidth
         readonly property real slack: {
             if (!root.inline) return 0;

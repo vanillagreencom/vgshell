@@ -119,6 +119,19 @@ Singleton {
         return toColor(ThemeLogic.formatColor(ThemeLogic.contrastColor(color)));
     }
 
+    // The room a row takes under its sub-text, a hint, error or warning
+    // line, so the next row of `column` starts `stack.group` below that
+    // line: the group space less the column's spacing. A row without
+    // sub-text, outside a positioner (`index` -1) or last of the shown rows
+    // takes none, so the space after a section or a page stays its own. A
+    // positioner gives a hidden or zero-sized child index -1 and judges
+    // `isLastItem` over the children it places (Qt 6.11
+    // qquickpositioners.cpp, updateAttachedProperties).
+    function subTextRoom(subText, index, last, column) {
+        const spacing = column && column.spacing !== undefined ? column.spacing : 0;
+        return subText && index >= 0 && !last ? Math.max(0, stack.group - spacing) : 0;
+    }
+
     function toColor(text) {
         return "#" + text.slice(7, 9) + text.slice(1, 7);
     }

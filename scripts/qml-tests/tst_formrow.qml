@@ -16,11 +16,14 @@ import qs.Unit
 // line of its own under the message where it would leave the message less
 // than the label column's width; without a label
 // column the control takes the full width at its own height; the smoke's
-// `fieldRow` hook names the row.
+// `fieldRow` hook names the row. A row with a message is followed by a group
+// space, `stack.group`, unless it is the last row of its column; the rows
+// of the first column sit 0 apart, so each with a message there grows by
+// the group space under its message.
 Item {
     id: root
     width: 480
-    height: 600
+    height: 900
 
     Column {
         width: 420
@@ -36,6 +39,17 @@ Item {
         FormRow { id: cramped; width: 2 * Theme.field.labelWidth + Theme.field.labelGap + Theme.stack.inline + crampedUndo.width - 1; label: "Speed"; warning: "Set elsewhere"; action: Rectangle { id: crampedUndo; width: 90; height: 30; color: "transparent" } Switch { size: "sm" } }
         FormRow { id: roomy; width: cramped.width + 1; label: "Speed"; warning: "Set elsewhere"; action: Rectangle { id: roomyUndo; width: 90; height: 30; color: "transparent" } Switch { size: "sm" } }
         Badge { id: chip; text: "Chip" }
+    }
+
+    Column {
+        id: spaced
+        y: 640
+        width: 420
+        spacing: Theme.stack.row
+        FormRow { id: warnedFirst; width: parent.width; label: "Speed"; warning: "Overridden"; Switch { size: "sm" } }
+        FormRow { id: afterWarning; width: parent.width; label: "Scroll"; Switch { size: "sm" } }
+        FormRow { id: plainNext; width: parent.width; label: "Tap"; Switch { size: "sm" } }
+        FormRow { id: warnedLast; width: parent.width; label: "Click"; warning: "Overridden"; Switch { size: "sm" } }
     }
 
     TestCase {
@@ -54,6 +68,14 @@ Item {
         }
 
         function init() { UnitTheme.reset(); }
+
+        // The room a row with a message takes under it in the first
+        // column, whose spacing is 0.
+        function room() { return Theme.stack.group; }
+        function messageBottom(row, item) {
+            const message = messageOf(row);
+            return message.mapToItem(item, 0, message.height).y;
+        }
 
         function test_a_row_is_the_row_height_with_a_label_column() {
             for (const row of [plain, filled])
@@ -81,7 +103,7 @@ Item {
             compare(xIn(message, warned) + message.width, warned.width);
             compare(message.y, Theme.row.height + Theme.field.gap, "the message starts the field gap below the row box");
             verify(message.height > 0);
-            compare(warned.implicitHeight, Theme.row.height + Theme.field.gap + message.height);
+            compare(warned.implicitHeight, Theme.row.height + Theme.field.gap + message.height + room());
             compare(warned.height, warned.implicitHeight);
             compare(typesUnder(chip)[0], "Badge", "the reader names no chip");
             verify(typesUnder(warned).indexOf("Badge") === -1, "the row draws a chip");
@@ -109,7 +131,7 @@ Item {
             compare(undo.mapToItem(acted, 0, 0).x + undo.width, acted.width, "the action ends on the row's end edge");
             compare(xIn(message, acted), acted.valueX);
             compare(message.width, acted.width - acted.valueX - undo.width - Theme.stack.inline, "the message runs under the action");
-            compare(acted.height, Theme.row.height + Theme.field.gap + undo.height, "the row grows by the taller of the two");
+            compare(acted.height, Theme.row.height + Theme.field.gap + undo.height + room(), "the row grows by the taller of the two");
             compare(undo.mapToItem(acted, 0, 0).y, Theme.row.height + Theme.field.gap);
             fuzzyCompare(centreIn(message, acted), centreIn(undo, acted), 1, "the message leaves the action's line");
             fuzzyCompare(centreIn(actedToggle, acted), Theme.row.height / 2, 1, "the control leaves the row box's centre");
@@ -123,18 +145,18 @@ Item {
             compare(message.y, Theme.row.height + Theme.field.gap);
             compare(xIn(crampedUndo, cramped), cramped.valueX, "the action leaves the value column's start");
             compare(crampedUndo.mapToItem(cramped, 0, 0).y, message.y + message.height + Theme.field.gap, "the action is not the field gap under the message");
-            compare(cramped.height, Theme.row.height + 2 * Theme.field.gap + message.height + crampedUndo.height);
+            compare(cramped.height, Theme.row.height + 2 * Theme.field.gap + message.height + crampedUndo.height + room());
             const beside = messageOf(roomy);
             compare(beside.width, Theme.field.labelWidth, "one more pixel keeps the action beside the message");
             compare(roomyUndo.mapToItem(roomy, 0, 0).x + roomyUndo.width, roomy.width);
-            compare(roomy.height, Theme.row.height + Theme.field.gap + roomyUndo.height);
+            compare(roomy.height, Theme.row.height + Theme.field.gap + roomyUndo.height + room());
         }
 
         function test_a_hidden_action_takes_no_room() {
             const message = messageOf(acted);
             undo.visible = false;
             compare(message.width, acted.width - acted.valueX);
-            compare(acted.height, Theme.row.height + Theme.field.gap + message.height);
+            compare(acted.height, Theme.row.height + Theme.field.gap + message.height + room());
             undo.visible = true;
             compare(message.width, acted.width - acted.valueX - undo.width - Theme.stack.inline);
         }
@@ -153,7 +175,7 @@ Item {
             compare(xIn(message, wrapped), wrapped.valueX);
             compare(message.width, wrapped.width - wrapped.valueX);
             verify(message.height > messageOf(warned).height);
-            compare(wrapped.height, Theme.row.height + Theme.field.gap + message.height);
+            compare(wrapped.height, Theme.row.height + Theme.field.gap + message.height + room());
         }
 
         // expected-log: FormRow: no warningTone named "loud" -- the test names an unknown tone on purpose
@@ -178,7 +200,7 @@ Item {
             compare(thinWarned.mapToItem(bareWarned, 0, 0).y, 0);
             compare(xIn(message, bareWarned), 0);
             compare(message.y, thinWarned.height + Theme.field.gap);
-            compare(bareWarned.height, thinWarned.height + Theme.field.gap + message.height);
+            compare(bareWarned.height, thinWarned.height + Theme.field.gap + message.height + room());
         }
 
         function test_a_theme_moves_the_columns() {
@@ -188,6 +210,15 @@ Item {
             compare(plain.height, 44);
             compare(xIn(messageOf(warned), warned), 85);
             compare(messageOf(warned).y, 44 + 9);
+        }
+
+        // A message, a sub-text line, is followed by a group space; a row
+        // without one keeps the column's spacing; the last row ends at its
+        // message.
+        function test_a_group_space_follows_a_message() {
+            tryVerify(() => afterWarning.mapToItem(spaced, 0, 0).y - messageBottom(warnedFirst, spaced) === Theme.stack.group, 1000, "the row after a message");
+            compare(plainNext.y - afterWarning.y, Theme.row.height + Theme.stack.row, "the row after a row without a message");
+            compare(spaced.height, messageBottom(warnedLast, spaced), "the column's end after its last row");
         }
 
         function test_the_smoke_hook_names_the_row() {

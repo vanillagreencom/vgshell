@@ -23,7 +23,9 @@ import qs.Ui
 // the row has a message, and the message wraps `stack.inline` before it.
 // Where that would leave the message less than `field.labelWidth`, as in a
 // narrow flyout, the action goes on a line of its own, `field.gap` under
-// the message, from the value column's start.
+// the message, from the value column's start. While the row has a message
+// it takes room under it, so the next row of its column starts
+// `stack.group` below the message (Theme.subTextRoom).
 // A hidden action takes no room. While
 // `labelColumn` is false the row draws no label and keeps
 // no row height: the control takes the full width at its own height, as a
@@ -47,7 +49,10 @@ Item {
     readonly property real messageLine: actionBelow ? message.height + Theme.field.gap + actionItem.height : Math.max(message.height, actionItem === null ? 0 : actionItem.height)
     readonly property real valueX: labelColumn ? Theme.field.labelWidth + Theme.field.labelGap : 0
     readonly property real messageRoom: warning === "" ? 0 : Theme.field.gap + messageLine
-    readonly property real boxHeight: height - messageRoom
+    readonly property real subTextRoom: Theme.subTextRoom(warning !== "", Positioner.index, Positioner.isLastItem, parent)
+    // Where the message's line ends, above the room under it.
+    readonly property real messageBottom: height - subTextRoom
+    readonly property real boxHeight: messageBottom - messageRoom
     signal warningLinkActivated()
 
     function toneColor(name) {
@@ -62,7 +67,7 @@ Item {
     // height without depending on the private tree shape.
     objectName: "fieldRow"
     implicitWidth: slot.x + slot.childrenRect.width
-    implicitHeight: (labelColumn ? Math.max(Theme.row.height, labelText.implicitHeight, slot.childrenRect.height) : slot.childrenRect.height) + messageRoom
+    implicitHeight: (labelColumn ? Math.max(Theme.row.height, labelText.implicitHeight, slot.childrenRect.height) : slot.childrenRect.height) + messageRoom + subTextRoom
 
     Label {
         id: labelText
@@ -113,7 +118,7 @@ Item {
         id: actionSlot
         visible: message.visible
         x: root.actionBelow ? slot.x : root.width - width
-        y: root.actionBelow ? root.height - height : root.height - root.messageLine + Math.round((root.messageLine - height) / 2)
+        y: root.actionBelow ? root.messageBottom - height : root.messageBottom - root.messageLine + Math.round((root.messageLine - height) / 2)
         width: root.actionItem === null ? 0 : root.actionItem.width
         height: root.actionItem === null ? 0 : root.actionItem.height
     }

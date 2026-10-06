@@ -10,11 +10,13 @@ import qs.Unit
 // content `row.paddingX` in; Field starts at `field.paddingX`, zero by
 // default so a container owns its edge. Controls share `control.gap`;
 // ListItem owns its larger icon gap and Badge its smaller chip gap. A theme that moves the shared token
-// moves every component that follows it.
+// moves every component that follows it. A group space, `stack.group`,
+// comes before a group: a button row after text, the row after a row's
+// hint or error line, and a section's first row after its description.
 Item {
     id: root
     width: 400
-    height: 1060
+    height: 1400
 
     Button { id: button; text: "Publish"; iconName: "check" }
     TextField { id: input; width: 200; y: 40 }
@@ -60,6 +62,32 @@ Item {
     Field { id: inlineSwitchMd; label: "Switch md"; hint: "Hint"; inline: true; width: 300; y: 920; Switch { id: switchMd; checked: true } }
     Field { id: inlineSegmented; label: "Segments"; hint: "Hint"; inline: true; width: 300; y: 960; SegmentedControl { id: inlineSeg; width: parent.width; model: ["One", "Two"] } }
     Field { id: inlineTextField; label: "Text"; hint: "Hint"; inline: true; width: 300; y: 1000; TextField { id: inlineTextInput; width: parent.width; text: "abc" } }
+    Column {
+        id: fieldRows
+        y: 1060
+        width: 300
+        spacing: Theme.stack.row
+        Field { id: hintedRow; label: "Interval"; hint: "How often it checks"; inline: true; width: parent.width; Switch { size: "sm" } }
+        Field { id: afterHint; label: "View"; inline: true; width: parent.width; Switch { size: "sm" } }
+        Field { id: plainRow; label: "Plain"; inline: true; width: parent.width; Switch { size: "sm" } }
+        Field { id: lastHinted; label: "Last"; hint: "Ends the column"; inline: true; width: parent.width; Switch { size: "sm" } }
+    }
+    GroupList {
+        id: hintedGroups
+        y: 1240
+        width: 300
+        Field { id: groupedHinted; label: "Grouped"; hint: "A hint"; inline: true; width: parent.width; Switch { size: "sm" } }
+        Field { id: groupedNext; label: "Next"; inline: true; width: parent.width; Switch { size: "sm" } }
+    }
+    Section {
+        id: blockSection
+        title: "Setup"
+        rowSpacing: Theme.stack.group
+        y: 1320
+        width: 300
+        Label { id: stateText; role: "hint"; text: "Ready"; width: parent.width }
+        Row { id: buttonRow; Button { text: "Set up" } }
+    }
     Text {
         id: clearingProbeText
         text: "A message long enough to wrap after the inset grows and makes the line narrower."
@@ -222,11 +250,11 @@ Item {
             const header = describedSection.children[0];
             const first = describedSection.children[1].children[0];
             const description = header.children[1];
-            compare(first.mapToItem(describedSection, 0, 0).y - description.mapToItem(describedSection, 0, description.height).y, Theme.space.md);
+            compare(first.mapToItem(describedSection, 0, 0).y - description.mapToItem(describedSection, 0, description.height).y, Theme.stack.group, "a section's first row is a group space below its description");
             compare(first.mapToItem(describedSection, 0, 0).y - header.mapToItem(describedSection, 0, header.height).y, 0);
             compare(section.children[1].children[0].mapToItem(section, 0, 0).y - section.children[0].mapToItem(section, 0, section.children[0].height).y, 0);
-            compare(header.bottomPadding, Theme.space.md);
-            compare(section.children[0].bottomPadding, describedSection.children[0].bottomPadding);
+            const title = section.children[0].children[0];
+            compare(section.children[1].children[0].mapToItem(section, 0, 0).y - title.mapToItem(section, 0, title.height).y, Theme.space.md, "a section without a description keeps its heading's space");
             const inset = Theme.listItem.paddingX + Theme.icon.size.md + Theme.listItem.iconGap;
             compare(disclosed.parent.x, inset);
             compare(disclosed.width, disclosure.width - inset - Theme.listItem.paddingX);
@@ -240,6 +268,35 @@ Item {
                 compare(row[0].children[1].height, Theme.row.height);
                 compare(hintGap(row[0], row[1]), Theme.field.gap);
             }
+        }
+
+        // The bottom of a field's hint or error line in `item`'s frame.
+        function lineBottom(field, item) {
+            const line = field.children[2].children[0];
+            return line.mapToItem(item, 0, line.height).y;
+        }
+        function topIn(row, item) { return row.mapToItem(item, 0, 0).y; }
+
+        // A row with a hint or error line under it is followed by a group
+        // space; a row without one keeps the column's spacing; the last
+        // row and a row outside a positioner end at their line, so the
+        // space after a section or a page stays its own; a group list's
+        // gap already is a group space.
+        function test_a_group_space_follows_a_row_with_sub_text() {
+            same(() => topIn(afterHint, fieldRows) - lineBottom(hintedRow, fieldRows), Theme.stack.group, "the row after a hint");
+            same(() => topIn(plainRow, fieldRows) - topIn(afterHint, fieldRows), Theme.row.height + Theme.stack.row, "the row after a row without sub-text");
+            afterHint.error = "Refused";
+            same(() => topIn(plainRow, fieldRows) - lineBottom(afterHint, fieldRows), Theme.stack.group, "the row after an error");
+            afterHint.error = "";
+            same(() => fieldRows.height, lineBottom(lastHinted, fieldRows), "the column's end after its last hinted row");
+            same(() => inlineSwitchSm.height, lineBottom(inlineSwitchSm, inlineSwitchSm), "a hinted field outside a positioner ends at its hint");
+            same(() => topIn(groupedNext, hintedGroups) - lineBottom(groupedHinted, hintedGroups), Theme.groupList.gap, "a group list's gap after a hint");
+        }
+
+        // A section of blocks, such as a state over a button row, sets its
+        // rows a group space apart.
+        function test_a_group_space_comes_before_a_button_row() {
+            same(() => topIn(buttonRow, blockSection) - stateText.mapToItem(blockSection, 0, stateText.height).y, Theme.stack.group, "the button row after text");
         }
 
         function test_toast_text_clears_a_rounded_corner() {
