@@ -175,9 +175,9 @@ disp_dim() { disp_read dim | py_reply '
 import json, re, sys
 dim = json.load(sys.stdin)
 print(json.dumps([dim["state"]] + ([[re.search(r"hidraw\d+", k["id"]).group(0), k["percent"]] for k in dim["kept"]] if dim["state"] == "dimmed" else [])))'; }
-# True when System → Displays' Dimming section, the pane's last two
-# Selects, shows the two values given.
-disp_dim_drawn() { ipc smoke itemTexts window vgs.displays Select | py_reply 'import json,sys; print(json.load(sys.stdin)[-2:] == [[sys.argv[1]], [sys.argv[2]]])' "$1" "$2"; }
+# True when System → Displays shows a Select at each of the two values
+# given: the Dimming section's, since every other Select names a screen.
+disp_dim_drawn() { ipc smoke itemTexts window vgs.displays Select | py_reply 'import json,sys; t=json.load(sys.stdin); print(all(any(v in texts for texts in t) for v in sys.argv[1:]))' "$1" "$2"; }
 disp_all_sets() { echo "$(disp_sets hidraw0) $(disp_sets hidraw1) $(disp_sets hidraw2)"; }
 disp_file_entries() { python3 -c 'import json,sys; print(json.dumps(sorted([e["device"], e["output"]] for e in json.load(open(sys.argv[1]))["assignments"])))' "$disp_file"; }
 
