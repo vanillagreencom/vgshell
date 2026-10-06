@@ -21,6 +21,8 @@ Change the keys in the plugin's Keys row on its Settings page.
 
 The Voice Settings page shows Set up while the speech model, the speech engine or the user service is missing.
 
+When voxtype is missing, Set up, Configure and Choose model on the Voice Settings page first offer to install it. Once voxtype is installed, the screen you chose opens. A step that needs your password says so before it asks.
+
 Set up copies the default voxtype config only when no config exists. It also copies the bloop sounds, enables the speech engine, downloads the configured model and starts the user service.
 
 The Configure and Choose model entries open voxtype's own screens. Voice warns first when the config is a symlink, because those screens can replace it with a regular file.

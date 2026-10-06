@@ -138,6 +138,9 @@
     "setup": {
       "script": "tui/setup.sh",
       "title": "Set up Voice",
+      "requires": [
+        "voxtype"
+      ],
       "entry": {
         "label": "Set up",
         "icon": "download",
@@ -147,6 +150,9 @@
     "configure": {
       "script": "tui/configure.sh",
       "title": "Configure Voice",
+      "requires": [
+        "voxtype"
+      ],
       "entry": {
         "label": "Configure",
         "icon": "sliders-horizontal",
@@ -156,6 +162,9 @@
     "model": {
       "script": "tui/model.sh",
       "title": "Choose Voice model",
+      "requires": [
+        "voxtype"
+      ],
       "entry": {
         "label": "Choose model",
         "icon": "brain",

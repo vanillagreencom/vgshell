@@ -55,12 +55,12 @@ esac
 SH
 chmod 755 "$tools/gum" "$tools/sudo" "$tools/systemctl" "$tools/voxtype"
 
-run_setup() {
-  local home="$1" script="${2:-$plugin/tui/setup.sh}"
+run_setup() { # HOME [SCRIPT] [PATH]
+  local home="$1" script="${2:-$plugin/tui/setup.sh}" path="${3:-$tools}"
   : >"$TMP_ROOT/calls"
   mkdir -p -- "$home"
   status=0
-  env -i PATH="$tools" HOME="$home" XDG_CONFIG_HOME="$home/.config" VGS_TUI_UNATTENDED=1 VGS_TUI_LIB="$repo/bin/lib/tui.sh" VGS_PLUGIN_DIR="$plugin" bash "$script" >"$TMP_ROOT/out" 2>"$TMP_ROOT/err" || status=$?
+  env -i PATH="$path" HOME="$home" XDG_CONFIG_HOME="$home/.config" VGS_TUI_UNATTENDED=1 VGS_TUI_LIB="$repo/bin/lib/tui.sh" VGS_PLUGIN_DIR="$plugin" bash "$script" >"$TMP_ROOT/out" 2>"$TMP_ROOT/err" || status=$?
   calls="$(cat "$TMP_ROOT/calls")"
 }
 
@@ -109,6 +109,33 @@ rm -rf -- "${TMP_ROOT:?}/home3"
 run_setup "$TMP_ROOT/home3" "$control"
 order="$(grep -E 'sudo voxtype setup onnx --enable|voxtype setup (--download --model parakeet-tdt-0.6b-v3 --no-post-install|systemd)|systemctl --user restart voxtype' "$TMP_ROOT/calls" | paste -sd '|' -)"
 if [[ $order == "$want" ]]; then fail "control sudo: setup still routed onnx through sudo"; else ok "control sudo turns the sudo route case red"; fi
+
+# Without voxtype on PATH, setup refuses with its keyed line before it
+# copies anything, and no shell error reaches the terminal.
+no_voxtype="$TMP_ROOT/tools-no-voxtype"
+mkdir -p -- "$no_voxtype"
+for tool in "$tools"/*; do
+  [[ ${tool##*/} == voxtype ]] || ln -s -- "$tool" "$no_voxtype/${tool##*/}"
+done
+missing_refused() { # HOME
+  [[ $status == 1 && $(head -n 1 "$TMP_ROOT/err") == 'vgs-voice: refused: voxtype=missing' ]] &&
+    ! grep -q 'command not found' "$TMP_ROOT/err" && [[ ! -e $1/.config/voxtype ]]
+}
+run_setup "$TMP_ROOT/home4" "$plugin/tui/setup.sh" "$no_voxtype"
+if missing_refused "$TMP_ROOT/home4"; then ok "setup without voxtype refuses with one keyed line and copies nothing"; else fail "setup without voxtype: status=$status err=$(cat "$TMP_ROOT/err")"; fi
+
+control="$TMP_ROOT/setup-nocheck.sh"
+python3 - "$plugin/tui/setup.sh" "$control" <<'PY'
+import sys
+source = open(sys.argv[1]).read()
+needle = 'if ! command -v voxtype >/dev/null; then'
+if source.count(needle) != 1:
+    raise SystemExit('voxtype check count')
+open(sys.argv[2], 'w').write(source.replace(needle, 'if false; then'))
+PY
+chmod 755 "$control"
+run_setup "$TMP_ROOT/home5" "$control" "$no_voxtype"
+if missing_refused "$TMP_ROOT/home5"; then fail "control voxtype check: the copy without the check still refused cleanly"; else ok "control voxtype check turns the missing-voxtype case red (status=$status)"; fi
 
 if [[ $failures -gt 0 ]]; then
   printf 'test-voice-tui: failures=%d\n' "$failures"

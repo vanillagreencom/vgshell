@@ -25,8 +25,10 @@ import "PluginLogic.js" as Logic
 // it. The managers come from `bin/vgshell-pkg detect --json`, run when the
 // first notice arrives and after each install. Install opens the core TUI
 // `core/requirements-install`; once its run ends, one rescan follows, and
-// a notice whose required commands the scan finds is closed. The core
-// never elevates: the package manager asks in the terminal (D034).
+// a notice whose required commands the scan finds is closed. A notice a
+// plugin's setup TUI raised in place of itself (TuiRunner.runFor) opens
+// that TUI once it closes so, so one press of Set up ends set up (D061).
+// The core never elevates: the package manager asks in the terminal (D034).
 Singleton {
     id: root
 
@@ -51,6 +53,10 @@ Singleton {
     property string installingId: ""
     // Why the shown notice's last install did not end with code 0, or "".
     property string failure: ""
+    // Plugin id -> the name of its own TUI a press asked for while a
+    // command it needs was missing: opened once that plugin's notice
+    // closes with the commands found, dropped by Not now. Replaced whole.
+    property var resumes: ({})
     property var screen: null
     // What the consent slot draws, or null: PluginLogic.consentSlotView,
     // the welcome or the Hyprland question, which HyprlandLayer binds.
@@ -188,6 +194,26 @@ Singleton {
     function settle() {
         const kept = Logic.noticeSettle(queue, Registry.requirementOwners, Registry.ownerMissing, installingId);
         if (kept.length !== queue.length) queue = kept;
+        resume();
+    }
+
+    // Each TUI a press asked for whose plugin's notice has closed: opened
+    // when the scan finds every command it needs, so a notice closed with
+    // one still missing opens nothing.
+    function resume() {
+        const due = Object.keys(resumes).filter(id => !queue.some(n => n.id === id));
+        if (due.length === 0) return;
+        const next = Object.assign({}, resumes);
+        for (const id of due) delete next[id];
+        const names = due.map(id => resumes[id]);
+        resumes = next;
+        due.forEach((id, i) => {
+            const manifest = Registry.activeManifestOf(id);
+            if (manifest === null || !Logic.hasOwn(manifest.tui, names[i])) return;
+            if (Logic.tuiMissingRequirements(manifest, names[i], missingOf(id)).length > 0) return;
+            const answer = Capabilities.tuis.runFor(id, names[i]);
+            if (answer !== "ok") console.warn("notices: resume=" + id + "/" + names[i] + " " + answer);
+        });
     }
 
     // Start one scan and call FN once a scan that started after this call
@@ -248,8 +274,11 @@ Singleton {
     // with every missing command, the Settings window's Install all missing.
     // A plugin missing nothing raises no notice, so `satisfied` answers
     // `refused: requirements=<id> reason=satisfied` for the page to show.
-    function requested(id) {
+    // TUI, when given, is the plugin's own TUI the press asked for, which
+    // the notice opens once it closes with its commands found (resume).
+    function requested(id, tui) {
         const answer = raise(id, "requested");
+        if (answer === "ok" && tui !== undefined) resumes = Object.assign({}, resumes, { [id]: tui });
         return answer === "satisfied" ? "refused: requirements=" + id + " reason=satisfied" : answer;
     }
 
@@ -390,6 +419,11 @@ Singleton {
         for (const id of Object.keys(rest)) if (rest[id] > now) next[id] = rest[id];
         next[notice.id] = now + Logic.NOTICE_OFFER_REST_MS;
         rest = next;
+        if (Logic.hasOwn(resumes, notice.id)) {
+            const kept = Object.assign({}, resumes);
+            delete kept[notice.id];
+            resumes = kept;
+        }
         queue = queue.slice(1);
     }
 
@@ -424,6 +458,7 @@ Singleton {
             consentState: consentState === null ? null : { phase: consentState.phase, queued: consentState.queued || "", failure: consentState.failure || "" },
             welcome: { state: welcome, lines: consent !== null && consent.welcome ? consent.lines : null, actions: consent !== null && consent.welcome ? consent.actions.map(a => a.label) : null },
             waiting: queue.slice(1).map(n => n.id),
+            resumes: resumes,
             resting: Object.keys(rest).filter(id => rest[id] > now).sort(),
             screen: screen === null ? null : screen.name,
             managers: managers,

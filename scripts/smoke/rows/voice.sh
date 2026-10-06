@@ -3,7 +3,16 @@
 # widget, sends its toggle and hold keys through the nested virtual-keyboard
 # helper, reads setup offered while the stub model is missing and withheld
 # when the stub reports it installed, then disables the plugin and checks its
-# shortcuts, its status child and its bridge child are gone. The key delivery
+# shortcuts, its status child and its bridge child are gone. Without
+# voxtype, Set up on the Settings page raises the requirement notice in
+# place of its script; Install hands the terminal voxtype-bin through the AUR helper,
+# the row puts the stubs back as the package step would, and the scan after
+# the run closes the notice and opens Set up on its own; the stubs then
+# report the model and the service in place, and the toggle shortcut runs a
+# test dictation. Its control: Not now on that notice drops the Set up, so
+# no setup TUI opens once a scan finds voxtype. A stand-in bin/vgshell-pkg
+# answers detection with pacman and paru, whatever the host runs, for
+# that part alone. The key delivery
 # uses physical code overrides for the row, so the helper reaches the same
 # generated bind path that hold-shortcuts.sh exercises. The device
 # stand-in systemctl answers the service probe from a planted reply. It
@@ -27,7 +36,7 @@
 # setting, theme and copy the display part changes is put back; it reuses
 # the Voice client above. States and frames poll once per IPC round trip;
 # no latency budget is claimed.
-# inputs: shell/plugins/vgs.voice/* shell/plugins/vgs.voice/shaders/* shell/Ui/feedback/VoiceOrb.qml shell/Ui/feedback/shaders/* shell/Core/Layers.qml shell/Hosts/LayerHost.qml shell/Hosts/OverlaySurface.qml shell/Core/ShortcutRegistry.qml shell/Core/HyprlandLayer.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml shell/plugins/vgs.settings/* scripts/smoke/keyboard/* scripts/smoke/toplevel/* scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/plugins/vgs.voice/* shell/plugins/vgs.voice/shaders/* shell/Ui/feedback/VoiceOrb.qml shell/Ui/feedback/shaders/* shell/Core/Layers.qml shell/Hosts/LayerHost.qml shell/Hosts/OverlaySurface.qml shell/Core/ShortcutRegistry.qml shell/Core/HyprlandLayer.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Core/PluginLogic.js shell/Core/PackageManagers.js bin/vgshell-pkg bin/vgshell-tui shell/plugins/vgs.settings/* scripts/smoke/keyboard/* scripts/smoke/toplevel/* scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 
 voice_log="$sandbox/voice-record.log"
@@ -83,6 +92,9 @@ while :; do
 done
 EOF_BRIDGE
 chmod 755 "$voice_bridge_stub"
+# Copies the package step puts back once the row has removed both stubs.
+cp -- "$voice_stub" "$sandbox/voice-voxtype.stub"
+cp -- "$voice_bridge_stub" "$sandbox/voice-bridge.stub"
 device_reply systemctl 0 enabled --user is-enabled voxtype
 cat >"$shim/setpriv" <<'EOF_SETPRIV'
 #!/usr/bin/env bash
@@ -608,6 +620,35 @@ rm -f -- "${voice_stub:?}" "${voice_bridge_stub:?}" "${shim:?}/setpriv" "${voice
 device_reply_clear systemctl
 rescan "rescan after removing the Voice stubs"
 expect_poll "the Voice voxtype requirement is missing after stub removal" missing voice_requirement voxtype
+# Detection answers through bin/vgshell-pkg, swapped in whole and put back
+# after the install rows.
+voice_pkg_real="$sandbox/voice-vgshell-pkg.real"
+cp -- "$repo/bin/vgshell-pkg" "$voice_pkg_real"
+cat >"$sandbox/voice-vgshell-pkg.stub" <<'EOF_PKG'
+#!/usr/bin/env node
+if (process.argv[2] === "detect" && process.argv[3] === "--json") {
+    process.stdout.write('{"primary":{"id":"pacman","binary":"pacman"},"overlays":[{"id":"aur","binary":"paru"}],"sources":[]}\n');
+    process.exit(0);
+}
+process.stderr.write("vgshell: refused: stub=vgshell-pkg\n");
+process.exit(70);
+EOF_PKG
+chmod 755 "$sandbox/voice-vgshell-pkg.stub"
+cp -- "$sandbox/voice-vgshell-pkg.stub" "$repo/bin/vgshell-pkg.next" && mv -T -- "$repo/bin/vgshell-pkg.next" "$repo/bin/vgshell-pkg"
+voice_resumes() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["notices"]["resumes"]))'; }
+voice_engine_installed() {
+  cp -- "$sandbox/voice-voxtype.stub" "$voice_stub" && cp -- "$sandbox/voice-bridge.stub" "$voice_bridge_stub" && chmod 755 "$voice_stub" "$voice_bridge_stub"
+}
+voice_engine_removed() { rm -f -- "${voice_stub:?}" "${voice_bridge_stub:?}"; }
+voice_notice_escape() { # LABEL
+  expect_poll "$1: the notice holds the keyboard" true ipc smoke noticeFocused
+  type_keys -k Escape || fail "$1: sending Escape failed"
+  expect_poll "$1: Escape closes the notice" null notice_shown
+}
+voice_asked='["vgs.voice", ["voxtype", "voxtype-audio-bridge"], ["voxtype", "voxtype-audio-bridge"], false]'
+# Idle, so the stubs the package step puts back show no recording.
+voice_set_state idle
+
 expect "enabling Voice without voxtype is allowed" ok ipc shell setPluginEnabled vgs.voice true
 expect_poll "Voice without voxtype is built" True record_exists vgs.voice
 settings_page_open vgs.voice
@@ -615,8 +656,59 @@ settings_details
 expect_poll "the Voice page offers Install and withholds Set up without voxtype" '[["voxtype", "Install\u2026", true], ["setup", "Set up", false]]' offered_actions vgs.voice
 expect_poll "the Voice status row offers voxtype install" '[["voxtype", "Absent", "Voice needs voxtype to capture speech.", "Install\u2026"], ["Setup", "Install voxtype first", "Setup copies defaults, downloads the speech model and enables the service."]]' voice_drawn_status
 expect_poll "the Voice Requirements row says voxtype is missing" "$(words voxtype "Missing, optional" "Captures speech and inserts dictated text")" voice_requirement_drawn
+
+# Control: Not now on the notice Set up raised drops the Set up, so a scan
+# that later finds voxtype opens nothing.
+forget_record
+expect "Set up without voxtype is answered" ok settings_open_tui vgs.voice setup
+expect_poll "Set up without voxtype raises the notice in place of its script" "$voice_asked" notice_shown
+expect "the notice holds the Set up the press asked for" '{"vgs.voice": "setup"}' voice_resumes
+voice_notice_escape "control: the Set up notice"
+expect "control: Not now drops the Set up" '{}' voice_resumes
+voice_engine_installed
+rescan "control: a scan finds voxtype after Not now"
+expect_poll "control: voxtype is present after Not now" present voice_requirement voxtype
+expect "control: no setup TUI is asked for after Not now" idle key_idle vgs.voice/setup
+expect "control: the terminal is handed nothing after Not now" absent recorded
+voice_engine_removed
+rescan "control: voxtype is removed again"
+expect_poll "control: voxtype is missing again" missing voice_requirement voxtype
+
+# One press of Set up: the notice installs voxtype, then Set up runs.
+forget_record
+expect "Set up without voxtype is answered again" ok settings_open_tui vgs.voice setup
+expect_poll "Set up raises the notice again" "$voice_asked" notice_shown
+expect_poll "the Set up notice holds the keyboard for Install" true ipc smoke noticeFocused
+hold_runs
+type_keys -k Return || fail "sending Return to the Set up notice failed"
+expect_poll "Install hands the terminal voxtype-bin through the AUR helper" "$(core_words core/requirements-install "Install requirements" org.vgs.tui pkg run install --manager aur voxtype-bin)" recorded
+expect_poll "the notice records its install running" '["vgs.voice", ["voxtype", "voxtype-audio-bridge"], ["voxtype", "voxtype-audio-bridge"], true]' notice_shown
+voice_engine_installed
+forget_record
+release_runs
+expect_run_end "the voxtype install run ends" core/requirements-install
+expect_poll "the scan after the install closes the notice" null notice_shown
+expect_poll "the closed notice opens Set up on its own" "$(words vgs.voice/setup tui/setup.sh)" recorded_tail
+expect "nothing waits on a notice once Set up opened" '{}' voice_resumes
+expect_run_end "the setup run ends" vgs.voice/setup
+expect_poll "Voice sees voxtype after the install" true ipc smoke readInstance service vgs.voice voxtypePresent
+# The stand-in terminal runs `true` for the setup script, so the stubs take
+# the state the script leaves, which scripts/test-voice-tui.sh reads.
+touch -- "$voice_installed"
+device_reply systemctl 0 enabled --user is-enabled voxtype
+rescan "the Voice rescan reads setup's end state"
+expect_poll "Set up is withheld once the model and the service are in place" False voice_setup_offered
+expect_poll "the dictation shortcuts are registered after setup" 3 voice_shortcuts
+before="$(wc -l <"$voice_log")"
+expect "the toggle shortcut reaches Voice" ok hypr dispatch 'hl.dsp.global("vgs.voice:toggle")'
+expect_poll "a test dictation runs only voxtype record toggle" ok voice_toggle_only
 settings_page_close vgs.voice
-expect "disabling Voice after the missing-requirement check is allowed" ok ipc shell setPluginEnabled vgs.voice false
+expect "disabling Voice after the setup rows is allowed" ok ipc shell setPluginEnabled vgs.voice false
+cp -- "$voice_pkg_real" "$repo/bin/vgshell-pkg.next" && mv -T -- "$repo/bin/vgshell-pkg.next" "$repo/bin/vgshell-pkg"
+voice_engine_removed
+rm -f -- "${voice_installed:?}"
+device_reply_clear systemctl
+rescan "rescan after removing the Voice stubs again"
 cp -- "$voice_saved_config" "$home/.config/vgshell/shell.json.next" && mv -T -- "$home/.config/vgshell/shell.json.next" "$home/.config/vgshell/shell.json"
 expect "the shell.json Voice found is reloaded" ok ipc shell reloadConfig
 read -r voice_pointer_x voice_pointer_y <<<"$voice_pointer"

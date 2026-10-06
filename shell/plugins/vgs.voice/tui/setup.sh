@@ -43,6 +43,13 @@ copy_defaults_if_absent() {
 }
 
 vgs_tui_header "Set up Voice" "Voice copies defaults only when no voxtype config exists."
+# The core opens this script only once voxtype is found; a run from
+# elsewhere without it stops here, before anything is copied.
+if ! command -v voxtype >/dev/null; then
+  printf 'vgs-voice: refused: voxtype=missing\n' >&2
+  vgs_tui_error "Voice needs voxtype. Press Set up in Voice settings to install it."
+  exit 1
+fi
 copy_defaults_if_absent
 engine="$(voxtype config get engine --json | json_value parakeet)"
 model_key="$engine.model"
@@ -58,6 +65,7 @@ esac
 engines_json="$(voxtype info engines --json)"
 if [[ $(printf '%s' "$engines_json" | engine_compiled "$engine") != yes ]]; then
   vgs_tui_step "Enabling the speech engine"
+  printf 'This step changes system files, so it asks for your password next.\n'
   vgs_tui_sudo_session start
   sudo voxtype setup onnx --enable
   vgs_tui_sudo_session end
