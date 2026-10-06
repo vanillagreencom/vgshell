@@ -5,7 +5,9 @@
 # Done and Failed prompts, the skip on 130, a typed Ctrl-C, the exit code,
 # the logo, every line of bin/lib/logo.txt, the plain presentation, the gum.env parse, the argv list, the exported paths and
 # the plugin copy, and the exit record: its running and ended files, the
-# key's lock, a busy key, a termination and reap. launch and `vgshell tui
+# key's lock, a busy key, a termination and reap, and the failure marker
+# through which a later run of a plugin closes that plugin's older failed
+# window. launch and `vgshell tui
 # present` run against a stub
 # xdg-terminal-exec that records its argv, behind a stub setsid that
 # records its first argument and runs the rest in the foreground. `vgshell tui
@@ -687,6 +689,87 @@ run_cli_rows() {
 }
 run_cli_rows "$repo/bin/vgshell" loud || true
 
+# An older failed window: a failed run of acme.tui/fail waits at its Failed
+# prompt, with its failure marker beside its records, on a pseudo-terminal
+# that types no key until the row asks for one. A later run of another key
+# of acme.tui removes the marker and the waiting window closes; a run of
+# another plugin leaves it waiting. The fail and ok scripts come from a
+# snapshot of their own.
+fail_snap="$tmp/fail-snapshot"
+mkdir -p "$fail_snap/tui"
+printf '#!/bin/sh\nexit 1\n' >"$fail_snap/tui/fail.sh"
+printf '#!/bin/sh\nexit 0\n' >"$fail_snap/tui/ok.sh"
+chmod +x "$fail_snap/tui/fail.sh" "$fail_snap/tui/ok.sh"
+fail_marker="$rdir/acme.tui@fail@30-1.failed"
+# failed_window BIN: BIN's failed run in the background, with its output in
+# $tmp/failed-out; sets failed_pid, whose status is the run's, and returns
+# once the marker is there, polling every 0.05 s for at most 10 s, a ceiling
+# on a presenter's start. The typist types one key each time $tmp/failed-key
+# appears and stops once the run ended; timeout ends a run nothing closes.
+failed_window() { # BIN
+  local cmd n
+  cmd="$(printf '%q ' "$1" present --plugin acme.tui --dir "$fail_snap" --record acme.tui/fail --run 30-1 --record-dir "$rdir" --app-id org.vgs.tui --window-title t -- tui/fail.sh)"
+  rm -f -- "$tmp/failed-done" "$tmp/failed-key" "$fail_marker"
+  {
+    while [[ ! -e $tmp/failed-done ]]; do
+      if [[ -e $tmp/failed-key ]]; then rm -f -- "$tmp/failed-key"; printf x; fi
+      sleep 0.1
+    done
+  } | {
+    timeout 30 "${tui_env[@]}" script -qec "$cmd" /dev/null >"$tmp/failed-out" 2>&1
+    st=$?
+    : >"$tmp/failed-done"
+    exit "$st"
+  } &
+  failed_pid=$!
+  for ((n = 0; n < 200; n++)); do [[ -e $fail_marker ]] && return 0; sleep 0.05; done
+  return 1
+}
+# failed_gone: `closed` once the failed window's run ended, polling every
+# 0.05 s for at most 3 s, a ceiling over the prompt's 0.2 s read timeout,
+# not a measurement; else `waiting`.
+failed_gone() {
+  local n
+  for ((n = 0; n < 60; n++)); do [[ -e $tmp/failed-done ]] && { echo closed; return; }; sleep 0.05; done
+  echo waiting
+}
+# failed_close: a key closes a window still waiting, and the run is reaped.
+# The key is typed once the prompt is drawn, polling every 0.05 s for at
+# most 5 s: the prompt drops a key queued before it as a terminal reply.
+failed_close() {
+  local n
+  for ((n = 0; n < 100; n++)); do grep -qF "$(failed_text 1)" "$tmp/failed-out" 2>/dev/null && break; sleep 0.05; done
+  : >"$tmp/failed-key"
+  wait "$failed_pid" || :
+  rm -f -- "${rdir:?}"/acme.*@*.json
+}
+# later_run BIN ID NAME: a plain run of plugin ID's NAME, which runs ok.sh.
+later_run() { # BIN ID NAME
+  plain_run "$1" present --presentation plain --plugin "$2" --dir "$fail_snap" --record "$2/$3" --run 31-1 --record-dir "$rdir" --app-id org.vgs.tui --window-title t -- tui/ok.sh
+}
+check "a failed plugin run writes its failure marker beside its records" failed_window "$subject"
+check "a failed plugin run waits at its Failed prompt" kill -0 "$failed_pid"
+later_run "$subject" acme.other ok
+check "a run of another plugin leaves the failed window waiting" test "$(failed_gone)" == waiting
+check "a run of another plugin leaves the failure marker" test -e "$fail_marker"
+later_run "$subject" acme.tui ok
+check "a later run of the same plugin closes the failed window" test "$(failed_gone)" == closed
+failed_status=0
+wait "$failed_pid" || failed_status=$?
+check "the closed failed window keeps its run's code" test "$failed_status" == 1
+check "the closed failed window had shown its Failed prompt" grep -qF "$(failed_text 1)" "$tmp/failed-out"
+check "the closed failed window leaves no marker" test ! -e "$fail_marker"
+rm -f -- "${rdir:?}"/acme.*@*.json
+# A key still closes a failed window, which then removes its own marker; a
+# run that ends with 0 makes none.
+failed_window "$subject" || fail "the failed window for the key row never wrote its marker"
+failed_close
+check "a failed window closed by a key removes its own marker" test ! -e "$fail_marker"
+on_tty "$subject" present --plugin acme.tui --dir "$fail_snap" --record acme.tui/ok --run 32-1 --record-dir "$rdir" --app-id org.vgs.tui --window-title t -- tui/ok.sh
+check "a plugin run that ends with 0 prompts Done" out_has "$done_text"
+check "a plugin run that ends with 0 makes no failure marker" test -z "$(find "$rdir" -name '*.failed')"
+rm -f -- "${rdir:?}"/acme.*@*.json
+
 # With no xdg-terminal-exec on PATH, launch refuses before exec.
 bare="$tmp/bare"; mkdir -p "$bare"
 ln -s -- "$node_bin" "$bare/node"
@@ -762,6 +845,27 @@ control_lib stdout-prompt '"$(vgs_tui_sgr "${VGS_TUI_DANGER:-}" 31)" "$code" >/d
 prompt_on_tty "$control_bin"
 check "the stdout-prompt mutant keeps the prompt off the terminal" test "$(grep -c 'Failed (' "$tmp/out")" == 0
 check "the stdout-prompt mutant writes the prompt to stdout" grep -q 'Failed (exit code 1)' "$tmp/stdout"
+
+# The prompt's marker wait is the library's: a copy that waits for a key
+# alone leaves the failed window waiting after a later run of its plugin.
+control_lib key-only-prompt '    while [[ -e $marker ]]; do' '    while true; do'
+failed_window "$control_bin" || fail "the key-only-prompt mutant's failed window never wrote its marker"
+later_run "$control_bin" acme.tui ok
+check "the key-only-prompt mutant leaves the failed window waiting" test "$(failed_gone)" == waiting
+failed_close
+
+control kept-failure-marker vgshell-tui 'then rm -f -- "${window_dir:?}/${record_key%%/*}@"*.failed; fi' 'then :; fi'
+failed_window "$control_bin" || fail "the kept-failure-marker mutant's failed window never wrote its marker"
+later_run "$control_bin" acme.tui ok
+check "the kept-failure-marker mutant leaves the failed window waiting" test "$(failed_gone)" == waiting
+failed_close
+
+control any-plugin-marker vgshell-tui 'rm -f -- "${window_dir:?}/${record_key%%/*}@"*.failed' 'rm -f -- "${window_dir:?}/"*.failed'
+failed_window "$control_bin" || fail "the any-plugin-marker mutant's failed window never wrote its marker"
+later_run "$control_bin" acme.other ok
+check "the any-plugin-marker mutant closes the failed window on another plugin's run" test "$(failed_gone)" == closed
+wait "$failed_pid" || :
+rm -f -- "${rdir:?}"/acme.*@*.json
 
 control shell-string vgshell-tui 'else "${argv[@]}"; fi' 'else bash -c "${argv[*]}"; fi'
 rm -f -- "$tmp/argv"

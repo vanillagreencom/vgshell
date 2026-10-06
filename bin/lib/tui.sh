@@ -28,9 +28,11 @@
 #   vgs_tui_log FILE [ARG...]        run this script again under script(1) into FILE,
 #                                    keeping SGR colour and dropping terminal controls
 #   vgs_tui_reboot_check             print why a reboot is needed; 1 when none is
-#   vgs_tui_close_prompt CODE        `● Done!` for 0, `● Failed (exit code CODE)!`
-#                                    otherwise, and one key, on /dev/tty; nothing
-#                                    for 130, a Ctrl-C, or with no terminal
+#   vgs_tui_close_prompt CODE [MARKER]
+#                                    `● Done!` for 0, `● Failed (exit code CODE)!`
+#                                    otherwise, and one key, or MARKER's removal
+#                                    when given, on /dev/tty; nothing for 130, a
+#                                    Ctrl-C, or with no terminal
 
 # Character classes spelled out: a range such as [a-z] follows the collation
 # of the user's locale, which the script under the presentation keeps.
@@ -240,9 +242,12 @@ vgs_tui_log() { # FILE [ARG...]
 # itself, since the presenter shows it only under the full presentation. It
 # goes to /dev/tty, so a redirected caller still shows it. Replies to
 # queries the command sent the terminal are still queued on the tty and
-# would answer the keypress for the user, so they are dropped first.
-vgs_tui_close_prompt() { # CODE
-  local code="$1"
+# would answer the keypress for the user, so they are dropped first. With
+# MARKER, a file the caller made, the prompt also ends once the file is
+# gone: the key is read with a 0.2 s timeout and the file looked for
+# between reads, so a later run can close a window that waits here.
+vgs_tui_close_prompt() { # CODE [MARKER]
+  local code="$1" marker="${2:-}" status
   [[ $code != 130 ]] || return 0
   _vgs_tui_has_terminal || return 0
   while read -rsn 1 -t 0.1 _ </dev/tty; do :; done
@@ -251,7 +256,17 @@ vgs_tui_close_prompt() { # CODE
   else
     printf '\n%s● \033[0mFailed (exit code %d)! Press any key to close...' "$(vgs_tui_sgr "${VGS_TUI_DANGER:-}" 31)" "$code" >/dev/tty
   fi
-  read -rsn 1 _ </dev/tty || :
+  if [[ -n $marker ]]; then
+    while [[ -e $marker ]]; do
+      status=0
+      read -rsn 1 -t 0.2 _ </dev/tty || status=$?
+      # Above 128 is the timeout; any other end is a key, or a terminal
+      # that can no longer be read.
+      [[ $status -gt 128 ]] || break
+    done
+  else
+    read -rsn 1 _ </dev/tty || :
+  fi
   printf '\n' >/dev/tty
 }
 

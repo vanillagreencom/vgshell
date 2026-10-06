@@ -36,8 +36,15 @@
 # Unless the code is 130, a Ctrl-C, it shows the library's closing prompt,
 # vgs_tui_close_prompt: `● Done! Press any key to close...` or `● Failed
 # (exit code N)! Press any key to close...` on /dev/tty, not on stdout, and
-# waits for one key. `plain` skips the logo and the prompt. Before the command runs it
-# exports:
+# waits for one key. `plain` skips the logo and the prompt. A plugin's
+# recorded run that failed first makes the failure marker
+# <stem>@<run>.failed beside its records, and its prompt also ends once the
+# marker is gone: a later present of any key of the same plugin removes that
+# plugin's markers, <plugin id>@*.failed, before it runs its command, so an
+# older failed window of the plugin closes itself instead of waiting behind
+# the new one. present removes its own marker when it exits. A marker's name
+# does not end in .json, so the shell's record listing skips it. Before the
+# command runs it exports:
 #   - each line of ${XDG_STATE_HOME:-~/.local/state}/vgshell/theme/gum.env, which
 #     is parsed and never sourced: every line must be KEY=#rrggbb, KEY
 #     matching gum_key below, or no line is exported and a warning names
@@ -408,17 +415,21 @@ record_end() { # CODE
 present_exit() {
   local status=$?
   [[ -z $copy_dir ]] || rm -rf -- "$copy_dir"
+  [[ -z $fail_marker ]] || rm -f -- "$fail_marker"
   if [[ $record_active == 1 ]]; then record_end "${ran_code:-$status}"; fi
   [[ -z $run_lock ]] || rm -f -- "$run_lock"
 }
 
 present() {
   local code refusal=""
-  copy_dir="" record_fd="" run_fd="" run_lock="" record_active=0 ran_code="" stem="" started_at=""
+  copy_dir="" record_fd="" run_fd="" run_lock="" record_active=0 ran_code="" stem="" started_at="" fail_marker=""
   trap present_exit EXIT
   trap 'exit 129' HUP
   trap 'exit 143' TERM
   [[ -z $record_key ]] || record_start || :
+  # A window of this plugin that failed and still waits for its key closes
+  # once this run starts: its prompt waits on the marker removed here.
+  if [[ -n $plugin_id && -n $record_key ]]; then rm -f -- "${window_dir:?}/${record_key%%/*}@"*.failed; fi
   export_gum_env
   export VGS_TUI_LIB="$lib" VGS_TUI_LOGO="$logo"
   if [[ -n $plugin_id ]]; then
@@ -449,7 +460,10 @@ present() {
     trap - INT
   fi
   ran_code="$code"
-  [[ $presentation == plain ]] || vgs_tui_close_prompt "$code"
+  if [[ $presentation == full && $code != 0 && $code != 130 && -n $plugin_id && -n $record_key ]]; then
+    { : >"$window_dir/$stem@$record_run.failed"; } 2>/dev/null && fail_marker="$window_dir/$stem@$record_run.failed"
+  fi
+  [[ $presentation == plain ]] || vgs_tui_close_prompt "$code" "$fail_marker"
   exit "$code"
 }
 
