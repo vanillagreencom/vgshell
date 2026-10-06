@@ -293,6 +293,14 @@ const DEFAULTS = [
     ["carousel.decodeCap", 2048],
     ["carousel.previewDwell", 250],
     ["carousel.duration", 150],
+    // A slice's name: h2, space.xxl 24 up the slice from its bottom edge,
+    // white over black at 0.8 blurred 2 pixels.
+    ["carousel.sliceName.role", "h2"],
+    ["carousel.sliceName.inset", 24],
+    ["carousel.sliceName.foreground", "#ffffffff"],
+    ["carousel.sliceName.shadow", "#000000ff"],
+    ["carousel.sliceName.shadowOpacity", 0.8],
+    ["carousel.sliceName.blur", 2],
     ["desktopPreview.referenceWidth", 1600],
     ["desktopPreview.referenceHeight", 900],
     // The preview's desktop: the bar's own 28 pixels, windows space.xxl
@@ -968,7 +976,8 @@ const GRID_EXCEPTIONS = [
     [/^(space\.xxs|segmented\.padding|segmented\.gap|toggle\.inset|focusRing\.offset|scrollArea\.barInset|titleButton\.underlineGap)$/, "2 px steps inside one component"],
     [/^(badge\.paddingEnd|textField\.paddingX)$/, "optical insets inside one component"],
     [/^(space\.sm|badge\.size\.sm\.paddingX|kbd\.paddingX|tooltip\.paddingY)$/, "6 px padding inside a chip, a key cap or a tooltip"],
-    [/^motion\./, "motion distances"]
+    [/^motion\./, "motion distances"],
+    [/\.blur$/, "blur radii"]
 ];
 function gridShortfalls(values) {
     const out = [];

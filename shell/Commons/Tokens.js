@@ -877,7 +877,12 @@ var TOKENS = {
     // device pixels, the longer side no more than `decodeCap`, and the
     // rail moves over `duration`. The card is 768 by 476, on the 4 px grid
     // at a 1.61 ratio; the slices overlap by the card's lean, so neighbours
-    // meet on one edge.
+    // meet on one edge. A slice of the theme browser names its theme up
+    // the slice's slanted axis in `sliceName.role`, starting
+    // `sliceName.inset` along that axis from its bottom edge, in
+    // `sliceName.foreground` over a `sliceName.shadow` shadow at
+    // `sliceName.shadowOpacity`, blurred `sliceName.blur` pixels, the same
+    // in every mode.
     carousel: {
         expandedWidth: length(768),
         expandedHeight: length(476),
@@ -891,7 +896,15 @@ var TOKENS = {
         band: number(2, 0, 16),
         decodeCap: length(2048),
         previewDwell: duration("{motion.duration.slow}"),
-        duration: duration("{motion.duration.normal}")
+        duration: duration("{motion.duration.normal}"),
+        sliceName: {
+            role: textRole("h2"),
+            inset: length("{space.xxl}"),
+            foreground: color("#ffffff"),
+            shadow: color("#000000"),
+            shadowOpacity: share(0.8),
+            blur: length(2)
+        }
     },
 
     // A theme's desktop drawn at a reference display of `referenceWidth`

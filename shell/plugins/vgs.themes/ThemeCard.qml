@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Effects
 import qs.Commons
 import qs.Ui
 import "BrowserLogic.js" as BrowserLogic
@@ -6,19 +7,24 @@ import "Files.js" as Files
 
 // One theme's card on the browser's rail. A slice shows the theme's eight
 // colours (BrowserLogic.SWATCHES) stacked top to bottom and the theme's
-// name along its slanted edge, reading upward, in the shell's heading text
-// over a 1 px hard shadow in the shell's background: the side card's dim
-// mixes the stack toward that background, so the name keeps its contrast
-// on every colour and in either mode. The selected card
-// shows the package's preview image when one ships, else the theme's first
-// wallpaper over its background with a desktop drawn from the package's
-// tokens on it, and the eight colours across its foot. A card with no
-// colours, a refused package's, names its theme instead; the name keeps
-// the card's lean from each side, which clears the angled edge at
-// mid-height for every unit up to `carousel.maxScale` 2, where the drawn
+// name up the slice, reading upward from `carousel.sliceName.inset` above
+// its bottom edge, in the `carousel.sliceName` text and shadow, which no
+// mode changes: the shadow keeps the name readable on every colour of the
+// stack. The side card's dim, which AngledCard draws over all of its
+// content, washes the name with the stack. The name runs along the slice's
+// slanted axis, so it lies parallel to both slanted edges and its gap from
+// each is the same at every height, bottom-anchored or not: half of the
+// slice's width less its lean, times the cosine of the slant, less half the
+// name's line box, at the carousel's unit. The selected card shows the
+// package's preview image when one ships, else the theme's first wallpaper
+// over its background with a desktop drawn from the package's tokens on it,
+// and the eight colours across its foot. A card with no colours, a refused
+// package's, names its theme instead, across the card at its centre; that
+// name keeps the card's lean from each side, which clears the angled edge
+// at mid-height for every unit up to `carousel.maxScale` 2, where the drawn
 // lean is twice the token. Every built card loads its image at the
-// carousel's decodeSize, so a step finds the next card's picture decoded.
-// A Spinner turns over the card while the browser installs or applies its
+// carousel's decodeSize, so a step finds the next card's picture decoded. A
+// Spinner turns over the card while the browser installs or applies its
 // theme.
 Item {
     id: root
@@ -45,6 +51,10 @@ Item {
     readonly property bool expanded: current && (packagePreview || live)
     // The image the card draws, "" for none: a slice draws none.
     readonly property string picture: expanded ? image : ""
+    // The slant of a slice's axis from the vertical. The slant is the
+    // card's lean over its height, which the carousel scales by one unit,
+    // so the token ratio gives the drawn angle.
+    readonly property real lean: Math.atan2(Theme.angledCard.skew, Theme.carousel.sliceHeight)
 
     anchors.fill: parent
 
@@ -88,20 +98,35 @@ Item {
         colours: root.swatches === null ? [] : root.swatches
     }
 
-    // The slant is the card's lean over its height, which the carousel
-    // scales by one unit, so the token ratio gives the drawn angle.
+    // The name turns about its start, which stands the inset up the axis
+    // from the bottom edge's centre, where the axis meets that edge half the
+    // drawn lean in from the slice's width. It is as long as its text, up
+    // to the axis less the inset at each end, where it elides.
     Label {
         objectName: "sliceName"
-        role: "h3"
-        anchors.centerIn: parent
-        width: parent.height - 2 * Theme.space.xl
+        readonly property real inset: Theme.carousel.sliceName.inset
+        role: Theme.carousel.sliceName.role
+        x: (parent.width - parent.height * Math.tan(root.lean)) / 2 + inset * Math.sin(root.lean)
+        y: parent.height - inset * Math.cos(root.lean) - height / 2
+        width: Math.min(implicitWidth, parent.height / Math.cos(root.lean) - 2 * inset)
+        transformOrigin: Item.Left
+        rotation: root.lean * 180 / Math.PI - 90
         visible: !root.expanded && root.swatches !== null
-        rotation: Math.atan2(Theme.angledCard.skew, Theme.carousel.sliceHeight) * 180 / Math.PI - 90
-        horizontalAlignment: Text.AlignHCenter
         elide: Text.ElideRight
         text: root.modelData.label
-        style: Text.Raised
-        styleColor: Theme.color.background
+        color: Theme.carousel.sliceName.foreground
+        layer.enabled: visible
+        layer.smooth: true
+        // blurMax is the radius a blur of 1 reaches, so the shadow blurs
+        // exactly the token's pixels.
+        layer.effect: MultiEffect {
+            objectName: "sliceNameShadow"
+            shadowEnabled: true
+            shadowColor: Theme.carousel.sliceName.shadow
+            shadowOpacity: Theme.carousel.sliceName.shadowOpacity
+            blurMax: Theme.carousel.sliceName.blur
+            shadowBlur: 1
+        }
     }
 
     Rectangle {

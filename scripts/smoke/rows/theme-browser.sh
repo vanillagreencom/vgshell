@@ -72,6 +72,69 @@ print(json.dumps([len(sides), len([i for i in sides if i not in named])]))'
 }
 slices_named() { slice_names | py_reply 'import json,sys; shown, unnamed = json.load(sys.stdin); print("named" if shown > 0 and unnamed == 0 else "shown=%d unnamed=%d" % (shown, unnamed))'; }
 slices_unnamed() { slice_names | py_reply 'import json,sys; shown, unnamed = json.load(sys.stdin); print("unnamed" if shown > 0 and unnamed == shown else "shown=%d unnamed=%d" % (shown, unnamed))'; }
+# slice_look: the side cards' names as drawn, one finding per broken
+# rule, `[]` the pass. Each shown name starts carousel.sliceName.inset up
+# its slice's slanted axis from the slice's bottom edge, on that axis
+# within a pixel (`inset`), and reads up it (`upward`); it draws in h2
+# (`role`), white (`colour`), over a shadow, one per shown name, of black
+# at 0.8 blurred 2 pixels (`shadow`). The axis runs from the bottom edge's
+# centre to the top edge's, the drawn lean apart, the card's height times
+# angledCard.skew over carousel.sliceHeight; a name's start is the middle
+# of its leading edge, half its line box from its rotated origin. A
+# layer's effect is a sibling of the item it draws and reads as its C++
+# type, QQuickMultiEffect. `none` while no side card draws a name.
+slice_look() {
+  local rows rotation colour enabled shadow opacity blur radius inset skew height
+  rows="$(ipc smoke descendantGeometry overlay vgs.themes)" || return
+  rotation="$(ipc smoke readMatchingDescendant overlay vgs.themes Label objectName sliceName rotation)" || return
+  colour="$(ipc smoke readMatchingDescendant overlay vgs.themes Label objectName sliceName color)" || return
+  enabled="$(ipc smoke readMatchingDescendant overlay vgs.themes QQuickMultiEffect objectName sliceNameShadow shadowEnabled)" || return
+  shadow="$(ipc smoke readMatchingDescendant overlay vgs.themes QQuickMultiEffect objectName sliceNameShadow shadowColor)" || return
+  opacity="$(ipc smoke readMatchingDescendant overlay vgs.themes QQuickMultiEffect objectName sliceNameShadow shadowOpacity)" || return
+  blur="$(ipc smoke readMatchingDescendant overlay vgs.themes QQuickMultiEffect objectName sliceNameShadow blurMax)" || return
+  radius="$(ipc smoke readMatchingDescendant overlay vgs.themes QQuickMultiEffect objectName sliceNameShadow shadowBlur)" || return
+  inset="$(ipc smoke themeValue carousel.sliceName.inset)" || return
+  skew="$(ipc smoke themeValue angledCard.skew)" || return
+  height="$(ipc smoke themeValue carousel.sliceHeight)" || return
+  printf '%s\n' "$rows" | py_reply '
+import json, math, sys
+rows = json.load(sys.stdin)
+rotation, colour, enabled, shadow, opacity, blur, radius, inset, skew, height = sys.argv[1:]
+def card_of(j):
+    while j != -1:
+        if rows[j]["type"] == "AngledCard": return j
+        j = rows[j]["parent"]
+    return -1
+def shown(r): return r["visible"] and r["box"][2] > 0 and r["box"][3] > 0
+def rgba(text):
+    try: c = json.loads(text)
+    except ValueError: return None
+    return [round(c[k], 2) for k in "rgba"] if isinstance(c, dict) and all(k in c for k in "rgba") else None
+names = [r for r in rows if r["type"] == "Label" and r["name"] == "sliceName" and shown(r) and r["text"]]
+if not names or rotation == "absent":
+    print("none"); sys.exit()
+turn = math.radians(float(rotation))
+inset, lean = float(inset), float(skew) / float(height)
+found = set()
+for r in names:
+    x, y, cw, ch = rows[card_of(r["parent"])]["box"] if card_of(r["parent"]) != -1 else (0, 0, 0, 0)
+    s = ch * lean
+    bottom = (x + (cw - s) / 2, y + ch)
+    length = math.hypot(s, ch) or 1
+    axis = (s / length, -ch / length)
+    half = r["box"][3] / 2
+    start = (r["box"][0] - half * math.sin(turn), r["box"][1] + half * math.cos(turn))
+    rel = (start[0] - bottom[0], start[1] - bottom[1])
+    along = rel[0] * axis[0] + rel[1] * axis[1]
+    across = rel[0] * axis[1] - rel[1] * axis[0]
+    if ch == 0 or abs(along - inset) > 1 or abs(across) > 1: found.add("inset")
+    if math.cos(turn) * axis[0] + math.sin(turn) * axis[1] < 0.9999: found.add("upward")
+    if r["role"] != "h2": found.add("role")
+if rgba(colour) != [1, 1, 1, 1]: found.add("colour")
+effects = [r for r in rows if r["type"] == "QQuickMultiEffect" and r["name"] == "sliceNameShadow" and r["visible"]]
+if len(effects) < len(names) or enabled != "true" or rgba(shadow) != [0, 0, 0, 1] or opacity == "absent" or abs(float(opacity) - 0.8) > 0.005 or blur != "2" or radius != "1": found.add("shadow")
+print(json.dumps(sorted(found)))' "$rotation" "$colour" "$enabled" "$shadow" "$opacity" "$blur" "$radius" "$inset" "$skew" "$height"
+}
 dialog_has() { ipc smoke itemTexts overlay vgs.themes Dialog | py_reply 'import json,sys; print(any(sys.argv[1] in t for t in json.load(sys.stdin)))' "$1"; }
 # The status of the card image drawing PATH, `none` when no card draws it.
 card_image() { ipc smoke images overlay vgs.themes | py_reply 'import json,sys; r=[i[1] for i in json.load(sys.stdin) if i[0]==sys.argv[1]]; print(r[0] if r else "none")' "$1"; }
@@ -331,6 +394,7 @@ expect_poll "the retained catalog reaches the installed list with nord" True has
 expect "the applied theme is selected" '"vgs"' view_value selectedName
 expect_poll "the resting theme view draws the selected theme's name alone beside its cards and tabs" '["Vgs"]' rest_texts
 expect_poll "every side card names its theme" named slices_named
+expect_poll "every side card's name starts the inset up its slice, in h2, white over its shadow" '[]' slice_look
 # The browser's layout, one finding per broken rule, `[]` the pass: its
 # tabs lie inside the output less inset.overlay each side (`inset`); the
 # tabs end above the rail and the rail holds the selected card (`order`);
@@ -733,7 +797,7 @@ expect_poll "the sourceSize control browser closes" 0 layer_count vgs:overlay
 plugin_restore ThemeCard.qml "preview sourceSize"
 
 # Control for the slice names: a card copy whose slice name is empty.
-plugin_control ThemeCard.qml "slice name" $'        text: root.modelData.label\n        style: Text.Raised' $'        text: ""\n        style: Text.Raised'
+plugin_control ThemeCard.qml "slice name" $'        text: root.modelData.label\n        color: Theme.carousel.sliceName.foreground' $'        text: ""\n        color: Theme.carousel.sliceName.foreground'
 press_themes || fail "typing SUPER+SHIFT+T for the slice name control failed"
 expect_poll "the slice name control opens the theme browser" 1 layer_count vgs:overlay
 expect_poll "the slice name control read its cards" true view_value loaded
@@ -741,6 +805,17 @@ expect_poll "control: side cards without their names read as unnamed" unnamed sl
 type_keys -k Escape || fail "closing the slice name control browser failed"
 expect_poll "the slice name control browser closes" 0 layer_count vgs:overlay
 plugin_restore ThemeCard.qml "slice name"
+# Control for the slice names' look: a card copy whose name is centred on
+# its slice, reads down it, draws in h3 and the text colour, and has no
+# shadow, each a finding of its own.
+plugin_control ThemeCard.qml "slice look" $'        role: Theme.carousel.sliceName.role\n        x: (parent.width - parent.height * Math.tan(root.lean)) / 2 + inset * Math.sin(root.lean)\n        y: parent.height - inset * Math.cos(root.lean) - height / 2\n        width: Math.min(implicitWidth, parent.height / Math.cos(root.lean) - 2 * inset)\n        transformOrigin: Item.Left\n        rotation: root.lean * 180 / Math.PI - 90\n        visible: !root.expanded && root.swatches !== null\n        elide: Text.ElideRight\n        text: root.modelData.label\n        color: Theme.carousel.sliceName.foreground\n        layer.enabled: visible' $'        role: "h3"\n        x: (parent.width - parent.height * Math.tan(root.lean)) / 2 + inset * Math.sin(root.lean)\n        y: (parent.height - height) / 2\n        width: Math.min(implicitWidth, parent.height / Math.cos(root.lean) - 2 * inset)\n        transformOrigin: Item.Left\n        rotation: root.lean * 180 / Math.PI + 90\n        visible: !root.expanded && root.swatches !== null\n        elide: Text.ElideRight\n        text: root.modelData.label\n        color: Theme.color.text\n        layer.enabled: false'
+press_themes || fail "typing SUPER+SHIFT+T for the slice look control failed"
+expect_poll "the slice look control opens the theme browser" 1 layer_count vgs:overlay
+expect_poll "the slice look control read its cards" true view_value loaded
+expect_poll "control: a centred, downward, h3, text-coloured name without a shadow reads as each broken rule" '["colour", "inset", "role", "shadow", "upward"]' slice_look
+type_keys -k Escape || fail "closing the slice look control browser failed"
+expect_poll "the slice look control browser closes" 0 layer_count vgs:overlay
+plugin_restore ThemeCard.qml "slice look"
 
 plugin_control ThemeCard.qml "live preview token" "tokens: root.modelData.tokens" "tokens: ({})"
 press_themes || fail "typing SUPER+SHIFT+T for the live preview control failed"
