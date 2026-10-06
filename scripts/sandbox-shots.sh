@@ -1858,6 +1858,7 @@ EOF
 # nothing records. Then the pointer on the first key's info icon, its
 # tooltip open, on a tree whose Keys rows draw one.
 voice_keys_first="Start or stop dictation"
+voice_keys_section() { settings_section Keys KeyField "Dictate while held"; }
 voice_key_shown() { [[ $(ipc smoke windowGeometry "$settings_kind" vgs.settings KeyField "$voice_keys_first") == \[* ]] && echo shown || echo absent; }
 scene_voice-keys() { # MODE
   local section start x y
@@ -1870,7 +1871,7 @@ scene_voice-keys() { # MODE
   expect "the window opens the Voice page" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.voice
   expect_poll "the Voice page is shown" '"vgs.voice"' settings_page
   expect_poll "the Voice page's first key reads its description" shown voice_key_shown
-  if section="$(settings_section Keys KeyField "Dictate while held")"; then
+  if section="$(voice_keys_section)"; then
     read -r start _ _ <<<"$section"
     settings_scroll_to "$((start - 16))" || fail "the scroll to Voice's Keys section failed"
     take "voice-keys-$1"

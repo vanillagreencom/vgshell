@@ -31,7 +31,8 @@ assert.deepEqual(manifest.schema.mode.options, ["hold", "toggle"]);
 assert.deepEqual(manifest.schema.taskTerminal.options, ["auto", "tmux", "floating"]);
 assert.deepEqual(manifest.tui.task, { script: "tui/task.sh", title: "Jarvis coding task", presentation: "plain" });
 assert.deepEqual(manifest.status.tasks.type, "count");
-assert.deepEqual(manifest.hyprland.binds, [
+assert.equal(manifest.hyprland.binds.every(bind => typeof bind.info === "string" && bind.info !== ""), true);
+assert.deepEqual(manifest.hyprland.binds.map(({ info, ...bind }) => bind), [
     { shortcut: "talk", key: "SUPER+code:108", hold: true },
     { shortcut: "mute", key: "SUPER+SHIFT+code:108" },
     { shortcut: "stop", key: "SUPER+ALT+PERIOD" }
