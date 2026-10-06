@@ -388,10 +388,12 @@ FocusScope {
                             spacing: Theme.stack.group
 
                             // Each entry: a "Status" row in the page's
-                            // key/value style, its value a chip in its tone, or
-                            // text while it has no tone, its lines under the
-                            // chip and its hint under the row. Unkeyed, so each
-                            // status write draws the entry anew.
+                            // key/value style whose value is the entry's
+                            // chip in its tone, or its text while it has no
+                            // tone, so the label sits level with the chip;
+                            // then its lines and its hint under the row, from
+                            // the value column (Field.valueX). Unkeyed, so
+                            // each status write draws the entry anew.
                             Column {
                                 width: setup.width
                                 spacing: Theme.stack.row
@@ -400,33 +402,51 @@ FocusScope {
                                     model: ScriptModel {
                                         values: page.setupEntries
                                     }
-                                    Field {
+                                    Column {
                                         id: setupState
                                         required property var modelData
                                         readonly property var view: Steps.statusView(modelData, ms => new Date(ms).toLocaleString(Qt.locale(), Locale.ShortFormat))
                                         width: setup.width
-                                        label: "Status"
-                                        inline: true
-                                        hint: setupState.view.hint
+                                        spacing: Theme.field.gap
+                                        Field {
+                                            id: statusField
+                                            width: parent.width
+                                            label: "Status"
+                                            inline: true
+                                            Row {
+                                                Badge {
+                                                    visible: setupState.view.tone !== ""
+                                                    text: setupState.view.text
+                                                    tone: setupState.view.tone === "" ? "neutral" : setupState.view.tone
+                                                }
+                                                Label {
+                                                    role: setupState.view.muted ? "itemHint" : "value"
+                                                    visible: setupState.view.tone === "" && setupState.view.text !== ""
+                                                    text: setupState.view.text
+                                                }
+                                            }
+                                        }
                                         Column {
+                                            x: statusField.valueX
+                                            width: parent.width - x
                                             spacing: Theme.field.gap
-                                            Badge {
-                                                visible: setupState.view.tone !== ""
-                                                text: setupState.view.text
-                                                tone: setupState.view.tone === "" ? "neutral" : setupState.view.tone
-                                            }
-                                            Label {
-                                                role: setupState.view.muted ? "itemHint" : "value"
-                                                visible: setupState.view.tone === "" && setupState.view.text !== ""
-                                                text: setupState.view.text
-                                            }
+                                            visible: setupState.view.lines.length > 0 || setupState.view.hint !== ""
                                             Repeater {
                                                 model: setupState.view.lines
                                                 Label {
                                                     required property string modelData
                                                     role: "value"
                                                     text: modelData
+                                                    width: parent.width
+                                                    wrapMode: Text.Wrap
                                                 }
+                                            }
+                                            Label {
+                                                role: "hint"
+                                                visible: text !== ""
+                                                text: setupState.view.hint
+                                                width: parent.width
+                                                wrapMode: Text.Wrap
                                             }
                                         }
                                     }
