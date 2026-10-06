@@ -1308,6 +1308,10 @@ function applyTo(result, failures, configDir, stateDir, lock, name) {
     const configHome = path.dirname(configDir);
     const live = path.join(stateDir, "theme");
     const targets = planTargets(row, source.terminal, disabledTargets(configDir, key), configHome, live, key);
+    const wiredBefore = readWired(stateDir, key);
+    const dropped = droppedWired(wiredBefore, new Set(targets.map(entry => entry.name)));
+    for (const entry of dropped.rows) failures.push(entry.failure);
+    const droppedRows = dropped.rows.map(entry => ({ name: entry.name, state: entry.state, reason: entry.reason, dropped: entry.dropped }));
     // Chosen before anything moves, so a background state or directory that
     // cannot be read refuses the apply whole.
     const shown = backgrounds.read(logic, stateDir, key);
@@ -1373,8 +1377,9 @@ function applyTo(result, failures, configDir, stateDir, lock, name) {
     // by hand comes back.
     const landed = settled.map(entry => entry.state === "written" || entry.state === "unchanged" ? wire(entry, configHome, live) : entry);
     // Only a rendered entry carries `dropped`; every other target took no file.
-    result.targets = landed.map(entry => ({ name: entry.name, state: entry.state, reason: entry.reason, dropped: entry.dropped === undefined ? [] : entry.dropped }));
+    result.targets = droppedRows.concat(landed.map(entry => ({ name: entry.name, state: entry.state, reason: entry.reason, dropped: entry.dropped === undefined ? [] : entry.dropped })));
     for (const entry of landed) if (entry.state === "failed") failures.push(entry.failure);
+    writeWired(stateDir, nextWiredRecords(wiredBefore, dropped, landed, configHome, live), wiredBefore, key);
 
     const file = themeFile(path.join(configDir, "theme.json"));
     if (file.bytes === null || !file.bytes.equals(row.files.theme)) {
@@ -1387,9 +1392,9 @@ function applyTo(result, failures, configDir, stateDir, lock, name) {
     replaceFile(path.join(stateDir, APPLIED_FILE), JSON.stringify({ schemaVersion: 1, name, file: sha256(row.files.theme), package: digest }) + "\n", key);
     backgrounds.landSquare(stateDir, background, shown.current, key);
     // Last, so each application re-reads files that are all in place.
-    result.targets = landed.map((entry, i) => entry.state !== "failed" && due.includes(entry.name)
-        ? reloadRow(entry.name, entry.target, configHome, live, result.targets[i], failures)
-        : result.targets[i]);
+    result.targets = droppedRows.concat(landed.map((entry, i) => entry.state !== "failed" && due.includes(entry.name)
+        ? reloadRow(entry.name, entry.target, configHome, live, result.targets[droppedRows.length + i], failures)
+        : result.targets[droppedRows.length + i]));
     writePending(stateDir, stillPending(result.targets, due), due, key);
     result.state = applyState(result.shell, result.targets);
 }
@@ -1490,6 +1495,7 @@ const LOCK_FD = 9;
 // Beside theme/, never in it, since the swap replaces theme/. This judge is
 // its only reader and writer; the core never reads it.
 const PENDING_FILE = "reload-pending.json";
+const WIRED_FILE = "wired.json";
 
 // The sorted target names <state-dir>/reload-pending.json lists: each
 // target whose application may hold files it has not re-read. An absent
@@ -1513,6 +1519,100 @@ function writePending(stateDir, names, before, key) {
     const file = path.join(stateDir, PENDING_FILE);
     if (names.length === 0) writing(file, key, () => fs.rmSync(file, { force: true }));
     else replaceFile(file, JSON.stringify({ schemaVersion: 1, targets: names }) + "\n", key);
+}
+
+function wiredRecordCompare(a, b) {
+    return a.target.localeCompare(b.target) || a.file.localeCompare(b.file) ||
+        a.line.localeCompare(b.line) || (a.section || "").localeCompare(b.section || "");
+}
+
+function normalizeWiredRecords(records) {
+    return [...new Map(records.map(record => [JSON.stringify(record), record])).values()].sort(wiredRecordCompare);
+}
+
+function sameWiredRecords(a, b) {
+    return JSON.stringify(normalizeWiredRecords(a)) === JSON.stringify(normalizeWiredRecords(b));
+}
+
+function wiredRecordShape(record) {
+    return logic.isPlainObject(record) &&
+        Object.keys(record).every(key => ["target", "file", "line", "section"].includes(key)) &&
+        typeof record.target === "string" && typeof record.file === "string" && path.isAbsolute(record.file) &&
+        typeof record.line === "string" && (record.section === undefined || typeof record.section === "string");
+}
+
+// The include lines this judge wrote. This judge is the only reader and
+// writer, so a later apply can remove a line whose target.json is gone.
+function readWired(stateDir, key) {
+    const file = path.join(stateDir, WIRED_FILE);
+    let text;
+    try {
+        text = fs.readFileSync(file, "utf8");
+    } catch (e) {
+        if (e.code === "ENOENT") return [];
+        refuse(key + "=unreadable path=" + file + " error=" + e.code, "unreadable");
+    }
+    let doc;
+    try {
+        doc = JSON.parse(text);
+    } catch (e) {
+        refuse(key + "=malformed path=" + file, "malformed");
+    }
+    const shaped = logic.isPlainObject(doc) && Object.keys(doc).length === 2 && doc.schemaVersion === 1 &&
+        Array.isArray(doc.lines) && doc.lines.every(wiredRecordShape);
+    if (!shaped) refuse(key + "=malformed path=" + file, "malformed");
+    return normalizeWiredRecords(doc.lines);
+}
+
+function writeWired(stateDir, records, before, key) {
+    records = normalizeWiredRecords(records);
+    if (sameWiredRecords(records, before)) return;
+    const file = path.join(stateDir, WIRED_FILE);
+    if (records.length === 0) writing(file, key, () => fs.rmSync(file, { force: true }));
+    else replaceFile(file, JSON.stringify({ schemaVersion: 1, lines: records }) + "\n", key);
+}
+
+function includeRecords(name, target, configHome, live) {
+    if (render.wiringForm(target.wiring) !== "include") return [];
+    const line = render.wiringLine(target, live);
+    return includeFiles(target, configHome).map(file => {
+        const record = { target: name, file, line };
+        if (target.wiring.section !== undefined) record.section = target.wiring.section;
+        return record;
+    });
+}
+
+function droppedWired(records, shipped) {
+    const removed = [];
+    const rows = [];
+    for (const record of records.filter(r => !shipped.has(r.target))) {
+        const failure = editFile("target=" + record.target + " reason", record.file, false,
+            text => render.unwiredText(text, Buffer.from(record.line, "utf8").toString("latin1"), record.section));
+        if (failure === null) {
+            removed.push(record);
+        } else {
+            rows.push({ name: record.target, state: "failed", reason: failure.reason, dropped: [], failure: failure.failure });
+        }
+    }
+    return { removed, rows };
+}
+
+function nextWiredRecords(before, dropped, landed, configHome, live) {
+    const landedSuccess = new Set();
+    const disabledDone = new Set();
+    const fresh = [];
+    for (const entry of landed) {
+        if (entry.state === "written" || entry.state === "unchanged") {
+            landedSuccess.add(entry.name);
+            fresh.push(...includeRecords(entry.name, entry.target, configHome, live));
+        } else if (entry.state === "skipped" && entry.reason === "disabled") {
+            disabledDone.add(entry.name);
+        }
+    }
+    const removed = new Set(dropped.removed.map(record => JSON.stringify(record)));
+    const carried = before.filter(record => !removed.has(JSON.stringify(record)) &&
+        !landedSuccess.has(record.target) && !disabledDone.has(record.target));
+    return carried.concat(fresh);
 }
 
 // Whether a settled ENTRY's reload is due once this apply lands: it has a
@@ -2657,32 +2757,115 @@ async function wallpapersLand(format, configDir, stage, lock, name, mode) {
     else console.log("ok wallpapers=" + name + " state=" + result.wallpapers + " images=" + result.images + " archive=" + result.sha256.slice(0, 12));
 }
 
+function setupTargetRows(name, target, configHome, live) {
+    const rows = [];
+    const unreadable = (file, code) => [{ name, app: target.app, file, line: null, state: "unreadable", error: code }];
+    switch (render.wiringForm(target.wiring)) {
+    case "include": {
+        let files;
+        try {
+            files = includeFiles(target, configHome);
+        } catch (e) {
+            if (typeof e.code !== "string") throw e;
+            return unreadable(e.path, e.code);
+        }
+        const line = render.wiringLine(target, live);
+        const lineText = Buffer.from(line, "utf8").toString("latin1");
+        for (const includeFile of files) {
+            let text;
+            try {
+                text = readIfPresent(includeFile);
+            } catch (e) {
+                if (typeof e.code !== "string") throw e;
+                rows.push(...unreadable(includeFile, e.code));
+                continue;
+            }
+            if (text !== undefined && render.wiredText(text.toString("latin1"), lineText, target.wiring.section) === null)
+                rows.push({ name, app: target.app, file: includeFile, line, state: "wired" });
+        }
+        break;
+    }
+    case "entry": {
+        let plan;
+        try {
+            plan = currentEntries(target, entryDirs(target, configHome), live);
+        } catch (e) {
+            if (typeof e.code !== "string") throw e;
+            return unreadable(e.path || configHome, e.code);
+        }
+        for (const dir of plan.dirs)
+            for (const item of plan.items) {
+                const file = path.join(dir, item.name);
+                try {
+                    if (entryState(file, item) === "managed") rows.push({ name, app: target.app, file, line: null, state: "wired" });
+                } catch (e) {
+                    if (typeof e.code !== "string") throw e;
+                    rows.push(...unreadable(file, e.code));
+                }
+            }
+        break;
+    }
+    case "none":
+        break;
+    default:
+        throw new Error("vgshell-theme-judge: setupTargetRows: target " + name + " has no known wiring form");
+    }
+    if (target.select !== undefined) {
+        let selections;
+        try {
+            selections = selectionEdits(target, configHome, live);
+        } catch (e) {
+            if (typeof e.code !== "string") throw e;
+            return rows.concat(unreadable(e.path || configHome, e.code));
+        }
+        for (const selection of selections) {
+            let text;
+            try {
+                text = readIfPresent(selection.file);
+            } catch (e) {
+                if (typeof e.code !== "string") throw e;
+                rows.push(...unreadable(selection.file, e.code));
+                continue;
+            }
+            if (selection.edit(latin1(text)) === null) {
+                const value = render.selectValue(target, live);
+                for (const keyPath of render.selectKeys(target))
+                    rows.push({ name, app: target.app, file: selection.file, line: keyPath.join(".") + " = " + value, state: "wired" });
+            }
+        }
+    }
+    return rows;
+}
+
 // `vgshell theme setup`: every shipped target with a one-time owner step, its
-// `setup` command, in name order, as { name, app, setup, state }. `state`
-// is `not-detected` while none of the target's applications is on PATH,
-// `absent` while they are and the setup command is not, and `done` once it
-// is, as apply's enablement decides (render.detected, render.setupDone). A
-// shipped target.json the judge refuses refuses the report, since its
-// setup is then unknown. The vgs.themes Settings page reads the JSON form
-// and offers each `absent` step as a button (D061).
-function setups(format) {
+// `setup` command, in name order, and every shipped target wiring already
+// on disk. A shipped target.json the judge refuses refuses the report,
+// since its setup and wiring are then unknown. The vgs.themes Settings page
+// reads the JSON form for setup actions and the file/line list.
+function setups(format, configDir, stateDir) {
     const base = path.join(SHIPPED, TARGETS);
     const names = childDirs(base);
     if (names === null) unreadable(base, "ENOENT");
     const rows = [];
+    const wiring = [];
+    const configHome = path.dirname(configDir);
+    const live = path.join(stateDir, "theme");
     for (const name of names) {
         const verdict = readTarget(path.join(base, name)).verdict;
         if (!verdict.ok) refuse("setup target=" + name + " reason=" + verdict.reason, verdict.reason, 1, render.refusalLine(name, verdict));
         const { app, detect, setup } = verdict.target;
-        if (setup === undefined) continue;
-        const state = !render.detected(detect, onPath) ? "not-detected" : render.setupDone(verdict.target, onPath) ? "done" : "absent";
-        rows.push({ name, app, setup, state });
+        if (setup !== undefined) {
+            const state = !render.detected(detect, onPath) ? "not-detected" : render.setupDone(verdict.target, onPath) ? "done" : "absent";
+            rows.push({ name, app, setup, state });
+        }
+        wiring.push(...setupTargetRows(name, verdict.target, configHome, live));
     }
     if (format === "json") {
-        process.stdout.write(JSON.stringify({ setups: rows }) + "\n");
+        process.stdout.write(JSON.stringify({ setups: rows, wiring, home: os.homedir() }) + "\n");
         return;
     }
     for (const row of rows) console.log("setup=" + row.name + " command=" + row.setup + " state=" + row.state);
+    for (const row of wiring) console.log("wiring=" + row.name + " state=" + row.state + " file=" + row.file + (row.line === null ? "" : " line=" + JSON.stringify(row.line)));
 }
 
 // The download lock's file, which `vgshell theme wallpapers` holds for the
@@ -2771,8 +2954,8 @@ main(() => {
         if (args.length !== 3 || !FORMATS.includes(args[0]) || !LOCK_VERDICTS.includes(args[1])) usage("arguments=" + command);
         return previewFetch(...args);
     case "setup":
-        if (args.length !== 1 || !FORMATS.includes(args[0])) usage("arguments=" + command);
-        setups(args[0]);
+        if (args.length !== 3 || !FORMATS.includes(args[0])) usage("arguments=" + command);
+        setups(...args);
         break;
     case "asset-lock":
         if (args.length !== 0) usage("arguments=" + command);

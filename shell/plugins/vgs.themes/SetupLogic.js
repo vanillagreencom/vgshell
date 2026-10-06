@@ -10,6 +10,9 @@
 var TARGET = "chromium";
 // The states `vgshell theme setup` reports a setup in.
 var STATES = ["not-detected", "absent", "done"];
+var STATUS_LIST_MAX = 32;
+var LABEL_MAX = 60;
+var HINT_MAX = 200;
 
 // The `browserTheming` status value, a `state`, for TEXT, the setup
 // report's stdout, and CODE, its exit code, null for a report that did not
@@ -45,4 +48,48 @@ function browserTheming(text, code) {
     case "not-detected": return { tone: "info", text: "No Chromium-family browser found" };
     }
     return unknown("named the state " + JSON.stringify(row.state) + ", not one of " + STATES.join(", "));
+}
+
+function truncated(text, max) {
+    var chars = Array.from(String(text));
+    return chars.length <= max ? chars.join("") : chars.slice(0, max - 1).join("") + "…";
+}
+
+function displayFile(file, home) {
+    return typeof home === "string" && home !== "" && file.indexOf(home + "/") === 0 ? "~" + file.slice(home.length) : file;
+}
+
+function wiring(text, code) {
+    var unknown = function (why) {
+        console.warn("themes: wiring=" + why);
+        return null;
+    };
+    if (code === null) return unknown("did not start");
+    if (code !== 0) return unknown("exited " + String(code));
+    var report;
+    try {
+        report = JSON.parse(text);
+    } catch (e) {
+        return unknown("printed no report");
+    }
+    var rows = report !== null && typeof report === "object" && Array.isArray(report.wiring) ? report.wiring : null;
+    if (rows === null) return unknown("printed no report");
+    var home = report.home;
+    var items = [];
+    for (var i = 0; i < rows.length; i++) {
+        var row = rows[i];
+        if (row === null || typeof row !== "object" || typeof row.app !== "string" || typeof row.file !== "string") return unknown("printed a malformed row");
+        if (row.state !== "wired" && row.state !== "unreadable") return unknown("named the state " + JSON.stringify(row.state));
+        if (row.line !== null && typeof row.line !== "string") return unknown("printed a malformed line");
+        var file = displayFile(row.file, home);
+        var hint = row.line === null ? file : file + ": " + row.line;
+        items.push({ label: truncated(row.app, LABEL_MAX), value: row.state === "wired" ? "present" : "unavailable", hint: truncated(hint, HINT_MAX), sort: row.app + "\n" + row.file });
+    }
+    items.sort(function (a, b) { return a.sort < b.sort ? -1 : a.sort > b.sort ? 1 : 0; });
+    if (items.length > STATUS_LIST_MAX) {
+        var hidden = items.length - (STATUS_LIST_MAX - 1);
+        items = items.slice(0, STATUS_LIST_MAX - 1);
+        items.push({ label: "More files", value: "present", hint: hidden + " more files are not listed" });
+    }
+    return items.map(function (item) { return { label: item.label, value: item.value, hint: item.hint }; });
 }

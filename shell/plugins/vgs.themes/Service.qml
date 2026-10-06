@@ -10,12 +10,13 @@ import "SetupLogic.js" as SetupLogic
 // view, and the Browser theming status row. It draws nothing; each
 // registration's disposer is the core's, so disabling the plugin releases
 // them. The row asks `vgshell theme setup --json` at start, after each plugin
-// requirements scan and after each run of the `browser-policy` TUI, whoever
-// opened it, the one step that changes its answer from the shell, and
-// publishes SetupLogic.browserTheming's answer; the Settings page offers
-// Install browser theming, that TUI, while it says so (D061). Settings
-// asks for a scan each time it opens, so the row also reads a setup run
-// from a terminal or a package installed while the shell ran.
+// requirements scan, after each theme apply result and after each run of the
+// `browser-policy` TUI, whoever opened it. It publishes
+// SetupLogic.browserTheming's answer and the wired theme files; the Settings
+// page offers Install browser theming, that TUI, while the browser row says
+// so (D061). Settings asks for a scan each time it opens, so the row also
+// reads a setup run from a terminal or a package installed while the shell
+// ran.
 //   shortcut vgs.themes:themes              SUPER+T from the manifest's
 //                                            `hyprland` binds (README)
 //   shortcut vgs.themes:wallpapers          SUPER+W, the same way
@@ -73,7 +74,10 @@ Item {
     // The runner replaces last for every apply result, an equal one too.
     // Advance the snapshot only when the user-visible apply state changes.
     readonly property string themeLastText: JSON.stringify(themeLast)
-    onThemeLastTextChanged: dataRevision++
+    onThemeLastTextChanged: {
+        dataRevision++;
+        if (registeredWith !== null) checkSetup();
+    }
     property var cards: []
     property var cardKeys: ({})
     property int cardSerial: 0
@@ -226,7 +230,8 @@ Item {
         onExited: code => { exitCode = code; }
         onRunningChanged: {
             if (running) return;
-            const value = SetupLogic.browserTheming(setupOut.text, exitCode);
+            const code = exitCode;
+            const value = SetupLogic.browserTheming(setupOut.text, code);
             exitCode = null;
             if (value.tone === "danger") {
                 const why = setupErr.text.split("\n")[0];
@@ -235,6 +240,11 @@ Item {
             if (root.shell !== null) {
                 const reply = root.shell.status.set("browserTheming", value);
                 if (reply !== "ok") console.error("themes: " + reply);
+                const items = SetupLogic.wiring(setupOut.text, code);
+                if (items !== null) {
+                    const wiringReply = root.shell.status.set("themeWiring", items);
+                    if (wiringReply !== "ok") console.error("themes: " + wiringReply);
+                }
             }
             if (root.setupPending) {
                 root.setupPending = false;

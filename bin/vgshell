@@ -2593,7 +2593,7 @@ case "$cmd" in
         ;;
       setup)
         if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2; fi
-        exec node "$theme_judge" setup "$format"
+        exec node "$theme_judge" setup "$format" "$config_home/vgshell" "$state_home/vgshell"
         ;;
       install)
         name="${1:-}"

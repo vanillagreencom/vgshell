@@ -1,7 +1,6 @@
--- The vgs theme for Neovim, rendered by vgshell theme apply. lazy.nvim loads it
--- as a plugin spec through lua/plugins/vgs-theme.lua. It adds no plugin, so
--- the spec is empty; the colours are set once Neovim has started, after any
--- colorscheme a plugin loads at startup.
+-- The vgs theme for Neovim, rendered by vgshell theme apply. Neovim sources
+-- nvim/plugin/vgs-theme.lua at startup; the colours are set once Neovim has
+-- started, after any colorscheme a plugin loads at startup.
 local function apply()
   vim.cmd("highlight clear")
   vim.g.colors_name = "vgs"

@@ -54,6 +54,65 @@ check "the section-dropping mutant puts the line first" test "$(head -n 1 "$cfg/
 unset THEME_BIN
 rm -r -- "$tree/themes/targets/sect"
 
+# A line that a removed target wired is taken back out on the next apply, and
+# only that line is removed; the record keeps a failed removal so another
+# apply can try again.
+wired="$state/wired.json"
+gone_target() { # NAME SECTION_JSON
+  mkdir -p "$tree/themes/targets/$1"
+  printf '{ "app": "%s", "runsCode": false, "encoder": "hex6", "files": [{ "template": "%s.conf", "destination": "%s.conf" }], "detect": [], "wiring": { "file": "%s/%s.conf", "line": "include = \\"@{state}/%s.conf\\"", "create": true%s }, "reload": null }\n' "$1" "$1" "$1" "$1" "$1" "$1" "$2" >"$tree/themes/targets/$1/target.json"
+  printf 'accent = "#@{palette.accent}"\n' >"$tree/themes/targets/$1/$1.conf"
+}
+record_names() { python3 -c 'import json,sys,os; p=sys.argv[1]; print(",".join(r["target"] for r in json.load(open(p))["lines"]) if os.path.exists(p) else "")' "$wired"; }
+gone_target gone ""
+mkdir -p "$cfg/gone"; printf 'owner=true\n' >"$cfg/gone/gone.conf"; cp -- "$cfg/gone/gone.conf" "$tmp/gone-own"
+gone_line="include = \"$live/gone.conf\""
+apply_json "a removable target applies" 0 dusk
+check "the removable target writes its line and record" test "$(head -n 1 "$cfg/gone/gone.conf")" == "$gone_line" -a "$(record_names)" == gone
+rm -r -- "$tree/themes/targets/gone"
+apply_json "a no-longer-shipped target is unwired" 0 dusk
+check "a removed target leaves the owner's file byte for byte" cmp -s "$tmp/gone-own" "$cfg/gone/gone.conf"
+check "a removed target leaves the wiring record" test "$(record_names)" == ""
+gone_target gone ""
+apply_json "the removable target applies for its control" 0 dusk
+rm -r -- "$tree/themes/targets/gone"
+judge_control removed-wiring-skipped 'const dropped = droppedWired(wiredBefore, new Set(targets.map(entry => entry.name)));' 'const dropped = { removed: [], kept: [], rows: [] };'
+apply_json "the removed-wiring-skipped mutant applies" 0 dusk
+check "the removed-wiring-skipped mutant keeps the removed target's line" grep -qxF -- "$gone_line" "$cfg/gone/gone.conf"
+unset THEME_BIN
+
+gone_target sectiongone ', "section": "general"'
+python3 - "$tree/themes/targets/sectiongone/target.json" <<'PY'
+import json, sys
+path = sys.argv[1]
+doc = json.load(open(path))
+doc["wiring"]["line"] = "include = [\"@{state}/sectiongone.conf\"]"
+open(path, "w").write(json.dumps(doc) + "\n")
+PY
+mkdir -p "$cfg/sectiongone"
+printf '[general]\ninclude = ["owner.conf"] # owner\nkeep = true\n' >"$cfg/sectiongone/sectiongone.conf"
+cp -- "$cfg/sectiongone/sectiongone.conf" "$tmp/sectiongone-own"
+apply_json "a removable sectioned target applies" 0 dusk
+check "the sectioned removable target merges its entry" grep -qxF -- "include = [\"$live/sectiongone.conf\", \"owner.conf\"] # owner" "$cfg/sectiongone/sectiongone.conf"
+rm -r -- "$tree/themes/targets/sectiongone"
+apply_json "a no-longer-shipped sectioned target is unwired" 0 dusk
+check "a removed sectioned target leaves the owner's import byte for byte" cmp -s "$tmp/sectiongone-own" "$cfg/sectiongone/sectiongone.conf"
+
+gone_target failgone ""
+mkdir -p "$cfg/failgone"; printf 'owner=true\n' >"$cfg/failgone/failgone.conf"
+apply_json "a removable target applies before a failed removal" 0 dusk
+rm -r -- "$tree/themes/targets/failgone"
+chmod a-w "$cfg/failgone"
+apply_json "a no-longer-shipped target whose file cannot be changed fails partial" 3 dusk "vgshell: refused: target=failgone reason=unwritable path=$cfg/failgone/failgone.conf error=EACCES"
+chmod u+w "$cfg/failgone"
+check "a failed removal keeps the line and record" test "$(record_names)" == failgone -a "$(grep -cF -- "include = \"$live/failgone.conf\"" "$cfg/failgone/failgone.conf")" == 1
+rm -- "$cfg/failgone/failgone.conf"
+apply_json "an absent removed target file drops its record" 0 dusk
+check "an absent removed target file leaves no record" test "$(record_names)" == ""
+printf 'not json\n' >"$wired"
+apply_json "a malformed wiring record refuses apply" 1 dusk "vgshell: refused: theme=dusk reason=malformed path=$wired"
+rm -- "$wired"
+
 # Profiles: `file` is relative to each profile directory the first of the
 # inis under HOME that exists lists, a relative Path under the ini's own
 # directory and an absolute one where it names; every listed profile whose
@@ -386,10 +445,9 @@ rm -r -- "$tree/themes/targets/bare"
 # on each is dropped, its template rendered in its place, and the result
 # names the drop on the target's row, which keeps it when the target's
 # wiring or reload then fails; a shipped package's curated file is taken.
-# neovim joins the terminals, detected by a stub, with its spec file present.
+# neovim joins the terminals, detected by a stub.
 cp -R -- "$repo/themes/targets/neovim" "$tree/themes/targets/"
 printf '#!/bin/sh\n: >"%s/ran-nvim"\nexit 1\n' "$tmp" >"$stubs/nvim"; chmod +x "$stubs/nvim"
-mkdir -p "$cfg/nvim/lua/plugins"; : >"$cfg/nvim/lua/plugins/vgs-theme.lua"
 curated_lua=$'-- curated\nos.execute("true")'
 for pkg in "$cfg/vgshell/themes/mossy" "$tree/themes/fenlua"; do
   theme_pkg "$pkg" "{ \"schemaVersion\": 1, \"name\": \"${pkg##*/}\", \"tokens\": { \"palette\": { \"accent\": \"#333333\" } } }"
@@ -429,7 +487,7 @@ check "the shipped neovim.lua lands byte for byte" cmp -s -- "$tree/themes/fenlu
 judge_control installed-as-shipped 'installed: row.source === "installed" });' 'installed: false });'
 apply_json "the installed-as-shipped mutant applies" 0 mossy
 check "the installed-as-shipped mutant lands the installed neovim.lua" cmp -s -- "$cfg/vgshell/themes/mossy/targets/neovim.lua" "$live/neovim.lua"
-judge_control drop-unreported 'dropped: entry.dropped === undefined ? [] : entry.dropped }));' 'dropped: [] }));'
+judge_control drop-unreported 'dropped: entry.dropped === undefined ? [] : entry.dropped })));' 'dropped: [] })));'
 apply_json "the drop-unreported mutant applies" 0 mossy
 check "the drop-unreported mutant names no drop" row_is neovim "'written'" None "[]"
 judge_control drop-untold 't.dropped.length === 0 ? "" :' 'true ? "" :'

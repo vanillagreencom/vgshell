@@ -20,6 +20,7 @@ const dir = path.join(__dirname, "..", "shell", "plugins", "vgs.themes");
 const file = path.join(dir, "SetupLogic.js");
 const same = (got, want, message) => assert.deepEqual(JSON.parse(JSON.stringify(got)), want, message);
 const report = state => JSON.stringify({ setups: [{ name: "chromium", app: "Chromium, Google Chrome, Microsoft Edge and Brave", setup: "vgshell-browser-policy", state }] }) + "\n";
+const wiringReport = rows => JSON.stringify({ home: "/home/alice", setups: [], wiring: rows }) + "\n";
 
 // [label, stdout, exit code, the value].
 const ROWS = [
@@ -42,6 +43,39 @@ function verify(logic) {
 
 verify(load(file));
 
+const WIRING_ROWS = [
+    ["wired rows map to presence items", wiringReport([
+        { name: "kitty", app: "kitty", file: "/home/alice/.config/kitty/kitty.conf", line: "include /home/alice/.local/state/vgshell/theme/kitty.conf", state: "wired" },
+        { name: "btop", app: "btop", file: "/home/alice/.config/btop/themes/vgs.theme", line: null, state: "wired" }
+    ]), 0, [
+        { label: "btop", value: "present", hint: "~/.config/btop/themes/vgs.theme" },
+        { label: "kitty", value: "present", hint: "~/.config/kitty/kitty.conf: include /home/alice/.local/state/vgshell/theme/kitty.conf" }
+    ]],
+    ["an unreadable row is unavailable", wiringReport([
+        { name: "foot", app: "foot", file: "/home/alice/.config/foot/foot.ini", line: null, state: "unreadable" }
+    ]), 0, [
+        { label: "foot", value: "unavailable", hint: "~/.config/foot/foot.ini" }
+    ]],
+    ["a failed report publishes nothing", wiringReport([]), 1, null],
+    ["an unparseable report publishes nothing", "setup=chromium\n", 0, null]
+];
+
+{
+    const rows = [];
+    for (let i = 0; i < 35; i++)
+        rows.push({ name: `app${i}`, app: `App ${String(i).padStart(2, "0")}`, file: `/home/alice/.config/app${i}/theme.conf`, line: "x".repeat(220), state: "wired" });
+    const got = load(file).wiring(wiringReport(rows), 0);
+    assert.equal(got.length, 32, "the wiring list is capped");
+    same(got[31], { label: "More files", value: "present", hint: "4 more files are not listed" }, "the cap ends with a summary item");
+    assert.ok(got.every(item => item.label.length <= 60 && item.hint.length <= 200), "items fit the manifest limits");
+}
+
+function verifyWiring(logic) {
+    for (const [label, text, code, want] of WIRING_ROWS) same(logic.wiring(text, code), want, label);
+}
+
+verifyWiring(load(file));
+
 // Every value fits the manifest's `browserTheming` entry, whose action the
 // core offers only while the value says so.
 const pluginLogic = load(path.join(__dirname, "..", "shell", "Core", "PluginLogic.js"));
@@ -54,13 +88,21 @@ for (const [label, text, code, want] of ROWS) {
     const row = pluginLogic.statusRows(judged.manifest, { browserTheming: value }, [])[0];
     same(row.action, { label: "Install browser theming", offered: want.action === true }, "the action of " + label);
 }
+for (const [label, text, code, want] of WIRING_ROWS) {
+    if (want === null) continue;
+    const value = JSON.parse(JSON.stringify(logic.wiring(text, code)));
+    assert.equal(pluginLogic.statusWrite(judged.manifest, {}, "themeWiring", value).ok, true, "the core publishes wiring for " + label);
+}
 
 // [label, needle, replacement]: each removes one rule from a copy.
 const CONTROLS = [
     ["every state offers the install", 'text: "Browser themes are not installed", action: true }', 'text: "Browser themes are not installed" }'],
     ["a failed report is read", "if (code !== 0) return unknown(\"exited \" + code);", ""],
     ["any target's row is read", "rows[i].name === TARGET", "true"],
-    ["an unknown state is installed", 'case "done": return', 'default: return']
+    ["an unknown state is installed", 'case "done": return', 'default: return'],
+    ["wiring failures publish an empty list", 'if (code !== 0) return unknown("exited " + String(code));', 'if (code !== 0) return [];'],
+    ["wiring unreadable rows look present", 'value: row.state === "wired" ? "present" : "unavailable"', 'value: "present"'],
+    ["wiring rows are not capped", 'if (items.length > STATUS_LIST_MAX) {', 'if (false) {']
 ];
 const source = fs.readFileSync(file, "utf8");
 const scratchRoot = path.join(__dirname, "..", "tmp");
@@ -74,6 +116,11 @@ try {
         let failed = false;
         try {
             verify(load(mutant));
+            verifyWiring(load(mutant));
+            const rows = [];
+            for (let i = 0; i < 35; i++)
+                rows.push({ name: `app${i}`, app: `App ${String(i).padStart(2, "0")}`, file: `/home/alice/.config/app${i}/theme.conf`, line: "x".repeat(220), state: "wired" });
+            assert.equal(load(mutant).wiring(wiringReport(rows), 0).length, 32);
         } catch (e) {
             failed = true;
         }

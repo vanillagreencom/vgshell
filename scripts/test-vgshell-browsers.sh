@@ -171,14 +171,32 @@ cp -- "$repo/bin/vgshell-browser-policy" "$tree/bin/vgshell-browser-policy"
 # enablement judges it, which the vgs.themes Settings page offers as a
 # button: not-detected without a browser, absent without the writer, done
 # with it.
-setup_row() { printf '{"setups":[{"name":"chromium","app":"Chromium, Google Chrome, Microsoft Edge and Brave","setup":"vgshell-browser-policy","state":"%s"}]}' "$1"; }
+setup_state() { python3 -c 'import json,sys; print([r["state"] for r in json.load(open(sys.argv[1]))["setups"] if r["name"] == "chromium"][0])' "$tmp/out"; }
+setup_has_wiring() { # NAME FILE LINE_OR_NULL STATE
+  python3 -c 'import json,sys
+d=json.load(open(sys.argv[1]))
+line = None if sys.argv[4] == "null" else sys.argv[4]
+want = {"name": sys.argv[2], "file": sys.argv[3], "line": line, "state": sys.argv[5]}
+sys.exit(0 if any(all(row.get(k) == v for k, v in want.items()) for row in d["wiring"]) else 1)' "$tmp/out" "$@"
+}
 THEME_PATH="$stubs:$theme_path"
-tinst "setup without a Chromium-family browser reads not-detected" "$cfg" "$rt_empty" 0 "$(setup_row not-detected)" "" theme setup --json
+tinst "setup without a Chromium-family browser reads not-detected" "$cfg" "$rt_empty" 0 "$any_out" "" theme setup --json
+check "setup without a Chromium-family browser reports not-detected" test "$(setup_state)" == not-detected
 THEME_PATH="$without_setup"
-tinst "setup with a browser and no writer reads absent" "$cfg" "$rt_empty" 0 "$(setup_row absent)" "" theme setup --json
-tinst "the text form names the command and the state" "$cfg" "$rt_empty" 0 "setup=chromium command=vgshell-browser-policy state=absent" "" theme setup
+tinst "setup with a browser and no writer reads absent" "$cfg" "$rt_empty" 0 "$any_out" "" theme setup --json
+check "setup with a browser and no writer reports absent" test "$(setup_state)" == absent
+check "setup reports zen's wired include file and line" setup_has_wiring zen "$home/.zen/legacy.default/chrome/userChrome.css" "$import_line" wired
+check "setup reports pywalfox's managed entry" setup_has_wiring pywalfox "$cache/wal/colors.json" null wired
+printf '# owner only\n' >"$home/.zen/legacy.default/chrome/userChrome.css"
+tinst "setup omits an owner file without the include line" "$cfg" "$rt_empty" 0 "$any_out" "" theme setup --json
+check "setup omits an owner file without the include line" test "$(python3 -c 'import json,sys; print(any(r["name"] == "zen" for r in json.load(open(sys.argv[1]))["wiring"]))' "$tmp/out")" == False
+printf '%s\n# owner' "$import_line" >"$home/.zen/legacy.default/chrome/userChrome.css"
+tinst "the text form names setup and wiring" "$cfg" "$rt_empty" 0 "$any_out" "" theme setup
+check "the text form names the command and the state" has_line "setup=chromium command=vgshell-browser-policy state=absent"
+check "the text form names the wiring file" has_line "wiring=zen state=wired file=$home/.zen/legacy.default/chrome/userChrome.css line=\"@import url(\\\"file://$live/zen.css\\\");\""
 THEME_PATH="$with_setup"
-tinst "setup with the writer on PATH reads done" "$cfg" "$rt_empty" 0 "$(setup_row done)" "" theme setup --json
+tinst "setup with the writer on PATH reads done" "$cfg" "$rt_empty" 0 "$any_out" "" theme setup --json
+check "setup with the writer on PATH reports done" test "$(setup_state)" == done
 tinst "setup with an argument is refused" "$cfg" "$rt_empty" 2 "" "vgshell: refused: argument=now" theme setup now
 THEME_PATH="$stubs:$theme_path"
 
@@ -211,7 +229,11 @@ judge_control setup-ignored-reload 'if (!setup.value) return skipped("setup-abse
 tinst "the setup-ignoring reload mutant runs the hook" "$cfg" "$rt_empty" 3 "$any_out" "vgshell: refused: target=chromium reason=reload-failed command=sh status=127" theme reload --json
 judge_control setup-ignores-detect 'const state = !render.detected(detect, onPath) ? "not-detected" : render.setupDone' 'const state = false ? "not-detected" : render.setupDone'
 THEME_PATH="$stubs:$theme_path"
-tinst "the detect-ignoring setup mutant offers the setup with no browser" "$cfg" "$rt_empty" 0 "$(setup_row absent)" "" theme setup --json
+tinst "the detect-ignoring setup mutant offers the setup with no browser" "$cfg" "$rt_empty" 0 "$any_out" "" theme setup --json
+check "the detect-ignoring setup mutant reports absent" test "$(setup_state)" == absent
+judge_control setup-wiring-omitted 'wiring.push(...setupTargetRows(name, verdict.target, configHome, live));' ''
+tinst "the setup-wiring-omitted mutant reports setup" "$cfg" "$rt_empty" 0 "$any_out" "" theme setup --json
+check "the setup-wiring-omitted mutant omits wired files" test "$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["wiring"]))' "$tmp/out")" == 0
 unset THEME_BIN THEME_PATH
 
 rows_done test-vgshell-browsers
