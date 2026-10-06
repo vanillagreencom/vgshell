@@ -94,6 +94,25 @@ Item {
             compare(JSON.stringify([root.capture.ended.item === first, root.capture.ended.reason]), '[true,"commit"]');
         }
 
+        function test_window_free_begin_uses_the_window_free_verb() {
+            const ctx = root.context("acme.core");
+            compare(owner().begin(ctx, first, { anyWindow: true }), "ok");
+            compare(root.capture.holder, first);
+            compare(sent(), '["enterAnyWindow"]');
+            root.capture.end(first, "commit");
+            compare(sent(), '["enterAnyWindow","leave"]');
+        }
+
+        function test_a_waiting_begin_uses_its_own_window_option() {
+            const ctx = root.context("acme.core");
+            root.capture.begin(first);
+            root.capture.end(first, "cancel");
+            compare(owner().begin(ctx, second, { anyWindow: true }), "ok");
+            compare(sent(), '["enter","leave"]');
+            Compositor.answer(1, "ok");
+            compare(sent(), '["enter","leave","enterAnyWindow"]');
+        }
+
         function test_cancel_leaves_before_hyprland_answers() {
             root.capture.begin(first);
             root.capture.end(first, "cancel");

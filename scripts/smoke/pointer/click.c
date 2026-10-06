@@ -3,7 +3,7 @@
  * nested compositor's and never the live session's: the helper connects to
  * the socket it is given and to nothing else.
  *
- *   click X Y WIDTH HEIGHT [move | right | middle | drag X2 Y2 | wheel STEPS | swipe LENGTH]
+ *   click X Y WIDTH HEIGHT [move | right | middle | drag X2 Y2 [hold] | wheel STEPS | swipe LENGTH]
  *
  * Moves the pointer to (X, Y) on a layout WIDTH by HEIGHT, presses and
  * releases the left button, and prints `clicked X Y`. With `move` it only
@@ -13,7 +13,9 @@
  * prints `clicked X Y`.
  * With `drag X2 Y2` it presses at (X, Y), moves to (X2, Y2) in ten steps
  * DRAG_STEP_MS apart with the button held, releases there and prints
- * `dragged X Y X2 Y2`. The steps are paced as a hand moves a mouse, one
+ * `dragged X Y X2 Y2`. With `hold`, it prints `holding X2 Y2` after the
+ * moves, flushes stdout, waits for a newline or EOF on stdin, then releases.
+ * The steps are paced as a hand moves a mouse, one
  * 60 Hz frame apart: sent back to back, a loaded client can read the
  * press, the moves and the release in one batch, and a Flickable that
  * takes the left button then reads no drag.
@@ -101,13 +103,14 @@ int main(int argc, char **argv) {
     int move_only = argc == 6 && strcmp(argv[5], "move") == 0;
     int right = argc == 6 && strcmp(argv[5], "right") == 0;
     int middle = argc == 6 && strcmp(argv[5], "middle") == 0;
-    int drag = argc == 8 && strcmp(argv[5], "drag") == 0;
+    int drag = (argc == 8 || (argc == 9 && strcmp(argv[8], "hold") == 0)) && strcmp(argv[5], "drag") == 0;
+    int hold_drag = argc == 9 && drag;
     int wheel = argc == 7 && strcmp(argv[5], "wheel") == 0;
     int swipe = argc == 7 && strcmp(argv[5], "swipe") == 0;
     uint32_t button = right ? BTN_RIGHT : middle ? BTN_MIDDLE : BTN_LEFT;
     if ((argc != 5 && !move_only && !right && !middle && !drag && !wheel && !swipe) || !number(argv[1], &x) || !number(argv[2], &y) || !number(argv[3], &width) || !number(argv[4], &height) || width == 0 || height == 0
         || (drag && (!number(argv[6], &x2) || !number(argv[7], &y2))) || (wheel && !steps_of(argv[6], 100, &steps)) || (swipe && !steps_of(argv[6], 2000, &steps))) {
-        fprintf(stderr, "click: refused: usage=X Y WIDTH HEIGHT [move | right | middle | drag X2 Y2 | wheel STEPS | swipe LENGTH]\n");
+        fprintf(stderr, "click: refused: usage=X Y WIDTH HEIGHT [move | right | middle | drag X2 Y2 [hold] | wheel STEPS | swipe LENGTH]\n");
         return 2;
     }
     struct wl_display *display = wl_display_connect(NULL);
@@ -158,6 +161,12 @@ int main(int argc, char **argv) {
             zwlr_virtual_pointer_v1_frame(pointer);
             wl_display_roundtrip(display);
             nanosleep(&(struct timespec){ .tv_nsec = DRAG_STEP_MS * 1000000L }, NULL);
+        }
+        if (hold_drag) {
+            printf("holding %u %u\n", x2, y2);
+            fflush(stdout);
+            int ch;
+            while ((ch = getchar()) != EOF && ch != '\n') {}
         }
         zwlr_virtual_pointer_v1_button(pointer, now_ms(), button, WL_POINTER_BUTTON_STATE_RELEASED);
         zwlr_virtual_pointer_v1_frame(pointer);

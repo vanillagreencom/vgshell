@@ -10,9 +10,10 @@ import "HyprlandLayer.js" as Layer
 // and to end, and never dispatches; the owner enters the submap through
 // Compositor and leaves it on every end the shell sees: the control's
 // commit, cancel or focus loss, the control's destruction, its plugin
-// instance's teardown and a newer holder. Hyprland leaves the submap by
-// itself on Escape, on the close of the window that entered it, on a
-// timeout and when the layer runs again; the owner reads each submap change
+// instance's teardown, a newer holder and a bar drag. Hyprland leaves the
+// submap by itself on Escape, on the close of the window that entered it,
+// on a timeout and when the layer runs again; the window-close leave does
+// not apply to a window-free capture. The owner reads each submap change
 // from Hyprland's event socket and ends a capture whose submap is gone, so
 // the control and Hyprland agree. It also answers who else holds a key,
 // with the file and line of each user bind that holds it, and takes such a
@@ -31,6 +32,9 @@ Scope {
     // Whether the holder's enter was refused or answered with an error:
     // Hyprland's own binds still run, and only keys they leave reach it.
     property bool failed: false
+    // Whether this capture holds no window, for a core caller whose owner
+    // releases it because Hyprland has no focused shell window to watch.
+    property bool anyWindow: false
     // Leave requests sent and not yet answered. A begin while one is
     // pending waits to send its enter until every leave was answered:
     // Hyprland posts a request's submap event before it answers the request
@@ -100,8 +104,8 @@ Scope {
     }
 
     // ITEM takes the keyboard for a combo; a holder already capturing ends
-    // first. Answers `ok`.
-    function begin(ctx, item) {
+    // first. OPTIONS may set anyWindow for core callers. Answers `ok`.
+    function begin(ctx, item, options) {
         if (item === null || item === undefined)
             throw new Error("refused: capture holder=none");
         if (holder === item) return "ok";
@@ -109,6 +113,7 @@ Scope {
         holder = item;
         release = ctx.onDispose(() => root.end(item, "disposed"));
         failed = false;
+        anyWindow = options !== null && options !== undefined && options.anyWindow === true;
         generation += 1;
         began = Date.now();
         if (leaving > 0) phase = "waiting";
@@ -126,7 +131,8 @@ Scope {
     function enter() {
         phase = "entering";
         const at = generation;
-        const answer = Compositor.passthrough("enter", reply => root.entered(at, reply));
+        const verb = anyWindow ? "enterAnyWindow" : "enter";
+        const answer = Compositor.passthrough(verb, reply => root.entered(at, reply));
         if (answer !== "ok") entered(at, answer);
     }
 
@@ -148,6 +154,7 @@ Scope {
         phase = "idle";
         release = null;
         failed = false;
+        anyWindow = false;
         holder = null;
         if (registration !== null) registration();
         if ((was === "entering" || was === "passthrough") && reason !== "compositor" && reason !== "timeout") leave();

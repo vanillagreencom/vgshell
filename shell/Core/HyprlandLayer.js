@@ -200,23 +200,24 @@ var OVERLAY_CAPTURE = {
     shortcuts: { left: "overlay-left", right: "overlay-right", up: "overlay-up", down: "overlay-down" }
 };
 
-// The key capture pass-through: while the Settings key field captures a
-// combo, the shell asks Hyprland through Dispatch.js to enter `submap`,
-// whose one bind is `cancel`, so every other key, a combo a default-map bind
-// holds included, reaches the focused shell window. Hyprland leaves it on
-// its own on `cancel`, when the window that entered it closes, a killed
-// shell's included, after `timeoutMs` and whenever the layer runs again; the
-// shell leaves it on commit and teardown. `timeoutMs` bounds how long a
-// wedged shell holds every bind: long enough to find and press a chord.
-// `table` is the name of the Lua table on `hl` that holds the submap's
-// state and its two functions, named by `verbs`, which Dispatch.js calls.
+// The key capture pass-through: while a key field captures a combo, or a
+// core capture that holds no window such as a bar drag waits for Escape, the
+// shell asks Hyprland through Dispatch.js to enter `submap`, whose one bind
+// is `cancel`, so every other key reaches the focused app or shell window.
+// Hyprland leaves it on `cancel`, after `timeoutMs` and whenever the layer
+// runs again; captures entered through `enter` also leave when their window
+// closes. The shell leaves it on commit and teardown. `timeoutMs` bounds how
+// long a wedged shell holds every bind: long enough to find and press a
+// chord. `table` is the name of the Lua table on `hl` that holds the
+// submap's state and its functions, named by `verbs`, which Dispatch.js
+// calls.
 var KEY_PASSTHROUGH = {
     submap: "vgs:passthrough",
     cancel: "Escape",
     description: "vgs:passthrough-cancel",
     timeoutMs: 10000,
     table: "__vgs_key_passthrough",
-    verbs: { enter: "enter", leave: "leave" }
+    verbs: { enter: "enter", enterAnyWindow: "enterAnyWindow", leave: "leave" }
 };
 
 // The pads a plugin's `hyprland.pads` setting lists (Pads.js): each pad's
@@ -672,16 +673,16 @@ function userBindLines() {
     ];
 }
 
-// The key capture pass-through's submap, KEY_PASSTHROUGH. Its two functions
-// on `hl.<table>` are what Dispatch.js asks for: `enter`
-// refuses unless a shell window has the focus and records that window, and
-// `leave` resets only this submap. One repeating timer, armed while the
-// submap is current and disarmed as it fires, is the timeout; the window
-// close hook covers a shell that dies with its window mapped.
+// The key capture pass-through's submap, KEY_PASSTHROUGH. Its functions
+// on `hl.<table>` are what Dispatch.js asks for: `enter` records a focused
+// shell window, `enterAnyWindow` records none, and `leave` resets only this
+// submap. One repeating timer, armed while the submap is current and
+// disarmed as it fires, is the timeout; the window close hook covers a shell
+// that dies with its window mapped.
 function keyPassthroughLines() {
     var p = KEY_PASSTHROUGH;
     return [
-        "-- Key capture pass-through: a vgs window that captures a key combo takes every key but " + p.cancel + ".",
+        "-- Key capture pass-through: a capture takes every key but " + p.cancel + ".",
         "do",
         "    local passthrough = { submap = \"" + p.submap + "\", class = \"" + APP_WINDOW.appId + "\" }",
         "    hl." + p.table + " = passthrough",
@@ -695,6 +696,10 @@ function keyPassthroughLines() {
         "        local window = hl.get_active_window()",
         "        if window == nil or window.class ~= passthrough.class then error(\"" + p.submap + ": the focused window is not a vgs window\") end",
         "        passthrough.window = window.address",
+        "        hl.dispatch(hl.dsp.submap(passthrough.submap))",
+        "    end",
+        "    function passthrough." + p.verbs.enterAnyWindow + "()",
+        "        passthrough.window = nil",
         "        hl.dispatch(hl.dsp.submap(passthrough.submap))",
         "    end",
         "    passthrough.timer = hl.timer(function()",

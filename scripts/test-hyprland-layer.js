@@ -143,14 +143,15 @@ const USER_BINDS_SECTION = [
 const coreEnd = lines => lines.indexOf(USER_BINDS_SECTION[0]) + USER_BINDS_SECTION.length - 1;
 
 // The key capture pass-through, byte for byte: its submap's one bind is
-// Escape, so every other key reaches the shell window that entered it;
-// Hyprland leaves it on Escape, on that window's close, after the 10 s
-// timer and when the layer runs again. `enter` refuses unless a shell
-// window has the focus, and `leave` resets this submap alone.
+// Escape, so every other key reaches the focused app or shell window.
+// Hyprland leaves it on Escape, after the 10 s timer and when the layer runs
+// again; captures entered through `enter` also leave on that window's close.
+// `enter` refuses unless a shell window has the focus, `enterAnyWindow`
+// records no window, and `leave` resets this submap alone.
 // scripts/smoke/rows/key-passthrough.sh reads each exit back from the
 // nested Hyprland v0.56.2.
 const PASSTHROUGH_SECTION = [
-    "-- Key capture pass-through: a vgs window that captures a key combo takes every key but Escape.",
+    "-- Key capture pass-through: a capture takes every key but Escape.",
     "do",
     "    local passthrough = { submap = \"vgs:passthrough\", class = \"org.vgs.shell\" }",
     "    hl.__vgs_key_passthrough = passthrough",
@@ -164,6 +165,10 @@ const PASSTHROUGH_SECTION = [
     "        local window = hl.get_active_window()",
     "        if window == nil or window.class ~= passthrough.class then error(\"vgs:passthrough: the focused window is not a vgs window\") end",
     "        passthrough.window = window.address",
+    "        hl.dispatch(hl.dsp.submap(passthrough.submap))",
+    "    end",
+    "    function passthrough.enterAnyWindow()",
+    "        passthrough.window = nil",
     "        hl.dispatch(hl.dsp.submap(passthrough.submap))",
     "    end",
     "    passthrough.timer = hl.timer(function()",
@@ -743,7 +748,7 @@ function verify(logic, layer, shellText) {
     same(layer.render([padsFixture(logic, "acme.pads")], theme, "vgs", 1, null, "").padConflicts, [], "one plugin's pads report nothing");
     const sweptLines = lines(layer.render([padsFixture(logic, "acme.pads")], theme, "vgs", 1, null, ""));
     same(sweptLines.slice(sweptLines.length - SWEEP_SECTION.length - 1), [...SWEEP_SECTION, ""], "the pads' sweep ends a layer with pads, after them");
-    same(layer.KEY_PASSTHROUGH, { submap: "vgs:passthrough", cancel: "Escape", description: "vgs:passthrough-cancel", timeoutMs: 10000, table: "__vgs_key_passthrough", verbs: { enter: "enter", leave: "leave" } }, "the key capture pass-through names its submap, cancel key, bind description, timeout, Lua table and verbs");
+    same(layer.KEY_PASSTHROUGH, { submap: "vgs:passthrough", cancel: "Escape", description: "vgs:passthrough-cancel", timeoutMs: 10000, table: "__vgs_key_passthrough", verbs: { enter: "enter", enterAnyWindow: "enterAnyWindow", leave: "leave" } }, "the key capture pass-through names its submap, cancel key, bind description, timeout, Lua table and verbs");
     // VGS writes no monitor rule: the user's own Hyprland config sets every
     // output, so no rendered layer holds an `hl.monitor` call, whatever the
     // sections.
@@ -1255,6 +1260,7 @@ const CONTROLS = [
     [layerFile, "key pass-through leaves only its submap", "        \"        if hl.get_current_submap() == passthrough.submap then hl.dispatch(hl.dsp.submap(\\\"reset\\\")) end\",", "        \"        hl.dispatch(hl.dsp.submap(\\\"reset\\\"))\","],
     [layerFile, "key pass-through enters only from a shell window", "if window == nil or window.class ~= passthrough.class then error(", "if window == nil then error("],
     [layerFile, "key pass-through records the entering window", "        \"        passthrough.window = window.address\",", ""],
+    [layerFile, "key pass-through window-free enter forgets the window", "        \"        passthrough.window = nil\",", ""],
     [layerFile, "key pass-through times out", "        \"        passthrough.timer:set_enabled(name == passthrough.submap)\",", "        \"        passthrough.timer:set_enabled(false)\","],
     [layerFile, "key pass-through timer stops as it fires", "        \"        passthrough.timer:set_enabled(false)\",\n        \"        passthrough.\" + p.verbs.leave + \"()\",", "        \"        passthrough.\" + p.verbs.leave + \"()\","],
     [layerFile, "key pass-through leaves on its window's close", "if window ~= nil and window.address == passthrough.window then passthrough.\" + p.verbs.leave + \"() end", "local _ = window"],

@@ -116,10 +116,11 @@ Singleton {
         return enqueueRequest(Dispatch.request(name, args, Hyprland.usingLua), null);
     }
 
-    // Enter or leave the key capture pass-through submap, `enter` or
-    // `leave` (Dispatch.passthroughRequest); KeyCapture.qml is the one
-    // caller. Answers as `send` does, and an accepted request hands DONE
-    // its answer once it ran: `ok`, Hyprland's reply text otherwise, or a
+    // Enter or leave the key capture pass-through submap, `enter`,
+    // `enterAnyWindow` or `leave` (Dispatch.passthroughRequest);
+    // KeyCapture.qml is the one caller. Answers as `send` does, and an
+    // accepted request hands DONE its answer once it ran: `ok`, Hyprland's
+    // reply text otherwise, or a
     // keyed `dispatch-start=failed` or `exit=<code>` line, with
     // ` reply=<JSON text>` after it when hyprctl, which exits non-zero on a
     // refused request, printed the refusal.

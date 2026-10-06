@@ -25,7 +25,7 @@ Hyprland v0.56.2 answers `ok` to a window move with no window and to a float tog
 - Do find where the user's configuration binds a key from the layer's own `hl.bind` wrapper, reading `debug.getinfo` on the nearest frame outside the layer: `binds -j` names no source, Hyprland v0.56.2 keeps the `debug` library but `sethook` and `gethook`, and `hl.bind` returns the bind with its `submap`, `modmask`, `key` and `keycode`. `scripts/smoke/rows/hyprland-options.sh` reads the file and line back.
 - Do map a pad window tiled into its own special workspace; a floating `size` or `move` rule applies once at map, while a tiled area is reapplied on every change ([D102](../decisions/D102-pads-tiled-in-their-special-workspace.md)). `scripts/test-hyprland-layer.js` pins the rule.
 - Never change a layer surface's keyboard interactivity during a held pointer press; Hyprland v0.56.2 ends the press, and Quickshell 0.3.1 applies a `WlrLayershell.keyboardFocus` change through `set_keyboard_interactivity` on the same surface (`src/wayland/wlr_layershell/surface.cpp`). `scripts/smoke/rows/placement.sh` drags bar widgets with the bar's focus unchanged.
-- Never expect a press on a layer surface to enter the key pass-through submap; its enter verb refuses unless the active window's class is `org.vgs.shell` (`keyPassthroughLines` in `shell/Core/HyprlandLayer.js`), and a press on the bar changes no active window.
+- Do enter a capture that holds no window, such as a bar drag, through the window-free verb `enterAnyWindow`; `enter` refuses unless the active window's class is `org.vgs.shell` (`keyPassthroughLines` in `shell/Core/HyprlandLayer.js`), and a press on the bar changes no active window. `scripts/smoke/rows/placement.sh` pins the bar drag path.
 
 ## The canonical example
 

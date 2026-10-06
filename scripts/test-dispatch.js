@@ -223,7 +223,7 @@ function verifySwitch(lib, report) {
 }
 failures += verifySwitch(ctx, true);
 
-// The key capture pass-through's two core requests: each names the Hyprland
+// The key capture pass-through's core requests: each names the Hyprland
 // layer's function of that verb (HyprlandLayer.keyPassthroughLines), and a
 // classic session, which loads no layer, or another verb is refused.
 function verifyPassthrough(lib, report) {
@@ -235,8 +235,10 @@ function verifyPassthrough(lib, report) {
     // rows: [name, verb, usingLua, want]
     const rows = [
         ["enter in a Lua session", "enter", true, { ok: true, request: "hl.__vgs_key_passthrough.enter" }],
+        ["window-free enter in a Lua session", "enterAnyWindow", true, { ok: true, request: "hl.__vgs_key_passthrough.enterAnyWindow" }],
         ["leave in a Lua session", "leave", true, { ok: true, request: "hl.__vgs_key_passthrough.leave" }],
         ["enter in a classic session", "enter", false, { ok: false, error: "refused: passthrough=enter session=classic" }],
+        ["window-free enter in a classic session", "enterAnyWindow", false, { ok: false, error: "refused: passthrough=enterAnyWindow session=classic" }],
         ["leave in a classic session", "leave", false, { ok: false, error: "refused: passthrough=leave session=classic" }],
         ["an unknown verb", "reset", true, { ok: false, error: "refused: passthrough=\"reset\" unknown" }],
         ["a verb that carries Lua", "leave()", true, { ok: false, error: "refused: passthrough=\"leave()\" unknown" }],

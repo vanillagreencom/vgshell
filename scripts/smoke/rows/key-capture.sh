@@ -92,7 +92,7 @@ expect_poll "the Unbind button stores null for the shortcut" null settings_key
 key_reset "key capture end"
 
 # The control: no enter request. The user bind takes the keys.
-if copy_tree key-capture-no-enter && edit_tree key-capture-no-enter shell/Core/KeyCapture.qml 'const answer = Compositor.passthrough("enter", reply => root.entered(at, reply));' 'const answer = "ok";'; then
+if copy_tree key-capture-no-enter && edit_tree key-capture-no-enter shell/Core/KeyCapture.qml 'const answer = Compositor.passthrough(verb, reply => root.entered(at, reply));' 'const answer = "ok";'; then
   stop_shell
   start_shell "$sandbox/tree-key-capture-no-enter" "$sandbox/key-capture-no-enter.log" || fail "the no-enter control shell starts"
   kc_open "control no-enter"

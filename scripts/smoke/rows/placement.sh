@@ -6,13 +6,14 @@
 # a service plus a bar widget that rows/plugins.sh enabled and placed, each
 # call is read back from the bar's build records, the user shell.json,
 # listPlugins and the service's build record. Pointer checks drag real
-# widgets, cancel outside the bar, prove a still click stays a click, and
-# prove a drag cancels the widget's own click. Controls run a copy whose move
-# ignores the index and a copy whose BarWidget cannot drag. The row restores
-# the user file byte for byte, so rows after it find the fixture placed as
-# before. The disabled widget the refusals name is acme.tick, disabled for
-# them and enabled again.
-# inputs: config/shell.json scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.tick/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/PluginLogic.js shell/Core/Plugins.qml shell/Core/Capabilities.qml shell/Core/Config.qml shell/Hosts/BarHost.qml shell/shell.qml shell/Ui/BarWidget.qml scripts/smoke/pointer/click.c scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/rows/plugins.sh
+# widgets, cancel outside the bar and with Escape, prove a still click stays
+# a click, and prove a drag cancels the widget's own click. Controls run a
+# copy whose move ignores the index, a copy whose drag capture is missing
+# and a copy whose BarWidget cannot drag. The row restores the user file
+# byte for byte, so rows after it find the fixture placed as before. The
+# disabled widget the refusals name is acme.tick, disabled for them and
+# enabled again.
+# inputs: config/shell.json scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.tick/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/PluginLogic.js shell/Core/Plugins.qml shell/Core/Capabilities.qml shell/Core/Config.qml shell/Core/KeyCapture.qml shell/Core/HyprlandLayer.js shell/Core/Compositor.qml shell/Core/Dispatch.js shell/Hosts/BarHost.qml shell/shell.qml shell/Ui/BarWidget.qml scripts/smoke/pointer/click.c scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 placement_file="$home/.config/vgshell/shell.json"
 placement_saved="$sandbox/shell-before-placement.json"
@@ -49,6 +50,48 @@ placement_drag_widget() {
   local x y
   read -r x y < <(placement_point "$1") || return 1
   hover "$((x + 1))" "$y" && drag "$x" "$y" "$2" "$3"
+}
+placement_drag_escape() {
+  local id="$1" x2="$2" y2="$3" expected="$4" x y line done_line out_fd in_fd pid status=0
+  read -r x y < <(placement_point "$id") || return 1
+  hover "$((x + 1))" "$y" || return 1
+  coproc placement_hold { "${shell_env[@]}" "$sandbox/click" "$x" "$y" "$mon_w" "$mon_h" drag "$x2" "$y2" hold; }
+  out_fd="${placement_hold[0]}"
+  in_fd="${placement_hold[1]}"
+  pid="$placement_hold_PID"
+  if ! read -r -t 10 line <&"$out_fd"; then
+    fail "the held drag reaches the barrier"
+    status=1
+  elif [[ $line != "holding $x2 $y2" ]]; then
+    fail "the held drag barrier reads $line"
+    status=1
+  fi
+  if [[ $status -eq 0 && $expected == vgs:passthrough ]]; then
+    expect_poll "a held drag enters the pass-through submap" vgs:passthrough key_submap
+  elif [[ $status -eq 0 ]]; then
+    expect "a held drag without capture leaves the submap default" default key_submap
+  fi
+  if [[ $status -eq 0 ]]; then
+    type_keys -k Escape || { fail "Escape during the held drag"; status=1; }
+  fi
+  if [[ $status -eq 0 ]]; then
+    expect_poll "Escape during a drag leaves the pass-through submap" default key_submap
+    expect "the press is still held after Escape" true ipc smoke readInstance "$(bar_key)" "$id" frameDragging
+  fi
+  printf '\n' >&"$in_fd" || status=1
+  exec {in_fd}>&-
+  if ! read -r -t 10 done_line <&"$out_fd"; then
+    fail "the held drag releases"
+    status=1
+  fi
+  wait "$pid" || status=$?
+  exec {out_fd}<&-
+  pointer_at="$x2 $y2"
+  if [[ $done_line != "dragged $x $y $x2 $y2" ]]; then
+    fail "the held drag ended as $done_line"
+    status=1
+  fi
+  return "$status"
 }
 placement_click_widget() {
   local x y
@@ -127,6 +170,17 @@ cp -- "$placement_file" "$sandbox/shell-before-outside-drop.json"
 read -r below_x below_y < <(placement_bar_below_left) || fail "the point below the left third of the bar is unreadable"
 placement_drag_widget acme.probe "$below_x" "$below_y" || fail "dragging the fixture below the bar failed"
 expect_poll "a drag released below the left third of the bar leaves the user file as it was" unchanged placement_same_as "$sandbox/shell-before-outside-drop.json"
+hypr_lua_save placement
+printf '%s\n' 'hl.config({ input = { resolve_binds_by_sym = true } })' >>"$home/.config/hypr/hyprland.lua"
+expect "the nested instance reloads with keysym binds" ok hypr reload config-only
+cp -- "$placement_file" "$sandbox/shell-before-escape-drop.json"
+read -r tick_x tick_y < <(placement_point acme.tick) || fail "the tick widget point is unreadable before Escape"
+placement_drag_escape acme.probe "$tick_x" "$tick_y" vgs:passthrough || fail "holding a drag and pressing Escape failed"
+expect_poll "Escape during a drag ends frame dragging after release" false ipc smoke readInstance "$(bar_key)" acme.probe frameDragging
+expect_poll "Escape during a drag keeps the rendered order" '["acme.tick", "acme.probe"]' placement_visual_order
+expect "Escape during a drag leaves the user file as it was" unchanged placement_same_as "$sandbox/shell-before-escape-drop.json"
+hypr_lua_restore placement || fail "placement puts the harness hyprland.lua back"
+expect "the nested instance reloads the harness hyprland.lua" ok hypr reload config-only
 tick_clicks_before="$(ipc smoke readInstance "$(bar_key)" acme.tick clicks)" || fail "the tick click count is unreadable"
 placement_click_widget acme.tick || fail "clicking acme.tick failed"
 expect_poll "a click without movement reaches acme.tick" "$((tick_clicks_before + 1))" ipc smoke readInstance "$(bar_key)" acme.tick clicks
@@ -205,6 +259,25 @@ if copy_tree placement-move-control \
   stop_shell
   cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
   start_shell "$repo" "$sandbox/placement-move-control-restored.log" || fail "the shell starts again after the move control"
+fi
+
+if copy_tree placement-escape-control \
+  && edit_tree placement-escape-control shell/Core/Plugins.qml '        Capabilities.keyCapture.begin(ctx, item, { anyWindow: true });' ';'; then
+  stop_shell
+  cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
+  start_shell "$sandbox/tree-placement-escape-control" "$sandbox/placement-escape-control.log" || fail "the placement Escape control shell starts"
+  hypr_lua_save placement-escape-control
+  printf '%s\n' 'hl.config({ input = { resolve_binds_by_sym = true } })' >>"$home/.config/hypr/hyprland.lua"
+  expect "control Escape: the nested instance reloads with keysym binds" ok hypr reload config-only
+  cp -- "$placement_file" "$sandbox/shell-before-escape-control.json"
+  read -r tick_x tick_y < <(placement_point acme.tick) || fail "control Escape: the tick widget point is unreadable"
+  placement_drag_escape acme.probe "$tick_x" "$tick_y" default || fail "control Escape: holding a drag and pressing Escape failed"
+  expect_poll "control Escape: without drag capture the release drops the widget" changed placement_same_as "$sandbox/shell-before-escape-control.json"
+  hypr_lua_restore placement-escape-control || fail "control Escape: placement puts the harness hyprland.lua back"
+  expect "control Escape: the nested instance reloads the harness hyprland.lua" ok hypr reload config-only
+  stop_shell
+  cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
+  start_shell "$repo" "$sandbox/placement-escape-control-restored.log" || fail "the shell starts again after the Escape control"
 fi
 
 if copy_tree placement-drag-control \

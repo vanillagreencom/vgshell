@@ -79,6 +79,16 @@ Singleton {
             Qt.callLater(root.giveFirstPresence);
         }
     }
+    Connections {
+        target: Capabilities.keyCapture
+        function onEndedChanged() {
+            const ended = Capabilities.keyCapture.ended;
+            // Escape and compositor exits end the capture while the pointer
+            // is still held, so the later release must not drop the widget.
+            if (root.barDrag !== null && ended.item === root.barDrag.item && ended.reason !== "commit")
+                root.barDrag = null;
+        }
+    }
     // Place every widget that has no presence yet (PluginLogic.firstPresence)
     // in one user-file write: after a scan that changed the plugin set and
     // when the configuration turns ready, so a plugin shows in the bar when
@@ -239,7 +249,7 @@ Singleton {
             instance.frame = {
                 describe: () => root.frameFacts(id),
                 hide: () => root.setPlaced(id, false),
-                dragStart: point => root.dragStart(hostKey, id, locator, point),
+                dragStart: point => root.dragStart(hostKey, id, locator, instance, point),
                 dragMove: point => root.dragMove(hostKey, point),
                 dragEnd: point => root.dragEnd(hostKey, point)
             };
@@ -253,8 +263,11 @@ Singleton {
         return instance;
     }
 
-    function dragStart(hostKey, id, locator, point) {
-        barDrag = { hostKey: hostKey, id: id, from: Object.assign({ id: id }, locator), section: locator.section, before: null, index: 0, markerX: 0 };
+    function dragStart(hostKey, id, locator, item, point) {
+        const row = rowFor(hostKey, item);
+        const ctx = { onDispose: cleanup => row.lifetime.register(cleanup) };
+        barDrag = { hostKey: hostKey, id: id, item: item, from: Object.assign({ id: id }, locator), section: locator.section, before: null, index: 0, markerX: 0 };
+        Capabilities.keyCapture.begin(ctx, item, { anyWindow: true });
         dragMove(hostKey, point);
     }
 
@@ -291,6 +304,7 @@ Singleton {
     function dragEnd(hostKey, point) {
         const drag = barDrag;
         barDrag = null;
+        if (drag !== null && drag !== undefined) Capabilities.keyCapture.end(drag.item, "commit");
         if (drag === null || drag.hostKey !== hostKey || !Logic.hasOwn(mounts, hostKey)) return;
         const bar = mounts[hostKey].row.instance;
         if (point.x < 0 || point.y < 0 || point.x >= bar.width || point.y >= bar.height) return;

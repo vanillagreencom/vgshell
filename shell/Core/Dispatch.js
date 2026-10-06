@@ -97,12 +97,13 @@ var PLUGIN_DISPATCHERS = Object.keys(DISPATCHERS);
 
 // ---------------------------------------------------- key pass-through
 
-// The key capture pass-through's two requests, which the core's key capture
+// The key capture pass-through's requests, which the core's key capture
 // owner sends and no plugin may. Each calls the function the Hyprland layer
 // defines for that verb (HyprlandLayer.KEY_PASSTHROUGH), so `leave` resets
-// only the pass-through submap, and an `enter` the layer cannot serve, as
-// in a session that declined the layer, answers an error: the key field
-// then tells the user Hyprland's own shortcuts still run. The shell writes
+// only the pass-through submap, `enter` records a focused shell window, and
+// `enterAnyWindow` holds no window. An enter the layer cannot serve, as in
+// a session that declined the layer, answers an error: the key field then
+// tells the user Hyprland's own shortcuts still run. The shell writes
 // its layer in Lua alone, so a classic session is refused.
 // { ok: true, request } or { ok: false, error } with a keyed line.
 function passthroughRequest(verb, usingLua) {
