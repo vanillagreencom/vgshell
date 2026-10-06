@@ -62,7 +62,7 @@ Item {
     onShellChanged: {
         if (shell === null || registeredWith !== null) return;
         registeredWith = shell;
-        shell.shortcut.register("toggle", "Open or close the clipboard history", () => root.toggle());
+        shell.shortcut.register("toggle", "Clipboard history", () => root.toggle());
         shell.ipc.handle("toggle", () => root.toggle());
         shell.ipc.handle("rows", filter => JSON.stringify({ images: root.storeDir + "/images", total: root.entries.length, rows: History.rows(root.entries, filter) }));
         shell.ipc.handle("paste", id => root.put(id, true));

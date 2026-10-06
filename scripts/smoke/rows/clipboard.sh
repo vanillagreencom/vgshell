@@ -310,7 +310,7 @@ from pathlib import Path
 import sys
 root = Path(sys.argv[1])
 changes = [
-    ("Service.qml", 'shell.shortcut.register("toggle", "Open or close the clipboard history", () => root.toggle());', 'shell.shortcut.register("toggle", "Open or close the clipboard history", () => "ok");'),
+    ("Service.qml", 'shell.shortcut.register("toggle", "Clipboard history", () => root.toggle());', 'shell.shortcut.register("toggle", "Clipboard history", () => "ok");'),
     ("Service.qml", "stdout: SplitParser { onRead: line => root.captured(line) }", "stdout: SplitParser { onRead: line => {} }"),
     ("Service.qml", 'History.pasteChord(kind === "terminal")', "History.pasteChord(false)"),
     ("Service.qml", "            retry.restart();\n", ""),

@@ -18,8 +18,8 @@ var CATALOG_REFRESH_MS = 60000;
 // Browser.qml that draws it. The first view is the one a payload without
 // `view` opens. A view is one row here and its file.
 var VIEWS = [
-    { name: "themes", label: "Themes", description: "Open or close the theme browser", source: "ThemeView.qml" },
-    { name: "wallpapers", label: "Wallpapers", description: "Open or close the wallpaper browser", source: "WallpaperView.qml" }
+    { name: "themes", label: "Themes", description: "Theme browser", source: "ThemeView.qml" },
+    { name: "wallpapers", label: "Wallpapers", description: "Wallpaper browser", source: "WallpaperView.qml" }
 ];
 var PAYLOAD_KEYS = ["view"];
 

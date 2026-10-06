@@ -206,7 +206,7 @@ Item {
         registered = true;
         restore();
         shell.status.set("panelRevision", panelRevision);
-        shell.shortcut.register("inbox", "Open or close the notification inbox", () => root.togglePanel());
+        shell.shortcut.register("inbox", "Notification inbox", () => root.togglePanel());
         shell.ipc.handle("inbox", () => root.togglePanel());
         shell.ipc.handle("panel", () => root.showPanel("inbox"));
         shell.ipc.handle("history", () => root.showPanel("history"));

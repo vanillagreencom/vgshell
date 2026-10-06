@@ -51,8 +51,8 @@ Item {
         registeredWith = shell;
         for (const view of BrowserLogic.VIEWS)
             shell.shortcut.register(view.name, view.description, () => root.summon(view.name));
-        shell.shortcut.register("panel", "Open or close the Themes panel", () => root.togglePanel());
-        shell.shortcut.register("gaps", "Turn window gaps off or back on", () => root.toggleGaps());
+        shell.shortcut.register("panel", "Themes panel", () => root.togglePanel());
+        shell.shortcut.register("gaps", "Window gaps on or off", () => root.toggleGaps());
         shell.ipc.handle("gaps", () => root.toggleGaps());
         shell.ipc.handle("browser-data", revision => revision === String(root.dataRevision) ? "" : root.dataText);
         shell.ipc.handle("refresh-browser-data", () => { root.refreshData(); return "ok"; });

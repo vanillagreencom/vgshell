@@ -49,12 +49,12 @@ Item {
         "text": ["slurp", "hyprpicker", "grim", "tesseract", "wl-copy"]
     })
     readonly property var descriptions: ({
-        "screenshot": "Capture the focused output",
+        "screenshot": "Screenshot this screen",
         "screenshot-area": "Capture an area",
         "screenshot-window": "Capture a window",
         "screenshot-display": "Choose a display to capture",
         "screenshot-all": "Capture all displays",
-        "record": "Start or stop recording an area",
+        "record": "Record an area",
         "record-window": "Start or stop recording a window",
         "record-display": "Start or stop recording a chosen display",
         "record-output": "Start or stop recording the focused display",
