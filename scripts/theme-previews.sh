@@ -7,14 +7,16 @@
 #
 # THEME is vgs or a catalog package name; with none, vgs and every entry of
 # themes/catalog/index.json. A catalog theme's wallpaper, the image its
-# archive applies first, is fetched once into tmp/theme-previews/wallpapers
-# by scripts/theme-preview-wallpaper.js. --dotfiles is the stow tree whose
+# archive applies first, is fetched once for each pin into
+# tmp/theme-previews/wallpapers by scripts/theme-preview-wallpaper.js, which
+# prints the path the scene is handed. --dotfiles is the stow tree whose
 # tmux/ and nvim/ the scene's terminal runs, ~/dotfiles by default. The
-# scene runs with --modes dark --size 1920x1190, the theme card's shape
-# (carousel.expandedWidth by expandedHeight in shell/Commons/Tokens.js),
-# into tmp/theme-previews/<UTC time>; --from DIR reads a run that holds a
-# theme-preview-<name>.png for every THEME instead. Each shot is scaled to
-# PREVIEW_SIZE, the card at the carousel's largest scale, 2, and written as
+# scene runs with --modes dark --size 1920x1190 --scale 2, the theme card's
+# shape (carousel.expandedWidth by expandedHeight in shell/Commons/Tokens.js)
+# at 3840x2380 device pixels, into tmp/theme-previews/<UTC time>; --from DIR
+# reads a run that holds a theme-preview-<name>.png for every THEME
+# instead. Each shot is scaled to the card's shape at carousel.decodeCap on
+# its long side, the largest a card decodes its picture at, and written as
 # a JPEG to themes/vgs/preview.jpg or themes/catalog/<name>/preview.jpg.
 #
 # Each image written prints `theme-previews: wrote=<path> bytes=<n>`. A
@@ -23,7 +25,6 @@
 # its status, so a run that could not start (77) writes nothing.
 set -euo pipefail
 
-PREVIEW_SIZE="1536x952"
 JPEG_OPTIONS=(-strip -sampling-factor 4:4:4 -quality 88)
 
 repo="$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/.." && pwd)"
@@ -44,6 +45,11 @@ imagemagick="$(command -v magick 2>/dev/null || command -v convert 2>/dev/null)"
   printf 'theme-previews: status=not-measured missing=magick\n'
   exit 77
 }
+preview_size="$(node -e '
+const carousel = require(process.argv[1]).load(process.argv[2]).TOKENS.carousel;
+const [width, height, cap] = [carousel.expandedWidth.value, carousel.expandedHeight.value, carousel.decodeCap.value];
+const scale = cap / Math.max(width, height);
+console.log(Math.round(width * scale) + "x" + Math.round(height * scale));' "$repo/bin/lib/qml-library.js" "$repo/shell/Commons/Tokens.js")"
 if [[ ${#themes[@]} -eq 0 ]]; then
   mapfile -t themes < <(python3 -c 'import json,sys; [print(e["name"]) for e in json.load(open(sys.argv[1]))["entries"]]' "$repo/themes/catalog/index.json")
   themes=(vgs "${themes[@]}")
@@ -56,13 +62,16 @@ done
 work="$repo/tmp/theme-previews"
 if [[ -z $from ]]; then
   mkdir -p -- "$work/wallpapers"
+  wallpapers=()
   for name in "${themes[@]}"; do
-    [[ $name == vgs ]] || node "$repo/scripts/theme-preview-wallpaper.js" "$name" "$work/wallpapers" "$work/cache" >/dev/null
+    [[ $name == vgs ]] && continue
+    wallpaper="$(node "$repo/scripts/theme-preview-wallpaper.js" "$name" "$work/wallpapers" "$work/cache")"
+    wallpapers+=(--preview-wallpaper "$name=$wallpaper")
   done
   from="$work/$(date -u +%Y%m%dT%H%M%SZ)"
   status=0
-  "$repo/scripts/sandbox-shots.sh" --modes dark --size 1920x1190 --out "$from" \
-    --preview-themes "$(IFS=,; echo "${themes[*]}")" --preview-wallpapers "$work/wallpapers" --dotfiles "$dotfiles" \
+  "$repo/scripts/sandbox-shots.sh" --modes dark --size 1920x1190 --scale 2 --out "$from" \
+    --preview-themes "$(IFS=,; echo "${themes[*]}")" "${wallpapers[@]}" --dotfiles "$dotfiles" \
     theme-previews || status=$?
   [[ $status -eq 0 ]] || exit "$status"
 fi
@@ -71,7 +80,7 @@ for name in "${themes[@]}"; do
 done
 for name in "${themes[@]}"; do
   target="$(package_dir "$name")/preview.jpg"
-  "$imagemagick" "$from/theme-preview-$name.png" -filter Lanczos -resize "$PREVIEW_SIZE!" "${JPEG_OPTIONS[@]}" "jpg:$target.part"
+  "$imagemagick" "$from/theme-preview-$name.png" -filter Lanczos -resize "$preview_size!" "${JPEG_OPTIONS[@]}" "jpg:$target.part"
   mv -f -- "$target.part" "$target"
   printf 'theme-previews: wrote=%s bytes=%s\n' "${target#"$repo"/}" "$(stat -c %s -- "$target")"
 done

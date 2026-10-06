@@ -437,6 +437,7 @@ rows=(
   "tools|plugin README images|python3 scripts/check-readme-images.py|shell/plugins/* docs/images/*"
   "tools|plugin README image controls|python3 scripts/test-check-readme-images.py|scripts/check-readme-images.py"
   "tools|README shot controls|scripts/test-readme-shots.sh|scripts/readme-shots.sh scripts/check-readme-images.py scripts/smoke/shot.sh"
+  "tools|theme preview maker controls|node scripts/test-theme-previews.js|scripts/theme-previews.sh scripts/theme-preview-wallpaper.js bin/lib/theme-download.js bin/lib/theme-backgrounds.js bin/lib/judge-files.js bin/lib/qml-library.js shell/Commons/Tokens.js scripts/tar-fixture.js"
   "tools|scratch directory guard controls|scripts/test-scratch-dirs.sh|scripts/vgshell-rows.sh scripts/test-launcher-file-search.sh scripts/test-notifications-images.sh scripts/test-notifications-token-status.sh scripts/test-sandbox-shots.sh scripts/test-smoke-verdict.sh scripts/test-smoke-teardown.sh scripts/test-readme-shots.sh"
   "tools|Jarvis test environment controls|node scripts/test-jarvis-env.js|scripts/lib/jarvis-env.sh scripts/fixtures/jarvis-env/* scripts/smoke/harness.sh"
   "tools|pinned schema checker controls|node scripts/test-schema-check.js|scripts/fixtures/schema-check.js scripts/fixtures/jarvis-brain/openai-chat.schema.json scripts/fixtures/jarvis-voice/assertions.js"

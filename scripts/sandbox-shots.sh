@@ -4,7 +4,7 @@
 # Usage: scripts/sandbox-shots.sh [--out DIR] [--rev REV] [--modes LIST]
 #                                 [--size WxH] [--scale N]
 #                                 [--theme-card NAME] [--hidden]
-#                                 [--preview-themes LIST] [--preview-wallpapers DIR]
+#                                 [--preview-themes LIST] [--preview-wallpaper NAME=PATH]...
 #                                 [--dotfiles DIR]
 #                                 [--timeout SECONDS] [--keep] [SCENE...]
 #
@@ -123,8 +123,8 @@
 # the System window on Displays and Ghostty running tmux and Neovim from
 # --dotfiles, a stow tree holding tmux/ and nvim/, with the Neovim plugins
 # and tmux plugin of this user's home copied in. A catalog package's
-# wallpaper is the one file of --preview-wallpapers named after it
-# (scripts/theme-previews.sh makes them). A scene argument that is missing
+# wallpaper is the file its --preview-wallpaper NAME=PATH names
+# (scripts/theme-previews.sh passes them). A scene argument that is missing
 # or names nothing is refused as `sandbox-shots: refused: <option>=<value>`.
 # The lock scene enables vgs.lock with its sleep hook and idle watch off,
 # locks the nested session, and shoots the lock screen, then after one and
@@ -192,7 +192,7 @@ scale=1
 shot_size=""
 theme_card="frankenstein"
 preview_themes=()
-preview_wallpapers=""
+declare -A preview_wallpaper=()
 preview_dotfiles=""
 require_window=""
 scenes=()
@@ -205,7 +205,7 @@ while [[ $# -gt 0 ]]; do
     --scale) scale="$2"; shift 2 ;;
     --theme-card) theme_card="$2"; shift 2 ;;
     --preview-themes) IFS=, read -r -a preview_themes <<<"$2"; shift 2 ;;
-    --preview-wallpapers) preview_wallpapers="$2"; shift 2 ;;
+    --preview-wallpaper) preview_wallpaper["${2%%=*}"]="${2#*=}"; shift 2 ;;
     --dotfiles) preview_dotfiles="$2"; shift 2 ;;
     --hidden) require_window=hidden; shift ;;
     --timeout) timeout_s="$2"; shift 2 ;;
@@ -355,8 +355,8 @@ for scene in "${scenes[@]}"; do
     [[ ${#preview_themes[@]} -gt 0 ]] || { printf 'sandbox-shots: refused: preview-themes=\n' >&2; exit 2; }
     for name in "${preview_themes[@]}"; do
       [[ $name == vgs || -f $tree/themes/catalog/$name/theme.json ]] || { printf 'sandbox-shots: refused: preview-themes=%s\n' "$name" >&2; exit 2; }
+      [[ $name == vgs || -f ${preview_wallpaper[$name]:-} ]] || { printf 'sandbox-shots: refused: preview-wallpaper=%s\n' "$name" >&2; exit 2; }
     done
-    [[ -d $preview_wallpapers ]] || { printf 'sandbox-shots: refused: preview-wallpapers=%s\n' "$preview_wallpapers" >&2; exit 2; }
     [[ -f $preview_dotfiles/tmux/.tmux.conf && -d $preview_dotfiles/nvim/.config/nvim ]] || { printf 'sandbox-shots: refused: dotfiles=%s\n' "$preview_dotfiles" >&2; exit 2; }
   fi
   if [[ $scene == theme-browser && ! -f $tree/themes/catalog/$theme_card/theme.json ]]; then
@@ -1469,7 +1469,7 @@ preview_terminal_stop() {
 # the tree; a catalog package is laid out as install lays it out, with the
 # wallpaper it applies first (scripts/theme-preview-wallpaper.js).
 preview_package() {
-  local name="$1" dest wallpaper
+  local name="$1" dest
   [[ $name == vgs ]] && return 0
   dest="$home/.config/vgshell/themes/$name"
   rm -rf -- "${dest:?}"
@@ -1477,12 +1477,10 @@ preview_package() {
   cp -- "$checkout/themes/catalog/$name/theme.json" "$dest/theme.json"
   [[ ! -f $checkout/themes/catalog/$name/terminal.json ]] || cp -- "$checkout/themes/catalog/$name/terminal.json" "$dest/terminal.json"
   [[ ! -d $checkout/themes/catalog/$name/targets ]] || cp -R -- "$checkout/themes/catalog/$name/targets" "$dest/targets"
-  for wallpaper in "$preview_wallpapers/$name".*; do
-    [[ -f $wallpaper ]] && cp -- "$wallpaper" "$dest/backgrounds/"
-  done
+  cp -- "${preview_wallpaper[$name]}" "$dest/backgrounds/"
 }
 scene_theme-previews() { # MODE
-  local id name status=0 first_output
+  local id name status=0 first_output link target
   # The harness keeps workspace 100 alive for the bar rows' wide pill; a
   # user's desktop has no such workspace. The two windows float at set
   # places, so the wallpaper shows around them, and the pointer is hidden.
@@ -1538,6 +1536,12 @@ LUA
   cp -R -- "$preview_dotfiles/nvim/.config/nvim" "$home/.config/nvim"
   printf 'dofile("%s/.local/state/vgshell/theme/neovim.lua")\n' "$home" >"$home/.config/nvim/plugin/vgs-theme.lua"
   cp -R --reflink=auto -- "$HOME/.local/share/nvim/lazy" "$HOME/.local/share/nvim/site" "$HOME/.local/share/nvim/mason" "$home/.local/share/nvim/"
+  # A link the copy kept into his data, such as treesitter's queries, names
+  # the sandbox's copy instead.
+  while IFS= read -r -d '' link; do
+    target="$(readlink -- "$link")"
+    ln -sfnT -- "$home/.local/share/nvim/${target#"$HOME/.local/share/nvim/"}" "$link"
+  done < <(find "$home/.local/share/nvim" -type l -lname "$HOME/.local/share/nvim/*" -print0)
   cp -R -- "$repo/shell/plugins/vgs.themes" "$home/Projects/vgshell"
   # His Ghostty font and padding; the theme's colours come from its target.
   cat >"$home/.config/ghostty/config" <<'GHOSTTY'
