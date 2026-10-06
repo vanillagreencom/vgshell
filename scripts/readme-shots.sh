@@ -23,8 +23,20 @@
 #            out: the scenes park the pointer 2 logical pixels from that
 #            corner (park_pointer in scripts/sandbox-shots.sh), and the
 #            shape it shows there differs from shot to shot.
+#   item     the box DIR/items.tsv records for the shot, grown by MARGIN_PX
+#            on every side and clamped to the output. scripts/sandbox-shots.sh
+#            writes that box as it takes the shot, from the shell's own
+#            reading of the surface's items over IPC.
+#   backdrop the box of the pixels below the bar band that differ from the
+#            shot's own bottom-left pixel, grown and clamped as item is,
+#            the pointer's square left out as content leaves it out. It
+#            serves a surface drawn over the whole output on a flat colour,
+#            a lock screen or a scrim, where every pixel differs from
+#            00-desktop.png.
 # A crop that finds no bar band or no content is refused, never widened to
-# the whole output. Each image is encoded as WebP with WEBP_OPTIONS and no
+# the whole output. A shot items.tsv records is refused under any crop
+# that leaves its item box under half the image's area, so a README image
+# never shows its surface small in an empty frame. Each image is encoded as WebP with WEBP_OPTIONS and no
 # metadata.
 #
 # Without --from it runs scripts/sandbox-shots.sh --scale 2 --modes
@@ -34,6 +46,8 @@
 # sandbox-shots directory instead. Every shot the table names, and
 # 00-desktop.png, must be in DIR, listed in its shots.tsv with clean shot
 # chrome and with host window state hidden or absent, and OUTPUT_SIZE.
+# DIR/items.tsv, when present, holds one line per recorded shot:
+# name, x, y, width and height, tab-separated, in device pixels.
 # --out DIR
 # writes the images there in place of docs/images/plugins/; it must lie
 # under this checkout's tmp/ (shot_dir_under in scripts/smoke/shot.sh).
@@ -83,7 +97,10 @@ stop() {
     shot-chrome) message="the run's shots.tsv does not list this shot with clean chrome: use a rest shot, not a posed hover, tooltip, menu or focus shot" ;;
     shot-size) message="every shot must be $OUTPUT_SIZE: run scripts/sandbox-shots.sh with ${SHOTS_ARGS[*]}" ;;
     bar) message="00-desktop.png has no row at its top that differs from the desktop's colour" ;;
-    crop-empty) message="no pixel below the bar band differs from 00-desktop.png" ;;
+    crop-empty) message="no pixel below the bar band differs from the crop's reference" ;;
+    crop-sparse) message="the crop leaves the shot's recorded item under half the image: use the item crop" ;;
+    item-missing) message="the item crop needs the shot's box in the run's items.tsv" ;;
+    item-box) message="the run's items.tsv line for this shot is not four whole numbers with a width and height over 0" ;;
     measure) message="ImageMagick could not measure the shot"; class=failed ;;
     encode) message="ImageMagick could not crop and encode the image"; class=failed ;;
     *) message="readme-shots: internal: the key has no message" ;;
@@ -151,6 +168,19 @@ shot_png() {
   printf '%s\n' "$png"
 }
 
+# item_of NAME: the box items.tsv records for shot NAME as `X Y W H`, or
+# nothing for none. Its caller runs it in a subshell, as shot_png's.
+item_of() {
+  local box
+  [[ -f $from/items.tsv ]] || return 0
+  if ! box="$(awk -F '\t' -v name="$1" '$1 == name { box = $2 " " $3 " " $4 " " $5 } END { print box }' "$from/items.tsv")"; then
+    stop from "$from" "items.tsv is unreadable"
+  fi
+  [[ -n $box ]] || return 0
+  [[ $box =~ ^[0-9]+\ [0-9]+\ [1-9][0-9]*\ [1-9][0-9]*$ ]] || stop item-box "$1" "line=$box"
+  printf '%s\n' "$box"
+}
+
 # mask_rows reads a binary 8-bit PGM of a mask on stdin, 0 where a pixel
 # holds nothing, and prints its bar band or its content box. `band` prints
 # the row after the first run of rows holding a set pixel, or `none`.
@@ -188,6 +218,25 @@ else:
 # The operators that turn two images into the mask of the pixels where they
 # differ in any channel.
 differ=(-compose difference -composite -separate -evaluate-sequence max -threshold 0)
+# changed_box ARG...: the box, `X Y W H` or `none`, of the pixels at and
+# below the bar band where the first image ARG... reads differs from the
+# second, the parked pointer's square left out.
+changed_box() {
+  magick "$@" "${differ[@]}" \
+    -fill black -draw "rectangle $((width - POINTER_PX)),$((height - POINTER_PX)) $width,$height" \
+    -depth 8 pgm:- | python3 -c "$mask_program" box "$band"
+}
+# crop_box X Y W H FLOOR: the geometry of that box grown by MARGIN_PX on
+# every side and clamped to the output, taken from the top edge when the
+# grown box reaches row FLOOR.
+crop_box() {
+  local left top right bottom
+  left=$(( $1 - MARGIN_PX < 0 ? 0 : $1 - MARGIN_PX ))
+  top=$(( $2 - MARGIN_PX <= $5 ? 0 : $2 - MARGIN_PX ))
+  right=$(( $1 + $3 + MARGIN_PX > width ? width : $1 + $3 + MARGIN_PX ))
+  bottom=$(( $2 + $4 + MARGIN_PX > height ? height : $2 + $4 + MARGIN_PX ))
+  printf '%dx%d+%d+%d\n' "$((right - left))" "$((bottom - top))" "$left" "$top"
+}
 if ! desktop="$(shot_png 00-desktop)"; then exit 1; fi
 if ! background="$(magick "$desktop" -format '%[pixel:p{0,%[fx:h-1]}]' info:)"; then stop measure 00-desktop; fi
 if ! band="$(magick "$desktop" -alpha off \( +clone -fill "$background" -colorize 100 \) "${differ[@]}" -depth 8 pgm:- | python3 -c "$mask_program" band)"; then
@@ -199,24 +248,35 @@ read -r width height <<<"${OUTPUT_SIZE/x/ }"
 for row in "${table_rows[@]}"; do
   IFS=$'\t' read -r image _ shot crop <<<"$row"
   if ! png="$(shot_png "$shot")"; then exit 1; fi
+  if ! item="$(item_of "$shot")"; then exit 1; fi
   case $crop in
     full) geometry="${width}x${height}+0+0" ;;
     bar) geometry="${width}x${band}+0+0" ;;
-    content)
-      if ! box="$(magick "$png" "$desktop" -alpha off "${differ[@]}" \
-        -fill black -draw "rectangle $((width - POINTER_PX)),$((height - POINTER_PX)) $width,$height" \
-        -depth 8 pgm:- | python3 -c "$mask_program" box "$band")"; then
-        stop measure "$shot"
+    content|backdrop)
+      if [[ $crop == content ]]; then
+        box="$(changed_box "$png" "$desktop" -alpha off)" || stop measure "$shot"
+      else
+        colour="$(magick "$png" -format '%[pixel:p{0,%[fx:h-1]}]' info:)" || stop measure "$shot"
+        box="$(changed_box "$png" -alpha off \( +clone -fill "$colour" -colorize 100 \))" || stop measure "$shot"
       fi
       [[ $box != none ]] || stop crop-empty "$shot"
       read -r x y w h <<<"$box"
-      left=$(( x - MARGIN_PX < 0 ? 0 : x - MARGIN_PX ))
-      top=$(( y - MARGIN_PX <= band ? 0 : y - MARGIN_PX ))
-      right=$(( x + w + MARGIN_PX > width ? width : x + w + MARGIN_PX ))
-      bottom=$(( y + h + MARGIN_PX > height ? height : y + h + MARGIN_PX ))
-      geometry="$((right - left))x$((bottom - top))+$left+$top" ;;
-    *) echo "readme-shots: internal: crop=$crop passed the table's judge, which knows full, bar and content alone" >&2; exit 1 ;;
+      floor=0
+      [[ $crop == backdrop ]] || floor=$band
+      geometry="$(crop_box "$x" "$y" "$w" "$h" "$floor")" ;;
+    item)
+      [[ -n $item ]] || stop item-missing "$shot"
+      read -r x y w h <<<"$item"
+      geometry="$(crop_box "$x" "$y" "$w" "$h" 0)" ;;
+    *) echo "readme-shots: internal: crop=$crop passed the table's judge, which knows full, bar, content, item and backdrop alone" >&2; exit 1 ;;
   esac
+  if [[ -n $item ]]; then
+    read -r x y w h <<<"$item"
+    IFS='x+' read -r cw ch cx cy <<<"$geometry"
+    seen_w=$(( (x + w < cx + cw ? x + w : cx + cw) - (x > cx ? x : cx) ))
+    seen_h=$(( (y + h < cy + ch ? y + h : cy + ch) - (y > cy ? y : cy) ))
+    (( seen_w > 0 && seen_h > 0 && 2 * seen_w * seen_h >= cw * ch )) || stop crop-sparse "$shot" "item=${w}x${h}+$x+$y crop=$geometry"
+  fi
   target="$images_dir/$image"
   if ! magick "$png" -alpha off -crop "$geometry" +repage -strip "${WEBP_OPTIONS[@]}" "$target.part.webp" 2>"$err_file"; then
     stop encode "$image" "$(cat -- "$err_file")"

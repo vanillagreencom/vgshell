@@ -136,7 +136,11 @@
 # tmp/sandbox-shots/<UTC time>[-REV][-x2]. shots.tsv beside them lists each shot
 # with the sha256 of its file, how it was proved current, whether the host
 # showed the nested window while it was taken, and whether the shot had
-# chrome such as a tooltip or focus ring (shot.sh). Each shot is of the
+# chrome such as a tooltip or focus ring (shot.sh). items.tsv beside them
+# lists the box of the surface's items a scene read over IPC for a shot,
+# as name, x, y, width and height in device pixels, which
+# scripts/readme-shots.sh's item crop cuts: the theme browser's tabs,
+# selected card and name in its installed shot. Each shot is of the
 # nested compositor's first output alone, which the harness sized (grim
 # -o), so an output a scene adds never enters a capture. The last line
 # counts the shots taken with the window hidden as hidden=N; the host
@@ -509,6 +513,21 @@ take() { # NAME
     return
   fi
   SHOT_CHROME_READER=shot_chrome_read SHOT_CHROME_REQUIRE=clean take_raw "$1"
+}
+# record_item NAME BOX: BOX, `[x, y, w, h]` in logical pixels of the
+# first output, as shot NAME's line in items.tsv, in device pixels with
+# its edges rounded outward.
+record_item() {
+  local line
+  if line="$(python3 -c 'import json,math,sys
+x, y, w, h = json.loads(sys.argv[2]); s = int(sys.argv[3])
+left, top = math.floor(x * s), math.floor(y * s)
+assert left >= 0 and top >= 0 and w > 0 and h > 0
+print("%s\t%d\t%d\t%d\t%d" % (sys.argv[1], left, top, math.ceil((x + w) * s) - left, math.ceil((y + h) * s) - top))' "$1" "$2" "$scale" 2>/dev/null)"; then
+    printf '%s\n' "$line" >>"$SHOT_DIR/items.tsv"
+  else
+    fail "shot $1: its item box is unreadable: $2"
+  fi
 }
 centre_of() { python3 -c 'import json,sys; t=sys.argv[1]; r=json.loads(t) if t.startswith("[") else None; print("%d %d" % (r[0] + r[2] / 2, r[1] + r[3] / 2) if r else "none")' "$1"; }
 # hover_on LABEL HOST ID TYPE TEXT [SURFACE]: the pointer on the centre of
@@ -1312,6 +1331,19 @@ right = [b for b in cards if selected is not None and b[0] > selected[0]]
 b = min(right, key=lambda b: b[0]) if right else None
 print("none" if b is None else "%d %d" % (b[0] + b[2] / 2, b[1] + b[3] / 2))'
 }
+# theme_browser_box: the box around the theme browser's tabs, its selected
+# card, the largest, and the name the filter shows under it, as
+# `[x, y, w, h]`, or `none`.
+theme_browser_box() {
+  ipc smoke descendantGeometry overlay vgs.themes | py_reply 'import json,sys
+rows = [r for r in json.load(sys.stdin) if r["visible"] and r["box"][2] > 0 and r["box"][3] > 0]
+tabs = [r["box"] for r in rows if r["type"] == "Tabs"]
+cards = [r["box"] for r in rows if r["type"] == "AngledCard"]
+names = [r["box"] for r in rows if r["type"] == "Label" and r.get("role") == "h3" and r.get("text") == sys.argv[1]]
+boxes = [tabs[0], max(cards, key=lambda b: b[2] * b[3]), names[0]] if tabs and cards and names else []
+left, top = (min(b[0] for b in boxes), min(b[1] for b in boxes)) if boxes else (0, 0)
+print(json.dumps([left, top, max(b[0] + b[2] for b in boxes) - left, max(b[1] + b[3] for b in boxes) - top]) if boxes else "none")' "$theme_card"
+}
 rail_card_hovered() { ipc smoke itemValues overlay vgs.themes AngledCard hovered | py_reply 'import json,sys; print(any(v["hovered"] is True for v in json.load(sys.stdin)))'; }
 # hover_card LABEL: the pointer on that card, held until a card reports it
 # twice in a row. A tree whose cards draw no hover takes the shot once the
@@ -1434,6 +1466,7 @@ scene_theme-browser() { # MODE
   expect_poll "the theme browser selects installed $theme_card" "\"$theme_card\"" ipc smoke readDescendant overlay vgs.themes ThemeView selectedName
   expect_poll "the installed theme browser image is ready" True selected_ready
   take "theme-browser-$1-installed-$theme_card"
+  record_item "theme-browser-$1-installed-$theme_card" "$(theme_browser_box)"
   expect "the theme browser hides" ok ipc shell hide overlay vgs.themes
   expect_poll "the theme browser is gone" 0 layer_count vgs:overlay
   # The next mode's catalog shot must show the card as the catalog has it.

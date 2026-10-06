@@ -58,7 +58,7 @@ IMAGES = "docs/images/plugins"
 TABLE = IMAGES + "/shots.tsv"
 COMMAND = "scripts/readme-shots.sh"
 HEADER = "image\tscene\tshot\tcrop"
-CROPS = ("full", "bar", "content")
+CROPS = ("full", "bar", "content", "item", "backdrop")
 # The largest image scripts/readme-shots.sh made from the table on host
 # cachy on 2026-09-30, ImageMagick 7.1.2-32 with libwebp 1.6.0, was the Dev
 # Tools window at 54,996 bytes (docs/architecture/readme.md

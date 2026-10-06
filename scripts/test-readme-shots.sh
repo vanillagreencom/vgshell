@@ -3,9 +3,9 @@
 # scratch checkout holds a copy of the script, of the table's judge
 # scripts/check-readme-images.py and of scripts/smoke/shot.sh, a table of
 # its own, and under its tmp/ a run as scripts/sandbox-shots.sh writes one:
-# shots.tsv and 2560x1600 PNGs made with ImageMagick over a flat desktop
-# with a 56-row bar band, a clock in the band and a parked pointer in the
-# bottom-right corner. Its scripts/sandbox-shots.sh is a stand-in that
+# shots.tsv, items.tsv and 2560x1600 PNGs made with ImageMagick over a flat
+# desktop with a 56-row bar band, a clock in the band and a parked pointer
+# in the bottom-right corner. Its scripts/sandbox-shots.sh is a stand-in that
 # starts no compositor: it records its arguments, copies that run into its
 # --out directory, as a real run leaves its shots there whether it passes
 # or fails, and exits with the status its case sets. The --from cases pin
@@ -61,7 +61,16 @@ magick -size 1280x800 xc:'#111111' "$run_dir/small.png"
 magick "${shot_base[@]}" -fill '#222222' -draw 'rectangle 1000,600 1399,899' "$run_dir/shown.png"
 cp -- "$run_dir/centre.png" "$run_dir/tooltip.png"
 cp -- "$run_dir/centre.png" "$run_dir/absent-window.png"
-for name in 00-desktop panel centre edge clock small; do printf '%s\tsha\tprev\tsettled\thidden\tclean\n' "$name"; done >"$run_dir/shots.tsv"
+# item: the centre box, which items.tsv records. bad: a shot whose
+# items.tsv line has no width. dim: the centre box on a flat colour over
+# the whole output, the bar band included, as a lock screen or a scrim
+# draws. dim-empty: that colour alone.
+cp -- "$run_dir/centre.png" "$run_dir/item.png"
+cp -- "$run_dir/centre.png" "$run_dir/bad.png"
+magick -size 2560x1600 xc:'#050505' -fill '#222222' -draw 'rectangle 1000,600 1399,899' -fill white -draw 'rectangle 2555,1596 2559,1599' "$run_dir/dim.png"
+magick -size 2560x1600 xc:'#050505' -fill white -draw 'rectangle 2555,1596 2559,1599' "$run_dir/dim-empty.png"
+printf 'item\t1000\t600\t400\t300\nbad\t1000\t600\t0\t300\n' >"$run_dir/items.tsv"
+for name in 00-desktop panel centre edge clock small item bad dim dim-empty; do printf '%s\tsha\tprev\tsettled\thidden\tclean\n' "$name"; done >"$run_dir/shots.tsv"
 printf 'shown\tsha\tprev\tsettled\tshown\tclean\n' >>"$run_dir/shots.tsv"
 printf 'tooltip\tsha\tprev\tsettled\thidden\ttooltip\n' >>"$run_dir/shots.tsv"
 printf 'absent-window\tsha\tprev\tsettled\tabsent\tclean\n' >>"$run_dir/shots.tsv"
@@ -85,16 +94,21 @@ pass_rows=(
   "p.panel.webp panel content"
   "p.centre.webp centre content"
   "p.edge.webp edge content"
+  "p.item.webp item item"
+  "p.backdrop.webp dim backdrop"
 )
 # Expected sizes: the band is 56 rows, the margin 32 px. The panel's box
 # starts 4 rows under the band, within the margin, so it runs from the top
-# edge; the centre's box grows by 32 a side; the edge's box is clamped on
-# the right and the bottom.
+# edge; the centre's box, the item's recorded box and the box on dim's
+# backdrop grow by 32 a side; the edge's box is clamped on the right and
+# the bottom.
 # In the order the directory's glob lists them.
-pass_sizes="p.bar.webp 2560x56
+pass_sizes="p.backdrop.webp 464x364
+p.bar.webp 2560x56
 p.centre.webp 464x364
 p.edge.webp 192x232
 p.full.webp 2560x1600
+p.item.webp 464x364
 p.panel.webp 464x492"
 
 # run_tool SCRIPT TABLE_TEXT ARG...: SCRIPT as the checkout's
@@ -152,6 +166,10 @@ cases=(
   "a shot of another size is refused" "p.a.webp small full" "--from $run_dir --out $out_ok" 1 "readme-shots: refused: shot-size=small"
   "a desktop with no bar band is refused" "p.a.webp centre full" "--from $flat_dir --out $out_ok" 1 "readme-shots: refused: bar=$flat_dir/00-desktop.png"
   "a content crop with nothing below the band is refused" "p.a.webp clock content" "--from $run_dir --out $out_ok" 1 "readme-shots: refused: crop-empty=clock"
+  "a backdrop crop with nothing on the backdrop is refused" "p.a.webp dim-empty backdrop" "--from $run_dir --out $out_ok" 1 "readme-shots: refused: crop-empty=dim-empty"
+  "a crop that leaves the recorded item under half the image is refused" "p.a.webp item full" "--from $run_dir --out $out_ok" 1 "readme-shots: refused: crop-sparse=item"
+  "an item crop of a shot with no recorded box is refused" "p.a.webp centre item" "--from $run_dir --out $out_ok" 1 "readme-shots: refused: item-missing=centre"
+  "an items.tsv line with no width is refused" "p.a.webp bad full" "--from $run_dir --out $out_ok" 1 "readme-shots: refused: item-box=bad"
 )
 declare -A case_at
 for (( i = 0; i < ${#cases[@]}; i += 5 )); do
@@ -189,6 +207,8 @@ sandbox_rows=(
   "p.panel.webp panel content panels"
   "p.centre.webp centre content settings"
   "p.edge.webp edge content bar"
+  "p.item.webp item item settings"
+  "p.backdrop.webp dim backdrop bar"
 )
 sandbox_scenes="panels
 bar
@@ -238,7 +258,7 @@ done
 # label, whose status and line must then differ.
 controls=(
   "a box near the band is not taken from the top edge"
-  'top=$(( y - MARGIN_PX <= band ? 0 : y - MARGIN_PX ))' 'top=$(( y - MARGIN_PX < 0 ? 0 : y - MARGIN_PX ))'
+  'top=$(( $2 - MARGIN_PX <= $5 ? 0 : $2 - MARGIN_PX ))' 'top=$(( $2 - MARGIN_PX < 0 ? 0 : $2 - MARGIN_PX ))'
   pass
   "the box is read from the top row, the clock's band included"
   'python3 -c "$mask_program" box "$band"' 'python3 -c "$mask_program" box 0'
@@ -249,6 +269,21 @@ controls=(
   "an empty content crop falls back to the whole output"
   '[[ $box != none ]] || stop crop-empty "$shot"' '[[ $box != none ]] || box="0 0 $width $height"'
   "a content crop with nothing below the band is refused"
+  "an item crop is cut from the whole output"
+  'geometry="$(crop_box "$x" "$y" "$w" "$h" 0)" ;;' 'geometry="${width}x${height}+0+0" ;;'
+  pass
+  "a backdrop is read from 00-desktop.png"
+  'box="$(changed_box "$png" -alpha off \( +clone -fill "$colour" -colorize 100 \))"' 'box="$(changed_box "$png" "$desktop" -alpha off)"'
+  pass
+  "a crop that leaves the recorded item small is accepted"
+  '|| stop crop-sparse "$shot"' '|| true "$shot"'
+  "a crop that leaves the recorded item under half the image is refused"
+  "an item crop with no recorded box takes the whole output"
+  '[[ -n $item ]] || stop item-missing "$shot"' '[[ -n $item ]] || item="0 0 $width $height"'
+  "an item crop of a shot with no recorded box is refused"
+  "an items.tsv line with no width is read"
+  '|| stop item-box "$1" "line=$box"' '|| true'
+  "an items.tsv line with no width is refused"
   "a posed shot is accepted for a README image"
   '[[ $chrome == clean ]] || stop shot-chrome "$1" "chrome=${chrome:-unlisted}"' 'true || stop shot-chrome "$1" "chrome=${chrome:-unlisted}"'
   "a shot with tooltip chrome is refused"

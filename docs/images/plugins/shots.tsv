@@ -7,10 +7,10 @@ vgs.devtools-window.webp	devtools	devtools-dark-p2	content
 vgs.gallery-window.webp	gallery	gallery-dark-p1	content
 vgs.jarvis-page.webp	settings	settings-dark-jarvis	content
 vgs.launcher-list.webp	launcher	launcher-dark-list	content
-vgs.lock-screen.webp	lock	lock-dark	full
+vgs.lock-screen.webp	lock	lock-dark	backdrop
 vgs.notifications-inbox.webp	notifications	notifications-dark-inbox	content
 vgs.notifications-toasts.webp	notifications	notifications-dark-toasts	content
-vgs.polkit-prompt.webp	polkit	polkit-dark	full
+vgs.polkit-prompt.webp	polkit	polkit-dark	backdrop
 vgs.power-panel.webp	power	power-dark-panel	content
 vgs.screensaver-cover.webp	screensaver	screensaver-dark-cover	full
 vgs.settings-window.webp	settings	settings-dark-list	content
@@ -18,12 +18,12 @@ vgs.displays-pane.webp	system	system-dark-displays	content
 vgs.mouse-pane.webp	system	system-dark-mouse	content
 vgs.sound-pane.webp	system	system-dark-sound	content
 vgs.system-window.webp	system	system-dark-sound	content
-vgs.themes-browser.webp	theme-browser	theme-browser-dark-installed-frankenstein	full
+vgs.themes-browser.webp	theme-browser	theme-browser-dark-installed-frankenstein	item
 vgs.updates-window.webp	panels	panels-dark-updates-open	content
 vgs.capture-widget.webp	capture	capture-dark-widget	bar
 vgs.capture-panel.webp	capture	capture-dark-panel	content
 vgs.network-pane.webp	network	network-dark-pane-details	content
-vgs.greeter-screen.webp	greeter	greeter-dark	full
+vgs.greeter-screen.webp	greeter	greeter-dark	backdrop
 vgs.keyhints-window.webp	keyhints	keyhints-dark	content
 vgs.clipboard-history.webp	clipboard	clipboard-dark	full
 vgs.scratchpads-page.webp	settings	settings-dark-scratchpads	content
