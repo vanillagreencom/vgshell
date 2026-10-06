@@ -26,7 +26,7 @@ import shutil
 import subprocess
 import sys
 import sysconfig
-import uuid
+import tempfile
 import time
 import unittest
 from unittest import mock
@@ -34,15 +34,6 @@ from unittest import mock
 SCRIPTS = Path(__file__).resolve().parent
 REPO = SCRIPTS.parent
 HELPER = REPO / "shell/plugins/vgs.displays/helper/brightness.py"
-SCRATCH = REPO / "tmp" / "test-displays-brightness"
-SCRATCH.mkdir(parents=True, exist_ok=True)
-
-
-def scratch_path(prefix):
-    SCRATCH.mkdir(parents=True, exist_ok=True)
-    return SCRATCH / f"{prefix}{uuid.uuid4().hex}"
-
-
 DEVICES = SCRIPTS / "smoke/fixtures/devices"
 HID_FAKE = DEVICES / "hid-fake.py"
 STAND_IN = DEVICES / "stand-in.py"
@@ -183,7 +174,7 @@ class World:
             path.mkdir(parents=True, exist_ok=True)
         self.devices = []
         self.fake = None
-        self.socket = Path("/run/user") / str(os.getuid()) / ("vgs-brightness-" + self.root.name + ".sock")
+        self.socket = self.root / "hid.sock"
         self.log = self.root / "hid.log"
 
     # --- HID ---------------------------------------------------------------
@@ -237,8 +228,6 @@ class World:
             self.fake.terminate()
             self.fake.wait(timeout=10)
             self.fake.stdout.close()
-        if self.socket.exists():
-            self.socket.unlink()
 
     def requests(self, code=None):
         if not self.log.exists():
@@ -329,8 +318,7 @@ class World:
 
 class Case(unittest.TestCase):
     def world(self):
-        scratch = scratch_path("vgs-brightness-")
-        scratch.mkdir()
+        scratch = tempfile.mkdtemp(prefix="vgs-brightness-")
         self.addCleanup(shutil.rmtree, scratch)
         world = World(os.path.realpath(scratch))
         self.addCleanup(world.stop)
@@ -499,8 +487,7 @@ class InProcess(unittest.TestCase):
     """The helper loaded as a module, with the system call replaced."""
 
     def scratch(self):
-        root = scratch_path("vgs-brightness-")
-        root.mkdir()
+        root = tempfile.mkdtemp(prefix="vgs-brightness-")
         self.addCleanup(shutil.rmtree, root)
         return Path(os.path.realpath(root))
 
@@ -912,20 +899,15 @@ class Controls(unittest.TestCase):
                               text=True, capture_output=True, check=False)
 
     def test_mirror_passes_unplanted(self):
-        scratch = scratch_path("mirror-")
-        scratch.mkdir()
-        self.addCleanup(shutil.rmtree, scratch)
-        root = self.mirror(scratch, HELPER.read_text())
-        result = self.run_tests(root, sorted({plant[3] for plant in self.PLANTS}))
-        self.assertEqual(result.returncode, 0, result.stderr[-3000:])
+        with tempfile.TemporaryDirectory() as scratch:
+            root = self.mirror(scratch, HELPER.read_text())
+            result = self.run_tests(root, sorted({plant[3] for plant in self.PLANTS}))
+            self.assertEqual(result.returncode, 0, result.stderr[-3000:])
 
     def test_each_plant_turns_its_test_red(self):
         source = HELPER.read_text()
         for name, old, new, test in self.PLANTS:
-            with self.subTest(plant=name):
-                scratch = scratch_path("plant-")
-                scratch.mkdir()
-                self.addCleanup(shutil.rmtree, scratch)
+            with self.subTest(plant=name), tempfile.TemporaryDirectory() as scratch:
                 self.assertEqual(source.count(old), 1, name)
                 changed = source.replace(old, new)
                 self.assertNotEqual(changed, source)

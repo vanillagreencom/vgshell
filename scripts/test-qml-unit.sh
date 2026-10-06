@@ -330,7 +330,7 @@ mutations=(
   "the pane does not cap fitted content|layout/Pane.qml|readonly property real cappedHeight: maximumHeight > 0 ? Math.min(uncappedHeight, maximumHeight) : uncappedHeight|readonly property real cappedHeight: uncappedHeight|tst_pane.qml"
   "the pane's footer sits on the body|layout/Pane.qml|y: scroll.y + scroll.height - root.ringRoom + root.footerGap|y: scroll.y + scroll.height - root.ringRoom|tst_pane.qml"
   "the pane ignores its title|layout/Pane.qml|readonly property bool hasTitle: title !== \"\"|readonly property bool hasTitle: false|tst_pane.qml"
-  "the title switch sits at the left edge|layout/Pane.qml|switchX(item)|0|tst_pane.qml"
+  "the title switch sits at the left edge|layout/Pane.qml|x: root.switchX(item)|x: 0|tst_pane.qml"
   "the title switch ignores the gear|layout/Pane.qml|return root.contentWidth - root.gearRoom - (item ? item.width : 0);|return root.contentWidth - (item ? item.width : 0);|tst_pane.qml"
   "the title switch breaks its checked binding|layout/Pane.qml|checked = Qt.binding(() => root.switchChecked);|{}|tst_pane.qml"
   "the title switch emits nothing|layout/Pane.qml|root.switchToggled(wanted);|{}|tst_pane.qml"
@@ -1029,11 +1029,7 @@ if [[ $probe_status -ne 0 ]]; then
   exit 1
 fi
 
-tmp_root="$repo/tmp"
-tmp="$tmp_root/test-qml-unit-$$"
-mkdir -p -- "$tmp_root"
-rm -rf -- "$tmp_root/test-qml-unit-$$"
-mkdir -p -- "$tmp"
+tmp="$(mktemp -d)"
 trap 'rm -rf -- "${tmp:?}"' EXIT
 failures=0
 ok() { printf '  ok    %s\n' "$*"; }

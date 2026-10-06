@@ -10,7 +10,7 @@ Item {
     id: root
     property var shell: null
     property var payload: ({})
-    readonly property Item initialFocus: layout.headerSwitch !== null ? layout.headerSwitch : body.initialFocus
+    readonly property Item initialFocus: body.initialFocus
     implicitWidth: Theme.size.panel.lg
     implicitHeight: layout.implicitHeight
     function open(payloadJson) { payload = payloadJson ? JSON.parse(payloadJson) : {}; body.open(); }

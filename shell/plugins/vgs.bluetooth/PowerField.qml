@@ -1,27 +1,25 @@
 import QtQuick
 import qs.Commons
 import qs.Ui
-import "BluetoothLogic.js" as Logic
 
 // The power switch the System pane keeps: the shared Bluetooth power state
 // as a Switch, with the line BluetoothLogic.powerLine picks under it as a
 // hint or an error. A refused press keeps its line until the next press.
 Field {
     id: root
-
     property var shell: null
-    readonly property var power: shell === null ? null : Logic.publishedPower(shell.status.values)
-    readonly property bool powerOn: power !== null && power.on
+    property var shell: null
+    readonly property alias power: state.power
     readonly property alias toggle: powerSwitch
-    // The line a refused press left, "" for none.
-    property string problem: ""
-    readonly property var line: Logic.powerLine(power, problem)
+    readonly property alias toggle: powerSwitch
+    property alias problem: state.problem
+    readonly property alias line: state.line
 
-    // Ask the service to turn Bluetooth on or off; answers its reply.
-    function setPower(on) {
-        const reply = shell.ipc.call("power", on ? "on" : "off");
-        problem = reply === "ok" ? "" : "VGS could not turn Bluetooth " + (on ? "on" : "off") + ".";
-        return reply;
+    function setPower(on) { return state.setPower(on); }
+
+    Power {
+        id: state
+        shell: root.shell
     }
 
     label: "Bluetooth"

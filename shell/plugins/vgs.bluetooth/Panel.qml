@@ -1,8 +1,6 @@
 import QtQuick
-import QtQml
 import qs.Commons
 import qs.Ui
-import "BluetoothLogic.js" as Logic
 
 // The Bluetooth flyout: the shared title-row power switch, your devices
 // and the devices nearby (DeviceSections.qml). A click on one of your
@@ -50,18 +48,9 @@ Item {
         active: power.powerOn
     }
 
-    QtObject {
+    Power {
         id: power
-        readonly property var power: root.shell === null ? null : Logic.publishedPower(root.shell.status.values)
-        readonly property bool powerOn: power !== null && power.on
-        property string problem: ""
-        readonly property var line: Logic.powerLine(power, problem)
-
-        function setPower(on) {
-            const reply = root.shell.ipc.call("power", on ? "on" : "off");
-            problem = reply === "ok" ? "" : "VGS could not turn Bluetooth " + (on ? "on" : "off") + ".";
-            return reply;
-        }
+        shell: root.shell
     }
 
     Surface {
@@ -86,7 +75,7 @@ Item {
             visible: text !== ""
             role: "hint"
             text: power.line.hint !== "" ? power.line.hint : power.line.error
-            color: power.line.error !== "" ? Theme.color.danger : Theme.color.textFaint
+            color: power.line.error !== "" ? Theme.color.danger : Theme.text.hint.color
             wrapMode: Text.Wrap
         }
 
