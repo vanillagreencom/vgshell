@@ -711,7 +711,7 @@ plugin_restore() {
 # Control: a manifest copy that still binds the theme browser to SUPER+T.
 # The bind reads the old key, and SUPER+CTRL+T opens nothing: the SUPER+T
 # typed after it, which would close a browser it opened, opens the browser.
-plugin_control manifest.json "old theme key" '{ "shortcut": "themes", "key": "SUPER+CTRL+T" }' '{ "shortcut": "themes", "key": "SUPER+T" }'
+plugin_control manifest.json "old theme key" '"shortcut": "themes", "key": "SUPER+CTRL+T",' '"shortcut": "themes", "key": "SUPER+T",'
 expect_poll "control: the copy binds SUPER+T to the theme browser" '[[64, "T"]]' themes_bind
 press_themes || fail "typing SUPER+CTRL+T for the old theme key control failed"
 press_old_themes || fail "typing SUPER+T for the old theme key control failed"
