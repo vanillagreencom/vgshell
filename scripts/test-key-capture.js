@@ -123,6 +123,18 @@ function suite(ctx, check) {
     ];
     for (const [name, key, id, shortcut, want] of conflicts) check("keyConflicts: " + name, ctx.keyConflicts(key, sections, foreign, id, shortcut), want);
 
+    // A shortcut whose plugins row gives a list of keys asks for each of them.
+    const voice = ctx.validateManifest({ schemaVersion: 1, id: "acme.voice", name: "V", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "S.qml" }, capabilities: ["shortcut"],
+        hyprland: { binds: [{ shortcut: "tap", key: "code:108", tap: true }] } }, "/p").manifest;
+    const listed = [ctx.hyprlandSection({ plugins: [{ id: "acme.voice", keys: { tap: ["code:108", "code:105"] } }] }, voice)];
+    // listed keyConflicts rows: [name, key, id, shortcut, want]
+    const listedConflicts = [
+        ["the first key of a list is asked for", "code:108", "acme.other", "x", { plugins: [{ id: "acme.voice", shortcut: "tap" }], user: false }],
+        ["the second key of a list is asked for", "code:105", "acme.other", "x", { plugins: [{ id: "acme.voice", shortcut: "tap" }], user: false }],
+        ["a shortcut's own second key is no conflict", "code:105", "acme.voice", "tap", { plugins: [], user: false }]
+    ];
+    for (const [name, key, id, shortcut, want] of listedConflicts) check("keyConflicts: " + name, ctx.keyConflicts(key, listed, [], id, shortcut), want);
+
     const names = { "vgs.launcher": "Launcher" };
     const launcher = { id: "vgs.launcher", shortcut: "toggle" };
     const keys = { id: "acme.keys", shortcut: "open" };
@@ -166,6 +178,7 @@ const CONTROLS = [
     ["function keys run to F35", "for (code = 1; code <= 35; code++) names[0x01000030 + code - 1] = \"F\" + code;", "for (code = 1; code <= 12; code++) names[0x01000030 + code - 1] = \"F\" + code;"],
     ["Space is named", "0x20: \"SPACE\", ", ""],
     ["the shortcut itself is no conflict", " && !(section.id === id && bind.shortcut === shortcut)", ""],
+    ["each key of a list is asked for", "keyValues(keys[bind.shortcut]).forEach(", "keyValues(keys[bind.shortcut]).slice(0, 1).forEach("],
     ["the user's binds are read", "return { plugins: plugins, user: parsed.ok && foreign.indexOf(parsed.key) !== -1 };", "return { plugins: plugins, user: false };"],
     ["the user's binds compare normalised keys", "foreign.indexOf(parsed.key) !== -1", "foreign.indexOf(key) !== -1"],
     ["a conflict compares normalised keys", "if (bind.key === parsed.key && !(section.id", "if (bind.key === key && !(section.id"],
