@@ -40,22 +40,21 @@ Column {
             id: fieldLabel
             role: "label"
             text: root.label
-            width: parent.width - (topInfo.visible ? topInfo.width + Theme.space.xs : 0)
+            width: parent.width - (topInfo.active ? topInfo.width + Theme.space.xs : 0)
             anchors.verticalCenter: parent.verticalCenter
             elide: Text.ElideRight
         }
 
-        IconButton {
+        Loader {
             id: topInfo
-            visible: root.info !== ""
-            iconName: "info"
-            label: "About " + root.label
-            infoTitle: root.label
-            info: root.info
-            size: "sm"
+            active: root.info !== ""
             anchors.left: fieldLabel.right
             anchors.leftMargin: Theme.space.xs
             anchors.verticalCenter: parent.verticalCenter
+            sourceComponent: InfoButton {
+                title: root.label
+                info: root.info
+            }
         }
     }
 

@@ -46,7 +46,7 @@
 # without the button.
 # The harness starts the plugin disabled; the row ends with it disabled,
 # its runtime files gone and no stub on PATH.
-# inputs: shell/plugins/vgs.agent-warden/* shell/plugins/vgs.settings/* shell/Ui/controls/IconButton.qml shell/Ui/controls/Field.qml shell/Ui/controls/FormRow.qml shell/Ui/feedback/Dialog.qml shell/Ui/overlay/DismissScope.qml shell/Ui/overlay/AnchorTracker.qml shell/Commons/Reply.js scripts/smoke/fixtures/agent-warden/* shell/Core/PluginLogic.js shell/Core/Registry.qml shell/Core/PluginStatus.qml shell/Core/Notices.qml shell/Core/Toasts.qml shell/Core/TuiRunner.qml scripts/smoke/rows/manager.sh bin/vgshell-tui shell/Commons/Duration.js shell/Commons/qmldir
+# inputs: shell/plugins/vgs.agent-warden/* shell/plugins/vgs.settings/* shell/Ui/controls/InfoButton.qml shell/Ui/controls/Field.qml shell/Ui/controls/FormRow.qml shell/Ui/feedback/Dialog.qml shell/Ui/overlay/Popover.qml shell/Commons/Reply.js scripts/smoke/fixtures/agent-warden/* shell/Core/PluginLogic.js shell/Core/Registry.qml shell/Core/PluginStatus.qml shell/Core/Notices.qml shell/Core/Toasts.qml shell/Core/TuiRunner.qml scripts/smoke/rows/manager.sh bin/vgshell-tui shell/Commons/Duration.js shell/Commons/qmldir
 set -euo pipefail
 warden_copy="$home/.config/vgshell/plugins/vgs.agent-warden"
 rm -rf -- "$warden_dir"
@@ -266,21 +266,21 @@ settings_page_open vgs.agent-warden
 settings_details
 expect_poll "a checking warden with vsys present offers no Set up" '[["warden", "Set up", false]]' offered_actions vgs.agent-warden
 expect_poll "the Warden row draws Running, its hint and no step" "$(words Warden Running "$warden_hint")" warden_drawn
-settings_press --type IconButton "About Warden" StatusRow Warden || fail "the click on the Warden row's info icon failed"
+settings_press --type InfoButton "About Warden" StatusRow Warden || fail "the click on the Warden row's info icon failed"
 expect_poll "the Warden info dialog opens with its title and text" "shown|shown" warden_info_dialog
 click_item "popup:window" vgs.settings "" "" Button Close || fail "the click on the Warden info dialog's Close button failed"
 expect_poll "the Warden info dialog closes from its Close button" absent warden_info_closed
-settings_press --type IconButton "About Warden" StatusRow Warden || fail "the second click on the Warden row's info icon failed"
+settings_press --type InfoButton "About Warden" StatusRow Warden || fail "the second click on the Warden row's info icon failed"
 expect_poll "the Warden info dialog opens again for the outside press" "shown|shown" warden_info_dialog
 click 40 "$((mon_h - 40))" || fail "the outside press for the Warden info dialog failed"
 expect_poll "a press outside closes the Warden info dialog" absent warden_info_closed
 info_control_dir="$repo/shell/Core/InfoButtonControl"
 mkdir -p -- "$info_control_dir"
-python3 - "$repo/shell/Ui/controls/IconButton.qml" "$info_control_dir/InfoButton.qml" <<'PY'
+python3 - "$repo/shell/Ui/controls/InfoButton.qml" "$info_control_dir/InfoButton.qml" <<'PY'
 import sys
 src, dst = sys.argv[1:]
 text = open(src).read()
-needle = "dialog.rejected.connect(root.closeInfo);"
+needle = "onRejected: root.closeInfo()"
 replacement = "onRejected: {}"
 if text.count(needle) != 1:
     raise SystemExit("needle count is %d" % text.count(needle))
@@ -297,9 +297,7 @@ Item {
     function openInfo() { info.openInfo(Qt.TabFocusReason); }
     InfoButton {
         id: info
-        iconName: "info"
-        label: "About control"
-        infoTitle: "Control"
+        title: "Control"
         info: "Control copy without the Close action."
     }
 }

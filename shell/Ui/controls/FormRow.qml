@@ -69,23 +69,22 @@ Item {
         role: "label"
         text: root.label
         visible: root.labelColumn
-        width: Theme.field.labelWidth - (infoButton.visible ? infoButton.width + Theme.space.xs : 0)
+        width: Theme.field.labelWidth - (infoButton.active ? infoButton.width + Theme.space.xs : 0)
         wrapMode: Text.Wrap
         maximumLineCount: 2
         elide: Text.ElideRight
         y: lineCount > 1 ? Math.round((root.boxHeight - implicitHeight) / 2) : topForCapCenter(root.boxHeight)
     }
 
-    IconButton {
+    Loader {
         id: infoButton
-        visible: root.info !== "" && root.labelColumn
-        iconName: "info"
-        label: "About " + root.label
-        infoTitle: root.label
-        info: root.info
-        size: "sm"
+        active: root.info !== "" && root.labelColumn
         x: Theme.field.labelWidth - width
-        y: Math.round((root.boxHeight - height) / 2)
+        y: Math.round((root.boxHeight - implicitHeight) / 2)
+        sourceComponent: InfoButton {
+            title: root.label
+            info: root.info
+        }
     }
 
     Item {

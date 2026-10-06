@@ -116,6 +116,7 @@ f share/vgshell/shell/Ui/controls/DateField.qml
 f share/vgshell/shell/Ui/controls/Field.qml
 f share/vgshell/shell/Ui/controls/FormRow.qml
 f share/vgshell/shell/Ui/controls/IconButton.qml
+f share/vgshell/shell/Ui/controls/InfoButton.qml
 f share/vgshell/shell/Ui/controls/IndicatorLabel.qml
 f share/vgshell/shell/Ui/controls/LevelSlider.qml
 f share/vgshell/shell/Ui/controls/PathField.qml

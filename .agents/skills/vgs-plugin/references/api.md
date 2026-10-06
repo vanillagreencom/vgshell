@@ -182,7 +182,7 @@ Types refused as an instantiation anywhere in a plugin's QML or JS: `PanelWindow
 | `Icon` | `Item` | `name`: a Lucide icon; `size`, `color`, `stroke` |
 | `QrMatrix` | `Item` | `matrixData`: a square binary matrix with newline-separated rows; draws whole modules with `Theme.qrMatrix` colours and size; holds no encoder, file or secret store |
 | `Surface`, `Divider`, `FocusRing`, `KeyNav`, `KeyNavLogic` | `Rectangle`, `Item`, JavaScript module | `level`; `vertical`; `target`; roving keyboard navigation for one composite; shared key intent and activation helpers |
-| `Button`, `IconButton`, `ToggleButton` | `T.Button` | `text`, `iconName`, `variant` (`primary`, `secondary`, `tertiary`, `ghost`, `danger`), `size` (`sm`, `md`, `lg`), `focusPreview`; `label` and `shortcut` for an icon button; `infoTitle` and `info` for a small explanation dialog |
+| `Button`, `IconButton`, `InfoButton`, `ToggleButton` | `T.Button` | `text`, `iconName`, `variant` (`primary`, `secondary`, `tertiary`, `ghost`, `danger`), `size` (`sm`, `md`, `lg`), `focusPreview`; `label` and `shortcut` for an icon button; `title` and `info` for an `InfoButton` explanation dialog |
 | `BarItem` | `T.AbstractButton` | one item of the bar, which every bar widget draws: `iconName`, `text`, `count`, `tone` (the bar's colour), `active`, `spinning`, `label` for an icon alone, `shortcut`, `focusPreview`; `clicked` |
 | `SegmentedControl` | `T.Control` | `model`, `currentIndex`, `focusPreview`, `activated(index)` |
 | `Switch`, `Checkbox`, `Radio` | `T.Switch`, `T.CheckBox`, `T.RadioButton` | `text`, `checked` |

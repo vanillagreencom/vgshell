@@ -13,6 +13,7 @@ ImageText 1.0 foundation/ImageText.qml
 QrMatrix 1.0 foundation/QrMatrix.qml
 Button 1.0 controls/Button.qml
 IconButton 1.0 controls/IconButton.qml
+InfoButton 1.0 controls/InfoButton.qml
 BarItem 1.0 controls/BarItem.qml
 ToggleButton 1.0 controls/ToggleButton.qml
 SegmentedControl 1.0 controls/SegmentedControl.qml

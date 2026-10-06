@@ -4,7 +4,7 @@ import qs.Commons
 import qs.Ui
 import qs.Unit
 
-// Info buttons: an IconButton with `info` opens a dialog by click, Return
+// InfoButton opens a dialog by click, Return
 // and Space; the dialog closes by Escape, its Close button and a press
 // outside, and focus returns to the icon. A Field draws the icon only when
 // `info` is set.
@@ -20,11 +20,9 @@ Item {
         y: 10
     }
 
-    IconButton {
+    InfoButton {
         id: info
-        iconName: "info"
-        label: "About Warden"
-        infoTitle: "Warden"
+        title: "Warden"
         info: "Shows whether Agent Warden is checking agents."
         x: 20
         y: 20
@@ -57,7 +55,7 @@ Item {
 
         function init() {
             UnitTheme.reset();
-            info.destroyInfoWindow();
+            info.destroyPopup();
             outside.forceActiveFocus();
         }
 
@@ -70,7 +68,7 @@ Item {
 
         function typeName(item) { return String(item).split("(")[0].replace(/(_QML(TYPE)?_\d+)+$/, ""); }
         function popup(of) {
-            return of.infoWindow === null ? null : of.infoWindow.tracker.popup;
+            return of.popup === null ? null : of.popup.tracker.popup;
         }
         function dialog(of) {
             return descendants(popup(of).contentItem).find(child => typeName(child) === "Dialog");
@@ -81,8 +79,8 @@ Item {
         function shownTexts(of) {
             return descendants(popup(of).contentItem).filter(child => child instanceof Text && child.visible && child.text !== "").map(child => child.text);
         }
-        function iconButtons(item) {
-            return descendants(item).filter(child => typeName(child) === "IconButton" && child.visible);
+        function infoButtons(item) {
+            return descendants(item).filter(child => typeName(child) === "InfoButton" && child.visible);
         }
         function openByKey(key) {
             info.forceActiveFocus(Qt.TabFocusReason);
@@ -109,7 +107,7 @@ Item {
             verify(texts.indexOf("Shows whether Agent Warden is checking agents.") !== -1, "the explanation is not drawn");
             info.closeInfo();
             tryCompare(info, "activeFocus", true);
-            info.destroyInfoWindow();
+            info.destroyPopup();
         }
 
         function test_escape_closes_and_returns_focus() {
@@ -117,7 +115,7 @@ Item {
             keyClick(Qt.Key_Escape);
             tryCompare(info, "infoOpen", false);
             compare(info.activeFocus, true);
-            info.destroyInfoWindow();
+            info.destroyPopup();
         }
 
         function test_close_button_closes_and_returns_focus() {
@@ -125,7 +123,7 @@ Item {
             mouseClick(closeButton(info));
             tryCompare(info, "infoOpen", false);
             tryCompare(info, "activeFocus", true);
-            info.destroyInfoWindow();
+            info.destroyPopup();
         }
 
         function test_outside_press_closes_and_returns_focus() {
@@ -134,13 +132,13 @@ Item {
             tryCompare(info, "infoOpen", false);
             tryCompare(info, "activeFocus", true);
             compare(outside.activeFocus, false);
-            info.destroyInfoWindow();
+            info.destroyPopup();
         }
 
         function test_field_draws_icon_only_with_info() {
-            compare(iconButtons(explained).length, 1);
-            compare(iconButtons(explained)[0].label, "About Explained");
-            compare(iconButtons(plain).length, 0);
+            compare(infoButtons(explained).length, 1);
+            compare(infoButtons(explained)[0].label, "About Explained");
+            compare(infoButtons(plain).length, 0);
         }
     }
 }

@@ -31,21 +31,20 @@ Column {
             id: titleLabel
             role: "eyebrow"
             text: root.text
-            width: parent.width - (infoButton.visible ? infoButton.width + Theme.space.xs : 0)
+            width: parent.width - (infoButton.active ? infoButton.width + Theme.space.xs : 0)
             anchors.verticalCenter: parent.verticalCenter
             elide: Text.ElideRight
         }
-        IconButton {
+        Loader {
             id: infoButton
-            visible: root.info !== ""
-            iconName: "info"
-            label: "About " + root.text
-            infoTitle: root.text
-            info: root.info
-            size: "sm"
+            active: root.info !== ""
             anchors.left: titleLabel.right
             anchors.leftMargin: Theme.space.xs
             anchors.verticalCenter: parent.verticalCenter
+            sourceComponent: InfoButton {
+                title: root.text
+                info: root.info
+            }
         }
     }
     Label {
