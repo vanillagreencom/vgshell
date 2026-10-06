@@ -567,7 +567,8 @@ const catalogTheme = (name, mode, accent) => JSON.stringify({ schemaVersion: 1, 
 const READABILITY_ROLES = ["color.text", "color.textHeading", "color.textMuted", "color.textFaint", "color.accent", "color.success", "color.warning", "color.danger", "color.info"];
 const READABILITY_SURFACES = ["color.background", "color.surface", "color.surfaceRaised", "color.surfaceSunken"];
 const BOUNDARY_ROLES = ["checkbox.borderColor", "radio.borderColor", "textField.borderColor", "toggle.off", "checkbox.checked", "radio.checked", "toggle.on"];
-const BOUNDARY_PAIRS = [["toggle.knobOff", "toggle.off"], ["toggle.knobOn", "toggle.on"], ["checkbox.mark", "checkbox.checked"]];
+const READABILITY_PAIRS = [["segmented.foreground", "segmented.background"], ["segmented.selectedForeground", "segmented.selected"]];
+const BOUNDARY_PAIRS = [["toggle.knobOff", "toggle.off"], ["toggle.knobOn", "toggle.on"], ["checkbox.mark", "checkbox.checked"], ["segmented.indicatorColor", "segmented.selected"], ["segmented.indicatorColor", "segmented.background"]];
 const truncateRatio = value => Math.floor(value * 100) / 100;
 const plain = value => JSON.parse(JSON.stringify(value));
 
@@ -585,6 +586,7 @@ function verify(judge) {
     assert.deepEqual(plain(judge.READABILITY_TEXT_ROLES), READABILITY_ROLES);
     assert.deepEqual(plain(judge.READABILITY_SURFACES), READABILITY_SURFACES);
     assert.equal(judge.READABILITY_FLOOR, 4.5);
+    assert.deepEqual(plain(judge.READABILITY_PAIRS), READABILITY_PAIRS);
     assert.deepEqual(plain(judge.BOUNDARY_ROLES), BOUNDARY_ROLES);
     assert.deepEqual(plain(judge.BOUNDARY_PAIRS), BOUNDARY_PAIRS);
     assert.equal(judge.BOUNDARY_FLOOR, 3);
@@ -616,6 +618,19 @@ function verify(judge) {
     const knobFailure = judge.accept(TOKENS, document({ toggle: { knobOff: "{toggle.off}" } }));
     assert.equal(knobFailure.ok, true, knobFailure.ok ? "" : judge.refusalLine(knobFailure));
     assert.deepEqual(plain(judge.readabilityShortfalls(knobFailure.values)), [{ text: "toggle.knobOff", surface: "toggle.off", ratio: 1, floor: 3 }]);
+    // A segmented control's text the colour of the fill it sits on falls
+    // under the 4.5:1 floor, and a chosen segment's mark the colour of its
+    // segment or of the track under the 3:1 floor.
+    for (const [segmented, rows] of [
+        [{ foreground: "{segmented.background}" }, [["segmented.foreground", "segmented.background", 4.5]]],
+        [{ selectedForeground: "{segmented.selected}" }, [["segmented.selectedForeground", "segmented.selected", 4.5]]],
+        [{ indicatorColor: "{segmented.selected}" }, [["segmented.indicatorColor", "segmented.selected", 3], ["segmented.indicatorColor", "segmented.background", 3]]],
+        [{ selected: "{color.accent}", selectedForeground: "{color.onAccent}" }, [["segmented.indicatorColor", "segmented.selected", 3]]]
+    ]) {
+        const segmentedFailure = judge.accept(TOKENS, document({ segmented }));
+        assert.equal(segmentedFailure.ok, true, segmentedFailure.ok ? "" : judge.refusalLine(segmentedFailure));
+        assert.deepEqual(plain(judge.readabilityShortfalls(segmentedFailure.values).map(row => [row.text, row.surface, row.floor])), rows, JSON.stringify(segmented));
+    }
 
     // The resolved tree holds exactly the table's tokens, each with a value
     // of its type's portable form.
@@ -912,6 +927,8 @@ const CONTROLS = [
     ["readability text roles", "    \"color.success\",\n", ""],
     ["readability surfaces", "    \"color.surfaceRaised\",\n", ""],
     ["readability floor", "var READABILITY_FLOOR = 4.5;", "var READABILITY_FLOOR = 1;"],
+    ["readability pairs", "    [\"segmented.foreground\", \"segmented.background\"],\n", ""],
+    ["readability pair floor", "pairs.push([READABILITY_PAIRS[p][0], READABILITY_PAIRS[p][1], READABILITY_FLOOR]);", "pairs.push([READABILITY_PAIRS[p][0], READABILITY_PAIRS[p][1], BOUNDARY_FLOOR]);"],
     ["readability translucency", "var ratio = text === null || surface === null || text.a < 1 || surface.a < 1\n            ? null\n            : contrastRatio(text, surface);", "var ratio = contrastRatio(text, surface);"],
     ["boundary roles", "    \"checkbox.borderColor\",\n", ""],
     ["boundary pairs", "    [\"toggle.knobOff\", \"toggle.off\"],\n", ""],
@@ -944,7 +961,7 @@ try {
 // check must name it.
 const GRID_EXCEPTIONS = [
     [/^(font\.size|text\.[^.]+\.size)$/, "type sizes"],
-    [/(^border\.|\.border$|[bB]orderWidth$|^divider\.thickness$|^focusRing\.width$|^titleButton\.underline$|^tabs\.indicator$|^avatarGroup\.ringWidth$|^hyprland\.border\.size$)/, "strokes"],
+    [/(^border\.|\.border$|[bB]orderWidth$|^divider\.thickness$|^focusRing\.width$|^titleButton\.underline$|^tabs\.indicator$|^segmented\.indicator$|^avatarGroup\.ringWidth$|^hyprland\.border\.size$)/, "strokes"],
     [/^(icon\.size\.|button\.size\.[^.]+\.icon$|slider\.handle$|radio\.dot$)/, "indicator and icon drawing sizes"],
     [/^(space\.xxs|segmented\.padding|segmented\.gap|toggle\.inset|focusRing\.offset|scrollArea\.barInset|titleButton\.underlineGap)$/, "2 px steps inside one component"],
     [/^(badge\.paddingEnd|textField\.paddingX)$/, "optical insets inside one component"],

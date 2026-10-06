@@ -458,6 +458,11 @@ var TOKENS = {
         foreground: color("{color.textMuted}"),
         selected: color("{color.surfaceRaised}"),
         selectedForeground: color("{color.text}"),
+        // The chosen segment's mark: an accent stroke along its foot, as a
+        // chosen tab draws, since the raised fill alone barely parts from
+        // the track.
+        indicator: length("{border.thick}"),
+        indicatorColor: color("{color.accent}"),
         hover: color("{color.surfaceHover}"),
         pressed: color("{color.border}")
     },

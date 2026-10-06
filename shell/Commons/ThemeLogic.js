@@ -224,9 +224,16 @@ var READABILITY_SURFACES = [
     "color.surfaceSunken"
 ];
 var READABILITY_FLOOR = 4.5;
+// Text drawn on a control's own fill rather than on a resting surface, at
+// the same floor.
+var READABILITY_PAIRS = [
+    ["segmented.foreground", "segmented.background"],
+    ["segmented.selectedForeground", "segmented.selected"]
+];
 // An input that shows its state by its outline or indicator must meet WCAG
 // 2.2 SC 1.4.11 non-text contrast, 3:1: each boundary and selected
-// indicator on each resting surface, and each switch knob on its track.
+// indicator on each resting surface, each switch knob on its track, and
+// the chosen segment's mark on its segment and on the track.
 var BOUNDARY_ROLES = [
     "checkbox.borderColor",
     "radio.borderColor",
@@ -239,7 +246,9 @@ var BOUNDARY_ROLES = [
 var BOUNDARY_PAIRS = [
     ["toggle.knobOff", "toggle.off"],
     ["toggle.knobOn", "toggle.on"],
-    ["checkbox.mark", "checkbox.checked"]
+    ["checkbox.mark", "checkbox.checked"],
+    ["segmented.indicatorColor", "segmented.selected"],
+    ["segmented.indicatorColor", "segmented.background"]
 ];
 var BOUNDARY_FLOOR = 3;
 
@@ -252,14 +261,16 @@ function valueAt(values, path) {
 }
 
 // Every pair of the readability table below its floor, as { text,
-// surface, ratio, floor }: text roles on resting surfaces at 4.5, then
-// input boundaries, selected indicators and knobs at 3. A translucent
-// colour has no ratio and is a shortfall.
+// surface, ratio, floor }: text roles on resting surfaces and text on a
+// control's fill at 4.5, then input boundaries, selected indicators and
+// knobs at 3. A translucent colour has no ratio and is a shortfall.
 function readabilityShortfalls(values) {
     var pairs = [];
     for (var i = 0; i < READABILITY_TEXT_ROLES.length; i++)
         for (var j = 0; j < READABILITY_SURFACES.length; j++)
             pairs.push([READABILITY_TEXT_ROLES[i], READABILITY_SURFACES[j], READABILITY_FLOOR]);
+    for (var p = 0; p < READABILITY_PAIRS.length; p++)
+        pairs.push([READABILITY_PAIRS[p][0], READABILITY_PAIRS[p][1], READABILITY_FLOOR]);
     for (var k = 0; k < BOUNDARY_ROLES.length; k++)
         for (var m = 0; m < READABILITY_SURFACES.length; m++)
             pairs.push([BOUNDARY_ROLES[k], READABILITY_SURFACES[m], BOUNDARY_FLOOR]);

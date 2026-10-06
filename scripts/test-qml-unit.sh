@@ -546,6 +546,7 @@ mutations=(
   "the inline field hint starts under the label|controls/Field.qml|x: controlRow.valueX|x: 0|tst_textfield.qml"
   "the segmented control ignores a click|controls/SegmentedControl.qml|onClicked: { root.forceActiveFocus(Qt.MouseFocusReason); root.choose(index); }|onClicked: {}|tst_segmented.qml"
   "the segmented control fires for the same segment|controls/SegmentedControl.qml|index === currentIndex) return;|false) return;|tst_segmented.qml"
+  "the chosen segment draws no stroke|controls/SegmentedControl.qml|visible: segment.current|visible: false|tst_segmented.qml"
   "the spinner turns under reduced motion|feedback/Spinner.qml|running: root.running && Theme.spinner.duration > 0|running: root.running|tst_feedback.qml"
   "the progress fill ignores the value|feedback/ProgressBar.qml|width: root.indeterminate ? span : root.position * parent.width|width: parent.width|tst_feedback.qml"
   "the mirrored progress fills from the left|feedback/ProgressBar.qml|x: root.mirrored && !root.indeterminate ? parent.width - width : 0|x: 0|tst_feedback.qml"

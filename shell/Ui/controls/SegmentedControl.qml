@@ -8,9 +8,10 @@ import qs.Ui
 // right keys move it; `activated` fires on a change the user made. The
 // control is one tab stop: the segments take no focus of their own, so the
 // ring draws around the whole control and the keys act on it. A segment
-// that is not chosen fills on hover and more on a press; a segment's
-// corner is the control's less its inset, so it nests in a rounded
-// control, and a disabled control fades.
+// that is not chosen fills on hover and more on a press, and the chosen
+// one draws an accent stroke along its foot; a segment's corner is the
+// control's less its inset, so it nests in a rounded control, and a
+// disabled control fades.
 T.Control {
     id: root
 
@@ -76,6 +77,18 @@ T.Control {
                     radius: Math.max(0, Theme.segmented.radius - Theme.segmented.padding)
                     color: segment.current ? Theme.segmented.selected : segment.down ? Theme.segmented.pressed : segment.hovered ? Theme.segmented.hover : "transparent"
                     Behavior on color { ColorAnimation { duration: Theme.motion.duration.fast; easing.type: Theme.motion.easing.standard } }
+                    // Inset by the corner so the stroke stays inside the rounded fill.
+                    Rectangle {
+                        objectName: "segmentIndicator"
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        anchors.leftMargin: parent.radius
+                        anchors.rightMargin: parent.radius
+                        height: Theme.segmented.indicator
+                        color: Theme.segmented.indicatorColor
+                        visible: segment.current
+                    }
                 }
             }
         }

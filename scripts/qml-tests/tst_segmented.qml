@@ -6,7 +6,8 @@ import qs.Unit
 
 // SegmentedControl: a click chooses a segment, the arrow keys move the
 // choice, `activated` fires for a change the user made and not for the
-// same segment again, and the chosen segment draws the selected fill.
+// same segment again, and the chosen segment draws the selected fill and
+// the accent stroke.
 Item {
     id: root
     width: 300
@@ -23,6 +24,7 @@ Item {
         function init() { UnitTheme.reset(); control.currentIndex = 0; activations.clear(); }
 
         function segment(index) { return control.contentItem.children[index]; }
+        function stroke(index) { return segment(index).background.children.find(child => child.objectName === "segmentIndicator"); }
 
         // A segment that is not chosen fills on hover and more on a press;
         // its corner nests inside the control's inset; a disabled control
@@ -51,6 +53,9 @@ Item {
             compare(activations.count, 1);
             tryCompare(segment(1).background, "color", Qt.color(Theme.segmented.selected));
             compare(String(segment(0).background.color), "#00000000");
+            compare(stroke(1).visible, true);
+            compare(stroke(1).color, Qt.color(Theme.segmented.indicatorColor));
+            compare(stroke(0).visible, false);
         }
 
         function test_keys_move_the_choice() {
