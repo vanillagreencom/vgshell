@@ -302,7 +302,7 @@ rm -- "$cfg/wezterm/wezterm.lua"
 printf '%s\n%s\n' "pcall(dofile, \"$live/wezterm.lua\")" "$wezterm_home_own" >"$home/.wezterm.lua"; touch -d @1000 -- "$home/.wezterm.lua"
 touch -d @1000 -- "$live/wezterm.lua"
 printf '{"schemaVersion":1,"targets":["wezterm"]}\n' >"$pending"
-judge_control hook-not-wired-file 'render.reloadCommand(target, live, wiring.path);' 'render.reloadCommand(target, live, path.join(live, target.files[0].destination));'
+judge_control hook-not-wired-file 'render.reloadCommand(target, live, path.join(SHIPPED, TARGETS, name), wiring.path);' 'render.reloadCommand(target, live, path.join(SHIPPED, TARGETS, name), path.join(live, target.files[0].destination));'
 tinst "the hook-not-wired-file mutant reloads" "$cfg" "$rt_empty" 0 "ok reload state=reloaded" "" theme reload
 check "the hook-not-wired-file mutant touches the theme file instead of the wired HOME file" test "$(stat -c %Y -- "$home/.wezterm.lua")" == 1000 -a "$(stat -c %Y -- "$live/wezterm.lua")" != 1000
 unset THEME_BIN
