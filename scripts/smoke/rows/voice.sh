@@ -27,7 +27,11 @@
 # answers detection with pacman and paru, whatever the host runs, for
 # that part alone. The key delivery
 # uses physical code overrides for the row, so the helper reaches the same
-# generated bind path that hold-shortcuts.sh exercises. The device
+# generated bind path that hold-shortcuts.sh exercises. The tap shortcut
+# keeps its default keys: a lone Right Alt tap and a lone Right Ctrl tap
+# each run one record toggle, and Right Alt used as AltGr with W runs none,
+# read against an F9 hold typed after it. Its control: with the tap
+# unbound in the plugins row, the same Right Alt tap runs none. The device
 # stand-in systemctl answers the service probe from a planted reply. It
 # closes its client window and puts back the shell.json and the pointer
 # position it found: its Settings clicks leave the pointer over the centre,
@@ -331,10 +335,10 @@ voice_bridge_restart() {
   done
   echo "not-restarted"
 }
-voice_set_keys() {
-  python3 - "$home/.config/vgshell/shell.json" <<'PY'
+voice_set_keys() { # [unbind-tap]
+  python3 - "$home/.config/vgshell/shell.json" "${1:-}" <<'PY'
 import json, os, sys
-path = sys.argv[1]
+path, mode = sys.argv[1:]
 config = json.load(open(path))
 rows = config.setdefault("plugins", [])
 row = None
@@ -350,6 +354,8 @@ if row is None:
     row = {"id": "vgs.voice"}
     rows.append(row)
 row["keys"] = {"toggle": "SUPER+CTRL+code:53", "talk": "code:75"}
+if mode == "unbind-tap":
+    row["keys"]["tap"] = None
 with open(path + ".next", "w") as f:
     json.dump(config, f, indent=2)
 os.replace(path + ".next", path)
@@ -464,7 +470,7 @@ voice_set_keys
 expect "Voice physical key overrides are reloaded" ok ipc shell reloadConfig
 expect "Hyprland reloads Voice physical key overrides" ok hypr reload config-only
 expect_poll "Voice builds" True record_exists vgs.voice
-expect_poll "Voice reads the physical key overrides" '{"toggle":"SUPER+CTRL+code:53","tap":null,"talk":"code:75"}' ipc smoke readInstance service vgs.voice shortcutKeys
+expect_poll "Voice reads the physical key overrides and the first default tap key" '{"toggle":"SUPER+CTRL+code:53","tap":"code:108","talk":"code:75"}' ipc smoke readInstance service vgs.voice shortcutKeys
 expect_poll "Voice sees voxtype present" true ipc smoke readInstance service vgs.voice voxtypePresent
 expect_poll "Voice starts its status process" true ipc smoke readInstance service vgs.voice statusRunning
 expect_poll "Voice registers its three shortcuts and the release companion" 4 voice_shortcuts
@@ -491,6 +497,32 @@ expect_poll "F9 press logs start and no stop" ok voice_press_only
 voice_f9_release
 voice_sync "the Voice keyboard delivered F9 release"
 expect_poll "held F9 runs start then stop through release" ok voice_hold_pair
+before="$(wc -l <"$voice_log")"
+voice_send "down 108" "up 108"
+voice_sync "the Voice keyboard delivered a lone Right Alt tap"
+expect_poll "a lone Right Alt tap, the default tap key, runs only voxtype record toggle" ok voice_toggle_only
+before="$(wc -l <"$voice_log")"
+voice_send "down 105" "up 105"
+voice_sync "the Voice keyboard delivered a lone Right Ctrl tap"
+expect_poll "a lone Right Ctrl tap, the second default tap key, runs only voxtype record toggle" ok voice_toggle_only
+# An F9 hold after the chord: its start and stop alone say the chord ran no
+# record toggle, since both reach Voice in the order they were typed.
+before="$(wc -l <"$voice_log")"
+voice_send "down 108" "down 25" "up 25" "up 108"
+voice_f9_press
+voice_f9_release
+voice_sync "the Voice keyboard delivered Right Alt as AltGr with W, then an F9 hold"
+expect_poll "Right Alt used as AltGr runs no record toggle before the F9 hold's start and stop" ok voice_hold_pair
+voice_set_keys unbind-tap
+expect "control: Voice's unbound tap is reloaded" ok ipc shell reloadConfig
+expect "control: Hyprland reloads Voice's unbound tap" ok hypr reload config-only
+expect_poll "control: Voice reads its tap unbound" '{"toggle":"SUPER+CTRL+code:53","tap":null,"talk":"code:75"}' ipc smoke readInstance service vgs.voice shortcutKeys
+before="$(wc -l <"$voice_log")"
+voice_send "down 108" "up 108"
+voice_f9_press
+voice_f9_release
+voice_sync "control: the Voice keyboard delivered a lone Right Alt tap, then an F9 hold"
+expect_poll "control: the unbound Right Alt tap runs no record toggle before the F9 hold's start and stop" ok voice_hold_pair
 
 # The on-screen display, with the stand-in status at recording.
 voice_osd_orb=Plasma

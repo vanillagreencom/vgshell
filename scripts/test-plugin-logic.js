@@ -1034,6 +1034,17 @@ function suite(ctx, check) {
     check("bindRows: a two-key shortcut is one row with both keys", ctx.bindRows({ plugins: [{ id: "acme.keys", keys: { toggle: ["code:108", "code:105"] } }] }, keyed, { "acme.keys:toggle": "Open" })[0],
         { shortcut: "toggle", key: "code:108", keys: ["code:108", "code:105"], default: "SUPER+M", description: "Open", info: "Opens or closes it." });
     check("bindRows: a plugin without binds has none", ctx.bindRows({}, manifests["acme.svc"], {}), []);
+    const tapDefaults = ctx.validateManifest({ schemaVersion: 1, id: "acme.tap", name: "T", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "S.qml" }, capabilities: ["shortcut"],
+        hyprland: { binds: [{ shortcut: "tap", key: ["CODE:00108", "code:105"], tap: true }] } }, "/p").manifest;
+    if (tapDefaults === undefined) throw new Error("fixture manifest refused: acme.tap with a default key list");
+    // bindRows over a default key list: [name, plugins row keys, want row]
+    for (const [name, keys, want] of [
+        ["a default key list is every key in effect and the default", undefined, { shortcut: "tap", key: "code:108", keys: ["code:108", "code:105"], default: ["code:108", "code:105"], description: "" }],
+        ["a row key wins over a default key list", { tap: "code:97" }, { shortcut: "tap", key: "code:97", keys: ["code:97"], default: ["code:108", "code:105"], description: "" }],
+        ["a row null unbinds a default key list", { tap: null }, { shortcut: "tap", key: null, keys: [], default: ["code:108", "code:105"], description: "" }],
+    ]) {
+        check("bindRows: " + name, ctx.bindRows({ plugins: [keys === undefined ? { id: "acme.tap" } : { id: "acme.tap", keys }] }, tapDefaults, {})[0], want);
+    }
 
     check("pluginIcon: a manifest's icon", ctx.pluginIcon(ctx.validateManifest(Object.assign({}, svc, { icon: "bell" }), "/p").manifest), "bell");
     check("pluginIcon: a plugin without one is listed as a package", ctx.pluginIcon(manifests["acme.svc"]), "package");

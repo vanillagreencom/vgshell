@@ -381,6 +381,12 @@ const MANIFESTS = [
     ["tap and hold conflict", { hyprland: { binds: [{ shortcut: "tap", key: "code:108", tap: true, hold: true }] } }, "hyprland.binds.0 must not set tap and hold together"],
     ["tap needs a lone key", { hyprland: { binds: [{ shortcut: "tap", key: "SUPER+code:108", tap: true }] } }, "hyprland.binds.0.key SUPER+code:108 must be a lone key for tap"],
     ["one keycode bound twice", { hyprland: { binds: [{ shortcut: "talk", key: "SUPER+code:108" }, { shortcut: "mute", key: "super+CODE:00108" }] } }, "hyprland.binds.1.key SUPER+code:108 is bound twice"],
+    ["a tap default key list", { hyprland: { binds: [{ shortcut: "tap", key: ["code:108", "CODE:00105"], tap: true }] } }, null],
+    ["a tap default list member with a modifier", { hyprland: { binds: [{ shortcut: "tap", key: ["code:108", "SUPER+code:105"], tap: true }] } }, "hyprland.binds.0.key.1 SUPER+code:105 must be a lone key for tap"],
+    ["a default list member another bind holds", { hyprland: { binds: [{ shortcut: "talk", key: "code:105" }, { shortcut: "tap", key: ["code:108", "code:105"], tap: true }] } }, "hyprland.binds.1.key.1 code:105 is bound twice"],
+    ["a default list repeating a key", { hyprland: { binds: [{ shortcut: "tap", key: ["code:108", "CODE:108"], tap: true }] } }, "hyprland.binds.0.key.1 repeats code:108"],
+    ["an empty default key list", { hyprland: { binds: [{ shortcut: "tap", key: [], tap: true }] } }, "hyprland.binds.0.key must not be an empty list"],
+    ["a default list member that is no string", { hyprland: { binds: [{ shortcut: "tap", key: ["code:108", 105], tap: true }] } }, "hyprland.binds.0.key.1 must be a string"],
     ["a rule that is no object", { hyprland: { layerRules: ["^vgs:overlay$"] } }, "hyprland.layerRules.0 must be an object"],
     ["a rule with an unknown key", { hyprland: { layerRules: [{ namespace: "^vgs:overlay$", blur: true, xray: true }] } }, "hyprland.layerRules.0 has unknown key \"xray\""],
     ["an unanchored namespace", { hyprland: { layerRules: [{ namespace: "vgs:overlay", blur: true }] } }, "hyprland.layerRules.0.namespace must be ^vgs:<name>$"],
@@ -589,6 +595,15 @@ function verify(logic, layer, shellText) {
     same(tapManifest.hyprland.binds, [{ shortcut: "tap", key: "code:108", tap: true }], "manifest retains tap");
     const nullManifest = manifestOf(logic, { hyprland: { binds: [{ shortcut: "tap", key: null, tap: true }] } });
     same(nullManifest.hyprland.binds, [{ shortcut: "tap", key: null, tap: true }], "manifest retains a null default key");
+    const tapDefaults = manifestOf(logic, { hyprland: { binds: [{ shortcut: "tap", key: ["CODE:00108", "code:105"], tap: true }] } });
+    same(tapDefaults.hyprland.binds, [{ shortcut: "tap", key: ["code:108", "code:105"], tap: true }], "manifest normalises a default key list");
+    same(manifestOf(logic, { hyprland: { binds: [{ shortcut: "tap", key: ["CODE:00108"], tap: true }] } }).hyprland.binds, [{ shortcut: "tap", key: "code:108", tap: true }], "a one-key default list is one key");
+    for (const [label, keys, want] of [
+        ["default list", {}, [{ shortcut: "tap", key: "code:108", tap: true }, { shortcut: "tap", key: "code:105", tap: true }]],
+        ["row key over the default list", { tap: "code:97" }, [{ shortcut: "tap", key: "code:97", tap: true }]],
+        ["row null over the default list", { tap: null }, [{ shortcut: "tap", key: null, tap: true }]]
+    ]) same(logic.hyprlandSection({ plugins: [{ id: "acme.keys", keys }] }, tapDefaults).binds, want, "hyprlandSection " + label);
+    same(layer.shortcutKeys([logic.hyprlandSection({}, tapDefaults)], "acme.keys"), { tap: "code:108" }, "shortcut keys read the first default key");
     assert.equal(layer.releaseShortcutName("talk"), "talk.release", "companion cannot be a public registration name");
     const tapList = logic.hyprlandSection({ plugins: [{ id: "acme.keys", keys: { tap: ["code:108", "code:105"] } }] }, tapManifest);
     same(tapList.binds, [{ shortcut: "tap", key: "code:108", tap: true }, { shortcut: "tap", key: "code:105", tap: true }], "tap list expands to one bind per key");
@@ -1190,7 +1205,7 @@ const CONTROLS = [
     [logicFile, "hold boolean", "if (bind.hold !== undefined && typeof bind.hold !== \"boolean\")", "if (false)"],
     [logicFile, "tap boolean", "if (bind.tap !== undefined && typeof bind.tap !== \"boolean\")", "if (false)"],
     [logicFile, "tap excludes hold", "if (bind.tap === true && bind.hold === true)", "if (false)"],
-    [logicFile, "tap manifest key is lone", "if (bind.tap === true && keyHasModifiers(key.key))\n            return at + \".key \" + key.key + \" must be a lone key for tap\";", "if (false)\n            return at + \".key \" + key.key + \" must be a lone key for tap\";"],
+    [logicFile, "tap manifest key is lone", "if (bind.tap === true && keyHasModifiers(values[v]))\n                return keyAt + \" \" + values[v] + \" must be a lone key for tap\";", "if (false)\n                return keyAt + \" \" + values[v] + \" must be a lone key for tap\";"],
     [logicFile, "hold retained", "if (bind.hold === true) result.hold = true;", "if (false) result.hold = true;"],
     [logicFile, "tap retained", "if (bind.tap === true) result.tap = true;", "if (false) result.tap = true;"],
     [layerFile, "hold release emitted", "return entry.bind.hold === true ? releaseShortcutName", "return false ? releaseShortcutName"],
@@ -1198,8 +1213,9 @@ const CONTROLS = [
     [layerFile, "release does not consume input", "release = true, non_consuming = true, transparent = true, ignore_mods = true", "release = true, non_consuming = false, transparent = true, ignore_mods = true"],
     [layerFile, "release is not shadowed", "release = true, non_consuming = true, transparent = true, ignore_mods = true", "release = true, non_consuming = true, transparent = false, ignore_mods = true"],
     [layerFile, "release runs on key up", "release = true, non_consuming = true, transparent = true, ignore_mods = true", "release = false, non_consuming = true, transparent = true, ignore_mods = true"],
-    [logicFile, "bind key judged", "if (!key.ok)\n            return at + \".key \" + key.error;", "if (false)\n            return at + \".key \" + key.error;"],
-    [logicFile, "key once", "if (boundKeys.indexOf(key.key) !== -1)", "if (false)"],
+    [logicFile, "bind key judged", "if (keyBad !== \"\")\n            return keyBad;", "if (false)\n            return keyBad;"],
+    [logicFile, "key once", "if (boundKeys.indexOf(values[v]) !== -1)", "if (false)"],
+    [logicFile, "each default list member judged", "for (var v = 0; v < values.length; v++) {", "for (var v = 0; v < Math.min(values.length, 1); v++) {"],
     [logicFile, "rule object", "if (!isPlainObject(rule))\n            return where + \" must be an object\";", "if (false)\n            return where + \" must be an object\";"],
     [logicFile, "rule keys", "if (HYPRLAND_RULE_KEYS.indexOf(ruleKeys[q]) === -1)", "if (false)"],
     [logicFile, "namespace anchored", "var HYPRLAND_NAMESPACE = /^\\^vgs:[a-z][a-z0-9-]*\\$$/;", "var HYPRLAND_NAMESPACE = /vgshell:/;"],
@@ -1213,7 +1229,8 @@ const CONTROLS = [
     [logicFile, "appearance schema key", "if (!hasOwn(schema, setting))", "if (false)"],
     [logicFile, "appearance boolean setting", "if (schema[setting].type !== \"boolean\")", "if (false)"],
     [logicFile, "keys setting reserved", "if (hasOwn(settings, \"keys\"))", "if (false)"],
-    [logicFile, "manifest keys normalised", "var result = { shortcut: bind.shortcut, key: bind.key === null ? null : hyprlandKey(bind.key).key };", "var result = { shortcut: bind.shortcut, key: bind.key };"],
+    [logicFile, "manifest keys normalised", "var result = { shortcut: bind.shortcut, key: keyRowValue(bind.key) };", "var result = { shortcut: bind.shortcut, key: bind.key };"],
+    [logicFile, "a one-key default list is one key", "var result = { shortcut: bind.shortcut, key: keyRowValue(bind.key) };", "var result = { shortcut: bind.shortcut, key: Array.isArray(bind.key) ? keyValues(bind.key) : keyRowValue(bind.key) };"],
     [logicFile, "config keys judged", "if (config.plugins[p].keys !== undefined && (bad = keysError(", "if (false && (bad = keysError("],
     [logicFile, "keys object", "if (!isPlainObject(keys))\n        return at + \" must be an object\";", "if (false)\n        return at + \" must be an object\";"],
     [logicFile, "keys names", "if (!NAME_PATTERN.test(names[i]))", "if (false)"],
@@ -1221,9 +1238,9 @@ const CONTROLS = [
     [logicFile, "keys values", "if (!key.ok)\n            return itemAt + \" \" + key.error;", "if (false)\n            return itemAt + \" \" + key.error;"],
     [logicFile, "keys empty lists", "if (Array.isArray(value) && value.length === 0)\n        return at + \" must not be an empty list\";", "if (false)\n        return at + \" must not be an empty list\";"],
     [logicFile, "keys no setting", "var ENTRY_RESERVED_KEYS = [\"id\", \"keys\"];", "var ENTRY_RESERVED_KEYS = [\"id\"];"],
-    [logicFile, "row key wins", "if (!hasOwn(keys, bind.shortcut)) {\n            binds.push(Object.assign({}, bind));\n            return;\n        }", "binds.push(Object.assign({}, bind));\n            return;"],
-    [logicFile, "null unbinds", "if (keys[bind.shortcut] === null) {\n            binds.push(Object.assign({}, bind, { key: null }));\n            return;\n        }", ""],
-    [logicFile, "key lists expand to binds", "keyValues(keys[bind.shortcut]).forEach(function (value) {", "[keyValues(keys[bind.shortcut])[0]].forEach(function (value) {"],
+    [logicFile, "row key wins", "var given = hasOwn(keys, bind.shortcut) ? keys[bind.shortcut] : bind.key;", "var given = bind.key;"],
+    [logicFile, "null unbinds", "var given = hasOwn(keys, bind.shortcut) ? keys[bind.shortcut] : bind.key;", "var given = hasOwn(keys, bind.shortcut) && keys[bind.shortcut] !== null ? keys[bind.shortcut] : bind.key;"],
+    [logicFile, "key lists expand to binds", "keyValues(given).forEach(function (value) {", "[keyValues(given)[0]].forEach(function (value) {"],
     [logicFile, "row key normalised", "var result = Object.assign({}, bind, { key: key.key });", "var result = Object.assign({}, bind, { key: keys[bind.shortcut] });"],
     [logicFile, "tap override key is refused", "if (bind.tap === true && keyHasModifiers(key.key))\n                result.error = \"tap key must be a lone key with no modifiers\";", "if (false)\n                result.error = \"tap key must be a lone key with no modifiers\";"],
     [logicFile, "unknown keys", "return names.indexOf(name) === -1 && !Pads.isPadShortcut(declared, name, NAME_PATTERN); }).sort()", "return false; }).sort()"],

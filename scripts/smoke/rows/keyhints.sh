@@ -2,11 +2,12 @@
 # draws one row for each bind of an enabled first-party plugin: the same
 # set as the binds `hyprctl -j binds` reports with a `vgs.` description in
 # the default submap, a hold's release companion folded into its bind, and
-# one row with no key for a bind whose manifest key is null. The row enables
-# Voice for that keyless bind, its tap shortcut, whatever set the shell
-# started over; with Voice disabled the window draws the same keyed rows
-# and no Voice tap row, the keyless reading's control. It then leaves Voice
-# as it found it. A harness user bind on SUPER+CTRL+T, the Themes shortcut's default key, shows
+# one row with no key for a bind that has none. The row enables Voice for
+# that keyless bind, its tap shortcut, whatever set the shell started over,
+# and unbinds the tap from its row, then resets it, which binds its default
+# keys again; with Voice disabled the window draws the same keyed rows and
+# no Voice tap row, the keyless reading's control. It then leaves Voice as
+# it found it. A harness user bind on SUPER+CTRL+T, the Themes shortcut's default key, shows
 # the hint under the Themes row with no key or click. Typing while the
 # Themes row's field has the focus goes into the search field and filters
 # the rows, and clearing the search draws them all again. A key typed into
@@ -54,6 +55,8 @@ for b in json.load(sys.stdin):
         seen.add(d[:-len(".release")] if d.endswith(".release") else d)
 print(json.dumps(sorted(seen)))'
 }
+# kh_bound_has BIND: whether hyprctl reports the bind "<plugin id>:<shortcut>".
+kh_bound_has() { kh_bound | py_reply 'import json,sys; print(sys.argv[1] in json.load(sys.stdin))' "$1"; }
 # kh_same: `same` when the window's keyed vgs. rows are hyprctl's vgs. binds,
 # hold this window's own and the Themes one, and its keyless rows hold the
 # Voice tap; `tap-missing` and the keyless rows when only the Voice tap is
@@ -118,13 +121,15 @@ expect "the nested instance reloads with the Key Hints harness bind without conf
 kh_user_hint="\"Also used by your Hyprland config at ~/.config/hypr/hyprland.lua line $(grep -nF 'hl.bind("SUPER + CTRL + T"' "$home/.config/hypr/hyprland.lua" | cut -d: -f1).\""
 
 kh_voice_before="$(plugin_enabled vgs.voice)" || kh_voice_before=unread
-expect "enabling Voice, whose tap shortcut has no key, is allowed" ok ipc shell setPluginEnabled vgs.voice true
+expect "enabling Voice is allowed" ok ipc shell setPluginEnabled vgs.voice true
 expect_poll "the Voice service is built" True record_exists vgs.voice
 expect "enabling Key Hints is allowed" ok ipc shell setPluginEnabled vgs.keyhints true
 expect_poll "the Key Hints service is built" True record_exists vgs.keyhints
 kh_toggle || fail "typing SUPER+SLASH failed"
 expect_poll "SUPER+SLASH opens the Key Hints window" 1 window_count "$kh_title"
 expect_poll "the Key Hints window has the keyboard" "[\"$shell_class\", \"$kh_title\"]" active_window
+expect "the Voice tap row's unbind is applied" applied ipc smoke invokeInstance window vgs.keyhints applyKey '{"id":"vgs.voice","shortcut":"tap","key":null}'
+expect_poll "the unbound Voice tap leaves hyprctl binds" False kh_bound_has vgs.voice:tap
 expect_poll "the window draws exactly the vgs. binds hyprctl reports" same kh_same
 expect_poll "the Themes row shows the user bind on its default key with no interaction" "$kh_user_hint" kh_field "$kh_themes" conflict
 
@@ -133,6 +138,8 @@ type_keys "wallpaper" || fail "typing on the Themes row's field failed"
 expect_poll "typing on a row's field filters the rows" '["vgs.themes:wallpapers"]' kh_rows
 type_keys -M ctrl -k a -m ctrl -k BackSpace || fail "clearing the search field failed"
 expect_poll "a cleared search draws every row again" same kh_same
+expect "the Voice tap key is reset" applied ipc smoke invokeInstance window vgs.keyhints applyKey '{"id":"vgs.voice","shortcut":"tap"}'
+expect_poll "the reset Voice tap is back in hyprctl binds" True kh_bound_has vgs.voice:tap
 
 expect "control: disabling Voice is allowed" ok ipc shell setPluginEnabled vgs.voice false
 expect_poll "control: with Voice disabled the keyed rows match hyprctl and no keyless Voice tap row is drawn" tap-missing kh_verdict
@@ -175,8 +182,6 @@ expect_poll "the Themes row here shows the hint the Settings page shows" "$kh_se
 expect "the Settings window is hidden" ok ipc shell hide window vgs.settings
 expect_poll "the Settings window is gone" 0 window_count Plugins
 
-# kh_bound_has BIND: whether hyprctl reports the bind "<plugin id>:<shortcut>".
-kh_bound_has() { kh_bound | py_reply 'import json,sys; print(sys.argv[1] in json.load(sys.stdin))' "$1"; }
 expect "the Themes row's unbind is applied" applied ipc smoke invokeInstance window vgs.keyhints applyKey '{"id":"vgs.themes","shortcut":"themes","key":null}'
 expect_poll "the unbind writes null to shell.json" null themes_key
 expect_poll "the unbound Themes bind leaves hyprctl binds" False kh_bound_has vgs.themes:themes

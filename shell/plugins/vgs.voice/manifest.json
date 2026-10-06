@@ -49,7 +49,10 @@
       },
       {
         "shortcut": "tap",
-        "key": null,
+        "key": [
+          "code:108",
+          "code:105"
+        ],
         "tap": true,
         "info": "One key, tapped on its own, turns dictation on and off. A quick tap starts and the next tap stops. Hold the key, or press it with other keys, and it does its usual job, so a key such as Right Ctrl can do both."
       },

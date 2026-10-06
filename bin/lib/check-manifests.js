@@ -115,15 +115,17 @@ for (const { dir, text } of manifests()) {
     let missing = false;
     for (const bind of (r.manifest.hyprland === undefined ? [] : r.manifest.hyprland.binds)) {
         if (bind.key === null) continue;
-        const prior = defaultKeys[bind.key];
         const owner = r.manifest.id + ":" + bind.shortcut;
-        if (prior !== undefined) {
-            console.log("refused  " + dir + ": default key " + bind.key + " for " + owner + " already used by " + prior);
-            refused += 1;
-            missing = true;
-            continue;
+        for (const key of ctx.keyValues(bind.key)) {
+            const prior = defaultKeys[key];
+            if (prior !== undefined) {
+                console.log("refused  " + dir + ": default key " + key + " for " + owner + " already used by " + prior);
+                refused += 1;
+                missing = true;
+                continue;
+            }
+            defaultKeys[key] = owner;
         }
-        defaultKeys[bind.key] = owner;
     }
     if (r.manifest.hyprland !== undefined && r.manifest.hyprland.pads !== undefined) {
         if (padsOwner !== null) {

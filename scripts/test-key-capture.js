@@ -178,7 +178,7 @@ const CONTROLS = [
     ["function keys run to F35", "for (code = 1; code <= 35; code++) names[0x01000030 + code - 1] = \"F\" + code;", "for (code = 1; code <= 12; code++) names[0x01000030 + code - 1] = \"F\" + code;"],
     ["Space is named", "0x20: \"SPACE\", ", ""],
     ["the shortcut itself is no conflict", " && !(section.id === id && bind.shortcut === shortcut)", ""],
-    ["each key of a list is asked for", "keyValues(keys[bind.shortcut]).forEach(", "keyValues(keys[bind.shortcut]).slice(0, 1).forEach("],
+    ["each key of a list is asked for", "keyValues(given).forEach(", "keyValues(given).slice(0, 1).forEach("],
     ["the user's binds are read", "return { plugins: plugins, user: parsed.ok && foreign.indexOf(parsed.key) !== -1 };", "return { plugins: plugins, user: false };"],
     ["the user's binds compare normalised keys", "foreign.indexOf(parsed.key) !== -1", "foreign.indexOf(key) !== -1"],
     ["a conflict compares normalised keys", "if (bind.key === parsed.key && !(section.id", "if (bind.key === key && !(section.id"],

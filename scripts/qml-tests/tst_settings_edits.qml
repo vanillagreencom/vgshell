@@ -14,7 +14,9 @@ import "../../shell/plugins/vgs.settings"
 // empty, whether its save or Enter in the field sent it, and forgets a
 // destroyed field. A Keys row's typed key waits the same way, returns to
 // its text entry when its owner refuses it and leaves a read-only row; a
-// key the row sends without its text entry is no edit. The owner here
+// key the row sends without its text entry is no edit. A Keys row offers
+// its reset while the keys in effect are not every default key, one or a
+// list, and the reset sends undefined. The owner here
 // stands in for the page: it records each write and takes it or refuses it.
 Item {
     id: root
@@ -129,6 +131,15 @@ Item {
             pluginId: "acme.unit"
             bind: ({ shortcut: "spare", key: "SUPER+N", default: "SUPER+N", description: "Spare" })
             edits: unsaved
+        }
+    }
+
+    Component {
+        id: listDefaultKey
+        KeyField {
+            pluginId: "acme.unit"
+            bind: ({ shortcut: "tap", key: "code:108", keys: ["code:108"], default: ["code:108", "code:105"], description: "Tap" })
+            onApplyKey: key => root.keys.push(key)
         }
     }
 
@@ -361,6 +372,28 @@ Item {
             unsaved.discard();
             verify(!keyRow.shortcutField.typing && !unsaved.edited);
             compare(root.keys, []);
+        }
+
+        function test_reset_offers_every_default_key() {
+            const field = createTemporaryObject(listDefaultKey, root);
+            verify(field !== null);
+            const reset = descendants(field).find(child => child.iconName === "rotate-ccw");
+            verify(reset !== undefined, "the row draws its reset button");
+            // [why, keys in effect, default, reset shown]
+            for (const [why, keys, def, shown] of [
+                ["one key of a default list", ["code:108"], ["code:108", "code:105"], true],
+                ["every key of a default list", ["code:108", "code:105"], ["code:108", "code:105"], false],
+                ["an unbound default list", [], ["code:108", "code:105"], true],
+                ["a second key beside one default key", ["code:108", "code:105"], "code:108", true],
+                ["the one default key", ["code:108"], "code:108", false],
+                ["no default", ["code:108"], null, false]
+            ]) {
+                field.bind = { shortcut: "tap", key: keys.length === 0 ? null : keys[0], keys: keys, default: def, description: "Tap" };
+                compare(reset.visible, shown, why);
+            }
+            field.bind = { shortcut: "tap", key: "code:108", keys: ["code:108"], default: ["code:108", "code:105"], description: "Tap" };
+            reset.clicked();
+            compare(root.keys, [undefined], "the reset sends undefined, so the default list applies");
         }
 
         function test_plugin_page_shows_each_key_and_add_writes_a_list() {

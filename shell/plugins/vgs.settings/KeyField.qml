@@ -1,21 +1,22 @@
 import QtQuick
 import qs.Ui
 
-// One row of a plugin's Keys section: the bind row of qs.Ui, which sends
-// a pressed or typed key and the unbind, with the manifest's key under it,
+// One row of a plugin's Keys section: the bind row of qs.Ui, which sends a
+// pressed or typed key and the unbind, with the manifest's keys under it,
 // or none for a pad's key, and buttons of its own, shown only where they
-// change something. The reset button, for a key with a default, sends undefined, which removes the shell.json entry so the
-// manifest's key applies. While a user Hyprland bind holds the key, the
-// conflict line under the field names the file and line that bind sits
-// on, as a link that opens that line in the user's editor, and three
-// buttons under that line resolve it in one click: Remove my line asks the
-// page to confirm, then the key capture takes that line out of the user's
-// file and reloads Hyprland, so the plugin's bind keeps the key; Pick
-// another key starts a capture for the plugin's bind; Use my binding
-// sends null, which unbinds the shortcut so the user's own bind keeps the
-// key. After a removal the line under the field says which line went, and
-// Undo puts it back. The field then shows what the configuration holds
-// again.
+// change something. The reset button, shown while the keys in effect are
+// not the manifest's, sends undefined, which removes the shell.json entry
+// so the manifest's key or list of keys applies. While a user Hyprland
+// bind holds the key, the conflict line under the field names the file and
+// line that bind sits on, as a link that opens that line in the user's
+// editor, and three buttons under that line resolve it in one click:
+// Remove my line asks the page to confirm, then the key capture takes that
+// line out of the user's file and reloads Hyprland, so the plugin's bind
+// keeps the key; Pick another key starts a capture for the plugin's bind;
+// Use my binding sends null, which unbinds the shortcut so the user's own
+// bind keeps the key. After a removal the line under the field says which
+// line went, and Undo puts it back. The field then shows what the
+// configuration holds again.
 //
 // A key typed as text waits in the text entry until it is saved: `edited`
 // says the entry holds a key other than the one in effect, `save()` sends
@@ -32,6 +33,12 @@ BindField {
     property bool addVisible: false
     property bool resetVisible: true
     readonly property bool edited: shortcutField.edited
+    // The manifest's keys, from one key or a list, and every key in effect;
+    // the page's slot binds carry the shortcut's whole list in `keys`.
+    readonly property var defaultKeys: bind["default"] === null || bind["default"] === undefined ? []
+        : typeof bind["default"] === "string" ? [bind["default"]] : Array.from(bind["default"])
+    readonly property var keysInEffect: bind.keys !== undefined && bind.keys !== null ? Array.from(bind.keys)
+        : bind.key === null || bind.key === undefined ? [] : [bind.key]
     readonly property bool userHolds: found !== null && found.user === true
     // The one user line that binds the key as a whole `hl.bind` call, which
     // Remove my line takes out; null when there is none or more than one.
@@ -106,7 +113,7 @@ BindField {
     }
 
     hint: removed !== null ? "Removed line " + removed.line + " of " + removed.place + "."
-        : bind["default"] === null ? "No default shortcut." : "Default shortcut: " + bind["default"] + "."
+        : defaultKeys.length === 0 ? "No default shortcut." : "Default shortcut: " + defaultKeys.join(", ") + "."
     error: problem
     hintLink: citedLine === null || citedLine.config === "" ? "" : citedLine.place + " line " + citedLine.line
     onHintLinkActivated: if (citedLine !== null) lineAsked(citedLine)
@@ -148,9 +155,9 @@ BindField {
     actions: [
         IconButton {
             iconName: "rotate-ccw"
-            label: "Reset to " + root.bind["default"]
+            label: "Reset to " + root.defaultKeys.join(", ")
             size: "sm"
-            visible: root.editable && root.resetVisible && root.bind["default"] !== null && root.bind.key !== root.bind["default"]
+            visible: root.editable && root.resetVisible && root.defaultKeys.length > 0 && JSON.stringify(root.keysInEffect) !== JSON.stringify(root.defaultKeys)
             onClicked: root.applyKey(undefined)
         },
         IconButton {

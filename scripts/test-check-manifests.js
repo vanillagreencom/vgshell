@@ -3,7 +3,7 @@
 // script adds beyond PluginLogic.js (duplicate id, missing entry point,
 // unreadable directory, unparseable manifest, a `tui` script that is
 // missing, a link, under a link, not a regular file or not executable), one
-// duplicate default shortcut key, a second manifest declaring pads, one manifest the judge itself refuses so a
+// duplicate default shortcut key, alone or in a default key list, a second manifest declaring pads, one manifest the judge itself refuses so a
 // judge that passed everything would turn a row red, the icon rule the judge
 // reads from the shipped icon set, and the base listing: a directory without a manifest is not a plugin, an absent or
 // unreadable base exits 2. Each row asserts the printed verdict line and the
@@ -59,6 +59,12 @@ row("duplicate first-party default key across manifests is refused", tmp => {
     plugin(b, Object.assign({}, good, { id: "acme.two", capabilities: ["shortcut"], hyprland: { binds: [{ shortcut: "toggle", key: "SUPER+CTRL+Y" }] } }), true);
     return ["--", a, b];
 }, 1, "default key SUPER+CTRL+Y for acme.two:toggle already used by acme.one:open", "ok       acme.two");
+row("a default key list member another manifest holds is refused", tmp => {
+    const a = path.join(tmp, "a"), b = path.join(tmp, "b");
+    plugin(a, Object.assign({}, good, { capabilities: ["shortcut"], hyprland: { binds: [{ shortcut: "open", key: "code:105" }] } }), true);
+    plugin(b, Object.assign({}, good, { id: "acme.two", capabilities: ["shortcut"], hyprland: { binds: [{ shortcut: "tap", key: ["code:108", "code:105"], tap: true }] } }), true);
+    return ["--", a, b];
+}, 1, "default key code:105 for acme.two:tap already used by acme.one:open", "ok       acme.two");
 row("two unset default keys pass", tmp => {
     const a = path.join(tmp, "a"), b = path.join(tmp, "b");
     plugin(a, Object.assign({}, good, { capabilities: ["shortcut"], hyprland: { binds: [{ shortcut: "open", key: null }] } }), true);

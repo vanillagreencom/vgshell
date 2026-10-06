@@ -1535,9 +1535,10 @@ function keyHasModifiers(key) {
 }
 
 // The first defect of a manifest's `hyprland` key, or "". It holds `binds`,
-// a list of { shortcut, key, hold?, tap?, info? }, `layerRules`, a list of { namespace,
-// blur, ignoreAlpha }, and `appearance`, an object mapping the fixed
-// theme-appearance groups to boolean settings in this manifest. A bind's
+// a list of { shortcut, key, hold?, tap?, info? } whose key is one key, a list of
+// keys as a plugins row's `keys` takes, or null, `layerRules`, a list of
+// { namespace, blur, ignoreAlpha }, and `appearance`, an object mapping the
+// fixed theme-appearance groups to boolean settings in this manifest. A bind's
 // shortcut is a name the plugin registers through its `shortcut` capability,
 // which the manifest must name, so a plugin binds only its own shortcuts. A
 // rule matches `^vgs:<name>$` and sets blur, ignoreAlpha from 0 to 1, or
@@ -1595,14 +1596,18 @@ function hyprlandError(hyprland, capabilities, schema) {
             return at + ".info must be a non-empty string";
         if (bind.key === null)
             continue;
-        var key = hyprlandKey(bind.key);
-        if (!key.ok)
-            return at + ".key " + key.error;
-        if (bind.tap === true && keyHasModifiers(key.key))
-            return at + ".key " + key.key + " must be a lone key for tap";
-        if (boundKeys.indexOf(key.key) !== -1)
-            return at + ".key " + key.key + " is bound twice";
-        boundKeys.push(key.key);
+        var keyBad = keyValueError(bind.key, at + ".key", false);
+        if (keyBad !== "")
+            return keyBad;
+        var values = keyValues(bind.key);
+        for (var v = 0; v < values.length; v++) {
+            var keyAt = Array.isArray(bind.key) ? at + ".key." + v : at + ".key";
+            if (bind.tap === true && keyHasModifiers(values[v]))
+                return keyAt + " " + values[v] + " must be a lone key for tap";
+            if (boundKeys.indexOf(values[v]) !== -1)
+                return keyAt + " " + values[v] + " is bound twice";
+            boundKeys.push(values[v]);
+        }
     }
     var namespaces = [];
     for (var r = 0; r < rules.length; r++) {
@@ -3477,7 +3482,7 @@ function validateManifest(raw, sourceDir) {
     if (raw.hyprland !== undefined) {
         manifest.hyprland = {
             binds: (raw.hyprland.binds || []).map(function (bind) {
-                var result = { shortcut: bind.shortcut, key: bind.key === null ? null : hyprlandKey(bind.key).key };
+                var result = { shortcut: bind.shortcut, key: keyRowValue(bind.key) };
                 if (bind.hold === true) result.hold = true;
                 if (bind.tap === true) result.tap = true;
                 if (bind.info !== undefined) result.info = bind.info;
@@ -3642,10 +3647,11 @@ var ENTRY_RESERVED_KEYS = ["id", "keys"];
 // What plugin MANIFEST asks of Hyprland under CONFIG: { id, version, binds,
 // layerRules, appearance, options, unknownKeys }. `binds` follows the manifest's
 // `hyprland.binds` in order, each { shortcut, key, hold?, tap?, info? }: each key
-// its plugins row's `keys` gives that shortcut becomes one bind,
-// normalised, null when the row gives it null (the user unbinds it), else
-// the manifest's. `appearance` resolves each declared group to the boolean
-// effective setting the plugin receives.
+// its plugins row's `keys` gives that shortcut, else each key of the
+// manifest's, becomes one bind, normalised; one bind with key null when the
+// row gives null (the user unbinds it) or the manifest gives none.
+// `appearance` resolves each declared group to the boolean effective
+// setting the plugin receives.
 // `options` follows the manifest's `hyprland.options` in order, holding
 // only the settings its plugins row sets, so an option the user never set
 // is never written: { kind: "set", setting, path, value } for a value that
@@ -3662,18 +3668,15 @@ function hyprlandSection(config, manifest) {
     var declared = manifest.hyprland === undefined ? { binds: [], layerRules: [], appearance: {}, options: {} } : manifest.hyprland;
     var binds = [];
     declared.binds.forEach(function (bind) {
-        if (!hasOwn(keys, bind.shortcut)) {
-            binds.push(Object.assign({}, bind));
-            return;
-        }
-        if (keys[bind.shortcut] === null) {
+        var given = hasOwn(keys, bind.shortcut) ? keys[bind.shortcut] : bind.key;
+        if (given === null) {
             binds.push(Object.assign({}, bind, { key: null }));
             return;
         }
-        keyValues(keys[bind.shortcut]).forEach(function (value) {
+        keyValues(given).forEach(function (value) {
             var key = hyprlandKey(value);
             if (!key.ok)
-                throw new Error("hyprlandSection: plugins row " + manifest.id + " passed configError with keys." + bind.shortcut + " " + key.error);
+                throw new Error("hyprlandSection: key of " + manifest.id + ":" + bind.shortcut + " passed its judge but " + key.error);
             var result = Object.assign({}, bind, { key: key.key });
             if (bind.tap === true && keyHasModifiers(key.key))
                 result.error = "tap key must be a lone key with no modifiers";
@@ -4141,10 +4144,11 @@ function withKey(user, manifest, shortcut, key, effective) {
 // The Keys rows the plugin manager shows for a plugin: one per shortcut its
 // manifest and pads declare, in order, as { shortcut, key, keys, default,
 // description, info }: the keys hyprlandSection puts in effect, the first
-// key or null when unbound, the manifest's key by shortcut or null for a
-// pad, the description the plugin registered for `<id>:<shortcut>` in
-// `descriptions`, "" while none is registered, and the manifest's
-// explanation of the shortcut, "" for a pad or a bind that declares none.
+// key or null when unbound, the manifest's key or list of keys by shortcut,
+// null for a pad, the description the plugin registered for
+// `<id>:<shortcut>` in `descriptions`, "" while none is registered, and the
+// manifest's explanation of the shortcut, "" for a pad or a bind that
+// declares none.
 function bindRows(config, manifest, descriptions) {
     var defaults = manifest.hyprland === undefined ? [] : manifest.hyprland.binds;
     var defaultsByShortcut = Object.create(null);
