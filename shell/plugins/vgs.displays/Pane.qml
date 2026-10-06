@@ -15,9 +15,10 @@ import "DisplaysLogic.js" as Logic
 // the inset and the scrolling. It draws the status the service publishes
 // and asks the service, or the core through `status.act`, for every
 // change; it runs nothing itself. Each access entry's tone and offered
-// action come from the core's status rows (`status.rows`). Tab moves
-// through the controls in reading order; the arrows move a slider and a
-// closed Select.
+// action come from the core's status rows (`status.rows`). Tab starts on
+// the arrangement canvas and then moves through the controls in reading
+// order; the arrows move the canvas selection, a slider and a closed
+// Select.
 FocusScope {
     id: root
 
@@ -44,7 +45,7 @@ FocusScope {
     property string problem: ""
     // The refusal the last Dimming write was answered with, "" for none.
     property string dimProblem: ""
-    readonly property Item initialFocus: displaysColumn.firstFocus !== null ? displaysColumn.firstFocus : arrangement
+    readonly property Item initialFocus: arrangement
 
     function open(payloadJson) {
         problem = "";
@@ -319,7 +320,6 @@ FocusScope {
 
             Column {
                 id: displaysColumn
-                property Item firstFocus: null
                 width: parent.width
                 spacing: Theme.stack.row
 
@@ -342,7 +342,6 @@ FocusScope {
                             width: entry.width
                             shell: root.shell
                             display: entry.modelData
-                            Component.onCompleted: if (entry.index === 0) displaysColumn.firstFocus = row.ready ? row.slider : null
                         }
 
                         FormRow {

@@ -11,6 +11,7 @@ FocusScope {
     property var draftRules: ({})
     property string selected: ""
     property bool locked: false
+    property bool focusPreview: false
     signal selectedChangedByUser(string identifier)
     signal moved(var rules)
     signal identify(string identifier)
@@ -29,7 +30,9 @@ FocusScope {
     implicitHeight: Math.max(Theme.size.control.lg, Theme.size.panel.sm / 3)
     focus: true
     activeFocusOnTab: true
+    Accessible.name: "Display arrangement"
     Keys.onPressed: event => {
+        focusPreview = true;
         if (locked || selected === "") return;
         const amount = event.modifiers & Qt.ShiftModifier ? bigStep : step;
         let dx = 0, dy = 0;
@@ -91,6 +94,8 @@ FocusScope {
                     anchors.fill: parent
                     enabled: !root.locked
                     onPressed: {
+                        root.forceActiveFocus(Qt.MouseFocusReason);
+                        root.focusPreview = false;
                         root.select(tile.modelData.identifier);
                         const point = mapToItem(root, mouse.x, mouse.y);
                         tile.pressX = point.x;
@@ -121,5 +126,8 @@ FocusScope {
         }
     }
 
-    FocusRing { target: root }
+    FocusRing {
+        target: root
+        visible: root.focusPreview
+    }
 }

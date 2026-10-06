@@ -7,10 +7,11 @@
 # enables vgs.displays and the System window.
 #
 # Rows: the service lists the three displays and places none, so neither
-# bar shows the widget; on the keyboard alone, in System → Displays, Up
-# raises the XDR, its slider follows a level set elsewhere so the next Up
-# steps from that level, and Down on its Screen choice puts it on the
-# main output; the pane's IPC puts Studio A on SMOKE-DISPLAYS, so each
+# bar shows the widget; on the keyboard alone, in System → Displays, Tab
+# moves from the arrangement canvas to the XDR's slider, Up raises the XDR,
+# its slider follows a level set elsewhere so the next Up steps from that
+# level, and Down on its Screen choice puts it on the main output; the
+# pane's IPC puts Studio A on SMOKE-DISPLAYS, so each
 # bar's widget controls its own display, and a burst of 10 scroll notches
 # from 1 % on the SMOKE-DISPLAYS widget makes at most 2 helper runs,
 # leaves the burst's summed level, 51 %, in the fake and changes neither
@@ -200,14 +201,17 @@ expect_poll "the service registered both brightness keys" True disp_keys
 expect "the widget hides while no display lights its screen" false disp_widget "$disp_main" visible
 expect "the two Studio Displays wait for a choice, and no choice is saved" '{"entries": [], "error": null}' disp_value assignments
 
-# The keyboard alone, in System → Displays: the pane opens on the XDR's
-# slider, Up raises it one step, Tab reaches its Screen choice and Down
-# picks the first output, the main one.
+# The keyboard alone, in System → Displays: the pane opens on the
+# arrangement canvas, Tabs to the XDR's slider, Up raises it one step,
+# Tab reaches its Screen choice and Down picks the first output, the main
+# one.
 read -r mon_w mon_h < <(hypr -j monitors | py_reply 'import json,sys; m=json.load(sys.stdin)[0]; print(m["width"], m["height"])')
 rest_pointer || fail "moving the pointer off the bar failed"
 expect "the deep link opens the System window on Displays" ok ipc shell summon window vgs.system '{"pane":"vgs.displays"}'
 expect_poll "the System window mounts the displays pane" '["vgs.displays"]' window_panes
-expect_poll "the pane opens with the keyboard on the XDR's slider" '["Slider", "Apple Pro Display XDR"]' disp_focus
+expect_poll "the pane opens with the keyboard on the arrangement canvas" '["Arrangement", "Display arrangement"]' disp_focus
+type_keys -k Tab -k Tab -k Tab -k Tab -k Tab -k Tab || fail "typing Tab to the XDR's slider failed"
+expect_poll "Tab reaches the XDR's slider" '["Slider", "Apple Pro Display XDR"]' disp_focus
 disp_xdr_sets="$(disp_sets hidraw0)"
 type_keys -k Up || fail "typing Up on the XDR's slider failed"
 expect_poll "Up on the slider raises the XDR to 41" '["hidraw0", "ready", 41, [], false]' disp_item hidraw0

@@ -15,15 +15,37 @@ Item {
 
     visible: shown
 
-    Dialog {
-        id: dialog
+    Rectangle {
+        id: card
         anchors.horizontalCenter: parent.horizontalCenter
         y: Theme.dialog.margin
-        width: Math.min(parent.width - 2 * Theme.dialog.margin, implicitWidth)
-        modal: false
-        title: "Keep these display settings?"
-        message: Logic.countdownDetail(root.trialState.deadline - root.nowSeconds)
-        actions: []
+        width: Math.min(parent.width - 2 * Theme.dialog.margin, content.implicitWidth + 2 * Theme.dialog.padding)
+        height: content.implicitHeight + 2 * Theme.dialog.padding
+        radius: Theme.dialog.radius
+        color: Theme.dialog.background
+        border.width: Theme.border.thin
+        border.color: Theme.dialog.border
+
+        Column {
+            id: content
+            anchors.fill: parent
+            anchors.margins: Theme.dialog.padding
+            spacing: Theme.dialog.gap
+
+            Label {
+                width: parent.width
+                role: Theme.dialog.titleRole
+                text: "Keep these display settings?"
+                wrapMode: Text.Wrap
+            }
+
+            Label {
+                width: parent.width
+                role: Theme.dialog.bodyRole
+                text: Logic.countdownDetail(root.trialState.deadline - root.nowSeconds)
+                wrapMode: Text.Wrap
+            }
+        }
     }
 
     Timer {
