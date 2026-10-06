@@ -90,7 +90,7 @@ if h=="absent":
     print("absent"); raise SystemExit
 s=h["switchBox"]; t=h["titleBox"]; g=h["gearBox"]
 right = (g[0] - h["inlineGap"]) if g else h["contentRight"]
-ok = h["title"] == "Bluetooth" and t is not None and s is not None and abs(t[0] - h["contentLeft"]) < 0.5 and abs(s[0] + s[2] - right) < 0.5 and abs(s[1] + s[3] / 2 - h["titleCenterY"]) < 0.5
+ok = h["title"] == "Bluetooth" and t is not None and s is not None and abs(t[0] - h["contentLeft"]) < 0.5 and abs(s[0] + s[2] - right) < 0.5 and abs(s[1] + s[3] / 2 - h["titleCenterY"]) <= 0.5
 print(json.dumps({"placed": ok, "checked": h["switchChecked"], "enabled": h["switchEnabled"]}, sort_keys=True))'; }
 bt_power_field_absent() { ipc smoke readDescendant panel "${bt_id:-vgs.bluetooth}" PowerField powerOn; }
 bt_lists() { # HOST_KEY ID

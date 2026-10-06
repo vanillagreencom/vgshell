@@ -1679,9 +1679,10 @@ Scope {
             return json === undefined ? "undefined" : json;
         }
         // The first titled Pane under an instance: the title, its content
-        // edges, the title row centre, the h3 title label, the header
-        // switch and the settings gear. Rows use it for shared dropdown
-        // header geometry without adding readbacks to the shipped Pane API.
+        // edges, the title row centre, and the boxes of the h3 title label,
+        // the header switch and the settings gear, all in the pane's own
+        // coordinates. Rows use it for shared dropdown header geometry
+        // without adding readbacks to the shipped Pane API.
         function paneHeader(hostKey: string, id: string): string {
             const item = root.instance(hostKey, id);
             if (item === null) return "absent";
@@ -1690,17 +1691,20 @@ Scope {
             const title = root.descendants(pane).find(child => root.typeName(child) === "Label" && child.role === "h3" && child.text === pane.title && child.visible);
             const gear = root.descendants(pane).find(child => root.typeName(child) === "IconButton" && child.label === "Settings" && child.visible);
             const sw = pane.headerSwitch;
+            // Boxes in the pane's own coordinates, the frame its content
+            // edges and title row are read in.
+            const box = child => { const at = child.mapToItem(pane, 0, 0); return [at.x, at.y, child.width, child.height]; };
             return root.json({
                 title: pane.title,
                 contentLeft: pane.contentInset,
                 contentRight: pane.contentInset + pane.contentWidth,
                 inlineGap: Theme.stack.inline,
                 titleCenterY: pane.contentInset + pane.titleRowHeight / 2,
-                titleBox: title === undefined ? null : root.windowBox(title),
-                switchBox: sw === null ? null : root.windowBox(sw),
+                titleBox: title === undefined ? null : box(title),
+                switchBox: sw === null ? null : box(sw),
                 switchChecked: sw === null ? null : sw.checked,
                 switchEnabled: sw === null ? null : sw.enabled,
-                gearBox: gear === undefined ? null : root.windowBox(gear)
+                gearBox: gear === undefined ? null : box(gear)
             });
         }
         // readDescendant over the items whose every ancestor is visible:

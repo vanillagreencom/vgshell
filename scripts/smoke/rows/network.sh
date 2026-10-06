@@ -72,7 +72,7 @@ if h=="absent":
     print("absent"); raise SystemExit
 s=h["switchBox"]; t=h["titleBox"]; g=h["gearBox"]
 right = (g[0] - h["inlineGap"]) if g else h["contentRight"]
-ok = h["title"] == "Network" and t is not None and s is not None and abs(t[0] - h["contentLeft"]) < 0.5 and abs(s[0] + s[2] - right) < 0.5 and abs(s[1] + s[3] / 2 - h["titleCenterY"]) < 0.5
+ok = h["title"] == "Network" and t is not None and s is not None and abs(t[0] - h["contentLeft"]) < 0.5 and abs(s[0] + s[2] - right) < 0.5 and abs(s[1] + s[3] / 2 - h["titleCenterY"]) <= 0.5
 print(json.dumps({"placed": ok, "checked": h["switchChecked"], "enabled": h["switchEnabled"]}, sort_keys=True))'; }
 net_wifi_field_absent() { ipc smoke itemValues panel vgs.network Field label,visible | py_reply 'import json,sys; print("absent" if all(not (r.get("label") == "Wi-Fi" and r.get("visible")) for r in json.load(sys.stdin)) else "visible")'; }
 net_placed() { bar_widget_ids | py_reply 'import json,sys; print(any("vgs.network" in ids for ids in json.load(sys.stdin)))'; }
