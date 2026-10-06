@@ -2002,7 +2002,8 @@ scene_bluetooth() { # MODE
   expect "disabling vgs.bluetooth after its shot is allowed" ok ipc shell setPluginEnabled vgs.bluetooth false
 }
 bluetooth_shot_panel() { [[ $(ipc smoke instanceGeometry panel vgs.bluetooth) != absent ]] && echo shown || echo hidden; }
-bluetooth_nearby() { ipc smoke readInstance window vgs.bluetooth lists | py_reply 'import json,sys; print(len(json.load(sys.stdin)["nearby"]))'; }
+# The rows the section's Nearby list draws for the keyboard the setup adds.
+bluetooth_nearby() { ipc smoke itemTexts window vgs.bluetooth Section | py_reply 'import json,sys; print(sum(t.count("Desk Keyboard") for t in json.load(sys.stdin) if t[:1] == ["Nearby"]))'; }
 
 # The core's requirement notice, raised by enabling the acme.needs
 # fixture, which misses a command it needs; Escape closes it, and the
