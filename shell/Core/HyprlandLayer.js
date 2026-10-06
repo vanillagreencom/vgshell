@@ -436,7 +436,8 @@ function appWindowLines() {
 
 
 // One conflict judge for default-map binds, overlay capture and shortcut
-// key reads. Each declared shortcut has its normalized key or null.
+// key reads. Each declared shortcut has its first bound normalized key or
+// null.
 function resolveBinds(sections) {
     var held = Object.create(null);
     var keys = Object.create(null);
@@ -445,7 +446,8 @@ function resolveBinds(sections) {
         keys[section.id] = Object.create(null);
         var bindRows = section.binds.map(function (bind) {
             var global = section.id + ":" + bind.shortcut;
-            keys[section.id][bind.shortcut] = null;
+            if (keys[section.id][bind.shortcut] === undefined)
+                keys[section.id][bind.shortcut] = null;
             if (bind.key === null) return { kind: "unbound", bind: bind, global: global };
             if (bind.error !== undefined) return { kind: "refused", bind: bind, global: global, error: bind.error };
             if (held[bind.key] !== undefined) {
@@ -453,7 +455,8 @@ function resolveBinds(sections) {
                 return { kind: "skipped", bind: bind, global: global, heldBy: held[bind.key] };
             }
             held[bind.key] = section.id;
-            keys[section.id][bind.shortcut] = bind.key;
+            if (keys[section.id][bind.shortcut] === null)
+                keys[section.id][bind.shortcut] = bind.key;
             return { kind: "bound", bind: bind, global: global };
         });
         return { section: section, binds: bindRows };

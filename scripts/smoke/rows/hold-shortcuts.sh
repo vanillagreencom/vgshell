@@ -3,7 +3,7 @@
 # key stays down. The client records actual evdev edges. No latency budget:
 # fixture and client readings poll through IPC or the harness's 200 ms log
 # reader. The unit runner controls registration, guards and teardown.
-# inputs: scripts/smoke/fixtures/plugins/acme.hold/* shell/Core/ShortcutRegistry.qml shell/Core/HyprlandLayer.js scripts/smoke/keyboard/* scripts/smoke/rows/hyprland-consent.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/hyprland.sh
+# inputs: scripts/smoke/fixtures/plugins/acme.hold/* shell/Core/ShortcutRegistry.qml shell/Core/HyprlandLayer.js shell/Core/PluginLogic.js scripts/smoke/keyboard/* scripts/smoke/rows/hyprland-consent.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/hyprland.sh
 set -euo pipefail
 
 hold_dir="$home/.config/vgshell/plugins/acme.hold"
@@ -226,6 +226,42 @@ hold_barrier
 expect "control: losing tap disarm lets the chord fire the tap" '["tap"]' hold_read
 cp -- "$sandbox/hold-layer-tap-good.lua" "$hold_layer"
 expect "restore the generated tap tracker" ok hypr reload config-only
+
+set_keys '{"acme.hold":{"tap":["code:108","code:105"]}}'
+expect "reload after binding two tap keys" ok ipc shell reloadConfig
+expect_poll "the effective tap readback stays on the first key" '"{\"talk\":\"SUPER+code:108\",\"other\":\"CTRL+code:108\",\"tap\":\"code:108\"}"' ipc smoke readInstance service acme.hold keys
+hold_reset
+hold_send "down 108" "up 108"
+hold_barrier
+expect "a list-bound Right Alt tap calls the tap handler" '["tap"]' hold_read
+hold_reset
+hold_send "down 105" "up 105"
+hold_barrier
+expect "a list-bound Right Ctrl tap calls the tap handler" '["tap"]' hold_read
+
+cp -- "$hold_layer" "$sandbox/hold-layer-two-taps-good.lua"
+python3 - "$hold_layer" <<'PY'
+import pathlib, sys
+p = pathlib.Path(sys.argv[1])
+s = p.read_text()
+needle = 'hl.bind("code:105", function() hl.__vgs_tap.gate = "acme.hold:tap" end, { description = "acme.hold:tap", non_consuming = true, transparent = true, ignore_mods = true })'
+lines = s.splitlines()
+assert sum(1 for line in lines if line == needle) == 1, "tap list control: expected one default code:105 gate"
+changed = "\n".join(line for line in lines if line != needle)
+if s.endswith("\n"):
+    changed += "\n"
+assert changed != s
+p.write_text(changed)
+PY
+expect "control: reload with one tap list key removed" ok hypr reload config-only
+hold_reset
+hold_send "down 105" "up 105"
+hold_barrier
+expect "control: removing the second tap key stops Right Ctrl" '[]' hold_read
+cp -- "$sandbox/hold-layer-two-taps-good.lua" "$hold_layer"
+expect "restore the two-key tap layer" ok hypr reload config-only
+set_keys '{"acme.hold":{}}'
+expect "restore the tap's default key" ok ipc shell reloadConfig
 
 # A silent sender retains its command acknowledgments but drops key events.
 python3 - "$repo/scripts/smoke/keyboard/keyboard.c" "$sandbox/keyboard-silent.c" <<'PY'

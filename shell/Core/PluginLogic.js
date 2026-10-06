@@ -1457,10 +1457,43 @@ function conflictHint(found, names) {
     return "Also used by " + holders.join(", ") + (unread ? " (VGS could not check other shortcuts)." : ".");
 }
 
+function keyValueError(value, at, tap) {
+    var values = Array.isArray(value) ? value : [value];
+    if (Array.isArray(value) && value.length === 0)
+        return at + " must not be an empty list";
+    var seen = Object.create(null);
+    for (var i = 0; i < values.length; i++) {
+        var itemAt = Array.isArray(value) ? at + "." + i : at;
+        var key = hyprlandKey(values[i]);
+        if (!key.ok)
+            return itemAt + " " + key.error;
+        if (seen[key.key] !== undefined)
+            return itemAt + " repeats " + key.key;
+        if (tap === true && keyHasModifiers(key.key))
+            return itemAt + " tap-lone-key";
+        seen[key.key] = true;
+    }
+    return "";
+}
+
+function keyValues(value) {
+    return (Array.isArray(value) ? value : [value]).map(function (item) { return hyprlandKey(item).key; });
+}
+
+function keyWriteValue(value) {
+    var keys = keyValues(value);
+    return keys.length === 1 ? keys[0] : keys;
+}
+
+function keyRowValue(value) {
+    return value === null ? null : keyWriteValue(value);
+}
+
 // The first defect of a plugins row's `keys`, or "": an object whose names
-// are shortcut names and whose values are keys hyprlandKey accepts, or null
-// for a shortcut the user unbinds. A name the plugin binds nothing under is
-// no defect here; the Hyprland layer reports it (hyprlandSection).
+// are shortcut names and whose values are keys hyprlandKey accepts, a
+// non-empty list of those keys, or null for a shortcut the user unbinds. A
+// name the plugin binds nothing under is no defect here; the Hyprland layer
+// reports it (hyprlandSection).
 function keysError(keys, at) {
     if (!isPlainObject(keys))
         return at + " must be an object";
@@ -1470,9 +1503,9 @@ function keysError(keys, at) {
             return at + "." + names[i] + " is not a shortcut name";
         if (keys[names[i]] === null)
             continue;
-        var key = hyprlandKey(keys[names[i]]);
-        if (!key.ok)
-            return at + "." + names[i] + " " + key.error;
+        var bad = keyValueError(keys[names[i]], at + "." + names[i], false);
+        if (bad !== "")
+            return bad;
     }
     return "";
 }
@@ -3489,10 +3522,11 @@ var ENTRY_RESERVED_KEYS = ["id", "keys"];
 
 // What plugin MANIFEST asks of Hyprland under CONFIG: { id, version, binds,
 // layerRules, appearance, options, unknownKeys }. `binds` follows the manifest's
-// `hyprland.binds` in order, each { shortcut, key, hold?, tap? }: the key its plugins
-// row's `keys` gives that shortcut, normalised, null when the row gives it
-// null (the user unbinds it), else the manifest's. `appearance` resolves
-// each declared group to the boolean effective setting the plugin receives.
+// `hyprland.binds` in order, each { shortcut, key, hold?, tap? }: each key
+// its plugins row's `keys` gives that shortcut becomes one bind,
+// normalised, null when the row gives it null (the user unbinds it), else
+// the manifest's. `appearance` resolves each declared group to the boolean
+// effective setting the plugin receives.
 // `options` follows the manifest's `hyprland.options` in order, holding
 // only the settings its plugins row sets, so an option the user never set
 // is never written: { kind: "set", setting, path, value } for a value that
@@ -3507,16 +3541,25 @@ function hyprlandSection(config, manifest) {
     var row = pluginRow(config, manifest.id);
     var keys = row !== undefined && isPlainObject(row.keys) ? row.keys : {};
     var declared = manifest.hyprland === undefined ? { binds: [], layerRules: [], appearance: {}, options: {} } : manifest.hyprland;
-    var binds = declared.binds.map(function (bind) {
-        if (!hasOwn(keys, bind.shortcut)) return Object.assign({}, bind);
-        if (keys[bind.shortcut] === null) return Object.assign({}, bind, { key: null });
-        var key = hyprlandKey(keys[bind.shortcut]);
-        if (!key.ok)
-            throw new Error("hyprlandSection: plugins row " + manifest.id + " passed configError with keys." + bind.shortcut + " " + key.error);
-        var result = Object.assign({}, bind, { key: key.key });
-        if (bind.tap === true && keyHasModifiers(key.key))
-            result.error = "tap key must be a lone key with no modifiers";
-        return result;
+    var binds = [];
+    declared.binds.forEach(function (bind) {
+        if (!hasOwn(keys, bind.shortcut)) {
+            binds.push(Object.assign({}, bind));
+            return;
+        }
+        if (keys[bind.shortcut] === null) {
+            binds.push(Object.assign({}, bind, { key: null }));
+            return;
+        }
+        keyValues(keys[bind.shortcut]).forEach(function (value) {
+            var key = hyprlandKey(value);
+            if (!key.ok)
+                throw new Error("hyprlandSection: plugins row " + manifest.id + " passed configError with keys." + bind.shortcut + " " + key.error);
+            var result = Object.assign({}, bind, { key: key.key });
+            if (bind.tap === true && keyHasModifiers(key.key))
+                result.error = "tap key must be a lone key with no modifiers";
+            binds.push(result);
+        });
     });
     var names = declared.binds.map(function (bind) { return bind.shortcut; });
     var settings = settingsFor(config, manifest, "plugins", null);
@@ -3903,9 +3946,9 @@ function settingRefusal(manifest, key, value) {
 
 // Why shortcut `shortcut` of this plugin may not take `key`, or "". Only a
 // shortcut the manifest's `hyprland.binds` declares has a key. A key string
-// hyprlandKey accepts rebinds it, null unbinds it, and undefined removes the
-// plugins row's entry so the manifest's key applies. The reply is one keyed
-// line.
+// or non-empty list of strings hyprlandKey accepts rebinds it, null unbinds
+// it, and undefined removes the plugins row's entry so the manifest's key
+// applies. The reply is one keyed line.
 function keyRefusal(manifest, shortcut, key) {
     var binds = manifest.hyprland === undefined ? [] : manifest.hyprland.binds;
     var bind = binds.filter(function (row) { return row.shortcut === shortcut; })[0];
@@ -3913,22 +3956,19 @@ function keyRefusal(manifest, shortcut, key) {
         return "refused: key=" + shortcut + " undeclared";
     if (key === undefined || key === null)
         return "";
-    if (typeof key !== "string")
-        return "refused: key=" + shortcut + " want=string-or-null";
-    var parsed = hyprlandKey(key);
-    if (!parsed.ok)
-        return "refused: key=" + shortcut + " " + parsed.error;
-    if (bind !== undefined && bind.tap === true && keyHasModifiers(parsed.key))
-        return "refused: key=" + shortcut + " tap-lone-key";
-    return "";
+    if (typeof key !== "string" && !Array.isArray(key))
+        return "refused: key=" + shortcut + " want=string-list-or-null";
+    var bad = keyValueError(key, "refused: key=" + shortcut, bind !== undefined && bind.tap === true);
+    return bad;
 }
 
 // The user-file change that sets one shortcut's key in the plugin's plugins
-// row `keys`: the normalised key, null to unbind, or, for undefined, no
-// entry, so the manifest's key applies; a `keys` left empty is removed. The
-// row is seeded from the effective one, since a user row replaces the
-// shipped row whole; a reset the effective row does not need changes
-// nothing. The caller checks the key with keyRefusal first.
+// row `keys`: one normalised key as a string, several normalised keys as a
+// list, null to unbind, or, for undefined, no entry, so the manifest's key
+// applies; a `keys` left empty is removed. The row is seeded from the
+// effective one, since a user row replaces the shipped row whole; a reset
+// the effective row does not need changes nothing. The caller checks the
+// key with keyRefusal first.
 function withKey(user, manifest, shortcut, key, effective) {
     var out = isPlainObject(user) ? clone(user) : {};
     if (out.version === undefined) out.version = CONFIG_VERSION;
@@ -3949,20 +3989,34 @@ function withKey(user, manifest, shortcut, key, effective) {
         return out;
     }
     if (!isPlainObject(row.keys)) row.keys = {};
-    row.keys[shortcut] = key === null ? null : hyprlandKey(key).key;
+    row.keys[shortcut] = keyRowValue(key);
     return out;
 }
 
-// The Keys rows the plugin manager shows for a plugin: one per bind its
-// manifest declares, in order, as { shortcut, key, default, description }:
-// the key hyprlandSection puts in effect (null when unbound), the
-// manifest's key, and the description the plugin registered for
-// `<id>:<shortcut>` in `descriptions`, "" while none is registered.
+// The Keys rows the plugin manager shows for a plugin: one per shortcut its
+// manifest and pads declare, in order, as { shortcut, key, keys, default,
+// description }: the keys hyprlandSection puts in effect, the first key or
+// null when unbound, the manifest's key by shortcut or null for a pad, and
+// the description the plugin registered for `<id>:<shortcut>` in
+// `descriptions`, "" while none is registered.
 function bindRows(config, manifest, descriptions) {
     var defaults = manifest.hyprland === undefined ? [] : manifest.hyprland.binds;
-    return hyprlandSection(config, manifest).binds.map(function (bind, i) {
-        var name = manifest.id + ":" + bind.shortcut;
-        return { shortcut: bind.shortcut, key: bind.key, "default": i < defaults.length ? defaults[i].key : null, description: hasOwn(descriptions, name) ? descriptions[name] : "" };
+    var defaultsByShortcut = Object.create(null);
+    defaults.forEach(function (bind) { defaultsByShortcut[bind.shortcut] = bind.key; });
+    var rows = [];
+    var byShortcut = Object.create(null);
+    hyprlandSection(config, manifest).binds.forEach(function (bind) {
+        var row = byShortcut[bind.shortcut];
+        if (row === undefined) {
+            var name = manifest.id + ":" + bind.shortcut;
+            row = { shortcut: bind.shortcut, keys: [], "default": hasOwn(defaultsByShortcut, bind.shortcut) ? defaultsByShortcut[bind.shortcut] : null, description: hasOwn(descriptions, name) ? descriptions[name] : "" };
+            byShortcut[bind.shortcut] = row;
+            rows.push(row);
+        }
+        if (bind.key !== null) row.keys.push(bind.key);
+    });
+    return rows.map(function (row) {
+        return { shortcut: row.shortcut, key: row.keys.length === 0 ? null : row.keys[0], keys: row.keys, "default": row["default"], description: row.description };
     });
 }
 

@@ -44,7 +44,7 @@ FocusScope {
         return shell.manager.plugins.filter(p => p.enabled).map(p => ({
             id: p.id,
             name: p.name,
-            binds: p.binds.filter(b => holds([p.name, b.description, b.shortcut, b.key === null ? "" : b.key]))
+            binds: p.binds.map(displayBind).filter(b => holds([p.name, b.description, b.shortcut, b.key === null ? "" : b.key]))
         })).filter(g => g.binds.length > 0);
     }
     property Item initialFocus: search
@@ -60,6 +60,11 @@ FocusScope {
     }
 
     function close() {}
+
+    function displayBind(bind) {
+        const keys = Array.isArray(bind.keys) ? bind.keys : (bind.key === null || bind.key === undefined ? [] : [bind.key]);
+        return Object.assign({}, bind, { key: keys.length === 0 ? null : keys.join(", ") });
+    }
 
     // Set the key of shortcut `shortcut` of plugin `id` through the
     // manager: a key string rebinds, null unbinds; answers its reply.

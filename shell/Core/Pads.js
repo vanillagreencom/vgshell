@@ -170,10 +170,10 @@ function isPadShortcut(declared, shortcut, namePattern) {
 // manifest declares none: no binds, `pads` null. Else its value in
 // SETTINGS, the plugin's effective settings, is judged against its entry in
 // SCHEMA by SETTING_ERROR, PluginLogic's judge: an unfit value gives no pad
-// and one refusal. Each fitting item gives a bind { shortcut, key }, its
-// key the one KEYS, the plugins row's `keys`, gives its shortcut through
-// HYPRLAND_KEY, else null, which writes no bind, and a pad { name, class,
-// width, height, x, y, margin, entry, motion } for the layer. An item whose
+// and one refusal. Each fitting item gives one bind { shortcut, key } per
+// key that KEYS, the plugins row's `keys`, gives its shortcut through
+// HYPRLAND_KEY, else one bind with null, which writes no bind, and a pad
+// { name, class, width, height, x, y, margin, entry, motion } for the layer. An item whose
 // class holds a character outside CLASS, or which another item's class
 // holds already, gives no pad and a refusal { name, error }; it keeps its
 // bind, so its key stays set and its press reaches the plugin, which the
@@ -187,10 +187,13 @@ function expand(setting, schema, settings, keys, hyprlandKey, settingError) {
     var classes = {};
     value.forEach(function (item) {
         var shortcut = SHORTCUT_PREFIX + item.name;
-        var key = hasOwn(keys, shortcut) && keys[shortcut] !== null ? hyprlandKey(keys[shortcut]) : null;
-        if (key !== null && !key.ok)
-            throw new Error("Pads.expand: keys." + shortcut + " passed configError but " + key.error);
-        out.binds.push({ shortcut: shortcut, key: key === null ? null : key.key });
+        var values = hasOwn(keys, shortcut) && keys[shortcut] !== null ? (Array.isArray(keys[shortcut]) ? keys[shortcut] : [keys[shortcut]]) : [null];
+        values.forEach(function (value) {
+            var key = value === null ? null : hyprlandKey(value);
+            if (key !== null && !key.ok)
+                throw new Error("Pads.expand: keys." + shortcut + " passed configError but " + key.error);
+            out.binds.push({ shortcut: shortcut, key: key === null ? null : key.key });
+        });
         if (!CLASS.test(item["class"])) {
             out.refusals.push({ name: item.name, error: "class=" + JSON.stringify(item["class"]) + " want=" + CLASS.source });
             return;

@@ -370,6 +370,10 @@ function suite(ctx, check) {
         ["manager not an object", { manager: "a.b" }, "manager must be an object"],
         ["manager without an id", { manager: {} }, "manager.id must be a string"],
         ["a manager id that is not a string", { manager: { id: 3 } }, "manager.id must be a string"],
+        ["a shortcut key list passes", { plugins: [{ id: "a.b", keys: { tap: ["code:108", "code:105"] } }] }, ""],
+        ["an empty shortcut key list is refused", { plugins: [{ id: "a.b", keys: { tap: [] } }] }, "plugins.0.keys.tap must not be an empty list"],
+        ["a bad shortcut key list entry names its index", { plugins: [{ id: "a.b", keys: { tap: ["code:108", "SUPER+"] } }] }, "plugins.0.keys.tap.1 has an empty part"],
+        ["a repeated shortcut key list entry is refused", { plugins: [{ id: "a.b", keys: { tap: ["CODE:00108", "code:108"] } }] }, "plugins.0.keys.tap.1 repeats code:108"],
     ];
     for (const [name, config, want] of configRows) {
         const got = ctx.configError(config);
@@ -979,11 +983,16 @@ function suite(ctx, check) {
         ["null unbinds a declared shortcut", keyed, "toggle", null, ""],
         ["undefined resets a declared shortcut", keyed, "toggle", undefined, ""],
         ["a tap shortcut takes a lone key", tapKeyed, "tap", "code:108", ""],
+        ["a tap shortcut takes a list of lone keys", tapKeyed, "tap", ["CODE:00108", "code:105"], ""],
+        ["an empty key list is refused", keyed, "toggle", [], "refused: key=toggle must not be an empty list"],
+        ["a bad key list entry names its index", keyed, "toggle", ["SUPER+K", "SUPER+"], "refused: key=toggle.1 has an empty part: \"SUPER+\""],
+        ["a repeated key list entry is refused", keyed, "toggle", ["CODE:00108", "code:108"], "refused: key=toggle.1 repeats code:108"],
         ["a tap shortcut refuses modifiers", tapKeyed, "tap", "SUPER+code:108", "refused: key=tap tap-lone-key"],
+        ["a tap shortcut refuses modifiers in a list", tapKeyed, "tap", ["code:108", "SUPER+code:105"], "refused: key=tap.1 tap-lone-key"],
         ["an undeclared shortcut is refused", keyed, "other", "SUPER+K", "refused: key=other undeclared"],
         ["a prototype name is undeclared", keyed, "constructor", "SUPER+K", "refused: key=constructor undeclared"],
         ["a plugin without binds declares none", manifests["acme.svc"], "toggle", "SUPER+K", "refused: key=toggle undeclared"],
-        ["a key that is not a string is refused", keyed, "toggle", 5, "refused: key=toggle want=string-or-null"],
+        ["a key that is not a string or list is refused", keyed, "toggle", 5, "refused: key=toggle want=string-list-or-null"],
         ["a malformed key is refused with the key judge's words", keyed, "toggle", "SUPER+", "refused: key=toggle has an empty part: \"SUPER+\""],
     ];
     for (const [name, manifest, shortcut, key, want] of keyRefusalRows) {
@@ -995,6 +1004,8 @@ function suite(ctx, check) {
     const keyRows = [
         ["a key is written normalised into a new row", null, {}, "toggle", "ctrl+super+k", "plugins", [{ id: "acme.keys", keys: { toggle: "SUPER+CTRL+K" } }]],
         ["Settings writes a normalized keycode", null, {}, "toggle", "shift+super+CODE:00108", "plugins", [{ id: "acme.keys", keys: { toggle: "SUPER+SHIFT+code:108" } }]],
+        ["a key list is written normalised into a new row", null, {}, "toggle", ["shift+super+CODE:00108", "code:105"], "plugins", [{ id: "acme.keys", keys: { toggle: ["SUPER+SHIFT+code:108", "code:105"] } }]],
+        ["a one-key list is written as one string", null, {}, "toggle", ["code:105"], "plugins", [{ id: "acme.keys", keys: { toggle: "code:105" } }]],
         ["null is written as an unbind", null, {}, "toggle", null, "plugins", [{ id: "acme.keys", keys: { toggle: null } }]],
         ["the row is seeded from the effective row", null, { plugins: [{ id: "acme.keys", x: 1 }] }, "peek", "SUPER+Q", "plugins", [{ id: "acme.keys", x: 1, keys: { peek: "SUPER+Q" } }]],
         ["the user row is updated in place", { plugins: [{ id: "b.c" }, { id: "acme.keys", keys: { peek: "SUPER+Q" } }] }, {}, "toggle", "SUPER+K", "plugins", [{ id: "b.c" }, { id: "acme.keys", keys: { peek: "SUPER+Q", toggle: "SUPER+K" } }]],
@@ -1011,8 +1022,10 @@ function suite(ctx, check) {
 
     // bindRows: the key in effect, the manifest's key and the registered description.
     check("bindRows: each bind with its key in effect, its default and its description", ctx.bindRows({ plugins: [{ id: "acme.keys", keys: { toggle: null } }] }, keyed, { "acme.keys:toggle": "Open" }),
-        [{ shortcut: "toggle", key: null, default: "SUPER+M", description: "Open" }, { shortcut: "peek", key: "SUPER+P", default: "SUPER+P", description: "" }]);
-    check("bindRows: a rebound key is the one in effect", ctx.bindRows({ plugins: [{ id: "acme.keys", keys: { peek: "shift+super+p" } }] }, keyed, {})[1], { shortcut: "peek", key: "SUPER+SHIFT+P", default: "SUPER+P", description: "" });
+        [{ shortcut: "toggle", key: null, keys: [], default: "SUPER+M", description: "Open" }, { shortcut: "peek", key: "SUPER+P", keys: ["SUPER+P"], default: "SUPER+P", description: "" }]);
+    check("bindRows: a rebound key is the one in effect", ctx.bindRows({ plugins: [{ id: "acme.keys", keys: { peek: "shift+super+p" } }] }, keyed, {})[1], { shortcut: "peek", key: "SUPER+SHIFT+P", keys: ["SUPER+SHIFT+P"], default: "SUPER+P", description: "" });
+    check("bindRows: a two-key shortcut is one row with both keys", ctx.bindRows({ plugins: [{ id: "acme.keys", keys: { toggle: ["code:108", "code:105"] } }] }, keyed, { "acme.keys:toggle": "Open" })[0],
+        { shortcut: "toggle", key: "code:108", keys: ["code:108", "code:105"], default: "SUPER+M", description: "Open" });
     check("bindRows: a plugin without binds has none", ctx.bindRows({}, manifests["acme.svc"], {}), []);
 
     check("pluginIcon: a manifest's icon", ctx.pluginIcon(ctx.validateManifest(Object.assign({}, svc, { icon: "bell" }), "/p").manifest), "bell");
@@ -1104,9 +1117,9 @@ function suite(ctx, check) {
     const pad = Object.assign({ name: "1" }, padDefaults);
     check("settingRefusal: a list value of items that fit is written", ctx.settingRefusal(padsManifest.manifest, "pads", [pad]), "");
     check("settingRefusal: a list item's field is judged", ctx.settingRefusal(padsManifest.manifest, "pads", [Object.assign({}, pad, { width: 5 })]), "refused: setting=pads item=0 field=width want=at-least:10");
-    const padConfig = { plugins: [{ id: "acme.pads", pads: [pad, Object.assign({}, pad, { name: "2", "class": "org.acme.other" }), Object.assign({}, pad, { name: "3" })], keys: { "pad-1": "alt+super+p", "pad-7": "SUPER+7", stray: null } }] };
+    const padConfig = { plugins: [{ id: "acme.pads", pads: [pad, Object.assign({}, pad, { name: "2", "class": "org.acme.other" }), Object.assign({}, pad, { name: "3" })], keys: { "pad-1": ["alt+super+p", "code:105"], "pad-7": "SUPER+7", stray: null } }] };
     const padSection = ctx.hyprlandSection(padConfig, padsManifest.manifest);
-    check("hyprlandSection: each pad ends the binds with its key", padSection.binds, [{ shortcut: "pad-1", key: "SUPER+ALT+P" }, { shortcut: "pad-2", key: null }, { shortcut: "pad-3", key: null }]);
+    check("hyprlandSection: each pad ends the binds with its key", padSection.binds, [{ shortcut: "pad-1", key: "SUPER+ALT+P" }, { shortcut: "pad-1", key: "code:105" }, { shortcut: "pad-2", key: null }, { shortcut: "pad-3", key: null }]);
     check("hyprlandSection: each pad is handed to the layer", padSection.pads.map(p => p.name), ["1", "2"]);
     check("hyprlandSection: a pad the core refuses is listed", padSection.padRefusals, [{ name: "3", error: "class=org.acme.pad held by pad 1" }]);
     check("hyprlandSection: a pad's key is no unknown key, another name is", padSection.unknownKeys, ["stray"]);
@@ -1115,7 +1128,7 @@ function suite(ctx, check) {
     check("keyRefusal: a pad's key is judged", ctx.keyRefusal(padsManifest.manifest, "pad-9", "SUPER+"), "refused: key=pad-9 has an empty part: \"SUPER+\"");
     check("keyRefusal: a shortcut of no pad is undeclared", ctx.keyRefusal(padsManifest.manifest, "toggle", "SUPER+9"), "refused: key=toggle undeclared");
     check("bindRows: a pad's key has no default", ctx.bindRows(padConfig, padsManifest.manifest, { "acme.pads:pad-1": "Show or hide pad 1" }),
-        [{ shortcut: "pad-1", key: "SUPER+ALT+P", default: null, description: "Show or hide pad 1" }, { shortcut: "pad-2", key: null, default: null, description: "" }, { shortcut: "pad-3", key: null, default: null, description: "" }]);
+        [{ shortcut: "pad-1", key: "SUPER+ALT+P", keys: ["SUPER+ALT+P", "code:105"], default: null, description: "Show or hide pad 1" }, { shortcut: "pad-2", key: null, keys: [], default: null, description: "" }, { shortcut: "pad-3", key: null, keys: [], default: null, description: "" }]);
 }
 
 suite(load(LOGIC), report);
@@ -1171,11 +1184,13 @@ const CONTROLS = [
     ["a number under min does not fit", "if (entry.min !== undefined && value < entry.min) return", "if (false) return"],
     ["a number over max does not fit", "if (entry.max !== undefined && value > entry.max) return", "if (false) return"],
     ["a key needs a declared bind", "if (bind === undefined && !Pads.isPadShortcut(manifest.hyprland, shortcut, NAME_PATTERN))", "if (false)"],
-    ["a key is a string or null", "if (typeof key !== \"string\")\n        return \"refused: key=\" + shortcut + \" want=string-or-null\";", "if (false)\n        return \"refused: key=\" + shortcut + \" want=string-or-null\";"],
-    ["a key string is judged", "if (!parsed.ok)\n        return \"refused: key=\" + shortcut + \" \" + parsed.error;", "if (false)\n        return \"refused: key=\" + shortcut + \" \" + parsed.error;"],
-    ["a tap key from settings is lone", "if (bind !== undefined && bind.tap === true && keyHasModifiers(parsed.key))", "if (false)"],
-    ["a written key is normalised", "row.keys[shortcut] = key === null ? null : hyprlandKey(key).key;", "row.keys[shortcut] = key === null ? null : key;"],
-    ["null unbinds", "row.keys[shortcut] = key === null ? null : hyprlandKey(key).key;", "row.keys[shortcut] = hyprlandKey(key).key;"],
+    ["a key is a string, list or null", "if (typeof key !== \"string\" && !Array.isArray(key))\n        return \"refused: key=\" + shortcut + \" want=string-list-or-null\";", "if (false)\n        return \"refused: key=\" + shortcut + \" want=string-list-or-null\";"],
+    ["a key string is judged", "if (!key.ok)\n            return itemAt + \" \" + key.error;", "if (false)\n            return itemAt + \" \" + key.error;"],
+    ["an empty key list is refused", "if (Array.isArray(value) && value.length === 0)\n        return at + \" must not be an empty list\";", "if (false)\n        return at + \" must not be an empty list\";"],
+    ["a key list entry is not repeated", "if (seen[key.key] !== undefined)\n            return itemAt + \" repeats \" + key.key;", "if (false)\n            return itemAt + \" repeats \" + key.key;"],
+    ["a tap key from settings is lone", "if (tap === true && keyHasModifiers(key.key))", "if (false)"],
+    ["a written key is normalised", "row.keys[shortcut] = keyRowValue(key);", "row.keys[shortcut] = key;"],
+    ["null unbinds", "return value === null ? null : keyWriteValue(value);", "return keyWriteValue(value);"],
     ["an unset removes the key from the plugins row", "    if (row !== undefined) delete row[key];\n", ""],
     ["an unset removes the key from the layout entries", "if (!isPlainObject(locator) || seen === locator.nth) delete entry[key];", ""],
     ["an unset of the plugins row leaves the layout", "if (targets.indexOf(\"layout\") !== -1 && isPlainObject(out.bar) && isPlainObject(out.bar.layout)) {", "if (isPlainObject(out.bar) && isPlainObject(out.bar.layout)) {"],
@@ -1187,7 +1202,8 @@ const CONTROLS = [
     ["a reset the row does not need changes nothing", "if (!needed)\n            return out;", "if (false)\n            return out;"],
     ["a key row is seeded from the effective row", "row = shippedRow !== undefined ? clone(shippedRow) : { id: manifest.id };\n        out.plugins = (", "row = { id: manifest.id };\n        out.plugins = ("],
     ["a bind row carries its registered description", "hasOwn(descriptions, name) ? descriptions[name] : \"\"", "\"\""],
-    ["a bind row carries the manifest's key", "\"default\": i < defaults.length ? defaults[i].key : null", "\"default\": bind.key"],
+    ["a bind row carries the manifest's key", "\"default\": hasOwn(defaultsByShortcut, bind.shortcut) ? defaultsByShortcut[bind.shortcut] : null", "\"default\": bind.key"],
+    ["a bind row carries every effective key", "keys: row.keys", "keys: []"],
     ["a plugin without an icon is listed with the default", ": DEFAULT_ICON;", ": \"\";"],
     ["status is a manifest key", "\"requirements\", \"status\", \"tui\", \"menu\", \"secrets\", ", "\"requirements\", \"tui\", \"menu\", \"secrets\", "],
     ["secrets is a manifest key", "\"tui\", \"menu\", \"secrets\", \"extras\"", "\"tui\", \"menu\", \"extras\""],

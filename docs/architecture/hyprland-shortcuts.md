@@ -13,7 +13,7 @@ Hyprland runs a global bind before the focused layer or window sees the key, so 
 ## Rules
 
 - Do write a key with `SUPER`, `CTRL`, `ALT` and `SHIFT`, and a keycode as `code:<n>` without leading zeros. `scripts/test-hyprland-layer.js` pins the grammar.
-- Do take the key from the `plugins[].keys` entry, then the manifest; `null` unbinds. `scripts/smoke/rows/hyprland.sh` reads it back.
+- Do take the key from the `plugins[].keys` entry, then the manifest; a list writes one bind per key, and `null` unbinds. `scripts/smoke/rows/hyprland.sh` reads it back.
 - Do resolve conflicts through `HyprlandLayer.resolveBinds` everywhere; the first plugin by id keeps the key, and a lost conflict reads as null so a label never advertises a key the shell skipped. `scripts/test-hyprland-layer.js` and `scripts/qml-tests/tst_shortcutregistry.qml` pin both.
 - Do give a hold shortcut a release companion with `release`, `non_consuming`, `transparent` and `ignore_mods`, and start a hold only from a down on a registration with a live key; a release bind authenticates nothing, since a virtual keyboard can trigger it. `scripts/smoke/rows/hold-shortcuts.sh` and `tst_shortcutregistry.qml` pin both.
 - Do give a tap shortcut a lone key and fire it from the layer's one `input.keyboard.key` tracker: it arms only when no other key is down, any other press disarms it, and it sends the global on the release that comes before `input:repeat_delay`, allowed by a non-consuming gate bind so the lock, inhibitors and submaps still apply. Hyprland 0.56.2 has no tap bind, and its release bind fires after every chord and long hold. `scripts/test-hyprland-layer.js` and `scripts/smoke/rows/hold-shortcuts.sh` pin it.

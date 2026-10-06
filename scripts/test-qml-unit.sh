@@ -932,6 +932,8 @@ mutations=(
   "a key sent without the text entry reports a write|../plugins/vgs.settings/KeyField.qml|sent.accepted = accepted;|sent.accepted = accepted; if (accepted && edits !== null) edits.wrote();|tst_settings_edits.qml"
   "a read-only key row keeps its typed key|../plugins/vgs.settings/KeyField.qml|    onEditableChanged: if (!editable) discard()|    onEditableChanged: {}|tst_settings_edits.qml"
   "a destroyed key row stays in the set|../plugins/vgs.settings/KeyField.qml|    Component.onDestruction: if (edits !== null) edits.forget(root)|    Component.onDestruction: {}|tst_settings_edits.qml"
+  "a plugin page shows every key slot|../plugins/vgs.settings/PluginPage.qml|const total = Math.max(1, keys.length + extra);|const total = Math.max(1, 1 + extra);|tst_settings_edits.qml"
+  "an added key preserves existing keys|../plugins/vgs.settings/PluginPage.qml|return keys.length === 1 ? keys[0] : keys;|return keys[0];|tst_settings_edits.qml"
 )
 
 mutation_target_path() { # FILE-FIELD

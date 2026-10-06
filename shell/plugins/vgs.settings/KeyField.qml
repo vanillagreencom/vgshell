@@ -29,6 +29,8 @@ BindField {
     id: root
 
     property var edits: null
+    property bool addVisible: false
+    property bool resetVisible: true
     readonly property bool edited: shortcutField.edited
     readonly property bool userHolds: found !== null && found.user === true
     // The one user line that binds the key as a whole `hl.bind` call, which
@@ -46,6 +48,7 @@ BindField {
     readonly property var citedLine: found === null || !userHolds || !found.userBinds || found.userBinds.length === 0 ? null : found.userBinds[0]
     signal removalAsked(var row)
     signal lineAsked(var row)
+    signal addKey()
 
     function save() { shortcutField.acceptTyped(); }
     function discard() { shortcutField.stopTyping(); }
@@ -147,8 +150,15 @@ BindField {
             iconName: "rotate-ccw"
             label: "Reset to " + root.bind["default"]
             size: "sm"
-            visible: root.editable && root.bind["default"] !== null && root.bind.key !== root.bind["default"]
+            visible: root.editable && root.resetVisible && root.bind["default"] !== null && root.bind.key !== root.bind["default"]
             onClicked: root.applyKey(undefined)
+        },
+        IconButton {
+            iconName: "plus"
+            label: "Add another key"
+            size: "sm"
+            visible: root.editable && root.addVisible
+            onClicked: root.addKey()
         }
     ]
 }

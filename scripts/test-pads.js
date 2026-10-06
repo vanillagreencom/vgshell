@@ -134,6 +134,7 @@ function suite(pads, check) {
         pads: [{ name: "1", "class": "org.acme.pad", width: 60, height: 50, x: "end", y: "end", margin: 2, entry: "top", motion: "slide" }],
         refusals: []
     });
+    check("expand: a pad's bind takes each key in a list", expand([pad("1")], { "pad-1": ["alt+super+p", "code:105"] }).binds, [{ shortcut: "pad-1", key: "SUPER+ALT+P" }, { shortcut: "pad-1", key: "code:105" }]);
     check("expand: a pad no key is set for is unbound", expand([pad("1")]).binds, [{ shortcut: "pad-1", key: null }]);
     check("expand: a pad unbound in the row is unbound", expand([pad("1")], { "pad-1": null }).binds, [{ shortcut: "pad-1", key: null }]);
     check("expand: a centred pad is centred both ways", expand([pad("1", { position: "center" })]).pads.map(p => [p.x, p.y]), [["center", "center"]]);
@@ -194,12 +195,12 @@ const CONTROLS = [
     ["an unfit value gives no pad", "if (unfit !== \"\") return", "if (false) return"],
     ["a class is judged", "if (!CLASS.test(item[\"class\"])) {", "if (false) {"],
     ["a class is held once", "if (hasOwn(classes, item[\"class\"])) {", "if (false) {"],
-    ["a pad's key comes from the row", "var key = hasOwn(keys, shortcut) && keys[shortcut] !== null ? hyprlandKey(keys[shortcut]) : null;", "var key = null;"],
+    ["a pad's key comes from the row", "var values = hasOwn(keys, shortcut) && keys[shortcut] !== null ? (Array.isArray(keys[shortcut]) ? keys[shortcut] : [keys[shortcut]]) : [null];", "var values = [null];"],
     ["a pad's key is normalised", "key: key === null ? null : key.key", "key: key === null ? null : keys[shortcut]"],
     ["a position gives both anchors", "\"bottom-right\": [\"end\", \"end\"]", "\"bottom-right\": [\"end\", \"start\"]"],
     ["a top pad starts down", "\"top\": [\"center\", \"start\"],", "\"top\": [\"start\", \"start\"],"],
     ["a right pad ends across", "\"right\": [\"end\", \"center\"],", "\"right\": [\"start\", \"center\"],"],
-    ["a refused pad keeps its bind", "        out.binds.push({ shortcut: shortcut, key: key === null ? null : key.key });\n        if (!CLASS.test", "        if (!CLASS.test"]
+    ["a refused pad keeps its bind", "            out.binds.push({ shortcut: shortcut, key: key === null ? null : key.key });\n        });\n        if (!CLASS.test", "        });\n        if (!CLASS.test"]
 ];
 
 fs.mkdirSync(path.join(__dirname, "..", "tmp"), { recursive: true });

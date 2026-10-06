@@ -315,7 +315,9 @@ Singleton {
     // plugin off (PluginLogic.enablementRule "widget").
     function frameFacts(id) {
         const m = Registry.manifests[id];
-        const keys = Logic.bindRows(Config.effective, m, Capabilities.shortcutDescriptions).map(row => row.key).filter(key => key !== null);
+        const keys = [];
+        for (const row of Logic.bindRows(Config.effective, m, Capabilities.shortcutDescriptions))
+            for (const key of row.keys) keys.push(key);
         return { name: m.name, keys: keys, stops: Logic.enablementRule(m) === "widget" };
     }
 
@@ -640,11 +642,11 @@ Singleton {
     }
 
     // Set, unbind or reset the key of shortcut `shortcut` of plugin `id` in
-    // its plugins row, for the plugin manager: a key string rebinds, null
-    // unbinds, undefined resets to the manifest's key. The Hyprland layer
-    // alone reads the row's keys. A disabled plugin is refused, as for a
-    // setting. The reply is one keyed line: `ok` (the file holds it),
-    // `unknown: <id>` or a refusal.
+    // its plugins row, for the plugin manager: a key string or key list
+    // rebinds, null unbinds, undefined resets to the manifest's key. The
+    // Hyprland layer alone reads the row's keys. A disabled plugin is
+    // refused, as for a setting. The reply is one keyed line: `ok` (the
+    // file holds it), `unknown: <id>` or a refusal.
     function setKey(id, shortcut, key) {
         if (!Registry.has(id)) return "unknown: " + id;
         if (!Registry.isEnabled(id)) return "refused: disabled=" + id;

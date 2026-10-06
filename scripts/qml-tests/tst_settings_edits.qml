@@ -24,9 +24,55 @@ Item {
     property var writes: []
     property bool accepts: true
     property var keys: []
+    property var pageRow: ({
+        id: "acme.unit",
+        name: "Unit",
+        version: "1",
+        description: "Unit plugin",
+        author: "VGS",
+        license: "",
+        icon: "package",
+        source: "bundled",
+        enabled: true,
+        placed: false,
+        kinds: ["service"],
+        capabilities: ["shortcut"],
+        schema: ({}),
+        settings: ({}),
+        settingChoices: ({}),
+        status: [],
+        secretLabel: "",
+        tuis: [],
+        opens: "",
+        paneHolder: "",
+        binds: [{ shortcut: "tap", key: "code:108", keys: ["code:108", "code:105"], default: "code:108", description: "Tap" }],
+        requirements: [],
+        errors: []
+    })
 
     EditSet { id: unsaved }
     SignalSpy { id: saved; target: unsaved; signalName: "saved" }
+    Item {
+        id: fakePanel
+        property var shell: null
+        property var plugins: []
+        property var capture: null
+        property var keyWrites: []
+        function writeKey(id, shortcut, key) {
+            keyWrites.push([id, shortcut, key]);
+            return "ok";
+        }
+        function writeSetting() { return "ok"; }
+        function setEnabled() { return "ok"; }
+        function setPlaced() { return "ok"; }
+        function installRequirements() { return "ok"; }
+        function openPane() { return "ok"; }
+        function openPlugin() { return "ok"; }
+        function updatePlugin() { return "ok"; }
+        function removePlugin() { return "ok"; }
+        function openTui() { return "ok"; }
+        function act() { return "ok"; }
+    }
 
     Column {
         width: 420
@@ -85,6 +131,16 @@ Item {
         }
     }
 
+    Component {
+        id: pluginPageComponent
+        PluginPage {
+            width: 420
+            height: 360
+            panel: fakePanel
+            row: root.pageRow
+        }
+    }
+
     TestCase {
         name: "settingsEdits"
         when: windowShown
@@ -111,6 +167,7 @@ Item {
             return found;
         }
         function editor(field) { return descendants(field).find(child => child instanceof TextInput && child.visible); }
+        function keyFields(item) { return descendants(item).filter(child => child.pluginId === "acme.unit" && child.bind !== undefined && child.shortcutField !== undefined); }
         function type(field, text) {
             const input = editor(field);
             input.forceActiveFocus(Qt.TabFocusReason);
@@ -300,6 +357,18 @@ Item {
             unsaved.discard();
             verify(!keyRow.shortcutField.typing && !unsaved.edited);
             compare(root.keys, []);
+        }
+
+        function test_plugin_page_shows_each_key_and_add_writes_a_list() {
+            fakePanel.keyWrites = [];
+            const page = pluginPageComponent.createObject(root);
+            verify(page !== null);
+            compare(keyFields(page).length, 2);
+            page.addKeySlot("tap", 2);
+            compare(keyFields(page).length, 3);
+            keyFields(page)[2].applyKey("code:97");
+            compare(JSON.stringify(fakePanel.keyWrites), JSON.stringify([["acme.unit", "tap", ["code:108", "code:105", "code:97"]]]));
+            page.destroy();
         }
     }
 }

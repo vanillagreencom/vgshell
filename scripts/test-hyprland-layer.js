@@ -390,7 +390,9 @@ const CONFIG_KEYS = [
     ["keys not an object", ["SUPER+SPACE"], "plugins.0.keys must be an object"],
     ["a malformed name", { Toggle: "SUPER+SPACE" }, "plugins.0.keys.Toggle is not a shortcut name"],
     ["a key the grammar refuses", { toggle: "SUPER+" }, "plugins.0.keys.toggle has an empty part"],
-    ["a key that is a number", { toggle: 32 }, "plugins.0.keys.toggle must be a string"]
+    ["a key that is a number", { toggle: 32 }, "plugins.0.keys.toggle must be a string"],
+    ["an empty key list", { toggle: [] }, "plugins.0.keys.toggle must not be an empty list"],
+    ["a key list entry the grammar refuses", { toggle: ["SUPER+K", "SUPER+"] }, "plugins.0.keys.toggle.1 has an empty part"]
 ];
 
 function manifestOf(logic, patch) {
@@ -527,6 +529,7 @@ function padsFixture(logic, id, pads) {
 }
 
 function verify(logic, layer, shellText) {
+    const lines = out => out.text.split("\n");
     for (const [text, want] of KEYS) {
         const got = logic.hyprlandKey(text);
         if (want.key !== undefined) same(got, { ok: true, key: want.key }, "hyprlandKey " + JSON.stringify(text));
@@ -573,6 +576,13 @@ function verify(logic, layer, shellText) {
     const nullManifest = manifestOf(logic, { hyprland: { binds: [{ shortcut: "tap", key: null, tap: true }] } });
     same(nullManifest.hyprland.binds, [{ shortcut: "tap", key: null, tap: true }], "manifest retains a null default key");
     assert.equal(layer.releaseShortcutName("talk"), "talk.release", "companion cannot be a public registration name");
+    const tapList = logic.hyprlandSection({ plugins: [{ id: "acme.keys", keys: { tap: ["code:108", "code:105"] } }] }, tapManifest);
+    same(tapList.binds, [{ shortcut: "tap", key: "code:108", tap: true }, { shortcut: "tap", key: "code:105", tap: true }], "tap list expands to one bind per key");
+    same(layer.shortcutKeys([tapList], "acme.keys"), { tap: "code:108" }, "shortcut keys read the first tap key");
+    const tapListLines = lines(layer.render([tapList], theme, "tap-list"));
+    assert.equal(tapListLines.filter(line => line === 'hl.bind("code:108", function() hl.__vgs_tap.gate = "acme.keys:tap" end, { description = "acme.keys:tap", non_consuming = true, transparent = true, ignore_mods = true })').length, 1, "tap list writes the first gate");
+    assert.equal(tapListLines.filter(line => line === 'hl.bind("code:105", function() hl.__vgs_tap.gate = "acme.keys:tap" end, { description = "acme.keys:tap", non_consuming = true, transparent = true, ignore_mods = true })').length, 1, "tap list writes the second gate");
+    assert.equal(tapListLines.filter(line => line === "    hl.__vgs_tap = { held = {}, armed = nil, gate = nil }").length, 1, "tap list writes one tracker");
     for (const [label, keys, key] of [
         ["default", {}, "SUPER+code:108"],
         ["rebound", { talk: "SUPER+SHIFT+code:108" }, "SUPER+SHIFT+code:108"],
@@ -588,6 +598,18 @@ function verify(logic, layer, shellText) {
             assert.ok(text.split("\n").includes("    " + releaseLine), "overlay map release flags " + label);
         }
     }
+    const holdList = logic.hyprlandSection({ plugins: [{ id: "acme.keys", keys: { talk: ["SUPER+code:108", "CTRL+code:105"] } }] }, holdManifest);
+    same(holdList.binds, [{ shortcut: "talk", key: "SUPER+code:108", hold: true }, { shortcut: "talk", key: "CTRL+code:105", hold: true }], "hold list expands to one bind per key");
+    same(layer.shortcutKeys([holdList], "acme.keys"), { talk: "SUPER+code:108" }, "shortcut keys read the first hold key");
+    const holdListLines = lines(layer.render([holdList], theme, "hold-list"));
+    const holdPress108 = 'hl.bind("SUPER + code:108", hl.dsp.global("acme.keys:talk"), { description = "acme.keys:talk" })';
+    const holdPress105 = 'hl.bind("CTRL + code:105", hl.dsp.global("acme.keys:talk"), { description = "acme.keys:talk" })';
+    const holdRelease108 = 'hl.bind("SUPER + code:108", hl.dsp.global("acme.keys:talk.release"), { description = "acme.keys:talk.release", release = true, non_consuming = true, transparent = true, ignore_mods = true })';
+    const holdRelease105 = 'hl.bind("CTRL + code:105", hl.dsp.global("acme.keys:talk.release"), { description = "acme.keys:talk.release", release = true, non_consuming = true, transparent = true, ignore_mods = true })';
+    assert.equal(holdListLines.filter(line => line === holdPress108).length, 1, "hold list writes the first press");
+    assert.equal(holdListLines.filter(line => line === holdPress105).length, 1, "hold list writes the second press");
+    assert.equal(holdListLines.filter(line => line === holdRelease108).length, 1, "hold list writes the first release");
+    assert.equal(holdListLines.filter(line => line === holdRelease105).length, 1, "hold list writes the second release");
     const losingHold = Object.assign({}, logic.hyprlandSection({}, holdManifest), { id: "acme.other" });
     assert.ok(!layer.render([logic.hyprlandSection({}, holdManifest), losingHold], theme, "hold").text.includes("acme.other:talk.release"), "conflict skips both hold binds");
     assert.ok(!keycodeText.includes("talk.release"), "ordinary bind has no release companion");
@@ -640,7 +662,6 @@ function verify(logic, layer, shellText) {
     }, "hyprlandSection resolves appearance switches from effective plugin settings");
 
     const section = (id, binds, layerRules, version, appearance) => ({ id: id, version: version || "1.0.0", binds: binds, layerRules: layerRules, appearance: appearance || {}, options: [], unknownKeys: [] });
-    const lines = out => out.text.split("\n");
     // The values a layer applies once the configuration has loaded: the
     // lines inside its callback, without their indent. The section starts
     // after the header and its end is the first line that closes a block
@@ -1167,12 +1188,14 @@ const CONTROLS = [
     [logicFile, "keys object", "if (!isPlainObject(keys))\n        return at + \" must be an object\";", "if (false)\n        return at + \" must be an object\";"],
     [logicFile, "keys names", "if (!NAME_PATTERN.test(names[i]))", "if (false)"],
     [logicFile, "keys null unbinds", "if (keys[names[i]] === null)\n            continue;", "if (false)\n            continue;"],
-    [logicFile, "keys values", "if (!key.ok)\n            return at + \".\" + names[i] + \" \" + key.error;", "if (false)\n            return at + \".\" + names[i] + \" \" + key.error;"],
+    [logicFile, "keys values", "if (!key.ok)\n            return itemAt + \" \" + key.error;", "if (false)\n            return itemAt + \" \" + key.error;"],
+    [logicFile, "keys empty lists", "if (Array.isArray(value) && value.length === 0)\n        return at + \" must not be an empty list\";", "if (false)\n        return at + \" must not be an empty list\";"],
     [logicFile, "keys no setting", "var ENTRY_RESERVED_KEYS = [\"id\", \"keys\"];", "var ENTRY_RESERVED_KEYS = [\"id\"];"],
-    [logicFile, "row key wins", "if (!hasOwn(keys, bind.shortcut)) return Object.assign({}, bind);", "return Object.assign({}, bind);"],
-    [logicFile, "null unbinds", "if (keys[bind.shortcut] === null) return Object.assign({}, bind, { key: null });", ""],
+    [logicFile, "row key wins", "if (!hasOwn(keys, bind.shortcut)) {\n            binds.push(Object.assign({}, bind));\n            return;\n        }", "binds.push(Object.assign({}, bind));\n            return;"],
+    [logicFile, "null unbinds", "if (keys[bind.shortcut] === null) {\n            binds.push(Object.assign({}, bind, { key: null }));\n            return;\n        }", ""],
+    [logicFile, "key lists expand to binds", "keyValues(keys[bind.shortcut]).forEach(function (value) {", "[keyValues(keys[bind.shortcut])[0]].forEach(function (value) {"],
     [logicFile, "row key normalised", "var result = Object.assign({}, bind, { key: key.key });", "var result = Object.assign({}, bind, { key: keys[bind.shortcut] });"],
-    [logicFile, "tap override key is refused", "if (bind.tap === true && keyHasModifiers(key.key))\n            result.error = \"tap key must be a lone key with no modifiers\";", "if (false)\n            result.error = \"tap key must be a lone key with no modifiers\";"],
+    [logicFile, "tap override key is refused", "if (bind.tap === true && keyHasModifiers(key.key))\n                result.error = \"tap key must be a lone key with no modifiers\";", "if (false)\n                result.error = \"tap key must be a lone key with no modifiers\";"],
     [logicFile, "unknown keys", "return names.indexOf(name) === -1 && !Pads.isPadShortcut(declared, name, NAME_PATTERN); }).sort()", "return false; }).sort()"],
     [logicFile, "appearance setting resolved", "appearance[group] = { setting: setting, enabled: settings[setting] === true };", "appearance[group] = { setting: setting, enabled: true };"],
     [layerFile, "sections by id", "var rows = sections.slice().sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; }).map(", "var rows = sections.slice().map("],
@@ -1185,6 +1208,7 @@ const CONTROLS = [
     [logicFile, "keycode lower-case prefix", 'name = "code:" + String(Number(name.slice(5)));', 'name = "CODE:" + String(Number(name.slice(5)));'],
     [logicFile, "keycode leading zeros", 'String(Number(name.slice(5)))', 'name.slice(5)'],
     [layerFile, "shortcut read respects conflicts", 'if (held[bind.key] !== undefined) {\n                conflicts.push', 'if (held[bind.key] !== undefined) {\n                keys[section.id][bind.shortcut] = bind.key;\n                conflicts.push'],
+    [layerFile, "shortcut read keeps the first key", "if (keys[section.id][bind.shortcut] === null)\n                keys[section.id][bind.shortcut] = bind.key;", "keys[section.id][bind.shortcut] = bind.key;"],
     [layerFile, "shortcut map has no inherited names", 'keys[section.id] = Object.create(null);', 'keys[section.id] = {};'],
     [layerFile, "tap tracker emitted", "if (tapTrackerWanted(plan)) lines = lines.concat([\"\"], tapTrackerLines());", "if (false) lines = lines.concat([\"\"], tapTrackerLines());"],
     [layerFile, "tap bind gates", "function() hl.__vgs_tap.gate = \\\"\" + global + \"\\\" end", "hl.dsp.global(\\\"\" + global + \"\\\")"],
