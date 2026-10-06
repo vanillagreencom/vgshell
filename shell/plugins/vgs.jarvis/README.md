@@ -22,10 +22,10 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 - Labelled Mute and Stop buttons use the same actions as their keys.
 - File tools list, read, search, write, move and delete files in your home folder. They refuse credential stores, account folders and VGS's own files, and never follow a link out of your home folder.
 - Shell tools keep commands inside a kernel sandbox and report failed, cancelled or bounded execution.
-- Settings shows shell readiness and offers installation when Bubblewrap is missing.
-- Settings opens Add key in a floating terminal with hidden key input.
-- Settings shows whether a referenced key is present, absent, locked or unavailable without reading it.
-- Settings and the launcher open local voice setup in a floating terminal.
+- Plugins shows shell readiness and offers installation when Bubblewrap is missing.
+- Plugins opens Add key in a floating terminal with hidden key input.
+- Plugins shows whether a referenced key is present, absent, locked or unavailable without reading it.
+- Plugins and the launcher open local voice setup in a floating terminal.
 - Local setup verifies downloaded models and runs a bundled test clip without opening audio devices.
 - Local voice turns your speech into text and speaks replies on your computer, with no network access.
 - Accounts finds the account folders in your home, config and data folders, such as `.claude-work` or `.2codex`, and lets you add another directory.
@@ -52,7 +52,7 @@ The desktop tools need wl-clipboard, playerctl, WirePlumber and libnotify. The s
 
 ## How it works
 
-The service sends its current configuration and lock observation to the child. The child answers with its health and session state. Settings shows its health. Add key asks for a provider, an account label and the provider's origin, then hides key input. The desktop keyring stores the key. VGS stores only the item's reference. Disable destroys the service and its child.
+The service sends its current configuration and lock observation to the child. The child answers with its health and session state. Plugins shows its health. Add key asks for a provider, an account label and the provider's origin, then hides key input. The desktop keyring stores the key. VGS stores only the item's reference. Disable destroys the service and its child.
 
 ## Coding tasks
 
@@ -74,14 +74,14 @@ The Keys section changes Talk, Mute and Stop. Talk defaults to Super with Right 
 
 Open Jarvis in Plugins and select Add key. Use the provider's origin, such as `https://api.openai.com`, without a path. Add key can ask the desktop keyring to unlock because you started storage. The background presence check never unlocks it.
 
-Select Set up local voice in Plugins or the launcher's Jarvis group. The terminal lists only the tiers this computer can run, each with what it is for and its download size, and recommends the first. Setup checks free space, then downloads its models and a private runtime. A failed setup removes them and says how much download cache it kept for the next attempt. Settings reports Ready only after file verification and the bundled probe succeed. Jarvis then hears and speaks with local voice. Setup cannot run while Jarvis is in a conversation.
+Select Set up local voice in Plugins or the launcher's Jarvis group. The terminal lists only the tiers this computer can run, each with what it is for and its download size, and recommends the first. Setup checks free space, then downloads its models and a private runtime. A failed setup removes them and says how much download cache it kept for the next attempt. Plugins reports Ready only after file verification and the bundled probe succeed. Jarvis then hears and speaks with local voice. Setup cannot run while Jarvis is in a conversation.
 
-AI model keeps the account you select. Jarvis starts it when a conversation starts. Settings retains a saved selection when discovery no longer offers it.
+AI model keeps the account you select. Jarvis starts it when a conversation starts. Plugins retains a saved selection when discovery no longer offers it.
 
 Select Accounts to add a directory, choose an existing keyring item by label or inspect login hints. Verify asks for a model and consent because a real inference request may cost money. API and local verification send one small request. A Claude Code account sends one small request through its own installed program, which keeps its login. Other subscriptions and speech-only verification remain unavailable. A login hint never proves inference access.
 
 ## Browser
 
-Select Set up browser in Plugins or the launcher's Jarvis group. Setup checks an installed browser on a blank page. If no browser is found, it offers a private download. Settings shows readiness after the check succeeds.
+Select Set up browser in Plugins or the launcher's Jarvis group. Setup checks an installed browser on a blank page. If no browser is found, it offers a private download. Plugins shows readiness after the check succeeds.
 
 The driver needs agent-browser. While it is missing, the Browser driver row offers Install, and Set up browser waits until it is installed. Setup opened from the launcher offers the same install before it continues. Browser actions use a private session. Jarvis asks for input access to each site. A site grant lets Jarvis act as you there. Submit actions need confirmation. Password entry remains with you. This skeleton has no connected brain, so browser actions are not active yet.

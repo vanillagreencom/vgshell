@@ -22,7 +22,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 | `XF86AudioMute` | Mute or unmute the output. |
 | `XF86AudioMicMute` | Mute or unmute the microphone. |
 
-Settings' Keys rows change each key. When one of your own Hyprland binds uses the same key, the row says so and offers Use my binding. Use my binding turns off the Sound key, so your bind keeps the key.
+The Keys rows in Plugins change each key. When one of your own Hyprland binds uses the same key, the row says so and offers Use my binding. Use my binding turns off the Sound key, so your bind keeps the key.
 
 ## Settings
 
