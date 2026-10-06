@@ -1,7 +1,9 @@
 # The clipboard history, vgs.clipboard: a first-party service and overlay.
-# It is on from the start: the row reads that no disabled list and no
-# plugins row names it and that it is enabled, copies on the nested
-# instance's own clipboard with the real wl-copy, and reads the history back
+# The harness's user file lists it in disabledPlugins, as it lists every
+# first-party service; the row reads it disabled, enables it through the
+# manager, which unlists it and writes no plugins row, reads it enabled and
+# built, copies on the nested instance's own clipboard with the real
+# wl-copy, and reads the history back
 # through the plugin's IPC and the drawn rows through the probe. A first
 # copy, a text copy and an image copy are recorded, a repeat moves to the
 # front, and a copy made with `wl-copy --sensitive` is not recorded, read
@@ -21,8 +23,9 @@
 # no desktop entry names receives no key and a toast shows. A change the
 # service refuses shows a toast too. Shift+Enter sends no key. Ctrl+P pins,
 # Delete removes an image entry and its file, and Shift+Delete then Enter
-# clears all but the pin. Disabling the plugin leaves no watcher among the
-# shell's children.
+# clears all but the pin. Disabling the plugin lists it in disabledPlugins
+# again, as the row found it, and leaves no watcher among the shell's
+# children.
 # The control is one copy of the plugin with eight rules removed, each read
 # by the assertion that holds it: a shortcut that opens nothing, a watcher
 # whose lines are dropped, a filter the overlay does not send, a terminal
@@ -161,8 +164,11 @@ hypr_lua_save clipboard
 printf '%s\n' 'hl.config({ input = { resolve_binds_by_sym = true } })' >>"$home/.config/hypr/hyprland.lua"
 expect "the nested instance reloads with typed keys reaching binds" ok hypr reload config-only
 
-expect "no disabled list and no plugins row names the clipboard history" '[false, false]' clip_listed
-expect "the clipboard history is on from the start" True plugin_enabled vgs.clipboard
+expect "the harness's disabled list names the clipboard history" '[true, false]' clip_listed
+expect "the clipboard history starts disabled" False plugin_enabled vgs.clipboard
+expect "enabling the clipboard history is allowed" ok ipc shell setPluginEnabled vgs.clipboard true
+expect_poll "enabling unlisted the id and wrote no plugins row" '[false, false]' clip_listed
+expect_poll "the clipboard history is enabled" True plugin_enabled vgs.clipboard
 expect_poll "the clipboard service is built" True record_exists vgs.clipboard
 expect_poll "the service registered its shortcut and IPC target" '[["vgs.clipboard:toggle"], ["vgs.clipboard"]]' clip_lent
 expect_poll "the store is ready" '"ready"' clip_read service store
