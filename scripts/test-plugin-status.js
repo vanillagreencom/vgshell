@@ -85,7 +85,7 @@ function suite(ctx, check) {
                 { ok: true, kind: "install" });
             check("Settings withholds local voice and offers install while " + absent + " is absent",
                 ctx.statusRows(jarvis, voiceValues, missing).find(row => row.key === "localRuntime").action,
-                { label: "Install requirements", offered: true });
+                { label: "Install requirements", offered: true, tui: "setup-local" });
             fs.writeFileSync(file, "#!/bin/sh\nexit 99\n", { mode: 0o700 });
         }
     } finally {
@@ -158,11 +158,11 @@ function suite(ctx, check) {
         const texts = [].concat(...rows.map(row => [row.hint, row.value.text].concat(row.value.lines || [])));
         return ["Add key", "Accounts"].filter(step => !offered.includes(step) && texts.some(text => text.includes(step)));
     };
-    check("Jarvis offers Add key and Accounts while only tesseract is missing", pageRows(["tesseract"]).map(row => row.action), [{ label: "Add key", offered: true }, { label: "Accounts", offered: true }]);
+    check("Jarvis offers Add key and Accounts while only tesseract is missing", pageRows(["tesseract"]).map(row => row.action), [{ label: "Add key", offered: true, tui: "add-key" }, { label: "Accounts", offered: true, tui: "accounts" }]);
     check("Jarvis opens add-key while only tesseract is missing",
         ctx.tuiRunFor(jarvis, true, "/sources", runner, "add-key", ["tesseract"]).key, "vgs.jarvis/add-key");
     const withheld = pageRows(["tesseract", "secret-tool"]);
-    check("Jarvis withholds Add key and Accounts while secret-tool is missing", withheld.map(row => row.action), [{ label: "Install requirements", offered: true }, { label: "Install requirements", offered: true }]);
+    check("Jarvis withholds Add key and Accounts while secret-tool is missing", withheld.map(row => row.action), [{ label: "Install requirements", offered: true, tui: "add-key" }, { label: "Install requirements", offered: true, tui: "accounts" }]);
     check("a withheld row's hint names the command its step needs and not the one it does not",
         withheld.map(row => [row.hint.includes("secret-tool"), row.hint.includes("tesseract")]), [[true, false], [true, false]]);
     check("a withheld state reads a warning and keeps its action",
@@ -176,7 +176,7 @@ function suite(ctx, check) {
         ctx.statusRows(m, {}, ["acme-sync"])[0].action.offered, false);
     check("missing requirements preserve an existing install action",
         ctx.statusRows(m, { check: { tone: "warning", text: "Missing", action: true } }, ["acme-sync"])[2].action,
-        { label: "Install sync", offered: true });
+        { label: "Install sync", offered: true, tui: "" });
 
     // statusWrite: [name, key, value, want], `want` the error line or "ok".
     const writeRows = [
@@ -328,7 +328,7 @@ function suite(ctx, check) {
     const values = ctx.statusWrite(m, ctx.statusWrite(m, ctx.statusWrite(m, {}, "token", "locked").values, "check", { tone: "ok", text: "Up to date" }).values, "pending", 0).values;
     const rows = ctx.statusRows(m, values, []);
     check("statusRows: one row per displayable entry, in manifest order", rows.map(r => r.key), ["token", "tokens", "check", "note", "pending", "lastCheck", "health"]);
-    check("statusRows: a reported presence carries its tone and the declaration", rows[0], { key: "token", type: "presence", label: "Token", group: "Keys", hint: "Needed", info: "Explains this status", action: { label: "Set up token", offered: false }, report: "reported", value: "locked", tone: "info" });
+    check("statusRows: a reported presence carries its tone and the declaration", rows[0], { key: "token", type: "presence", label: "Token", group: "Keys", hint: "Needed", info: "Explains this status", action: { label: "Set up token", offered: false, tui: "" }, report: "reported", value: "locked", tone: "info" });
     check("statusRows: a declaration carries info", rows[0].info, "Explains this status");
     check("statusRows: a reported state carries its tone", [rows[2].report, rows[2].value, rows[2].tone], ["reported", { tone: "ok", text: "Up to date" }, "success"]);
     check("statusRows: an unreported entry has no value and no tone", rows[3], { key: "note", type: "text", label: "Note", group: "", hint: "", info: "", action: null, report: "unreported", value: null, tone: "" });
@@ -337,6 +337,11 @@ function suite(ctx, check) {
     // An action is offered while the published value calls for it: a
     // presence while absent, a state while it says so, never unreported.
     const actionsOffered = values => ctx.statusRows(m, values, []).filter(r => r.action !== null).map(r => [r.key, r.action.offered]);
+    // The offered action names the TUI it opens, for the page's Setup
+    // buttons; an install action and an action not offered name none.
+    const actionTuis = values => ctx.statusRows(m, values, []).filter(r => r.action !== null).map(r => [r.key, r.action.tui]);
+    check("statusRows: an offered TUI action names its TUI", actionTuis({ token: "absent" }), [["token", "setup"], ["check", ""]]);
+    check("statusRows: an action not offered names no TUI", actionTuis({ token: "present" }), [["token", ""], ["check", ""]]);
     check("statusRows: nothing published offers no action", actionsOffered({}), [["token", false], ["check", false]]);
     for (const [presence, want] of [["absent", true], ["present", false], ["locked", false], ["unavailable", false], ["unsafe", false]])
         check("statusRows: a presence " + presence + (want ? " offers" : " offers no") + " action", actionsOffered(ctx.statusWrite(m, {}, "token", presence).values)[0], ["token", want]);
@@ -455,8 +460,8 @@ function suite(ctx, check) {
     ]) check("statusWrite: " + name, named(key, value), want);
     const namedValues = action => ctx.statusWrite(mNamed, {}, "agent", action === null ? { tone: "ok", text: "t" } : { tone: "warning", text: "t", action }).values;
     const agentAction = values => ctx.statusRows(mNamed, values, [])[0].action;
-    check("statusRows: a named action carries its own label", [agentAction(namedValues("remove")), agentAction(namedValues("get"))], [{ label: "Uninstall", offered: true }, { label: "Install", offered: true }]);
-    check("statusRows: named actions none of which applies offer nothing", [agentAction(namedValues(null)), agentAction({})], [{ label: "", offered: false }, { label: "", offered: false }]);
+    check("statusRows: a named action carries its own label", [agentAction(namedValues("remove")), agentAction(namedValues("get"))], [{ label: "Uninstall", offered: true, tui: "remove" }, { label: "Install", offered: true, tui: "" }]);
+    check("statusRows: named actions none of which applies offer nothing", [agentAction(namedValues(null)), agentAction({})], [{ label: "", offered: false, tui: "" }, { label: "", offered: false, tui: "" }]);
     check("statusActionRequest: a named TUI action opens it", ctx.statusActionRequest(mNamed, "acme.agent", true, namedValues("remove"), "agent"), { ok: true, kind: "tui", name: "remove" });
     check("statusActionRequest: a named install action installs its commands", ctx.statusActionRequest(mNamed, "acme.agent", true, namedValues("get"), "agent"), { ok: true, kind: "install", commands: ["acme-sync"] });
     check("statusActionRequest: named actions none of which applies are refused", ctx.statusActionRequest(mNamed, "acme.agent", true, namedValues(null), "agent"), { ok: false, answer: "refused: action=agent reason=not-offered" });
@@ -533,7 +538,9 @@ const CONTROLS = [
     ["a script's requires decides what it needs", "var needed = requires !== null ? requires : manifest", "var needed = false ? requires : manifest"],
     ["an empty requires needs nothing", "var needed = requires !== null ? requires : manifest", "var needed = requires !== null && requires.length > 0 ? requires : manifest"],
     ["a missing required command routes setup to install", "if (tuiMissingRequirements(manifest, name, missing).length > 0) return { ok: true, kind: \"install\" };", ""],
-    ["the row withholds the TUI label while requirements are missing", "{ label: lacking.length > 0 ? STATUS_WITHHELD_LABEL : offered.label, offered: true }", "{ label: offered.label, offered: true }"],
+    ["the row withholds the TUI label while requirements are missing", "{ label: lacking.length > 0 ? STATUS_WITHHELD_LABEL : offered.label, offered: true,", "{ label: offered.label, offered: true,"],
+    ["a row names the TUI its offered action opens", "tui: offered.tui === undefined ? \"\" : offered.tui }", "tui: \"\" }"],
+    ["a row not offered names no TUI", "offered: false, tui: \"\" };", "offered: false, tui: entry.action === undefined || entry.action.tui === undefined ? \"\" : entry.action.tui };"],
     ["a row reads the lacking commands of its offered TUI", "return offered !== null && offered.tui !== undefined ? tuiMissingRequirements(manifest, offered.tui, missing) : [];", "return [];"],
     ["a withheld row's hint is the rule's", "            hint = statusWithheldHint(lacking);\n", ""],
     ["a withheld state reads the rule's state", "            if (entry.type === \"state\") value = Object.assign({ action: value.action }, STATUS_WITHHELD_STATE);\n", ""],

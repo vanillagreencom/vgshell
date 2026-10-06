@@ -1131,14 +1131,16 @@ function statusActionOffered(entry, value) {
 
 // What a Status row carries of ENTRY's step for its published VALUE, null
 // while unreported: null for an entry that declares none, else { label,
-// offered }, the label of the action that applies, STATUS_WITHHELD_LABEL
+// offered, tui }, the label of the action that applies, STATUS_WITHHELD_LABEL
 // while that action's TUI lacks the requirements LACKING, or of the entry's one
-// `action` while it does not, "" for `actions` none of which applies.
+// `action` while it does not, "" for `actions` none of which applies, and
+// `tui` the plugin's own TUI the offered action opens, "" while none is
+// offered or it opens none, so a page can draw that TUI's button as the step.
 function statusRowAction(entry, value, lacking) {
     if (entry.action === undefined && entry.actions === undefined) return null;
     var offered = value === null ? null : statusActionOffered(entry, value);
-    if (offered !== null) return { label: lacking.length > 0 ? STATUS_WITHHELD_LABEL : offered.label, offered: true };
-    return { label: entry.action === undefined ? "" : entry.action.label, offered: false };
+    if (offered !== null) return { label: lacking.length > 0 ? STATUS_WITHHELD_LABEL : offered.label, offered: true, tui: offered.tui === undefined ? "" : offered.tui };
+    return { label: entry.action === undefined ? "" : entry.action.label, offered: false, tui: "" };
 }
 
 // The label a Status row's button reads while the TUI its action opens
