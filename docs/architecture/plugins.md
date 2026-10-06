@@ -18,6 +18,7 @@ A kind names an entry point the core can host on a surface or inside a holder. A
 | `bar` | an `Item` declaring `leftSection`, `centerSection` and `rightSection` | `BarHost`, one per screen | it is the active bar; one at a time |
 | `service` | a headless `Item` | `ServiceHost` | enabled; at start, once the first bars have drawn a frame ([D047](../decisions/D047-services-build-after-the-first-bar-frame.md)) |
 | `background` | an `Item` declaring `screen` | `BackgroundHost`, one per screen, on the layer under every window | enabled |
+| `cover` | an `Item` declaring `screen` | `BackgroundHost`, one per screen, on the overlay layer above every window | enabled |
 | `panel`, `overlay`, `menu` | an `Item` with `open(payloadJson)` and `close()` | `SummonHost`, one per kind | enabled and summoned, until hidden |
 | `window` | the same | `SummonHost`, as a Hyprland window | enabled and summoned, until hidden or closed |
 | `pane` | the same | the enabled holder of capability `panes` | enabled and mounted by that holder |
@@ -31,6 +32,8 @@ Disabling the active bar hides every shown bar widget, named in the manager's re
 A bar instance may declare `shown`. `BarHost` maps a screen's bar surface only while the instance there is not `shown: false`, one without the property included, so a hidden bar reserves no space; the instance stays built and shows again when the property turns true. `PluginLogic.barShown` decides it, and the service gate reads the same answer, so it waits for no hidden bar's first frame ([runtime.md](runtime.md)). A plugin declaring `bar` may declare `service` beside it: the service is built while the bar is the active one, as `vgs.bar`'s is for its hide toggle.
 
 A background instance may declare `shown`. `BackgroundHost` maps a screen's surface only while an instance there is shown, one without the property included, so a plugin with nothing to draw leaves the screen to whatever draws under it. A hidden layer-shell window deletes its Wayland window and keeps its items, which show it again ([`wlr_layershell.cpp`](https://git.outfoxxed.me/quickshell/quickshell/src/tag/v0.3.1/src/wayland/wlr_layershell/wlr_layershell.cpp) `deleteOnInvisible`, [`proxywindow.cpp`](https://git.outfoxxed.me/quickshell/quickshell/src/tag/v0.3.1/src/window/proxywindow.cpp) `setVisibleDirect`).
+
+A cover instance declares `shown`. `BackgroundHost` maps a screen's cover surface only while an instance there declares `shown: true`. The surface uses the overlay layer, ignores reserved space and takes exclusive keyboard focus while it is mapped.
 
 ## What the core builds and hands over
 

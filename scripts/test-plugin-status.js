@@ -180,8 +180,8 @@ function suite(ctx, check) {
     const writeRows = [
         ["choices with separate labels and values", "devices", [{ label: "Microphone", value: "mic:1" }, { label: "Speaker", value: "sink:2" }], "ok"],
         ["empty choices", "devices", [], "ok"],
-        ["choices at the item ceiling", "devices", Array.from({ length: 32 }, (_, i) => ({ label: "Device", value: "d" + i })), "ok"],
-        ["choices past the item ceiling", "devices", Array.from({ length: 33 }, (_, i) => ({ label: "Device", value: "d" + i })), "refused: status=devices reason=type"],
+        ["choices at the item ceiling", "devices", Array.from({ length: 64 }, (_, i) => ({ label: "Device", value: "d" + i })), "ok"],
+        ["choices past the item ceiling", "devices", Array.from({ length: 65 }, (_, i) => ({ label: "Device", value: "d" + i })), "refused: status=devices reason=type"],
         ["choices must be a list", "devices", { label: "A", value: "a" }, "refused: status=devices reason=type"],
         ["choices item must be an object", "devices", ["a"], "refused: status=devices reason=type"],
         ["choices item must be plain JSON", "devices", [new (class Choice { constructor() { this.label = "A"; this.value = "a"; } })()], "refused: status=devices reason=type"],
@@ -215,8 +215,8 @@ function suite(ctx, check) {
         ["a presence list item account that is no string", "tokens", [{ label: "A", value: "absent", secret: 7 }], "refused: status=tokens reason=type"],
         ["a presence list item command without its account", "tokens", [{ label: "A", value: "absent", command: "secret-tool store y" }], "refused: status=tokens reason=type"],
         ["an empty presence list", "tokens", [], "ok"],
-        ["a presence list of 32 items", "tokens", Array.from({ length: 32 }, (_, i) => ({ label: "w" + i, value: "absent" })), "ok"],
-        ["a presence list of 33 items", "tokens", Array.from({ length: 33 }, (_, i) => ({ label: "w" + i, value: "absent" })), "refused: status=tokens reason=type"],
+        ["a presence list of 64 items", "tokens", Array.from({ length: 64 }, (_, i) => ({ label: "w" + i, value: "absent" })), "ok"],
+        ["a presence list of 65 items", "tokens", Array.from({ length: 65 }, (_, i) => ({ label: "w" + i, value: "absent" })), "refused: status=tokens reason=type"],
         ["a presence list that is an object", "tokens", { label: "A", value: "present" }, "refused: status=tokens reason=type"],
         ["a presence list item that is a string", "tokens", ["present"], "refused: status=tokens reason=type"],
         ["a presence list item outside the presence set", "tokens", [{ label: "A", value: "stored" }], "refused: status=tokens reason=type"],
@@ -350,7 +350,7 @@ function suite(ctx, check) {
     check("statusTone: a text type has none", ["text", "count", "time"].map(t => ctx.statusTone(t, 1)), ["", "", ""]);
     check("statusTone: a presence list has none of its own", ctx.statusTone("presenceList", [{ label: "A", value: "present" }]), "");
     check("STATUS_TYPES", ctx.STATUS_TYPES, ["presence", "presenceList", "state", "text", "count", "time", "data", "choices"]);
-    check("STATUS_LIST_MAX", ctx.STATUS_LIST_MAX, 32);
+    check("STATUS_LIST_MAX", ctx.STATUS_LIST_MAX, 64);
 
     const offered = [{ label: "Alpha", value: "a" }, { label: "Beta", value: "b" }];
     const automatic = { label: "First offered: Alpha", value: "" };
@@ -431,8 +431,8 @@ function suite(ctx, check) {
         ["no further line", "agent", { tone: "warning", text: "t", lines: [] }, refusedAgent],
         ["lines that are a string", "agent", { tone: "warning", text: "t", lines: "u" }, refusedAgent],
         ["a line with a line break", "agent", { tone: "warning", text: "t", lines: ["u\nv"] }, refusedAgent],
-        ["32 further lines", "agent", { tone: "warning", text: "t", lines: new Array(32).fill("u") }, "ok"],
-        ["33 further lines", "agent", { tone: "warning", text: "t", lines: new Array(33).fill("u") }, refusedAgent],
+        ["64 further lines", "agent", { tone: "warning", text: "t", lines: new Array(64).fill("u") }, "ok"],
+        ["65 further lines", "agent", { tone: "warning", text: "t", lines: new Array(65).fill("u") }, refusedAgent],
     ]) check("statusWrite: " + name, named(key, value), want);
     const namedValues = action => ctx.statusWrite(mNamed, {}, "agent", action === null ? { tone: "ok", text: "t" } : { tone: "warning", text: "t", action }).values;
     const agentAction = values => ctx.statusRows(mNamed, values, [])[0].action;

@@ -3,6 +3,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import Quickshell.Wayland
 import qs.Core
 import qs.Hosts
 
@@ -46,7 +47,22 @@ ShellRoot {
 
     Variants {
         model: root.guarded ? Quickshell.screens : []
-        BackgroundHost {}
+        BackgroundHost {
+            kind: "background"
+            namespace: "vgs:background"
+            shellLayer: WlrLayer.Background
+            keyboardFocus: WlrKeyboardFocus.None
+        }
+    }
+
+    Variants {
+        model: root.guarded ? Quickshell.screens : []
+        BackgroundHost {
+            kind: "cover"
+            namespace: "vgs:cover"
+            shellLayer: WlrLayer.Overlay
+            keyboardFocus: WlrKeyboardFocus.Exclusive
+        }
     }
 
     LazyLoader {

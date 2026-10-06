@@ -35,6 +35,7 @@ function suite(ctx, check) {
     // same fixture does not pass for it.
     const manifestRows = [
         ["valid bar manifest", {}, null],
+        ["valid cover manifest", { kinds: ["cover"], entryPoints: { cover: "Cover.qml" } }, null],
         ["valid pane manifest", { kinds: ["pane"], entryPoints: { pane: "Pane.qml" }, pane: { group: "System", order: 10 } }, null],
         ["kind pane without pane key", { kinds: ["pane"], entryPoints: { pane: "Pane.qml" } }, "kind pane needs a pane declaration"],
         ["pane key without pane kind", { pane: { group: "System", order: 10 } }, "pane needs kind pane"],
@@ -834,6 +835,19 @@ function suite(ctx, check) {
     for (const [name, instance, want] of [["a bar being built", null, true], ["a bar without the property", {}, true], ["a shown bar", { shown: true }, true], ["a hidden bar", { shown: false }, false]])
         check("barShown: " + name, ctx.barShown(instance), want);
 
+    for (const [kind, instance, want] of [
+        ["background", null, false],
+        ["background", {}, true],
+        ["background", { shown: true }, true],
+        ["background", { shown: false }, false],
+        ["cover", null, false],
+        ["cover", {}, false],
+        ["cover", { shown: false }, false],
+        ["cover", { shown: true }, true],
+        ["service", { shown: true }, false],
+    ])
+        check("perScreenLayerShown: " + kind + " " + JSON.stringify(instance), ctx.perScreenLayerShown(kind, instance), want);
+
     const paneRowsManifests = {};
     function paneManifest(id, name, group, order, extra) {
         return ctx.validateManifest(Object.assign({ schemaVersion: 1, id: id, name: name, version: "1", author: "a", description: "d", kinds: ["pane"], entryPoints: { pane: "Pane.qml" }, pane: { group: group, order: order } }, extra || {}), "/p").manifest;
@@ -1241,6 +1255,9 @@ const CONTROLS = [
     ["a data entry is never drawn", "if (entry[drawn[d]] !== undefined)", "if (false)"],
     ["an absent status is normalised", "manifest.status = raw.status === undefined ? {} : clone(raw.status);", "manifest.status = clone(raw.status);"],
     ["window is a kind", "\"menu\", \"window\", \"pane\", \"service\"", "\"menu\", \"pane\", \"service\""],
+    ["cover is a kind", "\"service\", \"background\", \"cover\"", "\"service\", \"background\""],
+    ["cover maps only when shown true", "if (kind === \"cover\")\n        return instance.shown === true;", "if (kind === \"cover\")\n        return instance.shown !== false;"],
+    ["background maps instances without shown", "if (kind === \"background\")\n        return instance.shown !== false;", "if (kind === \"background\")\n        return instance.shown === true;"],
     ["pane is a kind", "\"window\", \"pane\", \"service\"", "\"window\", \"service\""],
     ["pane is a manifest key", "\"defaultSection\", \"pane\", \"appearance\"", "\"defaultSection\", \"appearance\""],
     ["pane key needs kind pane", "if (kinds.indexOf(\"pane\") === -1)\n        return \"pane needs kind pane\";", "if (false)\n        return \"pane needs kind pane\";"],

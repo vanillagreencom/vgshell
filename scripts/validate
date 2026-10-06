@@ -242,6 +242,7 @@ rows=(
   "logic|mouse logic|node scripts/test-mouse-logic.js|shell/plugins/vgs.mouse/MouseLogic.js shell/plugins/vgs.mouse/manifest.json bin/lib/qml-library.js"
   "logic|sound logic|node scripts/test-sound-logic.js|shell/plugins/vgs.sound/SoundLogic.js bin/lib/qml-library.js"
   "logic|power logic|node scripts/test-power-logic.js|shell/plugins/vgs.power/PowerLogic.js bin/lib/qml-library.js"
+  "logic|screensaver logic|node scripts/test-screensaver-logic.js|shell/plugins/vgs.screensaver/ScreensaverLogic.js scripts/fixtures/screensaver/ttfx-help.txt bin/lib/qml-library.js"
   "logic|clipboard history logic|node scripts/test-clipboard-history.js|shell/plugins/vgs.clipboard/ClipboardHistory.js bin/lib/qml-library.js"
   "logic|automations judge|node scripts/test-automations-logic.js|shell/plugins/vgs.automations/AutomationsLogic.js bin/lib/qml-library.js shell/Commons/Duration.js"
   "logic|Jarvis Session|node scripts/test-jarvis-session.js|shell/plugins/vgs.jarvis/Session.js bin/lib/qml-library.js"

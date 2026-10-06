@@ -1,0 +1,91 @@
+Terminal text effects (Rust port of terminaltexteffects)
+
+Usage: ttfx [OPTIONS] [COMMAND]
+
+Commands:
+  beams            Create beams which travel over the canvas illuminating the characters behind them
+  binarypath       Binary representations of each character move towards the home coordinate of the character
+  blackhole        Characters are consumed by a black hole and explode outwards
+  bouncyballs      Characters are bouncy balls falling from the top of the canvas
+  bubbles          Characters are formed into bubbles that float down and pop
+  burn             Burns vertically in the canvas
+  colorshift       Display a gradient that shifts colors across the terminal
+  crumble          Characters lose color and crumble into dust, vacuumed up, and reformed
+  decrypt          Display a movie style decryption effect
+  errorcorrect     Some characters start in the wrong position and are corrected in sequence
+  expand           Expands the text from a single point
+  fireworks        Characters launch and explode like fireworks and fall into place
+  highlight        Run a specular highlight across the text
+  laseretch        A laser etches characters onto the terminal
+  matrix           Matrix digital rain effect
+  middleout        Text expands in a single row or column in the middle of the canvas then out
+  orbittingvolley  Four launchers orbit the canvas firing volleys of characters inward to build the input text from the center out
+  overflow         Input text overflows and scrolls the terminal in a random order until eventually appearing ordered
+  pour             Pours the characters into position from the given direction
+  print            Lines are printed one at a time following a print head. Print head performs line feed, carriage return
+  rain             Rain characters from the top of the canvas
+  randomsequence   Prints the input data in a random sequence
+  rings            Characters are dispersed and form into spinning rings
+  scattered        Text is scattered across the canvas and moves into position
+  slice            Slices the input in half and slides it into place from opposite directions
+  slide            Slide characters into view from outside the terminal
+  smoke            Smoke floods the canvas colorizing any characters it crosses
+  spotlights       Spotlights search the text area, illuminating characters, before converging in the center and expanding
+  spray            Draws the characters spawning at varying rates from a single point
+  swarm            Characters are grouped into swarms and move around the terminal before settling into position
+  sweep            Sweep across the canvas to reveal uncolored text, reverse sweep to color the text
+  synthgrid        Create a grid which fills with characters dissolving into the final text
+  thunderstorm     Create a thunderstorm in the terminal
+  unstable         Spawn characters jumbled, explode them to the edge of the canvas, then reassemble them in the correct layout
+  vhstape          Lines of characters glitch left and right and lose detail like an old VHS tape
+  waves            Waves travel across the terminal leaving behind the characters
+  wipe             Wipes the text across the terminal to reveal characters
+  help             Print this message or the help of the given subcommand(s)
+
+Options:
+  -v, --version
+          Print the version and exit
+  -i, --input-file <INPUT_FILE>
+          File to read input from
+      --tab-width <TAB_WIDTH>
+          [default: 4]
+      --xterm-colors
+          
+      --no-color
+          
+      --terminal-background-color <TERMINAL_BACKGROUND_COLOR>
+          [default: #000000]
+      --existing-color-handling <EXISTING_COLOR_HANDLING>
+          [default: ignore]
+      --wrap-text
+          
+      --frame-rate <FRAME_RATE>
+          [default: 60]
+      --canvas-width <CANVAS_WIDTH>
+          [default: -1]
+      --canvas-height <CANVAS_HEIGHT>
+          [default: -1]
+      --anchor-canvas <ANCHOR_CANVAS>
+          [default: sw]
+      --anchor-text <ANCHOR_TEXT>
+          [default: sw]
+      --ignore-terminal-dimensions
+          
+      --reuse-canvas
+          
+      --no-eol
+          
+      --no-restore-cursor
+          
+      --seed <SEED>
+          Seed for the random number generator (deterministic within ttfx)
+      --print-completion <SHELL>
+          Print a shell completion script and exit [possible values: bash, zsh]
+  -R, --random-effect
+          Run a random effect
+      --include-effects <INCLUDE_EFFECTS>...
+          Limit random-effect selection to these effects
+      --exclude-effects <EXCLUDE_EFFECTS>...
+          Exclude these effects from random-effect selection
+  -h, --help
+          Print help

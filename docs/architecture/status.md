@@ -19,8 +19,8 @@ The manifest's `status` key maps a status key to `{ type, label, group?, hint?, 
 | Type | Value | Tone on the page |
 |---|---|---|
 | `presence` | `present`, `absent`, `locked`, `unavailable` or `unsafe` | `success`, `warning`, `info`, `neutral`, `danger`, from `PluginLogic.STATUS_PRESENCE_TONES` |
-| `presenceList` | a list of at most `PluginLogic.STATUS_LIST_MAX`, 32, items `{ label, value, hint?, secret?, command? }`, below | none of its own; each item the tone of its `value`, as a `presence` |
-| `state` | `{ tone, text, lines?, action? }`: `tone` one of `ok`, `info`, `warning`, `danger`, a printable `text` of at most 200 characters, `lines`, 1 to 32 further such lines for a state that names several things, and `action`: a boolean, only for an entry that declares `action`, or the name of one of the entry's `actions` | `success`, `info`, `warning`, `danger`, from `PluginLogic.STATUS_STATE_TONES` |
+| `presenceList` | a list of at most `PluginLogic.STATUS_LIST_MAX`, 64, items `{ label, value, hint?, secret?, command? }`, below | none of its own; each item the tone of its `value`, as a `presence` |
+| `state` | `{ tone, text, lines?, action? }`: `tone` one of `ok`, `info`, `warning`, `danger`, a printable `text` of at most 200 characters, `lines`, 1 to 64 further such lines for a state that names several things, and `action`: a boolean, only for an entry that declares `action`, or the name of one of the entry's `actions` | `success`, `info`, `warning`, `danger`, from `PluginLogic.STATUS_STATE_TONES` |
 | `text` | a printable line of at most 200 characters | none |
 | `count` | a whole number from 0 | none |
 | `time` | whole milliseconds since the Unix epoch, as `Date.now()` answers | none; drawn as the local short date and time |

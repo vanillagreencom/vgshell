@@ -4,22 +4,21 @@ import Quickshell.Wayland
 import qs.Core
 import qs.Commons
 
-// One background surface per screen, on the layer under every window, for
-// plugins of kind `background`. Every enabled background plugin draws in
-// it, stacked in id order, and receives the screen through its slot's
-// context. The surface exists only while some background plugin can be
-// built: a slot whose build failed is left out, and with none left the
-// surface is destroyed rather than shown empty. It is mapped only while an
-// instance on it is shown: one that declares `shown` false draws nothing,
-// and hiding a layer-shell window deletes its Wayland surface while the
-// instances stay to show it again.
+// One per-screen layer host. Background plugins draw under windows and map
+// unless every instance hides itself. Cover plugins draw above windows and
+// map only when an instance asks to show. Each plugin receives the screen
+// through its slot's context.
 Item {
     id: host
 
     required property var modelData
+    required property string kind
+    required property string namespace
+    required property int shellLayer
+    required property int keyboardFocus
     readonly property var screen: modelData
     // The screen is null while its Variants entry is torn down.
-    readonly property string hostKey: "background:" + (screen ? screen.name : "")
+    readonly property string hostKey: kind + ":" + (screen ? screen.name : "")
 
     // Plugin id -> the slot key whose build failed, one per plugin, so the
     // record stays as small as the plugin set. A source revision change
@@ -33,12 +32,12 @@ Item {
                 const ids = Object.keys(host.brokenKeys);
                 const next = {};
                 for (const id of ids)
-                    if (Plugins.failedRevision(host.hostKey, "background", id) !== null) next[id] = host.brokenKeys[id];
+                    if (Plugins.failedRevision(host.hostKey, host.kind, id) !== null) next[id] = host.brokenKeys[id];
                 if (Object.keys(next).length !== ids.length) host.brokenKeys = next;
             });
         }
     }
-    readonly property var ids: Registry.enabledOfKind("background").filter(id => {
+    readonly property var ids: Registry.enabledOfKind(kind).filter(id => {
         const key = Registry.slotKey(id);
         return key !== "" && host.brokenKeys[id] !== key;
     })
@@ -55,10 +54,10 @@ Item {
             anchors { top: true; bottom: true; left: true; right: true }
             exclusionMode: ExclusionMode.Ignore
             color: Theme.color.background
-            WlrLayershell.namespace: "vgs:background"
-            WlrLayershell.layer: WlrLayer.Background
-            // An instance without the property is shown.
-            visible: slots.instances.some(slot => slot.instance !== null && slot.instance.shown !== false)
+            WlrLayershell.namespace: host.namespace
+            WlrLayershell.layer: host.shellLayer
+            WlrLayershell.keyboardFocus: host.keyboardFocus
+            visible: slots.instances.some(slot => PluginLogic.perScreenLayerShown(host.kind, slot.instance))
 
             Variants {
                 id: slots
@@ -69,7 +68,7 @@ Item {
                     parent: win.contentItem
                     anchors.fill: parent
                     z: host.ids.indexOf(modelData)
-                    kind: "background"
+                    kind: host.kind
                     pluginId: modelData
                     hostKey: host.hostKey
                     screen: host.screen

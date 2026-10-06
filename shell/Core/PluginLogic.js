@@ -15,7 +15,7 @@
 
 // The kinds the core hosts. A manifest naming any other kind is refused. A
 // kind's entry point is keyed by the kind name in `entryPoints`.
-var KINDS = ["bar-widget", "bar", "panel", "overlay", "menu", "window", "pane", "service", "background"];
+var KINDS = ["bar-widget", "bar", "panel", "overlay", "menu", "window", "pane", "service", "background", "cover"];
 
 // Capabilities the core can hand a plugin. A manifest naming another one is
 // refused. Capabilities.qml maps each name to its provider.
@@ -125,7 +125,7 @@ var STATUS_STATE_KEYS = ["tone", "text", "lines", "action"];
 // optional printable `hint`, an optional `secret`, the account of the
 // plugin's declared `secrets` the item is the presence of, and an optional
 // printable `command`, of the declaration's lengths, which needs `secret`.
-var STATUS_LIST_MAX = 32;
+var STATUS_LIST_MAX = 64;
 var STATUS_LIST_ITEM_KEYS = ["label", "value", "hint", "command", "secret"];
 // Choice values are stable ids, not their display labels. Empty string is
 // reserved for a setting that follows the first offered value.
@@ -2885,6 +2885,19 @@ function tuiWindow(windows, window) {
 // window on it, and the service gate waits for no other bar's frame.
 function barShown(instance) {
     return instance === null || instance.shown !== false;
+}
+
+// Whether a per-screen layer host maps its window. A background includes an
+// instance without a `shown` property. A cover starts hidden and maps only
+// when an instance asks to cover the screen.
+function perScreenLayerShown(kind, instance) {
+    if (instance === null)
+        return false;
+    if (kind === "background")
+        return instance.shown !== false;
+    if (kind === "cover")
+        return instance.shown === true;
+    return false;
 }
 
 // What a manifest's `menu` key may hold: launcher rows keyed by a dotted id
