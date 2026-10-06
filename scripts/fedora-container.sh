@@ -159,7 +159,7 @@ EOF
     step "$1: the browser theme writer and its rule hold, and the chromium setup reads done"
   }
 
-  logged install-vgs dnf -y install "$rpms/vgshell-$version-"*.noarch.rpm
+  logged install-vgshell dnf -y install "$rpms/vgshell-$version-"*.noarch.rpm
   step "installed $(rpm -q vgshell) with $(rpm -q quickshell hyprland | tr '\n' ' ')"
   # Each floor's epoch is the one its installed provider carries, so no
   # floor reads as epoch 0 against an epoch-1 package.
@@ -173,7 +173,7 @@ EOF
   done < <(sed -n '/^# begin runtime dependencies$/,/^# end runtime dependencies$/p' packaging/fedora/vgshell.spec)
   checks vgshell
 
-  logged remove-vgs dnf -y remove vgshell
+  logged remove-vgshell dnf -y remove vgshell
   ! rpm -q vgshell >/dev/null || fail "vgshell is still installed after dnf removed it"
   logged install-vgshell-git dnf -y install "$rpms"/vgshell-git-*.noarch.rpm
   out="$(rpm -q --qf '%{VERSION}' vgshell-git)"
