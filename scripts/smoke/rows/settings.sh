@@ -407,7 +407,7 @@ source = source.replace(anchor, anchor + '''
         smokeAnswer = runFor("acme.status", "setup");
     }
 ''')
-needle = 'return Notices.requested(id);'
+needle = 'return Notices.requested(id, name);'
 assert source.count(needle) == 1
 mutant = source.replace(needle, 'return Notices.chosen(id, Notices.missingOf(id));')
 assert mutant != source
