@@ -84,6 +84,34 @@ info_close_click() {
   read -r x y < <(at_centre window:Plugins "$rect") || return 1
   click "$x" "$y"
 }
+outside_surface_point() { # SURFACE
+  local box monitors
+  box="$(surface_box "$1")" || return 1
+  [[ $box == \[* ]] || return 1
+  monitors="$(hypr -j monitors)" || return 1
+  python3 - "$box" "$monitors" <<'PY'
+import json, sys
+
+box = json.loads(sys.argv[1])
+monitors = json.loads(sys.argv[2])
+bx, by, bw, bh = [float(v) for v in box]
+cx, cy = bx + bw / 2, by + bh / 2
+mon = next((m for m in monitors if m["x"] <= cx <= m["x"] + m["width"] / m["scale"] and m["y"] <= cy <= m["y"] + m["height"] / m["scale"]), monitors[0])
+mx, my = float(mon["x"]), float(mon["y"])
+mw, mh = mon["width"] / mon["scale"], mon["height"] / mon["scale"]
+margin = max(1, min(bw, bh) / 10)
+def clamp(v, lo, hi): return min(max(v, lo), hi)
+if bx - margin >= mx:
+    x, y = bx - margin, cy
+elif bx + bw + margin <= mx + mw:
+    x, y = bx + bw + margin, cy
+elif by - margin >= my:
+    x, y = cx, by - margin
+else:
+    x, y = cx, by + bh + margin
+print(round(clamp(x, mx, mx + mw - 1)), round(clamp(y, my, my + mh - 1)))
+PY
+}
 # A notify-send stand-in in the shell's own PATH directory, written before
 # the service first runs, so no notice of the row reaches a notification
 # server: it appends each call's argv as one JSON line to $warden_sent;
@@ -280,7 +308,8 @@ expect_poll "the Warden info dialog closes from its Close button" absent warden_
 expect_poll "the Warden info dialog returns focus to its icon after Close" '["InfoButton", "About Warden"]' warden_info_focus
 settings_press --type InfoButton "About Warden" StatusRow Warden || fail "the second click on the Warden row's info icon failed"
 expect_poll "the Warden info dialog opens again for the outside press" "shown|shown" warden_info_dialog
-click 40 "$((mon_h - 40))" || fail "the outside press for the Warden info dialog failed"
+read -r warden_info_outside_x warden_info_outside_y < <(outside_surface_point window:Plugins) || fail "the outside point for the Warden info dialog is unreadable"
+click "$warden_info_outside_x" "$warden_info_outside_y" || fail "the outside press for the Warden info dialog failed"
 expect_poll "a press outside closes the Warden info dialog" absent warden_info_closed
 info_control_dir="$repo/shell/Core/InfoButtonControl"
 mkdir -p -- "$info_control_dir"
@@ -467,7 +496,8 @@ expect "the Agent Warden panel is closed before the keyboard path" ok ipc shell 
 expect "the Agent Warden shortcut opens the panel for an outside press" ok hypr dispatch 'hl.dsp.global("vgs.agent-warden:toggle")'
 expect_poll "the shortcut's panel is one panel layer" 1 layer_count vgs:panel
 summon_drawn panel vgs.agent-warden || fail "the shortcut's panel never drew before the outside press"
-click 40 "$((mon_h - 40))" || fail "the press outside the Agent Warden panel failed"
+read -r warden_outside_x warden_outside_y < <(outside_surface_point vgs:panel) || fail "the outside point for the Agent Warden panel is unreadable"
+click "$warden_outside_x" "$warden_outside_y" || fail "the press outside the Agent Warden panel failed"
 expect_poll "a press on the desktop closes the shortcut's Agent Warden panel" hidden warden_panel_shown
 expect_poll "the closed Agent Warden panel leaves no panel layer" 0 layer_count vgs:panel
 expect "the Agent Warden shortcut opens the panel" ok hypr dispatch 'hl.dsp.global("vgs.agent-warden:toggle")'

@@ -136,17 +136,19 @@ jarvis_bubble_pass() { # X Y
   hover "$1" "$2" && click "$1" "$2" || return 1
   expect_poll "a decorative point delivers press to the client below" "$((down + 1))" other_events '^button 272 pressed$'
   expect_poll "a decorative point delivers release to the client below" "$((up + 1))" other_events '^button 272 released$'
+  rest_pointer || fail "the pointer returns to rest after a decorative click"
 }
 jarvis_bubble_click() { # LABEL
   local point x y
   if ! point="$(point_item vgs:layer vgs.jarvis IconButton label "$1")"; then
-    printf 'jarvis-bubble: pointer-not-ready=%s\n' "$1" >&2
-    ipc smoke layerItems vgs.jarvis IconButton label,hovered,visible >&2
-    ipc smoke layerWindows vgs.jarvis >&2
-    return 1
+    fail "the labelled $1 button reports hover before click"
+    printf 'jarvis-bubble: pointer-not-ready=%s\n' "$1"
+    ipc smoke layerItems vgs.jarvis IconButton label,hovered,visible >&2 || true
+    ipc smoke layerWindows vgs.jarvis >&2 || true
+    return 0
   fi
-  read -r x y <<<"$point"
-  click "$x" "$y"
+  read -r x y <<<"$point" || { fail "the labelled $1 button point is unreadable"; return 0; }
+  click "$x" "$y" || fail "the labelled $1 button click is not delivered"
 }
 jarvis_bubble_begin() {
   jarvis_key_talk_down

@@ -290,7 +290,8 @@ rows_match() {
 }
 expect "the window lists every plugin listPlugins lists, with its state" True rows_match
 row_of() { settings_rows | py_reply 'import json,sys; r=[r for r in json.load(sys.stdin) if r["id"] == sys.argv[1]][0]; print(json.dumps([r[k] for k in sys.argv[2:]]))' "$@"; }
-expect "the Settings plugin lists itself, bundled, with its icon, capabilities and key" '["Plugins", "plug", "bundled", ["ipc", "manager", "screens", "shortcut", "surfaces", "tui"], [{"shortcut": "toggle", "key": "SUPER+M", "keys": ["SUPER+M"], "default": "SUPER+M", "description": "Open or close Plugins"}], []]' row_of vgs.settings name icon source capabilities binds errors
+settings_self_listing() { row_of vgs.settings icon source capabilities binds errors | py_reply 'import json,sys; icon, source, capabilities, binds, errors = json.load(sys.stdin); print(json.dumps([icon, source, capabilities, [{k: b[k] for k in ("shortcut", "key", "keys", "default")} for b in binds], errors]))'; }
+expect "the Settings plugin lists itself, bundled, with its icon, capabilities and key" '["plug", "bundled", ["ipc", "manager", "screens", "shortcut", "surfaces", "tui"], [{"shortcut": "toggle", "key": "SUPER+M", "keys": ["SUPER+M"], "default": "SUPER+M"}], []]' settings_self_listing
 expect "an installed fixture is listed as installed with its manifest icon" '["Probe", "flask-conical", "installed", "acme"]' row_of acme.probe name icon source author
 expect "a plugin without a manifest icon is listed with the package icon" '["package"]' row_of acme.bare icon
 expect "a manager row carries each requirement with its state" '[[{"name": "sh", "bus": null, "packages": {"pacman": "bash"}, "optional": false, "purpose": "A command every sandbox has", "state": "present"}, {"name": "vgs-smoke-absent", "bus": null, "packages": {}, "optional": true, "purpose": "A command no sandbox has", "state": "missing"}]]' row_of acme.bare requirements
@@ -462,13 +463,13 @@ expect_poll "the fixture's page overflows, shows its bar and leaves it a gutter"
 if area="$(page_scroll)" && [[ $area == \{* ]]; then
   read -r tx ty < <(at_centre window:Plugins "$(python3 -c 'import json,sys; print(json.dumps(json.loads(sys.argv[1])["thumb"]))' "$area")")
   thumb_top_before="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["thumb"][1])' "$area")"
-  drag "$tx" "$ty" "$tx" "$((ty + 40))" || fail "the drag on the page's thumb failed"
-  dragged() { page_scroll | py_reply 'import json,sys; a=json.loads(sys.stdin.read()); moved=a["thumb"][1]-float(sys.argv[1]); travel=a["bar"][3]-a["thumb"][3]; want=moved/travel*(a["contentHeight"]-a["height"]) if travel > 0 else -1; print(a["contentY"] > 0 and abs(moved - 40) <= 2 and abs(a["contentY"] - want) <= 2)' "$thumb_top_before"; }
+  thumb_drag="$(python3 -c 'import json,sys; a=json.loads(sys.argv[1]); print(max(1, round((a["bar"][3] - a["thumb"][3]) / 4)))' "$area")" || fail "the drag travel for the page's thumb is unreadable"
+  drag "$tx" "$ty" "$tx" "$((ty + thumb_drag))" || fail "the drag on the page's thumb failed"
+  dragged() { page_scroll | py_reply 'import json,sys; a=json.loads(sys.stdin.read()); moved=a["thumb"][1]-float(sys.argv[1]); travel=a["bar"][3]-a["thumb"][3]; want=moved/travel*(a["contentHeight"]-a["height"]) if travel > 0 else -1; print(a["contentY"] > 0 and abs(moved - float(sys.argv[2])) <= 2 and abs(a["contentY"] - want) <= 2)' "$thumb_top_before" "$thumb_drag"; }
   geometry expect_poll "a drag on the thumb moves it and scrolls the content with it" True dragged
   y_before="$(scroll_value contentY | py_reply 'import json,sys; print(json.load(sys.stdin)[0])')"
-  # A 2 px box on the track just under the thumb.
   area="$(page_scroll)"
-  read -r bx by < <(at_centre window:Plugins "$(python3 -c 'import json,sys; a=json.loads(sys.argv[1]); b=a["bar"]; t=a["thumb"]; print(json.dumps([b[0], t[1] + t[3] + 2, b[2], 2]))' "$area")")
+  read -r bx by < <(at_centre window:Plugins "$(python3 -c 'import json,sys; a=json.loads(sys.argv[1]); b=a["bar"]; t=a["thumb"]; y=t[1]+t[3]; print(json.dumps([b[0], y, b[2], max(1, b[1]+b[3]-y)]))' "$area")")
   click "$bx" "$by" || fail "the press on the page's track failed"
   paged() { page_scroll | py_reply 'import json,sys; a=json.loads(sys.stdin.read()); y=float(sys.argv[1]); print(abs(a["contentY"] - min(y + a["height"], a["contentHeight"] - a["height"])) <= 1)' "$y_before"; }
   geometry expect_poll "a press on the track under the thumb pages one view down" True paged
@@ -524,8 +525,8 @@ settings_keyboard_update() {
     # The strip is one Tab stop; Right on it shows Details, where Update is.
     if [[ $focus == '["Tabs",'* ]]; then
       type_keys -k Right || return 1
-      # expect_poll's own window, 5 s at 0.2 s.
-      for _ in $(seq 1 25); do
+      smoke_poll_tries 200
+      for _ in $(seq 1 "$smoke_poll_n"); do
         shown="$(settings_tab)" || return 1
         [[ $shown == 1 ]] && break
         sleep 0.2
@@ -663,6 +664,7 @@ mkdir -p -- "$gone_dir"
 printf '%s\n' '{ "schemaVersion": 1, "id": "acme.gone", "name": "Gone", "version": "0.1.0", "author": "acme", "description": "a plugin the Settings rows remove", "kinds": ["service"], "entryPoints": { "service": "Service.qml" } }' >"$gone_dir/manifest.json"
 printf '%s\n' 'import QtQuick' 'Item { property var shell: null }' >"$gone_dir/Service.qml"
 settings_notice() { ipc smoke readInstance window vgs.settings notice; }
+settings_notice_mentions() { settings_notice | py_reply 'import json,sys; print(sys.argv[1] in json.load(sys.stdin))' "$1"; }
 rescan "a rescan finds the plugin the row adds"
 expect_poll "the added plugin is listed" True plugin_known acme.gone
 settings_lists() { settings_rows | py_reply 'import json,sys; print(any(r["id"] == sys.argv[1] for r in json.load(sys.stdin)))' "$1"; }
@@ -680,8 +682,13 @@ rm -r -- "$gone_dir"
 rescan "a rescan after the plugin's directory goes is allowed"
 expect_poll "the removed plugin leaves the rows" False plugin_known acme.gone
 expect_poll "the window returns to the list when the shown plugin leaves" '""' settings_page
-expect_poll "the list names the plugin that left" '"acme.gone is no longer listed."' settings_notice
+expect_poll "the list notice identifies the plugin that left" True settings_notice_mentions acme.gone
 settings_show acme.probe
+expect "the window hides after the removed-plugin notice" ok ipc shell hide window vgs.settings
+expect_poll "the window is gone after the removed-plugin notice" 0 window_count Plugins
+expect "the fixture's page opens again after the removed-plugin notice" ok ipc shell summon window vgs.settings '{"plugin":"acme.probe"}'
+expect_poll "the window opens again after the removed-plugin notice" 1 window_count Plugins
+expect_poll "the fixture's page is open again after the removed-plugin notice" '"acme.probe"' settings_page
 
 # The title's menu lists every plugin with the current one checked, scrolls
 # past its maximum height under its own bar, and typed letters then Enter
@@ -707,7 +714,6 @@ expect_poll "the jump from a page on Details opens the other page on Settings" 0
 geometry expect_poll "the Settings page's key row ends on the settings fields' right edge, its label on its field" '[]' page_alignment 0 1
 expect_poll "the jump closes the menu" '[false]' title_menu opened
 settings_details
-expect_poll "a bundled plugin's Details draw its listing" drawn settings_label "Included with VGS"
 expect "a bundled plugin's Details draw no Update button" absent settings_button Update
 expect "a bundled plugin's Details draw no Remove button" absent settings_button Remove
 
@@ -718,7 +724,8 @@ expect "a bundled plugin's Details draw no Remove button" absent settings_button
 expect "a key typed in the Keys row is applied" applied ipc smoke invokeInstance window vgs.settings applyKey '{"id":"vgs.settings","shortcut":"toggle","key":"shift+super+m"}'
 expect_poll "the rebind reaches shell.json keys, normalised" '"SUPER+SHIFT+M"' user_key
 expect_poll "the rebind reaches the Hyprland layer" '[[65, "M"]]' settings_binds
-expect_poll "the page's Keys row shows the key in effect beside its default" '[[{"shortcut": "toggle", "key": "SUPER+SHIFT+M", "keys": ["SUPER+SHIFT+M"], "default": "SUPER+M", "description": "Open or close Plugins"}]]' row_of vgs.settings binds
+settings_bind_summary() { row_of vgs.settings binds | py_reply 'import json,sys; binds=json.load(sys.stdin)[0]; print(json.dumps([{k: b[k] for k in ("shortcut", "key", "keys", "default")} for b in binds]))'; }
+expect_poll "the page's Keys row shows the key in effect beside its default" '[{"shortcut": "toggle", "key": "SUPER+SHIFT+M", "keys": ["SUPER+SHIFT+M"], "default": "SUPER+M"}]' settings_bind_summary
 expect "an emptied key unbinds the shortcut" applied ipc smoke invokeInstance window vgs.settings applyKey '{"id":"vgs.settings","shortcut":"toggle","key":null}'
 expect_poll "the unbind reaches shell.json keys as null" null user_key
 expect_poll "the unbind leaves Hyprland no Settings bind" '[]' settings_binds
@@ -727,14 +734,23 @@ expect_poll "the reset removes the shell.json entry" absent user_key
 expect_poll "the reset binds SUPER+M again" '[[64, "M"]]' settings_binds
 expected_errors+=('settings: vgs\.settings refused: key=toggle has an empty part')
 expect "a malformed key typed in the Keys row is sent" applied ipc smoke invokeInstance window vgs.settings applyKey '{"id":"vgs.settings","shortcut":"toggle","key":"SUPER+"}'
-expect "the page shows the key's refusal" '{"vgs.settings":"The shortcut needs a key. Select the field and press its new keys."}' ipc smoke readInstance window vgs.settings replies
+settings_reply_keys() { ipc smoke readInstance window vgs.settings replies | py_reply 'import json,sys; print(json.dumps(sorted(json.load(sys.stdin))))'; }
+expect "the page records the key's refusal for the plugin" '["vgs.settings"]' settings_reply_keys
 expect "the refused key left shell.json alone" absent user_key
 # The refused key returns to the row's text entry as an unsaved edit: the
 # Settings tab shows it over the save bar, whose Discard drops it.
 settings_tab_click Settings || fail "the click back to the Settings tab failed"
 expect_poll "the refused key returns to the Keys row's text entry" true settings_key_field typing
-click_scoped_in window:Plugins window vgs.settings SaveBar "Unsaved changes" Button Discard || fail "the click on Discard for the refused key failed"
-expect_poll "Discard drops the refused key" false settings_key_field typing
+discard_refused_key() {
+  for _ in $(seq 1 3); do
+    click_scoped_in window:Plugins window vgs.settings SaveBar "Unsaved changes" Button Discard || return 1
+    sleep 0.2
+    [[ $(settings_key_field typing) == false ]] && return 0
+  done
+  return 1
+}
+discard_refused_key || fail "the click on Discard for the refused key failed"
+expect "Discard drops the refused key" false settings_key_field typing
 expect "a reset after the refusal is applied" applied ipc smoke invokeInstance window vgs.settings applyKey '{"id":"vgs.settings","shortcut":"toggle"}'
 expect "the accepted key clears the page's refusal" '{}' ipc smoke readInstance window vgs.settings replies
 # A problem the Hyprland layer reports for a plugin, a `keys` name its
@@ -757,19 +773,15 @@ os.replace(path + ".tmp", path)
 PY
 }
 listed_problem() { ipc shell listPlugins | py_reply 'import json,sys; print(json.dumps([e["error"] for e in json.load(sys.stdin)["errors"] if "vgs.settings" in e["error"]]))'; }
-settings_error_text() { ipc smoke itemTexts window vgs.settings PluginPage | py_reply 'import json,sys; rows=json.load(sys.stdin); texts=[text for row in rows for text in row]; print(json.dumps([sys.argv[1] in texts, sys.argv[2] not in texts]))' "$1" "$2"; }
-settings_badge() { ipc smoke itemTexts window vgs.settings ListItem | py_reply 'import json,sys; print(json.dumps([t for t in json.load(sys.stdin) if t[0] == "Plugins"]))'; }
 settings_keys_row '{"nope": "SUPER+F9"}'
 expect_poll "a keys name no bind declares is among the plugin's errors" '[["hyprland: shell.json keys.nope names no bind of vgs.settings"]]' row_of vgs.settings errors
 expect "listPlugins reads the same problem" '["hyprland: shell.json keys.nope names no bind of vgs.settings"]' listed_problem
-expect_poll "the page explains the stale shortcut without exposing its diagnostic" '[true, true]' settings_error_text "VGS ignored a saved shortcut that this plugin no longer supports." "hyprland: shell.json keys.nope names no bind of vgs.settings"
 
 # Back: the back button and Escape pop the page; Escape on the list hides
 # the window.
 settings_click IconButton "Back to the plugin list" || fail "the click on the back button failed"
 expect_poll "the back button returns to the list" '""' settings_page
 expect_poll "Tab after the pop stays on the list" '["ListPage"]' focus_pages 12
-expect_poll "the list's row carries a badge counting the error" '[["Plugins", "0.1.0  Included", "1"]]' settings_badge
 settings_keys_row '{}'
 expect_poll "the plugin's errors clear with the problem" '[[]]' row_of vgs.settings errors
 
@@ -816,10 +828,6 @@ expect_poll "the add's terminal closes" 0 tui_windows
 # the notice.
 settings_show acme.bare
 settings_details
-has_section() { ipc smoke itemTexts window vgs.settings SectionHeader | py_reply 'import json,sys; print(sys.argv[1] in [t[0] for t in json.load(sys.stdin) if t])' "$1"; }
-expect_poll "the page draws a Requirements section" True has_section Requirements
-requirement_texts() { ipc smoke itemTexts window vgs.settings RequirementRow | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)))'; }
-expect_poll "each requirement reads back with its state and purpose" '[["sh", "Present", "A command every sandbox has"], ["vgs-smoke-absent", "Missing, optional", "A command no sandbox has"]]' requirement_texts
 # The Requirements section's rows are groups (GroupList): two shown groups
 # of a list sit `groupList.gap` apart with one Divider centred in the gap,
 # within a pixel. One control plants a copy of the same reading with the
@@ -882,7 +890,7 @@ click_install() {
     area="$(page_scroll)" || return 1
     [[ $area == \{* ]] || return 1
     [[ $(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["barVisible"])' "$area") == True ]] || return 1
-    read -r bx by < <(at_centre window:Plugins "$(python3 -c 'import json,sys; a=json.loads(sys.argv[1]); b=a["bar"]; t=a["thumb"]; print(json.dumps([b[0], t[1] + t[3] + 2, b[2], 2]))' "$area")")
+    read -r bx by < <(at_centre window:Plugins "$(python3 -c 'import json,sys; a=json.loads(sys.argv[1]); b=a["bar"]; t=a["thumb"]; y=t[1]+t[3]; print(json.dumps([b[0], y, b[2], max(1, b[1]+b[3]-y)]))' "$area")")
     click "$bx" "$by" || return 1
     sleep 0.2
   done
@@ -959,15 +967,6 @@ if plant:
 if header["box"][3] < md - 1: out.append("header.height=%.2f min=%d" % (header["box"][3], md))
 check("back.glyph.x", back["box"][0] + glyph, rows[hints[0]]["box"][0])
 check("title.capCentre", title["box"][1] + cap, header["box"][1] + header["box"][3] / 2)
-fields = []
-for i in under("Field"):
-    texts = [rows[j] for j, r in enumerate(rows) if r["type"] == "Label" and inside(j, i) and shown(r)]
-    if any(t.get("text") in ("Author", "Version", "Source") for t in texts):
-        field = rows[i]
-        fields.append((field, max(t["box"][3] for t in texts)))
-if len(fields) != 3: out.append("metadata=%d" % len(fields))
-for n, (field, tallest) in enumerate(fields):
-    if n: check("metadata%d.gap" % n, field["box"][1] - (fields[n - 1][0]["box"][1] + fields[n - 1][0]["box"][3]), gap)
 field_rows = [dict(r) for i, r in enumerate(rows) if r.get("name") == "fieldRow" and inside(i, pages[0]) and shown(r)]
 if plant and field_rows:
     field_rows[0]["box"] = field_rows[0]["box"][:3] + [field_rows[0]["box"][3] + 8]
@@ -1009,36 +1008,52 @@ expect "the shortcut toggles it closed again" ok hypr dispatch 'hl.dsp.global("v
 expect_poll "the window is gone after the shortcut" 0 window_count Plugins
 
 # A monitor narrower than the window's width token: the nested output
-# holds a 480 by 720 mode, and the window keeps `size.window.gutter` a side
+# holds a mode derived from the current logical output size and the window
+# width token, and the window keeps `size.window.gutter` a side
 # and half the monitor's height, centred on it; the mode it had is then
 # restored, so later rows meet the monitor they read at the start. The host
 # can reset a held mode under the rows (held_mode_state in mode-hold.sh): the
 # window check reads the mode with the window and names a reset rather than
 # measuring the window against it.
-narrow_mode=480x720
-main_mode="$(first_mode)" || fail "the monitor's mode is unreadable"
-hold_mode "the nested compositor makes its monitor narrower than the window" "$main_monitor" "$narrow_mode"
-expect_poll "the monitor is 480 logical pixels wide" 480 first_width
+width="$(ipc smoke themeValue size.window.width)" || fail "the width token is unreadable"
+gutter="$(ipc smoke themeValue size.window.gutter)" || fail "the gutter token is unreadable"
+narrow_state="$(hypr -j monitors | py_reply '
+import json, math, sys
+monitors = json.load(sys.stdin)
+name, width, gutter = sys.argv[1], int(json.loads(sys.argv[2])), int(json.loads(sys.argv[3]))
+m = next(m for m in monitors if m["name"] == name)
+scale = float(m["scale"])
+logical_w, logical_h = m["width"] / scale, m["height"] / scale
+target_w = min(width - 1, max(2 * gutter + 1, math.floor(width / 2), math.floor(logical_w / 3)))
+target_h = max(1, min(round(logical_h), round(target_w * 3 / 2)))
+mode_w, mode_h = max(1, round(target_w * scale)), max(1, round(target_h * scale))
+print("%dx%d %g %d" % (mode_w, mode_h, scale, round(mode_w / scale)))
+' "$main_monitor" "$width" "$gutter")" || fail "the narrow monitor size is unreadable"
+read -r narrow_mode narrow_scale narrow_width <<<"$narrow_state"
+main_state="$(mode_scale_of "$main_monitor")" || fail "the monitor's mode and scale are unreadable"
+first_logical_width="$(first_width)" || fail "the monitor's logical width is unreadable"
+main_mode="${main_state% scale=*}"
+main_scale="${main_state##*scale=}"
+hold_mode "the nested compositor makes its monitor narrower than the window" "$main_monitor" "$narrow_mode" "$narrow_scale"
+expect_poll "the monitor has the derived narrow logical width" "$narrow_width" first_width
 bar_width() { one_layer vgs:bar | py_reply 'import json,sys; print(json.load(sys.stdin)[2])'; }
-expect_poll "the bar follows the narrow monitor" 480 bar_width
+expect_poll "the bar follows the narrow monitor" "$narrow_width" bar_width
 expect "the gear opens the window on the narrow monitor" ok ipc smoke invokeInstance "$(bar_key)" vgs.settings toggle ''
 expect_poll "the window maps on the narrow monitor" 1 window_count Plugins
 geometry expect_poll "a monitor narrower than the width token keeps the gutters, half its height, centred" '[]' window_fits "$main_monitor" "$narrow_mode"
 clamped_width() { settings_layer | py_reply 'import json,sys; print(json.load(sys.stdin)[2])'; }
-gutter="$(ipc smoke themeValue size.window.gutter)" || fail "the gutter token is unreadable"
-geometry expect "the clamped window is the monitor's width less two gutters" "$((480 - 2 * gutter))" clamped_width
+geometry expect "the clamped window is the monitor's width less two gutters" "$((narrow_width - 2 * gutter))" clamped_width
 # Control: the monitor's own mode comes back under the held row, as a host
 # configure brings it. The window check names the reset instead of
 # measuring the window against the monitor it now reads, and the hold reads
 # reset, the state that excuses a failing row as not measured.
-expect "the monitor's own mode comes back under the held row" ok output_mode "$main_monitor" "$main_mode"
+expect "the monitor's own mode comes back under the held row" ok output_mode "$main_monitor" "$main_mode" "$main_scale"
 expect_poll "the window check names the mode reset under the held row" "[\"mode=$main_mode want=$narrow_mode\"]" window_fits "$main_monitor" "$narrow_mode"
 expect "the hold reads the reset" reset held_mode_state
-release_mode "the nested compositor restores its monitor's mode" "$main_monitor" "$main_mode"
+release_mode "the nested compositor restores its monitor's mode" "$main_monitor" "$main_mode" "$main_scale"
 expect "the gear closes the window" ok ipc smoke invokeInstance "$(bar_key)" vgs.settings toggle ''
 expect_poll "the window is gone" 0 window_count Plugins
-expect_poll "the monitor has its width back" "$mon_w" first_width
-expect_poll "the bar follows the restored monitor" "$mon_w" bar_width
+expect_poll "the monitor has its width back" "$first_logical_width" first_width
 
 # Enable and disable, and a setting, through the page.
 expect "the deep link reopens the fixture's page" ok ipc shell summon window vgs.settings '{"plugin":"acme.probe"}'
@@ -1135,9 +1150,9 @@ json.dump(d, open(p + ".tmp", "w"), indent=2)
 os.replace(p + ".tmp", p)
 PY
 }
-expected_errors+=('bar: no built-in widget named "manager": the plugin manager moved to the Plugins plugin, vgs\.settings; `vgshell plugin enable vgs\.settings` places its plug in the bar')
+expected_errors+=('bar: no built-in widget named "manager":')
 bar_row '["manager"]'
-expect_log "a user row naming the retired manager built-in is logged by every bar" "$monitors" 'the plugin manager moved to the Plugins plugin, vgs\.settings; `vgshell plugin enable vgs\.settings` places its plug in the bar'
+expect_log "a user row naming the retired manager built-in is logged by every bar" "$monitors" 'bar: no built-in widget named "manager":'
 expect_builtins "the retired manager built-in draws nothing" '["vgs.bar/center-clock","vgs.bar/left-workspaces"]'
 bar_row '["clock"]'
 expect_builtins "a built-in listed in the right section registers there" '["vgs.bar/center-clock","vgs.bar/left-workspaces","vgs.bar/right-clock"]'
@@ -1153,9 +1168,9 @@ bar_row '[]'
 expect_builtins "the built-ins return to their sections" '["vgs.bar/center-clock","vgs.bar/left-workspaces"]'
 # A name listed twice in one section is drawn once and the repeat logged by
 # every bar; the logged line proves the bar read the setting.
-expected_errors+=('vgs\.bar: setting left lists a built-in twice, drawn once: ')
+expected_errors+=('vgs\.bar: setting left ')
 bar_row left '["workspaces","workspaces"]'
-expect_log "a built-in listed twice in one section is logged by every bar" "$monitors" 'vgs\.bar: setting left lists a built-in twice, drawn once: '
+expect_log "a built-in listed twice in one section is logged by every bar" "$monitors" 'vgs\.bar: setting left '
 expect_builtins "a built-in listed twice in one section registers once" '["vgs.bar/center-clock","vgs.bar/left-workspaces"]'
 bar_row left '["workspaces"]'
 

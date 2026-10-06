@@ -622,6 +622,24 @@ nord_a="$installed/nord/backgrounds/a.jpg"; nord_b="$installed/nord/backgrounds/
 wall_output=SMOKE-WALL
 # Whether the wallpaper view's scope control holds the keyboard.
 segment_focused() { ipc smoke readDescendant overlay vgs.themes SegmentedControl activeFocus; }
+scope_button_point() {
+  local box="" last="" held=0
+  smoke_poll_tries 100
+  for _ in $(seq 1 "$smoke_poll_n"); do
+    box="$(ipc smoke windowGeometry overlay vgs.themes QQuickButton "All monitors")" || return
+    [[ $box == \[* ]] || { held=0; last=""; sleep 0.1; continue; }
+    if [[ $box == "$last" ]]; then held=$((held + 1)); else held=0; last="$box"; fi
+    if [[ $held -ge 1 ]]; then at_centre vgs:overlay "$box"; return; fi
+    sleep 0.1
+  done
+  return 1
+}
+click_scope_all() {
+  local at x y
+  at="$(scope_button_point)" || return
+  read -r x y <<<"$at" || return
+  click "$x" "$y"
+}
 thumbs="$repo/themes/catalog/thumbnails"
 # The width over the height of the file IMAGE, a JPEG, and of the ready card
 # image drawing PATH, `none` while none is ready, each to one decimal place.
@@ -920,7 +938,7 @@ expect "set --every-screen puts nord's first image back on every screen" "ok bac
 press_wallpapers || fail "typing SUPER+CTRL+W for the segment click failed"
 expect_poll "SUPER+CTRL+W opens the browser for the segment click" 1 layer_count vgs:overlay
 expect_poll "the segment-click view selects a.jpg" "$nord_a" wall_selected
-click_in vgs:overlay overlay vgs.themes QQuickButton "All monitors" || fail "the click on the chosen All monitors segment failed"
+click_scope_all || fail "the click on the chosen All monitors segment failed"
 expect_poll "the view takes the keyboard back after a click on the chosen scope" false segment_focused
 type_keys -k Right || fail "sending Right after the segment click failed"
 expect_poll "Right after the click steps the rail" "$nord_b" wall_selected
@@ -931,7 +949,7 @@ plugin_control WallpaperView.qml "wallpaper focus" $'currentIndex: root.scopeInd
 press_wallpapers || fail "typing SUPER+CTRL+W for the wallpaper focus control failed"
 expect_poll "SUPER+CTRL+W opens the wallpaper focus control's browser" 1 layer_count vgs:overlay
 expect_poll "the wallpaper focus control's view read its lists" true wall_value loaded
-click_in vgs:overlay overlay vgs.themes QQuickButton "All monitors" || fail "the click on the focus control's All monitors segment failed"
+click_scope_all || fail "the click on the focus control's All monitors segment failed"
 type_keys -k Right || fail "sending Right to the wallpaper focus control failed"
 expect_poll "the wallpaper focus control's Right switches the scope" '"this"' wall_value scope
 press_wallpapers || fail "typing SUPER+CTRL+W to close the wallpaper focus control failed"

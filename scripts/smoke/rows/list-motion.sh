@@ -50,8 +50,17 @@ expect "at motion scale 0 the Settings list's cursor lands on the row at once" s
 # first, so a row that lands under it takes nothing from the keyboard. The
 # pointer arrives on the second row by two motions, which arm it.
 settings_second="$(ipc smoke itemTexts window vgs.settings ListItem | py_reply 'import json,sys; print(json.load(sys.stdin)[1][0])')" || settings_second=""
-settings_row_box="$(ipc smoke windowGeometry window vgs.settings ListItem "$settings_second")" || settings_row_box=""
-if read -r row_x row_y < <(at_centre window:Plugins "$settings_row_box") && hover "$((row_x - 6))" "$row_y" && hover "$row_x" "$row_y"; then
+settings_second_box="$(ipc smoke windowGeometry window vgs.settings ListItem "$settings_second")" || settings_second_box=""
+settings_surface="$(surface_box window:Plugins)" || settings_surface=""
+settings_second_points="$(python3 - "$settings_second_box" "$settings_surface" <<'PY'
+import json, sys
+box, surface = json.loads(sys.argv[1]), json.loads(sys.argv[2])
+x, y, w, h = box
+sx, sy = surface[:2]
+print("%d %d %d %d" % (sx + x + w * 0.40, sy + y + h / 2, sx + x + w * 0.50, sy + y + h / 2))
+PY
+)" || settings_second_points=""
+if read -r row_x1 row_y1 row_x2 row_y2 <<<"$settings_second_points" && hover "$row_x1" "$row_y1" && hover "$row_x2" "$row_y2"; then
   expect_poll "a moving pointer arms the Settings list" true ipc smoke readShownDescendant window vgs.settings ListCursor armed
   type_keys e || fail "typing a filter into the Settings search failed"
   expect_poll "the filter reaches the Settings list" '"e"' ipc smoke readShownDescendant window vgs.settings ListPage query
@@ -80,22 +89,65 @@ expect_poll "the Settings window is gone" 0 window_count Plugins
 # reading, and the same reader under that travel is its control.
 hover_ceiling_ms=150
 hover_fixture="$repo/scripts/smoke/fixtures/list-cursor/CursorFrames.qml"
-declare -A hover_x hover_y
-hover_travel() {
-  local i reading prev=""
-  ipc smoke popupCall cursor-frames start >/dev/null || return
-  for i in $(seq 1 20); do
-    hover "$((hover_x[$1] + i % 3))" "${hover_y[$1]}" || return
-    [[ $(ipc smoke popupRead cursor-frames targets) != "[]" ]] && break
-    sleep 0.05
-  done
-  for i in $(seq 1 30); do
+declare -A hover_name
+hover_row_box() { ipc smoke windowGeometry window vgs.settings ListItem "${hover_name[$1]}"; }
+hover_row_point() {
+  local box surface step="${2:-0}"
+  box="$(hover_row_box "$1")" || return
+  [[ $box == \[* ]] || return 1
+  surface="$(surface_box window:Plugins)" || return
+  python3 - "$box" "$surface" "$step" <<'PY'
+import json, sys
+box, surface, step = json.loads(sys.argv[1]), json.loads(sys.argv[2]), int(sys.argv[3])
+x, y, w, h = box
+sx, sy = surface[:2]
+ratio = 0.45 if step % 2 == 0 else 0.55
+print("%d %d" % (sx + x + w * ratio, sy + y + h / 2))
+PY
+}
+cursor_settled() {
+  local i reading prev="" stable=0
+  smoke_poll_tries 100 1
+  for i in $(seq 1 "$smoke_poll_n"); do
+    reading="$(cursor_y window vgs.settings)" || return
+    if [[ $reading == "$prev" ]]; then stable=$((stable + 1)); else stable=0; prev="$reading"; fi
+    [[ $stable -ge 1 ]] && return
     sleep 0.1
-    reading="$(ipc smoke readShownDescendant window vgs.settings ListCursor y)" || return
-    [[ $reading == "$prev" ]] && break
-    prev="$reading"
   done
-  python3 - "$(ipc smoke popupRead cursor-frames targets)" "$(ipc smoke popupRead cursor-frames moves)" "$(ipc smoke popupRead cursor-frames frames)" <<'PY'
+  return 1
+}
+hover_prime_keys() {
+  type_keys -k Home || return
+  cursor_settled || return
+  if [[ $1 == 1 ]]; then
+    type_keys -k Down || return
+    cursor_settled || return
+  fi
+}
+hover_travel_once() {
+  local i reading point x y prev="" stable=0 targets moves frames other
+  other=0; [[ $1 == 0 ]] && other=1
+  hover_prime_keys "$other" || return
+  ipc smoke popupCall cursor-frames start >/dev/null || return
+  smoke_poll_tries 100 1
+  for i in $(seq 1 20); do
+    point="$(hover_row_point "$1" "$i")" || return
+    read -r x y <<<"$point" || return
+    hover "$x" "$y" || return
+    reading="$(ipc smoke popupRead cursor-frames targets)" || return
+    [[ $reading != "[]" ]] && break
+    sleep 0.1
+  done
+  for i in $(seq 1 "$smoke_poll_n"); do
+    reading="$(cursor_y window vgs.settings)" || return
+    if [[ $reading == "$prev" ]]; then stable=$((stable + 1)); else stable=0; prev="$reading"; fi
+    [[ $stable -ge 1 ]] && break
+    sleep 0.1
+  done
+  targets="$(ipc smoke popupRead cursor-frames targets)" || return
+  moves="$(ipc smoke popupRead cursor-frames moves)" || return
+  frames="$(ipc smoke popupRead cursor-frames frames)" || return
+  python3 - "$targets" "$moves" "$frames" <<'PY'
 import json, sys
 targets, moves, frames = (json.loads(v) for v in sys.argv[1:4])
 if not targets: print("unselected"); sys.exit()
@@ -112,15 +164,32 @@ rest = [f for f in after if abs(f[1] - final) < 0.5]
 print("%d %s" % (moved[0][0] - t0, (rest[0][0] - t0) if rest else "unrested"))
 PY
 }
+hover_travel() {
+  local attempt reading="unread"
+  for attempt in 1 2 3 4; do
+    reading="$(hover_travel_once "$1")" || return
+    [[ $reading == unselected ]] || { echo "$reading"; return; }
+  done
+  echo "$reading"
+}
 # hover_readings N: N hover_travel readings, alternating the second row and
 # the first, one per line; hover_verdict: `fast` when every reading moved
 # on its first frame and rested within the ceiling, `slow` when every
 # reading was read and one rested past it, else `unread`.
 hover_readings() {
-  local n
-  for n in $(seq 1 "$1"); do
-    hover_travel "$((n % 2))" || echo "unread"
+  local n got=0 reading last="unread" limit
+  limit=$(("$1" * 4))
+  for n in $(seq 1 "$limit"); do
+    reading="$(hover_travel "$((n % 2))")" || reading="unread"
+    if [[ $reading =~ ^[0-9]+\ [0-9]+$ ]]; then
+      printf '%s\n' "$reading"
+      got=$((got + 1))
+      [[ $got -ge $1 ]] && return
+    else
+      last="$reading"
+    fi
   done
+  printf '%s\n' "$last"
 }
 hover_verdict() {
   local readings
@@ -143,10 +212,13 @@ expect "the probe builds the cursor frame trace" ok ipc smoke popupLoad cursor-f
 hover_rows="$(ipc smoke itemTexts window vgs.settings ListItem)" || hover_rows='[]'
 for hover_row in 0 1; do
   hover_name="$(py_reply 'import json,sys; r=json.load(sys.stdin); i=int(sys.argv[1]); print(r[i][0] if len(r) > i else "")' "$hover_row" <<<"$hover_rows")" || hover_name=""
-  read -r "hover_x[$hover_row]" "hover_y[$hover_row]" < <(at_centre window:Plugins "$(ipc smoke windowGeometry window vgs.settings ListItem "$hover_name")") || fail "the Settings list's row $hover_row is unplaced: ${hover_name:-unread}"
+  hover_name[$hover_row]="$hover_name"
+  hover_box="$(hover_row_box "$hover_row")" || hover_box=""
+  [[ -n $hover_name && $hover_box == \[* ]] || fail "the Settings list's row $hover_row is unplaced: ${hover_name:-unread}"
 done
-if [[ -n ${hover_x[0]:-} && -n ${hover_x[1]:-} ]]; then
-  hover "$((hover_x[0] - 6))" "${hover_y[0]}"; hover "${hover_x[0]}" "${hover_y[0]}"
+if [[ -n ${hover_name[0]:-} && -n ${hover_name[1]:-} ]]; then
+  hover_point="$(hover_row_point 0 0)" || hover_point=""
+  if read -r hx hy <<<"$hover_point"; then hover "$hx" "$hy"; fi
   render expect "a hover moves the Settings list's plate on its first frame and rests it within ${hover_ceiling_ms} ms" fast hover_verdict
   write_motion_theme '{ "schemaVersion": 1, "name": "oldtravel", "tokens": { "motion": { "list": { "travel": { "duration": 250, "easing": "outQuint" }, "resize": { "duration": 250 } } } } }'
   expect_poll "the old travel reaches the list motion" 250 ipc smoke themeValue motion.list.travel.duration

@@ -15,6 +15,9 @@ note_status() { notes status | py_reply 'import json,sys; v=json.load(sys.stdin)
 for k in sys.argv[1].split("."): v=v[k]
 print(json.dumps(v))' "$1"; }
 read_notes() { ipc smoke readInstance service vgs.notifications "$1"; }
+look_at() { read_notes look | py_reply 'import json,sys; v=json.load(sys.stdin)
+for k in sys.argv[1].split("."): v=v[k]
+print(json.dumps(v))' "$1"; }
 # The rows the service holds, as [summary, origin, leaving] triples, newest first.
 note_rows() { ipc smoke modelRows vgs.notifications rows summary,origin,leaving | py_reply 'import json,sys; print(json.dumps([r for r in json.load(sys.stdin) if r[2] == ""]))'; }
 panel_rows() { ipc smoke readInstance panel vgs.notifications rows; }
@@ -185,9 +188,50 @@ print(len(edges) >= 1 and all(re.search(r"/vgshell-sources-[0-9]+/[0-9a-f]+/shad
 render expect_poll "the edge light's shader compiled from the published revision" True edge_shaders_ok
 key_of() { ipc smoke modelRows vgs.notifications rows key,summary | py_reply 'import json,sys; print(next((k for k, s in json.load(sys.stdin) if s == sys.argv[1]), "none"))' "$1"; }
 clock_of() { read_notes clocks | py_reply 'import json,sys; c=json.load(sys.stdin).get(sys.argv[1]); print("none" if c is None else ("running" if c["since"] is not None else "paused") + " " + str(c["remaining"]))' "$1"; }
+note_stack_top="$(look_at stack.top)" || fail "the notification stack top token is unreadable"
+note_stack_pad="$(look_at stack.pad)" || fail "the notification stack pad token is unreadable"
+note_card_width="$(look_at card.width)" || fail "the notification card width token is unreadable"
+note_card_gap="$(look_at card.gap)" || fail "the notification card gap token is unreadable"
+note_card_max_height="$(look_at card.maxHeight)" || fail "the notification card max-height token is unreadable"
+note_radius_clearance="$(look_at radius.clearance)" || fail "the notification radius clearance token is unreadable"
+note_header_height="$(look_at header.height)" || fail "the notification header height token is unreadable"
+note_header_gap="$(look_at header.gap)" || fail "the notification header gap token is unreadable"
+note_scrollbar_width="$(look_at scrollbar.width)" || fail "the notification scrollbar width token is unreadable"
+note_media_compact_size="$(look_at media.compact.size)" || fail "the notification compact media size is unreadable"
+note_media_regular_size="$(look_at media.regular.size)" || fail "the notification regular media size is unreadable"
+note_toggle_hit_height="$(look_at toggle.hitHeight)" || fail "the notification toggle hit-height token is unreadable"
+note_toggle_height="$(look_at toggle.height)" || fail "the notification toggle height token is unreadable"
 # rest_on_card SUMMARY: the pointer left on the centre of the card
 # SUMMARY once the card reports it, through point_item.
 rest_on_card() { point_item vgs:layer vgs.notifications NotificationCard summary "$1" >/dev/null; }
+card_clear_dx() { # SUMMARY
+  local cards pills
+  cards="$(ipc smoke layerItems vgs.notifications NotificationCard summary)" || return
+  pills="$(ipc smoke layerItems vgs.notifications PillButton visible)" || return
+  python3 - "$1" "$cards" "$pills" <<'PY'
+import json, sys
+
+summary, cards, pills = sys.argv[1], json.loads(sys.argv[2]), json.loads(sys.argv[3])
+card = next(((s, r) for s, r, v in cards if v["summary"] == summary), None)
+if card is None:
+    print("absent")
+    sys.exit()
+screen, (x, y, w, h) = card
+inside = [r for s, r, v in pills if s == screen and v["visible"] and x <= r[0] < x + w and y <= r[1] < y + h]
+right_bound = min((r[0] for r in inside), default=x + w)
+print(max(1, round((right_bound - x) / 2)))
+PY
+}
+card_clear_point() { # SUMMARY
+  local dx
+  dx="$(card_clear_dx "$1")" && [[ $dx =~ ^[0-9]+$ ]] || return 1
+  point_item vgs:layer vgs.notifications NotificationCard summary "$1" "$dx" -
+}
+click_card_clear() { # SUMMARY
+  local dx
+  dx="$(card_clear_dx "$1")" && [[ $dx =~ ^[0-9]+$ ]] || return 1
+  click_item vgs:layer vgs.notifications NotificationCard summary "$1" "$dx" -
+}
 # click_pill TEXT: one click_item on the shown pill TEXT in the panel or layer.
 click_pill() {
   if [[ $(ipc smoke readInstance panel vgs.notifications rows) != absent ]]; then
@@ -257,7 +301,7 @@ geometry read_bar_settled "the bar set has settled before the toast rows read th
 # Whether the first card is centred at the top; `no-card` before it is laid out.
 toast_centred() { ipc smoke layerItems vgs.notifications NotificationCard summary | py_reply 'import json,sys; c=json.load(sys.stdin)
 if not c: print("no-card"); sys.exit()
-x,y,w,h=c[0][1]; print(abs(x + w / 2 - int(sys.argv[1]) / 2) <= 1 and 0 < y < 40)' "$mon_w"; }
+x,y,w,h=c[0][1]; top=float(sys.argv[2]); room=float(sys.argv[3]); print(abs(x + w / 2 - int(sys.argv[1]) / 2) <= 1 and top - 1 <= y <= top + room)' "$(first_width)" "$note_stack_top" "$note_stack_pad"; }
 geometry expect_poll "the toast is centred at the top of the screen under the bar" True toast_centred
 geometry expect_poll "the layer covers the screen below the bar" "[[0, $bar_reserved, $mon_w, $((mon_h - bar_reserved))]]" layers_of vgs:layer
 
@@ -403,8 +447,8 @@ expect_poll "the click runs the sender's action" 1 invoked reply
 expect_poll "the acted-on toast leaves" none key_of Actioned
 notify smoke-chat 0 "Clicked" "Open me" '["default", "Open"]' '{}' 0 >/dev/null
 expect_poll "a toast with a default action shows" True has_row live "Clicked"
-# The click lands left on the card, clear of the actions its hover shows.
-click_item vgs:layer vgs.notifications NotificationCard summary Clicked 30 - || fail "the click on the card failed"
+# The click lands in the card's left clear span, before any shown actions.
+click_card_clear Clicked || fail "the click on the card failed"
 expect_poll "a click on the card runs its default action" 1 invoked default
 expect_poll "the clicked toast leaves" none key_of Clicked
 
@@ -465,7 +509,7 @@ open_card() { # LABEL SUMMARY
   fi
   inbox_closed || { fail "$1: the inbox never closed after the other window took the focus"; return; }
   if [[ $(has_row live "$2") == True ]]; then
-    at="$(point_item vgs:layer vgs.notifications NotificationCard summary "$2" 30 -)" || { fail "$1: the pointer never rested on the card $2"; return; }
+    at="$(card_clear_point "$2")" || { fail "$1: the pointer never rested on the card $2"; return; }
   else
     notes inbox >/dev/null || { fail "$1: reopening the panel failed"; return; }
     expect_poll "$1: the panel row is present after reopen" True has_row panel "$2"
@@ -561,7 +605,7 @@ if open_toplevel "$sandbox/toplevel-sender.log" "$sender_class" "Sender window" 
   # reads end, so a slow read on a loaded host still reads the stalled state.
   stale_at=""
   if summon_drawn panel vgs.notifications && stale_box="$(ipc smoke itemGeometry panel vgs.notifications NotificationCard "Held for the inbox")" && [[ $stale_box == \[* ]]; then
-    stale_at="$(panel_point "$stale_box" 30 -)" || stale_at=""
+    stale_at="$(panel_point "$stale_box" - -)" || stale_at=""
   fi
   window_presses() { cat -- "$sandbox/toplevel-sender.log" "$sandbox/toplevel-notifications.log" | grep -c -x -F -e "button 272 pressed" || true; }
   if [[ -n $stale_at ]]; then
@@ -752,15 +796,17 @@ print("top=%d bottom=%d left=%d right=%d height=%d slot=%d pad=%d column=%d" % (
 }
 # Whether a text block's corner, SIDE in from a rounded end and EDGE in
 # from the top or bottom of a container HEIGHT tall, keeps the clearance
-# step, 4 (radius.clearance), inside the end's curve, less 1 px for the
-# whole-pixel readings. The card and the header are far wider than tall,
-# so each end is a half circle of radius HEIGHT / 2. Python source for the
-# predicates below.
-corner_clears_py='import math
+# step from Appearance.js `radius.clearance` inside the end's curve, less
+# 1 px for the whole-pixel readings. The card and the header are far wider
+# than tall, so each end is a half circle of radius HEIGHT / 2. Python
+# source for the predicates below.
+corner_clears_py="import math
+NOTIFICATION_RADIUS_CLEARANCE = float($note_radius_clearance)
+NOTIFICATION_CARD_MAX_HEIGHT = float($note_card_max_height)
 def corner_clears(side, edge, height):
     c = height / 2
-    return c - math.hypot(max(0, c - side), max(0, c - edge)) >= 4 - 1
-'
+    return c - math.hypot(max(0, c - side), max(0, c - edge)) >= NOTIFICATION_RADIUS_CLEARANCE - 1
+"
 # A card's text starts on the stack's text column, the same at both ends
 # for text alone, and its corners keep the step inside the rounded end. A
 # round slot stays at the pad, and the text's far end is on the column.
@@ -782,7 +828,7 @@ if sys.argv[1] == "slot":
     if abs(slot - pad) > 1: problems.append("slot")
     if abs(right - column) > 1: problems.append("right")
     if not corner_clears(right, edge, height): problems.append("curve")
-if sys.argv[2] == "clamped" and not (80 <= height <= 94): problems.append("clamped")
+if sys.argv[2] == "clamped" and not (NOTIFICATION_CARD_MAX_HEIGHT - pad <= height <= NOTIFICATION_CARD_MAX_HEIGHT): problems.append("clamped")
 print("ok" if not problems else "violation " + ",".join(problems))' "$1" "$2" <<<"$3"
 }
 checked_space() { # SUMMARY KIND [clamped]
@@ -1004,12 +1050,12 @@ toggle_press() { # DY: one click DY px above the shown toggle's track top
   read -r x y < <(panel_point "$rect" - "$((toggle_strip - $1))") || return 1
   hover "$((x - 1))" "$y" && click "$x" "$y"
 }
-# (toggle.hitHeight 28 - toggle.height 20) / 2 in vgs.notifications/Appearance.js.
-toggle_strip=4
-toggle_press 2 || fail "the click in the Silence toggle's strip failed"
+toggle_strip="$(python3 -c 'import json,sys; print(round((json.loads(sys.argv[1]) - json.loads(sys.argv[2])) / 2))' "$note_toggle_hit_height" "$note_toggle_height")" || fail "the Silence toggle strip is unreadable"
+toggle_probe="$((toggle_strip > 1 ? toggle_strip / 2 : 1))"
+toggle_press "$toggle_probe" || fail "the click in the Silence toggle's strip failed"
 expect_poll "a click in the toggle's strip above its track turns Silence on" true read_notes silenced
 expect "Silence turns off before the strip's edge" off notes silence off
-toggle_press "$((toggle_strip + 2))" || fail "the click past the Silence toggle's strip failed"
+toggle_press "$((toggle_strip + toggle_probe))" || fail "the click past the Silence toggle's strip failed"
 read -r marker_x marker_y <<<"$pointer_at"
 pointer_hover_marker "the marker hover after the click past the Silence toggle reaches the compositor" "$((marker_x - 1))" "$marker_y"
 expect "a click past the strip leaves Silence off" false read_notes silenced
@@ -1143,8 +1189,9 @@ checked_group() { # PLACES CHIP SUMMARY
   t="$(group_reading "$3")" || return
   group_fit_value "$1" "$2" "$t"
 }
-expect "the tier predicate rejects two text starts in one tier" "violation x" tier_contract_value compact "tier=compact left=54 slot=28x28" "tier=compact left=66 slot=28x28"
-expect "the tier predicate rejects a card of another tier" "violation tier" tier_contract_value compact "tier=compact left=54 slot=28x28" "tier=regular left=54 slot=28x28"
+expect "the tier predicate rejects two text starts in one tier" "violation x" tier_contract_value compact "tier=compact left=54 slot=${note_media_compact_size}x${note_media_compact_size}" "tier=compact left=66 slot=${note_media_compact_size}x${note_media_compact_size}"
+expect "the tier predicate rejects a card of another tier" "violation tier" tier_contract_value compact "tier=compact left=54 slot=${note_media_compact_size}x${note_media_compact_size}" "tier=regular left=54 slot=${note_media_compact_size}x${note_media_compact_size}"
+# The planted faces use the regular slot from Appearance.js and its 0.6 face share.
 expect "the group predicate rejects a face outside the slot" "violation outside" group_fit_value 2 "" '{"slot": [0, 0, 40, 40], "faces": [[[0, 0, 24, 24], "A"], [[30, 16, 24, 24], "B"]]}'
 expect "the group predicate rejects a missing face" "violation count" group_fit_value 3 "" '{"slot": [0, 0, 40, 40], "faces": [[[0, 0, 24, 24], "A"], [[16, 16, 24, 24], "B"]]}'
 expect "the group predicate rejects a chip that counts wrong" "violation chip" group_fit_value 4 "+4" '{"slot": [0, 0, 40, 40], "faces": [[[0, 0, 24, 24], "A"], [[16, 0, 24, 24], "B"], [[16, 16, 24, 24], "C"], [[0, 16, 24, 24], "+3"]]}'
@@ -1155,10 +1202,10 @@ tier_and_slot() { # SUMMARY
   [[ $t == tier=* ]] || { echo "$t"; return; }
   echo "${t%% left=*} slot=${t##* slot=}"
 }
-expect_poll "a summary-only person card whose title fits the compact width is compact" "tier=compact slot=28x28" tier_and_slot "$tier_fits_person"
-expect_poll "a summary-only image card whose title wraps at the compact width is regular" "tier=regular slot=40x40" tier_and_slot "$tier_wraps_image"
-expect_poll "a summary-only person card whose title wraps at the compact width is regular" "tier=regular slot=40x40" tier_and_slot "$tier_wraps_person"
-expect_poll "a summary-only image card whose short title holds a line break is regular" "tier=regular slot=40x40" tier_and_slot "$tier_break_image"
+expect_poll "a summary-only person card whose title fits the compact width is compact" "tier=compact slot=${note_media_compact_size}x${note_media_compact_size}" tier_and_slot "$tier_fits_person"
+expect_poll "a summary-only image card whose title wraps at the compact width is regular" "tier=regular slot=${note_media_regular_size}x${note_media_regular_size}" tier_and_slot "$tier_wraps_image"
+expect_poll "a summary-only person card whose title wraps at the compact width is regular" "tier=regular slot=${note_media_regular_size}x${note_media_regular_size}" tier_and_slot "$tier_wraps_person"
+expect_poll "a summary-only image card whose short title holds a line break is regular" "tier=regular slot=${note_media_regular_size}x${note_media_regular_size}" tier_and_slot "$tier_break_image"
 expect_poll "every compact card starts its text at one x, whatever its media" ok checked_tier compact "${tier_compact[@]}"
 expect_poll "every regular card starts its text at one x, whatever its media" ok checked_tier regular "${tier_regular[@]}"
 expect_poll "two people fit the slot on its diagonal" ok checked_group 2 "" "[acme] in ada, grace"
@@ -1537,23 +1584,26 @@ panel_fit() {
   printf '%s\n%s\n' "$panel" "$items" | panel_fit_value
 }
 # Controls: the readings the predicate must refuse. The clipped one is the
-# panel as it drew before its width followed its column, a 420 px panel
-# under a 500 px column, read in the sandbox at scale 1; the second puts the
-# first card's top 18 px into the header, the third 2 px below the header
-# and 2 px above the list's top.
+# panel as it drew before its width followed its column; Appearance.js
+# `card.width`, `stack.pad`, `header.height`, `header.gap` and
+# `scrollbar.width` provide the planted dimensions. The second puts the
+# first card into the header; the third puts it below the header and above
+# the list's top.
 panel_fit_reading() { # PANEL_W HEADER_X CARD_Y
   printf '[0, 0, %s, 303]\n' "$1"
-  printf '[{"type":"InboxHeader","name":"","box":[%s,0,420,48],"visible":true},' "$2"
-  printf '{"type":"QQuickFlickable","name":"","box":[0,52,500,251],"visible":true},'
-  printf '{"type":"SlimScrollBar","name":"notificationPanelScrollBar","box":[464,52,12,251],"visible":false},'
-  printf '{"type":"KeyHints","name":"","box":[40,259,420,20],"visible":true},'
-  printf '{"type":"NotificationCard","name":"","box":[40,%s,420,61],"visible":true},' "$3"
-  printf '{"type":"NotificationCard","name":"","box":[40,129,420,61],"visible":true}]\n'
+  printf '[{"type":"InboxHeader","name":"","box":[%s,0,%s,%s],"visible":true},' "$2" "$note_card_width" "$note_header_height"
+  printf '{"type":"QQuickFlickable","name":"","box":[0,%s,%s,251],"visible":true},' "$((note_header_height + note_header_gap))" "$((note_card_width + 2 * note_stack_pad))"
+  printf '{"type":"SlimScrollBar","name":"notificationPanelScrollBar","box":[%s,%s,%s,251],"visible":false},' "$((note_card_width + note_stack_pad + note_scrollbar_width / 3))" "$((note_header_height + note_header_gap))" "$note_scrollbar_width"
+  printf '{"type":"KeyHints","name":"","box":[%s,259,%s,20],"visible":true},' "$note_stack_pad" "$note_card_width"
+  printf '{"type":"NotificationCard","name":"","box":[%s,%s,%s,61],"visible":true},' "$note_stack_pad" "$3" "$note_card_width"
+  printf '{"type":"NotificationCard","name":"","box":[%s,129,%s,61],"visible":true}]\n' "$note_stack_pad" "$note_card_width"
 }
-expect "the fit predicate passes the panel drawn whole" fits panel_fit_value < <(panel_fit_reading 500 40 58)
-expect "control: the fit predicate refuses the clipped panel" "clipped=card0 clipped=card1 clipped=header clipped=hints clipped=list" panel_fit_value < <(panel_fit_reading 420 40 58)
-expect "control: the fit predicate refuses a first card under the header" "cut-top=card under-header=card" panel_fit_value < <(panel_fit_reading 500 40 30)
-expect "control: the fit predicate refuses a first card the list cuts under the header" "cut-top=card" panel_fit_value < <(panel_fit_reading 500 40 50)
+panel_fit_width="$((note_card_width + 2 * note_stack_pad))"
+panel_fit_first_card_y="$((note_header_height + note_header_gap + note_card_gap - note_card_gap / 4))"
+expect "the fit predicate passes the panel drawn whole" fits panel_fit_value < <(panel_fit_reading "$panel_fit_width" "$note_stack_pad" "$panel_fit_first_card_y")
+expect "control: the fit predicate refuses the clipped panel" "clipped=card0 clipped=card1 clipped=header clipped=hints clipped=list" panel_fit_value < <(panel_fit_reading "$note_card_width" "$note_stack_pad" "$panel_fit_first_card_y")
+expect "control: the fit predicate refuses a first card under the header" "cut-top=card under-header=card" panel_fit_value < <(panel_fit_reading "$panel_fit_width" "$note_stack_pad" "$((note_header_height - note_stack_pad / 4))")
+expect "control: the fit predicate refuses a first card the list cuts under the header" "cut-top=card" panel_fit_value < <(panel_fit_reading "$panel_fit_width" "$note_stack_pad" "$((note_header_height + note_header_gap - note_header_gap / 2))")
 for n in 1 2 3 4 5 6 7 8; do
   notify smoke-app 0 "Fit $n" "A body long enough to wrap onto a second line of the card, so the card is tall" '[]' '{"urgency": <byte 0>}' 0 >/dev/null
 done
@@ -1846,9 +1896,6 @@ expect "the toast outlived the removed monitor" True has_row live "Everywhere"
 # alone.
 theme="$home/.config/vgshell/theme.json"
 write_theme() { printf '%s\n' "$1" >"$theme.tmp" && mv -T -- "$theme.tmp" "$theme"; }
-look_at() { read_notes look | py_reply 'import json,sys; v=json.load(sys.stdin)
-for k in sys.argv[1].split("."): v=v[k]
-print(json.dumps(v))' "$1"; }
 edge_values() { ipc smoke layerItems vgs.notifications EdgeLight "$1" | py_reply 'import json,sys; print(json.dumps(sorted(set(json.dumps(v[sys.argv[1]]) for s, r, v in json.load(sys.stdin)))))' "$1"; }
 expect_poll "the look resolved" '"#cc101010"' look_at glass.fill
 write_theme '{ "schemaVersion": 1, "name": "unrelated", "tokens": { "palette": { "foreground": "#ff00ff", "background": "#00ff00" }, "font": { "size": 22 }, "space": { "unit": 7 }, "radius": { "md": 9 }, "text": { "body": { "size": 30 } }, "color": { "surface": "#ff0000" } } }'
@@ -1856,7 +1903,7 @@ expect_poll "the unrelated theme is accepted" unrelated ipc smoke themeName
 expect "an unrelated theme leaves the glass" '"#cc101010"' look_at glass.fill
 expect "an unrelated theme leaves the text" '"#ffe8e8e8"' look_at text.foreground
 expect "an unrelated theme leaves the type" '"Liberation Sans"' look_at font.family
-expect "an unrelated theme leaves the card width" 420 look_at card.width
+expect "an unrelated theme leaves the card width" "$note_card_width" look_at card.width
 write_theme '{ "schemaVersion": 1, "name": "accent", "tokens": { "palette": { "accent": "#7aa2f7" } } }'
 expect_poll "the accent reaches the notifications" '"#ff7aa2f7"' look_at palette.accent
 expect "the accent reaches the edge light" '["\"#7aa2f7\""]' edge_values accent
