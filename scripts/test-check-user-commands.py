@@ -3,8 +3,10 @@
 rule must pass, the "Show command" disclosure's reach, the unreadable trees,
 and the repository's own shell/ against a coverage floor. Each row builds a
 throwaway shell/ holding one plugin, runs the check on it and asserts the
-rule key, the location and the exit status. The controls at the end run a
-copy of the check with one rule removed, and the rows must fail on it."""
+rule key, the location and the exit status. Each control runs its own copy
+of the check with one rule removed, and a row or classification check must
+fail on it."""
+import concurrent.futures
 import importlib.machinery
 import json
 import os
@@ -13,6 +15,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import types
 
 # A check loaded to read its lists compiles no bytecode into the tree.
@@ -22,6 +25,11 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.realpath(os.path.join(HERE, ".."))
 CHECK = os.path.join(HERE, "check-user-commands.py")
 ENV = {"PATH": os.environ.get("PATH", ""), "LC_ALL": "C"}
+MAX_WORKERS = max(1, os.cpu_count() or 1)
+RUN_SLOTS = threading.BoundedSemaphore(MAX_WORKERS)
+IMPORT_LOCK = threading.Lock()
+ADMITTED_LOCK = threading.Lock()
+ADMITTED_CACHE = None
 
 MANIFEST = '{ "schemaVersion": 1, "id": "acme.setup", "name": "Setup", "version": "1", "author": "a", "description": "Shows a token", "kinds": ["service"], "entryPoints": { "service": "Service.qml" } }\n'
 SERVICE = 'import QtQuick\nItem {\n    property string note: "Checks the token"\n}\n'
@@ -105,25 +113,42 @@ def build(tmp, files):
     return os.path.join(tmp, "shell")
 
 
+def run_command(args, **kwargs):
+    with RUN_SLOTS:
+        return subprocess.run(args, **kwargs)
+
+
 def run(check, root):
-    return subprocess.run([sys.executable, check, root], capture_output=True, text=True, env=ENV)
+    return run_command([sys.executable, check, root], capture_output=True, text=True, env=ENV)
+
+
+def row_failure(check, row):
+    name, files, rule, where = row
+    with tempfile.TemporaryDirectory() as tmp:
+        done = run(check, build(tmp, files))
+    lines = done.stdout.splitlines()
+    if rule is None:
+        if done.returncode != 0 or not lines or not lines[-1].startswith("check-user-commands: ok "):
+            return f"{name}: want a pass, got exit {done.returncode}: {done.stdout.strip()} {done.stderr.strip()}"
+        return None
+    found = [line for line in lines if line.startswith(rule + " ") and (os.sep + "acme.setup" + os.sep + where) in line]
+    if done.returncode != 1 or len(found) != 1:
+        return f"{name}: want one {rule} at {where} and exit 1, got exit {done.returncode}: {done.stdout.strip()} {done.stderr.strip()}"
+    return None
 
 
 def rows_hold(check):
     """The failures of every row against CHECK, as lines."""
-    failures = []
-    for name, files, rule, where in ROWS:
-        with tempfile.TemporaryDirectory() as tmp:
-            done = run(check, build(tmp, files))
-        lines = done.stdout.splitlines()
-        if rule is None:
-            if done.returncode != 0 or not lines or not lines[-1].startswith("check-user-commands: ok "):
-                failures.append(f"{name}: want a pass, got exit {done.returncode}: {done.stdout.strip()} {done.stderr.strip()}")
-            continue
-        found = [line for line in lines if line.startswith(rule + " ") and (os.sep + "acme.setup" + os.sep + where) in line]
-        if done.returncode != 1 or len(found) != 1:
-            failures.append(f"{name}: want one {rule} at {where} and exit 1, got exit {done.returncode}: {done.stdout.strip()} {done.stderr.strip()}")
-    return failures
+    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        return [failure for failure in executor.map(lambda row: row_failure(check, row), ROWS) if failure]
+
+
+def first_row_failure(check):
+    for row in ROWS:
+        failure = row_failure(check, row)
+        if failure:
+            return failure
+    return None
 
 
 # Where the judge's key lists sit in a manifest: a path, whether a `*`
@@ -145,11 +170,11 @@ NESTED = {
 }
 
 
-def admitted_paths():
+def load_admitted_paths():
     """Every leaf path of a manifest PluginLogic admits, from its key lists."""
     names = ["MANIFEST_KEYS"] + sorted({name for _star, name in NESTED.values()})
     script = "const m = require(process.argv[1]).load(process.argv[2]); const out = {}; for (const n of process.argv.slice(3)) out[n] = m[n]; process.stdout.write(JSON.stringify(out));"
-    done = subprocess.run(["node", "-e", script, os.path.join(REPO, "bin", "lib", "qml-library.js"), os.path.join(REPO, "shell", "Core", "PluginLogic.js")] + names, capture_output=True, text=True, env=ENV)
+    done = run_command(["node", "-e", script, os.path.join(REPO, "bin", "lib", "qml-library.js"), os.path.join(REPO, "shell", "Core", "PluginLogic.js")] + names, capture_output=True, text=True, env=ENV)
     lists = json.loads(done.stdout)
     missing = [n for n in names if not isinstance(lists.get(n), list)]
     if done.returncode != 0 or missing:
@@ -168,6 +193,14 @@ def admitted_paths():
     return leaves, ""
 
 
+def admitted_paths():
+    global ADMITTED_CACHE
+    with ADMITTED_LOCK:
+        if ADMITTED_CACHE is None:
+            ADMITTED_CACHE = load_admitted_paths()
+        return ADMITTED_CACHE
+
+
 def fields_unclassified(check):
     """Each admitted leaf path CHECK names in neither FIELDS nor EXEMPT, as
     lines; a pattern that runs on past a leaf, as schema.*.options.* does,
@@ -175,11 +208,17 @@ def fields_unclassified(check):
     loader = importlib.machinery.SourceFileLoader("check_user_commands_" + str(abs(hash(check))), check)
     module = types.ModuleType(loader.name)
     module.__file__ = check
-    sys.path.insert(0, os.path.dirname(check))
-    try:
-        loader.exec_module(module)
-    finally:
-        sys.path.pop(0)
+    with IMPORT_LOCK:
+        saved_qml_source = sys.modules.pop("qml_source", None)
+        sys.path.insert(0, os.path.dirname(check))
+        try:
+            loader.exec_module(module)
+        finally:
+            sys.path.pop(0)
+            if saved_qml_source is None:
+                sys.modules.pop("qml_source", None)
+            else:
+                sys.modules["qml_source"] = saved_qml_source
     leaves, error = admitted_paths()
     if leaves is None:
         return [error]
@@ -187,34 +226,44 @@ def fields_unclassified(check):
     return [".".join(leaf) + ": named in neither FIELDS nor EXEMPT" for leaf in leaves if not any(tuple(p[:len(leaf)]) == leaf for p in named)]
 
 
-failures = rows_hold(CHECK) + fields_unclassified(CHECK)
+def repository_shell_failures():
+    failures = []
+    # The repository's own shell/ passes, over a floor that proves the walk
+    # read the tree: the plugins' Markdown and manifests and the shipped QML.
+    done = run(CHECK, os.path.join(REPO, "shell"))
+    summary = re.match(r"check-user-commands: ok files=(\d+) strings=(\d+) heads=(\d+)$", done.stdout.strip().splitlines()[-1] if done.stdout.strip() else "")
+    if done.returncode != 0 or summary is None:
+        failures.append(f"the repository's shell/: want a pass, got exit {done.returncode}: {done.stdout.strip()}")
+    elif int(summary.group(1)) < 150 or int(summary.group(2)) < 5000 or int(summary.group(3)) < 20:
+        failures.append(f"the repository's shell/: the walk read too little, files={summary.group(1)} strings={summary.group(2)} heads={summary.group(3)}: an extractor is broken")
+    return failures
 
-# The repository's own shell/ passes, over a floor that proves the walk
-# read the tree: the plugins' Markdown and manifests and the shipped QML.
-done = run(CHECK, os.path.join(REPO, "shell"))
-summary = re.match(r"check-user-commands: ok files=(\d+) strings=(\d+) heads=(\d+)$", done.stdout.strip().splitlines()[-1] if done.stdout.strip() else "")
-if done.returncode != 0 or summary is None:
-    failures.append(f"the repository's shell/: want a pass, got exit {done.returncode}: {done.stdout.strip()}")
-elif int(summary.group(1)) < 150 or int(summary.group(2)) < 5000 or int(summary.group(3)) < 20:
-    failures.append(f"the repository's shell/: the walk read too little, files={summary.group(1)} strings={summary.group(2)} heads={summary.group(3)}: an extractor is broken")
 
-# Unreadable trees end the run with exit 2 and certify nothing.
-with tempfile.TemporaryDirectory() as tmp:
-    done = run(CHECK, build(tmp, {"manifest.json": "{ not json"}))
+def unreadable_json_failures():
+    with tempfile.TemporaryDirectory() as tmp:
+        done = run(CHECK, build(tmp, {"manifest.json": "{ not json"}))
     if done.returncode != 2 or "check-user-commands: unreadable: " not in done.stdout:
-        failures.append(f"a manifest that is no JSON: want unreadable and exit 2, got exit {done.returncode}: {done.stdout.strip()}")
-with tempfile.TemporaryDirectory() as tmp:
-    done = run(CHECK, os.path.join(tmp, "missing"))
-    if done.returncode != 2 or "check-user-commands: unreadable: " not in done.stdout:
-        failures.append(f"a root without plugins/: want unreadable and exit 2, got exit {done.returncode}: {done.stdout.strip()}")
+        return [f"a manifest that is no JSON: want unreadable and exit 2, got exit {done.returncode}: {done.stdout.strip()}"]
+    return []
 
-# One plugin directory alone, as `vgs-plugin check` passes it, is read the
-# same way.
-with tempfile.TemporaryDirectory() as tmp:
-    root = build(tmp, {"README.md": "Run `vsys warden install` once.\n"})
-    done = subprocess.run([sys.executable, CHECK, "--plugin", os.path.join(root, "plugins", "acme.setup")], capture_output=True, text=True, env=ENV)
+
+def missing_root_failures():
+    with tempfile.TemporaryDirectory() as tmp:
+        done = run(CHECK, os.path.join(tmp, "missing"))
+    if done.returncode != 2 or "check-user-commands: unreadable: " not in done.stdout:
+        return [f"a root without plugins/: want unreadable and exit 2, got exit {done.returncode}: {done.stdout.strip()}"]
+    return []
+
+
+def plugin_argument_failures():
+    # One plugin directory alone, as `vgs-plugin check` passes it, is read the
+    # same way.
+    with tempfile.TemporaryDirectory() as tmp:
+        root = build(tmp, {"README.md": "Run `vsys warden install` once.\n"})
+        done = run_command([sys.executable, CHECK, "--plugin", os.path.join(root, "plugins", "acme.setup")], capture_output=True, text=True, env=ENV)
     if done.returncode != 1 or not re.search(r"^instruction \S*/acme\.setup/README\.md:1 ", done.stdout, re.M):
-        failures.append(f"--plugin: want the README's instruction and exit 1, got exit {done.returncode}: {done.stdout.strip()}")
+        return [f"--plugin: want the README's instruction and exit 1, got exit {done.returncode}: {done.stdout.strip()}"]
+    return []
 
 # Controls: a copy of the check with one rule removed, beside a copy of the
 # modules it loads, must fail the rows. The copy reads the heads from this
@@ -246,23 +295,42 @@ CONTROLS = [
     ("inline code past a dot", "[.!?;](?=[^\\s`])|", ""),
     ("the heads floor", "if len(heads) < HEADS_FLOOR or any(h not in heads for h in REQUIRED_HEADS):", "if False:"),
 ]
-source = open(CHECK, encoding="utf-8").read()
-with tempfile.TemporaryDirectory() as tmp:
+
+
+def rooted_check_source():
+    source = open(CHECK, encoding="utf-8").read()
+    needle = 'REPO = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))'
+    rooted = source.replace(needle, "REPO = " + repr(REPO))
+    if rooted == source:
+        return None, "controls: the check's REPO line was not found to root the copies"
+    return rooted, None
+
+
+def write_check_copy(tmp, text):
     scripts = os.path.join(tmp, "scripts")
     os.makedirs(scripts)
     os.makedirs(os.path.join(tmp, "bin"))
     shutil.copy(os.path.join(HERE, "qml_source.py"), scripts)
     os.symlink(os.path.join(REPO, "bin", "vgshell-scan"), os.path.join(tmp, "bin", "vgshell-scan"))
-    rooted = source.replace('REPO = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))', "REPO = " + repr(REPO))
-    if rooted == source:
-        failures.append("controls: the check's REPO line was not found to root the copies")
-    for label, needle, replacement in CONTROLS:
-        if rooted.count(needle) != 1:
-            failures.append(f"control {label}: the text to replace occurs {rooted.count(needle)} times, want 1")
-            continue
-        mutant = os.path.join(scripts, "check-user-commands.py")
-        with open(mutant, "w", encoding="utf-8") as fh:
-            fh.write(rooted.replace(needle, replacement))
+    path = os.path.join(scripts, "check-user-commands.py")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(text)
+    return path
+
+
+def mutant_is_caught(mutant):
+    if fields_unclassified(mutant):
+        return True
+    return first_row_failure(mutant) is not None
+
+
+def control_failure(rooted, control):
+    label, needle, replacement = control
+    count = rooted.count(needle)
+    if count != 1:
+        return f"control {label}: the text to replace occurs {count} times, want 1"
+    with tempfile.TemporaryDirectory() as tmp:
+        mutant = write_check_copy(tmp, rooted.replace(needle, replacement))
         if label == "the heads floor":
             # A copy that reads no bin/ and no manager must be refused by
             # the floor; without it, the copy passes on too few heads.
@@ -274,23 +342,63 @@ with tempfile.TemporaryDirectory() as tmp:
             with tempfile.TemporaryDirectory() as tree:
                 done = run(mutant, build(tree, {}))
             if done.returncode != 0:
-                failures.append(f"control {label}: the copy without the floor still refused a tree read against too few heads: {done.stdout.strip()}")
-            continue
-        if not rows_hold(mutant) and not fields_unclassified(mutant):
-            failures.append(f"control {label}: the rows passed on a copy without it")
+                return f"control {label}: the copy without the floor still refused a tree read against too few heads: {done.stdout.strip()}"
+            return None
+        if not mutant_is_caught(mutant):
+            return f"control {label}: the rows passed on a copy without it"
+    return None
+
+
+def controls_failures(rooted):
+    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        failures = executor.map(lambda control: control_failure(rooted, control), CONTROLS)
+        return [failure for failure in failures if failure]
+
+
+def heads_floor_failures(rooted):
     # The floor itself: the unmodified check refuses a head set its
     # extractors lost.
     starved = rooted.replace("heads = set(manager_heads())", "heads = set()").replace('os.listdir(os.path.join(REPO, "bin"))', "[]")
-    with open(os.path.join(scripts, "check-user-commands.py"), "w", encoding="utf-8") as fh:
-        fh.write(starved)
-    with tempfile.TemporaryDirectory() as tree:
-        done = run(os.path.join(scripts, "check-user-commands.py"), build(tree, {}))
+    with tempfile.TemporaryDirectory() as tmp:
+        mutant = write_check_copy(tmp, starved)
+        with tempfile.TemporaryDirectory() as tree:
+            done = run(mutant, build(tree, {}))
     if done.returncode != 2 or "an extractor is broken" not in done.stdout:
-        failures.append(f"the heads floor: want unreadable with exit 2 on a lost extractor, got exit {done.returncode}: {done.stdout.strip()}")
+        return [f"the heads floor: want unreadable with exit 2 on a lost extractor, got exit {done.returncode}: {done.stdout.strip()}"]
+    return []
 
-for line in failures:
-    print("FAIL " + line)
-if failures:
-    print(f"test-check-user-commands: failing={len(failures)}")
-    sys.exit(1)
-print(f"test-check-user-commands: ok rows={len(ROWS)} controls={len(CONTROLS)}")
+
+def main():
+    failures = []
+    rooted, error = rooted_check_source()
+    if error:
+        failures.append(error)
+        rooted_tasks = []
+    else:
+        rooted_tasks = [
+            lambda: controls_failures(rooted),
+            lambda: heads_floor_failures(rooted),
+        ]
+    tasks = [
+        lambda: rows_hold(CHECK),
+        lambda: fields_unclassified(CHECK),
+        repository_shell_failures,
+        unreadable_json_failures,
+        missing_root_failures,
+        plugin_argument_failures,
+    ] + rooted_tasks
+    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        futures = [executor.submit(task) for task in tasks]
+        for future in futures:
+            failures.extend(future.result())
+    for line in failures:
+        print("FAIL " + line)
+    if failures:
+        print(f"test-check-user-commands: failing={len(failures)}")
+        return 1
+    print(f"test-check-user-commands: ok rows={len(ROWS)} controls={len(CONTROLS)}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
