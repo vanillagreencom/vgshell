@@ -292,6 +292,10 @@ function countdownText(seconds) {
     return "Keep these display settings? Reverting in " + Math.max(0, Math.ceil(seconds)) + " s";
 }
 
+function countdownDetail(seconds) {
+    return "Reverting in " + Math.max(0, Math.ceil(seconds)) + " s";
+}
+
 // VALUE as a refusal shows it: JSON, cut to 60 characters.
 function shown(value) {
     var text = JSON.stringify(value);

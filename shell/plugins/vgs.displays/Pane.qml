@@ -159,6 +159,18 @@ FocusScope {
                 description: "Set the mode, scale and orientation of one screen."
             }
 
+            Dialog {
+                id: trialDialog
+                width: parent.width
+                visible: root.trialState.phase === "holding"
+                modal: false
+                title: "Keep these display settings?"
+                message: Logic.countdownDetail(root.trialState.deadline - root.nowSeconds)
+                actions: [{ label: "Keep", role: "accept" }, { label: "Revert", role: "cancel" }]
+                onAccepted: root.keepTrial()
+                onRejected: root.revertTrial()
+            }
+
             Arrangement {
                 id: arrangement
                 width: parent.width
@@ -278,32 +290,6 @@ FocusScope {
                 color: Theme.color.warning
                 text: "Your Hyprland file now sets this display differently."
                 wrapMode: Text.Wrap
-            }
-
-            Surface {
-                width: parent.width
-                visible: root.trialState.phase === "holding"
-                level: "raised"
-                implicitHeight: trialColumn.implicitHeight + 2 * Theme.stack.row
-
-                Column {
-                    id: trialColumn
-                    anchors.fill: parent
-                    anchors.margins: Theme.stack.row
-                    spacing: Theme.stack.row
-
-                    Label {
-                        width: parent.width
-                        role: "body"
-                        text: Logic.countdownText(root.trialState.deadline - root.nowSeconds)
-                        wrapMode: Text.Wrap
-                    }
-                    Row {
-                        spacing: Theme.stack.inline
-                        Button { text: "Keep"; variant: "primary"; onClicked: root.keepTrial() }
-                        Button { text: "Revert"; variant: "secondary"; onClicked: root.revertTrial() }
-                    }
-                }
             }
 
             SaveBar {

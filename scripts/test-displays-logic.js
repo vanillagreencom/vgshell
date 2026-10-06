@@ -176,6 +176,7 @@ function verify(logic) {
   same(drafted, { "DP-2": { mode: { width: 2560, height: 1440, refresh: 60 }, position: { x: 0, y: 0 }, scale: 2.25, transform: 0 } }, "a draft carries position and normalises the layout");
   same(logic.dirtyRules(drafted, {}), drafted, "dirty rules are the pending monitor rules");
   assert.equal(logic.countdownText(12.4), "Keep these display settings? Reverting in 13 s");
+  assert.equal(logic.countdownDetail(12.4), "Reverting in 13 s");
   const side = Object.assign({}, monitorOutput, { identifier: "DP-3", name: "DP-3", x: 1930, y: 20, scale: 2 });
   const shifted = logic.withOutputDraft([monitorOutput, side], {}, {}, "DP-2", { scale: 1 });
   same(shifted["DP-3"].position, { x: 3840, y: 0 }, "a scale change shifts a neighbour at the right edge by the size delta and normalises");

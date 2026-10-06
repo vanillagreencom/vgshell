@@ -1,7 +1,7 @@
 import QtQuick
 import qs.Commons
-import qs.Ui
 import "DisplaysLogic.js" as Logic
+import qs.Ui
 
 // Passive trial countdown on every screen. The pane owns Keep and Revert.
 Item {
@@ -15,19 +15,15 @@ Item {
 
     visible: shown
 
-    Surface {
+    Dialog {
+        id: dialog
         anchors.horizontalCenter: parent.horizontalCenter
-        y: Theme.stack.section
-        level: "raised"
-        width: label.implicitWidth + 2 * Theme.osd.padding
-        height: label.implicitHeight + 2 * Theme.osd.padding
-
-        Label {
-            id: label
-            anchors.centerIn: parent
-            role: "body"
-            text: Logic.countdownText(root.trialState.deadline - root.nowSeconds)
-        }
+        y: Theme.dialog.margin
+        width: Math.min(parent.width - 2 * Theme.dialog.margin, implicitWidth)
+        modal: false
+        title: "Keep these display settings?"
+        message: Logic.countdownDetail(root.trialState.deadline - root.nowSeconds)
+        actions: []
     }
 
     Timer {
