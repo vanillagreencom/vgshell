@@ -10,7 +10,9 @@
 # to adopt; without it, the templates the refresh below renders.
 # Output records: refresh-state=current pr=none class=none, or
 # refresh-state=unchanged|pushed pr=NUMBER class=CLASS, or
-# refresh-state=deferred reason=queued|merged|closed|branch-gone.
+# refresh-state=deferred reason=queued|merged|closed|branch-gone. A consumer
+# whose render did not run also gets
+# refresh-render=skipped package=bot-instructions cause=absent|unconfigured|engine.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 templates=""
@@ -184,6 +186,57 @@ if [ -n "$conflict_count" ] || [ "$held_count" -ne 0 ]; then
 fi
 TMP="$(mktemp -d)"
 trap 'rm -rf -- "${TMP:?}"' EXIT
+# refresh keeps the files of a declaration deleted from kendex.toml by hand;
+# apply moves them to the trash as diffs of this pull request. A leftover
+# edited on disk is held, not trashed, and the verify below fails on it.
+apply_status=0
+kendex apply --scope project --yes --leave || apply_status=$?
+if [ "$apply_status" -ne 0 ]; then
+  printf 'refresh-error=apply value=%s\n' "$apply_status" >&2
+  exit 1
+fi
+# The refresh above skips the bot-instructions render: the arming record that
+# licenses it lives in a git directory, and this fresh checkout's has none.
+# The consumer's check judges the pull request with the refreshed package, so
+# this run asks kendex to render once, which locates the package wherever the
+# install put it and writes no record. The invocation is the licence, spent
+# in a checkout this run discards, and it runs with no credential. The
+# package refuses a manifest with no [bot-instructions] table as
+# unconfigured, which leaves that consumer unrendered. The refresh is staged
+# first because the render reads the index for the tree's subtrees; the
+# later git add -A takes what it writes and removes.
+git add -A
+render_status=0
+render_output=""
+render_skip=""
+# The inline template installs the latest stable kendex, and every release
+# through 1.10.1 lacks the verb: it reads the name as a source to add and
+# refuses. Such an engine keeps the outcome it had before the verb, an
+# unrendered refresh. Remove the probe once the latest stable release
+# carries the verb.
+probe_status=0
+env -i PATH="$PATH" HOME="$HOME" KENDEX_UI=plain kendex help bot-instructions-render >/dev/null 2>&1 || probe_status=$?
+case "$probe_status" in
+  0)
+    render_output="$(env -i PATH="$PATH" HOME="$HOME" KENDEX_UI=plain kendex bot-instructions-render 2>&1)" || render_status=$?
+    printf '%s\n' "$render_output"
+    case "$render_status" in
+      0) if grep -qxF 'bot-instructions-render=absent' <<<"$render_output"; then render_skip=absent; fi ;;
+      2) if grep -qx 'bot-instructions: unconfigured=.*' <<<"$render_output"; then render_skip=unconfigured; fi ;;
+    esac
+    ;;
+  2) render_skip=engine ;;
+  *)
+    printf 'refresh-error=bot-instructions-probe value=%s\n' "$probe_status" >&2
+    exit 1
+    ;;
+esac
+if [ -n "$render_skip" ]; then
+  printf 'refresh-render=skipped package=bot-instructions cause=%s\n' "$render_skip"
+elif [ "$render_status" -ne 0 ]; then
+  printf 'refresh-error=bot-instructions-render value=%s\n' "$render_status" >&2
+  exit 1
+fi
 "$SCRIPT_DIR/adopt-refresh.sh" --templates-dir "$templates"
 # The release-installed parser must judge its own settings, including on a
 # first install. It reads and prints data without the refresh app credential.

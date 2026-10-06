@@ -37,11 +37,10 @@ Triage what exists on the PR **right now** — never block on a bot reaching a t
 
 The JSON carries `threads` (inline) and `comments` (PR-level). It is read without `--actionable`, which drops outdated threads: [submit-pr.md](submit-pr.md) § 3 and [thread-read.md](../references/thread-read.md) count them with `pr-threads --unresolved`, so each one needs a reply and a resolve here.
 
-**Baseline for re-runs.** Find this session's own prior summary comment and use its `updated_at` as `SUMMARY_TS`:
+**Baseline for re-runs.** Find the prior summary comment this run's GitHub identity posted, a person or a GitHub App installation alike, and use its `updated_at` as `SUMMARY_TS`; `{}` means no prior summary, so there is no `SUMMARY_TS`:
 
 ```bash
-gh api user -q .login
-.agents/skills/github/scripts/github.sh find-comment [PR_NUMBER] --pattern "Recommendations.*Processed" --author "[GH_USER_FROM_PREVIOUS_COMMAND]"
+.agents/skills/github/scripts/github.sh find-comment [PR_NUMBER] --pattern "Recommendations.*Processed" --self
 ```
 
 **Filter.** From PR-level `comments`, exclude noise bots (`dependabot`, `github-actions`, `renovate`, `codecov`, tracker sync bots; a match ignores a trailing `[bot]`, which pr-data's logins lack), anything created before `SUMMARY_TS` on a re-run, and status updates with no actionable content. From `threads`, exclude resolved threads only: every unresolved inline thread, whatever its author and outdated ones included, gets a § 6.3 reply and resolve, and a noise-bot thread gets `Declined: [REASON]`. Keep every reviewer comment — human or bot — on such a thread.
@@ -251,7 +250,7 @@ When the list is non-empty, pass those exact repository-relative paths to the wr
 .agents/skills/orch/scripts/dev-round-write --worktree [WORKTREE_PATH] --issue [ISSUE_ID] --round-id [DEV_ROUND_ID] --items-file [WORKTREE_PATH]/tmp/dev-round-items-[DEV_ROUND_ID].json --source pr-comments [--adds "[REPO_RELATIVE_PATHS]"]
 ```
 
-Every measured size verdict permits delegation. Use the round's `size_check` report for the cut decision in [finding-disposition.md § Decision flow](../references/finding-disposition.md#decision-flow). A chosen cut follows [`dev-fix.md` § 2](dev-fix.md) step 4 with `[SOURCE]` bound to `pr-comments`. Exit 3 means malformed allowance text. Other nonzero exits name a usage or environment failure. Report either failure and stop. A `pr-[PR_NUMBER]` key names no issue, so the checker measures the branch and records `allowance_missing`.
+A chosen cut follows [`dev-fix.md` § 2](dev-fix.md) step 4 with `[SOURCE]` bound to `pr-comments`. A nonzero exit names a usage or environment failure. Report it and stop.
 
 ⚠ Fill placeholders only ([Format Tags Are Literal](../references/skill-rules.md#format-tags-are-literal)). `Recommendation:` is the technical fix; the agent owns its own process.
 

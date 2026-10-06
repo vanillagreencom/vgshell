@@ -243,9 +243,15 @@ Options:
   --reuse         Explicitly reuse an existing issue worktree: refuses a
                   foreign session-guard lease by name (exit 75), refreshes its
                   own lease in place, and skips the rebase for a tree with
-                  uncommitted work. A clean tree rebases onto origin/<default>
-                  and refreshes setup. The target must be registered to this
-                  repository; incomplete directories are preserved (exit 75).
+                  uncommitted work. A clean tree whose branch is an ancestor
+                  of its remote branch, whose commits another machine pushed,
+                  first fast-forwards to it (worktree-reuse-fast-forward).
+                  A clean tree at its remote branch's head stays there,
+                  unrebased, until the next push rebases it; --restack and
+                  --replay rebase it. Any other clean tree rebases onto
+                  origin/<default>. A clean tree also refreshes setup. The
+                  target must be registered to this repository; incomplete
+                  directories are preserved (exit 75).
   --restack       When reusing, stop in the conflict state for resolution
                   instead of aborting the rebase
   --replay        With --reuse/--restack: run the same restack as an ordered
@@ -617,6 +623,12 @@ temporary HTTPS rewrite and 'gh auth git-credential' config. Remote URLs and
 git config are not modified. KENDEX_GITHUB_GIT_HTTPS_FALLBACK=never forces
 the normal SSH path.
 
+Settings: git push and its hooks do not inherit the values of the main
+checkout's tracked kendex.settings.toml or .kendex/settings.toml, so a
+pre-push lane reads the pushed branch's own settings. A value the caller
+exported, one .env.local sets, or one from an untracked settings file still
+reaches them.
+
 Options:
   -u, --set-upstream    Set upstream tracking branch
   --no-rebase           Skip auto-rebase
@@ -786,8 +798,9 @@ before it asks for a tree can tell the two apart.
 create --reuse asks the same question before its rebase and skips the rebase
 on a merged branch; create --restack and create --replay refuse there
 instead, because a rebase is what they were asked for. create does not have
-merged's third answer: it rebases both on a not-merged answer and on a lookup
-that could not answer, recording the latter as worktree-merge-unverified,
+merged's third answer: it goes on as for a branch in flight both on a
+not-merged answer and on a lookup that could not answer, recording the
+latter as worktree-merge-unverified,
 because refusing there would disable every reuse on a machine with no gh.
 For the same reason a default branch GitHub cannot name falls back to git's
 record of origin's HEAD with a warning, worktree-default-branch-unreadable;

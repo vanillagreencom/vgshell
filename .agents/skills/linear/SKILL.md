@@ -9,7 +9,7 @@ metadata:
   source: kendex
   repository: "https://github.com/vanillagreencom/kendex"
   bugs: "https://github.com/vanillagreencom/kendex/issues"
-  version: "1.1.0"
+  version: "2.1.0"
 tags: [integration]
 ---
 
@@ -99,7 +99,7 @@ Use the project-management label taxonomy when assigning labels. If the taxonomy
 .agents/skills/linear/scripts/linear.sh <resource> <action> [options]
 ```
 
-Every read and write goes to Linear's API as it runs; nothing is stored locally. `linear.sh <resource> --help` prints per-resource options. `--format` values: `safe` (the default, flat and null-safe), `compact` (a smaller shape for workflow routing), `ids` (identifiers only), `table`, `raw` (the GraphQL nesting, so never assume top-level jq paths). `safe` renames fields: `identifier`→`id`, `id`→`uuid`, `state.name`→`state`, `state.type`→`state_type`, `sortOrder`→`sort_order`.
+Every read and write goes to Linear's API as it runs; no tracker data is stored locally. `linear.sh <resource> --help` prints per-resource options. `--format` values: `safe` (the default, flat and null-safe), `compact` (a smaller shape for workflow routing), `ids` (identifiers only), `table`, `raw` (the GraphQL nesting, so never assume top-level jq paths). `safe` renames fields: `identifier`→`id`, `id`→`uuid`, `state.name`→`state`, `state.type`→`state_type`, `sortOrder`→`sort_order`.
 
 ## Commands
 
@@ -134,11 +134,13 @@ linear.sh labels list --max --format=safe
 
 A list of issues, projects, labels, project labels, teams, users, cycles, documents or initiatives returns its first `--limit` rows (75 by default, a positive whole number) and prints a `linear-list: truncated` line on stderr when rows were left unread; `--max` reads every page. `milestones list`, `statuses list`, `comments list` and `attachments list` always read every row and take neither. A read follows each nested collection (labels, relations, children, comments) to its end. A read that cannot finish its chain (a failed later page, a missing or repeated cursor, or a chain still open after 400 pages) exits nonzero with no output, never a partial result. An audit that must see the whole backlog passes `--max`.
 
-A rate-limited request exits nonzero with one JSON line on stderr carrying `"code":"RATELIMITED"` and `requests_reset`, the UTC time the request quota refills. Rate-limited, 5xx and unanswered requests, attachment downloads among them, are retried twice, each wait doubling or the answer's `Retry-After` when that is longer; a `Retry-After` over 60 seconds, or any other HTTP error, fails on its first answer. Holding an activation or completion until the reset: [patterns/workflow-actions.md § Quota Holds](patterns/workflow-actions.md#quota-holds).
+A rate-limited request exits nonzero with one JSON line on stderr carrying `"code":"RATELIMITED"` and `requests_reset`, the UTC time the request quota refills. A rate-limited request is retried twice. A query or attachment download answered 5xx or not at all is retried twice too, but such a mutation is sent once, since Linear may already have applied it: stderr then carries a `linear-http: write=unconfirmed` line, and the write is read back before it is sent again. Each wait doubles, or is the answer's `Retry-After` when that is longer; a `Retry-After` over 60 seconds, or any other HTTP error, fails on its first answer. Holding an activation or completion until the reset: [patterns/workflow-actions.md § Quota Holds](patterns/workflow-actions.md#quota-holds).
 
 ## Team Target
 
 `LINEAR_TEAM` has no default. Existing-issue writes, including `comments create`, route by the issue identifier and need no configured team. Other writes refuse when it is unset; reads drop the team filter. `--team <key-or-name>` overrides `LINEAR_TEAM` per call only on `issues create`, `projects create`, `cycles create`, `labels create`, `labels audit`, `cycles list`, `statuses list` and `statuses get`; the `--team` filter of `issues list`, `projects list` and `labels list` takes a key or name too. On these reads and `statuses list|get`, an empty or dash-led `--team` value refuses before any request rather than reading every team. Run `auth-check --strict` before the first mutation that needs a configured team in a project.
+
+Every lane writes with one app token, and Linear lets that token write in every team, so `linear.sh` keeps writes in `LINEAR_TEAM` itself. Before any write it refuses `issues create` whose `--team` is another team, and `issues update`, `bulk-update`, `activate`, `block`, `unblock`, `complete`, `archive` and `trash` (or its alias `delete`) on an issue outside `LINEAR_TEAM`, judged by the identifier's prefix against the team key, or by the issue's team for a UUID. Reads, `comments create`, `add-relation` and `remove-relation` run in any team. The refusal line is `linear: refused=cross-team action=<verb> issue=<ID> team=<KEY> own-team=<KEY> route=peer-mail`: give cross-team work to the overseer of that team's repository with `lane-mail peer send --repo [REPO]`. No setting turns the guard off. With no `LINEAR_TEAM`, an existing-issue write runs unchecked and prints `linear: cross-team-guard=inactive`.
 
 Set `LINEAR_APP_TOKEN` or the client pair in the project's private env file (`.env.local` unless `KENDEX_ENV_FILE` names another); `op://` references are supported. Use `auth-mint` on the host with the real pair to publish a token to the fleet. Credential precedence, expiry, caching and attribution: [README.md § Setup](README.md#setup).
 
@@ -177,7 +179,7 @@ linear.sh attachments list [ISSUE_ID]
 linear.sh attachments fetch [URL] --output tmp/[FILENAME]
 ```
 
-Match the original cited repository path against `repo_path`, scoped to that issue or the research/source issue its brief explicitly names. For attachments with no `repo_path`, accept a filename match only when it is unique within that issue. Use an attachment URL in the brief to select the matching `url` when references collide. Fetch the match into `tmp/` and read that file; keep the repository path as the tracker reference. Resolve companion files, such as a plan's JSON or research metadata, the same way. Do not write a machine's `tmp/` path into an issue or delegation for another checkout.
+Read the issue description's `**Artifacts**` list first: its `[repository path](url)` links name the current copy, on this issue or another, so the link whose label is the cited path selects the entry with that `url`, whatever its `context`. With no such link, match the original cited repository path against `repo_path`, scoped to that issue or the research/source issue its brief explicitly names. For attachments with no `repo_path` and no such link, accept a filename match only when it is unique within that issue. Use an attachment URL in the brief to select the matching `url` when references collide. Fetch the match into `tmp/` and read that file; keep the repository path as the tracker reference. Resolve companion files, such as a plan's JSON or research metadata, the same way. Do not write a machine's `tmp/` path into an issue or delegation for another checkout.
 
 No match leaves the calling workflow's missing-file behavior unchanged. Multiple matches without a distinguishing reference require clarification. A failed fetch is a download failure; report it instead of treating the research as absent. Consumers without attachments keep reading repository files as before.
 
@@ -187,7 +189,7 @@ A blocker that is itself a Linear issue is a relation (`--blocked-by`); an exter
 
 Blocking relations must connect peers of one bundle: same direct parent, or both top-level. The two issues need not share a project. An issue cannot block its own ancestor or descendant; use `--related` for traceability. The check reads each issue's own direct parent in one query.
 
-A blocking relation pointing at a Done or Canceled issue is **satisfied history, not stale metadata**. The relation stays for provenance; never remove or "fix" it, and audits must never classify it as stale. The only legitimate audit output for a completed-blocker relation is a scheduling signal ("gates cleared, ready to schedule").
+A blocking relation pointing at a Done or Canceled issue is **satisfied history, not stale metadata**. The relation stays for provenance; never remove or "fix" it, and audits must never classify it as stale. The only legitimate audit output for a completed-blocker relation is a scheduling signal ("gates cleared, ready to schedule"). `issues remove-relation` refuses such a relation before any write, with one `linear: refused=completed-blocker` line. Its `--peer-rule-violation` route, the project-management skill's tpm-audit structural repair, removes one only when the pair breaks the peer rule above.
 
 Normalized issue lists, gets, bulk gets, bundles, recursive children, relation reads, and session status keep each blocking relation in `blocked_by` and list only nonterminal blockers in `blocked_by_open`.
 

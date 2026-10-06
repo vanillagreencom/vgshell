@@ -270,13 +270,14 @@ PW_STATE_DIR="${OVERSEE_WATCH_STATE_DIR:-$PROJECT_ROOT/tmp/oversee-watch}"
 #   handoff<TAB><item><TAB><record checksum>
 #   lane-prepare<TAB><item><TAB><preparation start epoch>|<ready|failed|stuck>
 #   start-stalled<TAB><item><TAB><running_at epoch>|<passes since reported, or seen>
+#   lane-long<TAB><item><TAB><launched_at epoch it was reported under>
 #   lane-failed<TAB><item><TAB><the last lane-local failure the long pass reported>
 #   merged<TAB><item><TAB><repo>#<number>[ <repo>#<number>...]
 #   outside-contribution<TAB><repo>#<number><TAB><pr HEAD_SHA|issue>
 #   refresh-failing<TAB><repo><TAB><newest run's REFRESH_RUN as JSON>|[<passes since reported>|<cause>|unjudged]
 #   security-alert, bot-fix and security-alerts-unread rows, which
 #   lib/security-alerts.sh sets out above check_security_alerts
-#   account<TAB><harness>|<through>|<config dir><TAB><status>|<verdict>|<binding_resets_at or ->
+#   account<TAB><harness>|<through>|<config dir><TAB><status>|<verdict>|<binding_resets_at or ->|<status of the last unmeasured reading, or ->
 # And in the mail pass's file:
 #   lane-mail<TAB><item>[@clone]<TAB><to-overseer.jsonl lines already drained> <first id>
 #   directive<TAB><item>[@clone]<TAB><to-lane.cursor reported read> <last line reported unread> <first id>
@@ -424,6 +425,11 @@ START_STALL_SECS="${ORCH_WATCH_START_STALL_SECS:-600}"
 # lane-stalled goes out. Provisional: the first cloud acceptance run sets it.
 LANE_STALL_SECS="${ORCH_WATCH_LANE_STALL_SECS:-3600}"
 [[ "$LANE_STALL_SECS" =~ ^[1-9][0-9]*$ ]] || die lane-stall-secs-invalid "" "value=$LANE_STALL_SECS"
+# How long after a record's launched_at, which --relaunch and handoffs keep
+# and a fresh launch renews, a running or parked lane is
+# reported once as lane-long.
+LANE_AGE_SECS="${ORCH_WATCH_LANE_AGE_SECS:-14400}"
+[[ "$LANE_AGE_SECS" =~ ^[1-9][0-9]*$ ]] || die lane-age-secs-invalid "" "value=$LANE_AGE_SECS"
 # The state's records the pane never judges and the start-stall check reads,
 # rebuilt by every fleet read: `<window>=<item>` for each Pi lane, judged from
 # the rows its own hook writes (lib/session-rows.sh), and `<item>=<epoch it went
@@ -431,6 +437,10 @@ LANE_STALL_SECS="${ORCH_WATCH_LANE_STALL_SECS:-3600}"
 # under.
 PI_LANES=()
 LAUNCHES=()
+# `<item>=<launched_at epoch>` for each running or parked record, which
+# lane-long ages, and every item any record names, which keeps its row.
+LANE_AGES=()
+RECORDED_ITEMS=()
 # What argv itself gave, kept before the first state read rebuilds the four
 # arrays: every merge adds the command line's own entries to the records the
 # state names, so the baseline has to outlive the set a loop carries.
@@ -578,7 +588,8 @@ LANE_ROWS_FILTER="$LANE_RUNNING_JQ"'
     (.[] | select(running)
   | if ((.item? | type) == "string" and (.item | length) > 0) then . else error("lane-field field=item value=\(.item | tojson)") end
   | [.item, (.window // ""), (.host // "local"), (.mail_root // ""),
-     (.harness // ""), ((.running_at // .launched_at) | if . == null then "" else (fromdateiso8601 | tostring) end)]
+     (.harness // ""), ((.running_at // .launched_at) | if . == null then "" else (fromdateiso8601 | tostring) end),
+     (.launched_at | if . == null then "" else (fromdateiso8601 | tostring) end)]
   | join("\u001f"))'
 
 # The preparation records of lanes open-terminal handed to a background job,
@@ -593,10 +604,10 @@ PREPARE_ROWS_FILTER='
   | [.item, $outcome, (.prepare.since | fromdateiso8601 | tostring), .prepare.log, (.prepare.reason // "")] | join("\u001f")'
 PREPARE_ROWS=""
 
-# The parked records, one per line as item and `<repo>#<number>`: a lane
+# The parked records, as item, `<repo>#<number>` and launched_at: a lane
 # lane-close --park stopped with its disk kept, and the pull request its park
-# judged, whose merge alone the merged check hands on as parked-merged.
-# Nothing else reads it: its pane is gone and its mailbox is on a stopped
+# judged, whose merge alone the merged check hands on as parked-merged. Only
+# it and lane-long read one: its pane is gone and its mailbox on a stopped
 # disk. The repository is lowercased here, the one spelling check_repo_set
 # gives every --repo, so the key meets the merged side's whatever case the
 # record's writer used: GitHub reads owner and repository names
@@ -606,7 +617,7 @@ PARKED_ROWS_FILTER='
   (.lanes // [])[] | select(type == "object" and .status == "parked")
   | if ((.item? | type) != "string" or (.item | length) == 0) then error("lane-field field=item value=\(.item | tojson)")
     elif ((.parked.pr? | type) != "number" or (.parked.repo? | type) != "string") then error("lane-field field=parked value=\(.parked | tojson)")
-    else "\(.item)\u001f\(.parked.repo | ascii_downcase)#\(.parked.pr)" end'
+    else "\(.item)\u001f\(.parked.repo | ascii_downcase)#\(.parked.pr)\u001f\(.launched_at | if . == null then "" else (fromdateiso8601 | tostring) end)" end'
 PARKED_ITEMS=()
 PARKED_KEYS=()
 
@@ -628,18 +639,24 @@ FLEET_CARRIED=""
 # The state text the last read parsed, which the heartbeat's owed items judge.
 FLEET_STATE=""
 fleet_merge() { # [quiet]
-  local state rows dropped line item window host root harness running kept carried parked
+  local state rows dropped line item window host root harness running launched kept carried parked recorded
   state="$(cat -- "$STATE_FILE" 2>&1)" || die state-unreadable "$state" "option=--state" "path=$STATE_FILE"
   FLEET_STATE="$state"
   rows="$(jq -r "$LANE_ROWS_FILTER" <<<"$state" 2>&1)" || die state-invalid "$rows" "option=--state" "path=$STATE_FILE"
   PREPARE_ROWS="$(jq -r "$PREPARE_ROWS_FILTER" <<<"$state" 2>&1)" || die state-invalid "$PREPARE_ROWS" "option=--state" "path=$STATE_FILE"
   parked="$(jq -r "$PARKED_ROWS_FILTER" <<<"$state" 2>&1)" || die state-invalid "$parked" "option=--state" "path=$STATE_FILE"
+  recorded="$(jq -r '(.lanes // [])[] | objects | .item | strings' <<<"$state" 2>&1)" \
+    || die state-invalid "$recorded" "option=--state" "path=$STATE_FILE"
+  RECORDED_ITEMS=()
+  while IFS= read -r item; do [[ -z "$item" ]] || RECORDED_ITEMS+=("$item"); done <<<"$recorded"
   PARKED_ITEMS=()
   PARKED_KEYS=()
-  while IFS=$'\x1f' read -r item kept; do
+  LANE_AGES=()
+  while IFS=$'\x1f' read -r item kept launched; do
     [[ -n "$item" ]] || continue
     PARKED_ITEMS+=("$item")
     PARKED_KEYS+=("$kept")
+    [[ -z "$launched" ]] || LANE_AGES+=("$item=$launched")
   done <<<"$parked"
   # The count is the first line; a fleet of no running lane has no second.
   dropped="${rows%%$'\n'*}"
@@ -651,7 +668,7 @@ fleet_merge() { # [quiet]
   PI_LANES=()
   LAUNCHES=()
   host_routes_reset
-  while IFS=$'\x1f' read -r item window host root harness running; do
+  while IFS=$'\x1f' read -r item window host root harness running launched; do
     [[ -n "$item" ]] || continue
     host_route "$item" "$host" "$root"
     ITEMS+=("$item")
@@ -659,6 +676,7 @@ fleet_merge() { # [quiet]
     [[ -z "$window" ]] || item_in "$item" ${STATUSLESS[@]+"${STATUSLESS[@]}"} || LANES+=("$window")
     [[ -z "$window" || "$harness" != pi ]] || PI_LANES+=("$window=$item")
     [[ -z "$running" || -z "$root" ]] || LAUNCHES+=("$item=$running")
+    [[ -z "$launched" ]] || LANE_AGES+=("$item=$launched")
   done <<<"$rows"
   for line in ${GIVEN_ITEMS[@]+"${GIVEN_ITEMS[@]}"}; do item_listed "$line" || item_parked "$line" || ITEMS+=("$line"); done
   for line in ${GIVEN_LANES[@]+"${GIVEN_LANES[@]}"}; do window_listed "$line" || LANES+=("$line"); done
@@ -1574,9 +1592,17 @@ check_refresh() {
     if (( rc != 0 )); then
       ow_message refresh-unread "repo=$repo" "read=log" "run=$newest" "exit=$rc" >&2
     else
-      # refresh-consumer and the commit hooks emit these diagnostics. gh
-      # prefixes each failed-step log line with job, step and timestamp.
-      cause="$(awk 'match($0, /refresh-error=|kendex-hook-/) { cause = substr($0, RSTART) }
+      # gh prefixes each failed-step log line with job, step and timestamp.
+      # The cause is the last line of the highest rank: a kendex failed: row,
+      # a review-gate validator's FAIL check= row, kendex's Error: line,
+      # refresh-consumer's refresh-error=, a hook's kendex-hook-.
+      cause="$(awk '{ sub(/^[^\t]*\t[^\t]*\t[^ ]* /, ""); rank = 0; text = $0 }
+        /^failed: / { rank = 5 }
+        !rank && /^FAIL check=/ { rank = 4 }
+        !rank && /^Error: / { rank = 3 }
+        !rank && /^refresh-error=/ { rank = 2 }
+        !rank && match($0, /kendex-hook-/) { rank = 1; text = substr($0, RSTART) }
+        rank && rank >= best { best = rank; cause = text }
         END { gsub("\t", " ", cause); sub(/\r$/, "", cause); print cause }' <<<"$log")" \
         || rc=$?
       if (( rc != 0 )); then
@@ -1615,7 +1641,9 @@ check_refresh() {
 # through lane-host, and a read that failed settles nothing: the row stands
 # and the failure is noted. A lane whose kind declares files=none, a cloud
 # session, writes no file this watch can read: its start is the draft pull
-# request it opens on the item branch.
+# request its session words have it open on the item branch at once, after an
+# empty first commit, so no open pull request still means never started. A
+# pull request create the session token is refused reads the same way.
 check_start_stall() {
   local entry item running age prior passes path rc rows="${PW_SEEN[0]}" items=()
   for entry in ${LAUNCHES[@]+"${LAUNCHES[@]}"}; do
@@ -3479,20 +3507,35 @@ account_roster_read() {
 # time that moved while still ahead is a different bucket binding, not a reset.
 # An account the listing stops naming keeps its row, so one a provider drops
 # for a pass is compared against its last reading when it comes back.
+#
+# A reading that measured nothing (`verdict=unmeasured`) under the status word
+# the account's last unmeasured reading had is no news and leaves the row on
+# the reading before it, so the next measured reading is compared with the
+# last one measured. A hosted provider holding a credential while a lane runs
+# on it reads unmeasured on alternate passes; were each alternation news,
+# --max-loops quiet passes, and so the heartbeat, would never come.
+# `status=expired` is exempt: only the operator renews a dead login, so each
+# expiry after a measured reading is news.
 check_accounts() {
-  local key value fields prior state="${PW_SEEN[0]}" change
-  local was_status was_verdict was_resets status verdict resets reset_epoch
+  local key value fields prior state="${PW_SEEN[0]}" change row
+  local was_status was_verdict was_resets was_unmeasured status verdict resets reset_epoch unmeasured
   account_roster_read || return 0
   while IFS=$'\t' read -r key value fields; do
     [[ -n "$key" ]] || continue
     if ! prior="$(lane_row_get account "$state" "$key")"; then
       die state-read-failed "" "account=$key" "row=account"
     fi
-    [[ "$prior" != "$value" ]] || continue
-    state="$(lane_row_set account "$state" "$key" "$value")"
-    [[ -n "$prior" ]] || continue
-    IFS='|' read -r was_status was_verdict was_resets <<<"$prior"
+    IFS='|' read -r was_status was_verdict was_resets was_unmeasured <<<"$prior"
     IFS='|' read -r status verdict resets <<<"$value"
+    unmeasured="${was_unmeasured:--}"
+    if [[ "$verdict" == unmeasured ]]; then
+      [[ "$status" == expired || "$status" != "$unmeasured" ]] || continue
+      unmeasured="$status"
+    fi
+    row="$value|$unmeasured"
+    [[ "$prior" != "$row" ]] || continue
+    state="$(lane_row_set account "$state" "$key" "$row")"
+    [[ -n "$prior" ]] || continue
     change=""
     [[ "$was_status" == "$status" ]] || change+=",status"
     [[ "$was_verdict" == "$verdict" ]] || change+=",headroom"
@@ -3808,6 +3851,7 @@ long_pass() {
     check_prepare
     check_start_stall
     check_lane_stall
+    check_lane_long
     check_lanes
     check_accounts
     check_report

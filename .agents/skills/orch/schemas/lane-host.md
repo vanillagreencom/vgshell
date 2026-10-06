@@ -11,14 +11,14 @@ Every place a lane runs is a host kind. `lane-host capabilities` prints the kind
 | `kind` | `local`, `ssh`, `claude-cloud`, `codex-cloud` | `open-terminal` writes it into the lane record |
 | `launch` | `window`, `ssh`, `cloud-session`, `cloud-task` | `open-terminal`; `lanes pick`, for repository access |
 | `channel` | `mailbox`, `session`, `task` | `lane-mail send`, the `oversee-watch` mail pass |
-| `files` | `local`, `verb`, `none` | `oversee-watch` status-file, workflow-state and mailbox reads |
+| `files` | `local`, `verb`, `none` | `oversee-watch` status-file, workflow-state and mailbox reads; `lib/lane-gitfile.sh` `lane_item_state`, which reads no state for `none`, for `oversee-cycle record` and `oversee-report` |
 | `status` | `pane`, `verb`, `task`, `none` | `oversee-watch` lane judgement |
 | `stop` | `window`, `verb`, `none` | `lane-close` |
 | `relaunch` | `resume`, `fresh` | read by no caller in this build |
 | `park` | `verb`, `none` | read by no caller until the Daytona provider declares its line; `lane-close --park` keeps its `stop-sandbox --check` read |
 | `accounts` | `verb`, `none` | read by no caller until then; `lanes` keeps its exit-2 read of `accounts` |
 | `pool` | `plan`, `cloud-credit` | `lanes pick`, the tier of its expires-first rule |
-| `land` | `lane`, `handoff` | read by no caller in this build |
+| `land` | `lane`, `handoff` | the overseer's `pr-watch` `disarmed` rule in [oversee-events.md](../references/oversee-events.md), which launches a landing lane for a `handoff` lane |
 
 | Kind | `launch` | `channel` | `files` | `status` | `stop` | `relaunch` | `park` | `accounts` | `pool` | `land` |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -28,7 +28,7 @@ Every place a lane runs is a host kind. `lane-host capabilities` prints the kind
 | `claude-cloud` | `cloud-session` | `session` | `none` | `none` | `none` | `fresh` | `none` | `none` | `cloud-credit` | `handoff` |
 | `codex-cloud` | `cloud-task` | `task` | `none` | `task` | `none` | `fresh` | `none` | `none` | `plan` | `handoff` |
 
-`codex-cloud` is declared and not built: `open-terminal` refuses `launch=cloud-task` as `kind-unbuilt`. Daytona's line is its provider's to declare; until it does, the dispatcher answers it the static `ssh` line, whose `park` and `accounts` no caller reads. A `claude-cloud` lane's record names `host` and `kind` `claude-cloud`, its account, its cloud `session_id`, and the item's window, whose pane runs the session's local client, or shows the session URL the CLI printed before it exited (`open-terminal --help`, `--host`). `status=none` keeps that window out of `oversee-watch`'s pane passes: such a lane is judged by `lane-stalled` and `start-stalled` alone, and `lane-close` closes its window by the record.
+`codex-cloud` is declared and not built: `open-terminal` refuses `launch=cloud-task` as `kind-unbuilt`. Daytona's line is its provider's to declare; until it does, the dispatcher answers it the static `ssh` line, whose `park` and `accounts` no caller reads. A `claude-cloud` lane's record names `host` and `kind` `claude-cloud`, its account, its cloud `session_id`, and the item's window, whose pane runs the session's local client, or shows the session URL the CLI printed before it exited (`open-terminal --help`, `--host`). `status=none` keeps that window out of `oversee-watch`'s pane passes: such a lane is judged by `lane-stalled`, `start-stalled` and `lane-long` alone, and `lane-close` closes its window by the record.
 
 ## Provider protocol
 

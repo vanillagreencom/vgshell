@@ -9,7 +9,7 @@ metadata:
   source: kendex
   repository: "https://github.com/vanillagreencom/kendex"
   bugs: "https://github.com/vanillagreencom/kendex/issues"
-  version: "1.0.0"
+  version: "1.1.5"
 tags: [automation]
 repo-effects:
   summary: "Arms git pre-commit, commit-msg and pre-push hooks, so every commit in this repository runs the guard chain and every push runs it over the branch, for everyone who commits or pushes here, not only for kendex."
@@ -27,7 +27,7 @@ repo-effects:
     - "preflight"
     - "bot-instructions"
   notes:
-    - "A missing companion is announced and skipped, as is preflight on a first commit; every other companion or guard failure blocks the commit, a bot-instructions check that finds a stale render included."
+    - "Pre-commit skips a missing companion silently. Preflight is skipped on a first commit; every other companion or guard failure blocks the commit, a bot-instructions check that finds a stale render included."
     - "Every hook blocks on a nonzero result; Git's no-verify flag bypasses the commit hooks for one commit and the pre-push hook for one push."
     - "Git runs no hook when it replays a commit, so a rebase or a cherry-pick can carry a violation onto a branch unseen; the pre-push hook is where that branch is judged, and CI where its credential scan is."
     - "Git does not clone hooks; arm every clone once."
@@ -61,11 +61,11 @@ VGS delivery policy overrides the shared workflow's mandatory review, CI-wait, b
 | Check | Verdict |
 |---|---|
 | **todo-ban** | Any work marker (TODO, FIXME, HACK, XXX in comment-marker shapes) in a tracked, non-excluded file fails. No baseline. |
-| **byte-ceiling** | A new tracked file over the configured ceiling fails; an existing oversized file may hold or shrink but may not grow; Markdown files and lockfiles are exempt. |
+| **byte-ceiling** | A new tracked binary file over the configured ceiling fails; an existing oversized binary file may hold or shrink but may not grow; text files and lockfiles are exempt. |
 | **suppression-ban** | Blanket lint suppressions fail; reasonless Rust dead or unused allows may only tighten against the baseline. |
 | **conflict-markers** | An unresolved merge-conflict marker in a tracked, non-excluded file fails. |
 | **changelog-entries** | Each `COMMIT_GUARDS_CHANGELOG_PATHS` fragment is one Markdown list item in a Keep a Changelog section. |
-| **prose** | A history reference in Markdown named by `COMMIT_GUARDS_PROSE_PATHS` fails; `COMMIT_GUARDS_CHECKS` controls whether the lane runs. |
+| **prose** | Optional audit of history references in Markdown named by `COMMIT_GUARDS_PROSE_PATHS`; excluded from the default chain. |
 | **md-format** | A hard-wrapped paragraph or list item, a missing blank line around a heading, fence or list, or a trailing-double-space break in Markdown named by `COMMIT_GUARDS_MD_PATHS` fails; `md-reflow` is the remedy. |
 | **md-refs** | Dead references in consumer-authored citing files fail; lock-listed citing files warn unless `--strict` is set. Skipped sources are one count per reason on the summary line, with a path named only where a judged reference lands on it. `COMMIT_GUARDS_MD_REFS_PATHS` selects documents; `COMMIT_GUARDS_MD_REFS_SOURCE_PATHS` selects source comments and TOML strings for `§` citations. The supported forms are in [CHECKS.md § md-refs](CHECKS.md#md-refs). |
 | **py-names** | An undefined name or a syntax error in a Python file fails, judged by ruff or, where ruff is absent, pyflakes; neither installed while a Python file is selected is exit 2. See [CHECKS.md § py-names](CHECKS.md#py-names). |
@@ -91,7 +91,7 @@ A repo-local entry names the paths it reads in `COMMIT_GUARDS_PRE_COMMIT_LOCAL_P
 
 The batch runs the enabled checks less the ones this scope leaves nothing for. A check this run hands no scope, whose configured scope then selects from the staged diff, opens no file at push — nothing is staged, which the refusal above makes certain — so it is withheld and named rather than counted clean. Where a range can be established the markdown lanes are handed it under their default `touched` scope, and judge what the branch changed, so a malformed document or a broken reference that a replay carried in **is** caught. Where none can be, the whole tree is the scope and those lanes are withheld: that sweep is absolute rather than ratcheted, so imposing it would refuse every push in a repository holding markdown that predates the guard, and choosing it is `COMMIT_GUARDS_MD_SCOPE=all`, the project's call. A project that has chosen it keeps it under every scope — a range is narrower than that sweep, so the batch hands such a lane `--all` rather than the range, and a document the range never touched still fails. Which lanes read that setting at all is taken off their own scripts rather than listed, and what it resolves to is asked of the setting's owner. `secrets` is withheld at every push, for the reason [CHECKS.md § secrets](CHECKS.md#secrets) gives.
 
-What the scope rests on: the remote oid git puts on a ref line is read from the destination itself, and it is the only destination-bound evidence a pre-push hook gets. Where it is there, the batch is asked what landing HEAD at that oid would **do** to it (`--against`, two dots) rather than what the branch adds over the ancestor the two share — on a force-pushed branch those differ, and only the first is what the destination receives. Where the oid is absent — every branch's first push — the scope is a best-effort local one taken from this repository's refs for the remote, which record a past fetch. After a `git remote set-url` those refs still describe the previous repository, so an oversized file can read there as pre-existing. Where no boundary can be established at all — a push by direct URL, a push URL those refs do not describe, a branch nothing of which has reached the remote — the scope is the whole tree, where an oversized file is held to its row in the byte baseline: a repository carrying a file that was already oversized when it adopted the package, with no row for it, has such a push refused, and a baseline row, the excludes list or the bypass is the way past. Scope details: [DEVELOPMENT.md § The pre-push lane](https://github.com/vanillagreencom/kendex/blob/main/skills/commit-guards/DEVELOPMENT.md#the-pre-push-lane).
+What the scope rests on: the remote oid git puts on a ref line is read from the destination itself, and it is the only destination-bound evidence a pre-push hook gets. Where it is there, the batch is asked what landing HEAD at that oid would **do** to it (`--against`, two dots) rather than what the branch adds over the ancestor the two share — on a force-pushed branch those differ, and only the first is what the destination receives. changelog-entries asks instead which version increases the branch made: where the lane can establish the remote's default branch, its baseline excludes commits already there, else it is the remote head ([DEVELOPMENT.md § The pre-push lane](https://github.com/vanillagreencom/kendex/blob/main/skills/commit-guards/DEVELOPMENT.md#the-pre-push-lane)). Where the oid is absent — every branch's first push — the scope is a best-effort local one taken from this repository's refs for the remote, which record a past fetch. After a `git remote set-url` those refs still describe the previous repository, so an oversized file can read there as pre-existing. Where no boundary can be established at all — a push by direct URL, a push URL those refs do not describe, a branch nothing of which has reached the remote — the scope is the whole tree, where an oversized file is held to its row in the byte baseline: a repository carrying a file that was already oversized when it adopted the package, with no row for it, has such a push refused, and a baseline row, the excludes list or the bypass is the way past. Scope details: [DEVELOPMENT.md § The pre-push lane](https://github.com/vanillagreencom/kendex/blob/main/skills/commit-guards/DEVELOPMENT.md#the-pre-push-lane).
 
 Arming and disarming apply to the whole repository. Arm from the main checkout; a linked worktree is judged by its own render of the scripts when it carries one, and by the main checkout's copy when it does not. Disarm before removing the skill. Ownership and layering: [README.md § Git hooks](README.md#git-hooks); install mechanics: [DEVELOPMENT.md § Git hook install contract](https://github.com/vanillagreencom/kendex/blob/main/skills/commit-guards/DEVELOPMENT.md#git-hook-install-contract).
 
@@ -101,12 +101,12 @@ Exclude immutable first-party sources, including applied SQL migrations, from th
 
 | Key | Default | Meaning |
 |---|---|---|
-| `COMMIT_GUARDS_CHECKS` | `todo-ban byte-ceiling suppression-ban conflict-markers changelog-entries prose md-format md-refs py-names secrets` | Batch check list (`commit-msg` never batches). Under `--skip-unscoped` a caller that stages nothing withholds the checks it hands no scope whose configured scope reads only the staged diff, and `secrets`. |
+| `COMMIT_GUARDS_CHECKS` | `todo-ban byte-ceiling suppression-ban conflict-markers changelog-entries md-format md-refs py-names secrets` | Batch check list (`commit-msg` never batches). Under `--skip-unscoped` a caller that stages nothing withholds the checks it hands no scope whose configured scope reads only the staged diff, and `secrets`. |
 | `COMMIT_GUARDS_TODO_EXCLUDES` | `tools/todo-ban-excludes` | todo-ban exclusion list. |
-| `COMMIT_GUARDS_BYTE_CEILING_KB` | `200` | Byte ceiling in KB. |
-| `COMMIT_GUARDS_BYTE_WARN_PCT` | `90` | Percent of the byte ceiling at which byte-ceiling prints a `near-ceiling` notice, 1-100; the exit status is unchanged. |
+| `COMMIT_GUARDS_BYTE_CEILING_KB` | `200` | Binary blob ceiling in KB. |
+| `COMMIT_GUARDS_BYTE_WARN_PCT` | `90` | Percent of the binary blob ceiling at which byte-ceiling prints a `near-ceiling` notice, 1-100; the exit status is unchanged. |
 | `COMMIT_GUARDS_BYTE_EXCLUDES` | `tools/byte-ceiling-excludes` | byte-ceiling exclusion list (declared asset trees). |
-| `COMMIT_GUARDS_BYTE_BASELINE` | `tools/byte-ceiling-baseline` | byte-ceiling `--all` baseline: the object size each legacy oversized file is held to. |
+| `COMMIT_GUARDS_BYTE_BASELINE` | `tools/byte-ceiling-baseline` | byte-ceiling `--all` baseline: the object size each legacy oversized binary file is held to. Rows naming text files are ignored. |
 | `COMMIT_GUARDS_SUPPRESSION_EXCLUDES` | `tools/suppression-ban-excludes` | suppression-ban exclusion list. |
 | `COMMIT_GUARDS_SUPPRESSION_BASELINE` | `tools/suppression-baseline.tsv` | Bare-allow ratchet baseline. |
 | `COMMIT_GUARDS_CONFLICT_EXCLUDES` | `tools/conflict-markers-excludes` | conflict-markers exclusion list. |
@@ -114,8 +114,9 @@ Exclude immutable first-party sources, including applied SQL migrations, from th
 | `COMMIT_GUARDS_CHANGELOG_PATHS` | `changelog.d/*/*.md` | Space-separated globs naming the changelog fragments, matched against the full repo-relative path (`*` crosses `/`). |
 | `COMMIT_GUARDS_CHANGELOG_RECORD` | `CHANGELOG.md` | The collation destination; empty disables collation. |
 | `COMMIT_GUARDS_CHANGELOG_VERSION_PATHS` | *(empty)* | JSON version-file globs for the [version-bump check](CHECKS.md#version-bumps); empty disables it. |
+| `COMMIT_GUARDS_CHANGELOG_PACKAGE_PATHS` | *(empty)* | Globs naming the package files that declare packages: a `SKILL.md` whose frontmatter `metadata.version` each commit changing its directory must raise, or a versionless file naming itself ([version-bump check](CHECKS.md#version-bumps)); empty disables package entries. |
 | `COMMIT_GUARDS_CHANGELOG_REQUIRED_PATHS` | *(empty)* | Globs whose change obliges a changelog entry, judged by `commit-msg`; empty switches the rule off. |
-| `COMMIT_GUARDS_PROSE_PATHS` | `SKILL.md */SKILL.md AGENTS.md */AGENTS.md CLAUDE.md */CLAUDE.md workflows/*.md */workflows/*.md agents/*.md */agents/*.md docs/architecture/*.md` | Space-separated globs naming the markdown the prose lane scans, matched against the full repo-relative path (`*` crosses `/`). |
+| `COMMIT_GUARDS_PROSE_PATHS` | `SKILL.md */SKILL.md AGENTS.md */AGENTS.md CLAUDE.md */CLAUDE.md GEMINI.md */GEMINI.md` | Space-separated globs naming the markdown the prose lane scans, matched against the full repo-relative path (`*` crosses `/`). |
 | `COMMIT_GUARDS_MD_PATHS` | `*.md` | Globs naming the markdown md-format and md-reflow take under `--all`. |
 | `COMMIT_GUARDS_MD_REFS_PATHS` | `PATHS_DEFAULT` in `scripts/md-refs` | Globs naming the Markdown documents md-refs judges. |
 | `COMMIT_GUARDS_MD_REFS_SOURCE_PATHS` | the `COMMIT_GUARDS_COMMENT_PATHS` default | Globs naming the source files md-refs reads for `§` citations in comment text. |

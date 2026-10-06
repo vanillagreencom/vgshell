@@ -209,11 +209,15 @@ The long pass's events, checked and reported in this order:
                              both failed. last= names the newer run and since=
                              is the older run's createdAt. report=initial starts
                              a new incident; report=repeat continues a standing
-                             incident, including a cause change. cause= is the last
-                             refresh-error= or kendex-hook- diagnostic in the
-                             newer run's failed-step log, without gh's prefix;
-                             unread means the log could not be read or had no
-                             such diagnostic. Reported once, again when the
+                             incident, including a cause change. cause= is the
+                             newer run's failed-step log line of the highest
+                             rank, read without gh's job, step and timestamp
+                             prefix, the last such line on a tie: a failed:
+                             row, a FAIL check= row, an Error: line, a
+                             refresh-error= line, then the text from
+                             kendex-hook- on in a hook warning; unread means
+                             the log could not be read or held no ranked line.
+                             Reported once, again when the
                              cause changes, and every ORCH_OVERSEER_MARK_REPEAT
                              long passes while it stands. A success clears it.
                              A new pair is reported only when its newer run is
@@ -306,6 +310,14 @@ The long pass's events, checked and reported in this order:
                              digest. Reported once
                              and again every ORCH_OVERSEER_MARK_REPEAT passes
                              while it stands; a change starts a fresh window
+  EVENT lane-long <item> age=<secs> stage=<step>
+                             a running or parked --state record is
+                             ORCH_WATCH_LANE_AGE_SECS past its launched_at,
+                             which --relaunch and handoffs keep and a fresh
+                             launch after lane-close renews. stage= is the Step line of its
+                             status file, `parked`, `unread` where its read
+                             failed, or `none`. Reported once per
+                             launched_at
   EVENT window-gone <lane>   the tmux window no longer exists. Nothing follows
                              the line: the remedy is one relaunch, which
                              reads the item's worktree and PR, not a screen
@@ -402,7 +414,16 @@ The long pass's events, checked and reported in this order:
                              it. `config_dir` names the credentials, since
                              two accounts can share an alias. The first
                              reading of an account is its baseline and an
-                             unchanged account says nothing
+                             unchanged account says nothing. A reading with
+                             verdict=unmeasured under the status the
+                             account's last unmeasured reading had says
+                             nothing either and is not compared: the next
+                             measured reading is compared with the last one
+                             measured, so a hosted credential the provider
+                             holds while a lane runs on it, unmeasured on
+                             alternate passes, is news once. status=expired
+                             is exempt: each expiry after a measured reading
+                             is news. `was=` is the reading compared with
   EVENT report-due reason=<minutes|issues> since=<utc> [landed=<N>]
                              the overseer's status report is due, as
                              `oversee-report due --state` judges it from the
@@ -707,9 +728,10 @@ Options:
                       or closed while the run loops joins or leaves it with
                       no restart. A `lanes[]` entry whose status is `parked`,
                       its sandbox stopped by `lane-close --park` with its disk
-                      kept, is one --item for the merged check alone: its
-                      pane is gone and its mailbox and state are on a stopped
-                      disk, so no other check reads it, and the merge of the
+                      kept, is one --item for the merged check and the
+                      lane-long age alone: its pane is gone and its mailbox
+                      and state are on a stopped disk, so no other check
+                      reads it, and the merge of the
                       pull request its `parked` names, in that repository,
                       prints parked-merged in the same pass and at every
                       heartbeat while the record reads parked, and closes
@@ -719,7 +741,8 @@ Options:
                       count of records whose status is not running, so a
                       state that parses to no running lane is named rather
                       than watched in silence, and with the parked records
-                      it carries for the merged check: a standalone run names the
+                      it carries for the merged check and the lane-long age:
+                      a standalone run names the
                       fleet its own first read found, repeat mode names the
                       fleet it launches each pass with, and a pass names a
                       change one of its own loops found
@@ -910,6 +933,9 @@ Environment:
                               lane-stalled goes out, a positive whole number,
                               default 3600, provisional until a cloud lane run
                               measures one
+  ORCH_WATCH_LANE_AGE_SECS    seconds after a record's launched_at a running
+                              or parked lane is reported lane-long, a positive
+                              whole number, default 14400
 USAGE
 }
 # stderr messages start `oversee-watch: REASON field=value ...`. Backslash,
@@ -968,7 +994,7 @@ ow_message() { # REASON FIELD=VALUE...
     state-invalid) text='The oversee state file is not workflow-state JSON with a lanes array of records naming their item, each status and harness one word, and a launch_queue of item keys. The watch stops rather than carry a partial fleet.' ;;
     window-absent) text='tmux does not list the window. Passes carry it until one reports it gone; later passes skip it until tmux lists it again.' ;;
     sleep-failed) text='The repeat delay could not be slept. Repeat mode stops rather than run passes back to back.' ;;
-    fleet-read) text='The fleet this watch carries, as the last state read gave it; printed again when a re-read changes it. dropped counts every record whose status is not running, which the watch does not carry as a lane, and parked the records among those it carries for the merged check alone.' ;;
+    fleet-read) text='The fleet this watch carries, as the last state read gave it; printed again when a re-read changes it. dropped counts every record whose status is not running, which the watch does not carry as a lane, and parked the records among those it carries for the merged check and the lane-long age alone.' ;;
     max-loops-invalid) text='The loop limit must be a positive integer.' ;;
     prepare-secs-invalid) text='ORCH_WATCH_PREPARE_SECS takes a positive whole number of seconds, with no leading zero.' ;;
     tail-lines-invalid) text='ORCH_WATCH_TAIL_LINES takes a positive whole number of lines, with no leading zero.' ;;
@@ -1010,6 +1036,7 @@ ow_message() { # REASON FIELD=VALUE...
     root-duplicate) text='Name each --root item once: two roots for one lane would read one mailbox and drain the other.' ;;
     hosted-duplicate) text='Name each hosted item once.' ;;
     host-capabilities-unread) text='lane-host could not declare the capability line of a host a lane record names, or declared a value this watch has no arm for, so nothing says where that lane is read or how it is judged; lane-host'"'"'s own words are above this line. Nothing of the fleet is carried.' ;;
+    lane-age-secs-invalid) text='ORCH_WATCH_LANE_AGE_SECS takes a positive whole number of seconds, with no leading zero.' ;;
     lane-stall-secs-invalid) text='ORCH_WATCH_LANE_STALL_SECS takes a positive whole number of seconds, with no leading zero.' ;;
     lane-stall-unread) text='The digest of a lane pull request body could not be taken, so whether the lane moved is unknown. The watch stops rather than report a stall it did not measure.' ;;
     pr-read-failed) text='The open pull request on the item branch could not be listed, so this pass settles nothing about a lane whose kind writes no file this watch reads: no start-stalled or lane-stalled goes out for it and its rows stand. gh'"'"'s own words follow.' ;;

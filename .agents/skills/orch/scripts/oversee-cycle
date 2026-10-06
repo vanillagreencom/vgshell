@@ -6,6 +6,7 @@
 #   oversee-cycle [--state-dir DIR] record (--pr N | --commit SHA)
 #                 [--tier micro|small|standard] [--repo OWNER/REPO] ITEM
 #   oversee-cycle [--state-dir DIR] rollup
+#   oversee-cycle [--state-dir DIR] report
 #
 # --state-dir is the fleet state's directory, as workflow-state takes it.
 #
@@ -20,11 +21,20 @@
 # not true is no class. --repo
 # defaults to the lane record's repo, then this checkout's. The recorded launch
 # tier wins; a differing --tier refuses as tier-mismatch naming launch and given.
+# A record whose tier is null, a launch that judged none, takes --tier where
+# given and otherwise records none, printed `-`, with escaped null.
 # An old record with no tier warns as launch-tier-missing and requires --tier.
 # --commit records a single-commit direct push. The caller must refuse a
 # multi-commit push: no push-before value is an input. The supplied commit's
-# authored date is first_commit and its committer date is merged, not the
-# network push time. Its first parent to the commit uses the same classifier.
+# authored date is first_commit, and merged is the time the push reached the
+# base branch, read from GitHub's repository activity log: the push whose
+# `after` is the commit, else the earliest push since the launch whose `after`
+# contains it, never the committer date. Where that read fails or finds no
+# such push, merged and actual are null and stderr carries
+# `oversee-cycle: merged-unread commit=SHA cause=C`, C one of
+# repo-unresolved, base-unresolved, launch-unreadable, activity-unread,
+# compare-failed or no-push. Its first parent to the commit uses the same
+# classifier.
 # No CI check is read. pr_opened, gate_green, ci_green and armed are null,
 # as are open, phase, gate waits, pr_rounds and refixed; verdict is unmeasured
 # when classified. The cycle object carries commit instead of pr, and the
@@ -35,7 +45,9 @@
 # lib/lane-gitfile.sh's lane_item_state; a lane whose state is gone, which
 # ../workflows/merge-pr.md § 5 removes, records its rounds as null, never as zero, and a
 # read that failed also prints `oversee-cycle: rounds-unread item=ITEM` and
-# the reason on stderr.
+# the reason on stderr. A lane whose host kind declares files=none, a Claude
+# cloud session, has no state that read reaches: its rounds are null and
+# nothing is printed.
 #
 # It writes the record's `cycle` object, appends one `cycle` row to the fleet
 # log, and prints the same line:
@@ -132,7 +144,8 @@
 #
 # rollup prints, and appends to the fleet log, one row per class with any
 # recorded lane, in the order of the target table, then unclassified; with no
-# fleet state yet it prints nothing and exits 0:
+# fleet state yet it prints nothing and exits 0. report prints the same rows
+# and writes nothing, for a reader without write access to the fleet state:
 #   rollup class=C items=N median=S p90=S misses=N review=N fix=N bot=N
 #     full_validations=N rounds_unread=N escaped=N refixed=N pr_rounds=N
 #     pr_rounds_unread=N round_median=S fix_median=S rounds_untimed=N
@@ -200,7 +213,7 @@ VERB="${1:-}"
 [[ $# -eq 0 ]] || shift
 case "$VERB" in
   --help | -h) usage; exit 0 ;;
-  record | rollup) ;;
+  record | rollup | report) ;;
   *) usage_error "${VERB:-verb}" ;;
 esac
 
@@ -211,7 +224,7 @@ STATE_FILE="$("$WORKFLOW_STATE" ${WS_ARGS[@]+"${WS_ARGS[@]}"} path oversee)" || 
 # A fleet with no state yet, a session stopping before its first launch, has
 # nothing to roll up; a record for a lane it never launched refuses.
 if [[ ! -f "$STATE_FILE" ]]; then
-  [[ "$VERB" != rollup ]] || exit 0
+  [[ "$VERB" == record ]] || exit 0
   refuse state-missing "$STATE_FILE"
 fi
 
@@ -221,7 +234,7 @@ log_row() { # ITEM TEXT
     >/dev/null 2>"$WORK/ws.err" || refuse fleet-log-failed "$1" "$WORK/ws.err"
 }
 
-if [[ "$VERB" == rollup ]]; then
+if [[ "$VERB" != record ]]; then
   [[ $# -eq 0 ]] || usage_error "$1"
   lines="$(jq -r --argjson targets "$TARGETS" "$CYCLE_DEFS"'
     def nr($p): sort as $a | ($a | length) as $n
@@ -252,8 +265,10 @@ if [[ "$VERB" == rollup ]]; then
   ' "$STATE_FILE")" || refuse state-unreadable "$STATE_FILE"
   while IFS= read -r line; do
     [[ -n "$line" ]] || continue
-    class="${line#rollup class=}"
-    log_row "${class%% *}" "$line"
+    if [[ "$VERB" == rollup ]]; then
+      class="${line#rollup class=}"
+      log_row "${class%% *}" "$line"
+    fi
     printf '%s\n' "$line"
   done <<<"$lines"
   exit 0
@@ -284,17 +299,21 @@ if ! lane="$(jq -c --arg item "$ITEM" '[.lanes[]? | select(.item == $item)] | fi
   refuse state-unreadable "$STATE_FILE"
 fi
 [[ -n "$lane" ]] || refuse record-missing "$ITEM"
-launch_tier="$(jq -r '.tier // empty' <<<"$lane")" || refuse state-unreadable "$STATE_FILE"
-if [[ -n "$launch_tier" ]]; then
-  if [[ -n "$TIER" && "$TIER" != "$launch_tier" ]]; then
-    printf 'oversee-cycle: tier-mismatch item=%s launch=%s given=%s\n' "$ITEM" "$launch_tier" "$TIER" >&2
-    exit 1
-  fi
-  TIER="$launch_tier"
-else
-  printf 'oversee-cycle: launch-tier-missing item=%s\n' "$ITEM" >&2
-fi
-case "$TIER" in micro | small | standard) ;; *) usage_error --tier ;; esac
+launch_tier="$(jq -r 'if has("tier") then .tier // "none" else "missing" end' <<<"$lane")" \
+  || refuse state-unreadable "$STATE_FILE"
+case "$launch_tier" in
+  none) ;;
+  missing)
+    printf 'oversee-cycle: launch-tier-missing item=%s\n' "$ITEM" >&2
+    [[ -n "$TIER" ]] || usage_error --tier ;;
+  *)
+    if [[ -n "$TIER" && "$TIER" != "$launch_tier" ]]; then
+      printf 'oversee-cycle: tier-mismatch item=%s launch=%s given=%s\n' "$ITEM" "$launch_tier" "$TIER" >&2
+      exit 1
+    fi
+    TIER="$launch_tier" ;;
+esac
+case "$TIER" in '' | micro | small | standard) ;; *) usage_error --tier ;; esac
 [[ -n "$REPO" ]] || REPO="$(jq -r '.repo // empty' <<<"$lane")"
 LANE_HOST_SPEC="$(jq -r '.host // empty' <<<"$lane")"
 LANE_ROOT="$(jq -r '.mail_root // empty' <<<"$lane")"
@@ -368,14 +387,59 @@ else
   class_cause="$CHANGE_CLASS_CAUSE"
 fi
 
+# push_time — when COMMIT reached the base branch, from GitHub's own record of
+# the push: the push whose `after` is COMMIT, else the earliest push from the
+# lane's launch on whose `after` contains it, as a landing queue's batch push
+# does. The committer date never stands in: a rebase or amend before the push
+# rewrites it, and a queue's wait and the push come after it. The log is read
+# over the shortest period GitHub filters by that holds the launch, an hour of
+# clock skew spared. Sets MERGED_AT, or MERGED_CAUSE with push.err.
+push_time() {
+  local repo="$REPO" base query launched span at after status
+  MERGED_AT="" MERGED_CAUSE=""
+  : >"$WORK/push.err"
+  [[ -n "$repo" ]] || repo="$(unset GH_REPO; kendex_github_resolve_gh_repo "${checkout:-.}" 2>/dev/null)" \
+    || { MERGED_CAUSE="repo-unresolved"; return; }
+  base="$("$SCRIPT_DIR/resolve-base-branch" "${checkout:-.}" 2>"$WORK/push.err")" \
+    || { MERGED_CAUSE="base-unresolved"; return; }
+  query="ref=$(jq -rn --arg r "refs/heads/$base" '$r | @uri')&activity_type=push&per_page=100"
+  launched="$(jq -r '.launched_at // empty | fromdate' <<<"$lane" 2>"$WORK/push.err")" \
+    || { MERGED_CAUSE="launch-unreadable"; return; }
+  for span in day:86400 week:604800 month:2419200 quarter:7689600 year:31536000; do
+    if [[ -n "$launched" ]] && (( $(date +%s) - launched + 3600 < ${span#*:} )); then
+      query+="&time_period=${span%%:*}"
+      break
+    fi
+  done
+  if ! gh api --paginate "repos/$repo/activity?$query" >"$WORK/activity.json" 2>"$WORK/push.err" \
+    || ! jq -rs --arg commit "$COMMIT" --arg since "${launched:-0}" '[.[][] | {at: .timestamp, after}] | sort_by(.at)
+      | ([.[] | select(.after == $commit)] | first | .at // empty | "\(.) exact"),
+        (.[] | select((.at | fromdate) >= ($since | tonumber)) | "\(.at) \(.after)")' \
+      "$WORK/activity.json" >"$WORK/pushes" 2>"$WORK/push.err"; then
+    MERGED_CAUSE="activity-unread"
+    return
+  fi
+  while read -r at after; do
+    if [[ "$after" != exact ]]; then
+      status="$(gh api "repos/$repo/compare/$COMMIT...$after" --jq .status 2>"$WORK/push.err")" \
+        || { MERGED_CAUSE="compare-failed"; return; }
+      [[ "$status" == ahead ]] || continue
+    fi
+    MERGED_AT="$at"
+    return
+  done <"$WORK/pushes"
+  MERGED_CAUSE="no-push"
+}
+
 if [[ -n "$COMMIT" ]]; then
   COMMIT="$(git rev-parse --verify --end-of-options "$merge^{commit}" 2>"$WORK/commit.err")" \
     || refuse commit-unreadable "$merge" "$WORK/commit.err"
-  dates="$(git show -s --format='%at %ct' "$COMMIT" -- 2>"$WORK/commit.err")" \
+  authored="$(git show -s --format='%at' "$COMMIT" -- 2>"$WORK/commit.err")" \
     || refuse commit-unreadable "$COMMIT" "$WORK/commit.err"
-  timeline="$(jq -cn --arg commit "$COMMIT" --arg dates "$dates" '
-    ($dates | split(" ") | map(tonumber | todate)) as $d
-    | {commit: $commit, stamps: {first_commit: $d[0], merged: $d[1]}}')" \
+  push_time
+  timeline="$(jq -cn --arg commit "$COMMIT" --arg authored "$authored" --arg merged "$MERGED_AT" '
+    {commit: $commit, stamps: {first_commit: ($authored | tonumber | todate),
+      merged: (if $merged == "" then null else $merged end)}}')" \
     || refuse commit-unreadable "$COMMIT"
 fi
 
@@ -415,6 +479,7 @@ cycle="$(jq -c -n --argjson lane "$lane" --argjson t "$timeline" --argjson round
      gate_green: $s.gate_met, ci_green: $s.ci_green, armed: ($s.armed // $s.queued),
      merged: $s.merged} as $stamps
   | (if $class == "" then null else $class end) as $class
+  | (if $tier == "" then null else $tier end) as $tier
   | $t.ci_merge_group_secs as $merge_group
   | (if $class == null then null else $targets[$class] + ($merge_group // 0) end) as $target
   | (if $stamps.launched == null or $stamps.merged == null then null
@@ -449,7 +514,7 @@ cycle="$(jq -c -n --argjson lane "$lane" --argjson t "$timeline" --argjson round
              else null end),
      missing: $missing, rounds: $rounds,
      pr_rounds: ($t.rounds | if . == null then null else map(.secs |= interval) end),
-     escaped: (if $class == null then null
+     escaped: (if $class == null or $tier == null then null
                else ($tier == "micro" and ($class | IN("small", "standard")))
                  or ($tier == "small" and $class == "standard") end),
      refixed: (if $s.first_gate_met == null or $s.last_push == null then null
@@ -467,7 +532,7 @@ cycle="$(jq -c -n --argjson lane "$lane" --argjson t "$timeline" --argjson round
 
 line="$(jq -r --arg item "$ITEM" 'def n: if . == null then "-" else tostring end;
   "cycle item=\($item) " + (if .commit == null then "pr=\(.pr)" else "commit=\(.commit)" end)
-  + " class=\(.class | n) tier=\(.tier) target=\(.target | n)"
+  + " class=\(.class | n) tier=\(.tier | n) target=\(.target | n)"
   + " merge_group=\(.merge_group | n)"
   + " actual=\(.actual | n) open=\(.open | n) verdict=\(.verdict) phase=\(.phase | n) phase_secs=\(.phase_secs | n)"
   + " cause=\(.cause | n) bot_wait=\(.gate_waits.bot_wait | n) thread_fix=\(.gate_waits.thread_fix | n)"
@@ -482,6 +547,10 @@ log_row "$ITEM" "$line"
 printf '%s\n' "$line"
 [[ -z "$class_cause" ]] || printf 'oversee-cycle: class-unread cause=%s\n' "$class_cause" >&2
 [[ ! -s "$WORK/class.err" || -z "$class_cause" ]] || cat -- "$WORK/class.err" >&2
+if [[ -n "${MERGED_CAUSE:-}" ]]; then
+  printf 'oversee-cycle: merged-unread commit=%s cause=%s\n' "$COMMIT" "$MERGED_CAUSE" >&2
+  cat -- "$WORK/push.err" >&2
+fi
 if [[ -n "$rounds_unread" ]]; then
   printf 'oversee-cycle: rounds-unread item=%s\n' "$ITEM" >&2
   cat -- "$rounds_unread" >&2

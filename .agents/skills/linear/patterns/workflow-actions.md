@@ -21,8 +21,8 @@ Cancel, duplicate, and absorb are all `comments create` + `issues update --state
 
 A command Linear rate-limits exits nonzero with one JSON line on stderr carrying `"code":"RATELIMITED"` and `requests_reset`, the UTC time its request quota refills, or `unavailable`. An `activate` or `complete` that answers so is held, never reported as a failed step:
 
-1. Keep the exact command and its `--summary-file` or body file under `tmp/`.
-2. Wait until `requests_reset` through the job runner, then run the same command once more.
+1. Keep the held command and its `--summary-file` or body file under `tmp/`. The held command is the original one, except after a `complete` whose stderr also carries a `State transition to Done failed after the summary comment was posted` line: the summary is already posted, so the held command is the `issues complete` rerun that line names, without summary flags and keeping any `--done-when-met`. Rerunning the original would post the summary twice.
+2. Wait until `requests_reset` through the job runner, then run the held command once more.
 3. A second rate limit, or a reset of `unavailable`, returns the held command and its file to the caller; neither authorizes another try.
 
 ## Descriptions
@@ -42,7 +42,7 @@ scripts/linear.sh issues remove-relation [ISSUE_ID] --blocks|--blocked-by [OTHER
 
 A `make_parent` action carrying `retitle` applies the retitle alongside the reparenting.
 
-Blocking-relation shape: SKILL.md § Blocked Label vs Issue Relations; a rejection states the rule the pair failed.
+Blocking-relation shape: SKILL.md § Blocked Label vs Issue Relations; a rejection states the rule the pair failed. A removal whose reason opens `Violation:` adds `--peer-rule-violation`.
 
 Never drop a valid dependency. Lift child-level dependencies to the parent level when bundles are involved, and use `--related` when the dependency is informational rather than blocking.
 
