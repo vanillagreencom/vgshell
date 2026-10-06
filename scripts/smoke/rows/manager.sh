@@ -290,7 +290,7 @@ rows_match() {
 }
 expect "the window lists every plugin listPlugins lists, with its state" True rows_match
 row_of() { settings_rows | py_reply 'import json,sys; r=[r for r in json.load(sys.stdin) if r["id"] == sys.argv[1]][0]; print(json.dumps([r[k] for k in sys.argv[2:]]))' "$@"; }
-expect "the Settings plugin lists itself, bundled, with its icon, capabilities and key" '["Plugins", "plug", "bundled", ["ipc", "manager", "screens", "shortcut", "surfaces", "tui"], [{"shortcut": "toggle", "key": "SUPER+M", "default": "SUPER+M", "description": "Open or close Plugins"}], []]' row_of vgs.settings name icon source capabilities binds errors
+expect "the Settings plugin lists itself, bundled, with its icon, capabilities and key" '["Plugins", "plug", "bundled", ["ipc", "manager", "screens", "shortcut", "surfaces", "tui"], [{"shortcut": "toggle", "key": "SUPER+M", "keys": ["SUPER+M"], "default": "SUPER+M", "description": "Open or close Plugins"}], []]' row_of vgs.settings name icon source capabilities binds errors
 expect "an installed fixture is listed as installed with its manifest icon" '["Probe", "flask-conical", "installed", "acme"]' row_of acme.probe name icon source author
 expect "a plugin without a manifest icon is listed with the package icon" '["package"]' row_of acme.bare icon
 expect "a manager row carries each requirement with its state" '[[{"name": "sh", "bus": null, "packages": {"pacman": "bash"}, "optional": false, "purpose": "A command every sandbox has", "state": "present"}, {"name": "vgs-smoke-absent", "bus": null, "packages": {}, "optional": true, "purpose": "A command no sandbox has", "state": "missing"}]]' row_of acme.bare requirements
@@ -718,7 +718,7 @@ expect "a bundled plugin's Details draw no Remove button" absent settings_button
 expect "a key typed in the Keys row is applied" applied ipc smoke invokeInstance window vgs.settings applyKey '{"id":"vgs.settings","shortcut":"toggle","key":"shift+super+m"}'
 expect_poll "the rebind reaches shell.json keys, normalised" '"SUPER+SHIFT+M"' user_key
 expect_poll "the rebind reaches the Hyprland layer" '[[65, "M"]]' settings_binds
-expect_poll "the page's Keys row shows the key in effect beside its default" '[[{"shortcut": "toggle", "key": "SUPER+SHIFT+M", "default": "SUPER+M", "description": "Open or close Plugins"}]]' row_of vgs.settings binds
+expect_poll "the page's Keys row shows the key in effect beside its default" '[[{"shortcut": "toggle", "key": "SUPER+SHIFT+M", "keys": ["SUPER+SHIFT+M"], "default": "SUPER+M", "description": "Open or close Plugins"}]]' row_of vgs.settings binds
 expect "an emptied key unbinds the shortcut" applied ipc smoke invokeInstance window vgs.settings applyKey '{"id":"vgs.settings","shortcut":"toggle","key":null}'
 expect_poll "the unbind reaches shell.json keys as null" null user_key
 expect_poll "the unbind leaves Hyprland no Settings bind" '[]' settings_binds
