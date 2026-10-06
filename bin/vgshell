@@ -178,7 +178,7 @@
 # deletes only an installed package, never a shipped one.
 # Each holds the theme lock while it changes the package, update through
 # its question too; a held lock is reason=busy.
-# docs/architecture/theme-install.md.
+# docs/architecture/themes.md.
 #
 # `theme install` lands the catalog package themes/catalog/<name> the same
 # way from a staging directory, under the theme lock, with the marker
@@ -194,7 +194,7 @@
 # catalog install behind 1 when the catalog's package changed.
 # `theme catalog` prints each index entry with `thumbnailPath`, `installed`,
 # `definitionUpdate`, `imageryInstalled` and `imageryUpdate`, `--json` as
-# `{ entries: [...] }`: docs/architecture/theme-catalog.md § Install.
+# `{ entries: [...] }`: docs/architecture/theme-catalog.md.
 #
 # `theme wallpapers` is the one catalog command that reaches the network;
 # `theme catalog` and `theme install` work offline. It fetches the archive
@@ -212,7 +212,7 @@
 # prints `{ state, bytes, total }` lines, then `{ state, theme, wallpapers,
 # images, sha256, reason }`, on stdout. VGS_THEME_ASSET_BASE replaces the
 # pin's release URL, and takes file:// only in a test run:
-# docs/architecture/theme-wallpapers.md.
+# docs/architecture/theme-catalog.md.
 #
 # `theme browser-policy install` is the one command that asks for a
 # privilege: bin/vgshell-browser-policy installs itself root-owned with one
@@ -220,7 +220,7 @@
 # target's hook needs on a home install; the Arch and Fedora packages ship
 # both. Apply never prompts: until the setup exists that target is skipped
 # with reason=setup-absent, and its hook runs `sudo -n`.
-# docs/architecture/theme-browsers.md § Chromium.
+# docs/architecture/theme-targets.md.
 #
 # The shell writes the Hyprland layer, one Lua file, to
 # ${XDG_STATE_HOME:-~/.local/state}/vgshell/hypr/vgs.lua. `hypr wire` keeps the
@@ -1495,7 +1495,7 @@ theme_lock_hold() { # KEY [-s]
 
 # Hold the theme lock as theme_lock_hold does, then finish or undo each
 # catalog update an interruption left, so add, install, update and remove
-# start from whole packages: docs/architecture/theme-catalog.md § Install.
+# start from whole packages: docs/architecture/theme-catalog.md.
 theme_lock_change() { # KEY
   theme_lock_hold "$1"
   node "$theme_judge" recover "$config_home/vgshell" || exit $?

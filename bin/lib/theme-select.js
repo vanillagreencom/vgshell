@@ -1,7 +1,7 @@
 // The selection edit bin/vgshell-theme-judge keeps in an application's own
 // settings file: each key a target's `select` names, set to its value,
 // with every other byte of the file kept. Nothing here reads or writes a
-// file. docs/architecture/theme-agents.md § Selection holds the rules.
+// file. docs/architecture/theme-targets.md holds the rules.
 //
 // TEXT and VALUE are strings in one encoding: the judge reads the file as
 // latin1, one character per byte, and hands over VALUE's UTF-8 bytes the

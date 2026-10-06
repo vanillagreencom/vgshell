@@ -1,4 +1,5 @@
 name: vgs
+# Hermes reads this profile from ~/.hermes/profiles only; a HERMES_HOME elsewhere is not served.
 description: The vgs shell theme
 colors:
   banner_border: "#@{color.border}"

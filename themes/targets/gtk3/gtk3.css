@@ -1,5 +1,6 @@
 /* The vgs theme for GTK 3, imported from gtk-3.0/gtk.css by vgshell theme apply.
    The adw-gtk3 names come first, then the names GTK 3's own Adwaita reads. */
+/* GTK 3 reads gtk.css once per process, so there is no reload hook. */
 @define-color accent_color @{color.accent};
 @define-color accent_bg_color @{color.accent};
 @define-color accent_fg_color @{color.onAccent};

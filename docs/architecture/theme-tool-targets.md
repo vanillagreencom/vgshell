@@ -2,7 +2,7 @@
 
 Covers: themes/targets/vesktop/**, themes/targets/equibop/**, themes/targets/vencord/**, themes/targets/btop/**, themes/targets/fastfetch/**, themes/targets/tmux/**, themes/targets/oh-my-posh/**, themes/targets/obsidian/**, themes/targets/gum/**, scripts/test-vgshell-chat-tools.sh, scripts/test-theme-gum.js
 
-The shipped targets for chat clients and terminal tools. The target format, both wiring forms and the renderer are [theme-targets.md](theme-targets.md); when a target lands is [theme-apply.md](theme-apply.md), and when its hook runs [theme-reload.md](theme-reload.md).
+The shipped targets for chat clients and terminal tools. The target format, both wiring forms and the renderer are [theme-targets.md](theme-targets.md); when a target lands is [theme-apply.md](theme-apply.md), and when its hook runs [theme-apply.md](theme-apply.md).
 
 ## Targets
 
@@ -26,7 +26,7 @@ Every path is relative to `${XDG_CONFIG_HOME:-~/.config}`. A linked theme is sel
 - **fastfetch.** fastfetch loads one configuration and has no include. The linked file is a whole configuration, found by `--config vgs` in its configuration directory, and needs fastfetch 2.42.0 for `#RRGGBB` colours.
 - **tmux.** tmux loads `~/.tmux.conf` and then `$XDG_CONFIG_HOME/tmux/tmux.conf`, each when it exists. Created, the second file would hold the theme over a `~/.tmux.conf` user's own settings, and plugin managers such as TPM read their plugin list from it first, so an absent one skips the target with `wiring-file-absent`. The file's own settings after the line override the theme at start. The hook reaches the server of tmux's default socket, or the one `$TMUX` names, and sources the theme over the running options. With no server there is nothing to reload, and the hook succeeds. The style options take `#{...}` formats, tmux 3.2's, which the render leaves whole.
 - **Oh My Posh.** The linked file is a whole prompt configuration whose segments draw from its `palette`, and a configuration of the user's may `extends` it. Oh My Posh caches its configuration, so a running shell takes a new theme once `oh-my-posh enable reload` is on or when a new shell starts.
-- **Obsidian.** A theme is a directory of `theme.css` and `manifest.json` under a vault's `.obsidian/themes/`; Obsidian has no theme directory outside the vaults. The `vaults` key keeps the links in every vault the registry lists: [theme-wiring.md § Entry wiring](theme-wiring.md#entry-wiring). Obsidian reads the theme when a vault opens or the theme is selected.
+- **Obsidian.** A theme is a directory of `theme.css` and `manifest.json` under a vault's `.obsidian/themes/`; Obsidian has no theme directory outside the vaults. The `vaults` key keeps the links in every vault the registry lists: [theme-targets.md](theme-targets.md). Obsidian reads the theme when a vault opens or the theme is selected.
 
 ## Floating TUI colours
 

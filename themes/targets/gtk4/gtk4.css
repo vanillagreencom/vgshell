@@ -1,6 +1,7 @@
 /* The vgs theme for GTK 4, imported from gtk-4.0/gtk.css by vgshell theme apply.
    libadwaita 1.6 and later read the CSS variables in :root; earlier
    releases read the named colours. */
+/* GTK 4 reads gtk.css once per process, so there is no reload hook. */
 @define-color accent_color @{color.accent};
 @define-color accent_bg_color @{color.accent};
 @define-color accent_fg_color @{color.onAccent};

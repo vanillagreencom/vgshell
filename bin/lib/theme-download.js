@@ -12,7 +12,7 @@
 // removes it once it has read it. `download.lock` there is the lock every
 // caller of fetchArchive holds for the whole fetch, since the part's path
 // is fixed: bin/vgshell takes it with flock(1).
-// docs/architecture/theme-wallpapers.md.
+// docs/architecture/theme-catalog.md.
 "use strict";
 const crypto = require("crypto");
 const fs = require("fs");

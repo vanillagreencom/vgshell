@@ -8,7 +8,7 @@
 // `digest` is the package digest the install or the last catalog update
 // wrote, the one applied.json records for the same content, and `imagery`
 // the pin of the wallpaper archive unpacked into the package, null until
-// one is. docs/architecture/theme-catalog.md § Install.
+// one is. docs/architecture/theme-catalog.md.
 "use strict";
 
 const MARKER_FILE = ".vgs-catalog.json";

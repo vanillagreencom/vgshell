@@ -27,7 +27,7 @@
 #
 # Every refusal prints one keyed line first, `vgshell-browser-policy: <key>=<value>`.
 # Exit 0 on success, 1 when a write, the elevation or the install failed,
-# 2 on a bad invocation. docs/architecture/theme-browsers.md.
+# 2 on a bad invocation. docs/architecture/theme-targets.md.
 #
 # /bin/bash rather than env: as root nothing here resolves through a PATH
 # a user chose.

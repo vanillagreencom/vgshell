@@ -2,7 +2,7 @@
 
 Covers: shell/plugins/vgs.themes/Browser.qml, shell/plugins/vgs.themes/BrowserLogic.js, shell/plugins/vgs.themes/Service.qml, shell/plugins/vgs.themes/ThemeView.qml, shell/plugins/vgs.themes/ThemePreviews.qml, shell/plugins/vgs.themes/ThemeCard.qml, shell/plugins/vgs.themes/WallpaperView.qml, shell/plugins/vgs.themes/WallpaperCard.qml, shell/plugins/vgs.themes/DesktopPreview.qml, shell/plugins/vgs.themes/ThemePaletteStrip.qml, shell/plugins/vgs.themes/Files.js, scripts/smoke/rows/theme-browser.sh, scripts/test-themes-browser.js, scripts/qml-tests/tst_themes_browser.qml
 
-The `vgs.themes` overlay: one full-screen browser with a theme view and a wallpaper view, and the service whose shortcuts summon it. Both views drive the `theme` capability of [theme-capability.md](theme-capability.md); the rest of the plugin is [theme-capability.md § Plugin](theme-capability.md#plugin). `BrowserLogic.js` holds every decision the views make, with no QML object and no I/O.
+The `vgs.themes` overlay: one full-screen browser with a theme view and a wallpaper view, and the service whose shortcuts summon it. Both views drive the `theme` capability of [theme-capability.md](theme-capability.md); the rest of the plugin is [theme-capability.md § Plugin](theme-capability.md). `BrowserLogic.js` holds every decision the views make, with no QML object and no I/O.
 
 ## Overlay
 

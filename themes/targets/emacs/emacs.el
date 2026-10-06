@@ -2,6 +2,7 @@
 ;; Rendered by vgshell theme apply and loaded by vgs-theme.el in the custom
 ;; theme directory, so (load-theme 'vgs t) enables it and loading the theme
 ;; again reads this file again.
+;; The include line lives in vgs-theme.el rather than init.el because a lexical-binding cookie must be the first line of a file. The hook asks the Emacs server to reload and runs `true` when no server exists, so a stopped Emacs is not left pending.
 (deftheme vgs "The vgs desktop theme.")
 (custom-theme-set-faces
  'vgs

@@ -1,5 +1,6 @@
 # The vgs theme for btop, linked as vgs.theme in btop's themes directory by
 # vgshell theme apply. Select it once as the colour theme "vgs".
+# The reload hook sends SIGUSR2, which btop 1.3.1 and later take as a re-read; an older btop is ended by it.
 theme[main_bg]="#@{palette.background}"
 theme[main_fg]="#@{palette.foreground}"
 theme[title]="#@{color.textHeading}"

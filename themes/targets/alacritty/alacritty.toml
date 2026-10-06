@@ -1,4 +1,5 @@
 # The vgs theme for Alacritty, imported from alacritty.toml by vgshell theme apply.
+# Alacritty watches the directory of each import, and only with live_config_reload on, so the hook touches the imported file to move the watched time; the swap alone changes nothing it watches.
 [colors.primary]
 foreground = "#@{palette.foreground}"
 background = "#@{palette.background}"

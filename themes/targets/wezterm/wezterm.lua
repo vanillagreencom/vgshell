@@ -2,6 +2,7 @@
 -- wezterm.lua. WezTerm has no include directive, so the theme wraps
 -- wezterm.config_builder: a config it builds starts on the vgs colour
 -- scheme, and every setting wezterm.lua makes on it afterwards overrides it.
+-- WezTerm watches the file it loaded, so the hook touches it; a reload needs automatically_reload_config on, its default.
 local wezterm = require 'wezterm'
 local build = wezterm.config_builder
 if build then

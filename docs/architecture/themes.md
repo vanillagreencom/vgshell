@@ -1,73 +1,36 @@
-# Themes
+# A theme is one judged package
 
-Covers: themes/**, bin/vgshell-theme-judge, bin/lib/judge-files.js, scripts/test-vgshell-theme-judge.js, scripts/test-judge-files.js
+Read before touching a theme package, the package judge, the theme runner, or an install verb.
 
-A theme package is one directory. It holds the shell document and the application files that later apply steps copy or render. The package judge is pure; callers read files and pass their text to `ThemeLogic.acceptPackage`, and `bin/vgshell-theme-judge` owns the directory walk, the list, the apply and the reload.
+## The approach
 
-## Package shape
+A theme is a directory: `theme.json` is the shell document, `terminal.json` holds the ANSI slots, and `targets/` holds curated application files. One pure judge, `ThemeLogic.acceptPackage` in `shell/Commons/ThemeLogic.js`, decides from file text alone whether a package is accepted, and the runner `bin/vgshell-theme-judge` does every read and write. The shipped `vgs` package is the reserved revert no install can hide. An installed package has plugin trust: on a target whose files run code, its curated file is dropped and the template rendered instead ([D031](../decisions/D031-installed-themes-render-code-targets.md)). The install verbs share the plugin manager's git handling: no hook, submodule or package file runs, and a package is judged in a staging directory before it lands.
 
-| File | Required | Holds |
-|---|---|---|
-| `theme.json` | yes | The shell document from [design-system.md § The shell document](design-system.md). |
-| `terminal.json` | no | `{ "schemaVersion": 1, "slots": { "color0": "#...", ... "color15": "#..." } }`. |
-| `preview.png` | no | A package-authored desktop preview image. The theme browser uses it before the live token preview. |
-| `targets/<target>.<ext>` | no | A curated file, taken verbatim in place of the target file the renderer writes to that name, where the target accepts it. An installed package's is dropped on a target whose files run code: [theme-targets.md § Templates](theme-targets.md#templates). |
-| `backgrounds/<image>` | no | Background images, which apply makes current: [theme-backgrounds.md](theme-backgrounds.md). |
+## Why
 
-The directory name is the package name and must equal `theme.json`'s `name`; `ThemeLogic.isPackageName` bounds it to a letter or digit followed by letters, digits, `.`, `_` and `-`. The name `vgs` is reserved for the shipped defaults, so an installed package cannot hide the revert package. A package without `terminal.json` is valid; apply renders the shipped `vgs` terminal slots in its place.
+A theme someone shared, or its update, must not run code in the user's editor or terminal, and a theme has no disabled-for-review step. A judge with no I/O runs under node, so a script and the shell cannot disagree about a package. Nothing infers light or dark from a name or a colour: the package states `scheme.mode`.
 
-The one shipped package is `vgs`, the dark defaults and the revert. Every other look, the light ones included, is a catalog package the user installs ([theme-catalog.md](theme-catalog.md)). A package states whether it is light or dark in the `scheme.mode` token, which a plugin that owns its look reads ([appearance.md](appearance.md)) and the Zed and VS Code targets mark their themes with ([theme-editors.md](theme-editors.md)); nothing infers a mode from a package's name or colours. A package may set the `hyprland` token group for window border thickness, window radius, rounding power, motion preset and shadow colour; the generated Hyprland layer uses those values only when the manifest-owned switches allow that group ([hyprland.md](hyprland.md)).
+## Rules
 
-## Package sources
+- Do judge a package through `ThemeLogic.acceptPackage` with file text only; the judge does no I/O. `scripts/test-theme-logic.js` pins each refusal.
+- Never name an installed package `vgs`; the shipped `vgs` is always the revert. `scripts/test-vgshell.sh` pins the refusal.
+- Do mark every target `runsCode`, and never take an installed package's curated file on such a target: drop it, name it in `dropped`, render the template. `scripts/test-vgshell-targets.sh` pins both.
+- Never follow a symlink below a package directory; a linked `theme.json` or `terminal.json` refuses the package. `scripts/test-vgshell-package-links.sh` pins it.
+- Do keep every shipped package passing the judge offline; `bin/vgshell-theme-judge packages` runs from `scripts/validate` for `themes/`.
+- Do hold `theme.lock` for apply, follow, reload and every install verb; a second holder exits 75 `busy`. `scripts/test-vgshell.sh` pins it with a lockless control.
+- Do clone into a staging directory beside `themes/` and judge there, so no list reads half a package; never let a git call inherit the lock descriptor. `scripts/test-vgshell.sh` pins both.
+- Do ask before a git update, as a plugin update asks, because the follow applies files that applications run at once, and roll back a version the judge refuses. `scripts/test-vgshell.sh` pins both.
+- Never remove a shipped package, a symlink or a file; remove deletes an installed directory only. `scripts/test-vgshell.sh` pins it.
+- Do stage a file by `replaceFile` in `bin/lib/judge-files.js`: owner-only until full, then the kept mode. `scripts/test-judge-files.js` pins it.
 
-A package is shipped under `themes/<name>/`, installed under the configuration home, or listed in the catalog under `themes/catalog/`, whose packages offline validation judges as the installed packages they become: [theme-catalog.md](theme-catalog.md).
+## The canonical example
 
-## Boundaries
+`themes/vgs/`: the shipped defaults, one `theme.json`, one `terminal.json`, and a curated file only where a target's own format has no template. Copy it.
 
-- `ThemeLogic.acceptPackage` takes the token table and file texts. It performs no I/O. It judges `theme.json` through `ThemeLogic.accept`, judges terminal slot names and colours, checks the directory/document name match, and applies the `vgs`, `targets`, `catalog` and `thumbnails` reservations. The runner accepts `preview.png` as an optional package file and refuses it when it is a symlink.
-- `bin/vgshell-theme-judge` walks the package and target directories, reads every file an apply needs, and makes every decision through `ThemeLogic.js`, `Tokens.js` and, for `shell.json`, `PluginLogic.js`, loaded through `bin/lib/qml-library.js`. Apply judges only the selected package and its shipped `vgs` fallback. It still checks both package source directories and every target. The list judges all packages. Only download commands load `bin/lib/theme-download.js`. Its refusal and its file writes are `bin/lib/judge-files.js`, shared with `bin/vgshell-plugin-judge`.
-- `bin/lib/theme-render.js` judges `target.json`, renders templates and chooses the terminal slots. It performs no I/O: the judge reads every file and passes its text or bytes, with `ThemeLogic.js` and the token table as arguments, so a token path means what it means to the shell.
-- `bin/lib/theme-select.js` decides the text a settings file takes when a target's `select` sets its theme key. It performs no I/O either.
-- `shell/Core/ThemeRunner.qml` owns the `vgshell theme` processes behind the `theme` capability, a queue and a download lane: [theme-capability.md](theme-capability.md). It starts runner commands and reports their structured result; it judges no package file itself.
-- `shell/plugins/vgs.themes/**` belongs to [theme-capability.md § Plugin](theme-capability.md#plugin). This topic covers package and core runner contracts only.
+## Revisit when
 
-## Runner
+Packages carry signatures or a trusted-author list, or an installed theme needs a code file with no template.
 
-`vgshell theme list [--json]`, `vgshell theme apply [--json] <name>`, `vgshell theme follow [--json]` and `vgshell theme reload [--json]` work with no shell running and never contact one. `bin/vgshell` parses the command line and takes the lock; `bin/vgshell-theme-judge` does the rest.
+## Not governed
 
-- **Packages.** Shipped packages are `themes/<name>/`, installed ones `${XDG_CONFIG_HOME:-~/.config}/vgshell/themes/<name>/`; a symlink to a directory counts. An installed package hides the shipped package of its name, which is listed as `shadowed` and never read, even when the installed one is refused. An installed `vgs` is refused `reserved-name`, even when its files cannot be read, and hides nothing, so `apply vgs` always takes the shipped defaults.
-- **List.** One row per package: its source (`shipped`, `installed`), its state (`ok`, `refused` with the judge's reason key, or `shadowed`), whether it is the theme file's named package and, when `ok`, its resolved `palette` group. The theme file's state is read from disk with `ThemeLogic.accept`, in `ThemeSource`'s vocabulary: `loaded`, `absent`, `refused`, `unreadable`. `modified` is `false` when the named package is accepted and the file holds either its `theme.json` bytes or the bytes the last apply of that package wrote, which `applied.json` records ([theme-follow.md](theme-follow.md)), so a file a follow has yet to replace is unmodified. It is `false` for an absent file, `true` for any other loaded file, a refused file and one no accepted package names, and `null` for an unreadable one. A record that cannot be read or judged refuses the list with `vgshell: refused: themes=<reason> path=<record>`, `unreadable` adding the error code. `--json` prints `{ file: { path, state, name, modified }, packages: [{ name, source, path, state, reason, current, palette }] }` as one line.
-- **Lock.** `apply`, `follow` and `reload` hold `flock` on `${XDG_CONFIG_HOME:-~/.config}/vgshell/theme.lock`, beside the file it guards, so callers with different runtime directories serialise. The configuration directory is created first; the lock file is never removed. `bin/vgshell` holds it on a descriptor the judge inherits, so the lock lasts the whole command. A second apply, follow or reload exits 75 with `reason=busy`; a lock that cannot be opened is `reason=lock-failed`.
-
-[D021](../decisions/D021-theme-apply-writes-beside-each-destination.md) records the lock, the swap and the shadowing rule.
-
-## Install
-
-`vgshell theme add`, `update`, `remove` and `outdated` install and maintain packages under the configuration home, and `vgshell theme install` installs a catalog package there: [theme-install.md](theme-install.md).
-
-## Apply
-
-`vgshell theme apply` and `vgshell theme reload` land a package in the state directory, every enabled target and the shell, and run reload hooks: [theme-apply.md](theme-apply.md) and [theme-reload.md](theme-reload.md). Apply also makes one of the package's background images current, `vgshell theme background next` and `previous` move to the next or the previous one, `set` shows one chosen image on every screen or on one output, and `list` names the images: [theme-backgrounds.md](theme-backgrounds.md). `vgshell theme follow` applies the applied package again once it changed: [theme-follow.md](theme-follow.md).
-
-## Trust
-
-A curated target file is written verbatim into a path an application includes. On a target whose files load or run code, its `target.json` `runsCode`, an installed package's curated file is dropped and the template rendered in its place, so a theme someone shared, or an update of it, runs none of its author's code. Lua, Emacs Lisp, a terminal configuration naming the program it launches, a shell `command` module and a VS Code extension are code. A shipped package keeps its curated files, and an installed package keeps them on every other target. The dropped file is not judged: `renderTarget` lists its destination in `dropped`, and the apply names it on the target's row, which keeps it when the target's wiring or reload then fails: [theme-apply.md § Apply](theme-apply.md#apply). A target without `runsCode` is refused. No package contributes a symlink below its own directory, as Omarchy drops every symlink from a cloned theme: a symlinked curated file, or a symlinked `targets/`, is dropped and named on the row like any drop, a symlinked image or `backgrounds/` holds no image, and a symlinked `theme.json` or `terminal.json` refuses the package `symlink`; the package directory itself may be a symlink, and the shipped packages carry none. [D031](../decisions/D031-installed-themes-render-code-targets.md) the drop.
-
-## Invariants
-
-1. The shipped `vgs` package is accepted, and an installed package named `vgs`, a directory name `isPackageName` refuses, a directory/document name mismatch, a bad terminal slot name and a bad terminal colour are refused. Enforced by `scripts/test-theme-logic.js`.
-2. Every package under `themes/` passes the package judge in offline validation. Enforced by `bin/vgshell-theme-judge packages themes`, selected by `scripts/validate` for `themes/*` changes.
-3. The nested smoke sandbox contains the shipped packages beside `shell`, `bin`, `config` and `scripts`. Owned by `scripts/smoke/harness.sh`.
-4. An installed package shadows the shipped package of its name, and an installed `vgs` shadows nothing. Enforced by `scripts/test-vgshell.sh`.
-5. The list reports a refused package with its reason and the theme file's state from disk; apply refuses a refused package. Enforced by `scripts/test-vgshell.sh`. `modified` is false for the file's package bytes and for the bytes `applied.json` records for it, and true for a hand edit. Enforced by `scripts/test-vgshell-follow.sh`, with a judge copy that ignores the record as its control.
-6. A second apply is refused with `reason=busy` while the lock is held. Enforced by `scripts/test-vgshell.sh`, with a lockless `bin/vgshell` copy as its control.
-7. The target and template rules: [theme-targets.md § Invariants](theme-targets.md#invariants), the editor targets': [theme-editors.md § Invariants](theme-editors.md#invariants), and the browser targets': [theme-browsers.md § Invariants](theme-browsers.md#invariants).
-8. The apply and reload rules: [theme-apply.md § Invariants](theme-apply.md#invariants) and [theme-reload.md § Invariants](theme-reload.md#invariants), and the follow rules: [theme-follow.md § Invariants](theme-follow.md#invariants).
-9. The `theme` capability rules: [theme-capability.md § Invariants](theme-capability.md#invariants).
-10. The background rules: [theme-backgrounds.md § Invariants](theme-backgrounds.md#invariants).
-11. An installed package's curated `neovim.lua`, `kitty.conf` and `alacritty.toml` are dropped and named on their rows, in JSON and in text, and the drop stays on a row whose wiring or reload fails; a shipped package's `neovim.lua` lands byte for byte; a target without `runsCode` fails with `missing=runsCode`. Enforced by `scripts/test-vgshell-targets.sh`, with judge copies that take every package as shipped, report no drop in JSON or in text and lose the drop on a failed reload or wiring, and a renderer copy that does not require the key, as its controls. The renderer's drop rules are [theme-targets.md § Invariants](theme-targets.md#invariants).
-12. `replaceFile` in `bin/lib/judge-files.js` creates the staging copy of a file kept with a mode owner-only, a stale one of its process removed first, and gives it that mode only once it is full. Enforced by `scripts/test-judge-files.js`, whose controls drop the owner-only creation, the stale removal and the kept mode from a copy of the helper.
-13. A symlinked curated file and a file under a symlinked `targets/` are dropped and named on a target that runs no code, a regular curated file there lands byte for byte, a symlinked `theme.json` or `terminal.json` is refused `symlink` by list, apply and the install judge, and follow sees no change behind a link. Enforced by `scripts/test-vgshell-package-links.sh`, with judge copies that follow a link, drop it unreported, never refuse a linked package file at list or at install, and digest a linked file or `targets/`, as its controls.
-14. The install rules: [theme-install.md § Invariants](theme-install.md#invariants), the catalog install rules: [theme-catalog.md § Invariants](theme-catalog.md#invariants), and the wallpaper download rules: [theme-wallpapers.md § Invariants](theme-wallpapers.md#invariants).
-15. `main` in `bin/lib/judge-files.js` ends a process on a refusal with its keyed line, then its detail, and its status, whether the command throws the refusal or returns a promise that rejects with it. Enforced by `scripts/test-judge-files.js`, whose controls drop the detail and the promise's handler from a copy of the helper.
-16. Apply reads no unrelated package file and loads no downloader. The selected package, shadowing rule, shipped fallback and source-directory checks still apply. Enforced by `scripts/test-vgshell-theme-judge.js`, with actual file and module observations and judge copies that read all packages or load the downloader as its controls.
+How a package lands on the applications, which is [theme-apply.md](theme-apply.md); what a target is, which is [theme-targets.md](theme-targets.md); the first-party catalog, which is [theme-catalog.md](theme-catalog.md).

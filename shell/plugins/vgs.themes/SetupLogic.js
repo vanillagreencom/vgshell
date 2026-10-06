@@ -4,7 +4,7 @@
 // scripts/test-themes-setup.js runs it under node: what `vgshell theme setup
 // --json` says of the chromium target's one-time setup, the writer
 // `vgshell theme browser-policy install` puts on PATH
-// (docs/architecture/theme-browsers.md § Chromium).
+// (docs/architecture/theme-targets.md).
 
 // The shipped target whose setup the row reports.
 var TARGET = "chromium";

@@ -1,82 +1,40 @@
-# Theme targets
+# A theme target is declarative data
 
-Covers: themes/targets/**, bin/lib/theme-render.js, scripts/test-theme-render.js, scripts/test-vgshell-targets.sh
+Read before touching a theme target, a template, an encoder, the wiring text, a target's `select` or `setup` key, or an application's one-time step.
 
-A target is one application's colour files: the directory `themes/targets/<target>/`, holding `target.json` and its templates. The renderer, `bin/lib/theme-render.js`, is pure: [themes.md § Boundaries](themes.md#boundaries). [theme-apply.md § Apply](theme-apply.md#apply) says when a target renders and where its files land.
+## The approach
 
-## Targets
+A target is one `target.json` plus templates under `themes/targets/<name>/`, rendered by the pure renderer `bin/lib/theme-render.js` from the package's resolved tokens, with no code and no I/O in the target. A landed file reaches its application through a managed form that proves itself: an include line matched as a whole line, a symlink whose target is exactly a file in `theme/`, or a copy whose bytes match a render ([D030](../decisions/D030-managed-copies-for-watched-theme-directories.md)). A `select` sets one theme key in the application's own settings file and never creates the file ([D024](../decisions/D024-theme-apply-sets-one-theme-key-in-an-application-settings-file.md)). A `setup` names a privileged helper the target waits for, installed by one click. A per-application fact, such as how it reloads or which file it reads first, is a comment at the target's template.
 
-A target name is lower-case letters, digits and `-`, with no dot. `targets` under a themes directory holds targets and is never read as a package.
+## Why
 
-`acceptTarget` judges `target.json`. Every key but `select`, `accounts`, `setup`, `wiring.section`, `wiring.profiles`, `wiring.fallbacks`, `wiring.vaults` and `reload.always` is required and any other key is refused with `reason=target-schema`. `wiring` takes one of two forms, told apart by `links`, or is `null`, and `wiringForm` names which, `include`, `entry` or `none`:
+A pure renderer makes a token path mean what it means to the shell, because the judge and the table are its arguments. A managed form that proves itself needs no marker file, and nothing the user placed is ever replaced. A CLI selects a theme by name in its own settings, so without the key the user sees nothing change, and the CLI's own default must stand until the user has a settings file.
 
-| Key | Holds |
-|---|---|
-| `app` | The application's name, one line. |
-| `runsCode` | `true` when the application loads or runs code from the target's files, `false` when they hold only colours and values: [themes.md § Trust](themes.md#trust). |
-| `encoder` | The encoder every colour placeholder of the target is written with: [§ Templates](#templates). |
-| `files` | One or more `{ template, destination }`, with an optional `curatedKeys`: [§ Templates](#templates). `template` is a file name in the target directory other than `target.json`. `destination` is the file name the render takes under the state directory's `theme/`: `<target>.<ext>`, unique in the target, so no two targets write one file. |
-| `detect` | Command names, each required, or lists of command names, each met by any one of its names: `[["helix", "hx"]]` detects either. A list holds one or more names and no list. A target is skipped unless each entry is met by an executable file in an absolute directory of `PATH`; an empty `detect` is always met. `detected` answers it for both apply and reload. Detection never runs the command. |
-| `wiring` | The include form, `{ file, line, create }`. `file` is the application's configuration file, relative to `${XDG_CONFIG_HOME:-~/.config}`, each segment a plain directory name. `line` is the one include line kept in that file; its only placeholder is `@{state}`, the state directory's `theme/` path, which it must hold. `create` is `true` when an absent `file` is created holding the line, `false` when the target is then skipped with reason `wiring-file-absent`. An optional `section`, one bare name of letters, digits, `_` and `-`, is the INI section or TOML table the line belongs in: [theme-wiring.md § Wiring text](theme-wiring.md#wiring-text). An optional `profiles` is one or more Mozilla `profiles.ini` paths relative to the home directory, each segment a name that may start with a dot, and makes `file` relative to each profile directory the first that exists lists: [theme-wiring.md § Profile wiring](theme-wiring.md#profile-wiring). An optional `fallbacks`, refused together with `profiles`, is one or more files relative to the home directory and selects the first that exists when the configuration-home `file` is absent: [theme-wiring.md § Fallback files](theme-wiring.md#fallback-files). The entry form, `{ base, dir, owned, links }` or `{ base, dir, owned, copies }`, edits no configuration file: [theme-wiring.md § Entry wiring](theme-wiring.md#entry-wiring). `null` keeps nothing outside the state directory, for a target whose hook asserts the setting its application reads the files through; apply adds and removes nothing for it. |
-| `accounts` | Optional. A harness id of `HARNESSES` in `shell/Commons/AccountDirectories.js`, such as `claude` or `codex`; `vgshell-theme-judge` refuses any other id with `key=accounts`. The target must use entry wiring and `select`, and both must use `base: "account"`. The entry directory and selection file are relative to each account directory `bin/lib/account-folders.js` finds for that harness. |
-| `reload` | `null`, or `{ command, timeoutMs }`: the argv that makes a running application re-read its files, and its bound in whole milliseconds. `command[0]` is looked up on `PATH`. An argument's placeholders are `@{state}`, the state directory's `theme/` path, and, for an include target without `profiles`, `@{wiring}`, the file whose include line was kept; `@@{` is a literal `@{`. Apply runs it after the theme file when the target's bytes changed or its reload is pending. An optional `always: true` also runs it on every apply that lands the target, unchanged bytes included, for a hook that asserts a setting no file carries: [theme-reload.md](theme-reload.md). |
-| `setup` | Optional: one command name a one-time owner step installs and the hook runs. A target is skipped with `setup-absent` unless it is an executable file in an absolute directory of `PATH`, checked after `detect`, as `setupDone` answers it for both apply and reload. The `chromium` target's writer: [theme-browsers.md § Chromium](theme-browsers.md#chromium). |
-| `select` | Optional, beside any wiring: `{ base, file, format, key, value }`, the theme key, or the list of keys, apply sets in the application's own settings file, which it never creates: [theme-agents.md § Selection](theme-agents.md#selection). |
+## Rules
 
-`bin/vgshell-theme-judge packages themes`, the offline row, renders every target under `themes/targets/` against the shipped `vgs` package and prints one line per target, `ok       targets/<target>` or `refused  <dir>: target=<target> reason=<key> <detail>`. A template or `target.json` that cannot be read, or targets without an accepted `vgs` package holding terminal slots, exit 2.
+- Do render through `bin/lib/theme-render.js` with text in and text out; `scripts/test-theme-render.js` pins the renderer.
+- Do name every placeholder from the token table or a terminal slot; an unknown one refuses the target, and `bin/vgshell-theme-judge packages` renders every shipped target offline.
+- Do write a colour only through the target's encoder; no encoder writes `#`, the template does. `scripts/test-theme-render.js` pins it.
+- Do give each destination a unique `<target>.<ext>`, so no two targets write one file. `scripts/test-theme-render.js` pins it.
+- Never run a `detect` command; an entry is met by an executable in an absolute PATH directory. `scripts/test-vgshell.sh` pins it.
+- Do render the template even when a curated file is taken, so a curated file never hides a bad placeholder, and take a `curatedKeys` file only when it is a JSON object holding one of the keys. `scripts/test-theme-render.js` and `scripts/test-vgshell-editor-entries.sh` pin both.
+- Do match an include line as one whole line and place a sectioned line right after its section header, so TOML never declares a table twice. `scripts/test-theme-render.js` pins both.
+- Never replace anything at an entry path that is not the managed form; skip it as `entry-occupied`, and use a copy where the application watches its directory. `scripts/test-vgshell-entries.sh` pins both.
+- Never wire a profile a stale `profiles.ini` names; wire only existing profile directories. `scripts/test-vgshell-targets.sh` pins it.
+- Never create an absent settings file for a `select`; skip the target as `selection-file-absent`, set the key on every landing apply, and leave every other byte. `scripts/test-vgshell-agents.sh` and `scripts/test-theme-select.js` pin both.
+- Do skip a target whose `setup` command is absent as `setup-absent`, grant a privileged writer its narrowest argument grammar, and offer the install only while the application is found without the writer. `scripts/test-vgshell-browsers.sh`, `scripts/test-vgshell-browser-policy.sh` and `scripts/test-themes-setup.js` pin them.
+- Do run a hook that asserts a desktop setting on every apply and set nothing when the value already holds; never set an icon theme that is not installed. `scripts/test-vgshell-toolkits.sh` pins both.
+- Never source `gum.env`; the floating TUI parses it at each launch and refuses the whole file on a key outside its pattern. `scripts/test-theme-gum.js` pins it with a command-substitution control.
+- Never add a Hyprland target; its colours come from the generated Hyprland layer.
 
-The shipped targets:
+## The canonical example
 
-| Target | Encoder | Detect | Wiring | Reload |
-|---|---|---|---|---|
-| `alacritty` | `hex6` | `alacritty` | `import = ["@{state}/alacritty.toml"]` in the `general` table of `alacritty/alacritty.toml`, created when absent. | `touch -c` of `alacritty.toml`. |
-| `foot` | `hex6` | `foot` | `include=@{state}/foot.ini` in `foot/foot.ini`, created when absent. Both `[colors-dark]` and `[colors-light]` hold the theme. | None. |
-| `ghostty` | `hex6` | `ghostty` | `config-file = ?@{state}/ghostty.conf` in `ghostty/config.ghostty`, created when absent. | `SIGUSR2` to the user's `ghostty` processes. |
-| `kitty` | `hex6` | `kitty` | `include @{state}/kitty.conf` in `kitty/kitty.conf`, created when absent. | `SIGUSR1` to the user's `kitty` processes. |
-| `wezterm` | `hex6` | `wezterm` | `pcall(dofile, "@{state}/wezterm.lua")` first in the WezTerm configuration file, never created. `${XDG_CONFIG_HOME:-~/.config}/wezterm/wezterm.lua` wins, then `~/.config/wezterm/wezterm.lua`, then `~/.wezterm.lua`. | `touch -c` of the file that was wired. |
+`themes/targets/kitty/`: one `target.json` with an include wiring, one template, and a reload hook that counts a stopped application as success. Copy it. `themes/targets/pi/` is the smallest `select` target, and `themes/targets/chromium/` the one `setup` target.
 
-Hyprland is no theme target. It is configured in Lua alone, and a classic `hyprland.conf` is unsupported. Its window, group and group bar border colours come from the Hyprland layer the shell generates: [hyprland.md](hyprland.md). Each terminal draws its foreground, background, selection, cursor and sixteen slots from the theme; kitty also its URL colour.
+## Revisit when
 
-- **Precedence.** Alacritty reads an import before the importing file, and kitty and foot read the include line where it stands, so the file's own settings override the theme. Ghostty reads a `config-file` after the whole configuration, so the theme overrides the file's own colours; its `?` makes a missing theme file no error.
-- **WezTerm.** It has no include directive. WezTerm, with no `--config-file` and no `$WEZTERM_CONFIG_FILE`, loads the first existing file of `$XDG_CONFIG_HOME/wezterm/wezterm.lua`, `$HOME/.config/wezterm/wezterm.lua` and `$HOME/.wezterm.lua`, and recommends `$HOME/.wezterm.lua` in its [Configuration Files](https://wezterm.org/config/files.html#configuration-files) documentation. The target keeps the include line in the same order. It lists `~/.config/wezterm/wezterm.lua` as a fallback because it is distinct when `XDG_CONFIG_HOME` points elsewhere; when `XDG_CONFIG_HOME` is unset it duplicates `file` and is harmless. Its theme file wraps `wezterm.config_builder`, when that exists, so a config it builds starts on the `vgs` colour scheme, and a `color_scheme` or `colors` the file sets afterwards overrides it. A configuration not built by `config_builder` takes no theme. `pcall` keeps a missing theme file from failing the whole configuration.
-- **Signals.** A `pkill -x -u` of the user's processes by exact name that matches none succeeds, so an application that is not running is not left pending. Ghostty reloads on `SIGUSR2` from 1.2.0; an older Ghostty is ended by it.
-- **Touch.** Alacritty watches the directory of each file it imports, which the swap replaces. WezTerm watches the configuration file it loads and reloads when it changes, per its [Configuration Files](https://wezterm.org/config/files.html#configuration-files) documentation. The hook changes only the time of the configuration file each one watches, so it reads its configuration and the theme again; both reload so only with their automatic reload on, the default.
+An application reads its configuration through a hard link, needs its theme key in a form the line edit refuses, or needs a privileged step a one-click helper cannot carry.
 
-The editor targets, their table and their one-time steps are in [theme-editors.md](theme-editors.md).
+## Not governed
 
-The GTK, Qt, KDE colour scheme, icon theme and light or dark mode targets: [theme-toolkits.md](theme-toolkits.md).
-
-The chat and tool targets, and `gum`, the colours of the floating TUIs: [theme-tool-targets.md](theme-tool-targets.md).
-
-The browser targets, Zen, pywalfox and Chromium: [theme-browsers.md](theme-browsers.md).
-
-The agent CLI targets and the `select` key: [theme-agents.md](theme-agents.md).
-
-## Templates
-
-`renderTarget` renders every file of an accepted target from the package's resolved token values, the terminal slots and the package's curated files.
-
-- **Placeholders.** `@{<path>}` is a token of the table and `@{terminal.color<N>}` a terminal slot, `color0` to `color15`. `@@{` is a literal `@{`. Every other character passes through, so `#{pane_id}` and `${HOME}` render whole.
-- **Refusal.** A placeholder that names no token and no slot, a group included, refuses the target with `reason=placeholder template=<file> placeholder="<name>"`; a `@{` with no `}` after it refuses with `unterminated=<offset>`. The target renders no file.
-- **Values.** A colour token and a slot are written through the target's encoder. Any other token is written as its resolved value: `@{space.sm}` is `6`, `@{scheme.mode}` is `dark` or `light`.
-- **Cases.** A `choice` token's path may be followed by cases, each `|<option>=<text>`, the option ending at the first `=`: the placeholder is written as the text of the resolved option, so `@{scheme.mode|dark=vs-dark|light=vs}` is `vs` under a light package. The cases name every option of the token once, each with text; any other set, cases on another token or on a slot refuse the target with `reason=placeholder`.
-- **Curated files.** A package's `targets/<destination>` is taken byte for byte in place of the rendered file of that destination. The template is rendered all the same, so a curated file never hides a bad placeholder. A `files` entry with `curatedKeys`, one or more top-level JSON keys, takes a curated file only when it is a JSON object holding one of them; any other file at that name, one that is not plain JSON included, leaves the render in place. On a `runsCode` target an installed package's is dropped unjudged and the render taken: [themes.md § Trust](themes.md#trust).
-- **Terminal slots.** `terminalSource` takes the package's own `terminal.json`, else the shipped `vgs` package's. `apply` writes the same package's `terminal.json` into the state directory.
-
-Encoders, each shown for `#ff5a3659`:
-
-| Encoder | Writes | Example |
-|---|---|---|
-| `hex6` | `rrggbb`, with alpha composited over `color.background` | `591f13` |
-| `hex8` | `rrggbbaa` | `ff5a3659` |
-| `rgba` | `rgba(r, g, b, a)`, channels 0 to 255, alpha 0 to 1 to three decimals | `rgba(255, 90, 54, 0.349)` |
-
-No encoder writes `#`: a template writes it where its application wants one, as `#@{palette.accent}`.
-
-## Invariants
-
-1. Each encoder's output, a choice token's value and its cases, every case rule's refusal, the `@@{` escape, the pass-through of `#{pane_id}`, the refusal of a placeholder naming no token or slot, every `target.json` rule, `detected`'s answer for a command entry and a list entry, the curated precedence and its `curatedKeys` judgment, the `runsCode` key and the drop of an installed package's curated file on a `runsCode` target, unjudged and named in `dropped`, the terminal fallback, the wiring line's substitution and the wiring text's whole-line match, first-line placement, placement after the first header of its section or with the header at the end, the merge into an existing one-line string array and its refusals, and creation, and the removal's whole-line match of every copy and of the merged string hold. Enforced by `scripts/test-theme-render.js`, whose controls remove one rule each from a copy of the renderer, and, for the apply's placement in a section and the removal of a merged string, by `scripts/test-vgshell-targets.sh`, with judge copies that drop the section as their controls. The entry form's keys, bases, directory segments, owned flag, exactly one entry kind, entry names and destinations, its form test and the entries' targets hold under the same suite's controls, and so do the `profiles` key's admission, list and paths, the `fallbacks` key's admission, list, paths and exclusion with `profiles`, and every `profileDirs` rule: profile sections only, trimmed lines, a value holding `=`, the `IsRelative` flag and the relative and absolute paths, a null wiring's form, the reload's optional `always`, the `setup` key's admission, name and `setupDone`'s answer, its arguments' `@{state}` and `@{wiring}` substitutions, and the refusal of disallowed placeholders. A null-wired target lands with nothing written outside the state directory, under `scripts/test-vgshell-targets.sh` with a judge copy that plans it as unwired as its control.
-2. Every placeholder of every target under `themes/targets/` names a token or a slot, and `targets/` is not listed as a package. Enforced by `bin/vgshell-theme-judge packages themes` and `scripts/test-vgshell-theme-judge.js`, and for list and apply by `scripts/test-vgshell.sh`.
-3. A wiring that would give a TOML key twice fails its target and leaves the file byte for byte. Enforced by `scripts/test-theme-render.js` and, through the apply, `scripts/test-vgshell-targets.sh`, with a copy of `bin/lib/judge-files.js` that takes the refusal for a wired file as its control.
-4. Each shipped terminal target lands its file with its encoder, keeps its include line in its application's configuration file, in `general` for Alacritty, creates none for WezTerm, signals the user's kitty and Ghostty by exact name, a run matching no process succeeding, and touches the file Alacritty and WezTerm watch, only when its bytes change or its reload is pending. WezTerm's config-home file wins over its HOME fallbacks, a HOME fallback is wired and touched, and no file is created when neither exists. Enforced by `scripts/test-vgshell-targets.sh` under a PATH of stub detect and signal commands.
-5. The profiles wiring's apply rules: [theme-wiring.md § Invariants](theme-wiring.md#invariants).
+The list of shipped targets and each one's one-time step, which is `themes/targets/` and the `vgs.themes` README; the apply's order and the follow, which is [theme-apply.md](theme-apply.md).

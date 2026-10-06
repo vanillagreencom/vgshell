@@ -1,5 +1,6 @@
 # The vgs KDE colour scheme, linked into ~/.local/share/color-schemes/ as
 # Vgs.colors by vgshell theme apply.
+# KDE copies the scheme into kdeglobals when it is selected, and plasma-apply-colorscheme is a no-op for the selected scheme, so a changed Vgs reaches kdeglobals only when it is selected again.
 [General]
 ColorScheme=Vgs
 Name=Vgs

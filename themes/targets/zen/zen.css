@@ -1,4 +1,5 @@
 /* The vgs theme for Zen, imported first from each profile's chrome/userChrome.css by vgshell theme apply. */
+/* The @import goes first because CSS reads it only ahead of every other rule. Zen reads userChrome.css only with toolkit.legacyUserProfileCustomizations.stylesheets set, and only at startup; a profile under ~/.zen is tried first because Zen keeps using it wherever it exists. */
 :root {
   --zen-primary-color: #@{color.accentPressed} !important;
   --toolbarbutton-icon-fill: #@{color.accent} !important;

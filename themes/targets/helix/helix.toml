@@ -1,5 +1,6 @@
 # The vgs theme for Helix, rendered by vgshell theme apply and linked as
 # themes/vgs.toml, so `theme = "vgs"` in config.toml selects it.
+# The reload hook counts "no process" as success, so a stopped Helix is not left pending.
 "ui.background" = { bg = "#@{color.background}" }
 "ui.text" = "#@{color.text}"
 "ui.text.focus" = { fg = "#@{color.text}", modifiers = ["bold"] }

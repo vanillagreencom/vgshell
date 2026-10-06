@@ -42,21 +42,13 @@ One line per architecture document: the change to read it before. [overview.md](
 - [keyboard.md](keyboard.md): read before adding a pointer action, a focusable control or a keyboard path.
 - [keyboard-surfaces.md](keyboard-surfaces.md): read before changing how a shipped surface is reached from the keyboard, for each surface's path and proving row.
 - [motion.md](motion.md): read before touching a list's highlight, a row's entrance, a `motion.list` token, or how hover and keys share a list's selection.
-- [themes.md](themes.md): read before touching a theme package, package judge, or theme runner.
-- [theme-apply.md](theme-apply.md) and [theme-reload.md](theme-reload.md): read before touching the apply, a reload hook or `vgshell theme reload`.
-- [theme-follow.md](theme-follow.md): read before touching `applied.json`, `vgshell theme follow` or the `modified` flag.
-- [theme-catalog.md](theme-catalog.md): read before touching `themes/catalog/`, its index, `vgshell-theme-judge catalog-check`, the catalog readability check or a catalog install.
-- [theme-wallpapers.md](theme-wallpapers.md): read before touching `vgshell theme wallpapers`, the theme-asset cache or `bin/lib/theme-download.js`.
-- [theme-install.md](theme-install.md): read before touching `vgshell theme add`, `update`, `remove` or `outdated`.
-- [theme-capability.md](theme-capability.md): read before touching `ThemeRunner` or the `theme` capability.
+- [themes.md](themes.md): read before touching a theme package, the package judge, the theme runner, or an install verb.
+- [theme-apply.md](theme-apply.md): read before touching the apply, a reload hook, the follow, or `vgshell theme reload`.
+- [theme-catalog.md](theme-catalog.md): read before touching `themes/catalog/`, its index, the catalog check, a catalog install, or a wallpaper download.
+- [theme-capability.md](theme-capability.md): read before touching `ThemeRunner`, the `theme` capability, or a plugin view that applies, installs or previews a theme.
 - [theme-overlay.md](theme-overlay.md): read before touching the `vgs.themes` browser, its views or `BrowserLogic.js`.
-- [theme-targets.md](theme-targets.md): read before touching a theme target, a template or an encoder.
-- [theme-wiring.md](theme-wiring.md): read before touching the wiring text, the profile wiring or the entry form's links.
-- [theme-editors.md](theme-editors.md): read before touching an editor's target or its one-time step.
-- [theme-toolkits.md](theme-toolkits.md): read before touching the GTK, Qt, KDE or icon theme target.
+- [theme-targets.md](theme-targets.md): read before touching a theme target, a template, an encoder, the wiring text, a target's `select` or `setup` key, or an application's one-time step.
 - [theme-tool-targets.md](theme-tool-targets.md): read before touching a Discord client's, btop's, fastfetch's, tmux's, Oh My Posh's, Obsidian's or gum's target.
-- [theme-browsers.md](theme-browsers.md): read before touching the Zen or pywalfox target, or a target's `profiles` wiring.
-- [theme-agents.md](theme-agents.md): read before touching an agent CLI's target or a target's `select` key.
 - [packages.md](packages.md): read before touching the package-manager table or `vgshell pkg`.
 - [requirements.md](requirements.md): read before touching a manifest's `requirements`, `config/requirements.json`, the scan's probe or the `missing` lines.
 - [requirement-notice.md](requirement-notice.md): read before touching the core notice host, a requirement notice, its triggers, the Hyprland consent question or the `requirements` and `doctor` capabilities.
