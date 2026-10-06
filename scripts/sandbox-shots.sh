@@ -15,7 +15,7 @@
 #
 
 # SCENE is gallery, settings, focus, plugin-pages, manager, launcher,
-# notifications, bar, panels, devtools, system, network, vpn, bluetooth, dialog, lock, polkit,
+# notifications, bar, panels, devtools, system, network, vpn, bluetooth, power, dialog, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, tooltips, capture,
 # keyhints, clipboard, voice or ai-usage. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
@@ -35,7 +35,8 @@
 # as Sound is turned off while shown; bluetooth is
 # its Bluetooth section, then the Bluetooth dropdown, over the device
 # fakes; vpn is its VPN section, then the VPN dropdown, over the
-# tailscale stand-in; keyhints is the
+# tailscale stand-in; power is its flyout over the sandbox's fake
+# battery and power profile daemon; keyhints is the
 # Key Hints window over the Launcher's, Settings' and Themes' shortcuts and
 # its own; ai-usage is AI Usage's dropdown opened from its bar widget over
 # three signed-in accounts, two Claude Code and one Codex, at rest and
@@ -173,7 +174,7 @@ while [[ $# -gt 0 ]]; do
     --keep) keep=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    gallery|settings|focus|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|ai-usage|devtools|system|network|vpn|bluetooth|dialog|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|tooltips) scenes+=("$1"); shift ;;
+    gallery|settings|focus|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|ai-usage|devtools|system|network|vpn|bluetooth|power|dialog|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|tooltips) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -283,6 +284,7 @@ scene_ships() {
     network) ships_plugin vgs.system vgs.network ;;
     vpn) ships_plugin vgs.system vgs.vpn ;;
     bluetooth) ships_plugin vgs.system vgs.bluetooth ;;
+    power) ships_plugin vgs.power ;;
     theme-browser|wallpaper-browser) ships_plugin vgs.themes ;;
     dialog) [[ -f $tree/shell/Hosts/NoticeHost.qml ]] ;;
     lock) ships_plugin vgs.lock ;;
@@ -297,7 +299,7 @@ if [[ ${#scenes[@]} -eq 0 ]]; then
     scenes=(gallery)
     [[ -z $manager_scene ]] || scenes+=("$manager_scene")
   else
-    for scene in gallery settings focus launcher notifications bar panels ai-usage devtools system network vpn bluetooth dialog lock polkit greeter automations narrow; do
+    for scene in gallery settings focus launcher notifications bar panels ai-usage devtools system network vpn bluetooth power dialog lock polkit greeter automations narrow; do
       if scene_ships "$scene"; then scenes+=("$scene"); fi
     done
   fi
@@ -331,6 +333,7 @@ if [[ " ${scenes[*]} " == *" ai-usage "* ]]; then
   shell_hidden_commands+=(claude codex)
 fi
 source "$checkout/scripts/smoke/harness.sh"
+source "$checkout/scripts/smoke/power-fakes.sh"
 # The harness copied the tree into the sandbox; the export is no longer
 # read, and every later read of the tree reads the sandbox's copy.
 [[ -z $source_tree ]] || rm -rf -- "$source_tree"
@@ -2008,6 +2011,31 @@ scene_bluetooth() { # MODE
 bluetooth_shot_panel() { [[ $(ipc smoke instanceGeometry panel vgs.bluetooth) != absent ]] && echo shown || echo hidden; }
 # The rows the section's Nearby list draws for the keyboard the setup adds.
 bluetooth_nearby() { ipc smoke itemTexts window vgs.bluetooth Section | py_reply 'import json,sys; print(sum(t.count("Desk Keyboard") for t in json.load(sys.stdin) if t[:1] == ["Nearby"]))'; }
+
+scene_power() { # MODE
+  devices_ready power-shot || return 0
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$shim/powerprofilesctl"
+  chmod 755 "$shim/powerprofilesctl"
+  power_start_mocks shots-power balanced
+  expect "the power shot starts with a discharging battery object" "/org/freedesktop/UPower/devices/mock_BAT0" power_add_battery 64.0 7200
+  power_discharging 64.0 7200
+  expect "Power enables for its shot" ok ipc shell setPluginEnabled vgs.power true
+  expect "Power's widget is placed for its shot" ok ipc shell setPluginPlaced vgs.power true
+  expect_poll "Power's service reads the fake battery" 64 power_shot_level
+  park_pointer
+  take "power-$1-bar"
+  click_centre "$(bar_key)" vgs.power || fail "opening Power from its widget failed"
+  expect_poll "Power opens its panel" shown power_shot_panel
+  park_pointer
+  take "power-$1-panel"
+  expect "Power's panel hides" ok ipc shell hide panel vgs.power
+  expect "Power's widget is unplaced after its shot" ok ipc shell setPluginPlaced vgs.power false
+  expect "Power disables after its shot" ok ipc shell setPluginEnabled vgs.power false
+  power_stop_mocks
+  power_unlink "$shim/powerprofilesctl"
+}
+power_shot_panel() { [[ $(ipc smoke instanceGeometry panel vgs.power) != absent ]] && echo shown || echo hidden; }
+power_shot_level() { ipc smoke statusValues vgs.power | py_reply 'import json,sys; print(json.load(sys.stdin)["power"]["battery"]["level"])'; }
 
 # The core's requirement notice, raised by enabling the acme.needs
 # fixture, which misses a command it needs; Escape closes it, and the

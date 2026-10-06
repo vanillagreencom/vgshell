@@ -34,6 +34,7 @@ pkgbase = vgshell
 	depends = iproute2
 	depends = less
 	depends = libnotify
+	depends = power-profiles-daemon
 	depends = libpulse
 	depends = libsecret
 	depends = mise

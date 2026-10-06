@@ -44,6 +44,7 @@ Requires:       hyprpicker
 Requires:       iproute
 Requires:       less
 Requires:       libnotify
+Requires:       ppd-service
 Requires:       libsecret
 Requires:       pipewire-utils
 Requires:       playerctl

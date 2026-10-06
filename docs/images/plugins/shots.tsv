@@ -11,6 +11,7 @@ vgs.lock-screen.webp	lock	lock-dark-wrong	full
 vgs.notifications-inbox.webp	notifications	notifications-dark-inbox	content
 vgs.notifications-toasts.webp	notifications	notifications-dark-toasts	content
 vgs.polkit-prompt.webp	polkit	polkit-dark	full
+vgs.power-panel.webp	power	power-dark-panel	content
 vgs.settings-page.webp	settings	settings-dark-keys	content
 vgs.displays-pane.webp	system	system-dark-displays	content
 vgs.mouse-pane.webp	system	system-dark-mouse	content

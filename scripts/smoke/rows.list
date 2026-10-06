@@ -118,6 +118,7 @@ displays
 # After the System rows, with the device fakes up: Sound's pane mounts in
 # the System window's holder.
 sound
+power
 capture
 # After capture, before tui-guard: its Sign in reaches the stand-in
 # terminal, and it reads no state another row leaves.

@@ -41,6 +41,7 @@ depends=(
   'iproute2'
   'less'
   'libnotify'
+  'power-profiles-daemon'
   'libpulse'
   'libsecret'
   'mise'

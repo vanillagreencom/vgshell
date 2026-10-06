@@ -1,0 +1,166 @@
+{
+  "schemaVersion": 1,
+  "id": "vgs.power",
+  "name": "Power",
+  "version": "0.1.0",
+  "author": "VanillaGreen",
+  "description": "Show battery level and choose the power profile.",
+  "license": "MIT",
+  "icon": "battery-medium",
+  "kinds": [
+    "service",
+    "bar-widget",
+    "panel"
+  ],
+  "entryPoints": {
+    "service": "Service.qml",
+    "bar-widget": "Widget.qml",
+    "panel": "Panel.qml"
+  },
+  "capabilities": [
+    "configure",
+    "ipc",
+    "requirements",
+    "run",
+    "shortcut",
+    "status",
+    "surfaces"
+  ],
+  "defaultSection": "right",
+  "requirements": [
+    {
+      "command": "powerprofilesctl",
+      "packages": {
+        "pacman": "power-profiles-daemon",
+        "apt": "power-profiles-daemon",
+        "dnf": "ppd-service",
+        "nix": "power-profiles-daemon"
+      },
+      "optional": false,
+      "purpose": "Comes with power-profiles-daemon, which switches the power profile"
+    },
+    {
+      "command": "notify-send",
+      "packages": {
+        "pacman": "libnotify",
+        "apt": "libnotify-bin",
+        "dnf": "libnotify",
+        "nix": "libnotify"
+      },
+      "optional": false,
+      "purpose": "Sends low-battery alerts"
+    },
+    {
+      "command": "gdbus",
+      "packages": {
+        "pacman": "glib2",
+        "dnf": "glib2",
+        "nix": "glib"
+      },
+      "optional": false,
+      "purpose": "Checks if power profiles are available"
+    }
+  ],
+  "settings": {
+    "lowThreshold": 20,
+    "criticalThreshold": 10,
+    "chargerProfile": "performance",
+    "batteryProfile": "balanced"
+  },
+  "schema": {
+    "lowThreshold": {
+      "type": "number",
+      "label": "Low battery alert",
+      "description": "Send an alert when the battery falls to this level",
+      "unit": "%",
+      "min": 1,
+      "max": 50,
+      "step": 1,
+      "presets": [
+        {
+          "value": 15
+        },
+        {
+          "value": 20
+        },
+        {
+          "value": 25
+        }
+      ],
+      "group": "Battery alerts"
+    },
+    "criticalThreshold": {
+      "type": "number",
+      "label": "Critical battery alert",
+      "description": "Send an urgent alert when the battery falls to this level",
+      "unit": "%",
+      "min": 1,
+      "max": 30,
+      "step": 1,
+      "presets": [
+        {
+          "value": 5
+        },
+        {
+          "value": 10
+        },
+        {
+          "value": 15
+        }
+      ],
+      "group": "Battery alerts"
+    },
+    "chargerProfile": {
+      "type": "enum",
+      "label": "When charging",
+      "description": "Use this profile after you connect power",
+      "options": [
+        "power-saver",
+        "balanced",
+        "performance"
+      ],
+      "group": "Power profiles"
+    },
+    "batteryProfile": {
+      "type": "enum",
+      "label": "On battery",
+      "description": "Use this profile after you disconnect power",
+      "options": [
+        "power-saver",
+        "balanced",
+        "performance"
+      ],
+      "group": "Power profiles"
+    }
+  },
+  "menu": {
+    "power-profile": {
+      "label": "Power profile",
+      "icon": "battery-medium"
+    },
+    "power-profile.saver": {
+      "label": "Use power saver",
+      "icon": "leaf",
+      "description": "Switch to the power saver profile",
+      "shortcut": "power-saver"
+    },
+    "power-profile.balanced": {
+      "label": "Use balanced",
+      "icon": "gauge",
+      "description": "Switch to the balanced profile",
+      "shortcut": "balanced"
+    },
+    "power-profile.performance": {
+      "label": "Use performance",
+      "icon": "zap",
+      "description": "Switch to the performance profile",
+      "shortcut": "performance"
+    }
+  },
+  "status": {
+    "power": {
+      "type": "data",
+      "label": "Power"
+    }
+  }
+}

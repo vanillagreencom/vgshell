@@ -79,6 +79,7 @@ VGS starts with Hyprland and draws the bar, panels and windows on each screen. E
 | [Network](shell/plugins/vgs.network/README.md) | Join Wi-Fi and see your network connections. |
 | [Notifications](shell/plugins/vgs.notifications/README.md) | Read and silence your notifications. |
 | [Polkit](shell/plugins/vgs.polkit/README.md) | Enter your password when an app needs administrator access. |
+| [Power](shell/plugins/vgs.power/README.md) | Show battery level and choose the power profile. |
 | [Scratchpads](shell/plugins/vgs.scratchpads/README.md) | Show and hide an app with one key. |
 | [Plugins](shell/plugins/vgs.settings/README.md) | Manage your plugins, settings and shortcuts. |
 | [Sound](shell/plugins/vgs.sound/README.md) | Set the volume, the sound devices and each app's volume. |

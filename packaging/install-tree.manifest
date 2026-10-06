@@ -487,6 +487,11 @@ f share/vgshell/shell/plugins/vgs.polkit/bin/agents
 f share/vgshell/shell/plugins/vgs.polkit/manifest.json
 f share/vgshell/shell/plugins/vgs.polkit/tui/stop.sh
 f share/vgshell/shell/plugins/vgs.polkit/tui/uninstall.sh
+f share/vgshell/shell/plugins/vgs.power/Panel.qml
+f share/vgshell/shell/plugins/vgs.power/PowerLogic.js
+f share/vgshell/shell/plugins/vgs.power/Service.qml
+f share/vgshell/shell/plugins/vgs.power/Widget.qml
+f share/vgshell/shell/plugins/vgs.power/manifest.json
 f share/vgshell/shell/plugins/vgs.scratchpads/Background.qml
 f share/vgshell/shell/plugins/vgs.scratchpads/Service.qml
 f share/vgshell/shell/plugins/vgs.scratchpads/manifest.json
