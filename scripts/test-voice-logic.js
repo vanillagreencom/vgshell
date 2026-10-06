@@ -17,8 +17,10 @@ const modelsReady = '{"engines":{"parakeet":{"models":[{"name":"parakeet-tdt-0.6
 const modelsMissing = '{"engines":{"parakeet":{"models":[{"name":"parakeet-tdt-0.6b-v3","installed":false,"downloadable":true,"download_arg":"parakeet-tdt-0.6b-v3"}],"default":"parakeet-tdt-0.6b-v3"}},"verified":true}';
 const enginesReady = '[{"name":"whisper","compiled":true,"active":false},{"name":"parakeet","compiled":true,"active":true}]';
 const enginesMissing = '[{"name":"whisper","compiled":true,"active":true},{"name":"parakeet","compiled":false,"active":false}]';
-const readsReady = { engine: '{"value":"parakeet"}', model: '{"value":"parakeet-tdt-0.6b-v3"}', models: modelsReady, engines: enginesReady, unit: 'enabled\n' };
-const readsMissing = { engine: '{"value":"parakeet"}', model: '{"value":"parakeet-tdt-0.6b-v3"}', models: modelsMissing, engines: enginesMissing, unit: 'disabled\n' };
+// Probe stdout as voxtype 1.1.0 and systemctl print it on host cachy, read
+// on 2026-10-06: `voxtype --version`, `systemctl --user is-active voxtype`.
+const readsReady = { present: true, version: 'voxtype 1.1.0\n', engine: '{"value":"parakeet"}', model: '{"value":"parakeet-tdt-0.6b-v3"}', models: modelsReady, engines: enginesReady, unit: 'enabled\n', active: 'active\n' };
+const readsMissing = { present: true, version: 'voxtype 1.1.0\n', engine: '{"value":"parakeet"}', model: '{"value":"parakeet-tdt-0.6b-v3"}', models: modelsMissing, engines: enginesMissing, unit: 'disabled\n', active: 'inactive\n' };
 
 function verify(logic) {
   same(logic.parseStatus('{"state":"recording","backend":"ONNX CPU","model":"parakeet-tdt-0.6b-v3","device":"default"}'),
@@ -29,12 +31,29 @@ function verify(logic) {
   same(logic.parseStatus('{"state":"streaming"}').state, "recording", "streaming shows as recording");
   same(logic.parseStatus('{"state":"stopped"}').state, "stopped", "stopped is distinct");
 
-  same(logic.setupState(readsReady), { tone: "ok", text: "Ready", action: false, engine: "parakeet", model: "parakeet-tdt-0.6b-v3", reasons: [] }, "ready setup state");
-  same(logic.setupState(readsMissing), { tone: "warning", text: "Set up needed", lines: [
-    "The active build cannot use parakeet.", "The speech model is missing.", "The service is not enabled."
-  ], action: true, engine: "parakeet", model: "parakeet-tdt-0.6b-v3", reasons: [
-    "The active build cannot use parakeet.", "The speech model is missing.", "The service is not enabled."
-  ] }, "missing setup state lists every setup reason");
+  // setupState: [name, reads, tone, action, line count, a fragment the
+  // first line holds or null]. Ready's first line carries the version and
+  // the model; each missing thing is one line.
+  const stateRows = [
+    ["ready reads the version and the model", readsReady, "ok", false, 2, "1.1.0"],
+    ["ready names the configured model", readsReady, "ok", false, 2, "parakeet-tdt-0.6b-v3"],
+    ["every missing thing is a line", readsMissing, "warning", true, 4, null],
+    ["voxtype not found offers Set up", { present: false }, "warning", true, 1, null],
+    ["a stopped service is not ready", Object.assign({}, readsReady, { active: "inactive\n" }), "warning", true, 1, null],
+    ["a failed service is not ready", Object.assign({}, readsReady, { active: "failed\n" }), "warning", true, 1, null],
+    ["a disabled unit is not ready", Object.assign({}, readsReady, { unit: "disabled\n" }), "warning", true, 1, null],
+    ["a missing model is not ready", Object.assign({}, readsReady, { models: modelsMissing }), "warning", true, 1, null],
+    ["no version still reads ready", Object.assign({}, readsReady, { version: "" }), "ok", false, 2, "parakeet-tdt-0.6b-v3"],
+  ];
+  for (const [name, reads, tone, action, count, fragment] of stateRows) {
+    const state = logic.setupState(reads);
+    same([state.tone, state.action, state.lines.length], [tone, action, count], `setupState: ${name}`);
+    if (fragment !== null) assert.ok(state.lines[0].includes(fragment), `setupState: ${name}: the first line holds ${fragment}`);
+  }
+  assert.equal(logic.versionOf("voxtype 1.1.0\n"), "1.1.0", "the version is read from --version");
+  assert.equal(logic.versionOf("voxtype\n"), "", "no version reads empty");
+  assert.equal(logic.unitActive("active\n"), true, "an active unit runs");
+  assert.equal(logic.unitActive("activating\n"), false, "an activating unit does not run yet");
   assert.equal(logic.modelInstalled(modelsReady, "parakeet", "parakeet-tdt-0.6b-v3"), true, "installed model is found");
   assert.equal(logic.modelInstalled(modelsMissing, "parakeet", "parakeet-tdt-0.6b-v3"), false, "missing model is detected");
   assert.equal(logic.engineAvailable(enginesReady, "parakeet"), true, "compiled engine is found");
@@ -89,7 +108,11 @@ const controls = [
   ["model presence ignored", "row.name === wanted && row.installed === true", "row.name === wanted"],
   ["engine compiled ignored", "return row.compiled === true;", "return true;"],
   ["unit disabled accepted", "return value === \"enabled\" || value === \"static\";", "return true;"],
-  ["setup never offers action", "return { tone: \"warning\", text: \"Set up needed\", lines: lines, action: true, engine: engine, model: model, reasons: lines };", "return { tone: \"warning\", text: \"Set up needed\", lines: lines, action: false, engine: engine, model: model, reasons: lines };"],
+  ["setup never offers action", "if (lines.length > 0) return { tone: \"warning\", text: \"Set up needed\", lines: lines, action: true,", "if (lines.length > 0) return { tone: \"warning\", text: \"Set up needed\", lines: lines, action: false,"],
+  ["a stopped service reads ready", "    if (!unitActive(reads.active || \"\")) lines.push(", "    if (false) lines.push("],
+  ["any service answer runs", "return String(text).trim() === \"active\";", "return String(text).trim() !== \"\";"],
+  ["voxtype absent offers no Set up", "lines: [\"voxtype is not installed.\"], action: true,", "lines: [\"voxtype is not installed.\"], action: false,"],
+  ["the version is not read", "return found === null ? \"\" : found[1];", "return \"\";"],
   ["streaming not mapped", "if (raw === \"streaming\") return \"recording\";", "if (false) return \"recording\";"],
   ["bridge frame shape ignored", "if (!amplitude(frame.peak) || !amplitude(frame.rms)) return { ok: false, reason: \"frame\" };", ""],
   ["bridge status lines read as frames", "if (frame.status === \"connected\" || frame.status === \"disconnected\") return { ok: true, kind: frame.status };", ""],

@@ -65,6 +65,7 @@ case "\$*" in
     exec tail -n +1 -f "$voice_states"
     ;;
   'record toggle'|'record start'|'record stop') printf '%s\n' "\$*" >>"$voice_log" ;;
+  '--version') printf '%s\n' 'voxtype 1.1.0' ;;
   'config get engine --json') printf '%s\n' '{"value":"parakeet"}' ;;
   'config get parakeet.model --json') printf '%s\n' '{"value":"parakeet-tdt-0.6b-v3"}' ;;
   'info models --json')
@@ -100,6 +101,7 @@ chmod 755 "$voice_bridge_stub"
 cp -- "$voice_stub" "$sandbox/voice-voxtype.stub"
 cp -- "$voice_bridge_stub" "$sandbox/voice-bridge.stub"
 device_reply systemctl 0 enabled --user is-enabled voxtype
+device_reply systemctl 0 active --user is-active voxtype
 cat >"$shim/setpriv" <<'EOF_SETPRIV'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"__VOICE_SETPRIV_LOG__"
@@ -660,6 +662,7 @@ voice_set_state idle
 # The service a fresh install leaves, which Voice probes once voxtype is
 # back.
 device_reply systemctl 1 disabled --user is-enabled voxtype
+device_reply systemctl 3 inactive --user is-active voxtype
 
 expect "enabling Voice without voxtype is allowed" ok ipc shell setPluginEnabled vgs.voice true
 expect_poll "Voice without voxtype is built" True record_exists vgs.voice
@@ -708,8 +711,10 @@ expect_poll "Voice builds after the requires control" True record_exists vgs.voi
 
 settings_page_open vgs.voice
 settings_details
-expect_poll "the Voice page offers Install and withholds Set up without voxtype" '[["voxtype", "Install\u2026", true], ["setup", "Set up", false]]' offered_actions vgs.voice
-expect_poll "the Voice status row offers voxtype install" '[["voxtype", "Absent", "Voice needs voxtype to capture speech.", "Install\u2026"], ["Setup", "Install voxtype first", "Setup copies defaults, downloads the speech model and enables the service."]]' voice_drawn_status
+# Without voxtype, Set up is offered, and the core withholds it behind the
+# requirement it needs, naming what is missing.
+expect_poll "the Voice page offers Install and Set up's requirements without voxtype" '[["voxtype", "Install\u2026", true], ["setup", "Install requirements", true]]' offered_actions vgs.voice
+expect_poll "the Voice status rows name voxtype as missing" '[["voxtype", "Absent", "Voice needs voxtype to capture speech.", "Install\u2026"], ["Setup", "Requirements missing", "voxtype is missing. Install requirements installs it.", "Install requirements"]]' voice_drawn_status
 expect_poll "the Voice Requirements row says voxtype is missing" "$(words voxtype "Missing, optional" "Captures speech and inserts dictated text")" voice_requirement_drawn
 
 # Control: Not now on the notice Set up raised drops the Set up, so a scan
@@ -755,6 +760,7 @@ expect_poll "Voice sees voxtype after the install" true ipc smoke readInstance s
 # the state the script leaves, which scripts/test-voice-tui.sh reads.
 touch -- "$voice_installed"
 device_reply systemctl 0 enabled --user is-enabled voxtype
+device_reply systemctl 0 active --user is-active voxtype
 rescan "the Voice rescan reads setup's end state"
 expect_poll "Set up is withheld once the model and the service are in place" False voice_setup_offered
 expect_poll "the three dictation shortcuts and the release companion are registered after setup" 4 voice_shortcuts

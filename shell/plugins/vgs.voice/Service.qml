@@ -10,7 +10,9 @@ Item {
     property var shell: null
     property var registeredWith: null
     property var lastStatus: ({ state: "idle", engine: "", model: "" })
-    property var setupRead: ({ engine: "", model: "", models: "", engines: "", unit: "" })
+    // What the running probe chain has read so far, by stage, for
+    // VoiceLogic.setupState.
+    property var setupRead: ({})
     property var setupValue: ({ tone: "info", text: "Not checked", action: false, engine: VoiceLogic.DEFAULT_ENGINE, model: VoiceLogic.DEFAULT_MODEL })
     property string probeStage: "idle"
     property string pendingVerb: ""
@@ -189,57 +191,49 @@ Item {
     function refreshSetup() {
         if (shell === null) return;
         if (!voxtypePresent) {
-            setupValue = { tone: "info", text: "Install voxtype first", action: false, engine: VoiceLogic.DEFAULT_ENGINE, model: VoiceLogic.DEFAULT_MODEL, reasons: [] };
+            setupValue = VoiceLogic.setupState({ present: false });
             publish("setup", root.setupStatusValue());
             publish("model", VoiceLogic.modelData(lastStatus, setupValue));
             return;
         }
         if (probeProcess.running) return;
-        probeStage = "engine";
-        probeProcess.command = ["voxtype", "config", "get", "engine", "--json"];
+        setupRead = ({ present: true });
+        startProbe(VoiceLogic.PROBE_STAGES[0]);
+    }
+
+    // The command of each probe stage, VoiceLogic.PROBE_STAGES. The model's
+    // key names the engine the engine stage read.
+    function probeCommand(stage) {
+        switch (stage) {
+        case "version": return ["voxtype", "--version"];
+        case "engine": return ["voxtype", "config", "get", "engine", "--json"];
+        case "model": return ["voxtype", "config", "get", VoiceLogic.configValue(setupRead.engine || "", VoiceLogic.DEFAULT_ENGINE) + ".model", "--json"];
+        case "models": return ["voxtype", "info", "models", "--json"];
+        case "engines": return ["voxtype", "info", "engines", "--json"];
+        case "unit": return ["systemctl", "--user", "is-enabled", "voxtype"];
+        case "active": return ["systemctl", "--user", "is-active", "voxtype"];
+        }
+        throw new Error("voice: probe stage " + JSON.stringify(stage) + " is not one of " + VoiceLogic.PROBE_STAGES.join(", "));
+    }
+
+    function startProbe(stage) {
+        probeStage = stage;
+        probeProcess.command = probeCommand(stage);
         probeProcess.running = true;
     }
 
+    // Each stage's stdout is kept under its name; the service's two stages
+    // run only while systemctl is found, and read nothing otherwise.
     function runNextProbe(out) {
-        if (probeStage === "engine") {
-            setupRead = { engine: out, model: setupRead.model, models: setupRead.models, engines: setupRead.engines, unit: setupRead.unit };
-            const engine = VoiceLogic.configValue(out, VoiceLogic.DEFAULT_ENGINE);
-            probeStage = "model";
-            probeProcess.command = ["voxtype", "config", "get", engine + ".model", "--json"];
-            probeProcess.running = true;
+        const read = Object.assign({}, setupRead);
+        read[probeStage] = out;
+        setupRead = read;
+        const next = VoiceLogic.PROBE_STAGES[VoiceLogic.PROBE_STAGES.indexOf(probeStage) + 1];
+        if (next !== undefined && (systemctlPresent || VoiceLogic.SERVICE_STAGES.indexOf(next) === -1)) {
+            startProbe(next);
             return;
         }
-        if (probeStage === "model") {
-            setupRead = { engine: setupRead.engine, model: out, models: setupRead.models, engines: setupRead.engines, unit: setupRead.unit };
-            probeStage = "models";
-            probeProcess.command = ["voxtype", "info", "models", "--json"];
-            probeProcess.running = true;
-            return;
-        }
-        if (probeStage === "models") {
-            setupRead = { engine: setupRead.engine, model: setupRead.model, models: out, engines: setupRead.engines, unit: setupRead.unit };
-            probeStage = "engines";
-            probeProcess.command = ["voxtype", "info", "engines", "--json"];
-            probeProcess.running = true;
-            return;
-        }
-        if (probeStage === "engines") {
-            setupRead = { engine: setupRead.engine, model: setupRead.model, models: setupRead.models, engines: out, unit: setupRead.unit };
-            if (systemctlPresent) {
-                probeStage = "unit";
-                probeProcess.command = ["systemctl", "--user", "is-enabled", "voxtype"];
-                probeProcess.running = true;
-                return;
-            }
-            finishSetup("");
-            return;
-        }
-        if (probeStage === "unit") finishSetup(out);
-    }
-
-    function finishSetup(unitOut) {
         probeStage = "idle";
-        setupRead = { engine: setupRead.engine, model: setupRead.model, models: setupRead.models, engines: setupRead.engines, unit: unitOut };
         setupValue = VoiceLogic.setupState(setupRead);
         publish("setup", root.setupStatusValue());
         publish("model", VoiceLogic.modelData(lastStatus, setupValue));
@@ -338,11 +332,9 @@ Item {
             const out = probeOut.text;
             const err = probeErr.text.trim();
             completion = null;
-            if (stage === "unit") {
-                root.runNextProbe(out);
-                return;
-            }
-            if (err !== "") console.warn("voice: probe=" + stage + " " + err);
+            // systemctl answers a unit that is off on stderr too; that is
+            // a state, not a failure.
+            if (err !== "" && VoiceLogic.SERVICE_STAGES.indexOf(stage) === -1) console.warn("voice: probe=" + stage + " " + err);
             root.runNextProbe(out);
         }
     }

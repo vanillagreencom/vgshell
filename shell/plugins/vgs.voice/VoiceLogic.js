@@ -74,18 +74,42 @@ function unitEnabled(text) {
     return value === "enabled" || value === "static";
 }
 
+// `systemctl --user is-active voxtype` answers `active` while the daemon runs.
+function unitActive(text) {
+    return String(text).trim() === "active";
+}
+
+// The version `voxtype --version` prints, as `voxtype 1.1.0`, or "".
+function versionOf(text) {
+    var found = /\b(\d+\.\d+(?:\.\d+)?)\b/.exec(String(text));
+    return found === null ? "" : found[1];
+}
+
+// The stages the service reads Set up's state in, each one command's
+// stdout under its name (Service.probeCommand), and the two of them that
+// systemctl answers.
+var PROBE_STAGES = ["version", "engine", "model", "models", "engines", "unit", "active"];
+var SERVICE_STAGES = ["unit", "active"];
+
+// Set up's state from READS, the service's probe stdout by stage, with
+// `present` false while voxtype is not found: { tone, text, lines, action,
+// engine, model }. Ready reads the version and the model, then that the
+// service runs; otherwise each line names one thing that is missing, and
+// the action, Set up, is offered.
 function setupState(reads) {
+    if (reads.present === false)
+        return { tone: "warning", text: "Set up needed", lines: ["voxtype is not installed."], action: true, engine: DEFAULT_ENGINE, model: DEFAULT_MODEL };
     var engine = configValue(reads.engine || "", DEFAULT_ENGINE);
     var model = configValue(reads.model || "", DEFAULT_MODEL);
-    var installed = modelInstalled(reads.models || "", engine, model);
-    var available = engineAvailable(reads.engines || "", engine);
-    var unit = unitEnabled(reads.unit || "");
     var lines = [];
-    if (!available) lines.push("The active build cannot use " + engine + ".");
-    if (!installed) lines.push("The speech model is missing.");
-    if (!unit) lines.push("The service is not enabled.");
-    if (lines.length === 0) return { tone: "ok", text: "Ready", action: false, engine: engine, model: model, reasons: [] };
-    return { tone: "warning", text: "Set up needed", lines: lines, action: true, engine: engine, model: model, reasons: lines };
+    if (!engineAvailable(reads.engines || "", engine)) lines.push("The active build cannot use " + engine + ".");
+    if (!modelInstalled(reads.models || "", engine, model)) lines.push("The speech model is missing.");
+    if (!unitEnabled(reads.unit || "")) lines.push("The Voice service is not enabled.");
+    if (!unitActive(reads.active || "")) lines.push("The Voice service is not running.");
+    if (lines.length > 0) return { tone: "warning", text: "Set up needed", lines: lines, action: true, engine: engine, model: model };
+    var version = versionOf(reads.version || "");
+    var summary = (version === "" ? "voxtype" : "voxtype " + version) + " \u00b7 " + model;
+    return { tone: "ok", text: "Ready", lines: [summary, "The Voice service is running."], action: false, engine: engine, model: model };
 }
 
 // The on-screen display's level from one voxtype-audio-bridge frame, as the
