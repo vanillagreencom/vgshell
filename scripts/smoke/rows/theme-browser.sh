@@ -134,19 +134,20 @@ print(json.dumps(out))' "$shown" "$colours"
 # the desktop draws the theme's raised surface, accent and background
 # (`windows-colours`).
 expanded_preview() {
-  local selected strips drawn
+  local selected strips drawn scale
   selected="$(view_value selected)" || return
+  scale="$(ipc smoke readDescendant overlay vgs.themes DesktopPreview scale)" || return
   strips="$(ipc smoke itemColours overlay vgs.themes ThemePaletteStrip QQuickRectangle)" || return
   drawn="$(ipc smoke itemColours overlay vgs.themes DesktopPreview QQuickRectangle)" || return
   ipc smoke descendantGeometry overlay vgs.themes | py_reply "$theme_eight_py"'
 import json, sys
-rows, card, strips, drawn = json.load(sys.stdin), json.loads(sys.argv[1]), json.loads(sys.argv[2]), json.loads(sys.argv[3])
+rows, card, strips, drawn, scale = json.load(sys.stdin), json.loads(sys.argv[1]), json.loads(sys.argv[2]), json.loads(sys.argv[3]), json.loads(sys.argv[4])
 want, out = eight(card), []
 def shown(r): return r["visible"] and r["box"][2] > 0 and r["box"][3] > 0
 cards = [r["box"] for r in rows if r["type"] == "AngledCard" and shown(r)]
 feet = [(k, i) for k, i in enumerate(i for i, r in enumerate(rows) if r["type"] == "ThemePaletteStrip") if rows[i]["name"] == "paletteStrip" and shown(rows[i])]
-if want is None or not cards or len(feet) != 1 or len(drawn) != 1:
-    print(json.dumps(["readers eight=%s cards=%d strips=%d previews=%d" % (want is not None, len(cards), len(feet), len(drawn))])); sys.exit()
+if want is None or not cards or len(feet) != 1 or len(drawn) != 1 or not isinstance(scale, (int, float)):
+    print(json.dumps(["readers eight=%s cards=%d strips=%d previews=%d scale=%s" % (want is not None, len(cards), len(feet), len(drawn), scale)])); sys.exit()
 cx, cy, cw, ch = max(cards, key=lambda b: b[2] * b[3])
 k, i = feet[0]
 sx, sy, sw, sh = rows[i]["box"]
@@ -162,7 +163,9 @@ boxes = {}
 for name in ("previewTerminal", "previewWindow", "previewLauncher"):
     found = [r["box"] for r in rows if r["name"] == name and shown(r)]
     if len(found) != 1: out.append("windows %s=%d" % (name, len(found))); continue
-    boxes[name] = found[0]
+    # The desktop draws at its reference size scaled to the card, and the
+    # reader gives a box its own size at its scaled origin.
+    boxes[name] = [found[0][0], found[0][1], found[0][2] * scale, found[0][3] * scale]
 for name, (x, y, w, h) in boxes.items():
     if x < cx - 1 or y < cy - 1 or x + w > cx + cw + 1 or y + h > sy + 1: out.append("windows outside %s=%s card=%s" % (name, [round(v, 2) for v in (x, y, w, h)], [cx, cy, cw, ch]))
 names = sorted(boxes)
@@ -173,7 +176,7 @@ for a in range(len(names)):
 if sum(w * h for x, y, w, h in boxes.values()) >= cw * ch / 2: out.append("windows cover=%.0f card=%.0f" % (sum(w * h for x, y, w, h in boxes.values()), cw * ch))
 for colour in (want[1], want[3], want[0]):
     if colour not in drawn[0]: out.append("windows-colours missing=%s" % colour)
-print(json.dumps(out))' "$selected" "$strips" "$drawn"
+print(json.dumps(out))' "$selected" "$strips" "$drawn" "$scale"
 }
 # judged_rule JUDGE RULE: whether JUDGE reports a finding of RULE.
 judged_rule() { "$1" | py_reply 'import json,sys; print(any(e.startswith(sys.argv[1] + " ") for e in json.load(sys.stdin)))' "$2"; }
