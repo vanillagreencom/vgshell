@@ -182,8 +182,8 @@ function ruleError(rule, at) {
     }
     if (rule.scale !== undefined && (typeof rule.scale !== "number" || !isFinite(rule.scale) || rule.scale <= 0)) return at + ".scale must be a positive number";
     if (rule.transform !== undefined && (!Number.isInteger(rule.transform) || rule.transform < 0 || rule.transform > 7)) return at + ".transform must be 0-7";
-    if (rule.disabled !== undefined && typeof rule.disabled !== "boolean") return at + ".disabled must be a boolean";
-    if (rule.mirror !== undefined && (typeof rule.mirror !== "string" || !OUTPUT_NAME.test(rule.mirror))) return at + ".mirror must be an output identifier";
+    if (rule.disabled !== undefined && typeof rule.disabled !== "boolean") return at + ".disabled=shape want=boolean";
+    if (rule.mirror !== undefined && (typeof rule.mirror !== "string" || !OUTPUT_NAME.test(rule.mirror))) return at + ".mirror=shape want=identifier";
     return "";
 }
 
@@ -365,6 +365,27 @@ function luaList(ids) {
     return "{ " + ids.map(luaString).join(", ") + " }";
 }
 
+// The one reload that turns outputs back on, for the layer's guard and a
+// trial's restore alike: once no output but FALLBACK is lit and GATE, a Lua
+// condition, holds; "" for none. A rule set while only FALLBACK
+// is lit never applies, and a reload reruns the saved layer. Hyprland 0.56.2
+// turns outputs off and on one by one in list order inside
+// ensureMonitorStatus (MonitorRuleManager.cpp), posting `monitor.removed`
+// for each output a rule turns off, so the outputs are read from a oneshot
+// timer, which the event loop runs once that pass has returned; any timeout
+// above zero does (docs/architecture/runtime-hyprland.md).
+function relightLines(gate) {
+    return [
+        "hl.timer(function()",
+        "    -- A rule set from a handler waits for a render tick that never comes with only FALLBACK left, so a reload turns the outputs back on; it goes when Hyprland applies such a rule at once.",
+        "    for _, m in ipairs(hl.get_monitors()) do",
+        "        if m.name ~= \"FALLBACK\" then return end",
+        "    end",
+        gate === "" ? "    hl.exec_cmd(\"hyprctl reload\")" : "    if " + gate + " then hl.exec_cmd(\"hyprctl reload\") end",
+        "end, { timeout = 1, type = \"oneshot\" })"
+    ];
+}
+
 // The layer turns an output off only while another output stays on, so a
 // laptop that starts or is left undocked never stays dark. The layer runs
 // before Hyprland lists any output at start, so the check runs again as each
@@ -399,12 +420,11 @@ function guardLines(rules, ids) {
         "    end",
         "    vgs_monitors_apply()",
         "    hl.on(\"monitor.added\", vgs_monitors_apply)",
-        "    hl.on(\"monitor.removed\", function()",
-        "        -- A rule set from a handler waits for a render tick that never comes with only FALLBACK left, so a reload turns the outputs back on; it goes when Hyprland applies such a rule at once.",
-        "        if vgs_monitors_applied and not vgs_monitors_others_on() then hl.exec_cmd(\"hyprctl reload\") end",
+        "    hl.on(\"monitor.removed\", function()"
+    ].concat(relightLines("vgs_monitors_applied").map(function (line) { return "        " + line; }), [
         "    end)",
         "end"
-    ];
+    ]);
 }
 
 function rulesLines(rules) {
@@ -412,6 +432,26 @@ function rulesLines(rules) {
     if (bad !== "") return { ok: false, error: bad, lines: [] };
     var ids = Object.keys(rules).sort();
     return { ok: true, lines: ids.map(function (id) { return ruleLine(id, rules[id]); }).concat(guardLines(rules, ids)) };
+}
+
+// A trial of RULES over the owner's SAVED rules: { ok: true, lua, kept,
+// restore, restoreRules }, `kept` the set Keep saves, SAVED with RULES over
+// them, `restore` the Lua that puts back the outputs RULES name as OUTPUTS
+// list them, and the reload once none but FALLBACK is lit, or { ok: false,
+// error }. RULES are judged against the listed OUTPUTS and `kept` as the
+// settings write judges it, so a trial never shows what Keep cannot save.
+function trialPlan(saved, rules, outputs) {
+    var bad = layoutError(rules, outputs);
+    if (bad !== "") return { ok: false, error: bad };
+    var kept = Object.assign({}, saved, rules);
+    var badKept = rulesError(kept, null);
+    if (badKept !== "") return { ok: false, error: badKept };
+    var trial = rulesLua(rules);
+    if (!trial.ok) return trial;
+    var restoreRules = captureRules(outputs, Object.keys(rules));
+    var restore = rulesLua(restoreRules);
+    if (!restore.ok) return restore;
+    return { ok: true, lua: trial.lua, kept: kept, restore: restore.lua + "\n" + relightLines("").join("\n"), restoreRules: restoreRules };
 }
 
 function rulesLua(rules) {

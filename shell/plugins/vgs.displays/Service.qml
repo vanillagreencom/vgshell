@@ -110,7 +110,7 @@ Item {
     function trialRules(arg) {
         let rules = {};
         try { rules = JSON.parse(arg); } catch (e) { return "refused: trial=json"; }
-        return shell.monitors.trial(rules);
+        return shell.monitors.trial(rules, shell.settings.outputs || {});
     }
 
     function keepTrial(arg) {

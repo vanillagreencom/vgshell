@@ -28,7 +28,8 @@ Scope {
     property var trialState: ({ phase: "idle", token: "", deadline: 0, failure: "" })
     property string restoreLua: ""
     property var restoreRules: ({})
-    property var trialRules: ({})
+    // The rule set the trial's Keep saves.
+    property var keptRules: ({})
     property string trialLua: ""
     property string tokenPath: ""
     readonly property string trialDir: Paths.stateDir + "/display-trials"
@@ -49,7 +50,7 @@ Scope {
             get outputs() { return root.outputs === null ? null : Logic.frozenJson(root.outputs); },
             get trialState() { return Logic.frozenJson(root.trialState); },
             overridden: rules => root.overridden(rules),
-            trial: rules => root.trial(ctx.id, rules),
+            trial: (rules, saved) => root.trial(ctx.id, rules, saved),
             keep: (token, done) => root.keep(ctx.id, token, done),
             revert: token => root.revert(ctx.id, token)
         });
@@ -77,23 +78,21 @@ Scope {
         return out;
     }
 
-    function trial(id, rules) {
+    // Apply RULES for 15 s over the owner's SAVED rules; Keep hands back the
+    // set to save.
+    function trial(id, rules, saved) {
         const ownership = mustOwn(id);
         if (ownership !== "") return ownership;
         if (outputs === null) return "refused: monitors=unread";
         if (trialState.phase !== "idle") return "refused: monitors-trial=active";
-        const bad = Monitors.layoutError(rules, outputs);
-        if (bad !== "") return bad;
-        const trial = Monitors.rulesLua(rules);
+        const trial = Monitors.trialPlan(saved, rules, outputs);
         if (!trial.ok) return trial.error;
-        const restore = Monitors.rulesLua(Monitors.captureRules(outputs, Object.keys(rules)));
-        if (!restore.ok) return restore.error;
         const now = Math.floor(Date.now() / 1000);
         tokenPath = trialDir + "/" + now + "-" + Math.floor(Math.random() * 1000000) + ".token";
         trialLua = trial.lua;
-        restoreLua = restore.lua;
-        restoreRules = Monitors.captureRules(outputs, Object.keys(rules));
-        trialRules = Logic.clone(rules);
+        restoreLua = trial.restore;
+        restoreRules = trial.restoreRules;
+        keptRules = Logic.clone(trial.kept);
         trialState = { phase: "arming", token: tokenPath, deadline: now + 15, failure: "" };
         tokenInit.command = ["bash", "-c", "[[ -x \"$2\" ]] && mkdir -p -- \"${1%/*}\" && : >\"$1\"", "vgs-display-token", tokenPath, guardPath];
         tokenInit.running = true;
@@ -105,7 +104,7 @@ Scope {
         if (ownership !== "") return ownership;
         if (token !== trialState.token || trialState.phase !== "holding") return "refused: monitors-token=unknown";
         keeper.done = typeof done === "function" ? done : null;
-        keeper.rules = Logic.clone(trialRules);
+        keeper.rules = Logic.clone(keptRules);
         keeper.command = ["bash", "-c", "mv -- \"$1\" \"$1.keep\" && rm -f -- \"$1.keep\"", "vgs-display-keep", token];
         keeper.running = true;
         trialState = { phase: "keeping", token: token, deadline: 0, failure: "" };
@@ -123,7 +122,7 @@ Scope {
         trialState = { phase: "reverting", token: token, deadline: 0, failure: "" };
         Compositor.monitorEval(lua, answer => {
             root.trialState = { phase: "idle", token: "", deadline: 0, failure: answer === "ok" ? "" : answer };
-            root.trialRules = {};
+            root.keptRules = {};
             root.readOutputs();
         });
         return "ok";
@@ -192,7 +191,7 @@ Scope {
             if (root.trialState.phase !== "holding") return;
             const token = root.trialState.token;
             root.trialState = { phase: "idle", token: "", deadline: 0, failure: "deadline" };
-            root.trialRules = {};
+            root.keptRules = {};
             root.readOutputs();
             // The detached guard owns the actual restore.
         }
@@ -211,7 +210,7 @@ Scope {
             done = null;
             rules = {};
             if (root.trialState.phase === "keeping") root.trialState = { phase: "idle", token: "", deadline: 0, failure: completion === 0 ? "" : "claimed" };
-            root.trialRules = {};
+            root.keptRules = {};
             if (callback !== null) callback(completion === 0 ? { ok: true, rules: saved } : { ok: false, error: "refused: monitors-token=claimed" });
         }
     }

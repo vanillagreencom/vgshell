@@ -99,12 +99,14 @@ const DESK = [
 // The stub world: `reload` clears the handlers, lists OUTPUTS and runs the
 // layer text as Hyprland runs the file; `list` changes what
 // `hl.get_monitors()` answers; `fire` calls each handler of an event;
-// `mark` records where a row's steps stand. Each
+// `mark` records where a row's steps stand; `tick` runs the timers set so
+// far, as Hyprland's event loop does once its pass returns. Each
 // output is [name, description]. The answer is the turned-off outputs
 // (`off <output>`) and the commands run (`exec <command>`), in order.
 const LUA_STUB = `
-local events, outputs, handlers = {}, {}, {}
+local events, outputs, handlers, timers = {}, {}, {}, {}
 hl = {
+    timer = function(fn, opts) assert(opts.type == "oneshot" and opts.timeout > 0); timers[#timers + 1] = fn end,
     get_monitors = function() return outputs end,
     monitor = function(rule) if rule.disabled == true then events[#events + 1] = "off " .. rule.output end end,
     on = function(name, fn) handlers[name] = handlers[name] or {}; table.insert(handlers[name], fn) end,
@@ -119,13 +121,14 @@ local function reload(rows) handlers = {}; outputs = listed(rows); assert(load(L
 local function list(rows) outputs = listed(rows) end
 local function fire(name) for _, fn in ipairs(handlers[name] or {}) do fn() end end
 local function mark() events[#events + 1] = "mark" end
+local function tick() local due = timers; timers = {}; for _, fn in ipairs(due) do fn() end end
 `;
 
 function luaEvents(lines, steps) {
     const text = lines.join("\n");
     if (text.includes("]==]")) throw new Error("layer text holds the long-string end");
     const program = "LAYER = [==[\n" + text + "\n]==]\n" + LUA_STUB
-        + steps.map(([verb, arg]) => verb === "mark" ? "mark()" : verb === "fire" ? "fire(" + JSON.stringify(arg) + ")"
+        + steps.map(([verb, arg]) => verb === "mark" || verb === "tick" ? verb + "()" : verb === "fire" ? "fire(" + JSON.stringify(arg) + ")"
             : verb + "({ " + arg.map(([name, description]) => "{ " + JSON.stringify(name) + ", " + JSON.stringify(description || "") + " }").join(", ") + " })").join("\n")
         + "\nfor _, event in ipairs(events) do print(event) end\n";
     const run = childProcess.spawnSync("lua", ["-"], { input: program, encoding: "utf8", timeout: 10000 });
@@ -210,9 +213,9 @@ function suite(lib, check) {
     // rows: [name, rules, refusal]
     const DELL = "desc:Dell Inc. DELL U2720Q 8YT0R13";
     const ruleShapes = [
-        ["disabled that is no boolean", { "DP-2": { disabled: 1 } }, "refused: monitors.DP-2.disabled must be a boolean"],
-        ["an empty mirror", { "DP-2": { mirror: "" } }, "refused: monitors.DP-2.mirror must be an output identifier"],
-        ["Lua text injection through a mirror", { "DP-2": { mirror: "DP-1\"" } }, "refused: monitors.DP-2.mirror must be an output identifier"],
+        ["disabled that is no boolean", { "DP-2": { disabled: 1 } }, "refused: monitors.DP-2.disabled=shape want=boolean"],
+        ["an empty mirror", { "DP-2": { mirror: "" } }, "refused: monitors.DP-2.mirror=shape want=identifier"],
+        ["Lua text injection through a mirror", { "DP-2": { mirror: "DP-1\"" } }, "refused: monitors.DP-2.mirror=shape want=identifier"],
         ["a mirror of its own rule", { "DP-2": { mirror: "DP-2" } }, "refused: monitors.DP-2.mirror=self"],
         ["a mirror on an output it turns off", { "DP-2": { disabled: true, mirror: "DP-1" } }, "refused: monitors.DP-2.mirror=while-off"],
         ["a mirror of a mirror", { "DP-2": { mirror: "DP-1" }, "DP-1": { mirror: "eDP-1" } }, "refused: monitors.DP-2.mirror=chain target=DP-1"],
@@ -263,13 +266,19 @@ function suite(lib, check) {
             [["reload", []], ["list", [laptop]], ["fire", "monitor.added"], ["list", [laptop, dock]], ["fire", "monitor.added"], ["list", [dock, side]], ["fire", "monitor.added"]],
             ["off eDP-1"]],
         ["undock: the last other output goes and the layer reloads", offLaptop,
-            [["reload", [laptop, dock]], ["list", [dock]], ["fire", "monitor.removed"], ["list", [fallback]], ["fire", "monitor.removed"]],
-            ["off eDP-1", "exec hyprctl reload"]],
+            [["reload", [laptop, dock]], ["list", [dock]], ["fire", "monitor.removed"], ["tick"], ["mark"], ["list", [fallback]], ["fire", "monitor.removed"], ["tick"]],
+            ["off eDP-1", "mark", "exec hyprctl reload"]],
+        ["a trial that lights the laptop and turns the dock off keeps the trial", offLaptop,
+            [["reload", [laptop, dock]], ["list", [laptop]], ["fire", "monitor.removed"], ["tick"]],
+            ["off eDP-1"]],
+        ["a removal read before the pass ends reloads nothing", offLaptop,
+            [["reload", [laptop, dock]], ["list", [fallback]], ["fire", "monitor.removed"], ["list", [laptop]], ["tick"]],
+            ["off eDP-1"]],
         ["a reload with the laptop alone leaves it on", offLaptop,
-            [["reload", [laptop]], ["fire", "monitor.removed"]],
+            [["reload", [laptop]], ["fire", "monitor.removed"], ["tick"]],
             []],
-        ["FALLBACK keeps nothing on", offLaptop,
-            [["reload", [fallback]], ["fire", "monitor.added"]],
+        ["FALLBACK keeps nothing on, and the layer reloads nothing it did not turn off", offLaptop,
+            [["reload", [fallback]], ["fire", "monitor.added"], ["fire", "monitor.removed"], ["tick"]],
             []],
         ["an output a rule mirrors keeps nothing on", Object.assign({ "DP-2": { scale: 1, mirror: "eDP-1" } }, { "DP-1": { scale: 1, disabled: true } }),
             [["reload", [dock, side]]],
@@ -278,11 +287,31 @@ function suite(lib, check) {
             [["reload", [laptop]], ["fire", "monitor.added"], ["mark"], ["list", [laptop, dock]], ["fire", "monitor.added"]],
             ["mark", "off desc:BOE 0x0BCA"]],
         ["no rule turns an output off: no guard", { "eDP-1": { scale: 1 } },
-            [["reload", [laptop, dock]], ["list", [laptop]], ["fire", "monitor.removed"]],
+            [["reload", [laptop, dock]], ["list", [laptop]], ["fire", "monitor.removed"], ["tick"]],
             []]
     ];
     for (const [name, rules, steps, want] of guardRows) check("guard block: " + name, luaEvents(lib.rulesLines(rules).lines, steps), want);
 
+    // A trial is judged as Keep's save is: the saved rules with the trial's
+    // over them, without outputs. The office: the laptop panel, with no
+    // serial, and HDMI-A-1.
+    const office = lib.parseOutputs(reply([DESK[2], monitor(1, "HDMI-A-1", { x: 1920, scale: 2 })].map(o => Object.assign({}, o, { disabled: false })))).outputs;
+    const offPanel = { "eDP-1": { disabled: true } };
+    check("trialPlan refuses a trial Keep could not save: a saved mirror of the panel it turns off",
+        lib.trialPlan({ "DP-1": { mirror: "eDP-1" } }, offPanel, office), { ok: false, error: "refused: monitors.DP-1.mirror=target-off target=eDP-1" });
+    const plan = lib.trialPlan({ "HDMI-A-1": { scale: 2 }, "eDP-1": { scale: 1.5 } }, offPanel, office);
+    check("trialPlan keeps the saved rules under the trial's", [plan.ok, plan.lua, plan.kept, plan.restoreRules],
+        [true, lib.rulesLua(offPanel).lua, { "HDMI-A-1": { scale: 2 }, "eDP-1": { disabled: true } }, lib.captureRules(office, ["eDP-1"])]);
+    check("trialPlan's restore starts with the captured rules", plan.restore.indexOf(lib.rulesLua(lib.captureRules(office, ["eDP-1"])).lua + "\n"), 0);
+    // The restore, run under Lua after the trial's outputs change.
+    // rows: [name, outputs lit once the restore's pass ends, events]
+    const restoreRows = [
+        ["the dock went during the trial: only FALLBACK is lit, so it reloads", [["FALLBACK", ""]], ["exec hyprctl reload"]],
+        ["another output is lit: no reload", [["HDMI-A-1", ""]], []]
+    ];
+    for (const [name, lit, want] of restoreRows) check("restore: " + name, luaEvents([plan.restore], [["reload", lit], ["tick"]]), want);
+    check("trialPlan judges the trial against the outputs first", lib.trialPlan({}, { "eDP-1": { disabled: true }, "HDMI-A-1": { disabled: true } }, office),
+        { ok: false, error: "refused: monitors.layout=all-off" });
     check("captureRules records an output that is off", lib.captureRules(outputs, ["eDP-1"]),
         { "eDP-1": { mode: { width: 2880, height: 1800, refresh: 59.997 }, position: { x: 0, y: 0 }, scale: 1.5, transform: 0, disabled: true } });
     check("captureRules records a mirror by the target's identifier", lib.captureRules(mirroring, ["DP-2"])["DP-2"].mirror, DELL);
@@ -364,7 +393,13 @@ const CONTROLS = [
     ["the guard waits for no output to come", '"    hl.on(\\"monitor.added\\", vgs_monitors_apply)",', ""],
     ["the guard turns outputs off twice", "if vgs_monitors_applied or not vgs_monitors_others_on() then return end", "if not vgs_monitors_others_on() then return end"],
     ["the guard never reloads", 'then hl.exec_cmd(\\"hyprctl reload\\") end', "then end"],
-    ["the guard reloads with nothing it turned off", "if vgs_monitors_applied and not vgs_monitors_others_on() then", "if not vgs_monitors_others_on() then"],
+    ["the guard reloads with nothing it turned off", 'relightLines("vgs_monitors_applied")', 'relightLines("")'],
+    ["the reload ignores a lit output", '        "        if m.name ~= \\"FALLBACK\\" then return end",\n', ""],
+    ["the reload counts FALLBACK as lit", 'm.name ~= \\"FALLBACK\\" then return end', "true then return end"],
+    ["the reload reads the outputs before the pass ends", '"hl.timer(function()",', '"(function(f) f() end)(function()",'],
+    ["a restore never reloads", 'restore: restore.lua + "\\n" + relightLines("").join("\\n")', "restore: restore.lua"],
+    ["a trial ignores the saved rules", "var badKept = rulesError(kept, null);", 'var badKept = "";'],
+    ["Keep saves the trial alone", "var kept = Object.assign({}, saved, rules);", "var kept = rules;"],
     ["restore leaves an output off on", "if (output.disabled) rule.disabled = true;", ""],
     ["restore drops a mirror", "if (output.mirrorOf !== null) rule.mirror = mirrorTarget(outputs, output.mirrorOf);", ""],
     ["restore names a tiled mirror by its group", "return outputs.filter(function (output) { return output.identifier === target.identifier; }).length > 1 ? name : target.identifier;", "return target.identifier;"],

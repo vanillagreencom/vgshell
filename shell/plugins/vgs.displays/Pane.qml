@@ -103,7 +103,7 @@ FocusScope {
 
     function applyOutputDraft() {
         const rules = Logic.dirtyRules(outputDraft, outputRules);
-        const reply = shell.monitors.trial(rules);
+        const reply = shell.monitors.trial(rules, outputRules);
         problem = Logic.replyText(reply);
         if (reply !== "ok") console.warn("displays pane: monitors trial " + reply);
     }
@@ -115,8 +115,7 @@ FocusScope {
                 console.warn("displays pane: monitors keep " + result.error);
                 return;
             }
-            const next = Object.assign({}, outputRules, result.rules);
-            const write = shell.configure.set("outputs", next);
+            const write = shell.configure.set("outputs", result.rules);
             problem = Logic.replyText(write);
             if (write === "ok") outputDraft = ({});
             else console.warn("displays pane: outputs " + write);

@@ -86,7 +86,7 @@ an output left off mismatches a rule that turns it on|{"DP-1":{"scale":1}}|OFF|m
 an output off matches a rule that turns it off|{"DP-1":{"disabled":true}}|OFF|match
 ROWS
 
-for mutant in never-reverts restores-before-claim ignores-mirror ignores-disabled; do
+for mutant in never-reverts restores-before-claim ignores-mirror ignores-disabled ignores-kept-mirror; do
   copy="$SCRATCH/$mutant"
   cp -- "$GUARD" "$copy"
   case $mutant in
@@ -106,13 +106,14 @@ s = s.replace('if ! mv -- "$token" "$claim" 2>/dev/null; then', 'hyprctl --insta
 p.write_text(s)
 PY
       ;;
-    ignores-mirror|ignores-disabled) python3 - "$copy" "$mutant" <<'PY'
+    ignores-mirror|ignores-disabled|ignores-kept-mirror) python3 - "$copy" "$mutant" <<'PY'
 import pathlib, sys
 p = pathlib.Path(sys.argv[1])
 s = p.read_text()
 needle = {
     "ignores-mirror": 'ok = ok and target is not None and rule["mirror"] in (target["name"], "desc:" + target["description"])',
     "ignores-disabled": 'ok = ok and row.get("disabled") == rule.get("disabled", False)',
+    "ignores-kept-mirror": 'ok = ok and row.get("mirrorOf") == "none"',
 }[sys.argv[2]]
 assert s.count(needle) == 1, needle
 p.write_text(s.replace(needle, "pass"))
@@ -126,6 +127,9 @@ PY
       continue ;;
     ignores-disabled)
       check "control $mutant is detected" "$(GUARD_COPY=$copy readback '{"DP-1":{"scale":1}}' "$OFF")" "readback=match"
+      continue ;;
+    ignores-kept-mirror)
+      check "control $mutant is detected" "$(GUARD_COPY=$copy readback '{"DP-2":{"scale":1}}' "$MIRRORED")" "readback=match"
       continue ;;
   esac
   : >"$SCRATCH/token"
