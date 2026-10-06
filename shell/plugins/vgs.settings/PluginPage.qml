@@ -138,8 +138,10 @@ FocusScope {
     }
 
     function bindKeys(bind) {
-        if (bind !== null && Array.isArray(bind.keys)) return bind.keys.slice();
-        return bind === null || bind.key === null || bind.key === undefined ? [] : [bind.key];
+        if (bind === null) return [];
+        // `keys` can arrive as a list-like rather than an Array, as from a ListModel.
+        if (bind.keys !== undefined && bind.keys !== null) return Array.from(bind.keys);
+        return bind.key === null || bind.key === undefined ? [] : [bind.key];
     }
 
     function keySlotRows(bind) {
@@ -509,8 +511,12 @@ FocusScope {
                                             if (page === null || page.row === null) return;
                                             const value = page.keyValueAfter(bind, modelData.index, key);
                                             const accepted = Reply.isOk(page.panel.writeKey(pluginId, modelData.shortcut, value));
-                                            if (accepted) page.keySlotAccepted(bind, modelData.index, key);
+                                            const slot = modelData.index;
+                                            const slotBind = bind;
+                                            // Settle first: closing the added slot can rebuild the
+                                            // slots and take this field with them.
                                             settle(key, accepted);
+                                            if (accepted) page.keySlotAccepted(slotBind, slot, key);
                                         }
                                         Component.onCompleted: {
                                             const slot = modelData.shortcut + ":" + modelData.index;

@@ -72,6 +72,7 @@ Item {
         function removePlugin() { return "ok"; }
         function openTui() { return "ok"; }
         function act() { return "ok"; }
+        function replyOf() { return ""; }
     }
 
     Column {
@@ -167,6 +168,9 @@ Item {
             return found;
         }
         function editor(field) { return descendants(field).find(child => child instanceof TextInput && child.visible); }
+        // The Repeater builds its delegates after the model answers; wait for
+        // READY, then let the comparison that follows report what is shown.
+        function settle(ready) { for (let i = 0; i < 20 && !ready(); i++) wait(50); }
         function keyFields(item) { return descendants(item).filter(child => child.pluginId === "acme.unit" && child.bind !== undefined && child.shortcutField !== undefined); }
         function type(field, text) {
             const input = editor(field);
@@ -361,13 +365,25 @@ Item {
 
         function test_plugin_page_shows_each_key_and_add_writes_a_list() {
             fakePanel.keyWrites = [];
+            const shipped = root.pageRow;
             const page = pluginPageComponent.createObject(root);
             verify(page !== null);
-            compare(keyFields(page).length, 2);
+            const shown = () => JSON.stringify(keyFields(page).map(field => field.bind.key));
+            settle(() => keyFields(page).length === 2);
+            compare(shown(), JSON.stringify(["code:108", "code:105"]));
             page.addKeySlot("tap", 2);
+            settle(() => keyFields(page).length === 3);
             compare(keyFields(page).length, 3);
             keyFields(page)[2].applyKey("code:97");
             compare(JSON.stringify(fakePanel.keyWrites), JSON.stringify([["acme.unit", "tap", ["code:108", "code:105", "code:97"]]]));
+            const row = JSON.parse(JSON.stringify(shipped));
+            row.binds[0].keys = ["code:108", "code:105", "code:97"];
+            root.pageRow = row;
+            settle(() => keyFields(page).length === 3 && keyFields(page)[2].bind.key !== null);
+            compare(shown(), JSON.stringify(["code:108", "code:105", "code:97"]));
+            keyFields(page)[1].applyKey(null);
+            compare(JSON.stringify(fakePanel.keyWrites[1]), JSON.stringify(["acme.unit", "tap", ["code:108", "code:97"]]));
+            root.pageRow = shipped;
             page.destroy();
         }
     }

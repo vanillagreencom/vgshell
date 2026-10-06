@@ -62,7 +62,7 @@ FocusScope {
     function close() {}
 
     function displayBind(bind) {
-        const keys = Array.isArray(bind.keys) ? bind.keys : (bind.key === null || bind.key === undefined ? [] : [bind.key]);
+        const keys = bind.keys !== undefined && bind.keys !== null ? Array.from(bind.keys) : (bind.key === null || bind.key === undefined ? [] : [bind.key]);
         return Object.assign({}, bind, { key: keys.length === 0 ? null : keys.join(", ") });
     }
 

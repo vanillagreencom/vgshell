@@ -102,13 +102,13 @@ ln -s -- "$repo/shell/assets" "$imports/qs/assets"
 # qmldir names Time and Workspaces too, whose Quickshell types do not load
 # outside the shell, and a type a linked file names is resolved when that
 # file compiles.
-for file in Theme.qml Tokens.js ThemeLogic.js Inset.js SettingValues.js SessionLockState.js ClearingInset.qml WatchedFile.qml Paths.qml DesktopLaunch.js AccountDirectories.js; do
+for file in Theme.qml Tokens.js ThemeLogic.js Inset.js SettingValues.js SessionLockState.js ClearingInset.qml WatchedFile.qml Paths.qml DesktopLaunch.js AccountDirectories.js Reply.js; do
   [[ -f $commons/$file ]] || { printf 'qml-unit: refused: missing=%s\n' "$commons/$file" >&2; exit 2; }
   ln -s -- "$commons/$file" "$imports/qs/Commons/$file"
 done
 cp -- "$tests/stand-ins/ThemeSource.qml" "$imports/qs/Commons/ThemeSource.qml"
 cp -- "$tests/stand-ins/Time.qml" "$imports/qs/Commons/Time.qml"
-printf 'module qs.Commons\nsingleton Theme 1.0 Theme.qml\ninternal ThemeSource ThemeSource.qml\nsingleton Time 1.0 Time.qml\nInset 1.0 Inset.js\nSettingValues 1.0 SettingValues.js\nSessionLockState 1.0 SessionLockState.js\nClearingInset 1.0 ClearingInset.qml\nWatchedFile 1.0 WatchedFile.qml\nsingleton Paths 1.0 Paths.qml\nDesktopLaunch 1.0 DesktopLaunch.js\nAccountDirectories 1.0 AccountDirectories.js\n' >"$imports/qs/Commons/qmldir"
+printf 'module qs.Commons\nsingleton Theme 1.0 Theme.qml\ninternal ThemeSource ThemeSource.qml\nsingleton Time 1.0 Time.qml\nInset 1.0 Inset.js\nSettingValues 1.0 SettingValues.js\nSessionLockState 1.0 SessionLockState.js\nClearingInset 1.0 ClearingInset.qml\nWatchedFile 1.0 WatchedFile.qml\nsingleton Paths 1.0 Paths.qml\nDesktopLaunch 1.0 DesktopLaunch.js\nAccountDirectories 1.0 AccountDirectories.js\nReply 1.0 Reply.js\n' >"$imports/qs/Commons/qmldir"
 for file in TuiRecords.qml ThemeRunner.qml SessionLock.qml ShortcutRegistry.qml KeyCapture.qml HyprlandState.qml HyprlandState.js HyprctlReader.qml PluginLogic.js Pads.js PackageManagers.js HyprlandLayer.js Dispatch.js; do
   [[ -f $core/$file ]] || { printf 'qml-unit: refused: missing=%s\n' "$core/$file" >&2; exit 2; }
   ln -s -- "$core/$file" "$imports/qs/Core/$file"
