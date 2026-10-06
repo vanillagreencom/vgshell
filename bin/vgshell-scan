@@ -4,8 +4,8 @@
 Prints one JSON array. Each element names a plugin directory and carries
 either the manifest text with the source revision, or the read error.
 Validation is not done here: the shell's PluginLogic.js is the one judge of
-a manifest, and this script only reads bytes and probes PATH for the
-commands a manifest declares.
+a manifest, and this script only reads bytes, probes PATH for command
+requirements and probes D-Bus for bus-name requirements a manifest declares.
 
   vgshell-scan [--require-base] [--core FILE] [--snapshot-dir ROOT [--retain REVISION]...] BASE...
   vgshell-scan --watch-core DIR
@@ -17,16 +17,17 @@ its executable bit and its bytes, so an edit to any QML, JS or asset file,
 and nothing else, gives a new revision. Symbolic links are followed; a directory cycle or an entry
 that is neither a regular file nor a directory is an error.
 
-`missing` lists, in declaration order and each once, every `command` of the
-manifest's `requirements` entries that is not on PATH, as shutil.which finds
-it, and is empty when the text is not a JSON object with a `requirements`
-list. The scan probes each command once, however many plugins declare it,
-and judges nothing: PluginLogic.js decides whether an entry is well formed,
-and a refused manifest's list is never read (D035).
+`missing` lists, in declaration order and each once, every requirement name
+the scan does not find: a `command` not on PATH, as shutil.which finds it,
+or a `dbus` name that is not owned or activatable on its bus. It is empty
+when the text is not a JSON object with a `requirements` list. The scan
+probes each command once and each bus once, however many plugins declare
+them, and judges nothing: PluginLogic.js decides whether an entry is well
+formed, and a refused manifest's list is never read (D035).
 
 --core names the core's own requirements file, config/requirements.json,
-whose commands the scan probes the same way, sharing each command's answer
-with the plugins that declare it. Its element comes first,
+whose requirements the scan probes the same way, sharing each command and
+bus answer with the plugins that declare it. Its element comes first,
 `{"core", "text", "missing"}`, `core` the file's path, `text` its bytes and
 `missing` its commands not on PATH; a file that cannot be read is an error
 element like a plugin's. The shell judges the text as it judges a
@@ -68,8 +69,11 @@ import argparse
 import hashlib
 import json
 import os
+import socket
 import stat
+import struct
 import sys
+import time
 
 
 def source_files(directory, relative="", ancestors=(), skip=()):
@@ -146,10 +150,228 @@ def publish_source(root, revision, files):
     return file_url(os.path.abspath(destination))
 
 
-def declared_commands(text, core=False):
-    """Each string `command` of the requirements entries the manifest text
-    declares, in order; none when the text is no object with a
-    `requirements` list. With CORE the text is the list itself."""
+def percent_unescape(value):
+    out = bytearray()
+    i = 0
+    data = value.encode("ascii", "surrogateescape")
+    while i < len(data):
+        if data[i:i + 1] == b"%" and i + 2 < len(data):
+            try:
+                out.append(int(data[i + 1:i + 3], 16))
+                i += 3
+                continue
+            except ValueError:
+                pass
+        out.append(data[i])
+        i += 1
+    return bytes(out)
+
+
+def bus_address(bus):
+    if bus == "system":
+        address = os.environ.get("DBUS_SYSTEM_BUS_ADDRESS") or "unix:path=/run/dbus/system_bus_socket"
+    else:
+        runtime = os.environ.get("XDG_RUNTIME_DIR", "")
+        address = os.environ.get("DBUS_SESSION_BUS_ADDRESS") or ("unix:path=" + os.path.join(runtime, "bus"))
+    for entry in address.split(";"):
+        if not entry.startswith("unix:"):
+            continue
+        fields = {}
+        for part in entry[5:].split(","):
+            if "=" not in part:
+                continue
+            key, value = part.split("=", 1)
+            fields[key] = value
+        if "path" in fields:
+            return percent_unescape(fields["path"]).decode(sys.getfilesystemencoding(), sys.getfilesystemencodeerrors())
+        if "abstract" in fields:
+            return "\0" + percent_unescape(fields["abstract"]).decode("latin1")
+    raise OSError("no supported unix address")
+
+
+def remaining(deadline):
+    return max(0.05, deadline - time.monotonic())
+
+
+def read_exact(sock, count, deadline):
+    data = bytearray()
+    while len(data) < count:
+        sock.settimeout(remaining(deadline))
+        chunk = sock.recv(count - len(data))
+        if not chunk:
+            raise OSError("connection closed")
+        data.extend(chunk)
+    return bytes(data)
+
+
+def read_auth_line(sock, deadline):
+    data = bytearray()
+    while not data.endswith(b"\r\n"):
+        sock.settimeout(remaining(deadline))
+        chunk = sock.recv(1)
+        if not chunk:
+            raise OSError("auth closed")
+        data.extend(chunk)
+        if len(data) > 4096:
+            raise OSError("auth line too long")
+    return bytes(data[:-2])
+
+
+def align(offset, boundary):
+    return (boundary - offset % boundary) % boundary
+
+
+def pack_string(value):
+    data = value.encode("utf-8")
+    return struct.pack("<I", len(data)) + data + b"\0"
+
+
+def pack_signature(value):
+    data = value.encode("ascii")
+    return bytes([len(data)]) + data + b"\0"
+
+
+def append_field(out, code, signature, value):
+    out.extend(b"\0" * align(len(out), 8))
+    out.append(code)
+    out.extend(pack_signature(signature))
+    out.extend(b"\0" * align(len(out), 4))
+    if signature in ("s", "o"):
+        out.extend(pack_string(value))
+    elif signature == "g":
+        out.extend(pack_signature(value))
+    elif signature == "u":
+        out.extend(struct.pack("<I", value))
+    else:
+        raise ValueError("unsupported header field signature " + signature)
+
+
+def method_call(serial, member, signature="", body=b""):
+    fields = bytearray()
+    append_field(fields, 1, "o", "/org/freedesktop/DBus")
+    append_field(fields, 2, "s", "org.freedesktop.DBus")
+    append_field(fields, 3, "s", member)
+    append_field(fields, 6, "s", "org.freedesktop.DBus")
+    if signature != "":
+        append_field(fields, 8, "g", signature)
+    header = bytearray(b"l\x01\x00\x01")
+    header.extend(struct.pack("<I", len(body)))
+    header.extend(struct.pack("<I", serial))
+    header.extend(struct.pack("<I", len(fields)))
+    header.extend(fields)
+    header.extend(b"\0" * align(len(header), 8))
+    header.extend(body)
+    return bytes(header)
+
+
+def parse_header_fields(data):
+    fields = {}
+    offset = 0
+    while offset < len(data):
+        offset += align(offset, 8)
+        if offset >= len(data):
+            break
+        code = data[offset]
+        offset += 1
+        sig_len = data[offset]
+        offset += 1
+        signature = data[offset:offset + sig_len].decode("ascii")
+        offset += sig_len + 1
+        if signature in ("s", "o"):
+            offset += align(offset, 4)
+            size = struct.unpack_from("<I", data, offset)[0]
+            offset += 4
+            fields[code] = data[offset:offset + size].decode("utf-8")
+            offset += size + 1
+        elif signature == "u":
+            offset += align(offset, 4)
+            fields[code] = struct.unpack_from("<I", data, offset)[0]
+            offset += 4
+        elif signature == "g":
+            sig_len = data[offset]
+            offset += 1
+            fields[code] = data[offset:offset + sig_len].decode("ascii")
+            offset += sig_len + 1
+        else:
+            break
+    return fields
+
+
+def read_message(sock, deadline):
+    fixed = read_exact(sock, 16, deadline)
+    if fixed[0:1] != b"l":
+        raise OSError("big-endian reply unsupported")
+    msg_type = fixed[1]
+    body_len, serial, fields_len = struct.unpack_from("<III", fixed, 4)
+    rest_len = fields_len + align(16 + fields_len, 8)
+    rest = read_exact(sock, rest_len + body_len, deadline)
+    fields = parse_header_fields(rest[:fields_len])
+    body = rest[rest_len:]
+    return msg_type, serial, fields, body
+
+
+def parse_string_array(body):
+    if len(body) < 4:
+        raise OSError("short array reply")
+    size = struct.unpack_from("<I", body, 0)[0]
+    offset = 4 + align(4, 4)
+    end = offset + size
+    names = []
+    while offset < end:
+        if offset + 4 > len(body):
+            raise OSError("short string length")
+        length = struct.unpack_from("<I", body, offset)[0]
+        offset += 4
+        if offset + length + 1 > len(body):
+            raise OSError("short string")
+        names.append(body[offset:offset + length].decode("utf-8"))
+        offset += length + 1
+        offset += align(offset, 4)
+    return names
+
+
+def dbus_call(sock, serial, member, deadline, signature="", body=b""):
+    sock.sendall(method_call(serial, member, signature, body))
+    while True:
+        msg_type, _serial, fields, body = read_message(sock, deadline)
+        if fields.get(5) != serial:
+            continue
+        if msg_type == 3:
+            raise OSError("method error " + fields.get(4, "unknown"))
+        if msg_type != 2:
+            raise OSError("unexpected reply type " + str(msg_type))
+        return body
+
+
+def dbus_names(bus):
+    deadline = time.monotonic() + 2.0
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        sock.settimeout(remaining(deadline))
+        sock.connect(bus_address(bus))
+        # EXTERNAL with no identity: the bus takes the uid it reads from the
+        # socket itself, which stays right across user namespaces.
+        sock.sendall(b"\0AUTH EXTERNAL\r\n")
+        line = read_auth_line(sock, deadline)
+        if line == b"DATA":
+            sock.sendall(b"DATA\r\n")
+            line = read_auth_line(sock, deadline)
+        if not line.startswith(b"OK "):
+            raise OSError("auth " + line.decode("ascii", "replace"))
+        sock.sendall(b"BEGIN\r\n")
+        dbus_call(sock, 1, "Hello", deadline)
+        owned = set(parse_string_array(dbus_call(sock, 2, "ListNames", deadline)))
+        activatable = set(parse_string_array(dbus_call(sock, 3, "ListActivatableNames", deadline)))
+        return owned | activatable
+    finally:
+        sock.close()
+
+
+def requirement_entries(text, core=False):
+    """Each command or dbus requirement the manifest text declares, in order;
+    none when the text is no object with a `requirements` list. With CORE
+    the text is the list itself. Malformed entries are ignored: the judge
+    refuses them before the shell consumes the scan."""
     try:
         document = json.loads(text)
     except ValueError:
@@ -160,24 +382,47 @@ def declared_commands(text, core=False):
         requirements = document.get("requirements") if isinstance(document, dict) else None
     if not isinstance(requirements, list):
         return []
-    return [entry["command"] for entry in requirements if isinstance(entry, dict) and isinstance(entry.get("command"), str)]
+    out = []
+    for entry in requirements:
+        if not isinstance(entry, dict):
+            continue
+        command = entry.get("command")
+        dbus = entry.get("dbus")
+        if isinstance(command, str):
+            out.append({"name": command, "bus": None})
+        elif isinstance(dbus, dict) and dbus.get("bus") in ("system", "session") and isinstance(dbus.get("name"), str):
+            out.append({"name": dbus["name"], "bus": dbus["bus"]})
+    return out
 
 
-def missing_commands(text, probed, core=False):
-    """The declared commands not on PATH, each once. `probed` caches each
-    command's answer for the whole scan."""
+def missing_requirements(text, probed, bus_cache, core=False):
+    """The declared requirement names not found, each once. `probed` caches
+    each command's answer and `bus_cache` caches each bus answer for the
+    whole scan."""
     import shutil
 
     missing = []
-    for command in declared_commands(text, core):
-        if command not in probed:
-            probed[command] = shutil.which(command) is not None
-        if not probed[command] and command not in missing:
-            missing.append(command)
+    for entry in requirement_entries(text, core):
+        name = entry["name"]
+        bus = entry["bus"]
+        if bus is None:
+            if name not in probed:
+                probed[name] = shutil.which(name) is not None
+            present = probed[name]
+        else:
+            if bus not in bus_cache:
+                try:
+                    bus_cache[bus] = dbus_names(bus)
+                except (OSError, socket.timeout) as exc:
+                    print(f"vgshell-scan: bus={bus} probe=failed {exc}", file=sys.stderr)
+                    bus_cache[bus] = None
+            present = bus_cache[bus] is not None and name in bus_cache[bus]
+        if not present and name not in missing:
+            missing.append(name)
     return missing
 
 
-def scan_core(path, out, probed):
+def scan_core(path, out, probed, bus_cache):
     try:
         with open(path, "rb") as fh:
             text = fh.read().decode("utf-8")
@@ -187,10 +432,10 @@ def scan_core(path, out, probed):
     except UnicodeDecodeError as exc:
         out.append({"dir": path, "path": path, "error": f"core requirements are not UTF-8: {exc.reason} at byte {exc.start}"})
         return
-    out.append({"core": path, "text": text, "missing": missing_commands(text, probed, core=True)})
+    out.append({"core": path, "text": text, "missing": missing_requirements(text, probed, bus_cache, core=True)})
 
 
-def scan_base(base, out, require_base, snapshot_dir, probed):
+def scan_base(base, out, require_base, snapshot_dir, probed, bus_cache):
     try:
         names = sorted(os.listdir(base))
     except OSError as exc:
@@ -234,7 +479,7 @@ def scan_base(base, out, require_base, snapshot_dir, probed):
         except UnicodeDecodeError as exc:
             out.append({"dir": plugin_dir, "path": manifest, "error": f"manifest is not UTF-8: {exc.reason} at byte {exc.start}"})
             continue
-        entry = {"dir": plugin_dir, "text": text, "revision": source_revision(files), "missing": missing_commands(text, probed)}
+        entry = {"dir": plugin_dir, "text": text, "revision": source_revision(files), "missing": missing_requirements(text, probed, bus_cache)}
         if snapshot_dir:
             try:
                 entry["loadUrl"] = publish_source(snapshot_dir, entry["revision"], files)
@@ -419,10 +664,11 @@ def main(argv):
         parser.error("--retain needs --snapshot-dir")
     out = []
     probed = {}
+    bus_cache = {}
     if args.core:
-        scan_core(args.core, out, probed)
+        scan_core(args.core, out, probed, bus_cache)
     for base in args.bases:
-        scan_base(base, out, args.require_base, args.snapshot_dir, probed)
+        scan_base(base, out, args.require_base, args.snapshot_dir, probed, bus_cache)
     if args.snapshot_dir and not any("error" in entry for entry in out):
         prune_snapshots(args.snapshot_dir, set(args.retain) | {entry["revision"] for entry in out if "revision" in entry}, out)
     json.dump(out, sys.stdout)

@@ -44,7 +44,7 @@ var QUERIES = {
 // first shell, `refresh` the IPC call, `open` the IPC call that summons the
 // window, `tui` the end of a run of one of the plugin's own TUIs and
 // `setting` a change of writeLaunchers, `scan` a change of the missing
-// commands the core's scan reports for the core and each enabled plugin
+// requirements the core's scan reports for the core and each enabled plugin
 // (the `doctor` capability's `missing`), such as an install the core's
 // requirement notice ran, which can bring mise itself.
 var TRIGGERS = {
@@ -223,14 +223,14 @@ function readAnswer(name, code, stdout, stderr) {
 }
 
 // The missing requirements of a doctor report, the core's first and then
-// each plugin's in id order: { owner, command, purpose, optional, package },
+// each plugin's in id order: { owner, name, purpose, optional, package },
 // `owner` "core" or the plugin id, `package` { manager, name } or null.
 function missingRequirements(report) {
     var out = [];
     function add(owner, rows) {
         rows.forEach(function (row) {
             if (row.state !== "missing") return;
-            out.push({ owner: owner, command: row.command, purpose: row.purpose, optional: row.optional === true, package: row.package === undefined ? null : row.package });
+            out.push({ owner: owner, name: row.name, purpose: row.purpose, optional: row.optional === true, package: row.package === undefined ? null : row.package });
         });
     }
     add("core", report.core);
@@ -424,14 +424,14 @@ function vgsRow(answer, entry) {
 }
 
 // One missing requirement as a row, with Install when this system has a
-// package for it: the core's requirement notice for its owner and command,
+// package for it: the core's requirement notice for its owner and name,
 // through the `doctor` capability.
 function requirementRow(requirement, index) {
     var out = {
-        key: "vgs/requirement/" + index + "/" + requirement.owner + "/" + requirement.command,
+        key: "vgs/requirement/" + index + "/" + requirement.owner + "/" + requirement.name,
         section: "vgs",
-        id: requirement.command,
-        name: requirement.command,
+        id: requirement.name,
+        name: requirement.name,
         icon: "package",
         brand: "",
         tile: "neutral",

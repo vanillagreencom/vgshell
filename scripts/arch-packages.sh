@@ -240,7 +240,7 @@ doctor_holds() { # PACKAGE
     refuse "doctor=failed package=$1" "$(cat /tmp/doctor.err)"
   python -c 'import json,sys
 report=json.loads(sys.argv[1])
-missing=[row["command"] for rows in [report["core"], *report["plugins"].values()] for row in rows if not row["optional"] and row["state"] == "missing"]
+missing=[row["name"] for rows in [report["core"], *report["plugins"].values()] for row in rows if not row["optional"] and row["state"] == "missing"]
 if missing: sys.exit("missing required: " + ",".join(missing))
 if not report["plugins"]: sys.exit("doctor plugin discovery is empty")' "$report" || refuse "doctor=required-missing package=$1"
 }

@@ -17,7 +17,7 @@ set -euo pipefail
 
 # shellcheck source=scripts/vgshell-rows.sh
 source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/vgshell-rows.sh"
-for tool in script unshare; do
+for tool in dbus-daemon script unshare; do
   command -v "$tool" >/dev/null || { echo "test-vgshell-requirements: status=not-measured missing=$tool"; exit 77; }
 done
 if ! unshare -rm true 2>/dev/null; then
@@ -54,6 +54,33 @@ chmod +x "$tmp/qs"
 
 os_release="$tmp/os-release"; printf 'NAME="Arch Linux"\nID=arch\n' >"$os_release"
 nixos_release="$tmp/os-release-nixos"; printf 'NAME=NixOS\nID=nixos\n' >"$nixos_release"
+dbus_dir="$tmp/dbus"; mkdir -p "$dbus_dir/services"
+dbus_address="unix:path=$dbus_dir/bus"
+cat >"$dbus_dir/services/org.freedesktop.UPower.PowerProfiles.service" <<EOF_SERVICE
+[D-BUS Service]
+Name=org.freedesktop.UPower.PowerProfiles
+Exec=/bin/false
+EOF_SERVICE
+cat >"$dbus_dir/config.xml" <<EOF_DBUS
+<busconfig>
+  <auth>EXTERNAL</auth>
+  <auth>ANONYMOUS</auth>
+  <type>session</type>
+  <listen>$dbus_address</listen>
+  <servicedir>$dbus_dir/services</servicedir>
+  <policy context="default">
+    <allow send_destination="*"/>
+    <allow receive_sender="*"/>
+    <allow own="*"/>
+  </policy>
+</busconfig>
+EOF_DBUS
+dbus-daemon --nofork --print-address --config-file="$dbus_dir/config.xml" >"$dbus_dir/address" 2>"$dbus_dir/log" &
+req_dbus_pid=$!
+trap 'kill "$req_dbus_pid" 2>/dev/null || true; rm -rf -- "${tmp:?}"' EXIT
+for _ in 1 2 3 4 5 6 7 8 9 10; do [[ -S $dbus_dir/bus ]] && break; sleep 0.1; done
+[[ -S $dbus_dir/bus ]] || { echo "test-vgshell-requirements: status=not-measured missing=dbus-bus"; exit 77; }
+base_env+=(DBUS_SYSTEM_BUS_ADDRESS="$dbus_address" DBUS_SESSION_BUS_ADDRESS="$dbus_address")
 rt_live="$tmp/rt-live"; mkdir -p "$rt_live"; printf '%s\n' "$$" >"$rt_live/vgshell.lock"
 log="$tmp/log"
 # The doctor rows' PATH: the stubs, then only what bin/vgshell, the scan and
@@ -197,7 +224,7 @@ row_requirements() {
 row_requirements_json() {
   req "$1" plain "" "$2" "$rt_empty" -- plugin add --yes "$tmp/src/needs.git"
   req "$1" plain "" "$2" "$rt_empty" -- plugin requirements --json acme.needs
-  [[ $status == 0 ]] && json_is "$tmp/out" 'd[0] == {"command": "vgs-need-one", "packages": {"pacman": "need-one", "apt": "need-one-deb"}, "optional": False, "purpose": "First", "state": "missing", "package": {"manager": "pacman", "name": "need-one"}} and d[1]["package"] == {"manager": "aur", "name": "need-two"} and d[2]["package"] is None and d[4]["state"] == "present" and len(d) == 7'
+  [[ $status == 0 ]] && json_is "$tmp/out" 'd[0] == {"name": "vgs-need-one", "bus": None, "packages": {"pacman": "need-one", "apt": "need-one-deb"}, "optional": False, "purpose": "First", "state": "missing", "package": {"manager": "pacman", "name": "need-one"}} and d[1]["package"] == {"manager": "aur", "name": "need-two"} and d[2]["package"] is None and d[4]["state"] == "present" and len(d) == 7'
 }
 # A plugin add lands disabled is left out; enabled, it is reported beside
 # the core, whose commands this PATH lacks apart from node and python3.
@@ -207,7 +234,7 @@ row_doctor() {
   [[ $status == 0 ]] && json_is "$tmp/out" '"acme.needs" not in d["plugins"]' || return 1
   printf '{ "version": 1, "plugins": [ { "id": "acme.needs" } ] }\n' >"$2/vgshell/shell.json"
   REQ_PATH="$tools" req "$1" plain "" "$2" "$rt_empty" -- doctor --json
-  [[ $status == 0 ]] && json_is "$tmp/out" '[r["state"] for r in d["plugins"]["acme.needs"]] == ["missing"] * 7 and {r["command"]: r["state"] for r in d["core"]}["node"] == "present" and {r["command"]: r["state"] for r in d["core"]}["git"] == "missing" and {r["command"]: r["package"] for r in d["core"]}["python3"] == {"manager": "pacman", "name": "python"}' || return 1
+  [[ $status == 0 ]] && json_is "$tmp/out" '[r["state"] for r in d["plugins"]["acme.needs"]] == ["missing"] * 7 and {r["name"]: r["state"] for r in d["core"]}["node"] == "present" and {r["name"]: r["state"] for r in d["core"]}["git"] == "missing" and {r["name"]: r["package"] for r in d["core"]}["python3"] == {"manager": "pacman", "name": "python"}' || return 1
   REQ_PATH="$tools" req "$1" plain "" "$2" "$rt_empty" -- doctor
   [[ $status == 0 ]] && err_is "" && out_has "acme.needs missing vgs-need-two (need-two): Second" \
     && out_has "acme.needs missing git (git): Present" && grep -qx "core present node (nodejs): .*" "$tmp/out" \
@@ -246,7 +273,7 @@ row_extra_on() {
   req "$1" plain "" "$2" "$rt_empty" -- plugin requirements acme.extras
   [[ $status == 0 ]] && err_is "" && out_is "missing vgs-need-extra (need-extra) optional: Extra" || return 1
   REQ_PATH="$tools" req "$1" plain "" "$2" "$rt_empty" -- doctor --json
-  [[ $status == 0 ]] && json_is "$tmp/out" '[r["command"] for r in d["plugins"]["acme.extras"]] == ["vgs-need-extra"]' || return 1
+  [[ $status == 0 ]] && json_is "$tmp/out" '[r["name"] for r in d["plugins"]["acme.extras"]] == ["vgs-need-extra"]' || return 1
   rm -rf -- "${2:?}/vgshell/plugins/acme.extras"
   req "$1" plain "" "$2" "$rt_empty" -- plugin add --yes "$tmp/src/extras.git"
   [[ $status == 0 ]] && out_has "requires vgs-need-extra (need-extra) optional"
@@ -307,7 +334,7 @@ declare -a CONTROLS=(
   "add installs only on yes" vgshell '    *) return 0 ;;' '    *) ;;' row_offer_declined
   "a run asks for the rescan" vgshell-pkg '            rescanShell();' '' row_run_rescans
   "doctor reports enabled plugins only" vgshell-plugin-judge '.filter(id => logic.isEnabled(effective, plugins.get(id).manifest, defaultBarId))' '' row_doctor
-  "the core's commands are looked up on PATH" vgshell-plugin-judge '.filter(command => !onPath(command))' '.filter(command => false)' row_doctor
+  "the core's commands are looked up on PATH" vgshell-plugin-judge '.filter(name => !onPath(name))' '.filter(name => false)' row_doctor
   "a row carries this system's package" vgshell-plugin-judge '{ package: logic.PackageManagers.packageFor(row.packages, found) }' '{ package: null }' row_requirements_json
   "nix gets no install command" vgshell-plugin-judge 'lines.push(group.installs ? ' 'lines.push(true ? ' row_nix_by_hand
   "add tells the shell which plugin it installed" vgshell '  rescan_if_running pluginInstalled "$id"' '  rescan_if_running rescanPlugins' row_offer_accepted
@@ -352,7 +379,7 @@ for manifest in sorted((root / "shell/plugins").glob("*/manifest.json")):
     rows += json.loads(manifest.read_text()).get("requirements", [])
 for row in rows:
     package = row.get("packages", {}).get("pacman", row.get("packages", {}).get("aur"))
-    command = row["command"]
+    command = row.get("command") or row["dbus"]["name"]
     if package in packages and command not in {"node", "python3", "bash", "readlink", "systemctl"}:
         file = farm / command
         file.write_text("#!/bin/sh\nexit 0\n")
@@ -384,7 +411,7 @@ PYCONTROL
   check "control: removing $package makes real doctor report $commands missing" \
     test "$status" = 0
   check "the missing package removes exactly its required command providers" json_is "$tmp/out" \
-    "set('$commands'.split(',')) == {r['command'] for r in d['plugins']['$owner'] if r['state'] == 'missing' and not r['optional']}"
+    "set('$commands'.split(',')) == {r['name'] for r in d['plugins']['$owner'] if r['state'] == 'missing' and not r['optional']}"
 done
 
 rows_done test-vgshell-requirements

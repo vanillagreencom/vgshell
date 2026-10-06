@@ -46,7 +46,8 @@ with open(sys.argv[1]) as source:
     manifest=json.load(source)
 for row in manifest["requirements"]:
     if not row.get("optional", False):
-        print(row["command"])
+        if "command" in row:
+            print(row["command"])
 PYTHON
 )" || return 1
   while IFS= read -r command; do

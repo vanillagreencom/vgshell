@@ -12,7 +12,7 @@ with (root / 'vgshell-calls.jsonl').open('a') as log:
     log.write(json.dumps(args) + '\n')
 if args == ['plugin', 'requirements', '--json', 'vgs.jarvis']:
     print(json.dumps([{
-        'command': 'agent-browser', 'packages': {'aur': 'agent-browser-bin', 'mise': 'npm:agent-browser'},
+        'name': 'agent-browser', 'bus': None, 'packages': {'aur': 'agent-browser-bin', 'mise': 'npm:agent-browser'},
         'optional': True, 'purpose': 'Drives a private Jarvis browser; requires version 0.38.1 or later',
         'state': 'missing', 'package': mode.get('driverPackage', {'manager': 'aur', 'name': 'agent-browser-bin'})}]))
     sys.exit(0)

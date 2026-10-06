@@ -2063,7 +2063,7 @@ expect "with the extra off nothing asked the keyring or Slack" "" cat -- "$off_c
 expect "with the extra off the service publishes no token rows" False lent_has_tokens
 expect "the notifications' Settings page opens with the extra off" ok ipc shell summon window vgs.settings '{"plugin":"vgs.notifications"}'
 settings_details
-settings_view() { ipc smoke readInstance window vgs.settings plugins | py_reply 'import json,sys; p=[p for p in json.load(sys.stdin) if p["id"] == "vgs.notifications"][0]; print(json.dumps([[s["key"] for s in p["status"]], [r["command"] for r in p["requirements"]], sorted(p["schema"])]))'; }
+settings_view() { ipc smoke readInstance window vgs.settings plugins | py_reply 'import json,sys; p=[p for p in json.load(sys.stdin) if p["id"] == "vgs.notifications"][0]; print(json.dumps([[s["key"] for s in p["status"]], [r["name"] for r in p["requirements"]], sorted(p["schema"])]))'; }
 expect_poll "the page lists no token row and none of the extra's commands" '[[], ["xdg-open", "node", "convert"], ["customEmoji", "duration"]]' settings_view
 expect "the page draws no Status row with the extra off" '[]' drawn_token_row
 expect "the page's Connect reaches no account with the extra off" "refused: secret=slack:T0ACME reason=undeclared" ipc smoke invokeInstance window vgs.settings storeSecret '{"id":"vgs.notifications","key":"slackTokens","account":"slack:T0ACME","secret":"xoxp-smoke-refused"}'

@@ -68,8 +68,8 @@
 # line alone. add asks the shell for that scan through `pluginInstalled
 # <id>`, so the shell also shows its requirement notice for the new plugin.
 #
-# After that line add prints `requires <command> (<package>)` for each
-# requirement of the new plugin whose command is not on PATH, the package
+# After that line add prints `requires <name> (<package>)` for each
+# requirement of the new plugin that the scan did not find, the package
 # being this system's pick as `plugin list` names it, then one
 # `install: vgshell pkg run install [--manager <id>] <package>...` line per
 # manager those packages come from; a manager the package table gives no
@@ -77,14 +77,14 @@
 # user to add to that system's own configuration. On a terminal it then asks
 # `Install now? [y/N]` on stderr and on y or yes runs each command in turn,
 # its exit status the first failing one's; any other answer, or no
-# terminal on stdin, leaves the commands printed for the user. The report
-# reads the manifest and PATH only, so add still runs no plugin code.
+# terminal on stdin, leaves the requirements printed for the user. The report
+# reads the manifest, PATH and D-Bus names only, so add still runs no plugin code.
 # `vgshell pkg run` asks a running shell to rescan once its steps end, so the
-# shell reports the installed commands present.
+# shell reports the installed requirements present.
 #
 # `plugin requirements` prints one line per requirement of the plugin the
 # shell would hold under <id>, enabled or not:
-# `<state> <command>[ (<package>)][ optional]: <purpose>`, state `present`
+# `<state> <name>[ (<package>)][ optional]: <purpose>`, state `present`
 # or `missing`. `doctor` prints the same lines, each led by `core` or the
 # plugin's id, for config/requirements.json and every plugin the
 # configuration enables, then one line, `session <present|missing|unknown>
@@ -92,11 +92,11 @@
 # read from the user manager's graphical-session.target; an unmanaged one
 # names what breaks and the entry to log in with, "Hyprland
 # (uwsm-managed)". --json prints the rows as
-# one JSON line, each `{ command, packages, optional, purpose, state,
+# one JSON line, each `{ name, bus, packages, optional, purpose, state,
 # package }` with package `{ manager, name }` or null: a list for `plugin
 # requirements`, and `{ core: [rows], plugins: { <id>: [rows] }, session:
-# { graphicalSession } }` for `doctor`. Both read the plugin directories
-# and PATH as the shell's scan does, and change nothing:
+# { graphicalSession } }` for `doctor`. Both read the plugin directories,
+# PATH and D-Bus names as the shell's scan does, and change nothing:
 # docs/architecture/requirements.md.
 #
 # `plugin settings` prints the settings the plugin the shell would hold
@@ -1178,10 +1178,10 @@ plugin_add() { # URL
   offer_requirements "$id"
 }
 
-# After add: the requirements of plugin ID the scan did not find on PATH,
+# After add: the requirements of plugin ID the scan did not find,
 # the `vgshell pkg run install` commands that install their packages, and on
 # a terminal the question whether to run them now. The judge reads the
-# manifest and the scan reads PATH; no plugin code runs (D007).
+# manifest and the scan reads PATH and D-Bus names; no plugin code runs (D007).
 offer_requirements() { # ID
   local scan report line answer
   local -a installs=() words

@@ -1095,7 +1095,7 @@ with (root / "vgshell.calls").open("a") as log:
 if args == ["plugin", "settings", "vgs.capture"]:
     print(json.dumps({{"ocrLanguages": {chosen!r}}}))
 elif args == ["plugin", "requirements", "--json", "vgs.capture"]:
-    print(json.dumps([{{"command": "tesseract", "package": {{"manager": {manager!r}, "name": "tesseract"}}}}]))
+    print(json.dumps([{{"name": "tesseract", "package": {{"manager": {manager!r}, "name": "tesseract"}}}}]))
 elif args[:3] == ["pkg", "run", "install"]:
     config = json.loads((root / "config.json").read_text())
     config["languages"] += [package.rsplit("-", 1)[1] for package in args[5:]]

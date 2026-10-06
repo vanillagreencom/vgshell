@@ -61,14 +61,22 @@ function suite(ctx, check) {
         ["entry point absolute", { entryPoints: { bar: "/etc/x.qml" } }, "entryPoints.bar must stay inside"],
         ["requires is refused by name", { requires: ["vgs.bar"] }, "requires is refused: a plugin names no other plugin (D005)"],
         ["requirements declaring a command", { requirements: [{ command: "gum", packages: { pacman: "gum", aur: "gum-bin", emerge: "app-misc/gum" }, optional: true, purpose: "Draws the update dialogs" }] }, null],
+        ["requirements declaring a D-Bus name", { requirements: [{ dbus: { bus: "system", name: "org.freedesktop.UPower.PowerProfiles" }, packages: { dnf: "ppd-service" }, purpose: "Switches the power profile" }] }, null],
         ["requirements with only a command and a purpose", { requirements: [{ command: "notify-send", purpose: "Sends notices" }] }, null],
         ["requirements not a list", { requirements: { command: "gum" } }, "requirements must be a list"],
         ["a requirement that is a plugin id string", { requirements: ["vgs.settings"] }, "requirements.0 must be an object"],
         ["a requirement with an unknown key", { requirements: [{ command: "gum", purpose: "p", plugin: "vgs.settings" }] }, "requirements.0 has unknown key \"plugin\""],
+        ["a requirement with command and dbus", { requirements: [{ command: "gum", dbus: { bus: "system", name: "org.freedesktop.UPower.PowerProfiles" }, purpose: "p" }] }, "requirements.0 must name exactly one of command or dbus"],
         ["a requirement command that is a path", { requirements: [{ command: "/usr/bin/gum", purpose: "p" }] }, "requirements.0.command must be a bare command name looked up on PATH, got \"/usr/bin/gum\""],
-        ["a requirement without a command", { requirements: [{ purpose: "p" }] }, "requirements.0.command must be a bare command name looked up on PATH, got undefined"],
-        ["a requirement command spelt as a plugin id", { requirements: [{ command: "vgs.settings", purpose: "p" }] }, "requirements.0.command \"vgs.settings\" is spelt as a plugin id: a requirement names a command, never a plugin (D005)"],
+        ["a requirement without a command or dbus", { requirements: [{ purpose: "p" }] }, "requirements.0 must name exactly one of command or dbus"],
+        ["a requirement command spelt as a plugin id", { requirements: [{ command: "vgs.settings", purpose: "p" }] }, "requirements.0.command \"vgs.settings\" is spelt as a plugin id: a requirement names a command or D-Bus name, never a plugin (D005)"],
+        ["a requirement dbus bus outside the table", { requirements: [{ dbus: { bus: "starter", name: "org.freedesktop.UPower.PowerProfiles" }, purpose: "p" }] }, "requirements.0.dbus.bus must be one of system, session"],
+        ["a requirement dbus name with one element", { requirements: [{ dbus: { bus: "system", name: "org" }, purpose: "p" }] }, "requirements.0.dbus.name must be a well-known D-Bus name"],
+        ["a requirement dbus name with a leading digit element", { requirements: [{ dbus: { bus: "system", name: "org.1bad" }, purpose: "p" }] }, "requirements.0.dbus.name must be a well-known D-Bus name"],
+        ["a requirement dbus name with a unique-name prefix", { requirements: [{ dbus: { bus: "system", name: ":1.5" }, purpose: "p" }] }, "requirements.0.dbus.name must be a well-known D-Bus name"],
+        ["a requirement dbus with an unknown key", { requirements: [{ dbus: { bus: "system", name: "org.freedesktop.UPower.PowerProfiles", path: "/" }, purpose: "p" }] }, "requirements.0.dbus has unknown key \"path\""],
         ["a requirement command declared twice", { requirements: [{ command: "gum", purpose: "p" }, { command: "gum", purpose: "q" }] }, "requirements.1.command \"gum\" is declared twice"],
+        ["a requirement name declared twice across command and dbus", { requirements: [{ command: "org.freedesktop.UPower.PowerProfiles", purpose: "p" }, { dbus: { bus: "system", name: "org.freedesktop.UPower.PowerProfiles" }, purpose: "q" }] }, "requirements.1.dbus.name \"org.freedesktop.UPower.PowerProfiles\" is declared twice"],
         ["requirement packages not an object", { requirements: [{ command: "gum", packages: ["gum"], purpose: "p" }] }, "requirements.0.packages must be an object of manager ids to package names"],
         ["requirement packages naming an unknown manager", { requirements: [{ command: "gum", packages: { zypper: "gum" }, purpose: "p" }] }, "requirements.0.packages names the unknown manager \"zypper\""],
         ["a requirement package starting with a dash", { requirements: [{ command: "gum", packages: { pacman: "-Sy" }, purpose: "p" }] }, "requirements.0.packages.pacman must be a package name"],
@@ -202,6 +210,7 @@ function suite(ctx, check) {
         ["a status command without an action", { capabilities: ["status"], status: { a: { type: "state", label: "A", command: "loginctl enable-linger" } } }, "status.a.command needs an action: a command is only the Show command disclosure beside a one-click action (D061)"],
         ["a state action opening the plugin's own TUI", { capabilities: ["status", "tui"], tui: { setup: { script: "tui/setup.sh", title: "Set up" } }, status: { a: { type: "state", label: "A", action: { label: "Set up", tui: "setup" } } } }, null],
         ["a presence action installing the plugin's own commands", { capabilities: ["status"], requirements: [{ command: "vsys", purpose: "p" }, { command: "gum", purpose: "q" }], status: { a: { type: "presence", label: "A", action: { label: "Install", install: ["vsys", "gum"] } } } }, null],
+        ["a presence action installing a plugin's own D-Bus requirement", { capabilities: ["status"], requirements: [{ dbus: { bus: "system", name: "org.freedesktop.UPower.PowerProfiles" }, purpose: "p" }], status: { a: { type: "presence", label: "A", action: { label: "Install", install: ["org.freedesktop.UPower.PowerProfiles"] } } } }, null],
         ["an action on a count", { capabilities: ["status"], requirements: [{ command: "gum", purpose: "q" }], status: { a: { type: "count", label: "A", action: { label: "Install", install: ["gum"] } } } }, "status.a.action needs a type whose value says when it applies, one of presence, state"],
         ["an action on a presence list", { capabilities: ["status"], requirements: [{ command: "gum", purpose: "q" }], status: { a: { type: "presenceList", label: "A", action: { label: "Install", install: ["gum"] } } } }, "status.a.action needs a type whose value says when it applies"],
         ["an action that is a string", { capabilities: ["status"], status: { a: { type: "state", label: "A", action: "setup" } } }, "status.a.action must be an object"],
@@ -221,8 +230,8 @@ function suite(ctx, check) {
         ["an action naming an undeclared TUI", { capabilities: ["status", "tui"], tui: { setup: { script: "tui/setup.sh", title: "Set up" } }, status: { a: { type: "state", label: "A", action: { label: "Go", tui: "other" } } } }, "status.a.action.tui must name a script of the manifest's tui key, got \"other\""],
         ["an action naming a TUI with no tui key", { capabilities: ["status"], status: { a: { type: "state", label: "A", action: { label: "Go", tui: "setup" } } } }, "status.a.action.tui must name a script of the manifest's tui key"],
         ["an action naming an inherited TUI name", { capabilities: ["status", "tui"], tui: { setup: { script: "tui/setup.sh", title: "Set up" } }, status: { a: { type: "state", label: "A", action: { label: "Go", tui: "constructor" } } } }, "status.a.action.tui must name a script of the manifest's tui key"],
-        ["an empty install", { capabilities: ["status"], status: { a: { type: "state", label: "A", action: { label: "Go", install: [] } } } }, "status.a.action.install must be a non-empty list of the manifest's requirement commands"],
-        ["an install of an undeclared command", { capabilities: ["status"], requirements: [{ command: "gum", purpose: "q" }], status: { a: { type: "state", label: "A", action: { label: "Go", install: ["sudo"] } } } }, "status.a.action.install.0 must name a command of the manifest's requirements, got \"sudo\""],
+        ["an empty install", { capabilities: ["status"], status: { a: { type: "state", label: "A", action: { label: "Go", install: [] } } } }, "status.a.action.install must be a non-empty list of the manifest's requirements"],
+        ["an install of an undeclared command", { capabilities: ["status"], requirements: [{ command: "gum", purpose: "q" }], status: { a: { type: "state", label: "A", action: { label: "Go", install: ["sudo"] } } } }, "status.a.action.install.0 must name a requirement of the manifest's requirements, got \"sudo\""],
         ["an install naming a command twice", { capabilities: ["status"], requirements: [{ command: "gum", purpose: "q" }], status: { a: { type: "state", label: "A", action: { label: "Go", install: ["gum", "gum"] } } } }, "status.a.action.install.1 repeats \"gum\""],
         ["a data entry with an action", { capabilities: ["status"], requirements: [{ command: "gum", purpose: "q" }], status: { a: { type: "data", label: "A", action: { label: "Go", install: ["gum"] } } } }, "status.a.action needs a type whose value says when it applies"],
         // systemSteps (D081): steps of the core's closed table, read through capability system.
@@ -324,11 +333,12 @@ function suite(ctx, check) {
     check("validateManifest normalizes an absent systemSteps to a list", ctx.validateManifest(bar, "/p").manifest.systemSteps, []);
     check("validateManifest keeps the declared systemSteps", ctx.validateManifest(Object.assign({}, bar, { capabilities: ["system"], systemSteps: ["i2c-dev", "apple-displays"] }), "/p").manifest.systemSteps, ["i2c-dev", "apple-displays"]);
     check("the system step table is bin/vgshell-system's", ctx.SYSTEM_STEPS, ["apple-displays", "i2c-dev", "service-bluetooth", "service-tailscaled", "tailscale-operator", "greeter"]);
-    const required = ctx.validateManifest(Object.assign({}, bar, { requirements: [{ command: "gum", purpose: "Dialogs" }, { command: "checkupdates", packages: { pacman: "pacman-contrib" }, optional: true, purpose: "Counts updates" }] }), "/p").manifest;
+    const required = ctx.validateManifest(Object.assign({}, bar, { requirements: [{ command: "gum", purpose: "Dialogs" }, { command: "checkupdates", packages: { pacman: "pacman-contrib" }, optional: true, purpose: "Counts updates" }, { dbus: { bus: "system", name: "org.freedesktop.UPower.PowerProfiles" }, packages: { dnf: "ppd-service" }, purpose: "Switches the power profile" }] }), "/p").manifest;
     check("validateManifest gives every requirement its packages and optional", required.requirements,
-        [{ command: "gum", packages: {}, optional: false, purpose: "Dialogs" }, { command: "checkupdates", packages: { pacman: "pacman-contrib" }, optional: true, purpose: "Counts updates" }]);
-    check("requirementRows: a command the scan did not find is missing, every other present", ctx.requirementRows(required, ["checkupdates", "vsys"]).map(r => [r.command, r.state]), [["gum", "present"], ["checkupdates", "missing"]]);
-    check("requirementRows: every command is present when the scan missed none", ctx.requirementRows(required, []).map(r => r.state), ["present", "present"]);
+        [{ name: "gum", bus: null, packages: {}, optional: false, purpose: "Dialogs" }, { name: "checkupdates", bus: null, packages: { pacman: "pacman-contrib" }, optional: true, purpose: "Counts updates" }, { name: "org.freedesktop.UPower.PowerProfiles", bus: "system", packages: { dnf: "ppd-service" }, optional: false, purpose: "Switches the power profile" }]);
+    check("requirementRows: a command the scan did not find is missing, every other present", ctx.requirementRows(required, ["checkupdates", "vsys"]).map(r => [r.name, r.bus, r.state]), [["gum", null, "present"], ["checkupdates", null, "missing"], ["org.freedesktop.UPower.PowerProfiles", "system", "present"]]);
+    check("requirementRows: a bus name the scan did not find is missing", ctx.requirementRows(required, ["org.freedesktop.UPower.PowerProfiles"]).map(r => [r.name, r.state]), [["gum", "present"], ["checkupdates", "present"], ["org.freedesktop.UPower.PowerProfiles", "missing"]]);
+    check("requirementRows: every requirement is present when the scan missed none", ctx.requirementRows(required, []).map(r => r.state), ["present", "present", "present"]);
     check("requirementRows does not alias the manifest", (() => { ctx.requirementRows(required, [])[1].packages.apt = "x"; return required.requirements[1].packages; })(), { pacman: "pacman-contrib" });
     check("the core's config/requirements.json passes the requirements judge", ctx.requirementsError(JSON.parse(fs.readFileSync(CORE_REQUIREMENTS, "utf8"))), "");
 
@@ -1313,9 +1323,13 @@ const CONTROLS = [
     ["requirements is a list", "if (!Array.isArray(requirements))\n        return \"requirements must be a list\";", "if (false)\n        return \"requirements must be a list\";"],
     ["a requirement is an object", "if (!isPlainObject(requirement))", "if (false)"],
     ["a requirement carries known keys", "if (REQUIREMENT_KEYS.indexOf(keys[k]) === -1)", "if (false)"],
+    ["a requirement names one identity", "if (hasCommand === hasDbus)\n        return { ok: false, error: at + \" must name exactly one of command or dbus\" };", "if (false)\n        return { ok: false, error: at + \" must name exactly one of command or dbus\" };"],
     ["a requirement command is a bare command name", "if (!PackageManagers.validCommand(requirement.command))", "if (false)"],
     ["a requirement command is never a plugin id", "if (ID_PATTERN.test(requirement.command))", "if (false)"],
-    ["a requirement command is declared once", "if (commands.indexOf(requirement.command) !== -1)", "if (false)"],
+    ["a requirement dbus bus is system or session", "if (REQUIREMENT_BUSES.indexOf(requirement.dbus.bus) === -1)", "if (false)"],
+    ["a requirement dbus name is well known", "if (!dbusNameValid(requirement.dbus.name))", "if (false)"],
+    ["a requirement dbus carries known keys", "if (REQUIREMENT_DBUS_KEYS.indexOf(keys[k]) === -1)", "if (false)"],
+    ["a requirement name is declared once", "if (names.indexOf(identity.name) !== -1)", "if (false)"],
     ["requirement packages is an object", "if (!isPlainObject(requirement.packages))", "if (false)"],
     ["requirement packages name known managers", "if (PackageManagers.managerRow(managers[m]) === null)", "if (false)"],
     ["a requirement package name is judged", "if (!PackageManagers.validName(requirement.packages[managers[m]]))", "if (false)"],
@@ -1326,12 +1340,13 @@ const CONTROLS = [
     ["a requirement purpose holds no control character", " || CONTROL_CHARACTER.test(requirement.purpose))", ")"],
     ["an absent requirement packages is normalized", "packages: entry.packages === undefined ? {} : clone(entry.packages)", "packages: clone(entry.packages)"],
     ["an absent requirement optional is normalized", "optional: entry.optional === true", "optional: entry.optional"],
+    ["a requirement's normalized identity is its name", "return { name: requirementName(entry), bus: entry.dbus === undefined ? null : entry.dbus.bus", "return { name: entry.command, bus: entry.dbus === undefined ? null : entry.dbus.bus"],
     ["a manifest carries its requirements normalized", "manifest.requirements = normalRequirements(requirements);", ""],
     ["an idle watch takes one second at least", "seconds < 1 || ", ""],
     ["an idle watch takes a day at most", " || seconds > IDLE_WATCH_MAX_SECONDS)", ")"],
     ["an idle watch takes whole seconds", "!Number.isInteger(seconds) || ", ""],
     ["an idle watch needs a handler", "if (typeof onChange !== \"function\") return \"refused: idle-handler=not-a-function\";", ""],
-    ["a requirement the scan missed is reported missing", "missing.indexOf(entry.command) === -1 ? \"present\" : \"missing\"", "\"present\""],
+    ["a requirement the scan missed is reported missing", "missing.indexOf(entry.name) === -1 ? \"present\" : \"missing\"", "\"present\""],
     ["placing never writes disabledPlugins", "function withPlaced(user, manifest, placed, effective) {\n    var out = isPlainObject(user) ? clone(user) : {};", "function withPlaced(user, manifest, placed, effective) {\n    var out = isPlainObject(user) ? clone(user) : {};\n    out.disabledPlugins = Array.isArray(effective.disabledPlugins) ? effective.disabledPlugins.slice() : [];"],
     ["a widget already as asked changes nothing", "if (placed === isPlaced(effective, manifest))\n        return out;", "if (false)\n        return out;"],
     ["unplacing removes the entries", "return entry.id !== manifest.id; });", "return true; });"],

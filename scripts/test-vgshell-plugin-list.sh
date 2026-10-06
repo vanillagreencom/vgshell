@@ -38,7 +38,7 @@ reply() { # REQUIREMENTS [UNKNOWN]
   printf '{"plugins":[{"id":"acme.need","version":"1.0","kinds":["service"],"enabled":false,"dir":"/x","requirements":%s}],"errors":[],"collisions":[],"unknown":%s,"scanError":"","scanned":true}' "$1" "${2:-[]}"
 }
 req() { # COMMAND STATE OPTIONAL PACKAGES
-  printf '{"command":"%s","packages":%s,"optional":%s,"purpose":"p","state":"%s"}' "$1" "$4" "$3" "$2"
+  printf '{"name":"%s","bus":null,"packages":%s,"optional":%s,"purpose":"p","state":"%s"}' "$1" "$4" "$3" "$2"
 }
 
 # case_out BIN BOUND REPLY: `plugin list` through BIN with REPLY; BOUND is

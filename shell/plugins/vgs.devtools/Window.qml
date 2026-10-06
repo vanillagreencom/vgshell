@@ -57,7 +57,7 @@ Item {
             reply = shell.tui.run(action.verb, ViewLogic.verbArgs(action.verb, row, channel));
             break;
         case "doctor":
-            reply = shell.doctor.offer(row.requirement.owner, [row.requirement.command]);
+            reply = shell.doctor.offer(row.requirement.owner, [row.requirement.name]);
             break;
         case "entry":
             reply = shell.tui.open(action.verb);

@@ -23,7 +23,7 @@ Item {
         StatusLine { id: warden; width: list.width; label: "Warden"; tone: "success"; text: "Checking"; hint: "Keeps AI agents within their memory and task limits"; command: "systemctl --user start agent-warden.timer" }
         StatusLine { id: agents; width: list.width; label: "Agents running"; text: "3" }
         StatusLine { id: hidden; width: list.width; label: "Hidden"; text: "gone"; visible: false }
-        RequirementRow { id: vsys; width: list.width; requirement: ({ command: "vsys", state: "present", optional: false, purpose: "The agent dashboard that ships the warden" }) }
+        RequirementRow { id: vsys; width: list.width; requirement: ({ name: "vsys", bus: null, state: "present", optional: false, purpose: "The agent dashboard that ships the warden" }) }
     }
 
     GroupList {

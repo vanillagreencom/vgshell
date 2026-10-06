@@ -29,7 +29,7 @@ const row = fields => Object.assign({ id: "claude", name: "Claude Code", section
     origin: null, manager: null, package: null, runtime: null, path: null, launcher: "absent", channels: null, actions: ["install"], error: null }, fields);
 const list = (sections, other, mise) => ({ machine: "x86_64", mise: mise || { present: true, version: "2026.9.9" }, manager: "pacman",
     sections: Object.assign({ agents: [], apps: [], tools: [], envs: [], editors: [], terminals: [], databases: [] }, sections), other: other || [] });
-const requirement = fields => Object.assign({ command: "gum", packages: { pacman: "gum" }, optional: false, purpose: "Draws the dialogs", state: "missing", package: { manager: "pacman", name: "gum" } }, fields);
+const requirement = fields => Object.assign({ name: "gum", bus: null, packages: { pacman: "gum" }, optional: false, purpose: "Draws the dialogs", state: "missing", package: { manager: "pacman", name: "gum" } }, fields);
 const self = fields => Object.assign({ version: "0.1.0", method: "checkout", package: null, current: "0.1.0.r3.gabc1234", latest: "0.1.1", behind: false, error: null }, fields);
 const ok = value => ({ value: value, error: null });
 
@@ -151,11 +151,11 @@ function verify(logic) {
         same(logic.readAnswer(name, 0, stdout, ""), answer, label);
 
     // Missing requirements: the core's first, then each plugin's by id.
-    same(logic.missingRequirements({ core: [requirement({ command: "node", state: "present" }), requirement({ optional: true })],
-        plugins: { "zeta.x": [requirement({ command: "z", package: null })], "acme.y": [requirement({ command: "a" })] } }), [
-        { owner: "core", command: "gum", purpose: "Draws the dialogs", optional: true, package: { manager: "pacman", name: "gum" } },
-        { owner: "acme.y", command: "a", purpose: "Draws the dialogs", optional: false, package: { manager: "pacman", name: "gum" } },
-        { owner: "zeta.x", command: "z", purpose: "Draws the dialogs", optional: false, package: null }
+    same(logic.missingRequirements({ core: [requirement({ name: "node", state: "present" }), requirement({ optional: true })],
+        plugins: { "zeta.x": [requirement({ name: "z", package: null })], "acme.y": [requirement({ name: "a" })] } }), [
+        { owner: "core", name: "gum", purpose: "Draws the dialogs", optional: true, package: { manager: "pacman", name: "gum" } },
+        { owner: "acme.y", name: "a", purpose: "Draws the dialogs", optional: false, package: { manager: "pacman", name: "gum" } },
+        { owner: "zeta.x", name: "z", purpose: "Draws the dialogs", optional: false, package: null }
     ]);
 
     // Status values.
@@ -167,7 +167,7 @@ function verify(logic) {
         [{ id: "github:o/x", installed: true, version: "1", actions: ["update", "remove"] }]);
     const values = logic.statusValues({ catalog: ok(listed), updates: ok({ count: 3, packages: [] }), requirements: ok({ core: [requirement({})], plugins: { "acme.y": [requirement({ state: "present" })] } }) });
     same([values.mise, values.installed, values.outdated, values.missingRequirements], [{ tone: "ok", text: "2026.9.9" }, 2, 3, 1]);
-    same(values.catalog.requirements, ok([{ owner: "core", command: "gum", purpose: "Draws the dialogs", optional: false, package: { manager: "pacman", name: "gum" } }]), "the catalog holds the missing requirements alone");
+    same(values.catalog.requirements, ok([{ owner: "core", name: "gum", purpose: "Draws the dialogs", optional: false, package: { manager: "pacman", name: "gum" } }]), "the catalog holds the missing requirements alone");
     same(logic.statusValues({ catalog: ok(list({}, [], { present: false, version: null })) }).mise, { tone: "warning", text: "Not installed", action: true }, "a missing mise offers Install mise");
     const failed = logic.statusValues({ catalog: { value: null, error: "mise=absent" }, updates: { value: null, error: "timeout=120" }, requirements: { value: null, error: "exit=1" } });
     same(failed.mise, { tone: "danger", text: "A required tool is missing. Use Install to add it." });
@@ -229,9 +229,9 @@ function verify(logic) {
 
     // A requirement row.
     const req = r => { const v = logic.requirementRow(r, 0); return [v.name, v.secondary, v.chips, v.actions, v.lines]; };
-    same(req({ owner: "core", command: "gum", purpose: "Draws", optional: true, package: { manager: "pacman", name: "gum" } }),
+    same(req({ owner: "core", name: "gum", purpose: "Draws", optional: true, package: { manager: "pacman", name: "gum" } }),
         ["gum", "VGS · Draws", [{ text: "Missing", tone: "neutral" }, { text: "Optional", tone: "neutral" }], [{ kind: "doctor", verb: "", label: "Install", variant: "primary" }], []]);
-    same(req({ owner: "acme.y", command: "z", purpose: "Draws", optional: false, package: null }),
+    same(req({ owner: "acme.y", name: "z", purpose: "Draws", optional: false, package: null }),
         ["z", "acme.y · Draws", [{ text: "Missing", tone: "warning" }], [], ["VGS cannot install this tool on this system."]]);
 
     // Sections.

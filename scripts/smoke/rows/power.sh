@@ -7,12 +7,16 @@
 # the mocks through their D-Bus interfaces with
 # shell_env, so no call reaches the host's UPower, power-profiles-daemon,
 # battery, charger or system bus. A notify-send stand-in records battery
-# notices and a powerprofilesctl stand-in satisfies the requirement probe;
-# the plugin never runs powerprofilesctl.
+# notices. The power profile service's D-Bus name satisfies the requirement
+# probe.
 #
-# Rows: the first enable sees a discharging battery and a power-saver
-# profile without applying the remembered battery profile; the widget draws
-# the 51 % text and a non-charging icon; with a charging display battery,
+# Rows: before the mocks start, the first enable raises a requirement
+# notice for org.freedesktop.UPower.PowerProfiles; after the mocks own that
+# name, enabling vgs.power raises no notice and the requirement reads
+# present. Those two readings are each other's control. The first real
+# enable sees a discharging battery and a power-saver profile without
+# applying the remembered battery profile; the widget draws the 51 % text
+# and a non-charging icon; with a charging display battery,
 # it draws the charging icon; one discharge sends one low and one critical
 # alert, no repeats below the same thresholds; keyboard selection in the
 # panel chooses Performance and writes the current source setting; a plug
@@ -24,19 +28,18 @@
 # The row disables vgs.power, starts the mocks, then restarts the shell
 # before the first enable, so Quickshell's connect-once UPower and
 # PowerProfiles singletons bind to the mocks no matter what earlier rows
-# left. The row restores notify-send, powerprofilesctl, vgs.power's
+# left. The row restores notify-send, vgs.power's
 # enablement and placement, moves fixture copies out of the plugin
 # directory, stops the mock process groups it spawned, and restarts the
 # shell because Quickshell keeps those singletons in the process after the
 # plugin is disabled.
-# inputs: shell/plugins/vgs.power/* shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Core/PluginLogic.js shell/Hosts/SummonHost.qml scripts/smoke/rows/device-fakes.sh scripts/smoke/power-fakes.sh
+# inputs: shell/plugins/vgs.power/* shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Core/PluginLogic.js shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Hosts/SummonHost.qml bin/vgshell-scan scripts/smoke/rows/device-fakes.sh scripts/smoke/power-fakes.sh
 set -euo pipefail
 source "$repo/scripts/smoke/power-fakes.sh"
 
 power_upower_pid=""
 power_profiles_pid=""
 power_notify_stood=""
-power_profilesctl_stood=""
 power_gdbus_stood=""
 power_was_enabled=""
 power_was_placed=""
@@ -65,14 +68,12 @@ power_stand() {
   if [[ -e $shim/$name ]]; then
     case "$name" in
       notify-send) power_notify_stood=yes ;;
-      powerprofilesctl) power_profilesctl_stood=yes ;;
       gdbus) power_gdbus_stood=yes ;;
     esac
     sentinel_stand_over "$shim/$name"
   else
     case "$name" in
       notify-send) power_notify_stood=no ;;
-      powerprofilesctl) power_profilesctl_stood=no ;;
       gdbus) power_gdbus_stood=no ;;
     esac
     cat >"$shim/$name" && chmod 755 "$shim/$name"
@@ -84,6 +85,7 @@ power_restore_stand() {
 }
 
 power_widget() { ipc smoke readInstance "$(bar_key)" "${power_id:-vgs.power}" "$1"; }
+power_requirement_state() { ipc shell listPlugins | py_reply 'import json,sys; p=[p for p in json.load(sys.stdin)["plugins"] if p["id"]=="vgs.power"][0]; print([r["state"] for r in p["requirements"] if r["name"]=="org.freedesktop.UPower.PowerProfiles"][0])'; }
 power_status() { ipc smoke statusValues "${power_id:-vgs.power}" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get("power"), sort_keys=True, separators=(",", ":")))'; }
 power_status_charging() { power_status | py_reply 'import json,sys; print(json.load(sys.stdin)["battery"]["charging"])'; }
 power_status_dump() { power_status; }
@@ -137,23 +139,29 @@ power_main() {
 #!/usr/bin/env bash
 python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "\$@" >>"$power_notify_calls"
 EOF_STAND
-  power_stand powerprofilesctl <<'EOF_STAND'
-#!/usr/bin/env bash
-exit 0
-EOF_STAND
   power_stand gdbus <<EOF_STAND
 #!/usr/bin/env bash
 exec env DBUS_SYSTEM_BUS_ADDRESS="$rt_dir/system-bus" $(command -v gdbus) "\$@"
 EOF_STAND
 
   expect "disabling vgs.power before the UPower restart is allowed" ok ipc shell setPluginEnabled vgs.power false
+  rescan "rescan before the PowerProfiles mock starts answers ok"
+  expect "the power profiles service is missing before its mock starts" missing power_requirement_state
+  expect "enabling vgs.power without the PowerProfiles bus name is allowed" ok ipc shell setPluginEnabled vgs.power true
+  expect_poll "enabling without the PowerProfiles bus name raises its requirement notice" '["vgs.power", ["org.freedesktop.UPower.PowerProfiles"], ["org.freedesktop.UPower.PowerProfiles"], false]' notice_shown
+  expect_poll "the PowerProfiles requirement notice holds the keyboard" true ipc smoke noticeFocused
+  type_keys -k Escape || fail "sending Escape to the PowerProfiles requirement notice failed"
+  expect_poll "Escape closes the PowerProfiles requirement notice" null notice_shown
+  expect "disabling vgs.power after the missing-service proof is allowed" ok ipc shell setPluginEnabled vgs.power false
   power_start_mocks power power-saver
   expect "the mock starts with a discharging battery object" "/org/freedesktop/UPower/devices/mock_BAT0" power_add_battery
   power_discharging 51.0 5400
   stop_shell || fail "power: the shell stops before the UPower restart"
   start_shell "$repo" "$sandbox/qs-power.log" || return 0
   rescan "rescan after adding power stand-ins answers ok"
+  expect_poll "the power profiles service requirement is present after mocks start" present power_requirement_state
   expect "enabling vgs.power is allowed" ok ipc shell setPluginEnabled vgs.power true
+  expect "enabling vgs.power with the PowerProfiles bus name raises no notice" null notice_shown
   expect "placing vgs.power in the bar is allowed" ok ipc shell setPluginPlaced vgs.power true
   expect_poll "the Power service publishes the initial discharging battery" 51 power_level
   expect_poll "the Power service reports profiles available" True power_profile_available
@@ -249,7 +257,6 @@ EOF_STAND
   expect "disabling vgs.power after the unavailable check is allowed" ok ipc shell setPluginEnabled vgs.power false
 
   power_restore_stand notify-send "$power_notify_stood"
-  power_restore_stand powerprofilesctl "$power_profilesctl_stood"
   power_restore_stand gdbus "$power_gdbus_stood"
   power_stop_mocks
   stop_shell || fail "power: the shell stops after UPower mocks"

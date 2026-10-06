@@ -102,7 +102,8 @@ function countRequirements(tree) {
     const all = lists.flat();
     const table = fs.readFileSync(path.join(tree, "bin/vgshell"), "utf8").split("preflight_floor='\n")[1].split("\n'\n")[0];
     const probes = table.split("\n").filter(Boolean).map(line => line.trim().split(/\s+/)[3]);
-    return all.length + probes.filter(probe => !all.some(entry => entry.command === probe)).length
+    const nameOf = entry => entry.command || entry.dbus.name;
+    return all.length + probes.filter(probe => !all.some(entry => nameOf(entry) === probe)).length
         + JSON.parse(fs.readFileSync(path.join(tree, "packaging/runtime-libraries.json"), "utf8")).length;
 }
 
@@ -187,6 +188,16 @@ function plantPluginRequirement(tree, command, pkg) {
     const requirements = manifest.requirements || [];
     if (requirements.some(entry => entry.command === command)) throw new Error("plugin requirement: refused: declared=" + command);
     manifest.requirements = requirements.concat([{ command, packages: { pacman: pkg }, optional: true, purpose: "A planted requirement" }]);
+    fs.writeFileSync(file, JSON.stringify(manifest));
+}
+
+function plantPluginDbusRequirement(tree, name, packages) {
+    const file = path.join(tree, "shell/plugins/vgs.launcher/manifest.json");
+    const manifest = JSON.parse(fs.readFileSync(file, "utf8"));
+    const requirements = manifest.requirements || [];
+    const nameOf = entry => entry.command || entry.dbus.name;
+    if (requirements.some(entry => nameOf(entry) === name)) throw new Error("plugin requirement: refused: declared=" + name);
+    manifest.requirements = requirements.concat([{ dbus: { bus: "system", name }, packages, optional: false, purpose: "A planted bus requirement" }]);
     fs.writeFileSync(file, JSON.stringify(manifest));
 }
 
@@ -291,6 +302,9 @@ const ROWS = [
     ["a shipped plugin's listed requirement passes and counts", t => plantPluginRequirement(t, "vgs-already-provided", "file"), 0, tree => ok(countRequirements(tree))],
     ["a shipped plugin's unlisted requirement is refused", t => plantPluginRequirement(t, "vgs-planted", "vgs-planted-package"),
         1, () => refused("requirement=vgs-planted package=vgs-planted-package want=depends-or-optdepends channel=pacman recipe=vgshell scope=vgs.launcher")],
+    ["a shipped plugin's required D-Bus requirement passes when listed", t => plantPluginDbusRequirement(t, "org.vgshell.Planted", { pacman: "git", dnf: "git", nix: "git" }), 0, tree => ok(countRequirements(tree))],
+    ["a shipped plugin's required D-Bus requirement is refused when unlisted", t => plantPluginDbusRequirement(t, "org.vgshell.Planted", { pacman: "vgs-planted-bus" }),
+        1, () => refused("requirement=org.vgshell.Planted package=vgs-planted-bus want=depends channel=pacman recipe=vgshell scope=vgs.launcher")],
     // Floors from bin/vgshell's preflight table.
     ["a floored depends without its constraint is refused", t => edit(t, SRC, "^\\tdepends = quickshell>=.*$", "\tdepends = quickshell"),
         1, tree => refused(`floor=missing package=quickshell want=>=${floorOf(tree, "quickshell")} ` + where())],

@@ -366,11 +366,11 @@ const jarvis = logic.validateManifest(JSON.parse(fs.readFileSync(jarvisFile, "ut
 if (!jarvis.ok) throw new Error(jarvis.error);
 const required = jarvis.manifest.requirements.filter(row => !row.optional);
 if (required.length <= logic.NOTICE_OFFER_MAX) throw new Error("Jarvis list does not reach the notice subset bound");
-manifest.requirements.push(...required.map(row => ({ ...row, command: "vgs-smoke-required-" + row.command })));
+manifest.requirements.push(...required.map(row => ({ command: "vgs-smoke-required-" + row.name, packages: row.packages, optional: row.optional, purpose: row.purpose })));
 const judged = logic.validateManifest(manifest, path.dirname(fixture));
 if (!judged.ok) throw new Error(judged.error);
 fs.writeFileSync(fixture, JSON.stringify(manifest));
-const missing = manifest.requirements.map(row => row.command);
+const missing = manifest.requirements.map(row => row.command || row.dbus.name);
 process.stdout.write(JSON.stringify([manifest.id, missing, missing, false]));
 JS
 )" || fail "the full-required-list fixture could not be prepared"

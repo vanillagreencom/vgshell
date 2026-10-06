@@ -29,7 +29,7 @@ function report(name, got, want) {
 }
 
 // The fixture: a plugin whose `photos` extra owns the `tokens` list and the
-// optional commands curl and secret-tool; `sync` is an ordinary setting.
+// optional requirements curl and secret-tool; `sync` is an ordinary setting.
 function fixture() {
     return {
         schemaVersion: 1, id: "acme.extras", name: "Extras", version: "1", author: "a", description: "d",
@@ -73,7 +73,7 @@ function suite(ctx, check) {
         ["an extra naming an undeclared status entry", m => { m.extras.photos.status = ["nope"]; }, "extras.photos.status.0 must name a status entry the Settings page draws, got \"nope\""],
         ["an extra naming a data entry", m => { m.extras.photos.status = ["detail"]; }, "extras.photos.status.0 must name a status entry the Settings page draws, got \"detail\""],
         ["an extra naming a hidden entry", m => { m.extras.photos.status = ["quiet"]; }, "extras.photos.status.0 must name a status entry the Settings page draws, got \"quiet\""],
-        ["an extra naming an undeclared command", m => { m.extras.photos.requirements = ["jq"]; }, "extras.photos.requirements.0 must name a command of the manifest's requirements, got \"jq\""],
+        ["an extra naming an undeclared command", m => { m.extras.photos.requirements = ["jq"]; }, "extras.photos.requirements.0 must name a requirement of the manifest's requirements, got \"jq\""],
         ["an extra naming a required command", m => { m.extras.photos.requirements = ["git"]; }, "extras.photos.requirements.0 must name an optional requirement"],
         ["an extra naming an entry twice", m => { m.extras.photos.status = ["tokens", "tokens"]; }, "extras.photos.status.1 \"tokens\" is named twice"],
         ["two extras owning one command", m => { m.settings.beta = false; m.extras.beta = { requirements: ["curl"] }; }, "extras.beta.requirements.0 \"curl\" already serves extra photos"],
@@ -107,8 +107,8 @@ function suite(ctx, check) {
         if (settings !== undefined) s.photos = settings;
         check("activeManifest: an extra set to " + name + " is off", Object.keys(ctx.activeManifest(m, s).status), ["health", "detail", "quiet"]);
     }
-    check("activeManifest: an extra that is off leaves its commands out", off.requirements.map(r => r.command), ["git"]);
-    check("activeManifest: the manifest itself keeps every entry", [Object.keys(m.status), m.requirements.map(r => r.command)], [["tokens", "health", "detail", "quiet"], ["git", "curl", "secret-tool"]]);
+    check("activeManifest: an extra that is off leaves its requirements out", off.requirements.map(r => r.name), ["git"]);
+    check("activeManifest: the manifest itself keeps every entry", [Object.keys(m.status), m.requirements.map(r => r.name)], [["tokens", "health", "detail", "quiet"], ["git", "curl", "secret-tool"]]);
     check("activeManifest: settings that are no object throw", (() => { try { ctx.activeManifest(m, null); return "no throw"; } catch (e) { return e.message; } })(), "activeManifest: settings of acme.extras must be an object");
 
     const values = ctx.statusWrite(m, ctx.statusWrite(m, {}, "tokens", [{ label: "Acme", value: "absent", secret: "acme:T1" }]).values, "health", { tone: "ok", text: "Fine" }).values;
@@ -117,9 +117,9 @@ function suite(ctx, check) {
     check("statusRows: an extra that is on draws its rows", ctx.statusRows(on, values, []).map(r => r.key), ["tokens", "health"]);
     check("secretRequest: an extra that is off stores nothing", ctx.secretRequest(off, "acme.extras", true, values, "tokens", "acme:T1", "store", "x"), { ok: false, answer: "refused: secret=acme:T1 reason=undeclared" });
     check("secretRequest: an extra that is on stores its account", ctx.secretRequest(on, "acme.extras", true, values, "tokens", "acme:T1", "store", "x").ok, true);
-    check("requirementRows: an extra that is off lists none of its commands", ctx.requirementRows(off, ["curl", "secret-tool"]).map(r => r.command), ["git"]);
-    check("requirementRows: an extra that is on lists its commands", ctx.requirementRows(on, ["curl"]).map(r => [r.command, r.state]), [["git", "present"], ["curl", "missing"], ["secret-tool", "present"]]);
-    check("noticeRequest: a request with an extra off lists none of its commands", ctx.noticeRequest(off, ["curl", "secret-tool"], "requested", []), { answer: "satisfied", commands: [], required: [] });
+    check("requirementRows: an extra that is off lists none of its requirements", ctx.requirementRows(off, ["curl", "secret-tool"]).map(r => r.name), ["git"]);
+    check("requirementRows: an extra that is on lists its requirements", ctx.requirementRows(on, ["curl"]).map(r => [r.name, r.state]), [["git", "present"], ["curl", "missing"], ["secret-tool", "present"]]);
+    check("noticeRequest: a request with an extra off lists none of its requirements", ctx.noticeRequest(off, ["curl", "secret-tool"], "requested", []), { answer: "satisfied", commands: [], required: [] });
     check("noticeRequest: a request with an extra on lists its missing commands", ctx.noticeRequest(on, ["curl"], "requested", []), { answer: "ok", commands: ["curl"], required: ["curl"] });
     check("noticeRequest: a choice of an off extra's command is undeclared", ctx.noticeRequest(off, ["curl"], "chosen", ["curl"]).answer, "refused: requirement=curl reason=undeclared");
 }
@@ -139,16 +139,16 @@ const CONTROLS = [
     ["an extra has only its keys", "if (EXTRA_KEYS.indexOf(keys[k]) === -1)", "if (false)"],
     ["an extra's list is a non-empty list", "if (!Array.isArray(entry[list]) || entry[list].length === 0)", "if (false)"],
     ["an extra's status entry is drawn", " || !statusDisplayable(status[item]))", ")"],
-    ["an extra's command is declared", "if (requirement === undefined)\n", "if (false)\n"],
-    ["an extra's command is optional", "if (requirement.optional !== true)", "if (false)"],
+    ["an extra's requirement is declared", "if (requirement === undefined)\n", "if (false)\n"],
+    ["an extra's requirement is optional", "if (requirement.optional !== true)", "if (false)"],
     ["an entry serves one extra", "if (hasOwn(served[list], item))", "if (false)"],
-    ["a button installing an extra's command belongs to it", "if (owner !== \"\" && served.status[entries[e]] !== owner)", "if (false)"],
-    ["a named button installing an extra's command belongs to it", "? statusEntryActions(status[entries[e]]) : [];", "? statusEntryActions(status[entries[e]]).filter(function (declared) { return declared.name === null; }) : [];"],
+    ["a button installing an extra's requirement belongs to it", "if (owner !== \"\" && served.status[entries[e]] !== owner)", "if (false)"],
+    ["a named button installing an extra's requirement belongs to it", "? statusEntryActions(status[entries[e]]) : [];", "? statusEntryActions(status[entries[e]]).filter(function (declared) { return declared.name === null; }) : [];"],
     ["an extra carries its status list", "status: clone(raw.extras[name].status || []), ", "status: [], "],
     ["an extra carries its requirements list", "requirements: clone(raw.extras[name].requirements || []) };", "requirements: [] };"],
     ["only true turns an extra on", "settings[name] !== true", "settings[name] === false"],
     ["an extra that is off leaves its status out", "if (statusOff.indexOf(key) === -1) out.status[key]", "if (true) out.status[key]"],
-    ["an extra that is off leaves its commands out", "return commandsOff.indexOf(r.command) === -1;", "return true;"],
+    ["an extra that is off leaves its requirements out", "return requirementsOff.indexOf(r.name) === -1;", "return true;"],
     ["the manifest itself is not changed", "var out = Object.assign({}, manifest);", "var out = manifest;"],
     ["settings are an object", "if (!isPlainObject(settings))\n        throw new Error(\"activeManifest", "if (false)\n        throw new Error(\"activeManifest"],
 ];

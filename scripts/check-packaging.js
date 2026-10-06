@@ -23,7 +23,7 @@
 //     requirement required, and names its package: the declared package for
 //     a manager, else the row's tool name. `present` sets no version.
 // Each entry is { scope, command, packages, optional, floor, tool }: scope
-// `core` or the plugin id, packages keyed by manager id, floor a dotted
+// `core` or the plugin id, command is the requirement name, packages keyed by manager id, floor a dotted
 // version or null, tool the preflight row's tool or null.
 //
 // CHANNELS holds one entry per channel whose recipes live here, keyed by
@@ -236,7 +236,7 @@ function readRequirements() {
     const coreError = ctx.requirementsError(core);
     if (coreError !== "") refuse("requirements=refused path=" + coreRel, coreError);
     if (core.length === 0) refuse("requirements=empty scope=core", "the core list is never empty, so the reader is broken");
-    const entry = (scope, r) => ({ scope, command: r.command, packages: r.packages, optional: r.optional, floor: null, tool: null });
+    const entry = (scope, r) => ({ scope, command: r.name, packages: r.packages, optional: r.optional, floor: null, tool: null });
     const list = ctx.normalRequirements(core).map(r => entry("core", r));
 
     const base = path.join(root, "shell", "plugins");

@@ -27,7 +27,7 @@ function itemCommand(item) {
 }
 
 // Whether the Requirements section's install step applies to REQUIREMENT,
-// one row of PluginLogic.requirementRows: while its command is missing.
+// one row of PluginLogic.requirementRows: while its requirement is missing.
 function requirementApplies(requirement) {
     return requirement.state === "missing";
 }

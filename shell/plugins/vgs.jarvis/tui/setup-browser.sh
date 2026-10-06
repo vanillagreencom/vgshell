@@ -28,7 +28,7 @@ install_driver() {
     refuse 2 "tui=missing" "Open this setup from Jarvis in Plugins or the launcher."
   rows="$("$tree/bin/vgshell" plugin requirements --json "$VGS_PLUGIN_ID")"
   package="$(node -e '
-const row = JSON.parse(process.argv[1]).find(entry => entry.command === "agent-browser");
+const row = JSON.parse(process.argv[1]).find(entry => entry.name === "agent-browser");
 if (row === undefined) { process.stderr.write("jarvis: browser-setup=undeclared command=agent-browser\n"); process.exit(1); }
 process.stdout.write(row.package === null ? "" : row.package.manager + " " + row.package.name);
 ' "$rows")"

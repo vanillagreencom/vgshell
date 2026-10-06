@@ -76,7 +76,7 @@ root = pathlib.Path(sys.argv[1])
 rows = json.loads((root / "config/requirements.json").read_text())
 for manifest in sorted((root / "shell/plugins").glob("*/manifest.json")):
     rows += json.loads(manifest.read_text()).get("requirements", [])
-print(" ".join(sorted({row["command"] for row in rows if not row.get("optional", False) and "nix" in row.get("packages", {})})))
+print(" ".join(sorted({row.get("command") or row["dbus"]["name"] for row in rows if not row.get("optional", False) and "nix" in row.get("packages", {})})))
 PYREQ
 )"
 

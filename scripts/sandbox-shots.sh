@@ -2088,8 +2088,6 @@ bluetooth_nearby() { ipc smoke itemTexts window vgs.bluetooth Section | py_reply
 
 scene_power() { # MODE
   devices_ready power-shot || return 0
-  printf '#!/usr/bin/env bash\nexit 0\n' >"$shim/powerprofilesctl"
-  chmod 755 "$shim/powerprofilesctl"
   power_start_mocks shots-power balanced
   expect "the power shot starts with a discharging battery object" "/org/freedesktop/UPower/devices/mock_BAT0" power_add_battery 64.0 7200
   power_discharging 64.0 7200
@@ -2106,7 +2104,6 @@ scene_power() { # MODE
   expect "Power's widget is unplaced after its shot" ok ipc shell setPluginPlaced vgs.power false
   expect "Power disables after its shot" ok ipc shell setPluginEnabled vgs.power false
   power_stop_mocks
-  power_unlink "$shim/powerprofilesctl"
 }
 power_shot_panel() { [[ $(ipc smoke instanceGeometry panel vgs.power) != absent ]] && echo shown || echo hidden; }
 power_shot_level() { ipc smoke statusValues vgs.power | py_reply 'import json,sys; print(json.load(sys.stdin)["power"]["battery"]["level"])'; }

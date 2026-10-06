@@ -31,9 +31,7 @@ On a desktop, the battery part stays hidden and the profile icon remains visible
 
 ## Requirements
 
-Power needs `powerprofilesctl` from power-profiles-daemon. VGS uses it only to find the package and show the requirement notice.
-
-On Fedora with tuned-ppd, the Settings requirement notice can list `powerprofilesctl` as missing although power profiles work.
+Power needs the power profiles service on the system bus. power-profiles-daemon and tuned-ppd provide it.
 
 Power needs `notify-send` from libnotify to send battery alerts.
 

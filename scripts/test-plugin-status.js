@@ -69,13 +69,13 @@ function suite(ctx, check) {
     const commands = fs.mkdtempSync(path.join(scratchRoot, "settings-tui-path-"));
     try {
         for (const requirement of jarvis.requirements)
-            fs.writeFileSync(path.join(commands, requirement.command), "#!/bin/sh\nexit 99\n", { mode: 0o700 });
+            if (requirement.bus === null) fs.writeFileSync(path.join(commands, requirement.name), "#!/bin/sh\nexit 99\n", { mode: 0o700 });
         for (const absent of ["gum", "uv", "curl"]) {
             const file = path.join(commands, absent);
             fs.unlinkSync(file);
             const probe = spawnSync("/bin/bash", ["--noprofile", "--norc", "-c",
                 'for command; do command -v "$command" >/dev/null || printf "%s\\n" "$command"; done',
-                "requirements", ...jarvis.requirements.map(row => row.command)],
+                "requirements", ...jarvis.requirements.filter(row => row.bus === null).map(row => row.name)],
                 { env: { PATH: commands }, encoding: "utf8" });
             if (probe.status !== 0) throw new Error("stand-in PATH probe failed: " + probe.stderr);
             const missing = probe.stdout.trim().split("\n");
@@ -92,7 +92,7 @@ function suite(ctx, check) {
         fs.rmSync(commands, { recursive: true, force: true });
     }
 
-    const jarvisRequired = jarvis.requirements.filter(row => !row.optional).map(row => row.command);
+    const jarvisRequired = jarvis.requirements.filter(row => !row.optional).map(row => row.name);
     check("Jarvis's required list exceeds the explicit-choice notice bound", jarvisRequired.length > ctx.NOTICE_OFFER_MAX, true);
     check("Jarvis's full missing list withholds the setup terminal",
         ctx.tuiRunFor(jarvis, true, "/sources", { launcher: "present", busy: [], run: "test" }, "setup-local", jarvisRequired),
@@ -104,7 +104,7 @@ function suite(ctx, check) {
         ctx.noticeRequest(jarvis, jarvisRequired, "chosen", jarvisRequired).answer, "refused: requirements=malformed");
 
     const runner = { launcher: "present", busy: [], run: "test" };
-    const optional = Object.assign({}, m, { requirements: [{ command: "acme-sync", optional: true }] });
+    const optional = Object.assign({}, m, { requirements: [{ name: "acme-sync", bus: null, packages: {}, optional: true, purpose: "Sync" }] });
     const setupCases = [
         ["requirements present", m, true, "setup", [], "run"],
         ["undeclared missing command", m, true, "setup", ["other"], "run"],
@@ -531,7 +531,7 @@ suite(load(LOGIC), report);
 // around it; the suite must fail on every copy.
 const CONTROLS = [
     ["a setup ignores optional commands", "return !row.optional;\n    }).map", "return true;\n    }).map"],
-    ["a setup installs only missing declared commands", "return needed.filter(function (command) { return missing.indexOf(command) !== -1; });", "return needed;"],
+    ["a setup installs only missing declared requirements", "return needed.filter(function (name) { return missing.indexOf(name) !== -1; });", "return needed;"],
     ["a script's requires decides what it needs", "var needed = requires !== null ? requires : manifest", "var needed = false ? requires : manifest"],
     ["an empty requires needs nothing", "var needed = requires !== null ? requires : manifest", "var needed = requires !== null && requires.length > 0 ? requires : manifest"],
     ["a missing required command routes setup to install", "if (tuiMissingRequirements(manifest, name, missing).length > 0) return { ok: true, kind: \"install\" };", ""],

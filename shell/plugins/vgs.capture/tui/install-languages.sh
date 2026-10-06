@@ -42,7 +42,7 @@ print(*report["missing"])
 codes="$(missing)" || refuse 1 "plan" "Capture cannot tell which languages are missing."
 manager="$(python3 -c '
 import json, sys
-row = next((row for row in json.loads(sys.argv[1]) if row["command"] == "tesseract"), None)
+row = next((row for row in json.loads(sys.argv[1]) if row["name"] == "tesseract"), None)
 if row is None or row["package"] is None:
     sys.exit("capture: languages=no-package command=tesseract")
 print(row["package"]["manager"])

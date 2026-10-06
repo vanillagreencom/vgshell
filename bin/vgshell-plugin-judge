@@ -7,7 +7,7 @@
 //       read the shell's `listPlugins` reply on stdin and print it as
 //       `vgshell plugin list` lines: one per plugin, then `error`, `hidden`,
 //       `unknown` and `missing` lines, then `scan-error`. A missing
-//       requirement prints `missing <id> <command> (<package>)`, the
+//       requirement prints `missing <id> <name> (<package>)`, the
 //       package PackageManagers.packageFor picks for this system from
 //       `vgshell pkg detect`, or `missing <id> <command>` when its `packages`
 //       names no manager present here; an optional one ends ` optional`.
@@ -49,7 +49,7 @@
 //       plugin <id>, the one the shell's registry would hold under it, as
 //       its settings under the configuration the two files make effective
 //       apply them (activeManifest below): with text one line per requirement,
-//       `<state> <command>[ (<package>)][ optional]: <purpose>`, and with
+//       `<state> <name>[ (<package>)][ optional]: <purpose>`, and with
 //       json one line, a list of rows (below). An id no accepted manifest
 //       names is refused as `unknown=<id>`.
 //   vgshell-plugin-judge settings <shipped-config> <user-config> <id>
@@ -70,11 +70,11 @@
 //       or `unknown`; with json one line `{ core: [rows], plugins: { <id>:
 //       [rows] }, session: { graphicalSession } }`, every enabled plugin
 //       keyed, in id order, one with no requirements by an empty list. The
-//       core's commands are looked up on PATH here; a plugin's are the
+//       core's command requirements are looked up on PATH here; a plugin's are the
 //       scan's `missing`.
 //   vgshell-plugin-judge unmet <shipped-config> <user-config> <id>
 //       read `bin/vgshell-scan` JSON on stdin and print, for plugin <id>, one
-//       `requires <command>[ (<package>)][ optional]` line per requirement
+//       `requires <name>[ (<package>)][ optional]` line per requirement
 //       the scan did not find, then one `install <word>...` line per
 //       manager a missing requirement's package is picked from, in
 //       detection order: the words after `vgshell` that install those
@@ -88,7 +88,7 @@
 // plugin's settings leave off: PluginLogic.activeManifest, the manifest the
 // Settings page and the requirement notice read.
 //
-// A requirement row is PluginLogic.requirementRows' row, `{ command,
+// A requirement row is PluginLogic.requirementRows' row, `{ name, bus,
 // packages, optional, purpose, state }`, with `package`, the
 // `{ manager, name }` PackageManagers.packageFor picks for this system, or
 // null. Detection runs once per command, and only when a requirement it
@@ -142,16 +142,16 @@ function listLines(reply) {
     const found = missing.some(m => Object.keys(m.requirement.packages).length > 0) ? detected() : null;
     for (const m of missing) {
         const pick = found === null ? null : logic.PackageManagers.packageFor(m.requirement.packages, found);
-        lines.push("missing " + m.id + " " + requirementText(m.requirement.command, pick, m.requirement.optional));
+        lines.push("missing " + m.id + " " + requirementText(m.requirement.name, pick, m.requirement.optional));
     }
     if (reply.scanError) lines.push("scan-error " + reply.scanError);
     return lines;
 }
 
-// A requirement as every text report names it: the command, the package
+// A requirement as every text report names it: the requirement name, the package
 // PICK names when there is one, and whether it is OPTIONAL.
-function requirementText(command, pick, optional) {
-    return command + (pick === null ? "" : " (" + pick.name + ")") + (optional ? " optional" : "");
+function requirementText(name, pick, optional) {
+    return name + (pick === null ? "" : " (" + pick.name + ")") + (optional ? " optional" : "");
 }
 
 // detect's answer when a requirement of LISTS, normalized requirement
@@ -162,14 +162,14 @@ function managersFor(lists) {
 }
 
 // The report rows of REQUIREMENTS, a normalized list, of which MISSING
-// names the commands not found: PluginLogic.requirementRows' rows with the
+// names the requirements not found: PluginLogic.requirementRows' rows with the
 // package FOUND, detect's answer, picks for each.
 function reportRows(requirements, missing, found) {
     return logic.requirementRows({ requirements }, missing).map(row => Object.assign(row, { package: logic.PackageManagers.packageFor(row.packages, found) }));
 }
 
 function rowLine(row) {
-    return row.state + " " + requirementText(row.command, row.package, row.optional) + ": " + row.purpose;
+    return row.state + " " + requirementText(row.name, row.package, row.optional) + ": " + row.purpose;
 }
 
 function readScan() {
@@ -210,13 +210,16 @@ function pluginOf(plugins, id) {
 }
 
 // The core's own requirements from FILE, judged as a manifest's are, with
-// the commands not found on PATH.
+// command requirements not found on PATH. Core requirements stay
+// commands-only, so a D-Bus row is refused here.
 function coreRequirements(file) {
     const list = readJson(file, "core-requirements");
     const error = logic.requirementsError(list);
     if (error !== "") refuse("core-requirements=malformed path=" + file + " error=" + error);
     const requirements = logic.normalRequirements(list);
-    return { requirements, missing: requirements.map(r => r.command).filter(command => !onPath(command)) };
+    const dbus = requirements.find(r => r.bus !== null);
+    if (dbus !== undefined) refuse("core-requirements=dbus path=" + file + " name=" + dbus.name);
+    return { requirements, missing: requirements.map(r => r.name).filter(name => !onPath(name)) };
 }
 
 // `vgshell doctor`'s report: the core's rows and every enabled plugin's, in
@@ -269,7 +272,7 @@ function effectiveOf(shippedPath, userPath) {
 function unmetLines(config, plugin) {
     const missing = logic.requirementRows(activeManifest(config, plugin.manifest), plugin.missing).filter(row => row.state === "missing");
     const plan = logic.PackageManagers.installGroups(missing, managersFor([missing]));
-    const lines = missing.map((row, i) => "requires " + requirementText(row.command, plan.picks[i], row.optional));
+    const lines = missing.map((row, i) => "requires " + requirementText(row.name, plan.picks[i], row.optional));
     for (const group of plan.groups)
         lines.push(group.installs ? "install " + ["pkg", "run", "install"].concat(logic.PackageManagers.installArgs(group)).join(" ") : "by-hand " + group.manager + " " + group.names.join(" "));
     return lines;

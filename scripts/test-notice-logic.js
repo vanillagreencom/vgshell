@@ -84,7 +84,7 @@ function suite(ctx, check) {
 
     // The core's owner: the core's list, drawn under the name VGS, asked
     // for as a plugin's manifest is.
-    const core = ctx.coreOwner([{ command: "gum", packages: { pacman: "gum" }, optional: true, purpose: "Dialogs" }, { command: "git", packages: { pacman: "git" }, optional: false, purpose: "Plugins" }]);
+    const core = ctx.coreOwner([{ name: "gum", bus: null, packages: { pacman: "gum" }, optional: true, purpose: "Dialogs" }, { name: "git", bus: null, packages: { pacman: "git" }, optional: false, purpose: "Plugins" }]);
     check("the core's owner is named core and drawn as VGS", [core.id, core.name, ctx.CORE_OWNER], ["core", "VGS", "core"]);
     const coreRequest = ctx.noticeRequest(core, ["gum"], "chosen", ["gum", "git"]);
     check("noticeRequest: a choice of the core's commands lists its missing ones", [coreRequest.answer, coreRequest.commands, coreRequest.required], ["ok", ["gum"], ["gum"]]);
@@ -137,7 +137,7 @@ function suite(ctx, check) {
     // noticeView: [name, missing, notice, found, want as
     // [satisfied, rows as command (manager/name) optional, install, byHand]].
     const all = n("acme.needs", ["vgs-one", "vgs-two", "vgs-bare", "vgs-nix"], ["vgs-one", "vgs-nix"]);
-    const rowText = r => r.command + (r.package === null ? "" : " (" + r.package.manager + "/" + r.package.name + ")") + (r.optional ? " optional" : "") + ": " + r.purpose;
+    const rowText = r => r.name + (r.package === null ? "" : " (" + r.package.manager + "/" + r.package.name + ")") + (r.optional ? " optional" : "") + ": " + r.purpose;
     const viewRows = [
         ["the primary's group installs first", allMissing, all, ARCH,
             [false, ["vgs-one (pacman/one): First", "vgs-two (aur/two-git) optional: Second", "vgs-bare optional: No package", "vgs-nix: Nix"], ["one"], []]],
@@ -310,7 +310,7 @@ const CONTROLS = [
     ["an offer names at most sixteen commands", " || commands.length > NOTICE_OFFER_MAX || ", " || "],
     ["an offer names strings", " || !commands.every(function (c) { return typeof c === \"string\"; }))", ")"],
     ["an offer names declared commands", "        if (undeclared.length > 0)\n", "        if (false)\n"],
-    ["an offer lists only missing commands", "row.state === \"missing\" && commands.indexOf(row.command) !== -1", "commands.indexOf(row.command) !== -1"],
+    ["an offer lists only missing commands", "row.state === \"missing\" && commands.indexOf(row.name) !== -1", "commands.indexOf(row.name) !== -1"],
     ["nothing required is satisfied", "answer: required.length === 0 ? \"satisfied\" : \"ok\"", "answer: \"ok\""],
     ["a held plugin's notice is merged", "    if (at !== -1) {\n", "    if (false) {\n"],
     ["a merge keeps the held commands", "var union = function (held, added) { return held.concat(", "var union = function (held, added) { return [].concat(added, "],
@@ -319,7 +319,7 @@ const CONTROLS = [
     ["a rest ends", "hasOwn(rest, id) && rest[id] > now)", "hasOwn(rest, id))"],
     ["the queue has a ceiling", "if (queue.length >= NOTICE_QUEUE_MAX)", "if (false)"],
     ["the queue is not changed in place", "var merged = queue.slice();", "var merged = queue;"],
-    ["a view lists only missing commands", "return row.state === \"missing\" && notice.commands.indexOf(row.command) !== -1; });\n    var satisfied", "return notice.commands.indexOf(row.command) !== -1; });\n    var satisfied"],
+    ["a view lists only missing commands", "return row.state === \"missing\" && notice.commands.indexOf(row.name) !== -1; });\n    var satisfied", "return notice.commands.indexOf(row.name) !== -1; });\n    var satisfied"],
     ["a view is satisfied only without a required command", "var satisfied = !notice.required.some(", "var satisfied = notice.required.some("],
     ["a view's command line is the install TUI's argv and its arguments", "CORE_TUIS[\"requirements-install\"].argv.concat(install).join(\" \")", "install.join(\" \")"],
     ["a view with no install has no command line", "commandLine: install === null ? \"\" :", "commandLine: install === null ? \"vgshell pkg run install\" :"],

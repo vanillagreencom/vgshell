@@ -4,8 +4,8 @@ import qs.Ui
 
 // One read-only Requirements row of a plugin's page, drawn from one entry
 // of its manager row's `requirements` (PluginLogic.requirementRows): the
-// command beside its state from the last scan as a Badge, Present in the
-// success tone, Missing in the danger tone or, for an optional command, the
+// requirement beside its state from the last scan as a Badge, Present in the
+// success tone, Missing in the danger tone or, for an optional requirement, the
 // warning tone, and the manifest's purpose under it. The row draws no step
 // of its own: the page's Install all missing button, shown while one
 // requirement's step applies (Steps.js), installs what is missing.
@@ -26,7 +26,7 @@ Column {
 
     Field {
         width: row.width
-        label: row.requirement.command
+        label: row.requirement.name
         inline: true
         hint: row.requirement.purpose
         Item {

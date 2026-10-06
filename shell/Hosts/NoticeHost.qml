@@ -9,7 +9,7 @@ import qs.Ui
 // existing only while a requirement notice, the restart notice, the reset
 // question, the "VGS was reset" notice or the core consent slot shows,
 // taking the keyboard on demand. It draws one Dialog at a time. A
-// requirement notice has priority: each missing command with its purpose
+// requirement notice has priority: each missing requirement with its purpose
 // first, then Install and Not now, or Close alone when no manager here
 // installs a listed package. The command Install runs is only behind Show
 // command (D061). Install runs Notices.accept, every other answer
@@ -36,19 +36,19 @@ Scope {
     // The dialog, for a validation row that reads its focus.
     readonly property Item dialog: loader.item === null ? null : loader.item.dialog
 
-    // What names a listed requirement under its purpose: the command,
+    // What names a listed requirement under its purpose: the requirement,
     // then this system's package for it, as the command line's reports
     // name it (requirements.md § Command line), then whether it is
     // optional, joined by a middle dot.
     function rowNote(row) {
-        return [row.command].concat(row.package === null ? [] : ["package " + row.package.name], row.optional ? ["optional"] : []).join(" · ");
+        return [row.name].concat(row.package === null ? [] : ["package " + row.package.name], row.optional ? ["optional"] : []).join(" · ");
     }
 
     function message(shown) {
         if (shown.install !== null) return "Install the missing packages now? The package manager asks for your password in a terminal.";
         if (shown.byHand.length > 0) return "Add these packages to the system configuration: " + shown.byHand.map(g => g.manager + " " + g.names.join(" ")).join(", ") + ".";
-        if (Notices.detection === "failed") return "VGS could not detect this system's package manager. Install these commands by hand.";
-        return "No package manager here provides these commands. Install them by hand.";
+        if (Notices.detection === "failed") return "VGS could not detect this system's package manager. Install these requirements by hand.";
+        return "No package manager here provides these requirements. Install them by hand.";
     }
 
     function consent() {
@@ -80,7 +80,7 @@ Scope {
                 id: card
                 anchors.centerIn: parent
                 width: implicitWidth
-                title: win.consentMode ? win.consent.title : win.shown.name + " needs " + (win.shown.rows.length === 1 ? "one command" : win.shown.rows.length + " commands")
+                title: win.consentMode ? win.consent.title : win.shown.name + " needs " + (win.shown.rows.length === 1 ? "one requirement" : win.shown.rows.length + " requirements")
                 message: win.consentMode ? win.consent.message : host.message(win.shown)
                 actions: win.consentMode ? win.consent.actions : win.shown.install !== null ? [{ label: "Install", role: "accept" }, { label: "Not now", role: "cancel" }] : [{ label: "Close", role: "cancel" }]
                 busy: win.consentMode && win.consent.busy

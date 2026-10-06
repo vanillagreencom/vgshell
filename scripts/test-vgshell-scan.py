@@ -6,8 +6,10 @@ JSON elements it prints (the dir, either a text entry or the start of the
 error, and the failing path where the row names one) plus the exit status.
 The revision rows then read the scanner twice over one tree and compare
 revisions, snapshots and pruning. The probe rows run the scanner with a PATH
-of one stub directory and read each plugin's `missing` list; their control
-runs them against a copy of the scanner that finds every command. The core
+of one stub directory and read each plugin's `missing` list. The D-Bus rows
+run it against a private dbus-daemon and read owned, activatable and absent
+names; their controls answer every name present and ignore activatable names.
+The command probe control runs rows against a copy of the scanner that finds every command. The core
 rows probe a --core requirements file beside a plugin; their control reads
 that file as a manifest. The core watch rows run --watch-core with bounded
 pipe reads and prove edits to core files and new directories produce one
@@ -18,10 +20,14 @@ whether urllib.request was imported; their controls quote nothing and spell
 the URL through pathlib's as_uri. Permission rows need a uid that
 permissions bind; under euid 0 the script reports status=not-measured and
 exits 77 instead of passing vacuously."""
+import importlib.machinery
+import importlib.util
 import json
 import os
 import pathlib
 import select
+import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -209,6 +215,14 @@ PROBE_ROWS = [
 ]
 
 
+DBUS_ROWS = [
+    ("an owned session bus name is present", {"a": {"id": "acme.a", "requirements": [{"dbus": {"bus": "session", "name": "org.vgshell.Owned"}, "purpose": "p"}]}}, {"a": []}, "owned"),
+    ("an activatable session bus name is present", {"a": {"id": "acme.a", "requirements": [{"dbus": {"bus": "session", "name": "org.vgshell.Activatable"}, "purpose": "p"}]}}, {"a": []}, "activatable"),
+    ("an unowned non-activatable session bus name is missing", {"a": {"id": "acme.a", "requirements": [{"dbus": {"bus": "session", "name": "org.vgshell.Missing"}, "purpose": "p"}]}}, {"a": ["org.vgshell.Missing"]}, "plain"),
+    ("a failed bus probe reports the D-Bus name missing", {"a": {"id": "acme.a", "requirements": [{"dbus": {"bus": "session", "name": "org.vgshell.Missing"}, "purpose": "p"}]}}, {"a": ["org.vgshell.Missing"]}, "failed"),
+]
+
+
 def probe_rows(script=SCAN, quiet=False):
     """Each probe row's verdict, run against SCRIPT."""
     results = []
@@ -248,7 +262,133 @@ def probe_control():
     """The probe rows must fail on a copy of the scanner that answers every
     command present."""
     return mutant_control("the probe rows fail on a scanner that finds every command",
-                          "probed[command] = shutil.which(command) is not None", "probed[command] = True", probe_rows)
+                          "probed[name] = shutil.which(name) is not None", "probed[name] = True", probe_rows)
+
+
+def scanner_module(script):
+    loader = importlib.machinery.SourceFileLoader("vgshell_scan_under_test", script)
+    spec = importlib.util.spec_from_loader("vgshell_scan_under_test", loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
+def start_dbus_daemon(tmp):
+    daemon = shutil.which("dbus-daemon")
+    if daemon is None:
+        return None, None
+    service_dir = os.path.join(tmp, "services")
+    os.makedirs(service_dir)
+    with open(os.path.join(service_dir, "org.vgshell.Activatable.service"), "w", encoding="utf-8") as fh:
+        fh.write("[D-BUS Service]\nName=org.vgshell.Activatable\nExec=/bin/false\n")
+    address = "unix:path=" + os.path.join(tmp, "bus")
+    config = os.path.join(tmp, "dbus.conf")
+    with open(config, "w", encoding="utf-8") as fh:
+        fh.write(f"""<busconfig>
+  <type>session</type>
+  <listen>{address}</listen>
+  <servicedir>{service_dir}</servicedir>
+  <policy context="default">
+    <allow send_destination="*"/>
+    <allow receive_sender="*"/>
+    <allow own="*"/>
+  </policy>
+</busconfig>
+""")
+    proc = subprocess.Popen([daemon, "--nofork", "--print-address", "--config-file", config], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    printed = proc.stdout.readline().strip()
+    if not printed:
+        kill_process(proc)
+        raise RuntimeError("dbus-daemon printed no address")
+    return proc, printed
+
+
+def connect_scanner_bus(module, address):
+    old = os.environ.get("DBUS_SESSION_BUS_ADDRESS")
+    os.environ["DBUS_SESSION_BUS_ADDRESS"] = address
+    deadline = time.monotonic() + 2
+    uid_hex = str(os.getuid()).encode("ascii").hex().encode("ascii")
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        sock.settimeout(2)
+        sock.connect(module.bus_address("session"))
+        sock.sendall(b"\0AUTH EXTERNAL " + uid_hex + b"\r\n")
+        line = module.read_auth_line(sock, deadline)
+        if not line.startswith(b"OK "):
+            raise RuntimeError("auth " + repr(line))
+        sock.sendall(b"BEGIN\r\n")
+        module.dbus_call(sock, 1, "Hello", deadline)
+        return sock, old
+    except Exception:
+        sock.close()
+        if old is None:
+            os.environ.pop("DBUS_SESSION_BUS_ADDRESS", None)
+        else:
+            os.environ["DBUS_SESSION_BUS_ADDRESS"] = old
+        raise
+
+
+def request_name(module, sock, name):
+    body = bytearray(module.pack_string(name))
+    body.extend(b"\0" * module.align(len(body), 4))
+    body.extend((0).to_bytes(4, "little"))
+    module.dbus_call(sock, 2, "RequestName", time.monotonic() + 2, "su", bytes(body))
+
+
+def dbus_rows(script=SCAN, quiet=False):
+    daemon = shutil.which("dbus-daemon")
+    if daemon is None:
+        message = "dbus-daemon-missing"
+        return [True if quiet else report("D-Bus rows are not measured", True, f" ({message})")]
+    results = []
+    for name, manifests, want, mode in DBUS_ROWS:
+        with tempfile.TemporaryDirectory() as tmp:
+            files = {os.path.join("plugins", d, "manifest.json"): json.dumps(m) for d, m in manifests.items()}
+            plant(tmp, files)
+            proc = owner = old_address = None
+            try:
+                if mode == "failed":
+                    address = "unix:path=" + os.path.join(tmp, "missing-bus")
+                else:
+                    proc, address = start_dbus_daemon(tmp)
+                if mode == "owned":
+                    module = scanner_module(script)
+                    owner, old_address = connect_scanner_bus(module, address)
+                    request_name(module, owner, "org.vgshell.Owned")
+                env = {"PATH": os.environ.get("PATH", ""), "LC_ALL": "C", "DBUS_SESSION_BUS_ADDRESS": address, "DBUS_SYSTEM_BUS_ADDRESS": address}
+                scan_proc = scan(os.path.join(tmp, "plugins"), script=script, env=env)
+                try:
+                    got = {os.path.basename(e["dir"]): e.get("missing") for e in json.loads(scan_proc.stdout)}
+                except (ValueError, KeyError):
+                    got = None
+                failed_line = "vgshell-scan: bus=session probe=failed" in scan_proc.stderr
+                good = scan_proc.returncode == 0 and got == want and (mode != "failed" or failed_line)
+                results.append(good if quiet else report(name, good, f" (exit={scan_proc.returncode} got={got})\n{scan_proc.stderr}"))
+            finally:
+                if owner is not None:
+                    owner.close()
+                if old_address is not None:
+                    os.environ["DBUS_SESSION_BUS_ADDRESS"] = old_address
+                elif mode == "owned":
+                    os.environ.pop("DBUS_SESSION_BUS_ADDRESS", None)
+                if proc is not None:
+                    kill_process(proc)
+    return results
+
+
+def dbus_controls():
+    daemon = shutil.which("dbus-daemon")
+    if daemon is None:
+        print("test-vgshell-scan: status=not-measured reason=dbus-daemon-missing")
+        return [False]
+    return [
+        mutant_control("the D-Bus rows fail on a scanner that marks every bus name present",
+                       'present = bus_cache[bus] is not None and name in bus_cache[bus]',
+                       'present = True', dbus_rows),
+        mutant_control("the D-Bus rows fail on a scanner that ignores activatable names",
+                       'return owned | activatable',
+                       'return owned', dbus_rows),
+    ]
 
 
 # core rows: name, the --core file's text (None: no file), {plugin dir:
@@ -292,7 +432,7 @@ def core_control():
     """The core rows must fail on a copy of the scanner that reads the core
     file as a manifest."""
     return mutant_control("the core rows fail on a scanner that reads the core list as a manifest",
-                          "missing_commands(text, probed, core=True)", "missing_commands(text, probed)", core_rows)
+                          "missing_requirements(text, probed, bus_cache, core=True)", "missing_requirements(text, probed, bus_cache)", core_rows)
 
 
 # core watch rows use --watch-core as a long-running process. Every pipe
@@ -495,10 +635,15 @@ def main():
     if os.geteuid() == 0:
         print("status=not-measured reason=euid-0")
         return 77
+    if shutil.which("dbus-daemon") is None:
+        print("test-vgshell-scan: status=not-measured reason=dbus-daemon-missing")
+        return 77
     results = [run_row(*row) for row in ROWS]
     results += revision_rows()
     results += probe_rows()
     results.append(probe_control())
+    results += dbus_rows()
+    results += dbus_controls()
     results += core_rows()
     results.append(core_control())
     results += watch_rows()

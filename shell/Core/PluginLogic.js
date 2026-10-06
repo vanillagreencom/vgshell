@@ -72,19 +72,22 @@ var PANE_GROUP_MAX = 60;
 var MANIFEST_KEYS = ["schemaVersion", "id", "name", "version", "author", "description", "license", "icon", "kinds", "entryPoints", "capabilities", "systemSteps", "settings", "schema", "defaultSection", "pane", "appearance", "hyprland", "requirements", "status", "tui", "menu", "secrets", "extras", "optIn", "alwaysOn"];
 
 // What one entry of a manifest's `extras` may carry: the status entries and
-// the requirement commands that serve that extra alone (extrasError).
+// the requirements that serve that extra alone (extrasError).
 var EXTRA_KEYS = ["status", "requirements"];
 
 // What one entry of a manifest's `requirements`, and of the core's own
-// config/requirements.json, may carry: an external command the plugin runs,
-// the package that provides it per manager id of PackageManagers.js, whether
-// the plugin works without it, and one line saying what it is for. The
-// states a probed requirement is reported in.
-var REQUIREMENT_KEYS = ["command", "packages", "optional", "purpose"];
+// config/requirements.json, may carry: an external command the plugin runs
+// or a D-Bus name it reaches, the package that provides it per manager id of
+// PackageManagers.js, whether the plugin works without it, and one line
+// saying what it is for. The states a probed requirement is reported in.
+var REQUIREMENT_KEYS = ["command", "dbus", "packages", "optional", "purpose"];
+var REQUIREMENT_DBUS_KEYS = ["bus", "name"];
+var REQUIREMENT_BUSES = ["system", "session"];
 var REQUIREMENT_PURPOSE_MAX = 120;
 var REQUIREMENT_STATES = ["present", "missing"];
 // A purpose is one printable line: no C0 or C1 control character.
 var CONTROL_CHARACTER = /[\u0000-\u001f\u007f-\u009f]/;
+var DBUS_NAME_PART = /^[A-Za-z_-][A-Za-z0-9_-]*$/;
 
 
 // Plugin status: the runtime values a plugin publishes through its `status`
@@ -140,7 +143,7 @@ var LAUNCHER_ROW_KEYS = ["id", "label", "icon", "description", "aliases", "menu"
 // page draws as a button beside the entry. It carries a printable `label`
 // and exactly one route, STATUS_ACTION_ROUTES: `tui`, a name of the
 // manifest's own `tui` key the core opens in a floating terminal;
-// `install`, a list of the manifest's own requirement commands the core
+// `install`, a list of the manifest's own requirements the core
 // offers through the requirement notice; or `system`, a step of the
 // manifest's own `systemSteps` the core applies in its `core/system` TUI
 // (D081). An entry of a type in STATUS_ACTION_TYPES takes one; a `command`
@@ -593,7 +596,7 @@ function statusEntryActions(entry) {
 // AT its path, or "": an object of STATUS_ACTION_KEYS on an entry whose
 // type is in STATUS_ACTION_TYPES, a printable `label` of at most STATUS_LABEL_MAX
 // characters, and exactly one of STATUS_ACTION_ROUTES: `tui`, a name the
-// manifest's TUI key declares; `install`, a non-empty list of commands the
+// manifest's TUI key declares; `install`, a non-empty list of requirements the
 // manifest's REQUIREMENTS declare, each once; `system`, a step the
 // manifest's SYSTEM, its `systemSteps`, declares.
 function statusActionError(type, action, at, tui, requirements, system) {
@@ -621,11 +624,11 @@ function statusActionError(type, action, at, tui, requirements, system) {
         return "";
     }
     if (!Array.isArray(action.install) || action.install.length === 0)
-        return at + ".install must be a non-empty list of the manifest's requirement commands";
-    var declared = requirements.map(function (r) { return r.command; });
+        return at + ".install must be a non-empty list of the manifest's requirements";
+    var declared = requirements.map(requirementName);
     for (var n = 0; n < action.install.length; n++) {
         if (declared.indexOf(action.install[n]) === -1)
-            return at + ".install." + n + " must name a command of the manifest's requirements, got " + JSON.stringify(action.install[n]);
+            return at + ".install." + n + " must name a requirement of the manifest's requirements, got " + JSON.stringify(action.install[n]);
         if (action.install.indexOf(action.install[n]) !== n)
             return at + ".install." + n + " repeats " + JSON.stringify(action.install[n]);
     }
@@ -712,6 +715,12 @@ function systemStateOf(steps, declared) {
     return out;
 }
 
+// The name a raw requirement entry, one requirementsError accepted, is
+// listed and named by: its command, or its D-Bus name.
+function requirementName(requirement) {
+    return requirement.command !== undefined ? requirement.command : requirement.dbus.name;
+}
+
 // The first defect of a manifest's `extras` key, or "". An extra is a
 // feature that needs developer setup, such as a token from an app the user
 // must create, so it is no consumer feature: an owner-only switch the
@@ -719,10 +728,10 @@ function systemStateOf(steps, declared) {
 // in SETTINGS is false and which SCHEMA leaves out. Each entry is an object
 // of EXTRA_KEYS, each list non-empty: `status`, the status entries only the
 // extra uses, each one STATUS declares and the Settings page draws
-// (statusDisplayable); `requirements`, the commands only the extra runs,
+// (statusDisplayable); `requirements`, the requirements only the extra uses,
 // each an optional one of REQUIREMENTS, since the plugin works with the
 // extra off. No entry is named twice or serves two extras, and a status
-// action that installs an extra's command is an entry of that extra.
+// action that installs an extra's requirement is an entry of that extra.
 function extrasError(extras, settings, schema, status, requirements) {
     if (!isPlainObject(extras))
         return "extras must be an object";
@@ -758,9 +767,9 @@ function extrasError(extras, settings, schema, status, requirements) {
                     if (typeof item !== "string" || !hasOwn(status, item) || !statusDisplayable(status[item]))
                         return where + " must name a status entry the Settings page draws, got " + JSON.stringify(item);
                 } else {
-                    var requirement = requirements.filter(function (r) { return r.command === item; })[0];
+                    var requirement = requirements.filter(function (r) { return requirementName(r) === item; })[0];
                     if (requirement === undefined)
-                        return where + " must name a command of the manifest's requirements, got " + JSON.stringify(item);
+                        return where + " must name a requirement of the manifest's requirements, got " + JSON.stringify(item);
                     if (requirement.optional !== true)
                         return where + " must name an optional requirement: the plugin works with the extra off, got " + JSON.stringify(item);
                 }
@@ -790,7 +799,7 @@ function extrasError(extras, settings, schema, status, requirements) {
 }
 
 // MANIFEST as the settings the plugin receives, SETTINGS, apply it: the
-// status entries and requirement commands of each extra whose setting is
+// status entries and requirements of each extra whose setting is
 // not true are left out, so the Settings page, the manager's steps on its
 // status and every requirement report skip them. MANIFEST itself when no
 // extra is off. A status write still judges the whole manifest.
@@ -801,17 +810,17 @@ function activeManifest(manifest, settings) {
     if (off.length === 0)
         return manifest;
     var statusOff = [];
-    var commandsOff = [];
+    var requirementsOff = [];
     off.forEach(function (name) {
         statusOff = statusOff.concat(manifest.extras[name].status);
-        commandsOff = commandsOff.concat(manifest.extras[name].requirements);
+        requirementsOff = requirementsOff.concat(manifest.extras[name].requirements);
     });
     var out = Object.assign({}, manifest);
     out.status = {};
     Object.keys(manifest.status).forEach(function (key) {
         if (statusOff.indexOf(key) === -1) out.status[key] = manifest.status[key];
     });
-    out.requirements = manifest.requirements.filter(function (r) { return commandsOff.indexOf(r.command) === -1; });
+    out.requirements = manifest.requirements.filter(function (r) { return requirementsOff.indexOf(r.name) === -1; });
     return out;
 }
 
@@ -1126,7 +1135,7 @@ function statusActionOffered(entry, value) {
 // What a Status row carries of ENTRY's step for its published VALUE, null
 // while unreported: null for an entry that declares none, else { label,
 // offered }, the label of the action that applies, STATUS_WITHHELD_LABEL
-// while that action's TUI lacks the commands LACKING, or of the entry's one
+// while that action's TUI lacks the requirements LACKING, or of the entry's one
 // `action` while it does not, "" for `actions` none of which applies.
 function statusRowAction(entry, value, lacking) {
     if (entry.action === undefined && entry.actions === undefined) return null;
@@ -1139,7 +1148,7 @@ function statusRowAction(entry, value, lacking) {
 // lacks a command it needs; the press opens the requirement notice.
 var STATUS_WITHHELD_LABEL = "Install requirements";
 
-// The commands MANIFEST's TUI that status ENTRY offers for its published
+// The requirements MANIFEST's TUI that status ENTRY offers for its published
 // VALUE needs and MISSING holds, [] while it offers no TUI.
 function statusActionLacking(manifest, entry, value, missing) {
     if (value === null || (entry.action === undefined && entry.actions === undefined)) return [];
@@ -1147,7 +1156,7 @@ function statusActionLacking(manifest, entry, value, missing) {
     return offered !== null && offered.tui !== undefined ? tuiMissingRequirements(manifest, offered.tui, missing) : [];
 }
 
-// The hint of a Status row whose action is withheld for the commands
+// The hint of a Status row whose action is withheld for the requirements
 // LACKING: what is missing and that the offered button installs it, in
 // place of the entry's hint and its state's text, which name the withheld
 // action.
@@ -1210,16 +1219,16 @@ function statusActionRefusal(key, reason) {
     return "refused: action=" + named + " reason=" + reason;
 }
 
-// The commands MANIFEST's TUI NAME needs that MISSING holds, in declaration
+// The requirements MANIFEST's TUI NAME needs that MISSING holds, in declaration
 // order: its `requires`, none when that list is empty, or, for a TUI that
-// declares no `requires`, every command of the active manifest that is not
+// declares no `requires`, every requirement of the active manifest that is not
 // optional.
 function tuiMissingRequirements(manifest, name, missing) {
     var requires = manifest.tui[name].requires;
     var needed = requires !== null ? requires : manifest.requirements.filter(function (row) {
         return !row.optional;
-    }).map(function (row) { return row.command; });
-    return needed.filter(function (command) { return missing.indexOf(command) !== -1; });
+    }).map(function (row) { return row.name; });
+    return needed.filter(function (name) { return missing.indexOf(name) !== -1; });
 }
 
 // The manager's setup request keeps tuiRun's refusal and focus rules. A valid
@@ -1692,20 +1701,53 @@ function optionSchemaError(row, entry) {
     throw new Error("optionSchemaError: option type " + JSON.stringify(row.type) + " has no rule");
 }
 
+function dbusNameValid(name) {
+    if (typeof name !== "string" || name.length > 255 || name[0] === ":" || name[0] === ".")
+        return false;
+    var parts = name.split(".");
+    return parts.length >= 2 && parts.every(function (part) { return DBUS_NAME_PART.test(part); });
+}
+
+function requirementIdentity(requirement, at) {
+    var hasCommand = hasOwn(requirement, "command");
+    var hasDbus = hasOwn(requirement, "dbus");
+    if (hasCommand === hasDbus)
+        return { ok: false, error: at + " must name exactly one of command or dbus" };
+    if (hasCommand) {
+        if (!PackageManagers.validCommand(requirement.command))
+            return { ok: false, error: at + ".command must be a bare command name looked up on PATH, got " + JSON.stringify(requirement.command) };
+        if (ID_PATTERN.test(requirement.command))
+            return { ok: false, error: at + ".command " + JSON.stringify(requirement.command) + " is spelt as a plugin id: a requirement names a command or D-Bus name, never a plugin (D005)" };
+        return { ok: true, at: at + ".command", name: requirement.command };
+    }
+    if (!isPlainObject(requirement.dbus))
+        return { ok: false, error: at + ".dbus must be an object" };
+    var keys = Object.keys(requirement.dbus);
+    for (var k = 0; k < keys.length; k++) {
+        if (REQUIREMENT_DBUS_KEYS.indexOf(keys[k]) === -1)
+            return { ok: false, error: at + ".dbus has unknown key " + JSON.stringify(keys[k]) };
+    }
+    if (REQUIREMENT_BUSES.indexOf(requirement.dbus.bus) === -1)
+        return { ok: false, error: at + ".dbus.bus must be one of system, session, got " + JSON.stringify(requirement.dbus.bus) };
+    if (!dbusNameValid(requirement.dbus.name))
+        return { ok: false, error: at + ".dbus.name must be a well-known D-Bus name, got " + JSON.stringify(requirement.dbus.name) };
+    return { ok: true, at: at + ".dbus.name", name: requirement.dbus.name };
+}
+
 // The first defect of a `requirements` list, or "": a manifest's key and
 // the core's own config/requirements.json both pass through here. Each
-// entry is an object of REQUIREMENT_KEYS: `command`, a bare command name
-// PackageManagers.validCommand accepts, declared once, and never a plugin
-// id, since a plugin names no other plugin (D005); `packages`, when
-// present, an object whose keys are manager ids of PackageManagers.MANAGERS
-// and whose values are package names PackageManagers.validName accepts;
-// `optional`, when present, a boolean; `purpose`, one printable line of 1
-// to REQUIREMENT_PURPOSE_MAX characters. A lower-case dotted command such as
-// `acme.clock` has a plugin id's spelling and is refused whichever it names.
+// entry is an object of REQUIREMENT_KEYS and names exactly one identity:
+// `command`, a bare command name PackageManagers.validCommand accepts, or
+// `dbus`, a well-known name on the system or session bus. The identity is
+// declared once, and never names a plugin (D005). `packages`, when present,
+// is an object whose keys are manager ids of PackageManagers.MANAGERS and
+// whose values are package names PackageManagers.validName accepts;
+// `optional`, when present, is a boolean; `purpose` is one printable line
+// of 1 to REQUIREMENT_PURPOSE_MAX characters.
 function requirementsError(requirements) {
     if (!Array.isArray(requirements))
         return "requirements must be a list";
-    var commands = [];
+    var names = [];
     for (var i = 0; i < requirements.length; i++) {
         var requirement = requirements[i];
         var at = "requirements." + i;
@@ -1716,13 +1758,12 @@ function requirementsError(requirements) {
             if (REQUIREMENT_KEYS.indexOf(keys[k]) === -1)
                 return at + " has unknown key " + JSON.stringify(keys[k]);
         }
-        if (!PackageManagers.validCommand(requirement.command))
-            return at + ".command must be a bare command name looked up on PATH, got " + JSON.stringify(requirement.command);
-        if (ID_PATTERN.test(requirement.command))
-            return at + ".command " + JSON.stringify(requirement.command) + " is spelt as a plugin id: a requirement names a command, never a plugin (D005)";
-        if (commands.indexOf(requirement.command) !== -1)
-            return at + ".command " + JSON.stringify(requirement.command) + " is declared twice";
-        commands.push(requirement.command);
+        var identity = requirementIdentity(requirement, at);
+        if (!identity.ok)
+            return identity.error;
+        if (names.indexOf(identity.name) !== -1)
+            return identity.at + " " + JSON.stringify(identity.name) + " is declared twice";
+        names.push(identity.name);
         if (requirement.packages !== undefined) {
             if (!isPlainObject(requirement.packages))
                 return at + ".packages must be an object of manager ids to package names";
@@ -1743,21 +1784,21 @@ function requirementsError(requirements) {
 }
 
 // A `requirements` list requirementsError accepted, each entry with every
-// key: `packages` {} and `optional` false when absent.
+// key: `name`, `bus`, `packages` {} and `optional` false when absent.
 function normalRequirements(requirements) {
     return requirements.map(function (entry) {
-        return { command: entry.command, packages: entry.packages === undefined ? {} : clone(entry.packages), optional: entry.optional === true, purpose: entry.purpose };
+        return { name: requirementName(entry), bus: entry.dbus === undefined ? null : entry.dbus.bus, packages: entry.packages === undefined ? {} : clone(entry.packages), optional: entry.optional === true, purpose: entry.purpose };
     });
 }
 
 // The rows a plugin's requirements are reported as: each normalized entry
 // of MANIFEST's `requirements`, in order, with `state` from
-// REQUIREMENT_STATES: "missing" when MISSING, the commands the last scan
-// did not find on PATH, names its command, else "present".
+// REQUIREMENT_STATES: "missing" when MISSING, the requirement names the
+// last scan did not find, names its identity, else "present".
 function requirementRows(manifest, missing) {
     return manifest.requirements.map(function (entry) {
         var row = clone(entry);
-        row.state = missing.indexOf(entry.command) === -1 ? "present" : "missing";
+        row.state = missing.indexOf(entry.name) === -1 ? "present" : "missing";
         return row;
     });
 }
@@ -1777,7 +1818,7 @@ var NOTICE_OFFER_MAX = 16;
 // `offered`, the plugin's own `requirements` capability; `requested`, the
 // `manager` capability's installRequirements, the Settings window's
 // Install; `chosen`, a user's press asking for the core's or an enabled
-// plugin's commands: the `doctor` capability, a view of every owner's
+// plugin's requirements: the `doctor` capability, a view of every owner's
 // requirements, and the `manager` capability's act on a status action that
 // installs (D061).
 var NOTICE_TRIGGERS = ["installed", "enabled", "offered", "requested", "chosen"];
@@ -1808,18 +1849,18 @@ function noticeOwnerError(owner, owners, enabled) {
 }
 
 // The notice TRIGGER asks for MANIFEST, a plugin's manifest or the core's
-// owner, whose commands MISSING the last scan did not find: { answer,
-// commands, required }, `commands` the commands the notice lists and
+// owner, whose requirements MISSING the last scan did not find: { answer,
+// commands, required }, `commands` the requirement names the notice lists and
 // `required` those whose absence keeps it open. `answer` is "ok",
 // "satisfied" when `required` is empty and no notice is due, or a refusal.
-// The install and enable triggers list every missing command and require
+// The install and enable triggers list every missing requirement and require
 // those the plugin does not mark optional, so a plugin missing only
-// optional commands raises none. A request lists and requires every
-// missing command, optional ones included, since the user asked to install
+// optional requirements raises none. A request lists and requires every
+// missing requirement, optional ones included, since the user asked to install
 // them. An offer, and a choice, lists and requires each of COMMANDS still
 // missing, and is refused as
 // `refused: requirements=malformed` for anything but a list of 1 to
-// NOTICE_OFFER_MAX strings, then as `refused: requirement=<command>
+// NOTICE_OFFER_MAX strings, then as `refused: requirement=<name>
 // reason=undeclared` for the first command MANIFEST does not declare, so a
 // notice never names a package its owner did not declare.
 function noticeRequest(manifest, missing, trigger, commands) {
@@ -1837,18 +1878,18 @@ function noticeRequest(manifest, missing, trigger, commands) {
     case "chosen":
         if (!Array.isArray(commands) || commands.length === 0 || commands.length > NOTICE_OFFER_MAX || !commands.every(function (c) { return typeof c === "string"; }))
             return { answer: "refused: requirements=malformed", commands: [], required: [] };
-        var declared = rows.map(function (row) { return row.command; });
+        var declared = rows.map(function (row) { return row.name; });
         var undeclared = commands.filter(function (c) { return declared.indexOf(c) === -1; });
         if (undeclared.length > 0)
             return { answer: "refused: requirement=" + tuiLabel(undeclared[0]) + " reason=undeclared", commands: [], required: [] };
-        listed = rows.filter(function (row) { return row.state === "missing" && commands.indexOf(row.command) !== -1; });
+        listed = rows.filter(function (row) { return row.state === "missing" && commands.indexOf(row.name) !== -1; });
         required = listed;
         break;
     default:
         throw new Error("notices: trigger " + JSON.stringify(trigger) + " is not one of " + NOTICE_TRIGGERS.join(", "));
     }
-    var commandOf = function (row) { return row.command; };
-    return { answer: required.length === 0 ? "satisfied" : "ok", commands: listed.map(commandOf), required: required.map(commandOf) };
+    var nameOf = function (row) { return row.name; };
+    return { answer: required.length === 0 ? "satisfied" : "ok", commands: listed.map(nameOf), required: required.map(nameOf) };
 }
 
 // QUEUE, the notices held, each { id, commands, required }, the first
@@ -1882,11 +1923,11 @@ function noticeAdmit(queue, rest, id, request, trigger, now) {
 }
 
 // What NOTICE, { commands, required }, shows for plugin MANIFEST after the
-// last scan, whose missing commands are MISSING, on a system whose managers
+// last scan, whose missing requirements are MISSING, on a system whose managers
 // are FOUND, detect's answer, or null when detection has no answer:
-// { satisfied, rows, install, commandLine, byHand }. `satisfied` holds once no command
-// of `required` is missing. `rows` are the listed commands still missing,
-// in declaration order, each { command, purpose, optional, package }, the
+// { satisfied, rows, install, commandLine, byHand }. `satisfied` holds once no requirement
+// of `required` is missing. `rows` are the listed requirements still missing,
+// in declaration order, each { name, purpose, optional, package }, the
 // package PackageManagers.installGroups picks, null with FOUND null or when
 // no present manager maps one. `install` is the arguments after
 // `vgshell pkg run install` of the first group whose manager installs, null
@@ -1898,14 +1939,14 @@ function noticeAdmit(queue, rest, id, request, trigger, now) {
 // group whose manager installs nothing through vgshell, nix, as
 // { manager, names }.
 function noticeView(manifest, missing, notice, found) {
-    var rows = requirementRows(manifest, missing).filter(function (row) { return row.state === "missing" && notice.commands.indexOf(row.command) !== -1; });
+    var rows = requirementRows(manifest, missing).filter(function (row) { return row.state === "missing" && notice.commands.indexOf(row.name) !== -1; });
     var satisfied = !notice.required.some(function (c) { return missing.indexOf(c) !== -1; });
     var plan = found === null ? { picks: rows.map(function () { return null; }), groups: [] } : PackageManagers.installGroups(rows, found);
     var installable = plan.groups.filter(function (g) { return g.installs; });
     var install = installable.length === 0 ? null : PackageManagers.installArgs(installable[0]);
     return {
         satisfied: satisfied,
-        rows: rows.map(function (row, i) { return { command: row.command, purpose: row.purpose, optional: row.optional, package: plan.picks[i] }; }),
+        rows: rows.map(function (row, i) { return { name: row.name, purpose: row.purpose, optional: row.optional, package: plan.picks[i] }; }),
         install: install,
         commandLine: install === null ? "" : CORE_TUIS["requirements-install"].argv.concat(install).join(" "),
         byHand: plan.groups.filter(function (g) { return !g.installs; }).map(function (g) { return { manager: g.manager, names: g.names }; })
@@ -1913,8 +1954,8 @@ function noticeView(manifest, missing, notice, found) {
 }
 
 // QUEUE after a scan, the notices of OWNERS, the core's owner and each
-// plugin's manifest by id, whose missing commands MISSING, owner id ->
-// commands, now holds: a notice whose owner went is dropped, and so is one noticeView finds satisfied, except the
+// plugin's manifest by id, whose missing requirements MISSING, owner id ->
+// requirement names, now holds: a notice whose owner went is dropped, and so is one noticeView finds satisfied, except the
 // notice of INSTALLING, the plugin id whose install runs or "". That notice
 // stays until the scan after its run ended, however the run's own steps
 // asked for a rescan first, so no waiting notice comes to the front while
@@ -2266,7 +2307,7 @@ function tuiText(value) {
 // one script, each named by NAME_PATTERN and holding only TUI_KEYS; `script`
 // matches TUI_SCRIPT; `title` passes tuiText; `size` and `presentation`,
 // when present, come from TUI_SIZES and TUI_PRESENTATIONS; `requires`, when
-// present, names the REQUIREMENTS commands the script needs; `entry`, when
+// present, names the REQUIREMENTS the script needs; `entry`, when
 // present, holds a tuiText `label` and `group` and an `icon` of the shipped
 // set. The plugin opens its scripts through capability `tui`, which the
 // manifest must name. Whether the script is a regular executable file, and
@@ -2323,17 +2364,17 @@ function tuiWindowError(at, row) {
 }
 
 // The first defect of the `requires` of a TUI row at AT, or "": absent, or
-// a list of commands of the manifest's REQUIREMENTS, each once. An empty
+// a list of names from the manifest's REQUIREMENTS, each once. An empty
 // list says the script needs none of them.
 function tuiRequiresError(at, requires, requirements) {
     if (requires === undefined)
         return "";
     if (!Array.isArray(requires))
-        return at + ".requires must be a list of the manifest's requirement commands";
-    var declared = requirements.map(function (r) { return r.command; });
+        return at + ".requires must be a list of the manifest's requirements";
+    var declared = requirements.map(requirementName);
     for (var n = 0; n < requires.length; n++) {
         if (declared.indexOf(requires[n]) === -1)
-            return at + ".requires." + n + " must name a command of the manifest's requirements, got " + JSON.stringify(requires[n]);
+            return at + ".requires." + n + " must name a requirement of the manifest's requirements, got " + JSON.stringify(requires[n]);
         if (requires.indexOf(requires[n]) !== n)
             return at + ".requires." + n + " repeats " + JSON.stringify(requires[n]);
     }
@@ -3260,7 +3301,7 @@ function validateManifest(raw, sourceDir) {
         return { ok: false, error: "settings must not carry a keys key: a plugins row's keys are its Hyprland keys" };
     if (hasOwn(settings, "placement") && PLACEMENTS.indexOf(settings.placement) === -1)
         return { ok: false, error: "settings.placement must be one of " + PLACEMENTS.join(", ") + ", got " + JSON.stringify(settings.placement) };
-    // The requirements first: a status action names the commands it
+    // The requirements first: a status action names the requirements it
     // installs from them.
     var requirements = raw.requirements === undefined ? [] : raw.requirements;
     var badRequirements = requirementsError(requirements);

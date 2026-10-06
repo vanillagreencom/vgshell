@@ -163,7 +163,7 @@ expect "the layer under the notice is hidden" ok layered undraw
 expect "disabling the layers fixture under the notice is allowed" ok ipc shell setPluginEnabled acme.layers false
 expect_poll "the layers fixture under the notice is gone" False record_exists acme.layers
 expect_poll "the notice holds the keyboard after the clicks" true ipc smoke noticeFocused
-expect "the notice names the plugin and the count" '"Needs needs 3 commands"' drawn title
+expect "the notice names the plugin and the count" '"Needs needs 3 requirements"' drawn title
 expect "each missing requirement is drawn as its purpose, then its command and this system's package" "$needs_rows" drawn rows
 expect "the command Install runs is behind Show command, closed" "{\"toggle\": \"Show command\", \"expanded\": false, \"text\": \"$needs_command_line\"}" drawn command
 expect "no row of the notice's body draws a command line" false rows_hold "pkg run install"
@@ -315,7 +315,7 @@ expect_log "the failed detection is logged" 1 'notices: detect=failed exit=70 st
 expect "a notice without managers draws each requirement without a package" '["The command the fixture runs", "vgs-smoke-needs", "An extra the fixture can do without", "vgs-smoke-extra \u00b7 optional", "A command no manager here provides", "vgs-smoke-unmapped \u00b7 optional"]' drawn rows
 expect "a notice without an install has no command to show" null drawn command
 expect "a notice without an install offers Close alone" '["Close"]' drawn actions
-expect "the message says detection failed" '"VGS could not detect this system'"'"'s package manager. Install these commands by hand."' drawn message
+expect "the message says detection failed" '"VGS could not detect this system'"'"'s package manager. Install these requirements by hand."' drawn message
 expect_poll "the notice without an install holds the keyboard" true ipc smoke noticeFocused
 type_keys -k Escape || fail "sending Escape failed"
 expect_poll "Escape closes the notice without an install" 0 layer_count vgs:notice

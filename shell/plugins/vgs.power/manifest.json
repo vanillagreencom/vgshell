@@ -29,7 +29,10 @@
   "defaultSection": "right",
   "requirements": [
     {
-      "command": "powerprofilesctl",
+      "dbus": {
+        "bus": "system",
+        "name": "org.freedesktop.UPower.PowerProfiles"
+      },
       "packages": {
         "pacman": "power-profiles-daemon",
         "apt": "power-profiles-daemon",
@@ -37,7 +40,7 @@
         "nix": "power-profiles-daemon"
       },
       "optional": false,
-      "purpose": "Comes with power-profiles-daemon, which switches the power profile"
+      "purpose": "The power profiles service, which switches the power profile"
     },
     {
       "command": "notify-send",
