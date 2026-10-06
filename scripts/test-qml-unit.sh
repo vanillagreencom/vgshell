@@ -959,7 +959,7 @@ mutations=(
   "a refused typed key reports a write|../plugins/vgs.settings/KeyField.qml|sent.accepted = accepted;|sent.accepted = true;|tst_settings_edits.qml"
   "a key sent without the text entry reports a write|../plugins/vgs.settings/KeyField.qml|sent.accepted = accepted;|sent.accepted = accepted; if (accepted && edits !== null) edits.wrote();|tst_settings_edits.qml"
   "a read-only key row keeps its typed key|../plugins/vgs.settings/KeyField.qml|    onEditableChanged: if (!editable) discard()|    onEditableChanged: {}|tst_settings_edits.qml"
-  "a destroyed key row stays in the set|../plugins/vgs.settings/KeyField.qml|    Component.onDestruction: if (edits !== null) edits.forget(root)|    Component.onDestruction: {}|tst_settings_edits.qml"
+  "a destroyed key row stays in the set|../plugins/vgs.settings/KeyField.qml|        if (edits !== null) edits.forget(root);|        {}|tst_settings_edits.qml"
   "alternatives draw with no separator between them|controls/ShortcutField.qml|visible: group.index > 0|visible: false|tst_shortcutfield.qml"
   "the box draws the first alternative alone|controls/ShortcutField.qml|const count = Math.max(1, keys.length, live + 1);|const count = Math.max(1, live + 1);|tst_shortcutfield.qml"
   "the box keeps one line for many alternatives|controls/ShortcutField.qml|implicitHeight: Math.max(Theme.textField.height, groupFlow.implicitHeight + 2 * Theme.space.xs)|implicitHeight: Theme.textField.height|tst_shortcutfield.qml"
