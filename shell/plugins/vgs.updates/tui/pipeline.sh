@@ -18,9 +18,11 @@
 #      bin/facts review) and the AUR or a pacman repository that is not
 #      official has an update pending: the run fetches the AUR build files
 #      itself, and the agent runs in a second window, the `review` TUI,
-#      which the service opens; the run waits for it and
-#      acts on its verdict, so a flagged package the user skips reaches
-#      its upgrade step as `--ignore <name>`. The review runs before any
+#      which the service opens from the stable review start directory. The
+#      per-run directory is inside it, so the agent's folder trust is
+#      keyed on one path and the user trusts it once. The run waits for
+#      the verdict, so a flagged package the user skips reaches its
+#      upgrade step as `--ignore <name>`. The review runs before any
 #      credential is cached: shell/plugins/vgs.updates/pipeline.md § Third-party review
 #   5. one sudo session, when the package layer's elevation command is
 #      sudo and a snapshot or the system step needs root. That command is
@@ -407,20 +409,23 @@ _updates_review_remove() {
 }
 
 # The review in the second window, through the service's `review` IPC
-# handler, which opens the `review` TUI with the review directory: a 0700
-# directory of this run's own, made by an exclusive mkdir and removed when
-# the review ends or the run exits. The run fetches the AUR build files
-# into its build/ first, through the helper as the user, so the agent
-# reads them offline; a fetch runs no package code. NAMEs are the packages
-# listed. Sets
+# handler, which opens the `review` TUI from the stable review start
+# directory. The run's 0700 directory is inside that start directory, made
+# by an exclusive mkdir and removed when the review ends or the run exits,
+# so the agent's folder trust is keyed on one path. The run fetches the
+# AUR build files into its build/ first, through the helper as the user, so
+# the agent reads them offline; a fetch runs no package code. NAMEs are
+# the packages listed. Sets
 # _updates_review_verdict to clean, flagged or none, _updates_review_flags
 # to `<name> <concern>` per flag and _updates_review_reason, for the
 # developer log, when there is no verdict.
 _updates_review_run() { # NAME...
-  local dir reply status=0 polls=0 facts key value lock
+  local start dir reply status=0 polls=0 facts key value lock
   _updates_review_verdict=none _updates_review_reason="" _updates_review_flags=()
-  dir="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/vgshell/updates/review.$$"
-  mkdir -p -- "${dir%/*}"
+  start="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/vgshell/updates/review"
+  mkdir -p -- "$start"
+  chmod 700 -- "$start"
+  dir="$start/$$"
   if ! mkdir -m 700 -- "$dir" 2>/dev/null; then _updates_review_reason="dir=taken path=$dir"; return 0; fi
   _updates_review_dir="$dir"
   trap '_updates_review_remove' EXIT

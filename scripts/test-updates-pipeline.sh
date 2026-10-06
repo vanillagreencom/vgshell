@@ -14,9 +14,9 @@
 # runs, so /proc names its executable deleted.
 #
 # The review rows put stand-in agent CLIs on PATH, each recording its argv
-# but the prompt, which it keeps beside its working directory, the
-# packages.txt it was handed and the build files it found, and writing the
-# verdict the row planted. An agent writes its verdict only once the
+# but the prompt, the start directory it ran from, the packages.txt and
+# build files in the review directory named by the prompt, and writing the
+# verdict there. An agent writes its verdict only once the
 # pipeline's lock wait is recorded, or once the pipeline asked to go on
 # without one: a barrier on the stand-in flock's record, not a sleep. The
 # stand-in vgshell answers the service's `review` IPC call by running the
@@ -148,8 +148,14 @@ echo "$line" >>"$CALLS"
 eval "last=\${$n}"
 printf '%s' "$last" >"$FIX/prompt-seen"
 pwd >"$FIX/agent-cwd"
-cat packages.txt >"$FIX/packages-seen"
-for f in build/*/PKGBUILD; do [ ! -e "$f" ] || echo "$f"; done >"$FIX/build-seen"
+review_dir="$(printf '%s\n' "$last" | sed -n 's|^The review directory is `\(.*\)`. The files below are in it\. Read and write paths relative to that directory\.$|\1|p' | sed -n '1p')"
+if [ -n "$review_dir" ]; then
+  cat "$review_dir/packages.txt" >"$FIX/packages-seen" 2>/dev/null || :
+  for f in "$review_dir"/build/*/PKGBUILD; do [ ! -e "$f" ] || echo "${f#"$review_dir"/}"; done >"$FIX/build-seen"
+else
+  : >"$FIX/packages-seen"
+  : >"$FIX/build-seen"
+fi
 polls=0
 while [ "$polls" -lt 600 ]; do
   seen=0
@@ -160,7 +166,7 @@ while [ "$polls" -lt 600 ]; do
   sleep 0.05
   polls=$((polls + 1))
 done
-[ ! -e "$FIX/verdict" ] || cat "$FIX/verdict" >verdict
+[ ! -e "$FIX/verdict" ] || { [ -n "$review_dir" ] && cat "$FIX/verdict" >"$review_dir/verdict"; }
 SH
   chmod +x "$agents/$agent"
 done
@@ -175,7 +181,7 @@ stub "$stubs" systemctl ''
 stub "$stubs" paru 'if [ "$1" = -G ]; then shift; for p; do mkdir -p "$p"; echo "pkgname=$p" >"$p/PKGBUILD"; done; exit 0; fi
 [ ! -e "$FIX/fail-paru" ] || { sudo /usr/bin/true; exit 7; }'
 stub "$stubs" less ''
-for tool in bash env readlink dirname mkdir mv rm script flock sleep cat id sed; do
+for tool in bash env readlink dirname mkdir chmod mv rm script flock sleep cat id sed; do
   found="$(command -v "$tool")" || { echo "test-updates-pipeline: status=not-measured missing=$tool"; exit 77; }
   ln -s -- "$(readlink -f -- "$found")" "$tools/$tool"
 done
@@ -517,6 +523,14 @@ row_log() {
 # run asked the service to open, from its recorded IPC call.
 review_call="vgshell ipc call vgs.updates invoke review "
 review_dir() { sed -n "s|^$review_call||p" "$tmp/seq" | head -n 1; }
+expected_review_prompt() { # DIR
+  python3 - "$plugin/review/third-party.md" "$1" <<'PY'
+import pathlib
+import sys
+
+print(pathlib.Path(sys.argv[1]).read_text().replace("{review_dir}", sys.argv[2]), end="")
+PY
+}
 # r1: off, a run is today's, whatever agent is on PATH.
 row_review_off() {
   reset_fix
@@ -545,22 +559,24 @@ row_review_none_pending() {
   assert "nothing third-party pending still upgrades" has_call "vgshell pkg run upgrade --manager aur"
 }
 # r3: a clean verdict: the window runs the default command with the
-# prompt, from the review directory, before any credential, and the run
-# goes on with no package kept out.
+# prompt naming the review directory, from the stable review start
+# directory, before any credential, and the run goes on with no package
+# kept out.
 row_review_clean() {
   reset_fix
   third_party
   printf 'verdict clean\n' >"$fix/verdict"
   PIPE_PATH="$agents" pipeline update.sh
-  local dir
+  local dir expected_prompt
   dir="$(review_dir)"
+  expected_prompt="$(expected_review_prompt "$dir")" || return 1
   assert "a clean review exits 0" test "$status" == 0
-  assert "the review directory is the run's own" test "${dir%.*}" == "$rt/vgshell/updates/review"
+  assert "the review directory is the run's own inside the start directory" test "${dir%/*}" == "$rt/vgshell/updates/review"
   assert "the agent runs the default command in its restricted mode" has_call "claude --model opus --effort medium --permission-mode default"
   assert "the run fetches the AUR build files itself" has_call "paru -G tool-bin"
   assert "the agent finds the fetched build files" test "$(cat "$fix/build-seen" 2>/dev/null)" == "build/tool-bin/PKGBUILD"
-  assert "the agent's last argument is the bundled prompt" test "$(cat "$fix/prompt-seen" 2>/dev/null)" == "$(cat "$plugin/review/third-party.md")"
-  assert "the agent runs in the review directory" test "$(cat "$fix/agent-cwd" 2>/dev/null)" == "$dir"
+  assert "the agent's last argument is the bundled prompt with the review directory" test "$(cat "$fix/prompt-seen" 2>/dev/null)" == "$expected_prompt"
+  assert "the agent runs in the review start directory" test "$(cat "$fix/agent-cwd" 2>/dev/null)" == "$rt/vgshell/updates/review"
   assert "the agent is handed the third-party packages alone" test "$(cat "$fix/packages-seen" 2>/dev/null)" == "$(printf '%s\n' "helper paru" "aur tool-bin 1.0-1 1.1-1" "repo chaotic foo 2-1 3-1" "server chaotic https://chaotic.example/x86_64" "siglevel chaotic Optional TrustAll")"
   assert "no credential is asked before the review" none_before "sudo" "$review_call"
   assert "the review comes before the sudo session" before "$review_call$dir" "sudo /usr/bin/true"
@@ -568,6 +584,27 @@ row_review_clean() {
   assert "a clean verdict runs the system step as it is" has_call "vgshell pkg run upgrade --manager pacman"
   assert "a clean verdict runs the AUR step as it is" has_call "vgshell pkg run upgrade --manager aur"
   assert "the review directory is removed" test ! -e "$dir"
+}
+# r3b: separate runs use separate private directories under one stable
+# start directory, so the agent's folder trust sees the same path.
+row_review_start_stable() {
+  reset_fix
+  third_party
+  printf 'verdict clean\n' >"$fix/verdict"
+  PIPE_PATH="$agents" pipeline update.sh
+  local first_dir first_start second_dir second_start
+  first_dir="$(review_dir)"
+  first_start="$(cat "$fix/agent-cwd" 2>/dev/null)"
+  reset_fix
+  third_party
+  printf 'verdict clean\n' >"$fix/verdict"
+  PIPE_PATH="$agents" pipeline update.sh
+  second_dir="$(review_dir)"
+  second_start="$(cat "$fix/agent-cwd" 2>/dev/null)"
+  assert "two reviews start from the same stable directory" test "$first_start" == "$second_start"
+  assert "the stable review start directory is the trust path" test "$first_start" == "$rt/vgshell/updates/review"
+  assert "two reviews keep separate per-run directories" test "$first_dir" != "$second_dir"
+  assert "both review directories are inside the stable start directory" test "${first_dir%/*}:${second_dir%/*}" == "$rt/vgshell/updates/review:$rt/vgshell/updates/review"
 }
 # r4: a flagged verdict asks per package; a yes keeps it out of its own
 # upgrade step, and a no stops the run before any step.
@@ -655,7 +692,7 @@ row_review_custom() {
 
 row_full; row_trusted; row_snapshot; row_failure; row_reboot; row_orphans; row_yes
 row_declined; row_busy; row_aur_command; row_aur_failure; row_doas; row_vgs_only; row_vgs_git; row_source; row_recheck_failure; row_log
-row_review_off; row_review_no_agent; row_review_none_pending; row_review_clean; row_review_flagged; row_review_no_verdict; row_review_no_helper; row_review_custom
+row_review_off; row_review_no_agent; row_review_none_pending; row_review_clean; row_review_start_stable; row_review_flagged; row_review_no_verdict; row_review_no_helper; row_review_custom
 
 # Controls: each runs one row against a plugin copy whose FILE, relative
 # to the plugin and tui/pipeline.sh unless named, drops one rule, quietly,
@@ -692,6 +729,8 @@ control review-ignores-toggle 'if (s.reviewThirdParty !== true) return' 'if (fal
 control review-ignores-path 'return table.REVIEW_AGENTS.map(row => row.id).filter(onPath);' 'return table.REVIEW_AGENTS.map(row => row.id);' row_review_no_agent bin/facts
 control review-without-packages 'if [[ ${#reviewed[@]} -gt 0 ]]; then' 'if true; then' row_review_none_pending
 control verdict-before-unlock '  flock "$lock"' '  :' row_review_clean
+control review-starts-from-run-dir 'cd -- "${dir%/*}"' 'cd -- "$dir"' row_review_start_stable tui/review.sh
+control prompt-placeholder-kept 'prompt="${prompt//\{review_dir\}/$dir}"' 'prompt="$prompt"' row_review_clean tui/review.sh
 control skip-not-passed 'ignore=(--ignore "${_updates_skip_repo[@]}")' 'ignore=()' row_review_flagged
 control no-verdict-continues '"Continue without a review?" --default=false || status=$?' '"Continue without a review?" || status=$?' row_review_no_verdict
 control custom-replaced 'if (words.length > 0) {' 'if (false) {' row_review_custom UpdatesLogic.js

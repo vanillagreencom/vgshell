@@ -52,9 +52,10 @@
 #
 # The third-party review's window: the service's `review` handler opens
 # the shipped tui/review.sh in the review TUI's window, which runs a
-# stand-in agent from the review directory with the bundled prompt, and
-# its end lands in the directory as the run's code. The stand-in terminal
-# runs a plugin script only when it is byte for byte a fixture's, so
+# stand-in agent from the stable review start directory with a prompt that
+# names the per-run directory. Its end lands in the directory as the run's
+# code. The stand-in terminal runs a plugin script only when it is byte for
+# byte a fixture's, so
 # scripts/smoke/fixtures/tui/vgs.updates/tui/review.sh is an exact copy of
 # the shipped script, read equal first: the script the presenter runs is
 # the shipped one. Its end starts no check, and a run that ends after its
@@ -656,18 +657,25 @@ expect_poll "the control monitor's bar is gone" "$monitors" bar_count
 # ---- The third-party review's window ----------------------------------------
 # The stand-in agent takes this row's state directory as its first word,
 # records the rest of its argv but the prompt, whether the prompt is the
-# bundled one, and the directory it runs in, and then waits for the gate,
+# bundled one with the review directory filled in, and the directory it
+# runs in, and then waits for the gate,
 # up to 2400 polls of 0.05 s, a ceiling past the reads below and not a
 # measurement, before it writes a clean verdict and exits.
 review_fixture="$repo/scripts/smoke/fixtures/tui/vgs.updates/tui/review.sh"
 same_review_script() { if cmp -s -- "$review_fixture" "$repo/shell/plugins/vgs.updates/tui/review.sh"; then echo same; else echo differs; fi; }
 expect "the review fixture is the shipped review script, byte for byte" same same_review_script
-review_dir="$updates_state/review.smoke"
+review_start="$updates_state/review"
+review_dir="$review_start/smoke"
 review_bin="$updates_state/review-bin"
-rm -rf -- "${review_dir:?}" "${review_bin:?}"
+rm -rf -- "${review_start:?}" "${review_bin:?}"
 rm -f -- "$updates_state/review-gate" "$updates_state/review-argv" "$updates_state/review-prompt" "$updates_state/review-cwd"
 mkdir -p -- "$review_dir" "$review_bin"
-cp -- "$updates_dir/review/third-party.md" "$updates_state/review-prompt.expected"
+python3 - "$updates_dir/review/third-party.md" "$review_dir" "$updates_state/review-prompt.expected" <<'PY'
+import pathlib
+import sys
+
+pathlib.Path(sys.argv[3]).write_text(pathlib.Path(sys.argv[1]).read_text().replace("{review_dir}", sys.argv[2]))
+PY
 cat >"$review_bin/agent" <<'SH'
 #!/bin/sh
 state="$1"
@@ -680,9 +688,10 @@ mv -f -- "$state/review-argv.next" "$state/review-argv"
 eval "last=\${$n}"
 if [ "$last" = "$(cat "$state/review-prompt.expected")" ]; then echo same; else echo differs; fi >"$state/review-prompt"
 pwd >"$state/review-cwd"
+review_dir="$(printf '%s\n' "$last" | sed -n 's|^The review directory is `\(.*\)`. The files below are in it\. Read and write paths relative to that directory\.$|\1|p' | sed -n '1p')"
 polls=0
 while [ ! -e "$state/review-gate" ] && [ "$polls" -lt 2400 ]; do sleep 0.05; polls=$((polls + 1)); done
-printf 'verdict clean\n' >verdict
+[ -z "$review_dir" ] || printf 'verdict clean\n' >"$review_dir/verdict"
 SH
 chmod 755 "$review_bin/agent"
 printf '%s\n' "$review_bin/agent" "$updates_state" --effort medium >"$review_dir/command"
@@ -695,7 +704,7 @@ before="$(checks)"
 expect "the review handler opens the review TUI" ok ipc vgs.updates invoke review "$review_dir"
 expect_poll "the shipped review script holds its lock and says it started" started review_started
 expect_poll "the review TUI's window is open" 1 review_window
-expect_poll "the agent runs from the review directory" "$review_dir" review_file "$updates_state/review-cwd"
+expect_poll "the agent runs from the review start directory" "$review_start" review_file "$updates_state/review-cwd"
 expect "the agent gets the command's words" '["--effort", "medium"]' review_argv
 expect "the agent's last argument is the bundled prompt" same review_file "$updates_state/review-prompt"
 expect "no end is written while the review runs" absent review_file "$review_dir/ended"
@@ -721,7 +730,7 @@ expect_run_end "the second review run ends" vgs.updates/review
 expect_poll "the second review TUI's window closes with its run" 0 review_window
 review_gone() { sleep 1; if [[ -e $review_dir ]]; then echo present; else echo absent; fi; }
 expect "the run's end does not make its removed directory again" absent review_gone
-rm -rf -- "${review_dir:?}" "${review_bin:?}"
+rm -rf -- "${review_start:?}" "${review_bin:?}"
 rm -f -- "$updates_state/review-gate" "$updates_state/review-argv" "$updates_state/review-prompt" "$updates_state/review-prompt.expected" "$updates_state/review-cwd"
 
 # No manager detected: only the VGS rows remain.
