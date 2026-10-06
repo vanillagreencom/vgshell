@@ -23,15 +23,24 @@ Item {
     function close() {}
 
     implicitWidth: Theme.size.panel.sm
-    implicitHeight: Theme.size.panel.sm / 2
+    implicitHeight: layout.implicitHeight
 
     Surface {
         anchors.fill: parent
+    }
+
+    Pane {
+        id: layout
+        anchors.fill: parent
+        container: "panel"
+        fitToContent: true
+        maximumHeight: Theme.size.panel.maxHeight
+        title: "__NAME__"
 
         Label {
-            anchors.centerIn: parent
+            width: layout.contentWidth
             role: "body"
-            text: "__NAME__"
+            text: "Panel content"
         }
     }
 }

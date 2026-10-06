@@ -1670,6 +1670,39 @@ Scope {
             const json = root.json(found[property]);
             return json === undefined ? "undefined" : json;
         }
+        function readMatchingDescendant(hostKey: string, id: string, type: string, key: string, value: string, property: string): string {
+            const item = root.instance(hostKey, id);
+            if (item === null) return "absent";
+            const found = root.descendants(item).find(child => root.typeName(child) === type && String(child[key]) === value);
+            if (found === undefined) return "absent";
+            const json = root.json(found[property]);
+            return json === undefined ? "undefined" : json;
+        }
+        // The first titled Pane under an instance: the title, its content
+        // edges, the title row centre, the h3 title label, the header
+        // switch and the settings gear. Rows use it for shared dropdown
+        // header geometry without adding readbacks to the shipped Pane API.
+        function paneHeader(hostKey: string, id: string): string {
+            const item = root.instance(hostKey, id);
+            if (item === null) return "absent";
+            const pane = root.descendants(item).find(child => root.typeName(child) === "Pane" && child.title !== undefined && child.title !== "");
+            if (pane === undefined) return "absent";
+            const title = root.descendants(pane).find(child => root.typeName(child) === "Label" && child.role === "h3" && child.text === pane.title && child.visible);
+            const gear = root.descendants(pane).find(child => root.typeName(child) === "IconButton" && child.label === "Settings" && child.visible);
+            const sw = pane.headerSwitch;
+            return root.json({
+                title: pane.title,
+                contentLeft: pane.contentInset,
+                contentRight: pane.contentInset + pane.contentWidth,
+                inlineGap: Theme.stack.inline,
+                titleCenterY: pane.contentInset + pane.titleRowHeight / 2,
+                titleBox: title === undefined ? null : root.windowBox(title),
+                switchBox: sw === null ? null : root.windowBox(sw),
+                switchChecked: sw === null ? null : sw.checked,
+                switchEnabled: sw === null ? null : sw.enabled,
+                gearBox: gear === undefined ? null : root.windowBox(gear)
+            });
+        }
         // readDescendant over the items whose every ancestor is visible:
         // a list's own cursor rather than one in a closed flyout of the
         // same instance, whatever the cursor itself shows.

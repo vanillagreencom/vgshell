@@ -245,7 +245,7 @@ FocusScope {
         }
         Field {
             width: parent.width
-            visible: !!root.network.hasWifi
+            visible: root.expanded && !!root.network.hasWifi
             label: "Wi-Fi"
             hint: root.network.wifiHardwareEnabled === false ? "The hardware switch blocks Wi-Fi." : ""
             control: Switch {
@@ -254,6 +254,13 @@ FocusScope {
                 enabled: !!root.network.writable && root.network.wifiHardwareEnabled !== false
                 onClicked: root.action("radio", null)
             }
+        }
+        Label {
+            width: parent.width
+            visible: !root.expanded && !!root.network.hasWifi && root.network.wifiHardwareEnabled === false
+            role: "hint"
+            text: "The hardware switch blocks Wi-Fi."
+            wrapMode: Text.Wrap
         }
         Section {
             title: "Wi-Fi networks"

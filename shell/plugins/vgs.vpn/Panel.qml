@@ -9,7 +9,7 @@ Item {
 
     property var shell: null
     property var payload: ({})
-    readonly property Item initialFocus: body.initialFocus
+    readonly property Item initialFocus: layout.headerSwitch !== null && layout.headerSwitch.enabled ? layout.headerSwitch : body.initialFocus
 
     implicitWidth: Theme.size.panel.lg
     implicitHeight: layout.implicitHeight
@@ -34,7 +34,13 @@ Item {
         container: "panel"
         fitToContent: true
         maximumHeight: Theme.size.panel.maxHeight
-        header: [Label { role: "h3"; text: "VPN" }]
+        title: "VPN"
+        switchShown: body.switchable
+        switchChecked: body.vpn.state !== "stopped"
+        switchEnabled: body.vpn.writable && !body.busy
+        switchName: "Tailscale"
+        onSwitchToggled: checked => body.request(checked ? "connect" : "disconnect", "")
+
         footer: [Button { text: "VPN settings"; variant: "tertiary"; iconName: "settings"; onClicked: root.openSettings() }]
 
         VpnBody {

@@ -11,7 +11,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 | Surface | What it holds |
 |---|---|
 | Bar icon | Off, on, or connected with the count of connected devices. A click opens the flyout. It hides when no adapter is found, and while Bluetooth is off when Hide when off is on. |
-| Flyout | The power switch, your devices, which a click connects or disconnects, and the devices nearby. A click on a nearby device opens the Bluetooth section, which pairs it. Bluetooth Settings opens the section. |
+| Flyout | The title row's power switch, your devices, which a click connects or disconnects, and the devices nearby. A click on a nearby device opens the Bluetooth section, which pairs it. Bluetooth Settings opens the section. |
 | System → Bluetooth | The power switch, Discoverable, Hide when off, My Devices with Connect or Disconnect and a menu of Rename, Trust and Forget, and Nearby with Pair. |
 
 ## Power

@@ -45,7 +45,7 @@
 # vgs.system enabled or disabled as it found them, discovery confirming,
 # the follow off and no planted systemctl answer, whichever step it
 # returns from.
-# inputs: shell/plugins/vgs.bluetooth/* shell/plugins/vgs.system/* shell/Ui/layout/DeviceList.qml scripts/smoke/fixtures/devices/* shell/Core/BluetoothAgent.qml shell/Core/BluetoothAgentModel.js shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system bin/vgshell-tui scripts/smoke/rows/device-fakes.sh
+# inputs: shell/plugins/vgs.bluetooth/* shell/plugins/vgs.system/* shell/Ui/layout/Pane.qml shell/Ui/layout/DeviceList.qml scripts/smoke/fixtures/devices/* shell/Core/BluetoothAgent.qml shell/Core/BluetoothAgentModel.js shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system bin/vgshell-tui scripts/smoke/rows/device-fakes.sh
 set -euo pipefail
 
 bt_keyboard=00:1B:66:AA:BB:02
@@ -84,6 +84,15 @@ bt_widget() { ipc smoke readInstance "$(bar_key)" vgs.bluetooth "$1"; }
 bt_widget_view() { bt_widget view | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[sys.argv[1]]))' "$1"; }
 bt_widget_setting() { bt_widget settings | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get(sys.argv[1])))' "$1"; }
 bt_pane() { ipc smoke readInstance window vgs.bluetooth "$1"; }
+bt_panel_header() { ipc smoke paneHeader panel "${bt_id:-vgs.bluetooth}" | py_reply 'import json,sys
+h=json.load(sys.stdin)
+if h=="absent":
+    print("absent"); raise SystemExit
+s=h["switchBox"]; t=h["titleBox"]; g=h["gearBox"]
+right = (g[0] - h["inlineGap"]) if g else h["contentRight"]
+ok = h["title"] == "Bluetooth" and t is not None and s is not None and abs(t[0] - h["contentLeft"]) < 0.5 and abs(s[0] + s[2] - right) < 0.5 and abs(s[1] + s[3] / 2 - h["titleCenterY"]) < 0.5
+print(json.dumps({"placed": ok, "checked": h["switchChecked"], "enabled": h["switchEnabled"]}, sort_keys=True))'; }
+bt_power_field_absent() { ipc smoke readDescendant panel "${bt_id:-vgs.bluetooth}" PowerField powerOn; }
 bt_lists() { # HOST_KEY ID
   ipc smoke readDescendant "$1" "$2" DeviceSections lists | py_reply 'import json,sys; print(json.dumps([[r["text"], r["connected"]] for r in json.load(sys.stdin)["mine"]]))'
 }
@@ -175,6 +184,10 @@ bt_main() {
   expect_poll "the restarted service reads off" off bt_view
   expect "the block survives the restart" '[["blocked", "unblocked"]]' bt_radio
   expect "the restarted service only read rfkill" '[["-J"]]' bt_rfkill_argvs_since "$rfkill_before"
+  expect "the off flyout opens with the shared header switch" ok ipc shell summon panel vgs.bluetooth '{}'
+  expect_poll "the shared Bluetooth header switch reads off and sits in the title row" '{"checked": false, "enabled": true, "placed": true}' bt_panel_header
+  expect "the old Bluetooth PowerField row is absent from the flyout" absent bt_power_field_absent
+  expect "the off flyout closes" ok ipc shell hide panel vgs.bluetooth
 
   # On: unblock, then wait for an adapter to report powered; the auto
   # power-on comes, so the service sets nothing.
@@ -218,6 +231,8 @@ bt_main() {
   stops_before="$(bt_calls StopDiscovery)"
   expect "the flyout opens" ok ipc shell summon panel vgs.bluetooth '{}'
   expect_poll "the flyout's lease starts discovery" rose bt_rose "$starts_before" bt_calls StartDiscovery
+  expect_poll "the shared Bluetooth header switch reads on and sits beside the gear" '{"checked": true, "enabled": true, "placed": true}' bt_panel_header
+  expect "the old Bluetooth PowerField row stays absent from the flyout" absent bt_power_field_absent
   expect_poll "the flyout lists the headphones as connected" '[["Smoke Headphones", true]]' bt_lists panel vgs.bluetooth
   expect "BlueZ has not confirmed the start" False bt_adapter Discovering
   expect "the flyout closes" ok ipc shell hide panel vgs.bluetooth

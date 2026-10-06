@@ -107,7 +107,7 @@ FocusScope {
         Field {
             id: connectField
             width: parent.width
-            visible: root.switchable
+            visible: root.expanded && root.switchable
             label: "Tailscale"
             inline: true
 

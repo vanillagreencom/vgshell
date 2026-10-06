@@ -2,8 +2,13 @@ import QtQuick
 import qs.Commons
 import qs.Ui
 
-// One inset box for a container: optional header, scrolling body and
-// optional footer all start at the same content edge. The scroll bar lives
+// One inset box for a container: an optional title row, optional header
+// slot, scrolling body and optional footer all start at the same content
+// edge. A non-empty `title` draws the shared dropdown title as h3 and can
+// put a feature switch at the row's end; plugins pass the switch's state
+// and action, and the switch stays beside the Settings gear when one
+// shows. The header slot stays below that row, so a plugin can add a
+// sentence without owning the dropdown title pattern. The scroll bar lives
 // in the right inset strip, outside the body's content width, so content
 // never moves when it overflows. The footer stays outside the scrolling
 // body, so its actions stay in view while the body scrolls. While the body
@@ -30,6 +35,11 @@ Item {
     property real maximumHeight: 0
     property real gap: container === "window" ? Theme.stack.section : Theme.stack.group
     property real bodySpacing: container === "window" ? Theme.stack.page : Theme.stack.group
+    property string title: ""
+    property bool switchShown: false
+    property bool switchChecked: false
+    property bool switchEnabled: true
+    property string switchName: title
     // The width of a divider under the header while the body is scrolled,
     // and its colour.
     property real dividerWidth: Theme.divider.thickness
@@ -40,6 +50,7 @@ Item {
     property alias header: headerSlot.data
     default property alias body: bodyColumn.data
     property alias footer: footerSlot.data
+    signal switchToggled(bool checked)
     // The room a focus ring takes outside its row.
     readonly property real ringRoom: Theme.focusRing.width + Theme.focusRing.offset
     readonly property real contentInset: clearingInset.inset
@@ -56,11 +67,17 @@ Item {
     }
     readonly property bool showsSettings: settingsHost !== null && settingsHost.settingsPage !== ""
     readonly property real gearRoom: gear.item ? gear.item.width + Theme.stack.inline : 0
+    readonly property Item headerSwitch: switchLoader.item
+    readonly property bool hasTitle: title !== ""
+    readonly property real switchRoom: switchLoader.item ? switchLoader.item.width + Theme.stack.inline : 0
+    readonly property real titleRowHeight: hasTitle ? Math.max(titleLabel.implicitHeight, switchLoader.item ? switchLoader.item.height : 0, gear.item ? gear.item.height : 0) : 0
+    readonly property real headerSlotImplicitHeight: headerSlot.children.length > 0 ? headerSlot.implicitHeight : 0
+    readonly property real titleToHeaderGap: titleRowHeight > 0 && headerSlotImplicitHeight > 0 ? Theme.row.lineGap : 0
     // The header's width: the content width less the gear and its gap
     // while the gear shows.
     readonly property real headerWidth: Math.max(0, contentWidth - gearRoom)
     readonly property real bodyContentHeight: bodyColumn.implicitHeight
-    readonly property real headerHeight: Math.max(headerSlot.children.length > 0 ? headerSlot.implicitHeight : 0, gear.item ? gear.item.height : 0)
+    readonly property real headerHeight: hasTitle ? titleRowHeight + titleToHeaderGap + headerSlotImplicitHeight : Math.max(headerSlotImplicitHeight, gear.item ? gear.item.height : 0)
     readonly property real footerHeight: footerSlot.children.length > 0 ? footerSlot.implicitHeight : 0
     readonly property bool contentBelowHeader: bodyContentHeight > 0 || footerHeight > 0
     readonly property real headerGap: headerHeight > 0 && contentBelowHeader ? gap : 0
@@ -93,7 +110,7 @@ Item {
         return widest;
     }
 
-    implicitWidth: Math.max(headerSlot.implicitWidth + gearRoom, bodyColumn.implicitWidth, footerSlot.implicitWidth) + 2 * contentInset
+    implicitWidth: Math.max(hasTitle ? titleLabel.implicitWidth + switchRoom + gearRoom : 0, headerSlot.implicitWidth > 0 ? headerSlot.implicitWidth + gearRoom : 0, bodyColumn.implicitWidth, footerSlot.implicitWidth) + 2 * contentInset
     implicitHeight: fitToContent ? cappedHeight : uncappedHeight
 
     ClearingInset {
@@ -144,24 +161,55 @@ Item {
         return Theme.surface.radius;
     }
 
+    function switchX(item) {
+        return root.contentWidth - root.gearRoom - (item ? item.width : 0);
+    }
+
     Item {
-        id: headerSlot
+        id: titleRow
         x: root.contentInset
         y: root.contentInset
-        width: root.headerWidth
-        height: root.headerHeight
-        implicitHeight: childrenRect.height
-        implicitWidth: root.slotWidth(headerSlot)
+        width: root.contentWidth
+        height: root.titleRowHeight
+        visible: root.hasTitle
+
+        Label {
+            id: titleLabel
+            role: "h3"
+            text: root.title
+            width: Math.max(0, parent.width - root.switchRoom - root.gearRoom)
+            y: topForCapCenter(parent.height)
+            elide: Text.ElideRight
+        }
+
+        Loader {
+            id: switchLoader
+            x: root.switchX(item)
+            y: item ? Math.round((parent.height - item.height) / 2) : 0
+            active: root.hasTitle && root.switchShown
+            sourceComponent: Switch {
+                size: "sm"
+                Accessible.name: root.switchName
+                checked: root.switchChecked
+                enabled: root.switchEnabled
+                onToggled: {
+                    const wanted = checked;
+                    checked = Qt.binding(() => root.switchChecked);
+                    root.switchToggled(wanted);
+                }
+            }
+        }
     }
 
     // Built only while it shows, so a pane without a Settings page holds no
-    // gear. Declared after the header, so Tab reaches it before the body.
+    // gear. Declared after the title row switch, so Tab reaches the switch
+    // before the gear, and before the body.
     // `x` reads the button's width, not the Loader's: a move resizes the
     // Loader to its item, which fed its own `width` back into `x`.
     Loader {
         id: gear
         x: root.contentInset + root.contentWidth - (item ? item.width : 0)
-        y: root.contentInset
+        y: root.contentInset + (root.hasTitle && item ? Math.round((root.titleRowHeight - item.height) / 2) : 0)
         active: root.showsSettings
         sourceComponent: IconButton {
             size: "sm"
@@ -169,6 +217,16 @@ Item {
             label: "Settings"
             onClicked: root.settingsHost.openSettingsPage()
         }
+    }
+
+    Item {
+        id: headerSlot
+        x: root.contentInset
+        y: root.contentInset + root.titleRowHeight + root.titleToHeaderGap
+        width: root.headerWidth
+        height: root.hasTitle ? root.headerSlotImplicitHeight : root.headerHeight
+        implicitHeight: childrenRect.height
+        implicitWidth: root.slotWidth(headerSlot)
     }
 
     // The viewport starts `ringRoom` left of and above the content edge and

@@ -47,13 +47,7 @@ Item {
         container: "panel"
         fitToContent: true
         maximumHeight: Theme.size.panel.maxHeight
-
-        header: [
-            Label {
-                role: "h3"
-                text: "Sound"
-            }
-        ]
+        title: "Sound"
 
         SoundControls {
             id: controls

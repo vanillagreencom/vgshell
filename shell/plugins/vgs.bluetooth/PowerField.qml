@@ -3,10 +3,9 @@ import qs.Commons
 import qs.Ui
 import "BluetoothLogic.js" as Logic
 
-// The power switch the flyout and the pane share: the published power view
-// as a Switch, which asks the service to turn Bluetooth on or off, with
-// the line BluetoothLogic.powerLine picks under it as a hint or an error.
-// A refused press keeps its line until the next press.
+// The power switch the System pane keeps: the shared Bluetooth power state
+// as a Switch, with the line BluetoothLogic.powerLine picks under it as a
+// hint or an error. A refused press keeps its line until the next press.
 Field {
     id: root
 

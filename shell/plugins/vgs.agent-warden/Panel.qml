@@ -104,23 +104,14 @@ Item {
         container: "panel"
         fitToContent: true
         maximumHeight: Theme.size.panel.maxHeight
+        title: "Agents"
 
         header: [
-            Column {
+            Label {
                 width: layout.headerWidth
-                spacing: Theme.row.lineGap
-
-                Label {
-                    role: "h3"
-                    text: "Agents"
-                }
-
-                Label {
-                    role: "body"
-                    width: parent.width
-                    wrapMode: Text.Wrap
-                    text: root.detail === null ? "Agent Warden is starting." : View.sentence(root.detail, root.vsysMissing)
-                }
+                role: "body"
+                wrapMode: Text.Wrap
+                text: root.detail === null ? "Agent Warden is starting." : View.sentence(root.detail, root.vsysMissing)
             }
         ]
 

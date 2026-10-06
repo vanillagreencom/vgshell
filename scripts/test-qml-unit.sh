@@ -329,6 +329,12 @@ mutations=(
   "the pane drops the gap between a header and footer without a body|layout/Pane.qml|readonly property real headerGap: headerHeight > 0 && contentBelowHeader ? gap : 0|readonly property real headerGap: headerHeight > 0 && bodyContentHeight > 0 ? gap : 0|tst_pane.qml"
   "the pane does not cap fitted content|layout/Pane.qml|readonly property real cappedHeight: maximumHeight > 0 ? Math.min(uncappedHeight, maximumHeight) : uncappedHeight|readonly property real cappedHeight: uncappedHeight|tst_pane.qml"
   "the pane's footer sits on the body|layout/Pane.qml|y: scroll.y + scroll.height - root.ringRoom + root.footerGap|y: scroll.y + scroll.height - root.ringRoom|tst_pane.qml"
+  "the pane ignores its title|layout/Pane.qml|readonly property bool hasTitle: title !== \"\"|readonly property bool hasTitle: false|tst_pane.qml"
+  "the title switch sits at the left edge|layout/Pane.qml|switchX(item)|0|tst_pane.qml"
+  "the title switch ignores the gear|layout/Pane.qml|return root.contentWidth - root.gearRoom - (item ? item.width : 0);|return root.contentWidth - (item ? item.width : 0);|tst_pane.qml"
+  "the title switch breaks its checked binding|layout/Pane.qml|checked = Qt.binding(() => root.switchChecked);|{}|tst_pane.qml"
+  "the title switch emits nothing|layout/Pane.qml|root.switchToggled(wanted);|{}|tst_pane.qml"
+  "the header slot touches the title row|layout/Pane.qml|readonly property real titleToHeaderGap: titleRowHeight > 0 && headerSlotImplicitHeight > 0 ? Theme.row.lineGap : 0|readonly property real titleToHeaderGap: 0|tst_pane.qml"
   "a long select list leaves its entries no room for the bar|controls/Select.qml| + (entries.overflowing ? Theme.scrollArea.gutter : 0)||tst_scroll.qml"
   "the select entries keep a gutter|controls/Select.qml|                width: ListView.view.width|                width: ListView.view.width - Theme.scrollArea.gutter|tst_overlays.qml"
   "key hints merge alternative keys into one chord|feedback/KeyHints.qml|return key.indexOf(\"/\") === -1 ? [key] : key.split(\"/\").map(part => part.trim()).filter(part => part !== \"\");|return [key];|tst_layout.qml"
@@ -1023,7 +1029,11 @@ if [[ $probe_status -ne 0 ]]; then
   exit 1
 fi
 
-tmp="$(mktemp -d)"
+tmp_root="$repo/tmp"
+tmp="$tmp_root/test-qml-unit-$$"
+mkdir -p -- "$tmp_root"
+rm -rf -- "$tmp_root/test-qml-unit-$$"
+mkdir -p -- "$tmp"
 trap 'rm -rf -- "${tmp:?}"' EXIT
 failures=0
 ok() { printf '  ok    %s\n' "$*"; }

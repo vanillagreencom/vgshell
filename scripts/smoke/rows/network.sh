@@ -66,6 +66,15 @@ net_problem() { ipc smoke readInstance service vgs.network problem; }
 net_radio() { net_snapshot | py_reply 'import json,sys; print(json.load(sys.stdin)["network"]["wifiEnabled"])'; }
 net_shown() { [[ $(ipc smoke instanceGeometry "$1" vgs.network) != absent ]] && echo shown || echo hidden; }
 net_rows() { ipc smoke readDescendant "$1" vgs.network NetworkBody rows | py_reply 'import json,sys; print(json.dumps([[r["name"],r["strength"],r["known"],r["connected"]] for r in json.load(sys.stdin)]))'; }
+net_header() { ipc smoke paneHeader panel vgs.network | py_reply 'import json,sys
+h=json.load(sys.stdin)
+if h=="absent":
+    print("absent"); raise SystemExit
+s=h["switchBox"]; t=h["titleBox"]; g=h["gearBox"]
+right = (g[0] - h["inlineGap"]) if g else h["contentRight"]
+ok = h["title"] == "Network" and t is not None and s is not None and abs(t[0] - h["contentLeft"]) < 0.5 and abs(s[0] + s[2] - right) < 0.5 and abs(s[1] + s[3] / 2 - h["titleCenterY"]) < 0.5
+print(json.dumps({"placed": ok, "checked": h["switchChecked"], "enabled": h["switchEnabled"]}, sort_keys=True))'; }
+net_wifi_field_absent() { ipc smoke itemValues panel vgs.network Field label,visible | py_reply 'import json,sys; print("absent" if all(not (r.get("label") == "Wi-Fi" and r.get("visible")) for r in json.load(sys.stdin)) else "visible")'; }
 net_placed() { bar_widget_ids | py_reply 'import json,sys; print(any("vgs.network" in ids for ids in json.load(sys.stdin)))'; }
 net_do() { ipc vgs.network invoke action "{\"kind\":\"$1\",\"key\":\"[\\\"wlan0\\\",\\\"VGS Smoke Wi-Fi\\\"]\"}"; }
 net_refresh() { ipc vgs.network invoke refresh ""; }
@@ -92,6 +101,8 @@ expect "the flyout opens over the pane" ok ipc shell summon panel vgs.network '{
 expect_poll "Network's flyout is shown" shown net_shown panel
 expect "the flyout receives its payload" '{"source":"smoke"}' ipc smoke readInstance panel vgs.network payload
 expect_poll "both open views hold the scanner" '{"leases":2,"device":"wlan0","scanning":true}' ipc smoke networkScan
+expect_poll "the shared Wi-Fi header switch reads on and sits beside the gear" '{"checked": true, "enabled": true, "placed": true}' net_header
+expect "the old Wi-Fi Field row is absent from the dropdown" absent net_wifi_field_absent
 expect "the pane reads the network and strength" '[["VGS Smoke Wi-Fi", 82, true, false]]' net_rows window
 expect "the flyout reads the same network and strength" '[["VGS Smoke Wi-Fi", 82, true, false]]' net_rows panel
 expect "opening Network reads no saved secret" public net_qr_calls
@@ -290,8 +301,11 @@ expect "the missing optional tool draws its explicit notice" '{"visible":true,"t
 expect "the missing optional tool keeps native controls available" '"offline"' net_state
 expect "the missing optional tool permits a native radio change" ok ipc vgs.network invoke action '{"kind":"radio"}'
 expect_poll "the radio changes without the optional tool" False net_radio
+expect_poll "the shared Wi-Fi header switch follows radio off" '{"checked": false, "enabled": true, "placed": true}' net_header
+expect "the old Wi-Fi Field row remains absent from the dropdown" absent net_wifi_field_absent
 expect "the native radio restores without the optional tool" ok ipc vgs.network invoke action '{"kind":"radio"}'
 expect_poll "the radio is restored without the optional tool" True net_radio
+expect_poll "the shared Wi-Fi header switch follows radio on" '{"checked": true, "enabled": true, "placed": true}' net_header
 expect "the original optional tool capability is restored" ok ipc smoke networkPermissionsTool true
 net_permission yes
 expect "the working optional permissions probe refreshes" ok net_refresh

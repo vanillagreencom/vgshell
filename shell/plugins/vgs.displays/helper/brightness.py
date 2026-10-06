@@ -23,6 +23,9 @@ object. A failed backend lists no display and the others still list.
 A DISPLAY is {"id", "backend", "label", "state", "percent", "outputs"}:
 - backend: `hidraw` (an Apple display's USB HID feature report), `ddc`
   (ddcutil) or `backlight` (brightnessctl over a kernel backlight).
+- label: the product name for an identified display, or "Built-in display"
+  for a kernel backlight, with the raw backlight name added only when more
+  than one kernel backlight is listed.
 - state: `ready`; `no-access` (hidraw: an interface refuses a read-write
   open and none answers; ddc: its bus node is not readable and writable);
   `no-answer` (no in-range reply to the brightness read); `error` (hidraw:
@@ -669,7 +672,10 @@ def backlight_entries(roots, outputs, lights):
     internal = [n for n in names if INTERNAL_PANEL.match(n) and n not in placed.values()]
     if len(unplaced) == 1 and len(internal) == 1:
         placed[unplaced[0]] = internal[0]
-    return [entry("backlight:" + light.name, "backlight", light.name, "ready", light.percent,
+    many = len(lights) > 1
+    return [entry("backlight:" + light.name, "backlight",
+                  "Built-in display (" + light.name + ")" if many else "Built-in display",
+                  "ready", light.percent,
                   [placed[light.name]] if placed[light.name] else []) for light in lights]
 
 

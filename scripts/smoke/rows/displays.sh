@@ -478,7 +478,7 @@ disp_settled() {
 # revealText answers the new contentY, or a word for no row or no area.
 # The page's ScrollArea is the System window's, around the pane, so the
 # window's instance holds it.
-disp_bl_reveal() { ipc smoke revealText window vgs.system DisplayRow "$disp_bl" | py_reply 'import json,sys; json.load(sys.stdin); print("scrolled")'; }
+disp_bl_reveal() { ipc smoke revealText window vgs.system DisplayRow "Built-in display" | py_reply 'import json,sys; json.load(sys.stdin); print("scrolled")'; }
 mkdir -p -- "$disp_bl_dir"
 disp_bl_holds 50
 for disp_level in $(seq 1 100); do device_reply brightnessctl 0 "" -d "$disp_bl" set "$disp_level%"; done
@@ -498,8 +498,8 @@ expect_poll "the panel's row scrolls into view" scrolled disp_bl_reveal
 disp_bl_points() {
   local window row level box
   window="$(surface_box window:System)" || return 1
-  row="$(ipc smoke windowGeometry window vgs.displays DisplayRow "$disp_bl")" || return 1
-  level="$(ipc smoke scopedWindowGeometry window vgs.displays DisplayRow "$disp_bl" Label "$1")" || return 1
+  row="$(ipc smoke windowGeometry window vgs.displays DisplayRow "Built-in display")" || return 1
+  level="$(ipc smoke scopedWindowGeometry window vgs.displays DisplayRow "Built-in display" Label "$1")" || return 1
   for box in "$window" "$row" "$level"; do [[ $box == \[* ]] || { echo "$box"; return 1; }; done
   python3 -c '
 import json, sys

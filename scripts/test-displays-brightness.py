@@ -26,7 +26,7 @@ import shutil
 import subprocess
 import sys
 import sysconfig
-import tempfile
+import uuid
 import time
 import unittest
 from unittest import mock
@@ -34,6 +34,15 @@ from unittest import mock
 SCRIPTS = Path(__file__).resolve().parent
 REPO = SCRIPTS.parent
 HELPER = REPO / "shell/plugins/vgs.displays/helper/brightness.py"
+SCRATCH = REPO / "tmp" / "test-displays-brightness"
+SCRATCH.mkdir(parents=True, exist_ok=True)
+
+
+def scratch_path(prefix):
+    SCRATCH.mkdir(parents=True, exist_ok=True)
+    return SCRATCH / f"{prefix}{uuid.uuid4().hex}"
+
+
 DEVICES = SCRIPTS / "smoke/fixtures/devices"
 HID_FAKE = DEVICES / "hid-fake.py"
 STAND_IN = DEVICES / "stand-in.py"
@@ -174,7 +183,7 @@ class World:
             path.mkdir(parents=True, exist_ok=True)
         self.devices = []
         self.fake = None
-        self.socket = self.root / "hid.sock"
+        self.socket = Path("/run/user") / str(os.getuid()) / ("vgs-brightness-" + self.root.name + ".sock")
         self.log = self.root / "hid.log"
 
     # --- HID ---------------------------------------------------------------
@@ -228,6 +237,8 @@ class World:
             self.fake.terminate()
             self.fake.wait(timeout=10)
             self.fake.stdout.close()
+        if self.socket.exists():
+            self.socket.unlink()
 
     def requests(self, code=None):
         if not self.log.exists():
@@ -318,7 +329,8 @@ class World:
 
 class Case(unittest.TestCase):
     def world(self):
-        scratch = tempfile.mkdtemp(prefix="vgs-brightness-")
+        scratch = scratch_path("vgs-brightness-")
+        scratch.mkdir()
         self.addCleanup(shutil.rmtree, scratch)
         world = World(os.path.realpath(scratch))
         self.addCleanup(world.stop)
@@ -487,7 +499,8 @@ class InProcess(unittest.TestCase):
     """The helper loaded as a module, with the system call replaced."""
 
     def scratch(self):
-        root = tempfile.mkdtemp(prefix="vgs-brightness-")
+        root = scratch_path("vgs-brightness-")
+        root.mkdir()
         self.addCleanup(shutil.rmtree, root)
         return Path(os.path.realpath(root))
 
@@ -588,9 +601,13 @@ class Backlights(Case):
                 self.assertEqual({d["id"].split(":", 1)[1]: d["outputs"] for d in answer["displays"]}, expected)
                 self.assertEqual({d["id"]: d["percent"] for d in answer["displays"]},
                                  {"backlight:intel_backlight": 50, "backlight:acpi_video0": 70})
+                self.assertEqual({d["id"]: d["label"] for d in answer["displays"]},
+                                 {"backlight:intel_backlight": "Built-in display (intel_backlight)",
+                                  "backlight:acpi_video0": "Built-in display (acpi_video0)"})
         world.reply("brightnessctl", ["-l", "-m", "-c", "backlight"], "intel_backlight,backlight,12000,50%,24000\n")
         (world.sys / "class/backlight/acpi_video0").unlink()
         self.assertEqual(world.listing([{"name": "eDP-2"}])["displays"][0]["outputs"], ["eDP-2"])
+        self.assertEqual(world.listing([{"name": "eDP-2"}])["displays"][0]["label"], "Built-in display")
         self.assertEqual(world.set("backlight:intel_backlight", 70), (0, {"id": "backlight:intel_backlight", "percent": 70}))
         self.assertEqual(world.calls("brightnessctl")[-1], ["-d", "intel_backlight", "set", "70%"])
 
@@ -871,6 +888,8 @@ class Controls(unittest.TestCase):
          '    except Failure as failure:\n        return {"state": "error", "detail": failure.fields}, []\n    return {"state": "ready"}, found',
          '    except ZeroDivisionError as failure:\n        return {"state": "error", "detail": failure.fields}, []\n    return {"state": "ready"}, found',
          "Backlights.test_failure_keeps_other_backends"),
+        ("raw backlight label", '"Built-in display (" + light.name + ")" if many else "Built-in display"',
+         "light.name", "Backlights.test_listing_parsing_mapping_and_set"),
         ("seam without roots", "if fake and not (", "if False and not (", "Seam.test_fake_needs_both_roots"),
         ("kernel backlight ignored", "if kernel is not None:", "if False:", "Backlights.test_kernel_backlight_preferred_over_hidraw"),
     )
@@ -893,15 +912,20 @@ class Controls(unittest.TestCase):
                               text=True, capture_output=True, check=False)
 
     def test_mirror_passes_unplanted(self):
-        with tempfile.TemporaryDirectory() as scratch:
-            root = self.mirror(scratch, HELPER.read_text())
-            result = self.run_tests(root, sorted({plant[3] for plant in self.PLANTS}))
-            self.assertEqual(result.returncode, 0, result.stderr[-3000:])
+        scratch = scratch_path("mirror-")
+        scratch.mkdir()
+        self.addCleanup(shutil.rmtree, scratch)
+        root = self.mirror(scratch, HELPER.read_text())
+        result = self.run_tests(root, sorted({plant[3] for plant in self.PLANTS}))
+        self.assertEqual(result.returncode, 0, result.stderr[-3000:])
 
     def test_each_plant_turns_its_test_red(self):
         source = HELPER.read_text()
         for name, old, new, test in self.PLANTS:
-            with self.subTest(plant=name), tempfile.TemporaryDirectory() as scratch:
+            with self.subTest(plant=name):
+                scratch = scratch_path("plant-")
+                scratch.mkdir()
+                self.addCleanup(shutil.rmtree, scratch)
                 self.assertEqual(source.count(old), 1, name)
                 changed = source.replace(old, new)
                 self.assertNotEqual(changed, source)

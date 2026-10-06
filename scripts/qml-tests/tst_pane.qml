@@ -4,13 +4,13 @@ import qs.Commons
 import qs.Ui
 import qs.Unit
 
-// Pane owns the layout contract for an inset container: header, body and
-// footer share one content edge, the scroll bar sits in the right inset
-// strip, fit-to-content caps at a maximum height, a rounded container
-// clears its drawn corner through the shared inset rule, both dividers
-// run from the frame's border on one side to the other, and inside a
-// host that names a Settings page the outermost pane draws the gear that
-// opens it.
+// Pane owns the layout contract for an inset container: title row, header,
+// body and footer share one content edge, the title row owns a feature
+// switch at its end, the scroll bar sits in the right inset strip,
+// fit-to-content caps at a maximum height, a rounded container clears its
+// drawn corner through the shared inset rule, both dividers run from the
+// frame's border on one side to the other, and inside a host that names a
+// Settings page the outermost pane draws the gear that opens it.
 Item {
     id: root
     width: 500
@@ -147,6 +147,7 @@ Item {
             property alias pane: outer
             property alias nested: inner
             property alias bare: headerless
+            property alias titled: titledPane
             Item {
                 anchors.fill: parent
                 Pane {
@@ -174,6 +175,16 @@ Item {
                         Item { width: headerless.contentWidth; height: 20 }
                     }
                 }
+                Pane {
+                    id: titledPane
+                    x: 320
+                    width: 300
+                    container: "panel"
+                    fitToContent: true
+                    title: "Network"
+                    switchShown: true
+                    Item { width: titledPane.contentWidth; height: 20 }
+                }
             }
         }
     }
@@ -183,13 +194,15 @@ Item {
         when: windowShown
 
         function init() { UnitTheme.reset(); }
-        function headerSlot(of) { return of.children[0]; }
+        function titleRow(of) { return of.children[0]; }
+        function titleLabel(of) { return titleRow(of).children[0]; }
         function scroll(of) { return of.scrollArea; }
         // The gear's Loader holds no item while the gear does not show.
         function gear(of) { return of.children[1].item; }
-        function footerSlot(of) { return of.children[3]; }
-        function divider(of) { return of.children[4]; }
-        function footerDivider(of) { return of.children[5]; }
+        function headerSlot(of) { return of.children[2]; }
+        function footerSlot(of) { return of.children[4]; }
+        function divider(of) { return of.children[5]; }
+        function footerDivider(of) { return of.children[6]; }
         // The scroll area's touchpad area is an item of its content too.
         function body(of) { return of.scrollArea.contentItem.children.find(child => !(child instanceof TouchpadScroll)).children[0]; }
 
@@ -228,6 +241,54 @@ Item {
             compare(body(panelPane).children[1].y - body(panelPane).children[0].height, Theme.stack.group);
             windowPane.destroy();
             panelPane.destroy();
+        }
+
+        function test_title_row_draws_an_h3_title_at_the_content_edge() {
+            const made = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nPane { width: 240; container: "panel"; fitToContent: true; title: "Bluetooth"\nItem { width: parent.width; height: 20 } }', root, "titleOnly");
+            const label = titleLabel(made);
+            compare(label.text, "Bluetooth");
+            compare(label.role, "h3");
+            compare(label.mapToItem(made, 0, 0).x, made.contentInset);
+            compare(label.y, label.topForCapCenter(titleRow(made).height));
+            compare(made.headerSwitch, null);
+            compare(made.headerHeight, titleRow(made).height);
+            verify(body(made).mapToItem(made, 0, 0).y >= made.contentInset + made.headerHeight + made.headerGap, "the body starts below the title row");
+            made.destroy();
+        }
+
+        function test_header_slot_sits_under_the_title_row() {
+            const made = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nPane { width: 240; container: "panel"; fitToContent: true; title: "Agents"; header: [ Label { role: "body"; text: "Agent Warden is starting."; width: parent.width } ]\nItem { width: parent.width; height: 20 } }', root, "titleWithHeader");
+            compare(headerSlot(made).y, made.contentInset + titleRow(made).height + Theme.row.lineGap);
+            compare(headerSlot(made).children[0].text, "Agent Warden is starting.");
+            compare(made.headerHeight, titleRow(made).height + Theme.row.lineGap + headerSlot(made).implicitHeight);
+            made.destroy();
+        }
+
+        function test_title_switch_sits_at_the_content_edge_and_keeps_its_binding() {
+            const made = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nPane { width: 240; container: "panel"; fitToContent: true; title: "Bluetooth"; switchShown: true; property var toggles: []\nonSwitchToggled: checked => toggles = toggles.concat([checked])\nItem { width: parent.width; height: 20 } }', root, "titleSwitch");
+            const toggle = made.headerSwitch;
+            verify(toggle !== null && toggle.visible, "the switch shows");
+            compare(toggle.mapToItem(made, 0, 0).x + toggle.width, made.contentInset + made.contentWidth);
+            compare(toggle.mapToItem(made, 0, 0).y + toggle.height / 2, made.contentInset + titleRow(made).height / 2);
+            verify(titleLabel(made).width <= toggle.mapToItem(made, 0, 0).x - made.contentInset - Theme.stack.inline, "the title leaves the switch room");
+            mouseClick(toggle);
+            compare(made.toggles, [true]);
+            compare(toggle.checked, false);
+            made.switchChecked = true;
+            compare(toggle.checked, true);
+            made.destroy();
+        }
+
+        function test_title_switch_sits_beside_the_settings_gear() {
+            const host = settingsHost.createObject(root);
+            const of = host.titled;
+            const toggle = of.headerSwitch;
+            const button = gear(of);
+            verify(toggle !== null && button !== null, "the switch and gear show");
+            compare(toggle.mapToItem(of, 0, 0).x + toggle.width + Theme.stack.inline, button.mapToItem(of, 0, 0).x);
+            compare(button.mapToItem(of, 0, 0).y + button.height / 2, of.contentInset + titleRow(of).height / 2);
+            compare(toggle.mapToItem(of, 0, 0).y + toggle.height / 2, of.contentInset + titleRow(of).height / 2);
+            host.destroy();
         }
 
         function test_scroll_bar_sits_inside_the_right_inset_strip() {

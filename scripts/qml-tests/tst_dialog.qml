@@ -119,12 +119,12 @@ Item {
 
         function card(of) { return of.children[0]; }
         function pane(of) { return of.children[1]; }
-        function headerColumn(of) { return pane(of).children[0].children[0]; }
+        function headerColumn(of) { return pane(of).children[2].children[0]; }
         function titleLabel(of) { return headerColumn(of).children[0]; }
         function messageLabel(of) { return headerColumn(of).children[1]; }
-        function footer(of) { return pane(of).children[3].children[0]; }
-        function headerSlot(of) { return pane(of).children[0]; }
-        function footerSlot(of) { return pane(of).children[3]; }
+        function footer(of) { return pane(of).children[4].children[0]; }
+        function headerSlot(of) { return pane(of).children[2]; }
+        function footerSlot(of) { return pane(of).children[4]; }
         function spinner(of) { return footer(of).children[0]; }
         function ring(button) { return button.background.children[button.background.children.length - 1]; }
 

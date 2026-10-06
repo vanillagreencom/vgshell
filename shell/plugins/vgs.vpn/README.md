@@ -11,7 +11,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 | Surface | What it holds |
 |---|---|
 | Bar icon | Connected, off, or an exit node in use. A click opens the flyout. It hides while Tailscale is not installed. |
-| Flyout | The connection switch, Sign in while you are signed out, and the exit nodes. VPN settings opens the section. |
+| Flyout | The title row's connection switch, Sign in while you are signed out, and the exit nodes. VPN settings opens the section. |
 | System → VPN | The same, then this device, your accounts with Add account, the other devices, and Check every. |
 
 ## Connection

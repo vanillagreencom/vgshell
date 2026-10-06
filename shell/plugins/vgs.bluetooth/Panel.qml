@@ -1,22 +1,24 @@
 import QtQuick
+import QtQml
 import qs.Commons
 import qs.Ui
+import "BluetoothLogic.js" as Logic
 
-// The Bluetooth flyout: the power switch (PowerField.qml), your devices
+// The Bluetooth flyout: the shared title-row power switch, your devices
 // and the devices nearby (DeviceSections.qml). A click on one of your
 // devices connects or disconnects it; a click on a nearby device opens the
 // System window's Bluetooth section, which pairs it, since pairing asks
 // through a dialog there. A discovery lease looks for nearby devices while
 // the flyout is open and Bluetooth is on, and the flyout's teardown ends
 // it. It takes no payload, and opens with the keyboard on the power
-// switch.
+// switch in the shared header.
 Item {
     id: root
 
     // The core assigns the plugin's scoped shell object after creation, and
     // again when the plugin's settings change.
     property var shell: null
-    property Item initialFocus: power.toggle
+    property Item initialFocus: layout.headerSwitch
 
     function open(payloadJson) { power.problem = ""; }
     function close() {}
@@ -48,6 +50,20 @@ Item {
         active: power.powerOn
     }
 
+    QtObject {
+        id: power
+        readonly property var power: root.shell === null ? null : Logic.publishedPower(root.shell.status.values)
+        readonly property bool powerOn: power !== null && power.on
+        property string problem: ""
+        readonly property var line: Logic.powerLine(power, problem)
+
+        function setPower(on) {
+            const reply = root.shell.ipc.call("power", on ? "on" : "off");
+            problem = reply === "ok" ? "" : "VGS could not turn Bluetooth " + (on ? "on" : "off") + ".";
+            return reply;
+        }
+    }
+
     Surface {
         anchors.fill: parent
     }
@@ -58,14 +74,21 @@ Item {
         container: "panel"
         fitToContent: true
         maximumHeight: Theme.size.panel.maxHeight
+        title: "Bluetooth"
+        switchShown: true
+        switchChecked: power.powerOn
+        switchEnabled: power.power !== null && power.power.canToggle
+        switchName: "Bluetooth"
+        onSwitchToggled: checked => power.setPower(checked)
 
-        header: [
-            PowerField {
-                id: power
-                width: layout.headerWidth
-                shell: root.shell
-            }
-        ]
+        Label {
+            width: layout.contentWidth
+            visible: text !== ""
+            role: "hint"
+            text: power.line.hint !== "" ? power.line.hint : power.line.error
+            color: power.line.error !== "" ? Theme.color.danger : Theme.color.textFaint
+            wrapMode: Text.Wrap
+        }
 
         DeviceSections {
             width: layout.contentWidth
