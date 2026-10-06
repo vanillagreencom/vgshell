@@ -71,7 +71,7 @@ Scope {
         if (outputs === null) return {};
         const out = {};
         for (const id of Object.keys(rules || {})) {
-            const output = outputs.find(o => o.identifier === id);
+            const output = outputs.find(o => o.identifier === id || o.name === id);
             if (output !== undefined) out[id] = Monitors.overridden(rules[id], output);
         }
         return out;
@@ -82,7 +82,7 @@ Scope {
         if (ownership !== "") return ownership;
         if (outputs === null) return "refused: monitors=unread";
         if (trialState.phase !== "idle") return "refused: monitors-trial=active";
-        const bad = Monitors.rulesError(rules, outputs);
+        const bad = Monitors.layoutError(rules, outputs);
         if (bad !== "") return bad;
         const trial = Monitors.rulesLua(rules);
         if (!trial.ok) return trial.error;

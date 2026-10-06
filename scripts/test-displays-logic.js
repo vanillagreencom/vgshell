@@ -173,9 +173,26 @@ function verify(logic) {
   same(logic.refreshChoices(monitorOutput, { width: 3840, height: 2160, refresh: 144 }).map(c => c.label), ["144 Hz", "60 Hz"], "refresh choices follow the selected size");
   same(logic.scaleChoices({ width: 3840, height: 2160, refresh: 144 }, 2).map(c => c.value), [1, 1.25, 4 / 3, 1.5, 1.6, 5 / 3, 2, 2.5, 3], "scale choices keep whole logical pixels");
   const drafted = logic.withOutputDraft([monitorOutput], {}, {}, "DP-2", { mode: { width: 2560, height: 1440, refresh: 60 }, scale: 2.25 });
-  same(drafted, { "DP-2": { mode: { width: 2560, height: 1440, refresh: 60 }, position: { x: 10, y: 20 }, scale: 2.25, transform: 0 } }, "a draft carries position so a mode change does not move the output");
+  same(drafted, { "DP-2": { mode: { width: 2560, height: 1440, refresh: 60 }, position: { x: 0, y: 0 }, scale: 2.25, transform: 0 } }, "a draft carries position and normalises the layout");
   same(logic.dirtyRules(drafted, {}), drafted, "dirty rules are the pending monitor rules");
   assert.equal(logic.countdownText(12.4), "Keep these display settings? Reverting in 13 s");
+  const side = Object.assign({}, monitorOutput, { identifier: "DP-3", name: "DP-3", x: 1930, y: 20, scale: 2 });
+  const shifted = logic.withOutputDraft([monitorOutput, side], {}, {}, "DP-2", { scale: 1 });
+  same(shifted["DP-3"].position, { x: 3840, y: 0 }, "a scale change shifts a neighbour at the right edge by the size delta and normalises");
+  same(logic.normaliseRules({ "DP-2": { position: { x: 10, y: 20 } }, "DP-3": { position: { x: 3850, y: 20 } } }),
+    { "DP-2": { position: { x: 0, y: 0 } }, "DP-3": { position: { x: 3840, y: 0 } } }, "draft rules are normalised to the top-left origin");
+  const snapped = logic.moveGroup([monitorOutput, side], {}, { "DP-2": logic.effectiveRule(monitorOutput, {}, {}) }, "DP-3", 1915, 20);
+  same([snapped["DP-2"].position, snapped["DP-3"].position], [{ x: 0, y: 0 }, { x: 1920, y: 0 }], "dragged outputs snap to a neighbour edge and normalise");
+  const tiledOutputs = [Object.assign({}, monitorOutput, { name: "DP-1", identifier: "xdr", x: 0 }), Object.assign({}, monitorOutput, { name: "DP-5", identifier: "xdr", x: 3840 })];
+  const tiledDraft = {
+    "DP-1": Object.assign(logic.effectiveRule(tiledOutputs[0], {}, {}), { position: { x: 100, y: 0 } }),
+    "DP-5": Object.assign(logic.effectiveRule(tiledOutputs[1], {}, {}), { position: { x: 3900, y: 0 } })
+  };
+  const tiledMove = logic.moveGroup(tiledOutputs, {}, tiledDraft, "xdr", 200, 0);
+  same([tiledMove["DP-1"].position, tiledMove["DP-5"].position], [{ x: 0, y: 0 }, { x: 3800, y: 0 }],
+    "a tiled group moves through connector rules and keeps tile offsets after normalisation");
+  same([logic.arrangementContentWidth([{ x: 5, width: 10 }]), logic.arrangementContentHeight([{ y: 7, height: 11 }])], [15, 18],
+    "the arrangement canvas sizes from its drawn rectangles");
 
   const present = resolved.displays.map(d => d.device);
   same(logic.setAssignment(entries, KEY_B, "Apple Studio Display", "DP-3", present).map(e => [e.device, e.output]), [
@@ -286,6 +303,8 @@ function verify(logic) {
     ["assignments", "appleAccess", "ddcAccess", "ddcTool", "backlightTool"], "only changed values are written");
   const needed = [["ok", false], ["info", false], ["warning", true], ["danger", true]];
   for (const [tone, want] of needed) assert.equal(logic.accessNeeded({ tone: tone, text: "t", action: false }), want, "accessNeeded: " + tone);
+  same(["success", "info", "warning", "danger"].map(tone => logic.formWarningTone(tone)), ["muted", "muted", "warning", "danger"],
+    "status tones are mapped to form warning tones");
   const noAccess = (backend) => ({ id: backend + ":x", backend: backend, state: "no-access" });
   const accessKeys = [[noAccess("hidraw"), "appleAccess"], [noAccess("ddc"), "ddcAccess"], [noAccess("backlight"), null], [shown[0], null]];
   for (const [display, want] of accessKeys) same(logic.accessKey(display), want, "accessKey: " + display.backend + " " + display.state);
@@ -329,6 +348,7 @@ const CONTROLS = [
   ["the level in flight is not shown", "runs.busy.id === id) return runs.busy.percent;", "runs.busy.id === id) return null;"],
   ["the pane shows a step that is ready", "return value.tone === \"warning\" || value.tone === \"danger\";", "return true;"],
   ["the pane hides a step the system blocks", "return value.tone === \"warning\" || value.tone === \"danger\";", "return value.tone === \"warning\";"],
+  ["form rows take a status success tone", "return tone === \"danger\" ? \"danger\" : tone === \"warning\" ? \"warning\" : \"muted\";", "return tone;"],
   ["a no-access Apple display offers the DDC step", "case \"hidraw\": return \"appleAccess\";", "case \"hidraw\": return \"ddcAccess\";"],
   ["brightnessctl is never offered", "backends !== null && backends.backlight.state === \"missing\"", "false"],
   ["a screen the helper lit is a choice", "return helperLit[name] === true;", "return false;"],
@@ -353,8 +373,12 @@ const CONTROLS = [
   ["a custom value has no choice", "if (!choices.some(function (c) { return c.value === value; }))", "if (false)"]
   ,["mode choices do not group sizes", "if (seen[key]) return;", ""],
   ["scale choices allow fractional logical pixels", "if (!scaleFits(mode, scale)) return;", ""],
-  ["a draft loses the current position", "merged.position = { x: output.x, y: output.y };", "merged.position = { x: 0, y: 0 };"],
-  ["dirty rules ignore pending changes", "if (JSON.stringify(draft[id]) !== JSON.stringify((saved || {})[id] || {}))", "if (false)"]
+  ["a draft loses the current position", "merged.position = { x: current.position.x, y: current.position.y };", "merged.position = { x: 0, y: 0 };"],
+  ["dirty rules ignore pending changes", "if (JSON.stringify(draft[id]) !== JSON.stringify((saved || {})[id] || {}))", "if (false)"],
+  ["normalisation leaves a non-zero origin", "out[key].position = { x: out[key].position.x - left, y: out[key].position.y - top };", ""],
+  ["snap ignores neighbour edges", "if (Math.abs(x - candidate) <= SNAP) x = candidate;", "if (false) x = candidate;"],
+  ["mode resize leaves neighbours behind", "if (otherRule.position.x >= current.position.x + before.width) {", "if (false) {"],
+  ["a tiled group loses its tile offsets", "var dx = rule.position.x - item.x;", "var dx = output.x - item.x;"]
 ];
 
 const source = fs.readFileSync(file, "utf8");

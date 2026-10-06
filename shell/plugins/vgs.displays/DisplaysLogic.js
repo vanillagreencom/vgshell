@@ -47,6 +47,9 @@ var TRANSFORMS = [
     { value: 7, label: "Flipped 270°" }
 ];
 var SCALE_CANDIDATES = [1, 1.25, 4 / 3, 1.5, 1.6, 5 / 3, 1.75, 2, 2.25, 2.5, 3];
+var SNAP = 24;
+var NUDGE = 24;
+var NUDGE_BIG = 96;
 
 function hasOwn(object, key) {
     return object !== null && typeof object === "object" && Object.prototype.hasOwnProperty.call(object, key);
@@ -122,6 +125,21 @@ function scaleFits(mode, scale) {
         && Math.abs(mode.height / scale - Math.round(mode.height / scale)) <= 0.001;
 }
 
+function sideSwapped(transform) {
+    return [1, 3, 5, 7].indexOf(transform) !== -1;
+}
+
+function logicalSize(rule) {
+    var width = rule.mode.width / rule.scale;
+    var height = rule.mode.height / rule.scale;
+    return sideSwapped(rule.transform) ? { width: height, height: width } : { width: width, height: height };
+}
+
+function logicalRect(rule) {
+    var size = logicalSize(rule);
+    return { x: rule.position.x, y: rule.position.y, width: size.width, height: size.height };
+}
+
 function scaleChoices(mode, current) {
     var out = [];
     SCALE_CANDIDATES.concat([current]).forEach(function (scale) {
@@ -147,16 +165,114 @@ function outputChoices(outputs) {
     });
 }
 
+function outputGroup(outputs, identifier) {
+    return outputs.filter(function (output) { return output.identifier === identifier; });
+}
+
+function arrangementItems(outputs, saved, draft) {
+    var seen = {};
+    var groups = [];
+    outputs.forEach(function (output) {
+        if (seen[output.identifier]) return;
+        seen[output.identifier] = true;
+        var members = outputGroup(outputs, output.identifier);
+        var rules = members.map(function (member) { return effectiveRule(member, saved[member.name] || saved[member.identifier], draft[member.name] || draft[member.identifier]); });
+        var left = Math.min.apply(null, rules.map(function (rule) { return rule.position.x; }));
+        var top = Math.min.apply(null, rules.map(function (rule) { return rule.position.y; }));
+        var right = Math.max.apply(null, rules.map(function (rule) { var rect = logicalRect(rule); return rect.x + rect.width; }));
+        var bottom = Math.max.apply(null, rules.map(function (rule) { var rect = logicalRect(rule); return rect.y + rect.height; }));
+        groups.push({ identifier: output.identifier, label: members.map(function (m) { return m.name; }).join(" + "), x: left, y: top, width: right - left, height: bottom - top,
+            members: members.map(function (member) { return member.name; }) });
+    });
+    return groups;
+}
+
+function arrangementContentWidth(items) {
+    var right = 1;
+    items.forEach(function (item) { right = Math.max(right, item.x + item.width); });
+    return right;
+}
+
+function arrangementContentHeight(items) {
+    var bottom = 1;
+    items.forEach(function (item) { bottom = Math.max(bottom, item.y + item.height); });
+    return bottom;
+}
+
+function normaliseRules(rules) {
+    var keys = Object.keys(rules || {});
+    if (keys.length === 0) return {};
+    var positioned = keys.filter(function (key) { return rules[key].position !== undefined; });
+    if (positioned.length === 0) return clone(rules);
+    var left = Math.min.apply(null, positioned.map(function (key) { return rules[key].position.x; }));
+    var top = Math.min.apply(null, positioned.map(function (key) { return rules[key].position.y; }));
+    var out = clone(rules);
+    positioned.forEach(function (key) {
+        out[key].position = { x: out[key].position.x - left, y: out[key].position.y - top };
+    });
+    return out;
+}
+
+function snappedPosition(item, items, x, y) {
+    var candidatesX = [0], candidatesY = [0];
+    items.forEach(function (other) {
+        if (other.identifier === item.identifier) return;
+        candidatesX.push(other.x, other.x + other.width, other.x - item.width, other.x + other.width - item.width / 2 - other.width / 2);
+        candidatesY.push(other.y, other.y + other.height, other.y - item.height, other.y + other.height - item.height / 2 - other.height / 2);
+    });
+    candidatesX.forEach(function (candidate) { if (Math.abs(x - candidate) <= SNAP) x = candidate; });
+    candidatesY.forEach(function (candidate) { if (Math.abs(y - candidate) <= SNAP) y = candidate; });
+    return { x: Math.round(x), y: Math.round(y) };
+}
+
+function moveGroup(outputs, saved, draft, identifier, x, y) {
+    var items = arrangementItems(outputs, saved, draft);
+    var item = items.filter(function (row) { return row.identifier === identifier; })[0];
+    if (item === undefined) return draft;
+    var snapped = snappedPosition(item, items, x, y);
+    var next = clone(draft || {});
+    outputGroup(outputs, identifier).forEach(function (output) {
+        var rule = effectiveRule(output, saved[output.name] || saved[output.identifier], next[output.name] || next[output.identifier]);
+        var dx = rule.position.x - item.x;
+        var dy = rule.position.y - item.y;
+        rule.position = { x: snapped.x + dx, y: snapped.y + dy };
+        next[output.name] = rule;
+    });
+    return normaliseRules(next);
+}
+
+function nudgeGroup(outputs, saved, draft, identifier, dx, dy) {
+    var item = arrangementItems(outputs, saved, draft).filter(function (row) { return row.identifier === identifier; })[0];
+    return item === undefined ? draft : moveGroup(outputs, saved, draft, identifier, item.x + dx, item.y + dy);
+}
+
 function withOutputDraft(outputs, saved, draft, identifier, patch) {
     var output = outputByIdentifier(outputs, identifier);
     if (output === null) return draft;
     var next = clone(draft || {});
-    var current = effectiveRule(output, saved[identifier], next[identifier]);
+    var current = effectiveRule(output, saved[output.name] || saved[identifier], next[output.name] || next[identifier]);
+    var before = logicalSize(current);
     var merged = Object.assign({}, current, patch);
-    merged.position = { x: output.x, y: output.y };
+    merged.position = { x: current.position.x, y: current.position.y };
     if (patch.mode !== undefined && patch.scale === undefined && !scaleFits(patch.mode, merged.scale)) merged.scale = scaleChoices(patch.mode, output.scale)[0].value;
-    next[identifier] = merged;
-    return next;
+    var after = logicalSize(merged);
+    next[output.name] = merged;
+    outputs.forEach(function (other) {
+        var key = other.name;
+        if (key === output.name) return;
+        var otherRule = effectiveRule(other, saved[key] || saved[other.identifier], next[key] || next[other.identifier]);
+        var moved = false;
+        if (otherRule.position.x >= current.position.x + before.width) {
+            otherRule.position.x += after.width - before.width;
+            moved = true;
+        }
+        if (otherRule.position.y >= current.position.y + before.height) {
+            otherRule.position.y += after.height - before.height;
+            moved = true;
+        }
+        if (moved) next[key] = otherRule;
+    });
+    return normaliseRules(next);
 }
 
 function dirtyRules(draft, saved) {
@@ -665,6 +781,10 @@ function toolState(missing, command, needed) {
 // nothing.
 function accessNeeded(value) {
     return value.tone === "warning" || value.tone === "danger";
+}
+
+function formWarningTone(tone) {
+    return tone === "danger" ? "danger" : tone === "warning" ? "warning" : "muted";
 }
 
 // Every status value the service publishes. RESOLVED is the helper's last

@@ -154,6 +154,16 @@ function suite(lib, check) {
     const tiled = lib.parseOutputs(reply([DESK[0], monitor(3, "DP-5", { make: "Dell, Inc.", serial: "8YT0R13", x: 3840 })])).outputs;
     check("rulesError refuses a tiled output group", lib.rulesError({ "desc:Dell Inc. DELL U2720Q 8YT0R13": { scale: 2 } }, tiled), "refused: monitors.desc:Dell Inc. DELL U2720Q 8YT0R13 output=tiled");
     check("rulesError accepts a mode when Hyprland lists no modes", lib.rulesError({ "WAYLAND-1": { mode: { width: 1754, height: 932, refresh: 60 }, scale: 2 } }, nested.outputs), "");
+    check("rulesError accepts a position-only rule for an unsized headless output", lib.rulesError({ "SMOKE-DISPLAYS-MODES": { position: { x: 128, y: 0 } } },
+        [monitor(3, "SMOKE-DISPLAYS-MODES", { width: 0, height: 0 })]), "");
+    check("layoutError refuses overlap", lib.layoutError({ "DP-2": { position: { x: 0, y: 0 } } }, outputs), "refused: monitors.layout=overlap a=DP-1 b=DP-2");
+    check("layoutError refuses a gap", lib.layoutError({ "DP-2": { position: { x: 5000, y: 0 } } }, outputs), "refused: monitors.layout=gap");
+    check("layoutError ignores an unsized nested headless output", lib.layoutError({ "DP-2": { position: { x: 2560, y: 0 } } },
+        outputs.concat([monitor(3, "SMOKE-DISPLAYS-MODES", { width: 0, height: 0 })])), "");
+    check("logicalRect swaps rotated sides", lib.logicalRect({ mode: { width: 100, height: 50, refresh: 60 }, position: { x: 0, y: 0 }, scale: 1, transform: 1 }), { x: 0, y: 0, width: 50, height: 100 });
+    check("captureRules can capture tiled connectors separately", lib.captureRules(tiled, ["DP-1", "DP-5"]), { "DP-1": { mode: { width: 3840, height: 2160, refresh: 59.997 }, position: { x: 0, y: 0 }, scale: 1.5, transform: 0 }, "DP-5": { mode: { width: 3840, height: 2160, refresh: 59.997 }, position: { x: 3840, y: 0 }, scale: 1.5, transform: 0 } });
+    check("captureRules skips an invalid mode for an unsized nested headless output", lib.captureRules([monitor(3, "SMOKE-DISPLAYS-MODES", { width: 0, height: 0 })], ["SMOKE-DISPLAYS-MODES"]),
+        { "SMOKE-DISPLAYS-MODES": { position: { x: 0, y: 0 }, scale: 1.5, transform: 0 } });
 }
 
 suite(load(LOGIC), report);
@@ -177,10 +187,15 @@ const CONTROLS = [
     ["mirrorOf names the mirrored output", "out[j].mirrorOf = target[0].name;", "out[j].mirrorOf = out[j].mirrorOf;"],
     ["mirrorOf names an output", 'if (target.length !== 1) return { ok: false, error: "refused: outputs=shape output=" + j', 'if (false) return { ok: false, error: "refused: outputs=shape output=" + j']
     ,["fractional logical pixels accepted", "if (!scaleFits(normalized.mode, normalized.scale))", "if (false)"],
-    ["mode outside availableModes accepted", "if (modes.length > 0 && !modes.some(function (mode) { return sameMode(mode, normalized.mode); }))", "if (false)"],
-    ["tiled output groups accepted", 'if (matching.length > 1) return "refused: " + at + " output=tiled";', ""],
+    ["mode outside availableModes accepted", "if (rule.mode !== undefined && modes.length > 0 && !modes.some(function (mode) { return sameMode(mode, normalized.mode); }))", "if (false)"],
+    ["tiled output groups accepted", 'if (matching.length > 1 && matching[0].identifier === id) return "refused: " + at + " output=tiled";', ""],
     ["Lua text injection through a field", "if (!OUTPUT_NAME.test(id)) return \"refused: \" + at + \" identifier refused\";", "if (false) return \"refused: \" + at + \" identifier refused\";"],
-    ["restore missing a field", "scale: output.scale,", ""]
+    ["restore missing a field", "scale: output.scale,", ""],
+    ["unsized restore keeps an invalid mode", "if (output.width <= 0 || output.height <= 0) delete rule.mode;", ""],
+    ["overlap accepted", "if (overlap(rects[i].rect, rects[j].rect)) return \"refused: monitors.layout=overlap a=\" + rects[i].id + \" b=\" + rects[j].id;", ""],
+    ["gap accepted", "if (seen.length !== rects.length) return \"refused: monitors.layout=gap\";", ""],
+    ["unsized output blocks a layout", "if (rect.width > 0 && rect.height > 0) rects.push({ id: output.name, rect: rect });", "rects.push({ id: output.name, rect: rect });"],
+    ["rotated side swap lost", "if (sideSwapped(rule.transform)) return { width: height, height: width };", ""]
 ];
 
 fs.mkdirSync(path.join(__dirname, "..", "tmp"), { recursive: true });

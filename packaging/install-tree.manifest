@@ -285,6 +285,7 @@ f share/vgshell/shell/plugins/vgs.devtools/tui/devtools.sh
 f share/vgshell/shell/plugins/vgs.devtools/tui/install.sh
 f share/vgshell/shell/plugins/vgs.devtools/tui/remove.sh
 f share/vgshell/shell/plugins/vgs.devtools/tui/update.sh
+f share/vgshell/shell/plugins/vgs.displays/Arrangement.qml
 f share/vgshell/shell/plugins/vgs.displays/DisplayRow.qml
 f share/vgshell/shell/plugins/vgs.displays/DisplaysLogic.js
 f share/vgshell/shell/plugins/vgs.displays/Identify.qml

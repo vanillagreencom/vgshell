@@ -8,7 +8,7 @@
 **Refines**: [D028](D028-one-generated-hyprland-layer.md)
 **Supersedes**: the monitor half of [D080](D080-hyprland-options-rendered-from-data.md)
 
-**Decision**: VGS writes monitor rules through the one generated Hyprland layer, from `vgs.displays` data alone. The Displays pane applies a guarded trial first, and a detached guard restores the captured live rules unless the user keeps the change.
+**Decision**: VGS writes monitor rules through the one generated Hyprland layer, from the one enabled plugin that owns `hyprland.monitors`. The Displays pane applies a guarded trial first, and a detached guard restores the captured live rules unless the user keeps the change.
 
 **Why**: A user expects System → Displays to set resolution, refresh rate, scale and orientation. The generated layer keeps one writer for VGS data, and the user's own later `hl.monitor` line still wins. A wrong mode can blank a screen, so the trial restores explicit live rules through Hyprland eval and does not depend on a reload.
 

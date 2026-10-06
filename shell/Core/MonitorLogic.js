@@ -107,6 +107,23 @@ function positionOf(output) {
     return { x: output.x, y: output.y };
 }
 
+function sideSwapped(transform) {
+    return [1, 3, 5, 7].indexOf(transform) !== -1;
+}
+
+function logicalSize(rule) {
+    var scale = rule.scale;
+    var width = rule.mode.width / scale;
+    var height = rule.mode.height / scale;
+    if (sideSwapped(rule.transform)) return { width: height, height: width };
+    return { width: width, height: height };
+}
+
+function logicalRect(rule) {
+    var size = logicalSize(rule);
+    return { x: rule.position.x, y: rule.position.y, width: size.width, height: size.height };
+}
+
 function sameMode(a, b) {
     return a.width === b.width && a.height === b.height && Math.abs(a.refresh - b.refresh) <= 0.015;
 }
@@ -121,6 +138,10 @@ function scaleFits(mode, scale) {
 function outputByIdentifier(outputs, id) {
     for (var i = 0; i < outputs.length; i++) if (outputs[i].identifier === id) return outputs[i];
     return null;
+}
+
+function outputsByKey(outputs, id) {
+    return outputs.filter(function (o) { return o.identifier === id || o.name === id; });
 }
 
 function normalizedRule(output, rule) {
@@ -174,17 +195,60 @@ function rulesError(rules, outputs) {
         var bad = ruleError(rule, at);
         if (bad !== "") return "refused: " + bad;
         if (Array.isArray(outputs)) {
-            var matching = outputs.filter(function (o) { return o.identifier === id; });
+            var matching = outputsByKey(outputs, id);
             if (matching.length === 0) return "refused: " + at + " output=absent";
-            if (matching.length > 1) return "refused: " + at + " output=tiled";
+            if (matching.length > 1 && matching[0].identifier === id) return "refused: " + at + " output=tiled";
             var output = matching[0];
             var normalized = normalizedRule(output, rule);
             var modes = output.availableModes;
-            if (modes.length > 0 && !modes.some(function (mode) { return sameMode(mode, normalized.mode); }))
+            if (rule.mode !== undefined && modes.length > 0 && !modes.some(function (mode) { return sameMode(mode, normalized.mode); }))
                 return "refused: " + at + ".mode unavailable";
             if (!scaleFits(normalized.mode, normalized.scale))
                 return "refused: " + at + ".scale fractional-logical-pixels";
         }
+    }
+    return "";
+}
+
+function overlap(a, b) {
+    return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+}
+
+function sharesEdge(a, b) {
+    var vertical = (Math.abs(a.x + a.width - b.x) <= 0.001 || Math.abs(b.x + b.width - a.x) <= 0.001)
+        && a.y < b.y + b.height && b.y < a.y + a.height;
+    var horizontal = (Math.abs(a.y + a.height - b.y) <= 0.001 || Math.abs(b.y + b.height - a.y) <= 0.001)
+        && a.x < b.x + b.width && b.x < a.x + a.width;
+    return vertical || horizontal;
+}
+
+function layoutError(rules, outputs) {
+    var bad = rulesError(rules, outputs);
+    if (bad !== "") return bad;
+    var rects = [];
+    outputs.filter(function (output) { return !output.disabled; }).forEach(function (output) {
+        var rule = hasOwn(rules, output.name) ? rules[output.name] : hasOwn(rules, output.identifier) ? rules[output.identifier] : {};
+        var rect = logicalRect(normalizedRule(output, rule));
+        if (rect.width > 0 && rect.height > 0) rects.push({ id: output.name, rect: rect });
+    });
+    for (var i = 0; i < rects.length; i++) {
+        for (var j = i + 1; j < rects.length; j++) {
+            if (overlap(rects[i].rect, rects[j].rect)) return "refused: monitors.layout=overlap a=" + rects[i].id + " b=" + rects[j].id;
+        }
+    }
+    if (rects.length > 1) {
+        var seen = [0];
+        for (var changed = true; changed;) {
+            changed = false;
+            for (var r = 0; r < rects.length; r++) {
+                if (seen.indexOf(r) !== -1) continue;
+                if (seen.some(function (s) { return sharesEdge(rects[r].rect, rects[s].rect); })) {
+                    seen.push(r);
+                    changed = true;
+                }
+            }
+        }
+        if (seen.length !== rects.length) return "refused: monitors.layout=gap";
     }
     return "";
 }
@@ -231,14 +295,16 @@ function rulesLua(rules) {
 function captureRules(outputs, ids) {
     var selected = {};
     ids.forEach(function (id) {
-        var output = outputByIdentifier(outputs, id);
-        if (output === null) return;
-        selected[id] = {
-            mode: modeOf(output),
-            position: positionOf(output),
-            scale: output.scale,
-            transform: output.transform
-        };
+        outputsByKey(outputs, id).forEach(function (output) {
+            var rule = {
+                mode: modeOf(output),
+                position: positionOf(output),
+                scale: output.scale,
+                transform: output.transform
+            };
+            if (output.width <= 0 || output.height <= 0) delete rule.mode;
+            selected[output.name] = rule;
+        });
     });
     return selected;
 }

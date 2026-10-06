@@ -31,7 +31,7 @@ FocusScope {
     property var outputDraft: ({})
     property string selectedOutput: outputs.length > 0 ? outputs[0].identifier : ""
     readonly property var selected: Logic.outputByIdentifier(outputs, selectedOutput)
-    readonly property var selectedRule: selected === null ? null : Logic.effectiveRule(selected, outputRules[selectedOutput], outputDraft[selectedOutput])
+    readonly property var selectedRule: selected === null ? null : Logic.effectiveRule(selected, outputRules[selected.name] || outputRules[selectedOutput], outputDraft[selected.name] || outputDraft[selectedOutput])
     readonly property bool outputDirty: Object.keys(Logic.dirtyRules(outputDraft, outputRules)).length > 0
     readonly property var trialState: shell === null ? ({ phase: "idle", token: "", deadline: 0, failure: "" }) : shell.monitors.trialState
     readonly property bool trialHolding: trialState.phase === "holding" || trialState.phase === "keeping"
@@ -44,7 +44,7 @@ FocusScope {
     property string problem: ""
     // The refusal the last Dimming write was answered with, "" for none.
     property string dimProblem: ""
-    readonly property Item initialFocus: displaysColumn.firstFocus !== null ? displaysColumn.firstFocus : linkRow.toggle
+    readonly property Item initialFocus: displaysColumn.firstFocus !== null ? displaysColumn.firstFocus : arrangement
 
     function open(payloadJson) {
         problem = "";
@@ -159,42 +159,26 @@ FocusScope {
                 description: "Set the mode, scale and orientation of one screen."
             }
 
-            Row {
+            Arrangement {
+                id: arrangement
                 width: parent.width
-                spacing: Theme.stack.inline
+                outputs: root.outputs
+                savedRules: root.outputRules
+                draftRules: root.outputDraft
+                selected: root.selectedOutput
+                locked: root.trialHolding
+                onSelectedChangedByUser: identifier => root.selectedOutput = identifier
+                onMoved: rules => root.outputDraft = rules
+                onIdentify: identifier => root.identifyAll()
+            }
 
-                Select {
-                    visible: root.outputs.length > 1
-                    width: parent.width - identifyAllButton.width - parent.spacing
-                    model: Logic.outputChoices(root.outputs)
-                    textRole: "label"
-                    currentIndex: Logic.indexByValue(model, root.selectedOutput)
-                    Accessible.name: "Display"
-                    onActivated: index => {
-                        root.selectedOutput = model[index].value;
-                        currentIndex = Qt.binding(() => Logic.indexByValue(model, root.selectedOutput));
-                    }
-                }
-
-                Label {
-                    visible: root.outputs.length <= 1
-                    width: parent.width - identifyAllButton.width - parent.spacing
-                    anchors.verticalCenter: parent.verticalCenter
-                    role: "body"
-                    text: root.selected === null ? "No display is connected." : root.selected.name
-                    elide: Text.ElideRight
-                }
-
-                Button {
-                    id: identifyAllButton
-                    variant: "secondary"
-                    size: "sm"
-                    text: "Identify"
-                    iconName: "scan-eye"
-                    enabled: root.outputs.length > 0
-                    anchors.verticalCenter: parent.verticalCenter
-                    onClicked: root.identifyAll()
-                }
+            Button {
+                variant: "secondary"
+                size: "sm"
+                text: "Identify"
+                iconName: "scan-eye"
+                enabled: root.outputs.length > 0
+                onClicked: root.identifyAll()
             }
 
             Label {
@@ -289,7 +273,7 @@ FocusScope {
 
             Label {
                 width: parent.width
-                visible: root.trialState.phase === "idle" && root.selected !== null && root.shell !== null && root.shell.monitors.overridden(root.outputRules)[root.selectedOutput] === true
+                visible: root.trialState.phase === "idle" && root.selected !== null && root.shell !== null && (root.shell.monitors.overridden(root.outputRules)[root.selected.name] === true || root.shell.monitors.overridden(root.outputRules)[root.selectedOutput] === true)
                 role: "hint"
                 color: Theme.color.warning
                 text: "Your Hyprland file now sets this display differently."
@@ -585,7 +569,7 @@ FocusScope {
                     width: accessColumn.width
                     label: modelData.label
                     warning: modelData.value.text
-                    warningTone: modelData.tone
+                    warningTone: Logic.formWarningTone(modelData.tone)
 
                     Button {
                         visible: accessRow.modelData.action !== null && accessRow.modelData.action.offered

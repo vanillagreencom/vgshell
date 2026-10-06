@@ -11,7 +11,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 - A brightness item in each bar. It controls the display on its own screen: scroll to change the brightness, click to open the flyout. It hides while no display it can control lights that screen.
 - A flyout with one slider per display, the bar's own display first, Link displays, and Display Settings.
 - The brightness keys change the display you work on, or every display. An on-screen display shows the new level.
-- System Settings → Displays: each screen's resolution, refresh rate, scale, orientation and brightness, the screen a display shows on when VGS cannot tell, Identify, Link displays, Dimming, and the access each kind of display needs.
+- System Settings → Displays: a display arrangement canvas, each screen's resolution, refresh rate, scale, orientation and brightness, the screen a display shows on when VGS cannot tell, Identify, Link displays, Dimming, and the access each kind of display needs.
 - A display mode change first opens a trial. Keep saves it, and Revert or the timer restores the old mode.
 - Identify shows each screen's name and flashes the display, so you can tell two displays of one model apart.
 - The displays dim after a time without input, to a level you choose. Any input brings each display back to its level. A playing video keeps the displays from dimming.
