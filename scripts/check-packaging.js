@@ -123,8 +123,8 @@ const PACMAN_INSTALL = 'DESTDIR="$pkgdir" PREFIX=/usr SYSCONFDIR=/etc ./packagin
 // commits, trees and tags and only the blobs of its checkout.
 const GIT_CLONE = 'git clone --filter=blob:none --single-branch --branch main -- "$url.git" "$srcdir/vgshell"';
 const PORTAL_BACKEND_PACKAGES = {
-    pacman: { gnome: "xdg-desktop-portal-gnome" },
-    dnf: { gnome: "xdg-desktop-portal-gnome" },
+    pacman: { gnome: "xdg-desktop-portal-gnome", gtk: "xdg-desktop-portal-gtk", hyprland: "xdg-desktop-portal-hyprland" },
+    dnf: { gnome: "xdg-desktop-portal-gnome", gtk: "xdg-desktop-portal-gtk", hyprland: "xdg-desktop-portal-hyprland" },
 };
 
 const scratchDirs = [];

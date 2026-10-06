@@ -70,6 +70,8 @@ Requires:       wl-clipboard
 Requires:       wlrctl
 Requires:       wtype
 Requires:       xdg-desktop-portal-gnome
+Requires:       xdg-desktop-portal-gtk
+Requires:       xdg-desktop-portal-hyprland
 Requires:       xdg-terminal-exec
 Requires:       xdg-utils
 Recommends:     bluez

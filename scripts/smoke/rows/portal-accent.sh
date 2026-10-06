@@ -5,12 +5,12 @@
 # The sandbox tree ships no theme targets, so this row copies only the real
 # accent-color target into that tree. It then runs the real `vgshell theme apply`
 # with the sandbox bus and dconf service, which exercises the target hook.
-# inputs: packaging/xdg-desktop-portal/hyprland-portals.conf themes/targets/accent-color/* bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/catalog/tokyo-night/* themes/catalog/gruvbox/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js bin/lib/qml-library.js
+# inputs: packaging/xdg-desktop-portal/hyprland-portals.conf themes/targets/accent-color/* themes/targets/color-scheme/* bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/catalog/gruvbox/* themes/catalog/flexoki-light/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js bin/lib/qml-library.js
 set -euo pipefail
 
 portal_bin=/usr/lib/xdg-desktop-portal
 portal_gtk=/usr/lib/xdg-desktop-portal-gtk
-portal_gnome="${VGS_SMOKE_PORTAL_GNOME:-/usr/lib/xdg-desktop-portal-gnome}"
+portal_gnome=/usr/lib/xdg-desktop-portal-gnome
 dconf_bin=/usr/lib/dconf-service
 for pair in "xdg-desktop-portal:$portal_bin" "xdg-desktop-portal-gtk:$portal_gtk" "dconf-service:$dconf_bin"; do
   name="${pair%%:*}"; file="${pair#*:}"
@@ -23,48 +23,37 @@ if [[ ! -x $portal_gnome ]]; then
   not_measured portal-accent missing=xdg-desktop-portal-gnome
   return 0
 fi
-gnome_root=""
-case "$portal_gnome" in
-  */usr/lib/xdg-desktop-portal-gnome) gnome_root="${portal_gnome%/usr/lib/xdg-desktop-portal-gnome}" ;;
-  */lib/xdg-desktop-portal-gnome) gnome_root="${portal_gnome%/lib/xdg-desktop-portal-gnome}" ;;
-esac
 
 portal_root="$sandbox/portal-accent"
 mkdir -p -- "$portal_root/config/xdg-desktop-portal" "$portal_root/data/xdg-desktop-portal/portals" "$portal_root/bin"
 cp -- "$repo/packaging/xdg-desktop-portal/hyprland-portals.conf" "$portal_root/config/xdg-desktop-portal/hyprland-portals.conf"
 cp -- /usr/share/xdg-desktop-portal/portals/gtk.portal "$portal_root/data/xdg-desktop-portal/portals/gtk.portal"
-if [[ -n $gnome_root && -f $gnome_root/usr/share/xdg-desktop-portal/portals/gnome.portal ]]; then
-  cp -- "$gnome_root/usr/share/xdg-desktop-portal/portals/gnome.portal" "$portal_root/data/xdg-desktop-portal/portals/gnome.portal"
-elif [[ -f /usr/share/xdg-desktop-portal/portals/gnome.portal ]]; then
+if [[ -f /usr/share/xdg-desktop-portal/portals/hyprland.portal ]]; then
+  cp -- /usr/share/xdg-desktop-portal/portals/hyprland.portal "$portal_root/data/xdg-desktop-portal/portals/hyprland.portal"
+else
+  not_measured portal-accent missing=hyprland.portal
+  return 0
+fi
+if [[ -f /usr/share/xdg-desktop-portal/portals/gnome.portal ]]; then
   cp -- /usr/share/xdg-desktop-portal/portals/gnome.portal "$portal_root/data/xdg-desktop-portal/portals/gnome.portal"
 else
   not_measured portal-accent missing=gnome.portal
   return 0
-fi
-schema_dir=/usr/share/glib-2.0/schemas
-if [[ -n $gnome_root && -d $gnome_root/usr/share/glib-2.0/schemas ]]; then
-  schema_dir="$portal_root/schemas"
-  mkdir -p -- "$schema_dir"
-  cp -- /usr/share/glib-2.0/schemas/*.xml "$schema_dir/"
-  cp -- "$gnome_root"/usr/share/glib-2.0/schemas/*.xml "$schema_dir/"
-  if command -v glib-compile-schemas >/dev/null 2>&1; then
-    glib-compile-schemas "$schema_dir" >"$portal_root/glib-compile-schemas.log" 2>&1 || { not_measured portal-accent missing=gnome-schemas; return 0; }
-  else
-    not_measured portal-accent missing=glib-compile-schemas
-    return 0
-  fi
 fi
 ln -s -- "$(command -v sh)" "$portal_root/bin/sh"
 ln -s -- "$(command -v cat)" "$portal_root/bin/cat"
 ln -s -- "$(command -v gsettings)" "$portal_root/bin/gsettings"
 ln -s -- "$(command -v node)" "$portal_root/bin/node"
 
-mkdir -p -- "$repo/themes/targets/accent-color"
+mkdir -p -- "$repo/themes/targets/accent-color" "$repo/themes/targets/color-scheme"
 cp -R -- "$source_repo/themes/targets/accent-color/." "$repo/themes/targets/accent-color/"
+cp -R -- "$source_repo/themes/targets/color-scheme/." "$repo/themes/targets/color-scheme/"
+mkdir -p -- "$home/.config/xdg-desktop-portal"
+printf '%s\n' '[preferred]' 'default=hyprland;gtk' >"$home/.config/xdg-desktop-portal/portals.conf"
 
 portal_env=("${shell_env[@]}" HOME="$home" XDG_CONFIG_HOME="$home/.config" XDG_DATA_HOME="$home/.local/share"
   XDG_STATE_HOME="$home/.local/state" XDG_CACHE_HOME="$home/.cache" XDG_CURRENT_DESKTOP=Hyprland
-  GSETTINGS_BACKEND=dconf GSETTINGS_SCHEMA_DIR="$schema_dir" WAYLAND_DISPLAY="$nested_socket"
+  GSETTINGS_BACKEND=dconf GSETTINGS_SCHEMA_DIR=/usr/share/glib-2.0/schemas WAYLAND_DISPLAY="$nested_socket"
   XDG_CONFIG_DIRS="$portal_root/config" XDG_DATA_DIRS="$portal_root/data:/usr/share" PATH="$portal_root/bin:$(dirname -- "$node_bin"):/usr/bin:/bin" TMPDIR="$sandbox")
 
 name_owned() { "${portal_env[@]}" gdbus call --session --dest org.freedesktop.DBus --object-path /org/freedesktop/DBus --method org.freedesktop.DBus.NameHasOwner "$1" 2>>"$sandbox/ipc.log" | grep -q '(true,'; }
@@ -83,6 +72,16 @@ if not m:
     print("unreadable " + text.split("\n", 1)[0])
     raise SystemExit(1)
 print("#" + "".join(f"{round(float(v) * 255):02x}" for v in m.groups()))'
+}
+portal_color_scheme() {
+  "${portal_env[@]}" gdbus call --session --dest org.freedesktop.portal.Desktop --object-path /org/freedesktop/portal/desktop --method org.freedesktop.portal.Settings.ReadOne org.freedesktop.appearance color-scheme 2>&1 |
+    python3 -c 'import re, sys
+text = sys.stdin.read()
+m = re.search(r"uint32 ([0-9]+)", text)
+if not m:
+    print("unreadable " + text.split("\n", 1)[0])
+    raise SystemExit(1)
+print(m.group(1))'
 }
 portal_read_failed() {
   local out status=0
@@ -122,8 +121,14 @@ expect_poll "routed portal starts before theme assertions" owned wait_name org.f
 apply_theme() { # NAME
   "${portal_env[@]}" "$repo/bin/vgshell" theme apply --json "$1" >/dev/null
 }
-apply_theme_and_read() { # NAME
-  apply_theme "$1" && portal_rgb
+apply_theme_and_read() { # NAME VALUE
+  apply_theme "$1" || return
+  case "$2" in
+    accent) portal_rgb ;;
+    color-scheme) portal_color_scheme ;;
+  esac
 }
-expect "the sandbox theme apply sets tokyo-night through the real accent target" "#3584e4" apply_theme_and_read tokyo-night
-expect "the sandbox theme apply sets gruvbox through the real accent target" "#3a944a" apply_theme_and_read gruvbox
+expect "the sandbox dark theme sets gruvbox through the real accent target" "#3a944a" apply_theme_and_read gruvbox accent
+expect "the merged Settings portal reads gruvbox as prefer-dark" "1" apply_theme_and_read gruvbox color-scheme
+expect "the sandbox light theme sets flexoki-light through the real accent target" "#3584e4" apply_theme_and_read flexoki-light accent
+expect "the merged Settings portal reads flexoki-light as prefer-light" "2" apply_theme_and_read flexoki-light color-scheme

@@ -65,6 +65,8 @@ depends=(
   'wlrctl'
   'wtype'
   'xdg-desktop-portal-gnome'
+  'xdg-desktop-portal-gtk'
+  'xdg-desktop-portal-hyprland'
   'xdg-terminal-exec'
   'xdg-utils'
 )

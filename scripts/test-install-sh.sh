@@ -86,7 +86,7 @@ for (const plugin of fs.readdirSync(path.join(root, "shell/plugins"), { withFile
     const manifest = JSON.parse(fs.readFileSync(path.join(root, "shell/plugins", plugin.name, "manifest.json"), "utf8"));
     for (const row of manifest.requirements || []) if (row.packages?.aur) aur.add(row.packages.aur);
 }
-const systemOnly = new Set(["xdg-desktop-portal-gnome"]);
+const systemOnly = new Set(["xdg-desktop-portal-gnome", "xdg-desktop-portal-gtk", "xdg-desktop-portal-hyprland"]);
 const hard = [...fs.readFileSync(path.join(root, "packaging/arch/vgshell/.SRCINFO"), "utf8").matchAll(/^\tdepends = (\S+)$/gm)]
     .map(match => match[1].split(/[<>=]/)[0])
     .filter(name => !systemOnly.has(name));
