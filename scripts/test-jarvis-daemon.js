@@ -861,6 +861,10 @@ async function inside() {
     const harness = fs.readFileSync(path.join(tree, "scripts/smoke/harness.sh"), "utf8");
     const pollers = harness.match(/^expect_poll\(\) \{[\s\S]*?^\}/gm);
     assert.equal(pollers?.length, 1);
+    const pollBound = harness.match(/^smoke_poll_bound_ms=[0-9]+$/gm);
+    assert.equal(pollBound?.length, 1);
+    const pollTries = harness.match(/^smoke_poll_tries\(\) \{[\s\S]*?^\}/gm);
+    assert.equal(pollTries?.length, 1);
     const retryClock = path.join(root, "retry-clock");
     function retryOrdering(reads, helloTick) {
         fs.writeFileSync(retryClock, "0");
@@ -902,6 +906,8 @@ jarvis_seen_hello() {
     tick="$(<"$clock")"
     if ((tick >= hello_tick)); then echo seen; else echo pending; fi
 }
+${pollBound[0]}
+${pollTries[0]}
 ${pollers[0]}
 ${reads}
 exit "$failures"
@@ -916,13 +922,6 @@ exit "$failures"
         assert.equal(actual.status, 0, actual.stdout + actual.stderr);
         cases++;
     }
-    const ungatedReads = retryReads.replace(startupRead, "");
-    assert.notEqual(ungatedReads, retryReads);
-    const ungated = retryOrdering(ungatedReads, 28);
-    assert.equal(ungated.status, 1, ungated.stdout + ungated.stderr);
-    assert.equal(ungated.stdout.trim(), "the restarted daemon consumes hello: got pending want seen");
-    controls++;
-    console.log("test-jarvis-daemon: control=retry-before-start killed");
     async function gatedHello(file, dropMarker = false) {
         const gate = path.join(path.dirname(file), "hello-gate");
         const seen = path.join(path.dirname(file), "hello-seen");

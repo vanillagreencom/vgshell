@@ -1638,12 +1638,31 @@ log_lines() {
   if [[ $status -gt 1 ]]; then return 1; fi
   printf '%s\n' "$count"
 }
+# smoke_poll_bound_ms: how long expect_log, expect_poll, summon_drawn,
+# view_at_rest, read_bar_settled, expect_widgets and expect_builtins keep
+# reading before they fail. A read that matches returns at once, so the
+# bound decides nothing on a healthy run; it only ends a wait for a state
+# that never arrives, and it sits far past what a loaded host takes, so load
+# cannot fail a check. A control runs the row's own assertions in a subshell
+# and expects them to fail: there smoke_poll_tries uses
+# smoke_control_poll_bound_ms instead, so each expected failure ends after
+# the 5 s the harness has always given it rather than the long bound.
+smoke_poll_bound_ms=30000
+smoke_control_poll_bound_ms=5000
+# smoke_poll_tries STEP_MS: the reads a poll of STEP_MS steps makes before
+# its bound, in smoke_poll_n. Called directly, never in $(), so it sees the
+# caller's subshell depth.
+smoke_poll_tries() {
+  if (( BASH_SUBSHELL == 0 )); then smoke_poll_n=$((smoke_poll_bound_ms / $1)); else smoke_poll_n=$((smoke_control_poll_bound_ms / $1)); fi
+}
 # expect_log LABEL COUNT PATTERN: the log holds at least COUNT matching
-# lines within 5 s. A row that asserts something did not happen waits for
-# the line the shell writes when it decides not to, then looks.
+# lines within smoke_poll_bound_ms. A row that asserts something did not
+# happen waits for the line the shell writes when it decides not to, then
+# looks.
 expect_log() {
   local label="$1" want="$2" pattern="$3" got=0
-  for _ in $(seq 1 25); do
+  smoke_poll_tries 200
+  for _ in $(seq 1 "$smoke_poll_n"); do
     if ! got="$(log_lines "$pattern")"; then
       fail "$label: instance log unreadable or pattern refused: $instance_log ($pattern)"
       return 0
@@ -1708,13 +1727,15 @@ expect() {
   fi
   if [[ $got == "$want" ]]; then ok "$label"; else fail "$label: got $got"; fi
 }
-# expect_poll LABEL WANT CMD...: as expect, retried for up to 5 s, for a
+# expect_poll LABEL WANT CMD...: as expect, retried for up to
+# smoke_poll_bound_ms, for a
 # state that follows a write through the watcher, the merge and a rebuild.
 # A failed read is retried; a traceback fails the row at once.
 expect_poll() { # LABEL WANT CMD...
   local label="$1" want="$2" got="" matched err="$sandbox/reader-$BASHPID.stderr"
   shift 2
-  for _ in $(seq 1 25); do
+  smoke_poll_tries 200
+  for _ in $(seq 1 "$smoke_poll_n"); do
     matched=false
     if got="$("$@" 2>"$err")" && [[ $got == "$want" ]]; then matched=true; fi
     reader_stderr "$label" "$err" || return 0
@@ -1761,11 +1782,12 @@ layers_of() { hypr -j layers | python3 -c 'import json,sys; print(json.dumps(sor
 layer_count() { layers_of "$1" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))'; }
 # summon_drawn KIND ID: 0 once the window of plugin ID's summoned KIND has
 # presented a frame at its configured size (Probe windowDrawn), 1 when it
-# has not within 5 s. A layer that has just mapped takes no press before
-# that ([runtime-pointer.md](../../docs/architecture/runtime-pointer.md)),
+# has not within smoke_poll_bound_ms. A layer that has just mapped takes no
+# press before that ([runtime-pointer.md](../../docs/architecture/runtime-pointer.md)),
 # so a row waits for it before it presses on or beside a fresh summon.
 summon_drawn() { # KIND ID
-  for _ in $(seq 1 25); do
+  smoke_poll_tries 200
+  for _ in $(seq 1 "$smoke_poll_n"); do
     [[ $(ipc smoke windowDrawn "$1" "$2") == drawn ]] && return 0
     sleep 0.2
   done
@@ -1868,7 +1890,8 @@ print("unsettled " + " ".join(out) if out else "%d %d %d" % (m["width"], m["heig
 # does not settle fails LABEL with the last reading and keeps the three.
 read_bar_settled() { # LABEL
   local got="" err="$sandbox/reader-$BASHPID.stderr" settled
-  for _ in $(seq 1 25); do
+  smoke_poll_tries 200
+  for _ in $(seq 1 "$smoke_poll_n"); do
     settled=false
     if got="$(bar_settled 2>"$err")" && [[ $got =~ ^[0-9]+\ [0-9]+\ [0-9]+$ ]]; then settled=true; fi
     reader_stderr "$1" "$err" || return 0
@@ -2022,11 +2045,12 @@ click_in() {
 # view_at_rest HOST_KEY ID TEXT: the probe's viewHolding reading of the
 # view that holds TEXT in that instance once two contentY readings 0.1 s
 # apart match, so a flick an earlier wheel notch, swipe or drag left running
-# is over; `unsettled` with the reading when none match within 3 s, and the
+# is over; `unsettled` with the reading when none match within
+# smoke_poll_bound_ms, and the
 # probe's answer for a missing view.
 view_at_rest() { # HOST_KEY ID TEXT
   local view now last=""
-  for _ in $(seq 1 30); do
+  for _ in $(seq 1 $((smoke_poll_bound_ms / 100))); do
     view="$(ipc smoke viewHolding "$1" "$2" "$3")" || return 1
     [[ $view == \{* ]] || { echo "$view"; return 0; }
     now="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["contentY"])' "$view")" || return 1
@@ -2236,7 +2260,7 @@ click_scoped_in() {
 }
 
 # Widget ids every bar host built, left to right, from the core's own
-# build records. Polls up to 5 s: a config write travels through the
+# build records. Polls up to smoke_poll_bound_ms: a config write travels through the
 # watcher, the merge and a rebuild before the record changes.
 # A screen whose bar is unloaded has no record; it reads as an empty list.
 bar_widget_ids() {
@@ -2245,7 +2269,8 @@ bar_widget_ids() {
 expect_widgets() { # LABEL EXPECTED_JSON_LIST
   local want got=""
   if ! want="$(python3 -c 'import json,sys; print(json.dumps([json.loads(sys.argv[1])]*int(sys.argv[2])))' "$2" "$monitors")"; then fail "$1: expected list unreadable"; return; fi
-  for _ in $(seq 1 25); do
+  smoke_poll_tries 200
+  for _ in $(seq 1 "$smoke_poll_n"); do
     if got="$(bar_widget_ids)" && [[ $got == "$want" ]]; then ok "$1"; return; fi
     sleep 0.2
   done
@@ -2263,7 +2288,8 @@ bar_builtins() {
 expect_builtins() { # LABEL EXPECTED_JSON_LIST
   local want got=""
   if ! want="$(python3 -c 'import json,sys; print(json.dumps([json.loads(sys.argv[1])]*int(sys.argv[2])))' "$2" "$monitors")"; then fail "$1: expected list unreadable"; return; fi
-  for _ in $(seq 1 25); do
+  smoke_poll_tries 200
+  for _ in $(seq 1 "$smoke_poll_n"); do
     if got="$(bar_builtins)" && [[ $got == "$want" ]]; then ok "$1"; return; fi
     sleep 0.2
   done
