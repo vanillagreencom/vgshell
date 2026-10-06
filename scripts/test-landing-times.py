@@ -6,12 +6,13 @@ answers `gh api` from a table of canned responses the row plants and fails
 any endpoint the table lacks, so no row reads GitHub. The rows cover a
 two-page activity feed read through its Link header, the landing kinds and
 the ones passed over, the push's first and latest commit, the pull
-request's creation, the medians, fewer landings than asked for, an
-unreadable compare, a truncated compare, an unreadable feed and a missing
-gh. The controls run copies of the script with one rule removed, each of
-which a row must fail: the Link header not followed, the first commit taken
-as the latest, a force push counted as a landing, and a truncated compare
-measured.
+request's creation, the medians, a landing the feed lists twice, fewer
+landings than asked for, an unreadable compare, a truncated compare, an
+unreadable feed and a missing gh. The controls run copies of the script
+with one rule removed, each of which a row must fail: the Link header not
+followed, the first commit taken as the latest, a force push counted as a
+landing, a truncated compare measured, and a repeated landing counted
+twice.
 """
 import json
 import os
@@ -152,6 +153,13 @@ def rows(script, quiet=False):
         base_table(), ["--last", "5", "--repo", REPO], 77, [
             f"landing-times: repo={REPO} branch=main landings=3 measured=3 median_minutes=30.0 push_median_minutes=100.0 pr_median_minutes=30.0 median_wait_minutes=30.0 min_minutes=20.0 max_minutes=180.0",
         ])
+    repeated = base_table()
+    repeated[PAGE2]["body"].insert(0, activity("push", B, C, "2026-09-30T12:00:00Z"))
+    row("a landing the feed lists twice counts once, and the read goes on to the asked count",
+        repeated, ["--last", "3", "--repo", REPO], 0, [
+            f"landing={A[:12]} kind=push opened=2026-09-30T09:40:00Z landed=2026-09-30T10:00:00Z minutes=20.0 wait_minutes=20.0 commits=1",
+            f"landing-times: repo={REPO} branch=main landings=3 measured=3 median_minutes=30.0 push_median_minutes=100.0 pr_median_minutes=30.0 median_wait_minutes=30.0 min_minutes=20.0 max_minutes=180.0",
+        ])
     unreadable = base_table()
     del unreadable[f"repos/{REPO}/compare/{B}...{C}"]
     row("a push whose compare cannot be read is named and not measured",
@@ -186,6 +194,7 @@ controls = [
     ("the first commit taken as the latest", '"opened": min(dates)', '"opened": max(dates)'),
     ("a force push counted as a landing", 'LANDING_KINDS = {"push": "push",', 'LANDING_KINDS = {"push": "push", "force_push": "push",'),
     ("a truncated compare measured", 'if compare.get("total_commits", len(dates)) > len(dates):', "if False:"),
+    ("a repeated landing counted twice", 'found.setdefault(entry.get("after"), entry)', "found[len(found)] = entry"),
 ]
 source = open(SCRIPT).read()
 print("landing-times controls")

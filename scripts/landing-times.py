@@ -7,7 +7,8 @@ A landing is one entry of GitHub's repository activity for the branch
 (`GET /repos/{repo}/activity?ref=refs/heads/{branch}`): a `push`, the way a
 lane fast-forwards main, or a `pr_merge` or `merge_queue_merge`, the way a
 pull request lands. Branch creation, deletion and force pushes are not
-landings and are passed over. The activity feed holds about the last 90 days.
+landings and are passed over. A landed commit the feed lists twice counts
+once. The activity feed holds about the last 90 days.
 
   - A push opened at the earliest author date among the commits it added,
     read from the compare of its before and after commits: the first commit
@@ -97,15 +98,19 @@ def median(values):
 def landings(repo, branch, last):
     """The newest `last` landing activities, newest first. The feed is read
     page by page, following its Link header, until enough landings are
-    found or it ends."""
-    found = []
+    found or it ends. A landed commit counts once, at its first entry: the
+    feed can list one landing twice, and a page boundary can shift when a
+    new landing arrives during the read."""
+    found = {}
     endpoint = f"repos/{repo}/activity?ref=refs/heads/{branch}&per_page={PAGE}"
     while endpoint and len(found) < last:
         page, endpoint = gh_api(endpoint, with_next=True)
         if not isinstance(page, list):
             raise Unreadable("gh-api activity shape=not-a-list")
-        found.extend(entry for entry in page if entry.get("activity_type") in LANDING_KINDS)
-    return found[:last]
+        for entry in page:
+            if entry.get("activity_type") in LANDING_KINDS:
+                found.setdefault(entry.get("after"), entry)
+    return list(found.values())[:last]
 
 
 def measure(repo, entry):
