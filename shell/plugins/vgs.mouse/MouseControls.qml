@@ -12,6 +12,7 @@ Column {
     property string problem: ""
     readonly property var devices: shell === null ? null : shell.hyprland.devices
     readonly property var overridden: shell === null ? [] : shell.hyprland.overridden
+    readonly property var userValues: shell === null ? [] : shell.hyprland.userValues
     readonly property var optionPaths: shell === null ? ({}) : shell.manifest.hyprland.options
     readonly property bool hasTouchpad: Logic.hasTouchpad(devices)
     readonly property Item firstFocus: pointerSpeed
@@ -24,6 +25,29 @@ Column {
         problem = reply === "ok" ? "" : "VGS could not save this setting.";
         if (reply !== "ok") console.warn("mouse: configure " + reply);
         return reply;
+    }
+
+    // Stop setting KEY, so the user's own Hyprland value applies again.
+    function useHyprlandValue(key) {
+        const reply = shell.configure.unset(key);
+        problem = reply === "ok" ? "" : "VGS could not save this setting.";
+        if (reply !== "ok") console.warn("mouse: configure " + reply);
+    }
+
+    // The action beside a row's line that names the user's own value.
+    component UserValueAction: FormRow {
+        property string setting: ""
+        property bool shown: true
+
+        visible: shown && Logic.hasUserValue(root.userValues, root.optionPaths, setting)
+        width: parent ? parent.width : implicitWidth
+        Button {
+            objectName: "useHyprlandValue"
+            variant: "secondary"
+            size: "sm"
+            text: "Use my Hyprland value"
+            onClicked: root.useHyprlandValue(setting)
+        }
     }
 
     SectionHeader {
@@ -39,7 +63,7 @@ Column {
         FormRow {
             width: parent.width
             label: "Pointer speed"
-            warning: Logic.overriddenText(root.overridden, root.optionPaths, "sensitivity")
+            warning: Logic.warningText(root.overridden, root.userValues, root.optionPaths, "sensitivity")
             Item {
                 id: pointerSpeedRow
                 width: parent.width
@@ -76,10 +100,14 @@ Column {
             }
         }
 
+        UserValueAction {
+            setting: "sensitivity"
+        }
+
         FormRow {
             width: parent.width
             label: "Acceleration"
-            warning: Logic.overriddenText(root.overridden, root.optionPaths, "accelProfile")
+            warning: Logic.warningText(root.overridden, root.userValues, root.optionPaths, "accelProfile")
             SegmentedControl {
                 model: ["Adaptive", "Flat"]
                 currentIndex: root.shell === null ? 0 : Logic.profileIndex(root.shell.settings.accelProfile)
@@ -87,10 +115,14 @@ Column {
             }
         }
 
+        UserValueAction {
+            setting: "accelProfile"
+        }
+
         FormRow {
             width: parent.width
             label: "Natural scroll"
-            warning: Logic.overriddenText(root.overridden, root.optionPaths, "naturalScroll")
+            warning: Logic.warningText(root.overridden, root.userValues, root.optionPaths, "naturalScroll")
             Switch {
                 size: "sm"
                 Accessible.name: "Natural scroll"
@@ -103,11 +135,15 @@ Column {
             }
         }
 
+        UserValueAction {
+            setting: "naturalScroll"
+        }
+
         FormRow {
             visible: !root.compact
             width: parent.width
             label: "Left-handed"
-            warning: Logic.overriddenText(root.overridden, root.optionPaths, "leftHanded")
+            warning: Logic.warningText(root.overridden, root.userValues, root.optionPaths, "leftHanded")
             Switch {
                 size: "sm"
                 Accessible.name: "Left-handed"
@@ -120,11 +156,16 @@ Column {
             }
         }
 
+        UserValueAction {
+            setting: "leftHanded"
+            shown: !root.compact
+        }
+
         FormRow {
             visible: !root.compact
             width: parent.width
             label: "Scroll speed"
-            warning: Logic.overriddenText(root.overridden, root.optionPaths, "scrollFactor")
+            warning: Logic.warningText(root.overridden, root.userValues, root.optionPaths, "scrollFactor")
             Item {
                 id: scrollSpeedRow
                 width: parent.width
@@ -160,6 +201,11 @@ Column {
                 }
             }
         }
+
+        UserValueAction {
+            setting: "scrollFactor"
+            shown: !root.compact
+        }
     }
 
     SectionHeader {
@@ -178,7 +224,7 @@ Column {
             visible: root.compact
             width: parent.width
             label: "Touchpad"
-            warning: Logic.overriddenText(root.overridden, root.optionPaths, "touchpadEnabled")
+            warning: Logic.warningText(root.overridden, root.userValues, root.optionPaths, "touchpadEnabled")
             Switch {
                 size: "sm"
                 Accessible.name: "Touchpad"
@@ -195,7 +241,7 @@ Column {
             visible: !root.compact
             width: parent.width
             label: "Touchpad"
-            warning: Logic.overriddenText(root.overridden, root.optionPaths, "touchpadEnabled")
+            warning: Logic.warningText(root.overridden, root.userValues, root.optionPaths, "touchpadEnabled")
             Switch {
                 size: "sm"
                 Accessible.name: "Touchpad"
@@ -212,7 +258,7 @@ Column {
             visible: !root.compact
             width: parent.width
             label: "Tap to click"
-            warning: Logic.overriddenText(root.overridden, root.optionPaths, "tapToClick")
+            warning: Logic.warningText(root.overridden, root.userValues, root.optionPaths, "tapToClick")
             Switch {
                 size: "sm"
                 Accessible.name: "Tap to click"
@@ -225,11 +271,16 @@ Column {
             }
         }
 
+        UserValueAction {
+            setting: "tapToClick"
+            shown: !root.compact
+        }
+
         FormRow {
             visible: !root.compact
             width: parent.width
             label: "Natural scroll"
-            warning: Logic.overriddenText(root.overridden, root.optionPaths, "touchpadNaturalScroll")
+            warning: Logic.warningText(root.overridden, root.userValues, root.optionPaths, "touchpadNaturalScroll")
             Switch {
                 size: "sm"
                 Accessible.name: "Touchpad natural scroll"
@@ -242,11 +293,16 @@ Column {
             }
         }
 
+        UserValueAction {
+            setting: "touchpadNaturalScroll"
+            shown: !root.compact
+        }
+
         FormRow {
             visible: !root.compact
             width: parent.width
             label: "Disable while typing"
-            warning: Logic.overriddenText(root.overridden, root.optionPaths, "disableWhileTyping")
+            warning: Logic.warningText(root.overridden, root.userValues, root.optionPaths, "disableWhileTyping")
             Switch {
                 size: "sm"
                 Accessible.name: "Disable while typing"
@@ -259,11 +315,16 @@ Column {
             }
         }
 
+        UserValueAction {
+            setting: "disableWhileTyping"
+            shown: !root.compact
+        }
+
         FormRow {
             visible: !root.compact
             width: parent.width
             label: "Two-finger right-click"
-            warning: Logic.overriddenText(root.overridden, root.optionPaths, "clickMethod")
+            warning: Logic.warningText(root.overridden, root.userValues, root.optionPaths, "clickMethod")
             Switch {
                 size: "sm"
                 Accessible.name: "Two-finger right-click"
@@ -276,11 +337,16 @@ Column {
             }
         }
 
+        UserValueAction {
+            setting: "clickMethod"
+            shown: !root.compact
+        }
+
         FormRow {
             visible: !root.compact
             width: parent.width
             label: "Touchpad scroll speed"
-            warning: Logic.overriddenText(root.overridden, root.optionPaths, "touchpadScrollFactor")
+            warning: Logic.warningText(root.overridden, root.userValues, root.optionPaths, "touchpadScrollFactor")
             Item {
                 id: touchpadScrollSpeedRow
                 width: parent.width
@@ -315,6 +381,11 @@ Column {
                     anchors.verticalCenter: parent.verticalCenter
                 }
             }
+        }
+
+        UserValueAction {
+            setting: "touchpadScrollFactor"
+            shown: !root.compact
         }
     }
 

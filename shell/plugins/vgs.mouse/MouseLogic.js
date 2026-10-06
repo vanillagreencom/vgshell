@@ -48,6 +48,36 @@ function overriddenText(paths, options, key) {
     return rowOverridden(paths, options, key) ? "Overridden by your Hyprland config" : "";
 }
 
+// The value the user's Hyprland configuration gave the option setting KEY
+// maps to, from VALUES, the capability's `userValues`; undefined when it
+// names no such option.
+function userValue(values, options, key) {
+    var path = optionPath(options, key);
+    if (path === undefined || !Array.isArray(values)) return undefined;
+    for (var i = 0; i < values.length; i++)
+        if (values[i].path === path) return values[i].value;
+    return undefined;
+}
+
+function hasUserValue(values, options, key) {
+    return userValue(values, options, key) !== undefined;
+}
+
+// VALUE as the row of setting KEY shows it.
+function valueText(key, value) {
+    if (typeof value === "boolean") return value ? "on" : "off";
+    if (typeof value === "number") return key === "sensitivity" ? pointerSpeedText(value) : factorText(value);
+    return String(value);
+}
+
+// The line under a row: the user's own value where VGS replaced it, else
+// the overridden line.
+function warningText(paths, values, options, key) {
+    var value = userValue(values, options, key);
+    if (value !== undefined) return "Your Hyprland config sets this to " + valueText(key, value);
+    return overriddenText(paths, options, key);
+}
+
 function pointerSpeedText(value) {
     var n = Number(value);
     if (!isFinite(n)) n = 0;
