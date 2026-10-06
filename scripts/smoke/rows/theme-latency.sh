@@ -299,7 +299,7 @@ printf 'theme-latency: host=%s date=%s warm_samples=6 ipc_poll=back-to-back comp
 for temperature in cold warm warm warm warm warm warm; do
   latency_pressure_start
   expect "the $temperature open reader arms" ok ipc theme-latency themeLatencyBegin open "$temperature" ''
-  type_keys -M logo -M ctrl -k t -m ctrl -m logo || fail "the theme open key failed"
+  type_keys -M logo -M shift -k t -m shift -m logo || fail "the theme open key failed"
   expect_poll "the $temperature browser draws and takes keys" drawn latency_done
   latency_report "open-$temperature"
   if [[ $temperature == cold ]]; then
@@ -318,7 +318,7 @@ for temperature in cold warm warm warm warm warm warm; do
   expect_poll "the browser closes between readings" 0 layer_count vgs:overlay
 done
 
-type_keys -M logo -M ctrl -k t -m ctrl -m logo || fail "the held theme browser open failed"
+type_keys -M logo -M shift -k t -m shift -m logo || fail "the held theme browser open failed"
 expect_poll "the held theme browser takes keys" true latency_theme_value activeFocus
 expect_poll "the held theme selected picture has drawn before arming" ready ipc theme-latency selectedPictureReady
 expect "the held theme frame observer arms" ok ipc theme-latency themeLatencyBegin step '' ''
@@ -331,7 +331,7 @@ expect_poll "the held theme browser closes" 0 layer_count vgs:overlay
 # the last drew its full picture: no frame draws the selected picture
 # decoded smaller than the card, and each press reaches it. The row prints
 # each press-to-full time.
-type_keys -M logo -M ctrl -k t -m ctrl -m logo || fail "the switch browser open failed"
+type_keys -M logo -M shift -k t -m shift -m logo || fail "the switch browser open failed"
 expect_poll "the switch browser holds the keyboard" true latency_theme_value activeFocus
 type_keys ar || fail "the switch filter failed"
 expect_poll "the switch filter selects the first catalog theme" '"arc-blueberry"' latency_theme_value selectedName
@@ -364,7 +364,7 @@ expect_poll "control: a picture smaller than its card reads as low" True latency
 type_keys -k Escape -k Escape || fail "the switch browser close failed"
 expect_poll "the switch browser closes" 0 layer_count vgs:overlay
 
-type_keys -M logo -M ctrl -k t -m ctrl -m logo || fail "the apply browser open failed"
+type_keys -M logo -M shift -k t -m shift -m logo || fail "the apply browser open failed"
 expect_poll "the apply browser reads cards" true latency_theme_value loaded
 expect_poll "the apply browser holds the keyboard" true latency_theme_value activeFocus
 type_keys latency || fail "the apply card filter failed"
@@ -392,7 +392,7 @@ expect "the queue settles after theme apply" idle theme_idle
 # Alternate installed packages so every sample writes a changed theme.
 latency_previous=latency
 for latency_package in sample-peer latency sample-peer latency sample-peer; do
-  type_keys -M logo -M ctrl -k t -m ctrl -m logo || fail "the repeated apply browser open failed"
+  type_keys -M logo -M shift -k t -m shift -m logo || fail "the repeated apply browser open failed"
   expect_poll "the repeated apply browser reads cards" true latency_theme_value loaded
   expect_poll "the repeated apply browser holds the keyboard" true latency_theme_value activeFocus
   type_keys "$latency_package" || fail "the repeated apply filter failed"
@@ -413,7 +413,7 @@ expect "six theme changes meet the median and single-reading limits" within late
 latency_theme_result="$(latency_theme_summary "$latency_theme_samples")" || fail "theme readings could not be summarized"
 printf 'theme-latency: summary=%s\n' "$latency_theme_result"
 
-type_keys -M logo -M ctrl -k w -m ctrl -m logo || fail "the wallpaper browser open failed"
+type_keys -M logo -M shift -k w -m shift -m logo || fail "the wallpaper browser open failed"
 expect_poll "the wallpaper browser reads cards" true latency_wall_value loaded
 expect_poll "the wallpaper browser holds the keyboard" true latency_wall_value activeFocus
 type_keys -k Right || fail "the wallpaper selection key failed"
@@ -424,7 +424,7 @@ expect_poll "the desktop presents the selected wallpaper" drawn latency_done
 latency_report wallpaper
 expect_poll "the wallpaper browser closes" 0 layer_count vgs:overlay
 
-type_keys -M logo -M ctrl -k w -m ctrl -m logo || fail "held wallpaper browser failed"
+type_keys -M logo -M shift -k w -m shift -m logo || fail "held wallpaper browser failed"
 expect_poll "the held-key browser takes keys" true latency_wall_value activeFocus
 expect_poll "the held wallpaper selected picture has drawn before arming" ready ipc theme-latency selectedPictureReady
 expect "the held-key frame observer arms" ok ipc theme-latency themeLatencyBegin step '' ''
@@ -435,7 +435,7 @@ expect_poll "the held-key browser closes" 0 layer_count vgs:overlay
 
 # An install, an update and a removal made outside the open view must
 # reach its retained answer without a new open-time catalog command.
-type_keys -M logo -M ctrl -k t -m ctrl -m logo || fail "the refresh browser open failed"
+type_keys -M logo -M shift -k t -m shift -m logo || fail "the refresh browser open failed"
 expect_poll "the refresh browser holds the keyboard" true latency_theme_value activeFocus
 type_keys latency || fail "the refresh card filter failed"
 expect_poll "the refresh card is selected" '"latency"' latency_theme_value selectedName

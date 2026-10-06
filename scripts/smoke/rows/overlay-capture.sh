@@ -8,7 +8,7 @@
 # inputs: shell/Core/HyprlandLayer.js shell/Hosts/SummonLayer.qml shell/plugins/vgs.launcher/* shell/plugins/vgs.themes/* bin/vgshell scripts/smoke/toplevel/* shell/Core/ShortcutRegistry.qml shell/Core/Plugins.qml scripts/smoke/rows/theme-browser.sh scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 
-press_themes() { type_keys -M logo -M ctrl -k t -m ctrl -m logo; }
+press_themes() { type_keys -M logo -M shift -k t -m shift -m logo; }
 press_exec() { type_keys -M logo -k k -m logo; }
 press_focus_right() { type_keys -M logo -k d -m logo; }
 current_submap() { local out; out="$(hypr submap)" || return; [[ -n $out ]] && printf '%s\n' "$out" | tail -n 1 || printf 'default\n'; }
