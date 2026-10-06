@@ -8,7 +8,7 @@ The `vgs.bluetooth` plugin: a service, a bar widget, a flyout `panel` and a Syst
 
 - `Service.qml` runs the power operation, the rfkill reads and writes, and the discovery debt, and publishes the power view as status.
 - `Widget.qml` binds the bar icon to `BluetoothLogic.barView`.
-- `PowerField.qml` is the power switch the flyout and the pane share, with the line `BluetoothLogic.powerLine` picks as its hint or error. `DeviceSections.qml` is the My Devices and Nearby lists they share, each a `qs.Ui` `DeviceList` ([components-layout.md](components-layout.md)).
+- `PowerField.qml` is the power switch the flyout and the pane share, with the line `BluetoothLogic.powerLine` picks as its hint or error. `DeviceSections.qml` is the My Devices and Nearby lists they share, each a `qs.Ui` `DeviceList` ([components-layout.md](components.md)).
 - `Pairing.qml` runs one pairing and answers the agent's prompts; `Prompt.qml` is the pane's one `Dialog`, drawn from `BluetoothLogic.PROMPTS`. `DiscoveryLease.qml` is a lease of the service's discovery.
 
 ## Power

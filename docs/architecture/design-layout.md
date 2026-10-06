@@ -1,41 +1,36 @@
-# Design layout
+# A container owns one inset box
 
-Covers: shell/Commons/Inset.js, shell/Commons/ClearingInset.qml, shell/Ui/layout/GroupList.qml, scripts/test-inset.js, scripts/qml-tests/tst_spacing.qml, scripts/qml-tests/tst_grouplist.qml
+Read before touching a container's inset, a row's height, the corner-clearing rule or a component's spacing.
 
-Where a container puts its content and how far apart a component spaces its parts. The tokens these rules read are in [design-system.md](design-system.md). What each component guarantees is in [components.md](components.md).
+## The approach
 
-## Layout contract
+Every window, dialog, panel, popover and overlay is a `Pane` from `qs.Ui`, which owns one token-driven inset box. A boxed child puts its outer box on that edge and unboxed text puts its glyphs there; each child pads itself. A scroll bar sits inside the right inset strip, a footer stays outside the scrolling body, and rectangular content under a rounded corner steps in by the clearance `shell/Commons/Inset.js` computes until it clears the curve. A list in a popover carries no inset: a row's fill meets the border, and the row's own side padding carries the text inset. The choices are [D050](../decisions/D050-container-layout-contract.md) and [D063](../decisions/D063-design-scale-on-the-4-px-grid.md).
 
-A container owns one inset box, [D050](../decisions/D050-container-layout-contract.md). A boxed child, such as a button, list-row highlight or card, puts its outer box on that inset edge. Unboxed container content, such as a heading, notice, hint, description or field label, puts its text on that edge. A child then uses its own component padding for its internal text, icon or control. A scroll area in a container extends into the right inset strip: its content ends on the inset box, and its bar sits to the right of that content. A rounded container follows the shared corner-clearing rule below.
+## Why
 
-Dialogs and popovers use the same container, and so does a full-screen overlay over a scrim, such as the theme browser, with `inset.overlay` and no corner to clear. They fit their content until their max-height share is reached; after that, only the body scrolls, and a footer stays in view below it. `Pane` is the contract's one implementation. A plugin that owns its look composes `Pane` with its own padding, corner and gaps, so its values stay its own ([appearance.md](appearance.md)). A popup the summon host places is at most its output's room, `OverlayState.room`: the output less `size.window.gutter` a side. The plugin is laid out at that size, and a fitted `Pane` in it lays out in that height, so its footer stays inside. The Settings window's outer size is outside this contract and is owned by the window host.
+One inset owner ends per-surface padding arithmetic, so a header, body and footer share one edge and a scroll bar's arrival never moves the layout. Content lower in a rounded container needs less inset, so clearance is computed from the radius rather than kept as a padding token. A gap of any width between a row's fill and a popover's border reads as a gutter, which is why the fill sits on the border.
 
-## Headers
+## Rules
 
-A header is the one row whose leading control may reach past the content edge, an exception to D050's boxed-child rule. A back or close `IconButton` puts its glyph's painted bounds on the content edge, read from `IconButton.glyphStart`, so the glyph lines up with the text below it. Its box and its focus ring then reach into the container's inset, which is at least as wide as the ring's room. The title starts `control.gap` after the leading control's box. Every item of the header centres on the row, and the title centres by its capital height. `shell/plugins/vgs.settings/PageHeader.qml` implements it for Settings.
+- Do compose `Pane` for every container and hand it `padding`, `cornerRadius`, `bodySpacing` and `gap` only from a plugin-owned look; never a second inset implementation. `scripts/qml-tests/tst_pane.qml` pins the box and the footer.
+- Do put a boxed child's box, and unboxed text, on the inset edge; never add a second inset inside a container. `scripts/smoke/rows/manager.sh` holds every Settings field to one label edge and one control edge.
+- Do clear a rounded corner through `Inset.clearing`; never hand-pad for a curve. `scripts/test-inset.js` pins the rule and `scripts/qml-tests/tst_spacing.qml` reads `Toast`.
+- Do let a header's leading `IconButton` put its glyph, not its box, on the content edge; it is the one child that may reach into the inset.
+- Do make every one-line control `size.control.md` tall with `control.gap` between icon and text, every row `row.paddingX` a side and one `row.height`, so metadata and setting rows align. `tst_spacing.qml` reads them under the defaults and a moved theme; `scripts/smoke/rows/manager.sh` reads every field row's height.
+- Do put a group's lines in a `GroupList`; a surface states no gap and no divider colour. `scripts/qml-tests/tst_grouplist.qml` pins it.
+- Do fill a popover list's rows to the border and cut the list under a rounded corner through `ListMask`; never a gutter. `scripts/qml-tests/tst_overlays.qml` reads a square and a rounded theme.
+- Do size a summoned popup to `OverlayState.room`, so it fits its content up to its share of the screen and then scrolls.
+- Do give form feedback as plain sentence-case text under the control; a chip, a fill or capitals only for a state the user must act on now.
+- Do pair `text.label` with `text.value` in a key/value row, and use `windowTitle` for a window title and `h3` elsewhere; `h1` and `h2` are for documents.
 
-## Component spacing
+## The canonical example
 
-Every one-line control is `size.control.md` tall, with its component token for side padding and `control.gap` between an icon and its text. Every row pads its content `row.paddingX` a side, and a row's inline label is `row.labelWidth` wide and `row.gap` from its control. A component token still names each value, derived from these, so a theme can move one component. Each component's measured height, padding, gap and radius beside the reference rule it follows is [design-values.md § Component spacing](../reference/design-values.md#component-spacing). `scripts/qml-tests/tst_spacing.qml` reads the rhythm back from drawn components under the defaults and under a theme that moves it. `scripts/smoke/rows/manager.sh` holds the Settings page's fields to one label edge and one control edge, [manager.md](manager.md).
+`shell/plugins/vgs.settings/PageHeader.qml`: a `Pane` header whose leading icon button puts its glyph on the edge, a title in `windowTitle`, and nothing padded twice. Copy it.
 
-An inline row, a `FormRow`, which a `Field` with `inline` set draws, has a row box `row.height` tall whatever its control, which grows only for a control taller than that, so every row of a key/value grid has one height. Its label and its control both centre on the row box, and its hint or error starts under the value column, `field.gap` below the control's laid-out box. A row's message, `FormRow`'s `warning`, starts under the value column too, `field.gap` below the row box. It grows the row and moves neither the label nor the control. Light feedback in a form is plain sentence-case text under the control in a muted or status colour, with no chip and no capitals. A chip, a fill or capitals are only for a state the user must act on now, with the action beside it. A settings page shows a setup step only while it is needed. `stack.row` separates the rows of one group, `stack.group` the blocks of one body (a description, a line of badges, a grid, a code block), and `stack.section` the block before a section from that section's heading.
+## Revisit when
 
-## Groups
+A child must bleed outside the inset box, Quickshell adds a container primitive that owns the inset, the gutter and the fit, a popover list gains a header or footer, or the list mask's layer cost shows in a GPU measurement.
 
-A group is one key/value row with the lines that belong to it: its hint, its action and its "Show command" disclosure. The lines of one group sit `field.gap` apart, 4 px. Groups sit `groupList.gap` apart, 12 px, with a 1 px hairline in `groupList.divider` centred in each gap. A section starts `stack.section`, 24 px, after the block before it. So each step of the hierarchy has a clearly larger gap than the step inside it, and the hairline marks where one group ends. `GroupList` in `qs.Ui` owns the rule: a surface puts its groups in one and states no gap or colour. A group list inside another is one group of the outer list and divides its own groups in the same way. A hidden group takes no gap and no hairline. The Settings page's Status and Requirements sections use it, and so does a presence list's item lines. A grid of one-line read-only rows, such as Author and Version, is one group and keeps `stack.row`.
+## Not governed
 
-The hairline is a tenth of the foreground over whatever it sits on, so it follows every theme and stays fainter than `divider.color`, which marks the edge of a container's region. Omarchy's `PanelSeparator` draws the same rule, 12% of the foreground, between the sections of a panel. VGS draws it between groups inside a section, because a Status section holds rows of several lines, and Omarchy's panels do not.
-
-## Lists in a popover
-
-A menu, the list of a `Select` and every list built on the `menu` tokens fill the list inside the popover's border, [D063](../decisions/D063-design-scale-on-the-4-px-grid.md). A row's hover, pressed and selected fill meets the border at the top and on both sides, with no gutter. The row insets its own text by its side padding: `menu.item.paddingX` for a menu entry, and the field's padding less the border for a select entry, so a select entry's text starts where the field's text starts. The list opens on the field's edges and has the field's width. A row's fill is `menu.item.radius` round, which follows `menu.radius`. The fill fits inside the list's inner corner because the fill's corner is at least as round as that corner. When a theme makes the corner rounder than a row's fill, the list starts lower, where the first row's corner centre meets the corner's centre (`Inset.listInset`, through `Theme.menuListInset`). A scrolled list cuts a row at its edge square, so under a rounded corner the list is also cut to the window's rounded interior, the drawn `menu.radius` less the border. The cut is a `MultiEffect` mask over a layer of the list, the module's internal `ListMask`, as `AngledCard` cuts its content. A row half scrolled past an edge, its highlight, a chosen row's fill and the scroll bar's thumb therefore stay inside the curve at every scroll position. A square corner needs no cut beyond the list's own rectangle, and the list draws no layer. When the entries overflow, the scroll bar draws over a `scrollArea.gutter` strip that each row keeps clear at its end. The fill still spans that strip, and the row's text, shortcut and check mark stop before it. Omarchy's `Dropdown` also fills its rows edge to edge and insets the text by the row's own padding. VGS puts the fill on the border itself where Omarchy leaves a 1 px hairline, because a gap of any width reads as the gutter this rule removes.
-
-## Corner clearing
-
-Rectangular content inside a rounded container starts far enough in that each of its corners stays one step, `inset.cornerStep`, inside the curve of the drawn corner, at the content's own distance from the top and bottom edges. Content lower in the container therefore needs less inset. Content within one step of the edge clears the whole corner. The drawn corner is `min(radius, width / 2, height / 2)`, and `shell/Commons/Inset.js` owns the calculation. A square corner keeps the component's normal padding. A round avatar, face stack or pill control may sit at the normal padding when its centre stays concentric with the rounded end. `scripts/test-inset.js` checks the helper with controls. `scripts/qml-tests/tst_spacing.qml` checks `Toast`.
-
-## Decisions
-
-- Containers use one inset box, an inner scroll gutter and fitted popup height: [D050](../decisions/D050-container-layout-contract.md).
-- Every layout dimension sits on a 4 px grid: [D063](../decisions/D063-design-scale-on-the-4-px-grid.md).
-- A list in a popover carries no inset; the row fill meets the border: [D063](../decisions/D063-design-scale-on-the-4-px-grid.md).
+The values themselves, which are the `inset`, `row`, `stack` and `menu` groups of `shell/Commons/Tokens.js`, and the reference each value was read from, `docs/reference/design-values.md`. The components' own contract is [components.md](components.md).

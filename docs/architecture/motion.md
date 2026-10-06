@@ -1,45 +1,33 @@
-# Motion
+# One cursor per list
 
-Covers: shell/Ui/layout/ListCursor.qml, shell/Ui/layout/ListCursorLogic.js, shell/Ui/layout/ListCursorRow.qml, shell/Ui/layout/ListEntrance.qml, shell/Ui/layout/ListAnimation.qml, scripts/test-list-cursor-logic.js, scripts/qml-tests/tst_listcursor.qml, scripts/smoke/rows/list-motion.sh, shell/plugins/vgs.launcher/Motion.js
+Read before touching a list's highlight, a row's entrance, a `motion.list` token, or how hover and keys share a list's selection.
 
-The list motion every list of rows shares: one cursor that travels between the rows, and rows that rise in as they arrive. Its timings are the `motion.list` tokens, so `motion.scale` stills it as it stills every duration ([design-system.md § Tiers](design-system.md#tiers)).
+## The approach
 
-## The list motion
+Every list of selectable rows has one `ListCursor` from `qs.Ui`: one plate that travels between rows, with rows that rise in through `ListEntrance`, timed by the `motion.list` tokens. The keyboard writes the selection and the pointer borrows it. A plugin that owns its look hands the cursor its own timings and plate. The choice is [D054](../decisions/D054-list-motion-is-one-cursor-in-qs-ui.md).
 
-- `ListCursor` draws a list's highlight as one plate under the row the pointer is over, else the row that holds the list's selection. It travels to the next row over `motion.list.travel` and takes that row's height over `motion.list.resize`, rather than lighting each row. It fades in and out over `motion.list.fade`. It lands at once after `snap()`, which a rebuilt list, a jump or a wrap calls, and while it is hidden, so it appears where it lands.
-- `ListEntrance` is a row's entrance: the row rises `motion.list.rise` into place over `motion.list.enter`. Each of the first `motion.list.staggerRows` rows that arrive in one turn waits one `motion.list.stagger` more than the row before it. A `ListItem` that names a cursor enters as it is created; a view that creates rows as they scroll into view sets `enters: false`.
-- At `motion.scale` 0 every step is 0: the cursor lands and shows at once, and a row stands in place as it is created.
-- The cursor sits in the item that holds the rows, or in any item above them that is not a positioner, such as a view's `contentItem`. It sums the positions of the items between, so it follows a row whose container moves and ignores a row's transform, such as its entrance. `follow` refuses a row outside that item with an error, and the cursor stays where it was.
-- The cursor draws at z -1, under the rows. Qt draws a child at a negative z under its parent's own paint, so the cursor's parent must draw nothing: a list on a surface that paints a fill, such as the launcher's glass flyout, holds its rows and cursor in a plain item inside it. The cursor logs an error for a parent that paints a fill.
+## Why
 
-## One selection
+Two highlights, a hover fill beside a keyboard highlight, came from each list drawing its own. A hover takes the selection only after the pointer has moved, so a list that scrolls or animates under a resting pointer never steals the keyboard's selection. A `ListView` highlight takes no easing and menus lay rows out in a `Column`, so the plate is a component, not a view feature.
 
-- A list has one selection, which the keyboard writes. The cursor draws the row under the pointer while the pointer is over the list, and the selection otherwise, and a row under a cursor draws no fill of its own, so a hover fill never shows beside a keyboard highlight.
-- A pick list, whose Enter acts on the row under the pointer, such as a `Menu` or the list of a `Select`, also moves its selection on a hover. A navigation list, whose selection marks the page it shows, such as the System window's sidebar, leaves its selection where it is, and its `ListItem` rows mark the shown page `active`: its text and icon keep the accent while the plate sits on another row.
-- When the pointer leaves the cursor's parent, the plate goes back to the selection, never staying on the last row hovered. A pick list's selection goes back to the row that held it before the hover took it; a `Menu` clears its highlight instead when no key chose an entry since it opened.
-- A keyboard step, a rebuilt list and a filter that changes the rows call `disarm()`, and an opening or a rebuild calls `snap()` before it sets the selection, so the cursor lands on it rather than travelling from where the list last left it. A disarm also returns the plate to the selection. After that, a hover takes the plate, and in a pick list the selection, only once the pointer has moved, compared in half steps of `wl_fixed_t` ([runtime-pointer.md](runtime-pointer.md)). A pointer resting over a list that scrolls or animates under it never takes the selection from the keyboard. `arm()` lets the next hover take it at once, as after the launcher's click into a submenu.
-- `ListItem`, `MenuItem` and the entries of `Select` wire their rows to a cursor through the module's internal `ListCursorRow`: `highlighted` hands the cursor the row, and a hover the cursor lets through on an enabled row puts the plate on it and emits `pointed`, for a pick list to select the row; the cursor emits it again to hand the selection back when the pointer leaves. The keyboard rules a list follows beyond this, such as which keys move it, are the list's own.
+## Rules
 
-## Where it runs
+- Do give a list of selectable rows one `ListCursor` and let rows enter through `ListEntrance`; never a per-row hover fill beside it. `scripts/qml-tests/tst_listcursor.qml` and `tst_overlays.qml` pin it, with one mutation each in `scripts/test-qml-unit.sh`.
+- Never give a cursor to a list whose highlight marks a state, or whose rows are rows of controls.
+- Do declare the cursor in an item that paints nothing; it draws under the rows, and logs an error for a parent that paints a fill.
+- Do call `snap()` before an opening or a rebuild sets the selection, `disarm()` on a keyboard step, a rebuild or a filter, and `arm()` to let the next hover take the plate at once. `tst_listcursor.qml` pins each.
+- Do let a pick list move its selection on hover and a navigation list keep it.
+- Do take every timing from a token; a plugin-owned look hands its own table in the shape of `motion.list`. `literal-duration` in `scripts/check-design-tokens.py` refuses a literal.
+- Do land every step at once at `motion.scale` 0. `scripts/smoke/rows/list-motion.sh` reads it, and catches the cursor mid-travel under a slowed scale to prove the reader sees motion.
 
-- A list whose rows each take one selection uses the motion: a `Menu`, the list of `Select`, the Settings plugin list, the launcher's results and its file flyout, the clipboard history's entries, and the gallery's example.
-- A list whose highlight marks a state rather than a selection, or whose rows are rows of controls, has no cursor. These are the Themes panel, whose highlight marks the displayed theme, and the Dev Tools rows, which hold buttons and channel selects. The Updates rows are disclosures with their own buttons, and the Agent Warden rows are read-only.
+## The canonical example
 
-## A plugin that owns its look
+The Settings plugin list, `shell/plugins/vgs.settings/`: one cursor declared in a non-painting item, rows that name it, and the keyboard and the pointer sharing one selection. Copy it.
 
-- The launcher owns its look ([appearance.md](appearance.md)). It hands `ListCursor` and `ListEntrance` its own `motion`, in the shape of `motion.list`, and its own glass plate as the cursor's `background`. Each step there is `Easing.BezierSpline` with the launcher's curve, which `ListAnimation` reads, and every duration comes from the launcher's table, so the theme reaches it through `motion.scale` alone ([D054](../decisions/D054-list-motion-is-one-cursor-in-qs-ui.md)).
-- The launcher keeps four parts of its own. These are its timings and curves, the slide in from the side a menu change came from (`shift`), and which rows count as new: a row that stays across a rebuild shows at once. The fourth is the edge light, which lights the card, not a row.
+## Revisit when
 
-## Omarchy
+A list needs more than one selection plate, or Qt Quick gains a view highlight that takes an easing curve.
 
-Omarchy (`basecamp/omarchy`, branch `quattro` at `8b4eae6`, read 2026-09-29) keeps one cursor per panel. Hover and keys write the panel's `selectedIndex`, each row draws its fill from `hasCursor` through `CursorSurface`, and that fill changes colour over 60 ms, which reduced motion sets to 0. No fill travels, and rows show at once. VGS keeps its one-selection rule and its motion switch. It draws one plate that travels, the owner's launcher design, and names every timing as a token.
+## Not governed
 
-## Invariants
-
-1. At `motion.scale` 0 the list motion lands at once. Enforced by `scripts/smoke/rows/list-motion.sh`, which reads the Settings list's and the launcher's cursor land on the next row with no reading between. Under a slowed scale the same reader catches the cursor between the rows, which proves the reader sees motion. `scripts/qml-tests/tst_listcursor.qml` holds the same offline.
-2. Each guarantee above holds. Enforced by `scripts/qml-tests/tst_listcursor.qml` and, for `Menu` and `Select`, `scripts/qml-tests/tst_overlays.qml`, each with one mutation in `scripts/test-qml-unit.sh`, and by `scripts/test-list-cursor-logic.js` with its controls for the pointer comparison and the stagger.
-3. No list motion value is a literal. Enforced by the `literal-duration` rule of `scripts/check-design-tokens.py`, and the defaults are pinned in `scripts/test-theme-logic.js`.
-
-## Decisions
-
-- The list motion is one cursor in `qs.Ui`, and a plugin that owns its look hands it its own timings: [D054](../decisions/D054-list-motion-is-one-cursor-in-qs-ui.md).
+The launcher's own curves, slide and edge light, which its appearance table owns under [D023](../decisions/D023-plugin-owned-appearance.md).

@@ -7,7 +7,7 @@ Most plugins draw from the shell's tokens, so a theme restyles them. A plugin wh
 ## The contract
 
 - The manifest names `appearance`: a `.js` file inside the plugin, with the `.pragma library` header, that exports `TOKENS` and `LIGHT`. `PluginLogic.validateManifest` refuses any other path shape.
-- `TOKENS` is a table in the `Tokens.js` leaf format, judged by the shell table's own rules and expression grammar ([design-system.md § Types and expressions](design-system.md#types-and-expressions)). Its `palette` group holds `accent` alone, a colour, and it holds `motion.scale`, a number; both are inputs, replaced by the active theme's.
+- `TOKENS` is a table in the `Tokens.js` leaf format, judged by the shell table's own rules and expression grammar ([design-system.md § Types and expressions](design-system.md)). Its `palette` group holds `accent` alone, a colour, and it holds `motion.scale`, a number; both are inputs, replaced by the active theme's.
 - `LIGHT` is an overrides tree in theme-document shape. It names paths of `TOKENS`, sets neither input, and applies only while the theme's `scheme.mode` is `light`.
 - `scheme.mode` is a shell token, `dark` or `light`, that a theme states; a light package, such as the catalog's `flexoki-light`, sets it. No component and no plugin infers a mode from a colour.
 - A file reads the look as `Theme.appearance(TOKENS, LIGHT)`, bound once, conventionally to a property named `look`, and every value it draws with as `look.<path>`. A binding on it re-evaluates on a theme change and answers the same values for every theme with the same mode, accent and scale.

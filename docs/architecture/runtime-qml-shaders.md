@@ -2,7 +2,7 @@
 
 Covers: shell/Ui/feedback/VoiceOrb.qml, shell/Ui/feedback/shaders/**, scripts/check-voiceorb-shader.py, scripts/test-check-voiceorb-shader.py, scripts/shader/**
 
-The Qt facts the passive shader component rests on. Its component contract is in [components-media.md § VoiceOrb](components-media.md#voiceorb).
+The Qt facts the passive shader component rests on. Its component contract is in [components-media.md § VoiceOrb](components.md).
 
 ## ShaderEffect
 

@@ -36,12 +36,12 @@ One line per architecture document: the change to read it before. [overview.md](
 - [placement.md](placement.md): read before touching whether a bar widget is placed, `setPlaced` or the Show in bar switch.
 - [configuration.md](configuration.md): read before touching the configuration files or their judge.
 - [design-system.md](design-system.md): read before touching a token, the theme judge, `Theme`, or any value a surface draws with.
-- [design-layout.md](design-layout.md): read before touching a container's inset, the corner-clearing rule or a component's spacing.
+- [design-layout.md](design-layout.md): read before touching a container's inset, a row's height, the corner-clearing rule or a component's spacing.
 - [design-quality.md](design-quality.md): read before judging or changing how a surface looks: its grid, type, control sizes, container class or states.
-- [components.md](components.md), [components-controls.md](components-controls.md), [components-layout.md](components-layout.md), [components-media.md](components-media.md), [components-overlays.md](components-overlays.md) and [components-gallery.md](components-gallery.md): read before adding or changing a component of `qs.Ui` or the Gallery.
+- [components.md](components.md): read before adding or changing a component of `qs.Ui`, or a pointer, scroll or focus behaviour in any surface.
 - [keyboard.md](keyboard.md): read before adding a pointer action, a focusable control or a keyboard path.
 - [keyboard-surfaces.md](keyboard-surfaces.md): read before changing how a shipped surface is reached from the keyboard, for each surface's path and proving row.
-- [motion.md](motion.md): read before touching a list's highlight, a row's entrance, a `motion.list` token or how hover and keys share a list's selection.
+- [motion.md](motion.md): read before touching a list's highlight, a row's entrance, a `motion.list` token, or how hover and keys share a list's selection.
 - [themes.md](themes.md): read before touching a theme package, package judge, or theme runner.
 - [theme-apply.md](theme-apply.md) and [theme-reload.md](theme-reload.md): read before touching the apply, a reload hook or `vgshell theme reload`.
 - [theme-follow.md](theme-follow.md): read before touching `applied.json`, `vgshell theme follow` or the `modified` flag.

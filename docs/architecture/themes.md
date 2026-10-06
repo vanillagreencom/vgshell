@@ -8,7 +8,7 @@ A theme package is one directory. It holds the shell document and the applicatio
 
 | File | Required | Holds |
 |---|---|---|
-| `theme.json` | yes | The shell document from [design-system.md § The shell document](design-system.md#the-shell-document). |
+| `theme.json` | yes | The shell document from [design-system.md § The shell document](design-system.md). |
 | `terminal.json` | no | `{ "schemaVersion": 1, "slots": { "color0": "#...", ... "color15": "#..." } }`. |
 | `preview.png` | no | A package-authored desktop preview image. The theme browser uses it before the live token preview. |
 | `targets/<target>.<ext>` | no | A curated file, taken verbatim in place of the target file the renderer writes to that name, where the target accepts it. An installed package's is dropped on a target whose files run code: [theme-targets.md § Templates](theme-targets.md#templates). |
