@@ -46,6 +46,8 @@ Item {
     onSelectedEffectChanged: restart()
     onFrameRateChanged: restart()
     onCanvasChanged: restart()
+    onWidthChanged: if (shown) restartDelay.restart()
+    onHeightChanged: if (shown) restartDelay.restart()
     onArtPathChanged: restart()
     onBackgroundChanged: restart()
     onActiveFocusChanged: {
@@ -59,7 +61,9 @@ Item {
 
     function start() {
         if (!shown || !canRun || effect.running) return;
+        if (width <= 0 || height <= 0) return;
         effect.command = Logic.command(artPath, selectedEffect, frameRate, canvas.columns, canvas.rows, background);
+        console.info("screensaver: command=" + JSON.stringify(effect.command));
         effect.running = true;
     }
 
@@ -91,13 +95,13 @@ Item {
     FontMetrics {
         id: fontMetrics
         font.family: Theme.font.family.mono
-        font.pixelSize: Theme.text.h1.size
+        font.pixelSize: Theme.text.h3.size
     }
 
     TextMetrics {
         id: cellSize
         font.family: Theme.font.family.mono
-        font.pixelSize: Theme.text.h1.size
+        font.pixelSize: Theme.text.h3.size
         text: "M"
     }
 
@@ -142,7 +146,7 @@ Item {
                 text: root.rows[index] || ""
                 color: Theme.color.text
                 font.family: Theme.font.family.mono
-                font.pixelSize: Theme.text.h1.size
+                font.pixelSize: Theme.text.h3.size
                 lineHeightMode: Text.FixedHeight
                 lineHeight: root.cellHeight
             }

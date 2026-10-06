@@ -127,8 +127,8 @@ function effectChoices(helpText) {
 
 function canvasSize(width, height, cellWidth, cellHeight) {
     return {
-        columns: Math.max(1, Math.floor(width / Math.max(1, cellWidth))),
-        rows: Math.max(1, Math.floor(height / Math.max(1, cellHeight)))
+        columns: Math.max(1, Math.min(80, Math.floor(width / Math.max(1, cellWidth)))),
+        rows: Math.max(1, Math.min(26, Math.floor(height / Math.max(1, cellHeight))))
     };
 }
 

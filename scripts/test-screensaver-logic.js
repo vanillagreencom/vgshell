@@ -29,7 +29,7 @@ function suite(ctx, check) {
 
   const frame = "\u001b7\u001b[2A\u001b[38;2;255;0;0mR R\u001b[0m&\n<\u001b[48;2;0;0;255mB";
   check("frame parser escapes text, preserves spaces and resets SGR", ctx.parseFrame(frame), ["<font color=\"#ff0000\">R\u00a0R</font>&amp;", "&lt;B"]);
-  check("canvas size floors cells", ctx.canvasSize(2560, 1440, 15, 32), { columns: 170, rows: 45 });
+  check("canvas size floors cells and caps work", ctx.canvasSize(2560, 1440, 15, 32), { columns: 80, rows: 26 });
   check("newest frame drops older rows", ctx.newestFrame(["old"], ["new"]), ["new"]);
   check("background drops alpha for ttfx", ctx.backgroundHex("#ff102030"), "#102030");
   check("random command uses random flag", ctx.command("/art", "random", 30, 80, 24, "#000000").slice(-1), ["--random-effect"]);
@@ -47,6 +47,7 @@ const controls = [
   ["SGR reset is handled", "if (code === 0) {\n            next.fg = \"\";\n        }", "if (false) {\n            next.fg = \"\";\n        }"],
   ["help is not an effect", "if (value === \"help\" || seen[value]) continue;", "if (seen[value]) continue;"],
   ["only newest frame is kept", "function newestFrame(previous, next) {\n    return next;\n}", "function newestFrame(previous, next) {\n    return (previous || []).concat(next);\n}"],
+  ["canvas columns are capped", "Math.min(80, Math.floor(width / Math.max(1, cellWidth)))", "Math.floor(width / Math.max(1, cellWidth))"],
 ];
 
 for (const [name, needle, replacement] of controls) {
