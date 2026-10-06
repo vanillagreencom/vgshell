@@ -181,23 +181,6 @@ hold_barrier
 expect "control: losing modifier-independent release breaks acceptance" violation hold_acceptance
 cp -- "$sandbox/hold-layer-good.lua" "$hold_layer"
 expect "restore the generated release bind" ok hypr reload config-only
-python3 - "$hold_layer" <<'PY'
-import pathlib, sys
-p = pathlib.Path(sys.argv[1])
-s = p.read_text()
-needle = 'tap.armed = next(tap.held) == nil and { code = code, ms = ms } or nil'
-assert s.count(needle) == 1, "tap control: expected one press disarm"
-changed = s.replace(needle, 'tap.armed = next(tap.held) == nil and { code = code, ms = ms } or tap.armed')
-assert changed != s
-p.write_text(changed)
-PY
-expect "control: reload the chord-sensitive tap tracker" ok hypr reload config-only
-hold_reset
-hold_send "down 108" "down 25" "up 25" "up 108"
-hold_barrier
-expect "control: losing tap disarm breaks chord rejection" violation hold_no_tap
-cp -- "$sandbox/hold-layer-good.lua" "$hold_layer"
-expect "restore the generated tap tracker" ok hypr reload config-only
 # A key change cancels the control's pending hold through the real provider.
 set_keys '{"acme.hold":{"talk":null}}'
 expect "reload after unbinding the held key" ok ipc shell reloadConfig
@@ -222,6 +205,25 @@ expect "the old physical up cannot complete the hold twice" '["talk-down","talk-
 set_keys '{"acme.hold":{}}'
 expect "restore the key after the live unbind" ok ipc shell reloadConfig
 expect_poll "the live unbind leaves no stale effective key" '"{\"talk\":\"SUPER+code:108\",\"other\":\"CTRL+code:108\",\"tap\":\"code:108\"}"' ipc smoke readInstance service acme.hold keys
+
+cp -- "$hold_layer" "$sandbox/hold-layer-tap-good.lua"
+python3 - "$hold_layer" <<'PY'
+import pathlib, sys
+p = pathlib.Path(sys.argv[1])
+s = p.read_text()
+needle = 'tap.armed = next(tap.held) == nil and { code = code, ms = ms } or nil'
+assert s.count(needle) == 1, "tap control: expected one press disarm"
+changed = s.replace(needle, 'tap.armed = next(tap.held) == nil and { code = code, ms = ms } or tap.armed')
+assert changed != s
+p.write_text(changed)
+PY
+expect "control: reload the chord-sensitive tap tracker" ok hypr reload config-only
+hold_reset
+hold_send "down 108" "down 25" "up 25" "up 108"
+hold_barrier
+expect "control: losing tap disarm breaks chord rejection" violation hold_no_tap
+cp -- "$sandbox/hold-layer-tap-good.lua" "$hold_layer"
+expect "restore the generated tap tracker" ok hypr reload config-only
 
 # A silent sender retains its command acknowledgments but drops key events.
 python3 - "$repo/scripts/smoke/keyboard/keyboard.c" "$sandbox/keyboard-silent.c" <<'PY'
@@ -250,7 +252,7 @@ hold_send "down 37" "down 108"
 expect_poll "the disposable registration is held" '["other-down"]' hold_read
 expect "early disposal releases the hold" ok ipc acme.hold invoke release-other ""
 expect_poll "early disposal delivers the matching up once" '["other-down","other-up"]' hold_read
-expect_poll "early disposal releases both native registrations" 2 hold_native
+expect_poll "early disposal releases both of its native registrations and keeps the others" 3 hold_native
 hold_send "up 37" "up 108"
 hold_barrier
 expect "late key-up cannot call the disposed registration" '["other-down","other-up"]' hold_read

@@ -514,7 +514,7 @@ expect_poll "the restored neutral fixture has no compositor bind" '[]' fixture_b
 # A rebind, an unbind and a name no bind declares, in shell.json.
 set_keys '{"vgs.launcher": {"toggle": "super+alt+space", "nope": "SUPER+F9"}, "vgs.notifications": {"inbox": null}}'
 expect_poll "a shell.json rebind and unbind reach the nested instance" "$rebound" vgs_binds
-expect "the unbound shortcut is a comment in the layer" yes layer_has "-- unbound vgs.notifications:inbox: shell.json sets its key to null"
+expect "the unbound shortcut is a comment in the layer" yes layer_has "-- unbound vgs.notifications:inbox: no key is set"
 expect "listPlugins reports the key name no bind declares" '["hyprland: shell.json keys.nope names no bind of vgs.launcher"]' hypr_problems
 
 # One key for two plugins: the first by id keeps it.

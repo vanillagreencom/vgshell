@@ -449,10 +449,10 @@ voice_set_keys
 expect "Voice physical key overrides are reloaded" ok ipc shell reloadConfig
 expect "Hyprland reloads Voice physical key overrides" ok hypr reload config-only
 expect_poll "Voice builds" True record_exists vgs.voice
-expect_poll "Voice reads the physical key overrides" '{"toggle":"SUPER+CTRL+code:53","talk":"code:75"}' ipc smoke readInstance service vgs.voice shortcutKeys
+expect_poll "Voice reads the physical key overrides" '{"toggle":"SUPER+CTRL+code:53","tap":null,"talk":"code:75"}' ipc smoke readInstance service vgs.voice shortcutKeys
 expect_poll "Voice sees voxtype present" true ipc smoke readInstance service vgs.voice voxtypePresent
 expect_poll "Voice starts its status process" true ipc smoke readInstance service vgs.voice statusRunning
-expect_poll "Voice registers its two shortcuts and the release companion" 3 voice_shortcuts
+expect_poll "Voice registers its three shortcuts and the release companion" 4 voice_shortcuts
 expect_poll "the Voice status child starts" true ipc smoke readInstance service vgs.voice statusRunning
 expect_poll "the status stream reaches plugin status" '["dictation", "model", "setup", "voxtype"]' voice_status_value
 expect_poll "the recording state reaches the bar widget" '"recording"' voice_dictation
@@ -701,7 +701,7 @@ touch -- "$voice_installed"
 device_reply systemctl 0 enabled --user is-enabled voxtype
 rescan "the Voice rescan reads setup's end state"
 expect_poll "Set up is withheld once the model and the service are in place" False voice_setup_offered
-expect_poll "the dictation shortcuts are registered after setup" 3 voice_shortcuts
+expect_poll "the three dictation shortcuts and the release companion are registered after setup" 4 voice_shortcuts
 before="$(wc -l <"$voice_log")"
 expect "the toggle shortcut reaches Voice" ok hypr dispatch 'hl.dsp.global("vgs.voice:toggle")'
 expect_poll "a test dictation runs only voxtype record toggle" ok voice_toggle_only

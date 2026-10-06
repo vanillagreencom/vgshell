@@ -54,10 +54,13 @@ print(json.dumps(sorted(seen)))'
 # hold this window's own and the Themes one, else both lists.
 kh_same() {
   local rows bound
-  rows="$(kh_rows vgs.)" && bound="$(kh_bound)" || return 1
+  rows="$(ipc smoke itemValues window vgs.keyhints BindField pluginId,bind)" && bound="$(kh_bound)" || return 1
   python3 -c 'import json,sys
-r, b = json.loads(sys.argv[1]), json.loads(sys.argv[2])
-print("same" if r == b and {"vgs.keyhints:toggle", "vgs.themes:themes"} <= set(r) else "rows=%s binds=%s" % (sys.argv[1], sys.argv[2]))' "$rows" "$bound"
+items, b = json.loads(sys.argv[1]), json.loads(sys.argv[2])
+rows = sorted("%s:%s" % (r["pluginId"], r["bind"]["shortcut"]) for r in items if r["pluginId"].startswith("vgs.") and r["bind"]["key"] is not None)
+keyless = sorted("%s:%s" % (r["pluginId"], r["bind"]["shortcut"]) for r in items if r["pluginId"].startswith("vgs.") and r["bind"]["key"] is None)
+required = {"vgs.keyhints:toggle", "vgs.themes:themes"}
+print("same" if rows == b and required <= set(rows) and "vgs.voice:tap" in keyless else "rows=%s binds=%s keyless=%s" % (json.dumps(rows), sys.argv[2], json.dumps(keyless)))' "$rows" "$bound"
 }
 # kh_field ARG PROPERTY: one property of a drawn row's ShortcutField (the
 # probe's keyField, which reads the window's rows as it reads the Settings
