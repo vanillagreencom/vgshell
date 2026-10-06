@@ -276,7 +276,7 @@ const DEFAULTS = [
     // 108 by 432 slices, overlapping by the card's 28 pixel lean; the
     // reference rail, 768 + 13 * (108 - 28) + 2 * 20 = 1848, its unit held
     // from 0.35 to 2, two cards built past the shown ones and a decode of
-    // at most 4096; the rail moves over motion.duration.normal, 150 ms at
+    // at most 2048; the rail moves over motion.duration.normal, 150 ms at
     // motion.scale 1.
     ["carousel.expandedWidth", 768],
     ["carousel.expandedHeight", 476],
@@ -288,7 +288,7 @@ const DEFAULTS = [
     ["carousel.minScale", 0.35],
     ["carousel.maxScale", 2],
     ["carousel.band", 2],
-    ["carousel.decodeCap", 4096],
+    ["carousel.decodeCap", 2048],
     ["carousel.previewDwell", 250],
     ["carousel.duration", 150],
     ["desktopPreview.referenceWidth", 1600],

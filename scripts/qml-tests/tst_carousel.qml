@@ -209,10 +209,9 @@ Item {
         }
 
         // At unit 1 and two device pixels a pixel: a slice decodes at 216
-        // by 864, the current card and its neighbours at 1536 by 952. At
-        // four, 3072 by 1904 is still under the 4096-pixel long-side cap.
-        // At six, 4608 by 2856 is held to 4096 on the longer side: 2856 *
-        // 4096 / 4608 = 2538.7.
+        // by 864, the current card and its neighbours at 1536 by 952, under
+        // the 2048-pixel long-side cap. At four, 3072 by 1904 is held to
+        // 2048 on the longer side: 1904 * 2048 / 3072 = 1269.3.
         function test_each_card_is_handed_its_decode_size() {
             carousel.devicePixelRatio = 2;
             compare(built().e20.decodeSize, Qt.size(1536, 952));
@@ -224,10 +223,8 @@ Item {
             compare(built().e22.decodeSize, Qt.size(1536, 952));
             compare(built().e19.decodeSize, Qt.size(216, 864));
             carousel.devicePixelRatio = 4;
-            compare(built().e21.decodeSize, Qt.size(3072, 1904));
+            compare(built().e21.decodeSize, Qt.size(2048, 1269));
             compare(built().e23.decodeSize, Qt.size(432, 1728));
-            carousel.devicePixelRatio = 6;
-            compare(built().e21.decodeSize, Qt.size(4096, 2539));
         }
 
         function test_wrap_neighbours_are_decoded_before_selection() {
