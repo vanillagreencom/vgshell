@@ -14,8 +14,10 @@
 # (app_window_rows, scripts/smoke/app-window.sh, floated by the `vgs:window`
 # rule rows/hyprland-consent.sh's Connect wires) and, opened again, draws
 # the VGS section and every catalog section from the published catalog; a
-# click on the agent's Install records the install TUI's argv, and the list
-# is read again once that run ended; the window's switch writes
+# launcher row's summon focuses its row, and a second summon for that row
+# focuses it again after Tab moved the keyboard off it; a click on the
+# agent's Install records the install TUI's argv, and the list is read
+# again once that run ended; the window's switch writes
 # writeLaunchers, whose launcher verb writes and then removes the agent's
 # launcher; the VGS section lists a fixture's missing
 # requirement once the core's scan reports it, and its Install raises the
@@ -23,9 +25,11 @@
 # commands and refuses a disabled or unknown owner; the Settings page reads
 # the status rows back; on a narrow monitor the VGS row's own Details
 # opens its clipped error while database rows a failing docker the row
-# plants leaves unknown draw Details too; and, as the controls, a copy of
-# the plugin whose service ignores a run's end and a change of the scan's
-# missing commands leaves the list as it was after each.
+# plants leaves unknown draw Details too; and, as the controls, a copy
+# whose rows focus only on a change of the target row leaves the second
+# summon unfocused, and a copy of the plugin whose service ignores a run's
+# end and a change of the scan's missing commands leaves the list as it
+# was after each.
 # inputs: shell/plugins/vgs.devtools/* shell/plugins/vgs.launcher/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/plugins/acme.requires/* shell/Core/Notices.qml shell/Core/PluginStatus.qml shell/Core/PackageManagers.js shell/Core/TuiRunner.qml shell/Core/ShortcutRegistry.qml shell/Hosts/AppWindow.qml bin/vgshell VERSION config/requirements.json bin/lib/qml-library.js scripts/smoke/rows/status.sh bin/vgshell-tui scripts/smoke/rows/settings.sh scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 devtools_stand_ins
@@ -339,6 +343,15 @@ language_focus() {
   printf '%s %s\n' "$focused" "$target"
 }
 expect_poll "the language row payload focuses its Catalog row" "ToolRow envs/$language_id" language_focus
+# A second summon for the row the window already targets leaves targetRow
+# as it was, and still focuses the row after Tab moved the keyboard off it.
+language_payload="{\"row\":\"envs/$language_id\"}"
+# `row` while a ToolRow holds the keyboard, else `moved`, then the target.
+language_focus_place() { local f; f="$(language_focus)" || return; [[ ${f%% *} == ToolRow ]] && echo "row ${f#* }" || echo "moved ${f#* }"; }
+type_keys -k Tab || fail "Tab off the language row failed"
+expect_poll "Tab moves the keyboard off the language row" "moved envs/$language_id" language_focus_place
+expect "a second summon for the language row answers ok" ok ipc shell summon window vgs.devtools "$language_payload"
+expect_poll "the second summon focuses the language row again" "row envs/$language_id" language_focus_place
 forget_record
 expect "the language window hides after launcher read" ok ipc shell hide window vgs.devtools
 expect_poll "the language window is gone" hidden window_shown
@@ -591,6 +604,33 @@ if [[ $(grep -c -F -- "$launcher_line" "$control_dir/Service.qml") == 1 ]]; then
   rescan "rescan after removing the launcher visibility control copy answers ok"
 else
   fail "the launcher visibility control line occurs once in the Dev Tools service"
+fi
+
+# Control: a copy whose rows focus on a change of targetRow instead of on
+# each summon. Summoned twice for the language row with Tab between, the
+# keyboard stays where Tab moved it.
+control_dir="$home/.config/vgshell/plugins/vgs.devtools"
+cp -R "$repo/shell/plugins/vgs.devtools" "$control_dir"
+summon_line='                                    function onSummoned() { toolRow.focusIfTarget(); }'
+if [[ $(grep -c -F -- "$summon_line" "$control_dir/Window.qml") == 1 ]]; then
+  python3 -c 'import sys; p, old = sys.argv[1:]; text = open(p).read(); open(p, "w").write(text.replace(old, old.replace("onSummoned", "onTargetRowChanged")))' "$control_dir/Window.qml" "$summon_line"
+  expected_errors+=('plugins: hidden by a higher-precedence plugin with the same id: .*vgs\.devtools')
+  rescan "rescan after adding the summon focus control copy answers ok"
+  expect_poll "the summon focus control service publishes" '["catalog", "checks", "installed", "launcherRows", "mise", "missingRequirements", "outdated"]' dev_lent
+  expect "the summon focus control's first summon answers ok" ok ipc shell summon window vgs.devtools "$language_payload"
+  expect_poll "the summon focus control's first summon focuses the language row" "row envs/$language_id" language_focus_place
+  type_keys -k Tab || fail "Tab off the language row under the summon focus control failed"
+  expect_poll "Tab moves the keyboard off the language row under the summon focus control" "moved envs/$language_id" language_focus_place
+  expect "the summon focus control's second summon answers ok" ok ipc shell summon window vgs.devtools "$language_payload"
+  # The summon ran open() before it answered, and a row's focus waits for
+  # one Qt.callLater, which runs once the engine returns to its event loop,
+  # before that loop takes the next IPC call.
+  expect "control: rows focused on a targetRow change leave a second summon unfocused" "moved envs/$language_id" language_focus_place
+  expect "the summon focus control window hides" ok ipc shell hide window vgs.devtools
+  rm -rf -- "${control_dir:?}"
+  rescan "rescan after removing the summon focus control copy answers ok"
+else
+  fail "the summon focus line occurs once in the Dev Tools window"
 fi
 
 # Control: a copy of the plugin whose service ignores a run's end, in the

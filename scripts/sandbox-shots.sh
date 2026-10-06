@@ -2166,10 +2166,16 @@ scene_devtools() { # MODE
   expect_poll "the Dev Tools window draws its sections" True devtools_sections
   park_pointer
   take "devtools-$1-top"
-  # The VGS row's Details button: the sandbox's install method is always
-  # unknown, so it shows on the first page whatever the other scenes set up.
+  # The VGS row's Details button, on the Info tab: the sandbox's install
+  # method is always unknown, so it shows whatever the other scenes set up.
+  # A summon puts the keyboard on the Catalog search, where Ctrl+Tab steps
+  # the tabs, and a summon again returns to Catalog for the pages.
+  expect "the Dev Tools window summons for the Info tab" ok ipc vgs.devtools invoke open ''
+  type_keys -M ctrl -k Tab -m ctrl || fail "stepping the Dev Tools window to Settings failed"
+  type_keys -M ctrl -k Tab -m ctrl || fail "stepping the Dev Tools window to Info failed"
   hover_on "the pointer rests on the VGS row's $devtools_hover button" window vgs.devtools Button "$devtools_hover" "window:Dev Tools" && take_posed "devtools-$1-hover"
   park_pointer
+  expect "the Dev Tools window summons back to Catalog" ok ipc vgs.devtools invoke open ''
   while (( page <= 4 )); do
     at="$(ipc smoke scrollTo window vgs.devtools "$y")" || at=""
     if [[ $at != "["* ]]; then fail "the Dev Tools window did not scroll: ${at:-no reply}"; break; fi

@@ -24,6 +24,9 @@ Item {
     property string problem: ""
     property string targetRow: ""
     property Item initialFocus: targetRow === "" ? search : null
+    // Emitted by every open(), so a summon for the row already targeted
+    // focuses it again although targetRow does not change.
+    signal summoned()
 
     function open(payloadJson) {
         if (look === null) throw new Error("devtools: refused: appearance");
@@ -39,6 +42,7 @@ Item {
         tabs.currentIndex = 0;
         problem = "";
         if (targetRow === "") Qt.callLater(() => search.forceActiveFocus(Qt.ShortcutFocusReason));
+        summoned();
     }
     function close() {}
 
@@ -175,7 +179,7 @@ Item {
                                 Component.onCompleted: focusIfTarget()
                                 Connections {
                                     target: root
-                                    function onTargetRowChanged() { toolRow.focusIfTarget(); }
+                                    function onSummoned() { toolRow.focusIfTarget(); }
                                 }
                                 onActed: (action, channel) => root.act(modelData, action, channel)
                             }
