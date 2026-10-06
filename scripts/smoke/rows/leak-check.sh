@@ -21,6 +21,11 @@
 # option, fails nothing and prints what it left; a header word that names
 # no class fails its row once; a row after which the compositor answers
 # nothing fails once for each class read through it, as unreadable.
+# The crash check smoke_row runs before the leak check has its control
+# here too: a crash signal to the shell leaves a Quickshell crash report
+# and its reporter's window; the check names the report once with its
+# stack trace, ends the reporter and starts a new shell with its own log,
+# and a second check reads nothing.
 # smoke_row puts the pointer at rest before every row it runs outside
 # another row: a planted row run so, with the pointer moved away first,
 # reads the pointer at rest when it starts.
@@ -168,6 +173,28 @@ hypr() { return 1; }
 SH
 expect "control: a row after which the compositor answers nothing fails once per class read through it" 5 lc_planted leak-plant-unreadable
 expect "control: the failure names the unreadable class and the end" 1 lc_failed leak-plant-unreadable "leak-check reading=unreadable class=clients at=end .*"
+
+# The crash control: a crash signal past Quickshell's 10 s restart floor.
+lc_ran() { local secs; secs="$(ps -o etimes= -p "$shell_qs_pid")" || { echo gone; return; }; secs="${secs// /}"; if ((secs >= 11)); then echo ran; else echo "secs=$secs"; fi; }
+lc_reports() { local n=0 report; for report in "$home/.cache/quickshell/crashes"/*/report.txt; do [[ -f $report ]] && n=$((n + 1)); done; echo "$n"; }
+lc_strays() { shell_strays | grep -c . || true; }
+lc_crashes="$sandbox/leak-plant-crash.crashes"
+lc_reports_before="$(lc_reports)"
+expect_poll "the shell has run past Quickshell's restart floor" ran lc_ran
+lc_crashed_pid="$shell_qs_pid"
+lc_crashed_log="$instance_log"
+kill -SEGV -- "$shell_qs_pid" || fail "the planted crash signal was not sent"
+expect_poll "the planted crash leaves a crash report" "$((lc_reports_before + 1))" lc_reports
+expect_poll "the planted crash maps Quickshell's crash reporter window" 1 lc_strays
+if shell_crash_check "$lc_crashes"; then fail "control: the crash check read no crash after the planted one"; fi
+expect "control: the crash check names the planted crash once" 1 grep -c -E -- "^crash=[0-9a-z]+ report=.*/report\\.txt\$" "$lc_crashes"
+expect "control: the crash check prints the crash's stack trace" 1 grep -c -E -- "^        #0 " "$lc_crashes"
+expect "the crash check leaves no crash reporter window" 0 lc_strays
+lc_new_shell() { [[ $shell_qs_pid != "$lc_crashed_pid" && $instance_log != "$lc_crashed_log" ]] && echo new || echo "pid=$shell_qs_pid log=$instance_log"; }
+expect "the crash check starts a new shell with its own log" new lc_new_shell
+expect "the new shell answers" ok ipc shell ping
+lc_check_again() { if shell_crash_check "$sandbox/leak-plant-crash-again.crashes"; then echo none; else echo found; fi; }
+expect "a second crash check reads no crash" none lc_check_again
 
 cat >"$lc_plants/leak-plant-rest.sh" <<'SH'
 expect "the row starts with the pointer at rest" "10 $((mon_h - 10))" lc_pointer

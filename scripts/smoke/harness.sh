@@ -1509,6 +1509,45 @@ adopt_shell() { # KILLED
   shell_answers "$shell_tree" "$shell_log" || return 1
   adopt_ms=$(( $(now_ms) - start_ms ))
 }
+# shell_crash_check FILE: Quickshell 0.3.1's crash handler, on a crash
+# signal, writes a report under $XDG_CACHE_HOME/quickshell/crashes/<instance>/,
+# maps a crash reporter window with the shell's app id and the title
+# `quickshell` from a child process no shell stop ends, and, past 10 s of
+# runtime, starts the shell again as a new instance in the same pid, whose
+# log is not instance_log. Every row after it would read that window and
+# its focus, and the old log. For each report no earlier call read, FILE
+# gets one line `crash=<instance> report=<path>` and the report's stack
+# trace, each line indented. Once it found one, it stops the shell, ends
+# each process that still maps a window of the shell's class and is no
+# running instance, and starts shell_tree again. Returns 1 when it found one.
+# shell_strays: the pid of each mapped client of the shell's class that no
+# running instance owns, one a line.
+shell_strays() {
+  hypr -j clients | py_reply 'import json,sys; owned=set(i["pid"] for i in (json.loads(sys.argv[2]) if sys.argv[2] != "none" else [])); print("\n".join(sorted(set(str(c["pid"]) for c in json.load(sys.stdin) if c["class"] == sys.argv[1] and c["mapped"] and c["pid"] not in owned))))' "$shell_class" "$(qs_list --all)"
+}
+shell_crash_check() { # FILE
+  local seen="$sandbox/crash-reports.seen" report instance="" strays pid
+  : >"$1"
+  touch -- "$seen"
+  for report in "$home/.cache/quickshell/crashes"/*/report.txt; do
+    [[ -f $report ]] || continue
+    ! grep -q -x -F -- "$report" "$seen" || continue
+    printf '%s\n' "$report" >>"$seen"
+    instance="$(basename -- "$(dirname -- "$report")")"
+    { printf 'crash=%s report=%s\n' "$instance" "$report"
+      sed -n '/^===== Stacktrace =====$/,/^===== /{/^=====/d;s/^/        /;p}' "$report"; } >>"$1"
+  done
+  [[ -n $instance ]] || return 0
+  stop_shell || true
+  if strays="$(shell_strays)"; then
+    for pid in $strays; do kill -TERM -- "$pid" 2>/dev/null || true; done
+    expect_poll "the crash reporter's window is gone" "" shell_strays
+  else
+    fail "shell_crash_check: the clients of class $shell_class are unreadable"
+  fi
+  start_shell "$shell_tree" "$sandbox/shell-after-crash-$instance.log" || true
+  return 1
+}
 # copy_tree NAME: a copy of the tree at $sandbox/tree-NAME, with its own
 # bin/ and shell/. edit_tree NAME FILE OLD NEW: in that copy, OLD in FILE,
 # a path under it, replaced by NEW; returns 1, with the row failed, unless
@@ -2719,7 +2758,7 @@ source "$repo/scripts/smoke/leaks.sh"
 # included, the reading scripts/smoke/rows.secs is refreshed from.
 smoke_row_drain_s=5
 smoke_row() { # NAME [DIR]
-  local smoke_row_name="$1" smoke_row_dir="${2:-$repo/scripts/smoke/rows}" smoke_row_marker smoke_row_count=""
+  local smoke_row_name="$1" smoke_row_dir="${2:-$repo/scripts/smoke/rows}" smoke_row_marker smoke_row_count="" smoke_row_line
   local smoke_row_out="$sandbox/rows/$1.out" smoke_row_result="$sandbox/rows/$1.result" smoke_row_started=$EPOCHSECONDS
   smoke_row_marker="qml-smoke: row-end $1 $$ $SRANDOM"
   mkdir -p -- "$sandbox/rows"
@@ -2750,6 +2789,14 @@ smoke_row() { # NAME [DIR]
     fail "$smoke_row_name: its output holds $smoke_row_count Python traceback(s): $smoke_row_out"
   fi
   ipc_oversize_check "$smoke_row_name"
+  # A shell crash fails the row it happened in, which leaves the rows after
+  # it a fresh shell and no crash reporter window. A row run inside another
+  # row leaves its crash to that row's end.
+  if [[ ${#leak_starts[@]} -eq 1 ]] && ! shell_crash_check "$sandbox/rows/$smoke_row_name.crashes"; then
+    while IFS= read -r smoke_row_line; do
+      if [[ $smoke_row_line == crash=* ]]; then fail "$smoke_row_name: the shell crashed: $smoke_row_line"; else printf '%s\n' "$smoke_row_line"; fi
+    done <"$sandbox/rows/$smoke_row_name.crashes"
+  fi
   leak_row_end "$smoke_row_name" "$smoke_row_dir"
   printf 'qml-smoke: row-secs row=%s secs=%s\n' "$smoke_row_name" "$((EPOCHSECONDS - smoke_row_started))"
 }
