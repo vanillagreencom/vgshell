@@ -7,7 +7,7 @@
 # string the field's text entry stores when the same keys are typed into
 # it, the submap is left once it commits, and the field names the
 # Launcher shortcut and the user bind holding SUPER+SPACE. A captured
-# SUPER+CTRL+T names the Themes plugin, whose shortcut asks for the same key,
+# SUPER+SHIFT+T names the Themes plugin, whose shortcut asks for the same key,
 # and the field's Unbind button, clicked, stores null. The control starts a tree whose key capture owner
 # sends no enter: Hyprland stays in its default map, the user bind takes
 # SUPER+SPACE, its marker appears and the stored key stays. Every key goes
@@ -80,9 +80,9 @@ kc_typed "CTRL+ALT+T typed" "ctrl+alt+t" CTRL+ALT+T
 kc_capture "F5" F5 "$sandbox/key-capture-f5" -k F5
 kc_typed "F5 typed" "F5" F5
 
-expect "enabling Themes, whose shortcut asks for SUPER+CTRL+T, is allowed" ok ipc shell setPluginEnabled vgs.themes true
-kc_capture "SUPER+CTRL+T" SUPER+CTRL+T "$sandbox/key-capture-none" -M logo -M ctrl -k t -m ctrl -m logo
-expect_poll "the field names the Themes shortcut asking for SUPER+CTRL+T" '"Also used by Themes (themes)."' settings_key_field conflict
+expect "enabling Themes, whose shortcut asks for SUPER+SHIFT+T, is allowed" ok ipc shell setPluginEnabled vgs.themes true
+kc_capture "SUPER+SHIFT+T" SUPER+SHIFT+T "$sandbox/key-capture-none" -M logo -M shift -k t -m shift -m logo
+expect_poll "the field names the Themes shortcut asking for SUPER+SHIFT+T" '"Also used by Themes (themes)."' settings_key_field conflict
 kc_reveal_unbind() { local at; at="$(ipc smoke revealText window vgs.settings IconButton Unbind)" || return; [[ $at != absent ]] && echo shown || echo absent; }
 expect "the Unbind button is scrolled into view" shown kc_reveal_unbind
 click_in window:Plugins window vgs.settings IconButton Unbind || fail "the click on the field's Unbind button failed"

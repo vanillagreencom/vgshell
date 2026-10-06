@@ -103,8 +103,8 @@
       "noGaps": "noWindowGaps"
     },
     "binds": [
-      { "shortcut": "themes", "key": "SUPER+CTRL+T", "info": "Opens the theme browser to try and apply a theme, or closes it." },
-      { "shortcut": "wallpapers", "key": "SUPER+CTRL+W", "info": "Opens the wallpaper browser to pick a background, or closes it." },
+      { "shortcut": "themes", "key": "SUPER+SHIFT+T", "info": "Opens the theme browser to try and apply a theme, or closes it." },
+      { "shortcut": "wallpapers", "key": "SUPER+SHIFT+W", "info": "Opens the wallpaper browser to pick a background, or closes it." },
       { "shortcut": "panel", "key": "SUPER+CTRL+J", "info": "Opens the Themes panel, or closes it." },
       { "shortcut": "gaps", "key": "SUPER+SHIFT+BACKSPACE", "info": "Removes the space between windows, or puts it back." }
     ]
