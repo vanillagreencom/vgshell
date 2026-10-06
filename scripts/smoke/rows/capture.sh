@@ -37,7 +37,10 @@ capture_path() { capture_read lastPath | py_reply 'import json,sys; print(json.l
 capture_panel() { ipc smoke readInstance panel vgs.capture recording; }
 capture_panel_geometry() { layers_of vgs:panel | py_reply 'import json,sys; rows=json.load(sys.stdin); print(len(rows) == 1 and rows[0][2] > 0 and rows[0][3] > 0)'; }
 capture_status() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["status"].get("vgs.capture")))'; }
-capture_clipboard() { python3 -c 'import pathlib,sys; p=pathlib.Path(sys.argv[1]); print(p.read_text() if p.exists() else "absent")' "$capture_state/clipboard"; }
+# capture_clipboard: the clipboard stand-in's bytes as text. The helper
+# reports copied once wl-copy's stdin closes, before the stand-in writes, so
+# an earlier image's bytes read as a mismatch to poll past.
+capture_clipboard() { python3 -c 'import pathlib,sys; p=pathlib.Path(sys.argv[1]); print(p.read_bytes().decode(errors="replace") if p.exists() else "absent")' "$capture_state/clipboard"; }
 capture_counts() { python3 -c 'import pathlib,sys; p=pathlib.Path(sys.argv[1]); print(len(list(p.glob("*.png"))))' "$home/Pictures/Screenshots"; }
 # capture_cards: Capture's notifications vgs.notifications shows and is not
 # taking off, as [summary, ...]; [] while it is not built.
@@ -671,7 +674,7 @@ expect_poll "selection restores the still-open window's focus" "$capture_target_
 capture_config slurpRelease false
 expect "capture recognizes selected text" ok ipc vgs.capture invoke text ''
 expect_poll "capture finishes text recognition" idle capture_phase
-expect "text reaches the clipboard" "Nested capture text" capture_clipboard
+expect_poll "text reaches the clipboard" "Nested capture text" capture_clipboard
 capture_config holdFinalize true
 expect "capture starts one recorder" ok ipc vgs.capture invoke record ''
 expect_poll "capture publishes recording" recording capture_phase
