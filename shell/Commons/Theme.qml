@@ -47,6 +47,7 @@ Singleton {
     readonly property var surface: published.surface
     readonly property var divider: published.divider
     readonly property var groupList: published.groupList
+    readonly property var card: published.card
     readonly property var focusRing: published.focusRing
     readonly property var button: published.button
     readonly property var segmented: published.segmented

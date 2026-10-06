@@ -350,6 +350,10 @@ function suite(ctx, check) {
         ["a welcome key line without an id", { welcome: { keys: [{ shortcut: "toggle", text: "t" }] } }, "welcome.keys.0 must be an object with a string id"],
         ["a welcome key line without a shortcut", { welcome: { keys: [{ id: "a.b", text: "t" }] } }, "welcome.keys.0 must hold a string shortcut and a non-empty string text"],
         ["a welcome key line with empty text", { welcome: { keys: [{ id: "a.b", shortcut: "toggle", text: "" }] } }, "welcome.keys.0 must hold a string shortcut and a non-empty string text"],
+        ["a manager id passes", { manager: { id: "a.b" } }, ""],
+        ["manager not an object", { manager: "a.b" }, "manager must be an object"],
+        ["manager without an id", { manager: {} }, "manager.id must be a string"],
+        ["a manager id that is not a string", { manager: { id: 3 } }, "manager.id must be a string"],
     ];
     for (const [name, config, want] of configRows) {
         const got = ctx.configError(config);
@@ -378,6 +382,9 @@ function suite(ctx, check) {
     check("effectiveConfig does not alias the user file", (() => { const user = { bar: { id: "u.bar" } }; const c = ctx.effectiveConfig(shipped, user); c.bar.id = "x"; return user.bar.id; })(), "u.bar");
     check("layoutEntryOf finds the first entry in section order", ctx.layoutEntryOf({ bar: { layout: { right: [{ id: "a", n: 3 }], center: [{ id: "a", n: 2 }], left: [{ id: "b" }] } } }, "a"), { id: "a", n: 2 });
     check("layoutEntryOf is null for an unplaced id", ctx.layoutEntryOf(shipped, "acme.svc"), null);
+    check("managerId reads the manager's id", ctx.managerId({ manager: { id: "a.b" } }), "a.b");
+    check("managerId is empty for a file that names none", ctx.managerId({}), "");
+    check("managerId is empty for an id that is not a string", ctx.managerId({ manager: { id: 3 } }), "");
     check("activeBarId falls back on an empty id", ctx.activeBarId({ bar: { id: "" } }, "vgs.bar"), "vgs.bar");
     check("layoutIds keeps section order left, center, right", ctx.layoutIds({ bar: { layout: { right: [{ id: "r" }], center: [{ id: "c" }], left: [{ id: "l" }] } } }), ["l", "c", "r"]);
 

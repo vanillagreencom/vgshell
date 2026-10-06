@@ -387,6 +387,18 @@ var TOKENS = {
         divider: color("alpha({palette.foreground}, 0.1)")
     },
 
+    // A card holds one of several repeated groups, such as an account in a
+    // panel: its lines `gap` apart, `padding` inside an outline
+    // `borderWidth` wide in `border`, on `background`, its corner `radius`.
+    card: {
+        radius: length("{radius.md}"),
+        padding: length("{space.lg}"),
+        gap: length("{row.lineGap}"),
+        borderWidth: length("{border.thin}"),
+        background: color("{color.surfaceRaised}"),
+        border: color("{color.borderSubtle}")
+    },
+
     focusRing: {
         width: length("{border.thick}"),
         offset: length(2),

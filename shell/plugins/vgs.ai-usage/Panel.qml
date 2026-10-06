@@ -3,8 +3,8 @@ import qs.Commons
 import qs.Ui
 import "UsageView.js" as View
 
-// Each signed-in account: its name, email and plan, and a meter and reset
-// time for each plan limit it reports. Opening the panel asks the service
+// Each signed-in account in a card of its own: its name, email and plan,
+// and a meter and reset time for each plan limit it reports. Opening the panel asks the service
 // for a new check; the panel draws status alone.
 Item {
     id: root
@@ -45,10 +45,9 @@ Item {
 
         Repeater {
             model: root.rows
-            Column {
+            Card {
                 required property var modelData
                 width: layout.contentWidth
-                spacing: Theme.row.lineGap
 
                 Label { role: "label"; text: modelData.title }
                 Label { visible: text !== ""; role: "hint"; text: modelData.detail }

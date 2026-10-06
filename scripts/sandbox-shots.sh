@@ -17,7 +17,7 @@
 # SCENE is gallery, settings, focus, plugin-pages, manager, launcher,
 # notifications, bar, panels, devtools, system, network, vpn, bluetooth, dialog, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, capture,
-# keyhints, clipboard or voice. settings takes the
+# keyhints, clipboard, voice or ai-usage. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
 # each when the tree ships its plugin. plugin-pages, taken only when named, opens every
 # plugin the Settings window lists, in that window's order, and captures
@@ -33,7 +33,13 @@
 # its Bluetooth section over the device fakes; vpn is its VPN section over
 # the tailscale stand-in; keyhints is the
 # Key Hints window over the Launcher's, Settings' and Themes' shortcuts and
-# its own; clipboard is the clipboard history over copies made on the
+# its own; ai-usage is AI Usage's dropdown opened from its bar widget over
+# three signed-in accounts, two Claude Code and one Codex, at rest and
+# scrolled so the dividers under its header and over its footer show, read
+# as scripts/smoke/rows/ai-usage.sh reads them: the endpoint stand-in
+# scripts/fixtures/ai-usage/endpoint.js on 127.0.0.1, the Codex stand-in
+# beside it and planted sign-ins, with no host claude or codex on the
+# shell's PATH; clipboard is the clipboard history over copies made on the
 # nested instance's own clipboard, taken only when named; voice is Voice's
 # on-screen display while dictating, its plasma orb fed by stand-ins for
 # voxtype's status stream and audio bridge, so no audio device opens, taken
@@ -163,7 +169,7 @@ while [[ $# -gt 0 ]]; do
     --keep) keep=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    gallery|settings|focus|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|devtools|system|network|vpn|bluetooth|dialog|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations) scenes+=("$1"); shift ;;
+    gallery|settings|focus|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|ai-usage|devtools|system|network|vpn|bluetooth|dialog|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -262,6 +268,7 @@ scene_ships() {
     keyhints) ships_plugin vgs.keyhints vgs.launcher vgs.settings vgs.themes ;;
     clipboard) ships_plugin vgs.clipboard ;;
     voice) ships_plugin vgs.voice ;;
+    ai-usage) ships_plugin vgs.ai-usage ;;
     devtools) ships_plugin vgs.devtools ;;
     system) ships_plugin vgs.system ;;
     network) ships_plugin vgs.system vgs.network ;;
@@ -281,7 +288,7 @@ if [[ ${#scenes[@]} -eq 0 ]]; then
     scenes=(gallery)
     [[ -z $manager_scene ]] || scenes+=("$manager_scene")
   else
-    for scene in gallery settings focus launcher notifications bar panels devtools system network vpn bluetooth dialog lock polkit greeter automations narrow; do
+    for scene in gallery settings focus launcher notifications bar panels ai-usage devtools system network vpn bluetooth dialog lock polkit greeter automations narrow; do
       if scene_ships "$scene"; then scenes+=("$scene"); fi
     done
   fi
@@ -308,6 +315,11 @@ shell_output_scale="$scale"
 if [[ " ${scenes[*]} " == *" settings "* && -f $tree/shell/Ui/feedback/CommandDisclosure.qml ]]; then
   # shellcheck disable=SC2034 # the harness sourced below reads it
   shell_hidden_commands=(vsys mise vgshell-browser-policy)
+fi
+# AI Usage reads the sign-ins through stand-ins alone, so the shell finds no
+# host claude or codex.
+if [[ " ${scenes[*]} " == *" ai-usage "* ]]; then
+  shell_hidden_commands+=(claude codex)
 fi
 source "$checkout/scripts/smoke/harness.sh"
 # The harness copied the tree into the sandbox; the export is no longer
@@ -1658,6 +1670,26 @@ scene_capture() { # MODE
   expect "Capture's panel hides" ok ipc shell hide panel vgs.capture
 }
 
+# AI Usage's dropdown from its widget, at rest, then scrolled halfway down
+# its body, where both dividers show.
+usage_shot_rows() { ipc smoke readInstance panel vgs.ai-usage rows | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
+scene_ai-usage() { # MODE
+  local at y
+  click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage from its widget failed"
+  expect_poll "the widget opens its panel over every account" 3 usage_shot_rows
+  park_pointer
+  take "ai-usage-$1-panel"
+  at="$(ipc smoke scrollTo panel vgs.ai-usage 0)" || at=""
+  if y="$(python3 -c 'import json,sys; _, content, view = json.loads(sys.argv[1]); print(int((content - view) / 2)) if content - view > 2 else sys.exit(1)' "$at" 2>/dev/null)"; then
+    ipc smoke scrollTo panel vgs.ai-usage "$y" >/dev/null || fail "the AI Usage panel did not scroll"
+    take "ai-usage-$1-panel-scrolled"
+  else
+    fail "the AI Usage panel does not scroll: $at"
+  fi
+  expect "AI Usage's panel hides" ok ipc shell hide panel vgs.ai-usage
+  expect_poll "AI Usage's panel is gone" absent ipc smoke readInstance panel vgs.ai-usage rows
+}
+
 # The Key Hints window, with the pointer parked.
 scene_keyhints() { # MODE
   expect "the Key Hints window summons" ok ipc shell summon window vgs.keyhints '{}'
@@ -2279,6 +2311,42 @@ for scene in "${setups[@]}"; do
       expect_poll "the code is recorded" "$((clipboard_before + 5))" clipboard_total
       clipboard_pin="$(ipc vgs.clipboard invoke rows 'Meeting notes' | py_reply 'import json,sys; print(json.load(sys.stdin)["rows"][0]["id"])')" || fail "the entry to pin is unreadable"
       expect "the first copy is pinned" ok ipc vgs.clipboard invoke pin "$clipboard_pin" ;;
+    ai-usage)
+      # The usage helper of the sandbox's copy asks the endpoint stand-in,
+      # its origin edited as rows/ai-usage.sh edits it, and Codex's sign-in
+      # is read through the Codex stand-in; spawn's process group ends with
+      # the sandbox. Each account's figures and reset times are the
+      # stand-ins' answers relative to the request.
+      usage_dir="$sandbox/shots-ai-usage"
+      mkdir -p -- "$usage_dir"
+      printf 'relative\n' >"$usage_dir/mode"
+      spawn "$usage_dir/endpoint.log" "$node_bin" "$checkout/scripts/fixtures/ai-usage/endpoint.js" "$usage_dir/port" "$usage_dir/mode" "$usage_dir/requests"
+      usage_port() { if [[ -s $usage_dir/port ]]; then echo ready; else echo waiting; fi; }
+      expect_poll "the stand-in usage endpoint listens" ready usage_port
+      python3 "$checkout/scripts/smoke/fixtures/ai-usage/edit.py" "$repo/shell/plugins/vgs.ai-usage/backend/usage.js" 'const ORIGIN = "https://api.anthropic.com";' "const ORIGIN = \"http://127.0.0.1:$(cat -- "$usage_dir/port")\";" || fail "pointing the usage helper at the stand-in failed"
+      ln -sfn -- "$checkout/scripts/fixtures/ai-usage/codex" "$shim/codex"
+      python3 - "$home" <<'PY' || fail "planting the AI Usage sign-ins failed"
+import json, os, sys, time
+home = sys.argv[1]
+for folder, plan in ((".claude", "max"), (".claude-work", "pro")):
+    os.makedirs(os.path.join(home, folder), exist_ok=True)
+    token = "sk-ant-oat01-shots-" + folder.strip(".") + "-" + "0" * 16
+    json.dump({"claudeAiOauth": {"accessToken": token, "refreshToken": "shots-refresh", "expiresAt": int(time.time() * 1000) + 3600000,
+               "scopes": ["user:inference"], "subscriptionType": plan}}, open(os.path.join(home, folder, ".credentials.json"), "w"))
+os.makedirs(os.path.join(home, ".codex"), exist_ok=True)
+json.dump({"OPENAI_API_KEY": None, "tokens": {"access_token": "shots-access"}}, open(os.path.join(home, ".codex", "auth.json"), "w"))
+open(os.path.join(home, ".codex", "stand-in-mode"), "w").write("relative\n")
+PY
+      tree_rescan "the AI Usage stand-ins are scanned"
+      expect "enabling AI Usage for its dropdown is allowed" ok ipc shell setPluginEnabled vgs.ai-usage true
+      expect "AI Usage's widget is placed" ok ipc shell setPluginPlaced vgs.ai-usage true
+      expect_poll "AI Usage's service is built" True record_exists vgs.ai-usage
+      # Settings enabled, so a tree whose dropdowns draw the gear draws it.
+      expect "enabling vgs.settings for the dropdown's gear is allowed" ok ipc shell setPluginEnabled vgs.settings true
+      expect_poll "vgs.settings is built" True record_exists vgs.settings
+      usage_shot_states() { ipc smoke readInstance service vgs.ai-usage usage | py_reply 'import json,sys; u=json.load(sys.stdin); print("none" if u is None else json.dumps(sorted(a["state"] for a in u["accounts"])))'; }
+      expect_poll "every planted account reads as signed in" '["ok", "ok", "ok"]' usage_shot_states
+      expect_poll "AI Usage's widget shows" true ipc smoke readInstance "$(bar_key)" vgs.ai-usage visible ;;
     keyhints)
       for id in vgs.launcher vgs.settings vgs.keyhints; do
         expect "enabling $id for the Key Hints image is allowed" ok ipc shell setPluginEnabled "$id" true

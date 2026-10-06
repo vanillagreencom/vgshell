@@ -62,7 +62,7 @@ Item {
         header: [
             PowerField {
                 id: power
-                width: layout.contentWidth
+                width: layout.headerWidth
                 shell: root.shell
             }
         ]

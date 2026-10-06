@@ -107,7 +107,7 @@ Item {
 
         header: [
             Column {
-                width: layout.contentWidth
+                width: layout.headerWidth
                 spacing: Theme.row.lineGap
 
                 Label {

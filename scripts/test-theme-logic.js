@@ -178,6 +178,11 @@ const DEFAULTS = [
     // A menu entry's fill rounds with the menu, square by default.
     ["menu.item.radius", 0],
     ["groupList.gap", 12],
+    // A card: space.lg, 3 * 4, inside a 1 px outline, its lines
+    // space.xs, 4, apart.
+    ["card.padding", 12],
+    ["card.gap", 4],
+    ["card.borderWidth", 1],
     ["button.size.sm.paddingX", 8],
     ["button.size.sm.icon", 14],
     ["button.size.lg.gap", 12],

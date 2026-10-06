@@ -369,10 +369,11 @@ scene_cases=(
   "a checkout without the Gallery plugin refuses the focus scene" 2 "sandbox-shots: refused: scene=focus tree=checkout" focus
   "a checkout with the Capture plugin takes the capture scene" 77 "qml-smoke: status=not-measured" capture
   "a revision without the Capture plugin refuses the capture scene" 2 "sandbox-shots: refused: scene=capture tree=$old_rev" --rev "$old_rev" capture
+  "a checkout without the AI Usage plugin refuses the ai-usage scene" 2 "sandbox-shots: refused: scene=ai-usage tree=checkout" ai-usage
 )
 # Each case is label, status, line, then its arguments up to the next case,
 # counted by the arguments each row above carries.
-scene_arity=(1 3 3 1 1 3 3 3 3 3 1 1 3 1 1 3)
+scene_arity=(1 3 3 1 1 3 3 3 3 3 1 1 3 1 1 3 1)
 # Where each case starts in scene_cases and how many arguments it takes, by
 # label, for the controls below.
 declare -A scene_at scene_argc

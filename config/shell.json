@@ -8,6 +8,7 @@
       "right": [{ "id": "vgs.settings" }]
     }
   },
+  "manager": { "id": "vgs.settings" },
   "plugins": [],
   "disabledPlugins": [],
   "welcome": {

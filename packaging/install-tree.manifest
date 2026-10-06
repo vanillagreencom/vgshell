@@ -167,6 +167,7 @@ f share/vgshell/shell/Ui/foundation/Surface.qml
 f share/vgshell/shell/Ui/icons/LICENSE
 f share/vgshell/shell/Ui/icons/Lucide.js
 f share/vgshell/shell/Ui/layout/AngledCard.qml
+f share/vgshell/shell/Ui/layout/Card.qml
 f share/vgshell/shell/Ui/layout/CardCarousel.qml
 f share/vgshell/shell/Ui/layout/DeviceList.qml
 f share/vgshell/shell/Ui/layout/DeviceRow.qml

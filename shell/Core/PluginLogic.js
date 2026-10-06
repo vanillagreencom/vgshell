@@ -238,7 +238,8 @@ var CONFIG_VERSION = 1;
 // when present, is one of PackageManagers.ELEVATORS, the command
 // `vgshell pkg run` elevates through; `welcome` is an object whose `keys` is
 // a list of objects each with a string `id`, a string `shortcut` and a
-// non-empty string `text`, the welcome's key lines (consentSlotView).
+// non-empty string `text`, the welcome's key lines (consentSlotView);
+// `manager` is an object whose `id` is a string (managerId).
 // A key outside that set is carried untouched. Config.qml runs this judge
 // on every parsed file and reports a defect as the file's state, so no
 // malformed row is dropped on the way to the screen.
@@ -298,6 +299,12 @@ function configError(config) {
                     return bad;
             }
         }
+    }
+    if (config.manager !== undefined) {
+        if (!isPlainObject(config.manager))
+            return "manager must be an object";
+        if (typeof config.manager.id !== "string")
+            return "manager.id must be a string";
     }
     if (config.welcome !== undefined) {
         if (!isPlainObject(config.welcome))
@@ -3209,6 +3216,13 @@ function layoutIds(config) {
         sectionEntries(config, section).forEach(function (entry) { ids.push(entry.id); });
     });
     return ids;
+}
+
+// The id of the plugin whose window is the manager's user interface,
+// config.manager.id, or "" when the file names none. Its window opens at a
+// plugin's page on the payload { plugin: <id> }.
+function managerId(config) {
+    return isPlainObject(config) && isPlainObject(config.manager) && typeof config.manager.id === "string" ? config.manager.id : "";
 }
 
 // The active bar id: config.bar.id, or the shipped default bar when absent.

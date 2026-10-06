@@ -16,6 +16,9 @@ Singleton {
 
     // The shipped configuration names the default bar; the core never does.
     readonly property string defaultBarId: Logic.activeBarId(Config.shipped, "")
+    // The plugin whose window is the manager's user interface, read from the
+    // shipped layer alone, or "" when it names none.
+    readonly property string managerId: Logic.managerId(Config.shipped)
     readonly property string bundledDir: Quickshell.shellDir + "/plugins"
     readonly property string userDir: Config.userDir + "/plugins"
     // Where the scanner publishes each plugin's source revision for this

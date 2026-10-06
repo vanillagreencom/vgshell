@@ -6,8 +6,11 @@ import qs.Unit
 
 // Pane owns the layout contract for an inset container: header, body and
 // footer share one content edge, the scroll bar sits in the right inset
-// strip, fit-to-content caps at a maximum height, and a rounded container
-// clears its drawn corner through the shared inset rule.
+// strip, fit-to-content caps at a maximum height, a rounded container
+// clears its drawn corner through the shared inset rule, both dividers
+// run from the frame's border on one side to the other, and inside a
+// host that names a Settings page the outermost pane draws the gear that
+// opens it.
 Item {
     id: root
     width: 500
@@ -113,6 +116,68 @@ Item {
         }
     }
 
+    // A panel whose body overflows under its footer, so both dividers can
+    // show at once.
+    Component {
+        id: scrolledPanel
+        Pane {
+            id: layer
+            width: 240
+            height: 200
+            container: "panel"
+            header: [ Item { width: 10; height: 20 } ]
+            Repeater { model: 12; ListItem { required property int index; width: layer.contentWidth; text: "Row " + index } }
+            footer: [ Item { width: 10; height: 30 } ]
+        }
+    }
+
+    // A stand-in for the slot that hosts a summoned plugin: it names a
+    // Settings page and records each request to open it. The plugin's root
+    // stands between it and the pane, as in a slot, and a pane nested in
+    // the body is a second pane of the same plugin.
+    Component {
+        id: settingsHost
+        Item {
+            id: host
+            width: 300
+            height: 300
+            property string settingsPage: "acme.x"
+            property int opened: 0
+            function openSettingsPage() { opened += 1; }
+            property alias pane: outer
+            property alias nested: inner
+            property alias bare: headerless
+            Item {
+                anchors.fill: parent
+                Pane {
+                    id: outer
+                    width: 300
+                    container: "panel"
+                    fitToContent: true
+                    header: [ Label { role: "h3"; text: "Acme" } ]
+                    Pane {
+                        id: inner
+                        width: outer.contentWidth
+                        height: 100
+                        container: "panel"
+                        header: [ Label { role: "h3"; text: "Inner" } ]
+                    }
+                }
+                Item {
+                    y: 200
+                    width: 300
+                    height: 100
+                    Pane {
+                        id: headerless
+                        anchors.fill: parent
+                        container: "panel"
+                        Item { width: headerless.contentWidth; height: 20 }
+                    }
+                }
+            }
+        }
+    }
+
     TestCase {
         name: "pane"
         when: windowShown
@@ -120,9 +185,10 @@ Item {
         function init() { UnitTheme.reset(); }
         function headerSlot(of) { return of.children[0]; }
         function scroll(of) { return of.scrollArea; }
-        function footerSlot(of) { return of.children[2]; }
-        function divider(of) { return of.children[3]; }
-        function footerDivider(of) { return of.children[4]; }
+        function gear(of) { return of.children[1]; }
+        function footerSlot(of) { return of.children[3]; }
+        function divider(of) { return of.children[4]; }
+        function footerDivider(of) { return of.children[5]; }
         // The scroll area's touchpad area is an item of its content too.
         function body(of) { return of.scrollArea.contentItem.children.find(child => !(child instanceof TouchpadScroll)).children[0]; }
 
@@ -252,7 +318,6 @@ Item {
             compare(divider(pane).visible, false);
             scroll(pane).contentY = 20;
             compare(divider(pane).visible, true);
-            compare(divider(pane).width, pane.width - 2 * pane.contentInset);
             verify(divider(pane).y >= headerSlot(pane).y + headerSlot(pane).height && divider(pane).y + divider(pane).height <= body(pane).mapToItem(pane, 0, 0).y + scroll(pane).contentY, "the divider sits in the header gap");
             scroll(pane).contentY = 0;
             compare(divider(pane).visible, false);
@@ -275,7 +340,6 @@ Item {
             verify(scroll(pane).contentHeight > scroll(pane).height, "the fixture overflows");
             scroll(pane).contentY = 0;
             compare(footerDivider(pane).visible, true);
-            compare(footerDivider(pane).width, pane.width - 2 * pane.contentInset);
             verify(footerDivider(pane).y >= scroll(pane).y + scroll(pane).height - pane.ringRoom && footerDivider(pane).y + footerDivider(pane).height <= footerSlot(pane).y, "the divider sits in the footer gap");
             scroll(pane).contentY = scroll(pane).contentHeight - scroll(pane).height;
             compare(footerDivider(pane).visible, false);
@@ -304,6 +368,83 @@ Item {
             wait(50);
             compare(made.contentInset, 4);
             made.destroy();
+        }
+
+        // Both dividers, shown at once, are one line: the divider's 1 px
+        // thickness, from the frame's border on one side to the other. A
+        // window's frame is Hyprland's, so its lines run edge to edge; a
+        // panel's Surface draws a 1 px border, and a theme's 3 px border
+        // moves both lines in with it.
+        function test_both_dividers_meet_the_frame_alike() {
+            const panel = scrolledPanel.createObject(root);
+            const rows = [["window", pane, 0], ["panel", panel, 1]];
+            for (const [name, of, border] of rows) {
+                tryVerify(() => scroll(of).contentHeight > scroll(of).height + 40, 1000, name + " overflows");
+                scroll(of).contentY = 20;
+                const lines = [divider(of), footerDivider(of)];
+                for (const line of lines) {
+                    verify(line.visible, name + " shows both dividers");
+                    compare(line.x, border, name + " divider x");
+                    compare(line.width, of.width - 2 * border, name + " divider width");
+                    compare(line.height, 1, name + " divider thickness");
+                }
+                scroll(of).contentY = 0;
+            }
+            compare(UnitTheme.override({ surface: { border: 3 } }), "ok");
+            compare(divider(panel).x, 3);
+            compare(footerDivider(panel).width, panel.width - 6);
+            panel.destroy();
+        }
+
+        // Inside a host that names a Settings page, the gear shows at the
+        // header's end: the header is the content width less the gear's
+        // 24 px box and the 8 px inline gap, and the gear ends on the
+        // content edge. A click, Space and Return each ask the host once;
+        // the gear is a Tab stop. A pane nested in the body draws none.
+        function test_the_gear_opens_the_hosts_settings_page() {
+            const host = settingsHost.createObject(root);
+            const of = host.pane;
+            const button = gear(of);
+            verify(button.visible, "the gear shows");
+            compare(of.headerWidth, of.contentWidth - 32);
+            compare(headerSlot(of).width, of.headerWidth);
+            verify(button.x >= of.contentInset + of.headerWidth, "the gear sits after the header");
+            compare(button.x + button.width, of.contentInset + of.contentWidth);
+            compare(button.y, of.contentInset);
+            verify((button.focusPolicy & Qt.TabFocus) !== 0, "the gear takes Tab");
+            mouseClick(button);
+            compare(host.opened, 1);
+            button.forceActiveFocus(Qt.TabFocusReason);
+            keyClick(Qt.Key_Space);
+            compare(host.opened, 2);
+            keyClick(Qt.Key_Return);
+            compare(host.opened, 3);
+            verify(!gear(host.nested).visible, "a nested pane draws no gear");
+            compare(host.nested.headerWidth, host.nested.contentWidth);
+            host.destroy();
+        }
+
+        // A host that names no page, and a pane with no host, draw no gear
+        // and give the header the whole content width.
+        function test_no_named_page_draws_no_gear() {
+            verify(!gear(pane).visible, "a pane with no host draws no gear");
+            compare(pane.headerWidth, pane.contentWidth);
+            const host = settingsHost.createObject(root);
+            host.settingsPage = "";
+            verify(!gear(host.pane).visible, "a host that names no page draws no gear");
+            compare(host.pane.headerWidth, host.pane.contentWidth);
+            host.destroy();
+        }
+
+        // A pane with no header still keeps the gear's row: the body starts
+        // a gap below it.
+        function test_the_gear_keeps_its_row_without_a_header() {
+            const host = settingsHost.createObject(root);
+            const of = host.bare;
+            verify(gear(of).visible, "the gear shows");
+            compare(of.headerHeight, gear(of).height);
+            verify(body(of).mapToItem(of, 0, 0).y >= gear(of).y + gear(of).height + of.gap, "the body starts below the gear");
+            host.destroy();
         }
 
         function test_dialog_padding_token_sets_the_dialog_container_inset() {

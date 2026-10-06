@@ -7,8 +7,13 @@ import qs.Ui
 // in the right inset strip, outside the body's content width, so content
 // never moves when it overflows. The footer stays outside the scrolling
 // body, so its actions stay in view while the body scrolls. While the body
-// is scrolled, a divider spans the inset box under the header, and while
-// more of it lies below the view, one spans it over the footer. `padding`
+// is scrolled, a divider runs under the header, and while more of it lies
+// below the view, one runs over the footer; both span the box from the
+// container's frame on one side to its frame on the other, meeting the
+// border and never covering it. Inside a summoned plugin whose host names
+// a Settings page (PluginSlot's `settingsPage`), the outermost pane draws
+// a gear at the header's end that opens that page, and the header takes
+// `headerWidth`, which leaves the gear its room. `padding`
 // and `cornerRadius` default to the container class's tokens; a plugin that
 // owns its look (appearance.md) hands its own. The `overlay` class is a
 // full-screen surface over a scrim, which draws no container and so has
@@ -29,6 +34,9 @@ Item {
     // and its colour.
     property real dividerWidth: Theme.divider.thickness
     property color dividerColor: Theme.divider.color
+    // The width of the frame the container draws at each side, which a
+    // divider meets.
+    property real frameBorder: frameBorderOf(container)
     property alias header: headerSlot.data
     default property alias body: bodyColumn.data
     property alias footer: footerSlot.data
@@ -36,8 +44,23 @@ Item {
     readonly property real ringRoom: Theme.focusRing.width + Theme.focusRing.offset
     readonly property real contentInset: clearingInset.inset
     readonly property real contentWidth: Math.max(0, width - 2 * contentInset)
+    // The nearest ancestor that declares `settingsPage`, the slot that hosts
+    // this plugin, or null, as it is for a pane inside another pane, which
+    // leaves the gear to the outer one.
+    readonly property Item settingsHost: {
+        for (let item = root.parent; item !== null; item = item.parent) {
+            if (item.settingsHost !== undefined) return null;
+            if (item.settingsPage !== undefined) return item;
+        }
+        return null;
+    }
+    readonly property bool showsSettings: settingsHost !== null && settingsHost.settingsPage !== ""
+    readonly property real gearRoom: showsSettings ? gear.width + Theme.stack.inline : 0
+    // The header's width: the content width less the gear and its gap
+    // while the gear shows.
+    readonly property real headerWidth: Math.max(0, contentWidth - gearRoom)
     readonly property real bodyContentHeight: bodyColumn.implicitHeight
-    readonly property real headerHeight: headerSlot.children.length > 0 ? headerSlot.implicitHeight : 0
+    readonly property real headerHeight: Math.max(headerSlot.children.length > 0 ? headerSlot.implicitHeight : 0, showsSettings ? gear.height : 0)
     readonly property real footerHeight: footerSlot.children.length > 0 ? footerSlot.implicitHeight : 0
     readonly property bool contentBelowHeader: bodyContentHeight > 0 || footerHeight > 0
     readonly property real headerGap: headerHeight > 0 && contentBelowHeader ? gap : 0
@@ -70,7 +93,7 @@ Item {
         return widest;
     }
 
-    implicitWidth: Math.max(headerSlot.implicitWidth, bodyColumn.implicitWidth, footerSlot.implicitWidth) + 2 * contentInset
+    implicitWidth: Math.max(headerSlot.implicitWidth + gearRoom, bodyColumn.implicitWidth, footerSlot.implicitWidth) + 2 * contentInset
     implicitHeight: fitToContent ? cappedHeight : uncappedHeight
 
     ClearingInset {
@@ -94,6 +117,21 @@ Item {
         return Theme.surface.padding;
     }
 
+    // A dialog and a popover draw their outline `border.thin` wide, a panel
+    // its Surface `surface.border` wide; a window's frame is Hyprland's, and
+    // an overlay draws none.
+    function frameBorderOf(name) {
+        switch (name) {
+        case "dialog":
+        case "popover": return Theme.border.thin;
+        case "panel": return Theme.surface.border;
+        case "overlay":
+        case "window": return 0;
+        }
+        console.error("Pane: no frame border rule named " + JSON.stringify(name));
+        return Theme.surface.border;
+    }
+
     function radiusOf(name) {
         switch (name) {
         case "dialog": return Theme.dialog.radius;
@@ -110,10 +148,22 @@ Item {
         id: headerSlot
         x: root.contentInset
         y: root.contentInset
-        width: root.contentWidth
+        width: root.headerWidth
         height: root.headerHeight
         implicitHeight: childrenRect.height
         implicitWidth: root.slotWidth(headerSlot)
+    }
+
+    // Declared after the header, so Tab reaches it before the body.
+    IconButton {
+        id: gear
+        x: root.contentInset + root.contentWidth - width
+        y: root.contentInset
+        visible: root.showsSettings
+        size: "sm"
+        iconName: "settings"
+        label: "Settings"
+        onClicked: root.settingsHost.openSettingsPage()
     }
 
     // The viewport starts `ringRoom` left of and above the content edge and
@@ -154,23 +204,24 @@ Item {
         implicitWidth: root.slotWidth(footerSlot)
     }
 
-    Rectangle {
-        id: headerDivider
-        x: root.contentInset
-        y: root.contentInset + root.headerHeight + Math.round((root.headerGap - height) / 2)
-        width: root.contentWidth
+    // Both dividers share one geometry: from the frame's border on one
+    // side to the border on the other.
+    component Rule: Rectangle {
+        x: root.frameBorder
+        width: Math.max(0, root.width - 2 * root.frameBorder)
         height: root.dividerWidth
         color: root.dividerColor
+    }
+
+    Rule {
+        id: headerDivider
+        y: root.contentInset + root.headerHeight + Math.round((root.headerGap - height) / 2)
         visible: root.headerHeight > 0 && scroll.contentY > 0
     }
 
-    Rectangle {
+    Rule {
         id: footerDivider
-        x: root.contentInset
         y: footerSlot.y - root.footerGap + Math.round((root.footerGap - height) / 2)
-        width: root.contentWidth
-        height: root.dividerWidth
-        color: root.dividerColor
         visible: root.footerHeight > 0 && scroll.contentY + scroll.height < scroll.contentHeight - 1
     }
 }

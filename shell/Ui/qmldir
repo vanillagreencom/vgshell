@@ -59,6 +59,7 @@ Disclosure 1.0 layout/Disclosure.qml
 SectionHeader 1.0 layout/SectionHeader.qml
 Section 1.0 layout/Section.qml
 GroupList 1.0 layout/GroupList.qml
+Card 1.0 layout/Card.qml
 AngledCard 1.0 layout/AngledCard.qml
 CardCarousel 1.0 layout/CardCarousel.qml
 Select 1.0 controls/Select.qml

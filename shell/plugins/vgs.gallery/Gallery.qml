@@ -436,7 +436,7 @@ Item {
                 Section {
                     title: "Cards"
                     rowSpacing: Theme.stack.group
-                    description: "Selected and unselected cards"
+                    description: "Grouped, selected and unselected cards"
                 Item {
                     width: parent.width
                     height: Theme.size.panel.sm / 2
@@ -458,6 +458,13 @@ Item {
                             }
                         }
                     }
+                }
+                Card {
+                    width: parent.width
+                    Label { role: "label"; text: "Work account" }
+                    Label { role: "hint"; text: "ana@example.com · Pro" }
+                    ProgressBar { width: parent.width; value: 0.42 }
+                    Label { role: "hint"; text: "Resets in 2 h 10 min" }
                 }
 
                 }
