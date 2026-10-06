@@ -126,7 +126,7 @@ Item {
         if (flickable === null || flickable === undefined || itemAt === null || itemAt === undefined) return;
         const item = itemAt(index);
         if (item === null || item === undefined) return;
-        flickable.contentY = Logic.revealY(item.y, item.height, flickable.contentY, flickable.height, 0);
+        flickable.contentY = Logic.revealY(item.y, item.height, flickable.contentY, flickable.height);
     }
 
     // Handle one QML key event and return whether the owner should accept it.

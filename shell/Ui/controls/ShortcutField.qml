@@ -218,7 +218,7 @@ FocusScope {
                     border.width: Theme.textField.border
                     border.color: root.capturing || box.activeFocus ? Theme.textField.focus : box.hovered ? Theme.textField.hover : Theme.textField.borderColor
                     Behavior on border.color { ColorAnimation { duration: Theme.motion.duration.fast; easing.type: Theme.motion.easing.standard } }
-                    FocusRing { target: box; offset: 0 }
+                    FocusRing { target: box }
                 }
 
                 contentItem: Row {

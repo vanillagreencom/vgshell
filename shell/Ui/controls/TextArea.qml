@@ -36,6 +36,6 @@ T.TextArea {
         border.width: Theme.textField.border
         border.color: root.outline
         Behavior on border.color { ColorAnimation { duration: Theme.motion.duration.fast; easing.type: Theme.motion.easing.standard } }
-        FocusRing { target: root; offset: 0 }
+        FocusRing { target: root }
     }
 }

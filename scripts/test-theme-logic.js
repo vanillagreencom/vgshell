@@ -963,7 +963,7 @@ const GRID_EXCEPTIONS = [
     [/^(font\.size|text\.[^.]+\.size)$/, "type sizes"],
     [/(^border\.|\.border$|[bB]orderWidth$|^divider\.thickness$|^focusRing\.width$|^titleButton\.underline$|^tabs\.indicator$|^segmented\.indicator$|^avatarGroup\.ringWidth$|^hyprland\.border\.size$)/, "strokes"],
     [/^(icon\.size\.|button\.size\.[^.]+\.icon$|slider\.handle$|radio\.dot$)/, "indicator and icon drawing sizes"],
-    [/^(space\.xxs|segmented\.padding|segmented\.gap|toggle\.inset|focusRing\.offset|scrollArea\.barInset|titleButton\.underlineGap)$/, "2 px steps inside one component"],
+    [/^(space\.xxs|segmented\.padding|segmented\.gap|toggle\.inset|scrollArea\.barInset|titleButton\.underlineGap)$/, "2 px steps inside one component"],
     [/^(badge\.paddingEnd|textField\.paddingX)$/, "optical insets inside one component"],
     [/^(space\.sm|badge\.size\.sm\.paddingX|kbd\.paddingX|tooltip\.paddingY)$/, "6 px padding inside a chip, a key cap or a tooltip"],
     [/^motion\./, "motion distances"]

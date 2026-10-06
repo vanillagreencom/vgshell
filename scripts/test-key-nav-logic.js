@@ -72,9 +72,9 @@ function verify(logic) {
     assert.equal(typed.index, 3, "type-ahead reaches the fallback prefix");
     assert.equal(logic.printable("x", 0), "x", "plain typed text is printable");
     assert.equal(logic.printable("x", M.Control), "", "modified typed text is not printable");
-    assert.equal(logic.revealY(8, 10, 20, 60, 4), 4, "reveal moves up with a margin");
-    assert.equal(logic.revealY(90, 20, 20, 60, 4), 54, "reveal moves down with a margin");
-    assert.equal(logic.revealY(40, 10, 20, 60, 4), 20, "reveal keeps a visible item still");
+    assert.equal(logic.revealY(8, 10, 20, 60), 8, "reveal moves up to the item's top");
+    assert.equal(logic.revealY(90, 20, 20, 60), 50, "reveal moves down to the item's bottom");
+    assert.equal(logic.revealY(40, 10, 20, 60), 20, "reveal keeps a visible item still");
 
     const exclusive = { enabled: true, checkable: true, checked: false, autoExclusive: true, clickedCount: 0, clicked() { this.clickedCount += 1; } };
     assert.equal(logic.activate(exclusive), true, "activation reaches an enabled control");

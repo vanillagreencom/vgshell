@@ -60,7 +60,7 @@ Flickable {
     function reveal(item) {
         if (item === null || item === undefined) return;
         const at = item.mapToItem(contentItem, 0, 0);
-        contentY = KeyNavLogic.revealY(at.y, item.height, contentY, height, Theme.focusRing.offset + Theme.focusRing.width);
+        contentY = KeyNavLogic.revealY(at.y, item.height, contentY, height);
     }
     function scrollBy(delta) {
         contentY = Math.max(0, Math.min(contentHeight - height, contentY + delta));

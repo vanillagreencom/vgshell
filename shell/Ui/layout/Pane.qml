@@ -53,8 +53,6 @@ Item {
     default property alias body: bodyColumn.data
     property alias footer: footerSlot.data
     signal switchToggled(bool checked)
-    // The room a focus ring takes outside its row.
-    readonly property real ringRoom: Theme.focusRing.width + Theme.focusRing.offset
     readonly property real contentInset: clearingInset.inset
     readonly property real contentWidth: Math.max(0, width - 2 * contentInset)
     // The nearest ancestor that declares `settingsPage`, the slot that hosts
@@ -245,29 +243,24 @@ Item {
         implicitWidth: root.slotWidth(headerSlot)
     }
 
-    // The viewport starts `ringRoom` left of and above the content edge and
-    // ends that far below it; the body sits `ringRoom` into the content, so
-    // the visible edges are the inset box's.
     ScrollArea {
         id: scroll
-        x: root.contentInset - root.ringRoom
-        y: root.contentInset + root.headerHeight + root.headerGap - root.ringRoom
-        width: Math.max(0, root.width - root.contentInset + root.ringRoom)
+        x: root.contentInset
+        y: root.contentInset + root.headerHeight + root.headerGap
+        width: Math.max(0, root.width - root.contentInset)
         // A container inset narrower than the bar's gutter still leaves the
         // gutter, so the bar never covers the content.
         rightInset: Math.max(root.contentInset, Theme.scrollArea.gutter)
-        height: root.ringRoom * 2 + Math.max(0, root.boxHeight - 2 * root.contentInset - root.headerHeight - root.headerGap - root.footerGap - root.footerHeight)
+        height: Math.max(0, root.boxHeight - 2 * root.contentInset - root.headerHeight - root.headerGap - root.footerGap - root.footerHeight)
 
         Item {
             width: scroll.contentWidth
-            implicitHeight: bodyColumn.implicitHeight + 2 * root.ringRoom
+            implicitHeight: bodyColumn.implicitHeight
             height: implicitHeight
 
             Column {
                 id: bodyColumn
-                x: root.ringRoom
-                y: root.ringRoom
-                width: parent.width - root.ringRoom
+                width: parent.width
                 spacing: root.bodySpacing
             }
         }
@@ -276,7 +269,7 @@ Item {
     Item {
         id: footerSlot
         x: root.contentInset
-        y: scroll.y + scroll.height - root.ringRoom + root.footerGap
+        y: scroll.y + scroll.height + root.footerGap
         width: root.contentWidth
         height: root.footerHeight
         implicitHeight: childrenRect.height

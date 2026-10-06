@@ -81,7 +81,7 @@ T.TextField {
             elide: Text.ElideRight
         }
 
-        FocusRing { target: root; offset: 0; ringColor: root.error ? Theme.textField.error : Theme.focusRing.color }
+        FocusRing { target: root; ringColor: root.error ? Theme.textField.error : Theme.focusRing.color }
     }
 
     // A child of the field, not of the background: the control puts its

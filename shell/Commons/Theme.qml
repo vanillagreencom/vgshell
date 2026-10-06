@@ -107,6 +107,13 @@ Singleton {
         return Inset.listInset(Math.min(menu.radius, width / 2), border.thin, Math.min(menu.item.radius, menu.item.height / 2));
     }
 
+    // WCAG 2 contrast ratio of two opaque colours, and WCAG 2.2 SC 1.4.11's
+    // floor for a boundary against what lies beside it.
+    readonly property real boundaryFloor: ThemeLogic.BOUNDARY_FLOOR
+    function contrastRatio(a, b) {
+        return ThemeLogic.contrastRatio(a, b);
+    }
+
     function toColor(text) {
         return "#" + text.slice(7, 9) + text.slice(1, 7);
     }

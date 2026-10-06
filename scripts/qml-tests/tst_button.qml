@@ -74,6 +74,34 @@ Item {
             tryCompare(ring, "visible", false);
         }
 
+        // The ring draws on the button's own edge, its box and corner the
+        // background's, so no second border shows outside the control. On
+        // a primary button's accent fill, which the focus colour meets
+        // below 3:1, it draws in focusRing.contrast; a secondary button
+        // paints no fill, so its ring keeps focusRing.color.
+        function test_the_ring_draws_on_the_control_edge_in_a_colour_its_fill_shows() {
+            const cases = [
+                { button: primary, color: Theme.focusRing.contrast },
+                { button: secondary, color: Theme.focusRing.color }
+            ];
+            for (const c of cases) {
+                const fill = c.button.background;
+                const ring = fill.children[fill.children.length - 1];
+                compare(ring.visible, false, c.button.text + " without focus");
+                c.button.forceActiveFocus(Qt.MouseFocusReason);
+                compare(c.button.activeFocus, true);
+                compare(ring.visible, false, c.button.text + " with focus from a click");
+                c.button.focus = false;
+                c.button.forceActiveFocus(Qt.TabFocusReason);
+                tryCompare(ring, "visible", true);
+                compare([ring.x, ring.y, ring.width, ring.height], [0, 0, fill.width, fill.height], c.button.text + " ring box");
+                compare(ring.radius, fill.radius);
+                compare(String(ring.border.color), String(Qt.color(c.color)), c.button.text + " ring colour");
+                c.button.focus = false;
+                tryCompare(ring, "visible", false);
+            }
+        }
+
         function test_checkable_draws_the_checked_fill() {
             compare(toggle.checked, false);
             mouseClick(toggle);
@@ -123,7 +151,7 @@ Item {
             verify(want > Theme.button.size.sm.paddingX, "the sm pill's label needs more than its pad: " + want);
             tryCompare(small, "leftPadding", want);
             const ring = small.background.children[small.background.children.length - 1];
-            compare(ring.radius, 4096 + Theme.focusRing.offset);
+            compare(ring.radius, 4096);
         }
 
         // An icon button's glyph insets reach the ink: chevron-left's ink
