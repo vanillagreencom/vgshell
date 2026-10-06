@@ -37,6 +37,9 @@ BindField {
     // the page's slot binds carry the shortcut's whole list in `keys`.
     readonly property var defaultKeys: bind["default"] === null || bind["default"] === undefined ? []
         : typeof bind["default"] === "string" ? [bind["default"]] : Array.from(bind["default"])
+    // The manifest's keys as the field's caps spell them, such as
+    // `Super+Ctrl+X, Right Alt`.
+    readonly property string defaultLabel: defaultKeys.map(key => KeyNavLogic.keyCaps(key).join("+")).join(", ")
     readonly property var keysInEffect: bind.keys !== undefined && bind.keys !== null ? Array.from(bind.keys)
         : bind.key === null || bind.key === undefined ? [] : [bind.key]
     readonly property bool userHolds: found !== null && found.user === true
@@ -113,7 +116,7 @@ BindField {
     }
 
     hint: removed !== null ? "Removed line " + removed.line + " of " + removed.place + "."
-        : defaultKeys.length === 0 ? "No default shortcut." : "Default shortcut: " + defaultKeys.join(", ") + "."
+        : defaultKeys.length === 0 ? "No default shortcut." : "Default shortcut: " + defaultLabel + "."
     error: problem
     hintLink: citedLine === null || citedLine.config === "" ? "" : citedLine.place + " line " + citedLine.line
     onHintLinkActivated: if (citedLine !== null) lineAsked(citedLine)
@@ -155,7 +158,7 @@ BindField {
     actions: [
         IconButton {
             iconName: "rotate-ccw"
-            label: "Reset to " + root.defaultKeys.join(", ")
+            label: "Reset to " + root.defaultLabel
             size: "sm"
             visible: root.editable && root.resetVisible && root.defaultKeys.length > 0 && JSON.stringify(root.keysInEffect) !== JSON.stringify(root.defaultKeys)
             onClicked: root.applyKey(undefined)

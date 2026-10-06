@@ -88,7 +88,18 @@ function verify(logic) {
 
     assert.deepEqual(Array.from(logic.keyCaps("SUPER+SHIFT+T")), ["Super", "Shift", "T"], "keycaps normalize common modifiers");
     assert.deepEqual(Array.from(logic.keyCaps("Ctrl+PageDown")), ["Ctrl", "PageDown"], "keycaps normalize page keys");
-    assert.deepEqual(Array.from(logic.keyCaps("SUPER+code:108")), ["Super", "Code:108"], "keycaps accept normalized keycode labels");
+    // Keycode caps: [shortcut, caps]. 108 and 105 are the XKB keycodes of
+    // RALT and RCTL; any other code keeps its written form.
+    const codeRows = [
+        ["code:108", ["Right Alt"]],
+        ["CODE:108", ["Right Alt"]],
+        ["code:0108", ["Right Alt"]],
+        ["code:105", ["Right Ctrl"]],
+        ["SUPER+code:105", ["Super", "Right Ctrl"]],
+        ["SUPER+code:109", ["Super", "Code:109"]]
+    ];
+    for (const [shortcut, caps] of codeRows)
+        assert.deepEqual(Array.from(logic.keyCaps(shortcut)), caps, "keycaps spell " + shortcut);
 }
 
 verify(load(file));
@@ -109,7 +120,9 @@ const CONTROLS = [
     ["type-ahead fallback", "wanted = lower;\n        found = findPrefix(wanted, labels, reachable, from, false);", "wanted = lower;\n        found = -1;"],
     ["type-ahead current prefix", "var found = findPrefix(wanted, labels, reachable, from, typed !== \"\");", "var found = findPrefix(wanted, labels, reachable, from, false);"],
     ["disabled activation", "if (control === null || control === undefined || control.enabled === false) return false;", "if (control === null || control === undefined) return false;"],
-    ["keycap modifier display", "\"SUPER\": \"Super\",", "\"SUPER\": \"SUPER\","]
+    ["keycap modifier display", "\"SUPER\": \"Super\",", "\"SUPER\": \"SUPER\","],
+    ["keycode key names", "\"CODE:108\": \"Right Alt\"", "\"CODE:108\": \"Code:108\""],
+    ["keycode leading zeros", "if (/^CODE:[0-9]+$/.test(upper)) upper = \"CODE:\" + String(Number(upper.slice(5)));", ""]
 ];
 
 const source = fs.readFileSync(file, "utf8");
