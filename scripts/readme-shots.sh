@@ -33,9 +33,9 @@
 # 0, so a sandbox that could not run (77) never passes. --from DIR reads a
 # sandbox-shots directory instead. Every shot the table names, and
 # 00-desktop.png, must be in DIR, listed in its shots.tsv as taken with the
-# nested window hidden, and OUTPUT_SIZE. --out DIR writes the images there
-# in place of docs/images/plugins/; it must lie under this checkout's tmp/
-# (shot_dir_under in scripts/smoke/shot.sh).
+# nested window hidden and clean shot chrome, and OUTPUT_SIZE. --out DIR
+# writes the images there in place of docs/images/plugins/; it must lie
+# under this checkout's tmp/ (shot_dir_under in scripts/smoke/shot.sh).
 #
 # Each image written prints `readme-shots: wrote=<path> bytes=<n>
 # size=<WxH>`. A refusal is one line `readme-shots: refused: <key>=<value>`
@@ -79,6 +79,7 @@ stop() {
     from) message="--from must name a scripts/sandbox-shots.sh directory holding shots.tsv and 00-desktop.png" ;;
     shot) message="the table names this shot and the run holds no such PNG" ;;
     shot-window) message="the run's shots.tsv does not list this shot as taken with the nested window hidden: run scripts/sandbox-shots.sh with --hidden" ;;
+    shot-chrome) message="the run's shots.tsv does not list this shot with clean chrome: use a rest shot, not a posed hover, tooltip, menu or focus shot" ;;
     shot-size) message="every shot must be $OUTPUT_SIZE: run scripts/sandbox-shots.sh with ${SHOTS_ARGS[*]}" ;;
     bar) message="00-desktop.png has no row at its top that differs from the desktop's colour" ;;
     crop-empty) message="no pixel below the bar band differs from 00-desktop.png" ;;
@@ -128,7 +129,7 @@ if [[ -z $from ]]; then
   done
   from="$repo/tmp/readme-shots/$(date -u +%Y%m%dT%H%M%SZ)"
   status=0
-  "$repo/scripts/sandbox-shots.sh" "${SHOTS_ARGS[@]}" --out "$from" "${scenes[@]}" || status=$?
+  README_SHOTS=1 "$repo/scripts/sandbox-shots.sh" "${SHOTS_ARGS[@]}" --out "$from" "${scenes[@]}" || status=$?
   [[ $status -eq 0 ]] || exit "$status"
 fi
 [[ -d $from && -f $from/shots.tsv && -f $from/00-desktop.png ]] || stop from "$from"
@@ -137,12 +138,13 @@ fi
 # caller runs it in a subshell, where a refusal prints and exits; the
 # caller exits with it.
 shot_png() {
-  local png="$from/$1.png" state size
+  local png="$from/$1.png" state chrome size
   [[ -f $png ]] || stop shot "$1"
-  if ! state="$(awk -F '\t' -v name="$1" '$1 == name { state = $5 } END { print state }' "$from/shots.tsv")"; then
+  if ! read -r state chrome < <(awk -F '\t' -v name="$1" '$1 == name { state = $5; chrome = $6 } END { print state, chrome }' "$from/shots.tsv"); then
     stop from "$from" "shots.tsv is unreadable"
   fi
   [[ $state == hidden ]] || stop shot-window "$1" "state=${state:-unlisted}"
+  [[ $chrome == clean ]] || stop shot-chrome "$1" "chrome=${chrome:-unlisted}"
   if ! size="$(magick identify -format '%wx%h' "$png")"; then stop measure "$1"; fi
   [[ $size == "$OUTPUT_SIZE" ]] || stop shot-size "$1" "size=$size"
   printf '%s\n' "$png"

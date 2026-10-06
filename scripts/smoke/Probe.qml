@@ -341,6 +341,62 @@ Scope {
         return root.json([at.x, at.y, item.width, item.height]);
     }
 
+    function topRoot(item) {
+        let at = item;
+        while (at !== null && at.parent !== null) at = at.parent;
+        return at;
+    }
+
+    function chromeRoots() {
+        const roots = [];
+        const add = item => {
+            if (item === null || item === undefined) return;
+            const top = root.topRoot(item);
+            if (top !== null && roots.indexOf(top) === -1) roots.push(top);
+        };
+        for (const key of Object.keys(Plugins.built))
+            for (const row of Plugins.built[key]) add(row.instance);
+        for (const entry of Layers.entries)
+            for (const screen of Object.keys(entry.screens).sort()) add(entry.screens[screen]);
+        return roots;
+    }
+
+    function chromeShown(child) {
+        for (let at = child; at !== null; at = at.parent)
+            if (at.visible === false) return false;
+        return true;
+    }
+
+    function clearVisualFocusFrom(item) {
+        for (const child of root.descendants(item)) {
+            try {
+                if (child.visualFocus === true && ("focusReason" in child))
+                    child.focusReason = Qt.OtherFocusReason;
+                if (child.focusPreview === true)
+                    child.focusPreview = false;
+                if (root.typeName(child) === "FocusRing" && child.visible === true)
+                    child.visible = false;
+            } catch (e) {}
+        }
+    }
+
+    function chromeWord(clear) {
+        const roots = root.chromeRoots();
+        if (clear) for (const item of roots) root.clearVisualFocusFrom(item);
+        const words = [];
+        const add = word => { if (words.indexOf(word) === -1) words.push(word); };
+        for (const item of roots) {
+            for (const child of root.descendants(item)) {
+                const type = root.typeName(child);
+                try {
+                    if (type === "Tooltip" && child.opened === true) add("tooltip");
+                    if (type === "FocusRing" && child.visible === true && root.chromeShown(child)) add("focus-ring");
+                } catch (e) {}
+            }
+        }
+        return words.length === 0 ? "clean" : words.join(",");
+    }
+
     // An item's box in its own window's coordinates, as [x, y, w, h]: a
     // layer surface the compositor centres knows no place of its own on the
     // screen, so a row adds the layer's position from `hyprctl layers`.
@@ -1189,6 +1245,7 @@ Scope {
         }
         function configSettled(): bool { return !Config.smokeUserView.busy; }
         function readInstance(hostKey: string, id: string, property: string): string { return root.read(hostKey, id, property); }
+        function shotChrome(clear: bool): string { return root.chromeWord(clear); }
         // The core's session lock, taken and released without a password,
         // for rows/lock.sh: a sandbox row never runs PAM against the real
         // account (docs/decisions/D062-native-lock-and-polkit-plugins.md). The bare

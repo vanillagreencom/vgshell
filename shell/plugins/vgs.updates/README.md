@@ -2,7 +2,7 @@
 
 Updates checks your system, VGS, plugins, themes and developer tools for updates, and installs them. Its bar icon shows how many wait.
 
-![The Updates window with its System row open](../../../docs/images/plugins/vgs.updates-flyout.webp)
+![The Updates window with its System row open](../../../docs/images/plugins/vgs.updates-window.webp)
 
 Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2.
 

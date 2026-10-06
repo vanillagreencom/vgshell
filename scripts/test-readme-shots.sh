@@ -59,14 +59,16 @@ magick "${shot_base[@]}" -fill '#222222' -draw 'rectangle 2400,1400 2559,1599' "
 magick "${shot_base[@]}" "$run_dir/clock.png"
 magick -size 1280x800 xc:'#111111' "$run_dir/small.png"
 magick "${shot_base[@]}" -fill '#222222' -draw 'rectangle 1000,600 1399,899' "$run_dir/shown.png"
-for name in 00-desktop panel centre edge clock small; do printf '%s\tsha\tprev\tsettled\thidden\n' "$name"; done >"$run_dir/shots.tsv"
-printf 'shown\tsha\tprev\tsettled\tshown\n' >>"$run_dir/shots.tsv"
+cp -- "$run_dir/centre.png" "$run_dir/tooltip.png"
+for name in 00-desktop panel centre edge clock small; do printf '%s\tsha\tprev\tsettled\thidden\tclean\n' "$name"; done >"$run_dir/shots.tsv"
+printf 'shown\tsha\tprev\tsettled\tshown\tclean\n' >>"$run_dir/shots.tsv"
+printf 'tooltip\tsha\tprev\tsettled\thidden\ttooltip\n' >>"$run_dir/shots.tsv"
 # A run whose desktop has no bar band.
 flat_dir="$checkout/tmp/flat"
 mkdir -p "$flat_dir"
 magick -size 2560x1600 xc:'#111111' "$flat_dir/00-desktop.png"
 cp -- "$run_dir/centre.png" "$flat_dir/"
-printf '00-desktop\ts\tp\tsettled\thidden\ncentre\ts\tp\tsettled\thidden\n' >"$flat_dir/shots.tsv"
+printf '00-desktop\ts\tp\tsettled\thidden\tclean\ncentre\ts\tp\tsettled\thidden\tclean\n' >"$flat_dir/shots.tsv"
 
 # The table each case runs over: image, shot, crop and scene per row, the
 # scene `scene` when the row names none, as it is no concern of --from.
@@ -137,6 +139,7 @@ cases=(
   "a run without shots.tsv is refused" "p.a.webp centre full" "--from $checkout/tmp --out $out_ok" 1 "readme-shots: refused: from=$checkout/tmp"
   "a shot the run lacks is refused" "p.a.webp absent full" "--from $run_dir --out $out_ok" 1 "readme-shots: refused: shot=absent"
   "a shot taken with the window shown is refused" "p.a.webp shown full" "--from $run_dir --out $out_ok" 1 "readme-shots: refused: shot-window=shown"
+  "a shot with tooltip chrome is refused" "p.a.webp tooltip full" "--from $run_dir --out $out_ok" 1 "readme-shots: refused: shot-chrome=tooltip"
   "a shot of another size is refused" "p.a.webp small full" "--from $run_dir --out $out_ok" 1 "readme-shots: refused: shot-size=small"
   "a desktop with no bar band is refused" "p.a.webp centre full" "--from $flat_dir --out $out_ok" 1 "readme-shots: refused: bar=$flat_dir/00-desktop.png"
   "a content crop with nothing below the band is refused" "p.a.webp clock content" "--from $run_dir --out $out_ok" 1 "readme-shots: refused: crop-empty=clock"
@@ -238,6 +241,9 @@ controls=(
   "an empty content crop falls back to the whole output"
   '[[ $box != none ]] || stop crop-empty "$shot"' '[[ $box != none ]] || box="0 0 $width $height"'
   "a content crop with nothing below the band is refused"
+  "a posed shot is accepted for a README image"
+  '[[ $chrome == clean ]] || stop shot-chrome "$1" "chrome=${chrome:-unlisted}"' 'true || stop shot-chrome "$1" "chrome=${chrome:-unlisted}"'
+  "a shot with tooltip chrome is refused"
   "a failed sandbox run does not end the command"
   '[[ $status -eq 0 ]] || exit "$status"' '[[ $status -eq 0 ]] || true "$status"'
   sandbox-1

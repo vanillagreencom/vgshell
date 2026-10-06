@@ -2,7 +2,7 @@
 
 AI Usage shows how much of your Claude Code, Codex and Copilot plan limits you have used. It reads each tool's own sign-in, so it needs no API key.
 
-![AI Usage settings](../../../docs/images/plugins/vgs.ai-usage-page.webp)
+![AI Usage dropdown with three signed-in accounts](../../../docs/images/plugins/vgs.ai-usage-panel.webp)
 
 Images come from `scripts/readme-shots.sh` in the nested sandbox.
 

@@ -2,7 +2,7 @@
 
 Plugins is the window where you manage your plugins, their settings and their shortcuts. Open it with `SUPER+M`, the plug in the bar, or Settings > Plugin settings in the launcher. Plugins is always on.
 
-![The launcher's page in the Plugins window](../../../docs/images/plugins/vgs.settings-page.webp)
+![The Settings plugin list window](../../../docs/images/plugins/vgs.settings-window.webp)
 
 Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2.
 

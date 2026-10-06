@@ -2,7 +2,7 @@
 
 Automations runs your commands on a schedule. It keeps each run's output and sends an alert when a run fails. It is for anyone who wants a backup, a sync or a script to run on its own.
 
-![The automations' status on their Settings page](../../../docs/images/plugins/vgs.automations-page.webp)
+![The Automations window with scheduled jobs](../../../docs/images/plugins/vgs.automations-window.webp)
 
 Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2.
 

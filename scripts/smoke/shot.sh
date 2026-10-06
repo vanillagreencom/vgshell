@@ -23,11 +23,12 @@
 # output of the nested compositor is on an NVIDIA host.
 #
 # Every shot is one line in shots.tsv beside the images: name, sha256 of
-# the file, the previous shot's name, `settled` or `animated`, and the
-# nested window's state on the host: the word SHOT_WINDOW_READER prints
-# when it reads the same before the first capture and after the last,
-# `changed` when it does not, `-` when no reader is set. With
-# SHOT_WINDOW_REQUIRE set, a shot whose state is another word is refused
+# the file, the previous shot's name, `settled` or `animated`, the
+# nested window's state on the host, and the shot chrome state: the words
+# SHOT_WINDOW_READER and SHOT_CHROME_READER print when each reads the same
+# before the first capture and after the last, `changed` when it does not,
+# `-` when no reader is set. With SHOT_WINDOW_REQUIRE or
+# SHOT_CHROME_REQUIRE set, a shot whose state is another word is refused
 # after its capture, its PNG removed and no line written, so every line of
 # shots.tsv was taken in that state. With SHOT_HOLD_READER set, a shot after
 # whose capture that command reads the held output mode as anything but
@@ -109,16 +110,25 @@ shot_window() {
   $SHOT_WINDOW_READER || true
 }
 
+# shot_chrome: the shot's chrome state from SHOT_CHROME_READER, a command
+# the caller sets; `-` when it is unset. A reader that fails keeps the word
+# it printed.
+shot_chrome() {
+  [[ -n ${SHOT_CHROME_READER:-} ]] || { echo -; return; }
+  $SHOT_CHROME_READER || true
+}
+
 # shot NAME: SHOT_DIR/NAME.png, proved current against the previous shot.
 # Needs SHOT_DIR, SHOT_SOCKET, SHOT_RUNTIME_DIR and SHOT_OUTPUT. Returns 1
 # for a stale or failed capture or one refused for its window state, 2 when
 # grim timed out, 4 when SHOT_HOLD_READER read the hold left after the
 # capture; prints what it wrote.
 shot() {
-  local name="$1" file part hash stable="" last="" kind="" deadline status window_before window_after window hold
+  local name="$1" file part hash stable="" last="" kind="" deadline status window_before window_after window chrome_before chrome_after chrome hold
   [[ $name =~ ^[A-Za-z0-9._-]+$ ]] || { shot_refuse name "$name"; return 1; }
   [[ -n ${SHOT_OUTPUT:-} ]] || { shot_refuse output-unnamed "$name"; return 1; }
   window_before="$(shot_window)"
+  chrome_before="$(shot_chrome)"
   file="$SHOT_DIR/$name.png"
   part="$SHOT_DIR/.$name.part.png"
   deadline=$(( $(date +%s%N) / 1000000 + ${SHOT_SETTLE_S:-5} * 1000 ))
@@ -150,10 +160,19 @@ shot() {
   window_after="$(shot_window)"
   window="$window_before"
   [[ $window_after == "$window_before" ]] || window=changed
+  chrome_after="$(shot_chrome)"
+  chrome="$chrome_before"
+  [[ $chrome_after == "$chrome_before" ]] || chrome=changed
   if [[ -n ${SHOT_WINDOW_REQUIRE:-} && $window != "$SHOT_WINDOW_REQUIRE" ]]; then
     rm -f -- "${file:?}"
     shot_refuse window-state "$window" || true
     printf 'the shot %s needs the nested window %s on the host\n' "$name" "$SHOT_WINDOW_REQUIRE" >&2
+    return 1
+  fi
+  if [[ -n ${SHOT_CHROME_REQUIRE:-} && $chrome != "$SHOT_CHROME_REQUIRE" ]]; then
+    rm -f -- "${file:?}"
+    shot_refuse chrome "$chrome" || true
+    printf 'the shot %s needs chrome %s\n' "$name" "$SHOT_CHROME_REQUIRE" >&2
     return 1
   fi
   if [[ -n ${SHOT_HOLD_READER:-} ]]; then
@@ -164,10 +183,10 @@ shot() {
       return 4
     fi
   fi
-  printf '%s\t%s\t%s\t%s\t%s\n' "$name" "${stable:-$last}" "${shot_last_name:--}" "$kind" "$window" >>"$SHOT_DIR/shots.tsv"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "${stable:-$last}" "${shot_last_name:--}" "$kind" "$window" "$chrome" >>"$SHOT_DIR/shots.tsv"
   shot_last_name="$name"
   shot_last_hash="${stable:-$last}"
-  printf '  shot  %s (%s, window %s)\n' "$file" "$kind" "$window"
+  printf '  shot  %s (%s, window %s, chrome %s)\n' "$file" "$kind" "$window" "$chrome"
 }
 
 # shot_held NAME READER SETTLE: `shot NAME` under a held output mode.

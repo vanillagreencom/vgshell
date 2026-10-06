@@ -97,7 +97,7 @@ hash_a="$(printf 'image-a' | sha256sum | cut -d' ' -f1)"
 # `read` to $D/log; their settle appends `settle` to the same log, so a
 # case reads the order of the two around each capture. image_b_row NAME
 # is the shots.tsv line of a settled fixed-b shot with no shot before it.
-held_stubs='echo fixed-b >"$T/bin/mode"; hold() { local n; n=$(( $(cat "$D/reads" 2>/dev/null || echo 0) + 1 )); echo "$n" >"$D/reads"; echo read >>"$D/log"; if [[ " $(cat "$D/resets" 2>/dev/null) " == *" $n "* ]]; then echo reset; else echo held; fi; }; settle() { echo settle >>"$D/log"; }; image_b_row() { printf "%s\t%s\t-\tsettled\t-" "$1" "$(printf image-b | sha256sum | cut -d" " -f1)"; }; '
+held_stubs='echo fixed-b >"$T/bin/mode"; hold() { local n; n=$(( $(cat "$D/reads" 2>/dev/null || echo 0) + 1 )); echo "$n" >"$D/reads"; echo read >>"$D/log"; if [[ " $(cat "$D/resets" 2>/dev/null) " == *" $n "* ]]; then echo reset; else echo held; fi; }; settle() { echo settle >>"$D/log"; }; image_b_row() { printf "%s\t%s\t-\tsettled\t-\t-" "$1" "$(printf image-b | sha256sum | cut -d" " -f1)"; }; '
 
 # run_case FILE LABEL SNIPPET STATUS LINE: true when the helper FILE gives
 # the status and first stderr line. The snippet runs with the helper
@@ -137,7 +137,7 @@ cases=(
   "an output dir outside tmp/ is refused"
   'shot_dir_under "$T/checkout" "$T/elsewhere"' 1 "shot: refused: reason=out-dir-outside-tmp value=$tmp/elsewhere"
   "a new settled capture is taken"
-  'echo fixed-b >"$T/bin/mode"; shot one >/dev/null; want="$(printf "one\t%s\t-\tsettled\t-" "$(printf image-b | sha256sum | cut -d" " -f1)")"; [[ $(cat "$D/shots.tsv") == "$want" && $(cat "$D/one.png") == image-b ]]' 0 ""
+  'echo fixed-b >"$T/bin/mode"; shot one >/dev/null; want="$(printf "one\t%s\t-\tsettled\t-\t-" "$(printf image-b | sha256sum | cut -d" " -f1)")"; [[ $(cat "$D/shots.tsv") == "$want" && $(cat "$D/one.png") == image-b ]]' 0 ""
   "a capture equal to the previous shot is stale"
   'echo fixed-a >"$T/bin/mode"; shot_last_name=before; shot_last_hash="$HASH_A"; SHOT_SETTLE_S=1 shot two' 1 "shot: stale name=two previous=before sha256=$hash_a"
   "a capture that keeps changing is taken as animated"
@@ -172,6 +172,12 @@ cases=(
   'echo fixed-b >"$T/bin/mode"; state() { echo hidden; }; SHOT_WINDOW_READER=state SHOT_WINDOW_REQUIRE=hidden shot fourteen >/dev/null; [[ $(cut -f1,5 "$D/shots.tsv") == $(printf "fourteen\thidden") && -e $D/fourteen.png ]]' 0 ""
   "a shot in another window state is refused"
   'echo fixed-b >"$T/bin/mode"; state() { echo shown; }; s=0; SHOT_WINDOW_READER=state SHOT_WINDOW_REQUIRE=hidden shot fifteen >/dev/null || s=$?; [[ ! -e $D/shots.tsv && ! -e $D/fifteen.png ]] || exit 9; exit "$s"' 1 "shot: refused: reason=window-state value=shown"
+  "a shot records clean chrome"
+  'echo fixed-b >"$T/bin/mode"; chrome() { echo clean; }; SHOT_CHROME_READER=chrome shot sixteen >/dev/null; [[ $(cut -f1,6 "$D/shots.tsv") == $(printf "sixteen\tclean") && -e $D/sixteen.png ]]' 0 ""
+  "a shot with required clean chrome is taken"
+  'echo fixed-b >"$T/bin/mode"; chrome() { echo clean; }; SHOT_CHROME_READER=chrome SHOT_CHROME_REQUIRE=clean shot seventeen >/dev/null; [[ $(cut -f1,6 "$D/shots.tsv") == $(printf "seventeen\tclean") && -e $D/seventeen.png ]]' 0 ""
+  "a shot with tooltip chrome is refused"
+  'echo fixed-b >"$T/bin/mode"; chrome() { echo tooltip; }; s=0; SHOT_CHROME_READER=chrome SHOT_CHROME_REQUIRE=clean shot eighteen >/dev/null || s=$?; [[ ! -e $D/shots.tsv && ! -e $D/eighteen.png ]] || exit 9; exit "$s"' 1 "shot: refused: reason=chrome value=tooltip"
 )
 # run_cases FILE CASES: every case of the array CASES against FILE.
 run_cases() {
@@ -243,13 +249,15 @@ controls=(
   "an unnamed output goes on to grim"
   '[[ -n ${SHOT_OUTPUT:-} ]] ||' 'true ||' "a shot with no output named is refused"
   "the window state read is not recorded"
-  '"$kind" "$window" >>' '"$kind" - >>' "a shot records the window state read around it"
+  '"$kind" "$window" "$chrome" >>' '"$kind" - "$chrome" >>' "a shot records the window state read around it"
   "the window state after the shot is not compared"
   '[[ $window_after == "$window_before" ]] ||' 'true ||' "a window state that changes during a shot reads changed"
   "a failing window reader ends the shot"
   '$SHOT_WINDOW_READER || true' '$SHOT_WINDOW_READER' "a window reader that fails leaves its word"
   "the required window state is not compared"
   'if [[ -n ${SHOT_WINDOW_REQUIRE:-} && $window != "$SHOT_WINDOW_REQUIRE" ]]; then' 'if false; then' "a shot in another window state is refused"
+  "the required chrome state is not compared"
+  'if [[ -n ${SHOT_CHROME_REQUIRE:-} && $chrome != "$SHOT_CHROME_REQUIRE" ]]; then' 'if false; then' "a shot with tooltip chrome is refused"
 )
 run_controls "$helper" cases controls
 
