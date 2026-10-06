@@ -306,7 +306,7 @@ expect_poll "the check offers Install the tool" '[["token", "Set up token", true
 # stand-in since removed with no rescan, so only a scan the press starts
 # finds it missing, as the plugin's value says. A notice raised from the
 # last scan would answer satisfied and show nothing.
-fixture_requirement() { ipc smoke readInstance window vgs.settings plugins | py_reply 'import json,sys; r=[q["state"] for p in json.load(sys.stdin) if p["id"] == "acme.status" for q in p["requirements"] if q["command"] == "vgs-smoke-absent"]; print(r[0] if r else "unlisted")'; }
+fixture_requirement() { ipc smoke readInstance window vgs.settings plugins | py_reply 'import json,sys; r=[q["state"] for p in json.load(sys.stdin) if p["id"] == "acme.status" for q in p["requirements"] if q["name"] == "vgs-smoke-absent"]; print(r[0] if r else "unlisted")'; }
 printf '#!/bin/sh\nexit 0\n' >"$shim/vgs-smoke-absent"
 chmod 755 "$shim/vgs-smoke-absent"
 rescan "a rescan with the fixture's command stood in starts"
