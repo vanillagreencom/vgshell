@@ -12,7 +12,9 @@ import qs.Unit
 // column, in its tone's colour, grows the row by the gap and its own
 // height, and moves neither the label nor the control; an action draws on
 // the message's line, on the row's end edge, the message wrapping before
-// it, only while the row has a message and the action shows; without a label
+// it, only while the row has a message and the action shows, and goes on a
+// line of its own under the message where it would leave the message less
+// than the label column's width; without a label
 // column the control takes the full width at its own height; the smoke's
 // `fieldRow` hook names the row.
 Item {
@@ -31,6 +33,8 @@ Item {
         FormRow { id: bareWarned; width: parent.width; labelColumn: false; warning: "Refused"; Rectangle { id: thinWarned; width: parent.width; height: 8; color: "transparent" } }
         FormRow { id: acted; width: parent.width; label: "Speed"; warning: "Set elsewhere"; action: Rectangle { id: undo; width: 90; height: 30; color: "transparent" } Switch { id: actedToggle; size: "sm" } }
         FormRow { id: actedQuiet; width: parent.width; label: "Speed"; action: Rectangle { id: quietUndo; width: 90; height: 30; color: "transparent" } Switch { size: "sm" } }
+        FormRow { id: cramped; width: 2 * Theme.field.labelWidth + Theme.field.labelGap + Theme.stack.inline + crampedUndo.width - 1; label: "Speed"; warning: "Set elsewhere"; action: Rectangle { id: crampedUndo; width: 90; height: 30; color: "transparent" } Switch { size: "sm" } }
+        FormRow { id: roomy; width: cramped.width + 1; label: "Speed"; warning: "Set elsewhere"; action: Rectangle { id: roomyUndo; width: 90; height: 30; color: "transparent" } Switch { size: "sm" } }
         Badge { id: chip; text: "Chip" }
     }
 
@@ -109,6 +113,21 @@ Item {
             compare(undo.mapToItem(acted, 0, 0).y, Theme.row.height + Theme.field.gap);
             fuzzyCompare(centreIn(message, acted), centreIn(undo, acted), 1, "the message leaves the action's line");
             fuzzyCompare(centreIn(actedToggle, acted), Theme.row.height / 2, 1, "the control leaves the row box's centre");
+        }
+
+        // The value column of `cramped` is one pixel short of the label
+        // column's width beside the action; `roomy` has that pixel.
+        function test_an_action_with_no_room_beside_the_message_goes_under_it() {
+            const message = messageOf(cramped);
+            compare(message.width, cramped.width - cramped.valueX, "the message gives room to an action that left its line");
+            compare(message.y, Theme.row.height + Theme.field.gap);
+            compare(xIn(crampedUndo, cramped), cramped.valueX, "the action leaves the value column's start");
+            compare(crampedUndo.mapToItem(cramped, 0, 0).y, message.y + message.height + Theme.field.gap, "the action is not the field gap under the message");
+            compare(cramped.height, Theme.row.height + 2 * Theme.field.gap + message.height + crampedUndo.height);
+            const beside = messageOf(roomy);
+            compare(beside.width, Theme.field.labelWidth, "one more pixel keeps the action beside the message");
+            compare(roomyUndo.mapToItem(roomy, 0, 0).x + roomyUndo.width, roomy.width);
+            compare(roomy.height, Theme.row.height + Theme.field.gap + roomyUndo.height);
         }
 
         function test_a_hidden_action_takes_no_room() {

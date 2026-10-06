@@ -19,7 +19,10 @@ import qs.Ui
 // beside it. `action` is one control for the message, such as a Button
 // that undoes what the message names: it draws on the message's line, on
 // the row's end edge, only while the row has a message, and the message
-// wraps `stack.inline` before it. A hidden action takes no room. While
+// wraps `stack.inline` before it. Where that would leave the message less
+// than `field.labelWidth`, as in a narrow flyout, the action goes on a line
+// of its own, `field.gap` under the message, from the value column's start.
+// A hidden action takes no room. While
 // `labelColumn` is false the row draws no label and keeps
 // no row height: the control takes the full width at its own height, as a
 // Field whose label stands above its control does. `valueX` is where the
@@ -35,8 +38,9 @@ Item {
     default property alias control: slot.data
     property alias action: actionSlot.data
     readonly property Item actionItem: actionSlot.visibleChildren.length > 0 ? actionSlot.visibleChildren[0] : null
-    readonly property real actionRoom: actionItem === null ? 0 : actionItem.width + Theme.stack.inline
-    readonly property real messageLine: Math.max(message.height, actionItem === null ? 0 : actionItem.height)
+    readonly property bool actionBelow: actionItem !== null && slot.width - actionItem.width - Theme.stack.inline < Theme.field.labelWidth
+    readonly property real actionRoom: actionItem === null || actionBelow ? 0 : actionItem.width + Theme.stack.inline
+    readonly property real messageLine: actionBelow ? message.height + Theme.field.gap + actionItem.height : Math.max(message.height, actionItem === null ? 0 : actionItem.height)
     readonly property real valueX: labelColumn ? Theme.field.labelWidth + Theme.field.labelGap : 0
     readonly property real messageRoom: warning === "" ? 0 : Theme.field.gap + messageLine
     readonly property real boxHeight: height - messageRoom
@@ -82,7 +86,7 @@ Item {
         color: root.toneColor(root.warningTone)
         visible: root.warning !== ""
         x: slot.x
-        y: root.boxHeight + Theme.field.gap + Math.round((root.messageLine - height) / 2)
+        y: root.boxHeight + Theme.field.gap + (root.actionBelow ? 0 : Math.round((root.messageLine - height) / 2))
         width: slot.width - root.actionRoom
         wrapMode: Text.Wrap
     }
@@ -90,8 +94,8 @@ Item {
     Item {
         id: actionSlot
         visible: message.visible
-        x: root.width - width
-        y: root.height - root.messageLine + Math.round((root.messageLine - height) / 2)
+        x: root.actionBelow ? slot.x : root.width - width
+        y: root.actionBelow ? root.height - height : root.height - root.messageLine + Math.round((root.messageLine - height) / 2)
         width: root.actionItem === null ? 0 : root.actionItem.width
         height: root.actionItem === null ? 0 : root.actionItem.height
     }
