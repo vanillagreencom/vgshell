@@ -358,6 +358,14 @@ if plant:
         if r["type"] == "SegmentedControl" and inside(j, page[0]) and not segment_planted:
             rows[j] = dict(r, box=r["box"][:2] + [r["box"][2] + 8, r["box"][3]])
             segment_planted = True
+    # A control slot moved under its label leaves the label with no control;
+    # the field moved holds neither control planted above.
+    first = next(i for i, r in enumerate(rows) if r["type"] in ("KeyField", "Field") and inside(i, page[0]) and visible(i) and not any(c["type"] in ("Slider", "SegmentedControl") and inside(j, i) for j, c in enumerate(rows)))
+    line = next(j for j, r in enumerate(rows) if r.get("name") == "fieldRow" and r["parent"] == first)
+    label_box = next(r["box"] for r in rows if r["parent"] == line and r["type"] == "Label" and r.get("role") == "label")
+    for j, r in enumerate(rows):
+        if r["parent"] == line and r["type"] == "QQuickItem":
+            rows[j] = dict(r, box=[r["box"][0], label_box[1] + label_box[3] + 1] + r["box"][2:])
 area = rows[areas[0]]
 column_right = right(area) - inset
 # Pane's viewport starts a focus ring's room left of the content edge.
@@ -380,9 +388,14 @@ for n, i in enumerate(fields):
     lines = [j for j, r in enumerate(rows) if r.get("name") == "fieldRow" and r["parent"] == i]
     if len(lines) != 1: out.append("%s rows=%d" % (name, len(lines))); continue
     labels = [j for j, r in enumerate(rows) if r["parent"] == lines[0] and r["type"] == "Label" and r.get("role") == "label"]
-    slots = [j for j, r in enumerate(rows) if r["parent"] == lines[0] and r["type"] == "QQuickItem"]
-    if len(labels) != 1 or len(slots) != 1: out.append("%s labels=%d slots=%d" % (name, len(labels), len(slots))); continue
-    label, slot = rows[labels[0]], rows[slots[0]]
+    if len(labels) != 1: out.append("%s labels=%d" % (name, len(labels))); continue
+    label = rows[labels[0]]
+    # The control slot is the shown item the label sits beside; the row's
+    # other items, such as the message's action, sit under the row box or
+    # are hidden.
+    slots = [j for j, r in enumerate(rows) if r["parent"] == lines[0] and r["type"] == "QQuickItem" and visible(j) and r["box"][1] < label["box"][1] + label["box"][3] and r["box"][1] + r["box"][3] > label["box"][1]]
+    if len(slots) != 1: out.append("%s slots=%d" % (name, len(slots))); continue
+    slot = rows[slots[0]]
     values = [r for r in rows if r["parent"] == slots[0]]
     if len(values) != 1: out.append("%s values=%d" % (name, len(values))); continue
     check(name + ".left", left, content_left)
@@ -403,8 +416,8 @@ print(json.dumps(out))
 PY
 }
 geometry expect_poll "the page's fields share one label edge, one control edge and one right edge, each label on its control" '[]' page_alignment 9 0
-page_alignment_planted() { page_alignment 9 0 plant | py_reply 'import json,sys; o=json.load(sys.stdin); print(any(".slider.gap=" in e for e in o) and any(".segmented.width=" in e for e in o))'; }
-expect "control: overlapping the slider value and stretching a segmented control are each refused" True page_alignment_planted
+page_alignment_planted() { page_alignment 9 0 plant | py_reply 'import json,sys; o=json.load(sys.stdin); print(any(".slider.gap=" in e for e in o) and any(".segmented.width=" in e for e in o) and any(e.endswith(" slots=0") for e in o))'; }
+expect "control: overlapping the slider value, stretching a segmented control and moving a control under its label are each refused" True page_alignment_planted
 
 # The page scrolls under its bar: a drag on the thumb moves the content
 # with it, and a press on the track under the thumb pages one view down.
