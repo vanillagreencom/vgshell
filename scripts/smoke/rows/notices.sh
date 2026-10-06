@@ -26,7 +26,7 @@
 # alone with Close. The enable trigger's control is
 # scripts/smoke/rows/notices-control.sh, the suite's last row: a shell copy
 # without the trigger raises no notice.
-# inputs: scripts/smoke/fixtures/plugins/acme.needs/* shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Core/PackageManagers.js bin/vgshell-pkg bin/vgshell shell/Ui/feedback/CommandDisclosure.qml shell/Core/PluginLogic.js scripts/smoke/fixtures/plugins/acme.layers/* scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/rows/toasts.sh scripts/smoke/rows/manager.sh scripts/smoke/rows/settings.sh bin/vgshell-tui
+# inputs: scripts/smoke/fixtures/plugins/acme.needs/* shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Core/PackageManagers.js bin/vgshell-pkg bin/vgshell shell/Ui/feedback/CommandDisclosure.qml shell/Core/PluginLogic.js scripts/smoke/fixtures/plugins/acme.layers/* scripts/smoke/rows/toasts.sh bin/vgshell-tui
 set -euo pipefail
 needs_src="$sandbox/src/acme.needs"
 mkdir -p "$needs_src"
@@ -51,7 +51,9 @@ pkg_stub() { # DETECT_JSON, or "" for a detection that fails
 }
 pkg_stub '{"primary":{"id":"pacman","binary":"pacman"},"overlays":[{"id":"aur","binary":"paru"}],"sources":[]}'
 
-notice_resting() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["notices"]["resting"]))'; }
+# Whether plugin ID's own offers rest, in the notices core's lending record.
+# rows/notices-control.sh reads it on a copy whose Not now records no rest.
+notice_rests() { ipc shell lent | py_reply 'import json,sys; print(str(sys.argv[1] in json.load(sys.stdin)["notices"]["resting"]).lower())' "$1"; }
 drawn() { ipc smoke noticeDrawn | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps(d[sys.argv[1]]))' "$1"; }
 needs() { ipc acme.needs invoke "$1" "${2:-}"; }
 # `placed` when the notice's one surface is the focused monitor less the
@@ -181,14 +183,15 @@ type_keys -k Tab || fail "sending Tab past Copy failed"
 expect_poll "Tab wraps back to Install" '"Install"' drawn focused
 expect "an installable notice offers Install and Not now" '["Install", "Not now"]' drawn actions
 expect "the plugin landed disabled" False plugin_enabled acme.needs
+expect "the plugin's offers do not rest before Not now" false notice_rests acme.needs
 
 # Escape answers Not now: the notice goes and the plugin's own offers rest.
 type_keys -k Escape || fail "sending Escape failed"
 expect_poll "Escape closes the notice" null notice_shown
 expect_poll "the closed notice leaves no surface" 0 layer_count vgs:notice
-# acme.bare rests from the notice rows/manager.sh raised from Settings, and
-# acme.status from the one its status action raised in rows/settings.sh.
-expect "the plugin's offers rest after Not now" '["acme.bare", "acme.needs", "acme.status"]' notice_resting
+# Notices.dismiss records the rest in the call that takes the notice off,
+# so the read after the notice goes is decisive.
+expect "the plugin's offers rest after Not now" true notice_rests acme.needs
 
 # setPluginEnabled: enabling the plugin raises the notice again, whatever
 # the rest, since the user asked.

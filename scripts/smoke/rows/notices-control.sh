@@ -7,13 +7,16 @@
 # scan ends, its Notices runs only the callbacks waiting for an earlier
 # scan, so pluginInstalled's one scan lands and raises no notice. The notice
 # is raised in the turn the revision reaches the scan, so a read once
-# scanRevision reaches it is decisive. The copy
+# scanRevision reaches it is decisive. The copy's Notices.dismiss also
+# records no rest, the control for rows/notices.sh's rest after Not now:
+# an offer raises the notice, Escape closes it, and the same reading of the
+# lending record finds the plugin's offers not resting. The copy
 # holds its own bin/, since bin/vgshell finds the tree from its own real path,
 # and its own shell/; config/ and themes/ are links to the sandbox's. The
 # row stops the shell rows/read-only-prefix.sh started, starts the copy
 # through harness.sh's start_shell and leaves it running for
 # rows/hidpi.sh, which stops it.
-# inputs: shell/Core/Plugins.qml shell/Core/Notices.qml scripts/smoke/fixtures/plugins/acme.needs/*
+# inputs: shell/Core/Plugins.qml shell/Core/Notices.qml scripts/smoke/fixtures/plugins/acme.needs/* scripts/smoke/rows/notices.sh
 set -euo pipefail
 mutant="$sandbox/notice-mutant"
 mkdir -p -- "$mutant"
@@ -51,6 +54,20 @@ open(path, "w").write(text.replace(needle, needle.replace("a.scan <= revision", 
 else
   fail "the control copy could not change the due filter in $notices_qml"
 fi
+rest_record='        next[notice.id] = now + Logic.NOTICE_OFFER_REST_MS;
+'
+cp -- "$notices_qml" "$sandbox/notice-mutant-Notices.qml.due"
+if python3 -c '
+import sys
+path, needle = sys.argv[1:]
+text = open(path).read()
+if text.count(needle) != 1:
+    sys.exit("the rest record occurs %d times" % text.count(needle))
+open(path, "w").write(text.replace(needle, ""))' "$notices_qml" "$rest_record" && ! cmp -s -- "$notices_qml" "$sandbox/notice-mutant-Notices.qml.due"; then
+  ok "the control copy's Not now records no rest, the record occurring once"
+else
+  fail "the control copy could not drop the rest record from $notices_qml"
+fi
 
 # acme.needs sits in the user plugin directory before the copy starts, so
 # its first scan finds it and its missing command.
@@ -75,3 +92,11 @@ if [[ $installed_reply =~ ^(ok|busy)\ scan=([0-9]+)$ ]]; then
 else
   fail "control: pluginInstalled in the copy answered $installed_reply"
 fi
+# Not now in the copy: the notice goes and no rest is recorded, so the
+# reading rows/notices.sh makes after Not now reads false.
+expect_poll "the copy builds the needs fixture's service" True record_exists acme.needs
+expect "an offer in the copy raises the notice" ok needs offer vgs-smoke-needs
+expect_poll "the copy's offered notice holds the keyboard" true ipc smoke noticeFocused
+type_keys -k Escape || fail "sending Escape to the copy's notice failed"
+expect_poll "Escape closes the copy's notice" null notice_shown
+expect "control: a Not now that records no rest fails the rest check" false notice_rests acme.needs
