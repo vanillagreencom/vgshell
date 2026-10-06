@@ -2,7 +2,7 @@
 # one planted effect and whose frames are deterministic. Latency polls use
 # expect_poll's 0.2 s cadence. Measured row runtime on host cachy on
 # 2026-10-05 under the nested sandbox: under 20 s.
-# inputs: shell/plugins/vgs.screensaver/* shell/Core/PluginLogic.js shell/Hosts/BackgroundHost.qml scripts/smoke/fixtures/screensaver-ttfx scripts/smoke/rows/lock.sh
+# inputs: shell/plugins/vgs.screensaver/* shell/Core/PluginLogic.js shell/Hosts/BackgroundHost.qml scripts/smoke/fixtures/screensaver-ttfx scripts/smoke/rows/capability-release.sh scripts/smoke/rows/lock.sh
 set -euo pipefail
 ss_config="$home/.config/vgshell/shell.json"
 ss_log="$home/.local/state/vgshell/screensaver-ttfx.log"
@@ -98,35 +98,76 @@ argv_names_art() { grep -q -- "$art_dir/screensaver.txt" "$ss_log" && echo yes |
 expect_poll "ttfx argv names the art file" yes argv_names_art
 expect "screensaver stops by IPC" ok ipc vgs.screensaver invoke stop ''
 expect_poll "cover is gone after IPC stop" 0 layer_count vgs:cover
-expect "enabling lock for ordering is allowed" ok ipc shell setPluginEnabled vgs.lock true
-python3 - "$ss_config" <<'PY'
+idle_start() { # LABEL
+  type_keys -k Shift_L || fail "$1: typing the idle-start key failed"
+  idle_started_ms="$(now_ms)"
+}
+ms_since_idle() { echo $(( $(now_ms) - idle_started_ms )); }
+measure_idle_order() { # LABEL WANT_COVER_FIRST yes|no
+  local label="$1" want_cover_first="$2" deadline cover_ms="" lock_ms="" covers="" lock=""
+  deadline=$(( $(now_ms) + 8000 ))
+  while (( $(now_ms) < deadline )); do
+    covers="$(cover_count)" || covers=unread
+    lock="$(session_lock)" || lock=unread
+    if [[ -z $cover_ms && $covers == "$(output_count)" ]]; then cover_ms="$(ms_since_idle)"; fi
+    if [[ -z $lock_ms && $lock == locked ]]; then lock_ms="$(ms_since_idle)"; break; fi
+    sleep 0.2
+  done
+  printf 'screensaver-order: label=%s cover_ms=%s lock_ms=%s covers=%s lock=%s\n' "$label" "${cover_ms:-none}" "${lock_ms:-none}" "$covers" "$lock"
+  if [[ -z $lock_ms ]]; then fail "$label: the session locks on idle"; return; fi
+  if [[ $lock_ms -lt 3500 ]]; then fail "$label: lock waits at least 3.5 s from idle start"; else ok "$label: lock waits at least 3.5 s from idle start (t=${lock_ms}ms)"; fi
+  if [[ $want_cover_first == yes ]]; then
+    if [[ -z $cover_ms ]]; then fail "$label: cover maps before lock"; return; fi
+    if [[ $cover_ms -lt 1500 ]]; then fail "$label: cover waits at least 1.5 s from idle start"; else ok "$label: cover waits at least 1.5 s from idle start (t=${cover_ms}ms)"; fi
+    if [[ $cover_ms -lt $lock_ms ]]; then ok "$label: cover maps before lock (cover=${cover_ms}ms lock=${lock_ms}ms)"; else fail "$label: cover maps before lock (cover=${cover_ms}ms lock=${lock_ms}ms)"; fi
+  else
+    if [[ -z $cover_ms ]]; then ok "$label: no cover maps before lock"; else fail "$label: no cover maps before lock (cover=${cover_ms}ms lock=${lock_ms}ms)"; fi
+  fi
+}
+set_lock_seconds() { # SECONDS
+  python3 - "$ss_config" "$1" <<'PYSETLOCK'
 import json, os, sys
-path = sys.argv[1]
+path, seconds = sys.argv[1], int(sys.argv[2])
 doc = json.load(open(path))
-row = next(r for r in doc.setdefault("plugins", []) if r.get("id") == "vgs.lock")
-row["idleLockSeconds"] = 4
-with open(path + ".next", "w") as out: json.dump(doc, out)
+rows = doc.setdefault("plugins", [])
+row = next((r for r in rows if r.get("id") == "vgs.lock"), None)
+if row is None:
+    row = {"id": "vgs.lock"}
+    rows.append(row)
+row["idleLockSeconds"] = seconds
+with open(path + ".next", "w") as out:
+    json.dump(doc, out)
 os.replace(path + ".next", path)
-PY
+PYSETLOCK
+}
+expect "enabling lock for ordering is allowed" ok ipc shell setPluginEnabled vgs.lock true
+set_lock_seconds 4
 set_screensaver '{"idleEnabled": true, "idleSeconds": 2}'
 expect "reload for lock ordering" ok ipc shell reloadConfig
 expect_poll "lock service is built for lock ordering" True record_exists vgs.lock
-expect_poll "lock ordering maps cover first" "$(output_count)" cover_count
-sleep 2
-expect "lock ordering asks lock after cover" ok ipc vgs.lock invoke lock ''
-expect_poll "lock ordering locks later" locked session_lock
+idle_start "lock ordering"
+measure_idle_order "lock ordering" yes
 expect_poll "cover is gone under lock" 0 layer_count vgs:cover
 expect_poll "ttfx stand-in is gone under lock" no standin_alive
 release "screensaver lock-order"
+set_lock_seconds 4
+set_screensaver '{"idleEnabled": true, "idleSeconds": 6}'
+expect "reload for lock-before-screensaver control" ok ipc shell reloadConfig
+idle_start "lock-before-screensaver control"
+measure_idle_order "control lock before screensaver" no
+release "screensaver lock-before-screensaver control"
+set_lock_seconds 4
 set_screensaver '{"idleEnabled": true, "idleSeconds": 2}'
 expect "reload for dismissal before lock" ok ipc shell reloadConfig
-expect "dismissal starts cover before lock" ok ipc vgs.screensaver invoke start ''
+idle_start "dismissal before lock"
 expect_poll "dismissal maps cover before lock" "$(output_count)" cover_count
-sleep 1
+while (( $(ms_since_idle) < 3000 )); do sleep 0.1; done
 type_keys -k Escape || fail "typing Escape before the lock failed"
 expect_poll "dismissal removed cover" 0 layer_count vgs:cover
-sleep 3
-expect "dismissal prevents lock" unlocked session_lock
+while (( $(ms_since_idle) < 5500 )); do sleep 0.1; done
+expect "dismissal prevents lock at the original deadline" unlocked session_lock
+expect_poll "dismissal lets lock run after activity restarts idle" locked session_lock
+release "screensaver dismissal restart"
 set_screensaver '{"idleEnabled": false, "idleSeconds": 2}'
 expect "reload before plugin-alone checks" ok ipc shell reloadConfig
 # Screensaver alone: lock disabled or absent is not needed for start.
@@ -136,20 +177,15 @@ expect_poll "cover maps with lock disabled" "$(output_count)" cover_count
 expect "screensaver stops after lock-disabled check" ok ipc vgs.screensaver invoke stop ''
 expect "disabling screensaver is allowed" ok ipc shell setPluginEnabled vgs.screensaver false
 expect "enabling lock for lock-alone check is allowed" ok ipc shell setPluginEnabled vgs.lock true
-python3 - "$ss_config" <<'PY'
-import json, os, sys
-path = sys.argv[1]
-doc = json.load(open(path))
-row = next(r for r in doc.setdefault("plugins", []) if r.get("id") == "vgs.lock")
-row["idleLockSeconds"] = 4
-with open(path + ".next", "w") as out: json.dump(doc, out)
-os.replace(path + ".next", path)
-PY
+set_lock_seconds 4
 expect "reload for lock-alone check" ok ipc shell reloadConfig
 expect_poll "lock service is built for lock-alone" True record_exists vgs.lock
-sleep 4
-expect "lock alone asks lock at its time" ok ipc vgs.lock invoke lock ''
-expect_poll "lock alone locks at its time" locked session_lock
+idle_start "lock alone"
+for _ in $(seq 1 30); do
+  [[ "$(session_lock)" == locked ]] && break
+  sleep 0.2
+done
+expect "lock alone locks at its time" locked session_lock
 release "screensaver lock-alone"
 expect "disabling lock after lock-alone check" ok ipc shell setPluginEnabled vgs.lock false
 expect "enabling screensaver is allowed for later rows" ok ipc shell setPluginEnabled vgs.screensaver true
