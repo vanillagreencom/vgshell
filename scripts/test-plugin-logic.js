@@ -848,6 +848,9 @@ function suite(ctx, check) {
         ["service", { shown: true }, false],
     ])
         check("perScreenLayerShown: " + kind + " " + JSON.stringify(instance), ctx.perScreenLayerShown(kind, instance), want);
+    check("perScreenLayerTakesKeyboard: first cover takes keyboard", ctx.perScreenLayerTakesKeyboard("cover", [{ name: "A" }, { name: "B" }], { name: "A" }), true);
+    check("perScreenLayerTakesKeyboard: second cover takes no keyboard", ctx.perScreenLayerTakesKeyboard("cover", [{ name: "A" }, { name: "B" }], { name: "B" }), false);
+    check("perScreenLayerTakesKeyboard: backgrounds take no keyboard", ctx.perScreenLayerTakesKeyboard("background", [{ name: "A" }], { name: "A" }), false);
 
     const paneRowsManifests = {};
     function paneManifest(id, name, group, order, extra) {
@@ -1259,6 +1262,7 @@ const CONTROLS = [
     ["cover is a kind", "\"service\", \"background\", \"cover\"", "\"service\", \"background\""],
     ["cover maps only when shown true", "if (kind === \"cover\")\n        return instance.shown === true;", "if (kind === \"cover\")\n        return instance.shown !== false;"],
     ["background maps instances without shown", "if (kind === \"background\")\n        return instance.shown !== false;", "if (kind === \"background\")\n        return instance.shown === true;"],
+    ["only first cover takes keyboard", "return kind === \"cover\" && Array.isArray(screens) && screens.length > 0 && screen !== null && screens[0].name === screen.name;", "return kind === \"cover\";"],
     ["pane is a kind", "\"window\", \"pane\", \"service\"", "\"window\", \"service\""],
     ["pane is a manifest key", "\"defaultSection\", \"pane\", \"appearance\"", "\"defaultSection\", \"appearance\""],
     ["pane key needs kind pane", "if (kinds.indexOf(\"pane\") === -1)\n        return \"pane needs kind pane\";", "if (false)\n        return \"pane needs kind pane\";"],

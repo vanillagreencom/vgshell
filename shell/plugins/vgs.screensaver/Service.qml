@@ -9,9 +9,12 @@ Item {
     property var shell: null
     property var registeredWith: null
     property var idleDisposer: null
+    property var activityDisposer: null
     property bool running: false
+    property bool effectFailed: false
     property var published: ({})
     property var seenArtEndedAt: null
+    property bool artRunReady: false
     property string artStatus: "Default art"
 
     readonly property bool locked: shell !== null && shell.session.locked
@@ -25,9 +28,12 @@ Item {
         if (shell === null) return;
         if (registeredWith === null) {
             registeredWith = shell;
+            if (shell.tui.state.art !== undefined && shell.tui.state.art !== null) seenArtEndedAt = shell.tui.state.art.endedAt;
+            artRunReady = true;
             shell.shortcut.register("start", "Start the screensaver", () => root.start());
             shell.ipc.handle("start", () => root.start());
             shell.ipc.handle("stop", () => root.stop());
+            shell.ipc.handle("effect-failed", () => root.failEffect());
             shell.ipc.handle("status", () => root.statusJson());
         }
         publish("effects", [{ label: "Random", value: "random" }]);
@@ -39,7 +45,7 @@ Item {
     onIdleSecondsChanged: { watchIdle(); publishLockOrder(); }
     onRequirementsRevisionChanged: refreshEffects()
     onLockedChanged: if (locked) stop()
-    onRunningChanged: publishState()
+    onRunningChanged: { publishState(); watchActivity(); }
     onArtStatusChanged: publishArt()
     onArtRunChanged: checkArtRun()
     onManagerKeyChanged: publishLockOrder()
@@ -47,6 +53,7 @@ Item {
     function start() {
         if (shell === null) return "refused: screensaver=not-ready";
         if (locked) return "refused: screensaver=locked";
+        effectFailed = false;
         running = true;
         return "ok";
     }
@@ -56,8 +63,15 @@ Item {
         return "ok";
     }
 
+    function failEffect() {
+        effectFailed = true;
+        running = false;
+        publishState();
+        return "ok";
+    }
+
     function checkArtRun() {
-        if (shell === null || artRun === undefined || artRun === null) return;
+        if (shell === null || !artRunReady || artRun === undefined || artRun === null) return;
         if (artRun.endedAt === null || artRun.endedAt === seenArtEndedAt) return;
         seenArtEndedAt = artRun.endedAt;
         if (artRun.code === 0) start();
@@ -70,6 +84,15 @@ Item {
         idleDisposer = shell.idle.watch(idleSeconds, idle => {
             if (idle) root.start();
             else root.stop();
+        });
+    }
+
+    function watchActivity() {
+        if (activityDisposer !== null) activityDisposer();
+        activityDisposer = null;
+        if (shell === null || !running) return;
+        activityDisposer = shell.idle.watch(1, idle => {
+            if (!idle && root.running) root.stop();
         });
     }
 
@@ -98,7 +121,7 @@ Item {
     }
 
     function publishState() {
-        publish("state", running ? { tone: "info", text: "Running" } : { tone: "ok", text: "Off" });
+        publish("state", effectFailed ? { tone: "warning", text: "Effect failed" } : running ? { tone: "info", text: "Running" } : { tone: "ok", text: "Off" });
     }
 
     function publishArt() {

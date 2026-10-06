@@ -55,7 +55,7 @@ TEMPLATE_FOR = {
     "pane": ("Pane.qml", "Pane.qml"),
     "service": ("Service.qml", "Service.qml"),
     "background": ("Background.qml", "Background.qml"),
-    "cover": ("Background.qml", "Cover.qml"),
+    "cover": ("Cover.qml", "Cover.qml"),
 }
 
 

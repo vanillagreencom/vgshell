@@ -11,7 +11,9 @@ Item {
     property string artPath: Logic.fileUrlPath(Qt.resolvedUrl("logo.txt"))
     property string pendingFrame: ""
     property var frameState: Logic.createState()
-    property bool focusReady: false
+    property var exitState: Logic.createExitState()
+    property real effectStartedAt: 0
+    property bool intentionalStop: false
     property bool pointerReady: false
     property real firstX: 0
     property real firstY: 0
@@ -33,9 +35,10 @@ Item {
 
     onShownChanged: {
         pointerReady = false;
-        focusReady = false;
         clearRows();
         pendingFrame = "";
+        exitState = Logic.createExitState();
+        intentionalStop = false;
         if (shown) Qt.callLater(() => {
             root.forceActiveFocus(Qt.ActiveWindowFocusReason);
             start();
@@ -50,10 +53,6 @@ Item {
     onHeightChanged: if (shown) restartDelay.restart()
     onArtPathChanged: restart()
     onBackgroundChanged: restart()
-    onActiveFocusChanged: {
-        if (activeFocus) focusReady = true;
-        else if (shown && focusReady) stop();
-    }
 
     function stop() {
         if (shell !== null) shell.ipc.call("stop", "");
@@ -62,6 +61,7 @@ Item {
     function start() {
         if (!shown || !canRun || effect.running) return;
         if (width <= 0 || height <= 0) return;
+        intentionalStop = false;
         effect.command = Logic.command(artPath, selectedEffect, frameRate, canvas.columns, canvas.rows, background);
         console.info("screensaver: command=" + JSON.stringify(effect.command));
         effect.running = true;
@@ -69,7 +69,15 @@ Item {
 
     function stopProcess() {
         restartDelay.stop();
-        if (effect.running) effect.running = false;
+        if (effect.running) {
+            intentionalStop = true;
+            effect.running = false;
+        }
+    }
+
+    function effectFailed() {
+        restartDelay.stop();
+        if (shell !== null) shell.ipc.call("effect-failed", "");
     }
 
     function restart() {
@@ -129,13 +137,32 @@ Item {
             onRead: frame => root.receiveFrame(frame)
         }
         stderr: SplitParser { onRead: line => console.warn("screensaver: ttfx " + line) }
-        onRunningChanged: if (!running && root.shown) restartDelay.restart()
+        onRunningChanged: {
+            if (running) {
+                root.effectStartedAt = Date.now();
+                return;
+            }
+            if (root.intentionalStop) {
+                root.intentionalStop = false;
+                return;
+            }
+            if (!root.shown) return;
+            if (Logic.effectExitAction(root.effectStartedAt, Date.now(), root.exitState) === "fail") root.effectFailed();
+            else restartDelay.restart();
+        }
     }
 
     Timer {
         id: restartDelay
         interval: 250
         onTriggered: root.start()
+    }
+
+    Timer {
+        interval: 100
+        repeat: true
+        running: root.shown && !root.activeFocus
+        onTriggered: root.forceActiveFocus(Qt.ActiveWindowFocusReason)
     }
 
     Timer {

@@ -2,6 +2,8 @@
 
 var COLOR_CACHE_MAX = 4096;
 var KEEP_COLOR = "__keep__";
+var QUICK_EXIT_MS = 1000;
+var QUICK_EXIT_LIMIT = 3;
 
 function createState() {
     return { rawRows: [], rows: [], colorsIn: [], colorsOut: [], cache: ({}), cacheSize: 0, parsedRows: 0, reusedRows: 0 };
@@ -229,4 +231,18 @@ function command(artPath, effect, frameRate, columns, rows, background) {
 
 function newestFrame(previous, next) {
     return next;
+}
+
+function createExitState() {
+    return { quickExits: 0 };
+}
+
+function effectExitAction(startedAt, endedAt, state) {
+    const quick = endedAt - startedAt < QUICK_EXIT_MS;
+    state.quickExits = quick ? state.quickExits + 1 : 0;
+    if (state.quickExits >= QUICK_EXIT_LIMIT) {
+        state.quickExits = 0;
+        return "fail";
+    }
+    return "restart";
 }

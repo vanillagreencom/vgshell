@@ -47,6 +47,19 @@ function suite(ctx, check) {
   check("background drops alpha for ttfx", ctx.backgroundHex("#ff102030"), "#102030");
   check("random command uses random flag", ctx.command("/art", "random", 30, 80, 24, "#000000").slice(-1), ["--random-effect"]);
   check("named command passes the effect", ctx.command("/art", "beams", 30, 80, 24, "#000000").slice(-1), ["beams"]);
+  const exits = ctx.createExitState();
+  check("quick exits fail after the limit", [
+    ctx.effectExitAction(0, 100, exits),
+    ctx.effectExitAction(1000, 1100, exits),
+    ctx.effectExitAction(2000, 2100, exits)
+  ], ["restart", "restart", "fail"]);
+  const resetExits = ctx.createExitState();
+  ctx.effectExitAction(0, 100, resetExits);
+  ctx.effectExitAction(1000, 2500, resetExits);
+  check("a long run resets quick exit counting", [
+    ctx.effectExitAction(3000, 3100, resetExits),
+    ctx.effectExitAction(4000, 4100, resetExits)
+  ], ["restart", "restart"]);
 }
 
 function runCase(name, file) {
@@ -65,6 +78,7 @@ const controls = [
   ["same raw row with changed carried colour reparses", "state.rawRows[i] === raw && state.colorsIn[i] === color", "state.rawRows[i] === raw"],
   ["same colour run is merged", "if (next !== KEEP_COLOR && next !== current) {", "if (next !== KEEP_COLOR) {"],
   ["colour cache is bounded", "if (state.cacheSize > COLOR_CACHE_MAX) {", "if (false) {"],
+  ["quick exits stop respawn", "if (state.quickExits >= QUICK_EXIT_LIMIT) {", "if (false) {"],
 ];
 
 for (const [name, needle, replacement] of controls) {

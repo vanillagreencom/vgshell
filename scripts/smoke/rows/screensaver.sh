@@ -13,7 +13,13 @@ lock_order() { ipc smoke statusValues vgs.screensaver | py_reply 'import json,sy
 art_status() { ipc smoke statusValues vgs.screensaver | py_reply 'import json,sys; v=json.load(sys.stdin).get("art",{}); print(v.get("text","missing"))'; }
 cover_count() { layer_count vgs:cover; }
 output_count() { hypr -j monitors | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
-standin_alive() { pgrep -f screensaver-ttfx >/dev/null && echo yes || echo no; }
+standin_alive() { pgrep -f -- "$shim/ttfx" >/dev/null && echo yes || echo no; }
+plant_art_record() {
+  local dir="$rt_dir/vgshell/tui" run="smoke-stale-art"
+  mkdir -p -- "$dir"
+  printf '{"key":"vgs.screensaver/art","run":"%s","state":"ended","code":0,"startedAt":"2026-10-06T00:00:00Z","endedAt":"2026-10-06T00:00:01Z","window":{"appId":"org.vgshell.tui.vgs.screensaver.art","title":"Screensaver art"}}\n' "$run" >"$dir/vgs.screensaver@art@$run.ended.json"
+}
+tui_art_loaded() { ipc shell lent | py_reply 'import json,sys; slot=json.load(sys.stdin)["tui"]["runs"].get("vgs.screensaver/art"); print(slot is not None and slot.get("ended") is not None)'; }
 set_screensaver() { # JSON
   python3 - "$ss_config" "$1" <<'PY'
 import json, os, sys
@@ -32,7 +38,12 @@ PY
 }
 set_screensaver '{"idleEnabled": false, "idleSeconds": 2, "effect": "planted", "frameRate": 30}'
 expect "reload config for screensaver settings" ok ipc shell reloadConfig
+expect "disabling screensaver before stale art record is allowed" ok ipc shell setPluginEnabled vgs.screensaver false
+plant_art_record
+expect_poll "the planted art run is loaded" True tui_art_loaded
 expect "enabling screensaver for its row is allowed" ok ipc shell setPluginEnabled vgs.screensaver true
+sleep 1
+expect "a stale art run does not start the cover" 0 layer_count vgs:cover
 expect "disabling lock before screensaver checks is allowed" ok ipc shell setPluginEnabled vgs.lock false
 rescan "rescan after adding ttfx stand-in answers ok"
 expect_poll "screensaver service is built" True record_exists vgs.screensaver
@@ -66,9 +77,22 @@ expect_poll "cover maps after on demand" "$(output_count)" cover_count
 expect_poll "status says running" Running state_text
 argv_has_art() { [[ -s $ss_log ]] && grep -q -- '--canvas-width' "$ss_log" && echo yes || echo no; }
 expect_poll "ttfx stand-in was started" yes argv_has_art
+sleep 1.2
 type_keys -k Escape || fail "typing Escape to close the screensaver failed"
 expect_poll "cover is gone after keyboard input" 0 layer_count vgs:cover
 expect_poll "status says off" Off state_text
+screensaver_output=SMOKE-SCREENSAVER
+base_outputs="$(output_count)"
+expect "the nested compositor adds a monitor for screensaver focus" ok hypr output create headless "$screensaver_output"
+expect_poll "the added monitor is visible to the shell" "$((base_outputs + 1))" output_count
+expect "on demand starts on every output" ok ipc vgs.screensaver invoke start ''
+expect_poll "one cover maps per output with two outputs" "$(output_count)" cover_count
+sleep 2
+expect "two-output covers stay running after focus settles" Running state_text
+type_keys -k Escape || fail "typing Escape to close the two-output screensaver failed"
+expect_poll "two-output covers are gone after keyboard input" 0 layer_count vgs:cover
+expect "the nested compositor removes the screensaver focus monitor" ok hypr output remove "$screensaver_output"
+expect_poll "the removed screensaver monitor is gone" "$base_outputs" output_count
 expect "on demand starts for pointer dismissal" ok ipc vgs.screensaver invoke start ''
 expect_poll "cover maps before pointer motion" "$(output_count)" cover_count
 hover 20 20 || fail "initial hover failed"
@@ -98,6 +122,10 @@ argv_names_art() { grep -q -- "$art_dir/screensaver.txt" "$ss_log" && echo yes |
 expect_poll "ttfx argv names the art file" yes argv_names_art
 expect "screensaver stops by IPC" ok ipc vgs.screensaver invoke stop ''
 expect_poll "cover is gone after IPC stop" 0 layer_count vgs:cover
+rm -f -- "$art_dir/screensaver.txt"
+stop_shell || fail "the shell stops before lock-order checks"
+start_shell "$repo" "$sandbox/screensaver-lock-order-qs.log" || fail "the shell starts again before lock-order checks"
+expect_poll "screensaver service is rebuilt before lock-order checks" True record_exists vgs.screensaver
 idle_start() { # LABEL
   type_keys -k Shift_L || fail "$1: typing the idle-start key failed"
   idle_started_ms="$(now_ms)"
@@ -129,6 +157,7 @@ set_lock_seconds() { # SECONDS
 import json, os, sys
 path, seconds = sys.argv[1], int(sys.argv[2])
 doc = json.load(open(path))
+doc["disabledPlugins"] = [p for p in doc.get("disabledPlugins", []) if p != "vgs.lock"]
 rows = doc.setdefault("plugins", [])
 row = next((r for r in rows if r.get("id") == "vgs.lock"), None)
 if row is None:
@@ -144,8 +173,13 @@ expect "enabling lock for ordering is allowed" ok ipc shell setPluginEnabled vgs
 set_lock_seconds 4
 set_screensaver '{"idleEnabled": true, "idleSeconds": 2}'
 expect "reload for lock ordering" ok ipc shell reloadConfig
+rescan "rescan after enabling lock for ordering answers ok"
+expect "lock remains enabled after ordering config writes" ok ipc shell setPluginEnabled vgs.lock true
+rescan "rescan after confirming lock for ordering answers ok"
 expect_poll "lock service is built for lock ordering" True record_exists vgs.lock
 idle_start "lock ordering"
+expect_poll "ordering maps covers before lock" "$(output_count)" cover_count
+expect_poll "ttfx stand-in is alive before lock" yes standin_alive
 measure_idle_order "lock ordering" yes
 expect_poll "cover is gone under lock" 0 layer_count vgs:cover
 expect_poll "ttfx stand-in is gone under lock" no standin_alive
@@ -179,6 +213,9 @@ expect "disabling screensaver is allowed" ok ipc shell setPluginEnabled vgs.scre
 expect "enabling lock for lock-alone check is allowed" ok ipc shell setPluginEnabled vgs.lock true
 set_lock_seconds 4
 expect "reload for lock-alone check" ok ipc shell reloadConfig
+rescan "rescan after enabling lock alone answers ok"
+expect "lock remains enabled after lock-alone config writes" ok ipc shell setPluginEnabled vgs.lock true
+rescan "rescan after confirming lock alone answers ok"
 expect_poll "lock service is built for lock-alone" True record_exists vgs.lock
 idle_start "lock alone"
 for _ in $(seq 1 30); do
@@ -189,4 +226,8 @@ expect "lock alone locks at its time" locked session_lock
 release "screensaver lock-alone"
 expect "disabling lock after lock-alone check" ok ipc shell setPluginEnabled vgs.lock false
 expect "enabling screensaver is allowed for later rows" ok ipc shell setPluginEnabled vgs.screensaver true
+set_lock_seconds 300
+set_screensaver '{"idleEnabled": true, "idleSeconds": 150, "effect": "random", "frameRate": 30}'
+expect "enabling lock after screensaver row is allowed" ok ipc shell setPluginEnabled vgs.lock true
+expect "reload after screensaver row restore" ok ipc shell reloadConfig
 rm -f -- "${shim:?}/ttfx"

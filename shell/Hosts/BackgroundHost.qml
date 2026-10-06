@@ -56,7 +56,7 @@ Item {
             color: Theme.color.background
             WlrLayershell.namespace: host.namespace
             WlrLayershell.layer: host.shellLayer
-            WlrLayershell.keyboardFocus: host.keyboardFocus
+            WlrLayershell.keyboardFocus: PluginLogic.perScreenLayerTakesKeyboard(host.kind, Quickshell.screens, host.screen) ? host.keyboardFocus : WlrKeyboardFocus.None
             visible: slots.instances.some(slot => PluginLogic.perScreenLayerShown(host.kind, slot.instance))
 
             Variants {

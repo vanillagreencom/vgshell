@@ -27,4 +27,4 @@ Screenshot made with `scripts/readme-shots.sh`.
 
 ## Licence
 
-MIT. See `ATTRIBUTION.md` for the notice carried by the related scripts.
+MIT. See `ATTRIBUTION` for the notice carried by the related scripts.

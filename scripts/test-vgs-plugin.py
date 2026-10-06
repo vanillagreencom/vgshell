@@ -190,6 +190,10 @@ def main():
         iconed = scaffold("new", "acme.iconed", "--kinds", "service", "--dir", tmp, "--icon", "bell")
         iconed_manifest = os.path.join(tmp, "acme.iconed", "manifest.json")
         report("new writes the icon it is given", iconed.returncode == 0 and os.path.isfile(iconed_manifest) and json.load(open(iconed_manifest)).get("icon") == "bell", f"exit={iconed.returncode}\n{iconed.stdout}{iconed.stderr}")
+        covered = scaffold("new", "acme.covered", "--kinds", "cover", "--dir", tmp)
+        covered_entry = os.path.join(tmp, "acme.covered", "Cover.qml")
+        covered_text = open(covered_entry, encoding="utf-8").read() if os.path.isfile(covered_entry) else ""
+        report("new writes a cover with a shown property", covered.returncode == 0 and "property bool shown: false" in covered_text, f"exit={covered.returncode}\n{covered.stdout}{covered.stderr}")
         unknown_icon = scaffold("new", "acme.noicon", "--kinds", "service", "--dir", tmp, "--icon", "no-such-icon")
         report("new refuses an icon outside the shipped set with the judge's verdict", unknown_icon.returncode == 2 and first_line(unknown_icon.stdout) == "vgs-plugin: refused: manifest=acme.noicon" and "icon must name an icon of the shipped set" in unknown_icon.stdout and not os.path.exists(os.path.join(tmp, "acme.noicon")), f"exit={unknown_icon.returncode}\n{unknown_icon.stdout}{unknown_icon.stderr}")
         quoted = scaffold("new", "acme.quoted", "--kinds", "service", "--dir", tmp, "--description", 'A "quick" probe')

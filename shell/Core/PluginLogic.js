@@ -2907,6 +2907,10 @@ function perScreenLayerShown(kind, instance) {
     return false;
 }
 
+function perScreenLayerTakesKeyboard(kind, screens, screen) {
+    return kind === "cover" && Array.isArray(screens) && screens.length > 0 && screen !== null && screens[0].name === screen.name;
+}
+
 // What a manifest's `menu` key may hold: launcher rows keyed by a dotted id
 // whose dots name its parent, as in the launcher's menu files. A row with a
 // `shortcut` runs that registered shortcut of the plugin's own; one without
