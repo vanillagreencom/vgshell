@@ -83,11 +83,12 @@ const LOCK_SECTION = [
     "hl.config({ misc = { allow_session_lock_restore = true } })"
 ];
 
-// The user binds' recorder, byte for byte: it wraps hl.bind once and
-// records the file and line of each default-submap bind made outside the
-// layer, and its report reads each line's text. scripts/smoke/rows/
-// hyprland-options.sh reads the record back from the nested Hyprland
-// v0.56.2.
+// The user binds' recorder, byte for byte: it wraps hl.bind once, calls
+// Hyprland's own hl.bind from a chunk at the user's file and line so a
+// bind's error names them, records the file and line of each
+// default-submap bind made outside the layer, and its report reads each
+// line's text. scripts/smoke/rows/hyprland-options.sh reads the record and
+// a broken bind's error back from the nested Hyprland v0.56.2.
 const USER_BINDS_SECTION = [
     "-- User binds: where the user's configuration binds each key, which the shell names beside a key it also binds.",
     "do",
@@ -95,28 +96,36 @@ const USER_BINDS_SECTION = [
     "    hl.__vgs_binds = binds",
     "    binds.layer = debug.getinfo(1, \"S\").source",
     "    binds.rows = {}",
+    "    binds.sites = {}",
     "    local function json(value)",
     "        return \"\\\"\" .. string.gsub(value, \"[%c\\\"\\\\]\", function(c) return string.format(\"\\\\u%04x\", string.byte(c)) end) .. \"\\\"\"",
     "    end",
     "    if not binds.wrapped then",
     "        binds.wrapped = true",
     "        binds.bind = hl.bind",
+    "        local function caller()",
+    "            local level = 1",
+    "            while true do",
+    "                local info = debug.getinfo(level, \"Sl\")",
+    "                if info == nil then return nil end",
+    "                if info.what ~= \"C\" and not (info.source == binds.layer and info.what ~= \"main\") then",
+    "                    if info.source == binds.layer or string.sub(info.source, 1, 1) ~= \"@\" or info.currentline < 1 then return nil end",
+    "                    local site = info.source .. \":\" .. info.currentline",
+    "                    if binds.sites[site] == nil then",
+    "                        binds.sites[site] = assert(load(string.rep(\"\\n\", info.currentline - 1) .. \"local bind = ... return (bind(select(2, ...)))\", info.source, \"t\"))",
+    "                    end",
+    "                    return binds.sites[site], info",
+    "                end",
+    "                level = level + 1",
+    "            end",
+    "        end",
     "        hl.bind = function(...)",
-    "            local bind = binds.bind(...)",
+    "            local found, call, info = pcall(caller)",
+    "            if not found or call == nil then return binds.bind(...) end",
+    "            local bind = call(binds.bind, ...)",
     "            pcall(function()",
     "                if bind == nil or (bind.submap ~= \"\" and bind.submap ~= \"default\") then return end",
-    "                local level = 1",
-    "                while true do",
-    "                    local info = debug.getinfo(level, \"Sl\")",
-    "                    if info == nil then return end",
-    "                    if info.what ~= \"C\" and not (info.source == binds.layer and info.what ~= \"main\") then",
-    "                        if info.source ~= binds.layer and string.sub(info.source, 1, 1) == \"@\" then",
-    "                            binds.rows[#binds.rows + 1] = { file = string.sub(info.source, 2), line = info.currentline, modmask = bind.modmask, key = bind.key, keycode = bind.keycode }",
-    "                        end",
-    "                        return",
-    "                    end",
-    "                    level = level + 1",
-    "                end",
+    "                binds.rows[#binds.rows + 1] = { file = string.sub(info.source, 2), line = info.currentline, modmask = bind.modmask, key = bind.key, keycode = bind.keycode }",
     "            end)",
     "            return bind",
     "        end",
@@ -140,7 +149,7 @@ const USER_BINDS_SECTION = [
     "end"
 ];
 // The index of the last line of the core's sections in LINES.
-const coreEnd = lines => lines.indexOf(USER_BINDS_SECTION[0]) + USER_BINDS_SECTION.length - 1;
+const coreEnd = lines => lines.indexOf(LOCK_SECTION[0]) + LOCK_SECTION.length - 1;
 
 // The key capture pass-through, byte for byte: its submap's one bind is
 // Escape, so every other key reaches the focused app or shell window.
@@ -723,7 +732,7 @@ function verify(logic, layer, shellText) {
     const gapsOther = lines(layer.render([gapsSection(true)], otherTheme, "dusk", 1));
     same(gapsOther.slice(gapsOther.indexOf(NO_GAPS_SECTION[0]), gapsOther.indexOf(NO_GAPS_SECTION[0]) + NO_GAPS_SECTION.length), NO_GAPS_SECTION, "another theme leaves the gap rule as it was");
     assert.ok(bareLines.indexOf(TUI_SECTION[0]) < bareLines.indexOf(APP_SECTION[0]), "floating TUIs are before application windows");
-    same(bareLines.slice(bareLines.indexOf(TUI_SECTION[0])), [...TUI_SECTION, "", ...APP_SECTION, "", ...captureSection([]), "", ...PASSTHROUGH_SECTION, "", ...LOCK_SECTION, "", ...USER_BINDS_SECTION, "", ...SWEEP_SECTION, ""], "a layer with no plugin section ends with the floating TUIs window rules, the application window rule, overlay capture, the key capture pass-through, the session lock's restore, the user binds' recorder, then the pads' sweep");
+    same(bareLines.slice(bareLines.indexOf(TUI_SECTION[0])), [...TUI_SECTION, "", ...APP_SECTION, "", ...USER_BINDS_SECTION, "", ...captureSection([]), "", ...PASSTHROUGH_SECTION, "", ...LOCK_SECTION, "", ...SWEEP_SECTION, ""], "a layer with no plugin section ends with the floating TUIs window rules, the application window rule, the user binds' recorder, overlay capture, the key capture pass-through, the session lock's restore, then the pads' sweep");
     // Pads: the section of the first plugin by id whose pads are declared,
     // after its binds, its motion from the theme.
     same(layer.PADS, { table: "__vgs_pads", verb: "toggle", workspace: "special:vgs-pad-", curve: "vgsPad", answers: ["no-pad", "no-window", "no-screen"] }, "the pads name their Lua table, toggle, workspace prefix, curve and the keys of their refusals");
@@ -866,6 +875,8 @@ function verify(logic, layer, shellText) {
         "",
         ...APP_SECTION,
         "",
+        ...USER_BINDS_SECTION,
+        "",
         ...captureSection([
             "    hl.bind(\"SUPER + SPACE\", hl.dsp.global(\"acme.keys:toggle\"), { description = \"acme.keys:toggle\" })",
             "    hl.bind(\"SUPER + N\", hl.dsp.global(\"vgs.notes:inbox\"), { description = \"vgs.notes:inbox\" })",
@@ -874,8 +885,6 @@ function verify(logic, layer, shellText) {
         ...PASSTHROUGH_SECTION,
         "",
         ...LOCK_SECTION,
-        "",
-        ...USER_BINDS_SECTION,
         "",
         "-- acme.keys 2?os.exit(): binds and layer rules from its manifest",
         "hl.layer_rule({ name = \"acme.keys:overlay\", match = { namespace = \"^vgs:overlay$\" }, blur = true, ignore_alpha = 0.6 })",
@@ -1251,12 +1260,13 @@ const CONTROLS = [
     [layerFile, "floating TUI class anchored", "return \"\\\"^\" + appId.split(\".\").join(\"\\\\\\\\.\") + \"$\\\"\";", "return \"\\\"\" + appId.split(\".\").join(\"\\\\\\\\.\") + \"\\\"\";"],
     [layerFile, "application window rule written", "tuiWindowLines(theme.tuiMargins), [\"\"], appWindowLines());", "tuiWindowLines(theme.tuiMargins));"],
     [layerFile, "application window rule after the TUIs", "tuiWindowLines(theme.tuiMargins), [\"\"], appWindowLines());", "appWindowLines(), [\"\"], tuiWindowLines(theme.tuiMargins));"],
-    [layerFile, "session lock restore written", "keyPassthroughLines(), [\"\"], sessionLockLines(), [\"\"], userBindLines());", "keyPassthroughLines(), [\"\"], userBindLines());"],
-    [layerFile, "user binds' recorder written", "sessionLockLines(), [\"\"], userBindLines());", "sessionLockLines());"],
+    [layerFile, "session lock restore written", "keyPassthroughLines(), [\"\"], sessionLockLines());", "keyPassthroughLines());"],
+    [layerFile, "user binds' recorder written", "[\"\"], userBindLines(), [\"\"], overlayCaptureLines(plan)", "[\"\"], overlayCaptureLines(plan)"],
     [layerFile, "user binds' recorder records the user's call sites", "binds.rows[#binds.rows + 1] = { file = ", "local _ = { file = "],
-    [layerFile, "no monitor rule written", "[\"\"], sessionLockLines(), [\"\"], userBindLines());", "[\"\"], sessionLockLines(), [\"\"], userBindLines(), [\"hl.monitor({ output = \\\"DP-1\\\", disabled = true })\"]);"],
+    [layerFile, "user binds' recorder calls hl.bind at the user's call site", "local bind = call(binds.bind, ...)", "local bind = binds.bind(...)"],
+    [layerFile, "no monitor rule written", "[\"\"], sessionLockLines());", "[\"\"], sessionLockLines(), [\"hl.monitor({ output = \\\"DP-1\\\", disabled = true })\"]);"],
     [layerFile, "key pass-through written", "[\"\"], keyPassthroughLines(), [\"\"], sessionLockLines()", "[\"\"], sessionLockLines()"],
-    [layerFile, "key pass-through before the lock restore", "lines = lines.concat([\"\"], overlayCaptureLines(plan), [\"\"], keyPassthroughLines(), [\"\"], sessionLockLines(),", "lines = lines.concat([\"\"], overlayCaptureLines(plan), [\"\"], sessionLockLines(), [\"\"], keyPassthroughLines(),"],
+    [layerFile, "key pass-through before the lock restore", "[\"\"], overlayCaptureLines(plan), [\"\"], keyPassthroughLines(), [\"\"], sessionLockLines());", "[\"\"], overlayCaptureLines(plan), [\"\"], sessionLockLines(), [\"\"], keyPassthroughLines());"],
     [layerFile, "key pass-through cancels on Escape", "hl.dsp.submap(\\\"reset\\\"), { description = ", "hl.dsp.exec_cmd(\\\"true\\\"), { description = "],
     [layerFile, "key pass-through leaves only its submap", "        \"        if hl.get_current_submap() == passthrough.submap then hl.dispatch(hl.dsp.submap(\\\"reset\\\")) end\",", "        \"        hl.dispatch(hl.dsp.submap(\\\"reset\\\"))\","],
     [layerFile, "key pass-through enters only from a shell window", "if window == nil or window.class ~= passthrough.class then error(", "if window == nil then error("],
@@ -1272,7 +1282,7 @@ const CONTROLS = [
     [shellFile, "shell.qml sets the shell's app-id", "//@ pragma AppId org.vgs.shell\n", ""],
     [shellFile, "shell.qml's app-id is the layer's", "//@ pragma AppId org.vgs.shell\n", "//@ pragma AppId org.vgs.other\n"],
     [shellFile, "the app-id pragma comes before the imports", "//@ pragma AppId org.vgs.shell\nimport QtQuick\n", "import QtQuick\n//@ pragma AppId org.vgs.shell\n"],
-    [layerFile, "overlay capture section written", "lines = lines.concat([\"\"], overlayCaptureLines(plan), [\"\"], keyPassthroughLines(),", "lines = lines.concat([\"\"], keyPassthroughLines(),"],
+    [layerFile, "overlay capture section written", "userBindLines(), [\"\"], overlayCaptureLines(plan), [\"\"], keyPassthroughLines(),", "userBindLines(), [\"\"], keyPassthroughLines(),"],
     [layerFile, "capture binds enabled plugin shortcuts", "].concat(overlayCapturePluginBindLines(plan), [", "].concat([], ["],
     [layerFile, "capture wraps focus dispatchers", "hl.dsp.focus = function(opts)", "hl.dsp.focus = capture.focus --"],
     [layerFile, "capture wraps binds", "hl.bind = function(keys, dispatcher, opts)", "hl.bind = capture.bind --"],

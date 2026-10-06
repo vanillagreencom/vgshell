@@ -38,6 +38,14 @@
 # my line asks before it removes", "the line stays while the confirmation
 # asks" and "the user's files, their modes and the symlink are as they
 # were".
+#
+# A broken bind of the user's: Hyprland's configuration error names the
+# user's file and line. The reload and the configerrors read go in one
+# batch request. Control run on 2026-10-06, host cachy, through this row
+# after the consent row, on a source_tree copy of the shell whose
+# HyprlandLayer.js calls Hyprland's hl.bind from the layer's own wrapper:
+# it failed "the broken bind's configuration error names the user's file
+# and line", reading the layer's vgs.lua at line 142.
 # inputs: scripts/smoke/fixtures/plugins/acme.hyprland/* scripts/smoke/fixtures/plugins/acme.hyprland-other/* shell/Core/PluginLogic.js shell/Core/HyprlandLayer.js shell/Core/HyprlandState.* shell/Core/KeyCapture.qml shell/Core/Dispatch.js shell/Core/Compositor.qml shell/plugins/vgs.settings/* shell/Ui/controls/BindField.qml shell/Ui/controls/ShortcutField.qml shell/Ui/feedback/LinkText.qml bin/vgshell bin/vgshell-hypr-judge scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 hypr_lua="$home/.config/hypr/hyprland.lua"
@@ -80,6 +88,16 @@ layer_mentions() { if grep -qF -- "$1" "$hypr_layer"; then echo yes; else echo n
 hypr_problems() { ipc shell listPlugins | py_reply 'import json,sys; print(json.dumps(sorted(e["error"] for e in json.load(sys.stdin)["errors"] if e["error"].startswith("hyprland: "))))'; }
 has_problem() { hypr_problems | py_reply 'import json,sys; print(sys.argv[1] in json.load(sys.stdin))' "$1"; }
 config_errors() { hypr -j configerrors | py_reply 'import json,sys; print(json.dumps([e for e in json.load(sys.stdin) if e]))'; }
+# Reload the nested instance and read configerrors in one batch request, so
+# no `hyprctl eval` the shell sends after the reload empties the list first
+# (CConfigManager::eval, v0.56.2): the reload's reply, then [file, line] for
+# each error.
+reload_error_sites() {
+  hypr --batch 'reload config-only ; j/configerrors' | py_reply '
+import json, sys
+reload, errors = sys.stdin.read().split("\n\n\n")
+print(json.dumps([reload.strip(), [[s[0], int(s[1])] for s in (e.split(": ", 1)[0].rsplit(":", 1) for e in json.loads(errors) if e)]]))'
+}
 switch_layout() { ipc acme.hyprland invoke switch "$1"; }
 # Merge JSON object WANT into the fixture's plugins row in shell.json.
 set_options() {
@@ -198,6 +216,15 @@ expect "the new Lua state holds the same record" 'error: vgs-user-values=[{"path
 expect_poll "userValues is the same after the second reload" '[{"path":"input.sensitivity","value":-0.5}]' read_options userValues
 expect "the second reload holds no configuration error" '[]' config_errors
 expect "the user's files, their modes and the symlink are as they were" "$user_before" user_files
+
+# A broken bind of the user's: Hyprland's configuration error names the
+# user's file and line, not the layer's wrapper that passes the bind on.
+cp -- "$user_hypr/hyprland.lua" "$sandbox/hyprland-before-broken-bind.lua"
+printf '%s\n' 'hl.bind("SUPER + F9", hl.dsp.exec_cmd("true"), { click = true, drag = true })' >>"$user_hypr/hyprland.lua"
+broken_line="$(wc -l <"$user_hypr/hyprland.lua")"
+expect "the broken bind's configuration error names the user's file and line" "[\"ok\", [[\"$hypr_lua\", $broken_line]]]" reload_error_sites
+cp -- "$sandbox/hyprland-before-broken-bind.lua" "$user_hypr/hyprland.lua.next" && mv -T -- "$user_hypr/hyprland.lua.next" "$user_hypr/hyprland.lua"
+expect "the nested instance reloads without the broken bind" ok hypr reload config-only
 
 # Two layouts: the switch moves every keyboard, and the devices follow.
 expect_poll "the keyboards start on the first layout" '["English (US)"]' keymaps

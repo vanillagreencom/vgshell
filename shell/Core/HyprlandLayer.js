@@ -617,12 +617,18 @@ function sessionLockLines() {
 }
 
 // USER_BINDS: the layer loads first, so it wraps `hl.bind` before any line
-// of the user's runs. The wrapper records the file and line of each
-// default-submap bind whose nearest caller outside the layer's own
-// functions is not this file: Hyprland keeps `debug.getinfo`
-// (CConfigManager::reinitLuaState removes only `sethook` and `gethook`,
-// v0.56.2), and the bind it returns names its mask, key and keycode. A
-// call site with no file, such as a chunk `load` built, is not recorded.
+// of the user's runs, and the overlay capture wraps it after, so this
+// wrapper is the one that calls Hyprland's own `hl.bind`. It finds the
+// nearest caller outside the layer's own functions: Hyprland keeps
+// `debug.getinfo` (CConfigManager::reinitLuaState removes only `sethook`
+// and `gethook`, v0.56.2). When that caller is a file other than this one,
+// the wrapper calls Hyprland's `hl.bind` from a chunk loaded under that
+// file's name, its call on that line: Hyprland names a bind's error at its
+// direct caller (Internal::configError, getSourceInfo stack level 1), and
+// Lua 5.5 keeps the calling frame for a tail call to a C function, so a
+// call from the wrapper would name this file. It records the file and line
+// of each such default-submap bind, which names its mask, key and keycode.
+// A call site with no file, such as a chunk `load` built, is not recorded.
 // `report` reads each recorded line's text from its file as it stands.
 function userBindLines() {
     var u = USER_BINDS;
@@ -633,28 +639,36 @@ function userBindLines() {
         "    hl." + u.table + " = binds",
         "    binds.layer = debug.getinfo(1, \"S\").source",
         "    binds.rows = {}",
+        "    binds.sites = {}",
         "    local function json(value)",
         "        return \"\\\"\" .. string.gsub(value, \"[%c\\\"\\\\]\", function(c) return string.format(\"\\\\u%04x\", string.byte(c)) end) .. \"\\\"\"",
         "    end",
         "    if not binds.wrapped then",
         "        binds.wrapped = true",
         "        binds.bind = hl.bind",
+        "        local function caller()",
+        "            local level = 1",
+        "            while true do",
+        "                local info = debug.getinfo(level, \"Sl\")",
+        "                if info == nil then return nil end",
+        "                if info.what ~= \"C\" and not (info.source == binds.layer and info.what ~= \"main\") then",
+        "                    if info.source == binds.layer or string.sub(info.source, 1, 1) ~= \"@\" or info.currentline < 1 then return nil end",
+        "                    local site = info.source .. \":\" .. info.currentline",
+        "                    if binds.sites[site] == nil then",
+        "                        binds.sites[site] = assert(load(string.rep(\"\\n\", info.currentline - 1) .. \"local bind = ... return (bind(select(2, ...)))\", info.source, \"t\"))",
+        "                    end",
+        "                    return binds.sites[site], info",
+        "                end",
+        "                level = level + 1",
+        "            end",
+        "        end",
         "        hl.bind = function(...)",
-        "            local bind = binds.bind(...)",
+        "            local found, call, info = pcall(caller)",
+        "            if not found or call == nil then return binds.bind(...) end",
+        "            local bind = call(binds.bind, ...)",
         "            pcall(function()",
         "                if bind == nil or (bind.submap ~= \"\" and bind.submap ~= \"default\") then return end",
-        "                local level = 1",
-        "                while true do",
-        "                    local info = debug.getinfo(level, \"Sl\")",
-        "                    if info == nil then return end",
-        "                    if info.what ~= \"C\" and not (info.source == binds.layer and info.what ~= \"main\") then",
-        "                        if info.source ~= binds.layer and string.sub(info.source, 1, 1) == \"@\" then",
-        "                            binds.rows[#binds.rows + 1] = { file = string.sub(info.source, 2), line = info.currentline, modmask = bind.modmask, key = bind.key, keycode = bind.keycode }",
-        "                        end",
-        "                        return",
-        "                    end",
-        "                    level = level + 1",
-        "                end",
+        "                binds.rows[#binds.rows + 1] = { file = string.sub(info.source, 2), line = info.currentline, modmask = bind.modmask, key = bind.key, keycode = bind.keycode }",
         "            end)",
         "            return bind",
         "        end",
@@ -1090,8 +1104,8 @@ function appliedLines(values, paths) {
 // A group whose switch is off is a comment after it, and `noGaps` follows
 // them, written where it stands. The floating
 // TUIs' window rules follow them, then the shell's application window
-// rule, the overlay capture, the key capture pass-through, the session
-// lock's restore and the user binds' recorder (userBindLines), before any
+// rule, the user binds' recorder (userBindLines), the overlay capture, the
+// key capture pass-through and the session lock's restore, before any
 // plugin section, whatever the sections. A
 // section whose plugins row sets options is preceded by its options
 // section, the touchpad lines and comments of optionLines, when it has
@@ -1118,7 +1132,7 @@ function render(sections, theme, themeName, highestScale, touchpads, touchpadFai
     else groups.push(disabledGroupLine("noGaps", switches.groups.noGaps.setting));
     var lines = [""].concat(groups, [""], tuiWindowLines(theme.tuiMargins), [""], appWindowLines());
     if (tapTrackerWanted(plan)) lines = lines.concat([""], tapTrackerLines());
-    lines = lines.concat([""], overlayCaptureLines(plan), [""], keyPassthroughLines(), [""], sessionLockLines(), [""], userBindLines());
+    lines = lines.concat([""], userBindLines(), [""], overlayCaptureLines(plan), [""], keyPassthroughLines(), [""], sessionLockLines());
     var written = Object.create(null);
     var options = { written: [], conflicts: [], refusals: [] };
     var optionsHeld = Object.create(null);
