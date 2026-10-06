@@ -65,6 +65,16 @@ rows=json.load(sys.stdin)
 print("idle" if len(rows)==1 and rows[0]=={"pending":False,"code":0} else "pending")
 '
 }
+# The run's end starts the Accounts discovery in the same change the core
+# reports, so a reader with no discovery pending or starting has published
+# the one that end asked for. A value the previous step left can match first.
+jarvis_accounts_reader_idle() {
+  ipc smoke itemValues service vgs.jarvis Accounts pending,completion | py_reply '
+import json,sys
+rows=json.load(sys.stdin)
+print("idle" if len(rows)==1 and rows[0]["pending"] is False and rows[0]["completion"]["kind"] in ("exited","crashed") else "pending")
+'
+}
 
 jarvis_restore_requirements() {
   local command
@@ -906,6 +916,7 @@ rm -f -- "${sandbox:?}/jarvis-world/account-labels"
 # The core file lies outside the plugin, so no rescan rebuilds anything:
 # the next discovery, after an Accounts run ends, reads the copy.
 jarvis_open_accounts
+expect_poll "the bound control's discovery is published" idle jarvis_accounts_reader_idle
 expect_poll "the bound control publishes its partial search" '["warning", true, false, false]' jarvis_account_search
 jarvis_account_bound_control() {
   (failures=0 behaviour_failures=0
@@ -916,6 +927,7 @@ expect "dropping the folders read before the bound breaks the folder read" 1 jar
 cp -- "$sandbox/jarvis-folders-original" "$jarvis_folders"
 rm -f -- "${sandbox:?}/jarvis-world/account-labels"
 jarvis_open_accounts
+expect_poll "the restored search's discovery is published" idle jarvis_accounts_reader_idle
 expect_poll "the restored search keeps its folders again" matched jarvis_account_labels
 # A linked config home is not followed: the search is partial, keeps the
 # home's folders, warns and offers Accounts.
