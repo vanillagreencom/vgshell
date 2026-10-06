@@ -151,7 +151,7 @@ Item {
         }
 
         function test_section_header_and_divider() {
-            const eyebrow = header.children[0];
+            const eyebrow = header.children[0].children[0];
             compare(eyebrow.role, "eyebrow");
             compare(eyebrow.text, "Listed since");
             compare(header.topPadding, 0);

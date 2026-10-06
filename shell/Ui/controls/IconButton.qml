@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Window
 import qs.Commons
 import qs.Ui
 
@@ -16,12 +17,61 @@ import qs.Ui
 // `glyphStart` and `glyphEnd` are the distances from the box's edges to
 // the glyph's painted ink: a header that puts a glyph, not a box, on its
 // content edge shifts the button by them (design-layout.md § Headers).
+// When `info` is set, the button opens an anchored dialog explaining that
+// row. Close, Escape or a press outside closes it and returns focus to the
+// button.
 Button {
     id: root
 
     property string label: ""
+    property string infoTitle: ""
+    property string info: ""
     readonly property real glyphStart: leftPadding + contentItem.painted[0]
     readonly property real glyphEnd: rightPadding + contentItem.size - contentItem.painted[2]
+    property var infoWindow: null
+    readonly property bool infoOpen: infoWindow !== null && infoWindow.opened
+    property bool infoReturnWasVisual: false
+    property bool infoReturning: false
+
+    function openInfo(reason) {
+        const popup = ensureInfoWindow();
+        if (popup === null) return;
+        infoReturnWasVisual = root.visualFocus;
+        infoReturning = true;
+        popup.open(reason === undefined ? Qt.TabFocusReason : reason);
+    }
+
+    function closeInfo() {
+        if (infoWindow !== null) infoWindow.close();
+    }
+
+    function infoClosed() {
+        if (!infoReturning) return;
+        const reason = infoReturnWasVisual ? Qt.TabFocusReason : Qt.MouseFocusReason;
+        Qt.callLater(() => {
+            if (Window.window !== null) Window.window.requestActivate();
+            forceActiveFocus(reason);
+            infoReturning = false;
+        });
+    }
+
+    function ensureInfoWindow() {
+        if (info === "") return null;
+        if (infoWindow !== null) return infoWindow;
+        // A Window child has a top-level lifetime even while hidden, so the
+        // popover is built only for buttons that show an explanation.
+        const qml = 'import QtQuick\nimport qs.Commons\nimport qs.Ui\nPopover { id: pop; property var owner: null; width: owner === null ? Theme.dialog.width : OverlayState.widthFor(owner, Theme.dialog.width); onOpenedChanged: if (!opened && owner !== null) owner.infoClosed(); Dialog { width: parent.width; modal: true; availableHeight: pop.availableHeight; title: pop.owner === null ? "" : pop.owner.infoTitle !== "" ? pop.owner.infoTitle : pop.owner.label; message: pop.owner === null ? "" : pop.owner.info; actions: [{ label: "Close", role: "cancel", focused: true }]; onRejected: if (pop.owner !== null) pop.owner.closeInfo(); } }';
+        infoWindow = Qt.createQmlObject(qml, root, "IconButtonInfoDialog");
+        infoWindow.owner = root;
+        return infoWindow;
+    }
+
+    function destroyInfoWindow() {
+        if (infoWindow === null) return;
+        const old = infoWindow;
+        infoWindow = null;
+        old.destroy();
+    }
 
     variant: "ghost"
     leftPadding: Math.floor((controlHeight - sizeTokens.icon) / 2)
@@ -32,6 +82,9 @@ Button {
     Accessible.name: label
 
     Component.onCompleted: if (label === "") console.error("IconButton: label is required, icon=" + JSON.stringify(iconName))
+    Component.onDestruction: destroyInfoWindow()
+    onInfoChanged: if (info === "") destroyInfoWindow()
+    onClicked: if (info !== "") openInfo(visualFocus ? Qt.ShortcutFocusReason : Qt.MouseFocusReason)
 
     contentItem: Icon {
         name: root.iconName
@@ -43,4 +96,5 @@ Button {
     Tooltip {
         text: root.label
     }
+
 }

@@ -24,6 +24,7 @@ Column {
 
     property string label: ""
     property string hint: ""
+    property string info: ""
     property string command: ""
     property string tone: ""
     property string text: ""
@@ -65,6 +66,7 @@ Column {
         id: field
         width: line.width
         label: line.label
+        info: line.info
         inline: true
         hint: line.valued ? line.hint : ""
         error: line.error

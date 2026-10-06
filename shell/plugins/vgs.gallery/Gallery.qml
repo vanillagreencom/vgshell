@@ -432,6 +432,12 @@ Item {
                     Label { role: "itemCode"; text: "gum" }
                     Label { role: "itemCode"; text: "xdg-terminal-exec" }
                 }
+                Field {
+                    label: "Info"
+                    inline: true
+                    info: "This icon opens a small explanation without adding another hint line to the page."
+                    Label { role: "value"; text: "Declared explanation" }
+                }
 
                 }
                 Section {

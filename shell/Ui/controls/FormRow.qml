@@ -37,6 +37,7 @@ Item {
     property string warning: ""
     property string warningLink: ""
     property string warningTone: "warning"
+    property string info: ""
     property bool labelColumn: true
     default property alias control: slot.data
     property alias action: actionSlot.data
@@ -68,11 +69,23 @@ Item {
         role: "label"
         text: root.label
         visible: root.labelColumn
-        width: Theme.field.labelWidth
+        width: Theme.field.labelWidth - (infoButton.visible ? infoButton.width + Theme.space.xs : 0)
         wrapMode: Text.Wrap
         maximumLineCount: 2
         elide: Text.ElideRight
         y: lineCount > 1 ? Math.round((root.boxHeight - implicitHeight) / 2) : topForCapCenter(root.boxHeight)
+    }
+
+    IconButton {
+        id: infoButton
+        visible: root.info !== "" && root.labelColumn
+        iconName: "info"
+        label: "About " + root.label
+        infoTitle: root.label
+        info: root.info
+        size: "sm"
+        x: Theme.field.labelWidth - width
+        y: Math.round((root.boxHeight - height) / 2)
     }
 
     Item {

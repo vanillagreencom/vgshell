@@ -39,6 +39,7 @@ Column {
     readonly property bool customVisible: allowCustom && (customChosen || selectedPresetIndex < 0)
     readonly property string labelText: spec.label !== undefined ? String(spec.label) : key
     readonly property string hintText: spec.description !== undefined ? String(spec.description) : ""
+    readonly property string infoText: spec.info !== undefined ? String(spec.info) : ""
     // What the configuration holds, as a text editor shows it.
     readonly property string heldText: value === undefined ? "" : String(value)
     readonly property bool edited: editing(loader.item) || editing(customLoader.item)
@@ -113,6 +114,7 @@ Column {
         id: primary
         width: root.width
         label: root.labelText
+        info: root.infoText
         hint: root.customVisible ? "" : root.hintText
         inline: true
 

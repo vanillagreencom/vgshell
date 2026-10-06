@@ -182,7 +182,7 @@ Types refused as an instantiation anywhere in a plugin's QML or JS: `PanelWindow
 | `Icon` | `Item` | `name`: a Lucide icon; `size`, `color`, `stroke` |
 | `QrMatrix` | `Item` | `matrixData`: a square binary matrix with newline-separated rows; draws whole modules with `Theme.qrMatrix` colours and size; holds no encoder, file or secret store |
 | `Surface`, `Divider`, `FocusRing`, `KeyNav`, `KeyNavLogic` | `Rectangle`, `Item`, JavaScript module | `level`; `vertical`; `target`; roving keyboard navigation for one composite; shared key intent and activation helpers |
-| `Button`, `IconButton`, `ToggleButton` | `T.Button` | `text`, `iconName`, `variant` (`primary`, `secondary`, `tertiary`, `ghost`, `danger`), `size` (`sm`, `md`, `lg`), `focusPreview`; `label` and `shortcut` for an icon button |
+| `Button`, `IconButton`, `ToggleButton` | `T.Button` | `text`, `iconName`, `variant` (`primary`, `secondary`, `tertiary`, `ghost`, `danger`), `size` (`sm`, `md`, `lg`), `focusPreview`; `label` and `shortcut` for an icon button; `infoTitle` and `info` for a small explanation dialog |
 | `BarItem` | `T.AbstractButton` | one item of the bar, which every bar widget draws: `iconName`, `text`, `count`, `tone` (the bar's colour), `active`, `spinning`, `label` for an icon alone, `shortcut`, `focusPreview`; `clicked` |
 | `SegmentedControl` | `T.Control` | `model`, `currentIndex`, `focusPreview`, `activated(index)` |
 | `Switch`, `Checkbox`, `Radio` | `T.Switch`, `T.CheckBox`, `T.RadioButton` | `text`, `checked` |
@@ -190,8 +190,8 @@ Types refused as an instantiation anywhere in a plugin's QML or JS: `PanelWindow
 | `TextField` | `T.TextField` | `placeholderText`, `leadingIcon`, `trailingIcon`, `actions`, `error`, `validator`, `password`, which masks what is typed |
 | `ShortcutField` | `FocusScope` | `key`, `capture` (`shell.shortcut.capture`), `editable`, `placeholder`, `conflict`, `actions`, `capturing`, `typing`; `pluginId` and `shortcut`, the plugin bind the key belongs to, which make `found` the capture's `conflicts` answer and `conflict` its `hint`; `committed(key)`, `typed(text)`, `cleared()`: a key combo the user presses, or types as `MOD+KEY` behind its keyboard button |
 | `BindField` | `Field` | `pluginId`, `bind` (`{ shortcut, key, default, description }`, one bind the manager lists), `capture`, `editable`, `actions`, `found`; `applyKey(key)`, a key string, or null to unbind: one plugin bind as a form row over a `ShortcutField` that draws the bind's conflict hint |
-| `Field` | `Column` | `label`, `hint`, `error`, `inline`; the control as its child |
-| `FormRow` | `Item` | the one key/value row, which `Field` composes: `label`, the control as its child, ending on the row's end edge; `warning` and `warningTone`, the row's message as `hint` text under the value column in the colour of tone `warning`, `danger` or `muted`; `warningLink`, a substring of `warning` drawn as a link that emits `warningLinkActivated`; `action`, one control drawn on the message's line at the row's end edge while the row has a message, or under the message where the row is too narrow for both; `labelColumn`; `valueX` |
+| `Field` | `Column` | `label`, `hint`, `info`, `error`, `inline`; the control as its child |
+| `FormRow` | `Item` | the one key/value row, which `Field` composes: `label`, the control as its child, ending on the row's end edge; `info`, an icon beside the label that opens one short explanation; `warning` and `warningTone`, the row's message as `hint` text under the value column in the colour of tone `warning`, `danger` or `muted`; `warningLink`, a substring of `warning` drawn as a link that emits `warningLinkActivated`; `action`, one control drawn on the message's line at the row's end edge while the row has a message, or under the message where the row is too narrow for both; `labelColumn`; `valueX` |
 | `LinkText` | `Item` | `text`, plain text; `link`, every matching substring drawn as a link; `role`; `linked`; `lineCount`; `activated()` and `clicked()`, emitted together. It takes Tab focus while `linked` and activates from Enter, Return, Space or a press on the link |
 | `Spinner`, `ProgressBar` | `Item`, `T.ProgressBar` | `running`; `value`, `indeterminate` |
 | `LevelOsd` | `Rectangle` | an on-screen display's card for a passive layer: `iconName`, `level` (a share, held to 0 to 1), `text` (the percentage unless the caller names it, such as Muted); takes no focus and no press |
@@ -271,6 +271,8 @@ A plugin's script that sends a desktop notification, such as `notify-send` from 
 The field table is [`docs/architecture/plugin-manifest.md` § Manifest](../../../../docs/architecture/plugin-manifest.md#manifest). An unknown key refuses the manifest.
 
 A plugin of kind `pane` declares `pane: { group, order }`; the enabled `panes` holder uses those values to group and sort the section list.
+
+A `schema` entry or drawn `status` entry may declare `info`, one printable explanation. The Settings page draws an info icon beside that row and opens the explanation in a dialog.
 
 
 `hyprland.appearance` is an object for a plugin that has capability `theme`. It maps `borders`, `radius`, `motion` or `noGaps` to a boolean setting key in the same manifest schema. The first enabled plugin by id that declares appearance owns the switches. A later declaration is reported as a Hyprland problem and ignored. The core uses defaults when no owner declares a group: borders on, radius on, motion off and no gaps off. While `borders`, `radius` or `motion` is on, its values hold over a user's own Hyprland lines; off, the layer writes none of them and the user's apply. `noGaps` writes zero gaps as a workspace rule, which holds over a user's later `general` gaps; only a later workspace rule that sets gaps overrides it.

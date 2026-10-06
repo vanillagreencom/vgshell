@@ -457,6 +457,7 @@ FocusScope {
                             width: body.width
                             title: page.row.schema[modelData].label
                             description: page.row.schema[modelData].description === undefined ? "" : page.row.schema[modelData].description
+                            info: page.row.schema[modelData].info === undefined ? "" : page.row.schema[modelData].info
 
                             ListField {
                                 width: listSection.width

@@ -43,7 +43,7 @@ var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent", "panes"];
 // editor; `min`, `max` and `step` bound a number's control; `group` names
 // the section heading the entry is drawn under. Pads.js judges a `list`.
 var SETTING_TYPES = ["string", "number", "boolean", "enum", "list"];
-var SCHEMA_ENTRY_KEYS = ["type", "label", "description", "options", "optionsFrom", "presets", "allowCustom", "format", "unit", "min", "max", "step", "group", "items", "defaults"];
+var SCHEMA_ENTRY_KEYS = ["type", "label", "description", "info", "options", "optionsFrom", "presets", "allowCustom", "format", "unit", "min", "max", "step", "group", "items", "defaults"];
 var NUMBER_BOUND_KEYS = ["min", "max", "step"];
 var PRESET_KEYS = ["value", "label"];
 var PRESET_LABEL_MAX = 40;
@@ -96,7 +96,7 @@ var DBUS_NAME_PART = /^[A-Za-z_-][A-Za-z0-9_-]*$/;
 // Settings window draws every other type unless the entry is `hidden`;
 // `choices` feeds a setting's Select instead of a Status row.
 var STATUS_TYPES = ["presence", "presenceList", "state", "text", "count", "time", "data", "choices", "launcherRows"];
-var STATUS_ENTRY_KEYS = ["type", "label", "group", "hint", "command", "hidden", "action", "actions"];
+var STATUS_ENTRY_KEYS = ["type", "label", "group", "hint", "info", "command", "hidden", "action", "actions"];
 // A status key names a value in `shell.status.values`, so it is a plain
 // identifier.
 var STATUS_KEY_PATTERN = /^[a-z][A-Za-z0-9]*$/;
@@ -107,6 +107,8 @@ var STATUS_LABEL_MAX = 60;
 var STATUS_HINT_MAX = 200;
 var STATUS_COMMAND_MAX = 300;
 var STATUS_TEXT_MAX = 200;
+// An info dialog is the longer help a row keeps out of the page.
+var INFO_MAX = 400;
 // The ceiling on one plugin's published values: the UTF-8 bytes of their
 // JSON. A write that would pass it is refused and the values stay.
 var STATUS_MAX_BYTES = 65536;
@@ -393,6 +395,9 @@ function schemaError(schema, settings, status) {
             return at + ".label must be a non-empty string";
         if (entry.description !== undefined && typeof entry.description !== "string")
             return at + ".description must be a string when present";
+        var schemaInfo = infoError(entry.info, at);
+        if (schemaInfo !== "")
+            return schemaInfo;
         var listBad = Pads.listEntryError(entry, at, status, schemaError);
         if (listBad !== "")
             return listBad;
@@ -500,6 +505,10 @@ function isPrintableLine(text, max) {
     return typeof text === "string" && text.length > 0 && text.length <= max && !SettingValues.CONTROL_OR_SEPARATOR.test(text);
 }
 
+function infoError(info, at) {
+    return info === undefined || isPrintableLine(info, INFO_MAX) ? "" : at + ".info must be a printable line of 1 to " + INFO_MAX + " characters when present";
+}
+
 // The first defect of a manifest's `status` key, or "". An object keyed by
 // status key (STATUS_KEY_PATTERN), each entry naming a type from
 // STATUS_TYPES and a printable `label`, with an optional printable `group`
@@ -544,6 +553,9 @@ function statusError(status, capabilities, tui, requirements, system) {
             return at + ".group must be a printable line of 1 to " + STATUS_LABEL_MAX + " characters when present";
         if (entry.hint !== undefined && !isPrintableLine(entry.hint, STATUS_HINT_MAX))
             return at + ".hint must be a printable line of 1 to " + STATUS_HINT_MAX + " characters when present";
+        var statusInfo = infoError(entry.info, at);
+        if (statusInfo !== "")
+            return statusInfo;
         if (entry.command !== undefined && !isPrintableLine(entry.command, STATUS_COMMAND_MAX))
             return at + ".command must be a printable line of 1 to " + STATUS_COMMAND_MAX + " characters when present";
         if (entry.hidden !== undefined && typeof entry.hidden !== "boolean")
@@ -569,7 +581,7 @@ function statusError(status, capabilities, tui, requirements, system) {
         if (entry.command !== undefined && entry.action === undefined && entry.type !== "data")
             return at + ".command needs an action: a command is only the Show command disclosure beside a one-click action (D061)";
         if (entry.type === "data" || entry.type === "launcherRows") {
-            var drawn = ["group", "hint", "command", "hidden", "action", "actions"];
+            var drawn = ["group", "hint", "info", "command", "hidden", "action", "actions"];
             for (var d = 0; d < drawn.length; d++) {
                 if (entry[drawn[d]] !== undefined)
                     return at + "." + drawn[d] + " needs a type Settings draws; " + entry.type + " is never drawn";
@@ -1168,8 +1180,8 @@ function statusWithheldHint(lacking) {
 
 // The Status rows the plugin manager shows for a plugin: one per entry
 // statusDisplayable admits, in manifest key order, as { key, type, label,
-// group, hint, command, action, report, value, tone }. `group`, `hint` and
-// `command` are "" when the manifest omits them. `action` is
+// group, hint, info, command, action, report, value, tone }. `group`, `hint`,
+// `info` and `command` are "" when the manifest omits them. `action` is
 // statusRowAction's: null for an entry without one, else { label, offered },
 // `offered` false while unreported. `report` is `reported` with the published `value`
 // (statusRowValue) and its `tone`, or `unreported` with `value` null and
@@ -1196,6 +1208,7 @@ function statusRows(manifest, values, missing) {
             label: entry.label,
             group: entry.group === undefined ? "" : entry.group,
             hint: hint,
+            info: entry.info === undefined ? "" : entry.info,
             command: entry.command === undefined ? "" : entry.command,
             action: statusRowAction(entry, value, lacking),
             report: reported ? "reported" : "unreported",

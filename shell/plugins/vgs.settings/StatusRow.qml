@@ -60,9 +60,9 @@ GroupList {
     // `key` names the item across writes: its secret's account, else its
     // label, with its count among earlier equal names after a second one.
     readonly property var view: {
-        if (entry === null) return { label: "", hint: "", command: "", offered: false, tone: "", text: "", lines: [], muted: true, items: [] };
+        if (entry === null) return { label: "", hint: "", info: "", command: "", offered: false, tone: "", text: "", lines: [], muted: true, items: [] };
         const step = Steps.statusStep(entry);
-        const out = { label: entry.label, hint: entry.hint, command: step.command, offered: step.offered, tone: "", text: "Not reported", lines: [], muted: true, items: [] };
+        const out = { label: entry.label, hint: entry.hint, info: entry.info, command: step.command, offered: step.offered, tone: "", text: "Not reported", lines: [], muted: true, items: [] };
         if (entry.report !== "reported") return out;
         out.muted = false;
         out.tone = entry.tone;
@@ -92,6 +92,7 @@ GroupList {
         width: row.width
         label: row.view.label
         hint: row.view.hint
+        info: row.view.info
         command: row.view.command
         tone: row.view.tone
         text: row.view.text

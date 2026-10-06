@@ -46,7 +46,7 @@
 # without the button.
 # The harness starts the plugin disabled; the row ends with it disabled,
 # its runtime files gone and no stub on PATH.
-# inputs: shell/plugins/vgs.agent-warden/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/agent-warden/* shell/Core/PluginStatus.qml shell/Core/Notices.qml shell/Core/Toasts.qml shell/Core/TuiRunner.qml scripts/smoke/rows/manager.sh bin/vgshell-tui shell/Commons/Duration.js shell/Commons/qmldir
+# inputs: shell/plugins/vgs.agent-warden/* shell/plugins/vgs.settings/* shell/Ui/controls/IconButton.qml shell/Ui/controls/Field.qml shell/Ui/controls/FormRow.qml shell/Ui/feedback/Dialog.qml shell/Ui/overlay/DismissScope.qml shell/Ui/overlay/AnchorTracker.qml shell/Commons/Reply.js scripts/smoke/fixtures/agent-warden/* shell/Core/PluginLogic.js shell/Core/Registry.qml shell/Core/PluginStatus.qml shell/Core/Notices.qml shell/Core/Toasts.qml shell/Core/TuiRunner.qml scripts/smoke/rows/manager.sh bin/vgshell-tui shell/Commons/Duration.js shell/Commons/qmldir
 set -euo pipefail
 warden_copy="$home/.config/vgshell/plugins/vgs.agent-warden"
 rm -rf -- "$warden_dir"
@@ -72,6 +72,11 @@ page_commands() { ipc smoke itemTexts window vgs.settings CommandDisclosure | py
 vsys_drawn() { ipc smoke itemTexts window vgs.settings RequirementRow | py_reply 'import json,sys; r=[r for r in json.load(sys.stdin) if r and r[0] == "vsys"]; print(json.dumps(r[0] if len(r) == 1 else "rows=%d" % len(r)))'; }
 install_drawn() { ipc smoke itemTexts window vgs.settings Button | py_reply 'import json,sys; print(sum(1 for b in json.load(sys.stdin) if b == ["Install all missing"]))'; }
 warden_hint="Checks whether AI agents stay within their memory and process limits"
+warden_info="Shows whether the vsys warden is set up, checking agents and reporting problems."
+# info_label TEXT: whether an open info dialog draws TEXT.
+info_label() { ipc smoke popupItemGeometry window vgs.settings "" "" Label "$1" | py_reply 'import sys; print("shown" if sys.stdin.read().strip().startswith("[") else "absent")'; }
+warden_info_dialog() { printf '%s|%s\n' "$(info_label Warden)" "$(info_label "$warden_info")"; }
+warden_info_closed() { info_label "$warden_info"; }
 # A notify-send stand-in in the shell's own PATH directory, written before
 # the service first runs, so no notice of the row reaches a notification
 # server: it appends each call's argv as one JSON line to $warden_sent;
@@ -261,6 +266,51 @@ settings_page_open vgs.agent-warden
 settings_details
 expect_poll "a checking warden with vsys present offers no Set up" '[["warden", "Set up", false]]' offered_actions vgs.agent-warden
 expect_poll "the Warden row draws Running, its hint and no step" "$(words Warden Running "$warden_hint")" warden_drawn
+settings_press --type IconButton "About Warden" StatusRow Warden || fail "the click on the Warden row's info icon failed"
+expect_poll "the Warden info dialog opens with its title and text" "shown|shown" warden_info_dialog
+click_item "popup:window" vgs.settings "" "" Button Close || fail "the click on the Warden info dialog's Close button failed"
+expect_poll "the Warden info dialog closes from its Close button" absent warden_info_closed
+settings_press --type IconButton "About Warden" StatusRow Warden || fail "the second click on the Warden row's info icon failed"
+expect_poll "the Warden info dialog opens again for the outside press" "shown|shown" warden_info_dialog
+click 40 "$((mon_h - 40))" || fail "the outside press for the Warden info dialog failed"
+expect_poll "a press outside closes the Warden info dialog" absent warden_info_closed
+info_control_dir="$repo/shell/Core/InfoButtonControl"
+mkdir -p -- "$info_control_dir"
+python3 - "$repo/shell/Ui/controls/IconButton.qml" "$info_control_dir/InfoButton.qml" <<'PY'
+import sys
+src, dst = sys.argv[1:]
+text = open(src).read()
+needle = "onRejected: if (pop.owner !== null) pop.owner.closeInfo();"
+replacement = "onRejected: {}"
+if text.count(needle) != 1:
+    raise SystemExit("needle count is %d" % text.count(needle))
+open(dst, "w").write(text.replace(needle, replacement))
+PY
+cat >"$info_control_dir/Item.qml" <<'QML'
+import QtQuick
+
+Item {
+    id: root
+    width: 240
+    height: 80
+    property bool opened: info.infoOpen
+    function openInfo() { info.openInfo(Qt.TabFocusReason); }
+    InfoButton {
+        id: info
+        iconName: "info"
+        label: "About control"
+        infoTitle: "Control"
+        info: "Control copy without the Close action."
+    }
+}
+QML
+expect "the info dialog close control builds" ok ipc smoke popupLoad info-control "$info_control_dir/Item.qml" window vgs.settings '{}'
+expect "the info dialog close control opens" ok ipc smoke popupCall info-control openInfo
+expect_poll "the info dialog close control is open" true ipc smoke popupRead info-control opened
+click_item "popup:window" vgs.settings "" "" Button Close || fail "the click on the control info dialog's Close button failed"
+expect "control: an info dialog whose Close action is removed stays open" true ipc smoke popupRead info-control opened
+expect "the info dialog close control is released" ok ipc smoke popupDrop info-control
+rm -r -- "${info_control_dir:?}" || fail "removing the info dialog close control failed"
 expect_poll "the vsys requirement draws Present" "$(words vsys Present "Shows your agents and provides Agent Warden")" vsys_drawn
 expect "the healthy page draws no command anywhere" '[]' page_commands
 expect "the healthy page draws no Install all missing" 0 install_drawn

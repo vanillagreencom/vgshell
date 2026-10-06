@@ -64,16 +64,19 @@
       "type": "state",
       "label": "Warden",
       "hint": "Checks whether AI agents stay within their memory and process limits",
+      "info": "Shows whether the vsys warden is set up, checking agents and reporting problems.",
       "action": { "label": "Set up", "tui": "setup" },
       "command": "vsys warden install"
     },
     "agents": {
       "type": "count",
-      "label": "Agents running"
+      "label": "Agents running",
+      "info": "Counts agent lanes that vsys reports as running. It shows Not reported until vsys reports a count."
     },
     "lastCheck": {
       "type": "time",
-      "label": "Last check"
+      "label": "Last check",
+      "info": "The time comes from the last status that vsys wrote. If it stops changing, Agent Warden reports stopped checking."
     },
     "detail": {
       "type": "data",

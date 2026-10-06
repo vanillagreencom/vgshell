@@ -16,6 +16,7 @@ Column {
 
     property string label: ""
     property string hint: ""
+    property string info: ""
     property string error: ""
     property bool inline: Theme.field.inline
     default property alias control: controlRow.control
@@ -29,18 +30,40 @@ Column {
     rightPadding: Theme.field.paddingX
     spacing: Theme.field.gap
 
-    Label {
-        role: "label"
-        text: root.label
+    Item {
+        id: labelLine
         visible: root.label !== "" && !root.inline
         width: root.bodyWidth
-        elide: Text.ElideRight
+        height: Math.max(fieldLabel.implicitHeight, topInfo.implicitHeight)
+
+        Label {
+            id: fieldLabel
+            role: "label"
+            text: root.label
+            width: parent.width - (topInfo.visible ? topInfo.width + Theme.space.xs : 0)
+            anchors.verticalCenter: parent.verticalCenter
+            elide: Text.ElideRight
+        }
+
+        IconButton {
+            id: topInfo
+            visible: root.info !== ""
+            iconName: "info"
+            label: "About " + root.label
+            infoTitle: root.label
+            info: root.info
+            size: "sm"
+            anchors.left: fieldLabel.right
+            anchors.leftMargin: Theme.space.xs
+            anchors.verticalCenter: parent.verticalCenter
+        }
     }
 
     FormRow {
         id: controlRow
         width: root.bodyWidth
         label: root.label
+        info: root.info
         labelColumn: root.inline
     }
 
