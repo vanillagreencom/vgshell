@@ -16,7 +16,8 @@ import tempfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = REPO_ROOT / "scripts" / "attribute-heap-profile.py"
+TEST_SCRIPT = Path(__file__).resolve()
+SCRIPT = Path(os.environ.get("ATTRIBUTE_HEAP_PROFILE_SCRIPT", REPO_ROOT / "scripts" / "attribute-heap-profile.py"))
 PERIOD = 524288
 
 MAPS = """MAPPED_LIBRARIES:
@@ -83,7 +84,15 @@ def dump(path: Path, blocks: list[tuple[str, dict[int, tuple[int, int]]]], heade
 
 
 def run(tmp: Path, *args: str, drop: str = "", plain: str = "", unresolved: str = "", malformed: str = "") -> tuple[int, list[str], str]:
-    env = {"PATH": f"{tmp / 'bin'}:/usr/bin:/bin", "STUB_DROP": drop, "STUB_MALFORMED": malformed, "STUB_PLAIN": plain, "STUB_UNRESOLVED": unresolved, "LC_ALL": "C.UTF-8"}
+    env = {
+        "PATH": f"{tmp / 'bin'}:/usr/bin:/bin",
+        "STUB_DROP": drop,
+        "STUB_MALFORMED": malformed,
+        "STUB_PLAIN": plain,
+        "STUB_UNRESOLVED": unresolved,
+        "LC_ALL": "C.UTF-8",
+        "TMPDIR": str(tmp),
+    }
     result = subprocess.run([sys.executable, str(SCRIPT), *args], capture_output=True, text=True, env=env, check=False)
     return result.returncode, result.stdout.splitlines(), result.stderr
 
@@ -91,6 +100,121 @@ def run(tmp: Path, *args: str, drop: str = "", plain: str = "", unresolved: str 
 def expect_line(case: str, lines: list[str], line: str) -> None:
     if line not in lines:
         fail(case, f"missing line {line!r} in {lines!r}")
+
+
+def mutant(tmp: Path, name: str, needle: str, replacement: str) -> Path | None:
+    source = SCRIPT.read_text(encoding="utf-8")
+    count = source.count(needle)
+    if count != 1:
+        fail(f"control-{name}", f"needle-count={count}")
+        return None
+    changed = source.replace(needle, replacement)
+    if changed == source:
+        fail(f"control-{name}", "mutant=unchanged")
+        return None
+    out = tmp / "controls" / f"{name}.py"
+    out.parent.mkdir(exist_ok=True)
+    out.write_text(changed, encoding="utf-8")
+    out.chmod(0o755)
+    return out
+
+
+def run_controls(tmp: Path) -> int:
+    controls = [
+        (
+            "thread-uid-attribution",
+            "rows = [v for u, v in dump.stacks.get(key, {}).items() if uids is None or u in uids]",
+            "rows = [v for u, v in dump.stacks.get(key, {}).items() if uids is None or names.get(u) == thread]",
+            "attribution",
+        ),
+        (
+            "thread-delta-order",
+            "rows.sort(key=lambda row: (-row[0], int(row[1])))",
+            "rows.sort(key=lambda row: int(row[1]))",
+            "attribution",
+        ),
+        (
+            "allocation-wrapper-skip",
+            'ALLOCATION_WRAPPERS = ("libjemalloc.so", "libstdc++.so", "libc.so")',
+            'ALLOCATION_WRAPPERS = ("libjemalloc.so",)',
+            "attribution",
+        ),
+        (
+            "return-address-adjustment",
+            "frames = list(key[:1]) + [address - 1 for address in key[1:]]  # return addresses point past the call",
+            "frames = list(key[:1]) + [address for address in key[1:]]  # return addresses point past the call",
+            "frames",
+        ),
+        (
+            "symbolizer-completeness",
+            "if set(frames) != set(addresses):",
+            "if False:",
+            "symbolizer-incomplete",
+        ),
+        (
+            "symbolizer-frame-shape",
+            "if len(lines) < 2 or len(lines) % 2 != 0 or any(not line for line in lines):",
+            "if False:",
+            "symbolizer-malformed",
+        ),
+        ("pid-match", "if base.pid != head.pid:", "if False:", "pid-mismatch"),
+        ("sample-period-match", "if base.period != head.period:", "if False:", "sample-period-mismatch"),
+        ("thread-name-stability", "if uid in head.names and head.names[uid] != name:", "if False:", "thread-name-changed"),
+        ("selected-thread-required", "if not selected:", "if False:", "thread-not-found"),
+        (
+            "positive-sampled-bytes",
+            "if int(objects) > 0 and int(size) == 0:",
+            "if False:",
+            "zero-bytes",
+        ),
+        (
+            "positive-sample-period",
+            'header = re.fullmatch(r"heap_v2/([1-9][0-9]*)", lines[0]) if lines else None',
+            'header = re.fullmatch(r"heap_v2/([0-9]+)", lines[0]) if lines else None',
+            "zero-period",
+        ),
+        (
+            "numeric-sample-period",
+            'header = re.fullmatch(r"heap_v2/([1-9][0-9]*)", lines[0]) if lines else None',
+            'header = re.fullmatch(r"heap_v2/([A-Za-z0-9]+)", lines[0]) if lines else None',
+            "bad-period",
+        ),
+        (
+            "stack-address-syntax",
+            'if re.fullmatch(r"@ 0x[0-9a-fA-F]+(?: 0x[0-9a-fA-F]+)*", line) is None:',
+            "if False:",
+            "bad-stack",
+        ),
+        ("mapped-libraries-required", "if not dump.maps:", "if False:", "truncated"),
+        (
+            "dump-name-shape",
+            'if not match:\n        raise Refusal("unrecognised-dump-name", path, "Expected <prefix>.<pid>.<seq>.<kind><seq>.heap as jemalloc writes it.")',
+            'if not match:\n        match = re.match(r"(100)", "100")',
+            "dump-name",
+        ),
+        ("no-growth-status", "if total > 0:", "if True:", "no-growth"),
+    ]
+    passed = 0
+    for name, needle, replacement, case in controls:
+        copy = mutant(tmp, name, needle, replacement)
+        if copy is None:
+            continue
+        env = {
+            **os.environ,
+            "ATTRIBUTE_HEAP_PROFILE_SCRIPT": str(copy),
+            "ATTRIBUTE_HEAP_PROFILE_ONLY_CASE": case,
+            "ATTRIBUTE_HEAP_PROFILE_CONTROL_CHILD": "1",
+            "TMPDIR": str(tmp),
+            "LC_ALL": "C.UTF-8",
+        }
+        result = subprocess.run([sys.executable, str(TEST_SCRIPT)], capture_output=True, text=True, env=env, check=False)
+        if result.returncode == 1:
+            passed += 1
+        else:
+            fail(f"control-{name}", f"case={case} exit={result.returncode} stdout={result.stdout!r} stderr={result.stderr!r}")
+    if passed != len(controls):
+        fail("controls", f"passed={passed} want={len(controls)}")
+    return passed
 
 
 def main() -> int:
@@ -117,57 +241,72 @@ def main() -> int:
         main_delta = scaled(3, 3072) + scaled(2, 8192) - scaled(1, 4096)
         selected_delta = wayland_delta + qt_delta + libc_delta
         total = selected_delta + main_delta
+        only = os.environ.get("ATTRIBUTE_HEAP_PROFILE_ONLY_CASE")
+        ran_cases = 0
 
-        code, lines, err = run(tmp, str(base), str(head), "--no-symbols")
-        case = "attribution"
-        if code != 0:
-            fail(case, f"exit {code}: {err}")
-        # Thread and library rows run largest growth first; no fixture order, uid order
-        # or name order gives these sequences.
-        rows = [
-            f"thread uid=1 name=WaylandEventThr base_bytes={scaled(2, 8192):.0f} head_bytes={scaled(6, 24576) + qt_delta:.0f} delta_bytes={scaled(6, 24576) - scaled(2, 8192) + qt_delta:.0f} samples=7",
-            f"thread uid=2 name=WaylandEventThr base_bytes=0 head_bytes={scaled(4, 16384) + libc_delta:.0f} delta_bytes={scaled(4, 16384) + libc_delta:.0f} samples=5",
-            f"thread uid=0 name=qs base_bytes={scaled(1, 4096):.0f} head_bytes={scaled(3, 3072) + scaled(2, 8192):.0f} delta_bytes={main_delta:.0f} samples=5",
-            f"share thread=WaylandEventThr delta_bytes={selected_delta:.0f} total_delta_bytes={total:.0f} share_pct={100 * selected_delta / total:.1f}",
-            # The caller skips libjemalloc, libstdc++ on the operator-new stack and libc.
-            f"library thread=WaylandEventThr file=/usr/lib/libwayland-client.so.0.26.0 delta_bytes={wayland_delta:.0f}",
-            f"library thread=WaylandEventThr file=/usr/lib/libQt6WaylandClient.so.6.11.2 delta_bytes={qt_delta:.0f}",
-            f"library thread=WaylandEventThr file=/usr/bin/quickshell delta_bytes={libc_delta:.0f}",
-            # Both selected threads' bytes on one stack are summed.
-            f"stack rank=1 thread=WaylandEventThr delta_bytes={wayland_delta:.0f} head_bytes={scaled(6, 24576) + scaled(4, 16384):.0f} samples=10 caller=/usr/lib/libwayland-client.so.0.26.0",
-            # The shared stack counts only the selected threads' bytes, not t0's.
-            f"stack rank=2 thread=WaylandEventThr delta_bytes={qt_delta:.0f} head_bytes={qt_delta:.0f} samples=1 caller=/usr/lib/libQt6WaylandClient.so.6.11.2",
-            f"stack rank=3 thread=WaylandEventThr delta_bytes={libc_delta:.0f} head_bytes={libc_delta:.0f} samples=1 caller=/usr/bin/quickshell",
-        ]
-        if lines[1:] != rows:
-            fail(case, f"expected the rows in order {rows!r}, got {lines[1:]!r}")
+        def wants(name: str) -> bool:
+            nonlocal ran_cases
+            selected = only is None or only == name
+            if selected:
+                ran_cases += 1
+            return selected
+
+        if wants("attribution"):
+            code, lines, err = run(tmp, str(base), str(head), "--no-symbols")
+            case = "attribution"
+            if code != 0:
+                fail(case, f"exit {code}: {err}")
+            # Thread and library rows run largest growth first; no fixture order, uid order
+            # or name order gives these sequences.
+            rows = [
+                f"thread uid=1 name=WaylandEventThr base_bytes={scaled(2, 8192):.0f} head_bytes={scaled(6, 24576) + qt_delta:.0f} delta_bytes={scaled(6, 24576) - scaled(2, 8192) + qt_delta:.0f} samples=7",
+                f"thread uid=2 name=WaylandEventThr base_bytes=0 head_bytes={scaled(4, 16384) + libc_delta:.0f} delta_bytes={scaled(4, 16384) + libc_delta:.0f} samples=5",
+                f"thread uid=0 name=qs base_bytes={scaled(1, 4096):.0f} head_bytes={scaled(3, 3072) + scaled(2, 8192):.0f} delta_bytes={main_delta:.0f} samples=5",
+                f"share thread=WaylandEventThr delta_bytes={selected_delta:.0f} total_delta_bytes={total:.0f} share_pct={100 * selected_delta / total:.1f}",
+                # The caller skips libjemalloc, libstdc++ on the operator-new stack and libc.
+                f"library thread=WaylandEventThr file=/usr/lib/libwayland-client.so.0.26.0 delta_bytes={wayland_delta:.0f}",
+                f"library thread=WaylandEventThr file=/usr/lib/libQt6WaylandClient.so.6.11.2 delta_bytes={qt_delta:.0f}",
+                f"library thread=WaylandEventThr file=/usr/bin/quickshell delta_bytes={libc_delta:.0f}",
+                # Both selected threads' bytes on one stack are summed.
+                f"stack rank=1 thread=WaylandEventThr delta_bytes={wayland_delta:.0f} head_bytes={scaled(6, 24576) + scaled(4, 16384):.0f} samples=10 caller=/usr/lib/libwayland-client.so.0.26.0",
+                # The shared stack counts only the selected threads' bytes, not t0's.
+                f"stack rank=2 thread=WaylandEventThr delta_bytes={qt_delta:.0f} head_bytes={qt_delta:.0f} samples=1 caller=/usr/lib/libQt6WaylandClient.so.6.11.2",
+                f"stack rank=3 thread=WaylandEventThr delta_bytes={libc_delta:.0f} head_bytes={libc_delta:.0f} samples=1 caller=/usr/bin/quickshell",
+            ]
+            if lines[1:] != rows:
+                fail(case, f"expected the rows in order {rows!r}, got {lines[1:]!r}")
 
         plain, unresolved = 0x7F0000300050 - 1, 0x7F0000400080 - 1
-        code, lines, err = run(tmp, str(base), str(head), "--top", "3", plain=f"{plain:#x}", unresolved=f"{unresolved:#x}")
-        case = "frames"
-        if code != 0:
-            fail(case, f"exit {code}: {err}")
-        # Frames start at the caller, and every frame after the first is a return
-        # address less one. Only a named frame with no location is marked.
-        frames = [
-            f"  frame addr=0x{address:x} file={file} function=inner_0x{address:x} location=inner.h:2 inlined_into=outer_0x{address:x}"
-            for address, file in ((0x7F0000200020 - 1, "/usr/lib/libwayland-client.so.0.26.0"), (0x7F0000300030 - 1, "/usr/lib/libQt6WaylandClient.so.6.11.2"))
-        ] + [
-            f"  frame addr=0x{plain:x} file=/usr/lib/libQt6WaylandClient.so.6.11.2 function=plain_0x{plain:x} location=plain.cpp:3",
-            f"  frame addr=0x{unresolved:x} file=/usr/bin/quickshell function=exported_0x{unresolved:x} location=??:0 resolution=symbol-table-only",
-        ]
-        if [line for line in lines if line.startswith("  frame ")] != frames:
-            fail(case, f"expected frame rows {frames!r}, got {lines!r}")
+        if wants("frames"):
+            code, lines, err = run(tmp, str(base), str(head), "--top", "3", plain=f"{plain:#x}", unresolved=f"{unresolved:#x}")
+            case = "frames"
+            if code != 0:
+                fail(case, f"exit {code}: {err}")
+            # Frames start at the caller, and every frame after the first is a return
+            # address less one. Only a named frame with no location is marked.
+            frames = [
+                f"  frame addr=0x{address:x} file={file} function=inner_0x{address:x} location=inner.h:2 inlined_into=outer_0x{address:x}"
+                for address, file in ((0x7F0000200020 - 1, "/usr/lib/libwayland-client.so.0.26.0"), (0x7F0000300030 - 1, "/usr/lib/libQt6WaylandClient.so.6.11.2"))
+            ] + [
+                f"  frame addr=0x{plain:x} file=/usr/lib/libQt6WaylandClient.so.6.11.2 function=plain_0x{plain:x} location=plain.cpp:3",
+                f"  frame addr=0x{unresolved:x} file=/usr/bin/quickshell function=exported_0x{unresolved:x} location=??:0 resolution=symbol-table-only",
+            ]
+            if [line for line in lines if line.startswith("  frame ")] != frames:
+                fail(case, f"expected frame rows {frames!r}, got {lines!r}")
 
-        code, _, err = run(tmp, str(base), str(head), "--top", "1", drop=f"{0x7F0000200020 - 1:#x}")
-        if code != 1 or not err.startswith("attribute-heap-profile: symbolizer-failed=answered=1/2\n"):
-            fail("symbolizer-incomplete", f"exit {code}: {err!r}")
+        if wants("symbolizer-incomplete"):
+            code, _, err = run(tmp, str(base), str(head), "--top", "1", drop=f"{0x7F0000200020 - 1:#x}")
+            if code != 1 or not err.startswith("attribute-heap-profile: symbolizer-failed=answered=1/2\n"):
+                fail("symbolizer-incomplete", f"exit {code}: {err!r}")
 
-        code, lines, err = run(tmp, str(base), str(head), "--top", "1", malformed=f"{0x7F0000200020 - 1:#x}")
-        if code != 1 or not err.startswith("attribute-heap-profile: symbolizer-failed=malformed-frame=") or lines:
-            fail("symbolizer-malformed", f"exit {code}: {err!r}")
+        if wants("symbolizer-malformed"):
+            code, lines, err = run(tmp, str(base), str(head), "--top", "1", malformed=f"{0x7F0000200020 - 1:#x}")
+            if code != 1 or not err.startswith("attribute-heap-profile: symbolizer-failed=malformed-frame=") or lines:
+                fail("symbolizer-malformed", f"exit {code}: {err!r}")
 
         for label, content in (("zero-period", "heap_v2/0"), ("bad-period", "heap_v2/nope"), ("bad-stack", "@ nope"), ("zero-bytes", "  t1: 1: 0 [0: 0]")):
+            if not wants(label):
+                continue
             bad = tmp / "p.100.7.i7.heap"
             text = head.read_text()
             old = text.splitlines()[0] if "period" in label else (WAYLAND if label == "bad-stack" else "  t1: 6: 24576 [0: 0]")
@@ -187,21 +326,31 @@ def main() -> int:
             ("dump-name", [str(base), str(dump(tmp / "head.heap", []))], f"unrecognised-dump-name={tmp / 'head.heap'}"),
         ]
         for case, args, key in refusals:
+            if not wants(case):
+                continue
             code, lines, err = run(tmp, *args, "--no-symbols")
             if code != 1 or err.splitlines()[:1] != [f"attribute-heap-profile: {key}"] or lines:
                 fail(case, f"expected exit 1 and {key!r}, got exit {code}, stderr {err!r}, stdout {lines!r}")
 
-        shrink = dump(tmp / "p.100.5.i5.heap", [(WAYLAND, {1: (1, 4096)})])
-        code, lines, err = run(tmp, str(base), str(shrink), "--no-symbols")
-        delta = scaled(1, 4096) - scaled(2, 8192) - scaled(1, 4096)
-        expect_line("no-growth", lines, f"share thread=WaylandEventThr delta_bytes={scaled(1, 4096) - scaled(2, 8192):.0f} total_delta_bytes={delta:.0f} status=no-growth")
-        if code != 0:
-            fail("no-growth", f"exit {code}: {err}")
+        if wants("no-growth"):
+            shrink = dump(tmp / "p.100.5.i5.heap", [(WAYLAND, {1: (1, 4096)})])
+            code, lines, err = run(tmp, str(base), str(shrink), "--no-symbols")
+            delta = scaled(1, 4096) - scaled(2, 8192) - scaled(1, 4096)
+            expect_line("no-growth", lines, f"share thread=WaylandEventThr delta_bytes={scaled(1, 4096) - scaled(2, 8192):.0f} total_delta_bytes={delta:.0f} status=no-growth")
+            if code != 0:
+                fail("no-growth", f"exit {code}: {err}")
+
+        if only is not None and ran_cases == 0:
+            fail("case-selector", f"unknown={only}")
+        controls = 0
+        if only is None and os.environ.get("ATTRIBUTE_HEAP_PROFILE_CONTROL_CHILD") != "1":
+            controls = run_controls(tmp)
 
     if failures:
         print(f"test-attribute-heap-profile: failures={failures}", file=sys.stderr)
         return 1
-    print("test-attribute-heap-profile: ok")
+    suffix = f" controls={controls}" if controls else ""
+    print(f"test-attribute-heap-profile: ok{suffix}")
     return 0
 
 
