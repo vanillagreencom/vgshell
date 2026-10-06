@@ -56,7 +56,6 @@ print(json.dumps([
 ]))
 '; }
 fixture_keys() { ipc smoke readInstance service acme.probe shortcutKeys | py_reply 'import json,sys; print(json.load(sys.stdin))'; }
-config_errors() { hypr -j configerrors | py_reply 'import json,sys; print(json.dumps([e for e in json.load(sys.stdin) if e]))'; }
 # A border option as the nested instance holds it, and what Hyprland prints
 # for a one-colour border of `#rrggbbaa` TOKEN_VALUE: hex aarrggbb with no
 # leading zeros, then the angle.
@@ -270,7 +269,7 @@ expect "no plugin declaring Hyprland data but the active bar and always-on Plugi
 expect "the active bar's section names its id and version" yes layer_has "$(section_of vgs.bar)"
 expect_poll "the active bar's toggle is bound to SUPER+SHIFT+SPACE" '[[65, "SPACE", "__lua", "vgs.bar:toggle"]]' active_bar_binds
 expect_poll "the nested instance holds no other vgs bind than Plugins' SUPER+M" '[[64, "M", "__lua", "vgs.settings:toggle"]]' vgs_binds
-expect "the nested configuration, the floating TUIs' window rules included, holds no error" '[]' config_errors
+expect "the nested configuration, the floating TUIs' window rules included, holds no error" '[]' hypr_reload_errors
 
 border_before="$(hypr_option general:border_size)" || fail "the nested border_size is readable"
 radius_before="$(hypr_option decoration:rounding)" || fail "the nested rounding is readable"
@@ -302,7 +301,7 @@ expect "the switch-off border baseline is Hyprland's default" 1 printf '%s\n' "$
 expect "the switch-off radius baseline is Hyprland's default" 0 printf '%s\n' "$radius_before"
 motion_before="$(animation_leaf windows)" || fail "the nested windows animation baseline is readable"
 expect "the switch-off motion baseline has no VGS curve" no animation_curve vgsSnappy
-expect "the switch-off appearance baseline holds no configuration error" '[]' config_errors
+expect "the switch-off appearance baseline holds no configuration error" '[]' hypr_reload_errors
 # A user's own border size after the loading line applies while the border
 # group is off, and the theme's holds over it while the group is on.
 # Control run on 2026-10-05, host cachy: a source_tree copy of the shell
@@ -317,7 +316,7 @@ expect_poll "the effective config has the probe border and radius switches on" '
 expect "the Hyprland probe package applies" "ok theme=hyprland-probe" applied hyprland-probe
 expect_poll "the theme border size holds over the user's later line" 4 hypr_option general:border_size
 expect_poll "the theme corner radius reaches Hyprland" 8 hypr_option decoration:rounding
-expect "the theme border and radius hold no configuration error" '[]' config_errors
+expect "the theme border and radius hold no configuration error" '[]' hypr_reload_errors
 set_theme_switches false false false
 expect "the shell reloads the probe theme switches off" ok ipc shell reloadConfig
 expect_poll "the effective config has the probe theme switches off" '{"setCornerRadius": false, "setWindowAnimations": false, "setWindowBorders": false}' theme_switches
@@ -331,17 +330,17 @@ restore_hypr_lua || fail "hyprland.lua is put back after the user's border size"
 expect "the nested instance reloads without the user's border size" ok hypr reload config-only
 expect_poll "without the user's line the border size is Hyprland's own" "$border_before" hypr_option general:border_size
 expect_poll "turning the radius switch off leaves Hyprland's own rounding" "$radius_before" hypr_option decoration:rounding
-expect "the switched-off theme appearance holds no configuration error" '[]' config_errors
+expect "the switched-off theme appearance holds no configuration error" '[]' hypr_reload_errors
 set_theme_switches false false true
 expect "the shell reloads the probe motion switch on" ok ipc shell reloadConfig
 expect_poll "the effective config has the probe motion switch on" '{"setCornerRadius": false, "setWindowAnimations": true, "setWindowBorders": false}' theme_switches
 expect_poll "turning the motion switch on writes the VGS snappy curve" yes animation_curve vgsSnappy
 expect_poll "turning the motion switch on writes the windows preset" '{"bezier": "vgsSnappy", "enabled": true, "overridden": true, "speed": 1.8, "style": ""}' animation_leaf windows
-expect "the motion preset holds no configuration error" '[]' config_errors
+expect "the motion preset holds no configuration error" '[]' hypr_reload_errors
 expect "vgs applies under the motion switch for the smooth preset" "ok theme=vgs" applied vgs
 expect_poll "the default smooth preset writes its curve" yes animation_curve vgsEaseOutQuint
 expect_poll "the default smooth preset writes the windows leaf" '{"bezier": "vgsEaseOutQuint", "enabled": true, "overridden": true, "speed": 3.79, "style": ""}' animation_leaf windows
-expect "the smooth preset holds no configuration error" '[]' config_errors
+expect "the smooth preset holds no configuration error" '[]' hypr_reload_errors
 set_theme_switches false false false
 expect "the shell reloads the probe motion switch off" ok ipc shell reloadConfig
 expect_poll "turning the motion switch off removes the windows animation line" no layer_matches '^[[:space:]]*hl\.animation\(\{ leaf = "windows"'
@@ -368,8 +367,7 @@ tui_fit_rows "on a 1440x900 output" 1440x900
 release_mode "the nested compositor gives $tui_monitor its own mode after 1440x900" "$tui_monitor" "$tui_base_mode"
 # A rule disabled by name after the line stops floating its class alone.
 printf '%s\n' 'hl.window_rule({ name = "vgs:tui", enabled = false })' >>"$hypr_lua"
-expect "the nested instance reloads with vgs:tui disabled" ok hypr reload config-only
-expect "disabling a window rule by name holds no configuration error" '[]' config_errors
+expect "the nested instance reloads with vgs:tui disabled without configuration errors" '[]' hypr_reload_errors
 for tui in "org.vgs.tui false" "org.vgs.tui.wide true"; do
   read -r tui_class tui_want <<<"$tui"
   if open_tui "$tui_class"; then
@@ -399,7 +397,7 @@ expect "the notifications' section names its id and version" yes layer_has "$(se
 expect "the launcher's blur rule is written" yes layer_has 'hl.layer_rule({ name = "vgs.launcher:overlay", match = { namespace = "^vgs:overlay$" }, blur = true, ignore_alpha = 0.6 })'
 expect "the notifications' blur rule is written" yes layer_has 'hl.layer_rule({ name = "vgs.notifications:layer", match = { namespace = "^vgs:layer$" }, blur = true, ignore_alpha = 0.6 })'
 expect "the notifications' panel blur rule is written" yes layer_has 'hl.layer_rule({ name = "vgs.notifications:panel", match = { namespace = "^vgs:panel$" }, blur = true, ignore_alpha = 0.6 })'
-expect "the configuration with both sections holds no error" '[]' config_errors
+expect "the configuration with both sections holds no error" '[]' hypr_reload_errors
 expect "no plugin reports a Hyprland problem" '[]' hypr_problems
 
 # Each vgs bind is registered once in its submap after a shell restart and
@@ -418,7 +416,7 @@ if stop_shell; then
     expect_poll "after a shell restart each vgs bind is registered once in its submap" "$once_census" bind_census
     expect "the nested instance answers a full reload after the shell restart" ok hypr reload
     expect_poll "after the shell restart and a full reload each vgs bind is registered once in its submap" "$once_census" bind_census
-    expect "the restarted and reloaded configuration holds no error" '[]' config_errors
+    expect "the restarted and reloaded configuration holds no error" '[]' hypr_reload_errors
   else
     fail "the shell starts again for the bind census"
   fi
@@ -438,7 +436,7 @@ expect_poll "with one loading line again each vgs bind is registered once in its
 printf '%s\n' 'hl.unbind("SUPER + SPACE")' >>"$hypr_lua"
 expect "the nested instance reloads with the user's unbind" ok hypr reload config-only
 expect_poll "a user's unbind after the line removes the launcher's key and leaves the others" '[false, true, true]' default_binds vgs.launcher:toggle vgs.bar:toggle vgs.notifications:inbox
-expect "the user's unbind holds no configuration error" '[]' config_errors
+expect "the user's unbind holds no configuration error" '[]' hypr_reload_errors
 restore_hypr_lua || fail "hyprland.lua is put back after the user's unbind"
 expect "the nested instance reloads without the user's unbind" ok hypr reload config-only
 expect_poll "without the unbind each vgs bind is registered once in its submap" "$once_census" bind_census
@@ -489,7 +487,7 @@ expect_poll "the same fixture reads the normalized rebound keycode" '{"ping":"SU
 expect_poll "the rebound keycode reaches the nested compositor" '[[65, "", 0, "__lua"]]' fixture_bind
 expect "the rebound layer keeps the lower-case code prefix" yes layer_has 'hl.bind("SUPER + SHIFT + code:108", hl.dsp.global("acme.probe:ping"), { description = "acme.probe:ping" })'
 expect "a plugin mutation cannot change effective keys" '{"ping":"SUPER+SHIFT+code:108"}' probe mutate-keys
-expect "the nested keycode configuration holds no error" '[]' config_errors
+expect "the nested keycode configuration holds no error" '[]' hypr_reload_errors
 set_keys '{"acme.probe": {"ping": null}}'
 expect_poll "the fixture reads a null unbinding" '{"ping":null}' fixture_keys
 expect_poll "the null unbinding removes the nested bind" '[]' fixture_bind
@@ -563,4 +561,4 @@ expect_poll "the shared fixture keeps its original enabled state after the Hyprl
 restore_hypr_lua || fail "hyprland.lua is put back after the Hyprland rows"
 expect "the nested instance reloads the consent-wired hyprland.lua" ok hypr reload config-only
 expect_poll "the nested instance holds no vgs bind after the Hyprland rows but Plugins' SUPER+M" '[[64, "M", "__lua", "vgs.settings:toggle"]]' vgs_binds
-expect "the configuration after the Hyprland rows holds no error" '[]' config_errors
+expect "the configuration after the Hyprland rows holds no error" '[]' hypr_reload_errors

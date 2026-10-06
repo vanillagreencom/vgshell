@@ -100,10 +100,8 @@ kh_hint_within() {
 
 hypr_lua_save keyhints
 kh_lua
-expect "the nested instance reloads with the Key Hints harness bind" ok hypr reload config-only
+expect "the nested instance reloads with the Key Hints harness bind without configuration errors" '[]' hypr_reload_errors
 kh_user_hint="\"Also used by your Hyprland config at ~/.config/hypr/hyprland.lua line $(grep -nF 'hl.bind("SUPER + CTRL + T"' "$home/.config/hypr/hyprland.lua" | cut -d: -f1).\""
-kh_config_errors() { hypr -j configerrors | py_reply 'import json,sys; print(json.dumps([e for e in json.load(sys.stdin) if e]))'; }
-expect_poll "the nested instance holds no configuration error" '[]' kh_config_errors
 
 expect "enabling Key Hints is allowed" ok ipc shell setPluginEnabled vgs.keyhints true
 expect_poll "the Key Hints service is built" True record_exists vgs.keyhints

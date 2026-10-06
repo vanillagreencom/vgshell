@@ -59,10 +59,8 @@ hypr_lua_save key-capture
   printf '%s\n' "hl.bind(\"CTRL + ALT + T\", hl.dsp.exec_cmd(\"touch $sandbox/key-capture-t\"), { description = \"Smoke capture t\" })"
   printf '%s\n' "hl.bind(\"F5\", hl.dsp.exec_cmd(\"touch $sandbox/key-capture-f5\"), { description = \"Smoke capture f5\" })"
 } >>"$kc_hypr_lua"
-expect "the nested instance reloads with the key capture harness binds" ok hypr reload config-only
+expect "the nested instance reloads with the key capture harness binds without configuration errors" '[]' hypr_reload_errors
 kc_space_line="$(grep -nF 'hl.bind("SUPER + SPACE"' "$kc_hypr_lua" | cut -d: -f1)"
-kc_config_errors() { hypr -j configerrors | py_reply 'import json,sys; print(json.dumps([e for e in json.load(sys.stdin) if e]))'; }
-expect_poll "the nested instance holds no configuration error" '[]' kc_config_errors
 
 expect "enabling Launcher, whose shortcut asks for SUPER+SPACE, is allowed" ok ipc shell setPluginEnabled vgs.launcher true
 kc_open "key capture"

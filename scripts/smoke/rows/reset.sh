@@ -315,7 +315,7 @@ PY
       expect "the restore's command is behind Show command, closed" "{\"toggle\": \"Show command\", \"expanded\": false, \"text\": \"vgshell reset restore --yes $reset_folder\"}" reset_drawn command
       expect_poll "Keep these holds the keyboard first" '"Keep these"' reset_drawn focused
       expect_poll "the reset shell writes the Hyprland layer again" present reset_file "$reset_state/hypr/vgs.lua"
-      expect_poll "Hyprland lists no config error after the reset" '[]' hypr_config_errors
+      expect_poll "Hyprland lists no config error after the reset" '[]' hypr_reload_errors
 
       # Escape hides the notice for this run and keeps the marker, so the
       # next start offers the restore again; only Keep these forgets it.
@@ -356,7 +356,7 @@ PY
         expect_poll "the welcome is seen after the restore" seen reset_welcome
         expect_poll "the restored shell offers no restore" '{"asked": false, "backup": null}' reset_record
         expect_poll "the restored shell shows no notice" 0 layer_count vgs:notice
-        expect_poll "Hyprland lists no config error after the restore" '[]' hypr_config_errors
+        expect_poll "Hyprland lists no config error after the restore" '[]' hypr_reload_errors
       fi
       [[ -z $reset_holder ]] || wait "$reset_holder" || :
     fi

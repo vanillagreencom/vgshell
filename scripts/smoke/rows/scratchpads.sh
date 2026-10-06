@@ -92,7 +92,6 @@ sp_presses() {
   for ((i = 0; i < $1; i++)); do words+=(-M logo -M alt -k p -m alt -m logo); done
   type_keys "${words[@]}"
 }
-sp_config_errors() { hypr -j configerrors | py_reply 'import json,sys; print(json.dumps([e for e in json.load(sys.stdin) if e]))'; }
 sp_layer_has() { if grep -qF -- "$1" "$sp_layer"; then echo yes; else echo no; fi; }
 sp_bound() { hypr -j binds | py_reply 'import json,sys; print(any(b["description"] == "vgs.scratchpads:pad-1" and b["submap"] in ("", "default") for b in json.load(sys.stdin)))'; }
 # sp_active_class: the class of the window that has the keyboard, or none.
@@ -264,8 +263,7 @@ sp_events_pid="$spawn_pid"
 
 hypr_lua_save scratchpads
 printf '%s\n' 'hl.config({ input = { resolve_binds_by_sym = true } })' >>"$home/.config/hypr/hyprland.lua"
-expect "the nested instance reloads with typed keys reaching their binds" ok hypr reload config-only
-expect_poll "the nested instance holds no configuration error" '[]' sp_config_errors
+expect "the nested instance reloads with typed keys reaching their binds without configuration errors" '[]' hypr_reload_errors
 
 sp_before="$(plugin_enabled "$sp_id")" || sp_before=unread
 expect "enabling Scratchpads is allowed" ok ipc shell setPluginEnabled "$sp_id" true
@@ -312,7 +310,7 @@ expect_poll "the pad's key reaches shell.json" '"SUPER+ALT+P"' sp_key 1
 expect "the Settings window is hidden" ok ipc shell hide window vgs.settings
 expect_poll "the layer holds the pad's window rule" yes sp_layer_has 'hl.window_rule({ name = "vgs.scratchpads:pad-1", match = { class = "^org\\.vgs\\.pad\\.smoke$" }, workspace = "special:vgs-pad-1 silent", tile = true'
 expect_poll "Hyprland holds the pad's bind" True sp_bound
-expect_poll "the layer holds no configuration error" '[]' sp_config_errors
+expect_poll "the layer holds no configuration error" '[]' hypr_reload_errors
 expect "no window of the pad's class runs before its first press" 0 sp_windows
 
 # The first press starts the app once; the pad shows once its window maps.

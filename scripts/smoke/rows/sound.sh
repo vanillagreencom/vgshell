@@ -241,8 +241,7 @@ hypr_lua_save sound
   printf '%s\n' "hl.bind(\"XF86AudioMicMute\", hl.dsp.exec_cmd(\"touch $sandbox/sound-user-mic\"), { description = \"Smoke user mic mute\" })"
 } >>"$home/.config/hypr/hyprland.lua"
 snd_user_hint="\"Also used by your Hyprland config at ~/.config/hypr/hyprland.lua line $(grep -nF 'hl.bind("XF86AudioMicMute"' "$home/.config/hypr/hyprland.lua" | cut -d: -f1).\""
-expect "the nested instance reloads with the Sound row's binds" ok hypr reload config-only
-expect_poll "the nested instance holds no configuration error" '[]' hypr_config_errors
+expect "the nested instance reloads with the Sound row's binds without configuration errors" '[]' hypr_reload_errors
 
 # The keyboard alone: SUPER+PERIOD, Enter into the section, Down on the
 # output's Select, then Tab through every control, Space on each button

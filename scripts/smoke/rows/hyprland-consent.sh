@@ -16,7 +16,6 @@ wire_line="pcall(dofile, \"$hypr_layer\")"
 
 wire_count() { grep -cxF -- "$wire_line" "$hypr_lua" || true; }
 tail_matches_harness() { tail -n +2 -- "$hypr_lua" | cmp -s - "$sandbox/hyprland-harness.lua" && echo same || echo differs; }
-config_errors() { hypr -j configerrors | py_reply 'import json,sys; print(json.dumps([e for e in json.load(sys.stdin) if e]))'; }
 welcome_record() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["notices"]["welcome"]))'; }
 welcome_shape() { welcome_record | py_reply 'import json,sys; w=json.load(sys.stdin); print(json.dumps({"state": w["state"], "lineCount": None if w["lines"] is None else len(w["lines"]), "actions": w["actions"], "keys": w["keys"], "link": w["link"]}, sort_keys=True))'; }
 welcome_marker() { [[ -e $home/.local/state/vgshell/welcome-seen ]] && echo present || echo absent; }
@@ -61,4 +60,4 @@ expect_poll "Connect writes the welcome-seen marker" present welcome_marker
 expect_poll "Connect adds the loading line exactly once" 1 wire_count
 expect_poll "Connect keeps the loading line first" "$wire_line" head -n 1 -- "$hypr_lua"
 expect_poll "Connect changes no other hyprland.lua byte" same tail_matches_harness
-expect_poll "Hyprland reloads the consent-wired layer without config errors" '[]' config_errors
+expect_poll "Hyprland reloads the consent-wired layer without config errors" '[]' hypr_reload_errors
