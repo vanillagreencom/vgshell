@@ -4,7 +4,7 @@ Read before touching a latency, a resident-size ceiling or a shader ceiling the 
 
 ## The approach
 
-Every latency, the resident size and every shader cost the smoke reads has a ceiling set at twice the highest reading over a named run on a named machine and date, read at a stated poll interval, printed with the CPU pressure of the run. A reading over its ceiling fails at any pressure. The record lives beside the ceiling: the header of `scripts/qml-smoke.sh` for the first bar, the reconcile, the emoji readers and the resident size; the row's header for the relaunch, lock, TUI and theme readings; `scripts/shader/ceilings.json` for the shader costs. A costly control must exceed the ceiling in every pass.
+Every latency, the resident size and every shader cost the smoke reads has a ceiling set at twice the highest reading over a named run on a named machine and date, read at a stated poll interval, printed with the CPU pressure of the run. A reading over its ceiling fails at any pressure, unless its row's header states a pressure above which an over-ceiling reading is not measured (exit 77). The record lives beside the ceiling: the header of `scripts/qml-smoke.sh` for the first bar, the reconcile, the emoji readers and the resident size; the row's header for the relaunch, lock, TUI and theme readings; `scripts/shader/ceilings.json` for the shader costs. A costly control must exceed the ceiling in every pass.
 
 ## Why
 
