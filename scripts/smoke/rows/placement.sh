@@ -11,7 +11,9 @@
 # ignores the index and a copy whose BarWidget cannot drag. The row restores
 # the user file byte for byte, so rows after it find the fixture placed as
 # before, and leaves Settings disabled.
-# inputs: scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.tick/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/PluginLogic.js shell/Core/Plugins.qml shell/Core/Capabilities.qml shell/Core/Config.qml shell/Hosts/BarHost.qml shell/shell.qml shell/Ui/BarWidget.qml scripts/smoke/pointer/click.c scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/rows/plugins.sh
+# The restart drops the notice layer that an earlier row left mapped.
+# leaves: layers
+# inputs: scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.tick/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/PluginLogic.js shell/Core/Plugins.qml shell/Core/Capabilities.qml shell/Core/Config.qml shell/Core/KeyCapture.qml shell/Hosts/BarHost.qml shell/shell.qml shell/Ui/BarWidget.qml scripts/smoke/pointer/click.c scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/rows/plugins.sh
 set -euo pipefail
 placement_file="$home/.config/vgshell/shell.json"
 placement_saved="$sandbox/shell-before-placement.json"
@@ -38,7 +40,7 @@ placement_visual_order() {
     [[ $box == \[* ]] || continue
     rows+="$id $box"$'\n'
   done
-  python3 -c 'import json,sys; rows=[]; [rows.append((json.loads(line.split(" ",1)[1])[0], line.split(" ",1)[0])) for line in sys.stdin if line.strip()]; print(json.dumps([i for _, i in sorted(rows)]))' <<<"$rows"
+  py_reply 'import json,sys; rows=[]; [rows.append((json.loads(line.split(" ",1)[1])[0], line.split(" ",1)[0])) for line in sys.stdin if line.strip()]; print(json.dumps([i for _, i in sorted(rows)]))' <<<"$rows"
 }
 placement_center() { ipc smoke instanceGeometry "$(bar_key)" "$1" | py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); print("%d %d" % (x + w / 2, y + h / 2))'; }
 placement_point() {
@@ -60,16 +62,17 @@ placement_right_click() {
   hover "$((x + 1))" "$y" && right_click "$x" "$y"
 }
 placement_drag_hold_escape() {
-  local id="$1" x y pid status=0 got
+  local id="$1" x y pid status=0 got submap
   read -r x y < <(placement_point "$id") || return 1
   ("${shell_env[@]}" "$sandbox/click" "$x" "$y" "$mon_w" "$mon_h" drag "$2" "$3" 1000 >/dev/null) &
   pid=$!
-  for _ in $(seq 1 20); do
+  for _ in $(seq 1 40); do
     got="$(ipc smoke readInstance "$(bar_key)" "$id" frameDragging)" || got=false
-    [[ $got == true ]] && break
+    submap="$(key_submap)" || submap=
+    [[ $got == true && $submap == vgs:passthrough ]] && break
     sleep 0.05
   done
-  [[ $got == true ]] || { wait "$pid" || true; return 1; }
+  [[ $got == true && $submap == vgs:passthrough ]] || { wait "$pid" || true; return 1; }
   type_keys -k Escape || status=$?
   wait "$pid" || status=$?
   pointer_at="$2 $3"
@@ -113,10 +116,6 @@ expect_poll "the rendered order follows the move within center" '["acme.tick", "
 expect "moving the fixture across sections is allowed" ok ipc shell movePluginWidget acme.probe left 0
 expect_poll "the user file order follows the move to left" '{"left": ["acme.probe"], "center": ["acme.tick"], "right": []}' placement_order
 expect_poll "the rendered order follows the move to left" '["acme.probe", "acme.tick"]' placement_visual_order
-stop_shell
-start_shell "$repo" "$sandbox/placement-restart.log" || fail "the shell starts again for moved placement"
-expect_poll "a restart keeps the moved file order" '{"left": ["acme.probe"], "center": ["acme.tick"], "right": []}' placement_order
-expect_poll "a restart keeps the moved rendered order" '["acme.probe", "acme.tick"]' placement_visual_order
 expect "moving the fixture back to right is allowed" ok ipc shell movePluginWidget acme.probe right 0
 expect_poll "the fixture is back in the right section after move tests" '{"left": [], "center": ["acme.tick"], "right": ["acme.probe"]}' placement_order
 
@@ -135,13 +134,16 @@ expect "a drag released below the bar leaves the user file as it was" unchanged 
 read -r tick_x tick_y < <(placement_point acme.tick) || fail "the tick widget point is unreadable before Escape"
 placement_drag_hold_escape acme.probe "$tick_x" "$tick_y" || fail "holding a drag and pressing Escape failed"
 expect "Escape during a drag leaves the user file as it was" unchanged placement_same_as "$sandbox/shell-before-outside-drop.json"
+expect_poll "Escape during a drag leaves the pass-through submap" default key_submap
 tick_clicks_before="$(ipc smoke readInstance "$(bar_key)" acme.tick clicks)" || fail "the tick click count is unreadable"
 placement_click_widget acme.tick || fail "clicking acme.tick failed"
 expect_poll "a click without movement reaches acme.tick" "$((tick_clicks_before + 1))" ipc smoke readInstance "$(bar_key)" acme.tick clicks
 tick_clicks_before="$(ipc smoke readInstance "$(bar_key)" acme.tick clicks)" || fail "the tick click count is unreadable before a drag"
+tick_cancels_before="$(ipc smoke readInstance "$(bar_key)" acme.tick cancels)" || fail "the tick cancel count is unreadable before a drag"
 read -r below_x below_y < <(placement_bar_below) || fail "the point below the bar is unreadable before the tick drag"
 placement_drag_widget acme.tick "$below_x" "$below_y" || fail "dragging acme.tick failed"
 expect "a drag that starts on acme.tick emits no click" "$tick_clicks_before" ipc smoke readInstance "$(bar_key)" acme.tick clicks
+expect "a drag that starts on acme.tick cancels its MouseArea" "$((tick_cancels_before + 1))" ipc smoke readInstance "$(bar_key)" acme.tick cancels
 placement_right_click acme.probe || fail "right clicking the fixture failed"
 expect_poll "a right click on a moved widget still opens its menu" true ipc smoke readInstance "$(bar_key)" acme.probe frameMenuOpen
 type_keys -k Escape || fail "Escape on the frame menu failed"
@@ -179,6 +181,16 @@ expect_poll "the Settings window shows acme.tick's page" '"acme.tick"' ipc smoke
 expect_poll "a widget-only plugin's page draws no Show in bar" absent ipc smoke scopedWindowGeometry window vgs.settings Field "Show in bar" Switch ""
 settings_page_close acme.probe
 
+expect "placing the fixture before the restart check is allowed" ok ipc shell setPluginPlaced acme.probe true
+expect "moving the fixture to left before restart is allowed" ok ipc shell movePluginWidget acme.probe left 0
+expect_poll "the user file order is moved before restart" '{"left": ["acme.probe"], "center": ["acme.tick"], "right": []}' placement_order
+stop_shell
+start_shell "$repo" "$sandbox/placement-restart.log" || fail "the shell starts again for moved placement"
+expect_poll "a restart keeps the moved file order" '{"left": ["acme.probe"], "center": ["acme.tick"], "right": []}' placement_order
+expect_poll "a restart keeps the moved rendered order" '["acme.probe", "acme.tick"]' placement_visual_order
+expect "moving the fixture back to right after restart is allowed" ok ipc shell movePluginWidget acme.probe right 0
+expect_poll "the fixture is back in the right section after restart" '{"left": [], "center": ["acme.tick"], "right": ["acme.probe"]}' placement_order
+
 cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
 expect_poll "the restored user file is ready for placement controls" '{"left": [], "center": ["acme.tick"], "right": ["acme.probe"]}' placement_order
 if copy_tree placement-move-control \
@@ -198,7 +210,7 @@ if copy_tree placement-move-control \
 fi
 
 if copy_tree placement-drag-control \
-  && edit_tree placement-drag-control shell/Ui/BarWidget.qml 'root.frame.dragStart(root.mousePressPoint);' 'return;'; then
+  && edit_tree placement-drag-control shell/Ui/BarWidget.qml 'root.frame.dragStart(root.dragPoint());' 'return;'; then
   stop_shell
   cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
   start_shell "$sandbox/tree-placement-drag-control" "$sandbox/placement-drag-control.log" || fail "the placement drag control shell starts"

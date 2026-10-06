@@ -41,7 +41,6 @@ Item {
             color: Theme.bar.background
             WlrLayershell.namespace: "vgs:bar"
             WlrLayershell.layer: WlrLayer.Top
-            WlrLayershell.keyboardFocus: Plugins.barDrag !== null && Plugins.barDrag.hostKey === host.hostKey ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
             visible: PluginLogic.barShown(slot.instance)
 
             PluginSlot {
@@ -68,17 +67,6 @@ Item {
                 z: 1
             }
 
-            Item {
-                anchors.fill: parent
-                visible: Plugins.barDrag !== null && Plugins.barDrag.hostKey === host.hostKey
-                focus: visible
-                z: 2
-                onVisibleChanged: if (visible) forceActiveFocus(Qt.ShortcutFocusReason)
-                Keys.onEscapePressed: event => {
-                    Plugins.cancelBarDrag();
-                    event.accepted = true;
-                }
-            }
         }
     }
 }

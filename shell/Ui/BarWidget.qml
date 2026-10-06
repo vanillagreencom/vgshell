@@ -28,13 +28,11 @@ Item {
     property var frame: null
     // The widget's own menu entries after Hide, each { label, action }.
     property var frameActions: []
-    property bool mouseDragging: false
-    property point mousePressPoint: Qt.point(0, 0)
 
     readonly property int barSize: bar ? bar.barSize : Theme.bar.height
     readonly property bool frameMenuOpen: frameUi.item !== null && frameUi.item.menuOpened
     readonly property bool frameDialogOpen: frameUi.item !== null && frameUi.item.dialogOpened
-    readonly property bool frameDragging: dragHandler.active || mouseDragging
+    readonly property bool frameDragging: dragHandler.active
     // The texts of the open menu's entries, in order; [] while it is closed.
     readonly property var frameMenuEntries: frameUi.item !== null ? frameUi.item.menuEntries : []
 
@@ -58,48 +56,6 @@ Item {
 
     function dragPoint() {
         return dragHandler.centroid.scenePosition;
-    }
-
-    // pointer-cursor-exempt: it supplies a press target for widgets with no own pointer control
-    // keyboard-path: the manager capability and IPC move the widget without pointer input
-    MouseArea {
-        id: dragPressTarget
-        anchors.fill: parent
-        acceptedButtons: Qt.LeftButton
-        enabled: root.frame !== null
-        propagateComposedEvents: true
-
-        function windowPoint(mouse) {
-            return root.mapToItem(null, mouse.x, mouse.y);
-        }
-
-        onPressed: mouse => {
-            root.mouseDragging = true;
-            root.mousePressPoint = windowPoint(mouse);
-            root.frame.dragStart(root.mousePressPoint);
-        }
-
-        onPositionChanged: mouse => {
-            if (root.frame === null) return;
-            const point = windowPoint(mouse);
-            root.frame.dragMove(point);
-        }
-
-        onReleased: mouse => {
-            if (!root.mouseDragging) {
-                mouse.accepted = false;
-                return;
-            }
-            const point = windowPoint(mouse);
-            root.frame.dragMove(point);
-            root.frame.dragEnd(point);
-            root.mouseDragging = false;
-        }
-
-        onCanceled: if (root.mouseDragging) {
-            root.mouseDragging = false;
-            if (root.frame !== null) root.frame.dragEnd(Qt.point(-1, -1));
-        }
     }
 
     DragHandler {

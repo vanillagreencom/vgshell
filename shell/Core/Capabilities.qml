@@ -37,6 +37,7 @@ Singleton {
     readonly property alias tuis: tuis
     readonly property alias hyprland: hyprlandState
     readonly property alias monitors: monitorState
+    readonly property alias keyCapture: shortcuts.keyCapture
 
     readonly property bool notificationsHeld: holderIds("notifications").length > 0
     // `<plugin id>:<name>` -> the description each registered shortcut

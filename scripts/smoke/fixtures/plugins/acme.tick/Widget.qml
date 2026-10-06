@@ -9,12 +9,14 @@ BarWidget {
     // bar was not taken by a surface above it.
     property int presses: 0
     property int clicks: 0
+    property int cancels: 0
     implicitWidth: 20
     implicitHeight: barSize
     MouseArea {
         anchors.fill: parent
         onPressed: tick.presses += 1
         onClicked: tick.clicks += 1
+        onCanceled: tick.cancels += 1
     }
     // The value of a file first read now, or the loader's error text.
     function lazy() {
