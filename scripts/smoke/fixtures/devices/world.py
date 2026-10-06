@@ -58,9 +58,16 @@ DEVICE = "org.bluez.Device1"
 SMOKE = "org.vgs.Smoke"
 NM_DEVICE = "org.freedesktop.NetworkManager.Device"
 NM_WIRELESS = "org.freedesktop.NetworkManager.Device.Wireless"
+NM_ACCESS_POINT = "org.freedesktop.NetworkManager.AccessPoint"
 NM_DISCONNECTED = 30
 NM_INFRA = 2
 AP_SEC_KEY_MGMT_PSK = 0x100
+# A WPA2-Personal access point's RSN flags, as NetworkManager's
+# NM80211ApSecurityFlags spell them: PSK key management with a CCMP
+# cipher. Quickshell reads a network's security from its access point
+# before its saved profile, and a key management with no cipher it
+# supports reads as Unknown security.
+AP_SEC_WPA2_PSK = 0x8 | 0x80 | AP_SEC_KEY_MGMT_PSK
 
 # What the row reads back: scripts/smoke/rows/device-fakes.sh.
 ADAPTER_ID = "hci0"
@@ -146,8 +153,12 @@ def plant_network(bus):
     device.AddProperty(NM_DEVICE, "InterfaceFlags", dbus.UInt32(0))
     device.AddProperty(NM_WIRELESS, "LastScan", dbus.Int64(-1))
     device.AddProperty(NM_WIRELESS, "ActiveAccessPoint", dbus.ObjectPath("/"))
-    root.AddAccessPoint(device_path, "ap0", WIFI_SSID, "00:11:22:33:44:01", dbus.UInt32(NM_INFRA),
-                        dbus.UInt32(2437), dbus.UInt32(54000), dbus.Byte(82), dbus.UInt32(AP_SEC_KEY_MGMT_PSK))
+    # dbusmock writes one value to WpaFlags and RsnFlags, and its saved
+    # connection template reads WpaFlags as the bare PSK key management.
+    ap_path = root.AddAccessPoint(device_path, "ap0", WIFI_SSID, "00:11:22:33:44:01", dbus.UInt32(NM_INFRA),
+                                  dbus.UInt32(2437), dbus.UInt32(54000), dbus.Byte(82), dbus.UInt32(AP_SEC_KEY_MGMT_PSK))
+    ap = dbus.Interface(bus.get_object(NM, ap_path), MOCK)
+    ap.UpdateProperties(NM_ACCESS_POINT, {"RsnFlags": dbus.UInt32(AP_SEC_WPA2_PSK)})
 
 
 def wire(value):
