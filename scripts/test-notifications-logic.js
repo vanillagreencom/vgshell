@@ -4,10 +4,10 @@
 // lifetimes, entries and their image copies, the state file's judge, what a
 // restart restores, the history's and the panel's limits, which toast a
 // full stack lets go, the hover actions, what a choice on a card does,
-// which notifications stay held, the sender's window, the paused and
-// running clocks, the per-application rules that read a sender's
-// workspace, people and workspace icons, and the VGS hints with what a click
-// on a hinted card does. Every expected value is written out by hand.
+// which notifications stay held and which go into the history, the
+// sender's window, the paused and running clocks, the per-application
+// rules that read a sender's workspace, people and workspace icons, and
+// the VGS hints with what a click on a hinted card does. Every expected value is written out by hand.
 //
 // The controls at the end edit a copy of the logic, one rule at a time, and
 // require this suite to fail on each copy.
@@ -289,13 +289,15 @@ function verify(logic) {
     same(logic.actionsFor([], true), [{ id: "open", label: "Show" }, { id: "dismiss", label: "Dismiss" }]);
     same(logic.actionsFor([], false), [{ id: "dismiss", label: "Dismiss" }]);
 
-    // Choices: [label, choice, offered, plan]. Opening delivers default and
-    // a pill its own action, each while it is offered, and both raise
-    // either way; dismissing does neither.
+    // Choices: [label, choice, offered, plan]. Opening delivers default,
+    // else the first action offered, and a pill its own action while it is
+    // offered; both raise either way; dismissing does neither.
     for (const [label, choice, offered, want] of [
         ["open while held", "open", ["default", "reply"], { deliver: "default", raise: true, leave: "invoke" }],
         ["open with nothing held", "open", [], { deliver: "", raise: true, leave: "invoke" }],
-        ["open when the sender offers no default", "open", ["reply"], { deliver: "", raise: true, leave: "invoke" }],
+        ["open when the sender offers no default runs its first action", "open", ["reply"], { deliver: "reply", raise: true, leave: "invoke" }],
+        ["open prefers default over an earlier action", "open", ["reply", "default"], { deliver: "default", raise: true, leave: "invoke" }],
+        ["open skips an action with no identifier", "open", ["", "reply"], { deliver: "reply", raise: true, leave: "invoke" }],
         ["the default action's pill opens", "action:default", ["default"], { deliver: "default", raise: true, leave: "invoke" }],
         ["another action raises too", "action:reply", ["default", "reply"], { deliver: "reply", raise: true, leave: "invoke" }],
         ["an action no longer offered still raises", "action:reply", [], { deliver: "", raise: true, leave: "invoke" }],
@@ -307,10 +309,14 @@ function verify(logic) {
 
     // Holding: [reason, transient, fate].
     for (const [reason, transient, want] of [
-        ["expire", false, "keep"], ["expire", true, "expire"], ["invoke", false, "keep"], ["invoke", true, "dismiss"],
+        ["expire", false, "keep"], ["expire", true, "expire"], ["invoke", false, "dismiss"], ["invoke", true, "dismiss"],
         ["dismiss", false, "dismiss"], ["closed", false, "drop"], ["fade", false, null]
     ])
         assert.equal(logic.heldAfterLeave(reason, transient), want, `held after ${reason} transient=${transient}`);
+    // Storing: [reason, fate]. An action finishes the notification; every
+    // other way off the screen keeps it in the history.
+    for (const [reason, want] of [["invoke", "forget"], ["expire", "history"], ["dismiss", "history"], ["closed", "history"], ["fade", null]])
+        assert.equal(logic.storedAfterLeave(reason), want, `stored after ${reason}`);
     same(logic.heldPastHistory(["a", "b", "c", "d"], [stored(1, 1, { key: "a" })], [stored(2, 2, { key: "c" })]), ["b", "d"], "held past the history");
     same(logic.heldPastHistory([], [], []), [], "nothing held");
 
@@ -742,15 +748,20 @@ const CONTROLS = [
     ["panel limit", "return rows.slice(0, PANEL_ROWS_MAX);", "return rows;"],
     ["evict non-critical first", "if (rows[i].urgency !== URGENCY.critical) return rows[i].key;", ""],
     ["Show without actions", 'if (list.length === 0 && canRaise) list.push({ id: "open", label: "Show" });', ""],
-    ["an open delivers default", 'var id = c === "open" ? "default" :', 'var id = c === "open" ? "" :'],
+    ["an open delivers its primary action", 'var id = c === "open" ? primaryAction(offered) :', 'var id = c === "open" ? "" :'],
+    ["an open falls back to the first offered action", 'for (var i = 0; i < offered.length; i++) if (String(offered[i] || "") !== "") return String(offered[i]);', ""],
+    ["default wins over the first action", 'if (offered.indexOf("default") !== -1) return "default";', ""],
+    ["an open skips an action with no identifier", 'if (String(offered[i] || "") !== "") return', "if (true) return"],
     ["only an offered action is delivered", "deliver: offered.indexOf(id) !== -1 ? id : \"\"", "deliver: id"],
     ["an open raises", "raise: true, leave: \"invoke\"", "raise: id !== \"default\", leave: \"invoke\""],
     ["another action raises too", "raise: true, leave: \"invoke\"", "raise: id === \"default\", leave: \"invoke\""],
     ["dismiss delivers nothing", 'if (c === "dismiss") return { deliver: "", raise: false, leave: "dismiss" };', ""],
-    ["an unknown choice is refused", 'if (id === "") return null;', ""],
+    ["an unknown choice is refused", 'if (id === "" && c !== "open") return null;', ""],
     ["an expired toast is held", 'if (reason === "expire") return transient ? "expire" : "keep";', 'if (reason === "expire") return "expire";'],
     ["a transient notification is never held", 'if (reason === "expire") return transient ? "expire" : "keep";', 'if (reason === "expire") return "keep";'],
-    ["an opened notification stays held", 'if (reason === "invoke") return transient ? "dismiss" : "keep";', 'if (reason === "invoke") return "dismiss";'],
+    ["an invoked notification is closed on the server", 'if (reason === "invoke") return "dismiss";', 'if (reason === "invoke") return transient ? "dismiss" : "keep";'],
+    ["an action leaves no history entry", 'if (reason === "invoke") return "forget";', 'if (reason === "invoke") return "history";'],
+    ["a dismissal still goes into the history", 'if (reason === "expire" || reason === "dismiss" || reason === "closed") return "history";', 'if (reason === "dismiss") return "forget";\n    if (reason === "expire" || reason === "closed") return "history";'],
     ["a dismissal closes", 'if (reason === "dismiss") return "dismiss";', 'if (reason === "dismiss") return "keep";'],
     ["a held key past the history", "return keys.filter(function (k) { return !stored[k]; });", "return [];"],
     ["a held toast on screen stays", "for (var i = 0; i < live.length; i++) stored[live[i].key] = true;", ""],

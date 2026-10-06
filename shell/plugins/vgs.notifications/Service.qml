@@ -8,13 +8,15 @@ import "NotificationLogic.js" as Logic
 
 // The notification service: every desktop notification the core's server
 // receives becomes a glass toast at the top of every screen, and leaves
-// into the history when it expires, is dismissed, acted on, closed by its
-// sender or let go by a full stack. The Inbox shows what arrived since the
-// last Mark read, the History everything kept; while either is open the
-// toasts stay and do not expire. Opening a toast or an inbox row, or any
-// action of the sender's, delivers that action while the service still
-// holds the notification and brings the sender's window into view
-// (NotificationLogic.choicePlan). Silence keeps notifications off the
+// into the history when it expires, is dismissed, closed by its sender or
+// let go by a full stack. The Inbox shows what arrived since the last Mark
+// read, the History everything kept; while either is open the toasts stay
+// and do not expire. Opening a toast or an inbox row runs its primary
+// action, the sender's default, else its first; a pill runs its own. Each
+// is delivered while the service still holds the notification, brings the
+// sender's window into view (NotificationLogic.choicePlan) and finishes
+// the notification: it leaves no history entry
+// (NotificationLogic.storedAfterLeave). Silence keeps notifications off the
 // screen and records them in the history, bar a critical one from the bare
 // command line. The service owns the rows, their clocks, the notification
 // objects it holds and the store; the stack its layer draws on each screen
@@ -47,11 +49,21 @@ Item {
     // holds, kept out of the model, since a model role holding an object the
     // server destroys dangles: each live toast's, and after it leaves the one
     // its history entry can still open (NotificationLogic.heldAfterLeave),
-    // until that entry goes, the user dismisses it or its sender closes it.
+    // until that entry goes, the user dismisses or acts on it or its sender
+    // closes it.
     // At most one per stored entry, so the history's limit bounds them.
     // `links` are the [signal, handler] pairs connected to it, disconnected
     // when the service lets go of it.
     property var held: ({})
+    // The key whose action choose() is invoking. Quickshell 0.3.1's
+    // NotificationAction.invoke() dismisses a notification that is not
+    // resident (reference: NotificationAction), and does so before it
+    // returns, emitting its closed signal (source read at v0.3.1-19:
+    // NotificationAction::invoke in src/services/notifications/
+    // notification.cpp, NotificationServer::deleteNotification in
+    // server.cpp); that close is the user's action, not its sender's
+    // (senderClosed).
+    property string delivering: ""
     // key -> notification: silenced notifications waiting for their image
     // copies, since the sender deletes its files once told they closed; then
     // held as above.
@@ -446,13 +458,14 @@ Item {
     }
 
     // The object closed without the service asking: its sender closed it,
-    // or the server let it go, as it does after an action. Its toast leaves
-    // as a sender's close does; its history entry stays and opens no more
-    // than the sender's window.
+    // or the server let it go after an action choose() delivered. A toast
+    // its sender closed leaves as closed; its history entry stays and opens
+    // no more than the sender's window. One closed by its own action leaves
+    // as choose() says, since that close was the user's choice.
     function senderClosed(key, n) {
         if (!Logic.hasOwn(held, key) || held[key].notification !== n) return;
         unlink(key, "drop");
-        if (onScreen(key)) leave(key, "closed");
+        if (onScreen(key) && key !== delivering) leave(key, "closed");
     }
 
     // A held notification its sender updated in place: a toast on screen
@@ -621,14 +634,16 @@ Item {
     // so a rebuild during the exit restores nothing it should not, and its
     // notification is held for the history or closed as
     // NotificationLogic.heldAfterLeave says; the row itself goes once its
-    // animation has played. `reason` is expire, dismiss, invoke or closed.
+    // animation has played. `reason` is expire, dismiss, invoke or closed;
+    // the store keeps the toast in the history or forgets it as
+    // NotificationLogic.storedAfterLeave says.
     function leave(key, reason) {
         const at = indexOf(key);
         if (at === -1 || rowModel.get(at).leaving !== "") return;
         rowModel.setProperty(at, "leaving", reason);
         stopClock(key);
         countShown();
-        store.dropLive(key, false);
+        store.dropLive(key, Logic.storedAfterLeave(reason) === "forget");
         if (Logic.hasOwn(held, key)) {
             const fields = fieldsOf(held[key].notification);
             const fate = fields === null ? "drop" : Logic.heldAfterLeave(reason, fields.transient);
@@ -700,9 +715,11 @@ Item {
     // dismiss. An open on a card whose VGS hints name a click
     // (NotificationLogic.clickRoute) opens the hinted file in the `open` TUI
     // or only dismisses; every other choice goes as
-    // NotificationLogic.choicePlan says. Then the row leaves, bar an open
-    // the TUI refuses, which keeps the row and shows why
-    // (NotificationLogic.openOutcome).
+    // NotificationLogic.choicePlan says: an open runs the primary action,
+    // the sender's default, else its first. Then the row leaves, bar an
+    // open the TUI refuses, which keeps the row and shows why
+    // (NotificationLogic.openOutcome); after an action it leaves no history
+    // entry (NotificationLogic.storedAfterLeave).
     // The sender's window comes into view through the core's reveal, which
     // after a delivered action first gives the sender the chance to raise
     // it itself. Logs what the choice reached, with no content.
@@ -742,10 +759,13 @@ Item {
         if (plan.deliver !== "") {
             try {
                 const action = held[key].notification.actions.find(a => a.identifier === plan.deliver);
+                delivering = key;
                 action.invoke();
                 delivered = true;
             } catch (e) {
                 console.warn("notifications: action " + plan.deliver + " failed: " + e.message);
+            } finally {
+                delivering = "";
             }
         }
         if (senders.length > 0) {
@@ -757,17 +777,18 @@ Item {
         return true;
     }
 
+    // A chosen toast leaves as leave() says. A chosen panel row, dismissed
+    // or acted on, leaves the store, and the notification held for it
+    // closes on the server.
     function leaveChosen(key, reason) {
         const at = indexOf(key);
         if (at !== -1) {
             leave(key, reason);
             return;
         }
-        if (reason === "dismiss") {
-            store.dropHistory(key);
-            if (Logic.hasOwn(held, key)) unlink(key, "dismiss");
-            bumpPanel();
-        }
+        store.dropHistory(key);
+        if (Logic.hasOwn(held, key)) unlink(key, Logic.heldAfterLeave(reason, false));
+        bumpPanel();
     }
 
     // ------------------------------------------------------------ panel

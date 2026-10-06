@@ -264,6 +264,15 @@ click_panel_item() { # TYPE TEXT
 shown_pills() { ipc smoke layerItems vgs.notifications CardSlot summary,actions | py_reply 'import json,sys; print(json.dumps(next(([a["label"] for a in v["actions"]] for s, r, v in json.load(sys.stdin) if v["summary"] == sys.argv[1]), None)))' "$1"; }
 has_row() { row_summaries "$1" | py_reply 'import json,sys; print(sys.argv[1] in json.load(sys.stdin))' "$2"; }
 in_history() { history_summaries | py_reply 'import json,sys; print(sys.argv[1] in json.load(sys.stdin))' "$1"; }
+in_live() { live_summaries | py_reply 'import json,sys; print(sys.argv[1] in json.load(sys.stdin))' "$1"; }
+# left_unstored LABEL SUMMARY: the toast SUMMARY, stored as on screen
+# before an action, leaves the stored toasts with no history entry. The
+# store writes both lists in one save, so once the first reading holds the
+# second reads the same save.
+left_unstored() { # LABEL SUMMARY
+  expect_poll "$1: off the stored toasts" False in_live "$2"
+  expect "$1" False in_history "$2"
+}
 panel_count() { ipc smoke readInstance panel vgs.notifications rowCount; }
 panel_subtitle() { ipc smoke readInstance panel vgs.notifications subtitle; }
 panel_key_of() { panel_rows | py_reply 'import json,sys; t=sys.stdin.read().strip(); print(next((r["key"] for r in ([] if t == "absent" else json.loads(t)) if r["summary"] == sys.argv[1]), "none"))' "$1"; }
@@ -410,6 +419,7 @@ signal_monitor_ready() {
 expect_poll "the notification signal monitor records its marker" 1 signal_monitor_ready
 notify smoke-chat 0 "Actioned" "Pick one" '["default", "Open", "reply", "Reply"]' '{}' 0 >/dev/null
 expect_poll "an actionable toast shows" True has_row live "Actioned"
+expect_poll "the actionable toast is stored as on screen" True in_live "Actioned"
 rest_on_card Actioned || fail "the pointer never rested on the actionable toast"
 expect_poll "the hover reveals the sender's actions and Dismiss" '["Open", "Reply", "Dismiss"]' shown_pills Actioned
 # png_rgba(PATH), the one PNG reader of this row, for Python programs that
@@ -445,12 +455,25 @@ click_pill Reply || fail "the click on Reply failed"
 invoked() { grep -c "ActionInvoked (uint32 [0-9]*, '$1')" -- "$signals" || true; }
 expect_poll "the click runs the sender's action" 1 invoked reply
 expect_poll "the acted-on toast leaves" none key_of Actioned
+left_unstored "the acted-on toast leaves no history entry" Actioned
 notify smoke-chat 0 "Clicked" "Open me" '["default", "Open"]' '{}' 0 >/dev/null
 expect_poll "a toast with a default action shows" True has_row live "Clicked"
+expect_poll "the toast to click is stored as on screen" True in_live "Clicked"
 # The click lands in the card's left clear span, before any shown actions.
 click_card_clear Clicked || fail "the click on the card failed"
 expect_poll "a click on the card runs its default action" 1 invoked default
 expect_poll "the clicked toast leaves" none key_of Clicked
+left_unstored "the clicked toast leaves no history entry" Clicked
+# A sender that offers no default: a click runs its first action. The
+# Reply above delivered one reply already, so the count is read first.
+replies_before="$(invoked reply)"
+notify smoke-chat 0 "First action" "Open me" '["reply", "Reply"]' '{}' 0 >/dev/null
+expect_poll "a toast with no default action shows" True has_row live "First action"
+expect_poll "the toast with no default action is stored as on screen" True in_live "First action"
+click_card_clear "First action" || fail "the click on the card with no default action failed"
+expect_poll "a click on a card with no default action runs its first action" "$((replies_before + 1))" invoked reply
+expect_poll "the toast clicked for its first action leaves" none key_of "First action"
+left_unstored "the toast clicked for its first action leaves no history entry" "First action"
 
 # Every action on a notification delivers the sender's action and brings
 # the sender's window into view, through the compositor's reveal: a click
@@ -463,8 +486,9 @@ expect_poll "the clicked toast leaves" none key_of Clicked
 # no raise reading passes on a focus that was already there, and the
 # Dismiss pill, which raises nothing, must leave it there. The controls:
 # the inbox rows of a notification its sender closed and of one whose
-# toast was dismissed deliver nothing, and still raise. Where the window
-# is on the screen is the reveal row's (rows/compositor-reveal.sh).
+# toast was dismissed deliver nothing, and still raise. A dismissed toast
+# goes into the history; every row an action ran on leaves it. Where the
+# window is on the screen is the reveal row's (rows/compositor-reveal.sh).
 sender_class=smoke.sender
 sender_focused="[\"$sender_class\", \"Sender window\"]"
 other_focused='["smoke.other", "Other window"]'
@@ -574,6 +598,7 @@ if open_toplevel "$sandbox/toplevel-sender.log" "$sender_class" "Sender window" 
   expect_poll "the toast to dismiss shows" True has_row live "Dismissed from its toast"
   expect "dismissing the newest toast is allowed" ok notes dismiss-latest
   expect_poll "a dismissal closes the notification on the server" 1 closed_on_server "$dismissed_id"
+  expect_poll "a dismissed toast goes into the history" True in_history "Dismissed from its toast"
 
   # The pointer off the stack, so no card that moved under it keeps its
   # clock paused.
@@ -664,17 +689,20 @@ if open_toplevel "$sandbox/toplevel-sender.log" "$sender_class" "Sender window" 
   expect_poll "a click on the inbox row of an expired toast delivers its default action once" 1 delivered "$held_id" default
   expect_poll "a click on that inbox row raises the sender's window" "$sender_focused" active_window
   expect_poll "the opened inbox row leaves" none key_of "Held for the inbox"
+  expect_poll "the opened inbox row leaves the history" False in_history "Held for the inbox"
 
   focus_other
   open_card "the closed inbox row" "Closed by its sender"
   expect_poll "the inbox row of a notification its sender closed still raises the sender's window" "$sender_focused" active_window
   expect "that row delivers no action" 0 delivered "$gone_id" default
   expect_poll "the closed inbox row leaves" none key_of "Closed by its sender"
+  expect_poll "the closed inbox row leaves the history" False in_history "Closed by its sender"
 
   focus_other
   open_card "the dismissed inbox row" "Dismissed from its toast"
   expect_poll "the inbox row of a dismissed toast still raises the sender's window" "$sender_focused" active_window
   expect "that row delivers no action" 0 delivered "$dismissed_id" default
+  expect_poll "the opened dismissed inbox row leaves the history" False in_history "Dismissed from its toast"
 
   expect "the server sent the sender no activation token" 0 activation_tokens
   expect "the inbox closes after the open rows" ok notes close

@@ -1313,34 +1313,55 @@ function actionsFor(actions, canRaise) {
 // raise, leave }. `choice` is `open` (a click on a toast or an inbox row,
 // Show, the invoke IPC), `action:<identifier>` (a pill of the sender's
 // own) or `dismiss`; `offered` the identifiers the notification the
-// service holds offers now, [] when it holds none. Opening delivers
-// `default` and a pill its own action, each while it is offered; either
-// then brings the sender's window into view, delivered or not, since
-// every action names a place in the sender and a sender on Wayland cannot
-// raise itself without the activation token the server never sends.
-// Dismissing delivers and raises nothing. `deliver` is "" when there is
-// nothing to deliver; `leave` is the reason the row leaves with. Null for
-// a choice no card offers.
+// service holds offers now, [] when it holds none. Opening delivers the
+// primary action (primaryAction) and a pill its own action while it is
+// offered; either then brings the sender's window into view, delivered or
+// not, since every action names a place in the sender and a sender on
+// Wayland cannot raise itself without the activation token the server
+// never sends. Dismissing delivers and raises nothing. `deliver` is ""
+// when there is nothing to deliver; `leave` is the reason the row leaves
+// with. Null for a choice no card offers.
 function choicePlan(choice, offered) {
     var c = String(choice || "");
     if (c === "dismiss") return { deliver: "", raise: false, leave: "dismiss" };
-    var id = c === "open" ? "default" : c.indexOf("action:") === 0 ? c.slice(7) : "";
-    if (id === "") return null;
+    var id = c === "open" ? primaryAction(offered) : c.indexOf("action:") === 0 ? c.slice(7) : "";
+    if (id === "" && c !== "open") return null;
     return { deliver: offered.indexOf(id) !== -1 ? id : "", raise: true, leave: "invoke" };
+}
+
+// The action a click on a card runs: the freedesktop `default` when the
+// sender offers it, else the first it offers, since a sender that names
+// no default still means its first action as the way in; "" when it
+// offers none.
+function primaryAction(offered) {
+    if (offered.indexOf("default") !== -1) return "default";
+    for (var i = 0; i < offered.length; i++) if (String(offered[i] || "") !== "") return String(offered[i]);
+    return "";
 }
 
 // What becomes of the notification the service holds for a row that
 // leaves for `reason`: `keep` while its history entry can still reach its
-// sender, after it expired, a full stack let it go or an action ran (the
-// server closes it after an action itself unless it is resident);
-// `dismiss` or `expire` to close it on the server now; `drop` when it
+// sender, after it expired or a full stack let it go; `dismiss` or
+// `expire` to close it on the server now, after a dismissal or an action,
+// so the sender sees it handled even when it is resident; `drop` when it
 // closed already. A transient notification is never kept. Null for a
 // reason no row leaves with.
 function heldAfterLeave(reason, transient) {
     if (reason === "expire") return transient ? "expire" : "keep";
-    if (reason === "invoke") return transient ? "dismiss" : "keep";
+    if (reason === "invoke") return "dismiss";
     if (reason === "dismiss") return "dismiss";
     if (reason === "closed") return "drop";
+    return null;
+}
+
+// Whether a toast that leaves for `reason` goes into the history: `forget`
+// after an action the user chose, which finishes the notification, so it
+// leaves the Inbox and the History too; `history` after it expired, was
+// dismissed or its sender closed it, which take it off the screen
+// without finishing it. Null for a reason no row leaves with.
+function storedAfterLeave(reason) {
+    if (reason === "invoke") return "forget";
+    if (reason === "expire" || reason === "dismiss" || reason === "closed") return "history";
     return null;
 }
 
