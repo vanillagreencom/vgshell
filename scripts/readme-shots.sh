@@ -27,13 +27,14 @@
 # the whole output. Each image is encoded as WebP with WEBP_OPTIONS and no
 # metadata.
 #
-# Without --from it runs scripts/sandbox-shots.sh --hidden --scale 2
-# --modes dark --size 1280x800 over the table's scenes into
+# Without --from it runs scripts/sandbox-shots.sh --scale 2 --modes
+# dark --size 1280x800 over the table's scenes into
 # tmp/readme-shots/<UTC time>, and exits with its status when that is not
 # 0, so a sandbox that could not run (77) never passes. --from DIR reads a
 # sandbox-shots directory instead. Every shot the table names, and
-# 00-desktop.png, must be in DIR, listed in its shots.tsv as taken with the
-# nested window hidden and clean shot chrome, and OUTPUT_SIZE. --out DIR
+# 00-desktop.png, must be in DIR, listed in its shots.tsv with clean shot
+# chrome and with host window state hidden or absent, and OUTPUT_SIZE.
+# --out DIR
 # writes the images there in place of docs/images/plugins/; it must lie
 # under this checkout's tmp/ (shot_dir_under in scripts/smoke/shot.sh).
 #
@@ -48,7 +49,7 @@ set -euo pipefail
 
 # The capture every image is cut from: 1280 by 800 logical pixels at scale
 # 2, so text is drawn at device pixels and every image shares one scale.
-SHOTS_ARGS=(--hidden --scale 2 --modes dark --size 1280x800)
+SHOTS_ARGS=(--scale 2 --modes dark --size 1280x800)
 OUTPUT_SIZE=2560x1600
 # 16 logical pixels at scale 2, the design system's space.xl, around a
 # content crop.
@@ -78,7 +79,7 @@ stop() {
     table) message="scripts/check-readme-images.py --table refused the table" ;;
     from) message="--from must name a scripts/sandbox-shots.sh directory holding shots.tsv and 00-desktop.png" ;;
     shot) message="the table names this shot and the run holds no such PNG" ;;
-    shot-window) message="the run's shots.tsv does not list this shot as taken with the nested window hidden: run scripts/sandbox-shots.sh with --hidden" ;;
+    shot-window) message="the run's shots.tsv lists this shot as shown, changed or unreadable; hidden and absent are accepted" ;;
     shot-chrome) message="the run's shots.tsv does not list this shot with clean chrome: use a rest shot, not a posed hover, tooltip, menu or focus shot" ;;
     shot-size) message="every shot must be $OUTPUT_SIZE: run scripts/sandbox-shots.sh with ${SHOTS_ARGS[*]}" ;;
     bar) message="00-desktop.png has no row at its top that differs from the desktop's colour" ;;
@@ -134,7 +135,7 @@ if [[ -z $from ]]; then
 fi
 [[ -d $from && -f $from/shots.tsv && -f $from/00-desktop.png ]] || stop from "$from"
 
-# shot_png NAME: the run's PNG of shot NAME, checked hidden and sized. Its
+# shot_png NAME: the run's PNG of shot NAME, checked not shown and sized. Its
 # caller runs it in a subshell, where a refusal prints and exits; the
 # caller exits with it.
 shot_png() {
@@ -143,7 +144,7 @@ shot_png() {
   if ! read -r state chrome < <(awk -F '\t' -v name="$1" '$1 == name { state = $5; chrome = $6 } END { print state, chrome }' "$from/shots.tsv"); then
     stop from "$from" "shots.tsv is unreadable"
   fi
-  [[ $state == hidden ]] || stop shot-window "$1" "state=${state:-unlisted}"
+  [[ $state == hidden || $state == absent ]] || stop shot-window "$1" "state=${state:-unlisted}"
   [[ $chrome == clean ]] || stop shot-chrome "$1" "chrome=${chrome:-unlisted}"
   if ! size="$(magick identify -format '%wx%h' "$png")"; then stop measure "$1"; fi
   [[ $size == "$OUTPUT_SIZE" ]] || stop shot-size "$1" "size=$size"

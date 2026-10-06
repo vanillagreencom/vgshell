@@ -60,9 +60,11 @@ magick "${shot_base[@]}" "$run_dir/clock.png"
 magick -size 1280x800 xc:'#111111' "$run_dir/small.png"
 magick "${shot_base[@]}" -fill '#222222' -draw 'rectangle 1000,600 1399,899' "$run_dir/shown.png"
 cp -- "$run_dir/centre.png" "$run_dir/tooltip.png"
+cp -- "$run_dir/centre.png" "$run_dir/absent-window.png"
 for name in 00-desktop panel centre edge clock small; do printf '%s\tsha\tprev\tsettled\thidden\tclean\n' "$name"; done >"$run_dir/shots.tsv"
 printf 'shown\tsha\tprev\tsettled\tshown\tclean\n' >>"$run_dir/shots.tsv"
 printf 'tooltip\tsha\tprev\tsettled\thidden\ttooltip\n' >>"$run_dir/shots.tsv"
+printf 'absent-window\tsha\tprev\tsettled\tabsent\tclean\n' >>"$run_dir/shots.tsv"
 # A run whose desktop has no bar band.
 flat_dir="$checkout/tmp/flat"
 mkdir -p "$flat_dir"
@@ -128,6 +130,13 @@ pass_case() {
 }
 if pass_case "$repo/scripts/readme-shots.sh"; then ok "every crop is cut at its size and written as WebP"; else fail "every crop is cut at its size and written as WebP"; fi
 
+absent_case() {
+  local out_dir="$checkout/tmp/out-absent-$RANDOM$RANDOM"
+  run_tool "$1" "$(table "p.absent.webp absent-window full")" --from "$run_dir" --out "$out_dir"
+  [[ $status -eq 0 && $(sizes_in "$out_dir") == "p.absent.webp 2560x1600" ]]
+}
+if absent_case "$repo/scripts/readme-shots.sh"; then ok "a shot recorded with an absent host window is cut"; else fail "a shot recorded with an absent host window is cut: exit=$status first stderr line: $err_line"; fi
+
 # Refusal cases, four fields each: label, table rows (;-separated), the
 # arguments, the exit status and the first stderr line. OUT is a fresh
 # directory under the checkout's tmp/.
@@ -184,8 +193,7 @@ sandbox_rows=(
 sandbox_scenes="panels
 bar
 settings"
-sandbox_head="--hidden
---scale
+sandbox_head="--scale
 2
 --modes
 dark
@@ -207,9 +215,9 @@ sandbox_case() {
   [[ ! -d $out_dir ]] || images="$(find "$out_dir" -type f -name '*.webp')"
   [[ $want -eq 0 || -z $images ]] || { echo "        sandbox $want: images written: $images"; return 1; }
   [[ $want -ne 0 || $(sizes_in "$out_dir") == "$pass_sizes" ]] || { echo "        sandbox $want: sizes: $(sizes_in "$out_dir" | tr '\n' ' ')"; return 1; }
-  if [[ $status -eq $want && $(head -n 8 <<<"$argv") == "$sandbox_head" \
-    && $(sed -n '9p' <<<"$argv") =~ ^"$checkout"/tmp/readme-shots/[0-9]{8}T[0-9]{6}Z$ \
-    && $(tail -n +10 <<<"$argv") == "$sandbox_scenes" ]]; then
+  if [[ $status -eq $want && $(head -n 7 <<<"$argv") == "$sandbox_head" \
+    && $(sed -n '8p' <<<"$argv") =~ ^"$checkout"/tmp/readme-shots/[0-9]{8}T[0-9]{6}Z$ \
+    && $(tail -n +9 <<<"$argv") == "$sandbox_scenes" ]]; then
     return 0
   fi
   echo "        sandbox $want: exit=$status first stderr line: $err_line argv: $(tr '\n' ' ' <<<"$argv")"
@@ -244,6 +252,9 @@ controls=(
   "a posed shot is accepted for a README image"
   '[[ $chrome == clean ]] || stop shot-chrome "$1" "chrome=${chrome:-unlisted}"' 'true || stop shot-chrome "$1" "chrome=${chrome:-unlisted}"'
   "a shot with tooltip chrome is refused"
+  "a shown host window is accepted for a README image"
+  '[[ $state == hidden || $state == absent ]] || stop shot-window "$1" "state=${state:-unlisted}"' 'true || stop shot-window "$1" "state=${state:-unlisted}"'
+  "a shot taken with the window shown is refused"
   "a failed sandbox run does not end the command"
   '[[ $status -eq 0 ]] || exit "$status"' '[[ $status -eq 0 ]] || true "$status"'
   sandbox-1

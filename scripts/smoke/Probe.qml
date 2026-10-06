@@ -575,6 +575,8 @@ Scope {
             // The instance's root takes the keyboard focus as a click on
             // its blank area gives it, so no control draws its focus ring.
             item.forceActiveFocus(Qt.MouseFocusReason);
+            for (const child of root.descendants(item))
+                if (child !== item && child.focus === true) child.focus = false;
             return item.activeFocus ? "focused" : "unfocused";
         }
         if (name === "listItems" || name === "listAdd" || name === "listRemove" || name === "listApply") {
@@ -1242,6 +1244,14 @@ Scope {
         function configSettled(): bool { return !Config.smokeUserView.busy; }
         function readInstance(hostKey: string, id: string, property: string): string { return root.read(hostKey, id, property); }
         function shotChrome(clear: bool): string { return root.chromeWord(clear); }
+        function setSectionVisible(hostKey: string, id: string, title: string, visible: bool): string {
+            const item = root.instance(hostKey, id);
+            if (item === null) return "absent";
+            const found = root.descendants(item).find(child => root.typeName(child) === "Section" && child.title === title);
+            if (found === undefined) return "absent";
+            found.visible = visible;
+            return "ok";
+        }
         // The core's session lock, taken and released without a password,
         // for rows/lock.sh: a sandbox row never runs PAM against the real
         // account (docs/decisions/D062-native-lock-and-polkit-plugins.md). The bare

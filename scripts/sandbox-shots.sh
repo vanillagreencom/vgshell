@@ -655,6 +655,7 @@ scene_gallery() { # MODE
   expect "the gallery summons" ok ipc shell summon "$gallery_kind" vgs.gallery '{}'
   expect_poll "the gallery maps its surface" 1 surface_count "$gallery_surface"
   expect_poll "the gallery draws every component" '[]' ipc smoke galleryMissing "$gallery_kind" vgs.gallery
+  expect "the gallery hides its focus examples for README images" ok ipc smoke setSectionVisible "$gallery_kind" vgs.gallery Focus false
   while (( page <= gallery_pages )); do
     at="$(ipc smoke scrollTo "$gallery_kind" vgs.gallery "$y")" || at=""
     if [[ $at != "["* ]]; then fail "the gallery did not scroll: ${at:-no reply}"; break; fi
@@ -1772,6 +1773,7 @@ scene_clipboard() { # MODE
   expect_poll "the clipboard history holds the keyboard" true ipc smoke activeFocusIn overlay vgs.clipboard
   type_keys -k Down || fail "sending Down failed"
   expect_poll "Down selects the newest copy" 1 ipc smoke readInstance overlay vgs.clipboard current
+  expect "the clipboard history root takes the focus" focused ipc smoke invokeInstance overlay vgs.clipboard focusInstance ""
   park_pointer
   take "clipboard-$1"
   type_keys -k Escape || fail "sending Escape failed"
