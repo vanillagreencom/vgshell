@@ -1,5 +1,5 @@
 # The VPN section, vgs.vpn, over the device fakes' stand-ins
-# (docs/architecture/validation-smoke-devices.md). No call reaches the
+# (docs/architecture/validation-smoke-host.md). No call reaches the
 # host's tailscale, tailscaled, browser or sudo: `tailscale` and `xdg-open`
 # are the recorded stand-ins in the shell's PATH directory, which answer
 # `status --json` from the shapes in scripts/fixtures/vpn/, and the core's

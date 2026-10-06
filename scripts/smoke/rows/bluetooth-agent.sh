@@ -1,6 +1,6 @@
 # The Bluetooth pairing agent, capability `bluetoothAgent` (D085), over
 # the bluetoothctl stand-in on the shell's PATH
-# (docs/architecture/validation-smoke-devices.md): the child the core
+# (docs/architecture/validation-smoke-host.md): the child the core
 # starts is the stand-in, which replays the transcript the row plants and
 # records its argv and every stdin line. No row reaches the host's BlueZ
 # or system bus.

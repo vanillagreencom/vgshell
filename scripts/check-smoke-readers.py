@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Enforce the smoke reader rule docs/architecture/validation-smoke-harness.md
+"""Enforce the smoke reader rule docs/architecture/validation-smoke.md
 states.
 
 A smoke row reads the shell through the probe or the compositor and parses

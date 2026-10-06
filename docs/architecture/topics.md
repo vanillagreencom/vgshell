@@ -56,18 +56,15 @@ One line per architecture document: the change to read it before. [overview.md](
 - [runtime-hyprland.md](runtime-hyprland.md): read before touching a dispatch, `Compositor` or `Dispatch.js`, or relying on what Hyprland does with a request.
 - [hyprland-shortcuts.md](hyprland-shortcuts.md): read before touching a shortcut, a manifest's `hyprland.binds`, a hold shortcut, the overlay keyboard capture, the key capture pass-through, or their submaps.
 - [runtime-pointer.md](runtime-pointer.md): read before touching a pointer handler, a cursor, a hover reading or a popup.
-- [validation.md](validation.md), [validation-qml-unit.md](validation-qml-unit.md), [validation-smoke.md](validation-smoke.md), [validation-smoke-harness.md](validation-smoke-harness.md) and [validation-smoke-input.md](validation-smoke-input.md): read before touching `scripts/validate`, the nested sandbox, the HiDPI smoke row, its harness or a smoke row's verdict.
-- [validation-jarvis.md](validation-jarvis.md): read before touching the shared Jarvis test world, `scripts/lib/jarvis-env.sh` or a Jarvis suite's private services.
-- [validation-shaders.md](validation-shaders.md): read before touching `scripts/measure-shader.sh`, the passive-layer presentation row or its fixture plugin.
-- [validation-nightly.md](validation-nightly.md): read before touching `.github/workflows/nightly.yml`, the one GitHub workflow.
-- [validation-smoke-host.md](validation-smoke-host.md): read before touching a sentinel, the stand-in terminal, a host command's stand-in in the shell's stand-in directory or a row that presses a button which opens a TUI.
-- [validation-smoke-devices.md](validation-smoke-devices.md): read before touching a device fake, a device command's stand-in, the device guard or a System row.
+- [validation.md](validation.md): read before touching `scripts/validate`, a row's input line, a test's environment, a budget, or the QML unit runner.
+- [validation-jarvis.md](validation-jarvis.md): read before touching the shared Jarvis test world, `scripts/lib/jarvis-env.sh`, or a Jarvis suite's private services.
+- [validation-latency.md](validation-latency.md): read before touching a latency, a resident-size ceiling or a shader ceiling the smoke reads, or its budget.
+- [validation-smoke-host.md](validation-smoke-host.md): read before touching a sentinel, the stand-in terminal, a device fake, a host command's stand-in, the device guard, or a row that presses a button which opens a TUI.
 - [runtime-devices.md](runtime-devices.md): read before a plugin reads Quickshell's `Bluetooth`, `Networking` or `Pipewire`.
 - [displays.md](displays.md): read before touching the `vgs.displays` brightness helper, a display's identity or output mapping, or a brightness access state.
 - [displays-plugin.md](displays-plugin.md): read before touching the `vgs.displays` service, widget, flyout, pane, brightness keys, on-screen display or assignments file.
 - [validation-smoke-faults.md](validation-smoke-faults.md): read before touching a sandbox fault the smoke excuses, a mode a row holds on the nested output, or `scripts/smoke/verdict.sh`.
-- [validation-smoke-shots.md](validation-smoke-shots.md): read before touching `scripts/sandbox-shots.sh`, a scene it takes, `scripts/smoke/shot.sh` or the held mode a shot reads.
-- [validation-latency.md](validation-latency.md): read before touching a latency the smoke reads or its budget.
+- [validation-smoke.md](validation-smoke.md): read before touching the nested sandbox, `scripts/smoke/harness.sh`, a smoke row, a probe reader, a disposable control, or a sandbox screenshot.
 - [readme-images.md](readme-images.md): read before touching a plugin README's screenshot, `docs/images/plugins/`, `scripts/readme-shots.sh` or its check.
 - [distribution-autostart.md](distribution-autostart.md): read before touching the XDG autostart entry a system package ships.
 - [distribution.md](distribution.md): read before touching the licence, `VERSION`, `vgshell --version` or anything that packages or installs VGS; it links each channel's file.

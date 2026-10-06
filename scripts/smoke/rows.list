@@ -6,7 +6,7 @@
 #
 # scripts/validate reads the added and moved lines of a change to this file
 # and runs those rows, with the core rows and the rows they read:
-# docs/architecture/validation-runner.md § Method.
+# docs/architecture/validation.md.
 bar
 hyprland-consent
 plugins

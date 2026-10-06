@@ -1,5 +1,5 @@
 # vgs.displays over the sandbox's device fakes
-# (docs/architecture/validation-smoke-devices.md): the HID fake's Pro
+# (docs/architecture/validation-smoke-host.md): the HID fake's Pro
 # Display XDR, hidraw0, and two Studio Displays with one serial, hidraw1
 # and hidraw2, which only their HID devices' directories tell apart. No
 # sandbox output has an Apple model, so the helper places none of them.

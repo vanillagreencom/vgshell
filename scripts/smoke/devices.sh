@@ -1,6 +1,6 @@
 # Sourced by harness.sh; owns the sandbox's device fakes, the stand-ins
 # for device commands and the guards a device row starts behind
-# (docs/architecture/validation-smoke-devices.md). No smoke row may reach
+# (docs/architecture/validation-smoke-host.md). No smoke row may reach
 # the host's audio, radios, network, VPN, DDC or hidraw: the sandbox shares
 # the host's devices and files.
 #

@@ -45,7 +45,7 @@
 # without it every row runs. It adds no row: the core rows and the rows an
 # input line names come only from scripts/validate, which passes it on a
 # diff-scoped run:
-# docs/architecture/validation-runner.md § Method. A name the runner does
+# docs/architecture/validation.md. A name the runner does
 # not hold is refused as `qml-smoke: refused: argument=--rows value=<name>
 # reason=unknown-row`. --list-rows prints the rows a run with the same
 # --rows would run, one name per line in run order, and every row without

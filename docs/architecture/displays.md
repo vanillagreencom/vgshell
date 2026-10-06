@@ -105,7 +105,7 @@ An unassigned display waits for the user's choice, which the plugin keeps in its
 ## Test seams
 
 - `VGS_SYSFS_ROOT`, default `/sys`, and `VGS_DEV_ROOT`, default `/dev`, root every sysfs read and node open. A sysfs link that resolves outside the sysfs root fails the run with `sysfs-escape`.
-- `VGS_HID_FAKE` names the socket of the HID fake in [validation-smoke-devices.md](validation-smoke-devices.md). Every feature-report call goes there in place of `ioctl(2)`. It needs both roots set, else the run fails with `seam-incomplete` before it opens a node.
+- `VGS_HID_FAKE` names the socket of the HID fake in [validation-smoke-host.md](validation-smoke-host.md). Every feature-report call goes there in place of `ioctl(2)`. It needs both roots set, else the run fails with `seam-incomplete` before it opens a node.
 
 ## Validation
 

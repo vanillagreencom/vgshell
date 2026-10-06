@@ -28,8 +28,8 @@ Singleton {
     // When the first judgement found a bar that had not presented, in ms
     // since the epoch; 0 until then.
     property real heldSince: 0
-    // Twice the highest waited_ms of the 33 first-bar runs
-    // docs/architecture/validation-latency.md names: 179 ms.
+    // Twice the highest waited_ms, 179 ms, logged over the 33 first-bar runs
+    // D047 names (host cachy, 2026-09-29).
     readonly property int deadlineMs: 358
 
     // The shown bars the core built, as { hostKey, window }, from its build

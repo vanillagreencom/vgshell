@@ -1,5 +1,5 @@
 # vgs.bluetooth over the sandbox's device fakes
-# (docs/architecture/validation-smoke-devices.md): python-dbusmock's bluez5
+# (docs/architecture/validation-smoke-host.md): python-dbusmock's bluez5
 # template with the planted adapter hci0 and its paired, connected
 # headphones, the rfkill stand-in, which here moves hci0 as bluetoothd
 # follows rfkill (bluez_follow), and the bluetoothctl stand-in, which the
