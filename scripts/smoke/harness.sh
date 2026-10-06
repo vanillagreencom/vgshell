@@ -405,7 +405,13 @@ PY
   shell_host_path="$sandbox/host-path"
 fi
 shell_start_path="$shim:$shell_host_path"
-shell_start_words=(PATH="$shell_start_path" VGS_NOTIFICATIONS_SLACK_TEST_SECRET_TOOL_DIR="$shim")
+# Quickshell links jemalloc, which reads MALLOC_CONF. junk:free fills freed
+# memory, so a use-after-free in Quickshell or Qt crashes at its reader on
+# the first run, where the row's crash check names it, instead of writing
+# into a reused block that a later garbage collection trips on. Quickshell
+# 0.3.1 as released frees each Hyprland request socket inside its own
+# readyRead slot and crashes at start under it.
+shell_start_words=(MALLOC_CONF=junk:free PATH="$shell_start_path" VGS_NOTIFICATIONS_SLACK_TEST_SECRET_TOOL_DIR="$shim")
 
 # The test helpers, built from the repository into the sandbox, each with
 # the client code wayland-scanner generates from the one protocol file
