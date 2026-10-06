@@ -1,35 +1,50 @@
 import QtQuick
 import qs.Commons
 
-// The ring a control draws while it has keyboard focus. It fills the
-// control's background and draws on its own edge, inside its bounds, so a
-// focused control never looks larger or wears a second border. It shows
-// for `visualFocus`, which Qt raises for keyboard focus and not for a
-// click, so a pointer user never sees it. A target without `visualFocus`,
-// such as a text input or a plain item, shows it for `activeFocus`, since
-// an input with the caret is focused however it got there.
-// `targetRadius` is the corner of the shape the ring draws on: the radius
+// The ring a control draws while it has keyboard focus. It shows for
+// `visualFocus`, which Qt raises for keyboard focus and not for a click,
+// so a pointer user never sees it. A target without `visualFocus`, such as
+// a text input or a plain item, shows it for `activeFocus`, since an input
+// with the caret is focused however it got there.
+//
+// It has two placements. A box control, whose shape holds its label or
+// content, such as a button, a field or a bar item, draws the ring on its
+// own edge, inside its bounds: a ring around such a control read as a
+// second border. A ring on a fill it cannot be told from, below WCAG 2.2
+// SC 1.4.11's 3:1, such as a primary button's accent, draws in white or
+// black, whichever contrasts more with the fill (`Theme.contrastOf`); one
+// of the two meets any opaque fill at 4.58:1 or more. A glyph control, a
+// small shape beside or under its label such as a radio, a checkbox, a
+// switch or a slider handle, a control that draws no box around its text,
+// and a container set `outside`: a ring on a radio's or a handle's edge
+// cannot be told from its own border or fill, and one on a bare label runs
+// through its glyphs. That ring sits `focusRing.offset` outside the control,
+// so the surface shows in the gap, and keeps `ringColor`.
+// `targetRadius` is the corner of the shape the ring follows: the radius
 // of the item it fills, `focusRing.radius` when that item has none, so the
 // ring follows a rounded control, a pill or a circle. `ringColor` lets a
 // control keep a state cue, such as an error, while it holds focus.
-// A ring on a fill it cannot be told from, below WCAG 2.2 SC 1.4.11's 3:1,
-// such as the accent fill of a primary button, draws in
-// `focusRing.contrast` instead, which the theme judge holds against every
-// resting surface around the control.
 Rectangle {
     id: root
 
     required property Item target
+    property bool outside: false
     property real targetRadius: parent !== null && parent.radius !== undefined ? parent.radius : Theme.focusRing.radius
     property color ringColor: Theme.focusRing.color
+    // How far the ring's outer edge lies outside the control.
+    readonly property real extent: outside ? Theme.focusRing.offset + Theme.focusRing.width : 0
+    // The ring's corner: the target's own, grown by the extent, and square
+    // on a square target.
+    readonly property real ringRadius: targetRadius === 0 ? 0 : targetRadius + extent
     // The colour the item it fills paints, or null for none.
     readonly property var fill: parent !== null && parent.color !== undefined && parent.color.a > 0 ? parent.color : null
-    readonly property color drawnColor: fill !== null && Theme.contrastRatio(ringColor, fill) < Theme.boundaryFloor ? Theme.focusRing.contrast : ringColor
+    readonly property color drawnColor: !outside && fill !== null && Theme.contrastRatio(ringColor, fill) < Theme.boundaryFloor ? Theme.contrastOf(fill) : ringColor
 
     anchors.fill: parent
+    anchors.margins: -extent
     visible: target.focusPreview === true || (("visualFocus" in target) ? target.visualFocus : target.activeFocus)
     color: "transparent"
     border.color: drawnColor
     border.width: Theme.focusRing.width
-    radius: targetRadius
+    radius: ringRadius
 }

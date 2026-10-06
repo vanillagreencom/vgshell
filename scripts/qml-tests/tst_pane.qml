@@ -211,11 +211,13 @@ Item {
             compare(headerSlot(pane).x, pane.contentInset);
             compare(headerSlot(pane).y, pane.contentInset);
             compare(headerSlot(pane).width, pane.width - 2 * pane.contentInset);
+            // The body sits on the content edge; the viewport reaches the
+            // ring's room past it.
             compare(body(pane).mapToItem(pane, 0, 0).x, pane.contentInset);
             compare(body(pane).width, pane.width - 2 * pane.contentInset);
-            compare(scroll(pane).x, pane.contentInset);
+            compare(scroll(pane).x, pane.contentInset - pane.ringRoom);
             compare(footerSlot(pane).x, pane.contentInset);
-            compare(footerSlot(pane).y, scroll(pane).y + scroll(pane).height + pane.footerGap);
+            compare(footerSlot(pane).y, scroll(pane).y + scroll(pane).height - pane.ringRoom + pane.footerGap);
             compare(footerSlot(pane).width, pane.width - 2 * pane.contentInset);
         }
 
@@ -224,8 +226,8 @@ Item {
             const panelPane = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nPane { width: 240; height: 160; container: "panel"; header: [ Item { width: 10; height: 20 } ]\nItem { width: parent.width; height: 20 } }', root, "panelPane");
             compare(windowPane.gap, Theme.stack.section);
             compare(panelPane.gap, Theme.stack.group);
-            compare(scroll(windowPane).y - (headerSlot(windowPane).y + headerSlot(windowPane).height), Theme.stack.section);
-            compare(scroll(panelPane).y - (headerSlot(panelPane).y + headerSlot(panelPane).height), Theme.stack.group);
+            compare(scroll(windowPane).y + windowPane.ringRoom - (headerSlot(windowPane).y + headerSlot(windowPane).height), Theme.stack.section);
+            compare(scroll(panelPane).y + panelPane.ringRoom - (headerSlot(panelPane).y + headerSlot(panelPane).height), Theme.stack.group);
             windowPane.destroy();
             panelPane.destroy();
         }
@@ -347,7 +349,7 @@ Item {
             tryVerify(() => made.pane.bodyContentHeight > 72, 1000, "the body is laid out");
             verify(!made.pane.scrollArea.overflowing, "the body fits");
             const view = made.pane.scrollArea;
-            mouseClick(made, 120, view.mapToItem(made, 0, view.height - 10).y);
+            mouseClick(made, 120, view.mapToItem(made, 0, view.height - made.pane.ringRoom - 10).y);
             compare(made.spy.count, 1);
             made.destroy();
         }
@@ -368,7 +370,7 @@ Item {
 
         function test_fit_to_content_caps_the_body() {
             compare(fitted.implicitHeight, 120);
-            compare(fitted.scrollArea.height, 120 - 2 * fitted.contentInset - headerSlot(fitted).height - fitted.headerGap);
+            compare(fitted.scrollArea.height, 120 - 2 * fitted.contentInset - headerSlot(fitted).height - fitted.headerGap + 2 * fitted.ringRoom);
             verify(fitted.scrollArea.overflowing, "the capped pane scrolls its body");
         }
 
@@ -432,10 +434,20 @@ Item {
             verify(scroll(pane).contentHeight > scroll(pane).height, "the fixture overflows");
             scroll(pane).contentY = 0;
             compare(footerDivider(pane).visible, true);
-            verify(footerDivider(pane).y >= scroll(pane).y + scroll(pane).height && footerDivider(pane).y + footerDivider(pane).height <= footerSlot(pane).y, "the divider sits in the footer gap");
+            verify(footerDivider(pane).y >= scroll(pane).y + scroll(pane).height - pane.ringRoom && footerDivider(pane).y + footerDivider(pane).height <= footerSlot(pane).y, "the divider sits in the footer gap");
             scroll(pane).contentY = scroll(pane).contentHeight - scroll(pane).height;
             compare(footerDivider(pane).visible, false);
             scroll(pane).contentY = 0;
+        }
+
+        // A focus ring around a row on the content's left and top edges
+        // lies inside the viewport, so the scroll area's clip keeps it.
+        function test_a_ring_on_the_content_edge_stays_in_the_viewport() {
+            const row = body(pane).children[0];
+            const ringLeft = row.mapToItem(scroll(pane), -Theme.focusRing.offset - Theme.focusRing.width, 0).x;
+            const ringTop = row.mapToItem(scroll(pane), 0, -Theme.focusRing.offset - Theme.focusRing.width).y;
+            verify(ringLeft >= 0, "the ring's left edge " + ringLeft + " is inside the viewport");
+            verify(ringTop >= 0, "the ring's top edge " + ringTop + " is inside the viewport");
         }
 
         // An overlay draws no container: its content sits inset.overlay,

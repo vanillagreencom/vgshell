@@ -77,11 +77,14 @@ Item {
         // The ring draws on the button's own edge, its box and corner the
         // background's, so no second border shows outside the control. On
         // a primary button's accent fill, which the focus colour meets
-        // below 3:1, it draws in focusRing.contrast; a secondary button
-        // paints no fill, so its ring keeps focusRing.color.
+        // below 3:1, it draws in white or black, whichever contrasts more
+        // with the fill; a secondary button paints no fill, so its ring
+        // keeps focusRing.color.
         function test_the_ring_draws_on_the_control_edge_in_a_colour_its_fill_shows() {
+            const contrast = Theme.contrastOf(primary.background.color);
+            verify(String(Qt.color(contrast)) !== String(Qt.color(Theme.focusRing.color)), "the primary case draws apart from the focus colour");
             const cases = [
-                { button: primary, color: Theme.focusRing.contrast },
+                { button: primary, color: contrast },
                 { button: secondary, color: Theme.focusRing.color }
             ];
             for (const c of cases) {

@@ -197,6 +197,22 @@ Item {
             mouseMove(root, root.width - 1, root.height - 1);
         }
 
+        // A radio's ring sits outside its indicator with a gap, so it is
+        // not lost in the checked radio's accent border, and keeps the
+        // focus colour.
+        function test_a_radio_rings_outside_its_indicator() {
+            const ring = one.indicator.children.find(child => child.outside !== undefined);
+            const grow = Theme.focusRing.offset + Theme.focusRing.width;
+            compare(one.checked, true);
+            compare(ring.visible, false);
+            one.forceActiveFocus(Qt.TabFocusReason);
+            tryCompare(ring, "visible", true);
+            compare([ring.x, ring.y, ring.width, ring.height], [-grow, -grow, one.indicator.width + 2 * grow, one.indicator.height + 2 * grow]);
+            compare(String(ring.border.color), String(Qt.color(Theme.focusRing.color)));
+            one.focus = false;
+            tryCompare(ring, "visible", false);
+        }
+
         function test_theme_change_moves_the_indicators() {
             compare(UnitTheme.override({ toggle: { size: { md: { width: 50 }, sm: { width: 32, height: 18 } }, on: "#00ff00" }, checkbox: { size: 24 }, radio: { size: 24, dot: 10 } }), "ok");
             compare(sw.indicator.width, 50);

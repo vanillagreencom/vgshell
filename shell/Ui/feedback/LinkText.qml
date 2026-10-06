@@ -57,6 +57,7 @@ Item {
 
     FocusRing {
         target: root
+        outside: true
     }
 
     // keyboard-path: Return, Enter and Space activate the focused link

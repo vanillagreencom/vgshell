@@ -203,6 +203,14 @@ function contrastRatio(a, b) {
     return (light + 0.05) / (dark + 0.05);
 }
 
+// White or black, whichever contrasts more with an opaque colour. Either
+// meets any opaque colour at 4.58:1 or more, the ratio both reach on the
+// colour of luminance 0.179.
+function contrastColor(color) {
+    var light = luminance(color);
+    return 1.05 / (light + 0.05) > (light + 0.05) / 0.05 ? parseColor("#ffffff") : parseColor("#000000");
+}
+
 // Text drawn at rest must meet WCAG 2.2 SC 1.4.3 AA for normal-size text
 // on each resting surface. Inactive controls and hover surfaces are exempt.
 // `color.accent` draws text roles such as eyebrow, checked buttons and badges.
@@ -486,8 +494,7 @@ function resolve(tokens, overrides) {
         case "contrast":
             if (args[0].a < 1)
                 return fail("contrast-translucent", token, "colour=" + formatColor(args[0]));
-            var light = luminance(args[0]);
-            return 1.05 / (light + 0.05) > (light + 0.05) / 0.05 ? parseColor("#ffffff") : parseColor("#000000");
+            return contrastColor(args[0]);
         case "mul":
             return args[0] * args[1];
         }

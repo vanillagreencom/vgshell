@@ -75,6 +75,6 @@ T.AbstractButton {
     }
 
     background: Item {
-        FocusRing { target: root }
+        FocusRing { target: root; outside: true }
     }
 }

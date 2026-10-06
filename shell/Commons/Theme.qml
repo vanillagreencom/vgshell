@@ -113,6 +113,11 @@ Singleton {
     function contrastRatio(a, b) {
         return ThemeLogic.contrastRatio(a, b);
     }
+    // White or black, whichever contrasts more with `color`: the rule of
+    // the `contrast()` token function.
+    function contrastOf(color) {
+        return toColor(ThemeLogic.formatColor(ThemeLogic.contrastColor(color)));
+    }
 
     function toColor(text) {
         return "#" + text.slice(7, 9) + text.slice(1, 7);

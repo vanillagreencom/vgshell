@@ -45,7 +45,7 @@ T.CheckBox {
             visible: root.checked
         }
 
-        FocusRing { target: root }
+        FocusRing { target: root; outside: true }
     }
 
     contentItem: IndicatorLabel { control: root }

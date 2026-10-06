@@ -65,7 +65,7 @@ T.Switch {
             }
         }
 
-        FocusRing { target: control }
+        FocusRing { target: control; outside: true }
     }
 
     contentItem: Item {}

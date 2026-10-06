@@ -58,7 +58,7 @@ T.Switch {
             Behavior on x { enabled: !root.down; NumberAnimation { duration: Theme.motion.duration.fast; easing.type: Theme.motion.easing.standard } }
         }
 
-        FocusRing { target: root }
+        FocusRing { target: root; outside: true }
     }
 
     contentItem: IndicatorLabel { control: root }

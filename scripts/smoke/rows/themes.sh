@@ -769,15 +769,16 @@ expect_poll "the applied row is displayed and shows its failed target" '[["smoke
 # and takes seconds once the panel lists the whole catalog.
 panel_kept="$sandbox/themes-panel-reading"
 panel_geometry() {
-  local reading
+  local width offset reading
+  width="$(ipc smoke themeValue focusRing.width)" && offset="$(ipc smoke themeValue focusRing.offset)" || return
   reading="$(ipc smoke descendantGeometry panel vgs.themes)" || return
-  printf '%s\n' "$reading" >"$panel_kept.tmp" && mv -T -- "$panel_kept.tmp" "$panel_kept" || return
-  panel_judge "" <<<"$reading"
+  printf '%s %s\n%s\n' "$width" "$offset" "$reading" >"$panel_kept.tmp" && mv -T -- "$panel_kept.tmp" "$panel_kept" || return
+  panel_judge "$width" "$offset" "" <<<"$reading"
 }
-panel_judge() { # PLANT, the reading on stdin
+panel_judge() { # RING_WIDTH RING_OFFSET PLANT, the reading on stdin
   py_reply '
 import json, sys
-rows, plant = json.load(sys.stdin), sys.argv[1]
+rows, ring, plant = json.load(sys.stdin), float(sys.argv[1]) + float(sys.argv[2]), sys.argv[3]
 out = []
 def shown(r): return r["box"][2] > 0 and r["box"][3] > 0
 def inside(j, i):
@@ -808,11 +809,12 @@ if len(name) != 1 or len(line) != 1: out.append("column name=%d line=%d" % (len(
 elif abs(line[0][0] - name[0][0]) > 1: out.append("column line=%.2f name=%.2f" % (line[0][0], name[0][0]))
 b, s = add[0], scroll[0]
 if b[0] < panel[0] - 1 or b[0] + b[2] > panel[0] + panel[2] + 1 or b[1] + b[3] > panel[1] + panel[3] + 1: out.append("footer box=%s panel=%s" % (b, panel))
-if b[1] < s[1] + s[3] - 1: out.append("footer top=%.2f body.bottom=%.2f" % (b[1], s[1] + s[3]))
-print(json.dumps(out))' "$1"
+if b[1] < s[1] + s[3] - ring - 1: out.append("footer top=%.2f body.bottom=%.2f" % (b[1], s[1] + s[3] - ring))
+print(json.dumps(out))' "$1" "$2" "$3"
 }
 panel_planted() { # RULE
-  panel_judge "$1" <"$panel_kept" \
+  local width offset
+  { read -r width offset && panel_judge "$width" "$offset" "$1"; } <"$panel_kept" \
     | py_reply 'import json,sys; print(any(e.startswith(sys.argv[1] + " ") for e in json.load(sys.stdin)))' "$1"
 }
 geometry expect_poll "the themes panel keeps one content edge, the text column and its footer" '[]' panel_geometry

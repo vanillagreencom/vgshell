@@ -172,9 +172,10 @@ function printable(text, modifiers) {
 }
 
 // Return the scroll offset that reveals an item inside a vertical viewport.
-function revealY(itemY, itemHeight, contentY, viewHeight) {
-    var bottom = itemY + itemHeight;
-    if (itemY < contentY) return Math.max(0, itemY);
+function revealY(itemY, itemHeight, contentY, viewHeight, margin) {
+    var top = itemY - margin;
+    var bottom = itemY + itemHeight + margin;
+    if (top < contentY) return Math.max(0, top);
     if (bottom > contentY + viewHeight) return Math.max(0, bottom - viewHeight);
     return contentY;
 }

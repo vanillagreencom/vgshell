@@ -88,14 +88,15 @@ sys_lent() { ipc shell lent | py_reply 'import json,sys; d=json.load(sys.stdin);
 press_system() { type_keys -M logo -k period -m logo; }
 # `fits` when the mounted section ID's box is its implicit height tall, or
 # the detail's room when that is more; else both. The room is the page's
-# ScrollArea height.
+# ScrollArea height less the focus ring's room above and below it.
 sys_pane_fits() { # ID
-  local box implicit rows
+  local box implicit rows ring
   box="$(ipc smoke instanceGeometry window "$1")" && implicit="$(ipc smoke readInstance window "$1" implicitHeight)" && rows="$(ipc smoke descendantGeometry window vgs.system)" || return 1
   [[ $box == \[* && $rows == \[* ]] || { echo "pane=$box window=${rows:0:20}"; return; }
-  python3 - "$box" "$implicit" "$rows" <<'PY'
+  ring="$(( $(ipc smoke themeValue focusRing.width) + $(ipc smoke themeValue focusRing.offset) ))" || return 1
+  python3 - "$box" "$implicit" "$rows" "$ring" <<'PY'
 import json, sys
-box, implicit, rows = json.loads(sys.argv[1]), float(sys.argv[2]), json.loads(sys.argv[3])
+box, implicit, rows, ring = json.loads(sys.argv[1]), float(sys.argv[2]), json.loads(sys.argv[3]), float(sys.argv[4])
 side = [i for i, r in enumerate(rows) if r["type"] == "Sidebar"]
 def inside(j, i):
     while j != -1:
@@ -104,7 +105,7 @@ def inside(j, i):
     return False
 areas = [r for i, r in enumerate(rows) if r["type"] == "ScrollArea" and side and not inside(i, side[0]) and r["box"][0] < box[0] + 1 and r["box"][0] + r["box"][2] > box[0]]
 if len(areas) < 1: print("areas=0"); sys.exit()
-room = min(a["box"][3] for a in areas)
+room = min(a["box"][3] for a in areas) - 2 * ring
 want = max(room, implicit)
 print("fits" if abs(box[3] - want) <= 1 else "height=%g want=%g implicit=%g room=%g" % (box[3], want, implicit, room))
 PY

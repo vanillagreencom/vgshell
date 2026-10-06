@@ -401,9 +401,9 @@ var TOKENS = {
 
     focusRing: {
         width: length("{border.thick}"),
+        offset: length(2),
         radius: length("{radius.sm}"),
-        color: color("{color.focus}"),
-        contrast: color("{color.text}")
+        color: color("{color.focus}")
     },
 
     button: {

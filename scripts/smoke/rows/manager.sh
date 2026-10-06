@@ -356,11 +356,12 @@ page_alignment() {
   label_w="$(ipc smoke themeValue field.labelWidth)" || return
   label_gap="$(ipc smoke themeValue field.labelGap)" || return
   inset="$(ipc smoke themeValue inset.window)" || return
-  python3 - "$rows" "$label_w" "$label_gap" "$inset" "$1" "$2" "${3:-}" <<'PY'
+  ring="$(( $(ipc smoke themeValue focusRing.width) + $(ipc smoke themeValue focusRing.offset) ))" || return
+  python3 - "$rows" "$label_w" "$label_gap" "$inset" "$1" "$2" "$ring" "${3:-}" <<'PY'
 import json, sys
 sys.argv[1] = open(sys.argv[1]).read()
-rows, label_w, label_gap, inset, want_settings, want_keys = (json.loads(a) for a in sys.argv[1:7])
-plant = sys.argv[7] == "plant"
+rows, label_w, label_gap, inset, want_settings, want_keys, ring = (json.loads(a) for a in sys.argv[1:8])
+plant = sys.argv[8] == "plant"
 out = []
 def inside(j, i):
     while j != -1:
@@ -402,7 +403,8 @@ if plant:
             rows[j] = dict(r, box=[r["box"][0], label_box[1] + label_box[3] + 1] + r["box"][2:])
 area = rows[areas[0]]
 column_right = right(area) - inset
-content_left = area["box"][0]
+# Pane's viewport starts a focus ring's room left of the content edge.
+content_left = area["box"][0] + ring
 check("content.leftInset", content_left - rows[page[0]]["box"][0], inset)
 check("content.rightInset", right(rows[page[0]]) - column_right, inset)
 headers = [i for i, r in enumerate(rows) if r["type"] == "SectionHeader" and inside(i, page[0])]
