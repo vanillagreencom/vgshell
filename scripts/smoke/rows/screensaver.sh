@@ -4,6 +4,20 @@
 # 2026-10-05 under the nested sandbox: under 20 s.
 # inputs: shell/plugins/vgs.screensaver/* shell/Core/PluginLogic.js shell/Hosts/BackgroundHost.qml scripts/smoke/fixtures/screensaver-ttfx scripts/smoke/rows/capability-release.sh scripts/smoke/rows/lock.sh
 set -euo pipefail
+# lock is exclusive: acme.probe can hold it and block vgs.lock from building.
+# Free it for this row, then restore acme.probe and vgs.lock to their starting
+# states. setPluginEnabled persists across the mid-row shell restart.
+ss_probe_enabled="$(plugin_enabled acme.probe)" || ss_probe_enabled=unreadable
+ss_lock_enabled="$(plugin_enabled vgs.lock)" || ss_lock_enabled=unreadable
+case "$ss_probe_enabled" in
+  True) expect "disabling the capability fixture, which holds lock, is allowed" ok ipc shell setPluginEnabled acme.probe false ;;
+  False|absent) ;;
+  *) fail "the capability fixture's enabled state is unreadable: $ss_probe_enabled" ;;
+esac
+case "$ss_lock_enabled" in
+  True|False|absent) ;;
+  *) fail "the lock plugin's enabled state is unreadable: $ss_lock_enabled" ;;
+esac
 ss_config="$home/.config/vgshell/shell.json"
 ss_log="$home/.local/state/vgshell/screensaver-ttfx.log"
 cp -- "$repo/scripts/smoke/fixtures/screensaver-ttfx" "$shim/ttfx"
@@ -228,6 +242,15 @@ expect "disabling lock after lock-alone check" ok ipc shell setPluginEnabled vgs
 expect "enabling screensaver is allowed for later rows" ok ipc shell setPluginEnabled vgs.screensaver true
 set_lock_seconds 300
 set_screensaver '{"idleEnabled": true, "idleSeconds": 150, "effect": "random", "frameRate": 30}'
-expect "enabling lock after screensaver row is allowed" ok ipc shell setPluginEnabled vgs.lock true
 expect "reload after screensaver row restore" ok ipc shell reloadConfig
+if [[ $ss_lock_enabled == True ]]; then
+  expect "enabling lock after screensaver row is allowed" ok ipc shell setPluginEnabled vgs.lock true
+else
+  expect "disabling lock restores its state before the row" ok ipc shell setPluginEnabled vgs.lock false
+  expect_poll "the lock service is gone after the row" False record_exists vgs.lock
+fi
+if [[ $ss_probe_enabled == True ]]; then
+  expect "re-enabling the capability fixture is allowed" ok ipc shell setPluginEnabled acme.probe true
+  expect_poll "the capability fixture is built again after the row" True record_exists acme.probe
+fi
 rm -f -- "${shim:?}/ttfx"
