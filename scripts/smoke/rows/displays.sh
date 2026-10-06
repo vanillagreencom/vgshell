@@ -204,7 +204,8 @@ expect "the two Studio Displays wait for a choice, and no choice is saved" '{"en
 # The keyboard alone, in System → Displays: the pane opens on the
 # arrangement canvas, Tabs past Use this display, which the only output
 # cannot turn off, to Resolution, since one output has nothing to mirror,
-# and on to the XDR's slider, Up raises it one step,
+# past Colour depth, the one colour row a panel with no EDID or adaptive
+# sync shows, and on to the XDR's slider, Up raises it one step,
 # Tab reaches its Screen choice and Down picks the first output, the main
 # one.
 read -r mon_w mon_h < <(hypr -j monitors | py_reply 'import json,sys; m=json.load(sys.stdin)[0]; print(m["width"], m["height"])')
@@ -214,7 +215,9 @@ expect_poll "the System window mounts the displays pane" '["vgs.displays"]' wind
 expect_poll "the pane opens with the keyboard on the arrangement canvas" '["Arrangement", "Display arrangement"]' disp_focus
 type_keys -k Tab -k Tab || fail "typing Tab to the Resolution choice failed"
 expect_poll "Tab passes the Use this display switch the only display cannot turn off, and no Mirror choice, to Resolution" '["Select", "Resolution"]' disp_focus
-type_keys -k Tab -k Tab -k Tab -k Tab || fail "typing Tab to the XDR's slider failed"
+type_keys -k Tab -k Tab -k Tab -k Tab || fail "typing Tab to the Colour depth choice failed"
+expect_poll "Tab reaches Colour depth, the one colour row the nested panel shows" '["Select", "Colour depth"]' disp_focus
+type_keys -k Tab || fail "typing Tab to the XDR's slider failed"
 expect_poll "Tab reaches the XDR's slider" '["Slider", "Apple Pro Display XDR"]' disp_focus
 disp_xdr_sets="$(disp_sets hidraw0)"
 type_keys -k Up || fail "typing Up on the XDR's slider failed"
