@@ -88,9 +88,9 @@ Item {
                 Column {
                     width: parent.width
                     spacing: Theme.stack.row
-                    Field { label: "Agents running"; inline: true; width: parent.width; Label { role: "value"; text: "3"; width: parent.width; elide: Text.ElideRight } }
-                    Field { label: "Last check"; inline: true; width: parent.width; Label { role: "value"; text: "9/30/26 3:57 PM"; width: parent.width; elide: Text.ElideRight } }
-                    Field { label: "Warden"; inline: true; width: parent.width; Badge { text: "Within limits"; tone: "success" } }
+                    Field { label: "Agents running"; inline: true; info: "Counts agent lanes that vsys reports as running. It shows Not reported until vsys reports a count."; width: parent.width; Label { role: "value"; text: "3"; width: parent.width; elide: Text.ElideRight } }
+                    Field { label: "Last check"; inline: true; info: "The time comes from the last status that vsys wrote. If it stops changing, Agent Warden reports stopped checking."; width: parent.width; Label { role: "value"; text: "9/30/26 3:57 PM"; width: parent.width; elide: Text.ElideRight } }
+                    Field { label: "Warden"; inline: true; info: "Shows whether the vsys warden is set up, checking agents and reporting problems."; width: parent.width; Badge { text: "Within limits"; tone: "success" } }
                 }
                 ImageText {
                     width: parent.width
@@ -405,16 +405,10 @@ Item {
                     title: "Dialogs"
                     rowSpacing: Theme.stack.group
                     description: "Confirmations, progress and disabled actions"
-                Field {
-                    label: "Info"
-                    inline: true
-                    info: "This icon opens a small explanation without adding another hint line to the page."
-                    Label { role: "value"; text: "Declared explanation" }
-                }
                 Dialog {
                     modal: false
                     title: "Warden"
-                    message: "Shows whether Agent Warden is checking agents and reporting problems."
+                    message: "Shows whether the vsys warden is set up, checking agents and reporting problems."
                     actions: [{ label: "Close", role: "cancel", focused: true }]
                 }
                 Dialog {
