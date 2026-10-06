@@ -89,6 +89,7 @@ FIELDS = (
     ("pane", "group"),
     ("tui", "*", "title"), ("tui", "*", "entry", "label"), ("tui", "*", "entry", "group"),
     ("menu", "*", "label"), ("menu", "*", "description"), ("menu", "*", "toggle", "label"),
+    ("hyprland", "binds", "*", "info"),
     ("secrets", "label"),
 )
 # The keys the judge admits that the check does not read, and why: an
