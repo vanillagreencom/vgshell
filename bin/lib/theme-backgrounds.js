@@ -221,7 +221,7 @@ function landSquare(stateDir, current, before, key) {
     if (same && lstatOrNull(square, key) !== null) return;
     const tmp = square + ".vgshell-" + process.pid;
     const run = spawnSync("magick", [current.path, "-auto-orient", "-gravity", "center", "-crop", "1:1", "+repage",
-        "-resize", "1024x1024>", "png:" + tmp], { stdio: "ignore" });
+        "-resize", "1024x1024>", "-define", "png:compression-level=1", "png:" + tmp], { stdio: "ignore" });
     if (run.error !== undefined || run.status !== 0) {
         writing(tmp, key, () => fs.rmSync(tmp, { force: true }));
         return remove();
@@ -230,9 +230,10 @@ function landSquare(stateDir, current, before, key) {
 }
 
 // Make AFTER, a state as `read` answers it, the background state: the
-// `background` symlink to its `current` first, replaced by rename, then its
-// square, then backgrounds.json when it differs from BEFORE, the state
-// `read` answered.
+// `background` symlink to its `current` first, replaced by rename, then
+// backgrounds.json when it differs from BEFORE, the state `read` answered,
+// then the square, last so the plugin's watch of backgrounds.json never
+// waits for ImageMagick.
 // The state directory is created first: `set` can be the first command a
 // fresh home runs. KEY leads the refusal for each write that fails.
 function land(stateDir, after, before, key) {
@@ -262,13 +263,14 @@ function land(stateDir, after, before, key) {
             throw e;
         }
     });
-    landSquare(stateDir, after.current, before.current, key);
     const doc = JSON.stringify(document(after));
-    if (doc === JSON.stringify(document(before))) return;
-    const state = path.join(stateDir, STATE_FILE);
-    const empty = current === null && Object.keys(after.themes).length === 0 && Object.keys(after.screens).length === 0;
-    if (empty) writing(state, key, () => fs.rmSync(state, { force: true }));
-    else replaceFile(state, doc + "\n", key);
+    if (doc !== JSON.stringify(document(before))) {
+        const state = path.join(stateDir, STATE_FILE);
+        const empty = current === null && Object.keys(after.themes).length === 0 && Object.keys(after.screens).length === 0;
+        if (empty) writing(state, key, () => fs.rmSync(state, { force: true }));
+        else replaceFile(state, doc + "\n", key);
+    }
+    landSquare(stateDir, after.current, before.current, key);
 }
 
 module.exports = { DIR, STATE_FILE, LINK, isImageName, entryKind, firstImageName, images, imagePath, locate, stamped, read, choose, land };
