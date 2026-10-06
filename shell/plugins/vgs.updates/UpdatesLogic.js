@@ -293,10 +293,24 @@ function intervalMs(settings) {
     return hours * 60 * 60 * 1000;
 }
 
-function nextCheckDelay(snapshot, checking, now, interval, failedAt) {
+function parseBootTime(text) {
+    var lines = String(text || "").split("\n");
+    for (var i = 0; i < lines.length; i++) {
+        var m = /^btime ([0123456789]+)$/.exec(lines[i]);
+        if (m !== null) return Number(m[1]) * 1000;
+    }
+    return null;
+}
+
+function snapshotBeforeBoot(snapshot, bootedAt) {
+    return snapshot !== null && typeof bootedAt === "number" && snapshot.checkedAt < bootedAt;
+}
+
+function nextCheckDelay(snapshot, checking, now, interval, failedAt, bootedAt) {
     if (checking) return interval;
     if (failedAt !== null && failedAt !== undefined) return Math.max(0, failedAt + RETRY_AFTER_FAILURE_MS - now);
     if (snapshot === null) return 0;
+    if (snapshotBeforeBoot(snapshot, bootedAt)) return 0;
     var due = snapshot.checkedAt + interval;
     return Math.max(0, due - now);
 }
@@ -309,16 +323,17 @@ function staleDelay(snapshot, now, interval) {
 // The cadence timer's delay, or null for no timer while the cache read
 // has not answered: a null snapshot then means "not read yet", not "never
 // checked".
-function nextTimerDelay(snapshot, checking, now, interval, failedAt, cacheRead) {
+function nextTimerDelay(snapshot, checking, now, interval, failedAt, cacheRead, bootRead, bootedAt) {
     if (cacheRead !== true) return null;
-    var checkDelay = nextCheckDelay(snapshot, checking, now, interval, failedAt);
+    if (bootRead !== true) return null;
+    var checkDelay = nextCheckDelay(snapshot, checking, now, interval, failedAt, bootedAt);
     var stale = staleDelay(snapshot, now, interval);
     if (stale === null) return checkDelay;
     return Math.min(checkDelay, stale);
 }
 
-function shouldRunCheck(snapshot, checking, now, interval, failedAt) {
-    return !checking && nextCheckDelay(snapshot, false, now, interval, failedAt) === 0;
+function shouldRunCheck(snapshot, checking, now, interval, failedAt, bootedAt) {
+    return !checking && nextCheckDelay(snapshot, false, now, interval, failedAt, bootedAt) === 0;
 }
 
 // Whether a run of one of the plugin's TUIs ended between PREVIOUS and

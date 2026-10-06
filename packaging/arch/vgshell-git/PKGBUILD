@@ -49,6 +49,7 @@ depends=(
   'pipewire-audio'
   'playerctl'
   'qrencode'
+  'sed'
   'slurp'
   'systemd'
   'tesseract'

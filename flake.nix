@@ -44,6 +44,7 @@
         pkgs.python3
         pkgs.qrencode
         pkgs.quickshell
+        pkgs.gnused
         pkgs.slurp
         pkgs.systemd
         pkgs.tesseract

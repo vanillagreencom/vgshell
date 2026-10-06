@@ -44,6 +44,7 @@ pkgbase = vgshell-git
 	depends = pipewire-audio
 	depends = playerctl
 	depends = qrencode
+	depends = sed
 	depends = slurp
 	depends = systemd
 	depends = tesseract

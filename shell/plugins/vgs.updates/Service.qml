@@ -13,10 +13,12 @@ Item {
     property var shell: null
     property bool registered: false
     property var snapshot: null
-    // Whether the cache read has answered, loaded or failed: until then no
-    // timer is set, so a service rebuilt with a fresh cache does not check
-    // before it reads it.
+    // Whether the startup reads have answered, loaded or failed: until then
+    // no timer is set, so a service rebuilt with a fresh cache does not
+    // check before it reads it and the current boot time.
     property bool cacheRead: false
+    property bool bootRead: false
+    property var bootedAt: null
     property bool checking: false
     property bool queued: false
     // The TUI state this instance last read, null before the first read.
@@ -30,6 +32,7 @@ Item {
     property bool detectQueued: false
     readonly property string stateDir: (Quickshell.env("XDG_STATE_HOME") || (Quickshell.env("HOME") + "/.local/state")) + "/vgshell/updates"
     readonly property string statusPath: stateDir + "/status.json"
+    readonly property string bootPath: "/proc/stat"
     readonly property string checkScript: String(Qt.resolvedUrl("bin/check")).replace(/^file:\/\//, "")
     readonly property string vgshellPath: Quickshell.shellDir + "/../bin/vgshell"
     readonly property string factsScript: String(Qt.resolvedUrl("bin/facts")).replace(/^file:\/\//, "")
@@ -63,6 +66,7 @@ Item {
         shell.ipc.handle("status", () => JSON.stringify(shell.status.values));
         shell.ipc.handle("review", dir => root.openReview(dir));
         cacheReader.path = statusPath;
+        bootReader.path = bootPath;
         if (lastTuiState === null) lastTuiState = shell.tui.state;
         publishNow();
     }
@@ -110,12 +114,13 @@ Item {
     }
 
     function maybeCheck() {
-        if (Logic.shouldRunCheck(snapshot, checking, Date.now(), currentIntervalMs, failedAt < 0 ? null : failedAt)) requestCheck("due");
+        if (!cacheRead || !bootRead) return;
+        if (Logic.shouldRunCheck(snapshot, checking, Date.now(), currentIntervalMs, failedAt < 0 ? null : failedAt, bootedAt)) requestCheck("due");
         else schedule();
     }
 
     function schedule() {
-        const delay = Logic.nextTimerDelay(snapshot, checking, Date.now(), currentIntervalMs, failedAt < 0 ? null : failedAt, cacheRead);
+        const delay = Logic.nextTimerDelay(snapshot, checking, Date.now(), currentIntervalMs, failedAt < 0 ? null : failedAt, cacheRead, bootRead, bootedAt);
         if (delay === null) {
             cadence.stop();
             return;
@@ -166,6 +171,22 @@ Item {
             root.cacheRead = true;
             if (error !== FileViewError.FileNotFound) console.warn("updates: cache unreadable: " + error);
             root.publishNow();
+            root.maybeCheck();
+        }
+    }
+
+    FileView {
+        id: bootReader
+        onLoaded: {
+            root.bootedAt = Logic.parseBootTime(text());
+            root.bootRead = true;
+            if (root.bootedAt === null) console.warn("updates: boot time unreadable");
+            root.maybeCheck();
+        }
+        onLoadFailed: error => {
+            root.bootedAt = null;
+            root.bootRead = true;
+            console.warn("updates: boot time unreadable: " + error);
             root.maybeCheck();
         }
     }
@@ -235,7 +256,7 @@ Item {
         repeat: false
         interval: root.currentIntervalMs
         onTriggered: {
-            if (Logic.shouldRunCheck(root.snapshot, root.checking, Date.now(), root.currentIntervalMs, root.failedAt < 0 ? null : root.failedAt)) root.requestCheck("timer");
+            if (Logic.shouldRunCheck(root.snapshot, root.checking, Date.now(), root.currentIntervalMs, root.failedAt < 0 ? null : root.failedAt, root.bootedAt)) root.requestCheck("timer");
             else {
                 root.publishNow();
                 root.schedule();

@@ -55,20 +55,29 @@ function verify(logic) {
   same(logic.checkState(clean, false, now, 6, ""), { tone: "danger", text: "The update check failed. Select Refresh to try again." });
   same(logic.publishValues(snapshot, false, now, 6 * 60 * 60 * 1000, "").pending, 5);
   assert.equal(logic.publishValues(snapshot, false, now, 6, "").lastCheck, now);
-  assert.equal(logic.nextCheckDelay(null, false, now, 6, null), 0);
-  assert.equal(logic.nextCheckDelay({ checkedAt: now - 2, sources: [], error: null }, false, now, 6, null), 4);
-  assert.equal(logic.nextCheckDelay({ checkedAt: now - 7, sources: [], error: null }, false, now, 6, null), 0);
+  assert.equal(logic.nextCheckDelay(null, false, now, 6, null, null), 0);
+  assert.equal(logic.nextCheckDelay({ checkedAt: now - 2, sources: [], error: null }, false, now, 6, null, null), 4);
+  assert.equal(logic.nextCheckDelay({ checkedAt: now - 7, sources: [], error: null }, false, now, 6, null, null), 0);
+  assert.equal(logic.parseBootTime("cpu  1 2 3\nbtime 12345\nintr 9\n"), 12345000);
+  assert.equal(logic.parseBootTime("cpu  1 2 3\n"), null);
+  assert.equal(logic.parseBootTime("btime nope\n"), null);
+  assert.equal(logic.nextCheckDelay({ checkedAt: now - 2, sources: [], error: null }, false, now, 6, null, now - 1), 0);
+  assert.equal(logic.shouldRunCheck({ checkedAt: now - 2, sources: [], error: null }, false, now, 6, null, now - 1), true);
+  assert.equal(logic.nextCheckDelay({ checkedAt: now - 2, sources: [], error: null }, false, now, 6, null, now - 3), 4);
+  assert.equal(logic.shouldRunCheck({ checkedAt: now - 2, sources: [], error: null }, false, now, 6, null, now - 3), false);
+  assert.equal(logic.nextCheckDelay({ checkedAt: now - 2, sources: [], error: null }, false, now, 6, null, null), 4);
   assert.equal(logic.intervalMs({ intervalHours: 0 }), 3600000);
   assert.equal(logic.intervalMs({ intervalHours: 49 }), 48 * 3600000);
   same(snapshot.sources[5].packages, [{ name: "acme.one", old: "a", new: "b", behind: 2 }]);
   same(logic.checkState(clean, false, now, 6, "timeout=120"), { tone: "danger", text: "The update check took too long. Select Refresh to try again." });
   same(logic.statusWrites({}, { pending: 1, lastCheck: null, checkState: { tone: "ok", text: "Up to date" }, sources: [] }).map(w => w.key), ["pending", "checkState", "sources"]);
   same(logic.statusWrites({ pending: 1 }, { pending: 1, checkState: { tone: "ok", text: "Up to date" } }).map(w => w.key), ["checkState"]);
-  assert.equal(logic.nextCheckDelay(snapshot, false, now + 1000, 99999999, now), logic.RETRY_AFTER_FAILURE_MS - 1000);
-  assert.equal(logic.nextCheckDelay(snapshot, false, now + logic.RETRY_AFTER_FAILURE_MS, 6, now), 0);
-  assert.equal(logic.nextTimerDelay({ checkedAt: now - 7, sources: [], error: null }, false, now, 6, null, true), 0);
-  assert.equal(logic.nextTimerDelay(null, false, now, 6, null, true), 0);
-  assert.equal(logic.nextTimerDelay(null, false, now, 6, null, false), null);
+  assert.equal(logic.nextCheckDelay(snapshot, false, now + 1000, 99999999, now, null), logic.RETRY_AFTER_FAILURE_MS - 1000);
+  assert.equal(logic.nextCheckDelay(snapshot, false, now + logic.RETRY_AFTER_FAILURE_MS, 6, now, null), 0);
+  assert.equal(logic.nextTimerDelay({ checkedAt: now - 7, sources: [], error: null }, false, now, 6, null, true, true, null), 0);
+  assert.equal(logic.nextTimerDelay(null, false, now, 6, null, true, true, null), 0);
+  assert.equal(logic.nextTimerDelay(null, false, now, 6, null, false, true, null), null);
+  assert.equal(logic.nextTimerDelay(null, false, now, 6, null, true, false, null), null);
   const many = logic.normalizeSnapshot({
     pkg: probe([{ source: "pacman", count: 3000, packages: Array.from({ length: 3000 }, (_, i) => ({ name: "pkg-" + i + "-".repeat(120), old: "1".repeat(120), new: "2".repeat(120) })), checkedAt: now, error: null }]),
     self: probe({ behind: false, error: null }),
@@ -240,6 +249,8 @@ const controls = [
   ["check failure wins state", "if (checkFailure !== null && checkFailure !== undefined && checkFailure !== \"\") return { tone: \"danger\", text: errorText(checkFailure) };", "if (false) return { tone: \"danger\", text: \"\" };"],
   ["status writes skip unchanged", "if (!hasOwn(before, key) || !sameJson(before[key], next[key])) out.push({ key: key, value: clone(next[key]) });", "out.push({ key: key, value: clone(next[key]) });"],
   ["failure retry uses short delay", "failedAt + RETRY_AFTER_FAILURE_MS - now", "failedAt + interval - now"],
+  ["proc stat btime is parsed as milliseconds", "if (m !== null) return Number(m[1]) * 1000;", "if (false) return Number(m[1]) * 1000;"],
+  ["a pre-boot snapshot is due now", "if (snapshotBeforeBoot(snapshot, bootedAt)) return 0;", "if (false) return 0;"],
   ["a failed package probe is one packages row", "if (!parsed.ok) return [sourceRow(\"packages\", null, [], null, parsed.error)];", "if (!parsed.ok) return [];"],
   ["published packages are bounded", "var limit = Math.min(row.packages.length, PUBLISHED_PACKAGES_PER_SOURCE_MAX);", "var limit = row.packages.length;"],
   ["published rows carry the omitted package count", "made.more = Math.max(0, row.packages.length - packages.length);", "made.more = 0;"],
@@ -265,6 +276,7 @@ const controls = [
   ["one source's update names its source", "return { name: \"update-source\", args: [source] };", "return { name: \"update-source\", args: [] };"],
   ["a first TUI state read counts no ended run", "if (previous === null) return false;", "if (false) return false;"],
   ["no timer before the cache read answers", "if (cacheRead !== true) return null;", "if (false) return null;"],
+  ["no timer before the boot read answers", "if (bootRead !== true) return null;", "if (false) return null;"],
   ["the service publishes whether it checks", "checking: checking === true,", "checking: false,"],
   ["the review offers claude before codex", 'var REVIEW_AGENTS = [\n    { id: "claude", label: "Claude Code", command: ["claude", "--model", "opus", "--effort", "medium", "--permission-mode", "default"] },\n    { id: "codex", label: "Codex", command: ["codex", "-m", "gpt-6.1-sol", "-c", "model_reasoning_effort=medium", "--sandbox", "workspace-write", "--ask-for-approval", "on-request"] }\n];', 'var REVIEW_AGENTS = [\n    { id: "codex", label: "Codex", command: ["codex", "-m", "gpt-6.1-sol", "-c", "model_reasoning_effort=medium", "--sandbox", "workspace-write", "--ask-for-approval", "on-request"] },\n    { id: "claude", label: "Claude Code", command: ["claude", "--model", "opus", "--effort", "medium", "--permission-mode", "default"] }\n];'],
   ["a default command keeps its restricted mode", '"--permission-mode", "default"] },', '] },'],

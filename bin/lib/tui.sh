@@ -24,7 +24,8 @@
 #                                    joined by a nested run's session; guard only drops
 #                                    the credential when the script ends
 #   vgs_tui_lock NAME                hold $XDG_RUNTIME_DIR/vgs-tui-NAME.lock until exit
-#   vgs_tui_log FILE [ARG...]        run this script again under script(1) into FILE
+#   vgs_tui_log FILE [ARG...]        run this script again under script(1) into FILE,
+#                                    keeping SGR colour and dropping terminal controls
 #   vgs_tui_reboot_check             print why a reboot is needed; 1 when none is
 #   vgs_tui_close_prompt CODE        `● Done!` for 0, `● Failed (exit code CODE)!`
 #                                    otherwise, and one key, on /dev/tty; nothing
@@ -201,17 +202,33 @@ vgs_tui_lock() { # NAME
   esac
 }
 
-# Runs this script again, with ARGs, under script(1) logging to FILE, so the
-# terminal shows the run and FILE keeps a copy, and exits with that run's
-# status; inside the run it returns at once. script(1) hands the command
-# line to $SHELL, so SHELL is bash there, which reads the %q quoting.
+# Drops controls that gum writes around prompts while keeping SGR colour.
+_vgs_tui_log_clean() {
+  LC_ALL=C sed -u -E \
+    -e $'s/\e\\][^\a\e]*(\a|\e\\\\)//g' \
+    -e $'s/\e\\[[0-9;:]*[<=>?][0-?]*[ -/]*[@-~]//g' \
+    -e $'s/\e\\[[0-9;:]*[ -/]+[@-~]//g' \
+    -e $'s/\e\\[[0-9;:]*[@-ln-~]//g' \
+    -e $'s/\e[ -/]*[0-Z\\\\^-~]//g' \
+    -e $'s/\r+$//' \
+    -e $'s/^.*\r//'
+}
+
+# Runs this script again, with ARGs, under script(1) logging clean text to
+# FILE, so the terminal shows the run and FILE keeps a copy, and exits with
+# that run's status; inside the run it returns at once. script(1) hands the
+# command line to $SHELL, so SHELL is bash there, which reads the %q quoting.
 vgs_tui_log() { # FILE [ARG...]
   [[ ${VGS_TUI_LOGGED:-} == 1 ]] && return 0
-  local file="${1:-}" cmd
+  local file="${1:-}" cmd fd status=0
   [[ -n $file ]] || _vgs_tui_refuse 2 "log=missing" || return
   shift
   cmd="$(printf '%q ' "$BASH" "$0" "$@")"
-  exec env VGS_TUI_LOGGED=1 SHELL="$BASH" script -qef --log-out "$file" -c "$cmd"
+  exec {fd}>"$file" || _vgs_tui_refuse 1 "log=$file reason=open-failed" || return
+  env VGS_TUI_LOGGED=1 SHELL="$BASH" script -qef --log-out >(_vgs_tui_log_clean >&"$fd") -c "$cmd" {fd}>&- || status=$?
+  exec {fd}>&-
+  wait "$!" || :
+  exit "$status"
 }
 
 # The presenter's closing prompt, which a `plain` script that fails calls

@@ -55,6 +55,7 @@ Requires:       pipewire-utils
 Requires:       playerctl
 Requires:       pulseaudio-utils
 Requires:       qrencode
+Requires:       sed
 Requires:       slurp
 Requires:       systemd
 Requires:       tesseract

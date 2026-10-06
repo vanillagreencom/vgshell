@@ -87,10 +87,16 @@ stub "$tree/bin" vgshell 'case "$1 $2" in
     else echo "[{\"source\":\"$5\",\"count\":0,\"packages\":[],\"checkedAt\":\"x\",\"error\":null}]"
     fi ;;
   "ipc call")
-    if [ -e "$FIX/ipc-refuses" ]; then echo "refused: tui=review reason=launcher-missing"; exit 0; fi
-    if [ -e "$FIX/ipc-ended" ]; then echo "reason=launcher-failed" >"$6/ended"; echo ok; exit 0; fi
-    ( bash "$VGS_PLUGIN_DIR/tui/review.sh" "$6"; echo "code=$?" >"$6/ended" ) </dev/null >/dev/null 2>&1 &
-    echo ok ;;
+    case "$5" in
+      check)
+        if [ -e "$FIX/ipc-check-refuses" ]; then echo "refused: ipc=check reason=test"; exit 8; fi
+        echo started ;;
+      review)
+        if [ -e "$FIX/ipc-refuses" ]; then echo "refused: tui=review reason=launcher-missing"; exit 0; fi
+        if [ -e "$FIX/ipc-ended" ]; then echo "reason=launcher-failed" >"$6/ended"; echo ok; exit 0; fi
+        ( bash "$VGS_PLUGIN_DIR/tui/review.sh" "$6"; echo "code=$?" >"$6/ended" ) </dev/null >/dev/null 2>&1 &
+        echo ok ;;
+    esac ;;
   "pkg owner")
     [ -e "$FIX/owner" ] || exit 1
     v=1
@@ -169,7 +175,7 @@ stub "$stubs" systemctl ''
 stub "$stubs" paru 'if [ "$1" = -G ]; then shift; for p; do mkdir -p "$p"; echo "pkgname=$p" >"$p/PKGBUILD"; done; exit 0; fi
 [ ! -e "$FIX/fail-paru" ] || { sudo /usr/bin/true; exit 7; }'
 stub "$stubs" less ''
-for tool in bash env readlink dirname mkdir mv rm script flock sleep cat id; do
+for tool in bash env readlink dirname mkdir mv rm script flock sleep cat id sed; do
   found="$(command -v "$tool")" || { echo "test-updates-pipeline: status=not-measured missing=$tool"; exit 77; }
   ln -s -- "$(readlink -f -- "$found")" "$tools/$tool"
 done
@@ -279,13 +285,14 @@ full_seq=("vgshell plugin settings vgs.updates" "vgshell pkg detect --json" "vgs
   "vgshell pkg owner $tree/VERSION" "sudo -k" "sudo /usr/bin/true" "vgshell self update"
   "vgshell pkg run upgrade --manager pacman" "vgshell pkg run upgrade --manager flatpak" "vgshell pkg run upgrade --manager mise"
   "vgshell plugin update acme.one" "vgshell theme update night" "sudo -k"
-  "vgshell pkg run upgrade --manager aur" "sudo -k" "pacman -Qtdq")
+  "vgshell pkg run upgrade --manager aur" "sudo -k" "pacman -Qtdq" "vgshell ipc call vgs.updates invoke check ")
 row_full() {
   reset_fix
   pipeline update.sh
   assert "a full run exits 0" test "$status" == 0
   assert "a full run takes every step in order, the AUR after the session ends" seq_is "${full_seq[@]}"
   assert "a plugin update gets no --yes by default" has_call "vgshell plugin update acme.one"
+  assert "a finished run asks the service for one check" test "$(grep -cxF "vgshell ipc call vgs.updates invoke check " "$tmp/seq")" == 1
   assert "no snapshot tool warns nothing" out_lacks "snapshot=failed"
   assert "no snapshot tool keeps the update going quietly" out_lacks "without a snapshot"
   assert "the log keeps the plan box" grep -qF "Update everything" "$log"
@@ -313,6 +320,7 @@ row_failure() {
   touch "$fix/fail-pacman"
   pipeline update.sh
   assert "a failed system step ends the run with its status" test "$status" == 9
+  assert "a failed step asks the service for one check" test "$(grep -cxF "vgshell ipc call vgs.updates invoke check " "$tmp/seq")" == 1
   assert "a failed step names the log in its recovery message" out_has "Select Open last log in Updates to read this run's output."
   assert "the failure code stays in the developer log" grep -qF "updates: failed exit=9" "$state/vgshell/updates/diagnostics.log"
   assert "a failed step drops the credential last" test "$(tail -n 1 "$tmp/seq")" == "sudo -k"
@@ -323,6 +331,7 @@ row_reboot() {
   printf '%s\n' "$hyprland_pid" >"$fix/pids"
   pipeline update.sh
   assert "a replaced Hyprland asks to reboot" has_call "gum confirm -- Hyprland was updated. Reboot now?"
+  assert "a replaced Hyprland rechecks before it asks to reboot" before "vgshell ipc call vgs.updates invoke check " "gum confirm -- Hyprland was updated. Reboot now?"
   assert "a yes reboots" test "$(tail -n 1 "$tmp/seq")" == "systemctl reboot"
   echo 1 >"$fix/answer-reboot"
   pipeline update.sh
@@ -346,6 +355,14 @@ row_yes() {
   assert "-y asks no start question" test "$(grep -c 'Start the update' "$tmp/seq")" == 0
   assert "-y reports orphans instead of asking" test "$(grep -c 'orphaned' "$tmp/seq")" == 0
   assert "-y still runs the system step" has_call "vgshell pkg run upgrade --manager pacman"
+}
+row_recheck_failure() {
+  reset_fix
+  touch "$fix/ipc-check-refuses"
+  pipeline update-source.sh flatpak
+  assert "a refused recheck leaves a successful run successful" test "$status" == 0
+  assert "a refused recheck is kept in diagnostics" diag_has "updates: recheck=failed exit=8 reply=refused: ipc=check reason=test"
+  assert "a refused recheck still reaches the reboot check" grep -qxF "uname -r" "$calls"
 }
 row_declined() {
   reset_fix
@@ -430,7 +447,7 @@ row_source() {
   pipeline update-source.sh flatpak
   assert "one source runs its step alone" seq_is \
     "vgshell plugin settings vgs.updates" "vgshell pkg detect --json" "vgshell pkg plan upgrade flatpak" \
-    "gum confirm -- Start the update?" "vgshell pkg run upgrade --manager flatpak"
+    "gum confirm -- Start the update?" "vgshell pkg run upgrade --manager flatpak" "vgshell ipc call vgs.updates invoke check "
   pipeline update-source.sh aur
   assert "the AUR alone holds no session" test "$(grep -c '^sudo /usr/bin/true' "$tmp/seq")" == 0
   assert "the AUR alone drops the credential after it" before "vgshell pkg run upgrade --manager aur" "sudo -k"
@@ -637,7 +654,7 @@ row_review_custom() {
 }
 
 row_full; row_trusted; row_snapshot; row_failure; row_reboot; row_orphans; row_yes
-row_declined; row_busy; row_aur_command; row_aur_failure; row_doas; row_vgs_only; row_vgs_git; row_source; row_log
+row_declined; row_busy; row_aur_command; row_aur_failure; row_doas; row_vgs_only; row_vgs_git; row_source; row_recheck_failure; row_log
 row_review_off; row_review_no_agent; row_review_none_pending; row_review_clean; row_review_flagged; row_review_no_verdict; row_review_no_helper; row_review_custom
 
 # Controls: each runs one row against a plugin copy whose FILE, relative
@@ -661,6 +678,8 @@ control snapshot-ignores-elevator '_updates_snapshot "$snapshot_tool" "$elevator
 control rebuild-unguarded 'if [[ $upgrades == 1 || $rebuild == 1 ]]; then replaces=1; fi' 'if [[ $upgrades == 1 ]]; then replaces=1; fi' row_vgs_only
 control no-recovery "trap '_updates_failed \$?' ERR" ':' row_failure
 control no-reboot-check '  _updates_reboot' '  :' row_reboot
+control no-success-recheck '  _updates_recheck success' '  :' row_reboot
+control no-failure-recheck '  _updates_recheck failed' '  :' row_failure
 control orphans-default-yes 'orphaned package(s)?" --default=false || status=$?' 'orphaned package(s)?" || status=$?' row_orphans
 control log-clobbers 'vgs_tui_log "$UPDATES_LOG_PART"' 'vgs_tui_log "$_updates_log"' row_busy
 control unasked-start 'vgs_tui_confirm "Start the update?" || status=$?' 'true || status=$?' row_declined

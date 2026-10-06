@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The vgs.updates `log` floating TUI: the last update run's log in less,
 # opened at its end. tui/pipeline.sh names the file; the log is script(1)'s
-# transcript of the run, so less draws its colours with -R.
+# clean transcript of the run, so less draws its SGR colours with -R.
 #
 #   log.sh
 #

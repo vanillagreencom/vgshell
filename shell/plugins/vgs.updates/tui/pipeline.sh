@@ -52,7 +52,8 @@
 #      a system or AUR upgrade
 #  14. a shell restart when a package step or the rebuild replaced the VGS
 #      package
-#  15. a reboot question when the kernel or the running Hyprland was
+#  15. a check request to refresh the widget and window
+#  16. a reboot question when the kernel or the running Hyprland was
 #      replaced (tui.sh's vgs_tui_reboot_check)
 #
 # The package steps are the package-manager table's own plans, read with
@@ -105,6 +106,7 @@ _updates_failed() { # STATUS
   [[ $BASHPID == "${_updates_pid:-}" ]] || return 0
   printf '\n' >&2
   _updates_diagnostic "updates: failed exit=$1 log=$_updates_log"
+  _updates_recheck failed
   vgs_tui_error "The update stopped. Read the output above and try again from Updates."
   vgs_tui_error "Select Open last log in Updates to read this run's output."
 }
@@ -265,6 +267,14 @@ _updates_orphans() {
     1) echo "Keeping the orphaned packages." ;;
     *) exit "$status" ;;
   esac
+}
+
+_updates_recheck() {
+  local reply status=0
+  reply="$("$_updates_vgshell" ipc call "$VGS_PLUGIN_ID" invoke check '' 2>&1)" || status=$?
+  if [[ $status -ne 0 || ( $reply != started && $reply != queued ) ]]; then
+    _updates_diagnostic "updates: recheck=failed exit=$status reply=${reply%%$'\n'*}"
+  fi
 }
 
 _updates_reboot() {
@@ -827,5 +837,6 @@ updates_main() {
     vgs_tui_step "Restarting the shell on the updated VGS"
     "$_updates_vgshell" restart || { _updates_diagnostic "updates: restart=failed exit=$?"; vgs_tui_warn "VGS could not restart. Save your work and restart the computer."; }
   fi
+  _updates_recheck success
   _updates_reboot
 }

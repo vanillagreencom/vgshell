@@ -8,7 +8,7 @@
 set -euo pipefail
 
 source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/vgshell-rows.sh"
-for tool in script setsid flock; do
+for tool in script setsid flock timeout; do
   command -v "$tool" >/dev/null || { echo "test-tui: status=not-measured missing=$tool"; exit 77; }
 done
 lib="$repo/bin/lib/tui.sh"
@@ -237,6 +237,53 @@ status=0
 check "a logged script exits with its own status" test "$status" == 7
 check "a logged script shows its output" grep -qF "logged=1 args=a b c" "$tmp/out"
 check "the log keeps the output" grep -qF "logged=1 args=a b c" "$tmp/run.log"
+
+cat >"$tmp/log-bytes.sh" <<'SH'
+source "$LIB"
+vgs_tui_log "$LOG_FILE" "$@"
+python3 - <<'PY'
+import sys
+esc = "\x1b"
+text = (
+    esc + "[?2026$p" + esc + "[?2027$p" + esc + "[?25l" + esc + "[?5W"
+    + esc + "[?2004h" + esc + "[>4;2m" + esc + "[>1u" + esc + "[?u"
+    + "\r" + esc + "[J" + esc + "[J" + "Remove 4 orphaned package(s)?\r\n"
+    + "n No\r" + esc + "[>4m" + esc + "[<1u" + esc + "[A" + esc + "[J"
+    + esc + "[?25h" + esc + "[?2004l" + "Keeping the orphaned packages.\r\n"
+    + esc + "[31mred" + esc + "[0m\r\n"
+    + "progress 10%\rprogress 100%\r\n"
+    + esc + "]0;title\x07" + esc + "(B" + "plain\r\n"
+)
+sys.stdout.buffer.write(text.encode("latin1"))
+PY
+exit "$1"
+SH
+log_bytes_ok() { # FILE
+  python3 - "$1" <<'PY'
+import pathlib, re, sys
+data = pathlib.Path(sys.argv[1]).read_bytes()
+without_sgr = re.sub(rb"\x1b\[[0-9;:]*m", b"", data)
+lines = [b"Remove 4 orphaned package(s)?\n", b"Keeping the orphaned packages.\n", b"\x1b[31mred\x1b[0m\n", b"progress 100%\n", b"plain\n"]
+at = 0
+for line in lines:
+    found = data.find(line, at)
+    if found < 0:
+        sys.exit(1)
+    at = found + len(line)
+sys.exit(0 if b"\r" not in data and b"\x1b[31m" in data and b"\x1b" not in without_sgr else 1)
+PY
+}
+log_bytes_row() { # LIB_PATH
+  local row_lib="$1"
+  rm -f -- "$tmp/clean.log"
+  status=0
+  "${lib_env[@]}" LIB="$row_lib" LOG_FILE="$tmp/clean.log" timeout 5 "$BASH" "$tmp/log-bytes.sh" 23 >"$tmp/out" 2>&1 || status=$?
+  [[ $status == 23 ]] && log_bytes_ok "$tmp/clean.log"
+}
+check "a logged script keeps SGR and drops other terminal controls" log_bytes_row "$LIB"
+check "a logged script does not hang while filtering" test "$status" == 23
+copy_with unfiltered-log "$lib" '_vgs_tui_log_clean >&"$fd"' 'cat >&"$fd"'
+check "the unfiltered-log mutant fails the clean-log row" test "$(log_bytes_row "$copy" && echo green || echo red)" == red
 
 # The reboot check: the running kernel's modules and a replaced Hyprland.
 kernel=""
