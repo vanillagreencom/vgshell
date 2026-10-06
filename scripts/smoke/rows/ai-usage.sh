@@ -174,6 +174,7 @@ expect "Sign in to Claude Code is pressed" ok settings_act vgs.ai-usage claude
 expect_poll "Sign in opens Claude Code's sign-in TUI" '["vgs.ai-usage/sign-in-claude", "tui/sign-in-claude.sh"]' recorded_tail
 expect_run_end "Claude Code's sign-in TUI ends" vgs.ai-usage/sign-in-claude
 expect "the Settings window is hidden" ok ipc shell hide window vgs.settings
+expect_poll "the Settings window is gone" 0 window_count Plugins
 
 # A widget copy shown with no account fails the hidden reading with the
 # shown widget's own reading.

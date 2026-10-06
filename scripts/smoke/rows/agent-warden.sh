@@ -248,6 +248,7 @@ expected_errors+=('settings: vgs\.agent-warden/warden refused: action=warden rea
 expect "the manager refuses Set up for a checking warden" "refused: action=warden reason=not-offered" settings_act vgs.agent-warden warden
 expect "the refused act raised no notice" null notice_shown
 expect "the Settings window is hidden" ok ipc shell hide window vgs.settings
+expect_poll "the Settings window is gone" 0 window_count Plugins
 
 # vsys follows the scan: a stub on the sandbox PATH is present after a
 # rescan and gone after the next, and the service is not rebuilt. With the

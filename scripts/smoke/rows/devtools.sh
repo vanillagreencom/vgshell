@@ -351,6 +351,8 @@ if dev_installed="$(installed_count)" && dev_missing="$(missing_count)"; then
 else
   fail "the list or the doctor report is unreadable for the status counts"
 fi
+expect "the Settings window is hidden after its rows" ok ipc shell hide window vgs.settings
+expect_poll "the Settings window is gone after its rows" 0 window_count Plugins
 
 # Control: a copy of the plugin whose service ignores a run's end, in the
 # user directory, where it hides the shipped one. A run of its install TUI

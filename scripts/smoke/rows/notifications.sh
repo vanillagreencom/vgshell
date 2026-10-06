@@ -2002,6 +2002,7 @@ expect "the probe answered every state with the stub" 0 probe_failures
 token_in_log() { log_lines 'xoxp-smoke'; }
 expect "the shell's log holds no token" 0 token_in_log
 expect "the Settings window closes after the token rows" ok ipc shell hide window vgs.settings
+expect_poll "the Settings window is gone after the token rows" 0 window_count Plugins
 seed_slack_photos
 slack_states "slack:T0ACME present;slack:T0GLOBEX absent;slack present"
 
@@ -2051,6 +2052,7 @@ probe_logged() { if grep -q '^secret-tool search service vgs-notifications accou
 expect_poll "the call log reads the probe once the extra is on" True probe_logged
 expect_poll "the service publishes its token rows with the extra on" True lent_has_tokens
 expect "the Settings window closes after the extra rows" ok ipc shell hide window vgs.settings
+expect_poll "the Settings window is gone after the extra rows" 0 window_count Plugins
 
 # Disabling and enabling again, three times over, leaves nothing behind.
 for round in 1 2 3; do

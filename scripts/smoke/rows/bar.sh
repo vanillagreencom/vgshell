@@ -121,10 +121,10 @@ expect_widgets "the bar dropped the disabled widget" '[]'
 expect_builtins "the built-ins stay while a plugin widget leaves" '["vgs.bar/center-clock","vgs.bar/left-workspaces"]'
 expect "widget reads disabled after the user file changed" False plugin_enabled acme.tick
 expect "the disabled widget keeps its layout entry and settings" '[{"id": "acme.tick", "format": "ddd d MMM  HH:mm"}]' tick_entry
-expect "disable wrote only the disabled list" "bar,disabledPlugins,version" user_keys
+expect "disable wrote only the disabled list" "bar,disabledPlugins,plugins,version" user_keys
 expect "re-enabling the widget is allowed" ok ipc shell setPluginEnabled acme.tick true
 expect_widgets "the bar rebuilt the re-enabled widget" '["acme.tick"]'
-expect "re-enable wrote only the disabled list" "bar,disabledPlugins,version" user_keys
+expect "re-enable wrote only the disabled list" "bar,disabledPlugins,plugins,version" user_keys
 
 expect "disabling the bar names the widgets it hides" "ok hidden=acme.tick" ipc shell setPluginEnabled vgs.bar false
 expect_widgets "the bar host unloaded the disabled bar" '[]'

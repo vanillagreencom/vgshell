@@ -29,6 +29,7 @@ expect "the Settings window opens on the broken fixture's page" ok ipc shell sum
 broken_errors() { settings_rows | py_reply 'import json,sys; r=[r for r in json.load(sys.stdin) if r["id"] == "acme.broken"][0]; print(json.dumps(sorted(e.split(" not built")[0] for e in r["errors"])))'; }
 expect_poll "the broken fixture's failed builds are its errors, one per kind" '["build failed: background: background", "build failed: service: service"]' broken_errors
 expect "the Settings window closes after the failed builds" ok ipc shell hide window vgs.settings
+expect_poll "the Settings window is gone after the failed builds" 0 window_count Plugins
 expect "disabling the broken fixture is allowed" ok ipc shell setPluginEnabled acme.broken false
 
 # A nonvisual root can accept the facade but cannot belong to a host.

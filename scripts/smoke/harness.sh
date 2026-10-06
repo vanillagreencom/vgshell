@@ -2133,6 +2133,7 @@ settings_page_open() {
 }
 settings_page_close() {
   expect "the Settings window is hidden after $1's steps" ok ipc shell hide window vgs.settings
+  expect_poll "the Settings window is gone after $1's steps" 0 window_count Plugins
 }
 # A plugin page's two pages (TabPages): every opened page shows Settings,
 # and its description, listing, Manage, Status and Requirements are on

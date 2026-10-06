@@ -1112,6 +1112,8 @@ expect "the Settings window stays open beside the row" 1 window_count Plugins
 disabled_row
 expect_poll "the fixture is enabled again once the row is gone" True plugin_enabled acme.probe
 expect_poll "the fixture's service is built again" True record_exists acme.probe
+expect "the Settings window hides after the refusals" ok ipc shell hide window vgs.settings
+expect_poll "the Settings window is gone after the refusals" 0 window_count Plugins
 
 # The bar's built-ins: the manager built-in is gone, and a user row still
 # naming it draws nothing and is logged with the command that places the

@@ -148,6 +148,7 @@ kh_settings_hint="$(settings_field conflict)" || kh_settings_hint=unread
 expect "the Settings Keys row still names this window's shortcut" '"Also used by Key Hints (toggle)."' printf '%s\n' "$kh_settings_hint"
 expect_poll "the Themes row here shows the hint the Settings page shows" "$kh_settings_hint" kh_field "$kh_themes" conflict
 expect "the Settings window is hidden" ok ipc shell hide window vgs.settings
+expect_poll "the Settings window is gone" 0 window_count Plugins
 
 # kh_bound_has BIND: whether hyprctl reports the bind "<plugin id>:<shortcut>".
 kh_bound_has() { kh_bound | py_reply 'import json,sys; print(sys.argv[1] in json.load(sys.stdin))' "$1"; }
