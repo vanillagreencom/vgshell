@@ -145,6 +145,33 @@ function suite(ctx, check) {
     }), "/p");
     if (!needless.ok) throw new Error("the needless fixture manifest is refused: " + needless.error);
     check("manager setup: a script that requires nothing runs while a required command is missing", ctx.tuiRunFor(needless.manifest, true, "/sources", runner, "setup", ["acme-sync"]).key, "acme.status/setup");
+    // listedTuiRows: [name, missing requirement names, each listed screen as
+    // [name, the requirements its reason names]]. A screen that lacks a
+    // command it needs is withheld with a reason naming each; `requires: []`
+    // needs none, and a screen with no `requires` needs every required one.
+    const listedRaw = Object.assign({}, raw, {
+        tui: {
+            setup: { script: "tui/setup.sh", title: "Set up", requires: ["acme-sync"], entry: { label: "Set up", icon: "download", group: "Acme" } },
+            free: { script: "tui/free.sh", title: "Free", requires: [], entry: { label: "Free", icon: "wrench", group: "Acme" } },
+            plain: { script: "tui/plain.sh", title: "Plain", entry: { label: "Plain", icon: "wrench", group: "Acme" } },
+            hidden: { script: "tui/hidden.sh", title: "Hidden", requires: ["acme-sync"] }
+        },
+        requirements: [{ command: "acme-sync", purpose: "Syncs" }, { command: "acme-two", purpose: "Twos" }, { command: "acme-opt", optional: true, purpose: "Extra" }]
+    });
+    const listedJudged = ctx.validateManifest(listedRaw, "/p");
+    if (!listedJudged.ok) throw new Error("the listed fixture manifest is refused: " + listedJudged.error);
+    const names = ["acme-sync", "acme-two", "acme-opt"];
+    const withheldRows = [
+        ["nothing missing withholds nothing", [], [["setup", []], ["free", []], ["plain", []]]],
+        ["a command a screen needs withholds it, naming the command", ["acme-sync"], [["setup", ["acme-sync"]], ["free", []], ["plain", ["acme-sync"]]]],
+        ["two missing commands are both named", ["acme-sync", "acme-two"], [["setup", ["acme-sync"]], ["free", []], ["plain", ["acme-sync", "acme-two"]]]],
+        ["an optional command no screen names withholds nothing", ["acme-opt"], [["setup", []], ["free", []], ["plain", []]]],
+    ];
+    for (const [label, missing, want] of withheldRows) {
+        const rows = ctx.listedTuiRows(listedJudged.manifest, missing);
+        check("listedTuiRows: " + label, rows.map(row => [row.name, names.filter(n => row.withheld.includes(n))]), want);
+    }
+    check("listedTuiRows: a withheld screen's reason is one line", ctx.listedTuiRows(listedJudged.manifest, ["acme-sync"])[0].withheld.indexOf("\n"), -1);
     check("a row offers a TUI that requires nothing while a required command is missing", ctx.statusRows(needless.manifest, { token: "absent" }, ["acme-sync"]).find(row => row.key === "token").action.label, "Set up token");
 
     // Jarvis's key and account steps against the sandbox's missing OCR
@@ -539,6 +566,8 @@ const CONTROLS = [
     ["an empty requires needs nothing", "var needed = requires !== null ? requires : manifest", "var needed = requires !== null && requires.length > 0 ? requires : manifest"],
     ["a missing required command routes setup to install", "if (tuiMissingRequirements(manifest, name, missing).length > 0) return { ok: true, kind: \"install\" };", ""],
     ["the row withholds the TUI label while requirements are missing", "{ label: lacking.length > 0 ? STATUS_WITHHELD_LABEL : offered.label, offered: true,", "{ label: offered.label, offered: true,"],
+    ["a listed screen that lacks a command is not withheld", "withheld: lacking.length === 0 ? \"\" : tuiWithheldReason(lacking)", "withheld: \"\""],
+    ["a withheld screen's reason names one command", "return \"Needs \" + requirementNames(lacking) + \". \"", "return \"Needs \" + lacking[0] + \". \""],
     ["a row names the TUI its offered action opens", "tui: offered.tui === undefined ? \"\" : offered.tui }", "tui: \"\" }"],
     ["a row not offered names no TUI", "offered: false, tui: \"\" };", "offered: false, tui: entry.action === undefined || entry.action.tui === undefined ? \"\" : entry.action.tui };"],
     ["a row reads the lacking commands of its offered TUI", "return offered !== null && offered.tui !== undefined ? tuiMissingRequirements(manifest, offered.tui, missing) : [];", "return [];"],

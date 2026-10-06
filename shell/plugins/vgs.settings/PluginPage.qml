@@ -439,13 +439,20 @@ FocusScope {
                                         values: page.setupButtons
                                         objectProp: "key"
                                     }
+                                    // A withheld screen's button takes no
+                                    // press and no Tab stop; its reason opens
+                                    // on hover, which reaches a disabled
+                                    // item (runtime-pointer.md), and the
+                                    // Setup state above names what is
+                                    // missing for a keyboard user.
                                     Button {
                                         required property var modelData
                                         text: modelData.label
                                         iconName: modelData.icon
                                         variant: modelData.primary ? "primary" : "secondary"
-                                        enabled: page.editable
+                                        enabled: page.editable && modelData.enabled
                                         onClicked: page.panel.openTui(page.row.id, modelData.name)
+                                        Tooltip { text: modelData.reason }
                                     }
                                 }
                             }

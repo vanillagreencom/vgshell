@@ -8,7 +8,10 @@
 # Details and returns by the pointer and by the keyboard; a copy that opens
 # on Details is the control. A summonable plugin's page draws Open, which
 # opens the plugin's window or panel through the manager. A mouse drag leaves a page where it was, while a wheel notch and
-# Tab scroll it, and a two-finger swipe moves it as far as GTK moves a list. Dispatches asked for back to back run in order behind one
+# Tab scroll it, and a two-finger swipe moves it as far as GTK moves a list. The
+# Setup section draws the screen an offered step opens as that step, first
+# and primary, and a screen that lacks a command it needs disabled with a
+# reason naming it. Dispatches asked for back to back run in order behind one
 # process, the queue has a bound, and a process that cannot start does not
 # stop the queue.
 # inputs: shell/Core/PluginLogic.js shell/plugins/vgs.settings/* shell/Ui/layout/ScrollArea.qml shell/Ui/layout/TouchpadScroll.qml shell/Ui/layout/TouchpadScrollLogic.js shell/Commons/Reply.js shell/plugins/vgs.notifications/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/PluginStatus.qml bin/vgshell-scan shell/Core/TuiRunner.qml shell/Commons/SettingValues.js shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Core/Plugins.qml shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Hosts/AppWindow.qml shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.jarvis/manifest.json shell/plugins/vgs.gallery/manifest.json shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.devtools/manifest.json shell/Core/Notices.qml bin/lib/qml-library.js scripts/smoke/rows/manager.sh scripts/smoke/rows/status.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh bin/vgshell-tui shell/Ui/layout/TabPages.qml shell/Ui/layout/Tabs.qml shell/Ui/foundation/KeyNav.qml
@@ -398,20 +401,30 @@ for control in TuiInstallGood TuiInstallChosen; do
   rm -- "$repo/shell/Core/TuiInstallControls/$control.qml" || fail "removing the $control source copy failed"
 done
 rmdir -- "$repo/shell/Core/TuiInstallControls" || fail "removing the TUI install control directory failed"
-# The Setup button on the Settings page opens the same script through the
-# manager's openTui, which the run boundary judges as it judges the status
-# step: with the required list missing, the press opens the notice and no
-# terminal. The same button of a plugin missing nothing starts its
-# terminal in rows/tui.sh.
+# The Setup section draws the token's offered step on its screen's button:
+# with the token absent and the required list missing, Token setup draws
+# as Install requirements, first, primary and active, and its press, the
+# manager's openTui, opens the notice and no terminal. With no step
+# offered, the same screen draws disabled with a reason naming the missing
+# command, since its press could only open that notice; the two readings
+# are each other's control. The same button of a plugin missing nothing
+# starts its terminal in rows/tui.sh.
+# setup_buttons NAME: the Setup section's buttons as [text, variant,
+# enabled, whether its tooltip names NAME].
+setup_buttons() { ipc smoke setupSection window vgs.settings | py_reply 'import json,sys; print(json.dumps([[b[0], b[1], b[2], sys.argv[1] in b[3]] for b in json.load(sys.stdin)["buttons"]]))' "$1"; }
 settings_tab_click Settings || fail "the click back to the status fixture's Settings failed"
 expect_poll "the status fixture's page shows Settings for its Setup button" 0 settings_tab
+expect_poll "the offered step draws Token setup's screen as Install requirements, primary and active" '[["Install requirements", "primary", true, false]]' setup_buttons vgs-smoke-absent
 forget_record
-settings_press "Token setup" || fail "the click on the Setup section's Token setup failed"
-expect_poll "the Setup button of a plugin missing required commands opens the requirement notice" "$large_notice" notice_shown
-expect "the Setup button starts no setup terminal" absent recorded
-expect_poll "the Setup button's notice holds the keyboard" true ipc smoke noticeFocused
-type_keys -k Escape || fail "closing the Setup button's notice failed"
-expect_poll "the Setup button's notice closes" null notice_shown
+settings_press "Install requirements" || fail "the click on the Setup section's Install requirements failed"
+expect_poll "the Setup step of a plugin missing required commands opens the requirement notice" "$large_notice" notice_shown
+expect "the Setup step starts no setup terminal" absent recorded
+expect_poll "the Setup step's notice holds the keyboard" true ipc smoke noticeFocused
+type_keys -k Escape || fail "closing the Setup step's notice failed"
+expect_poll "the Setup step's notice closes" null notice_shown
+expect "the fixture republishes a present token, which offers no step" ok ipc acme.status invoke set 'token="present"'
+expect_poll "with no step offered, Token setup draws disabled with a reason naming the missing command" '[["Token setup", "secondary", false, true]]' setup_buttons vgs-smoke-absent
+expect "the fixture republishes the absent token" ok ipc acme.status invoke set 'token="absent"'
 cp -- "$sandbox/status-action-manifest" "$status_manifest"
 rescan "the fixture restores its optional requirement"
 

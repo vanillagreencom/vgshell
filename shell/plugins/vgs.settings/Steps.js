@@ -82,17 +82,22 @@ function setupEntries(status) {
     return status.filter(function (entry) { return entry.group === SETUP_GROUP; });
 }
 
-// The Setup section's buttons for TUIS, a manager row's listed TUIs, and
-// STATUS, its status rows, in drawn order: first each TUI an offered
-// action opens (a row's action names a TUI only while it is offered), in
-// status order, as that step, primary, with the action's label; then every other TUI in manifest order, secondary, with its
-// entry's label. Each { key, name, label, icon, primary }, `key` naming
-// the button as drawn, so a change of label or prominence draws it anew.
+// The Setup section's buttons for TUIS, a manager row's listed TUIs
+// (PluginLogic.listedTuiRows), and STATUS, its status rows, in drawn order:
+// first each TUI an offered action opens (a row's action names a TUI only
+// while it is offered), in status order, as that step, primary, with the
+// action's label; then every other TUI in manifest order, secondary, with
+// its entry's label. A secondary button whose TUI lacks a requirement takes
+// no press and reads the core's reason, the TUI's `withheld`: its press
+// would only raise the notice the step installs from. Each { key, name,
+// label, icon, primary, enabled, reason }, `key` naming the button as
+// drawn, so a change of label, prominence or state draws it anew.
 function setupButtons(tuis, status) {
     var out = [];
     function has(name) { return out.some(function (button) { return button.name === name; }); }
     function add(tui, label, primary) {
-        out.push({ key: tui.name + " " + label + " " + primary, name: tui.name, label: label, icon: tui.icon, primary: primary });
+        var enabled = primary || tui.withheld === "";
+        out.push({ key: tui.name + " " + label + " " + primary + " " + enabled, name: tui.name, label: label, icon: tui.icon, primary: primary, enabled: enabled, reason: enabled ? "" : tui.withheld });
     }
     status.forEach(function (entry) {
         if (entry.action === null || entry.action.tui === "") return;

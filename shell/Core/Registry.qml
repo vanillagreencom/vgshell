@@ -478,7 +478,7 @@ Singleton {
                 binds: Logic.bindRows(config, m, descriptions),
                 status: Logic.statusRows(Logic.activeManifest(m, settings), values, Logic.hasOwn(missingCommands, id) ? missingCommands[id] : []),
                 secretLabel: m.secrets === undefined ? "" : m.secrets.label,
-                tuis: Logic.listedTuis(m),
+                tuis: Logic.listedTuiRows(Logic.activeManifest(m, settings), Logic.hasOwn(missingCommands, id) ? missingCommands[id] : []),
                 opens: Logic.openKind(m),
                 paneHolder: m.kinds.indexOf("pane") === -1 ? "" : holder,
                 requirements: requirementsOf(id),

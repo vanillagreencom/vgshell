@@ -1161,8 +1161,20 @@ function statusActionLacking(manifest, entry, value, missing) {
 // action.
 function statusWithheldHint(lacking) {
     var one = lacking.length === 1;
-    var named = one ? lacking[0] : lacking.slice(0, -1).join(", ") + " and " + lacking[lacking.length - 1];
-    return named + (one ? " is" : " are") + " missing. " + STATUS_WITHHELD_LABEL + " installs " + (one ? "it." : "them.");
+    return requirementNames(lacking) + (one ? " is" : " are") + " missing. " + STATUS_WITHHELD_LABEL + " installs " + (one ? "it." : "them.");
+}
+
+// The requirement names NAMES as a person reads a list: `a`, `a and b`,
+// `a, b and c`.
+function requirementNames(names) {
+    return names.length === 1 ? names[0] : names.slice(0, -1).join(", ") + " and " + names[names.length - 1];
+}
+
+// Why a listed TUI's button takes no press while it lacks the requirements
+// LACKING, which its press could only install: one line naming them and the
+// step that installs them.
+function tuiWithheldReason(lacking) {
+    return "Needs " + requirementNames(lacking) + ". " + STATUS_WITHHELD_LABEL + " first.";
 }
 
 // The Status rows the plugin manager shows for a plugin: one per entry
@@ -2703,6 +2715,20 @@ function tuiEntries(manifests, enabledIds, core) {
 function listedTuis(manifest) {
     return Object.keys(manifest.tui).filter(function (name) { return manifest.tui[name].entry !== null; }).map(function (name) {
         return { name: name, label: manifest.tui[name].entry.label, icon: manifest.tui[name].entry.icon };
+    });
+}
+
+// The setup screens of plugin MANIFEST, its active manifest, as its manager
+// row draws them, each listedTuis' row with `withheld`: "" while MISSING, the
+// plugin's missing requirement names, holds none the screen needs
+// (tuiMissingRequirements), else tuiWithheldReason's line, since its press
+// would only raise the requirement notice. The page draws a withheld
+// screen's button disabled, but for the step an offered status action
+// names, which installs them.
+function listedTuiRows(manifest, missing) {
+    return listedTuis(manifest).map(function (tui) {
+        var lacking = tuiMissingRequirements(manifest, tui.name, missing);
+        return { name: tui.name, label: tui.label, icon: tui.icon, withheld: lacking.length === 0 ? "" : tuiWithheldReason(lacking) };
     });
 }
 

@@ -1744,8 +1744,9 @@ Scope {
         // A plugin page's shown Setup section, as { chips, lines, buttons }:
         // each visible Badge as [text, tone], every other visible line of
         // text outside a Badge or a Button, and each visible Button as
-        // [text, variant], each in tree order, which is the drawn and the
-        // Tab order; "absent" while no Setup section shows.
+        // [text, variant, enabled, its Tooltip's text or ""], each in tree
+        // order, which is the drawn order; "absent" while no Setup section
+        // shows.
         function setupSection(hostKey: string, id: string): string {
             const item = root.instance(hostKey, id);
             if (item === null) return "absent";
@@ -1759,7 +1760,10 @@ Scope {
             return root.json({
                 chips: badges.map(badge => [badge.text, badge.tone]),
                 lines: lines.map(line => line.text),
-                buttons: buttons.map(button => [button.text, button.variant])
+                buttons: buttons.map(button => {
+                    const tip = root.descendants(button).find(child => root.typeName(child) === "Tooltip");
+                    return [button.text, button.variant, button.enabled, tip === undefined ? "" : tip.text];
+                })
             });
         }
         function itemValues(hostKey: string, id: string, type: string, properties: string): string {

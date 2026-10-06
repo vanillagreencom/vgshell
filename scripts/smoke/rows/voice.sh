@@ -13,9 +13,12 @@
 # page's Setup section reads Voice's setup state: without voxtype the
 # missing requirement with its step first and primary, once set up Ready
 # with voxtype's version and the model and Set up again last and
-# secondary; its controls are a disposable manifest copy whose setup entry
-# is in no Setup group and offers no setup screen, and a stopped service
-# planted on the systemctl stand-in. Install hands the terminal voxtype-bin through the AUR helper,
+# secondary. Without voxtype, Configure and Choose model, whose `requires`
+# name it, draw disabled with a reason that names it, and every screen is
+# active once it is found. Its controls are a disposable manifest copy whose
+# setup entry is in no Setup group and offers no setup screen and whose
+# Configure declares no `requires`, and a stopped service planted on the
+# systemctl stand-in. Install hands the terminal voxtype-bin through the AUR helper,
 # the row puts the stubs back as the package step would, and the scan after
 # the run closes the notice and opens Set up on its own; the stubs then
 # report the model and the service in place, a finished Set up shows one
@@ -654,12 +657,13 @@ voice_resumes() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(j
 voice_toasts() { ipc shell lent | py_reply 'import json,sys; t=json.load(sys.stdin)["toasts"]; print(sum(r["plugin"] == "vgs.voice" for k in ("visible", "waiting") for r in t[k]))'; }
 voice_notice_groups() { ipc smoke noticeDrawn | py_reply 'import json,sys; print(json.dumps([[g[0], len(g[1])] for g in json.load(sys.stdin)["groups"]]))'; }
 # The Voice page's Setup section on its Settings tab: its chips as [text,
-# tone] and its buttons as [text, variant], in drawn order.
-voice_setup_section() { ipc smoke setupSection window vgs.settings | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps({"chips": d["chips"], "buttons": d["buttons"]}))'; }
+# tone] and its buttons as [text, variant, enabled, whether its tooltip
+# names voxtype], in drawn order.
+voice_setup_section() { ipc smoke setupSection window vgs.settings | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps({"chips": d["chips"], "buttons": [[b[0], b[1], b[2], "voxtype" in b[3]] for b in d["buttons"]]}))'; }
 # Whether a line of the Setup section holds TEXT.
 voice_setup_line() { ipc smoke setupSection window vgs.settings | py_reply 'import json,sys; print(str(any(sys.argv[1] in l for l in json.load(sys.stdin)["lines"])).lower())' "$1"; }
-voice_setup_missing='{"chips": [["Requirements missing", "warning"]], "buttons": [["Install requirements", "primary"], ["Configure", "secondary"], ["Choose model", "secondary"]]}'
-voice_setup_ready='{"chips": [["Ready", "success"]], "buttons": [["Configure", "secondary"], ["Choose model", "secondary"], ["Set up again", "secondary"]]}'
+voice_setup_missing='{"chips": [["Requirements missing", "warning"]], "buttons": [["Install requirements", "primary", true, false], ["Configure", "secondary", false, true], ["Choose model", "secondary", false, true]]}'
+voice_setup_ready='{"chips": [["Ready", "success"]], "buttons": [["Configure", "secondary", true, false], ["Choose model", "secondary", true, false], ["Set up again", "secondary", true, false]]}'
 voice_engine_installed() {
   cp -- "$sandbox/voice-voxtype.stub" "$voice_stub" && cp -- "$sandbox/voice-bridge.stub" "$voice_bridge_stub" && chmod 755 "$voice_stub" "$voice_bridge_stub"
 }
@@ -724,12 +728,14 @@ expect_poll "Voice builds after the requires control" True record_exists vgs.voi
 
 settings_page_open vgs.voice
 # The Setup section reads Voice's own setup state: without voxtype it names
-# the requirement, and the step it offers comes first, primary.
-expect_poll "the Setup section draws the missing requirement and its step first" "$voice_setup_missing" voice_setup_section
+# the requirement, and the step it offers comes first, primary; Configure
+# and Choose model, which need voxtype, take no press and say so on hover.
+expect_poll "the Setup section draws the missing requirement, its step first and the screens that need voxtype disabled" "$voice_setup_missing" voice_setup_section
 expect "the Setup section's hint names voxtype" true voice_setup_line voxtype
 # Control: a disposable manifest copy whose setup entry is in no Setup
-# group and offers an install step, which opens no setup screen, draws no
-# chip and no primary button.
+# group and offers an install step, which opens no setup screen, and whose
+# Configure declares no `requires`, draws no chip, no primary button, and
+# Configure active: voxtype is optional, so it then needs nothing missing.
 cp -- "$voice_manifest" "$sandbox/voice-manifest-before"
 settings_page_close vgs.voice
 expect "disabling Voice for the Setup section control is allowed" ok ipc shell setPluginEnabled vgs.voice false
@@ -742,13 +748,15 @@ entry = manifest["status"]["setup"]
 assert entry["group"] == "Setup" and entry["action"]["tui"] == "setup"
 del entry["group"]
 entry["action"] = {"label": "Set up", "install": ["voxtype"]}
+assert "voxtype" in manifest["tui"]["configure"]["requires"]
+del manifest["tui"]["configure"]["requires"]
 p.write_text(json.dumps(manifest, indent=2) + "\n")
 PY
 rescan "the Voice Setup section control copy is scanned"
 expect "enabling Voice for the Setup section control is allowed" ok ipc shell setPluginEnabled vgs.voice true
 expect_poll "Voice builds for the Setup section control" True record_exists vgs.voice
 settings_page_open vgs.voice
-expect_poll "control: a setup entry in no group with a step that opens no screen draws no chip and no primary button" '{"chips": [], "buttons": [["Configure", "secondary"], ["Choose model", "secondary"], ["Set up again", "secondary"]]}' voice_setup_section
+expect_poll "control: a setup entry in no group with a step that opens no screen, and a Configure with no requires, draw no chip, no primary button and Configure active" '{"chips": [], "buttons": [["Configure", "secondary", true, false], ["Choose model", "secondary", false, true], ["Set up again", "secondary", false, true]]}' voice_setup_section
 settings_page_close vgs.voice
 expect "disabling Voice after the Setup section control is allowed" ok ipc shell setPluginEnabled vgs.voice false
 cp -- "$sandbox/voice-manifest-before" "$voice_manifest"
@@ -815,13 +823,13 @@ expect_poll "Set up is withheld once the model and the service are in place" Fal
 # its Settings tab.
 settings_page_close vgs.voice
 settings_page_open vgs.voice
-expect_poll "the Setup section reads Ready and draws Set up again last, secondary" "$voice_setup_ready" voice_setup_section
+expect_poll "the Setup section reads Ready, every screen active, and Set up again last, secondary" "$voice_setup_ready" voice_setup_section
 expect "the Setup section names voxtype's version and the model" true voice_setup_line "voxtype 1.1.0 · parakeet-tdt-0.6b-v3"
 # Control: a planted stand-in answer of a stopped service turns the same
 # reading red: Set up needed, and Set up first, primary.
 device_reply systemctl 3 inactive --user is-active voxtype
 rescan "the Voice rescan reads a stopped service"
-expect_poll "control: a stopped service draws Set up needed with Set up first, primary" '{"chips": [["Set up needed", "warning"]], "buttons": [["Set up", "primary"], ["Configure", "secondary"], ["Choose model", "secondary"]]}' voice_setup_section
+expect_poll "control: a stopped service draws Set up needed with Set up first, primary" '{"chips": [["Set up needed", "warning"]], "buttons": [["Set up", "primary", true, false], ["Configure", "secondary", true, false], ["Choose model", "secondary", true, false]]}' voice_setup_section
 expect "control: the Setup section names the stopped service" true voice_setup_line "The Voice service is not running."
 device_reply systemctl 0 active --user is-active voxtype
 rescan "the Voice rescan reads the running service again"
