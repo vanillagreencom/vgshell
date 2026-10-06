@@ -671,6 +671,7 @@ scene_gallery() { # MODE
 
 settings_page() { ipc smoke readInstance "$settings_kind" vgs.settings page; }
 settings_menu_hovered() { ipc smoke menus "$settings_kind" vgs.settings | py_reply 'import json,sys; m=json.load(sys.stdin); print(len(m) == 1 and m[0].get("barHovered") is True)'; }
+settings_menu_highlighted() { ipc smoke menus "$settings_kind" vgs.settings | py_reply 'import json,sys; m=json.load(sys.stdin); print(len(m) == 1 and m[0]["current"] is not None)'; }
 settings_menu_open() { ipc smoke menus "$settings_kind" vgs.settings | python3 -c 'import json,sys; m=json.load(sys.stdin); print(len(m) == 1 and m[0]["opened"])'; }
 # Whether the pointer took the title's menu's highlight from the checked
 # entry, which opening highlights.
@@ -1183,8 +1184,11 @@ EOF
   take_posed "settings-$1-menu"
   # The same menu, the pointer off it, scrolled so the highlighted entry is
   # half past the list's top edge: its fill cut there, inside a rounded
-  # corner's curve.
+  # corner's curve. The pointer leaving the entries clears a highlight no
+  # key chose (Menu.qml), so Down highlights the first entry first.
   park_pointer
+  type_keys -k Down || fail "sending Down to the title's menu failed"
+  expect_poll "Down highlights an entry of the title's menu" True settings_menu_highlighted
   if half="$(ipc smoke themeValue menu.item.height)" && [[ $half =~ ^[0-9]+$ ]]; then
     expect "the title's menu scrolls its highlight half past the top" "$((half / 2))" ipc smoke scrollMenu "$settings_kind" vgs.settings "$((half / 2))"
     take_posed "settings-$1-menu-scrolled"
