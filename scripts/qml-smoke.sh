@@ -96,9 +96,14 @@
 # images on the visible cards (rows/notifications.sh), counted by a probe
 # readback and polled back to back. Each polling turn pays about 22 ms of
 # smoke IPC round-trip cost. The toast default is twice the highest reading
-# of 14 runs of that row in the nested sandbox on the owner's machine on
-# 2026-09-30, at load average 4 to 8, one toast and one inbox reading a
-# run: toast 43 to 50 ms, inbox 79 to 95 ms. The inbox default is twice the
+# of 21 runs of --rows bar,hyprland-consent,plugins,capabilities,status,
+# notifications over main at b30c8a16 on the owner's machine (host cachy,
+# AMD Ryzen 9 9950X) on 2026-10-06, under the fleet's load of ten lanes,
+# load average 7.4 to 13.7, cpu_some_pct 0.1 to 1.7, one toast reading a
+# run; one start was lost to an unsized nested monitor. The 20 readings
+# were 34 to 58 ms; the nine at load average under 9 read 34 to 38 ms.
+# A reading at cpu_some_pct 33.7 (130 ms) is a pressure this record never
+# saw, and it fails. The inbox default is twice the
 # highest reading of the summoned-panel image-count reader on the same
 # machine on 2026-10-01, at load average 5.58 to 8.80: 651 to 688 ms.
 set -euo pipefail
@@ -181,7 +186,7 @@ rss_ceiling_kib="${VGSHELL_SMOKE_RSS_CEILING_KIB:-1174016}"
 first_bar_budget_ms="${VGSHELL_SMOKE_FIRST_BAR_BUDGET_MS:-620}"
 default_first_bar_budget_ms="${VGSHELL_SMOKE_DEFAULT_FIRST_BAR_BUDGET_MS:-1426}"
 reconcile_budget_ms="${VGSHELL_SMOKE_RECONCILE_BUDGET_MS:-30}"
-emoji_toast_budget_ms="${VGSHELL_SMOKE_EMOJI_TOAST_BUDGET_MS:-100}"
+emoji_toast_budget_ms="${VGSHELL_SMOKE_EMOJI_TOAST_BUDGET_MS:-116}"
 emoji_inbox_budget_ms="${VGSHELL_SMOKE_EMOJI_INBOX_BUDGET_MS:-1376}"
 
 # The measurement mode. Each run sources the harness in its own subshell,
