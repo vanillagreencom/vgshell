@@ -11,11 +11,12 @@ import qs.Unit
 // Escape, Tab and a focus loss end it, a held key's repeat does nothing, an
 // unnamed key and a bare text key keep it with a notice, a refused
 // pass-through and a timeout say so, the caps clear a rounded corner as a
-// text field does; the keyboard button types a
+// text field does and stand as far from the left border as from the top;
+// the keyboard button types a
 // combo instead, the clear button unbinds, a read-only field asks nothing,
 // and the field is one Tab stop. A shortcut's alternative keys draw as one
 // group each with a separator between them, in one box that grows to hold
-// them; a click on one, or Left and Right, picks the one edited, a combo
+// them at any width, with no button over a cap; a click on one, or Left and Right, picks the one edited, a combo
 // and Delete name it, and add() edits a new one after the last. The
 // capture here records what the field asks and names keys with the core's
 // own judge. A field naming a plugin bind draws the hint its capture's
@@ -90,6 +91,8 @@ Item {
         }
         Button { id: after; text: "After"; focusPolicy: Qt.StrongFocus }
     }
+    // As narrow as the gallery's focus example, after the column's Tab chain.
+    ShortcutField { id: narrow; y: column.height; width: Theme.size.panel.sm / 2; capture: capture }
 
     TestCase {
         name: "shortcutfield"
@@ -404,12 +407,12 @@ Item {
             compare(field.notice, "");
         }
 
-        // Under a pill theme with a small pad, the first cap starts where a
-        // text field's text would: past the pad, by Theme.controlPadding.
+        // Under a pill theme the first cap starts past the inset, by
+        // Theme.controlPadding, so it clears the drawn corner.
         function test_the_caps_clear_a_rounded_corner() {
-            compare(UnitTheme.override({ radius: { sm: 4096 }, textField: { paddingX: 4 } }), "ok");
+            compare(UnitTheme.override({ radius: { sm: 4096 } }), "ok");
             const b = box(field);
-            tryVerify(() => b.leftPadding > 4, 1000, "padding " + b.leftPadding);
+            tryVerify(() => b.leftPadding > field.inset, 1000, "padding " + b.leftPadding);
             compare(b.leftPadding, field.sidePadding);
             compare(b.rightPadding, field.sidePadding);
             const cap = descendant(b, item => item.text === "Super" && item.radius !== undefined);
@@ -466,6 +469,59 @@ Item {
                 const at = each.mapToItem(b, 0, 0);
                 verify(at.y >= 0 && at.y + each.height <= b.height, "every alternative sits inside the border");
             }
+        }
+
+        function caps(f) { return descendants(box(f)).filter(item => String(item).indexOf("Kbd") === 0 && item.visible); }
+        function rect(item, to) {
+            const at = item.mapToItem(to, 0, 0);
+            return { left: at.x, top: at.y, right: at.x + item.width, bottom: at.y + item.height };
+        }
+        function inside(r, b) { return r.left >= 0 && r.top >= 0 && r.right <= b.width && r.bottom <= b.height; }
+        function overlaps(a, c) { return a.left < c.right && c.left < a.right && a.top < c.bottom && c.top < a.bottom; }
+        function narrowPair() {
+            narrow.keys = ["SUPER+SPACE", "CTRL+ALT+K"];
+            narrow.width = Theme.size.panel.sm / 2;
+            compare(caps(narrow).length, 5);
+        }
+
+        // At the gallery's width the box, which the border and the ring draw
+        // on, grows to hold its widest alternative, the buttons follow it,
+        // and the field asks for the width it draws.
+        function test_every_cap_lies_inside_the_box_at_a_narrow_width() {
+            narrowPair();
+            const b = box(narrow);
+            tryVerify(() => caps(narrow).every(cap => inside(rect(cap, b), b)), 1000, "a cap lies outside the box " + b.width + " wide");
+            for (const label of ["Type the keys", "Remove Super+Space"]) {
+                const tool = rect(buttonLabelled(narrow, label), b);
+                verify(tool.left >= b.width, label + " starts at " + tool.left + ", inside the box " + b.width + " wide");
+                verify(narrow.implicitWidth >= rect(buttonLabelled(narrow, label), narrow).right, "the field asks for " + narrow.implicitWidth + ", less than it draws");
+            }
+        }
+
+        // The Space cap and a plain letter's cap each draw their name with
+        // no button drawn over it.
+        function test_no_button_draws_over_a_cap() {
+            narrowPair();
+            const b = box(narrow);
+            const named = caps(narrow).filter(cap => cap.text === "Space" || cap.text === "K");
+            compare(named.length, 2);
+            const tools = ["Type the keys", "Remove Super+Space"].map(label => buttonLabelled(narrow, label));
+            tryVerify(() => named.every(cap => tools.every(tool => !overlaps(rect(cap, b), rect(tool, b)))), 1000, "a button lies over a cap");
+        }
+
+        // A cap's left edge stands as far from the border as its top, on one
+        // line and on several.
+        function test_a_cap_stands_as_far_from_the_left_border_as_from_the_top() {
+            const one = rect(caps(field)[0], box(field));
+            verify(one.top > 0, "the cap touches the border");
+            compare(one.left, one.top);
+            narrow.keys = ["SUPER+CTRL+SHIFT+F1", "SUPER+CTRL+SHIFT+F2", "SUPER+CTRL+SHIFT+F3"];
+            narrow.width = Theme.size.panel.sm;
+            const b = box(narrow);
+            tryVerify(() => b.height > Theme.textField.height, 1000, "the box takes a second line");
+            waitForItemPolished(b.contentItem.children[0]);
+            const first = rect(caps(narrow)[0], b);
+            compare(first.left, first.top);
         }
 
         function test_arrows_pick_the_alternative_delete_and_a_combo_edit() {

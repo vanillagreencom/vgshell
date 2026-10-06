@@ -619,7 +619,6 @@ Item {
                             ShortcutField {
                                 property string focusExample: "ShortcutField"
                                 focusPreview: true
-                                width: Theme.size.panel.sm / 2
                                 keys: ["SUPER+SPACE"]
                             }
                             Slider {

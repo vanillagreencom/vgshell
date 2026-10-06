@@ -107,7 +107,14 @@ FocusScope {
         : capturing && capture.failed ? "Hyprland's own shortcuts still run, so a combo they hold does not reach this field. Type it with the keyboard button instead."
         : conflict
     readonly property bool hintIsNotice: notice !== "" || (capturing && capture.failed)
-    readonly property real sidePadding: Theme.controlPadding(Theme.textField.paddingX, Theme.textField.radius, Math.max(Theme.textField.height, box.height), box.implicitContentHeight)
+    // The gap a medium field leaves above a key cap centred in it. The
+    // caps keep it on every side, so their left edge stands as far from the
+    // border as their top, on one line or several.
+    readonly property real inset: (Theme.textField.height - Theme.kbd.height) / 2
+    readonly property real sidePadding: Theme.controlPadding(inset, Theme.textField.radius, Math.max(Theme.textField.height, box.height), box.implicitContentHeight)
+    // The box's share of the line beside the buttons, which a prompt
+    // elides to; the box takes more when an alternative's caps need it.
+    readonly property real room: Math.max(0, line.width - tools.width - line.spacing)
     readonly property var caps: capturing ? held : key === "" ? [] : key.split("+")
     // What the box draws, one group per alternative: the combo its caps
     // spell and the text that stands in while it has none. A new
@@ -128,7 +135,7 @@ FocusScope {
     signal cleared(int index)
     signal hintLinkActivated()
 
-    implicitWidth: column.implicitWidth
+    implicitWidth: box.implicitWidth + line.spacing + tools.implicitWidth
     implicitHeight: column.implicitHeight
 
     function start() {
@@ -292,8 +299,13 @@ FocusScope {
                 readonly property bool focusPreview: root.focusPreview
                 visible: !root.typing
                 focus: true
-                width: line.width - tools.width - line.spacing
-                implicitHeight: Math.max(Theme.textField.height, groupFlow.implicitHeight + 2 * Theme.space.xs)
+                // The room beside the buttons, never less than the widest
+                // alternative: a combo's caps do not wrap, and a narrower
+                // box would leave them outside its border and ring, under
+                // the buttons. Unsized, the box is a text field's width.
+                width: Math.max(implicitContentWidth + leftPadding + rightPadding, root.room)
+                implicitWidth: Math.max(Theme.size.panel.sm / 2, implicitContentWidth + leftPadding + rightPadding)
+                implicitHeight: Math.max(Theme.textField.height, groupFlow.implicitHeight + 2 * root.inset)
                 leftPadding: root.sidePadding
                 rightPadding: root.sidePadding
                 enabled: root.editable
@@ -343,7 +355,10 @@ FocusScope {
                     FocusRing { target: box }
                 }
 
+                // The flow's implicit width is its widest line, which is
+                // the widest alternative when one is wider than the box.
                 contentItem: Item {
+                    implicitWidth: groupFlow.implicitWidth
                     implicitHeight: groupFlow.implicitHeight
 
                     Flow {
@@ -397,7 +412,7 @@ FocusScope {
                                         Label {
                                             id: prompt
                                             role: "item"
-                                            width: Math.min(implicitWidth, box.availableWidth)
+                                            width: Math.min(implicitWidth, Math.max(0, root.room - box.leftPadding - box.rightPadding))
                                             anchors.verticalCenter: parent.verticalCenter
                                             elide: Text.ElideRight
                                             color: Theme.textField.placeholder
