@@ -306,6 +306,7 @@ Item {
                     Field { label: "Badge sm icon"; inline: true; width: parent.width; Flow { width: parent.width; spacing: Theme.stack.inline; Repeater { model: ["neutral", "accent", "success", "warning", "danger", "info"]; Badge { required property string modelData; tone: modelData; text: modelData; size: "sm"; iconName: "circle" } } } }
                     Field { label: "Badge md"; inline: true; width: parent.width; Flow { width: parent.width; spacing: Theme.stack.inline; Repeater { model: ["neutral", "accent", "success", "warning", "danger", "info"]; Badge { required property string modelData; tone: modelData; text: modelData; size: "md" } } } }
                     Field { label: "Badge md icon"; inline: true; width: parent.width; Flow { width: parent.width; spacing: Theme.stack.inline; Repeater { model: ["neutral", "accent", "success", "warning", "danger", "info"]; Badge { required property string modelData; tone: modelData; text: modelData; size: "md"; iconName: "circle" } } } }
+                    Field { label: "Badge verbatim"; inline: true; width: parent.width; Flow { width: parent.width; spacing: Theme.stack.inline; Repeater { model: [["voxtype-bin", "sm"], ["wl-clipboard", "md"]]; Badge { required property var modelData; text: modelData[0]; size: modelData[1]; verbatim: true } } } }
                     Field {
                         label: "Keycap"
                         inline: true

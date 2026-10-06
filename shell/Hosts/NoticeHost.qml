@@ -174,10 +174,13 @@ Scope {
                             Column {
                                 width: parent.width
                                 spacing: Theme.field.gap
+                                // A package or command name is case-sensitive,
+                                // so the chip draws it as written.
                                 Badge {
                                     text: modelData.chip
                                     tone: "neutral"
                                     size: "sm"
+                                    verbatim: true
                                 }
                                 Repeater {
                                     model: modelData.purposes

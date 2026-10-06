@@ -586,6 +586,7 @@ mutations=(
   "the badge's icon gap is its own step|feedback/Badge.qml|x: root.sidePadding + (icon.visible ? icon.width + Theme.badge.gap : 0)|x: root.sidePadding + (icon.visible ? icon.width + Theme.space.xxs : 0)|tst_spacing.qml"
   "the badge centres text by its box|feedback/Badge.qml|y: topForCapCenter(root.height)|y: Math.round((root.height - height) / 2)|tst_feedback.qml"
   "the badge uses its implicit text width|feedback/Badge.qml|label.opticalWidth|label.implicitWidth|tst_feedback.qml"
+  "a verbatim badge draws capitals|feedback/Badge.qml|role: root.verbatim ? \"kbd\" : \"label\"|role: \"label\"|tst_feedback.qml"
   "the toast's icon gap is its own step|feedback/Toast.qml|spacing: Theme.toast.contentGap|spacing: Theme.space.sm|tst_spacing.qml"
   "a lone face does not fill the avatar box|feedback/AvatarGroup.qml|readonly property real faceSize: places <= 1 ? size : size * faceShare|readonly property real faceSize: size * faceShare|tst_avatargroup.qml"
   "a lone face keeps a ring|feedback/AvatarGroup.qml|ringWidth: group.places > 1 ? group.ringWidth : 0|ringWidth: group.ringWidth|tst_avatargroup.qml"

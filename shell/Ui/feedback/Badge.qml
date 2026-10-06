@@ -9,8 +9,11 @@ import qs.Ui
 // with extra room after the label's tracked capitals. `tone` names a group
 // of `Theme.badge.tone`: `neutral`, `accent`, `success`, `warning`,
 // `danger` or `info`; an unknown tone is logged and drawn neutral. `iconName`
-// draws a Lucide icon before the text. Under a rounded theme the side
-// padding grows until the content clears the drawn corner.
+// draws a Lucide icon before the text. `verbatim` keeps the text as
+// written, for a name whose case matters such as a package's: it is drawn
+// in the `kbd` role, mono at the `label` role's size without its capitals,
+// so the chip keeps the same height and centre. Under a rounded theme the
+// side padding grows until the content clears the drawn corner.
 Rectangle {
     id: root
 
@@ -18,6 +21,7 @@ Rectangle {
     property string iconName: ""
     property string size: "sm"
     property string tone: "neutral"
+    property bool verbatim: false
     readonly property var tokens: toneOf(tone)
     readonly property var sizeTokens: sizeOf(size)
     readonly property real sidePadding: Theme.controlPadding(sizeTokens.paddingX, Theme.badge.radius, sizeTokens.height, Math.max(icon.visible ? icon.height : 0, label.lineBox))
@@ -53,7 +57,7 @@ Rectangle {
 
     Label {
         id: label
-        role: "label"
+        role: root.verbatim ? "kbd" : "label"
         text: root.text
         color: root.tokens.foreground
         x: root.sidePadding + (icon.visible ? icon.width + Theme.badge.gap : 0)

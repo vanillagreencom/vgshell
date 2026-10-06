@@ -7,7 +7,8 @@ import qs.Unit
 // Spinner, ProgressBar, Badge and Kbd: the spinner turns only while the
 // theme's duration is above zero, the bar's fill follows its position and
 // slides while indeterminate, a badge draws its tone and logs an unknown
-// one, and a key cap sizes to its text and draws it in the kbd role.
+// one, a verbatim badge keeps its text's case on the same box, and a key
+// cap sizes to its text and draws it in the kbd role.
 Item {
     id: root
     width: 300
@@ -20,6 +21,7 @@ Item {
     Badge { id: badge; text: "Verified"; tone: "success"; y: 70 }
     Badge { id: badgeIcon; text: "Verified"; tone: "success"; iconName: "check"; y: 100 }
     Badge { id: badgeMd; text: "Verified"; tone: "success"; size: "md"; y: 130 }
+    Badge { id: badgeVerbatim; text: "voxtype-bin"; verbatim: true; x: 150; y: 70 }
     Kbd { id: kbd; text: "Ctrl"; y: 160 }
     Kbd { id: key; text: "K"; y: 190; x: 100 }
 
@@ -105,6 +107,21 @@ Item {
             compare(iconLabel.y + iconLabel.baselineOffset, Math.round(iconLabel.y + iconLabel.baselineOffset), "a whole-pixel baseline");
             fuzzyCompare(iconLabel.y + iconLabel.capCentre, badgeIcon.height / 2, 0.5);
             fuzzyCompare(badgeIcon.width, 2 * Theme.badge.size.sm.paddingX + icon.width + Theme.badge.gap + iconLabel.opticalWidth + Theme.badge.paddingEnd, 0.5);
+        }
+
+        // A package name keeps its case: the default badge draws capitals,
+        // a verbatim one the text as written, on the same height with its
+        // capital centre on the box centre.
+        function test_badge_verbatim_keeps_case() {
+            const plain = badge.children.find(child => child.text === badge.text);
+            const label = badgeVerbatim.children.find(child => child.text === badgeVerbatim.text);
+            compare(plain.font.capitalization, Font.AllUppercase, "a default badge draws capitals");
+            compare(label.font.capitalization, Font.MixedCase, "a verbatim badge keeps the case");
+            compare(label.text, "voxtype-bin");
+            compare(badgeVerbatim.height, Theme.badge.size.sm.height);
+            compare(label.y + label.baselineOffset, Math.round(label.y + label.baselineOffset), "a whole-pixel baseline");
+            fuzzyCompare(label.y + label.capCentre, badgeVerbatim.height / 2, 0.5);
+            fuzzyCompare(badgeVerbatim.width - (label.x + label.opticalWidth), Theme.badge.size.sm.paddingX + Theme.badge.paddingEnd, 0.5);
         }
 
         function test_kbd_sizes_to_its_text() {
