@@ -37,7 +37,7 @@ function suite(ctx, check) {
         status: {
             devices: { type: "choices", label: "Devices" },
             catalog: { type: "launcherRows", label: "Catalog" },
-            token: { type: "presence", label: "Token", group: "Keys", hint: "Needed", action: { label: "Set up token", tui: "setup" }, command: "secret-tool store x" },
+            token: { type: "presence", label: "Token", group: "Keys", hint: "Needed", info: "Explains this status", action: { label: "Set up token", tui: "setup" }, command: "secret-tool store x" },
             tokens: { type: "presenceList", label: "Tokens", group: "Keys", hint: "One per workspace" },
             check: { type: "state", label: "Check", action: { label: "Install sync", install: ["acme-sync"] } },
             note: { type: "text", label: "Note" },
@@ -331,9 +331,10 @@ function suite(ctx, check) {
     const values = ctx.statusWrite(m, ctx.statusWrite(m, ctx.statusWrite(m, {}, "token", "locked").values, "check", { tone: "ok", text: "Up to date" }).values, "pending", 0).values;
     const rows = ctx.statusRows(m, values, []);
     check("statusRows: one row per displayable entry, in manifest order", rows.map(r => r.key), ["token", "tokens", "check", "note", "pending", "lastCheck", "health"]);
-    check("statusRows: a reported presence carries its tone and the declaration", rows[0], { key: "token", type: "presence", label: "Token", group: "Keys", hint: "Needed", command: "secret-tool store x", action: { label: "Set up token", offered: false }, report: "reported", value: "locked", tone: "info" });
+    check("statusRows: a reported presence carries its tone and the declaration", rows[0], { key: "token", type: "presence", label: "Token", group: "Keys", hint: "Needed", info: "Explains this status", command: "secret-tool store x", action: { label: "Set up token", offered: false }, report: "reported", value: "locked", tone: "info" });
+    check("statusRows: a declaration carries info", rows[0].info, "Explains this status");
     check("statusRows: a reported state carries its tone", [rows[2].report, rows[2].value, rows[2].tone], ["reported", { tone: "ok", text: "Up to date" }, "success"]);
-    check("statusRows: an unreported entry has no value and no tone", rows[3], { key: "note", type: "text", label: "Note", group: "", hint: "", command: "", action: null, report: "unreported", value: null, tone: "" });
+    check("statusRows: an unreported entry has no value and no tone", rows[3], { key: "note", type: "text", label: "Note", group: "", hint: "", info: "", command: "", action: null, report: "unreported", value: null, tone: "" });
     check("statusRows: a reported count of 0 is reported, drawn without a tone", [rows[4].report, rows[4].value, rows[4].tone], ["reported", 0, ""]);
     check("statusRows: nothing published leaves every row unreported", ctx.statusRows(m, {}, []).map(r => r.report), ["unreported", "unreported", "unreported", "unreported", "unreported", "unreported", "unreported"]);
     // An action is offered while the published value calls for it: a
