@@ -86,6 +86,10 @@ function verify(logic) {
   assert.equal(logic.nextTimerDelay(null, false, now, 6, null, true, true, null), 0);
   assert.equal(logic.nextTimerDelay(null, false, now, 6, null, false, true, null), null);
   assert.equal(logic.nextTimerDelay(null, false, now, 6, null, true, false, null), null);
+  // The timer wakes when the snapshot turns stale, and not again while a
+  // failure retry waits on a snapshot already stale.
+  assert.equal(logic.nextTimerDelay({ checkedAt: now - 7, sources: [], error: null }, false, now, 6, now, true, true, null), 5);
+  assert.equal(logic.nextTimerDelay({ checkedAt: now - 13, sources: [], error: null }, false, now, 6, now - 1000, true, true, null), logic.RETRY_AFTER_FAILURE_MS - 1000);
   const many = logic.normalizeSnapshot({
     pkg: probe([{ source: "pacman", count: 3000, packages: Array.from({ length: 3000 }, (_, i) => ({ name: "pkg-" + i + "-".repeat(120), old: "1".repeat(120), new: "2".repeat(120) })), checkedAt: now, error: null }]),
     self: probe({ behind: false, error: null }),
@@ -276,6 +280,8 @@ const controls = [
   ["published package text is bounded", "return text.length > PUBLISHED_PACKAGE_TEXT_MAX ? text.slice(0, PUBLISHED_PACKAGE_TEXT_MAX) : text;", "return text;"],
   ["source errors set warning", "if (source !== null) return { tone: \"warning\", text: ((source.label || source.source) + \": \" + errorText(source.error)).slice(0, 200) };", "if (false) return { tone: \"warning\", text: \"\" };"] ,
   ["stale after twice the interval", "now - snapshot.checkedAt >= 2 * intervalMs", "now - snapshot.checkedAt > 3 * intervalMs"],
+  ["a stale snapshot sets no stale timer", "return delay > 0 ? delay : null;", "return Math.max(0, delay);"],
+  ["the timer wakes when the snapshot turns stale", "return delay > 0 ? delay : null;", "return null;"],
   ["TUI endedAt advances", "if (next.endedAt > prior.endedAt) return true;", "if (false) return true;"],
   ["a running record that goes ends no run", "if (next.endedAt > prior.endedAt) return true;", "if (next.endedAt > prior.endedAt || prior.running === true) return true;"],
   ["outdated error makes a source error", "if (!UNTRACKED_REFUSAL.test(String(row.error))) errors.push(row.id + \": \" + row.error);", "count += 0;"],

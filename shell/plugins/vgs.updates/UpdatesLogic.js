@@ -320,9 +320,13 @@ function nextCheckDelay(snapshot, checking, now, interval, failedAt, bootedAt) {
     return Math.max(0, due - now);
 }
 
+// The delay until the snapshot turns stale, or null once it is: the publish
+// at accept or at the cadence firing already drew it stale, and a delay of 0
+// would wake the timer at its floor until the next check or retry.
 function staleDelay(snapshot, now, interval) {
     if (snapshot === null || interval <= 0) return null;
-    return Math.max(0, snapshot.checkedAt + 2 * interval - now);
+    var delay = snapshot.checkedAt + 2 * interval - now;
+    return delay > 0 ? delay : null;
 }
 
 // The cadence timer's delay, or null for no timer while the cache read
