@@ -3,7 +3,8 @@
 // shell's libraries uses: a library loads with its functions callable, a
 // library's `.import` of another library binds it under its qualifier, a
 // file without the pragma is refused with its key and exit 2, and so are a
-// file that cannot be read and an import the loader cannot resolve. Each row
+// file that cannot be read and an import the loader cannot resolve; the
+// closure lists a library and every library its imports reach. Each row
 // runs the loader in a child node so the exit status is the one a caller
 // sees. Each mutation removes one rule from a copy of the loader and must
 // turn the named row red.
@@ -19,6 +20,12 @@ const ENV = { PATH: process.env.PATH, LC_ALL: "C" };
 // Load FILE in a child through LOADER and print the JSON of `probe(library)`.
 function loadIn(loader, file, probe, bindings = "undefined") {
     const script = 'const l = require(process.argv[1]).load(process.argv[2], ' + bindings + '); process.stdout.write(JSON.stringify((' + probe + ')(l)));';
+    return spawnSync(process.execPath, ["-e", script, loader, file], { encoding: "utf8", env: ENV });
+}
+
+// Print the sorted JSON of LOADER's closure of FILE from a child.
+function closureIn(loader, file) {
+    const script = 'process.stdout.write(JSON.stringify([...require(process.argv[1]).closure(process.argv[2])].sort()));';
     return spawnSync(process.execPath, ["-e", script, loader, file], { encoding: "utf8", env: ENV });
 }
 
@@ -45,6 +52,10 @@ function rows() {
     const wrongVersion = write("wrong-version.js", ".pragma library\n.import qs.Commons 2.0 as Commons\nvar X = 1;\n");
     const bindings = '{"qs.Commons 1.0": {Duration: require(process.argv[1]).load(' + JSON.stringify(good) + ')}}';
     const lateImport = write("late-import.js", ".pragma library\nvar X = 1;\n.import \"good.js\" as Good\n");
+    const top = write("chain/top.js", ".pragma library\n.import \"mid/Mid.js\" as Mid\nvar X = 1;\n");
+    write("chain/mid/Mid.js", ".pragma library\n.import \"../leaf.js\" as Leaf\nvar X = 1;\n");
+    write("chain/leaf.js", ".pragma library\nvar X = 1;\n");
+    const chain = ["chain/leaf.js", "chain/mid/Mid.js", "chain/top.js"].map(name => path.join(tmp, name));
     const said = r => `exit=${r.status} stdout=${r.stdout} stderr=${r.stderr}`;
     const out = [
         ["an explicitly bound module loads under its qualifier", loader => { const r = loadIn(loader, boundModule, "l => l.answer()", bindings); return [r.status === 0 && r.stdout === "42", said(r)]; }],
@@ -58,6 +69,7 @@ function rows() {
         ["an imported file without the pragma is refused", loader => { const r = loadIn(loader, importsBare, "l => l.X"); return [r.status === 2 && r.stderr === "qml-library: refused: pragma=missing path=" + path.join(tmp, "bare.js") + "\n", said(r)]; }],
         ["a module import is refused with its key", loader => { const r = loadIn(loader, moduleImport, "l => l.X"); return [r.status === 2 && r.stderr === "qml-library: refused: import=\".import QtQuick 2.0 as Q\" path=" + moduleImport + "\n", said(r)]; }],
         ["an import after the header is refused with its key", loader => { const r = loadIn(loader, lateImport, "l => l.X"); return [r.status === 2 && r.stderr.startsWith("qml-library: refused: import="), said(r)]; }],
+        ["the closure lists the library and every library its imports reach", loader => { const r = closureIn(loader, top); return [r.status === 0 && r.stdout === JSON.stringify(chain), said(r)]; }],
     ];
     for (const lib of ["PluginLogic.js", "Dispatch.js"]) {
         const file = path.join(__dirname, "..", "shell", "Core", lib);
@@ -69,12 +81,13 @@ function rows() {
 // Mutations: label, the text in the loader, its replacement, and the row
 // that must go red. The replacement keeps the text and removes the rule.
 const MUTATIONS = [
-    ["the import is not bound", "library[m[2]] = load(path.resolve(path.dirname(file), m[1]), modules);", "load(path.resolve(path.dirname(file), m[1]), modules);", "an imported library is bound under its qualifier, its path relative to the importer"],
+    ["the import is not bound", "library[entry.name] = entry.file !== undefined ? load(entry.file, modules) : modules[entry.module];", "if (entry.file !== undefined) load(entry.file, modules); else library[entry.name] = modules[entry.module];", "an imported library is bound under its qualifier, its path relative to the importer"],
     ["the import resolves from the working directory", "path.resolve(path.dirname(file), m[1])", "path.resolve(m[1])", "an imported library is bound under its qualifier, its path relative to the importer"],
     ["a module import is carried", "if (!header || (m === null && (moduleImport === null || !Object.prototype.hasOwnProperty.call(modules, moduleImport[1]))))", "if (false)", "a module import is refused with its key"],
     ["an import after the header is carried", "if (!header || (m === null", "if ((m === null", "an import after the header is refused with its key"],
-    ["a module qualifier is dropped", "else library[moduleImport[2]] = modules[moduleImport[1]];", "else library.Unqualified = modules[moduleImport[1]];", "an explicitly bound module loads under its qualifier"],
-    ["nested module bindings are dropped", "load(path.resolve(path.dirname(file), m[1]), modules)", "load(path.resolve(path.dirname(file), m[1]))", "module bindings reach imported libraries"],
+    ["a module qualifier is dropped", "imports.push({ name: moduleImport[2], module: moduleImport[1] });", "imports.push({ name: \"Unqualified\", module: moduleImport[1] });", "an explicitly bound module loads under its qualifier"],
+    ["nested module bindings are dropped", "load(entry.file, modules)", "load(entry.file)", "module bindings reach imported libraries"],
+    ["the closure stops at the first import", "if (entry.file !== undefined) closure(entry.file, modules, seen);", "if (entry.file !== undefined) seen.add(entry.file);", "the closure lists the library and every library its imports reach"],
 ];
 
 let failures = 0;
