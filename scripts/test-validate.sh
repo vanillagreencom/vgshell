@@ -476,7 +476,7 @@ test_args=()
 # plans name consumers independently of the dependency table under test.
 repo_plan=$'whitespace_check\nrows_cover_tests\nruntime_reads_no_scripts\nruntime_writes_no_monitor_rule\nprivate_keys_check\nmd_refs_check'
 install_plan=$'scripts/test-install-tree.sh\n'"$repo_plan"
-installer_plan=$'scripts/test-install-tree.sh\nscripts/test-vgshell-self.sh\nscripts/test-install-sh.sh\nscripts/test-release.sh\n'"$repo_plan"
+installer_plan=$'scripts/test-install-tree.sh\nnode scripts/check-packaging.js\nnode scripts/test-check-packaging.js\nscripts/test-vgshell-self.sh\nscripts/test-install-sh.sh\nscripts/test-release.sh\n'"$repo_plan"
 # The README check reads VERSION, bin/vgshell, install.sh, the Arch recipes,
 # the plugins, README.md and docs/architecture/runtime.md.
 readme_rows=$'node scripts/test-check-readme.js\nscripts/test-readme-install.sh\n'
