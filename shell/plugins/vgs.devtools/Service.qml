@@ -41,6 +41,7 @@ Item {
     // itself: these bindings may not have followed it yet when that handler
     // runs (docs/architecture/runtime-qml.md).
     readonly property bool writeLaunchers: shell !== null && shell.settings.writeLaunchers === true
+    readonly property bool showInLauncher: shell !== null && shell.settings.showInLauncher !== false
     readonly property var tuiState: shell === null ? null : shell.tui.state
     readonly property var ownerMissing: shell === null ? null : shell.doctor.missing
     // ViewLogic.missingKey of the last `missing` this service saw.
@@ -61,6 +62,7 @@ Item {
         registeredWith = shell;
         shell.ipc.handle("open", () => root.open());
         shell.ipc.handle("refresh", () => { root.trigger("refresh"); return "ok"; });
+        shell.shortcut.register("launch", "Open a Dev Tools catalog row", item => root.launch(item));
         seenEnds = ViewLogic.endings(shell.tui.state);
         seenMissing = ViewLogic.missingKey(shell.doctor.missing);
         trigger("start");
@@ -69,6 +71,11 @@ Item {
     onWriteLaunchersChanged: {
         if (registeredWith === null || launchersFor === wantsLaunchers()) return;
         trigger("setting");
+    }
+
+    onShowInLauncherChanged: {
+        if (registeredWith === null) return;
+        publish();
     }
 
     onTuiStateChanged: {
@@ -89,8 +96,8 @@ Item {
 
     // Summon the window, which Hyprland maps on the focused monitor, then
     // refresh; answers the window host's reply.
-    function open() {
-        const reply = shell.surfaces.summon("window", "{}");
+    function open(payload) {
+        const reply = shell.surfaces.summon("window", payload === undefined ? "{}" : payload);
         if (reply !== "ok") console.warn("devtools: summon " + reply);
         trigger("open");
         return reply;
@@ -117,25 +124,63 @@ Item {
         if (answer.error !== null) console.warn("devtools: query=" + name + " " + answer.error);
         const nextName = ViewLogic.next(name);
         if (nextName !== "") start(nextName);
-        if (name === "launchers") return;
-        answers = Object.assign({}, answers, { [name]: answer });
+        const kept = name === "catalog" && answer.value === null && answers.catalog !== undefined && answers.catalog.value !== null
+            ? { value: answers.catalog.value, error: answer.error }
+            : answer;
+        answers = Object.assign({}, answers, { [name]: kept });
         ended = Object.assign({}, ended, { [name]: Date.now() });
         publish();
     }
 
     function publish() {
         const values = ViewLogic.statusValues(answers);
+        values.launcherRows = ViewLogic.launcherRows(answers.catalog === undefined ? null : answers.catalog.value, showInLauncher, values.catalog);
         for (const key of Object.keys(values)) {
             const reply = shell.status.set(key, values[key]);
             if (reply !== "ok") console.warn("devtools: status " + reply);
         }
     }
 
-    readonly property var queries: ({ launchers: launchersQuery, catalog: catalogQuery, requirements: requirementsQuery, vgs: vgsQuery, updates: updatesQuery })
+    function launch(item) {
+        const decision = ViewLogic.launchDecision(answers.catalog === undefined ? null : answers.catalog.value, item);
+        switch (decision.kind) {
+        case "run": {
+            const reply = shell.run.detached(decision.argv);
+            if (reply !== "ok") console.warn("devtools: run " + reply);
+            return reply;
+        }
+        case "install": {
+            // The run's own end launches the tool; any code but 0, or a run
+            // that vanished, launches nothing.
+            const reply = shell.tui.run("install-launch", ["install-launch", decision.id], result => {
+                if (result.code === 0) root.finishInstallLaunch(item);
+            });
+            if (reply !== "ok") console.warn("devtools: install-launch " + reply);
+            return reply;
+        }
+        case "window":
+            return open(decision.payload);
+        }
+        throw new Error("devtools: launch decision " + JSON.stringify(decision.kind) + " is not one of run, install, window");
+    }
+
+    function finishInstallLaunch(id) {
+        trigger("tui");
+        const follow = ViewLogic.launchAfterInstall(answers.catalog === undefined ? null : answers.catalog.value, id);
+        if (follow.kind === "run") {
+            const launched = shell.run.detached(follow.argv);
+            if (launched !== "ok") console.warn("devtools: run " + launched);
+        } else if (follow.kind === "window") {
+            open(follow.payload);
+        }
+    }
+
+    readonly property var queries: ({ launchers: launchersQuery, catalog: catalogQuery, requirements: requirementsQuery, vgs: vgsQuery, updates: updatesQuery, latest: latestQuery })
 
     Query { id: launchersQuery; onFinished: (code, stdout, stderr) => root.answered("launchers", code, stdout, stderr) }
     Query { id: catalogQuery; onFinished: (code, stdout, stderr) => root.answered("catalog", code, stdout, stderr) }
     Query { id: requirementsQuery; onFinished: (code, stdout, stderr) => root.answered("requirements", code, stdout, stderr) }
     Query { id: vgsQuery; onFinished: (code, stdout, stderr) => root.answered("vgs", code, stdout, stderr) }
     Query { id: updatesQuery; onFinished: (code, stdout, stderr) => root.answered("updates", code, stdout, stderr) }
+    Query { id: latestQuery; onFinished: (code, stdout, stderr) => root.answered("latest", code, stdout, stderr) }
 }

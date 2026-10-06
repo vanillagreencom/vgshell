@@ -10,6 +10,8 @@
 #   devtools.sh install <id> [--channel <channel>] [--launchers]
 #   devtools.sh update <id> [--launchers] | update --mise <key>
 #   devtools.sh remove <id> | remove --mise <key>
+#   devtools.sh version <id> | pin <id> | unpin <id> | rollback <id>
+#   devtools.sh update-all | install-launch <id>
 #       the engine's verb on that row, as bin/devtools states it
 #   devtools.sh install|update|remove
 #       with no row, as an entry opens it: the rows the verb accepts now,
@@ -41,15 +43,59 @@ refuse() { # STATUS DIAGNOSTIC MESSAGE
 
 verb="${1:-}"
 case "$verb" in
-  install|update|remove) ;;
+  install|update|remove|version|pin|unpin|rollback|update-all|install-launch) ;;
   *)
     refuse 2 "verb=${verb:-missing}" "This tool action is invalid. Open the action from Dev Tools."
     ;;
 esac
-if [[ $# -gt 1 ]]; then exec "${engine[@]}" "$@"; fi
-
 # shellcheck source=/dev/null
 source "$lib"
+
+keep_failure_open() {
+  local status="$1"
+  vgs_tui_close_prompt "$status"
+}
+
+run_plain() {
+  local status=0
+  "${engine[@]}" "$@" || status=$?
+  if [[ $status -ne 0 ]]; then
+    keep_failure_open "$status"
+  fi
+  exit "$status"
+}
+
+if [[ $verb == version && $# -eq 2 ]]; then
+  id="$2"
+  status=0
+  versions="$({ printf 'Latest\n'; "${engine[@]}" versions "$id"; })" || status=$?
+  if [[ $status -ne 0 ]]; then
+    keep_failure_open "$status"
+    exit "$status"
+  fi
+  status=0
+  picked="$(printf '%s\n' "$versions" | vgs_tui_filter --header "Pick a version")" || status=$?
+  case "$status" in 0) ;; 1) exit 0 ;; *) exit "$status" ;; esac
+  [[ -n $picked ]] || exit 0
+  if [[ $picked == Latest ]]; then run_plain use "$id" latest; fi
+  run_plain use "$id" "$picked"
+fi
+if [[ $verb == update-all && $# -eq 1 ]]; then
+  plan="$("${engine[@]}" update-all)"
+  printf '%s\n' "$plan"
+  count="$(printf '%s\n' "$plan" | sed -n 's/^devtools: update-all count=//p')"
+  [[ ${count:-0} == 0 ]] && exit 0
+  vgs_tui_confirm "Update $count tools?" || exit $?
+  run_plain update-all --yes
+fi
+if [[ $verb == install-launch && $# -eq 2 ]]; then run_plain install "$2"; fi
+if [[ $# -gt 1 ]]; then
+  case "$verb" in
+    pin|unpin|rollback) run_plain "$@" ;;
+    *) exec "${engine[@]}" "$@" ;;
+  esac
+fi
+
 targets="$("${engine[@]}" targets "$verb")"
 if [[ -z $targets ]]; then
   vgs_tui_step "No tools are available to $verb."

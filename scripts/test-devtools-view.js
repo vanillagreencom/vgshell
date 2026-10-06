@@ -18,6 +18,8 @@ const dir = path.join(__dirname, "..", "shell", "plugins", "vgs.devtools");
 const file = path.join(dir, "ViewLogic.js");
 const windowFile = path.join(dir, "Window.qml");
 const Catalog = load(path.join(dir, "CatalogLogic.js"));
+const PluginLogic = load(path.join(__dirname, "..", "shell", "Core", "PluginLogic.js"));
+const realCatalog = JSON.parse(fs.readFileSync(path.join(dir, "catalog.json"), "utf8"));
 const manifest = JSON.parse(fs.readFileSync(path.join(dir, "manifest.json"), "utf8"));
 // The logic runs in its own context, whose arrays and objects are not this
 // one's; values are compared as JSON.
@@ -25,13 +27,31 @@ const same = (got, want, message) => assert.deepEqual(JSON.parse(JSON.stringify(
 
 // A list row as `devtools list --json` prints it, with FIELDS over an
 // absent agent's defaults.
-const row = fields => Object.assign({ id: "claude", name: "Claude Code", section: "agents", icon: "bot", brand: "claude", kind: null, installed: false, version: null,
-    origin: null, manager: null, package: null, runtime: null, path: null, launcher: "absent", channels: null, actions: ["install"], error: null }, fields);
+const row = fields => Object.assign({ id: "claude", name: "Claude Code", section: "agents", icon: "bot", brand: "claude", kind: null, command: "claude", launch: ["claude"], installed: false, version: null,
+    origin: null, manager: null, package: null, runtime: null, path: null, launcher: "absent", requested: null, pinned: false, rollbackVersion: null, latest: null, failed: null, channels: null, actions: ["install"], error: null }, fields);
 const list = (sections, other, mise) => ({ machine: "x86_64", mise: mise || { present: true, version: "2026.9.9" }, manager: "pacman",
     sections: Object.assign({ agents: [], apps: [], tools: [], envs: [], editors: [], terminals: [], databases: [] }, sections), other: other || [] });
 const requirement = fields => Object.assign({ name: "gum", bus: null, packages: { pacman: "gum" }, optional: false, purpose: "Draws the dialogs", state: "missing", package: { manager: "pacman", name: "gum" } }, fields);
 const self = fields => Object.assign({ version: "0.1.0", method: "checkout", package: null, current: "0.1.0.r3.gabc1234", latest: "0.1.1", behind: false, error: null }, fields);
 const ok = value => ({ value: value, error: null });
+
+function worstCaseStatusBytes(logic) {
+    const machine = process.arch === "arm64" ? "aarch64" : "x86_64";
+    const sections = {};
+    for (const section of Catalog.SECTION_NAMES) {
+        sections[section] = realCatalog[section].filter(r => Catalog.availableOn(r, machine)).map(r => Object.assign(row({
+            id: r.id, name: r.name, section: section, icon: r.icon || null, brand: r.brand || null, kind: r.kind || null, command: r.command || null, launch: r.launch || null,
+            installed: true, version: "2026.10.06-devtools-status-measurement-version-1234567890",
+            origin: typeof r.package === "string" || Array.isArray(r.tools) ? "mise" : r.installer !== undefined ? "installer" : r.container !== undefined ? "container" : "package",
+            actions: ["update", "remove"], requested: "2026.10.06-devtools-status-measurement-version-1234567890", pinned: true,
+            rollbackVersion: "2026.10.05-devtools-status-measurement-version-1234567890", latest: "2026.10.07-devtools-status-measurement-version-1234567890"
+        })));
+    }
+    const report = { machine: machine, mise: { present: true, version: "2026.9.9 status measurement" }, manager: "pacman", sections: sections, other: [] };
+    const values = logic.statusValues({ catalog: { value: report, error: null } });
+    values.launcherRows = logic.launcherRows(report, true);
+    return Buffer.byteLength(JSON.stringify(values), "utf8");
+}
 
 // The configure capability delegates to Plugins.writeSetting and
 // Config.writeUser. These replies cover their refusal classes.
@@ -51,26 +71,44 @@ const SETTING_REPLIES = [
     ["unexpected diagnostic=failed", "VGS could not save this change. Try again."]
 ];
 
-// Execute the actual footer handler with a capability double. The raw
-// reply must never become consumer text; the checked binding survives a
-// refused write, and diagnostics retain the original reply safely quoted.
+function handlerFor(source, key) {
+    const needle = `const reply = root.shell.configure.set("${key}", wanted);`;
+    const at = source.indexOf(needle);
+    assert.notEqual(at, -1, key + " handler writes its setting");
+    const start = source.lastIndexOf("onToggled: {", at);
+    assert.notEqual(start, -1, key + " handler has a toggled block");
+    let depth = 0;
+    for (let i = source.indexOf("{", start); i < source.length; i++) {
+        if (source[i] === "{") depth += 1;
+        else if (source[i] === "}") {
+            depth -= 1;
+            if (depth === 0) return source.slice(source.indexOf("{", start) + 1, i);
+        }
+    }
+    throw new Error(key + " handler did not close");
+}
+
+// The two settings switches write only their declared setting, restore
+// their binding, map the raw reply for the user, and keep the raw reply
+// only in the developer log.
 function verifySettingHandler(logic, source) {
-    const handlers = [...source.matchAll(/onToggled: \{\n([\s\S]*?)\n                \}/g)];
-    assert.equal(handlers.length, 1, "extractor: the launcher switch has one toggled handler");
-    for (const [reply, message] of SETTING_REPLIES) {
-        for (const wanted of [false, true]) {
-            const writes = [], logs = [];
-            const root = { writeLaunchers: !wanted, problem: "previous problem", shell: {
-                configure: { set: (key, value) => { writes.push([key, value]); return reply; } }
-            } };
-            const context = { checked: wanted, root, ViewLogic: logic, Qt: { binding: callback => callback },
-                console: { warn: line => logs.push(line) } };
-            vm.runInNewContext(handlers[0][1], context, { filename: windowFile });
-            same(writes, [["writeLaunchers", wanted]], "the handler writes the user's requested value once");
-            assert.equal(typeof context.checked, "function", "the switch restores its checked binding");
-            assert.equal(context.checked(), !wanted, "the restored binding reads the current setting");
-            assert.equal(root.problem, message, `the actual handler maps ${reply}`);
-            same(logs, message === "" ? [] : ["devtools window: configure " + JSON.stringify(reply)]);
+    for (const key of ["showInLauncher", "writeLaunchers"]) {
+        const handler = handlerFor(source, key);
+        for (const [reply, message] of SETTING_REPLIES) {
+            for (const wanted of [false, true]) {
+                const writes = [], logs = [];
+                const root = { [key]: !wanted, problem: "previous problem", shell: {
+                    configure: { set: (name, value) => { writes.push([name, value]); return reply; } }
+                } };
+                const context = { checked: wanted, root, ViewLogic: logic, Qt: { binding: callback => callback },
+                    console: { warn: line => logs.push(line) } };
+                vm.runInNewContext(handler, context, { filename: windowFile });
+                same(writes, [[key, wanted]], key + " handler writes the user's requested value once");
+                assert.equal(typeof context.checked, "function", key + " handler restores its checked binding");
+                assert.equal(context.checked(), !wanted, key + " handler binding reads the current setting");
+                assert.equal(root.problem, message, `${key} handler maps ${reply}`);
+                same(logs, message === "" ? [] : ["devtools window: configure " + JSON.stringify(reply)]);
+            }
         }
     }
 }
@@ -99,7 +137,8 @@ const ANSWERS = [
         ok({ count: 2, packages: [{ name: "claude", old: "1", new: "2" }] })],
     ["a mise source that failed", "updates", JSON.stringify([{ source: "mise", count: null, packages: [], checkedAt: null, error: "timeout=120" }]), { value: null, error: "timeout=120" }],
     ["another source", "updates", JSON.stringify([{ source: "pacman", count: 0, packages: [], checkedAt: 1, error: null }]), { value: null, error: "unparseable" }],
-    ["launcher lines", "launchers", "launcher=written command=claude path=/h/.local/bin/claude\n", ok(["launcher=written command=claude path=/h/.local/bin/claude"])]
+    ["launcher lines", "launchers", "launcher=written command=claude path=/h/.local/bin/claude\n", ok(["launcher=written command=claude path=/h/.local/bin/claude"])],
+    ["latest versions", "latest", JSON.stringify({ claude: "2.0.0", node: null }), ok({ claude: "2.0.0", node: null })]
 ];
 
 function verify(logic) {
@@ -122,18 +161,18 @@ function verify(logic) {
     same(JSON.parse(JSON.stringify(logic.VERBS)).sort(), Object.keys(manifest.tui).sort(), "every TUI the window runs is declared");
 
     // Triggers.
-    same(logic.queriesFor("start", {}, 0), ["launchers", "requirements", "vgs", "updates"]);
-    same(logic.queriesFor("refresh", { vgs: 0, updates: 0 }, 1), ["launchers", "requirements", "vgs", "updates"]);
-    same(logic.queriesFor("tui", {}, 0), ["launchers", "requirements", "updates"]);
+    same(logic.queriesFor("start", {}, 0), ["launchers", "requirements", "vgs", "updates", "latest"]);
+    same(logic.queriesFor("refresh", { vgs: 0, updates: 0, latest: 0 }, 1), ["launchers", "requirements", "vgs", "updates", "latest"]);
+    same(logic.queriesFor("tui", {}, 0), ["launchers", "requirements", "updates", "latest"]);
     same(logic.queriesFor("setting", {}, 0), ["launchers"]);
-    same(logic.queriesFor("scan", {}, 0), ["launchers", "requirements", "updates"], "a scan that found another set lists again, since it can bring mise");
+    same(logic.queriesFor("scan", {}, 0), ["launchers", "requirements", "updates", "latest"], "a scan that found another set lists again, since it can bring mise");
     const fresh = logic.NETWORK_FRESH_MS;
-    same(logic.queriesFor("open", { vgs: 1000, updates: 1000 }, 1000 + fresh - 1), ["launchers", "requirements"], "an open inside the window asks no remote");
-    same(logic.queriesFor("open", { vgs: 1000, updates: 2000 }, 1000 + fresh), ["launchers", "requirements", "vgs"], "an open asks each remote whose answer is stale");
-    same(logic.queriesFor("open", {}, 0), ["launchers", "requirements", "vgs", "updates"], "an open asks a remote never asked");
+    same(logic.queriesFor("open", { vgs: 1000, updates: 1000, latest: 1000 }, 1000 + fresh - 1), ["launchers", "requirements"], "an open inside the window asks no remote");
+    same(logic.queriesFor("open", { vgs: 1000, updates: 2000, latest: 2000 }, 1000 + fresh), ["launchers", "requirements", "vgs"], "an open asks each remote whose answer is stale");
+    same(logic.queriesFor("open", {}, 0), ["launchers", "requirements", "vgs", "updates", "latest"], "an open asks a remote never asked");
     assert.throws(() => logic.queriesFor("boot", {}, 0), /trigger "boot" is not one of/);
     assert.equal(logic.next("launchers"), "catalog");
-    for (const name of ["catalog", "requirements", "vgs", "updates"]) assert.equal(logic.next(name), "");
+    for (const name of ["catalog", "requirements", "vgs", "updates", "latest"]) assert.equal(logic.next(name), "");
 
     // Argv.
     same(logic.queryArgv("launchers", "/t", "/p", true), ["/p/bin/devtools", "--tree", "/t", "launchers", "refresh"]);
@@ -142,6 +181,7 @@ function verify(logic) {
     same(logic.queryArgv("requirements", "/t", "/p", false), ["/t/bin/vgshell", "doctor", "--json"]);
     same(logic.queryArgv("vgs", "/t", "/p", false), ["/t/bin/vgshell", "self", "status", "--json"]);
     same(logic.queryArgv("updates", "/t", "/p", false), ["/t/bin/vgshell", "pkg", "check", "--json", "--source", "mise"]);
+    same(logic.queryArgv("latest", "/t", "/p", false), ["/p/bin/devtools", "--tree", "/t", "latest", "--json"]);
     assert.throws(() => logic.queryArgv("nope", "/t", "/p", false), /query "nope" is not one of/);
 
     // Answers.
@@ -159,13 +199,13 @@ function verify(logic) {
     ]);
 
     // Status values.
-    same(logic.statusValues({}), { catalog: { tools: null, requirements: null, vgs: null, updates: null } }, "nothing answered publishes the empty catalog alone");
+    same(logic.statusValues({}), { catalog: { tools: null, requirements: null, vgs: null, updates: null, latest: null, launchers: null } }, "nothing answered publishes the empty catalog alone");
     same(logic.statusValues({ vgs: ok(self({})) }).checks, { tone: "ok", text: "All checks passed" });
     same(logic.statusValues({ vgs: ok(self({ error: "latest=timeout" })) }).checks, { tone: "warning", text: "Checks failed" },
         "a self status that exited 0 with an error is a failed check");
     const listed = list({ agents: [row({ installed: true, origin: "mise", version: "2", actions: ["update", "remove"] }), row({ id: "codex" })], apps: [row({ id: "cmux", installed: null, error: "e" })] },
         [{ id: "github:o/x", installed: true, version: "1", actions: ["update", "remove"] }]);
-    const values = logic.statusValues({ catalog: ok(listed), updates: ok({ count: 3, packages: [] }), requirements: ok({ core: [requirement({})], plugins: { "acme.y": [requirement({ state: "present" })] } }) });
+    const values = logic.statusValues({ catalog: ok(listed), updates: ok({ count: 3, packages: [] }), requirements: ok({ core: [requirement({})], plugins: { "acme.y": [requirement({ state: "present" })] } }), launchers: ok(["launcher=written command=claude path=/h/.local/bin/claude", "launcher=foreign command=codex path=/h/.local/bin/codex"]) });
     same([values.mise, values.installed, values.outdated, values.missingRequirements], [{ tone: "ok", text: "2026.9.9" }, 2, 3, 1]);
     same(values.catalog.requirements, ok([{ owner: "core", name: "gum", purpose: "Draws the dialogs", optional: false, package: { manager: "pacman", name: "gum" } }]), "the catalog holds the missing requirements alone");
     same(logic.statusValues({ catalog: ok(list({}, [], { present: false, version: null })) }).mise, { tone: "warning", text: "Not installed", action: true }, "a missing mise offers Install mise");
@@ -174,6 +214,36 @@ function verify(logic) {
     same(["installed", "outdated", "missingRequirements"].filter(k => k in failed), [], "a failed query publishes no count");
     same(failed.checks, { tone: "warning", text: "Checks failed" },
         "a failed query keeps the warning while withholding its count");
+
+    // Launcher rows and catalog page additions.
+    const launcherList = list({ agents: [
+        row({ installed: true, origin: "mise", version: "1.0.0", actions: ["update", "remove"], latest: "2.0.0", rollbackVersion: "0.9.0" }),
+        row({ id: "node", name: "Node", command: "node", launch: ["node"], installed: true, origin: "mise", version: "20.0.0", actions: ["update", "remove"], requested: "20.0.0", pinned: true, rollbackVersion: "18.0.0", latest: "21.0.0" }),
+        row({ id: "owner", name: "Owner", command: "owner", launch: ["owner"], installed: true, origin: "foreign", actions: [] }),
+        row({ id: "broken", name: "Broken", command: "broken", launch: ["broken"], failed: { line: "download failed", at: 1 }, actions: ["install"] })
+    ], apps: [row({ id: "code", name: "Code", section: "apps", kind: "gui", command: "code", launch: ["code"], installed: true, version: "2", origin: "mise", actions: ["update", "remove"] })],
+        terminals: [row({ id: "alacritty", name: "Alacritty", section: "terminals", kind: "gui", command: "alacritty", launch: ["alacritty"], installed: true, version: "2", origin: "mise", actions: [] })] });
+    const statusBytes = worstCaseStatusBytes(logic);
+    assert.equal(statusBytes, 58064, "the real catalog worst-case status payload size is pinned to this test's model");
+    assert.ok(PluginLogic.STATUS_MAX_BYTES - statusBytes >= 7000, "the Dev Tools status payload keeps at least 7000 bytes below the status ceiling");
+        same(logic.launcherRows(null, true), [], "no list publishes no launcher rows");
+    same(logic.launcherRows(launcherList, false), [], "showInLauncher hides launcher rows");
+    same(logic.launcherRows(launcherList, true).find(r => r.id === "agents.claude"),
+        { id: "agents.claude", label: "Claude Code", icon: "bot", description: "Update available", aliases: ["claude"] });
+    assert.equal(logic.sections(Object.assign({}, values.catalog, { tools: ok(launcherList) }), "", false).find(section => section.key === "agents").rows.find(r => r.id === "broken").lines[0], "download failed");
+    assert.ok(!logic.launcherRows(launcherList, true).some(r => r.id === "other"), "other is not a launcher category");
+    same(logic.launchDecision(launcherList, "apps.code"), { kind: "run", argv: ["code"] }, "installed gui app runs directly");
+    same(logic.launchDecision(launcherList, "terminals.alacritty"), { kind: "run", argv: ["xdg-terminal-exec", "alacritty"] }, "terminal section rows use xdg-terminal-exec even when they launch a GUI app");
+    same(logic.launchDecision(launcherList, "agents.claude"), { kind: "run", argv: ["xdg-terminal-exec", "claude"] }, "installed terminal row uses xdg-terminal-exec");
+    same(logic.launchDecision(launcherList, "agents.owner"), { kind: "run", argv: ["xdg-terminal-exec", "owner"] }, "foreign row runs from PATH");
+    same(logic.launchDecision(launcherList, "agents.broken"), { kind: "install", id: "broken" }, "not installed installable row opens install-launch");
+    same(logic.launchDecision(list({ envs: [row({ id: "rust", name: "Rust", section: "envs", command: null, launch: null, actions: ["install"] })] }), "envs.rust"),
+        { kind: "window", payload: JSON.stringify({ row: "envs/rust" }) }, "no launch opens the catalog row");
+    same(logic.launchAfterInstall(launcherList, "agents.claude"), { kind: "run", argv: ["xdg-terminal-exec", "claude"] });
+    assert.equal(logic.updateAllCount({ tools: ok(launcherList) }), 2, "Update all skips pinned rows");
+    assert.equal(logic.writeReportLine(values.catalog), "1 command added; skipped codex foreign");
+    const filtered = logic.filteredSections(logic.sections(values.catalog, "", false), "codex", "All").find(section => section.key === "agents");
+    same(filtered.rows.map(r => r.id), ["codex"], "search matches command and row id");
 
     // TUI ends.
     same(logic.endedSince(null, { install: { running: false, code: 0, endedAt: 5 } }), [], "the first reading reports no end");
@@ -195,23 +265,23 @@ function verify(logic) {
     // Rows.
     const drawn = r => { const v = logic.toolRow(r.section, r, false); return [v.name, v.icon, v.tile, v.secondary, v.chips, v.channels, v.actions.map(a => a.label), v.lines]; };
     same(drawn(row({ installed: true, origin: "mise", version: "2.1", actions: ["update", "remove"] })),
-        ["Claude Code", "bot", "brand", "2.1", [{ text: "mise", tone: "neutral" }], [], ["Update", "Remove"], []]);
+        ["Claude Code", "bot", "brand", "2.1", [{ text: "Installed", tone: "success" }], [], ["Update", "Remove", "Version", "Pin"], []]);
     same(drawn(row({ installed: true, origin: "foreign", path: "/h/.local/bin/claude", actions: [] })),
-        ["Claude Code", "bot", "brand", "Installed · Managed outside VGS", [{ text: "Foreign", tone: "warning" }], [], [], []]);
+        ["Claude Code", "bot", "brand", "Installed · Managed outside VGS", [{ text: "Managed outside VGS", tone: "warning" }], [], [], []]);
     same(drawn(row({ section: "tools", id: "gh", name: "GitHub CLI", icon: null, brand: null, installed: true, origin: "package", manager: "pacman", package: "github-cli", version: "2.1", actions: [] })),
-        ["GitHub CLI", "terminal", "neutral", "2.1", [{ text: "pacman", tone: "neutral" }], [], [], []]);
+        ["GitHub CLI", "terminal", "neutral", "2.1", [{ text: "Installed", tone: "success" }], [], [], []]);
     same(drawn(row({ section: "envs", id: "rust", installed: true, origin: "managedBy", manager: "pacman", package: "rustup", actions: [] })),
-        ["Claude Code", "bot", "brand", "Installed · Managed by the rustup package", [{ text: "pacman", tone: "neutral" }], [], [], []]);
+        ["Claude Code", "bot", "brand", "Installed · Managed by the rustup package", [{ text: "Managed outside VGS", tone: "warning" }], [], [], []]);
     same(drawn(row({ section: "databases", installed: true, origin: "container", runtime: "podman", actions: ["remove"] })),
-        ["Claude Code", "bot", "brand", "Installed", [{ text: "podman", tone: "neutral" }], [], ["Remove"], []]);
+        ["Claude Code", "bot", "brand", "Installed", [{ text: "Installed", tone: "success" }], [], ["Remove"], []]);
     same(drawn(row({ installed: null, error: "pkg=failed verb=owner exit=3", actions: [] })),
-        ["Claude Code", "bot", "brand", "State unknown", [{ text: "Unknown", tone: "danger" }], [], [], ["The tool check failed. Close Dev Tools and open it again to retry."]]);
+        ["Claude Code", "bot", "brand", "State unknown", [{ text: "Could not check", tone: "warning" }], [], [], ["The tool check failed. Close Dev Tools and open it again to retry."]]);
     same(drawn(row({ section: "apps", channels: ["stable", "preview"] })),
-        ["Claude Code", "bot", "brand", "Not installed", [], ["stable", "preview"], ["Install"], []]);
+        ["Claude Code", "bot", "brand", "Not installed", [{ text: "Not installed", tone: "warning" }], ["stable", "preview"], ["Install"], []]);
     same(drawn(row({ section: "apps", channels: ["stable", "preview"], installed: true, origin: "mise", version: "1", actions: ["update"] }))[5], [], "an installed row offers no channel");
     same(drawn(row({ section: "databases", actions: [] }))[3], "Not installed · Not offered on this system");
     same(drawn({ section: "other", id: "github:o/x", installed: true, version: "1", actions: ["update", "remove"] }),
-        ["github:o/x", "package", "neutral", "1", [], [], ["Update", "Remove"], []]);
+        ["github:o/x", "package", "neutral", "1", [{ text: "Installed", tone: "success" }], [], ["Update", "Remove"], []]);
     same(logic.toolRow("agents", row({ launcher: "foreign" }), true).lines, ["Another tool manages this launcher."]);
     same(logic.toolRow("agents", row({ launcher: "foreign" }), false).lines, [], "a foreign launcher is named only while VGS writes launchers");
     same(logic.toolRow("agents", row({}), false).actions, [{ kind: "verb", verb: "install", label: "Install", variant: "primary" }]);
@@ -245,11 +315,11 @@ function verify(logic) {
     ], "VGS first, then each tool section that holds a row, in order");
     same(logic.sections(Object.assign({}, catalog, { requirements: ok([]) }), "", false)[0].lines, ["All required tools are installed"]);
     same(logic.sections(Object.assign({}, catalog, { requirements: { value: null, error: "exit=1" } }), "", false)[0].lines, ["The check failed. Close Dev Tools and open it again to retry."]);
-    same(logic.sections({ tools: { value: null, error: "mise=absent" }, requirements: null, vgs: null, updates: null }, "", false).map(s => [s.title, s.lines]),
+    same(logic.sections({ tools: { value: null, error: "mise=absent" }, requirements: null, vgs: null, updates: null, latest: null, launchers: null }, "", false).map(s => [s.title, s.lines]),
         [["VGS", []]].concat(logic.TOOL_SECTIONS.map(s => [s.title, ["A required tool is missing. Use Install to add it."]])), "a failed list names its error in every section");
     assert.equal(logic.summary(catalog), "mise 2026.9.9 · 2 installed · 3 updates");
     assert.equal(logic.summary(null), "Listing tools");
-    assert.equal(logic.summary({ tools: { value: null, error: "x" }, updates: null }), "The tool list failed");
+    assert.equal(logic.summary({ tools: { value: null, error: "x" }, updates: null, latest: null, launchers: null }), "The tool list failed");
     assert.equal(logic.summary(Object.assign({}, catalog, { updates: { value: null, error: "timeout=120" } })), "mise 2026.9.9 · 2 installed · Update check failed");
 
     // The window's lines.
@@ -300,7 +370,12 @@ const CONTROLS = [
     ["settings use their own failure context", 'if (context === "setting")', 'if (false)'],
     ["loading settings names the loading state", '[/^refused: user-config=pending(?: |$)/,', '[/never-produced/,'],
     ["unreadable settings name the read failure", '[/^refused: user-config=(?:unparseable|unreadable|malformed)(?: |$)/,', '[/never-produced/,'],
-    ["a rejected setting names the change failure", '[/^refused: setting=|^unknown:/,', '[/never-produced/,']
+    ["a rejected setting names the change failure", '[/^refused: setting=|^unknown:/,', '[/never-produced/,'],
+    ["showInLauncher hides launcher rows", "if (!show || report === null || report === undefined) return [];", "if (report === null || report === undefined) return [];"],
+    ["terminal launch uses xdg-terminal-exec", 'return row.kind === "gui" && section !== "terminals" ? launch : ["xdg-terminal-exec"].concat(launch);', "return launch;"],
+    ["Update all skips pinned rows", 'row.actions.indexOf("update") !== -1 && row.pinned !== true', 'row.actions.indexOf("update") !== -1'],
+    ["failed row carries the last error", "out.lines.push(row.failed.line);", ""],
+    ["write report includes skipped commands", 'if (skipped.length > 0) text += "; skipped " + skipped.join(", ");', ""]
 ];
 
 const source = fs.readFileSync(file, "utf8");
@@ -320,11 +395,11 @@ try {
         }
         assert.ok(failed, `control "${label}": the suite passed on logic without that rule`);
     }
-    const callerNeedle = 'root.problem = ViewLogic.replyLine(reply, "setting");';
-    assert.equal(windowSource.split(callerNeedle).length, 2, "caller control: the display assignment occurs once");
+    const callerNeedle = '                            root.problem = ViewLogic.replyLine(reply, "setting");';
+    assert.equal(windowSource.split(callerNeedle).length, 3, "caller control: each setting handler maps the display assignment");
     let rawCallerFailed = false;
     try {
-        verifySettingHandler(load(file), windowSource.replace(callerNeedle, 'root.problem = reply === "ok" ? "" : reply;'));
+        verifySettingHandler(load(file), windowSource.replace(callerNeedle, '                            root.problem = reply === "ok" ? "" : reply;'));
     } catch (error) {
         rawCallerFailed = true;
     }

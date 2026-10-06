@@ -36,7 +36,8 @@ var QUERIES = {
     catalog: { network: false },
     requirements: { network: false },
     vgs: { network: true },
-    updates: { network: true }
+    updates: { network: true },
+    latest: { network: true }
 };
 
 // What each trigger runs. `catalog` always follows `launchers` (next), since
@@ -48,12 +49,12 @@ var QUERIES = {
 // (the `doctor` capability's `missing`), such as an install the core's
 // requirement notice ran, which can bring mise itself.
 var TRIGGERS = {
-    start: ["launchers", "requirements", "vgs", "updates"],
-    refresh: ["launchers", "requirements", "vgs", "updates"],
-    open: ["launchers", "requirements", "vgs", "updates"],
-    tui: ["launchers", "requirements", "updates"],
+    start: ["launchers", "requirements", "vgs", "updates", "latest"],
+    refresh: ["launchers", "requirements", "vgs", "updates", "latest"],
+    open: ["launchers", "requirements", "vgs", "updates", "latest"],
+    tui: ["launchers", "requirements", "updates", "latest"],
     setting: ["launchers"],
-    scan: ["launchers", "requirements", "updates"]
+    scan: ["launchers", "requirements", "updates", "latest"]
 };
 
 // An `open` asks a remote again only when that query's last answer is
@@ -64,7 +65,7 @@ var NETWORK_FRESH_MS = 10 * 60 * 1000;
 
 // The plugin's TUI names, as the manifest's `tui` key declares them: one
 // per engine verb.
-var VERBS = ["install", "update", "remove"];
+var VERBS = ["install", "update", "remove", "version", "pin", "unpin", "rollback", "update-all", "install-launch"];
 
 // The group whose first listed TUI entry updates VGS: the launcher's Update
 // row reads the same group (docs/architecture/tui-capability.md).
@@ -75,7 +76,7 @@ var UPDATE_GROUP = "Update";
 var STATUS_TEXT_MAX = 200;
 
 // The queries whose answers the `checks` status reports.
-var CHECK_QUERIES = ["catalog", "requirements", "vgs", "updates"];
+var CHECK_QUERIES = ["catalog", "requirements", "vgs", "updates", "latest"];
 
 var METHOD_LABELS = { checkout: "Git checkout", package: "Package", curl: "Install script", nix: "Nix" };
 var ORIGIN_CHIPS = { mise: "mise", installer: "Installer", foreign: "Foreign" };
@@ -165,6 +166,7 @@ function queryArgv(name, tree, plugin, write) {
     case "requirements": return [vgshell, "doctor", "--json"];
     case "vgs": return [vgshell, "self", "status", "--json"];
     case "updates": return [vgshell, "pkg", "check", "--json", "--source", "mise"];
+    case "latest": return engine.concat(["latest", "--json"]);
     }
     throw new Error("devtools: query " + JSON.stringify(name) + " is not one of " + Object.keys(QUERIES).join(", "));
 }
@@ -195,6 +197,8 @@ function shaped(name, value) {
         return isObject(value) && hasOwn(value, "version") && hasOwn(value, "method") && hasOwn(value, "behind") && hasOwn(value, "error");
     case "updates":
         return Array.isArray(value) && value.length === 1 && isObject(value[0]) && value[0].source === "mise";
+    case "latest":
+        return isObject(value) && Object.keys(value).every(function (key) { return value[key] === null || typeof value[key] === "string"; });
     }
     throw new Error("devtools: query " + JSON.stringify(name) + " has no shape");
 }
@@ -247,6 +251,18 @@ function listedRows(report) {
     return rows;
 }
 
+function launcherReport(lines) {
+    var out = { written: 0, skipped: [] };
+    (lines || []).forEach(function (line) {
+        var state = /(?:^| )launcher=([^ ]+)/.exec(line);
+        var command = /(?:^| )command=([^ ]+)/.exec(line);
+        if (state === null || command === null) return;
+        if (state[1] === "written") out.written += 1;
+        else if (state[1] === "foreign" || state[1] === "shadowed") out.skipped.push({ command: command[1], reason: state[1] });
+    });
+    return out;
+}
+
 // The `catalog` status value, everything the window draws: each query's
 // answer as { value, error }, null before its first answer. The
 // requirements are reduced to the missing ones.
@@ -261,7 +277,9 @@ function catalogValue(answers) {
         tools: pick("catalog", same),
         requirements: pick("requirements", missingRequirements),
         vgs: pick("vgs", same),
-        updates: pick("updates", same)
+        updates: pick("updates", same),
+        latest: pick("latest", same),
+        launchers: pick("launchers", launcherReport)
     };
 }
 
@@ -345,8 +363,42 @@ function updateEntry(entries) {
     return "";
 }
 
-var ACTION_LABELS = { install: "Install", update: "Update", remove: "Remove" };
-var ACTION_VARIANTS = { install: "primary", update: "secondary", remove: "danger" };
+var ACTION_LABELS = { install: "Install", update: "Update", remove: "Remove", version: "Version", pin: "Pin", unpin: "Unpin", rollback: "Roll back" };
+var ACTION_VARIANTS = { install: "primary", update: "secondary", remove: "danger", version: "secondary", pin: "secondary", unpin: "secondary", rollback: "secondary" };
+
+function latestFor(row, catalog) {
+    if (row.latest !== undefined && row.latest !== null) return row.latest;
+    if (catalog !== null && catalog !== undefined && catalog.latest !== null && catalog.latest.value !== null && catalog.latest.value[row.id] !== undefined)
+        return catalog.latest.value[row.id];
+    return null;
+}
+
+function stateText(row, catalog) {
+    if (row.failed !== null && row.failed !== undefined) return "Failed";
+    if (row.installed === null) return "Could not check";
+    if (row.origin === "foreign" || row.origin === "managedBy") return "Managed outside VGS";
+    if (row.installed) {
+        var latest = latestFor(row, catalog);
+        if (row.pinned === true) return latest !== null && latest !== row.version ? "Pinned at " + row.version + ", " + latest + " available" : "Pinned at " + row.version;
+        if (latest !== null && latest !== row.version) return "Update available";
+        if (row.version !== null) return "Installed " + row.version;
+        return "Installed";
+    }
+    if (row.origin === "foreign" || row.origin === "managedBy") return "Managed outside VGS";
+    return row.actions.length === 0 ? "Not installed" : "Not installed";
+}
+
+function stateChip(row, catalog) {
+    if (row.failed !== null && row.failed !== undefined) return { text: "Failed", tone: "danger" };
+    if (row.installed === null) return { text: "Could not check", tone: "warning" };
+    if (row.origin === "foreign" || row.origin === "managedBy") return { text: "Managed outside VGS", tone: "warning" };
+    if (row.installed) {
+        if (row.pinned === true) return { text: "Pinned", tone: "warning" };
+        if (latestFor(row, catalog) !== null && latestFor(row, catalog) !== row.version) return { text: "Update available", tone: "warning" };
+        return { text: "Installed", tone: "success" };
+    }
+    return { text: "Not installed", tone: row.actions.length === 0 ? "neutral" : "warning" };
+}
 
 // One catalog or other-tool ROW as the window draws it: { key, name, icon,
 // brand, tile, secondary, chips, channels, actions, lines }. `tile` is
@@ -354,7 +406,7 @@ var ACTION_VARIANTS = { install: "primary", update: "secondary", remove: "danger
 // { kind, verb, label, variant }; `channels` the choices a Select offers,
 // empty for none. WRITE is the writeLaunchers setting: a foreign launcher
 // is named only while VGS would write one.
-function toolRow(section, row, write) {
+function toolRow(section, row, write, catalog) {
     var branded = section !== "other" && row.icon !== null && row.brand !== null;
     var out = {
         key: section + "/" + row.id,
@@ -370,24 +422,38 @@ function toolRow(section, row, write) {
         actions: [],
         lines: []
     };
-    if (row.installed === null) {
+    if (row.failed !== null && row.failed !== undefined) {
+        out.secondary = "Failed";
+        out.chips.push(stateChip(row, catalog));
+        out.lines.push(row.failed.line);
+    } else if (row.installed === null) {
         out.secondary = "State unknown";
-        out.chips.push({ text: "Unknown", tone: "danger" });
+        out.chips.push(stateChip(row, catalog));
         out.lines.push(errorText(row.error));
     } else if (row.installed) {
+        var latest = latestFor(row, catalog);
         out.secondary = row.version === null ? "Installed" : row.version;
+        if (row.pinned === true && latest !== null && latest !== row.version) out.secondary = "Pinned at " + row.version + ", " + latest + " available";
+        else if (latest !== null && latest !== row.version) out.secondary += " · " + latest + " available";
         if (row.origin === "foreign") out.secondary += " · Managed outside VGS";
         if (row.origin === "managedBy") out.secondary += " · Managed by the " + row.package + " package";
-        var chip = hasOwn(ORIGIN_CHIPS, row.origin) ? ORIGIN_CHIPS[row.origin] : row.origin === "container" ? row.runtime : row.manager;
-        if (chip !== null && chip !== undefined) out.chips.push({ text: chip, tone: row.origin === "foreign" ? "warning" : "neutral" });
+        out.chips.push(stateChip(row, catalog));
     } else {
         out.secondary = row.actions.length === 0 ? "Not installed · Not offered on this system" : "Not installed";
+        out.chips.push(stateChip(row, catalog));
     }
     if (write && row.launcher === "foreign") out.lines.push("Another tool manages this launcher.");
     if (section !== "other" && Array.isArray(row.channels) && row.channels.length > 1 && row.actions.indexOf("install") !== -1) out.channels = row.channels;
-    VERBS.forEach(function (verb) {
+    ["install", "update", "remove"].forEach(function (verb) {
         if (row.actions.indexOf(verb) !== -1) out.actions.push({ kind: "verb", verb: verb, label: ACTION_LABELS[verb], variant: ACTION_VARIANTS[verb] });
     });
+    if (row.installed === true && row.origin === "mise") {
+        out.actions.push({ kind: "verb", verb: "version", label: "Version", variant: "secondary" });
+        out.actions.push({ kind: "verb", verb: row.pinned === true ? "unpin" : "pin", label: row.pinned === true ? "Unpin" : "Pin", variant: "secondary" });
+        if (row.rollbackVersion !== null && row.rollbackVersion !== undefined) out.actions.push({ kind: "verb", verb: "rollback", label: "Roll back", variant: "secondary" });
+    }
+    if (row.failed !== null && row.failed !== undefined && row.actions.indexOf("install") !== -1)
+        out.actions.unshift({ kind: "verb", verb: "install", label: "Retry", variant: "primary" });
     return out;
 }
 
@@ -466,7 +532,7 @@ function sections(catalog, entry, write) {
         var drawn = { key: section.key, title: section.title, description: section.description, rows: [], lines: [] };
         if (tools === null) drawn.lines.push("Listing");
         else if (tools.value === null) drawn.lines.push(errorText(tools.error));
-        else drawn.rows = (section.key === "other" ? tools.value.other : tools.value.sections[section.key]).map(function (row) { return toolRow(section.key, row, write); });
+        else drawn.rows = (section.key === "other" ? tools.value.other : tools.value.sections[section.key]).map(function (row) { return toolRow(section.key, row, write, catalog); });
         if (drawn.rows.length > 0 || drawn.lines.length > 0) out.push(drawn);
     });
     return out;
@@ -497,6 +563,112 @@ function runningLines(state) {
     }).map(function (name) {
         return RUN_LABELS[name] + " is running. The list updates when it ends.";
     });
+}
+
+function printableAlias(value) {
+    return typeof value === "string" && value !== "" && /^[^\x00-\x1f\x7f]+$/.test(value);
+}
+
+function aliasesFor(row) {
+    var seen = {};
+    var out = [];
+    [row.command, row.id].forEach(function (value) {
+        if (!printableAlias(value) || seen[value]) return;
+        seen[value] = true;
+        out.push(value);
+    });
+    return out;
+}
+
+// scripts/test-devtools-view.js computes the worst-case status payload from
+// the real catalog and held it at 58064 bytes in this change, below
+// PluginLogic.STATUS_MAX_BYTES, 64 KiB. Keep launcher rows compact:
+// ids, labels, icons, one state line and search aliases only.
+function launcherRows(report, show, catalog) {
+    if (!show || report === null || report === undefined) return [];
+    var rows = [];
+    TOOL_SECTIONS.forEach(function (section) {
+        if (section.key === "other") return;
+        var listed = report.sections[section.key] || [];
+        if (listed.length === 0) return;
+        rows.push({ id: section.key, label: section.title, icon: section.icon, menu: true });
+        listed.forEach(function (row) {
+            rows.push({ id: section.key + "." + row.id, label: row.name, icon: row.icon || section.icon,
+                description: stateText(row, catalog || null), aliases: aliasesFor(row) });
+        });
+    });
+    return rows;
+}
+
+function launcherRowById(report, id) {
+    if (report === null || report === undefined || typeof id !== "string") return null;
+    var dot = id.indexOf(".");
+    if (dot <= 0) return null;
+    var section = id.slice(0, dot);
+    var rowId = id.slice(dot + 1);
+    var rows = report.sections[section];
+    if (!Array.isArray(rows)) return null;
+    for (var i = 0; i < rows.length; i++)
+        if (rows[i].id === rowId) return rows[i];
+    return null;
+}
+
+function rowLaunchArgv(row, section) {
+    var launch = Array.isArray(row.launch) ? row.launch : row.command ? [row.command] : [];
+    if (launch.length === 0) return null;
+    return row.kind === "gui" && section !== "terminals" ? launch : ["xdg-terminal-exec"].concat(launch);
+}
+
+function catalogPayload(row) {
+    return JSON.stringify({ row: row.section + "/" + row.id });
+}
+
+function launchDecision(report, id) {
+    var row = launcherRowById(report, id);
+    if (row === null) return { kind: "window", payload: "{}" };
+    var argv = rowLaunchArgv(row, id.slice(0, id.indexOf(".")));
+    if (argv === null) return { kind: "window", payload: catalogPayload(row) };
+    if (row.installed === true || row.origin === "foreign" || row.origin === "managedBy") return { kind: "run", argv: argv };
+    if (row.installed === false && row.actions.indexOf("install") !== -1) return { kind: "install", id: row.id };
+    return { kind: "window", payload: catalogPayload(row) };
+}
+
+function launchAfterInstall(report, id) {
+    var row = launcherRowById(report, id);
+    if (row === null) return { kind: "window", payload: "{}" };
+    var argv = rowLaunchArgv(row, id.slice(0, id.indexOf(".")));
+    return argv === null ? { kind: "window", payload: catalogPayload(row) } : { kind: "run", argv: argv };
+}
+
+function filteredSections(sections, query, filter) {
+    var needle = String(query || "").toLowerCase();
+    return sections.map(function (section) {
+        var next = Object.assign({}, section);
+        next.rows = section.rows.filter(function (row) {
+            var state = row.chips.length > 0 ? row.chips[0].text : "";
+            var matchesFilter = filter === "All" || (filter === "Installed" && (state === "Installed" || state === "Pinned" || state === "Managed outside VGS"))
+                || (filter === "Updates" && state === "Update available")
+                || (filter === "Not installed" && state === "Not installed");
+            if (!matchesFilter) return false;
+            if (needle === "") return true;
+            return row.name.toLowerCase().indexOf(needle) !== -1 || (row.id || "").toLowerCase().indexOf(needle) !== -1;
+        });
+        return next;
+    }).filter(function (section) { return section.key === "vgs" || section.rows.length > 0 || section.lines.length > 0; });
+}
+
+function updateAllCount(catalog) {
+    if (catalog === null || catalog === undefined || catalog.tools === null || catalog.tools.value === null) return 0;
+    return listedRows(catalog.tools.value).filter(function (row) { return row.actions.indexOf("update") !== -1 && row.pinned !== true; }).length;
+}
+
+function writeReportLine(catalog) {
+    if (catalog === null || catalog === undefined || catalog.launchers === null || catalog.launchers.value === null) return "";
+    var report = catalog.launchers.value;
+    var skipped = report.skipped.map(function (row) { return row.command + " " + row.reason; });
+    var text = report.written + (report.written === 1 ? " command added" : " commands added");
+    if (skipped.length > 0) text += "; skipped " + skipped.join(", ");
+    return text;
 }
 
 // Plugins.writeSetting and Config.writeUser produce configuration refusals.

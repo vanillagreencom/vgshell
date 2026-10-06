@@ -42,10 +42,13 @@ layers
 shader-frames
 tui
 notices
-devtools
 overlays
 gallery
 launcher
+# After launcher, whose first enable reads the edge light compiled from
+# a fresh revision: this row enables the launcher to read the Dev Tools
+# category, and disables it again.
+devtools
 # After launcher, which leaves the launcher disabled: this row enables it
 # to find the web app it adds, and disables it again.
 webapps

@@ -275,6 +275,11 @@ function specKey(spec) {
     return parts.backend === "" ? parts.name : parts.backend + ":" + parts.name;
 }
 
+function specWithoutVersion(spec) {
+    var parts = judgedSpec(spec);
+    return (parts.backend === "" ? "" : parts.backend + ":") + parts.name + (parts.options === "" ? "" : "[" + parts.options + "]");
+}
+
 // SPEC with OPTIONS, comma-joined `key=value` text, added after the backend
 // options it already carries and ahead of its version: mise reads
 // `name[options]@version` and nothing else. "" adds nothing.

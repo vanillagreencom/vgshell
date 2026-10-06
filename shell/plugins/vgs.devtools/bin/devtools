@@ -120,7 +120,7 @@ const path = require("path");
 
 const PLUGIN_DIR = path.join(__dirname, "..");
 const LAUNCHER_MARK = "# vgs.devtools launcher";
-const USAGE = "usage: devtools --tree <dir> list --json | targets install|update|remove | install <id> [--channel <channel>] [--launchers] | update <id> [--launchers] | update --mise <key> | remove <id> | remove --mise <key> | launchers refresh|remove";
+const USAGE = "usage: devtools --tree <dir> list --json | latest --json | versions <id> | targets install|update|remove | install <id> [--channel <channel>] [--launchers] | update <id> [--launchers] | update --mise <key> | remove <id> | remove --mise <key> | use <id> <version|latest> | pin <id> | unpin <id> | rollback <id> | update-all [--yes] | launchers refresh|remove";
 const PACKAGE_SECTIONS = ["agents", "apps", "tools"];
 // Every mise mutation runs without mise's release cooldown, which would
 // hold a tool back for days after it ships.
@@ -160,6 +160,49 @@ const MISE_DATA = process.env.MISE_DATA_DIR || path.join(process.env.XDG_DATA_HO
 // install it first.` (mise 2026.9.9).
 const MISE_NOT_A_BIN = /is not a mise bin/;
 const TERMINAL_DETAIL = "the shell never installs a tool; open the vgs.devtools TUI or run this in a terminal";
+
+function stateDir() {
+    return path.join(process.env.XDG_STATE_HOME || path.join(HOME, ".local", "state"), "vgshell", "devtools");
+}
+
+function failureFile() {
+    return path.join(stateDir(), "failed.json");
+}
+
+function readFailures() {
+    try {
+        return JSON.parse(fs.readFileSync(failureFile(), "utf8"));
+    } catch (e) {
+        if (e.code === "ENOENT") return {};
+        return {};
+    }
+}
+
+function writeFailures(failures) {
+    fs.mkdirSync(stateDir(), { recursive: true });
+    const file = failureFile();
+    const temp = path.join(stateDir(), ".failed-" + process.pid + ".json");
+    fs.writeFileSync(temp, JSON.stringify(failures, null, 2) + "\n", { mode: 0o600 });
+    fs.renameSync(temp, file);
+}
+
+function recordsFailure(first) {
+    return /^(?:step=failed|mise=failed|pkg=failed|runner=failed)/.test(String(first));
+}
+
+function recordFailure(id, first) {
+    if (!recordsFailure(first)) return;
+    const failures = readFailures();
+    failures[id] = { line: View.actionErrorText(first), at: Date.now() };
+    writeFailures(failures);
+}
+
+function clearFailure(id) {
+    const failures = readFailures();
+    if (failures[id] === undefined) return;
+    delete failures[id];
+    writeFailures(failures);
+}
 
 // The catalog, judged before any row is read: a catalog the judge refuses
 // is never interpreted.
@@ -218,8 +261,46 @@ function installOf(entries) {
         if (e === null || typeof e !== "object" || !e.installed) continue;
         if (version === null || e.active) version = String(e.version);
     }
+
     return { installed: version !== null, version };
 }
+
+function requestedOf(entries) {
+    for (const e of Array.isArray(entries) ? entries : []) {
+        if (e === null || typeof e !== "object") continue;
+        if (typeof e.requested_version === "string" && e.requested_version !== "") return e.requested_version;
+        if (typeof e.requested === "string" && e.requested !== "") return e.requested;
+    }
+    return null;
+}
+
+function installedVersionsOf(entries) {
+    return (Array.isArray(entries) ? entries : []).filter(e => e !== null && typeof e === "object" && e.installed && typeof e.version === "string")
+        .map(e => e.version).filter((v, i, a) => a.indexOf(v) === i).sort(compareVersions).reverse();
+}
+
+function rollbackVersionOf(entries, active) {
+    if (active === null) return null;
+    const older = installedVersionsOf(entries).filter(v => compareVersions(v, active) < 0);
+    return older.length === 0 ? null : older[0];
+}
+
+function compareVersions(a, b) {
+    const aa = String(a).split(/[.+_-]/), bb = String(b).split(/[.+_-]/);
+    for (let i = 0; i < Math.max(aa.length, bb.length); i++) {
+        const x = aa[i] || "", y = bb[i] || "";
+        const nx = /^[0-9]+$/.test(x), ny = /^[0-9]+$/.test(y);
+        if (nx && ny && Number(x) !== Number(y)) return Number(x) - Number(y);
+        if (x !== y) return x < y ? -1 : 1;
+    }
+    return 0;
+}
+
+function pinnedRequest(requested, versions) {
+    if (requested === null || requested === "latest") return false;
+    return versions.includes(requested);
+}
+
 
 // The file COMMAND runs from on PATH, skipping launchers VGS wrote in
 // ~/.local/bin and anything under mise's data directory, which is mise's
@@ -345,8 +426,10 @@ async function containerNames(runtimes) {
 function blankRow(section, row) {
     return {
         id: row.id, name: row.name, section, icon: row.icon || null, brand: row.brand || null, kind: row.kind || null,
+        command: row.command || null, launch: row.launch || (row.command ? [row.command] : null),
         installed: false, version: null, origin: null, manager: null, package: null, runtime: null, path: null,
         launcher: PACKAGE_SECTIONS.includes(section) ? launcherState(row.command) : null,
+        requested: null, pinned: false, rollbackVersion: null, latest: null, failed: null,
         channels: row.channels ? [row.channels.default].concat(Object.keys(row.channels.options).filter(c => c !== row.channels.default)) : null,
         actions: [], error: null
     };
@@ -452,12 +535,12 @@ async function survey(catalog) {
         present ? miseJson(["ls", "--global", "--json"]) : {}
     ]);
     const runtimes = [...new Set(catalog.databases.flatMap(row => row.container.runtimes))];
-    const world = { machine, found, installs, containers: await containerNames(runtimes) };
+    const world = { machine, found, installs, global, containers: await containerNames(runtimes), failures: readFailures() };
     const sections = {};
     const rows = {};
     await Promise.all(Catalog.SECTION_NAMES.map(async section => {
         const available = catalog[section].filter(row => Catalog.availableOn(row, machine));
-        sections[section] = await Promise.all(available.map(row => rowState(section, row, world)));
+        sections[section] = await Promise.all(available.map(async row => enrichState(row, await rowState(section, row, world), world)));
         available.forEach((row, i) => { rows[row.id] = { section, row, state: sections[section][i] }; });
     }));
     const declared = new Set();
@@ -474,10 +557,71 @@ async function survey(catalog) {
     };
 }
 
+function rowPrimaryKey(row) {
+    if (typeof row.package === "string") return Catalog.specKey(row.package);
+    if (Array.isArray(row.tools) && row.tools.length > 0) return Catalog.specKey(row.tools[row.tools.length - 1]);
+    return null;
+}
+
+function enrichState(row, state, world) {
+    const key = rowPrimaryKey(row);
+    if (key !== null) {
+        const entries = world.global[key] || world.installs[key];
+        state.requested = requestedOf(entries);
+        const installedVersions = installedVersionsOf(world.installs[key]);
+        state.pinned = pinnedRequest(state.requested, installedVersions);
+        state.rollbackVersion = rollbackVersionOf(world.installs[key], state.version);
+        if (state.pinned) state.actions = state.actions.filter(action => action !== "update");
+    }
+    state.failed = world.failures[row.id] || null;
+    return state;
+}
+
 async function miseVersion() {
     const r = await capture(["mise", "--version"]);
     if (r.status !== 0) refuse("mise=failed args=--version exit=" + r.status, undefined, 1, r.stderr);
     return r.stdout.trim().split(/\s+/)[0];
+}
+
+async function latestMap(catalog) {
+    if (!onPath("mise")) refuse("mise=absent", undefined, 1, "install mise first");
+    const r = await capture(["mise", "outdated", "--bump", "--json"]);
+    if (r.status !== 0) refuse("mise=failed args=outdated,--bump,--json exit=" + r.status, undefined, 1, r.stderr);
+    let data;
+    try {
+        data = JSON.parse(r.stdout);
+    } catch (e) {
+        refuse("mise=unparseable args=outdated,--bump,--json", undefined, 1, r.stdout.slice(0, 200));
+    }
+
+    const byKey = {};
+    for (const [key, value] of Object.entries(data || {}))
+        if (value !== null && typeof value === "object" && typeof value.latest === "string") byKey[key] = value.latest;
+    const out = {};
+    for (const section of Catalog.SECTION_NAMES)
+        for (const row of catalog[section]) {
+            const key = rowPrimaryKey(row);
+            if (key !== null) out[row.id] = byKey[key] || null;
+        }
+    return out;
+}
+
+
+async function remoteVersions(catalog, id) {
+    const row = catalogRow(catalog, id);
+    const key = rowPrimaryKey(row);
+    if (key === null) refuse("id=" + id + " reason=no-version-list", undefined, 1, "this row is not installed through a mise version list");
+    requireMise();
+    const r = await capture(["mise", "ls-remote", key]);
+    if (r.status !== 0) refuse("mise=failed args=ls-remote," + key + " exit=" + r.status, undefined, 1, r.stderr);
+    return r.stdout.split("\n").map(line => line.trim()).filter(Boolean).sort(compareVersions).reverse();
+}
+
+function catalogRow(catalog, id) {
+    for (const section of Catalog.SECTION_NAMES)
+        for (const row of catalog[section])
+            if (row.id === id) return row;
+    refuse("id=" + id + " reason=unknown");
 }
 
 // Runs STEPS, argv lists, through the core's step runner in this terminal,
@@ -657,6 +801,67 @@ async function update(catalog, id, launchers) {
     runSteps((row.postInstall || []).map(step => stepArgv(catalog, step)), env);
     verifyPresent(row);
     if (spec !== null) settleLauncher(row, spec, launchers);
+}
+
+async function useVersion(catalog, id, version) {
+    refuseOutsideTerminal("use", TERMINAL_DETAIL);
+    const surveyed = await survey(catalog);
+    const entry = surveyed.rows[id];
+    if (entry === undefined) refuse("id=" + id + " reason=unknown");
+    const { row } = entry;
+    const base = typeof row.package === "string" ? Catalog.installSpec(row, null).spec : Array.isArray(row.tools) && row.tools.length > 0 ? row.tools[row.tools.length - 1] : null;
+    if (base === null) refuse("id=" + id + " reason=no-version-list", undefined, 1, "this row is not installed through a mise version list");
+    requireMise();
+    if (version !== "latest") {
+        const offered = await remoteVersions(catalog, id);
+        if (!offered.includes(version)) refuse("version=" + version + " id=" + id + " reason=unlisted", undefined, 1, "choose a version mise lists");
+    }
+    await ensureNoAutoPrune();
+    const specBase = Catalog.specWithoutVersion(base);
+    const spec = version === "latest" ? specBase : specBase + "@" + version;
+    runSteps([["mise", "use", "-g", spec]], buildEnv(row));
+    runSteps((row.postInstall || []).map(step => stepArgv(catalog, step)), buildEnv(row));
+    verifyPresent(row);
+    settleLauncher(row, spec, false);
+}
+
+async function pin(catalog, id) {
+    refuseOutsideTerminal("pin", TERMINAL_DETAIL);
+    const surveyed = await survey(catalog);
+    const entry = surveyed.rows[id];
+    if (entry === undefined || entry.state.installed !== true || entry.state.version === null) refuse("id=" + id + " state=absent", undefined, 1, "pin needs an installed version");
+    await useVersion(catalog, id, entry.state.version);
+}
+
+async function rollback(catalog, id) {
+    refuseOutsideTerminal("rollback", TERMINAL_DETAIL);
+    const surveyed = await survey(catalog);
+    const entry = surveyed.rows[id];
+    if (entry === undefined || entry.state.installed !== true || entry.state.version === null) refuse("id=" + id + " state=absent", undefined, 1, "roll back needs an installed version");
+    if (entry.state.rollbackVersion === null) refuse("id=" + id + " reason=no-rollback", undefined, 1, "no older installed version is available");
+    await useVersion(catalog, id, entry.state.rollbackVersion);
+}
+
+async function updateAll(catalog, yes) {
+    refuseOutsideTerminal("update-all", TERMINAL_DETAIL);
+    const surveyed = await survey(catalog);
+    const targets = [];
+    for (const entry of Object.values(surveyed.rows))
+        if (entry.state.actions.includes("update") && entry.state.pinned !== true) targets.push(entry);
+    if (!yes) {
+        process.stdout.write("devtools: update-all count=" + targets.length + "\n");
+        for (const entry of targets) process.stdout.write(entry.row.name + "\n");
+        return;
+    }
+    for (const entry of targets) {
+        try {
+            await update(catalog, entry.row.id, false);
+            clearFailure(entry.row.id);
+        } catch (e) {
+            if (e instanceof Refusal) recordFailure(entry.row.id, e.first);
+            throw e;
+        }
+    }
 }
 
 async function remove(catalog, id) {
@@ -869,25 +1074,52 @@ function readTarget(rest, flags) {
 
 async function execute() {
     const { verb, rest } = args;
+    let successId = null;
+    try {
     if (verb === "list") {
         if (rest.length !== 1 || rest[0] !== "--json") bad("list=json-required");
         process.stdout.write(JSON.stringify((await survey(readCatalog())).report) + "\n");
+    } else if (verb === "latest") {
+        if (rest.length !== 1 || rest[0] !== "--json") bad("latest=json-required");
+        process.stdout.write(JSON.stringify(await latestMap(readCatalog())) + "\n");
+    } else if (verb === "versions") {
+        if (rest.length !== 1) bad("id=missing");
+        process.stdout.write((await remoteVersions(readCatalog(), rest[0])).map(v => v + "\n").join(""));
     } else if (verb === "targets") {
         if (rest.length !== 1 || !["install", "update", "remove"].includes(rest[0])) bad("targets=" + (rest[0] || "missing"));
         process.stdout.write(targetLines((await survey(readCatalog())).report, rest[0]).map(line => line + "\n").join(""));
     } else if (verb === "install") {
         const t = readTarget(rest, ["--channel", "--launchers"]);
+        successId = t.id;
         await install(readCatalog(), t.id, t.channel, t.launchers);
     } else if (verb === "update" || verb === "remove") {
         const t = readTarget(rest, verb === "update" ? ["--mise", "--launchers"] : ["--mise"]);
         if (t.key !== null) await otherTool(t.key, verb);
-        else if (verb === "update") await update(readCatalog(), t.id, t.launchers);
-        else await remove(readCatalog(), t.id);
+        else if (verb === "update") { successId = t.id; await update(readCatalog(), t.id, t.launchers); }
+        else { successId = t.id; await remove(readCatalog(), t.id); }
+    } else if (verb === "use") {
+        if (rest.length !== 2) bad("use=arguments");
+        successId = rest[0];
+        await useVersion(readCatalog(), rest[0], rest[1]);
+    } else if (verb === "pin" || verb === "unpin" || verb === "rollback") {
+        if (rest.length !== 1) bad("id=missing");
+        successId = rest[0];
+        if (verb === "pin") await pin(readCatalog(), rest[0]);
+        else if (verb === "unpin") await useVersion(readCatalog(), rest[0], "latest");
+        else await rollback(readCatalog(), rest[0]);
+    } else if (verb === "update-all") {
+        if (rest.length > 1 || (rest.length === 1 && rest[0] !== "--yes")) bad("update-all=arguments");
+        await updateAll(readCatalog(), rest[0] === "--yes");
     } else if (verb === "launchers") {
         if (rest.length !== 1 || (rest[0] !== "refresh" && rest[0] !== "remove")) bad("launchers=" + (rest[0] || "missing"));
         await launchersVerb(readCatalog(), rest[0]);
     } else {
         bad("verb=" + verb);
+    }
+    if (successId !== null) clearFailure(successId);
+    } catch (e) {
+        if (e instanceof Refusal && successId !== null) recordFailure(successId, e.first);
+        throw e;
     }
 }
 

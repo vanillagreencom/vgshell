@@ -62,7 +62,17 @@ entries() { # FILE...
       [ -n "$k" ] || continue
       [ $first = 1 ] || printf ','
       first=0
-      printf '"%s":[{"version":"1.0.0","installed":%s,"active":true,"source":{"type":"mise.toml","path":"g"}}]' "$k" "$([ "$f" = "$st/installed" ] && echo true || echo false)"
+      active="$(cat "$st/version/${k//\//--}" 2>/dev/null || echo 1.0.0)"
+      versions="$(cat "$st/versions/${k//\//--}" 2>/dev/null || echo "$active")"
+      req="$(cat "$st/requested/${k//\//--}" 2>/dev/null || true)"
+      printf '"%s":[' "$k"
+      vf=1
+      for v in $versions; do
+        [ $vf = 1 ] || printf ','
+        vf=0
+        printf '{"version":"%s","installed":%s,"active":%s%s,"source":{"type":"mise.toml","path":"g"}}' "$v" "$([ "$f" = "$st/installed" ] && echo true || echo false)" "$([ "$v" = "$active" ] && echo true || echo false)" "$([ -n "$req" ] && printf ',"requested_version":"%s"' "$req")"
+      done
+      printf ']'
     done <"$f"
   done
   printf '}\n'
@@ -79,7 +89,13 @@ case "$1" in
     spec="${!#}"
     [ "${MISE_FAIL-}" != "$spec" ] || exit 3
     k="$(key "$spec")"
+    mkdir -p "$st/version" "$st/requested" "$st/versions"
+    version="${spec##*@}"; [ "$version" != "$spec" ] || version=1.0.0
     grep -qxF -- "$k" "$st/installed" 2>/dev/null || echo "$k" >>"$st/installed"
+    printf '%s\n' "$version" >"$st/version/${k//\//--}"
+    { printf '%s\n' "$version"; cat "$st/versions/${k//\//--}" 2>/dev/null || true; } | awk '!seen[$0]++' >"$st/versions/${k//\//--}.new"
+    mv "$st/versions/${k//\//--}.new" "$st/versions/${k//\//--}"
+    printf '%s\n' "$([ "$version" = 1.0.0 ] && echo latest || echo "$version")" >"$st/requested/${k//\//--}"
     mkdir -p "$(dir "$spec")" ;;
   uninstall)
     log "$@"
@@ -88,7 +104,13 @@ case "$1" in
     s=0; grep -vxF -- "$k" "$st/installed" >"$st/installed.new" || s=$?
     [ $s -le 1 ] || exit 90
     mv "$st/installed.new" "$st/installed"
+    rm -f "$st/version/${k//\//--}" "$st/requested/${k//\//--}" "$st/versions/${k//\//--}"
     rm -rf "$(dir "$k")" ;;
+  ls-remote)
+    k="$(key "$2")"
+    if [ -f "$st/remote/${k//\//--}" ]; then cat "$st/remote/${k//\//--}"; else printf '0.9.0\n1.0.0\n2.0.0\n'; fi ;;
+  outdated)
+    if [ "${2-}" = --bump ] && [ -f "$st/outdated.json" ]; then cat "$st/outdated.json"; else printf '{}\n'; fi ;;
   where) dir "$2"; echo ;;
   which)
     if [ -f "$st/which/$2" ]; then cat "$st/which/$2"; exit 0; fi
@@ -125,7 +147,7 @@ esac
 EOF
 chmod +x "$stubs"/*
 # grep and tr for the stub mise alone.
-for tool in grep tr; do ln -s -- "$(command -v "$tool")" "$tools/$tool"; done
+for tool in grep tr awk; do ln -s -- "$(command -v "$tool")" "$tools/$tool"; done
 
 printf 'NAME="Arch Linux"\nID=arch\n' >"$tmp/os-release"
 log="$tmp/log"; home="$tmp/home"; cfg="$tmp/cfg"; state="$tmp/mise-state"; data="$tmp/mise-data"
@@ -263,6 +285,50 @@ row_remove_mirror() { # PLUGIN: after row_install_order's install
     "mise [rm] [-g] [ruby] {age=0}" \
     "pacman [-Rns] [--] [libyaml]")"
 }
+row_update_all_skips_pinned() { # PLUGIN
+  reset_world
+  mkdir -p "$state/version" "$state/requested" "$state/versions"
+  printf 'claude\ncodex\n' >"$state/installed"
+  printf '2.0.0\n' >"$state/version/claude"
+  printf '2.0.0\n' >"$state/versions/claude"
+  printf '2.0.0\n' >"$state/requested/claude"
+  printf 'latest\n' >"$state/requested/codex"
+  ENGINE_TTY=pty engine "$1" -- update-all --yes
+  [[ $status == 0 ]] && log_is "$(lines "mise [settings] [set] [upgrade.auto_prune] [false] {age=0}" "mise [up] [codex] {age=0}")"
+}
+
+row_update_all_confirm_count() { # PLUGIN
+  reset_world
+  mkdir -p "$state/version" "$state/requested" "$state/versions"
+  printf 'claude\ncodex\n' >"$state/installed"
+  printf '2.0.0\n' >"$state/version/claude"
+  printf '2.0.0\n' >"$state/versions/claude"
+  printf '2.0.0\n' >"$state/requested/claude"
+  printf 'latest\n' >"$state/requested/codex"
+  ENGINE_TTY=pty engine "$1" -- update-all
+  [[ $status == 0 ]] && grep -qxF -- 'devtools: update-all count=1' "$tmp/out"
+}
+row_rollback_older() { # PLUGIN
+  reset_world
+  mkdir -p "$state/version" "$state/requested" "$state/versions" "$state/remote"
+  printf 'claude\n' >"$state/installed"
+  printf '2.0.0\n' >"$state/version/claude"
+  printf '2.0.0\n1.0.0\n' >"$state/versions/claude"
+  printf '1.0.0\n2.0.0\n' >"$state/remote/claude"
+  ENGINE_TTY=pty engine "$1" -- rollback claude
+  [[ $status == 0 ]] && log_is "$(lines "mise [settings] [set] [upgrade.auto_prune] [false] {age=0}" "mise [use] [-g] [claude@1.0.0] {age=0}")"
+}
+row_failed_record() { # PLUGIN
+  reset_world
+  mkdir -p "$state/version" "$state/requested" "$state/versions" "$state/remote"
+  printf 'claude\n' >"$state/installed"
+  printf '1.0.0\n' >"$state/version/claude"
+  printf '2.0.0\n' >"$state/remote/claude"
+  ENGINE_TTY=pty engine "$1" MISE_FAIL=claude@2.0.0 -- use claude 2.0.0
+  engine "$1" -- list --json
+  list_has '[r["failed"] is not None for r in d["sections"]["agents"] if r["id"] == "claude"] == [True]'
+}
+row_plain_prompt() { ! grep -qF -- "devtools: failure-kept-open" "$1/tui/devtools.sh"; }
 
 reset_world
 engine "$plugin" -- list --json
@@ -363,7 +429,26 @@ ENGINE_TTY=pty engine "$plugin" -- update --mise github:owner/extra
 check "update --mise runs mise up on the key" log_is "mise [up] [github:owner/extra] {age=0}"
 ENGINE_TTY=pty engine "$plugin" -- remove --mise claude
 check "remove --mise refuses a key a row declares" out_has "devtools: refused: mise-tool=claude reason=not-other"
+reset_world
+cmux_key='github:manaflow-ai/cmux-v2'
+mkdir -p "$state/version" "$state/requested" "$state/versions" "$state/remote"
+printf '%s\n' "$cmux_key" >"$state/installed"
+printf 'nightly\n' >"$state/requested/${cmux_key//\//--}"
+printf '1.0.0\n' >"$state/version/${cmux_key//\//--}"
+printf '1.0.0\n' >"$state/versions/${cmux_key//\//--}"
+printf '1.0.0\n2.0.0\n' >"$state/remote/${cmux_key//\//--}"
+engine "$plugin" -- list --json
+check "a requested channel is not pinned" list_has '[(r["requested"], r["pinned"], r["actions"]) for r in d["sections"]["apps"] if r["id"] == "cmux"] == [("nightly", False, ["update", "remove"])]'
+: >"$log"
+ENGINE_TTY=pty engine "$plugin" -- use cmux 2.0.0
+check "use drops the channel version before adding the chosen version" log_is "$(lines "mise [settings] [set] [upgrade.auto_prune] [false] {age=0}" "mise [use] [-g] [github:manaflow-ai/cmux-v2[matching_regex=linux-x64\.zip,rename_exe=cmux]@2.0.0] {age=0}")"
 
+# Versions, rollback, Update all and failed records.
+
+check "update-all skips a pinned row" row_update_all_skips_pinned "$plugin"
+check "update-all TUI confirms the planned count" row_update_all_confirm_count "$plugin"
+check "rollback switches to the newest older installed version" row_rollback_older "$plugin"
+check "a failed use is reported in the next list" row_failed_record "$plugin"
 # Where a change may run.
 reset_world
 ENGINE_TTY=none engine "$plugin" -- install claude
@@ -377,6 +462,8 @@ ENGINE_TTY=pty engine "$plugin" -- install no-such-row
 check "an unknown id is refused" out_has "devtools: refused: id=no-such-row reason=unknown"
 engine "$plugin" -- list
 check "list without --json is a bad invocation" test "$status" == 2
+engine "$plugin" -- measure-status
+check "measure-status is not a product engine verb" test "$status" == 2
 
 # The targets a picker offers.
 check "targets lists what remove takes for each row it offers" row_targets "$plugin"
@@ -393,6 +480,10 @@ check "the install entry installs the row it is handed" log_is "mise [use] [-g] 
 ENGINE_TTY=pty tui "$plugin" install.sh -- claude
 check "a tool refusal shows the result without diagnostic keys" out_has "This tool is already installed."
 check "a tool refusal keeps its diagnostic in the developer log" grep -qF "devtools: refused: id=claude state=installed" "$home/.local/state/vgshell/devtools/actions.log"
+check "a plain install-launch failure keeps the terminal open" row_plain_prompt "$plugin"
+reset_world
+echo false >"$state/auto_prune"
+ENGINE_TTY=pty engine "$plugin" -- install claude
 engine "$plugin" VGS_TUI_LIB="$repo/bin/lib/tui.sh" -- launchers refresh
 check "launcher results use plain messages" out_has "Created the launcher for claude."
 check "launcher diagnostics stay out of the presenter output" test "$(grep -c 'launcher=' "$tmp/out" || true)" == 0
@@ -452,6 +543,9 @@ control skips-postremove bin/devtools '    runSteps((row.postRemove || []).map(s
 control targets-every-row bin/devtools '            if (row.actions.includes(verb)) lines.push(row.name' '            lines.push(row.name' targets
 control picks-first tui/devtools.sh '  [[ ${labels[i]} == "$picked" ]] || continue' '  :' picker
 control keeps-packages bin/devtools $'            runPackages("remove", picked.manager,' $'            if (false) runPackages("remove", picked.manager,' remove_mirror_after_install
+control update-all-pinned bin/devtools 'state.pinned = pinnedRequest(state.requested, installedVersions);' 'state.pinned = false;' update_all_skips_pinned
+control rollback-older bin/devtools 'const older = installedVersionsOf(entries).filter(v => compareVersions(v, active) < 0);' 'const older = installedVersionsOf(entries).filter(v => compareVersions(v, active) > 0);' rollback_older
+control failed-record bin/devtools 'if (e instanceof Refusal && successId !== null) recordFailure(successId, e.first);' '' failed_record
 
 if [[ $failures -gt 0 ]]; then echo "test-devtools: $failures failure(s)"; exit 1; fi
 echo "test-devtools: ok"

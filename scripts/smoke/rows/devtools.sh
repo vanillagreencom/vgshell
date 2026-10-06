@@ -26,7 +26,7 @@
 # plants leaves unknown draw Details too; and, as the controls, a copy of
 # the plugin whose service ignores a run's end and a change of the scan's
 # missing commands leaves the list as it was after each.
-# inputs: shell/plugins/vgs.devtools/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/plugins/acme.requires/* shell/Core/Notices.qml shell/Core/PluginStatus.qml shell/Core/PackageManagers.js shell/Core/TuiRunner.qml shell/Hosts/AppWindow.qml bin/vgshell VERSION config/requirements.json bin/lib/qml-library.js scripts/smoke/rows/status.sh bin/vgshell-tui scripts/smoke/rows/settings.sh scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/plugins/vgs.devtools/* shell/plugins/vgs.launcher/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/plugins/acme.requires/* shell/Core/Notices.qml shell/Core/PluginStatus.qml shell/Core/PackageManagers.js shell/Core/TuiRunner.qml shell/Core/ShortcutRegistry.qml shell/Hosts/AppWindow.qml bin/vgshell VERSION config/requirements.json bin/lib/qml-library.js scripts/smoke/rows/status.sh bin/vgshell-tui scripts/smoke/rows/settings.sh scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 devtools_stand_ins
 requires_dir="$home/.config/vgshell/plugins/acme.requires"
@@ -37,7 +37,8 @@ shell_path="$(tr '\0' '\n' <"/proc/$shell_qs_pid/environ" | sed -n 's/^PATH=//p'
 in_shell_env() { "${shell_env[@]}" PATH="$shell_path" "$@"; }
 
 # The first agent built for this machine whose command the shell's PATH
-# does not hold and that has no exec file, as `<id>\t<name>\t<command>\t<key>`.
+# does not hold and that has no exec file, as
+# `<id>\t<name>\t<command>\t<key>\t<launch argv as JSON>`.
 absent_agent() { node - "$repo" "$shell_path" <<'JS'
 const fs = require("fs"), path = require("path");
 const [repo, PATH] = process.argv.slice(2);
@@ -47,17 +48,36 @@ const machine = process.arch === "arm64" ? "aarch64" : "x86_64";
 const onPath = command => PATH.split(":").some(dir => { try { fs.accessSync(path.join(dir, command), fs.constants.X_OK); return true; } catch (e) { return false; } });
 const row = catalog.agents.find(r => r.exec === undefined && Catalog.availableOn(r, machine) && !onPath(r.command));
 if (row === undefined) process.exit(1);
-console.log([row.id, row.name, row.command, Catalog.specKey(row.package)].join("\t"));
+console.log([row.id, row.name, row.command, Catalog.specKey(row.package), JSON.stringify(row.launch || [row.command])].join("\t"));
 JS
 }
-IFS=$'\t' read -r agent_id agent_name agent_command agent_key < <(absent_agent) || fail "no agent's command is absent from the shell's PATH"
+IFS=$'\t' read -r agent_id agent_name agent_command agent_key agent_launch < <(absent_agent) || fail "no agent's command is absent from the shell's PATH"
+
+terminal_row() { node - "$repo" <<'JS'
+const fs = require("fs"), path = require("path");
+const catalog = JSON.parse(fs.readFileSync(path.join(process.argv[2], "shell/plugins/vgs.devtools/catalog.json"), "utf8"));
+const row = catalog.terminals.find(r => Array.isArray(r.launch) || r.command);
+if (!row) process.exit(1);
+console.log([row.id, row.name, row.command || row.id, row.package || row.id].join("\t"));
+JS
+}
+language_row() { node - "$repo" <<'JS'
+const fs = require("fs"), path = require("path");
+const catalog = JSON.parse(fs.readFileSync(path.join(process.argv[2], "shell/plugins/vgs.devtools/catalog.json"), "utf8"));
+const row = catalog.envs.find(r => r.launch === undefined && r.exec === undefined);
+if (!row) process.exit(1);
+console.log([row.id, row.name, row.command || row.id].join("\t"));
+JS
+}
+IFS=$'\t' read -r terminal_id terminal_name terminal_command terminal_key < <(terminal_row) || fail "no terminal catalog row is available"
+IFS=$'\t' read -r language_id language_name language_command < <(language_row) || fail "no language catalog row is available"
 
 devtools() { ipc vgs.devtools invoke "$1" "${2:-}"; }
 # Its arguments as one JSON list, written as row_texts writes one.
 texts() { python3 -c 'import json,sys; print(json.dumps(sys.argv[1:], ensure_ascii=False))' "$@"; }
 dev_lent() { ipc shell lent | py_reply 'import json,sys; r=json.load(sys.stdin)["status"].get("vgs.devtools"); print(json.dumps(r if r is None else r["keys"]))'; }
 window_shown() { [[ $(ipc smoke instanceGeometry window vgs.devtools) != absent ]] && echo shown || echo hidden; }
-section_titles() { ipc smoke itemTexts window vgs.devtools SectionHeader | py_reply 'import json,sys; print(json.dumps([t[0] for t in json.load(sys.stdin)]))'; }
+section_titles() { ipc smoke itemTexts window vgs.devtools SectionHeader | py_reply 'import json,sys; print(json.dumps([t[0] for t in json.load(sys.stdin) if t]))'; }
 # The texts the first row drawing NAME draws, as JSON, or null.
 row_texts() { ipc smoke itemTexts window vgs.devtools ToolRow | py_reply 'import json,sys; r=[t for t in json.load(sys.stdin) if t and t[0] == sys.argv[1]]; print(json.dumps(r[0] if r else None, ensure_ascii=False))' "$1"; }
 devtools_vgs_button_count() {
@@ -84,15 +104,72 @@ reveal_row() {
 scroll_bottom() { local r; r="$(ipc smoke scrollTo window vgs.devtools 100000)" || return; [[ $r == \[* ]] && echo scrolled || echo "$r"; }
 launcher_state() { [[ -f $home/.local/bin/$1 ]] && sed -n 2p "$home/.local/bin/$1" || echo absent; }
 devtools_tui_state() { ipc shell lent | py_reply 'import json,sys; t=json.load(sys.stdin)["tui"]; print("present" if any(k.startswith("vgs.devtools/") for k in list(t["runs"].keys()) + t["pending"]) else "absent")'; }
-devtools_focus_moved_from_body() {
-  ipc smoke focused window vgs.devtools | py_reply 'import json,sys; row=json.load(sys.stdin); print("body" if len(row) == 5 and row[0] == "ScrollArea" and row[1] == "" and row[2] and row[3] and row[4] else "moved")'
+devtools_focus_moved_from_search() {
+  ipc smoke focused window vgs.devtools | py_reply 'import json,sys; row=json.load(sys.stdin); print("search" if row == ["TextField", "Search tools", True, True, True] else "moved")'
 }
+select_devtools_tab() {
+  local wanted="$1" n
+  devtools open >/dev/null || return 1
+  case "$wanted" in
+    Catalog) n=0 ;;
+    Settings) n=1 ;;
+    Info) n=2 ;;
+    *) return 1 ;;
+  esac
+  while ((n > 0)); do
+    type_keys -M ctrl -k Tab -m ctrl || return 1
+    n=$((n - 1))
+  done
+  printf '[\n'
+}
+click_field_switch() {
+  local label="$1" box x y
+  box="$(ipc smoke descendantGeometry window vgs.devtools | py_reply 'import json,sys
+items=json.load(sys.stdin); label=sys.argv[1]
+def ancestors(i):
+    out=[]
+    p=items[i].get("parent", -1)
+    while isinstance(p, int) and p >= 0:
+        out.append(p)
+        p=items[p].get("parent", -1)
+    return out
+fields=[i for i,it in enumerate(items) if it.get("type")=="Field" and it.get("visible")]
+target=None
+for f in fields:
+    desc=[i for i in range(len(items)) if f in ancestors(i)]
+    if any(items[i].get("text")==label and items[i].get("visible") for i in desc):
+        for i in desc:
+            if items[i].get("type")=="Switch" and items[i].get("visible"):
+                target=items[i]["box"]
+                break
+    if target is not None:
+        break
+print(json.dumps(target) if target is not None else "absent")' "$label")" || return 1
+  [[ $box == \[* ]] || { echo "click_field_switch: no switch for $label: $box" >&2; return 1; }
+  read -r x y < <(at_centre "window:Dev Tools" "$box") || return 1
+  click "$x" "$y"
+}
+launcher() { ipc vgs.launcher invoke "$1" "${2:-}"; }
+launcher_rows() { ipc smoke launcherRows overlay vgs.launcher | py_reply 'import json,sys; t=sys.stdin.read(); print(json.dumps(json.loads(t)) if t.startswith("[") else t.strip())'; }
+launcher_has_row() { launcher_rows | py_reply 'import json,sys; print(any(r[0] == sys.argv[1] and r[1] == sys.argv[2] for r in json.load(sys.stdin)))' "$1" "$2"; }
+launcher_row_count() { launcher_rows | py_reply 'import json,sys; print(sum(1 for r in json.load(sys.stdin) if r[0] == sys.argv[1] and r[1] == sys.argv[2]))' "$1" "$2"; }
+row_index() { launcher_rows | py_reply 'import json,sys; r=[i for i, x in enumerate(json.load(sys.stdin)) if x[0] == sys.argv[1] and x[1] == sys.argv[2]]; print(r[0] if r else "none")' "$1" "$2"; }
+launcher_focused() { expect_poll "the launcher holds the keyboard for Dev Tools" true ipc smoke activeFocusIn overlay vgs.launcher; }
+pick_launcher_row() {
+  local kind="$1" label="$2" index n keys=()
+  index="$(row_index "$kind" "$label")" || return 1
+  [[ $index =~ ^[0-9]+$ ]] || { fail "no launcher row $kind $label to pick: $index"; return 1; }
+  for ((n = 0; n < index; n++)); do keys+=(-k Down); done
+  if ((index > 0)); then type_keys "${keys[@]}" || return 1; fi
+  type_keys -k Return
+}
+launcher_section_titles() { launcher_rows | py_reply 'import json,sys; print(json.dumps([r[1] for r in json.load(sys.stdin) if r[0] == "menu" and r[1] in ["Agents","Apps","Command-line tools","Languages","Editors","Databases","Terminals"]]))'; }
 
 rescan "rescan after adding the requirement fixture answers ok"
 expect_poll "the requirement fixture is discovered" True plugin_known acme.requires
 expect "enabling Dev Tools is allowed" ok ipc shell setPluginEnabled vgs.devtools true
 expect_poll "the Dev Tools service is built" True record_exists vgs.devtools
-expect_poll "the service publishes every status its manifest declares" '["catalog", "checks", "installed", "mise", "missingRequirements", "outdated"]' dev_lent
+expect_poll "the service publishes every status its manifest declares" '["catalog", "checks", "installed", "launcherRows", "mise", "missingRequirements", "outdated"]' dev_lent
 
 # The window: IPC open summons it, a Hyprland window like any other, and
 # opened again it draws the published catalog.
@@ -100,11 +177,11 @@ expect "IPC open summons the window" ok devtools open
 app_window_rows "Dev Tools" vgs.devtools
 expect "IPC open summons the window again" ok devtools open
 expect_poll "the window is shown" shown window_shown
-expect_poll "the window opens on its scrollable body with a visible ring" '["ScrollArea","",true,true,true]' ipc smoke focused window vgs.devtools
+expect_poll "the window opens on Catalog search with a visible ring" '["TextField","Search tools",true,true,true]' ipc smoke focused window vgs.devtools
 forget_record
-type_keys -k Return -k Tab || fail "Return and Tab on the Dev Tools body failed"
-expect_poll "Tab after Return is processed by the Dev Tools window" moved devtools_focus_moved_from_body
-expect "control: Return on the Dev Tools body runs no TUI" absent devtools_tui_state
+type_keys -k Return -k Tab || fail "Return and Tab on the Dev Tools search failed"
+expect_poll "Tab after Return is processed by the Dev Tools window" moved devtools_focus_moved_from_search
+expect "control: Return on the Dev Tools search runs no TUI" absent devtools_tui_state
 devtools_keyboard_install() {
   local seen=() focus label
   for _ in $(seq 1 80); do
@@ -163,8 +240,9 @@ expect "Escape closes the Dev Tools window after the keyboard path" hidden windo
 expect_poll "the Dev Tools window is gone after Escape-equivalent hide" hidden window_shown
 expect "IPC open summons the window again after the keyboard path" ok devtools open
 expect_poll "the window is shown again after the keyboard path" shown window_shown
-expect_poll "the window draws the VGS section and every catalog section in order" \
+expect_poll "the Catalog tab is first and draws every catalog section in order" \
   '["VGS", "Agents", "Apps", "Command-line tools", "Languages", "Editors", "Databases", "Terminals", "Other tools"]' section_titles
+expect "the window switches to Info for the VGS section" '[' select_devtools_tab Info
 # The error fits at the window's width, so no Details button is drawn.
 # This wide reading controls the narrow disclosure check below.
 expect_poll "the wide VGS row offers no Details for its unclipped error" 0 devtools_vgs_button_count Details
@@ -188,8 +266,88 @@ PY
 devtools_insets_planted() { devtools_insets narrow | py_reply 'import json,sys; print(any(e.startswith("left=") for e in json.load(sys.stdin)))'; }
 geometry expect_poll "the content sits the same distance in from both window sides" '[]' devtools_insets
 expect "control: a row narrowed on one side is refused" True devtools_insets_planted
-expect_poll "the absent agent draws Not installed and Install" "$(texts "$agent_name" "Not installed" Install)" row_texts "$agent_name"
-expect_poll "the other mise tool draws its version and its actions" "$(texts github:acme/extra 1.0.0 Update Remove)" row_texts github:acme/extra
+expect "the window returns to Catalog for tool rows" '[' select_devtools_tab Catalog
+expect_poll "the absent agent draws Not installed and Install" "$(texts "$agent_name" "Not installed" "Not installed" Install)" row_texts "$agent_name"
+expect_poll "the other mise tool draws its version and its actions" "$(texts github:acme/extra 1.0.0 Installed Update Remove)" row_texts github:acme/extra
+expect "enabling Launcher for Dev Tools launcher rows is allowed" ok ipc shell setPluginEnabled vgs.launcher true
+expect_poll "the launcher service is built for Dev Tools rows" True record_exists vgs.launcher
+expect "the launcher opens for Dev Tools categories" ok launcher summon '{}'
+launcher_focused
+type_keys -M ctrl -k b -m ctrl || fail "showing Dev Tools launcher categories failed"
+expect_poll "the launcher's Dev Tools category appears" True launcher_has_row menu "Dev Tools"
+pick_launcher_row menu "Dev Tools" || fail "opening the Dev Tools launcher category failed"
+expect_poll "the Dev Tools launcher category lists catalog sections" '["Agents", "Apps", "Command-line tools", "Languages", "Editors", "Databases", "Terminals"]' launcher_section_titles
+pick_launcher_row menu "Agents" || fail "opening the Dev Tools Agents launcher category failed"
+expect_poll "the Dev Tools launcher category lists the absent agent row" True launcher_has_row plugin "$agent_name"
+expect "the launcher closes after the category read" ok ipc shell hide overlay vgs.launcher
+expect_poll "the category read launcher closed" 0 layer_count vgs:overlay
+expect "the launcher searches for the absent agent command" ok ipc shell summon overlay vgs.launcher "{\"query\":\"$agent_command\"}"
+launcher_focused
+expect_poll "the root search finds the absent agent by command" True launcher_has_row plugin "$agent_name"
+expect "the searched launcher closes" ok ipc shell hide overlay vgs.launcher
+expect_poll "the searched launcher closed" 0 layer_count vgs:overlay
+expect "the window switches to Settings for showInLauncher off" '[' select_devtools_tab Settings
+click_field_switch "Show full catalog in launcher" || fail "the click on the show-in-launcher switch failed"
+expect "the launcher opens after showInLauncher off" ok launcher summon '{}'
+launcher_focused
+type_keys -M ctrl -k b -m ctrl || fail "showing launcher categories with Dev Tools hidden failed"
+expect_poll "showInLauncher off removes the Dev Tools category" False launcher_has_row menu "Dev Tools"
+expect "the launcher searches while showInLauncher is off" ok ipc shell summon overlay vgs.launcher "{\"query\":\"$agent_command\"}"
+expect_poll "showInLauncher off removes search rows" 0 launcher_row_count plugin "$agent_name"
+expect "the launcher closes after the showInLauncher off read" ok ipc shell hide overlay vgs.launcher
+expect_poll "the launcher after showInLauncher off closed" 0 layer_count vgs:overlay
+expect "the window switches to Settings for showInLauncher on" '[' select_devtools_tab Settings
+click_field_switch "Show full catalog in launcher" || fail "the second click on the show-in-launcher switch failed"
+expect "the launcher opens after showInLauncher on" ok launcher summon '{}'
+launcher_focused
+type_keys -M ctrl -k b -m ctrl || fail "showing launcher categories with Dev Tools restored failed"
+expect_poll "showInLauncher on restores the Dev Tools category" True launcher_has_row menu "Dev Tools"
+expect "the launcher closes after the showInLauncher on read" ok ipc shell hide overlay vgs.launcher
+expect_poll "the launcher after showInLauncher on closed" 0 layer_count vgs:overlay
+expect "the window returns to Catalog" '[' select_devtools_tab Catalog
+forget_record
+expect "the launcher opens to install-launch the absent agent" ok ipc shell summon overlay vgs.launcher "{\"query\":\"$agent_command\"}"
+launcher_focused
+install_launch_before="$(ended_record vgs.devtools/install-launch)"
+# The run is held live until its record is read: its end launches the
+# agent, whose terminal record replaces it.
+hold_runs
+pick_launcher_row plugin "$agent_name" || fail "picking the not-installed Dev Tools launcher row failed"
+expect_poll "the launcher install path records install-launch with the plain row id" "$(words vgs.devtools/install-launch tui/devtools.sh install-launch "$agent_id")" recorded_tail
+release_runs
+expect_poll "the install-launch run ends" moved ended_record_moved vgs.devtools/install-launch "$install_launch_before"
+expect_poll "the install-launch success launches the agent in a terminal" "$(python3 -c 'import json,sys; print(json.dumps(json.loads(sys.argv[1])))' "$agent_launch")" recorded
+printf '%s\n' "$terminal_key" >>"$dev_state/installed"
+expect "refresh after planting terminal install answers ok" ok devtools refresh
+forget_record
+expect "the launcher opens to the installed terminal row" ok launcher summon '{}'
+launcher_focused
+type_keys -M ctrl -k b -m ctrl || fail "showing categories for the terminal row failed"
+pick_launcher_row menu "Dev Tools" || fail "opening Dev Tools for the terminal row failed"
+pick_launcher_row menu "Terminals" || fail "opening Terminals for the terminal row failed"
+pick_launcher_row plugin "$terminal_name" || fail "picking the installed terminal Dev Tools launcher row failed"
+expect_poll "the installed terminal launcher row records a terminal launch" "$(words "$terminal_command")" recorded
+expect "the launcher opens the language row" ok launcher summon '{}'
+launcher_focused
+type_keys -M ctrl -k b -m ctrl || fail "showing categories for the language row failed"
+pick_launcher_row menu "Dev Tools" || fail "opening Dev Tools for the language row failed"
+pick_launcher_row menu "Languages" || fail "opening Languages for the language row failed"
+pick_launcher_row plugin "$language_name" || fail "picking the language Dev Tools launcher row failed"
+expect_poll "the language row opens Dev Tools" shown window_shown
+# The focused item's type and the row key the window was summoned for.
+language_focus() {
+  local focused target
+  focused="$(ipc smoke focused window vgs.devtools | py_reply 'import json,sys; row=json.load(sys.stdin); print(row[0] if isinstance(row,list) and row else row)')" || return
+  target="$(ipc smoke readInstance window vgs.devtools targetRow | py_reply 'import json,sys; t=sys.stdin.read().strip(); print(json.loads(t) if t.startswith("\"") else t)')" || return
+  printf '%s %s\n' "$focused" "$target"
+}
+expect_poll "the language row payload focuses its Catalog row" "ToolRow envs/$language_id" language_focus
+forget_record
+expect "the language window hides after launcher read" ok ipc shell hide window vgs.devtools
+expect_poll "the language window is gone" hidden window_shown
+expect "IPC open summons the window again after launcher reads" ok devtools open
+expect_poll "the window is shown again after launcher reads" shown window_shown
+expect "the window returns to Catalog after launcher reads" '[' select_devtools_tab Catalog
 
 # A row's actions stand beside its text while they take at most half the
 # text's room, and move under it past that, so a narrow window never
@@ -236,9 +394,11 @@ planted_details() {
 expect "IPC open summons the window on the narrow monitor" ok devtools open
 expect_poll "the window is shown on the narrow monitor" shown window_shown
 expect_poll "the other mise tool's actions move under its name on a narrow monitor" under actions_place github:acme/extra Update
+expect "the narrow window switches to Info for the VGS Details row" '[' select_devtools_tab Info
 # The same error clips here. Details must expose a copyable line.
 expect_poll "the narrow VGS row offers Details for its clipped error" 1 devtools_vgs_button_count Details
 expect "the narrow VGS row keeps its detail folded" 0 vgs_code_lines
+expect "the narrow window switches to Catalog for planted database rows" '[' select_devtools_tab Catalog
 # The narrow header can put Details below the body viewport. Reveal that
 # exact row's button, then press in the application window's coordinates.
 # Other narrow tool rows can also draw Details. Only VGS owns this click.
@@ -250,6 +410,7 @@ devtools_details_global="$(devtools_any_button_count Details)"
 expect "control: each planted database row draws its own Details button" "$(python3 -c 'import json,sys; print(len(json.loads(sys.argv[1])))' "$docker_rows")" planted_details
 expect "control: the old any-Button count refuses the planted Details buttons" refused devtools_old_button_guard "$devtools_details_global"
 mv -T -- "$dev_state/docker.saved" "$shim/docker"
+expect "the narrow window switches back to Info for VGS Details" '[' select_devtools_tab Info
 expect "the VGS ToolRow owns exactly one Details button" 1 devtools_vgs_button_count Details
 devtools_details_press() {
   local shown count
@@ -272,28 +433,78 @@ mon_w="$narrow_saved_w" mon_h="$narrow_saved_h"
 expect_poll "the monitor has its width back" "$mon_w" first_width
 expect "IPC open summons the window again at its width" ok devtools open
 expect_poll "the window is shown again" shown window_shown
-expect_poll "the database rows list again once docker answers" "$(texts MySQL "Not installed" Install)" row_texts MySQL
+expect "the window returns to Catalog after the narrow monitor" '[' select_devtools_tab Catalog
+expect_poll "the database rows list again once docker answers" "$(texts MySQL "Not installed" "Not installed" Install)" row_texts MySQL
 
 # A click on Install opens the install TUI with the row's id; the list is
 # read again when the run ends, so the key mise now holds shows.
+# IPC open lists again and puts the keyboard on the Catalog search, which
+# narrows the list to the agent; the key mise then holds is planted once
+# that list ended, so only the run's end can show it.
+grep -vxF -- "$agent_key" "$dev_state/installed" >"$dev_state/installed.next" || true
+mv -f -- "$dev_state/installed.next" "$dev_state/installed"
+catalog_ended() { ipc smoke readInstance service vgs.devtools ended | py_reply 'import json,sys; t=sys.stdin.read().strip(); d=json.loads(t) if t.startswith("{") else {}; print(d.get("catalog", "none"))'; }
+catalog_before="$(catalog_ended)"
+expect "IPC open summons the window on its search for the install path" ok devtools open
+expect_poll "the search holds the keyboard for the install path" '["TextField","Search tools",true,true,true]' ipc smoke focused window vgs.devtools
+catalog_moved() { [[ $(catalog_ended) != "$catalog_before" ]] && echo moved || echo waiting; }
+expect_poll "the open's list ended before the install path" moved catalog_moved
+type_keys "$agent_command" || fail "typing the agent's command into the Catalog search failed"
 echo "$agent_key" >>"$dev_state/installed"
-expect "no list runs before a trigger" "$(texts "$agent_name" "Not installed" Install)" row_texts "$agent_name"
+expect "no list runs before a trigger" "$(texts "$agent_name" "Not installed" "Not installed" Install)" row_texts "$agent_name"
 install_before="$(ended_record vgs.devtools/install)"
 forget_record
-expect_poll "the agent's row scrolls into view" revealed reveal_row "$agent_name"
-click_scoped_in "window:Dev Tools" window vgs.devtools ToolRow "$agent_name" Button Install || fail "the click on the agent's Install failed"
+hold_runs
+expect "the Dev Tools Tab tour reaches the agent Install again" ok devtools_keyboard_install
 expect_poll "the click hands the install TUI the row's id" "$(words vgs.devtools/install tui/install.sh "$agent_id")" recorded_tail
+release_runs
 expect_poll "the install run's presenter exits" moved ended_record_moved vgs.devtools/install "$install_before"
-expect_run_end "the install run ends" vgs.devtools/install
-expect_poll "the list read after the run shows the agent installed" "$(texts "$agent_name" 1.0.0 mise Update Remove)" row_texts "$agent_name"
+expect_poll "the install run ended in the core record" moved ended_record_moved vgs.devtools/install "$install_before"
+expect_poll "the list read after the run shows the agent installed" "$(texts "$agent_name" 1.0.0 Installed Update Remove Version Pin)" row_texts "$agent_name"
+cat >"$shim/mise" <<EOF
+#!/usr/bin/env bash
+case "\$1" in
+  --version) echo "2026.9.9 linux-x64 (stub)" ;;
+  ls)
+    first=1
+    printf '{'
+    while IFS= read -r key; do
+      [[ -n \$key ]] || continue
+      [[ \$first == 1 ]] || printf ','
+      first=0
+      if [[ \$key == "$agent_key" ]]; then
+        printf '"%s":[{"version":"1.0.0","installed":true,"active":true},{"version":"0.9.0","installed":true,"active":false}]' "\$key"
+      else
+        printf '"%s":[{"version":"1.0.0","installed":true,"active":true}]' "\$key"
+      fi
+    done <"$dev_state/installed"
+    printf '}\n' ;;
+  which) printf 'mise ERROR %s is not a mise bin. Perhaps you need to install it first.\n' "\$2" >&2; exit 1 ;;
+  outdated) echo '{}' ;;
+  *) exit 0 ;;
+esac
+EOF
+chmod 755 "$shim/mise"
+expect "refresh after adding an older installed version answers ok" ok devtools refresh
+for action in Pin Version "Roll back"; do
+  forget_record
+  expect "the agent row scrolls into view for $action" revealed reveal_row "$agent_name"
+  click_scoped_in "window:Dev Tools" window vgs.devtools ToolRow "$agent_name" Button "$action" || fail "the click on $action failed"
+  verb="$(python3 -c 'import sys; print({"Pin":"pin","Version":"version","Roll back":"rollback"}[sys.argv[1]])' "$action")"
+  verb_before="$(ended_record "vgs.devtools/$verb")"
+  expect_poll "$action hands the Dev Tools TUI its argv" "$(words vgs.devtools/$verb tui/devtools.sh "$verb" "$agent_id")" recorded_tail
+  expect_poll "$action run ends" moved ended_record_moved "vgs.devtools/$verb" "$verb_before"
+done
 
 # The window's switch writes writeLaunchers; the service runs the launcher
 # verb it picks, so the agent's launcher is written and then removed.
+expect "the window switches to Settings for launchers on" '[' select_devtools_tab Settings
 expect "the window scrolls to its switch" scrolled scroll_bottom
-click_in "window:Dev Tools" window vgs.devtools Switch "Create tool launchers" || fail "the click on the launcher switch failed"
+click_field_switch "Add tool commands to the terminal" || fail "the click on the launcher switch failed"
 expect_poll "turning launchers on writes the agent's launcher" "# vgs.devtools launcher" launcher_state "$agent_command"
+expect "the window switches to Settings for launchers off" '[' select_devtools_tab Settings
 expect "the window scrolls to its switch again" scrolled scroll_bottom
-click_in "window:Dev Tools" window vgs.devtools Switch "Create tool launchers" || fail "the second click on the launcher switch failed"
+click_field_switch "Add tool commands to the terminal" || fail "the second click on the launcher switch failed"
 expect_poll "turning launchers off removes it" absent launcher_state "$agent_command"
 
 # The VGS section: a plugin's missing requirement, listed once enabling
@@ -305,6 +516,7 @@ expect "a refresh answers ok" ok devtools refresh
 expect "enabling the requirement fixture is allowed" ok ipc shell setPluginEnabled acme.requires true
 has_fixture_missing() { ipc smoke doctorMissing service vgs.devtools | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([d.get("acme.requires"), "core" in d]))'; }
 expect_poll "the doctor capability reports the fixture's missing command and the core's list" '[["vgs-smoke-devtool"], true]' has_fixture_missing
+expect "the window switches to Info for the fixture requirement" '[' select_devtools_tab Info
 expect_poll "the VGS section lists the fixture's missing requirement with Install" \
   "$(texts vgs-smoke-devtool "acme.requires · A command no sandbox has, which a package names" Missing Optional Install)" row_texts vgs-smoke-devtool
 expect_poll "the requirement's row scrolls into view" revealed reveal_row vgs-smoke-devtool
@@ -353,6 +565,31 @@ fi
 expect "the Settings window is hidden after its rows" ok ipc shell hide window vgs.settings
 expect_poll "the Settings window is gone after its rows" 0 window_count Plugins
 
+# Control: a copy whose launcher rows ignore showInLauncher keeps the
+# category visible after the setting is turned off.
+control_dir="$home/.config/vgshell/plugins/vgs.devtools"
+cp -R "$repo/shell/plugins/vgs.devtools" "$control_dir"
+launcher_line='values.launcherRows = ViewLogic.launcherRows(answers.catalog === undefined ? null : answers.catalog.value, showInLauncher, values.catalog);'
+if [[ $(grep -c -F -- "$launcher_line" "$control_dir/Service.qml") == 1 ]]; then
+  python3 -c 'import sys; p, old = sys.argv[1:]; text = open(p).read(); open(p, "w").write(text.replace(old, old.replace("showInLauncher", "true")))' "$control_dir/Service.qml" "$launcher_line"
+  expected_errors+=('plugins: hidden by a higher-precedence plugin with the same id: .*vgs\.devtools')
+  rescan "rescan after adding the launcher visibility control copy answers ok"
+  expect_poll "the launcher visibility control service publishes" '["catalog", "checks", "installed", "launcherRows", "mise", "missingRequirements", "outdated"]' dev_lent
+  expect "the control window opens" ok devtools open
+  expect "the control window switches to Settings" '[' select_devtools_tab Settings
+  click_field_switch "Show full catalog in launcher" || fail "the control click on showInLauncher failed"
+  expect "the launcher opens under the launcher visibility control" ok launcher summon '{}'
+  launcher_focused
+  type_keys -M ctrl -k b -m ctrl || fail "showing launcher categories under the control failed"
+  expect_poll "control: launcherRows ignoring showInLauncher keeps the category" True launcher_has_row menu "Dev Tools"
+  expect "the launcher hides after the visibility control" ok ipc shell hide overlay vgs.launcher
+  expect "the control window hides" ok ipc shell hide window vgs.devtools
+  rm -rf -- "${control_dir:?}"
+  rescan "rescan after removing the launcher visibility control copy answers ok"
+else
+  fail "the launcher visibility control line occurs once in the Dev Tools service"
+fi
+
 # Control: a copy of the plugin whose service ignores a run's end, in the
 # user directory, where it hides the shipped one. A run of its install TUI
 # ends and the list stays as it was.
@@ -368,12 +605,12 @@ if [[ $(grep -c -F -- "$relist_line" "$control_dir/Service.qml") == 1 && $(grep 
   scans="$(log_lines 'plugins: scan complete changed=true')" || fail "the instance log is unreadable before the control copy"
   rescan "rescan after adding the control copy answers ok"
   expect_log "the rescan publishes the control copy" "$((scans + 1))" 'plugins: scan complete changed=true'
-  expect_poll "the control copy's service publishes" '["catalog", "checks", "installed", "mise", "missingRequirements", "outdated"]' dev_lent
+  expect_poll "the control copy's service publishes" '["catalog", "checks", "installed", "launcherRows", "mise", "missingRequirements", "outdated"]' dev_lent
   devtools_control_trigger_after() { local now; now="$(ipc smoke readInstance service vgs.devtools smokeControlTriggers)" || return; [[ $now =~ ^[0-9]+$ && $now -gt $1 ]] && echo fired || echo "$now"; }
   grep -vxF -- "$agent_key" "$dev_state/installed" >"$dev_state/installed.next" || true
   mv -f -- "$dev_state/installed.next" "$dev_state/installed"
   expect "the control's summon answers ok" ok devtools open
-  expect_poll "a refresh lists the agent absent again" "$(texts "$agent_name" "Not installed" Install)" row_texts "$agent_name"
+  expect_poll "a refresh lists the agent absent again" "$(texts "$agent_name" "Not installed" "Not installed" Install)" row_texts "$agent_name"
   echo "$agent_key" >>"$dev_state/installed"
   install_before="$(ended_record vgs.devtools/install)"
   expect_poll "the control's agent row scrolls into view" revealed reveal_row "$agent_name"
@@ -398,6 +635,7 @@ fi
 
 expect "hiding the window answers ok" ok ipc shell hide window vgs.devtools
 expect "disabling Dev Tools is allowed" ok ipc shell setPluginEnabled vgs.devtools false
+expect "disabling Launcher after Dev Tools rows is allowed" ok ipc shell setPluginEnabled vgs.launcher false
 expect_poll "a disabled Dev Tools holds no status record" null dev_lent
 expect "disabling the requirement fixture is allowed" ok ipc shell setPluginEnabled acme.requires false
 rm -f -- "$shim/mise" "$shim/docker" "$shim/podman" "$shim/pacman"

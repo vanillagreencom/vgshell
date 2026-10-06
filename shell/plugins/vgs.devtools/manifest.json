@@ -19,19 +19,27 @@
     "configure",
     "doctor",
     "ipc",
+    "run",
     "screens",
+    "shortcut",
     "status",
     "surfaces",
     "tui"
   ],
   "settings": {
-    "writeLaunchers": false
+    "writeLaunchers": false,
+    "showInLauncher": true
   },
   "schema": {
+    "showInLauncher": {
+      "type": "boolean",
+      "label": "Show full catalog in launcher",
+      "description": "Show each Dev Tools catalog row in the launcher."
+    },
     "writeLaunchers": {
       "type": "boolean",
-      "label": "Create tool launchers",
-      "description": "Install each tool the first time you open its launcher"
+      "label": "Add tool commands to the terminal",
+      "description": "Write commands into ~/.local/bin and install a tool the first time you run one."
     }
   },
   "requirements": [
@@ -65,6 +73,10 @@
     "catalog": {
       "type": "data",
       "label": "Catalog"
+    },
+    "launcherRows": {
+      "type": "launcherRows",
+      "label": "Launcher rows"
     }
   },
   "tui": {
@@ -82,7 +94,16 @@
       "script": "tui/remove.sh",
       "title": "Remove a developer tool",
       "entry": { "label": "Remove a developer tool", "icon": "package-minus", "group": "Dev Tools" }
-    }
+    },
+    "version": { "script": "tui/devtools.sh", "title": "Choose a tool version", "size": "default", "presentation": "plain" },
+    "pin": { "script": "tui/devtools.sh", "title": "Pin a developer tool", "size": "default", "presentation": "plain" },
+    "unpin": { "script": "tui/devtools.sh", "title": "Unpin a developer tool", "size": "default", "presentation": "plain" },
+    "rollback": { "script": "tui/devtools.sh", "title": "Roll back a developer tool", "size": "default", "presentation": "plain" },
+    "update-all": { "script": "tui/devtools.sh", "title": "Update developer tools", "size": "default", "presentation": "plain" },
+    "install-launch": { "script": "tui/devtools.sh", "title": "Install and launch a developer tool", "size": "default", "presentation": "plain" }
   },
-  "appearance": "Appearance.js"
+  "appearance": "Appearance.js",
+  "menu": {
+    "devtools": { "label": "Dev Tools", "icon": "code-xml", "aliases": ["tools", "developer tools", "dev tools", "catalog"], "provider": "launcherRows", "shortcut": "launch" }
+  }
 }
