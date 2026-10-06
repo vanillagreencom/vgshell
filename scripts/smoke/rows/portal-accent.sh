@@ -1,18 +1,20 @@
 # Portal Settings accent routing for libadwaita, run on the sandbox bus.
 # Measured on host cachy, AMD Ryzen 9 9950X, 2026-10-06. This row adds no
 # latency budget. It polls D-Bus name ownership every 100 ms and each portal
-# Settings read is one gdbus round trip on the sandbox session bus.
+# Settings read is one gdbus round trip on the sandbox session bus. The
+# hook uses GSettings' keyfile backend because the test-run guard forbids
+# every bus variable in a hook environment; the row tests portal routing,
+# which reads GSettings through the same API whatever backend stores it.
 # The sandbox tree ships no theme targets, so this row copies only the real
 # accent-color target into that tree. It then runs the real `vgshell theme apply`
-# with the sandbox bus and dconf service, which exercises the target hook.
+# under the test-run hook guard, which exercises the target hook.
 # inputs: packaging/xdg-desktop-portal/hyprland-portals.conf themes/targets/accent-color/* themes/targets/color-scheme/* bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/catalog/gruvbox/* themes/catalog/flexoki-light/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js bin/lib/qml-library.js
 set -euo pipefail
 
 portal_bin=/usr/lib/xdg-desktop-portal
 portal_gtk=/usr/lib/xdg-desktop-portal-gtk
 portal_gnome=/usr/lib/xdg-desktop-portal-gnome
-dconf_bin=/usr/lib/dconf-service
-for pair in "xdg-desktop-portal:$portal_bin" "xdg-desktop-portal-gtk:$portal_gtk" "dconf-service:$dconf_bin"; do
+for pair in "xdg-desktop-portal:$portal_bin" "xdg-desktop-portal-gtk:$portal_gtk"; do
   name="${pair%%:*}"; file="${pair#*:}"
   if [[ ! -x $file ]]; then
     not_measured portal-accent missing="$name"
@@ -41,20 +43,32 @@ else
   return 0
 fi
 ln -s -- "$(command -v sh)" "$portal_root/bin/sh"
+ln -s -- "$(command -v bash)" "$portal_root/bin/bash"
 ln -s -- "$(command -v cat)" "$portal_root/bin/cat"
+ln -s -- "$(command -v readlink)" "$portal_root/bin/readlink"
+ln -s -- "$(command -v dirname)" "$portal_root/bin/dirname"
+ln -s -- "$(command -v mkdir)" "$portal_root/bin/mkdir"
+ln -s -- "$(command -v flock)" "$portal_root/bin/flock"
 ln -s -- "$(command -v gsettings)" "$portal_root/bin/gsettings"
-ln -s -- "$(command -v node)" "$portal_root/bin/node"
+ln -s -- "$node_bin" "$portal_root/bin/node"
 
 mkdir -p -- "$repo/themes/targets/accent-color" "$repo/themes/targets/color-scheme"
 cp -R -- "$source_repo/themes/targets/accent-color/." "$repo/themes/targets/accent-color/"
 cp -R -- "$source_repo/themes/targets/color-scheme/." "$repo/themes/targets/color-scheme/"
+installed_themes="$home/.config/vgshell/themes"
+mkdir -p -- "$installed_themes"
+cp -R -- "$repo/themes/catalog/gruvbox" "$installed_themes/gruvbox"
+cp -R -- "$repo/themes/catalog/flexoki-light" "$installed_themes/flexoki-light"
 mkdir -p -- "$home/.config/xdg-desktop-portal"
 printf '%s\n' '[preferred]' 'default=hyprland;gtk' >"$home/.config/xdg-desktop-portal/portals.conf"
 
-portal_env=("${shell_env[@]}" HOME="$home" XDG_CONFIG_HOME="$home/.config" XDG_DATA_HOME="$home/.local/share"
+portal_common_env=(HOME="$home" XDG_CONFIG_HOME="$home/.config" XDG_DATA_HOME="$home/.local/share"
   XDG_STATE_HOME="$home/.local/state" XDG_CACHE_HOME="$home/.cache" XDG_CURRENT_DESKTOP=Hyprland
-  GSETTINGS_BACKEND=dconf GSETTINGS_SCHEMA_DIR=/usr/share/glib-2.0/schemas WAYLAND_DISPLAY="$nested_socket"
-  XDG_CONFIG_DIRS="$portal_root/config" XDG_DATA_DIRS="$portal_root/data:/usr/share" PATH="$portal_root/bin:$(dirname -- "$node_bin"):/usr/bin:/bin" TMPDIR="$sandbox")
+  GSETTINGS_BACKEND=keyfile GSETTINGS_SCHEMA_DIR=/usr/share/glib-2.0/schemas
+  XDG_CONFIG_DIRS="$portal_root/config" XDG_DATA_DIRS="$portal_root/data:/usr/share" PATH="$portal_root/bin" TMPDIR="$sandbox" TMUX_TMPDIR="$sandbox/tmux")
+portal_env=("${shell_env[@]}" "${portal_common_env[@]}" WAYLAND_DISPLAY="$nested_socket")
+hook_env=(env -u DBUS_SESSION_BUS_ADDRESS -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u TMUX "${portal_common_env[@]}"
+  XDG_RUNTIME_DIR="$rt_dir")
 
 name_owned() { "${portal_env[@]}" gdbus call --session --dest org.freedesktop.DBus --object-path /org/freedesktop/DBus --method org.freedesktop.DBus.NameHasOwner "$1" 2>>"$sandbox/ipc.log" | grep -q '(true,'; }
 wait_name() { # BUS_NAME
@@ -93,8 +107,6 @@ start_portal_stack() { # LABEL CONFIG_DIR
   local label="$1" config_dir="$2"
   portal_stack_pids=()
   mkdir -p -- "$config_dir/xdg-desktop-portal"
-  spawn "$portal_root/$label-dconf.log" "${portal_env[@]}" "$dconf_bin"
-  portal_stack_pids+=("$spawn_pid")
   spawn "$portal_root/$label-gtk.log" "${portal_env[@]}" "$portal_gtk" -r
   portal_stack_pids+=("$spawn_pid")
   spawn "$portal_root/$label-gnome.log" "${portal_env[@]}" "$portal_gnome" -r
@@ -132,26 +144,33 @@ expect_poll "control: gnome Settings backend releases its bus name" missing wait
 start_portal_stack routed "$portal_root/config"
 expect_poll "routed portal starts before theme assertions" owned wait_name org.freedesktop.portal.Desktop
 apply_theme() { # NAME
-  "${portal_env[@]}" "$repo/bin/vgshell" theme apply --json "$1" >/dev/null
-}
-apply_theme_and_read() { # NAME VALUE
-  apply_theme "$1" || return
-  case "$2" in
-    accent) portal_rgb ;;
-    color-scheme) portal_color_scheme ;;
-  esac
+  local out status=0
+  out="$("${hook_env[@]}" "$repo/bin/vgshell" theme apply --json "$1")" || status=$?
+  if [[ $status -ne 0 && $status -ne 3 ]]; then
+    printf 'exit=%s %s\n' "$status" "${out##*$'\n'}"
+    return 1
+  fi
+  python3 -c 'import json, sys
+row = json.loads(sys.argv[1].splitlines()[-1])
+targets = {t["name"]: t["state"] for t in row["targets"]}
+ok = row["state"] == "applied" and all(targets.get(name) in ("written", "unchanged") for name in ("accent-color", "color-scheme"))
+print("state=%s accent-color=%s color-scheme=%s" % (row["state"], targets.get("accent-color"), targets.get("color-scheme")))
+raise SystemExit(0 if ok else 1)' "$out"
 }
 apply_vgs_default() {
-  "${portal_env[@]}" "$repo/bin/vgshell" theme apply vgs | tail -n 1
+  "${shell_env[@]}" "$repo/bin/vgshell" theme apply vgs | tail -n 1
 }
-expect "the sandbox dark theme sets gruvbox through the real accent target" "#3a944a" apply_theme_and_read gruvbox accent
-expect "the merged Settings portal reads gruvbox as prefer-dark" "1" apply_theme_and_read gruvbox color-scheme
-expect "the sandbox light theme sets flexoki-light through the real accent target" "#3584e4" apply_theme_and_read flexoki-light accent
-expect "the merged Settings portal reads flexoki-light as prefer-light" "2" apply_theme_and_read flexoki-light color-scheme
+expect "the gruvbox apply runs the real target hooks" "state=applied accent-color=written color-scheme=written" apply_theme gruvbox
+expect_poll "the sandbox dark theme sets gruvbox through the real accent target" "#3a944a" portal_rgb
+expect_poll "the merged Settings portal reads gruvbox as prefer-dark" "1" portal_color_scheme
+expect "the flexoki-light apply runs the real target hooks" "state=applied accent-color=written color-scheme=written" apply_theme flexoki-light
+expect_poll "the sandbox light theme sets flexoki-light through the real accent target" "#3584e4" portal_rgb
+expect_poll "the merged Settings portal reads flexoki-light as prefer-light" "2" portal_color_scheme
+rm -rf -- "${repo:?}/themes/targets/accent-color" "${repo:?}/themes/targets/color-scheme"
+rm -rf -- "${installed_themes:?}/gruvbox" "${installed_themes:?}/flexoki-light"
 expect "the portal accent row restores vgs before later rows" "ok theme=vgs state=applied shell=applied" apply_vgs_default
 stop_portal_stack
 expect_poll "routed portal releases its bus name" missing wait_name org.freedesktop.portal.Desktop
 expect_poll "routed gtk Settings backend releases its bus name" missing wait_name org.freedesktop.impl.portal.desktop.gtk
 expect_poll "routed gnome Settings backend releases its bus name" missing wait_name org.freedesktop.impl.portal.desktop.gnome
-rm -rf -- "${repo:?}/themes/targets/accent-color" "${repo:?}/themes/targets/color-scheme"
 rm -rf -- "$home/.config/xdg-desktop-portal"
