@@ -2,7 +2,7 @@
 // Production playback ports, private synthetic pw-cat and a manual clock.
 "use strict";
 const { assert, fs, path, world, until, Audio, setup, turn, finish, control } = require("./fixtures/jarvis/playback.js");
-const { Readable, PassThrough } = require("node:stream");
+const { Readable, PassThrough, getDefaultHighWaterMark, setDefaultHighWaterMark } = require("node:stream");
 const { load } = require("../bin/lib/qml-library.js");
 const Session = load(path.resolve(__dirname, "../shell/plugins/vgs.jarvis/Session.js"));
 const { SessionRunner, unavailable } = require("../shell/plugins/vgs.jarvis/backend/session-runner.js");
@@ -187,7 +187,14 @@ async function drain() {
 async function stalledDeadline(Implementation = Audio) {
     const marker = path.join(process.env.HOME, "playback-blocks");
     fs.writeFileSync(marker, "", { flag: "wx" });
-    const source = new Readable({ highWaterMark: 65536, read() { this.push(Buffer.alloc(65536)); } });
+    // The former verdict must cross its bound before Node pauses the writer.
+    const highWaterMark = getDefaultHighWaterMark(false);
+    setDefaultHighWaterMark(false, 65536);
+    let produced = 0;
+    const source = new Readable({ highWaterMark: 65536, read() {
+        produced += 65536;
+        this.push(Buffer.alloc(65536));
+    } });
     const w = setup(source, undefined, Implementation);
     const ports = unavailable();
     ports.playback = w.audio.playbackPort;
@@ -208,11 +215,14 @@ async function stalledDeadline(Implementation = Audio) {
         assert.equal(runner.state.playback.deadline, 300000);
         for (let i = 0; i < 500; i++) { w.time.advance(20); await turn(); }
         await w.audio.release;
+        console.log("stall-observation: at=" + w.time.now() + " fault_kind=" + runner.state.fault.kind
+            + " reason=" + (runner.state.fault.reason || "none") + " first_fault_at="
+            + (faults[0] ? faults[0].at : "none") + " source_bytes=" + produced);
         assert.equal(runner.state.fault.kind, "none");
         assert.equal(runner.state.playback.kind, "playing");
-        assert.ok(w.writes.reduce((bytes, write) => bytes + write.frames * 2, 0) > 65536,
-            "the stalled fixture exceeds the former write bound");
+        assert.ok(produced > 65536, "the stalled fixture produces more PCM than the former write bound");
         assert.ok(owner.child.stdin.writableLength > 0 && owner.child.stdin.writableLength <= 960);
+        const pendingBytes = owner.child.stdin.writableLength;
         assert.ok(source.readableLength <= 65536);
         assert.equal(w.time.timers.size, 1, "only Session's deadline remains while the player stalls");
         w.time.advance(289999);
@@ -240,11 +250,12 @@ async function stalledDeadline(Implementation = Audio) {
         assert.equal(runner.state.fault.reason, "playback-timeout");
         assert.equal(runner.state.fault.retry, 0);
         assert.equal(w.writes.length, writes);
-        console.log("stall-deadline: at=300000 reason=playback-timeout pending_bytes=" + owner.child.stdin.writableLength);
+        console.log("stall-deadline: at=300000 reason=playback-timeout pending_bytes=" + pendingBytes);
     } finally {
         runner.close();
         await w.audio.close("test-end");
         fs.unlinkSync(marker);
+        setDefaultHighWaterMark(false, highWaterMark);
     }
 }
 
