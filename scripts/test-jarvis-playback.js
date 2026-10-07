@@ -3,6 +3,9 @@
 "use strict";
 const { assert, fs, path, world, until, Audio, setup, turn, finish, control } = require("./fixtures/jarvis/playback.js");
 const { Readable, PassThrough } = require("node:stream");
+const { load } = require("../bin/lib/qml-library.js");
+const Session = load(path.resolve(__dirname, "../shell/plugins/vgs.jarvis/Session.js"));
+const { SessionRunner, unavailable } = require("../shell/plugins/vgs.jarvis/backend/session-runner.js");
 
 async function ready(w) {
     await until(() => w.audio.playback !== null && w.audio.playback.kind === "feeding", "playback feeding");
@@ -163,18 +166,79 @@ async function drain() {
     const running = w.start();
     try {
         const owner = await ready(w);
-        for (let i = 0; i < 1500 && !owner.child.stdin.writableNeedDrain; i++) {
+        for (let i = 0; i < 1500 && !(owner.child.stdin.writableLength > 0 && w.time.timers.size === 0); i++) {
             w.time.advance(20);
             await turn();
         }
-        assert.equal(owner.child.stdin.writableNeedDrain, true, "reach actual child-pipe backpressure");
-        assert.equal(w.time.timers.size, 0, "the pump waits on drain, not on the clock");
+        assert.ok(owner.child.stdin.writableLength > 0, "reach an unacknowledged child-pipe write");
+        assert.ok(owner.child.stdin.writableLength <= 960);
+        assert.equal(w.time.timers.size, 0, "the pump waits for the write acknowledgment");
         assert.ok(source.readableLength <= 65536);
         await w.flush();
         await finish(running);
         assert.equal(owner.child.stdin.listenerCount("drain"), 0);
         assert.equal(source.destroyed, true);
     } finally {
+        await w.audio.close("test-end");
+        fs.unlinkSync(marker);
+    }
+}
+
+async function stalledDeadline(Implementation = Audio) {
+    const marker = path.join(process.env.HOME, "playback-blocks");
+    fs.writeFileSync(marker, "", { flag: "wx" });
+    const source = new Readable({ highWaterMark: 65536, read() { this.push(Buffer.alloc(65536)); } });
+    const w = setup(source, undefined, Implementation);
+    const ports = unavailable();
+    ports.playback = w.audio.playbackPort;
+    const faults = [];
+    const runner = new SessionRunner(Session, ports, w.time, state => {
+        w.audio.observe(state);
+        if (state.fault.kind === "error") faults.push({ at: w.time.now(), fault: state.fault });
+    });
+    // Seed the same already-admitted playback used by the other port tests.
+    // The real brain-done transition arms Session's production deadline.
+    runner.state = { ...w.audio.state, turn: { kind: "thinking", gen: 1, op: 3, deadline: 60000 } };
+    runner.dispatch({ type: "brain-done", gen: 1, op: 3 });
+    const running = w.audio.playbackPort.start({ gen: 1, op: 2, source: 3 },
+        () => runner.dispatch({ type: "played", gen: 1, op: 2 }),
+        reason => runner.dispatch({ type: "playback-failed", gen: 1, op: 2, reason }));
+    try {
+        const owner = await ready(w);
+        assert.equal(runner.state.playback.deadline, 300000);
+        for (let i = 0; i < 500; i++) { w.time.advance(20); await turn(); }
+        await w.audio.release;
+        assert.deepEqual(runner.state.fault, { kind: "none" });
+        assert.equal(runner.state.playback.kind, "playing");
+        assert.ok(w.writes.reduce((bytes, write) => bytes + write.frames * 2, 0) > 65536,
+            "the stalled fixture exceeds the former write bound");
+        assert.ok(owner.child.stdin.writableLength > 0 && owner.child.stdin.writableLength <= 960);
+        assert.ok(source.readableLength <= 65536);
+        assert.equal(w.time.timers.size, 1, "only Session's deadline remains while the player stalls");
+        w.time.advance(289999);
+        await turn();
+        assert.deepEqual(runner.state.fault, { kind: "none" });
+        assert.equal(runner.state.playback.kind, "playing");
+        w.time.advance(1);
+        await until(() => runner.state.playback.kind === "idle", "deadline teardown completes");
+        await finish(running);
+        assert.deepEqual(runner.state.fault, { kind: "error", reason: "playback-timeout", retry: 0 });
+        assert.ok(faults.length > 0);
+        assert.ok(faults.every(record => record.at === 300000 && record.fault.reason === "playback-timeout"));
+        assert.equal(w.audio.children.size, 0);
+        assert.equal(source.destroyed, true);
+        assert.equal(w.time.timers.size, 0);
+        const writes = w.writes.length;
+        runner.dispatch({ type: "played", gen: 1, op: 2 });
+        runner.dispatch({ type: "playback-failed", gen: 1, op: 2, reason: "playback-pipe-closed" });
+        w.time.advance(300000);
+        await turn();
+        assert.equal(runner.state.playback.kind, "idle");
+        assert.deepEqual(runner.state.fault, { kind: "error", reason: "playback-timeout", retry: 0 });
+        assert.equal(w.writes.length, writes);
+        console.log("stall-deadline: at=300000 reason=playback-timeout pending_bytes=" + owner.child.stdin.writableLength);
+    } finally {
+        runner.close();
         await w.audio.close("test-end");
         fs.unlinkSync(marker);
     }
@@ -277,7 +341,7 @@ async function factoryInterruption() {
 
 async function inside() {
     for (const test of [pacing, accounting, completion, sentenceAccounting, startup, awaitingInput, backpressure, drain,
-        failures, successive, factoryInterruption]) {
+        stalledDeadline, failures, successive, factoryInterruption]) {
         console.log("case=" + test.name);
         await test();
     }
@@ -329,7 +393,13 @@ async function inside() {
     await control("natural-completion", "owner.child.stdin.end();", "if (false) owner.child.stdin.end();", completion);
     await control("startup-flush", "this.playback = null;\n            if (this.playbackFeed !== null)",
         "if (false) this.playback = null;\n            if (this.playbackFeed !== null)", startup);
-    console.log("test-jarvis-playback: ok controls=19 lead_frames=1440 node_frames=480");
+    await control("stall-buffer-verdict", "const written = this.waitPlayback(playback, owner.child.stdin, null, null,\n" +
+        "                acknowledged => owner.child.stdin.write(pcm, acknowledged));",
+    'if (owner.child.stdin.writableLength + bytes > BUFFER_BYTES) throw new Error("playback-overflow");\n' +
+        '            const flowing = owner.child.stdin.write(pcm);\n' +
+        '            const written = flowing ? Promise.resolve() : this.waitPlayback(playback, owner.child.stdin, "drain");',
+    stalledDeadline);
+    console.log("test-jarvis-playback: ok controls=20 lead_frames=1440 node_frames=480");
 }
 
 world(inside).catch(error => { console.error(error); process.exitCode = 1; });

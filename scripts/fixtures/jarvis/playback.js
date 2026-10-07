@@ -42,9 +42,9 @@ function setup(source, time = clock(), Implementation = Audio, environment = nul
         const owner = [...audio.children.values()].find(owner => owner.kind === "playback");
         base.assert.ok(owner);
         const write = owner.child.stdin.write.bind(owner.child.stdin);
-        owner.child.stdin.write = pcm => {
+        owner.child.stdin.write = (pcm, ...args) => {
             writes.push({ at: time.now(), frames: pcm.length / 2 });
-            return write(pcm);
+            return write(pcm, ...args);
         };
         return owner;
     };

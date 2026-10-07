@@ -435,13 +435,16 @@ class Audio {
 
     // One waiter belongs to the playback operation, whether blocked on input,
     // the clock or pw-cat. Teardown wakes it and removes every listener/timer.
-    waitPlayback(playback, stream, event, ms) {
+    waitPlayback(playback, stream, event, ms, submit) {
         return new Promise((resolve, reject) => {
             let timer = null;
+            let finished = false;
             const finish = error => {
+                if (finished) return;
+                finished = true;
                 if (timer !== null) this.clock.clear(timer);
                 if (stream !== null) {
-                    stream.removeListener(event, ready);
+                    if (event !== null) stream.removeListener(event, ready);
                     stream.removeListener("close", ready);
                     stream.removeListener("end", ready);
                     stream.removeListener("error", finish);
@@ -452,11 +455,15 @@ class Audio {
             const ready = () => finish();
             playback.wake = ready;
             if (stream !== null) {
-                stream.once(event, ready);
+                if (event !== null) stream.once(event, ready);
                 stream.once("close", ready);
                 stream.once("end", ready);
                 stream.once("error", finish);
             } else timer = this.clock.set(ready, ms);
+            if (submit !== undefined) {
+                try { submit(finish); }
+                catch (error) { finish(error); }
+            }
         });
     }
 
@@ -515,18 +522,20 @@ class Audio {
             }
             const bytes = needed * 2;
             const pcm = frame.subarray(offset, offset + bytes);
-            if (owner.child.stdin.writableLength + bytes > BUFFER_BYTES) throw new Error("playback-overflow");
-            const flowing = owner.child.stdin.write(pcm);
+            // Node calls the write callback when this chunk is handled. Keep
+            // only one paced chunk pending; Session owns a stalled player's
+            // deadline. Flush also wakes this waiter before the late callback.
+            // https://nodejs.org/api/stream.html#writablewritechunk-encoding-callback
+            const written = this.waitPlayback(playback, owner.child.stdin, null, null,
+                acknowledged => owner.child.stdin.write(pcm, acknowledged));
             playback.written += bytes / 2;
             playback.frontier += bytes * 1000 / (PCM_RATE * 2);
             offset += bytes;
             this.reportLevel(playback.e.gen, "playback", pcm);
-            if (!flowing) {
-                await this.waitPlayback(playback, owner.child.stdin, "drain");
-                if (this.playback !== playback || owner.stopping) return;
-                if (owner.exit !== null || owner.child.stdin.destroyed)
-                    throw new Error("playback-pipe-closed");
-            }
+            await written;
+            if (this.playback !== playback || owner.stopping) return;
+            if (owner.exit !== null || owner.child.stdin.destroyed)
+                throw new Error("playback-pipe-closed");
         }
     }
 
