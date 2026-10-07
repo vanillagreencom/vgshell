@@ -208,7 +208,8 @@ try {
     const [left, right] = buttons.map(([, box]) => box);
     assert.ok(left[2] > 0 && right[2] > 0 && left[0] + left[2] < right[0]);
     assert.equal(left[1], right[1]);
-    const fields = JSON.parse(rawFields).filter(([, , value]) => value.visible);
+    const labels = JSON.parse(rawFields);
+    const fields = labels.filter(([, , value]) => value.visible);
     const questions = fields.filter(([, box, value]) => value.role === "body" && box[1] < left[1]);
     assert.equal(questions.length, 1);
     assert.ok(questions[0][1][2] > 0 && questions[0][1][3] > 0);
@@ -218,7 +219,14 @@ try {
         paths.sort((a, b) => a[1][1] - b[1][1]);
         assert.ok(paths[0][1][2] > 0 && paths[0][1][3] > 0);
     }
-    const captions = JSON.parse(rawClips).filter(([, , value]) => value.clip === true);
+    // The scrolling container also clips. The caption window sits above
+    // the held question and aligns its body label at its bottom edge.
+    const [screen, question] = questions[0];
+    const captions = JSON.parse(rawClips).filter(([clipScreen, box, value]) => value.clip === true
+        && clipScreen === screen && box[1] + box[3] <= question[1]
+        && labels.some(([labelScreen, labelBox, label]) => labelScreen === clipScreen && label.role === "body"
+            && labelBox[0] === box[0] && labelBox[2] === box[2]
+            && Math.abs(labelBox[1] + labelBox[3] - box[1] - box[3]) <= 1));
     assert.equal(captions.length, 1);
     assert.equal(captions[0][2].visible, false);
     console.log(1);

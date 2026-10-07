@@ -421,8 +421,8 @@ world(async () => {
                 w.router.register("clipboard", {commands: ["wl-paste"], timeoutMs: 1000, cancellable: false,
                     start: (_call, done) => done({outcome: "completed", content: "private fixture clipboard"})});
                 const engine = Engine.create({session: Session, state: () => w.runner.state, audit: w.audit, router: w.router,
-                    accounts: () => ({secrets: null, resolve: id => ({id, provider: "claude", label: "default",
-                        source: {kind: "cli", directory: w.account.directory}, model: ""})}),
+                    accounts: () => ({secrets: null, choose: id => ({kind: "accepted", account: {id, provider: "claude", label: "default",
+                        source: {kind: "cli", directory: w.account.directory}, model: ""}})}),
                     policy: () => ({profile: "standard", cloudVision: "ask"}), fault: reason => assert.fail(reason),
                     captionLimit: 4096, dispatch: e => w.runner.dispatch(e), clock: w.runnerClock,
                     harness: {bridge: w.bridge, gate: {}, env: {...process.env, ...PLANTED}, runtime: () => w.runtime}});
