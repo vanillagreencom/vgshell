@@ -1,4 +1,20 @@
 //@ pragma UseQApplication
+// Every QML garbage collection runs to completion in one step. Qt 6.11.2's
+// incremental collector can destroy one heap object twice: Chunk::sweep
+// keeps the black bitmap as the object bitmap, so a stale reference marked
+// during an incremental mark brings a freed slot back and the next sweep
+// destroys it again (two shell crashes, symbolized against
+// libQt6Qml.so.6.11.2, in JavaScriptFunctionObject::virtualDestroy and
+// ErrorObject::virtualDestroy under tryForceGCCompletion; a related fault
+// is QTBUG-148459). GCStateMachine reads QV4_GC_TIMELIMIT once, when the
+// engine is built, and 0 runs each collection's mark and sweep with no QML
+// between them. The Env pragma sets it before the engine exists, over any
+// inherited value. Cost, from the nested sandbox's rescan churn (40 rounds,
+// qt.qml.gc.allocatorStats, host cachy, 2026-10-06): one whole collection
+// p50 4.4 ms, p90 5.3 ms, max 7.0 ms, and no forced completion where an
+// inherited 1 ms slice forced 10. Remove it on a Qt release whose
+// incremental collector no longer destroys an object twice.
+//@ pragma Env QV4_GC_TIMELIMIT = 0
 //@ pragma AppId org.vgs.shell
 import QtQuick
 import Quickshell

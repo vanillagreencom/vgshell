@@ -713,6 +713,10 @@ Scope {
     IpcHandler {
         target: "smoke"
         function pageChars(): int { return IpcPages.replyChars; }
+        // The shell process's value of an environment variable after its
+        // pragmas, "" when unset: Quickshell.env reads the process
+        // environment, which an Env pragma sets before the engine starts.
+        function environment(name: string): string { return Quickshell.env(name) ?? ""; }
         // Every top-level group of the token table that Theme does not
         // publish as a frozen object, so an empty list is the pass.
         function themeUnpublished(): string {
