@@ -371,6 +371,7 @@ mutations=(
   "the pane does not cap fitted content|layout/Pane.qml|readonly property real cappedHeight: maximumHeight > 0 ? Math.min(uncappedHeight, maximumHeight) : uncappedHeight|readonly property real cappedHeight: uncappedHeight|tst_pane.qml"
   "the pane's footer sits on the body|layout/Pane.qml|y: scroll.y + scroll.height - root.ringRoom + root.footerGap|y: scroll.y + scroll.height - root.ringRoom|tst_pane.qml"
   "the pane puts an external footer in its scrolling body|layout/Pane.qml|property alias footer: footerSlot.data|property alias footer: bodyColumn.data|tst_pane.qml"
+  "Displays leaves the keyboard in its hidden footer|../plugins/vgs.displays/Pane.qml|onShownChanged: if (!shown && activeFocus) root.initialFocus.forceActiveFocus(Qt.TabFocusReason)|onShownChanged: {}|tst_pane.qml"
   "the pane ignores its title|layout/Pane.qml|readonly property bool hasTitle: title !== \"\"|readonly property bool hasTitle: false|tst_pane.qml"
   "the title switch sits at the left edge|layout/Pane.qml|x: root.switchX(item)|x: 0|tst_pane.qml"
   "the title switch ignores the gear|layout/Pane.qml|return root.contentWidth - root.gearRoom - (item ? item.width : 0);|return root.contentWidth - (item ? item.width : 0);|tst_pane.qml"

@@ -277,9 +277,11 @@ FocusScope {
             width: parent.width
             visible: root.expanded && !!root.network.hasWifi
             label: "Wi-Fi"
+            inline: true
             hint: root.network.wifiHardwareEnabled === false ? "The hardware switch blocks Wi-Fi." : ""
             control: Switch {
                 objectName: "network-radio"
+                size: "sm"
                 checked: !!root.network.wifiEnabled
                 enabled: !!root.network.writable && root.network.wifiHardwareEnabled !== false
                 onClicked: root.action("radio", null)
@@ -390,9 +392,11 @@ FocusScope {
                 width: parent.width
                 visible: root.expanded
                 label: "Auto-join"
+                inline: true
                 hint: "Allow this Wi-Fi device to join saved networks automatically."
                 control: Switch {
                     objectName: "network-autojoin"
+                    size: "sm"
                     checked: !!root.network.wifiAutoconnect
                     enabled: !!root.network.writable
                     onClicked: { root.action("autoconnect", { interface: root.network.wifiInterface }); }
@@ -433,7 +437,9 @@ FocusScope {
             Field {
                 width: parent.width
                 label: "Show disconnected icon"
+                inline: true
                 control: Switch {
+                    size: "sm"
                     checked: root.shell === null || root.shell.settings.showDisconnected
                     onClicked: root.answered(root.shell.configure.set("showDisconnected", checked))
                 }

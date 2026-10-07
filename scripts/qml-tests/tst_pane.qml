@@ -3,6 +3,7 @@ import QtTest
 import qs.Commons
 import qs.Ui
 import qs.Unit
+import "../../shell/plugins/vgs.displays" as Displays
 
 // Pane owns the layout contract for an inset container: title row, header,
 // body and footer share one content edge, the title row owns a feature
@@ -216,6 +217,8 @@ Item {
         }
     }
 
+    Component { id: displaysSection; Displays.Pane {} }
+
     TestCase {
         name: "pane"
         when: windowShown
@@ -259,6 +262,25 @@ Item {
             tryCompare(holder, "section", null);
             tryCompare(holder, "rememberedFooter", null);
             compare(footerSlot(holder).children.length, 0);
+        }
+
+        function test_displays_returns_the_keyboard_when_its_footer_hides() {
+            compare(UnitTheme.override({ motion: { scale: 0 } }), "ok");
+            const holder = createTemporaryObject(footerHolder, root);
+            const section = createTemporaryObject(displaysSection, root);
+            holder.section = section;
+            const bar = section.footer;
+            compare(bar.parent, footerSlot(holder));
+            section.outputDraft = { test: { scale: 2 } };
+            tryCompare(bar, "drawn", true);
+            const actions = bar.children.find(child => child.children.some(button => button.text === "Save"));
+            const save = actions.children.find(button => button.text === "Save");
+            save.forceActiveFocus(Qt.TabFocusReason);
+            verify(bar.activeFocus);
+            section.outputDraft = ({});
+            tryCompare(section.initialFocus, "activeFocus", true);
+            verify(!bar.activeFocus);
+            tryCompare(holder, "footerHeight", 0);
         }
 
         function test_header_body_and_footer_share_the_content_edge() {

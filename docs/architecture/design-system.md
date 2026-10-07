@@ -89,6 +89,7 @@ A schema-built Settings page gives every plugin a full page with no UI code and 
 
 ### Settings pages
 
+- Do put a switch on its label's row in the value column, never below the label; review holds it.
 - Do keep each setting in its settings group. If a setting applies to the whole group, say so in its help instead of placing it above the group; review holds it.
 - Do declare a plugin's settings in its manifest schema, and never ship page code for its Settings page. `scripts/test-plugin-logic.js` pins the schema.
 - Never make a user type a library's format syntax. Declare `presets` or `optionsFrom`, and judge a format string before writing it. `PluginLogic.validateManifest` refuses a string setting without either, and `scripts/test-setting-values.js` holds the format judge.

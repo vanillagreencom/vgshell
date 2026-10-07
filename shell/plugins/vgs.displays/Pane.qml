@@ -67,6 +67,7 @@ FocusScope {
         parent: null
         width: parent === null ? 0 : parent.width
         dirty: root.outputDirty && root.trialState.phase !== "holding"
+        onShownChanged: if (!shown && activeFocus) root.initialFocus.forceActiveFocus(Qt.TabFocusReason)
         onSave: root.applyOutputDraft()
         onDiscard: root.outputDraft = ({})
     }
