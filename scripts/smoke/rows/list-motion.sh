@@ -74,15 +74,19 @@ expect_poll "the Settings window is gone" 0 window_count Plugins
 
 # The pointer's travel in the Settings list at the shipped list motion: the
 # plate moves on the first frame after a hover takes the row and rests
-# within hover_ceiling_ms of it, read from the window's frames by the
-# CursorFrames fixture. The pointer moves between the list's first two rows:
+# at the first frame whose animation time reaches hover_ceiling_ms, read
+# from the window's frames by the CursorFrames fixture. The pointer moves between the list's first two rows:
 # hover_travel ROW moves it onto row ROW one pixel at a time, as a hand
 # does, until the selection takes the row, then waits for the plate to
 # rest, and prints the milliseconds from the selection to the first frame
-# that moved the plate and to the first frame that shows it at rest, or a
-# word naming what it missed: `late` when neither of the first two frames
-# swapped after the selection moved the plate. The first may have been
-# drawn before the selection and only swapped after it. On host cachy on 2026-10-05, nested
+# that moved the plate and to the first frame that shows it at rest, plus
+# `fast` or `slow` from its position on the first frame at the ceiling, or a
+# word naming what it missed: `late` when the first prepared frame after
+# the animation timer advances leaves the plate at its selection-time y.
+# A startup frame before the timer advances cannot show travel yet. The
+# fixture marks timer progress independently of the plate. No absent frame
+# is counted, and the first moved y is never treated as the origin.
+# On host cachy on 2026-10-05, nested
 # frames 33 ms apart, main 85858b4 (travel 250 ms outQuint) read the rest
 # at 166 to 193 ms over 16 hovers and the first moved frame 4 to 37 ms
 # after the selection; the ceiling sits under the old travel's lowest
@@ -147,27 +151,43 @@ hover_travel() {
   targets="$(ipc smoke popupRead cursor-frames targets)" || return
   moves="$(ipc smoke popupRead cursor-frames moves)" || return
   frames="$(ipc smoke popupRead cursor-frames frames)" || return
-  python3 - "$targets" "$moves" "$frames" <<'PY'
+  echo "        hover trace: targets=$targets moves=$moves frames=$frames" >&2
+  hover_trace "$targets" "$moves" "$frames"
+}
+hover_trace() {
+  python3 - "$hover_ceiling_ms" "$@" <<'PY'
 import json, sys
-targets, moves, frames = (json.loads(v) for v in sys.argv[1:4])
+ceiling = int(sys.argv[1])
+targets, moves, frames = (json.loads(v) for v in sys.argv[2:5])
 if not targets: print("unselected"); sys.exit()
 if not moves: print("unmoved"); sys.exit()
 t0 = targets[0][0]
 final = moves[-1][1]
-before = [f for f in frames if f[0] < t0]
-start = before[-1][1] if before else moves[0][1]
-after = [f for f in frames if f[0] >= t0]
+start = targets[0][2]
+after = [f for f in frames if f[2] > 0 and f[3] > 0]
 if not after: print("undrawn"); sys.exit()
-moved = [f for f in after[:2] if abs(f[1] - start) >= 0.5]
-if not moved: print("late"); sys.exit()
+if abs(after[0][1] - start) < 0.5: print("late"); sys.exit()
+deadline = [f for f in after if f[3] >= ceiling]
+if not deadline: print("unmeasured"); sys.exit()
 rest = [f for f in after if abs(f[1] - final) < 0.5]
-print("%d %s" % (moved[0][0] - t0, (rest[0][0] - t0) if rest else "unrested"))
+verdict = "fast" if abs(deadline[0][1] - final) < 0.5 else "slow"
+print("%d %s %s" % (after[0][0] - t0, (rest[0][0] - t0) if rest else "unrested", verdict))
 PY
 }
+# The reader's frame controls: a missing pre-selection frame and a long
+# host gap still leave the first advanced frame moved; an advanced frame
+# that keeps the origin must fail even when a later frame moves.
+expect "the hover reader uses the selection origin across a frame gap" "80 150 fast" hover_trace '[[1000,"row",4]]' '[[1060,30],[1150,60]]' '[[1001,4,1,0],[1080,30,1,80],[1150,60,1,150]]'
+expect "the hover reader refuses a stationary first advanced frame" late hover_trace '[[1000,"row",4]]' '[[1060,30],[1150,60]]' '[[1040,4,1,40],[1080,30,1,80],[1150,60,1,150]]'
+expect "the hover reader refuses travel on the ceiling frame" "40 200 slow" hover_trace '[[1000,"row",4]]' '[[1040,30],[1200,60]]' '[[1040,30,1,40],[1180,55,1,150],[1200,60,1,150]]'
+expect "the hover reader accepts rest on the first drawn ceiling frame after a host gap" "80 240 fast" hover_trace '[[1000,"row",4]]' '[[1080,30],[1240,60]]' '[[1080,30,1,80],[1240,60,1,150]]'
+expect "the hover reader refuses a missing ceiling frame" unmeasured hover_trace '[[1000,"row",4]]' '[[1080,30],[1240,60]]' '[[1080,30,1,80]]'
+
 # hover_readings N: N hover_travel readings, alternating the second row and
 # the first, one per line; hover_verdict: `fast` when every reading moved
 # on its first frame and rested within the ceiling, `slow` when every
-# reading was read and one rested past it, else `unread`.
+# reading was read and one was still travelling on the ceiling frame,
+# else `unread`.
 hover_readings() {
   local n
   for n in $(seq 1 "$1"); do
@@ -178,12 +198,11 @@ hover_verdict() {
   local readings
   readings="$(hover_readings 6)"
   echo "        hover readings: $(tr '\n' ';' <<<"$readings")" >&2
-  python3 - "$hover_ceiling_ms" "$readings" <<'PY'
+  python3 - "$readings" <<'PY'
 import sys
-ceiling = int(sys.argv[1])
-rows = [line.split() for line in sys.argv[2].splitlines() if line.strip()]
-if len(rows) != 6 or not all(len(r) == 2 and r[0].isdigit() and r[1].isdigit() for r in rows): print("unread")
-else: print("fast" if all(int(r[1]) <= ceiling for r in rows) else "slow")
+rows = [line.split() for line in sys.argv[1].splitlines() if line.strip()]
+if len(rows) != 6 or not all(len(r) == 3 and r[0].isdigit() and r[1].isdigit() and r[2] in ("fast", "slow") for r in rows): print("unread")
+else: print("fast" if all(r[2] == "fast" for r in rows) else "slow")
 PY
 }
 
@@ -191,7 +210,7 @@ write_motion_theme '{ "schemaVersion": 1, "name": "vgs", "tokens": {} }'
 expect_poll "the defaults return for the hover travel" vgs ipc smoke themeName
 expect "the Settings window summons for the hover travel" ok ipc shell summon window vgs.settings '{}'
 expect_poll "the Settings list's cursor holds a row for the hover travel" true ipc smoke readShownDescendant window vgs.settings ListCursor shown
-expect "the probe builds the cursor frame trace" ok ipc smoke popupLoad cursor-frames "$hover_fixture" window vgs.settings '{"host":"@instance"}'
+expect "the probe builds the cursor frame trace" ok ipc smoke popupLoad cursor-frames "$hover_fixture" window vgs.settings "{\"host\":\"@instance\",\"ceilingMs\":$hover_ceiling_ms}"
 hover_rows="$(ipc smoke itemTexts window vgs.settings ListItem)" || hover_rows='[]'
 for hover_row in 0 1; do
   hover_row_name="$(py_reply 'import json,sys; r=json.load(sys.stdin); i=int(sys.argv[1]); print(r[i][0] if len(r) > i else "")' "$hover_row" <<<"$hover_rows")" || hover_row_name=""

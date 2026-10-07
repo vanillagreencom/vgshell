@@ -4,21 +4,26 @@ import QtQuick
 // surface's instance by the probe's popupLoad with `host` that instance,
 // `start()` takes the first ListCursor under `host` whose ancestors all
 // show and records, from then on, the wall time and the cursor's y at each
-// change of y and at each frame its window swaps, and the wall time and
-// row text at each change of the row that holds the selection. `moves`,
-// `frames` and `targets` read them, in milliseconds since the epoch.
+// change of y and before each scene synchronization, and the wall time,
+// row text and starting y at each selection change. `moves`, `frames` and
+// `targets` read them, in milliseconds since the epoch.
 Item {
+    id: root
     property Item host: null
     property Item plate: null
     property var moves: []
     property var frames: []
     property var targets: []
+    property int ceilingMs: 0
+    property real elapsed: 0
 
     function start() {
         plate = find();
         moves = [];
         frames = [];
         targets = [];
+        tick.stop();
+        elapsed = 0;
     }
 
     function shown(item) {
@@ -38,13 +43,26 @@ Item {
         return null;
     }
 
+    // This clock shares Qt's animation ticks with the plate, independently
+    // of y. The first drawn tick at the ceiling must show the plate at rest;
+    // a host gap without a frame cannot count as a stationary plate.
+    // https://doc.qt.io/qt-6/animation-overview.html#the-animation-architecture
+    NumberAnimation { id: tick; target: root; property: "elapsed"; from: 0; to: root.ceilingMs; duration: root.ceilingMs }
+
     Connections {
         target: plate
         function onYChanged() { moves.push([Date.now(), plate.y]); }
-        function onTargetChanged() { targets.push([Date.now(), plate.target === null ? "" : String(plate.target.text)]); }
+        function onTargetChanged() {
+            if (targets.length === 0) tick.restart();
+            targets.push([Date.now(), plate.target === null ? "" : String(plate.target.text), plate.y]);
+        }
     }
     Connections {
         target: plate === null ? null : plate.Window.window
-        function onFrameSwapped() { frames.push([Date.now(), plate.y]); }
+        // Qt emits afterAnimating on the GUI thread before scene sync.
+        // frameSwapped is emitted on the render thread: its queued QML
+        // handler can read y from a later animation tick.
+        // https://doc.qt.io/qt-6/qquickwindow.html#afterAnimating
+        function onAfterAnimating() { frames.push([Date.now(), plate.y, targets.length, root.elapsed]); }
     }
 }
