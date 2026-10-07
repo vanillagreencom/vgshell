@@ -4,7 +4,7 @@
 # captions. No real audio, provider, authentication or network runs.
 # Presentation and state poll once per IPC round trip; no latency budget is
 # claimed.
-# inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* shell/plugins/vgs.bar/* shell/Ui/feedback/VoiceOrb.qml shell/Core/Layers.qml scripts/smoke/toplevel/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/jarvis.sh scripts/smoke/rows/capabilities.sh
+# inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* shell/plugins/vgs.bar/* shell/Ui/feedback/VoiceOrb.qml shell/Core/Layers.qml scripts/smoke/toplevel/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/jarvis.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/diagnostics.sh
 set -euo pipefail
 
 jarvis_bubble_state() {
@@ -530,6 +530,62 @@ PY
   jarvis_disable
   cp -- "$sandbox/jarvis-bubble-before" "$jarvis_bubble_file"
 done
+# Restore the independent bindings in one disposable source copy. Clearing
+# its hold must make the diagnostics row fail. Only that copy's source URI
+# is excused after the control; the normal bubble remains subject to the row.
+check_unexpected_log "the bubble before the binding control" "$instance_log"
+python3 - "$jarvis_bubble_file" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1]); assert not p.is_symlink()
+s=p.read_text()
+edits=[
+    ('readonly property var prompt: View.approvalPrompt(root.hold)', '''readonly property bool filePrompt: root.hold !== null && root.hold.purpose === "action"
+                    && (root.hold.tool === "apps.open" || root.hold.tool.startsWith("files.") || root.hold.tool === "harness.files")
+                readonly property var lines: root.hold === null ? [] : root.hold.text.split("\\n")'''),
+    ('prompt !== null && prompt.filePrompt', 'filePrompt'),
+    ('prompt.detail', 'lines.length > 2'),
+    ('approvalText.prompt === null ? "" : approvalText.prompt.question', 'approvalText.filePrompt ? approvalText.lines[0] : root.hold === null ? "" : root.hold.text'),
+    ('approvalText.prompt === null ? "" : approvalText.prompt.path', 'approvalText.filePrompt ? approvalText.lines[1] : ""'),
+    ('approvalText.prompt === null ? "" : approvalText.prompt.payload', 'approvalText.filePrompt ? approvalText.lines.slice(2).join("\\n") : ""')]
+for needle,replacement in edits:
+    assert s.count(needle)==1
+    s=s.replace(needle,replacement)
+needle='visible: text !== ""'
+assert s.count(needle)==2
+s=s.replace(needle,'visible: approvalText.filePrompt && text !== ""')
+assert s!=p.read_text()
+p.write_text(s)
+PY
+jarvis_rescan
+jarvis_enable
+jarvis_bubble_approval action
+expect_poll "control: the two-binding request is drawn" drawn jarvis_bubble_acknowledged
+jarvis_key_stop
+expect_poll "control: clearing the two-binding hold ends approval" none jarvis_key_state approval
+jarvis_bubble_failures="$(
+  failures=0 behaviour_failures=0
+  source "$repo/scripts/smoke/rows/diagnostics.sh" >"$sandbox/jarvis-bubble-bindings-diagnostics.log"
+  echo "$failures"
+)"
+expect "control: the two-binding read fails the diagnostics row" 1 printf '%s\n' "$jarvis_bubble_failures"
+unexpected_log_errors "$instance_log" >"$sandbox/jarvis-bubble-bindings-errors.log"
+jarvis_bubble_control_pattern="$(python3 - "$sandbox/jarvis-bubble-bindings-errors.log" <<'PY'
+import re,sys
+rows=open(sys.argv[1]).read().splitlines()
+assert rows
+uris=[]
+for row in rows:
+    match=re.search(r' WARN scene: (file://[^ ]+/Bubble\.qml)\[[0-9]+:[0-9]+\]:',row)
+    assert match,row
+    uris.append(match[1])
+assert len(set(uris))==1
+print(re.escape(uris[0])+r'\[[0-9]+:[0-9]+\]:')
+PY
+)"
+expected_errors+=("$jarvis_bubble_control_pattern")
+jarvis_disable
+cp -- "$sandbox/jarvis-bubble-before" "$jarvis_bubble_file"
 python3 - "$jarvis_bubble_file" <<'PY'
 from pathlib import Path
 import sys

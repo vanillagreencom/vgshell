@@ -167,36 +167,34 @@ Item {
                 width: pane.contentWidth
                 visible: root.hold !== null
                 spacing: Theme.stack.row
-                readonly property bool filePrompt: root.hold !== null && root.hold.purpose === "action"
-                    && (root.hold.tool === "apps.open" || root.hold.tool.startsWith("files.") || root.hold.tool === "harness.files")
-                readonly property var lines: root.hold === null ? [] : root.hold.text.split("\n")
+                readonly property var prompt: View.approvalPrompt(root.hold)
                 // Recombine the actual drawn labels for the existing frame
                 // identity check; a missing path or detail cannot acknowledge.
-                readonly property string text: question.text + (filePrompt ? "\n" + (fullPath.visible ? fullPath.text : "")
-                    + (lines.length > 2 ? "\n" + (payload.visible ? payload.text : "") : "") : "")
+                readonly property string text: question.text + (prompt !== null && prompt.filePrompt ? "\n" + (fullPath.visible ? fullPath.text : "")
+                    + (prompt.detail ? "\n" + (payload.visible ? payload.text : "") : "") : "")
                 Label {
                     id: question
                     width: parent.width
                     role: "body"
-                    text: approvalText.filePrompt ? approvalText.lines[0] : root.hold === null ? "" : root.hold.text
+                    text: approvalText.prompt === null ? "" : approvalText.prompt.question
                     textFormat: Text.PlainText
                     wrapMode: Text.Wrap
                 }
                 Label {
                     id: fullPath
                     width: parent.width
-                    visible: approvalText.filePrompt && text !== ""
+                    visible: text !== ""
                     role: "hint"
-                    text: approvalText.filePrompt ? approvalText.lines[1] : ""
+                    text: approvalText.prompt === null ? "" : approvalText.prompt.path
                     textFormat: Text.PlainText
                     wrapMode: Text.Wrap
                 }
                 Label {
                     id: payload
                     width: parent.width
-                    visible: approvalText.filePrompt && text !== ""
+                    visible: text !== ""
                     role: "body"
-                    text: approvalText.filePrompt ? approvalText.lines.slice(2).join("\n") : ""
+                    text: approvalText.prompt === null ? "" : approvalText.prompt.payload
                     textFormat: Text.PlainText
                     wrapMode: Text.Wrap
                 }

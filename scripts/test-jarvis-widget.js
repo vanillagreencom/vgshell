@@ -155,6 +155,20 @@ const REFUSALS = [
 ];
 
 function verify(view) {
+    assert.equal(view.approvalPrompt(null), null);
+    for (const tool of ["files.delete", "apps.open", "harness.files", "filesOther", "fixture"]) {
+        for (const purpose of ["action", "release"]) {
+            const prompt = view.approvalPrompt({ tool, purpose, text: "A\nBB\nCCC" });
+            const file = purpose === "action" && ["files.delete", "apps.open", "harness.files"].includes(tool);
+            assert.equal(prompt.filePrompt, file);
+            assert.equal(prompt.detail, file);
+            assert.deepEqual([prompt.question, prompt.path, prompt.payload].map(value => Buffer.byteLength(value)),
+                file ? [1, 2, 3] : [8, 0, 0]);
+        }
+    }
+    const incomplete = view.approvalPrompt({ tool: "files.delete", purpose: "action", text: "A" });
+    assert.equal(incomplete.detail, false);
+    assert.deepEqual([incomplete.question, incomplete.path, incomplete.payload].map(value => Buffer.byteLength(value)), [1, 0, 0]);
     assert.deepEqual(Object.keys(view.LOOKS).sort(), ["live", "muted", "off", "problem", "ready", "working"], "the six widget states");
     for (const [state, look] of Object.entries(view.LOOKS))
         assert.ok(Object.prototype.hasOwnProperty.call(Lucide.ICONS, look.icon), state + ": icon " + look.icon + " ships");
@@ -184,6 +198,10 @@ verify(load(path.join(dir, "WidgetView.js")));
 // Each control removes one rule from a copy of the view and keeps the text
 // around it: [label, needle, replacement].
 const CONTROLS = [
+    ["cleared prompt retains a record", "if (hold === null) return null;", "if (hold === null) return {};"],
+    ["file prompt loses its path", 'path: filePrompt && lines.length > 1 ? lines[1] : ""', 'path: filePrompt && lines.length > 1 ? lines[0] : ""'],
+    ["file prompt repeats its path as detail", 'lines.slice(2).join("\\n")', 'lines.slice(1).join("\\n")'],
+    ["detail flag is dropped", 'detail: filePrompt && lines.length > 2', 'detail: false'],
     ["an open microphone is not live", "microphoneOpen(state.capture)) return", "false) return"],
     ["a daemon problem is not a problem", 'daemon.tone === "danger") return', 'false) return'],
     ["a Session error is not a problem", 'detail.phase === "error") {', 'false) {'],

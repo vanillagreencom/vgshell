@@ -137,6 +137,18 @@ function faultText(fault) {
     return fault.kind === "retrying" ? RETRYING : FAULT_TEXT[kind];
 }
 
+// Publish the approval labels together. QML may settle separate bindings in
+// either order when a hold clears; this record is null or complete strings.
+function approvalPrompt(hold) {
+    if (hold === null) return null;
+    var filePrompt = hold.purpose === "action"
+        && (hold.tool === "apps.open" || hold.tool.startsWith("files.") || hold.tool === "harness.files");
+    var lines = hold.text.split("\n");
+    return { filePrompt: filePrompt, question: filePrompt ? lines[0] : hold.text,
+        path: filePrompt && lines.length > 1 ? lines[1] : "",
+        payload: filePrompt ? lines.slice(2).join("\n") : "", detail: filePrompt && lines.length > 2 };
+}
+
 // What the bar says while the gate is down unconfigured: the first
 // required step VALUES still holds to do, as SetupGate offers its action.
 function unconfiguredText(values) {
