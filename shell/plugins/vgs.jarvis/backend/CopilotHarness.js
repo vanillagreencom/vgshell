@@ -5,8 +5,8 @@
 // Copilot proceeds. CopilotAcp is the protocol judge. Residuals: Copilot can
 // still load account MCP server, plugin and extension configuration, with those
 // tools hidden by the allow-list; Copilot also keeps each ACP session in its
-// own history under the account directory because ACP v1 has no close or
-// delete method and Copilot documents no no-session switch.
+// own history under the account directory because ACP v1 has no delete
+// method and Copilot documents no no-session switch.
 "use strict";
 const cp = require("node:child_process");
 const fs = require("node:fs");
@@ -19,7 +19,8 @@ const { childEnvironment } = require("./Secrets.js");
 // Copilot 1.0.91 documents ACP over stdio. Its shipped changelog.json says
 // `server/tool` and `server/*` filters match MCP tool names with slashes;
 // copilot-sdk/types.d.ts and toolSet.d.ts say availableTools is
-// source-qualified and makes only matching tools available; tmp/allowing-tools.md
+// source-qualified and makes only matching tools available; GitHub's page
+// https://docs.github.com/en/copilot/how-tos/copilot-cli/use-copilot-cli/allowing-tools
 // says --available-tools disables every other tool and wins over
 // --excluded-tools. The bridge uses vgs_jarvis/*, so a wrong filter form hides
 // the bridge and fails closed before a turn can act.
