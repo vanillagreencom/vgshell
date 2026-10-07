@@ -48,8 +48,9 @@ expect_poll "the second source reaches Hyprland" '"us,de"' keyboard_option input
 expect_poll "the aligned variants reach Hyprland" '",nodeadkeys"' keyboard_option input:kb_variant str
 expect_poll "two sources show the widget" true ipc smoke readInstance "$(bar_key)" vgs.keyboard visible
 expect_poll "the initial keymap is English" '["English (US)"]' keyboard_keymaps
+expect_poll "the initial widget code is US" '"US"' keyboard_active_code
 expect "the shipped widget uses the core transport" ok keyboard_transport_contract "$repo/shell/plugins/vgs.keyboard"
-click_item vgs:bar vgs.keyboard BarItem label "Keyboard layout" || fail "clicking the Keyboard widget failed"
+click_item "$(bar_key)" vgs.keyboard BarItem US || fail "clicking the Keyboard widget failed"
 expect_poll "the widget click switches the real keymap" '["German (no dead keys)"]' keyboard_keymaps
 expect_poll "the widget follows the active code" '"DE"' keyboard_active_code
 expect "the Keyboard pane opens" ok ipc shell summon window vgs.system '{"pane":"vgs.keyboard"}'
@@ -94,7 +95,8 @@ expect "the control layout reloads" ok ipc shell reloadConfig
 expect "enabling the control widget is allowed" ok ipc shell setPluginEnabled vgs.keyboard true
 expect_poll "the control starts on English" '["English (US)"]' keyboard_keymaps
 expect_poll "the control widget is visible before its click" true ipc smoke readInstance "$(bar_key)" vgs.keyboard visible
-click_item vgs:bar vgs.keyboard BarItem label "Keyboard layout" || fail "clicking the control widget failed"
+expect_poll "the control widget code is US" '"US"' keyboard_active_code
+click_item "$(bar_key)" vgs.keyboard BarItem US || fail "clicking the control widget failed"
 expect_poll "control: direct hyprctl changes the keymap" '["German (no dead keys)"]' keyboard_keymaps
 expect "control: the source contract rejects the direct transport" direct keyboard_transport_contract "$keyboard_copy"
 expect "disabling the control is allowed" ok ipc shell setPluginEnabled vgs.keyboard false

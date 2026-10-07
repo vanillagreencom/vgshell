@@ -2,6 +2,15 @@
 
 Choose keyboard layouts, set their order, and adjust how a held key repeats.
 
+![Keyboard input sources in the System window](../../../docs/images/plugins/vgs.keyboard-pane.webp)
+
+<details>
+<summary>Show command details</summary>
+
+Screenshot made with `scripts/readme-shots.sh` from the System scene in the nested sandbox.
+
+</details>
+
 ## Features
 
 - Add input sources and choose their variants in System → Keyboard.

@@ -15,6 +15,7 @@ vgs.power-panel.webp	power	power-dark-panel	content
 vgs.screensaver-cover.webp	screensaver	screensaver-dark-cover	full
 vgs.settings-window.webp	settings	settings-dark-list	content
 vgs.displays-pane.webp	system	system-dark-displays	content
+vgs.keyboard-pane.webp	system	system-dark-keyboard	content
 vgs.mouse-pane.webp	system	system-dark-mouse	content
 vgs.sound-pane.webp	system	system-dark-sound	content
 vgs.system-window.webp	system	system-dark-sound	content
