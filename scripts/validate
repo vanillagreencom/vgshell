@@ -1586,6 +1586,9 @@ if [[ -n $change_base ]]; then
         done
       done
       if [[ $known == false ]]; then
+        # A removed test has no remaining command to run. Its mapped
+        # consumers above still run; other unmapped inputs select full.
+        if [[ $path == scripts/test-* && ! -e $path && ! -L $path ]]; then continue; fi
         case "$path" in
           *.md|*.markdown|LICENSE|docs/*|.gitignore|.kendex*|kendex*.toml|.claude/*|.codex/*|.pi/*|.github/*) ;;
           .agents/skills/vgs-plugin/*)

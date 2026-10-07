@@ -801,6 +801,49 @@ for reason in unknown unreadable; do
   if out="$(cd -- "$d" && "${base_env[@]}" bash scripts/validate offline --changed "$base" --list 2>"$tmp/plan.err")" && [[ $out == "$full_plan" ]]; then ok "$reason input selects the full area"; else fail "$reason input omitted a suite: $out"; fi
 done
 
+# Deleting an unmapped test runs repository checks alone. Adding it still
+# selects full, and a deleted source outside scripts/test-* selects full.
+d="$tmp/deleted-test-plan"; fresh "$d"
+test_path="scripts/test-unmapped-probe.sh"
+printf 'true\n' >"$d/$test_path"
+out="$(cd -- "$d" && "${base_env[@]}" bash scripts/validate offline --changed HEAD --list 2>"$tmp/plan.err")"
+if [[ $out == "$full_plan" ]]; then ok "an untracked unmapped test selects full"; else fail "an untracked unmapped test selected: $out"; fi
+"${base_env[@]}" git -C "$d" add -- "$test_path"
+"${base_env[@]}" git -C "$d" commit -q -m test
+"${base_env[@]}" git -C "$d" update-ref refs/remotes/origin/trunk HEAD
+rm -- "${d:?}/$test_path"
+for args in default explicit; do
+  test_args=()
+  [[ $args == default ]] || test_args=(--changed HEAD)
+  out="$(cd -- "$d" && "${base_env[@]}" bash scripts/validate offline "${test_args[@]}" --list 2>"$tmp/plan.err")"
+  if [[ $out == "$repo_plan" ]]; then ok "an unmapped deleted test selects only repository checks: $args"; else fail "a deleted test selected unrelated checks: $args $out"; fi
+done
+test_args=()
+# The previous selection behavior must fail the deletion check.
+python3 - "$d/scripts/validate" <<'PYSELECT'
+import pathlib, sys
+p = pathlib.Path(sys.argv[1])
+s = p.read_text()
+needle = '        if [[ $path == scripts/test-* && ! -e $path && ! -L $path ]]; then continue; fi\n'
+assert s.count(needle) == 1, "deleted test exemption must match once"
+p.write_text(s.replace(needle, needle.replace('continue;', ':;')))
+PYSELECT
+for args in default explicit; do
+  test_args=()
+  [[ $args == default ]] || test_args=(--changed HEAD)
+  out="$(cd -- "$d" && "${base_env[@]}" bash scripts/validate offline "${test_args[@]}" --list 2>"$tmp/plan.err")"
+  if [[ $out == "$full_plan" && $out != "$repo_plan" ]]; then ok "control: the prior full-selection behavior fails the deletion check: $args"; else fail "control: deleted test selection did not change: $args $out"; fi
+done
+test_args=()
+
+d="$tmp/deleted-source-plan"; fresh "$d"
+printf 'source\n' >"$d/unmapped-source.rs"
+"${base_env[@]}" git -C "$d" add -- unmapped-source.rs
+"${base_env[@]}" git -C "$d" commit -q -m source
+rm -- "${d:?}/unmapped-source.rs"
+out="$(cd -- "$d" && "${base_env[@]}" bash scripts/validate offline --changed HEAD --list 2>"$tmp/plan.err")"
+if [[ $out == "$full_plan" ]]; then ok "a deleted unmapped source selects full"; else fail "a deleted source omitted checks: $out"; fi
+
 # Nested smoke row selection, read through the qml-smoke.sh command a
 # `--list` prints. The fixture's runner stands in for scripts/qml-smoke.sh
 # and lists the rows of its scripts/smoke/rows.list, skipping comments and
