@@ -33,7 +33,7 @@ function digest(token) { return crypto.createHash("sha256").update(token).digest
  * Session state, audit is the daemon's writer, directory is hello's
  * directories.runtime. Creation touches no file; open() starts one session.
  */
-function create({ router, state, audit, directory, clock = { set: setTimeout, clear: clearTimeout } }) {
+function create({ router, state, audit, directory, release, clock = { set: setTimeout, clear: clearTimeout } }) {
     if (typeof directory !== "string" || !path.isAbsolute(directory)) fail("directory");
     const socketPath = path.join(directory, "tools.sock");
     // Router call id -> {connection, request, recipients, answered}. The one
@@ -215,21 +215,31 @@ function create({ router, state, audit, directory, clock = { set: setTimeout, cl
         if (value.final) pending.delete(answer.id);
         if (entry.answered || entry.connection.closed) return true;
         entry.answered = true;
-        const released = Policy.release(answer.item, entry.recipients);
+        void release.prepare(value, entry.recipients).then(grants => {
+            if (grants === null || entry.connection.closed) return;
+            deliverReleased(value, answer, entry, grants);
+        }).catch(() => refuse(entry.connection, "release"));
+        return true;
+    }
+
+    function deliverReleased(value, answer, entry, grants) {
+        const released = Policy.release(answer.item, entry.recipients, grants);
         // The router labels an image as its text, so one decision covers both.
-        const pictured = answer.image === undefined ? null : Policy.release(answer.image.item, entry.recipients);
+        const pictured = answer.image === undefined ? null : Policy.release(answer.image.item, entry.recipients, grants);
         if (pictured !== null && pictured.kind !== released.kind) throw new Error("jarvis: bridge=image-release");
         const image = pictured === null ? null : pictured.kind === "send"
             ? { kind: "image", data: pictured.content.toString("base64"), mimeType: answer.image.type }
             : { kind: "marker", text: pictured.content };
         const recipients = [entry.recipients.brain, ...entry.recipients.speech].map(recipient => recipient.provider);
+        // prepare() already asked the conversation owner. Missing grants now
+        // mean the user declined, so this transfer records withholding.
+        const decision = released.kind === "ask" ? "withhold" : released.kind;
         const admitted = audit.before({ kind: "release", gen: value.gen, op: value.op, tool: "release",
-            args: { labels: released.labels, recipients }, effect: null, decision: released.kind,
+            args: { labels: released.labels, recipients }, effect: null, decision,
             confirmed: "none", outcome: "pending" }, () => write(entry.connection,
             Mcp.content(entry.request, released.content.toString(), value.outcome !== "completed", image)));
         if (admitted.kind === "refuse")
             write(entry.connection, Mcp.content(entry.request, JSON.stringify({ kind: "refuse", reason: admitted.reason }), true));
-        return true;
     }
 
     /** End a session: connections, socket and token. Calls in the router stay pending and are dropped. */

@@ -90,7 +90,9 @@ world(async () => {
         const ports = { ...unavailable(), mute: { store() {} },
             capture: { open: (e, done) => done(), close: (e, done) => done(), collect: (e, done) => { transcript = done; } },
             brain: { send() {}, cancel: (e, done) => done(), close() {} } };
-        const runner = new SessionRunner(Session, ports, { now: () => at, set: () => ({}), clear() {} }, () => {});
+        let engine = null;
+        const runnerClock = { now: () => at, set: () => ({}), clear() {} };
+        const runner = new SessionRunner(Session, ports, runnerClock, s => engine?.observe(s));
         let bridge = null, gate = null;
         const router = Router.create({ session: Session, state: () => runner.state, dispatch: e => runner.dispatch(e),
             context: () => ({ profile: options.profile ?? "standard", locked: false, denied: Denied.create(fixtures.roots) }),
@@ -101,7 +103,7 @@ world(async () => {
         gate = Gate.create({ router, state: () => runner.state });
         router.register("harness", gate.executor);
         const runtime = path.join(process.env.JARVIS_TEST_ROOT, "r" + serial.toString(36));
-        bridge = Bridge.create({ router, state: () => runner.state, audit, directory: runtime });
+        bridge = Bridge.create({ router, state: () => runner.state, audit, release: { prepare: (value, recipients) => engine === null ? Promise.resolve([]) : engine.release.prepare(value, recipients) }, directory: runtime });
         runner.dispatch({ type: "snapshot", locked: false, engine: "chained", configured: true, settings: {} });
         runner.dispatch({ type: "indicator", shown: true });
         runner.dispatch({ type: "talk-down" });
@@ -113,7 +115,16 @@ world(async () => {
             gen: runner.state.gen, harness: { bridge, gate, env, runtime: () => runtime } });
         brain.start({ instructions: "Be brief.", tools: [] });
         owners.push(() => { brain.close(); bridge.close(); gate.close(); audit.close(); });
-        return { Policy, Harness, Gate, runner, router, gate, bridge, brain, rows, starts, runtime, recipients, root, audit,
+        const installEngine = value => {
+            engine = value;
+            engine.observe(runner.state);
+            ports.release = engine.release;
+            const action = router.ports.approval;
+            ports.approval = { show: e => { if (e.purpose === "action") action.show(e); },
+                end: e => e.purpose === "release" ? engine.release.ended(e) : action.end(e),
+                refused: e => { if (e.purpose === "action") action.refused(e); } };
+        };
+        return { installEngine, runnerClock, Policy, Harness, Gate, runner, router, gate, bridge, brain, rows, starts, runtime, recipients, root, audit,
             time: value => { at = value; },
             show: () => runner.dispatch({ type: "shown", gen: runner.state.gen, op: runner.state.approval.op, id: runner.state.approval.id }),
             confirm: () => runner.dispatch({ type: "confirm", gen: runner.state.gen, id: runner.state.approval.id,
@@ -338,6 +349,44 @@ world(async () => {
             next.start({ instructions: "Be brief.", tools: [] });
             await assert.doesNotReject(drain(send(next)), "a later conversation opens its bridge session");
         },
+        async engineRelease(folder) {
+            const {folder: copied, Engine} = Fixture.copy(process.env.JARVIS_TEST_ROOT, [], folder);
+            for (const accept of [true, false]) {
+                scenario({turns: [[{mcp: {tool: "clipboard_read", arguments: {}}},
+                    {mcp: {tool: "clipboard_read", arguments: {}}}, {complete: "completed"}]]});
+                Fixture.reset();
+                const w = make(copied);
+                w.router.register("clipboard", {commands: ["wl-paste"], timeoutMs: 1000, cancellable: false,
+                    start: (_call, done) => done({outcome: "completed", content: "private fixture clipboard"})});
+                const engine = Engine.create({session: Session, state: () => w.runner.state, audit: w.audit, router: w.router,
+                    accounts: () => ({secrets: null, resolve: id => ({id, provider: "codex", label: "default",
+                        source: {kind: "cli", directory: account}, model: ""})}),
+                    policy: () => ({profile: "standard", cloudVision: "ask"}), fault: reason => assert.fail(reason),
+                    captionLimit: 4096, dispatch: e => w.runner.dispatch(e), clock: w.runnerClock,
+                    harness: {bridge: w.bridge, gate: w.gate, env, runtime: () => w.runtime}});
+                owners.unshift(() => engine.close()); w.installEngine(engine);
+                assert.deepEqual(engine.configure({brain: "codex-fixture"}), {kind: "ready"});
+                const {gen, turn: {op}} = w.runner.state;
+                let verdict;
+                engine.brain.send({gen, op, owner: 1, text: "read twice"}, kind => {verdict = kind;});
+                await until(() => w.runner.state.approval.kind === "held", "Codex result asks for release");
+                const held = w.runner.state.approval;
+                assert.equal(held.purpose, "release");
+                assert.equal(read("codex-log").filter(row => row.direction === "mcp").length, 0, "no result before decision");
+                if (accept) { w.show(); w.time(1000); w.confirm(); }
+                else w.runner.dispatch({type: "approval-cancel", gen, id: held.id});
+                await until(() => verdict !== undefined, "Codex tool execution completes");
+                assert.equal(verdict, "brain-done");
+                const results = read("codex-log").filter(row => row.direction === "mcp").map(row => row.message.result.result.content[0].text);
+                assert.deepEqual(results, Array(2).fill(accept ? "private fixture clipboard" : "[withheld: clipboard content]"));
+                assert.equal(w.rows().filter(row => row.kind === "release" && row.decision === "ask").length, 1);
+                const recipients = Fixture.control.opened.at(-1).recipients;
+                w.runner.dispatch({type: "stop"});
+                assert.equal(await engine.release.prepare({gen, op, results: [{item: w.Policy.item("late", ["clipboard"])}]}, recipients), null,
+                    "changed conversation refuses the prior bridge grant");
+                await engine.close();
+            }
+        },
         // The plan's context bound in user turns: past it the chained engine
         // ends the conversation cleanly, as it does a wire brain's.
         async limit(folder) {
@@ -350,7 +399,7 @@ world(async () => {
                 accounts: () => ({ secrets: null, choose: id => ({ kind: "accepted", account: { id, provider: "codex", label: "default",
                     source: { kind: "cli", directory: account }, model: "" } }) }),
                 policy: () => ({ profile: "standard", cloudVision: "ask" }), fault: reason => assert.fail("fault " + reason),
-                captionLimit: 4096, harness: { bridge: w.bridge, gate: w.gate, env, runtime: () => w.runtime } });
+                captionLimit: 4096, dispatch: e => w.runner.dispatch(e), clock: w.runnerClock, harness: { bridge: w.bridge, gate: w.gate, env, runtime: () => w.runtime } });
             owners.unshift(() => engine.close());
             assert.deepEqual(engine.configure({ brain: "codex-fixture" }), { kind: "ready" });
             const { gen, turn: { op } } = w.runner.state;

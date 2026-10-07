@@ -161,9 +161,9 @@ hold_markers="$(ipc smoke holdMarkerCount)"
 hold_delayed_keyboard=""
 hold_start_keyboard jarvis "$sandbox/keyboard" us ""
 jarvis_key_startup
-expect_poll "Jarvis registers only its implemented shortcuts" 4 hold_native vgs.jarvis:
+expect_poll "Jarvis registers only its implemented shortcuts" 5 hold_native vgs.jarvis:
 expect_poll "the service reads the effective default key map" \
-  '{"talk":"SUPER+code:108","mute":"SUPER+SHIFT+code:108","stop":"SUPER+ALT+PERIOD"}' \
+  '{"talk":"SUPER+code:108","mute":"SUPER+SHIFT+code:108","stop":"SUPER+ALT+PERIOD","confirm":"SUPER+ALT+Y"}' \
   ipc smoke readInstance service vgs.jarvis effectiveKeys
 : >"$jarvis_gate"
 jarvis_key_muted

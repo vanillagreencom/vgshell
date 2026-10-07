@@ -77,7 +77,9 @@ world(async () => {
         const ports = { ...unavailable(), mute: { store() {} },
             capture: { open: (e, done) => done(), close: (e, done) => done(), collect: (e, done) => { transcript = done; } },
             brain: { send() {}, cancel: (e, done) => done(), close() {} } };
-        const runner = new SessionRunner(Session, ports, { now: () => at, set: () => ({}), clear() {} }, () => {});
+        let engine = null;
+        const runnerClock = { now: () => at, set: () => ({}), clear() {} };
+        const runner = new SessionRunner(Session, ports, runnerClock, s => engine?.observe(s));
         let bridge = null;
         const router = Router.create({ session: Session, state: () => runner.state, dispatch: e => runner.dispatch(e),
             context: () => ({ profile: "standard", locked, denied: Denied.create(fixtures.roots) }),
@@ -95,7 +97,7 @@ world(async () => {
             brain: { kind: "network", provider: "claude", account: "fixture", origin: "https://api.anthropic.com" },
             speech: [{ kind: "local", provider: "fixture-speech", account: "" }] });
         const runtime = path.join(process.env.JARVIS_TEST_ROOT, "r" + serial.toString(36));
-        bridge = Bridge.create({ router, state: () => runner.state, audit, directory: runtime,
+        bridge = Bridge.create({ router, state: () => runner.state, audit, release: { prepare: (value, recipients) => engine === null ? Promise.resolve([]) : engine.release.prepare(value, recipients) }, directory: runtime,
             clock: { set: () => ({}), clear() {} } });
         const a = account(script);
         let opened = null;
@@ -149,6 +151,16 @@ world(async () => {
             }
             assert.fail(what + " never held");
         };
+        const installEngine = value => {
+            engine = value;
+            engine.observe(runner.state);
+            ports.release = engine.release;
+            const action = router.ports.approval;
+            ports.approval = { show: e => { if (e.purpose === "action") action.show(e); },
+                end: e => e.purpose === "release" ? engine.release.ended(e) : action.end(e),
+                refused: e => { if (e.purpose === "action") action.refused(e); } };
+        };
+        w.installEngine = installEngine; w.runnerClock = runnerClock;
         return w;
     }
     async function cleanup() { while (owners.length) await owners.pop()(); }
@@ -396,6 +408,47 @@ world(async () => {
             await bounded(closing, "late close");
             assert.equal(closedSessions, 1, "the late session is closed");
         }],
+        ["engine-release", async folder => {
+            const outer = path.dirname(folder);
+            for (const name of ["Session.js", "JarvisProtocol.js", "AccountProviders.js"])
+                if (!fs.existsSync(path.join(outer, name))) fs.copyFileSync(path.join(backend, "..", name), path.join(outer, name));
+            if (!fs.existsSync(path.join(folder, "skills"))) fs.cpSync(path.join(backend, "skills"), path.join(folder, "skills"), {recursive: true});
+            const {folder: copied, Engine} = Fixture.copy(process.env.JARVIS_TEST_ROOT, [], outer);
+            for (const accept of [true, false]) {
+                Fixture.reset();
+                const w = await make(path.join(copied, "backend"), {turns: [[{tool: "clipboard_read", arguments: {}},
+                    {tool: "clipboard_read", arguments: {}}]]});
+                w.router.register("clipboard", {commands: ["wl-paste"], timeoutMs: 1000, cancellable: false,
+                    start: (_call, done) => done({outcome: "completed", content: "private fixture clipboard"})});
+                const engine = Engine.create({session: Session, state: () => w.runner.state, audit: w.audit, router: w.router,
+                    accounts: () => ({secrets: null, resolve: id => ({id, provider: "claude", label: "default",
+                        source: {kind: "cli", directory: w.account.directory}, model: ""})}),
+                    policy: () => ({profile: "standard", cloudVision: "ask"}), fault: reason => assert.fail(reason),
+                    captionLimit: 4096, dispatch: e => w.runner.dispatch(e), clock: w.runnerClock,
+                    harness: {bridge: w.bridge, gate: {}, env: {...process.env, ...PLANTED}, runtime: () => w.runtime}});
+                owners.push(() => engine.close()); w.installEngine(engine);
+                assert.deepEqual(engine.configure({brain: "claude-fixture"}), {kind: "ready"});
+                const {gen, turn: {op}} = w.runner.state;
+                let verdict;
+                engine.brain.send({gen, op, owner: 1, text: "read twice"}, kind => {verdict = kind;});
+                await w.until(() => w.runner.state.approval.kind === "held", "Claude result asks for release");
+                const held = w.runner.state.approval;
+                assert.equal(held.purpose, "release");
+                assert.equal(w.account.events().filter(row => row.kind === "tool-result").length, 0, "no result before decision");
+                if (accept) { w.show(); w.time(1000); w.confirm(); }
+                else w.runner.dispatch({type: "approval-cancel", gen, id: held.id});
+                await w.until(() => verdict !== undefined, "Claude tool execution completes");
+                assert.equal(verdict, "brain-done");
+                const results = w.account.events().filter(row => row.kind === "tool-result").map(row => row.answer.result.content[0].text);
+                assert.deepEqual(results, Array(2).fill(accept ? "private fixture clipboard" : "[withheld: clipboard content]"));
+                assert.equal(w.rows().filter(row => row.kind === "release" && row.decision === "ask").length, 1);
+                const recipients = Fixture.control.opened.at(-1).recipients;
+                w.runner.dispatch({type: "stop"});
+                assert.equal(await engine.release.prepare({gen, op, results: [{item: w.Policy.item("late", ["clipboard"])}]}, recipients), null,
+                    "changed conversation refuses the prior bridge grant");
+                engine.close();
+            }
+        }],
         ["engine", async folder => {
             // The engine copy is made from this backend folder, so a mutant
             // applies; a mutant folder holds only the backend modules.
@@ -411,10 +464,11 @@ world(async () => {
                 accounts: () => ({ secrets: null, choose: id => ({ kind: "accepted", account: { id, provider: "claude", label: "default",
                     source: { kind: "cli", directory: w.account.directory }, model: "" } }) }),
                 policy: () => ({ profile: "standard", cloudVision: "ask" }), fault: reason => assert.fail("fault " + reason),
-                captionLimit: 4096,
+                captionLimit: 4096, dispatch: e => w.runner.dispatch(e), clock: w.runnerClock,
                 // Built-in tools are off, so no approval request reaches the gate.
                 harness: { bridge: w.bridge, gate: Object.freeze({}), env: { ...process.env, ...PLANTED }, runtime: () => w.runtime } });
             owners.push(async () => engine.close());
+            w.installEngine(engine);
             let answer;
             assert.doesNotThrow(() => { answer = engine.configure({ brain: "claude-fixture" }); }, "the engine has a Claude Code driver");
             assert.deepEqual(answer, { kind: "ready" });

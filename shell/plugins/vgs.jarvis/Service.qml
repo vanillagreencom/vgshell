@@ -50,6 +50,7 @@ Item {
                 () => intent("talk-down"), () => intent("talk-up"));
             shell.shortcut.register("mute", "Mute Jarvis", () => intent("mute"));
             shell.shortcut.register("stop", "Stop Jarvis", () => intent("stop"));
+            shell.shortcut.register("confirm", "Confirm Jarvis request", () => confirmApproval(displayedApproval(), "key"));
             // The bar widget's click and `vgshell ipc call vgs.jarvis invoke
             // mute` reach the Mute key's intent.
             shell.ipc.handle("mute", () => { intent("mute"); return "ok"; });
@@ -201,6 +202,30 @@ Item {
         }
         if (lifetime.kind !== "ready" || cause !== "" || !child.running) return;
         sendIntent(name);
+    }
+
+    function displayedApproval() {
+        const item = bubbles.find(item => item !== null && item.approvalPresented);
+        return item === undefined ? null : item.displayedHold;
+    }
+
+    function shownApproval(item, hold) {
+        if (hold === null || !item.approvalPresented || item.displayedHold !== hold
+                || sessionState === null || sessionState.approval.kind !== "held"
+                || sessionState.approval.id !== hold.id || sessionState.gen !== hold.gen
+                || sessionState.approval.digest !== hold.digest
+                || lifetime.kind !== "ready" || cause !== "" || !child.running) return;
+        send({ type: "shown", id: hold.id });
+    }
+
+    function confirmApproval(hold, source) {
+        if (hold === null || lifetime.kind !== "ready" || cause !== "" || !child.running) return;
+        send({ type: "intent", intent: "confirm", gen: hold.gen, id: hold.id, digest: hold.digest, source: source });
+    }
+
+    function cancelApproval(hold) {
+        if (hold === null || lifetime.kind !== "ready" || cause !== "" || !child.running) return;
+        send({ type: "intent", intent: "cancel", gen: hold.gen, id: hold.id });
     }
 
     function sendIntent(name) {

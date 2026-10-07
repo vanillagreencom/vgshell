@@ -78,7 +78,7 @@ const table = [
         for (const source of ["button", "voice"]) {
             const h = held(logic, false);
             const shown = step(logic, h, callback("shown", h.approval, 50)).state;
-            assert.equal(confirmation(logic, shown, 750, { source }).state.action.kind, "running");
+            assert.equal(confirmation(logic, shown, 1750, { source, beganAt: 1050, idleAt: 0 }).state.action.kind, "running");
         }
     }],
     ...[
@@ -86,11 +86,11 @@ const table = [
         ["confirm-digest", { digest: "b".repeat(64) }, "identity"],
         ["confirm-generation", { gen: 999 }, "identity"],
         ["confirm-source", { source: "model" }, "source"],
-        ["confirm-physical", { source: "voice" }, "voice-physical"]
+        ["confirm-physical", { source: "voice", beganAt: 1050, idleAt: 0 }, "voice-physical"]
     ].map(([name, extra, reason]) => [name, logic => {
         const h = held(logic);
         const s = step(logic, h, callback("shown", h.approval, 50)).state;
-        const r = confirmation(logic, s, 750, extra);
+        const r = confirmation(logic, s, extra.source === "voice" ? 1750 : 750, extra);
         assert.equal(r.effects.find(e => e.kind === "confirm-refused")?.reason, reason);
         assert.equal(r.state.action.kind, "none");
         assert.equal(r.state.approval.kind, "held");
@@ -265,18 +265,16 @@ const table = [
     }],
     ["hold-approval", logic => {
         const s = held(logic);
-        const results = ["talk-down", "interrupt"].map(type => step(logic, s, event(type, 50)));
-        for (const r of results) {
-            assert.equal(r.state.approval.kind, "none", "both interruption sources retire approval");
-            assert.equal(r.state.turn.kind, "cancelling");
-            const ended = r.effects.find(e => e.kind === "approval-ended");
-            assert.equal(ended.id, s.approval.id);
-            assert.equal(ended.target, s.approval.op);
-            assert.equal(ended.reason, "interrupt");
-        }
-        assert.deepEqual(results[0].effects, results[1].effects);
-        const repeated = step(logic, results[0].state, event("talk-down", 51));
-        assert.deepEqual(repeated, { state: results[0].state, effects: [] });
+        const speaking = step(logic, s, event("talk-down", 50));
+        assert.deepEqual(speaking.state.approval, s.approval, "Talk records an answer to the existing hold");
+        assert.equal(speaking.state.turn.kind, "thinking");
+        assert.equal(speaking.state.input.kind, "held");
+        const repeated = step(logic, speaking.state, event("talk-down", 51));
+        assert.deepEqual(repeated, { state: speaking.state, effects: [] });
+        const interrupted = step(logic, s, event("interrupt", 50));
+        assert.equal(interrupted.state.approval.kind, "none");
+        assert.equal(interrupted.state.turn.kind, "cancelling");
+        assert.equal(interrupted.effects.find(e => e.kind === "approval-ended").reason, "interrupt");
     }],
     ["toggle-debounce", logic => {
         const s = step(logic, ready(logic), event("toggle", 100)).state;
@@ -550,29 +548,35 @@ const table = [
         assert.deepEqual(kinds(r), ["brain-cancel"]);
     }],
     ["thinking-approval-expiry", logic => {
-        for (const entry of ["deadline", "confirm"]) for (const acknowledged of [false, true]) {
-            let s = thinking(logic);
-            s = step(logic, s, callback("approval", s.turn, 10030, { id: "late-hold", digest: "a".repeat(64),
-                physical: true, text: "Delete the fixture", tool: "fixture", timeoutMs: 100, cancellable: true })).state;
-            const approval = copy(s.approval);
-            s = step(logic, s, callback("shown", approval, 10031)).state;
-            assert.equal(s.turn.deadline, 60030);
-            assert.equal(s.approval.deadline, 70030);
-            const expiry = step(logic, s, entry === "deadline" ? callback("deadline", s.turn, 60030)
-                : callback("confirm", approval, 60030, { source: "key" }));
-            assert.equal(expiry.state.approval.kind, "none");
-            assert.equal(expiry.state.turn.kind, "cancelling");
-            assert.equal(expiry.state.fault.reason, "thinking-timeout");
-            assert.equal(expiry.effects.find(e => e.kind === "approval-ended")?.reason, "thinking-timeout");
-            assert.equal(kinds(expiry).includes("tool-start"), false);
-            s = expiry.state;
-            if (acknowledged) s = step(logic, s, callback("cancelled", s.turn, 60030)).state;
-            assert.equal(s.turn.kind, acknowledged ? "none" : "cancelling");
-            const confirmed = step(logic, s, callback("confirm", approval, 60030, { source: "key" }));
-            assert.equal(confirmed.effects.find(e => e.kind === "confirm-refused")?.reason, "no-hold");
-            assert.equal(kinds(confirmed).includes("tool-start"), false);
-            assert.equal(confirmed.state.action.kind, "none");
+        let s = thinking(logic);
+        s = step(logic, s, callback("approval", s.turn, 10030, { id: "late-hold", digest: "a".repeat(64),
+            physical: true, text: "Delete the fixture", tool: "fixture", timeoutMs: 100, cancellable: true })).state;
+        const approval = copy(s.approval);
+        s = step(logic, s, callback("shown", approval, 10031)).state;
+        assert.equal(s.turn.deadline, 130030);
+        assert.equal(s.approval.deadline, 70030);
+        const oldDeadline = step(logic, s, callback("deadline", s.turn, 60030));
+        assert.deepEqual(oldDeadline, { state: s, effects: [] }, "the earlier thinking deadline cannot retire a hold");
+        const confirmed = step(logic, s, callback("confirm", approval, 60030, { source: "key" }));
+        assert.equal(confirmed.state.action.kind, "running");
+        assert.equal(confirmed.state.turn.deadline, 120030);
+        const expired = step(logic, s, callback("deadline", s.turn, 70030));
+        assert.equal(expired.state.approval.kind, "none");
+        assert.equal(expired.state.turn.kind, "thinking");
+        assert.equal(expired.state.turn.deadline, 130030);
+        assert.equal(expired.state.fault.kind, "none");
+        assert.equal(expired.effects.find(e => e.kind === "approval-ended").reason, "timeout");
+    }],
+    ["voice-timing", logic => {
+        const h = held(logic, false);
+        const s = step(logic, h, callback("shown", h.approval, 2500)).state;
+        for (const extra of [{}, {beganAt: 2000, idleAt: 0}, {beganAt: 3000, idleAt: 2001},
+            {beganAt: 4500, idleAt: 0}]) {
+            assert.equal(confirmation(logic, s, 4000, {source: "voice", ...extra}).effects
+                .find(e => e.kind === "confirm-refused")?.reason, "voice-timing");
         }
+        const playing = copy(s); playing.playback = duplexSpeaking(logic).playback;
+        assert.equal(confirmation(logic, playing, 4000, {source: "voice", beganAt: 3000, idleAt: 0}).state.action.kind, "none");
     }],
     ["approval-end-reasons", logic => {
         for (const [reason, ending] of [
@@ -1137,10 +1141,14 @@ try {
             "(false && e.at - approval.shownAt < APPROVAL_DRAW_MS)", "confirm-draw"],
         ["confirm-physical", 'e.source === "voice" && approval.physical',
             'false && e.source === "voice" && approval.physical', "confirm-physical"],
-        ["confirm-once", 's.approval = { kind: "none" };\n        var accepted',
-            's.approval = approval;\n        var accepted', "confirmation"],
-        ["confirm-replaced", 'dropApproval(s, effects, "interrupt");',
-            'if (false) dropApproval(s, effects, "interrupt");', "confirm-replaced"],
+        ["voice-after-draw", "e.beganAt < approval.shownAt", "false", "voice-timing"],
+        ["voice-before-final", "e.beganAt > e.at", "false", "voice-timing"],
+        ["voice-playback-quiet", "e.beganAt - e.idleAt < VOICE_QUIET_MS", "false", "voice-timing"],
+        ["voice-playback-idle", 's.playback.kind !== "idle") ? "voice-timing"', 'false) ? "voice-timing"', "voice-timing"],
+        ["confirm-once", 's.approval = { kind: "none" };\n        if (s.turn.kind',
+            's.approval = approval;\n        if (s.turn.kind', "confirmation"],
+        ["confirm-replaced", 'dropApproval(s, effects, "interrupt", at);',
+            'if (false) dropApproval(s, effects, "interrupt", at);', "confirm-replaced"],
         ["shown-id", 'if (e.id !== s.approval.id) { stale(s); break; }',
             'if (false && e.id !== s.approval.id) { stale(s); break; }', "shown-id"],
         ["cancel-id", 'if (e.id !== s.approval.id || e.gen !== s.approval.gen)',
@@ -1183,8 +1191,8 @@ try {
             'if (false && s.input.kind === "held") break;', "hold-edges"],
         ["retire-collect", 'else if (s.turn.kind === "collecting") s.turn = { kind: "none" };',
             'else if (false && s.turn.kind === "collecting") s.turn = { kind: "none" };', "hold-replacement"],
-        ["retire-approval", 'dropApproval(s, effects, "interrupt");',
-            'if (false) dropApproval(s, effects, "interrupt");', "hold-approval"],
+        ["retire-approval", 'dropApproval(s, effects, "interrupt", at);',
+            'if (false) dropApproval(s, effects, "interrupt", at);', "hold-approval"],
         ["completed-brain", 'if (s.turn.kind === "none") closeBrain(s, effects);',
             'if (false && s.turn.kind === "none") closeBrain(s, effects);', "completed-brain-owner"],
         ["retain-brain", 'if (s.brain.kind === "closed") s.brain = { kind: "acquired", gen: brain.gen, op: brain.op };',
@@ -1208,12 +1216,12 @@ try {
             'if (false) { stale(s); break; }\n        s.turn = { kind: "none" };\n        s.fault', "collect-failed"],
         ["brain-ended-clean", 's.turn = { kind: "none" };\n        end(s, effects, e.at, e.reason, false);',
             's.turn = { kind: "none" };\n        s.fault = { kind: "error", reason: e.reason, retry: 0 };\n        end(s, effects, e.at, e.reason, false);', "brain-ended"],
-        ["think-bound", 's.turn.kind === "thinking" && at >= s.turn.deadline',
-            's.turn.kind === "thinking" && false && at >= s.turn.deadline', "thinking-timeout"],
-        ["thinking-approval-expiry", 'dropApproval(s, effects, "thinking-timeout");',
-            'if (false) dropApproval(s, effects, "thinking-timeout");', "thinking-approval-expiry"],
-        ["approval-end-reasons", 'dropApproval(s, effects, reason);',
-            'dropApproval(s, effects, "thinking-timeout");', "approval-end-reasons"],
+        ["think-bound", 's.turn.kind === "thinking" && s.approval.kind !== "held" && at >= s.turn.deadline',
+            's.turn.kind === "thinking" && s.approval.kind !== "held" && false && at >= s.turn.deadline', "thinking-timeout"],
+        ["thinking-approval-expiry", 's.turn.deadline = s.approval.deadline + RESPONSE_TIMEOUT_MS;',
+            's.turn.deadline = e.at;', "thinking-approval-expiry"],
+        ["approval-end-reasons", 'dropApproval(s, effects, reason, at);',
+            'dropApproval(s, effects, "thinking-timeout", at);', "approval-end-reasons"],
         ["approval-bound", 's.approval.kind === "held" && at >= s.approval.deadline',
             's.approval.kind === "held" && false && at >= s.approval.deadline', "approval-timeout"],
         ["late-callback", 'if (e.type !== "deadline") expire(s, effects, e.at);',

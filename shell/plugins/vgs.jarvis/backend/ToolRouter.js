@@ -333,7 +333,10 @@ function create({ session, state, dispatch, context, audit, result }) {
                 });
             } },
         approval: {
-            show() {},
+            show(e) {
+                if (pending === null || pending.id !== e.id) throw new Error("jarvis: router=approval-identity");
+                // Session publishes the immutable text before this effect runs.
+            },
             end(e) {
                 if (pending === null || pending.id !== e.id) throw new Error("jarvis: router=approval-identity");
                 refuse(pending, e.reason);

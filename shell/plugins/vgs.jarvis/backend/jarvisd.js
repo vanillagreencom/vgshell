@@ -349,7 +349,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                     // A harness brain opens the bridge's session for its conversation;
                     // until one is selected no socket exists.
                     bridge = ToolBridge.create({ router, state: () => runner.state, audit,
-                        directory: context.directories.runtime });
+                        directory: context.directories.runtime, release: { prepare: (value, recipients) => engine.release.prepare(value, recipients) } });
                     gate = HarnessGate.create({ router, state: () => runner.state });
                     router.register("harness", gate.executor);
                     // Executor owners register only after their real probes.
@@ -402,9 +402,16 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                     engine = ChainedEngine.create({ session: Session, state: () => runner.state, audit, router,
                         accounts: () => new Accounts(state, process.env),
                         policy: () => ({ profile: profile(), cloudVision: context.settings.cloudVision }), fault,
-                        captionLimit: Protocol.TRANSCRIPT_CHARS,
+                        captionLimit: Protocol.TRANSCRIPT_CHARS, dispatch: event => runner.dispatch(event), clock,
                         harness: { bridge, gate, env: process.env, runtime: () => context.directories.runtime },
                         directories: context.directories });
+                    const actionApproval = runner.ports.approval;
+                    runner.ports.approval = {
+                        show: e => { if (e.purpose === "action") actionApproval.show(e); },
+                        end: e => e.purpose === "release" ? engine.release.ended(e) : actionApproval.end(e),
+                        refused: e => { if (e.purpose === "action") actionApproval.refused(e); }
+                    };
+                    runner.ports.release = engine.release;
                     runner.ports.brain = engine.brain;
                     runner.ports.capture = { ...runner.ports.capture, collect: engine.collect };
                     runner.ports.playback = engine.playback(audio.playbackPort);

@@ -156,6 +156,41 @@ jarvis_bubble_begin() {
   expect_poll "the listening bubble has presented on its own host" presented jarvis_bubble_state
 }
 
+# The real service acknowledges the frame, then Session applies its draw
+# interval. Repeated physical presses exercise that interval without a sleep.
+jarvis_bubble_approval() { # action|release
+  jarvis_bubble_begin
+  jarvis_bubble_think
+  jarvis_key_gate "approve-$1"
+  expect_poll "the scripted request reaches the held region" held jarvis_key_state approval
+}
+jarvis_bubble_acknowledged() {
+  ipc smoke jarvisProcess | py_reply '
+import json,sys
+a=json.load(sys.stdin)["status"]["detail"]["state"]["approval"]
+print("drawn" if a["kind"]=="held" and a["shownAt"] is not None else "pending")
+'
+}
+jarvis_bubble_confirm_key() {
+  hold_send "down 133" "down 64" "down 29" "up 29" "up 64" "up 133"
+  jarvis_key_state approval
+}
+jarvis_bubble_answer_button() { # BUTTON
+  local point x y
+  point="$(point_item vgs:layer vgs.jarvis Button text "$1")" || return 1
+  read -r x y <<<"$point" || return 1
+  click "$x" "$y" || return 1
+  jarvis_key_state approval
+}
+jarvis_bubble_accept() { # key|BUTTON EFFECT EXPECTED
+  if [[ $1 == key ]]; then
+    expect_poll "the effective key confirms the drawn request" none jarvis_bubble_confirm_key
+  else
+    expect_poll "the bubble button answers its drawn request" none jarvis_bubble_answer_button "$1"
+  fi
+  expect "the answer reaches the request owner exactly once" "$3" jarvis_key_effects "$2"
+}
+
 jarvis_bubble_engine="$repo/shell/plugins/vgs.jarvis/backend/ChainedEngine.js"
 cp -- "$jarvis_bubble_engine" "$sandbox/jarvis-bubble-engine-before"
 jarvis_disable
@@ -225,6 +260,22 @@ jarvis_key_talk_up
 jarvis_key_mute
 expect_poll "explicit unmute does not restore capture" off jarvis_key_state mute
 expect "unmute still leaves no capture" closed jarvis_key_state capture
+
+for jarvis_bubble_answer in key Confirm Cancel Yes No; do
+  jarvis_bubble_purpose=action
+  case "$jarvis_bubble_answer" in Yes|No) jarvis_bubble_purpose=release ;; esac
+  jarvis_bubble_effect=tool-start
+  case "$jarvis_bubble_answer" in Cancel|No) jarvis_bubble_effect=approval-ended ;; Yes) jarvis_bubble_effect=release-confirmed ;; esac
+  jarvis_bubble_before="$(jarvis_key_effects "$jarvis_bubble_effect")"
+  jarvis_bubble_approval "$jarvis_bubble_purpose"
+  expect_poll "the held request receives a drawn-frame acknowledgment" drawn jarvis_bubble_acknowledged
+  expect "drawing a hold starts no request" "$jarvis_bubble_before" jarvis_key_effects "$jarvis_bubble_effect"
+  expect "approval keeps the application's keyboard focus" '["smoke.other", "Other window"]' active_window
+  geometry expect_poll "the held request stays inside its surface" bottom-centre jarvis_bubble_geometry
+  jarvis_bubble_accept "$jarvis_bubble_answer" "$jarvis_bubble_effect" "$((jarvis_bubble_before + 1))"
+  jarvis_key_stop
+  jarvis_key_stop_assertion
+done
 
 jarvis_bubble_reply="$(python3 -c 'print(" ".join(["scripted reply"] * 24))')"
 jarvis_bubble_begin
@@ -296,8 +347,12 @@ jarvis_disable
 # words controls keep the caption on the wire and break one bubble rule each.
 jarvis_bubble_file="$repo/shell/plugins/vgs.jarvis/Bubble.qml"
 cp -- "$jarvis_bubble_file" "$sandbox/jarvis-bubble-before"
-for jarvis_bubble_mutant in geometry focus words lines head generation; do
-  python3 - "$jarvis_bubble_file" "$jarvis_bubble_mutant" <<'PY'
+for jarvis_bubble_mutant in geometry focus words lines head generation approval-key approval-button approval-cancel approval-shown; do
+  jarvis_bubble_mutation_file="$jarvis_bubble_file"
+  if [[ $jarvis_bubble_mutant == approval-key || $jarvis_bubble_mutant == approval-shown ]]; then
+    jarvis_bubble_mutation_file="$jarvis_key_service"
+  fi
+  python3 - "$jarvis_bubble_mutation_file" "$jarvis_bubble_mutant" <<'PY'
 from pathlib import Path
 import sys
 p=Path(sys.argv[1]); assert not p.is_symlink()
@@ -307,7 +362,11 @@ needle,replacement={
     "words": ('caption.role === "assistant"', "false"),
     "lines": ("Theme.voiceBubble.textLines * tail.lineBox", "(Theme.voiceBubble.textLines + 1) * tail.lineBox"),
     "head": ("y: parent.height - height", "y: 0"),
-    "generation": ("caption.gen === state.gen", "true")
+    "generation": ("caption.gen === state.gen", "true"),
+    "approval-key": ('() => confirmApproval(displayedApproval(), "key")', '() => {}'),
+    "approval-button": ('root.service.confirmApproval(root.displayedHold, "button")', 'void root.displayedHold'),
+    "approval-cancel": ('root.service.cancelApproval(root.displayedHold)', 'void root.displayedHold'),
+    "approval-shown": ('send({ type: "shown", id: hold.id });', 'void hold;')
 }[sys.argv[2]]
 s=p.read_text(); assert s.count(needle)==1
 changed=s.replace(needle,replacement); assert changed!=s
@@ -315,6 +374,41 @@ p.write_text(changed)
 PY
   jarvis_rescan
   jarvis_enable
+  case "$jarvis_bubble_mutant" in
+    approval-*)
+      jarvis_bubble_approval action
+      case "$jarvis_bubble_mutant" in
+        approval-shown)
+          jarvis_bubble_failures="$(
+            failures=0 behaviour_failures=0
+            expect_poll "the held request receives a drawn-frame acknowledgment" drawn jarvis_bubble_acknowledged >"$sandbox/$jarvis_bubble_mutant.log"
+            echo "$failures"
+          )"
+          expect "control: a dropped acknowledgment fails the same presented-frame assertion" 1 printf '%s\n' "$jarvis_bubble_failures" ;;
+        *)
+          expect_poll "control: the retained frame acknowledgment reaches Session" drawn jarvis_bubble_acknowledged
+          jarvis_bubble_before="$(jarvis_key_effects tool-start)"
+          jarvis_bubble_answer=Confirm
+          jarvis_bubble_effect=tool-start
+          [[ $jarvis_bubble_mutant != approval-key ]] || jarvis_bubble_answer=key
+          if [[ $jarvis_bubble_mutant == approval-cancel ]]; then
+            jarvis_bubble_answer=Cancel
+            jarvis_bubble_effect=approval-ended
+            jarvis_bubble_before="$(jarvis_key_effects "$jarvis_bubble_effect")"
+          fi
+          jarvis_bubble_failures="$(
+            failures=0 behaviour_failures=0
+            jarvis_bubble_accept "$jarvis_bubble_answer" "$jarvis_bubble_effect" "$((jarvis_bubble_before + 1))" >"$sandbox/$jarvis_bubble_mutant.log"
+            echo "$failures"
+          )"
+          expect "control: dropping the confirmation path fails the same approval assertion" 2 printf '%s\n' "$jarvis_bubble_failures" ;;
+      esac
+      jarvis_key_stop
+      jarvis_disable
+      cp -- "$sandbox/jarvis-bubble-before" "$jarvis_bubble_file"
+      cp -- "$sandbox/jarvis-key-service-before" "$jarvis_key_service"
+      continue ;;
+  esac
   jarvis_bubble_begin
   case "$jarvis_bubble_mutant" in
     geometry)

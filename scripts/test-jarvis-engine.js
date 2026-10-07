@@ -84,7 +84,12 @@ function rig(kit, server, options = {}) {
         source: { kind: "local", origin: "http://127.0.0.1:" + PORT }, model: "fixture-model" } }) });
     engine = kit.Engine.create({ session: Session, state: () => runner.state, audit, router, accounts,
         policy: () => ({ profile: "standard", cloudVision: "ask" }), fault: reason => faults.push(reason),
-        captionLimit: options.captionLimit ?? Protocol.TRANSCRIPT_CHARS });
+        captionLimit: options.captionLimit ?? Protocol.TRANSCRIPT_CHARS, dispatch: e => runner.dispatch(e), clock: runnerClock });
+    ports.release = engine.release;
+    const actionApproval = ports.approval;
+    ports.approval = { show: e => { if (e.purpose === "action") actionApproval.show(e); },
+        end: e => e.purpose === "release" ? engine.release.ended(e) : actionApproval.end(e),
+        refused: e => { if (e.purpose === "action") actionApproval.refused(e); } };
     ports.brain = engine.brain;
     ports.capture.collect = engine.collect;
     ports.playback = engine.playback(audio.playbackPort);
@@ -479,11 +484,83 @@ async function cases(kit, server, only = null) {
     await run("release-markers", async w => {
         const first = await say(w, utterance("Read my clipboard."));
         server.replies.push(calls({ id: "call_1", name: "clipboard_read", arguments: {} }), text(""));
+        await until(() => w.s().approval.kind === "held", "clipboard release is held before transfer");
+        assert.equal(server.requests.length, first + 1, "the recipient has no tool result before the decision");
+        assert.equal(w.s().approval.purpose, "release");
+        w.runner.dispatch({type: "approval-cancel", gen: w.s().gen, id: w.s().approval.id});
         const body = await requested(w, first + 2, "the tool-results request");
         assert.equal(body.messages.find(message => message.role === "tool").content, "[withheld: clipboard content]");
         assert.equal(JSON.stringify(body).includes("clipboard words"), false);
         assert.ok(w.rows().some(row => row.kind === "release" && row.decision === "ask"), "the ask decision is audited");
     }, { fixture: { recipients: [{ kind: "network", provider: "scripted-voice", account: "fixture", origin: "http://192.0.2.1:9" }] } });
+
+    await run("release-grants", async w => {
+        const first = await say(w, utterance("Read my clipboard."));
+        server.replies.push(calls({id: "call_1", name: "clipboard_read", arguments: {}}), text(""));
+        await until(() => w.s().approval.kind === "held", "release question arrives");
+        const h = w.s().approval;
+        w.runner.dispatch({type: "shown", gen: h.gen, op: h.op, id: h.id});
+        w.advanceRunner(1000);
+        w.runner.dispatch({type: "confirm", gen: h.gen, id: h.id, digest: h.digest, source: "button"});
+        const body = await requested(w, first + 2, "granted result reaches brain");
+        assert.equal(body.messages.find(m => m.role === "tool").content, "clipboard words");
+        await until(() => w.s().turn.kind === "none", "first turn completes");
+        const second = await say(w, utterance("Read it again."));
+        server.replies.push(calls({id: "call_2", name: "clipboard_read", arguments: {}}), text(""));
+        await requested(w, second + 2, "same label reuses conversation grant");
+        assert.equal(w.rows().filter(r => r.kind === "release" && r.decision === "ask").length, 1);
+        await until(() => w.s().turn.kind === "none", "second turn completes");
+        w.runner.dispatch({type: "stop"});
+        const third = await say(w, utterance("Read it in a new conversation."));
+        server.replies.push(calls({id: "call_3", name: "clipboard_read", arguments: {}}), text(""));
+        await until(() => w.s().approval.kind === "held", "new conversation asks again");
+        assert.equal(server.requests.length, third + 1);
+        w.runner.dispatch({type: "confirm", gen: h.gen, id: h.id, digest: h.digest, source: "key"});
+        assert.equal(w.s().approval.kind, "held", "stale grant answer is refused");
+    }, {fixture: {recipients: [{kind: "network", provider: "scripted-voice", account: "fixture", origin: "http://192.0.2.1:9"}]}});
+
+    await run("voice-release", async w => {
+        const first = await say(w, utterance("Read my clipboard."));
+        server.replies.push(calls({id: "call_voice", name: "clipboard_read", arguments: {}}), text(""));
+        await until(() => w.s().approval.kind === "held", "the release question is held");
+        const h = w.s().approval;
+        w.runner.dispatch({type: "shown", gen: h.gen, op: h.op, id: h.id});
+        w.advanceRunner(1100);
+        control.utterances.push(utterance("Yes."));
+        w.runner.dispatch({type: "talk-down"});
+        await until(() => w.s().capture.kind === "open", "answer capture opens without a new brain turn");
+        assert.equal(w.s().approval.id, h.id);
+        assert.equal(w.s().turn.kind, "thinking");
+        w.runner.dispatch({type: "talk-up"});
+        const body = await requested(w, first + 2, "final voice answer releases the result");
+        assert.equal(body.messages.find(m => m.role === "tool").content, "clipboard words");
+        assert.deepEqual(user(body), ["Read my clipboard."], "confirmation is not a new user turn");
+        assert.ok(w.rows().some(row => row.kind === "release" && row.confirmed === "voice" && row.decision === "send"));
+    }, {fixture: {recipients: [{kind: "network", provider: "scripted-voice", account: "fixture", origin: "http://192.0.2.1:9"}]}});
+
+    await run("release-decisions", async w => {
+        const blocked = gate();
+        const first = await say(w, utterance("Keep thinking.")); server.replies.push(pause(blocked));
+        await requested(w, first + 1, "a live turn starts");
+        const Policy = require(path.join(kit.folder, "backend/Policy.js"));
+        const recipients = control.opened[0].recipients;
+        const result = labels => ({gen: w.s().gen, op: w.s().turn.op, results: [{item: Policy.item("private mixed content", labels)}]});
+        const answer = w.engine.release.prepare(result(["clipboard", "file"]), recipients);
+        await until(() => w.s().approval.kind === "held", "mixed labels share a question");
+        w.runner.dispatch({type: "approval-cancel", gen: w.s().gen, id: w.s().approval.id});
+        assert.deepEqual(await answer, []);
+        let repeated;
+        const again = w.engine.release.prepare(result(["clipboard", "file"]), recipients).then(value => { repeated = value; });
+        await until(() => repeated !== undefined || w.s().approval.kind === "held", "the repeated label receives its prior decision");
+        assert.deepEqual(repeated, []);
+        await again;
+        assert.equal(w.s().approval.kind, "none", "declined labels do not ask again");
+        const changed = w.engine.release.prepare(result(["web"]), recipients);
+        await until(() => w.s().approval.kind === "held", "another label asks once");
+        w.configure({...w.s().settings, brain: "different-account"});
+        assert.equal(await changed, null, "settings cancel the pending prompt and grant context");
+        blocked.open();
+    }, {fixture: {recipients: [{kind: "network", provider: "scripted-voice", account: "fixture", origin: "http://192.0.2.1:9"}]}});
 
     // A failed audit write refuses the brain request and the speech text.
     await run("audit-refusal", async w => {
@@ -655,6 +732,10 @@ world(async () => {
         assert.deepEqual(server.faults, [], "every request matched the pinned schema");
         // Each control plants one defect in a disposable engine copy.
         const plants = [
+            ["release-grant", "if (accepted) c.grants.push(grant);", "void grant;", "release-grants"],
+            ["release-decline-once", "for (const label of pending.labels) c.decisions.add(label);", "void pending.labels;", "release-decisions"],
+            ["voice-confirmation", 'dispatch({ type: "confirm", ...answer, source: "voice" });',
+                'dispatch({ type: "confirm", ...answer, source: "model" });', "voice-release"],
             ["router-offers", "tools: router.offer()", "tools: []", "turn-loop"],
             ["heard-omitted", "if (c.heard !== null) items.push(heardItem(c.heard));", "", "barge-in"],
             ["heard-once", "            c.heard = null;\n", "", "barge-in"],
@@ -679,7 +760,7 @@ world(async () => {
             ["speech-gates-brain", 'turn.speech?.end();\n                        concluded(c, turn);',
                 'turn.speech?.end();\n                        await new Promise(resolve => turn.speech.readable.once("close", resolve));\n                        concluded(c, turn);', "long-speech"],
             ["net-not-closed", "        c.net.close();\n", "", "conversation-end"],
-            ["observe-teardown", "observe(s) { if (conversation !== null && s.gen !== conversation.gen) end(); },", "observe(s) {},", "settings-change"],
+            ["observe-teardown", "if (conversation !== null && (s.gen !== conversation.gen || s.conversation.kind === \"ended\")) end();", "void s;", "settings-change"],
             ["audit-skipped", '"pending"), start);\n        if (result.kind !== "started") fail("audit-write");\n        return result.value;',
                 '"pending"), () => {});\n        void result;\n        return start();', "audit-refusal"],
             ["after-tool-rule", "...(after === null ? {} : { instructions: after }),", "", "tool-round"],

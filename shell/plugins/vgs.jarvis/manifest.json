@@ -37,7 +37,8 @@
     "binds": [
       { "shortcut": "talk", "key": "SUPER+code:108", "hold": true, "info": "Hold the keys and speak to Jarvis. In Hold talk mode, Jarvis takes what you said when you let go; in Toggle mode the conversation stays open. Pressing it while Jarvis speaks interrupts it." },
       { "shortcut": "mute", "key": "SUPER+SHIFT+code:108", "info": "Turns the Jarvis microphone off, or on again. Mute stays on after a restart, and Talk does nothing while it is on." },
-      { "shortcut": "stop", "key": "SUPER+ALT+PERIOD", "info": "Ends what Jarvis is doing now: listening, thinking or speaking." }
+      { "shortcut": "stop", "key": "SUPER+ALT+PERIOD", "info": "Ends what Jarvis is doing now: listening, thinking or speaking." },
+      { "shortcut": "confirm", "key": "SUPER+ALT+Y", "info": "Confirms the Jarvis request shown on screen." }
     ]
   },
   "requirements": [

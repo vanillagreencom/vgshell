@@ -10,6 +10,7 @@
 "use strict";
 const fs = require("node:fs");
 const path = require("node:path");
+const crypto = require("node:crypto");
 
 // Longer than the bubble's three lines at its widest card.
 const REPLY = Array(24).fill("scripted reply").join(" ");
@@ -60,6 +61,11 @@ function ports(root, engine) {
         brain: {
             send: (e, done) => {
                 record("brain-send", e);
+                for (const purpose of ["action", "release"]) gates.wait("approve-" + purpose, () => done("approval", {
+                    purpose, id: crypto.randomUUID(), digest: "a".repeat(64), physical: purpose === "action",
+                    text: purpose === "action" ? "Delete /home/fixture/draft.txt." : "Send file text to Claude Code?",
+                    tool: "fixture", timeoutMs: 30000, cancellable: false
+                }));
                 if (chained) { engine.brain.send(e, done); return; }
                 wait("brain", () => {
                     record("brain-callback", e);
@@ -79,7 +85,7 @@ function ports(root, engine) {
                 if (chained) engine.brain.close(e);
                 else waiting.delete("brain");
             },
-            outcome: () => { throw new Error("scripted: unexpected-tool"); }
+            outcome: e => record("tool-outcome", e)
         },
         playback: {
             start: (e, done) => {
@@ -96,16 +102,17 @@ function ports(root, engine) {
             }
         },
         tools: {
-            start: () => { throw new Error("scripted: unexpected-tool"); },
+            start: (e, done) => { record("tool-start", e); done("completed"); },
             cancel: () => { throw new Error("scripted: unexpected-tool"); },
-            outcome: () => { throw new Error("scripted: unexpected-tool"); },
+            outcome: e => record("tool-outcome", e),
             sync: () => {}, close: () => {}
         },
         approval: {
-            show: () => { throw new Error("scripted: unexpected-approval"); },
-            end: () => { throw new Error("scripted: unexpected-approval"); },
-            refused: () => { throw new Error("scripted: unexpected-approval"); }
+            show: e => record("approval-show", e),
+            end: e => record("approval-ended", e),
+            refused: e => record("confirm-refused", e)
         },
+        release: { confirmed: e => record("release-confirmed", e) },
         speech: {
             open: (e, events) => {
                 record("speech-open", e);
@@ -187,7 +194,7 @@ function instrument(file, root, engine = "chained", mappedIndicator = false) {
         ['audio.playbackSource = engine.playbackSource;',
             'audio.playbackSource = engine.playbackSource;\n                    const scripted = require("./scripted-fixture.js").ports(' + JSON.stringify(root) + ', engine);\n' +
             '                    runner.ports.speech = scripted.speech;\n' +
-            '                    Object.assign(runner.ports, { capture: scripted.capture, brain: scripted.brain, playback: scripted.playback });'],
+            '                    Object.assign(runner.ports, { capture: scripted.capture, brain: scripted.brain, playback: scripted.playback, approval: scripted.approval, tools: scripted.tools, release: scripted.release });'],
         ['configured: configuration.kind === "ready", settings: context.settings',
             'configured: true, settings: context.settings']
     ];

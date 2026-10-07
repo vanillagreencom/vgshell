@@ -62,6 +62,7 @@ class SessionRunner {
         case "tool-start": this.ports.tools.start(e, outcome => done("tool-done", { outcome })); break;
         case "tool-cancel": this.ports.tools.cancel(e); break;
         case "tool-outcome": this.ports.tools.outcome(e); break;
+        case "release-confirmed": this.ports.release.confirmed(e); break;
         case "approval-show": this.ports.approval.show(e); break;
         case "approval-ended": this.ports.approval.end(e); break;
         case "confirm-refused": this.ports.approval.refused(e); break;
@@ -118,6 +119,7 @@ function unavailable() {
         playback: { start: refuse, flush: (e, done) => done() },
         tools: { start: refuse, cancel: refuse, outcome: refuse, sync: () => {}, close: () => {} },
         approval: { show: refuse, end: () => {}, refused: refuse },
+        release: { confirmed: refuse },
         speech: { open: refuse, close: () => {}, flush: () => {}, release: () => {} },
         transcript: refuse
     };

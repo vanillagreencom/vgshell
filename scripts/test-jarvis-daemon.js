@@ -19,7 +19,7 @@ const hello = { v: 1, type: "hello", gen: 0, settings: { mode: "hold", microphon
     cloudVision: "ask", privateWindows: "bitwarden" }, directories: {
     state: "/private/state", data: "/private/data", runtime: "/private/runtime"
 }, revision: "a".repeat(64), locked: false,
-keys: { talk: "SUPER+code:108", mute: "SUPER+SHIFT+code:108", stop: "SUPER+ALT+PERIOD" } };
+keys: { talk: "SUPER+code:108", mute: "SUPER+SHIFT+code:108", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y" } };
 
 async function inside() {
     hello.directories = {

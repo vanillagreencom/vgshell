@@ -12,7 +12,7 @@ const hello = { v: 1, type: "hello", gen: 0, settings: { mode: "hold", microphon
     cloudVision: "ask", privateWindows: "bitwarden, incognito" }, directories: {
     state: "/private/state", data: "/private/data", runtime: "/private/runtime"
 }, revision: "a".repeat(64), locked: false,
-keys: { talk: "SUPER+code:108", mute: "SUPER+SHIFT+code:108", stop: "SUPER+ALT+PERIOD" } };
+keys: { talk: "SUPER+code:108", mute: "SUPER+SHIFT+code:108", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y" } };
 const intent = { v: 1, type: "intent", gen: 0, revision: hello.revision, intent: "talk-down" };
 const id = "11111111-1111-4111-8111-111111111111";
 const confirm = { ...intent, intent: "confirm", id, digest: "a".repeat(64), source: "key" };
@@ -35,7 +35,8 @@ assert.equal(manifest.hyprland.binds.every(bind => typeof bind.info === "string"
 assert.deepEqual(manifest.hyprland.binds.map(({ info, ...bind }) => bind), [
     { shortcut: "talk", key: "SUPER+code:108", hold: true },
     { shortcut: "mute", key: "SUPER+SHIFT+code:108" },
-    { shortcut: "stop", key: "SUPER+ALT+PERIOD" }
+    { shortcut: "stop", key: "SUPER+ALT+PERIOD" },
+    { shortcut: "confirm", key: "SUPER+ALT+Y" }
 ]);
 assert.equal(manifest.capabilities.includes("shortcut"), true);
 assert.equal(manifest.requirements.some(row => row.command === "pw-cli"), false);
@@ -242,7 +243,7 @@ for (const message of [confirm, { ...confirm, source: "button" }, cancel, shown]
 for (const shown of [false, true])
     assert.equal(Protocol.accept(changed(indicator, { shown }), "shell").shown, shown);
 assert.equal(Protocol.accept(changed(hello, { settings: { ...hello.settings, mode: "toggle" },
-    keys: { talk: null, mute: null, stop: null } }), "shell").settings.mode, "toggle");
+    keys: { talk: null, mute: null, stop: null, confirm: null } }), "shell").settings.mode, "toggle");
 for (const message of [devices, level, audioFault, taskRequest, tasks, taskAnswer, { ...tasks, count: 0 },
     transcript, { ...transcript, role: "assistant", stage: "final", text: "a".repeat(4096), rev: 2 },
     shellStatus, { ...shellStatus, availability: { kind: "checking" } },

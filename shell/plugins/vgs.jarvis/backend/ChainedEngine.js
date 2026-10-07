@@ -5,8 +5,10 @@
 // Contract: docs/decisions/D089-jarvis-chained-engine-and-heard-prefix.md.
 "use strict";
 const { Readable, Writable } = require("node:stream");
+const crypto = require("node:crypto");
 const Policy = require("./Policy.js");
 const Providers = require("./Providers.js");
+const { PROVIDERS } = require("../AccountProviders.js");
 const Net = require("./net.js");
 const Guidance = require("./Guidance.js");
 const Speakable = require("./Speakable.js");
@@ -115,12 +117,13 @@ function selectBrain(settings, accounts) {
  * tool bridge, the HarnessGate, the environment its program is started from
  * and a function answering the runtime directory.
  */
-function create({ session, state, audit, router, accounts, policy, fault, captionLimit, harness = null, directories }) {
+function create({ session, state, audit, router, accounts, policy, fault, captionLimit, harness = null, directories, dispatch, clock }) {
     if (!Number.isSafeInteger(captionLimit) || captionLimit < 1) fail("caption-limit");
     let plan = unconfigured("engine=starting");
     let conversation = null;
     let retired = null;
     let closed = false;
+    let idleAt = null;
 
     function releaseEvent(c, identity, labels, decision, outcome) {
         return { kind: "release", gen: identity.gen, op: identity.op, tool: "release",
@@ -150,7 +153,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         catch (error) { net.close(); throw error; }
         // late holds at most one call: the router runs one action at a time.
         return { gen, plan, recipients, net, speech, brain: null, owner: null, grants: [], heard: null,
-            late: new Map(), results: [], turn: null, last: null, collection: null, unbound: null, rev: 0 };
+            decisions: new Set(), releasePending: null, late: new Map(), results: [], turn: null, last: null, collection: null, unbound: null, rev: 0 };
     }
     // observe() ends a conversation before any effect of a newer generation.
     function current(gen) {
@@ -165,6 +168,12 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         const c = conversation;
         if (c === null) return;
         conversation = null;
+        if (c.releasePending !== null) {
+            c.releasePending.resolve(false);
+            c.releasePending = null;
+        }
+        c.grants.length = 0;
+        c.decisions.clear();
         if (c.turn !== null) stop(c.turn);
         if (c.last !== null) c.last.speech?.end();
         for (const utterance of [c.collection?.utterance, c.unbound])
@@ -184,6 +193,9 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     // Speech to text. The capture sink exists while Audio holds the
     // recorder; one utterance yields partials and one final.
     function transcription(c, e) {
+        const approval = state().approval;
+        const answer = approval.kind === "held" ? { id: approval.id, digest: approval.digest,
+            gen: approval.gen, beganAt: clock.now(), idleAt } : null;
         let held = null;
         let finished = false;
         let released = false;
@@ -255,7 +267,13 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                         utterance.collection?.done("partial", event.text);
                     } else if (event.kind === "final") {
                         utterance.state = "concluded";
-                        utterance.collection?.done("final", event.text);
+                        if (answer !== null) {
+                            const phrase = event.text.trim().toLowerCase().replace(/[.!?]+$/, "");
+                            if (["yes", "confirm", "yes confirm"].includes(phrase))
+                                dispatch({ type: "confirm", ...answer, source: "voice" });
+                            else if (["no", "cancel", "no cancel"].includes(phrase))
+                                dispatch({ type: "approval-cancel", gen: answer.gen, id: answer.id });
+                        } else utterance.collection?.done("final", event.text);
                         void output.return?.();
                         return;
                     } else fail("transcript");
@@ -380,10 +398,66 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         turn.done(reason === "brain=context-limit" ? "brain-ended" : "brain-failed", { reason });
     }
 
+    async function requestRelease(c, identity, labels) {
+        const needed = labels.filter(label => !c.decisions.has(label));
+        if (needed.length === 0) return;
+        if (c.releasePending !== null) fail("release-busy");
+        const names = [...new Set([c.recipients.brain, ...c.recipients.speech]
+            .filter(recipient => recipient.kind === "network" && !Net.endpoint(recipient.origin).loopback)
+            .map(recipient => PROVIDERS.find(row => row.id === recipient.provider)?.label ?? recipient.provider))];
+        const sources = { clipboard: "clipboard text", file: "file text", screen: "screen content",
+            web: "web page text", command: "command output", agent: "agent output" };
+        const text = "Send " + needed.map(label => sources[label]).join(" and ") + " to " + names.join(" and ") + "?";
+        const id = crypto.randomUUID();
+        const digest = crypto.createHash("sha256").update(JSON.stringify({ labels: needed, recipients: c.recipients })).digest("hex");
+        record(c, identity, needed, "ask");
+        let resolve;
+        const answered = new Promise(done => { resolve = done; });
+        c.releasePending = { id, labels: needed, identity, resolve };
+        dispatch({ type: "approval", gen: identity.gen, op: identity.op, purpose: "release", id, digest,
+            text, physical: false, tool: "release", timeoutMs: session.RESPONSE_TIMEOUT_MS, cancellable: false });
+        // A router outcome can request this while the runner drains effects.
+        // Its queued proposal must be reduced before we inspect the hold.
+        await Promise.resolve();
+        const held = state().approval;
+        if (c.releasePending?.id === id && (held.kind !== "held" || held.id !== id)) {
+            c.releasePending = null;
+            resolve(false);
+        }
+        await answered;
+    }
+
+    function decided(e, accepted) {
+        const c = conversation;
+        const pending = c?.releasePending;
+        if (pending === undefined || pending === null || pending.id !== e.id || c.gen !== e.gen) return;
+        if (state().turn.kind !== "thinking" || state().turn.op !== pending.identity.op) {
+            c.releasePending = null;
+            pending.resolve(false);
+            return;
+        }
+        const grant = { recipients: c.recipients, labels: pending.labels };
+        const result = audit.before({ ...releaseEvent(c, pending.identity, pending.labels,
+            accepted ? "send" : "withhold", "pending"), confirmed: accepted ? e.confirmed === "voice" ? "voice" : "physical" : "none" }, () => {
+            for (const label of pending.labels) c.decisions.add(label);
+            if (accepted) c.grants.push(grant);
+        });
+        c.releasePending = null;
+        pending.resolve(result.kind === "started" && accepted);
+    }
+
     async function respond(c, turn, request) {
         try {
-            const reply = c.brain.send(request, c.grants);
-            if (reply.release.needed.length !== 0) record(c, turn, reply.release.needed, "ask");
+            let reply = c.brain.send(request, c.grants);
+            if (reply.release.needed.some(label => !c.decisions.has(label))) {
+                // send() only prepares a request. Returning its unstarted stream
+                // releases that slot without putting an unsent turn in history.
+                await reply.events.return();
+                await requestRelease(c, turn, reply.release.needed);
+                if (turn.stopped || conversation !== c) return;
+                reply = c.brain.send(request, c.grants);
+            }
+            if (reply.release.needed.length !== 0) record(c, turn, reply.release.needed, "withhold");
             if (reply.release.withheld.length !== 0) record(c, turn, reply.release.withheld, "withhold");
             for (const label of reply.release.labels) turn.labels.add(label);
             // History can carry an earlier turn's untrusted content.
@@ -560,7 +634,27 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             plan = select(settings, accounts, directories);
             return plan.kind === "ready" ? { kind: "ready" } : plan;
         },
-        observe(s) { if (conversation !== null && s.gen !== conversation.gen) end(); },
+        observe(s) {
+            if (conversation !== null && (s.gen !== conversation.gen || s.conversation.kind === "ended")) end();
+            if (s.playback.kind !== "idle") idleAt = null;
+            else if (idleAt === null && clock !== undefined) idleAt = clock.now();
+        },
+        release: {
+            confirmed: e => decided(e, true),
+            ended: e => decided(e, false),
+            async prepare(value, recipients) {
+                const c = conversation;
+                if (c === null || c.recipients !== recipients || c.gen !== value.gen) return null;
+                const item = value.results[0].item;
+                const judgements = [Policy.release(item, recipients, c.grants)];
+                const image = value.results[0].image;
+                if (image !== undefined) judgements.push(Policy.release(image.item, recipients, c.grants));
+                const needed = [...new Set(judgements.filter(judge => judge.kind === "ask").flatMap(judge => judge.needed))];
+                if (needed.length !== 0) await requestRelease(c, value, needed);
+                if (conversation !== c || state().turn.kind !== "thinking" || state().turn.op !== value.op) return null;
+                return c.grants;
+            }
+        },
         /** Whether the conversation's brain, or the next one's, takes images. */
         images() {
             const current = conversation !== null ? conversation.plan : plan;

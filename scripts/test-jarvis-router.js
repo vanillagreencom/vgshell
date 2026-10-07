@@ -314,32 +314,24 @@ world(() => {
             assert.equal(w.rows().at(-1).decision, "refuse");
         }],
         ...["deadline", "confirm"].map(entry => ["thinking-" + entry + "-approval", (implementation, session = Session) => {
-            for (const acknowledged of [false, true]) {
-                const w = make(implementation, session, { profile: "cautious", ackCancel: acknowledged });
-                assert.equal(w.runner.state.turn.deadline, 60000);
-                w.time(10000);
-                const approval = w.call("windows.close", { window: "0x123" });
-                assert.equal(approval.kind, "held");
-                assert.equal(w.runner.state.approval.deadline, 70000);
-                w.show();
-                w.time(59999);
-                w.dispatch({ type: "deadline", gen: w.runner.state.turn.gen, op: w.runner.state.turn.op });
-                assert.equal(w.runner.state.approval.kind, "held", "hold survives before the thinking deadline");
+            const w = make(implementation, session, { profile: "cautious" });
+            w.time(10000);
+            const approval = w.call("windows.close", { window: "0x123" });
+            assert.equal(approval.kind, "held");
+            assert.equal(w.runner.state.approval.deadline, 70000);
+            w.show();
+            const identity = { id: approval.id, digest: approval.digest, gen: w.runner.state.gen };
+            if (entry === "deadline") {
+                w.time(60000); w.dispatch({type: "deadline"});
+                assert.equal(w.runner.state.approval.kind, "held");
                 assert.equal(w.runner.state.turn.kind, "thinking");
-                const identity = { id: approval.id, digest: approval.digest, gen: w.runner.state.gen };
-                if (entry === "deadline") w.tick(60000);
-                else { w.time(60000); w.confirm(identity); }
-                w.confirm(identity);
-                assert.equal(w.starts.length, 0, entry + " expiry cannot start the executor");
-                assert.equal(w.runner.state.fault.reason, "thinking-timeout");
-                assert.equal(w.runner.state.turn.kind, acknowledged ? "none" : "cancelling");
-                assert.equal(w.runner.state.approval.kind, "none");
-                assert.equal(w.refusal().reason, "thinking-timeout");
-                assert.equal(w.rows().some(row => row.tool === "windows.close"
-                    && row.decision === "refuse" && row.outcome === "cancelled"), true);
-                assert.equal(w.runner.state.action.kind, "none");
-                assert.equal(w.rows().at(-1).decision, "refuse");
-            }
+            } else w.time(60000);
+            w.confirm(identity);
+            assert.equal(w.starts.length, 1, "confirmation remains valid after the earlier thinking deadline");
+            assert.equal(w.runner.state.fault.kind, "none");
+            assert.equal(w.runner.state.turn.deadline, 120000);
+            w.confirm(identity);
+            assert.equal(w.starts.length, 1, "a replay does not execute twice");
         }]),
         ["replay", (implementation, session = Session) => {
             const w = make(implementation, session); held(w);
@@ -369,14 +361,14 @@ world(() => {
         ["voice-physical", (implementation, session = Session) => {
             const w = make(implementation, session, { profile: "trusted" });
             w.target({ kind: "terminal", id: "terminal" });
-            w.call("input.text", text); w.show(); w.time(700);
-            w.confirm({ source: "voice" });
+            w.call("input.text", text); w.show(); w.time(1700);
+            w.confirm({ source: "voice", beganAt: 1000, idleAt: 0 });
             assert.equal(w.starts.length, 0);
             w.confirm({ source: "button" });
             assert.equal(w.starts.length, 1);
             assert.equal(w.records[0].confirmed, "physical");
             const nonphysical = make(implementation); held(nonphysical);
-            nonphysical.confirm({ source: "voice" });
+            nonphysical.time(1700); nonphysical.confirm({ source: "voice", beganAt: 1000, idleAt: 0 });
             assert.equal(nonphysical.starts.length, 1);
             assert.equal(nonphysical.records[0].confirmed, "voice");
         }],
@@ -690,16 +682,10 @@ world(() => {
             ['s.approval.kind === "held" && at >= s.approval.deadline', 'false && s.approval.kind === "held" && at >= s.approval.deadline']
         ], session => assert.throws(() => byName("expired")(Router, session), assert.AssertionError));
         controls++; console.log("control=deadline detected");
-        for (const [name, needle, replacement, row] of [
-            ["thinking-retirement", 'dropApproval(s, effects, "thinking-timeout");',
-                'if (false) dropApproval(s, effects, "thinking-timeout");', "thinking-deadline-approval"],
-            ["delayed-thinking-expiry", 'if (e.type !== "deadline") expire(s, effects, e.at);',
-                'if (false && e.type !== "deadline") expire(s, effects, e.at);', "thinking-confirm-approval"]
-        ]) {
-            qmlCopy(sessionFile, [[needle, replacement]], session =>
-                assert.throws(() => byName(row)(Router, session), assert.AssertionError, name + " must turn red"));
-            controls++; console.log("control=" + name + " detected");
-        }
+        qmlCopy(sessionFile, [['s.turn.deadline = s.approval.deadline + RESPONSE_TIMEOUT_MS;',
+            's.turn.deadline = e.at;']], session => assert.throws(
+                () => byName("thinking-confirm-approval")(Router, session), assert.AssertionError));
+        controls++; console.log("control=approval-thinking-deadline detected");
         qmlCopy(sessionFile, [['if (!canPropose(s)) break;', 'if (false) break;', 2]], session =>
             mutant(routerFile, "serial", "!session.canPropose(s) || pending !== null", "false",
                 implementation => byName("serial")(implementation, session)));

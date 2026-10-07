@@ -260,6 +260,20 @@ const tests = [
         assert.equal(w.calls.at(-1).name, "brain-close");
         assert.equal(w.timers.size, 0);
     }],
+    ["approval-schedules-full-interval", impl => {
+        const w = world(impl); thinking(w); w.tick(10000);
+        w.pending.send("approval", { id: "late", digest: "a".repeat(64), physical: true,
+            text: "Fixture", tool: "fixture", timeoutMs: 1000, cancellable: false });
+        assert.deepEqual([...w.timers.values()].map(timer => timer.deadline), [70000]);
+        w.tick(60000);
+        assert.equal(w.runner.state.approval.kind, "held");
+        assert.deepEqual([...w.timers.values()].map(timer => timer.deadline), [70000]);
+        w.tick(65000);
+        w.dispatch("approval-cancel", { gen: w.runner.state.gen, id: "late" });
+        assert.deepEqual([...w.timers.values()].map(timer => timer.deadline), [125000]);
+        w.tick(125000);
+        assert.equal(w.runner.state.fault.reason, "thinking-timeout");
+    }],
     ["approval-and-tool", impl => {
         const w = world(impl);
         thinking(w);

@@ -9,6 +9,7 @@ var SESSION_SETTINGS = ["mode", "voiceProvider", "voice", "language", "brain", "
 var RESPONSE_TIMEOUT_MS = 60000;
 var APPROVAL_TIMEOUT_MS = 60000;
 var APPROVAL_DRAW_MS = 700;
+var VOICE_QUIET_MS = 1000;
 var EVENTS = [
     "snapshot", "indicator", "talk-down", "talk-up", "toggle", "mute", "unmute", "mute-toggle",
     "stop", "cancel", "interrupt", "capture-opened", "capture-closed", "capture-failed", "playback-failed", "partial",
@@ -97,11 +98,12 @@ function flushPlayback(s, effects) {
     s.playback = { kind: "flushing", gen: e.gen, op: e.op };
 }
 
-function dropApproval(s, effects, reason) {
+function dropApproval(s, effects, reason, at) {
     if (s.approval.kind !== "held") return;
     effect(s, effects, "approval-ended", { gen: s.approval.gen, target: s.approval.op,
-        id: s.approval.id, reason: reason });
+        id: s.approval.id, purpose: s.approval.purpose, reason: reason });
     s.approval = { kind: "none" };
+    if (s.turn.kind === "thinking") s.turn.deadline = at + RESPONSE_TIMEOUT_MS;
 }
 
 function requestToolCancel(s, effects) {
@@ -121,7 +123,7 @@ function end(s, effects, at, reason, stopTool) {
     if (s.turn.kind === "none") closeBrain(s, effects);
     flushPlayback(s, effects);
     closeSpeech(s, effects, reason === "lease" ? "abort" : "graceful");
-    dropApproval(s, effects, reason);
+    dropApproval(s, effects, reason, at);
     if (stopTool) requestToolCancel(s, effects);
 }
 
@@ -221,7 +223,7 @@ function interrupt(s, effects, at) {
         effect(s, effects, "speech-flush", { gen: s.speech.gen, target: s.speech.op });
         s.speech.reply = { kind: "none" };
     }
-    dropApproval(s, effects, "interrupt");
+    dropApproval(s, effects, "interrupt", at);
 }
 
 // A failed turn's fault stays shown until the next Talk press, which ends
@@ -243,8 +245,8 @@ function toggle(s, effects, at) {
 }
 
 function expire(s, effects, at) {
-    if (s.turn.kind === "thinking" && at >= s.turn.deadline) {
-        dropApproval(s, effects, "thinking-timeout");
+    if (s.turn.kind === "thinking" && s.approval.kind !== "held" && at >= s.turn.deadline) {
+        dropApproval(s, effects, "thinking-timeout", at);
         cancelTurn(s, effects, at);
         s.fault = { kind: "error", reason: "thinking-timeout", retry: 0 };
         s.input = { kind: "released" };
@@ -253,7 +255,7 @@ function expire(s, effects, at) {
         closeBrain(s, effects);
         s.turn = { kind: "none" };
     }
-    if (s.approval.kind === "held" && at >= s.approval.deadline) dropApproval(s, effects, "timeout");
+    if (s.approval.kind === "held" && at >= s.approval.deadline) dropApproval(s, effects, "timeout", at);
     if (s.action.kind === "running" && s.action.limit.kind === "pending" && at >= s.action.limit.deadline) {
         requestToolCancel(s, effects);
         effect(s, effects, "tool-outcome", { gen: s.action.gen, target: s.action.brain,
@@ -301,6 +303,10 @@ function reduce(state, e) {
         s.indicator = { kind: e.shown ? "shown" : "gone" };
         break;
     case "talk-down":
+        if (s.approval.kind === "held") {
+            if (s.input.kind !== "held") start(s, effects, "held");
+            break;
+        }
         if (s.settings.mode === "toggle") { toggle(s, effects, e.at); break; }
         if (s.input.kind === "held") break;
         recover(s, effects, e.at);
@@ -308,7 +314,7 @@ function reduce(state, e) {
         start(s, effects, "held");
         break;
     case "talk-up":
-        if (s.settings.mode === "toggle") break;
+        if (s.settings.mode === "toggle" && s.approval.kind !== "held") break;
         if (s.input.kind !== "held") break;
         s.input = { kind: "released" };
         closeCapture(s, effects);
@@ -348,7 +354,7 @@ function reduce(state, e) {
         s.input = { kind: "released" };
         closeCapture(s, effects);
         cancelTurn(s, effects, e.at);
-        dropApproval(s, effects, "cancel");
+        dropApproval(s, effects, "cancel", e.at);
         break;
     case "interrupt":
         interrupt(s, effects, e.at);
@@ -455,11 +461,15 @@ function reduce(state, e) {
         if (!live(s, e, "turn", ["thinking"])) { stale(s); break; }
         if (!canPropose(s)) break;
         toolDuration(e);
-        var hold = effect(s, effects, "approval-show", { id: e.id, digest: e.digest });
-        s.approval = { kind: "held", gen: hold.gen, op: hold.op, id: e.id, digest: e.digest,
+        var purpose = e.purpose === "release" ? "release" : "action";
+        var hold = effect(s, effects, "approval-show", { id: e.id, digest: e.digest, purpose: purpose });
+        s.approval = { kind: "held", purpose: purpose, gen: hold.gen, op: hold.op, id: e.id, digest: e.digest,
             deadline: e.at + APPROVAL_TIMEOUT_MS, shownAt: null, physical: e.physical,
             text: e.text, tool: e.tool, timeoutMs: e.timeoutMs, cancellable: e.cancellable,
             brain: e.op };
+        // The held request has its own full interval. The scheduler selects
+        // that interval, then thinking gets a fresh interval after a decision.
+        s.turn.deadline = s.approval.deadline + RESPONSE_TIMEOUT_MS;
         break;
     case "shown":
         if (!live(s, e, "approval", ["held"])) { stale(s); break; }
@@ -472,14 +482,26 @@ function reduce(state, e) {
             : e.gen !== approval.gen || e.id !== approval.id || e.digest !== approval.digest ? "identity"
             : ["key", "button", "voice"].indexOf(e.source) === -1 ? "source"
             : approval.shownAt === null || e.at - approval.shownAt < APPROVAL_DRAW_MS ? "early"
-            : e.source === "voice" && approval.physical ? "voice-physical" : null;
+            : e.source === "voice" && approval.physical ? "voice-physical"
+            : e.source === "voice" && (!Number.isFinite(e.beganAt) || !Number.isFinite(e.idleAt)
+                || e.beganAt < approval.shownAt || e.beganAt > e.at
+                || e.idleAt < 0 || e.beganAt - e.idleAt < VOICE_QUIET_MS
+                || s.playback.kind !== "idle") ? "voice-timing" : null;
         if (reason !== null) {
             effect(s, effects, "confirm-refused", { reason: reason, id: e.id,
                 gen: approval.kind === "held" ? approval.gen : s.gen,
-                target: approval.kind === "held" ? approval.brain : null });
+                target: approval.kind === "held" ? approval.brain : null,
+                purpose: approval.kind === "held" ? approval.purpose : "action" });
             break;
         }
         s.approval = { kind: "none" };
+        if (s.turn.kind === "thinking") s.turn.deadline = e.at + RESPONSE_TIMEOUT_MS;
+        s.input = { kind: "released" };
+        closeCapture(s, effects);
+        if (approval.purpose === "release") {
+            effect(s, effects, "release-confirmed", { id: approval.id, target: approval.brain, confirmed: e.source });
+            break;
+        }
         var accepted = effect(s, effects, "tool-start", { tool: approval.tool,
             id: approval.id, confirmed: e.source });
         s.action = { kind: "running", gen: accepted.gen, op: accepted.op, tool: approval.tool,
@@ -489,7 +511,7 @@ function reduce(state, e) {
     }
     case "approval-cancel":
         if (e.id !== s.approval.id || e.gen !== s.approval.gen) { stale(s); break; }
-        dropApproval(s, effects, "cancel");
+        dropApproval(s, effects, "cancel", e.at);
         break;
     case "speak":
         if (!live(s, e, "speech", ["open"])) { stale(s); break; }
@@ -537,7 +559,7 @@ var REGIONS = {
     brain: { closed: "", acquired: "gen op" },
     playback: { idle: "", playing: "gen op source interruptible admission", flushing: "gen op" },
     action: { none: "", running: "gen op tool brain limit cancellation" },
-    approval: { none: "", held: "gen op id digest deadline shownAt physical text tool timeoutMs cancellable brain" },
+    approval: { none: "", held: "purpose gen op id digest deadline shownAt physical text tool timeoutMs cancellable brain" },
     fault: { none: "", error: "reason retry", retrying: "reason retry" }, conversation: { ended: "", active: "", interrupted: "" },
     input: { released: "", held: "", conversation: "", "follow-up": "", armed: "" },
     indicator: { gone: "", shown: "" }, duplex: { half: "" },
@@ -582,6 +604,7 @@ function validate(s) {
                 if (r[f].kind === "pending" && (!Number.isFinite(r[f].deadline) || r[f].deadline < 0)) return false;
             } else if (typeof r[f] !== "string") return false;
         }
+        if (region === "approval" && r.kind === "held" && ["action", "release"].indexOf(r.purpose) === -1) return false;
         if (region === "capture" && fields.indexOf("mode") !== -1
                 && ["hold", "conversation", "follow-up", "armed"].indexOf(r.mode) === -1) return false;
         if (region === "gate" && r.kind === "down"

@@ -108,7 +108,7 @@ world(async () => {
             speech: [{ kind: "local", provider: "fixture-speech", account: "" }] });
         // Under J09's runtime directory, whose path no checkout lengthens.
         const runtime = options.runtime ?? path.join(process.env.XDG_RUNTIME_DIR, "r" + serial.toString(36));
-        bridge = Bridge.create({ router, state: () => runner.state, audit, directory: runtime, clock: {
+        bridge = Bridge.create({ router, state: () => runner.state, audit, release: { prepare: async () => [] }, directory: runtime, clock: {
             set: (fn, ms) => { const timer = { fn, ms }; helloTimers.add(timer); return timer; },
             clear: timer => helloTimers.delete(timer) } });
         owners.push(() => { bridge.close(); audit.close(); });
@@ -314,7 +314,7 @@ world(async () => {
         }],
         ["release", async folder => {
             const file = path.join(fixtures.project, "existing");
-            for (const [network, text, decision] of [[true, "[withheld: file text]", "ask"], [false, "private file text", "send"]]) {
+            for (const [network, text, decision] of [[true, "[withheld: file text]", "withhold"], [false, "private file text", "send"]]) {
                 const w = await make(folder, { network });
                 const c = await w.ready();
                 c.send(call(50, "files_read", { path: file }));
@@ -333,7 +333,7 @@ world(async () => {
             const marker = { type: "text", text: "[withheld: screen content]" };
             const block = { type: "image", data: png.toString("base64"), mimeType: "image/png" };
             for (const [network, cloudVision, text, second, decision] of [[false, "ask", "Screen text", block, "send"],
-                [true, "allow", "Screen text", block, "send"], [true, "ask", marker.text, marker, "ask"],
+                [true, "allow", "Screen text", block, "send"], [true, "ask", marker.text, marker, "withhold"],
                 [true, "never", marker.text, marker, "withhold"]]) {
                 const w = await make(folder, { network, cloudVision, vision: true });
                 const c = await w.ready();
@@ -544,8 +544,8 @@ world(async () => {
                 "deliver({ gen: s.gen, op: s.turn.op, outcome: \"completed\", results: [{ id, item: Policy.item(\"bypassed\", [\"desktop\"]) }] });", "allow"],
             ["brain-results", "if (entry === undefined) return false;", "if (entry === undefined) return true;", "allow"],
             ["gen-binding", "s.gen !== current.gen || ", "", "stale"],
-            ["release", "Policy.release(answer.item, entry.recipients)", "({ kind: \"send\", ...answer.item })", "release"],
-            ["image-release", "Policy.release(answer.image.item, entry.recipients)", "({ kind: released.kind, content: answer.image.item.content })", "image"],
+            ["release", "Policy.release(answer.item, entry.recipients, grants)", "({ kind: \"send\", ...answer.item })", "release"],
+            ["image-release", "Policy.release(answer.image.item, entry.recipients, grants)", "({ kind: released.kind, content: answer.image.item.content })", "image"],
             ["image-delivered", "Mcp.content(entry.request, released.content.toString(), value.outcome !== \"completed\", image)",
                 "Mcp.content(entry.request, released.content.toString(), value.outcome !== \"completed\")", "image"],
             ["release-audit", "const admitted = audit.before(",
