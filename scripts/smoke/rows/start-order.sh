@@ -34,14 +34,26 @@
 # a stop with no
 # lock wait, which returns with the lock held while the shell is stopped
 # with SIGSTOP; and a stop that times out on the lock, which fails and
-# names the runner among its holders. The row ends by starting the
-# sandbox's own tree over the same default set, so whichever rows a run
-# selects after it read a live shell with its services built, never the
-# last control's copy, whose gate holds them.
-# It switches to the default plugin set and its stand-ins on purpose; every later row starts from them.
-# leaves: layers shim
+# names the runner among its holders. The row restores the incoming
+# plugin set and stand-ins before starting the sandbox's own tree again.
+# Otherwise the default set's VPN readers can add subprocess calls while
+# a later row checks that its widget actions start none.
 # inputs: shell/shell.qml shell/Core/ServiceGate.qml shell/Hosts/ServiceHost.qml shell/Hosts/BackgroundHost.qml shell/Hosts/BarHost.qml shell/Core/Registry.qml shell/plugins/* scripts/smoke/fixtures/plugins/acme.contention/* scripts/smoke/fixtures/plugins/acme.locker/* bin/vgshell scripts/smoke/rows/capabilities.sh scripts/smoke/rows/device-fakes.sh
 set -euo pipefail
+start_order_saved="$(mktemp -d "$sandbox/start-order-saved.XXXXXX")"
+start_order_paths=(
+  "$home/.config/vgshell/shell.json"
+  "$home/.config/vgshell/plugins/acme.locker"
+  "$home/.config/vgshell/plugins/acme.contention"
+  "$shim/mise" "$shim/docker" "$shim/podman" "$shim/pacman"
+  "$dev_state" "$home/.local/state/vgshell/updates/status.json"
+)
+for i in "${!start_order_paths[@]}"; do
+  if [[ -e ${start_order_paths[i]} ]]; then
+    cp -a -- "${start_order_paths[i]}" "$start_order_saved/$i"
+  fi
+done
+start_order_vpn_before="$(record_exists vgs.vpn)"
 for fixture in acme.locker acme.contention; do
   rm -rf -- "$home/.config/vgshell/plugins/$fixture"
   mkdir -p -- "$home/.config/vgshell/plugins/$fixture"
@@ -388,10 +400,27 @@ if bar_hidden no-deadline && edit_tree no-deadline shell/Core/ServiceGate.qml \
   expect "control: a gate with no deadline never releases past a bar that never presents" unreleased release_reason
 fi
 
-# The last control's copy never builds its services. The rows after this
-# one read the sandbox's own tree, whichever of them a run selects.
-if stop_shell && start_shell "$repo" "$sandbox/start-order-final-qs.log"; then
-  expect_poll "the row leaves the sandbox's own shell with its services built" True record_exists vgs.themes
+# Stop the default-set readers before restoring their files. Later rows
+# keep the plugin enablement and stand-ins they had before this row.
+if stop_shell; then
+  for i in "${!start_order_paths[@]}"; do
+    rm -rf -- "${start_order_paths[i]}"
+    if [[ -e $start_order_saved/$i ]]; then
+      cp -a -- "$start_order_saved/$i" "${start_order_paths[i]}"
+    fi
+  done
+  if cmp -s -- "$start_order_saved/0" "${start_order_paths[0]}"; then
+    ok "the row restores its incoming configuration"
+  else
+    fail "the row restores its incoming configuration"
+  fi
+  if start_shell "$repo" "$sandbox/start-order-final-qs.log"; then
+    expect_poll "the row restores its incoming VPN service enablement" "$start_order_vpn_before" record_exists vgs.vpn
+    expect "the row leaves the sandbox's own guarded shell" true ipc shell guarded
+  else
+    fail "start-order leaves the sandbox's own shell for the rows after it"
+  fi
 else
-  fail "start-order leaves the sandbox's own shell for the rows after it"
+  fail "start-order stops the default-set shell before restoring its files"
 fi
+rm -rf -- "$start_order_saved"
