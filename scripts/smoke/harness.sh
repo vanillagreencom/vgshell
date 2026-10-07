@@ -1308,6 +1308,13 @@ gallery_orb_offset() { ipc smoke galleryOrbs window vgs.gallery '' | py_reply 'i
 orbs=json.load(sys.stdin)
 index=int(sys.argv[1])
 print("absent" if index>=len(orbs) or orbs[index]["scrollOffset"] is None else orbs[index]["scrollOffset"])' "$1"; }
+gallery_orb_in_view() { ipc smoke galleryOrbs window vgs.gallery '' | py_reply 'import json,sys
+orbs=json.load(sys.stdin); index=int(sys.argv[1])
+if index>=len(orbs): print("absent"); sys.exit()
+orb=orbs[index]; clip=orb["viewport"]["clip"]
+if clip is None: print("no-clip"); sys.exit()
+x,y=orb["viewportPosition"]; cx,cy,w,h=clip
+print(x>=cx and y>=cy and x+orb["width"]<=cx+w and y+orb["height"]<=cy+h)' "$1"; }
 gallery_draw_orbs() {
   local label="$1" count index position offset failed_before
   count="$(ipc smoke galleryOrbs window vgs.gallery '' | py_reply 'import json,sys; print(len(json.load(sys.stdin)))')" || return 1
@@ -1315,12 +1322,17 @@ gallery_draw_orbs() {
   # Qt's shared shader-info cache leaves some managers Uncompiled even
   # after drawing. Read real pixels in each example's own box instead.
   for ((index=0; index<count; index++)); do
-    if ! position="$(ipc smoke scrollTo window vgs.gallery 0)" || [[ $position != \[* ]] ||
-       ! offset="$(gallery_orb_offset "$index")" || [[ ! $offset =~ ^-?[0-9]+$ ]] ||
-       ! position="$(ipc smoke scrollTo window vgs.gallery "$offset")" || [[ $position != \[* ]]; then
+    if [[ $index -eq 0 ]]; then
+      ipc smoke scrollTo window vgs.gallery 0 >/dev/null || return 1
+      offset="$(gallery_orb_offset "$index")" || return 1
+      ipc smoke scrollTo window vgs.gallery "$offset" >/dev/null || return 1
+      expect "$label: title offset clips the orb (control)" False gallery_orb_in_view "$index"
+    fi
+    if ! position="$(ipc smoke revealVoiceOrb window vgs.gallery "$index")" || [[ ! $position =~ ^-?[0-9]+([.][0-9]+)?$ ]]; then
       fail "$label: orb=$index did not scroll into view"; return 1
     fi
-    printf '  orb-scroll index=%s requested=%s actual=%s\n' "$index" "$offset" "$position"
+    printf '  orb-scroll index=%s actual=%s\n' "$index" "$position"
+    expect "$label: orb=$index fits inside the content clip" True gallery_orb_in_view "$index"
     failed_before="$failures"
     render expect_poll "$label: orb=$index draws its tone" True orb_drawn '' "$index"
     if [[ $failures -gt $failed_before ]]; then

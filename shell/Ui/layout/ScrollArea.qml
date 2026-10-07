@@ -7,8 +7,8 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 
 // A vertically scrolling area for content taller than it: children go in
 // the flickable's content item and the content height follows them. The
-// content is always `rightInset` narrower than its clip, and the embedded
-// bar, `bar`, sits inside that inset while the content overflows, so no
+// content reserves `rightInset` for the embedded bar, `bar`, which sits
+// inside that inset while the content overflows, so no
 // content lies under it and the content's width never depends on its own
 // height: wrapping text would otherwise move the layout a turn after it
 // settled, or feed a binding its own input. With `barOverContent` the
@@ -29,7 +29,7 @@ Flickable {
     property bool barOverContent: false
     property bool keyboardScroll: false
     property real contentPadding: 0
-    readonly property real clipPadding: keyboardScroll ? contentPadding : 0
+    readonly property real clipPadding: keyboardScroll && keyboardFocus.visualFocus ? contentPadding : 0
     readonly property real focusInset: keyboardScroll ? Theme.focusRing.width + Theme.focusRing.offset : 0
     readonly property real measuredContentHeight: measureContentHeight()
     readonly property bool overflowing: scrollBar.needed
@@ -66,7 +66,8 @@ Flickable {
     function reveal(item) {
         if (item === null || item === undefined) return;
         const at = item.mapToItem(contentItem, 0, 0);
-        contentY = KeyNavLogic.revealY(at.y - clipPadding, item.height, contentY, contentClip.height, Theme.focusRing.offset + Theme.focusRing.width);
+        const y = KeyNavLogic.revealY(at.y - clipPadding, item.height, contentY, contentClip.height, Theme.focusRing.offset + Theme.focusRing.width);
+        contentY = Math.max(0, Math.min(contentHeight - height, y));
     }
     function scrollBy(delta) {
         contentY = Math.max(0, Math.min(contentHeight - height, contentY + delta));
@@ -110,8 +111,8 @@ Flickable {
     HoverHandler { id: hover }
     TouchpadScroll { id: touchpad; view: root; width: contentClip.width; height: contentClip.height }
 
-    // Clip scrolling content before it reaches the ring, including during
-    // a scroll. The added content height keeps the last row reachable.
+    // Clip scrolling content before it reaches the area's ring. When a
+    // child takes focus, its existing padding holds the child's ring.
     Item {
         id: contentClip
         parent: root

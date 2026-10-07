@@ -409,13 +409,15 @@ Scope {
     // An item's box in its own window's coordinates, as [x, y, w, h]: a
     // layer surface the compositor centres knows no place of its own on the
     // screen, so a row adds the layer's position from `hyprctl layers`.
-    // revealText's scroll: the innermost shown ScrollArea under `item`
-    // that holds `target`, moved so the target sits a third of the way
-    // down its view.
+    // The innermost shown ScrollArea under `item` that holds `target`.
+    function scrollAreaHolding(item, target) {
+        const areas = root.shownScrollAreas(item).filter(area => root.descendants(area).indexOf(target) !== -1);
+        return areas.find(area => !areas.some(other => other !== area && root.descendants(area).indexOf(other) !== -1));
+    }
+    // revealText moves the target a third of the way down its view.
     function revealIn(item, target) {
         if (item === null || target === null) return "absent";
-        const areas = root.shownScrollAreas(item).filter(area => root.descendants(area).indexOf(target) !== -1);
-        const flick = areas.find(area => !areas.some(other => other !== area && root.descendants(area).indexOf(other) !== -1));
+        const flick = root.scrollAreaHolding(item, target);
         if (flick === undefined) return "unscrolled";
         const y = target.mapToItem(flick.contentItem, 0, 0).y - flick.height / 3;
         flick.contentY = Math.max(0, Math.min(y, flick.contentHeight - flick.height));
@@ -1097,6 +1099,17 @@ Scope {
             const drawn = root.descendants(item.examples).filter(child => /^SectionHeader_QMLTYPE_/.test(String(child)) && child.width > 0 && child.height > 0);
             return String(drawn.length);
         }
+        // Use the component's reveal path to bring the whole orb into view.
+        function revealVoiceOrb(hostKey: string, id: string, index: int): string {
+            const item = root.instance(hostKey, id);
+            if (item === null) return "absent";
+            const orbs = root.descendants(item).filter(child => root.typeName(child) === "VoiceOrb");
+            if (index < 0 || index >= orbs.length) return "absent";
+            const viewport = root.scrollAreaHolding(item, orbs[index]);
+            if (viewport === undefined) return "unscrolled";
+            viewport.reveal(orbs[index]);
+            return String(viewport.contentY);
+        }
         // VoiceOrb examples and their actual shader status. A disposable
         // popup copy supplies the uncompiled control without a shipped hook.
         function galleryOrbs(hostKey: string, id: string, copyName: string): string {
@@ -1105,6 +1118,9 @@ Scope {
             const orbs = copyName === "" ? root.descendants(item).filter(child => root.typeName(child) === "VoiceOrb") : [item];
             const title = root.descendants(item).find(child => root.typeName(child) === "Label" && child.text === "VGS Components");
             const viewport = root.shownScrollAreas(item)[0];
+            let clip = viewport === undefined ? null : viewport.contentItem.parent;
+            while (clip !== null && !clip.clip) clip = clip.parent;
+            const clipPoint = clip === null ? null : clip.mapToItem(viewport, 0, 0);
             return root.json(orbs.map(orb => {
                 const shader = root.descendants(orb).find(child => child instanceof ShaderEffect);
                 const point = orb.mapToGlobal(0, 0);
@@ -1126,7 +1142,8 @@ Scope {
                     viewportPosition: viewPoint === null ? null : [viewPoint.x, viewPoint.y],
                     viewport: viewport === undefined ? null : {
                         contentY: viewport.contentY, originY: viewport.originY,
-                        contentHeight: viewport.contentHeight, width: viewport.width, height: viewport.height
+                        contentHeight: viewport.contentHeight, width: viewport.width, height: viewport.height,
+                        clip: clipPoint === null ? null : [clipPoint.x, clipPoint.y, clip.width, clip.height]
                     },
                     compiled: shader !== undefined && shader.status === ShaderEffect.Compiled
                 };

@@ -18,6 +18,7 @@ Item {
     height: 400
     property real singleFixedHeight: Theme.size.control.lg
     property real brimHeight: 100.3
+    property bool narrowKeyboardBody: false
 
     ScrollArea { id: area; width: 100; height: 100; Column { width: parent.width; Repeater { model: 10; Rectangle { width: parent.width; height: 20; color: "transparent" } } } }
     ScrollArea { id: short; x: 120; width: 100; height: 100; Column { width: parent.width; Rectangle { width: parent.width; height: 40; color: "transparent" } } }
@@ -39,7 +40,16 @@ Item {
                 x: keyboard.contentPadding
                 y: keyboard.contentPadding
                 width: parent.width - 2 * keyboard.contentPadding
-                Repeater { model: 8; Rectangle { width: keyboard.width; height: 24; color: "#ff00ff" } }
+                Repeater {
+                    id: keyboardRows
+                    model: 8
+                    Rectangle {
+                        width: root.narrowKeyboardBody ? keyboardBody.width : keyboard.width
+                        height: 24
+                        color: "#ff00ff"
+                        FocusRing { target: parent; outside: true }
+                    }
+                }
             }
         }
     }
@@ -73,6 +83,7 @@ Item {
             area.bar.hovered = false;
             keyboard.contentY = 0;
             keyboard.contentPadding = Theme.focusRing.width + Theme.focusRing.offset;
+            root.narrowKeyboardBody = false;
             root.singleFixedHeight = Theme.size.control.lg;
             hideParent.visible = true;
             hiddenArea.contentY = 0;
@@ -202,6 +213,7 @@ Item {
             root.Window.window.requestActivate();
             tryCompare(root.Window.window, "active", true);
             wait(0);
+            beforeKeyboard.forceActiveFocus(Qt.TabFocusReason);
             keyboard.focusProxy.forceActiveFocus(Qt.TabFocusReason);
             keyboard.contentPadding = data.padding;
             const lastY = keyboard.contentHeight - keyboard.height;
@@ -244,11 +256,14 @@ Item {
             root.Window.window.requestActivate();
             tryCompare(root.Window.window, "active", true);
             wait(0);
+            beforeKeyboard.forceActiveFocus(Qt.TabFocusReason);
             keyboard.focusProxy.forceActiveFocus(Qt.TabFocusReason);
+            tryCompare(keyboard.focusProxy, "visualFocus", true);
             keyboard.contentPadding = data.padding;
             const lastY = keyboard.contentHeight - keyboard.height;
             keyboard.contentY = data.position === "end" ? lastY : data.position === "middle" ? lastY / 2 : 0;
             const clearance = Theme.focusRing.width + Theme.focusRing.offset + keyboard.contentPadding;
+            wait(0);
             verify(waitForRendering(keyboard));
             const painted = grabImage(keyboard);
             verify(Qt.colorEqual(painted.pixel(keyboard.width / 2, keyboard.height / 2), "#ff00ff"), "the body paints inside the clip");
@@ -273,6 +288,58 @@ Item {
             compare(keyboard.contentY, Math.min(keyboard.contentHeight - keyboard.height, Theme.row.height + keyboard.bar.height));
             keyClick(Qt.Key_Home);
             compare(keyboard.contentY, 0);
+        }
+
+        function test_reveal_uses_the_content_clip_and_stays_in_scroll_range_data() {
+            return [
+                { tag: "first-plain", index: 0, padding: 0 },
+                { tag: "last-plain", index: keyboardRows.count - 1, padding: 0 },
+                { tag: "first-padded", index: 0, padding: Theme.focusRing.width + Theme.focusRing.offset },
+                { tag: "last-padded", index: keyboardRows.count - 1, padding: Theme.focusRing.width + Theme.focusRing.offset }
+            ];
+        }
+
+        function test_reveal_uses_the_content_clip_and_stays_in_scroll_range(data) {
+            root.Window.window.requestActivate();
+            tryCompare(root.Window.window, "active", true);
+            wait(0);
+            beforeKeyboard.forceActiveFocus(Qt.TabFocusReason);
+            keyboard.focusProxy.forceActiveFocus(Qt.TabFocusReason);
+            keyboard.contentPadding = data.padding;
+            keyboard.contentY = data.index === 0 ? keyboard.contentHeight - keyboard.height : 0;
+            const item = keyboardRows.itemAt(data.index);
+            compare(keyboard.focusProxy.visualFocus, true);
+            keyboard.reveal(item);
+            const viewport = keyboard.contentItem.parent.parent;
+            const top = item.mapToItem(viewport, 0, 0).y;
+            verify(top >= 0, "the revealed item's top clears the content clip");
+            verify(top + item.height <= viewport.height, "the revealed item's bottom clears the content clip");
+            verify(keyboard.contentY >= 0 && keyboard.contentY <= keyboard.contentHeight - keyboard.height, "reveal stays in the scroll range");
+        }
+
+        function test_child_keyboard_focus_keeps_its_ring_inside_the_clip_data() {
+            return [{ tag: "first", index: 0 }, { tag: "last", index: keyboardRows.count - 1 }];
+        }
+
+        function test_child_keyboard_focus_keeps_its_ring_inside_the_clip(data) {
+            root.Window.window.requestActivate();
+            tryCompare(root.Window.window, "active", true);
+            wait(0);
+            root.narrowKeyboardBody = true;
+            beforeKeyboard.forceActiveFocus(Qt.TabFocusReason);
+            keyboard.focusProxy.forceActiveFocus(Qt.TabFocusReason);
+            keyboard.contentY = data.index === 0 ? keyboard.contentHeight - keyboard.height : 0;
+            const item = keyboardRows.itemAt(data.index);
+            item.forceActiveFocus(Qt.TabFocusReason);
+            tryCompare(item, "activeFocus", true);
+            compare(keyboard.focusProxy.visualFocus, false);
+            const ring = item.children.find(child => child.target === item);
+            compare(ring.visible, true);
+            const viewport = keyboard.contentItem.parent.parent;
+            const topLeft = ring.mapToItem(viewport, 0, 0);
+            const bottomRight = ring.mapToItem(viewport, ring.width, ring.height);
+            verify(topLeft.x >= 0 && topLeft.y >= 0, "the child's ring starts inside the clip");
+            verify(bottomRight.x <= viewport.width && bottomRight.y <= viewport.height, "the child's ring ends inside the clip");
         }
 
         function test_the_bar_shows_while_scrolling_or_hovered_and_fades_after() {
