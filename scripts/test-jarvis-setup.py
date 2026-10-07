@@ -375,10 +375,12 @@ class Setup(unittest.TestCase):
                 observed = json.loads((self.data / "probe-observed.json").read_text())
                 self.assertEqual(observed, {key: expected[key] for key in ("models", "data", "state")})
                 self.mutant("return env", 'env.pop("XDG_DATA_HOME", None)\n    return env')
-                result = self.install(77)
+                # The real measurement entry now reaches its load lock
+                # before inference can report the missing model inputs.
+                result = self.install(1)
                 self.assertEqual(result.stderr.splitlines()[0].split("=", 2)[:2],
                                  ["jarvis-setup: failed", "probe log"])
-                self.assertIn(str(self.home / ".local/share/vgshell/jarvis/local/models"),
+                self.assertIn(str(self.home / ".local/share/vgshell/jarvis/local/local-load.lock"),
                               (self.state / "local-setup.log").read_text())
                 self.assertFalse((self.state / "local-ready.json").exists())
                 self.assertEqual(self.report(), {"tone": "warning", "text": "Not set up", "action": True})
@@ -386,7 +388,7 @@ class Setup(unittest.TestCase):
                     (self.plugin / "setup-local").write_text(original)
                     self.mutant("return env",
                         'env["XDG_DATA_HOME"] = str(data.resolve().parents[2])\n    return env')
-                    self.install(77)
+                    self.install(1)
                     self.assertFalse((self.state / "local-ready.json").exists())
                     self.assertEqual(self.report(), {"tone": "warning", "text": "Not set up", "action": True})
 
