@@ -17,9 +17,9 @@ FocusScope {
     signal identify(string identifier)
 
     readonly property var items: Logic.arrangementItems(outputs, savedRules, draftRules)
-    readonly property real contentWidth: Logic.arrangementContentWidth(items)
-    readonly property real contentHeight: Logic.arrangementContentHeight(items)
-    readonly property real scaleFactor: Math.min(width / contentWidth, implicitHeight / contentHeight)
+    // Every display at its place and size, scaled to fit the box with an
+    // even margin, as a { scale, x, y, height } the tiles and a drag read.
+    readonly property var fit: Logic.arrangementFit(Logic.arrangementBounds(items), width, Theme.size.panel.sm, Theme.space.xxl)
     readonly property real step: Logic.NUDGE
     readonly property real bigStep: Logic.NUDGE_BIG
 
@@ -27,7 +27,7 @@ FocusScope {
         selectedChangedByUser(identifier);
     }
 
-    implicitHeight: Math.max(Theme.size.control.lg, Theme.size.panel.sm / 3)
+    implicitHeight: fit.height
     focus: true
     activeFocusOnTab: true
     Accessible.name: "Display arrangement"
@@ -57,11 +57,13 @@ FocusScope {
         color: Theme.color.surface
         border.width: Theme.border.thin
         border.color: root.activeFocus ? Theme.color.focus : Theme.color.border
+        // A tile dragged past the edge draws nothing outside the box.
+        clip: true
 
         Repeater {
             model: root.items
 
-            Rectangle {
+            Item {
                 id: tile
                 required property var modelData
                 property bool dragging: false
@@ -73,22 +75,42 @@ FocusScope {
                 property real startY: 0
                 readonly property bool current: modelData.identifier === root.selected
                 opacity: modelData.off ? Theme.opacity.disabled : 1
-                x: dragging ? dragX : modelData.x * root.scaleFactor
-                y: dragging ? dragY : modelData.y * root.scaleFactor
-                width: Math.max(Theme.size.control.lg, modelData.width * root.scaleFactor)
-                height: Math.max(Theme.size.control.lg, modelData.height * root.scaleFactor)
-                radius: Theme.radius.sm
-                color: current ? Theme.color.accentSubtle : Theme.color.surfaceRaised
-                border.width: Theme.border.thin
-                border.color: current ? Theme.color.accent : Theme.color.border
+                x: dragging ? dragX : root.fit.x + modelData.x * root.fit.scale
+                y: dragging ? dragY : root.fit.y + modelData.y * root.fit.scale
+                width: modelData.width * root.fit.scale
+                height: modelData.height * root.fit.scale
 
-                Label {
-                    anchors.centerIn: parent
-                    width: parent.width - 2 * Theme.stack.inline
-                    role: "item"
-                    horizontalAlignment: Text.AlignHCenter
-                    text: tile.modelData.label
-                    elide: Text.ElideRight
+                // Inset so two displays that touch draw two outlines with a
+                // gap between them, not one doubled line.
+                Rectangle {
+                    anchors.fill: parent
+                    anchors.margins: Theme.space.xxs
+                    radius: Theme.radius.sm
+                    color: tile.current ? Theme.color.accentSubtle : Theme.color.surfaceRaised
+                    border.width: tile.current ? Theme.border.thick : Theme.border.thin
+                    border.color: tile.current ? Theme.color.accent : Theme.color.border
+
+                    Column {
+                        anchors.centerIn: parent
+                        width: parent.width - 2 * Theme.stack.inline
+
+                        Label {
+                            width: parent.width
+                            role: "item"
+                            horizontalAlignment: Text.AlignHCenter
+                            text: tile.modelData.label
+                            elide: Text.ElideRight
+                        }
+
+                        Label {
+                            width: parent.width
+                            visible: text !== ""
+                            role: "itemHint"
+                            horizontalAlignment: Text.AlignHCenter
+                            text: tile.modelData.product
+                            elide: Text.ElideRight
+                        }
+                    }
                 }
 
                 MouseArea {
@@ -114,9 +136,11 @@ FocusScope {
                         tile.dragY = tile.startY + point.y - tile.pressY;
                     }
                     onReleased: {
-                        const x = tile.dragX / root.scaleFactor;
-                        const y = tile.dragY / root.scaleFactor;
                         tile.dragging = false;
+                        // A click with no movement only selects.
+                        if (tile.dragX === tile.startX && tile.dragY === tile.startY) return;
+                        const x = (tile.dragX - root.fit.x) / root.fit.scale;
+                        const y = (tile.dragY - root.fit.y) / root.fit.scale;
                         root.moved(Logic.moveGroup(root.outputs, root.savedRules, root.draftRules, tile.modelData.identifier, x, y));
                     }
                     onCanceled: tile.dragging = false
