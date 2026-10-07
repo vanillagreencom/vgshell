@@ -1798,6 +1798,7 @@ scene_ai-usage() { # MODE
   if y="$(python3 -c 'import json,sys; _, content, view = json.loads(sys.argv[1]); print(int(content - view)) if content - view > 2 else sys.exit(1)' "$at" 2>/dev/null)"; then
     ipc smoke scrollTo panel vgs.ai-usage "$y" >/dev/null || fail "the AI Usage panel did not scroll"
     take "ai-usage-$1-panel-scrolled"
+    ipc smoke descendantGeometry panel vgs.ai-usage >"$out/ai-usage-$1-items.json"
   else
     fail "the AI Usage panel does not scroll: $at"
   fi

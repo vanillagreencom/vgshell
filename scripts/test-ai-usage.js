@@ -994,12 +994,14 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
         assert.deepEqual(cards.map(r => [r.id, r.api]), [["claude-a", false], ["codex-b", false], ["codex-api", true], ["copilot-z", false], ["gateway-api", true]]);
         assert.equal(cards.find(r => r.id === "codex-api").note, View.NO_PLAN);
         for (const provider of ["claude", "copilot", "gateway"]) {
-            const source = View.logo(provider, "#abcdef");
+            const source = View.logo(provider, "#ffabcdef");
             assert.ok(source.startsWith("data:image/svg+xml,"));
             assert.ok(decodeURIComponent(source).includes('fill="#abcdef"'));
+            assert.ok(decodeURIComponent(source).includes('fill-opacity="1"'));
+            assert.ok(decodeURIComponent(View.logo(provider, "#80123456")).includes('fill="#123456" fill-opacity="' + 128 / 255 + '"'));
             assert.ok(decodeURIComponent(source).includes('<path '));
         }
-        for (const provider of ["codex", "unknown"]) assert.equal(View.logo(provider, "#abcdef"), "");
+        for (const provider of ["codex", "unknown"]) assert.equal(View.logo(provider, "#ffabcdef"), "");
     };
     cardChanges(plugin);
     cases++;
@@ -1011,6 +1013,7 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
     await control("almost-out-boundary", "UsageView.js", "percent >= WARNING_PERCENT", "percent > WARNING_PERCENT", cardChanges);
     await control("api-chip-absent", "UsageView.js", 'api: row.state === "no-plan" || row.provider === "gateway"', 'api: false', cardChanges);
     await control("logo-absent", "UsageView.js", 'var mark = MARKS[provider];', 'var mark = undefined;', cardChanges);
+    await control("logo-qt-color", "UsageView.js", 'var rgb = "#" + color.slice(3);', 'var rgb = color;', cardChanges);
     views(plugin);
     cases++;
     await control("stale-dropped", "UsageView.js", 'if ((row.state === "failed" || row.state === "limited") && last !== null && hasFigures(last))',

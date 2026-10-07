@@ -489,7 +489,7 @@ ipc smoke scrollTo panel vgs.ai-usage 99999 >/dev/null || fail "the gateway API 
 summon_drawn panel vgs.ai-usage || fail "the gateway API card never drew a frame"
 usage_gateway_api() { usage_panel | py_reply 'import json,sys; r=json.load(sys.stdin); print(any(a["provider"] == "gateway" and a["api"] is True for a in r))'; }
 usage_api_chip() { ipc smoke readMatchingDescendant panel vgs.ai-usage Badge text '[API]' visible; }
-usage_gateway_logo() { ipc smoke images panel vgs.ai-usage | py_reply 'import json,sys; print(any("m12 1.608 12 20.784H0Z" in r[0] and r[1] == "ready" for r in json.load(sys.stdin)))'; }
+usage_gateway_logo() { ipc smoke images panel vgs.ai-usage | py_reply 'import json,re,sys; print(any("m12 1.608 12 20.784H0Z" in r[0] and r[1] == "ready" and re.search(r"fill=\"#[0-9a-fA-F]{6}\"", r[0]) is not None for r in json.load(sys.stdin)))'; }
 expect_poll "the gateway card carries API billing" True usage_gateway_api
 expect_poll "the gateway card draws its API chip" true usage_api_chip
 expect_poll "the gateway card draws its published Vercel mark" True usage_gateway_logo

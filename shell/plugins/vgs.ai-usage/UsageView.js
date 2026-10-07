@@ -14,8 +14,12 @@ var MARKS = {"claude": "m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.230
 
 function logo(provider, color) {
     var mark = MARKS[provider];
+    // Theme publishes Qt ARGB (Theme.qml toColor); SVG needs RGB and
+    // opacity separately.
+    var rgb = "#" + color.slice(3);
+    var alpha = parseInt(color.slice(1, 3), 16) / 255;
     return mark === undefined ? "" : "data:image/svg+xml," + encodeURIComponent(
-        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="' + color + '" d="' + mark + '"/></svg>');
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="' + rgb + '" fill-opacity="' + alpha + '" d="' + mark + '"/></svg>');
 }
 
 function usageTone(percent) {
