@@ -7,15 +7,21 @@
 # and a claude the row plants. Both stand-ins answer reset times relative
 # to each request. It reads the Settings page's Sign in per tool, withheld
 # while that tool is missing, whose TUI the stand-in terminal records; the
-# widget's share, tone and hidden state; the panel's rows, reset times and
-# height cap, half its output's logical height;
+# widget's share, tone and hidden state; the panel's rows, notes, figure
+# ages, reset times and height cap, half its output's logical height; that
+# opening the panel publishes no read and sends the endpoint no request;
 # the panel's Settings gear, which always-on Plugins gives every panel,
-# clicked with the nested pointer, which opens the Settings window on AI Usage's page and closes the panel; and that no read
-# changed a credential file's bytes or modification time.
+# clicked with the nested pointer, which opens the Settings window on AI Usage's page and closes the panel;
+# a 429 from the endpoint's limited mode, which keeps the figures as ok
+# with no warning, then ten opens and closes of the panel that send no
+# request; a refused token's expired warning and a failed request's stale
+# figures; and that no read changed a credential file's bytes or
+# modification time.
 # Controls: a widget copy shown with no account, a panel copy capped at its
-# output's whole height, a helper copy that writes the credential file, one
-# that reads a failed request as 0 % and a panel host copy whose slot opens
-# Settings with no page each fail their own reading.
+# output's whole height, a panel copy whose open asks for a read, a helper
+# copy that writes the credential file, one that reads a failed request as
+# 0 % and a panel host copy whose slot opens Settings with no page each
+# fail their own reading.
 # This row has no latency ceiling; every reading polls through expect_poll.
 # inputs: shell/plugins/vgs.ai-usage/* bin/lib/account-folders.js bin/lib/anchored.js bin/lib/qml-library.js shell/Commons/AccountDirectories.js scripts/fixtures/ai-usage/* scripts/smoke/fixtures/ai-usage/* shell/plugins/vgs.settings/* shell/Core/PluginLogic.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Hosts/PluginSlot.qml shell/Hosts/SummonPopup.qml shell/Ui/layout/Pane.qml shell/Ui/controls/IconButton.qml config/shell.json bin/vgshell-tui scripts/qml-smoke.sh shell/Commons/Duration.js shell/Commons/qmldir
 set -euo pipefail
@@ -51,6 +57,16 @@ usage_windows() { # PROVIDER
   usage_read | py_reply 'import json,sys; u=json.load(sys.stdin); print(json.dumps([[a["state"], [[w["name"], w["usedPercent"]] for w in a["windows"]]] for a in (u or {"accounts": []})["accounts"] if a["provider"] == sys.argv[1]]))' "$1"
 }
 usage_read_at() { usage_read | py_reply 'import json,sys; u=json.load(sys.stdin); print(0 if u is None or u["readAt"] is None else u["readAt"])'; }
+# usage_account_read_at PROVIDER: when each of PROVIDER's accounts had its
+# figures read, null for one that holds none.
+usage_account_read_at() { # PROVIDER
+  usage_read | py_reply 'import json,sys; u=json.load(sys.stdin); print(json.dumps([a["readAt"] for a in (u or {"accounts": []})["accounts"] if a["provider"] == sys.argv[1]]))' "$1"
+}
+# usage_requests: the count of requests the stand-in endpoint logged;
+# usage_requests_since N: `none` while it logged none past the first N,
+# else `requests=+K` for the K past them.
+usage_requests() { if [[ -s $usage_dir/requests ]]; then wc -l <"$usage_dir/requests"; else echo 0; fi; }
+usage_requests_since() { local n; n="$(usage_requests)" || return; if ((n == $1)); then echo none; else echo "requests=+$((n - $1))"; fi; }
 # usage_read_after T: `new` once the service published a read after T.
 usage_read_after() { local at; at="$(usage_read_at)" || return; if ((at > $1)); then echo new; else echo "readAt=$at"; fi; }
 # usage_idle: `idle` while the service holds no queued read and no helper of
@@ -116,6 +132,9 @@ usage_gear_click() {
   click "$x" "$y"
 }
 usage_settings_page() { ipc smoke readInstance window vgs.settings page; }
+# Each card's state, whether it holds no note, the note's tone and whether
+# it says how long ago its figures were read.
+usage_panel_notes() { usage_panel | py_reply 'import json,sys; print(json.dumps([[r["provider"], r["state"], r["note"] == "", r["noteTone"], r["checked"] != ""] for r in json.load(sys.stdin)]))'; }
 usage_panel_rows() { usage_panel | py_reply 'import json,sys; print(json.dumps([[r["provider"], r["label"], r["email"], [[w["name"], w["percent"], w["tone"]] for w in r["windows"]]] for r in json.load(sys.stdin)]))'; }
 
 usage_panel_details() { usage_panel | py_reply 'import json,sys; print(json.dumps([[r["provider"], r["label"], [[d["label"], d["value"]] for d in r["details"]]] for r in json.load(sys.stdin)]))'; }
@@ -229,8 +248,10 @@ expect "Claude Code's windows are the endpoint's" '[["ok", [["five_hour", 42], [
 expect "Codex's windows are the program's" '[["ok", [["five_hour", 27], ["seven_day", 64]]]]' usage_windows codex
 expect_poll "the widget shows the highest share in the warning tone" '[true, true, 83, "warning"]' usage_widget_state
 expect "the read changed no credential file" kept usage_credentials_kept
-usage_before_panel="$(usage_read_at)" || usage_before_panel=0
 expect_poll "the service is idle before the panel opens" idle usage_idle
+usage_before_panel="$(usage_read_at)" || usage_before_panel=0
+usage_sent_before_panel="$(usage_requests)"
+usage_notes_ok='[["claude", "ok", true, "normal", true], ["codex", "ok", true, "normal", true]]'
 click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage from its widget failed"
 expect_poll "the widget opens its panel" '[["claude", "default", "", [["five_hour", 42, "normal"], ["seven_day", 83, "warning"], ["seven_day_fable", 12, "normal"]]], ["codex", "default", "person@example.invalid", [["five_hour", 27, "normal"], ["seven_day", 64, "normal"]]]]' usage_panel_rows
 expect_poll "the panel's reset times are the stand-ins'" matched usage_panel_resets
@@ -240,8 +261,9 @@ summon_drawn panel vgs.ai-usage || fail "the panel never drew a frame"
 usage_panel_box() { ipc smoke instanceGeometry panel vgs.ai-usage | py_reply 'import json,sys; r=json.load(sys.stdin); print(r[2] > 0 and r[3] > 0)'; }
 expect "the panel has a size" True usage_panel_box
 expect_poll "the panel's height cap is half its output's height" matched usage_panel_cap
-expect_poll "the check the panel asks for is published" new usage_read_after "$usage_before_panel"
-expect "the panel's check changed no credential file" kept usage_credentials_kept
+expect "each card holds no note and says how long ago it was read" "$usage_notes_ok" usage_panel_notes
+expect "opening the panel publishes no read" "readAt=$usage_before_panel" usage_read_after "$usage_before_panel"
+expect "opening the panel sends the endpoint no request" none usage_requests_since "$usage_sent_before_panel"
 expect "AI Usage's panel hides" ok ipc shell hide panel vgs.ai-usage
 expect_poll "the hidden panel is gone" absent usage_panel
 # A panel copy capped at its output's whole height fails the cap reading
@@ -257,6 +279,23 @@ expect "the whole-height panel copy hides" ok ipc shell hide panel vgs.ai-usage
 expect_poll "the whole-height panel copy is gone" absent usage_panel
 cp -- "$usage_dir/Panel.qml.original" "$usage_panel_qml"
 rescan "the restored panel is scanned"
+# A panel copy whose open asks for a read fails the no-request reading
+# with its own request. The service may be rebuilt by the rescan, so a
+# check it publishes first ends any read it starts.
+usage_edit "$usage_panel_qml" '    function open(payloadJson) {}' '    function open(payloadJson) { refresh(); }' || fail "the reading-panel control's edit failed"
+rescan "the reading-panel copy is scanned"
+usage_refresh "the reading-panel copy's service"
+usage_sent_before_control="$(usage_requests)"
+click_centre "$(bar_key)" vgs.ai-usage || fail "opening the reading-panel copy failed"
+summon_drawn panel vgs.ai-usage || fail "the reading-panel copy never drew a frame"
+expect_poll "the reading-panel copy sends a request when it opens" "requests=+1" usage_requests_since "$usage_sent_before_control"
+expect "a panel that reads when it opens breaks the no-request reading" 1 \
+  usage_control "$usage_dir/open-control.log" "opening the panel must send no request" none usage_requests_since "$usage_sent_before_control"
+expect "the no-request reading fails on the panel's request" 1 grep -c -F -- "opening the panel must send no request: got requests=+1" "$usage_dir/open-control.log"
+expect "the reading-panel copy hides" ok ipc shell hide panel vgs.ai-usage
+expect_poll "the reading-panel copy is gone" absent usage_panel
+cp -- "$usage_dir/Panel.qml.original" "$usage_panel_qml"
+rescan "the panel restored after the reading control is scanned"
 expect "the Settings window is summoned for AI Usage settings edits" ok ipc shell summon window vgs.settings '{}'
 expect "the account choices list all read accounts" '["Claude Code \u00b7 default", "Codex \u00b7 person@example.invalid"]' usage_choices
 expect "choosing compact view is allowed" ok usage_apply_setting view '"compact"'
@@ -329,6 +368,30 @@ rescan "the restored helper is scanned"
 usage_refresh "the restored helper"
 usage_credentials_before="$(usage_credentials)"
 
+# Claude's endpoint turns away frequent reads with 429, as the stand-in's
+# limited mode does inside 60 s of the answer it served. A Check now inside
+# that window keeps the figures as ok with their read time and no warning,
+# and ten opens and closes of the panel send no request at all.
+expected_errors+=('ai-usage: account=claude-[0-9a-f]+ limited=http-429')
+usage_figures='[["ok", [["five_hour", 42], ["seven_day", 83], ["seven_day_fable", 12]]]]'
+usage_mode limited
+usage_refresh "the first read under the limit"
+expect "the first read under the limit is served" "$usage_figures" usage_windows claude
+usage_claude_read_at="$(usage_account_read_at claude)"
+usage_refresh "a Check now inside the limit"
+expect "a Check now inside the limit keeps the figures as ok" "$usage_figures" usage_windows claude
+expect "a Check now inside the limit keeps the figures' read time" "$usage_claude_read_at" usage_account_read_at claude
+usage_sent_before_cycles="$(usage_requests)"
+for usage_cycle in 1 2 3 4 5 6 7 8 9 10; do
+  click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage under the limit, time $usage_cycle, failed"
+  expect_poll "under the limit the panel opens with no stale note, time $usage_cycle" "$usage_notes_ok" usage_panel_notes
+  expect "under the limit the panel hides, time $usage_cycle" ok ipc shell hide panel vgs.ai-usage
+  expect_poll "under the limit the panel is gone, time $usage_cycle" absent usage_panel
+done
+expect "ten opens of the panel send the endpoint no request" none usage_requests_since "$usage_sent_before_cycles"
+expect "ten opens of the panel keep the figures as ok" "$usage_figures" usage_windows claude
+expect "the limited reads changed no credential file" kept usage_credentials_kept
+
 # A failed read keeps the last figures, marked stale, never 0 %.
 expected_errors+=('ai-usage: account=claude-[0-9a-f]+ failed=http-500')
 usage_mode error
@@ -337,10 +400,22 @@ usage_stale='[["stale", [["five_hour", 42], ["seven_day", 83], ["seven_day_fable
 expect_poll "a failed request keeps the last figures, marked stale" "$usage_stale" usage_windows claude
 expect_poll "the widget keeps the stale share" '[true, true, 83, "warning"]' usage_widget_state
 expect "the failed read changed no credential file" kept usage_credentials_kept
+click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage on stale figures failed"
+expect_poll "the stale card warns that its figures may be old" '[["claude", "stale", false, "warning", true], ["codex", "ok", true, "normal", true]]' usage_panel_notes
+expect "the stale panel hides" ok ipc shell hide panel vgs.ai-usage
+expect_poll "the stale panel is gone" absent usage_panel
+# A refused token reads expired, with the expired warning.
+usage_mode refused
+usage_refresh "a refused Claude token"
+expect "a refused token reads expired with no figures" '[["expired", []]]' usage_windows claude
+click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage on an expired sign-in failed"
+expect_poll "the expired card warns" '[["claude", "expired", false, "warning", false], ["codex", "ok", true, "normal", true]]' usage_panel_notes
+expect "the expired panel hides" ok ipc shell hide panel vgs.ai-usage
+expect_poll "the expired panel is gone" absent usage_panel
 # A helper copy that reads a failed request as 0 % fails that reading: its
 # service, rebuilt, first reads the figures, then the failure.
-usage_edit "$usage_helper" '    if (reply.status === 401 || reply.status === 403) return { state: "expired", email };
-    if (reply.status !== 200) return lost("http-" + reply.status);' '    if (reply.status === 401 || reply.status === 403) return { state: "expired", email };
+usage_edit "$usage_helper" '    if (reply.status === 429) return { state: "limited", email };
+    if (reply.status !== 200) return lost("http-" + reply.status);' '    if (reply.status === 429) return { state: "limited", email };
     if (reply.status !== 200) return { state: "ok", email, windows: [{ name: "five_hour", usedPercent: 0, resetsAt: null }] };' || fail "the zero control's edit failed"
 usage_mode relative
 rescan "the zero copy is scanned"
