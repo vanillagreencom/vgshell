@@ -1291,7 +1291,7 @@ exit "$failures"
             }
         } finally { for (const name of ["grim", "magick"]) fs.rmSync(path.join(standins, name), { force: true }); }
     }
-    async function engineConversation(file) {
+    async function engineConversation(file, said = "What time is it?", caption = said) {
         const child = cp.spawn("node", [file, "--tree", tree], { env: {
             PATH: process.env.PATH, HOME: process.env.HOME, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR
         }, stdio: ["pipe", "pipe", "pipe"] });
@@ -1338,10 +1338,14 @@ exit "$failures"
             assert.deepEqual(order.slice().sort((a, b) => a - b), order, "phases advance in order: " + phases.join(","));
             assert.equal(loopback.requests.length, before + 1);
             assert.deepEqual(loopback.requests.at(-1).body.messages.filter(message => message.role === "user")
-                .map(message => message.content), ["What time is it?"], "the final reaches the loopback brain");
+                .map(message => message.content), [said], "the original final reaches the loopback brain");
             const gen = states.at(-1).state.gen;
+            const userCaption = captions.find(message => message.role === "user");
+            assert.equal(userCaption?.text, caption, "the user final caption keeps the sanitized tail");
+            assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(userCaption), "daemon")), JSON.stringify(userCaption),
+                "the user final is accepted by the shell transcript judge");
             assert.deepEqual(captions.map(m => [m.gen, m.role, m.stage, m.rev, m.text]), [
-                [gen, "user", "final", collectionOp, "What time is it?"],
+                [gen, "user", "final", collectionOp, caption],
                 [gen, "assistant", "partial", 1, "It is noon."],
                 [gen, "assistant", "partial", 2, "It is noon. The sun is high."],
                 [gen, "assistant", "final", 3, "It is noon. The sun is high."]], "the chained reply's words reach the wire in order, final last");
@@ -1352,7 +1356,34 @@ exit "$failures"
         } finally { if (child.exitCode === null) { child.kill("SIGKILL"); await closed; } }
     }
     try {
-        await engineConversation(engineCopy("engine"));
+        // Speech.transcribe joins recognizer text without the shell caption's
+        // character or length rules. The brain keeps that original final.
+        const tail = "x".repeat(Protocol.TRANSCRIPT_CHARS);
+        const finals = [
+            ["ordinary", "What time is it?", "What time is it?"],
+            ["multiline", "What time\nis it?\tPlease tell me.\u0000", "What time is it? Please tell me. "],
+            ["oversized", "Dropped prefix. " + tail, tail]
+        ];
+        for (const [name, said, caption] of finals) {
+            await engineConversation(engineCopy("engine-" + name, said), said, caption);
+            console.log("test-jarvis-daemon: caption=" + name + " passed");
+        }
+        for (const [name, needle, replacement, row] of [
+            ["caption-control-chars", 'e.text.replace(/[\\x00-\\x1f\\x7f]/g, " ")', "e.text", finals[1]],
+            ["caption-tail-bound", ".slice(-Protocol.TRANSCRIPT_CHARS)", "", finals[2]]
+        ]) {
+            const [, said, caption] = row;
+            const file = engineCopy("engine-" + name, said);
+            const original = fs.readFileSync(file, "utf8");
+            assert.equal(original.split(needle).length - 1, 1, name + " mutation match");
+            fs.writeFileSync(file, original.replace(needle, replacement));
+            await assert.rejects(() => engineConversation(file, said, caption),
+                error => error instanceof assert.AssertionError
+                    && error.message.startsWith("the user final caption keeps the sanitized tail"),
+                name + " must fail its own caption assertion");
+            controls++;
+            console.log("test-jarvis-daemon: control=" + name + " killed");
+        }
         await assert.rejects(() => engineConversation(engineCopy("engine-no-caption", "What time is it?", null,
             [["        caption(c, turn, sentence);\n", ""]])),
         error => error instanceof assert.AssertionError && error.message.startsWith("the chained reply's words reach the wire"),
