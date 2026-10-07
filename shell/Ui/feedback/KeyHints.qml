@@ -2,7 +2,8 @@ import QtQuick
 import qs.Commons
 import qs.Ui
 
-// A single shortcut hint row. Each `hints` entry is `{ key, text }` or
+// A single shortcut hint row; a surface draws at most one, and leaves
+// obvious keys out. Each `hints` entry is `{ key, text }` or
 // `{ keys, text }`; `key: "Left/Right"` draws two caps, while
 // `key: "Ctrl+Tab"` draws one chord.
 Row {

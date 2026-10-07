@@ -261,6 +261,8 @@ Singleton {
     }
 
     // The `requirements` capability's offer, for the instance CTX belongs to.
+    // The notice outlives that instance: only the user's answer, or a scan
+    // that finds its commands, closes it.
     function offer(ctx, commands) {
         return raise(ctx.id, "offered", commands);
     }

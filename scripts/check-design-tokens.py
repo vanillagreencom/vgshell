@@ -45,7 +45,7 @@ with its own table, `look`, instead of Theme, so
                      resolves in either mode below the smallest size of the
                      shell's own text roles, the chrome floor a plugin that
                      owns its look meets too (docs/architecture/design-system.md
-                     § Type); read from Tokens.js, never a second number
+                     § Appearance); read from Tokens.js, never a second number
 The declared file is exempt from the literal rules, since the judge types
 each of its values; every other file of the plugin stays under them, with a
 radius that names `look.` reading a token.

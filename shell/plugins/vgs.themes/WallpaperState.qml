@@ -80,6 +80,8 @@ Item {
         clear();
     }
 
+    // The state file, never the `background` link: Qt's directory watcher
+    // follows a link to its target and misses the link's own change.
     WatchedFile {
         path: root.statePath
         onChanged: read()

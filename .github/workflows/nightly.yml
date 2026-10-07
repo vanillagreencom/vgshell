@@ -1,9 +1,10 @@
 # The full validation of main once a night, report only. No push, pull
 # request or merge queue starts it and no merge reads its result. Each area is
 # one job that runs scripts/validate --full --skip-unprepared AREA, which leaves
-# out the rows that need prepared state a runner never holds; which areas
-# run here, where, and why qml does not: docs/architecture/validation.md
-# § Nightly run.
+# out the rows that need prepared state a runner never holds. qml does not
+# run here: Hyprland allocates buffers only through GBM on a DRM device,
+# which a hosted runner lacks, so scripts/main-run.sh qml runs it on a
+# machine that has one.
 name: nightly
 
 on:

@@ -3,7 +3,7 @@
 [← Decision Index](INDEX.md)
 
 **Date**: 2026-09-30
-**Status**: Active (monitor rules → [D096](D096-vgs-reads-outputs-and-writes-no-monitor-rule.md))
+**Status**: Active (monitor rules → [D096](D096-vgs-writes-monitor-rules-through-one-generated-layer.md))
 **Research**: [VGS-694](https://linear.app/vanillagreen/issue/VGS-694), [VGS-695](https://linear.app/vanillagreen/issue/VGS-695), [VGS-696](https://linear.app/vanillagreen/issue/VGS-696)
 **Refines**: [D028](D028-one-generated-hyprland-layer.md)
 

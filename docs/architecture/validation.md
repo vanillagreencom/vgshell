@@ -1,92 +1,89 @@
-# A change runs the checks its files reach, and no check reaches the person's machine
+# Validation
 
-Read before touching `scripts/validate`, a row or its input line, a test's environment, the nested sandbox or one of its rows, a budget, or a Jarvis test.
+Read before changing `scripts/validate`, a row or its verdict, a row's inputs, a test's environment, the nested sandbox or its harness, a fault the smoke excuses, a budget, or a Jarvis test.
 
 ## The approach
 
-Every row declares its inputs in its own file, and `scripts/validate` runs the rows a changed file reaches, once, on the final diff, never as a commit, push or merge gate ([D100](../decisions/D100-validation-selects-by-inputs.md)). A declaration that cannot select runs the row.
+`scripts/validate` runs the rows a change reaches, once, on the final diff: [D100](../decisions/D100-validation-selects-by-inputs.md). A row whose inputs it cannot read runs.
 
-Every check runs in a private environment and leaves the person's machine as it found it. A row gets a scratch HOME and XDG directories, no global git configuration and `VGS_TEST_RUN=1`. The nested smoke runs in one Hyprland the harness builds from the repository, never in the live session, and a Jarvis suite runs inside one `jarvis_env_run`. No check authenticates against the host, runs a plugin's real TUI script, or reaches a host service a stand-in answers. No process a run starts can open an amdgpu node ([D099](../decisions/D099-no-amdgpu-node-in-validation-runs.md)).
+Every check runs in a world it owns and leaves the owner's machine as it found it. A row runs in a scratch home under the test-run marker. The nested smoke runs in a Hyprland the harness builds from the repository, never in the live session. A Jarvis suite runs inside `jarvis_env_run`. No process a run starts opens an amdgpu node: [D099](../decisions/D099-no-amdgpu-node-in-validation-runs.md).
 
-A check that could not run reports not measured, exit 77, and that is never a pass. Every budget a check enforces is tied to a recorded run: the machine, its load and the poll interval sit beside the ceiling in the script, and the readings belong to the issue that set it.
+A check that could not run says so, and that is never a pass: exit 77 in [AGENTS.md](../../AGENTS.md) § Commands. A sandbox fault excuses only a reading the sandbox can spoil. A budget stands beside the run that measured it.
 
 ## Why
 
-Only selection cuts the time a fix round costs. A row that runs when it cannot prove it is unaffected keeps coverage that a skipped row would silently lose.
+Only selection cuts the time a fix round costs. A row that runs when it cannot prove it is unaffected keeps the coverage a skipped row would silently lose.
 
-A test that touches the host changes the owner's machine. Namespace isolation does not confine authentication: the sandbox shares the host's PAM, polkit, faillock, files and sudo timestamp. git writes its XDG configuration file wherever one exists, so a scratch HOME alone does not keep a row from editing the developer's git configuration, which may be a dotfiles link. A shipped theme target's reload hook would signal the host's live application from any test tree, so the test-run marker refuses one outside the scratch root. A screenshot through the host socket would capture the owner's desktop.
+The sandbox shares the host's files, devices, PAM, polkit, faillock and sudo timestamp. Namespaces do not confine them. A check that reaches one changes the owner's machine, and a capture through the host socket records the owner's desktop.
 
-Rows share one sandbox, so a row that leaves state behind changes what a later row reads, and a wait on time passes on a fast machine and fails on a loaded one. A reader that raises, or a state word that reaches shell arithmetic under `set -u`, ends the run with every later row unreported.
+Rows share one sandbox. A row that leaves state changes what a later row reads, so a scoped run and a full run disagree. A wait on time passes on a fast machine and fails on a loaded one. A reader that raises ends the run with every later row unreported.
 
-A broken environment that reads as a pass hides the regression the check exists to catch, so a fault excuses only a reading the environment can spoil. A ceiling without its measurement cannot be judged when it fails, and a measurement without its CPU pressure cannot be compared with another run.
+A broken environment that reads as a pass hides the regression the check exists to catch. A ceiling without its measurement cannot be judged when it fails, and a reading without its CPU pressure cannot be compared with another run.
 
 ## Rules
 
 ### Selection
 
-- Do declare a smoke row's inputs on one `# inputs:` line in its leading comment block: the product files it reads, `bin/vgshell` when it runs it, and the file of every row whose functions or state it uses. The `smoke rows name the rows they read` row of `scripts/validate` refuses a line that cannot select.
-- Do register a row in `scripts/smoke/rows.list` with its order reason on the comment line above; `scripts/qml-smoke.sh` refuses a malformed line.
-- Never put a product file on the harness's own input line, and never name inputs by a wildcard over row files; neither selects a row.
-- Do run `scripts/validate --changed <last-validated-commit>` for a fix round and reuse the passing rows whose inputs did not change; never a second full suite. After a restack, the base is the rebased SHA `worktree push` prints.
-- Never add a repo row for a check a path pattern can select; a repo row runs on every change.
-- Do add a validation row for a new surface, service or plugin in the same change; the `rows_cover_tests` row holds it for test files.
+- Do declare every file a row reads, and the file of every row whose functions or state it uses, on its input line in the form [scripts/AGENTS.md](../../scripts/AGENTS.md) gives. An undeclared read skips the row on a change that breaks it. The `smoke rows name the rows they read` row of `validate tools` refuses a function or variable read from an undeclared row; gap: no check finds a product file a row reads but does not declare.
+- Never put a product file on the input line of `scripts/smoke/harness.sh`; a change to it runs every row. Review holds it.
+- Never add a `repo` row for a check a path pattern can select; a `repo` row runs on every change. Review holds it.
+- Never leave a row out of a scoped run without a line that names it. `scripts/test-validate.sh` holds the lines a scoped run prints.
 
 ### Test isolation
 
-- Do give every spawned process an explicit environment, and export `VGS_TEST_RUN=1` for every test and sandbox run. `scripts/test-validate.sh` plants a row that writes git's global configuration, and `scripts/test-vgshell-reload.sh` plants a hook outside the scratch root.
-- Do declare an expected QML warning with `// expected-log: <message> -- <reason>` directly above the test function; `scripts/qml-unit.sh` fails a log at load or teardown.
-- Never count a mutant as killed on any status but a failed test; `scripts/test-qml-unit.sh` pins it.
-- Do hand any runner that starts a compositor, the shell, `qmltestrunner` or a browser to `scripts/smoke/gpu-fence.sh`; `scripts/test-gpu-fence.sh` pins the fence and each entry point's call.
+- Do run every check through the row runner in `scripts/validate`, which gives each row its own home and XDG directories so no row writes the caller's git configuration. `scripts/test-validate.sh` holds it.
+- Do run every test and sandbox process under the test-run marker `VGS_TEST_RUN=1`. `scripts/test-vgshell-reload.sh` holds the theme judge's refusal under it.
+- Do give every process a test spawns an explicit environment, never the caller's whole one. Gap: no check reads a test's spawn calls.
+- Do hand a runner that starts a compositor, the shell, `qmltestrunner` or a browser to `scripts/smoke/gpu-fence.sh` before it starts anything. `scripts/test-gpu-fence.sh` holds the fence and each entry point's call.
+- Never let a QML test log a warning it does not declare. `scripts/qml-unit.sh` fails an undeclared log, and its header gives the declaration.
+- Never count a mutant as killed on any status but a failed test. `scripts/test-qml-unit.sh` holds it.
 
 ### Host safety
 
-- Never authenticate, and never run a real PAM, polkit, sudo, faillock or keyring step. `scripts/smoke/rows/auth-sentinel.sh`, a core row, reads the sentinel log empty, and `scripts/sandbox-shots.sh` fails a run that logged one.
-- Never let the stand-in terminal run a plugin's own TUI script; it runs only a byte-identical fixture copy. `scripts/check-smoke-terminal.py` refuses a second writer of the stand-in, and `scripts/smoke/rows/tui-guard.sh` is the guard's control.
-- Do read the argv a stand-in recorded, never a script's effect; each plugin's offline suite runs its TUI scripts.
-- Never add a device fake or a host-command stand-in in a row; `scripts/smoke/devices.sh` owns them, and `devices_ready`, a device row's first line, records the row not measured when the guard reads a leak. `scripts/smoke/rows/device-fakes.sh` holds the controls.
-- Do capture through `scripts/smoke/shot.sh`, which refuses the host socket, the host runtime directory and an output outside `tmp/`; `scripts/test-sandbox-shots.sh` pins it. Never open a host workspace or change host focus from a shots run.
-- Never return a password or a matrix from a reader.
+- Never authenticate, and never run a real PAM, polkit, sudo, faillock or keyring step. The core row `scripts/smoke/rows/auth-sentinel.sh` and `scripts/sandbox-shots.sh` fail a run that reached an authentication stand-in.
+- Never let the stand-in terminal run a shipped plugin's TUI script; it runs a fixture copy. `scripts/check-smoke-terminal.py` refuses a row that writes its own, and `scripts/smoke/rows/tui-guard.sh` checks the stand-in at the end of a run.
+- Do assert the argv a stand-in recorded, never the effect of the script it stands in for. Review holds it.
+- Never add a device fake or a device-command stand-in in a row; `scripts/smoke/devices.sh` owns them. Review holds it.
+- Do start a device row behind the guard in `scripts/smoke/devices.sh`, which records the row not measured when it reads a leak to the host. `scripts/smoke/rows/device-fakes.sh` holds the guard.
+- Do capture the sandbox only through `scripts/smoke/shot.sh`, which refuses the host socket and an output outside `tmp/`. `scripts/test-sandbox-shots.sh` holds it.
+- Never dispatch to the host compositor, change its focus or open one of its workspaces from a run; read it only. Review holds it.
+- Never return a secret, or data derived from one, from a sandbox reader; a reader returns state and geometry. Review holds it.
 
 ### Nested sandbox
 
-- Never start a second shell against the live session or kill Quickshell by name; `scripts/smoke/harness.sh` alone owns the sandbox lifetime. `scripts/test-smoke-teardown.sh` pins the teardown.
-- Do wait on a state the shell reports, never on time.
-- Never let a reader raise; answer a state word for absent, partial, missing or empty. `scripts/check-smoke-readers.py` refuses a reader that parses its input itself, and the harness fails a row on any Python traceback.
+- Do start and stop the sandbox only through `scripts/smoke/harness.sh`. `scripts/test-smoke-teardown.sh` holds the teardown.
+- Do wait on a state the shell or the compositor reports, never on time. Review holds it.
+- Never let a reader raise; answer a state word for absent, partial, missing or empty input. `scripts/check-smoke-readers.py` refuses a reader outside `py_reply`, and the harness fails a row on any Python traceback.
 - Do name every error line a row provokes in `expected_errors`; the harness fails every other.
-- Do leave shared state as the row found it: a shared fixture neutral outside the row that owns its contract, manifest and configuration restored byte for byte, the nested `hyprland.lua` saved and restored around any key binding, and a System plugin enabled or disabled as before.
-- Do write a disposable QML control in a fresh subdirectory, never into `shell/Core`, `shell/Ui` or a plugin directory after startup: Qt caches a directory listing it already read, so a control written there fails to load.
+- Do hand the next row the state the row found. The leak check in `scripts/smoke/leaks.sh` fails a row that leaves compositor, harness or stand-in state it does not declare, and `scripts/smoke/rows/leak-check.sh` holds it. Gap: no check compares a plugin's files, its enablement or a key binding before and after a row.
+- Do write a disposable QML control in a fresh directory, never in one the shell already read: Qt caches a directory listing, so a control written there fails to load. Review holds it.
 
 ### Faults
 
-- Do report a sandbox fault, such as a mode reset, an unsized output or a failed swapchain, as not measured, and let it excuse only a row that reads geometry or a drawn frame; every other failure is behaviour. `scripts/test-smoke-verdict.sh` pins what each class excuses.
-- Never treat exit 77 as a pass; rerun, and report a second sighting.
-- Never excuse a run on a log line that names no output; passing runs log it too. `scripts/test-smoke-verdict.sh` pins it.
+- Do report a sandbox fault as not measured, and let it excuse only a row that reads geometry or a drawn frame; every other failure is behaviour. `scripts/smoke/verdict.sh` holds the verdict and `scripts/test-smoke-verdict.sh` its controls.
+- Never excuse a run on a log line that names no output; passing runs log it too. `scripts/test-smoke-verdict.sh` holds it.
+- Do run a not-measured check again, and report a second sighting. Review holds it.
 
 ### Latency budgets
 
-- Do set a ceiling at twice the highest reading of a named run, and record beside it in the script the machine, the date, the poll interval and the CPU pressure read from `/proc/pressure/cpu`; a budget without its record is a defect. Review holds it.
-- Do fail a reading over its ceiling at any pressure, unless the row's header states a pressure above which an over-ceiling reading is not measured.
-- Do make a costly control exceed the ceiling in every pass, and never set a ceiling of zero: Qt truncates CPU readings to whole milliseconds.
-- Do calibrate a shader ceiling with `scripts/measure-shader.sh --calibrate` on the record's backend and device, and never substitute a presentation interval for a missing GPU timestamp; `scripts/test-measure-shader.py` pins each, and a software device exits 77.
+- Do name the tool and the run that produced every figure in a docstring, comment or document. A budget without its measurement is a blocker. Review holds it.
+- Do record beside a ceiling the machine and the CPU pressure its readings ran under. Review holds it.
+- Do fail a reading over its ceiling at any CPU pressure, unless the row's header names the pressure above which a reading is not measured. Review holds it.
+- Do make a budget's control exceed the ceiling on every pass, and never set a ceiling of zero: Qt reports CPU time in whole milliseconds. Review holds it.
+- Never substitute a presentation interval for a missing GPU timestamp, and never measure a shader on a software device. `scripts/test-measure-shader.py` holds both.
 
 ### Jarvis
 
-- Do start a suite's servers, daemon and children inside one `jarvis_env_run` of `scripts/lib/jarvis-env.sh`, which isolates processes, the network, command lookup and the session endpoints, but not the filesystem. `scripts/test-jarvis-env.js` pins each isolation claim with a control that breaks it.
-- Never pass caller settings, credentials, account roots or live-session identifiers into a suite; fixture parameters enter as arguments or scratch files.
-- Never rely on a host fallback for a missing stand-in, and never let a stand-in replace an allow-listed or bootstrap tool.
-- Never map a scratch or helper failure to exit 77; `scripts/test-jarvis-env.js` rejects a harness that does.
-- Do give every protocol fixture its schema, version or sanitized recording and its date, checked by `scripts/fixtures/schema-check.js`.
-- Do give a consumer that runs an absolute host executable its own proof; the boundary is not a filesystem sandbox.
-
-### Nightly run
-
-The one workflow, `.github/workflows/nightly.yml`, runs `scripts/validate --full` for the areas a hosted runner can run, on a schedule while the repository variable `NIGHTLY` is `on`, and reports only. Hyprland allocates buffers only through GBM on a DRM device, so `scripts/main-run.sh qml` runs the `qml` area on a machine that has one.
-
-- Never make a merge read the nightly's result.
+- Do start a suite's servers, daemon and children inside one `jarvis_env_run` of `scripts/lib/jarvis-env.sh`. `scripts/test-jarvis-env.js` holds each isolation claim its header makes.
+- Never pass caller settings, credentials, account roots or live-session identifiers into a suite; a fixture parameter is an argument or a scratch file. `scripts/test-jarvis-env.js` holds the environment scrub; review holds the arguments.
+- Never fall back to a host tool for a missing stand-in, and never let a stand-in replace an allow-listed tool. `scripts/test-jarvis-env.js` holds both.
+- Never map a scratch or helper failure to exit 77. `scripts/test-jarvis-env.js` holds it.
+- Do check every protocol fixture against its schema or sanitized recording. `scripts/fixtures/schema-check.js` holds it.
+- Do give a consumer that runs an absolute host executable its own proof: `jarvis_env_run` confines command lookup, not the filesystem. Review holds it.
 
 ## The canonical example
 
-`scripts/smoke/rows/supervise.sh`: one `# inputs:` line, its budget with the readings and the run that set it in the header, a wait on reported state before each read, and a must-fail control per rule. Copy its header for a new row.
+`scripts/smoke/rows/supervise.sh`: one input line, its ceiling beside the run that set it, a wait on reported state before each read, and a control for each rule. Copy it for a new row.
 
 ## Revisit when
 
@@ -94,4 +91,4 @@ CI gains a Wayland-capable runner, the sandbox gains its own PAM, polkit and ses
 
 ## Not governed
 
-What each row or Jarvis suite asserts, which is its own header; the order rows run in and the harness's helpers, which are `scripts/smoke/rows.list` and `scripts/smoke/harness.sh`.
+What a row or a Jarvis suite asserts, which is its own header; the input line format, which is `scripts/AGENTS.md`; the row order, which is `scripts/smoke/rows.list`; the harness's helpers, which are `scripts/smoke/harness.sh`.

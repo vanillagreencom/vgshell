@@ -46,7 +46,7 @@ The glass, the edge light, the pills and the switch are the plugin's own files, 
 
 Where a card's text and media sit, and how the media slot's tier is chosen: `mediaTier` in `NotificationLogic.js` and the media rows of `Appearance.js`.
 
-The toast stack draws on the core's passive layer, `vgs:layer` ([overview.md § Hosts and surfaces](../../../docs/architecture/overview.md#hosts-and-surfaces)). The Inbox and History draw as the plugin's summoned `panel`, because the passive layer does not take keyboard focus; summoned with `SUPER+N`, the panel is the summon host's `vgs:panel` layer, and a press beside it over a window or the desktop closes it; a press on the bar leaves it open. Hyprland blurs what is behind the glass only when a layer rule asks it to. The manifest declares one rule for each layer, and the Hyprland layer writes them as:
+The toast stack draws on the core's passive layer, `vgs:layer` ([vgs-plugin `references/api.md` § Passive layer content](../../../.agents/skills/vgs-plugin/references/api.md#passive-layer-content)). The Inbox and History draw as the plugin's summoned `panel`, because the passive layer does not take keyboard focus; summoned with `SUPER+N`, the panel is the summon host's `vgs:panel` layer, and a press beside it over a window or the desktop closes it; a press on the bar leaves it open. Hyprland blurs what is behind the glass only when a layer rule asks it to. The manifest declares one rule for each layer, and the Hyprland layer writes them as:
 
 ```lua
 hl.layer_rule({ name = "vgs.notifications:layer", match = { namespace = "^vgs:layer$" }, blur = true, ignore_alpha = 0.6 })

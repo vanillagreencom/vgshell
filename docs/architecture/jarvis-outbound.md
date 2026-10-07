@@ -25,7 +25,7 @@ Speech receives what the brain already got, so a per-destination check leaks acr
 
 ## The canonical example
 
-`shell/plugins/vgs.jarvis/backend/net.js`: the door, with `GptLive.js` as the adapter that follows it, key bound before lookup, every frame through `channel.send`, the key zeroed once the handshake headers exist. Copy that order.
+`shell/plugins/vgs.jarvis/backend/net.js` for the door, and `GptLive.js` for an adapter that sends through it. Copy them.
 
 ## Revisit when
 

@@ -3,7 +3,7 @@
 // The outputs Hyprland lists, as the `monitors` capability hands them to a
 // plugin, and the monitor rules vgs.displays may set. The rules stay in the
 // plugin's data and reach Hyprland only through the generated layer or a
-// guarded trial (docs/decisions/D096-vgs-reads-outputs-and-writes-no-monitor-rule.md).
+// guarded trial (docs/decisions/D096-vgs-writes-monitor-rules-through-one-generated-layer.md).
 // Pure: no QML object, no I/O, so scripts/test-monitor-logic.js runs it
 // under node. MonitorState.qml runs the request and holds what parseOutputs
 // answers.

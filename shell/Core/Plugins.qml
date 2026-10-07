@@ -160,6 +160,9 @@ Singleton {
         return result;
     }
 
+    // A plugin file the running engine has not compiled is not built against
+    // a core that changed on disk after start; `vgshell restart` builds it
+    // from the changed core.
     function restartRefusal(id, kind) {
         const url = Registry.entryUrl(id, kind);
         return Registry.coreChanged && url !== "" && !Logic.hasOwn(compiledUrls, url) ? "refused: restart=owed" : "";

@@ -2,8 +2,8 @@
 
 // The token table: every value the shell draws with, its type and its
 // default. The defaults are the `vgs` theme. ThemeLogic.js judges a shell
-// document against this table and resolves it; the design-system topic under
-// docs/architecture states the tiers and the expression grammar.
+// document against this table and resolves it, and states the expression
+// grammar.
 //
 // A value is a literal, a reference `{group.token}`, or one call of `mix`,
 // `alpha`, `contrast` or `mul`. A component token derives from its own
@@ -92,7 +92,9 @@ function merge() {
 }
 
 // Reading text and tooltips draw in sans; chrome (labels, buttons, key
-// caps, code and the bar) draws in mono at 12 and 13 px. A `lineHeight` is
+// caps, code and the bar) draws in mono at 12 and 13 px. At the default
+// size the floors are 13 px for reading text and 12 px for chrome; a
+// plugin that owns its look draws no smaller. A `lineHeight` is
 // a multiple of the role's font size, chosen so a multi-line role's line
 // box is a multiple of 4 px at the default size. Label turns it into a
 // fixed line box unless that would undercut the font's own line box.

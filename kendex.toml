@@ -68,7 +68,7 @@ name = "agent-docs"
 globs = ["AGENTS.md", "**/AGENTS.md", "docs/**"]
 reviewer_only = true
 instructions = """
-Root and nested AGENTS.md files hold agent process instructions. docs/architecture contains agent references. AGENTS.local.md is a gitignored machine-local companion. Keep these separate from product documentation in README.md. Check instructions against code because agents execute their commands literally. Every figure in docs/architecture was measured by the script the text names; a figure without its measurement is a defect.
+Root and nested AGENTS.md files hold agent process instructions. docs/architecture contains agent references. AGENTS.local.md is a gitignored machine-local companion. Keep these separate from product documentation in README.md. Check instructions against code because agents execute their commands literally.
 """
 
 [[bot-instructions.surface]]
@@ -84,6 +84,72 @@ name = "workflows"
 globs = [".github/workflows/**"]
 reviewer_only = true
 instructions = "The one workflow, nightly.yml, runs scripts/validate --full per area on a schedule and on a manual dispatch, and reports only. Do not add a push, pull_request or merge_group trigger, a required check or a merge gate unless the owner asks, and do not copy a check into a workflow: scripts/validate owns every check, with affected rows selected by the diff."
+
+[[bot-instructions.surface]]
+name = "arch-overview"
+globs = ["shell/Core/**", "shell/Hosts/**", "shell/shell.qml", "shell/plugins/*/manifest.json", "bin/vgshell-scan", "bin/vgshell-plugin-judge"]
+reviewer_only = true
+instructions = "Read docs/architecture/overview.md before reviewing a change here. It governs plugin boundary: the core names no plugin, and a plugin reaches the core only through a host or a declared capability. Raise a finding where the change breaks one of its rules."
+
+[[bot-instructions.surface]]
+name = "arch-configuration"
+globs = ["config/**", "shell/Core/Config.qml", "shell/Commons/Paths.qml"]
+reviewer_only = true
+instructions = "Read docs/architecture/configuration.md before reviewing a change here. It governs configuration layers, their merge, their judge and every write to them. Raise a finding where the change breaks one of its rules."
+
+[[bot-instructions.surface]]
+name = "arch-design-system"
+globs = ["shell/Ui/**", "shell/Commons/**", "shell/plugins/**/*.qml"]
+reviewer_only = true
+instructions = "Read docs/architecture/design-system.md before reviewing a change here. It governs tokens, the theme judge, Theme, the qs.Ui components, pointer, keyboard and focus paths, Settings fields and text a user reads. Raise a finding where the change breaks one of its rules."
+
+[[bot-instructions.surface]]
+name = "arch-runtime"
+globs = ["bin/vgshell", "bin/lib/**", "shell/shell.qml", "shell/Core/**", "shell/plugins/*/Service.qml"]
+reviewer_only = true
+instructions = "Read docs/architecture/runtime.md before reviewing a change here. It governs starting, stopping and measuring the shell, IPC, watchers, pollers, caches and subprocesses. Raise a finding where the change breaks one of its rules."
+
+[[bot-instructions.surface]]
+name = "arch-hyprland"
+globs = ["shell/Core/HyprlandLayer.*", "shell/Core/HyprlandState.*", "shell/Core/Dispatch.js", "shell/Core/Compositor.qml", "shell/Core/KeyCapture.qml", "shell/Core/ShortcutRegistry.qml", "shell/Core/MonitorLogic.js", "bin/vgshell-hypr-judge"]
+reviewer_only = true
+instructions = "Read docs/architecture/hyprland.md before reviewing a change here. It governs the generated Hyprland layer, dispatches, the compositor link, shortcuts and key capture. Raise a finding where the change breaks one of its rules."
+
+[[bot-instructions.surface]]
+name = "arch-commands-are-data"
+globs = ["shell/Core/TuiRunner.qml", "shell/Core/TuiRecords.qml", "shell/Core/SystemSteps.qml", "shell/Core/PackageManagers.js", "shell/plugins/*/tui/**", "bin/vgshell-tui", "bin/vgshell-system", "bin/vgshell-pkg", "bin/vgshell-sudo-grant", "bin/lib/tui.sh", "bin/lib/pkg-run.sh"]
+reviewer_only = true
+instructions = "Read docs/architecture/commands-are-data.md before reviewing a change here. It governs the tui capability, floating TUIs, package steps, system steps and any place text could become a command. Raise a finding where the change breaks one of its rules."
+
+[[bot-instructions.surface]]
+name = "arch-secrets"
+globs = ["shell/Core/SecretWriter.qml", "shell/plugins/vgs.jarvis/backend/Secrets.js", "shell/plugins/vgs.network/**", "shell/plugins/vgs.vpn/**", "shell/plugins/vgs.polkit/**", "shell/plugins/vgs.lock/**", "shell/plugins/vgs.greeter/**", "shell/plugins/vgs.clipboard/**", "bin/vgshell-lock"]
+reviewer_only = true
+instructions = "Read docs/architecture/secrets.md before reviewing a change here. It governs password fields, stored tokens, clipboard secrets, credential probes and any text that could carry a secret. Raise a finding where the change breaks one of its rules."
+
+[[bot-instructions.surface]]
+name = "arch-themes"
+globs = ["themes/**", "bin/vgshell-theme-judge", "bin/vgshell-browser-policy", "bin/lib/theme-*.js", "shell/Core/ThemeRunner.qml", "shell/Hosts/BackgroundHost.qml", "shell/plugins/vgs.themes/**"]
+reviewer_only = true
+instructions = "Read docs/architecture/themes.md before reviewing a change here. It governs theme packages, their judge, theme targets, the theme runner and the backgrounds. Raise a finding where the change breaks one of its rules."
+
+[[bot-instructions.surface]]
+name = "arch-distribution"
+globs = ["packaging/**", "install.sh", "VERSION", "LICENSE", "flake.nix", "flake.lock", "bin/vgshell-migrate", "bin/migrations/**", "bin/lib/self.js", "bin/lib/first-start.sh"]
+reviewer_only = true
+instructions = "Read docs/architecture/distribution.md before reviewing a change here. It governs the licence, VERSION, package recipes, the installer, vgshell self and one-time migrations. Raise a finding where the change breaks one of its rules."
+
+[[bot-instructions.surface]]
+name = "arch-jarvis"
+globs = ["shell/plugins/vgs.jarvis/**"]
+reviewer_only = true
+instructions = "Read docs/architecture/jarvis.md and docs/architecture/jarvis-outbound.md before reviewing a change here. They govern the Jarvis daemon, its wire, brains and tool executors and every path by which content or a credential leaves it. Raise a finding where the change breaks one of their rules."
+
+[[bot-instructions.surface]]
+name = "arch-validation"
+globs = ["scripts/**"]
+reviewer_only = true
+instructions = "Read docs/architecture/validation.md before reviewing a change here. It governs scripts/validate, the rows and their verdicts, the nested sandbox and its harness, and the budgets. Raise a finding where the change breaks one of its rules."
 
 
 [sources.kendex]
@@ -404,10 +470,10 @@ Quickshell rules for this shell. They add to the rules above.
 
 - A Quickshell or Qt fact the code rests on is stated in a comment at that code, checked against the Quickshell 0.3.1 reference or a run. The reply judge and the two dispatcher syntaxes are in `docs/architecture/hyprland.md` § Dispatch, and owners, caches and sleeps in `docs/architecture/runtime.md` § Memory and § Performance. Read the comment or section before touching code it covers; never re-derive a fact from memory.
 - Quickshell API questions go to the Quickshell 0.3.1 reference on Context7 before any QML type, property or signal is used from memory: `ctx7 docs /websites/quickshell_v0_3_1 <query>` (the find-docs skill; the library id is given, so skip the resolve step). The browser page is https://context7.com/websites/quickshell_v0_3_1. Cite the page the answer came from.
-- A figure in a docstring, comment or document names the tool and the run that produced it, as `docs/architecture/overview.md` § Figures states. A budget without its measurement is a blocker.
+- A figure in a docstring, comment or document names the tool and the run that produced it. A budget without its measurement is a blocker.
 - A smoke row goes under `scripts/smoke/rows/` and follows the `scripts/qml-smoke.sh` header's shape: the ceiling, the machine and date it was measured on, and the poll interval of each latency reading. A new check's row goes in `scripts/validate` with its control (D100).
 - One judge per decision: `shell/Core/PluginLogic.js` for manifests, configuration merging and enablement; `shell/Core/Dispatch.js` for every Hyprland request. A script that needs one of those answers runs the file under node.
-- The testing method is in `docs/architecture/validation.md`: how a row declares its inputs, when the full set runs and the smoke input self-check.
+- The testing method is in `docs/architecture/validation.md`; a row's `# inputs:` line and the check that holds it are in `scripts/AGENTS.md`.
 """
 linear = '''
 ## Tracker policy: Linear is canonical; GitHub Issues is intake-only

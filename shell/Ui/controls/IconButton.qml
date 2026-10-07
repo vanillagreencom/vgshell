@@ -15,7 +15,7 @@ import qs.Ui
 // the size's own, `button.size.<size>.icon`, centred on whole pixels.
 // `glyphStart` and `glyphEnd` are the distances from the box's edges to
 // the glyph's painted ink: a header that puts a glyph, not a box, on its
-// content edge shifts the button by them (design-system.md § Layout).
+// content edge shifts the button by them (D050).
 Button {
     id: root
 

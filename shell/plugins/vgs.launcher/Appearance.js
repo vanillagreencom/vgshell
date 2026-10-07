@@ -76,7 +76,7 @@ var TOKENS = {
         // A row's detail line and the empty list's message are reading
         // text, at the shell's 13 px floor; the flyout's entries and their
         // detail are chrome, at the 12 px floor
-        // (docs/architecture/design-system.md).
+        // (shell/Commons/Tokens.js).
         detail: { size: length(13), opacity: share(0.5) },
         empty: { size: length(13), opacity: share(0.38) },
         flyout: { size: length(12), detail: length(12) }

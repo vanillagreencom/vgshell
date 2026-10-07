@@ -4,8 +4,10 @@ import qs.Ui
 import "ListCursorLogic.js" as Logic
 
 // The one cursor of a list: a plate under the row the pointer is over,
-// else the row that holds the list's selection. It travels to the next row
-// and takes its height rather than lighting each row, fades in while
+// else the row that holds the list's selection. A list whose highlight
+// marks a state, or whose rows are rows of controls, takes no cursor. It
+// travels to the next row and takes its height rather than lighting each
+// row, fades in while
 // `shown` and out while not, and lands at once after `snap()` and while
 // hidden, so it appears where it lands. `shown` holds while a row holds
 // the cursor; a list that knows whether it has a selection, and rebuilds
@@ -98,7 +100,8 @@ Item {
         } else if (state.target === row) state.target = null;
     }
 
-    // The next placement, this turn, lands at once.
+    // The next placement, this turn, lands at once. An opening or a
+    // rebuild calls it before it sets the selection.
     function snap() {
         state.snapping = true;
         Qt.callLater(state.settle);

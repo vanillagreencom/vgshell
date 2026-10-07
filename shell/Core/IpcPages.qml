@@ -7,8 +7,9 @@ import Quickshell
 // keeps a longer one as slices, answering `paged=<id>`; `page` hands out
 // one slice at a time as `<pages> <slice>`. `bin/lib/ipc-reply.sh`
 // `vgs_ipc_pages` is the one reader, through the `shell page` call.
-// Quickshell 0.3.1 can cut a reply past the socket's send buffer, and
-// the bound keeps every reply well under it: runtime.md § Process.
+// Quickshell 0.3.1's IPC server deletes its socket after writing, so a
+// reply past the socket's send buffer races the read; the bound keeps
+// every reply well under it.
 Singleton {
     id: root
 

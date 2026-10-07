@@ -1075,7 +1075,9 @@ function monitorLines(section, out) {
 // The section that applies VALUES, Lua lines, once the whole configuration
 // has loaded: Hyprland runs a `config.reloaded` callback at the end of every
 // load, the first included, so a value set there holds over the user's own
-// line for it, and the user's other keys of the same table keep theirs.
+// line for it, and the user's other keys of the same table keep theirs. A
+// reload resets every option and `hl.device` setting, so a value set
+// anywhere else lasts only until the next reload.
 // PATHS are the options among VALUES that `getoption` reads. As the layer
 // loads, the first line of hyprland.lua, it reads each one's value; the
 // callback reads each again before VALUES and after, and keeps the middle

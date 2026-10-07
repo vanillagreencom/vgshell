@@ -18,12 +18,12 @@ A string that reaches a shell becomes code, and a plugin's or a catalog's text w
 - Do ship each script as a regular file with its owner's execute bit, reached through no symbolic link; `bin/vgshell-scan` follows links when it publishes a snapshot, so a link would publish whatever it points at. `bin/lib/check-manifests.js` refuses one.
 - Never open a script the manifest does not declare, from anything but the published snapshot ([D014](../decisions/D014-source-revisions-are-published-snapshots.md)), or while the plugin is disabled. `scripts/test-tui-logic.js` and `scripts/smoke/rows/tui.sh` pin it.
 - Do key a core TUI `core/<name>` whatever its arguments, so one plugin update runs at a time, and answer a busy key by revealing the live window, never by a second terminal. `scripts/test-tui-logic.js` pins both.
-- Never let a launcher that is `missing` start a process; answer `launcher-missing` and probe once. `scripts/smoke/rows/tui.sh` swaps the launcher for one that finds no terminal.
-- Never hand a TUI command or a package step to a shell string; each is argv. `scripts/test-vgshell-tui.sh` pins the launcher with a control that runs `bash -c`, and `scripts/test-vgshell-pkg-run.sh` pins the package steps.
+- Never let a `missing` launcher start a process; answer `launcher-missing`. `scripts/smoke/rows/tui.sh` pins it.
+- Never hand a TUI command or a package step to a shell string; each is argv. `scripts/test-vgshell-tui.sh` and `scripts/test-vgshell-pkg-run.sh` pin it.
 
 ### Dev Tools catalog
 
-- Never write a shell string in the catalog; `launch`, `postInstall.exec`, `postRemove.exec` and the mise steps are argv. `scripts/check-devtools-catalog.js` refuses one, and `scripts/test-check-devtools-catalog.js` plants each.
+- Never write a shell string in the catalog; every command there is argv. `scripts/check-devtools-catalog.js` refuses one.
 - Never use `sh -c`, `eval`, `python -c`, `node -e`, `env -S` or a versioned interpreter form, and never `@latest`; a bare name is the current version. `scripts/check-devtools-catalog.js` pins each.
 - Do bind a catalog database port to `127.0.0.1`, use every `brand` key in `Appearance.js`, and name only `PackageManagers.js` ids in a package map. `scripts/check-devtools-catalog.js` pins each.
 
@@ -35,27 +35,28 @@ A string that reaches a shell becomes code, and a plugin's or a catalog's text w
 - Do strip `VGSHELL_RUNNER_PID` from the terminal's environment; a single-instance terminal hands it to later windows, and `vgshell pkg run` refuses it. `scripts/test-vgshell-tui.sh` pins it.
 - Never source `gum.env`; parse it, and one bad line exports nothing. Put the Done or Failed prompt on `/dev/tty`, not stdout. `scripts/test-vgshell-tui.sh` pins both.
 - Do let the presenter, the only process that knows when the command ended, write the run's record whole under a hidden name and rename it; never rewrite one, a new state is a new file, and never let the command inherit the key lock or the run lock. `scripts/test-vgshell-tui.sh` pins each.
-- Do treat the directory listing as the fast path and the wait on the run lock as the completion guarantee, since a single-instance terminal's launcher exit says nothing about the run and `FolderListModel` can miss a change under load; never start two waits for one run, and never poll a process. `scripts/qml-tests/tst_tui_records.qml` and `scripts/test-tui-logic.js` pin both.
+- Do treat the wait on the run lock as the completion guarantee; never start two waits for one run, and never poll a process. `scripts/qml-tests/tst_tui_records.qml` and `scripts/test-tui-logic.js` pin each.
 - Do keep a key's last ended record across a shell restart. `scripts/test-vgshell-tui.sh` pins it.
-- Do hold one sudo session per script; a nested session joins a live owner. `scripts/test-tui.sh` pins it with a stand-in `sudo`.
-- Do pick a size class from `HyprlandLayer.TUI_WINDOWS` in `shell/Core/HyprlandLayer.js`, never a geometry. Whether a terminal floats depends only on its desktop entry's `X-TerminalArgAppId` key; VGS chooses no terminal.
+- Do hold one sudo session per script; a nested session joins a live owner. `scripts/test-tui.sh` pins it.
+- Do pick a size class from `HyprlandLayer.TUI_WINDOWS` in `shell/Core/HyprlandLayer.js`, never a geometry. `PluginLogic.tuiError` refuses another, pinned by `scripts/test-tui-logic.js`.
+- Never choose the user's terminal; it floats only when its desktop entry carries `X-TerminalArgAppId`. Gap: no check pins it.
 
 ### Packages
 
-- Never name an elevation command in a step or a picker, never refresh a pacman-family database without upgrading, and never pass `--noconfirm` or `-y`. `scripts/test-vgshell-pkg-table.js` plants each.
+- Never name an elevation command in a step or a picker, never refresh a pacman-family database without upgrading, and never pass `--noconfirm` or `-y`. `scripts/test-vgshell-pkg-table.js` pins each.
 - Do refuse `vgshell pkg run` in a process the shell started and without a terminal. The shell removes `VGSHELL_RUNNER_PID` only from the programs it opens for the user, so a plugin process never elevates and a user's own terminal is not refused. `scripts/test-vgshell-pkg-run.sh` pins it.
-- Do run steps and queries from `$HOME`, so a project's `mise.toml` cannot change what a check counted.
+- Do run steps and queries from `$HOME`, so a project's `mise.toml` cannot change what a check counted. `scripts/test-vgshell-pkg-run.sh` and `scripts/test-vgshell-pkg-cli.js` pin it.
 - Never add a query whose exit statuses the table does not list, and give every parser a canned output under `scripts/fixtures/pkg/`, so a parser given a changed format fails rather than miscounts. `scripts/test-vgshell-pkg-table.js` pins both.
 - Do run one check at a time under the lock, and end a query past its timeout with its process group. `scripts/test-vgshell-pkg-cli.js` pins both.
 - Do give nix no steps and no check; a NixOS system changes through its configuration.
 
 ### System steps
 
-- Never add a root action outside the table in `bin/vgshell-system`; a manifest's `systemSteps` names table rows only. `scripts/test-vgshell-system.sh` reads `PluginLogic.SYSTEM_STEPS` against the script's table, and `scripts/test-plugin-logic.js` pins the manifest rule.
+- Never add a root action outside the table in `bin/vgshell-system`; a manifest's `systemSteps` names table rows only. `scripts/test-vgshell-system.sh` and `scripts/test-plugin-logic.js` pin it.
 - Do write the record, root-owned under `/var/lib/vgshell/system/`, before the commands, so a partial failure is on record, and undo only the recorded change, for the caller's uid, in the boot that made it. `scripts/test-vgshell-system.sh` pins both.
 - Do probe real access, never a file's presence; a probe that cannot answer reads `unknown`, never `ready`. `scripts/test-vgshell-system.sh` pins the `unknown` state.
 - Never overwrite a destination VGS did not write; refuse a symlink destination and a foreign file as `foreign`. `scripts/test-vgshell-system.sh` pins it.
-- Do grant a device by `uaccess` alone, in a rule that sorts before `73-seat-late.rules`, which applies the tag; a `GROUP` or `MODE` grant reaches SSH and other-seat sessions.
+- Do grant a device by `uaccess` alone, in a rule that sorts before `73-seat-late.rules`, which applies the tag; a `GROUP` or `MODE` grant reaches SSH and other-seat sessions. `scripts/test-vgshell-system.sh` pins the shipped rule.
 - Never start greetd from inside a session, enable it only, and refuse the greeter step unless the install tree is root's and writable by no one else, since the greeter account runs where every password is typed ([D101](../decisions/D101-greeter-host-and-greeter-system-step.md)). `scripts/test-vgshell-system.sh` pins both.
 - Do resolve every command of the sudo grant's root half in the system directories alone, drop the sudo credential before and after each verb, and run the root half under `bash -p` with `PATH`, `LC_ALL` and `SUDO_UID` alone. `scripts/test-vgshell-sudo-grant.sh` pins each under `unshare -r`.
 - Do publish a grant by rename only after its expiry timer is armed and the boot cleanup is in place, with a `NOTAFTER` rule sudo ends itself. `scripts/test-vgshell-sudo-grant.sh` pins it.
@@ -64,14 +65,14 @@ A string that reaches a shell becomes code, and a plugin's or a catalog's text w
 
 ### Consent
 
-- Do start every install, root change and plugin or theme change from the user's own press, and show what runs before it runs: a system step prints every root command by its path and asks one question `VGS_TUI_UNATTENDED` never answers, then runs only the plan shown. `scripts/test-vgshell-system.sh` and `scripts/test-vgshell-sudo-grant.sh` pin it.
-- Do let the package manager ask for root in the floating terminal, never in the shell: the requirement notice's Install opens the core TUI `core/requirements-install`, one manager per press. Which requirements a notice lists, and when a plugin's offer rests, are [overview.md](overview.md)'s.
+- Do start every install, root change and plugin or theme change from the user's own press, and show every root command before it runs, then run only the plan shown. `scripts/test-vgshell-system.sh` and `scripts/test-vgshell-sudo-grant.sh` pin it.
+- Do let the package manager ask for root in the floating terminal, never in the shell: the requirement notice's Install opens the core TUI `core/requirements-install`, one manager per press. `scripts/smoke/rows/notices.sh` pins the Install run, and `scripts/test-vgshell-pkg-run.sh` refuses `vgshell pkg run` in a shell process. `PluginLogic.noticeRequest` decides which requirements a notice lists, and `PluginLogic.noticeAdmit` decides when a plugin's offer rests.
 - Do keep the question a command asks on its terminal: a core TUI that adds, updates or removes a plugin or a theme runs without `--yes`, and the prompted theme add asks before it applies the new theme ([D007](../decisions/D007-install-runs-no-plugin-code.md)).
 - Do open the requirement notice instead of a plugin's script while a command the script needs is missing. `scripts/test-tui-logic.js` pins it.
 
 ## The canonical example
 
-`scripts/smoke/fixtures/plugins/acme.tui/`: a fixture plugin with one declared script, opened by name. Copy it. For a root setup, `scripts/smoke/fixtures/plugins/acme.system/` names a step in a status action and nothing else; the step itself is a row in `bin/vgshell-system`.
+`scripts/smoke/fixtures/plugins/acme.tui/` for a script, and `scripts/smoke/fixtures/plugins/acme.system/` for a root setup. Copy them.
 
 ## Revisit when
 
@@ -79,4 +80,4 @@ A string that reaches a shell becomes code, and a plugin's or a catalog's text w
 
 ## Not governed
 
-Which commands a plugin needs and the requirement notice's queue, which are [overview.md](overview.md); the functions of the presentation library, which `bin/lib/tui.sh` lists in its header; the one elevation a shell process performs, the Chromium policy writer, which is [D029](../decisions/D029-chromium-policy-writer.md); the greeter host's own rules, which are [D101](../decisions/D101-greeter-host-and-greeter-system-step.md) and the `vgs.greeter` README.
+Which commands a plugin needs and the requirement notice's queue, which are `PluginLogic.noticeRequest` and `PluginLogic.noticeAdmit`; the functions of the presentation library, which `bin/lib/tui.sh` lists in its header; the one elevation a shell process performs, the Chromium policy writer, which is [D029](../decisions/D029-chromium-policy-writer.md); the greeter host's own rules, which are [D101](../decisions/D101-greeter-host-and-greeter-system-step.md) and the `vgs.greeter` README.

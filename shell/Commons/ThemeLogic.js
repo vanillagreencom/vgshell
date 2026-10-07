@@ -681,7 +681,8 @@ function isPackageName(name) {
 
 // A Hyprland output name as `hyprctl monitors` prints it and Quickshell's
 // `screen.name` carries it: `DP-1`, `HDMI-A-1`, `eDP-1`, `HEADLESS-2`.
-// Its shape alone; whether the output exists is Hyprland's answer.
+// Its shape alone; whether the output exists is Hyprland's answer, so an
+// entry can wait for a disconnected monitor.
 var OUTPUT_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 
 function isOutputName(name) {

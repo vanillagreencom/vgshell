@@ -285,7 +285,9 @@ Scope {
 
     // A job starts after the call that queued it returns, so `done` never
     // runs before the member answers, even for a process that fails to
-    // start.
+    // start. A write goes ahead of every waiting read and stops a running
+    // one, which runs again for its original callers, so no list holds an
+    // apply behind it.
     function enqueue(job) {
         const reads = ["list", "catalog", "images"];
         if (reads.indexOf(job.verb) !== -1 || jobs.length === 0) {

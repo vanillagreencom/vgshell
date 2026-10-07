@@ -29,10 +29,10 @@ Quickshell rules for this shell. They add to the rules above.
 
 - A Quickshell or Qt fact the code rests on is stated in a comment at that code, checked against the Quickshell 0.3.1 reference or a run. The reply judge and the two dispatcher syntaxes are in `docs/architecture/hyprland.md` § Dispatch, and owners, caches and sleeps in `docs/architecture/runtime.md` § Memory and § Performance. Read the comment or section before touching code it covers; never re-derive a fact from memory.
 - Quickshell API questions go to the Quickshell 0.3.1 reference on Context7 before any QML type, property or signal is used from memory: `ctx7 docs /websites/quickshell_v0_3_1 <query>` (the find-docs skill; the library id is given, so skip the resolve step). The browser page is https://context7.com/websites/quickshell_v0_3_1. Cite the page the answer came from.
-- A figure in a docstring, comment or document names the tool and the run that produced it, as `docs/architecture/overview.md` § Figures states. A budget without its measurement is a blocker.
+- A figure in a docstring, comment or document names the tool and the run that produced it. A budget without its measurement is a blocker.
 - A smoke row goes under `scripts/smoke/rows/` and follows the `scripts/qml-smoke.sh` header's shape: the ceiling, the machine and date it was measured on, and the poll interval of each latency reading. A new check's row goes in `scripts/validate` with its control (D100).
 - One judge per decision: `shell/Core/PluginLogic.js` for manifests, configuration merging and enablement; `shell/Core/Dispatch.js` for every Hyprland request. A script that needs one of those answers runs the file under node.
-- The testing method is in `docs/architecture/validation.md`: how a row declares its inputs, when the full set runs and the smoke input self-check.
+- The testing method is in `docs/architecture/validation.md`; a row's `# inputs:` line and the check that holds it are in `scripts/AGENTS.md`.
 
 <!-- kendex:project-instructions:end -->
 
